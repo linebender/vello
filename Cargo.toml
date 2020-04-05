@@ -1,0 +1,5 @@
+[workspace]
+
+members = [
+    "piet-gpu-hal"
+]
