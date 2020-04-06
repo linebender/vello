@@ -8,18 +8,15 @@ use ash::{vk, Device, Entry, Instance};
 
 use crate::Error;
 
-/// A base for allocating resources and dispatching work.
-///
-/// This is quite similar to "device" in most GPU API's, but I didn't want to overload
-/// that term further.
-pub struct Base {
+pub struct VkInstance {
     /// Retain the dynamic lib.
     #[allow(unused)]
     entry: Entry,
 
-    #[allow(unused)]
     instance: Instance,
+}
 
+pub struct VkDevice {
     device: Arc<RawDevice>,
     device_mem_props: vk::PhysicalDeviceMemoryProperties,
     queue: vk::Queue,
@@ -55,12 +52,14 @@ pub struct CmdBuf {
     device: Arc<RawDevice>,
 }
 
-impl Base {
+pub struct MemFlags(vk::MemoryPropertyFlags);
+
+impl VkInstance {
     /// Create a new instance.
     ///
     /// There's more to be done to make this suitable for integration with other
     /// systems, but for now the goal is to make things simple.
-    pub fn new() -> Result<Base, Error> {
+    pub fn new() -> Result<VkInstance, Error> {
         unsafe {
             let app_name = CString::new("VkToy").unwrap();
             let entry = Entry::new()?;
@@ -75,43 +74,63 @@ impl Base {
                 None,
             )?;
 
-            let devices = instance.enumerate_physical_devices()?;
-            let (pdevice, qfi) =
-                choose_compute_device(&instance, &devices).ok_or("no suitable device")?;
-
-            let device = instance.create_device(
-                pdevice,
-                &vk::DeviceCreateInfo::builder().queue_create_infos(&[
-                    vk::DeviceQueueCreateInfo::builder()
-                        .queue_family_index(qfi)
-                        .queue_priorities(&[1.0])
-                        .build(),
-                ]),
-                None,
-            )?;
-
-            let device_mem_props = instance.get_physical_device_memory_properties(pdevice);
-
-            let queue_index = 0;
-            let queue = device.get_device_queue(qfi, queue_index);
-
-            let device = Arc::new(RawDevice { device });
-
-            Ok(Base {
+            Ok(VkInstance {
                 entry,
                 instance,
-                device,
-                device_mem_props,
-                qfi,
-                queue,
             })
         }
     }
 
-    pub fn create_buffer(
+    /// Create a device from the instance, suitable for compute.
+    /// 
+    /// # Safety
+    /// 
+    /// The caller is responsible for making sure that the instance outlives the device.
+    /// We could enforce that, for example having an `Arc` of the raw instance, but for
+    /// now keep things simple.
+    pub unsafe fn device(&self) -> Result<VkDevice, Error> {
+        let devices = self.instance.enumerate_physical_devices()?;
+        let (pdevice, qfi) =
+            choose_compute_device(&self.instance, &devices).ok_or("no suitable device")?;
+
+        let device = self.instance.create_device(
+            pdevice,
+            &vk::DeviceCreateInfo::builder().queue_create_infos(&[
+                vk::DeviceQueueCreateInfo::builder()
+                    .queue_family_index(qfi)
+                    .queue_priorities(&[1.0])
+                    .build(),
+            ]),
+            None,
+        )?;
+
+        let device_mem_props = self.instance.get_physical_device_memory_properties(pdevice);
+
+        let queue_index = 0;
+        let queue = device.get_device_queue(qfi, queue_index);
+
+        let device = Arc::new(RawDevice { device });
+
+        Ok(VkDevice {
+            device,
+            device_mem_props,
+            qfi,
+            queue,
+        })
+    }
+}
+
+impl crate::Device for VkDevice {
+    type Buffer = Buffer;
+    type CmdBuf = CmdBuf;
+    type DescriptorSet = DescriptorSet;
+    type Pipeline = Pipeline;
+    type MemFlags = MemFlags;
+
+    fn create_buffer(
         &self,
         size: u64,
-        mem_flags: vk::MemoryPropertyFlags,
+        mem_flags: MemFlags,
     ) -> Result<Buffer, Error> {
         unsafe {
             let device = &self.device.device;
@@ -125,7 +144,7 @@ impl Base {
             let mem_requirements = device.get_buffer_memory_requirements(buffer);
             let mem_type = find_memory_type(
                 mem_requirements.memory_type_bits,
-                mem_flags,
+                mem_flags.0,
                 &self.device_mem_props,
             )
             .unwrap(); // TODO: proper error
@@ -148,7 +167,7 @@ impl Base {
     ///
     /// The code is included from "../comp.spv", and the descriptor set layout is just some
     /// number of buffers.
-    pub unsafe fn create_simple_compute_pipeline(
+    unsafe fn create_simple_compute_pipeline(
         &self,
         code: &[u8],
         n_buffers: u32,
@@ -199,7 +218,7 @@ impl Base {
         })
     }
 
-    pub unsafe fn create_descriptor_set(
+    unsafe fn create_descriptor_set(
         &self,
         pipeline: &Pipeline,
         bufs: &[&Buffer],
@@ -247,7 +266,7 @@ impl Base {
         })
     }
 
-    pub fn create_cmd_buf(&self) -> Result<CmdBuf, Error> {
+    fn create_cmd_buf(&self) -> Result<CmdBuf, Error> {
         unsafe {
             let device = &self.device.device;
             let command_pool = device.create_command_pool(
@@ -272,7 +291,7 @@ impl Base {
     /// Run the command buffer.
     ///
     /// This version simply blocks until it's complete.
-    pub unsafe fn run_cmd_buf(&self, cmd_buf: &CmdBuf) -> Result<(), Error> {
+    unsafe fn run_cmd_buf(&self, cmd_buf: &CmdBuf) -> Result<(), Error> {
         let device = &self.device.device;
 
         // Run the command buffer.
@@ -287,12 +306,12 @@ impl Base {
                 .build()],
             fence,
         )?;
-        device.wait_for_fences(&[fence], true, 1_000_000)?;
-        device.destroy_fence(fence, None);
+        device.wait_for_fences(&[fence], true, 100_000_000)?;
+        // TODO: handle errors better (currently leaks fence and can lead to other problems)
         Ok(())
     }
 
-    pub unsafe fn read_buffer<T: Sized>(
+    unsafe fn read_buffer<T: Sized>(
         &self,
         buffer: &Buffer,
         result: &mut Vec<T>,
@@ -314,7 +333,7 @@ impl Base {
         Ok(())
     }
 
-    pub unsafe fn write_buffer<T: Sized>(
+    unsafe fn write_buffer<T: Sized>(
         &self,
         buffer: &Buffer,
         contents: &[T],
@@ -332,8 +351,8 @@ impl Base {
     }
 }
 
-impl CmdBuf {
-    pub unsafe fn begin(&mut self) {
+impl crate::CmdBuf<VkDevice> for CmdBuf {
+    unsafe fn begin(&mut self) {
         self.device
             .device
             .begin_command_buffer(
@@ -344,11 +363,11 @@ impl CmdBuf {
             .unwrap();
     }
 
-    pub unsafe fn finish(&mut self) {
+    unsafe fn finish(&mut self) {
         self.device.device.end_command_buffer(self.cmd_buf).unwrap();
     }
 
-    pub unsafe fn dispatch(&mut self, pipeline: &Pipeline, descriptor_set: &DescriptorSet) {
+    unsafe fn dispatch(&mut self, pipeline: &Pipeline, descriptor_set: &DescriptorSet) {
         let device = &self.device.device;
         device.cmd_bind_pipeline(
             self.cmd_buf,
@@ -367,8 +386,7 @@ impl CmdBuf {
     }
 
     /// Insert a pipeline barrier for all memory accesses.
-    #[allow(unused)]
-    pub unsafe fn memory_barrier(&mut self) {
+    unsafe fn memory_barrier(&mut self) {
         let device = &self.device.device;
         device.cmd_pipeline_barrier(
             self.cmd_buf,
@@ -382,6 +400,12 @@ impl CmdBuf {
             &[],
             &[],
         );
+    }
+}
+
+impl crate::MemFlags for MemFlags {
+    fn host_coherent() -> Self {
+        MemFlags(vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT)
     }
 }
 

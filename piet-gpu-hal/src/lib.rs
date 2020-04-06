@@ -3,9 +3,6 @@
 /// This abstraction is inspired by gfx-hal, but is specialized to the needs of piet-gpu.
 /// In time, it may go away and be replaced by either gfx-hal or wgpu.
 
-#[macro_use]
-extern crate ash;
-
 pub mod vulkan;
 
 /// This isn't great but is expedient.
@@ -13,7 +10,7 @@ type Error = Box<dyn std::error::Error>;
 
 pub trait Device: Sized {
     type Buffer;
-    type MemFlags;
+    type MemFlags: MemFlags;
     type Pipeline;
     type DescriptorSet;
     type CmdBuf: CmdBuf<Self>;
@@ -57,4 +54,8 @@ pub trait CmdBuf<D: Device> {
     unsafe fn dispatch(&mut self, pipeline: &D::Pipeline, descriptor_set: &D::DescriptorSet);
 
     unsafe fn memory_barrier(&mut self);
+}
+
+pub trait MemFlags: Sized {
+    fn host_coherent() -> Self;
 }

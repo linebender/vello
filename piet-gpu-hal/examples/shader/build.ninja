@@ -1,0 +1,10 @@
+# Build file for shaders.
+
+# You must have glslangValidator in your path, or patch here.
+
+glslang_validator = glslangValidator
+
+rule glsl
+  command = $glslang_validator -V -o $out $in
+
+build collatz.spv: glsl collatz.comp
