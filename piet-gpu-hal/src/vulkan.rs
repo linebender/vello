@@ -74,17 +74,14 @@ impl VkInstance {
                 None,
             )?;
 
-            Ok(VkInstance {
-                entry,
-                instance,
-            })
+            Ok(VkInstance { entry, instance })
         }
     }
 
     /// Create a device from the instance, suitable for compute.
-    /// 
+    ///
     /// # Safety
-    /// 
+    ///
     /// The caller is responsible for making sure that the instance outlives the device.
     /// We could enforce that, for example having an `Arc` of the raw instance, but for
     /// now keep things simple.
@@ -127,11 +124,7 @@ impl crate::Device for VkDevice {
     type Pipeline = Pipeline;
     type MemFlags = MemFlags;
 
-    fn create_buffer(
-        &self,
-        size: u64,
-        mem_flags: MemFlags,
-    ) -> Result<Buffer, Error> {
+    fn create_buffer(&self, size: u64, mem_flags: MemFlags) -> Result<Buffer, Error> {
         unsafe {
             let device = &self.device.device;
             let buffer = device.create_buffer(
@@ -197,20 +190,22 @@ impl crate::Device for VkDevice {
             None,
         )?;
 
-        let pipeline = device.create_compute_pipelines(
-            vk::PipelineCache::null(),
-            &[vk::ComputePipelineCreateInfo::builder()
-                .stage(
-                    vk::PipelineShaderStageCreateInfo::builder()
-                        .stage(vk::ShaderStageFlags::COMPUTE)
-                        .module(compute_shader_module)
-                        .name(&entry_name)
-                        .build(),
-                )
-                .layout(pipeline_layout)
-                .build()],
-            None,
-        ).map_err(|(_pipeline, err)| err)?[0];
+        let pipeline = device
+            .create_compute_pipelines(
+                vk::PipelineCache::null(),
+                &[vk::ComputePipelineCreateInfo::builder()
+                    .stage(
+                        vk::PipelineShaderStageCreateInfo::builder()
+                            .stage(vk::ShaderStageFlags::COMPUTE)
+                            .module(compute_shader_module)
+                            .name(&entry_name)
+                            .build(),
+                    )
+                    .layout(pipeline_layout)
+                    .build()],
+                None,
+            )
+            .map_err(|(_pipeline, err)| err)?[0];
         Ok(Pipeline {
             pipeline,
             pipeline_layout,
@@ -333,11 +328,7 @@ impl crate::Device for VkDevice {
         Ok(())
     }
 
-    unsafe fn write_buffer<T: Sized>(
-        &self,
-        buffer: &Buffer,
-        contents: &[T],
-    ) -> Result<(), Error> {
+    unsafe fn write_buffer<T: Sized>(&self, buffer: &Buffer, contents: &[T]) -> Result<(), Error> {
         let device = &self.device.device;
         let buf = device.map_memory(
             buffer.buffer_memory,

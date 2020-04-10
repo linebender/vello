@@ -2,7 +2,6 @@
 ///
 /// This abstraction is inspired by gfx-hal, but is specialized to the needs of piet-gpu.
 /// In time, it may go away and be replaced by either gfx-hal or wgpu.
-
 pub mod vulkan;
 
 /// This isn't great but is expedient.

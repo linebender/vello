@@ -2,11 +2,9 @@
 
 extern crate proc_macro;
 
-use std::collections::HashSet;
-
 use syn::{
-    Expr, ExprLit, Fields, FieldsNamed, FieldsUnnamed, GenericArgument, ItemEnum, ItemStruct,
-    Lit, PathArguments, TypeArray, TypePath,
+    Expr, ExprLit, Fields, FieldsNamed, FieldsUnnamed, GenericArgument, ItemEnum, ItemStruct, Lit,
+    PathArguments, TypeArray, TypePath,
 };
 
 /// A scalar that can be represented in a packed data structure.
@@ -59,6 +57,18 @@ impl GpuScalar {
             "u32" => Some(GpuScalar::U32),
             _ => None,
         })
+    }
+
+    /// Size of scalar type.
+    ///
+    /// This is arguably a concern at the layout level, not syntax, but it's here because
+    /// it's not likely to be variable, so reduces the total number of types.
+    pub fn size(self) -> usize {
+        match self {
+            GpuScalar::F32 | GpuScalar::I32 | GpuScalar::U32 => 4,
+            GpuScalar::I8 | GpuScalar::U8 => 1,
+            GpuScalar::I16 | GpuScalar::U16 => 2,
+        }
     }
 }
 
@@ -166,7 +176,14 @@ impl GpuTypeDef {
                 Err("unknown item".into())
             }
         }
-    }   
+    }
+
+    pub fn name(&self) -> &str {
+        match self {
+            GpuTypeDef::Struct(name, _) => name,
+            GpuTypeDef::Enum(en) => &en.name,
+        }
+    }
 }
 
 impl GpuModule {
@@ -179,10 +196,7 @@ impl GpuModule {
                 defs.push(def);
             }
         }
-        Ok(GpuModule {
-            name,
-            defs,
-        })
+        Ok(GpuModule { name, defs })
     }
 }
 
