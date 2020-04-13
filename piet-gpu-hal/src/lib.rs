@@ -12,6 +12,7 @@ pub trait Device: Sized {
     type MemFlags: MemFlags;
     type Pipeline;
     type DescriptorSet;
+    type QueryPool;
     type CmdBuf: CmdBuf<Self>;
 
     fn create_buffer(&self, size: u64, mem_flags: Self::MemFlags) -> Result<Self::Buffer, Error>;
@@ -29,6 +30,17 @@ pub trait Device: Sized {
     ) -> Result<Self::DescriptorSet, Error>;
 
     fn create_cmd_buf(&self) -> Result<Self::CmdBuf, Error>;
+
+    fn create_query_pool(&self, n_queries: u32) -> Result<Self::QueryPool, Error>;
+
+    /// Get results from query pool, destroying it in the process.
+    ///
+    /// The returned vector is one less than the number of queries; the first is used as
+    /// a baseline.
+    ///
+    /// # Safety
+    /// All submitted commands that refer to this query pool must have completed.
+    unsafe fn reap_query_pool(&self, pool: Self::QueryPool) -> Result<Vec<f64>, Error>;
 
     unsafe fn run_cmd_buf(&self, cmd_buf: &Self::CmdBuf) -> Result<(), Error>;
 
@@ -50,9 +62,16 @@ pub trait CmdBuf<D: Device> {
 
     unsafe fn finish(&mut self);
 
-    unsafe fn dispatch(&mut self, pipeline: &D::Pipeline, descriptor_set: &D::DescriptorSet);
+    unsafe fn dispatch(
+        &mut self,
+        pipeline: &D::Pipeline,
+        descriptor_set: &D::DescriptorSet,
+        size: (u32, u32, u32),
+    );
 
     unsafe fn memory_barrier(&mut self);
+
+    unsafe fn write_timestamp(&mut self, pool: &D::QueryPool, query: u32);
 }
 
 pub trait MemFlags: Sized {

@@ -21,6 +21,7 @@ pub struct VkDevice {
     device_mem_props: vk::PhysicalDeviceMemoryProperties,
     queue: vk::Queue,
     qfi: u32,
+    timestamp_period: f32,
 }
 
 struct RawDevice {
@@ -50,6 +51,11 @@ pub struct DescriptorSet {
 pub struct CmdBuf {
     cmd_buf: vk::CommandBuffer,
     device: Arc<RawDevice>,
+}
+
+pub struct QueryPool {
+    pool: vk::QueryPool,
+    n_queries: u32,
 }
 
 pub struct MemFlags(vk::MemoryPropertyFlags);
@@ -108,11 +114,15 @@ impl VkInstance {
 
         let device = Arc::new(RawDevice { device });
 
+        let props = self.instance.get_physical_device_properties(pdevice);
+        let timestamp_period = props.limits.timestamp_period;
+
         Ok(VkDevice {
             device,
             device_mem_props,
             qfi,
             queue,
+            timestamp_period,
         })
     }
 }
@@ -122,6 +132,7 @@ impl crate::Device for VkDevice {
     type CmdBuf = CmdBuf;
     type DescriptorSet = DescriptorSet;
     type Pipeline = Pipeline;
+    type QueryPool = QueryPool;
     type MemFlags = MemFlags;
 
     fn create_buffer(&self, size: u64, mem_flags: MemFlags) -> Result<Buffer, Error> {
@@ -283,6 +294,37 @@ impl crate::Device for VkDevice {
         }
     }
 
+    /// Create a query pool for timestamp queries.
+    fn create_query_pool(&self, n_queries: u32) -> Result<QueryPool, Error> {
+        unsafe {
+            let device = &self.device.device;
+            let pool = device.create_query_pool(
+                &vk::QueryPoolCreateInfo::builder()
+                    .query_type(vk::QueryType::TIMESTAMP)
+                    .query_count(n_queries),
+                None,
+            )?;
+            Ok(QueryPool { pool, n_queries })
+        }
+    }
+
+    unsafe fn reap_query_pool(&self, pool: Self::QueryPool) -> Result<Vec<f64>, Error> {
+        let device = &self.device.device;
+        let mut buf = vec![0u64; pool.n_queries as usize];
+        device.get_query_pool_results(
+            pool.pool,
+            0,
+            pool.n_queries,
+            &mut buf,
+            vk::QueryResultFlags::TYPE_64,
+        )?;
+        device.destroy_query_pool(pool.pool, None);
+        let ts0 = buf[0];
+        let tsp = self.timestamp_period as f64 * 1e-9;
+        let result = buf[1..].iter().map(|ts| ts.wrapping_sub(ts0) as f64 * tsp).collect();
+        Ok(result)
+    }
+
     /// Run the command buffer.
     ///
     /// This version simply blocks until it's complete.
@@ -358,7 +400,12 @@ impl crate::CmdBuf<VkDevice> for CmdBuf {
         self.device.device.end_command_buffer(self.cmd_buf).unwrap();
     }
 
-    unsafe fn dispatch(&mut self, pipeline: &Pipeline, descriptor_set: &DescriptorSet) {
+    unsafe fn dispatch(
+        &mut self,
+        pipeline: &Pipeline,
+        descriptor_set: &DescriptorSet,
+        size: (u32, u32, u32),
+    ) {
         let device = &self.device.device;
         device.cmd_bind_pipeline(
             self.cmd_buf,
@@ -373,7 +420,7 @@ impl crate::CmdBuf<VkDevice> for CmdBuf {
             &[descriptor_set.descriptor_set],
             &[],
         );
-        device.cmd_dispatch(self.cmd_buf, 256, 1, 1);
+        device.cmd_dispatch(self.cmd_buf, size.0, size.1, size.2);
     }
 
     /// Insert a pipeline barrier for all memory accesses.
@@ -390,6 +437,16 @@ impl crate::CmdBuf<VkDevice> for CmdBuf {
                 .build()],
             &[],
             &[],
+        );
+    }
+
+    unsafe fn write_timestamp(&mut self, pool: &QueryPool, query: u32) {
+        let device = &self.device.device;
+        device.cmd_write_timestamp(
+            self.cmd_buf,
+            vk::PipelineStageFlags::COMPUTE_SHADER,
+            pool.pool,
+            query,
         );
     }
 }
