@@ -1,5 +1,11 @@
 //! Logic for layout of structures in memory.
 
+// This is fairly simple now, but there are some extensions that are likely:
+// * Addition of f16 types
+//   + These will probably have 2-byte alignments to support `packHalf2x16`
+// * 1 byte tag values (so small struct fields can be packed along with tag)
+// * (Possibly) reordering for better packing
+
 use std::collections::{HashMap, HashSet};
 
 use crate::parse::{GpuModule, GpuType, GpuTypeDef};
@@ -21,6 +27,16 @@ pub struct LayoutModule {
     pub name: String,
     pub def_names: Vec<String>,
     pub defs: HashMap<String, (Size, LayoutTypeDef)>,
+    enum_variants: HashSet<String>,
+
+    /// Generate shader code to write the module.
+    ///
+    /// This is derived from the presence of the `gpu_write` attribute in the source module.
+    pub gpu_write: bool,
+    /// Generate Rust code to encode the module.
+    ///
+    /// This is derived from the presence of the `rust_encode` attribute in the source module.
+    pub rust_encode: bool,
 }
 
 struct LayoutSession<'a> {
@@ -50,6 +66,13 @@ impl LayoutTypeDef {
     fn from_gpu(def: &GpuTypeDef, session: &mut LayoutSession) -> (Size, LayoutTypeDef) {
         match def {
             GpuTypeDef::Struct(_name, fields) => {
+                // TODO: We want to be able to pack enums more tightly, in particular
+                // other struct fields along with the enum tag. Structs in that category
+                // (first field has an alignment < 4, serve as enum variant) will have a
+                // different layout. This is why we're tracking `is_enum_variant`.
+                //
+                // But it's a bit of YAGNI for now; we're currently reserving 4 bytes for
+                // the tag, so structure layout doesn't care.
                 let mut offset = 0;
                 let mut result = Vec::new();
                 for field in fields {
@@ -68,11 +91,7 @@ impl LayoutTypeDef {
                 let mut max_offset = 0;
                 for variant in &en.variants {
                     let mut r2 = Vec::new();
-                    let mut offset = if session.is_enum_variant(&en.name) {
-                        4
-                    } else {
-                        0
-                    };
+                    let mut offset = 4;
                     for field in &variant.1 {
                         let layout_ty = LayoutType::from_gpu(field, session);
                         offset += align_padding(offset, layout_ty.size.alignment);
@@ -102,11 +121,21 @@ impl LayoutModule {
         for def in &module.defs {
             let _ = session.layout_def(def.name());
         }
+        let gpu_write = module.attrs.contains("gpu_write");
+        let rust_encode = module.attrs.contains("rust_encode");
         LayoutModule {
             name: module.name.clone(),
+            gpu_write,
+            rust_encode,
             def_names,
+            enum_variants: session.enum_variants,
             defs: session.defs,
         }
+    }
+
+    #[allow(unused)]
+    pub fn is_enum_variant(&self, name: &str) -> bool {
+        self.enum_variants.contains(name)
     }
 }
 
@@ -155,14 +184,52 @@ impl<'a> LayoutSession<'a> {
         }
     }
 
+    #[allow(unused)]
     fn is_enum_variant(&self, name: &str) -> bool {
         self.enum_variants.contains(name)
     }
 }
 
+/// Compute coverage of fields.
+///
+/// Each element of the result represents a list of fields for one 4-byte chunk of
+/// the struct layout. Inline structs are only included if requested.
+pub fn struct_coverage(
+    fields: &[(String, usize, LayoutType)],
+    include_inline: bool,
+) -> Vec<Vec<usize>> {
+    let mut result: Vec<Vec<usize>> = Vec::new();
+    for (i, (_name, offset, ty)) in fields.iter().enumerate() {
+        let size = match ty.ty {
+            GpuType::Scalar(scalar) => scalar.size(),
+            GpuType::Vector(scalar, len) => scalar.size() * len,
+            GpuType::Ref(_) => 4,
+            GpuType::InlineStruct(_) => {
+                if include_inline {
+                    4
+                } else {
+                    0
+                }
+            }
+        };
+        if size > 0 {
+            for ix in (offset / 4)..(offset + size + 3) / 4 {
+                if ix >= result.len() {
+                    result.resize_with(ix + 1, Default::default);
+                }
+                result[ix].push(i);
+            }
+        }
+    }
+    result
+}
+
 impl Size {
     fn new(size: usize) -> Size {
-        let alignment = if size < 4 { 1 } else { 4 };
+        // Note: there is special case we could do better:
+        // `(u8, u16, u8)`, where the alignment could be 1. However,
+        // this case can also be solved by reordering.
+        let alignment = size.min(4);
         Size { size, alignment }
     }
 

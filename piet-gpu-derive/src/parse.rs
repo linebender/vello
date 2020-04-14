@@ -2,6 +2,8 @@
 
 extern crate proc_macro;
 
+use std::collections::HashSet;
+
 use syn::{
     Expr, ExprLit, Fields, FieldsNamed, FieldsUnnamed, GenericArgument, ItemEnum, ItemStruct, Lit,
     PathArguments, TypeArray, TypePath,
@@ -42,6 +44,7 @@ pub enum GpuTypeDef {
 
 pub struct GpuModule {
     pub name: String,
+    pub attrs: HashSet<String>,
     pub defs: Vec<GpuTypeDef>,
 }
 
@@ -70,22 +73,6 @@ impl GpuScalar {
             GpuScalar::I16 | GpuScalar::U16 => 2,
         }
     }
-}
-
-fn ty_as_single_ident(ty: &syn::Type) -> Option<String> {
-    if let syn::Type::Path(TypePath {
-        path: syn::Path { segments, .. },
-        ..
-    }) = ty
-    {
-        if segments.len() == 1 {
-            let seg = &segments[0];
-            if seg.arguments == PathArguments::None {
-                return Some(seg.ident.to_string());
-            }
-        }
-    }
-    None
 }
 
 impl GpuType {
@@ -189,6 +176,12 @@ impl GpuTypeDef {
 impl GpuModule {
     pub fn from_syn(module: &syn::ItemMod) -> Result<Self, String> {
         let name = module.ident.to_string();
+        let mut attrs = HashSet::new();
+        for attr in &module.attrs {
+            if let Some(id) = path_as_single_ident(&attr.path) {
+                attrs.insert(id.to_owned());
+            }
+        }
         let mut defs = Vec::new();
         if let Some((_brace, items)) = &module.content {
             for item in items {
@@ -196,7 +189,25 @@ impl GpuModule {
                 defs.push(def);
             }
         }
-        Ok(GpuModule { name, defs })
+        Ok(GpuModule { name, attrs, defs })
+    }
+}
+
+fn path_as_single_ident(path: &syn::Path) -> Option<String> {
+    if path.segments.len() == 1 {
+        let seg = &path.segments[0];
+        if seg.arguments == PathArguments::None {
+            return Some(seg.ident.to_string());
+        }
+    }
+    None
+}
+
+fn ty_as_single_ident(ty: &syn::Type) -> Option<String> {
+    if let syn::Type::Path(TypePath { path, .. }) = ty {
+        path_as_single_ident(path)
+    } else {
+        None
     }
 }
 
