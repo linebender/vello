@@ -1,3 +1,4 @@
+mod derive;
 mod glsl;
 mod layout;
 mod parse;
@@ -17,10 +18,13 @@ pub fn piet_gpu(input: TokenStream) -> TokenStream {
     let layout = LayoutModule::from_gpu(&module);
     let glsl = glsl::gen_glsl(&layout);
     let gen_gpu_fn = format_ident!("gen_gpu_{}", layout.name);
-    let expanded = quote! {
+    let mut expanded = quote! {
         fn #gen_gpu_fn() -> String {
             #glsl.into()
         }
     };
+    if layout.rust_encode {
+        expanded.extend(derive::gen_derive(&layout));
+    }
     expanded.into()
 }
