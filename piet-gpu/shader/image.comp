@@ -1,0 +1,31 @@
+// A simple kernel to create an image.
+
+// Right now, this kernel stores the image in a buffer, but a better
+// plan is to use a texture. This is because of limited support.
+
+#version 450
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(set = 0, binding = 0) readonly buffer SceneBuf {
+    uint[] scene;
+};
+
+layout(set = 0, binding = 1) buffer ImageBuf {
+    uint[] image;
+};
+
+// TODO: make the image size dynamic.
+#define IMAGE_WIDTH 2048
+#define IMAGE_HEIGHT 1535
+
+void main() {
+    uvec2 xy = gl_GlobalInvocationID.xy;
+    vec2 uv = vec2(xy) * vec2(1.0 / IMAGE_WIDTH, 1.0 / IMAGE_HEIGHT);
+    vec4 rgba = vec4(uv.xyy, 1.0);
+    uvec4 s = uvec4(round(rgba * 255.0));
+    uint rgba_packed = s.x | (s.y << 8) | (s.z << 16) | (s.w << 24);
+    image[xy.y * IMAGE_WIDTH + xy.x] = rgba_packed;
+    if (xy.y == 0 && xy.x < 8) {
+        image[xy.x] = scene[xy.x];
+    }
+}

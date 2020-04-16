@@ -1,6 +1,7 @@
 [workspace]
 
 members = [
+    "piet-gpu",
     "piet-gpu-derive",
     "piet-gpu-hal"
 ]

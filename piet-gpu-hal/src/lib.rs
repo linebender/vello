@@ -74,6 +74,6 @@ pub trait CmdBuf<D: Device> {
     unsafe fn write_timestamp(&mut self, pool: &D::QueryPool, query: u32);
 }
 
-pub trait MemFlags: Sized {
+pub trait MemFlags: Sized + Clone + Copy {
     fn host_coherent() -> Self;
 }

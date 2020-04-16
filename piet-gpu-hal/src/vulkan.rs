@@ -58,6 +58,7 @@ pub struct QueryPool {
     n_queries: u32,
 }
 
+#[derive(Clone, Copy)]
 pub struct MemFlags(vk::MemoryPropertyFlags);
 
 impl VkInstance {
@@ -169,23 +170,25 @@ impl crate::Device for VkDevice {
 
     /// This creates a pipeline that runs over the buffer.
     ///
-    /// The code is included from "../comp.spv", and the descriptor set layout is just some
-    /// number of buffers.
+    /// The descriptor set layout is just some number of buffers (this will change).
     unsafe fn create_simple_compute_pipeline(
         &self,
         code: &[u8],
         n_buffers: u32,
     ) -> Result<Pipeline, Error> {
         let device = &self.device.device;
-        let descriptor_set_layout = device.create_descriptor_set_layout(
-            &vk::DescriptorSetLayoutCreateInfo::builder().bindings(&[
+        let bindings = (0..n_buffers)
+            .map(|i| {
                 vk::DescriptorSetLayoutBinding::builder()
-                    .binding(0)
+                    .binding(i)
                     .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                    .descriptor_count(n_buffers)
+                    .descriptor_count(1)
                     .stage_flags(vk::ShaderStageFlags::COMPUTE)
-                    .build(),
-            ]),
+                    .build()
+            })
+            .collect::<Vec<_>>();
+        let descriptor_set_layout = device.create_descriptor_set_layout(
+            &vk::DescriptorSetLayoutCreateInfo::builder().bindings(&bindings),
             None,
         )?;
 
@@ -248,25 +251,22 @@ impl crate::Device for VkDevice {
                     .set_layouts(&descriptor_set_layouts),
             )
             .unwrap();
-        let buf_infos = bufs
-            .iter()
-            .map(|buf| {
-                vk::DescriptorBufferInfo::builder()
-                    .buffer(buf.buffer)
-                    .offset(0)
-                    .range(vk::WHOLE_SIZE)
-                    .build()
-            })
-            .collect::<Vec<_>>();
-        device.update_descriptor_sets(
-            &[vk::WriteDescriptorSet::builder()
-                .dst_set(descriptor_sets[0])
-                .dst_binding(0)
-                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                .buffer_info(&buf_infos)
-                .build()],
-            &[],
-        );
+        for (i, buf) in bufs.iter().enumerate() {
+            let buf_info = vk::DescriptorBufferInfo::builder()
+                .buffer(buf.buffer)
+                .offset(0)
+                .range(vk::WHOLE_SIZE)
+                .build();
+            device.update_descriptor_sets(
+                &[vk::WriteDescriptorSet::builder()
+                    .dst_set(descriptor_sets[0])
+                    .dst_binding(i as u32)
+                    .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                    .buffer_info(&[buf_info])
+                    .build()],
+                &[],
+            );
+        }
         Ok(DescriptorSet {
             descriptor_set: descriptor_sets[0],
         })
@@ -321,7 +321,10 @@ impl crate::Device for VkDevice {
         device.destroy_query_pool(pool.pool, None);
         let ts0 = buf[0];
         let tsp = self.timestamp_period as f64 * 1e-9;
-        let result = buf[1..].iter().map(|ts| ts.wrapping_sub(ts0) as f64 * tsp).collect();
+        let result = buf[1..]
+            .iter()
+            .map(|ts| ts.wrapping_sub(ts0) as f64 * tsp)
+            .collect();
         Ok(result)
     }
 
@@ -354,7 +357,7 @@ impl crate::Device for VkDevice {
         result: &mut Vec<T>,
     ) -> Result<(), Error> {
         let device = &self.device.device;
-        let size = buffer.size as usize;
+        let size = buffer.size as usize / std::mem::size_of::<T>();
         let buf = device.map_memory(
             buffer.buffer_memory,
             0,
