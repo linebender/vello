@@ -4,6 +4,8 @@
 // plan is to use a texture. This is because of limited support.
 
 #version 450
+#extension GL_GOOGLE_include_directive : enable
+
 layout(local_size_x = 16, local_size_y = 16) in;
 
 layout(set = 0, binding = 0) readonly buffer SceneBuf {
@@ -13,6 +15,8 @@ layout(set = 0, binding = 0) readonly buffer SceneBuf {
 layout(set = 0, binding = 1) buffer ImageBuf {
     uint[] image;
 };
+
+#include "scene.h"
 
 // TODO: make the image size dynamic.
 #define IMAGE_WIDTH 2048

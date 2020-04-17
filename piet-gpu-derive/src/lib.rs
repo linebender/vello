@@ -19,7 +19,7 @@ pub fn piet_gpu(input: TokenStream) -> TokenStream {
     let glsl = glsl::gen_glsl(&layout);
     let gen_gpu_fn = format_ident!("gen_gpu_{}", layout.name);
     let mut expanded = quote! {
-        fn #gen_gpu_fn() -> String {
+        pub fn #gen_gpu_fn() -> String {
             #glsl.into()
         }
     };

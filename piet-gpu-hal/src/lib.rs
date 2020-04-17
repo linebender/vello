@@ -75,5 +75,7 @@ pub trait CmdBuf<D: Device> {
 }
 
 pub trait MemFlags: Sized + Clone + Copy {
+    fn device_local() -> Self;
+
     fn host_coherent() -> Self;
 }

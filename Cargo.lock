@@ -102,6 +102,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "piet-gpu-types"
+version = "0.0.0"
+dependencies = [
+ "piet-gpu-derive",
+]
+
+[[package]]
 name = "png"
 version = "0.16.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -455,6 +455,10 @@ impl crate::CmdBuf<VkDevice> for CmdBuf {
 }
 
 impl crate::MemFlags for MemFlags {
+    fn device_local() -> Self {
+        MemFlags(vk::MemoryPropertyFlags::DEVICE_LOCAL)
+    }
+
     fn host_coherent() -> Self {
         MemFlags(vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT)
     }
