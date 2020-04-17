@@ -12,6 +12,10 @@ struct SimpleGroupRef {
     uint offset;
 };
 
+struct PietCircleRef {
+    uint offset;
+};
+
 struct PietStrokeLineRef {
     uint offset;
 };
@@ -58,6 +62,18 @@ struct SimpleGroup {
 
 SimpleGroupRef SimpleGroup_index(SimpleGroupRef ref, uint index) {
     return SimpleGroupRef(ref.offset + index * SimpleGroup_size);
+}
+
+struct PietCircle {
+    uint rgba_color;
+    Point center;
+    float radius;
+};
+
+#define PietCircle_size 16
+
+PietCircleRef PietCircle_index(PietCircleRef ref, uint index) {
+    return PietCircleRef(ref.offset + index * PietCircle_size);
 }
 
 struct PietStrokeLine {
@@ -140,6 +156,17 @@ SimpleGroup SimpleGroup_read(SimpleGroupRef ref) {
     return s;
 }
 
+PietCircle PietCircle_read(PietCircleRef ref) {
+    uint ix = ref.offset >> 2;
+    uint raw0 = scene[ix + 0];
+    uint raw3 = scene[ix + 3];
+    PietCircle s;
+    s.rgba_color = raw0;
+    s.center = Point_read(PointRef(ref.offset + 4));
+    s.radius = uintBitsToFloat(raw3);
+    return s;
+}
+
 PietStrokeLine PietStrokeLine_read(PietStrokeLineRef ref) {
     uint ix = ref.offset >> 2;
     uint raw0 = scene[ix + 0];
@@ -184,6 +211,10 @@ PietStrokePolyLine PietStrokePolyLine_read(PietStrokePolyLineRef ref) {
 
 uint PietItem_tag(PietItemRef ref) {
     return scene[ref.offset >> 2];
+}
+
+PietCircle PietItem_Circle_read(PietItemRef ref) {
+    return PietCircle_read(PietCircleRef(ref.offset + 4));
 }
 
 PietStrokeLine PietItem_Line_read(PietItemRef ref) {

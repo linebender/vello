@@ -7,4 +7,4 @@ glslang_validator = glslangValidator
 rule glsl
   command = $glslang_validator -V -o $out $in
 
-build image.spv: glsl image.comp
+build image.spv: glsl image.comp | scene.h

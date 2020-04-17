@@ -1,7 +1,7 @@
 use piet_gpu_derive::piet_gpu;
 
 pub use self::scene::{
-    Bbox, PietFill, PietItem, PietStrokeLine, PietStrokePolyLine, Point, SimpleGroup,
+    Bbox, PietCircle, PietFill, PietItem, PietStrokeLine, PietStrokePolyLine, Point, SimpleGroup,
 };
 
 piet_gpu! {
@@ -19,6 +19,11 @@ piet_gpu! {
             // Note: both of the following items are actually arrays
             items: Ref<PietItem>,
             bboxes: Ref<Bbox>,
+        }
+        struct PietCircle {
+            rgba_color: u32,
+            center: Point,
+            radius: f32,
         }
         struct PietStrokeLine {
             flags: u32,
@@ -40,7 +45,7 @@ piet_gpu! {
             points: Ref<Point>,
         }
         enum PietItem {
-            Circle(),
+            Circle(PietCircle),
             Line(PietStrokeLine),
             Fill(PietFill),
             Poly(PietStrokePolyLine),

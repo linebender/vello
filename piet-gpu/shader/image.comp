@@ -26,6 +26,24 @@ void main() {
     uvec2 xy = gl_GlobalInvocationID.xy;
     vec2 uv = vec2(xy) * vec2(1.0 / IMAGE_WIDTH, 1.0 / IMAGE_HEIGHT);
     vec4 rgba = vec4(uv.xyy, 1.0);
+
+    // Render the scene. Right now, every pixel traverses the scene graph,
+    // which is horribly wasteful, but the goal is to get *some* output and
+    // then optimize.
+
+    SimpleGroup group = SimpleGroup_read(SimpleGroupRef(0));
+    for (uint i = 0; i < group.n_items; i++) {
+        // Writing this out by hand is illuminating the need for array access
+        // in piet-gpu-derive. There is some support in the `_index` functions,
+        // but those are only generated for structs, not for `Ref` or other
+        // types.
+        PietItemRef item_ref = PietItemRef(scene[(group.items.offset >> 2) + i]);
+        uint tag = PietItem_tag(item_ref);
+        if (tag == PietItem_Circle) {
+            PietCircle = PietItem_Circle_read(item_ref);
+        }
+    }
+
     uvec4 s = uvec4(round(rgba * 255.0));
     uint rgba_packed = s.x | (s.y << 8) | (s.z << 16) | (s.w << 24);
     image[xy.y * IMAGE_WIDTH + xy.x] = rgba_packed;
