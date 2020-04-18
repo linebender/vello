@@ -2,8 +2,13 @@ use std::path::Path;
 use std::fs::File;
 use std::io::BufWriter;
 
+use rand::{Rng, RngCore};
+
 use piet_gpu_hal::vulkan::VkInstance;
 use piet_gpu_hal::{CmdBuf, Device, MemFlags};
+
+use piet_gpu_types::encoder::{Encode, Encoder};
+use piet_gpu_types::scene::{Bbox, PietCircle, PietItem, Point, SimpleGroup};
 
 const WIDTH: usize = 2048;
 const HEIGHT: usize = 1536;
@@ -11,16 +16,64 @@ const HEIGHT: usize = 1536;
 const TILE_W: usize = 16;
 const TILE_H: usize = 16;
 
+const N_CIRCLES: usize = 100;
+
+fn make_scene() -> Vec<u8> {
+    let mut rng = rand::thread_rng();
+    let mut encoder = Encoder::new();
+    let _reserve_root = encoder.alloc_chunk(SimpleGroup::fixed_size() as u32);
+
+    let mut items = Vec::new();
+    let mut bboxes = Vec::new();
+    for _ in 0..N_CIRCLES {
+        let circle = PietCircle {
+            rgba_color: rng.next_u32(),
+            center: Point {
+                xy: [rng.gen_range(0.0, WIDTH as f32), rng.gen_range(0.0, HEIGHT as f32)],
+            },
+            radius: rng.gen_range(0.0, 50.0),
+        };
+        items.push(PietItem::Circle(circle));
+        let bbox = Bbox {
+            // TODO: real bbox
+            bbox: [0, 0, 0, 0],
+        };
+        bboxes.push(bbox);
+    }
+
+    let n_items = bboxes.len() as u32;
+    let bboxes = bboxes.encode(&mut encoder).transmute();
+    let items = items.encode(&mut encoder).transmute();
+    let simple_group = SimpleGroup {
+        n_items,
+        bboxes,
+        items,
+    };
+    simple_group.encode_to(&mut encoder.buf_mut()[0..SimpleGroup::fixed_size()]);
+    // We should avoid this clone.
+    encoder.buf().to_owned()
+}
+
+#[allow(unused)]
+fn dump_scene(buf: &[u8]) {
+    for i in 0..(buf.len() / 4) {
+        let mut buf_u32 = [0u8; 4];
+        buf_u32.copy_from_slice(&buf[i * 4 .. i * 4 + 4]);
+        println!("{:4x}: {:8x}", i * 4, u32::from_le_bytes(buf_u32));
+    }
+}
+
 fn main() {
     let instance = VkInstance::new().unwrap();
     unsafe {
         let device = instance.device().unwrap();
         let mem_flags = MemFlags::host_coherent();
-        let src = (0..256).map(|x| x + 1).collect::<Vec<u32>>();
+        let scene = make_scene();
+        //dump_scene(&scene);
         let scene_buf = device
-            .create_buffer(std::mem::size_of_val(&src[..]) as u64, mem_flags)
+            .create_buffer(std::mem::size_of_val(&scene[..]) as u64, mem_flags)
             .unwrap();
-        device.write_buffer(&scene_buf, &src).unwrap();
+        device.write_buffer(&scene_buf, &scene).unwrap();
         let image_buf = device
             .create_buffer((WIDTH * HEIGHT * 4) as u64, mem_flags)
             .unwrap();

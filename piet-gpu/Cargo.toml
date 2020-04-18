@@ -9,5 +9,9 @@ edition = "2018"
 [dependencies.piet-gpu-hal]
 path = "../piet-gpu-hal"
 
+[dependencies.piet-gpu-types]
+path = "../piet-gpu-types"
+
 [dependencies]
 png = "0.16.2"
+rand = "0.7.3"

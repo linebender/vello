@@ -23,9 +23,10 @@ layout(set = 0, binding = 1) buffer ImageBuf {
 #define IMAGE_HEIGHT 1535
 
 void main() {
-    uvec2 xy = gl_GlobalInvocationID.xy;
-    vec2 uv = vec2(xy) * vec2(1.0 / IMAGE_WIDTH, 1.0 / IMAGE_HEIGHT);
-    vec4 rgba = vec4(uv.xyy, 1.0);
+    uvec2 xy_uint = gl_GlobalInvocationID.xy;
+    vec2 xy = vec2(xy_uint);
+    vec2 uv = xy * vec2(1.0 / IMAGE_WIDTH, 1.0 / IMAGE_HEIGHT);
+    vec3 rgb = uv.xyy;
 
     // Render the scene. Right now, every pixel traverses the scene graph,
     // which is horribly wasteful, but the goal is to get *some* output and
@@ -33,21 +34,21 @@ void main() {
 
     SimpleGroup group = SimpleGroup_read(SimpleGroupRef(0));
     for (uint i = 0; i < group.n_items; i++) {
-        // Writing this out by hand is illuminating the need for array access
-        // in piet-gpu-derive. There is some support in the `_index` functions,
-        // but those are only generated for structs, not for `Ref` or other
-        // types.
-        PietItemRef item_ref = PietItemRef(scene[(group.items.offset >> 2) + i]);
+        PietItemRef item_ref = PietItem_index(group.items, i);
         uint tag = PietItem_tag(item_ref);
+        tag = PietItem_Circle;
         if (tag == PietItem_Circle) {
-            PietCircle = PietItem_Circle_read(item_ref);
+            PietCircle circle = PietItem_Circle_read(item_ref);
+            float r = length(xy + vec2(0.5, 0.5) - circle.center.xy);
+            float alpha = clamp(circle.radius - r, 0.0, 1.0);
+            vec4 fg_rgba = unpackUnorm4x8(circle.rgba_color);
+            // TODO: sRGB
+            rgb = mix(rgb, fg_rgba.rgb, alpha * fg_rgba.a);
         }
     }
 
-    uvec4 s = uvec4(round(rgba * 255.0));
-    uint rgba_packed = s.x | (s.y << 8) | (s.z << 16) | (s.w << 24);
-    image[xy.y * IMAGE_WIDTH + xy.x] = rgba_packed;
-    if (xy.y == 0 && xy.x < 8) {
-        image[xy.x] = scene[xy.x];
-    }
+    // TODO: sRGB
+    uvec4 s = uvec4(round(vec4(rgb, 1.0) * 255.0));
+    uint rgba_packed = s.r | (s.g << 8) | (s.b << 16) | (s.a << 24);
+    image[xy_uint.y * IMAGE_WIDTH + xy_uint.x] = rgba_packed;
 }
