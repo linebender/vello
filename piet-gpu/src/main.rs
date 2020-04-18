@@ -1,6 +1,6 @@
-use std::path::Path;
 use std::fs::File;
 use std::io::BufWriter;
+use std::path::Path;
 
 use rand::{Rng, RngCore};
 
@@ -29,7 +29,10 @@ fn make_scene() -> Vec<u8> {
         let circle = PietCircle {
             rgba_color: rng.next_u32(),
             center: Point {
-                xy: [rng.gen_range(0.0, WIDTH as f32), rng.gen_range(0.0, HEIGHT as f32)],
+                xy: [
+                    rng.gen_range(0.0, WIDTH as f32),
+                    rng.gen_range(0.0, HEIGHT as f32),
+                ],
             },
             radius: rng.gen_range(0.0, 50.0),
         };
@@ -58,7 +61,7 @@ fn make_scene() -> Vec<u8> {
 fn dump_scene(buf: &[u8]) {
     for i in 0..(buf.len() / 4) {
         let mut buf_u32 = [0u8; 4];
-        buf_u32.copy_from_slice(&buf[i * 4 .. i * 4 + 4]);
+        buf_u32.copy_from_slice(&buf[i * 4..i * 4 + 4]);
         println!("{:4x}: {:8x}", i * 4, u32::from_le_bytes(buf_u32));
     }
 }
@@ -67,24 +70,33 @@ fn main() {
     let instance = VkInstance::new().unwrap();
     unsafe {
         let device = instance.device().unwrap();
-        let mem_flags = MemFlags::host_coherent();
+        let host = MemFlags::host_coherent();
+        let dev = MemFlags::device_local();
         let scene = make_scene();
         //dump_scene(&scene);
         let scene_buf = device
-            .create_buffer(std::mem::size_of_val(&scene[..]) as u64, mem_flags)
+            .create_buffer(std::mem::size_of_val(&scene[..]) as u64, host)
+            .unwrap();
+        let scene_dev = device
+            .create_buffer(std::mem::size_of_val(&scene[..]) as u64, dev)
             .unwrap();
         device.write_buffer(&scene_buf, &scene).unwrap();
         let image_buf = device
-            .create_buffer((WIDTH * HEIGHT * 4) as u64, mem_flags)
+            .create_buffer((WIDTH * HEIGHT * 4) as u64, host)
+            .unwrap();
+        let image_dev = device
+            .create_buffer((WIDTH * HEIGHT * 4) as u64, dev)
             .unwrap();
         let code = include_bytes!("../shader/image.spv");
         let pipeline = device.create_simple_compute_pipeline(code, 2).unwrap();
         let descriptor_set = device
-            .create_descriptor_set(&pipeline, &[&scene_buf, &image_buf])
+            .create_descriptor_set(&pipeline, &[&scene_dev, &image_dev])
             .unwrap();
         let query_pool = device.create_query_pool(2).unwrap();
         let mut cmd_buf = device.create_cmd_buf().unwrap();
         cmd_buf.begin();
+        cmd_buf.copy_buffer(&scene_buf, &scene_dev);
+        cmd_buf.memory_barrier();
         cmd_buf.write_timestamp(&query_pool, 0);
         cmd_buf.dispatch(
             &pipeline,
@@ -92,6 +104,8 @@ fn main() {
             ((WIDTH / TILE_W) as u32, (HEIGHT / TILE_H) as u32, 1),
         );
         cmd_buf.write_timestamp(&query_pool, 1);
+        cmd_buf.memory_barrier();
+        cmd_buf.copy_buffer(&image_dev, &image_buf);
         cmd_buf.finish();
         device.run_cmd_buf(&cmd_buf).unwrap();
         let timestamps = device.reap_query_pool(query_pool).unwrap();
@@ -105,12 +119,12 @@ fn main() {
         let path = Path::new("image.png");
         let file = File::create(path).unwrap();
         let ref mut w = BufWriter::new(file);
-        
+
         let mut encoder = png::Encoder::new(w, WIDTH as u32, HEIGHT as u32);
         encoder.set_color(png::ColorType::RGBA);
         encoder.set_depth(png::BitDepth::Eight);
         let mut writer = encoder.write_header().unwrap();
-        
+
         writer.write_image_data(&img_data).unwrap();
     }
 }
