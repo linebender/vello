@@ -142,7 +142,11 @@ impl crate::Device for VkDevice {
             let buffer = device.create_buffer(
                 &vk::BufferCreateInfo::builder()
                     .size(size)
-                    .usage(vk::BufferUsageFlags::STORAGE_BUFFER)
+                    .usage(
+                        vk::BufferUsageFlags::STORAGE_BUFFER
+                            | vk::BufferUsageFlags::TRANSFER_SRC
+                            | vk::BufferUsageFlags::TRANSFER_DST,
+                    )
                     .sharing_mode(vk::SharingMode::EXCLUSIVE),
                 None,
             )?;

@@ -1,0 +1,102 @@
+// See https://research.nvidia.com/sites/default/files/pubs/2016-03_Single-pass-Parallel-Prefix/nvr-2016-002.pdf
+
+#version 450
+#extension GL_KHR_shader_subgroup_basic : enable
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+#extension GL_KHR_memory_scope_semantics : enable
+
+layout(local_size_x = 1024) in;
+
+layout(set = 0, binding = 0) readonly buffer InBuf {
+    uint[] in_buf;
+};
+
+layout(set = 0, binding = 1) buffer OutBuf {
+    uint[] out_buf;
+};
+
+// work_buf[0] is the tile id
+// work_buf[i * 4 + 1] is the flag for tile i
+// work_buf[i * 4 + 2] is the aggregate for tile i
+// work_buf[i * 4 + 3] is the prefix for tile i
+layout(set = 0, binding = 2) buffer WorkBuf {
+    uint[] work_buf;
+};
+
+// These correspond to X, A, P respectively in the paper.
+#define FLAG_NOT_READY 0
+#define FLAG_AGGREGATE_READY 1
+#define FLAG_PREFIX_READY 2
+
+shared uint shared_tile;
+shared uint shared_prefix;
+shared uint aggregates[32];
+shared uint prefixes[32];
+
+void main() {
+    uint local_ix = gl_LocalInvocationID.x;
+    if (local_ix == 0) {
+        shared_tile = atomicAdd(work_buf[0], 1);
+    }
+    barrier();
+    uint my_tile = shared_tile;
+    uint mem_base = my_tile * gl_WorkGroupSize.x;
+    uint data = in_buf[mem_base + local_ix];
+
+    // Compute aggregate (step 3 of paper)
+    uint my_aggregate = subgroupAdd(data);
+    // This assumes a square grid; trying to minimize bank conflicts
+    if (gl_SubgroupInvocationID == gl_SubgroupID) {
+        aggregates[gl_SubgroupInvocationID] = my_aggregate;
+    }
+    barrier();
+    uint exclusive_prefix = 0;
+    if (gl_SubgroupID == 0) {
+        uint their_aggregate;
+        their_aggregate = aggregates[gl_SubgroupInvocationID];
+        uint total_aggregate = subgroupAdd(their_aggregate);
+        prefixes[gl_SubgroupInvocationID] = subgroupExclusiveAdd(their_aggregate);
+        if (gl_SubgroupInvocationID == 0) {
+            atomicStore(work_buf[my_tile * 4 + 2], total_aggregate, gl_ScopeDevice, gl_StorageSemanticsBuffer, gl_SemanticsRelaxed);
+            uint flag = FLAG_AGGREGATE_READY;
+            if (my_tile == 0) {
+                atomicStore(work_buf[my_tile * 4 + 3], total_aggregate, gl_ScopeDevice, gl_StorageSemanticsBuffer, gl_SemanticsRelaxed);
+                flag = FLAG_PREFIX_READY;
+            }
+            atomicStore(work_buf[my_tile * 4 + 1], flag, gl_ScopeDevice, gl_StorageSemanticsBuffer, gl_SemanticsRelease);
+            if (my_tile != 0) {
+                // step 4: decoupled lookback
+                uint look_back_ix = my_tile - 1;
+                while (true) {
+                    flag = atomicLoad(work_buf[look_back_ix * 4 + 1], gl_ScopeDevice, gl_StorageSemanticsBuffer, gl_SemanticsAcquire);
+                    if (flag == FLAG_PREFIX_READY) {
+                        uint their_prefix = atomicLoad(work_buf[look_back_ix * 4 + 3], gl_ScopeDevice, gl_StorageSemanticsBuffer, gl_SemanticsRelaxed);
+                        exclusive_prefix = their_prefix + exclusive_prefix;
+                        break;
+                    } else if (flag == FLAG_AGGREGATE_READY) {
+                        uint their_agg = atomicLoad(work_buf[look_back_ix * 4 + 2], gl_ScopeDevice, gl_StorageSemanticsBuffer, gl_SemanticsRelaxed);
+                        exclusive_prefix = their_agg + exclusive_prefix;
+                        look_back_ix--;
+                    }
+                    // else spin
+                }
+
+                // step 5: compute inclusive prefix
+                shared_prefix = exclusive_prefix;
+                uint inclusive_prefix = exclusive_prefix + total_aggregate;
+                atomicStore(work_buf[my_tile * 4 + 3], inclusive_prefix, gl_ScopeDevice, gl_StorageSemanticsBuffer, gl_SemanticsRelaxed);
+                flag = FLAG_PREFIX_READY;
+                atomicStore(work_buf[my_tile * 4 + 1], flag, gl_ScopeDevice, gl_StorageSemanticsBuffer, gl_SemanticsRelease);
+            }
+        }
+    }
+    barrier();
+    if (my_tile != 0) {
+        exclusive_prefix = shared_prefix;
+    }
+
+    // step 6: perform partition-wide scan
+    data = exclusive_prefix + prefixes[gl_SubgroupID] + subgroupExclusiveAdd(data);
+
+    out_buf[mem_base + local_ix] = data;
+}

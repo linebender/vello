@@ -5,6 +5,8 @@
 glslang_validator = glslangValidator
 
 rule glsl
-  command = $glslang_validator -V -o $out $in
+  command = $glslang_validator -V -o $out $in --target-env vulkan1.1
 
 build collatz.spv: glsl collatz.comp
+
+build prefix.spv: glsl prefix.comp
