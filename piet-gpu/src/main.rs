@@ -1,6 +1,6 @@
-use std::path::Path;
 use std::fs::File;
 use std::io::BufWriter;
+use std::path::Path;
 
 use rand::{Rng, RngCore};
 
@@ -29,7 +29,10 @@ fn make_scene() -> Vec<u8> {
         let circle = PietCircle {
             rgba_color: rng.next_u32(),
             center: Point {
-                xy: [rng.gen_range(0.0, WIDTH as f32), rng.gen_range(0.0, HEIGHT as f32)],
+                xy: [
+                    rng.gen_range(0.0, WIDTH as f32),
+                    rng.gen_range(0.0, HEIGHT as f32),
+                ],
             },
             radius: rng.gen_range(0.0, 50.0),
         };
@@ -58,7 +61,7 @@ fn make_scene() -> Vec<u8> {
 fn dump_scene(buf: &[u8]) {
     for i in 0..(buf.len() / 4) {
         let mut buf_u32 = [0u8; 4];
-        buf_u32.copy_from_slice(&buf[i * 4 .. i * 4 + 4]);
+        buf_u32.copy_from_slice(&buf[i * 4..i * 4 + 4]);
         println!("{:4x}: {:8x}", i * 4, u32::from_le_bytes(buf_u32));
     }
 }
@@ -105,12 +108,12 @@ fn main() {
         let path = Path::new("image.png");
         let file = File::create(path).unwrap();
         let ref mut w = BufWriter::new(file);
-        
+
         let mut encoder = png::Encoder::new(w, WIDTH as u32, HEIGHT as u32);
         encoder.set_color(png::ColorType::RGBA);
         encoder.set_depth(png::BitDepth::Eight);
         let mut writer = encoder.write_header().unwrap();
-        
+
         writer.write_image_data(&img_data).unwrap();
     }
 }

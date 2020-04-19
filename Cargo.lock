@@ -70,6 +70,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "half"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f36b5f248235f45773d4944f555f83ea61fe07b18b561ccf99d7483d7381e54d"
+
+[[package]]
 name = "inflate"
 version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -124,6 +130,7 @@ dependencies = [
 name = "piet-gpu-types"
 version = "0.0.0"
 dependencies = [
+ "half",
  "piet-gpu-derive",
 ]
 
