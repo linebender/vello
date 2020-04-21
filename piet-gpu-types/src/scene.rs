@@ -8,8 +8,7 @@ piet_gpu! {
     #[rust_encode]
     mod scene {
         struct Bbox {
-            // TODO: this should be i16
-            bbox: [u16; 4],
+            bbox: [i16; 4],
         }
         struct Point {
             xy: [f32; 2],
@@ -19,6 +18,7 @@ piet_gpu! {
             // Note: both of the following items are actually arrays
             items: Ref<PietItem>,
             bboxes: Ref<Bbox>,
+            offset: Point,
         }
         struct PietCircle {
             rgba_color: u32,
@@ -45,6 +45,7 @@ piet_gpu! {
             points: Ref<Point>,
         }
         enum PietItem {
+            Group(SimpleGroup),
             Circle(PietCircle),
             Line(PietStrokeLine),
             Fill(PietFill),

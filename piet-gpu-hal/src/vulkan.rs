@@ -449,13 +449,7 @@ impl crate::CmdBuf<VkDevice> for CmdBuf {
 
     unsafe fn clear_buffer(&self, buffer: &Buffer) {
         let device = &self.device.device;
-        device.cmd_fill_buffer(
-            self.cmd_buf,
-            buffer.buffer,
-            0,
-            vk::WHOLE_SIZE,
-            0
-        );
+        device.cmd_fill_buffer(self.cmd_buf, buffer.buffer, 0, vk::WHOLE_SIZE, 0);
     }
 
     unsafe fn copy_buffer(&self, src: &Buffer, dst: &Buffer) {
@@ -465,10 +459,7 @@ impl crate::CmdBuf<VkDevice> for CmdBuf {
             self.cmd_buf,
             src.buffer,
             dst.buffer,
-            &[vk::BufferCopy::builder()
-                .size(size)
-                .build()
-            ]
+            &[vk::BufferCopy::builder().size(size).build()],
         );
     }
 
