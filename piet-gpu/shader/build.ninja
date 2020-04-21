@@ -8,3 +8,5 @@ rule glsl
   command = $glslang_validator -V -o $out $in
 
 build image.spv: glsl image.comp | scene.h
+
+build kernel1.spv: glsl kernel1.comp | scene.h tilegroup.h

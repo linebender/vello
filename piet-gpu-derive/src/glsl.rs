@@ -300,6 +300,7 @@ fn gen_struct_write(
     fields: &[(String, usize, LayoutType)],
 ) {
     writeln!(r, "void {}_write({}Ref ref, {} s) {{", name, name, name).unwrap();
+    writeln!(r, "    uint ix = ref.offset >> 2;").unwrap();
     let coverage = crate::layout::struct_coverage(fields, true);
 
     for (i, field_ixs) in coverage.iter().enumerate() {
@@ -374,7 +375,7 @@ fn gen_struct_write(
         }
 
         if !pieces.is_empty() {
-            write!(r, "    {}[{}] = ", bufname, i).unwrap();
+            write!(r, "    {}[ix + {}] = ", bufname, i).unwrap();
             for (j, piece) in pieces.iter().enumerate() {
                 if j != 0 {
                     write!(r, " | ").unwrap();

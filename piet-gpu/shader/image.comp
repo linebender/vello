@@ -32,7 +32,7 @@ void main() {
     // which is horribly wasteful, but the goal is to get *some* output and
     // then optimize.
 
-    SimpleGroup group = SimpleGroup_read(SimpleGroupRef(0));
+    SimpleGroup group = PietItem_Group_read(PietItemRef(0));
     for (uint i = 0; i < group.n_items; i++) {
         PietItemRef item_ref = PietItem_index(group.items, i);
         uint tag = PietItem_tag(item_ref);

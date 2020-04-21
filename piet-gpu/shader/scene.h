@@ -33,7 +33,7 @@ struct PietItemRef {
 };
 
 struct Bbox {
-    uvec4 bbox;
+    ivec4 bbox;
 };
 
 #define Bbox_size 8
@@ -56,9 +56,10 @@ struct SimpleGroup {
     uint n_items;
     PietItemRef items;
     BboxRef bboxes;
+    Point offset;
 };
 
-#define SimpleGroup_size 12
+#define SimpleGroup_size 20
 
 SimpleGroupRef SimpleGroup_index(SimpleGroupRef ref, uint index) {
     return SimpleGroupRef(ref.offset + index * SimpleGroup_size);
@@ -116,10 +117,11 @@ PietStrokePolyLineRef PietStrokePolyLine_index(PietStrokePolyLineRef ref, uint i
     return PietStrokePolyLineRef(ref.offset + index * PietStrokePolyLine_size);
 }
 
-#define PietItem_Circle 0
-#define PietItem_Line 1
-#define PietItem_Fill 2
-#define PietItem_Poly 3
+#define PietItem_Group 0
+#define PietItem_Circle 1
+#define PietItem_Line 2
+#define PietItem_Fill 3
+#define PietItem_Poly 4
 #define PietItem_size 32
 
 PietItemRef PietItem_index(PietItemRef ref, uint index) {
@@ -131,7 +133,7 @@ Bbox Bbox_read(BboxRef ref) {
     uint raw0 = scene[ix + 0];
     uint raw1 = scene[ix + 1];
     Bbox s;
-    s.bbox = uvec4(raw0 & 0xffff, raw0 >> 16, raw1 & 0xffff, raw1 >> 16);
+    s.bbox = ivec4(int(raw0 << 16) >> 16, int(raw0) >> 16, int(raw1 << 16) >> 16, int(raw1) >> 16);
     return s;
 }
 
@@ -153,6 +155,7 @@ SimpleGroup SimpleGroup_read(SimpleGroupRef ref) {
     s.n_items = raw0;
     s.items = PietItemRef(raw1);
     s.bboxes = BboxRef(raw2);
+    s.offset = Point_read(PointRef(ref.offset + 12));
     return s;
 }
 
@@ -211,6 +214,10 @@ PietStrokePolyLine PietStrokePolyLine_read(PietStrokePolyLineRef ref) {
 
 uint PietItem_tag(PietItemRef ref) {
     return scene[ref.offset >> 2];
+}
+
+SimpleGroup PietItem_Group_read(PietItemRef ref) {
+    return SimpleGroup_read(SimpleGroupRef(ref.offset + 4));
 }
 
 PietCircle PietItem_Circle_read(PietItemRef ref) {

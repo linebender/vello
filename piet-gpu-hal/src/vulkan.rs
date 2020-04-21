@@ -142,7 +142,11 @@ impl crate::Device for VkDevice {
             let buffer = device.create_buffer(
                 &vk::BufferCreateInfo::builder()
                     .size(size)
-                    .usage(vk::BufferUsageFlags::STORAGE_BUFFER)
+                    .usage(
+                        vk::BufferUsageFlags::STORAGE_BUFFER
+                            | vk::BufferUsageFlags::TRANSFER_SRC
+                            | vk::BufferUsageFlags::TRANSFER_DST,
+                    )
                     .sharing_mode(vk::SharingMode::EXCLUSIVE),
                 None,
             )?;
@@ -440,6 +444,22 @@ impl crate::CmdBuf<VkDevice> for CmdBuf {
                 .build()],
             &[],
             &[],
+        );
+    }
+
+    unsafe fn clear_buffer(&self, buffer: &Buffer) {
+        let device = &self.device.device;
+        device.cmd_fill_buffer(self.cmd_buf, buffer.buffer, 0, vk::WHOLE_SIZE, 0);
+    }
+
+    unsafe fn copy_buffer(&self, src: &Buffer, dst: &Buffer) {
+        let device = &self.device.device;
+        let size = src.size.min(dst.size);
+        device.cmd_copy_buffer(
+            self.cmd_buf,
+            src.buffer,
+            dst.buffer,
+            &[vk::BufferCopy::builder().size(size).build()],
         );
     }
 
