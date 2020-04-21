@@ -71,9 +71,10 @@ fn gen_derive_def(name: &str, size: usize, def: &LayoutTypeDef) -> proc_macro2::
                     field_encoders.extend(field_encoder);
                     args.push(field_id);
                 }
+                let tag = variant_ix as u32;
                 let case = quote! {
                     #name_id::#variant_id(#(#args),*) => {
-                        buf[0..4].copy_from_slice(&#variant_ix.to_le_bytes());
+                        buf[0..4].copy_from_slice(&#tag.to_le_bytes());
                         #field_encoders
                     }
                 };

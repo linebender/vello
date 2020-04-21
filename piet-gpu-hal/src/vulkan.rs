@@ -447,6 +447,22 @@ impl crate::CmdBuf<VkDevice> for CmdBuf {
         );
     }
 
+    unsafe fn clear_buffer(&self, buffer: &Buffer) {
+        let device = &self.device.device;
+        device.cmd_fill_buffer(self.cmd_buf, buffer.buffer, 0, vk::WHOLE_SIZE, 0);
+    }
+
+    unsafe fn copy_buffer(&self, src: &Buffer, dst: &Buffer) {
+        let device = &self.device.device;
+        let size = src.size.min(dst.size);
+        device.cmd_copy_buffer(
+            self.cmd_buf,
+            src.buffer,
+            dst.buffer,
+            &[vk::BufferCopy::builder().size(size).build()],
+        );
+    }
+
     unsafe fn write_timestamp(&mut self, pool: &QueryPool, query: u32) {
         let device = &self.device.device;
         device.cmd_write_timestamp(

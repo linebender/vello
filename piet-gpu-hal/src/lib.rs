@@ -71,6 +71,10 @@ pub trait CmdBuf<D: Device> {
 
     unsafe fn memory_barrier(&mut self);
 
+    unsafe fn clear_buffer(&self, buffer: &D::Buffer);
+
+    unsafe fn copy_buffer(&self, src: &D::Buffer, dst: &D::Buffer);
+
     unsafe fn write_timestamp(&mut self, pool: &D::QueryPool, query: u32);
 }
 

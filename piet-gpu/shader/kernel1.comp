@@ -1,0 +1,83 @@
+#version 450
+#extension GL_GOOGLE_include_directive : enable
+
+// It's possible we should lay this out with x and do our own math.
+layout(local_size_x = 1, local_size_y = 32) in;
+
+layout(set = 0, binding = 0) readonly buffer SceneBuf {
+    uint[] scene;
+};
+
+layout(set = 0, binding = 1) buffer TilegroupBuf {
+    uint[] tilegroup;
+};
+
+#include "scene.h"
+#include "tilegroup.h"
+
+// TODO: compute this
+#define WIDTH_IN_TILEGROUPS 4
+
+#define TILEGROUP_WIDTH 512
+#define TILEGROUP_HEIGHT 16
+
+#define INITIAL_ALLOC 1024
+
+#define MAX_STACK 8
+
+struct StackElement {
+    PietItemRef group;
+    uint index;
+    vec2 offset;
+};
+
+void main() {
+    StackElement stack[MAX_STACK];
+    uint stack_ix = 0;
+    uint tilegroup_ix = gl_GlobalInvocationID.y * WIDTH_IN_TILEGROUPS + gl_GlobalInvocationID.x;
+    TileGroupRef tg_ref = TileGroupRef(tilegroup_ix * INITIAL_ALLOC);
+    vec2 xy0 = vec2(gl_GlobalInvocationID.xy) * vec2(TILEGROUP_WIDTH, TILEGROUP_HEIGHT);
+    PietItemRef root = PietItemRef(0);
+    SimpleGroup group = PietItem_Group_read(root);
+    StackElement tos = StackElement(root, 0, group.offset.xy);
+
+    while (true) {
+        if (tos.index < group.n_items) {
+            Bbox bbox = Bbox_read(Bbox_index(group.bboxes, tos.index));
+            vec4 bb = vec4(bbox.bbox) + tos.offset.xyxy;
+            bool hit = max(bb.x, xy0.x) < min(bb.z, xy0.x + float(TILEGROUP_WIDTH))
+                && max(bb.y, xy0.y) < min(bb.w, xy0.y + float(TILEGROUP_HEIGHT));
+            bool is_group = false;
+            if (hit) {
+                PietItemRef item_ref = PietItem_index(group.items, tos.index);
+                is_group = PietItem_tag(item_ref) == PietItem_Group;
+            }
+            if (hit && !is_group) {
+                PietItemRef item_ref = PietItem_index(group.items, tos.index);
+                Instance ins = Instance(item_ref.offset, tos.offset);
+                TileGroup_Instance_write(tg_ref, ins);
+                tg_ref.offset += TileGroup_size;
+                // TODO: bump allocate if allocation exceeded
+            }
+            if (is_group) {
+                PietItemRef item_ref = PietItem_index(group.items, tos.index);
+                tos.index++;
+                if (tos.index < group.n_items) {
+                    stack[stack_ix++] = tos;
+                }
+                group = PietItem_Group_read(item_ref);
+                tos = StackElement(item_ref, 0, tos.offset + group.offset.xy);
+            } else {
+                tos.index++;
+            }
+        } else {
+            // processed all items in this group; pop the stack
+            if (stack_ix == 0) {
+                break;
+            }
+            tos = stack[--stack_ix];
+            group = PietItem_Group_read(tos.group);
+        }
+    }
+    TileGroup_End_write(tg_ref);
+}

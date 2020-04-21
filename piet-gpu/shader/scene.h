@@ -12,6 +12,10 @@ struct SimpleGroupRef {
     uint offset;
 };
 
+struct PietCircleRef {
+    uint offset;
+};
+
 struct PietStrokeLineRef {
     uint offset;
 };
@@ -29,7 +33,7 @@ struct PietItemRef {
 };
 
 struct Bbox {
-    uvec4 bbox;
+    ivec4 bbox;
 };
 
 #define Bbox_size 8
@@ -52,12 +56,25 @@ struct SimpleGroup {
     uint n_items;
     PietItemRef items;
     BboxRef bboxes;
+    Point offset;
 };
 
-#define SimpleGroup_size 12
+#define SimpleGroup_size 20
 
 SimpleGroupRef SimpleGroup_index(SimpleGroupRef ref, uint index) {
     return SimpleGroupRef(ref.offset + index * SimpleGroup_size);
+}
+
+struct PietCircle {
+    uint rgba_color;
+    Point center;
+    float radius;
+};
+
+#define PietCircle_size 16
+
+PietCircleRef PietCircle_index(PietCircleRef ref, uint index) {
+    return PietCircleRef(ref.offset + index * PietCircle_size);
 }
 
 struct PietStrokeLine {
@@ -100,10 +117,11 @@ PietStrokePolyLineRef PietStrokePolyLine_index(PietStrokePolyLineRef ref, uint i
     return PietStrokePolyLineRef(ref.offset + index * PietStrokePolyLine_size);
 }
 
-#define PietItem_Circle 0
-#define PietItem_Line 1
-#define PietItem_Fill 2
-#define PietItem_Poly 3
+#define PietItem_Group 0
+#define PietItem_Circle 1
+#define PietItem_Line 2
+#define PietItem_Fill 3
+#define PietItem_Poly 4
 #define PietItem_size 32
 
 PietItemRef PietItem_index(PietItemRef ref, uint index) {
@@ -115,7 +133,7 @@ Bbox Bbox_read(BboxRef ref) {
     uint raw0 = scene[ix + 0];
     uint raw1 = scene[ix + 1];
     Bbox s;
-    s.bbox = uvec4(raw0 & 0xffff, raw0 >> 16, raw1 & 0xffff, raw1 >> 16);
+    s.bbox = ivec4(int(raw0 << 16) >> 16, int(raw0) >> 16, int(raw1 << 16) >> 16, int(raw1) >> 16);
     return s;
 }
 
@@ -137,6 +155,18 @@ SimpleGroup SimpleGroup_read(SimpleGroupRef ref) {
     s.n_items = raw0;
     s.items = PietItemRef(raw1);
     s.bboxes = BboxRef(raw2);
+    s.offset = Point_read(PointRef(ref.offset + 12));
+    return s;
+}
+
+PietCircle PietCircle_read(PietCircleRef ref) {
+    uint ix = ref.offset >> 2;
+    uint raw0 = scene[ix + 0];
+    uint raw3 = scene[ix + 3];
+    PietCircle s;
+    s.rgba_color = raw0;
+    s.center = Point_read(PointRef(ref.offset + 4));
+    s.radius = uintBitsToFloat(raw3);
     return s;
 }
 
@@ -184,6 +214,14 @@ PietStrokePolyLine PietStrokePolyLine_read(PietStrokePolyLineRef ref) {
 
 uint PietItem_tag(PietItemRef ref) {
     return scene[ref.offset >> 2];
+}
+
+SimpleGroup PietItem_Group_read(PietItemRef ref) {
+    return SimpleGroup_read(SimpleGroupRef(ref.offset + 4));
+}
+
+PietCircle PietItem_Circle_read(PietItemRef ref) {
+    return PietCircle_read(PietCircleRef(ref.offset + 4));
 }
 
 PietStrokeLine PietItem_Line_read(PietItemRef ref) {

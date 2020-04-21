@@ -1,15 +1,14 @@
 use piet_gpu_derive::piet_gpu;
 
 pub use self::scene::{
-    Bbox, PietFill, PietItem, PietStrokeLine, PietStrokePolyLine, Point, SimpleGroup,
+    Bbox, PietCircle, PietFill, PietItem, PietStrokeLine, PietStrokePolyLine, Point, SimpleGroup,
 };
 
 piet_gpu! {
     #[rust_encode]
     mod scene {
         struct Bbox {
-            // TODO: this should be i16
-            bbox: [u16; 4],
+            bbox: [i16; 4],
         }
         struct Point {
             xy: [f32; 2],
@@ -19,6 +18,12 @@ piet_gpu! {
             // Note: both of the following items are actually arrays
             items: Ref<PietItem>,
             bboxes: Ref<Bbox>,
+            offset: Point,
+        }
+        struct PietCircle {
+            rgba_color: u32,
+            center: Point,
+            radius: f32,
         }
         struct PietStrokeLine {
             flags: u32,
@@ -40,7 +45,8 @@ piet_gpu! {
             points: Ref<Point>,
         }
         enum PietItem {
-            Circle(),
+            Group(SimpleGroup),
+            Circle(PietCircle),
             Line(PietStrokeLine),
             Fill(PietFill),
             Poly(PietStrokePolyLine),
