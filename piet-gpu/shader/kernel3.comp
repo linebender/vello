@@ -1,0 +1,72 @@
+#version 450
+#extension GL_GOOGLE_include_directive : enable
+
+layout(local_size_x = 32, local_size_y = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer SceneBuf {
+    uint[] scene;
+};
+
+// TODO: this should have a `readonly` qualifier, but then inclusion
+// of ptcl.h would fail because of the writers.
+layout(set = 0, binding = 1) buffer TilegroupBuf {
+    uint[] tilegroup;
+};
+
+layout(set = 0, binding = 2) buffer PtclBuf {
+    uint[] ptcl;
+};
+
+#include "scene.h"
+#include "tilegroup.h"
+#include "ptcl.h"
+
+// TODO: compute all these
+
+#define WIDTH_IN_TILEGROUPS 4
+#define WIDTH_IN_TILES 128
+#define TILEGROUP_WIDTH_TILES 32
+#define TILE_WIDTH_PX 16
+#define TILE_HEIGHT_PX 16
+
+// Must be the same as kernel1. Might be a good idea to move these particular
+// constants to their own .h file.
+#define TILEGROUP_INITIAL_ALLOC 1024
+
+#define PTCL_INITIAL_ALLOC 4096
+
+void main() {
+    uint tile_ix = gl_GlobalInvocationID.y * WIDTH_IN_TILES + gl_GlobalInvocationID.x;
+    uint tilegroup_ix = gl_GlobalInvocationID.y * WIDTH_IN_TILEGROUPS
+        + (gl_GlobalInvocationID.x / TILEGROUP_WIDTH_TILES);
+    vec2 xy0 = vec2(gl_GlobalInvocationID.xy) * vec2(TILE_WIDTH_PX, TILE_HEIGHT_PX);
+    TileGroupRef tg_ref = TileGroupRef(tilegroup_ix * TILEGROUP_INITIAL_ALLOC);
+    CmdRef cmd_ref = CmdRef(tile_ix * PTCL_INITIAL_ALLOC);
+
+    while (true) {
+        uint tg_tag = TileGroup_tag(tg_ref);
+        if (tg_tag == TileGroup_End) {
+            break;
+        }
+        // Assume tg_tag is `Instance`, though there will be more cases.
+        Instance ins = TileGroup_Instance_read(tg_ref);
+        PietItemRef item_ref = PietItemRef(ins.item_ref);
+        uint item_tag = PietItem_tag(item_ref);
+        switch (item_tag) {
+        case PietItem_Circle:
+            PietCircle circle = PietItem_Circle_read(item_ref);
+            vec2 center = ins.offset + circle.center.xy;
+            float r = circle.radius;
+            if (max(center.x - r, xy0.x) < min(center.x + r, xy0.x + float(TILE_WIDTH_PX))
+                && max(center.y - r, xy0.y) < min(center.y + r, xy0.y + float(TILE_HEIGHT_PX)))
+            {
+                CmdCircle cmd = CmdCircle(center, r, circle.rgba_color);
+                Cmd_Circle_write(cmd_ref, cmd);
+                cmd_ref.offset += Cmd_size;
+            }
+            break;
+        }
+        tg_ref.offset += TileGroup_size;
+    }
+    Cmd_End_write(cmd_ref);
+}

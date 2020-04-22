@@ -1,3 +1,16 @@
+// This is "kernel 1" in a 4-kernel pipeline. It traverses the scene graph
+// and outputs "instances" (references to item + translation) for each item
+// that intersects the tilegroup.
+//
+// This implementation is simplistic and leaves a lot of performance on the
+// table. A fancier implementation would use threadgroup shared memory or
+// subgroups (or possibly both) to parallelize the reading of the input and
+// the computation of tilegroup intersection.
+//
+// In addition, there are some features currently missing. One is the use of
+// a bump allocator to extend the current fixed allocation. Another is support
+// for clipping.
+
 #version 450
 #extension GL_GOOGLE_include_directive : enable
 
@@ -18,10 +31,10 @@ layout(set = 0, binding = 1) buffer TilegroupBuf {
 // TODO: compute this
 #define WIDTH_IN_TILEGROUPS 4
 
-#define TILEGROUP_WIDTH 512
-#define TILEGROUP_HEIGHT 16
+#define TILEGROUP_WIDTH_PX 512
+#define TILEGROUP_HEIGHT_PX 16
 
-#define INITIAL_ALLOC 1024
+#define TILEGROUP_INITIAL_ALLOC 1024
 
 #define MAX_STACK 8
 
@@ -35,8 +48,8 @@ void main() {
     StackElement stack[MAX_STACK];
     uint stack_ix = 0;
     uint tilegroup_ix = gl_GlobalInvocationID.y * WIDTH_IN_TILEGROUPS + gl_GlobalInvocationID.x;
-    TileGroupRef tg_ref = TileGroupRef(tilegroup_ix * INITIAL_ALLOC);
-    vec2 xy0 = vec2(gl_GlobalInvocationID.xy) * vec2(TILEGROUP_WIDTH, TILEGROUP_HEIGHT);
+    TileGroupRef tg_ref = TileGroupRef(tilegroup_ix * TILEGROUP_INITIAL_ALLOC);
+    vec2 xy0 = vec2(gl_GlobalInvocationID.xy) * vec2(TILEGROUP_WIDTH_PX, TILEGROUP_HEIGHT_PX);
     PietItemRef root = PietItemRef(0);
     SimpleGroup group = PietItem_Group_read(root);
     StackElement tos = StackElement(root, 0, group.offset.xy);
@@ -45,8 +58,8 @@ void main() {
         if (tos.index < group.n_items) {
             Bbox bbox = Bbox_read(Bbox_index(group.bboxes, tos.index));
             vec4 bb = vec4(bbox.bbox) + tos.offset.xyxy;
-            bool hit = max(bb.x, xy0.x) < min(bb.z, xy0.x + float(TILEGROUP_WIDTH))
-                && max(bb.y, xy0.y) < min(bb.w, xy0.y + float(TILEGROUP_HEIGHT));
+            bool hit = max(bb.x, xy0.x) < min(bb.z, xy0.x + float(TILEGROUP_WIDTH_PX))
+                && max(bb.y, xy0.y) < min(bb.w, xy0.y + float(TILEGROUP_HEIGHT_PX));
             bool is_group = false;
             if (hit) {
                 PietItemRef item_ref = PietItem_index(group.items, tos.index);

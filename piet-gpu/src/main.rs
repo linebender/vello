@@ -73,6 +73,7 @@ fn dump_scene(buf: &[u8]) {
     }
 }
 
+#[allow(unused)]
 fn dump_k1_data(k1_buf: &[u32]) {
     for i in 0..k1_buf.len() {
         if k1_buf[i] != 0 {
@@ -96,7 +97,9 @@ fn main() {
             .create_buffer(std::mem::size_of_val(&scene[..]) as u64, dev)
             .unwrap();
         device.write_buffer(&scene_buf, &scene).unwrap();
+        // These should only be on the host if we're going to examine them from Rust.
         let tilegroup_buf = device.create_buffer(384 * 1024, host).unwrap();
+        let ptcl_buf = device.create_buffer(12 * 1024 * 4096, host).unwrap();
         let image_buf = device
             .create_buffer((WIDTH * HEIGHT * 4) as u64, host)
             .unwrap();
@@ -110,16 +113,23 @@ fn main() {
             .create_descriptor_set(&k1_pipeline, &[&scene_dev, &tilegroup_buf])
             .unwrap();
 
+        let k3_code = include_bytes!("../shader/kernel3.spv");
+        let k3_pipeline = device.create_simple_compute_pipeline(k3_code, 3).unwrap();
+        let k3_ds = device
+            .create_descriptor_set(&k3_pipeline, &[&scene_dev, &tilegroup_buf, &ptcl_buf])
+            .unwrap();
+
         let code = include_bytes!("../shader/image.spv");
         let pipeline = device.create_simple_compute_pipeline(code, 2).unwrap();
         let descriptor_set = device
             .create_descriptor_set(&pipeline, &[&scene_dev, &image_dev])
             .unwrap();
-        let query_pool = device.create_query_pool(3).unwrap();
+        let query_pool = device.create_query_pool(4).unwrap();
         let mut cmd_buf = device.create_cmd_buf().unwrap();
         cmd_buf.begin();
         cmd_buf.copy_buffer(&scene_buf, &scene_dev);
         cmd_buf.clear_buffer(&tilegroup_buf);
+        cmd_buf.clear_buffer(&ptcl_buf);
         cmd_buf.memory_barrier();
         cmd_buf.write_timestamp(&query_pool, 0);
         cmd_buf.dispatch(
@@ -130,21 +140,35 @@ fn main() {
         cmd_buf.write_timestamp(&query_pool, 1);
         cmd_buf.memory_barrier();
         cmd_buf.dispatch(
+            &k3_pipeline,
+            &k3_ds,
+            ((WIDTH / 512) as u32, (HEIGHT / 16) as u32, 1),
+        );
+        cmd_buf.write_timestamp(&query_pool, 2);
+        cmd_buf.memory_barrier();
+        cmd_buf.dispatch(
             &pipeline,
             &descriptor_set,
             ((WIDTH / TILE_W) as u32, (HEIGHT / TILE_H) as u32, 1),
         );
-        cmd_buf.write_timestamp(&query_pool, 2);
+        cmd_buf.write_timestamp(&query_pool, 3);
         cmd_buf.memory_barrier();
         cmd_buf.copy_buffer(&image_dev, &image_buf);
         cmd_buf.finish();
         device.run_cmd_buf(&cmd_buf).unwrap();
         let timestamps = device.reap_query_pool(query_pool).unwrap();
         println!("Kernel 1 time: {:.3}ms", timestamps[0] * 1e3);
-        println!("Render time: {:.3}ms", (timestamps[1] - timestamps[0]) * 1e3);
+        println!(
+            "Kernel 3 time: {:.3}ms",
+            (timestamps[1] - timestamps[0]) * 1e3
+        );
+        println!(
+            "Render time: {:.3}ms",
+            (timestamps[2] - timestamps[1]) * 1e3
+        );
 
         let mut k1_data: Vec<u32> = Default::default();
-        device.read_buffer(&tilegroup_buf, &mut k1_data).unwrap();
+        device.read_buffer(&ptcl_buf, &mut k1_data).unwrap();
         dump_k1_data(&k1_data);
 
         let mut img_data: Vec<u8> = Default::default();

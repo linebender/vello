@@ -4,8 +4,9 @@ piet_gpu! {
     #[gpu_write]
     mod ptcl {
         struct CmdCircle {
-            // In existing code, this is packed; we might need an annotation for this.
-            bbox: [u16; 4],
+            center: [f32; 2],
+            radius: f32,
+            rgba_color: u32,
         }
         struct CmdLine {
             start: [f32; 2],

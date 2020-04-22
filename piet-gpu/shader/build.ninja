@@ -10,3 +10,5 @@ rule glsl
 build image.spv: glsl image.comp | scene.h
 
 build kernel1.spv: glsl kernel1.comp | scene.h tilegroup.h
+
+build kernel3.spv: glsl kernel3.comp | scene.h tilegroup.h ptcl.h
