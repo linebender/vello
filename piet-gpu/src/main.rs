@@ -4,11 +4,16 @@ use std::path::Path;
 
 use rand::{Rng, RngCore};
 
+use piet::{Color, RenderContext};
+use piet::kurbo::{Circle, Point};
+
 use piet_gpu_hal::vulkan::VkInstance;
 use piet_gpu_hal::{CmdBuf, Device, MemFlags};
 
-use piet_gpu_types::encoder::{Encode, Encoder};
-use piet_gpu_types::scene::{Bbox, PietCircle, PietItem, Point, SimpleGroup};
+
+mod render_ctx;
+
+use render_ctx::PietGpuRenderContext;
 
 const WIDTH: usize = 2048;
 const HEIGHT: usize = 1536;
@@ -18,50 +23,16 @@ const TILE_H: usize = 16;
 
 const N_CIRCLES: usize = 3000;
 
-fn make_scene() -> Vec<u8> {
+fn render_scene(rc: &mut impl RenderContext) {
     let mut rng = rand::thread_rng();
-    let mut encoder = Encoder::new();
-    let _reserve_root = encoder.alloc_chunk(PietItem::fixed_size() as u32);
-
-    let mut items = Vec::new();
-    let mut bboxes = Vec::new();
     for _ in 0..N_CIRCLES {
-        let circle = PietCircle {
-            rgba_color: rng.next_u32(),
-            center: Point {
-                xy: [
-                    rng.gen_range(0.0, WIDTH as f32),
-                    rng.gen_range(0.0, HEIGHT as f32),
-                ],
-            },
-            radius: rng.gen_range(0.0, 50.0),
-        };
-        let bbox = Bbox {
-            bbox: [
-                (circle.center.xy[0] - circle.radius).floor() as i16,
-                (circle.center.xy[1] - circle.radius).floor() as i16,
-                (circle.center.xy[0] + circle.radius).ceil() as i16,
-                (circle.center.xy[1] + circle.radius).ceil() as i16,
-            ],
-        };
-        items.push(PietItem::Circle(circle));
-        bboxes.push(bbox);
+        let color = Color::from_rgba32_u32(rng.next_u32());
+        let center = Point::new(rng.gen_range(0.0, WIDTH as f64),
+        rng.gen_range(0.0, HEIGHT as f64));
+        let radius = rng.gen_range(0.0, 50.0);
+        let circle = Circle::new(center, radius);
+        rc.fill(circle, &color);
     }
-
-    let n_items = bboxes.len() as u32;
-    let bboxes = bboxes.encode(&mut encoder).transmute();
-    let items = items.encode(&mut encoder).transmute();
-    let offset = Point { xy: [0.0, 0.0] };
-    let simple_group = SimpleGroup {
-        n_items,
-        bboxes,
-        items,
-        offset,
-    };
-    let root_item = PietItem::Group(simple_group);
-    root_item.encode_to(&mut encoder.buf_mut()[0..PietItem::fixed_size()]);
-    // We should avoid this clone.
-    encoder.buf().to_owned()
 }
 
 #[allow(unused)]
@@ -88,7 +59,9 @@ fn main() {
         let device = instance.device().unwrap();
         let host = MemFlags::host_coherent();
         let dev = MemFlags::device_local();
-        let scene = make_scene();
+        let mut ctx = PietGpuRenderContext::new();
+        render_scene(&mut ctx);
+        let scene = ctx.get_scene_buf();
         //dump_scene(&scene);
         let scene_buf = device
             .create_buffer(std::mem::size_of_val(&scene[..]) as u64, host)
@@ -98,8 +71,8 @@ fn main() {
             .unwrap();
         device.write_buffer(&scene_buf, &scene).unwrap();
         // These should only be on the host if we're going to examine them from Rust.
-        let tilegroup_buf = device.create_buffer(384 * 1024, host).unwrap();
-        let ptcl_buf = device.create_buffer(12 * 1024 * 4096, host).unwrap();
+        let tilegroup_buf = device.create_buffer(384 * 1024, dev).unwrap();
+        let ptcl_buf = device.create_buffer(12 * 1024 * 4096, dev).unwrap();
         let image_buf = device
             .create_buffer((WIDTH * HEIGHT * 4) as u64, host)
             .unwrap();

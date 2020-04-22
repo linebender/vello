@@ -7,6 +7,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d2e7343e7fc9de883d1b0341e0b13970f764c14101234857d2ddafa1cb1cac2"
 
 [[package]]
+name = "arrayvec"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cff77d8686867eceff3105329d4698d96c2391c176d5d03adc90c7389162b5b8"
+
+[[package]]
 name = "ash"
 version = "0.30.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -85,6 +91,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "kurbo"
+version = "0.5.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf50e17a1697110c694d47c5b1a6b64faf5eb3ffe5a286df23fb8cd516e33be6"
+dependencies = [
+ "arrayvec",
+]
+
+[[package]]
 name = "libc"
 version = "0.2.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -101,9 +116,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "piet"
+version = "0.0.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "29420eccb68d6b9ad2f8dd87caf9c3bcd3bbd056bfe67871c48b6efab9316b79"
+dependencies = [
+ "kurbo",
+]
+
+[[package]]
 name = "piet-gpu"
 version = "0.1.0"
 dependencies = [
+ "piet",
  "piet-gpu-hal",
  "piet-gpu-types",
  "png",
