@@ -9,3 +9,4 @@ keywords = ["graphics", "2d"]
 
 [dependencies]
 piet-gpu-derive = { path = "../piet-gpu-derive" }
+half = "1.5.0"
