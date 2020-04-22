@@ -1,3 +1,6 @@
+// This is "kernel 3" in a 4-kernel pipeline. It walks the active items
+// for the tilegroup and produces a per-tile command list for each tile.
+
 #version 450
 #extension GL_GOOGLE_include_directive : enable
 

@@ -16,7 +16,7 @@ const HEIGHT: usize = 1536;
 const TILE_W: usize = 16;
 const TILE_H: usize = 16;
 
-const N_CIRCLES: usize = 100;
+const N_CIRCLES: usize = 3000;
 
 fn make_scene() -> Vec<u8> {
     let mut rng = rand::thread_rng();
@@ -119,10 +119,10 @@ fn main() {
             .create_descriptor_set(&k3_pipeline, &[&scene_dev, &tilegroup_buf, &ptcl_buf])
             .unwrap();
 
-        let code = include_bytes!("../shader/image.spv");
-        let pipeline = device.create_simple_compute_pipeline(code, 2).unwrap();
+        let k4_code = include_bytes!("../shader/kernel4.spv");
+        let pipeline = device.create_simple_compute_pipeline(k4_code, 2).unwrap();
         let descriptor_set = device
-            .create_descriptor_set(&pipeline, &[&scene_dev, &image_dev])
+            .create_descriptor_set(&pipeline, &[&ptcl_buf, &image_dev])
             .unwrap();
         let query_pool = device.create_query_pool(4).unwrap();
         let mut cmd_buf = device.create_cmd_buf().unwrap();
@@ -167,9 +167,11 @@ fn main() {
             (timestamps[2] - timestamps[1]) * 1e3
         );
 
+        /*
         let mut k1_data: Vec<u32> = Default::default();
         device.read_buffer(&ptcl_buf, &mut k1_data).unwrap();
         dump_k1_data(&k1_data);
+        */
 
         let mut img_data: Vec<u8> = Default::default();
         // Note: because png can use a `&[u8]` slice, we could avoid an extra copy
