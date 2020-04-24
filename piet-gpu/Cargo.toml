@@ -13,6 +13,7 @@ path = "../piet-gpu-hal"
 path = "../piet-gpu-types"
 
 [dependencies]
+kurbo = "0.5.11"
 piet = "0.0.12"
 png = "0.16.2"
 rand = "0.7.3"

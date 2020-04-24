@@ -1,10 +1,10 @@
 use std::borrow::Cow;
 
-use piet_gpu_types::encoder::{Encode, Encoder};
+use piet_gpu_types::encoder::{Encode, Encoder, Ref};
 use piet_gpu_types::scene;
-use piet_gpu_types::scene::{Bbox, PietCircle, PietItem, SimpleGroup};
+use piet_gpu_types::scene::{Bbox, PietCircle, PietItem, PietStrokePolyLine, SimpleGroup};
 
-use piet::kurbo::{Affine, Point, Rect, Shape};
+use piet::kurbo::{Affine, PathEl, Point, Rect, Shape};
 
 use piet::{
     Color, Error, FixedGradient, Font, FontBuilder, HitTestPoint, HitTestTextPosition, ImageFormat,
@@ -38,6 +38,8 @@ pub enum PietGpuBrush {
     Solid(u32),
     Gradient,
 }
+
+const TOLERANCE: f64 = 0.1;
 
 impl PietGpuRenderContext {
     pub fn new() -> PietGpuRenderContext {
@@ -104,7 +106,24 @@ impl RenderContext for PietGpuRenderContext {
 
     fn clear(&mut self, _color: Color) {}
 
-    fn stroke(&mut self, _shape: impl Shape, _brush: &impl IntoBrush<Self>, _width: f64) {}
+    fn stroke(&mut self, shape: impl Shape, brush: &impl IntoBrush<Self>, width: f64) {
+        let bbox = shape.bounding_box();
+        let brush = brush.make_brush(self, || bbox).into_owned();
+        let path = shape.to_bez_path(TOLERANCE);
+        let (n_points, points) = flatten_shape(&mut self.encoder, path);
+        match brush {
+            PietGpuBrush::Solid(rgba_color) => {
+                let poly_line = PietStrokePolyLine {
+                    rgba_color,
+                    width: width as f32,
+                    n_points,
+                    points,
+                };
+                self.push_item(PietItem::Poly(poly_line), bbox);
+            }
+            _ => (),
+        }
+    }
 
     fn stroke_styled(
         &mut self,
@@ -116,13 +135,7 @@ impl RenderContext for PietGpuRenderContext {
     }
 
     fn fill(&mut self, shape: impl Shape, brush: &impl IntoBrush<Self>) {
-        let dummy_closure = || Rect {
-            x0: 0.0,
-            x1: 0.0,
-            y0: 0.0,
-            y1: 0.0,
-        };
-        let brush = brush.make_brush(self, dummy_closure).into_owned();
+        let brush = brush.make_brush(self, || shape.bounding_box()).into_owned();
 
         match shape.as_circle() {
             Some(circle) => match brush {
@@ -212,6 +225,45 @@ impl RenderContext for PietGpuRenderContext {
     }
 }
 
+fn flatten_shape(
+    encoder: &mut Encoder,
+    path: impl Iterator<Item = PathEl>,
+) -> (u32, Ref<scene::Point>) {
+    let mut points = Vec::new();
+    let mut start_pt = None;
+    let mut last_pt = None;
+    kurbo::flatten(path, TOLERANCE, |el| {
+        match el {
+            PathEl::MoveTo(p) => {
+                let scene_pt = to_scene_point(p);
+                start_pt = Some(clone_scene_pt(&scene_pt));
+                if !points.is_empty() {
+                    points.push(scene::Point { xy: [std::f32::NAN, std::f32::NAN ]});
+                }
+                last_pt = Some(clone_scene_pt(&scene_pt));
+                points.push(scene_pt);
+            }
+            PathEl::LineTo(p) => {
+                let scene_pt = to_scene_point(p);
+                last_pt = Some(clone_scene_pt(&scene_pt));
+                points.push(scene_pt);
+            }
+            PathEl::ClosePath => {
+                if let (Some(start), Some(last)) = (start_pt.take(), last_pt.take()) {
+                    if start.xy != last.xy {
+                        points.push(start);
+                    }
+                }
+            }
+            _ => (),
+        }
+        println!("{:?}", el);
+    });
+    let n_points = points.len() as u32;
+    let points_ref = points.encode(encoder).transmute();
+    (n_points, points_ref)
+}
+
 impl Text for PietGpuText {
     type Font = PietGpuFont;
     type FontBuilder = PietGpuFontBuilder;
@@ -293,5 +345,12 @@ impl IntoBrush<PietGpuRenderContext> for PietGpuBrush {
 fn to_scene_point(point: Point) -> scene::Point {
     scene::Point {
         xy: [point.x as f32, point.y as f32],
+    }
+}
+
+// TODO: allow #[derive(Clone)] in piet-gpu-derive.
+fn clone_scene_pt(p: &scene::Point) -> scene::Point {
+    scene::Point {
+        xy: p.xy
     }
 }

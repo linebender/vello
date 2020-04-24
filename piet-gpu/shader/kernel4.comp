@@ -20,13 +20,7 @@ layout(set = 0, binding = 1) buffer ImageBuf {
 
 #include "ptcl.h"
 
-// TODO: make the image size dynamic.
-#define IMAGE_WIDTH 2048
-#define IMAGE_HEIGHT 1535
-
-#define WIDTH_IN_TILES 128
-
-#define PTCL_INITIAL_ALLOC 4096
+#include "setup.h"
 
 void main() {
     uint tile_ix = gl_WorkGroupID.y * WIDTH_IN_TILES + gl_WorkGroupID.x;

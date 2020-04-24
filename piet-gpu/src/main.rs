@@ -4,12 +4,11 @@ use std::path::Path;
 
 use rand::{Rng, RngCore};
 
-use piet::{Color, RenderContext};
 use piet::kurbo::{Circle, Point};
+use piet::{Color, RenderContext};
 
 use piet_gpu_hal::vulkan::VkInstance;
 use piet_gpu_hal::{CmdBuf, Device, MemFlags};
-
 
 mod render_ctx;
 
@@ -27,8 +26,10 @@ fn render_scene(rc: &mut impl RenderContext) {
     let mut rng = rand::thread_rng();
     for _ in 0..N_CIRCLES {
         let color = Color::from_rgba32_u32(rng.next_u32());
-        let center = Point::new(rng.gen_range(0.0, WIDTH as f64),
-        rng.gen_range(0.0, HEIGHT as f64));
+        let center = Point::new(
+            rng.gen_range(0.0, WIDTH as f64),
+            rng.gen_range(0.0, HEIGHT as f64),
+        );
         let radius = rng.gen_range(0.0, 50.0);
         let circle = Circle::new(center, radius);
         rc.fill(circle, &color);

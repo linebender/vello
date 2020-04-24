@@ -28,13 +28,7 @@ layout(set = 0, binding = 1) buffer TilegroupBuf {
 #include "scene.h"
 #include "tilegroup.h"
 
-// TODO: compute this
-#define WIDTH_IN_TILEGROUPS 4
-
-#define TILEGROUP_WIDTH_PX 512
-#define TILEGROUP_HEIGHT_PX 16
-
-#define TILEGROUP_INITIAL_ALLOC 1024
+#include "setup.h"
 
 #define MAX_STACK 8
 

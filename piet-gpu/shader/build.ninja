@@ -9,8 +9,8 @@ rule glsl
 
 build image.spv: glsl image.comp | scene.h
 
-build kernel1.spv: glsl kernel1.comp | scene.h tilegroup.h
+build kernel1.spv: glsl kernel1.comp | scene.h tilegroup.h setup.h
 
-build kernel3.spv: glsl kernel3.comp | scene.h tilegroup.h ptcl.h
+build kernel3.spv: glsl kernel3.comp | scene.h tilegroup.h ptcl.h setup.h
 
-build kernel4.spv: glsl kernel4.comp | ptcl.h
+build kernel4.spv: glsl kernel4.comp | ptcl.h setup.h

@@ -24,19 +24,7 @@ layout(set = 0, binding = 2) buffer PtclBuf {
 #include "tilegroup.h"
 #include "ptcl.h"
 
-// TODO: compute all these
-
-#define WIDTH_IN_TILEGROUPS 4
-#define WIDTH_IN_TILES 128
-#define TILEGROUP_WIDTH_TILES 32
-#define TILE_WIDTH_PX 16
-#define TILE_HEIGHT_PX 16
-
-// Must be the same as kernel1. Might be a good idea to move these particular
-// constants to their own .h file.
-#define TILEGROUP_INITIAL_ALLOC 1024
-
-#define PTCL_INITIAL_ALLOC 4096
+#include "setup.h"
 
 void main() {
     uint tile_ix = gl_GlobalInvocationID.y * WIDTH_IN_TILES + gl_GlobalInvocationID.x;
