@@ -1,7 +1,7 @@
 use piet_gpu_hal::vulkan::VkInstance;
 use piet_gpu_hal::{CmdBuf, Device, MemFlags};
 
-const BLOCKSIZE: usize = 1024;
+const BLOCKSIZE: usize = 16384;
 
 fn main() {
     let n = 64 * 1024 * 1024;
