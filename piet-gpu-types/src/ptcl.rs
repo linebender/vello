@@ -33,6 +33,9 @@ piet_gpu! {
         struct CmdSolid {
             rgba_color: u32,
         }
+        struct CmdJump {
+            new_ref: u32,
+        }
         enum Cmd {
             End,
             Circle(CmdCircle),
@@ -42,6 +45,7 @@ piet_gpu! {
             FillEdge(CmdFillEdge),
             DrawFill(CmdDrawFill),
             Solid(CmdSolid),
+            Jump(CmdJump),
             Bail,
         }
     }

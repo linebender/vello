@@ -238,7 +238,9 @@ fn flatten_shape(
                 let scene_pt = to_scene_point(p);
                 start_pt = Some(clone_scene_pt(&scene_pt));
                 if !points.is_empty() {
-                    points.push(scene::Point { xy: [std::f32::NAN, std::f32::NAN ]});
+                    points.push(scene::Point {
+                        xy: [std::f32::NAN, std::f32::NAN],
+                    });
                 }
                 last_pt = Some(clone_scene_pt(&scene_pt));
                 points.push(scene_pt);
@@ -350,7 +352,5 @@ fn to_scene_point(point: Point) -> scene::Point {
 
 // TODO: allow #[derive(Clone)] in piet-gpu-derive.
 fn clone_scene_pt(p: &scene::Point) -> scene::Point {
-    scene::Point {
-        xy: p.xy
-    }
+    scene::Point { xy: p.xy }
 }

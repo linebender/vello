@@ -20,11 +20,25 @@ layout(set = 0, binding = 2) buffer PtclBuf {
     uint[] ptcl;
 };
 
+layout(set = 0, binding = 3) buffer AllocBuf {
+    uint alloc;
+};
+
 #include "scene.h"
 #include "tilegroup.h"
 #include "ptcl.h"
 
 #include "setup.h"
+
+void alloc_cmd(inout CmdRef cmd_ref, inout uint cmd_limit) {
+    if (cmd_ref.offset > cmd_limit) {
+        uint new_cmd = atomicAdd(alloc, PTCL_INITIAL_ALLOC);
+        CmdJump jump = CmdJump(new_cmd);
+        Cmd_Jump_write(cmd_ref, jump);
+        cmd_ref = CmdRef(new_cmd);
+        cmd_limit = new_cmd + PTCL_INITIAL_ALLOC - 2 * Cmd_size;
+    }
+}
 
 void main() {
     uint tile_ix = gl_GlobalInvocationID.y * WIDTH_IN_TILES + gl_GlobalInvocationID.x;
@@ -33,11 +47,16 @@ void main() {
     vec2 xy0 = vec2(gl_GlobalInvocationID.xy) * vec2(TILE_WIDTH_PX, TILE_HEIGHT_PX);
     TileGroupRef tg_ref = TileGroupRef(tilegroup_ix * TILEGROUP_INITIAL_ALLOC);
     CmdRef cmd_ref = CmdRef(tile_ix * PTCL_INITIAL_ALLOC);
+    uint cmd_limit = cmd_ref.offset + PTCL_INITIAL_ALLOC - 2 * Cmd_size;
 
     while (true) {
         uint tg_tag = TileGroup_tag(tg_ref);
         if (tg_tag == TileGroup_End) {
             break;
+        }
+        if (tg_tag == TileGroup_Jump) {
+            tg_ref = TileGroupRef(TileGroup_Jump_read(tg_ref).new_ref);
+            continue;
         }
         // Assume tg_tag is `Instance`, though there will be more cases.
         Instance ins = TileGroup_Instance_read(tg_ref);
@@ -52,6 +71,7 @@ void main() {
                 && max(center.y - r, xy0.y) < min(center.y + r, xy0.y + float(TILE_HEIGHT_PX)))
             {
                 CmdCircle cmd = CmdCircle(center, r, circle.rgba_color);
+                alloc_cmd(cmd_ref, cmd_limit);
                 Cmd_Circle_write(cmd_ref, cmd);
                 cmd_ref.offset += Cmd_size;
             }

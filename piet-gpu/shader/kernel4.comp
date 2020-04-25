@@ -44,6 +44,10 @@ void main() {
             vec4 fg_rgba = unpackUnorm4x8(circle.rgba_color);
             // TODO: sRGB
             rgb = mix(rgb, fg_rgba.rgb, alpha * fg_rgba.a);
+            break;
+        case Cmd_Jump:
+            cmd_ref = CmdRef(Cmd_Jump_read(cmd_ref).new_ref);
+            continue;
         }
         cmd_ref.offset += Cmd_size;
     }

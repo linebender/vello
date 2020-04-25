@@ -20,7 +20,15 @@ const HEIGHT: usize = 1536;
 const TILE_W: usize = 16;
 const TILE_H: usize = 16;
 
-const N_CIRCLES: usize = 3000;
+const WIDTH_IN_TILEGROUPS: usize = 4;
+const HEIGHT_IN_TILEGROUPS: usize = 96;
+const TILEGROUP_INITIAL_ALLOC: usize = 1024;
+
+const WIDTH_IN_TILES: usize = 124;
+const HEIGHT_IN_TILES: usize = 96;
+const PTCL_INITIAL_ALLOC: usize = 1024;
+
+const N_CIRCLES: usize = 10_000;
 
 fn render_scene(rc: &mut impl RenderContext) {
     let mut rng = rand::thread_rng();
@@ -71,8 +79,7 @@ fn main() {
             .create_buffer(std::mem::size_of_val(&scene[..]) as u64, dev)
             .unwrap();
         device.write_buffer(&scene_buf, &scene).unwrap();
-        // These should only be on the host if we're going to examine them from Rust.
-        let tilegroup_buf = device.create_buffer(384 * 1024, dev).unwrap();
+        let tilegroup_buf = device.create_buffer(4 * 1024 * 1024, dev).unwrap();
         let ptcl_buf = device.create_buffer(12 * 1024 * 4096, dev).unwrap();
         let image_buf = device
             .create_buffer((WIDTH * HEIGHT * 4) as u64, host)
@@ -81,16 +88,34 @@ fn main() {
             .create_buffer((WIDTH * HEIGHT * 4) as u64, dev)
             .unwrap();
 
+        let k1_alloc_buf_host = device.create_buffer(4, host).unwrap();
+        let k1_alloc_buf_dev = device.create_buffer(4, dev).unwrap();
+        let k1_alloc_start = WIDTH_IN_TILEGROUPS * HEIGHT_IN_TILEGROUPS * TILEGROUP_INITIAL_ALLOC;
+        device
+            .write_buffer(&k1_alloc_buf_host, &[k1_alloc_start as u32])
+            .unwrap();
         let k1_code = include_bytes!("../shader/kernel1.spv");
-        let k1_pipeline = device.create_simple_compute_pipeline(k1_code, 2).unwrap();
+        let k1_pipeline = device.create_simple_compute_pipeline(k1_code, 3).unwrap();
         let k1_ds = device
-            .create_descriptor_set(&k1_pipeline, &[&scene_dev, &tilegroup_buf])
+            .create_descriptor_set(
+                &k1_pipeline,
+                &[&scene_dev, &tilegroup_buf, &k1_alloc_buf_dev],
+            )
             .unwrap();
 
+        let k3_alloc_buf_host = device.create_buffer(4, host).unwrap();
+        let k3_alloc_buf_dev = device.create_buffer(4, dev).unwrap();
+        let k3_alloc_start = WIDTH_IN_TILES * HEIGHT_IN_TILES * PTCL_INITIAL_ALLOC;
+        device
+            .write_buffer(&k3_alloc_buf_host, &[k3_alloc_start as u32])
+            .unwrap();
         let k3_code = include_bytes!("../shader/kernel3.spv");
-        let k3_pipeline = device.create_simple_compute_pipeline(k3_code, 3).unwrap();
+        let k3_pipeline = device.create_simple_compute_pipeline(k3_code, 4).unwrap();
         let k3_ds = device
-            .create_descriptor_set(&k3_pipeline, &[&scene_dev, &tilegroup_buf, &ptcl_buf])
+            .create_descriptor_set(
+                &k3_pipeline,
+                &[&scene_dev, &tilegroup_buf, &ptcl_buf, &k3_alloc_buf_dev],
+            )
             .unwrap();
 
         let k4_code = include_bytes!("../shader/kernel4.spv");
@@ -102,6 +127,8 @@ fn main() {
         let mut cmd_buf = device.create_cmd_buf().unwrap();
         cmd_buf.begin();
         cmd_buf.copy_buffer(&scene_buf, &scene_dev);
+        cmd_buf.copy_buffer(&k1_alloc_buf_host, &k1_alloc_buf_dev);
+        cmd_buf.copy_buffer(&k3_alloc_buf_host, &k3_alloc_buf_dev);
         cmd_buf.clear_buffer(&tilegroup_buf);
         cmd_buf.clear_buffer(&ptcl_buf);
         cmd_buf.memory_barrier();

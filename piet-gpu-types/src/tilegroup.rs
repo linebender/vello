@@ -10,8 +10,12 @@ piet_gpu! {
             // A better type would be Point.
             offset: [f32; 2],
         }
+        struct Jump {
+            new_ref: u32,
+        }
         enum TileGroup {
             Instance(Instance),
+            Jump(Jump),
             End,
         }
     }
