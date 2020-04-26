@@ -6,8 +6,11 @@
 
 #version 450
 #extension GL_GOOGLE_include_directive : enable
+#extension GL_KHR_shader_subgroup_basic : enable
 
-layout(local_size_x = 16, local_size_y = 16) in;
+#define CHUNK 8
+#define CHUNK_DY (16 / CHUNK)
+layout(local_size_x = 16, local_size_y = 2) in;
 
 // Same concern that this should be readonly as in kernel 3.
 layout(set = 0, binding = 0) buffer PtclBuf {
@@ -26,10 +29,14 @@ void main() {
     uint tile_ix = gl_WorkGroupID.y * WIDTH_IN_TILES + gl_WorkGroupID.x;
     CmdRef cmd_ref = CmdRef(tile_ix * PTCL_INITIAL_ALLOC);
 
-    uvec2 xy_uint = gl_GlobalInvocationID.xy;
+    uvec2 xy_uint = uvec2(gl_GlobalInvocationID.x, gl_LocalInvocationID.y + TILE_HEIGHT_PX * gl_WorkGroupID.y);
     vec2 xy = vec2(xy_uint);
     vec2 uv = xy * vec2(1.0 / IMAGE_WIDTH, 1.0 / IMAGE_HEIGHT);
-    vec3 rgb = uv.xyy;
+    //vec3 rgb = uv.xyy;
+    vec3 rgb[CHUNK];
+    for (uint i = 0; i < CHUNK; i++) {
+        rgb[i] = vec3(0.5);
+    }
 
     while (true) {
         uint tag = Cmd_tag(cmd_ref);
@@ -39,11 +46,14 @@ void main() {
         switch (tag) {
         case Cmd_Circle:
             CmdCircle circle = Cmd_Circle_read(cmd_ref);
-            float r = length(xy + vec2(0.5, 0.5) - circle.center.xy);
-            float alpha = clamp(0.5 + circle.radius - r, 0.0, 1.0);
             vec4 fg_rgba = unpackUnorm4x8(circle.rgba_color);
-            // TODO: sRGB
-            rgb = mix(rgb, fg_rgba.rgb, alpha * fg_rgba.a);
+            for (uint i = 0; i < CHUNK; i++) {
+                float dy = float(i * CHUNK_DY);
+                float r = length(vec2(xy.x, xy.y + dy) + vec2(0.5, 0.5) - circle.center.xy);
+                float alpha = clamp(0.5 + circle.radius - r, 0.0, 1.0);
+                // TODO: sRGB
+                rgb[i] = mix(rgb[i], fg_rgba.rgb, alpha * fg_rgba.a);
+            }
             break;
         case Cmd_Jump:
             cmd_ref = CmdRef(Cmd_Jump_read(cmd_ref).new_ref);
@@ -53,7 +63,9 @@ void main() {
     }
 
     // TODO: sRGB
-    uvec4 s = uvec4(round(vec4(rgb, 1.0) * 255.0));
-    uint rgba_packed = s.r | (s.g << 8) | (s.b << 16) | (s.a << 24);
-    image[xy_uint.y * IMAGE_WIDTH + xy_uint.x] = rgba_packed;
+    for (uint i = 0; i < CHUNK; i++) {
+        uvec4 s = uvec4(round(vec4(rgb[i], 1.0) * 255.0));
+        uint rgba_packed = s.r | (s.g << 8) | (s.b << 16) | (s.a << 24);
+        image[(xy_uint.y + CHUNK_DY * i) * IMAGE_WIDTH + xy_uint.x] = rgba_packed;
+    }
 }
