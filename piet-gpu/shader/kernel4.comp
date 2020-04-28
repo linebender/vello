@@ -14,11 +14,17 @@ layout(set = 0, binding = 0) buffer PtclBuf {
     uint[] ptcl;
 };
 
-layout(set = 0, binding = 1) buffer ImageBuf {
+// Used readonly
+layout(set = 0, binding = 1) buffer SegmentBuf {
+    uint[] segment;
+};
+
+layout(set = 0, binding = 2) buffer ImageBuf {
     uint[] image;
 };
 
 #include "ptcl.h"
+#include "segment.h"
 
 #include "setup.h"
 
@@ -41,8 +47,22 @@ void main() {
             CmdCircle circle = Cmd_Circle_read(cmd_ref);
             float r = length(xy + vec2(0.5, 0.5) - circle.center.xy);
             float alpha = clamp(0.5 + circle.radius - r, 0.0, 1.0);
-            vec4 fg_rgba = unpackUnorm4x8(circle.rgba_color);
+            vec4 fg_rgba = unpackUnorm4x8(circle.rgba_color).wzyx;
             // TODO: sRGB
+            rgb = mix(rgb, fg_rgba.rgb, alpha * fg_rgba.a);
+            break;
+        case Cmd_Stroke:
+            CmdStroke stroke = Cmd_Stroke_read(cmd_ref);
+            float df = 1e9;
+            for (int i = 0; i < stroke.n_segs; i++) {
+                Segment seg = Segment_read(Segment_index(SegmentRef(stroke.seg_ref), i));
+                vec2 line_vec = seg.end - seg.start;
+                vec2 dpos = xy + vec2(0.5, 0.5) - seg.start;
+                float t = clamp(dot(line_vec, dpos) / dot(line_vec, line_vec), 0.0, 1.0);
+                df = min(df, length(line_vec * t - dpos));
+            }
+            fg_rgba = unpackUnorm4x8(stroke.rgba_color).wzyx;
+            alpha = clamp(stroke.half_width + 0.5 - df, 0.0, 1.0);
             rgb = mix(rgb, fg_rgba.rgb, alpha * fg_rgba.a);
             break;
         case Cmd_Jump:

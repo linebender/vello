@@ -8,6 +8,10 @@ struct JumpRef {
     uint offset;
 };
 
+struct ChunkRef {
+    uint offset;
+};
+
 struct TileGroupRef {
     uint offset;
 };
@@ -24,13 +28,24 @@ InstanceRef Instance_index(InstanceRef ref, uint index) {
 }
 
 struct Jump {
-    uint new_ref;
+    TileGroupRef new_ref;
 };
 
 #define Jump_size 4
 
 JumpRef Jump_index(JumpRef ref, uint index) {
     return JumpRef(ref.offset + index * Jump_size);
+}
+
+struct Chunk {
+    uint chunk_n;
+    ChunkRef next;
+};
+
+#define Chunk_size 8
+
+ChunkRef Chunk_index(ChunkRef ref, uint index) {
+    return ChunkRef(ref.offset + index * Chunk_size);
 }
 
 #define TileGroup_Instance 0
@@ -64,13 +79,29 @@ Jump Jump_read(JumpRef ref) {
     uint ix = ref.offset >> 2;
     uint raw0 = tilegroup[ix + 0];
     Jump s;
-    s.new_ref = raw0;
+    s.new_ref = TileGroupRef(raw0);
     return s;
 }
 
 void Jump_write(JumpRef ref, Jump s) {
     uint ix = ref.offset >> 2;
-    tilegroup[ix + 0] = s.new_ref;
+    tilegroup[ix + 0] = s.new_ref.offset;
+}
+
+Chunk Chunk_read(ChunkRef ref) {
+    uint ix = ref.offset >> 2;
+    uint raw0 = tilegroup[ix + 0];
+    uint raw1 = tilegroup[ix + 1];
+    Chunk s;
+    s.chunk_n = raw0;
+    s.next = ChunkRef(raw1);
+    return s;
+}
+
+void Chunk_write(ChunkRef ref, Chunk s) {
+    uint ix = ref.offset >> 2;
+    tilegroup[ix + 0] = s.chunk_n;
+    tilegroup[ix + 1] = s.next.offset;
 }
 
 uint TileGroup_tag(TileGroupRef ref) {
