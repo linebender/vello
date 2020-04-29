@@ -12,6 +12,10 @@ struct SegmentRef {
     uint offset;
 };
 
+struct SegChunkRef {
+    uint offset;
+};
+
 struct TileHeader {
     uint n;
     ItemHeaderRef items;
@@ -24,11 +28,10 @@ TileHeaderRef TileHeader_index(TileHeaderRef ref, uint index) {
 }
 
 struct ItemHeader {
-    uint n;
-    SegmentRef segments;
+    SegChunkRef segments;
 };
 
-#define ItemHeader_size 8
+#define ItemHeader_size 4
 
 ItemHeaderRef ItemHeader_index(ItemHeaderRef ref, uint index) {
     return ItemHeaderRef(ref.offset + index * ItemHeader_size);
@@ -43,6 +46,17 @@ struct Segment {
 
 SegmentRef Segment_index(SegmentRef ref, uint index) {
     return SegmentRef(ref.offset + index * Segment_size);
+}
+
+struct SegChunk {
+    uint n;
+    SegChunkRef next;
+};
+
+#define SegChunk_size 8
+
+SegChunkRef SegChunk_index(SegChunkRef ref, uint index) {
+    return SegChunkRef(ref.offset + index * SegChunk_size);
 }
 
 TileHeader TileHeader_read(TileHeaderRef ref) {
@@ -64,17 +78,14 @@ void TileHeader_write(TileHeaderRef ref, TileHeader s) {
 ItemHeader ItemHeader_read(ItemHeaderRef ref) {
     uint ix = ref.offset >> 2;
     uint raw0 = segment[ix + 0];
-    uint raw1 = segment[ix + 1];
     ItemHeader s;
-    s.n = raw0;
-    s.segments = SegmentRef(raw1);
+    s.segments = SegChunkRef(raw0);
     return s;
 }
 
 void ItemHeader_write(ItemHeaderRef ref, ItemHeader s) {
     uint ix = ref.offset >> 2;
-    segment[ix + 0] = s.n;
-    segment[ix + 1] = s.segments.offset;
+    segment[ix + 0] = s.segments.offset;
 }
 
 Segment Segment_read(SegmentRef ref) {
@@ -95,5 +106,21 @@ void Segment_write(SegmentRef ref, Segment s) {
     segment[ix + 1] = floatBitsToUint(s.start.y);
     segment[ix + 2] = floatBitsToUint(s.end.x);
     segment[ix + 3] = floatBitsToUint(s.end.y);
+}
+
+SegChunk SegChunk_read(SegChunkRef ref) {
+    uint ix = ref.offset >> 2;
+    uint raw0 = segment[ix + 0];
+    uint raw1 = segment[ix + 1];
+    SegChunk s;
+    s.n = raw0;
+    s.next = SegChunkRef(raw1);
+    return s;
+}
+
+void SegChunk_write(SegChunkRef ref, SegChunk s) {
+    uint ix = ref.offset >> 2;
+    segment[ix + 0] = s.n;
+    segment[ix + 1] = s.next.offset;
 }
 

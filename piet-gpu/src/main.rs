@@ -53,7 +53,7 @@ fn render_scene(rc: &mut impl RenderContext) {
 }
 
 fn render_cardioid(rc: &mut impl RenderContext) {
-    let n = 100;
+    let n = 91;
     let dth = std::f64::consts::PI * 2.0 / (n as f64);
     let center = Point::new(1024.0, 768.0);
     let r = 750.0;

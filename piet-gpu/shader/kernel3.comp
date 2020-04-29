@@ -87,10 +87,9 @@ void main() {
         case PietItem_Poly:
             ItemHeader stroke_item = ItemHeader_read(stroke_th.items);
             stroke_th.items.offset += ItemHeader_size;
-            if (stroke_item.n > 0) {
+            if (stroke_item.segments.offset != 0) {
                 PietStrokePolyLine poly = PietItem_Poly_read(item_ref);
                 CmdStroke cmd = CmdStroke(
-                    stroke_item.n,
                     stroke_item.segments.offset,
                     0.5 * poly.width,
                     poly.rgba_color

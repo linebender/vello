@@ -32,3 +32,7 @@
 #define TILE_HEIGHT_PX 16
 
 #define PTCL_INITIAL_ALLOC 1024
+
+// Maximum number of segments in a SegChunk
+#define SEG_CHUNK_N 32
+#define SEG_CHUNK_ALLOC 512
