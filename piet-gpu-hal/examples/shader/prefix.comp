@@ -8,6 +8,9 @@
 
 layout(local_size_x = 1024) in;
 
+// One workgroup processes workgroup size * N_ROWS elements.
+#define N_ROWS 16
+
 layout(set = 0, binding = 0) readonly buffer InBuf {
     uint[] in_buf;
 };
@@ -31,21 +34,27 @@ layout(set = 0, binding = 2) buffer WorkBuf {
 
 shared uint shared_tile;
 shared uint shared_prefix;
+// Note: the subgroup size and other dimensions are hard-coded.
+// TODO: make it more adaptive.
 shared uint chunks[32];
 
 void main() {
     uint local_ix = gl_LocalInvocationID.x;
+    // Determine tile to process by atomic counter (implement idea from
+    // section 4.4 in the paper).
     if (local_ix == 0) {
         shared_tile = atomicAdd(work_buf[0], 1);
     }
     barrier();
     uint my_tile = shared_tile;
     uint mem_base = my_tile * 16384;
-    uint aggregates[16];
+    uint aggregates[N_ROWS];
 
+    // Interleave reading of data, computing row prefix sums, and aggregate
+    // (step 3 of paper).
     uint total = 0;
-    for (uint i = 0; i < 16; i++) {
-        uint ix = (local_ix & 0x3e0) * 16 + i * 32 + (local_ix & 0x1f);
+    for (uint i = 0; i < N_ROWS; i++) {
+        uint ix = (local_ix & 0x3e0) * N_ROWS + i * 32 + (local_ix & 0x1f);
         uint data = in_buf[mem_base + ix];
         uint row = subgroupInclusiveAdd(data);
         total += row;
@@ -102,71 +111,14 @@ void main() {
         prefix = shared_prefix;
     }
 
+    // step 6: perform partition-wide scan
     if (local_ix >> 5 > 0) {
         prefix += chunks[(local_ix >> 5) - 1];
     }
-    for (uint i = 0; i < 16; i++) {
-        uint ix = (local_ix & 0x3e0) * 16 + i * 32 + (local_ix & 0x1f);
+    for (uint i = 0; i < N_ROWS; i++) {
+        uint ix = (local_ix & 0x3e0) * N_ROWS + i * 32 + (local_ix & 0x1f);
         uint agg = aggregates[i];
         out_buf[mem_base + ix] = prefix + agg;
         prefix += subgroupBroadcast(agg, 31);
     }
-
-    /*
-    // Interleave reading of data, computing row prefix sums, and aggregate
-    // (step 3 of paper).
-    uint total = 0;
-    for (uint i = 0; i < 32; i++) {
-        uint data = in_buf[mem_base + i * 32 + local_ix];
-        uint row_sum = subgroupInclusiveAdd(data);
-        aggregates[i] = row_sum;
-        total += row_sum;
-    }
-
-    uint exclusive_prefix = 0;
-
-    if (gl_SubgroupInvocationID == 31) {
-        atomicStore(work_buf[my_tile * 4 + 2], total, gl_ScopeDevice, gl_StorageSemanticsBuffer, gl_SemanticsRelaxed);
-        uint flag = FLAG_AGGREGATE_READY;
-        if (my_tile == 0) {
-            atomicStore(work_buf[my_tile * 4 + 3], total, gl_ScopeDevice, gl_StorageSemanticsBuffer, gl_SemanticsRelaxed);
-            flag = FLAG_PREFIX_READY;
-        }
-        atomicStore(work_buf[my_tile * 4 + 1], flag, gl_ScopeDevice, gl_StorageSemanticsBuffer, gl_SemanticsRelease);
-        if (my_tile != 0) {
-            // step 4: decoupled lookback
-            uint look_back_ix = my_tile - 1;
-            while (true) {
-                flag = atomicLoad(work_buf[look_back_ix * 4 + 1], gl_ScopeDevice, gl_StorageSemanticsBuffer, gl_SemanticsAcquire);
-                if (flag == FLAG_PREFIX_READY) {
-                    uint their_prefix = atomicLoad(work_buf[look_back_ix * 4 + 3], gl_ScopeDevice, gl_StorageSemanticsBuffer, gl_SemanticsRelaxed);
-                    exclusive_prefix = their_prefix + exclusive_prefix;
-                    break;
-                } else if (flag == FLAG_AGGREGATE_READY) {
-                    uint their_agg = atomicLoad(work_buf[look_back_ix * 4 + 2], gl_ScopeDevice, gl_StorageSemanticsBuffer, gl_SemanticsRelaxed);
-                    exclusive_prefix = their_agg + exclusive_prefix;
-                    look_back_ix--;
-                }
-                // else spin
-            }
-
-            // step 5: compute inclusive prefix
-            uint inclusive_prefix = exclusive_prefix + total;
-            atomicStore(work_buf[my_tile * 4 + 3], inclusive_prefix, gl_ScopeDevice, gl_StorageSemanticsBuffer, gl_SemanticsRelaxed);
-            flag = FLAG_PREFIX_READY;
-            atomicStore(work_buf[my_tile * 4 + 1], flag, gl_ScopeDevice, gl_StorageSemanticsBuffer, gl_SemanticsRelease);
-        }
-    }
-    exclusive_prefix = subgroupBroadcast(exclusive_prefix, 31);
-
-
-    // step 6: perform partition-wide scan
-    uint row_prefix = 0;
-    for (uint i = 0; i < 32; i++) {
-        uint aggregate = aggregates[i];
-        uint data = exclusive_prefix + row_prefix + aggregate;
-        row_prefix += subgroupBroadcast(aggregate, 31);
-        out_buf[mem_base + i * 32 + local_ix] = data;
-    }
-    */
 }
