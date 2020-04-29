@@ -17,11 +17,17 @@ layout(set = 0, binding = 0) buffer PtclBuf {
     uint[] ptcl;
 };
 
-layout(set = 0, binding = 1) buffer ImageBuf {
+// Used readonly
+layout(set = 0, binding = 1) buffer SegmentBuf {
+    uint[] segment;
+};
+
+layout(set = 0, binding = 2) buffer ImageBuf {
     uint[] image;
 };
 
 #include "ptcl.h"
+#include "segment.h"
 
 #include "setup.h"
 
@@ -46,13 +52,33 @@ void main() {
         switch (tag) {
         case Cmd_Circle:
             CmdCircle circle = Cmd_Circle_read(cmd_ref);
-            vec4 fg_rgba = unpackUnorm4x8(circle.rgba_color);
+            vec4 fg_rgba = unpackUnorm4x8(circle.rgba_color).wzyx;
             for (uint i = 0; i < CHUNK; i++) {
                 float dy = float(i * CHUNK_DY);
                 float r = length(vec2(xy.x, xy.y + dy) + vec2(0.5, 0.5) - circle.center.xy);
                 float alpha = clamp(0.5 + circle.radius - r, 0.0, 1.0);
                 // TODO: sRGB
                 rgb[i] = mix(rgb[i], fg_rgba.rgb, alpha * fg_rgba.a);
+            }
+            break;
+        case Cmd_Stroke:
+            CmdStroke stroke = Cmd_Stroke_read(cmd_ref);
+            float df[CHUNK];
+            for (uint k = 0; k < CHUNK; k++) df[k] = 1e9;
+            for (int i = 0; i < stroke.n_segs; i++) {
+                Segment seg = Segment_read(Segment_index(SegmentRef(stroke.seg_ref), i));
+                vec2 line_vec = seg.end - seg.start;
+                for (uint k = 0; k < CHUNK; k++) {
+                    vec2 dpos = xy + vec2(0.5, 0.5) - seg.start;
+                    dpos.y += float(k * CHUNK_DY);
+                    float t = clamp(dot(line_vec, dpos) / dot(line_vec, line_vec), 0.0, 1.0);
+                    df[k] = min(df[k], length(line_vec * t - dpos));
+                }
+            }
+            fg_rgba = unpackUnorm4x8(stroke.rgba_color).wzyx;
+            for (uint k = 0; k < CHUNK; k++) {
+                float alpha = clamp(stroke.half_width + 0.5 - df[k], 0.0, 1.0);
+                rgb[k] = mix(rgb[k], fg_rgba.rgb, alpha * fg_rgba.a);
             }
             break;
         case Cmd_Jump:

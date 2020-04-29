@@ -7,8 +7,7 @@
 // subgroups (or possibly both) to parallelize the reading of the input and
 // the computation of tilegroup intersection.
 //
-// In addition, there are some features currently missing. One is the use of
-// a bump allocator to extend the current fixed allocation. Another is support
+// In addition, there are some features currently missing, such as support
 // for clipping.
 
 #version 450
@@ -46,8 +45,17 @@ void main() {
     StackElement stack[MAX_STACK];
     uint stack_ix = 0;
     uint tilegroup_ix = gl_GlobalInvocationID.y * WIDTH_IN_TILEGROUPS + gl_GlobalInvocationID.x;
-    TileGroupRef tg_ref = TileGroupRef(tilegroup_ix * TILEGROUP_INITIAL_ALLOC);
+    TileGroupRef tg_ref = TileGroupRef(tilegroup_ix * TILEGROUP_STRIDE);
     uint tg_limit = tg_ref.offset + TILEGROUP_INITIAL_ALLOC - 2 * TileGroup_size;
+
+    // State for stroke references.
+    TileGroupRef stroke_start = TileGroupRef(tg_ref.offset + TILEGROUP_STROKE_START);
+    ChunkRef stroke_chunk_start = ChunkRef(stroke_start.offset + 4);
+    InstanceRef stroke_ref = InstanceRef(stroke_chunk_start.offset + Chunk_size);
+    uint stroke_limit = stroke_start.offset + TILEGROUP_INITIAL_ALLOC - Instance_size;
+    uint stroke_chunk_n = 0;
+    uint stroke_n = 0;
+
     vec2 xy0 = vec2(gl_GlobalInvocationID.xy) * vec2(TILEGROUP_WIDTH_PX, TILEGROUP_HEIGHT_PX);
     PietItemRef root = PietItemRef(0);
     SimpleGroup group = PietItem_Group_read(root);
@@ -60,9 +68,11 @@ void main() {
             bool hit = max(bb.x, xy0.x) < min(bb.z, xy0.x + float(TILEGROUP_WIDTH_PX))
                 && max(bb.y, xy0.y) < min(bb.w, xy0.y + float(TILEGROUP_HEIGHT_PX));
             bool is_group = false;
+            uint tag;
             if (hit) {
                 PietItemRef item_ref = PietItem_index(group.items, tos.index);
-                is_group = PietItem_tag(item_ref) == PietItem_Group;
+                tag = PietItem_tag(item_ref);
+                is_group = tag == PietItem_Group;
             }
             if (hit && !is_group) {
                 PietItemRef item_ref = PietItem_index(group.items, tos.index);
@@ -70,13 +80,27 @@ void main() {
                 if (tg_ref.offset > tg_limit) {
                     // Allocation exceeded; do atomic bump alloc.
                     uint new_tg = atomicAdd(alloc, TILEGROUP_INITIAL_ALLOC);
-                    Jump jump = Jump(new_tg);
+                    Jump jump = Jump(TileGroupRef(new_tg));
                     TileGroup_Jump_write(tg_ref, jump);
                     tg_ref = TileGroupRef(new_tg);
                     tg_limit = tg_ref.offset + TILEGROUP_INITIAL_ALLOC - 2 * TileGroup_size;
                 }
                 TileGroup_Instance_write(tg_ref, ins);
                 tg_ref.offset += TileGroup_size;
+                if (tag == PietItem_Poly) {
+                    if (stroke_ref.offset > stroke_limit) {
+                        uint new_stroke = atomicAdd(alloc, TILEGROUP_STROKE_ALLOC);
+                        Chunk_write(stroke_chunk_start, Chunk(stroke_chunk_n, ChunkRef(new_stroke)));
+                        stroke_chunk_start = ChunkRef(new_stroke);
+                        stroke_ref = InstanceRef(new_stroke + Chunk_size);
+                        stroke_n += stroke_chunk_n;
+                        stroke_chunk_n = 0;
+                        stroke_limit = new_stroke + TILEGROUP_STROKE_ALLOC - Instance_size;
+                    }
+                    Instance_write(stroke_ref, ins);
+                    stroke_chunk_n++;
+                    stroke_ref.offset += Instance_size;
+                }
             }
             if (is_group) {
                 PietItemRef item_ref = PietItem_index(group.items, tos.index);
@@ -99,4 +123,10 @@ void main() {
         }
     }
     TileGroup_End_write(tg_ref);
+
+    stroke_n += stroke_chunk_n;
+    if (stroke_n > 0) {
+        Chunk_write(stroke_chunk_start, Chunk(stroke_chunk_n, ChunkRef(0)));
+    }
+    tilegroup[stroke_start.offset >> 2] = stroke_n;
 }

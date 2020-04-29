@@ -259,7 +259,7 @@ fn flatten_shape(
             }
             _ => (),
         }
-        println!("{:?}", el);
+        //println!("{:?}", el);
     });
     let n_points = points.len() as u32;
     let points_ref = points.encode(encoder).transmute();
