@@ -80,6 +80,13 @@ pub trait CmdBuf<D: Device> {
 
     unsafe fn copy_buffer(&self, src: &D::Buffer, dst: &D::Buffer);
 
+    /// Reset the query pool.
+    ///
+    /// The query pool must be reset before each use, to avoid validation errors.
+    /// This is annoying, and we could tweak the API to make it implicit, doing
+    /// the reset before the first timestamp write.
+    unsafe fn reset_query_pool(&mut self, pool: &D::QueryPool);
+
     unsafe fn write_timestamp(&mut self, pool: &D::QueryPool, query: u32);
 }
 
