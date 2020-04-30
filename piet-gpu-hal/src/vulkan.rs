@@ -65,7 +65,6 @@ pub struct QueryPool {
 #[derive(Clone, Copy)]
 pub struct MemFlags(vk::MemoryPropertyFlags);
 
-#[cfg(debug_assertions)]
 unsafe extern "system" fn vulkan_debug_callback(
     message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,
     message_type: vk::DebugUtilsMessageTypeFlagsEXT,
