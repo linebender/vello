@@ -1,0 +1,79 @@
+// This is "kernel 4" in a 4-kernel pipeline. It renders the commands
+// in the per-tile command list to an image.
+
+// Right now, this kernel stores the image in a buffer, but a better
+// plan is to use a texture. This is because of limited support.
+
+#version 450
+#extension GL_GOOGLE_include_directive : enable
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+// Same concern that this should be readonly as in kernel 3.
+layout(set = 0, binding = 0) buffer PtclBuf {
+    uint[] ptcl;
+};
+
+// Used readonly
+layout(set = 0, binding = 1) buffer SegmentBuf {
+    uint[] segment;
+};
+
+layout(set = 0, binding = 2) buffer ImageBuf {
+    uint[] image;
+};
+
+#include "ptcl.h"
+#include "segment.h"
+
+#include "setup.h"
+
+void main() {
+    uint tile_ix = gl_WorkGroupID.y * WIDTH_IN_TILES + gl_WorkGroupID.x;
+    CmdRef cmd_ref = CmdRef(tile_ix * PTCL_INITIAL_ALLOC);
+
+    uvec2 xy_uint = gl_GlobalInvocationID.xy;
+    vec2 xy = vec2(xy_uint);
+    vec2 uv = xy * vec2(1.0 / IMAGE_WIDTH, 1.0 / IMAGE_HEIGHT);
+    vec3 rgb = uv.xyy;
+
+    while (true) {
+        uint tag = Cmd_tag(cmd_ref);
+        if (tag == Cmd_End) {
+            break;
+        }
+        switch (tag) {
+        case Cmd_Circle:
+            CmdCircle circle = Cmd_Circle_read(cmd_ref);
+            float r = length(xy + vec2(0.5, 0.5) - circle.center.xy);
+            float alpha = clamp(0.5 + circle.radius - r, 0.0, 1.0);
+            vec4 fg_rgba = unpackUnorm4x8(circle.rgba_color).wzyx;
+            // TODO: sRGB
+            rgb = mix(rgb, fg_rgba.rgb, alpha * fg_rgba.a);
+            break;
+        case Cmd_Stroke:
+            CmdStroke stroke = Cmd_Stroke_read(cmd_ref);
+            float df = 1e9;
+            for (int i = 0; i < stroke.n_segs; i++) {
+                Segment seg = Segment_read(Segment_index(SegmentRef(stroke.seg_ref), i));
+                vec2 line_vec = seg.end - seg.start;
+                vec2 dpos = xy + vec2(0.5, 0.5) - seg.start;
+                float t = clamp(dot(line_vec, dpos) / dot(line_vec, line_vec), 0.0, 1.0);
+                df = min(df, length(line_vec * t - dpos));
+            }
+            fg_rgba = unpackUnorm4x8(stroke.rgba_color).wzyx;
+            alpha = clamp(stroke.half_width + 0.5 - df, 0.0, 1.0);
+            rgb = mix(rgb, fg_rgba.rgb, alpha * fg_rgba.a);
+            break;
+        case Cmd_Jump:
+            cmd_ref = CmdRef(Cmd_Jump_read(cmd_ref).new_ref);
+            continue;
+        }
+        cmd_ref.offset += Cmd_size;
+    }
+
+    // TODO: sRGB
+    uvec4 s = uvec4(round(vec4(rgb, 1.0) * 255.0));
+    uint rgba_packed = s.r | (s.g << 8) | (s.b << 16) | (s.a << 24);
+    image[xy_uint.y * IMAGE_WIDTH + xy_uint.x] = rgba_packed;
+}

@@ -1,3 +1,15 @@
+// This is "kernel 1" in a 4-kernel pipeline. It traverses the scene graph
+// and outputs "instances" (references to item + translation) for each item
+// that intersects the tilegroup.
+//
+// This implementation is simplistic and leaves a lot of performance on the
+// table. A fancier implementation would use threadgroup shared memory or
+// subgroups (or possibly both) to parallelize the reading of the input and
+// the computation of tilegroup intersection.
+//
+// In addition, there are some features currently missing, such as support
+// for clipping.
+
 #version 450
 #extension GL_GOOGLE_include_directive : enable
 
@@ -12,16 +24,14 @@ layout(set = 0, binding = 1) buffer TilegroupBuf {
     uint[] tilegroup;
 };
 
+layout(set = 0, binding = 2) buffer AllocBuf {
+    uint alloc;
+};
+
 #include "scene.h"
 #include "tilegroup.h"
 
-// TODO: compute this
-#define WIDTH_IN_TILEGROUPS 4
-
-#define TILEGROUP_WIDTH 512
-#define TILEGROUP_HEIGHT 16
-
-#define INITIAL_ALLOC 1024
+#include "setup.h"
 
 #define MAX_STACK 8
 
@@ -35,8 +45,18 @@ void main() {
     StackElement stack[MAX_STACK];
     uint stack_ix = 0;
     uint tilegroup_ix = gl_GlobalInvocationID.y * WIDTH_IN_TILEGROUPS + gl_GlobalInvocationID.x;
-    TileGroupRef tg_ref = TileGroupRef(tilegroup_ix * INITIAL_ALLOC);
-    vec2 xy0 = vec2(gl_GlobalInvocationID.xy) * vec2(TILEGROUP_WIDTH, TILEGROUP_HEIGHT);
+    TileGroupRef tg_ref = TileGroupRef(tilegroup_ix * TILEGROUP_STRIDE);
+    uint tg_limit = tg_ref.offset + TILEGROUP_INITIAL_ALLOC - 2 * TileGroup_size;
+
+    // State for stroke references.
+    TileGroupRef stroke_start = TileGroupRef(tg_ref.offset + TILEGROUP_STROKE_START);
+    ChunkRef stroke_chunk_start = ChunkRef(stroke_start.offset + 4);
+    InstanceRef stroke_ref = InstanceRef(stroke_chunk_start.offset + Chunk_size);
+    uint stroke_limit = stroke_start.offset + TILEGROUP_INITIAL_ALLOC - Instance_size;
+    uint stroke_chunk_n = 0;
+    uint stroke_n = 0;
+
+    vec2 xy0 = vec2(gl_GlobalInvocationID.xy) * vec2(TILEGROUP_WIDTH_PX, TILEGROUP_HEIGHT_PX);
     PietItemRef root = PietItemRef(0);
     SimpleGroup group = PietItem_Group_read(root);
     StackElement tos = StackElement(root, 0, group.offset.xy);
@@ -45,19 +65,42 @@ void main() {
         if (tos.index < group.n_items) {
             Bbox bbox = Bbox_read(Bbox_index(group.bboxes, tos.index));
             vec4 bb = vec4(bbox.bbox) + tos.offset.xyxy;
-            bool hit = max(bb.x, xy0.x) < min(bb.z, xy0.x + float(TILEGROUP_WIDTH))
-                && max(bb.y, xy0.y) < min(bb.w, xy0.y + float(TILEGROUP_HEIGHT));
+            bool hit = max(bb.x, xy0.x) < min(bb.z, xy0.x + float(TILEGROUP_WIDTH_PX))
+                && max(bb.y, xy0.y) < min(bb.w, xy0.y + float(TILEGROUP_HEIGHT_PX));
             bool is_group = false;
+            uint tag;
             if (hit) {
                 PietItemRef item_ref = PietItem_index(group.items, tos.index);
-                is_group = PietItem_tag(item_ref) == PietItem_Group;
+                tag = PietItem_tag(item_ref);
+                is_group = tag == PietItem_Group;
             }
             if (hit && !is_group) {
                 PietItemRef item_ref = PietItem_index(group.items, tos.index);
                 Instance ins = Instance(item_ref.offset, tos.offset);
+                if (tg_ref.offset > tg_limit) {
+                    // Allocation exceeded; do atomic bump alloc.
+                    uint new_tg = atomicAdd(alloc, TILEGROUP_INITIAL_ALLOC);
+                    Jump jump = Jump(TileGroupRef(new_tg));
+                    TileGroup_Jump_write(tg_ref, jump);
+                    tg_ref = TileGroupRef(new_tg);
+                    tg_limit = tg_ref.offset + TILEGROUP_INITIAL_ALLOC - 2 * TileGroup_size;
+                }
                 TileGroup_Instance_write(tg_ref, ins);
                 tg_ref.offset += TileGroup_size;
-                // TODO: bump allocate if allocation exceeded
+                if (tag == PietItem_Poly) {
+                    if (stroke_ref.offset > stroke_limit) {
+                        uint new_stroke = atomicAdd(alloc, TILEGROUP_STROKE_ALLOC);
+                        Chunk_write(stroke_chunk_start, Chunk(stroke_chunk_n, ChunkRef(new_stroke)));
+                        stroke_chunk_start = ChunkRef(new_stroke);
+                        stroke_ref = InstanceRef(new_stroke + Chunk_size);
+                        stroke_n += stroke_chunk_n;
+                        stroke_chunk_n = 0;
+                        stroke_limit = new_stroke + TILEGROUP_STROKE_ALLOC - Instance_size;
+                    }
+                    Instance_write(stroke_ref, ins);
+                    stroke_chunk_n++;
+                    stroke_ref.offset += Instance_size;
+                }
             }
             if (is_group) {
                 PietItemRef item_ref = PietItem_index(group.items, tos.index);
@@ -80,4 +123,10 @@ void main() {
         }
     }
     TileGroup_End_write(tg_ref);
+
+    stroke_n += stroke_chunk_n;
+    if (stroke_n > 0) {
+        Chunk_write(stroke_chunk_start, Chunk(stroke_chunk_n, ChunkRef(0)));
+    }
+    tilegroup[stroke_start.offset >> 2] = stroke_n;
 }

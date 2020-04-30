@@ -4,6 +4,14 @@ struct InstanceRef {
     uint offset;
 };
 
+struct JumpRef {
+    uint offset;
+};
+
+struct ChunkRef {
+    uint offset;
+};
+
 struct TileGroupRef {
     uint offset;
 };
@@ -19,8 +27,30 @@ InstanceRef Instance_index(InstanceRef ref, uint index) {
     return InstanceRef(ref.offset + index * Instance_size);
 }
 
+struct Jump {
+    TileGroupRef new_ref;
+};
+
+#define Jump_size 4
+
+JumpRef Jump_index(JumpRef ref, uint index) {
+    return JumpRef(ref.offset + index * Jump_size);
+}
+
+struct Chunk {
+    uint chunk_n;
+    ChunkRef next;
+};
+
+#define Chunk_size 8
+
+ChunkRef Chunk_index(ChunkRef ref, uint index) {
+    return ChunkRef(ref.offset + index * Chunk_size);
+}
+
 #define TileGroup_Instance 0
-#define TileGroup_End 1
+#define TileGroup_Jump 1
+#define TileGroup_End 2
 #define TileGroup_size 16
 
 TileGroupRef TileGroup_index(TileGroupRef ref, uint index) {
@@ -45,6 +75,35 @@ void Instance_write(InstanceRef ref, Instance s) {
     tilegroup[ix + 2] = floatBitsToUint(s.offset.y);
 }
 
+Jump Jump_read(JumpRef ref) {
+    uint ix = ref.offset >> 2;
+    uint raw0 = tilegroup[ix + 0];
+    Jump s;
+    s.new_ref = TileGroupRef(raw0);
+    return s;
+}
+
+void Jump_write(JumpRef ref, Jump s) {
+    uint ix = ref.offset >> 2;
+    tilegroup[ix + 0] = s.new_ref.offset;
+}
+
+Chunk Chunk_read(ChunkRef ref) {
+    uint ix = ref.offset >> 2;
+    uint raw0 = tilegroup[ix + 0];
+    uint raw1 = tilegroup[ix + 1];
+    Chunk s;
+    s.chunk_n = raw0;
+    s.next = ChunkRef(raw1);
+    return s;
+}
+
+void Chunk_write(ChunkRef ref, Chunk s) {
+    uint ix = ref.offset >> 2;
+    tilegroup[ix + 0] = s.chunk_n;
+    tilegroup[ix + 1] = s.next.offset;
+}
+
 uint TileGroup_tag(TileGroupRef ref) {
     return tilegroup[ref.offset >> 2];
 }
@@ -53,9 +112,18 @@ Instance TileGroup_Instance_read(TileGroupRef ref) {
     return Instance_read(InstanceRef(ref.offset + 4));
 }
 
+Jump TileGroup_Jump_read(TileGroupRef ref) {
+    return Jump_read(JumpRef(ref.offset + 4));
+}
+
 void TileGroup_Instance_write(TileGroupRef ref, Instance s) {
     tilegroup[ref.offset >> 2] = TileGroup_Instance;
     Instance_write(InstanceRef(ref.offset + 4), s);
+}
+
+void TileGroup_Jump_write(TileGroupRef ref, Jump s) {
+    tilegroup[ref.offset >> 2] = TileGroup_Jump;
+    Jump_write(JumpRef(ref.offset + 4), s);
 }
 
 void TileGroup_End_write(TileGroupRef ref) {

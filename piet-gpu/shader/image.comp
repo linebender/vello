@@ -40,7 +40,7 @@ void main() {
         if (tag == PietItem_Circle) {
             PietCircle circle = PietItem_Circle_read(item_ref);
             float r = length(xy + vec2(0.5, 0.5) - circle.center.xy);
-            float alpha = clamp(circle.radius - r, 0.0, 1.0);
+            float alpha = clamp(0.5 + circle.radius - r, 0.0, 1.0);
             vec4 fg_rgba = unpackUnorm4x8(circle.rgba_color);
             // TODO: sRGB
             rgb = mix(rgb, fg_rgba.rgb, alpha * fg_rgba.a);

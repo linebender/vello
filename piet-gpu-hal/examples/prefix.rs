@@ -35,6 +35,7 @@ fn main() {
         cmd_buf.clear_buffer(&work_buffer);
         cmd_buf.copy_buffer(&buffer, &buffer_dev);
         cmd_buf.memory_barrier();
+        cmd_buf.reset_query_pool(&query_pool);
         cmd_buf.write_timestamp(&query_pool, 0);
         cmd_buf.dispatch(&pipeline, &descriptor_set, (n_tiles as u32, 1, 1));
         cmd_buf.write_timestamp(&query_pool, 1);

@@ -71,9 +71,21 @@ pub trait CmdBuf<D: Device> {
 
     unsafe fn memory_barrier(&mut self);
 
+    /// Clear the buffer.
+    ///
+    /// This is readily supported in Vulkan, but for portability it is remarkably
+    /// tricky (unimplemented in gfx-hal right now). Possibly best to write a compute
+    /// kernel, or organize the code not to need it.
     unsafe fn clear_buffer(&self, buffer: &D::Buffer);
 
     unsafe fn copy_buffer(&self, src: &D::Buffer, dst: &D::Buffer);
+
+    /// Reset the query pool.
+    ///
+    /// The query pool must be reset before each use, to avoid validation errors.
+    /// This is annoying, and we could tweak the API to make it implicit, doing
+    /// the reset before the first timestamp write.
+    unsafe fn reset_query_pool(&mut self, pool: &D::QueryPool);
 
     unsafe fn write_timestamp(&mut self, pool: &D::QueryPool, query: u32);
 }

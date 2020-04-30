@@ -4,11 +4,15 @@ use std::path::Path;
 
 use rand::{Rng, RngCore};
 
+use piet::kurbo::{BezPath, Circle, Line, Point, Vec2};
+use piet::{Color, RenderContext};
+
 use piet_gpu_hal::vulkan::VkInstance;
 use piet_gpu_hal::{CmdBuf, Device, MemFlags};
 
-use piet_gpu_types::encoder::{Encode, Encoder};
-use piet_gpu_types::scene::{Bbox, PietCircle, PietItem, Point, SimpleGroup};
+mod render_ctx;
+
+use render_ctx::PietGpuRenderContext;
 
 const WIDTH: usize = 2048;
 const HEIGHT: usize = 1536;
@@ -16,52 +20,53 @@ const HEIGHT: usize = 1536;
 const TILE_W: usize = 16;
 const TILE_H: usize = 16;
 
-const N_CIRCLES: usize = 100;
+const WIDTH_IN_TILEGROUPS: usize = 4;
+const HEIGHT_IN_TILEGROUPS: usize = 96;
+const TILEGROUP_STRIDE: usize = 2048;
 
-fn make_scene() -> Vec<u8> {
+const WIDTH_IN_TILES: usize = 128;
+const HEIGHT_IN_TILES: usize = 96;
+const PTCL_INITIAL_ALLOC: usize = 1024;
+
+const K2_PER_TILE_SIZE: usize = 8;
+
+const N_CIRCLES: usize = 1;
+
+fn render_scene(rc: &mut impl RenderContext) {
     let mut rng = rand::thread_rng();
-    let mut encoder = Encoder::new();
-    let _reserve_root = encoder.alloc_chunk(PietItem::fixed_size() as u32);
-
-    let mut items = Vec::new();
-    let mut bboxes = Vec::new();
     for _ in 0..N_CIRCLES {
-        let circle = PietCircle {
-            rgba_color: rng.next_u32(),
-            center: Point {
-                xy: [
-                    rng.gen_range(0.0, WIDTH as f32),
-                    rng.gen_range(0.0, HEIGHT as f32),
-                ],
-            },
-            radius: rng.gen_range(0.0, 50.0),
-        };
-        let bbox = Bbox {
-            bbox: [
-                (circle.center.xy[0] - circle.radius).floor() as i16,
-                (circle.center.xy[1] - circle.radius).floor() as i16,
-                (circle.center.xy[0] + circle.radius).ceil() as i16,
-                (circle.center.xy[1] + circle.radius).ceil() as i16,
-            ],
-        };
-        items.push(PietItem::Circle(circle));
-        bboxes.push(bbox);
+        let color = Color::from_rgba32_u32(rng.next_u32());
+        let center = Point::new(
+            rng.gen_range(0.0, WIDTH as f64),
+            rng.gen_range(0.0, HEIGHT as f64),
+        );
+        let radius = rng.gen_range(0.0, 50.0);
+        let circle = Circle::new(center, radius);
+        rc.fill(circle, &color);
     }
+    rc.stroke(
+        Line::new((100.0, 100.0), (200.0, 150.0)),
+        &Color::WHITE,
+        5.0,
+    );
+    render_cardioid(rc);
+}
 
-    let n_items = bboxes.len() as u32;
-    let bboxes = bboxes.encode(&mut encoder).transmute();
-    let items = items.encode(&mut encoder).transmute();
-    let offset = Point { xy: [0.0, 0.0] };
-    let simple_group = SimpleGroup {
-        n_items,
-        bboxes,
-        items,
-        offset,
-    };
-    let root_item = PietItem::Group(simple_group);
-    root_item.encode_to(&mut encoder.buf_mut()[0..PietItem::fixed_size()]);
-    // We should avoid this clone.
-    encoder.buf().to_owned()
+fn render_cardioid(rc: &mut impl RenderContext) {
+    let n = 100;
+    let dth = std::f64::consts::PI * 2.0 / (n as f64);
+    let center = Point::new(1024.0, 768.0);
+    let r = 750.0;
+    let mut path = BezPath::new();
+    for i in 1..n {
+        let p0 = center + Vec2::from_angle(i as f64 * dth) * r;
+        let p1 = center + Vec2::from_angle(((i * 2) % n) as f64 * dth) * r;
+        rc.fill(&Circle::new(p0, 8.0), &Color::WHITE);
+        path.move_to(p0);
+        path.line_to(p1);
+        //rc.stroke(Line::new(p0, p1), &Color::BLACK, 2.0);
+    }
+    rc.stroke(&path, &Color::BLACK, 2.0);
 }
 
 #[allow(unused)]
@@ -73,6 +78,7 @@ fn dump_scene(buf: &[u8]) {
     }
 }
 
+#[allow(unused)]
 fn dump_k1_data(k1_buf: &[u32]) {
     for i in 0..k1_buf.len() {
         if k1_buf[i] != 0 {
@@ -87,7 +93,9 @@ fn main() {
         let device = instance.device().unwrap();
         let host = MemFlags::host_coherent();
         let dev = MemFlags::device_local();
-        let scene = make_scene();
+        let mut ctx = PietGpuRenderContext::new();
+        render_scene(&mut ctx);
+        let scene = ctx.get_scene_buf();
         //dump_scene(&scene);
         let scene_buf = device
             .create_buffer(std::mem::size_of_val(&scene[..]) as u64, host)
@@ -96,7 +104,9 @@ fn main() {
             .create_buffer(std::mem::size_of_val(&scene[..]) as u64, dev)
             .unwrap();
         device.write_buffer(&scene_buf, &scene).unwrap();
-        let tilegroup_buf = device.create_buffer(384 * 1024, host).unwrap();
+        let tilegroup_buf = device.create_buffer(4 * 1024 * 1024, dev).unwrap();
+        let ptcl_buf = device.create_buffer(48 * 1024 * 1024, dev).unwrap();
+        let segment_buf = device.create_buffer(64 * 1024 * 1024, dev).unwrap();
         let image_buf = device
             .create_buffer((WIDTH * HEIGHT * 4) as u64, host)
             .unwrap();
@@ -104,23 +114,74 @@ fn main() {
             .create_buffer((WIDTH * HEIGHT * 4) as u64, dev)
             .unwrap();
 
+        let k1_alloc_buf_host = device.create_buffer(4, host).unwrap();
+        let k1_alloc_buf_dev = device.create_buffer(4, dev).unwrap();
+        let k1_alloc_start = WIDTH_IN_TILEGROUPS * HEIGHT_IN_TILEGROUPS * TILEGROUP_STRIDE;
+        device
+            .write_buffer(&k1_alloc_buf_host, &[k1_alloc_start as u32])
+            .unwrap();
         let k1_code = include_bytes!("../shader/kernel1.spv");
-        let k1_pipeline = device.create_simple_compute_pipeline(k1_code, 2).unwrap();
+        let k1_pipeline = device.create_simple_compute_pipeline(k1_code, 3).unwrap();
         let k1_ds = device
-            .create_descriptor_set(&k1_pipeline, &[&scene_dev, &tilegroup_buf])
+            .create_descriptor_set(
+                &k1_pipeline,
+                &[&scene_dev, &tilegroup_buf, &k1_alloc_buf_dev],
+            )
             .unwrap();
 
-        let code = include_bytes!("../shader/image.spv");
-        let pipeline = device.create_simple_compute_pipeline(code, 2).unwrap();
-        let descriptor_set = device
-            .create_descriptor_set(&pipeline, &[&scene_dev, &image_dev])
+        let k2s_alloc_buf_host = device.create_buffer(4, host).unwrap();
+        let k2s_alloc_buf_dev = device.create_buffer(4, dev).unwrap();
+        let k2s_alloc_start = WIDTH_IN_TILES * HEIGHT_IN_TILES * K2_PER_TILE_SIZE;
+        device
+            .write_buffer(&k2s_alloc_buf_host, &[k2s_alloc_start as u32])
             .unwrap();
-        let query_pool = device.create_query_pool(3).unwrap();
+        let k2s_code = include_bytes!("../shader/kernel2s.spv");
+        let k2s_pipeline = device.create_simple_compute_pipeline(k2s_code, 4).unwrap();
+        let k2s_ds = device
+            .create_descriptor_set(
+                &k2s_pipeline,
+                &[&scene_dev, &tilegroup_buf, &segment_buf, &k2s_alloc_buf_dev],
+            )
+            .unwrap();
+
+        let k3_alloc_buf_host = device.create_buffer(4, host).unwrap();
+        let k3_alloc_buf_dev = device.create_buffer(4, dev).unwrap();
+        let k3_alloc_start = WIDTH_IN_TILES * HEIGHT_IN_TILES * PTCL_INITIAL_ALLOC;
+        device
+            .write_buffer(&k3_alloc_buf_host, &[k3_alloc_start as u32])
+            .unwrap();
+        let k3_code = include_bytes!("../shader/kernel3.spv");
+        let k3_pipeline = device.create_simple_compute_pipeline(k3_code, 5).unwrap();
+        let k3_ds = device
+            .create_descriptor_set(
+                &k3_pipeline,
+                &[
+                    &scene_dev,
+                    &tilegroup_buf,
+                    &segment_buf,
+                    &ptcl_buf,
+                    &k3_alloc_buf_dev,
+                ],
+            )
+            .unwrap();
+
+        let k4_code = include_bytes!("../shader/kernel4.spv");
+        let k4_pipeline = device.create_simple_compute_pipeline(k4_code, 3).unwrap();
+        let k4_ds = device
+            .create_descriptor_set(&k4_pipeline, &[&ptcl_buf, &segment_buf, &image_dev])
+            .unwrap();
+
+        let query_pool = device.create_query_pool(5).unwrap();
         let mut cmd_buf = device.create_cmd_buf().unwrap();
         cmd_buf.begin();
         cmd_buf.copy_buffer(&scene_buf, &scene_dev);
+        cmd_buf.copy_buffer(&k1_alloc_buf_host, &k1_alloc_buf_dev);
+        cmd_buf.copy_buffer(&k2s_alloc_buf_host, &k2s_alloc_buf_dev);
+        cmd_buf.copy_buffer(&k3_alloc_buf_host, &k3_alloc_buf_dev);
         cmd_buf.clear_buffer(&tilegroup_buf);
+        cmd_buf.clear_buffer(&ptcl_buf);
         cmd_buf.memory_barrier();
+        cmd_buf.reset_query_pool(&query_pool);
         cmd_buf.write_timestamp(&query_pool, 0);
         cmd_buf.dispatch(
             &k1_pipeline,
@@ -130,22 +191,49 @@ fn main() {
         cmd_buf.write_timestamp(&query_pool, 1);
         cmd_buf.memory_barrier();
         cmd_buf.dispatch(
-            &pipeline,
-            &descriptor_set,
-            ((WIDTH / TILE_W) as u32, (HEIGHT / TILE_H) as u32, 1),
+            &k2s_pipeline,
+            &k2s_ds,
+            ((WIDTH / 512) as u32, (HEIGHT / 16) as u32, 1),
         );
         cmd_buf.write_timestamp(&query_pool, 2);
+        cmd_buf.memory_barrier();
+        cmd_buf.dispatch(
+            &k3_pipeline,
+            &k3_ds,
+            ((WIDTH / 512) as u32, (HEIGHT / 16) as u32, 1),
+        );
+        cmd_buf.write_timestamp(&query_pool, 3);
+        cmd_buf.memory_barrier();
+        cmd_buf.dispatch(
+            &k4_pipeline,
+            &k4_ds,
+            ((WIDTH / TILE_W) as u32, (HEIGHT / TILE_H) as u32, 1),
+        );
+        cmd_buf.write_timestamp(&query_pool, 4);
         cmd_buf.memory_barrier();
         cmd_buf.copy_buffer(&image_dev, &image_buf);
         cmd_buf.finish();
         device.run_cmd_buf(&cmd_buf).unwrap();
         let timestamps = device.reap_query_pool(query_pool).unwrap();
         println!("Kernel 1 time: {:.3}ms", timestamps[0] * 1e3);
-        println!("Render time: {:.3}ms", (timestamps[1] - timestamps[0]) * 1e3);
+        println!(
+            "Kernel 2 time: {:.3}ms",
+            (timestamps[1] - timestamps[0]) * 1e3
+        );
+        println!(
+            "Kernel 3 time: {:.3}ms",
+            (timestamps[2] - timestamps[1]) * 1e3
+        );
+        println!(
+            "Render time: {:.3}ms",
+            (timestamps[3] - timestamps[2]) * 1e3
+        );
 
+        /*
         let mut k1_data: Vec<u32> = Default::default();
-        device.read_buffer(&tilegroup_buf, &mut k1_data).unwrap();
+        device.read_buffer(&segment_buf, &mut k1_data).unwrap();
         dump_k1_data(&k1_data);
+        */
 
         let mut img_data: Vec<u8> = Default::default();
         // Note: because png can use a `&[u8]` slice, we could avoid an extra copy

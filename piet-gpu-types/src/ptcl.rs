@@ -4,16 +4,19 @@ piet_gpu! {
     #[gpu_write]
     mod ptcl {
         struct CmdCircle {
-            // In existing code, this is packed; we might need an annotation for this.
-            bbox: [u16; 4],
+            center: [f32; 2],
+            radius: f32,
+            rgba_color: u32,
         }
         struct CmdLine {
             start: [f32; 2],
             end: [f32; 2],
         }
         struct CmdStroke {
-            // In existing code, this is f16. Should we have support?
-            halfWidth: f32,
+            n_segs: u32,
+            // Should be Ref<Segment> if we had cross-module references.
+            seg_ref: u32,
+            half_width: f32,
             rgba_color: u32,
         }
         struct CmdFill {
@@ -32,6 +35,9 @@ piet_gpu! {
         struct CmdSolid {
             rgba_color: u32,
         }
+        struct CmdJump {
+            new_ref: u32,
+        }
         enum Cmd {
             End,
             Circle(CmdCircle),
@@ -41,6 +47,7 @@ piet_gpu! {
             FillEdge(CmdFillEdge),
             DrawFill(CmdDrawFill),
             Solid(CmdSolid),
+            Jump(CmdJump),
             Bail,
         }
     }

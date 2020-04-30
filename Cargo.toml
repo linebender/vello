@@ -6,3 +6,7 @@ members = [
     "piet-gpu-hal",
     "piet-gpu-types"
 ]
+
+# TODO: remove when the flatten feature is published
+[patch.crates-io]
+kurbo = { git = "https://github.com/linebender/kurbo", rev = "7bd7e66bd137e757305d170a0f9f2b4f7beeb299" }

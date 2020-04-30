@@ -12,14 +12,14 @@ use syn::{
 /// A scalar that can be represented in a packed data structure.
 #[derive(Clone, Copy, PartialEq)]
 pub enum GpuScalar {
+    F16,
+    F32,
     I8,
     I16,
     I32,
-    F32,
     U8,
     U16,
     U32,
-    // TODO: Add F16
 }
 
 /// An algebraic datatype.
@@ -52,6 +52,7 @@ impl GpuScalar {
     fn from_syn(ty: &syn::Type) -> Option<Self> {
         ty_as_single_ident(ty).and_then(|ident| match ident.as_str() {
             "f32" => Some(GpuScalar::F32),
+            "f16" => Some(GpuScalar::F16),
             "i8" => Some(GpuScalar::I8),
             "i16" => Some(GpuScalar::I16),
             "i32" => Some(GpuScalar::I32),
@@ -70,7 +71,7 @@ impl GpuScalar {
         match self {
             GpuScalar::F32 | GpuScalar::I32 | GpuScalar::U32 => 4,
             GpuScalar::I8 | GpuScalar::U8 => 1,
-            GpuScalar::I16 | GpuScalar::U16 => 2,
+            GpuScalar::F16 | GpuScalar::I16 | GpuScalar::U16 => 2,
         }
     }
 }

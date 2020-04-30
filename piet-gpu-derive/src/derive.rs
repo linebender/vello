@@ -14,6 +14,16 @@ pub fn gen_derive(module: &LayoutModule) -> proc_macro2::TokenStream {
     }
     quote! {
         mod #module_name {
+            pub trait HalfToLeBytes {
+                fn to_le_bytes(&self) -> [u8; 2];
+            }
+
+            impl HalfToLeBytes for half::f16 {
+                fn to_le_bytes(&self) -> [u8; 2] {
+                    self.to_bits().to_le_bytes()
+                }
+            }
+
             #ts
         }
     }
@@ -121,6 +131,7 @@ fn gen_derive_ty(ty: &GpuType) -> proc_macro2::TokenStream {
 
 fn gen_derive_scalar_ty(ty: &GpuScalar) -> proc_macro2::TokenStream {
     match ty {
+        GpuScalar::F16 => quote!(half::f16),
         GpuScalar::F32 => quote!(f32),
         GpuScalar::I8 => quote!(i8),
         GpuScalar::I16 => quote!(i16),

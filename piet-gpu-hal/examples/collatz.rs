@@ -17,6 +17,7 @@ fn main() {
         let query_pool = device.create_query_pool(2).unwrap();
         let mut cmd_buf = device.create_cmd_buf().unwrap();
         cmd_buf.begin();
+        cmd_buf.reset_query_pool(&query_pool);
         cmd_buf.write_timestamp(&query_pool, 0);
         cmd_buf.dispatch(&pipeline, &descriptor_set, (256, 1, 1));
         cmd_buf.write_timestamp(&query_pool, 1);
