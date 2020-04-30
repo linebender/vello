@@ -24,9 +24,7 @@ layout(set = 0, binding = 2) buffer FillSegBuf {
     uint[] fill_seg;
 };
 
-layout(set = 0, binding = 3) buffer ImageBuf {
-    uint[] image;
-};
+layout(rgba8, set = 0, binding = 2) uniform writeonly image2D image;
 
 #include "ptcl.h"
 #include "segment.h"
@@ -65,11 +63,11 @@ void main() {
                 SegChunk seg_chunk = SegChunk_read(seg_chunk_ref);
                 for (int i = 0; i < seg_chunk.n; i++) {
                     Segment seg = Segment_read(SegmentRef(seg_chunk_ref.offset + SegChunk_size + Segment_size * i));
-                    vec2 line_vec = seg.end - seg.start;
-                    vec2 dpos = xy + vec2(0.5, 0.5) - seg.start;
-                    float t = clamp(dot(line_vec, dpos) / dot(line_vec, line_vec), 0.0, 1.0);
-                    df = min(df, length(line_vec * t - dpos));
-                }
+                vec2 line_vec = seg.end - seg.start;
+                vec2 dpos = xy + vec2(0.5, 0.5) - seg.start;
+                float t = clamp(dot(line_vec, dpos) / dot(line_vec, line_vec), 0.0, 1.0);
+                df = min(df, length(line_vec * t - dpos));
+            }
                 seg_chunk_ref = seg_chunk.next;
             } while (seg_chunk_ref.offset != 0);
             fg_rgba = unpackUnorm4x8(stroke.rgba_color).wzyx;
@@ -118,8 +116,5 @@ void main() {
         cmd_ref.offset += Cmd_size;
     }
 
-    // TODO: sRGB
-    uvec4 s = uvec4(round(vec4(rgb, 1.0) * 255.0));
-    uint rgba_packed = s.r | (s.g << 8) | (s.b << 16) | (s.a << 24);
-    image[xy_uint.y * IMAGE_WIDTH + xy_uint.x] = rgba_packed;
+    imageStore(image, ivec2(xy_uint), vec4(rgb, 1.0));
 }
