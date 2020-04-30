@@ -181,6 +181,7 @@ fn main() {
         cmd_buf.clear_buffer(&tilegroup_buf);
         cmd_buf.clear_buffer(&ptcl_buf);
         cmd_buf.memory_barrier();
+        cmd_buf.reset_query_pool(&query_pool);
         cmd_buf.write_timestamp(&query_pool, 0);
         cmd_buf.dispatch(
             &k1_pipeline,

@@ -573,6 +573,16 @@ impl crate::CmdBuf<VkDevice> for CmdBuf {
         );
     }
 
+    unsafe fn reset_query_pool(&mut self, pool: &QueryPool) {
+        let device = &self.device.device;
+        device.cmd_reset_query_pool(
+            self.cmd_buf,
+            pool.pool,
+            0,
+            pool.n_queries,
+        );
+    }
+
     unsafe fn write_timestamp(&mut self, pool: &QueryPool, query: u32) {
         let device = &self.device.device;
         device.cmd_write_timestamp(
