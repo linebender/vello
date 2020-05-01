@@ -10,9 +10,11 @@ use piet::{Color, RenderContext};
 use piet_gpu_hal::vulkan::VkInstance;
 use piet_gpu_hal::{CmdBuf, Device, MemFlags};
 
+mod pico_svg;
 mod render_ctx;
 
 use render_ctx::PietGpuRenderContext;
+use pico_svg::PicoSvg;
 
 const WIDTH: usize = 2048;
 const HEIGHT: usize = 1536;
@@ -44,14 +46,22 @@ fn render_scene(rc: &mut impl RenderContext) {
         let circle = Circle::new(center, radius);
         rc.fill(circle, &color);
     }
+    let mut path = BezPath::new();
+    path.move_to((100.0, 1150.0));
+    path.line_to((200.0, 1200.0));
+    path.line_to((150.0, 1250.0));
+    path.close_path();
+    rc.fill(path, &Color::rgb8(128, 0, 128));
     rc.stroke(
         Line::new((100.0, 100.0), (200.0, 150.0)),
         &Color::WHITE,
         5.0,
     );
-    render_cardioid(rc);
+    //render_cardioid(rc);
+    render_tiger(rc);
 }
 
+#[allow(unused)]
 fn render_cardioid(rc: &mut impl RenderContext) {
     let n = 91;
     let dth = std::f64::consts::PI * 2.0 / (n as f64);
@@ -67,6 +77,17 @@ fn render_cardioid(rc: &mut impl RenderContext) {
         //rc.stroke(Line::new(p0, p1), &Color::BLACK, 2.0);
     }
     rc.stroke(&path, &Color::BLACK, 2.0);
+}
+
+fn render_tiger(rc: &mut impl RenderContext) {
+    let xml_str = std::str::from_utf8(include_bytes!("../Ghostscript_Tiger.svg")).unwrap();
+    let start = std::time::Instant::now();
+    let svg = PicoSvg::load(xml_str, 8.0).unwrap();
+    println!("parsing time: {:?}", start.elapsed());
+
+    let start = std::time::Instant::now();
+    svg.render(rc);
+    println!("flattening and encoding time: {:?}", start.elapsed());
 }
 
 #[allow(unused)]
@@ -107,6 +128,7 @@ fn main() {
         let tilegroup_buf = device.create_buffer(4 * 1024 * 1024, dev).unwrap();
         let ptcl_buf = device.create_buffer(48 * 1024 * 1024, dev).unwrap();
         let segment_buf = device.create_buffer(64 * 1024 * 1024, dev).unwrap();
+        let fill_seg_buf = device.create_buffer(64 * 1024 * 1024, dev).unwrap();
         let image_buf = device
             .create_buffer((WIDTH * HEIGHT * 4) as u64, host)
             .unwrap();
@@ -144,6 +166,26 @@ fn main() {
             )
             .unwrap();
 
+        let k2f_alloc_buf_host = device.create_buffer(4, host).unwrap();
+        let k2f_alloc_buf_dev = device.create_buffer(4, dev).unwrap();
+        let k2f_alloc_start = WIDTH_IN_TILES * HEIGHT_IN_TILES * K2_PER_TILE_SIZE;
+        device
+            .write_buffer(&k2f_alloc_buf_host, &[k2f_alloc_start as u32])
+            .unwrap();
+        let k2f_code = include_bytes!("../shader/kernel2f.spv");
+        let k2f_pipeline = device.create_simple_compute_pipeline(k2f_code, 4).unwrap();
+        let k2f_ds = device
+            .create_descriptor_set(
+                &k2f_pipeline,
+                &[
+                    &scene_dev,
+                    &tilegroup_buf,
+                    &fill_seg_buf,
+                    &k2f_alloc_buf_dev,
+                ],
+            )
+            .unwrap();
+
         let k3_alloc_buf_host = device.create_buffer(4, host).unwrap();
         let k3_alloc_buf_dev = device.create_buffer(4, dev).unwrap();
         let k3_alloc_start = WIDTH_IN_TILES * HEIGHT_IN_TILES * PTCL_INITIAL_ALLOC;
@@ -151,7 +193,7 @@ fn main() {
             .write_buffer(&k3_alloc_buf_host, &[k3_alloc_start as u32])
             .unwrap();
         let k3_code = include_bytes!("../shader/kernel3.spv");
-        let k3_pipeline = device.create_simple_compute_pipeline(k3_code, 5).unwrap();
+        let k3_pipeline = device.create_simple_compute_pipeline(k3_code, 6).unwrap();
         let k3_ds = device
             .create_descriptor_set(
                 &k3_pipeline,
@@ -159,6 +201,7 @@ fn main() {
                     &scene_dev,
                     &tilegroup_buf,
                     &segment_buf,
+                    &fill_seg_buf,
                     &ptcl_buf,
                     &k3_alloc_buf_dev,
                 ],
@@ -166,18 +209,26 @@ fn main() {
             .unwrap();
 
         let k4_code = include_bytes!("../shader/kernel4.spv");
-        let k4_pipeline = device.create_simple_compute_pipeline(k4_code, 3).unwrap();
+        let k4_pipeline = device.create_simple_compute_pipeline(k4_code, 4).unwrap();
         let k4_ds = device
-            .create_descriptor_set(&k4_pipeline, &[&ptcl_buf, &segment_buf, &image_dev])
+            .create_descriptor_set(
+                &k4_pipeline,
+                &[&ptcl_buf, &segment_buf, &fill_seg_buf, &image_dev],
+            )
             .unwrap();
 
-        let query_pool = device.create_query_pool(5).unwrap();
+        let query_pool = device.create_query_pool(6).unwrap();
         let mut cmd_buf = device.create_cmd_buf().unwrap();
         cmd_buf.begin();
         cmd_buf.copy_buffer(&scene_buf, &scene_dev);
+        // Note: we could use one alloc buf and reuse it. But we'll stick with
+        // multiple ones for clarity.
         cmd_buf.copy_buffer(&k1_alloc_buf_host, &k1_alloc_buf_dev);
         cmd_buf.copy_buffer(&k2s_alloc_buf_host, &k2s_alloc_buf_dev);
+        cmd_buf.copy_buffer(&k2f_alloc_buf_host, &k2f_alloc_buf_dev);
         cmd_buf.copy_buffer(&k3_alloc_buf_host, &k3_alloc_buf_dev);
+        // Note: these clears aren't necessary, and are here to make inspection
+        // of the buffers cleaner. Can likely be removed.
         cmd_buf.clear_buffer(&tilegroup_buf);
         cmd_buf.clear_buffer(&ptcl_buf);
         cmd_buf.memory_barrier();
@@ -196,20 +247,30 @@ fn main() {
             ((WIDTH / 512) as u32, (HEIGHT / 16) as u32, 1),
         );
         cmd_buf.write_timestamp(&query_pool, 2);
+        // Note: this barrier is not necessary (k2f does not depend on
+        // k2s output), but I'm keeping it here to increase transparency
+        // of performance.
+        cmd_buf.memory_barrier();
+        cmd_buf.dispatch(
+            &k2f_pipeline,
+            &k2f_ds,
+            ((WIDTH / 512) as u32, (HEIGHT / 16) as u32, 2),
+        );
+        cmd_buf.write_timestamp(&query_pool, 3);
         cmd_buf.memory_barrier();
         cmd_buf.dispatch(
             &k3_pipeline,
             &k3_ds,
-            ((WIDTH / 512) as u32, (HEIGHT / 16) as u32, 1),
+            ((WIDTH / 512) as u32, (HEIGHT / 16) as u32, 3),
         );
-        cmd_buf.write_timestamp(&query_pool, 3);
+        cmd_buf.write_timestamp(&query_pool, 4);
         cmd_buf.memory_barrier();
         cmd_buf.dispatch(
             &k4_pipeline,
             &k4_ds,
             ((WIDTH / TILE_W) as u32, (HEIGHT / TILE_H) as u32, 1),
         );
-        cmd_buf.write_timestamp(&query_pool, 4);
+        cmd_buf.write_timestamp(&query_pool, 5);
         cmd_buf.memory_barrier();
         cmd_buf.copy_buffer(&image_dev, &image_buf);
         cmd_buf.finish();
@@ -217,16 +278,20 @@ fn main() {
         let timestamps = device.reap_query_pool(query_pool).unwrap();
         println!("Kernel 1 time: {:.3}ms", timestamps[0] * 1e3);
         println!(
-            "Kernel 2 time: {:.3}ms",
+            "Kernel 2s time: {:.3}ms",
             (timestamps[1] - timestamps[0]) * 1e3
         );
         println!(
-            "Kernel 3 time: {:.3}ms",
+            "Kernel 2f time: {:.3}ms",
             (timestamps[2] - timestamps[1]) * 1e3
         );
         println!(
-            "Render time: {:.3}ms",
+            "Kernel 3 time: {:.3}ms",
             (timestamps[3] - timestamps[2]) * 1e3
+        );
+        println!(
+            "Render time: {:.3}ms",
+            (timestamps[4] - timestamps[3]) * 1e3
         );
 
         /*

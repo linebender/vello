@@ -19,8 +19,10 @@ piet_gpu! {
             rgba_color: u32,
         }
         struct CmdFill {
-            start: [f32; 2],
-            end: [f32; 2],
+            // Should be Ref<FillSegChunk> if we had cross-module references.
+            seg_ref: u32,
+            backdrop: i32,
+            rgba_color: u32,
         }
         struct CmdFillEdge {
             // The sign is only one bit.
