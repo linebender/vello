@@ -54,13 +54,18 @@ void main() {
         case Cmd_Stroke:
             CmdStroke stroke = Cmd_Stroke_read(cmd_ref);
             float df = 1e9;
-            for (int i = 0; i < stroke.n_segs; i++) {
-                Segment seg = Segment_read(Segment_index(SegmentRef(stroke.seg_ref), i));
-                vec2 line_vec = seg.end - seg.start;
-                vec2 dpos = xy + vec2(0.5, 0.5) - seg.start;
-                float t = clamp(dot(line_vec, dpos) / dot(line_vec, line_vec), 0.0, 1.0);
-                df = min(df, length(line_vec * t - dpos));
-            }
+            SegChunkRef seg_chunk_ref = SegChunkRef(stroke.seg_ref);
+            do {
+                SegChunk seg_chunk = SegChunk_read(seg_chunk_ref);
+                for (int i = 0; i < seg_chunk.n; i++) {
+                    Segment seg = Segment_read(SegmentRef(seg_chunk_ref.offset + SegChunk_size + Segment_size * i));
+                    vec2 line_vec = seg.end - seg.start;
+                    vec2 dpos = xy + vec2(0.5, 0.5) - seg.start;
+                    float t = clamp(dot(line_vec, dpos) / dot(line_vec, line_vec), 0.0, 1.0);
+                    df = min(df, length(line_vec * t - dpos));
+                }
+                seg_chunk_ref = seg_chunk.next;
+            } while (seg_chunk_ref.offset != 0);
             fg_rgba = unpackUnorm4x8(stroke.rgba_color).wzyx;
             alpha = clamp(stroke.half_width + 0.5 - df, 0.0, 1.0);
             rgb = mix(rgb, fg_rgba.rgb, alpha * fg_rgba.a);
