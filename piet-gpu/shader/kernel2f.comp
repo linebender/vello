@@ -119,6 +119,8 @@ void main() {
                     && ytop < ybot
                     && s00 * s01 + s00 * s10 + s00 * s11 < 3.0)
                 {
+                    // avoid overwriting `end` so that it can be used as start
+                    vec2 enc_end = end;
                     if (xymin.x < xy0.x) {
                         float yEdge = mix(start.y, end.y, (start.x - xy0.x) / b);
                         if (yEdge >= xy0.y && yEdge < xy1.y) {
@@ -127,8 +129,8 @@ void main() {
                             // in piet-metal).
                             FillSegment edge_seg;
                             if (b > 0.0) {
-                                end = vec2(xy0.x, yEdge);
-                                edge_seg.start = end;
+                                enc_end = vec2(xy0.x, yEdge);
+                                edge_seg.start = enc_end;
                                 edge_seg.end = vec2(xy0.x, xy1.y);
                             } else {
                                 start = vec2(xy0.x, yEdge);
@@ -141,7 +143,7 @@ void main() {
                         }
                     }
                     alloc_chunk(chunk_n_segs, seg_chunk_ref, first_seg_chunk, seg_limit);
-                    FillSegment seg = FillSegment(start, end);
+                    FillSegment seg = FillSegment(start, enc_end);
                     FillSegment_write(FillSegmentRef(seg_chunk_ref.offset + FillSegChunk_size + FillSegment_size * chunk_n_segs), seg);
                     chunk_n_segs++;
                 }
