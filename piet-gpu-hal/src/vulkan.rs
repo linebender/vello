@@ -607,7 +607,7 @@ unsafe fn choose_compute_device(
     instance: &Instance,
     devices: &[vk::PhysicalDevice],
 ) -> Option<(vk::PhysicalDevice, u32)> {
-    for pdevice in devices {
+    for pdevice in &devices[1..] {
         let props = instance.get_physical_device_queue_family_properties(*pdevice);
         for (ix, info) in props.iter().enumerate() {
             if info.queue_flags.contains(vk::QueueFlags::COMPUTE) {

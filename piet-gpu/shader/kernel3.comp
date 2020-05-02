@@ -59,6 +59,7 @@ void main() {
     vec2 xy0 = vec2(gl_GlobalInvocationID.xy) * vec2(TILE_WIDTH_PX, TILE_HEIGHT_PX);
     TileGroupRef tg_ref = TileGroupRef(tilegroup_ix * TILEGROUP_STRIDE);
     CmdRef cmd_ref = CmdRef(tile_ix * PTCL_INITIAL_ALLOC);
+    CmdRef reset = cmd_ref;
     uint cmd_limit = cmd_ref.offset + PTCL_INITIAL_ALLOC - 2 * Cmd_size;
 
     TileHeader stroke_th = TileHeader_read(TileHeaderRef(tile_ix * TileHeader_size));
@@ -121,9 +122,10 @@ void main() {
                 Cmd_Fill_write(cmd_ref, cmd);
                 cmd_ref.offset += Cmd_size;
             } else if (fill_item.backdrop != 0) {
-                // TODO: truncate existing cmd list if alpha is opaque
                 PietFill fill = PietItem_Fill_read(item_ref);
-                alloc_cmd(cmd_ref, cmd_limit);
+                // TODO: only truncate if alpha is 0xff
+                cmd_ref = reset;
+                cmd_limit = cmd_ref.offset + PTCL_INITIAL_ALLOC - 2 * Cmd_size;
                 Cmd_Solid_write(cmd_ref, CmdSolid(fill.rgba_color));
                 cmd_ref.offset += Cmd_size;
             }
