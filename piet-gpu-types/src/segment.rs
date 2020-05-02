@@ -12,8 +12,7 @@ piet_gpu! {
 
         // Note: this is only suitable for strokes, fills require backdrop.
         struct ItemHeader {
-            n: u32,
-            segments: Ref<Segment>,
+            segments: Ref<SegChunk>,
         }
 
         // TODO: strongly consider using f16. If so, these would be
@@ -22,6 +21,12 @@ piet_gpu! {
         struct Segment {
             start: [f32; 2],
             end: [f32; 2],
+        }
+
+        struct SegChunk {
+            n: u32,
+            next: Ref<SegChunk>,
+            // Segments follow (could represent this as a variable sized array).
         }
     }
 }

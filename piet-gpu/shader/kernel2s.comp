@@ -44,12 +44,15 @@ void main() {
         InstanceRef stroke_ref = InstanceRef(chunk_ref.offset + Chunk_size);
         ItemHeaderRef item_header = ItemHeaderRef(atomicAdd(alloc, stroke_n * ItemHeader_size));
         TileHeader_write(tile_header_ref, TileHeader(stroke_n, item_header));
-        SegmentRef seg_ref = SegmentRef(0);
+        SegChunkRef seg_chunk_ref = SegChunkRef(0);
         uint seg_limit = 0;
         // Iterate through items; stroke_n holds count remaining.
         while (true) {
             if (chunk.chunk_n == 0) {
                 chunk_ref = chunk.next;
+                if (chunk_ref.offset == 0) {
+                    break;
+                }
                 chunk = Chunk_read(chunk_ref);
                 stroke_ref = InstanceRef(chunk_ref.offset + Chunk_size);
             }
@@ -58,16 +61,8 @@ void main() {
 
             // Process the stroke polyline item.
             uint max_n_segs = poly.n_points - 1;
-            uint reserve = max_n_segs * Segment_size;
-            if (seg_ref.offset + reserve > seg_limit) {
-                // This is a heuristic to balance atomic bandwidth and utilization.
-                // The output always gets a contiguous allocation. We might use
-                // all, some, or none of the capacity.
-                uint capacity_bytes = stroke_n > 1 ? reserve * 2 + 128 : reserve;
-                seg_ref.offset = atomicAdd(alloc, capacity_bytes);
-                seg_limit = seg_ref.offset + capacity_bytes;
-            }
-            uint n_segs = 0;
+            uint chunk_n_segs = 0;
+            SegChunkRef seg_chunk_ref;
             vec2 start = Point_read(poly.points).xy;
             for (uint j = 0; j < max_n_segs; j++) {
                 poly.points.offset += Point_size;
@@ -103,18 +98,33 @@ void main() {
                     && max(min(start.y, end.y), ymin) < min(max(start.y, end.y), ymax)
                     && s00 * s01 + s00 * s10 + s00 * s11 < 3.0)
                 {
+                    // Allocate a chunk if needed.
+                    if (chunk_n_segs == 0) {
+                        if (seg_chunk_ref.offset + 40 > seg_limit) {
+                            seg_chunk_ref.offset = atomicAdd(alloc, SEG_CHUNK_ALLOC);
+                            seg_limit = seg_chunk_ref.offset + SEG_CHUNK_ALLOC - Segment_size;
+                        }
+                        ItemHeader_write(item_header, ItemHeader(seg_chunk_ref));
+                    } else if (seg_chunk_ref.offset + SegChunk_size + Segment_size * chunk_n_segs > seg_limit) {
+                        uint new_chunk_ref = atomicAdd(alloc, SEG_CHUNK_ALLOC);
+                        seg_limit = new_chunk_ref + SEG_CHUNK_ALLOC - Segment_size;
+                        SegChunk_write(seg_chunk_ref, SegChunk(chunk_n_segs, SegChunkRef(new_chunk_ref)));
+                        seg_chunk_ref.offset = new_chunk_ref;
+                        chunk_n_segs = 0;
+                    }
                     Segment seg = Segment(start, end);
-                    Segment_write(Segment_index(seg_ref, n_segs), seg);
-                    n_segs++;
+                    Segment_write(SegmentRef(seg_chunk_ref.offset + SegChunk_size + Segment_size * chunk_n_segs), seg);
+                    chunk_n_segs++;
                 }
 
                 start = end;
             }
-            ItemHeader_write(item_header, ItemHeader(n_segs, seg_ref));
-            if (--stroke_n == 0) {
-                break;
+            if (chunk_n_segs == 0) {
+                ItemHeader_write(item_header, ItemHeader(SegChunkRef(0)));
+            } else {
+                SegChunk_write(seg_chunk_ref, SegChunk(chunk_n_segs, SegChunkRef(0)));
+                seg_chunk_ref.offset += SegChunk_size + Segment_size * chunk_n_segs;
             }
-            seg_ref.offset += n_segs * Segment_size;
 
             stroke_ref.offset += Instance_size;
             chunk.chunk_n--;

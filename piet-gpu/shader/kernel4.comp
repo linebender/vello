@@ -22,12 +22,18 @@ layout(set = 0, binding = 1) buffer SegmentBuf {
     uint[] segment;
 };
 
-layout(set = 0, binding = 2) buffer ImageBuf {
+// Used readonly
+layout(set = 0, binding = 2) buffer FillSegBuf {
+    uint[] fill_seg;
+};
+
+layout(set = 0, binding = 3) buffer ImageBuf {
     uint[] image;
 };
 
 #include "ptcl.h"
 #include "segment.h"
+#include "fill_seg.h"
 
 #include "setup.h"
 
@@ -65,19 +71,61 @@ void main() {
             CmdStroke stroke = Cmd_Stroke_read(cmd_ref);
             float df[CHUNK];
             for (uint k = 0; k < CHUNK; k++) df[k] = 1e9;
-            for (int i = 0; i < stroke.n_segs; i++) {
-                Segment seg = Segment_read(Segment_index(SegmentRef(stroke.seg_ref), i));
-                vec2 line_vec = seg.end - seg.start;
-                for (uint k = 0; k < CHUNK; k++) {
-                    vec2 dpos = xy + vec2(0.5, 0.5) - seg.start;
-                    dpos.y += float(k * CHUNK_DY);
-                    float t = clamp(dot(line_vec, dpos) / dot(line_vec, line_vec), 0.0, 1.0);
-                    df[k] = min(df[k], length(line_vec * t - dpos));
+            SegChunkRef seg_chunk_ref = SegChunkRef(stroke.seg_ref);
+            do {
+                SegChunk seg_chunk = SegChunk_read(seg_chunk_ref);
+                for (int i = 0; i < seg_chunk.n; i++) {
+                    Segment seg = Segment_read(SegmentRef(seg_chunk_ref.offset + SegChunk_size + Segment_size * i));
+                    vec2 line_vec = seg.end - seg.start;
+                    for (uint k = 0; k < CHUNK; k++) {
+                        vec2 dpos = xy + vec2(0.5, 0.5) - seg.start;
+                        dpos.y += float(k * CHUNK_DY);
+                        float t = clamp(dot(line_vec, dpos) / dot(line_vec, line_vec), 0.0, 1.0);
+                        df[k] = min(df[k], length(line_vec * t - dpos));
+                    }
                 }
-            }
+                seg_chunk_ref = seg_chunk.next;
+            } while (seg_chunk_ref.offset != 0);
             fg_rgba = unpackUnorm4x8(stroke.rgba_color).wzyx;
             for (uint k = 0; k < CHUNK; k++) {
                 float alpha = clamp(stroke.half_width + 0.5 - df[k], 0.0, 1.0);
+                rgb[k] = mix(rgb[k], fg_rgba.rgb, alpha * fg_rgba.a);
+            }
+            break;
+        case Cmd_Fill:
+            CmdFill fill = Cmd_Fill_read(cmd_ref);
+            // Probably better to store as float, but conversion is no doubt cheap.
+            float area[CHUNK];
+            for (uint k = 0; k < CHUNK; k++) area[k] = float(fill.backdrop);
+            FillSegChunkRef fill_seg_chunk_ref = FillSegChunkRef(fill.seg_ref);
+            do {
+                FillSegChunk seg_chunk = FillSegChunk_read(fill_seg_chunk_ref);
+                for (int i = 0; i < seg_chunk.n; i++) {
+                    FillSegment seg = FillSegment_read(FillSegmentRef(fill_seg_chunk_ref.offset + FillSegChunk_size + FillSegment_size * i));
+                    for (uint k = 0; k < CHUNK; k++) {
+                        vec2 start = seg.start - xy;
+                        vec2 end = seg.end - xy;
+                        start.y -= float(k * CHUNK_DY);
+                        end.y -= float(k * CHUNK_DY);
+                        vec2 window = clamp(vec2(start.y, end.y), 0.0, 1.0);
+                        if (window.x != window.y) {
+                            vec2 t = (window - start.y) / (end.y - start.y);
+                            vec2 xs = vec2(mix(start.x, end.x, t.x), mix(start.x, end.x, t.y));
+                            float xmin = min(min(xs.x, xs.y), 1.0) - 1e-6;
+                            float xmax = max(xs.x, xs.y);
+                            float b = min(xmax, 1.0);
+                            float c = max(b, 0.0);
+                            float d = max(xmin, 0.0);
+                            float a = (b + 0.5 * (d * d - c * c) - xmin) / (xmax - xmin);
+                            area[k] += a * (window.x - window.y);
+                        }
+                    }
+                }
+                fill_seg_chunk_ref = seg_chunk.next;
+            } while (fill_seg_chunk_ref.offset != 0);
+            fg_rgba = unpackUnorm4x8(fill.rgba_color).wzyx;
+            for (uint k = 0; k < CHUNK; k++) {
+                float alpha = min(abs(area[k]), 1.0);
                 rgb[k] = mix(rgb[k], fg_rgba.rgb, alpha * fg_rgba.a);
             }
             break;

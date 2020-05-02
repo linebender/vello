@@ -52,9 +52,18 @@ void main() {
     TileGroupRef stroke_start = TileGroupRef(tg_ref.offset + TILEGROUP_STROKE_START);
     ChunkRef stroke_chunk_start = ChunkRef(stroke_start.offset + 4);
     InstanceRef stroke_ref = InstanceRef(stroke_chunk_start.offset + Chunk_size);
-    uint stroke_limit = stroke_start.offset + TILEGROUP_INITIAL_ALLOC - Instance_size;
+    uint stroke_limit = stroke_start.offset + TILEGROUP_INITIAL_STROKE_ALLOC - Instance_size;
     uint stroke_chunk_n = 0;
     uint stroke_n = 0;
+
+    // State for fill references. All this is a bit cut'n'paste, but making a
+    // proper abstraction isn't easy.
+    TileGroupRef fill_start = TileGroupRef(tg_ref.offset + TILEGROUP_FILL_START);
+    ChunkRef fill_chunk_start = ChunkRef(fill_start.offset + 4);
+    InstanceRef fill_ref = InstanceRef(fill_chunk_start.offset + Chunk_size);
+    uint fill_limit = fill_start.offset + TILEGROUP_INITIAL_FILL_ALLOC - Instance_size;
+    uint fill_chunk_n = 0;
+    uint fill_n = 0;
 
     vec2 xy0 = vec2(gl_GlobalInvocationID.xy) * vec2(TILEGROUP_WIDTH_PX, TILEGROUP_HEIGHT_PX);
     PietItemRef root = PietItemRef(0);
@@ -100,6 +109,20 @@ void main() {
                     Instance_write(stroke_ref, ins);
                     stroke_chunk_n++;
                     stroke_ref.offset += Instance_size;
+                } else if (tag == PietItem_Fill) {
+                    if (fill_ref.offset > fill_limit) {
+                        uint new_fill = atomicAdd(alloc, TILEGROUP_FILL_ALLOC);
+                        Chunk_write(fill_chunk_start, Chunk(fill_chunk_n, ChunkRef(new_fill)));
+                        fill_chunk_start = ChunkRef(new_fill);
+                        fill_ref = InstanceRef(new_fill + Chunk_size);
+                        fill_n += fill_chunk_n;
+                        fill_chunk_n = 0;
+                        fill_limit = new_fill + TILEGROUP_FILL_ALLOC - Instance_size;
+                    }
+                    Instance_write(fill_ref, ins);
+                    fill_chunk_n++;
+                    fill_ref.offset += Instance_size;
+
                 }
             }
             if (is_group) {
@@ -129,4 +152,10 @@ void main() {
         Chunk_write(stroke_chunk_start, Chunk(stroke_chunk_n, ChunkRef(0)));
     }
     tilegroup[stroke_start.offset >> 2] = stroke_n;
+
+    fill_n += fill_chunk_n;
+    if (fill_n > 0) {
+        Chunk_write(fill_chunk_start, Chunk(fill_chunk_n, ChunkRef(0)));
+    }
+    tilegroup[fill_start.offset >> 2] = fill_n;
 }

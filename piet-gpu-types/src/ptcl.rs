@@ -13,15 +13,16 @@ piet_gpu! {
             end: [f32; 2],
         }
         struct CmdStroke {
-            n_segs: u32,
-            // Should be Ref<Segment> if we had cross-module references.
+            // Should be Ref<SegChunk> if we had cross-module references.
             seg_ref: u32,
             half_width: f32,
             rgba_color: u32,
         }
         struct CmdFill {
-            start: [f32; 2],
-            end: [f32; 2],
+            // Should be Ref<FillSegChunk> if we had cross-module references.
+            seg_ref: u32,
+            backdrop: i32,
+            rgba_color: u32,
         }
         struct CmdFillEdge {
             // The sign is only one bit.

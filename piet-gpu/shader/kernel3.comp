@@ -21,17 +21,23 @@ layout(set = 0, binding = 2) buffer SegmentBuf {
     uint[] segment;
 };
 
-layout(set = 0, binding = 3) buffer PtclBuf {
+// Used readonly
+layout(set = 0, binding = 3) buffer FillSegmentBuf {
+    uint[] fill_seg;
+};
+
+layout(set = 0, binding = 4) buffer PtclBuf {
     uint[] ptcl;
 };
 
-layout(set = 0, binding = 4) buffer AllocBuf {
+layout(set = 0, binding = 5) buffer AllocBuf {
     uint alloc;
 };
 
 #include "scene.h"
 #include "tilegroup.h"
 #include "segment.h"
+#include "fill_seg.h"
 #include "ptcl.h"
 
 #include "setup.h"
@@ -56,6 +62,7 @@ void main() {
     uint cmd_limit = cmd_ref.offset + PTCL_INITIAL_ALLOC - 2 * Cmd_size;
 
     TileHeader stroke_th = TileHeader_read(TileHeaderRef(tile_ix * TileHeader_size));
+    FillTileHeader fill_th = FillTileHeader_read(FillTileHeaderRef(tile_ix * FillTileHeader_size));
 
     while (true) {
         uint tg_tag = TileGroup_tag(tg_ref);
@@ -87,16 +94,31 @@ void main() {
         case PietItem_Poly:
             ItemHeader stroke_item = ItemHeader_read(stroke_th.items);
             stroke_th.items.offset += ItemHeader_size;
-            if (stroke_item.n > 0) {
+            if (stroke_item.segments.offset != 0) {
                 PietStrokePolyLine poly = PietItem_Poly_read(item_ref);
                 CmdStroke cmd = CmdStroke(
-                    stroke_item.n,
                     stroke_item.segments.offset,
                     0.5 * poly.width,
                     poly.rgba_color
                 );
                 alloc_cmd(cmd_ref, cmd_limit);
                 Cmd_Stroke_write(cmd_ref, cmd);
+                cmd_ref.offset += Cmd_size;
+            }
+            break;
+        case PietItem_Fill:
+            FillItemHeader fill_item = FillItemHeader_read(fill_th.items);
+            fill_th.items.offset += FillItemHeader_size;
+            // TODO: handle segments == 0 but backdrop != specially, it's a solid tile.
+            if (fill_item.segments.offset != 0 || fill_item.backdrop != 0) {
+                PietFill fill = PietItem_Fill_read(item_ref);
+                CmdFill cmd = CmdFill(
+                    fill_item.segments.offset,
+                    fill_item.backdrop,
+                    fill.rgba_color
+                );
+                alloc_cmd(cmd_ref, cmd_limit);
+                Cmd_Fill_write(cmd_ref, cmd);
                 cmd_ref.offset += Cmd_size;
             }
             break;

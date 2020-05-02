@@ -19,10 +19,14 @@
 // there is a region of size TILEGROUP_STRIDE for each tilegroup.
 // At offset 0 are the main instances, encoded with Jump. At offset
 // TILEGROUP_STROKE_START are the stroke instances, encoded with
-// Head and Link.
+// Head and Link. Similarly for fill.
 #define TILEGROUP_STRIDE 2048
 #define TILEGROUP_STROKE_START 1024
+#define TILEGROUP_FILL_START 1536
 #define TILEGROUP_STROKE_ALLOC 1024
+#define TILEGROUP_FILL_ALLOC 1024
+#define TILEGROUP_INITIAL_STROKE_ALLOC 512
+#define TILEGROUP_INITIAL_FILL_ALLOC 512
 
 // TODO: compute all these
 
@@ -32,3 +36,7 @@
 #define TILE_HEIGHT_PX 16
 
 #define PTCL_INITIAL_ALLOC 1024
+
+// Maximum number of segments in a SegChunk
+#define SEG_CHUNK_N 32
+#define SEG_CHUNK_ALLOC 512

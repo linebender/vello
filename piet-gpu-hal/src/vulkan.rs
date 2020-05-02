@@ -1,10 +1,13 @@
 //! Vulkan implemenation of HAL trait.
 
-use std::ffi::CString;
+use std::borrow::Cow;
+use std::ffi::{CStr, CString};
 use std::sync::Arc;
 
+use ash::extensions::ext::DebugUtils;
 use ash::version::{DeviceV1_0, EntryV1_0, InstanceV1_0};
 use ash::{vk, Device, Entry, Instance};
+use once_cell::sync::Lazy;
 
 use crate::Error;
 
@@ -12,8 +15,9 @@ pub struct VkInstance {
     /// Retain the dynamic lib.
     #[allow(unused)]
     entry: Entry,
-
     instance: Instance,
+    _dbg_loader: Option<DebugUtils>,
+    _dbg_callbk: Option<vk::DebugUtilsMessengerEXT>,
 }
 
 pub struct VkDevice {
@@ -61,6 +65,55 @@ pub struct QueryPool {
 #[derive(Clone, Copy)]
 pub struct MemFlags(vk::MemoryPropertyFlags);
 
+unsafe extern "system" fn vulkan_debug_callback(
+    message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,
+    message_type: vk::DebugUtilsMessageTypeFlagsEXT,
+    p_callback_data: *const vk::DebugUtilsMessengerCallbackDataEXT,
+    _user_data: *mut std::os::raw::c_void,
+) -> vk::Bool32 {
+    let callback_data = &*p_callback_data;
+    let message_id_number: i32 = callback_data.message_id_number as i32;
+
+    let message_id_name = if callback_data.p_message_id_name.is_null() {
+        Cow::from("")
+    } else {
+        CStr::from_ptr(callback_data.p_message_id_name).to_string_lossy()
+    };
+
+    let message = if callback_data.p_message.is_null() {
+        Cow::from("")
+    } else {
+        CStr::from_ptr(callback_data.p_message).to_string_lossy()
+    };
+
+    println!(
+        "{:?}:\n{:?} [{} ({})] : {}\n",
+        message_severity,
+        message_type,
+        message_id_name,
+        message_id_number,
+        message,
+    );
+
+    vk::FALSE
+}
+
+static LAYERS: Lazy<Vec<&'static CStr>> = Lazy::new(|| {
+    let mut layers: Vec<&'static CStr> = vec![];
+    if cfg!(debug_assertions) {
+        layers.push(CStr::from_bytes_with_nul(b"VK_LAYER_KHRONOS_validation\0").unwrap());
+    }
+    layers
+});
+
+static EXTS: Lazy<Vec<&'static CStr>> = Lazy::new(|| {
+    let mut exts: Vec<&'static CStr> = vec![];
+    if cfg!(debug_assertions) {
+        exts.push(DebugUtils::name());
+    }
+    exts
+});
+
 impl VkInstance {
     /// Create a new instance.
     ///
@@ -70,18 +123,74 @@ impl VkInstance {
         unsafe {
             let app_name = CString::new("VkToy").unwrap();
             let entry = Entry::new()?;
+
+            let exist_layers = entry
+                .enumerate_instance_layer_properties()?;
+            let layers = LAYERS.iter().filter_map(|&lyr| {
+                exist_layers
+                    .iter()
+                    .find(|x|
+                        CStr::from_ptr(x.layer_name.as_ptr()) == lyr
+                    )
+                    .map(|_| lyr.as_ptr())
+                    .or_else(|| {
+                        println!("Unable to find layer: {}, have you installed the Vulkan SDK?", lyr.to_string_lossy());
+                        None
+                    })
+            }).collect::<Vec<_>>();
+
+            let exist_exts = entry
+                .enumerate_instance_extension_properties()?;
+            let exts = EXTS.iter().filter_map(|&ext| {
+                exist_exts
+                    .iter()
+                    .find(|x|
+                        CStr::from_ptr(x.extension_name.as_ptr()) == ext
+                    )
+                    .map(|_| ext.as_ptr())
+                    .or_else(|| {
+                        println!("Unable to find extension: {}, have you installed the Vulkan SDK?", ext.to_string_lossy());
+                        None
+                    })
+            }).collect::<Vec<_>>();
+
             let instance = entry.create_instance(
-                &vk::InstanceCreateInfo::builder().application_info(
-                    &vk::ApplicationInfo::builder()
-                        .application_name(&app_name)
-                        .application_version(0)
-                        .engine_name(&app_name)
-                        .api_version(vk::make_version(1, 0, 0)),
-                ),
+                &vk::InstanceCreateInfo::builder()
+                    .application_info(
+                        &vk::ApplicationInfo::builder()
+                            .application_name(&app_name)
+                            .application_version(0)
+                            .engine_name(&app_name)
+                            .api_version(vk::make_version(1, 0, 0)),
+                    )
+                    .enabled_layer_names(&layers)
+                    .enabled_extension_names(&exts),
                 None,
             )?;
 
-            Ok(VkInstance { entry, instance })
+            let (_dbg_loader, _dbg_callbk) = if cfg!(debug_assertions) {
+                let dbg_info = vk::DebugUtilsMessengerCreateInfoEXT::builder()
+                    .message_severity(
+                        vk::DebugUtilsMessageSeverityFlagsEXT::ERROR
+                            | vk::DebugUtilsMessageSeverityFlagsEXT::WARNING,
+                    )
+                    .message_type(vk::DebugUtilsMessageTypeFlagsEXT::all())
+                    .pfn_user_callback(Some(vulkan_debug_callback));
+                let dbg_loader = DebugUtils::new(&entry, &instance);
+                let dbg_callbk = dbg_loader
+                    .create_debug_utils_messenger(&dbg_info, None)
+                    .unwrap();
+                (Some(dbg_loader), Some(dbg_callbk))
+            } else {
+                (None, None)
+            };
+
+            Ok(VkInstance {
+                entry,
+                instance,
+                _dbg_loader,
+                _dbg_callbk,
+            })
         }
     }
 
@@ -460,6 +569,16 @@ impl crate::CmdBuf<VkDevice> for CmdBuf {
             src.buffer,
             dst.buffer,
             &[vk::BufferCopy::builder().size(size).build()],
+        );
+    }
+
+    unsafe fn reset_query_pool(&mut self, pool: &QueryPool) {
+        let device = &self.device.device;
+        device.cmd_reset_query_pool(
+            self.cmd_buf,
+            pool.pool,
+            0,
+            pool.n_queries,
         );
     }
 
