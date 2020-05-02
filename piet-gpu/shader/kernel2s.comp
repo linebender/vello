@@ -119,7 +119,9 @@ void main() {
 
                 start = end;
             }
-            if (chunk_n_segs > 0) {
+            if (chunk_n_segs == 0) {
+                ItemHeader_write(item_header, ItemHeader(SegChunkRef(0)));
+            } else {
                 SegChunk_write(seg_chunk_ref, SegChunk(chunk_n_segs, SegChunkRef(0)));
                 seg_chunk_ref.offset += SegChunk_size + Segment_size * chunk_n_segs;
             }
