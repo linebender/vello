@@ -110,7 +110,7 @@ void main() {
             FillItemHeader fill_item = FillItemHeader_read(fill_th.items);
             fill_th.items.offset += FillItemHeader_size;
             // TODO: handle segments == 0 but backdrop != specially, it's a solid tile.
-            if (fill_item.segments.offset != 0 || fill_item.backdrop != 0) {
+            if (fill_item.segments.offset != 0) {
                 PietFill fill = PietItem_Fill_read(item_ref);
                 CmdFill cmd = CmdFill(
                     fill_item.segments.offset,
@@ -119,6 +119,12 @@ void main() {
                 );
                 alloc_cmd(cmd_ref, cmd_limit);
                 Cmd_Fill_write(cmd_ref, cmd);
+                cmd_ref.offset += Cmd_size;
+            } else if (fill_item.backdrop != 0) {
+                // TODO: truncate existing cmd list if alpha is opaque
+                PietFill fill = PietItem_Fill_read(item_ref);
+                alloc_cmd(cmd_ref, cmd_limit);
+                Cmd_Solid_write(cmd_ref, CmdSolid(fill.rgba_color));
                 cmd_ref.offset += Cmd_size;
             }
             break;
