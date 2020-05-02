@@ -129,6 +129,13 @@ void main() {
                 rgb[k] = mix(rgb[k], fg_rgba.rgb, alpha * fg_rgba.a);
             }
             break;
+        case Cmd_Solid:
+            CmdSolid solid = Cmd_Solid_read(cmd_ref);
+            fg_rgba = unpackUnorm4x8(solid.rgba_color).wzyx;
+            for (uint k = 0; k < CHUNK; k++) {
+                rgb[k] = mix(rgb[k], fg_rgba.rgb, fg_rgba.a);
+            }
+            break;
         case Cmd_Jump:
             cmd_ref = CmdRef(Cmd_Jump_read(cmd_ref).new_ref);
             continue;

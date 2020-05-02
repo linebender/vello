@@ -39,7 +39,7 @@ pub enum PietGpuBrush {
     Gradient,
 }
 
-const TOLERANCE: f64 = 0.1;
+const TOLERANCE: f64 = 0.25;
 
 impl PietGpuRenderContext {
     pub fn new() -> PietGpuRenderContext {
