@@ -12,6 +12,9 @@
 
 #version 450
 #extension GL_GOOGLE_include_directive : enable
+#extension GL_KHR_shader_subgroup_basic : enable
+#extension GL_KHR_shader_subgroup_ballot : enable
+#extension GL_KHR_shader_subgroup_arithmetic : enable
 
 // It's possible we should lay this out with x and do our own math.
 layout(local_size_x = 1, local_size_y = 32) in;
@@ -40,6 +43,28 @@ struct StackElement {
     uint index;
     vec2 offset;
 };
+
+// Implementation of 32 x 32 boolean matrix transpose, using subgroups.
+uint block_swap(uint a, uint m, uint s) {
+    uint b = subgroupShuffleXor(a, s);
+    uint c;
+    if ((gl_SubgroupInvocationID & s) == 0) {
+        c = b << s;
+    } else {
+        m = ~m;
+        c = b >> s;
+    }
+    return (a & m) | (c & ~m);
+}
+
+const uint masks[5] = uint[5](0x55555555, 0x33333333, 0xf0f0f0f, 0xff00ff, 0xffff);
+
+uint transpose(uint bitmask) {
+    for (uint i = 0; i < 5; i++) {
+        bitmask = block_swap(bbitmask, masks[i], 1 << i)
+    }
+    return bitmask;
+}
 
 void main() {
     StackElement stack[MAX_STACK];
@@ -72,11 +97,21 @@ void main() {
 
     while (true) {
         if (tos.index < group.n_items) {
-            Bbox bbox = Bbox_read(Bbox_index(group.bboxes, tos.index));
-            vec4 bb = vec4(bbox.bbox) + tos.offset.xyxy;
-            bool hit = max(bb.x, xy0.x) < min(bb.z, xy0.x + float(TILEGROUP_WIDTH_PX))
-                && max(bb.y, xy0.y) < min(bb.w, xy0.y + float(TILEGROUP_HEIGHT_PX));
+            uint this_ix = tos.index + gl_SubgroupInvocationID;
+            Bbox bbox;
+            bool hit = false;
             bool is_group = false;
+            uint bitmask = 0;
+            if (this_ix < group.n_items) {
+                Bbox bbox = Bbox_read(Bbox_index(group.bboxes, this_ix));
+                vec4 bb = vec4(bbox.bbox) + tos.offset.xyxy;
+                hit = max(bb.x, xy0.x) < min(bb.z, xy0.x + float(TILEGROUP_WIDTH_PX))
+                    && max(bb.y, xy0.y) < min(bb.w, xy0.y + float(TILEGROUP_HEIGHT_PX));
+
+            }
+
+            bitmask = transpose(bitmask);
+
             uint tag;
             if (hit) {
                 PietItemRef item_ref = PietItem_index(group.items, tos.index);

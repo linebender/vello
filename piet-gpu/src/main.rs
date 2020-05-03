@@ -32,7 +32,7 @@ const PTCL_INITIAL_ALLOC: usize = 1024;
 
 const K2_PER_TILE_SIZE: usize = 8;
 
-const N_CIRCLES: usize = 1;
+const N_CIRCLES: usize = 10_000;
 
 fn render_scene(rc: &mut impl RenderContext) {
     let mut rng = rand::thread_rng();
@@ -58,7 +58,7 @@ fn render_scene(rc: &mut impl RenderContext) {
         5.0,
     );
     //render_cardioid(rc);
-    render_tiger(rc);
+    //render_tiger(rc);
 }
 
 #[allow(unused)]
