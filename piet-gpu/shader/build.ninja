@@ -4,8 +4,10 @@
 
 glslang_validator = glslangValidator
 
+target = vulkan1.1
+
 rule glsl
-  command = $glslang_validator -V -o $out $in
+  command = $glslang_validator -V -o $out $in --target-env $target
 
 build image.spv: glsl image.comp | scene.h
 

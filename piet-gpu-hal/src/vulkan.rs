@@ -288,6 +288,7 @@ impl crate::Device for VkDevice {
         &self,
         code: &[u8],
         n_buffers: u32,
+        n_subgroups: Option<u32>,
     ) -> Result<Pipeline, Error> {
         let device = &self.device.device;
         let bindings = (0..n_buffers)
@@ -317,17 +318,20 @@ impl crate::Device for VkDevice {
             None,
         )?;
 
+        let mut stage_info = vk::PipelineShaderStageCreateInfo::builder()
+            .stage(vk::ShaderStageFlags::COMPUTE)
+            .module(compute_shader_module)
+            .name(&entry_name);
+        let mut subgroup_info = vk::PipelineShaderStageRequiredSubgroupSizeCreateInfoEXT::builder()
+            .required_subgroup_size(n_subgroups.unwrap_or(0));
+        if n_subgroups.is_some() {
+            stage_info = stage_info.push_next(&mut subgroup_info);
+        };
         let pipeline = device
             .create_compute_pipelines(
                 vk::PipelineCache::null(),
                 &[vk::ComputePipelineCreateInfo::builder()
-                    .stage(
-                        vk::PipelineShaderStageCreateInfo::builder()
-                            .stage(vk::ShaderStageFlags::COMPUTE)
-                            .module(compute_shader_module)
-                            .name(&entry_name)
-                            .build(),
-                    )
+                    .stage(stage_info.build())
                     .layout(pipeline_layout)
                     .build()],
                 None,
@@ -607,7 +611,7 @@ unsafe fn choose_compute_device(
     instance: &Instance,
     devices: &[vk::PhysicalDevice],
 ) -> Option<(vk::PhysicalDevice, u32)> {
-    for pdevice in &devices[1..] {
+    for pdevice in &devices[0..] {
         let props = instance.get_physical_device_queue_family_properties(*pdevice);
         for (ix, info) in props.iter().enumerate() {
             if info.queue_flags.contains(vk::QueueFlags::COMPUTE) {

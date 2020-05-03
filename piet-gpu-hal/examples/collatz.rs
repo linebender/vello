@@ -12,7 +12,7 @@ fn main() {
             .unwrap();
         device.write_buffer(&buffer, &src).unwrap();
         let code = include_bytes!("./shader/collatz.spv");
-        let pipeline = device.create_simple_compute_pipeline(code, 1).unwrap();
+        let pipeline = device.create_simple_compute_pipeline(code, 1, None).unwrap();
         let descriptor_set = device.create_descriptor_set(&pipeline, &[&buffer]).unwrap();
         let query_pool = device.create_query_pool(2).unwrap();
         let mut cmd_buf = device.create_cmd_buf().unwrap();

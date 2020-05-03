@@ -21,6 +21,7 @@ pub trait Device: Sized {
         &self,
         code: &[u8],
         n_buffers: u32,
+        n_subgroups: Option<u32>,
     ) -> Result<Self::Pipeline, Error>;
 
     unsafe fn create_descriptor_set(

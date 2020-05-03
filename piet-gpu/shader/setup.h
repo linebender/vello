@@ -28,6 +28,11 @@
 #define TILEGROUP_INITIAL_STROKE_ALLOC 512
 #define TILEGROUP_INITIAL_FILL_ALLOC 512
 
+// Height of k1 block in tiles
+#define BLOCK_HEIGHT 32
+#define BLOCK_HEIGHT_PX (BLOCK_HEIGHT * TILE_HEIGHT_PX)
+#define LG_TILE_H 4
+
 // TODO: compute all these
 
 #define WIDTH_IN_TILES 128

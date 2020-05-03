@@ -15,6 +15,7 @@
 #extension GL_KHR_shader_subgroup_basic : enable
 #extension GL_KHR_shader_subgroup_ballot : enable
 #extension GL_KHR_shader_subgroup_arithmetic : enable
+#extension GL_KHR_shader_subgroup_shuffle : enable
 
 // It's possible we should lay this out with x and do our own math.
 layout(local_size_x = 1, local_size_y = 32) in;
@@ -61,7 +62,7 @@ const uint masks[5] = uint[5](0x55555555, 0x33333333, 0xf0f0f0f, 0xff00ff, 0xfff
 
 uint transpose(uint bitmask) {
     for (uint i = 0; i < 5; i++) {
-        bitmask = block_swap(bbitmask, masks[i], 1 << i)
+        bitmask = block_swap(bitmask, masks[i], 1 << i);
     }
     return bitmask;
 }
@@ -90,7 +91,10 @@ void main() {
     uint fill_chunk_n = 0;
     uint fill_n = 0;
 
+    // Starting point of this tile
     vec2 xy0 = vec2(gl_GlobalInvocationID.xy) * vec2(TILEGROUP_WIDTH_PX, TILEGROUP_HEIGHT_PX);
+    vec2 block0 = vec2(gl_GlobalInvocationID.x * TILEGROUP_WIDTH_PX,
+        (gl_GlobalInvocationID.y & ~(BLOCK_HEIGHT - 1)) * TILEGROUP_HEIGHT_PX);
     PietItemRef root = PietItemRef(0);
     SimpleGroup group = PietItem_Group_read(root);
     StackElement tos = StackElement(root, 0, group.offset.xy);
@@ -98,28 +102,30 @@ void main() {
     while (true) {
         if (tos.index < group.n_items) {
             uint this_ix = tos.index + gl_SubgroupInvocationID;
-            Bbox bbox;
+            vec4 bb;
             bool hit = false;
             bool is_group = false;
             uint bitmask = 0;
             if (this_ix < group.n_items) {
                 Bbox bbox = Bbox_read(Bbox_index(group.bboxes, this_ix));
-                vec4 bb = vec4(bbox.bbox) + tos.offset.xyxy;
-                hit = max(bb.x, xy0.x) < min(bb.z, xy0.x + float(TILEGROUP_WIDTH_PX))
-                    && max(bb.y, xy0.y) < min(bb.w, xy0.y + float(TILEGROUP_HEIGHT_PX));
+                bb = vec4(bbox.bbox) + tos.offset.xyxy;
+                hit = max(bb.x, block0.x) < min(bb.z, block0.x + float(TILEGROUP_WIDTH_PX))
+                    && max(bb.y, block0.y) < min(bb.w, block0.y + float(BLOCK_HEIGHT_PX));
+            }
 
+            if (hit) {
+                // TODO: this could subsume y part of hit test above, but be careful.
+                uint ymin = uint(max(floor(bb.y - block0.y), 0.0)) / TILE_HEIGHT_PX;
+                uint ymax = (uint(clamp(ceil(bb.w - block0.y), 0.0, float(BLOCK_HEIGHT_PX))) + TILE_HEIGHT_PX - 1) / TILE_HEIGHT_PX;
+                bitmask = (ymax == 32 ? 0 : (1 << ymax)) - (1 << ymin);
             }
 
             bitmask = transpose(bitmask);
 
-            uint tag;
-            if (hit) {
-                PietItemRef item_ref = PietItem_index(group.items, tos.index);
-                tag = PietItem_tag(item_ref);
-                is_group = tag == PietItem_Group;
-            }
-            if (hit && !is_group) {
-                PietItemRef item_ref = PietItem_index(group.items, tos.index);
+            while (bitmask != 0) {
+                uint item_ix = tos.index + findLSB(bitmask);
+                PietItemRef item_ref = PietItem_index(group.items, item_ix);
+                uint tag = PietItem_tag(item_ref);
                 Instance ins = Instance(item_ref.offset, tos.offset);
                 if (tg_ref.offset > tg_limit) {
                     // Allocation exceeded; do atomic bump alloc.
@@ -157,20 +163,11 @@ void main() {
                     Instance_write(fill_ref, ins);
                     fill_chunk_n++;
                     fill_ref.offset += Instance_size;
+                }
 
-                }
+                bitmask &= bitmask - 1; // clear bottom bit
             }
-            if (is_group) {
-                PietItemRef item_ref = PietItem_index(group.items, tos.index);
-                tos.index++;
-                if (tos.index < group.n_items) {
-                    stack[stack_ix++] = tos;
-                }
-                group = PietItem_Group_read(item_ref);
-                tos = StackElement(item_ref, 0, tos.offset + group.offset.xy);
-            } else {
-                tos.index++;
-            }
+            tos.index += BLOCK_HEIGHT;
         } else {
             // processed all items in this group; pop the stack
             if (stack_ix == 0) {

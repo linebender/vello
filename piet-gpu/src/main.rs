@@ -143,7 +143,7 @@ fn main() {
             .write_buffer(&k1_alloc_buf_host, &[k1_alloc_start as u32])
             .unwrap();
         let k1_code = include_bytes!("../shader/kernel1.spv");
-        let k1_pipeline = device.create_simple_compute_pipeline(k1_code, 3).unwrap();
+        let k1_pipeline = device.create_simple_compute_pipeline(k1_code, 3, Some(32)).unwrap();
         let k1_ds = device
             .create_descriptor_set(
                 &k1_pipeline,
@@ -158,7 +158,7 @@ fn main() {
             .write_buffer(&k2s_alloc_buf_host, &[k2s_alloc_start as u32])
             .unwrap();
         let k2s_code = include_bytes!("../shader/kernel2s.spv");
-        let k2s_pipeline = device.create_simple_compute_pipeline(k2s_code, 4).unwrap();
+        let k2s_pipeline = device.create_simple_compute_pipeline(k2s_code, 4, None).unwrap();
         let k2s_ds = device
             .create_descriptor_set(
                 &k2s_pipeline,
@@ -173,7 +173,7 @@ fn main() {
             .write_buffer(&k2f_alloc_buf_host, &[k2f_alloc_start as u32])
             .unwrap();
         let k2f_code = include_bytes!("../shader/kernel2f.spv");
-        let k2f_pipeline = device.create_simple_compute_pipeline(k2f_code, 4).unwrap();
+        let k2f_pipeline = device.create_simple_compute_pipeline(k2f_code, 4, None).unwrap();
         let k2f_ds = device
             .create_descriptor_set(
                 &k2f_pipeline,
@@ -193,7 +193,7 @@ fn main() {
             .write_buffer(&k3_alloc_buf_host, &[k3_alloc_start as u32])
             .unwrap();
         let k3_code = include_bytes!("../shader/kernel3.spv");
-        let k3_pipeline = device.create_simple_compute_pipeline(k3_code, 6).unwrap();
+        let k3_pipeline = device.create_simple_compute_pipeline(k3_code, 6, None).unwrap();
         let k3_ds = device
             .create_descriptor_set(
                 &k3_pipeline,
@@ -209,7 +209,7 @@ fn main() {
             .unwrap();
 
         let k4_code = include_bytes!("../shader/kernel4.spv");
-        let k4_pipeline = device.create_simple_compute_pipeline(k4_code, 4).unwrap();
+        let k4_pipeline = device.create_simple_compute_pipeline(k4_code, 4, None).unwrap();
         let k4_ds = device
             .create_descriptor_set(
                 &k4_pipeline,
