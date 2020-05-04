@@ -165,7 +165,7 @@ impl<D: Device> Renderer<D> {
         device.write_buffer(&k1_alloc_buf_host, &[k1_alloc_start as u32])?;
         let k1_code = include_bytes!("../shader/kernel1.spv");
         let k1_pipeline = device
-            .create_simple_compute_pipeline(k1_code, 3, 0, Some(32))?;
+            .create_simple_compute_pipeline(k1_code, 3, 0, None)?;
         let k1_ds = device
             .create_descriptor_set(
                 &k1_pipeline,

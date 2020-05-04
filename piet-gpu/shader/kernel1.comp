@@ -12,10 +12,6 @@
 
 #version 450
 #extension GL_GOOGLE_include_directive : enable
-//#extension GL_KHR_shader_subgroup_basic : enable
-//#extension GL_KHR_shader_subgroup_ballot : enable
-//#extension GL_KHR_shader_subgroup_arithmetic : enable
-#extension GL_KHR_shader_subgroup_shuffle : enable
 
 // It's possible we should lay this out with x and do our own math.
 layout(local_size_x = 1, local_size_y = 32) in;
@@ -46,10 +42,9 @@ struct StackElement {
 };
 
 // Implementation of 32 x 32 boolean matrix transpose, using subgroups.
-uint block_swap(uint a, uint m, uint s) {
-    uint b = subgroupShuffleXor(a, s);
+uint block_swap(uint a, uint b, uint m, uint s) {
     uint c;
-    if ((gl_SubgroupInvocationID & s) == 0) {
+    if ((gl_LocalInvocationID.y & s) == 0) {
         c = b << s;
     } else {
         m = ~m;
@@ -60,9 +55,14 @@ uint block_swap(uint a, uint m, uint s) {
 
 const uint masks[5] = uint[5](0x55555555, 0x33333333, 0xf0f0f0f, 0xff00ff, 0xffff);
 
+shared uint tg_bms[32];
+
 uint transpose(uint bitmask) {
     for (uint i = 0; i < 5; i++) {
-        bitmask = block_swap(bitmask, masks[i], 1 << i);
+        tg_bms[gl_LocalInvocationID.y] = bitmask;
+        barrier();
+        bitmask = block_swap(bitmask, tg_bms[gl_LocalInvocationID.y ^ (1 << i)], masks[i], 1 << i);
+        barrier();
     }
     return bitmask;
 }
@@ -101,7 +101,7 @@ void main() {
 
     while (true) {
         if (tos.index < group.n_items) {
-            uint this_ix = tos.index + gl_SubgroupInvocationID;
+            uint this_ix = tos.index + gl_LocalInvocationID.y;
             vec4 bb;
             bool hit = false;
             bool is_group = false;
