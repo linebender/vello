@@ -173,7 +173,11 @@ void main() {
             if (stack_ix == 0) {
                 break;
             }
-            tos = stack[--stack_ix];
+            stack_ix--;
+            // Note: writing this out is a workaround for an Nvidia shader compiler crash.
+            tos.group = stack[stack_ix].group;
+            tos.index = stack[stack_ix].index;
+            tos.offset = stack[stack_ix].offset;
             group = PietItem_Group_read(tos.group);
         }
     }
