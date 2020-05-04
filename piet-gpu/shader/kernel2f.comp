@@ -1,0 +1,167 @@
+// This is "kernel 2" (fill) in a 4-kernel pipeline. It processes the fill
+// (polyline) items in the scene and generates a list of segments for each, for
+// each tile.
+
+#version 450
+#extension GL_GOOGLE_include_directive : enable
+
+layout(local_size_x = 32) in;
+
+layout(set = 0, binding = 0) readonly buffer SceneBuf {
+    uint[] scene;
+};
+
+layout(set = 0, binding = 1) buffer TilegroupBuf {
+    uint[] tilegroup;
+};
+
+layout(set = 0, binding = 2) buffer FillSegBuf {
+    uint[] fill_seg;
+};
+
+layout(set = 0, binding = 3) buffer AllocBuf {
+    uint alloc;
+};
+
+#include "scene.h"
+#include "tilegroup.h"
+#include "fill_seg.h"
+
+#include "setup.h"
+
+// Ensure that there is space to encode a segment.
+void alloc_chunk(inout uint chunk_n_segs, inout FillSegChunkRef seg_chunk_ref,
+    inout FillSegChunkRef first_seg_chunk, inout uint seg_limit)
+{
+    if (chunk_n_segs == 0) {
+        if (seg_chunk_ref.offset + 40 > seg_limit) {
+            seg_chunk_ref.offset = atomicAdd(alloc, SEG_CHUNK_ALLOC);
+            seg_limit = seg_chunk_ref.offset + SEG_CHUNK_ALLOC - FillSegment_size;
+        }
+        first_seg_chunk = seg_chunk_ref;
+    } else if (seg_chunk_ref.offset + FillSegChunk_size + FillSegment_size * chunk_n_segs > seg_limit) {
+        uint new_chunk_ref = atomicAdd(alloc, SEG_CHUNK_ALLOC);
+        seg_limit = new_chunk_ref + SEG_CHUNK_ALLOC - FillSegment_size;
+        FillSegChunk_write(seg_chunk_ref, FillSegChunk(chunk_n_segs, FillSegChunkRef(new_chunk_ref)));
+        seg_chunk_ref.offset = new_chunk_ref;
+        chunk_n_segs = 0;
+    }
+
+}
+
+void main() {
+    uint tile_ix = gl_GlobalInvocationID.y * WIDTH_IN_TILES + gl_GlobalInvocationID.x;
+    uint tilegroup_ix = gl_GlobalInvocationID.y * WIDTH_IN_TILEGROUPS
+        + (gl_GlobalInvocationID.x / TILEGROUP_WIDTH_TILES);
+    vec2 xy0 = vec2(gl_GlobalInvocationID.xy) * vec2(TILE_WIDTH_PX, TILE_HEIGHT_PX);
+    TileGroupRef fill_start = TileGroupRef(tilegroup_ix * TILEGROUP_STRIDE + TILEGROUP_FILL_START);
+    uint fill_n = tilegroup[fill_start.offset >> 2];
+
+    FillTileHeaderRef tile_header_ref = FillTileHeaderRef(tile_ix * FillTileHeader_size);
+    if (fill_n > 0) {
+        ChunkRef chunk_ref = ChunkRef(fill_start.offset + 4);
+        Chunk chunk = Chunk_read(chunk_ref);
+        InstanceRef fill_ref = InstanceRef(chunk_ref.offset + Chunk_size);
+        FillItemHeaderRef item_header = FillItemHeaderRef(atomicAdd(alloc, fill_n * FillItemHeader_size));
+        FillTileHeader_write(tile_header_ref, FillTileHeader(fill_n, item_header));
+        FillSegChunkRef seg_chunk_ref = FillSegChunkRef(0);
+        uint seg_limit = 0;
+        // Iterate through items; fill_n holds count remaining.
+        while (true) {
+            if (chunk.chunk_n == 0) {
+                chunk_ref = chunk.next;
+                if (chunk_ref.offset == 0) {
+                    break;
+                }
+                chunk = Chunk_read(chunk_ref);
+                fill_ref = InstanceRef(chunk_ref.offset + Chunk_size);
+            }
+            Instance ins = Instance_read(fill_ref);
+            PietFill fill = PietItem_Fill_read(PietItemRef(ins.item_ref));
+
+            // Process the fill polyline item.
+            uint max_n_segs = fill.n_points - 1;
+            uint chunk_n_segs = 0;
+            int backdrop = 0;
+            FillSegChunkRef seg_chunk_ref;
+            FillSegChunkRef first_seg_chunk = FillSegChunkRef(0);
+            vec2 start = Point_read(fill.points).xy;
+            for (uint j = 0; j < max_n_segs; j++) {
+                fill.points.offset += Point_size;
+                vec2 end = Point_read(fill.points).xy;
+
+                // Process one segment.
+
+                // TODO: I think this would go more smoothly (and be easier to
+                // make numerically robust) if it were based on clipping the line
+                // to the tile box. See:
+                // https://tavianator.com/fast-branchless-raybounding-box-intersections/
+                vec2 xymin = min(start, end);
+                vec2 xymax = max(start, end);
+                float a = end.y - start.y;
+                float b = start.x - end.x;
+                float c = -(a * start.x + b * start.y);
+                vec2 xy1 = xy0 + vec2(TILE_WIDTH_PX, TILE_HEIGHT_PX);
+                float ytop = max(xy0.y, xymin.y);
+                float ybot = min(xy1.y, xymax.y);
+                float s00 = sign(b * ytop + a * xy0.x + c);
+                float s01 = sign(b * ytop + a * xy1.x + c);
+                float s10 = sign(b * ybot + a * xy0.x + c);
+                float s11 = sign(b * ybot + a * xy1.x + c);
+                float sTopLeft = sign(b * xy0.y + a * xy0.x + c);
+                if (sTopLeft == sign(a) && xymin.y <= xy0.y && xymax.y > xy0.y) {
+                    backdrop -= int(s00);
+                }
+
+                // This is adapted from piet-metal but could be improved.
+
+                if (max(xymin.x, xy0.x) < min(xymax.x, xy1.x)
+                    && ytop < ybot
+                    && s00 * s01 + s00 * s10 + s00 * s11 < 3.0)
+                {
+                    // avoid overwriting `end` so that it can be used as start
+                    vec2 enc_end = end;
+                    if (xymin.x < xy0.x) {
+                        float yEdge = mix(start.y, end.y, (start.x - xy0.x) / b);
+                        if (yEdge >= xy0.y && yEdge < xy1.y) {
+                            // This is encoded the same as a general fill segment, but could be
+                            // special-cased, either here or in rendering. (It was special-cased
+                            // in piet-metal).
+                            FillSegment edge_seg;
+                            if (b > 0.0) {
+                                enc_end = vec2(xy0.x, yEdge);
+                                edge_seg.start = enc_end;
+                                edge_seg.end = vec2(xy0.x, xy1.y);
+                            } else {
+                                start = vec2(xy0.x, yEdge);
+                                edge_seg.start = vec2(xy0.x, xy1.y);
+                                edge_seg.end = start;
+                            }
+                            alloc_chunk(chunk_n_segs, seg_chunk_ref, first_seg_chunk, seg_limit);
+                            FillSegment_write(FillSegmentRef(seg_chunk_ref.offset + FillSegChunk_size + FillSegment_size * chunk_n_segs), edge_seg);
+                            chunk_n_segs++;
+                        }
+                    }
+                    alloc_chunk(chunk_n_segs, seg_chunk_ref, first_seg_chunk, seg_limit);
+                    FillSegment seg = FillSegment(start, enc_end);
+                    FillSegment_write(FillSegmentRef(seg_chunk_ref.offset + FillSegChunk_size + FillSegment_size * chunk_n_segs), seg);
+                    chunk_n_segs++;
+                }
+
+                start = end;
+            }
+            FillItemHeader_write(item_header, FillItemHeader(backdrop, first_seg_chunk));
+            if (chunk_n_segs != 0) {
+                FillSegChunk_write(seg_chunk_ref, FillSegChunk(chunk_n_segs, FillSegChunkRef(0)));
+                seg_chunk_ref.offset += FillSegChunk_size + FillSegment_size * chunk_n_segs;
+            }
+
+            fill_ref.offset += Instance_size;
+            chunk.chunk_n--;
+            item_header.offset += FillItemHeader_size;
+        }
+    } else {
+        // As an optimization, we could just write 0 for the size.
+        FillTileHeader_write(tile_header_ref, FillTileHeader(fill_n, FillItemHeaderRef(0)));
+    }
+}

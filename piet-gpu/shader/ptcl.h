@@ -72,11 +72,12 @@ CmdStrokeRef CmdStroke_index(CmdStrokeRef ref, uint index) {
 }
 
 struct CmdFill {
-    vec2 start;
-    vec2 end;
+    uint seg_ref;
+    int backdrop;
+    uint rgba_color;
 };
 
-#define CmdFill_size 16
+#define CmdFill_size 12
 
 CmdFillRef CmdFill_index(CmdFillRef ref, uint index) {
     return CmdFillRef(ref.offset + index * CmdFill_size);
@@ -205,19 +206,18 @@ CmdFill CmdFill_read(CmdFillRef ref) {
     uint raw0 = ptcl[ix + 0];
     uint raw1 = ptcl[ix + 1];
     uint raw2 = ptcl[ix + 2];
-    uint raw3 = ptcl[ix + 3];
     CmdFill s;
-    s.start = vec2(uintBitsToFloat(raw0), uintBitsToFloat(raw1));
-    s.end = vec2(uintBitsToFloat(raw2), uintBitsToFloat(raw3));
+    s.seg_ref = raw0;
+    s.backdrop = int(raw1);
+    s.rgba_color = raw2;
     return s;
 }
 
 void CmdFill_write(CmdFillRef ref, CmdFill s) {
     uint ix = ref.offset >> 2;
-    ptcl[ix + 0] = floatBitsToUint(s.start.x);
-    ptcl[ix + 1] = floatBitsToUint(s.start.y);
-    ptcl[ix + 2] = floatBitsToUint(s.end.x);
-    ptcl[ix + 3] = floatBitsToUint(s.end.y);
+    ptcl[ix + 0] = s.seg_ref;
+    ptcl[ix + 1] = uint(s.backdrop);
+    ptcl[ix + 2] = s.rgba_color;
 }
 
 CmdFillEdge CmdFillEdge_read(CmdFillEdgeRef ref) {

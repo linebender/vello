@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use piet_gpu_types::encoder::{Encode, Encoder, Ref};
 use piet_gpu_types::scene;
-use piet_gpu_types::scene::{Bbox, PietCircle, PietItem, PietStrokePolyLine, SimpleGroup};
+use piet_gpu_types::scene::{Bbox, PietCircle, PietFill, PietItem, PietStrokePolyLine, SimpleGroup};
 
 use piet::kurbo::{Affine, PathEl, Point, Rect, Shape};
 
@@ -39,7 +39,7 @@ pub enum PietGpuBrush {
     Gradient,
 }
 
-const TOLERANCE: f64 = 0.1;
+const TOLERANCE: f64 = 0.25;
 
 impl PietGpuRenderContext {
     pub fn new() -> PietGpuRenderContext {
@@ -119,6 +119,7 @@ impl RenderContext for PietGpuRenderContext {
                     n_points,
                     points,
                 };
+                let bbox = bbox.inset(-0.5 * width);
                 self.push_item(PietItem::Poly(poly_line), bbox);
             }
             _ => (),
@@ -135,10 +136,11 @@ impl RenderContext for PietGpuRenderContext {
     }
 
     fn fill(&mut self, shape: impl Shape, brush: &impl IntoBrush<Self>) {
+        let bbox = shape.bounding_box();
         let brush = brush.make_brush(self, || shape.bounding_box()).into_owned();
 
-        match shape.as_circle() {
-            Some(circle) => match brush {
+        if let Some(circle) = shape.as_circle() {
+            match brush {
                 PietGpuBrush::Solid(rgba_color) => {
                     let piet_circle = PietCircle {
                         rgba_color,
@@ -149,8 +151,22 @@ impl RenderContext for PietGpuRenderContext {
                     self.push_item(PietItem::Circle(piet_circle), bbox);
                 }
                 _ => {}
-            },
-            None => {}
+            }
+            return;
+        }
+        let path = shape.to_bez_path(TOLERANCE);
+        let (n_points, points) = flatten_shape(&mut self.encoder, path);
+        match brush {
+            PietGpuBrush::Solid(rgba_color) => {
+                let fill = PietFill {
+                    flags: 0,
+                    rgba_color,
+                    n_points,
+                    points,
+                };
+                self.push_item(PietItem::Fill(fill), bbox);
+            }
+            _ => (),
         }
     }
 

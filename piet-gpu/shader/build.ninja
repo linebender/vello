@@ -13,6 +13,8 @@ build kernel1.spv: glsl kernel1.comp | scene.h tilegroup.h setup.h
 
 build kernel2s.spv: glsl kernel2s.comp | scene.h tilegroup.h segment.h setup.h
 
-build kernel3.spv: glsl kernel3.comp | scene.h tilegroup.h segment.h ptcl.h setup.h
+build kernel2f.spv: glsl kernel2f.comp | scene.h tilegroup.h fill_seg.h setup.h
 
-build kernel4.spv: glsl kernel4.comp | ptcl.h segment.h setup.h
+build kernel3.spv: glsl kernel3.comp | scene.h tilegroup.h segment.h fill_seg.h ptcl.h setup.h
+
+build kernel4.spv: glsl kernel4.comp | ptcl.h segment.h fill_seg.h setup.h

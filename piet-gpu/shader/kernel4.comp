@@ -19,12 +19,18 @@ layout(set = 0, binding = 1) buffer SegmentBuf {
     uint[] segment;
 };
 
-layout(set = 0, binding = 2) buffer ImageBuf {
+// Used readonly
+layout(set = 0, binding = 2) buffer FillSegBuf {
+    uint[] fill_seg;
+};
+
+layout(set = 0, binding = 3) buffer ImageBuf {
     uint[] image;
 };
 
 #include "ptcl.h"
 #include "segment.h"
+#include "fill_seg.h"
 
 #include "setup.h"
 
@@ -69,6 +75,41 @@ void main() {
             fg_rgba = unpackUnorm4x8(stroke.rgba_color).wzyx;
             alpha = clamp(stroke.half_width + 0.5 - df, 0.0, 1.0);
             rgb = mix(rgb, fg_rgba.rgb, alpha * fg_rgba.a);
+            break;
+        case Cmd_Fill:
+            CmdFill fill = Cmd_Fill_read(cmd_ref);
+            // Probably better to store as float, but conversion is no doubt cheap.
+            float area = float(fill.backdrop);
+            FillSegChunkRef fill_seg_chunk_ref = FillSegChunkRef(fill.seg_ref);
+            do {
+                FillSegChunk seg_chunk = FillSegChunk_read(fill_seg_chunk_ref);
+                for (int i = 0; i < seg_chunk.n; i++) {
+                    FillSegment seg = FillSegment_read(FillSegmentRef(fill_seg_chunk_ref.offset + FillSegChunk_size + FillSegment_size * i));
+                    vec2 start = seg.start - xy;
+                    vec2 end = seg.end - xy;
+                    vec2 window = clamp(vec2(start.y, end.y), 0.0, 1.0);
+                    if (window.x != window.y) {
+                        vec2 t = (window - start.y) / (end.y - start.y);
+                        vec2 xs = vec2(mix(start.x, end.x, t.x), mix(start.x, end.x, t.y));
+                        float xmin = min(min(xs.x, xs.y), 1.0) - 1e-6;
+                        float xmax = max(xs.x, xs.y);
+                        float b = min(xmax, 1.0);
+                        float c = max(b, 0.0);
+                        float d = max(xmin, 0.0);
+                        float a = (b + 0.5 * (d * d - c * c) - xmin) / (xmax - xmin);
+                        area += a * (window.x - window.y);
+                    }
+                }
+                fill_seg_chunk_ref = seg_chunk.next;
+            } while (fill_seg_chunk_ref.offset != 0);
+            fg_rgba = unpackUnorm4x8(fill.rgba_color).wzyx;
+            alpha = min(abs(area), 1.0);
+            rgb = mix(rgb, fg_rgba.rgb, alpha * fg_rgba.a);
+            break;
+        case Cmd_Solid:
+            CmdSolid solid = Cmd_Solid_read(cmd_ref);
+            fg_rgba = unpackUnorm4x8(solid.rgba_color).wzyx;
+            rgb = mix(rgb, fg_rgba.rgb, fg_rgba.a);
             break;
         case Cmd_Jump:
             cmd_ref = CmdRef(Cmd_Jump_read(cmd_ref).new_ref);
