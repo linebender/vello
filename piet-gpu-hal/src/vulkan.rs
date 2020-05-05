@@ -208,7 +208,7 @@ impl VkInstance {
                 None,
             )?;
 
-            let (_dbg_loader, _dbg_callbk) = if false {
+            let (_dbg_loader, _dbg_callbk) = if cfg!(debug_assertions) {
                 let dbg_info = vk::DebugUtilsMessengerCreateInfoEXT::builder()
                     .message_severity(
                         vk::DebugUtilsMessageSeverityFlagsEXT::ERROR
@@ -504,7 +504,7 @@ impl crate::Device for VkDevice {
 
     /// This creates a pipeline that runs over the buffer.
     ///
-    /// The descriptor set layout is just some number of buffers (this will change).
+    /// The descriptor set layout is just some number of storage buffers and storage images (this might change).
     unsafe fn create_simple_compute_pipeline(
         &self,
         code: &[u8],
