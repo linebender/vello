@@ -5,28 +5,49 @@
 pub mod vulkan;
 
 /// This isn't great but is expedient.
-type Error = Box<dyn std::error::Error>;
+pub type Error = Box<dyn std::error::Error>;
+
+#[derive(Copy, Clone, Debug)]
+pub enum ImageLayout {
+    Undefined,
+    Present,
+    BlitSrc,
+    BlitDst,
+    General,
+}
 
 pub trait Device: Sized {
     type Buffer;
+    type Image;
     type MemFlags: MemFlags;
     type Pipeline;
     type DescriptorSet;
     type QueryPool;
     type CmdBuf: CmdBuf<Self>;
+    type Fence;
+    type Semaphore;
 
     fn create_buffer(&self, size: u64, mem_flags: Self::MemFlags) -> Result<Self::Buffer, Error>;
+
+    unsafe fn create_image2d(
+        &self,
+        width: u32,
+        height: u32,
+        mem_flags: Self::MemFlags,
+    ) -> Result<Self::Image, Error>;
 
     unsafe fn create_simple_compute_pipeline(
         &self,
         code: &[u8],
         n_buffers: u32,
+        n_images: u32,
     ) -> Result<Self::Pipeline, Error>;
 
     unsafe fn create_descriptor_set(
         &self,
         pipeline: &Self::Pipeline,
         bufs: &[&Self::Buffer],
+        images: &[&Self::Image],
     ) -> Result<Self::DescriptorSet, Error>;
 
     fn create_cmd_buf(&self) -> Result<Self::CmdBuf, Error>;
@@ -40,9 +61,15 @@ pub trait Device: Sized {
     ///
     /// # Safety
     /// All submitted commands that refer to this query pool must have completed.
-    unsafe fn reap_query_pool(&self, pool: Self::QueryPool) -> Result<Vec<f64>, Error>;
+    unsafe fn reap_query_pool(&self, pool: &Self::QueryPool) -> Result<Vec<f64>, Error>;
 
-    unsafe fn run_cmd_buf(&self, cmd_buf: &Self::CmdBuf) -> Result<(), Error>;
+    unsafe fn run_cmd_buf(
+        &self,
+        cmd_buf: &Self::CmdBuf,
+        wait_semaphores: &[Self::Semaphore],
+        signal_semaphores: &[Self::Semaphore],
+        fence: Option<&Self::Fence>,
+    ) -> Result<(), Error>;
 
     unsafe fn read_buffer<T: Sized>(
         &self,
@@ -55,6 +82,10 @@ pub trait Device: Sized {
         buffer: &Self::Buffer,
         contents: &[T],
     ) -> Result<(), Error>;
+
+    unsafe fn create_semaphore(&self) -> Result<Self::Semaphore, Error>;
+    unsafe fn create_fence(&self, signaled: bool) -> Result<Self::Fence, Error>;
+    unsafe fn wait_and_reset(&self, fences: &[Self::Fence]) -> Result<(), Error>;
 }
 
 pub trait CmdBuf<D: Device> {
@@ -71,6 +102,13 @@ pub trait CmdBuf<D: Device> {
 
     unsafe fn memory_barrier(&mut self);
 
+    unsafe fn image_barrier(
+        &mut self,
+        image: &D::Image,
+        src_layout: ImageLayout,
+        dst_layout: ImageLayout,
+    );
+
     /// Clear the buffer.
     ///
     /// This is readily supported in Vulkan, but for portability it is remarkably
@@ -79,6 +117,11 @@ pub trait CmdBuf<D: Device> {
     unsafe fn clear_buffer(&self, buffer: &D::Buffer);
 
     unsafe fn copy_buffer(&self, src: &D::Buffer, dst: &D::Buffer);
+
+    unsafe fn copy_image_to_buffer(&self, src: &D::Image, dst: &D::Buffer);
+
+    // low portability, dx12 doesn't support it natively
+    unsafe fn blit_image(&self, src: &D::Image, dst: &D::Image);
 
     /// Reset the query pool.
     ///

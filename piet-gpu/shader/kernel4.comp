@@ -24,9 +24,7 @@ layout(set = 0, binding = 2) buffer FillSegBuf {
     uint[] fill_seg;
 };
 
-layout(set = 0, binding = 3) buffer ImageBuf {
-    uint[] image;
-};
+layout(rgba8, set = 0, binding = 3) uniform writeonly image2D image;
 
 #include "ptcl.h"
 #include "segment.h"
@@ -118,8 +116,5 @@ void main() {
         cmd_ref.offset += Cmd_size;
     }
 
-    // TODO: sRGB
-    uvec4 s = uvec4(round(vec4(rgb, 1.0) * 255.0));
-    uint rgba_packed = s.r | (s.g << 8) | (s.b << 16) | (s.a << 24);
-    image[xy_uint.y * IMAGE_WIDTH + xy_uint.x] = rgba_packed;
+    imageStore(image, ivec2(xy_uint), vec4(rgb, 1.0));
 }

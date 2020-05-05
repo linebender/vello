@@ -2,9 +2,9 @@ use piet_gpu_hal::vulkan::VkInstance;
 use piet_gpu_hal::{CmdBuf, Device, MemFlags};
 
 fn main() {
-    let instance = VkInstance::new().unwrap();
+    let (instance, _) = VkInstance::new(None).unwrap();
     unsafe {
-        let device = instance.device().unwrap();
+        let device = instance.device(None).unwrap();
         let mem_flags = MemFlags::host_coherent();
         let src = (0..256).map(|x| x + 1).collect::<Vec<u32>>();
         let buffer = device
