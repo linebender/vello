@@ -1,6 +1,7 @@
-use std::fs::File;
-use std::io::BufWriter;
-use std::path::Path;
+mod render_ctx;
+mod pico_svg;
+
+pub use render_ctx::PietGpuRenderContext;
 
 use rand::{Rng, RngCore};
 
@@ -8,16 +9,12 @@ use piet::kurbo::{BezPath, Circle, Line, Point, Vec2};
 use piet::{Color, RenderContext};
 
 use piet_gpu_hal::vulkan::VkInstance;
-use piet_gpu_hal::{CmdBuf, Device, MemFlags};
+use piet_gpu_hal::{CmdBuf, Device, Error, ImageLayout, MemFlags};
 
-mod pico_svg;
-mod render_ctx;
-
-use render_ctx::PietGpuRenderContext;
 use pico_svg::PicoSvg;
 
-const WIDTH: usize = 2048;
-const HEIGHT: usize = 1536;
+pub const WIDTH: usize = TILE_W * WIDTH_IN_TILES;
+pub const HEIGHT: usize = TILE_H * HEIGHT_IN_TILES;
 
 const TILE_W: usize = 16;
 const TILE_H: usize = 16;
@@ -34,7 +31,7 @@ const K2_PER_TILE_SIZE: usize = 8;
 
 const N_CIRCLES: usize = 10_000;
 
-fn render_scene(rc: &mut impl RenderContext) {
+pub fn render_scene(rc: &mut impl RenderContext) {
     let mut rng = rand::thread_rng();
     for _ in 0..N_CIRCLES {
         let color = Color::from_rgba32_u32(rng.next_u32());
@@ -108,72 +105,92 @@ fn dump_k1_data(k1_buf: &[u32]) {
     }
 }
 
-fn main() {
-    let instance = VkInstance::new().unwrap();
-    unsafe {
-        let device = instance.device().unwrap();
+pub struct Renderer<D: Device> {
+    pub image_dev: D::Image, // resulting image
+
+    scene_buf: D::Buffer,
+    scene_dev: D::Buffer,
+
+    k1_alloc_buf_host: D::Buffer,
+    k1_alloc_buf_dev: D::Buffer,
+    k2s_alloc_buf_host: D::Buffer,
+    k2s_alloc_buf_dev: D::Buffer,
+    k2f_alloc_buf_host: D::Buffer,
+    k2f_alloc_buf_dev: D::Buffer,
+    k3_alloc_buf_host: D::Buffer,
+    k3_alloc_buf_dev: D::Buffer,
+    tilegroup_buf: D::Buffer,
+    ptcl_buf: D::Buffer,
+
+    k1_pipeline: D::Pipeline,
+    k1_ds: D::DescriptorSet,
+    k2s_pipeline: D::Pipeline,
+    k2s_ds: D::DescriptorSet,
+    k2f_pipeline: D::Pipeline,
+    k2f_ds: D::DescriptorSet,
+    k3_pipeline: D::Pipeline,
+    k3_ds: D::DescriptorSet,
+    k4_pipeline: D::Pipeline,
+    k4_ds: D::DescriptorSet,
+}
+
+impl<D: Device> Renderer<D> {
+    pub unsafe fn new(device: &D, scene: &[u8]) -> Result<Self, Error> {
         let host = MemFlags::host_coherent();
         let dev = MemFlags::device_local();
-        let mut ctx = PietGpuRenderContext::new();
-        render_scene(&mut ctx);
-        let scene = ctx.get_scene_buf();
-        //dump_scene(&scene);
+
         let scene_buf = device
             .create_buffer(std::mem::size_of_val(&scene[..]) as u64, host)
             .unwrap();
         let scene_dev = device
             .create_buffer(std::mem::size_of_val(&scene[..]) as u64, dev)
             .unwrap();
-        device.write_buffer(&scene_buf, &scene).unwrap();
-        let tilegroup_buf = device.create_buffer(4 * 1024 * 1024, dev).unwrap();
-        let ptcl_buf = device.create_buffer(48 * 1024 * 1024, dev).unwrap();
-        let segment_buf = device.create_buffer(64 * 1024 * 1024, dev).unwrap();
-        let fill_seg_buf = device.create_buffer(64 * 1024 * 1024, dev).unwrap();
-        let image_buf = device
-            .create_buffer((WIDTH * HEIGHT * 4) as u64, host)
-            .unwrap();
-        let image_dev = device
-            .create_buffer((WIDTH * HEIGHT * 4) as u64, dev)
-            .unwrap();
+        device.write_buffer(&scene_buf, &scene)?;
 
-        let k1_alloc_buf_host = device.create_buffer(4, host).unwrap();
-        let k1_alloc_buf_dev = device.create_buffer(4, dev).unwrap();
+        let tilegroup_buf = device.create_buffer(4 * 1024 * 1024, dev)?;
+        let ptcl_buf = device.create_buffer(48 * 1024 * 1024, dev)?;
+        let segment_buf = device.create_buffer(64 * 1024 * 1024, dev)?;
+        let fill_seg_buf = device.create_buffer(64 * 1024 * 1024, dev)?;
+        let image_dev = device.create_image2d(WIDTH as u32, HEIGHT as u32, dev)?;
+
+        let k1_alloc_buf_host = device.create_buffer(4, host)?;
+        let k1_alloc_buf_dev = device.create_buffer(4, dev)?;
         let k1_alloc_start = WIDTH_IN_TILEGROUPS * HEIGHT_IN_TILEGROUPS * TILEGROUP_STRIDE;
-        device
-            .write_buffer(&k1_alloc_buf_host, &[k1_alloc_start as u32])
-            .unwrap();
+        device.write_buffer(&k1_alloc_buf_host, &[k1_alloc_start as u32])?;
         let k1_code = include_bytes!("../shader/kernel1.spv");
-        let k1_pipeline = device.create_simple_compute_pipeline(k1_code, 3, Some(32)).unwrap();
+        let k1_pipeline = device
+            .create_simple_compute_pipeline(k1_code, 3, 0, Some(32))?;
         let k1_ds = device
             .create_descriptor_set(
                 &k1_pipeline,
                 &[&scene_dev, &tilegroup_buf, &k1_alloc_buf_dev],
-            )
-            .unwrap();
+                &[],
+            )?;
 
-        let k2s_alloc_buf_host = device.create_buffer(4, host).unwrap();
-        let k2s_alloc_buf_dev = device.create_buffer(4, dev).unwrap();
+        let k2s_alloc_buf_host = device.create_buffer(4, host)?;
+        let k2s_alloc_buf_dev = device.create_buffer(4, dev)?;
         let k2s_alloc_start = WIDTH_IN_TILES * HEIGHT_IN_TILES * K2_PER_TILE_SIZE;
         device
             .write_buffer(&k2s_alloc_buf_host, &[k2s_alloc_start as u32])
-            .unwrap();
+            ?;
         let k2s_code = include_bytes!("../shader/kernel2s.spv");
-        let k2s_pipeline = device.create_simple_compute_pipeline(k2s_code, 4, None).unwrap();
+        let k2s_pipeline = device.create_simple_compute_pipeline(k2s_code, 4, 0, None)?;
         let k2s_ds = device
             .create_descriptor_set(
                 &k2s_pipeline,
                 &[&scene_dev, &tilegroup_buf, &segment_buf, &k2s_alloc_buf_dev],
+                &[],
             )
-            .unwrap();
+            ?;
 
-        let k2f_alloc_buf_host = device.create_buffer(4, host).unwrap();
-        let k2f_alloc_buf_dev = device.create_buffer(4, dev).unwrap();
+        let k2f_alloc_buf_host = device.create_buffer(4, host)?;
+        let k2f_alloc_buf_dev = device.create_buffer(4, dev)?;
         let k2f_alloc_start = WIDTH_IN_TILES * HEIGHT_IN_TILES * K2_PER_TILE_SIZE;
         device
             .write_buffer(&k2f_alloc_buf_host, &[k2f_alloc_start as u32])
-            .unwrap();
+            ?;
         let k2f_code = include_bytes!("../shader/kernel2f.spv");
-        let k2f_pipeline = device.create_simple_compute_pipeline(k2f_code, 4, None).unwrap();
+        let k2f_pipeline = device.create_simple_compute_pipeline(k2f_code, 4, 0, None)?;
         let k2f_ds = device
             .create_descriptor_set(
                 &k2f_pipeline,
@@ -183,17 +200,18 @@ fn main() {
                     &fill_seg_buf,
                     &k2f_alloc_buf_dev,
                 ],
+                &[],
             )
-            .unwrap();
+            ?;
 
-        let k3_alloc_buf_host = device.create_buffer(4, host).unwrap();
-        let k3_alloc_buf_dev = device.create_buffer(4, dev).unwrap();
+        let k3_alloc_buf_host = device.create_buffer(4, host)?;
+        let k3_alloc_buf_dev = device.create_buffer(4, dev)?;
         let k3_alloc_start = WIDTH_IN_TILES * HEIGHT_IN_TILES * PTCL_INITIAL_ALLOC;
         device
             .write_buffer(&k3_alloc_buf_host, &[k3_alloc_start as u32])
-            .unwrap();
+            ?;
         let k3_code = include_bytes!("../shader/kernel3.spv");
-        let k3_pipeline = device.create_simple_compute_pipeline(k3_code, 6, None).unwrap();
+        let k3_pipeline = device.create_simple_compute_pipeline(k3_code, 6, 0, None)?;
         let k3_ds = device
             .create_descriptor_set(
                 &k3_pipeline,
@@ -205,45 +223,69 @@ fn main() {
                     &ptcl_buf,
                     &k3_alloc_buf_dev,
                 ],
+                &[],
             )
-            .unwrap();
+            ?;
 
         let k4_code = include_bytes!("../shader/kernel4.spv");
-        let k4_pipeline = device.create_simple_compute_pipeline(k4_code, 4, None).unwrap();
+        let k4_pipeline = device.create_simple_compute_pipeline(k4_code, 4, 0, None)?;
         let k4_ds = device
-            .create_descriptor_set(
-                &k4_pipeline,
-                &[&ptcl_buf, &segment_buf, &fill_seg_buf, &image_dev],
-            )
-            .unwrap();
+            .create_descriptor_set(&k4_pipeline, &[&ptcl_buf, &segment_buf, &fill_seg_buf], &[&image_dev])
+            ?;
 
-        let query_pool = device.create_query_pool(6).unwrap();
-        let mut cmd_buf = device.create_cmd_buf().unwrap();
-        cmd_buf.begin();
-        cmd_buf.copy_buffer(&scene_buf, &scene_dev);
+        Ok(Renderer {
+            scene_buf,
+            scene_dev,
+            image_dev,
+            k1_alloc_buf_host,
+            k1_alloc_buf_dev,
+            k2s_alloc_buf_host,
+            k2s_alloc_buf_dev,
+            k2f_alloc_buf_host,
+            k2f_alloc_buf_dev,
+            k3_alloc_buf_host,
+            k3_alloc_buf_dev,
+            tilegroup_buf,
+            ptcl_buf,
+            k1_pipeline,
+            k1_ds,
+            k2s_pipeline,
+            k2s_ds,
+            k2f_pipeline,
+            k2f_ds,
+            k3_pipeline,
+            k3_ds,
+            k4_pipeline,
+            k4_ds,
+        })
+    }
+
+    pub unsafe fn record(&self, cmd_buf: &mut impl CmdBuf<D>, query_pool: &D::QueryPool) {
+        cmd_buf.copy_buffer(&self.scene_buf, &self.scene_dev);
         // Note: we could use one alloc buf and reuse it. But we'll stick with
         // multiple ones for clarity.
-        cmd_buf.copy_buffer(&k1_alloc_buf_host, &k1_alloc_buf_dev);
-        cmd_buf.copy_buffer(&k2s_alloc_buf_host, &k2s_alloc_buf_dev);
-        cmd_buf.copy_buffer(&k2f_alloc_buf_host, &k2f_alloc_buf_dev);
-        cmd_buf.copy_buffer(&k3_alloc_buf_host, &k3_alloc_buf_dev);
+        cmd_buf.copy_buffer(&self.k1_alloc_buf_host, &self.k1_alloc_buf_dev);
+        cmd_buf.copy_buffer(&self.k2s_alloc_buf_host, &self.k2s_alloc_buf_dev);
+        cmd_buf.copy_buffer(&self.k2f_alloc_buf_host, &self.k2f_alloc_buf_dev);
+        cmd_buf.copy_buffer(&self.k3_alloc_buf_host, &self.k3_alloc_buf_dev);
         // Note: these clears aren't necessary, and are here to make inspection
         // of the buffers cleaner. Can likely be removed.
-        cmd_buf.clear_buffer(&tilegroup_buf);
-        cmd_buf.clear_buffer(&ptcl_buf);
+        cmd_buf.clear_buffer(&self.tilegroup_buf);
+        cmd_buf.clear_buffer(&self.ptcl_buf);
         cmd_buf.memory_barrier();
+        cmd_buf.image_barrier(&self.image_dev, ImageLayout::Undefined, ImageLayout::General);
         cmd_buf.reset_query_pool(&query_pool);
         cmd_buf.write_timestamp(&query_pool, 0);
         cmd_buf.dispatch(
-            &k1_pipeline,
-            &k1_ds,
+            &self.k1_pipeline,
+            &self.k1_ds,
             ((WIDTH / 512) as u32, (HEIGHT / 512) as u32, 1),
         );
         cmd_buf.write_timestamp(&query_pool, 1);
         cmd_buf.memory_barrier();
         cmd_buf.dispatch(
-            &k2s_pipeline,
-            &k2s_ds,
+            &self.k2s_pipeline,
+            &self.k2s_ds,
             ((WIDTH / 512) as u32, (HEIGHT / 16) as u32, 1),
         );
         cmd_buf.write_timestamp(&query_pool, 2);
@@ -252,69 +294,26 @@ fn main() {
         // of performance.
         cmd_buf.memory_barrier();
         cmd_buf.dispatch(
-            &k2f_pipeline,
-            &k2f_ds,
+            &self.k2f_pipeline,
+            &self.k2f_ds,
             ((WIDTH / 512) as u32, (HEIGHT / 16) as u32, 2),
         );
         cmd_buf.write_timestamp(&query_pool, 3);
         cmd_buf.memory_barrier();
         cmd_buf.dispatch(
-            &k3_pipeline,
-            &k3_ds,
+            &self.k3_pipeline,
+            &self.k3_ds,
             ((WIDTH / 512) as u32, (HEIGHT / 16) as u32, 3),
         );
         cmd_buf.write_timestamp(&query_pool, 4);
         cmd_buf.memory_barrier();
         cmd_buf.dispatch(
-            &k4_pipeline,
-            &k4_ds,
+            &self.k4_pipeline,
+            &self.k4_ds,
             ((WIDTH / TILE_W) as u32, (HEIGHT / TILE_H) as u32, 1),
         );
         cmd_buf.write_timestamp(&query_pool, 5);
         cmd_buf.memory_barrier();
-        cmd_buf.copy_buffer(&image_dev, &image_buf);
-        cmd_buf.finish();
-        device.run_cmd_buf(&cmd_buf).unwrap();
-        let timestamps = device.reap_query_pool(query_pool).unwrap();
-        println!("Kernel 1 time: {:.3}ms", timestamps[0] * 1e3);
-        println!(
-            "Kernel 2s time: {:.3}ms",
-            (timestamps[1] - timestamps[0]) * 1e3
-        );
-        println!(
-            "Kernel 2f time: {:.3}ms",
-            (timestamps[2] - timestamps[1]) * 1e3
-        );
-        println!(
-            "Kernel 3 time: {:.3}ms",
-            (timestamps[3] - timestamps[2]) * 1e3
-        );
-        println!(
-            "Render time: {:.3}ms",
-            (timestamps[4] - timestamps[3]) * 1e3
-        );
-
-        /*
-        let mut k1_data: Vec<u32> = Default::default();
-        device.read_buffer(&segment_buf, &mut k1_data).unwrap();
-        dump_k1_data(&k1_data);
-        */
-
-        let mut img_data: Vec<u8> = Default::default();
-        // Note: because png can use a `&[u8]` slice, we could avoid an extra copy
-        // (probably passing a slice into a closure). But for now: keep it simple.
-        device.read_buffer(&image_buf, &mut img_data).unwrap();
-
-        // Write image as PNG file.
-        let path = Path::new("image.png");
-        let file = File::create(path).unwrap();
-        let ref mut w = BufWriter::new(file);
-
-        let mut encoder = png::Encoder::new(w, WIDTH as u32, HEIGHT as u32);
-        encoder.set_color(png::ColorType::RGBA);
-        encoder.set_depth(png::BitDepth::Eight);
-        let mut writer = encoder.write_header().unwrap();
-
-        writer.write_image_data(&img_data).unwrap();
+        cmd_buf.image_barrier(&self.image_dev, ImageLayout::General, ImageLayout::BlitSrc);
     }
 }
