@@ -142,6 +142,8 @@ void main() {
 
                 barrier();
                 uint intersects = 0;
+                uint backdrop_pos = 0;
+                uint backdrop_neg = 0;
                 if (i_inv < chunk.chunk_n) {
                     PointRef points = sh_points[i_inv];
                     vec2 start = Point_read(Point_index(points, j_inv)).xy;
@@ -150,7 +152,7 @@ void main() {
                     sh_end[gl_SubgroupInvocationID] = end;
                     float y0 = max(xy0.y, min(start.y, end.y));
                     float y1 = min(xy0.y + float(TILE_HEIGHT_PX), max(start.y, end.y));
-                    if (y0 < y1) {
+                    if (y0 <= y1) {
                         float dy_inv = 1.0 / (end.y - start.y);
                         // Maybe fuzzy equality? There might also be a fancier way to do this
                         // with NaN behavior in min and max, but that sounds potentially flaky.
@@ -165,12 +167,32 @@ void main() {
                         uint x0i = uint(floor(xmin * (1.0 / TILE_WIDTH_PX)));
                         uint x1i = uint(ceil(xmax * (1.0 / TILE_WIDTH_PX)));
                         intersects = x1i > x0i ? (2 << (x1i - 1)) - (1 << x0i) : 0;
+
+                        // backdrop calculation
+                        if (y0 == xy0.y && y0 < y1) {
+                            float u = (xy0.y - start.y) * dy_inv;
+                            float xray = mix(start.x, end.x, u) - blockx0;
+                            uint xrayi = uint(ceil(xray * (1.0 / TILE_WIDTH_PX)));
+                            if (xrayi < SUBGROUP_SIZE) {
+                                uint mask = ~0 << xrayi;
+                                if (end.y < start.y) {
+                                    backdrop_pos = mask;
+                                } else {
+                                    backdrop_neg = mask;
+                                }
+                            }
+                        }
                     }
                 }
 
                 intersects = transpose(intersects);
+                backdrop_pos = transpose(backdrop_pos);
+                backdrop_neg = transpose(backdrop_neg);
                 barrier();
 
+                // All bits up to and including the lowest bit set
+                uint mask = is_last ^ (is_last - 1);
+                backdrop += bitCount(backdrop_pos & mask) - bitCount(backdrop_neg & mask);
                 uint bitmask = intersects | is_last;
                 while (bitmask != 0) {
                     uint k = findLSB(bitmask);
@@ -178,6 +200,22 @@ void main() {
                         alloc_chunk(chunk_n_segs, seg_chunk_ref, first_seg_chunk, seg_limit);
                         vec2 start = sh_start[k];
                         vec2 end = sh_end[k];
+                        float yEdge = mix(start.y, end.y, (xy0.x - start.x) / (end.x - start.x));
+                        if (min(start.x, end.x) < xy0.x && yEdge >= xy0.y && yEdge < xy0.y + float(TILE_HEIGHT_PX)) {
+                            FillSegment edge_seg;
+                            if (start.x > end.x) {
+                                end = vec2(xy0.x, yEdge);
+                                edge_seg.start = end;
+                                edge_seg.end = vec2(xy0.x, xy0.y + float(TILE_HEIGHT_PX));
+                            } else {
+                                start = vec2(xy0.x, yEdge);
+                                edge_seg.start = vec2(xy0.x, xy0.y + float(TILE_HEIGHT_PX));
+                                edge_seg.end = start;
+                            }
+                            FillSegment_write(FillSegmentRef(seg_chunk_ref.offset + FillSegChunk_size + FillSegment_size * chunk_n_segs), edge_seg);
+                            chunk_n_segs++;
+                            alloc_chunk(chunk_n_segs, seg_chunk_ref, first_seg_chunk, seg_limit);
+                        }
                         FillSegment seg = FillSegment(start, end);
                         FillSegment_write(FillSegmentRef(seg_chunk_ref.offset + FillSegChunk_size + FillSegment_size * chunk_n_segs), seg);
                         chunk_n_segs++;
@@ -188,10 +226,13 @@ void main() {
                         if (chunk_n_segs != 0) {
                             FillSegChunk_write(seg_chunk_ref, FillSegChunk(chunk_n_segs, FillSegChunkRef(0)));
                             seg_chunk_ref.offset += FillSegChunk_size + FillSegment_size * chunk_n_segs;
+                            first_seg_chunk.offset = 0;
                             chunk_n_segs = 0;
                         }
                         item_header.offset += FillItemHeader_size;
-                        backdrop = 0;
+                        // bits from the next one after this up to and including the next one set
+                        uint mask = is_last ^ (is_last - (2 << k));
+                        backdrop = bitCount(backdrop_pos & mask) - bitCount(backdrop_neg & mask);
                     }
 
                     bitmask &= bitmask - 1; // clear bottom bit
