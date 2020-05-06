@@ -29,7 +29,7 @@ const PTCL_INITIAL_ALLOC: usize = 1024;
 
 const K2_PER_TILE_SIZE: usize = 8;
 
-const N_CIRCLES: usize = 10_000;
+const N_CIRCLES: usize = 1;
 
 pub fn render_scene(rc: &mut impl RenderContext) {
     let mut rng = rand::thread_rng();
@@ -55,12 +55,12 @@ pub fn render_scene(rc: &mut impl RenderContext) {
         5.0,
     );
     //render_cardioid(rc);
-    //render_tiger(rc);
+    render_tiger(rc);
 }
 
 #[allow(unused)]
 fn render_cardioid(rc: &mut impl RenderContext) {
-    let n = 91;
+    let n = 501;
     let dth = std::f64::consts::PI * 2.0 / (n as f64);
     let center = Point::new(1024.0, 768.0);
     let r = 750.0;
@@ -69,11 +69,17 @@ fn render_cardioid(rc: &mut impl RenderContext) {
         let p0 = center + Vec2::from_angle(i as f64 * dth) * r;
         let p1 = center + Vec2::from_angle(((i * 2) % n) as f64 * dth) * r;
         rc.fill(&Circle::new(p0, 8.0), &Color::WHITE);
+        /*
+        if i > 0 && i % 32 == 0 {
+            rc.stroke(&path, &Color::BLACK, 1.0);
+            path = BezPath::new();
+        }
+        */
         path.move_to(p0);
         path.line_to(p1);
         //rc.stroke(Line::new(p0, p1), &Color::BLACK, 2.0);
     }
-    rc.stroke(&path, &Color::BLACK, 2.0);
+    rc.stroke(&path, &Color::BLACK, 1.0);
 }
 
 fn render_tiger(rc: &mut impl RenderContext) {
@@ -174,7 +180,7 @@ impl<D: Device> Renderer<D> {
             .write_buffer(&k2s_alloc_buf_host, &[k2s_alloc_start as u32])
             ?;
         let k2s_code = include_bytes!("../shader/kernel2s.spv");
-        let k2s_pipeline = device.create_simple_compute_pipeline(k2s_code, 4, 0, None)?;
+        let k2s_pipeline = device.create_simple_compute_pipeline(k2s_code, 4, 0, Some(32))?;
         let k2s_ds = device
             .create_descriptor_set(
                 &k2s_pipeline,
@@ -228,7 +234,7 @@ impl<D: Device> Renderer<D> {
             ?;
 
         let k4_code = include_bytes!("../shader/kernel4.spv");
-        let k4_pipeline = device.create_simple_compute_pipeline(k4_code, 4, 0, None)?;
+        let k4_pipeline = device.create_simple_compute_pipeline(k4_code, 3, 1, None)?;
         let k4_ds = device
             .create_descriptor_set(&k4_pipeline, &[&ptcl_buf, &segment_buf, &fill_seg_buf], &[&image_dev])
             ?;
