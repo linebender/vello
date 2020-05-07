@@ -4,9 +4,6 @@
 
 #version 450
 #extension GL_GOOGLE_include_directive : enable
-#extension GL_KHR_shader_subgroup_ballot : enable
-#extension GL_KHR_shader_subgroup_arithmetic : enable
-#extension GL_KHR_shader_subgroup_shuffle : enable
 
 layout(local_size_x = 32) in;
 
@@ -41,10 +38,9 @@ shared vec2 sh_start[SUBGROUP_SIZE];
 shared vec2 sh_end[SUBGROUP_SIZE];
 
 // Implementation of 32 x 32 boolean matrix transpose, using subgroups.
-uint block_swap(uint a, uint m, uint s) {
-    uint b = subgroupShuffleXor(a, s);
+uint block_swap(uint a, uint b, uint m, uint s) {
     uint c;
-    if ((gl_SubgroupInvocationID & s) == 0) {
+    if ((gl_LocalInvocationID.x & s) == 0) {
         c = b << s;
     } else {
         m = ~m;
@@ -55,9 +51,14 @@ uint block_swap(uint a, uint m, uint s) {
 
 const uint masks[5] = uint[5](0x55555555, 0x33333333, 0xf0f0f0f, 0xff00ff, 0xffff);
 
+shared uint tg_bms[32];
+
 uint transpose(uint bitmask) {
     for (uint i = 0; i < 5; i++) {
-        bitmask = block_swap(bitmask, masks[i], 1 << i);
+        tg_bms[gl_LocalInvocationID.x] = bitmask;
+        barrier();
+        bitmask = block_swap(bitmask, tg_bms[gl_LocalInvocationID.x ^ (1 << i)], masks[i], 1 << i);
+        barrier();
     }
     return bitmask;
 }
@@ -119,7 +120,7 @@ void main() {
             int backdrop = 0;
             FillSegChunkRef first_seg_chunk = FillSegChunkRef(0);
             for (uint j0 = 0; j0 < n; j0 += SUBGROUP_SIZE) {
-                uint j = j0 + gl_SubgroupInvocationID;
+                uint j = j0 + gl_LocalInvocationID.x;
                 uint intersects = 0;
                 uint backdrop_pos = 0;
                 uint backdrop_neg = 0;
@@ -127,8 +128,8 @@ void main() {
                 if (j < n) {
                     vec2 start = Point_read(Point_index(fill.points, j)).xy;
                     vec2 end = Point_read(Point_index(fill.points, j + 1)).xy;
-                    sh_start[gl_SubgroupInvocationID] = start;
-                    sh_end[gl_SubgroupInvocationID] = end;
+                    sh_start[gl_LocalInvocationID.x] = start;
+                    sh_end[gl_LocalInvocationID.x] = end;
                     float y0 = max(xy0.y, min(start.y, end.y));
                     float y1 = min(xy0.y + float(TILE_HEIGHT_PX), max(start.y, end.y));
                     if (y0 <= y1) {

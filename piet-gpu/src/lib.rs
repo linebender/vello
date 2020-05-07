@@ -196,7 +196,7 @@ impl<D: Device> Renderer<D> {
             .write_buffer(&k2f_alloc_buf_host, &[k2f_alloc_start as u32])
             ?;
         let k2f_code = include_bytes!("../shader/kernel2f.spv");
-        let k2f_pipeline = device.create_simple_compute_pipeline(k2f_code, 4, 0, Some(32))?;
+        let k2f_pipeline = device.create_simple_compute_pipeline(k2f_code, 4, 0, None)?;
         let k2f_ds = device
             .create_descriptor_set(
                 &k2f_pipeline,
