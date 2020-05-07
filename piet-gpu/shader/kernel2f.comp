@@ -36,6 +36,7 @@ layout(set = 0, binding = 3) buffer AllocBuf {
 
 shared vec2 sh_start[SUBGROUP_SIZE];
 shared vec2 sh_end[SUBGROUP_SIZE];
+shared int backdrop[SUBGROUP_SIZE];
 
 // Implementation of 32 x 32 boolean matrix transpose, using subgroups.
 uint block_swap(uint a, uint b, uint m, uint s) {
@@ -117,13 +118,11 @@ void main() {
             uint n = fill.n_points - 1;
 
             uint chunk_n_segs = 0;
-            int backdrop = 0;
+            backdrop[gl_LocalInvocationID.x] = 0;
             FillSegChunkRef first_seg_chunk = FillSegChunkRef(0);
             for (uint j0 = 0; j0 < n; j0 += SUBGROUP_SIZE) {
                 uint j = j0 + gl_LocalInvocationID.x;
                 uint intersects = 0;
-                uint backdrop_pos = 0;
-                uint backdrop_neg = 0;
                 barrier();
                 if (j < n) {
                     vec2 start = Point_read(Point_index(fill.points, j)).xy;
@@ -154,11 +153,9 @@ void main() {
                             float xray = mix(start.x, end.x, u) - blockx0;
                             uint xrayi = uint(ceil(xray * (1.0 / TILE_WIDTH_PX)));
                             if (xrayi < SUBGROUP_SIZE) {
-                                uint mask = ~0 << xrayi;
-                                if (end.y < start.y) {
-                                    backdrop_pos = mask;
-                                } else {
-                                    backdrop_neg = mask;
+                                int delta = end.y < start.y ? 1 : -1;
+                                for (uint ix = xrayi; ix < SUBGROUP_SIZE; ix++) {
+                                    atomicAdd(backdrop[ix], delta);
                                 }
                             }
                         }
@@ -166,12 +163,8 @@ void main() {
                 }
 
                 intersects = transpose(intersects);
-                backdrop_pos = transpose(backdrop_pos);
-                backdrop_neg = transpose(backdrop_neg);
                 barrier();
 
-                // All bits up to and including the lowest bit set
-                backdrop += bitCount(backdrop_pos) - bitCount(backdrop_neg);
                 uint bitmask = intersects;
                 while (bitmask != 0) {
                     uint k = findLSB(bitmask);
@@ -203,7 +196,7 @@ void main() {
 
             }
 
-            FillItemHeader_write(item_header, FillItemHeader(backdrop, first_seg_chunk));
+            FillItemHeader_write(item_header, FillItemHeader(backdrop[gl_LocalInvocationID.x], first_seg_chunk));
             if (chunk_n_segs != 0) {
                 FillSegChunk_write(seg_chunk_ref, FillSegChunk(chunk_n_segs, FillSegChunkRef(0)));
                 seg_chunk_ref.offset += FillSegChunk_size + FillSegment_size * chunk_n_segs;
