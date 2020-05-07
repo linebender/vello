@@ -35,37 +35,15 @@ layout(set = 0, binding = 2) buffer AllocBuf {
 
 #define MAX_STACK 8
 
+#define SUBGROUP_SIZE 32
+
+shared uint intersects[SUBGROUP_SIZE];
+
 struct StackElement {
     PietItemRef group;
     uint index;
     vec2 offset;
 };
-
-// Implementation of 32 x 32 boolean matrix transpose, using subgroups.
-uint block_swap(uint a, uint b, uint m, uint s) {
-    uint c;
-    if ((gl_LocalInvocationID.y & s) == 0) {
-        c = b << s;
-    } else {
-        m = ~m;
-        c = b >> s;
-    }
-    return (a & m) | (c & ~m);
-}
-
-const uint masks[5] = uint[5](0x55555555, 0x33333333, 0xf0f0f0f, 0xff00ff, 0xffff);
-
-shared uint tg_bms[32];
-
-uint transpose(uint bitmask) {
-    for (uint i = 0; i < 5; i++) {
-        tg_bms[gl_LocalInvocationID.y] = bitmask;
-        barrier();
-        bitmask = block_swap(bitmask, tg_bms[gl_LocalInvocationID.y ^ (1 << i)], masks[i], 1 << i);
-        barrier();
-    }
-    return bitmask;
-}
 
 void main() {
     StackElement stack[MAX_STACK];
@@ -105,7 +83,8 @@ void main() {
             vec4 bb;
             bool hit = false;
             bool is_group = false;
-            uint bitmask = 0;
+            intersects[gl_LocalInvocationID.y] = 0;
+            barrier();
             if (this_ix < group.n_items) {
                 Bbox bbox = Bbox_read(Bbox_index(group.bboxes, this_ix));
                 bb = vec4(bbox.bbox) + tos.offset.xyxy;
@@ -117,11 +96,13 @@ void main() {
                 // TODO: this could subsume y part of hit test above, but be careful.
                 uint ymin = uint(max(floor(bb.y - block0.y), 0.0)) / TILE_HEIGHT_PX;
                 uint ymax = (uint(clamp(ceil(bb.w - block0.y), 0.0, float(BLOCK_HEIGHT_PX))) + TILE_HEIGHT_PX - 1) / TILE_HEIGHT_PX;
-                bitmask = (ymax == 32 ? 0 : (1 << ymax)) - (1 << ymin);
+                for (uint y = ymin; y < ymax; y++) {
+                    atomicOr(intersects[y], 1 << gl_GlobalInvocationID.y);
+                }
             }
 
-            bitmask = transpose(bitmask);
-
+            barrier();
+            uint bitmask = intersects[gl_LocalInvocationID.y];
             while (bitmask != 0) {
                 uint item_ix = tos.index + findLSB(bitmask);
                 PietItemRef item_ref = PietItem_index(group.items, item_ix);

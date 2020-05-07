@@ -39,32 +39,6 @@ shared vec2 sh_end[SUBGROUP_SIZE];
 shared int backdrop[SUBGROUP_SIZE];
 shared uint intersects[SUBGROUP_SIZE];
 
-// Implementation of 32 x 32 boolean matrix transpose, using subgroups.
-uint block_swap(uint a, uint b, uint m, uint s) {
-    uint c;
-    if ((gl_LocalInvocationID.x & s) == 0) {
-        c = b << s;
-    } else {
-        m = ~m;
-        c = b >> s;
-    }
-    return (a & m) | (c & ~m);
-}
-
-const uint masks[5] = uint[5](0x55555555, 0x33333333, 0xf0f0f0f, 0xff00ff, 0xffff);
-
-shared uint tg_bms[32];
-
-uint transpose(uint bitmask) {
-    for (uint i = 0; i < 5; i++) {
-        tg_bms[gl_LocalInvocationID.x] = bitmask;
-        barrier();
-        bitmask = block_swap(bitmask, tg_bms[gl_LocalInvocationID.x ^ (1 << i)], masks[i], 1 << i);
-        barrier();
-    }
-    return bitmask;
-}
-
 // Ensure that there is space to encode a segment.
 void alloc_chunk(inout uint chunk_n_segs, inout FillSegChunkRef seg_chunk_ref,
     inout FillSegChunkRef first_seg_chunk, inout uint seg_limit)
