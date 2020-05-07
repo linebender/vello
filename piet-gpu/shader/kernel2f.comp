@@ -37,6 +37,7 @@ layout(set = 0, binding = 3) buffer AllocBuf {
 shared vec2 sh_start[SUBGROUP_SIZE];
 shared vec2 sh_end[SUBGROUP_SIZE];
 shared int backdrop[SUBGROUP_SIZE];
+shared uint intersects[SUBGROUP_SIZE];
 
 // Implementation of 32 x 32 boolean matrix transpose, using subgroups.
 uint block_swap(uint a, uint b, uint m, uint s) {
@@ -122,7 +123,7 @@ void main() {
             FillSegChunkRef first_seg_chunk = FillSegChunkRef(0);
             for (uint j0 = 0; j0 < n; j0 += SUBGROUP_SIZE) {
                 uint j = j0 + gl_LocalInvocationID.x;
-                uint intersects = 0;
+                intersects[gl_LocalInvocationID.x] = 0;
                 barrier();
                 if (j < n) {
                     vec2 start = Point_read(Point_index(fill.points, j)).xy;
@@ -145,27 +146,26 @@ void main() {
 
                         uint x0i = uint(floor(xmin * (1.0 / TILE_WIDTH_PX)));
                         uint x1i = uint(ceil(xmax * (1.0 / TILE_WIDTH_PX)));
-                        intersects = x1i > x0i ? (2 << (x1i - 1)) - (1 << x0i) : 0;
+                        for (uint ix = x0i; ix < x1i; ix++) {
+                            atomicOr(intersects[ix], 1 << gl_LocalInvocationID.x);
+                        }
 
                         // backdrop calculation
                         if (y0 == xy0.y && y0 < y1) {
                             float u = (xy0.y - start.y) * dy_inv;
                             float xray = mix(start.x, end.x, u) - blockx0;
                             uint xrayi = uint(ceil(xray * (1.0 / TILE_WIDTH_PX)));
-                            if (xrayi < SUBGROUP_SIZE) {
-                                int delta = end.y < start.y ? 1 : -1;
-                                for (uint ix = xrayi; ix < SUBGROUP_SIZE; ix++) {
-                                    atomicAdd(backdrop[ix], delta);
-                                }
+                            int delta = end.y < start.y ? 1 : -1;
+                            for (uint ix = xrayi; ix < SUBGROUP_SIZE; ix++) {
+                                atomicAdd(backdrop[ix], delta);
                             }
                         }
                     }
                 }
 
-                intersects = transpose(intersects);
                 barrier();
 
-                uint bitmask = intersects;
+                uint bitmask = intersects[gl_LocalInvocationID.x];
                 while (bitmask != 0) {
                     uint k = findLSB(bitmask);
                     alloc_chunk(chunk_n_segs, seg_chunk_ref, first_seg_chunk, seg_limit);
