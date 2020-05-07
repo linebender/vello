@@ -180,7 +180,7 @@ impl<D: Device> Renderer<D> {
             .write_buffer(&k2s_alloc_buf_host, &[k2s_alloc_start as u32])
             ?;
         let k2s_code = include_bytes!("../shader/kernel2s.spv");
-        let k2s_pipeline = device.create_simple_compute_pipeline(k2s_code, 4, 0, Some(32))?;
+        let k2s_pipeline = device.create_simple_compute_pipeline(k2s_code, 4, 0, None)?;
         let k2s_ds = device
             .create_descriptor_set(
                 &k2s_pipeline,

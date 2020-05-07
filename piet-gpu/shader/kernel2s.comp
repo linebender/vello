@@ -35,32 +35,9 @@ layout(set = 0, binding = 3) buffer AllocBuf {
 // We should be able to use gl_SubgroupSize, but that's problematic.
 #define SUBGROUP_SIZE 32
 
-shared PointRef sh_points[SUBGROUP_SIZE];
 shared vec2 sh_start[SUBGROUP_SIZE];
 shared vec2 sh_end[SUBGROUP_SIZE];
-shared float sh_halfwidth[SUBGROUP_SIZE];
-
-// Implementation of 32 x 32 boolean matrix transpose, using subgroups.
-uint block_swap(uint a, uint m, uint s) {
-    uint b = subgroupShuffleXor(a, s);
-    uint c;
-    if ((gl_SubgroupInvocationID & s) == 0) {
-        c = b << s;
-    } else {
-        m = ~m;
-        c = b >> s;
-    }
-    return (a & m) | (c & ~m);
-}
-
-const uint masks[5] = uint[5](0x55555555, 0x33333333, 0xf0f0f0f, 0xff00ff, 0xffff);
-
-uint transpose(uint bitmask) {
-    for (uint i = 0; i < 5; i++) {
-        bitmask = block_swap(bitmask, masks[i], 1 << i);
-    }
-    return bitmask;
-}
+shared uint intersects[SUBGROUP_SIZE];
 
 void main() {
     uint tile_ix = gl_GlobalInvocationID.y * WIDTH_IN_TILES + gl_GlobalInvocationID.x;
@@ -91,42 +68,21 @@ void main() {
                 chunk = Chunk_read(chunk_ref);
                 stroke_ref = InstanceRef(chunk_ref.offset + Chunk_size);
             }
-            uint n = 0;
-            if (gl_SubgroupInvocationID < chunk.chunk_n) {
-                Instance ins = Instance_read(Instance_index(stroke_ref, gl_SubgroupInvocationID));
-                PietStrokePolyLine poly = PietItem_Poly_read(PietItemRef(ins.item_ref));
-                sh_points[gl_SubgroupInvocationID] = poly.points;
-                sh_halfwidth[gl_SubgroupInvocationID] = 0.5 * poly.width;
-                n = poly.n_points - 1;
-            }
-            uint prefix_n = subgroupInclusiveAdd(n);
-            uint sum_n = subgroupBroadcast(prefix_n, SUBGROUP_SIZE - 1);
+            Instance ins = Instance_read(stroke_ref);
+            PietStrokePolyLine poly = PietItem_Poly_read(PietItemRef(ins.item_ref));
+            float half_width = 0.5 * poly.width;
+            uint n = poly.n_points - 1;
 
             uint chunk_n_segs = 0;
-            uint ilast = 0;
-            uint jlast = 0;
-            for (uint k0 = 0; k0 < sum_n; k0 += SUBGROUP_SIZE) {
-                uint my_ix = prefix_n - k0 - 1;
-                uint is_last = subgroupOr(my_ix < SUBGROUP_SIZE ? 1 << my_ix : 0);
-                // bit b of is_last is set when \exists x k0 + b + 1 == prefix_n[x]
-
-                // Note: could use fancy subgroup ballot ops here (esp for sg > 32)
-                // delta_i is subgroupBallotExclusiveBitCount(is_last)
-                uint last_count = (is_last << (31 - gl_SubgroupInvocationID)) * 2;
-                uint delta_i = bitCount(last_count);
-                uint i_inv = ilast + delta_i;
-                // else branch is gl_SubgroupInvocationID - subgroupBallotFindMSB(last_count & gl_SubgroupLtMask) - 1
-                uint j_inv = delta_i == 0 ? jlast + gl_SubgroupInvocationID : 31 - findMSB(last_count);
-
+            for (uint j0 = 0; j0 < n; j0 += SUBGROUP_SIZE) {
+                uint j = j0 + gl_LocalInvocationID.x;
+                intersects[gl_LocalInvocationID.x] = 0;
                 barrier();
-                uint intersects = 0;
-                if (i_inv < chunk.chunk_n) {
-                    PointRef points = sh_points[i_inv];
-                    vec2 start = Point_read(Point_index(points, j_inv)).xy;
-                    vec2 end = Point_read(Point_index(points, j_inv + 1)).xy;
+                if (j < n) {
+                    vec2 start = Point_read(Point_index(poly.points, j)).xy;
+                    vec2 end = Point_read(Point_index(poly.points, j + 1)).xy;
                     sh_start[gl_SubgroupInvocationID] = start;
                     sh_end[gl_SubgroupInvocationID] = end;
-                    float half_width = sh_halfwidth[i_inv];
                     float y0 = max(xy0.y - half_width, min(start.y, end.y));
                     float y1 = min(xy0.y + float(TILE_HEIGHT_PX) + half_width, max(start.y, end.y));
                     if (y0 < y1) {
@@ -143,60 +99,53 @@ void main() {
 
                         uint x0i = uint(floor(xmin * (1.0 / TILE_WIDTH_PX)));
                         uint x1i = uint(ceil(xmax * (1.0 / TILE_WIDTH_PX)));
-                        intersects = x1i > x0i ? (2 << (x1i - 1)) - (1 << x0i) : 0;
+                        for (uint ix = x0i; ix < x1i; ix++) {
+                            atomicOr(intersects[ix], 1 << gl_LocalInvocationID.x);
+                        }
                     }
                 }
 
-                intersects = transpose(intersects);
                 barrier();
 
-                uint bitmask = intersects | is_last;
+                uint bitmask = intersects[gl_LocalInvocationID.x];
                 while (bitmask != 0) {
                     uint k = findLSB(bitmask);
-                    if ((intersects & (1 << k)) != 0) {
-                        // Allocate a chunk if needed.
-                        if (chunk_n_segs == 0) {
-                            if (seg_chunk_ref.offset + 40 > seg_limit) {
-                                seg_chunk_ref.offset = atomicAdd(alloc, SEG_CHUNK_ALLOC);
-                                seg_limit = seg_chunk_ref.offset + SEG_CHUNK_ALLOC - Segment_size;
-                            }
-                            ItemHeader_write(item_header, ItemHeader(seg_chunk_ref));
-                        } else if (seg_chunk_ref.offset + SegChunk_size + Segment_size * chunk_n_segs > seg_limit) {
-                            uint new_chunk_ref = atomicAdd(alloc, SEG_CHUNK_ALLOC);
-                            seg_limit = new_chunk_ref + SEG_CHUNK_ALLOC - Segment_size;
-                            SegChunk_write(seg_chunk_ref, SegChunk(chunk_n_segs, SegChunkRef(new_chunk_ref)));
-                            seg_chunk_ref.offset = new_chunk_ref;
-                            chunk_n_segs = 0;
+                    // Allocate a chunk if needed.
+                    if (chunk_n_segs == 0) {
+                        if (seg_chunk_ref.offset + 40 > seg_limit) {
+                            seg_chunk_ref.offset = atomicAdd(alloc, SEG_CHUNK_ALLOC);
+                            seg_limit = seg_chunk_ref.offset + SEG_CHUNK_ALLOC - Segment_size;
                         }
-                        // Could clip the line here (maybe f16 repr)
-                        vec2 start = sh_start[k];
-                        vec2 end = sh_end[k];
-                        Segment seg = Segment(start, end);
-                        Segment_write(SegmentRef(seg_chunk_ref.offset + SegChunk_size + Segment_size * chunk_n_segs), seg);
-                        chunk_n_segs++;
+                        ItemHeader_write(item_header, ItemHeader(seg_chunk_ref));
+                    } else if (seg_chunk_ref.offset + SegChunk_size + Segment_size * chunk_n_segs > seg_limit) {
+                        uint new_chunk_ref = atomicAdd(alloc, SEG_CHUNK_ALLOC);
+                        seg_limit = new_chunk_ref + SEG_CHUNK_ALLOC - Segment_size;
+                        SegChunk_write(seg_chunk_ref, SegChunk(chunk_n_segs, SegChunkRef(new_chunk_ref)));
+                        seg_chunk_ref.offset = new_chunk_ref;
+                        chunk_n_segs = 0;
                     }
-
-                    if ((is_last & (1 << k)) != 0) {
-                        if (chunk_n_segs == 0) {
-                            ItemHeader_write(item_header, ItemHeader(SegChunkRef(0)));
-                        } else {
-                            SegChunk_write(seg_chunk_ref, SegChunk(chunk_n_segs, SegChunkRef(0)));
-                            seg_chunk_ref.offset += SegChunk_size + Segment_size * chunk_n_segs;
-                            chunk_n_segs = 0;
-                        }
-                        item_header.offset += ItemHeader_size;
-                    }
+                    // Could clip the line here (maybe f16 repr)
+                    vec2 start = sh_start[k];
+                    vec2 end = sh_end[k];
+                    Segment seg = Segment(start, end);
+                    Segment_write(SegmentRef(seg_chunk_ref.offset + SegChunk_size + Segment_size * chunk_n_segs), seg);
+                    chunk_n_segs++;
 
                     bitmask &= bitmask - 1; // clear bottom bit
                 }
-
-                ilast += bitCount(is_last);
-                jlast = is_last >= (1 << 31) ? 0 : subgroupBroadcast(j_inv, SUBGROUP_SIZE - 1) + 1;
             }
 
-            uint this_n = min(chunk.chunk_n, SUBGROUP_SIZE);
-            stroke_ref.offset += this_n * Instance_size;
-            chunk.chunk_n -= this_n;
+            if (chunk_n_segs == 0) {
+                ItemHeader_write(item_header, ItemHeader(SegChunkRef(0)));
+            } else {
+                SegChunk_write(seg_chunk_ref, SegChunk(chunk_n_segs, SegChunkRef(0)));
+                seg_chunk_ref.offset += SegChunk_size + Segment_size * chunk_n_segs;
+                chunk_n_segs = 0;
+            }
+            item_header.offset += ItemHeader_size;
+
+            stroke_ref.offset += Instance_size;
+            chunk.chunk_n--;
         }
     } else {
         // As an optimization, we could just write 0 for the size.
