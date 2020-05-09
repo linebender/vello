@@ -161,7 +161,7 @@ impl VkInstance {
                             .application_name(&app_name)
                             .application_version(0)
                             .engine_name(&app_name)
-                            .api_version(vk::make_version(1, 0, 0)),
+                            .api_version(vk::make_version(1, 1, 0)),
                     )
                     .enabled_layer_names(&layers)
                     .enabled_extension_names(&exts),
