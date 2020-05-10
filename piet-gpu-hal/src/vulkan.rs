@@ -555,9 +555,10 @@ impl crate::Device for VkDevice {
             .stage(vk::ShaderStageFlags::COMPUTE)
             .module(compute_shader_module)
             .name(&entry_name);
-        let mut subgroup_info = vk::PipelineShaderStageRequiredSubgroupSizeCreateInfoEXT::builder()
-            .required_subgroup_size(n_subgroups.unwrap_or(0));
-        if n_subgroups.is_some() {
+        let mut subgroup_info;
+        if let Some(n_subgroups) = n_subgroups {
+            subgroup_info = vk::PipelineShaderStageRequiredSubgroupSizeCreateInfoEXT::builder()
+                .required_subgroup_size(n_subgroups);
             stage_info = stage_info.push_next(&mut subgroup_info);
         };
         let pipeline = device
