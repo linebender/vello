@@ -4,6 +4,8 @@ pub use self::scene::{
     Bbox, PietCircle, PietFill, PietItem, PietStrokeLine, PietStrokePolyLine, Point, SimpleGroup,
 };
 
+pub use self::scene::{CubicSeg, Element, Fill, LineSeg, QuadSeg, SetLineWidth, Stroke, Transform};
+
 piet_gpu! {
     #[rust_encode]
     mod scene {
@@ -50,6 +52,47 @@ piet_gpu! {
             Line(PietStrokeLine),
             Fill(PietFill),
             Poly(PietStrokePolyLine),
+        }
+
+        // New approach follows (above to be deleted)
+        struct LineSeg {
+            p0: [f32; 2],
+            p1: [f32; 2],
+        }
+        struct QuadSeg {
+            p0: [f32; 2],
+            p1: [f32; 2],
+            p2: [f32; 2],
+        }
+        struct CubicSeg {
+            p0: [f32; 2],
+            p1: [f32; 2],
+            p2: [f32; 2],
+            p3: [f32; 2],
+        }
+        struct Fill {
+            rgba_color: u32,
+        }
+        struct Stroke {
+            rgba_color: u32,
+        }
+        struct SetLineWidth {
+            width: f32,
+        }
+        struct Transform {
+            mat: [f32; 4],
+            translate: [f32; 2],
+        }
+        enum Element {
+            Nop,
+            // The segments need a flag to indicate fill/stroke
+            Line(LineSeg),
+            Quad(QuadSeg),
+            Cubic(CubicSeg),
+            Stroke(Stroke),
+            Fill(Fill),
+            SetLineWidth(SetLineWidth),
+            Transform(Transform),
         }
     }
 }

@@ -2,7 +2,11 @@ use std::borrow::Cow;
 
 use piet_gpu_types::encoder::{Encode, Encoder, Ref};
 use piet_gpu_types::scene;
-use piet_gpu_types::scene::{Bbox, PietCircle, PietFill, PietItem, PietStrokePolyLine, SimpleGroup};
+use piet_gpu_types::scene::{
+    Bbox, PietCircle, PietFill, PietItem, PietStrokePolyLine, SimpleGroup,
+};
+
+use piet_gpu_types::scene::{CubicSeg, Element, Fill, LineSeg, QuadSeg, SetLineWidth, Stroke};
 
 use piet::kurbo::{Affine, PathEl, Point, Rect, Shape};
 
@@ -27,10 +31,10 @@ pub struct PietGpuText;
 
 pub struct PietGpuRenderContext {
     encoder: Encoder,
-    bboxes: Vec<Bbox>,
-    items: Vec<PietItem>,
+    elements: Vec<Element>,
     // Will probably need direct accesss to hal Device to create images etc.
     inner_text: PietGpuText,
+    stroke_width: f32,
 }
 
 #[derive(Clone)]
@@ -43,46 +47,21 @@ const TOLERANCE: f64 = 0.25;
 
 impl PietGpuRenderContext {
     pub fn new() -> PietGpuRenderContext {
-        let mut encoder = Encoder::new();
-        let _reserve_root = encoder.alloc_chunk(PietItem::fixed_size() as u32);
-        let bboxes = Vec::new();
-        let items = Vec::new();
+        let encoder = Encoder::new();
+        let elements = Vec::new();
         let inner_text = PietGpuText;
+        let stroke_width = 0.0;
         PietGpuRenderContext {
             encoder,
-            bboxes,
-            items,
+            elements,
             inner_text,
+            stroke_width,
         }
     }
 
     pub fn get_scene_buf(&mut self) -> &[u8] {
-        let n_items = self.bboxes.len() as u32;
-        let bboxes = self.bboxes.encode(&mut self.encoder).transmute();
-        let items = self.items.encode(&mut self.encoder).transmute();
-        let offset = scene::Point { xy: [0.0, 0.0] };
-        let simple_group = SimpleGroup {
-            n_items,
-            bboxes,
-            items,
-            offset,
-        };
-        let root_item = PietItem::Group(simple_group);
-        root_item.encode_to(&mut self.encoder.buf_mut()[0..PietItem::fixed_size()]);
+        self.elements.encode(&mut self.encoder);
         self.encoder.buf()
-    }
-
-    fn push_item(&mut self, item: PietItem, bbox: Rect) {
-        let scene_bbox = Bbox {
-            bbox: [
-                bbox.x0.floor() as i16,
-                bbox.y0.floor() as i16,
-                bbox.x1.ceil() as i16,
-                bbox.y1.ceil() as i16,
-            ],
-        };
-        self.items.push(item);
-        self.bboxes.push(scene_bbox);
     }
 }
 
@@ -107,20 +86,19 @@ impl RenderContext for PietGpuRenderContext {
     fn clear(&mut self, _color: Color) {}
 
     fn stroke(&mut self, shape: impl Shape, brush: &impl IntoBrush<Self>, width: f64) {
-        let bbox = shape.bounding_box();
-        let brush = brush.make_brush(self, || bbox).into_owned();
+        let width = width as f32;
+        if self.stroke_width != width {
+            self.elements
+                .push(Element::SetLineWidth(SetLineWidth { width }));
+            self.stroke_width = width;
+        }
+        let brush = brush.make_brush(self, || shape.bounding_box()).into_owned();
         let path = shape.to_bez_path(TOLERANCE);
-        let (n_points, points) = flatten_shape(&mut self.encoder, path);
+        self.encode_path(path);
         match brush {
             PietGpuBrush::Solid(rgba_color) => {
-                let poly_line = PietStrokePolyLine {
-                    rgba_color,
-                    width: width as f32,
-                    n_points,
-                    points,
-                };
-                let bbox = bbox.inset(-0.5 * width);
-                self.push_item(PietItem::Poly(poly_line), bbox);
+                let stroke = Stroke { rgba_color };
+                self.elements.push(Element::Stroke(stroke));
             }
             _ => (),
         }
@@ -136,35 +114,13 @@ impl RenderContext for PietGpuRenderContext {
     }
 
     fn fill(&mut self, shape: impl Shape, brush: &impl IntoBrush<Self>) {
-        let bbox = shape.bounding_box();
         let brush = brush.make_brush(self, || shape.bounding_box()).into_owned();
-
-        if let Some(circle) = shape.as_circle() {
-            match brush {
-                PietGpuBrush::Solid(rgba_color) => {
-                    let piet_circle = PietCircle {
-                        rgba_color,
-                        center: to_scene_point(circle.center),
-                        radius: circle.radius as f32,
-                    };
-                    let bbox = circle.bounding_box();
-                    self.push_item(PietItem::Circle(piet_circle), bbox);
-                }
-                _ => {}
-            }
-            return;
-        }
         let path = shape.to_bez_path(TOLERANCE);
-        let (n_points, points) = flatten_shape(&mut self.encoder, path);
+        self.encode_path(path);
         match brush {
             PietGpuBrush::Solid(rgba_color) => {
-                let fill = PietFill {
-                    flags: 0,
-                    rgba_color,
-                    n_points,
-                    points,
-                };
-                self.push_item(PietItem::Fill(fill), bbox);
+                let fill = Fill { rgba_color };
+                self.elements.push(Element::Fill(fill));
             }
             _ => (),
         }
@@ -241,45 +197,96 @@ impl RenderContext for PietGpuRenderContext {
     }
 }
 
-fn flatten_shape(
-    encoder: &mut Encoder,
-    path: impl Iterator<Item = PathEl>,
-) -> (u32, Ref<scene::Point>) {
-    let mut points = Vec::new();
-    let mut start_pt = None;
-    let mut last_pt = None;
-    piet::kurbo::flatten(path, TOLERANCE, |el| {
-        match el {
-            PathEl::MoveTo(p) => {
-                let scene_pt = to_scene_point(p);
-                start_pt = Some(clone_scene_pt(&scene_pt));
-                if !points.is_empty() {
-                    points.push(scene::Point {
-                        xy: [std::f32::NAN, std::f32::NAN],
-                    });
+impl PietGpuRenderContext {
+    fn encode_path(&mut self, path: impl Iterator<Item = PathEl>) {
+        let flatten = false;
+        if flatten {
+            let mut start_pt = None;
+            let mut last_pt = None;
+            piet::kurbo::flatten(path, TOLERANCE, |el| {
+                match el {
+                    PathEl::MoveTo(p) => {
+                        let scene_pt = to_f32_2(p);
+                        last_pt = Some(scene_pt);
+                    }
+                    PathEl::LineTo(p) => {
+                        let scene_pt = to_f32_2(p);
+                        let seg = LineSeg {
+                            p0: last_pt.unwrap(),
+                            p1: scene_pt,
+                        };
+                        self.elements.push(Element::Line(seg));
+                        last_pt = Some(scene_pt);
+                    }
+                    PathEl::ClosePath => {
+                        if let (Some(start), Some(last)) = (start_pt.take(), last_pt.take()) {
+                            let seg = LineSeg {
+                                p0: last,
+                                p1: start,
+                            };
+                            self.elements.push(Element::Line(seg));
+                        }
+                    }
+                    _ => (),
                 }
-                last_pt = Some(clone_scene_pt(&scene_pt));
-                points.push(scene_pt);
-            }
-            PathEl::LineTo(p) => {
-                let scene_pt = to_scene_point(p);
-                last_pt = Some(clone_scene_pt(&scene_pt));
-                points.push(scene_pt);
-            }
-            PathEl::ClosePath => {
-                if let (Some(start), Some(last)) = (start_pt.take(), last_pt.take()) {
-                    if start.xy != last.xy {
-                        points.push(start);
+                //println!("{:?}", el);
+            });
+        } else {
+            let mut start_pt = None;
+            let mut last_pt = None;
+            for el in path {
+                match el {
+                    PathEl::MoveTo(p) => {
+                        let scene_pt = to_f32_2(p);
+                        last_pt = Some(scene_pt);
+                    }
+                    PathEl::LineTo(p) => {
+                        let scene_pt = to_f32_2(p);
+                        let seg = LineSeg {
+                            p0: last_pt.unwrap(),
+                            p1: scene_pt,
+                        };
+                        self.elements.push(Element::Line(seg));
+                        last_pt = Some(scene_pt);
+                    }
+                    PathEl::QuadTo(p1, p2) => {
+                        let scene_p1 = to_f32_2(p1);
+                        let scene_p2 = to_f32_2(p2);
+                        let seg = QuadSeg {
+                            p0: last_pt.unwrap(),
+                            p1: scene_p1,
+                            p2: scene_p2,
+                        };
+                        self.elements.push(Element::Quad(seg));
+                        last_pt = Some(scene_p2);
+                    }
+                    PathEl::CurveTo(p1, p2, p3) => {
+                        let scene_p1 = to_f32_2(p1);
+                        let scene_p2 = to_f32_2(p2);
+                        let scene_p3 = to_f32_2(p3);
+                        let seg = CubicSeg {
+                            p0: last_pt.unwrap(),
+                            p1: scene_p1,
+                            p2: scene_p2,
+                            p3: scene_p3,
+                        };
+                        self.elements.push(Element::Cubic(seg));
+                        last_pt = Some(scene_p3);
+                    }
+                    PathEl::ClosePath => {
+                        if let (Some(start), Some(last)) = (start_pt.take(), last_pt.take()) {
+                            let seg = LineSeg {
+                                p0: last,
+                                p1: start,
+                            };
+                            self.elements.push(Element::Line(seg));
+                        }
                     }
                 }
+                //println!("{:?}", el);
             }
-            _ => (),
         }
-        //println!("{:?}", el);
-    });
-    let n_points = points.len() as u32;
-    let points_ref = points.encode(encoder).transmute();
-    (n_points, points_ref)
+    }
 }
 
 impl Text for PietGpuText {
@@ -360,13 +367,6 @@ impl IntoBrush<PietGpuRenderContext> for PietGpuBrush {
     }
 }
 
-fn to_scene_point(point: Point) -> scene::Point {
-    scene::Point {
-        xy: [point.x as f32, point.y as f32],
-    }
-}
-
-// TODO: allow #[derive(Clone)] in piet-gpu-derive.
-fn clone_scene_pt(p: &scene::Point) -> scene::Point {
-    scene::Point { xy: p.xy }
+fn to_f32_2(point: Point) -> [f32; 2] {
+    [point.x as f32, point.y as f32]
 }

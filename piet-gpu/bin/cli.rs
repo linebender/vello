@@ -5,7 +5,7 @@ use std::path::Path;
 use piet_gpu_hal::vulkan::VkInstance;
 use piet_gpu_hal::{CmdBuf, Device, Error, MemFlags};
 
-use piet_gpu::{PietGpuRenderContext, Renderer, render_scene, WIDTH, HEIGHT};
+use piet_gpu::{render_scene, PietGpuRenderContext, Renderer, HEIGHT, WIDTH};
 
 #[allow(unused)]
 fn dump_scene(buf: &[u8]) {
@@ -16,6 +16,24 @@ fn dump_scene(buf: &[u8]) {
     }
 }
 
+#[allow(unused)]
+fn dump_state(buf: &[u8]) {
+    for i in 0..(buf.len() / 48) {
+        let j = i * 48;
+        let floats = (0..11).map(|k| {
+            let mut buf_f32 = [0u8; 4];
+            buf_f32.copy_from_slice(&buf[j + k * 4..j + k * 4 + 4]);
+            f32::from_le_bytes(buf_f32)
+        }).collect::<Vec<_>>();
+        println!("{}: [{} {} {} {} {} {}] ({}, {})-({} {}) {} {}",
+            i,
+            floats[0], floats[1], floats[2], floats[3], floats[4], floats[5],
+            floats[6], floats[7], floats[8], floats[9],
+            floats[10], buf[j + 44]);
+    }
+
+}
+
 fn main() -> Result<(), Error> {
     let (instance, _) = VkInstance::new(None)?;
     unsafe {
@@ -23,7 +41,7 @@ fn main() -> Result<(), Error> {
 
         let fence = device.create_fence(false)?;
         let mut cmd_buf = device.create_cmd_buf()?;
-        let query_pool = device.create_query_pool(6)?;
+        let query_pool = device.create_query_pool(2)?;
 
         let mut ctx = PietGpuRenderContext::new();
         render_scene(&mut ctx);
@@ -31,7 +49,8 @@ fn main() -> Result<(), Error> {
         //dump_scene(&scene);
 
         let renderer = Renderer::new(&device, scene)?;
-        let image_buf = device.create_buffer((WIDTH * HEIGHT * 4) as u64, MemFlags::host_coherent())?;
+        let image_buf =
+            device.create_buffer((WIDTH * HEIGHT * 4) as u64, MemFlags::host_coherent())?;
 
         cmd_buf.begin();
         renderer.record(&mut cmd_buf, &query_pool);
@@ -40,28 +59,12 @@ fn main() -> Result<(), Error> {
         device.run_cmd_buf(&cmd_buf, &[], &[], Some(&fence))?;
         device.wait_and_reset(&[fence])?;
         let timestamps = device.reap_query_pool(&query_pool).unwrap();
-        println!("Kernel 1 time: {:.3}ms", timestamps[0] * 1e3);
-        println!(
-            "Kernel 2s time: {:.3}ms",
-            (timestamps[1] - timestamps[0]) * 1e3
-        );
-        println!(
-            "Kernel 2f time: {:.3}ms",
-            (timestamps[2] - timestamps[1]) * 1e3
-        );
-        println!(
-            "Kernel 3 time: {:.3}ms",
-            (timestamps[3] - timestamps[2]) * 1e3
-        );
-        println!(
-            "Render time: {:.3}ms",
-            (timestamps[4] - timestamps[3]) * 1e3
-        );
+        println!("Element kernel time: {:.3}ms", timestamps[0] * 1e3);
 
         /*
-        let mut k1_data: Vec<u32> = Default::default();
-        device.read_buffer(&segment_buf, &mut k1_data).unwrap();
-        dump_k1_data(&k1_data);
+        let mut data: Vec<u8> = Default::default();
+        device.read_buffer(&renderer.state_buf, &mut data).unwrap();
+        dump_state(&data);
         */
 
         let mut img_data: Vec<u8> = Default::default();

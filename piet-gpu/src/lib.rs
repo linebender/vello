@@ -1,5 +1,5 @@
-mod render_ctx;
 mod pico_svg;
+mod render_ctx;
 
 pub use render_ctx::PietGpuRenderContext;
 
@@ -7,6 +7,8 @@ use rand::{Rng, RngCore};
 
 use piet::kurbo::{BezPath, Circle, Line, Point, Vec2};
 use piet::{Color, RenderContext};
+
+use piet_gpu_types::encoder::Encode;
 
 use piet_gpu_hal::{CmdBuf, Device, Error, ImageLayout, MemFlags};
 
@@ -110,6 +112,12 @@ pub struct Renderer<D: Device> {
     scene_buf: D::Buffer,
     scene_dev: D::Buffer,
 
+    pub state_buf: D::Buffer,
+
+    el_pipeline: D::Pipeline,
+    el_ds: D::DescriptorSet,
+
+    /*
     k1_alloc_buf_host: D::Buffer,
     k1_alloc_buf_dev: D::Buffer,
     k2s_alloc_buf_host: D::Buffer,
@@ -131,6 +139,8 @@ pub struct Renderer<D: Device> {
     k3_ds: D::DescriptorSet,
     k4_pipeline: D::Pipeline,
     k4_ds: D::DescriptorSet,
+    */
+    n_elements: usize,
 }
 
 impl<D: Device> Renderer<D> {
@@ -146,174 +156,122 @@ impl<D: Device> Renderer<D> {
             .unwrap();
         device.write_buffer(&scene_buf, &scene)?;
 
+        let state_buf = device.create_buffer(4 * 1024 * 1024, dev)?;
+        let image_dev = device.create_image2d(WIDTH as u32, HEIGHT as u32, dev)?;
+
+        let el_code = include_bytes!("../shader/elements.spv");
+        let el_pipeline = device.create_simple_compute_pipeline(el_code, 2, 0)?;
+        let el_ds = device.create_descriptor_set(
+            &el_pipeline,
+            &[&scene_dev, &state_buf],
+            &[],
+        )?;
+
+        let n_elements = scene.len() / piet_gpu_types::scene::Element::fixed_size();
+        println!("scene: {} elements", n_elements);
+
+        /*
         let tilegroup_buf = device.create_buffer(4 * 1024 * 1024, dev)?;
         let ptcl_buf = device.create_buffer(48 * 1024 * 1024, dev)?;
         let segment_buf = device.create_buffer(64 * 1024 * 1024, dev)?;
         let fill_seg_buf = device.create_buffer(64 * 1024 * 1024, dev)?;
-        let image_dev = device.create_image2d(WIDTH as u32, HEIGHT as u32, dev)?;
 
         let k1_alloc_buf_host = device.create_buffer(4, host)?;
         let k1_alloc_buf_dev = device.create_buffer(4, dev)?;
         let k1_alloc_start = WIDTH_IN_TILEGROUPS * HEIGHT_IN_TILEGROUPS * TILEGROUP_STRIDE;
         device.write_buffer(&k1_alloc_buf_host, &[k1_alloc_start as u32])?;
         let k1_code = include_bytes!("../shader/kernel1.spv");
-        let k1_pipeline = device
-            .create_simple_compute_pipeline(k1_code, 3, 0)?;
-        let k1_ds = device
-            .create_descriptor_set(
-                &k1_pipeline,
-                &[&scene_dev, &tilegroup_buf, &k1_alloc_buf_dev],
-                &[],
-            )?;
+        let k1_pipeline = device.create_simple_compute_pipeline(k1_code, 3, 0)?;
+        let k1_ds = device.create_descriptor_set(
+            &k1_pipeline,
+            &[&scene_dev, &tilegroup_buf, &k1_alloc_buf_dev],
+            &[],
+        )?;
 
         let k2s_alloc_buf_host = device.create_buffer(4, host)?;
         let k2s_alloc_buf_dev = device.create_buffer(4, dev)?;
         let k2s_alloc_start = WIDTH_IN_TILES * HEIGHT_IN_TILES * K2_PER_TILE_SIZE;
-        device
-            .write_buffer(&k2s_alloc_buf_host, &[k2s_alloc_start as u32])
-            ?;
+        device.write_buffer(&k2s_alloc_buf_host, &[k2s_alloc_start as u32])?;
         let k2s_code = include_bytes!("../shader/kernel2s.spv");
-        let k2s_pipeline = device
-            .create_simple_compute_pipeline(k2s_code, 4, 0)
-            ?;
-        let k2s_ds = device
-            .create_descriptor_set(
-                &k2s_pipeline,
-                &[&scene_dev, &tilegroup_buf, &segment_buf, &k2s_alloc_buf_dev],
-                &[],
-            )
-            ?;
+        let k2s_pipeline = device.create_simple_compute_pipeline(k2s_code, 4, 0)?;
+        let k2s_ds = device.create_descriptor_set(
+            &k2s_pipeline,
+            &[&scene_dev, &tilegroup_buf, &segment_buf, &k2s_alloc_buf_dev],
+            &[],
+        )?;
 
         let k2f_alloc_buf_host = device.create_buffer(4, host)?;
         let k2f_alloc_buf_dev = device.create_buffer(4, dev)?;
         let k2f_alloc_start = WIDTH_IN_TILES * HEIGHT_IN_TILES * K2_PER_TILE_SIZE;
-        device
-            .write_buffer(&k2f_alloc_buf_host, &[k2f_alloc_start as u32])
-            ?;
+        device.write_buffer(&k2f_alloc_buf_host, &[k2f_alloc_start as u32])?;
         let k2f_code = include_bytes!("../shader/kernel2f.spv");
         let k2f_pipeline = device.create_simple_compute_pipeline(k2f_code, 4, 0)?;
-        let k2f_ds = device
-            .create_descriptor_set(
-                &k2f_pipeline,
-                &[
-                    &scene_dev,
-                    &tilegroup_buf,
-                    &fill_seg_buf,
-                    &k2f_alloc_buf_dev,
-                ],
-                &[],
-            )
-            ?;
+        let k2f_ds = device.create_descriptor_set(
+            &k2f_pipeline,
+            &[
+                &scene_dev,
+                &tilegroup_buf,
+                &fill_seg_buf,
+                &k2f_alloc_buf_dev,
+            ],
+            &[],
+        )?;
 
         let k3_alloc_buf_host = device.create_buffer(4, host)?;
         let k3_alloc_buf_dev = device.create_buffer(4, dev)?;
         let k3_alloc_start = WIDTH_IN_TILES * HEIGHT_IN_TILES * PTCL_INITIAL_ALLOC;
-        device
-            .write_buffer(&k3_alloc_buf_host, &[k3_alloc_start as u32])
-            ?;
+        device.write_buffer(&k3_alloc_buf_host, &[k3_alloc_start as u32])?;
         let k3_code = include_bytes!("../shader/kernel3.spv");
         let k3_pipeline = device.create_simple_compute_pipeline(k3_code, 6, 0)?;
-        let k3_ds = device
-            .create_descriptor_set(
-                &k3_pipeline,
-                &[
-                    &scene_dev,
-                    &tilegroup_buf,
-                    &segment_buf,
-                    &fill_seg_buf,
-                    &ptcl_buf,
-                    &k3_alloc_buf_dev,
-                ],
-                &[],
-            )
-            ?;
+        let k3_ds = device.create_descriptor_set(
+            &k3_pipeline,
+            &[
+                &scene_dev,
+                &tilegroup_buf,
+                &segment_buf,
+                &fill_seg_buf,
+                &ptcl_buf,
+                &k3_alloc_buf_dev,
+            ],
+            &[],
+        )?;
 
         let k4_code = include_bytes!("../shader/kernel4.spv");
         let k4_pipeline = device.create_simple_compute_pipeline(k4_code, 3, 1)?;
-        let k4_ds = device
-            .create_descriptor_set(&k4_pipeline, &[&ptcl_buf, &segment_buf, &fill_seg_buf], &[&image_dev])
-            ?;
+        let k4_ds = device.create_descriptor_set(
+            &k4_pipeline,
+            &[&ptcl_buf, &segment_buf, &fill_seg_buf],
+            &[&image_dev],
+        )?;
+        */
 
         Ok(Renderer {
             scene_buf,
             scene_dev,
             image_dev,
-            k1_alloc_buf_host,
-            k1_alloc_buf_dev,
-            k2s_alloc_buf_host,
-            k2s_alloc_buf_dev,
-            k2f_alloc_buf_host,
-            k2f_alloc_buf_dev,
-            k3_alloc_buf_host,
-            k3_alloc_buf_dev,
-            tilegroup_buf,
-            ptcl_buf,
-            k1_pipeline,
-            k1_ds,
-            k2s_pipeline,
-            k2s_ds,
-            k2f_pipeline,
-            k2f_ds,
-            k3_pipeline,
-            k3_ds,
-            k4_pipeline,
-            k4_ds,
+            el_pipeline,
+            el_ds,
+            state_buf,
+            n_elements,
         })
     }
 
     pub unsafe fn record(&self, cmd_buf: &mut impl CmdBuf<D>, query_pool: &D::QueryPool) {
         cmd_buf.copy_buffer(&self.scene_buf, &self.scene_dev);
-        // Note: we could use one alloc buf and reuse it. But we'll stick with
-        // multiple ones for clarity.
-        cmd_buf.copy_buffer(&self.k1_alloc_buf_host, &self.k1_alloc_buf_dev);
-        cmd_buf.copy_buffer(&self.k2s_alloc_buf_host, &self.k2s_alloc_buf_dev);
-        cmd_buf.copy_buffer(&self.k2f_alloc_buf_host, &self.k2f_alloc_buf_dev);
-        cmd_buf.copy_buffer(&self.k3_alloc_buf_host, &self.k3_alloc_buf_dev);
-        // Note: these clears aren't necessary, and are here to make inspection
-        // of the buffers cleaner. Can likely be removed.
-        cmd_buf.clear_buffer(&self.tilegroup_buf);
-        cmd_buf.clear_buffer(&self.ptcl_buf);
         cmd_buf.memory_barrier();
-        cmd_buf.image_barrier(&self.image_dev, ImageLayout::Undefined, ImageLayout::General);
+        cmd_buf.image_barrier(
+            &self.image_dev,
+            ImageLayout::Undefined,
+            ImageLayout::General,
+        );
         cmd_buf.reset_query_pool(&query_pool);
         cmd_buf.write_timestamp(&query_pool, 0);
         cmd_buf.dispatch(
-            &self.k1_pipeline,
-            &self.k1_ds,
-            ((WIDTH / 512) as u32, (HEIGHT / 512) as u32, 1),
+            &self.el_pipeline,
+            &self.el_ds,
+            ((self.n_elements / 128) as u32, 1, 1),
         );
         cmd_buf.write_timestamp(&query_pool, 1);
-        cmd_buf.memory_barrier();
-        cmd_buf.dispatch(
-            &self.k2s_pipeline,
-            &self.k2s_ds,
-            ((WIDTH / 512) as u32, (HEIGHT / 16) as u32, 1),
-        );
-        cmd_buf.write_timestamp(&query_pool, 2);
-        // Note: this barrier is not necessary (k2f does not depend on
-        // k2s output), but I'm keeping it here to increase transparency
-        // of performance.
-        cmd_buf.memory_barrier();
-        cmd_buf.dispatch(
-            &self.k2f_pipeline,
-            &self.k2f_ds,
-            ((WIDTH / 512) as u32, (HEIGHT / 16) as u32, 2),
-        );
-        cmd_buf.write_timestamp(&query_pool, 3);
-        cmd_buf.memory_barrier();
-        cmd_buf.dispatch(
-            &self.k3_pipeline,
-            &self.k3_ds,
-            ((WIDTH / 512) as u32, (HEIGHT / 16) as u32, 3),
-        );
-        cmd_buf.write_timestamp(&query_pool, 4);
-        cmd_buf.memory_barrier();
-        cmd_buf.dispatch(
-            &self.k4_pipeline,
-            &self.k4_ds,
-            ((WIDTH / TILE_W) as u32, (HEIGHT / TILE_H) as u32, 1),
-        );
-        cmd_buf.write_timestamp(&query_pool, 5);
         cmd_buf.memory_barrier();
         cmd_buf.image_barrier(&self.image_dev, ImageLayout::General, ImageLayout::BlitSrc);
     }

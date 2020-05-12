@@ -1,0 +1,173 @@
+#version 450
+#extension GL_GOOGLE_include_directive : enable
+
+#define N_ROWS 4
+#define WG_SIZE 32
+#define LG_WG_SIZE 5
+#define TILE_SIZE (WG_SIZE * N_ROWS)
+
+layout(local_size_x = WG_SIZE, local_size_y = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer SceneBuf {
+    uint[] scene;
+};
+
+// This will be used for inter-wprkgroup aggregates
+layout(set = 0, binding = 1) buffer StateBuf {
+    uint[] state;
+};
+
+#include "scene.h"
+#include "state.h"
+
+#define FLAG_SET_LINEWIDTH 1
+#define FLAG_RESET_BBOX 2
+
+// This is almost like a monoid (the interaction between transformation and
+// bounding boxes is approximate)
+State combine_state(State a, State b) {
+    State c;
+    c.bbox.x = min(a.mat.x * b.bbox.x, a.mat.x * b.bbox.z) + min(a.mat.z * b.bbox.y, a.mat.z * b.bbox.w) + a.translate.x;
+    c.bbox.y = min(a.mat.y * b.bbox.x, a.mat.y * b.bbox.z) + min(a.mat.w * b.bbox.y, a.mat.w * b.bbox.w) + a.translate.y;
+    c.bbox.z = max(a.mat.x * b.bbox.x, a.mat.x * b.bbox.z) + max(a.mat.z * b.bbox.y, a.mat.z * b.bbox.w) + a.translate.x;
+    c.bbox.w = max(a.mat.y * b.bbox.x, a.mat.y * b.bbox.z) + max(a.mat.w * b.bbox.y, a.mat.w * b.bbox.w) + a.translate.y;
+    if ((a.flags & FLAG_RESET_BBOX) == 0 && b.bbox.z <= b.bbox.x && b.bbox.w <= b.bbox.y) {
+        c.bbox = a.bbox;
+    } else if ((a.flags & FLAG_RESET_BBOX) == 0 && (a.bbox.z > a.bbox.x || a.bbox.w > a.bbox.y)) {
+        c.bbox.xy = min(a.bbox.xy, c.bbox.xy);
+        c.bbox.zw = max(a.bbox.zw, c.bbox.zw);
+    }
+    // It would be more concise to cast to matrix types; ah well.
+    c.mat.x = a.mat.x * b.mat.x + a.mat.z * b.mat.y;
+    c.mat.y = a.mat.y * b.mat.x + a.mat.w * b.mat.y;
+    c.mat.z = a.mat.x * b.mat.z + a.mat.z * b.mat.w;
+    c.mat.w = a.mat.y * b.mat.z + a.mat.w * b.mat.w;
+    c.translate.x = a.mat.x * b.translate.x + a.mat.z * b.translate.y + a.translate.x;
+    c.translate.y = a.mat.y * b.translate.x + a.mat.w * b.translate.y + a.translate.y;
+    c.linewidth = (b.flags & FLAG_SET_LINEWIDTH) == 0 ? a.linewidth : b.linewidth;
+    c.flags = a.flags | b.flags;
+    return c;
+}
+
+State map_element(ElementRef ref) {
+    // TODO: it would *probably* be more efficient to make the memory read patterns less
+    // divergent, though it would be more wasted memory.
+    uint tag = Element_tag(ref);
+    State c;
+    c.bbox = vec4(0.0, 0.0, 0.0, 0.0);
+    c.mat = vec4(1.0, 0.0, 0.0, 1.0);
+    c.translate = vec2(0.0, 0.0);
+    c.linewidth = 0.0;
+    c.flags = 0;
+    switch (tag) {
+    case Element_Line:
+        LineSeg line = Element_Line_read(ref);
+        c.bbox.xy = min(line.p0, line.p1);
+        c.bbox.zw = max(line.p0, line.p1);
+        break;
+    case Element_Quad:
+        QuadSeg quad = Element_Quad_read(ref);
+        c.bbox.xy = min(min(quad.p0, quad.p1), quad.p2);
+        c.bbox.zw = max(max(quad.p0, quad.p1), quad.p2);
+        break;
+    case Element_Cubic:
+        CubicSeg cubic = Element_Cubic_read(ref);
+        c.bbox.xy = min(min(cubic.p0, cubic.p1), min(cubic.p2, cubic.p3));
+        c.bbox.zw = max(max(cubic.p0, cubic.p1), max(cubic.p2, cubic.p3));
+        break;
+    case Element_Fill:
+    case Element_Stroke:
+        c.flags = FLAG_RESET_BBOX;
+        break;
+    case Element_SetLineWidth:
+        SetLineWidth lw = Element_SetLineWidth_read(ref);
+        c.linewidth = lw.width;
+        c.flags = FLAG_SET_LINEWIDTH;
+        break;
+    case Element_Transform:
+        Transform t = Element_Transform_read(ref);
+        c.mat = t.mat;
+        c.translate = t.translate;
+        break;
+    }
+    return c;
+}
+
+// We should be able to use an array of structs but the NV shader compiler
+// doesn't seem to like it :/
+//shared State sh_state[WG_SIZE];
+shared vec4 sh_mat[WG_SIZE];
+shared vec2 sh_translate[WG_SIZE];
+shared vec4 sh_bbox[WG_SIZE];
+shared float sh_width[WG_SIZE];
+shared uint sh_flags[WG_SIZE];
+
+void main() {
+    State th_state[N_ROWS];
+    // this becomes an atomic counter
+    uint tile_ix = gl_WorkGroupID.x;
+
+    uint ix = tile_ix * TILE_SIZE + gl_LocalInvocationID.x * N_ROWS;
+    ElementRef ref = ElementRef(ix * Element_size);
+
+    th_state[0] = map_element(ref);
+    for (uint i = 1; i < N_ROWS; i++) {
+        // discussion question: would it be faster to load using more coherent patterns
+        // into thread memory? This is kinda strided.
+        th_state[i] = combine_state(th_state[i - 1], map_element(Element_index(ref, i)));
+    }
+    State agg = th_state[N_ROWS - 1];
+    sh_mat[gl_LocalInvocationID.x] = agg.mat;
+    sh_translate[gl_LocalInvocationID.x] = agg.translate;
+    sh_bbox[gl_LocalInvocationID.x] = agg.bbox;
+    sh_width[gl_LocalInvocationID.x] = agg.linewidth;
+    sh_flags[gl_LocalInvocationID.x] = agg.flags;
+    for (uint i = 0; i < LG_WG_SIZE; i++) {
+        barrier();
+        if (gl_LocalInvocationID.x >= (1 << i)) {
+            State other;
+            uint ix = gl_LocalInvocationID.x - (1 << i);
+            other.mat = sh_mat[ix];
+            other.translate = sh_translate[ix];
+            other.bbox = sh_bbox[ix];
+            other.linewidth = sh_width[ix];
+            other.flags = sh_flags[ix];
+            agg = combine_state(other, agg);
+        }
+        barrier();
+        sh_mat[gl_LocalInvocationID.x] = agg.mat;
+        sh_translate[gl_LocalInvocationID.x] = agg.translate;
+        sh_bbox[gl_LocalInvocationID.x] = agg.bbox;
+        sh_width[gl_LocalInvocationID.x] = agg.linewidth;
+        sh_flags[gl_LocalInvocationID.x] = agg.flags;
+    }
+
+    // TODO: if last invocation in wg, publish agg.
+
+    barrier();
+    State exclusive;
+    exclusive.bbox = vec4(0.0, 0.0, 0.0, 0.0);
+    exclusive.mat = vec4(1.0, 0.0, 0.0, 1.0);
+    exclusive.translate = vec2(0.0, 0.0);
+    exclusive.linewidth = 0.0;
+    exclusive.flags = 0;
+    // TODO: do decoupled look-back
+
+    State row = exclusive;
+    if (gl_LocalInvocationID.x > 0) {
+        uint ix = gl_LocalInvocationID.x - 1;
+        State other;
+        other.mat = sh_mat[ix];
+        other.translate = sh_translate[ix];
+        other.bbox = sh_bbox[ix];
+        other.linewidth = sh_width[ix];
+        other.flags = sh_flags[ix];
+        row = combine_state(row, other);
+    }
+    for (uint i = 0; i < N_ROWS; i++) {
+        State this_state = combine_state(row, th_state[i]);
+        // We write the state now for development purposes, but the
+        // actual goal is to write transformed and annotated elements.
+        State_write(StateRef((ix + i) * State_size), this_state);
+    }
+}
