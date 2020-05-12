@@ -199,7 +199,7 @@ impl RenderContext for PietGpuRenderContext {
 
 impl PietGpuRenderContext {
     fn encode_path(&mut self, path: impl Iterator<Item = PathEl>) {
-        let flatten = false;
+        let flatten = true;
         if flatten {
             let mut start_pt = None;
             let mut last_pt = None;

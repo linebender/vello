@@ -1,3 +1,4 @@
+pub mod annotated;
 pub mod encoder;
 pub mod fill_seg;
 pub mod ptcl;

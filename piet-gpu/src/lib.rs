@@ -113,6 +113,7 @@ pub struct Renderer<D: Device> {
     scene_dev: D::Buffer,
 
     pub state_buf: D::Buffer,
+    pub anno_buf: D::Buffer,
 
     el_pipeline: D::Pipeline,
     el_ds: D::DescriptorSet,
@@ -156,14 +157,15 @@ impl<D: Device> Renderer<D> {
             .unwrap();
         device.write_buffer(&scene_buf, &scene)?;
 
-        let state_buf = device.create_buffer(4 * 1024 * 1024, dev)?;
+        let state_buf = device.create_buffer(64 * 1024 * 1024, dev)?;
+        let anno_buf = device.create_buffer(64 * 1024 * 1024, dev)?;
         let image_dev = device.create_image2d(WIDTH as u32, HEIGHT as u32, dev)?;
 
         let el_code = include_bytes!("../shader/elements.spv");
-        let el_pipeline = device.create_simple_compute_pipeline(el_code, 2, 0)?;
+        let el_pipeline = device.create_simple_compute_pipeline(el_code, 3, 0)?;
         let el_ds = device.create_descriptor_set(
             &el_pipeline,
-            &[&scene_dev, &state_buf],
+            &[&scene_dev, &state_buf, &anno_buf],
             &[],
         )?;
 
@@ -252,6 +254,7 @@ impl<D: Device> Renderer<D> {
             el_pipeline,
             el_ds,
             state_buf,
+            anno_buf,
             n_elements,
         })
     }

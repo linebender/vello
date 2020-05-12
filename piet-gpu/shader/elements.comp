@@ -12,13 +12,21 @@ layout(set = 0, binding = 0) readonly buffer SceneBuf {
     uint[] scene;
 };
 
-// This will be used for inter-wprkgroup aggregates
+// This will be used for inter-workgroup aggregates. In the
+// meantime, for development, it has been used to store the
+// scan of the state objects.
 layout(set = 0, binding = 1) buffer StateBuf {
     uint[] state;
 };
 
+// The annotated results are stored here.
+layout(set = 0, binding = 2) buffer AnnotatedBuf {
+    uint[] annotated;
+};
+
 #include "scene.h"
 #include "state.h"
+#include "annotated.h"
 
 #define FLAG_SET_LINEWIDTH 1
 #define FLAG_RESET_BBOX 2
@@ -93,6 +101,12 @@ State map_element(ElementRef ref) {
     return c;
 }
 
+// Get the bounding box of a circle transformed by the matrix into an ellipse.
+vec2 get_linewidth(State st) {
+    // See https://www.iquilezles.org/www/articles/ellipses/ellipses.htm
+    return 0.5 * st.linewidth * vec2(length(st.mat.xz), length(st.mat.yw));
+}
+
 // We should be able to use an array of structs but the NV shader compiler
 // doesn't seem to like it :/
 //shared State sh_state[WG_SIZE];
@@ -165,9 +179,38 @@ void main() {
         row = combine_state(row, other);
     }
     for (uint i = 0; i < N_ROWS; i++) {
-        State this_state = combine_state(row, th_state[i]);
+        State st = combine_state(row, th_state[i]);
         // We write the state now for development purposes, but the
         // actual goal is to write transformed and annotated elements.
-        State_write(StateRef((ix + i) * State_size), this_state);
+        //State_write(StateRef((ix + i) * State_size), st);
+
+        // Here we read again from the original scene. There may be
+        // gains to be had from stashing in shared memory or possibly
+        // registers (though register pressure is an issue).
+        ElementRef this_ref = Element_index(ref, i);
+        AnnotatedRef out_ref = AnnotatedRef((ix + i) * Annotated_size);
+        uint tag = Element_tag(this_ref);
+        switch (tag) {
+        case Element_Line:
+            LineSeg line = Element_Line_read(this_ref);
+            AnnoLineSeg anno_line;
+            anno_line.p0 = st.mat.xz * line.p0.x + st.mat.yw * line.p0.y + st.translate;
+            anno_line.p1 = st.mat.xz * line.p1.x + st.mat.yw * line.p1.y + st.translate;
+            anno_line.stroke = get_linewidth(st);
+            Annotated_Line_write(out_ref, anno_line);
+            break;
+        case Element_Stroke:
+            Stroke stroke = Element_Stroke_read(this_ref);
+            AnnoStroke anno_stroke;
+            anno_stroke.rgba_color = stroke.rgba_color;
+            vec2 lw = get_linewidth(st);
+            anno_stroke.bbox = st.bbox + vec4(-lw, lw);
+            anno_stroke.linewidth = st.linewidth * sqrt(st.mat.x * st.mat.w - st.mat.y * st.mat.z);
+            Annotated_Stroke_write(out_ref, anno_stroke);
+            break;
+        default:
+            Annotated_Nop_write(out_ref);
+            break;
+        }
     }
 }
