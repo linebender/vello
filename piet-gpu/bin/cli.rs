@@ -2,9 +2,6 @@ use std::fs::File;
 use std::io::BufWriter;
 use std::path::Path;
 
-
-use piet::Color;
-
 use piet_gpu_hal::vulkan::VkInstance;
 use piet_gpu_hal::{CmdBuf, Device, Error, MemFlags};
 

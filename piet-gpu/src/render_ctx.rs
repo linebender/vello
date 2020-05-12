@@ -248,7 +248,7 @@ fn flatten_shape(
     let mut points = Vec::new();
     let mut start_pt = None;
     let mut last_pt = None;
-    kurbo::flatten(path, TOLERANCE, |el| {
+    piet::kurbo::flatten(path, TOLERANCE, |el| {
         match el {
             PathEl::MoveTo(p) => {
                 let scene_pt = to_scene_point(p);
@@ -296,7 +296,7 @@ impl Text for PietGpuText {
         &mut self,
         _font: &Self::Font,
         _text: &str,
-        _width: f64,
+        _width: impl Into<Option<f64>>,
     ) -> Self::TextLayoutBuilder {
         unimplemented!();
     }
@@ -325,7 +325,7 @@ impl TextLayout for PietGpuTextLayout {
         0.0
     }
 
-    fn update_width(&mut self, _new_width: f64) -> Result<(), Error> {
+    fn update_width(&mut self, _new_width: impl Into<Option<f64>>) -> Result<(), Error> {
         unimplemented!()
     }
 

@@ -62,7 +62,8 @@ pub struct Buffer {
 
 pub struct Image {
     image: vk::Image,
-    image_memory: vk::DeviceMemory,
+    // Not used now but probably will be for destruction.
+    _image_memory: vk::DeviceMemory,
     image_view: vk::ImageView,
     extent: vk::Extent3D,
 }
@@ -475,7 +476,7 @@ impl crate::Device for VkDevice {
         )?;
         Ok(Image {
             image,
-            image_memory,
+            _image_memory: image_memory,
             image_view,
             extent,
         })
@@ -984,7 +985,7 @@ impl VkSwapchain {
     pub unsafe fn image(&self, idx: usize) -> Image {
         Image {
             image: self.images[idx],
-            image_memory: vk::DeviceMemory::null(),
+            _image_memory: vk::DeviceMemory::null(),
             image_view: vk::ImageView::null(),
             extent: vk::Extent3D {
                 width: self.extent.width,

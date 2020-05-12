@@ -4,7 +4,7 @@ use std::str::FromStr;
 
 use roxmltree::Document;
 
-use kurbo::BezPath;
+use piet::kurbo::{Affine, BezPath};
 
 use piet::{Color, RenderContext};
 
@@ -38,7 +38,7 @@ impl PicoSvg {
             if el.is_element() {
                 let d = el.attribute("d").ok_or("missing 'd' attribute")?;
                 let bp = BezPath::from_svg(d)?;
-                let path = kurbo::Affine::scale(scale) * bp;
+                let path = Affine::scale(scale) * bp;
                 if let Some(fill_color) = el.attribute("fill") {
                     let color = parse_color(fill_color);
                     items.push(Item::Fill(FillItem { color, path: path.clone() }));

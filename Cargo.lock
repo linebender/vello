@@ -295,8 +295,9 @@ dependencies = [
 
 [[package]]
 name = "kurbo"
-version = "0.5.11"
-source = "git+https://github.com/linebender/kurbo?rev=7bd7e66bd137e757305d170a0f9f2b4f7beeb299#7bd7e66bd137e757305d170a0f9f2b4f7beeb299"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5657aca5a36917d389d717f1a0c24d5ebcee5551fda8c1f555af597565d408e4"
 dependencies = [
  "arrayvec",
 ]
@@ -513,9 +514,9 @@ checksum = "d4fd5641d01c8f18a23da7b6fe29298ff4b55afcccdf78973b24cf3175fee32e"
 
 [[package]]
 name = "piet"
-version = "0.0.12"
+version = "0.0.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "29420eccb68d6b9ad2f8dd87caf9c3bcd3bbd056bfe67871c48b6efab9316b79"
+checksum = "552531e1eeb85c966172849155b25b555f76c10cc479396579fac058a63269a4"
 dependencies = [
  "kurbo",
 ]
@@ -524,7 +525,6 @@ dependencies = [
 name = "piet-gpu"
 version = "0.1.0"
 dependencies = [
- "kurbo",
  "piet",
  "piet-gpu-hal",
  "piet-gpu-types",
