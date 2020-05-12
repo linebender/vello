@@ -1,0 +1,169 @@
+// The binning stage of the pipeline.
+
+#version 450
+#extension GL_GOOGLE_include_directive : enable
+
+#define N_ROWS 4
+#define WG_SIZE 32
+#define LG_WG_SIZE 5
+#define TILE_SIZE (WG_SIZE * N_ROWS)
+
+// TODO: move these to setup file
+#define N_TILE_X 16
+#define N_TILE_Y 16
+#define N_TILE (N_TILE_X * N_TILE_Y)
+#define N_SLICE (N_TILE / 32)
+#define N_WG 16 // Number of workgroups, should be 1 per SM
+
+#define BIN_INITIAL_ALLOC 64
+#define BIN_ALLOC 256
+
+layout(local_size_x = N_TILE, local_size_y = 1) in;
+
+layout(set = 0, binding = 0) buffer AnnotatedBuf {
+    uint[] annotated;
+};
+
+layout(set = 0, binding = 1) buffer AllocBuf {
+    uint n_elements;
+    // Will be incremented atomically to claim tiles
+    uint tile_ix;
+    uint alloc;
+};
+
+layout(set = 0, binding = 2) buffer BinsBuf {
+    uint[] bins;
+};
+
+#include "annotated.h"
+#include "bins.h"
+#include "setup.h"
+
+// scale factors useful for converting coordinates to bins
+#define SX (1.0 / float(N_TILE_X * TILE_WIDTH_PX))
+#define SY (1.0 / float(N_TILE_Y * TILE_HEIGHT_PX))
+
+// Note: cudaraster has N_TILE + 1 to cut down on bank conflicts.
+shared uint bitmaps[N_SLICE][N_TILE];
+shared uint sh_my_tile;
+
+void main() {
+    BinChunkRef chunk_ref = BinChunkRef((gl_LocalInvocationID.x * N_WG + gl_WorkGroupID.x) * BIN_INITIAL_ALLOC);
+    uint chunk_limit = chunk_ref.offset + BIN_INITIAL_ALLOC - BinInstance_size;
+    uint chunk_n = 0;
+    BinInstanceRef instance_ref = BinInstanceRef(chunk_ref.offset + BinChunk_size);
+    while (true) {
+        if (gl_LocalInvocationID.x == 0) {
+            sh_my_tile = atomicAdd(tile_ix, 1);
+        }
+        barrier();
+        uint my_tile = sh_my_tile;
+        if (my_tile * N_TILE >= n_elements) {
+            break;
+        }
+
+        for (uint i = 0; i < N_SLICE; i++) {
+            bitmaps[i][gl_LocalInvocationID.x] = 0;
+        }
+        barrier();
+
+        // Read inputs and determine coverage of bins
+        uint element_ix = my_tile * N_TILE + gl_LocalInvocationID.x;
+        AnnotatedRef ref = AnnotatedRef(element_ix * Annotated_size);
+        uint tag = Annotated_tag(ref);
+        int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+        switch (tag) {
+        case Annotated_Line:
+            AnnoLineSeg line = Annotated_Line_read(ref);
+            x0 = int(floor((min(line.p0.x, line.p1.x) - line.stroke.x) * SX));
+            y0 = int(floor((min(line.p0.y, line.p1.y) - line.stroke.y) * SY));
+            x1 = int(ceil((max(line.p0.x, line.p1.x) + line.stroke.x) * SX));
+            y1 = int(ceil((max(line.p0.y, line.p1.y) + line.stroke.y) * SY));
+            break;
+        case Annotated_Fill:
+        case Annotated_Stroke:
+            // Note: we take advantage of the fact that fills and strokes
+            // have compatible layout.
+            AnnoFill fill = Annotated_Fill_read(ref);
+            x0 = int(floor(fill.bbox.x * SX));
+            y0 = int(floor(fill.bbox.y * SY));
+            x1 = int(ceil(fill.bbox.z * SX));
+            y1 = int(ceil(fill.bbox.w * SY));
+            break;
+        }
+        // At this point, we run an iterator over the coverage area,
+        // trying to keep divergence low.
+        // Right now, it's just a bbox, but we'll get finer with
+        // segments.
+        x0 = clamp(x0, 0, N_TILE_X);
+        x1 = clamp(x1, x0, N_TILE_X);
+        y0 = clamp(y0, 0, N_TILE_Y);
+        y1 = clamp(y1, y0, N_TILE_Y);
+        if (x0 == x1) y1 = y0;
+        int x = x0, y = y0;
+        uint my_slice = gl_LocalInvocationID.x / 32;
+        uint my_mask = 1 << (gl_LocalInvocationID.x & 31);
+        while (y < y1) {
+            atomicOr(bitmaps[my_slice][y * N_TILE_X + x], my_mask);
+            x++;
+            if (x == x1) {
+                x = x0;
+                y++;
+            }
+        }
+
+        barrier();
+        // Allocate output segments.
+        uint element_count = 0;
+        for (uint i = 0; i < N_SLICE; i++) {
+            element_count += bitCount(bitmaps[i][gl_LocalInvocationID.x]);
+        }
+        // element_count is number of elements covering bin for this invocation.
+        if (element_count > 0 && chunk_n > 0) {
+            uint new_chunk = instance_ref.offset;
+            if (new_chunk + min(32, element_count * 4) > chunk_limit) {
+                new_chunk = atomicAdd(alloc, BIN_ALLOC);
+                chunk_limit = new_chunk + BIN_ALLOC - BinInstance_size;
+            }
+            BinChunk_write(chunk_ref, BinChunk(chunk_n, BinChunkRef(new_chunk)));
+            chunk_ref = BinChunkRef(new_chunk);
+            instance_ref = BinInstanceRef(new_chunk + BinChunk_size);
+            chunk_n = 0;
+        }
+        // TODO: allocate output here
+
+        // Iterate over bits set.
+        uint slice_ix = 0;
+        uint bitmap = bitmaps[0][gl_LocalInvocationID.x];
+        while (true) {
+            if (bitmap == 0) {
+                slice_ix++;
+                if (slice_ix == N_SLICE) {
+                    break;
+                }
+                bitmap = bitmaps[slice_ix][gl_LocalInvocationID.x];
+                if (bitmap == 0) {
+                    continue;
+                }
+            }
+            element_ix = my_tile * N_TILE + slice_ix * 32 + findLSB(bitmap);
+            // At this point, element_ix refers to an element that covers this bin.
+
+            // TODO: batch allocated based on element_count; this is divergent
+            if (instance_ref.offset > chunk_limit) {
+                uint new_chunk = atomicAdd(alloc, BIN_ALLOC);
+                BinChunk_write(chunk_ref, BinChunk(chunk_n, BinChunkRef(new_chunk)));
+                chunk_ref = BinChunkRef(new_chunk);
+                instance_ref = BinInstanceRef(new_chunk + BinChunk_size);
+                chunk_n = 0;
+                chunk_limit = new_chunk + BIN_ALLOC - BinInstance_size;
+            }
+            BinInstance_write(instance_ref, BinInstance(element_ix));
+            chunk_n++;
+            instance_ref.offset += BinInstance_size;
+            // clear LSB
+            bitmap &= bitmap - 1;
+        }
+    }
+    BinChunk_write(chunk_ref, BinChunk(chunk_n, BinChunkRef(0)));
+}

@@ -32,6 +32,8 @@ const K2_PER_TILE_SIZE: usize = 8;
 
 const N_CIRCLES: usize = 1;
 
+const N_WG: u32 = 16;
+
 pub fn render_scene(rc: &mut impl RenderContext) {
     let mut rng = rand::thread_rng();
     for _ in 0..N_CIRCLES {
@@ -98,10 +100,10 @@ fn dump_scene(buf: &[u8]) {
 }
 
 #[allow(unused)]
-fn dump_k1_data(k1_buf: &[u32]) {
+pub fn dump_k1_data(k1_buf: &[u32]) {
     for i in 0..k1_buf.len() {
         if k1_buf[i] != 0 {
-            println!("{:4x}: {:8x}", i, k1_buf[i]);
+            println!("{:4x}: {:8x}", i * 4, k1_buf[i]);
         }
     }
 }
@@ -114,9 +116,16 @@ pub struct Renderer<D: Device> {
 
     pub state_buf: D::Buffer,
     pub anno_buf: D::Buffer,
+    pub bin_buf: D::Buffer,
 
     el_pipeline: D::Pipeline,
     el_ds: D::DescriptorSet,
+
+    bin_pipeline: D::Pipeline,
+    bin_ds: D::DescriptorSet,
+
+    bin_alloc_buf_host: D::Buffer,
+    bin_alloc_buf_dev: D::Buffer,
 
     /*
     k1_alloc_buf_host: D::Buffer,
@@ -149,6 +158,9 @@ impl<D: Device> Renderer<D> {
         let host = MemFlags::host_coherent();
         let dev = MemFlags::device_local();
 
+        let n_elements = scene.len() / piet_gpu_types::scene::Element::fixed_size();
+        println!("scene: {} elements", n_elements);
+
         let scene_buf = device
             .create_buffer(std::mem::size_of_val(&scene[..]) as u64, host)
             .unwrap();
@@ -159,6 +171,7 @@ impl<D: Device> Renderer<D> {
 
         let state_buf = device.create_buffer(64 * 1024 * 1024, dev)?;
         let anno_buf = device.create_buffer(64 * 1024 * 1024, dev)?;
+        let bin_buf = device.create_buffer(64 * 1024 * 1024, dev)?;
         let image_dev = device.create_image2d(WIDTH as u32, HEIGHT as u32, dev)?;
 
         let el_code = include_bytes!("../shader/elements.spv");
@@ -169,8 +182,25 @@ impl<D: Device> Renderer<D> {
             &[],
         )?;
 
-        let n_elements = scene.len() / piet_gpu_types::scene::Element::fixed_size();
-        println!("scene: {} elements", n_elements);
+        let bin_alloc_buf_host = device.create_buffer(12, host)?;
+        let bin_alloc_buf_dev = device.create_buffer(12, dev)?;
+
+        // TODO: constants
+        let bin_alloc_start = 256 * 64 * N_WG;
+        device
+            .write_buffer(&bin_alloc_buf_host, &[
+                n_elements as u32,
+                0,
+                bin_alloc_start,
+            ])
+            ?;
+        let bin_code = include_bytes!("../shader/binning.spv");
+        let bin_pipeline = device.create_simple_compute_pipeline(bin_code, 3, 0)?;
+        let bin_ds = device.create_descriptor_set(
+            &bin_pipeline,
+            &[&anno_buf, &bin_alloc_buf_dev, &bin_buf],
+            &[],
+        )?;
 
         /*
         let tilegroup_buf = device.create_buffer(4 * 1024 * 1024, dev)?;
@@ -253,14 +283,20 @@ impl<D: Device> Renderer<D> {
             image_dev,
             el_pipeline,
             el_ds,
+            bin_pipeline,
+            bin_ds,
             state_buf,
             anno_buf,
+            bin_buf,
+            bin_alloc_buf_host,
+            bin_alloc_buf_dev,
             n_elements,
         })
     }
 
     pub unsafe fn record(&self, cmd_buf: &mut impl CmdBuf<D>, query_pool: &D::QueryPool) {
         cmd_buf.copy_buffer(&self.scene_buf, &self.scene_dev);
+        cmd_buf.copy_buffer(&self.bin_alloc_buf_host, &self.bin_alloc_buf_dev);
         cmd_buf.memory_barrier();
         cmd_buf.image_barrier(
             &self.image_dev,
@@ -275,6 +311,13 @@ impl<D: Device> Renderer<D> {
             ((self.n_elements / 128) as u32, 1, 1),
         );
         cmd_buf.write_timestamp(&query_pool, 1);
+        cmd_buf.memory_barrier();
+        cmd_buf.dispatch(
+            &self.bin_pipeline,
+            &self.bin_ds,
+            (N_WG, 1, 1),
+        );
+        cmd_buf.write_timestamp(&query_pool, 2);
         cmd_buf.memory_barrier();
         cmd_buf.image_barrier(&self.image_dev, ImageLayout::General, ImageLayout::BlitSrc);
     }

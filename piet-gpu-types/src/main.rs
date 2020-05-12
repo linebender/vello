@@ -7,6 +7,7 @@ fn main() {
         "scene" => print!("{}", piet_gpu_types::scene::gen_gpu_scene()),
         "state" => print!("{}", piet_gpu_types::state::gen_gpu_state()),
         "annotated" => print!("{}", piet_gpu_types::annotated::gen_gpu_annotated()),
+        "bins" => print!("{}", piet_gpu_types::bins::gen_gpu_bins()),
         "tilegroup" => print!("{}", piet_gpu_types::tilegroup::gen_gpu_tilegroup()),
         "segment" => print!("{}", piet_gpu_types::segment::gen_gpu_segment()),
         "fill_seg" => print!("{}", piet_gpu_types::fill_seg::gen_gpu_fill_seg()),

@@ -1,3 +1,9 @@
+// The element processing stage, first in the pipeline.
+//
+// This stage is primarily about applying transforms and computing bounding
+// boxes. It is organized as a scan over the input elements, producing
+// annotated output elements.
+
 #version 450
 #extension GL_GOOGLE_include_directive : enable
 
@@ -207,6 +213,13 @@ void main() {
             anno_stroke.bbox = st.bbox + vec4(-lw, lw);
             anno_stroke.linewidth = st.linewidth * sqrt(st.mat.x * st.mat.w - st.mat.y * st.mat.z);
             Annotated_Stroke_write(out_ref, anno_stroke);
+            break;
+        case Element_Fill:
+            Fill fill = Element_Fill_read(this_ref);
+            AnnoFill anno_fill;
+            anno_fill.rgba_color = fill.rgba_color;
+            anno_fill.bbox = st.bbox;
+            Annotated_Fill_write(out_ref, anno_fill);
             break;
         default:
             Annotated_Nop_write(out_ref);

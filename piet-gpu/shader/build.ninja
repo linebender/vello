@@ -20,4 +20,6 @@ build kernel3.spv: glsl kernel3.comp | scene.h tilegroup.h segment.h fill_seg.h 
 build kernel4.spv: glsl kernel4.comp | ptcl.h segment.h fill_seg.h setup.h
 
 
-build elements.spv: glsl elements.comp | scene.h state.h
+build elements.spv: glsl elements.comp | scene.h state.h annotated.h
+
+build binning.spv: glsl binning.comp | annotated.h setup.h
