@@ -41,7 +41,7 @@ fn main() -> Result<(), Error> {
 
         let fence = device.create_fence(false)?;
         let mut cmd_buf = device.create_cmd_buf()?;
-        let query_pool = device.create_query_pool(3)?;
+        let query_pool = device.create_query_pool(4)?;
 
         let mut ctx = PietGpuRenderContext::new();
         render_scene(&mut ctx);
@@ -61,10 +61,15 @@ fn main() -> Result<(), Error> {
         let ts = device.reap_query_pool(&query_pool).unwrap();
         println!("Element kernel time: {:.3}ms", ts[0] * 1e3);
         println!("Binning kernel time: {:.3}ms", (ts[1] - ts[0]) * 1e3);
+        println!("Coarse kernel time: {:.3}ms", (ts[2] - ts[1]) * 1e3);
 
         /*
         let mut data: Vec<u32> = Default::default();
         device.read_buffer(&renderer.bin_buf, &mut data).unwrap();
+        piet_gpu::dump_k1_data(&data);
+
+        let mut data: Vec<u32> = Default::default();
+        device.read_buffer(&renderer.ptcl_buf, &mut data).unwrap();
         piet_gpu::dump_k1_data(&data);
         */
 

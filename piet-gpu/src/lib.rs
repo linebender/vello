@@ -117,6 +117,7 @@ pub struct Renderer<D: Device> {
     pub state_buf: D::Buffer,
     pub anno_buf: D::Buffer,
     pub bin_buf: D::Buffer,
+    pub ptcl_buf: D::Buffer,
 
     el_pipeline: D::Pipeline,
     el_ds: D::DescriptorSet,
@@ -126,6 +127,12 @@ pub struct Renderer<D: Device> {
 
     bin_alloc_buf_host: D::Buffer,
     bin_alloc_buf_dev: D::Buffer,
+
+    coarse_pipeline: D::Pipeline,
+    coarse_ds: D::DescriptorSet,
+
+    coarse_alloc_buf_host: D::Buffer,
+    coarse_alloc_buf_dev: D::Buffer,
 
     /*
     k1_alloc_buf_host: D::Buffer,
@@ -172,6 +179,7 @@ impl<D: Device> Renderer<D> {
         let state_buf = device.create_buffer(64 * 1024 * 1024, dev)?;
         let anno_buf = device.create_buffer(64 * 1024 * 1024, dev)?;
         let bin_buf = device.create_buffer(64 * 1024 * 1024, dev)?;
+        let ptcl_buf = device.create_buffer(48 * 1024 * 1024, dev)?;
         let image_dev = device.create_image2d(WIDTH as u32, HEIGHT as u32, dev)?;
 
         let el_code = include_bytes!("../shader/elements.spv");
@@ -199,6 +207,23 @@ impl<D: Device> Renderer<D> {
         let bin_ds = device.create_descriptor_set(
             &bin_pipeline,
             &[&anno_buf, &bin_alloc_buf_dev, &bin_buf],
+            &[],
+        )?;
+
+        let coarse_alloc_buf_host = device.create_buffer(4, host)?;
+        let coarse_alloc_buf_dev = device.create_buffer(4, dev)?;
+
+        let coarse_alloc_start = 256 * 64 * N_WG;
+        device
+            .write_buffer(&coarse_alloc_buf_host, &[
+                coarse_alloc_start,
+            ])
+            ?;
+        let coarse_code = include_bytes!("../shader/coarse.spv");
+        let coarse_pipeline = device.create_simple_compute_pipeline(coarse_code, 4, 0)?;
+        let coarse_ds = device.create_descriptor_set(
+            &coarse_pipeline,
+            &[&anno_buf, &bin_buf, &coarse_alloc_buf_dev, &ptcl_buf],
             &[],
         )?;
 
@@ -285,11 +310,16 @@ impl<D: Device> Renderer<D> {
             el_ds,
             bin_pipeline,
             bin_ds,
+            coarse_pipeline,
+            coarse_ds,
             state_buf,
             anno_buf,
             bin_buf,
+            ptcl_buf,
             bin_alloc_buf_host,
             bin_alloc_buf_dev,
+            coarse_alloc_buf_host,
+            coarse_alloc_buf_dev,
             n_elements,
         })
     }
@@ -297,6 +327,7 @@ impl<D: Device> Renderer<D> {
     pub unsafe fn record(&self, cmd_buf: &mut impl CmdBuf<D>, query_pool: &D::QueryPool) {
         cmd_buf.copy_buffer(&self.scene_buf, &self.scene_dev);
         cmd_buf.copy_buffer(&self.bin_alloc_buf_host, &self.bin_alloc_buf_dev);
+        cmd_buf.copy_buffer(&self.coarse_alloc_buf_host, &self.coarse_alloc_buf_dev);
         cmd_buf.memory_barrier();
         cmd_buf.image_barrier(
             &self.image_dev,
@@ -318,6 +349,13 @@ impl<D: Device> Renderer<D> {
             (N_WG, 1, 1),
         );
         cmd_buf.write_timestamp(&query_pool, 2);
+        cmd_buf.memory_barrier();
+        cmd_buf.dispatch(
+            &self.coarse_pipeline,
+            &self.coarse_ds,
+            (WIDTH as u32 / 256, HEIGHT as u32 / 256, 1),
+        );
+        cmd_buf.write_timestamp(&query_pool, 3);
         cmd_buf.memory_barrier();
         cmd_buf.image_barrier(&self.image_dev, ImageLayout::General, ImageLayout::BlitSrc);
     }

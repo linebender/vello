@@ -1,0 +1,129 @@
+// The coarse rasterizer stage of the pipeline.
+
+#version 450
+#extension GL_GOOGLE_include_directive : enable
+
+#include "setup.h"
+
+layout(local_size_x = N_TILE, local_size_y = 1) in;
+
+layout(set = 0, binding = 0) buffer AnnotatedBuf {
+    uint[] annotated;
+};
+
+layout(set = 0, binding = 1) buffer BinsBuf {
+    uint[] bins;
+};
+
+layout(set = 0, binding = 2) buffer AllocBuf {
+    uint alloc;
+};
+
+layout(set = 0, binding = 3) buffer PtclBuf {
+    uint[] ptcl;
+};
+
+#include "annotated.h"
+#include "bins.h"
+#include "ptcl.h"
+
+#define N_RINGBUF 512
+
+shared uint sh_elements[N_RINGBUF];
+shared uint sh_chunk[N_WG];
+shared uint sh_chunk_next[N_WG];
+shared uint sh_chunk_n[N_WG];
+shared uint sh_min_buf;
+// Some of these are kept in shared memory to ease register
+// pressure, but it could go either way.
+shared uint sh_first_el[N_WG];
+shared uint sh_selected_n;
+shared uint sh_elements_ref;
+
+shared uint sh_bitmaps[N_SLICE][N_TILE];
+
+void main() {
+    // Could use either linear or 2d layouts for both dispatch and
+    // invocations within the workgroup. We'll use variables to abstract.
+    uint bin_ix = N_TILE_X * gl_WorkGroupID.y + gl_WorkGroupID.x;
+    uint th_ix = gl_LocalInvocationID.x;
+    uint wr_ix = 0;
+    uint rd_ix = 0;
+    uint first_el;
+    if (th_ix < N_WG) {
+        uint start_chunk = (bin_ix * N_WG + th_ix) * BIN_INITIAL_ALLOC;
+        sh_chunk[th_ix] = start_chunk;
+        BinChunk chunk = BinChunk_read(BinChunkRef(start_chunk));
+        sh_chunk_n[th_ix] = chunk.n;
+        sh_chunk_next[th_ix] = chunk.next.offset;
+        sh_first_el[th_ix] = chunk.n > 0 ?
+            BinInstance_read(BinInstanceRef(start_chunk + BinChunk_size)).element_ix : ~0;
+    }
+    uint probe = 0; // for debugging
+    do {
+        for (uint i = 0; i < N_SLICE; i++) {
+            sh_bitmaps[i][th_ix] = 0;
+        }
+
+        while (wr_ix - rd_ix <= N_TILE) {
+            // Choose segment with least element.
+            uint my_min;
+            if (th_ix < N_WG) {
+                if (th_ix == 0) {
+                    sh_selected_n = 0;
+                    sh_min_buf = ~1;
+                }
+            }
+            barrier();
+            // Tempting to do this with subgroups, but atomic should be good enough.
+            my_min = sh_first_el[th_ix];
+            if (th_ix < N_WG) {
+                atomicMin(sh_min_buf, my_min);
+            }
+            barrier();
+            if (th_ix < N_WG) {
+                if (sh_first_el[th_ix] == sh_min_buf) {
+                    sh_elements_ref = sh_chunk[th_ix] + BinChunk_size;
+                    uint selected_n = sh_chunk_n[th_ix];
+                    sh_selected_n = selected_n;
+                    uint next_chunk = sh_chunk_next[th_ix];
+                    if (next_chunk == 0) {
+                        sh_first_el[th_ix] = ~0;
+                    } else {
+                        sh_chunk[th_ix] = next_chunk;
+                        BinChunk chunk = BinChunk_read(BinChunkRef(next_chunk));
+                        sh_chunk_n[th_ix] = chunk.n;
+                        sh_chunk_next[th_ix] = chunk.next.offset;
+                        sh_first_el[th_ix] = BinInstance_read(
+                            BinInstanceRef(next_chunk + BinChunk_size)).element_ix;
+                    }
+                }
+            }
+            barrier();
+            uint chunk_n = sh_selected_n;
+            if (chunk_n == 0) {
+                // All chunks consumed
+                break;
+            }
+            BinInstanceRef inst_ref = BinInstanceRef(sh_elements_ref);
+            if (th_ix < chunk_n) {
+                uint el = BinInstance_read(BinInstance_index(inst_ref, th_ix)).element_ix;
+                sh_elements[(wr_ix + th_ix) % N_RINGBUF] = el;
+                probe = el;
+            }
+            wr_ix += chunk_n;
+        }
+
+        // We've done the merge and filled the buffer.
+        uint tag = Annotated_Nop;
+        AnnotatedRef ref;
+        if (th_ix + rd_ix < wr_ix) {
+            uint element_ix = (sh_elements[rd_ix] + th_ix) % N_RINGBUF;
+            ref = AnnotatedRef(element_ix * Annotated_size);
+            tag = Annotated_tag(ref);
+            probe = tag;
+        }
+        rd_ix += N_TILE;
+    } while (wr_ix > rd_ix);
+    ptcl[bin_ix * N_TILE + th_ix] = probe;
+}

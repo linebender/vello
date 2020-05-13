@@ -3,20 +3,7 @@
 #version 450
 #extension GL_GOOGLE_include_directive : enable
 
-#define N_ROWS 4
-#define WG_SIZE 32
-#define LG_WG_SIZE 5
-#define TILE_SIZE (WG_SIZE * N_ROWS)
-
-// TODO: move these to setup file
-#define N_TILE_X 16
-#define N_TILE_Y 16
-#define N_TILE (N_TILE_X * N_TILE_Y)
-#define N_SLICE (N_TILE / 32)
-#define N_WG 16 // Number of workgroups, should be 1 per SM
-
-#define BIN_INITIAL_ALLOC 64
-#define BIN_ALLOC 256
+#include "setup.h"
 
 layout(local_size_x = N_TILE, local_size_y = 1) in;
 
@@ -37,7 +24,6 @@ layout(set = 0, binding = 2) buffer BinsBuf {
 
 #include "annotated.h"
 #include "bins.h"
-#include "setup.h"
 
 // scale factors useful for converting coordinates to bins
 #define SX (1.0 / float(N_TILE_X * TILE_WIDTH_PX))
@@ -135,9 +121,7 @@ void main() {
                 uint next_chunk = chunk_ref.offset + BinChunk_size + chunk_n * 4;
                 if (next_chunk + BinChunk_size + min(24, element_count * 4) > wr_limit) {
                     uint alloc_amount = max(BIN_ALLOC, BinChunk_size + element_count * 4);
-                    if (alloc_amount - BIN_ALLOC < 64) {
-                        alloc_amount = BIN_ALLOC;
-                    }
+                    // could try to reduce fragmentation if BIN_ALLOC is only a bit above needed
                     next_chunk = atomicAdd(alloc, alloc_amount);
                     wr_limit = next_chunk + alloc_amount;
                 }
@@ -149,9 +133,6 @@ void main() {
                 chunk_end = wr_limit;
                 chunk_n = (wr_limit - instance_ref.offset) / 4;
                 uint alloc_amount = max(BIN_ALLOC, BinChunk_size + (element_count - chunk_n) * 4);
-                if (alloc_amount - BIN_ALLOC < 64) {
-                    alloc_amount = BIN_ALLOC;
-                }
                 chunk_new_start = atomicAdd(alloc, alloc_amount);
                 wr_limit = chunk_new_start + alloc_amount;
                 BinChunk_write(chunk_ref, BinChunk(chunk_n, BinChunkRef(chunk_new_start)));
