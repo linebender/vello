@@ -45,7 +45,11 @@ layout(set = 0, binding = 2) buffer BinsBuf {
 
 // Note: cudaraster has N_TILE + 1 to cut down on bank conflicts.
 shared uint bitmaps[N_SLICE][N_TILE];
+shared uint count[N_SLICE][N_TILE];
 shared uint sh_my_tile;
+shared uint sh_chunk_start[N_TILE];
+shared uint sh_chunk_end[N_TILE];
+shared uint sh_chunk_jump[N_TILE];
 
 void main() {
     BinChunkRef chunk_ref = BinChunkRef((gl_LocalInvocationID.x * N_WG + gl_WorkGroupID.x) * BIN_INITIAL_ALLOC);
@@ -120,70 +124,73 @@ void main() {
         uint element_count = 0;
         for (uint i = 0; i < N_SLICE; i++) {
             element_count += bitCount(bitmaps[i][gl_LocalInvocationID.x]);
+            count[i][gl_LocalInvocationID.x] = element_count;
         }
         // element_count is number of elements covering bin for this invocation.
-        if (element_count == 0) {
-            continue;
-        }
-        uint chunk_end;
-        uint chunk_new_start;
-        // Refactor to reduce code duplication?
-        if (chunk_n > 0) {
-            uint next_chunk = chunk_ref.offset + BinChunk_size + chunk_n * 4;
-            if (next_chunk + BinChunk_size + min(24, element_count * 4) > wr_limit) {
-                uint alloc_amount = max(BIN_ALLOC, BinChunk_size + element_count * 4);
+        if (element_count != 0) {
+            uint chunk_end;
+            uint chunk_new_start;
+            // Refactor to reduce code duplication?
+            if (chunk_n > 0) {
+                uint next_chunk = chunk_ref.offset + BinChunk_size + chunk_n * 4;
+                if (next_chunk + BinChunk_size + min(24, element_count * 4) > wr_limit) {
+                    uint alloc_amount = max(BIN_ALLOC, BinChunk_size + element_count * 4);
+                    if (alloc_amount - BIN_ALLOC < 64) {
+                        alloc_amount = BIN_ALLOC;
+                    }
+                    next_chunk = atomicAdd(alloc, alloc_amount);
+                    wr_limit = next_chunk + alloc_amount;
+                }
+                BinChunk_write(chunk_ref, BinChunk(chunk_n, BinChunkRef(next_chunk)));
+                chunk_ref = BinChunkRef(next_chunk);
+            }
+            BinInstanceRef instance_ref = BinInstanceRef(chunk_ref.offset + BinChunk_size);
+            if (instance_ref.offset + element_count * 4 > wr_limit) {
+                chunk_end = wr_limit;
+                chunk_n = (wr_limit - instance_ref.offset) / 4;
+                uint alloc_amount = max(BIN_ALLOC, BinChunk_size + (element_count - chunk_n) * 4);
                 if (alloc_amount - BIN_ALLOC < 64) {
                     alloc_amount = BIN_ALLOC;
                 }
-                next_chunk = atomicAdd(alloc, alloc_amount);
-                wr_limit = next_chunk + alloc_amount;
+                chunk_new_start = atomicAdd(alloc, alloc_amount);
+                wr_limit = chunk_new_start + alloc_amount;
+                BinChunk_write(chunk_ref, BinChunk(chunk_n, BinChunkRef(chunk_new_start)));
+                chunk_ref = BinChunkRef(chunk_new_start);
+                chunk_new_start += BinChunk_size;
+                chunk_n = element_count - chunk_n;
+            } else {
+                chunk_end = ~0;
+                chunk_n = element_count;
             }
-            BinChunk_write(chunk_ref, BinChunk(chunk_n, BinChunkRef(next_chunk)));
-            chunk_ref = BinChunkRef(next_chunk);
-        }
-        BinInstanceRef instance_ref = BinInstanceRef(chunk_ref.offset + BinChunk_size);
-        if (instance_ref.offset + element_count * 4 > wr_limit) {
-            chunk_end = wr_limit;
-            chunk_n = (wr_limit - instance_ref.offset) / 4;
-            uint alloc_amount = max(BIN_ALLOC, BinChunk_size + (element_count - chunk_n) * 4);
-            if (alloc_amount - BIN_ALLOC < 64) {
-                alloc_amount = BIN_ALLOC;
-            }
-            chunk_new_start = atomicAdd(alloc, alloc_amount);
-            wr_limit = chunk_new_start + alloc_amount;
-            BinChunk_write(chunk_ref, BinChunk(chunk_n, BinChunkRef(chunk_new_start)));
-            chunk_ref = BinChunkRef(chunk_new_start);
-            chunk_new_start += BinChunk_size;
-            chunk_n = element_count - chunk_n;
-        } else {
-            chunk_end = ~0;
-            chunk_n = element_count;
+            sh_chunk_start[gl_LocalInvocationID.x] = instance_ref.offset;
+            sh_chunk_end[gl_LocalInvocationID.x] = chunk_end;
+            sh_chunk_jump[gl_LocalInvocationID.x] = chunk_new_start - chunk_end;
         }
 
-        // Iterate over bits set.
-        uint slice_ix = 0;
-        uint bitmap = bitmaps[0][gl_LocalInvocationID.x];
-        while (true) {
-            if (bitmap == 0) {
-                slice_ix++;
-                if (slice_ix == N_SLICE) {
-                    break;
+        barrier();
+        // Use similar strategy as Laine & Karras paper; loop over bbox of bins
+        // touched by this element
+        x = x0;
+        y = y0;
+        while (y < y1) {
+            uint bin_ix = y * N_TILE_X + x;
+            uint out_mask = bitmaps[my_slice][bin_ix];
+            if ((out_mask & my_mask) != 0) {
+                uint idx = bitCount(out_mask & (my_mask - 1));
+                if (my_slice > 0) {
+                    idx += count[my_slice - 1][bin_ix];
                 }
-                bitmap = bitmaps[slice_ix][gl_LocalInvocationID.x];
-                if (bitmap == 0) {
-                    continue;
+                uint out_offset = sh_chunk_start[bin_ix] + idx * 4;
+                if (out_offset >= sh_chunk_end[bin_ix]) {
+                    out_offset += sh_chunk_jump[bin_ix];
                 }
+                BinInstance_write(BinInstanceRef(out_offset), BinInstance(element_ix));
             }
-            element_ix = my_tile * N_TILE + slice_ix * 32 + findLSB(bitmap);
-            // At this point, element_ix refers to an element that covers this bin.
-
-            if (instance_ref.offset == chunk_end) {
-                instance_ref.offset = chunk_new_start;
+            x++;
+            if (x == x1) {
+                x = x0;
+                y++;
             }
-            BinInstance_write(instance_ref, BinInstance(element_ix));
-            instance_ref.offset += BinInstance_size;
-            // clear LSB
-            bitmap &= bitmap - 1;
         }
     }
     BinChunk_write(chunk_ref, BinChunk(chunk_n, BinChunkRef(0)));
