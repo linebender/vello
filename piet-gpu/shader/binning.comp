@@ -49,16 +49,16 @@ shared uint sh_my_tile;
 
 void main() {
     BinChunkRef chunk_ref = BinChunkRef((gl_LocalInvocationID.x * N_WG + gl_WorkGroupID.x) * BIN_INITIAL_ALLOC);
-    uint chunk_limit = chunk_ref.offset + BIN_INITIAL_ALLOC - BinInstance_size;
+    uint wr_limit = chunk_ref.offset + BIN_INITIAL_ALLOC;
     uint chunk_n = 0;
-    BinInstanceRef instance_ref = BinInstanceRef(chunk_ref.offset + BinChunk_size);
+    uint my_n_elements = n_elements;
     while (true) {
         if (gl_LocalInvocationID.x == 0) {
             sh_my_tile = atomicAdd(tile_ix, 1);
         }
         barrier();
         uint my_tile = sh_my_tile;
-        if (my_tile * N_TILE >= n_elements) {
+        if (my_tile * N_TILE >= my_n_elements) {
             break;
         }
 
@@ -70,7 +70,10 @@ void main() {
         // Read inputs and determine coverage of bins
         uint element_ix = my_tile * N_TILE + gl_LocalInvocationID.x;
         AnnotatedRef ref = AnnotatedRef(element_ix * Annotated_size);
-        uint tag = Annotated_tag(ref);
+        uint tag = Annotated_Nop;
+        if (element_ix < my_n_elements) {
+            tag = Annotated_tag(ref);
+        }
         int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
         switch (tag) {
         case Annotated_Line:
@@ -119,18 +122,43 @@ void main() {
             element_count += bitCount(bitmaps[i][gl_LocalInvocationID.x]);
         }
         // element_count is number of elements covering bin for this invocation.
-        if (element_count > 0 && chunk_n > 0) {
-            uint new_chunk = instance_ref.offset;
-            if (new_chunk + min(32, element_count * 4) > chunk_limit) {
-                new_chunk = atomicAdd(alloc, BIN_ALLOC);
-                chunk_limit = new_chunk + BIN_ALLOC - BinInstance_size;
-            }
-            BinChunk_write(chunk_ref, BinChunk(chunk_n, BinChunkRef(new_chunk)));
-            chunk_ref = BinChunkRef(new_chunk);
-            instance_ref = BinInstanceRef(new_chunk + BinChunk_size);
-            chunk_n = 0;
+        if (element_count == 0) {
+            continue;
         }
-        // TODO: allocate output here
+        uint chunk_end;
+        uint chunk_new_start;
+        // Refactor to reduce code duplication?
+        if (chunk_n > 0) {
+            uint next_chunk = chunk_ref.offset + BinChunk_size + chunk_n * 4;
+            if (next_chunk + BinChunk_size + min(24, element_count * 4) > wr_limit) {
+                uint alloc_amount = max(BIN_ALLOC, BinChunk_size + element_count * 4);
+                if (alloc_amount - BIN_ALLOC < 64) {
+                    alloc_amount = BIN_ALLOC;
+                }
+                next_chunk = atomicAdd(alloc, alloc_amount);
+                wr_limit = next_chunk + alloc_amount;
+            }
+            BinChunk_write(chunk_ref, BinChunk(chunk_n, BinChunkRef(next_chunk)));
+            chunk_ref = BinChunkRef(next_chunk);
+        }
+        BinInstanceRef instance_ref = BinInstanceRef(chunk_ref.offset + BinChunk_size);
+        if (instance_ref.offset + element_count * 4 > wr_limit) {
+            chunk_end = wr_limit;
+            chunk_n = (wr_limit - instance_ref.offset) / 4;
+            uint alloc_amount = max(BIN_ALLOC, BinChunk_size + (element_count - chunk_n) * 4);
+            if (alloc_amount - BIN_ALLOC < 64) {
+                alloc_amount = BIN_ALLOC;
+            }
+            chunk_new_start = atomicAdd(alloc, alloc_amount);
+            wr_limit = chunk_new_start + alloc_amount;
+            BinChunk_write(chunk_ref, BinChunk(chunk_n, BinChunkRef(chunk_new_start)));
+            chunk_ref = BinChunkRef(chunk_new_start);
+            chunk_new_start += BinChunk_size;
+            chunk_n = element_count - chunk_n;
+        } else {
+            chunk_end = ~0;
+            chunk_n = element_count;
+        }
 
         // Iterate over bits set.
         uint slice_ix = 0;
@@ -149,17 +177,10 @@ void main() {
             element_ix = my_tile * N_TILE + slice_ix * 32 + findLSB(bitmap);
             // At this point, element_ix refers to an element that covers this bin.
 
-            // TODO: batch allocated based on element_count; this is divergent
-            if (instance_ref.offset > chunk_limit) {
-                uint new_chunk = atomicAdd(alloc, BIN_ALLOC);
-                BinChunk_write(chunk_ref, BinChunk(chunk_n, BinChunkRef(new_chunk)));
-                chunk_ref = BinChunkRef(new_chunk);
-                instance_ref = BinInstanceRef(new_chunk + BinChunk_size);
-                chunk_n = 0;
-                chunk_limit = new_chunk + BIN_ALLOC - BinInstance_size;
+            if (instance_ref.offset == chunk_end) {
+                instance_ref.offset = chunk_new_start;
             }
             BinInstance_write(instance_ref, BinInstance(element_ix));
-            chunk_n++;
             instance_ref.offset += BinInstance_size;
             // clear LSB
             bitmap &= bitmap - 1;
