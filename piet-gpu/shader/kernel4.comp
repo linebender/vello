@@ -39,7 +39,8 @@ void main() {
     uvec2 xy_uint = gl_GlobalInvocationID.xy;
     vec2 xy = vec2(xy_uint);
     vec2 uv = xy * vec2(1.0 / IMAGE_WIDTH, 1.0 / IMAGE_HEIGHT);
-    vec3 rgb = uv.xyy;
+    //vec3 rgb = uv.xyy;
+    vec3 rgb = vec3(0.75);
 
     while (true) {
         uint tag = Cmd_tag(cmd_ref);

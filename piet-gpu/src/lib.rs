@@ -30,7 +30,7 @@ const PTCL_INITIAL_ALLOC: usize = 1024;
 
 const K2_PER_TILE_SIZE: usize = 8;
 
-const N_CIRCLES: usize = 1;
+const N_CIRCLES: usize = 0;
 
 const N_WG: u32 = 16;
 
@@ -47,11 +47,13 @@ pub fn render_scene(rc: &mut impl RenderContext) {
         rc.fill(circle, &color);
     }
     let mut path = BezPath::new();
+    /*
     path.move_to((100.0, 1150.0));
     path.line_to((200.0, 1200.0));
     path.line_to((150.0, 1250.0));
     path.close_path();
     rc.fill(path, &Color::rgb8(128, 0, 128));
+    */
     rc.stroke(
         Line::new((100.0, 100.0), (200.0, 150.0)),
         &Color::WHITE,
@@ -134,29 +136,9 @@ pub struct Renderer<D: Device> {
     coarse_alloc_buf_host: D::Buffer,
     coarse_alloc_buf_dev: D::Buffer,
 
-    /*
-    k1_alloc_buf_host: D::Buffer,
-    k1_alloc_buf_dev: D::Buffer,
-    k2s_alloc_buf_host: D::Buffer,
-    k2s_alloc_buf_dev: D::Buffer,
-    k2f_alloc_buf_host: D::Buffer,
-    k2f_alloc_buf_dev: D::Buffer,
-    k3_alloc_buf_host: D::Buffer,
-    k3_alloc_buf_dev: D::Buffer,
-    tilegroup_buf: D::Buffer,
-    ptcl_buf: D::Buffer,
-
-    k1_pipeline: D::Pipeline,
-    k1_ds: D::DescriptorSet,
-    k2s_pipeline: D::Pipeline,
-    k2s_ds: D::DescriptorSet,
-    k2f_pipeline: D::Pipeline,
-    k2f_ds: D::DescriptorSet,
-    k3_pipeline: D::Pipeline,
-    k3_ds: D::DescriptorSet,
     k4_pipeline: D::Pipeline,
     k4_ds: D::DescriptorSet,
-    */
+ 
     n_elements: usize,
 }
 
@@ -213,10 +195,10 @@ impl<D: Device> Renderer<D> {
         let coarse_alloc_buf_host = device.create_buffer(4, host)?;
         let coarse_alloc_buf_dev = device.create_buffer(4, dev)?;
 
-        let coarse_alloc_start = 256 * 64 * N_WG;
+        let coarse_alloc_start = WIDTH_IN_TILES * HEIGHT_IN_TILES * PTCL_INITIAL_ALLOC;
         device
             .write_buffer(&coarse_alloc_buf_host, &[
-                coarse_alloc_start,
+                coarse_alloc_start as u32,
             ])
             ?;
         let coarse_code = include_bytes!("../shader/coarse.spv");
@@ -227,71 +209,10 @@ impl<D: Device> Renderer<D> {
             &[],
         )?;
 
-        /*
-        let tilegroup_buf = device.create_buffer(4 * 1024 * 1024, dev)?;
-        let ptcl_buf = device.create_buffer(48 * 1024 * 1024, dev)?;
+        // These will probably be combined with the ptcl buf, as they're all written by the
+        // same kernel now.
         let segment_buf = device.create_buffer(64 * 1024 * 1024, dev)?;
         let fill_seg_buf = device.create_buffer(64 * 1024 * 1024, dev)?;
-
-        let k1_alloc_buf_host = device.create_buffer(4, host)?;
-        let k1_alloc_buf_dev = device.create_buffer(4, dev)?;
-        let k1_alloc_start = WIDTH_IN_TILEGROUPS * HEIGHT_IN_TILEGROUPS * TILEGROUP_STRIDE;
-        device.write_buffer(&k1_alloc_buf_host, &[k1_alloc_start as u32])?;
-        let k1_code = include_bytes!("../shader/kernel1.spv");
-        let k1_pipeline = device.create_simple_compute_pipeline(k1_code, 3, 0)?;
-        let k1_ds = device.create_descriptor_set(
-            &k1_pipeline,
-            &[&scene_dev, &tilegroup_buf, &k1_alloc_buf_dev],
-            &[],
-        )?;
-
-        let k2s_alloc_buf_host = device.create_buffer(4, host)?;
-        let k2s_alloc_buf_dev = device.create_buffer(4, dev)?;
-        let k2s_alloc_start = WIDTH_IN_TILES * HEIGHT_IN_TILES * K2_PER_TILE_SIZE;
-        device.write_buffer(&k2s_alloc_buf_host, &[k2s_alloc_start as u32])?;
-        let k2s_code = include_bytes!("../shader/kernel2s.spv");
-        let k2s_pipeline = device.create_simple_compute_pipeline(k2s_code, 4, 0)?;
-        let k2s_ds = device.create_descriptor_set(
-            &k2s_pipeline,
-            &[&scene_dev, &tilegroup_buf, &segment_buf, &k2s_alloc_buf_dev],
-            &[],
-        )?;
-
-        let k2f_alloc_buf_host = device.create_buffer(4, host)?;
-        let k2f_alloc_buf_dev = device.create_buffer(4, dev)?;
-        let k2f_alloc_start = WIDTH_IN_TILES * HEIGHT_IN_TILES * K2_PER_TILE_SIZE;
-        device.write_buffer(&k2f_alloc_buf_host, &[k2f_alloc_start as u32])?;
-        let k2f_code = include_bytes!("../shader/kernel2f.spv");
-        let k2f_pipeline = device.create_simple_compute_pipeline(k2f_code, 4, 0)?;
-        let k2f_ds = device.create_descriptor_set(
-            &k2f_pipeline,
-            &[
-                &scene_dev,
-                &tilegroup_buf,
-                &fill_seg_buf,
-                &k2f_alloc_buf_dev,
-            ],
-            &[],
-        )?;
-
-        let k3_alloc_buf_host = device.create_buffer(4, host)?;
-        let k3_alloc_buf_dev = device.create_buffer(4, dev)?;
-        let k3_alloc_start = WIDTH_IN_TILES * HEIGHT_IN_TILES * PTCL_INITIAL_ALLOC;
-        device.write_buffer(&k3_alloc_buf_host, &[k3_alloc_start as u32])?;
-        let k3_code = include_bytes!("../shader/kernel3.spv");
-        let k3_pipeline = device.create_simple_compute_pipeline(k3_code, 6, 0)?;
-        let k3_ds = device.create_descriptor_set(
-            &k3_pipeline,
-            &[
-                &scene_dev,
-                &tilegroup_buf,
-                &segment_buf,
-                &fill_seg_buf,
-                &ptcl_buf,
-                &k3_alloc_buf_dev,
-            ],
-            &[],
-        )?;
 
         let k4_code = include_bytes!("../shader/kernel4.spv");
         let k4_pipeline = device.create_simple_compute_pipeline(k4_code, 3, 1)?;
@@ -300,7 +221,6 @@ impl<D: Device> Renderer<D> {
             &[&ptcl_buf, &segment_buf, &fill_seg_buf],
             &[&image_dev],
         )?;
-        */
 
         Ok(Renderer {
             scene_buf,
@@ -312,6 +232,8 @@ impl<D: Device> Renderer<D> {
             bin_ds,
             coarse_pipeline,
             coarse_ds,
+            k4_pipeline,
+            k4_ds,
             state_buf,
             anno_buf,
             bin_buf,
@@ -339,7 +261,7 @@ impl<D: Device> Renderer<D> {
         cmd_buf.dispatch(
             &self.el_pipeline,
             &self.el_ds,
-            ((self.n_elements / 128) as u32, 1, 1),
+            (((self.n_elements + 127) / 128) as u32, 1, 1),
         );
         cmd_buf.write_timestamp(&query_pool, 1);
         cmd_buf.memory_barrier();
@@ -356,6 +278,13 @@ impl<D: Device> Renderer<D> {
             (WIDTH as u32 / 256, HEIGHT as u32 / 256, 1),
         );
         cmd_buf.write_timestamp(&query_pool, 3);
+        cmd_buf.memory_barrier();
+        cmd_buf.dispatch(
+            &self.k4_pipeline,
+            &self.k4_ds,
+            ((WIDTH / TILE_W) as u32, (HEIGHT / TILE_H) as u32, 1),
+        );
+        cmd_buf.write_timestamp(&query_pool, 4);
         cmd_buf.memory_barrier();
         cmd_buf.image_barrier(&self.image_dev, ImageLayout::General, ImageLayout::BlitSrc);
     }

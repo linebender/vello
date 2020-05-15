@@ -46,6 +46,17 @@ shared uint sh_bitmaps[N_SLICE][N_TILE];
 #define SX (1.0 / float(TILE_WIDTH_PX))
 #define SY (1.0 / float(TILE_HEIGHT_PX))
 
+// Perhaps cmd_limit should be a global? This is a style question.
+void alloc_cmd(inout CmdRef cmd_ref, inout uint cmd_limit) {
+    if (cmd_ref.offset > cmd_limit) {
+        uint new_cmd = atomicAdd(alloc, PTCL_INITIAL_ALLOC);
+        CmdJump jump = CmdJump(new_cmd);
+        Cmd_Jump_write(cmd_ref, jump);
+        cmd_ref = CmdRef(new_cmd);
+        cmd_limit = new_cmd + PTCL_INITIAL_ALLOC - 2 * Cmd_size;
+    }
+}
+
 void main() {
     // Could use either linear or 2d layouts for both dispatch and
     // invocations within the workgroup. We'll use variables to abstract.
@@ -53,6 +64,13 @@ void main() {
     // Top left coordinates of this bin.
     vec2 xy0 = vec2(N_TILE_X * TILE_WIDTH_PX * gl_WorkGroupID.x, N_TILE_Y * TILE_HEIGHT_PX * gl_WorkGroupID.y);
     uint th_ix = gl_LocalInvocationID.x;
+
+    uint tile_x = N_TILE_X * gl_WorkGroupID.x + gl_LocalInvocationID.x % N_TILE_X;
+    uint tile_y = N_TILE_Y * gl_WorkGroupID.y + gl_LocalInvocationID.x / N_TILE_X;
+    uint tile_ix = tile_y * WIDTH_IN_TILES + tile_x;
+    CmdRef cmd_ref = CmdRef(tile_ix * PTCL_INITIAL_ALLOC);
+    uint cmd_limit = cmd_ref.offset + PTCL_INITIAL_ALLOC - 2 * Cmd_size;
+
     uint wr_ix = 0;
     uint rd_ix = 0;
     uint first_el;
@@ -172,6 +190,7 @@ void main() {
                 y++;
             }
         }
+        barrier();
 
         // Output elements for this tile, based on bitmaps.
         uint slice_ix = 0;
@@ -193,13 +212,25 @@ void main() {
             // At this point, we read the element again from global memory.
             // If that turns out to be expensive, maybe we can pack it into
             // shared memory (or perhaps just the tag).
-            probe += 1;
+            ref = AnnotatedRef(element_ix * Annotated_size);
+            tag = Annotated_tag(ref);
+
+            switch (tag) {
+            case Annotated_Fill:
+            case Annotated_Stroke:
+                // Note: we take advantage of the fact that fills and strokes
+                // have compatible layout.
+                AnnoFill fill = Annotated_Fill_read(ref);
+                alloc_cmd(cmd_ref, cmd_limit);
+                Cmd_Solid_write(cmd_ref, CmdSolid(fill.rgba_color));
+                break;
+            }
 
             // clear LSB
             bitmap &= bitmap - 1;
         }
 
         rd_ix += N_TILE;
+        break;
     } while (wr_ix > rd_ix);
-    ptcl[bin_ix * N_TILE + th_ix] = probe;
 }
