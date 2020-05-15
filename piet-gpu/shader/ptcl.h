@@ -36,6 +36,14 @@ struct CmdRef {
     uint offset;
 };
 
+struct SegmentRef {
+    uint offset;
+};
+
+struct SegChunkRef {
+    uint offset;
+};
+
 struct CmdCircle {
     vec2 center;
     float radius;
@@ -139,6 +147,28 @@ CmdJumpRef CmdJump_index(CmdJumpRef ref, uint index) {
 
 CmdRef Cmd_index(CmdRef ref, uint index) {
     return CmdRef(ref.offset + index * Cmd_size);
+}
+
+struct Segment {
+    vec2 start;
+    vec2 end;
+};
+
+#define Segment_size 16
+
+SegmentRef Segment_index(SegmentRef ref, uint index) {
+    return SegmentRef(ref.offset + index * Segment_size);
+}
+
+struct SegChunk {
+    uint n;
+    SegChunkRef next;
+};
+
+#define SegChunk_size 8
+
+SegChunkRef SegChunk_index(SegChunkRef ref, uint index) {
+    return SegChunkRef(ref.offset + index * SegChunk_size);
 }
 
 CmdCircle CmdCircle_read(CmdCircleRef ref) {
@@ -360,5 +390,41 @@ void Cmd_Jump_write(CmdRef ref, CmdJump s) {
 
 void Cmd_Bail_write(CmdRef ref) {
     ptcl[ref.offset >> 2] = Cmd_Bail;
+}
+
+Segment Segment_read(SegmentRef ref) {
+    uint ix = ref.offset >> 2;
+    uint raw0 = ptcl[ix + 0];
+    uint raw1 = ptcl[ix + 1];
+    uint raw2 = ptcl[ix + 2];
+    uint raw3 = ptcl[ix + 3];
+    Segment s;
+    s.start = vec2(uintBitsToFloat(raw0), uintBitsToFloat(raw1));
+    s.end = vec2(uintBitsToFloat(raw2), uintBitsToFloat(raw3));
+    return s;
+}
+
+void Segment_write(SegmentRef ref, Segment s) {
+    uint ix = ref.offset >> 2;
+    ptcl[ix + 0] = floatBitsToUint(s.start.x);
+    ptcl[ix + 1] = floatBitsToUint(s.start.y);
+    ptcl[ix + 2] = floatBitsToUint(s.end.x);
+    ptcl[ix + 3] = floatBitsToUint(s.end.y);
+}
+
+SegChunk SegChunk_read(SegChunkRef ref) {
+    uint ix = ref.offset >> 2;
+    uint raw0 = ptcl[ix + 0];
+    uint raw1 = ptcl[ix + 1];
+    SegChunk s;
+    s.n = raw0;
+    s.next = SegChunkRef(raw1);
+    return s;
+}
+
+void SegChunk_write(SegChunkRef ref, SegChunk s) {
+    uint ix = ref.offset >> 2;
+    ptcl[ix + 0] = s.n;
+    ptcl[ix + 1] = s.next.offset;
 }
 

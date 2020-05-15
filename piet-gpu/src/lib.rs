@@ -209,16 +209,11 @@ impl<D: Device> Renderer<D> {
             &[],
         )?;
 
-        // These will probably be combined with the ptcl buf, as they're all written by the
-        // same kernel now.
-        let segment_buf = device.create_buffer(64 * 1024 * 1024, dev)?;
-        let fill_seg_buf = device.create_buffer(64 * 1024 * 1024, dev)?;
-
         let k4_code = include_bytes!("../shader/kernel4.spv");
-        let k4_pipeline = device.create_simple_compute_pipeline(k4_code, 3, 1)?;
+        let k4_pipeline = device.create_simple_compute_pipeline(k4_code, 1, 1)?;
         let k4_ds = device.create_descriptor_set(
             &k4_pipeline,
-            &[&ptcl_buf, &segment_buf, &fill_seg_buf],
+            &[&ptcl_buf],
             &[&image_dev],
         )?;
 

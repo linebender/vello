@@ -9,26 +9,14 @@
 
 layout(local_size_x = 16, local_size_y = 16) in;
 
-// Same concern that this should be readonly as in kernel 3.
+// This should be annotated readonly but infra doesn't support that yet.
 layout(set = 0, binding = 0) buffer PtclBuf {
     uint[] ptcl;
 };
 
-// Used readonly
-layout(set = 0, binding = 1) buffer SegmentBuf {
-    uint[] segment;
-};
-
-// Used readonly
-layout(set = 0, binding = 2) buffer FillSegBuf {
-    uint[] fill_seg;
-};
-
-layout(rgba8, set = 0, binding = 3) uniform writeonly image2D image;
+layout(rgba8, set = 0, binding = 1) uniform writeonly image2D image;
 
 #include "ptcl.h"
-#include "segment.h"
-#include "fill_seg.h"
 
 #include "setup.h"
 
@@ -79,11 +67,11 @@ void main() {
             CmdFill fill = Cmd_Fill_read(cmd_ref);
             // Probably better to store as float, but conversion is no doubt cheap.
             float area = float(fill.backdrop);
-            FillSegChunkRef fill_seg_chunk_ref = FillSegChunkRef(fill.seg_ref);
+            SegChunkRef fill_seg_chunk_ref = SegChunkRef(fill.seg_ref);
             do {
-                FillSegChunk seg_chunk = FillSegChunk_read(fill_seg_chunk_ref);
+                SegChunk seg_chunk = SegChunk_read(fill_seg_chunk_ref);
                 for (int i = 0; i < seg_chunk.n; i++) {
-                    FillSegment seg = FillSegment_read(FillSegmentRef(fill_seg_chunk_ref.offset + FillSegChunk_size + FillSegment_size * i));
+                    Segment seg = Segment_read(SegmentRef(fill_seg_chunk_ref.offset + SegChunk_size + Segment_size * i));
                     vec2 start = seg.start - xy;
                     vec2 end = seg.end - xy;
                     vec2 window = clamp(vec2(start.y, end.y), 0.0, 1.0);
