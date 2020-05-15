@@ -57,6 +57,26 @@ void alloc_cmd(inout CmdRef cmd_ref, inout uint cmd_limit) {
     }
 }
 
+// Ensure that there is space to encode a segment.
+void alloc_chunk(inout uint chunk_n_segs, inout SegChunkRef seg_chunk_ref,
+    inout SegChunkRef first_seg_chunk, inout uint seg_limit)
+{
+    // TODO: Reduce divergence of atomic alloc?
+    if (chunk_n_segs == 0) {
+        if (seg_chunk_ref.offset + 40 > seg_limit) {
+            seg_chunk_ref.offset = atomicAdd(alloc, SEG_CHUNK_ALLOC);
+            seg_limit = seg_chunk_ref.offset + SEG_CHUNK_ALLOC - Segment_size;
+        }
+        first_seg_chunk = seg_chunk_ref;
+    } else if (seg_chunk_ref.offset + SegChunk_size + Segment_size * chunk_n_segs > seg_limit) {
+        uint new_chunk_ref = atomicAdd(alloc, SEG_CHUNK_ALLOC);
+        seg_limit = new_chunk_ref + SEG_CHUNK_ALLOC - Segment_size;
+        SegChunk_write(seg_chunk_ref, SegChunk(chunk_n_segs, SegChunkRef(new_chunk_ref)));
+        seg_chunk_ref.offset = new_chunk_ref;
+        chunk_n_segs = 0;
+    }
+}
+
 void main() {
     // Could use either linear or 2d layouts for both dispatch and
     // invocations within the workgroup. We'll use variables to abstract.
@@ -70,6 +90,12 @@ void main() {
     uint tile_ix = tile_y * WIDTH_IN_TILES + tile_x;
     CmdRef cmd_ref = CmdRef(tile_ix * PTCL_INITIAL_ALLOC);
     uint cmd_limit = cmd_ref.offset + PTCL_INITIAL_ALLOC - 2 * Cmd_size;
+
+    // Allocation and management of segment output
+    SegChunkRef seg_chunk_ref = SegChunkRef(0);
+    SegChunkRef first_seg_chunk = SegChunkRef(0);
+    uint seg_limit = 0;
+    uint chunk_n_segs = 0;
 
     uint wr_ix = 0;
     uint rd_ix = 0;
@@ -216,13 +242,30 @@ void main() {
             tag = Annotated_tag(ref);
 
             switch (tag) {
+            case Annotated_Line:
+                AnnoLineSeg line = Annotated_Line_read(ref);
+                Segment seg = Segment(line.p0, line.p1);
+                alloc_chunk(chunk_n_segs, seg_chunk_ref, first_seg_chunk, seg_limit);
+                Segment_write(SegmentRef(seg_chunk_ref.offset + SegChunk_size + Segment_size * chunk_n_segs), seg);
+                chunk_n_segs++;
+                break;
             case Annotated_Fill:
+                chunk_n_segs = 0;
+                break;
             case Annotated_Stroke:
-                // Note: we take advantage of the fact that fills and strokes
-                // have compatible layout.
-                AnnoFill fill = Annotated_Fill_read(ref);
-                alloc_cmd(cmd_ref, cmd_limit);
-                Cmd_Solid_write(cmd_ref, CmdSolid(fill.rgba_color));
+                if (chunk_n_segs > 0) {
+                    AnnoStroke stroke = Annotated_Stroke_read(ref);
+                    SegChunk_write(seg_chunk_ref, SegChunk(chunk_n_segs, SegChunkRef(0)));
+                    seg_chunk_ref.offset += SegChunk_size + Segment_size * chunk_n_segs;
+                    CmdStroke cmd_stroke;
+                    cmd_stroke.seg_ref = first_seg_chunk.offset;
+                    cmd_stroke.half_width = 0.5 * stroke.linewidth;
+                    cmd_stroke.rgba_color = stroke.rgba_color;
+                    alloc_cmd(cmd_ref, cmd_limit);
+                    Cmd_Stroke_write(cmd_ref, cmd_stroke);
+                    cmd_ref.offset += Cmd_size;
+                    chunk_n_segs = 0;
+                }
                 break;
             }
 

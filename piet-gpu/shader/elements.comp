@@ -71,7 +71,7 @@ State map_element(ElementRef ref) {
     c.bbox = vec4(0.0, 0.0, 0.0, 0.0);
     c.mat = vec4(1.0, 0.0, 0.0, 1.0);
     c.translate = vec2(0.0, 0.0);
-    c.linewidth = 0.0;
+    c.linewidth = 1.0; // TODO should be 0.0
     c.flags = 0;
     switch (tag) {
     case Element_Line:
@@ -169,7 +169,7 @@ void main() {
     exclusive.bbox = vec4(0.0, 0.0, 0.0, 0.0);
     exclusive.mat = vec4(1.0, 0.0, 0.0, 1.0);
     exclusive.translate = vec2(0.0, 0.0);
-    exclusive.linewidth = 0.0;
+    exclusive.linewidth = 1.0; //TODO should be 0.0
     exclusive.flags = 0;
     // TODO: do decoupled look-back
 
