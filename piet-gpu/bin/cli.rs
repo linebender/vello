@@ -70,7 +70,7 @@ fn main() -> Result<(), Error> {
         piet_gpu::dump_k1_data(&data);
 
         let mut data: Vec<u32> = Default::default();
-        device.read_buffer(&renderer.ptcl_buf, &mut data).unwrap();
+        device.read_buffer(&renderer.anno_buf, &mut data).unwrap();
         piet_gpu::dump_k1_data(&data);
         */
 

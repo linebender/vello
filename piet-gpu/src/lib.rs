@@ -158,7 +158,7 @@ impl<D: Device> Renderer<D> {
             .unwrap();
         device.write_buffer(&scene_buf, &scene)?;
 
-        let state_buf = device.create_buffer(64 * 1024 * 1024, dev)?;
+        let state_buf = device.create_buffer(1 * 1024 * 1024, dev)?;
         let anno_buf = device.create_buffer(64 * 1024 * 1024, dev)?;
         let bin_buf = device.create_buffer(64 * 1024 * 1024, dev)?;
         let ptcl_buf = device.create_buffer(48 * 1024 * 1024, dev)?;
@@ -245,6 +245,7 @@ impl<D: Device> Renderer<D> {
         cmd_buf.copy_buffer(&self.scene_buf, &self.scene_dev);
         cmd_buf.copy_buffer(&self.bin_alloc_buf_host, &self.bin_alloc_buf_dev);
         cmd_buf.copy_buffer(&self.coarse_alloc_buf_host, &self.coarse_alloc_buf_dev);
+        cmd_buf.clear_buffer(&self.state_buf);
         cmd_buf.memory_barrier();
         cmd_buf.image_barrier(
             &self.image_dev,
