@@ -109,8 +109,8 @@ void main() {
         sh_first_el[th_ix] = chunk.n > 0 ?
             BinInstance_read(BinInstanceRef(start_chunk + BinChunk_size)).element_ix : ~0;
     }
-    uint probe = 0; // for debugging
-    do {
+    uint count = 0;
+    while (true) {
         for (uint i = 0; i < N_SLICE; i++) {
             sh_bitmaps[i][th_ix] = 0;
         }
@@ -121,18 +121,18 @@ void main() {
             if (th_ix < N_WG) {
                 if (th_ix == 0) {
                     sh_selected_n = 0;
-                    sh_min_buf = ~1;
+                    sh_min_buf = ~0;
                 }
             }
             barrier();
             // Tempting to do this with subgroups, but atomic should be good enough.
-            my_min = sh_first_el[th_ix];
             if (th_ix < N_WG) {
+                my_min = sh_first_el[th_ix];
                 atomicMin(sh_min_buf, my_min);
             }
             barrier();
             if (th_ix < N_WG) {
-                if (sh_first_el[th_ix] == sh_min_buf) {
+                if (my_min == sh_min_buf && my_min != ~0) {
                     sh_elements_ref = sh_chunk[th_ix] + BinChunk_size;
                     uint selected_n = sh_chunk_n[th_ix];
                     sh_selected_n = selected_n;
@@ -162,6 +162,7 @@ void main() {
             }
             wr_ix += chunk_n;
         }
+        barrier();
 
         // We've done the merge and filled the buffer.
 
@@ -272,8 +273,11 @@ void main() {
             // clear LSB
             bitmap &= bitmap - 1;
         }
+        barrier();
 
         rd_ix += N_TILE;
-        break;
-    } while (wr_ix > rd_ix);
+        // The second disjunct is there as a strange workaround on Nvidia. If it is
+        // removed, then the kernel fails with ERROR_DEVICE_LOST.
+        if (rd_ix >= wr_ix || bin_ix == ~0) break;
+    }
 }

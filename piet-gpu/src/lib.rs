@@ -65,7 +65,7 @@ pub fn render_scene(rc: &mut impl RenderContext) {
 
 #[allow(unused)]
 fn render_cardioid(rc: &mut impl RenderContext) {
-    let n = 91;
+    let n = 601;
     let dth = std::f64::consts::PI * 2.0 / (n as f64);
     let center = Point::new(1024.0, 768.0);
     let r = 750.0;
@@ -73,7 +73,7 @@ fn render_cardioid(rc: &mut impl RenderContext) {
     for i in 1..n {
         let p0 = center + Vec2::from_angle(i as f64 * dth) * r;
         let p1 = center + Vec2::from_angle(((i * 2) % n) as f64 * dth) * r;
-        rc.fill(&Circle::new(p0, 8.0), &Color::WHITE);
+        //rc.fill(&Circle::new(p0, 8.0), &Color::WHITE);
         path.move_to(p0);
         path.line_to(p1);
         //rc.stroke(Line::new(p0, p1), &Color::BLACK, 2.0);

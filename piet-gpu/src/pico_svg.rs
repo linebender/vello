@@ -48,7 +48,7 @@ impl PicoSvg {
                 }
                 if let Some(stroke_color) = el.attribute("stroke") {
                     let width =
-                        f64::from_str(el.attribute("stroke-width").ok_or("missing width")?)?;
+                        scale * f64::from_str(el.attribute("stroke-width").ok_or("missing width")?)?;
                     let color = parse_color(stroke_color);
                     items.push(Item::Stroke(StrokeItem { width, color, path }));
                 }

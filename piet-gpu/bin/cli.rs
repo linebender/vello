@@ -34,6 +34,47 @@ fn dump_state(buf: &[u8]) {
 
 }
 
+/// Interpret the output of the binning stage, for diagnostic purposes.
+#[allow(unused)]
+fn trace_merge(buf: &[u32]) {
+    for bin in 0..256 {
+        println!("bin {}:", bin);
+        let mut starts = (0..16).map(|i| Some((bin * 16 + i) * 64)).collect::<Vec<Option<usize>>>();
+        loop {
+            let min_start = starts.iter().map(|st|
+                st.map(|st|
+                    if buf[st / 4] == 0 {
+                        !0
+                    } else {
+                        buf[st / 4 + 2]
+                    }).unwrap_or(!0)).min().unwrap();
+            if min_start == !0 {
+                break;
+            }
+            let mut selected = !0;
+            for i in 0..16 {
+                if let Some(st) = starts[i] {
+                    if buf[st/4] != 0 && buf[st/4 + 2] == min_start {
+                        selected = i;
+                        break;
+                    }
+                }
+            }
+            let st = starts[selected].unwrap();
+            println!("selected {}, start {:x}", selected, st);
+            for j in 0..buf[st/4] {
+                println!("{:x}", buf[st/4 + 2 + j as usize])
+            }
+            if buf[st/4 + 1] == 0 {
+                starts[selected] = None;
+            } else {
+                starts[selected] = Some(buf[st/4 + 1] as usize);
+            }
+        }
+
+    }
+}
+
 fn main() -> Result<(), Error> {
     let (instance, _) = VkInstance::new(None)?;
     unsafe {
@@ -66,12 +107,9 @@ fn main() -> Result<(), Error> {
 
         /*
         let mut data: Vec<u32> = Default::default();
-        device.read_buffer(&renderer.ptcl_buf, &mut data).unwrap();
-        piet_gpu::dump_k1_data(&data);
-
-        let mut data: Vec<u32> = Default::default();
-        device.read_buffer(&renderer.anno_buf, &mut data).unwrap();
-        piet_gpu::dump_k1_data(&data);
+        device.read_buffer(&renderer.bin_buf, &mut data).unwrap();
+        //piet_gpu::dump_k1_data(&data);
+        //trace_merge(&data);
         */
 
         let mut img_data: Vec<u8> = Default::default();
