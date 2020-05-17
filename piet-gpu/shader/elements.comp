@@ -82,6 +82,7 @@ State combine_state(State a, State b) {
     c.translate.y = a.mat.y * b.translate.x + a.mat.w * b.translate.y + a.translate.y;
     c.linewidth = (b.flags & FLAG_SET_LINEWIDTH) == 0 ? a.linewidth : b.linewidth;
     c.flags = (a.flags & (FLAG_SET_LINEWIDTH | FLAG_SET_BBOX)) | b.flags;
+    c.flags |= (a.flags & FLAG_RESET_BBOX) >> 1;
     return c;
 }
 
