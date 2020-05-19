@@ -175,47 +175,67 @@ void main() {
             tag = Annotated_tag(ref);
         }
 
-        int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+        // Setup for coverage algorithm.
+        float a, b, c;
+        // Bounding box of element in pixel coordinates.
+        float xmin, xmax, ymin, ymax;
         switch (tag) {
         case Annotated_Line:
             AnnoLineSeg line = Annotated_Line_read(ref);
-            x0 = int(floor((min(line.p0.x, line.p1.x) - line.stroke.x - xy0.x) * SX));
-            y0 = int(floor((min(line.p0.y, line.p1.y) - line.stroke.y - xy0.y) * SY));
-            x1 = int(ceil((max(line.p0.x, line.p1.x) + line.stroke.x - xy0.x) * SX));
-            y1 = int(ceil((max(line.p0.y, line.p1.y) + line.stroke.y - xy0.y) * SY));
+            xmin = min(line.p0.x, line.p1.x) - line.stroke.x;
+            xmax = max(line.p0.x, line.p1.x) + line.stroke.x;
+            ymin = min(line.p0.y, line.p1.y) - line.stroke.y;
+            ymax = max(line.p0.y, line.p1.y) + line.stroke.y;
+            float dx = line.p1.x - line.p0.x;
+            float dy = line.p1.y - line.p0.y;
+            // Set up for per-scanline coverage formula, below.
+            float invslope = abs(dy) < 1e-9 ? 1e9 : dx / dy;
+            c = abs(invslope) * (0.5 * float(TILE_HEIGHT_PX) + line.stroke.y) * SX;
+            b = invslope; // Note: assumes square tiles, otherwise scale.
+            a = (line.p0.x - xy0.x - (line.p0.y - 0.5 * float(TILE_HEIGHT_PX) - xy0.y) * b) * SX;
             break;
         case Annotated_Fill:
         case Annotated_Stroke:
             // Note: we take advantage of the fact that fills and strokes
             // have compatible layout.
             AnnoFill fill = Annotated_Fill_read(ref);
-            x0 = int(floor((fill.bbox.x - xy0.x) * SX));
-            y0 = int(floor((fill.bbox.y - xy0.y) * SY));
-            x1 = int(ceil((fill.bbox.z - xy0.x) * SX));
-            y1 = int(ceil((fill.bbox.w - xy0.y) * SY));
+            xmin = fill.bbox.x;
+            xmax = fill.bbox.z;
+            ymin = fill.bbox.y;
+            ymax = fill.bbox.w;
+            // Just let the clamping to xmin and xmax determine the bounds.
+            a = 0.0;
+            b = 0.0;
+            c = 1e9;
+            break;
+        default:
+            ymin = 0;
+            ymax = 0;
             break;
         }
-        // At this point, we run an iterator over the coverage area,
-        // trying to keep divergence low.
-        // Right now, it's just a bbox, but we'll get finer with
-        // segments.
+
+        // Draw the coverage area into the bitmaks. This uses an algorithm
+        // that computes the coverage of a span for given scanline.
+
+        // Compute bounding box in tiles and clip to this bin.
+        int x0 = int(floor((xmin - xy0.x) * SX));
+        int x1 = int(ceil((xmax - xy0.x) * SX));
+        int y0 = int(floor((ymin - xy0.y) * SY));
+        int y1 = int(ceil((ymax - xy0.y) * SY));
         x0 = clamp(x0, 0, N_TILE_X);
         x1 = clamp(x1, x0, N_TILE_X);
         y0 = clamp(y0, 0, N_TILE_Y);
         y1 = clamp(y1, y0, N_TILE_Y);
-        // This loop draws a rectangle to the coverage bitmasks. For
-        // line segments, draw more precisely.
-        if (x0 == x1) y1 = y0;
-        int x = x0, y = y0;
         uint my_slice = th_ix / 32;
         uint my_mask = 1 << (th_ix & 31);
-        while (y < y1) {
-            atomicOr(sh_bitmaps[my_slice][y * N_TILE_X + x], my_mask);
-            x++;
-            if (x == x1) {
-                x = x0;
-                y++;
+        float t = a + b * float(y0);
+        for (uint y = y0; y < y1; y++) {
+            uint xx0 = clamp(int(floor(t - c)), x0, x1);
+            uint xx1 = clamp(int(ceil(t + c)), x0, x1);
+            for (uint x = xx0; x < xx1; x++) {
+                atomicOr(sh_bitmaps[my_slice][y * N_TILE_X + x], my_mask);
             }
+            t += b;
         }
         barrier();
 
