@@ -10,7 +10,7 @@
 #define N_ROWS 4
 #define WG_SIZE 32
 #define LG_WG_SIZE 5
-#define TILE_SIZE (WG_SIZE * N_ROWS)
+#define PARTITION_SIZE (WG_SIZE * N_ROWS)
 
 layout(local_size_x = WG_SIZE, local_size_y = 1) in;
 
@@ -81,6 +81,7 @@ State combine_state(State a, State b) {
     c.translate.x = a.mat.x * b.translate.x + a.mat.z * b.translate.y + a.translate.x;
     c.translate.y = a.mat.y * b.translate.x + a.mat.w * b.translate.y + a.translate.y;
     c.linewidth = (b.flags & FLAG_SET_LINEWIDTH) == 0 ? a.linewidth : b.linewidth;
+    c.right_edge = (a.flags & FLAG_SET_BBOX) != 0 ? a.right_edge : (a.flags & FLAG_RESET_BBOX) != 0 ? a.bbox.z : c.right_edge;
     c.flags = (a.flags & (FLAG_SET_LINEWIDTH | FLAG_SET_BBOX)) | b.flags;
     c.flags |= (a.flags & FLAG_RESET_BBOX) >> 1;
     return c;
@@ -143,6 +144,7 @@ shared vec4 sh_mat[WG_SIZE];
 shared vec2 sh_translate[WG_SIZE];
 shared vec4 sh_bbox[WG_SIZE];
 shared float sh_width[WG_SIZE];
+shared float sh_right_edge[WG_SIZE];
 shared uint sh_flags[WG_SIZE];
 
 shared uint sh_tile_ix;
@@ -158,7 +160,7 @@ void main() {
     barrier();
     uint tile_ix = sh_tile_ix;
 
-    uint ix = tile_ix * TILE_SIZE + gl_LocalInvocationID.x * N_ROWS;
+    uint ix = tile_ix * PARTITION_SIZE + gl_LocalInvocationID.x * N_ROWS;
     ElementRef ref = ElementRef(ix * Element_size);
 
     th_state[0] = map_element(ref);
@@ -172,6 +174,7 @@ void main() {
     sh_translate[gl_LocalInvocationID.x] = agg.translate;
     sh_bbox[gl_LocalInvocationID.x] = agg.bbox;
     sh_width[gl_LocalInvocationID.x] = agg.linewidth;
+    sh_right_edge[gl_LocalInvocationID.x] = agg.right_edge;
     sh_flags[gl_LocalInvocationID.x] = agg.flags;
     for (uint i = 0; i < LG_WG_SIZE; i++) {
         barrier();
@@ -190,6 +193,7 @@ void main() {
         sh_translate[gl_LocalInvocationID.x] = agg.translate;
         sh_bbox[gl_LocalInvocationID.x] = agg.bbox;
         sh_width[gl_LocalInvocationID.x] = agg.linewidth;
+        sh_right_edge[gl_LocalInvocationID.x] = agg.right_edge;
         sh_flags[gl_LocalInvocationID.x] = agg.flags;
     }
 
@@ -198,6 +202,7 @@ void main() {
     exclusive.mat = vec4(1.0, 0.0, 0.0, 1.0);
     exclusive.translate = vec2(0.0, 0.0);
     exclusive.linewidth = 1.0; //TODO should be 0.0
+    exclusive.right_edge = 0.0;
     exclusive.flags = 0;
 
     // Publish aggregate for this partition
@@ -250,6 +255,7 @@ void main() {
         other.translate = sh_translate[ix];
         other.bbox = sh_bbox[ix];
         other.linewidth = sh_width[ix];
+        other.right_edge = sh_right_edge[ix];
         other.flags = sh_flags[ix];
         row = combine_state(row, other);
     }

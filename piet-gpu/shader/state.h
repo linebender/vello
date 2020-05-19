@@ -9,10 +9,11 @@ struct State {
     vec2 translate;
     vec4 bbox;
     float linewidth;
+    float right_edge;
     uint flags;
 };
 
-#define State_size 48
+#define State_size 52
 
 StateRef State_index(StateRef ref, uint index) {
     return StateRef(ref.offset + index * State_size);
@@ -32,12 +33,14 @@ State State_read(StateRef ref) {
     uint raw9 = state[ix + 9];
     uint raw10 = state[ix + 10];
     uint raw11 = state[ix + 11];
+    uint raw12 = state[ix + 12];
     State s;
     s.mat = vec4(uintBitsToFloat(raw0), uintBitsToFloat(raw1), uintBitsToFloat(raw2), uintBitsToFloat(raw3));
     s.translate = vec2(uintBitsToFloat(raw4), uintBitsToFloat(raw5));
     s.bbox = vec4(uintBitsToFloat(raw6), uintBitsToFloat(raw7), uintBitsToFloat(raw8), uintBitsToFloat(raw9));
     s.linewidth = uintBitsToFloat(raw10);
-    s.flags = raw11;
+    s.right_edge = uintBitsToFloat(raw11);
+    s.flags = raw12;
     return s;
 }
 
@@ -54,6 +57,7 @@ void State_write(StateRef ref, State s) {
     state[ix + 8] = floatBitsToUint(s.bbox.z);
     state[ix + 9] = floatBitsToUint(s.bbox.w);
     state[ix + 10] = floatBitsToUint(s.linewidth);
-    state[ix + 11] = s.flags;
+    state[ix + 11] = floatBitsToUint(s.right_edge);
+    state[ix + 12] = s.flags;
 }
 

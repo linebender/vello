@@ -11,23 +11,32 @@ layout(set = 0, binding = 0) buffer AnnotatedBuf {
     uint[] annotated;
 };
 
-layout(set = 0, binding = 1) buffer AllocBuf {
+// This is for scanning forward for right_edge data.
+layout(set = 0, binding = 1) buffer StateBuf {
+    uint[] state;
+};
+
+layout(set = 0, binding = 2) buffer AllocBuf {
     uint n_elements;
     // Will be incremented atomically to claim tiles
     uint tile_ix;
     uint alloc;
 };
 
-layout(set = 0, binding = 2) buffer BinsBuf {
+layout(set = 0, binding = 3) buffer BinsBuf {
     uint[] bins;
 };
 
 #include "annotated.h"
+#include "state.h"
 #include "bins.h"
 
 // scale factors useful for converting coordinates to bins
 #define SX (1.0 / float(N_TILE_X * TILE_WIDTH_PX))
 #define SY (1.0 / float(N_TILE_Y * TILE_HEIGHT_PX))
+
+// Constant not available in GLSL. Also consider uintBitsToFloat(0x7f800000)
+#define INFINITY (1.0 / 0.0)
 
 // Note: cudaraster has N_TILE + 1 to cut down on bank conflicts.
 shared uint bitmaps[N_SLICE][N_TILE];
@@ -36,6 +45,14 @@ shared uint sh_my_tile;
 shared uint sh_chunk_start[N_TILE];
 shared uint sh_chunk_end[N_TILE];
 shared uint sh_chunk_jump[N_TILE];
+
+shared float sh_right_edge[N_TILE];
+
+#define StateBuf_stride (4 + 2 * State_size)
+
+StateRef state_aggregate_ref(uint partition_ix) {
+    return StateRef(8 + partition_ix * StateBuf_stride);
+}
 
 void main() {
     BinChunkRef chunk_ref = BinChunkRef((gl_LocalInvocationID.x * N_WG + gl_WorkGroupID.x) * BIN_INITIAL_ALLOC);
@@ -65,6 +82,7 @@ void main() {
             tag = Annotated_tag(ref);
         }
         int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+        float my_right_edge = INFINITY;
         switch (tag) {
         case Annotated_Line:
             AnnoLineSeg line = Annotated_Line_read(ref);
@@ -82,8 +100,37 @@ void main() {
             y0 = int(floor(fill.bbox.y * SY));
             x1 = int(ceil(fill.bbox.z * SX));
             y1 = int(ceil(fill.bbox.w * SY));
+            my_right_edge = x1;
             break;
         }
+
+        // If the last element in this partition is a fill edge, then we need to do a
+        // look-forward to find the right edge of its corresponding fill. That data is
+        // recorded in aggregates computed in the element processing pass.
+        if (gl_LocalInvocationID.x == N_TILE - 1 && tag == Annotated_Line) {
+            uint aggregate_ix = (my_tile + 1) * ELEMENT_BINNING_RATIO;
+            // This is sequential but the expectation is that the amount of
+            // look-forward is small (performance may degrade in the case
+            // of massively complex paths).
+            do {
+                StateRef agg_ref = state_aggregate_ref(aggregate_ix);
+                my_right_edge = State_read(agg_ref).right_edge;
+                aggregate_ix++;
+            } while (isinf(my_right_edge));
+        }
+
+        // Now propagate right_edge backward, from fill to segment.
+        for (uint i = 0; i < LG_N_TILE; i++) {
+            // Note: we could try to cut down on write bandwidth here if the value hasn't
+            // changed, but not sure it's worth the complexity to track.
+            sh_right_edge[gl_LocalInvocationID.x] = my_right_edge;
+            barrier();
+            if (gl_LocalInvocationID.x + (1 << i) < N_TILE && isinf(my_right_edge)) {
+                my_right_edge = sh_right_edge[gl_LocalInvocationID.x + (1 << i)];
+            }
+            barrier();
+        }
+
         // At this point, we run an iterator over the coverage area,
         // trying to keep divergence low.
         // Right now, it's just a bbox, but we'll get finer with
@@ -141,6 +188,7 @@ void main() {
                 chunk_n = element_count - chunk_n;
             } else {
                 chunk_end = ~0;
+                chunk_new_start = ~0;
                 chunk_n = element_count;
             }
             sh_chunk_start[gl_LocalInvocationID.x] = instance_ref.offset;
