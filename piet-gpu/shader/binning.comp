@@ -35,6 +35,8 @@ layout(set = 0, binding = 3) buffer BinsBuf {
 #define SX (1.0 / float(N_TILE_X * TILE_WIDTH_PX))
 #define SY (1.0 / float(N_TILE_Y * TILE_HEIGHT_PX))
 
+#define TSY (1.0 / float(TILE_HEIGHT_PX))
+
 // Constant not available in GLSL. Also consider uintBitsToFloat(0x7f800000)
 #define INFINITY (1.0 / 0.0)
 
@@ -83,6 +85,7 @@ void main() {
         }
         int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
         float my_right_edge = INFINITY;
+        bool crosses_edge = false;
         switch (tag) {
         case Annotated_FillLine:
         case Annotated_StrokeLine:
@@ -91,6 +94,7 @@ void main() {
             y0 = int(floor((min(line.p0.y, line.p1.y) - line.stroke.y) * SY));
             x1 = int(ceil((max(line.p0.x, line.p1.x) + line.stroke.x) * SX));
             y1 = int(ceil((max(line.p0.y, line.p1.y) + line.stroke.y) * SY));
+            crosses_edge = tag == Annotated_FillLine && ceil(line.p0.y * TSY) != ceil(line.p1.y * TSY);
             break;
         case Annotated_Fill:
         case Annotated_Stroke:
@@ -101,7 +105,9 @@ void main() {
             y0 = int(floor(fill.bbox.y * SY));
             x1 = int(ceil(fill.bbox.z * SX));
             y1 = int(ceil(fill.bbox.w * SY));
-            my_right_edge = x1;
+            // It probably makes more sense to track x1, to avoid having to redo
+            // the rounding to tile coords.
+            my_right_edge = fill.bbox.z;
             break;
         }
 
@@ -130,6 +136,9 @@ void main() {
                 my_right_edge = sh_right_edge[gl_LocalInvocationID.x + (1 << i)];
             }
             barrier();
+        }
+        if (crosses_edge) {
+            x1 = int(ceil(my_right_edge * SX));
         }
 
         // At this point, we run an iterator over the coverage area,
