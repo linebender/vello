@@ -85,8 +85,15 @@ piet_gpu! {
         }
         enum Element {
             Nop,
-            // The segments need a flag to indicate fill/stroke
-            Line(LineSeg),
+            // Another approach to encoding would be to use a single
+            // variant but have a bool for fill/stroke. This could be
+            // packed into the tag, so the on-the-wire representation
+            // would be very similar to what's here.
+            StrokeLine(LineSeg),
+            FillLine(LineSeg),
+
+            // Note: we'll need to handle the stroke/fill distinction
+            // for these as well, when we do flattening on the GPU.
             Quad(QuadSeg),
             Cubic(CubicSeg),
             Stroke(Stroke),

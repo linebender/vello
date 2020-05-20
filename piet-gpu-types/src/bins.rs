@@ -7,6 +7,9 @@ piet_gpu! {
     mod bins {
         struct BinInstance {
             element_ix: u32,
+            // Right edge of the bounding box of the associated fill
+            // element; used in backdrop computation.
+            right_edge: f32,
         }
 
         struct BinChunk {

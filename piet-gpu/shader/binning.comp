@@ -84,8 +84,9 @@ void main() {
         int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
         float my_right_edge = INFINITY;
         switch (tag) {
-        case Annotated_Line:
-            AnnoLineSeg line = Annotated_Line_read(ref);
+        case Annotated_FillLine:
+        case Annotated_StrokeLine:
+            AnnoStrokeLineSeg line = Annotated_StrokeLine_read(ref);
             x0 = int(floor((min(line.p0.x, line.p1.x) - line.stroke.x) * SX));
             y0 = int(floor((min(line.p0.y, line.p1.y) - line.stroke.y) * SY));
             x1 = int(ceil((max(line.p0.x, line.p1.x) + line.stroke.x) * SX));
@@ -107,7 +108,7 @@ void main() {
         // If the last element in this partition is a fill edge, then we need to do a
         // look-forward to find the right edge of its corresponding fill. That data is
         // recorded in aggregates computed in the element processing pass.
-        if (gl_LocalInvocationID.x == N_TILE - 1 && tag == Annotated_Line) {
+        if (gl_LocalInvocationID.x == N_TILE - 1 && tag == Annotated_FillLine) {
             uint aggregate_ix = (my_tile + 1) * ELEMENT_BINNING_RATIO;
             // This is sequential but the expectation is that the amount of
             // look-forward is small (performance may degrade in the case
@@ -165,9 +166,9 @@ void main() {
             uint chunk_new_start;
             // Refactor to reduce code duplication?
             if (chunk_n > 0) {
-                uint next_chunk = chunk_ref.offset + BinChunk_size + chunk_n * 4;
-                if (next_chunk + BinChunk_size + min(24, element_count * 4) > wr_limit) {
-                    uint alloc_amount = max(BIN_ALLOC, BinChunk_size + element_count * 4);
+                uint next_chunk = chunk_ref.offset + BinChunk_size + chunk_n * BinInstance_size;
+                if (next_chunk + BinChunk_size + min(24, element_count * BinInstance_size) > wr_limit) {
+                    uint alloc_amount = max(BIN_ALLOC, BinChunk_size + element_count * BinInstance_size);
                     // could try to reduce fragmentation if BIN_ALLOC is only a bit above needed
                     next_chunk = atomicAdd(alloc, alloc_amount);
                     wr_limit = next_chunk + alloc_amount;
@@ -176,10 +177,10 @@ void main() {
                 chunk_ref = BinChunkRef(next_chunk);
             }
             BinInstanceRef instance_ref = BinInstanceRef(chunk_ref.offset + BinChunk_size);
-            if (instance_ref.offset + element_count * 4 > wr_limit) {
+            if (instance_ref.offset + element_count * BinInstance_size > wr_limit) {
                 chunk_end = wr_limit;
-                chunk_n = (wr_limit - instance_ref.offset) / 4;
-                uint alloc_amount = max(BIN_ALLOC, BinChunk_size + (element_count - chunk_n) * 4);
+                chunk_n = (wr_limit - instance_ref.offset) / BinInstance_size;
+                uint alloc_amount = max(BIN_ALLOC, BinChunk_size + (element_count - chunk_n) * BinInstance_size);
                 chunk_new_start = atomicAdd(alloc, alloc_amount);
                 wr_limit = chunk_new_start + alloc_amount;
                 BinChunk_write(chunk_ref, BinChunk(chunk_n, BinChunkRef(chunk_new_start)));
@@ -209,11 +210,11 @@ void main() {
                 if (my_slice > 0) {
                     idx += count[my_slice - 1][bin_ix];
                 }
-                uint out_offset = sh_chunk_start[bin_ix] + idx * 4;
+                uint out_offset = sh_chunk_start[bin_ix] + idx * BinInstance_size;
                 if (out_offset >= sh_chunk_end[bin_ix]) {
                     out_offset += sh_chunk_jump[bin_ix];
                 }
-                BinInstance_write(BinInstanceRef(out_offset), BinInstance(element_ix));
+                BinInstance_write(BinInstanceRef(out_offset), BinInstance(element_ix, my_right_edge));
             }
             x++;
             if (x == x1) {
