@@ -310,6 +310,30 @@ void main() {
 
             switch (tag) {
             case Annotated_FillLine:
+                AnnoFillLineSeg fill_line = Annotated_FillLine_read(ref);
+                // This is basically the same logic as piet-metal, but should be made numerically robust.
+                vec2 tile_xy = vec2(tile_x * TILE_WIDTH_PX, tile_y * TILE_HEIGHT_PX);
+                float yEdge = mix(fill_line.p0.y, fill_line.p1.y, (tile_xy.x - fill_line.p0.x) / (fill_line.p1.x - fill_line.p0.x));
+                if (min(fill_line.p0.x, fill_line.p1.x) < tile_xy.x && yEdge >= tile_xy.y && yEdge < tile_xy.y + TILE_HEIGHT_PX) {
+                    Segment edge_seg;
+                    if (fill_line.p0.x > fill_line.p1.x) {
+                        fill_line.p1 = vec2(tile_xy.x, yEdge);
+                        edge_seg.start = fill_line.p1;
+                        edge_seg.end = vec2(tile_xy.x, tile_xy.y + TILE_HEIGHT_PX);
+                    } else {
+                        fill_line.p0 = vec2(tile_xy.x, yEdge);
+                        edge_seg.start = vec2(tile_xy.x, tile_xy.y + TILE_HEIGHT_PX);
+                        edge_seg.end = fill_line.p0;
+                    }
+                    alloc_chunk(chunk_n_segs, seg_chunk_ref, first_seg_chunk, seg_limit);
+                    Segment_write(SegmentRef(seg_chunk_ref.offset + SegChunk_size + Segment_size * chunk_n_segs), edge_seg);
+                    chunk_n_segs++;
+                }
+                Segment fill_seg = Segment(fill_line.p0, fill_line.p1);
+                alloc_chunk(chunk_n_segs, seg_chunk_ref, first_seg_chunk, seg_limit);
+                Segment_write(SegmentRef(seg_chunk_ref.offset + SegChunk_size + Segment_size * chunk_n_segs), fill_seg);
+                chunk_n_segs++;
+                break;
             case Annotated_StrokeLine:
                 AnnoStrokeLineSeg line = Annotated_StrokeLine_read(ref);
                 Segment seg = Segment(line.p0, line.p1);

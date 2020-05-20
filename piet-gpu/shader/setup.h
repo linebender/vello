@@ -58,7 +58,7 @@
 
 // This is the ratio of the number of elements in a binning workgroup
 // over the number of elements in a partition workgroup.
-#define ELEMENT_BINNING_RATIO 4
+#define ELEMENT_BINNING_RATIO 2
 
 #define BIN_INITIAL_ALLOC 64
 #define BIN_ALLOC 256

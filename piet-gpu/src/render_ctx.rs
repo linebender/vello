@@ -215,6 +215,7 @@ impl PietGpuRenderContext {
                 match el {
                     PathEl::MoveTo(p) => {
                         let scene_pt = to_f32_2(p);
+                        start_pt = Some(scene_pt);
                         last_pt = Some(scene_pt);
                     }
                     PathEl::LineTo(p) => {
@@ -228,11 +229,13 @@ impl PietGpuRenderContext {
                     }
                     PathEl::ClosePath => {
                         if let (Some(start), Some(last)) = (start_pt.take(), last_pt.take()) {
-                            let seg = LineSeg {
-                                p0: last,
-                                p1: start,
-                            };
-                            self.encode_line_seg(seg, is_fill);
+                            if last != start {
+                                let seg = LineSeg {
+                                    p0: last,
+                                    p1: start,
+                                };
+                                self.encode_line_seg(seg, is_fill);
+                            }
                         }
                     }
                     _ => (),
@@ -246,6 +249,7 @@ impl PietGpuRenderContext {
                 match el {
                     PathEl::MoveTo(p) => {
                         let scene_pt = to_f32_2(p);
+                        start_pt = Some(scene_pt);
                         last_pt = Some(scene_pt);
                     }
                     PathEl::LineTo(p) => {
@@ -283,11 +287,13 @@ impl PietGpuRenderContext {
                     }
                     PathEl::ClosePath => {
                         if let (Some(start), Some(last)) = (start_pt.take(), last_pt.take()) {
-                            let seg = LineSeg {
-                                p0: last,
-                                p1: start,
-                            };
-                            self.encode_line_seg(seg, is_fill);
+                            if last != start {
+                                let seg = LineSeg {
+                                    p0: last,
+                                    p1: start,
+                                };
+                                self.encode_line_seg(seg, is_fill);
+                            }
                         }
                     }
                 }

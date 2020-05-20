@@ -8,7 +8,6 @@ piet_gpu! {
             translate: [f32; 2],
             bbox: [f32; 4],
             linewidth: f32,
-            right_edge: f32,
             flags: u32,
         }
     }

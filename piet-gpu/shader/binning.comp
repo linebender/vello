@@ -50,10 +50,10 @@ shared uint sh_chunk_jump[N_TILE];
 
 shared float sh_right_edge[N_TILE];
 
-#define StateBuf_stride (4 + 2 * State_size)
+#define StateBuf_stride (8 + 2 * State_size)
 
-StateRef state_aggregate_ref(uint partition_ix) {
-    return StateRef(8 + partition_ix * StateBuf_stride);
+uint state_right_edge_index(uint partition_ix) {
+    return 2 + partition_ix * (StateBuf_stride / 4);
 }
 
 void main() {
@@ -120,8 +120,7 @@ void main() {
             // look-forward is small (performance may degrade in the case
             // of massively complex paths).
             do {
-                StateRef agg_ref = state_aggregate_ref(aggregate_ix);
-                my_right_edge = State_read(agg_ref).right_edge;
+                my_right_edge = uintBitsToFloat(state[state_right_edge_index(aggregate_ix)]);
                 aggregate_ix++;
             } while (isinf(my_right_edge));
         }
