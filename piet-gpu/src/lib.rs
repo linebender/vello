@@ -59,8 +59,8 @@ pub fn render_scene(rc: &mut impl RenderContext) {
         &Color::WHITE,
         5.0,
     );
-    //render_cardioid(rc);
-    render_tiger(rc);
+    render_cardioid(rc);
+    //render_tiger(rc);
 }
 
 #[allow(unused)]

@@ -44,6 +44,14 @@ shared uint sh_elements_ref;
 shared uint sh_bitmaps[N_SLICE][N_TILE];
 shared uint sh_backdrop[N_SLICE][N_TILE];
 shared uint sh_bd_sign[N_SLICE];
+shared uint sh_is_segment[N_SLICE];
+
+// Shared state for parallel segment output stage
+
+// Count of total number of segments in each tile, then
+// inclusive prefix sum of same.
+shared uint sh_seg_count[N_TILE];
+shared uint sh_seg_alloc;
 
 // scale factors useful for converting coordinates to tiles
 #define SX (1.0 / float(TILE_WIDTH_PX))
@@ -57,26 +65,6 @@ void alloc_cmd(inout CmdRef cmd_ref, inout uint cmd_limit) {
         Cmd_Jump_write(cmd_ref, jump);
         cmd_ref = CmdRef(new_cmd);
         cmd_limit = new_cmd + PTCL_INITIAL_ALLOC - 2 * Cmd_size;
-    }
-}
-
-// Ensure that there is space to encode a segment.
-void alloc_chunk(inout uint chunk_n_segs, inout SegChunkRef seg_chunk_ref,
-    inout SegChunkRef first_seg_chunk, inout uint seg_limit)
-{
-    // TODO: Reduce divergence of atomic alloc?
-    if (chunk_n_segs == 0) {
-        if (seg_chunk_ref.offset + 40 > seg_limit) {
-            seg_chunk_ref.offset = atomicAdd(alloc, SEG_CHUNK_ALLOC);
-            seg_limit = seg_chunk_ref.offset + SEG_CHUNK_ALLOC - Segment_size;
-        }
-        first_seg_chunk = seg_chunk_ref;
-    } else if (seg_chunk_ref.offset + SegChunk_size + Segment_size * chunk_n_segs > seg_limit) {
-        uint new_chunk_ref = atomicAdd(alloc, SEG_CHUNK_ALLOC);
-        seg_limit = new_chunk_ref + SEG_CHUNK_ALLOC - Segment_size;
-        SegChunk_write(seg_chunk_ref, SegChunk(chunk_n_segs, SegChunkRef(new_chunk_ref)));
-        seg_chunk_ref.offset = new_chunk_ref;
-        chunk_n_segs = 0;
     }
 }
 
@@ -128,6 +116,7 @@ void main() {
         for (uint i = 0; i < N_SLICE; i++) {
             sh_bitmaps[i][th_ix] = 0;
             sh_backdrop[i][th_ix] = 0;
+            sh_is_segment[th_ix] = 0;
         }
 
         while (wr_ix - rd_ix <= N_TILE) {
@@ -219,6 +208,7 @@ void main() {
                     atomicAnd(sh_bd_sign[my_slice], ~my_mask);
                 }
             }
+            atomicOr(sh_is_segment[my_slice], my_mask);
             // Set up for per-scanline coverage formula, below.
             float invslope = abs(dy) < 1e-9 ? 1e9 : dx / dy;
             c = (line.stroke.x + abs(invslope) * (0.5 * float(TILE_HEIGHT_PX) + line.stroke.y)) * SX;
@@ -279,14 +269,102 @@ void main() {
         }
         barrier();
 
-        // Output elements for this tile, based on bitmaps.
+        // We've computed coverage and other info for each element in the input, now for
+        // the output stage. We'll do segments first using a more parallel algorithm.
+
+        uint seg_count = 0;
+        for (uint i = 0; i < N_SLICE; i++) {
+            // Count each segment as 1 and each non-segment element as 1. A finer
+            // approach would be to count bytes accurately (non-segment elements that
+            // are not strokes and fills wouldn't count).
+            seg_count += bitCount(sh_bitmaps[i][th_ix]);
+        }
+        sh_seg_count[th_ix] = seg_count;
+        // Prefix sum of sh_seg_count
+        for (uint i = 0; i < LG_N_TILE; i++) {
+            barrier();
+            if (th_ix >= (1 << i)) {
+                seg_count += sh_seg_count[th_ix - (1 << i)];
+            }
+            barrier();
+            sh_seg_count[th_ix] = seg_count;
+        }
+        if (th_ix == N_TILE - 1) {
+            sh_seg_alloc = atomicAdd(alloc, seg_count * Segment_size + SegChunk_size);
+        }
+        barrier();
+        uint total_seg_count = sh_seg_count[N_TILE - 1];
+        uint seg_alloc = sh_seg_alloc;
+
+        // Output buffer is allocated as segments for each tile laid end-to-end,
+        // but with gaps for non-segment elements (to fit the linked list headers).
+
+        for (uint ix = th_ix; ix < total_seg_count; ix += N_TILE) {
+            // Find the work item; this thread is now not bound to an element or tile.
+            // First find the tile (by binary search)
+            uint tile_ix = 0;
+            for (uint i = 0; i < LG_N_TILE; i++) {
+                uint probe = tile_ix + ((N_TILE / 2) >> i);
+                if (ix >= sh_seg_count[probe - 1]) {
+                    tile_ix = probe;
+                }
+            }
+            // Now, sh_seg_count[tile_ix - 1] <= ix < sh_seg_count[tile_ix].
+            // (considering sh_seg_count[-1] == 0)
+
+            // Index of segment within tile's segments
+            uint seq_ix = ix;
+            // Maybe consider a sentinel value to avoid the conditional?
+            if (tile_ix > 0) {
+                seq_ix -= sh_seg_count[tile_ix - 1];
+            }
+            // Find the segment. This is done by linear scan through the bitmaps of the
+            // tile, accelerated by bit counting. Binary search might help, maybe not.
+            uint slice_ix = 0;
+            uint seq_bits;
+            while (true) {
+                seq_bits = sh_bitmaps[slice_ix][tile_ix];
+                uint this_count = bitCount(seq_bits);
+                if (this_count > seq_ix) {
+                    break;
+                }
+                seq_ix -= this_count;
+                slice_ix++;
+            }
+            // Now find position of nth bit set (n = seq_ix) in seq_bits; binary search
+            uint bit_ix = 0;
+            for (int i = 0; i < 5; i++) {
+                uint probe = bit_ix + (16 >> i);
+                if (seq_ix >= bitCount(seq_bits & ((1 << probe) - 1))) {
+                    bit_ix = probe;
+                }
+            }
+            if ((sh_is_segment[slice_ix] & (1 << bit_ix)) != 0) {
+                uint out_offset = seg_alloc + Segment_size * ix + SegChunk_size;
+                uint rd_el_ix = (rd_ix + slice_ix * 32 + bit_ix) % N_RINGBUF;
+                uint element_ix = sh_elements[rd_el_ix];
+                ref = AnnotatedRef(element_ix * Annotated_size);
+                AnnoStrokeLineSeg line = Annotated_StrokeLine_read(ref);
+                Segment seg = Segment(line.p0, line.p1);
+                Segment_write(SegmentRef(seg_alloc + Segment_size * ix + SegChunk_size), seg);
+            }
+        }
+
+        // Output non-segment elements for this tile. The thread does a sequential walk
+        // through the non-segment elements, and for segments, count and backdrop are
+        // aggregated using bit counting.
         uint slice_ix = 0;
         uint bitmap = sh_bitmaps[0][th_ix];
         uint bd_bitmap = sh_backdrop[0][th_ix];
         uint bd_sign = sh_bd_sign[0];
+        uint is_segment = sh_is_segment[0];
+        uint seg_start = th_ix == 0 ? 0 : sh_seg_count[th_ix - 1];
+        seg_count = 0;
         while (true) {
-            if (bitmap == 0) {
+            uint nonseg_bitmap = bitmap & ~is_segment;
+            if (nonseg_bitmap == 0) {
                 backdrop += count_backdrop(bd_bitmap, bd_sign);
+                seg_count += bitCount(bitmap & is_segment);
                 slice_ix++;
                 if (slice_ix == N_SLICE) {
                     break;
@@ -294,16 +372,19 @@ void main() {
                 bitmap = sh_bitmaps[slice_ix][th_ix];
                 bd_bitmap = sh_backdrop[slice_ix][th_ix];
                 bd_sign = sh_bd_sign[slice_ix];
-                if (bitmap == 0) {
+                is_segment = sh_is_segment[slice_ix];
+                nonseg_bitmap = bitmap & ~is_segment;
+                if (nonseg_bitmap == 0) {
                     continue;
                 }
             }
-            uint element_ref_ix = slice_ix * 32 + findLSB(bitmap);
+            uint element_ref_ix = slice_ix * 32 + findLSB(nonseg_bitmap);
             uint element_ix = sh_elements[(rd_ix + element_ref_ix) % N_RINGBUF];
 
             // Bits up to and including the lsb
-            uint bd_mask = (bitmap - 1) ^ bitmap;
+            uint bd_mask = (nonseg_bitmap - 1) ^ nonseg_bitmap;
             backdrop += count_backdrop(bd_bitmap & bd_mask, bd_sign);
+            seg_count += bitCount(bitmap & bd_mask & is_segment);
             // Clear bits that have been consumed.
             bd_bitmap &= ~bd_mask;
             bitmap &= ~bd_mask;
@@ -315,40 +396,8 @@ void main() {
             tag = Annotated_tag(ref);
 
             switch (tag) {
-            case Annotated_FillLine:
-                AnnoFillLineSeg fill_line = Annotated_FillLine_read(ref);
-                // This is basically the same logic as piet-metal, but should be made numerically robust.
-                vec2 tile_xy = vec2(tile_x * TILE_WIDTH_PX, tile_y * TILE_HEIGHT_PX);
-                float yEdge = mix(fill_line.p0.y, fill_line.p1.y, (tile_xy.x - fill_line.p0.x) / (fill_line.p1.x - fill_line.p0.x));
-                if (min(fill_line.p0.x, fill_line.p1.x) < tile_xy.x && yEdge >= tile_xy.y && yEdge < tile_xy.y + TILE_HEIGHT_PX) {
-                    Segment edge_seg;
-                    if (fill_line.p0.x > fill_line.p1.x) {
-                        fill_line.p1 = vec2(tile_xy.x, yEdge);
-                        edge_seg.start = fill_line.p1;
-                        edge_seg.end = vec2(tile_xy.x, tile_xy.y + TILE_HEIGHT_PX);
-                    } else {
-                        fill_line.p0 = vec2(tile_xy.x, yEdge);
-                        edge_seg.start = vec2(tile_xy.x, tile_xy.y + TILE_HEIGHT_PX);
-                        edge_seg.end = fill_line.p0;
-                    }
-                    alloc_chunk(chunk_n_segs, seg_chunk_ref, first_seg_chunk, seg_limit);
-                    Segment_write(SegmentRef(seg_chunk_ref.offset + SegChunk_size + Segment_size * chunk_n_segs), edge_seg);
-                    chunk_n_segs++;
-                }
-                Segment fill_seg = Segment(fill_line.p0, fill_line.p1);
-                alloc_chunk(chunk_n_segs, seg_chunk_ref, first_seg_chunk, seg_limit);
-                Segment_write(SegmentRef(seg_chunk_ref.offset + SegChunk_size + Segment_size * chunk_n_segs), fill_seg);
-                chunk_n_segs++;
-                break;
-            case Annotated_StrokeLine:
-                AnnoStrokeLineSeg line = Annotated_StrokeLine_read(ref);
-                Segment seg = Segment(line.p0, line.p1);
-                alloc_chunk(chunk_n_segs, seg_chunk_ref, first_seg_chunk, seg_limit);
-                Segment_write(SegmentRef(seg_chunk_ref.offset + SegChunk_size + Segment_size * chunk_n_segs), seg);
-                chunk_n_segs++;
-                break;
             case Annotated_Fill:
-                if (chunk_n_segs > 0) {
+                if (seg_count > 0) {
                     AnnoFill fill = Annotated_Fill_read(ref);
                     SegChunk_write(seg_chunk_ref, SegChunk(chunk_n_segs, SegChunkRef(0)));
                     seg_chunk_ref.offset += SegChunk_size + Segment_size * chunk_n_segs;
@@ -367,12 +416,21 @@ void main() {
                     cmd_ref.offset += Cmd_size;
                 }
                 backdrop = 0;
+                seg_count = 0;
                 break;
             case Annotated_Stroke:
-                if (chunk_n_segs > 0) {
+                if (chunk_n_segs > 0 || seg_count > 0) {
+                    uint chunk_offset = seg_count > 0 ? seg_alloc + seg_start * Segment_size : 0;
+                    SegChunkRef chunk_start = SegChunkRef(chunk_offset);
+                    if (chunk_n_segs > 0) {
+                        SegChunk_write(seg_chunk_ref, SegChunk(chunk_n_segs, chunk_start));
+                    } else {
+                        first_seg_chunk = chunk_start;
+                    }
+                    if (seg_count > 0) {
+                        SegChunk_write(chunk_start, SegChunk(seg_count, SegChunkRef(0)));
+                    }
                     AnnoStroke stroke = Annotated_Stroke_read(ref);
-                    SegChunk_write(seg_chunk_ref, SegChunk(chunk_n_segs, SegChunkRef(0)));
-                    seg_chunk_ref.offset += SegChunk_size + Segment_size * chunk_n_segs;
                     CmdStroke cmd_stroke;
                     cmd_stroke.seg_ref = first_seg_chunk.offset;
                     cmd_stroke.half_width = 0.5 * stroke.linewidth;
@@ -382,8 +440,24 @@ void main() {
                     cmd_ref.offset += Cmd_size;
                     chunk_n_segs = 0;
                 }
+                seg_start += seg_count + 1;
+                seg_count = 0;
+                break;
+            default:
+                // This shouldn't happen, but just in case.
+                seg_start++;
                 break;
             }
+        }
+        if (seg_count > 0) {
+            SegChunkRef chunk_start = SegChunkRef(seg_alloc + seg_start * Segment_size);
+            if (chunk_n_segs > 0) {
+                SegChunk_write(seg_chunk_ref, SegChunk(chunk_n_segs, chunk_start));
+            } else {
+                first_seg_chunk = chunk_start;
+            }
+            seg_chunk_ref = chunk_start;
+            chunk_n_segs = seg_count;
         }
         barrier();
 

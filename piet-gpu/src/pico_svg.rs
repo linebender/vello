@@ -58,11 +58,11 @@ impl PicoSvg {
     }
 
     pub fn render(&self, rc: &mut impl RenderContext) {
-        for item in &self.items {
+        for item in self.items.iter().take(30) {
             match item {
                 Item::Fill(fill_item) => {
-                    rc.fill(&fill_item.path, &fill_item.color);
-                    //rc.stroke(&fill_item.path, &fill_item.color, 1.0);
+                    //rc.fill(&fill_item.path, &fill_item.color);
+                    rc.stroke(&fill_item.path, &fill_item.color, 1.0);
                 }
                 Item::Stroke(stroke_item) => {
                     rc.stroke(&stroke_item.path, &stroke_item.color, stroke_item.width);
