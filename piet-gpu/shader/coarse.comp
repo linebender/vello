@@ -80,6 +80,14 @@ void alloc_chunk(inout uint chunk_n_segs, inout SegChunkRef seg_chunk_ref,
     }
 }
 
+// Accumulate delta to backdrop.
+//
+// Each bit for which bd_bitmap is 1 and bd_sign is 1 counts as +1, and each
+// bit for which bd_bitmap is 1 and bd_sign is 0 counts as -1.
+int count_backdrop(uint bd_bitmap, uint bd_sign) {
+    return bitCount(bd_bitmap & bd_sign) - bitCount(bd_bitmap & ~bd_sign);
+}
+
 void main() {
     // Could use either linear or 2d layouts for both dispatch and
     // invocations within the workgroup. We'll use variables to abstract.
@@ -275,33 +283,31 @@ void main() {
         uint slice_ix = 0;
         uint bitmap = sh_bitmaps[0][th_ix];
         uint bd_bitmap = sh_backdrop[0][th_ix];
-        uint combined = bitmap | bd_bitmap;
+        uint bd_sign = sh_bd_sign[0];
         while (true) {
-            if (combined == 0) {
+            if (bitmap == 0) {
+                backdrop += count_backdrop(bd_bitmap, bd_sign);
                 slice_ix++;
                 if (slice_ix == N_SLICE) {
                     break;
                 }
                 bitmap = sh_bitmaps[slice_ix][th_ix];
                 bd_bitmap = sh_backdrop[slice_ix][th_ix];
-                combined = bitmap | bd_bitmap;
-                if (combined == 0) {
+                bd_sign = sh_bd_sign[slice_ix];
+                if (bitmap == 0) {
                     continue;
                 }
             }
-            uint element_ref_ix = slice_ix * 32 + findLSB(combined);
+            uint element_ref_ix = slice_ix * 32 + findLSB(bitmap);
             uint element_ix = sh_elements[(rd_ix + element_ref_ix) % N_RINGBUF];
 
-            // TODO: use bit magic to aggregate this calculation.
-            if ((bd_bitmap & (1 << (element_ref_ix & 31))) != 0) {
-                if ((sh_bd_sign[slice_ix] & (1 << (element_ref_ix & 31))) != 0) {
-                    backdrop += 1;
-                } else {
-                    backdrop -= 1;
-                }
-            }
+            // Bits up to and including the lsb
+            uint bd_mask = (bitmap - 1) ^ bitmap;
+            backdrop += count_backdrop(bd_bitmap & bd_mask, bd_sign);
+            // Clear bits that have been consumed.
+            bd_bitmap &= ~bd_mask;
+            bitmap &= ~bd_mask;
 
-            if ((bitmap & (1 << (element_ref_ix & 31))) != 0) {
             // At this point, we read the element again from global memory.
             // If that turns out to be expensive, maybe we can pack it into
             // shared memory (or perhaps just the tag).
@@ -378,10 +384,6 @@ void main() {
                 }
                 break;
             }
-            }
-
-            // clear LSB
-            combined &= combined - 1;
         }
         barrier();
 
