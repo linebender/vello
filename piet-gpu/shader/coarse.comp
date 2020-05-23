@@ -2,6 +2,9 @@
 
 #version 450
 #extension GL_GOOGLE_include_directive : enable
+#extension GL_KHR_shader_subgroup_ballot : enable
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+#extension GL_KHR_shader_subgroup_shuffle : enable
 
 #include "setup.h"
 
@@ -28,6 +31,8 @@ layout(set = 0, binding = 3) buffer PtclBuf {
 #include "ptcl.h"
 
 #define N_RINGBUF 512
+
+#define TRANSPOSE_BACKDROP
 
 shared uint sh_elements[N_RINGBUF];
 shared float sh_right_edge[N_RINGBUF];
@@ -90,6 +95,28 @@ SegChunkRef alloc_seg_chunk() {
 // bit for which bd_bitmap is 1 and bd_sign is 0 counts as -1.
 int count_backdrop(uint bd_bitmap, uint bd_sign) {
     return bitCount(bd_bitmap & bd_sign) - bitCount(bd_bitmap & ~bd_sign);
+}
+
+// Implementation of 16 x 16 boolean matrix transpose, using subgroups.
+uint block_swap(uint a, uint m, uint s) {
+    uint b = subgroupShuffleXor(a, s);
+    uint c;
+    if ((gl_SubgroupInvocationID & s) == 0) {
+        c = b << s;
+    } else {
+        m = ~m;
+        c = b >> s;
+    }
+    return (a & m) | (c & ~m);
+}
+
+const uint masks[4] = uint[4](0x55555555, 0x33333333, 0xf0f0f0f, 0xff00ff);
+
+uint transpose(uint bitmask) {
+    for (uint i = 0; i < 4; i++) {
+        bitmask = block_swap(bitmask, masks[i], 1 << i);
+    }
+    return bitmask;
 }
 
 void main() {
@@ -270,19 +297,31 @@ void main() {
         for (uint y = y0; y < y1; y++) {
             uint xx0 = clamp(int(floor(t - c)), x0, x1);
             uint xx1 = clamp(int(ceil(t + c)), x0, x1);
-            for (uint x = xx0; x < xx1; x++) {
-                atomicOr(sh_bitmaps[my_slice][y * N_TILE_X + x], my_mask);
-            }
+            uint mask = ((1 << xx1) - (1 << xx0)) << (th_ix & 16);
+            atomicOr(sh_bitmaps[my_slice][y * N_TILE_X + (th_ix & 0xf)], mask);
             if (tag == Annotated_FillLine && ymin <= xy0.y + float(y * TILE_HEIGHT_PX)) {
                 // Assign backdrop to all tiles to the right of the ray crossing the
                 // top edge of this tile, up to the right edge of the fill bbox.
                 float xray = t - 0.5 * b;
+#ifdef TRANSPOSE_BACKDROP
+                xx0 = clamp(int(ceil(xray)), 0, xr);
+                uint mask = ((1 << xr) - (1 << xx0)) << (th_ix & 16);
+                atomicOr(sh_backdrop[my_slice][y * N_TILE_X + (th_ix & 0xf)], mask);
+#else
                 xx0 = max(int(ceil(xray)), 0);
                 for (uint x = xx0; x < xr; x++) {
                     atomicOr(sh_backdrop[my_slice][y * N_TILE_X + x], my_mask);
                 }
+#endif
             }
             t += b;
+        }
+        barrier();
+        for (uint i = 0; i < N_SLICE; i++) {
+            sh_bitmaps[i][th_ix] = transpose(sh_bitmaps[i][th_ix]);
+#ifdef TRANSPOSE_BACKDROP
+            sh_backdrop[i][th_ix] = transpose(sh_backdrop[i][th_ix]);
+#endif
         }
         barrier();
 
