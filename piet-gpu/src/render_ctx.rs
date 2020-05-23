@@ -94,7 +94,7 @@ impl RenderContext for PietGpuRenderContext {
         }
         let brush = brush.make_brush(self, || shape.bounding_box()).into_owned();
         let path = shape.to_bez_path(TOLERANCE);
-        self.encode_path(path);
+        self.encode_path(path, false);
         match brush {
             PietGpuBrush::Solid(rgba_color) => {
                 let stroke = Stroke { rgba_color };
@@ -116,7 +116,7 @@ impl RenderContext for PietGpuRenderContext {
     fn fill(&mut self, shape: impl Shape, brush: &impl IntoBrush<Self>) {
         let brush = brush.make_brush(self, || shape.bounding_box()).into_owned();
         let path = shape.to_bez_path(TOLERANCE);
-        self.encode_path(path);
+        self.encode_path(path, true);
         match brush {
             PietGpuBrush::Solid(rgba_color) => {
                 let fill = Fill { rgba_color };
@@ -198,7 +198,15 @@ impl RenderContext for PietGpuRenderContext {
 }
 
 impl PietGpuRenderContext {
-    fn encode_path(&mut self, path: impl Iterator<Item = PathEl>) {
+    fn encode_line_seg(&mut self, seg: LineSeg, is_fill: bool) {
+        if is_fill {
+            self.elements.push(Element::FillLine(seg));
+        } else {
+            self.elements.push(Element::StrokeLine(seg));
+        }
+    }
+
+    fn encode_path(&mut self, path: impl Iterator<Item = PathEl>, is_fill: bool) {
         let flatten = true;
         if flatten {
             let mut start_pt = None;
@@ -207,6 +215,7 @@ impl PietGpuRenderContext {
                 match el {
                     PathEl::MoveTo(p) => {
                         let scene_pt = to_f32_2(p);
+                        start_pt = Some(scene_pt);
                         last_pt = Some(scene_pt);
                     }
                     PathEl::LineTo(p) => {
@@ -215,16 +224,18 @@ impl PietGpuRenderContext {
                             p0: last_pt.unwrap(),
                             p1: scene_pt,
                         };
-                        self.elements.push(Element::Line(seg));
+                        self.encode_line_seg(seg, is_fill);
                         last_pt = Some(scene_pt);
                     }
                     PathEl::ClosePath => {
                         if let (Some(start), Some(last)) = (start_pt.take(), last_pt.take()) {
-                            let seg = LineSeg {
-                                p0: last,
-                                p1: start,
-                            };
-                            self.elements.push(Element::Line(seg));
+                            if last != start {
+                                let seg = LineSeg {
+                                    p0: last,
+                                    p1: start,
+                                };
+                                self.encode_line_seg(seg, is_fill);
+                            }
                         }
                     }
                     _ => (),
@@ -238,6 +249,7 @@ impl PietGpuRenderContext {
                 match el {
                     PathEl::MoveTo(p) => {
                         let scene_pt = to_f32_2(p);
+                        start_pt = Some(scene_pt);
                         last_pt = Some(scene_pt);
                     }
                     PathEl::LineTo(p) => {
@@ -246,7 +258,7 @@ impl PietGpuRenderContext {
                             p0: last_pt.unwrap(),
                             p1: scene_pt,
                         };
-                        self.elements.push(Element::Line(seg));
+                        self.encode_line_seg(seg, is_fill);
                         last_pt = Some(scene_pt);
                     }
                     PathEl::QuadTo(p1, p2) => {
@@ -275,11 +287,13 @@ impl PietGpuRenderContext {
                     }
                     PathEl::ClosePath => {
                         if let (Some(start), Some(last)) = (start_pt.take(), last_pt.take()) {
-                            let seg = LineSeg {
-                                p0: last,
-                                p1: start,
-                            };
-                            self.elements.push(Element::Line(seg));
+                            if last != start {
+                                let seg = LineSeg {
+                                    p0: last,
+                                    p1: start,
+                                };
+                                self.encode_line_seg(seg, is_fill);
+                            }
                         }
                     }
                 }

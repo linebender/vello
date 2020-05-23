@@ -10,7 +10,7 @@
 #define N_ROWS 4
 #define WG_SIZE 32
 #define LG_WG_SIZE 5
-#define TILE_SIZE (WG_SIZE * N_ROWS)
+#define PARTITION_SIZE (WG_SIZE * N_ROWS)
 
 layout(local_size_x = WG_SIZE, local_size_y = 1) in;
 
@@ -34,14 +34,14 @@ layout(set = 0, binding = 2) buffer AnnotatedBuf {
 #include "state.h"
 #include "annotated.h"
 
-#define StateBuf_stride (4 + 2 * State_size)
+#define StateBuf_stride (8 + 2 * State_size)
 
 StateRef state_aggregate_ref(uint partition_ix) {
-    return StateRef(8 + partition_ix * StateBuf_stride);
+    return StateRef(12 + partition_ix * StateBuf_stride);
 }
 
 StateRef state_prefix_ref(uint partition_ix) {
-    return StateRef(8 + partition_ix * StateBuf_stride + State_size);
+    return StateRef(12 + partition_ix * StateBuf_stride + State_size);
 }
 
 uint state_flag_index(uint partition_ix) {
@@ -86,7 +86,7 @@ State combine_state(State a, State b) {
     return c;
 }
 
-State map_element(ElementRef ref) {
+State map_element(ElementRef ref, inout bool is_fill) {
     // TODO: it would *probably* be more efficient to make the memory read patterns less
     // divergent, though it would be more wasted memory.
     uint tag = Element_tag(ref);
@@ -96,9 +96,11 @@ State map_element(ElementRef ref) {
     c.translate = vec2(0.0, 0.0);
     c.linewidth = 1.0; // TODO should be 0.0
     c.flags = 0;
+    is_fill = false;
     switch (tag) {
-    case Element_Line:
-        LineSeg line = Element_Line_read(ref);
+    case Element_FillLine:
+    case Element_StrokeLine:
+        LineSeg line = Element_FillLine_read(ref);
         c.bbox.xy = min(line.p0, line.p1);
         c.bbox.zw = max(line.p0, line.p1);
         break;
@@ -113,6 +115,8 @@ State map_element(ElementRef ref) {
         c.bbox.zw = max(max(cubic.p0, cubic.p1), max(cubic.p2, cubic.p3));
         break;
     case Element_Fill:
+        is_fill = true;
+        // fall-through
     case Element_Stroke:
         c.flags = FLAG_RESET_BBOX;
         break;
@@ -145,6 +149,8 @@ shared vec4 sh_bbox[WG_SIZE];
 shared float sh_width[WG_SIZE];
 shared uint sh_flags[WG_SIZE];
 
+shared uint sh_min_fill;
+
 shared uint sh_tile_ix;
 shared State sh_prefix;
 
@@ -154,19 +160,27 @@ void main() {
     // 4.4 of prefix sum paper).
     if (gl_LocalInvocationID.x == 0) {
         sh_tile_ix = atomicAdd(state[0], 1);
+        sh_min_fill = ~0;
     }
     barrier();
     uint tile_ix = sh_tile_ix;
 
-    uint ix = tile_ix * TILE_SIZE + gl_LocalInvocationID.x * N_ROWS;
+    uint ix = tile_ix * PARTITION_SIZE + gl_LocalInvocationID.x * N_ROWS;
     ElementRef ref = ElementRef(ix * Element_size);
 
-    th_state[0] = map_element(ref);
+    bool is_fill;
+    uint my_min_fill = ~0;
+    th_state[0] = map_element(ref, is_fill);
+    if (is_fill) my_min_fill = ix;
     for (uint i = 1; i < N_ROWS; i++) {
         // discussion question: would it be faster to load using more coherent patterns
         // into thread memory? This is kinda strided.
-        th_state[i] = combine_state(th_state[i - 1], map_element(Element_index(ref, i)));
+        th_state[i] = combine_state(th_state[i - 1], map_element(Element_index(ref, i), is_fill));
+        if (is_fill && my_min_fill == ~0) {
+            my_min_fill = ix + i;
+        }
     }
+    atomicMin(sh_min_fill, my_min_fill);
     State agg = th_state[N_ROWS - 1];
     sh_mat[gl_LocalInvocationID.x] = agg.mat;
     sh_translate[gl_LocalInvocationID.x] = agg.translate;
@@ -238,6 +252,7 @@ void main() {
         }
     }
     barrier();
+    my_min_fill = sh_min_fill;
     if (tile_ix != 0) {
         exclusive = sh_prefix;
     }
@@ -253,8 +268,14 @@ void main() {
         other.flags = sh_flags[ix];
         row = combine_state(row, other);
     }
+    if (my_min_fill == ~0 && gl_LocalInvocationID.x == 0) {
+        state[state_flag_index(tile_ix) + 1] = 0x7f800000; // infinity
+    }
     for (uint i = 0; i < N_ROWS; i++) {
         State st = combine_state(row, th_state[i]);
+        if (my_min_fill == ix + i) {
+            state[state_flag_index(tile_ix) + 1] = floatBitsToUint(st.bbox.z);
+        }
         // We write the state now for development purposes, but the
         // actual goal is to write transformed and annotated elements.
         //State_write(StateRef((ix + i) * State_size), st);
@@ -266,13 +287,22 @@ void main() {
         AnnotatedRef out_ref = AnnotatedRef((ix + i) * Annotated_size);
         uint tag = Element_tag(this_ref);
         switch (tag) {
-        case Element_Line:
-            LineSeg line = Element_Line_read(this_ref);
-            AnnoLineSeg anno_line;
+        case Element_FillLine:
+        case Element_StrokeLine:
+            LineSeg line = Element_StrokeLine_read(this_ref);
+            AnnoStrokeLineSeg anno_line;
             anno_line.p0 = st.mat.xz * line.p0.x + st.mat.yw * line.p0.y + st.translate;
             anno_line.p1 = st.mat.xz * line.p1.x + st.mat.yw * line.p1.y + st.translate;
-            anno_line.stroke = get_linewidth(st);
-            Annotated_Line_write(out_ref, anno_line);
+            if (tag == Element_StrokeLine) {
+                anno_line.stroke = get_linewidth(st);
+            } else {
+                anno_line.stroke = vec2(0.0);
+            }
+            // We do encoding a bit by hand to minimize divergence. Another approach
+            // would be to have a fill/stroke bool.
+            uint out_tag = tag == Element_FillLine ? Annotated_FillLine : Annotated_StrokeLine;
+            annotated[out_ref.offset >> 2] = out_tag;
+            AnnoStrokeLineSeg_write(AnnoStrokeLineSegRef(out_ref.offset + 4), anno_line);
             break;
         case Element_Stroke:
             Stroke stroke = Element_Stroke_read(this_ref);

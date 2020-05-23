@@ -238,13 +238,14 @@ TransformRef Transform_index(TransformRef ref, uint index) {
 }
 
 #define Element_Nop 0
-#define Element_Line 1
-#define Element_Quad 2
-#define Element_Cubic 3
-#define Element_Stroke 4
-#define Element_Fill 5
-#define Element_SetLineWidth 6
-#define Element_Transform 7
+#define Element_StrokeLine 1
+#define Element_FillLine 2
+#define Element_Quad 3
+#define Element_Cubic 4
+#define Element_Stroke 5
+#define Element_Fill 6
+#define Element_SetLineWidth 7
+#define Element_Transform 8
 #define Element_size 36
 
 ElementRef Element_index(ElementRef ref, uint index) {
@@ -446,7 +447,11 @@ uint Element_tag(ElementRef ref) {
     return scene[ref.offset >> 2];
 }
 
-LineSeg Element_Line_read(ElementRef ref) {
+LineSeg Element_StrokeLine_read(ElementRef ref) {
+    return LineSeg_read(LineSegRef(ref.offset + 4));
+}
+
+LineSeg Element_FillLine_read(ElementRef ref) {
     return LineSeg_read(LineSegRef(ref.offset + 4));
 }
 

@@ -51,9 +51,14 @@
 #define N_TILE_X 16
 #define N_TILE_Y 16
 #define N_TILE (N_TILE_X * N_TILE_Y)
+#define LG_N_TILE 8
 #define N_SLICE (N_TILE / 32)
 // Number of workgroups for binning kernel
 #define N_WG 16
+
+// This is the ratio of the number of elements in a binning workgroup
+// over the number of elements in a partition workgroup.
+#define ELEMENT_BINNING_RATIO 2
 
 #define BIN_INITIAL_ALLOC 64
 #define BIN_ALLOC 256
