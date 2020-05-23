@@ -291,8 +291,8 @@ void main() {
         case Element_StrokeLine:
             LineSeg line = Element_StrokeLine_read(this_ref);
             AnnoStrokeLineSeg anno_line;
-            anno_line.p0 = st.mat.xz * line.p0.x + st.mat.yw * line.p0.y + st.translate;
-            anno_line.p1 = st.mat.xz * line.p1.x + st.mat.yw * line.p1.y + st.translate;
+            anno_line.p0 = st.mat.xy * line.p0.x + st.mat.zw * line.p0.y + st.translate;
+            anno_line.p1 = st.mat.xy * line.p1.x + st.mat.zw * line.p1.y + st.translate;
             if (tag == Element_StrokeLine) {
                 anno_line.stroke = get_linewidth(st);
             } else {

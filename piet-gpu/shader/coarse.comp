@@ -221,7 +221,7 @@ void main() {
             }
             // Set up for per-scanline coverage formula, below.
             float invslope = abs(dy) < 1e-9 ? 1e9 : dx / dy;
-            c = abs(invslope) * (0.5 * float(TILE_HEIGHT_PX) + line.stroke.y) * SX;
+            c = (line.stroke.x + abs(invslope) * (0.5 * float(TILE_HEIGHT_PX) + line.stroke.y)) * SX;
             b = invslope; // Note: assumes square tiles, otherwise scale.
             a = (line.p0.x - xy0.x - (line.p0.y - 0.5 * float(TILE_HEIGHT_PX) - xy0.y) * b) * SX;
             break;
@@ -392,4 +392,5 @@ void main() {
         // removed, then the kernel fails with ERROR_DEVICE_LOST.
         if (rd_ix >= wr_ix || bin_ix == ~0) break;
     }
+    Cmd_End_write(cmd_ref);
 }
