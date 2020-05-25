@@ -47,11 +47,12 @@ void main() {
         case Cmd_Stroke:
             CmdStroke stroke = Cmd_Stroke_read(cmd_ref);
             float df = 1e9;
-            SegChunkRef seg_chunk_ref = SegChunkRef(stroke.seg_ref);
+            SegChunkRef seg_chunk_ref = stroke.seg_ref;
             do {
                 SegChunk seg_chunk = SegChunk_read(seg_chunk_ref);
+                SegmentRef segs = seg_chunk.segs;
                 for (int i = 0; i < seg_chunk.n; i++) {
-                    Segment seg = Segment_read(SegmentRef(seg_chunk_ref.offset + SegChunk_size + Segment_size * i));
+                    Segment seg = Segment_read(Segment_index(segs, i));
                     vec2 line_vec = seg.end - seg.start;
                     vec2 dpos = xy + vec2(0.5, 0.5) - seg.start;
                     float t = clamp(dot(line_vec, dpos) / dot(line_vec, line_vec), 0.0, 1.0);

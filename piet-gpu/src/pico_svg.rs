@@ -58,7 +58,7 @@ impl PicoSvg {
     }
 
     pub fn render(&self, rc: &mut impl RenderContext) {
-        for item in self.items.iter().take(30) {
+        for item in &self.items {
             match item {
                 Item::Fill(fill_item) => {
                     //rc.fill(&fill_item.path, &fill_item.color);

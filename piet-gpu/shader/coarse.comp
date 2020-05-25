@@ -51,6 +51,7 @@ shared uint sh_is_segment[N_SLICE];
 // Count of total number of segments in each tile, then
 // inclusive prefix sum of same.
 shared uint sh_seg_count[N_TILE];
+shared uint sh_orig_seg_count[N_TILE];
 shared uint sh_seg_alloc;
 
 // scale factors useful for converting coordinates to tiles
@@ -66,6 +67,11 @@ void alloc_cmd(inout CmdRef cmd_ref, inout uint cmd_limit) {
         cmd_ref = CmdRef(new_cmd);
         cmd_limit = new_cmd + PTCL_INITIAL_ALLOC - 2 * Cmd_size;
     }
+}
+
+// TODO: aggregate rather than doing an atomic every time
+SegChunkRef alloc_seg_chunk() {
+    return SegChunkRef(atomicAdd(alloc, SegChunk_size));
 }
 
 // Accumulate delta to backdrop.
@@ -91,10 +97,10 @@ void main() {
     uint cmd_limit = cmd_ref.offset + PTCL_INITIAL_ALLOC - 2 * Cmd_size;
 
     // Allocation and management of segment output
-    SegChunkRef seg_chunk_ref = SegChunkRef(0);
     SegChunkRef first_seg_chunk = SegChunkRef(0);
-    uint seg_limit = 0;
-    uint chunk_n_segs = 0;
+    SegChunkRef last_chunk_ref = SegChunkRef(0);
+    uint last_chunk_n = 0;
+    SegmentRef last_chunk_segs = SegmentRef(0);
 
     uint wr_ix = 0;
     uint rd_ix = 0;
@@ -274,12 +280,10 @@ void main() {
 
         uint seg_count = 0;
         for (uint i = 0; i < N_SLICE; i++) {
-            // Count each segment as 1 and each non-segment element as 1. A finer
-            // approach would be to count bytes accurately (non-segment elements that
-            // are not strokes and fills wouldn't count).
-            seg_count += bitCount(sh_bitmaps[i][th_ix]);
+            seg_count += bitCount(sh_bitmaps[i][th_ix] & sh_is_segment[i]);
         }
         sh_seg_count[th_ix] = seg_count;
+        sh_orig_seg_count[th_ix] = seg_count;
         // Prefix sum of sh_seg_count
         for (uint i = 0; i < LG_N_TILE; i++) {
             barrier();
@@ -290,14 +294,13 @@ void main() {
             sh_seg_count[th_ix] = seg_count;
         }
         if (th_ix == N_TILE - 1) {
-            sh_seg_alloc = atomicAdd(alloc, seg_count * Segment_size + SegChunk_size);
+            sh_seg_alloc = atomicAdd(alloc, seg_count * Segment_size);
         }
         barrier();
         uint total_seg_count = sh_seg_count[N_TILE - 1];
         uint seg_alloc = sh_seg_alloc;
 
-        // Output buffer is allocated as segments for each tile laid end-to-end,
-        // but with gaps for non-segment elements (to fit the linked list headers).
+        // Output buffer is allocated as segments for each tile laid end-to-end.
 
         for (uint ix = th_ix; ix < total_seg_count; ix += N_TILE) {
             // Find the work item; this thread is now not bound to an element or tile.
@@ -322,8 +325,9 @@ void main() {
             // tile, accelerated by bit counting. Binary search might help, maybe not.
             uint slice_ix = 0;
             uint seq_bits;
+
             while (true) {
-                seq_bits = sh_bitmaps[slice_ix][tile_ix];
+                seq_bits = sh_bitmaps[slice_ix][tile_ix] & sh_is_segment[slice_ix];
                 uint this_count = bitCount(seq_bits);
                 if (this_count > seq_ix) {
                     break;
@@ -339,15 +343,13 @@ void main() {
                     bit_ix = probe;
                 }
             }
-            if ((sh_is_segment[slice_ix] & (1 << bit_ix)) != 0) {
-                uint out_offset = seg_alloc + Segment_size * ix + SegChunk_size;
-                uint rd_el_ix = (rd_ix + slice_ix * 32 + bit_ix) % N_RINGBUF;
-                uint element_ix = sh_elements[rd_el_ix];
-                ref = AnnotatedRef(element_ix * Annotated_size);
-                AnnoStrokeLineSeg line = Annotated_StrokeLine_read(ref);
-                Segment seg = Segment(line.p0, line.p1);
-                Segment_write(SegmentRef(seg_alloc + Segment_size * ix + SegChunk_size), seg);
-            }
+            uint out_offset = seg_alloc + Segment_size * ix + SegChunk_size;
+            uint rd_el_ix = (rd_ix + slice_ix * 32 + bit_ix) % N_RINGBUF;
+            uint element_ix = sh_elements[rd_el_ix];
+            ref = AnnotatedRef(element_ix * Annotated_size);
+            AnnoStrokeLineSeg line = Annotated_StrokeLine_read(ref);
+            Segment seg = Segment(line.p0, line.p1);
+            Segment_write(SegmentRef(seg_alloc + Segment_size * ix), seg);
         }
 
         // Output non-segment elements for this tile. The thread does a sequential walk
@@ -397,6 +399,7 @@ void main() {
 
             switch (tag) {
             case Annotated_Fill:
+                /*
                 if (seg_count > 0) {
                     AnnoFill fill = Annotated_Fill_read(ref);
                     SegChunk_write(seg_chunk_ref, SegChunk(chunk_n_segs, SegChunkRef(0)));
@@ -415,32 +418,45 @@ void main() {
                     Cmd_Solid_write(cmd_ref, CmdSolid(fill.rgba_color));
                     cmd_ref.offset += Cmd_size;
                 }
+                */
                 backdrop = 0;
                 seg_count = 0;
                 break;
             case Annotated_Stroke:
-                if (chunk_n_segs > 0 || seg_count > 0) {
-                    uint chunk_offset = seg_count > 0 ? seg_alloc + seg_start * Segment_size : 0;
-                    SegChunkRef chunk_start = SegChunkRef(chunk_offset);
-                    if (chunk_n_segs > 0) {
-                        SegChunk_write(seg_chunk_ref, SegChunk(chunk_n_segs, chunk_start));
-                    } else {
-                        first_seg_chunk = chunk_start;
-                    }
+                if (last_chunk_n > 0 || seg_count > 0) {
+                    // TODO: noncontiguous case
+
+                    SegChunkRef chunk_ref = SegChunkRef(0);
                     if (seg_count > 0) {
-                        SegChunk_write(chunk_start, SegChunk(seg_count, SegChunkRef(0)));
+                        chunk_ref = alloc_seg_chunk();
+                        SegChunk chunk;
+                        chunk.n = seg_count;
+                        chunk.next = SegChunkRef(0);
+                        uint seg_offset = seg_alloc + seg_start * Segment_size;
+                        chunk.segs = SegmentRef(seg_offset);
+                        SegChunk_write(chunk_ref, chunk);
                     }
+                    if (last_chunk_n > 0) {
+                        SegChunk chunk;
+                        chunk.n = last_chunk_n;
+                        chunk.next = chunk_ref;
+                        chunk.segs = last_chunk_segs;
+                        SegChunk_write(last_chunk_ref, chunk);
+                    } else {
+                        first_seg_chunk = chunk_ref;
+                    }
+
                     AnnoStroke stroke = Annotated_Stroke_read(ref);
                     CmdStroke cmd_stroke;
-                    cmd_stroke.seg_ref = first_seg_chunk.offset;
+                    cmd_stroke.seg_ref = first_seg_chunk;
                     cmd_stroke.half_width = 0.5 * stroke.linewidth;
                     cmd_stroke.rgba_color = stroke.rgba_color;
                     alloc_cmd(cmd_ref, cmd_limit);
                     Cmd_Stroke_write(cmd_ref, cmd_stroke);
                     cmd_ref.offset += Cmd_size;
-                    chunk_n_segs = 0;
+                    last_chunk_n = 0;
                 }
-                seg_start += seg_count + 1;
+                seg_start += seg_count;
                 seg_count = 0;
                 break;
             default:
@@ -450,14 +466,18 @@ void main() {
             }
         }
         if (seg_count > 0) {
-            SegChunkRef chunk_start = SegChunkRef(seg_alloc + seg_start * Segment_size);
-            if (chunk_n_segs > 0) {
-                SegChunk_write(seg_chunk_ref, SegChunk(chunk_n_segs, chunk_start));
+            SegChunkRef chunk_ref = alloc_seg_chunk();
+            if (last_chunk_n > 0) {
+                SegChunk_write(last_chunk_ref, SegChunk(last_chunk_n, chunk_ref, last_chunk_segs));
             } else {
-                first_seg_chunk = chunk_start;
+                first_seg_chunk = chunk_ref;
             }
-            seg_chunk_ref = chunk_start;
-            chunk_n_segs = seg_count;
+            // TODO: free two registers by writing count and segments ref now,
+            // as opposed to deferring SegChunk write until all fields are known.
+            last_chunk_ref = chunk_ref;
+            last_chunk_n = seg_count;
+            uint seg_offset = seg_alloc + seg_start * Segment_size;
+            last_chunk_segs = SegmentRef(seg_offset);
         }
         barrier();
 

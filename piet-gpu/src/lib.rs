@@ -46,8 +46,8 @@ pub fn render_scene(rc: &mut impl RenderContext) {
         let circle = Circle::new(center, radius);
         rc.fill(circle, &color);
     }
-    let mut path = BezPath::new();
     /*
+    let mut path = BezPath::new();
     path.move_to((100.0, 1150.0));
     path.line_to((200.0, 1200.0));
     path.line_to((150.0, 1250.0));
@@ -59,8 +59,8 @@ pub fn render_scene(rc: &mut impl RenderContext) {
         &Color::WHITE,
         5.0,
     );
-    render_cardioid(rc);
-    //render_tiger(rc);
+    //render_cardioid(rc);
+    render_tiger(rc);
 }
 
 #[allow(unused)]
