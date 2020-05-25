@@ -19,8 +19,7 @@ piet_gpu! {
             rgba_color: u32,
         }
         struct CmdFill {
-            // Should be Ref<FillSegChunk>
-            seg_ref: u32,
+            seg_ref: Ref<SegChunk>,
             backdrop: i32,
             rgba_color: u32,
         }
@@ -58,6 +57,10 @@ piet_gpu! {
         struct Segment {
             start: [f32; 2],
             end: [f32; 2],
+
+            // This is used for fills only, but we're including it in
+            // the general structure for simplicity.
+            y_edge: f32,
         }
 
         struct SegChunk {

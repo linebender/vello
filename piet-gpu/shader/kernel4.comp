@@ -68,11 +68,12 @@ void main() {
             CmdFill fill = Cmd_Fill_read(cmd_ref);
             // Probably better to store as float, but conversion is no doubt cheap.
             float area = float(fill.backdrop);
-            SegChunkRef fill_seg_chunk_ref = SegChunkRef(fill.seg_ref);
+            SegChunkRef fill_seg_chunk_ref = fill.seg_ref;
             do {
                 SegChunk seg_chunk = SegChunk_read(fill_seg_chunk_ref);
+                SegmentRef segs = seg_chunk.segs;
                 for (int i = 0; i < seg_chunk.n; i++) {
-                    Segment seg = Segment_read(SegmentRef(fill_seg_chunk_ref.offset + SegChunk_size + Segment_size * i));
+                    Segment seg = Segment_read(Segment_index(segs, i));
                     vec2 start = seg.start - xy;
                     vec2 end = seg.end - xy;
                     vec2 window = clamp(vec2(start.y, end.y), 0.0, 1.0);
@@ -87,6 +88,7 @@ void main() {
                         float a = (b + 0.5 * (d * d - c * c) - xmin) / (xmax - xmin);
                         area += a * (window.x - window.y);
                     }
+                    area += sign(end.x - start.x) * clamp(xy.y - seg.y_edge + 1.0, 0.0, 1.0);
                 }
                 fill_seg_chunk_ref = seg_chunk.next;
             } while (fill_seg_chunk_ref.offset != 0);

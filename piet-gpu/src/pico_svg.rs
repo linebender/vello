@@ -61,8 +61,8 @@ impl PicoSvg {
         for item in &self.items {
             match item {
                 Item::Fill(fill_item) => {
-                    //rc.fill(&fill_item.path, &fill_item.color);
-                    rc.stroke(&fill_item.path, &fill_item.color, 1.0);
+                    rc.fill(&fill_item.path, &fill_item.color);
+                    //rc.stroke(&fill_item.path, &fill_item.color, 1.0);
                 }
                 Item::Stroke(stroke_item) => {
                     rc.stroke(&stroke_item.path, &stroke_item.color, stroke_item.width);

@@ -51,7 +51,6 @@ shared uint sh_is_segment[N_SLICE];
 // Count of total number of segments in each tile, then
 // inclusive prefix sum of same.
 shared uint sh_seg_count[N_TILE];
-shared uint sh_orig_seg_count[N_TILE];
 shared uint sh_seg_alloc;
 
 // scale factors useful for converting coordinates to tiles
@@ -295,7 +294,6 @@ void main() {
             seg_count += bitCount(sh_bitmaps[i][th_ix] & sh_is_segment[i]);
         }
         sh_seg_count[th_ix] = seg_count;
-        sh_orig_seg_count[th_ix] = seg_count;
         // Prefix sum of sh_seg_count
         for (uint i = 0; i < LG_N_TILE; i++) {
             barrier();
@@ -359,8 +357,23 @@ void main() {
             uint rd_el_ix = (rd_ix + slice_ix * 32 + bit_ix) % N_RINGBUF;
             uint element_ix = sh_elements[rd_el_ix];
             ref = AnnotatedRef(element_ix * Annotated_size);
-            AnnoStrokeLineSeg line = Annotated_StrokeLine_read(ref);
-            Segment seg = Segment(line.p0, line.p1);
+            AnnoFillLineSeg line = Annotated_FillLine_read(ref);
+            float y_edge = 0.0;
+            // This is basically the same logic as piet-metal, but should be made numerically robust.
+            if (Annotated_tag(ref) == Annotated_FillLine) {
+                vec2 tile_xy = xy0 + vec2((tile_ix % N_TILE_X) * TILE_WIDTH_PX, (tile_ix / N_TILE_X) * TILE_HEIGHT_PX);
+                y_edge = mix(line.p0.y, line.p1.y, (tile_xy.x - line.p0.x) / (line.p1.x - line.p0.x));
+                if (min(line.p0.x, line.p1.x) < tile_xy.x && y_edge >= tile_xy.y && y_edge < tile_xy.y + TILE_HEIGHT_PX) {
+                    if (line.p0.x > line.p1.x) {
+                        line.p1 = vec2(tile_xy.x, y_edge);
+                    } else {
+                        line.p0 = vec2(tile_xy.x, y_edge);
+                    }
+                } else {
+                    y_edge = 1e9;
+                }
+            }
+            Segment seg = Segment(line.p0, line.p1, y_edge);
             Segment_write(SegmentRef(seg_alloc + Segment_size * ix), seg);
         }
 
@@ -411,33 +424,50 @@ void main() {
 
             switch (tag) {
             case Annotated_Fill:
-                /*
-                if (seg_count > 0) {
+                if (last_chunk_n > 0 || seg_count > 0) {
+                    SegChunkRef chunk_ref = SegChunkRef(0);
+                    if (seg_count > 0) {
+                        chunk_ref = alloc_seg_chunk();
+                        SegChunk chunk;
+                        chunk.n = seg_count;
+                        chunk.next = SegChunkRef(0);
+                        uint seg_offset = seg_alloc + seg_start * Segment_size;
+                        chunk.segs = SegmentRef(seg_offset);
+                        SegChunk_write(chunk_ref, chunk);
+                    }
+                    if (last_chunk_n > 0) {
+                        SegChunk chunk;
+                        chunk.n = last_chunk_n;
+                        chunk.next = chunk_ref;
+                        chunk.segs = last_chunk_segs;
+                        SegChunk_write(last_chunk_ref, chunk);
+                    } else {
+                        first_seg_chunk = chunk_ref;
+                    }
+
                     AnnoFill fill = Annotated_Fill_read(ref);
-                    SegChunk_write(seg_chunk_ref, SegChunk(chunk_n_segs, SegChunkRef(0)));
-                    seg_chunk_ref.offset += SegChunk_size + Segment_size * chunk_n_segs;
                     CmdFill cmd_fill;
-                    cmd_fill.seg_ref = first_seg_chunk.offset;
+                    cmd_fill.seg_ref = first_seg_chunk;
                     cmd_fill.backdrop = backdrop;
                     cmd_fill.rgba_color = fill.rgba_color;
                     alloc_cmd(cmd_ref, cmd_limit);
                     Cmd_Fill_write(cmd_ref, cmd_fill);
                     cmd_ref.offset += Cmd_size;
-                    chunk_n_segs = 0;
+                    last_chunk_n = 0;
                 } else if (backdrop != 0) {
                     AnnoFill fill = Annotated_Fill_read(ref);
                     alloc_cmd(cmd_ref, cmd_limit);
                     Cmd_Solid_write(cmd_ref, CmdSolid(fill.rgba_color));
                     cmd_ref.offset += Cmd_size;
                 }
-                */
-                backdrop = 0;
+                seg_start += seg_count;
                 seg_count = 0;
+                backdrop = 0;
                 break;
             case Annotated_Stroke:
+                // TODO: reduce divergence & code duplication? Much of the
+                // fill and stroke processing is in common.
                 if (last_chunk_n > 0 || seg_count > 0) {
-                    // TODO: noncontiguous case
-
                     SegChunkRef chunk_ref = SegChunkRef(0);
                     if (seg_count > 0) {
                         chunk_ref = alloc_seg_chunk();
