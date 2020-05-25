@@ -69,9 +69,20 @@ void alloc_cmd(inout CmdRef cmd_ref, inout uint cmd_limit) {
     }
 }
 
-// TODO: aggregate rather than doing an atomic every time
+#define CHUNK_ALLOC_SLAB 16
+
+uint alloc_chunk_remaining;
+uint alloc_chunk_offset;
+
 SegChunkRef alloc_seg_chunk() {
-    return SegChunkRef(atomicAdd(alloc, SegChunk_size));
+    if (alloc_chunk_remaining == 0) {
+        alloc_chunk_offset = atomicAdd(alloc, CHUNK_ALLOC_SLAB * SegChunk_size);
+        alloc_chunk_remaining = CHUNK_ALLOC_SLAB;
+    }
+    uint offset = alloc_chunk_offset;
+    alloc_chunk_offset += SegChunk_size;
+    alloc_chunk_remaining--;
+    return SegChunkRef(offset);
 }
 
 // Accumulate delta to backdrop.
@@ -101,6 +112,7 @@ void main() {
     SegChunkRef last_chunk_ref = SegChunkRef(0);
     uint last_chunk_n = 0;
     SegmentRef last_chunk_segs = SegmentRef(0);
+    alloc_chunk_remaining = 0;
 
     uint wr_ix = 0;
     uint rd_ix = 0;
