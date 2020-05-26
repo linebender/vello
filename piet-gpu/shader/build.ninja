@@ -4,7 +4,7 @@
 
 glslang_validator = glslangValidator
 
-target = vulkan1.1
+target = vulkan1.0
 
 rule glsl
   command = $glslang_validator -V -o $out $in --target-env $target
