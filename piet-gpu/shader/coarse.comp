@@ -133,6 +133,8 @@ void main() {
         for (uint i = 0; i < N_SLICE; i++) {
             sh_bitmaps[i][th_ix] = 0;
             sh_backdrop[i][th_ix] = 0;
+        }
+        if (th_ix < N_SLICE) {
             sh_is_segment[th_ix] = 0;
         }
 
