@@ -8,7 +8,6 @@ use rand::{Rng, RngCore};
 use piet::kurbo::{BezPath, Circle, Line, Point, Vec2};
 use piet::{Color, RenderContext};
 
-use piet_gpu_hal::vulkan::VkInstance;
 use piet_gpu_hal::{CmdBuf, Device, Error, ImageLayout, MemFlags};
 
 use pico_svg::PicoSvg;
