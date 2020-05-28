@@ -13,14 +13,13 @@ piet_gpu! {
             end: [f32; 2],
         }
         struct CmdStroke {
-            // Should be Ref<SegChunk>
-            seg_ref: u32,
+            // Consider a specialization to one segment.
+            seg_ref: Ref<SegChunk>,
             half_width: f32,
             rgba_color: u32,
         }
         struct CmdFill {
-            // Should be Ref<FillSegChunk>
-            seg_ref: u32,
+            seg_ref: Ref<SegChunk>,
             backdrop: i32,
             rgba_color: u32,
         }
@@ -58,12 +57,17 @@ piet_gpu! {
         struct Segment {
             start: [f32; 2],
             end: [f32; 2],
+
+            // This is used for fills only, but we're including it in
+            // the general structure for simplicity.
+            y_edge: f32,
         }
 
         struct SegChunk {
             n: u32,
             next: Ref<SegChunk>,
-            // Segments follow (could represent this as a variable sized array).
+            // Actually a reference to a variable-sized slice.
+            segs: Ref<Segment>,
         }
     }
 }

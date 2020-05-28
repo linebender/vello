@@ -75,6 +75,82 @@ fn trace_merge(buf: &[u32]) {
     }
 }
 
+/// Interpret the output of the coarse raster stage, for diagnostic purposes.
+#[allow(unused)]
+fn trace_ptcl(buf: &[u32]) {
+    for y in 0..96 {
+        for x in 0..128 {
+            let tile_ix = y * 128 + x;
+            println!("tile {} @({}, {})", tile_ix, x, y);
+            let mut tile_offset = tile_ix * 1024;
+            loop {
+                let tag = buf[tile_offset / 4];
+                match tag {
+                    0 => break,
+                    3 => {
+                        let backdrop = buf[tile_offset / 4 + 2];
+                        let rgba_color = buf[tile_offset / 4 + 3];
+                        println!("  {:x}: fill {:x} {}", tile_offset, rgba_color, backdrop);
+                        let mut seg_chunk = buf[tile_offset / 4 + 1] as usize;
+                        let n = buf[seg_chunk / 4] as usize;
+                        let segs = buf[seg_chunk / 4 + 2] as usize;
+                        println!("    chunk @{:x}: n={}, segs @{:x}", seg_chunk, n, segs);
+                        for i in 0..n {
+                            let x0 = f32::from_bits(buf[segs / 4 + i * 5]);
+                            let y0 = f32::from_bits(buf[segs / 4 + i * 5 + 1]);
+                            let x1 = f32::from_bits(buf[segs / 4 + i * 5 + 2]);
+                            let y1 = f32::from_bits(buf[segs / 4 + i * 5 + 3]);
+                            let y_edge = f32::from_bits(buf[segs / 4 + i * 5 + 4]);
+                            println!("      ({:.3}, {:.3}) - ({:.3}, {:.3}) | {:.3}", x0, y0, x1, y1, y_edge);
+                        }
+                        loop {
+                            seg_chunk = buf[seg_chunk / 4 + 1] as usize;
+                            if seg_chunk == 0 {
+                                break;
+                            }
+                        }
+                    }
+                    4 => {
+                        let line_width = f32::from_bits(buf[tile_offset / 4 + 2]);
+                        let rgba_color = buf[tile_offset / 4 + 3];
+                        println!("  {:x}: stroke {:x} {}", tile_offset, rgba_color, line_width);
+                        let mut seg_chunk = buf[tile_offset / 4 + 1] as usize;
+                        let n = buf[seg_chunk / 4] as usize;
+                        let segs = buf[seg_chunk / 4 + 2] as usize;
+                        println!("    chunk @{:x}: n={}, segs @{:x}", seg_chunk, n, segs);
+                        for i in 0..n {
+                            let x0 = f32::from_bits(buf[segs / 4 + i * 5]);
+                            let y0 = f32::from_bits(buf[segs / 4 + i * 5 + 1]);
+                            let x1 = f32::from_bits(buf[segs / 4 + i * 5 + 2]);
+                            let y1 = f32::from_bits(buf[segs / 4 + i * 5 + 3]);
+                            let y_edge = f32::from_bits(buf[segs / 4 + i * 5 + 4]);
+                            println!("      ({:.3}, {:.3}) - ({:.3}, {:.3}) | {:.3}", x0, y0, x1, y1, y_edge);
+                        }
+                        loop {
+                            seg_chunk = buf[seg_chunk / 4 + 1] as usize;
+                            if seg_chunk == 0 {
+                                break;
+                            }
+                        }
+                    }
+                    _ => {
+                        println!("{:x}: {}", tile_offset, tag);
+                    }
+                }
+                if tag == 0 {
+                    break;
+                }
+                if tag == 8 {
+                    tile_offset = buf[tile_offset / 4 + 1] as usize;
+                } else {
+                    tile_offset += 20;
+                }
+            }
+        }
+    }
+}
+
+
 fn main() -> Result<(), Error> {
     let (instance, _) = VkInstance::new(None)?;
     unsafe {
@@ -107,9 +183,9 @@ fn main() -> Result<(), Error> {
 
         /*
         let mut data: Vec<u32> = Default::default();
-        device.read_buffer(&renderer.bin_buf, &mut data).unwrap();
+        device.read_buffer(&renderer.ptcl_buf, &mut data).unwrap();
         //piet_gpu::dump_k1_data(&data);
-        //trace_merge(&data);
+        trace_ptcl(&data);
         */
 
         let mut img_data: Vec<u8> = Default::default();
