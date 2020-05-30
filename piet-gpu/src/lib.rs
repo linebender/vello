@@ -160,7 +160,7 @@ impl<D: Device> Renderer<D> {
 
         let state_buf = device.create_buffer(1 * 1024 * 1024, dev)?;
         let anno_buf = device.create_buffer(64 * 1024 * 1024, dev)?;
-        let bin_buf = device.create_buffer(64 * 1024 * 1024, host)?;
+        let bin_buf = device.create_buffer(64 * 1024 * 1024, dev)?;
         let ptcl_buf = device.create_buffer(48 * 1024 * 1024, dev)?;
         let image_dev = device.create_image2d(WIDTH as u32, HEIGHT as u32, dev)?;
 
@@ -192,12 +192,13 @@ impl<D: Device> Renderer<D> {
             &[],
         )?;
 
-        let coarse_alloc_buf_host = device.create_buffer(4, host)?;
-        let coarse_alloc_buf_dev = device.create_buffer(4, dev)?;
+        let coarse_alloc_buf_host = device.create_buffer(8, host)?;
+        let coarse_alloc_buf_dev = device.create_buffer(8, dev)?;
 
         let coarse_alloc_start = WIDTH_IN_TILES * HEIGHT_IN_TILES * PTCL_INITIAL_ALLOC;
         device
             .write_buffer(&coarse_alloc_buf_host, &[
+                n_elements as u32,
                 coarse_alloc_start as u32,
             ])
             ?;
@@ -264,26 +265,22 @@ impl<D: Device> Renderer<D> {
         cmd_buf.dispatch(
             &self.bin_pipeline,
             &self.bin_ds,
-            (N_WG, 1, 1),
+            (((self.n_elements + 255) / 256) as u32, 1, 1),
         );
         cmd_buf.write_timestamp(&query_pool, 2);
         cmd_buf.memory_barrier();
-        /*
         cmd_buf.dispatch(
             &self.coarse_pipeline,
             &self.coarse_ds,
             (WIDTH as u32 / 256, HEIGHT as u32 / 256, 1),
         );
-        */
         cmd_buf.write_timestamp(&query_pool, 3);
         cmd_buf.memory_barrier();
-        /*
         cmd_buf.dispatch(
             &self.k4_pipeline,
             &self.k4_ds,
             ((WIDTH / TILE_W) as u32, (HEIGHT / TILE_H) as u32, 1),
         );
-        */
         cmd_buf.write_timestamp(&query_pool, 4);
         cmd_buf.memory_barrier();
         cmd_buf.image_barrier(&self.image_dev, ImageLayout::General, ImageLayout::BlitSrc);

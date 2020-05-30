@@ -16,6 +16,7 @@ layout(set = 0, binding = 1) buffer BinsBuf {
 };
 
 layout(set = 0, binding = 2) buffer AllocBuf {
+    uint n_elements;
     uint alloc;
 };
 
@@ -31,15 +32,6 @@ layout(set = 0, binding = 3) buffer PtclBuf {
 
 shared uint sh_elements[N_RINGBUF];
 shared float sh_right_edge[N_RINGBUF];
-shared uint sh_chunk[N_WG];
-shared uint sh_chunk_next[N_WG];
-shared uint sh_chunk_n[N_WG];
-shared uint sh_min_buf;
-// Some of these are kept in shared memory to ease register
-// pressure, but it could go either way.
-shared uint sh_first_el[N_WG];
-shared uint sh_selected_n;
-shared uint sh_elements_ref;
 
 shared uint sh_bitmaps[N_SLICE][N_TILE];
 shared uint sh_backdrop[N_SLICE][N_TILE];
@@ -96,14 +88,16 @@ void main() {
     // Could use either linear or 2d layouts for both dispatch and
     // invocations within the workgroup. We'll use variables to abstract.
     uint bin_ix = N_TILE_X * gl_WorkGroupID.y + gl_WorkGroupID.x;
+    uint partition_ix = 0;
+    uint my_n_elements = n_elements;
     // Top left coordinates of this bin.
     vec2 xy0 = vec2(N_TILE_X * TILE_WIDTH_PX * gl_WorkGroupID.x, N_TILE_Y * TILE_HEIGHT_PX * gl_WorkGroupID.y);
     uint th_ix = gl_LocalInvocationID.x;
 
     uint tile_x = N_TILE_X * gl_WorkGroupID.x + gl_LocalInvocationID.x % N_TILE_X;
     uint tile_y = N_TILE_Y * gl_WorkGroupID.y + gl_LocalInvocationID.x / N_TILE_X;
-    uint tile_ix = tile_y * WIDTH_IN_TILES + tile_x;
-    CmdRef cmd_ref = CmdRef(tile_ix * PTCL_INITIAL_ALLOC);
+    uint this_tile_ix = tile_y * WIDTH_IN_TILES + tile_x;
+    CmdRef cmd_ref = CmdRef(this_tile_ix * PTCL_INITIAL_ALLOC);
     uint cmd_limit = cmd_ref.offset + PTCL_INITIAL_ALLOC - 2 * Cmd_size;
 
     // Allocation and management of segment output
@@ -115,16 +109,6 @@ void main() {
 
     uint wr_ix = 0;
     uint rd_ix = 0;
-    uint first_el;
-    if (th_ix < N_WG) {
-        uint start_chunk = (bin_ix * N_WG + th_ix) * BIN_INITIAL_ALLOC;
-        sh_chunk[th_ix] = start_chunk;
-        BinChunk chunk = BinChunk_read(BinChunkRef(start_chunk));
-        sh_chunk_n[th_ix] = chunk.n;
-        sh_chunk_next[th_ix] = chunk.next.offset;
-        sh_first_el[th_ix] = chunk.n > 0 ?
-            BinInstance_read(BinInstanceRef(start_chunk + BinChunk_size)).element_ix : ~0;
-    }
     if (th_ix < N_SLICE) {
         sh_bd_sign[th_ix] = 0;
     }
@@ -138,47 +122,11 @@ void main() {
             sh_is_segment[th_ix] = 0;
         }
 
-        while (wr_ix - rd_ix <= N_TILE) {
-            // Choose segment with least element.
-            uint my_min;
-            if (th_ix < N_WG) {
-                if (th_ix == 0) {
-                    sh_selected_n = 0;
-                    sh_min_buf = ~0;
-                }
-            }
-            barrier();
-            // Tempting to do this with subgroups, but atomic should be good enough.
-            if (th_ix < N_WG) {
-                my_min = sh_first_el[th_ix];
-                atomicMin(sh_min_buf, my_min);
-            }
-            barrier();
-            if (th_ix < N_WG) {
-                if (my_min == sh_min_buf && my_min != ~0) {
-                    sh_elements_ref = sh_chunk[th_ix] + BinChunk_size;
-                    uint selected_n = sh_chunk_n[th_ix];
-                    sh_selected_n = selected_n;
-                    uint next_chunk = sh_chunk_next[th_ix];
-                    if (next_chunk == 0) {
-                        sh_first_el[th_ix] = ~0;
-                    } else {
-                        sh_chunk[th_ix] = next_chunk;
-                        BinChunk chunk = BinChunk_read(BinChunkRef(next_chunk));
-                        sh_chunk_n[th_ix] = chunk.n;
-                        sh_chunk_next[th_ix] = chunk.next.offset;
-                        sh_first_el[th_ix] = BinInstance_read(
-                            BinInstanceRef(next_chunk + BinChunk_size)).element_ix;
-                    }
-                }
-            }
-            barrier();
-            uint chunk_n = sh_selected_n;
-            if (chunk_n == 0) {
-                // All chunks consumed
-                break;
-            }
-            BinInstanceRef inst_ref = BinInstanceRef(sh_elements_ref);
+        while (wr_ix - rd_ix <= N_TILE && partition_ix * N_TILE < my_n_elements) {
+            uint in_ix = (partition_ix * N_TILE + bin_ix) * 2;
+            uint chunk_n = bins[in_ix];
+            uint elements_ref = bins[in_ix + 1];
+            BinInstanceRef inst_ref = BinInstanceRef(elements_ref);
             if (th_ix < chunk_n) {
                 BinInstance inst = BinInstance_read(BinInstance_index(inst_ref, th_ix));
                 uint wr_el_ix = (wr_ix + th_ix) % N_RINGBUF;
@@ -186,6 +134,7 @@ void main() {
                 sh_right_edge[wr_el_ix] = inst.right_edge;
             }
             wr_ix += chunk_n;
+            partition_ix++;
         }
         barrier();
 
