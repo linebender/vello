@@ -1016,7 +1016,7 @@ unsafe fn choose_compute_device(
     devices: &[vk::PhysicalDevice],
     surface: Option<&VkSurface>,
 ) -> Option<(vk::PhysicalDevice, u32)> {
-    for pdevice in devices {
+    for pdevice in &devices[1..] {
         let props = instance.get_physical_device_queue_family_properties(*pdevice);
         for (ix, info) in props.iter().enumerate() {
             // Check for surface presentation support

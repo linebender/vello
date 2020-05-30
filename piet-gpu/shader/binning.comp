@@ -45,8 +45,6 @@ shared uint bitmaps[N_SLICE][N_TILE];
 shared uint count[N_SLICE][N_TILE];
 shared uint sh_my_tile;
 shared uint sh_chunk_start[N_TILE];
-shared uint sh_chunk_end[N_TILE];
-shared uint sh_chunk_jump[N_TILE];
 
 shared float sh_right_edge[N_TILE];
 
@@ -57,8 +55,6 @@ uint state_right_edge_index(uint partition_ix) {
 }
 
 void main() {
-    BinChunkRef chunk_ref = BinChunkRef((gl_LocalInvocationID.x * N_WG + gl_WorkGroupID.x) * BIN_INITIAL_ALLOC);
-    uint wr_limit = chunk_ref.offset + BIN_INITIAL_ALLOC;
     uint chunk_n = 0;
     uint my_n_elements = n_elements;
     while (true) {
@@ -169,41 +165,15 @@ void main() {
             count[i][gl_LocalInvocationID.x] = element_count;
         }
         // element_count is number of elements covering bin for this invocation.
+        uint chunk_start = 0;
         if (element_count != 0) {
-            uint chunk_end;
-            uint chunk_new_start;
-            // Refactor to reduce code duplication?
-            if (chunk_n > 0) {
-                uint next_chunk = chunk_ref.offset + BinChunk_size + chunk_n * BinInstance_size;
-                if (next_chunk + BinChunk_size + min(24, element_count * BinInstance_size) > wr_limit) {
-                    uint alloc_amount = max(BIN_ALLOC, BinChunk_size + element_count * BinInstance_size);
-                    // could try to reduce fragmentation if BIN_ALLOC is only a bit above needed
-                    next_chunk = atomicAdd(alloc, alloc_amount);
-                    wr_limit = next_chunk + alloc_amount;
-                }
-                BinChunk_write(chunk_ref, BinChunk(chunk_n, BinChunkRef(next_chunk)));
-                chunk_ref = BinChunkRef(next_chunk);
-            }
-            BinInstanceRef instance_ref = BinInstanceRef(chunk_ref.offset + BinChunk_size);
-            if (instance_ref.offset + element_count * BinInstance_size > wr_limit) {
-                chunk_end = wr_limit;
-                chunk_n = (wr_limit - instance_ref.offset) / BinInstance_size;
-                uint alloc_amount = max(BIN_ALLOC, BinChunk_size + (element_count - chunk_n) * BinInstance_size);
-                chunk_new_start = atomicAdd(alloc, alloc_amount);
-                wr_limit = chunk_new_start + alloc_amount;
-                BinChunk_write(chunk_ref, BinChunk(chunk_n, BinChunkRef(chunk_new_start)));
-                chunk_ref = BinChunkRef(chunk_new_start);
-                chunk_new_start += BinChunk_size;
-                chunk_n = element_count - chunk_n;
-            } else {
-                chunk_end = ~0;
-                chunk_new_start = ~0;
-                chunk_n = element_count;
-            }
-            sh_chunk_start[gl_LocalInvocationID.x] = instance_ref.offset;
-            sh_chunk_end[gl_LocalInvocationID.x] = chunk_end;
-            sh_chunk_jump[gl_LocalInvocationID.x] = chunk_new_start - chunk_end;
+            // TODO: aggregate atomic adds (subgroup is probably fastest)
+            chunk_start = atomicAdd(alloc, element_count * BinInstance_size);
+            sh_chunk_start[gl_LocalInvocationID.x] = chunk_start;
         }
+        uint out_ix = (my_tile * N_TILE + gl_LocalInvocationID.x) * 2;
+        bins[out_ix] = element_count;
+        bins[out_ix + 1] = chunk_start;
 
         barrier();
         // Use similar strategy as Laine & Karras paper; loop over bbox of bins
@@ -219,9 +189,6 @@ void main() {
                     idx += count[my_slice - 1][bin_ix];
                 }
                 uint out_offset = sh_chunk_start[bin_ix] + idx * BinInstance_size;
-                if (out_offset >= sh_chunk_end[bin_ix]) {
-                    out_offset += sh_chunk_jump[bin_ix];
-                }
                 BinInstance_write(BinInstanceRef(out_offset), BinInstance(element_ix, my_right_edge));
             }
             x++;
@@ -231,5 +198,4 @@ void main() {
             }
         }
     }
-    BinChunk_write(chunk_ref, BinChunk(chunk_n, BinChunkRef(0)));
 }

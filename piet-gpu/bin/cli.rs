@@ -181,12 +181,10 @@ fn main() -> Result<(), Error> {
         println!("Coarse kernel time: {:.3}ms", (ts[2] - ts[1]) * 1e3);
         println!("Render kernel time: {:.3}ms", (ts[3] - ts[2]) * 1e3);
 
-        /*
         let mut data: Vec<u32> = Default::default();
-        device.read_buffer(&renderer.ptcl_buf, &mut data).unwrap();
-        //piet_gpu::dump_k1_data(&data);
-        trace_ptcl(&data);
-        */
+        device.read_buffer(&renderer.bin_buf, &mut data).unwrap();
+        piet_gpu::dump_k1_data(&data);
+        //trace_ptcl(&data);
 
         let mut img_data: Vec<u8> = Default::default();
         // Note: because png can use a `&[u8]` slice, we could avoid an extra copy

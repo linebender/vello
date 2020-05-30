@@ -160,7 +160,7 @@ impl<D: Device> Renderer<D> {
 
         let state_buf = device.create_buffer(1 * 1024 * 1024, dev)?;
         let anno_buf = device.create_buffer(64 * 1024 * 1024, dev)?;
-        let bin_buf = device.create_buffer(64 * 1024 * 1024, dev)?;
+        let bin_buf = device.create_buffer(64 * 1024 * 1024, host)?;
         let ptcl_buf = device.create_buffer(48 * 1024 * 1024, dev)?;
         let image_dev = device.create_image2d(WIDTH as u32, HEIGHT as u32, dev)?;
 
@@ -176,12 +176,12 @@ impl<D: Device> Renderer<D> {
         let bin_alloc_buf_dev = device.create_buffer(12, dev)?;
 
         // TODO: constants
-        let bin_alloc_start = 256 * 64 * N_WG;
+        let bin_alloc_start = ((n_elements + 255) & !255) * 8;
         device
             .write_buffer(&bin_alloc_buf_host, &[
                 n_elements as u32,
                 0,
-                bin_alloc_start,
+                bin_alloc_start as u32,
             ])
             ?;
         let bin_code = include_bytes!("../shader/binning.spv");
@@ -268,18 +268,22 @@ impl<D: Device> Renderer<D> {
         );
         cmd_buf.write_timestamp(&query_pool, 2);
         cmd_buf.memory_barrier();
+        /*
         cmd_buf.dispatch(
             &self.coarse_pipeline,
             &self.coarse_ds,
             (WIDTH as u32 / 256, HEIGHT as u32 / 256, 1),
         );
+        */
         cmd_buf.write_timestamp(&query_pool, 3);
         cmd_buf.memory_barrier();
+        /*
         cmd_buf.dispatch(
             &self.k4_pipeline,
             &self.k4_ds,
             ((WIDTH / TILE_W) as u32, (HEIGHT / TILE_H) as u32, 1),
         );
+        */
         cmd_buf.write_timestamp(&query_pool, 4);
         cmd_buf.memory_barrier();
         cmd_buf.image_barrier(&self.image_dev, ImageLayout::General, ImageLayout::BlitSrc);
