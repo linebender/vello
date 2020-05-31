@@ -28,13 +28,11 @@ layout(set = 0, binding = 3) buffer PtclBuf {
 #include "bins.h"
 #include "ptcl.h"
 
-#define N_RINGBUF 512
-
 #define LG_N_PART_READ 8
 #define N_PART_READ (1 << LG_N_PART_READ)
 
-shared uint sh_elements[N_RINGBUF];
-shared float sh_right_edge[N_RINGBUF];
+shared uint sh_elements[N_TILE];
+shared float sh_right_edge[N_TILE];
 
 // Number of elements in the partition; prefix sum.
 shared uint sh_part_count[N_PART_READ];
@@ -178,15 +176,13 @@ void main() {
                 ix -= part_ix > 0 ? sh_part_count[part_ix - 1] : part_start_ix;
                 BinInstanceRef inst_ref = BinInstanceRef(sh_part_elements[part_ix]);
                 BinInstance inst = BinInstance_read(BinInstance_index(inst_ref, ix));
-                uint wr_el_ix = (rd_ix + th_ix) % N_RINGBUF;
-                sh_elements[wr_el_ix] = inst.element_ix;
-                sh_right_edge[wr_el_ix] = inst.right_edge;
+                sh_elements[th_ix] = inst.element_ix;
+                sh_right_edge[th_ix] = inst.right_edge;
             }
             barrier();
 
             wr_ix = min(rd_ix + N_TILE, ready_ix);
         } while (wr_ix - rd_ix < N_TILE && (wr_ix < ready_ix || partition_ix < n_partitions));
-
 
         // We've done the merge and filled the buffer.
 
@@ -195,9 +191,8 @@ void main() {
         AnnotatedRef ref;
         float right_edge = 0.0;
         if (th_ix + rd_ix < wr_ix) {
-            uint rd_el_ix = (rd_ix + th_ix) % N_RINGBUF;
-            uint element_ix = sh_elements[rd_el_ix];
-            right_edge = sh_right_edge[rd_el_ix];
+            uint element_ix = sh_elements[th_ix];
+            right_edge = sh_right_edge[th_ix];
             ref = AnnotatedRef(element_ix * Annotated_size);
             tag = Annotated_tag(ref);
         }
@@ -355,7 +350,7 @@ void main() {
                 }
             }
             uint out_offset = seg_alloc + Segment_size * ix + SegChunk_size;
-            uint rd_el_ix = (rd_ix + slice_ix * 32 + bit_ix) % N_RINGBUF;
+            uint rd_el_ix = slice_ix * 32 + bit_ix;
             uint element_ix = sh_elements[rd_el_ix];
             ref = AnnotatedRef(element_ix * Annotated_size);
             AnnoFillLineSeg line = Annotated_FillLine_read(ref);
@@ -407,7 +402,7 @@ void main() {
                 }
             }
             uint element_ref_ix = slice_ix * 32 + findLSB(nonseg_bitmap);
-            uint element_ix = sh_elements[(rd_ix + element_ref_ix) % N_RINGBUF];
+            uint element_ix = sh_elements[element_ref_ix];
 
             // Bits up to and including the lsb
             uint bd_mask = (nonseg_bitmap - 1) ^ nonseg_bitmap;
