@@ -2,10 +2,12 @@ use std::fs::File;
 use std::io::BufWriter;
 use std::path::Path;
 
+use clap::{Arg, App};
+
 use piet_gpu_hal::vulkan::VkInstance;
 use piet_gpu_hal::{CmdBuf, Device, Error, MemFlags};
 
-use piet_gpu::{render_scene, PietGpuRenderContext, Renderer, HEIGHT, WIDTH};
+use piet_gpu::{render_scene, render_svg, PietGpuRenderContext, Renderer, HEIGHT, WIDTH};
 
 #[allow(unused)]
 fn dump_scene(buf: &[u8]) {
@@ -152,6 +154,17 @@ fn trace_ptcl(buf: &[u32]) {
 
 
 fn main() -> Result<(), Error> {
+    let matches = App::new("piet-gpu test")
+        .arg(Arg::with_name("INPUT")
+            .index(1))
+        .arg(Arg::with_name("flip")
+            .short("f")
+            .long("flip"))
+        .arg(Arg::with_name("scale")
+            .short("s")
+            .long("scale")
+            .takes_value(true))
+        .get_matches();
     let (instance, _) = VkInstance::new(None)?;
     unsafe {
         let device = instance.device(None)?;
@@ -161,7 +174,17 @@ fn main() -> Result<(), Error> {
         let query_pool = device.create_query_pool(5)?;
 
         let mut ctx = PietGpuRenderContext::new();
-        render_scene(&mut ctx);
+        if let Some(input) = matches.value_of("INPUT") {
+            let mut scale = matches.value_of("scale")
+                .map(|scale| scale.parse().unwrap())
+                .unwrap_or(8.0);
+            if matches.is_present("flip") {
+                scale = -scale;
+            }
+            render_svg(&mut ctx, input, scale);
+        } else {
+            render_scene(&mut ctx);
+        }
         let scene = ctx.get_scene_buf();
         //dump_scene(&scene);
 

@@ -29,6 +29,7 @@ pub struct FillItem {
 }
 
 struct Parser<'a> {
+    scale: f64,
     items: &'a mut Vec<Item>,
 }
 
@@ -37,7 +38,7 @@ impl PicoSvg {
         let doc = Document::parse(xml_string)?;
         let root = doc.root_element();
         let mut items = Vec::new();
-        let mut parser = Parser::new(&mut items);
+        let mut parser = Parser::new(&mut items, scale);
         for node in root.children() {
             parser.rec_parse(node)?;
         }
@@ -60,13 +61,16 @@ impl PicoSvg {
 }
 
 impl<'a> Parser<'a> {
-    fn new(items: &'a mut Vec<Item>) -> Parser<'a> {
-        Parser {
-            items
-        }
+    fn new(items: &'a mut Vec<Item>, scale: f64) -> Parser<'a> {
+        Parser { scale, items }
     }
 
     fn rec_parse(&mut self, node: Node) -> Result<(), Box<dyn std::error::Error>> {
+        let transform = if self.scale >= 0.0 {
+            Affine::scale(self.scale)
+        } else {
+            Affine::new([-self.scale, 0.0, 0.0, self.scale, 0.0, 1536.0])
+        };
         if node.is_element() {
             match node.tag_name().name() {
                 "g" => {
@@ -77,21 +81,28 @@ impl<'a> Parser<'a> {
                 "path" => {
                     let d = node.attribute("d").ok_or("missing 'd' attribute")?;
                     let bp = BezPath::from_svg(d)?;
-                    let path = Affine::new([1.5, 0.0, 0.0, -1.5, 0.0, 1500.0]) * bp;
+                    let path = transform * bp;
                     // TODO: default fill color is black, but this is overridden in tiger to this logic.
                     if let Some(fill_color) = node.attribute("fill") {
                         if fill_color != "none" {
                             let color = parse_color(fill_color);
                             let color = modify_opacity(color, "fill-opacity", node);
-                            self.items.push(Item::Fill(FillItem { color, path: path.clone() }));
+                            self.items.push(Item::Fill(FillItem {
+                                color,
+                                path: path.clone(),
+                            }));
                         }
                     }
                     if let Some(stroke_color) = node.attribute("stroke") {
                         if stroke_color != "none" {
-                            let width = 1.5 * f64::from_str(node.attribute("stroke-width").ok_or("missing width")?)?;
+                            let width = self.scale.abs()
+                                * f64::from_str(
+                                    node.attribute("stroke-width").ok_or("missing width")?,
+                                )?;
                             let color = parse_color(stroke_color);
                             let color = modify_opacity(color, "stroke-opacity", node);
-                            self.items.push(Item::Stroke(StrokeItem { width, color, path }));
+                            self.items
+                                .push(Item::Stroke(StrokeItem { width, color, path }));
                         }
                     }
                 }
