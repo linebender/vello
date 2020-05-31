@@ -176,12 +176,12 @@ impl<D: Device> Renderer<D> {
         let bin_alloc_buf_dev = device.create_buffer(12, dev)?;
 
         // TODO: constants
-        let bin_alloc_start = 256 * 64 * N_WG;
+        let bin_alloc_start = ((n_elements + 255) & !255) * 8;
         device
             .write_buffer(&bin_alloc_buf_host, &[
                 n_elements as u32,
                 0,
-                bin_alloc_start,
+                bin_alloc_start as u32,
             ])
             ?;
         let bin_code = include_bytes!("../shader/binning.spv");
@@ -192,12 +192,13 @@ impl<D: Device> Renderer<D> {
             &[],
         )?;
 
-        let coarse_alloc_buf_host = device.create_buffer(4, host)?;
-        let coarse_alloc_buf_dev = device.create_buffer(4, dev)?;
+        let coarse_alloc_buf_host = device.create_buffer(8, host)?;
+        let coarse_alloc_buf_dev = device.create_buffer(8, dev)?;
 
         let coarse_alloc_start = WIDTH_IN_TILES * HEIGHT_IN_TILES * PTCL_INITIAL_ALLOC;
         device
             .write_buffer(&coarse_alloc_buf_host, &[
+                n_elements as u32,
                 coarse_alloc_start as u32,
             ])
             ?;
@@ -264,7 +265,7 @@ impl<D: Device> Renderer<D> {
         cmd_buf.dispatch(
             &self.bin_pipeline,
             &self.bin_ds,
-            (N_WG, 1, 1),
+            (((self.n_elements + 255) / 256) as u32, 1, 1),
         );
         cmd_buf.write_timestamp(&query_pool, 2);
         cmd_buf.memory_barrier();

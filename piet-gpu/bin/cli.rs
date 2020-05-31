@@ -184,8 +184,8 @@ fn main() -> Result<(), Error> {
         /*
         let mut data: Vec<u32> = Default::default();
         device.read_buffer(&renderer.ptcl_buf, &mut data).unwrap();
-        //piet_gpu::dump_k1_data(&data);
-        trace_ptcl(&data);
+        piet_gpu::dump_k1_data(&data);
+        //trace_ptcl(&data);
         */
 
         let mut img_data: Vec<u8> = Default::default();
