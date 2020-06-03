@@ -5,7 +5,8 @@
 
 #include "setup.h"
 
-#define TILE_ALLOC_WG 32
+#define LG_TILE_ALLOC_WG 5
+#define TILE_ALLOC_WG (1 << LG_TILE_ALLOC_WG)
 
 layout(local_size_x = TILE_ALLOC_WG, local_size_y = 1) in;
 
@@ -30,7 +31,11 @@ layout(set = 0, binding = 2) buffer TileBuf {
 #define SX (1.0 / float(TILE_WIDTH_PX))
 #define SY (1.0 / float(TILE_HEIGHT_PX))
 
+shared uint sh_tile_count[TILE_ALLOC_WG];
+shared uint sh_tile_alloc;
+
 void main() {
+    uint th_ix = gl_LocalInvocationID.x;
     uint element_ix = gl_GlobalInvocationID.x;
     PathRef path_ref = PathRef(element_ix * Path_size);
     AnnotatedRef ref = AnnotatedRef(element_ix * Annotated_size);
@@ -59,15 +64,35 @@ void main() {
 
     Path path;
     path.bbox = uvec4(x0, y0, x1, y1);
-    uint n_tiles = (x1 - x0) * (y1 - y0);
-    path.tiles = TileRef(0);
-    if (n_tiles > 0) {
-        path.tiles.offset = atomicAdd(alloc, n_tiles * Tile_size);
-        Tile init_tile = Tile(TileSegRef(0), 0);
-        // TODO: improve load balancing
-        for (uint i = 0; i < n_tiles; i++) {
-            Tile_write(Tile_index(path.tiles, i), init_tile);
+    uint tile_count = (x1 - x0) * (y1 - y0);
+    uint n_tiles = tile_count;
+
+    sh_tile_count[th_ix] = tile_count;
+    // Prefix sum of sh_tile_count
+    for (uint i = 0; i < LG_TILE_ALLOC_WG; i++) {
+        barrier();
+        if (th_ix >= (1 << i)) {
+            tile_count += sh_tile_count[th_ix - (1 << i)];
         }
+        barrier();
+        sh_tile_count[th_ix] = tile_count;
     }
+    if (th_ix == TILE_ALLOC_WG - 1) {
+        sh_tile_alloc = atomicAdd(alloc, tile_count * Tile_size);
+    }
+    barrier();
+    uint alloc_start = sh_tile_alloc;
+
+    uint tile_subix = th_ix > 0 ? sh_tile_count[th_ix - 1] : 0;
+    path.tiles = TileRef(alloc_start + Tile_size * tile_subix);
     Path_write(path_ref, path);
+
+    // Zero out allocated tiles efficiently
+    uint total_count = sh_tile_count[TILE_ALLOC_WG - 1] * (Tile_size / 4);
+    uint start_ix = alloc_start >> 2;
+    for (uint i = th_ix; i < total_count; i += TILE_ALLOC_WG) {
+        // Note: this interleaving is faster than using Tile_write
+        // by a significant amount.
+        tile[start_ix + i] = 0;
+    }
 }
