@@ -17,9 +17,14 @@ layout(set = 0, binding = 0) buffer PtclBuf {
     uint[] ptcl;
 };
 
-layout(rgba8, set = 0, binding = 1) uniform writeonly image2D image;
+layout(set = 0, binding = 1) buffer TileBuf {
+    uint[] tile;
+};
+
+layout(rgba8, set = 0, binding = 2) uniform writeonly image2D image;
 
 #include "ptcl.h"
+#include "tile.h"
 
 #include "setup.h"
 
@@ -57,28 +62,25 @@ void main() {
             CmdStroke stroke = Cmd_Stroke_read(cmd_ref);
             float df[CHUNK];
             for (uint k = 0; k < CHUNK; k++) df[k] = 1e9;
-            SegChunkRef seg_chunk_ref = stroke.seg_ref;
+            TileSegRef tile_seg_ref = TileSegRef(stroke.tile_ref);
             do {
-                SegChunk seg_chunk = SegChunk_read(seg_chunk_ref);
-                SegmentRef segs = seg_chunk.segs;
-                for (int i = 0; i < seg_chunk.n; i++) {
-                    Segment seg = Segment_read(Segment_index(segs, i));
-                    vec2 line_vec = seg.end - seg.start;
-                    for (uint k = 0; k < CHUNK; k++) {
-                        vec2 dpos = xy + vec2(0.5, 0.5) - seg.start;
-                        dpos.y += float(k * CHUNK_DY);
-                        float t = clamp(dot(line_vec, dpos) / dot(line_vec, line_vec), 0.0, 1.0);
-                        df[k] = min(df[k], length(line_vec * t - dpos));
-                    }
+                TileSeg seg = TileSeg_read(tile_seg_ref);
+                vec2 line_vec = seg.end - seg.start;
+                for (uint k = 0; k < CHUNK; k++) {
+                    vec2 dpos = xy + vec2(0.5, 0.5) - seg.start;
+                    dpos.y += float(k * CHUNK_DY);
+                    float t = clamp(dot(line_vec, dpos) / dot(line_vec, line_vec), 0.0, 1.0);
+                    df[k] = min(df[k], length(line_vec * t - dpos));
                 }
-                seg_chunk_ref = seg_chunk.next;
-            } while (seg_chunk_ref.offset != 0);
+                tile_seg_ref = seg.next;
+            } while (tile_seg_ref.offset != 0);
             fg_rgba = unpackUnorm4x8(stroke.rgba_color).wzyx;
             for (uint k = 0; k < CHUNK; k++) {
                 float alpha = clamp(stroke.half_width + 0.5 - df[k], 0.0, 1.0);
                 rgb[k] = mix(rgb[k], fg_rgba.rgb, alpha * fg_rgba.a);
             }
             break;
+        /*
         case Cmd_Fill:
             CmdFill fill = Cmd_Fill_read(cmd_ref);
             // Probably better to store as float, but conversion is no doubt cheap.
@@ -117,6 +119,7 @@ void main() {
                 rgb[k] = mix(rgb[k], fg_rgba.rgb, alpha * fg_rgba.a);
             }
             break;
+        */
         case Cmd_Solid:
             CmdSolid solid = Cmd_Solid_read(cmd_ref);
             fg_rgba = unpackUnorm4x8(solid.rgba_color).wzyx;

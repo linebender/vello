@@ -171,7 +171,7 @@ fn main() -> Result<(), Error> {
 
         let fence = device.create_fence(false)?;
         let mut cmd_buf = device.create_cmd_buf()?;
-        let query_pool = device.create_query_pool(5)?;
+        let query_pool = device.create_query_pool(7)?;
 
         let mut ctx = PietGpuRenderContext::new();
         if let Some(input) = matches.value_of("INPUT") {
@@ -204,14 +204,16 @@ fn main() -> Result<(), Error> {
         println!("Element kernel time: {:.3}ms", ts[0] * 1e3);
         println!("Tile allocation kernel time: {:.3}ms", (ts[1] - ts[0]) * 1e3);
         println!("Coarse path kernel time: {:.3}ms", (ts[2] - ts[1]) * 1e3);
-        /*
-        println!("Render kernel time: {:.3}ms", (ts[3] - ts[2]) * 1e3);
-        */
+        println!("Binning kernel time: {:.3}ms", (ts[3] - ts[2]) * 1e3);
+        println!("Coarse raster kernel time: {:.3}ms", (ts[4] - ts[3]) * 1e3);
+        println!("Render kernel time: {:.3}ms", (ts[5] - ts[4]) * 1e3);
 
+        /*
         let mut data: Vec<u32> = Default::default();
-        device.read_buffer(&renderer.tile_buf, &mut data).unwrap();
+        device.read_buffer(&renderer.ptcl_buf, &mut data).unwrap();
         piet_gpu::dump_k1_data(&data);
         //trace_ptcl(&data);
+        */
 
         let mut img_data: Vec<u8> = Default::default();
         // Note: because png can use a `&[u8]` slice, we could avoid an extra copy

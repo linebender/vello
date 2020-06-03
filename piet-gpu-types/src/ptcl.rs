@@ -13,8 +13,9 @@ piet_gpu! {
             end: [f32; 2],
         }
         struct CmdStroke {
-            // Consider a specialization to one segment.
-            seg_ref: Ref<SegChunk>,
+            // This is really a Ref<Tile>, but we don't have cross-module
+            // references.
+            tile_ref: u32,
             half_width: f32,
             rgba_color: u32,
         }

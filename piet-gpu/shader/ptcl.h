@@ -68,7 +68,7 @@ CmdLineRef CmdLine_index(CmdLineRef ref, uint index) {
 }
 
 struct CmdStroke {
-    SegChunkRef seg_ref;
+    uint tile_ref;
     float half_width;
     uint rgba_color;
 };
@@ -220,7 +220,7 @@ CmdStroke CmdStroke_read(CmdStrokeRef ref) {
     uint raw1 = ptcl[ix + 1];
     uint raw2 = ptcl[ix + 2];
     CmdStroke s;
-    s.seg_ref = SegChunkRef(raw0);
+    s.tile_ref = raw0;
     s.half_width = uintBitsToFloat(raw1);
     s.rgba_color = raw2;
     return s;
@@ -228,7 +228,7 @@ CmdStroke CmdStroke_read(CmdStrokeRef ref) {
 
 void CmdStroke_write(CmdStrokeRef ref, CmdStroke s) {
     uint ix = ref.offset >> 2;
-    ptcl[ix + 0] = s.seg_ref.offset;
+    ptcl[ix + 0] = s.tile_ref;
     ptcl[ix + 1] = floatBitsToUint(s.half_width);
     ptcl[ix + 2] = s.rgba_color;
 }

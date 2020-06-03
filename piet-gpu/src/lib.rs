@@ -183,9 +183,9 @@ impl<D: Device> Renderer<D> {
         device.write_buffer(&scene_buf, &scene)?;
 
         let state_buf = device.create_buffer(1 * 1024 * 1024, dev)?;
-        let anno_buf = device.create_buffer(64 * 1024 * 1024, host)?;
-        let pathseg_buf = device.create_buffer(64 * 1024 * 1024, host)?;
-        let tile_buf = device.create_buffer(64 * 1024 * 1024, host)?;
+        let anno_buf = device.create_buffer(64 * 1024 * 1024, dev)?;
+        let pathseg_buf = device.create_buffer(64 * 1024 * 1024, dev)?;
+        let tile_buf = device.create_buffer(64 * 1024 * 1024, dev)?;
         let bin_buf = device.create_buffer(64 * 1024 * 1024, dev)?;
         let ptcl_buf = device.create_buffer(48 * 1024 * 1024, dev)?;
         let image_dev = device.create_image2d(WIDTH as u32, HEIGHT as u32, dev)?;
@@ -228,10 +228,10 @@ impl<D: Device> Renderer<D> {
         let bin_alloc_buf_dev = device.create_buffer(12, dev)?;
 
         // TODO: constants
-        let bin_alloc_start = ((n_elements + 255) & !255) * 8;
+        let bin_alloc_start = ((n_paths + 255) & !255) * 8;
         device.write_buffer(
             &bin_alloc_buf_host,
-            &[n_elements as u32, 0, bin_alloc_start as u32],
+            &[n_paths as u32, 0, bin_alloc_start as u32],
         )?;
         let bin_code = include_bytes!("../shader/binning.spv");
         let bin_pipeline = device.create_simple_compute_pipeline(bin_code, 4, 0)?;
@@ -250,16 +250,20 @@ impl<D: Device> Renderer<D> {
             &[n_elements as u32, coarse_alloc_start as u32],
         )?;
         let coarse_code = include_bytes!("../shader/coarse.spv");
-        let coarse_pipeline = device.create_simple_compute_pipeline(coarse_code, 4, 0)?;
+        let coarse_pipeline = device.create_simple_compute_pipeline(coarse_code, 5, 0)?;
         let coarse_ds = device.create_descriptor_set(
             &coarse_pipeline,
-            &[&anno_buf, &bin_buf, &coarse_alloc_buf_dev, &ptcl_buf],
+            &[&anno_buf, &bin_buf, &tile_buf, &coarse_alloc_buf_dev, &ptcl_buf],
             &[],
         )?;
 
         let k4_code = include_bytes!("../shader/kernel4.spv");
-        let k4_pipeline = device.create_simple_compute_pipeline(k4_code, 1, 1)?;
-        let k4_ds = device.create_descriptor_set(&k4_pipeline, &[&ptcl_buf], &[&image_dev])?;
+        let k4_pipeline = device.create_simple_compute_pipeline(k4_code, 2, 1)?;
+        let k4_ds = device.create_descriptor_set(
+            &k4_pipeline, 
+            &[&ptcl_buf, &tile_buf], 
+            &[&image_dev]
+        )?;
 
         Ok(Renderer {
             scene_buf,
@@ -328,32 +332,31 @@ impl<D: Device> Renderer<D> {
             &self.path_ds,
             (((self.n_pathseg + 31) / 32) as u32, 1, 1),
         );
-        /*
+        cmd_buf.write_timestamp(&query_pool, 3);
+        // Note: this barrier is not needed as an actual dependency between
+        // pipeline stages, but I am keeping it in so that timer queries are
+        // easier to interpret.
+        cmd_buf.memory_barrier();
         cmd_buf.dispatch(
             &self.bin_pipeline,
             &self.bin_ds,
-            (((self.n_elements + 255) / 256) as u32, 1, 1),
+            (((self.n_paths + 255) / 256) as u32, 1, 1),
         );
-        */
-        cmd_buf.write_timestamp(&query_pool, 3);
+        cmd_buf.write_timestamp(&query_pool, 4);
         cmd_buf.memory_barrier();
-        /*
         cmd_buf.dispatch(
             &self.coarse_pipeline,
             &self.coarse_ds,
             (WIDTH as u32 / 256, HEIGHT as u32 / 256, 1),
         );
-        */
-        cmd_buf.write_timestamp(&query_pool, 4);
+        cmd_buf.write_timestamp(&query_pool, 5);
         cmd_buf.memory_barrier();
-        /*
         cmd_buf.dispatch(
             &self.k4_pipeline,
             &self.k4_ds,
             ((WIDTH / TILE_W) as u32, (HEIGHT / TILE_H) as u32, 1),
         );
-        cmd_buf.write_timestamp(&query_pool, 5);
-        */
+        cmd_buf.write_timestamp(&query_pool, 6);
         cmd_buf.memory_barrier();
         cmd_buf.image_barrier(&self.image_dev, ImageLayout::General, ImageLayout::BlitSrc);
     }

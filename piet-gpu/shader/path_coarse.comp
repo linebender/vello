@@ -78,7 +78,7 @@ void main() {
     int stride = bbox.z - bbox.x;
     int base = (y0 - bbox.y) * stride - bbox.x;
     // TODO: can be tighter, use c to bound width
-    uint n_tile_alloc = uint(stride * (bbox.w - bbox.y));
+    uint n_tile_alloc = uint((x1 - x0) * (y1 - y0));
     // Consider using subgroups to aggregate atomic add.
     uint tile_offset = atomicAdd(alloc, n_tile_alloc * TileSeg_size);
     TileSeg tile_seg;
