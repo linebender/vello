@@ -185,10 +185,12 @@ fn main() -> Result<(), Error> {
         } else {
             render_scene(&mut ctx);
         }
+        let n_paths = ctx.path_count();
+        let n_pathseg = ctx.pathseg_count();
         let scene = ctx.get_scene_buf();
         //dump_scene(&scene);
 
-        let renderer = Renderer::new(&device, scene)?;
+        let renderer = Renderer::new(&device, scene, n_paths, n_pathseg)?;
         let image_buf =
             device.create_buffer((WIDTH * HEIGHT * 4) as u64, MemFlags::host_coherent())?;
 
@@ -200,16 +202,16 @@ fn main() -> Result<(), Error> {
         device.wait_and_reset(&[fence])?;
         let ts = device.reap_query_pool(&query_pool).unwrap();
         println!("Element kernel time: {:.3}ms", ts[0] * 1e3);
-        println!("Binning kernel time: {:.3}ms", (ts[1] - ts[0]) * 1e3);
-        println!("Coarse kernel time: {:.3}ms", (ts[2] - ts[1]) * 1e3);
-        println!("Render kernel time: {:.3}ms", (ts[3] - ts[2]) * 1e3);
-
+        println!("Tile allocation kernel time: {:.3}ms", (ts[1] - ts[0]) * 1e3);
+        println!("Coarse path kernel time: {:.3}ms", (ts[2] - ts[1]) * 1e3);
         /*
+        println!("Render kernel time: {:.3}ms", (ts[3] - ts[2]) * 1e3);
+        */
+
         let mut data: Vec<u32> = Default::default();
-        device.read_buffer(&renderer.ptcl_buf, &mut data).unwrap();
+        device.read_buffer(&renderer.tile_buf, &mut data).unwrap();
         piet_gpu::dump_k1_data(&data);
         //trace_ptcl(&data);
-        */
 
         let mut img_data: Vec<u8> = Default::default();
         // Note: because png can use a `&[u8]` slice, we could avoid an extra copy

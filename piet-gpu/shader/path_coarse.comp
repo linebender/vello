@@ -1,0 +1,107 @@
+// Coarse rasterization of path segments.
+
+// Allocation and initialization of tiles for paths.
+
+#version 450
+#extension GL_GOOGLE_include_directive : enable
+
+#include "setup.h"
+
+#define TILE_ALLOC_WG 32
+
+layout(local_size_x = TILE_ALLOC_WG, local_size_y = 1) in;
+
+layout(set = 0, binding = 0) buffer PathSegBuf {
+    uint[] pathseg;
+};
+
+layout(set = 0, binding = 1) buffer AllocBuf {
+    uint n_paths;
+    uint n_pathseg;
+    uint alloc;
+};
+
+layout(set = 0, binding = 2) buffer TileBuf {
+    uint[] tile;
+};
+
+#include "pathseg.h"
+#include "tile.h"
+
+// scale factors useful for converting coordinates to tiles
+#define SX (1.0 / float(TILE_WIDTH_PX))
+#define SY (1.0 / float(TILE_HEIGHT_PX))
+
+void main() {
+    uint element_ix = gl_GlobalInvocationID.x;
+    PathSegRef ref = PathSegRef(element_ix * PathSeg_size);
+
+    uint tag = PathSeg_Nop;
+    if (element_ix < n_pathseg) {
+        tag = PathSeg_tag(ref);
+    }
+    // Setup for coverage algorithm.
+    float a, b, c;
+    // Bounding box of element in pixel coordinates.
+    float xmin, xmax, ymin, ymax;
+    PathStrokeLine line;
+    switch (tag) {
+    case PathSeg_FillLine:
+    case PathSeg_StrokeLine:
+        line = PathSeg_StrokeLine_read(ref);
+        xmin = min(line.p0.x, line.p1.x) - line.stroke.x;
+        xmax = max(line.p0.x, line.p1.x) + line.stroke.x;
+        ymin = min(line.p0.y, line.p1.y) - line.stroke.y;
+        ymax = max(line.p0.y, line.p1.y) + line.stroke.y;
+        float dx = line.p1.x - line.p0.x;
+        float dy = line.p1.y - line.p0.y;
+        // Set up for per-scanline coverage formula, below.
+        float invslope = abs(dy) < 1e-9 ? 1e9 : dx / dy;
+        c = (line.stroke.x + abs(invslope) * (0.5 * float(TILE_HEIGHT_PX) + line.stroke.y)) * SX;
+        b = invslope; // Note: assumes square tiles, otherwise scale.
+        a = (line.p0.x - (line.p0.y - 0.5 * float(TILE_HEIGHT_PX)) * b) * SX;
+        break;
+    }
+    int x0 = int(floor((xmin) * SX));
+    int x1 = int(ceil((xmax) * SX));
+    int y0 = int(floor((ymin) * SY));
+    int y1 = int(ceil((ymax) * SY));
+    
+    uint path_ix = line.path_ix;
+    Path path = Path_read(PathRef(path_ix * Path_size));
+    ivec4 bbox = ivec4(path.bbox);
+    x0 = clamp(x0, bbox.x, bbox.z);
+    y0 = clamp(y0, bbox.y, bbox.w);
+    x1 = clamp(x1, bbox.x, bbox.z);
+    y1 = clamp(y1, bbox.y, bbox.w);
+    float t = a + b * float(y0);
+    int stride = bbox.z - bbox.x;
+    int base = (y0 - bbox.y) * stride - bbox.x;
+    // TODO: can be tighter, use c to bound width
+    uint n_tile_alloc = uint(stride * (bbox.w - bbox.y));
+    // Consider using subgroups to aggregate atomic add.
+    uint tile_offset = atomicAdd(alloc, n_tile_alloc * TileSeg_size);
+    TileSeg tile_seg;
+    tile_seg.start = line.p0;
+    tile_seg.end = line.p1;
+    for (int y = y0; y < y1; y++) {
+        int xx0 = clamp(int(floor(t - c)), x0, x1);
+        int xx1 = clamp(int(ceil(t + c)), x0, x1);
+        for (int x = xx0; x < xx1; x++) {
+            TileRef tile_ref = Tile_index(path.tiles, uint(base + x));
+            uint tile_el = tile_ref.offset >> 2;
+            uint old;
+            uint actual;
+            do {
+                old = tile[tile_el];
+                actual = atomicCompSwap(tile[tile_el], old, tile_offset);
+            } while (actual != old);
+            tile_seg.next.offset = old;
+            TileSeg_write(TileSegRef(tile_offset), tile_seg);
+            tile_offset += TileSeg_size;
+        }
+        // TODO for fills: backdrop
+        t += b;
+        base += stride;
+    }
+}

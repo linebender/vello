@@ -35,6 +35,10 @@ pub struct PietGpuRenderContext {
     // Will probably need direct accesss to hal Device to create images etc.
     inner_text: PietGpuText,
     stroke_width: f32,
+    // We're tallying these cpu-side for expedience, but will probably
+    // move this to some kind of readback from element processing.
+    path_count: usize,
+    pathseg_count: usize,
 }
 
 #[derive(Clone)]
@@ -56,12 +60,22 @@ impl PietGpuRenderContext {
             elements,
             inner_text,
             stroke_width,
+            path_count: 0,
+            pathseg_count: 0,
         }
     }
 
     pub fn get_scene_buf(&mut self) -> &[u8] {
         self.elements.encode(&mut self.encoder);
         self.encoder.buf()
+    }
+
+    pub fn path_count(&self) -> usize {
+        self.path_count
+    }
+
+    pub fn pathseg_count(&self) -> usize {
+        self.pathseg_count
     }
 }
 
@@ -99,6 +113,7 @@ impl RenderContext for PietGpuRenderContext {
             PietGpuBrush::Solid(rgba_color) => {
                 let stroke = Stroke { rgba_color };
                 self.elements.push(Element::Stroke(stroke));
+                self.path_count += 1;
             }
             _ => (),
         }
@@ -121,6 +136,7 @@ impl RenderContext for PietGpuRenderContext {
             PietGpuBrush::Solid(rgba_color) => {
                 let fill = Fill { rgba_color };
                 self.elements.push(Element::Fill(fill));
+                self.path_count += 1;
             }
             _ => (),
         }
@@ -204,6 +220,7 @@ impl PietGpuRenderContext {
         } else {
             self.elements.push(Element::StrokeLine(seg));
         }
+        self.pathseg_count += 1;
     }
 
     fn encode_path(&mut self, path: impl Iterator<Item = PathEl>, is_fill: bool) {

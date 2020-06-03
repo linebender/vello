@@ -31,9 +31,10 @@ struct AnnotatedRef {
 struct AnnoFillLineSeg {
     vec2 p0;
     vec2 p1;
+    uint path_ix;
 };
 
-#define AnnoFillLineSeg_size 16
+#define AnnoFillLineSeg_size 20
 
 AnnoFillLineSegRef AnnoFillLineSeg_index(AnnoFillLineSegRef ref, uint index) {
     return AnnoFillLineSegRef(ref.offset + index * AnnoFillLineSeg_size);
@@ -42,10 +43,11 @@ AnnoFillLineSegRef AnnoFillLineSeg_index(AnnoFillLineSegRef ref, uint index) {
 struct AnnoStrokeLineSeg {
     vec2 p0;
     vec2 p1;
+    uint path_ix;
     vec2 stroke;
 };
 
-#define AnnoStrokeLineSeg_size 24
+#define AnnoStrokeLineSeg_size 28
 
 AnnoStrokeLineSegRef AnnoStrokeLineSeg_index(AnnoStrokeLineSegRef ref, uint index) {
     return AnnoStrokeLineSegRef(ref.offset + index * AnnoStrokeLineSeg_size);
@@ -120,9 +122,11 @@ AnnoFillLineSeg AnnoFillLineSeg_read(AnnoFillLineSegRef ref) {
     uint raw1 = annotated[ix + 1];
     uint raw2 = annotated[ix + 2];
     uint raw3 = annotated[ix + 3];
+    uint raw4 = annotated[ix + 4];
     AnnoFillLineSeg s;
     s.p0 = vec2(uintBitsToFloat(raw0), uintBitsToFloat(raw1));
     s.p1 = vec2(uintBitsToFloat(raw2), uintBitsToFloat(raw3));
+    s.path_ix = raw4;
     return s;
 }
 
@@ -132,6 +136,7 @@ void AnnoFillLineSeg_write(AnnoFillLineSegRef ref, AnnoFillLineSeg s) {
     annotated[ix + 1] = floatBitsToUint(s.p0.y);
     annotated[ix + 2] = floatBitsToUint(s.p1.x);
     annotated[ix + 3] = floatBitsToUint(s.p1.y);
+    annotated[ix + 4] = s.path_ix;
 }
 
 AnnoStrokeLineSeg AnnoStrokeLineSeg_read(AnnoStrokeLineSegRef ref) {
@@ -142,10 +147,12 @@ AnnoStrokeLineSeg AnnoStrokeLineSeg_read(AnnoStrokeLineSegRef ref) {
     uint raw3 = annotated[ix + 3];
     uint raw4 = annotated[ix + 4];
     uint raw5 = annotated[ix + 5];
+    uint raw6 = annotated[ix + 6];
     AnnoStrokeLineSeg s;
     s.p0 = vec2(uintBitsToFloat(raw0), uintBitsToFloat(raw1));
     s.p1 = vec2(uintBitsToFloat(raw2), uintBitsToFloat(raw3));
-    s.stroke = vec2(uintBitsToFloat(raw4), uintBitsToFloat(raw5));
+    s.path_ix = raw4;
+    s.stroke = vec2(uintBitsToFloat(raw5), uintBitsToFloat(raw6));
     return s;
 }
 
@@ -155,8 +162,9 @@ void AnnoStrokeLineSeg_write(AnnoStrokeLineSegRef ref, AnnoStrokeLineSeg s) {
     annotated[ix + 1] = floatBitsToUint(s.p0.y);
     annotated[ix + 2] = floatBitsToUint(s.p1.x);
     annotated[ix + 3] = floatBitsToUint(s.p1.y);
-    annotated[ix + 4] = floatBitsToUint(s.stroke.x);
-    annotated[ix + 5] = floatBitsToUint(s.stroke.y);
+    annotated[ix + 4] = s.path_ix;
+    annotated[ix + 5] = floatBitsToUint(s.stroke.x);
+    annotated[ix + 6] = floatBitsToUint(s.stroke.y);
 }
 
 AnnoQuadSeg AnnoQuadSeg_read(AnnoQuadSegRef ref) {

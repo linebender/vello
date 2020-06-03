@@ -1,0 +1,73 @@
+// Allocation and initialization of tiles for paths.
+
+#version 450
+#extension GL_GOOGLE_include_directive : enable
+
+#include "setup.h"
+
+#define TILE_ALLOC_WG 32
+
+layout(local_size_x = TILE_ALLOC_WG, local_size_y = 1) in;
+
+layout(set = 0, binding = 0) buffer AnnotatedBuf {
+    uint[] annotated;
+};
+
+layout(set = 0, binding = 1) buffer AllocBuf {
+    uint n_elements;
+    uint n_pathseg;
+    uint alloc;
+};
+
+layout(set = 0, binding = 2) buffer TileBuf {
+    uint[] tile;
+};
+
+#include "annotated.h"
+#include "tile.h"
+
+// scale factors useful for converting coordinates to tiles
+#define SX (1.0 / float(TILE_WIDTH_PX))
+#define SY (1.0 / float(TILE_HEIGHT_PX))
+
+void main() {
+    uint element_ix = gl_GlobalInvocationID.x;
+    PathRef path_ref = PathRef(element_ix * Path_size);
+    AnnotatedRef ref = AnnotatedRef(element_ix * Annotated_size);
+
+    uint tag = Annotated_Nop;
+    if (element_ix < n_elements) {
+        tag = Annotated_tag(ref);
+    }
+    int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+    switch (tag) {
+    case Annotated_Fill:
+    case Annotated_Stroke:
+        // Note: we take advantage of the fact that fills and strokes
+        // have compatible layout.
+        AnnoFill fill = Annotated_Fill_read(ref);
+        x0 = int(floor(fill.bbox.x * SX));
+        y0 = int(floor(fill.bbox.y * SY));
+        x1 = int(ceil(fill.bbox.z * SX));
+        y1 = int(ceil(fill.bbox.w * SY));
+        break;
+    }
+    x0 = clamp(x0, 0, WIDTH_IN_TILES);
+    y0 = clamp(y0, 0, HEIGHT_IN_TILES);
+    x1 = clamp(x1, 0, WIDTH_IN_TILES);
+    y1 = clamp(y1, 0, HEIGHT_IN_TILES);
+
+    Path path;
+    path.bbox = uvec4(x0, y0, x1, y1);
+    uint n_tiles = (x1 - x0) * (y1 - y0);
+    path.tiles = TileRef(0);
+    if (n_tiles > 0) {
+        path.tiles.offset = atomicAdd(alloc, n_tiles * Tile_size);
+        Tile init_tile = Tile(TileSegRef(0), 0);
+        // TODO: improve load balancing
+        for (uint i = 0; i < n_tiles; i++) {
+            Tile_write(Tile_index(path.tiles, i), init_tile);
+        }
+    }
+    Path_write(path_ref, path);
+}
