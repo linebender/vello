@@ -247,7 +247,7 @@ impl<D: Device> Renderer<D> {
         let coarse_alloc_start = WIDTH_IN_TILES * HEIGHT_IN_TILES * PTCL_INITIAL_ALLOC;
         device.write_buffer(
             &coarse_alloc_buf_host,
-            &[n_elements as u32, coarse_alloc_start as u32],
+            &[n_paths as u32, coarse_alloc_start as u32],
         )?;
         let coarse_code = include_bytes!("../shader/coarse.spv");
         let coarse_pipeline = device.create_simple_compute_pipeline(coarse_code, 5, 0)?;
@@ -323,7 +323,7 @@ impl<D: Device> Renderer<D> {
         cmd_buf.dispatch(
             &self.tile_pipeline,
             &self.tile_ds,
-            (((self.n_paths + 31) / 32) as u32, 1, 1),
+            (((self.n_paths + 255) / 256) as u32, 1, 1),
         );
         cmd_buf.write_timestamp(&query_pool, 2);
         cmd_buf.memory_barrier();
