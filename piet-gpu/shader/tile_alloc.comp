@@ -83,9 +83,11 @@ void main() {
     barrier();
     uint alloc_start = sh_tile_alloc;
 
-    uint tile_subix = th_ix > 0 ? sh_tile_count[th_ix - 1] : 0;
-    path.tiles = TileRef(alloc_start + Tile_size * tile_subix);
-    Path_write(path_ref, path);
+    if (element_ix < n_elements) {
+        uint tile_subix = th_ix > 0 ? sh_tile_count[th_ix - 1] : 0;
+        path.tiles = TileRef(alloc_start + Tile_size * tile_subix);
+        Path_write(path_ref, path);
+    }
 
     // Zero out allocated tiles efficiently
     uint total_count = sh_tile_count[TILE_ALLOC_WG - 1] * (Tile_size / 4);
