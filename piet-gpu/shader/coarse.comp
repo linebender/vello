@@ -51,6 +51,10 @@ shared uint sh_tile_width[N_TILE];
 shared uint sh_tile_x0[N_TILE];
 shared uint sh_tile_y0[N_TILE];
 
+// These are set up so base + tile_y * stride + tile_x points to a Tile.
+shared uint sh_tile_base[N_TILE];
+shared uint sh_tile_stride[N_TILE];
+
 // scale factors useful for converting coordinates to tiles
 #define SX (1.0 / float(TILE_WIDTH_PX))
 #define SY (1.0 / float(TILE_HEIGHT_PX))
@@ -76,9 +80,12 @@ void main() {
     vec2 xy0 = vec2(N_TILE_X * TILE_WIDTH_PX * gl_WorkGroupID.x, N_TILE_Y * TILE_HEIGHT_PX * gl_WorkGroupID.y);
     uint th_ix = gl_LocalInvocationID.x;
 
-    uint tile_x = N_TILE_X * gl_WorkGroupID.x + gl_LocalInvocationID.x % N_TILE_X;
-    uint tile_y = N_TILE_Y * gl_WorkGroupID.y + gl_LocalInvocationID.x / N_TILE_X;
-    uint this_tile_ix = tile_y * WIDTH_IN_TILES + tile_x;
+    // Coordinates of top left of bin, in tiles.
+    uint bin_tile_x = N_TILE_X * gl_WorkGroupID.x;
+    uint bin_tile_y = N_TILE_Y * gl_WorkGroupID.y;
+    uint tile_x = gl_LocalInvocationID.x % N_TILE_X;
+    uint tile_y = gl_LocalInvocationID.x / N_TILE_X;
+    uint this_tile_ix = (bin_tile_y + tile_y) * WIDTH_IN_TILES + bin_tile_x + tile_x;
     CmdRef cmd_ref = CmdRef(this_tile_ix * PTCL_INITIAL_ALLOC);
     uint cmd_limit = cmd_ref.offset + PTCL_INITIAL_ALLOC - 2 * Cmd_size;
 
@@ -151,52 +158,47 @@ void main() {
 
         // Read one element, compute coverage.
         uint tag = Annotated_Nop;
+        uint element_ix;
         AnnotatedRef ref;
         float right_edge = 0.0;
         if (th_ix + rd_ix < wr_ix) {
-            uint element_ix = sh_elements[th_ix];
+            element_ix = sh_elements[th_ix];
             right_edge = sh_right_edge[th_ix];
             ref = AnnotatedRef(element_ix * Annotated_size);
             tag = Annotated_tag(ref);
         }
 
         // Bounding box of element in pixel coordinates.
-        float xmin, xmax, ymin, ymax;
+        uint tile_count;
         switch (tag) {
         case Annotated_Fill:
         case Annotated_Stroke:
-            // Note: we take advantage of the fact that fills and strokes
-            // have compatible layout.
-            AnnoFill fill = Annotated_Fill_read(ref);
-            xmin = fill.bbox.x;
-            xmax = fill.bbox.z;
-            ymin = fill.bbox.y;
-            ymax = fill.bbox.w;
+            // Because the only elements we're processing right now are
+            // paths, we can just use the element index as the path index.
+            // In future, when we're doing a bunch of stuff, the path index
+            // should probably be stored in the annotated element.
+            uint path_ix = element_ix;
+            Path path = Path_read(PathRef(path_ix * Path_size));
+            uint stride = path.bbox.z - path.bbox.x;
+            sh_tile_stride[th_ix] = stride;
+            int dx = int(path.bbox.x) - int(bin_tile_x);
+            int dy = int(path.bbox.y) - int(bin_tile_y);
+            int x0 = clamp(dx, 0, N_TILE_X);
+            int y0 = clamp(dy, 0, N_TILE_Y);
+            int x1 = clamp(int(path.bbox.z) - int(bin_tile_x), 0, N_TILE_X);
+            int y1 = clamp(int(path.bbox.w) - int(bin_tile_y), 0, N_TILE_Y);
+            sh_tile_width[th_ix] = uint(x1 - x0);
+            sh_tile_x0[th_ix] = x0;
+            sh_tile_y0[th_ix] = y0;
+            tile_count = uint(x1 - x0) * uint(y1 - y0);
+            // base relative to bin
+            uint base = path.tiles.offset - uint(dy * stride + dx) * Tile_size;
+            sh_tile_base[th_ix] = base;
             break;
         default:
-            ymin = 0;
-            ymax = 0;
+            tile_count = 0;
             break;
         }
-
-        // Draw the coverage area into the bitmasks. This uses an algorithm
-        // that computes the coverage of a span for given scanline.
-
-        // Compute bounding box in tiles and clip to this bin.
-        int x0 = int(floor((xmin - xy0.x) * SX));
-        int x1 = int(ceil((xmax - xy0.x) * SX));
-        int y0 = int(floor((ymin - xy0.y) * SY));
-        int y1 = int(ceil((ymax - xy0.y) * SY));
-
-        x0 = clamp(x0, 0, N_TILE_X);
-        x1 = clamp(x1, x0, N_TILE_X);
-        y0 = clamp(y0, 0, N_TILE_Y);
-        y1 = clamp(y1, y0, N_TILE_Y);
-
-        uint tile_count = uint((x1 - x0) * (y1 - y0));
-        sh_tile_width[th_ix] = uint(x1 - x0);
-        sh_tile_x0[th_ix] = uint(x0);
-        sh_tile_y0[th_ix] = uint(y0);
 
         // Prefix sum of sh_tile_count
         sh_tile_count[th_ix] = tile_count;
@@ -223,19 +225,11 @@ void main() {
             uint width = sh_tile_width[el_ix];
             uint x = sh_tile_x0[el_ix] + seq_ix % width;
             uint y = sh_tile_y0[el_ix] + seq_ix / width;
-            uint tile_x = x + gl_WorkGroupID.x * N_TILE_X;
-            uint tile_y = y + gl_WorkGroupID.y * N_TILE_Y;
-            uint element_ix = sh_elements[el_ix];
-            Path path = Path_read(PathRef(element_ix * Path_size));
-            if (tile_x >= path.bbox.x && tile_x < path.bbox.z && tile_y >= path.bbox.y && tile_y < path.bbox.w) {
-                uint stride = path.bbox.z - path.bbox.x;
-                uint tile_subix = (tile_y - path.bbox.y) * stride + tile_x - path.bbox.x;
-                Tile tile = Tile_read(Tile_index(path.tiles, tile_subix));
-                if (tile.tile.offset != 0) {
-                    uint el_slice = el_ix / 32;
-                    uint el_mask = 1 << (el_ix & 31);
-                    atomicOr(sh_bitmaps[el_slice][y * N_TILE_X + x], el_mask);
-                }
+            Tile tile = Tile_read(TileRef(sh_tile_base[el_ix] + (sh_tile_stride[el_ix] * y + x) * Tile_size));
+            if (tile.tile.offset != 0) {
+                uint el_slice = el_ix / 32;
+                uint el_mask = 1 << (el_ix & 31);
+                atomicOr(sh_bitmaps[el_slice][y * N_TILE_X + x], el_mask);
             }
         }
 
@@ -407,25 +401,16 @@ void main() {
                 break;
             */
             case Annotated_Stroke:
-                // Because the only elements we're processing right now are
-                // paths, we can just use the element index as the path index.
-                // In future, when we're doing a bunch of stuff, the path index
-                // should probably be stored in the annotated element.
-                uint path_ix = element_ix;
-                Path path = Path_read(PathRef(path_ix * Path_size));
-                uint stride = path.bbox.z - path.bbox.x;
-                uint tile_subix = (tile_y - path.bbox.y) * stride + tile_x - path.bbox.x;
-                Tile tile = Tile_read(Tile_index(path.tiles, tile_subix));
-                if (tile.tile.offset != 0) {
-                    AnnoStroke stroke = Annotated_Stroke_read(ref);
-                    CmdStroke cmd_stroke;
-                    cmd_stroke.tile_ref = tile.tile.offset;
-                    cmd_stroke.half_width = 0.5 * stroke.linewidth;
-                    cmd_stroke.rgba_color = stroke.rgba_color;
-                    alloc_cmd(cmd_ref, cmd_limit);
-                    Cmd_Stroke_write(cmd_ref, cmd_stroke);
-                    cmd_ref.offset += Cmd_size;
-                }
+                Tile tile = Tile_read(TileRef(sh_tile_base[element_ref_ix]
+                    + (sh_tile_stride[element_ref_ix] * tile_y + tile_x) * Tile_size));
+                AnnoStroke stroke = Annotated_Stroke_read(ref);
+                CmdStroke cmd_stroke;
+                cmd_stroke.tile_ref = tile.tile.offset;
+                cmd_stroke.half_width = 0.5 * stroke.linewidth;
+                cmd_stroke.rgba_color = stroke.rgba_color;
+                alloc_cmd(cmd_ref, cmd_limit);
+                Cmd_Stroke_write(cmd_ref, cmd_stroke);
+                cmd_ref.offset += Cmd_size;
                 break;
             }
         }
