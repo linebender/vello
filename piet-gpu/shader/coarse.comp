@@ -413,22 +413,18 @@ void main() {
                 // should probably be stored in the annotated element.
                 uint path_ix = element_ix;
                 Path path = Path_read(PathRef(path_ix * Path_size));
-                // It may be we have a strong guarantee this will always be `true`, but
-                // I prefer not to take chances.
-                if (tile_x >= path.bbox.x && tile_x < path.bbox.z && tile_y >= path.bbox.y && tile_y < path.bbox.w) {
-                    uint stride = path.bbox.z - path.bbox.x;
-                    uint tile_subix = (tile_y - path.bbox.y) * stride + tile_x - path.bbox.x;
-                    Tile tile = Tile_read(Tile_index(path.tiles, tile_subix));
-                    if (tile.tile.offset != 0) {
-                        AnnoStroke stroke = Annotated_Stroke_read(ref);
-                        CmdStroke cmd_stroke;
-                        cmd_stroke.tile_ref = tile.tile.offset;
-                        cmd_stroke.half_width = 0.5 * stroke.linewidth;
-                        cmd_stroke.rgba_color = stroke.rgba_color;
-                        alloc_cmd(cmd_ref, cmd_limit);
-                        Cmd_Stroke_write(cmd_ref, cmd_stroke);
-                        cmd_ref.offset += Cmd_size;
-                    }
+                uint stride = path.bbox.z - path.bbox.x;
+                uint tile_subix = (tile_y - path.bbox.y) * stride + tile_x - path.bbox.x;
+                Tile tile = Tile_read(Tile_index(path.tiles, tile_subix));
+                if (tile.tile.offset != 0) {
+                    AnnoStroke stroke = Annotated_Stroke_read(ref);
+                    CmdStroke cmd_stroke;
+                    cmd_stroke.tile_ref = tile.tile.offset;
+                    cmd_stroke.half_width = 0.5 * stroke.linewidth;
+                    cmd_stroke.rgba_color = stroke.rgba_color;
+                    alloc_cmd(cmd_ref, cmd_limit);
+                    Cmd_Stroke_write(cmd_ref, cmd_stroke);
+                    cmd_ref.offset += Cmd_size;
                 }
                 break;
             }
