@@ -2,7 +2,9 @@ use std::borrow::Cow;
 
 use piet_gpu_types::encoder::{Encode, Encoder, Ref};
 use piet_gpu_types::scene;
-use piet_gpu_types::scene::{Bbox, PietCircle, PietFill, PietItem, PietStrokePolyLine, SimpleGroup};
+use piet_gpu_types::scene::{
+    Bbox, PietCircle, PietFill, PietItem, PietStrokePolyLine, SimpleGroup,
+};
 
 use piet::kurbo::{Affine, PathEl, Point, Rect, Shape};
 

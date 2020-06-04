@@ -41,10 +41,14 @@ impl PicoSvg {
                 let path = Affine::scale(scale) * bp;
                 if let Some(fill_color) = el.attribute("fill") {
                     let color = parse_color(fill_color);
-                    items.push(Item::Fill(FillItem { color, path: path.clone() }));
+                    items.push(Item::Fill(FillItem {
+                        color,
+                        path: path.clone(),
+                    }));
                 }
                 if let Some(stroke_color) = el.attribute("stroke") {
-                    let width = f64::from_str(el.attribute("stroke-width").ok_or("missing width")?)?;
+                    let width =
+                        f64::from_str(el.attribute("stroke-width").ok_or("missing width")?)?;
                     let color = parse_color(stroke_color);
                     items.push(Item::Stroke(StrokeItem { width, color, path }));
                 }

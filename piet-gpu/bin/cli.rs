@@ -5,7 +5,7 @@ use std::path::Path;
 use piet_gpu_hal::vulkan::VkInstance;
 use piet_gpu_hal::{CmdBuf, Device, Error, MemFlags};
 
-use piet_gpu::{PietGpuRenderContext, Renderer, render_scene, WIDTH, HEIGHT};
+use piet_gpu::{render_scene, PietGpuRenderContext, Renderer, HEIGHT, WIDTH};
 
 #[allow(unused)]
 fn dump_scene(buf: &[u8]) {
@@ -31,7 +31,8 @@ fn main() -> Result<(), Error> {
         //dump_scene(&scene);
 
         let renderer = Renderer::new(&device, scene)?;
-        let image_buf = device.create_buffer((WIDTH * HEIGHT * 4) as u64, MemFlags::host_coherent())?;
+        let image_buf =
+            device.create_buffer((WIDTH * HEIGHT * 4) as u64, MemFlags::host_coherent())?;
 
         cmd_buf.begin();
         renderer.record(&mut cmd_buf, &query_pool);
