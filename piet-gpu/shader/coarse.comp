@@ -44,16 +44,12 @@ shared uint sh_part_count[N_PART_READ];
 shared uint sh_part_elements[N_PART_READ];
 
 shared uint sh_bitmaps[N_SLICE][N_TILE];
-shared uint sh_backdrop[N_SLICE][N_TILE];
-shared uint sh_bd_sign[N_SLICE];
-shared uint sh_is_segment[N_SLICE];
 
-// Shared state for parallel segment output stage
-
-// Count of total number of segments in each tile, then
-// inclusive prefix sum of same.
-shared uint sh_seg_count[N_TILE];
-shared uint sh_seg_alloc;
+shared uint sh_tile_count[N_TILE];
+// The width of the tile rect for the element, intersected with this bin
+shared uint sh_tile_width[N_TILE];
+shared uint sh_tile_x0[N_TILE];
+shared uint sh_tile_y0[N_TILE];
 
 // scale factors useful for converting coordinates to tiles
 #define SX (1.0 / float(TILE_WIDTH_PX))
@@ -68,30 +64,6 @@ void alloc_cmd(inout CmdRef cmd_ref, inout uint cmd_limit) {
         cmd_ref = CmdRef(new_cmd);
         cmd_limit = new_cmd + PTCL_INITIAL_ALLOC - 2 * Cmd_size;
     }
-}
-
-#define CHUNK_ALLOC_SLAB 16
-
-uint alloc_chunk_remaining;
-uint alloc_chunk_offset;
-
-SegChunkRef alloc_seg_chunk() {
-    if (alloc_chunk_remaining == 0) {
-        alloc_chunk_offset = atomicAdd(alloc, CHUNK_ALLOC_SLAB * SegChunk_size);
-        alloc_chunk_remaining = CHUNK_ALLOC_SLAB;
-    }
-    uint offset = alloc_chunk_offset;
-    alloc_chunk_offset += SegChunk_size;
-    alloc_chunk_remaining--;
-    return SegChunkRef(offset);
-}
-
-// Accumulate delta to backdrop.
-//
-// Each bit for which bd_bitmap is 1 and bd_sign is 1 counts as +1, and each
-// bit for which bd_bitmap is 1 and bd_sign is 0 counts as -1.
-int count_backdrop(uint bd_bitmap, uint bd_sign) {
-    return bitCount(bd_bitmap & bd_sign) - bitCount(bd_bitmap & ~bd_sign);
 }
 
 void main() {
@@ -110,13 +82,6 @@ void main() {
     CmdRef cmd_ref = CmdRef(this_tile_ix * PTCL_INITIAL_ALLOC);
     uint cmd_limit = cmd_ref.offset + PTCL_INITIAL_ALLOC - 2 * Cmd_size;
 
-    // Allocation and management of segment output
-    SegChunkRef first_seg_chunk = SegChunkRef(0);
-    SegChunkRef last_chunk_ref = SegChunkRef(0);
-    uint last_chunk_n = 0;
-    SegmentRef last_chunk_segs = SegmentRef(0);
-    alloc_chunk_remaining = 0;
-
     // I'm sure we can figure out how to do this with at least one fewer register...
     // Items up to rd_ix have been read from sh_elements
     uint rd_ix = 0;
@@ -125,17 +90,10 @@ void main() {
     // Items between part_start_ix and ready_ix are ready to be transferred from sh_part_elements
     uint part_start_ix = 0;
     uint ready_ix = 0;
-    if (th_ix < N_SLICE) {
-        sh_bd_sign[th_ix] = 0;
-    }
     int backdrop = 0;
     while (true) {
         for (uint i = 0; i < N_SLICE; i++) {
             sh_bitmaps[i][th_ix] = 0;
-            sh_backdrop[i][th_ix] = 0;
-        }
-        if (th_ix < N_SLICE) {
-            sh_is_segment[th_ix] = 0;
         }
 
         // parallel read of input partitions
@@ -204,8 +162,6 @@ void main() {
 
         // Bounding box of element in pixel coordinates.
         float xmin, xmax, ymin, ymax;
-        uint my_slice = th_ix / 32;
-        uint my_mask = 1 << (th_ix & 31);
         switch (tag) {
         case Annotated_Fill:
         case Annotated_Stroke:
@@ -231,15 +187,58 @@ void main() {
         int x1 = int(ceil((xmax - xy0.x) * SX));
         int y0 = int(floor((ymin - xy0.y) * SY));
         int y1 = int(ceil((ymax - xy0.y) * SY));
+
         x0 = clamp(x0, 0, N_TILE_X);
         x1 = clamp(x1, x0, N_TILE_X);
         y0 = clamp(y0, 0, N_TILE_Y);
         y1 = clamp(y1, y0, N_TILE_Y);
-        for (uint y = y0; y < y1; y++) {
-            for (uint x = x0; x < x1; x++) {
-                atomicOr(sh_bitmaps[my_slice][y * N_TILE_X + x], my_mask);
+
+        uint tile_count = uint((x1 - x0) * (y1 - y0));
+        sh_tile_width[th_ix] = uint(x1 - x0);
+        sh_tile_x0[th_ix] = uint(x0);
+        sh_tile_y0[th_ix] = uint(y0);
+
+        // Prefix sum of sh_tile_count
+        sh_tile_count[th_ix] = tile_count;
+        for (uint i = 0; i < LG_N_TILE; i++) {
+            barrier();
+            if (th_ix >= (1 << i)) {
+                tile_count += sh_tile_count[th_ix - (1 << i)];
+            }
+            barrier();
+            sh_tile_count[th_ix] = tile_count;
+        }
+        barrier();
+        uint total_tile_count = sh_tile_count[N_TILE - 1];
+        for (uint ix = th_ix; ix < total_tile_count; ix += N_TILE) {
+            // Binary search to find element
+            uint el_ix = 0;
+            for (uint i = 0; i < LG_N_TILE; i++) {
+                uint probe = el_ix + ((N_TILE / 2) >> i);
+                if (ix >= sh_tile_count[probe - 1]) {
+                    el_ix = probe;
+                }
+            }
+            uint seq_ix = ix - (el_ix > 0 ? sh_tile_count[el_ix - 1] : 0);
+            uint width = sh_tile_width[el_ix];
+            uint x = sh_tile_x0[el_ix] + seq_ix % width;
+            uint y = sh_tile_y0[el_ix] + seq_ix / width;
+            uint tile_x = x + gl_WorkGroupID.x * N_TILE_X;
+            uint tile_y = y + gl_WorkGroupID.y * N_TILE_Y;
+            uint element_ix = sh_elements[el_ix];
+            Path path = Path_read(PathRef(element_ix * Path_size));
+            if (tile_x >= path.bbox.x && tile_x < path.bbox.z && tile_y >= path.bbox.y && tile_y < path.bbox.w) {
+                uint stride = path.bbox.z - path.bbox.x;
+                uint tile_subix = (tile_y - path.bbox.y) * stride + tile_x - path.bbox.x;
+                Tile tile = Tile_read(Tile_index(path.tiles, tile_subix));
+                if (tile.tile.offset != 0) {
+                    uint el_slice = el_ix / 32;
+                    uint el_mask = 1 << (el_ix & 31);
+                    atomicOr(sh_bitmaps[el_slice][y * N_TILE_X + x], el_mask);
+                }
             }
         }
+
         barrier();
 
         // We've computed coverage and other info for each element in the input, now for
