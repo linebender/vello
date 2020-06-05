@@ -57,8 +57,8 @@ pub fn render_scene(rc: &mut impl RenderContext) {
         let circle = Circle::new(center, radius);
         rc.fill(circle, &color);
     }
-    /*
     let mut path = BezPath::new();
+    /*
     path.move_to((100.0, 1150.0));
     path.line_to((200.0, 1200.0));
     path.line_to((150.0, 1250.0));
@@ -143,6 +143,9 @@ pub struct Renderer<D: Device> {
     path_pipeline: D::Pipeline,
     path_ds: D::DescriptorSet,
 
+    backdrop_pipeline: D::Pipeline,
+    backdrop_ds: D::DescriptorSet,
+
     tile_alloc_buf_host: D::Buffer,
     tile_alloc_buf_dev: D::Buffer,
 
@@ -224,6 +227,14 @@ impl<D: Device> Renderer<D> {
             &[],
         )?;
 
+        let backdrop_alloc_code = include_bytes!("../shader/backdrop.spv");
+        let backdrop_pipeline = device.create_simple_compute_pipeline(backdrop_alloc_code, 3, 0)?;
+        let backdrop_ds = device.create_descriptor_set(
+            &backdrop_pipeline,
+            &[&anno_buf, &tile_alloc_buf_dev, &tile_buf],
+            &[],
+        )?;
+
         let bin_alloc_buf_host = device.create_buffer(12, host)?;
         let bin_alloc_buf_dev = device.create_buffer(12, dev)?;
 
@@ -275,6 +286,8 @@ impl<D: Device> Renderer<D> {
             tile_ds,
             path_pipeline,
             path_ds,
+            backdrop_pipeline,
+            backdrop_ds,
             bin_pipeline,
             bin_ds,
             coarse_pipeline,
@@ -333,6 +346,13 @@ impl<D: Device> Renderer<D> {
             (((self.n_pathseg + 31) / 32) as u32, 1, 1),
         );
         cmd_buf.write_timestamp(&query_pool, 3);
+        cmd_buf.memory_barrier();
+        cmd_buf.dispatch(
+            &self.backdrop_pipeline,
+            &self.backdrop_ds,
+            (((self.n_paths + 255) / 256) as u32, 1, 1),
+        );
+        cmd_buf.write_timestamp(&query_pool, 4);
         // Note: this barrier is not needed as an actual dependency between
         // pipeline stages, but I am keeping it in so that timer queries are
         // easier to interpret.
@@ -342,21 +362,21 @@ impl<D: Device> Renderer<D> {
             &self.bin_ds,
             (((self.n_paths + 255) / 256) as u32, 1, 1),
         );
-        cmd_buf.write_timestamp(&query_pool, 4);
+        cmd_buf.write_timestamp(&query_pool, 5);
         cmd_buf.memory_barrier();
         cmd_buf.dispatch(
             &self.coarse_pipeline,
             &self.coarse_ds,
             (WIDTH as u32 / 256, HEIGHT as u32 / 256, 1),
         );
-        cmd_buf.write_timestamp(&query_pool, 5);
+        cmd_buf.write_timestamp(&query_pool, 6);
         cmd_buf.memory_barrier();
         cmd_buf.dispatch(
             &self.k4_pipeline,
             &self.k4_ds,
             ((WIDTH / TILE_W) as u32, (HEIGHT / TILE_H) as u32, 1),
         );
-        cmd_buf.write_timestamp(&query_pool, 6);
+        cmd_buf.write_timestamp(&query_pool, 7);
         cmd_buf.memory_barrier();
         cmd_buf.image_barrier(&self.image_dev, ImageLayout::General, ImageLayout::BlitSrc);
     }

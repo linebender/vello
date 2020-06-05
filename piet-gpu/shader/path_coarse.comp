@@ -36,9 +36,11 @@ layout(set = 0, binding = 2) buffer TileBuf {
 shared uint sh_tile_count[COARSE_WG];
 shared uint sh_width[COARSE_WG];
 shared uint sh_draw_width[COARSE_WG];
+shared uint sh_tag[COARSE_WG];
 shared vec2 sh_p0[COARSE_WG];
 shared vec2 sh_p1[COARSE_WG];
 shared int sh_x0[COARSE_WG];
+shared int sh_bbox_x1[COARSE_WG];
 shared int sh_y0[COARSE_WG];
 shared float sh_a[COARSE_WG];
 shared float sh_b[COARSE_WG];
@@ -56,6 +58,7 @@ void main() {
     if (element_ix < n_pathseg) {
         tag = PathSeg_tag(ref);
     }
+    sh_tag[th_ix] = tag;
     // Setup for coverage algorithm.
     float a, b, c;
     // Bounding box of element in pixel coordinates.
@@ -96,6 +99,7 @@ void main() {
     x1 = clamp(x1, bbox.x, bbox.z);
     y1 = clamp(y1, bbox.y, bbox.w);
     sh_x0[th_ix] = x0;
+    sh_bbox_x1[th_ix] = bbox.z;
     // TODO: can get rid of this (fold into base), with care (also need to update `a`)
     sh_y0[th_ix] = y0;
     int stride = bbox.z - bbox.x;
@@ -138,7 +142,8 @@ void main() {
         int x1 = x0 + int(sh_width[el_ix]);
         int dx = int(seq_ix % draw_width);
         uint y = sh_y0[el_ix] + seq_ix / draw_width;
-        float t = sh_a[el_ix] + sh_b[el_ix] * float(y);
+        float b = sh_b[el_ix];
+        float t = sh_a[el_ix] + b * float(y);
         float c = sh_c[el_ix];
         int xx0 = clamp(int(floor(t - c)), x0, x1);
         int xx1 = clamp(int(ceil(t + c)), x0, x1);
@@ -148,8 +153,34 @@ void main() {
             uint tile_el = (sh_base[el_ix] + uint(y * sh_stride[el_ix] + x) * Tile_size) >> 2;
             uint old = atomicExchange(tile[tile_el], tile_offset);
             TileSeg tile_seg;
-            tile_seg.start = sh_p0[el_ix];
-            tile_seg.end = sh_p1[el_ix];
+            vec2 p0 = sh_p0[el_ix];
+            vec2 p1 = sh_p1[el_ix];
+            float y_edge = 0.0;
+            if (sh_tag[el_ix] == PathSeg_FillLine) {
+                vec2 tile_xy = vec2(x * TILE_WIDTH_PX, y * TILE_HEIGHT_PX);
+                if (dx == 0 && min(p0.y, p1.y) <= tile_xy.y) {
+                    // TODO: need a little more work to make sure this triggers even
+                    // when line is to the left of bbox.
+                    int xray = max(int(ceil(t - 0.5 * b)), x0);
+                    if (xray < sh_bbox_x1[el_ix]) {
+                        int backdrop = p1.y < p0.y ? 1 : -1;
+                        atomicAdd(tile[tile_el + 1 + 2 * (xray - x)], backdrop);
+                    }
+                }
+                y_edge = mix(p0.y, p1.y, (tile_xy.x - p0.x) / (p1.x - p0.x));
+                if (min(p0.x, p1.x) < tile_xy.x && y_edge >= tile_xy.y && y_edge < tile_xy.y + TILE_HEIGHT_PX) {
+                    if (p0.x > p1.x) {
+                        p1 = vec2(tile_xy.x, y_edge);
+                    } else {
+                        p0 = vec2(tile_xy.x, y_edge);
+                    }
+                } else {
+                    y_edge = 1e9;
+                }
+            }
+            tile_seg.start = p0;
+            tile_seg.end = p1;
+            tile_seg.y_edge = y_edge;
             tile_seg.next.offset = old;
             TileSeg_write(TileSegRef(tile_offset), tile_seg);
         }

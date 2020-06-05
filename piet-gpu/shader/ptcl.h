@@ -80,7 +80,7 @@ CmdStrokeRef CmdStroke_index(CmdStrokeRef ref, uint index) {
 }
 
 struct CmdFill {
-    SegChunkRef seg_ref;
+    uint tile_ref;
     int backdrop;
     uint rgba_color;
 };
@@ -239,7 +239,7 @@ CmdFill CmdFill_read(CmdFillRef ref) {
     uint raw1 = ptcl[ix + 1];
     uint raw2 = ptcl[ix + 2];
     CmdFill s;
-    s.seg_ref = SegChunkRef(raw0);
+    s.tile_ref = raw0;
     s.backdrop = int(raw1);
     s.rgba_color = raw2;
     return s;
@@ -247,7 +247,7 @@ CmdFill CmdFill_read(CmdFillRef ref) {
 
 void CmdFill_write(CmdFillRef ref, CmdFill s) {
     uint ix = ref.offset >> 2;
-    ptcl[ix + 0] = s.seg_ref.offset;
+    ptcl[ix + 0] = s.tile_ref;
     ptcl[ix + 1] = uint(s.backdrop);
     ptcl[ix + 2] = s.rgba_color;
 }

@@ -20,7 +20,8 @@ piet_gpu! {
             rgba_color: u32,
         }
         struct CmdFill {
-            seg_ref: Ref<SegChunk>,
+            // As above, really Ref<Tile>
+            tile_ref: u32,
             backdrop: i32,
             rgba_color: u32,
         }

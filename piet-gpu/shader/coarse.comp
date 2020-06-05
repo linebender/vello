@@ -226,7 +226,7 @@ void main() {
             uint x = sh_tile_x0[el_ix] + seq_ix % width;
             uint y = sh_tile_y0[el_ix] + seq_ix / width;
             Tile tile = Tile_read(TileRef(sh_tile_base[el_ix] + (sh_tile_stride[el_ix] * y + x) * Tile_size));
-            if (tile.tile.offset != 0) {
+            if (tile.tile.offset != 0 || tile.backdrop != 0) {
                 uint el_slice = el_ix / 32;
                 uint el_mask = 1 << (el_ix & 31);
                 atomicOr(sh_bitmaps[el_slice][y * N_TILE_X + x], el_mask);
@@ -357,51 +357,25 @@ void main() {
             tag = Annotated_tag(ref);
 
             switch (tag) {
-            /*
             case Annotated_Fill:
-                if (last_chunk_n > 0 || seg_count > 0) {
-                    SegChunkRef chunk_ref = SegChunkRef(0);
-                    if (seg_count > 0) {
-                        chunk_ref = alloc_seg_chunk();
-                        SegChunk chunk;
-                        chunk.n = seg_count;
-                        chunk.next = SegChunkRef(0);
-                        uint seg_offset = seg_alloc + seg_start * Segment_size;
-                        chunk.segs = SegmentRef(seg_offset);
-                        SegChunk_write(chunk_ref, chunk);
-                    }
-                    if (last_chunk_n > 0) {
-                        SegChunk chunk;
-                        chunk.n = last_chunk_n;
-                        chunk.next = chunk_ref;
-                        chunk.segs = last_chunk_segs;
-                        SegChunk_write(last_chunk_ref, chunk);
-                    } else {
-                        first_seg_chunk = chunk_ref;
-                    }
-
-                    AnnoFill fill = Annotated_Fill_read(ref);
-                    CmdFill cmd_fill;
-                    cmd_fill.seg_ref = first_seg_chunk;
-                    cmd_fill.backdrop = backdrop;
-                    cmd_fill.rgba_color = fill.rgba_color;
-                    alloc_cmd(cmd_ref, cmd_limit);
-                    Cmd_Fill_write(cmd_ref, cmd_fill);
-                    cmd_ref.offset += Cmd_size;
-                    last_chunk_n = 0;
-                } else if (backdrop != 0) {
-                    AnnoFill fill = Annotated_Fill_read(ref);
-                    alloc_cmd(cmd_ref, cmd_limit);
-                    Cmd_Solid_write(cmd_ref, CmdSolid(fill.rgba_color));
-                    cmd_ref.offset += Cmd_size;
-                }
-                seg_start += seg_count;
-                seg_count = 0;
-                backdrop = 0;
-                break;
-            */
-            case Annotated_Stroke:
                 Tile tile = Tile_read(TileRef(sh_tile_base[element_ref_ix]
+                    + (sh_tile_stride[element_ref_ix] * tile_y + tile_x) * Tile_size));
+                AnnoFill fill = Annotated_Fill_read(ref);
+                alloc_cmd(cmd_ref, cmd_limit);
+                if (tile.tile.offset != 0) {
+                    CmdFill cmd_fill;
+                    cmd_fill.tile_ref = tile.tile.offset;
+                    cmd_fill.backdrop = tile.backdrop;
+                    cmd_fill.rgba_color = fill.rgba_color;
+                    Cmd_Fill_write(cmd_ref, cmd_fill);
+                } else {
+                    AnnoFill fill = Annotated_Fill_read(ref);
+                    Cmd_Solid_write(cmd_ref, CmdSolid(fill.rgba_color));
+                }
+                cmd_ref.offset += Cmd_size;
+                break;
+            case Annotated_Stroke:
+                tile = Tile_read(TileRef(sh_tile_base[element_ref_ix]
                     + (sh_tile_stride[element_ref_ix] * tile_y + tile_x) * Tile_size));
                 AnnoStroke stroke = Annotated_Stroke_read(ref);
                 CmdStroke cmd_stroke;

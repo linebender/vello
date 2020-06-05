@@ -1,0 +1,56 @@
+// Propagation of tile backdrop for filling.
+
+#version 450
+#extension GL_GOOGLE_include_directive : enable
+
+#include "setup.h"
+
+#define BACKDROP_WG 256
+
+layout(local_size_x = BACKDROP_WG, local_size_y = 1) in;
+
+layout(set = 0, binding = 0) buffer AnnotatedBuf {
+    uint[] annotated;
+};
+
+// This is really only used for n_elements; maybe we can handle that
+// a different way, but it's convenient to have the same signature as
+// tile allocation.
+layout(set = 0, binding = 1) buffer AllocBuf {
+    uint n_elements;
+    uint n_pathseg;
+    uint alloc;
+};
+
+layout(set = 0, binding = 2) buffer TileBuf {
+    uint[] tile;
+};
+
+#include "annotated.h"
+#include "tile.h"
+
+void main() {
+    uint element_ix = gl_GlobalInvocationID.x;
+    AnnotatedRef ref = AnnotatedRef(element_ix * Annotated_size);
+
+    uint tag = Annotated_Nop;
+    if (element_ix < n_elements) {
+        tag = Annotated_tag(ref);
+    }
+    if (tag == Annotated_Fill) {
+        PathRef path_ref = PathRef(element_ix * Path_size);
+        Path path = Path_read(path_ref);
+        uint width = path.bbox.z - path.bbox.x;
+        uint height = path.bbox.w - path.bbox.y;
+        // slightly handrolling the tile structure here...
+        uint tile_el_ix = (path.tiles.offset >> 2) + 1;
+        for (uint y = 0; y < height; y++) {
+            uint sum = 0;
+            for (uint x = 0; x < width; x++) {
+                sum += tile[tile_el_ix];
+                tile[tile_el_ix] = sum;
+                tile_el_ix += 2;
+            }
+        }
+    }
+}
