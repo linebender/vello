@@ -34,6 +34,17 @@ const N_CIRCLES: usize = 0;
 
 const N_WG: u32 = 16;
 
+pub fn render_svg(rc: &mut impl RenderContext, filename: &str, scale: f64) {
+    let xml_str = std::fs::read_to_string(filename).unwrap();
+    let start = std::time::Instant::now();
+    let svg = PicoSvg::load(&xml_str, scale).unwrap();
+    println!("parsing time: {:?}", start.elapsed());
+
+    let start = std::time::Instant::now();
+    svg.render(rc);
+    println!("flattening and encoding time: {:?}", start.elapsed());
+}
+
 pub fn render_scene(rc: &mut impl RenderContext) {
     let mut rng = rand::thread_rng();
     for _ in 0..N_CIRCLES {
@@ -138,7 +149,7 @@ pub struct Renderer<D: Device> {
 
     k4_pipeline: D::Pipeline,
     k4_ds: D::DescriptorSet,
- 
+
     n_elements: usize,
 }
 
@@ -177,13 +188,10 @@ impl<D: Device> Renderer<D> {
 
         // TODO: constants
         let bin_alloc_start = ((n_elements + 255) & !255) * 8;
-        device
-            .write_buffer(&bin_alloc_buf_host, &[
-                n_elements as u32,
-                0,
-                bin_alloc_start as u32,
-            ])
-            ?;
+        device.write_buffer(
+            &bin_alloc_buf_host,
+            &[n_elements as u32, 0, bin_alloc_start as u32],
+        )?;
         let bin_code = include_bytes!("../shader/binning.spv");
         let bin_pipeline = device.create_simple_compute_pipeline(bin_code, 4, 0)?;
         let bin_ds = device.create_descriptor_set(
@@ -196,12 +204,10 @@ impl<D: Device> Renderer<D> {
         let coarse_alloc_buf_dev = device.create_buffer(8, dev)?;
 
         let coarse_alloc_start = WIDTH_IN_TILES * HEIGHT_IN_TILES * PTCL_INITIAL_ALLOC;
-        device
-            .write_buffer(&coarse_alloc_buf_host, &[
-                n_elements as u32,
-                coarse_alloc_start as u32,
-            ])
-            ?;
+        device.write_buffer(
+            &coarse_alloc_buf_host,
+            &[n_elements as u32, coarse_alloc_start as u32],
+        )?;
         let coarse_code = include_bytes!("../shader/coarse.spv");
         let coarse_pipeline = device.create_simple_compute_pipeline(coarse_code, 4, 0)?;
         let coarse_ds = device.create_descriptor_set(
@@ -212,11 +218,7 @@ impl<D: Device> Renderer<D> {
 
         let k4_code = include_bytes!("../shader/kernel4.spv");
         let k4_pipeline = device.create_simple_compute_pipeline(k4_code, 1, 1)?;
-        let k4_ds = device.create_descriptor_set(
-            &k4_pipeline,
-            &[&ptcl_buf],
-            &[&image_dev],
-        )?;
+        let k4_ds = device.create_descriptor_set(&k4_pipeline, &[&ptcl_buf], &[&image_dev])?;
 
         Ok(Renderer {
             scene_buf,
