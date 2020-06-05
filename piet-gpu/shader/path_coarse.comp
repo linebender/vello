@@ -146,12 +146,7 @@ void main() {
         if (x < xx1) {
             uint tile_offset = alloc_start + ix * TileSeg_size;
             uint tile_el = (sh_base[el_ix] + uint(y * sh_stride[el_ix] + x) * Tile_size) >> 2;
-            uint old;
-            uint actual;
-            do {
-                old = tile[tile_el];
-                actual = atomicCompSwap(tile[tile_el], old, tile_offset);
-            } while (actual != old);
+            uint old = atomicExchange(tile[tile_el], tile_offset);
             TileSeg tile_seg;
             tile_seg.start = sh_p0[el_ix];
             tile_seg.end = sh_p1[el_ix];
