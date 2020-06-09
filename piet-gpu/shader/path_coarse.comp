@@ -33,24 +33,7 @@ layout(set = 0, binding = 2) buffer TileBuf {
 #define SX (1.0 / float(TILE_WIDTH_PX))
 #define SY (1.0 / float(TILE_HEIGHT_PX))
 
-shared uint sh_tile_count[COARSE_WG];
-shared uint sh_width[COARSE_WG];
-shared uint sh_draw_width[COARSE_WG];
-shared uint sh_tag[COARSE_WG];
-shared vec2 sh_p0[COARSE_WG];
-shared vec2 sh_p1[COARSE_WG];
-shared int sh_x0[COARSE_WG];
-shared int sh_bbox_x1[COARSE_WG];
-shared int sh_y0[COARSE_WG];
-shared float sh_a[COARSE_WG];
-shared float sh_b[COARSE_WG];
-shared float sh_c[COARSE_WG];
-shared uint sh_base[COARSE_WG];
-shared uint sh_stride[COARSE_WG];
-shared uint sh_alloc_start;
-
 void main() {
-    uint th_ix = gl_LocalInvocationID.x;
     uint element_ix = gl_GlobalInvocationID.x;
     PathSegRef ref = PathSegRef(element_ix * PathSeg_size);
 
@@ -58,32 +41,27 @@ void main() {
     if (element_ix < n_pathseg) {
         tag = PathSeg_tag(ref);
     }
-    sh_tag[th_ix] = tag;
     // Setup for coverage algorithm.
     float a, b, c;
     // Bounding box of element in pixel coordinates.
     float xmin, xmax, ymin, ymax;
     PathStrokeLine line;
+    float dx;
     switch (tag) {
     case PathSeg_FillLine:
     case PathSeg_StrokeLine:
         line = PathSeg_StrokeLine_read(ref);
-        sh_p0[th_ix] = line.p0;
-        sh_p1[th_ix] = line.p1;
         xmin = min(line.p0.x, line.p1.x) - line.stroke.x;
         xmax = max(line.p0.x, line.p1.x) + line.stroke.x;
         ymin = min(line.p0.y, line.p1.y) - line.stroke.y;
         ymax = max(line.p0.y, line.p1.y) + line.stroke.y;
-        float dx = line.p1.x - line.p0.x;
+        dx = line.p1.x - line.p0.x;
         float dy = line.p1.y - line.p0.y;
         // Set up for per-scanline coverage formula, below.
         float invslope = abs(dy) < 1e-9 ? 1e9 : dx / dy;
         c = (line.stroke.x + abs(invslope) * (0.5 * float(TILE_HEIGHT_PX) + line.stroke.y)) * SX;
         b = invslope; // Note: assumes square tiles, otherwise scale.
         a = (line.p0.x - (line.p0.y - 0.5 * float(TILE_HEIGHT_PX)) * b) * SX;
-        sh_a[th_ix] = a;
-        sh_b[th_ix] = b;
-        sh_c[th_ix] = c;
         break;
     }
     int x0 = int(floor((xmin) * SX));
@@ -98,96 +76,53 @@ void main() {
     y0 = clamp(y0, bbox.y, bbox.w);
     x1 = clamp(x1, bbox.x, bbox.z);
     y1 = clamp(y1, bbox.y, bbox.w);
-    sh_x0[th_ix] = x0;
-    sh_bbox_x1[th_ix] = bbox.z;
-    // TODO: can get rid of this (fold into base), with care (also need to update `a`)
-    sh_y0[th_ix] = y0;
+    float t = a + b * float(y0);
     int stride = bbox.z - bbox.x;
-    sh_stride[th_ix] = stride;
-    sh_base[th_ix] = path.tiles.offset - (bbox.y * stride + bbox.x) * Tile_size;
-    uint width = uint(x1 - x0);
-    sh_width[th_ix] = width;
-    uint draw_width = min(width, uint(1.0 + ceil(2.0 * c)));
-    if (draw_width == 0 && bbox.x == 0 && bbox.z > 0) {
-        // Create opportunity to draw backdrop for segments to the left of viewport.
-        // Note: predicate can be strengthened to exclude segments that don't cross
-        // a horizontal tile boundary.
-        draw_width = 1;
-    }
-    sh_draw_width[th_ix] = draw_width;
-    uint tile_count = draw_width * uint(y1 - y0);
-
-    sh_tile_count[th_ix] = tile_count;
-    for (uint i = 0; i < LG_COARSE_WG; i++) {
-        barrier();
-        if (th_ix >= (1 << i)) {
-            tile_count += sh_tile_count[th_ix - (1 << i)];
-        }
-        barrier();
-        sh_tile_count[th_ix] = tile_count;
-    }
-    if (th_ix == COARSE_WG - 1) {
-        sh_alloc_start = atomicAdd(alloc, tile_count * TileSeg_size);
-    }
-    barrier();
-    uint alloc_start = sh_alloc_start;
-    uint total_tile_count = sh_tile_count[COARSE_WG - 1];
-
-    for (uint ix = th_ix; ix < total_tile_count; ix += COARSE_WG) {
-        // Binary search to find element
-        uint el_ix = 0;
-        for (uint i = 0; i < LG_COARSE_WG; i++) {
-            uint probe = el_ix + ((COARSE_WG / 2) >> i);
-            if (ix >= sh_tile_count[probe - 1]) {
-                el_ix = probe;
+    int base = (y0 - bbox.y) * stride - bbox.x;
+    // TODO: can be tighter, use c to bound width
+    uint n_tile_alloc = uint((x1 - x0) * (y1 - y0));
+    // Consider using subgroups to aggregate atomic add.
+    uint tile_offset = atomicAdd(alloc, n_tile_alloc * TileSeg_size);
+    TileSeg tile_seg;
+    for (int y = y0; y < y1; y++) {
+        float tile_y0 = float(y * TILE_HEIGHT_PX);
+        if (tag == PathSeg_FillLine && min(line.p0.y, line.p1.y) <= tile_y0) {
+            int xray = max(int(ceil(t - 0.5 * b)), bbox.x);
+            if (xray < bbox.z) {
+                int backdrop = line.p1.y < line.p0.y ? 1 : -1;
+                TileRef tile_ref = Tile_index(path.tiles, uint(base + xray));
+                uint tile_el = tile_ref.offset >> 2;
+                atomicAdd(tile[tile_el + 1], backdrop);
             }
         }
-        uint seq_ix = ix - (el_ix > 0 ? sh_tile_count[el_ix - 1] : 0);
-        uint draw_width = sh_draw_width[el_ix];
-        int x0 = sh_x0[el_ix];
-        int x1 = x0 + int(sh_width[el_ix]);
-        int dx = int(seq_ix % draw_width);
-        uint y = sh_y0[el_ix] + seq_ix / draw_width;
-        float b = sh_b[el_ix];
-        float t = sh_a[el_ix] + b * float(y);
-        float c = sh_c[el_ix];
         int xx0 = clamp(int(floor(t - c)), x0, x1);
         int xx1 = clamp(int(ceil(t + c)), x0, x1);
-        int x = xx0 + dx;
-        vec2 tile_xy = vec2(x * TILE_WIDTH_PX, y * TILE_HEIGHT_PX);
-        vec2 p0 = sh_p0[el_ix];
-        vec2 p1 = sh_p1[el_ix];
-        uint tile_el = (sh_base[el_ix] + uint(y * sh_stride[el_ix] + x) * Tile_size) >> 2;
-        if (sh_tag[el_ix] == PathSeg_FillLine && dx == 0 && min(p0.y, p1.y) <= tile_xy.y) {
-            int xray = max(int(ceil(t - 0.5 * b)), x0);
-            if (xray < sh_bbox_x1[el_ix]) {
-                int backdrop = p1.y < p0.y ? 1 : -1;
-                atomicAdd(tile[tile_el + 1 + 2 * (xray - x)], backdrop);
-            }
-        }
-
-        if (x < xx1) {
-            uint tile_offset = alloc_start + ix * TileSeg_size;
+        for (int x = xx0; x < xx1; x++) {
+            float tile_x0 = float(x * TILE_WIDTH_PX);
+            TileRef tile_ref = Tile_index(path.tiles, uint(base + x));
+            uint tile_el = tile_ref.offset >> 2;
             uint old = atomicExchange(tile[tile_el], tile_offset);
-            TileSeg tile_seg;
+            tile_seg.start = line.p0;
+            tile_seg.end = line.p1;
             float y_edge = 0.0;
-            if (sh_tag[el_ix] == PathSeg_FillLine) {
-                y_edge = mix(p0.y, p1.y, (tile_xy.x - p0.x) / (p1.x - p0.x));
-                if (min(p0.x, p1.x) < tile_xy.x && y_edge >= tile_xy.y && y_edge < tile_xy.y + TILE_HEIGHT_PX) {
-                    if (p0.x > p1.x) {
-                        p1 = vec2(tile_xy.x, y_edge);
+            if (tag == PathSeg_FillLine) {
+                y_edge = mix(line.p0.y, line.p1.y, (tile_x0 - line.p0.x) / dx);
+                if (min(line.p0.x, line.p1.x) < tile_x0 && y_edge >= tile_y0 && y_edge < tile_y0 + TILE_HEIGHT_PX) {
+                    if (line.p0.x > line.p1.x) {
+                        tile_seg.end = vec2(tile_x0, y_edge);
                     } else {
-                        p0 = vec2(tile_xy.x, y_edge);
+                        tile_seg.start = vec2(tile_x0, y_edge);
                     }
                 } else {
                     y_edge = 1e9;
                 }
             }
-            tile_seg.start = p0;
-            tile_seg.end = p1;
             tile_seg.y_edge = y_edge;
             tile_seg.next.offset = old;
             TileSeg_write(TileSegRef(tile_offset), tile_seg);
+            tile_offset += TileSeg_size;
         }
+        t += b;
+        base += stride;
     }
 }
