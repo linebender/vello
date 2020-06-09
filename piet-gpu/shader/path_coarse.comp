@@ -108,6 +108,12 @@ void main() {
     uint width = uint(x1 - x0);
     sh_width[th_ix] = width;
     uint draw_width = min(width, uint(1.0 + ceil(2.0 * c)));
+    if (draw_width == 0 && bbox.x == 0 && bbox.z > 0) {
+        // Create opportunity to draw backdrop for segments to the left of viewport.
+        // Note: predicate can be strengthened to exclude segments that don't cross
+        // a horizontal tile boundary.
+        draw_width = 1;
+    }
     sh_draw_width[th_ix] = draw_width;
     uint tile_count = draw_width * uint(y1 - y0);
 
@@ -148,25 +154,24 @@ void main() {
         int xx0 = clamp(int(floor(t - c)), x0, x1);
         int xx1 = clamp(int(ceil(t + c)), x0, x1);
         int x = xx0 + dx;
+        vec2 tile_xy = vec2(x * TILE_WIDTH_PX, y * TILE_HEIGHT_PX);
+        vec2 p0 = sh_p0[el_ix];
+        vec2 p1 = sh_p1[el_ix];
+        uint tile_el = (sh_base[el_ix] + uint(y * sh_stride[el_ix] + x) * Tile_size) >> 2;
+        if (sh_tag[el_ix] == PathSeg_FillLine && dx == 0 && min(p0.y, p1.y) <= tile_xy.y) {
+            int xray = max(int(ceil(t - 0.5 * b)), x0);
+            if (xray < sh_bbox_x1[el_ix]) {
+                int backdrop = p1.y < p0.y ? 1 : -1;
+                atomicAdd(tile[tile_el + 1 + 2 * (xray - x)], backdrop);
+            }
+        }
+
         if (x < xx1) {
             uint tile_offset = alloc_start + ix * TileSeg_size;
-            uint tile_el = (sh_base[el_ix] + uint(y * sh_stride[el_ix] + x) * Tile_size) >> 2;
             uint old = atomicExchange(tile[tile_el], tile_offset);
             TileSeg tile_seg;
-            vec2 p0 = sh_p0[el_ix];
-            vec2 p1 = sh_p1[el_ix];
             float y_edge = 0.0;
             if (sh_tag[el_ix] == PathSeg_FillLine) {
-                vec2 tile_xy = vec2(x * TILE_WIDTH_PX, y * TILE_HEIGHT_PX);
-                if (dx == 0 && min(p0.y, p1.y) <= tile_xy.y) {
-                    // TODO: need a little more work to make sure this triggers even
-                    // when line is to the left of bbox.
-                    int xray = max(int(ceil(t - 0.5 * b)), x0);
-                    if (xray < sh_bbox_x1[el_ix]) {
-                        int backdrop = p1.y < p0.y ? 1 : -1;
-                        atomicAdd(tile[tile_el + 1 + 2 * (xray - x)], backdrop);
-                    }
-                }
                 y_edge = mix(p0.y, p1.y, (tile_xy.x - p0.x) / (p1.x - p0.x));
                 if (min(p0.x, p1.x) < tile_xy.x && y_edge >= tile_xy.y && y_edge < tile_xy.y + TILE_HEIGHT_PX) {
                     if (p0.x > p1.x) {
