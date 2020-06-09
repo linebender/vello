@@ -92,10 +92,10 @@ piet_gpu! {
             StrokeLine(LineSeg),
             FillLine(LineSeg),
 
-            // Note: we'll need to handle the stroke/fill distinction
-            // for these as well, when we do flattening on the GPU.
-            Quad(QuadSeg),
-            Cubic(CubicSeg),
+            StrokeQuad(QuadSeg),
+            FillQuad(QuadSeg),
+            StrokeCubic(CubicSeg),
+            FillCubic(CubicSeg),
             Stroke(Stroke),
             Fill(Fill),
             SetLineWidth(SetLineWidth),

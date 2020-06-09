@@ -115,14 +115,16 @@ State map_element(ElementRef ref, inout bool is_fill) {
         c.bbox.zw = max(line.p0, line.p1);
         c.pathseg_count = 1;
         break;
-    case Element_Quad:
-        QuadSeg quad = Element_Quad_read(ref);
+    case Element_FillQuad:
+    case Element_StrokeQuad:
+        QuadSeg quad = Element_FillQuad_read(ref);
         c.bbox.xy = min(min(quad.p0, quad.p1), quad.p2);
         c.bbox.zw = max(max(quad.p0, quad.p1), quad.p2);
         c.pathseg_count = 1;
         break;
-    case Element_Cubic:
-        CubicSeg cubic = Element_Cubic_read(ref);
+    case Element_FillCubic:
+    case Element_StrokeCubic:
+        CubicSeg cubic = Element_FillCubic_read(ref);
         c.bbox.xy = min(min(cubic.p0, cubic.p1), min(cubic.p2, cubic.p3));
         c.bbox.zw = max(max(cubic.p0, cubic.p1), max(cubic.p2, cubic.p3));
         c.pathseg_count = 1;
@@ -330,6 +332,27 @@ void main() {
             uint out_tag = tag == Element_FillLine ? PathSeg_FillLine : PathSeg_StrokeLine;
             pathseg[path_out_ref.offset >> 2] = out_tag;
             PathStrokeLine_write(PathStrokeLineRef(path_out_ref.offset + 4), path_line);
+            break;
+        case Element_FillCubic:
+        case Element_StrokeCubic:
+            CubicSeg cubic = Element_StrokeCubic_read(this_ref);
+            PathStrokeCubic path_cubic;
+            path_cubic.p0 = st.mat.xy * cubic.p0.x + st.mat.zw * cubic.p0.y + st.translate;
+            path_cubic.p1 = st.mat.xy * cubic.p1.x + st.mat.zw * cubic.p1.y + st.translate;
+            path_cubic.p1 = st.mat.xy * cubic.p2.x + st.mat.zw * cubic.p2.y + st.translate;
+            path_cubic.p1 = st.mat.xy * cubic.p3.x + st.mat.zw * cubic.p3.y + st.translate;
+            path_cubic.path_ix = st.path_count;
+            if (tag == Element_StrokeCubic) {
+                path_cubic.stroke = get_linewidth(st);
+            } else {
+                path_cubic.stroke = vec2(0.0);
+            }
+            // We do encoding a bit by hand to minimize divergence. Another approach
+            // would be to have a fill/stroke bool.
+            path_out_ref = PathSegRef((st.pathseg_count - 1) * PathSeg_size);
+            out_tag = tag == Element_FillLine ? PathSeg_FillCubic : PathSeg_StrokeCubic;
+            pathseg[path_out_ref.offset >> 2] = out_tag;
+            PathStrokeCubic_write(PathStrokeCubicRef(path_out_ref.offset + 4), path_cubic);
             break;
         case Element_Stroke:
             Stroke stroke = Element_Stroke_read(this_ref);

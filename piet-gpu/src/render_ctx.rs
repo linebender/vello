@@ -223,6 +223,24 @@ impl PietGpuRenderContext {
         self.pathseg_count += 1;
     }
 
+    fn encode_quad_seg(&mut self, seg: QuadSeg, is_fill: bool) {
+        if is_fill {
+            self.elements.push(Element::FillQuad(seg));
+        } else {
+            self.elements.push(Element::StrokeQuad(seg));
+        }
+        self.pathseg_count += 1;
+    }
+
+    fn encode_cubic_seg(&mut self, seg: CubicSeg, is_fill: bool) {
+        if is_fill {
+            self.elements.push(Element::FillCubic(seg));
+        } else {
+            self.elements.push(Element::StrokeCubic(seg));
+        }
+        self.pathseg_count += 1;
+    }
+
     fn encode_path(&mut self, path: impl Iterator<Item = PathEl>, is_fill: bool) {
         let flatten = true;
         if flatten {
@@ -286,7 +304,7 @@ impl PietGpuRenderContext {
                             p1: scene_p1,
                             p2: scene_p2,
                         };
-                        self.elements.push(Element::Quad(seg));
+                        self.encode_quad_seg(seg, is_fill);
                         last_pt = Some(scene_p2);
                     }
                     PathEl::CurveTo(p1, p2, p3) => {
@@ -299,7 +317,7 @@ impl PietGpuRenderContext {
                             p2: scene_p2,
                             p3: scene_p3,
                         };
-                        self.elements.push(Element::Cubic(seg));
+                        self.encode_cubic_seg(seg, is_fill);
                         last_pt = Some(scene_p3);
                     }
                     PathEl::ClosePath => {

@@ -16,7 +16,7 @@ build binning.spv: glsl binning.comp | annotated.h state.h bins.h setup.h
 
 build tile_alloc.spv: glsl tile_alloc.comp | annotated.h tile.h setup.h
 
-build path_coarse.spv: glsl path_coarse.comp | annotated.h tile.h setup.h
+build path_coarse.spv: glsl path_coarse.comp | annotated.h pathseg.h tile.h setup.h
 
 build backdrop.spv: glsl backdrop.comp | annotated.h tile.h setup.h
 
