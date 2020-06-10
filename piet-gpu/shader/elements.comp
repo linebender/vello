@@ -318,29 +318,34 @@ void main() {
         case Element_StrokeLine:
             LineSeg line = Element_StrokeLine_read(this_ref);
             PathStrokeLine path_line;
-            path_line.p0 = st.mat.xy * line.p0.x + st.mat.zw * line.p0.y + st.translate;
-            path_line.p1 = st.mat.xy * line.p1.x + st.mat.zw * line.p1.y + st.translate;
-            path_line.path_ix = st.path_count;
+            vec2 p0 = st.mat.xy * line.p0.x + st.mat.zw * line.p0.y + st.translate;
+            vec2 p1 = st.mat.xy * line.p1.x + st.mat.zw * line.p1.y + st.translate;
+            PathStrokeCubic path_cubic;
+            path_cubic.p0 = p0;
+            path_cubic.p1 = mix(p0, p1, 1.0 / 3.0);
+            path_cubic.p2 = mix(p1, p0, 1.0 / 3.0);
+            path_cubic.p3 = p1;
+            path_cubic.path_ix = st.path_count;
             if (tag == Element_StrokeLine) {
-                path_line.stroke = get_linewidth(st);
+                path_cubic.stroke = get_linewidth(st);
             } else {
-                path_line.stroke = vec2(0.0);
+                path_cubic.stroke = vec2(0.0);
             }
             // We do encoding a bit by hand to minimize divergence. Another approach
             // would be to have a fill/stroke bool.
             PathSegRef path_out_ref = PathSegRef((st.pathseg_count - 1) * PathSeg_size);
-            uint out_tag = tag == Element_FillLine ? PathSeg_FillLine : PathSeg_StrokeLine;
+            uint out_tag = tag == Element_FillLine ? PathSeg_FillCubic : PathSeg_StrokeCubic;
             pathseg[path_out_ref.offset >> 2] = out_tag;
-            PathStrokeLine_write(PathStrokeLineRef(path_out_ref.offset + 4), path_line);
+            PathStrokeCubic_write(PathStrokeCubicRef(path_out_ref.offset + 4), path_cubic);
             break;
         case Element_FillCubic:
         case Element_StrokeCubic:
             CubicSeg cubic = Element_StrokeCubic_read(this_ref);
-            PathStrokeCubic path_cubic;
+            path_cubic;
             path_cubic.p0 = st.mat.xy * cubic.p0.x + st.mat.zw * cubic.p0.y + st.translate;
             path_cubic.p1 = st.mat.xy * cubic.p1.x + st.mat.zw * cubic.p1.y + st.translate;
-            path_cubic.p1 = st.mat.xy * cubic.p2.x + st.mat.zw * cubic.p2.y + st.translate;
-            path_cubic.p1 = st.mat.xy * cubic.p3.x + st.mat.zw * cubic.p3.y + st.translate;
+            path_cubic.p2 = st.mat.xy * cubic.p2.x + st.mat.zw * cubic.p2.y + st.translate;
+            path_cubic.p3 = st.mat.xy * cubic.p3.x + st.mat.zw * cubic.p3.y + st.translate;
             path_cubic.path_ix = st.path_count;
             if (tag == Element_StrokeCubic) {
                 path_cubic.stroke = get_linewidth(st);
@@ -350,7 +355,7 @@ void main() {
             // We do encoding a bit by hand to minimize divergence. Another approach
             // would be to have a fill/stroke bool.
             path_out_ref = PathSegRef((st.pathseg_count - 1) * PathSeg_size);
-            out_tag = tag == Element_FillLine ? PathSeg_FillCubic : PathSeg_StrokeCubic;
+            out_tag = tag == Element_FillCubic ? PathSeg_FillCubic : PathSeg_StrokeCubic;
             pathseg[path_out_ref.offset >> 2] = out_tag;
             PathStrokeCubic_write(PathStrokeCubicRef(path_out_ref.offset + 4), path_cubic);
             break;
