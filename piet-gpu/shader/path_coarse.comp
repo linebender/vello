@@ -33,7 +33,8 @@ layout(set = 0, binding = 2) buffer TileBuf {
 #define SX (1.0 / float(TILE_WIDTH_PX))
 #define SY (1.0 / float(TILE_HEIGHT_PX))
 
-#define Q_ACCURACY 0.025
+#define ACCURACY 0.25
+#define Q_ACCURACY 0.01
 #define MAX_HYPOT2 (432.0 * Q_ACCURACY * Q_ACCURACY)
 
 vec2 eval_cubic(vec2 p0, vec2 p1, vec2 p2, vec2 p3, float t) {
@@ -76,10 +77,16 @@ void main() {
     case PathSeg_FillCubic:
     case PathSeg_StrokeCubic:
         PathStrokeCubic cubic = PathSeg_StrokeCubic_read(ref);
+        // Commented out code is for computing error bound on conversion to quadratics
+        /*
         vec2 err_v = 3.0 * (cubic.p2 - cubic.p1) + cubic.p0 - cubic.p3;
         float err = err_v.x * err_v.x + err_v.y * err_v.y;
         // The number of quadratics.
         uint n = max(uint(ceil(pow(err * (1.0 / MAX_HYPOT2), 1.0 / 6.0))), 1);
+        */
+        // This calculation is based on Sederberg, CAGD Notes section 10.6
+        vec2 l = max(abs(cubic.p0 + cubic.p2 - 2 * cubic.p1), abs(cubic.p1 + cubic.p3 - 2 * cubic.p2));
+        uint n = max(uint(ceil(sqrt(length(l) * (0.75 / ACCURACY)))), 1);
         vec2 p0 = cubic.p0;
         float step = 1.0 / float(n);
         uint path_ix = cubic.path_ix;
