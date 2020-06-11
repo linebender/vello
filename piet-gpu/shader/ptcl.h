@@ -36,6 +36,14 @@ struct CmdRef {
     uint offset;
 };
 
+struct SegmentRef {
+    uint offset;
+};
+
+struct SegChunkRef {
+    uint offset;
+};
+
 struct CmdCircle {
     vec2 center;
     float radius;
@@ -60,7 +68,7 @@ CmdLineRef CmdLine_index(CmdLineRef ref, uint index) {
 }
 
 struct CmdStroke {
-    uint seg_ref;
+    SegChunkRef seg_ref;
     float half_width;
     uint rgba_color;
 };
@@ -72,7 +80,7 @@ CmdStrokeRef CmdStroke_index(CmdStrokeRef ref, uint index) {
 }
 
 struct CmdFill {
-    uint seg_ref;
+    SegChunkRef seg_ref;
     int backdrop;
     uint rgba_color;
 };
@@ -141,6 +149,30 @@ CmdRef Cmd_index(CmdRef ref, uint index) {
     return CmdRef(ref.offset + index * Cmd_size);
 }
 
+struct Segment {
+    vec2 start;
+    vec2 end;
+    float y_edge;
+};
+
+#define Segment_size 20
+
+SegmentRef Segment_index(SegmentRef ref, uint index) {
+    return SegmentRef(ref.offset + index * Segment_size);
+}
+
+struct SegChunk {
+    uint n;
+    SegChunkRef next;
+    SegmentRef segs;
+};
+
+#define SegChunk_size 12
+
+SegChunkRef SegChunk_index(SegChunkRef ref, uint index) {
+    return SegChunkRef(ref.offset + index * SegChunk_size);
+}
+
 CmdCircle CmdCircle_read(CmdCircleRef ref) {
     uint ix = ref.offset >> 2;
     uint raw0 = ptcl[ix + 0];
@@ -188,7 +220,7 @@ CmdStroke CmdStroke_read(CmdStrokeRef ref) {
     uint raw1 = ptcl[ix + 1];
     uint raw2 = ptcl[ix + 2];
     CmdStroke s;
-    s.seg_ref = raw0;
+    s.seg_ref = SegChunkRef(raw0);
     s.half_width = uintBitsToFloat(raw1);
     s.rgba_color = raw2;
     return s;
@@ -196,7 +228,7 @@ CmdStroke CmdStroke_read(CmdStrokeRef ref) {
 
 void CmdStroke_write(CmdStrokeRef ref, CmdStroke s) {
     uint ix = ref.offset >> 2;
-    ptcl[ix + 0] = s.seg_ref;
+    ptcl[ix + 0] = s.seg_ref.offset;
     ptcl[ix + 1] = floatBitsToUint(s.half_width);
     ptcl[ix + 2] = s.rgba_color;
 }
@@ -207,7 +239,7 @@ CmdFill CmdFill_read(CmdFillRef ref) {
     uint raw1 = ptcl[ix + 1];
     uint raw2 = ptcl[ix + 2];
     CmdFill s;
-    s.seg_ref = raw0;
+    s.seg_ref = SegChunkRef(raw0);
     s.backdrop = int(raw1);
     s.rgba_color = raw2;
     return s;
@@ -215,7 +247,7 @@ CmdFill CmdFill_read(CmdFillRef ref) {
 
 void CmdFill_write(CmdFillRef ref, CmdFill s) {
     uint ix = ref.offset >> 2;
-    ptcl[ix + 0] = s.seg_ref;
+    ptcl[ix + 0] = s.seg_ref.offset;
     ptcl[ix + 1] = uint(s.backdrop);
     ptcl[ix + 2] = s.rgba_color;
 }
@@ -360,5 +392,47 @@ void Cmd_Jump_write(CmdRef ref, CmdJump s) {
 
 void Cmd_Bail_write(CmdRef ref) {
     ptcl[ref.offset >> 2] = Cmd_Bail;
+}
+
+Segment Segment_read(SegmentRef ref) {
+    uint ix = ref.offset >> 2;
+    uint raw0 = ptcl[ix + 0];
+    uint raw1 = ptcl[ix + 1];
+    uint raw2 = ptcl[ix + 2];
+    uint raw3 = ptcl[ix + 3];
+    uint raw4 = ptcl[ix + 4];
+    Segment s;
+    s.start = vec2(uintBitsToFloat(raw0), uintBitsToFloat(raw1));
+    s.end = vec2(uintBitsToFloat(raw2), uintBitsToFloat(raw3));
+    s.y_edge = uintBitsToFloat(raw4);
+    return s;
+}
+
+void Segment_write(SegmentRef ref, Segment s) {
+    uint ix = ref.offset >> 2;
+    ptcl[ix + 0] = floatBitsToUint(s.start.x);
+    ptcl[ix + 1] = floatBitsToUint(s.start.y);
+    ptcl[ix + 2] = floatBitsToUint(s.end.x);
+    ptcl[ix + 3] = floatBitsToUint(s.end.y);
+    ptcl[ix + 4] = floatBitsToUint(s.y_edge);
+}
+
+SegChunk SegChunk_read(SegChunkRef ref) {
+    uint ix = ref.offset >> 2;
+    uint raw0 = ptcl[ix + 0];
+    uint raw1 = ptcl[ix + 1];
+    uint raw2 = ptcl[ix + 2];
+    SegChunk s;
+    s.n = raw0;
+    s.next = SegChunkRef(raw1);
+    s.segs = SegmentRef(raw2);
+    return s;
+}
+
+void SegChunk_write(SegChunkRef ref, SegChunk s) {
+    uint ix = ref.offset >> 2;
+    ptcl[ix + 0] = s.n;
+    ptcl[ix + 1] = s.next.offset;
+    ptcl[ix + 2] = s.segs.offset;
 }
 

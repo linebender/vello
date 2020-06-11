@@ -40,3 +40,25 @@
 // Maximum number of segments in a SegChunk
 #define SEG_CHUNK_N 32
 #define SEG_CHUNK_ALLOC 512
+
+// Stuff for new algorithm follows; some of the above should get
+// deleted.
+
+// These should probably be renamed and/or reworked. In the binning
+// kernel, they represent the number of bins. Also, the workgroup size
+// of that kernel is equal to the number of bins, but should probably
+// be more flexible (it's 512 in the K&L paper).
+#define N_TILE_X 16
+#define N_TILE_Y 16
+#define N_TILE (N_TILE_X * N_TILE_Y)
+#define LG_N_TILE 8
+#define N_SLICE (N_TILE / 32)
+// Number of workgroups for binning kernel
+#define N_WG 16
+
+// This is the ratio of the number of elements in a binning workgroup
+// over the number of elements in a partition workgroup.
+#define ELEMENT_BINNING_RATIO 2
+
+#define BIN_INITIAL_ALLOC 64
+#define BIN_ALLOC 256

@@ -1,7 +1,7 @@
 use piet_gpu_hal::vulkan::VkInstance;
 use piet_gpu_hal::{CmdBuf, Device, Error, ImageLayout};
 
-use piet_gpu::{PietGpuRenderContext, Renderer, render_scene, WIDTH, HEIGHT};
+use piet_gpu::{render_scene, PietGpuRenderContext, Renderer, HEIGHT, WIDTH};
 
 use winit::{
     event::{Event, WindowEvent},
@@ -37,7 +37,7 @@ fn main() -> Result<(), Error> {
             .map(|_| device.create_cmd_buf())
             .collect::<Result<Vec<_>, Error>>()?;
         let query_pools = (0..NUM_FRAMES)
-            .map(|_| device.create_query_pool(6))
+            .map(|_| device.create_query_pool(5))
             .collect::<Result<Vec<_>, Error>>()?;
 
         let mut ctx = PietGpuRenderContext::new();
@@ -69,12 +69,12 @@ fn main() -> Result<(), Error> {
                         device.wait_and_reset(&[frame_fences[frame_idx]]).unwrap();
 
                         let timestamps = device.reap_query_pool(query_pool).unwrap();
-                        window.set_title(&format!("k1: {:.3}ms, k2s: {:.3}ms, k2f: {:.3}ms, k3: {:.3}ms, k4: {:.3}ms",
+                        window.set_title(&format!(
+                            "e: {:.3}ms, b: {:.3}ms, c: {:.3}ms, f: {:.3}ms",
                             timestamps[0] * 1e3,
                             (timestamps[1] - timestamps[0]) * 1e3,
                             (timestamps[2] - timestamps[1]) * 1e3,
                             (timestamps[3] - timestamps[2]) * 1e3,
-                            (timestamps[4] - timestamps[3]) * 1e3,
                         ));
                     }
 
@@ -93,11 +93,7 @@ fn main() -> Result<(), Error> {
                         ImageLayout::BlitDst,
                     );
                     cmd_buf.blit_image(&renderer.image_dev, &swap_image);
-                    cmd_buf.image_barrier(
-                        &swap_image,
-                        ImageLayout::BlitDst,
-                        ImageLayout::Present,
-                    );
+                    cmd_buf.image_barrier(&swap_image, ImageLayout::BlitDst, ImageLayout::Present);
                     cmd_buf.finish();
 
                     device

@@ -1,0 +1,328 @@
+// The element processing stage, first in the pipeline.
+//
+// This stage is primarily about applying transforms and computing bounding
+// boxes. It is organized as a scan over the input elements, producing
+// annotated output elements.
+
+#version 450
+#extension GL_GOOGLE_include_directive : enable
+
+#define N_ROWS 4
+#define WG_SIZE 32
+#define LG_WG_SIZE 5
+#define PARTITION_SIZE (WG_SIZE * N_ROWS)
+
+layout(local_size_x = WG_SIZE, local_size_y = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer SceneBuf {
+    uint[] scene;
+};
+
+// It would be better to use the Vulkan memory model than
+// "volatile" but shooting for compatibility here rather
+// than doing things right.
+layout(set = 0, binding = 1) volatile buffer StateBuf {
+    uint[] state;
+};
+
+// The annotated results are stored here.
+layout(set = 0, binding = 2) buffer AnnotatedBuf {
+    uint[] annotated;
+};
+
+#include "scene.h"
+#include "state.h"
+#include "annotated.h"
+
+#define StateBuf_stride (8 + 2 * State_size)
+
+StateRef state_aggregate_ref(uint partition_ix) {
+    return StateRef(12 + partition_ix * StateBuf_stride);
+}
+
+StateRef state_prefix_ref(uint partition_ix) {
+    return StateRef(12 + partition_ix * StateBuf_stride + State_size);
+}
+
+uint state_flag_index(uint partition_ix) {
+    return 1 + partition_ix * (StateBuf_stride / 4);
+}
+
+// These correspond to X, A, P respectively in the prefix sum paper.
+#define FLAG_NOT_READY 0
+#define FLAG_AGGREGATE_READY 1
+#define FLAG_PREFIX_READY 2
+
+#define FLAG_SET_LINEWIDTH 1
+#define FLAG_SET_BBOX 2
+#define FLAG_RESET_BBOX 4
+
+// This is almost like a monoid (the interaction between transformation and
+// bounding boxes is approximate)
+State combine_state(State a, State b) {
+    State c;
+    c.bbox.x = min(a.mat.x * b.bbox.x, a.mat.x * b.bbox.z) + min(a.mat.z * b.bbox.y, a.mat.z * b.bbox.w) + a.translate.x;
+    c.bbox.y = min(a.mat.y * b.bbox.x, a.mat.y * b.bbox.z) + min(a.mat.w * b.bbox.y, a.mat.w * b.bbox.w) + a.translate.y;
+    c.bbox.z = max(a.mat.x * b.bbox.x, a.mat.x * b.bbox.z) + max(a.mat.z * b.bbox.y, a.mat.z * b.bbox.w) + a.translate.x;
+    c.bbox.w = max(a.mat.y * b.bbox.x, a.mat.y * b.bbox.z) + max(a.mat.w * b.bbox.y, a.mat.w * b.bbox.w) + a.translate.y;
+    if ((a.flags & FLAG_RESET_BBOX) == 0 && b.bbox.z <= b.bbox.x && b.bbox.w <= b.bbox.y) {
+        c.bbox = a.bbox;
+    } else if ((a.flags & FLAG_RESET_BBOX) == 0 && (b.flags & FLAG_SET_BBOX) == 0 &&
+        (a.bbox.z > a.bbox.x || a.bbox.w > a.bbox.y))
+    {
+        c.bbox.xy = min(a.bbox.xy, c.bbox.xy);
+        c.bbox.zw = max(a.bbox.zw, c.bbox.zw);
+    }
+    // It would be more concise to cast to matrix types; ah well.
+    c.mat.x = a.mat.x * b.mat.x + a.mat.z * b.mat.y;
+    c.mat.y = a.mat.y * b.mat.x + a.mat.w * b.mat.y;
+    c.mat.z = a.mat.x * b.mat.z + a.mat.z * b.mat.w;
+    c.mat.w = a.mat.y * b.mat.z + a.mat.w * b.mat.w;
+    c.translate.x = a.mat.x * b.translate.x + a.mat.z * b.translate.y + a.translate.x;
+    c.translate.y = a.mat.y * b.translate.x + a.mat.w * b.translate.y + a.translate.y;
+    c.linewidth = (b.flags & FLAG_SET_LINEWIDTH) == 0 ? a.linewidth : b.linewidth;
+    c.flags = (a.flags & (FLAG_SET_LINEWIDTH | FLAG_SET_BBOX)) | b.flags;
+    c.flags |= (a.flags & FLAG_RESET_BBOX) >> 1;
+    return c;
+}
+
+State map_element(ElementRef ref, inout bool is_fill) {
+    // TODO: it would *probably* be more efficient to make the memory read patterns less
+    // divergent, though it would be more wasted memory.
+    uint tag = Element_tag(ref);
+    State c;
+    c.bbox = vec4(0.0, 0.0, 0.0, 0.0);
+    c.mat = vec4(1.0, 0.0, 0.0, 1.0);
+    c.translate = vec2(0.0, 0.0);
+    c.linewidth = 1.0; // TODO should be 0.0
+    c.flags = 0;
+    is_fill = false;
+    switch (tag) {
+    case Element_FillLine:
+    case Element_StrokeLine:
+        LineSeg line = Element_FillLine_read(ref);
+        c.bbox.xy = min(line.p0, line.p1);
+        c.bbox.zw = max(line.p0, line.p1);
+        break;
+    case Element_Quad:
+        QuadSeg quad = Element_Quad_read(ref);
+        c.bbox.xy = min(min(quad.p0, quad.p1), quad.p2);
+        c.bbox.zw = max(max(quad.p0, quad.p1), quad.p2);
+        break;
+    case Element_Cubic:
+        CubicSeg cubic = Element_Cubic_read(ref);
+        c.bbox.xy = min(min(cubic.p0, cubic.p1), min(cubic.p2, cubic.p3));
+        c.bbox.zw = max(max(cubic.p0, cubic.p1), max(cubic.p2, cubic.p3));
+        break;
+    case Element_Fill:
+        is_fill = true;
+        // fall-through
+    case Element_Stroke:
+        c.flags = FLAG_RESET_BBOX;
+        break;
+    case Element_SetLineWidth:
+        SetLineWidth lw = Element_SetLineWidth_read(ref);
+        c.linewidth = lw.width;
+        c.flags = FLAG_SET_LINEWIDTH;
+        break;
+    case Element_Transform:
+        Transform t = Element_Transform_read(ref);
+        c.mat = t.mat;
+        c.translate = t.translate;
+        break;
+    }
+    return c;
+}
+
+// Get the bounding box of a circle transformed by the matrix into an ellipse.
+vec2 get_linewidth(State st) {
+    // See https://www.iquilezles.org/www/articles/ellipses/ellipses.htm
+    return 0.5 * st.linewidth * vec2(length(st.mat.xz), length(st.mat.yw));
+}
+
+// We should be able to use an array of structs but the NV shader compiler
+// doesn't seem to like it :/
+//shared State sh_state[WG_SIZE];
+shared vec4 sh_mat[WG_SIZE];
+shared vec2 sh_translate[WG_SIZE];
+shared vec4 sh_bbox[WG_SIZE];
+shared float sh_width[WG_SIZE];
+shared uint sh_flags[WG_SIZE];
+
+shared uint sh_min_fill;
+
+shared uint sh_tile_ix;
+shared State sh_prefix;
+
+void main() {
+    State th_state[N_ROWS];
+    // Determine partition to process by atomic counter (described in Section
+    // 4.4 of prefix sum paper).
+    if (gl_LocalInvocationID.x == 0) {
+        sh_tile_ix = atomicAdd(state[0], 1);
+        sh_min_fill = ~0;
+    }
+    barrier();
+    uint tile_ix = sh_tile_ix;
+
+    uint ix = tile_ix * PARTITION_SIZE + gl_LocalInvocationID.x * N_ROWS;
+    ElementRef ref = ElementRef(ix * Element_size);
+
+    bool is_fill;
+    uint my_min_fill = ~0;
+    th_state[0] = map_element(ref, is_fill);
+    if (is_fill) my_min_fill = ix;
+    for (uint i = 1; i < N_ROWS; i++) {
+        // discussion question: would it be faster to load using more coherent patterns
+        // into thread memory? This is kinda strided.
+        th_state[i] = combine_state(th_state[i - 1], map_element(Element_index(ref, i), is_fill));
+        if (is_fill && my_min_fill == ~0) {
+            my_min_fill = ix + i;
+        }
+    }
+    atomicMin(sh_min_fill, my_min_fill);
+    State agg = th_state[N_ROWS - 1];
+    sh_mat[gl_LocalInvocationID.x] = agg.mat;
+    sh_translate[gl_LocalInvocationID.x] = agg.translate;
+    sh_bbox[gl_LocalInvocationID.x] = agg.bbox;
+    sh_width[gl_LocalInvocationID.x] = agg.linewidth;
+    sh_flags[gl_LocalInvocationID.x] = agg.flags;
+    for (uint i = 0; i < LG_WG_SIZE; i++) {
+        barrier();
+        if (gl_LocalInvocationID.x >= (1 << i)) {
+            State other;
+            uint ix = gl_LocalInvocationID.x - (1 << i);
+            other.mat = sh_mat[ix];
+            other.translate = sh_translate[ix];
+            other.bbox = sh_bbox[ix];
+            other.linewidth = sh_width[ix];
+            other.flags = sh_flags[ix];
+            agg = combine_state(other, agg);
+        }
+        barrier();
+        sh_mat[gl_LocalInvocationID.x] = agg.mat;
+        sh_translate[gl_LocalInvocationID.x] = agg.translate;
+        sh_bbox[gl_LocalInvocationID.x] = agg.bbox;
+        sh_width[gl_LocalInvocationID.x] = agg.linewidth;
+        sh_flags[gl_LocalInvocationID.x] = agg.flags;
+    }
+
+    State exclusive;
+    exclusive.bbox = vec4(0.0, 0.0, 0.0, 0.0);
+    exclusive.mat = vec4(1.0, 0.0, 0.0, 1.0);
+    exclusive.translate = vec2(0.0, 0.0);
+    exclusive.linewidth = 1.0; //TODO should be 0.0
+    exclusive.flags = 0;
+
+    // Publish aggregate for this partition
+    if (gl_LocalInvocationID.x == WG_SIZE - 1) {
+        // Note: with memory model, we'd want to generate the atomic store version of this.
+        State_write(state_aggregate_ref(tile_ix), agg);
+        uint flag = FLAG_AGGREGATE_READY;
+        memoryBarrierBuffer();
+        if (tile_ix == 0) {
+            State_write(state_prefix_ref(tile_ix), agg);
+            flag = FLAG_PREFIX_READY;
+        }
+        state[state_flag_index(tile_ix)] = flag;
+        if (tile_ix != 0) {
+            // step 4 of paper: decoupled lookback
+            uint look_back_ix = tile_ix - 1;
+            while (true) {
+                flag = state[state_flag_index(look_back_ix)];
+                if (flag == FLAG_PREFIX_READY) {
+                    State their_prefix = State_read(state_prefix_ref(look_back_ix));
+                    exclusive = combine_state(their_prefix, exclusive);
+                    break;
+                } else if (flag == FLAG_AGGREGATE_READY) {
+                    State their_agg = State_read(state_aggregate_ref(look_back_ix));
+                    exclusive = combine_state(their_agg, exclusive);
+                    look_back_ix--;
+                }
+                // else spin
+            }
+
+            // step 5 of paper: compute inclusive prefix
+            State inclusive_prefix = combine_state(exclusive, agg);
+            sh_prefix = exclusive;
+            State_write(state_prefix_ref(tile_ix), inclusive_prefix);
+            memoryBarrierBuffer();
+            flag = FLAG_PREFIX_READY;
+            state[state_flag_index(tile_ix)] = flag;
+        }
+    }
+    barrier();
+    my_min_fill = sh_min_fill;
+    if (tile_ix != 0) {
+        exclusive = sh_prefix;
+    }
+
+    State row = exclusive;
+    if (gl_LocalInvocationID.x > 0) {
+        uint ix = gl_LocalInvocationID.x - 1;
+        State other;
+        other.mat = sh_mat[ix];
+        other.translate = sh_translate[ix];
+        other.bbox = sh_bbox[ix];
+        other.linewidth = sh_width[ix];
+        other.flags = sh_flags[ix];
+        row = combine_state(row, other);
+    }
+    if (my_min_fill == ~0 && gl_LocalInvocationID.x == 0) {
+        state[state_flag_index(tile_ix) + 1] = 0x7f800000; // infinity
+    }
+    for (uint i = 0; i < N_ROWS; i++) {
+        State st = combine_state(row, th_state[i]);
+        if (my_min_fill == ix + i) {
+            state[state_flag_index(tile_ix) + 1] = floatBitsToUint(st.bbox.z);
+        }
+        // We write the state now for development purposes, but the
+        // actual goal is to write transformed and annotated elements.
+        //State_write(StateRef((ix + i) * State_size), st);
+
+        // Here we read again from the original scene. There may be
+        // gains to be had from stashing in shared memory or possibly
+        // registers (though register pressure is an issue).
+        ElementRef this_ref = Element_index(ref, i);
+        AnnotatedRef out_ref = AnnotatedRef((ix + i) * Annotated_size);
+        uint tag = Element_tag(this_ref);
+        switch (tag) {
+        case Element_FillLine:
+        case Element_StrokeLine:
+            LineSeg line = Element_StrokeLine_read(this_ref);
+            AnnoStrokeLineSeg anno_line;
+            anno_line.p0 = st.mat.xy * line.p0.x + st.mat.zw * line.p0.y + st.translate;
+            anno_line.p1 = st.mat.xy * line.p1.x + st.mat.zw * line.p1.y + st.translate;
+            if (tag == Element_StrokeLine) {
+                anno_line.stroke = get_linewidth(st);
+            } else {
+                anno_line.stroke = vec2(0.0);
+            }
+            // We do encoding a bit by hand to minimize divergence. Another approach
+            // would be to have a fill/stroke bool.
+            uint out_tag = tag == Element_FillLine ? Annotated_FillLine : Annotated_StrokeLine;
+            annotated[out_ref.offset >> 2] = out_tag;
+            AnnoStrokeLineSeg_write(AnnoStrokeLineSegRef(out_ref.offset + 4), anno_line);
+            break;
+        case Element_Stroke:
+            Stroke stroke = Element_Stroke_read(this_ref);
+            AnnoStroke anno_stroke;
+            anno_stroke.rgba_color = stroke.rgba_color;
+            vec2 lw = get_linewidth(st);
+            anno_stroke.bbox = st.bbox + vec4(-lw, lw);
+            anno_stroke.linewidth = st.linewidth * sqrt(st.mat.x * st.mat.w - st.mat.y * st.mat.z);
+            Annotated_Stroke_write(out_ref, anno_stroke);
+            break;
+        case Element_Fill:
+            Fill fill = Element_Fill_read(this_ref);
+            AnnoFill anno_fill;
+            anno_fill.rgba_color = fill.rgba_color;
+            anno_fill.bbox = st.bbox;
+            Annotated_Fill_write(out_ref, anno_fill);
+            break;
+        default:
+            Annotated_Nop_write(out_ref);
+            break;
+        }
+    }
+}

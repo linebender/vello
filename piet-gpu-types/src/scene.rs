@@ -4,6 +4,8 @@ pub use self::scene::{
     Bbox, PietCircle, PietFill, PietItem, PietStrokeLine, PietStrokePolyLine, Point, SimpleGroup,
 };
 
+pub use self::scene::{CubicSeg, Element, Fill, LineSeg, QuadSeg, SetLineWidth, Stroke, Transform};
+
 piet_gpu! {
     #[rust_encode]
     mod scene {
@@ -50,6 +52,54 @@ piet_gpu! {
             Line(PietStrokeLine),
             Fill(PietFill),
             Poly(PietStrokePolyLine),
+        }
+
+        // New approach follows (above to be deleted)
+        struct LineSeg {
+            p0: [f32; 2],
+            p1: [f32; 2],
+        }
+        struct QuadSeg {
+            p0: [f32; 2],
+            p1: [f32; 2],
+            p2: [f32; 2],
+        }
+        struct CubicSeg {
+            p0: [f32; 2],
+            p1: [f32; 2],
+            p2: [f32; 2],
+            p3: [f32; 2],
+        }
+        struct Fill {
+            rgba_color: u32,
+        }
+        struct Stroke {
+            rgba_color: u32,
+        }
+        struct SetLineWidth {
+            width: f32,
+        }
+        struct Transform {
+            mat: [f32; 4],
+            translate: [f32; 2],
+        }
+        enum Element {
+            Nop,
+            // Another approach to encoding would be to use a single
+            // variant but have a bool for fill/stroke. This could be
+            // packed into the tag, so the on-the-wire representation
+            // would be very similar to what's here.
+            StrokeLine(LineSeg),
+            FillLine(LineSeg),
+
+            // Note: we'll need to handle the stroke/fill distinction
+            // for these as well, when we do flattening on the GPU.
+            Quad(QuadSeg),
+            Cubic(CubicSeg),
+            Stroke(Stroke),
+            Fill(Fill),
+            SetLineWidth(SetLineWidth),
+            Transform(Transform),
         }
     }
 }

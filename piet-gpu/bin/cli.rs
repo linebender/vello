@@ -2,10 +2,12 @@ use std::fs::File;
 use std::io::BufWriter;
 use std::path::Path;
 
+use clap::{Arg, App};
+
 use piet_gpu_hal::vulkan::VkInstance;
 use piet_gpu_hal::{CmdBuf, Device, Error, MemFlags};
 
-use piet_gpu::{PietGpuRenderContext, Renderer, render_scene, WIDTH, HEIGHT};
+use piet_gpu::{render_scene, render_svg, PietGpuRenderContext, Renderer, HEIGHT, WIDTH};
 
 #[allow(unused)]
 fn dump_scene(buf: &[u8]) {
@@ -16,22 +18,179 @@ fn dump_scene(buf: &[u8]) {
     }
 }
 
+#[allow(unused)]
+fn dump_state(buf: &[u8]) {
+    for i in 0..(buf.len() / 48) {
+        let j = i * 48;
+        let floats = (0..11).map(|k| {
+            let mut buf_f32 = [0u8; 4];
+            buf_f32.copy_from_slice(&buf[j + k * 4..j + k * 4 + 4]);
+            f32::from_le_bytes(buf_f32)
+        }).collect::<Vec<_>>();
+        println!("{}: [{} {} {} {} {} {}] ({}, {})-({} {}) {} {}",
+            i,
+            floats[0], floats[1], floats[2], floats[3], floats[4], floats[5],
+            floats[6], floats[7], floats[8], floats[9],
+            floats[10], buf[j + 44]);
+    }
+
+}
+
+/// Interpret the output of the binning stage, for diagnostic purposes.
+#[allow(unused)]
+fn trace_merge(buf: &[u32]) {
+    for bin in 0..256 {
+        println!("bin {}:", bin);
+        let mut starts = (0..16).map(|i| Some((bin * 16 + i) * 64)).collect::<Vec<Option<usize>>>();
+        loop {
+            let min_start = starts.iter().map(|st|
+                st.map(|st|
+                    if buf[st / 4] == 0 {
+                        !0
+                    } else {
+                        buf[st / 4 + 2]
+                    }).unwrap_or(!0)).min().unwrap();
+            if min_start == !0 {
+                break;
+            }
+            let mut selected = !0;
+            for i in 0..16 {
+                if let Some(st) = starts[i] {
+                    if buf[st/4] != 0 && buf[st/4 + 2] == min_start {
+                        selected = i;
+                        break;
+                    }
+                }
+            }
+            let st = starts[selected].unwrap();
+            println!("selected {}, start {:x}", selected, st);
+            for j in 0..buf[st/4] {
+                println!("{:x}", buf[st/4 + 2 + j as usize])
+            }
+            if buf[st/4 + 1] == 0 {
+                starts[selected] = None;
+            } else {
+                starts[selected] = Some(buf[st/4 + 1] as usize);
+            }
+        }
+
+    }
+}
+
+/// Interpret the output of the coarse raster stage, for diagnostic purposes.
+#[allow(unused)]
+fn trace_ptcl(buf: &[u32]) {
+    for y in 0..96 {
+        for x in 0..128 {
+            let tile_ix = y * 128 + x;
+            println!("tile {} @({}, {})", tile_ix, x, y);
+            let mut tile_offset = tile_ix * 1024;
+            loop {
+                let tag = buf[tile_offset / 4];
+                match tag {
+                    0 => break,
+                    3 => {
+                        let backdrop = buf[tile_offset / 4 + 2];
+                        let rgba_color = buf[tile_offset / 4 + 3];
+                        println!("  {:x}: fill {:x} {}", tile_offset, rgba_color, backdrop);
+                        let mut seg_chunk = buf[tile_offset / 4 + 1] as usize;
+                        let n = buf[seg_chunk / 4] as usize;
+                        let segs = buf[seg_chunk / 4 + 2] as usize;
+                        println!("    chunk @{:x}: n={}, segs @{:x}", seg_chunk, n, segs);
+                        for i in 0..n {
+                            let x0 = f32::from_bits(buf[segs / 4 + i * 5]);
+                            let y0 = f32::from_bits(buf[segs / 4 + i * 5 + 1]);
+                            let x1 = f32::from_bits(buf[segs / 4 + i * 5 + 2]);
+                            let y1 = f32::from_bits(buf[segs / 4 + i * 5 + 3]);
+                            let y_edge = f32::from_bits(buf[segs / 4 + i * 5 + 4]);
+                            println!("      ({:.3}, {:.3}) - ({:.3}, {:.3}) | {:.3}", x0, y0, x1, y1, y_edge);
+                        }
+                        loop {
+                            seg_chunk = buf[seg_chunk / 4 + 1] as usize;
+                            if seg_chunk == 0 {
+                                break;
+                            }
+                        }
+                    }
+                    4 => {
+                        let line_width = f32::from_bits(buf[tile_offset / 4 + 2]);
+                        let rgba_color = buf[tile_offset / 4 + 3];
+                        println!("  {:x}: stroke {:x} {}", tile_offset, rgba_color, line_width);
+                        let mut seg_chunk = buf[tile_offset / 4 + 1] as usize;
+                        let n = buf[seg_chunk / 4] as usize;
+                        let segs = buf[seg_chunk / 4 + 2] as usize;
+                        println!("    chunk @{:x}: n={}, segs @{:x}", seg_chunk, n, segs);
+                        for i in 0..n {
+                            let x0 = f32::from_bits(buf[segs / 4 + i * 5]);
+                            let y0 = f32::from_bits(buf[segs / 4 + i * 5 + 1]);
+                            let x1 = f32::from_bits(buf[segs / 4 + i * 5 + 2]);
+                            let y1 = f32::from_bits(buf[segs / 4 + i * 5 + 3]);
+                            let y_edge = f32::from_bits(buf[segs / 4 + i * 5 + 4]);
+                            println!("      ({:.3}, {:.3}) - ({:.3}, {:.3}) | {:.3}", x0, y0, x1, y1, y_edge);
+                        }
+                        loop {
+                            seg_chunk = buf[seg_chunk / 4 + 1] as usize;
+                            if seg_chunk == 0 {
+                                break;
+                            }
+                        }
+                    }
+                    _ => {
+                        println!("{:x}: {}", tile_offset, tag);
+                    }
+                }
+                if tag == 0 {
+                    break;
+                }
+                if tag == 8 {
+                    tile_offset = buf[tile_offset / 4 + 1] as usize;
+                } else {
+                    tile_offset += 20;
+                }
+            }
+        }
+    }
+}
+
+
 fn main() -> Result<(), Error> {
+    let matches = App::new("piet-gpu test")
+        .arg(Arg::with_name("INPUT")
+            .index(1))
+        .arg(Arg::with_name("flip")
+            .short("f")
+            .long("flip"))
+        .arg(Arg::with_name("scale")
+            .short("s")
+            .long("scale")
+            .takes_value(true))
+        .get_matches();
     let (instance, _) = VkInstance::new(None)?;
     unsafe {
         let device = instance.device(None)?;
 
         let fence = device.create_fence(false)?;
         let mut cmd_buf = device.create_cmd_buf()?;
-        let query_pool = device.create_query_pool(6)?;
+        let query_pool = device.create_query_pool(5)?;
 
         let mut ctx = PietGpuRenderContext::new();
-        render_scene(&mut ctx);
+        if let Some(input) = matches.value_of("INPUT") {
+            let mut scale = matches.value_of("scale")
+                .map(|scale| scale.parse().unwrap())
+                .unwrap_or(8.0);
+            if matches.is_present("flip") {
+                scale = -scale;
+            }
+            render_svg(&mut ctx, input, scale);
+        } else {
+            render_scene(&mut ctx);
+        }
         let scene = ctx.get_scene_buf();
         //dump_scene(&scene);
 
         let renderer = Renderer::new(&device, scene)?;
-        let image_buf = device.create_buffer((WIDTH * HEIGHT * 4) as u64, MemFlags::host_coherent())?;
+        let image_buf =
+            device.create_buffer((WIDTH * HEIGHT * 4) as u64, MemFlags::host_coherent())?;
 
         cmd_buf.begin();
         renderer.record(&mut cmd_buf, &query_pool);
@@ -39,29 +198,17 @@ fn main() -> Result<(), Error> {
         cmd_buf.finish();
         device.run_cmd_buf(&cmd_buf, &[], &[], Some(&fence))?;
         device.wait_and_reset(&[fence])?;
-        let timestamps = device.reap_query_pool(&query_pool).unwrap();
-        println!("Kernel 1 time: {:.3}ms", timestamps[0] * 1e3);
-        println!(
-            "Kernel 2s time: {:.3}ms",
-            (timestamps[1] - timestamps[0]) * 1e3
-        );
-        println!(
-            "Kernel 2f time: {:.3}ms",
-            (timestamps[2] - timestamps[1]) * 1e3
-        );
-        println!(
-            "Kernel 3 time: {:.3}ms",
-            (timestamps[3] - timestamps[2]) * 1e3
-        );
-        println!(
-            "Render time: {:.3}ms",
-            (timestamps[4] - timestamps[3]) * 1e3
-        );
+        let ts = device.reap_query_pool(&query_pool).unwrap();
+        println!("Element kernel time: {:.3}ms", ts[0] * 1e3);
+        println!("Binning kernel time: {:.3}ms", (ts[1] - ts[0]) * 1e3);
+        println!("Coarse kernel time: {:.3}ms", (ts[2] - ts[1]) * 1e3);
+        println!("Render kernel time: {:.3}ms", (ts[3] - ts[2]) * 1e3);
 
         /*
-        let mut k1_data: Vec<u32> = Default::default();
-        device.read_buffer(&segment_buf, &mut k1_data).unwrap();
-        dump_k1_data(&k1_data);
+        let mut data: Vec<u32> = Default::default();
+        device.read_buffer(&renderer.ptcl_buf, &mut data).unwrap();
+        piet_gpu::dump_k1_data(&data);
+        //trace_ptcl(&data);
         */
 
         let mut img_data: Vec<u8> = Default::default();
