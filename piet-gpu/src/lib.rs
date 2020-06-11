@@ -20,19 +20,11 @@ pub const HEIGHT: usize = TILE_H * HEIGHT_IN_TILES;
 const TILE_W: usize = 16;
 const TILE_H: usize = 16;
 
-const WIDTH_IN_TILEGROUPS: usize = 4;
-const HEIGHT_IN_TILEGROUPS: usize = 96;
-const TILEGROUP_STRIDE: usize = 2048;
-
 const WIDTH_IN_TILES: usize = 128;
 const HEIGHT_IN_TILES: usize = 96;
 const PTCL_INITIAL_ALLOC: usize = 1024;
 
-const K2_PER_TILE_SIZE: usize = 8;
-
 const N_CIRCLES: usize = 0;
-
-const N_WG: u32 = 16;
 
 pub fn render_svg(rc: &mut impl RenderContext, filename: &str, scale: f64) {
     let xml_str = std::fs::read_to_string(filename).unwrap();
