@@ -15,17 +15,22 @@ layout(set = 0, binding = 1) buffer BinsBuf {
     uint[] bins;
 };
 
-layout(set = 0, binding = 2) buffer AllocBuf {
+layout(set = 0, binding = 2) buffer TileBuf {
+    uint[] tile;
+};
+
+layout(set = 0, binding = 3) buffer AllocBuf {
     uint n_elements;
     uint alloc;
 };
 
-layout(set = 0, binding = 3) buffer PtclBuf {
+layout(set = 0, binding = 4) buffer PtclBuf {
     uint[] ptcl;
 };
 
 #include "annotated.h"
 #include "bins.h"
+#include "tile.h"
 #include "ptcl.h"
 
 #define LG_N_PART_READ 8
@@ -39,16 +44,16 @@ shared uint sh_part_count[N_PART_READ];
 shared uint sh_part_elements[N_PART_READ];
 
 shared uint sh_bitmaps[N_SLICE][N_TILE];
-shared uint sh_backdrop[N_SLICE][N_TILE];
-shared uint sh_bd_sign[N_SLICE];
-shared uint sh_is_segment[N_SLICE];
 
-// Shared state for parallel segment output stage
+shared uint sh_tile_count[N_TILE];
+// The width of the tile rect for the element, intersected with this bin
+shared uint sh_tile_width[N_TILE];
+shared uint sh_tile_x0[N_TILE];
+shared uint sh_tile_y0[N_TILE];
 
-// Count of total number of segments in each tile, then
-// inclusive prefix sum of same.
-shared uint sh_seg_count[N_TILE];
-shared uint sh_seg_alloc;
+// These are set up so base + tile_y * stride + tile_x points to a Tile.
+shared uint sh_tile_base[N_TILE];
+shared uint sh_tile_stride[N_TILE];
 
 // scale factors useful for converting coordinates to tiles
 #define SX (1.0 / float(TILE_WIDTH_PX))
@@ -65,30 +70,6 @@ void alloc_cmd(inout CmdRef cmd_ref, inout uint cmd_limit) {
     }
 }
 
-#define CHUNK_ALLOC_SLAB 16
-
-uint alloc_chunk_remaining;
-uint alloc_chunk_offset;
-
-SegChunkRef alloc_seg_chunk() {
-    if (alloc_chunk_remaining == 0) {
-        alloc_chunk_offset = atomicAdd(alloc, CHUNK_ALLOC_SLAB * SegChunk_size);
-        alloc_chunk_remaining = CHUNK_ALLOC_SLAB;
-    }
-    uint offset = alloc_chunk_offset;
-    alloc_chunk_offset += SegChunk_size;
-    alloc_chunk_remaining--;
-    return SegChunkRef(offset);
-}
-
-// Accumulate delta to backdrop.
-//
-// Each bit for which bd_bitmap is 1 and bd_sign is 1 counts as +1, and each
-// bit for which bd_bitmap is 1 and bd_sign is 0 counts as -1.
-int count_backdrop(uint bd_bitmap, uint bd_sign) {
-    return bitCount(bd_bitmap & bd_sign) - bitCount(bd_bitmap & ~bd_sign);
-}
-
 void main() {
     // Could use either linear or 2d layouts for both dispatch and
     // invocations within the workgroup. We'll use variables to abstract.
@@ -99,18 +80,14 @@ void main() {
     vec2 xy0 = vec2(N_TILE_X * TILE_WIDTH_PX * gl_WorkGroupID.x, N_TILE_Y * TILE_HEIGHT_PX * gl_WorkGroupID.y);
     uint th_ix = gl_LocalInvocationID.x;
 
-    uint tile_x = N_TILE_X * gl_WorkGroupID.x + gl_LocalInvocationID.x % N_TILE_X;
-    uint tile_y = N_TILE_Y * gl_WorkGroupID.y + gl_LocalInvocationID.x / N_TILE_X;
-    uint this_tile_ix = tile_y * WIDTH_IN_TILES + tile_x;
+    // Coordinates of top left of bin, in tiles.
+    uint bin_tile_x = N_TILE_X * gl_WorkGroupID.x;
+    uint bin_tile_y = N_TILE_Y * gl_WorkGroupID.y;
+    uint tile_x = gl_LocalInvocationID.x % N_TILE_X;
+    uint tile_y = gl_LocalInvocationID.x / N_TILE_X;
+    uint this_tile_ix = (bin_tile_y + tile_y) * WIDTH_IN_TILES + bin_tile_x + tile_x;
     CmdRef cmd_ref = CmdRef(this_tile_ix * PTCL_INITIAL_ALLOC);
     uint cmd_limit = cmd_ref.offset + PTCL_INITIAL_ALLOC - 2 * Cmd_size;
-
-    // Allocation and management of segment output
-    SegChunkRef first_seg_chunk = SegChunkRef(0);
-    SegChunkRef last_chunk_ref = SegChunkRef(0);
-    uint last_chunk_n = 0;
-    SegmentRef last_chunk_segs = SegmentRef(0);
-    alloc_chunk_remaining = 0;
 
     // I'm sure we can figure out how to do this with at least one fewer register...
     // Items up to rd_ix have been read from sh_elements
@@ -120,17 +97,10 @@ void main() {
     // Items between part_start_ix and ready_ix are ready to be transferred from sh_part_elements
     uint part_start_ix = 0;
     uint ready_ix = 0;
-    if (th_ix < N_SLICE) {
-        sh_bd_sign[th_ix] = 0;
-    }
     int backdrop = 0;
     while (true) {
         for (uint i = 0; i < N_SLICE; i++) {
             sh_bitmaps[i][th_ix] = 0;
-            sh_backdrop[i][th_ix] = 0;
-        }
-        if (th_ix < N_SLICE) {
-            sh_is_segment[th_ix] = 0;
         }
 
         // parallel read of input partitions
@@ -188,103 +158,87 @@ void main() {
 
         // Read one element, compute coverage.
         uint tag = Annotated_Nop;
+        uint element_ix;
         AnnotatedRef ref;
         float right_edge = 0.0;
         if (th_ix + rd_ix < wr_ix) {
-            uint element_ix = sh_elements[th_ix];
+            element_ix = sh_elements[th_ix];
             right_edge = sh_right_edge[th_ix];
             ref = AnnotatedRef(element_ix * Annotated_size);
             tag = Annotated_tag(ref);
         }
 
-        // Setup for coverage algorithm.
-        float a, b, c;
         // Bounding box of element in pixel coordinates.
-        float xmin, xmax, ymin, ymax;
-        uint my_slice = th_ix / 32;
-        uint my_mask = 1 << (th_ix & 31);
+        uint tile_count;
         switch (tag) {
-        case Annotated_FillLine:
-        case Annotated_StrokeLine:
-            AnnoStrokeLineSeg line = Annotated_StrokeLine_read(ref);
-            xmin = min(line.p0.x, line.p1.x) - line.stroke.x;
-            xmax = max(line.p0.x, line.p1.x) + line.stroke.x;
-            ymin = min(line.p0.y, line.p1.y) - line.stroke.y;
-            ymax = max(line.p0.y, line.p1.y) + line.stroke.y;
-            float dx = line.p1.x - line.p0.x;
-            float dy = line.p1.y - line.p0.y;
-            if (tag == Annotated_FillLine) {
-                // Set bit for backdrop sign calculation, 1 is +1, 0 is -1.
-                if (dy < 0) {
-                    atomicOr(sh_bd_sign[my_slice], my_mask);
-                } else {
-                    atomicAnd(sh_bd_sign[my_slice], ~my_mask);
-                }
-            }
-            atomicOr(sh_is_segment[my_slice], my_mask);
-            // Set up for per-scanline coverage formula, below.
-            float invslope = abs(dy) < 1e-9 ? 1e9 : dx / dy;
-            c = (line.stroke.x + abs(invslope) * (0.5 * float(TILE_HEIGHT_PX) + line.stroke.y)) * SX;
-            b = invslope; // Note: assumes square tiles, otherwise scale.
-            a = (line.p0.x - xy0.x - (line.p0.y - 0.5 * float(TILE_HEIGHT_PX) - xy0.y) * b) * SX;
-            break;
         case Annotated_Fill:
         case Annotated_Stroke:
-            // Note: we take advantage of the fact that fills and strokes
-            // have compatible layout.
-            AnnoFill fill = Annotated_Fill_read(ref);
-            xmin = fill.bbox.x;
-            xmax = fill.bbox.z;
-            ymin = fill.bbox.y;
-            ymax = fill.bbox.w;
-            // Just let the clamping to xmin and xmax determine the bounds.
-            a = 0.0;
-            b = 0.0;
-            c = 1e9;
+            // Because the only elements we're processing right now are
+            // paths, we can just use the element index as the path index.
+            // In future, when we're doing a bunch of stuff, the path index
+            // should probably be stored in the annotated element.
+            uint path_ix = element_ix;
+            Path path = Path_read(PathRef(path_ix * Path_size));
+            uint stride = path.bbox.z - path.bbox.x;
+            sh_tile_stride[th_ix] = stride;
+            int dx = int(path.bbox.x) - int(bin_tile_x);
+            int dy = int(path.bbox.y) - int(bin_tile_y);
+            int x0 = clamp(dx, 0, N_TILE_X);
+            int y0 = clamp(dy, 0, N_TILE_Y);
+            int x1 = clamp(int(path.bbox.z) - int(bin_tile_x), 0, N_TILE_X);
+            int y1 = clamp(int(path.bbox.w) - int(bin_tile_y), 0, N_TILE_Y);
+            sh_tile_width[th_ix] = uint(x1 - x0);
+            sh_tile_x0[th_ix] = x0;
+            sh_tile_y0[th_ix] = y0;
+            tile_count = uint(x1 - x0) * uint(y1 - y0);
+            // base relative to bin
+            uint base = path.tiles.offset - uint(dy * stride + dx) * Tile_size;
+            sh_tile_base[th_ix] = base;
             break;
         default:
-            ymin = 0;
-            ymax = 0;
+            tile_count = 0;
             break;
         }
 
-        // Draw the coverage area into the bitmasks. This uses an algorithm
-        // that computes the coverage of a span for given scanline.
-
-        // Compute bounding box in tiles and clip to this bin.
-        int x0 = int(floor((xmin - xy0.x) * SX));
-        int x1 = int(ceil((xmax - xy0.x) * SX));
-        int xr = int(ceil((right_edge - xy0.x) * SX));
-        int y0 = int(floor((ymin - xy0.y) * SY));
-        int y1 = int(ceil((ymax - xy0.y) * SY));
-        x0 = clamp(x0, 0, N_TILE_X);
-        x1 = clamp(x1, x0, N_TILE_X);
-        xr = clamp(xr, 0, N_TILE_X);
-        y0 = clamp(y0, 0, N_TILE_Y);
-        y1 = clamp(y1, y0, N_TILE_Y);
-        float t = a + b * float(y0);
-        for (uint y = y0; y < y1; y++) {
-            uint xx0 = clamp(int(floor(t - c)), x0, x1);
-            uint xx1 = clamp(int(ceil(t + c)), x0, x1);
-            for (uint x = xx0; x < xx1; x++) {
-                atomicOr(sh_bitmaps[my_slice][y * N_TILE_X + x], my_mask);
+        // Prefix sum of sh_tile_count
+        sh_tile_count[th_ix] = tile_count;
+        for (uint i = 0; i < LG_N_TILE; i++) {
+            barrier();
+            if (th_ix >= (1 << i)) {
+                tile_count += sh_tile_count[th_ix - (1 << i)];
             }
-            if (tag == Annotated_FillLine && ymin <= xy0.y + float(y * TILE_HEIGHT_PX)) {
-                // Assign backdrop to all tiles to the right of the ray crossing the
-                // top edge of this tile, up to the right edge of the fill bbox.
-                float xray = t - 0.5 * b;
-                xx0 = max(int(ceil(xray)), 0);
-                for (uint x = xx0; x < xr; x++) {
-                    atomicOr(sh_backdrop[my_slice][y * N_TILE_X + x], my_mask);
+            barrier();
+            sh_tile_count[th_ix] = tile_count;
+        }
+        barrier();
+        uint total_tile_count = sh_tile_count[N_TILE - 1];
+        for (uint ix = th_ix; ix < total_tile_count; ix += N_TILE) {
+            // Binary search to find element
+            uint el_ix = 0;
+            for (uint i = 0; i < LG_N_TILE; i++) {
+                uint probe = el_ix + ((N_TILE / 2) >> i);
+                if (ix >= sh_tile_count[probe - 1]) {
+                    el_ix = probe;
                 }
             }
-            t += b;
+            uint seq_ix = ix - (el_ix > 0 ? sh_tile_count[el_ix - 1] : 0);
+            uint width = sh_tile_width[el_ix];
+            uint x = sh_tile_x0[el_ix] + seq_ix % width;
+            uint y = sh_tile_y0[el_ix] + seq_ix / width;
+            Tile tile = Tile_read(TileRef(sh_tile_base[el_ix] + (sh_tile_stride[el_ix] * y + x) * Tile_size));
+            if (tile.tile.offset != 0 || tile.backdrop != 0) {
+                uint el_slice = el_ix / 32;
+                uint el_mask = 1 << (el_ix & 31);
+                atomicOr(sh_bitmaps[el_slice][y * N_TILE_X + x], el_mask);
+            }
         }
+
         barrier();
 
         // We've computed coverage and other info for each element in the input, now for
         // the output stage. We'll do segments first using a more parallel algorithm.
 
+        /*
         uint seg_count = 0;
         for (uint i = 0; i < N_SLICE; i++) {
             seg_count += bitCount(sh_bitmaps[i][th_ix] & sh_is_segment[i]);
@@ -372,45 +326,29 @@ void main() {
             Segment seg = Segment(line.p0, line.p1, y_edge);
             Segment_write(SegmentRef(seg_alloc + Segment_size * ix), seg);
         }
+        */
 
         // Output non-segment elements for this tile. The thread does a sequential walk
         // through the non-segment elements, and for segments, count and backdrop are
         // aggregated using bit counting.
         uint slice_ix = 0;
         uint bitmap = sh_bitmaps[0][th_ix];
-        uint bd_bitmap = sh_backdrop[0][th_ix];
-        uint bd_sign = sh_bd_sign[0];
-        uint is_segment = sh_is_segment[0];
-        uint seg_start = th_ix == 0 ? 0 : sh_seg_count[th_ix - 1];
-        seg_count = 0;
         while (true) {
-            uint nonseg_bitmap = bitmap & ~is_segment;
-            if (nonseg_bitmap == 0) {
-                backdrop += count_backdrop(bd_bitmap, bd_sign);
-                seg_count += bitCount(bitmap & is_segment);
+            if (bitmap == 0) {
                 slice_ix++;
                 if (slice_ix == N_SLICE) {
                     break;
                 }
                 bitmap = sh_bitmaps[slice_ix][th_ix];
-                bd_bitmap = sh_backdrop[slice_ix][th_ix];
-                bd_sign = sh_bd_sign[slice_ix];
-                is_segment = sh_is_segment[slice_ix];
-                nonseg_bitmap = bitmap & ~is_segment;
-                if (nonseg_bitmap == 0) {
+                if (bitmap == 0) {
                     continue;
                 }
             }
-            uint element_ref_ix = slice_ix * 32 + findLSB(nonseg_bitmap);
+            uint element_ref_ix = slice_ix * 32 + findLSB(bitmap);
             uint element_ix = sh_elements[element_ref_ix];
 
-            // Bits up to and including the lsb
-            uint bd_mask = (nonseg_bitmap - 1) ^ nonseg_bitmap;
-            backdrop += count_backdrop(bd_bitmap & bd_mask, bd_sign);
-            seg_count += bitCount(bitmap & bd_mask & is_segment);
-            // Clear bits that have been consumed.
-            bd_bitmap &= ~bd_mask;
-            bitmap &= ~bd_mask;
+            // Clear LSB
+            bitmap &= bitmap - 1;
 
             // At this point, we read the element again from global memory.
             // If that turns out to be expensive, maybe we can pack it into
@@ -420,102 +358,35 @@ void main() {
 
             switch (tag) {
             case Annotated_Fill:
-                if (last_chunk_n > 0 || seg_count > 0) {
-                    SegChunkRef chunk_ref = SegChunkRef(0);
-                    if (seg_count > 0) {
-                        chunk_ref = alloc_seg_chunk();
-                        SegChunk chunk;
-                        chunk.n = seg_count;
-                        chunk.next = SegChunkRef(0);
-                        uint seg_offset = seg_alloc + seg_start * Segment_size;
-                        chunk.segs = SegmentRef(seg_offset);
-                        SegChunk_write(chunk_ref, chunk);
-                    }
-                    if (last_chunk_n > 0) {
-                        SegChunk chunk;
-                        chunk.n = last_chunk_n;
-                        chunk.next = chunk_ref;
-                        chunk.segs = last_chunk_segs;
-                        SegChunk_write(last_chunk_ref, chunk);
-                    } else {
-                        first_seg_chunk = chunk_ref;
-                    }
-
-                    AnnoFill fill = Annotated_Fill_read(ref);
+                Tile tile = Tile_read(TileRef(sh_tile_base[element_ref_ix]
+                    + (sh_tile_stride[element_ref_ix] * tile_y + tile_x) * Tile_size));
+                AnnoFill fill = Annotated_Fill_read(ref);
+                alloc_cmd(cmd_ref, cmd_limit);
+                if (tile.tile.offset != 0) {
                     CmdFill cmd_fill;
-                    cmd_fill.seg_ref = first_seg_chunk;
-                    cmd_fill.backdrop = backdrop;
+                    cmd_fill.tile_ref = tile.tile.offset;
+                    cmd_fill.backdrop = tile.backdrop;
                     cmd_fill.rgba_color = fill.rgba_color;
-                    alloc_cmd(cmd_ref, cmd_limit);
                     Cmd_Fill_write(cmd_ref, cmd_fill);
-                    cmd_ref.offset += Cmd_size;
-                    last_chunk_n = 0;
-                } else if (backdrop != 0) {
+                } else {
                     AnnoFill fill = Annotated_Fill_read(ref);
-                    alloc_cmd(cmd_ref, cmd_limit);
                     Cmd_Solid_write(cmd_ref, CmdSolid(fill.rgba_color));
-                    cmd_ref.offset += Cmd_size;
                 }
-                seg_start += seg_count;
-                seg_count = 0;
-                backdrop = 0;
+                cmd_ref.offset += Cmd_size;
                 break;
             case Annotated_Stroke:
-                // TODO: reduce divergence & code duplication? Much of the
-                // fill and stroke processing is in common.
-                if (last_chunk_n > 0 || seg_count > 0) {
-                    SegChunkRef chunk_ref = SegChunkRef(0);
-                    if (seg_count > 0) {
-                        chunk_ref = alloc_seg_chunk();
-                        SegChunk chunk;
-                        chunk.n = seg_count;
-                        chunk.next = SegChunkRef(0);
-                        uint seg_offset = seg_alloc + seg_start * Segment_size;
-                        chunk.segs = SegmentRef(seg_offset);
-                        SegChunk_write(chunk_ref, chunk);
-                    }
-                    if (last_chunk_n > 0) {
-                        SegChunk chunk;
-                        chunk.n = last_chunk_n;
-                        chunk.next = chunk_ref;
-                        chunk.segs = last_chunk_segs;
-                        SegChunk_write(last_chunk_ref, chunk);
-                    } else {
-                        first_seg_chunk = chunk_ref;
-                    }
-
-                    AnnoStroke stroke = Annotated_Stroke_read(ref);
-                    CmdStroke cmd_stroke;
-                    cmd_stroke.seg_ref = first_seg_chunk;
-                    cmd_stroke.half_width = 0.5 * stroke.linewidth;
-                    cmd_stroke.rgba_color = stroke.rgba_color;
-                    alloc_cmd(cmd_ref, cmd_limit);
-                    Cmd_Stroke_write(cmd_ref, cmd_stroke);
-                    cmd_ref.offset += Cmd_size;
-                    last_chunk_n = 0;
-                }
-                seg_start += seg_count;
-                seg_count = 0;
-                break;
-            default:
-                // This shouldn't happen, but just in case.
-                seg_start++;
+                tile = Tile_read(TileRef(sh_tile_base[element_ref_ix]
+                    + (sh_tile_stride[element_ref_ix] * tile_y + tile_x) * Tile_size));
+                AnnoStroke stroke = Annotated_Stroke_read(ref);
+                CmdStroke cmd_stroke;
+                cmd_stroke.tile_ref = tile.tile.offset;
+                cmd_stroke.half_width = 0.5 * stroke.linewidth;
+                cmd_stroke.rgba_color = stroke.rgba_color;
+                alloc_cmd(cmd_ref, cmd_limit);
+                Cmd_Stroke_write(cmd_ref, cmd_stroke);
+                cmd_ref.offset += Cmd_size;
                 break;
             }
-        }
-        if (seg_count > 0) {
-            SegChunkRef chunk_ref = alloc_seg_chunk();
-            if (last_chunk_n > 0) {
-                SegChunk_write(last_chunk_ref, SegChunk(last_chunk_n, chunk_ref, last_chunk_segs));
-            } else {
-                first_seg_chunk = chunk_ref;
-            }
-            // TODO: free two registers by writing count and segments ref now,
-            // as opposed to deferring SegChunk write until all fields are known.
-            last_chunk_ref = chunk_ref;
-            last_chunk_n = seg_count;
-            uint seg_offset = seg_alloc + seg_start * Segment_size;
-            last_chunk_segs = SegmentRef(seg_offset);
         }
         barrier();
 

@@ -14,6 +14,12 @@ build elements.spv: glsl elements.comp | scene.h state.h annotated.h
 
 build binning.spv: glsl binning.comp | annotated.h state.h bins.h setup.h
 
+build tile_alloc.spv: glsl tile_alloc.comp | annotated.h tile.h setup.h
+
+build path_coarse.spv: glsl path_coarse.comp | annotated.h pathseg.h tile.h setup.h
+
+build backdrop.spv: glsl backdrop.comp | annotated.h tile.h setup.h
+
 build coarse.spv: glsl coarse.comp | annotated.h bins.h ptcl.h setup.h
 
 build kernel4.spv: glsl kernel4.comp | ptcl.h setup.h

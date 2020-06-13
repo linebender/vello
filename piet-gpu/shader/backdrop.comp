@@ -1,0 +1,91 @@
+// Propagation of tile backdrop for filling.
+
+#version 450
+#extension GL_GOOGLE_include_directive : enable
+
+#include "setup.h"
+
+#define LG_BACKDROP_WG 8
+#define BACKDROP_WG (1 << LG_BACKDROP_WG)
+
+layout(local_size_x = BACKDROP_WG, local_size_y = 1) in;
+
+layout(set = 0, binding = 0) buffer AnnotatedBuf {
+    uint[] annotated;
+};
+
+// This is really only used for n_elements; maybe we can handle that
+// a different way, but it's convenient to have the same signature as
+// tile allocation.
+layout(set = 0, binding = 1) buffer AllocBuf {
+    uint n_elements;
+    uint n_pathseg;
+    uint alloc;
+};
+
+layout(set = 0, binding = 2) buffer TileBuf {
+    uint[] tile;
+};
+
+#include "annotated.h"
+#include "tile.h"
+
+shared uint sh_row_count[BACKDROP_WG];
+shared uint sh_row_base[BACKDROP_WG];
+shared uint sh_row_width[BACKDROP_WG];
+
+void main() {
+    uint th_ix = gl_LocalInvocationID.x;
+    uint element_ix = gl_GlobalInvocationID.x;
+    AnnotatedRef ref = AnnotatedRef(element_ix * Annotated_size);
+
+    uint row_count = 0;
+    if (element_ix < n_elements) {
+        uint tag = Annotated_tag(ref);
+        if (tag == Annotated_Fill) {
+            PathRef path_ref = PathRef(element_ix * Path_size);
+            Path path = Path_read(path_ref);
+            sh_row_width[th_ix] = path.bbox.z - path.bbox.x;
+            row_count = path.bbox.w - path.bbox.y;
+            if (row_count == 1) {
+                // Note: this can probably be expanded to width = 2 as
+                // long as it doesn't cross the left edge.
+                row_count = 0;
+            }
+            sh_row_base[th_ix] = (path.tiles.offset >> 2) + 1;
+        }
+    }
+
+    sh_row_count[th_ix] = row_count;
+    // Prefix sum of sh_row_count
+    for (uint i = 0; i < LG_BACKDROP_WG; i++) {
+        barrier();
+        if (th_ix >= (1 << i)) {
+            row_count += sh_row_count[th_ix - (1 << i)];
+        }
+        barrier();
+        sh_row_count[th_ix] = row_count;
+    }
+    barrier();
+    uint total_rows = sh_row_count[BACKDROP_WG - 1];
+    for (uint row = th_ix; row < total_rows; row += BACKDROP_WG) {
+        // Binary search to find element
+        uint el_ix = 0;
+        for (uint i = 0; i < LG_BACKDROP_WG; i++) {
+            uint probe = el_ix + ((BACKDROP_WG / 2) >> i);
+            if (row >= sh_row_count[probe - 1]) {
+                el_ix = probe;
+            }
+        }
+        uint seq_ix = row - (el_ix > 0 ? sh_row_count[el_ix - 1] : 0);
+        uint width = sh_row_width[el_ix];
+        // Process one row sequentially
+        uint tile_el_ix = sh_row_base[el_ix] + seq_ix * 2 * width;
+        uint sum = tile[tile_el_ix];
+        for (uint x = 1; x < width; x++) {
+            tile_el_ix += 2;
+            sum += tile[tile_el_ix];
+            tile[tile_el_ix] = sum;
+        }
+    }
+}

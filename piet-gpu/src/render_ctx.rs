@@ -31,6 +31,10 @@ pub struct PietGpuRenderContext {
     // Will probably need direct accesss to hal Device to create images etc.
     inner_text: PietGpuText,
     stroke_width: f32,
+    // We're tallying these cpu-side for expedience, but will probably
+    // move this to some kind of readback from element processing.
+    path_count: usize,
+    pathseg_count: usize,
 }
 
 #[derive(Clone)]
@@ -52,12 +56,22 @@ impl PietGpuRenderContext {
             elements,
             inner_text,
             stroke_width,
+            path_count: 0,
+            pathseg_count: 0,
         }
     }
 
     pub fn get_scene_buf(&mut self) -> &[u8] {
         self.elements.encode(&mut self.encoder);
         self.encoder.buf()
+    }
+
+    pub fn path_count(&self) -> usize {
+        self.path_count
+    }
+
+    pub fn pathseg_count(&self) -> usize {
+        self.pathseg_count
     }
 }
 
@@ -95,6 +109,7 @@ impl RenderContext for PietGpuRenderContext {
             PietGpuBrush::Solid(rgba_color) => {
                 let stroke = Stroke { rgba_color };
                 self.elements.push(Element::Stroke(stroke));
+                self.path_count += 1;
             }
             _ => (),
         }
@@ -117,6 +132,7 @@ impl RenderContext for PietGpuRenderContext {
             PietGpuBrush::Solid(rgba_color) => {
                 let fill = Fill { rgba_color };
                 self.elements.push(Element::Fill(fill));
+                self.path_count += 1;
             }
             _ => (),
         }
@@ -200,10 +216,29 @@ impl PietGpuRenderContext {
         } else {
             self.elements.push(Element::StrokeLine(seg));
         }
+        self.pathseg_count += 1;
+    }
+
+    fn encode_quad_seg(&mut self, seg: QuadSeg, is_fill: bool) {
+        if is_fill {
+            self.elements.push(Element::FillQuad(seg));
+        } else {
+            self.elements.push(Element::StrokeQuad(seg));
+        }
+        self.pathseg_count += 1;
+    }
+
+    fn encode_cubic_seg(&mut self, seg: CubicSeg, is_fill: bool) {
+        if is_fill {
+            self.elements.push(Element::FillCubic(seg));
+        } else {
+            self.elements.push(Element::StrokeCubic(seg));
+        }
+        self.pathseg_count += 1;
     }
 
     fn encode_path(&mut self, path: impl Iterator<Item = PathEl>, is_fill: bool) {
-        let flatten = true;
+        let flatten = false;
         if flatten {
             let mut start_pt = None;
             let mut last_pt = None;
@@ -265,7 +300,7 @@ impl PietGpuRenderContext {
                             p1: scene_p1,
                             p2: scene_p2,
                         };
-                        self.elements.push(Element::Quad(seg));
+                        self.encode_quad_seg(seg, is_fill);
                         last_pt = Some(scene_p2);
                     }
                     PathEl::CurveTo(p1, p2, p3) => {
@@ -278,7 +313,7 @@ impl PietGpuRenderContext {
                             p2: scene_p2,
                             p3: scene_p3,
                         };
-                        self.elements.push(Element::Cubic(seg));
+                        self.encode_cubic_seg(seg, is_fill);
                         last_pt = Some(scene_p3);
                     }
                     PathEl::ClosePath => {

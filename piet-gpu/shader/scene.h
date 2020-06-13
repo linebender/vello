@@ -240,12 +240,14 @@ TransformRef Transform_index(TransformRef ref, uint index) {
 #define Element_Nop 0
 #define Element_StrokeLine 1
 #define Element_FillLine 2
-#define Element_Quad 3
-#define Element_Cubic 4
-#define Element_Stroke 5
-#define Element_Fill 6
-#define Element_SetLineWidth 7
-#define Element_Transform 8
+#define Element_StrokeQuad 3
+#define Element_FillQuad 4
+#define Element_StrokeCubic 5
+#define Element_FillCubic 6
+#define Element_Stroke 7
+#define Element_Fill 8
+#define Element_SetLineWidth 9
+#define Element_Transform 10
 #define Element_size 36
 
 ElementRef Element_index(ElementRef ref, uint index) {
@@ -455,11 +457,19 @@ LineSeg Element_FillLine_read(ElementRef ref) {
     return LineSeg_read(LineSegRef(ref.offset + 4));
 }
 
-QuadSeg Element_Quad_read(ElementRef ref) {
+QuadSeg Element_StrokeQuad_read(ElementRef ref) {
     return QuadSeg_read(QuadSegRef(ref.offset + 4));
 }
 
-CubicSeg Element_Cubic_read(ElementRef ref) {
+QuadSeg Element_FillQuad_read(ElementRef ref) {
+    return QuadSeg_read(QuadSegRef(ref.offset + 4));
+}
+
+CubicSeg Element_StrokeCubic_read(ElementRef ref) {
+    return CubicSeg_read(CubicSegRef(ref.offset + 4));
+}
+
+CubicSeg Element_FillCubic_read(ElementRef ref) {
     return CubicSeg_read(CubicSegRef(ref.offset + 4));
 }
 

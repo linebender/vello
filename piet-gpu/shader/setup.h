@@ -31,6 +31,7 @@
 // TODO: compute all these
 
 #define WIDTH_IN_TILES 128
+#define HEIGHT_IN_TILES 96
 #define TILEGROUP_WIDTH_TILES 32
 #define TILE_WIDTH_PX 16
 #define TILE_HEIGHT_PX 16

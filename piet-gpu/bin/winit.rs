@@ -42,9 +42,11 @@ fn main() -> Result<(), Error> {
 
         let mut ctx = PietGpuRenderContext::new();
         render_scene(&mut ctx);
+        let n_paths = ctx.path_count();
+        let n_pathseg = ctx.pathseg_count();
         let scene = ctx.get_scene_buf();
 
-        let renderer = Renderer::new(&device, scene)?;
+        let renderer = Renderer::new(&device, scene, n_paths, n_pathseg)?;
 
         event_loop.run(move |event, _, control_flow| {
             *control_flow = ControlFlow::Poll; // `ControlFlow::Wait` if only re-render on event

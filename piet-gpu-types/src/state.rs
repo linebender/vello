@@ -9,6 +9,8 @@ piet_gpu! {
             bbox: [f32; 4],
             linewidth: f32,
             flags: u32,
+            path_count: u32,
+            pathseg_count: u32,
         }
     }
 }

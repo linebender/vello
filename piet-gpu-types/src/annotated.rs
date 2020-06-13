@@ -3,9 +3,11 @@ use piet_gpu_derive::piet_gpu;
 piet_gpu! {
     #[gpu_write]
     mod annotated {
+        // Note: path segments have moved to pathseg, delete these.
         struct AnnoFillLineSeg {
             p0: [f32; 2],
             p1: [f32; 2],
+            path_ix: u32,
             // A note: the layout of this struct is shared with
             // AnnoStrokeLineSeg. In that case, we actually write
             // [0.0, 0.0] as the stroke field, to minimize divergence.
@@ -13,6 +15,7 @@ piet_gpu! {
         struct AnnoStrokeLineSeg {
             p0: [f32; 2],
             p1: [f32; 2],
+            path_ix: u32,
             // halfwidth in both x and y for binning
             stroke: [f32; 2],
         }
