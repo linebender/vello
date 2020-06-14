@@ -8,9 +8,11 @@
 #extension GL_GOOGLE_include_directive : enable
 #extension GL_KHR_shader_subgroup_basic : enable
 
+#include "setup.h"
+
 #define CHUNK 8
-#define CHUNK_DY (16 / CHUNK)
-layout(local_size_x = 16, local_size_y = 2) in;
+#define CHUNK_DY (TILE_HEIGHT_PX / CHUNK)
+layout(local_size_x = TILE_WIDTH_PX, local_size_y = CHUNK_DY) in;
 
 // Same concern that this should be readonly as in kernel 3.
 layout(set = 0, binding = 0) buffer PtclBuf {
@@ -25,8 +27,6 @@ layout(rgba8, set = 0, binding = 2) uniform writeonly image2D image;
 
 #include "ptcl.h"
 #include "tile.h"
-
-#include "setup.h"
 
 void main() {
     uint tile_ix = gl_WorkGroupID.y * WIDTH_IN_TILES + gl_WorkGroupID.x;
