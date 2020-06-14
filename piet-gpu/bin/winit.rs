@@ -37,7 +37,7 @@ fn main() -> Result<(), Error> {
             .map(|_| device.create_cmd_buf())
             .collect::<Result<Vec<_>, Error>>()?;
         let query_pools = (0..NUM_FRAMES)
-            .map(|_| device.create_query_pool(5))
+            .map(|_| device.create_query_pool(8))
             .collect::<Result<Vec<_>, Error>>()?;
 
         let mut ctx = PietGpuRenderContext::new();
@@ -70,13 +70,17 @@ fn main() -> Result<(), Error> {
                     if current_frame >= NUM_FRAMES {
                         device.wait_and_reset(&[frame_fences[frame_idx]]).unwrap();
 
-                        let timestamps = device.reap_query_pool(query_pool).unwrap();
+                        let ts = device.reap_query_pool(query_pool).unwrap();
                         window.set_title(&format!(
-                            "e: {:.3}ms, b: {:.3}ms, c: {:.3}ms, f: {:.3}ms",
-                            timestamps[0] * 1e3,
-                            (timestamps[1] - timestamps[0]) * 1e3,
-                            (timestamps[2] - timestamps[1]) * 1e3,
-                            (timestamps[3] - timestamps[2]) * 1e3,
+                            "{:.3}ms :: e:{:.3}ms|alloc:{:.3}ms|cp:{:.3}ms|bd:{:.3}ms|bin:{:.3}ms|cr:{:.3}ms|r:{:.3}ms",
+                            ts[6] * 1e3,
+                            ts[0] * 1e3,
+                            (ts[1] - ts[0]) * 1e3,
+                            (ts[2] - ts[1]) * 1e3,
+                            (ts[3] - ts[2]) * 1e3,
+                            (ts[4] - ts[3]) * 1e3,
+                            (ts[5] - ts[4]) * 1e3,
+                            (ts[6] - ts[5]) * 1e3,
                         ));
                     }
 
@@ -84,8 +88,6 @@ fn main() -> Result<(), Error> {
                     let swap_image = swapchain.image(image_idx);
                     let cmd_buf = &mut cmd_buffers[frame_idx];
                     cmd_buf.begin();
-                    cmd_buf.reset_query_pool(&query_pool);
-
                     renderer.record(cmd_buf, &query_pool);
 
                     // Image -> Swapchain

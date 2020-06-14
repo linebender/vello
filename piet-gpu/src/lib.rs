@@ -263,8 +263,8 @@ impl<D: Device> Renderer<D> {
         let k4_code = include_bytes!("../shader/kernel4.spv");
         let k4_pipeline = device.create_simple_compute_pipeline(k4_code, 2, 1)?;
         let k4_ds = device.create_descriptor_set(
-            &k4_pipeline, 
-            &[&ptcl_buf, &tile_buf], 
+            &k4_pipeline,
+            &[&ptcl_buf, &tile_buf],
             &[&image_dev]
         )?;
 
