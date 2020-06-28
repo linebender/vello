@@ -59,6 +59,7 @@ void main() {
             }
             break;
         case Cmd_Stroke:
+            // Calculate distance field from all the line segments in this tile.
             CmdStroke stroke = Cmd_Stroke_read(cmd_ref);
             float df[CHUNK];
             for (uint k = 0; k < CHUNK; k++) df[k] = 1e9;
@@ -81,6 +82,7 @@ void main() {
             }
             break;
         case Cmd_Fill:
+            // Calculate coverage based on backdrop + coverage of each line segment
             CmdFill fill = Cmd_Fill_read(cmd_ref);
             // Probably better to store as float, but conversion is no doubt cheap.
             float area[CHUNK];

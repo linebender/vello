@@ -1,4 +1,14 @@
 // Propagation of tile backdrop for filling.
+//
+// Each thread reads one path element and calculates the number of spanned tiles
+// based on the bounding box.
+// In a further compaction step, the workgroup loops over the corresponding tile rows per element in parallel.
+// For each row the per tile backdrop will be read, as calculated in the previous coarse path segment kernel,
+// and propagated from the left to the right (prefix summed).
+//
+// Output state:
+//  - Each path element has an array of tiles covering the whole path based on boundig box
+//  - Each tile per path element contains the 'backdrop' and a list of subdivided path segments
 
 #version 450
 #extension GL_GOOGLE_include_directive : enable
@@ -17,8 +27,8 @@ layout(set = 0, binding = 0) buffer AnnotatedBuf {
 // This is really only used for n_elements; maybe we can handle that
 // a different way, but it's convenient to have the same signature as
 // tile allocation.
-layout(set = 0, binding = 1) buffer AllocBuf {
-    uint n_elements;
+layout(set = 0, binding = 1) readonly buffer AllocBuf {
+    uint n_elements; // paths
     uint n_pathseg;
     uint alloc;
 };
@@ -39,6 +49,7 @@ void main() {
     uint element_ix = gl_GlobalInvocationID.x;
     AnnotatedRef ref = AnnotatedRef(element_ix * Annotated_size);
 
+    // Work assignment: 1 thread : 1 path element
     uint row_count = 0;
     if (element_ix < n_elements) {
         uint tag = Annotated_tag(ref);
@@ -67,6 +78,7 @@ void main() {
         sh_row_count[th_ix] = row_count;
     }
     barrier();
+    // Work assignment: 1 thread : 1 path element row
     uint total_rows = sh_row_count[BACKDROP_WG - 1];
     for (uint row = th_ix; row < total_rows; row += BACKDROP_WG) {
         // Binary search to find element
@@ -80,6 +92,7 @@ void main() {
         uint seq_ix = row - (el_ix > 0 ? sh_row_count[el_ix - 1] : 0);
         uint width = sh_row_width[el_ix];
         // Process one row sequentially
+        // Read backdrop value per tile and prefix sum it
         uint tile_el_ix = sh_row_base[el_ix] + seq_ix * 2 * width;
         uint sum = tile[tile_el_ix];
         for (uint x = 1; x < width; x++) {
