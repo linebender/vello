@@ -32,7 +32,7 @@ A more detailed explanation will come. But for now, a few notes.
 
 It makes a lot of sense to use gfx-hal, as it addresses the ability to write kernel and runtime code once and run it portably. But in exploring it I've found some points of friction, especially in using more "advanced" features. To serve the research goals, I'm enjoying using Vulkan directly, through [ash], which I've found does a good job tracking Vulkan releases. One example is experimenting with `VK_EXT_subgroup_size_control`.
 
-The hal layer in this repo is strongly inspired by gfx-hal, but with some differences. One is that we're shooting for a compile-time pipeline to generate GPU IR on DX12 and Metal, while gfx-hal ships [SPIRV-Cross] in the runtime. To access [Shader Model 6], that would also require bundling [DXC] at runtime, which is not yet implemeted (though it's certainly possible).
+The hal layer in this repo is strongly inspired by gfx-hal, but with some differences. One is that we're shooting for a compile-time pipeline to generate GPU IR on DX12 and Metal, while gfx-hal ships [SPIRV-Cross] in the runtime. To access [Shader Model 6], that would also require bundling [DXC] at runtime, which is not yet implemented (though it's certainly possible).
 
 ### Why not wgpu?
 
