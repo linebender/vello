@@ -744,18 +744,18 @@ impl crate::Device for VkDevice {
         result: &mut Vec<T>,
     ) -> Result<(), Error> {
         let device = &self.device.device;
-        let size = buffer.size as usize / std::mem::size_of::<T>();
         let buf = device.map_memory(
             buffer.buffer_memory,
             0,
-            size as u64,
+            buffer.size,
             vk::MemoryMapFlags::empty(),
         )?;
-        if size > result.len() {
-            result.reserve(size - result.len());
+        let len = buffer.size as usize / std::mem::size_of::<T>();
+        if len > result.len() {
+            result.reserve(len - result.len());
         }
-        std::ptr::copy_nonoverlapping(buf as *const T, result.as_mut_ptr(), size);
-        result.set_len(size);
+        std::ptr::copy_nonoverlapping(buf as *const T, result.as_mut_ptr(), len);
+        result.set_len(len);
         device.unmap_memory(buffer.buffer_memory);
         Ok(())
     }
