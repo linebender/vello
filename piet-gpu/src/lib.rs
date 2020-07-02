@@ -167,7 +167,7 @@ impl<D: Device> Renderer<D> {
         let dev = MemFlags::device_local();
 
         let n_elements = scene.len() / piet_gpu_types::scene::Element::fixed_size();
-        println!("scene: {} elements", n_elements);
+        println!("scene: {} elements, {} paths, {} path_segments", n_elements, n_paths, n_pathseg);
 
         let scene_buf = device
             .create_buffer(std::mem::size_of_val(&scene[..]) as u64, host)

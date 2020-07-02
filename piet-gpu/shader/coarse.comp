@@ -1,4 +1,12 @@
 // The coarse rasterizer stage of the pipeline.
+//
+// As input we have the ordered partitions of paths from the binning phase and
+// the annotated tile list of segments and backdrop per path.
+//
+// Each workgroup operating on one bin by stream compacting
+// the elements corresponding to the bin.
+//
+// As output we have an ordered command stream per tile. Every tile from a path (backdrop + segment list) will be encoded.
 
 #version 450
 #extension GL_GOOGLE_include_directive : enable
@@ -369,7 +377,6 @@ void main() {
                     cmd_fill.rgba_color = fill.rgba_color;
                     Cmd_Fill_write(cmd_ref, cmd_fill);
                 } else {
-                    AnnoFill fill = Annotated_Fill_read(ref);
                     Cmd_Solid_write(cmd_ref, CmdSolid(fill.rgba_color));
                 }
                 cmd_ref.offset += Cmd_size;
