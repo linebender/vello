@@ -15,24 +15,18 @@ layout(set = 0, binding = 0) buffer AnnotatedBuf {
     uint[] annotated;
 };
 
-// This is for scanning forward for right_edge data.
-layout(set = 0, binding = 1) buffer StateBuf {
-    uint[] state;
-};
-
-layout(set = 0, binding = 2) buffer AllocBuf {
+layout(set = 0, binding = 1) buffer AllocBuf {
     uint n_elements; // paths
     // Will be incremented atomically to claim tiles
     uint tile_ix;
     uint alloc;
 };
 
-layout(set = 0, binding = 3) buffer BinsBuf {
+layout(set = 0, binding = 2) buffer BinsBuf {
     uint[] bins;
 };
 
 #include "annotated.h"
-#include "state.h"
 #include "bins.h"
 
 // scale factors useful for converting coordinates to bins
@@ -51,12 +45,6 @@ shared uint count[N_SLICE][N_TILE];
 shared uint sh_chunk_start[N_TILE];
 
 shared float sh_right_edge[N_TILE];
-
-#define StateBuf_stride (8 + 2 * State_size)
-
-uint state_right_edge_index(uint partition_ix) {
-    return 2 + partition_ix * (StateBuf_stride / 4);
-}
 
 void main() {
     uint chunk_n = 0;
@@ -102,37 +90,6 @@ void main() {
         my_right_edge = fill.bbox.z;
         break;
     }
-
-    /*
-    // If the last element in this partition is a fill edge, then we need to do a
-    // look-forward to find the right edge of its corresponding fill. That data is
-    // recorded in aggregates computed in the element processing pass.
-    if (gl_LocalInvocationID.x == N_TILE - 1 && tag == Annotated_FillLine) {
-        uint aggregate_ix = (my_partition + 1) * ELEMENT_BINNING_RATIO;
-        // This is sequential but the expectation is that the amount of
-        // look-forward is small (performance may degrade in the case
-        // of massively complex paths).
-        do {
-            my_right_edge = uintBitsToFloat(state[state_right_edge_index(aggregate_ix)]);
-            aggregate_ix++;
-        } while (isinf(my_right_edge));
-    }
-
-    // Now propagate right_edge backward, from fill to segment.
-    for (uint i = 0; i < LG_N_TILE; i++) {
-        // Note: we could try to cut down on write bandwidth here if the value hasn't
-        // changed, but not sure it's worth the complexity to track.
-        sh_right_edge[gl_LocalInvocationID.x] = my_right_edge;
-        barrier();
-        if (gl_LocalInvocationID.x + (1 << i) < N_TILE && isinf(my_right_edge)) {
-            my_right_edge = sh_right_edge[gl_LocalInvocationID.x + (1 << i)];
-        }
-        barrier();
-    }
-    if (crosses_edge) {
-        x1 = int(ceil(my_right_edge * SX));
-    }
-    */
 
     // At this point, we run an iterator over the coverage area,
     // trying to keep divergence low.

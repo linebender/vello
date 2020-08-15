@@ -167,9 +167,7 @@ shared uint sh_flags[WG_SIZE];
 shared uint sh_path_count[WG_SIZE];
 shared uint sh_pathseg_count[WG_SIZE];
 
-shared uint sh_min_fill;
-
-shared uint sh_tile_ix;
+shared uint sh_part_ix;
 shared State sh_prefix;
 
 void main() {
@@ -177,28 +175,21 @@ void main() {
     // Determine partition to process by atomic counter (described in Section
     // 4.4 of prefix sum paper).
     if (gl_LocalInvocationID.x == 0) {
-        sh_tile_ix = atomicAdd(state[0], 1);
-        sh_min_fill = ~0;
+        sh_part_ix = atomicAdd(state[0], 1);
     }
     barrier();
-    uint tile_ix = sh_tile_ix;
+    uint part_ix = sh_part_ix;
 
-    uint ix = tile_ix * PARTITION_SIZE + gl_LocalInvocationID.x * N_ROWS;
+    uint ix = part_ix * PARTITION_SIZE + gl_LocalInvocationID.x * N_ROWS;
     ElementRef ref = ElementRef(ix * Element_size);
 
     bool is_fill;
-    uint my_min_fill = ~0;
     th_state[0] = map_element(ref, is_fill);
-    if (is_fill) my_min_fill = ix;
     for (uint i = 1; i < N_ROWS; i++) {
         // discussion question: would it be faster to load using more coherent patterns
         // into thread memory? This is kinda strided.
         th_state[i] = combine_state(th_state[i - 1], map_element(Element_index(ref, i), is_fill));
-        if (is_fill && my_min_fill == ~0) {
-            my_min_fill = ix + i;
-        }
     }
-    atomicMin(sh_min_fill, my_min_fill);
     State agg = th_state[N_ROWS - 1];
     sh_mat[gl_LocalInvocationID.x] = agg.mat;
     sh_translate[gl_LocalInvocationID.x] = agg.translate;
@@ -243,17 +234,17 @@ void main() {
     // Publish aggregate for this partition
     if (gl_LocalInvocationID.x == WG_SIZE - 1) {
         // Note: with memory model, we'd want to generate the atomic store version of this.
-        State_write(state_aggregate_ref(tile_ix), agg);
+        State_write(state_aggregate_ref(part_ix), agg);
         uint flag = FLAG_AGGREGATE_READY;
         memoryBarrierBuffer();
-        if (tile_ix == 0) {
-            State_write(state_prefix_ref(tile_ix), agg);
+        if (part_ix == 0) {
+            State_write(state_prefix_ref(part_ix), agg);
             flag = FLAG_PREFIX_READY;
         }
-        state[state_flag_index(tile_ix)] = flag;
-        if (tile_ix != 0) {
+        state[state_flag_index(part_ix)] = flag;
+        if (part_ix != 0) {
             // step 4 of paper: decoupled lookback
-            uint look_back_ix = tile_ix - 1;
+            uint look_back_ix = part_ix - 1;
             while (true) {
                 flag = state[state_flag_index(look_back_ix)];
                 if (flag == FLAG_PREFIX_READY) {
@@ -271,15 +262,14 @@ void main() {
             // step 5 of paper: compute inclusive prefix
             State inclusive_prefix = combine_state(exclusive, agg);
             sh_prefix = exclusive;
-            State_write(state_prefix_ref(tile_ix), inclusive_prefix);
+            State_write(state_prefix_ref(part_ix), inclusive_prefix);
             memoryBarrierBuffer();
             flag = FLAG_PREFIX_READY;
-            state[state_flag_index(tile_ix)] = flag;
+            state[state_flag_index(part_ix)] = flag;
         }
     }
     barrier();
-    my_min_fill = sh_min_fill;
-    if (tile_ix != 0) {
+    if (part_ix != 0) {
         exclusive = sh_prefix;
     }
 
@@ -296,14 +286,9 @@ void main() {
         other.pathseg_count = sh_pathseg_count[ix];
         row = combine_state(row, other);
     }
-    if (my_min_fill == ~0 && gl_LocalInvocationID.x == 0) {
-        state[state_flag_index(tile_ix) + 1] = 0x7f800000; // infinity
-    }
     for (uint i = 0; i < N_ROWS; i++) {
         State st = combine_state(row, th_state[i]);
-        if (my_min_fill == ix + i) {
-            state[state_flag_index(tile_ix) + 1] = floatBitsToUint(st.bbox.z);
-        }
+
         // We write the state now for development purposes, but the
         // actual goal is to write transformed and annotated elements.
         //State_write(StateRef((ix + i) * State_size), st);

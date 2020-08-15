@@ -237,10 +237,10 @@ impl<D: Device> Renderer<D> {
             &[n_paths as u32, 0, bin_alloc_start as u32],
         )?;
         let bin_code = include_bytes!("../shader/binning.spv");
-        let bin_pipeline = device.create_simple_compute_pipeline(bin_code, 4, 0)?;
+        let bin_pipeline = device.create_simple_compute_pipeline(bin_code, 3, 0)?;
         let bin_ds = device.create_descriptor_set(
             &bin_pipeline,
-            &[&anno_buf, &state_buf, &bin_alloc_buf_dev, &bin_buf],
+            &[&anno_buf, &bin_alloc_buf_dev, &bin_buf],
             &[],
         )?;
 
