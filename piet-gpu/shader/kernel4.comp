@@ -6,7 +6,6 @@
 
 #version 450
 #extension GL_GOOGLE_include_directive : enable
-#extension GL_KHR_shader_subgroup_basic : enable
 
 #include "setup.h"
 
@@ -34,8 +33,6 @@ void main() {
 
     uvec2 xy_uint = uvec2(gl_GlobalInvocationID.x, gl_LocalInvocationID.y + TILE_HEIGHT_PX * gl_WorkGroupID.y);
     vec2 xy = vec2(xy_uint);
-    vec2 uv = xy * vec2(1.0 / IMAGE_WIDTH, 1.0 / IMAGE_HEIGHT);
-    //vec3 rgb = uv.xyy;
     vec3 rgb[CHUNK];
     for (uint i = 0; i < CHUNK; i++) {
         rgb[i] = vec3(0.5);
