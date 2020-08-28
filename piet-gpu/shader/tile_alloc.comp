@@ -65,7 +65,6 @@ void main() {
     Path path;
     path.bbox = uvec4(x0, y0, x1, y1);
     uint tile_count = (x1 - x0) * (y1 - y0);
-    uint n_tiles = tile_count;
 
     sh_tile_count[th_ix] = tile_count;
     // Prefix sum of sh_tile_count
