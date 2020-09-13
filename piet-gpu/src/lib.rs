@@ -227,14 +227,14 @@ impl<D: Device> Renderer<D> {
             &[],
         )?;
 
-        let bin_alloc_buf_host = device.create_buffer(12, host)?;
-        let bin_alloc_buf_dev = device.create_buffer(12, dev)?;
+        let bin_alloc_buf_host = device.create_buffer(8, host)?;
+        let bin_alloc_buf_dev = device.create_buffer(8, dev)?;
 
         // TODO: constants
         let bin_alloc_start = ((n_paths + 255) & !255) * 8;
         device.write_buffer(
             &bin_alloc_buf_host,
-            &[n_paths as u32, 0, bin_alloc_start as u32],
+            &[n_paths as u32, bin_alloc_start as u32],
         )?;
         let bin_code = include_bytes!("../shader/binning.spv");
         let bin_pipeline = device.create_simple_compute_pipeline(bin_code, 3, 0)?;

@@ -10,14 +10,7 @@
 #define TILE_WIDTH_PX 16
 #define TILE_HEIGHT_PX 16
 
-// TODO: make the image size dynamic.
-#define IMAGE_WIDTH (WIDTH_IN_TILES*TILE_WIDTH_PX)
-#define IMAGE_HEIGHT (HEIGHT_IN_TILES*TILE_HEIGHT_PX)
-
 #define PTCL_INITIAL_ALLOC 1024
-
-// Stuff for new algorithm follows; some of the above should get
-// deleted.
 
 // These should probably be renamed and/or reworked. In the binning
 // kernel, they represent the number of bins. Also, the workgroup size

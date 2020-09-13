@@ -17,8 +17,6 @@ layout(set = 0, binding = 0) buffer AnnotatedBuf {
 
 layout(set = 0, binding = 1) buffer AllocBuf {
     uint n_elements; // paths
-    // Will be incremented atomically to claim tiles
-    uint tile_ix;
     uint alloc;
 };
 
@@ -41,8 +39,6 @@ layout(set = 0, binding = 2) buffer BinsBuf {
 shared uint bitmaps[N_SLICE][N_TILE];
 shared uint count[N_SLICE][N_TILE];
 shared uint sh_chunk_start[N_TILE];
-
-shared float sh_right_edge[N_TILE];
 
 void main() {
     uint my_n_elements = n_elements;
