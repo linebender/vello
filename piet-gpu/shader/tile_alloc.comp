@@ -5,7 +5,7 @@
 
 #include "setup.h"
 
-#define LG_TILE_ALLOC_WG 8
+#define LG_TILE_ALLOC_WG (7 + LG_WG_FACTOR)
 #define TILE_ALLOC_WG (1 << LG_TILE_ALLOC_WG)
 
 layout(local_size_x = TILE_ALLOC_WG, local_size_y = 1) in;

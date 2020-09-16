@@ -41,7 +41,7 @@ layout(set = 0, binding = 4) buffer PtclBuf {
 #include "tile.h"
 #include "ptcl.h"
 
-#define LG_N_PART_READ 8
+#define LG_N_PART_READ (7 + LG_WG_FACTOR)
 #define N_PART_READ (1 << LG_N_PART_READ)
 
 shared uint sh_elements[N_TILE];
