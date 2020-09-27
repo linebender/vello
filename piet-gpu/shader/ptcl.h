@@ -16,14 +16,6 @@ struct CmdFillRef {
     uint offset;
 };
 
-struct CmdFillEdgeRef {
-    uint offset;
-};
-
-struct CmdDrawFillRef {
-    uint offset;
-};
-
 struct CmdSolidRef {
     uint offset;
 };
@@ -91,28 +83,6 @@ CmdFillRef CmdFill_index(CmdFillRef ref, uint index) {
     return CmdFillRef(ref.offset + index * CmdFill_size);
 }
 
-struct CmdFillEdge {
-    int sign;
-    float y;
-};
-
-#define CmdFillEdge_size 8
-
-CmdFillEdgeRef CmdFillEdge_index(CmdFillEdgeRef ref, uint index) {
-    return CmdFillEdgeRef(ref.offset + index * CmdFillEdge_size);
-}
-
-struct CmdDrawFill {
-    int backdrop;
-    uint rgba_color;
-};
-
-#define CmdDrawFill_size 8
-
-CmdDrawFillRef CmdDrawFill_index(CmdDrawFillRef ref, uint index) {
-    return CmdDrawFillRef(ref.offset + index * CmdDrawFill_size);
-}
-
 struct CmdSolid {
     uint rgba_color;
 };
@@ -138,11 +108,8 @@ CmdJumpRef CmdJump_index(CmdJumpRef ref, uint index) {
 #define Cmd_Line 2
 #define Cmd_Fill 3
 #define Cmd_Stroke 4
-#define Cmd_FillEdge 5
-#define Cmd_DrawFill 6
-#define Cmd_Solid 7
-#define Cmd_Jump 8
-#define Cmd_Bail 9
+#define Cmd_Solid 5
+#define Cmd_Jump 6
 #define Cmd_size 20
 
 CmdRef Cmd_index(CmdRef ref, uint index) {
@@ -252,38 +219,6 @@ void CmdFill_write(CmdFillRef ref, CmdFill s) {
     ptcl[ix + 2] = s.rgba_color;
 }
 
-CmdFillEdge CmdFillEdge_read(CmdFillEdgeRef ref) {
-    uint ix = ref.offset >> 2;
-    uint raw0 = ptcl[ix + 0];
-    uint raw1 = ptcl[ix + 1];
-    CmdFillEdge s;
-    s.sign = int(raw0);
-    s.y = uintBitsToFloat(raw1);
-    return s;
-}
-
-void CmdFillEdge_write(CmdFillEdgeRef ref, CmdFillEdge s) {
-    uint ix = ref.offset >> 2;
-    ptcl[ix + 0] = uint(s.sign);
-    ptcl[ix + 1] = floatBitsToUint(s.y);
-}
-
-CmdDrawFill CmdDrawFill_read(CmdDrawFillRef ref) {
-    uint ix = ref.offset >> 2;
-    uint raw0 = ptcl[ix + 0];
-    uint raw1 = ptcl[ix + 1];
-    CmdDrawFill s;
-    s.backdrop = int(raw0);
-    s.rgba_color = raw1;
-    return s;
-}
-
-void CmdDrawFill_write(CmdDrawFillRef ref, CmdDrawFill s) {
-    uint ix = ref.offset >> 2;
-    ptcl[ix + 0] = uint(s.backdrop);
-    ptcl[ix + 1] = s.rgba_color;
-}
-
 CmdSolid CmdSolid_read(CmdSolidRef ref) {
     uint ix = ref.offset >> 2;
     uint raw0 = ptcl[ix + 0];
@@ -330,14 +265,6 @@ CmdStroke Cmd_Stroke_read(CmdRef ref) {
     return CmdStroke_read(CmdStrokeRef(ref.offset + 4));
 }
 
-CmdFillEdge Cmd_FillEdge_read(CmdRef ref) {
-    return CmdFillEdge_read(CmdFillEdgeRef(ref.offset + 4));
-}
-
-CmdDrawFill Cmd_DrawFill_read(CmdRef ref) {
-    return CmdDrawFill_read(CmdDrawFillRef(ref.offset + 4));
-}
-
 CmdSolid Cmd_Solid_read(CmdRef ref) {
     return CmdSolid_read(CmdSolidRef(ref.offset + 4));
 }
@@ -370,16 +297,6 @@ void Cmd_Stroke_write(CmdRef ref, CmdStroke s) {
     CmdStroke_write(CmdStrokeRef(ref.offset + 4), s);
 }
 
-void Cmd_FillEdge_write(CmdRef ref, CmdFillEdge s) {
-    ptcl[ref.offset >> 2] = Cmd_FillEdge;
-    CmdFillEdge_write(CmdFillEdgeRef(ref.offset + 4), s);
-}
-
-void Cmd_DrawFill_write(CmdRef ref, CmdDrawFill s) {
-    ptcl[ref.offset >> 2] = Cmd_DrawFill;
-    CmdDrawFill_write(CmdDrawFillRef(ref.offset + 4), s);
-}
-
 void Cmd_Solid_write(CmdRef ref, CmdSolid s) {
     ptcl[ref.offset >> 2] = Cmd_Solid;
     CmdSolid_write(CmdSolidRef(ref.offset + 4), s);
@@ -388,10 +305,6 @@ void Cmd_Solid_write(CmdRef ref, CmdSolid s) {
 void Cmd_Jump_write(CmdRef ref, CmdJump s) {
     ptcl[ref.offset >> 2] = Cmd_Jump;
     CmdJump_write(CmdJumpRef(ref.offset + 4), s);
-}
-
-void Cmd_Bail_write(CmdRef ref) {
-    ptcl[ref.offset >> 2] = Cmd_Bail;
 }
 
 Segment Segment_read(SegmentRef ref) {
