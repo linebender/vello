@@ -25,15 +25,6 @@ piet_gpu! {
             backdrop: i32,
             rgba_color: u32,
         }
-        struct CmdFillEdge {
-            // The sign is only one bit.
-            sign: i32,
-            y: f32,
-        }
-        struct CmdDrawFill {
-            backdrop: i32,
-            rgba_color: u32,
-        }
         struct CmdSolid {
             rgba_color: u32,
         }
@@ -46,11 +37,8 @@ piet_gpu! {
             Line(CmdLine),
             Fill(CmdFill),
             Stroke(CmdStroke),
-            FillEdge(CmdFillEdge),
-            DrawFill(CmdDrawFill),
             Solid(CmdSolid),
             Jump(CmdJump),
-            Bail,
         }
 
         // TODO: strongly consider using f16. If so, these would be
