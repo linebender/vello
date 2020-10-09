@@ -289,10 +289,6 @@ void main() {
     for (uint i = 0; i < N_ROWS; i++) {
         State st = combine_state(row, th_state[i]);
 
-        // We write the state now for development purposes, but the
-        // actual goal is to write transformed and annotated elements.
-        //State_write(StateRef((ix + i) * State_size), st);
-
         // Here we read again from the original scene. There may be
         // gains to be had from stashing in shared memory or possibly
         // registers (though register pressure is an issue).
