@@ -27,6 +27,40 @@ layout(rgba8, set = 0, binding = 2) uniform writeonly image2D image;
 #include "ptcl.h"
 #include "tile.h"
 
+// Calculate coverage based on backdrop + coverage of each line segment
+float[CHUNK] computeArea(vec2 xy, int backdrop, uint tile_ref) {
+    // Probably better to store as float, but conversion is no doubt cheap.
+    float area[CHUNK];
+    for (uint k = 0; k < CHUNK; k++) area[k] = float(backdrop);
+    TileSegRef tile_seg_ref = TileSegRef(tile_ref);
+    do {
+        TileSeg seg = TileSeg_read(tile_seg_ref);
+        for (uint k = 0; k < CHUNK; k++) {
+            vec2 my_xy = vec2(xy.x, xy.y + float(k * CHUNK_DY));
+            vec2 start = seg.start - my_xy;
+            vec2 end = seg.end - my_xy;
+            vec2 window = clamp(vec2(start.y, end.y), 0.0, 1.0);
+            if (window.x != window.y) {
+                vec2 t = (window - start.y) / (end.y - start.y);
+                vec2 xs = vec2(mix(start.x, end.x, t.x), mix(start.x, end.x, t.y));
+                float xmin = min(min(xs.x, xs.y), 1.0) - 1e-6;
+                float xmax = max(xs.x, xs.y);
+                float b = min(xmax, 1.0);
+                float c = max(b, 0.0);
+                float d = max(xmin, 0.0);
+                float a = (b + 0.5 * (d * d - c * c) - xmin) / (xmax - xmin);
+                area[k] += a * (window.x - window.y);
+            }
+            area[k] += sign(end.x - start.x) * clamp(my_xy.y - seg.y_edge + 1.0, 0.0, 1.0);
+        }
+        tile_seg_ref = seg.next;
+    } while (tile_seg_ref.offset != 0);
+    for (uint k = 0; k < CHUNK; k++) {
+        area[k] = min(abs(area[k]), 1.0);
+    }
+    return area;
+}
+
 void main() {
     uint tile_ix = gl_WorkGroupID.y * WIDTH_IN_TILES + gl_WorkGroupID.x;
     CmdRef cmd_ref = CmdRef(tile_ix * PTCL_INITIAL_ALLOC);
@@ -34,8 +68,10 @@ void main() {
     uvec2 xy_uint = uvec2(gl_GlobalInvocationID.x, gl_LocalInvocationID.y + TILE_HEIGHT_PX * gl_WorkGroupID.y);
     vec2 xy = vec2(xy_uint);
     vec3 rgb[CHUNK];
+    float mask[CHUNK];
     for (uint i = 0; i < CHUNK; i++) {
         rgb[i] = vec3(0.5);
+        mask[i] = 1.0;
     }
 
     while (true) {
@@ -52,7 +88,7 @@ void main() {
                 float r = length(vec2(xy.x, xy.y + dy) + vec2(0.5, 0.5) - circle.center.xy);
                 float alpha = clamp(0.5 + circle.radius - r, 0.0, 1.0);
                 // TODO: sRGB
-                rgb[i] = mix(rgb[i], fg_rgba.rgb, alpha * fg_rgba.a);
+                rgb[i] = mix(rgb[i], fg_rgba.rgb, mask[i] * alpha * fg_rgba.a);
             }
             break;
         case Cmd_Stroke:
@@ -75,49 +111,43 @@ void main() {
             fg_rgba = unpackUnorm4x8(stroke.rgba_color).wzyx;
             for (uint k = 0; k < CHUNK; k++) {
                 float alpha = clamp(stroke.half_width + 0.5 - df[k], 0.0, 1.0);
-                rgb[k] = mix(rgb[k], fg_rgba.rgb, alpha * fg_rgba.a);
+                rgb[k] = mix(rgb[k], fg_rgba.rgb, mask[k] * alpha * fg_rgba.a);
             }
             break;
         case Cmd_Fill:
-            // Calculate coverage based on backdrop + coverage of each line segment
             CmdFill fill = Cmd_Fill_read(cmd_ref);
-            // Probably better to store as float, but conversion is no doubt cheap.
             float area[CHUNK];
-            for (uint k = 0; k < CHUNK; k++) area[k] = float(fill.backdrop);
-            tile_seg_ref = TileSegRef(fill.tile_ref);
-            do {
-                TileSeg seg = TileSeg_read(tile_seg_ref);
-                for (uint k = 0; k < CHUNK; k++) {
-                    vec2 my_xy = vec2(xy.x, xy.y + float(k * CHUNK_DY));
-                    vec2 start = seg.start - my_xy;
-                    vec2 end = seg.end - my_xy;
-                    vec2 window = clamp(vec2(start.y, end.y), 0.0, 1.0);
-                    if (window.x != window.y) {
-                        vec2 t = (window - start.y) / (end.y - start.y);
-                        vec2 xs = vec2(mix(start.x, end.x, t.x), mix(start.x, end.x, t.y));
-                        float xmin = min(min(xs.x, xs.y), 1.0) - 1e-6;
-                        float xmax = max(xs.x, xs.y);
-                        float b = min(xmax, 1.0);
-                        float c = max(b, 0.0);
-                        float d = max(xmin, 0.0);
-                        float a = (b + 0.5 * (d * d - c * c) - xmin) / (xmax - xmin);
-                        area[k] += a * (window.x - window.y);
-                    }
-                    area[k] += sign(end.x - start.x) * clamp(my_xy.y - seg.y_edge + 1.0, 0.0, 1.0);
-                }
-                tile_seg_ref = seg.next;
-            } while (tile_seg_ref.offset != 0);
+            area = computeArea(xy, fill.backdrop, fill.tile_ref);
             fg_rgba = unpackUnorm4x8(fill.rgba_color).wzyx;
             for (uint k = 0; k < CHUNK; k++) {
-                float alpha = min(abs(area[k]), 1.0);
-                rgb[k] = mix(rgb[k], fg_rgba.rgb, alpha * fg_rgba.a);
+                rgb[k] = mix(rgb[k], fg_rgba.rgb, mask[k] * area[k] * fg_rgba.a);
+            }
+            break;
+        case Cmd_FillMask:
+            CmdFillMask fill_mask = Cmd_FillMask_read(cmd_ref);
+            area = computeArea(xy, fill_mask.backdrop, fill_mask.tile_ref);
+            for (uint k = 0; k < CHUNK; k++) {
+                mask[k] = mix(mask[k], fill_mask.mask, area[k]);
+            }
+            break;
+        case Cmd_FillMaskInv:
+            fill_mask = Cmd_FillMask_read(cmd_ref);
+            area = computeArea(xy, fill_mask.backdrop, fill_mask.tile_ref);
+            for (uint k = 0; k < CHUNK; k++) {
+                mask[k] = mix(mask[k], fill_mask.mask, 1.0 - area[k]);
             }
             break;
         case Cmd_Solid:
             CmdSolid solid = Cmd_Solid_read(cmd_ref);
             fg_rgba = unpackUnorm4x8(solid.rgba_color).wzyx;
             for (uint k = 0; k < CHUNK; k++) {
-                rgb[k] = mix(rgb[k], fg_rgba.rgb, fg_rgba.a);
+                rgb[k] = mix(rgb[k], fg_rgba.rgb, mask[k] * fg_rgba.a);
+            }
+            break;
+        case Cmd_SolidMask:
+            CmdSolidMask solid_mask = Cmd_SolidMask_read(cmd_ref);
+            for (uint k = 0; k < CHUNK; k++) {
+                mask[k] = solid_mask.mask;
             }
             break;
         case Cmd_Jump:

@@ -25,8 +25,16 @@ piet_gpu! {
             backdrop: i32,
             rgba_color: u32,
         }
+        struct CmdFillMask {
+            tile_ref: u32,
+            backdrop: i32,
+            mask: f32,
+        }
         struct CmdSolid {
             rgba_color: u32,
+        }
+        struct CmdSolidMask {
+            mask: f32,
         }
         struct CmdJump {
             new_ref: u32,
@@ -36,8 +44,11 @@ piet_gpu! {
             Circle(CmdCircle),
             Line(CmdLine),
             Fill(CmdFill),
+            FillMask(CmdFillMask),
+            FillMaskInv(CmdFillMask),
             Stroke(CmdStroke),
             Solid(CmdSolid),
+            SolidMask(CmdSolidMask),
             Jump(CmdJump),
         }
 

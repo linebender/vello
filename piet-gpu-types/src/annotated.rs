@@ -7,6 +7,10 @@ piet_gpu! {
             rgba_color: u32,
             bbox: [f32; 4],
         }
+        struct AnnoFillMask {
+            mask: f32,
+            bbox: [f32; 4],
+        }
         struct AnnoStroke {
             rgba_color: u32,
             bbox: [f32; 4],
@@ -18,6 +22,8 @@ piet_gpu! {
             Nop,
             Stroke(AnnoStroke),
             Fill(AnnoFill),
+            FillMask(AnnoFillMask),
+            FillMaskInv(AnnoFillMask),
         }
     }
 }
