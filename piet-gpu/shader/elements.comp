@@ -243,6 +243,9 @@ void main() {
         if (part_ix != 0) {
             // step 4 of paper: decoupled lookback
             uint look_back_ix = part_ix - 1;
+
+            State their_agg;
+            uint their_ix = 0;
             while (true) {
                 flag = state[state_flag_index(look_back_ix)];
                 if (flag == FLAG_PREFIX_READY) {
@@ -250,11 +253,33 @@ void main() {
                     exclusive = combine_state(their_prefix, exclusive);
                     break;
                 } else if (flag == FLAG_AGGREGATE_READY) {
-                    State their_agg = State_read(state_aggregate_ref(look_back_ix));
+                    their_agg = State_read(state_aggregate_ref(look_back_ix));
                     exclusive = combine_state(their_agg, exclusive);
                     look_back_ix--;
+                    their_ix = 0;
+                    continue;
                 }
                 // else spin
+
+                // Unfortunately there's no guarantee of forward progress of other
+                // workgroups, so compute a bit of the aggregate before trying again.
+                // In the worst case, spinning stops when the aggregate is complete.
+                ElementRef ref = ElementRef((look_back_ix * PARTITION_SIZE + their_ix) * Element_size);
+                State s = map_element(ref);
+                if (their_ix == 0) {
+                    their_agg = s;
+                } else {
+                    their_agg = combine_state(their_agg, s);
+                }
+                their_ix++;
+                if (their_ix == PARTITION_SIZE) {
+                    exclusive = combine_state(their_agg, exclusive);
+                    if (look_back_ix == 0) {
+                        break;
+                    }
+                    look_back_ix--;
+                    their_ix = 0;
+                }
             }
 
             // step 5 of paper: compute inclusive prefix
