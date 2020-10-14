@@ -94,7 +94,7 @@ State combine_state(State a, State b) {
     return c;
 }
 
-State map_element(ElementRef ref, inout bool is_fill) {
+State map_element(ElementRef ref) {
     // TODO: it would *probably* be more efficient to make the memory read patterns less
     // divergent, though it would be more wasted memory.
     uint tag = Element_tag(ref);
@@ -106,7 +106,6 @@ State map_element(ElementRef ref, inout bool is_fill) {
     c.flags = 0;
     c.path_count = 0;
     c.pathseg_count = 0;
-    is_fill = false;
     switch (tag) {
     case Element_FillLine:
     case Element_StrokeLine:
@@ -132,8 +131,6 @@ State map_element(ElementRef ref, inout bool is_fill) {
     case Element_Fill:
     case Element_FillMask:
     case Element_FillMaskInv:
-        is_fill = true;
-        // fall-through
     case Element_Stroke:
         c.flags = FLAG_RESET_BBOX;
         c.path_count = 1;
@@ -185,12 +182,11 @@ void main() {
     uint ix = part_ix * PARTITION_SIZE + gl_LocalInvocationID.x * N_ROWS;
     ElementRef ref = ElementRef(ix * Element_size);
 
-    bool is_fill;
-    th_state[0] = map_element(ref, is_fill);
+    th_state[0] = map_element(ref);
     for (uint i = 1; i < N_ROWS; i++) {
         // discussion question: would it be faster to load using more coherent patterns
         // into thread memory? This is kinda strided.
-        th_state[i] = combine_state(th_state[i - 1], map_element(Element_index(ref, i), is_fill));
+        th_state[i] = combine_state(th_state[i - 1], map_element(Element_index(ref, i)));
     }
     State agg = th_state[N_ROWS - 1];
     sh_mat[gl_LocalInvocationID.x] = agg.mat;
