@@ -47,6 +47,8 @@ void main() {
     int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
     switch (tag) {
     case Annotated_Fill:
+    case Annotated_FillMask:
+    case Annotated_FillMaskInv:
     case Annotated_Stroke:
         // Note: we take advantage of the fact that fills and strokes
         // have compatible layout.

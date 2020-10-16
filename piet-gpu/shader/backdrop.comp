@@ -53,7 +53,10 @@ void main() {
     uint row_count = 0;
     if (element_ix < n_elements) {
         uint tag = Annotated_tag(ref);
-        if (tag == Annotated_Fill) {
+        switch (tag) {
+        case Annotated_Fill:
+        case Annotated_FillMask:
+        case Annotated_FillMaskInv:
             PathRef path_ref = PathRef(element_ix * Path_size);
             Path path = Path_read(path_ref);
             sh_row_width[th_ix] = path.bbox.z - path.bbox.x;

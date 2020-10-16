@@ -60,6 +60,8 @@ void main() {
     float my_right_edge = INFINITY;
     switch (tag) {
     case Annotated_Fill:
+    case Annotated_FillMask:
+    case Annotated_FillMaskInv:
     case Annotated_Stroke:
         // Note: we take advantage of the fact that fills and strokes
         // have compatible layout.
