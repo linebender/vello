@@ -1,28 +1,28 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, ops::RangeBounds};
 
 use piet_gpu_types::encoder::{Encode, Encoder};
 
 use piet_gpu_types::scene::{CubicSeg, Element, Fill, LineSeg, QuadSeg, SetLineWidth, Stroke};
 
-use piet::kurbo::{Affine, PathEl, Point, Rect, Shape};
+use piet::{
+    kurbo::Size,
+    kurbo::{Affine, PathEl, Point, Rect, Shape},
+    HitTestPosition, TextAttribute, TextStorage,
+};
 
 use piet::{
-    Color, Error, FixedGradient, Font, FontBuilder, HitTestPoint, HitTestTextPosition, ImageFormat,
-    InterpolationMode, IntoBrush, LineMetric, RenderContext, StrokeStyle, Text, TextLayout,
-    TextLayoutBuilder,
+    Color, Error, FixedGradient, FontFamily, HitTestPoint, ImageFormat, InterpolationMode,
+    IntoBrush, LineMetric, RenderContext, StrokeStyle, Text, TextLayout, TextLayoutBuilder,
 };
 
 pub struct PietGpuImage;
-
-pub struct PietGpuFont;
-
-pub struct PietGpuFontBuilder;
 
 #[derive(Clone)]
 pub struct PietGpuTextLayout;
 
 pub struct PietGpuTextLayoutBuilder;
 
+#[derive(Clone)]
 pub struct PietGpuText;
 
 pub struct PietGpuRenderContext {
@@ -103,7 +103,7 @@ impl RenderContext for PietGpuRenderContext {
             self.stroke_width = width;
         }
         let brush = brush.make_brush(self, || shape.bounding_box()).into_owned();
-        let path = shape.to_bez_path(TOLERANCE);
+        let path = shape.path_elements(TOLERANCE);
         self.encode_path(path, false);
         match brush {
             PietGpuBrush::Solid(rgba_color) => {
@@ -126,7 +126,7 @@ impl RenderContext for PietGpuRenderContext {
 
     fn fill(&mut self, shape: impl Shape, brush: &impl IntoBrush<Self>) {
         let brush = brush.make_brush(self, || shape.bounding_box()).into_owned();
-        let path = shape.to_bez_path(TOLERANCE);
+        let path = shape.path_elements(TOLERANCE);
         self.encode_path(path, true);
         match brush {
             PietGpuBrush::Solid(rgba_color) => {
@@ -146,23 +146,7 @@ impl RenderContext for PietGpuRenderContext {
         &mut self.inner_text
     }
 
-    fn draw_text(
-        &mut self,
-        _layout: &Self::TextLayout,
-        pos: impl Into<Point>,
-        brush: &impl IntoBrush<Self>,
-    ) {
-        let _pos = pos.into();
-
-        let brush: PietGpuBrush = brush.make_brush(self, || Rect::ZERO).into_owned();
-
-        match brush {
-            PietGpuBrush::Solid(_rgba) => {
-                // TODO: draw text
-            }
-            _ => {}
-        }
-    }
+    fn draw_text(&mut self, _layout: &Self::TextLayout, _pos: impl Into<Point>) {}
 
     fn save(&mut self) -> Result<(), Error> {
         Ok(())
@@ -335,70 +319,81 @@ impl PietGpuRenderContext {
 }
 
 impl Text for PietGpuText {
-    type Font = PietGpuFont;
-    type FontBuilder = PietGpuFontBuilder;
     type TextLayout = PietGpuTextLayout;
     type TextLayoutBuilder = PietGpuTextLayoutBuilder;
 
-    fn new_font_by_name(&mut self, _name: &str, _size: f64) -> Self::FontBuilder {
-        unimplemented!();
+    fn load_font(&mut self, _data: &[u8]) -> Result<FontFamily, Error> {
+        Ok(FontFamily::default())
     }
 
-    fn new_text_layout(
-        &mut self,
-        _font: &Self::Font,
-        _text: &str,
-        _width: impl Into<Option<f64>>,
-    ) -> Self::TextLayoutBuilder {
-        unimplemented!();
+    fn new_text_layout(&mut self, _text: impl TextStorage) -> Self::TextLayoutBuilder {
+        PietGpuTextLayoutBuilder
     }
-}
 
-impl Font for PietGpuFont {}
-
-impl FontBuilder for PietGpuFontBuilder {
-    type Out = PietGpuFont;
-
-    fn build(self) -> Result<Self::Out, Error> {
-        unimplemented!();
+    fn font_family(&mut self, _family_name: &str) -> Option<FontFamily> {
+        Some(FontFamily::default())
     }
 }
 
 impl TextLayoutBuilder for PietGpuTextLayoutBuilder {
     type Out = PietGpuTextLayout;
 
+    fn max_width(self, _width: f64) -> Self {
+        self
+    }
+
+    fn alignment(self, _alignment: piet::TextAlignment) -> Self {
+        self
+    }
+
+    fn default_attribute(self, _attribute: impl Into<TextAttribute>) -> Self {
+        self
+    }
+
+    fn range_attribute(
+        self,
+        _range: impl RangeBounds<usize>,
+        _attribute: impl Into<TextAttribute>,
+    ) -> Self {
+        self
+    }
+
     fn build(self) -> Result<Self::Out, Error> {
-        unimplemented!()
+        Ok(PietGpuTextLayout)
     }
 }
 
 impl TextLayout for PietGpuTextLayout {
-    fn width(&self) -> f64 {
-        0.0
+    fn size(&self) -> Size {
+        Size::ZERO
     }
 
-    fn update_width(&mut self, _new_width: impl Into<Option<f64>>) -> Result<(), Error> {
-        unimplemented!()
+    fn image_bounds(&self) -> Rect {
+        Rect::ZERO
     }
 
     fn line_text(&self, _line_number: usize) -> Option<&str> {
-        unimplemented!()
+        None
     }
 
     fn line_metric(&self, _line_number: usize) -> Option<LineMetric> {
-        unimplemented!()
+        None
     }
 
     fn line_count(&self) -> usize {
-        unimplemented!()
+        0
     }
 
     fn hit_test_point(&self, _point: Point) -> HitTestPoint {
-        unimplemented!()
+        HitTestPoint::default()
     }
 
-    fn hit_test_text_position(&self, _text_position: usize) -> Option<HitTestTextPosition> {
-        unimplemented!()
+    fn hit_test_text_position(&self, _text_position: usize) -> HitTestPosition {
+        HitTestPosition::default()
+    }
+
+    fn text(&self) -> &str {
+        ""
     }
 }
 

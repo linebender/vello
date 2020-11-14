@@ -21,9 +21,9 @@ path = "../piet-gpu-hal"
 path = "../piet-gpu-types"
 
 [dependencies]
-piet = "0.0.13"
+piet = "0.2.0"
 png = "0.16.2"
 rand = "0.7.3"
-roxmltree = "0.11"
-winit = "0.22"
+roxmltree = "0.13"
+winit = "0.23"
 clap = "2.33"
