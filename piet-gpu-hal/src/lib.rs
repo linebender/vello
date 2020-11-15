@@ -100,7 +100,20 @@ pub trait CmdBuf<D: Device> {
         size: (u32, u32, u32),
     );
 
+    /// Insert an execution and memory barrier.
+    ///
+    /// Compute kernels (and other actions) after this barrier may read from buffers
+    /// that were written before this barrier.
     unsafe fn memory_barrier(&mut self);
+
+    /// Insert a barrier for host access to buffers.
+    ///
+    /// The host may read buffers written before this barrier, after the fence for
+    /// the command buffer is signaled.
+    ///
+    /// See http://themaister.net/blog/2019/08/14/yet-another-blog-explaining-vulkan-synchronization/
+    /// ("Host memory reads") for an explanation of this barrier.
+    unsafe fn host_barrier(&mut self);
 
     unsafe fn image_barrier(
         &mut self,
@@ -119,6 +132,8 @@ pub trait CmdBuf<D: Device> {
     unsafe fn copy_buffer(&self, src: &D::Buffer, dst: &D::Buffer);
 
     unsafe fn copy_image_to_buffer(&self, src: &D::Image, dst: &D::Buffer);
+
+    unsafe fn copy_buffer_to_image(&self, src: &D::Buffer, dst: &D::Image);
 
     // low portability, dx12 doesn't support it natively
     unsafe fn blit_image(&self, src: &D::Image, dst: &D::Image);

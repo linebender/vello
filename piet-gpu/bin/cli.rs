@@ -225,6 +225,7 @@ fn main() -> Result<(), Error> {
         cmd_buf.begin();
         renderer.record(&mut cmd_buf, &query_pool);
         cmd_buf.copy_image_to_buffer(&renderer.image_dev, &image_buf);
+        cmd_buf.host_barrier();
         cmd_buf.finish();
         let start = std::time::Instant::now();
         device.run_cmd_buf(&cmd_buf, &[], &[], Some(&fence))?;
