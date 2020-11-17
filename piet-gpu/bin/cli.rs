@@ -4,8 +4,9 @@ use std::path::Path;
 
 use clap::{App, Arg};
 
+use piet_gpu_hal::hub;
 use piet_gpu_hal::vulkan::VkInstance;
-use piet_gpu_hal::{CmdBuf, Device, Error, MemFlags};
+use piet_gpu_hal::{CmdBuf, Error, MemFlags};
 
 use piet_gpu::{render_scene, render_svg, PietGpuRenderContext, Renderer, HEIGHT, WIDTH};
 
@@ -195,10 +196,10 @@ fn main() -> Result<(), Error> {
     let (instance, _) = VkInstance::new(None)?;
     unsafe {
         let device = instance.device(None)?;
+        let session = hub::Session::new(device);
 
-        let fence = device.create_fence(false)?;
-        let mut cmd_buf = device.create_cmd_buf()?;
-        let query_pool = device.create_query_pool(8)?;
+        let mut cmd_buf = session.cmd_buf()?;
+        let query_pool = session.create_query_pool(8)?;
 
         let mut ctx = PietGpuRenderContext::new();
         if let Some(input) = matches.value_of("INPUT") {
@@ -218,20 +219,20 @@ fn main() -> Result<(), Error> {
         let scene = ctx.get_scene_buf();
         //dump_scene(&scene);
 
-        let renderer = Renderer::new(&device, scene, n_paths, n_pathseg)?;
+        let renderer = Renderer::new(&session, scene, n_paths, n_pathseg)?;
         let image_buf =
-            device.create_buffer((WIDTH * HEIGHT * 4) as u64, MemFlags::host_coherent())?;
+            session.create_buffer((WIDTH * HEIGHT * 4) as u64, MemFlags::host_coherent())?;
 
         cmd_buf.begin();
         renderer.record(&mut cmd_buf, &query_pool);
-        cmd_buf.copy_image_to_buffer(&renderer.image_dev, &image_buf);
+        cmd_buf.copy_image_to_buffer(renderer.image_dev.vk_image(), image_buf.vk_buffer());
         cmd_buf.host_barrier();
         cmd_buf.finish();
         let start = std::time::Instant::now();
-        device.run_cmd_buf(&cmd_buf, &[], &[], Some(&fence))?;
-        device.wait_and_reset(&[fence])?;
+        let submitted = session.run_cmd_buf(cmd_buf, &[], &[])?;
+        submitted.wait()?;
         println!("elapsed = {:?}", start.elapsed());
-        let ts = device.reap_query_pool(&query_pool).unwrap();
+        let ts = session.fetch_query_pool(&query_pool).unwrap();
         println!("Element kernel time: {:.3}ms", ts[0] * 1e3);
         println!(
             "Tile allocation kernel time: {:.3}ms",
@@ -253,7 +254,7 @@ fn main() -> Result<(), Error> {
         let mut img_data: Vec<u8> = Default::default();
         // Note: because png can use a `&[u8]` slice, we could avoid an extra copy
         // (probably passing a slice into a closure). But for now: keep it simple.
-        device.read_buffer(&image_buf, &mut img_data).unwrap();
+        image_buf.read(&mut img_data).unwrap();
 
         // Write image as PNG file.
         let path = Path::new("image.png");

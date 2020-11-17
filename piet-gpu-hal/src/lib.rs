@@ -2,6 +2,8 @@
 ///
 /// This abstraction is inspired by gfx-hal, but is specialized to the needs of piet-gpu.
 /// In time, it may go away and be replaced by either gfx-hal or wgpu.
+pub mod hub;
+
 pub mod vulkan;
 
 /// This isn't great but is expedient.
@@ -29,12 +31,30 @@ pub trait Device: Sized {
 
     fn create_buffer(&self, size: u64, mem_flags: Self::MemFlags) -> Result<Self::Buffer, Error>;
 
+    /// Destroy a buffer.
+    ///
+    /// The same safety requirements hold as in Vulkan: the buffer cannot be used
+    /// after this call, and all commands referencing this buffer must have completed.
+    ///
+    /// Maybe doesn't need result return?
+    unsafe fn destroy_buffer(&self, buffer: &Self::Buffer) -> Result<(), Error>;
+
     unsafe fn create_image2d(
         &self,
         width: u32,
         height: u32,
         mem_flags: Self::MemFlags,
     ) -> Result<Self::Image, Error>;
+
+    /// Destroy an image.
+    ///
+    /// The same safety requirements hold as in Vulkan: the image cannot be used
+    /// after this call, and all commands referencing this image must have completed.
+    ///
+    /// Use this only with images we created, not for swapchain images.
+    ///
+    /// Maybe doesn't need result return?
+    unsafe fn destroy_image(&self, image: &Self::Image) -> Result<(), Error>;
 
     unsafe fn create_simple_compute_pipeline(
         &self,
@@ -61,7 +81,7 @@ pub trait Device: Sized {
     ///
     /// # Safety
     /// All submitted commands that refer to this query pool must have completed.
-    unsafe fn reap_query_pool(&self, pool: &Self::QueryPool) -> Result<Vec<f64>, Error>;
+    unsafe fn fetch_query_pool(&self, pool: &Self::QueryPool) -> Result<Vec<f64>, Error>;
 
     unsafe fn run_cmd_buf(
         &self,
@@ -86,6 +106,7 @@ pub trait Device: Sized {
     unsafe fn create_semaphore(&self) -> Result<Self::Semaphore, Error>;
     unsafe fn create_fence(&self, signaled: bool) -> Result<Self::Fence, Error>;
     unsafe fn wait_and_reset(&self, fences: &[Self::Fence]) -> Result<(), Error>;
+    unsafe fn get_fence_status(&self, fence: Self::Fence) -> Result<bool, Error>;
 }
 
 pub trait CmdBuf<D: Device> {
