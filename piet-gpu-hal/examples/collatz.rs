@@ -5,6 +5,7 @@ fn main() {
     let (instance, _) = VkInstance::new(None).unwrap();
     unsafe {
         let device = instance.device(None).unwrap();
+        let fence = device.create_fence(false).unwrap();
         let mem_flags = MemFlags::host_coherent();
         let src = (0..256).map(|x| x + 1).collect::<Vec<u32>>();
         let buffer = device
@@ -12,8 +13,10 @@ fn main() {
             .unwrap();
         device.write_buffer(&buffer, &src).unwrap();
         let code = include_bytes!("./shader/collatz.spv");
-        let pipeline = device.create_simple_compute_pipeline(code, 1).unwrap();
-        let descriptor_set = device.create_descriptor_set(&pipeline, &[&buffer]).unwrap();
+        let pipeline = device.create_simple_compute_pipeline(code, 1, 0).unwrap();
+        let descriptor_set = device
+            .create_descriptor_set(&pipeline, &[&buffer], &[])
+            .unwrap();
         let query_pool = device.create_query_pool(2).unwrap();
         let mut cmd_buf = device.create_cmd_buf().unwrap();
         cmd_buf.begin();
@@ -22,8 +25,11 @@ fn main() {
         cmd_buf.dispatch(&pipeline, &descriptor_set, (256, 1, 1));
         cmd_buf.write_timestamp(&query_pool, 1);
         cmd_buf.finish();
-        device.run_cmd_buf(&cmd_buf).unwrap();
-        let timestamps = device.reap_query_pool(query_pool);
+        device
+            .run_cmd_buf(&cmd_buf, &[], &[], Some(&fence))
+            .unwrap();
+        device.wait_and_reset(&[fence]).unwrap();
+        let timestamps = device.reap_query_pool(&query_pool);
         let mut dst: Vec<u32> = Default::default();
         device.read_buffer(&buffer, &mut dst).unwrap();
         for (i, val) in dst.iter().enumerate().take(16) {

@@ -162,12 +162,20 @@ pub struct Renderer<D: Device> {
 }
 
 impl<D: Device> Renderer<D> {
-    pub unsafe fn new(device: &D, scene: &[u8], n_paths: usize, n_pathseg: usize) -> Result<Self, Error> {
+    pub unsafe fn new(
+        device: &D,
+        scene: &[u8],
+        n_paths: usize,
+        n_pathseg: usize,
+    ) -> Result<Self, Error> {
         let host = MemFlags::host_coherent();
         let dev = MemFlags::device_local();
 
         let n_elements = scene.len() / piet_gpu_types::scene::Element::fixed_size();
-        println!("scene: {} elements, {} paths, {} path_segments", n_elements, n_paths, n_pathseg);
+        println!(
+            "scene: {} elements, {} paths, {} path_segments",
+            n_elements, n_paths, n_pathseg
+        );
 
         let scene_buf = device
             .create_buffer(std::mem::size_of_val(&scene[..]) as u64, host)
@@ -256,17 +264,20 @@ impl<D: Device> Renderer<D> {
         let coarse_pipeline = device.create_simple_compute_pipeline(coarse_code, 5, 0)?;
         let coarse_ds = device.create_descriptor_set(
             &coarse_pipeline,
-            &[&anno_buf, &bin_buf, &tile_buf, &coarse_alloc_buf_dev, &ptcl_buf],
+            &[
+                &anno_buf,
+                &bin_buf,
+                &tile_buf,
+                &coarse_alloc_buf_dev,
+                &ptcl_buf,
+            ],
             &[],
         )?;
 
         let k4_code = include_bytes!("../shader/kernel4.spv");
         let k4_pipeline = device.create_simple_compute_pipeline(k4_code, 2, 1)?;
-        let k4_ds = device.create_descriptor_set(
-            &k4_pipeline,
-            &[&ptcl_buf, &tile_buf],
-            &[&image_dev]
-        )?;
+        let k4_ds =
+            device.create_descriptor_set(&k4_pipeline, &[&ptcl_buf, &tile_buf], &[&image_dev])?;
 
         Ok(Renderer {
             scene_buf,

@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io::BufWriter;
 use std::path::Path;
 
-use clap::{Arg, App};
+use clap::{App, Arg};
 
 use piet_gpu_hal::vulkan::VkInstance;
 use piet_gpu_hal::{CmdBuf, Device, Error, MemFlags};
@@ -22,18 +22,30 @@ fn dump_scene(buf: &[u8]) {
 fn dump_state(buf: &[u8]) {
     for i in 0..(buf.len() / 48) {
         let j = i * 48;
-        let floats = (0..11).map(|k| {
-            let mut buf_f32 = [0u8; 4];
-            buf_f32.copy_from_slice(&buf[j + k * 4..j + k * 4 + 4]);
-            f32::from_le_bytes(buf_f32)
-        }).collect::<Vec<_>>();
-        println!("{}: [{} {} {} {} {} {}] ({}, {})-({} {}) {} {}",
+        let floats = (0..11)
+            .map(|k| {
+                let mut buf_f32 = [0u8; 4];
+                buf_f32.copy_from_slice(&buf[j + k * 4..j + k * 4 + 4]);
+                f32::from_le_bytes(buf_f32)
+            })
+            .collect::<Vec<_>>();
+        println!(
+            "{}: [{} {} {} {} {} {}] ({}, {})-({} {}) {} {}",
             i,
-            floats[0], floats[1], floats[2], floats[3], floats[4], floats[5],
-            floats[6], floats[7], floats[8], floats[9],
-            floats[10], buf[j + 44]);
+            floats[0],
+            floats[1],
+            floats[2],
+            floats[3],
+            floats[4],
+            floats[5],
+            floats[6],
+            floats[7],
+            floats[8],
+            floats[9],
+            floats[10],
+            buf[j + 44]
+        );
     }
-
 }
 
 /// Interpret the output of the binning stage, for diagnostic purposes.
@@ -41,22 +53,31 @@ fn dump_state(buf: &[u8]) {
 fn trace_merge(buf: &[u32]) {
     for bin in 0..256 {
         println!("bin {}:", bin);
-        let mut starts = (0..16).map(|i| Some((bin * 16 + i) * 64)).collect::<Vec<Option<usize>>>();
+        let mut starts = (0..16)
+            .map(|i| Some((bin * 16 + i) * 64))
+            .collect::<Vec<Option<usize>>>();
         loop {
-            let min_start = starts.iter().map(|st|
-                st.map(|st|
-                    if buf[st / 4] == 0 {
-                        !0
-                    } else {
-                        buf[st / 4 + 2]
-                    }).unwrap_or(!0)).min().unwrap();
+            let min_start = starts
+                .iter()
+                .map(|st| {
+                    st.map(|st| {
+                        if buf[st / 4] == 0 {
+                            !0
+                        } else {
+                            buf[st / 4 + 2]
+                        }
+                    })
+                    .unwrap_or(!0)
+                })
+                .min()
+                .unwrap();
             if min_start == !0 {
                 break;
             }
             let mut selected = !0;
             for i in 0..16 {
                 if let Some(st) = starts[i] {
-                    if buf[st/4] != 0 && buf[st/4 + 2] == min_start {
+                    if buf[st / 4] != 0 && buf[st / 4 + 2] == min_start {
                         selected = i;
                         break;
                     }
@@ -64,16 +85,15 @@ fn trace_merge(buf: &[u32]) {
             }
             let st = starts[selected].unwrap();
             println!("selected {}, start {:x}", selected, st);
-            for j in 0..buf[st/4] {
-                println!("{:x}", buf[st/4 + 2 + j as usize])
+            for j in 0..buf[st / 4] {
+                println!("{:x}", buf[st / 4 + 2 + j as usize])
             }
-            if buf[st/4 + 1] == 0 {
+            if buf[st / 4 + 1] == 0 {
                 starts[selected] = None;
             } else {
-                starts[selected] = Some(buf[st/4 + 1] as usize);
+                starts[selected] = Some(buf[st / 4 + 1] as usize);
             }
         }
-
     }
 }
 
@@ -103,7 +123,10 @@ fn trace_ptcl(buf: &[u32]) {
                             let x1 = f32::from_bits(buf[segs / 4 + i * 5 + 2]);
                             let y1 = f32::from_bits(buf[segs / 4 + i * 5 + 3]);
                             let y_edge = f32::from_bits(buf[segs / 4 + i * 5 + 4]);
-                            println!("      ({:.3}, {:.3}) - ({:.3}, {:.3}) | {:.3}", x0, y0, x1, y1, y_edge);
+                            println!(
+                                "      ({:.3}, {:.3}) - ({:.3}, {:.3}) | {:.3}",
+                                x0, y0, x1, y1, y_edge
+                            );
                         }
                         loop {
                             seg_chunk = buf[seg_chunk / 4 + 1] as usize;
@@ -115,7 +138,10 @@ fn trace_ptcl(buf: &[u32]) {
                     4 => {
                         let line_width = f32::from_bits(buf[tile_offset / 4 + 2]);
                         let rgba_color = buf[tile_offset / 4 + 3];
-                        println!("  {:x}: stroke {:x} {}", tile_offset, rgba_color, line_width);
+                        println!(
+                            "  {:x}: stroke {:x} {}",
+                            tile_offset, rgba_color, line_width
+                        );
                         let mut seg_chunk = buf[tile_offset / 4 + 1] as usize;
                         let n = buf[seg_chunk / 4] as usize;
                         let segs = buf[seg_chunk / 4 + 2] as usize;
@@ -126,7 +152,10 @@ fn trace_ptcl(buf: &[u32]) {
                             let x1 = f32::from_bits(buf[segs / 4 + i * 5 + 2]);
                             let y1 = f32::from_bits(buf[segs / 4 + i * 5 + 3]);
                             let y_edge = f32::from_bits(buf[segs / 4 + i * 5 + 4]);
-                            println!("      ({:.3}, {:.3}) - ({:.3}, {:.3}) | {:.3}", x0, y0, x1, y1, y_edge);
+                            println!(
+                                "      ({:.3}, {:.3}) - ({:.3}, {:.3}) | {:.3}",
+                                x0, y0, x1, y1, y_edge
+                            );
                         }
                         loop {
                             seg_chunk = buf[seg_chunk / 4 + 1] as usize;
@@ -152,18 +181,16 @@ fn trace_ptcl(buf: &[u32]) {
     }
 }
 
-
 fn main() -> Result<(), Error> {
     let matches = App::new("piet-gpu test")
-        .arg(Arg::with_name("INPUT")
-            .index(1))
-        .arg(Arg::with_name("flip")
-            .short("f")
-            .long("flip"))
-        .arg(Arg::with_name("scale")
-            .short("s")
-            .long("scale")
-            .takes_value(true))
+        .arg(Arg::with_name("INPUT").index(1))
+        .arg(Arg::with_name("flip").short("f").long("flip"))
+        .arg(
+            Arg::with_name("scale")
+                .short("s")
+                .long("scale")
+                .takes_value(true),
+        )
         .get_matches();
     let (instance, _) = VkInstance::new(None)?;
     unsafe {
@@ -175,7 +202,8 @@ fn main() -> Result<(), Error> {
 
         let mut ctx = PietGpuRenderContext::new();
         if let Some(input) = matches.value_of("INPUT") {
-            let mut scale = matches.value_of("scale")
+            let mut scale = matches
+                .value_of("scale")
                 .map(|scale| scale.parse().unwrap())
                 .unwrap_or(8.0);
             if matches.is_present("flip") {
@@ -198,11 +226,16 @@ fn main() -> Result<(), Error> {
         renderer.record(&mut cmd_buf, &query_pool);
         cmd_buf.copy_image_to_buffer(&renderer.image_dev, &image_buf);
         cmd_buf.finish();
+        let start = std::time::Instant::now();
         device.run_cmd_buf(&cmd_buf, &[], &[], Some(&fence))?;
         device.wait_and_reset(&[fence])?;
+        println!("elapsed = {:?}", start.elapsed());
         let ts = device.reap_query_pool(&query_pool).unwrap();
         println!("Element kernel time: {:.3}ms", ts[0] * 1e3);
-        println!("Tile allocation kernel time: {:.3}ms", (ts[1] - ts[0]) * 1e3);
+        println!(
+            "Tile allocation kernel time: {:.3}ms",
+            (ts[1] - ts[0]) * 1e3
+        );
         println!("Coarse path kernel time: {:.3}ms", (ts[2] - ts[1]) * 1e3);
         println!("Backdrop kernel time: {:.3}ms", (ts[3] - ts[2]) * 1e3);
         println!("Binning kernel time: {:.3}ms", (ts[4] - ts[3]) * 1e3);
