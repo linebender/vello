@@ -71,6 +71,7 @@ pub struct Pipeline {
     pipeline: vk::Pipeline,
     descriptor_set_layout: vk::DescriptorSetLayout,
     pipeline_layout: vk::PipelineLayout,
+    max_textures: u32,
 }
 
 pub struct DescriptorSet {
@@ -92,11 +93,14 @@ pub struct MemFlags(vk::MemoryPropertyFlags);
 
 pub struct PipelineBuilder {
     bindings: Vec<vk::DescriptorSetLayoutBinding>,
+    binding_flags: Vec<vk::DescriptorBindingFlags>,
+    max_textures: u32,
 }
 
 pub struct DescriptorSetBuilder {
     buffers: Vec<vk::Buffer>,
     images: Vec<vk::ImageView>,
+    textures: Vec<vk::ImageView>,
 }
 
 unsafe extern "system" fn vulkan_debug_callback(
@@ -141,6 +145,8 @@ static EXTS: Lazy<Vec<&'static CStr>> = Lazy::new(|| {
     if cfg!(debug_assertions) {
         exts.push(DebugUtils::name());
     }
+    // We'll need this to do runtime query of descriptor indexing.
+    //exts.push(vk::KhrGetPhysicalDeviceProperties2Fn::name());
     exts
 });
 
@@ -270,13 +276,22 @@ impl VkInstance {
             .queue_family_index(qfi)
             .queue_priorities(&queue_priorities)
             .build()];
+
+        // support for descriptor indexing (maybe should be optional for compatibility)
+        let descriptor_indexing = vk::PhysicalDeviceDescriptorIndexingFeatures::builder()
+            .descriptor_binding_variable_descriptor_count(true)
+            .runtime_descriptor_array(true);
+
         let extensions = match surface {
             Some(_) => vec![khr::Swapchain::name().as_ptr()],
             None => vec![],
         };
+        //extensions.push(vk::KhrMaintenance3Fn::name().as_ptr());
+        //extensions.push(vk::ExtDescriptorIndexingFn::name().as_ptr());
         let create_info = vk::DeviceCreateInfo::builder()
             .queue_create_infos(&queue_create_infos)
             .enabled_extension_names(&extensions)
+            .push_next(&mut descriptor_indexing.build())
             .build();
         let device = self.instance.create_device(pdevice, &create_info, None)?;
 
@@ -541,6 +556,8 @@ impl crate::Device for VkDevice {
     unsafe fn pipeline_builder(&self) -> PipelineBuilder {
         PipelineBuilder {
             bindings: Vec::new(),
+            binding_flags: Vec::new(),
+            max_textures: 0,
         }
     }
 
@@ -548,6 +565,7 @@ impl crate::Device for VkDevice {
         DescriptorSetBuilder {
             buffers: Vec::new(),
             images: Vec::new(),
+            textures: Vec::new(),
         }
     }
 
@@ -922,6 +940,8 @@ impl crate::PipelineBuilder<VkDevice> for PipelineBuilder {
                     .stage_flags(vk::ShaderStageFlags::COMPUTE)
                     .build(),
             );
+            self.binding_flags
+                .push(vk::DescriptorBindingFlags::default());
         }
     }
 
@@ -936,7 +956,25 @@ impl crate::PipelineBuilder<VkDevice> for PipelineBuilder {
                     .stage_flags(vk::ShaderStageFlags::COMPUTE)
                     .build(),
             );
+            self.binding_flags
+                .push(vk::DescriptorBindingFlags::default());
         }
+    }
+
+    fn add_textures(&mut self, max_textures: u32) {
+        let start = self.bindings.len() as u32;
+        self.bindings.push(
+            vk::DescriptorSetLayoutBinding::builder()
+                .binding(start)
+                // TODO: we do want these to be sampled images
+                .descriptor_type(vk::DescriptorType::STORAGE_IMAGE)
+                .descriptor_count(max_textures)
+                .stage_flags(vk::ShaderStageFlags::COMPUTE)
+                .build(),
+        );
+        self.binding_flags
+            .push(vk::DescriptorBindingFlags::VARIABLE_DESCRIPTOR_COUNT);
+        self.max_textures += max_textures;
     }
 
     unsafe fn create_compute_pipeline(
@@ -946,7 +984,14 @@ impl crate::PipelineBuilder<VkDevice> for PipelineBuilder {
     ) -> Result<Pipeline, Error> {
         let device = &device.device.device;
         let descriptor_set_layout = device.create_descriptor_set_layout(
-            &vk::DescriptorSetLayoutCreateInfo::builder().bindings(&self.bindings),
+            &vk::DescriptorSetLayoutCreateInfo::builder()
+                .bindings(&self.bindings)
+                // It might be a slight optimization not to push this if max_textures = 0
+                .push_next(
+                    &mut vk::DescriptorSetLayoutBindingFlagsCreateInfo::builder()
+                        .binding_flags(&self.binding_flags)
+                        .build(),
+                ),
             None,
         )?;
         let descriptor_set_layouts = [descriptor_set_layout];
@@ -981,6 +1026,7 @@ impl crate::PipelineBuilder<VkDevice> for PipelineBuilder {
             pipeline,
             pipeline_layout,
             descriptor_set_layout,
+            max_textures: self.max_textures,
         })
     }
 }
@@ -994,6 +1040,10 @@ impl crate::DescriptorSetBuilder<VkDevice> for DescriptorSetBuilder {
         self.images.extend(images.iter().map(|i| i.image_view));
     }
 
+    fn add_textures(&mut self, images: &[&Image]) {
+        self.textures.extend(images.iter().map(|i| i.image_view));
+    }
+
     unsafe fn build(self, device: &VkDevice, pipeline: &Pipeline) -> Result<DescriptorSet, Error> {
         let device = &device.device.device;
         let mut descriptor_pool_sizes = Vec::new();
@@ -1005,11 +1055,12 @@ impl crate::DescriptorSetBuilder<VkDevice> for DescriptorSetBuilder {
                     .build(),
             );
         }
-        if !self.images.is_empty() {
+        let n_images_total = self.images.len() + pipeline.max_textures as usize;
+        if n_images_total > 0 {
             descriptor_pool_sizes.push(
                 vk::DescriptorPoolSize::builder()
                     .ty(vk::DescriptorType::STORAGE_IMAGE)
-                    .descriptor_count(self.images.len() as u32)
+                    .descriptor_count(n_images_total as u32)
                     .build(),
             );
         }
@@ -1030,38 +1081,59 @@ impl crate::DescriptorSetBuilder<VkDevice> for DescriptorSetBuilder {
         let mut binding = 0;
         // Maybe one call to update_descriptor_sets with an array of descriptor_writes?
         for buf in &self.buffers {
-            let buf_info = vk::DescriptorBufferInfo::builder()
-                .buffer(*buf)
-                .offset(0)
-                .range(vk::WHOLE_SIZE)
-                .build();
             device.update_descriptor_sets(
                 &[vk::WriteDescriptorSet::builder()
                     .dst_set(descriptor_sets[0])
                     .dst_binding(binding)
                     .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                    .buffer_info(&[buf_info])
+                    .buffer_info(&[vk::DescriptorBufferInfo::builder()
+                        .buffer(*buf)
+                        .offset(0)
+                        .range(vk::WHOLE_SIZE)
+                        .build()])
                     .build()],
                 &[],
             );
             binding += 1;
         }
         for image in &self.images {
-            let image_info = vk::DescriptorImageInfo::builder()
-                .sampler(vk::Sampler::null())
-                .image_view(*image)
-                .image_layout(vk::ImageLayout::GENERAL)
-                .build();
             device.update_descriptor_sets(
                 &[vk::WriteDescriptorSet::builder()
                     .dst_set(descriptor_sets[0])
                     .dst_binding(binding)
                     .descriptor_type(vk::DescriptorType::STORAGE_IMAGE)
-                    .image_info(&[image_info])
+                    .image_info(&[vk::DescriptorImageInfo::builder()
+                        .sampler(vk::Sampler::null())
+                        .image_view(*image)
+                        .image_layout(vk::ImageLayout::GENERAL)
+                        .build()])
                     .build()],
                 &[],
             );
             binding += 1;
+        }
+        if !self.textures.is_empty() {
+            let infos = self
+                .textures
+                .iter()
+                .map(|texture| {
+                    vk::DescriptorImageInfo::builder()
+                        .sampler(vk::Sampler::null())
+                        .image_view(*texture)
+                        .image_layout(vk::ImageLayout::GENERAL)
+                        .build()
+                })
+                .collect::<Vec<_>>();
+            device.update_descriptor_sets(
+                &[vk::WriteDescriptorSet::builder()
+                    .dst_set(descriptor_sets[0])
+                    .dst_binding(binding)
+                    .descriptor_type(vk::DescriptorType::STORAGE_IMAGE)
+                    .image_info(&infos)
+                    .build()],
+                &[],
+            );
+            //binding += 1;
         }
         Ok(DescriptorSet {
             descriptor_set: descriptor_sets[0],

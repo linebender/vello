@@ -324,6 +324,12 @@ impl PipelineBuilder {
         self
     }
 
+    /// Add a binding with a variable-size array of textures.
+    pub fn add_textures(mut self, max_textures: u32) -> Self {
+        self.0.add_textures(max_textures);
+        self
+    }
+
     pub unsafe fn create_compute_pipeline(
         self,
         session: &Session,
@@ -346,6 +352,12 @@ impl DescriptorSetBuilder {
     pub fn add_images<'a>(mut self, images: impl IntoRefs<'a, Image>) -> Self {
         let vk_images = images.into_refs().map(|i| i.vk_image()).collect::<Vec<_>>();
         self.0.add_images(&vk_images);
+        self
+    }
+
+    pub fn add_textures<'a>(mut self, images: impl IntoRefs<'a, Image>) -> Self {
+        let vk_images = images.into_refs().map(|i| i.vk_image()).collect::<Vec<_>>();
+        self.0.add_textures(&vk_images);
         self
     }
 

@@ -199,6 +199,8 @@ pub struct Renderer {
     n_elements: usize,
     n_paths: usize,
     n_pathseg: usize,
+
+    bg_image: hub::Image,
 }
 
 impl Renderer {
@@ -301,16 +303,27 @@ impl Renderer {
             ],
         )?;
 
+        let bg_image = Self::make_test_bg_image(&session);
+
         let k4_code = include_bytes!("../shader/kernel4.spv");
+        // This is an arbitrary limit on the number of textures that can be referenced by
+        // the fine rasterizer. To set it for real, we probably want to pay attention both
+        // to the device limit (maxDescriptorSetSampledImages) but also to the number of
+        // images encoded (I believe there's an cost when allocating descriptor pools). If
+        // it can't be satisfied, then for compatibility we'll probably want to fall back
+        // to an atlasing approach.
+        let max_textures = 256;
         let k4_pipeline = session
             .pipeline_builder()
             .add_buffers(3)
             .add_images(1)
+            .add_textures(max_textures)
             .create_compute_pipeline(&session, k4_code)?;
         let k4_ds = session
             .descriptor_set_builder()
             .add_buffers(&[&ptcl_buf, &tile_buf, &clip_scratch_buf])
             .add_images(&[&image_dev])
+            .add_textures(&[&bg_image])
             .build(&session, &k4_pipeline)?;
 
         Ok(Renderer {
@@ -347,6 +360,7 @@ impl Renderer {
             n_elements,
             n_paths,
             n_pathseg,
+            bg_image,
         })
     }
 
@@ -468,5 +482,23 @@ impl Renderer {
             // We let the session reclaim the fence.
             Ok(image)
         }
+    }
+
+    /// Make a test image.
+    fn make_test_bg_image(session: &hub::Session) -> hub::Image {
+        const WIDTH: usize = 256;
+        const HEIGHT: usize = 256;
+        let mut buf = vec![255u8; WIDTH * HEIGHT * 4];
+        for y in 0..HEIGHT {
+            for x in 0..WIDTH {
+                let r = x as u8;
+                let g = y as u8;
+                let b = r ^ g;
+                buf[(y * WIDTH + x) * 4] = r;
+                buf[(y * WIDTH + x) * 4 + 1] = g;
+                buf[(y * WIDTH + x) * 4 + 2] = b;
+            }
+        }
+        Self::make_image(session, WIDTH, HEIGHT, &buf, ImageFormat::RgbaPremul).unwrap()
     }
 }

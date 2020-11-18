@@ -212,11 +212,18 @@ pub trait PipelineBuilder<D: Device> {
     fn add_buffers(&mut self, n_buffers: u32);
     /// Add storage images to the pipeline. Each has its own binding.
     fn add_images(&mut self, n_images: u32);
+    /// Add a binding with a variable-size array of textures.
+    fn add_textures(&mut self, max_textures: u32);
     unsafe fn create_compute_pipeline(self, device: &D, code: &[u8]) -> Result<D::Pipeline, Error>;
 }
 
+/// A builder for descriptor sets with more complex layouts.
+///
+/// Note: the order needs to match the pipeline building, and it also needs to
+/// be buffers, then images, then textures.
 pub trait DescriptorSetBuilder<D: Device> {
     fn add_buffers(&mut self, buffers: &[&D::Buffer]);
     fn add_images(&mut self, images: &[&D::Image]);
+    fn add_textures(&mut self, images: &[&D::Image]);
     unsafe fn build(self, device: &D, pipeline: &D::Pipeline) -> Result<D::DescriptorSet, Error>;
 }
