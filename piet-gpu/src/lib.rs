@@ -1,12 +1,14 @@
 mod pico_svg;
 mod render_ctx;
 
+use std::convert::TryInto;
+
 pub use render_ctx::PietGpuRenderContext;
 
 use rand::{Rng, RngCore};
 
 use piet::kurbo::{BezPath, Circle, Line, Point, Vec2};
-use piet::{Color, RenderContext};
+use piet::{Color, ImageFormat, RenderContext};
 
 use piet_gpu_types::encoder::Encode;
 
@@ -213,14 +215,16 @@ impl Renderer {
         // TODO: constants
         const PATH_SIZE: usize = 12;
         let tile_alloc_start = ((n_paths + 31) & !31) * PATH_SIZE;
-        tile_alloc_buf_host.write(
-            &[n_paths as u32, n_pathseg as u32, tile_alloc_start as u32],
-        )?;
+        tile_alloc_buf_host.write(&[n_paths as u32, n_pathseg as u32, tile_alloc_start as u32])?;
         let tile_alloc_code = include_bytes!("../shader/tile_alloc.spv");
         let tile_pipeline = session.create_simple_compute_pipeline(tile_alloc_code, 3, 0)?;
         let tile_ds = session.create_descriptor_set(
             &tile_pipeline,
-            &[anno_buf.vk_buffer(), tile_alloc_buf_dev.vk_buffer(), tile_buf.vk_buffer()],
+            &[
+                anno_buf.vk_buffer(),
+                tile_alloc_buf_dev.vk_buffer(),
+                tile_buf.vk_buffer(),
+            ],
             &[],
         )?;
 
@@ -228,7 +232,11 @@ impl Renderer {
         let path_pipeline = session.create_simple_compute_pipeline(path_alloc_code, 3, 0)?;
         let path_ds = session.create_descriptor_set(
             &path_pipeline,
-            &[pathseg_buf.vk_buffer(), tile_alloc_buf_dev.vk_buffer(), tile_buf.vk_buffer()],
+            &[
+                pathseg_buf.vk_buffer(),
+                tile_alloc_buf_dev.vk_buffer(),
+                tile_buf.vk_buffer(),
+            ],
             &[],
         )?;
 
@@ -237,7 +245,11 @@ impl Renderer {
             session.create_simple_compute_pipeline(backdrop_alloc_code, 3, 0)?;
         let backdrop_ds = session.create_descriptor_set(
             &backdrop_pipeline,
-            &[anno_buf.vk_buffer(), tile_alloc_buf_dev.vk_buffer(), tile_buf.vk_buffer()],
+            &[
+                anno_buf.vk_buffer(),
+                tile_alloc_buf_dev.vk_buffer(),
+                tile_buf.vk_buffer(),
+            ],
             &[],
         )?;
 
@@ -251,7 +263,11 @@ impl Renderer {
         let bin_pipeline = session.create_simple_compute_pipeline(bin_code, 3, 0)?;
         let bin_ds = session.create_descriptor_set(
             &bin_pipeline,
-            &[anno_buf.vk_buffer(), bin_alloc_buf_dev.vk_buffer(), bin_buf.vk_buffer()],
+            &[
+                anno_buf.vk_buffer(),
+                bin_alloc_buf_dev.vk_buffer(),
+                bin_buf.vk_buffer(),
+            ],
             &[],
         )?;
 
@@ -259,9 +275,7 @@ impl Renderer {
         let coarse_alloc_buf_dev = session.create_buffer(8, dev)?;
 
         let coarse_alloc_start = WIDTH_IN_TILES * HEIGHT_IN_TILES * PTCL_INITIAL_ALLOC;
-        coarse_alloc_buf_host.write(
-            &[n_paths as u32, coarse_alloc_start as u32],
-        )?;
+        coarse_alloc_buf_host.write(&[n_paths as u32, coarse_alloc_start as u32])?;
         let coarse_code = include_bytes!("../shader/coarse.spv");
         let coarse_pipeline = session.create_simple_compute_pipeline(coarse_code, 5, 0)?;
         let coarse_ds = session.create_descriptor_set(
@@ -278,8 +292,11 @@ impl Renderer {
 
         let k4_code = include_bytes!("../shader/kernel4.spv");
         let k4_pipeline = session.create_simple_compute_pipeline(k4_code, 2, 1)?;
-        let k4_ds =
-            session.create_descriptor_set(&k4_pipeline, &[ptcl_buf.vk_buffer(), tile_buf.vk_buffer()], &[image_dev.vk_image()])?;
+        let k4_ds = session.create_descriptor_set(
+            &k4_pipeline,
+            &[ptcl_buf.vk_buffer(), tile_buf.vk_buffer()],
+            &[image_dev.vk_image()],
+        )?;
 
         Ok(Renderer {
             scene_buf,
@@ -397,5 +414,42 @@ impl Renderer {
             ImageLayout::General,
             ImageLayout::BlitSrc,
         );
+    }
+
+    pub fn make_image(
+        session: &hub::Session,
+        width: usize,
+        height: usize,
+        buf: &[u8],
+        format: ImageFormat,
+    ) -> Result<hub::Image, Error> {
+        unsafe {
+            if format != ImageFormat::RgbaPremul {
+                return Err("unsupported image format".into());
+            }
+            let host_mem_flags = MemFlags::host_coherent();
+            let dev_mem_flags = MemFlags::device_local();
+            let mut buffer = session.create_buffer(buf.len() as u64, host_mem_flags)?;
+            buffer.write(buf)?;
+            let image =
+                session.create_image2d(width.try_into()?, height.try_into()?, dev_mem_flags)?;
+            let mut cmd_buf = session.cmd_buf()?;
+            cmd_buf.begin();
+            cmd_buf.image_barrier(
+                image.vk_image(),
+                ImageLayout::Undefined,
+                ImageLayout::BlitDst,
+            );
+            cmd_buf.copy_buffer_to_image(buffer.vk_buffer(), image.vk_image());
+            // TODO: instead of General, we might want ShaderReadOnly
+            cmd_buf.image_barrier(image.vk_image(), ImageLayout::BlitDst, ImageLayout::General);
+            cmd_buf.finish();
+            // Make sure not to drop the buffer and image until the command buffer completes.
+            cmd_buf.add_resource(&buffer);
+            cmd_buf.add_resource(&image);
+            let _ = session.run_cmd_buf(cmd_buf, &[], &[]);
+            // We let the session reclaim the fence.
+            Ok(image)
+        }
     }
 }

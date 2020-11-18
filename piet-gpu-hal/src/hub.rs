@@ -196,6 +196,14 @@ impl Session {
 }
 
 impl CmdBuf {
+    /// Make sure the resource lives until the command buffer completes.
+    ///
+    /// The submitted command buffer will hold this reference until the corresponding
+    /// fence is signaled.
+    ///
+    /// There are two choices for upholding the lifetime invariant: this function, or
+    /// the caller can manually hold the reference. The latter is appropriate when it's
+    /// part of retained state.
     pub fn add_resource<T: Clone + 'static>(&mut self, resource: &T) {
         self.resources.push(Box::new(resource.clone()));
     }
