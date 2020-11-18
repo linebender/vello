@@ -24,6 +24,7 @@ fn main() {
         cmd_buf.write_timestamp(&query_pool, 0);
         cmd_buf.dispatch(&pipeline, &descriptor_set, (256, 1, 1));
         cmd_buf.write_timestamp(&query_pool, 1);
+        cmd_buf.host_barrier();
         cmd_buf.finish();
         device
             .run_cmd_buf(&cmd_buf, &[], &[], Some(&fence))

@@ -707,7 +707,8 @@ impl crate::Device for VkDevice {
 
     /// Run the command buffer.
     ///
-    /// This version simply blocks until it's complete.
+    /// This submits the command buffer for execution. The provided fence
+    /// is signalled when the execution is complete.
     unsafe fn run_cmd_buf(
         &self,
         cmd_buf: &CmdBuf,
@@ -730,8 +731,8 @@ impl crate::Device for VkDevice {
             &[vk::SubmitInfo::builder()
                 .command_buffers(&[cmd_buf.cmd_buf])
                 .wait_semaphores(wait_semaphores)
-                .signal_semaphores(signal_semaphores)
                 .wait_dst_stage_mask(&wait_stages)
+                .signal_semaphores(signal_semaphores)
                 .build()],
             fence,
         )?;
@@ -830,6 +831,22 @@ impl crate::CmdBuf<VkDevice> for CmdBuf {
         );
     }
 
+    unsafe fn host_barrier(&mut self) {
+        let device = &self.device.device;
+        device.cmd_pipeline_barrier(
+            self.cmd_buf,
+            vk::PipelineStageFlags::ALL_COMMANDS,
+            vk::PipelineStageFlags::HOST,
+            vk::DependencyFlags::empty(),
+            &[vk::MemoryBarrier::builder()
+                .src_access_mask(vk::AccessFlags::MEMORY_WRITE)
+                .dst_access_mask(vk::AccessFlags::HOST_READ)
+                .build()],
+            &[],
+            &[],
+        );
+    }
+
     unsafe fn image_barrier(
         &mut self,
         image: &Image,
@@ -896,6 +913,29 @@ impl crate::CmdBuf<VkDevice> for CmdBuf {
                 },
                 image_offset: vk::Offset3D { x: 0, y: 0, z: 0 },
                 image_extent: src.extent,
+            }],
+        );
+    }
+
+    unsafe fn copy_buffer_to_image(&self, src: &Buffer, dst: &Image) {
+        let device = &self.device.device;
+        device.cmd_copy_buffer_to_image(
+            self.cmd_buf,
+            src.buffer,
+            dst.image,
+            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+            &[vk::BufferImageCopy {
+                buffer_offset: 0,
+                buffer_row_length: 0,   // tight packing
+                buffer_image_height: 0, // tight packing
+                image_subresource: vk::ImageSubresourceLayers {
+                    aspect_mask: vk::ImageAspectFlags::COLOR,
+                    mip_level: 0,
+                    base_array_layer: 0,
+                    layer_count: 1,
+                },
+                image_offset: vk::Offset3D { x: 0, y: 0, z: 0 },
+                image_extent: dst.extent,
             }],
         );
     }
@@ -974,7 +1014,7 @@ impl VkSwapchain {
         let (image_idx, _suboptimal) = self.swapchain_fn.acquire_next_image(
             self.swapchain,
             !0,
-            self.acquisition_semaphores[self.acquisition_idx],
+            acquisition_semaphore,
             vk::Fence::null(),
         )?;
         self.acquisition_idx = (self.acquisition_idx + 1) % self.acquisition_semaphores.len();
