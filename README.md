@@ -46,6 +46,8 @@ The piet-gpu project is dual-licensed under both [Apache 2.0](LICENSE-APACHE) an
 
 In addition, the shaders are provided under the terms of the [Unlicense]. The intent is for this research to be used in as broad a context as possible.
 
+The dx12 backend was adapted from piet-dx12 by Brian Merchant.
+
 Contributions are welcome by pull request. The [Rust code of conduct] applies.
 
 [piet-metal]: https://github.com/linebender/piet-metal

@@ -799,6 +799,8 @@ dependencies = [
  "ash-window",
  "once_cell",
  "raw-window-handle",
+ "winapi 0.3.9",
+ "wio",
 ]
 
 [[package]]
@@ -1310,6 +1312,15 @@ dependencies = [
  "wayland-client",
  "winapi 0.3.9",
  "x11-dl",
+]
+
+[[package]]
+name = "wio"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d129932f4644ac2396cb456385cbf9e63b5b30c6e8dc4820bdca4eb082037a5"
+dependencies = [
+ "winapi 0.3.9",
 ]
 
 [[package]]

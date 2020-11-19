@@ -4,6 +4,8 @@
 /// In time, it may go away and be replaced by either gfx-hal or wgpu.
 pub mod hub;
 
+#[cfg(target_os = "windows")]
+pub mod dx12;
 pub mod vulkan;
 
 /// This isn't great but is expedient.
