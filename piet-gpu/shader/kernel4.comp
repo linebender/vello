@@ -27,6 +27,8 @@ layout(rgba8, set = 0, binding = 2) uniform writeonly image2D image;
 #include "ptcl.h"
 #include "tile.h"
 
+#define BLEND_STACK_SIZE 4
+
 // Calculate coverage based on backdrop + coverage of each line segment
 float[CHUNK] computeArea(vec2 xy, int backdrop, uint tile_ref) {
     // Probably better to store as float, but conversion is no doubt cheap.
@@ -69,6 +71,8 @@ void main() {
     vec2 xy = vec2(xy_uint);
     vec3 rgb[CHUNK];
     float mask[CHUNK];
+    uint blend_stack[BLEND_STACK_SIZE][CHUNK];
+    uint blend_sp = 0;
     for (uint i = 0; i < CHUNK; i++) {
         rgb[i] = vec3(0.5);
         mask[i] = 1.0;
@@ -135,6 +139,22 @@ void main() {
             area = computeArea(xy, fill_mask.backdrop, fill_mask.tile_ref);
             for (uint k = 0; k < CHUNK; k++) {
                 mask[k] = mix(mask[k], fill_mask.mask, 1.0 - area[k]);
+            }
+            break;
+        case Cmd_BeginClip:
+            CmdBeginClip begin_clip = Cmd_BeginClip_read(cmd_ref);
+            area = computeArea(xy, begin_clip.backdrop, begin_clip.tile_ref);
+            for (uint k = 0; k < CHUNK; k++) {
+                blend_stack[blend_sp][k] = packUnorm4x8(vec4(rgb[k], clamp(abs(area[k]), 0.0, 1.0)));
+            }
+            blend_sp++;
+            break;
+        case Cmd_EndClip:
+            CmdEndClip end_clip = Cmd_EndClip_read(cmd_ref);
+            blend_sp--;
+            for (uint k = 0; k < CHUNK; k++) {
+                vec4 rgba = unpackUnorm4x8(blend_stack[blend_sp][k]);
+                rgb[k] = mix(rgb[k], rgba.rgb, end_clip.alpha * rgba.a);
             }
             break;
         case Cmd_Solid:

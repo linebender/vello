@@ -1,6 +1,8 @@
 use piet_gpu_derive::piet_gpu;
 
-pub use self::scene::{CubicSeg, Element, Fill, LineSeg, QuadSeg, SetLineWidth, Stroke, Transform};
+pub use self::scene::{
+    BeginClip, CubicSeg, Element, EndClip, Fill, LineSeg, QuadSeg, SetLineWidth, Stroke, Transform,
+};
 
 piet_gpu! {
     #[rust_encode]
@@ -36,6 +38,15 @@ piet_gpu! {
             mat: [f32; 4],
             translate: [f32; 2],
         }
+        struct BeginClip {
+            bbox: [f32; 4],
+            // TODO: add alpha?
+        }
+        struct EndClip {
+            // The delta between the BeginClip and EndClip element indices.
+            // It is stored as a delta to facilitate binary string concatenation.
+            delta: u32,
+        }
         enum Element {
             Nop,
             // Another approach to encoding would be to use a single
@@ -55,6 +66,8 @@ piet_gpu! {
             Transform(Transform),
             FillMask(FillMask),
             FillMaskInv(FillMask),
+            BeginClip(BeginClip),
+            EndClip(EndClip),
         }
     }
 }

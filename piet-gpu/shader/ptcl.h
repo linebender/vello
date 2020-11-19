@@ -20,6 +20,14 @@ struct CmdFillMaskRef {
     uint offset;
 };
 
+struct CmdBeginClipRef {
+    uint offset;
+};
+
+struct CmdEndClipRef {
+    uint offset;
+};
+
 struct CmdSolidRef {
     uint offset;
 };
@@ -103,6 +111,27 @@ CmdFillMaskRef CmdFillMask_index(CmdFillMaskRef ref, uint index) {
     return CmdFillMaskRef(ref.offset + index * CmdFillMask_size);
 }
 
+struct CmdBeginClip {
+    uint tile_ref;
+    int backdrop;
+};
+
+#define CmdBeginClip_size 8
+
+CmdBeginClipRef CmdBeginClip_index(CmdBeginClipRef ref, uint index) {
+    return CmdBeginClipRef(ref.offset + index * CmdBeginClip_size);
+}
+
+struct CmdEndClip {
+    float alpha;
+};
+
+#define CmdEndClip_size 4
+
+CmdEndClipRef CmdEndClip_index(CmdEndClipRef ref, uint index) {
+    return CmdEndClipRef(ref.offset + index * CmdEndClip_size);
+}
+
 struct CmdSolid {
     uint rgba_color;
 };
@@ -139,10 +168,12 @@ CmdJumpRef CmdJump_index(CmdJumpRef ref, uint index) {
 #define Cmd_Fill 3
 #define Cmd_FillMask 4
 #define Cmd_FillMaskInv 5
-#define Cmd_Stroke 6
-#define Cmd_Solid 7
-#define Cmd_SolidMask 8
-#define Cmd_Jump 9
+#define Cmd_BeginClip 6
+#define Cmd_EndClip 7
+#define Cmd_Stroke 8
+#define Cmd_Solid 9
+#define Cmd_SolidMask 10
+#define Cmd_Jump 11
 #define Cmd_size 20
 
 CmdRef Cmd_index(CmdRef ref, uint index) {
@@ -271,6 +302,35 @@ void CmdFillMask_write(CmdFillMaskRef ref, CmdFillMask s) {
     ptcl[ix + 2] = floatBitsToUint(s.mask);
 }
 
+CmdBeginClip CmdBeginClip_read(CmdBeginClipRef ref) {
+    uint ix = ref.offset >> 2;
+    uint raw0 = ptcl[ix + 0];
+    uint raw1 = ptcl[ix + 1];
+    CmdBeginClip s;
+    s.tile_ref = raw0;
+    s.backdrop = int(raw1);
+    return s;
+}
+
+void CmdBeginClip_write(CmdBeginClipRef ref, CmdBeginClip s) {
+    uint ix = ref.offset >> 2;
+    ptcl[ix + 0] = s.tile_ref;
+    ptcl[ix + 1] = uint(s.backdrop);
+}
+
+CmdEndClip CmdEndClip_read(CmdEndClipRef ref) {
+    uint ix = ref.offset >> 2;
+    uint raw0 = ptcl[ix + 0];
+    CmdEndClip s;
+    s.alpha = uintBitsToFloat(raw0);
+    return s;
+}
+
+void CmdEndClip_write(CmdEndClipRef ref, CmdEndClip s) {
+    uint ix = ref.offset >> 2;
+    ptcl[ix + 0] = floatBitsToUint(s.alpha);
+}
+
 CmdSolid CmdSolid_read(CmdSolidRef ref) {
     uint ix = ref.offset >> 2;
     uint raw0 = ptcl[ix + 0];
@@ -334,6 +394,14 @@ CmdFillMask Cmd_FillMaskInv_read(CmdRef ref) {
     return CmdFillMask_read(CmdFillMaskRef(ref.offset + 4));
 }
 
+CmdBeginClip Cmd_BeginClip_read(CmdRef ref) {
+    return CmdBeginClip_read(CmdBeginClipRef(ref.offset + 4));
+}
+
+CmdEndClip Cmd_EndClip_read(CmdRef ref) {
+    return CmdEndClip_read(CmdEndClipRef(ref.offset + 4));
+}
+
 CmdStroke Cmd_Stroke_read(CmdRef ref) {
     return CmdStroke_read(CmdStrokeRef(ref.offset + 4));
 }
@@ -377,6 +445,16 @@ void Cmd_FillMask_write(CmdRef ref, CmdFillMask s) {
 void Cmd_FillMaskInv_write(CmdRef ref, CmdFillMask s) {
     ptcl[ref.offset >> 2] = Cmd_FillMaskInv;
     CmdFillMask_write(CmdFillMaskRef(ref.offset + 4), s);
+}
+
+void Cmd_BeginClip_write(CmdRef ref, CmdBeginClip s) {
+    ptcl[ref.offset >> 2] = Cmd_BeginClip;
+    CmdBeginClip_write(CmdBeginClipRef(ref.offset + 4), s);
+}
+
+void Cmd_EndClip_write(CmdRef ref, CmdEndClip s) {
+    ptcl[ref.offset >> 2] = Cmd_EndClip;
+    CmdEndClip_write(CmdEndClipRef(ref.offset + 4), s);
 }
 
 void Cmd_Stroke_write(CmdRef ref, CmdStroke s) {

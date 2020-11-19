@@ -12,6 +12,10 @@ struct AnnoStrokeRef {
     uint offset;
 };
 
+struct AnnoClipRef {
+    uint offset;
+};
+
 struct AnnotatedRef {
     uint offset;
 };
@@ -50,11 +54,23 @@ AnnoStrokeRef AnnoStroke_index(AnnoStrokeRef ref, uint index) {
     return AnnoStrokeRef(ref.offset + index * AnnoStroke_size);
 }
 
+struct AnnoClip {
+    vec4 bbox;
+};
+
+#define AnnoClip_size 16
+
+AnnoClipRef AnnoClip_index(AnnoClipRef ref, uint index) {
+    return AnnoClipRef(ref.offset + index * AnnoClip_size);
+}
+
 #define Annotated_Nop 0
 #define Annotated_Stroke 1
 #define Annotated_Fill 2
 #define Annotated_FillMask 3
 #define Annotated_FillMaskInv 4
+#define Annotated_BeginClip 5
+#define Annotated_EndClip 6
 #define Annotated_size 28
 
 AnnotatedRef Annotated_index(AnnotatedRef ref, uint index) {
@@ -130,6 +146,25 @@ void AnnoStroke_write(AnnoStrokeRef ref, AnnoStroke s) {
     annotated[ix + 5] = floatBitsToUint(s.linewidth);
 }
 
+AnnoClip AnnoClip_read(AnnoClipRef ref) {
+    uint ix = ref.offset >> 2;
+    uint raw0 = annotated[ix + 0];
+    uint raw1 = annotated[ix + 1];
+    uint raw2 = annotated[ix + 2];
+    uint raw3 = annotated[ix + 3];
+    AnnoClip s;
+    s.bbox = vec4(uintBitsToFloat(raw0), uintBitsToFloat(raw1), uintBitsToFloat(raw2), uintBitsToFloat(raw3));
+    return s;
+}
+
+void AnnoClip_write(AnnoClipRef ref, AnnoClip s) {
+    uint ix = ref.offset >> 2;
+    annotated[ix + 0] = floatBitsToUint(s.bbox.x);
+    annotated[ix + 1] = floatBitsToUint(s.bbox.y);
+    annotated[ix + 2] = floatBitsToUint(s.bbox.z);
+    annotated[ix + 3] = floatBitsToUint(s.bbox.w);
+}
+
 uint Annotated_tag(AnnotatedRef ref) {
     return annotated[ref.offset >> 2];
 }
@@ -148,6 +183,14 @@ AnnoFillMask Annotated_FillMask_read(AnnotatedRef ref) {
 
 AnnoFillMask Annotated_FillMaskInv_read(AnnotatedRef ref) {
     return AnnoFillMask_read(AnnoFillMaskRef(ref.offset + 4));
+}
+
+AnnoClip Annotated_BeginClip_read(AnnotatedRef ref) {
+    return AnnoClip_read(AnnoClipRef(ref.offset + 4));
+}
+
+AnnoClip Annotated_EndClip_read(AnnotatedRef ref) {
+    return AnnoClip_read(AnnoClipRef(ref.offset + 4));
 }
 
 void Annotated_Nop_write(AnnotatedRef ref) {
@@ -172,5 +215,15 @@ void Annotated_FillMask_write(AnnotatedRef ref, AnnoFillMask s) {
 void Annotated_FillMaskInv_write(AnnotatedRef ref, AnnoFillMask s) {
     annotated[ref.offset >> 2] = Annotated_FillMaskInv;
     AnnoFillMask_write(AnnoFillMaskRef(ref.offset + 4), s);
+}
+
+void Annotated_BeginClip_write(AnnotatedRef ref, AnnoClip s) {
+    annotated[ref.offset >> 2] = Annotated_BeginClip;
+    AnnoClip_write(AnnoClipRef(ref.offset + 4), s);
+}
+
+void Annotated_EndClip_write(AnnotatedRef ref, AnnoClip s) {
+    annotated[ref.offset >> 2] = Annotated_EndClip;
+    AnnoClip_write(AnnoClipRef(ref.offset + 4), s);
 }
 

@@ -18,12 +18,17 @@ piet_gpu! {
             // That's expected to be uncommon, so we could special-case it.
             linewidth: f32,
         }
+        struct AnnoClip {
+            bbox: [f32; 4],
+        }
         enum Annotated {
             Nop,
             Stroke(AnnoStroke),
             Fill(AnnoFill),
             FillMask(AnnoFillMask),
             FillMaskInv(AnnoFillMask),
+            BeginClip(AnnoClip),
+            EndClip(AnnoClip),
         }
     }
 }
