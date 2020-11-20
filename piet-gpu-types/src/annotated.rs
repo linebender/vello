@@ -4,16 +4,18 @@ piet_gpu! {
     #[gpu_write]
     mod annotated {
         struct AnnoFill {
-            rgba_color: u32,
+            // The bbox is always first, as we take advantage of common
+            // layout when binning.
             bbox: [f32; 4],
+            rgba_color: u32,
         }
         struct AnnoFillMask {
-            mask: f32,
             bbox: [f32; 4],
+            mask: f32,
         }
         struct AnnoStroke {
-            rgba_color: u32,
             bbox: [f32; 4],
+            rgba_color: u32,
             // For the nonuniform scale case, this needs to be a 2x2 matrix.
             // That's expected to be uncommon, so we could special-case it.
             linewidth: f32,

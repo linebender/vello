@@ -7,7 +7,7 @@ pub use render_ctx::PietGpuRenderContext;
 
 use rand::{Rng, RngCore};
 
-use piet::kurbo::{BezPath, Circle, Line, Point, Vec2};
+use piet::kurbo::{BezPath, Circle, Point, Vec2};
 use piet::{Color, ImageFormat, RenderContext};
 
 use piet_gpu_types::encoder::Encode;
@@ -52,16 +52,23 @@ pub fn render_scene(rc: &mut impl RenderContext) {
         let circle = Circle::new(center, radius);
         rc.fill(circle, &color);
     }
-    /*
+    let _ = rc.save();
     let mut path = BezPath::new();
-    path.move_to((100.0, 1150.0));
-    path.line_to((200.0, 1200.0));
-    path.line_to((150.0, 1250.0));
+    path.move_to((200.0, 150.0));
+    path.line_to((100.0, 200.0));
+    path.line_to((150.0, 250.0));
+    path.close_path();
+    rc.clip(path);
+
+    let mut path = BezPath::new();
+    path.move_to((100.0, 150.0));
+    path.line_to((200.0, 200.0));
+    path.line_to((150.0, 250.0));
     path.close_path();
     rc.fill(path, &Color::rgb8(128, 0, 128));
-    */
+    let _ = rc.restore();
     rc.stroke(
-        Line::new((100.0, 100.0), (200.0, 150.0)),
+        piet::kurbo::Line::new((100.0, 100.0), (200.0, 150.0)),
         &Color::WHITE,
         5.0,
     );

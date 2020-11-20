@@ -21,8 +21,8 @@ struct AnnotatedRef {
 };
 
 struct AnnoFill {
-    uint rgba_color;
     vec4 bbox;
+    uint rgba_color;
 };
 
 #define AnnoFill_size 20
@@ -32,8 +32,8 @@ AnnoFillRef AnnoFill_index(AnnoFillRef ref, uint index) {
 }
 
 struct AnnoFillMask {
-    float mask;
     vec4 bbox;
+    float mask;
 };
 
 #define AnnoFillMask_size 20
@@ -43,8 +43,8 @@ AnnoFillMaskRef AnnoFillMask_index(AnnoFillMaskRef ref, uint index) {
 }
 
 struct AnnoStroke {
-    uint rgba_color;
     vec4 bbox;
+    uint rgba_color;
     float linewidth;
 };
 
@@ -85,18 +85,18 @@ AnnoFill AnnoFill_read(AnnoFillRef ref) {
     uint raw3 = annotated[ix + 3];
     uint raw4 = annotated[ix + 4];
     AnnoFill s;
-    s.rgba_color = raw0;
-    s.bbox = vec4(uintBitsToFloat(raw1), uintBitsToFloat(raw2), uintBitsToFloat(raw3), uintBitsToFloat(raw4));
+    s.bbox = vec4(uintBitsToFloat(raw0), uintBitsToFloat(raw1), uintBitsToFloat(raw2), uintBitsToFloat(raw3));
+    s.rgba_color = raw4;
     return s;
 }
 
 void AnnoFill_write(AnnoFillRef ref, AnnoFill s) {
     uint ix = ref.offset >> 2;
-    annotated[ix + 0] = s.rgba_color;
-    annotated[ix + 1] = floatBitsToUint(s.bbox.x);
-    annotated[ix + 2] = floatBitsToUint(s.bbox.y);
-    annotated[ix + 3] = floatBitsToUint(s.bbox.z);
-    annotated[ix + 4] = floatBitsToUint(s.bbox.w);
+    annotated[ix + 0] = floatBitsToUint(s.bbox.x);
+    annotated[ix + 1] = floatBitsToUint(s.bbox.y);
+    annotated[ix + 2] = floatBitsToUint(s.bbox.z);
+    annotated[ix + 3] = floatBitsToUint(s.bbox.w);
+    annotated[ix + 4] = s.rgba_color;
 }
 
 AnnoFillMask AnnoFillMask_read(AnnoFillMaskRef ref) {
@@ -107,18 +107,18 @@ AnnoFillMask AnnoFillMask_read(AnnoFillMaskRef ref) {
     uint raw3 = annotated[ix + 3];
     uint raw4 = annotated[ix + 4];
     AnnoFillMask s;
-    s.mask = uintBitsToFloat(raw0);
-    s.bbox = vec4(uintBitsToFloat(raw1), uintBitsToFloat(raw2), uintBitsToFloat(raw3), uintBitsToFloat(raw4));
+    s.bbox = vec4(uintBitsToFloat(raw0), uintBitsToFloat(raw1), uintBitsToFloat(raw2), uintBitsToFloat(raw3));
+    s.mask = uintBitsToFloat(raw4);
     return s;
 }
 
 void AnnoFillMask_write(AnnoFillMaskRef ref, AnnoFillMask s) {
     uint ix = ref.offset >> 2;
-    annotated[ix + 0] = floatBitsToUint(s.mask);
-    annotated[ix + 1] = floatBitsToUint(s.bbox.x);
-    annotated[ix + 2] = floatBitsToUint(s.bbox.y);
-    annotated[ix + 3] = floatBitsToUint(s.bbox.z);
-    annotated[ix + 4] = floatBitsToUint(s.bbox.w);
+    annotated[ix + 0] = floatBitsToUint(s.bbox.x);
+    annotated[ix + 1] = floatBitsToUint(s.bbox.y);
+    annotated[ix + 2] = floatBitsToUint(s.bbox.z);
+    annotated[ix + 3] = floatBitsToUint(s.bbox.w);
+    annotated[ix + 4] = floatBitsToUint(s.mask);
 }
 
 AnnoStroke AnnoStroke_read(AnnoStrokeRef ref) {
@@ -130,19 +130,19 @@ AnnoStroke AnnoStroke_read(AnnoStrokeRef ref) {
     uint raw4 = annotated[ix + 4];
     uint raw5 = annotated[ix + 5];
     AnnoStroke s;
-    s.rgba_color = raw0;
-    s.bbox = vec4(uintBitsToFloat(raw1), uintBitsToFloat(raw2), uintBitsToFloat(raw3), uintBitsToFloat(raw4));
+    s.bbox = vec4(uintBitsToFloat(raw0), uintBitsToFloat(raw1), uintBitsToFloat(raw2), uintBitsToFloat(raw3));
+    s.rgba_color = raw4;
     s.linewidth = uintBitsToFloat(raw5);
     return s;
 }
 
 void AnnoStroke_write(AnnoStrokeRef ref, AnnoStroke s) {
     uint ix = ref.offset >> 2;
-    annotated[ix + 0] = s.rgba_color;
-    annotated[ix + 1] = floatBitsToUint(s.bbox.x);
-    annotated[ix + 2] = floatBitsToUint(s.bbox.y);
-    annotated[ix + 3] = floatBitsToUint(s.bbox.z);
-    annotated[ix + 4] = floatBitsToUint(s.bbox.w);
+    annotated[ix + 0] = floatBitsToUint(s.bbox.x);
+    annotated[ix + 1] = floatBitsToUint(s.bbox.y);
+    annotated[ix + 2] = floatBitsToUint(s.bbox.z);
+    annotated[ix + 3] = floatBitsToUint(s.bbox.w);
+    annotated[ix + 4] = s.rgba_color;
     annotated[ix + 5] = floatBitsToUint(s.linewidth);
 }
 

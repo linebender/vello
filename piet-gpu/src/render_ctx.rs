@@ -1,9 +1,9 @@
-use std::{borrow::Cow, convert::TryInto, ops::RangeBounds};
+use std::{borrow::Cow, ops::RangeBounds};
 
 use piet_gpu_types::encoder::{Encode, Encoder};
 
 use piet_gpu_types::scene::{
-    BeginClip, CubicSeg, Element, EndClip, Fill, LineSeg, QuadSeg, SetLineWidth, Stroke, Transform,
+    Clip, CubicSeg, Element, Fill, LineSeg, QuadSeg, SetLineWidth, Stroke, Transform,
 };
 
 use piet::{
@@ -53,6 +53,10 @@ pub enum PietGpuBrush {
 #[derive(Default)]
 struct State {
     /// The transform relative to the parent state.
+    rel_transform: Affine,
+    /// The transform at the parent state.
+    ///
+    /// This invariant should hold: transform * rel_transform = cur_transform
     transform: Affine,
     n_clip: usize,
 }
@@ -61,8 +65,6 @@ struct ClipElement {
     /// Index of BeginClip element in element vec, for bbox fixup.
     begin_ix: usize,
     bbox: Option<Rect>,
-    /// The transform relative to the next clip element on the stack.
-    transform: Affine,
 }
 
 const TOLERANCE: f64 = 0.25;
@@ -168,18 +170,20 @@ impl RenderContext for PietGpuRenderContext {
     fn fill_even_odd(&mut self, _shape: impl Shape, _brush: &impl IntoBrush<Self>) {}
 
     fn clip(&mut self, shape: impl Shape) {
-        let begin_ix = self.elements.len();
         let path = shape.path_elements(TOLERANCE);
         self.encode_path(path, true);
-        self.elements.push(Element::BeginClip(BeginClip {
+        let begin_ix = self.elements.len();
+        self.elements.push(Element::BeginClip(Clip {
             bbox: Default::default(),
         }));
         self.clip_stack.push(ClipElement {
             bbox: None,
             begin_ix,
-            transform: Affine::default(),
         });
         self.path_count += 1;
+        if let Some(tos) = self.state_stack.last_mut() {
+            tos.n_clip += 1;
+        }
     }
 
     fn text(&mut self) -> &mut Self::Text {
@@ -189,18 +193,22 @@ impl RenderContext for PietGpuRenderContext {
     fn draw_text(&mut self, _layout: &Self::TextLayout, _pos: impl Into<Point>) {}
 
     fn save(&mut self) -> Result<(), Error> {
-        self.state_stack.push(Default::default());
+        self.state_stack.push(State {
+            rel_transform: Affine::default(),
+            transform: self.cur_transform,
+            n_clip: 0,
+        });
         Ok(())
     }
 
     fn restore(&mut self) -> Result<(), Error> {
         if let Some(state) = self.state_stack.pop() {
-            if state.transform != Affine::default() {
-                let a_inv = state.transform.inverse();
+            if state.rel_transform != Affine::default() {
+                let a_inv = state.rel_transform.inverse();
                 self.elements
                     .push(Element::Transform(to_scene_transform(a_inv)));
-                self.cur_transform *= a_inv;
             }
+            self.cur_transform = state.transform;
             for _ in 0..state.n_clip {
                 self.pop_clip();
             }
@@ -211,6 +219,9 @@ impl RenderContext for PietGpuRenderContext {
     }
 
     fn finish(&mut self) -> Result<(), Error> {
+        for _ in 0..self.clip_stack.len() {
+            self.pop_clip();
+        }
         Ok(())
     }
 
@@ -218,10 +229,7 @@ impl RenderContext for PietGpuRenderContext {
         self.elements
             .push(Element::Transform(to_scene_transform(transform)));
         if let Some(tos) = self.state_stack.last_mut() {
-            tos.transform *= transform;
-        }
-        if let Some(tos) = self.clip_stack.last_mut() {
-            tos.transform *= transform;
+            tos.rel_transform *= transform;
         }
         self.cur_transform *= transform;
     }
@@ -392,23 +400,38 @@ impl PietGpuRenderContext {
 
     fn pop_clip(&mut self) {
         let tos = self.clip_stack.pop().unwrap();
-        let delta = (self.elements.len() - tos.begin_ix).try_into().unwrap();
-        self.elements.push(Element::EndClip(EndClip { delta }));
+        let bbox = tos.bbox.unwrap_or_default();
+        let bbox_f32_4 = rect_to_f32_4(bbox);
+        self.elements
+            .push(Element::EndClip(Clip { bbox: bbox_f32_4 }));
         self.path_count += 1;
+        if let Element::BeginClip(begin_clip) = &mut self.elements[tos.begin_ix] {
+            begin_clip.bbox = bbox_f32_4;
+        } else {
+            unreachable!("expected BeginClip, not found");
+        }
         if let Some(bbox) = tos.bbox {
-            if let Element::BeginClip(begin_clip) = &mut self.elements[tos.begin_ix] {
-                begin_clip.bbox = rect_to_f32_4(bbox);
-            } else {
-                unreachable!("expected BeginClip, not found");
-            }
-            self.accumulate_bbox(|| bbox);
+            self.union_bbox(bbox);
         }
     }
 
+    /// Accumulate a bbox.
+    ///
+    /// The bbox is given lazily as a closure, relative to the current transform.
+    /// It's lazy because we don't need to compute it unless we're inside a clip.
     fn accumulate_bbox(&mut self, f: impl FnOnce() -> Rect) {
-        if let Some(tos) = self.clip_stack.last_mut() {
+        if !self.clip_stack.is_empty() {
             let bbox = f();
-            let bbox = tos.transform.transform_rect_bbox(bbox);
+            let bbox = self.cur_transform.transform_rect_bbox(bbox);
+            self.union_bbox(bbox);
+        }
+    }
+
+    /// Accumulate an absolute bbox.
+    ///
+    /// The bbox is given already transformed into surface coordinates.
+    fn union_bbox(&mut self, bbox: Rect) {
+        if let Some(tos) = self.clip_stack.last_mut() {
             tos.bbox = if let Some(old_bbox) = tos.bbox {
                 Some(old_bbox.union(bbox))
             } else {
@@ -512,7 +535,12 @@ fn to_f32_2(point: Point) -> [f32; 2] {
 }
 
 fn rect_to_f32_4(rect: Rect) -> [f32; 4] {
-    [rect.x0 as f32, rect.y0 as f32, rect.x1 as f32, rect.y1 as f32]
+    [
+        rect.x0 as f32,
+        rect.y0 as f32,
+        rect.x1 as f32,
+        rect.y1 as f32,
+    ]
 }
 
 fn to_scene_transform(transform: Affine) -> Transform {

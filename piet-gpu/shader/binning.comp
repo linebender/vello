@@ -57,22 +57,20 @@ void main() {
         tag = Annotated_tag(ref);
     }
     int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
-    float my_right_edge = INFINITY;
     switch (tag) {
     case Annotated_Fill:
     case Annotated_FillMask:
     case Annotated_FillMaskInv:
     case Annotated_Stroke:
-        // Note: we take advantage of the fact that fills and strokes
-        // have compatible layout.
+    case Annotated_BeginClip:
+    case Annotated_EndClip:
+        // Note: we take advantage of the fact that these drawing elements
+        // have the bbox at the same place in their layout.
         AnnoFill fill = Annotated_Fill_read(ref);
         x0 = int(floor(fill.bbox.x * SX));
         y0 = int(floor(fill.bbox.y * SY));
         x1 = int(ceil(fill.bbox.z * SX));
         y1 = int(ceil(fill.bbox.w * SY));
-        // It probably makes more sense to track x1, to avoid having to redo
-        // the rounding to tile coords.
-        my_right_edge = fill.bbox.z;
         break;
     }
 
@@ -131,7 +129,7 @@ void main() {
                 idx += count[my_slice - 1][bin_ix];
             }
             uint out_offset = sh_chunk_start[bin_ix] + idx * BinInstance_size;
-            BinInstance_write(BinInstanceRef(out_offset), BinInstance(element_ix, my_right_edge));
+            BinInstance_write(BinInstanceRef(out_offset), BinInstance(element_ix));
         }
         x++;
         if (x == x1) {

@@ -24,6 +24,10 @@ struct CmdBeginClipRef {
     uint offset;
 };
 
+struct CmdBeginSolidClipRef {
+    uint offset;
+};
+
 struct CmdEndClipRef {
     uint offset;
 };
@@ -122,6 +126,16 @@ CmdBeginClipRef CmdBeginClip_index(CmdBeginClipRef ref, uint index) {
     return CmdBeginClipRef(ref.offset + index * CmdBeginClip_size);
 }
 
+struct CmdBeginSolidClip {
+    float alpha;
+};
+
+#define CmdBeginSolidClip_size 4
+
+CmdBeginSolidClipRef CmdBeginSolidClip_index(CmdBeginSolidClipRef ref, uint index) {
+    return CmdBeginSolidClipRef(ref.offset + index * CmdBeginSolidClip_size);
+}
+
 struct CmdEndClip {
     float alpha;
 };
@@ -169,11 +183,12 @@ CmdJumpRef CmdJump_index(CmdJumpRef ref, uint index) {
 #define Cmd_FillMask 4
 #define Cmd_FillMaskInv 5
 #define Cmd_BeginClip 6
-#define Cmd_EndClip 7
-#define Cmd_Stroke 8
-#define Cmd_Solid 9
-#define Cmd_SolidMask 10
-#define Cmd_Jump 11
+#define Cmd_BeginSolidClip 7
+#define Cmd_EndClip 8
+#define Cmd_Stroke 9
+#define Cmd_Solid 10
+#define Cmd_SolidMask 11
+#define Cmd_Jump 12
 #define Cmd_size 20
 
 CmdRef Cmd_index(CmdRef ref, uint index) {
@@ -318,6 +333,19 @@ void CmdBeginClip_write(CmdBeginClipRef ref, CmdBeginClip s) {
     ptcl[ix + 1] = uint(s.backdrop);
 }
 
+CmdBeginSolidClip CmdBeginSolidClip_read(CmdBeginSolidClipRef ref) {
+    uint ix = ref.offset >> 2;
+    uint raw0 = ptcl[ix + 0];
+    CmdBeginSolidClip s;
+    s.alpha = uintBitsToFloat(raw0);
+    return s;
+}
+
+void CmdBeginSolidClip_write(CmdBeginSolidClipRef ref, CmdBeginSolidClip s) {
+    uint ix = ref.offset >> 2;
+    ptcl[ix + 0] = floatBitsToUint(s.alpha);
+}
+
 CmdEndClip CmdEndClip_read(CmdEndClipRef ref) {
     uint ix = ref.offset >> 2;
     uint raw0 = ptcl[ix + 0];
@@ -398,6 +426,10 @@ CmdBeginClip Cmd_BeginClip_read(CmdRef ref) {
     return CmdBeginClip_read(CmdBeginClipRef(ref.offset + 4));
 }
 
+CmdBeginSolidClip Cmd_BeginSolidClip_read(CmdRef ref) {
+    return CmdBeginSolidClip_read(CmdBeginSolidClipRef(ref.offset + 4));
+}
+
 CmdEndClip Cmd_EndClip_read(CmdRef ref) {
     return CmdEndClip_read(CmdEndClipRef(ref.offset + 4));
 }
@@ -450,6 +482,11 @@ void Cmd_FillMaskInv_write(CmdRef ref, CmdFillMask s) {
 void Cmd_BeginClip_write(CmdRef ref, CmdBeginClip s) {
     ptcl[ref.offset >> 2] = Cmd_BeginClip;
     CmdBeginClip_write(CmdBeginClipRef(ref.offset + 4), s);
+}
+
+void Cmd_BeginSolidClip_write(CmdRef ref, CmdBeginSolidClip s) {
+    ptcl[ref.offset >> 2] = Cmd_BeginSolidClip;
+    CmdBeginSolidClip_write(CmdBeginSolidClipRef(ref.offset + 4), s);
 }
 
 void Cmd_EndClip_write(CmdRef ref, CmdEndClip s) {

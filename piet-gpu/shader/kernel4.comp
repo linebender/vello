@@ -149,12 +149,20 @@ void main() {
             }
             blend_sp++;
             break;
+        case Cmd_BeginSolidClip:
+            CmdBeginSolidClip begin_solid_clip = Cmd_BeginSolidClip_read(cmd_ref);
+            float solid_alpha = begin_solid_clip.alpha;
+            for (uint k = 0; k < CHUNK; k++) {
+                blend_stack[blend_sp][k] = packUnorm4x8(vec4(rgb[k], solid_alpha));
+            }
+            blend_sp++;
+            break;
         case Cmd_EndClip:
             CmdEndClip end_clip = Cmd_EndClip_read(cmd_ref);
             blend_sp--;
             for (uint k = 0; k < CHUNK; k++) {
                 vec4 rgba = unpackUnorm4x8(blend_stack[blend_sp][k]);
-                rgb[k] = mix(rgb[k], rgba.rgb, end_clip.alpha * rgba.a);
+                rgb[k] = mix(rgba.rgb, rgb[k], end_clip.alpha * rgba.a);
             }
             break;
         case Cmd_Solid:

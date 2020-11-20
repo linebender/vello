@@ -132,7 +132,11 @@ State map_element(ElementRef ref) {
     case Element_FillMask:
     case Element_FillMaskInv:
     case Element_Stroke:
+    case Element_BeginClip:
         c.flags = FLAG_RESET_BBOX;
+        c.path_count = 1;
+        break;
+    case Element_EndClip:
         c.path_count = 1;
         break;
     case Element_SetLineWidth:
@@ -420,6 +424,21 @@ void main() {
             anno_fill_mask.bbox = vec4(0, 0, 1e9, 1e9);
             out_ref = AnnotatedRef((st.path_count - 1) * Annotated_size);
             Annotated_FillMaskInv_write(out_ref, anno_fill_mask);
+            break;
+        case Element_BeginClip:
+            Clip begin_clip = Element_BeginClip_read(this_ref);
+            AnnoClip anno_begin_clip = AnnoClip(begin_clip.bbox);
+            // This is the absolute bbox, it's been transformed during encoding.
+            anno_begin_clip.bbox = begin_clip.bbox;
+            out_ref = AnnotatedRef((st.path_count - 1) * Annotated_size);
+            Annotated_BeginClip_write(out_ref, anno_begin_clip);
+            break;
+        case Element_EndClip:
+            Clip end_clip = Element_EndClip_read(this_ref);
+            // This bbox is expected to be the same as the begin one.
+            AnnoClip anno_end_clip = AnnoClip(end_clip.bbox);
+            out_ref = AnnotatedRef((st.path_count - 1) * Annotated_size);
+            Annotated_EndClip_write(out_ref, anno_end_clip);
             break;
         }
     }

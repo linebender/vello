@@ -32,11 +32,7 @@ struct TransformRef {
     uint offset;
 };
 
-struct BeginClipRef {
-    uint offset;
-};
-
-struct EndClipRef {
+struct ClipRef {
     uint offset;
 };
 
@@ -131,24 +127,14 @@ TransformRef Transform_index(TransformRef ref, uint index) {
     return TransformRef(ref.offset + index * Transform_size);
 }
 
-struct BeginClip {
+struct Clip {
     vec4 bbox;
 };
 
-#define BeginClip_size 16
+#define Clip_size 16
 
-BeginClipRef BeginClip_index(BeginClipRef ref, uint index) {
-    return BeginClipRef(ref.offset + index * BeginClip_size);
-}
-
-struct EndClip {
-    uint clip_size;
-};
-
-#define EndClip_size 4
-
-EndClipRef EndClip_index(EndClipRef ref, uint index) {
-    return EndClipRef(ref.offset + index * EndClip_size);
+ClipRef Clip_index(ClipRef ref, uint index) {
+    return ClipRef(ref.offset + index * Clip_size);
 }
 
 #define Element_Nop 0
@@ -263,22 +249,14 @@ Transform Transform_read(TransformRef ref) {
     return s;
 }
 
-BeginClip BeginClip_read(BeginClipRef ref) {
+Clip Clip_read(ClipRef ref) {
     uint ix = ref.offset >> 2;
     uint raw0 = scene[ix + 0];
     uint raw1 = scene[ix + 1];
     uint raw2 = scene[ix + 2];
     uint raw3 = scene[ix + 3];
-    BeginClip s;
+    Clip s;
     s.bbox = vec4(uintBitsToFloat(raw0), uintBitsToFloat(raw1), uintBitsToFloat(raw2), uintBitsToFloat(raw3));
-    return s;
-}
-
-EndClip EndClip_read(EndClipRef ref) {
-    uint ix = ref.offset >> 2;
-    uint raw0 = scene[ix + 0];
-    EndClip s;
-    s.clip_size = raw0;
     return s;
 }
 
@@ -334,11 +312,11 @@ FillMask Element_FillMaskInv_read(ElementRef ref) {
     return FillMask_read(FillMaskRef(ref.offset + 4));
 }
 
-BeginClip Element_BeginClip_read(ElementRef ref) {
-    return BeginClip_read(BeginClipRef(ref.offset + 4));
+Clip Element_BeginClip_read(ElementRef ref) {
+    return Clip_read(ClipRef(ref.offset + 4));
 }
 
-EndClip Element_EndClip_read(ElementRef ref) {
-    return EndClip_read(EndClipRef(ref.offset + 4));
+Clip Element_EndClip_read(ElementRef ref) {
+    return Clip_read(ClipRef(ref.offset + 4));
 }
 
