@@ -1,5 +1,6 @@
+use piet_gpu_hal::hub;
 use piet_gpu_hal::vulkan::VkInstance;
-use piet_gpu_hal::{CmdBuf, Device, Error, ImageLayout};
+use piet_gpu_hal::{CmdBuf, Error, ImageLayout};
 
 use piet_gpu::{render_scene, PietGpuRenderContext, Renderer, HEIGHT, WIDTH};
 
@@ -25,19 +26,14 @@ fn main() -> Result<(), Error> {
     unsafe {
         let device = instance.device(surface.as_ref())?;
         let mut swapchain = instance.swapchain(&device, surface.as_ref().unwrap())?;
+        let session = hub::Session::new(device);
 
         let mut current_frame = 0;
         let present_semaphores = (0..NUM_FRAMES)
-            .map(|_| device.create_semaphore())
-            .collect::<Result<Vec<_>, Error>>()?;
-        let frame_fences = (0..NUM_FRAMES)
-            .map(|_| device.create_fence(false))
-            .collect::<Result<Vec<_>, Error>>()?;
-        let mut cmd_buffers = (0..NUM_FRAMES)
-            .map(|_| device.create_cmd_buf())
+            .map(|_| session.create_semaphore())
             .collect::<Result<Vec<_>, Error>>()?;
         let query_pools = (0..NUM_FRAMES)
-            .map(|_| device.create_query_pool(8))
+            .map(|_| session.create_query_pool(8))
             .collect::<Result<Vec<_>, Error>>()?;
 
         let mut ctx = PietGpuRenderContext::new();
@@ -46,7 +42,9 @@ fn main() -> Result<(), Error> {
         let n_pathseg = ctx.pathseg_count();
         let scene = ctx.get_scene_buf();
 
-        let renderer = Renderer::new(&device, scene, n_paths, n_pathseg)?;
+        let renderer = Renderer::new(&session, scene, n_paths, n_pathseg)?;
+
+        let mut submitted: Option<hub::SubmittedCmdBuf> = None;
 
         event_loop.run(move |event, _, control_flow| {
             *control_flow = ControlFlow::Poll; // `ControlFlow::Wait` if only re-render on event
@@ -67,10 +65,10 @@ fn main() -> Result<(), Error> {
                     let frame_idx = current_frame % NUM_FRAMES;
                     let query_pool = &query_pools[frame_idx];
 
-                    if current_frame >= NUM_FRAMES {
-                        device.wait_and_reset(&[frame_fences[frame_idx]]).unwrap();
+                    if let Some(submitted) = submitted.take() {
+                        submitted.wait().unwrap();
 
-                        let ts = device.reap_query_pool(query_pool).unwrap();
+                        let ts = session.fetch_query_pool(query_pool).unwrap();
                         window.set_title(&format!(
                             "{:.3}ms :: e:{:.3}ms|alloc:{:.3}ms|cp:{:.3}ms|bd:{:.3}ms|bin:{:.3}ms|cr:{:.3}ms|r:{:.3}ms",
                             ts[6] * 1e3,
@@ -86,9 +84,9 @@ fn main() -> Result<(), Error> {
 
                     let (image_idx, acquisition_semaphore) = swapchain.next().unwrap();
                     let swap_image = swapchain.image(image_idx);
-                    let cmd_buf = &mut cmd_buffers[frame_idx];
+                    let mut cmd_buf = session.cmd_buf().unwrap();
                     cmd_buf.begin();
-                    renderer.record(cmd_buf, &query_pool);
+                    renderer.record(&mut cmd_buf, &query_pool);
 
                     // Image -> Swapchain
                     cmd_buf.image_barrier(
@@ -96,18 +94,17 @@ fn main() -> Result<(), Error> {
                         ImageLayout::Undefined,
                         ImageLayout::BlitDst,
                     );
-                    cmd_buf.blit_image(&renderer.image_dev, &swap_image);
+                    cmd_buf.blit_image(renderer.image_dev.vk_image(), &swap_image);
                     cmd_buf.image_barrier(&swap_image, ImageLayout::BlitDst, ImageLayout::Present);
                     cmd_buf.finish();
 
-                    device
+                    submitted = Some(session
                         .run_cmd_buf(
-                            &cmd_buf,
+                            cmd_buf,
                             &[acquisition_semaphore],
                             &[present_semaphores[frame_idx]],
-                            Some(&frame_fences[frame_idx]),
                         )
-                        .unwrap();
+                        .unwrap());
 
                     swapchain
                         .present(image_idx, &[present_semaphores[frame_idx]])

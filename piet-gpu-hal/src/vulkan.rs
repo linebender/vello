@@ -62,8 +62,7 @@ pub struct Buffer {
 
 pub struct Image {
     image: vk::Image,
-    // Not used now but probably will be for destruction.
-    _image_memory: vk::DeviceMemory,
+    image_memory: vk::DeviceMemory,
     image_view: vk::ImageView,
     extent: vk::Extent3D,
 }
@@ -413,6 +412,13 @@ impl crate::Device for VkDevice {
         }
     }
 
+    unsafe fn destroy_buffer(&self, buffer: &Self::Buffer) -> Result<(), Error> {
+        let device = &self.device.device;
+        device.destroy_buffer(buffer.buffer, None);
+        device.free_memory(buffer.buffer_memory, None);
+        Ok(())
+    }
+
     unsafe fn create_image2d(
         &self,
         width: u32,
@@ -476,10 +482,18 @@ impl crate::Device for VkDevice {
         )?;
         Ok(Image {
             image,
-            _image_memory: image_memory,
+            image_memory,
             image_view,
             extent,
         })
+    }
+
+    unsafe fn destroy_image(&self, image: &Self::Image) -> Result<(), Error> {
+        let device = &self.device.device;
+        device.destroy_image(image.image, None);
+        device.destroy_image_view(image.image_view, None);
+        device.free_memory(image.image_memory, None);
+        Ok(())
     }
 
     unsafe fn create_fence(&self, signaled: bool) -> Result<Self::Fence, Error> {
@@ -501,6 +515,11 @@ impl crate::Device for VkDevice {
         device.wait_for_fences(fences, true, !0)?;
         device.reset_fences(fences)?;
         Ok(())
+    }
+
+    unsafe fn get_fence_status(&self, fence: Self::Fence) -> Result<bool, Error> {
+        let device = &self.device.device;
+        Ok(device.get_fence_status(fence)?)
     }
 
     /// This creates a pipeline that runs over the buffer.
@@ -686,7 +705,7 @@ impl crate::Device for VkDevice {
         }
     }
 
-    unsafe fn reap_query_pool(&self, pool: &Self::QueryPool) -> Result<Vec<f64>, Error> {
+    unsafe fn fetch_query_pool(&self, pool: &Self::QueryPool) -> Result<Vec<f64>, Error> {
         let device = &self.device.device;
         let mut buf = vec![0u64; pool.n_queries as usize];
         device.get_query_pool_results(
@@ -1025,7 +1044,7 @@ impl VkSwapchain {
     pub unsafe fn image(&self, idx: usize) -> Image {
         Image {
             image: self.images[idx],
-            _image_memory: vk::DeviceMemory::null(),
+            image_memory: vk::DeviceMemory::null(),
             image_view: vk::ImageView::null(),
             extent: vk::Extent3D {
                 width: self.extent.width,
