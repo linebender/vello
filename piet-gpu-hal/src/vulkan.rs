@@ -431,6 +431,11 @@ impl crate::Device for VkDevice {
             height,
             depth: 1,
         };
+        // TODO: maybe want to fine-tune these for different use cases, especially because we'll
+        // want to add sampling for images and so on.
+        let usage = vk::ImageUsageFlags::STORAGE
+            | vk::ImageUsageFlags::TRANSFER_SRC
+            | vk::ImageUsageFlags::TRANSFER_DST;
         let image = device.create_image(
             &vk::ImageCreateInfo::builder()
                 .image_type(vk::ImageType::TYPE_2D)
@@ -441,7 +446,7 @@ impl crate::Device for VkDevice {
                 .samples(vk::SampleCountFlags::TYPE_1)
                 .tiling(vk::ImageTiling::OPTIMAL)
                 .initial_layout(vk::ImageLayout::UNDEFINED)
-                .usage(vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_SRC) // write in compute and blit src
+                .usage(usage)
                 .sharing_mode(vk::SharingMode::EXCLUSIVE),
             None,
         )?;
