@@ -73,7 +73,8 @@ pub fn render_scene(rc: &mut impl RenderContext) {
         5.0,
     );
     //render_cardioid(rc);
-    render_tiger(rc);
+    render_clip_test(rc);
+    //render_tiger(rc);
 }
 
 #[allow(unused)]
@@ -92,6 +93,33 @@ fn render_cardioid(rc: &mut impl RenderContext) {
         //rc.stroke(Line::new(p0, p1), &Color::BLACK, 2.0);
     }
     rc.stroke(&path, &Color::BLACK, 2.0);
+}
+
+#[allow(unused)]
+fn render_clip_test(rc: &mut impl RenderContext) {
+    const N: usize = 16;
+    const X0: f64 = 50.0;
+    const Y0: f64 = 50.0;
+    const X1: f64 = 100.0;
+    const Y1: f64 = 100.0;
+    let step = 1.0 / ((N + 1) as f64);
+    for i in 0..N {
+        let t = ((i + 1) as f64) * step;
+        rc.save();
+        let mut path = BezPath::new();
+        path.move_to((X0, Y0));
+        path.line_to((X1, Y0));
+        path.line_to((X1, Y0 + t * (Y1 - Y0)));
+        path.line_to((X1 + t * (X0 - X1), Y1));
+        path.line_to((X0, Y1));
+        path.close_path();
+        rc.clip(path);
+    }
+    let rect = piet::kurbo::Rect::new(X0, Y0, X1, Y1);
+    rc.fill(rect, &Color::BLACK);
+    for _ in 0..N {
+        rc.restore();
+    }
 }
 
 fn render_tiger(rc: &mut impl RenderContext) {
@@ -162,6 +190,8 @@ pub struct Renderer {
 
     coarse_alloc_buf_host: hub::Buffer,
     coarse_alloc_buf_dev: hub::Buffer,
+
+    clip_scratch_buf: hub::Buffer,
 
     k4_pipeline: hub::Pipeline,
     k4_ds: hub::DescriptorSet,
@@ -278,6 +308,8 @@ impl Renderer {
             &[],
         )?;
 
+        let clip_scratch_buf = session.create_buffer(1024 * 1024, dev)?;
+
         let mut coarse_alloc_buf_host = session.create_buffer(8, host)?;
         let coarse_alloc_buf_dev = session.create_buffer(8, dev)?;
 
@@ -298,10 +330,14 @@ impl Renderer {
         )?;
 
         let k4_code = include_bytes!("../shader/kernel4.spv");
-        let k4_pipeline = session.create_simple_compute_pipeline(k4_code, 2, 1)?;
+        let k4_pipeline = session.create_simple_compute_pipeline(k4_code, 3, 1)?;
         let k4_ds = session.create_descriptor_set(
             &k4_pipeline,
-            &[ptcl_buf.vk_buffer(), tile_buf.vk_buffer()],
+            &[
+                ptcl_buf.vk_buffer(),
+                tile_buf.vk_buffer(),
+                clip_scratch_buf.vk_buffer(),
+            ],
             &[image_dev.vk_image()],
         )?;
 
@@ -335,6 +371,7 @@ impl Renderer {
             bin_alloc_buf_dev,
             coarse_alloc_buf_host,
             coarse_alloc_buf_dev,
+            clip_scratch_buf,
             n_elements,
             n_paths,
             n_pathseg,
@@ -355,7 +392,8 @@ impl Renderer {
             self.coarse_alloc_buf_host.vk_buffer(),
             self.coarse_alloc_buf_dev.vk_buffer(),
         );
-        cmd_buf.clear_buffer(self.state_buf.vk_buffer());
+        cmd_buf.clear_buffer(self.state_buf.vk_buffer(), None);
+        cmd_buf.clear_buffer(self.clip_scratch_buf.vk_buffer(), Some(4));
         cmd_buf.memory_barrier();
         cmd_buf.image_barrier(
             self.image_dev.vk_image(),
