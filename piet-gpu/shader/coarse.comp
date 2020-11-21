@@ -234,7 +234,9 @@ void main() {
                 // Include the path in the tile if
                 // - the tile contains at least a segment (tile offset non-zero)
                 // - the tile is completely covered (backdrop non-zero)
-                include_tile = tile.backdrop != 0 || tile.tile.offset != 0;
+                bool inside = tile.backdrop != 0;
+                bool fill = tag != Annotated_FillMaskInv;
+                include_tile =  tile.tile.offset != 0 || inside == fill;
             }
             if (include_tile) {
                 uint el_slice = el_ix / 32;
