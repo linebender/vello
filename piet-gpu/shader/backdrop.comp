@@ -57,6 +57,7 @@ void main() {
         case Annotated_Fill:
         case Annotated_FillMask:
         case Annotated_FillMaskInv:
+        case Annotated_BeginClip:
             PathRef path_ref = PathRef(element_ix * Path_size);
             Path path = Path_read(path_ref);
             sh_row_width[th_ix] = path.bbox.z - path.bbox.x;

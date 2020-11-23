@@ -30,6 +30,19 @@ piet_gpu! {
             backdrop: i32,
             mask: f32,
         }
+        struct CmdBeginClip {
+            tile_ref: u32,
+            backdrop: i32,
+        }
+        // This is mostly here for expedience and can always be optimized
+        // out for pure clips, but will be useful for blend groups.
+        struct CmdBeginSolidClip {
+            alpha: f32,
+        }
+        struct CmdEndClip {
+            // This will be 1.0 for clips, but we can imagine blend groups.
+            alpha: f32,
+        }
         struct CmdSolid {
             rgba_color: u32,
         }
@@ -46,6 +59,9 @@ piet_gpu! {
             Fill(CmdFill),
             FillMask(CmdFillMask),
             FillMaskInv(CmdFillMask),
+            BeginClip(CmdBeginClip),
+            BeginSolidClip(CmdBeginSolidClip),
+            EndClip(CmdEndClip),
             Stroke(CmdStroke),
             Solid(CmdSolid),
             SolidMask(CmdSolidMask),

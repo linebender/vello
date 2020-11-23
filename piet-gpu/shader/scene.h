@@ -32,6 +32,10 @@ struct TransformRef {
     uint offset;
 };
 
+struct ClipRef {
+    uint offset;
+};
+
 struct ElementRef {
     uint offset;
 };
@@ -123,6 +127,16 @@ TransformRef Transform_index(TransformRef ref, uint index) {
     return TransformRef(ref.offset + index * Transform_size);
 }
 
+struct Clip {
+    vec4 bbox;
+};
+
+#define Clip_size 16
+
+ClipRef Clip_index(ClipRef ref, uint index) {
+    return ClipRef(ref.offset + index * Clip_size);
+}
+
 #define Element_Nop 0
 #define Element_StrokeLine 1
 #define Element_FillLine 2
@@ -136,6 +150,8 @@ TransformRef Transform_index(TransformRef ref, uint index) {
 #define Element_Transform 10
 #define Element_FillMask 11
 #define Element_FillMaskInv 12
+#define Element_BeginClip 13
+#define Element_EndClip 14
 #define Element_size 36
 
 ElementRef Element_index(ElementRef ref, uint index) {
@@ -233,6 +249,17 @@ Transform Transform_read(TransformRef ref) {
     return s;
 }
 
+Clip Clip_read(ClipRef ref) {
+    uint ix = ref.offset >> 2;
+    uint raw0 = scene[ix + 0];
+    uint raw1 = scene[ix + 1];
+    uint raw2 = scene[ix + 2];
+    uint raw3 = scene[ix + 3];
+    Clip s;
+    s.bbox = vec4(uintBitsToFloat(raw0), uintBitsToFloat(raw1), uintBitsToFloat(raw2), uintBitsToFloat(raw3));
+    return s;
+}
+
 uint Element_tag(ElementRef ref) {
     return scene[ref.offset >> 2];
 }
@@ -283,5 +310,13 @@ FillMask Element_FillMask_read(ElementRef ref) {
 
 FillMask Element_FillMaskInv_read(ElementRef ref) {
     return FillMask_read(FillMaskRef(ref.offset + 4));
+}
+
+Clip Element_BeginClip_read(ElementRef ref) {
+    return Clip_read(ClipRef(ref.offset + 4));
+}
+
+Clip Element_EndClip_read(ElementRef ref) {
+    return Clip_read(ClipRef(ref.offset + 4));
 }
 

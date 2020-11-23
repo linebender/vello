@@ -45,7 +45,6 @@ layout(set = 0, binding = 4) buffer PtclBuf {
 #define N_PART_READ (1 << LG_N_PART_READ)
 
 shared uint sh_elements[N_TILE];
-shared float sh_right_edge[N_TILE];
 
 // Number of elements in the partition; prefix sum.
 shared uint sh_part_count[N_PART_READ];
@@ -148,7 +147,6 @@ void main() {
                 BinInstanceRef inst_ref = BinInstanceRef(sh_part_elements[part_ix]);
                 BinInstance inst = BinInstance_read(BinInstance_index(inst_ref, ix));
                 sh_elements[th_ix] = inst.element_ix;
-                sh_right_edge[th_ix] = inst.right_edge;
             }
             barrier();
 
@@ -161,10 +159,8 @@ void main() {
         uint tag = Annotated_Nop;
         uint element_ix;
         AnnotatedRef ref;
-        float right_edge = 0.0;
         if (th_ix + rd_ix < wr_ix) {
             element_ix = sh_elements[th_ix];
-            right_edge = sh_right_edge[th_ix];
             ref = AnnotatedRef(element_ix * Annotated_size);
             tag = Annotated_tag(ref);
         }
@@ -176,10 +172,10 @@ void main() {
         case Annotated_FillMask:
         case Annotated_FillMaskInv:
         case Annotated_Stroke:
-            // Because the only elements we're processing right now are
-            // paths, we can just use the element index as the path index.
-            // In future, when we're doing a bunch of stuff, the path index
-            // should probably be stored in the annotated element.
+        case Annotated_BeginClip:
+        case Annotated_EndClip:
+            // We have one "path" for each element, even if the element isn't
+            // actually a path (currently EndClip, but images etc in the future).
             uint path_ix = element_ix;
             Path path = Path_read(PathRef(path_ix * Path_size));
             uint stride = path.bbox.z - path.bbox.x;
@@ -224,20 +220,25 @@ void main() {
                     el_ix = probe;
                 }
             }
-            AnnotatedRef ref = AnnotatedRef(el_ix * Annotated_size);
+            AnnotatedRef ref = AnnotatedRef(sh_elements[el_ix] * Annotated_size);
             uint tag = Annotated_tag(ref);
             uint seq_ix = ix - (el_ix > 0 ? sh_tile_count[el_ix - 1] : 0);
             uint width = sh_tile_width[el_ix];
             uint x = sh_tile_x0[el_ix] + seq_ix % width;
             uint y = sh_tile_y0[el_ix] + seq_ix / width;
-            Tile tile = Tile_read(TileRef(sh_tile_base[el_ix] + (sh_tile_stride[el_ix] * y + x) * Tile_size));
-            // Include the path in the tile if
-            // - the tile contains at least a segment (tile offset non-zero)
-            // - the tile is completely covered (backdrop non-zero)
-            // - the tile is not covered and we're filling everything outside the path (backdrop zero, inverse fills).
-            bool inside = tile.backdrop != 0;
-            bool fill = tag != Annotated_FillMaskInv;
-            if (tile.tile.offset != 0 || inside == fill) {
+            bool include_tile;
+            if (tag == Annotated_BeginClip || tag == Annotated_EndClip) {
+                include_tile = true;
+            } else {
+                Tile tile = Tile_read(TileRef(sh_tile_base[el_ix] + (sh_tile_stride[el_ix] * y + x) * Tile_size));
+                // Include the path in the tile if
+                // - the tile contains at least a segment (tile offset non-zero)
+                // - the tile is completely covered (backdrop non-zero)
+                bool inside = tile.backdrop != 0;
+                bool fill = tag != Annotated_FillMaskInv;
+                include_tile =  tile.tile.offset != 0 || inside == fill;
+            }
+            if (include_tile) {
                 uint el_slice = el_ix / 32;
                 uint el_mask = 1 << (el_ix & 31);
                 atomicOr(sh_bitmaps[el_slice][y * N_TILE_X + x], el_mask);
@@ -247,8 +248,7 @@ void main() {
         barrier();
 
         // Output non-segment elements for this tile. The thread does a sequential walk
-        // through the non-segment elements, and for segments, count and backdrop are
-        // aggregated using bit counting.
+        // through the non-segment elements.
         uint slice_ix = 0;
         uint bitmap = sh_bitmaps[0][th_ix];
         while (true) {
@@ -289,6 +289,27 @@ void main() {
                 } else {
                     Cmd_Solid_write(cmd_ref, CmdSolid(fill.rgba_color));
                 }
+                cmd_ref.offset += Cmd_size;
+                break;
+            case Annotated_BeginClip:
+                tile = Tile_read(TileRef(sh_tile_base[element_ref_ix]
+                    + (sh_tile_stride[element_ref_ix] * tile_y + tile_x) * Tile_size));
+                alloc_cmd(cmd_ref, cmd_limit);
+                if (tile.tile.offset != 0) {
+                    CmdBeginClip cmd_begin_clip;
+                    cmd_begin_clip.tile_ref = tile.tile.offset;
+                    cmd_begin_clip.backdrop = tile.backdrop;
+                    Cmd_BeginClip_write(cmd_ref, cmd_begin_clip);
+                } else {
+                    // TODO: here is where a bunch of optimization magic should happen
+                    float alpha = tile.backdrop == 0 ? 0.0 : 1.0;
+                    Cmd_BeginSolidClip_write(cmd_ref, CmdBeginSolidClip(alpha));
+                }
+                cmd_ref.offset += Cmd_size;
+                break;
+            case Annotated_EndClip:
+                alloc_cmd(cmd_ref, cmd_limit);
+                Cmd_EndClip_write(cmd_ref, CmdEndClip(1.0));
                 cmd_ref.offset += Cmd_size;
                 break;
             case Annotated_FillMask:

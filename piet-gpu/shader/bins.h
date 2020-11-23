@@ -10,10 +10,9 @@ struct BinChunkRef {
 
 struct BinInstance {
     uint element_ix;
-    float right_edge;
 };
 
-#define BinInstance_size 8
+#define BinInstance_size 4
 
 BinInstanceRef BinInstance_index(BinInstanceRef ref, uint index) {
     return BinInstanceRef(ref.offset + index * BinInstance_size);
@@ -33,17 +32,14 @@ BinChunkRef BinChunk_index(BinChunkRef ref, uint index) {
 BinInstance BinInstance_read(BinInstanceRef ref) {
     uint ix = ref.offset >> 2;
     uint raw0 = bins[ix + 0];
-    uint raw1 = bins[ix + 1];
     BinInstance s;
     s.element_ix = raw0;
-    s.right_edge = uintBitsToFloat(raw1);
     return s;
 }
 
 void BinInstance_write(BinInstanceRef ref, BinInstance s) {
     uint ix = ref.offset >> 2;
     bins[ix + 0] = s.element_ix;
-    bins[ix + 1] = floatBitsToUint(s.right_edge);
 }
 
 BinChunk BinChunk_read(BinChunkRef ref) {
