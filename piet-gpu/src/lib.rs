@@ -234,16 +234,10 @@ impl Renderer {
         let image_dev = session.create_image2d(WIDTH as u32, HEIGHT as u32, dev)?;
 
         let el_code = include_bytes!("../shader/elements.spv");
-        let el_pipeline = session.create_simple_compute_pipeline(el_code, 4, 0)?;
-        let el_ds = session.create_descriptor_set(
+        let el_pipeline = session.create_simple_compute_pipeline(el_code, 4)?;
+        let el_ds = session.create_simple_descriptor_set(
             &el_pipeline,
-            &[
-                scene_dev.vk_buffer(),
-                state_buf.vk_buffer(),
-                anno_buf.vk_buffer(),
-                pathseg_buf.vk_buffer(),
-            ],
-            &[],
+            &[&scene_dev, &state_buf, &anno_buf, &pathseg_buf],
         )?;
 
         let mut tile_alloc_buf_host = session.create_buffer(12, host)?;
@@ -254,40 +248,24 @@ impl Renderer {
         let tile_alloc_start = ((n_paths + 31) & !31) * PATH_SIZE;
         tile_alloc_buf_host.write(&[n_paths as u32, n_pathseg as u32, tile_alloc_start as u32])?;
         let tile_alloc_code = include_bytes!("../shader/tile_alloc.spv");
-        let tile_pipeline = session.create_simple_compute_pipeline(tile_alloc_code, 3, 0)?;
-        let tile_ds = session.create_descriptor_set(
+        let tile_pipeline = session.create_simple_compute_pipeline(tile_alloc_code, 3)?;
+        let tile_ds = session.create_simple_descriptor_set(
             &tile_pipeline,
-            &[
-                anno_buf.vk_buffer(),
-                tile_alloc_buf_dev.vk_buffer(),
-                tile_buf.vk_buffer(),
-            ],
-            &[],
+            &[&anno_buf, &tile_alloc_buf_dev, &tile_buf],
         )?;
 
         let path_alloc_code = include_bytes!("../shader/path_coarse.spv");
-        let path_pipeline = session.create_simple_compute_pipeline(path_alloc_code, 3, 0)?;
-        let path_ds = session.create_descriptor_set(
+        let path_pipeline = session.create_simple_compute_pipeline(path_alloc_code, 3)?;
+        let path_ds = session.create_simple_descriptor_set(
             &path_pipeline,
-            &[
-                pathseg_buf.vk_buffer(),
-                tile_alloc_buf_dev.vk_buffer(),
-                tile_buf.vk_buffer(),
-            ],
-            &[],
+            &[&pathseg_buf, &tile_alloc_buf_dev, &tile_buf],
         )?;
 
         let backdrop_alloc_code = include_bytes!("../shader/backdrop.spv");
-        let backdrop_pipeline =
-            session.create_simple_compute_pipeline(backdrop_alloc_code, 3, 0)?;
-        let backdrop_ds = session.create_descriptor_set(
+        let backdrop_pipeline = session.create_simple_compute_pipeline(backdrop_alloc_code, 3)?;
+        let backdrop_ds = session.create_simple_descriptor_set(
             &backdrop_pipeline,
-            &[
-                anno_buf.vk_buffer(),
-                tile_alloc_buf_dev.vk_buffer(),
-                tile_buf.vk_buffer(),
-            ],
-            &[],
+            &[&anno_buf, &tile_alloc_buf_dev, &tile_buf],
         )?;
 
         let mut bin_alloc_buf_host = session.create_buffer(8, host)?;
@@ -297,15 +275,10 @@ impl Renderer {
         let bin_alloc_start = ((n_paths + 255) & !255) * 8;
         bin_alloc_buf_host.write(&[n_paths as u32, bin_alloc_start as u32])?;
         let bin_code = include_bytes!("../shader/binning.spv");
-        let bin_pipeline = session.create_simple_compute_pipeline(bin_code, 3, 0)?;
-        let bin_ds = session.create_descriptor_set(
+        let bin_pipeline = session.create_simple_compute_pipeline(bin_code, 3)?;
+        let bin_ds = session.create_simple_descriptor_set(
             &bin_pipeline,
-            &[
-                anno_buf.vk_buffer(),
-                bin_alloc_buf_dev.vk_buffer(),
-                bin_buf.vk_buffer(),
-            ],
-            &[],
+            &[&anno_buf, &bin_alloc_buf_dev, &bin_buf],
         )?;
 
         let clip_scratch_buf = session.create_buffer(1024 * 1024, dev)?;
@@ -316,30 +289,29 @@ impl Renderer {
         let coarse_alloc_start = WIDTH_IN_TILES * HEIGHT_IN_TILES * PTCL_INITIAL_ALLOC;
         coarse_alloc_buf_host.write(&[n_paths as u32, coarse_alloc_start as u32])?;
         let coarse_code = include_bytes!("../shader/coarse.spv");
-        let coarse_pipeline = session.create_simple_compute_pipeline(coarse_code, 5, 0)?;
-        let coarse_ds = session.create_descriptor_set(
+        let coarse_pipeline = session.create_simple_compute_pipeline(coarse_code, 5)?;
+        let coarse_ds = session.create_simple_descriptor_set(
             &coarse_pipeline,
             &[
-                anno_buf.vk_buffer(),
-                bin_buf.vk_buffer(),
-                tile_buf.vk_buffer(),
-                coarse_alloc_buf_dev.vk_buffer(),
-                ptcl_buf.vk_buffer(),
+                &anno_buf,
+                &bin_buf,
+                &tile_buf,
+                &coarse_alloc_buf_dev,
+                &ptcl_buf,
             ],
-            &[],
         )?;
 
         let k4_code = include_bytes!("../shader/kernel4.spv");
-        let k4_pipeline = session.create_simple_compute_pipeline(k4_code, 3, 1)?;
-        let k4_ds = session.create_descriptor_set(
-            &k4_pipeline,
-            &[
-                ptcl_buf.vk_buffer(),
-                tile_buf.vk_buffer(),
-                clip_scratch_buf.vk_buffer(),
-            ],
-            &[image_dev.vk_image()],
-        )?;
+        let k4_pipeline = session
+            .pipeline_builder()
+            .add_buffers(3)
+            .add_images(1)
+            .create_compute_pipeline(&session, k4_code)?;
+        let k4_ds = session
+            .descriptor_set_builder()
+            .add_buffers(&[&ptcl_buf, &tile_buf, &clip_scratch_buf])
+            .add_images(&[&image_dev])
+            .build(&session, &k4_pipeline)?;
 
         Ok(Renderer {
             scene_buf,

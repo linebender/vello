@@ -19,7 +19,7 @@ pub enum ImageLayout {
 }
 
 pub trait Device: Sized {
-    type Buffer;
+    type Buffer: 'static;
     type Image;
     type MemFlags: MemFlags;
     type Pipeline;
@@ -28,6 +28,8 @@ pub trait Device: Sized {
     type CmdBuf: CmdBuf<Self>;
     type Fence;
     type Semaphore;
+    type PipelineBuilder: PipelineBuilder<Self>;
+    type DescriptorSetBuilder: DescriptorSetBuilder<Self>;
 
     fn create_buffer(&self, size: u64, mem_flags: Self::MemFlags) -> Result<Self::Buffer, Error>;
 
@@ -56,19 +58,48 @@ pub trait Device: Sized {
     /// Maybe doesn't need result return?
     unsafe fn destroy_image(&self, image: &Self::Image) -> Result<(), Error>;
 
+    /// Start building a pipeline.
+    ///
+    /// A pipeline is a bit of shader IR plus a signature for what kinds of resources
+    /// it expects.
+    unsafe fn pipeline_builder(&self) -> Self::PipelineBuilder;
+
+    /// Start building a descriptor set.
+    ///
+    /// A descriptor set is a binding of resources for a given pipeline.
+    unsafe fn descriptor_set_builder(&self) -> Self::DescriptorSetBuilder;
+
+    /// Create a simple compute pipeline that operates on buffers and storage images.
+    ///
+    /// This is provided as a convenience but will probably go away, as the functionality
+    /// is subsumed by the builder.
     unsafe fn create_simple_compute_pipeline(
         &self,
         code: &[u8],
         n_buffers: u32,
         n_images: u32,
-    ) -> Result<Self::Pipeline, Error>;
+    ) -> Result<Self::Pipeline, Error> {
+        let mut builder = self.pipeline_builder();
+        builder.add_buffers(n_buffers);
+        builder.add_images(n_images);
+        builder.create_compute_pipeline(self, code)
+    }
 
+    /// Create a descriptor set for a given pipeline, binding buffers and images.
+    ///
+    /// This is provided as a convenience but will probably go away, as the functionality
+    /// is subsumed by the builder.
     unsafe fn create_descriptor_set(
         &self,
         pipeline: &Self::Pipeline,
         bufs: &[&Self::Buffer],
         images: &[&Self::Image],
-    ) -> Result<Self::DescriptorSet, Error>;
+    ) -> Result<Self::DescriptorSet, Error> {
+        let mut builder = self.descriptor_set_builder();
+        builder.add_buffers(bufs);
+        builder.add_images(images);
+        builder.build(self, pipeline)
+    }
 
     fn create_cmd_buf(&self) -> Result<Self::CmdBuf, Error>;
 
@@ -173,4 +204,19 @@ pub trait MemFlags: Sized + Clone + Copy {
     fn device_local() -> Self;
 
     fn host_coherent() -> Self;
+}
+
+/// A builder for pipelines with more complex layouts.
+pub trait PipelineBuilder<D: Device> {
+    /// Add buffers to the pipeline. Each has its own binding.
+    fn add_buffers(&mut self, n_buffers: u32);
+    /// Add storage images to the pipeline. Each has its own binding.
+    fn add_images(&mut self, n_images: u32);
+    unsafe fn create_compute_pipeline(self, device: &D, code: &[u8]) -> Result<D::Pipeline, Error>;
+}
+
+pub trait DescriptorSetBuilder<D: Device> {
+    fn add_buffers(&mut self, buffers: &[&D::Buffer]);
+    fn add_images(&mut self, images: &[&D::Image]);
+    unsafe fn build(self, device: &D, pipeline: &D::Pipeline) -> Result<D::DescriptorSet, Error>;
 }

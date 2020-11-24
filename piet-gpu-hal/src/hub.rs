@@ -8,6 +8,8 @@ use std::any::Any;
 use std::sync::{Arc, Mutex, Weak};
 
 use crate::vulkan;
+use crate::DescriptorSetBuilder as DescriptorSetBuilderTrait;
+use crate::PipelineBuilder as PipelineBuilderTrait;
 use crate::{Device, Error};
 
 pub type MemFlags = <vulkan::VkDevice as Device>::MemFlags;
@@ -62,6 +64,10 @@ struct BufferInner {
     buffer: VkBuffer,
     session: Weak<SessionInner>,
 }
+
+pub struct PipelineBuilder(vulkan::PipelineBuilder);
+
+pub struct DescriptorSetBuilder(vulkan::DescriptorSetBuilder);
 
 impl Session {
     pub fn new(device: vulkan::VkDevice) -> Session {
@@ -158,31 +164,28 @@ impl Session {
         self.0.device.create_semaphore()
     }
 
-    /// This creates a pipeline that runs over the buffer.
+    /// This creates a pipeline that operates on some buffers and images.
     ///
     /// The descriptor set layout is just some number of storage buffers and storage images (this might change).
     pub unsafe fn create_simple_compute_pipeline(
         &self,
         code: &[u8],
         n_buffers: u32,
-        n_images: u32,
     ) -> Result<Pipeline, Error> {
-        self.0
-            .device
-            .create_simple_compute_pipeline(code, n_buffers, n_images)
+        self.pipeline_builder()
+            .add_buffers(n_buffers)
+            .create_compute_pipeline(self, code)
     }
 
-    /// Create a descriptor set for a simple pipeline that just references buffers and images.
-    ///
-    /// Note: when we do portability, the signature will change to not reference the Vulkan types
-    /// directly.
-    pub unsafe fn create_descriptor_set(
+    /// Create a descriptor set for a simple pipeline that just references buffers.
+    pub unsafe fn create_simple_descriptor_set<'a>(
         &self,
         pipeline: &Pipeline,
-        bufs: &[&vulkan::Buffer],
-        images: &[&vulkan::Image],
+        buffers: impl IntoRefs<'a, Buffer>,
     ) -> Result<DescriptorSet, Error> {
-        self.0.device.create_descriptor_set(pipeline, bufs, images)
+        self.descriptor_set_builder()
+            .add_buffers(buffers)
+            .build(self, pipeline)
     }
 
     /// Create a query pool for timestamp queries.
@@ -192,6 +195,14 @@ impl Session {
 
     pub unsafe fn fetch_query_pool(&self, pool: &QueryPool) -> Result<Vec<f64>, Error> {
         self.0.device.fetch_query_pool(pool)
+    }
+
+    pub unsafe fn pipeline_builder(&self) -> PipelineBuilder {
+        PipelineBuilder(self.0.device.pipeline_builder())
+    }
+
+    pub unsafe fn descriptor_set_builder(&self) -> DescriptorSetBuilder {
+        DescriptorSetBuilder(self.0.device.descriptor_set_builder())
     }
 }
 
@@ -297,5 +308,124 @@ impl Buffer {
         }
         // else session lost error?
         Ok(())
+    }
+}
+
+impl PipelineBuilder {
+    /// Add buffers to the pipeline. Each has its own binding.
+    pub fn add_buffers(mut self, n_buffers: u32) -> Self {
+        self.0.add_buffers(n_buffers);
+        self
+    }
+
+    /// Add storage images to the pipeline. Each has its own binding.
+    pub fn add_images(mut self, n_images: u32) -> Self {
+        self.0.add_images(n_images);
+        self
+    }
+
+    pub unsafe fn create_compute_pipeline(
+        self,
+        session: &Session,
+        code: &[u8],
+    ) -> Result<Pipeline, Error> {
+        self.0.create_compute_pipeline(&session.0.device, code)
+    }
+}
+
+impl DescriptorSetBuilder {
+    pub fn add_buffers<'a>(mut self, buffers: impl IntoRefs<'a, Buffer>) -> Self {
+        let vk_buffers = buffers
+            .into_refs()
+            .map(|b| b.vk_buffer())
+            .collect::<Vec<_>>();
+        self.0.add_buffers(&vk_buffers);
+        self
+    }
+
+    pub fn add_images<'a>(mut self, images: impl IntoRefs<'a, Image>) -> Self {
+        let vk_images = images.into_refs().map(|i| i.vk_image()).collect::<Vec<_>>();
+        self.0.add_images(&vk_images);
+        self
+    }
+
+    pub unsafe fn build(
+        self,
+        session: &Session,
+        pipeline: &Pipeline,
+    ) -> Result<DescriptorSet, Error> {
+        self.0.build(&session.0.device, pipeline)
+    }
+}
+
+// This lets us use either a slice or a vector. The type is clunky but it
+// seems fine enough to use.
+pub trait IntoRefs<'a, T: 'a> {
+    type Iterator: Iterator<Item = &'a T>;
+
+    fn into_refs(self) -> Self::Iterator;
+}
+
+impl<'a, T> IntoRefs<'a, T> for &'a [T] {
+    type Iterator = std::slice::Iter<'a, T>;
+    fn into_refs(self) -> Self::Iterator {
+        self.into_iter()
+    }
+}
+
+impl<'a, T> IntoRefs<'a, T> for &'a [&'a T] {
+    type Iterator = std::iter::Copied<std::slice::Iter<'a, &'a T>>;
+    fn into_refs(self) -> Self::Iterator {
+        self.into_iter().copied()
+    }
+}
+
+// TODO: this will benefit from const generics!
+impl<'a, T> IntoRefs<'a, T> for &'a [&'a T; 1] {
+    type Iterator = std::iter::Copied<std::slice::Iter<'a, &'a T>>;
+    fn into_refs(self) -> Self::Iterator {
+        self.into_iter().copied()
+    }
+}
+
+impl<'a, T> IntoRefs<'a, T> for &'a [&'a T; 2] {
+    type Iterator = std::iter::Copied<std::slice::Iter<'a, &'a T>>;
+    fn into_refs(self) -> Self::Iterator {
+        self.into_iter().copied()
+    }
+}
+
+impl<'a, T> IntoRefs<'a, T> for &'a [&'a T; 3] {
+    type Iterator = std::iter::Copied<std::slice::Iter<'a, &'a T>>;
+    fn into_refs(self) -> Self::Iterator {
+        self.into_iter().copied()
+    }
+}
+
+impl<'a, T> IntoRefs<'a, T> for &'a [&'a T; 4] {
+    type Iterator = std::iter::Copied<std::slice::Iter<'a, &'a T>>;
+    fn into_refs(self) -> Self::Iterator {
+        self.into_iter().copied()
+    }
+}
+
+impl<'a, T> IntoRefs<'a, T> for &'a [&'a T; 5] {
+    type Iterator = std::iter::Copied<std::slice::Iter<'a, &'a T>>;
+    fn into_refs(self) -> Self::Iterator {
+        self.into_iter().copied()
+    }
+}
+
+impl<'a, T> IntoRefs<'a, T> for &'a [&'a T; 6] {
+    type Iterator = std::iter::Copied<std::slice::Iter<'a, &'a T>>;
+    fn into_refs(self) -> Self::Iterator {
+        self.into_iter().copied()
+    }
+}
+
+impl<'a, T> IntoRefs<'a, T> for Vec<&'a T> {
+    type Iterator = std::vec::IntoIter<&'a T>;
+    fn into_refs(self) -> Self::Iterator {
+        self.into_iter()
     }
 }
