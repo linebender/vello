@@ -22,12 +22,38 @@ layout(set = 0, binding = 1) buffer TileBuf {
     uint[] tile;
 };
 
-layout(rgba8, set = 0, binding = 2) uniform writeonly image2D image;
+layout(set = 0, binding = 2) buffer ClipScratchBuf {
+    uint[] clip_scratch;
+};
+
+layout(rgba8, set = 0, binding = 3) uniform writeonly image2D image;
 
 #include "ptcl.h"
 #include "tile.h"
 
 #define BLEND_STACK_SIZE 4
+
+// Layout of clip_scratch buffer:
+// [0] is the alloc bump offset (in units of 32 bit words, initially 0)
+// Starting at 1 is a sequence of frames.
+// Each frame is WIDTH * HEIGHT 32-bit words, then a link reference.
+
+#define CLIP_LINK_OFFSET (TILE_WIDTH_PX * TILE_HEIGHT_PX)
+#define CLIP_BUF_SIZE (CLIP_LINK_OFFSET + 1)
+
+shared uint sh_clip_alloc;
+
+// Allocate a scratch buffer for clipping. Unlike offsets in the rest of the code,
+// it counts 32-bit words.
+uint alloc_clip_buf(uint link) {
+    if (gl_LocalInvocationID.x == 0 && gl_LocalInvocationID.y == 0) {
+        uint alloc = atomicAdd(clip_scratch[0], CLIP_BUF_SIZE) + 1;
+        sh_clip_alloc = alloc;
+        clip_scratch[alloc + CLIP_LINK_OFFSET] = link;
+    }
+    barrier();
+    return sh_clip_alloc;
+}
 
 // Calculate coverage based on backdrop + coverage of each line segment
 float[CHUNK] computeArea(vec2 xy, int backdrop, uint tile_ref) {
@@ -72,7 +98,9 @@ void main() {
     vec3 rgb[CHUNK];
     float mask[CHUNK];
     uint blend_stack[BLEND_STACK_SIZE][CHUNK];
+    uint blend_spill = 0;
     uint blend_sp = 0;
+    uint clip_tos = 0;
     for (uint i = 0; i < CHUNK; i++) {
         rgb[i] = vec3(0.5);
         mask[i] = 1.0;
@@ -142,26 +170,46 @@ void main() {
             }
             break;
         case Cmd_BeginClip:
-            CmdBeginClip begin_clip = Cmd_BeginClip_read(cmd_ref);
-            area = computeArea(xy, begin_clip.backdrop, begin_clip.tile_ref);
-            for (uint k = 0; k < CHUNK; k++) {
-                blend_stack[blend_sp][k] = packUnorm4x8(vec4(rgb[k], clamp(abs(area[k]), 0.0, 1.0)));
-            }
-            blend_sp++;
-            break;
         case Cmd_BeginSolidClip:
-            CmdBeginSolidClip begin_solid_clip = Cmd_BeginSolidClip_read(cmd_ref);
-            float solid_alpha = begin_solid_clip.alpha;
-            for (uint k = 0; k < CHUNK; k++) {
-                blend_stack[blend_sp][k] = packUnorm4x8(vec4(rgb[k], solid_alpha));
+            uint blend_slot = blend_sp % BLEND_STACK_SIZE;
+            if (blend_sp == blend_spill + BLEND_STACK_SIZE) {
+                // spill to scratch buffer
+                clip_tos = alloc_clip_buf(clip_tos);
+                uint base_ix = clip_tos + gl_LocalInvocationID.x + TILE_WIDTH_PX * gl_LocalInvocationID.y;
+                for (uint k = 0; k < CHUNK; k++) {
+                    clip_scratch[base_ix + k * TILE_WIDTH_PX * CHUNK_DY] = blend_stack[blend_slot][k];
+                }
+                blend_spill++;
+            }
+            if (tag == Cmd_BeginClip) {
+                CmdBeginClip begin_clip = Cmd_BeginClip_read(cmd_ref);
+                area = computeArea(xy, begin_clip.backdrop, begin_clip.tile_ref);
+                for (uint k = 0; k < CHUNK; k++) {
+                    blend_stack[blend_slot][k] = packUnorm4x8(vec4(rgb[k], clamp(abs(area[k]), 0.0, 1.0)));
+                }
+            } else {
+                CmdBeginSolidClip begin_solid_clip = Cmd_BeginSolidClip_read(cmd_ref);
+                float solid_alpha = begin_solid_clip.alpha;
+                for (uint k = 0; k < CHUNK; k++) {
+                    blend_stack[blend_slot][k] = packUnorm4x8(vec4(rgb[k], solid_alpha));
+                }                
             }
             blend_sp++;
             break;
         case Cmd_EndClip:
             CmdEndClip end_clip = Cmd_EndClip_read(cmd_ref);
+            blend_slot = (blend_sp - 1) % BLEND_STACK_SIZE;
+            if (blend_sp == blend_spill) {
+                uint base_ix = clip_tos + gl_LocalInvocationID.x + TILE_WIDTH_PX * gl_LocalInvocationID.y;
+                for (uint k = 0; k < CHUNK; k++) {
+                    blend_stack[blend_slot][k] = clip_scratch[base_ix + k * TILE_WIDTH_PX * CHUNK_DY];
+                }
+                clip_tos = clip_scratch[clip_tos + CLIP_LINK_OFFSET];
+                blend_spill--;
+            }
             blend_sp--;
             for (uint k = 0; k < CHUNK; k++) {
-                vec4 rgba = unpackUnorm4x8(blend_stack[blend_sp][k]);
+                vec4 rgba = unpackUnorm4x8(blend_stack[blend_slot][k]);
                 rgb[k] = mix(rgba.rgb, rgb[k], end_clip.alpha * rgba.a);
             }
             break;

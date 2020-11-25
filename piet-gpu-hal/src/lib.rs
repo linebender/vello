@@ -148,7 +148,7 @@ pub trait CmdBuf<D: Device> {
     /// This is readily supported in Vulkan, but for portability it is remarkably
     /// tricky (unimplemented in gfx-hal right now). Possibly best to write a compute
     /// kernel, or organize the code not to need it.
-    unsafe fn clear_buffer(&self, buffer: &D::Buffer);
+    unsafe fn clear_buffer(&self, buffer: &D::Buffer, size: Option<u64>);
 
     unsafe fn copy_buffer(&self, src: &D::Buffer, dst: &D::Buffer);
 
