@@ -10,13 +10,14 @@ use std::sync::{Arc, Mutex, Weak};
 use crate::vulkan;
 use crate::DescriptorSetBuilder as DescriptorSetBuilderTrait;
 use crate::PipelineBuilder as PipelineBuilderTrait;
-use crate::{Device, Error};
+use crate::{Device, Error, SamplerParams};
 
 pub type MemFlags = <vulkan::VkDevice as Device>::MemFlags;
 pub type Semaphore = <vulkan::VkDevice as Device>::Semaphore;
 pub type Pipeline = <vulkan::VkDevice as Device>::Pipeline;
 pub type DescriptorSet = <vulkan::VkDevice as Device>::DescriptorSet;
 pub type QueryPool = <vulkan::VkDevice as Device>::QueryPool;
+pub type Sampler = <vulkan::VkDevice as Device>::Sampler;
 
 type Fence = <vulkan::VkDevice as Device>::Fence;
 
@@ -204,6 +205,10 @@ impl Session {
     pub unsafe fn descriptor_set_builder(&self) -> DescriptorSetBuilder {
         DescriptorSetBuilder(self.0.device.descriptor_set_builder())
     }
+
+    pub unsafe fn create_sampler(&self, params: SamplerParams) -> Result<Sampler, Error> {
+        self.0.device.create_sampler(params)
+    }
 }
 
 impl CmdBuf {
@@ -355,9 +360,9 @@ impl DescriptorSetBuilder {
         self
     }
 
-    pub fn add_textures<'a>(mut self, images: impl IntoRefs<'a, Image>) -> Self {
+    pub fn add_textures<'a>(mut self, images: impl IntoRefs<'a, Image>, sampler: &Sampler) -> Self {
         let vk_images = images.into_refs().map(|i| i.vk_image()).collect::<Vec<_>>();
-        self.0.add_textures(&vk_images);
+        self.0.add_textures(&vk_images, sampler);
         self
     }
 

@@ -9,7 +9,7 @@ use ash::version::{DeviceV1_0, EntryV1_0, InstanceV1_0};
 use ash::{vk, Device, Entry, Instance};
 use once_cell::sync::Lazy;
 
-use crate::{Device as DeviceTrait, Error, ImageLayout};
+use crate::{Device as DeviceTrait, Error, ImageLayout, SamplerParams};
 
 pub struct VkInstance {
     /// Retain the dynamic lib.
@@ -101,6 +101,7 @@ pub struct DescriptorSetBuilder {
     buffers: Vec<vk::Buffer>,
     images: Vec<vk::ImageView>,
     textures: Vec<vk::ImageView>,
+    sampler: vk::Sampler,
 }
 
 unsafe extern "system" fn vulkan_debug_callback(
@@ -401,6 +402,7 @@ impl crate::Device for VkDevice {
     type Semaphore = vk::Semaphore;
     type PipelineBuilder = PipelineBuilder;
     type DescriptorSetBuilder = DescriptorSetBuilder;
+    type Sampler = vk::Sampler;
 
     fn create_buffer(&self, size: u64, mem_flags: MemFlags) -> Result<Buffer, Error> {
         unsafe {
@@ -461,7 +463,8 @@ impl crate::Device for VkDevice {
         // want to add sampling for images and so on.
         let usage = vk::ImageUsageFlags::STORAGE
             | vk::ImageUsageFlags::TRANSFER_SRC
-            | vk::ImageUsageFlags::TRANSFER_DST;
+            | vk::ImageUsageFlags::TRANSFER_DST
+            | vk::ImageUsageFlags::SAMPLED;
         let image = device.create_image(
             &vk::ImageCreateInfo::builder()
                 .image_type(vk::ImageType::TYPE_2D)
@@ -566,6 +569,7 @@ impl crate::Device for VkDevice {
             buffers: Vec::new(),
             images: Vec::new(),
             textures: Vec::new(),
+            sampler: vk::Sampler::null(),
         }
     }
 
@@ -691,6 +695,30 @@ impl crate::Device for VkDevice {
         std::ptr::copy_nonoverlapping(contents.as_ptr(), buf as *mut T, contents.len());
         device.unmap_memory(buffer.buffer_memory);
         Ok(())
+    }
+
+    unsafe fn create_sampler(&self, params: SamplerParams) -> Result<Self::Sampler, Error> {
+        let device = &self.device.device;
+        let filter = match params {
+            SamplerParams::Linear => vk::Filter::LINEAR,
+            SamplerParams::Nearest => vk::Filter::NEAREST,
+        };
+        let sampler = device.create_sampler(&vk::SamplerCreateInfo::builder()
+            .mag_filter(filter)
+            .min_filter(filter)
+            .mipmap_mode(vk::SamplerMipmapMode::LINEAR)
+            .address_mode_u(vk::SamplerAddressMode::CLAMP_TO_BORDER)
+            .address_mode_v(vk::SamplerAddressMode::CLAMP_TO_BORDER)
+            .address_mode_w(vk::SamplerAddressMode::CLAMP_TO_BORDER)
+            .mip_lod_bias(0.0)
+            .compare_op(vk::CompareOp::NEVER)
+            .min_lod(0.0)
+            .max_lod(0.0)
+            .border_color(vk::BorderColor::FLOAT_TRANSPARENT_BLACK)
+            .max_anisotropy(1.0)
+            .anisotropy_enable(false)
+        , None)?;
+        Ok(sampler)
     }
 }
 
@@ -967,7 +995,7 @@ impl crate::PipelineBuilder<VkDevice> for PipelineBuilder {
             vk::DescriptorSetLayoutBinding::builder()
                 .binding(start)
                 // TODO: we do want these to be sampled images
-                .descriptor_type(vk::DescriptorType::STORAGE_IMAGE)
+                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
                 .descriptor_count(max_textures)
                 .stage_flags(vk::ShaderStageFlags::COMPUTE)
                 .build(),
@@ -1040,8 +1068,9 @@ impl crate::DescriptorSetBuilder<VkDevice> for DescriptorSetBuilder {
         self.images.extend(images.iter().map(|i| i.image_view));
     }
 
-    fn add_textures(&mut self, images: &[&Image]) {
+    fn add_textures(&mut self, images: &[&Image], sampler: &vk::Sampler) {
         self.textures.extend(images.iter().map(|i| i.image_view));
+        self.sampler = *sampler;
     }
 
     unsafe fn build(self, device: &VkDevice, pipeline: &Pipeline) -> Result<DescriptorSet, Error> {
@@ -1055,12 +1084,19 @@ impl crate::DescriptorSetBuilder<VkDevice> for DescriptorSetBuilder {
                     .build(),
             );
         }
-        let n_images_total = self.images.len() + pipeline.max_textures as usize;
-        if n_images_total > 0 {
+        if !self.images.is_empty() {
             descriptor_pool_sizes.push(
                 vk::DescriptorPoolSize::builder()
                     .ty(vk::DescriptorType::STORAGE_IMAGE)
-                    .descriptor_count(n_images_total as u32)
+                    .descriptor_count(self.images.len() as u32)
+                    .build(),
+            );
+        }
+        if pipeline.max_textures > 0 {
+            descriptor_pool_sizes.push(
+                vk::DescriptorPoolSize::builder()
+                    .ty(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                    .descriptor_count(pipeline.max_textures)
                     .build(),
             );
         }
@@ -1118,9 +1154,9 @@ impl crate::DescriptorSetBuilder<VkDevice> for DescriptorSetBuilder {
                 .iter()
                 .map(|texture| {
                     vk::DescriptorImageInfo::builder()
-                        .sampler(vk::Sampler::null())
+                        .sampler(self.sampler)
                         .image_view(*texture)
-                        .image_layout(vk::ImageLayout::GENERAL)
+                        .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
                         .build()
                 })
                 .collect::<Vec<_>>();
@@ -1128,7 +1164,7 @@ impl crate::DescriptorSetBuilder<VkDevice> for DescriptorSetBuilder {
                 &[vk::WriteDescriptorSet::builder()
                     .dst_set(descriptor_sets[0])
                     .dst_binding(binding)
-                    .descriptor_type(vk::DescriptorType::STORAGE_IMAGE)
+                    .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
                     .image_info(&infos)
                     .build()],
                 &[],
@@ -1245,5 +1281,6 @@ fn map_image_layout(layout: ImageLayout) -> vk::ImageLayout {
         ImageLayout::BlitSrc => vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
         ImageLayout::BlitDst => vk::ImageLayout::TRANSFER_DST_OPTIMAL,
         ImageLayout::General => vk::ImageLayout::GENERAL,
+        ImageLayout::ShaderRead => vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
     }
 }

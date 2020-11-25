@@ -29,7 +29,7 @@ layout(set = 0, binding = 2) buffer ClipScratchBuf {
 
 layout(rgba8, set = 0, binding = 3) uniform writeonly image2D image;
 
-layout(rgba8, set = 0, binding = 4) uniform readonly image2D textures[];
+layout(set = 0, binding = 4) uniform sampler2D textures[];
 
 #include "ptcl.h"
 #include "tile.h"
@@ -106,8 +106,8 @@ void main() {
     uint clip_tos = 0;
     for (uint i = 0; i < CHUNK; i++) {
         rgb[i] = vec3(0.5);
-        if (xy_uint.x < 256 && xy_uint.y < 256) {
-            rgb[i] = imageLoad(textures[gl_WorkGroupID.x / 16], ivec2(xy_uint.x, xy_uint.y + CHUNK_DY * i)).rgb;
+        if (xy_uint.x < 1024 && xy_uint.y < 1024) {
+            rgb[i] = texture(textures[gl_WorkGroupID.x / 64], vec2(xy_uint.x, xy_uint.y + CHUNK_DY * i) / 1024.0).rgb;
         }
         mask[i] = 1.0;
     }

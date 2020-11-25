@@ -16,6 +16,17 @@ pub enum ImageLayout {
     BlitSrc,
     BlitDst,
     General,
+    ShaderRead,
+}
+
+/// The type of sampling for image lookup.
+///
+/// This could take a lot more params, such as filtering, repeat, behavior
+/// at edges, etc., but for now we'll keep it simple.
+#[derive(Copy, Clone, Debug)]
+pub enum SamplerParams {
+    Nearest,
+    Linear,
 }
 
 pub trait Device: Sized {
@@ -30,6 +41,7 @@ pub trait Device: Sized {
     type Semaphore;
     type PipelineBuilder: PipelineBuilder<Self>;
     type DescriptorSetBuilder: DescriptorSetBuilder<Self>;
+    type Sampler;
 
     fn create_buffer(&self, size: u64, mem_flags: Self::MemFlags) -> Result<Self::Buffer, Error>;
 
@@ -138,6 +150,8 @@ pub trait Device: Sized {
     unsafe fn create_fence(&self, signaled: bool) -> Result<Self::Fence, Error>;
     unsafe fn wait_and_reset(&self, fences: &[Self::Fence]) -> Result<(), Error>;
     unsafe fn get_fence_status(&self, fence: Self::Fence) -> Result<bool, Error>;
+
+    unsafe fn create_sampler(&self, params: SamplerParams) -> Result<Self::Sampler, Error>;
 }
 
 pub trait CmdBuf<D: Device> {
@@ -223,7 +237,16 @@ pub trait PipelineBuilder<D: Device> {
 /// be buffers, then images, then textures.
 pub trait DescriptorSetBuilder<D: Device> {
     fn add_buffers(&mut self, buffers: &[&D::Buffer]);
+    /// Add an array of storage images.
+    ///
+    /// The images need to be in `ImageLayout::General` layout.
     fn add_images(&mut self, images: &[&D::Image]);
-    fn add_textures(&mut self, images: &[&D::Image]);
+    /// Add an array of textures.
+    ///
+    /// The images need to be in `ImageLayout::ShaderRead` layout.
+    ///
+    /// The same sampler is used for all textures, which is not very sophisticated;
+    /// we should have a way to vary the sampler.
+    fn add_textures(&mut self, images: &[&D::Image], sampler: &D::Sampler);
     unsafe fn build(self, device: &D, pipeline: &D::Pipeline) -> Result<D::DescriptorSet, Error>;
 }
