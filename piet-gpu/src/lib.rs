@@ -99,9 +99,11 @@ fn render_cardioid(rc: &mut impl RenderContext) {
 fn render_clip_test(rc: &mut impl RenderContext) {
     const N: usize = 16;
     const X0: f64 = 50.0;
-    const Y0: f64 = 50.0;
-    const X1: f64 = 100.0;
-    const Y1: f64 = 100.0;
+    const Y0: f64 = 450.0;
+    // Note: if it gets much larger, it will exceed the 1MB scratch buffer.
+    // But this is a pretty demanding test.
+    const X1: f64 = 550.0;
+    const Y1: f64 = 950.0;
     let step = 1.0 / ((N + 1) as f64);
     for i in 0..N {
         let t = ((i + 1) as f64) * step;
