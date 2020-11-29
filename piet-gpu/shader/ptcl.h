@@ -48,14 +48,6 @@ struct CmdRef {
     uint offset;
 };
 
-struct SegmentRef {
-    uint offset;
-};
-
-struct SegChunkRef {
-    uint offset;
-};
-
 struct CmdCircle {
     vec2 center;
     float radius;
@@ -193,30 +185,6 @@ CmdJumpRef CmdJump_index(CmdJumpRef ref, uint index) {
 
 CmdRef Cmd_index(CmdRef ref, uint index) {
     return CmdRef(ref.offset + index * Cmd_size);
-}
-
-struct Segment {
-    vec2 start;
-    vec2 end;
-    float y_edge;
-};
-
-#define Segment_size 20
-
-SegmentRef Segment_index(SegmentRef ref, uint index) {
-    return SegmentRef(ref.offset + index * Segment_size);
-}
-
-struct SegChunk {
-    uint n;
-    SegChunkRef next;
-    SegmentRef segs;
-};
-
-#define SegChunk_size 12
-
-SegChunkRef SegChunk_index(SegChunkRef ref, uint index) {
-    return SegChunkRef(ref.offset + index * SegChunk_size);
 }
 
 CmdCircle CmdCircle_read(CmdCircleRef ref) {
@@ -512,47 +480,5 @@ void Cmd_SolidMask_write(CmdRef ref, CmdSolidMask s) {
 void Cmd_Jump_write(CmdRef ref, CmdJump s) {
     ptcl[ref.offset >> 2] = Cmd_Jump;
     CmdJump_write(CmdJumpRef(ref.offset + 4), s);
-}
-
-Segment Segment_read(SegmentRef ref) {
-    uint ix = ref.offset >> 2;
-    uint raw0 = ptcl[ix + 0];
-    uint raw1 = ptcl[ix + 1];
-    uint raw2 = ptcl[ix + 2];
-    uint raw3 = ptcl[ix + 3];
-    uint raw4 = ptcl[ix + 4];
-    Segment s;
-    s.start = vec2(uintBitsToFloat(raw0), uintBitsToFloat(raw1));
-    s.end = vec2(uintBitsToFloat(raw2), uintBitsToFloat(raw3));
-    s.y_edge = uintBitsToFloat(raw4);
-    return s;
-}
-
-void Segment_write(SegmentRef ref, Segment s) {
-    uint ix = ref.offset >> 2;
-    ptcl[ix + 0] = floatBitsToUint(s.start.x);
-    ptcl[ix + 1] = floatBitsToUint(s.start.y);
-    ptcl[ix + 2] = floatBitsToUint(s.end.x);
-    ptcl[ix + 3] = floatBitsToUint(s.end.y);
-    ptcl[ix + 4] = floatBitsToUint(s.y_edge);
-}
-
-SegChunk SegChunk_read(SegChunkRef ref) {
-    uint ix = ref.offset >> 2;
-    uint raw0 = ptcl[ix + 0];
-    uint raw1 = ptcl[ix + 1];
-    uint raw2 = ptcl[ix + 2];
-    SegChunk s;
-    s.n = raw0;
-    s.next = SegChunkRef(raw1);
-    s.segs = SegmentRef(raw2);
-    return s;
-}
-
-void SegChunk_write(SegChunkRef ref, SegChunk s) {
-    uint ix = ref.offset >> 2;
-    ptcl[ix + 0] = s.n;
-    ptcl[ix + 1] = s.next.offset;
-    ptcl[ix + 2] = s.segs.offset;
 }
 
