@@ -155,20 +155,6 @@ void main() {
                 rgb[k] = mix(rgb[k], fg_rgba.rgb, mask[k] * area[k] * fg_rgba.a);
             }
             break;
-        case Cmd_FillMask:
-            CmdFillMask fill_mask = Cmd_FillMask_read(cmd_ref);
-            area = computeArea(xy, fill_mask.backdrop, fill_mask.tile_ref);
-            for (uint k = 0; k < CHUNK; k++) {
-                mask[k] = mix(mask[k], fill_mask.mask, area[k]);
-            }
-            break;
-        case Cmd_FillMaskInv:
-            fill_mask = Cmd_FillMask_read(cmd_ref);
-            area = computeArea(xy, fill_mask.backdrop, fill_mask.tile_ref);
-            for (uint k = 0; k < CHUNK; k++) {
-                mask[k] = mix(mask[k], fill_mask.mask, 1.0 - area[k]);
-            }
-            break;
         case Cmd_BeginClip:
         case Cmd_BeginSolidClip:
             uint blend_slot = blend_sp % BLEND_STACK_SIZE;

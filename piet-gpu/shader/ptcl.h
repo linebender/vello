@@ -16,10 +16,6 @@ struct CmdFillRef {
     uint offset;
 };
 
-struct CmdFillMaskRef {
-    uint offset;
-};
-
 struct CmdBeginClipRef {
     uint offset;
 };
@@ -95,18 +91,6 @@ CmdFillRef CmdFill_index(CmdFillRef ref, uint index) {
     return CmdFillRef(ref.offset + index * CmdFill_size);
 }
 
-struct CmdFillMask {
-    uint tile_ref;
-    int backdrop;
-    float mask;
-};
-
-#define CmdFillMask_size 12
-
-CmdFillMaskRef CmdFillMask_index(CmdFillMaskRef ref, uint index) {
-    return CmdFillMaskRef(ref.offset + index * CmdFillMask_size);
-}
-
 struct CmdBeginClip {
     uint tile_ref;
     int backdrop;
@@ -172,15 +156,13 @@ CmdJumpRef CmdJump_index(CmdJumpRef ref, uint index) {
 #define Cmd_Circle 1
 #define Cmd_Line 2
 #define Cmd_Fill 3
-#define Cmd_FillMask 4
-#define Cmd_FillMaskInv 5
-#define Cmd_BeginClip 6
-#define Cmd_BeginSolidClip 7
-#define Cmd_EndClip 8
-#define Cmd_Stroke 9
-#define Cmd_Solid 10
-#define Cmd_SolidMask 11
-#define Cmd_Jump 12
+#define Cmd_BeginClip 4
+#define Cmd_BeginSolidClip 5
+#define Cmd_EndClip 6
+#define Cmd_Stroke 7
+#define Cmd_Solid 8
+#define Cmd_SolidMask 9
+#define Cmd_Jump 10
 #define Cmd_size 20
 
 CmdRef Cmd_index(CmdRef ref, uint index) {
@@ -264,25 +246,6 @@ void CmdFill_write(CmdFillRef ref, CmdFill s) {
     ptcl[ix + 0] = s.tile_ref;
     ptcl[ix + 1] = uint(s.backdrop);
     ptcl[ix + 2] = s.rgba_color;
-}
-
-CmdFillMask CmdFillMask_read(CmdFillMaskRef ref) {
-    uint ix = ref.offset >> 2;
-    uint raw0 = ptcl[ix + 0];
-    uint raw1 = ptcl[ix + 1];
-    uint raw2 = ptcl[ix + 2];
-    CmdFillMask s;
-    s.tile_ref = raw0;
-    s.backdrop = int(raw1);
-    s.mask = uintBitsToFloat(raw2);
-    return s;
-}
-
-void CmdFillMask_write(CmdFillMaskRef ref, CmdFillMask s) {
-    uint ix = ref.offset >> 2;
-    ptcl[ix + 0] = s.tile_ref;
-    ptcl[ix + 1] = uint(s.backdrop);
-    ptcl[ix + 2] = floatBitsToUint(s.mask);
 }
 
 CmdBeginClip CmdBeginClip_read(CmdBeginClipRef ref) {
@@ -382,14 +345,6 @@ CmdFill Cmd_Fill_read(CmdRef ref) {
     return CmdFill_read(CmdFillRef(ref.offset + 4));
 }
 
-CmdFillMask Cmd_FillMask_read(CmdRef ref) {
-    return CmdFillMask_read(CmdFillMaskRef(ref.offset + 4));
-}
-
-CmdFillMask Cmd_FillMaskInv_read(CmdRef ref) {
-    return CmdFillMask_read(CmdFillMaskRef(ref.offset + 4));
-}
-
 CmdBeginClip Cmd_BeginClip_read(CmdRef ref) {
     return CmdBeginClip_read(CmdBeginClipRef(ref.offset + 4));
 }
@@ -435,16 +390,6 @@ void Cmd_Line_write(CmdRef ref, CmdLine s) {
 void Cmd_Fill_write(CmdRef ref, CmdFill s) {
     ptcl[ref.offset >> 2] = Cmd_Fill;
     CmdFill_write(CmdFillRef(ref.offset + 4), s);
-}
-
-void Cmd_FillMask_write(CmdRef ref, CmdFillMask s) {
-    ptcl[ref.offset >> 2] = Cmd_FillMask;
-    CmdFillMask_write(CmdFillMaskRef(ref.offset + 4), s);
-}
-
-void Cmd_FillMaskInv_write(CmdRef ref, CmdFillMask s) {
-    ptcl[ref.offset >> 2] = Cmd_FillMaskInv;
-    CmdFillMask_write(CmdFillMaskRef(ref.offset + 4), s);
 }
 
 void Cmd_BeginClip_write(CmdRef ref, CmdBeginClip s) {

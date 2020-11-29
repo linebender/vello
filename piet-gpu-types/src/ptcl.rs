@@ -25,11 +25,6 @@ piet_gpu! {
             backdrop: i32,
             rgba_color: u32,
         }
-        struct CmdFillMask {
-            tile_ref: u32,
-            backdrop: i32,
-            mask: f32,
-        }
         struct CmdBeginClip {
             tile_ref: u32,
             backdrop: i32,
@@ -57,8 +52,6 @@ piet_gpu! {
             Circle(CmdCircle),
             Line(CmdLine),
             Fill(CmdFill),
-            FillMask(CmdFillMask),
-            FillMaskInv(CmdFillMask),
             BeginClip(CmdBeginClip),
             BeginSolidClip(CmdBeginSolidClip),
             EndClip(CmdEndClip),

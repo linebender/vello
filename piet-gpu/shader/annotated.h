@@ -4,10 +4,6 @@ struct AnnoFillRef {
     uint offset;
 };
 
-struct AnnoFillMaskRef {
-    uint offset;
-};
-
 struct AnnoStrokeRef {
     uint offset;
 };
@@ -29,17 +25,6 @@ struct AnnoFill {
 
 AnnoFillRef AnnoFill_index(AnnoFillRef ref, uint index) {
     return AnnoFillRef(ref.offset + index * AnnoFill_size);
-}
-
-struct AnnoFillMask {
-    vec4 bbox;
-    float mask;
-};
-
-#define AnnoFillMask_size 20
-
-AnnoFillMaskRef AnnoFillMask_index(AnnoFillMaskRef ref, uint index) {
-    return AnnoFillMaskRef(ref.offset + index * AnnoFillMask_size);
 }
 
 struct AnnoStroke {
@@ -67,10 +52,8 @@ AnnoClipRef AnnoClip_index(AnnoClipRef ref, uint index) {
 #define Annotated_Nop 0
 #define Annotated_Stroke 1
 #define Annotated_Fill 2
-#define Annotated_FillMask 3
-#define Annotated_FillMaskInv 4
-#define Annotated_BeginClip 5
-#define Annotated_EndClip 6
+#define Annotated_BeginClip 3
+#define Annotated_EndClip 4
 #define Annotated_size 28
 
 AnnotatedRef Annotated_index(AnnotatedRef ref, uint index) {
@@ -97,28 +80,6 @@ void AnnoFill_write(AnnoFillRef ref, AnnoFill s) {
     annotated[ix + 2] = floatBitsToUint(s.bbox.z);
     annotated[ix + 3] = floatBitsToUint(s.bbox.w);
     annotated[ix + 4] = s.rgba_color;
-}
-
-AnnoFillMask AnnoFillMask_read(AnnoFillMaskRef ref) {
-    uint ix = ref.offset >> 2;
-    uint raw0 = annotated[ix + 0];
-    uint raw1 = annotated[ix + 1];
-    uint raw2 = annotated[ix + 2];
-    uint raw3 = annotated[ix + 3];
-    uint raw4 = annotated[ix + 4];
-    AnnoFillMask s;
-    s.bbox = vec4(uintBitsToFloat(raw0), uintBitsToFloat(raw1), uintBitsToFloat(raw2), uintBitsToFloat(raw3));
-    s.mask = uintBitsToFloat(raw4);
-    return s;
-}
-
-void AnnoFillMask_write(AnnoFillMaskRef ref, AnnoFillMask s) {
-    uint ix = ref.offset >> 2;
-    annotated[ix + 0] = floatBitsToUint(s.bbox.x);
-    annotated[ix + 1] = floatBitsToUint(s.bbox.y);
-    annotated[ix + 2] = floatBitsToUint(s.bbox.z);
-    annotated[ix + 3] = floatBitsToUint(s.bbox.w);
-    annotated[ix + 4] = floatBitsToUint(s.mask);
 }
 
 AnnoStroke AnnoStroke_read(AnnoStrokeRef ref) {
@@ -177,14 +138,6 @@ AnnoFill Annotated_Fill_read(AnnotatedRef ref) {
     return AnnoFill_read(AnnoFillRef(ref.offset + 4));
 }
 
-AnnoFillMask Annotated_FillMask_read(AnnotatedRef ref) {
-    return AnnoFillMask_read(AnnoFillMaskRef(ref.offset + 4));
-}
-
-AnnoFillMask Annotated_FillMaskInv_read(AnnotatedRef ref) {
-    return AnnoFillMask_read(AnnoFillMaskRef(ref.offset + 4));
-}
-
 AnnoClip Annotated_BeginClip_read(AnnotatedRef ref) {
     return AnnoClip_read(AnnoClipRef(ref.offset + 4));
 }
@@ -205,16 +158,6 @@ void Annotated_Stroke_write(AnnotatedRef ref, AnnoStroke s) {
 void Annotated_Fill_write(AnnotatedRef ref, AnnoFill s) {
     annotated[ref.offset >> 2] = Annotated_Fill;
     AnnoFill_write(AnnoFillRef(ref.offset + 4), s);
-}
-
-void Annotated_FillMask_write(AnnotatedRef ref, AnnoFillMask s) {
-    annotated[ref.offset >> 2] = Annotated_FillMask;
-    AnnoFillMask_write(AnnoFillMaskRef(ref.offset + 4), s);
-}
-
-void Annotated_FillMaskInv_write(AnnotatedRef ref, AnnoFillMask s) {
-    annotated[ref.offset >> 2] = Annotated_FillMaskInv;
-    AnnoFillMask_write(AnnoFillMaskRef(ref.offset + 4), s);
 }
 
 void Annotated_BeginClip_write(AnnotatedRef ref, AnnoClip s) {
