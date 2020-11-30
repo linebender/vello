@@ -25,11 +25,6 @@ piet_gpu! {
             backdrop: i32,
             rgba_color: u32,
         }
-        struct CmdFillMask {
-            tile_ref: u32,
-            backdrop: i32,
-            mask: f32,
-        }
         struct CmdBeginClip {
             tile_ref: u32,
             backdrop: i32,
@@ -57,8 +52,6 @@ piet_gpu! {
             Circle(CmdCircle),
             Line(CmdLine),
             Fill(CmdFill),
-            FillMask(CmdFillMask),
-            FillMaskInv(CmdFillMask),
             BeginClip(CmdBeginClip),
             BeginSolidClip(CmdBeginSolidClip),
             EndClip(CmdEndClip),
@@ -66,25 +59,6 @@ piet_gpu! {
             Solid(CmdSolid),
             SolidMask(CmdSolidMask),
             Jump(CmdJump),
-        }
-
-        // TODO: strongly consider using f16. If so, these would be
-        // relative to the tile. We're doing f32 for now to minimize
-        // divergence from piet-metal originals.
-        struct Segment {
-            start: [f32; 2],
-            end: [f32; 2],
-
-            // This is used for fills only, but we're including it in
-            // the general structure for simplicity.
-            y_edge: f32,
-        }
-
-        struct SegChunk {
-            n: u32,
-            next: Ref<SegChunk>,
-            // Actually a reference to a variable-sized slice.
-            segs: Ref<Segment>,
         }
     }
 }
