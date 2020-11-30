@@ -25,9 +25,6 @@ piet_gpu! {
         struct Fill {
             rgba_color: u32,
         }
-        struct FillMask {
-            mask: f32,
-        }
         struct Stroke {
             rgba_color: u32,
         }
@@ -59,8 +56,6 @@ piet_gpu! {
             Fill(Fill),
             SetLineWidth(SetLineWidth),
             Transform(Transform),
-            FillMask(FillMask),
-            FillMaskInv(FillMask),
             BeginClip(Clip),
             EndClip(Clip),
         }

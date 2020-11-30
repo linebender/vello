@@ -16,10 +16,6 @@ struct FillRef {
     uint offset;
 };
 
-struct FillMaskRef {
-    uint offset;
-};
-
 struct StrokeRef {
     uint offset;
 };
@@ -86,16 +82,6 @@ FillRef Fill_index(FillRef ref, uint index) {
     return FillRef(ref.offset + index * Fill_size);
 }
 
-struct FillMask {
-    float mask;
-};
-
-#define FillMask_size 4
-
-FillMaskRef FillMask_index(FillMaskRef ref, uint index) {
-    return FillMaskRef(ref.offset + index * FillMask_size);
-}
-
 struct Stroke {
     uint rgba_color;
 };
@@ -148,10 +134,8 @@ ClipRef Clip_index(ClipRef ref, uint index) {
 #define Element_Fill 8
 #define Element_SetLineWidth 9
 #define Element_Transform 10
-#define Element_FillMask 11
-#define Element_FillMaskInv 12
-#define Element_BeginClip 13
-#define Element_EndClip 14
+#define Element_BeginClip 11
+#define Element_EndClip 12
 #define Element_size 36
 
 ElementRef Element_index(ElementRef ref, uint index) {
@@ -208,14 +192,6 @@ Fill Fill_read(FillRef ref) {
     uint raw0 = scene[ix + 0];
     Fill s;
     s.rgba_color = raw0;
-    return s;
-}
-
-FillMask FillMask_read(FillMaskRef ref) {
-    uint ix = ref.offset >> 2;
-    uint raw0 = scene[ix + 0];
-    FillMask s;
-    s.mask = uintBitsToFloat(raw0);
     return s;
 }
 
@@ -302,14 +278,6 @@ SetLineWidth Element_SetLineWidth_read(ElementRef ref) {
 
 Transform Element_Transform_read(ElementRef ref) {
     return Transform_read(TransformRef(ref.offset + 4));
-}
-
-FillMask Element_FillMask_read(ElementRef ref) {
-    return FillMask_read(FillMaskRef(ref.offset + 4));
-}
-
-FillMask Element_FillMaskInv_read(ElementRef ref) {
-    return FillMask_read(FillMaskRef(ref.offset + 4));
 }
 
 Clip Element_BeginClip_read(ElementRef ref) {

@@ -16,10 +16,6 @@ struct CmdFillRef {
     uint offset;
 };
 
-struct CmdFillMaskRef {
-    uint offset;
-};
-
 struct CmdBeginClipRef {
     uint offset;
 };
@@ -45,14 +41,6 @@ struct CmdJumpRef {
 };
 
 struct CmdRef {
-    uint offset;
-};
-
-struct SegmentRef {
-    uint offset;
-};
-
-struct SegChunkRef {
     uint offset;
 };
 
@@ -101,18 +89,6 @@ struct CmdFill {
 
 CmdFillRef CmdFill_index(CmdFillRef ref, uint index) {
     return CmdFillRef(ref.offset + index * CmdFill_size);
-}
-
-struct CmdFillMask {
-    uint tile_ref;
-    int backdrop;
-    float mask;
-};
-
-#define CmdFillMask_size 12
-
-CmdFillMaskRef CmdFillMask_index(CmdFillMaskRef ref, uint index) {
-    return CmdFillMaskRef(ref.offset + index * CmdFillMask_size);
 }
 
 struct CmdBeginClip {
@@ -180,43 +156,17 @@ CmdJumpRef CmdJump_index(CmdJumpRef ref, uint index) {
 #define Cmd_Circle 1
 #define Cmd_Line 2
 #define Cmd_Fill 3
-#define Cmd_FillMask 4
-#define Cmd_FillMaskInv 5
-#define Cmd_BeginClip 6
-#define Cmd_BeginSolidClip 7
-#define Cmd_EndClip 8
-#define Cmd_Stroke 9
-#define Cmd_Solid 10
-#define Cmd_SolidMask 11
-#define Cmd_Jump 12
+#define Cmd_BeginClip 4
+#define Cmd_BeginSolidClip 5
+#define Cmd_EndClip 6
+#define Cmd_Stroke 7
+#define Cmd_Solid 8
+#define Cmd_SolidMask 9
+#define Cmd_Jump 10
 #define Cmd_size 20
 
 CmdRef Cmd_index(CmdRef ref, uint index) {
     return CmdRef(ref.offset + index * Cmd_size);
-}
-
-struct Segment {
-    vec2 start;
-    vec2 end;
-    float y_edge;
-};
-
-#define Segment_size 20
-
-SegmentRef Segment_index(SegmentRef ref, uint index) {
-    return SegmentRef(ref.offset + index * Segment_size);
-}
-
-struct SegChunk {
-    uint n;
-    SegChunkRef next;
-    SegmentRef segs;
-};
-
-#define SegChunk_size 12
-
-SegChunkRef SegChunk_index(SegChunkRef ref, uint index) {
-    return SegChunkRef(ref.offset + index * SegChunk_size);
 }
 
 CmdCircle CmdCircle_read(CmdCircleRef ref) {
@@ -296,25 +246,6 @@ void CmdFill_write(CmdFillRef ref, CmdFill s) {
     ptcl[ix + 0] = s.tile_ref;
     ptcl[ix + 1] = uint(s.backdrop);
     ptcl[ix + 2] = s.rgba_color;
-}
-
-CmdFillMask CmdFillMask_read(CmdFillMaskRef ref) {
-    uint ix = ref.offset >> 2;
-    uint raw0 = ptcl[ix + 0];
-    uint raw1 = ptcl[ix + 1];
-    uint raw2 = ptcl[ix + 2];
-    CmdFillMask s;
-    s.tile_ref = raw0;
-    s.backdrop = int(raw1);
-    s.mask = uintBitsToFloat(raw2);
-    return s;
-}
-
-void CmdFillMask_write(CmdFillMaskRef ref, CmdFillMask s) {
-    uint ix = ref.offset >> 2;
-    ptcl[ix + 0] = s.tile_ref;
-    ptcl[ix + 1] = uint(s.backdrop);
-    ptcl[ix + 2] = floatBitsToUint(s.mask);
 }
 
 CmdBeginClip CmdBeginClip_read(CmdBeginClipRef ref) {
@@ -414,14 +345,6 @@ CmdFill Cmd_Fill_read(CmdRef ref) {
     return CmdFill_read(CmdFillRef(ref.offset + 4));
 }
 
-CmdFillMask Cmd_FillMask_read(CmdRef ref) {
-    return CmdFillMask_read(CmdFillMaskRef(ref.offset + 4));
-}
-
-CmdFillMask Cmd_FillMaskInv_read(CmdRef ref) {
-    return CmdFillMask_read(CmdFillMaskRef(ref.offset + 4));
-}
-
 CmdBeginClip Cmd_BeginClip_read(CmdRef ref) {
     return CmdBeginClip_read(CmdBeginClipRef(ref.offset + 4));
 }
@@ -469,16 +392,6 @@ void Cmd_Fill_write(CmdRef ref, CmdFill s) {
     CmdFill_write(CmdFillRef(ref.offset + 4), s);
 }
 
-void Cmd_FillMask_write(CmdRef ref, CmdFillMask s) {
-    ptcl[ref.offset >> 2] = Cmd_FillMask;
-    CmdFillMask_write(CmdFillMaskRef(ref.offset + 4), s);
-}
-
-void Cmd_FillMaskInv_write(CmdRef ref, CmdFillMask s) {
-    ptcl[ref.offset >> 2] = Cmd_FillMaskInv;
-    CmdFillMask_write(CmdFillMaskRef(ref.offset + 4), s);
-}
-
 void Cmd_BeginClip_write(CmdRef ref, CmdBeginClip s) {
     ptcl[ref.offset >> 2] = Cmd_BeginClip;
     CmdBeginClip_write(CmdBeginClipRef(ref.offset + 4), s);
@@ -512,47 +425,5 @@ void Cmd_SolidMask_write(CmdRef ref, CmdSolidMask s) {
 void Cmd_Jump_write(CmdRef ref, CmdJump s) {
     ptcl[ref.offset >> 2] = Cmd_Jump;
     CmdJump_write(CmdJumpRef(ref.offset + 4), s);
-}
-
-Segment Segment_read(SegmentRef ref) {
-    uint ix = ref.offset >> 2;
-    uint raw0 = ptcl[ix + 0];
-    uint raw1 = ptcl[ix + 1];
-    uint raw2 = ptcl[ix + 2];
-    uint raw3 = ptcl[ix + 3];
-    uint raw4 = ptcl[ix + 4];
-    Segment s;
-    s.start = vec2(uintBitsToFloat(raw0), uintBitsToFloat(raw1));
-    s.end = vec2(uintBitsToFloat(raw2), uintBitsToFloat(raw3));
-    s.y_edge = uintBitsToFloat(raw4);
-    return s;
-}
-
-void Segment_write(SegmentRef ref, Segment s) {
-    uint ix = ref.offset >> 2;
-    ptcl[ix + 0] = floatBitsToUint(s.start.x);
-    ptcl[ix + 1] = floatBitsToUint(s.start.y);
-    ptcl[ix + 2] = floatBitsToUint(s.end.x);
-    ptcl[ix + 3] = floatBitsToUint(s.end.y);
-    ptcl[ix + 4] = floatBitsToUint(s.y_edge);
-}
-
-SegChunk SegChunk_read(SegChunkRef ref) {
-    uint ix = ref.offset >> 2;
-    uint raw0 = ptcl[ix + 0];
-    uint raw1 = ptcl[ix + 1];
-    uint raw2 = ptcl[ix + 2];
-    SegChunk s;
-    s.n = raw0;
-    s.next = SegChunkRef(raw1);
-    s.segs = SegmentRef(raw2);
-    return s;
-}
-
-void SegChunk_write(SegChunkRef ref, SegChunk s) {
-    uint ix = ref.offset >> 2;
-    ptcl[ix + 0] = s.n;
-    ptcl[ix + 1] = s.next.offset;
-    ptcl[ix + 2] = s.segs.offset;
 }
 

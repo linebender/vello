@@ -129,8 +129,6 @@ State map_element(ElementRef ref) {
         c.pathseg_count = 1;
         break;
     case Element_Fill:
-    case Element_FillMask:
-    case Element_FillMaskInv:
     case Element_Stroke:
     case Element_BeginClip:
         c.flags = FLAG_RESET_BBOX;
@@ -407,23 +405,6 @@ void main() {
             anno_fill.bbox = st.bbox;
             out_ref = AnnotatedRef((st.path_count - 1) * Annotated_size);
             Annotated_Fill_write(out_ref, anno_fill);
-            break;
-        case Element_FillMask:
-            FillMask fill_mask = Element_FillMask_read(this_ref);
-            AnnoFillMask anno_fill_mask;
-            anno_fill_mask.mask = fill_mask.mask;
-            anno_fill_mask.bbox = st.bbox;
-            out_ref = AnnotatedRef((st.path_count - 1) * Annotated_size);
-            Annotated_FillMask_write(out_ref, anno_fill_mask);
-            break;
-        case Element_FillMaskInv:
-            fill_mask = Element_FillMaskInv_read(this_ref);
-            anno_fill_mask.mask = fill_mask.mask;
-            // The inverse fill conceptually takes up the entire screen.
-            // TODO: Tighten bounds to contain only affected paths.
-            anno_fill_mask.bbox = vec4(0, 0, 1e9, 1e9);
-            out_ref = AnnotatedRef((st.path_count - 1) * Annotated_size);
-            Annotated_FillMaskInv_write(out_ref, anno_fill_mask);
             break;
         case Element_BeginClip:
             Clip begin_clip = Element_BeginClip_read(this_ref);

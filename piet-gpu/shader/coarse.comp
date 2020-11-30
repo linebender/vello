@@ -181,8 +181,6 @@ void main() {
         uint tile_count;
         switch (tag) {
         case Annotated_Fill:
-        case Annotated_FillMask:
-        case Annotated_FillMaskInv:
         case Annotated_Stroke:
         case Annotated_BeginClip:
         case Annotated_EndClip:
@@ -246,9 +244,7 @@ void main() {
                 // Include the path in the tile if
                 // - the tile contains at least a segment (tile offset non-zero)
                 // - the tile is completely covered (backdrop non-zero)
-                bool inside = tile.backdrop != 0;
-                bool fill = tag != Annotated_FillMaskInv;
-                include_tile =  tile.tile.offset != 0 || inside == fill;
+                include_tile = tile.tile.offset != 0 || tile.backdrop != 0;
             }
             if (include_tile) {
                 uint el_slice = el_ix / 32;
@@ -337,27 +333,6 @@ void main() {
                         Cmd_EndClip_write(cmd_ref, CmdEndClip(1.0));
                         cmd_ref.offset += Cmd_size;
                     }
-                    break;
-                case Annotated_FillMask:
-                case Annotated_FillMaskInv:
-                    tile = Tile_read(TileRef(sh_tile_base[element_ref_ix]
-                        + (sh_tile_stride[element_ref_ix] * tile_y + tile_x) * Tile_size));
-                    AnnoFillMask fill_mask = Annotated_FillMask_read(ref);
-                    alloc_cmd(cmd_ref, cmd_limit);
-                    if (tile.tile.offset != 0) {
-                        CmdFillMask cmd_fill;
-                        cmd_fill.tile_ref = tile.tile.offset;
-                        cmd_fill.backdrop = tile.backdrop;
-                        cmd_fill.mask = fill_mask.mask;
-                        if (tag == Annotated_FillMask) {
-                            Cmd_FillMask_write(cmd_ref, cmd_fill);
-                        } else {
-                            Cmd_FillMaskInv_write(cmd_ref, cmd_fill);
-                        }
-                    } else {
-                        Cmd_SolidMask_write(cmd_ref, CmdSolidMask(fill_mask.mask));
-                    }
-                    cmd_ref.offset += Cmd_size;
                     break;
                 case Annotated_Stroke:
                     tile = Tile_read(TileRef(sh_tile_base[element_ref_ix]
