@@ -55,8 +55,6 @@ void main() {
         uint tag = Annotated_tag(ref);
         switch (tag) {
         case Annotated_Fill:
-        case Annotated_FillMask:
-        case Annotated_FillMaskInv:
         case Annotated_BeginClip:
             PathRef path_ref = PathRef(element_ix * Path_size);
             Path path = Path_read(path_ref);
