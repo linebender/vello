@@ -101,12 +101,6 @@ void main() {
     if (element_ix < n_pathseg) {
         tag = PathSeg_tag(ref);
     }
-    // Setup for coverage algorithm.
-    float a, b, c;
-    // Bounding box of element in pixel coordinates.
-    float xmin, xmax, ymin, ymax;
-    PathStrokeLine line;
-    float dx;
     switch (tag) {
     case PathSeg_FillCubic:
     case PathSeg_StrokeCubic:
@@ -162,22 +156,24 @@ void main() {
                 }
 
                 // Output line segment
-                xmin = min(p0.x, p1.x) - cubic.stroke.x;
-                xmax = max(p0.x, p1.x) + cubic.stroke.x;
-                ymin = min(p0.y, p1.y) - cubic.stroke.y;
-                ymax = max(p0.y, p1.y) + cubic.stroke.y;
+
+                // Bounding box of element in pixel coordinates.
+                float xmin = min(p0.x, p1.x) - cubic.stroke.x;
+                float xmax = max(p0.x, p1.x) + cubic.stroke.x;
+                float ymin = min(p0.y, p1.y) - cubic.stroke.y;
+                float ymax = max(p0.y, p1.y) + cubic.stroke.y;
                 float dx = p1.x - p0.x;
                 float dy = p1.y - p0.y;
                 // Set up for per-scanline coverage formula, below.
                 float invslope = abs(dy) < 1e-9 ? 1e9 : dx / dy;
-                c = (cubic.stroke.x + abs(invslope) * (0.5 * float(TILE_HEIGHT_PX) + cubic.stroke.y)) * SX;
-                b = invslope; // Note: assumes square tiles, otherwise scale.
-                a = (p0.x - (p0.y - 0.5 * float(TILE_HEIGHT_PX)) * b) * SX;
+                float c = (cubic.stroke.x + abs(invslope) * (0.5 * float(TILE_HEIGHT_PX) + cubic.stroke.y)) * SX;
+                float b = invslope; // Note: assumes square tiles, otherwise scale.
+                float a = (p0.x - (p0.y - 0.5 * float(TILE_HEIGHT_PX)) * b) * SX;
 
-                int x0 = int(floor((xmin) * SX));
-                int x1 = int(ceil((xmax) * SX));
-                int y0 = int(floor((ymin) * SY));
-                int y1 = int(ceil((ymax) * SY));
+                int x0 = int(floor(xmin * SX));
+                int x1 = int(ceil(xmax * SX));
+                int y0 = int(floor(ymin * SY));
+                int y1 = int(ceil(ymax * SY));
 
                 x0 = clamp(x0, bbox.x, bbox.z);
                 y0 = clamp(y0, bbox.y, bbox.w);
