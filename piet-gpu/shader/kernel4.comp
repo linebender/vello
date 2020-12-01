@@ -65,8 +65,8 @@ float[CHUNK] computeArea(vec2 xy, int backdrop, uint tile_ref) {
         TileSeg seg = TileSeg_read(tile_seg_ref);
         for (uint k = 0; k < CHUNK; k++) {
             vec2 my_xy = vec2(xy.x, xy.y + float(k * CHUNK_DY));
-            vec2 start = seg.start - my_xy;
-            vec2 end = seg.end - my_xy;
+            vec2 start = seg.origin - my_xy;
+            vec2 end = start + seg.vector;
             vec2 window = clamp(vec2(start.y, end.y), 0.0, 1.0);
             if (window.x != window.y) {
                 vec2 t = (window - start.y) / (end.y - start.y);
@@ -79,7 +79,7 @@ float[CHUNK] computeArea(vec2 xy, int backdrop, uint tile_ref) {
                 float a = (b + 0.5 * (d * d - c * c) - xmin) / (xmax - xmin);
                 area[k] += a * (window.x - window.y);
             }
-            area[k] += sign(end.x - start.x) * clamp(my_xy.y - seg.y_edge + 1.0, 0.0, 1.0);
+            area[k] += sign(seg.vector.x) * clamp(my_xy.y - seg.y_edge + 1.0, 0.0, 1.0);
         }
         tile_seg_ref = seg.next;
     } while (tile_seg_ref.offset != 0);
@@ -131,9 +131,9 @@ void main() {
             TileSegRef tile_seg_ref = TileSegRef(stroke.tile_ref);
             do {
                 TileSeg seg = TileSeg_read(tile_seg_ref);
-                vec2 line_vec = seg.end - seg.start;
+                vec2 line_vec = seg.vector;
                 for (uint k = 0; k < CHUNK; k++) {
-                    vec2 dpos = xy + vec2(0.5, 0.5) - seg.start;
+                    vec2 dpos = xy + vec2(0.5, 0.5) - seg.origin;
                     dpos.y += float(k * CHUNK_DY);
                     float t = clamp(dot(line_vec, dpos) / dot(line_vec, line_vec), 0.0, 1.0);
                     df[k] = min(df[k], length(line_vec * t - dpos));

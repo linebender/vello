@@ -205,16 +205,18 @@ void main() {
                         TileRef tile_ref = Tile_index(path.tiles, uint(base + x));
                         uint tile_el = tile_ref.offset >> 2;
                         uint old = atomicExchange(tile[tile_el], tile_offset);
-                        tile_seg.start = p0;
-                        tile_seg.end = p1;
+                        tile_seg.origin = p0;
+                        tile_seg.vector = p1 - p0;
                         float y_edge = 0.0;
                         if (tag == PathSeg_FillCubic) {
                             y_edge = mix(p0.y, p1.y, (tile_x0 - p0.x) / dx);
                             if (min(p0.x, p1.x) < tile_x0 && y_edge >= tile_y0 && y_edge < tile_y0 + TILE_HEIGHT_PX) {
+                                vec2 p = vec2(tile_x0, y_edge);
                                 if (p0.x > p1.x) {
-                                    tile_seg.end = vec2(tile_x0, y_edge);
+                                    tile_seg.vector = p - p0;
                                 } else {
-                                    tile_seg.start = vec2(tile_x0, y_edge);
+                                    tile_seg.origin = p;
+                                    tile_seg.vector = p1 - p;
                                 }
                             } else {
                                 y_edge = 1e9;
