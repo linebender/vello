@@ -35,8 +35,8 @@ TileRef Tile_index(TileRef ref, uint index) {
 }
 
 struct TileSeg {
-    vec2 start;
-    vec2 end;
+    vec2 origin;
+    vec2 vector;
     float y_edge;
     TileSegRef next;
 };
@@ -90,8 +90,8 @@ TileSeg TileSeg_read(TileSegRef ref) {
     uint raw4 = tile[ix + 4];
     uint raw5 = tile[ix + 5];
     TileSeg s;
-    s.start = vec2(uintBitsToFloat(raw0), uintBitsToFloat(raw1));
-    s.end = vec2(uintBitsToFloat(raw2), uintBitsToFloat(raw3));
+    s.origin = vec2(uintBitsToFloat(raw0), uintBitsToFloat(raw1));
+    s.vector = vec2(uintBitsToFloat(raw2), uintBitsToFloat(raw3));
     s.y_edge = uintBitsToFloat(raw4);
     s.next = TileSegRef(raw5);
     return s;
@@ -99,10 +99,10 @@ TileSeg TileSeg_read(TileSegRef ref) {
 
 void TileSeg_write(TileSegRef ref, TileSeg s) {
     uint ix = ref.offset >> 2;
-    tile[ix + 0] = floatBitsToUint(s.start.x);
-    tile[ix + 1] = floatBitsToUint(s.start.y);
-    tile[ix + 2] = floatBitsToUint(s.end.x);
-    tile[ix + 3] = floatBitsToUint(s.end.y);
+    tile[ix + 0] = floatBitsToUint(s.origin.x);
+    tile[ix + 1] = floatBitsToUint(s.origin.y);
+    tile[ix + 2] = floatBitsToUint(s.vector.x);
+    tile[ix + 3] = floatBitsToUint(s.vector.y);
     tile[ix + 4] = floatBitsToUint(s.y_edge);
     tile[ix + 5] = s.next.offset;
 }

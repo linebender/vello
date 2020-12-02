@@ -101,12 +101,6 @@ void main() {
     if (element_ix < n_pathseg) {
         tag = PathSeg_tag(ref);
     }
-    // Setup for coverage algorithm.
-    float a, b, c;
-    // Bounding box of element in pixel coordinates.
-    float xmin, xmax, ymin, ymax;
-    PathStrokeLine line;
-    float dx;
     switch (tag) {
     case PathSeg_FillCubic:
     case PathSeg_StrokeCubic:
@@ -162,22 +156,24 @@ void main() {
                 }
 
                 // Output line segment
-                xmin = min(p0.x, p1.x) - cubic.stroke.x;
-                xmax = max(p0.x, p1.x) + cubic.stroke.x;
-                ymin = min(p0.y, p1.y) - cubic.stroke.y;
-                ymax = max(p0.y, p1.y) + cubic.stroke.y;
+
+                // Bounding box of element in pixel coordinates.
+                float xmin = min(p0.x, p1.x) - cubic.stroke.x;
+                float xmax = max(p0.x, p1.x) + cubic.stroke.x;
+                float ymin = min(p0.y, p1.y) - cubic.stroke.y;
+                float ymax = max(p0.y, p1.y) + cubic.stroke.y;
                 float dx = p1.x - p0.x;
                 float dy = p1.y - p0.y;
                 // Set up for per-scanline coverage formula, below.
                 float invslope = abs(dy) < 1e-9 ? 1e9 : dx / dy;
-                c = (cubic.stroke.x + abs(invslope) * (0.5 * float(TILE_HEIGHT_PX) + cubic.stroke.y)) * SX;
-                b = invslope; // Note: assumes square tiles, otherwise scale.
-                a = (p0.x - (p0.y - 0.5 * float(TILE_HEIGHT_PX)) * b) * SX;
+                float c = (cubic.stroke.x + abs(invslope) * (0.5 * float(TILE_HEIGHT_PX) + cubic.stroke.y)) * SX;
+                float b = invslope; // Note: assumes square tiles, otherwise scale.
+                float a = (p0.x - (p0.y - 0.5 * float(TILE_HEIGHT_PX)) * b) * SX;
 
-                int x0 = int(floor((xmin) * SX));
-                int x1 = int(ceil((xmax) * SX));
-                int y0 = int(floor((ymin) * SY));
-                int y1 = int(ceil((ymax) * SY));
+                int x0 = int(floor(xmin * SX));
+                int x1 = int(floor(xmax * SX) + 1);
+                int y0 = int(floor(ymin * SY));
+                int y1 = int(floor(ymax * SY) + 1);
 
                 x0 = clamp(x0, bbox.x, bbox.z);
                 y0 = clamp(y0, bbox.y, bbox.w);
@@ -191,36 +187,69 @@ void main() {
                 // Consider using subgroups to aggregate atomic add.
                 uint tile_offset = atomicAdd(alloc, n_tile_alloc * TileSeg_size);
                 TileSeg tile_seg;
+
+                int xray = int(floor(p0.x*SX));
+                int last_xray = int(floor(p1.x*SX));
+                if (p0.y > p1.y) {
+                    int tmp = xray;
+                    xray = last_xray;
+                    last_xray = tmp;
+                }
                 for (int y = y0; y < y1; y++) {
-                    float tile_y0 = float(y * TILE_HEIGHT_PX);
-                    if (tag == PathSeg_FillCubic && min(p0.y, p1.y) <= tile_y0) {
-                        int xray = max(int(ceil(xc - 0.5 * b)), bbox.x);
-                        if (xray < bbox.z) {
-                            int backdrop = p1.y < p0.y ? 1 : -1;
-                            TileRef tile_ref = Tile_index(path.tiles, uint(base + xray));
-                            uint tile_el = tile_ref.offset >> 2;
-                            atomicAdd(tile[tile_el + 1], backdrop);
-                        }
+                    int xbackdrop = max(xray + 1, bbox.x);
+                    if (tag == PathSeg_FillCubic && y > y0 && xbackdrop < bbox.z) {
+                        int backdrop = p1.y < p0.y ? 1 : -1;
+                        TileRef tile_ref = Tile_index(path.tiles, uint(base + xbackdrop));
+                        uint tile_el = tile_ref.offset >> 2;
+                        atomicAdd(tile[tile_el + 1], backdrop);
                     }
+
                     int xx0 = clamp(int(floor(xc - c)), x0, x1);
                     int xx1 = clamp(int(ceil(xc + c)), x0, x1);
+                    xx1 = max(xx1, xray + 1);
+
+                    // next_xray is the xray for the next scanline; it is derived
+                    // by left edge intersections computed below.
+                    int next_xray = xray;
                     for (int x = xx0; x < xx1; x++) {
                         float tile_x0 = float(x * TILE_WIDTH_PX);
                         TileRef tile_ref = Tile_index(path.tiles, uint(base + x));
                         uint tile_el = tile_ref.offset >> 2;
                         uint old = atomicExchange(tile[tile_el], tile_offset);
-                        tile_seg.start = p0;
-                        tile_seg.end = p1;
+                        tile_seg.origin = p0;
+                        tile_seg.vector = p1 - p0;
                         float y_edge = 0.0;
                         if (tag == PathSeg_FillCubic) {
+                            float tile_y0 = float(y * TILE_HEIGHT_PX);
                             y_edge = mix(p0.y, p1.y, (tile_x0 - p0.x) / dx);
                             if (min(p0.x, p1.x) < tile_x0 && y_edge >= tile_y0 && y_edge < tile_y0 + TILE_HEIGHT_PX) {
+                                // Left edge intersection.
+                                vec2 p = vec2(tile_x0, y_edge);
                                 if (p0.x > p1.x) {
-                                    tile_seg.end = vec2(tile_x0, y_edge);
+                                    tile_seg.vector = p - p0;
                                 } else {
-                                    tile_seg.start = vec2(tile_x0, y_edge);
+                                    tile_seg.origin = p;
+                                    tile_seg.vector = p1 - p;
                                 }
-                            } else {
+                                // kernel4 uses sign(vector.x) for the sign of the intersection backdrop.
+                                // Nudge zeroes towards the intended sign.
+                                if (tile_seg.vector.x == 0) {
+                                    tile_seg.vector.x += sign(p1.x - p0.x)*1e-9;
+                                }
+                                // Move next_xray consistently with previous intersections.
+                                if (x > next_xray && next_xray >= xray) {
+                                    next_xray = x;
+                                } else if (x <= next_xray && next_xray <= xray) {
+                                    next_xray = x - 1;
+                                }
+                            }
+                            // Force last xray on the last scanline for consistency with later
+                            // line segments.
+                            if (y == y1 - 1) {
+                                next_xray = last_xray;
+                            }
+                            // Drop inconsistent intersections.
+                            if (x <= min(xray, next_xray) || max(xray, next_xray) < x) {
                                 y_edge = 1e9;
                             }
                         }
@@ -231,6 +260,7 @@ void main() {
                     }
                     xc += b;
                     base += stride;
+                    xray = next_xray;
                 }
 
                 n_out += 1;

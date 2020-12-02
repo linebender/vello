@@ -84,11 +84,22 @@ void main() {
     // Coordinates of top left of bin, in tiles.
     uint bin_tile_x = N_TILE_X * gl_WorkGroupID.x;
     uint bin_tile_y = N_TILE_Y * gl_WorkGroupID.y;
+
+    // Per-tile state
     uint tile_x = gl_LocalInvocationID.x % N_TILE_X;
     uint tile_y = gl_LocalInvocationID.x / N_TILE_X;
     uint this_tile_ix = (bin_tile_y + tile_y) * WIDTH_IN_TILES + bin_tile_x + tile_x;
     CmdRef cmd_ref = CmdRef(this_tile_ix * PTCL_INITIAL_ALLOC);
     uint cmd_limit = cmd_ref.offset + PTCL_INITIAL_ALLOC - 2 * Cmd_size;
+    // The nesting depth of the clip stack
+    uint clip_depth = 0;
+    // State for the "clip zero" optimization. If it's nonzero, then we are
+    // currently in a clip for which the entire tile has an alpha of zero, and
+    // the value is the depth after the "begin clip" of that element.
+    uint clip_zero_depth = 0;
+    // State for the "clip one" optimization. If bit `i` is set, then that means
+    // that the clip pushed at depth `i` has an alpha of all one.
+    uint clip_one_mask = 0;
 
     // I'm sure we can figure out how to do this with at least one fewer register...
     // Items up to rd_ix have been read from sh_elements
@@ -98,6 +109,7 @@ void main() {
     // Items between part_start_ix and ready_ix are ready to be transferred from sh_part_elements
     uint part_start_ix = 0;
     uint ready_ix = 0;
+
     while (true) {
         for (uint i = 0; i < N_SLICE; i++) {
             sh_bitmaps[i][th_ix] = 0;
@@ -270,56 +282,84 @@ void main() {
             ref = AnnotatedRef(element_ix * Annotated_size);
             tag = Annotated_tag(ref);
 
-            switch (tag) {
-            case Annotated_Fill:
-                Tile tile = Tile_read(TileRef(sh_tile_base[element_ref_ix]
-                    + (sh_tile_stride[element_ref_ix] * tile_y + tile_x) * Tile_size));
-                AnnoFill fill = Annotated_Fill_read(ref);
-                alloc_cmd(cmd_ref, cmd_limit);
-                if (tile.tile.offset != 0) {
-                    CmdFill cmd_fill;
-                    cmd_fill.tile_ref = tile.tile.offset;
-                    cmd_fill.backdrop = tile.backdrop;
-                    cmd_fill.rgba_color = fill.rgba_color;
-                    Cmd_Fill_write(cmd_ref, cmd_fill);
-                } else {
-                    Cmd_Solid_write(cmd_ref, CmdSolid(fill.rgba_color));
+            if (clip_zero_depth == 0) {
+                switch (tag) {
+                case Annotated_Fill:
+                    Tile tile = Tile_read(TileRef(sh_tile_base[element_ref_ix]
+                        + (sh_tile_stride[element_ref_ix] * tile_y + tile_x) * Tile_size));
+                    AnnoFill fill = Annotated_Fill_read(ref);
+                    alloc_cmd(cmd_ref, cmd_limit);
+                    if (tile.tile.offset != 0) {
+                        CmdFill cmd_fill;
+                        cmd_fill.tile_ref = tile.tile.offset;
+                        cmd_fill.backdrop = tile.backdrop;
+                        cmd_fill.rgba_color = fill.rgba_color;
+                        Cmd_Fill_write(cmd_ref, cmd_fill);
+                    } else {
+                        Cmd_Solid_write(cmd_ref, CmdSolid(fill.rgba_color));
+                    }
+                    cmd_ref.offset += Cmd_size;
+                    break;
+                case Annotated_BeginClip:
+                    tile = Tile_read(TileRef(sh_tile_base[element_ref_ix]
+                        + (sh_tile_stride[element_ref_ix] * tile_y + tile_x) * Tile_size));
+                    if (tile.tile.offset == 0 && tile.backdrop == 0) {
+                        clip_zero_depth = clip_depth + 1;
+                    } else if (tile.tile.offset == 0 && clip_depth < 32) {
+                        clip_one_mask |= (1 << clip_depth);
+                    } else {
+                        alloc_cmd(cmd_ref, cmd_limit);
+                        if (tile.tile.offset != 0) {
+                            CmdBeginClip cmd_begin_clip;
+                            cmd_begin_clip.tile_ref = tile.tile.offset;
+                            cmd_begin_clip.backdrop = tile.backdrop;
+                            Cmd_BeginClip_write(cmd_ref, cmd_begin_clip);
+                        } else {
+                            // TODO: here is where a bunch of optimization magic should happen
+                            float alpha = tile.backdrop == 0 ? 0.0 : 1.0;
+                            Cmd_BeginSolidClip_write(cmd_ref, CmdBeginSolidClip(alpha));
+                        }
+                        cmd_ref.offset += Cmd_size;
+                        if (clip_depth < 32) {
+                            clip_one_mask &= ~(1 << clip_depth);
+                        }
+                    }
+                    clip_depth++;
+                    break;
+                case Annotated_EndClip:
+                    clip_depth--;
+                    if (clip_depth >= 32 || (clip_one_mask & (1 << clip_depth)) == 0) {
+                        alloc_cmd(cmd_ref, cmd_limit);
+                        Cmd_EndClip_write(cmd_ref, CmdEndClip(1.0));
+                        cmd_ref.offset += Cmd_size;
+                    }
+                    break;
+                case Annotated_Stroke:
+                    tile = Tile_read(TileRef(sh_tile_base[element_ref_ix]
+                        + (sh_tile_stride[element_ref_ix] * tile_y + tile_x) * Tile_size));
+                    AnnoStroke stroke = Annotated_Stroke_read(ref);
+                    CmdStroke cmd_stroke;
+                    cmd_stroke.tile_ref = tile.tile.offset;
+                    cmd_stroke.half_width = 0.5 * stroke.linewidth;
+                    cmd_stroke.rgba_color = stroke.rgba_color;
+                    alloc_cmd(cmd_ref, cmd_limit);
+                    Cmd_Stroke_write(cmd_ref, cmd_stroke);
+                    cmd_ref.offset += Cmd_size;
+                    break;
                 }
-                cmd_ref.offset += Cmd_size;
-                break;
-            case Annotated_BeginClip:
-                tile = Tile_read(TileRef(sh_tile_base[element_ref_ix]
-                    + (sh_tile_stride[element_ref_ix] * tile_y + tile_x) * Tile_size));
-                alloc_cmd(cmd_ref, cmd_limit);
-                if (tile.tile.offset != 0) {
-                    CmdBeginClip cmd_begin_clip;
-                    cmd_begin_clip.tile_ref = tile.tile.offset;
-                    cmd_begin_clip.backdrop = tile.backdrop;
-                    Cmd_BeginClip_write(cmd_ref, cmd_begin_clip);
-                } else {
-                    // TODO: here is where a bunch of optimization magic should happen
-                    float alpha = tile.backdrop == 0 ? 0.0 : 1.0;
-                    Cmd_BeginSolidClip_write(cmd_ref, CmdBeginSolidClip(alpha));
+            } else {
+                // In "clip zero" state, suppress all drawing
+                switch (tag) {
+                case Annotated_BeginClip:
+                    clip_depth++;
+                    break;
+                case Annotated_EndClip:
+                    if (clip_depth == clip_zero_depth) {
+                        clip_zero_depth = 0;
+                    }
+                    clip_depth--;
+                    break;
                 }
-                cmd_ref.offset += Cmd_size;
-                break;
-            case Annotated_EndClip:
-                alloc_cmd(cmd_ref, cmd_limit);
-                Cmd_EndClip_write(cmd_ref, CmdEndClip(1.0));
-                cmd_ref.offset += Cmd_size;
-                break;
-            case Annotated_Stroke:
-                tile = Tile_read(TileRef(sh_tile_base[element_ref_ix]
-                    + (sh_tile_stride[element_ref_ix] * tile_y + tile_x) * Tile_size));
-                AnnoStroke stroke = Annotated_Stroke_read(ref);
-                CmdStroke cmd_stroke;
-                cmd_stroke.tile_ref = tile.tile.offset;
-                cmd_stroke.half_width = 0.5 * stroke.linewidth;
-                cmd_stroke.rgba_color = stroke.rgba_color;
-                alloc_cmd(cmd_ref, cmd_limit);
-                Cmd_Stroke_write(cmd_ref, cmd_stroke);
-                cmd_ref.offset += Cmd_size;
-                break;
             }
         }
         barrier();
