@@ -13,8 +13,8 @@ piet_gpu! {
         }
         // Segments within a tile are represented as a linked list.
         struct TileSeg {
-            start: [f32; 2],
-            end: [f32; 2],
+            origin: [f32; 2],
+            vector: [f32; 2],
             y_edge: f32,
             next: Ref<TileSeg>,
         }
