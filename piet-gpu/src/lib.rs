@@ -12,7 +12,7 @@ use piet::{Color, ImageFormat, RenderContext};
 
 use piet_gpu_types::encoder::Encode;
 
-use piet_gpu_hal::hub;
+use piet_gpu_hal::{SamplerParams, hub};
 use piet_gpu_hal::{CmdBuf, Error, ImageLayout, MemFlags};
 
 use pico_svg::PicoSvg;
@@ -201,6 +201,8 @@ pub struct Renderer {
     n_elements: usize,
     n_paths: usize,
     n_pathseg: usize,
+
+    bg_image: hub::Image,
 }
 
 impl Renderer {
@@ -236,16 +238,10 @@ impl Renderer {
         let image_dev = session.create_image2d(WIDTH as u32, HEIGHT as u32, dev)?;
 
         let el_code = include_bytes!("../shader/elements.spv");
-        let el_pipeline = session.create_simple_compute_pipeline(el_code, 4, 0)?;
-        let el_ds = session.create_descriptor_set(
+        let el_pipeline = session.create_simple_compute_pipeline(el_code, 4)?;
+        let el_ds = session.create_simple_descriptor_set(
             &el_pipeline,
-            &[
-                scene_dev.vk_buffer(),
-                state_buf.vk_buffer(),
-                anno_buf.vk_buffer(),
-                pathseg_buf.vk_buffer(),
-            ],
-            &[],
+            &[&scene_dev, &state_buf, &anno_buf, &pathseg_buf],
         )?;
 
         let mut tile_alloc_buf_host = session.create_buffer(12, host)?;
@@ -256,40 +252,24 @@ impl Renderer {
         let tile_alloc_start = ((n_paths + 31) & !31) * PATH_SIZE;
         tile_alloc_buf_host.write(&[n_paths as u32, n_pathseg as u32, tile_alloc_start as u32])?;
         let tile_alloc_code = include_bytes!("../shader/tile_alloc.spv");
-        let tile_pipeline = session.create_simple_compute_pipeline(tile_alloc_code, 3, 0)?;
-        let tile_ds = session.create_descriptor_set(
+        let tile_pipeline = session.create_simple_compute_pipeline(tile_alloc_code, 3)?;
+        let tile_ds = session.create_simple_descriptor_set(
             &tile_pipeline,
-            &[
-                anno_buf.vk_buffer(),
-                tile_alloc_buf_dev.vk_buffer(),
-                tile_buf.vk_buffer(),
-            ],
-            &[],
+            &[&anno_buf, &tile_alloc_buf_dev, &tile_buf],
         )?;
 
         let path_alloc_code = include_bytes!("../shader/path_coarse.spv");
-        let path_pipeline = session.create_simple_compute_pipeline(path_alloc_code, 3, 0)?;
-        let path_ds = session.create_descriptor_set(
+        let path_pipeline = session.create_simple_compute_pipeline(path_alloc_code, 3)?;
+        let path_ds = session.create_simple_descriptor_set(
             &path_pipeline,
-            &[
-                pathseg_buf.vk_buffer(),
-                tile_alloc_buf_dev.vk_buffer(),
-                tile_buf.vk_buffer(),
-            ],
-            &[],
+            &[&pathseg_buf, &tile_alloc_buf_dev, &tile_buf],
         )?;
 
         let backdrop_alloc_code = include_bytes!("../shader/backdrop.spv");
-        let backdrop_pipeline =
-            session.create_simple_compute_pipeline(backdrop_alloc_code, 3, 0)?;
-        let backdrop_ds = session.create_descriptor_set(
+        let backdrop_pipeline = session.create_simple_compute_pipeline(backdrop_alloc_code, 3)?;
+        let backdrop_ds = session.create_simple_descriptor_set(
             &backdrop_pipeline,
-            &[
-                anno_buf.vk_buffer(),
-                tile_alloc_buf_dev.vk_buffer(),
-                tile_buf.vk_buffer(),
-            ],
-            &[],
+            &[&anno_buf, &tile_alloc_buf_dev, &tile_buf],
         )?;
 
         let mut bin_alloc_buf_host = session.create_buffer(8, host)?;
@@ -299,15 +279,10 @@ impl Renderer {
         let bin_alloc_start = ((n_paths + 255) & !255) * 8;
         bin_alloc_buf_host.write(&[n_paths as u32, bin_alloc_start as u32])?;
         let bin_code = include_bytes!("../shader/binning.spv");
-        let bin_pipeline = session.create_simple_compute_pipeline(bin_code, 3, 0)?;
-        let bin_ds = session.create_descriptor_set(
+        let bin_pipeline = session.create_simple_compute_pipeline(bin_code, 3)?;
+        let bin_ds = session.create_simple_descriptor_set(
             &bin_pipeline,
-            &[
-                anno_buf.vk_buffer(),
-                bin_alloc_buf_dev.vk_buffer(),
-                bin_buf.vk_buffer(),
-            ],
-            &[],
+            &[&anno_buf, &bin_alloc_buf_dev, &bin_buf],
         )?;
 
         let clip_scratch_buf = session.create_buffer(1024 * 1024, dev)?;
@@ -318,30 +293,41 @@ impl Renderer {
         let coarse_alloc_start = WIDTH_IN_TILES * HEIGHT_IN_TILES * PTCL_INITIAL_ALLOC;
         coarse_alloc_buf_host.write(&[n_paths as u32, coarse_alloc_start as u32])?;
         let coarse_code = include_bytes!("../shader/coarse.spv");
-        let coarse_pipeline = session.create_simple_compute_pipeline(coarse_code, 5, 0)?;
-        let coarse_ds = session.create_descriptor_set(
+        let coarse_pipeline = session.create_simple_compute_pipeline(coarse_code, 5)?;
+        let coarse_ds = session.create_simple_descriptor_set(
             &coarse_pipeline,
             &[
-                anno_buf.vk_buffer(),
-                bin_buf.vk_buffer(),
-                tile_buf.vk_buffer(),
-                coarse_alloc_buf_dev.vk_buffer(),
-                ptcl_buf.vk_buffer(),
+                &anno_buf,
+                &bin_buf,
+                &tile_buf,
+                &coarse_alloc_buf_dev,
+                &ptcl_buf,
             ],
-            &[],
         )?;
 
+        let bg_image = Self::make_test_bg_image(&session);
+
         let k4_code = include_bytes!("../shader/kernel4.spv");
-        let k4_pipeline = session.create_simple_compute_pipeline(k4_code, 3, 1)?;
-        let k4_ds = session.create_descriptor_set(
-            &k4_pipeline,
-            &[
-                ptcl_buf.vk_buffer(),
-                tile_buf.vk_buffer(),
-                clip_scratch_buf.vk_buffer(),
-            ],
-            &[image_dev.vk_image()],
-        )?;
+        // This is an arbitrary limit on the number of textures that can be referenced by
+        // the fine rasterizer. To set it for real, we probably want to pay attention both
+        // to the device limit (maxDescriptorSetSampledImages) but also to the number of
+        // images encoded (I believe there's an cost when allocating descriptor pools). If
+        // it can't be satisfied, then for compatibility we'll probably want to fall back
+        // to an atlasing approach.
+        let max_textures = 256;
+        let sampler = session.create_sampler(SamplerParams::Linear)?;
+        let k4_pipeline = session
+            .pipeline_builder()
+            .add_buffers(3)
+            .add_images(1)
+            .add_textures(max_textures)
+            .create_compute_pipeline(&session, k4_code)?;
+        let k4_ds = session
+            .descriptor_set_builder()
+            .add_buffers(&[&ptcl_buf, &tile_buf, &clip_scratch_buf])
+            .add_images(&[&image_dev])
+            .add_textures(&[&bg_image], &sampler)
+            .build(&session, &k4_pipeline)?;
 
         Ok(Renderer {
             scene_buf,
@@ -377,6 +363,7 @@ impl Renderer {
             n_elements,
             n_paths,
             n_pathseg,
+            bg_image,
         })
     }
 
@@ -488,8 +475,7 @@ impl Renderer {
                 ImageLayout::BlitDst,
             );
             cmd_buf.copy_buffer_to_image(buffer.vk_buffer(), image.vk_image());
-            // TODO: instead of General, we might want ShaderReadOnly
-            cmd_buf.image_barrier(image.vk_image(), ImageLayout::BlitDst, ImageLayout::General);
+            cmd_buf.image_barrier(image.vk_image(), ImageLayout::BlitDst, ImageLayout::ShaderRead);
             cmd_buf.finish();
             // Make sure not to drop the buffer and image until the command buffer completes.
             cmd_buf.add_resource(&buffer);
@@ -498,5 +484,23 @@ impl Renderer {
             // We let the session reclaim the fence.
             Ok(image)
         }
+    }
+
+    /// Make a test image.
+    fn make_test_bg_image(session: &hub::Session) -> hub::Image {
+        const WIDTH: usize = 256;
+        const HEIGHT: usize = 256;
+        let mut buf = vec![255u8; WIDTH * HEIGHT * 4];
+        for y in 0..HEIGHT {
+            for x in 0..WIDTH {
+                let r = x as u8;
+                let g = y as u8;
+                let b = r ^ g;
+                buf[(y * WIDTH + x) * 4] = r;
+                buf[(y * WIDTH + x) * 4 + 1] = g;
+                buf[(y * WIDTH + x) * 4 + 2] = b;
+            }
+        }
+        Self::make_image(session, WIDTH, HEIGHT, &buf, ImageFormat::RgbaPremul).unwrap()
     }
 }

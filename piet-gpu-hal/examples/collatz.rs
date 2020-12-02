@@ -14,9 +14,9 @@ fn main() {
             .unwrap();
         buffer.write(&src).unwrap();
         let code = include_bytes!("./shader/collatz.spv");
-        let pipeline = session.create_simple_compute_pipeline(code, 1, 0).unwrap();
+        let pipeline = session.create_simple_compute_pipeline(code, 1).unwrap();
         let descriptor_set = session
-            .create_descriptor_set(&pipeline, &[buffer.vk_buffer()], &[])
+            .create_simple_descriptor_set(&pipeline, &[&buffer])
             .unwrap();
         let query_pool = session.create_query_pool(2).unwrap();
         let mut cmd_buf = session.cmd_buf().unwrap();

@@ -6,6 +6,7 @@
 
 #version 450
 #extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_nonuniform_qualifier : enable
 
 #include "setup.h"
 
@@ -27,6 +28,8 @@ layout(set = 0, binding = 2) buffer ClipScratchBuf {
 };
 
 layout(rgba8, set = 0, binding = 3) uniform writeonly image2D image;
+
+layout(set = 0, binding = 4) uniform sampler2D textures[];
 
 #include "ptcl.h"
 #include "tile.h"
@@ -103,6 +106,9 @@ void main() {
     uint clip_tos = 0;
     for (uint i = 0; i < CHUNK; i++) {
         rgb[i] = vec3(0.5);
+        if (xy_uint.x < 1024 && xy_uint.y < 1024) {
+            rgb[i] = texture(textures[gl_WorkGroupID.x / 64], vec2(xy_uint.x, xy_uint.y + CHUNK_DY * i) / 1024.0).rgb;
+        }
         mask[i] = 1.0;
     }
 

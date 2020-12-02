@@ -16,10 +16,21 @@ pub enum ImageLayout {
     BlitSrc,
     BlitDst,
     General,
+    ShaderRead,
+}
+
+/// The type of sampling for image lookup.
+///
+/// This could take a lot more params, such as filtering, repeat, behavior
+/// at edges, etc., but for now we'll keep it simple.
+#[derive(Copy, Clone, Debug)]
+pub enum SamplerParams {
+    Nearest,
+    Linear,
 }
 
 pub trait Device: Sized {
-    type Buffer;
+    type Buffer: 'static;
     type Image;
     type MemFlags: MemFlags;
     type Pipeline;
@@ -28,6 +39,9 @@ pub trait Device: Sized {
     type CmdBuf: CmdBuf<Self>;
     type Fence;
     type Semaphore;
+    type PipelineBuilder: PipelineBuilder<Self>;
+    type DescriptorSetBuilder: DescriptorSetBuilder<Self>;
+    type Sampler;
 
     fn create_buffer(&self, size: u64, mem_flags: Self::MemFlags) -> Result<Self::Buffer, Error>;
 
@@ -56,19 +70,48 @@ pub trait Device: Sized {
     /// Maybe doesn't need result return?
     unsafe fn destroy_image(&self, image: &Self::Image) -> Result<(), Error>;
 
+    /// Start building a pipeline.
+    ///
+    /// A pipeline is a bit of shader IR plus a signature for what kinds of resources
+    /// it expects.
+    unsafe fn pipeline_builder(&self) -> Self::PipelineBuilder;
+
+    /// Start building a descriptor set.
+    ///
+    /// A descriptor set is a binding of resources for a given pipeline.
+    unsafe fn descriptor_set_builder(&self) -> Self::DescriptorSetBuilder;
+
+    /// Create a simple compute pipeline that operates on buffers and storage images.
+    ///
+    /// This is provided as a convenience but will probably go away, as the functionality
+    /// is subsumed by the builder.
     unsafe fn create_simple_compute_pipeline(
         &self,
         code: &[u8],
         n_buffers: u32,
         n_images: u32,
-    ) -> Result<Self::Pipeline, Error>;
+    ) -> Result<Self::Pipeline, Error> {
+        let mut builder = self.pipeline_builder();
+        builder.add_buffers(n_buffers);
+        builder.add_images(n_images);
+        builder.create_compute_pipeline(self, code)
+    }
 
+    /// Create a descriptor set for a given pipeline, binding buffers and images.
+    ///
+    /// This is provided as a convenience but will probably go away, as the functionality
+    /// is subsumed by the builder.
     unsafe fn create_descriptor_set(
         &self,
         pipeline: &Self::Pipeline,
         bufs: &[&Self::Buffer],
         images: &[&Self::Image],
-    ) -> Result<Self::DescriptorSet, Error>;
+    ) -> Result<Self::DescriptorSet, Error> {
+        let mut builder = self.descriptor_set_builder();
+        builder.add_buffers(bufs);
+        builder.add_images(images);
+        builder.build(self, pipeline)
+    }
 
     fn create_cmd_buf(&self) -> Result<Self::CmdBuf, Error>;
 
@@ -107,6 +150,8 @@ pub trait Device: Sized {
     unsafe fn create_fence(&self, signaled: bool) -> Result<Self::Fence, Error>;
     unsafe fn wait_and_reset(&self, fences: &[Self::Fence]) -> Result<(), Error>;
     unsafe fn get_fence_status(&self, fence: Self::Fence) -> Result<bool, Error>;
+
+    unsafe fn create_sampler(&self, params: SamplerParams) -> Result<Self::Sampler, Error>;
 }
 
 pub trait CmdBuf<D: Device> {
@@ -173,4 +218,35 @@ pub trait MemFlags: Sized + Clone + Copy {
     fn device_local() -> Self;
 
     fn host_coherent() -> Self;
+}
+
+/// A builder for pipelines with more complex layouts.
+pub trait PipelineBuilder<D: Device> {
+    /// Add buffers to the pipeline. Each has its own binding.
+    fn add_buffers(&mut self, n_buffers: u32);
+    /// Add storage images to the pipeline. Each has its own binding.
+    fn add_images(&mut self, n_images: u32);
+    /// Add a binding with a variable-size array of textures.
+    fn add_textures(&mut self, max_textures: u32);
+    unsafe fn create_compute_pipeline(self, device: &D, code: &[u8]) -> Result<D::Pipeline, Error>;
+}
+
+/// A builder for descriptor sets with more complex layouts.
+///
+/// Note: the order needs to match the pipeline building, and it also needs to
+/// be buffers, then images, then textures.
+pub trait DescriptorSetBuilder<D: Device> {
+    fn add_buffers(&mut self, buffers: &[&D::Buffer]);
+    /// Add an array of storage images.
+    ///
+    /// The images need to be in `ImageLayout::General` layout.
+    fn add_images(&mut self, images: &[&D::Image]);
+    /// Add an array of textures.
+    ///
+    /// The images need to be in `ImageLayout::ShaderRead` layout.
+    ///
+    /// The same sampler is used for all textures, which is not very sophisticated;
+    /// we should have a way to vary the sampler.
+    fn add_textures(&mut self, images: &[&D::Image], sampler: &D::Sampler);
+    unsafe fn build(self, device: &D, pipeline: &D::Pipeline) -> Result<D::DescriptorSet, Error>;
 }
