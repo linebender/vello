@@ -4,10 +4,6 @@ struct BinInstanceRef {
     uint offset;
 };
 
-struct BinChunkRef {
-    uint offset;
-};
-
 struct BinInstance {
     uint element_ix;
 };
@@ -16,17 +12,6 @@ struct BinInstance {
 
 BinInstanceRef BinInstance_index(BinInstanceRef ref, uint index) {
     return BinInstanceRef(ref.offset + index * BinInstance_size);
-}
-
-struct BinChunk {
-    uint n;
-    BinChunkRef next;
-};
-
-#define BinChunk_size 8
-
-BinChunkRef BinChunk_index(BinChunkRef ref, uint index) {
-    return BinChunkRef(ref.offset + index * BinChunk_size);
 }
 
 BinInstance BinInstance_read(BinInstanceRef ref) {
@@ -40,21 +25,5 @@ BinInstance BinInstance_read(BinInstanceRef ref) {
 void BinInstance_write(BinInstanceRef ref, BinInstance s) {
     uint ix = ref.offset >> 2;
     bins[ix + 0] = s.element_ix;
-}
-
-BinChunk BinChunk_read(BinChunkRef ref) {
-    uint ix = ref.offset >> 2;
-    uint raw0 = bins[ix + 0];
-    uint raw1 = bins[ix + 1];
-    BinChunk s;
-    s.n = raw0;
-    s.next = BinChunkRef(raw1);
-    return s;
-}
-
-void BinChunk_write(BinChunkRef ref, BinChunk s) {
-    uint ix = ref.offset >> 2;
-    bins[ix + 0] = s.n;
-    bins[ix + 1] = s.next.offset;
 }
 
