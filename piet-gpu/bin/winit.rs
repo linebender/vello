@@ -45,6 +45,7 @@ fn main() -> Result<(), Error> {
         let renderer = Renderer::new(&session, scene, n_paths, n_pathseg)?;
 
         let mut submitted: Option<hub::SubmittedCmdBuf> = None;
+        let mut last_frame_idx = 0;
 
         event_loop.run(move |event, _, control_flow| {
             *control_flow = ControlFlow::Poll; // `ControlFlow::Wait` if only re-render on event
@@ -63,12 +64,16 @@ fn main() -> Result<(), Error> {
                 }
                 Event::RedrawRequested(window_id) if window_id == window.id() => {
                     let frame_idx = current_frame % NUM_FRAMES;
-                    let query_pool = &query_pools[frame_idx];
 
+                    // Note: this logic is a little strange. We have two sets of renderer
+                    // resources, so we could have two frames in flight (submit two, wait on
+                    // the first), but we actually just wait on the last submitted.
+                    //
+                    // Getting this right will take some thought.
                     if let Some(submitted) = submitted.take() {
                         submitted.wait().unwrap();
 
-                        let ts = session.fetch_query_pool(query_pool).unwrap();
+                        let ts = session.fetch_query_pool(&query_pools[last_frame_idx]).unwrap();
                         window.set_title(&format!(
                             "{:.3}ms :: e:{:.3}ms|alloc:{:.3}ms|cp:{:.3}ms|bd:{:.3}ms|bin:{:.3}ms|cr:{:.3}ms|r:{:.3}ms",
                             ts[6] * 1e3,
@@ -82,8 +87,10 @@ fn main() -> Result<(), Error> {
                         ));
                     }
 
+
                     let (image_idx, acquisition_semaphore) = swapchain.next().unwrap();
                     let swap_image = swapchain.image(image_idx);
+                    let query_pool = &query_pools[frame_idx];
                     let mut cmd_buf = session.cmd_buf().unwrap();
                     cmd_buf.begin();
                     renderer.record(&mut cmd_buf, &query_pool);
@@ -105,6 +112,7 @@ fn main() -> Result<(), Error> {
                             &[present_semaphores[frame_idx]],
                         )
                         .unwrap());
+                    last_frame_idx = frame_idx;
 
                     swapchain
                         .present(image_idx, &[present_semaphores[frame_idx]])
