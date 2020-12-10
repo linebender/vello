@@ -10,6 +10,5 @@ Much of the research progress on piet-gpu is documented in blog entries. Here ar
 There are some posts more general to GPU compute programming that might be of some interest:
 
 * [The stack monoid](https://raphlinus.github.io/gpu/2020/09/05/stack-monoid.html), Sep 5, 2020
-
 * [Prefix sum on Vulkan](https://raphlinus.github.io/gpu/2020/04/30/prefix-sum.html), Apr 30, 2020
 * [GPU resources](https://raphlinus.github.io/gpu/2020/02/12/gpu-resources.html), Feb 12, 2020

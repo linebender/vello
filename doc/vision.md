@@ -154,7 +154,7 @@ I'm really excited to see where this goes. I think there's the potential to buil
 [Lavapipe]: https://www.phoronix.com/scan.php?page=news_item&px=Mesa-Vulkan-Lavapipe
 [sort-middle architecture]: https://raphlinus.github.io/rust/graphics/gpu/2020/06/12/sort-middle.html
 [vulkan.gpuinfo.org]: https://vulkan.gpuinfo.org
-[Vulkan Portability Extension: https://www.khronos.org/blog/fighting-fragmentation-vulkan-portability-extension-released-implementations-shipping
+[Vulkan Portability Extension]: https://www.khronos.org/blog/fighting-fragmentation-vulkan-portability-extension-released-implementations-shipping
 [xi.zulipchat.com]: https://xi.zulipchat.com
 [glyf]: https://docs.microsoft.com/en-us/typography/opentype/spec/glyf
 [gvar]: https://docs.microsoft.com/en-us/typography/opentype/spec/gvar
