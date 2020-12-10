@@ -173,3 +173,4 @@ I'm really excited to see where this goes. I think there's the potential to buil
 [HDR]: https://en.wikipedia.org/wiki/High-dynamic-range_imaging
 [blurred rounded rectangle]: https://raphlinus.github.io/graphics/2020/04/21/blurred-rounded-rects.html
 [gio]: https://gioui.org/
+[Minikin]: https://android.googlesource.com/platform/frameworks/minikin/
