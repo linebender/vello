@@ -11,50 +11,42 @@
 #extension GL_EXT_nonuniform_qualifier : enable
 
 #include "setup.h"
+#include "mem.h"
 
 #define CHUNK 8
 #define CHUNK_DY (TILE_HEIGHT_PX / CHUNK)
 layout(local_size_x = TILE_WIDTH_PX, local_size_y = CHUNK_DY) in;
 
-// Same concern that this should be readonly as in kernel 3.
-layout(set = 0, binding = 0) buffer PtclBuf {
-    uint[] ptcl;
+layout(set = 0, binding = 1) readonly buffer ConfigBuf {
+    Config conf;
 };
 
-layout(set = 0, binding = 1) buffer TileBuf {
-    uint[] tile;
-};
+layout(rgba8, set = 0, binding = 2) uniform writeonly image2D image;
 
-layout(set = 0, binding = 2) buffer ClipScratchBuf {
-    uint[] clip_scratch;
-};
-
-layout(rgba8, set = 0, binding = 3) uniform writeonly image2D image;
-
-layout(set = 0, binding = 4) uniform sampler2D textures[];
+layout(set = 0, binding = 3) uniform sampler2D textures[];
 
 #include "ptcl.h"
 #include "tile.h"
 
 #define BLEND_STACK_SIZE 4
 
-// Layout of clip_scratch buffer:
-// [0] is the alloc bump offset (in units of 32 bit words, initially 0)
-// Starting at 1 is a sequence of frames.
+// Layout of a clip scratch frame:
 // Each frame is WIDTH * HEIGHT 32-bit words, then a link reference.
 
+// Link offset and frame size in 32-bit words.
 #define CLIP_LINK_OFFSET (TILE_WIDTH_PX * TILE_HEIGHT_PX)
 #define CLIP_BUF_SIZE (CLIP_LINK_OFFSET + 1)
 
-shared uint sh_clip_alloc;
+shared Alloc sh_clip_alloc;
 
-// Allocate a scratch buffer for clipping. Unlike offsets in the rest of the code,
-// it counts 32-bit words.
-uint alloc_clip_buf(uint link) {
+// Allocate a scratch buffer for clipping.
+Alloc alloc_clip_buf(uint link) {
     if (gl_LocalInvocationID.x == 0 && gl_LocalInvocationID.y == 0) {
-        uint alloc = atomicAdd(clip_scratch[0], CLIP_BUF_SIZE) + 1;
+        Alloc alloc = malloc(CLIP_BUF_SIZE * 4);
+        if (!alloc.failed) {
+            memory[(alloc.offset >> 2) + CLIP_LINK_OFFSET] = link;
+        }
         sh_clip_alloc = alloc;
-        clip_scratch[alloc + CLIP_LINK_OFFSET] = link;
     }
     barrier();
     return sh_clip_alloc;
@@ -95,8 +87,12 @@ float[CHUNK] computeArea(vec2 xy, int backdrop, uint tile_ref) {
 }
 
 void main() {
+    if (mem_overflow) {
+        return;
+    }
+
     uint tile_ix = gl_WorkGroupID.y * WIDTH_IN_TILES + gl_WorkGroupID.x;
-    CmdRef cmd_ref = CmdRef(tile_ix * PTCL_INITIAL_ALLOC);
+    CmdRef cmd_ref = CmdRef(conf.ptcl_base + tile_ix * PTCL_INITIAL_ALLOC);
 
     uvec2 xy_uint = uvec2(gl_GlobalInvocationID.x, gl_LocalInvocationID.y + TILE_HEIGHT_PX * gl_WorkGroupID.y);
     vec2 xy = vec2(xy_uint);
@@ -168,10 +164,14 @@ void main() {
             uint blend_slot = blend_sp % BLEND_STACK_SIZE;
             if (blend_sp == blend_spill + BLEND_STACK_SIZE) {
                 // spill to scratch buffer
-                clip_tos = alloc_clip_buf(clip_tos);
-                uint base_ix = clip_tos + gl_LocalInvocationID.x + TILE_WIDTH_PX * gl_LocalInvocationID.y;
+                Alloc alloc = alloc_clip_buf(clip_tos);
+                if (alloc.failed) {
+                    return;
+                }
+                clip_tos = alloc.offset;
+                uint base_ix = (clip_tos >> 2) + gl_LocalInvocationID.x + TILE_WIDTH_PX * gl_LocalInvocationID.y;
                 for (uint k = 0; k < CHUNK; k++) {
-                    clip_scratch[base_ix + k * TILE_WIDTH_PX * CHUNK_DY] = blend_stack[blend_slot][k];
+                    memory[base_ix + k * TILE_WIDTH_PX * CHUNK_DY] = blend_stack[blend_slot][k];
                 }
                 blend_spill++;
             }
@@ -194,11 +194,11 @@ void main() {
             CmdEndClip end_clip = Cmd_EndClip_read(cmd_ref);
             blend_slot = (blend_sp - 1) % BLEND_STACK_SIZE;
             if (blend_sp == blend_spill) {
-                uint base_ix = clip_tos + gl_LocalInvocationID.x + TILE_WIDTH_PX * gl_LocalInvocationID.y;
+                uint base_ix = (clip_tos >> 2) + gl_LocalInvocationID.x + TILE_WIDTH_PX * gl_LocalInvocationID.y;
                 for (uint k = 0; k < CHUNK; k++) {
-                    blend_stack[blend_slot][k] = clip_scratch[base_ix + k * TILE_WIDTH_PX * CHUNK_DY];
+                    blend_stack[blend_slot][k] = memory[base_ix + k * TILE_WIDTH_PX * CHUNK_DY];
                 }
-                clip_tos = clip_scratch[clip_tos + CLIP_LINK_OFFSET];
+                clip_tos = memory[(clip_tos >> 2) + CLIP_LINK_OFFSET];
                 blend_spill--;
             }
             blend_sp--;

@@ -6,24 +6,15 @@
 #extension GL_GOOGLE_include_directive : enable
 
 #include "setup.h"
+#include "mem.h"
 
 #define LG_TILE_ALLOC_WG (7 + LG_WG_FACTOR)
 #define TILE_ALLOC_WG (1 << LG_TILE_ALLOC_WG)
 
 layout(local_size_x = TILE_ALLOC_WG, local_size_y = 1) in;
 
-layout(set = 0, binding = 0) buffer AnnotatedBuf {
-    uint[] annotated;
-};
-
-layout(set = 0, binding = 1) buffer AllocBuf {
-    uint n_elements;
-    uint n_pathseg;
-    uint alloc;
-};
-
-layout(set = 0, binding = 2) buffer TileBuf {
-    uint[] tile;
+layout(set = 0, binding = 1) readonly buffer ConfigBuf {
+    Config conf;
 };
 
 #include "annotated.h"
@@ -34,16 +25,20 @@ layout(set = 0, binding = 2) buffer TileBuf {
 #define SY (1.0 / float(TILE_HEIGHT_PX))
 
 shared uint sh_tile_count[TILE_ALLOC_WG];
-shared uint sh_tile_alloc;
+shared Alloc sh_tile_alloc;
 
 void main() {
+    if (mem_overflow) {
+        return;
+    }
+
     uint th_ix = gl_LocalInvocationID.x;
     uint element_ix = gl_GlobalInvocationID.x;
-    PathRef path_ref = PathRef(element_ix * Path_size);
-    AnnotatedRef ref = AnnotatedRef(element_ix * Annotated_size);
+    PathRef path_ref = PathRef(conf.tile_base + element_ix * Path_size);
+    AnnotatedRef ref = AnnotatedRef(conf.anno_base + element_ix * Annotated_size);
 
     uint tag = Annotated_Nop;
-    if (element_ix < n_elements) {
+    if (element_ix < conf.n_elements) {
         tag = Annotated_tag(ref);
     }
     int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
@@ -86,23 +81,26 @@ void main() {
         sh_tile_count[th_ix] = tile_count;
     }
     if (th_ix == TILE_ALLOC_WG - 1) {
-        sh_tile_alloc = atomicAdd(alloc, tile_count * Tile_size);
+        sh_tile_alloc = malloc(tile_count * Tile_size);
     }
     barrier();
-    uint alloc_start = sh_tile_alloc;
+    Alloc alloc_start = sh_tile_alloc;
+    if (alloc_start.failed) {
+        return;
+    }
 
-    if (element_ix < n_elements) {
+    if (element_ix < conf.n_elements) {
         uint tile_subix = th_ix > 0 ? sh_tile_count[th_ix - 1] : 0;
-        path.tiles = TileRef(alloc_start + Tile_size * tile_subix);
+        path.tiles = TileRef(alloc_start.offset + Tile_size * tile_subix);
         Path_write(path_ref, path);
     }
 
     // Zero out allocated tiles efficiently
     uint total_count = sh_tile_count[TILE_ALLOC_WG - 1] * (Tile_size / 4);
-    uint start_ix = alloc_start >> 2;
+    uint start_ix = alloc_start.offset >> 2;
     for (uint i = th_ix; i < total_count; i += TILE_ALLOC_WG) {
         // Note: this interleaving is faster than using Tile_write
         // by a significant amount.
-        tile[start_ix + i] = 0;
+        memory[start_ix + i] = 0;
     }
 }

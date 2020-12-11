@@ -51,9 +51,9 @@ TileSegRef TileSeg_index(TileSegRef ref, uint index) {
 
 Path Path_read(PathRef ref) {
     uint ix = ref.offset >> 2;
-    uint raw0 = tile[ix + 0];
-    uint raw1 = tile[ix + 1];
-    uint raw2 = tile[ix + 2];
+    uint raw0 = memory[ix + 0];
+    uint raw1 = memory[ix + 1];
+    uint raw2 = memory[ix + 2];
     Path s;
     s.bbox = uvec4(raw0 & 0xffff, raw0 >> 16, raw1 & 0xffff, raw1 >> 16);
     s.tiles = TileRef(raw2);
@@ -62,15 +62,15 @@ Path Path_read(PathRef ref) {
 
 void Path_write(PathRef ref, Path s) {
     uint ix = ref.offset >> 2;
-    tile[ix + 0] = s.bbox.x | (s.bbox.y << 16);
-    tile[ix + 1] = s.bbox.z | (s.bbox.w << 16);
-    tile[ix + 2] = s.tiles.offset;
+    memory[ix + 0] = s.bbox.x | (s.bbox.y << 16);
+    memory[ix + 1] = s.bbox.z | (s.bbox.w << 16);
+    memory[ix + 2] = s.tiles.offset;
 }
 
 Tile Tile_read(TileRef ref) {
     uint ix = ref.offset >> 2;
-    uint raw0 = tile[ix + 0];
-    uint raw1 = tile[ix + 1];
+    uint raw0 = memory[ix + 0];
+    uint raw1 = memory[ix + 1];
     Tile s;
     s.tile = TileSegRef(raw0);
     s.backdrop = int(raw1);
@@ -79,18 +79,18 @@ Tile Tile_read(TileRef ref) {
 
 void Tile_write(TileRef ref, Tile s) {
     uint ix = ref.offset >> 2;
-    tile[ix + 0] = s.tile.offset;
-    tile[ix + 1] = uint(s.backdrop);
+    memory[ix + 0] = s.tile.offset;
+    memory[ix + 1] = uint(s.backdrop);
 }
 
 TileSeg TileSeg_read(TileSegRef ref) {
     uint ix = ref.offset >> 2;
-    uint raw0 = tile[ix + 0];
-    uint raw1 = tile[ix + 1];
-    uint raw2 = tile[ix + 2];
-    uint raw3 = tile[ix + 3];
-    uint raw4 = tile[ix + 4];
-    uint raw5 = tile[ix + 5];
+    uint raw0 = memory[ix + 0];
+    uint raw1 = memory[ix + 1];
+    uint raw2 = memory[ix + 2];
+    uint raw3 = memory[ix + 3];
+    uint raw4 = memory[ix + 4];
+    uint raw5 = memory[ix + 5];
     TileSeg s;
     s.origin = vec2(uintBitsToFloat(raw0), uintBitsToFloat(raw1));
     s.vector = vec2(uintBitsToFloat(raw2), uintBitsToFloat(raw3));
@@ -101,11 +101,11 @@ TileSeg TileSeg_read(TileSegRef ref) {
 
 void TileSeg_write(TileSegRef ref, TileSeg s) {
     uint ix = ref.offset >> 2;
-    tile[ix + 0] = floatBitsToUint(s.origin.x);
-    tile[ix + 1] = floatBitsToUint(s.origin.y);
-    tile[ix + 2] = floatBitsToUint(s.vector.x);
-    tile[ix + 3] = floatBitsToUint(s.vector.y);
-    tile[ix + 4] = floatBitsToUint(s.y_edge);
-    tile[ix + 5] = s.next.offset;
+    memory[ix + 0] = floatBitsToUint(s.origin.x);
+    memory[ix + 1] = floatBitsToUint(s.origin.y);
+    memory[ix + 2] = floatBitsToUint(s.vector.x);
+    memory[ix + 3] = floatBitsToUint(s.vector.y);
+    memory[ix + 4] = floatBitsToUint(s.y_edge);
+    memory[ix + 5] = s.next.offset;
 }
 
