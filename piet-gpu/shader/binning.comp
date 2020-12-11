@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
+
 // The binning stage of the pipeline.
 //
 // Each workgroup processes N_TILE paths.

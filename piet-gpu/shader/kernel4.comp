@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
+
 // This is "kernel 4" in a 4-kernel pipeline. It renders the commands
 // in the per-tile command list to an image.
 
