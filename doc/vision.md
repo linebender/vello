@@ -56,7 +56,9 @@ There are a number of approaches to this problem, including building hybrid pipe
 
 I’m more inclined to fall back to CPU rendering. Projects such as [Blend2D] show that CPU rendering can be performant, though nowhere nearly as much as a GPU. Of course, that means coming up with CPU implementations of the algorithms.
 
-One intriguing possibility is to automatically translate the Vulkan compute shaders to CPU runnable code. This approach has the advantage of maintaining one codebase for the pipeline, reducing friction for adding new features, and guaranteeing pixel-perfect consistency. The biggest question is whether such an approach would be adequately performant. A very good way to get preliminary answers is to use [SwiftShader] or Mesa’s [Lavapipe], which do JIT generation of CPU side code. Obviously, for reasons of startup time and binary size it would be better to ship ahead-of-time translated shaders, but that’s a practical rather than conceptual problem. (An intriguing possibility is the [spirv to ispc translator], which doesn’t seem to be actively developed, but would seem to be a path to reasonably good CPU performance from shaders.)
+One intriguing possibility is to automatically translate the Vulkan compute shaders to CPU runnable code. This approach has the advantage of maintaining one codebase for the pipeline, reducing friction for adding new features, and guaranteeing pixel-perfect consistency. The biggest question is whether such an approach would be adequately performant. A very good way to get preliminary answers is to use [SwiftShader] or Mesa’s [Lavapipe], which do JIT generation of CPU side code. Obviously, for reasons of startup time and binary size it would be better to ship ahead-of-time translated shaders, but that’s a practical rather than conceptual problem.
+
+There are examples of compile time translation of shaders to CPU code. An intriguing possibility is the [spirv to ispc translator], which doesn’t seem to be actively developed, but would seem to be a path to reasonably good CPU performance from shaders. Another, actually used in production in WebRender, is [glsl-to-cxx].
 
 A truly universal compute infrastructure with unified shader source would have implications far beyond 2D rendering. The domain most likely to invest in this area is AI (deployment to consumer hardware; for server side and in-house deployment, they’ll obviously just use CUDA and neural accelerators). I’ll also note that this problem is ostensibly within scope of OpenCL, but they have so far failed to deliver, largely because they’ve historically been entirely dependent on driver support from the GPU manufacturer. I expect *something* to happen.
 
@@ -80,7 +82,7 @@ The first is bitmaps produced by the platform. These have the advantage of match
 
 The second is dynamic vector rendering from glyph outlines. This source is best optimized for large text, animation (including supporting pinch-to-zoom style gestures), and possible extension into 3D, including VR and AR. The lack of hinting and RGB subpixel rendering is not a serious issue on high-dpi screens, and is not an expectation on mobile. Early measurements from piet-gpu suggest that it should be possible to maintain 60fps of text-heavy scenes on most GPUs, but power usage might not be ideal.
 
-Thus, the third source is vector rendering through a glyph cache, something of a hybrid of the first two sources. Originally, management of the cache will be CPU-side, and managed during encoding (likely using [Guillotière] or something similar), but in the future we might explore GPU-side algorithms to manage the cache in parallel, reducing CPU requirements further.
+Thus, the third source is vector rendering through a glyph cache, something of a hybrid of the first two sources. Originally, management of the cache will be CPU-side, and managed during encoding (likely using [Guillotière], [Étagère], or something similar), but in the future we might explore GPU-side algorithms to manage the cache in parallel, reducing CPU requirements further.
 
 ### GPU-side variable fonts
 
@@ -142,6 +144,8 @@ I’d really like to build a good open-source community around piet-gpu, and tha
 
 I'm really excited to see where this goes. I think there's the potential to build something truly great, and I look forward to working with others to realize that vision.
 
+There's been some great discussion on [/r/rust](https://www.reddit.com/r/rust/comments/kal8ac/the_pietgpu_vision/).
+
 [hz]: https://en.wikipedia.org/wiki/Hz-program
 [spirv to ispc translator]: https://software.intel.com/content/www/us/en/develop/articles/spir-v-to-ispc-convert-gpu-compute-to-the-cpu.html
 [tiny-skia]: https://github.com/RazrFalcon/tiny-skia
@@ -151,6 +155,7 @@ I'm really excited to see where this goes. I think there's the potential to buil
 [kashida]: https://andreasmhallberg.github.io/stretchable-kashida/
 [SwiftShader]: https://swiftshader.googlesource.com/SwiftShader
 [Lavapipe]: https://www.phoronix.com/scan.php?page=news_item&px=Mesa-Vulkan-Lavapipe
+[glsl-to-cxx]: https://github.com/servo/webrender/tree/master/glsl-to-cxx
 [sort-middle architecture]: https://raphlinus.github.io/rust/graphics/gpu/2020/06/12/sort-middle.html
 [vulkan.gpuinfo.org]: https://vulkan.gpuinfo.org
 [Vulkan Portability Extension]: https://www.khronos.org/blog/fighting-fragmentation-vulkan-portability-extension-released-implementations-shipping
@@ -164,6 +169,7 @@ I'm really excited to see where this goes. I think there's the potential to buil
 [descriptor indexing]: http://chunkstories.xyz/blog/a-note-on-descriptor-indexing/
 [rich text API]: https://www.cmyr.net/blog/piet-text-work.html
 [Guillotière]: https://github.com/nical/guillotiere
+[Étagère]: https://crates.io/crates/etagere
 [variable font technology]: https://docs.microsoft.com/en-us/typography/opentype/spec/otvaroverview
 [MSAA]: https://en.wikipedia.org/wiki/Multisample_anti-aliasing
 [tradition of libart]: https://people.gnome.org/~mathieu/libart/internals.html
