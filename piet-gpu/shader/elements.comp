@@ -22,6 +22,7 @@ layout(set = 0, binding = 0) readonly buffer SceneBuf {
 // "volatile" but shooting for compatibility here rather
 // than doing things right.
 layout(set = 0, binding = 1) volatile buffer StateBuf {
+    uint part_counter;
     uint[] state;
 };
 
@@ -40,18 +41,18 @@ layout(set = 0, binding = 3) buffer PathSegBuf {
 #include "annotated.h"
 #include "pathseg.h"
 
-#define StateBuf_stride (8 + 2 * State_size)
+#define StateBuf_stride (4 + 2 * State_size)
 
 StateRef state_aggregate_ref(uint partition_ix) {
-    return StateRef(12 + partition_ix * StateBuf_stride);
+    return StateRef(4 + partition_ix * StateBuf_stride);
 }
 
 StateRef state_prefix_ref(uint partition_ix) {
-    return StateRef(12 + partition_ix * StateBuf_stride + State_size);
+    return StateRef(4 + partition_ix * StateBuf_stride + State_size);
 }
 
 uint state_flag_index(uint partition_ix) {
-    return 1 + partition_ix * (StateBuf_stride / 4);
+    return partition_ix * (StateBuf_stride / 4);
 }
 
 // These correspond to X, A, P respectively in the prefix sum paper.
@@ -176,7 +177,7 @@ void main() {
     // Determine partition to process by atomic counter (described in Section
     // 4.4 of prefix sum paper).
     if (gl_LocalInvocationID.x == 0) {
-        sh_part_ix = atomicAdd(state[0], 1);
+        sh_part_ix = atomicAdd(part_counter, 1);
     }
     barrier();
     uint part_ix = sh_part_ix;
