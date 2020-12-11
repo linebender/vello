@@ -184,7 +184,7 @@ void main() {
                 float solid_alpha = begin_solid_clip.alpha;
                 for (uint k = 0; k < CHUNK; k++) {
                     blend_stack[blend_slot][k] = packUnorm4x8(vec4(rgb[k], solid_alpha));
-                }                
+                }
             }
             blend_sp++;
             break;
