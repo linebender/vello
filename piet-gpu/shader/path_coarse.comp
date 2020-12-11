@@ -8,24 +8,15 @@
 #extension GL_GOOGLE_include_directive : enable
 
 #include "setup.h"
+#include "mem.h"
 
 #define LG_COARSE_WG 5
 #define COARSE_WG (1 << LG_COARSE_WG)
 
 layout(local_size_x = COARSE_WG, local_size_y = 1) in;
 
-layout(set = 0, binding = 0) buffer PathSegBuf {
-    uint[] pathseg;
-};
-
-layout(set = 0, binding = 1) buffer AllocBuf {
-    uint n_paths;
-    uint n_pathseg;
-    uint alloc;
-};
-
-layout(set = 0, binding = 2) buffer TileBuf {
-    uint[] tile;
+layout(set = 0, binding = 1) readonly buffer ConfigBuf {
+    Config conf;
 };
 
 #include "pathseg.h"
@@ -96,11 +87,15 @@ SubdivResult estimate_subdiv(vec2 p0, vec2 p1, vec2 p2, float sqrt_tol) {
 }
 
 void main() {
+    if (mem_overflow) {
+        return;
+    }
+
     uint element_ix = gl_GlobalInvocationID.x;
-    PathSegRef ref = PathSegRef(element_ix * PathSeg_size);
+    PathSegRef ref = PathSegRef(conf.pathseg_base + element_ix * PathSeg_size);
 
     uint tag = PathSeg_Nop;
-    if (element_ix < n_pathseg) {
+    if (element_ix < conf.n_pathseg) {
         tag = PathSeg_tag(ref);
     }
     switch (tag) {
@@ -128,7 +123,7 @@ void main() {
         uint n = max(uint(ceil(val * 0.5 / sqrt(REM_ACCURACY))), 1);
 
         uint path_ix = cubic.path_ix;
-        Path path = Path_read(PathRef(path_ix * Path_size));
+        Path path = Path_read(PathRef(conf.tile_base + path_ix * Path_size));
         ivec4 bbox = ivec4(path.bbox);
         vec2 p0 = cubic.p0;
         qp0 = cubic.p0;
@@ -187,7 +182,12 @@ void main() {
                 // TODO: can be tighter, use c to bound width
                 uint n_tile_alloc = uint((x1 - x0) * (y1 - y0));
                 // Consider using subgroups to aggregate atomic add.
-                uint tile_offset = atomicAdd(alloc, n_tile_alloc * TileSeg_size);
+                Alloc tile_alloc = malloc(n_tile_alloc * TileSeg_size);
+                if (tile_alloc.failed) {
+                    return;
+                }
+                uint tile_offset = tile_alloc.offset;
+
                 TileSeg tile_seg;
 
                 int xray = int(floor(p0.x*SX));
@@ -203,7 +203,7 @@ void main() {
                         int backdrop = p1.y < p0.y ? 1 : -1;
                         TileRef tile_ref = Tile_index(path.tiles, uint(base + xbackdrop));
                         uint tile_el = tile_ref.offset >> 2;
-                        atomicAdd(tile[tile_el + 1], backdrop);
+                        atomicAdd(memory[tile_el + 1], backdrop);
                     }
 
                     int xx0 = clamp(int(floor(xc - c)), x0, x1);
@@ -217,7 +217,7 @@ void main() {
                         float tile_x0 = float(x * TILE_WIDTH_PX);
                         TileRef tile_ref = Tile_index(path.tiles, uint(base + x));
                         uint tile_el = tile_ref.offset >> 2;
-                        uint old = atomicExchange(tile[tile_el], tile_offset);
+                        uint old = atomicExchange(memory[tile_el], tile_offset);
                         tile_seg.origin = p0;
                         tile_seg.vector = p1 - p0;
                         float y_edge = 0.0;

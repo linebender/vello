@@ -173,10 +173,10 @@ CmdRef Cmd_index(CmdRef ref, uint index) {
 
 CmdCircle CmdCircle_read(CmdCircleRef ref) {
     uint ix = ref.offset >> 2;
-    uint raw0 = ptcl[ix + 0];
-    uint raw1 = ptcl[ix + 1];
-    uint raw2 = ptcl[ix + 2];
-    uint raw3 = ptcl[ix + 3];
+    uint raw0 = memory[ix + 0];
+    uint raw1 = memory[ix + 1];
+    uint raw2 = memory[ix + 2];
+    uint raw3 = memory[ix + 3];
     CmdCircle s;
     s.center = vec2(uintBitsToFloat(raw0), uintBitsToFloat(raw1));
     s.radius = uintBitsToFloat(raw2);
@@ -186,18 +186,18 @@ CmdCircle CmdCircle_read(CmdCircleRef ref) {
 
 void CmdCircle_write(CmdCircleRef ref, CmdCircle s) {
     uint ix = ref.offset >> 2;
-    ptcl[ix + 0] = floatBitsToUint(s.center.x);
-    ptcl[ix + 1] = floatBitsToUint(s.center.y);
-    ptcl[ix + 2] = floatBitsToUint(s.radius);
-    ptcl[ix + 3] = s.rgba_color;
+    memory[ix + 0] = floatBitsToUint(s.center.x);
+    memory[ix + 1] = floatBitsToUint(s.center.y);
+    memory[ix + 2] = floatBitsToUint(s.radius);
+    memory[ix + 3] = s.rgba_color;
 }
 
 CmdLine CmdLine_read(CmdLineRef ref) {
     uint ix = ref.offset >> 2;
-    uint raw0 = ptcl[ix + 0];
-    uint raw1 = ptcl[ix + 1];
-    uint raw2 = ptcl[ix + 2];
-    uint raw3 = ptcl[ix + 3];
+    uint raw0 = memory[ix + 0];
+    uint raw1 = memory[ix + 1];
+    uint raw2 = memory[ix + 2];
+    uint raw3 = memory[ix + 3];
     CmdLine s;
     s.start = vec2(uintBitsToFloat(raw0), uintBitsToFloat(raw1));
     s.end = vec2(uintBitsToFloat(raw2), uintBitsToFloat(raw3));
@@ -206,17 +206,17 @@ CmdLine CmdLine_read(CmdLineRef ref) {
 
 void CmdLine_write(CmdLineRef ref, CmdLine s) {
     uint ix = ref.offset >> 2;
-    ptcl[ix + 0] = floatBitsToUint(s.start.x);
-    ptcl[ix + 1] = floatBitsToUint(s.start.y);
-    ptcl[ix + 2] = floatBitsToUint(s.end.x);
-    ptcl[ix + 3] = floatBitsToUint(s.end.y);
+    memory[ix + 0] = floatBitsToUint(s.start.x);
+    memory[ix + 1] = floatBitsToUint(s.start.y);
+    memory[ix + 2] = floatBitsToUint(s.end.x);
+    memory[ix + 3] = floatBitsToUint(s.end.y);
 }
 
 CmdStroke CmdStroke_read(CmdStrokeRef ref) {
     uint ix = ref.offset >> 2;
-    uint raw0 = ptcl[ix + 0];
-    uint raw1 = ptcl[ix + 1];
-    uint raw2 = ptcl[ix + 2];
+    uint raw0 = memory[ix + 0];
+    uint raw1 = memory[ix + 1];
+    uint raw2 = memory[ix + 2];
     CmdStroke s;
     s.tile_ref = raw0;
     s.half_width = uintBitsToFloat(raw1);
@@ -226,16 +226,16 @@ CmdStroke CmdStroke_read(CmdStrokeRef ref) {
 
 void CmdStroke_write(CmdStrokeRef ref, CmdStroke s) {
     uint ix = ref.offset >> 2;
-    ptcl[ix + 0] = s.tile_ref;
-    ptcl[ix + 1] = floatBitsToUint(s.half_width);
-    ptcl[ix + 2] = s.rgba_color;
+    memory[ix + 0] = s.tile_ref;
+    memory[ix + 1] = floatBitsToUint(s.half_width);
+    memory[ix + 2] = s.rgba_color;
 }
 
 CmdFill CmdFill_read(CmdFillRef ref) {
     uint ix = ref.offset >> 2;
-    uint raw0 = ptcl[ix + 0];
-    uint raw1 = ptcl[ix + 1];
-    uint raw2 = ptcl[ix + 2];
+    uint raw0 = memory[ix + 0];
+    uint raw1 = memory[ix + 1];
+    uint raw2 = memory[ix + 2];
     CmdFill s;
     s.tile_ref = raw0;
     s.backdrop = int(raw1);
@@ -245,15 +245,15 @@ CmdFill CmdFill_read(CmdFillRef ref) {
 
 void CmdFill_write(CmdFillRef ref, CmdFill s) {
     uint ix = ref.offset >> 2;
-    ptcl[ix + 0] = s.tile_ref;
-    ptcl[ix + 1] = uint(s.backdrop);
-    ptcl[ix + 2] = s.rgba_color;
+    memory[ix + 0] = s.tile_ref;
+    memory[ix + 1] = uint(s.backdrop);
+    memory[ix + 2] = s.rgba_color;
 }
 
 CmdBeginClip CmdBeginClip_read(CmdBeginClipRef ref) {
     uint ix = ref.offset >> 2;
-    uint raw0 = ptcl[ix + 0];
-    uint raw1 = ptcl[ix + 1];
+    uint raw0 = memory[ix + 0];
+    uint raw1 = memory[ix + 1];
     CmdBeginClip s;
     s.tile_ref = raw0;
     s.backdrop = int(raw1);
@@ -262,13 +262,13 @@ CmdBeginClip CmdBeginClip_read(CmdBeginClipRef ref) {
 
 void CmdBeginClip_write(CmdBeginClipRef ref, CmdBeginClip s) {
     uint ix = ref.offset >> 2;
-    ptcl[ix + 0] = s.tile_ref;
-    ptcl[ix + 1] = uint(s.backdrop);
+    memory[ix + 0] = s.tile_ref;
+    memory[ix + 1] = uint(s.backdrop);
 }
 
 CmdBeginSolidClip CmdBeginSolidClip_read(CmdBeginSolidClipRef ref) {
     uint ix = ref.offset >> 2;
-    uint raw0 = ptcl[ix + 0];
+    uint raw0 = memory[ix + 0];
     CmdBeginSolidClip s;
     s.alpha = uintBitsToFloat(raw0);
     return s;
@@ -276,12 +276,12 @@ CmdBeginSolidClip CmdBeginSolidClip_read(CmdBeginSolidClipRef ref) {
 
 void CmdBeginSolidClip_write(CmdBeginSolidClipRef ref, CmdBeginSolidClip s) {
     uint ix = ref.offset >> 2;
-    ptcl[ix + 0] = floatBitsToUint(s.alpha);
+    memory[ix + 0] = floatBitsToUint(s.alpha);
 }
 
 CmdEndClip CmdEndClip_read(CmdEndClipRef ref) {
     uint ix = ref.offset >> 2;
-    uint raw0 = ptcl[ix + 0];
+    uint raw0 = memory[ix + 0];
     CmdEndClip s;
     s.alpha = uintBitsToFloat(raw0);
     return s;
@@ -289,12 +289,12 @@ CmdEndClip CmdEndClip_read(CmdEndClipRef ref) {
 
 void CmdEndClip_write(CmdEndClipRef ref, CmdEndClip s) {
     uint ix = ref.offset >> 2;
-    ptcl[ix + 0] = floatBitsToUint(s.alpha);
+    memory[ix + 0] = floatBitsToUint(s.alpha);
 }
 
 CmdSolid CmdSolid_read(CmdSolidRef ref) {
     uint ix = ref.offset >> 2;
-    uint raw0 = ptcl[ix + 0];
+    uint raw0 = memory[ix + 0];
     CmdSolid s;
     s.rgba_color = raw0;
     return s;
@@ -302,12 +302,12 @@ CmdSolid CmdSolid_read(CmdSolidRef ref) {
 
 void CmdSolid_write(CmdSolidRef ref, CmdSolid s) {
     uint ix = ref.offset >> 2;
-    ptcl[ix + 0] = s.rgba_color;
+    memory[ix + 0] = s.rgba_color;
 }
 
 CmdSolidMask CmdSolidMask_read(CmdSolidMaskRef ref) {
     uint ix = ref.offset >> 2;
-    uint raw0 = ptcl[ix + 0];
+    uint raw0 = memory[ix + 0];
     CmdSolidMask s;
     s.mask = uintBitsToFloat(raw0);
     return s;
@@ -315,12 +315,12 @@ CmdSolidMask CmdSolidMask_read(CmdSolidMaskRef ref) {
 
 void CmdSolidMask_write(CmdSolidMaskRef ref, CmdSolidMask s) {
     uint ix = ref.offset >> 2;
-    ptcl[ix + 0] = floatBitsToUint(s.mask);
+    memory[ix + 0] = floatBitsToUint(s.mask);
 }
 
 CmdJump CmdJump_read(CmdJumpRef ref) {
     uint ix = ref.offset >> 2;
-    uint raw0 = ptcl[ix + 0];
+    uint raw0 = memory[ix + 0];
     CmdJump s;
     s.new_ref = raw0;
     return s;
@@ -328,11 +328,11 @@ CmdJump CmdJump_read(CmdJumpRef ref) {
 
 void CmdJump_write(CmdJumpRef ref, CmdJump s) {
     uint ix = ref.offset >> 2;
-    ptcl[ix + 0] = s.new_ref;
+    memory[ix + 0] = s.new_ref;
 }
 
 uint Cmd_tag(CmdRef ref) {
-    return ptcl[ref.offset >> 2];
+    return memory[ref.offset >> 2];
 }
 
 CmdCircle Cmd_Circle_read(CmdRef ref) {
@@ -376,56 +376,56 @@ CmdJump Cmd_Jump_read(CmdRef ref) {
 }
 
 void Cmd_End_write(CmdRef ref) {
-    ptcl[ref.offset >> 2] = Cmd_End;
+    memory[ref.offset >> 2] = Cmd_End;
 }
 
 void Cmd_Circle_write(CmdRef ref, CmdCircle s) {
-    ptcl[ref.offset >> 2] = Cmd_Circle;
+    memory[ref.offset >> 2] = Cmd_Circle;
     CmdCircle_write(CmdCircleRef(ref.offset + 4), s);
 }
 
 void Cmd_Line_write(CmdRef ref, CmdLine s) {
-    ptcl[ref.offset >> 2] = Cmd_Line;
+    memory[ref.offset >> 2] = Cmd_Line;
     CmdLine_write(CmdLineRef(ref.offset + 4), s);
 }
 
 void Cmd_Fill_write(CmdRef ref, CmdFill s) {
-    ptcl[ref.offset >> 2] = Cmd_Fill;
+    memory[ref.offset >> 2] = Cmd_Fill;
     CmdFill_write(CmdFillRef(ref.offset + 4), s);
 }
 
 void Cmd_BeginClip_write(CmdRef ref, CmdBeginClip s) {
-    ptcl[ref.offset >> 2] = Cmd_BeginClip;
+    memory[ref.offset >> 2] = Cmd_BeginClip;
     CmdBeginClip_write(CmdBeginClipRef(ref.offset + 4), s);
 }
 
 void Cmd_BeginSolidClip_write(CmdRef ref, CmdBeginSolidClip s) {
-    ptcl[ref.offset >> 2] = Cmd_BeginSolidClip;
+    memory[ref.offset >> 2] = Cmd_BeginSolidClip;
     CmdBeginSolidClip_write(CmdBeginSolidClipRef(ref.offset + 4), s);
 }
 
 void Cmd_EndClip_write(CmdRef ref, CmdEndClip s) {
-    ptcl[ref.offset >> 2] = Cmd_EndClip;
+    memory[ref.offset >> 2] = Cmd_EndClip;
     CmdEndClip_write(CmdEndClipRef(ref.offset + 4), s);
 }
 
 void Cmd_Stroke_write(CmdRef ref, CmdStroke s) {
-    ptcl[ref.offset >> 2] = Cmd_Stroke;
+    memory[ref.offset >> 2] = Cmd_Stroke;
     CmdStroke_write(CmdStrokeRef(ref.offset + 4), s);
 }
 
 void Cmd_Solid_write(CmdRef ref, CmdSolid s) {
-    ptcl[ref.offset >> 2] = Cmd_Solid;
+    memory[ref.offset >> 2] = Cmd_Solid;
     CmdSolid_write(CmdSolidRef(ref.offset + 4), s);
 }
 
 void Cmd_SolidMask_write(CmdRef ref, CmdSolidMask s) {
-    ptcl[ref.offset >> 2] = Cmd_SolidMask;
+    memory[ref.offset >> 2] = Cmd_SolidMask;
     CmdSolidMask_write(CmdSolidMaskRef(ref.offset + 4), s);
 }
 
 void Cmd_Jump_write(CmdRef ref, CmdJump s) {
-    ptcl[ref.offset >> 2] = Cmd_Jump;
+    memory[ref.offset >> 2] = Cmd_Jump;
     CmdJump_write(CmdJumpRef(ref.offset + 4), s);
 }
 

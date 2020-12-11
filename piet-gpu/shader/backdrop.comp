@@ -16,27 +16,15 @@
 #extension GL_GOOGLE_include_directive : enable
 
 #include "setup.h"
+#include "mem.h"
 
 #define LG_BACKDROP_WG (7 + LG_WG_FACTOR)
 #define BACKDROP_WG (1 << LG_BACKDROP_WG)
 
 layout(local_size_x = BACKDROP_WG, local_size_y = 1) in;
 
-layout(set = 0, binding = 0) buffer AnnotatedBuf {
-    uint[] annotated;
-};
-
-// This is really only used for n_elements; maybe we can handle that
-// a different way, but it's convenient to have the same signature as
-// tile allocation.
-layout(set = 0, binding = 1) readonly buffer AllocBuf {
-    uint n_elements; // paths
-    uint n_pathseg;
-    uint alloc;
-};
-
-layout(set = 0, binding = 2) buffer TileBuf {
-    uint[] tile;
+layout(set = 0, binding = 1) readonly buffer ConfigBuf {
+    Config conf;
 };
 
 #include "annotated.h"
@@ -47,18 +35,22 @@ shared uint sh_row_base[BACKDROP_WG];
 shared uint sh_row_width[BACKDROP_WG];
 
 void main() {
+    if (mem_overflow) {
+        return;
+    }
+
     uint th_ix = gl_LocalInvocationID.x;
     uint element_ix = gl_GlobalInvocationID.x;
-    AnnotatedRef ref = AnnotatedRef(element_ix * Annotated_size);
+    AnnotatedRef ref = AnnotatedRef(conf.anno_base + element_ix * Annotated_size);
 
     // Work assignment: 1 thread : 1 path element
     uint row_count = 0;
-    if (element_ix < n_elements) {
+    if (element_ix < conf.n_elements) {
         uint tag = Annotated_tag(ref);
         switch (tag) {
         case Annotated_Fill:
         case Annotated_BeginClip:
-            PathRef path_ref = PathRef(element_ix * Path_size);
+            PathRef path_ref = PathRef(conf.tile_base + element_ix * Path_size);
             Path path = Path_read(path_ref);
             sh_row_width[th_ix] = path.bbox.z - path.bbox.x;
             row_count = path.bbox.w - path.bbox.y;
@@ -98,11 +90,11 @@ void main() {
         // Process one row sequentially
         // Read backdrop value per tile and prefix sum it
         uint tile_el_ix = sh_row_base[el_ix] + seq_ix * 2 * width;
-        uint sum = tile[tile_el_ix];
+        uint sum = memory[tile_el_ix];
         for (uint x = 1; x < width; x++) {
             tile_el_ix += 2;
-            sum += tile[tile_el_ix];
-            tile[tile_el_ix] = sum;
+            sum += memory[tile_el_ix];
+            memory[tile_el_ix] = sum;
         }
     }
 }
