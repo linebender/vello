@@ -31,17 +31,22 @@ pub fn gen_glsl(module: &LayoutModule) -> String {
 
     for name in &module.def_names {
         let def = module.defs.get(name).unwrap();
+        let mem = &"memory".to_owned();
+        let mut buf_name = &module.name;
+        if !module.name.eq(&"state") && !module.name.eq(&"scene") {
+            buf_name = mem;
+        }
         match def {
             (_size, LayoutTypeDef::Struct(fields)) => {
-                gen_struct_read(&mut r, &module.name, &name, fields);
+                gen_struct_read(&mut r, buf_name, &name, fields);
                 if module.gpu_write {
-                    gen_struct_write(&mut r, &module.name, &name, fields);
+                    gen_struct_write(&mut r, buf_name, &name, fields);
                 }
             }
             (_size, LayoutTypeDef::Enum(en)) => {
-                gen_enum_read(&mut r, &module.name, &name, en);
+                gen_enum_read(&mut r, buf_name, &name, en);
                 if module.gpu_write {
-                    gen_enum_write(&mut r, &module.name, &name, en);
+                    gen_enum_write(&mut r, buf_name, &name, en);
                 }
             }
         }

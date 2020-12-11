@@ -89,11 +89,11 @@ PathSegRef PathSeg_index(PathSegRef ref, uint index) {
 
 PathFillLine PathFillLine_read(PathFillLineRef ref) {
     uint ix = ref.offset >> 2;
-    uint raw0 = pathseg[ix + 0];
-    uint raw1 = pathseg[ix + 1];
-    uint raw2 = pathseg[ix + 2];
-    uint raw3 = pathseg[ix + 3];
-    uint raw4 = pathseg[ix + 4];
+    uint raw0 = memory[ix + 0];
+    uint raw1 = memory[ix + 1];
+    uint raw2 = memory[ix + 2];
+    uint raw3 = memory[ix + 3];
+    uint raw4 = memory[ix + 4];
     PathFillLine s;
     s.p0 = vec2(uintBitsToFloat(raw0), uintBitsToFloat(raw1));
     s.p1 = vec2(uintBitsToFloat(raw2), uintBitsToFloat(raw3));
@@ -103,22 +103,22 @@ PathFillLine PathFillLine_read(PathFillLineRef ref) {
 
 void PathFillLine_write(PathFillLineRef ref, PathFillLine s) {
     uint ix = ref.offset >> 2;
-    pathseg[ix + 0] = floatBitsToUint(s.p0.x);
-    pathseg[ix + 1] = floatBitsToUint(s.p0.y);
-    pathseg[ix + 2] = floatBitsToUint(s.p1.x);
-    pathseg[ix + 3] = floatBitsToUint(s.p1.y);
-    pathseg[ix + 4] = s.path_ix;
+    memory[ix + 0] = floatBitsToUint(s.p0.x);
+    memory[ix + 1] = floatBitsToUint(s.p0.y);
+    memory[ix + 2] = floatBitsToUint(s.p1.x);
+    memory[ix + 3] = floatBitsToUint(s.p1.y);
+    memory[ix + 4] = s.path_ix;
 }
 
 PathStrokeLine PathStrokeLine_read(PathStrokeLineRef ref) {
     uint ix = ref.offset >> 2;
-    uint raw0 = pathseg[ix + 0];
-    uint raw1 = pathseg[ix + 1];
-    uint raw2 = pathseg[ix + 2];
-    uint raw3 = pathseg[ix + 3];
-    uint raw4 = pathseg[ix + 4];
-    uint raw5 = pathseg[ix + 5];
-    uint raw6 = pathseg[ix + 6];
+    uint raw0 = memory[ix + 0];
+    uint raw1 = memory[ix + 1];
+    uint raw2 = memory[ix + 2];
+    uint raw3 = memory[ix + 3];
+    uint raw4 = memory[ix + 4];
+    uint raw5 = memory[ix + 5];
+    uint raw6 = memory[ix + 6];
     PathStrokeLine s;
     s.p0 = vec2(uintBitsToFloat(raw0), uintBitsToFloat(raw1));
     s.p1 = vec2(uintBitsToFloat(raw2), uintBitsToFloat(raw3));
@@ -129,26 +129,26 @@ PathStrokeLine PathStrokeLine_read(PathStrokeLineRef ref) {
 
 void PathStrokeLine_write(PathStrokeLineRef ref, PathStrokeLine s) {
     uint ix = ref.offset >> 2;
-    pathseg[ix + 0] = floatBitsToUint(s.p0.x);
-    pathseg[ix + 1] = floatBitsToUint(s.p0.y);
-    pathseg[ix + 2] = floatBitsToUint(s.p1.x);
-    pathseg[ix + 3] = floatBitsToUint(s.p1.y);
-    pathseg[ix + 4] = s.path_ix;
-    pathseg[ix + 5] = floatBitsToUint(s.stroke.x);
-    pathseg[ix + 6] = floatBitsToUint(s.stroke.y);
+    memory[ix + 0] = floatBitsToUint(s.p0.x);
+    memory[ix + 1] = floatBitsToUint(s.p0.y);
+    memory[ix + 2] = floatBitsToUint(s.p1.x);
+    memory[ix + 3] = floatBitsToUint(s.p1.y);
+    memory[ix + 4] = s.path_ix;
+    memory[ix + 5] = floatBitsToUint(s.stroke.x);
+    memory[ix + 6] = floatBitsToUint(s.stroke.y);
 }
 
 PathFillCubic PathFillCubic_read(PathFillCubicRef ref) {
     uint ix = ref.offset >> 2;
-    uint raw0 = pathseg[ix + 0];
-    uint raw1 = pathseg[ix + 1];
-    uint raw2 = pathseg[ix + 2];
-    uint raw3 = pathseg[ix + 3];
-    uint raw4 = pathseg[ix + 4];
-    uint raw5 = pathseg[ix + 5];
-    uint raw6 = pathseg[ix + 6];
-    uint raw7 = pathseg[ix + 7];
-    uint raw8 = pathseg[ix + 8];
+    uint raw0 = memory[ix + 0];
+    uint raw1 = memory[ix + 1];
+    uint raw2 = memory[ix + 2];
+    uint raw3 = memory[ix + 3];
+    uint raw4 = memory[ix + 4];
+    uint raw5 = memory[ix + 5];
+    uint raw6 = memory[ix + 6];
+    uint raw7 = memory[ix + 7];
+    uint raw8 = memory[ix + 8];
     PathFillCubic s;
     s.p0 = vec2(uintBitsToFloat(raw0), uintBitsToFloat(raw1));
     s.p1 = vec2(uintBitsToFloat(raw2), uintBitsToFloat(raw3));
@@ -160,30 +160,30 @@ PathFillCubic PathFillCubic_read(PathFillCubicRef ref) {
 
 void PathFillCubic_write(PathFillCubicRef ref, PathFillCubic s) {
     uint ix = ref.offset >> 2;
-    pathseg[ix + 0] = floatBitsToUint(s.p0.x);
-    pathseg[ix + 1] = floatBitsToUint(s.p0.y);
-    pathseg[ix + 2] = floatBitsToUint(s.p1.x);
-    pathseg[ix + 3] = floatBitsToUint(s.p1.y);
-    pathseg[ix + 4] = floatBitsToUint(s.p2.x);
-    pathseg[ix + 5] = floatBitsToUint(s.p2.y);
-    pathseg[ix + 6] = floatBitsToUint(s.p3.x);
-    pathseg[ix + 7] = floatBitsToUint(s.p3.y);
-    pathseg[ix + 8] = s.path_ix;
+    memory[ix + 0] = floatBitsToUint(s.p0.x);
+    memory[ix + 1] = floatBitsToUint(s.p0.y);
+    memory[ix + 2] = floatBitsToUint(s.p1.x);
+    memory[ix + 3] = floatBitsToUint(s.p1.y);
+    memory[ix + 4] = floatBitsToUint(s.p2.x);
+    memory[ix + 5] = floatBitsToUint(s.p2.y);
+    memory[ix + 6] = floatBitsToUint(s.p3.x);
+    memory[ix + 7] = floatBitsToUint(s.p3.y);
+    memory[ix + 8] = s.path_ix;
 }
 
 PathStrokeCubic PathStrokeCubic_read(PathStrokeCubicRef ref) {
     uint ix = ref.offset >> 2;
-    uint raw0 = pathseg[ix + 0];
-    uint raw1 = pathseg[ix + 1];
-    uint raw2 = pathseg[ix + 2];
-    uint raw3 = pathseg[ix + 3];
-    uint raw4 = pathseg[ix + 4];
-    uint raw5 = pathseg[ix + 5];
-    uint raw6 = pathseg[ix + 6];
-    uint raw7 = pathseg[ix + 7];
-    uint raw8 = pathseg[ix + 8];
-    uint raw9 = pathseg[ix + 9];
-    uint raw10 = pathseg[ix + 10];
+    uint raw0 = memory[ix + 0];
+    uint raw1 = memory[ix + 1];
+    uint raw2 = memory[ix + 2];
+    uint raw3 = memory[ix + 3];
+    uint raw4 = memory[ix + 4];
+    uint raw5 = memory[ix + 5];
+    uint raw6 = memory[ix + 6];
+    uint raw7 = memory[ix + 7];
+    uint raw8 = memory[ix + 8];
+    uint raw9 = memory[ix + 9];
+    uint raw10 = memory[ix + 10];
     PathStrokeCubic s;
     s.p0 = vec2(uintBitsToFloat(raw0), uintBitsToFloat(raw1));
     s.p1 = vec2(uintBitsToFloat(raw2), uintBitsToFloat(raw3));
@@ -196,21 +196,21 @@ PathStrokeCubic PathStrokeCubic_read(PathStrokeCubicRef ref) {
 
 void PathStrokeCubic_write(PathStrokeCubicRef ref, PathStrokeCubic s) {
     uint ix = ref.offset >> 2;
-    pathseg[ix + 0] = floatBitsToUint(s.p0.x);
-    pathseg[ix + 1] = floatBitsToUint(s.p0.y);
-    pathseg[ix + 2] = floatBitsToUint(s.p1.x);
-    pathseg[ix + 3] = floatBitsToUint(s.p1.y);
-    pathseg[ix + 4] = floatBitsToUint(s.p2.x);
-    pathseg[ix + 5] = floatBitsToUint(s.p2.y);
-    pathseg[ix + 6] = floatBitsToUint(s.p3.x);
-    pathseg[ix + 7] = floatBitsToUint(s.p3.y);
-    pathseg[ix + 8] = s.path_ix;
-    pathseg[ix + 9] = floatBitsToUint(s.stroke.x);
-    pathseg[ix + 10] = floatBitsToUint(s.stroke.y);
+    memory[ix + 0] = floatBitsToUint(s.p0.x);
+    memory[ix + 1] = floatBitsToUint(s.p0.y);
+    memory[ix + 2] = floatBitsToUint(s.p1.x);
+    memory[ix + 3] = floatBitsToUint(s.p1.y);
+    memory[ix + 4] = floatBitsToUint(s.p2.x);
+    memory[ix + 5] = floatBitsToUint(s.p2.y);
+    memory[ix + 6] = floatBitsToUint(s.p3.x);
+    memory[ix + 7] = floatBitsToUint(s.p3.y);
+    memory[ix + 8] = s.path_ix;
+    memory[ix + 9] = floatBitsToUint(s.stroke.x);
+    memory[ix + 10] = floatBitsToUint(s.stroke.y);
 }
 
 uint PathSeg_tag(PathSegRef ref) {
-    return pathseg[ref.offset >> 2];
+    return memory[ref.offset >> 2];
 }
 
 PathFillLine PathSeg_FillLine_read(PathSegRef ref) {
@@ -230,26 +230,26 @@ PathStrokeCubic PathSeg_StrokeCubic_read(PathSegRef ref) {
 }
 
 void PathSeg_Nop_write(PathSegRef ref) {
-    pathseg[ref.offset >> 2] = PathSeg_Nop;
+    memory[ref.offset >> 2] = PathSeg_Nop;
 }
 
 void PathSeg_FillLine_write(PathSegRef ref, PathFillLine s) {
-    pathseg[ref.offset >> 2] = PathSeg_FillLine;
+    memory[ref.offset >> 2] = PathSeg_FillLine;
     PathFillLine_write(PathFillLineRef(ref.offset + 4), s);
 }
 
 void PathSeg_StrokeLine_write(PathSegRef ref, PathStrokeLine s) {
-    pathseg[ref.offset >> 2] = PathSeg_StrokeLine;
+    memory[ref.offset >> 2] = PathSeg_StrokeLine;
     PathStrokeLine_write(PathStrokeLineRef(ref.offset + 4), s);
 }
 
 void PathSeg_FillCubic_write(PathSegRef ref, PathFillCubic s) {
-    pathseg[ref.offset >> 2] = PathSeg_FillCubic;
+    memory[ref.offset >> 2] = PathSeg_FillCubic;
     PathFillCubic_write(PathFillCubicRef(ref.offset + 4), s);
 }
 
 void PathSeg_StrokeCubic_write(PathSegRef ref, PathStrokeCubic s) {
-    pathseg[ref.offset >> 2] = PathSeg_StrokeCubic;
+    memory[ref.offset >> 2] = PathSeg_StrokeCubic;
     PathStrokeCubic_write(PathStrokeCubicRef(ref.offset + 4), s);
 }
 

@@ -28,3 +28,13 @@
 #define N_TILE (N_TILE_X * N_TILE_Y)
 #define LG_N_TILE (7 + LG_WG_FACTOR)
 #define N_SLICE (N_TILE / 32)
+
+struct Config {
+    uint n_elements; // paths
+    uint n_pathseg;
+    uint tile_base;
+    uint bin_base;
+    uint ptcl_base;
+    uint pathseg_base;
+    uint anno_base;
+};

@@ -9,6 +9,9 @@
 #version 450
 #extension GL_GOOGLE_include_directive : enable
 
+#include "setup.h"
+#include "mem.h"
+
 #define N_ROWS 4
 #define WG_SIZE 32
 #define LG_WG_SIZE 5
@@ -16,26 +19,20 @@
 
 layout(local_size_x = WG_SIZE, local_size_y = 1) in;
 
-layout(set = 0, binding = 0) readonly buffer SceneBuf {
+layout(set = 0, binding = 1) readonly buffer ConfigBuf {
+    Config conf;
+};
+
+layout(set = 0, binding = 2) readonly buffer SceneBuf {
     uint[] scene;
 };
 
 // It would be better to use the Vulkan memory model than
 // "volatile" but shooting for compatibility here rather
 // than doing things right.
-layout(set = 0, binding = 1) volatile buffer StateBuf {
+layout(set = 0, binding = 3) volatile buffer StateBuf {
     uint part_counter;
     uint[] state;
-};
-
-// The annotated results are stored here.
-layout(set = 0, binding = 2) buffer AnnotatedBuf {
-    uint[] annotated;
-};
-
-// Path segments are stored here.
-layout(set = 0, binding = 3) buffer PathSegBuf {
-    uint[] pathseg;
 };
 
 #include "scene.h"
@@ -175,6 +172,10 @@ shared uint sh_part_ix;
 shared State sh_prefix;
 
 void main() {
+    if (mem_overflow) {
+        return;
+    }
+
     State th_state[N_ROWS];
     // Determine partition to process by atomic counter (described in Section
     // 4.4 of prefix sum paper).
@@ -341,9 +342,9 @@ void main() {
             }
             // We do encoding a bit by hand to minimize divergence. Another approach
             // would be to have a fill/stroke bool.
-            PathSegRef path_out_ref = PathSegRef((st.pathseg_count - 1) * PathSeg_size);
+            PathSegRef path_out_ref = PathSegRef(conf.pathseg_base + (st.pathseg_count - 1) * PathSeg_size);
             uint out_tag = tag == Element_FillLine ? PathSeg_FillCubic : PathSeg_StrokeCubic;
-            pathseg[path_out_ref.offset >> 2] = out_tag;
+            memory[path_out_ref.offset >> 2] = out_tag;
             PathStrokeCubic_write(PathStrokeCubicRef(path_out_ref.offset + 4), path_cubic);
             break;
         case Element_FillQuad:
@@ -365,9 +366,9 @@ void main() {
             }
             // We do encoding a bit by hand to minimize divergence. Another approach
             // would be to have a fill/stroke bool.
-            path_out_ref = PathSegRef((st.pathseg_count - 1) * PathSeg_size);
+            path_out_ref = PathSegRef(conf.pathseg_base + (st.pathseg_count - 1) * PathSeg_size);
             out_tag = tag == Element_FillQuad ? PathSeg_FillCubic : PathSeg_StrokeCubic;
-            pathseg[path_out_ref.offset >> 2] = out_tag;
+            memory[path_out_ref.offset >> 2] = out_tag;
             PathStrokeCubic_write(PathStrokeCubicRef(path_out_ref.offset + 4), path_cubic);
             break;
         case Element_FillCubic:
@@ -386,9 +387,9 @@ void main() {
             }
             // We do encoding a bit by hand to minimize divergence. Another approach
             // would be to have a fill/stroke bool.
-            path_out_ref = PathSegRef((st.pathseg_count - 1) * PathSeg_size);
+            path_out_ref = PathSegRef(conf.pathseg_base + (st.pathseg_count - 1) * PathSeg_size);
             out_tag = tag == Element_FillCubic ? PathSeg_FillCubic : PathSeg_StrokeCubic;
-            pathseg[path_out_ref.offset >> 2] = out_tag;
+            memory[path_out_ref.offset >> 2] = out_tag;
             PathStrokeCubic_write(PathStrokeCubicRef(path_out_ref.offset + 4), path_cubic);
             break;
         case Element_Stroke:
@@ -398,7 +399,7 @@ void main() {
             vec2 lw = get_linewidth(st);
             anno_stroke.bbox = st.bbox + vec4(-lw, lw);
             anno_stroke.linewidth = st.linewidth * sqrt(abs(st.mat.x * st.mat.w - st.mat.y * st.mat.z));
-            AnnotatedRef out_ref = AnnotatedRef((st.path_count - 1) * Annotated_size);
+            AnnotatedRef out_ref = AnnotatedRef(conf.anno_base + (st.path_count - 1) * Annotated_size);
             Annotated_Stroke_write(out_ref, anno_stroke);
             break;
         case Element_Fill:
@@ -406,7 +407,7 @@ void main() {
             AnnoFill anno_fill;
             anno_fill.rgba_color = fill.rgba_color;
             anno_fill.bbox = st.bbox;
-            out_ref = AnnotatedRef((st.path_count - 1) * Annotated_size);
+            out_ref = AnnotatedRef(conf.anno_base + (st.path_count - 1) * Annotated_size);
             Annotated_Fill_write(out_ref, anno_fill);
             break;
         case Element_BeginClip:
@@ -414,14 +415,14 @@ void main() {
             AnnoClip anno_begin_clip = AnnoClip(begin_clip.bbox);
             // This is the absolute bbox, it's been transformed during encoding.
             anno_begin_clip.bbox = begin_clip.bbox;
-            out_ref = AnnotatedRef((st.path_count - 1) * Annotated_size);
+            out_ref = AnnotatedRef(conf.anno_base + (st.path_count - 1) * Annotated_size);
             Annotated_BeginClip_write(out_ref, anno_begin_clip);
             break;
         case Element_EndClip:
             Clip end_clip = Element_EndClip_read(this_ref);
             // This bbox is expected to be the same as the begin one.
             AnnoClip anno_end_clip = AnnoClip(end_clip.bbox);
-            out_ref = AnnotatedRef((st.path_count - 1) * Annotated_size);
+            out_ref = AnnotatedRef(conf.anno_base + (st.path_count - 1) * Annotated_size);
             Annotated_EndClip_write(out_ref, anno_end_clip);
             break;
         }

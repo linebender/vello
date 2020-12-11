@@ -10,20 +10,12 @@
 #extension GL_GOOGLE_include_directive : enable
 
 #include "setup.h"
+#include "mem.h"
 
 layout(local_size_x = N_TILE, local_size_y = 1) in;
 
-layout(set = 0, binding = 0) buffer AnnotatedBuf {
-    uint[] annotated;
-};
-
-layout(set = 0, binding = 1) buffer AllocBuf {
-    uint n_elements; // paths
-    uint alloc;
-};
-
-layout(set = 0, binding = 2) buffer BinsBuf {
-    uint[] bins;
+layout(set = 0, binding = 1) readonly buffer ConfigBuf {
+    Config conf;
 };
 
 #include "annotated.h"
@@ -41,19 +33,27 @@ layout(set = 0, binding = 2) buffer BinsBuf {
 shared uint bitmaps[N_SLICE][N_TILE];
 shared uint count[N_SLICE][N_TILE];
 shared uint sh_chunk_start[N_TILE];
+shared bool sh_alloc_failed;
 
 void main() {
-    uint my_n_elements = n_elements;
+    if (mem_overflow) {
+        return;
+    }
+
+    uint my_n_elements = conf.n_elements;
     uint my_partition = gl_WorkGroupID.x;
 
     for (uint i = 0; i < N_SLICE; i++) {
         bitmaps[i][gl_LocalInvocationID.x] = 0;
     }
+    if (gl_LocalInvocationID.x == 0) {
+        sh_alloc_failed = false;
+    }
     barrier();
 
     // Read inputs and determine coverage of bins
     uint element_ix = my_partition * N_TILE + gl_LocalInvocationID.x;
-    AnnotatedRef ref = AnnotatedRef(element_ix * Annotated_size);
+    AnnotatedRef ref = AnnotatedRef(conf.anno_base + element_ix * Annotated_size);
     uint tag = Annotated_Nop;
     if (element_ix < my_n_elements) {
         tag = Annotated_tag(ref);
@@ -103,19 +103,26 @@ void main() {
         count[i][gl_LocalInvocationID.x] = element_count;
     }
     // element_count is number of elements covering bin for this invocation.
-    uint chunk_start = 0;
+    Alloc chunk_alloc = Alloc(0, false);
     if (element_count != 0) {
         // TODO: aggregate atomic adds (subgroup is probably fastest)
-        chunk_start = atomicAdd(alloc, element_count * BinInstance_size);
-        sh_chunk_start[gl_LocalInvocationID.x] = chunk_start;
+        chunk_alloc = malloc(element_count * BinInstance_size);
+        sh_chunk_start[gl_LocalInvocationID.x] = chunk_alloc.offset;
+        if (chunk_alloc.failed) {
+            sh_alloc_failed = true;
+        }
     }
     // Note: it might be more efficient for reading to do this in the
     // other order (each bin is a contiguous sequence of partitions)
-    uint out_ix = (my_partition * N_TILE + gl_LocalInvocationID.x) * 2;
-    bins[out_ix] = element_count;
-    bins[out_ix + 1] = chunk_start;
+    uint out_ix = (conf.bin_base >> 2) + (my_partition * N_TILE + gl_LocalInvocationID.x) * 2;
+    memory[out_ix] = element_count;
+    memory[out_ix + 1] = chunk_alloc.offset;
 
     barrier();
+    if (sh_alloc_failed) {
+        return;
+    }
+
     // Use similar strategy as Laine & Karras paper; loop over bbox of bins
     // touched by this element
     x = x0;

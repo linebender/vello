@@ -18,7 +18,7 @@ BinInstanceRef BinInstance_index(BinInstanceRef ref, uint index) {
 
 BinInstance BinInstance_read(BinInstanceRef ref) {
     uint ix = ref.offset >> 2;
-    uint raw0 = bins[ix + 0];
+    uint raw0 = memory[ix + 0];
     BinInstance s;
     s.element_ix = raw0;
     return s;
@@ -26,6 +26,6 @@ BinInstance BinInstance_read(BinInstanceRef ref) {
 
 void BinInstance_write(BinInstanceRef ref, BinInstance s) {
     uint ix = ref.offset >> 2;
-    bins[ix + 0] = s.element_ix;
+    memory[ix + 0] = s.element_ix;
 }
 
