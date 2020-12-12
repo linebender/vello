@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
+
 // The coarse rasterizer stage of the pipeline.
 //
 // As input we have the ordered partitions of paths from the binning phase and

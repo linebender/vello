@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
+
 // Propagation of tile backdrop for filling.
 //
 // Each thread reads one path element and calculates the number of spanned tiles

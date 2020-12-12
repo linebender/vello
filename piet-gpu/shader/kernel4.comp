@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
+
 // This is "kernel 4" in a 4-kernel pipeline. It renders the commands
 // in the per-tile command list to an image.
 
@@ -184,7 +186,7 @@ void main() {
                 float solid_alpha = begin_solid_clip.alpha;
                 for (uint k = 0; k < CHUNK; k++) {
                     blend_stack[blend_slot][k] = packUnorm4x8(vec4(rgb[k], solid_alpha));
-                }                
+                }
             }
             blend_sp++;
             break;

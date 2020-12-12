@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
+
 // Various constants for the sizes of groups and tiles.
 
 // Much of this will be made dynamic in various ways, but for now it's easiest
