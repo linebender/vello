@@ -198,21 +198,31 @@ void main() {
                     last_xray = tmp;
                 }
                 for (int y = y0; y < y1; y++) {
+                    float tile_y0 = float(y * TILE_HEIGHT_PX);
                     int xbackdrop = max(xray + 1, bbox.x);
-                    if (tag == PathSeg_FillCubic && y > y0 && xbackdrop < bbox.z) {
+                    if (tag == PathSeg_FillCubic && min(p0.y, p1.y) < tile_y0 && xbackdrop < bbox.z) {
                         int backdrop = p1.y < p0.y ? 1 : -1;
                         TileRef tile_ref = Tile_index(path.tiles, uint(base + xbackdrop));
                         uint tile_el = tile_ref.offset >> 2;
                         atomicAdd(tile[tile_el + 1], backdrop);
                     }
 
-                    int xx0 = clamp(int(floor(xc - c)), x0, x1);
-                    int xx1 = clamp(int(ceil(xc + c)), x0, x1);
-                    xx1 = max(xx1, xray + 1);
+                    // next_xray is the xray for the next scanline; the line segment intersects
+                    // all tiles between xray and next_xray.
+                    int next_xray = last_xray;
+                    if (y < y1 - 1) {
+                        float tile_y1 = float((y + 1) * TILE_HEIGHT_PX);
+                        float x_edge = mix(p0.x, p1.x, (tile_y1 - p0.y) / dy);
+                        next_xray = int(floor(x_edge*SX));
+                    }
 
-                    // next_xray is the xray for the next scanline; it is derived
-                    // by left edge intersections computed below.
-                    int next_xray = xray;
+                    int min_xray = min(xray, next_xray);
+                    int max_xray = max(xray, next_xray);
+                    int xx0 = min(int(floor(xc - c)), min_xray);
+                    int xx1 = max(int(ceil(xc + c)), max_xray + 1);
+                    xx0 = clamp(xx0, x0, x1);
+                    xx1 = clamp(xx1, x0, x1);
+
                     for (int x = xx0; x < xx1; x++) {
                         float tile_x0 = float(x * TILE_WIDTH_PX);
                         TileRef tile_ref = Tile_index(path.tiles, uint(base + x));
@@ -222,10 +232,8 @@ void main() {
                         tile_seg.vector = p1 - p0;
                         float y_edge = 0.0;
                         if (tag == PathSeg_FillCubic) {
-                            float tile_y0 = float(y * TILE_HEIGHT_PX);
                             y_edge = mix(p0.y, p1.y, (tile_x0 - p0.x) / dx);
-                            if (min(p0.x, p1.x) < tile_x0 && y_edge >= tile_y0 && y_edge < tile_y0 + TILE_HEIGHT_PX) {
-                                // Left edge intersection.
+                            if (min(p0.x, p1.x) < tile_x0) {
                                 vec2 p = vec2(tile_x0, y_edge);
                                 if (p0.x > p1.x) {
                                     tile_seg.vector = p - p0;
@@ -236,22 +244,11 @@ void main() {
                                 // kernel4 uses sign(vector.x) for the sign of the intersection backdrop.
                                 // Nudge zeroes towards the intended sign.
                                 if (tile_seg.vector.x == 0) {
-                                    tile_seg.vector.x += sign(p1.x - p0.x)*1e-9;
-                                }
-                                // Move next_xray consistently with previous intersections.
-                                if (x > next_xray && next_xray >= xray) {
-                                    next_xray = x;
-                                } else if (x <= next_xray && next_xray <= xray) {
-                                    next_xray = x - 1;
+                                    tile_seg.vector.x = sign(p1.x - p0.x)*1e-9;
                                 }
                             }
-                            // Force last xray on the last scanline for consistency with later
-                            // line segments.
-                            if (y == y1 - 1) {
-                                next_xray = last_xray;
-                            }
-                            // Drop inconsistent intersections.
-                            if (x <= min(xray, next_xray) || max(xray, next_xray) < x) {
+                            if (x <= min_xray || max_xray < x) {
+                                // Reject inconsistent intersections.
                                 y_edge = 1e9;
                             }
                         }
