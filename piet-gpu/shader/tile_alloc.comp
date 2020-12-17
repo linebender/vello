@@ -56,10 +56,10 @@ void main() {
         y1 = int(ceil(fill.bbox.w * SY));
         break;
     }
-    x0 = clamp(x0, 0, WIDTH_IN_TILES);
-    y0 = clamp(y0, 0, HEIGHT_IN_TILES);
-    x1 = clamp(x1, 0, WIDTH_IN_TILES);
-    y1 = clamp(y1, 0, HEIGHT_IN_TILES);
+    x0 = clamp(x0, 0, int(conf.width_in_tiles));
+    y0 = clamp(y0, 0, int(conf.height_in_tiles));
+    x1 = clamp(x1, 0, int(conf.width_in_tiles));
+    y1 = clamp(y1, 0, int(conf.height_in_tiles));
 
     Path path;
     path.bbox = uvec4(x0, y0, x1, y1);

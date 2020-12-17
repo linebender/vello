@@ -91,7 +91,7 @@ void main() {
         return;
     }
 
-    uint tile_ix = gl_WorkGroupID.y * WIDTH_IN_TILES + gl_WorkGroupID.x;
+    uint tile_ix = gl_WorkGroupID.y * conf.width_in_tiles + gl_WorkGroupID.x;
     CmdRef cmd_ref = CmdRef(conf.ptcl_base + tile_ix * PTCL_INITIAL_ALLOC);
 
     uvec2 xy_uint = uvec2(gl_GlobalInvocationID.x, gl_LocalInvocationID.y + TILE_HEIGHT_PX * gl_WorkGroupID.y);

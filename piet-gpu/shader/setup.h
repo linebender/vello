@@ -10,10 +10,6 @@
 #define LG_WG_FACTOR 1
 #define WG_FACTOR (1<<LG_WG_FACTOR)
 
-// TODO: compute all these
-
-#define WIDTH_IN_TILES 128
-#define HEIGHT_IN_TILES 96
 #define TILE_WIDTH_PX 16
 #define TILE_HEIGHT_PX 16
 
@@ -32,6 +28,8 @@
 struct Config {
     uint n_elements; // paths
     uint n_pathseg;
+    uint width_in_tiles;
+    uint height_in_tiles;
     uint tile_base;
     uint bin_base;
     uint ptcl_base;
