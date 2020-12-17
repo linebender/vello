@@ -404,7 +404,7 @@ impl Renderer {
         cmd_buf.dispatch(
             &self.coarse_pipeline,
             &self.coarse_ds,
-            (WIDTH as u32 / 256, HEIGHT as u32 / 256, 1),
+            ((WIDTH as u32 + 255) / 256, (HEIGHT as u32 + 255) / 256, 1),
         );
         cmd_buf.write_timestamp(&query_pool, 6);
         cmd_buf.memory_barrier();

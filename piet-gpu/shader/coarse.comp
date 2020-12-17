@@ -370,5 +370,7 @@ void main() {
         rd_ix += N_TILE;
         if (rd_ix >= ready_ix && partition_ix >= n_partitions) break;
     }
-    Cmd_End_write(cmd_ref);
+    if (bin_tile_x + tile_x < WIDTH_IN_TILES && bin_tile_y + tile_y < HEIGHT_IN_TILES) {
+        Cmd_End_write(cmd_ref);
+    }
 }
