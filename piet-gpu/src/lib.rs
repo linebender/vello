@@ -222,8 +222,8 @@ impl Renderer {
         let state_buf = session.create_buffer(1 * 1024 * 1024, dev)?;
         let image_dev = session.create_image2d(WIDTH as u32, HEIGHT as u32, dev)?;
 
-        let mut config_buf_host = session.create_buffer(7*4, host)?;
-        let config_buf_dev = session.create_buffer(7*4, dev)?;
+        let mut config_buf_host = session.create_buffer(9*4, host)?;
+        let config_buf_dev = session.create_buffer(9*4, dev)?;
 
         // TODO: constants
         const PATH_SIZE: usize = 12;
@@ -241,7 +241,7 @@ impl Renderer {
         alloc += (n_pathseg * PATHSEG_SIZE + 3) & !3;
         let anno_base = alloc;
         alloc += (n_paths * ANNO_SIZE + 3) & !3;
-        config_buf_host.write(&[n_paths as u32, n_pathseg as u32, tile_base as u32, bin_base as u32, ptcl_base as u32, pathseg_base as u32, anno_base as u32])?;
+        config_buf_host.write(&[n_paths as u32, n_pathseg as u32, WIDTH_IN_TILES as u32, HEIGHT_IN_TILES as u32, tile_base as u32, bin_base as u32, ptcl_base as u32, pathseg_base as u32, anno_base as u32])?;
 
         let mut memory_buf_host = session.create_buffer(2*4, host)?;
         let memory_buf_dev = session.create_buffer(128 * 1024 * 1024, dev)?;

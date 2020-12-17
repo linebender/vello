@@ -83,7 +83,7 @@ void main() {
     // Per-tile state
     uint tile_x = gl_LocalInvocationID.x % N_TILE_X;
     uint tile_y = gl_LocalInvocationID.x / N_TILE_X;
-    uint this_tile_ix = (bin_tile_y + tile_y) * WIDTH_IN_TILES + bin_tile_x + tile_x;
+    uint this_tile_ix = (bin_tile_y + tile_y) * conf.width_in_tiles + bin_tile_x + tile_x;
     CmdRef cmd_ref = CmdRef(conf.ptcl_base + this_tile_ix * PTCL_INITIAL_ALLOC);
     uint cmd_limit = cmd_ref.offset + PTCL_INITIAL_ALLOC - 2 * Cmd_size;
     // The nesting depth of the clip stack
@@ -370,7 +370,7 @@ void main() {
         rd_ix += N_TILE;
         if (rd_ix >= ready_ix && partition_ix >= n_partitions) break;
     }
-    if (bin_tile_x + tile_x < WIDTH_IN_TILES && bin_tile_y + tile_y < HEIGHT_IN_TILES) {
+    if (bin_tile_x + tile_x < conf.width_in_tiles && bin_tile_y + tile_y < conf.height_in_tiles) {
         Cmd_End_write(cmd_ref);
     }
 }
