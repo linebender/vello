@@ -71,7 +71,8 @@ void main() {
 
     // Could use either linear or 2d layouts for both dispatch and
     // invocations within the workgroup. We'll use variables to abstract.
-    uint bin_ix = N_TILE_X * gl_WorkGroupID.y + gl_WorkGroupID.x;
+    uint width_in_bins = (conf.width_in_tiles + N_TILE_X - 1)/N_TILE_X;
+    uint bin_ix = width_in_bins * gl_WorkGroupID.y + gl_WorkGroupID.x;
     uint partition_ix = 0;
     uint n_partitions = (conf.n_elements + N_TILE - 1) / N_TILE;
     uint th_ix = gl_LocalInvocationID.x;
