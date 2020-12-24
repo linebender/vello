@@ -85,16 +85,18 @@ void main() {
                 el_ix = probe;
             }
         }
-        uint seq_ix = row - (el_ix > 0 ? sh_row_count[el_ix - 1] : 0);
         uint width = sh_row_width[el_ix];
-        // Process one row sequentially
-        // Read backdrop value per tile and prefix sum it
-        uint tile_el_ix = sh_row_base[el_ix] + seq_ix * 2 * width;
-        uint sum = memory[tile_el_ix];
-        for (uint x = 1; x < width; x++) {
-            tile_el_ix += 2;
-            sum += memory[tile_el_ix];
-            memory[tile_el_ix] = sum;
+        if (width > 0) {
+            // Process one row sequentially
+            // Read backdrop value per tile and prefix sum it
+            uint seq_ix = row - (el_ix > 0 ? sh_row_count[el_ix - 1] : 0);
+            uint tile_el_ix = sh_row_base[el_ix] + seq_ix * 2 * width;
+            uint sum = memory[tile_el_ix];
+            for (uint x = 1; x < width; x++) {
+                tile_el_ix += 2;
+                sum += memory[tile_el_ix];
+                memory[tile_el_ix] = sum;
+            }
         }
     }
 }
