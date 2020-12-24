@@ -15,8 +15,8 @@
 #version 450
 #extension GL_GOOGLE_include_directive : enable
 
-#include "setup.h"
 #include "mem.h"
+#include "setup.h"
 
 #define LG_BACKDROP_WG (7 + LG_WG_FACTOR)
 #define BACKDROP_WG (1 << LG_BACKDROP_WG)
@@ -31,27 +31,27 @@ layout(set = 0, binding = 1) readonly buffer ConfigBuf {
 #include "tile.h"
 
 shared uint sh_row_count[BACKDROP_WG];
-shared uint sh_row_base[BACKDROP_WG];
+shared Alloc sh_row_alloc[BACKDROP_WG];
 shared uint sh_row_width[BACKDROP_WG];
 
 void main() {
-    if (mem_overflow) {
+    if (mem_error != NO_ERROR) {
         return;
     }
 
     uint th_ix = gl_LocalInvocationID.x;
     uint element_ix = gl_GlobalInvocationID.x;
-    AnnotatedRef ref = AnnotatedRef(conf.anno_base + element_ix * Annotated_size);
+    AnnotatedRef ref = AnnotatedRef(conf.anno_alloc.offset + element_ix * Annotated_size);
 
     // Work assignment: 1 thread : 1 path element
     uint row_count = 0;
     if (element_ix < conf.n_elements) {
-        uint tag = Annotated_tag(ref);
+        uint tag = Annotated_tag(conf.anno_alloc, ref);
         switch (tag) {
         case Annotated_Fill:
         case Annotated_BeginClip:
-            PathRef path_ref = PathRef(conf.tile_base + element_ix * Path_size);
-            Path path = Path_read(path_ref);
+            PathRef path_ref = PathRef(conf.tile_alloc.offset + element_ix * Path_size);
+            Path path = Path_read(conf.tile_alloc, path_ref);
             sh_row_width[th_ix] = path.bbox.z - path.bbox.x;
             row_count = path.bbox.w - path.bbox.y;
             // Paths that don't cross tile top edges don't have backdrops.
@@ -62,7 +62,8 @@ void main() {
                 // long as it doesn't cross the left edge.
                 row_count = 0;
             }
-            sh_row_base[th_ix] = (path.tiles.offset >> 2) + 1;
+            Alloc path_alloc = new_alloc(path.tiles.offset, (path.bbox.z - path.bbox.x) * (path.bbox.w - path.bbox.y) * Tile_size);
+            sh_row_alloc[th_ix] = path_alloc;
         }
     }
 
@@ -92,13 +93,14 @@ void main() {
         if (width > 0) {
             // Process one row sequentially
             // Read backdrop value per tile and prefix sum it
+            Alloc tiles_alloc = sh_row_alloc[el_ix];
             uint seq_ix = row - (el_ix > 0 ? sh_row_count[el_ix - 1] : 0);
-            uint tile_el_ix = sh_row_base[el_ix] + seq_ix * 2 * width;
-            uint sum = memory[tile_el_ix];
+            uint tile_el_ix = (tiles_alloc.offset >> 2) + 1 + seq_ix * 2 * width;
+            uint sum = read_mem(tiles_alloc, tile_el_ix);
             for (uint x = 1; x < width; x++) {
                 tile_el_ix += 2;
-                sum += memory[tile_el_ix];
-                memory[tile_el_ix] = sum;
+                sum += read_mem(tiles_alloc, tile_el_ix);
+                write_mem(tiles_alloc, tile_el_ix, sum);
             }
         }
     }

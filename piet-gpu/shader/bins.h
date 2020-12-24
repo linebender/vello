@@ -16,16 +16,16 @@ BinInstanceRef BinInstance_index(BinInstanceRef ref, uint index) {
     return BinInstanceRef(ref.offset + index * BinInstance_size);
 }
 
-BinInstance BinInstance_read(BinInstanceRef ref) {
+BinInstance BinInstance_read(Alloc a, BinInstanceRef ref) {
     uint ix = ref.offset >> 2;
-    uint raw0 = memory[ix + 0];
+    uint raw0 = read_mem(a, ix + 0);
     BinInstance s;
     s.element_ix = raw0;
     return s;
 }
 
-void BinInstance_write(BinInstanceRef ref, BinInstance s) {
+void BinInstance_write(Alloc a, BinInstanceRef ref, BinInstance s) {
     uint ix = ref.offset >> 2;
-    memory[ix + 0] = s.element_ix;
+    write_mem(a, ix + 0, s.element_ix);
 }
 

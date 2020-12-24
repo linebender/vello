@@ -7,8 +7,8 @@
 #version 450
 #extension GL_GOOGLE_include_directive : enable
 
-#include "setup.h"
 #include "mem.h"
+#include "setup.h"
 
 #define LG_COARSE_WG 5
 #define COARSE_WG (1 << LG_COARSE_WG)
@@ -87,21 +87,21 @@ SubdivResult estimate_subdiv(vec2 p0, vec2 p1, vec2 p2, float sqrt_tol) {
 }
 
 void main() {
-    if (mem_overflow) {
+    if (mem_error != NO_ERROR) {
         return;
     }
 
     uint element_ix = gl_GlobalInvocationID.x;
-    PathSegRef ref = PathSegRef(conf.pathseg_base + element_ix * PathSeg_size);
+    PathSegRef ref = PathSegRef(conf.pathseg_alloc.offset + element_ix * PathSeg_size);
 
     uint tag = PathSeg_Nop;
     if (element_ix < conf.n_pathseg) {
-        tag = PathSeg_tag(ref);
+        tag = PathSeg_tag(conf.pathseg_alloc, ref);
     }
     switch (tag) {
     case PathSeg_FillCubic:
     case PathSeg_StrokeCubic:
-        PathStrokeCubic cubic = PathSeg_StrokeCubic_read(ref);
+        PathStrokeCubic cubic = PathSeg_StrokeCubic_read(conf.pathseg_alloc, ref);
         vec2 err_v = 3.0 * (cubic.p2 - cubic.p1) + cubic.p0 - cubic.p3;
         float err = err_v.x * err_v.x + err_v.y * err_v.y;
         // The number of quadratics.
@@ -123,7 +123,8 @@ void main() {
         uint n = max(uint(ceil(val * 0.5 / sqrt(REM_ACCURACY))), 1);
 
         uint path_ix = cubic.path_ix;
-        Path path = Path_read(PathRef(conf.tile_base + path_ix * Path_size));
+        Path path = Path_read(conf.tile_alloc, PathRef(conf.tile_alloc.offset + path_ix * Path_size));
+        Alloc path_alloc = new_alloc(path.tiles.offset, (path.bbox.z - path.bbox.x) * (path.bbox.w - path.bbox.y) * Tile_size);
         ivec4 bbox = ivec4(path.bbox);
         vec2 p0 = cubic.p0;
         qp0 = cubic.p0;
@@ -182,11 +183,11 @@ void main() {
                 // TODO: can be tighter, use c to bound width
                 uint n_tile_alloc = uint((x1 - x0) * (y1 - y0));
                 // Consider using subgroups to aggregate atomic add.
-                Alloc tile_alloc = malloc(n_tile_alloc * TileSeg_size);
+                MallocResult tile_alloc = malloc(n_tile_alloc * TileSeg_size);
                 if (tile_alloc.failed) {
                     return;
                 }
-                uint tile_offset = tile_alloc.offset;
+                uint tile_offset = tile_alloc.alloc.offset;
 
                 TileSeg tile_seg;
 
@@ -204,7 +205,9 @@ void main() {
                         int backdrop = p1.y < p0.y ? 1 : -1;
                         TileRef tile_ref = Tile_index(path.tiles, uint(base + xbackdrop));
                         uint tile_el = tile_ref.offset >> 2;
-                        atomicAdd(memory[tile_el + 1], backdrop);
+                        if (touch_mem(path_alloc, tile_el + 1)) {
+                            atomicAdd(memory[tile_el + 1], backdrop);
+                        }
                     }
 
                     // next_xray is the xray for the next scanline; the line segment intersects
@@ -225,9 +228,12 @@ void main() {
 
                     for (int x = xx0; x < xx1; x++) {
                         float tile_x0 = float(x * TILE_WIDTH_PX);
-                        TileRef tile_ref = Tile_index(path.tiles, uint(base + x));
+                        TileRef tile_ref = Tile_index(TileRef(path.tiles.offset), uint(base + x));
                         uint tile_el = tile_ref.offset >> 2;
-                        uint old = atomicExchange(memory[tile_el], tile_offset);
+                        uint old = 0;
+                        if (touch_mem(path_alloc, tile_el)) {
+                            old = atomicExchange(memory[tile_el], tile_offset);
+                        }
                         tile_seg.origin = p0;
                         tile_seg.vector = p1 - p0;
                         float y_edge = 0.0;
@@ -254,7 +260,7 @@ void main() {
                         }
                         tile_seg.y_edge = y_edge;
                         tile_seg.next.offset = old;
-                        TileSeg_write(TileSegRef(tile_offset), tile_seg);
+                        TileSeg_write(tile_alloc.alloc, TileSegRef(tile_offset), tile_seg);
                         tile_offset += TileSeg_size;
                     }
                     xc += b;

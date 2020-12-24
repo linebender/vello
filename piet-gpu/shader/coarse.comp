@@ -13,8 +13,8 @@
 #version 450
 #extension GL_GOOGLE_include_directive : enable
 
-#include "setup.h"
 #include "mem.h"
+#include "setup.h"
 
 layout(local_size_x = N_TILE, local_size_y = 1) in;
 
@@ -34,7 +34,7 @@ shared uint sh_elements[N_TILE];
 
 // Number of elements in the partition; prefix sum.
 shared uint sh_part_count[N_PART_READ];
-shared uint sh_part_elements[N_PART_READ];
+shared Alloc sh_part_elements[N_PART_READ];
 
 shared uint sh_bitmaps[N_SLICE][N_TILE];
 
@@ -48,24 +48,47 @@ shared uint sh_tile_y0[N_TILE];
 shared uint sh_tile_base[N_TILE];
 shared uint sh_tile_stride[N_TILE];
 
-// Perhaps cmd_limit should be a global? This is a style question.
-bool alloc_cmd(inout CmdRef cmd_ref, inout uint cmd_limit) {
+#ifdef MEM_DEBUG
+// Store allocs only when MEM_DEBUG to save shared memory traffic.
+shared Alloc sh_tile_alloc[N_TILE];
+
+void write_tile_alloc(uint el_ix, Alloc a) {
+    sh_tile_alloc[el_ix] = a;
+}
+
+Alloc read_tile_alloc(uint el_ix) {
+    return sh_tile_alloc[el_ix];
+}
+#else
+void write_tile_alloc(uint el_ix, Alloc a) {
+    // No-op
+}
+
+Alloc read_tile_alloc(uint el_ix) {
+    // All memory.
+    return new_alloc(0, memory.length()*4);
+}
+#endif
+
+// Perhaps cmd_alloc should be a global? This is a style question.
+bool alloc_cmd(inout Alloc cmd_alloc, inout CmdRef cmd_ref, inout uint cmd_limit) {
     if (cmd_ref.offset < cmd_limit) {
         return true;
     }
-    Alloc new_cmd = malloc(PTCL_INITIAL_ALLOC);
+    MallocResult new_cmd = malloc(PTCL_INITIAL_ALLOC);
     if (new_cmd.failed) {
         return false;
     }
-    CmdJump jump = CmdJump(new_cmd.offset);
-    Cmd_Jump_write(cmd_ref, jump);
-    cmd_ref = CmdRef(new_cmd.offset);
-    cmd_limit = new_cmd.offset + PTCL_INITIAL_ALLOC - 2 * Cmd_size;
+    CmdJump jump = CmdJump(new_cmd.alloc.offset);
+    Cmd_Jump_write(cmd_alloc, cmd_ref, jump);
+    cmd_alloc = new_cmd.alloc;
+    cmd_ref = CmdRef(cmd_alloc.offset);
+    cmd_limit = cmd_alloc.offset + PTCL_INITIAL_ALLOC - 2 * Cmd_size;
     return true;
 }
 
 void main() {
-    if (mem_overflow) {
+    if (mem_error != NO_ERROR) {
         return;
     }
 
@@ -85,7 +108,8 @@ void main() {
     uint tile_x = gl_LocalInvocationID.x % N_TILE_X;
     uint tile_y = gl_LocalInvocationID.x / N_TILE_X;
     uint this_tile_ix = (bin_tile_y + tile_y) * conf.width_in_tiles + bin_tile_x + tile_x;
-    CmdRef cmd_ref = CmdRef(conf.ptcl_base + this_tile_ix * PTCL_INITIAL_ALLOC);
+    Alloc cmd_alloc = slice_mem(conf.ptcl_alloc, this_tile_ix * PTCL_INITIAL_ALLOC, PTCL_INITIAL_ALLOC);
+    CmdRef cmd_ref = CmdRef(cmd_alloc.offset);
     uint cmd_limit = cmd_ref.offset + PTCL_INITIAL_ALLOC - 2 * Cmd_size;
     // The nesting depth of the clip stack
     uint clip_depth = 0;
@@ -117,9 +141,10 @@ void main() {
                 part_start_ix = ready_ix;
                 uint count = 0;
                 if (th_ix < N_PART_READ && partition_ix + th_ix < n_partitions) {
-                    uint in_ix = (conf.bin_base >> 2) + ((partition_ix + th_ix) * N_TILE + bin_ix) * 2;
-                    count = memory[in_ix];
-                    sh_part_elements[th_ix] = memory[in_ix + 1];
+                    uint in_ix = (conf.bin_alloc.offset >> 2) + ((partition_ix + th_ix) * N_TILE + bin_ix) * 2;
+                    count = read_mem(conf.bin_alloc, in_ix);
+                    uint offset = read_mem(conf.bin_alloc, in_ix + 1);
+                    sh_part_elements[th_ix] = new_alloc(offset, count*BinInstance_size);
                 }
                 // prefix sum of counts
                 for (uint i = 0; i < LG_N_PART_READ; i++) {
@@ -152,8 +177,9 @@ void main() {
                     }
                 }
                 ix -= part_ix > 0 ? sh_part_count[part_ix - 1] : part_start_ix;
-                BinInstanceRef inst_ref = BinInstanceRef(sh_part_elements[part_ix]);
-                BinInstance inst = BinInstance_read(BinInstance_index(inst_ref, ix));
+                Alloc bin_alloc = sh_part_elements[part_ix];
+                BinInstanceRef inst_ref = BinInstanceRef(bin_alloc.offset);
+                BinInstance inst = BinInstance_read(bin_alloc, BinInstance_index(inst_ref, ix));
                 sh_elements[th_ix] = inst.element_ix;
             }
             barrier();
@@ -169,8 +195,8 @@ void main() {
         AnnotatedRef ref;
         if (th_ix + rd_ix < wr_ix) {
             element_ix = sh_elements[th_ix];
-            ref = AnnotatedRef(conf.anno_base + element_ix * Annotated_size);
-            tag = Annotated_tag(ref);
+            ref = AnnotatedRef(conf.anno_alloc.offset + element_ix * Annotated_size);
+            tag = Annotated_tag(conf.anno_alloc, ref);
         }
 
         // Bounding box of element in pixel coordinates.
@@ -183,7 +209,7 @@ void main() {
             // We have one "path" for each element, even if the element isn't
             // actually a path (currently EndClip, but images etc in the future).
             uint path_ix = element_ix;
-            Path path = Path_read(PathRef(conf.tile_base + path_ix * Path_size));
+            Path path = Path_read(conf.tile_alloc, PathRef(conf.tile_alloc.offset + path_ix * Path_size));
             uint stride = path.bbox.z - path.bbox.x;
             sh_tile_stride[th_ix] = stride;
             int dx = int(path.bbox.x) - int(bin_tile_x);
@@ -199,6 +225,8 @@ void main() {
             // base relative to bin
             uint base = path.tiles.offset - uint(dy * stride + dx) * Tile_size;
             sh_tile_base[th_ix] = base;
+            Alloc path_alloc = new_alloc(path.tiles.offset, (path.bbox.z - path.bbox.x) * (path.bbox.w - path.bbox.y) * Tile_size);
+            write_tile_alloc(th_ix, path_alloc);
             break;
         default:
             tile_count = 0;
@@ -226,8 +254,8 @@ void main() {
                     el_ix = probe;
                 }
             }
-            AnnotatedRef ref = AnnotatedRef(conf.anno_base + sh_elements[el_ix] * Annotated_size);
-            uint tag = Annotated_tag(ref);
+            AnnotatedRef ref = AnnotatedRef(conf.anno_alloc.offset + sh_elements[el_ix] * Annotated_size);
+            uint tag = Annotated_tag(conf.anno_alloc, ref);
             uint seq_ix = ix - (el_ix > 0 ? sh_tile_count[el_ix - 1] : 0);
             uint width = sh_tile_width[el_ix];
             uint x = sh_tile_x0[el_ix] + seq_ix % width;
@@ -236,7 +264,7 @@ void main() {
             if (tag == Annotated_BeginClip || tag == Annotated_EndClip) {
                 include_tile = true;
             } else {
-                Tile tile = Tile_read(TileRef(sh_tile_base[el_ix] + (sh_tile_stride[el_ix] * y + x) * Tile_size));
+                Tile tile = Tile_read(read_tile_alloc(el_ix), TileRef(sh_tile_base[el_ix] + (sh_tile_stride[el_ix] * y + x) * Tile_size));
                 // Include the path in the tile if
                 // - the tile contains at least a segment (tile offset non-zero)
                 // - the tile is completely covered (backdrop non-zero)
@@ -275,16 +303,16 @@ void main() {
             // At this point, we read the element again from global memory.
             // If that turns out to be expensive, maybe we can pack it into
             // shared memory (or perhaps just the tag).
-            ref = AnnotatedRef(conf.anno_base + element_ix * Annotated_size);
-            tag = Annotated_tag(ref);
+            ref = AnnotatedRef(conf.anno_alloc.offset + element_ix * Annotated_size);
+            tag = Annotated_tag(conf.anno_alloc, ref);
 
             if (clip_zero_depth == 0) {
                 switch (tag) {
                 case Annotated_Fill:
-                    Tile tile = Tile_read(TileRef(sh_tile_base[element_ref_ix]
+                    Tile tile = Tile_read(read_tile_alloc(element_ref_ix), TileRef(sh_tile_base[element_ref_ix]
                         + (sh_tile_stride[element_ref_ix] * tile_y + tile_x) * Tile_size));
-                    AnnoFill fill = Annotated_Fill_read(ref);
-                    if (!alloc_cmd(cmd_ref, cmd_limit)) {
+                    AnnoFill fill = Annotated_Fill_read(conf.anno_alloc, ref);
+                    if (!alloc_cmd(cmd_alloc, cmd_ref, cmd_limit)) {
                         break;
                     }
                     if (tile.tile.offset != 0) {
@@ -292,32 +320,32 @@ void main() {
                         cmd_fill.tile_ref = tile.tile.offset;
                         cmd_fill.backdrop = tile.backdrop;
                         cmd_fill.rgba_color = fill.rgba_color;
-                        Cmd_Fill_write(cmd_ref, cmd_fill);
+                        Cmd_Fill_write(cmd_alloc, cmd_ref, cmd_fill);
                     } else {
-                        Cmd_Solid_write(cmd_ref, CmdSolid(fill.rgba_color));
+                        Cmd_Solid_write(cmd_alloc, cmd_ref, CmdSolid(fill.rgba_color));
                     }
                     cmd_ref.offset += Cmd_size;
                     break;
                 case Annotated_BeginClip:
-                    tile = Tile_read(TileRef(sh_tile_base[element_ref_ix]
+                    tile = Tile_read(read_tile_alloc(element_ref_ix), TileRef(sh_tile_base[element_ref_ix]
                         + (sh_tile_stride[element_ref_ix] * tile_y + tile_x) * Tile_size));
                     if (tile.tile.offset == 0 && tile.backdrop == 0) {
                         clip_zero_depth = clip_depth + 1;
                     } else if (tile.tile.offset == 0 && clip_depth < 32) {
                         clip_one_mask |= (1 << clip_depth);
                     } else {
-                        if (!alloc_cmd(cmd_ref, cmd_limit)) {
+                        if (!alloc_cmd(cmd_alloc, cmd_ref, cmd_limit)) {
                             break;
                         }
                         if (tile.tile.offset != 0) {
                             CmdBeginClip cmd_begin_clip;
                             cmd_begin_clip.tile_ref = tile.tile.offset;
                             cmd_begin_clip.backdrop = tile.backdrop;
-                            Cmd_BeginClip_write(cmd_ref, cmd_begin_clip);
+                            Cmd_BeginClip_write(cmd_alloc, cmd_ref, cmd_begin_clip);
                         } else {
                             // TODO: here is where a bunch of optimization magic should happen
                             float alpha = tile.backdrop == 0 ? 0.0 : 1.0;
-                            Cmd_BeginSolidClip_write(cmd_ref, CmdBeginSolidClip(alpha));
+                            Cmd_BeginSolidClip_write(cmd_alloc, cmd_ref, CmdBeginSolidClip(alpha));
                         }
                         cmd_ref.offset += Cmd_size;
                         if (clip_depth < 32) {
@@ -329,25 +357,25 @@ void main() {
                 case Annotated_EndClip:
                     clip_depth--;
                     if (clip_depth >= 32 || (clip_one_mask & (1 << clip_depth)) == 0) {
-                        if (!alloc_cmd(cmd_ref, cmd_limit)) {
+                        if (!alloc_cmd(cmd_alloc, cmd_ref, cmd_limit)) {
                             break;
                         }
-                        Cmd_EndClip_write(cmd_ref, CmdEndClip(1.0));
+                        Cmd_EndClip_write(cmd_alloc, cmd_ref, CmdEndClip(1.0));
                         cmd_ref.offset += Cmd_size;
                     }
                     break;
                 case Annotated_Stroke:
-                    tile = Tile_read(TileRef(sh_tile_base[element_ref_ix]
+                    tile = Tile_read(read_tile_alloc(element_ref_ix), TileRef(sh_tile_base[element_ref_ix]
                         + (sh_tile_stride[element_ref_ix] * tile_y + tile_x) * Tile_size));
-                    AnnoStroke stroke = Annotated_Stroke_read(ref);
+                    AnnoStroke stroke = Annotated_Stroke_read(conf.anno_alloc, ref);
                     CmdStroke cmd_stroke;
                     cmd_stroke.tile_ref = tile.tile.offset;
                     cmd_stroke.half_width = 0.5 * stroke.linewidth;
                     cmd_stroke.rgba_color = stroke.rgba_color;
-                    if (!alloc_cmd(cmd_ref, cmd_limit)) {
+                    if (!alloc_cmd(cmd_alloc, cmd_ref, cmd_limit)) {
                         break;
                     }
-                    Cmd_Stroke_write(cmd_ref, cmd_stroke);
+                    Cmd_Stroke_write(cmd_alloc, cmd_ref, cmd_stroke);
                     cmd_ref.offset += Cmd_size;
                     break;
                 }
@@ -372,6 +400,6 @@ void main() {
         if (rd_ix >= ready_ix && partition_ix >= n_partitions) break;
     }
     if (bin_tile_x + tile_x < conf.width_in_tiles && bin_tile_y + tile_y < conf.height_in_tiles) {
-        Cmd_End_write(cmd_ref);
+        Cmd_End_write(cmd_alloc, cmd_ref);
     }
 }

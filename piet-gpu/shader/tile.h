@@ -49,48 +49,48 @@ TileSegRef TileSeg_index(TileSegRef ref, uint index) {
     return TileSegRef(ref.offset + index * TileSeg_size);
 }
 
-Path Path_read(PathRef ref) {
+Path Path_read(Alloc a, PathRef ref) {
     uint ix = ref.offset >> 2;
-    uint raw0 = memory[ix + 0];
-    uint raw1 = memory[ix + 1];
-    uint raw2 = memory[ix + 2];
+    uint raw0 = read_mem(a, ix + 0);
+    uint raw1 = read_mem(a, ix + 1);
+    uint raw2 = read_mem(a, ix + 2);
     Path s;
     s.bbox = uvec4(raw0 & 0xffff, raw0 >> 16, raw1 & 0xffff, raw1 >> 16);
     s.tiles = TileRef(raw2);
     return s;
 }
 
-void Path_write(PathRef ref, Path s) {
+void Path_write(Alloc a, PathRef ref, Path s) {
     uint ix = ref.offset >> 2;
-    memory[ix + 0] = s.bbox.x | (s.bbox.y << 16);
-    memory[ix + 1] = s.bbox.z | (s.bbox.w << 16);
-    memory[ix + 2] = s.tiles.offset;
+    write_mem(a, ix + 0, s.bbox.x | (s.bbox.y << 16));
+    write_mem(a, ix + 1, s.bbox.z | (s.bbox.w << 16));
+    write_mem(a, ix + 2, s.tiles.offset);
 }
 
-Tile Tile_read(TileRef ref) {
+Tile Tile_read(Alloc a, TileRef ref) {
     uint ix = ref.offset >> 2;
-    uint raw0 = memory[ix + 0];
-    uint raw1 = memory[ix + 1];
+    uint raw0 = read_mem(a, ix + 0);
+    uint raw1 = read_mem(a, ix + 1);
     Tile s;
     s.tile = TileSegRef(raw0);
     s.backdrop = int(raw1);
     return s;
 }
 
-void Tile_write(TileRef ref, Tile s) {
+void Tile_write(Alloc a, TileRef ref, Tile s) {
     uint ix = ref.offset >> 2;
-    memory[ix + 0] = s.tile.offset;
-    memory[ix + 1] = uint(s.backdrop);
+    write_mem(a, ix + 0, s.tile.offset);
+    write_mem(a, ix + 1, uint(s.backdrop));
 }
 
-TileSeg TileSeg_read(TileSegRef ref) {
+TileSeg TileSeg_read(Alloc a, TileSegRef ref) {
     uint ix = ref.offset >> 2;
-    uint raw0 = memory[ix + 0];
-    uint raw1 = memory[ix + 1];
-    uint raw2 = memory[ix + 2];
-    uint raw3 = memory[ix + 3];
-    uint raw4 = memory[ix + 4];
-    uint raw5 = memory[ix + 5];
+    uint raw0 = read_mem(a, ix + 0);
+    uint raw1 = read_mem(a, ix + 1);
+    uint raw2 = read_mem(a, ix + 2);
+    uint raw3 = read_mem(a, ix + 3);
+    uint raw4 = read_mem(a, ix + 4);
+    uint raw5 = read_mem(a, ix + 5);
     TileSeg s;
     s.origin = vec2(uintBitsToFloat(raw0), uintBitsToFloat(raw1));
     s.vector = vec2(uintBitsToFloat(raw2), uintBitsToFloat(raw3));
@@ -99,13 +99,13 @@ TileSeg TileSeg_read(TileSegRef ref) {
     return s;
 }
 
-void TileSeg_write(TileSegRef ref, TileSeg s) {
+void TileSeg_write(Alloc a, TileSegRef ref, TileSeg s) {
     uint ix = ref.offset >> 2;
-    memory[ix + 0] = floatBitsToUint(s.origin.x);
-    memory[ix + 1] = floatBitsToUint(s.origin.y);
-    memory[ix + 2] = floatBitsToUint(s.vector.x);
-    memory[ix + 3] = floatBitsToUint(s.vector.y);
-    memory[ix + 4] = floatBitsToUint(s.y_edge);
-    memory[ix + 5] = s.next.offset;
+    write_mem(a, ix + 0, floatBitsToUint(s.origin.x));
+    write_mem(a, ix + 1, floatBitsToUint(s.origin.y));
+    write_mem(a, ix + 2, floatBitsToUint(s.vector.x));
+    write_mem(a, ix + 3, floatBitsToUint(s.vector.y));
+    write_mem(a, ix + 4, floatBitsToUint(s.y_edge));
+    write_mem(a, ix + 5, s.next.offset);
 }
 

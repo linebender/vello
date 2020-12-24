@@ -5,8 +5,8 @@
 #version 450
 #extension GL_GOOGLE_include_directive : enable
 
-#include "setup.h"
 #include "mem.h"
+#include "setup.h"
 
 #define LG_TILE_ALLOC_WG (7 + LG_WG_FACTOR)
 #define TILE_ALLOC_WG (1 << LG_TILE_ALLOC_WG)
@@ -25,21 +25,21 @@ layout(set = 0, binding = 1) readonly buffer ConfigBuf {
 #define SY (1.0 / float(TILE_HEIGHT_PX))
 
 shared uint sh_tile_count[TILE_ALLOC_WG];
-shared Alloc sh_tile_alloc;
+shared MallocResult sh_tile_alloc;
 
 void main() {
-    if (mem_overflow) {
+    if (mem_error != NO_ERROR) {
         return;
     }
 
     uint th_ix = gl_LocalInvocationID.x;
     uint element_ix = gl_GlobalInvocationID.x;
-    PathRef path_ref = PathRef(conf.tile_base + element_ix * Path_size);
-    AnnotatedRef ref = AnnotatedRef(conf.anno_base + element_ix * Annotated_size);
+    PathRef path_ref = PathRef(conf.tile_alloc.offset + element_ix * Path_size);
+    AnnotatedRef ref = AnnotatedRef(conf.anno_alloc.offset + element_ix * Annotated_size);
 
     uint tag = Annotated_Nop;
     if (element_ix < conf.n_elements) {
-        tag = Annotated_tag(ref);
+        tag = Annotated_tag(conf.anno_alloc, ref);
     }
     int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
     switch (tag) {
@@ -49,7 +49,7 @@ void main() {
     case Annotated_EndClip:
         // Note: we take advantage of the fact that fills, strokes, and
         // clips have compatible layout.
-        AnnoFill fill = Annotated_Fill_read(ref);
+        AnnoFill fill = Annotated_Fill_read(conf.anno_alloc, ref);
         x0 = int(floor(fill.bbox.x * SX));
         y0 = int(floor(fill.bbox.y * SY));
         x1 = int(ceil(fill.bbox.z * SX));
@@ -71,36 +71,38 @@ void main() {
     }
 
     sh_tile_count[th_ix] = tile_count;
+    uint total_tile_count = tile_count;
     // Prefix sum of sh_tile_count
     for (uint i = 0; i < LG_TILE_ALLOC_WG; i++) {
         barrier();
         if (th_ix >= (1 << i)) {
-            tile_count += sh_tile_count[th_ix - (1 << i)];
+            total_tile_count += sh_tile_count[th_ix - (1 << i)];
         }
         barrier();
-        sh_tile_count[th_ix] = tile_count;
+        sh_tile_count[th_ix] = total_tile_count;
     }
     if (th_ix == TILE_ALLOC_WG - 1) {
-        sh_tile_alloc = malloc(tile_count * Tile_size);
+        sh_tile_alloc = malloc(total_tile_count * Tile_size);
     }
     barrier();
-    Alloc alloc_start = sh_tile_alloc;
+    MallocResult alloc_start = sh_tile_alloc;
     if (alloc_start.failed) {
         return;
     }
 
     if (element_ix < conf.n_elements) {
         uint tile_subix = th_ix > 0 ? sh_tile_count[th_ix - 1] : 0;
-        path.tiles = TileRef(alloc_start.offset + Tile_size * tile_subix);
-        Path_write(path_ref, path);
+        Alloc tiles_alloc = slice_mem(alloc_start.alloc, Tile_size * tile_subix, Tile_size * tile_count);
+        path.tiles = TileRef(tiles_alloc.offset);
+        Path_write(conf.tile_alloc, path_ref, path);
     }
 
     // Zero out allocated tiles efficiently
     uint total_count = sh_tile_count[TILE_ALLOC_WG - 1] * (Tile_size / 4);
-    uint start_ix = alloc_start.offset >> 2;
+    uint start_ix = alloc_start.alloc.offset >> 2;
     for (uint i = th_ix; i < total_count; i += TILE_ALLOC_WG) {
         // Note: this interleaving is faster than using Tile_write
         // by a significant amount.
-        memory[start_ix + i] = 0;
+        write_mem(alloc_start.alloc, start_ix + i, 0);
     }
 }

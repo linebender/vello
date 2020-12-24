@@ -30,9 +30,9 @@ struct Config {
     uint n_pathseg;
     uint width_in_tiles;
     uint height_in_tiles;
-    uint tile_base;
-    uint bin_base;
-    uint ptcl_base;
-    uint pathseg_base;
-    uint anno_base;
+    Alloc tile_alloc;
+    Alloc bin_alloc;
+    Alloc ptcl_alloc;
+    Alloc pathseg_alloc;
+    Alloc anno_alloc;
 };

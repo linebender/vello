@@ -31,22 +31,18 @@ pub fn gen_glsl(module: &LayoutModule) -> String {
 
     for name in &module.def_names {
         let def = module.defs.get(name).unwrap();
-        let mem = &"memory".to_owned();
-        let mut buf_name = &module.name;
-        if !module.name.eq(&"state") && !module.name.eq(&"scene") {
-            buf_name = mem;
-        }
+        let is_mem = !module.name.eq(&"state") && !module.name.eq(&"scene");
         match def {
             (_size, LayoutTypeDef::Struct(fields)) => {
-                gen_struct_read(&mut r, buf_name, &name, fields);
+                gen_struct_read(&mut r, &module.name, &name, is_mem, fields);
                 if module.gpu_write {
-                    gen_struct_write(&mut r, buf_name, &name, fields);
+                    gen_struct_write(&mut r, &module.name, &name, is_mem, fields);
                 }
             }
             (_size, LayoutTypeDef::Enum(en)) => {
-                gen_enum_read(&mut r, buf_name, &name, en);
+                gen_enum_read(&mut r, &module.name, &name, is_mem, en);
                 if module.gpu_write {
-                    gen_enum_write(&mut r, buf_name, &name, en);
+                    gen_enum_write(&mut r, &module.name, &name, is_mem, en);
                 }
             }
         }
@@ -96,14 +92,23 @@ fn gen_struct_read(
     r: &mut String,
     bufname: &str,
     name: &str,
+    is_mem: bool,
     fields: &[(String, usize, LayoutType)],
 ) {
-    writeln!(r, "{} {}_read({}Ref ref) {{", name, name, name).unwrap();
+    write!(r, "{} {}_read(", name, name).unwrap();
+    if is_mem {
+        write!(r, "Alloc a, ").unwrap();
+    }
+    writeln!(r, "{}Ref ref) {{", name).unwrap();
     writeln!(r, "    uint ix = ref.offset >> 2;").unwrap();
     let coverage = crate::layout::struct_coverage(fields, false);
     for (i, fields) in coverage.iter().enumerate() {
         if !fields.is_empty() {
-            writeln!(r, "    uint raw{} = {}[ix + {}];", i, bufname, i).unwrap();
+            if is_mem {
+                writeln!(r, "    uint raw{} = read_mem(a, ix + {});", i, i).unwrap();
+            } else {
+                writeln!(r, "    uint raw{} = {}[ix + {}];", i, bufname, i).unwrap();
+            }
         }
     }
     writeln!(r, "    {} s;", name).unwrap();
@@ -130,26 +135,47 @@ fn gen_enum_read(
     r: &mut String,
     bufname: &str,
     name: &str,
+    is_mem: bool,
     variants: &[(String, Vec<(usize, LayoutType)>)],
 ) {
-    writeln!(r, "uint {}_tag({}Ref ref) {{", name, name).unwrap();
-    writeln!(r, "    return {}[ref.offset >> 2];", bufname).unwrap();
+    if is_mem {
+        writeln!(r, "uint {}_tag(Alloc a, {}Ref ref) {{", name, name).unwrap();
+        writeln!(r, "    return read_mem(a, ref.offset >> 2);").unwrap();
+    } else {
+        writeln!(r, "uint {}_tag({}Ref ref) {{", name, name).unwrap();
+        writeln!(r, "    return {}[ref.offset >> 2];", bufname).unwrap();
+    }
     writeln!(r, "}}\n").unwrap();
     for (var_name, payload) in variants {
         if payload.len() == 1 {
             if let GpuType::InlineStruct(structname) = &payload[0].1.ty {
-                writeln!(
-                    r,
-                    "{} {}_{}_read({}Ref ref) {{",
-                    structname, name, var_name, name
-                )
-                .unwrap();
-                writeln!(
-                    r,
-                    "    return {}_read({}Ref(ref.offset + {}));",
-                    structname, structname, payload[0].0
-                )
-                .unwrap();
+                if is_mem {
+                    writeln!(
+                        r,
+                        "{} {}_{}_read(Alloc a, {}Ref ref) {{",
+                        structname, name, var_name, name
+                    )
+                    .unwrap();
+                    writeln!(
+                        r,
+                        "    return {}_read(a, {}Ref(ref.offset + {}));",
+                        structname, structname, payload[0].0
+                    )
+                    .unwrap();
+                } else {
+                    writeln!(
+                        r,
+                        "{} {}_{}_read({}Ref ref) {{",
+                        structname, name, var_name, name
+                    )
+                    .unwrap();
+                    writeln!(
+                        r,
+                        "    return {}_read({}Ref(ref.offset + {}));",
+                        structname, structname, payload[0].0
+                    )
+                    .unwrap();
+                }
                 writeln!(r, "}}\n").unwrap();
             }
         }
@@ -303,9 +329,14 @@ fn gen_struct_write(
     r: &mut String,
     bufname: &str,
     name: &str,
+    is_mem: bool,
     fields: &[(String, usize, LayoutType)],
 ) {
-    writeln!(r, "void {}_write({}Ref ref, {} s) {{", name, name, name).unwrap();
+    write!(r, "void {}_write(", name).unwrap();
+    if is_mem {
+        write!(r, "Alloc a, ").unwrap();
+    }
+    writeln!(r, "{}Ref ref, {} s) {{", name, name).unwrap();
     writeln!(r, "    uint ix = ref.offset >> 2;").unwrap();
     let coverage = crate::layout::struct_coverage(fields, true);
 
@@ -381,12 +412,19 @@ fn gen_struct_write(
         }
 
         if !pieces.is_empty() {
-            write!(r, "    {}[ix + {}] = ", bufname, i).unwrap();
+            if is_mem {
+                write!(r, "    write_mem(a, ix + {}, ", i).unwrap();
+            } else {
+                write!(r, "    {}[ix + {}] = ", bufname, i).unwrap();
+            }
             for (j, piece) in pieces.iter().enumerate() {
                 if j != 0 {
                     write!(r, " | ").unwrap();
                 }
                 write!(r, "{}", piece).unwrap();
+            }
+            if is_mem {
+                write!(r, ")").unwrap();
             }
             writeln!(r, ";").unwrap();
         }
@@ -429,38 +467,70 @@ fn gen_enum_write(
     r: &mut String,
     bufname: &str,
     name: &str,
+    is_mem: bool,
     variants: &[(String, Vec<(usize, LayoutType)>)],
 ) {
     for (var_name, payload) in variants {
         if payload.is_empty() {
-            writeln!(r, "void {}_{}_write({}Ref ref) {{", name, var_name, name).unwrap();
-            writeln!(
-                r,
-                "    {}[ref.offset >> 2] = {}_{};",
-                bufname, name, var_name
-            )
-            .unwrap();
-            writeln!(r, "}}\n").unwrap();
-        } else if payload.len() == 1 {
-            if let GpuType::InlineStruct(structname) = &payload[0].1.ty {
+            if is_mem {
+                writeln!(r, "void {}_{}_write(Alloc a, {}Ref ref) {{", name, var_name, name).unwrap();
                 writeln!(
                     r,
-                    "void {}_{}_write({}Ref ref, {} s) {{",
-                    name, var_name, name, structname
+                    "    write_mem(a, ref.offset >> 2, {}_{});",
+                    name, var_name
                 )
                 .unwrap();
+            } else {
+                writeln!(r, "void {}_{}_write({}Ref ref) {{", name, var_name, name).unwrap();
                 writeln!(
                     r,
                     "    {}[ref.offset >> 2] = {}_{};",
                     bufname, name, var_name
                 )
                 .unwrap();
-                writeln!(
-                    r,
-                    "    {}_write({}Ref(ref.offset + {}), s);",
-                    structname, structname, payload[0].0
-                )
-                .unwrap();
+            }
+            writeln!(r, "}}\n").unwrap();
+        } else if payload.len() == 1 {
+            if let GpuType::InlineStruct(structname) = &payload[0].1.ty {
+                if is_mem {
+                    writeln!(
+                        r,
+                        "void {}_{}_write(Alloc a, {}Ref ref, {} s) {{",
+                        name, var_name, name, structname
+                    )
+                    .unwrap();
+                    writeln!(
+                        r,
+                        "    write_mem(a, ref.offset >> 2, {}_{});",
+                        name, var_name
+                    )
+                    .unwrap();
+                    writeln!(
+                        r,
+                        "    {}_write(a, {}Ref(ref.offset + {}), s);",
+                        structname, structname, payload[0].0
+                    )
+                    .unwrap();
+                } else {
+                    writeln!(
+                        r,
+                        "void {}_{}_write(Alloc a, {}Ref ref, {} s) {{",
+                        name, var_name, name, structname
+                    )
+                    .unwrap();
+                    writeln!(
+                        r,
+                        "    {}[ref.offset >> 2] = {}_{};",
+                        bufname, name, var_name
+                    )
+                    .unwrap();
+                    writeln!(
+                        r,
+                        "    {}_write({}Ref(ref.offset + {}), s);",
+                        structname, structname, payload[0].0
+                    )
+                    .unwrap();
+                }
                 writeln!(r, "}}\n").unwrap();
             }
         }

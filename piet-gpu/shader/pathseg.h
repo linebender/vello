@@ -87,13 +87,13 @@ PathSegRef PathSeg_index(PathSegRef ref, uint index) {
     return PathSegRef(ref.offset + index * PathSeg_size);
 }
 
-PathFillLine PathFillLine_read(PathFillLineRef ref) {
+PathFillLine PathFillLine_read(Alloc a, PathFillLineRef ref) {
     uint ix = ref.offset >> 2;
-    uint raw0 = memory[ix + 0];
-    uint raw1 = memory[ix + 1];
-    uint raw2 = memory[ix + 2];
-    uint raw3 = memory[ix + 3];
-    uint raw4 = memory[ix + 4];
+    uint raw0 = read_mem(a, ix + 0);
+    uint raw1 = read_mem(a, ix + 1);
+    uint raw2 = read_mem(a, ix + 2);
+    uint raw3 = read_mem(a, ix + 3);
+    uint raw4 = read_mem(a, ix + 4);
     PathFillLine s;
     s.p0 = vec2(uintBitsToFloat(raw0), uintBitsToFloat(raw1));
     s.p1 = vec2(uintBitsToFloat(raw2), uintBitsToFloat(raw3));
@@ -101,24 +101,24 @@ PathFillLine PathFillLine_read(PathFillLineRef ref) {
     return s;
 }
 
-void PathFillLine_write(PathFillLineRef ref, PathFillLine s) {
+void PathFillLine_write(Alloc a, PathFillLineRef ref, PathFillLine s) {
     uint ix = ref.offset >> 2;
-    memory[ix + 0] = floatBitsToUint(s.p0.x);
-    memory[ix + 1] = floatBitsToUint(s.p0.y);
-    memory[ix + 2] = floatBitsToUint(s.p1.x);
-    memory[ix + 3] = floatBitsToUint(s.p1.y);
-    memory[ix + 4] = s.path_ix;
+    write_mem(a, ix + 0, floatBitsToUint(s.p0.x));
+    write_mem(a, ix + 1, floatBitsToUint(s.p0.y));
+    write_mem(a, ix + 2, floatBitsToUint(s.p1.x));
+    write_mem(a, ix + 3, floatBitsToUint(s.p1.y));
+    write_mem(a, ix + 4, s.path_ix);
 }
 
-PathStrokeLine PathStrokeLine_read(PathStrokeLineRef ref) {
+PathStrokeLine PathStrokeLine_read(Alloc a, PathStrokeLineRef ref) {
     uint ix = ref.offset >> 2;
-    uint raw0 = memory[ix + 0];
-    uint raw1 = memory[ix + 1];
-    uint raw2 = memory[ix + 2];
-    uint raw3 = memory[ix + 3];
-    uint raw4 = memory[ix + 4];
-    uint raw5 = memory[ix + 5];
-    uint raw6 = memory[ix + 6];
+    uint raw0 = read_mem(a, ix + 0);
+    uint raw1 = read_mem(a, ix + 1);
+    uint raw2 = read_mem(a, ix + 2);
+    uint raw3 = read_mem(a, ix + 3);
+    uint raw4 = read_mem(a, ix + 4);
+    uint raw5 = read_mem(a, ix + 5);
+    uint raw6 = read_mem(a, ix + 6);
     PathStrokeLine s;
     s.p0 = vec2(uintBitsToFloat(raw0), uintBitsToFloat(raw1));
     s.p1 = vec2(uintBitsToFloat(raw2), uintBitsToFloat(raw3));
@@ -127,28 +127,28 @@ PathStrokeLine PathStrokeLine_read(PathStrokeLineRef ref) {
     return s;
 }
 
-void PathStrokeLine_write(PathStrokeLineRef ref, PathStrokeLine s) {
+void PathStrokeLine_write(Alloc a, PathStrokeLineRef ref, PathStrokeLine s) {
     uint ix = ref.offset >> 2;
-    memory[ix + 0] = floatBitsToUint(s.p0.x);
-    memory[ix + 1] = floatBitsToUint(s.p0.y);
-    memory[ix + 2] = floatBitsToUint(s.p1.x);
-    memory[ix + 3] = floatBitsToUint(s.p1.y);
-    memory[ix + 4] = s.path_ix;
-    memory[ix + 5] = floatBitsToUint(s.stroke.x);
-    memory[ix + 6] = floatBitsToUint(s.stroke.y);
+    write_mem(a, ix + 0, floatBitsToUint(s.p0.x));
+    write_mem(a, ix + 1, floatBitsToUint(s.p0.y));
+    write_mem(a, ix + 2, floatBitsToUint(s.p1.x));
+    write_mem(a, ix + 3, floatBitsToUint(s.p1.y));
+    write_mem(a, ix + 4, s.path_ix);
+    write_mem(a, ix + 5, floatBitsToUint(s.stroke.x));
+    write_mem(a, ix + 6, floatBitsToUint(s.stroke.y));
 }
 
-PathFillCubic PathFillCubic_read(PathFillCubicRef ref) {
+PathFillCubic PathFillCubic_read(Alloc a, PathFillCubicRef ref) {
     uint ix = ref.offset >> 2;
-    uint raw0 = memory[ix + 0];
-    uint raw1 = memory[ix + 1];
-    uint raw2 = memory[ix + 2];
-    uint raw3 = memory[ix + 3];
-    uint raw4 = memory[ix + 4];
-    uint raw5 = memory[ix + 5];
-    uint raw6 = memory[ix + 6];
-    uint raw7 = memory[ix + 7];
-    uint raw8 = memory[ix + 8];
+    uint raw0 = read_mem(a, ix + 0);
+    uint raw1 = read_mem(a, ix + 1);
+    uint raw2 = read_mem(a, ix + 2);
+    uint raw3 = read_mem(a, ix + 3);
+    uint raw4 = read_mem(a, ix + 4);
+    uint raw5 = read_mem(a, ix + 5);
+    uint raw6 = read_mem(a, ix + 6);
+    uint raw7 = read_mem(a, ix + 7);
+    uint raw8 = read_mem(a, ix + 8);
     PathFillCubic s;
     s.p0 = vec2(uintBitsToFloat(raw0), uintBitsToFloat(raw1));
     s.p1 = vec2(uintBitsToFloat(raw2), uintBitsToFloat(raw3));
@@ -158,32 +158,32 @@ PathFillCubic PathFillCubic_read(PathFillCubicRef ref) {
     return s;
 }
 
-void PathFillCubic_write(PathFillCubicRef ref, PathFillCubic s) {
+void PathFillCubic_write(Alloc a, PathFillCubicRef ref, PathFillCubic s) {
     uint ix = ref.offset >> 2;
-    memory[ix + 0] = floatBitsToUint(s.p0.x);
-    memory[ix + 1] = floatBitsToUint(s.p0.y);
-    memory[ix + 2] = floatBitsToUint(s.p1.x);
-    memory[ix + 3] = floatBitsToUint(s.p1.y);
-    memory[ix + 4] = floatBitsToUint(s.p2.x);
-    memory[ix + 5] = floatBitsToUint(s.p2.y);
-    memory[ix + 6] = floatBitsToUint(s.p3.x);
-    memory[ix + 7] = floatBitsToUint(s.p3.y);
-    memory[ix + 8] = s.path_ix;
+    write_mem(a, ix + 0, floatBitsToUint(s.p0.x));
+    write_mem(a, ix + 1, floatBitsToUint(s.p0.y));
+    write_mem(a, ix + 2, floatBitsToUint(s.p1.x));
+    write_mem(a, ix + 3, floatBitsToUint(s.p1.y));
+    write_mem(a, ix + 4, floatBitsToUint(s.p2.x));
+    write_mem(a, ix + 5, floatBitsToUint(s.p2.y));
+    write_mem(a, ix + 6, floatBitsToUint(s.p3.x));
+    write_mem(a, ix + 7, floatBitsToUint(s.p3.y));
+    write_mem(a, ix + 8, s.path_ix);
 }
 
-PathStrokeCubic PathStrokeCubic_read(PathStrokeCubicRef ref) {
+PathStrokeCubic PathStrokeCubic_read(Alloc a, PathStrokeCubicRef ref) {
     uint ix = ref.offset >> 2;
-    uint raw0 = memory[ix + 0];
-    uint raw1 = memory[ix + 1];
-    uint raw2 = memory[ix + 2];
-    uint raw3 = memory[ix + 3];
-    uint raw4 = memory[ix + 4];
-    uint raw5 = memory[ix + 5];
-    uint raw6 = memory[ix + 6];
-    uint raw7 = memory[ix + 7];
-    uint raw8 = memory[ix + 8];
-    uint raw9 = memory[ix + 9];
-    uint raw10 = memory[ix + 10];
+    uint raw0 = read_mem(a, ix + 0);
+    uint raw1 = read_mem(a, ix + 1);
+    uint raw2 = read_mem(a, ix + 2);
+    uint raw3 = read_mem(a, ix + 3);
+    uint raw4 = read_mem(a, ix + 4);
+    uint raw5 = read_mem(a, ix + 5);
+    uint raw6 = read_mem(a, ix + 6);
+    uint raw7 = read_mem(a, ix + 7);
+    uint raw8 = read_mem(a, ix + 8);
+    uint raw9 = read_mem(a, ix + 9);
+    uint raw10 = read_mem(a, ix + 10);
     PathStrokeCubic s;
     s.p0 = vec2(uintBitsToFloat(raw0), uintBitsToFloat(raw1));
     s.p1 = vec2(uintBitsToFloat(raw2), uintBitsToFloat(raw3));
@@ -194,62 +194,62 @@ PathStrokeCubic PathStrokeCubic_read(PathStrokeCubicRef ref) {
     return s;
 }
 
-void PathStrokeCubic_write(PathStrokeCubicRef ref, PathStrokeCubic s) {
+void PathStrokeCubic_write(Alloc a, PathStrokeCubicRef ref, PathStrokeCubic s) {
     uint ix = ref.offset >> 2;
-    memory[ix + 0] = floatBitsToUint(s.p0.x);
-    memory[ix + 1] = floatBitsToUint(s.p0.y);
-    memory[ix + 2] = floatBitsToUint(s.p1.x);
-    memory[ix + 3] = floatBitsToUint(s.p1.y);
-    memory[ix + 4] = floatBitsToUint(s.p2.x);
-    memory[ix + 5] = floatBitsToUint(s.p2.y);
-    memory[ix + 6] = floatBitsToUint(s.p3.x);
-    memory[ix + 7] = floatBitsToUint(s.p3.y);
-    memory[ix + 8] = s.path_ix;
-    memory[ix + 9] = floatBitsToUint(s.stroke.x);
-    memory[ix + 10] = floatBitsToUint(s.stroke.y);
+    write_mem(a, ix + 0, floatBitsToUint(s.p0.x));
+    write_mem(a, ix + 1, floatBitsToUint(s.p0.y));
+    write_mem(a, ix + 2, floatBitsToUint(s.p1.x));
+    write_mem(a, ix + 3, floatBitsToUint(s.p1.y));
+    write_mem(a, ix + 4, floatBitsToUint(s.p2.x));
+    write_mem(a, ix + 5, floatBitsToUint(s.p2.y));
+    write_mem(a, ix + 6, floatBitsToUint(s.p3.x));
+    write_mem(a, ix + 7, floatBitsToUint(s.p3.y));
+    write_mem(a, ix + 8, s.path_ix);
+    write_mem(a, ix + 9, floatBitsToUint(s.stroke.x));
+    write_mem(a, ix + 10, floatBitsToUint(s.stroke.y));
 }
 
-uint PathSeg_tag(PathSegRef ref) {
-    return memory[ref.offset >> 2];
+uint PathSeg_tag(Alloc a, PathSegRef ref) {
+    return read_mem(a, ref.offset >> 2);
 }
 
-PathFillLine PathSeg_FillLine_read(PathSegRef ref) {
-    return PathFillLine_read(PathFillLineRef(ref.offset + 4));
+PathFillLine PathSeg_FillLine_read(Alloc a, PathSegRef ref) {
+    return PathFillLine_read(a, PathFillLineRef(ref.offset + 4));
 }
 
-PathStrokeLine PathSeg_StrokeLine_read(PathSegRef ref) {
-    return PathStrokeLine_read(PathStrokeLineRef(ref.offset + 4));
+PathStrokeLine PathSeg_StrokeLine_read(Alloc a, PathSegRef ref) {
+    return PathStrokeLine_read(a, PathStrokeLineRef(ref.offset + 4));
 }
 
-PathFillCubic PathSeg_FillCubic_read(PathSegRef ref) {
-    return PathFillCubic_read(PathFillCubicRef(ref.offset + 4));
+PathFillCubic PathSeg_FillCubic_read(Alloc a, PathSegRef ref) {
+    return PathFillCubic_read(a, PathFillCubicRef(ref.offset + 4));
 }
 
-PathStrokeCubic PathSeg_StrokeCubic_read(PathSegRef ref) {
-    return PathStrokeCubic_read(PathStrokeCubicRef(ref.offset + 4));
+PathStrokeCubic PathSeg_StrokeCubic_read(Alloc a, PathSegRef ref) {
+    return PathStrokeCubic_read(a, PathStrokeCubicRef(ref.offset + 4));
 }
 
-void PathSeg_Nop_write(PathSegRef ref) {
-    memory[ref.offset >> 2] = PathSeg_Nop;
+void PathSeg_Nop_write(Alloc a, PathSegRef ref) {
+    write_mem(a, ref.offset >> 2, PathSeg_Nop);
 }
 
-void PathSeg_FillLine_write(PathSegRef ref, PathFillLine s) {
-    memory[ref.offset >> 2] = PathSeg_FillLine;
-    PathFillLine_write(PathFillLineRef(ref.offset + 4), s);
+void PathSeg_FillLine_write(Alloc a, PathSegRef ref, PathFillLine s) {
+    write_mem(a, ref.offset >> 2, PathSeg_FillLine);
+    PathFillLine_write(a, PathFillLineRef(ref.offset + 4), s);
 }
 
-void PathSeg_StrokeLine_write(PathSegRef ref, PathStrokeLine s) {
-    memory[ref.offset >> 2] = PathSeg_StrokeLine;
-    PathStrokeLine_write(PathStrokeLineRef(ref.offset + 4), s);
+void PathSeg_StrokeLine_write(Alloc a, PathSegRef ref, PathStrokeLine s) {
+    write_mem(a, ref.offset >> 2, PathSeg_StrokeLine);
+    PathStrokeLine_write(a, PathStrokeLineRef(ref.offset + 4), s);
 }
 
-void PathSeg_FillCubic_write(PathSegRef ref, PathFillCubic s) {
-    memory[ref.offset >> 2] = PathSeg_FillCubic;
-    PathFillCubic_write(PathFillCubicRef(ref.offset + 4), s);
+void PathSeg_FillCubic_write(Alloc a, PathSegRef ref, PathFillCubic s) {
+    write_mem(a, ref.offset >> 2, PathSeg_FillCubic);
+    PathFillCubic_write(a, PathFillCubicRef(ref.offset + 4), s);
 }
 
-void PathSeg_StrokeCubic_write(PathSegRef ref, PathStrokeCubic s) {
-    memory[ref.offset >> 2] = PathSeg_StrokeCubic;
-    PathStrokeCubic_write(PathStrokeCubicRef(ref.offset + 4), s);
+void PathSeg_StrokeCubic_write(Alloc a, PathSegRef ref, PathStrokeCubic s) {
+    write_mem(a, ref.offset >> 2, PathSeg_StrokeCubic);
+    PathStrokeCubic_write(a, PathStrokeCubicRef(ref.offset + 4), s);
 }
 

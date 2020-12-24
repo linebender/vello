@@ -10,8 +10,8 @@
 #extension GL_GOOGLE_include_directive : enable
 #extension GL_EXT_nonuniform_qualifier : enable
 
-#include "setup.h"
 #include "mem.h"
+#include "setup.h"
 
 #define CHUNK 8
 #define CHUNK_DY (TILE_HEIGHT_PX / CHUNK)
@@ -37,16 +37,16 @@ layout(set = 0, binding = 3) uniform sampler2D textures[];
 #define CLIP_LINK_OFFSET (TILE_WIDTH_PX * TILE_HEIGHT_PX)
 #define CLIP_BUF_SIZE (CLIP_LINK_OFFSET + 1)
 
-shared Alloc sh_clip_alloc;
+shared MallocResult sh_clip_alloc;
 
 // Allocate a scratch buffer for clipping.
-Alloc alloc_clip_buf(uint link) {
+MallocResult alloc_clip_buf(uint link) {
     if (gl_LocalInvocationID.x == 0 && gl_LocalInvocationID.y == 0) {
-        Alloc alloc = malloc(CLIP_BUF_SIZE * 4);
-        if (!alloc.failed) {
-            memory[(alloc.offset >> 2) + CLIP_LINK_OFFSET] = link;
+        MallocResult m = malloc(CLIP_BUF_SIZE * 4);
+        if (!m.failed) {
+            write_mem(m.alloc, (m.alloc.offset >> 2) + CLIP_LINK_OFFSET, link);
         }
-        sh_clip_alloc = alloc;
+        sh_clip_alloc = m;
     }
     barrier();
     return sh_clip_alloc;
@@ -59,7 +59,7 @@ float[CHUNK] computeArea(vec2 xy, int backdrop, uint tile_ref) {
     for (uint k = 0; k < CHUNK; k++) area[k] = float(backdrop);
     TileSegRef tile_seg_ref = TileSegRef(tile_ref);
     do {
-        TileSeg seg = TileSeg_read(tile_seg_ref);
+        TileSeg seg = TileSeg_read(new_alloc(tile_seg_ref.offset, TileSeg_size), tile_seg_ref);
         for (uint k = 0; k < CHUNK; k++) {
             vec2 my_xy = vec2(xy.x, xy.y + float(k * CHUNK_DY));
             vec2 start = seg.origin - my_xy;
@@ -87,12 +87,13 @@ float[CHUNK] computeArea(vec2 xy, int backdrop, uint tile_ref) {
 }
 
 void main() {
-    if (mem_overflow) {
+    if (mem_error != NO_ERROR) {
         return;
     }
 
     uint tile_ix = gl_WorkGroupID.y * conf.width_in_tiles + gl_WorkGroupID.x;
-    CmdRef cmd_ref = CmdRef(conf.ptcl_base + tile_ix * PTCL_INITIAL_ALLOC);
+    Alloc cmd_alloc = slice_mem(conf.ptcl_alloc, tile_ix * PTCL_INITIAL_ALLOC, PTCL_INITIAL_ALLOC);
+    CmdRef cmd_ref = CmdRef(cmd_alloc.offset);
 
     uvec2 xy_uint = uvec2(gl_GlobalInvocationID.x, gl_LocalInvocationID.y + TILE_HEIGHT_PX * gl_WorkGroupID.y);
     vec2 xy = vec2(xy_uint);
@@ -101,7 +102,7 @@ void main() {
     uint blend_stack[BLEND_STACK_SIZE][CHUNK];
     uint blend_spill = 0;
     uint blend_sp = 0;
-    uint clip_tos = 0;
+    Alloc clip_tos = new_alloc(0, 0);
     for (uint i = 0; i < CHUNK; i++) {
         rgb[i] = vec3(0.5);
         if (xy_uint.x < 1024 && xy_uint.y < 1024) {
@@ -111,13 +112,13 @@ void main() {
     }
 
     while (true) {
-        uint tag = Cmd_tag(cmd_ref);
+        uint tag = Cmd_tag(cmd_alloc, cmd_ref);
         if (tag == Cmd_End) {
             break;
         }
         switch (tag) {
         case Cmd_Circle:
-            CmdCircle circle = Cmd_Circle_read(cmd_ref);
+            CmdCircle circle = Cmd_Circle_read(cmd_alloc, cmd_ref);
             vec4 fg_rgba = unpackUnorm4x8(circle.rgba_color).wzyx;
             for (uint i = 0; i < CHUNK; i++) {
                 float dy = float(i * CHUNK_DY);
@@ -129,12 +130,12 @@ void main() {
             break;
         case Cmd_Stroke:
             // Calculate distance field from all the line segments in this tile.
-            CmdStroke stroke = Cmd_Stroke_read(cmd_ref);
+            CmdStroke stroke = Cmd_Stroke_read(cmd_alloc, cmd_ref);
             float df[CHUNK];
             for (uint k = 0; k < CHUNK; k++) df[k] = 1e9;
             TileSegRef tile_seg_ref = TileSegRef(stroke.tile_ref);
             do {
-                TileSeg seg = TileSeg_read(tile_seg_ref);
+                TileSeg seg = TileSeg_read(new_alloc(tile_seg_ref.offset, TileSeg_size), tile_seg_ref);
                 vec2 line_vec = seg.vector;
                 for (uint k = 0; k < CHUNK; k++) {
                     vec2 dpos = xy + vec2(0.5, 0.5) - seg.origin;
@@ -151,7 +152,7 @@ void main() {
             }
             break;
         case Cmd_Fill:
-            CmdFill fill = Cmd_Fill_read(cmd_ref);
+            CmdFill fill = Cmd_Fill_read(cmd_alloc, cmd_ref);
             float area[CHUNK];
             area = computeArea(xy, fill.backdrop, fill.tile_ref);
             fg_rgba = unpackUnorm4x8(fill.rgba_color).wzyx;
@@ -164,25 +165,25 @@ void main() {
             uint blend_slot = blend_sp % BLEND_STACK_SIZE;
             if (blend_sp == blend_spill + BLEND_STACK_SIZE) {
                 // spill to scratch buffer
-                Alloc alloc = alloc_clip_buf(clip_tos);
-                if (alloc.failed) {
+                MallocResult m = alloc_clip_buf(clip_tos.offset);
+                if (m.failed) {
                     return;
                 }
-                clip_tos = alloc.offset;
-                uint base_ix = (clip_tos >> 2) + gl_LocalInvocationID.x + TILE_WIDTH_PX * gl_LocalInvocationID.y;
+                clip_tos = m.alloc;
+                uint base_ix = (clip_tos.offset >> 2) + gl_LocalInvocationID.x + TILE_WIDTH_PX * gl_LocalInvocationID.y;
                 for (uint k = 0; k < CHUNK; k++) {
-                    memory[base_ix + k * TILE_WIDTH_PX * CHUNK_DY] = blend_stack[blend_slot][k];
+                    write_mem(clip_tos, base_ix + k * TILE_WIDTH_PX * CHUNK_DY, blend_stack[blend_slot][k]);
                 }
                 blend_spill++;
             }
             if (tag == Cmd_BeginClip) {
-                CmdBeginClip begin_clip = Cmd_BeginClip_read(cmd_ref);
+                CmdBeginClip begin_clip = Cmd_BeginClip_read(cmd_alloc, cmd_ref);
                 area = computeArea(xy, begin_clip.backdrop, begin_clip.tile_ref);
                 for (uint k = 0; k < CHUNK; k++) {
                     blend_stack[blend_slot][k] = packUnorm4x8(vec4(rgb[k], clamp(abs(area[k]), 0.0, 1.0)));
                 }
             } else {
-                CmdBeginSolidClip begin_solid_clip = Cmd_BeginSolidClip_read(cmd_ref);
+                CmdBeginSolidClip begin_solid_clip = Cmd_BeginSolidClip_read(cmd_alloc, cmd_ref);
                 float solid_alpha = begin_solid_clip.alpha;
                 for (uint k = 0; k < CHUNK; k++) {
                     blend_stack[blend_slot][k] = packUnorm4x8(vec4(rgb[k], solid_alpha));
@@ -191,14 +192,14 @@ void main() {
             blend_sp++;
             break;
         case Cmd_EndClip:
-            CmdEndClip end_clip = Cmd_EndClip_read(cmd_ref);
+            CmdEndClip end_clip = Cmd_EndClip_read(cmd_alloc, cmd_ref);
             blend_slot = (blend_sp - 1) % BLEND_STACK_SIZE;
             if (blend_sp == blend_spill) {
-                uint base_ix = (clip_tos >> 2) + gl_LocalInvocationID.x + TILE_WIDTH_PX * gl_LocalInvocationID.y;
+                uint base_ix = (clip_tos.offset >> 2) + gl_LocalInvocationID.x + TILE_WIDTH_PX * gl_LocalInvocationID.y;
                 for (uint k = 0; k < CHUNK; k++) {
-                    blend_stack[blend_slot][k] = memory[base_ix + k * TILE_WIDTH_PX * CHUNK_DY];
+                    blend_stack[blend_slot][k] = read_mem(clip_tos, base_ix + k * TILE_WIDTH_PX * CHUNK_DY);
                 }
-                clip_tos = memory[(clip_tos >> 2) + CLIP_LINK_OFFSET];
+                clip_tos.offset = read_mem(clip_tos, (clip_tos.offset >> 2) + CLIP_LINK_OFFSET);
                 blend_spill--;
             }
             blend_sp--;
@@ -208,20 +209,21 @@ void main() {
             }
             break;
         case Cmd_Solid:
-            CmdSolid solid = Cmd_Solid_read(cmd_ref);
+            CmdSolid solid = Cmd_Solid_read(cmd_alloc, cmd_ref);
             fg_rgba = unpackUnorm4x8(solid.rgba_color).wzyx;
             for (uint k = 0; k < CHUNK; k++) {
                 rgb[k] = mix(rgb[k], fg_rgba.rgb, mask[k] * fg_rgba.a);
             }
             break;
         case Cmd_SolidMask:
-            CmdSolidMask solid_mask = Cmd_SolidMask_read(cmd_ref);
+            CmdSolidMask solid_mask = Cmd_SolidMask_read(cmd_alloc, cmd_ref);
             for (uint k = 0; k < CHUNK; k++) {
                 mask[k] = solid_mask.mask;
             }
             break;
         case Cmd_Jump:
-            cmd_ref = CmdRef(Cmd_Jump_read(cmd_ref).new_ref);
+            cmd_ref = CmdRef(Cmd_Jump_read(cmd_alloc, cmd_ref).new_ref);
+            cmd_alloc.offset = cmd_ref.offset;
             continue;
         }
         cmd_ref.offset += Cmd_size;
