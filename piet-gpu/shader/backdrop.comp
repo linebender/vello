@@ -54,7 +54,10 @@ void main() {
             Path path = Path_read(path_ref);
             sh_row_width[th_ix] = path.bbox.z - path.bbox.x;
             row_count = path.bbox.w - path.bbox.y;
-            if (row_count == 1) {
+            // Paths that don't cross tile top edges don't have backdrops.
+            // Don't apply the optimization to paths that may cross the y = 0
+            // top edge, but clipped to 1 row.
+            if (row_count == 1 && path.bbox.y > 0) {
                 // Note: this can probably be expanded to width = 2 as
                 // long as it doesn't cross the left edge.
                 row_count = 0;
