@@ -66,7 +66,7 @@ float[CHUNK] computeArea(vec2 xy, int backdrop, uint tile_ref) {
             vec2 end = start + seg.vector;
             vec2 window = clamp(vec2(start.y, end.y), 0.0, 1.0);
             if (window.x != window.y) {
-                vec2 t = (window - start.y) / (end.y - start.y);
+                vec2 t = (window - start.y) / seg.vector.y;
                 vec2 xs = vec2(mix(start.x, end.x, t.x), mix(start.x, end.x, t.y));
                 float xmin = min(min(xs.x, xs.y), 1.0) - 1e-6;
                 float xmax = max(xs.x, xs.y);
