@@ -16,6 +16,13 @@ piet_gpu! {
             backdrop: i32,
             rgba_color: u32,
         }
+        struct CmdFillImage {
+            // As above, really Ref<Tile>
+            tile_ref: u32,
+            backdrop: i32,
+            index: u32,
+            offset: [i16; 2],
+        }
         struct CmdBeginClip {
             tile_ref: u32,
             backdrop: i32,
@@ -32,17 +39,23 @@ piet_gpu! {
         struct CmdSolid {
             rgba_color: u32,
         }
+        struct CmdSolidImage {
+            index: u32,
+            offset: [i16; 2],
+        }
         struct CmdJump {
             new_ref: u32,
         }
         enum Cmd {
             End,
             Fill(CmdFill),
+            FillImage(CmdFillImage),
             BeginClip(CmdBeginClip),
             BeginSolidClip(CmdBeginSolidClip),
             EndClip(CmdEndClip),
             Stroke(CmdStroke),
             Solid(CmdSolid),
+            SolidImage(CmdSolidImage),
             Jump(CmdJump),
         }
     }

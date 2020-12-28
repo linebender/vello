@@ -49,6 +49,7 @@ void main() {
         uint tag = Annotated_tag(conf.anno_alloc, ref);
         switch (tag) {
         case Annotated_Fill:
+        case Annotated_FillImage:
         case Annotated_BeginClip:
             PathRef path_ref = PathRef(conf.tile_alloc.offset + element_ix * Path_size);
             Path path = Path_read(conf.tile_alloc, path_ref);

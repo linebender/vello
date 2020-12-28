@@ -23,7 +23,11 @@ layout(set = 0, binding = 1) readonly buffer ConfigBuf {
 
 layout(rgba8, set = 0, binding = 2) uniform writeonly image2D image;
 
-layout(set = 0, binding = 3) uniform sampler2D textures[];
+#if GL_EXT_nonuniform_qualifier
+layout(rgba8, set = 0, binding = 3) uniform readonly image2D images[];
+#else
+layout(rgba8, set = 0, binding = 3) uniform readonly image2D images[1];
+#endif
 
 #include "ptcl.h"
 #include "tile.h"
@@ -86,6 +90,49 @@ float[CHUNK] computeArea(vec2 xy, int backdrop, uint tile_ref) {
     return area;
 }
 
+vec3 tosRGB(vec3 rgb) {
+    bvec3 cutoff = greaterThanEqual(rgb, vec3(0.0031308));
+    vec3 below = vec3(12.92)*rgb;
+    vec3 above = vec3(1.055)*pow(rgb, vec3(0.41666)) - vec3(0.055);
+    return mix(below, above, cutoff);
+}
+
+vec3 fromsRGB(vec3 srgb) {
+    // Formula from EXT_sRGB.
+    bvec3 cutoff = greaterThanEqual(srgb, vec3(0.04045));
+    vec3 below = srgb/vec3(12.92);
+    vec3 above = pow((srgb + vec3(0.055))/vec3(1.055), vec3(2.4));
+    return mix(below, above, cutoff);
+}
+
+// unpacksRGB unpacks a color in the sRGB color space to a vec4 in the linear color
+// space.
+vec4 unpacksRGB(uint srgba) {
+    vec4 color = unpackUnorm4x8(srgba).wzyx;
+    return vec4(fromsRGB(color.rgb), color.a);
+}
+
+// packsRGB packs a color in the linear color space into its 8-bit sRGB equivalent.
+uint packsRGB(vec4 rgba) {
+    rgba = vec4(tosRGB(rgba.rgb), rgba.a);
+    return packUnorm4x8(rgba.wzyx);
+}
+
+vec4[CHUNK] fillImage(uvec2 xy, CmdSolidImage cmd_img) {
+    vec4 rgba[CHUNK];
+    for (uint i = 0; i < CHUNK; i++) {
+        ivec2 uv = ivec2(xy.x, xy.y + i * CHUNK_DY) + cmd_img.offset;
+#ifdef ENABLE_IMAGE_INDICES
+        vec4 fg_rgba = imageLoad(images[cmd_img.index], uv);
+#else
+        vec4 fg_rgba = imageLoad(images[0], uv);
+#endif
+        fg_rgba.rgb = fromsRGB(fg_rgba.rgb);
+        rgba[i] = fg_rgba;
+    }
+    return rgba;
+}
+
 void main() {
     if (mem_error != NO_ERROR) {
         return;
@@ -105,9 +152,11 @@ void main() {
     Alloc clip_tos = new_alloc(0, 0);
     for (uint i = 0; i < CHUNK; i++) {
         rgb[i] = vec3(0.5);
+#ifdef ENABLE_IMAGE_INDICES
         if (xy_uint.x < 1024 && xy_uint.y < 1024) {
-            rgb[i] = texture(textures[gl_WorkGroupID.x / 64], vec2(xy_uint.x, xy_uint.y + CHUNK_DY * i) / 1024.0).rgb;
+            rgb[i] = imageLoad(images[gl_WorkGroupID.x / 64], ivec2(xy_uint.x, xy_uint.y + CHUNK_DY * i)/4).rgb;
         }
+#endif
         mask[i] = 1.0;
     }
 
@@ -134,7 +183,7 @@ void main() {
                 }
                 tile_seg_ref = seg.next;
             } while (tile_seg_ref.offset != 0);
-            vec4 fg_rgba = unpackUnorm4x8(stroke.rgba_color).wzyx;
+            vec4 fg_rgba = unpacksRGB(stroke.rgba_color);
             for (uint k = 0; k < CHUNK; k++) {
                 float alpha = clamp(stroke.half_width + 0.5 - df[k], 0.0, 1.0);
                 rgb[k] = mix(rgb[k], fg_rgba.rgb, mask[k] * alpha * fg_rgba.a);
@@ -144,9 +193,17 @@ void main() {
             CmdFill fill = Cmd_Fill_read(cmd_alloc, cmd_ref);
             float area[CHUNK];
             area = computeArea(xy, fill.backdrop, fill.tile_ref);
-            fg_rgba = unpackUnorm4x8(fill.rgba_color).wzyx;
+            fg_rgba = unpacksRGB(fill.rgba_color);
             for (uint k = 0; k < CHUNK; k++) {
                 rgb[k] = mix(rgb[k], fg_rgba.rgb, mask[k] * area[k] * fg_rgba.a);
+            }
+            break;
+        case Cmd_FillImage:
+            CmdFillImage fill_img = Cmd_FillImage_read(cmd_alloc, cmd_ref);
+            area = computeArea(xy, fill_img.backdrop, fill_img.tile_ref);
+            vec4 rgba[CHUNK] = fillImage(xy_uint, CmdSolidImage(fill_img.index, fill_img.offset));
+            for (uint k = 0; k < CHUNK; k++) {
+                rgb[k] = mix(rgb[k], rgba[k].rgb, mask[k] * area[k] * rgba[k].a);
             }
             break;
         case Cmd_BeginClip:
@@ -169,13 +226,13 @@ void main() {
                 CmdBeginClip begin_clip = Cmd_BeginClip_read(cmd_alloc, cmd_ref);
                 area = computeArea(xy, begin_clip.backdrop, begin_clip.tile_ref);
                 for (uint k = 0; k < CHUNK; k++) {
-                    blend_stack[blend_slot][k] = packUnorm4x8(vec4(rgb[k], clamp(abs(area[k]), 0.0, 1.0)));
+                    blend_stack[blend_slot][k] = packsRGB(vec4(rgb[k], clamp(abs(area[k]), 0.0, 1.0)));
                 }
             } else {
                 CmdBeginSolidClip begin_solid_clip = Cmd_BeginSolidClip_read(cmd_alloc, cmd_ref);
                 float solid_alpha = begin_solid_clip.alpha;
                 for (uint k = 0; k < CHUNK; k++) {
-                    blend_stack[blend_slot][k] = packUnorm4x8(vec4(rgb[k], solid_alpha));
+                    blend_stack[blend_slot][k] = packsRGB(vec4(rgb[k], solid_alpha));
                 }
             }
             blend_sp++;
@@ -193,15 +250,22 @@ void main() {
             }
             blend_sp--;
             for (uint k = 0; k < CHUNK; k++) {
-                vec4 rgba = unpackUnorm4x8(blend_stack[blend_slot][k]);
+                vec4 rgba = unpacksRGB(blend_stack[blend_slot][k]);
                 rgb[k] = mix(rgba.rgb, rgb[k], end_clip.alpha * rgba.a);
             }
             break;
         case Cmd_Solid:
             CmdSolid solid = Cmd_Solid_read(cmd_alloc, cmd_ref);
-            fg_rgba = unpackUnorm4x8(solid.rgba_color).wzyx;
+            fg_rgba = unpacksRGB(solid.rgba_color);
             for (uint k = 0; k < CHUNK; k++) {
                 rgb[k] = mix(rgb[k], fg_rgba.rgb, mask[k] * fg_rgba.a);
+            }
+            break;
+        case Cmd_SolidImage:
+            CmdSolidImage solid_img = Cmd_SolidImage_read(cmd_alloc, cmd_ref);
+            rgba = fillImage(xy_uint, solid_img);
+            for (uint k = 0; k < CHUNK; k++) {
+                rgb[k] = mix(rgb[k], rgba[k].rgb, mask[k] * rgba[k].a);
             }
             break;
         case Cmd_Jump:
@@ -212,8 +276,7 @@ void main() {
         cmd_ref.offset += Cmd_size;
     }
 
-    // TODO: sRGB
     for (uint i = 0; i < CHUNK; i++) {
-        imageStore(image, ivec2(xy_uint.x, xy_uint.y + CHUNK_DY * i), vec4(rgb[i], 1.0));
+        imageStore(image, ivec2(xy_uint.x, xy_uint.y + CHUNK_DY * i), vec4(tosRGB(rgb[i]), 1.0));
     }
 }

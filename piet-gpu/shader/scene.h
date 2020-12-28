@@ -18,6 +18,10 @@ struct FillRef {
     uint offset;
 };
 
+struct FillImageRef {
+    uint offset;
+};
+
 struct StrokeRef {
     uint offset;
 };
@@ -84,6 +88,17 @@ FillRef Fill_index(FillRef ref, uint index) {
     return FillRef(ref.offset + index * Fill_size);
 }
 
+struct FillImage {
+    uint index;
+    ivec2 offset;
+};
+
+#define FillImage_size 8
+
+FillImageRef FillImage_index(FillImageRef ref, uint index) {
+    return FillImageRef(ref.offset + index * FillImage_size);
+}
+
 struct Stroke {
     uint rgba_color;
 };
@@ -138,6 +153,7 @@ ClipRef Clip_index(ClipRef ref, uint index) {
 #define Element_Transform 10
 #define Element_BeginClip 11
 #define Element_EndClip 12
+#define Element_FillImage 13
 #define Element_size 36
 
 ElementRef Element_index(ElementRef ref, uint index) {
@@ -194,6 +210,16 @@ Fill Fill_read(FillRef ref) {
     uint raw0 = scene[ix + 0];
     Fill s;
     s.rgba_color = raw0;
+    return s;
+}
+
+FillImage FillImage_read(FillImageRef ref) {
+    uint ix = ref.offset >> 2;
+    uint raw0 = scene[ix + 0];
+    uint raw1 = scene[ix + 1];
+    FillImage s;
+    s.index = raw0;
+    s.offset = ivec2(int(raw1 << 16) >> 16, int(raw1) >> 16);
     return s;
 }
 
@@ -288,5 +314,9 @@ Clip Element_BeginClip_read(ElementRef ref) {
 
 Clip Element_EndClip_read(ElementRef ref) {
     return Clip_read(ClipRef(ref.offset + 4));
+}
+
+FillImage Element_FillImage_read(ElementRef ref) {
+    return FillImage_read(FillImageRef(ref.offset + 4));
 }
 

@@ -247,6 +247,6 @@ pub trait DescriptorSetBuilder<D: Device> {
     ///
     /// The same sampler is used for all textures, which is not very sophisticated;
     /// we should have a way to vary the sampler.
-    fn add_textures(&mut self, images: &[&D::Image], sampler: &D::Sampler);
+    fn add_textures(&mut self, images: &[&D::Image]);
     unsafe fn build(self, device: &D, pipeline: &D::Pipeline) -> Result<D::DescriptorSet, Error>;
 }

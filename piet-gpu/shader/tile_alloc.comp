@@ -44,6 +44,7 @@ void main() {
     int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
     switch (tag) {
     case Annotated_Fill:
+    case Annotated_FillImage:
     case Annotated_Stroke:
     case Annotated_BeginClip:
     case Annotated_EndClip:

@@ -360,9 +360,9 @@ impl DescriptorSetBuilder {
         self
     }
 
-    pub fn add_textures<'a>(mut self, images: impl IntoRefs<'a, Image>, sampler: &Sampler) -> Self {
+    pub fn add_textures<'a>(mut self, images: impl IntoRefs<'a, Image>) -> Self {
         let vk_images = images.into_refs().map(|i| i.vk_image()).collect::<Vec<_>>();
-        self.0.add_textures(&vk_images, sampler);
+        self.0.add_textures(&vk_images);
         self
     }
 

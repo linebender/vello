@@ -25,6 +25,10 @@ piet_gpu! {
         struct Fill {
             rgba_color: u32,
         }
+        struct FillImage {
+            index: u32,
+            offset: [i16; 2],
+        }
         struct Stroke {
             rgba_color: u32,
         }
@@ -58,6 +62,7 @@ piet_gpu! {
             Transform(Transform),
             BeginClip(Clip),
             EndClip(Clip),
+            FillImage(FillImage),
         }
     }
 }
