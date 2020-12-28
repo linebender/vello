@@ -203,6 +203,7 @@ void main() {
         uint tile_count;
         switch (tag) {
         case Annotated_Fill:
+        case Annotated_FillImage:
         case Annotated_Stroke:
         case Annotated_BeginClip:
         case Annotated_EndClip:
@@ -323,6 +324,28 @@ void main() {
                         Cmd_Fill_write(cmd_alloc, cmd_ref, cmd_fill);
                     } else {
                         Cmd_Solid_write(cmd_alloc, cmd_ref, CmdSolid(fill.rgba_color));
+                    }
+                    cmd_ref.offset += Cmd_size;
+                    break;
+                case Annotated_FillImage:
+                    tile = Tile_read(read_tile_alloc(element_ref_ix), TileRef(sh_tile_base[element_ref_ix]
+                        + (sh_tile_stride[element_ref_ix] * tile_y + tile_x) * Tile_size));
+                    AnnoFillImage fill_img = Annotated_FillImage_read(conf.anno_alloc, ref);
+                    if (!alloc_cmd(cmd_alloc, cmd_ref, cmd_limit)) {
+                        break;
+                    }
+                    if (tile.tile.offset != 0) {
+                        CmdFillImage cmd_fill_img;
+                        cmd_fill_img.tile_ref = tile.tile.offset;
+                        cmd_fill_img.backdrop = tile.backdrop;
+                        cmd_fill_img.index = fill_img.index;
+                        cmd_fill_img.offset = fill_img.offset;
+                        Cmd_FillImage_write(cmd_alloc, cmd_ref, cmd_fill_img);
+                    } else {
+                        CmdSolidImage cmd_solid_img;
+                        cmd_solid_img.index = fill_img.index;
+                        cmd_solid_img.offset = fill_img.offset;
+                        Cmd_SolidImage_write(cmd_alloc, cmd_ref, cmd_solid_img);
                     }
                     cmd_ref.offset += Cmd_size;
                     break;

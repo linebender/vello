@@ -9,6 +9,11 @@ piet_gpu! {
             bbox: [f32; 4],
             rgba_color: u32,
         }
+        struct AnnoFillImage {
+            bbox: [f32; 4],
+            index: u32,
+            offset: [i16; 2],
+        }
         struct AnnoStroke {
             bbox: [f32; 4],
             rgba_color: u32,
@@ -23,6 +28,7 @@ piet_gpu! {
             Nop,
             Stroke(AnnoStroke),
             Fill(AnnoFill),
+            FillImage(AnnoFillImage),
             BeginClip(AnnoClip),
             EndClip(AnnoClip),
         }

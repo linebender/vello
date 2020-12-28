@@ -6,6 +6,10 @@ struct AnnoFillRef {
     uint offset;
 };
 
+struct AnnoFillImageRef {
+    uint offset;
+};
+
 struct AnnoStrokeRef {
     uint offset;
 };
@@ -27,6 +31,18 @@ struct AnnoFill {
 
 AnnoFillRef AnnoFill_index(AnnoFillRef ref, uint index) {
     return AnnoFillRef(ref.offset + index * AnnoFill_size);
+}
+
+struct AnnoFillImage {
+    vec4 bbox;
+    uint index;
+    ivec2 offset;
+};
+
+#define AnnoFillImage_size 24
+
+AnnoFillImageRef AnnoFillImage_index(AnnoFillImageRef ref, uint index) {
+    return AnnoFillImageRef(ref.offset + index * AnnoFillImage_size);
 }
 
 struct AnnoStroke {
@@ -54,8 +70,9 @@ AnnoClipRef AnnoClip_index(AnnoClipRef ref, uint index) {
 #define Annotated_Nop 0
 #define Annotated_Stroke 1
 #define Annotated_Fill 2
-#define Annotated_BeginClip 3
-#define Annotated_EndClip 4
+#define Annotated_FillImage 3
+#define Annotated_BeginClip 4
+#define Annotated_EndClip 5
 #define Annotated_size 28
 
 AnnotatedRef Annotated_index(AnnotatedRef ref, uint index) {
@@ -82,6 +99,31 @@ void AnnoFill_write(Alloc a, AnnoFillRef ref, AnnoFill s) {
     write_mem(a, ix + 2, floatBitsToUint(s.bbox.z));
     write_mem(a, ix + 3, floatBitsToUint(s.bbox.w));
     write_mem(a, ix + 4, s.rgba_color);
+}
+
+AnnoFillImage AnnoFillImage_read(Alloc a, AnnoFillImageRef ref) {
+    uint ix = ref.offset >> 2;
+    uint raw0 = read_mem(a, ix + 0);
+    uint raw1 = read_mem(a, ix + 1);
+    uint raw2 = read_mem(a, ix + 2);
+    uint raw3 = read_mem(a, ix + 3);
+    uint raw4 = read_mem(a, ix + 4);
+    uint raw5 = read_mem(a, ix + 5);
+    AnnoFillImage s;
+    s.bbox = vec4(uintBitsToFloat(raw0), uintBitsToFloat(raw1), uintBitsToFloat(raw2), uintBitsToFloat(raw3));
+    s.index = raw4;
+    s.offset = ivec2(int(raw5 << 16) >> 16, int(raw5) >> 16);
+    return s;
+}
+
+void AnnoFillImage_write(Alloc a, AnnoFillImageRef ref, AnnoFillImage s) {
+    uint ix = ref.offset >> 2;
+    write_mem(a, ix + 0, floatBitsToUint(s.bbox.x));
+    write_mem(a, ix + 1, floatBitsToUint(s.bbox.y));
+    write_mem(a, ix + 2, floatBitsToUint(s.bbox.z));
+    write_mem(a, ix + 3, floatBitsToUint(s.bbox.w));
+    write_mem(a, ix + 4, s.index);
+    write_mem(a, ix + 5, (uint(s.offset.x) & 0xffff) | (uint(s.offset.y) << 16));
 }
 
 AnnoStroke AnnoStroke_read(Alloc a, AnnoStrokeRef ref) {
@@ -140,6 +182,10 @@ AnnoFill Annotated_Fill_read(Alloc a, AnnotatedRef ref) {
     return AnnoFill_read(a, AnnoFillRef(ref.offset + 4));
 }
 
+AnnoFillImage Annotated_FillImage_read(Alloc a, AnnotatedRef ref) {
+    return AnnoFillImage_read(a, AnnoFillImageRef(ref.offset + 4));
+}
+
 AnnoClip Annotated_BeginClip_read(Alloc a, AnnotatedRef ref) {
     return AnnoClip_read(a, AnnoClipRef(ref.offset + 4));
 }
@@ -160,6 +206,11 @@ void Annotated_Stroke_write(Alloc a, AnnotatedRef ref, AnnoStroke s) {
 void Annotated_Fill_write(Alloc a, AnnotatedRef ref, AnnoFill s) {
     write_mem(a, ref.offset >> 2, Annotated_Fill);
     AnnoFill_write(a, AnnoFillRef(ref.offset + 4), s);
+}
+
+void Annotated_FillImage_write(Alloc a, AnnotatedRef ref, AnnoFillImage s) {
+    write_mem(a, ref.offset >> 2, Annotated_FillImage);
+    AnnoFillImage_write(a, AnnoFillImageRef(ref.offset + 4), s);
 }
 
 void Annotated_BeginClip_write(Alloc a, AnnotatedRef ref, AnnoClip s) {

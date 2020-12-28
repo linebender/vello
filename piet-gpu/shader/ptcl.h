@@ -18,6 +18,10 @@ struct CmdFillRef {
     uint offset;
 };
 
+struct CmdFillImageRef {
+    uint offset;
+};
+
 struct CmdBeginClipRef {
     uint offset;
 };
@@ -31,6 +35,10 @@ struct CmdEndClipRef {
 };
 
 struct CmdSolidRef {
+    uint offset;
+};
+
+struct CmdSolidImageRef {
     uint offset;
 };
 
@@ -93,6 +101,19 @@ CmdFillRef CmdFill_index(CmdFillRef ref, uint index) {
     return CmdFillRef(ref.offset + index * CmdFill_size);
 }
 
+struct CmdFillImage {
+    uint tile_ref;
+    int backdrop;
+    uint index;
+    ivec2 offset;
+};
+
+#define CmdFillImage_size 16
+
+CmdFillImageRef CmdFillImage_index(CmdFillImageRef ref, uint index) {
+    return CmdFillImageRef(ref.offset + index * CmdFillImage_size);
+}
+
 struct CmdBeginClip {
     uint tile_ref;
     int backdrop;
@@ -134,6 +155,17 @@ CmdSolidRef CmdSolid_index(CmdSolidRef ref, uint index) {
     return CmdSolidRef(ref.offset + index * CmdSolid_size);
 }
 
+struct CmdSolidImage {
+    uint index;
+    ivec2 offset;
+};
+
+#define CmdSolidImage_size 8
+
+CmdSolidImageRef CmdSolidImage_index(CmdSolidImageRef ref, uint index) {
+    return CmdSolidImageRef(ref.offset + index * CmdSolidImage_size);
+}
+
 struct CmdSolidMask {
     float mask;
 };
@@ -158,13 +190,15 @@ CmdJumpRef CmdJump_index(CmdJumpRef ref, uint index) {
 #define Cmd_Circle 1
 #define Cmd_Line 2
 #define Cmd_Fill 3
-#define Cmd_BeginClip 4
-#define Cmd_BeginSolidClip 5
-#define Cmd_EndClip 6
-#define Cmd_Stroke 7
-#define Cmd_Solid 8
-#define Cmd_SolidMask 9
-#define Cmd_Jump 10
+#define Cmd_FillImage 4
+#define Cmd_BeginClip 5
+#define Cmd_BeginSolidClip 6
+#define Cmd_EndClip 7
+#define Cmd_Stroke 8
+#define Cmd_Solid 9
+#define Cmd_SolidMask 10
+#define Cmd_SolidImage 11
+#define Cmd_Jump 12
 #define Cmd_size 20
 
 CmdRef Cmd_index(CmdRef ref, uint index) {
@@ -250,6 +284,28 @@ void CmdFill_write(Alloc a, CmdFillRef ref, CmdFill s) {
     write_mem(a, ix + 2, s.rgba_color);
 }
 
+CmdFillImage CmdFillImage_read(Alloc a, CmdFillImageRef ref) {
+    uint ix = ref.offset >> 2;
+    uint raw0 = read_mem(a, ix + 0);
+    uint raw1 = read_mem(a, ix + 1);
+    uint raw2 = read_mem(a, ix + 2);
+    uint raw3 = read_mem(a, ix + 3);
+    CmdFillImage s;
+    s.tile_ref = raw0;
+    s.backdrop = int(raw1);
+    s.index = raw2;
+    s.offset = ivec2(int(raw3 << 16) >> 16, int(raw3) >> 16);
+    return s;
+}
+
+void CmdFillImage_write(Alloc a, CmdFillImageRef ref, CmdFillImage s) {
+    uint ix = ref.offset >> 2;
+    write_mem(a, ix + 0, s.tile_ref);
+    write_mem(a, ix + 1, uint(s.backdrop));
+    write_mem(a, ix + 2, s.index);
+    write_mem(a, ix + 3, (uint(s.offset.x) & 0xffff) | (uint(s.offset.y) << 16));
+}
+
 CmdBeginClip CmdBeginClip_read(Alloc a, CmdBeginClipRef ref) {
     uint ix = ref.offset >> 2;
     uint raw0 = read_mem(a, ix + 0);
@@ -305,6 +361,22 @@ void CmdSolid_write(Alloc a, CmdSolidRef ref, CmdSolid s) {
     write_mem(a, ix + 0, s.rgba_color);
 }
 
+CmdSolidImage CmdSolidImage_read(Alloc a, CmdSolidImageRef ref) {
+    uint ix = ref.offset >> 2;
+    uint raw0 = read_mem(a, ix + 0);
+    uint raw1 = read_mem(a, ix + 1);
+    CmdSolidImage s;
+    s.index = raw0;
+    s.offset = ivec2(int(raw1 << 16) >> 16, int(raw1) >> 16);
+    return s;
+}
+
+void CmdSolidImage_write(Alloc a, CmdSolidImageRef ref, CmdSolidImage s) {
+    uint ix = ref.offset >> 2;
+    write_mem(a, ix + 0, s.index);
+    write_mem(a, ix + 1, (uint(s.offset.x) & 0xffff) | (uint(s.offset.y) << 16));
+}
+
 CmdSolidMask CmdSolidMask_read(Alloc a, CmdSolidMaskRef ref) {
     uint ix = ref.offset >> 2;
     uint raw0 = read_mem(a, ix + 0);
@@ -347,6 +419,10 @@ CmdFill Cmd_Fill_read(Alloc a, CmdRef ref) {
     return CmdFill_read(a, CmdFillRef(ref.offset + 4));
 }
 
+CmdFillImage Cmd_FillImage_read(Alloc a, CmdRef ref) {
+    return CmdFillImage_read(a, CmdFillImageRef(ref.offset + 4));
+}
+
 CmdBeginClip Cmd_BeginClip_read(Alloc a, CmdRef ref) {
     return CmdBeginClip_read(a, CmdBeginClipRef(ref.offset + 4));
 }
@@ -371,6 +447,10 @@ CmdSolidMask Cmd_SolidMask_read(Alloc a, CmdRef ref) {
     return CmdSolidMask_read(a, CmdSolidMaskRef(ref.offset + 4));
 }
 
+CmdSolidImage Cmd_SolidImage_read(Alloc a, CmdRef ref) {
+    return CmdSolidImage_read(a, CmdSolidImageRef(ref.offset + 4));
+}
+
 CmdJump Cmd_Jump_read(Alloc a, CmdRef ref) {
     return CmdJump_read(a, CmdJumpRef(ref.offset + 4));
 }
@@ -392,6 +472,11 @@ void Cmd_Line_write(Alloc a, CmdRef ref, CmdLine s) {
 void Cmd_Fill_write(Alloc a, CmdRef ref, CmdFill s) {
     write_mem(a, ref.offset >> 2, Cmd_Fill);
     CmdFill_write(a, CmdFillRef(ref.offset + 4), s);
+}
+
+void Cmd_FillImage_write(Alloc a, CmdRef ref, CmdFillImage s) {
+    write_mem(a, ref.offset >> 2, Cmd_FillImage);
+    CmdFillImage_write(a, CmdFillImageRef(ref.offset + 4), s);
 }
 
 void Cmd_BeginClip_write(Alloc a, CmdRef ref, CmdBeginClip s) {
@@ -422,6 +507,11 @@ void Cmd_Solid_write(Alloc a, CmdRef ref, CmdSolid s) {
 void Cmd_SolidMask_write(Alloc a, CmdRef ref, CmdSolidMask s) {
     write_mem(a, ref.offset >> 2, Cmd_SolidMask);
     CmdSolidMask_write(a, CmdSolidMaskRef(ref.offset + 4), s);
+}
+
+void Cmd_SolidImage_write(Alloc a, CmdRef ref, CmdSolidImage s) {
+    write_mem(a, ref.offset >> 2, Cmd_SolidImage);
+    CmdSolidImage_write(a, CmdSolidImageRef(ref.offset + 4), s);
 }
 
 void Cmd_Jump_write(Alloc a, CmdRef ref, CmdJump s) {

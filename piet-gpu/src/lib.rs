@@ -12,7 +12,7 @@ use piet::{Color, ImageFormat, RenderContext};
 
 use piet_gpu_types::encoder::Encode;
 
-use piet_gpu_hal::{SamplerParams, hub};
+use piet_gpu_hal::{hub};
 use piet_gpu_hal::{CmdBuf, Error, ImageLayout, MemFlags};
 
 use pico_svg::PicoSvg;
@@ -191,8 +191,6 @@ pub struct Renderer {
     n_elements: usize,
     n_paths: usize,
     n_pathseg: usize,
-
-    bg_image: hub::Image,
 }
 
 impl Renderer {
@@ -300,7 +298,6 @@ impl Renderer {
         // it can't be satisfied, then for compatibility we'll probably want to fall back
         // to an atlasing approach.
         let max_textures = 256;
-        let sampler = session.create_sampler(SamplerParams::Linear)?;
         let k4_pipeline = session
             .pipeline_builder()
             .add_buffers(2)
@@ -311,7 +308,7 @@ impl Renderer {
             .descriptor_set_builder()
             .add_buffers(&[&memory_buf_dev, &config_buf_dev])
             .add_images(&[&image_dev])
-            .add_textures(&[&bg_image], &sampler)
+            .add_textures(&[&bg_image])
             .build(&session, &k4_pipeline)?;
 
         Ok(Renderer {
@@ -340,7 +337,6 @@ impl Renderer {
             n_elements,
             n_paths,
             n_pathseg,
-            bg_image,
         })
     }
 
@@ -447,7 +443,7 @@ impl Renderer {
                 ImageLayout::BlitDst,
             );
             cmd_buf.copy_buffer_to_image(buffer.vk_buffer(), image.vk_image());
-            cmd_buf.image_barrier(image.vk_image(), ImageLayout::BlitDst, ImageLayout::ShaderRead);
+            cmd_buf.image_barrier(image.vk_image(), ImageLayout::BlitDst, ImageLayout::General);
             cmd_buf.finish();
             // Make sure not to drop the buffer and image until the command buffer completes.
             cmd_buf.add_resource(&buffer);

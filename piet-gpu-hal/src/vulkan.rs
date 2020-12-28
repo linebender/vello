@@ -209,6 +209,7 @@ impl VkInstance {
             for extension in surface_extensions {
                 exts.push(extension.as_ptr());
             }
+            exts.push(vk::KhrGetPhysicalDeviceProperties2Fn::name().as_ptr());
 
             let instance = entry.create_instance(
                 &vk::InstanceCreateInfo::builder()
@@ -280,15 +281,16 @@ impl VkInstance {
 
         // support for descriptor indexing (maybe should be optional for compatibility)
         let descriptor_indexing = vk::PhysicalDeviceDescriptorIndexingFeatures::builder()
+            .shader_storage_image_array_non_uniform_indexing(true)
             .descriptor_binding_variable_descriptor_count(true)
             .runtime_descriptor_array(true);
 
-        let extensions = match surface {
+        let mut extensions = match surface {
             Some(_) => vec![khr::Swapchain::name().as_ptr()],
             None => vec![],
         };
-        //extensions.push(vk::KhrMaintenance3Fn::name().as_ptr());
-        //extensions.push(vk::ExtDescriptorIndexingFn::name().as_ptr());
+        extensions.push(vk::ExtDescriptorIndexingFn::name().as_ptr());
+        extensions.push(vk::KhrMaintenance3Fn::name().as_ptr());
         let create_info = vk::DeviceCreateInfo::builder()
             .queue_create_infos(&queue_create_infos)
             .enabled_extension_names(&extensions)
@@ -463,8 +465,7 @@ impl crate::Device for VkDevice {
         // want to add sampling for images and so on.
         let usage = vk::ImageUsageFlags::STORAGE
             | vk::ImageUsageFlags::TRANSFER_SRC
-            | vk::ImageUsageFlags::TRANSFER_DST
-            | vk::ImageUsageFlags::SAMPLED;
+            | vk::ImageUsageFlags::TRANSFER_DST;
         let image = device.create_image(
             &vk::ImageCreateInfo::builder()
                 .image_type(vk::ImageType::TYPE_2D)
@@ -994,8 +995,7 @@ impl crate::PipelineBuilder<VkDevice> for PipelineBuilder {
         self.bindings.push(
             vk::DescriptorSetLayoutBinding::builder()
                 .binding(start)
-                // TODO: we do want these to be sampled images
-                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .descriptor_type(vk::DescriptorType::STORAGE_IMAGE)
                 .descriptor_count(max_textures)
                 .stage_flags(vk::ShaderStageFlags::COMPUTE)
                 .build(),
@@ -1068,9 +1068,8 @@ impl crate::DescriptorSetBuilder<VkDevice> for DescriptorSetBuilder {
         self.images.extend(images.iter().map(|i| i.image_view));
     }
 
-    fn add_textures(&mut self, images: &[&Image], sampler: &vk::Sampler) {
+    fn add_textures(&mut self, images: &[&Image]) {
         self.textures.extend(images.iter().map(|i| i.image_view));
-        self.sampler = *sampler;
     }
 
     unsafe fn build(self, device: &VkDevice, pipeline: &Pipeline) -> Result<DescriptorSet, Error> {
@@ -1095,7 +1094,7 @@ impl crate::DescriptorSetBuilder<VkDevice> for DescriptorSetBuilder {
         if pipeline.max_textures > 0 {
             descriptor_pool_sizes.push(
                 vk::DescriptorPoolSize::builder()
-                    .ty(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                    .ty(vk::DescriptorType::STORAGE_IMAGE)
                     .descriptor_count(pipeline.max_textures)
                     .build(),
             );
@@ -1107,11 +1106,16 @@ impl crate::DescriptorSetBuilder<VkDevice> for DescriptorSetBuilder {
             None,
         )?;
         let descriptor_set_layouts = [pipeline.descriptor_set_layout];
+
+        let counts = &[pipeline.max_textures];
+        let variable_info = vk::DescriptorSetVariableDescriptorCountAllocateInfo::builder()
+            .descriptor_counts(counts);
         let descriptor_sets = device
             .allocate_descriptor_sets(
                 &vk::DescriptorSetAllocateInfo::builder()
                     .descriptor_pool(descriptor_pool)
-                    .set_layouts(&descriptor_set_layouts),
+                    .set_layouts(&descriptor_set_layouts)
+                    .push_next(&mut variable_info.build()),
             )
             .unwrap();
         let mut binding = 0;
@@ -1156,7 +1160,7 @@ impl crate::DescriptorSetBuilder<VkDevice> for DescriptorSetBuilder {
                     vk::DescriptorImageInfo::builder()
                         .sampler(self.sampler)
                         .image_view(*texture)
-                        .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                        .image_layout(vk::ImageLayout::GENERAL)
                         .build()
                 })
                 .collect::<Vec<_>>();
@@ -1164,7 +1168,7 @@ impl crate::DescriptorSetBuilder<VkDevice> for DescriptorSetBuilder {
                 &[vk::WriteDescriptorSet::builder()
                     .dst_set(descriptor_sets[0])
                     .dst_binding(binding)
-                    .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                    .descriptor_type(vk::DescriptorType::STORAGE_IMAGE)
                     .image_info(&infos)
                     .build()],
                 &[],
