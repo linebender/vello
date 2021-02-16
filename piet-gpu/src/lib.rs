@@ -14,6 +14,7 @@ use piet_gpu_types::encoder::Encode;
 
 use piet_gpu_hal::{hub};
 use piet_gpu_hal::{CmdBuf, Error, ImageLayout, MemFlags};
+use piet_gpu_hal::vulkan::Format;
 
 use pico_svg::PicoSvg;
 
@@ -27,7 +28,17 @@ const WIDTH_IN_TILES: usize = 128;
 const HEIGHT_IN_TILES: usize = 96;
 const PTCL_INITIAL_ALLOC: usize = 1024;
 
+const LG_WG_FACTOR: usize = 1;
+const WG_FACTOR: usize = (1 << LG_WG_FACTOR);
+
+const N_TILE_X: usize = 16;
+const N_TILE_Y: usize = 8 * WG_FACTOR;
+
 const N_CIRCLES: usize = 0;
+
+fn ceil_div(a: usize, b: usize) -> usize {
+    (a + b - 1) / b
+}
 
 pub fn render_svg(rc: &mut impl RenderContext, filename: &str, scale: f64) {
     let xml_str = std::fs::read_to_string(filename).unwrap();
@@ -76,6 +87,7 @@ pub fn render_scene(rc: &mut impl RenderContext) {
     render_clip_test(rc);
     render_alpha_test(rc);
     //render_tiger(rc);
+    rc.finish().unwrap();
 }
 
 #[allow(unused)]
@@ -119,7 +131,7 @@ fn render_clip_test(rc: &mut impl RenderContext) {
         rc.clip(path);
     }
     let rect = piet::kurbo::Rect::new(X0, Y0, X1, Y1);
-    rc.fill(rect, &Color::BLACK);
+    rc.fill(rect, &Color::WHITE);
     for _ in 0..N {
         rc.restore();
     }
@@ -222,6 +234,7 @@ pub struct Renderer {
 
     // Keep a reference to the image so that it is not destroyed.
     _bg_image: hub::Image,
+    _winding_lut: hub::Image,
 }
 
 impl Renderer {
@@ -250,7 +263,7 @@ impl Renderer {
         scene_buf_host.write(&scene)?;
 
         let state_buf = session.create_buffer(1 * 1024 * 1024, dev)?;
-        let image_dev = session.create_image2d(WIDTH as u32, HEIGHT as u32, dev)?;
+        let image_dev = session.create_image2d(WIDTH as u32, HEIGHT as u32, Format::R8G8B8A8_UNORM, dev)?;
 
         const CONFIG_SIZE: u64 = 10*4; // Size of Config in setup.h.
         let mut config_buf_host = session.create_buffer(CONFIG_SIZE, host)?;
@@ -268,7 +281,7 @@ impl Renderer {
         let bin_base = alloc;
         alloc += ((n_paths + 255) & !255) * BIN_SIZE;
         let ptcl_base = alloc;
-        alloc += WIDTH_IN_TILES * HEIGHT_IN_TILES * PTCL_INITIAL_ALLOC;
+        alloc += WIDTH_IN_TILES * HEIGHT_IN_TILES * PTCL_INITIAL_ALLOC * 2;
         let pathseg_base = alloc;
         alloc += (n_pathseg * PATHSEG_SIZE + 3) & !3;
         let anno_base = alloc;
@@ -277,7 +290,7 @@ impl Renderer {
         alloc += (n_trans * TRANS_SIZE + 3) & !3;
         config_buf_host.write(&[n_paths as u32, n_pathseg as u32, WIDTH_IN_TILES as u32, HEIGHT_IN_TILES as u32, tile_base as u32, bin_base as u32, ptcl_base as u32, pathseg_base as u32, anno_base as u32, trans_base as u32])?;
 
-        let mut memory_buf_host = session.create_buffer(2*4, host)?;
+        let mut memory_buf_host = session.create_buffer(2 * 4, host)?;
         let memory_buf_dev = session.create_buffer(128 * 1024 * 1024, dev)?;
         memory_buf_host.write(&[alloc as u32, 0 /* Overflow flag */])?;
 
@@ -325,6 +338,7 @@ impl Renderer {
         )?;
 
         let bg_image = Self::make_test_bg_image(&session);
+        let winding_lut = Self::make_winding_lut(&session);
 
         let k4_code = include_bytes!("../shader/kernel4.spv");
         // This is an arbitrary limit on the number of textures that can be referenced by
@@ -340,13 +354,13 @@ impl Renderer {
         let k4_pipeline = session
             .pipeline_builder()
             .add_buffers(2)
-            .add_images(1)
+            .add_images(2)
             .add_textures(max_textures)
             .create_compute_pipeline(&session, k4_code)?;
         let k4_ds = session
             .descriptor_set_builder()
             .add_buffers(&[&memory_buf_dev, &config_buf_dev])
-            .add_images(&[&image_dev])
+            .add_images(&[&image_dev, &winding_lut])
             .add_textures(&[&bg_image])
             .build(&session, &k4_pipeline)?;
 
@@ -377,6 +391,7 @@ impl Renderer {
             n_paths,
             n_pathseg,
             _bg_image: bg_image,
+            _winding_lut: winding_lut,
         })
     }
 
@@ -440,7 +455,7 @@ impl Renderer {
         cmd_buf.dispatch(
             &self.coarse_pipeline,
             &self.coarse_ds,
-            ((WIDTH as u32 + 255) / 256, (HEIGHT as u32 + 255) / 256, 1),
+            (ceil_div(WIDTH, N_TILE_X * TILE_W) as u32, ceil_div(HEIGHT, N_TILE_Y * TILE_H) as u32, 1),
         );
         cmd_buf.write_timestamp(&query_pool, 6);
         cmd_buf.memory_barrier();
@@ -465,16 +480,26 @@ impl Renderer {
         buf: &[u8],
         format: ImageFormat,
     ) -> Result<hub::Image, Error> {
+        if format != ImageFormat::RgbaPremul {
+            return Err("unsupported image format".into());
+        }
+        Self::make_image_internal(session, width, height, buf, Format::R8G8B8A8_UNORM)
+    }
+
+    pub fn make_image_internal(
+        session: &hub::Session,
+        width: usize,
+        height: usize,
+        buf: &[u8],
+        format: Format,
+    ) -> Result<hub::Image, Error> {
         unsafe {
-            if format != ImageFormat::RgbaPremul {
-                return Err("unsupported image format".into());
-            }
             let host_mem_flags = MemFlags::host_coherent();
             let dev_mem_flags = MemFlags::device_local();
             let mut buffer = session.create_buffer(buf.len() as u64, host_mem_flags)?;
             buffer.write(buf)?;
             let image =
-                session.create_image2d(width.try_into()?, height.try_into()?, dev_mem_flags)?;
+                session.create_image2d(width.try_into()?, height.try_into()?, format, dev_mem_flags)?;
             let mut cmd_buf = session.cmd_buf()?;
             cmd_buf.begin();
             cmd_buf.image_barrier(
@@ -510,5 +535,69 @@ impl Renderer {
             }
         }
         Self::make_image(session, WIDTH, HEIGHT, &buf, ImageFormat::RgbaPremul).unwrap()
+    }
+
+    fn make_winding_lut(session: &hub::Session) -> hub::Image {
+        // TODO: generate this at build time
+        const WIDTH: usize = 256;
+        const HEIGHT: usize = 256;
+        let mut buf = Vec::with_capacity(WIDTH * HEIGHT * 4);
+        // Sobol sequence, generated with PyTorch and normalized to have a mean of (0.5, 0.5).
+        let mut sample_points = [
+            (0.015625, 0.015625),
+            (0.515625, 0.515625),
+            (0.765625, 0.265625),
+            (0.265625, 0.765625),
+            (0.390625, 0.390625),
+            (0.890625, 0.890625),
+            (0.640625, 0.140625),
+            (0.140625, 0.640625),
+            (0.203125, 0.328125),
+            (0.703125, 0.828125),
+            (0.953125, 0.078125),
+            (0.453125, 0.578125),
+            (0.328125, 0.203125),
+            (0.828125, 0.703125),
+            (0.578125, 0.453125),
+            (0.078125, 0.953125),
+            (0.109375, 0.484375),
+            (0.609375, 0.984375),
+            (0.859375, 0.234375),
+            (0.359375, 0.734375),
+            (0.484375, 0.109375),
+            (0.984375, 0.609375),
+            (0.734375, 0.359375),
+            (0.234375, 0.859375),
+            (0.171875, 0.171875),
+            (0.671875, 0.671875),
+            (0.921875, 0.421875),
+            (0.421875, 0.921875),
+            (0.296875, 0.296875),
+            (0.796875, 0.796875),
+            (0.546875, 0.046875),
+            (0.046875, 0.546875)
+        ];
+        // Sort the y sample points so lookups for vertical rays can be done using pure arithmetic
+        // Should have just sorted beforehand though...
+        sample_points.sort_unstable_by_key(|(x, y)| (y * 64.) as u32);
+        for yi in 0..HEIGHT {
+            for xi in 0..WIDTH {
+                let x = (xi as f64 + 0.5) / WIDTH as f64;
+                let y = (yi as f64 + 0.5) / HEIGHT as f64;
+                let dvec = (x - 0.5, y - 0.5);
+                let len = (dvec.0 * dvec.0 + dvec.1 * dvec.1).sqrt();
+                let n = (dvec.0 / len, dvec.1 / len);
+                let c = 1. - 2. * len;
+                let mut mask: u32 = 0;
+                for (bit, &(sx, sy)) in sample_points.iter().enumerate() {
+                    if n.0 * (sx - 0.5) + n.1 * (sy - 0.5) > c {
+                        mask |= 1 << bit as u32;
+                    }
+                }
+                let ne_mask = mask.to_ne_bytes();
+                buf.extend_from_slice(&ne_mask);
+            }
+        }
+        Self::make_image_internal(session, WIDTH, HEIGHT, &buf, Format::R32_UINT).unwrap()
     }
 }

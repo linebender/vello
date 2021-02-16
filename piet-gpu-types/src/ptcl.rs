@@ -21,9 +21,6 @@ piet_gpu! {
             index: u32,
             offset: [i16; 2],
         }
-        struct CmdAlpha {
-            alpha: f32,
-        }
         struct CmdJump {
             new_ref: u32,
         }
@@ -32,12 +29,13 @@ piet_gpu! {
             Fill(CmdFill),
             Stroke(CmdStroke),
             Solid,
-            Alpha(CmdAlpha),
             Color(CmdColor),
             Image(CmdImage),
             BeginClip,
             EndClip,
             Jump(CmdJump),
+            SaveStencil,
+            RestoreStencil,
         }
     }
 }

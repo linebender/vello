@@ -10,6 +10,7 @@ use ash::{vk, Device, Entry, Instance};
 use once_cell::sync::Lazy;
 
 use crate::{Device as DeviceTrait, Error, ImageLayout, SamplerParams};
+pub use ash::vk::Format;
 
 pub struct VkInstance {
     /// Retain the dynamic lib.
@@ -460,6 +461,7 @@ impl crate::Device for VkDevice {
         &self,
         width: u32,
         height: u32,
+        format: Format,
         mem_flags: Self::MemFlags,
     ) -> Result<Self::Image, Error> {
         let device = &self.device.device;
@@ -476,7 +478,7 @@ impl crate::Device for VkDevice {
         let image = device.create_image(
             &vk::ImageCreateInfo::builder()
                 .image_type(vk::ImageType::TYPE_2D)
-                .format(vk::Format::R8G8B8A8_UNORM)
+                .format(format)
                 .extent(extent)
                 .mip_levels(1)
                 .array_layers(1)
@@ -505,7 +507,7 @@ impl crate::Device for VkDevice {
             &vk::ImageViewCreateInfo::builder()
                 .view_type(vk::ImageViewType::TYPE_2D)
                 .image(image)
-                .format(vk::Format::R8G8B8A8_UNORM)
+                .format(format)
                 .subresource_range(vk::ImageSubresourceRange {
                     aspect_mask: vk::ImageAspectFlags::COLOR,
                     base_mip_level: 0,

@@ -14,7 +14,7 @@
 #include "setup.h"
 
 #define CHUNK_X 2
-#define CHUNK_Y 4
+#define CHUNK_Y 2
 #define CHUNK CHUNK_X * CHUNK_Y
 #define CHUNK_DX (TILE_WIDTH_PX / CHUNK_X)
 #define CHUNK_DY (TILE_HEIGHT_PX / CHUNK_Y)
@@ -26,6 +26,8 @@ layout(set = 0, binding = 1) readonly buffer ConfigBuf {
 
 layout(rgba8, set = 0, binding = 2) uniform writeonly image2D image;
 
+layout(r32ui, set = 0, binding = 3) uniform uimage2D winding_lut;
+
 #if GL_EXT_nonuniform_qualifier
 layout(rgba8, set = 0, binding = 3) uniform readonly image2D images[];
 #else
@@ -35,8 +37,6 @@ layout(rgba8, set = 0, binding = 3) uniform readonly image2D images[1];
 #include "ptcl.h"
 #include "tile.h"
 
-#define BLEND_STACK_SIZE 4
-
 // Layout of a clip scratch frame:
 // Each frame is WIDTH * HEIGHT 32-bit words, then a link reference.
 
@@ -45,6 +45,37 @@ layout(rgba8, set = 0, binding = 3) uniform readonly image2D images[1];
 #define CLIP_BUF_SIZE (CLIP_LINK_OFFSET + 1)
 
 shared MallocResult sh_clip_alloc;
+
+// The lookup table is implemented based on the description of Efficient GPU Path Rendering Using Scanline Rasterization,
+// Li et al. 2016. The coordinate mapping could potentially use some improvement (since the paper does not mention how
+// they derived it), but for now it's implemented verbatim from the paper's description.
+// The lookup table is precomputed in piet_gpu::Renderer::make_winding_lut.
+uint getLut(vec2 n, float c) {
+    // Storing these variables into a temporary helps the compiler to generate code that is capable of instruction-level
+    // parallelism, which avoids stalling the pipeline before the sampled bitmasks are actually used.
+    uint mask = 0;
+    uint signBit = floatBitsToUint(c) & 0x80000000u;
+    n = uintBitsToFloat(floatBitsToUint(n) ^ uvec2(signBit));
+    c = abs(c);
+    uint base = int(signBit) >> 31;
+    if (c < 1.) {
+        vec2 tex_coord = (0.5 - 0.5 * c) * n + vec2(0.5, 0.5);
+        uvec4 tex = imageLoad(winding_lut, ivec2(vec2(imageSize(winding_lut)) * tex_coord));
+        mask = tex.r;
+    }
+    return base ^ mask;
+}
+
+// Same as getLut, but specialized for n = (0, 1) and uses the distance from top edge instead of center.
+// A trick is used in piet_gpu::Renderer::make_winding_lut so that this can be done with arithmetic only.
+uint vertLut(float y) {
+    uint idx = uint(clamp(y + 0.5 / 32., 0., 1.) * 32.);
+    // ~0 << idx, but in a weird way to avoid UB on idx == 32
+    // base = idx == 32 ? 1 : 0;
+    uint base = idx >> 5;
+    // Hopefully all implementation satisfies 0 << 32 == 0 (but this is undefined)
+    return (base - 1) << idx;
+}
 
 // Allocate a scratch buffer for clipping.
 MallocResult alloc_clip_buf(uint link) {
@@ -112,23 +143,28 @@ void main() {
     }
 
     uint tile_ix = gl_WorkGroupID.y * conf.width_in_tiles + gl_WorkGroupID.x;
-    Alloc cmd_alloc = slice_mem(conf.ptcl_alloc, tile_ix * PTCL_INITIAL_ALLOC, PTCL_INITIAL_ALLOC);
+    Alloc cmd_alloc = slice_mem(conf.ptcl_alloc, tile_ix * PTCL_INITIAL_ALLOC * 2, PTCL_INITIAL_ALLOC);
     CmdRef cmd_ref = CmdRef(cmd_alloc.offset);
 
     uvec2 xy_uint = uvec2(gl_LocalInvocationID.x + TILE_WIDTH_PX * gl_WorkGroupID.x, gl_LocalInvocationID.y + TILE_HEIGHT_PX * gl_WorkGroupID.y);
     vec2 xy = vec2(xy_uint);
     vec3 rgb[CHUNK];
-    uint blend_stack[BLEND_STACK_SIZE][CHUNK];
-    uint blend_spill = 0;
-    uint blend_sp = 0;
+    uint stencil[CHUNK];
+    uint coverage[CHUNK];
+    uint stencil_stack[256][CHUNK];
+    uint clip_depth = 0;
+    uint alpha_stencil_stack[256][CHUNK];
+    uint alpha_depth = 0;
+
     Alloc clip_tos = new_alloc(0, 0);
     for (uint i = 0; i < CHUNK; i++) {
-        rgb[i] = vec3(0.5);
+        rgb[i] = vec3(0.0);
 #ifdef ENABLE_IMAGE_INDICES
         if (xy_uint.x < 1024 && xy_uint.y < 1024) {
-            rgb[i] = imageLoad(images[gl_WorkGroupID.x / 64], ivec2(xy_uint + chunk_offset(i))/4).rgb;
+            // rgb[i] = imageLoad(images[gl_WorkGroupID.x / 64], ivec2(xy_uint.x, xy_uint.y + CHUNK_DY * i)/4).rgb;
         }
 #endif
+        stencil[i] = 0;
     }
 
     float area[CHUNK];
@@ -141,76 +177,84 @@ void main() {
         case Cmd_Stroke:
             // Calculate distance field from all the line segments in this tile.
             CmdStroke stroke = Cmd_Stroke_read(cmd_alloc, cmd_ref);
-            float df[CHUNK];
-            for (uint k = 0; k < CHUNK; k++) df[k] = 1e9;
             TileSegRef tile_seg_ref = TileSegRef(stroke.tile_ref);
+            for (uint k = 0; k < CHUNK; k++) {
+                coverage[k] = 0;
+            }
             do {
                 TileSeg seg = TileSeg_read(new_alloc(tile_seg_ref.offset, TileSeg_size), tile_seg_ref);
-                vec2 line_vec = seg.vector;
-                for (uint k = 0; k < CHUNK; k++) {
-                    vec2 dpos = xy + vec2(0.5, 0.5) - seg.origin;
-                    dpos += vec2(chunk_offset(k));
-                    float t = clamp(dot(line_vec, dpos) / dot(line_vec, line_vec), 0.0, 1.0);
-                    df[k] = min(df[k], length(line_vec * t - dpos));
+                float len2 = dot(seg.vector, seg.vector);
+                if (len2 > 0.) {
+                    // Compute the stroke area with a rectanglar implicit test.
+                    float rlen = inversesqrt(len2);
+                    float len = rlen * len2;
+                    vec2 u = seg.vector * rlen;
+                    vec2 n = vec2(-u.y, u.x);
+                    for (uint k = 0; k < CHUNK; k++) {
+                        vec2 my_xy = xy + vec2(chunk_offset(k));
+                        vec2 dpos = seg.origin - my_xy - vec2(0.5, 0.5);
+                        float kp = dot(dpos, n);
+                        uint par = getLut(n, kp + stroke.half_width) ^ getLut(n, kp - stroke.half_width);
+                        float ko = dot(dpos, u);
+                        uint ortho = getLut(u, ko) ^ getLut(u, ko + len);
+                        coverage[k] |= par & ortho;
+                    }
                 }
                 tile_seg_ref = seg.next;
             } while (tile_seg_ref.offset != 0);
-            for (uint k = 0; k < CHUNK; k++) {
-                area[k] = clamp(stroke.half_width + 0.5 - df[k], 0.0, 1.0);
-            }
             cmd_ref.offset += 4 + CmdStroke_size;
             break;
         case Cmd_Fill:
             CmdFill fill = Cmd_Fill_read(cmd_alloc, cmd_ref);
-            for (uint k = 0; k < CHUNK; k++) area[k] = float(fill.backdrop);
+            for (uint k = 0; k < CHUNK; k++) coverage[k] = (fill.backdrop % 2 == 0 ? 0 : ~0);
             tile_seg_ref = TileSegRef(fill.tile_ref);
-            // Calculate coverage based on backdrop + coverage of each line segment
             do {
                 TileSeg seg = TileSeg_read(new_alloc(tile_seg_ref.offset, TileSeg_size), tile_seg_ref);
+                vec2 o = vec2(0.5, 0.5);
+                vec2 n = normalize(vec2(-seg.vector.y, seg.vector.x));
+                // Make sure that the normal vector points the right side (we want the area to the right of the line).
+                // The code below flips n if n.x < 0.
+                uint signBit = floatBitsToUint(n.x) & 0x80000000u;
+                n = vec2(abs(n.x), uintBitsToFloat(floatBitsToUint(n.y) ^ signBit));
                 for (uint k = 0; k < CHUNK; k++) {
                     vec2 my_xy = xy + vec2(chunk_offset(k));
                     vec2 start = seg.origin - my_xy;
                     vec2 end = start + seg.vector;
-                    vec2 window = clamp(vec2(start.y, end.y), 0.0, 1.0);
-                    if (window.x != window.y) {
-                        vec2 t = (window - start.y) / seg.vector.y;
-                        vec2 xs = vec2(mix(start.x, end.x, t.x), mix(start.x, end.x, t.y));
-                        float xmin = min(min(xs.x, xs.y), 1.0) - 1e-6;
-                        float xmax = max(xs.x, xs.y);
-                        float b = min(xmax, 1.0);
-                        float c = max(b, 0.0);
-                        float d = max(xmin, 0.0);
-                        float a = (b + 0.5 * (d * d - c * c) - xmin) / (xmax - xmin);
-                        area[k] += a * (window.x - window.y);
-                    }
-                    area[k] += sign(seg.vector.x) * clamp(my_xy.y - seg.y_edge + 1.0, 0.0, 1.0);
+                    // The horizontal ray test is calculated with lookup tables as an AND of three half-planes:
+                    // Two of them are used to confine the range of y, and this is implemented using a logically equivalent
+                    // method with XOR. While the left edge is already clipped to tile boundary (see path_corase.comp), there
+                    // is no equivalent preprocessing performed on the right edge. However this is fine: when combined with the
+                    // third half-plane, which corresponds to the line, this will always yield the correct coverage.
+                    uint y_range = vertLut(start.y) ^ vertLut(end.y);
+                    float c = dot(n, start - o);
+                    coverage[k] ^= y_range & getLut(n, c);
+
+                    // Calculate the vertical ray (also called y-edge).
+                    coverage[k] ^= vertLut(seg.y_edge - my_xy.y);
                 }
                 tile_seg_ref = seg.next;
             } while (tile_seg_ref.offset != 0);
-            for (uint k = 0; k < CHUNK; k++) {
-                area[k] = min(abs(area[k]), 1.0);
-            }
             cmd_ref.offset += 4 + CmdFill_size;
             break;
         case Cmd_Solid:
             for (uint k = 0; k < CHUNK; k++) {
-                area[k] = 1.0;
+                coverage[k] = ~0u;
             }
             cmd_ref.offset += 4;
-            break;
-        case Cmd_Alpha:
-            CmdAlpha alpha = Cmd_Alpha_read(cmd_alloc, cmd_ref);
-            for (uint k = 0; k < CHUNK; k++) {
-                area[k] = alpha.alpha;
-            }
-            cmd_ref.offset += 4 + CmdAlpha_size;
             break;
         case Cmd_Color:
             CmdColor color = Cmd_Color_read(cmd_alloc, cmd_ref);
             vec4 fg = unpacksRGB(color.rgba_color);
             for (uint k = 0; k < CHUNK; k++) {
-                vec4 fg_k = fg * area[k];
-                rgb[k] = rgb[k] * (1.0 - fg_k.a) + fg_k.rgb;
+                float area = float(bitCount(coverage[k] & ~stencil[k])) / 32.;
+                if (fg.a == 1.0) {
+                    rgb[k] = rgb[k] + fg.rgb * area;
+                    // only update stencil if opaque
+                    stencil[k] |= coverage[k];
+                } else {
+                    vec4 fg_k = fg * area;
+                    rgb[k] = rgb[k] * (1.0 - fg_k.a) + fg_k.rgb;
+                }
             }
             cmd_ref.offset += 4 + CmdColor_size;
             break;
@@ -218,48 +262,38 @@ void main() {
             CmdImage fill_img = Cmd_Image_read(cmd_alloc, cmd_ref);
             vec4 img[CHUNK] = fillImage(xy_uint, fill_img);
             for (uint k = 0; k < CHUNK; k++) {
-                vec4 fg_k = img[k] * area[k];
+                float area = float(bitCount(coverage[k] & ~stencil[k])) / 32.;
+                vec4 fg_k = img[k] * area;
                 rgb[k] = rgb[k] * (1.0 - fg_k.a) + fg_k.rgb;
             }
             cmd_ref.offset += 4 + CmdImage_size;
             break;
         case Cmd_BeginClip:
-            uint blend_slot = blend_sp % BLEND_STACK_SIZE;
-            if (blend_sp == blend_spill + BLEND_STACK_SIZE) {
-                // spill to scratch buffer
-                MallocResult m = alloc_clip_buf(clip_tos.offset);
-                if (m.failed) {
-                    return;
-                }
-                clip_tos = m.alloc;
-                uint base_ix = (clip_tos.offset >> 2) + gl_LocalInvocationID.x + TILE_WIDTH_PX * gl_LocalInvocationID.y;
-                for (uint k = 0; k < CHUNK; k++) {
-                    uvec2 offset = chunk_offset(k);
-                    write_mem(clip_tos, base_ix + offset.x + offset.y * TILE_WIDTH_PX, blend_stack[blend_slot][k]);
-                }
-                blend_spill++;
-            }
             for (uint k = 0; k < CHUNK; k++) {
-                blend_stack[blend_slot][k] = packsRGB(vec4(rgb[k], clamp(abs(area[k]), 0.0, 1.0)));
+                stencil_stack[clip_depth][k] = stencil[k];
+                stencil[k] |= ~coverage[k];
             }
-            blend_sp++;
+            clip_depth++;
             cmd_ref.offset += 4;
             break;
         case Cmd_EndClip:
-            blend_slot = (blend_sp - 1) % BLEND_STACK_SIZE;
-            if (blend_sp == blend_spill) {
-                uint base_ix = (clip_tos.offset >> 2) + gl_LocalInvocationID.x + TILE_WIDTH_PX * gl_LocalInvocationID.y;
-                for (uint k = 0; k < CHUNK; k++) {
-                    uvec2 offset = chunk_offset(k);
-                    blend_stack[blend_slot][k] = read_mem(clip_tos, base_ix + offset.x + offset.y * TILE_WIDTH_PX);
-                }
-                clip_tos.offset = read_mem(clip_tos, (clip_tos.offset >> 2) + CLIP_LINK_OFFSET);
-                blend_spill--;
-            }
-            blend_sp--;
+            clip_depth--;
             for (uint k = 0; k < CHUNK; k++) {
-                vec4 rgba = unpacksRGB(blend_stack[blend_slot][k]);
-                rgb[k] = mix(rgba.rgb, rgb[k], area[k] * rgba.a);
+                stencil[k] = stencil_stack[clip_depth][k];
+            }
+            cmd_ref.offset += 4;
+            break;
+        case Cmd_SaveStencil:
+            for (uint k = 0; k < CHUNK; k++) {
+                alpha_stencil_stack[alpha_depth][k] = stencil[k];
+            }
+            alpha_depth++;
+            cmd_ref.offset += 4;
+            break;
+        case Cmd_RestoreStencil:
+            alpha_depth--;
+            for (uint k = 0; k < CHUNK; k++) {
+                stencil[k] = alpha_stencil_stack[alpha_depth][k];
             }
             cmd_ref.offset += 4;
             break;

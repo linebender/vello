@@ -38,7 +38,6 @@ piet_gpu! {
         }
         struct Clip {
             bbox: [f32; 4],
-            // TODO: add alpha?
         }
         struct SetFillMode {
             fill_mode: u32,

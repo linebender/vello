@@ -18,10 +18,6 @@ struct CmdImageRef {
     uint offset;
 };
 
-struct CmdAlphaRef {
-    uint offset;
-};
-
 struct CmdJumpRef {
     uint offset;
 };
@@ -73,16 +69,6 @@ CmdImageRef CmdImage_index(CmdImageRef ref, uint index) {
     return CmdImageRef(ref.offset + index * CmdImage_size);
 }
 
-struct CmdAlpha {
-    float alpha;
-};
-
-#define CmdAlpha_size 4
-
-CmdAlphaRef CmdAlpha_index(CmdAlphaRef ref, uint index) {
-    return CmdAlphaRef(ref.offset + index * CmdAlpha_size);
-}
-
 struct CmdJump {
     uint new_ref;
 };
@@ -97,12 +83,13 @@ CmdJumpRef CmdJump_index(CmdJumpRef ref, uint index) {
 #define Cmd_Fill 1
 #define Cmd_Stroke 2
 #define Cmd_Solid 3
-#define Cmd_Alpha 4
-#define Cmd_Color 5
-#define Cmd_Image 6
-#define Cmd_BeginClip 7
-#define Cmd_EndClip 8
-#define Cmd_Jump 9
+#define Cmd_Color 4
+#define Cmd_Image 5
+#define Cmd_BeginClip 6
+#define Cmd_EndClip 7
+#define Cmd_Jump 8
+#define Cmd_SaveStencil 9
+#define Cmd_RestoreStencil 10
 #define Cmd_size 12
 
 CmdRef Cmd_index(CmdRef ref, uint index) {
@@ -175,19 +162,6 @@ void CmdImage_write(Alloc a, CmdImageRef ref, CmdImage s) {
     write_mem(a, ix + 1, (uint(s.offset.x) & 0xffff) | (uint(s.offset.y) << 16));
 }
 
-CmdAlpha CmdAlpha_read(Alloc a, CmdAlphaRef ref) {
-    uint ix = ref.offset >> 2;
-    uint raw0 = read_mem(a, ix + 0);
-    CmdAlpha s;
-    s.alpha = uintBitsToFloat(raw0);
-    return s;
-}
-
-void CmdAlpha_write(Alloc a, CmdAlphaRef ref, CmdAlpha s) {
-    uint ix = ref.offset >> 2;
-    write_mem(a, ix + 0, floatBitsToUint(s.alpha));
-}
-
 CmdJump CmdJump_read(Alloc a, CmdJumpRef ref) {
     uint ix = ref.offset >> 2;
     uint raw0 = read_mem(a, ix + 0);
@@ -212,10 +186,6 @@ CmdFill Cmd_Fill_read(Alloc a, CmdRef ref) {
 
 CmdStroke Cmd_Stroke_read(Alloc a, CmdRef ref) {
     return CmdStroke_read(a, CmdStrokeRef(ref.offset + 4));
-}
-
-CmdAlpha Cmd_Alpha_read(Alloc a, CmdRef ref) {
-    return CmdAlpha_read(a, CmdAlphaRef(ref.offset + 4));
 }
 
 CmdColor Cmd_Color_read(Alloc a, CmdRef ref) {
@@ -248,11 +218,6 @@ void Cmd_Solid_write(Alloc a, CmdRef ref) {
     write_mem(a, ref.offset >> 2, Cmd_Solid);
 }
 
-void Cmd_Alpha_write(Alloc a, CmdRef ref, CmdAlpha s) {
-    write_mem(a, ref.offset >> 2, Cmd_Alpha);
-    CmdAlpha_write(a, CmdAlphaRef(ref.offset + 4), s);
-}
-
 void Cmd_Color_write(Alloc a, CmdRef ref, CmdColor s) {
     write_mem(a, ref.offset >> 2, Cmd_Color);
     CmdColor_write(a, CmdColorRef(ref.offset + 4), s);
@@ -274,5 +239,13 @@ void Cmd_EndClip_write(Alloc a, CmdRef ref) {
 void Cmd_Jump_write(Alloc a, CmdRef ref, CmdJump s) {
     write_mem(a, ref.offset >> 2, Cmd_Jump);
     CmdJump_write(a, CmdJumpRef(ref.offset + 4), s);
+}
+
+void Cmd_SaveStencil_write(Alloc a, CmdRef ref) {
+    write_mem(a, ref.offset >> 2, Cmd_SaveStencil);
+}
+
+void Cmd_RestoreStencil_write(Alloc a, CmdRef ref) {
+    write_mem(a, ref.offset >> 2, Cmd_RestoreStencil);
 }
 

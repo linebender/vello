@@ -11,6 +11,7 @@ use crate::vulkan;
 use crate::DescriptorSetBuilder as DescriptorSetBuilderTrait;
 use crate::PipelineBuilder as PipelineBuilderTrait;
 use crate::{Device, Error, SamplerParams};
+use crate::vulkan::Format;
 
 pub type MemFlags = <vulkan::VkDevice as Device>::MemFlags;
 pub type Semaphore = <vulkan::VkDevice as Device>::Semaphore;
@@ -152,9 +153,10 @@ impl Session {
         &self,
         width: u32,
         height: u32,
+        format: Format,
         mem_flags: MemFlags,
     ) -> Result<Image, Error> {
-        let image = self.0.device.create_image2d(width, height, mem_flags)?;
+        let image = self.0.device.create_image2d(width, height, format, mem_flags)?;
         Ok(Image(Arc::new(ImageInner {
             image,
             session: Arc::downgrade(&self.0),

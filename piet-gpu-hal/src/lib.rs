@@ -1,3 +1,5 @@
+use crate::vulkan::Format;
+
 /// The cross-platform abstraction for a GPU device.
 ///
 /// This abstraction is inspired by gfx-hal, but is specialized to the needs of piet-gpu.
@@ -57,6 +59,7 @@ pub trait Device: Sized {
         &self,
         width: u32,
         height: u32,
+        format: Format,
         mem_flags: Self::MemFlags,
     ) -> Result<Self::Image, Error>;
 
