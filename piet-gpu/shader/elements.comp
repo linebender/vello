@@ -62,6 +62,8 @@ uint state_flag_index(uint partition_ix) {
 #define FLAG_SET_LINEWIDTH 1
 #define FLAG_SET_BBOX 2
 #define FLAG_RESET_BBOX 4
+#define FLAG_START_PATH 8
+#define FLAG_END_PATH 16
 
 // This is almost like a monoid (the interaction between transformation and
 // bounding boxes is approximate)
@@ -87,32 +89,45 @@ State combine_state(State a, State b) {
     c.translate.x = a.mat.x * b.translate.x + a.mat.z * b.translate.y + a.translate.x;
     c.translate.y = a.mat.y * b.translate.x + a.mat.w * b.translate.y + a.translate.y;
     c.linewidth = (b.flags & FLAG_SET_LINEWIDTH) == 0 ? a.linewidth : b.linewidth;
-    c.flags = (a.flags & (FLAG_SET_LINEWIDTH | FLAG_SET_BBOX)) | b.flags;
+    c.flags = (a.flags & (FLAG_SET_LINEWIDTH | FLAG_SET_BBOX | FLAG_START_PATH)) | b.flags;
     c.flags |= (a.flags & FLAG_RESET_BBOX) >> 1;
+    c.flags |= (a.flags & FLAG_END_PATH) >> 1;
     c.path_count = a.path_count + b.path_count;
     c.pathseg_count = a.pathseg_count + b.pathseg_count;
+
+    c.tail = a.tail;
+    if ((a.flags & FLAG_END_PATH) != 0 && (b.flags & FLAG_START_PATH) == 0) {
+        c.tail = a.pathseg_count;
+    } else if ((b.flags & FLAG_START_PATH) != 0) {
+        c.tail = b.tail + a.pathseg_count;
+    }
+
     return c;
 }
 
 State map_element(ElementRef ref) {
     // TODO: it would *probably* be more efficient to make the memory read patterns less
     // divergent, though it would be more wasted memory.
-    uint tag = Element_tag(ref);
+    uint tag_flags = Element_tag(ref);
     State c;
     c.bbox = vec4(0.0, 0.0, 0.0, 0.0);
     c.mat = vec4(1.0, 0.0, 0.0, 1.0);
     c.translate = vec2(0.0, 0.0);
     c.linewidth = 1.0; // TODO should be 0.0
     c.flags = 0;
+    c.tail = 0;
     c.path_count = 0;
     c.pathseg_count = 0;
-    switch (tag) {
+    // flags contain FLAG_END_PATH for segments last in their path.
+    uint flags = tag_flags >> 16;
+    switch (tag_flags & 0xffff) {
     case Element_FillLine:
     case Element_StrokeLine:
         LineSeg line = Element_FillLine_read(ref);
         c.bbox.xy = min(line.p0, line.p1);
         c.bbox.zw = max(line.p0, line.p1);
         c.pathseg_count = 1;
+        c.flags = flags;
         break;
     case Element_FillQuad:
     case Element_StrokeQuad:
@@ -120,6 +135,7 @@ State map_element(ElementRef ref) {
         c.bbox.xy = min(min(quad.p0, quad.p1), quad.p2);
         c.bbox.zw = max(max(quad.p0, quad.p1), quad.p2);
         c.pathseg_count = 1;
+        c.flags = flags;
         break;
     case Element_FillCubic:
     case Element_StrokeCubic:
@@ -127,6 +143,7 @@ State map_element(ElementRef ref) {
         c.bbox.xy = min(min(cubic.p0, cubic.p1), min(cubic.p2, cubic.p3));
         c.bbox.zw = max(max(cubic.p0, cubic.p1), max(cubic.p2, cubic.p3));
         c.pathseg_count = 1;
+        c.flags = flags;
         break;
     case Element_Fill:
     case Element_Stroke:
@@ -165,6 +182,7 @@ shared vec2 sh_translate[WG_SIZE];
 shared vec4 sh_bbox[WG_SIZE];
 shared float sh_width[WG_SIZE];
 shared uint sh_flags[WG_SIZE];
+shared uint sh_tail[WG_SIZE];
 shared uint sh_path_count[WG_SIZE];
 shared uint sh_pathseg_count[WG_SIZE];
 
@@ -199,6 +217,7 @@ void main() {
     sh_translate[gl_LocalInvocationID.x] = agg.translate;
     sh_bbox[gl_LocalInvocationID.x] = agg.bbox;
     sh_width[gl_LocalInvocationID.x] = agg.linewidth;
+    sh_tail[gl_LocalInvocationID.x] = agg.tail;
     sh_flags[gl_LocalInvocationID.x] = agg.flags;
     sh_path_count[gl_LocalInvocationID.x] = agg.path_count;
     sh_pathseg_count[gl_LocalInvocationID.x] = agg.pathseg_count;
@@ -212,6 +231,7 @@ void main() {
             other.bbox = sh_bbox[ix];
             other.linewidth = sh_width[ix];
             other.flags = sh_flags[ix];
+            other.tail = sh_tail[ix];
             other.path_count = sh_path_count[ix];
             other.pathseg_count = sh_pathseg_count[ix];
             agg = combine_state(other, agg);
@@ -222,6 +242,7 @@ void main() {
         sh_bbox[gl_LocalInvocationID.x] = agg.bbox;
         sh_width[gl_LocalInvocationID.x] = agg.linewidth;
         sh_flags[gl_LocalInvocationID.x] = agg.flags;
+        sh_tail[gl_LocalInvocationID.x] = agg.tail;
         sh_path_count[gl_LocalInvocationID.x] = agg.path_count;
         sh_pathseg_count[gl_LocalInvocationID.x] = agg.pathseg_count;
     }
@@ -232,6 +253,7 @@ void main() {
     exclusive.translate = vec2(0.0, 0.0);
     exclusive.linewidth = 1.0; //TODO should be 0.0
     exclusive.flags = 0;
+    exclusive.tail = 0;
     exclusive.path_count = 0;
     exclusive.pathseg_count = 0;
 
@@ -311,6 +333,7 @@ void main() {
         other.bbox = sh_bbox[ix];
         other.linewidth = sh_width[ix];
         other.flags = sh_flags[ix];
+        other.tail = sh_tail[ix];
         other.path_count = sh_path_count[ix];
         other.pathseg_count = sh_pathseg_count[ix];
         row = combine_state(row, other);
@@ -322,7 +345,9 @@ void main() {
         // gains to be had from stashing in shared memory or possibly
         // registers (though register pressure is an issue).
         ElementRef this_ref = Element_index(ref, i);
-        uint tag = Element_tag(this_ref);
+        uint tag_flags = Element_tag(this_ref);
+        uint tag = tag_flags & 0xffff;
+        uint flags = tag_flags >> 16;
         switch (tag) {
         case Element_FillLine:
         case Element_StrokeLine:
@@ -333,7 +358,7 @@ void main() {
             path_cubic.p0 = p0;
             path_cubic.p1 = mix(p0, p1, 1.0 / 3.0);
             path_cubic.p2 = mix(p1, p0, 1.0 / 3.0);
-            path_cubic.p3 = p1;
+            path_cubic.succ_ix = (flags & FLAG_END_PATH) == 0 ? st.pathseg_count : st.tail;
             path_cubic.path_ix = st.path_count;
             if (tag == Element_StrokeLine) {
                 path_cubic.stroke = get_linewidth(st);
@@ -357,7 +382,7 @@ void main() {
             path_cubic.p0 = p0;
             path_cubic.p1 = mix(p1, p0, 1.0 / 3.0);
             path_cubic.p2 = mix(p1, p2, 1.0 / 3.0);
-            path_cubic.p3 = p2;
+            path_cubic.succ_ix = (flags & FLAG_END_PATH) == 0 ? st.pathseg_count : st.tail;
             path_cubic.path_ix = st.path_count;
             if (tag == Element_StrokeQuad) {
                 path_cubic.stroke = get_linewidth(st);
@@ -378,7 +403,7 @@ void main() {
             path_cubic.p0 = st.mat.xy * cubic.p0.x + st.mat.zw * cubic.p0.y + st.translate;
             path_cubic.p1 = st.mat.xy * cubic.p1.x + st.mat.zw * cubic.p1.y + st.translate;
             path_cubic.p2 = st.mat.xy * cubic.p2.x + st.mat.zw * cubic.p2.y + st.translate;
-            path_cubic.p3 = st.mat.xy * cubic.p3.x + st.mat.zw * cubic.p3.y + st.translate;
+            path_cubic.succ_ix = (flags & FLAG_END_PATH) == 0 ? st.pathseg_count : st.tail;
             path_cubic.path_ix = st.path_count;
             if (tag == Element_StrokeCubic) {
                 path_cubic.stroke = get_linewidth(st);

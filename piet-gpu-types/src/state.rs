@@ -7,6 +7,8 @@ piet_gpu! {
             mat: [f32; 4],
             translate: [f32; 2],
             bbox: [f32; 4],
+            // tail is the index in pathsegs of the first segment of a path.
+            tail: u32,
             linewidth: f32,
             flags: u32,
             path_count: u32,

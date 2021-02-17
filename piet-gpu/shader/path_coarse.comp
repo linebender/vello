@@ -86,6 +86,14 @@ SubdivResult estimate_subdiv(vec2 p0, vec2 p1, vec2 p2, float sqrt_tol) {
     return SubdivResult(val, a0, a2);
 }
 
+// PathSeg_Cubic_read_p0 is like PathSeg_StrokeCubic_read except it only reads p0.
+vec2 PathSeg_Cubic_read_p0(Alloc a, PathSegRef ref) {
+    uint ix = (ref.offset + 4) >> 2;
+    uint raw0 = read_mem(a, ix + 0);
+    uint raw1 = read_mem(a, ix + 1);
+    return vec2(uintBitsToFloat(raw0), uintBitsToFloat(raw1));
+}
+
 void main() {
     if (mem_error != NO_ERROR) {
         return;
@@ -102,7 +110,9 @@ void main() {
     case PathSeg_FillCubic:
     case PathSeg_StrokeCubic:
         PathStrokeCubic cubic = PathSeg_StrokeCubic_read(conf.pathseg_alloc, ref);
-        vec2 err_v = 3.0 * (cubic.p2 - cubic.p1) + cubic.p0 - cubic.p3;
+        PathSegRef succ_ref = PathSegRef(conf.pathseg_alloc.offset + cubic.succ_ix * PathSeg_size);
+        vec2 p3 = PathSeg_Cubic_read_p0(conf.pathseg_alloc, succ_ref);
+        vec2 err_v = 3.0 * (cubic.p2 - cubic.p1) + cubic.p0 - p3;
         float err = err_v.x * err_v.x + err_v.y * err_v.y;
         // The number of quadratics.
         uint n_quads = max(uint(ceil(pow(err * (1.0 / MAX_HYPOT2), 1.0 / 6.0))), 1);
@@ -112,8 +122,8 @@ void main() {
         float step = 1.0 / float(n_quads);
         for (uint i = 0; i < n_quads; i++) {
             float t = float(i + 1) * step;
-            vec2 qp2 = eval_cubic(cubic.p0, cubic.p1, cubic.p2, cubic.p3, t);
-            vec2 qp1 = eval_cubic(cubic.p0, cubic.p1, cubic.p2, cubic.p3, t - 0.5 * step);
+            vec2 qp2 = eval_cubic(cubic.p0, cubic.p1, cubic.p2, p3, t);
+            vec2 qp1 = eval_cubic(cubic.p0, cubic.p1, cubic.p2, p3, t - 0.5 * step);
             qp1 = 2.0 * qp1 - 0.5 * (qp0 + qp2);
             SubdivResult params = estimate_subdiv(qp0, qp1, qp2, sqrt(REM_ACCURACY));
             val += params.val;
@@ -133,8 +143,8 @@ void main() {
         float val_sum = 0.0;
         for (uint i = 0; i < n_quads; i++) {
             float t = float(i + 1) * step;
-            vec2 qp2 = eval_cubic(cubic.p0, cubic.p1, cubic.p2, cubic.p3, t);
-            vec2 qp1 = eval_cubic(cubic.p0, cubic.p1, cubic.p2, cubic.p3, t - 0.5 * step);
+            vec2 qp2 = eval_cubic(cubic.p0, cubic.p1, cubic.p2, p3, t);
+            vec2 qp1 = eval_cubic(cubic.p0, cubic.p1, cubic.p2, p3, t - 0.5 * step);
             qp1 = 2.0 * qp1 - 0.5 * (qp0 + qp2);
             SubdivResult params = estimate_subdiv(qp0, qp1, qp2, sqrt(REM_ACCURACY));
             float u0 = approx_parabola_inv_integral(params.a0);
@@ -144,7 +154,7 @@ void main() {
             while (n_out == n || target < val_sum + params.val) {
                 vec2 p1;
                 if (n_out == n) {
-                    p1 = cubic.p3;
+                    p1 = p3;
                 } else {
                     float u = (target - val_sum) / params.val;
                     float a = mix(params.a0, params.a2, u);
