@@ -3,15 +3,6 @@ use piet_gpu_derive::piet_gpu;
 piet_gpu! {
     #[gpu_write]
     mod ptcl {
-        struct CmdCircle {
-            center: [f32; 2],
-            radius: f32,
-            rgba_color: u32,
-        }
-        struct CmdLine {
-            start: [f32; 2],
-            end: [f32; 2],
-        }
         struct CmdStroke {
             // This is really a Ref<Tile>, but we don't have cross-module
             // references.
@@ -41,23 +32,17 @@ piet_gpu! {
         struct CmdSolid {
             rgba_color: u32,
         }
-        struct CmdSolidMask {
-            mask: f32,
-        }
         struct CmdJump {
             new_ref: u32,
         }
         enum Cmd {
             End,
-            Circle(CmdCircle),
-            Line(CmdLine),
             Fill(CmdFill),
             BeginClip(CmdBeginClip),
             BeginSolidClip(CmdBeginSolidClip),
             EndClip(CmdEndClip),
             Stroke(CmdStroke),
             Solid(CmdSolid),
-            SolidMask(CmdSolidMask),
             Jump(CmdJump),
         }
     }
