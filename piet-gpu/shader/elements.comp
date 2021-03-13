@@ -157,16 +157,7 @@ vec2 get_linewidth(State st) {
     return 0.5 * st.linewidth * vec2(length(st.mat.xz), length(st.mat.yw));
 }
 
-// We should be able to use an array of structs but the NV shader compiler
-// doesn't seem to like it :/
-//shared State sh_state[WG_SIZE];
-shared vec4 sh_mat[WG_SIZE];
-shared vec2 sh_translate[WG_SIZE];
-shared vec4 sh_bbox[WG_SIZE];
-shared float sh_width[WG_SIZE];
-shared uint sh_flags[WG_SIZE];
-shared uint sh_path_count[WG_SIZE];
-shared uint sh_pathseg_count[WG_SIZE];
+shared State sh_state[WG_SIZE];
 
 shared uint sh_part_ix;
 shared State sh_prefix;
@@ -195,35 +186,15 @@ void main() {
         th_state[i] = combine_state(th_state[i - 1], map_element(Element_index(ref, i)));
     }
     State agg = th_state[N_ROWS - 1];
-    sh_mat[gl_LocalInvocationID.x] = agg.mat;
-    sh_translate[gl_LocalInvocationID.x] = agg.translate;
-    sh_bbox[gl_LocalInvocationID.x] = agg.bbox;
-    sh_width[gl_LocalInvocationID.x] = agg.linewidth;
-    sh_flags[gl_LocalInvocationID.x] = agg.flags;
-    sh_path_count[gl_LocalInvocationID.x] = agg.path_count;
-    sh_pathseg_count[gl_LocalInvocationID.x] = agg.pathseg_count;
+    sh_state[gl_LocalInvocationID.x] = agg;
     for (uint i = 0; i < LG_WG_SIZE; i++) {
         barrier();
         if (gl_LocalInvocationID.x >= (1 << i)) {
-            State other;
-            uint ix = gl_LocalInvocationID.x - (1 << i);
-            other.mat = sh_mat[ix];
-            other.translate = sh_translate[ix];
-            other.bbox = sh_bbox[ix];
-            other.linewidth = sh_width[ix];
-            other.flags = sh_flags[ix];
-            other.path_count = sh_path_count[ix];
-            other.pathseg_count = sh_pathseg_count[ix];
+            State other = sh_state[gl_LocalInvocationID.x - (1 << i)];
             agg = combine_state(other, agg);
         }
         barrier();
-        sh_mat[gl_LocalInvocationID.x] = agg.mat;
-        sh_translate[gl_LocalInvocationID.x] = agg.translate;
-        sh_bbox[gl_LocalInvocationID.x] = agg.bbox;
-        sh_width[gl_LocalInvocationID.x] = agg.linewidth;
-        sh_flags[gl_LocalInvocationID.x] = agg.flags;
-        sh_path_count[gl_LocalInvocationID.x] = agg.path_count;
-        sh_pathseg_count[gl_LocalInvocationID.x] = agg.pathseg_count;
+        sh_state[gl_LocalInvocationID.x] = agg;
     }
 
     State exclusive;
@@ -304,15 +275,7 @@ void main() {
 
     State row = exclusive;
     if (gl_LocalInvocationID.x > 0) {
-        uint ix = gl_LocalInvocationID.x - 1;
-        State other;
-        other.mat = sh_mat[ix];
-        other.translate = sh_translate[ix];
-        other.bbox = sh_bbox[ix];
-        other.linewidth = sh_width[ix];
-        other.flags = sh_flags[ix];
-        other.path_count = sh_path_count[ix];
-        other.pathseg_count = sh_pathseg_count[ix];
+        State other = sh_state[gl_LocalInvocationID.x - 1];
         row = combine_state(row, other);
     }
     for (uint i = 0; i < N_ROWS; i++) {
