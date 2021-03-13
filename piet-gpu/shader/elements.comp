@@ -162,28 +162,11 @@ shared State sh_state[WG_SIZE];
 shared uint sh_part_ix;
 shared State sh_prefix;
 
-void main() {
-    if (mem_error != NO_ERROR) {
-        return;
-    }
-
-    State th_state[N_ROWS];
-    // Determine partition to process by atomic counter (described in Section
-    // 4.4 of prefix sum paper).
-    if (gl_LocalInvocationID.x == 0) {
-        sh_part_ix = atomicAdd(part_counter, 1);
-    }
-    barrier();
-    uint part_ix = sh_part_ix;
-
-    uint ix = part_ix * PARTITION_SIZE + gl_LocalInvocationID.x * N_ROWS;
-    ElementRef ref = ElementRef(ix * Element_size);
-
-    th_state[0] = map_element(ref);
+void combine_states(inout State[N_ROWS] th_state, uint part_ix) {
     for (uint i = 1; i < N_ROWS; i++) {
         // discussion question: would it be faster to load using more coherent patterns
         // into thread memory? This is kinda strided.
-        th_state[i] = combine_state(th_state[i - 1], map_element(Element_index(ref, i)));
+        th_state[i] = combine_state(th_state[i - 1], th_state[i]);
     }
     State agg = th_state[N_ROWS - 1];
     sh_state[gl_LocalInvocationID.x] = agg;
@@ -279,8 +262,34 @@ void main() {
         row = combine_state(row, other);
     }
     for (uint i = 0; i < N_ROWS; i++) {
-        State st = combine_state(row, th_state[i]);
+        th_state[i] = combine_state(row, th_state[i]);
+    }
+}
 
+void main() {
+    if (mem_error != NO_ERROR) {
+        return;
+    }
+
+    State th_state[N_ROWS];
+    // Determine partition to process by atomic counter (described in Section
+    // 4.4 of prefix sum paper).
+    if (gl_LocalInvocationID.x == 0) {
+        sh_part_ix = atomicAdd(part_counter, 1);
+    }
+    barrier();
+    uint part_ix = sh_part_ix;
+
+    uint ix = part_ix * PARTITION_SIZE + gl_LocalInvocationID.x * N_ROWS;
+    ElementRef ref = ElementRef(ix * Element_size);
+    for (uint i = 0; i < N_ROWS; i++) {
+        th_state[i] = map_element(Element_index(ref, i));
+    }
+
+    combine_states(th_state, part_ix);
+
+    for (uint i = 0; i < N_ROWS; i++) {
+        State st = th_state[i];
         // Here we read again from the original scene. There may be
         // gains to be had from stashing in shared memory or possibly
         // registers (though register pressure is an issue).
