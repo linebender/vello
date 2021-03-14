@@ -536,7 +536,7 @@ fn gen_enum_write(
                 } else {
                     writeln!(
                         r,
-                        "void {}_{}_write(Alloc a, {}Ref ref, {} s) {{",
+                        "void {}_{}_write({}Ref ref, {} s) {{",
                         name, var_name, name, structname
                     )
                     .unwrap();
