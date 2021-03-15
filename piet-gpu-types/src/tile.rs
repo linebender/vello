@@ -18,5 +18,9 @@ piet_gpu! {
             y_edge: f32,
             next: Ref<TileSeg>,
         }
+        struct TransformSeg {
+            mat: [f32; 4],
+            translate: [f32; 2],
+        }
     }
 }

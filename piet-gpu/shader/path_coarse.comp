@@ -102,6 +102,17 @@ void main() {
     case PathSeg_FillCubic:
     case PathSeg_StrokeCubic:
         PathStrokeCubic cubic = PathSeg_StrokeCubic_read(conf.pathseg_alloc, ref);
+
+        uint trans_ix = cubic.trans_ix;
+        if (trans_ix > 0) {
+            TransformSegRef trans_ref = TransformSegRef(conf.trans_alloc.offset + (trans_ix - 1) * TransformSeg_size);
+            TransformSeg trans = TransformSeg_read(conf.trans_alloc, trans_ref);
+            cubic.p0 = trans.mat.xy * cubic.p0.x + trans.mat.zw * cubic.p0.y + trans.translate;
+            cubic.p1 = trans.mat.xy * cubic.p1.x + trans.mat.zw * cubic.p1.y + trans.translate;
+            cubic.p2 = trans.mat.xy * cubic.p2.x + trans.mat.zw * cubic.p2.y + trans.translate;
+            cubic.p3 = trans.mat.xy * cubic.p3.x + trans.mat.zw * cubic.p3.y + trans.translate;
+        }
+
         vec2 err_v = 3.0 * (cubic.p2 - cubic.p1) + cubic.p0 - cubic.p3;
         float err = err_v.x * err_v.x + err_v.y * err_v.y;
         // The number of quadratics.

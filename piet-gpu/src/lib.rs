@@ -201,14 +201,15 @@ impl Renderer {
         scene: &[u8],
         n_paths: usize,
         n_pathseg: usize,
+        n_trans: usize,
     ) -> Result<Self, Error> {
         let host = MemFlags::host_coherent();
         let dev = MemFlags::device_local();
 
         let n_elements = scene.len() / piet_gpu_types::scene::Element::fixed_size();
         println!(
-            "scene: {} elements, {} paths, {} path_segments",
-            n_elements, n_paths, n_pathseg
+            "scene: {} elements, {} paths, {} path_segments, {} transforms",
+            n_elements, n_paths, n_pathseg, n_trans
         );
 
         let mut scene_buf_host = session
@@ -222,15 +223,16 @@ impl Renderer {
         let state_buf = session.create_buffer(1 * 1024 * 1024, dev)?;
         let image_dev = session.create_image2d(WIDTH as u32, HEIGHT as u32, dev)?;
 
-        const CONFIG_SIZE: u64 = 9*4; // Size of Config in setup.h.
+        const CONFIG_SIZE: u64 = 10*4; // Size of Config in setup.h.
         let mut config_buf_host = session.create_buffer(CONFIG_SIZE, host)?;
         let config_buf_dev = session.create_buffer(CONFIG_SIZE, dev)?;
 
         // TODO: constants
         const PATH_SIZE: usize = 12;
         const BIN_SIZE: usize = 8;
-        const PATHSEG_SIZE: usize = 48;
+        const PATHSEG_SIZE: usize = 52;
         const ANNO_SIZE: usize = 28;
+        const TRANS_SIZE: usize = 24;
         let mut alloc = 0;
         let tile_base = alloc;
         alloc += ((n_paths + 3) & !3) * PATH_SIZE;
@@ -242,7 +244,9 @@ impl Renderer {
         alloc += (n_pathseg * PATHSEG_SIZE + 3) & !3;
         let anno_base = alloc;
         alloc += (n_paths * ANNO_SIZE + 3) & !3;
-        config_buf_host.write(&[n_paths as u32, n_pathseg as u32, WIDTH_IN_TILES as u32, HEIGHT_IN_TILES as u32, tile_base as u32, bin_base as u32, ptcl_base as u32, pathseg_base as u32, anno_base as u32])?;
+        let trans_base = alloc;
+        alloc += (n_trans * TRANS_SIZE + 3) & !3;
+        config_buf_host.write(&[n_paths as u32, n_pathseg as u32, WIDTH_IN_TILES as u32, HEIGHT_IN_TILES as u32, tile_base as u32, bin_base as u32, ptcl_base as u32, pathseg_base as u32, anno_base as u32, trans_base as u32])?;
 
         let mut memory_buf_host = session.create_buffer(2*4, host)?;
         let memory_buf_dev = session.create_buffer(128 * 1024 * 1024, dev)?;

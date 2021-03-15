@@ -39,6 +39,7 @@ layout(set = 0, binding = 3) volatile buffer StateBuf {
 #include "state.h"
 #include "annotated.h"
 #include "pathseg.h"
+#include "tile.h"
 
 #define StateBuf_stride (4 + 2 * State_size)
 
@@ -91,6 +92,7 @@ State combine_state(State a, State b) {
     c.flags |= (a.flags & FLAG_RESET_BBOX) >> 1;
     c.path_count = a.path_count + b.path_count;
     c.pathseg_count = a.pathseg_count + b.pathseg_count;
+    c.trans_count = a.trans_count + b.trans_count;
     return c;
 }
 
@@ -106,6 +108,7 @@ State map_element(ElementRef ref) {
     c.flags = 0;
     c.path_count = 0;
     c.pathseg_count = 0;
+    c.trans_count = 0;
     switch (tag) {
     case Element_FillLine:
     case Element_StrokeLine:
@@ -146,6 +149,7 @@ State map_element(ElementRef ref) {
         Transform t = Element_Transform_read(ref);
         c.mat = t.mat;
         c.translate = t.translate;
+        c.trans_count = 1;
         break;
     }
     return c;
@@ -205,6 +209,7 @@ void main() {
     exclusive.flags = 0;
     exclusive.path_count = 0;
     exclusive.pathseg_count = 0;
+    exclusive.trans_count = 0;
 
     // Publish aggregate for this partition
     if (gl_LocalInvocationID.x == WG_SIZE - 1) {
@@ -290,14 +295,13 @@ void main() {
         case Element_FillLine:
         case Element_StrokeLine:
             LineSeg line = Element_StrokeLine_read(this_ref);
-            vec2 p0 = st.mat.xy * line.p0.x + st.mat.zw * line.p0.y + st.translate;
-            vec2 p1 = st.mat.xy * line.p1.x + st.mat.zw * line.p1.y + st.translate;
             PathStrokeCubic path_cubic;
-            path_cubic.p0 = p0;
-            path_cubic.p1 = mix(p0, p1, 1.0 / 3.0);
-            path_cubic.p2 = mix(p1, p0, 1.0 / 3.0);
-            path_cubic.p3 = p1;
+            path_cubic.p0 = line.p0;
+            path_cubic.p1 = mix(line.p0, line.p1, 1.0 / 3.0);
+            path_cubic.p2 = mix(line.p1, line.p0, 1.0 / 3.0);
+            path_cubic.p3 = line.p1;
             path_cubic.path_ix = st.path_count;
+            path_cubic.trans_ix = st.trans_count;
             if (tag == Element_StrokeLine) {
                 path_cubic.stroke = get_linewidth(st);
             } else {
@@ -313,15 +317,12 @@ void main() {
         case Element_FillQuad:
         case Element_StrokeQuad:
             QuadSeg quad = Element_StrokeQuad_read(this_ref);
-            p0 = st.mat.xy * quad.p0.x + st.mat.zw * quad.p0.y + st.translate;
-            p1 = st.mat.xy * quad.p1.x + st.mat.zw * quad.p1.y + st.translate;
-            vec2 p2 = st.mat.xy * quad.p2.x + st.mat.zw * quad.p2.y + st.translate;
-            path_cubic;
-            path_cubic.p0 = p0;
-            path_cubic.p1 = mix(p1, p0, 1.0 / 3.0);
-            path_cubic.p2 = mix(p1, p2, 1.0 / 3.0);
-            path_cubic.p3 = p2;
+            path_cubic.p0 = quad.p0;
+            path_cubic.p1 = mix(quad.p1, quad.p0, 1.0 / 3.0);
+            path_cubic.p2 = mix(quad.p1, quad.p2, 1.0 / 3.0);
+            path_cubic.p3 = quad.p2;
             path_cubic.path_ix = st.path_count;
+            path_cubic.trans_ix = st.trans_count;
             if (tag == Element_StrokeQuad) {
                 path_cubic.stroke = get_linewidth(st);
             } else {
@@ -337,12 +338,12 @@ void main() {
         case Element_FillCubic:
         case Element_StrokeCubic:
             CubicSeg cubic = Element_StrokeCubic_read(this_ref);
-            path_cubic;
-            path_cubic.p0 = st.mat.xy * cubic.p0.x + st.mat.zw * cubic.p0.y + st.translate;
-            path_cubic.p1 = st.mat.xy * cubic.p1.x + st.mat.zw * cubic.p1.y + st.translate;
-            path_cubic.p2 = st.mat.xy * cubic.p2.x + st.mat.zw * cubic.p2.y + st.translate;
-            path_cubic.p3 = st.mat.xy * cubic.p3.x + st.mat.zw * cubic.p3.y + st.translate;
+            path_cubic.p0 = cubic.p0;
+            path_cubic.p1 = cubic.p1;
+            path_cubic.p2 = cubic.p2;
+            path_cubic.p3 = cubic.p3;
             path_cubic.path_ix = st.path_count;
+            path_cubic.trans_ix = st.trans_count;
             if (tag == Element_StrokeCubic) {
                 path_cubic.stroke = get_linewidth(st);
             } else {
@@ -387,6 +388,11 @@ void main() {
             AnnoClip anno_end_clip = AnnoClip(end_clip.bbox);
             out_ref = AnnotatedRef(conf.anno_alloc.offset + (st.path_count - 1) * Annotated_size);
             Annotated_EndClip_write(conf.anno_alloc, out_ref, anno_end_clip);
+            break;
+        case Element_Transform:
+            TransformSeg transform = TransformSeg(st.mat, st.translate);
+            TransformSegRef trans_ref = TransformSegRef(conf.trans_alloc.offset + (st.trans_count - 1) * TransformSeg_size);
+            TransformSeg_write(conf.trans_alloc, trans_ref, transform);
             break;
         }
     }

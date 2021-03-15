@@ -14,6 +14,10 @@ struct TileSegRef {
     uint offset;
 };
 
+struct TransformSegRef {
+    uint offset;
+};
+
 struct Path {
     uvec4 bbox;
     TileRef tiles;
@@ -47,6 +51,17 @@ struct TileSeg {
 
 TileSegRef TileSeg_index(TileSegRef ref, uint index) {
     return TileSegRef(ref.offset + index * TileSeg_size);
+}
+
+struct TransformSeg {
+    vec4 mat;
+    vec2 translate;
+};
+
+#define TransformSeg_size 24
+
+TransformSegRef TransformSeg_index(TransformSegRef ref, uint index) {
+    return TransformSegRef(ref.offset + index * TransformSeg_size);
 }
 
 Path Path_read(Alloc a, PathRef ref) {
@@ -107,5 +122,29 @@ void TileSeg_write(Alloc a, TileSegRef ref, TileSeg s) {
     write_mem(a, ix + 3, floatBitsToUint(s.vector.y));
     write_mem(a, ix + 4, floatBitsToUint(s.y_edge));
     write_mem(a, ix + 5, s.next.offset);
+}
+
+TransformSeg TransformSeg_read(Alloc a, TransformSegRef ref) {
+    uint ix = ref.offset >> 2;
+    uint raw0 = read_mem(a, ix + 0);
+    uint raw1 = read_mem(a, ix + 1);
+    uint raw2 = read_mem(a, ix + 2);
+    uint raw3 = read_mem(a, ix + 3);
+    uint raw4 = read_mem(a, ix + 4);
+    uint raw5 = read_mem(a, ix + 5);
+    TransformSeg s;
+    s.mat = vec4(uintBitsToFloat(raw0), uintBitsToFloat(raw1), uintBitsToFloat(raw2), uintBitsToFloat(raw3));
+    s.translate = vec2(uintBitsToFloat(raw4), uintBitsToFloat(raw5));
+    return s;
+}
+
+void TransformSeg_write(Alloc a, TransformSegRef ref, TransformSeg s) {
+    uint ix = ref.offset >> 2;
+    write_mem(a, ix + 0, floatBitsToUint(s.mat.x));
+    write_mem(a, ix + 1, floatBitsToUint(s.mat.y));
+    write_mem(a, ix + 2, floatBitsToUint(s.mat.z));
+    write_mem(a, ix + 3, floatBitsToUint(s.mat.w));
+    write_mem(a, ix + 4, floatBitsToUint(s.translate.x));
+    write_mem(a, ix + 5, floatBitsToUint(s.translate.y));
 }
 

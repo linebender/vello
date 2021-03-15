@@ -35,4 +35,5 @@ struct Config {
     Alloc ptcl_alloc;
     Alloc pathseg_alloc;
     Alloc anno_alloc;
+    Alloc trans_alloc;
 };
