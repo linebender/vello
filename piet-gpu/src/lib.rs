@@ -222,8 +222,9 @@ impl Renderer {
         let state_buf = session.create_buffer(1 * 1024 * 1024, dev)?;
         let image_dev = session.create_image2d(WIDTH as u32, HEIGHT as u32, dev)?;
 
-        let mut config_buf_host = session.create_buffer(9*4, host)?;
-        let config_buf_dev = session.create_buffer(9*4, dev)?;
+        const CONFIG_SIZE: u64 = 9*4; // Size of Config in setup.h.
+        let mut config_buf_host = session.create_buffer(CONFIG_SIZE, host)?;
+        let config_buf_dev = session.create_buffer(CONFIG_SIZE, dev)?;
 
         // TODO: constants
         const PATH_SIZE: usize = 12;
