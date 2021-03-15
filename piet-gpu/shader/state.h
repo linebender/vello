@@ -14,9 +14,10 @@ struct State {
     uint flags;
     uint path_count;
     uint pathseg_count;
+    uint trans_count;
 };
 
-#define State_size 56
+#define State_size 60
 
 StateRef State_index(StateRef ref, uint index) {
     return StateRef(ref.offset + index * State_size);
@@ -38,6 +39,7 @@ State State_read(StateRef ref) {
     uint raw11 = state[ix + 11];
     uint raw12 = state[ix + 12];
     uint raw13 = state[ix + 13];
+    uint raw14 = state[ix + 14];
     State s;
     s.mat = vec4(uintBitsToFloat(raw0), uintBitsToFloat(raw1), uintBitsToFloat(raw2), uintBitsToFloat(raw3));
     s.translate = vec2(uintBitsToFloat(raw4), uintBitsToFloat(raw5));
@@ -46,6 +48,7 @@ State State_read(StateRef ref) {
     s.flags = raw11;
     s.path_count = raw12;
     s.pathseg_count = raw13;
+    s.trans_count = raw14;
     return s;
 }
 
@@ -65,5 +68,6 @@ void State_write(StateRef ref, State s) {
     state[ix + 11] = s.flags;
     state[ix + 12] = s.path_count;
     state[ix + 13] = s.pathseg_count;
+    state[ix + 14] = s.trans_count;
 }
 

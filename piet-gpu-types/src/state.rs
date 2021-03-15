@@ -11,6 +11,7 @@ piet_gpu! {
             flags: u32,
             path_count: u32,
             pathseg_count: u32,
+            trans_count: u32,
         }
     }
 }

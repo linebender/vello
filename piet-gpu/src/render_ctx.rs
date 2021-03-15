@@ -38,6 +38,8 @@ pub struct PietGpuRenderContext {
     path_count: usize,
     /// The count of path segment elements.
     pathseg_count: usize,
+    /// The count of transform elements.
+    trans_count: usize,
 
     cur_transform: Affine,
     state_stack: Vec<State>,
@@ -82,6 +84,7 @@ impl PietGpuRenderContext {
             stroke_width,
             path_count: 0,
             pathseg_count: 0,
+            trans_count: 0,
             cur_transform: Affine::default(),
             state_stack: Vec::new(),
             clip_stack: Vec::new(),
@@ -99,6 +102,10 @@ impl PietGpuRenderContext {
 
     pub fn pathseg_count(&self) -> usize {
         self.pathseg_count
+    }
+
+    pub fn trans_count(&self) -> usize {
+        self.trans_count
     }
 }
 
@@ -207,6 +214,7 @@ impl RenderContext for PietGpuRenderContext {
                 let a_inv = state.rel_transform.inverse();
                 self.elements
                     .push(Element::Transform(to_scene_transform(a_inv)));
+                self.trans_count += 1;
             }
             self.cur_transform = state.transform;
             for _ in 0..state.n_clip {
@@ -228,6 +236,7 @@ impl RenderContext for PietGpuRenderContext {
     fn transform(&mut self, transform: Affine) {
         self.elements
             .push(Element::Transform(to_scene_transform(transform)));
+        self.trans_count += 1;
         if let Some(tos) = self.state_stack.last_mut() {
             tos.rel_transform *= transform;
         }
