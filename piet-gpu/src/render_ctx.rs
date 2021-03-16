@@ -303,6 +303,21 @@ impl PietGpuRenderContext {
     }
 
     fn encode_path(&mut self, path: impl Iterator<Item = PathEl>, is_fill: bool) {
+        if is_fill {
+            self.encode_path_inner(path.flat_map(|el| {
+                match el {
+                    PathEl::MoveTo(..) => {
+                        Some(PathEl::ClosePath)
+                    }
+                    _ => None
+                }.into_iter().chain(Some(el))
+            }).chain(Some(PathEl::ClosePath)), is_fill)
+        } else {
+            self.encode_path_inner(path, is_fill)
+        }
+    }
+
+    fn encode_path_inner(&mut self, path: impl Iterator<Item = PathEl>, is_fill: bool) {
         let flatten = false;
         if flatten {
             let mut start_pt = None;
