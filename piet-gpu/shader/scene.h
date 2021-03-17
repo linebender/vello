@@ -14,15 +14,11 @@ struct CubicSegRef {
     uint offset;
 };
 
-struct FillRef {
+struct FillColorRef {
     uint offset;
 };
 
 struct FillImageRef {
-    uint offset;
-};
-
-struct StrokeRef {
     uint offset;
 };
 
@@ -78,14 +74,14 @@ CubicSegRef CubicSeg_index(CubicSegRef ref, uint index) {
     return CubicSegRef(ref.offset + index * CubicSeg_size);
 }
 
-struct Fill {
+struct FillColor {
     uint rgba_color;
 };
 
-#define Fill_size 4
+#define FillColor_size 4
 
-FillRef Fill_index(FillRef ref, uint index) {
-    return FillRef(ref.offset + index * Fill_size);
+FillColorRef FillColor_index(FillColorRef ref, uint index) {
+    return FillColorRef(ref.offset + index * FillColor_size);
 }
 
 struct FillImage {
@@ -97,16 +93,6 @@ struct FillImage {
 
 FillImageRef FillImage_index(FillImageRef ref, uint index) {
     return FillImageRef(ref.offset + index * FillImage_size);
-}
-
-struct Stroke {
-    uint rgba_color;
-};
-
-#define Stroke_size 4
-
-StrokeRef Stroke_index(StrokeRef ref, uint index) {
-    return StrokeRef(ref.offset + index * Stroke_size);
 }
 
 struct SetLineWidth {
@@ -141,19 +127,15 @@ ClipRef Clip_index(ClipRef ref, uint index) {
 }
 
 #define Element_Nop 0
-#define Element_StrokeLine 1
-#define Element_FillLine 2
-#define Element_StrokeQuad 3
-#define Element_FillQuad 4
-#define Element_StrokeCubic 5
-#define Element_FillCubic 6
-#define Element_Stroke 7
-#define Element_Fill 8
-#define Element_SetLineWidth 9
-#define Element_Transform 10
-#define Element_BeginClip 11
-#define Element_EndClip 12
-#define Element_FillImage 13
+#define Element_Line 1
+#define Element_Quad 2
+#define Element_Cubic 3
+#define Element_FillColor 4
+#define Element_SetLineWidth 5
+#define Element_Transform 6
+#define Element_BeginClip 7
+#define Element_EndClip 8
+#define Element_FillImage 9
 #define Element_size 36
 
 ElementRef Element_index(ElementRef ref, uint index) {
@@ -210,10 +192,10 @@ CubicSeg CubicSeg_read(CubicSegRef ref) {
     return s;
 }
 
-Fill Fill_read(FillRef ref) {
+FillColor FillColor_read(FillColorRef ref) {
     uint ix = ref.offset >> 2;
     uint raw0 = scene[ix + 0];
-    Fill s;
+    FillColor s;
     s.rgba_color = raw0;
     return s;
 }
@@ -225,14 +207,6 @@ FillImage FillImage_read(FillImageRef ref) {
     FillImage s;
     s.index = raw0;
     s.offset = ivec2(int(raw1 << 16) >> 16, int(raw1) >> 16);
-    return s;
-}
-
-Stroke Stroke_read(StrokeRef ref) {
-    uint ix = ref.offset >> 2;
-    uint raw0 = scene[ix + 0];
-    Stroke s;
-    s.rgba_color = raw0;
     return s;
 }
 
@@ -274,36 +248,20 @@ ElementTag Element_tag(ElementRef ref) {
     return ElementTag(tag_and_flags & 0xffff, tag_and_flags >> 16);
 }
 
-LineSeg Element_StrokeLine_read(ElementRef ref) {
+LineSeg Element_Line_read(ElementRef ref) {
     return LineSeg_read(LineSegRef(ref.offset + 4));
 }
 
-LineSeg Element_FillLine_read(ElementRef ref) {
-    return LineSeg_read(LineSegRef(ref.offset + 4));
-}
-
-QuadSeg Element_StrokeQuad_read(ElementRef ref) {
+QuadSeg Element_Quad_read(ElementRef ref) {
     return QuadSeg_read(QuadSegRef(ref.offset + 4));
 }
 
-QuadSeg Element_FillQuad_read(ElementRef ref) {
-    return QuadSeg_read(QuadSegRef(ref.offset + 4));
-}
-
-CubicSeg Element_StrokeCubic_read(ElementRef ref) {
+CubicSeg Element_Cubic_read(ElementRef ref) {
     return CubicSeg_read(CubicSegRef(ref.offset + 4));
 }
 
-CubicSeg Element_FillCubic_read(ElementRef ref) {
-    return CubicSeg_read(CubicSegRef(ref.offset + 4));
-}
-
-Stroke Element_Stroke_read(ElementRef ref) {
-    return Stroke_read(StrokeRef(ref.offset + 4));
-}
-
-Fill Element_Fill_read(ElementRef ref) {
-    return Fill_read(FillRef(ref.offset + 4));
+FillColor Element_FillColor_read(ElementRef ref) {
+    return FillColor_read(FillColorRef(ref.offset + 4));
 }
 
 SetLineWidth Element_SetLineWidth_read(ElementRef ref) {

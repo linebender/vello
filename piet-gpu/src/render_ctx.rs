@@ -3,7 +3,7 @@ use std::{borrow::Cow, ops::RangeBounds};
 use piet_gpu_types::encoder::{Encode, Encoder};
 
 use piet_gpu_types::scene::{
-    Clip, CubicSeg, Element, Fill, LineSeg, QuadSeg, SetLineWidth, Stroke, Transform,
+    Clip, CubicSeg, Element, FillColor, LineSeg, QuadSeg, SetLineWidth, Transform,
 };
 
 use piet::{
@@ -67,6 +67,13 @@ struct ClipElement {
     /// Index of BeginClip element in element vec, for bbox fixup.
     begin_ix: usize,
     bbox: Option<Rect>,
+}
+
+enum FillMode {
+    // Fill path according to the non-zero winding rule.
+    Nonzero = 0,
+    // Fill stroked path.
+    Stroke = 1,
 }
 
 const TOLERANCE: f64 = 0.25;
@@ -143,8 +150,8 @@ impl RenderContext for PietGpuRenderContext {
                 self.accumulate_bbox(|| shape.bounding_box() + Insets::uniform(width * 0.5));
                 let path = shape.path_elements(TOLERANCE);
                 self.encode_path(path, false);
-                let stroke = Stroke { rgba_color };
-                self.elements.push(Element::Stroke(stroke));
+                let stroke = FillColor { rgba_color };
+                self.elements.push(Element::FillColor(FillMode::Stroke as u16, stroke));
                 self.path_count += 1;
             }
             _ => (),
@@ -168,8 +175,8 @@ impl RenderContext for PietGpuRenderContext {
             self.accumulate_bbox(|| shape.bounding_box());
             let path = shape.path_elements(TOLERANCE);
             self.encode_path(path, true);
-            let fill = Fill { rgba_color };
-            self.elements.push(Element::Fill(fill));
+            let fill = FillColor { rgba_color };
+            self.elements.push(Element::FillColor(FillMode::Nonzero as u16, fill));
             self.path_count += 1;
         }
     }
@@ -286,27 +293,27 @@ impl RenderContext for PietGpuRenderContext {
 impl PietGpuRenderContext {
     fn encode_line_seg(&mut self, seg: LineSeg, is_fill: bool) {
         if is_fill {
-            self.elements.push(Element::FillLine(seg));
+            self.elements.push(Element::Line(FillMode::Nonzero as u16, seg));
         } else {
-            self.elements.push(Element::StrokeLine(seg));
+            self.elements.push(Element::Line(FillMode::Stroke as u16, seg));
         }
         self.pathseg_count += 1;
     }
 
     fn encode_quad_seg(&mut self, seg: QuadSeg, is_fill: bool) {
         if is_fill {
-            self.elements.push(Element::FillQuad(seg));
+            self.elements.push(Element::Quad(FillMode::Nonzero as u16, seg));
         } else {
-            self.elements.push(Element::StrokeQuad(seg));
+            self.elements.push(Element::Quad(FillMode::Stroke as u16, seg));
         }
         self.pathseg_count += 1;
     }
 
     fn encode_cubic_seg(&mut self, seg: CubicSeg, is_fill: bool) {
         if is_fill {
-            self.elements.push(Element::FillCubic(seg));
+            self.elements.push(Element::Cubic(FillMode::Nonzero as u16, seg));
         } else {
-            self.elements.push(Element::StrokeCubic(seg));
+            self.elements.push(Element::Cubic(FillMode::Stroke as u16, seg));
         }
         self.pathseg_count += 1;
     }

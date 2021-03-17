@@ -39,3 +39,12 @@ struct Config {
     Alloc anno_alloc;
     Alloc trans_alloc;
 };
+
+// Fill modes.
+#define MODE_NONZERO 0
+#define MODE_STROKE 1
+
+// fill_mode_from_flags extracts the fill mode from tag flags.
+uint fill_mode_from_flags(uint flags) {
+	return flags & 0x1;
+}
