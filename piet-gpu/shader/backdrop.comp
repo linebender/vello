@@ -46,9 +46,13 @@ void main() {
     // Work assignment: 1 thread : 1 path element
     uint row_count = 0;
     if (element_ix < conf.n_elements) {
-        uint tag = Annotated_tag(conf.anno_alloc, ref).tag;
-        switch (tag) {
-        case Annotated_Fill:
+        AnnotatedTag tag = Annotated_tag(conf.anno_alloc, ref);
+        switch (tag.tag) {
+        case Annotated_Color:
+            if (fill_mode_from_flags(tag.flags) != MODE_NONZERO) {
+                break;
+            }
+            // Fall through.
         case Annotated_FillImage:
         case Annotated_BeginClip:
             PathRef path_ref = PathRef(conf.tile_alloc.offset + element_ix * Path_size);

@@ -288,7 +288,8 @@ void main() {
         // registers (though register pressure is an issue).
         ElementRef this_ref = Element_index(ref, i);
         ElementTag tag = Element_tag(this_ref);
-        bool is_stroke = fill_mode_from_flags(tag.flags) == MODE_STROKE;
+        uint fill_mode = fill_mode_from_flags(tag.flags);
+        bool is_stroke = fill_mode == MODE_STROKE;
         switch (tag.tag) {
         case Element_Line:
             LineSeg line = Element_Line_read(this_ref);
@@ -353,22 +354,18 @@ void main() {
             break;
         case Element_FillColor:
             FillColor fill = Element_FillColor_read(this_ref);
-            // TODO: merge paths when annotations use tag flags.
+            AnnoColor anno_fill;
+            anno_fill.rgba_color = fill.rgba_color;
             if (is_stroke) {
-                AnnoStroke anno_stroke;
-                anno_stroke.rgba_color = fill.rgba_color;
                 vec2 lw = get_linewidth(st);
-                anno_stroke.bbox = st.bbox + vec4(-lw, lw);
-                anno_stroke.linewidth = st.linewidth * sqrt(abs(st.mat.x * st.mat.w - st.mat.y * st.mat.z));
-                AnnotatedRef out_ref = AnnotatedRef(conf.anno_alloc.offset + (st.path_count - 1) * Annotated_size);
-                Annotated_Stroke_write(conf.anno_alloc, out_ref, anno_stroke);
+                anno_fill.bbox = st.bbox + vec4(-lw, lw);
+                anno_fill.linewidth = st.linewidth * sqrt(abs(st.mat.x * st.mat.w - st.mat.y * st.mat.z));
             } else {
-                AnnoFill anno_fill;
-                anno_fill.rgba_color = fill.rgba_color;
                 anno_fill.bbox = st.bbox;
-                AnnotatedRef out_ref = AnnotatedRef(conf.anno_alloc.offset + (st.path_count - 1) * Annotated_size);
-                Annotated_Fill_write(conf.anno_alloc, out_ref, anno_fill);
+                anno_fill.linewidth = 0.0;
             }
+            AnnotatedRef out_ref = AnnotatedRef(conf.anno_alloc.offset + (st.path_count - 1) * Annotated_size);
+            Annotated_Color_write(conf.anno_alloc, out_ref, fill_mode, anno_fill);
             break;
         case Element_FillImage:
             FillImage fill_img = Element_FillImage_read(this_ref);
@@ -376,7 +373,7 @@ void main() {
             anno_fill_img.index = fill_img.index;
             anno_fill_img.offset = fill_img.offset;
             anno_fill_img.bbox = st.bbox;
-            AnnotatedRef out_ref = AnnotatedRef(conf.anno_alloc.offset + (st.path_count - 1) * Annotated_size);
+            out_ref = AnnotatedRef(conf.anno_alloc.offset + (st.path_count - 1) * Annotated_size);
             Annotated_FillImage_write(conf.anno_alloc, out_ref, anno_fill_img);
             break;
         case Element_BeginClip:
