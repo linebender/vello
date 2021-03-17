@@ -39,7 +39,7 @@ void main() {
 
     uint tag = Annotated_Nop;
     if (element_ix < conf.n_elements) {
-        tag = Annotated_tag(conf.anno_alloc, ref);
+        tag = Annotated_tag(conf.anno_alloc, ref).tag;
     }
     int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
     switch (tag) {

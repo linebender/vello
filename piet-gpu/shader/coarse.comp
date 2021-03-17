@@ -196,7 +196,7 @@ void main() {
         if (th_ix + rd_ix < wr_ix) {
             element_ix = sh_elements[th_ix];
             ref = AnnotatedRef(conf.anno_alloc.offset + element_ix * Annotated_size);
-            tag = Annotated_tag(conf.anno_alloc, ref);
+            tag = Annotated_tag(conf.anno_alloc, ref).tag;
         }
 
         // Bounding box of element in pixel coordinates.
@@ -256,7 +256,7 @@ void main() {
                 }
             }
             AnnotatedRef ref = AnnotatedRef(conf.anno_alloc.offset + sh_elements[el_ix] * Annotated_size);
-            uint tag = Annotated_tag(conf.anno_alloc, ref);
+            uint tag = Annotated_tag(conf.anno_alloc, ref).tag;
             uint seq_ix = ix - (el_ix > 0 ? sh_tile_count[el_ix - 1] : 0);
             uint width = sh_tile_width[el_ix];
             uint x = sh_tile_x0[el_ix] + seq_ix % width;
@@ -305,7 +305,7 @@ void main() {
             // If that turns out to be expensive, maybe we can pack it into
             // shared memory (or perhaps just the tag).
             ref = AnnotatedRef(conf.anno_alloc.offset + element_ix * Annotated_size);
-            tag = Annotated_tag(conf.anno_alloc, ref);
+            tag = Annotated_tag(conf.anno_alloc, ref).tag;
 
             if (clip_zero_depth == 0) {
                 switch (tag) {

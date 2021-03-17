@@ -160,6 +160,11 @@ ElementRef Element_index(ElementRef ref, uint index) {
     return ElementRef(ref.offset + index * Element_size);
 }
 
+struct ElementTag {
+   uint tag;
+   uint flags;
+};
+
 LineSeg LineSeg_read(LineSegRef ref) {
     uint ix = ref.offset >> 2;
     uint raw0 = scene[ix + 0];
@@ -264,8 +269,9 @@ Clip Clip_read(ClipRef ref) {
     return s;
 }
 
-uint Element_tag(ElementRef ref) {
-    return scene[ref.offset >> 2];
+ElementTag Element_tag(ElementRef ref) {
+    uint tag_and_flags = scene[ref.offset >> 2];
+    return ElementTag(tag_and_flags & 0xffff, tag_and_flags >> 16);
 }
 
 LineSeg Element_StrokeLine_read(ElementRef ref) {

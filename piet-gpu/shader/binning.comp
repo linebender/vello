@@ -56,7 +56,7 @@ void main() {
     AnnotatedRef ref = AnnotatedRef(conf.anno_alloc.offset + element_ix * Annotated_size);
     uint tag = Annotated_Nop;
     if (element_ix < my_n_elements) {
-        tag = Annotated_tag(conf.anno_alloc, ref);
+        tag = Annotated_tag(conf.anno_alloc, ref).tag;
     }
     int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
     switch (tag) {

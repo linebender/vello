@@ -79,6 +79,11 @@ AnnotatedRef Annotated_index(AnnotatedRef ref, uint index) {
     return AnnotatedRef(ref.offset + index * Annotated_size);
 }
 
+struct AnnotatedTag {
+   uint tag;
+   uint flags;
+};
+
 AnnoFill AnnoFill_read(Alloc a, AnnoFillRef ref) {
     uint ix = ref.offset >> 2;
     uint raw0 = read_mem(a, ix + 0);
@@ -170,8 +175,9 @@ void AnnoClip_write(Alloc a, AnnoClipRef ref, AnnoClip s) {
     write_mem(a, ix + 3, floatBitsToUint(s.bbox.w));
 }
 
-uint Annotated_tag(Alloc a, AnnotatedRef ref) {
-    return read_mem(a, ref.offset >> 2);
+AnnotatedTag Annotated_tag(Alloc a, AnnotatedRef ref) {
+    uint tag_and_flags = read_mem(a, ref.offset >> 2);
+    return AnnotatedTag(tag_and_flags & 0xffff, tag_and_flags >> 16);
 }
 
 AnnoStroke Annotated_Stroke_read(Alloc a, AnnotatedRef ref) {

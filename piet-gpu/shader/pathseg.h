@@ -54,6 +54,11 @@ PathSegRef PathSeg_index(PathSegRef ref, uint index) {
     return PathSegRef(ref.offset + index * PathSeg_size);
 }
 
+struct PathSegTag {
+   uint tag;
+   uint flags;
+};
+
 PathFillCubic PathFillCubic_read(Alloc a, PathFillCubicRef ref) {
     uint ix = ref.offset >> 2;
     uint raw0 = read_mem(a, ix + 0);
@@ -131,8 +136,9 @@ void PathStrokeCubic_write(Alloc a, PathStrokeCubicRef ref, PathStrokeCubic s) {
     write_mem(a, ix + 11, floatBitsToUint(s.stroke.y));
 }
 
-uint PathSeg_tag(Alloc a, PathSegRef ref) {
-    return read_mem(a, ref.offset >> 2);
+PathSegTag PathSeg_tag(Alloc a, PathSegRef ref) {
+    uint tag_and_flags = read_mem(a, ref.offset >> 2);
+    return PathSegTag(tag_and_flags & 0xffff, tag_and_flags >> 16);
 }
 
 PathFillCubic PathSeg_FillCubic_read(Alloc a, PathSegRef ref) {

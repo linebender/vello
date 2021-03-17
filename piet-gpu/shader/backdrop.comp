@@ -46,7 +46,7 @@ void main() {
     // Work assignment: 1 thread : 1 path element
     uint row_count = 0;
     if (element_ix < conf.n_elements) {
-        uint tag = Annotated_tag(conf.anno_alloc, ref);
+        uint tag = Annotated_tag(conf.anno_alloc, ref).tag;
         switch (tag) {
         case Annotated_Fill:
         case Annotated_FillImage:

@@ -96,7 +96,7 @@ void main() {
 
     uint tag = PathSeg_Nop;
     if (element_ix < conf.n_pathseg) {
-        tag = PathSeg_tag(conf.pathseg_alloc, ref);
+        tag = PathSeg_tag(conf.pathseg_alloc, ref).tag;
     }
     switch (tag) {
     case PathSeg_FillCubic:

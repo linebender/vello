@@ -161,7 +161,7 @@ void main() {
     }
 
     while (true) {
-        uint tag = Cmd_tag(cmd_alloc, cmd_ref);
+        uint tag = Cmd_tag(cmd_alloc, cmd_ref).tag;
         if (tag == Cmd_End) {
             break;
         }

@@ -157,6 +157,11 @@ CmdRef Cmd_index(CmdRef ref, uint index) {
     return CmdRef(ref.offset + index * Cmd_size);
 }
 
+struct CmdTag {
+   uint tag;
+   uint flags;
+};
+
 CmdStroke CmdStroke_read(Alloc a, CmdStrokeRef ref) {
     uint ix = ref.offset >> 2;
     uint raw0 = read_mem(a, ix + 0);
@@ -301,8 +306,9 @@ void CmdJump_write(Alloc a, CmdJumpRef ref, CmdJump s) {
     write_mem(a, ix + 0, s.new_ref);
 }
 
-uint Cmd_tag(Alloc a, CmdRef ref) {
-    return read_mem(a, ref.offset >> 2);
+CmdTag Cmd_tag(Alloc a, CmdRef ref) {
+    uint tag_and_flags = read_mem(a, ref.offset >> 2);
+    return CmdTag(tag_and_flags & 0xffff, tag_and_flags >> 16);
 }
 
 CmdFill Cmd_Fill_read(Alloc a, CmdRef ref) {

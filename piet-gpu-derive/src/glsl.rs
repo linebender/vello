@@ -29,6 +29,7 @@ pub fn gen_glsl(module: &LayoutModule) -> String {
             (size, LayoutTypeDef::Enum(en)) => {
                 gen_enum_def(&mut r, name, en);
                 gen_item_def(&mut r, name, size.size);
+                gen_tag_def(&mut r, name);
             }
         }
     }
@@ -92,6 +93,13 @@ fn gen_item_def(r: &mut String, name: &str, size: usize) {
     writeln!(r, "}}\n").unwrap();
 }
 
+fn gen_tag_def(r: &mut String, name: &str) {
+    writeln!(r, "struct {}Tag {{", name).unwrap();
+    writeln!(r, "   uint tag;").unwrap();
+    writeln!(r, "   uint flags;").unwrap();
+    writeln!(r, "}};\n").unwrap();
+}
+
 fn gen_struct_read(
     r: &mut String,
     bufname: &str,
@@ -143,12 +151,13 @@ fn gen_enum_read(
     variants: &[(String, Vec<(usize, LayoutType)>)],
 ) {
     if is_mem {
-        writeln!(r, "uint {}_tag(Alloc a, {}Ref ref) {{", name, name).unwrap();
-        writeln!(r, "    return read_mem(a, ref.offset >> 2);").unwrap();
+        writeln!(r, "{}Tag {}_tag(Alloc a, {}Ref ref) {{", name, name, name).unwrap();
+        writeln!(r, "    uint tag_and_flags = read_mem(a, ref.offset >> 2);").unwrap();
     } else {
-        writeln!(r, "uint {}_tag({}Ref ref) {{", name, name).unwrap();
-        writeln!(r, "    return {}[ref.offset >> 2];", bufname).unwrap();
+        writeln!(r, "{}Tag {}_tag({}Ref ref) {{", name, name, name).unwrap();
+        writeln!(r, "    uint tag_and_flags = {}[ref.offset >> 2];", bufname).unwrap();
     }
+    writeln!(r, "    return {}Tag(tag_and_flags & 0xffff, tag_and_flags >> 16);", name).unwrap();
     writeln!(r, "}}\n").unwrap();
     for (var_name, payload) in variants {
         let payload_ix = if payload.len() == 1 {
@@ -543,6 +552,49 @@ fn gen_enum_write(
                     writeln!(
                         r,
                         "    {}[ref.offset >> 2] = {}_{};",
+                        bufname, name, var_name
+                    )
+                    .unwrap();
+                    writeln!(
+                        r,
+                        "    {}_write({}Ref(ref.offset + {}), s);",
+                        structname, structname, payload[0].0
+                    )
+                    .unwrap();
+                }
+                writeln!(r, "}}\n").unwrap();
+            }
+        } else if payload.len() == 2 && matches!(payload[0].1.ty, GpuType::Scalar(GpuScalar::TagFlags)) {
+            if let GpuType::InlineStruct(structname) = &payload[1].1.ty {
+                if is_mem {
+                    writeln!(
+                        r,
+                        "void {}_{}_write(Alloc a, {}Ref ref, uint flags, {} s) {{",
+                        name, var_name, name, structname
+                    )
+                    .unwrap();
+                    writeln!(
+                        r,
+                        "    write_mem(a, ref.offset >> 2, (flags << 16) | {}_{});",
+                        name, var_name
+                    )
+                    .unwrap();
+                    writeln!(
+                        r,
+                        "    {}_write(a, {}Ref(ref.offset + {}), s);",
+                        structname, structname, payload[0].0
+                    )
+                    .unwrap();
+                } else {
+                    writeln!(
+                        r,
+                        "void {}_{}_write({}Ref ref, uint flags, {} s) {{",
+                        name, var_name, name, structname
+                    )
+                    .unwrap();
+                    writeln!(
+                        r,
+                        "    {}[ref.offset >> 2] = (flags << 16) | {}_{};",
                         bufname, name, var_name
                     )
                     .unwrap();

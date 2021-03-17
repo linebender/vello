@@ -99,7 +99,7 @@ State combine_state(State a, State b) {
 State map_element(ElementRef ref) {
     // TODO: it would *probably* be more efficient to make the memory read patterns less
     // divergent, though it would be more wasted memory.
-    uint tag = Element_tag(ref);
+    uint tag = Element_tag(ref).tag;
     State c;
     c.bbox = vec4(0.0, 0.0, 0.0, 0.0);
     c.mat = vec4(1.0, 0.0, 0.0, 1.0);
@@ -291,7 +291,7 @@ void main() {
         // gains to be had from stashing in shared memory or possibly
         // registers (though register pressure is an issue).
         ElementRef this_ref = Element_index(ref, i);
-        uint tag = Element_tag(this_ref);
+        uint tag = Element_tag(this_ref).tag;
         switch (tag) {
         case Element_FillLine:
         case Element_StrokeLine:
