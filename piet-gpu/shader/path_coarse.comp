@@ -94,14 +94,13 @@ void main() {
     uint element_ix = gl_GlobalInvocationID.x;
     PathSegRef ref = PathSegRef(conf.pathseg_alloc.offset + element_ix * PathSeg_size);
 
-    uint tag = PathSeg_Nop;
+    PathSegTag tag = PathSegTag(PathSeg_Nop, 0);
     if (element_ix < conf.n_pathseg) {
-        tag = PathSeg_tag(conf.pathseg_alloc, ref).tag;
+        tag = PathSeg_tag(conf.pathseg_alloc, ref);
     }
-    switch (tag) {
-    case PathSeg_FillCubic:
-    case PathSeg_StrokeCubic:
-        PathStrokeCubic cubic = PathSeg_StrokeCubic_read(conf.pathseg_alloc, ref);
+    switch (tag.tag) {
+    case PathSeg_Cubic:
+        PathCubic cubic = PathSeg_Cubic_read(conf.pathseg_alloc, ref);
 
         uint trans_ix = cubic.trans_ix;
         if (trans_ix > 0) {
@@ -133,6 +132,7 @@ void main() {
         }
         uint n = max(uint(ceil(val * 0.5 / sqrt(REM_ACCURACY))), 1);
 
+        bool is_stroke = fill_mode_from_flags(tag.flags) == MODE_STROKE;
         uint path_ix = cubic.path_ix;
         Path path = Path_read(conf.tile_alloc, PathRef(conf.tile_alloc.offset + path_ix * Path_size));
         Alloc path_alloc = new_alloc(path.tiles.offset, (path.bbox.z - path.bbox.x) * (path.bbox.w - path.bbox.y) * Tile_size);
@@ -212,7 +212,7 @@ void main() {
                 for (int y = y0; y < y1; y++) {
                     float tile_y0 = float(y * TILE_HEIGHT_PX);
                     int xbackdrop = max(xray + 1, bbox.x);
-                    if (tag == PathSeg_FillCubic && min(p0.y, p1.y) < tile_y0 && xbackdrop < bbox.z) {
+                    if (!is_stroke && min(p0.y, p1.y) < tile_y0 && xbackdrop < bbox.z) {
                         int backdrop = p1.y < p0.y ? 1 : -1;
                         TileRef tile_ref = Tile_index(path.tiles, uint(base + xbackdrop));
                         uint tile_el = tile_ref.offset >> 2;
@@ -248,7 +248,7 @@ void main() {
                         tile_seg.origin = p0;
                         tile_seg.vector = p1 - p0;
                         float y_edge = 0.0;
-                        if (tag == PathSeg_FillCubic) {
+                        if (!is_stroke) {
                             y_edge = mix(p0.y, p1.y, (tile_x0 - p0.x) / dx);
                             if (min(p0.x, p1.x) < tile_x0) {
                                 vec2 p = vec2(tile_x0, y_edge);
