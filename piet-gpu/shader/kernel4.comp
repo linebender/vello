@@ -56,40 +56,6 @@ MallocResult alloc_clip_buf(uint link) {
     return sh_clip_alloc;
 }
 
-// Calculate coverage based on backdrop + coverage of each line segment
-float[CHUNK] computeArea(vec2 xy, int backdrop, uint tile_ref) {
-    // Probably better to store as float, but conversion is no doubt cheap.
-    float area[CHUNK];
-    for (uint k = 0; k < CHUNK; k++) area[k] = float(backdrop);
-    TileSegRef tile_seg_ref = TileSegRef(tile_ref);
-    do {
-        TileSeg seg = TileSeg_read(new_alloc(tile_seg_ref.offset, TileSeg_size), tile_seg_ref);
-        for (uint k = 0; k < CHUNK; k++) {
-            vec2 my_xy = vec2(xy.x, xy.y + float(k * CHUNK_DY));
-            vec2 start = seg.origin - my_xy;
-            vec2 end = start + seg.vector;
-            vec2 window = clamp(vec2(start.y, end.y), 0.0, 1.0);
-            if (window.x != window.y) {
-                vec2 t = (window - start.y) / seg.vector.y;
-                vec2 xs = vec2(mix(start.x, end.x, t.x), mix(start.x, end.x, t.y));
-                float xmin = min(min(xs.x, xs.y), 1.0) - 1e-6;
-                float xmax = max(xs.x, xs.y);
-                float b = min(xmax, 1.0);
-                float c = max(b, 0.0);
-                float d = max(xmin, 0.0);
-                float a = (b + 0.5 * (d * d - c * c) - xmin) / (xmax - xmin);
-                area[k] += a * (window.x - window.y);
-            }
-            area[k] += sign(seg.vector.x) * clamp(my_xy.y - seg.y_edge + 1.0, 0.0, 1.0);
-        }
-        tile_seg_ref = seg.next;
-    } while (tile_seg_ref.offset != 0);
-    for (uint k = 0; k < CHUNK; k++) {
-        area[k] = min(abs(area[k]), 1.0);
-    }
-    return area;
-}
-
 vec3 tosRGB(vec3 rgb) {
     bvec3 cutoff = greaterThanEqual(rgb, vec3(0.0031308));
     vec3 below = vec3(12.92)*rgb;
@@ -118,7 +84,7 @@ uint packsRGB(vec4 rgba) {
     return packUnorm4x8(rgba.wzyx);
 }
 
-vec4[CHUNK] fillImage(uvec2 xy, CmdSolidImage cmd_img) {
+vec4[CHUNK] fillImage(uvec2 xy, CmdImage cmd_img) {
     vec4 rgba[CHUNK];
     for (uint i = 0; i < CHUNK; i++) {
         ivec2 uv = ivec2(xy.x, xy.y + i * CHUNK_DY) + cmd_img.offset;
@@ -160,6 +126,7 @@ void main() {
         mask[i] = 1.0;
     }
 
+    float area[CHUNK];
     while (true) {
         uint tag = Cmd_tag(cmd_alloc, cmd_ref).tag;
         if (tag == Cmd_End) {
@@ -183,31 +150,67 @@ void main() {
                 }
                 tile_seg_ref = seg.next;
             } while (tile_seg_ref.offset != 0);
-            vec4 fg_rgba = unpacksRGB(stroke.rgba_color);
             for (uint k = 0; k < CHUNK; k++) {
-                float alpha = clamp(stroke.half_width + 0.5 - df[k], 0.0, 1.0);
-                rgb[k] = mix(rgb[k], fg_rgba.rgb, mask[k] * alpha * fg_rgba.a);
+                area[k] = clamp(stroke.half_width + 0.5 - df[k], 0.0, 1.0);
             }
             break;
         case Cmd_Fill:
             CmdFill fill = Cmd_Fill_read(cmd_alloc, cmd_ref);
-            float area[CHUNK];
-            area = computeArea(xy, fill.backdrop, fill.tile_ref);
-            fg_rgba = unpacksRGB(fill.rgba_color);
+            for (uint k = 0; k < CHUNK; k++) area[k] = float(fill.backdrop);
+            tile_seg_ref = TileSegRef(fill.tile_ref);
+            // Calculate coverage based on backdrop + coverage of each line segment
+            do {
+                TileSeg seg = TileSeg_read(new_alloc(tile_seg_ref.offset, TileSeg_size), tile_seg_ref);
+                for (uint k = 0; k < CHUNK; k++) {
+                    vec2 my_xy = vec2(xy.x, xy.y + float(k * CHUNK_DY));
+                    vec2 start = seg.origin - my_xy;
+                    vec2 end = start + seg.vector;
+                    vec2 window = clamp(vec2(start.y, end.y), 0.0, 1.0);
+                    if (window.x != window.y) {
+                        vec2 t = (window - start.y) / seg.vector.y;
+                        vec2 xs = vec2(mix(start.x, end.x, t.x), mix(start.x, end.x, t.y));
+                        float xmin = min(min(xs.x, xs.y), 1.0) - 1e-6;
+                        float xmax = max(xs.x, xs.y);
+                        float b = min(xmax, 1.0);
+                        float c = max(b, 0.0);
+                        float d = max(xmin, 0.0);
+                        float a = (b + 0.5 * (d * d - c * c) - xmin) / (xmax - xmin);
+                        area[k] += a * (window.x - window.y);
+                    }
+                    area[k] += sign(seg.vector.x) * clamp(my_xy.y - seg.y_edge + 1.0, 0.0, 1.0);
+                }
+                tile_seg_ref = seg.next;
+            } while (tile_seg_ref.offset != 0);
+            for (uint k = 0; k < CHUNK; k++) {
+                area[k] = min(abs(area[k]), 1.0);
+            }
+            break;
+        case Cmd_Solid:
+            for (uint k = 0; k < CHUNK; k++) {
+                area[k] = 1.0;
+            }
+            break;
+        case Cmd_Alpha:
+            CmdAlpha alpha = Cmd_Alpha_read(cmd_alloc, cmd_ref);
+            for (uint k = 0; k < CHUNK; k++) {
+                area[k] = alpha.alpha;
+            }
+            break;
+        case Cmd_Color:
+            CmdColor color = Cmd_Color_read(cmd_alloc, cmd_ref);
+            vec4 fg_rgba = unpacksRGB(color.rgba_color);
             for (uint k = 0; k < CHUNK; k++) {
                 rgb[k] = mix(rgb[k], fg_rgba.rgb, mask[k] * area[k] * fg_rgba.a);
             }
             break;
-        case Cmd_FillImage:
-            CmdFillImage fill_img = Cmd_FillImage_read(cmd_alloc, cmd_ref);
-            area = computeArea(xy, fill_img.backdrop, fill_img.tile_ref);
-            vec4 rgba[CHUNK] = fillImage(xy_uint, CmdSolidImage(fill_img.index, fill_img.offset));
+        case Cmd_Image:
+            CmdImage fill_img = Cmd_Image_read(cmd_alloc, cmd_ref);
+            vec4 rgba[CHUNK] = fillImage(xy_uint, fill_img);
             for (uint k = 0; k < CHUNK; k++) {
                 rgb[k] = mix(rgb[k], rgba[k].rgb, mask[k] * area[k] * rgba[k].a);
             }
             break;
         case Cmd_BeginClip:
-        case Cmd_BeginSolidClip:
             uint blend_slot = blend_sp % BLEND_STACK_SIZE;
             if (blend_sp == blend_spill + BLEND_STACK_SIZE) {
                 // spill to scratch buffer
@@ -222,23 +225,12 @@ void main() {
                 }
                 blend_spill++;
             }
-            if (tag == Cmd_BeginClip) {
-                CmdBeginClip begin_clip = Cmd_BeginClip_read(cmd_alloc, cmd_ref);
-                area = computeArea(xy, begin_clip.backdrop, begin_clip.tile_ref);
-                for (uint k = 0; k < CHUNK; k++) {
-                    blend_stack[blend_slot][k] = packsRGB(vec4(rgb[k], clamp(abs(area[k]), 0.0, 1.0)));
-                }
-            } else {
-                CmdBeginSolidClip begin_solid_clip = Cmd_BeginSolidClip_read(cmd_alloc, cmd_ref);
-                float solid_alpha = begin_solid_clip.alpha;
-                for (uint k = 0; k < CHUNK; k++) {
-                    blend_stack[blend_slot][k] = packsRGB(vec4(rgb[k], solid_alpha));
-                }
+            for (uint k = 0; k < CHUNK; k++) {
+                blend_stack[blend_slot][k] = packsRGB(vec4(rgb[k], clamp(abs(area[k]), 0.0, 1.0)));
             }
             blend_sp++;
             break;
         case Cmd_EndClip:
-            CmdEndClip end_clip = Cmd_EndClip_read(cmd_alloc, cmd_ref);
             blend_slot = (blend_sp - 1) % BLEND_STACK_SIZE;
             if (blend_sp == blend_spill) {
                 uint base_ix = (clip_tos.offset >> 2) + gl_LocalInvocationID.x + TILE_WIDTH_PX * gl_LocalInvocationID.y;
@@ -251,21 +243,7 @@ void main() {
             blend_sp--;
             for (uint k = 0; k < CHUNK; k++) {
                 vec4 rgba = unpacksRGB(blend_stack[blend_slot][k]);
-                rgb[k] = mix(rgba.rgb, rgb[k], end_clip.alpha * rgba.a);
-            }
-            break;
-        case Cmd_Solid:
-            CmdSolid solid = Cmd_Solid_read(cmd_alloc, cmd_ref);
-            fg_rgba = unpacksRGB(solid.rgba_color);
-            for (uint k = 0; k < CHUNK; k++) {
-                rgb[k] = mix(rgb[k], fg_rgba.rgb, mask[k] * fg_rgba.a);
-            }
-            break;
-        case Cmd_SolidImage:
-            CmdSolidImage solid_img = Cmd_SolidImage_read(cmd_alloc, cmd_ref);
-            rgba = fillImage(xy_uint, solid_img);
-            for (uint k = 0; k < CHUNK; k++) {
-                rgb[k] = mix(rgb[k], rgba[k].rgb, mask[k] * rgba[k].a);
+                rgb[k] = mix(rgba.rgb, rgb[k], area[k] * rgba.a);
             }
             break;
         case Cmd_Jump:
