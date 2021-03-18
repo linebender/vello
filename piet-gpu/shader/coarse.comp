@@ -324,16 +324,18 @@ void main() {
                         if (tile.tile.offset != 0) {
                             CmdFill cmd_fill = CmdFill(tile.tile.offset, tile.backdrop);
                             Cmd_Fill_write(cmd_alloc, cmd_ref, cmd_fill);
+                            cmd_ref.offset += 4 + CmdFill_size;
                         } else {
                             Cmd_Solid_write(cmd_alloc, cmd_ref);
+                            cmd_ref.offset += 4;
                         }
                     } else {
                         CmdStroke cmd_stroke = CmdStroke(tile.tile.offset, 0.5 * fill.linewidth);
                         Cmd_Stroke_write(cmd_alloc, cmd_ref, cmd_stroke);
+                        cmd_ref.offset += 4 + CmdStroke_size;
                     }
-                    cmd_ref.offset += Cmd_size;
                     Cmd_Color_write(cmd_alloc, cmd_ref, CmdColor(fill.rgba_color));
-                    cmd_ref.offset += Cmd_size;
+                    cmd_ref.offset += 4 + CmdColor_size;
                     break;
                 case Annotated_Image:
                     tile = Tile_read(read_tile_alloc(element_ref_ix), TileRef(sh_tile_base[element_ref_ix]
@@ -346,16 +348,18 @@ void main() {
                         if (tile.tile.offset != 0) {
                             CmdFill cmd_fill = CmdFill(tile.tile.offset, tile.backdrop);
                             Cmd_Fill_write(cmd_alloc, cmd_ref, cmd_fill);
+                            cmd_ref.offset += 4 + CmdFill_size;
                         } else {
                             Cmd_Solid_write(cmd_alloc, cmd_ref);
+                            cmd_ref.offset += 4;
                         }
                     } else {
                         CmdStroke cmd_stroke = CmdStroke(tile.tile.offset, 0.5 * fill_img.linewidth);
                         Cmd_Stroke_write(cmd_alloc, cmd_ref, cmd_stroke);
+                        cmd_ref.offset += 4 + CmdStroke_size;
                     }
-                    cmd_ref.offset += Cmd_size;
                     Cmd_Image_write(cmd_alloc, cmd_ref, CmdImage(fill_img.index, fill_img.offset));
-                    cmd_ref.offset += Cmd_size;
+                    cmd_ref.offset += 4 + CmdImage_size;
                     break;
                 case Annotated_BeginClip:
                     tile = Tile_read(read_tile_alloc(element_ref_ix), TileRef(sh_tile_base[element_ref_ix]
@@ -373,18 +377,20 @@ void main() {
                             if (tile.tile.offset != 0) {
                                 CmdFill cmd_fill = CmdFill(tile.tile.offset, tile.backdrop);
                                 Cmd_Fill_write(cmd_alloc, cmd_ref, cmd_fill);
+                                cmd_ref.offset += 4 + CmdFill_size;
                             } else {
                                 // TODO: here is where a bunch of optimization magic should happen
                                 float alpha = tile.backdrop == 0 ? 0.0 : 1.0;
                                 Cmd_Alpha_write(cmd_alloc, cmd_ref, CmdAlpha(alpha));
+                                cmd_ref.offset += 4 + CmdAlpha_size;
                             }
                         } else {
                             CmdStroke cmd_stroke = CmdStroke(tile.tile.offset, 0.5 * begin_clip.linewidth);
                             Cmd_Stroke_write(cmd_alloc, cmd_ref, cmd_stroke);
+                            cmd_ref.offset += 4 + CmdStroke_size;
                         }
-                        cmd_ref.offset += Cmd_size;
                         Cmd_BeginClip_write(cmd_alloc, cmd_ref);
-                        cmd_ref.offset += Cmd_size;
+                        cmd_ref.offset += 4;
                         if (clip_depth < 32) {
                             clip_one_mask &= ~(1 << clip_depth);
                         }
@@ -398,9 +404,9 @@ void main() {
                             break;
                         }
                         Cmd_Solid_write(cmd_alloc, cmd_ref);
-                        cmd_ref.offset += Cmd_size;
+                        cmd_ref.offset += 4;
                         Cmd_EndClip_write(cmd_alloc, cmd_ref);
-                        cmd_ref.offset += Cmd_size;
+                        cmd_ref.offset += 4;
                     }
                     break;
                 }
