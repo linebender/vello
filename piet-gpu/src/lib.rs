@@ -232,7 +232,7 @@ impl Renderer {
         const PATH_SIZE: usize = 12;
         const BIN_SIZE: usize = 8;
         const PATHSEG_SIZE: usize = 52;
-        const ANNO_SIZE: usize = 28;
+        const ANNO_SIZE: usize = 32;
         const TRANS_SIZE: usize = 24;
         let mut alloc = 0;
         let tile_base = alloc;

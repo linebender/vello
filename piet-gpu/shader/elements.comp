@@ -357,25 +357,39 @@ void main() {
             break;
         case Element_FillImage:
             FillImage fill_img = Element_FillImage_read(this_ref);
-            AnnoFillImage anno_fill_img;
-            anno_fill_img.index = fill_img.index;
-            anno_fill_img.offset = fill_img.offset;
-            anno_fill_img.bbox = st.bbox;
+            AnnoImage anno_img;
+            anno_img.index = fill_img.index;
+            anno_img.offset = fill_img.offset;
+            if (is_stroke) {
+                vec2 lw = get_linewidth(st);
+                anno_img.bbox = st.bbox + vec4(-lw, lw);
+                anno_img.linewidth = st.linewidth * sqrt(abs(st.mat.x * st.mat.w - st.mat.y * st.mat.z));
+            } else {
+                anno_img.bbox = st.bbox;
+                anno_img.linewidth = 0.0;
+            }
             out_ref = AnnotatedRef(conf.anno_alloc.offset + (st.path_count - 1) * Annotated_size);
-            Annotated_FillImage_write(conf.anno_alloc, out_ref, anno_fill_img);
+            Annotated_Image_write(conf.anno_alloc, out_ref, fill_mode, anno_img);
             break;
         case Element_BeginClip:
             Clip begin_clip = Element_BeginClip_read(this_ref);
-            AnnoClip anno_begin_clip = AnnoClip(begin_clip.bbox);
-            // This is the absolute bbox, it's been transformed during encoding.
-            anno_begin_clip.bbox = begin_clip.bbox;
+            AnnoBeginClip anno_begin_clip;
+            if (is_stroke) {
+                vec2 lw = get_linewidth(st);
+                // This is the absolute bbox, it's been transformed during encoding.
+                anno_begin_clip.bbox = begin_clip.bbox + vec4(-lw, lw);
+                anno_begin_clip.linewidth = st.linewidth * sqrt(abs(st.mat.x * st.mat.w - st.mat.y * st.mat.z));
+            } else {
+                anno_begin_clip.bbox = begin_clip.bbox;
+                anno_fill.linewidth = 0.0;
+            }
             out_ref = AnnotatedRef(conf.anno_alloc.offset + (st.path_count - 1) * Annotated_size);
-            Annotated_BeginClip_write(conf.anno_alloc, out_ref, anno_begin_clip);
+            Annotated_BeginClip_write(conf.anno_alloc, out_ref, fill_mode, anno_begin_clip);
             break;
         case Element_EndClip:
             Clip end_clip = Element_EndClip_read(this_ref);
             // This bbox is expected to be the same as the begin one.
-            AnnoClip anno_end_clip = AnnoClip(end_clip.bbox);
+            AnnoEndClip anno_end_clip = AnnoEndClip(end_clip.bbox);
             out_ref = AnnotatedRef(conf.anno_alloc.offset + (st.path_count - 1) * Annotated_size);
             Annotated_EndClip_write(conf.anno_alloc, out_ref, anno_end_clip);
             break;

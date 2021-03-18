@@ -53,7 +53,7 @@ void main() {
                 break;
             }
             // Fall through.
-        case Annotated_FillImage:
+        case Annotated_Image:
         case Annotated_BeginClip:
             PathRef path_ref = PathRef(conf.tile_alloc.offset + element_ix * Path_size);
             Path path = Path_read(conf.tile_alloc, path_ref);

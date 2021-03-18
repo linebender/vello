@@ -61,12 +61,12 @@ void main() {
     int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
     switch (tag) {
     case Annotated_Color:
-    case Annotated_FillImage:
+    case Annotated_Image:
     case Annotated_BeginClip:
     case Annotated_EndClip:
         // Note: we take advantage of the fact that these drawing elements
         // have the bbox at the same place in their layout.
-        AnnoClip clip = Annotated_BeginClip_read(conf.anno_alloc, ref);
+        AnnoEndClip clip = Annotated_EndClip_read(conf.anno_alloc, ref);
         x0 = int(floor(clip.bbox.x * SX));
         y0 = int(floor(clip.bbox.y * SY));
         x1 = int(ceil(clip.bbox.z * SX));
