@@ -153,6 +153,7 @@ void main() {
             for (uint k = 0; k < CHUNK; k++) {
                 area[k] = clamp(stroke.half_width + 0.5 - df[k], 0.0, 1.0);
             }
+            cmd_ref.offset += 4 + CmdStroke_size;
             break;
         case Cmd_Fill:
             CmdFill fill = Cmd_Fill_read(cmd_alloc, cmd_ref);
@@ -184,17 +185,20 @@ void main() {
             for (uint k = 0; k < CHUNK; k++) {
                 area[k] = min(abs(area[k]), 1.0);
             }
+            cmd_ref.offset += 4 + CmdFill_size;
             break;
         case Cmd_Solid:
             for (uint k = 0; k < CHUNK; k++) {
                 area[k] = 1.0;
             }
+            cmd_ref.offset += 4;
             break;
         case Cmd_Alpha:
             CmdAlpha alpha = Cmd_Alpha_read(cmd_alloc, cmd_ref);
             for (uint k = 0; k < CHUNK; k++) {
                 area[k] = alpha.alpha;
             }
+            cmd_ref.offset += 4 + CmdAlpha_size;
             break;
         case Cmd_Color:
             CmdColor color = Cmd_Color_read(cmd_alloc, cmd_ref);
@@ -202,6 +206,7 @@ void main() {
             for (uint k = 0; k < CHUNK; k++) {
                 rgb[k] = mix(rgb[k], fg_rgba.rgb, mask[k] * area[k] * fg_rgba.a);
             }
+            cmd_ref.offset += 4 + CmdColor_size;
             break;
         case Cmd_Image:
             CmdImage fill_img = Cmd_Image_read(cmd_alloc, cmd_ref);
@@ -209,6 +214,7 @@ void main() {
             for (uint k = 0; k < CHUNK; k++) {
                 rgb[k] = mix(rgb[k], rgba[k].rgb, mask[k] * area[k] * rgba[k].a);
             }
+            cmd_ref.offset += 4 + CmdImage_size;
             break;
         case Cmd_BeginClip:
             uint blend_slot = blend_sp % BLEND_STACK_SIZE;
@@ -229,6 +235,7 @@ void main() {
                 blend_stack[blend_slot][k] = packsRGB(vec4(rgb[k], clamp(abs(area[k]), 0.0, 1.0)));
             }
             blend_sp++;
+            cmd_ref.offset += 4;
             break;
         case Cmd_EndClip:
             blend_slot = (blend_sp - 1) % BLEND_STACK_SIZE;
@@ -245,13 +252,13 @@ void main() {
                 vec4 rgba = unpacksRGB(blend_stack[blend_slot][k]);
                 rgb[k] = mix(rgba.rgb, rgb[k], area[k] * rgba.a);
             }
+            cmd_ref.offset += 4;
             break;
         case Cmd_Jump:
             cmd_ref = CmdRef(Cmd_Jump_read(cmd_alloc, cmd_ref).new_ref);
             cmd_alloc.offset = cmd_ref.offset;
             continue;
         }
-        cmd_ref.offset += Cmd_size;
     }
 
     for (uint i = 0; i < CHUNK; i++) {
