@@ -320,6 +320,8 @@ impl VkInstance {
 
     pub unsafe fn swapchain(
         &self,
+        width: usize,
+        height: usize,
         device: &VkDevice,
         surface: &VkSurface,
     ) -> Result<VkSwapchain, Error> {
@@ -353,8 +355,13 @@ impl VkInstance {
             .find(|mode| mode == &vk::PresentModeKHR::MAILBOX)
             .unwrap_or(vk::PresentModeKHR::FIFO);
 
-        let image_count = 2; // TODO
-        let extent = capabilities.current_extent; // TODO: wayland for example will complain here ..
+        let image_count = capabilities.min_image_count;
+        let mut extent = capabilities.current_extent;
+        if extent.width == u32::MAX || extent.height == u32::MAX {
+            // We're deciding the size.
+            extent.width = width as u32;
+            extent.height = height as u32;
+        }
 
         let create_info = vk::SwapchainCreateInfoKHR::builder()
             .surface(surface.surface)
