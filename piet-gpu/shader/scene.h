@@ -34,6 +34,10 @@ struct ClipRef {
     uint offset;
 };
 
+struct SetFillModeRef {
+    uint offset;
+};
+
 struct ElementRef {
     uint offset;
 };
@@ -126,6 +130,16 @@ ClipRef Clip_index(ClipRef ref, uint index) {
     return ClipRef(ref.offset + index * Clip_size);
 }
 
+struct SetFillMode {
+    uint fill_mode;
+};
+
+#define SetFillMode_size 4
+
+SetFillModeRef SetFillMode_index(SetFillModeRef ref, uint index) {
+    return SetFillModeRef(ref.offset + index * SetFillMode_size);
+}
+
 #define Element_Nop 0
 #define Element_Line 1
 #define Element_Quad 2
@@ -136,6 +150,7 @@ ClipRef Clip_index(ClipRef ref, uint index) {
 #define Element_BeginClip 7
 #define Element_EndClip 8
 #define Element_FillImage 9
+#define Element_SetFillMode 10
 #define Element_size 36
 
 ElementRef Element_index(ElementRef ref, uint index) {
@@ -243,6 +258,14 @@ Clip Clip_read(ClipRef ref) {
     return s;
 }
 
+SetFillMode SetFillMode_read(SetFillModeRef ref) {
+    uint ix = ref.offset >> 2;
+    uint raw0 = scene[ix + 0];
+    SetFillMode s;
+    s.fill_mode = raw0;
+    return s;
+}
+
 ElementTag Element_tag(ElementRef ref) {
     uint tag_and_flags = scene[ref.offset >> 2];
     return ElementTag(tag_and_flags & 0xffff, tag_and_flags >> 16);
@@ -282,5 +305,9 @@ Clip Element_EndClip_read(ElementRef ref) {
 
 FillImage Element_FillImage_read(ElementRef ref) {
     return FillImage_read(FillImageRef(ref.offset + 4));
+}
+
+SetFillMode Element_SetFillMode_read(ElementRef ref) {
+    return SetFillMode_read(SetFillModeRef(ref.offset + 4));
 }
 

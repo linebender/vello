@@ -1,7 +1,7 @@
 use piet_gpu_derive::piet_gpu;
 
 pub use self::scene::{
-    Clip, CubicSeg, Element, FillColor, LineSeg, QuadSeg, SetLineWidth, Transform,
+    Clip, CubicSeg, Element, FillColor, LineSeg, QuadSeg, SetFillMode, SetLineWidth, Transform,
 };
 
 piet_gpu! {
@@ -40,19 +40,23 @@ piet_gpu! {
             bbox: [f32; 4],
             // TODO: add alpha?
         }
+        struct SetFillMode {
+            fill_mode: u32,
+        }
         enum Element {
             Nop,
 
-            Line(TagFlags, LineSeg),
-            Quad(TagFlags, QuadSeg),
-            Cubic(TagFlags, CubicSeg),
+            Line(LineSeg),
+            Quad(QuadSeg),
+            Cubic(CubicSeg),
 
-            FillColor(TagFlags, FillColor),
+            FillColor(FillColor),
             SetLineWidth(SetLineWidth),
             Transform(Transform),
             BeginClip(Clip),
             EndClip(Clip),
             FillImage(FillImage),
+            SetFillMode(SetFillMode),
         }
     }
 }
