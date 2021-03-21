@@ -118,7 +118,6 @@ void main() {
     uvec2 xy_uint = uvec2(gl_LocalInvocationID.x + TILE_WIDTH_PX * gl_WorkGroupID.x, gl_LocalInvocationID.y + TILE_HEIGHT_PX * gl_WorkGroupID.y);
     vec2 xy = vec2(xy_uint);
     vec3 rgb[CHUNK];
-    float mask[CHUNK];
     uint blend_stack[BLEND_STACK_SIZE][CHUNK];
     uint blend_spill = 0;
     uint blend_sp = 0;
@@ -130,7 +129,6 @@ void main() {
             rgb[i] = imageLoad(images[gl_WorkGroupID.x / 64], ivec2(xy_uint + chunk_offset(i))/4).rgb;
         }
 #endif
-        mask[i] = 1.0;
     }
 
     float area[CHUNK];
@@ -211,7 +209,7 @@ void main() {
             CmdColor color = Cmd_Color_read(cmd_alloc, cmd_ref);
             vec4 fg_rgba = unpacksRGB(color.rgba_color);
             for (uint k = 0; k < CHUNK; k++) {
-                rgb[k] = mix(rgb[k], fg_rgba.rgb, mask[k] * area[k] * fg_rgba.a);
+                rgb[k] = mix(rgb[k], fg_rgba.rgb, area[k] * fg_rgba.a);
             }
             cmd_ref.offset += 4 + CmdColor_size;
             break;
@@ -219,7 +217,7 @@ void main() {
             CmdImage fill_img = Cmd_Image_read(cmd_alloc, cmd_ref);
             vec4 rgba[CHUNK] = fillImage(xy_uint, fill_img);
             for (uint k = 0; k < CHUNK; k++) {
-                rgb[k] = mix(rgb[k], rgba[k].rgb, mask[k] * area[k] * rgba[k].a);
+                rgb[k] = mix(rgb[k], rgba[k].rgb, area[k] * rgba[k].a);
             }
             cmd_ref.offset += 4 + CmdImage_size;
             break;
