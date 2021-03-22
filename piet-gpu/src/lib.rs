@@ -7,7 +7,7 @@ pub use render_ctx::PietGpuRenderContext;
 
 use rand::{Rng, RngCore};
 
-use piet::kurbo::{BezPath, Circle, Point, Vec2};
+use piet::kurbo::{BezPath, Circle, Point, Shape, Vec2};
 use piet::{Color, ImageFormat, RenderContext};
 
 use piet_gpu_types::encoder::Encode;
@@ -74,6 +74,7 @@ pub fn render_scene(rc: &mut impl RenderContext) {
     );
     //render_cardioid(rc);
     render_clip_test(rc);
+    render_alpha_test(rc);
     //render_tiger(rc);
 }
 
@@ -124,6 +125,33 @@ fn render_clip_test(rc: &mut impl RenderContext) {
     }
 }
 
+#[allow(unused)]
+fn render_alpha_test(rc: &mut impl RenderContext) {
+    // Alpha compositing tests. kernel4 expects colors encoded in alpha-premultiplied sRGB:
+    //
+    // [α,sRGB(α⋅R),sRGB(α⋅G),sRGB(α⋅B)]
+    //
+    // See also http://ssp.impulsetrain.com/gamma-premult.html.
+    rc.fill(diamond(Point::new(1024.0, 100.0)), &Color::Rgba32(0xff0000ff));
+    rc.fill(diamond(Point::new(1024.0, 125.0)), &Color::Rgba32(0x00ba0080));
+    rc.save();
+    rc.clip(diamond(Point::new(1024.0, 150.0)));
+    rc.fill(diamond(Point::new(1024.0, 175.0)), &Color::Rgba32(0x0000ba80));
+    rc.restore();
+}
+
+fn diamond(origin: Point) -> impl Shape {
+    let mut path = BezPath::new();
+    const SIZE: f64 = 50.0;
+    path.move_to((origin.x, origin.y - SIZE));
+    path.line_to((origin.x + SIZE, origin.y));
+    path.line_to((origin.x, origin.y + SIZE));
+    path.line_to((origin.x - SIZE, origin.y));
+    path.close_path();
+    return path;
+}
+
+#[allow(unused)]
 fn render_tiger(rc: &mut impl RenderContext) {
     let xml_str = std::str::from_utf8(include_bytes!("../Ghostscript_Tiger.svg")).unwrap();
     let start = std::time::Instant::now();

@@ -207,17 +207,19 @@ void main() {
             break;
         case Cmd_Color:
             CmdColor color = Cmd_Color_read(cmd_alloc, cmd_ref);
-            vec4 fg_rgba = unpacksRGB(color.rgba_color);
+            vec4 fg = unpacksRGB(color.rgba_color);
             for (uint k = 0; k < CHUNK; k++) {
-                rgb[k] = mix(rgb[k], fg_rgba.rgb, area[k] * fg_rgba.a);
+                vec4 fg_k = fg * area[k];
+                rgb[k] = rgb[k] * (1.0 - fg_k.a) + fg_k.rgb;
             }
             cmd_ref.offset += 4 + CmdColor_size;
             break;
         case Cmd_Image:
             CmdImage fill_img = Cmd_Image_read(cmd_alloc, cmd_ref);
-            vec4 rgba[CHUNK] = fillImage(xy_uint, fill_img);
+            vec4 img[CHUNK] = fillImage(xy_uint, fill_img);
             for (uint k = 0; k < CHUNK; k++) {
-                rgb[k] = mix(rgb[k], rgba[k].rgb, area[k] * rgba[k].a);
+                vec4 fg_k = img[k] * area[k];
+                rgb[k] = rgb[k] * (1.0 - fg_k.a) + fg_k.rgb;
             }
             cmd_ref.offset += 4 + CmdImage_size;
             break;
