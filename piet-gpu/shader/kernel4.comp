@@ -201,25 +201,28 @@ void main() {
             cmd_ref.offset += 4 + CmdImage_size;
             break;
         case Cmd_BeginClip:
-            uint base_ix = (scratch_alloc.offset >> 2) + clip_depth * TILE_WIDTH_PX * TILE_HEIGHT_PX +
-                gl_LocalInvocationID.x + TILE_WIDTH_PX * gl_LocalInvocationID.y;
+            uint base_ix = (scratch_alloc.offset >> 2) + CLIP_STATE_SIZE * (clip_depth * TILE_WIDTH_PX * TILE_HEIGHT_PX +
+                gl_LocalInvocationID.x + TILE_WIDTH_PX * gl_LocalInvocationID.y);
             for (uint k = 0; k < CHUNK; k++) {
                 uvec2 offset = chunk_offset(k);
-                uint state = packsRGB(vec4(rgb[k], clamp(abs(area[k]), 0.0, 1.0)));
-                write_mem(scratch_alloc, base_ix + offset.x + offset.y * TILE_WIDTH_PX, state);
+                uint srgb = packsRGB(vec4(rgb[k], 1.0));
+                float alpha = clamp(abs(area[k]), 0.0, 1.0);
+                write_mem(scratch_alloc, base_ix + 0 + CLIP_STATE_SIZE * (offset.x + offset.y * TILE_WIDTH_PX), srgb);
+                write_mem(scratch_alloc, base_ix + 1 + CLIP_STATE_SIZE * (offset.x + offset.y * TILE_WIDTH_PX), floatBitsToUint(alpha));
             }
             clip_depth++;
             cmd_ref.offset += 4;
             break;
         case Cmd_EndClip:
             clip_depth--;
-            base_ix = (scratch_alloc.offset >> 2) + clip_depth * TILE_WIDTH_PX * TILE_HEIGHT_PX +
-                gl_LocalInvocationID.x + TILE_WIDTH_PX * gl_LocalInvocationID.y;
+            base_ix = (scratch_alloc.offset >> 2) + CLIP_STATE_SIZE * (clip_depth * TILE_WIDTH_PX * TILE_HEIGHT_PX +
+                gl_LocalInvocationID.x + TILE_WIDTH_PX * gl_LocalInvocationID.y);
             for (uint k = 0; k < CHUNK; k++) {
                 uvec2 offset = chunk_offset(k);
-                uint state = read_mem(scratch_alloc, base_ix + offset.x + offset.y * TILE_WIDTH_PX);
-                vec4 rgba = unpacksRGB(state);
-                rgb[k] = mix(rgba.rgb, rgb[k], area[k] * rgba.a);
+                uint srgb = read_mem(scratch_alloc, base_ix + 0 + CLIP_STATE_SIZE * (offset.x + offset.y * TILE_WIDTH_PX));
+                uint alpha = read_mem(scratch_alloc, base_ix + 1 + CLIP_STATE_SIZE * (offset.x + offset.y * TILE_WIDTH_PX));
+                vec4 rgba = unpacksRGB(srgb);
+                rgb[k] = mix(rgba.rgb, rgb[k], area[k] * uintBitsToFloat(alpha));
             }
             cmd_ref.offset += 4;
             break;

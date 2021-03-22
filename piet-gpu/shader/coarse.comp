@@ -418,8 +418,8 @@ void main() {
     if (bin_tile_x + tile_x < conf.width_in_tiles && bin_tile_y + tile_y < conf.height_in_tiles) {
         Cmd_End_write(cmd_alloc, cmd_ref);
         if (num_begin_slots > 0) {
-            // Write scratch allocation: one word per BeginClip per rasterizer chunk.
-            uint scratch_size = num_begin_slots * TILE_WIDTH_PX * TILE_HEIGHT_PX * 4;
+            // Write scratch allocation: one state per BeginClip per rasterizer chunk.
+            uint scratch_size = num_begin_slots * TILE_WIDTH_PX * TILE_HEIGHT_PX * CLIP_STATE_SIZE * 4;
             MallocResult scratch = malloc(scratch_size);
             // Ignore scratch.failed; we don't use the allocation and kernel4
             // checks for memory overflow before using it.
