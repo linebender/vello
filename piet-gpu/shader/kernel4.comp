@@ -13,9 +13,12 @@
 #include "mem.h"
 #include "setup.h"
 
-#define CHUNK 8
-#define CHUNK_DY (TILE_HEIGHT_PX / CHUNK)
-layout(local_size_x = TILE_WIDTH_PX, local_size_y = CHUNK_DY) in;
+#define CHUNK_X 2
+#define CHUNK_Y 4
+#define CHUNK CHUNK_X * CHUNK_Y
+#define CHUNK_DX (TILE_WIDTH_PX / CHUNK_X)
+#define CHUNK_DY (TILE_HEIGHT_PX / CHUNK_Y)
+layout(local_size_x = CHUNK_DX, local_size_y = CHUNK_DY) in;
 
 layout(set = 0, binding = 1) readonly buffer ConfigBuf {
     Config conf;
@@ -84,10 +87,14 @@ uint packsRGB(vec4 rgba) {
     return packUnorm4x8(rgba.wzyx);
 }
 
+uvec2 chunk_offset(uint i) {
+    return uvec2(i % CHUNK_X * CHUNK_DX, i / CHUNK_X * CHUNK_DY);
+}
+
 vec4[CHUNK] fillImage(uvec2 xy, CmdImage cmd_img) {
     vec4 rgba[CHUNK];
     for (uint i = 0; i < CHUNK; i++) {
-        ivec2 uv = ivec2(xy.x, xy.y + i * CHUNK_DY) + cmd_img.offset;
+        ivec2 uv = ivec2(xy + chunk_offset(i)) + cmd_img.offset;
 #ifdef ENABLE_IMAGE_INDICES
         vec4 fg_rgba = imageLoad(images[cmd_img.index], uv);
 #else
@@ -108,7 +115,7 @@ void main() {
     Alloc cmd_alloc = slice_mem(conf.ptcl_alloc, tile_ix * PTCL_INITIAL_ALLOC, PTCL_INITIAL_ALLOC);
     CmdRef cmd_ref = CmdRef(cmd_alloc.offset);
 
-    uvec2 xy_uint = uvec2(gl_GlobalInvocationID.x, gl_LocalInvocationID.y + TILE_HEIGHT_PX * gl_WorkGroupID.y);
+    uvec2 xy_uint = uvec2(gl_LocalInvocationID.x + TILE_WIDTH_PX * gl_WorkGroupID.x, gl_LocalInvocationID.y + TILE_HEIGHT_PX * gl_WorkGroupID.y);
     vec2 xy = vec2(xy_uint);
     vec3 rgb[CHUNK];
     float mask[CHUNK];
@@ -120,7 +127,7 @@ void main() {
         rgb[i] = vec3(0.5);
 #ifdef ENABLE_IMAGE_INDICES
         if (xy_uint.x < 1024 && xy_uint.y < 1024) {
-            rgb[i] = imageLoad(images[gl_WorkGroupID.x / 64], ivec2(xy_uint.x, xy_uint.y + CHUNK_DY * i)/4).rgb;
+            rgb[i] = imageLoad(images[gl_WorkGroupID.x / 64], ivec2(xy_uint + chunk_offset(i))/4).rgb;
         }
 #endif
         mask[i] = 1.0;
@@ -144,7 +151,7 @@ void main() {
                 vec2 line_vec = seg.vector;
                 for (uint k = 0; k < CHUNK; k++) {
                     vec2 dpos = xy + vec2(0.5, 0.5) - seg.origin;
-                    dpos.y += float(k * CHUNK_DY);
+                    dpos += vec2(chunk_offset(k));
                     float t = clamp(dot(line_vec, dpos) / dot(line_vec, line_vec), 0.0, 1.0);
                     df[k] = min(df[k], length(line_vec * t - dpos));
                 }
@@ -163,7 +170,7 @@ void main() {
             do {
                 TileSeg seg = TileSeg_read(new_alloc(tile_seg_ref.offset, TileSeg_size), tile_seg_ref);
                 for (uint k = 0; k < CHUNK; k++) {
-                    vec2 my_xy = vec2(xy.x, xy.y + float(k * CHUNK_DY));
+                    vec2 my_xy = xy + vec2(chunk_offset(k));
                     vec2 start = seg.origin - my_xy;
                     vec2 end = start + seg.vector;
                     vec2 window = clamp(vec2(start.y, end.y), 0.0, 1.0);
@@ -227,7 +234,8 @@ void main() {
                 clip_tos = m.alloc;
                 uint base_ix = (clip_tos.offset >> 2) + gl_LocalInvocationID.x + TILE_WIDTH_PX * gl_LocalInvocationID.y;
                 for (uint k = 0; k < CHUNK; k++) {
-                    write_mem(clip_tos, base_ix + k * TILE_WIDTH_PX * CHUNK_DY, blend_stack[blend_slot][k]);
+                    uvec2 offset = chunk_offset(k);
+                    write_mem(clip_tos, base_ix + offset.x + offset.y * TILE_WIDTH_PX, blend_stack[blend_slot][k]);
                 }
                 blend_spill++;
             }
@@ -242,7 +250,8 @@ void main() {
             if (blend_sp == blend_spill) {
                 uint base_ix = (clip_tos.offset >> 2) + gl_LocalInvocationID.x + TILE_WIDTH_PX * gl_LocalInvocationID.y;
                 for (uint k = 0; k < CHUNK; k++) {
-                    blend_stack[blend_slot][k] = read_mem(clip_tos, base_ix + k * TILE_WIDTH_PX * CHUNK_DY);
+                    uvec2 offset = chunk_offset(k);
+                    blend_stack[blend_slot][k] = read_mem(clip_tos, base_ix + offset.x + offset.y * TILE_WIDTH_PX);
                 }
                 clip_tos.offset = read_mem(clip_tos, (clip_tos.offset >> 2) + CLIP_LINK_OFFSET);
                 blend_spill--;
@@ -262,6 +271,6 @@ void main() {
     }
 
     for (uint i = 0; i < CHUNK; i++) {
-        imageStore(image, ivec2(xy_uint.x, xy_uint.y + CHUNK_DY * i), vec4(tosRGB(rgb[i]), 1.0));
+        imageStore(image, ivec2(xy_uint + chunk_offset(i)), vec4(tosRGB(rgb[i]), 1.0));
     }
 }
