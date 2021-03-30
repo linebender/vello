@@ -91,6 +91,23 @@ bool alloc_cmd(inout Alloc cmd_alloc, inout CmdRef cmd_ref, inout uint cmd_limit
     return true;
 }
 
+void write_fill(Alloc alloc, inout CmdRef cmd_ref, uint flags, Tile tile, float linewidth) {
+    if (fill_mode_from_flags(flags) == MODE_NONZERO) {
+        if (tile.tile.offset != 0) {
+            CmdFill cmd_fill = CmdFill(tile.tile.offset, tile.backdrop);
+            Cmd_Fill_write(alloc, cmd_ref, cmd_fill);
+            cmd_ref.offset += 4 + CmdFill_size;
+        } else {
+            Cmd_Solid_write(alloc, cmd_ref);
+            cmd_ref.offset += 4;
+        }
+    } else {
+        CmdStroke cmd_stroke = CmdStroke(tile.tile.offset, 0.5 * linewidth);
+        Cmd_Stroke_write(alloc, cmd_ref, cmd_stroke);
+        cmd_ref.offset += 4 + CmdStroke_size;
+    }
+}
+
 void main() {
     if (mem_error != NO_ERROR) {
         return;
@@ -320,20 +337,7 @@ void main() {
                     if (!alloc_cmd(cmd_alloc, cmd_ref, cmd_limit)) {
                         break;
                     }
-                    if (fill_mode_from_flags(tag.flags) == MODE_NONZERO) {
-                        if (tile.tile.offset != 0) {
-                            CmdFill cmd_fill = CmdFill(tile.tile.offset, tile.backdrop);
-                            Cmd_Fill_write(cmd_alloc, cmd_ref, cmd_fill);
-                            cmd_ref.offset += 4 + CmdFill_size;
-                        } else {
-                            Cmd_Solid_write(cmd_alloc, cmd_ref);
-                            cmd_ref.offset += 4;
-                        }
-                    } else {
-                        CmdStroke cmd_stroke = CmdStroke(tile.tile.offset, 0.5 * fill.linewidth);
-                        Cmd_Stroke_write(cmd_alloc, cmd_ref, cmd_stroke);
-                        cmd_ref.offset += 4 + CmdStroke_size;
-                    }
+                    write_fill(cmd_alloc, cmd_ref, tag.flags, tile, fill.linewidth);
                     Cmd_Color_write(cmd_alloc, cmd_ref, CmdColor(fill.rgba_color));
                     cmd_ref.offset += 4 + CmdColor_size;
                     break;
@@ -344,20 +348,7 @@ void main() {
                     if (!alloc_cmd(cmd_alloc, cmd_ref, cmd_limit)) {
                         break;
                     }
-                    if (fill_mode_from_flags(tag.flags) == MODE_NONZERO) {
-                        if (tile.tile.offset != 0) {
-                            CmdFill cmd_fill = CmdFill(tile.tile.offset, tile.backdrop);
-                            Cmd_Fill_write(cmd_alloc, cmd_ref, cmd_fill);
-                            cmd_ref.offset += 4 + CmdFill_size;
-                        } else {
-                            Cmd_Solid_write(cmd_alloc, cmd_ref);
-                            cmd_ref.offset += 4;
-                        }
-                    } else {
-                        CmdStroke cmd_stroke = CmdStroke(tile.tile.offset, 0.5 * fill_img.linewidth);
-                        Cmd_Stroke_write(cmd_alloc, cmd_ref, cmd_stroke);
-                        cmd_ref.offset += 4 + CmdStroke_size;
-                    }
+                    write_fill(cmd_alloc, cmd_ref, tag.flags, tile, fill_img.linewidth);
                     Cmd_Image_write(cmd_alloc, cmd_ref, CmdImage(fill_img.index, fill_img.offset));
                     cmd_ref.offset += 4 + CmdImage_size;
                     break;
@@ -373,22 +364,7 @@ void main() {
                         if (!alloc_cmd(cmd_alloc, cmd_ref, cmd_limit)) {
                             break;
                         }
-                        if (fill_mode_from_flags(tag.flags) == MODE_NONZERO) {
-                            if (tile.tile.offset != 0) {
-                                CmdFill cmd_fill = CmdFill(tile.tile.offset, tile.backdrop);
-                                Cmd_Fill_write(cmd_alloc, cmd_ref, cmd_fill);
-                                cmd_ref.offset += 4 + CmdFill_size;
-                            } else {
-                                // TODO: here is where a bunch of optimization magic should happen
-                                float alpha = tile.backdrop == 0 ? 0.0 : 1.0;
-                                Cmd_Alpha_write(cmd_alloc, cmd_ref, CmdAlpha(alpha));
-                                cmd_ref.offset += 4 + CmdAlpha_size;
-                            }
-                        } else {
-                            CmdStroke cmd_stroke = CmdStroke(tile.tile.offset, 0.5 * begin_clip.linewidth);
-                            Cmd_Stroke_write(cmd_alloc, cmd_ref, cmd_stroke);
-                            cmd_ref.offset += 4 + CmdStroke_size;
-                        }
+                        write_fill(cmd_alloc, cmd_ref, tag.flags, tile, begin_clip.linewidth);
                         Cmd_BeginClip_write(cmd_alloc, cmd_ref);
                         cmd_ref.offset += 4;
                         if (clip_depth < 32) {
