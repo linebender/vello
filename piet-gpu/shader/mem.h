@@ -21,7 +21,11 @@ layout(set = 0, binding = 0) buffer Memory {
 #define ERR_OUT_OF_BOUNDS 2
 #define ERR_UNALIGNED_ACCESS 3
 
+#ifdef MEM_DEBUG
+#define Alloc_size 16
+#else
 #define Alloc_size 8
+#endif
 
 // Alloc represents a memory allocation.
 struct Alloc {
@@ -39,7 +43,7 @@ struct MallocResult {
     bool failed;
 };
 
-// new_alloc synthesizes an Alloc when its offset and size are derived.
+// new_alloc synthesizes an Alloc from an offset and size.
 Alloc new_alloc(uint offset, uint size) {
     Alloc a;
     a.offset = offset;
@@ -117,4 +121,22 @@ Alloc slice_mem(Alloc a, uint offset, uint size) {
     }
 #endif
     return new_alloc(a.offset + offset, size);
+}
+
+// alloc_write writes alloc to memory at offset bytes.
+void alloc_write(Alloc a, uint offset, Alloc alloc) {
+    write_mem(a, offset >> 2, alloc.offset);
+#ifdef MEM_DEBUG
+    write_mem(a, (offset >> 2) + 1, alloc.size);
+#endif
+}
+
+// alloc_read reads an Alloc from memory at offset bytes.
+Alloc alloc_read(Alloc a, uint offset) {
+    Alloc alloc;
+    alloc.offset = read_mem(a, offset >> 2);
+#ifdef MEM_DEBUG
+    alloc.size = read_mem(a, (offset >> 2) + 1);
+#endif
+    return alloc;
 }
