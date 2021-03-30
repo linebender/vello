@@ -30,6 +30,8 @@ const WIDTH_IN_TILES: usize = 128;
 const HEIGHT_IN_TILES: usize = 96;
 const PTCL_INITIAL_ALLOC: usize = 1024;
 
+const MAX_BLEND_STACK: usize = 128;
+
 const N_CIRCLES: usize = 0;
 
 pub fn render_svg(rc: &mut impl RenderContext, filename: &str, scale: f64) {
