@@ -15,7 +15,8 @@
 
 #define PTCL_INITIAL_ALLOC 1024
 
-#define ENABLE_IMAGE_INDICES
+// This is now set in the ninja file during compilation
+//#define ENABLE_IMAGE_INDICES
 
 // These should probably be renamed and/or reworked. In the binning
 // kernel, they represent the number of bins. Also, the workgroup size

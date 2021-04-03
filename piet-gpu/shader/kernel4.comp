@@ -8,7 +8,9 @@
 
 #version 450
 #extension GL_GOOGLE_include_directive : enable
+#ifdef ENABLE_IMAGE_INDICES
 #extension GL_EXT_nonuniform_qualifier : enable
+#endif
 
 #include "mem.h"
 #include "setup.h"
@@ -26,7 +28,7 @@ layout(set = 0, binding = 1) readonly buffer ConfigBuf {
 
 layout(rgba8, set = 0, binding = 2) uniform writeonly image2D image;
 
-#if GL_EXT_nonuniform_qualifier
+#ifdef ENABLE_IMAGE_INDICES
 layout(rgba8, set = 0, binding = 3) uniform readonly image2D images[];
 #else
 layout(rgba8, set = 0, binding = 3) uniform readonly image2D images[1];
@@ -127,6 +129,10 @@ void main() {
 #ifdef ENABLE_IMAGE_INDICES
         if (xy_uint.x < 1024 && xy_uint.y < 1024) {
             rgb[i] = imageLoad(images[gl_WorkGroupID.x / 64], ivec2(xy_uint + chunk_offset(i))/4).rgb;
+        }
+#else
+        if (xy_uint.x < 1024 && xy_uint.y < 1024) {
+            rgb[i] = imageLoad(images[0], ivec2(xy_uint + chunk_offset(i))/4).rgb;
         }
 #endif
     }

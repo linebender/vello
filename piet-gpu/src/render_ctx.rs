@@ -3,7 +3,7 @@ use std::{borrow::Cow, ops::RangeBounds};
 use piet_gpu_types::encoder::{Encode, Encoder};
 
 use piet_gpu_types::scene::{
-    Clip, CubicSeg, Element, FillColor, SetFillMode, LineSeg, QuadSeg, SetLineWidth, Transform,
+    Clip, CubicSeg, Element, FillColor, LineSeg, QuadSeg, SetFillMode, SetLineWidth, Transform,
 };
 
 use piet::{
@@ -70,7 +70,7 @@ struct ClipElement {
     bbox: Option<Rect>,
 }
 
-#[derive(Clone,Copy,PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 enum FillMode {
     // Fill path according to the non-zero winding rule.
     Nonzero = 0,
@@ -121,8 +121,9 @@ impl PietGpuRenderContext {
 
 fn set_fill_mode(ctx: &mut PietGpuRenderContext, fill_mode: FillMode) {
     if ctx.fill_mode != fill_mode {
-        ctx.elements
-            .push(Element::SetFillMode(SetFillMode { fill_mode: fill_mode as u32 }));
+        ctx.elements.push(Element::SetFillMode(SetFillMode {
+            fill_mode: fill_mode as u32,
+        }));
         ctx.fill_mode = fill_mode;
     }
 }
@@ -322,14 +323,17 @@ impl PietGpuRenderContext {
 
     fn encode_path(&mut self, path: impl Iterator<Item = PathEl>, is_fill: bool) {
         if is_fill {
-            self.encode_path_inner(path.flat_map(|el| {
-                match el {
-                    PathEl::MoveTo(..) => {
-                        Some(PathEl::ClosePath)
+            self.encode_path_inner(
+                path.flat_map(|el| {
+                    match el {
+                        PathEl::MoveTo(..) => Some(PathEl::ClosePath),
+                        _ => None,
                     }
-                    _ => None
-                }.into_iter().chain(Some(el))
-            }).chain(Some(PathEl::ClosePath)))
+                    .into_iter()
+                    .chain(Some(el))
+                })
+                .chain(Some(PathEl::ClosePath)),
+            )
         } else {
             self.encode_path_inner(path)
         }

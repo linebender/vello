@@ -209,6 +209,13 @@ impl Session {
     pub unsafe fn create_sampler(&self, params: SamplerParams) -> Result<Sampler, Error> {
         self.0.device.create_sampler(params)
     }
+
+    /// Report whether the device supports descriptor indexing.
+    ///
+    /// As we have more queries, we might replace this with a capabilities structure.
+    pub fn has_descriptor_indexing(&self) -> bool {
+        self.0.device.has_descriptor_indexing
+    }
 }
 
 impl CmdBuf {
