@@ -25,7 +25,8 @@ fn main() -> Result<(), Error> {
     let (instance, surface) = VkInstance::new(Some(&window))?;
     unsafe {
         let device = instance.device(surface.as_ref())?;
-        let mut swapchain = instance.swapchain(WIDTH / 2, HEIGHT / 2, &device, surface.as_ref().unwrap())?;
+        let mut swapchain =
+            instance.swapchain(WIDTH / 2, HEIGHT / 2, &device, surface.as_ref().unwrap())?;
         let session = hub::Session::new(device);
 
         let mut current_frame = 0;

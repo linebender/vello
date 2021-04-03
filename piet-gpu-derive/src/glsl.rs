@@ -157,7 +157,12 @@ fn gen_enum_read(
         writeln!(r, "{}Tag {}_tag({}Ref ref) {{", name, name, name).unwrap();
         writeln!(r, "    uint tag_and_flags = {}[ref.offset >> 2];", bufname).unwrap();
     }
-    writeln!(r, "    return {}Tag(tag_and_flags & 0xffff, tag_and_flags >> 16);", name).unwrap();
+    writeln!(
+        r,
+        "    return {}Tag(tag_and_flags & 0xffff, tag_and_flags >> 16);",
+        name
+    )
+    .unwrap();
     writeln!(r, "}}\n").unwrap();
     for (var_name, payload) in variants {
         let payload_ix = if payload.len() == 1 {
@@ -564,7 +569,9 @@ fn gen_enum_write(
                 }
                 writeln!(r, "}}\n").unwrap();
             }
-        } else if payload.len() == 2 && matches!(payload[0].1.ty, GpuType::Scalar(GpuScalar::TagFlags)) {
+        } else if payload.len() == 2
+            && matches!(payload[0].1.ty, GpuType::Scalar(GpuScalar::TagFlags))
+        {
             if let GpuType::InlineStruct(structname) = &payload[1].1.ty {
                 if is_mem {
                     writeln!(
