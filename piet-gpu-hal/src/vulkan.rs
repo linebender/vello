@@ -282,12 +282,14 @@ impl VkInstance {
             .descriptor_binding_variable_descriptor_count(true)
             .runtime_descriptor_array(true);
 
-        let mut extensions = match surface {
-            Some(_) => vec![khr::Swapchain::name().as_ptr()],
-            None => vec![],
-        };
-        extensions.push(vk::ExtDescriptorIndexingFn::name().as_ptr());
-        extensions.push(vk::KhrMaintenance3Fn::name().as_ptr());
+        let mut extensions = Vec::new();
+        if surface.is_some() {
+            extensions.push(khr::Swapchain::name().as_ptr());
+        }
+        if has_descriptor_indexing {
+            extensions.push(vk::KhrMaintenance3Fn::name().as_ptr());
+            extensions.push(vk::ExtDescriptorIndexingFn::name().as_ptr());
+        }
         let mut create_info = vk::DeviceCreateInfo::builder()
             .queue_create_infos(&queue_create_infos)
             .enabled_extension_names(&extensions);
