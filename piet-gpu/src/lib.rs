@@ -49,6 +49,7 @@ pub fn render_svg(rc: &mut impl RenderContext, filename: &str, scale: f64) {
     let start = std::time::Instant::now();
     svg.render(rc);
     println!("flattening and encoding time: {:?}", start.elapsed());
+    rc.finish().unwrap();
 }
 
 pub fn render_scene(rc: &mut impl RenderContext) {

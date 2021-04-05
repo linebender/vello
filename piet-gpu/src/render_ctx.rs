@@ -227,14 +227,12 @@ impl RenderContext for PietGpuRenderContext {
         self.element_tmp.push(Element::EndClip(Clip {
             bbox: Default::default(),
         }));
-        self.path_count += 1;
         self.clip_stack.push(ClipElement {
             bbox: None,
             begin_ix,
             encoded_path,
         });
         self.path_count += 1;
-        set_fill_mode(self, FillMode::Nonzero);
         if let Some(tos) = self.state_stack.last_mut() {
             tos.n_clip += 1;
         }
@@ -485,6 +483,7 @@ impl PietGpuRenderContext {
         } else {
             unreachable!("expected BeginClip, not found");
         }
+        set_fill_mode(self, FillMode::Nonzero);
         if let Some(bbox) = tos.bbox {
             self.union_bbox(bbox);
         }
