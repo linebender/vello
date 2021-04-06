@@ -44,6 +44,8 @@ layout(rgba8, set = 0, binding = 3) uniform readonly image2D images[1];
 #define CLIP_LINK_OFFSET (TILE_WIDTH_PX * TILE_HEIGHT_PX)
 #define CLIP_BUF_SIZE (CLIP_LINK_OFFSET + 1)
 
+#define WINDING_LUT_SIZE 256
+
 shared MallocResult sh_clip_alloc;
 
 // The lookup table is implemented based on the description of Efficient GPU Path Rendering Using Scanline Rasterization,
@@ -60,7 +62,7 @@ uint getLut(vec2 n, float c) {
     uint base = int(signBit) >> 31;
     if (c < 1.) {
         vec2 tex_coord = (0.5 - 0.5 * c) * n + vec2(0.5, 0.5);
-        uvec4 tex = imageLoad(winding_lut, ivec2(vec2(imageSize(winding_lut)) * tex_coord));
+        uvec4 tex = imageLoad(winding_lut, ivec2(vec2(WINDING_LUT_SIZE * tex_coord)));
         mask = tex.r;
     }
     return base ^ mask;
@@ -191,6 +193,7 @@ void main() {
                     vec2 u = seg.vector * rlen;
                     vec2 n = vec2(-u.y, u.x);
                     for (uint k = 0; k < CHUNK; k++) {
+                        if (stencil[k] == ~0u) continue;
                         vec2 my_xy = xy + vec2(chunk_offset(k));
                         vec2 dpos = seg.origin - my_xy - vec2(0.5, 0.5);
                         float kp = dot(dpos, n);
@@ -217,6 +220,7 @@ void main() {
                 uint signBit = floatBitsToUint(n.x) & 0x80000000u;
                 n = vec2(abs(n.x), uintBitsToFloat(floatBitsToUint(n.y) ^ signBit));
                 for (uint k = 0; k < CHUNK; k++) {
+                    if (stencil[k] == ~0u) continue;
                     vec2 my_xy = xy + vec2(chunk_offset(k));
                     vec2 start = seg.origin - my_xy;
                     vec2 end = start + seg.vector;
