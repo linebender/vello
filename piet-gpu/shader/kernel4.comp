@@ -29,9 +29,9 @@ layout(rgba8, set = 0, binding = 2) uniform writeonly image2D image;
 layout(r32ui, set = 0, binding = 3) uniform uimage2D winding_lut;
 
 #if GL_EXT_nonuniform_qualifier
-layout(rgba8, set = 0, binding = 3) uniform readonly image2D images[];
+layout(rgba8, set = 0, binding = 4) uniform readonly image2D images[];
 #else
-layout(rgba8, set = 0, binding = 3) uniform readonly image2D images[1];
+layout(rgba8, set = 0, binding = 4) uniform readonly image2D images[1];
 #endif
 
 #include "ptcl.h"
