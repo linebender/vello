@@ -40,7 +40,7 @@ fn main() -> Result<(), Error> {
         render_scene(&mut ctx);
         let n_paths = ctx.path_count();
         let n_pathseg = ctx.pathseg_count();
-        let n_trans = ctx.pathseg_count();
+        let n_trans = ctx.trans_count();
         let scene = ctx.get_scene_buf();
 
         let renderer = Renderer::new(&session, scene, n_paths, n_pathseg, n_trans)?;
