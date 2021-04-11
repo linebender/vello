@@ -231,7 +231,7 @@ void main() {
         case Cmd_Jump:
             cmd_ref = CmdRef(Cmd_Jump_read(cmd_alloc, cmd_ref).new_ref);
             cmd_alloc.offset = cmd_ref.offset;
-            continue;
+            break;
         }
     }
 
