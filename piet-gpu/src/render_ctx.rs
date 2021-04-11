@@ -119,8 +119,9 @@ impl PietGpuRenderContext {
 
 fn set_fill_mode(ctx: &mut PietGpuRenderContext, fill_mode: FillMode) {
     if ctx.fill_mode != fill_mode {
-        ctx.elements
-            .push(Element::SetFillMode(SetFillMode { fill_mode: fill_mode as u32 }));
+        ctx.elements.push(Element::SetFillMode(SetFillMode {
+            fill_mode: fill_mode as u32,
+        }));
         ctx.fill_mode = fill_mode;
     }
 }
@@ -324,14 +325,17 @@ impl PietGpuRenderContext {
 
     fn encode_path(&mut self, path: impl Iterator<Item=PathEl>, is_fill: bool) {
         if is_fill {
-            self.encode_path_inner(path.flat_map(|el| {
-                match el {
-                    PathEl::MoveTo(..) => {
-                        Some(PathEl::ClosePath)
+            self.encode_path_inner(
+                path.flat_map(|el| {
+                    match el {
+                        PathEl::MoveTo(..) => Some(PathEl::ClosePath),
+                        _ => None,
                     }
-                    _ => None
-                }.into_iter().chain(Some(el))
-            }).chain(Some(PathEl::ClosePath)))
+                    .into_iter()
+                    .chain(Some(el))
+                })
+                .chain(Some(PathEl::ClosePath)),
+            )
         } else {
             self.encode_path_inner(path)
         }

@@ -12,7 +12,7 @@ use piet::{Color, ImageFormat, RenderContext};
 
 use piet_gpu_types::encoder::Encode;
 
-use piet_gpu_hal::{hub};
+use piet_gpu_hal::hub;
 use piet_gpu_hal::{CmdBuf, Error, ImageLayout, MemFlags};
 
 use pico_svg::PicoSvg;
@@ -248,7 +248,7 @@ impl Renderer {
         let state_buf = session.create_buffer(1 * 1024 * 1024, dev)?;
         let image_dev = session.create_image2d(WIDTH as u32, HEIGHT as u32, dev)?;
 
-        const CONFIG_SIZE: u64 = 10*4; // Size of Config in setup.h.
+        const CONFIG_SIZE: u64 = 10 * 4; // Size of Config in setup.h.
         let mut config_buf_host = session.create_buffer(CONFIG_SIZE, host)?;
         let config_buf_dev = session.create_buffer(CONFIG_SIZE, dev)?;
 
@@ -271,9 +271,20 @@ impl Renderer {
         alloc += (n_paths * ANNO_SIZE + 3) & !3;
         let trans_base = alloc;
         alloc += (n_trans * TRANS_SIZE + 3) & !3;
-        config_buf_host.write(&[n_paths as u32, n_pathseg as u32, WIDTH_IN_TILES as u32, HEIGHT_IN_TILES as u32, tile_base as u32, bin_base as u32, ptcl_base as u32, pathseg_base as u32, anno_base as u32, trans_base as u32])?;
+        config_buf_host.write(&[
+            n_paths as u32,
+            n_pathseg as u32,
+            WIDTH_IN_TILES as u32,
+            HEIGHT_IN_TILES as u32,
+            tile_base as u32,
+            bin_base as u32,
+            ptcl_base as u32,
+            pathseg_base as u32,
+            anno_base as u32,
+            trans_base as u32,
+        ])?;
 
-        let mut memory_buf_host = session.create_buffer(2*4, host)?;
+        let mut memory_buf_host = session.create_buffer(2 * 4, host)?;
         let memory_buf_dev = session.create_buffer(128 * 1024 * 1024, dev)?;
         memory_buf_host.write(&[alloc as u32, 0 /* Overflow flag */])?;
 
@@ -286,17 +297,13 @@ impl Renderer {
 
         let tile_alloc_code = include_bytes!("../shader/tile_alloc.spv");
         let tile_pipeline = session.create_simple_compute_pipeline(tile_alloc_code, 2)?;
-        let tile_ds = session.create_simple_descriptor_set(
-            &tile_pipeline,
-            &[&memory_buf_dev, &config_buf_dev],
-        )?;
+        let tile_ds = session
+            .create_simple_descriptor_set(&tile_pipeline, &[&memory_buf_dev, &config_buf_dev])?;
 
         let path_alloc_code = include_bytes!("../shader/path_coarse.spv");
         let path_pipeline = session.create_simple_compute_pipeline(path_alloc_code, 2)?;
-        let path_ds = session.create_simple_descriptor_set(
-            &path_pipeline,
-            &[&memory_buf_dev, &config_buf_dev],
-        )?;
+        let path_ds = session
+            .create_simple_descriptor_set(&path_pipeline, &[&memory_buf_dev, &config_buf_dev])?;
 
         let backdrop_alloc_code = include_bytes!("../shader/backdrop.spv");
         let backdrop_pipeline = session.create_simple_compute_pipeline(backdrop_alloc_code, 2)?;
@@ -308,21 +315,22 @@ impl Renderer {
         // TODO: constants
         let bin_code = include_bytes!("../shader/binning.spv");
         let bin_pipeline = session.create_simple_compute_pipeline(bin_code, 2)?;
-        let bin_ds = session.create_simple_descriptor_set(
-            &bin_pipeline,
-            &[&memory_buf_dev, &config_buf_dev],
-        )?;
+        let bin_ds = session
+            .create_simple_descriptor_set(&bin_pipeline, &[&memory_buf_dev, &config_buf_dev])?;
 
         let coarse_code = include_bytes!("../shader/coarse.spv");
         let coarse_pipeline = session.create_simple_compute_pipeline(coarse_code, 2)?;
-        let coarse_ds = session.create_simple_descriptor_set(
-            &coarse_pipeline,
-            &[&memory_buf_dev, &config_buf_dev],
-        )?;
+        let coarse_ds = session
+            .create_simple_descriptor_set(&coarse_pipeline, &[&memory_buf_dev, &config_buf_dev])?;
 
         let bg_image = Self::make_test_bg_image(&session);
 
-        let k4_code = include_bytes!("../shader/kernel4.spv");
+        let k4_code = if session.has_descriptor_indexing() {
+            &include_bytes!("../shader/kernel4_idx.spv")[..]
+        } else {
+            println!("doing non-indexed k4");
+            &include_bytes!("../shader/kernel4.spv")[..]
+        };
         // This is an arbitrary limit on the number of textures that can be referenced by
         // the fine rasterizer. To set it for real, we probably want to pay attention both
         // to the device limit (maxDescriptorSetSampledImages) but also to the number of
@@ -377,7 +385,10 @@ impl Renderer {
     }
 
     pub unsafe fn record(&self, cmd_buf: &mut hub::CmdBuf, query_pool: &hub::QueryPool) {
-        cmd_buf.copy_buffer(self.scene_buf_host.vk_buffer(), self.scene_buf_dev.vk_buffer());
+        cmd_buf.copy_buffer(
+            self.scene_buf_host.vk_buffer(),
+            self.scene_buf_dev.vk_buffer(),
+        );
         cmd_buf.copy_buffer(
             self.config_buf_host.vk_buffer(),
             self.config_buf_dev.vk_buffer(),
