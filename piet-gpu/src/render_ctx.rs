@@ -1,19 +1,17 @@
 use std::{borrow::Cow, ops::RangeBounds};
 
-use piet_gpu_types::encoder::{Encode, Encoder};
-
-use piet_gpu_types::scene::{
-    Clip, CubicSeg, Element, FillColor, SetFillMode, LineSeg, QuadSeg, SetLineWidth, Transform,
-};
-
 use piet::{
-    kurbo::{Affine, Insets, PathEl, Point, Rect, Shape, Size},
-    HitTestPosition, TextAttribute, TextStorage,
+    HitTestPosition,
+    kurbo::{Affine, Insets, PathEl, Point, Rect, Shape, Size}, TextAttribute, TextStorage,
 };
-
 use piet::{
     Color, Error, FixedGradient, FontFamily, HitTestPoint, ImageFormat, InterpolationMode,
     IntoBrush, LineMetric, RenderContext, StrokeStyle, Text, TextLayout, TextLayoutBuilder,
+};
+
+use piet_gpu_types::encoder::{Encode, Encoder};
+use piet_gpu_types::scene::{
+    Clip, CubicSeg, Element, FillColor, LineSeg, QuadSeg, SetFillMode, SetLineWidth, Transform,
 };
 
 pub struct PietGpuImage;
@@ -70,7 +68,7 @@ struct ClipElement {
     bbox: Option<Rect>,
 }
 
-#[derive(Clone,Copy,PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 enum FillMode {
     // Fill path according to the non-zero winding rule.
     Nonzero = 0,
@@ -138,7 +136,14 @@ impl RenderContext for PietGpuRenderContext {
     }
 
     fn solid_brush(&mut self, color: Color) -> Self::Brush {
-        PietGpuBrush::Solid(color.as_rgba_u32())
+        // kernel4 expects colors encoded in alpha-premultiplied sRGB:
+        //
+        // [α,sRGB(α⋅R),sRGB(α⋅G),sRGB(α⋅B)]
+        //
+        // See also http://ssp.impulsetrain.com/gamma-premult.html.
+        let (r, g, b, a) = color.as_rgba();
+        let premul = Color::rgba(to_srgb(from_srgb(r) * a), to_srgb(from_srgb(g) * a), to_srgb(from_srgb(b) * a), a);
+        PietGpuBrush::Solid(premul.as_rgba_u32())
     }
 
     fn gradient(&mut self, _gradient: impl Into<FixedGradient>) -> Result<Self::Brush, Error> {
@@ -176,8 +181,7 @@ impl RenderContext for PietGpuRenderContext {
         _brush: &impl IntoBrush<Self>,
         _width: f64,
         _style: &StrokeStyle,
-    ) {
-    }
+    ) {}
 
     fn fill(&mut self, shape: impl Shape, brush: &impl IntoBrush<Self>) {
         let brush = brush.make_brush(self, || shape.bounding_box()).into_owned();
@@ -279,8 +283,7 @@ impl RenderContext for PietGpuRenderContext {
         _image: &Self::Image,
         _rect: impl Into<Rect>,
         _interp: InterpolationMode,
-    ) {
-    }
+    ) {}
 
     fn draw_image_area(
         &mut self,
@@ -288,8 +291,7 @@ impl RenderContext for PietGpuRenderContext {
         _src_rect: impl Into<Rect>,
         _dst_rect: impl Into<Rect>,
         _interp: InterpolationMode,
-    ) {
-    }
+    ) {}
 
     fn blurred_rect(&mut self, _rect: Rect, _blur_radius: f64, _brush: &impl IntoBrush<Self>) {}
 
@@ -320,7 +322,7 @@ impl PietGpuRenderContext {
         self.pathseg_count += 1;
     }
 
-    fn encode_path(&mut self, path: impl Iterator<Item = PathEl>, is_fill: bool) {
+    fn encode_path(&mut self, path: impl Iterator<Item=PathEl>, is_fill: bool) {
         if is_fill {
             self.encode_path_inner(path.flat_map(|el| {
                 match el {
@@ -335,7 +337,7 @@ impl PietGpuRenderContext {
         }
     }
 
-    fn encode_path_inner(&mut self, path: impl Iterator<Item = PathEl>) {
+    fn encode_path_inner(&mut self, path: impl Iterator<Item=PathEl>) {
         let flatten = false;
         if flatten {
             let mut start_pt = None;
@@ -581,5 +583,23 @@ fn to_scene_transform(transform: Affine) -> Transform {
     Transform {
         mat: [c[0] as f32, c[1] as f32, c[2] as f32, c[3] as f32],
         translate: [c[4] as f32, c[5] as f32],
+    }
+}
+
+fn to_srgb(f: f64) -> f64 {
+    if f <= 0.0031308 {
+        f * 12.92
+    } else {
+        let a = 0.055;
+        (1. + a) * f64::powf(f, f64::recip(2.4)) - a
+    }
+}
+
+fn from_srgb(f: f64) -> f64 {
+    if f <= 0.04045 {
+        f / 12.92
+    } else {
+        let a = 0.055;
+        f64::powf((f + a) * f64::recip(1. + a), 2.4)
     }
 }

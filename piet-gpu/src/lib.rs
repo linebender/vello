@@ -127,16 +127,12 @@ fn render_clip_test(rc: &mut impl RenderContext) {
 
 #[allow(unused)]
 fn render_alpha_test(rc: &mut impl RenderContext) {
-    // Alpha compositing tests. kernel4 expects colors encoded in alpha-premultiplied sRGB:
-    //
-    // [α,sRGB(α⋅R),sRGB(α⋅G),sRGB(α⋅B)]
-    //
-    // See also http://ssp.impulsetrain.com/gamma-premult.html.
+    // Alpha compositing tests.
     rc.fill(diamond(Point::new(1024.0, 100.0)), &Color::Rgba32(0xff0000ff));
-    rc.fill(diamond(Point::new(1024.0, 125.0)), &Color::Rgba32(0x00ba0080));
+    rc.fill(diamond(Point::new(1024.0, 125.0)), &Color::Rgba32(0x00ff0080));
     rc.save();
     rc.clip(diamond(Point::new(1024.0, 150.0)));
-    rc.fill(diamond(Point::new(1024.0, 175.0)), &Color::Rgba32(0x0000ba80));
+    rc.fill(diamond(Point::new(1024.0, 175.0)), &Color::Rgba32(0x0000ff80));
     rc.restore();
 }
 
