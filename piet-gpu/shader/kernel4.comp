@@ -185,23 +185,18 @@ void main() {
             }
             do {
                 TileSeg seg = TileSeg_read(new_alloc(tile_seg_ref.offset, TileSeg_size), tile_seg_ref);
-                float len2 = dot(seg.vector, seg.vector);
-                if (len2 > 0.) {
-                    // Compute the stroke area with a rectanglar implicit test.
-                    float rlen = inversesqrt(len2);
-                    float len = rlen * len2;
-                    vec2 u = seg.vector * rlen;
-                    vec2 n = vec2(-u.y, u.x);
-                    for (uint k = 0; k < CHUNK; k++) {
-                        if (stencil[k] == ~0u) continue;
-                        vec2 my_xy = xy + vec2(chunk_offset(k));
-                        vec2 dpos = seg.origin - my_xy - vec2(0.5, 0.5);
-                        float kp = dot(dpos, n);
-                        uint par = getLut(n, kp + stroke.half_width) ^ getLut(n, kp - stroke.half_width);
-                        float ko = dot(dpos, u);
-                        uint ortho = getLut(u, ko) ^ getLut(u, ko + len);
-                        coverage[k] |= par & ortho;
-                    }
+                // Compute the stroke area with a rectanglar implicit test.
+                vec2 u = seg.vector;
+                vec2 n = vec2(u.y, -u.x);
+                for (uint k = 0; k < CHUNK; k++) {
+                    if (stencil[k] == ~0u) continue;
+                    vec2 my_xy = xy + vec2(chunk_offset(k));
+                    vec2 dpos = seg.origin - my_xy - vec2(0.5, 0.5);
+                    float kp = dot(dpos, n);
+                    uint par = getLut(n, kp + stroke.half_width) ^ getLut(n, kp - stroke.half_width);
+                    float ko = dot(dpos, u);
+                    uint ortho = getLut(u, ko) ^ getLut(u, ko + seg.len);
+                    coverage[k] |= par & ortho;
                 }
                 tile_seg_ref = seg.next;
             } while (tile_seg_ref.offset != 0);
@@ -214,16 +209,12 @@ void main() {
             do {
                 TileSeg seg = TileSeg_read(new_alloc(tile_seg_ref.offset, TileSeg_size), tile_seg_ref);
                 vec2 o = vec2(0.5, 0.5);
-                vec2 n = normalize(vec2(-seg.vector.y, seg.vector.x));
-                // Make sure that the normal vector points the right side (we want the area to the right of the line).
-                // The code below flips n if n.x < 0.
-                uint signBit = floatBitsToUint(n.x) & 0x80000000u;
-                n = vec2(abs(n.x), uintBitsToFloat(floatBitsToUint(n.y) ^ signBit));
+                vec2 n = vec2(seg.vector.y, -seg.vector.x);
                 for (uint k = 0; k < CHUNK; k++) {
                     if (stencil[k] == ~0u) continue;
                     vec2 my_xy = xy + vec2(chunk_offset(k));
                     vec2 start = seg.origin - my_xy;
-                    vec2 end = start + seg.vector;
+                    vec2 end = start + seg.vector * seg.len;
                     // The horizontal ray test is calculated with lookup tables as an AND of three half-planes:
                     // Two of them are used to confine the range of y, and this is implemented using a logically equivalent
                     // method with XOR. While the left edge is already clipped to tile boundary (see path_corase.comp), there

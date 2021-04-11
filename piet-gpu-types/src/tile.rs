@@ -15,6 +15,7 @@ piet_gpu! {
         struct TileSeg {
             origin: [f32; 2],
             vector: [f32; 2],
+            len: f32,
             y_edge: f32,
             next: Ref<TileSeg>,
         }

@@ -237,6 +237,17 @@ void main() {
                     xx0 = clamp(xx0, x0, x1);
                     xx1 = clamp(xx1, x0, x1);
 
+                    vec2 v = p1 - p0;
+                    float len2 = dot(v, v);
+                    float rlen = inversesqrt(len2);
+                    vec2 normalized = v * rlen;
+                    // Make sure that the normal vector points the right side (we want the area to the right of the line).
+                    // The code below flips the vector and length if v.y < 0.
+                    // Note that the normal vector is rotated CW by right angle.
+                    uint signBit = floatBitsToUint(normalized.y) & 0x80000000u;
+                    normalized = vec2(uintBitsToFloat(floatBitsToUint(normalized.x) ^ signBit), abs(normalized.y));
+                    float len = uintBitsToFloat(floatBitsToUint(rlen * len2) ^ signBit);
+
                     for (int x = xx0; x < xx1; x++) {
                         float tile_x0 = float(x * TILE_WIDTH_PX);
                         TileRef tile_ref = Tile_index(TileRef(path.tiles.offset), uint(base + x));
@@ -246,22 +257,20 @@ void main() {
                             old = atomicExchange(memory[tile_el], tile_offset);
                         }
                         tile_seg.origin = p0;
-                        tile_seg.vector = p1 - p0;
+                        tile_seg.vector = normalized;
+                        tile_seg.len = len;
                         float y_edge = 0.0;
                         if (!is_stroke) {
-                            y_edge = mix(p0.y, p1.y, (tile_x0 - p0.x) / dx);
+                            float t = (tile_x0 - p0.x) / dx;
+                            y_edge = mix(p0.y, p1.y, t);
                             if (min(p0.x, p1.x) < tile_x0) {
-                                vec2 p = vec2(tile_x0, y_edge);
+                                // kernel4 uses sign(vector.x) and sign(len) for the sign of the intersection backdrop.
+                                // Avoid accidentally wiping the sign.
                                 if (p0.x > p1.x) {
-                                    tile_seg.vector = p - p0;
+                                    tile_seg.len *= max(1e-9, t);
                                 } else {
-                                    tile_seg.origin = p;
-                                    tile_seg.vector = p1 - p;
-                                }
-                                // kernel4 uses sign(vector.x) for the sign of the intersection backdrop.
-                                // Nudge zeroes towards the intended sign.
-                                if (tile_seg.vector.x == 0) {
-                                    tile_seg.vector.x = sign(p1.x - p0.x)*1e-9;
+                                    tile_seg.origin = vec2(tile_x0, y_edge);
+                                    tile_seg.len *= max(1e-9, 1 - t);
                                 }
                             }
                             if (x <= min_xray || max_xray < x) {

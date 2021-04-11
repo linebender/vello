@@ -43,11 +43,12 @@ TileRef Tile_index(TileRef ref, uint index) {
 struct TileSeg {
     vec2 origin;
     vec2 vector;
+    float len;
     float y_edge;
     TileSegRef next;
 };
 
-#define TileSeg_size 24
+#define TileSeg_size 28
 
 TileSegRef TileSeg_index(TileSegRef ref, uint index) {
     return TileSegRef(ref.offset + index * TileSeg_size);
@@ -106,11 +107,13 @@ TileSeg TileSeg_read(Alloc a, TileSegRef ref) {
     uint raw3 = read_mem(a, ix + 3);
     uint raw4 = read_mem(a, ix + 4);
     uint raw5 = read_mem(a, ix + 5);
+    uint raw6 = read_mem(a, ix + 6);
     TileSeg s;
     s.origin = vec2(uintBitsToFloat(raw0), uintBitsToFloat(raw1));
     s.vector = vec2(uintBitsToFloat(raw2), uintBitsToFloat(raw3));
-    s.y_edge = uintBitsToFloat(raw4);
-    s.next = TileSegRef(raw5);
+    s.len = uintBitsToFloat(raw4);
+    s.y_edge = uintBitsToFloat(raw5);
+    s.next = TileSegRef(raw6);
     return s;
 }
 
@@ -120,8 +123,9 @@ void TileSeg_write(Alloc a, TileSegRef ref, TileSeg s) {
     write_mem(a, ix + 1, floatBitsToUint(s.origin.y));
     write_mem(a, ix + 2, floatBitsToUint(s.vector.x));
     write_mem(a, ix + 3, floatBitsToUint(s.vector.y));
-    write_mem(a, ix + 4, floatBitsToUint(s.y_edge));
-    write_mem(a, ix + 5, s.next.offset);
+    write_mem(a, ix + 4, floatBitsToUint(s.len));
+    write_mem(a, ix + 5, floatBitsToUint(s.y_edge));
+    write_mem(a, ix + 6, s.next.offset);
 }
 
 TransformSeg TransformSeg_read(Alloc a, TransformSegRef ref) {
