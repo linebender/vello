@@ -221,8 +221,10 @@ void main() {
                     // is no equivalent preprocessing performed on the right edge. However this is fine: when combined with the
                     // third half-plane, which corresponds to the line, this will always yield the correct coverage.
                     uint y_range = vertLut(start.y) ^ vertLut(end.y);
-                    float c = dot(n, start - o);
-                    coverage[k] ^= y_range & getLut(n, c);
+                    if (y_range != 0) {
+                        float c = dot(n, start - o);
+                        coverage[k] ^= y_range & getLut(n, c);
+                    }
 
                     // Calculate the vertical ray (also called y-edge).
                     coverage[k] ^= vertLut(seg.y_edge - my_xy.y);
