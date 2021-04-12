@@ -85,10 +85,6 @@ vec4[CHUNK] fillImage(uvec2 xy, CmdImage cmd_img) {
 }
 
 void main() {
-    if (mem_error != NO_ERROR) {
-        return;
-    }
-
     uint tile_ix = gl_WorkGroupID.y * conf.width_in_tiles + gl_WorkGroupID.x;
     Alloc cmd_alloc = slice_mem(conf.ptcl_alloc, tile_ix * PTCL_INITIAL_ALLOC, PTCL_INITIAL_ALLOC);
     CmdRef cmd_ref = CmdRef(cmd_alloc.offset);
@@ -118,7 +114,8 @@ void main() {
 
     float area[CHUNK];
     uint clip_depth = 0;
-    while (true) {
+    bool mem_ok = mem_error == NO_ERROR;
+    while (mem_ok) {
         uint tag = Cmd_tag(cmd_alloc, cmd_ref).tag;
         if (tag == Cmd_End) {
             break;
@@ -131,7 +128,7 @@ void main() {
             for (uint k = 0; k < CHUNK; k++) df[k] = 1e9;
             TileSegRef tile_seg_ref = TileSegRef(stroke.tile_ref);
             do {
-                TileSeg seg = TileSeg_read(new_alloc(tile_seg_ref.offset, TileSeg_size), tile_seg_ref);
+                TileSeg seg = TileSeg_read(new_alloc(tile_seg_ref.offset, TileSeg_size, mem_ok), tile_seg_ref);
                 vec2 line_vec = seg.vector;
                 for (uint k = 0; k < CHUNK; k++) {
                     vec2 dpos = xy + vec2(0.5, 0.5) - seg.origin;
@@ -152,7 +149,7 @@ void main() {
             tile_seg_ref = TileSegRef(fill.tile_ref);
             // Calculate coverage based on backdrop + coverage of each line segment
             do {
-                TileSeg seg = TileSeg_read(new_alloc(tile_seg_ref.offset, TileSeg_size), tile_seg_ref);
+                TileSeg seg = TileSeg_read(new_alloc(tile_seg_ref.offset, TileSeg_size, mem_ok), tile_seg_ref);
                 for (uint k = 0; k < CHUNK; k++) {
                     vec2 my_xy = xy + vec2(chunk_offset(k));
                     vec2 start = seg.origin - my_xy;

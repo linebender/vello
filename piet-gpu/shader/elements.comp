@@ -176,10 +176,6 @@ shared uint sh_part_ix;
 shared State sh_prefix;
 
 void main() {
-    if (mem_error != NO_ERROR) {
-        return;
-    }
-
     State th_state[N_ROWS];
     // Determine partition to process by atomic counter (described in Section
     // 4.4 of prefix sum paper).
@@ -392,7 +388,6 @@ void main() {
                 vec2 lw = get_linewidth(st);
                 anno_begin_clip.linewidth = st.linewidth * sqrt(abs(st.mat.x * st.mat.w - st.mat.y * st.mat.z));
             } else {
-                anno_begin_clip.bbox = begin_clip.bbox;
                 anno_fill.linewidth = 0.0;
             }
             out_ref = AnnotatedRef(conf.anno_alloc.offset + (st.path_count - 1) * Annotated_size);
