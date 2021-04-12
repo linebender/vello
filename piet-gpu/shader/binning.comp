@@ -36,10 +36,6 @@ shared Alloc sh_chunk_alloc[N_TILE];
 shared bool sh_alloc_failed;
 
 void main() {
-    if (mem_error != NO_ERROR) {
-        return;
-    }
-
     uint my_n_elements = conf.n_elements;
     uint my_partition = gl_WorkGroupID.x;
 
@@ -105,7 +101,7 @@ void main() {
         count[i][gl_LocalInvocationID.x] = element_count;
     }
     // element_count is number of elements covering bin for this invocation.
-    Alloc chunk_alloc = new_alloc(0, 0);
+    Alloc chunk_alloc = new_alloc(0, 0, true);
     if (element_count != 0) {
         // TODO: aggregate atomic adds (subgroup is probably fastest)
         MallocResult chunk = malloc(element_count * BinInstance_size);
@@ -122,7 +118,7 @@ void main() {
     write_mem(conf.bin_alloc, out_ix + 1, chunk_alloc.offset);
 
     barrier();
-    if (sh_alloc_failed) {
+    if (sh_alloc_failed || mem_error != NO_ERROR) {
         return;
     }
 

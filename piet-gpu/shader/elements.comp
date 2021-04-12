@@ -176,10 +176,6 @@ shared uint sh_part_ix;
 shared State sh_prefix;
 
 void main() {
-    if (mem_error != NO_ERROR) {
-        return;
-    }
-
     State th_state[N_ROWS];
     // Determine partition to process by atomic counter (described in Section
     // 4.4 of prefix sum paper).
