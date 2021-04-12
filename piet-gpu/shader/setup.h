@@ -45,7 +45,10 @@ struct Config {
 #define MODE_NONZERO 0
 #define MODE_STROKE 1
 
+// Size of kernel4 clip state, in words.
+#define CLIP_STATE_SIZE 2
+
 // fill_mode_from_flags extracts the fill mode from tag flags.
 uint fill_mode_from_flags(uint flags) {
-	return flags & 0x1;
+    return flags & 0x1;
 }

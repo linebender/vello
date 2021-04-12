@@ -386,10 +386,10 @@ void main() {
         case Element_BeginClip:
             Clip begin_clip = Element_BeginClip_read(this_ref);
             AnnoBeginClip anno_begin_clip;
+            // This is the absolute bbox, it's been transformed during encoding.
+            anno_begin_clip.bbox = begin_clip.bbox;
             if (is_stroke) {
                 vec2 lw = get_linewidth(st);
-                // This is the absolute bbox, it's been transformed during encoding.
-                anno_begin_clip.bbox = begin_clip.bbox + vec4(-lw, lw);
                 anno_begin_clip.linewidth = st.linewidth * sqrt(abs(st.mat.x * st.mat.w - st.mat.y * st.mat.z));
             } else {
                 anno_begin_clip.bbox = begin_clip.bbox;
