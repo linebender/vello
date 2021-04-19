@@ -22,45 +22,45 @@
 #define CHUNK_DY (TILE_HEIGHT_PX / CHUNK_Y)
 layout(local_size_x = CHUNK_DX, local_size_y = CHUNK_DY) in;
 
-layout(set = 0, binding = 1) readonly buffer ConfigBuf {
+layout(set = 0, binding = 1) restrict readonly buffer ConfigBuf {
     Config conf;
 };
 
-layout(rgba8, set = 0, binding = 2) uniform writeonly image2D image;
+layout(rgba8, set = 0, binding = 2) uniform restrict writeonly image2D image;
 
 #ifdef ENABLE_IMAGE_INDICES
-layout(rgba8, set = 0, binding = 3) uniform readonly image2D images[];
+layout(rgba8, set = 0, binding = 3) uniform restrict readonly image2D images[];
 #else
-layout(rgba8, set = 0, binding = 3) uniform readonly image2D images[1];
+layout(rgba8, set = 0, binding = 3) uniform restrict readonly image2D images[1];
 #endif
 
 #include "ptcl.h"
 #include "tile.h"
 
-vec3 tosRGB(vec3 rgb) {
+mediump vec3 tosRGB(mediump vec3 rgb) {
     bvec3 cutoff = greaterThanEqual(rgb, vec3(0.0031308));
-    vec3 below = vec3(12.92)*rgb;
-    vec3 above = vec3(1.055)*pow(rgb, vec3(0.41666)) - vec3(0.055);
+    mediump vec3 below = vec3(12.92)*rgb;
+    mediump vec3 above = vec3(1.055)*pow(rgb, vec3(0.41666)) - vec3(0.055);
     return mix(below, above, cutoff);
 }
 
-vec3 fromsRGB(vec3 srgb) {
+mediump vec3 fromsRGB(mediump vec3 srgb) {
     // Formula from EXT_sRGB.
     bvec3 cutoff = greaterThanEqual(srgb, vec3(0.04045));
-    vec3 below = srgb/vec3(12.92);
-    vec3 above = pow((srgb + vec3(0.055))/vec3(1.055), vec3(2.4));
+    mediump vec3 below = srgb/vec3(12.92);
+    mediump vec3 above = pow((srgb + vec3(0.055))/vec3(1.055), vec3(2.4));
     return mix(below, above, cutoff);
 }
 
 // unpacksRGB unpacks a color in the sRGB color space to a vec4 in the linear color
 // space.
-vec4 unpacksRGB(uint srgba) {
-    vec4 color = unpackUnorm4x8(srgba).wzyx;
+mediump vec4 unpacksRGB(uint srgba) {
+    mediump vec4 color = unpackUnorm4x8(srgba).wzyx;
     return vec4(fromsRGB(color.rgb), color.a);
 }
 
 // packsRGB packs a color in the linear color space into its 8-bit sRGB equivalent.
-uint packsRGB(vec4 rgba) {
+uint packsRGB(mediump vec4 rgba) {
     rgba = vec4(tosRGB(rgba.rgb), rgba.a);
     return packUnorm4x8(rgba.wzyx);
 }
@@ -69,14 +69,15 @@ uvec2 chunk_offset(uint i) {
     return uvec2(i % CHUNK_X * CHUNK_DX, i / CHUNK_X * CHUNK_DY);
 }
 
-vec4[CHUNK] fillImage(uvec2 xy, CmdImage cmd_img) {
-    vec4 rgba[CHUNK];
+mediump vec4[CHUNK] fillImage(uvec2 xy, CmdImage cmd_img) {
+    mediump vec4 rgba[CHUNK];
     for (uint i = 0; i < CHUNK; i++) {
         ivec2 uv = ivec2(xy + chunk_offset(i)) + cmd_img.offset;
+        mediump vec4 fg_rgba;
 #ifdef ENABLE_IMAGE_INDICES
-        vec4 fg_rgba = imageLoad(images[cmd_img.index], uv);
+        fg_rgba = imageLoad(images[cmd_img.index], uv);
 #else
-        vec4 fg_rgba = imageLoad(images[0], uv);
+        fg_rgba = imageLoad(images[0], uv);
 #endif
         fg_rgba.rgb = fromsRGB(fg_rgba.rgb);
         rgba[i] = fg_rgba;
@@ -95,7 +96,7 @@ void main() {
 
     uvec2 xy_uint = uvec2(gl_LocalInvocationID.x + TILE_WIDTH_PX * gl_WorkGroupID.x, gl_LocalInvocationID.y + TILE_HEIGHT_PX * gl_WorkGroupID.y);
     vec2 xy = vec2(xy_uint);
-    vec4 rgba[CHUNK];
+    mediump vec4 rgba[CHUNK];
     for (uint i = 0; i < CHUNK; i++) {
         rgba[i] = vec4(0.0);
         // TODO: remove this debug image support when the actual image method is plumbed.
@@ -112,7 +113,7 @@ void main() {
 #endif
     }
 
-    float area[CHUNK];
+    mediump float area[CHUNK];
     uint clip_depth = 0;
     bool mem_ok = mem_error == NO_ERROR;
     while (mem_ok) {
@@ -124,7 +125,7 @@ void main() {
         case Cmd_Stroke:
             // Calculate distance field from all the line segments in this tile.
             CmdStroke stroke = Cmd_Stroke_read(cmd_alloc, cmd_ref);
-            float df[CHUNK];
+            mediump float df[CHUNK];
             for (uint k = 0; k < CHUNK; k++) df[k] = 1e9;
             TileSegRef tile_seg_ref = TileSegRef(stroke.tile_ref);
             do {
@@ -190,18 +191,18 @@ void main() {
             break;
         case Cmd_Color:
             CmdColor color = Cmd_Color_read(cmd_alloc, cmd_ref);
-            vec4 fg = unpacksRGB(color.rgba_color);
+            mediump vec4 fg = unpacksRGB(color.rgba_color);
             for (uint k = 0; k < CHUNK; k++) {
-                vec4 fg_k = fg * area[k];
+                mediump vec4 fg_k = fg * area[k];
                 rgba[k] = rgba[k] * (1.0 - fg_k.a) + fg_k;
             }
             cmd_ref.offset += 4 + CmdColor_size;
             break;
         case Cmd_Image:
             CmdImage fill_img = Cmd_Image_read(cmd_alloc, cmd_ref);
-            vec4 img[CHUNK] = fillImage(xy_uint, fill_img);
+            mediump vec4 img[CHUNK] = fillImage(xy_uint, fill_img);
             for (uint k = 0; k < CHUNK; k++) {
-                vec4 fg_k = img[k] * area[k];
+                mediump vec4 fg_k = img[k] * area[k];
                 rgba[k] = rgba[k] * (1.0 - fg_k.a) + fg_k;
             }
             cmd_ref.offset += 4 + CmdImage_size;
@@ -212,7 +213,7 @@ void main() {
             for (uint k = 0; k < CHUNK; k++) {
                 uvec2 offset = chunk_offset(k);
                 uint srgb = packsRGB(vec4(rgba[k]));
-                float alpha = clamp(abs(area[k]), 0.0, 1.0);
+                mediump float alpha = clamp(abs(area[k]), 0.0, 1.0);
                 write_mem(scratch_alloc, base_ix + 0 + CLIP_STATE_SIZE * (offset.x + offset.y * TILE_WIDTH_PX), srgb);
                 write_mem(scratch_alloc, base_ix + 1 + CLIP_STATE_SIZE * (offset.x + offset.y * TILE_WIDTH_PX), floatBitsToUint(alpha));
                 rgba[k] = vec4(0.0);
@@ -228,8 +229,8 @@ void main() {
                 uvec2 offset = chunk_offset(k);
                 uint srgb = read_mem(scratch_alloc, base_ix + 0 + CLIP_STATE_SIZE * (offset.x + offset.y * TILE_WIDTH_PX));
                 uint alpha = read_mem(scratch_alloc, base_ix + 1 + CLIP_STATE_SIZE * (offset.x + offset.y * TILE_WIDTH_PX));
-                vec4 bg = unpacksRGB(srgb);
-                vec4 fg = rgba[k] * area[k] * uintBitsToFloat(alpha);
+                mediump vec4 bg = unpacksRGB(srgb);
+                mediump vec4 fg = rgba[k] * area[k] * uintBitsToFloat(alpha);
                 rgba[k] = bg * (1.0 - fg.a) + fg;
             }
             cmd_ref.offset += 4;
