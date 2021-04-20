@@ -28,10 +28,6 @@ shared uint sh_tile_count[TILE_ALLOC_WG];
 shared MallocResult sh_tile_alloc;
 
 void main() {
-    if (mem_error != NO_ERROR) {
-        return;
-    }
-
     uint th_ix = gl_LocalInvocationID.x;
     uint element_ix = gl_GlobalInvocationID.x;
     PathRef path_ref = PathRef(conf.tile_alloc.offset + element_ix * Path_size);
@@ -86,7 +82,7 @@ void main() {
     }
     barrier();
     MallocResult alloc_start = sh_tile_alloc;
-    if (alloc_start.failed) {
+    if (alloc_start.failed || mem_error != NO_ERROR) {
         return;
     }
 

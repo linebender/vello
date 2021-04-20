@@ -44,11 +44,15 @@ struct MallocResult {
 };
 
 // new_alloc synthesizes an Alloc from an offset and size.
-Alloc new_alloc(uint offset, uint size) {
+Alloc new_alloc(uint offset, uint size, bool mem_ok) {
     Alloc a;
     a.offset = offset;
 #ifdef MEM_DEBUG
-    a.size = size;
+    if (mem_ok) {
+        a.size = size;
+    } else {
+        a.size = 0;
+    }
 #endif
     return a;
 }
@@ -56,11 +60,10 @@ Alloc new_alloc(uint offset, uint size) {
 // malloc allocates size bytes of memory.
 MallocResult malloc(uint size) {
     MallocResult r;
-    r.failed = false;
     uint offset = atomicAdd(mem_offset, size);
-    r.alloc = new_alloc(offset, size);
-    if (offset + size > memory.length() * 4) {
-        r.failed = true;
+    r.failed = offset + size > memory.length() * 4;
+    r.alloc = new_alloc(offset, size, !r.failed);
+    if (r.failed) {
         atomicMax(mem_error, ERR_MALLOC_FAILED);
         return r;
     }
@@ -119,8 +122,10 @@ Alloc slice_mem(Alloc a, uint offset, uint size) {
         // but never written.
         return Alloc(0, 0);
     }
+    return Alloc(a.offset + offset, size);
+#else
+    return Alloc(a.offset + offset);
 #endif
-    return new_alloc(a.offset + offset, size);
 }
 
 // alloc_write writes alloc to memory at offset bytes.

@@ -56,7 +56,7 @@ void write_tile_alloc(uint el_ix, Alloc a) {
     sh_tile_alloc[el_ix] = a;
 }
 
-Alloc read_tile_alloc(uint el_ix) {
+Alloc read_tile_alloc(uint el_ix, bool mem_ok) {
     return sh_tile_alloc[el_ix];
 }
 #else
@@ -64,9 +64,9 @@ void write_tile_alloc(uint el_ix, Alloc a) {
     // No-op
 }
 
-Alloc read_tile_alloc(uint el_ix) {
+Alloc read_tile_alloc(uint el_ix, bool mem_ok) {
     // All memory.
-    return new_alloc(0, memory.length()*4);
+    return new_alloc(0, memory.length()*4, mem_ok);
 }
 #endif
 
@@ -109,10 +109,6 @@ void write_fill(Alloc alloc, inout CmdRef cmd_ref, uint flags, Tile tile, float 
 }
 
 void main() {
-    if (mem_error != NO_ERROR) {
-        return;
-    }
-
     // Could use either linear or 2d layouts for both dispatch and
     // invocations within the workgroup. We'll use variables to abstract.
     uint width_in_bins = (conf.width_in_tiles + N_TILE_X - 1)/N_TILE_X;
@@ -158,6 +154,7 @@ void main() {
 
     uint num_begin_slots = 0;
     uint begin_slot = 0;
+    bool mem_ok = mem_error == NO_ERROR;
     while (true) {
         for (uint i = 0; i < N_SLICE; i++) {
             sh_bitmaps[i][th_ix] = 0;
@@ -172,7 +169,7 @@ void main() {
                     uint in_ix = (conf.bin_alloc.offset >> 2) + ((partition_ix + th_ix) * N_TILE + bin_ix) * 2;
                     count = read_mem(conf.bin_alloc, in_ix);
                     uint offset = read_mem(conf.bin_alloc, in_ix + 1);
-                    sh_part_elements[th_ix] = new_alloc(offset, count*BinInstance_size);
+                    sh_part_elements[th_ix] = new_alloc(offset, count*BinInstance_size, mem_ok);
                 }
                 // prefix sum of counts
                 for (uint i = 0; i < LG_N_PART_READ; i++) {
@@ -196,7 +193,7 @@ void main() {
             }
             // use binary search to find element to read
             uint ix = rd_ix + th_ix;
-            if (ix >= wr_ix && ix < ready_ix) {
+            if (ix >= wr_ix && ix < ready_ix && mem_ok) {
                 uint part_ix = 0;
                 for (uint i = 0; i < LG_N_PART_READ; i++) {
                     uint probe = part_ix + ((N_PART_READ / 2) >> i);
@@ -253,7 +250,7 @@ void main() {
             // base relative to bin
             uint base = path.tiles.offset - uint(dy * stride + dx) * Tile_size;
             sh_tile_base[th_ix] = base;
-            Alloc path_alloc = new_alloc(path.tiles.offset, (path.bbox.z - path.bbox.x) * (path.bbox.w - path.bbox.y) * Tile_size);
+            Alloc path_alloc = new_alloc(path.tiles.offset, (path.bbox.z - path.bbox.x) * (path.bbox.w - path.bbox.y) * Tile_size, mem_ok);
             write_tile_alloc(th_ix, path_alloc);
             break;
         default:
@@ -288,11 +285,11 @@ void main() {
             uint width = sh_tile_width[el_ix];
             uint x = sh_tile_x0[el_ix] + seq_ix % width;
             uint y = sh_tile_y0[el_ix] + seq_ix / width;
-            bool include_tile;
+            bool include_tile = false;
             if (tag == Annotated_BeginClip || tag == Annotated_EndClip) {
                 include_tile = true;
-            } else {
-                Tile tile = Tile_read(read_tile_alloc(el_ix), TileRef(sh_tile_base[el_ix] + (sh_tile_stride[el_ix] * y + x) * Tile_size));
+            } else if (mem_ok) {
+                Tile tile = Tile_read(read_tile_alloc(el_ix, mem_ok), TileRef(sh_tile_base[el_ix] + (sh_tile_stride[el_ix] * y + x) * Tile_size));
                 // Include the path in the tile if
                 // - the tile contains at least a segment (tile offset non-zero)
                 // - the tile is completely covered (backdrop non-zero)
@@ -311,7 +308,7 @@ void main() {
         // through the non-segment elements.
         uint slice_ix = 0;
         uint bitmap = sh_bitmaps[0][th_ix];
-        while (true) {
+        while (mem_ok) {
             if (bitmap == 0) {
                 slice_ix++;
                 if (slice_ix == N_SLICE) {
@@ -337,7 +334,7 @@ void main() {
             if (clip_zero_depth == 0) {
                 switch (tag.tag) {
                 case Annotated_Color:
-                    Tile tile = Tile_read(read_tile_alloc(element_ref_ix), TileRef(sh_tile_base[element_ref_ix]
+                    Tile tile = Tile_read(read_tile_alloc(element_ref_ix, mem_ok), TileRef(sh_tile_base[element_ref_ix]
                         + (sh_tile_stride[element_ref_ix] * tile_y + tile_x) * Tile_size));
                     AnnoColor fill = Annotated_Color_read(conf.anno_alloc, ref);
                     if (!alloc_cmd(cmd_alloc, cmd_ref, cmd_limit)) {
@@ -348,7 +345,7 @@ void main() {
                     cmd_ref.offset += 4 + CmdColor_size;
                     break;
                 case Annotated_Image:
-                    tile = Tile_read(read_tile_alloc(element_ref_ix), TileRef(sh_tile_base[element_ref_ix]
+                    tile = Tile_read(read_tile_alloc(element_ref_ix, mem_ok), TileRef(sh_tile_base[element_ref_ix]
                         + (sh_tile_stride[element_ref_ix] * tile_y + tile_x) * Tile_size));
                     AnnoImage fill_img = Annotated_Image_read(conf.anno_alloc, ref);
                     if (!alloc_cmd(cmd_alloc, cmd_ref, cmd_limit)) {
@@ -359,7 +356,7 @@ void main() {
                     cmd_ref.offset += 4 + CmdImage_size;
                     break;
                 case Annotated_BeginClip:
-                    tile = Tile_read(read_tile_alloc(element_ref_ix), TileRef(sh_tile_base[element_ref_ix]
+                    tile = Tile_read(read_tile_alloc(element_ref_ix, mem_ok), TileRef(sh_tile_base[element_ref_ix]
                         + (sh_tile_stride[element_ref_ix] * tile_y + tile_x) * Tile_size));
                     if (tile.tile.offset == 0 && tile.backdrop == 0) {
                         clip_zero_depth = clip_depth + 1;

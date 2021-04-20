@@ -35,16 +35,13 @@ shared Alloc sh_row_alloc[BACKDROP_WG];
 shared uint sh_row_width[BACKDROP_WG];
 
 void main() {
-    if (mem_error != NO_ERROR) {
-        return;
-    }
-
     uint th_ix = gl_LocalInvocationID.x;
     uint element_ix = gl_GlobalInvocationID.x;
     AnnotatedRef ref = AnnotatedRef(conf.anno_alloc.offset + element_ix * Annotated_size);
 
     // Work assignment: 1 thread : 1 path element
     uint row_count = 0;
+    bool mem_ok = mem_error == NO_ERROR;
     if (element_ix < conf.n_elements) {
         AnnotatedTag tag = Annotated_tag(conf.anno_alloc, ref);
         switch (tag.tag) {
@@ -67,7 +64,7 @@ void main() {
                 // long as it doesn't cross the left edge.
                 row_count = 0;
             }
-            Alloc path_alloc = new_alloc(path.tiles.offset, (path.bbox.z - path.bbox.x) * (path.bbox.w - path.bbox.y) * Tile_size);
+            Alloc path_alloc = new_alloc(path.tiles.offset, (path.bbox.z - path.bbox.x) * (path.bbox.w - path.bbox.y) * Tile_size, mem_ok);
             sh_row_alloc[th_ix] = path_alloc;
         }
     }
@@ -95,7 +92,7 @@ void main() {
             }
         }
         uint width = sh_row_width[el_ix];
-        if (width > 0) {
+        if (width > 0 && mem_ok) {
             // Process one row sequentially
             // Read backdrop value per tile and prefix sum it
             Alloc tiles_alloc = sh_row_alloc[el_ix];
