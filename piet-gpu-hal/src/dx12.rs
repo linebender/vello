@@ -3,12 +3,16 @@
 mod error;
 mod wrappers;
 
+use std::{cell::Cell, convert::TryInto};
+
 use winapi::shared::dxgi1_3;
 use winapi::um::d3d12;
 
-use crate::{Error};
+use crate::Error;
 
-use self::wrappers::{CommandQueue, Device, Factory4, Resource};
+use self::wrappers::{
+    CommandAllocator, CommandQueue, Device, Factory4, GraphicsCommandList, Resource,
+};
 
 pub struct Dx12Instance {
     factory: Factory4,
@@ -16,24 +20,29 @@ pub struct Dx12Instance {
 
 pub struct Dx12Device {
     device: Device,
+    command_allocator: CommandAllocator,
     command_queue: CommandQueue,
 }
 
 pub struct Buffer {
     resource: Resource,
+    size: u64,
 }
 
 pub struct Image {
     resource: Resource,
 }
 
+// TODO: this doesn't make an upload/download distinction. Probably
+// we want to move toward webgpu-style usage flags, ie map_read and
+// map_write are the main ones that affect buffer creation.
 #[derive(Clone, Copy)]
 pub enum MemFlags {
     DeviceLocal,
     HostCoherent,
 }
 
-pub struct CmdBuf(CommandQueue);
+pub struct CmdBuf(GraphicsCommandList);
 
 pub struct Pipeline;
 
@@ -41,7 +50,12 @@ pub struct DescriptorSet;
 
 pub struct QueryPool;
 
-pub struct Fence(wrappers::Fence);
+pub struct Fence {
+    fence: wrappers::Fence,
+    event: wrappers::Event,
+    // This could as well be an atomic, if we needed to cross threads.
+    val: Cell<u64>,
+}
 
 pub struct Semaphore;
 
@@ -71,8 +85,18 @@ impl Dx12Instance {
         unsafe {
             let device = Device::create_device(&self.factory)?;
             let list_type = d3d12::D3D12_COMMAND_LIST_TYPE_DIRECT;
-            let command_queue = device.create_command_queue(list_type, 0, d3d12::D3D12_COMMAND_QUEUE_FLAG_NONE, 0)?;
-            Ok(Dx12Device { device, command_queue })
+            let command_queue = device.create_command_queue(
+                list_type,
+                0,
+                d3d12::D3D12_COMMAND_QUEUE_FLAG_NONE,
+                0,
+            )?;
+            let command_allocator = device.create_command_allocator(list_type)?;
+            Ok(Dx12Device {
+                device,
+                command_queue,
+                command_allocator,
+            })
         }
     }
 }
@@ -97,11 +121,22 @@ impl crate::Device for Dx12Device {
     type Semaphore = Semaphore;
 
     fn create_buffer(&self, size: u64, mem_flags: Self::MemFlags) -> Result<Self::Buffer, Error> {
-        todo!()
+        unsafe {
+            let resource = match mem_flags {
+                MemFlags::DeviceLocal => self
+                    .device
+                    .create_gpu_only_byte_addressed_buffer(size.try_into()?)?,
+                MemFlags::HostCoherent => self
+                    .device
+                    .create_uploadable_byte_addressed_buffer(size.try_into()?)?,
+            };
+            Ok(Buffer { resource, size })
+        }
     }
 
     unsafe fn destroy_buffer(&self, buffer: &Self::Buffer) -> Result<(), Error> {
-        todo!()
+        buffer.resource.destroy();
+        Ok(())
     }
 
     unsafe fn create_image2d(
@@ -136,7 +171,17 @@ impl crate::Device for Dx12Device {
     }
 
     fn create_cmd_buf(&self) -> Result<Self::CmdBuf, Error> {
-        todo!()
+        let list_type = d3d12::D3D12_COMMAND_LIST_TYPE_DIRECT;
+        let node_mask = 0;
+        unsafe {
+            let cmd_buf = self.device.create_graphics_command_list(
+                list_type,
+                &self.command_allocator,
+                None,
+                node_mask,
+            )?;
+            Ok(CmdBuf(cmd_buf))
+        }
     }
 
     fn create_query_pool(&self, n_queries: u32) -> Result<Self::QueryPool, Error> {
@@ -154,7 +199,16 @@ impl crate::Device for Dx12Device {
         signal_semaphores: &[Self::Semaphore],
         fence: Option<&Self::Fence>,
     ) -> Result<(), Error> {
-        todo!()
+        // TODO: handle semaphores
+        self.command_queue
+            .execute_command_lists(&[cmd_buf.0.as_raw_list()]);
+        if let Some(fence) = fence {
+            let val = fence.val.get() + 1;
+            fence.val.set(val);
+            self.command_queue.signal(&fence.fence, val)?;
+            fence.fence.set_event_on_completion(&fence.event, val)?;
+        }
+        Ok(())
     }
 
     unsafe fn read_buffer<T: Sized>(
@@ -162,7 +216,13 @@ impl crate::Device for Dx12Device {
         buffer: &Self::Buffer,
         result: &mut Vec<T>,
     ) -> Result<(), Error> {
-        todo!()
+        let len = buffer.size as usize / std::mem::size_of::<T>();
+        if len > result.len() {
+            result.reserve(len - result.len());
+        }
+        buffer.resource.read_resource(result.as_mut_ptr(), len)?;
+        result.set_len(len);
+        Ok(())
     }
 
     unsafe fn write_buffer<T: Sized>(
@@ -170,7 +230,9 @@ impl crate::Device for Dx12Device {
         buffer: &Self::Buffer,
         contents: &[T],
     ) -> Result<(), Error> {
-        todo!()
+        let len = buffer.size as usize / std::mem::size_of::<T>();
+        buffer.resource.write_resource(len, contents.as_ptr())?;
+        Ok(())
     }
 
     unsafe fn create_semaphore(&self) -> Result<Self::Semaphore, Error> {
@@ -178,25 +240,31 @@ impl crate::Device for Dx12Device {
     }
 
     unsafe fn create_fence(&self, signaled: bool) -> Result<Self::Fence, Error> {
-        todo!()
+        let fence = self.device.create_fence(0)?;
+        let event = wrappers::Event::create(false, signaled)?;
+        let val = Cell::new(0);
+        Ok(Fence { fence, event, val })
     }
 
     unsafe fn wait_and_reset(&self, fences: &[Self::Fence]) -> Result<(), Error> {
-        todo!()
+        for fence in fences {
+            // TODO: probably handle errors here.
+            let _status = fence.event.wait(winapi::um::winbase::INFINITE);
+        }
+        Ok(())
     }
 
     unsafe fn get_fence_status(&self, fence: Self::Fence) -> Result<bool, Error> {
-        todo!()
+        let fence_val = fence.fence.get_value();
+        Ok(fence_val == fence.val.get())
     }
 }
 
 impl crate::CmdBuf<Dx12Device> for CmdBuf {
-    unsafe fn begin(&mut self) {
-        todo!()
-    }
+    unsafe fn begin(&mut self) {}
 
     unsafe fn finish(&mut self) {
-        todo!()
+        let _ = self.0.close();
     }
 
     unsafe fn dispatch(

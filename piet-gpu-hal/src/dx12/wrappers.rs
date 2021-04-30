@@ -7,13 +7,16 @@
 // except according to those terms.
 
 use crate::dx12::error::{self, error_if_failed_else_unit, explain_error, Error};
-use std::convert::TryFrom;
+use std::convert::{TryFrom, TryInto};
+use std::sync::atomic::{AtomicPtr, Ordering};
 use std::{ffi, mem, path::Path, ptr};
 use winapi::shared::{
     dxgi, dxgi1_2, dxgi1_3, dxgi1_4, dxgiformat, dxgitype, minwindef, windef, winerror,
 };
 use winapi::um::d3dcommon::ID3DBlob;
-use winapi::um::{d3d12, d3d12sdklayers, d3dcommon, d3dcompiler, dxgidebug, synchapi, winnt};
+use winapi::um::{
+    d3d12, d3d12sdklayers, d3dcommon, d3dcompiler, dxgidebug, handleapi, synchapi, winnt,
+};
 use winapi::Interface;
 use wio::com::ComPtr;
 
@@ -22,10 +25,10 @@ use wio::com::ComPtr;
 #[derive(Clone)]
 pub struct Heap(pub ComPtr<d3d12::ID3D12Heap>);
 
-#[derive(Clone)]
 pub struct Resource {
-    pub com_ptr: ComPtr<d3d12::ID3D12Resource>,
-    pub descriptor_heap_offset: u32,
+    // Note: the use of AtomicPtr is to support explicit destruction,
+    // similar to Vulkan.
+    ptr: AtomicPtr<d3d12::ID3D12Resource>,
 }
 
 pub struct VertexBufferView(pub ComPtr<d3d12::D3D12_VERTEX_BUFFER_VIEW>);
@@ -72,7 +75,6 @@ pub struct CommandSignature(pub ComPtr<d3d12::ID3D12CommandSignature>);
 #[derive(Clone)]
 pub struct GraphicsCommandList(pub ComPtr<d3d12::ID3D12GraphicsCommandList>);
 
-#[derive(Clone)]
 pub struct Event(pub winnt::HANDLE);
 #[derive(Clone)]
 pub struct Fence(pub ComPtr<d3d12::ID3D12Fence>);
@@ -98,58 +100,73 @@ pub struct DebugController(pub d3d12sdklayers::ID3D12Debug);
 pub struct QueryHeap(pub ComPtr<d3d12::ID3D12QueryHeap>);
 
 impl Resource {
-    pub unsafe fn new(
-        com_ptr: ComPtr<d3d12::ID3D12Resource>,
-        descriptor_heap_offset: u32,
-    ) -> Resource {
+    pub unsafe fn new(ptr: *mut d3d12::ID3D12Resource) -> Resource {
         Resource {
-            com_ptr,
-            descriptor_heap_offset,
+            ptr: AtomicPtr::new(ptr),
         }
     }
 
-    pub unsafe fn upload_data_to_resource<T>(&self, count: usize, data: *const T) {
-        let mut mapped_memory = ptr::null_mut();
-        let zero_range = d3d12::D3D12_RANGE { ..mem::zeroed() };
-        error::error_if_failed_else_unit(self.com_ptr.Map(
-            0,
-            &zero_range as *const _,
-            &mut mapped_memory as *mut _ as *mut _,
-        ))
-        .expect("could not map GPU mem to CPU mem");
-
-        ptr::copy(data, mapped_memory, count);
-        self.com_ptr.Unmap(0, ptr::null());
+    pub fn get(&self) -> *const d3d12::ID3D12Resource {
+        self.ptr.load(Ordering::Relaxed)
     }
 
-    pub unsafe fn download_data_from_resource<T>(&self, count: usize) -> Vec<T> {
-        let data_size_in_bytes = mem::size_of::<T>();
-        let mut mapped_memory = ptr::null_mut();
-        let zero_range = d3d12::D3D12_RANGE {
-            Begin: 0,
-            End: data_size_in_bytes * count,
-        };
-        error::error_if_failed_else_unit(self.com_ptr.Map(
-            0,
-            &zero_range as *const _,
-            &mut mapped_memory as *mut _ as *mut _,
-        ))
-        .expect("could not map GPU mem to CPU mem");
-        let mut result: Vec<T> = Vec::new();
-        result.reserve(count);
-        ptr::copy(
-            mapped_memory as *const T,
-            result.as_mut_ptr() as *mut T,
-            count,
-        );
-        result.set_len(count);
-        self.com_ptr.Unmap(0, ptr::null());
+    pub fn get_mut(&self) -> *mut d3d12::ID3D12Resource {
+        self.ptr.load(Ordering::Relaxed)
+    }
 
-        result
+    // Safety: call only single-threaded.
+    pub unsafe fn destroy(&self) {
+        (*self.get()).Release();
+        self.ptr.store(ptr::null_mut(), Ordering::Relaxed);
+    }
+
+    pub unsafe fn write_resource<T>(&self, count: usize, data: *const T) -> Result<(), Error> {
+        let mut mapped_memory = ptr::null_mut();
+        let zero_range = d3d12::D3D12_RANGE { ..mem::zeroed() };
+        explain_error(
+            (*self.get()).Map(0, &zero_range, &mut mapped_memory as *mut _ as *mut _),
+            "could not map GPU mem to CPU mem",
+        )?;
+
+        ptr::copy_nonoverlapping(data, mapped_memory, count);
+        (*self.get()).Unmap(0, ptr::null());
+        Ok(())
+    }
+
+    pub unsafe fn read_resource<T>(&self, dst: *mut T, count: usize) -> Result<(), Error> {
+        let mut mapped_memory = ptr::null_mut();
+        let n_bytes = count * std::mem::size_of::<T>();
+        let range = d3d12::D3D12_RANGE {
+            Begin: 0,
+            End: n_bytes,
+        };
+        let zero_range = d3d12::D3D12_RANGE { ..mem::zeroed() };
+        explain_error(
+            (*self.get()).Map(0, &range, &mut mapped_memory as *mut _ as *mut _),
+            "could not map GPU mem to CPU mem",
+        )?;
+        ptr::copy_nonoverlapping(mapped_memory as *const T, dst, count);
+        (*self.get()).Unmap(0, &zero_range);
+
+        Ok(())
     }
 
     pub unsafe fn get_gpu_virtual_address(&self) -> d3d12::D3D12_GPU_VIRTUAL_ADDRESS {
-        self.com_ptr.GetGPUVirtualAddress()
+        (*self.get()).GetGPUVirtualAddress()
+    }
+}
+
+impl Drop for Resource {
+    fn drop(&mut self) {
+        unsafe {
+            let ptr = self.get();
+            if !ptr.is_null() {
+                // Should warn here if resource was created for buffer, but
+                // it will probably happen in normal operation for things like
+                // swapchain textures.
+                (*ptr).Release();
+            }
+        }
     }
 }
 
@@ -200,26 +217,28 @@ impl Factory4 {
 }
 
 impl CommandQueue {
-    pub unsafe fn signal(&self, fence: Fence, value: u64) -> winerror::HRESULT {
-        self.0.Signal(fence.0.as_raw(), value)
+    pub unsafe fn signal(&self, fence: &Fence, value: u64) -> Result<(), Error> {
+        explain_error(
+            self.0.Signal(fence.0.as_raw(), value),
+            "error setting signal",
+        )
     }
 
-    pub unsafe fn execute_command_lists(
-        &self,
-        num_command_lists: u32,
-        command_lists: &[*mut d3d12::ID3D12CommandList],
-    ) {
+    pub unsafe fn execute_command_lists(&self, command_lists: &[*mut d3d12::ID3D12CommandList]) {
+        let num_command_lists = command_lists.len().try_into().unwrap();
         self.0
             .ExecuteCommandLists(num_command_lists, command_lists.as_ptr());
     }
 
-    pub unsafe fn get_timestamp_frequency(&self) -> u64 {
+    pub unsafe fn get_timestamp_frequency(&self) -> Result<u64, Error> {
         let mut result: u64 = 0;
 
-        error_if_failed_else_unit(self.0.GetTimestampFrequency(&mut result as *mut _))
-            .expect("could not get timestamp frequency");
+        explain_error(
+            self.0.GetTimestampFrequency(&mut result),
+            "could not get timestamp frequency",
+        );
 
-        result
+        Ok(result)
     }
 }
 
@@ -233,7 +252,7 @@ impl SwapChain {
         ))
         .expect("SwapChain could not get buffer");
 
-        Resource::new(ComPtr::from_raw(resource), 0)
+        Resource::new(resource)
     }
 
     // TODO: present flags
@@ -260,7 +279,7 @@ impl SwapChain1 {
         ))
         .expect("SwapChain1 could not get buffer");
 
-        Resource::new(ComPtr::from_raw(resource), 0)
+        Resource::new(resource)
     }
 }
 
@@ -274,7 +293,7 @@ impl SwapChain3 {
         ))
         .expect("SwapChain3 could not get buffer");
 
-        Resource::new(ComPtr::from_raw(resource), 0)
+        Resource::new(resource)
     }
 
     pub unsafe fn get_current_back_buffer_index(&self) -> u32 {
@@ -348,7 +367,7 @@ impl Device {
                 &d3d12::ID3D12CommandAllocator::uuidof(),
                 &mut allocator as *mut _ as *mut _,
             ),
-            "device could nto create command allocator",
+            "device could not create command allocator",
         )?;
 
         Ok(CommandAllocator(ComPtr::from_raw(allocator)))
@@ -384,20 +403,22 @@ impl Device {
     pub unsafe fn create_descriptor_heap(
         &self,
         heap_description: &d3d12::D3D12_DESCRIPTOR_HEAP_DESC,
-    ) -> DescriptorHeap {
+    ) -> Result<DescriptorHeap, Error> {
         let mut heap = ptr::null_mut();
-        error::error_if_failed_else_unit(self.0.CreateDescriptorHeap(
-            heap_description,
-            &d3d12::ID3D12DescriptorHeap::uuidof(),
-            &mut heap as *mut _ as *mut _,
-        ))
-        .expect("device could not create descriptor heap");
+        explain_error(
+            self.0.CreateDescriptorHeap(
+                heap_description,
+                &d3d12::ID3D12DescriptorHeap::uuidof(),
+                &mut heap as *mut _ as *mut _,
+            ),
+            "device could not create descriptor heap",
+        )?;
 
-        DescriptorHeap {
+        Ok(DescriptorHeap {
             heap_type: heap_description.Type,
             increment_size: self.get_descriptor_increment_size(heap_description.Type),
             heap: ComPtr::from_raw(heap),
-        }
+        })
     }
 
     pub unsafe fn get_descriptor_increment_size(
@@ -426,35 +447,37 @@ impl Device {
     pub unsafe fn create_compute_pipeline_state(
         &self,
         compute_pipeline_desc: &d3d12::D3D12_COMPUTE_PIPELINE_STATE_DESC,
-    ) -> PipelineState {
+    ) -> Result<PipelineState, Error> {
         let mut pipeline_state = ptr::null_mut();
 
-        error::error_if_failed_else_unit(self.0.CreateComputePipelineState(
-            compute_pipeline_desc as *const _,
-            &d3d12::ID3D12PipelineState::uuidof(),
-            &mut pipeline_state as *mut _ as *mut _,
-        ))
-        .expect("device could not create compute pipeline state");
+        explain_error(
+            self.0.CreateComputePipelineState(
+                compute_pipeline_desc as *const _,
+                &d3d12::ID3D12PipelineState::uuidof(),
+                &mut pipeline_state as *mut _ as *mut _,
+            ),
+            "device could not create compute pipeline state",
+        );
 
-        PipelineState(ComPtr::from_raw(pipeline_state))
+        Ok(PipelineState(ComPtr::from_raw(pipeline_state)))
     }
 
     pub unsafe fn create_root_signature(
         &self,
         node_mask: minwindef::UINT,
         blob: Blob,
-    ) -> RootSignature {
+    ) -> Result<RootSignature, Error> {
         let mut signature = ptr::null_mut();
-        error::error_if_failed_else_unit(self.0.CreateRootSignature(
+        explain_error(self.0.CreateRootSignature(
             node_mask,
             blob.0.GetBufferPointer(),
             blob.0.GetBufferSize(),
             &d3d12::ID3D12RootSignature::uuidof(),
             &mut signature as *mut _ as *mut _,
-        ))
-        .expect("device could not create root signature");
+        ),
+        "device could not create root signature");
 
-        RootSignature(ComPtr::from_raw(signature))
+        Ok(RootSignature(ComPtr::from_raw(signature)))
     }
 
     pub unsafe fn create_command_signature(
@@ -486,23 +509,25 @@ impl Device {
     pub unsafe fn create_graphics_command_list(
         &self,
         list_type: d3d12::D3D12_COMMAND_LIST_TYPE,
-        allocator: CommandAllocator,
-        initial_ps: PipelineState,
+        allocator: &CommandAllocator,
+        initial_ps: Option<&PipelineState>,
         node_mask: minwindef::UINT,
-    ) -> GraphicsCommandList {
+    ) -> Result<GraphicsCommandList, Error> {
         let mut command_list = ptr::null_mut();
+        let p_initial_state = initial_ps.map(|p| p.0.as_raw()).unwrap_or(ptr::null_mut());
+        explain_error(
+            self.0.CreateCommandList(
+                node_mask,
+                list_type,
+                allocator.0.as_raw(),
+                p_initial_state,
+                &d3d12::ID3D12GraphicsCommandList::uuidof(),
+                &mut command_list as *mut _ as *mut _,
+            ),
+            "device could not create graphics command list",
+        )?;
 
-        error::error_if_failed_else_unit(self.0.CreateCommandList(
-            node_mask,
-            list_type,
-            allocator.0.as_raw(),
-            initial_ps.0.as_raw(),
-            &d3d12::ID3D12GraphicsCommandList::uuidof(),
-            &mut command_list as *mut _ as *mut _,
-        ))
-        .expect("device could not create graphics command list");
-
-        GraphicsCommandList(ComPtr::from_raw(command_list))
+        Ok(GraphicsCommandList(ComPtr::from_raw(command_list)))
     }
 
     pub unsafe fn create_byte_addressed_buffer_unordered_access_view(
@@ -527,12 +552,8 @@ impl Device {
             // shouldn't flags be d3d12::D3D12_BUFFER_UAV_FLAG_RAW?
             Flags: d3d12::D3D12_BUFFER_UAV_FLAG_RAW,
         };
-        self.0.CreateUnorderedAccessView(
-            resource.com_ptr.as_raw(),
-            ptr::null_mut(),
-            &uav_desc as *const _,
-            descriptor,
-        )
+        self.0
+            .CreateUnorderedAccessView(resource.get_mut(), ptr::null_mut(), &uav_desc, descriptor)
     }
 
     pub unsafe fn create_unordered_access_view(
@@ -541,7 +562,7 @@ impl Device {
         descriptor: CpuDescriptor,
     ) {
         self.0.CreateUnorderedAccessView(
-            resource.com_ptr.as_raw(),
+            resource.get_mut(),
             ptr::null_mut(),
             ptr::null(),
             descriptor,
@@ -584,11 +605,8 @@ impl Device {
             // shouldn't flags be d3d12::D3D12_BUFFER_SRV_FLAG_RAW?
             Flags: d3d12::D3D12_BUFFER_SRV_FLAG_RAW,
         };
-        self.0.CreateShaderResourceView(
-            resource.com_ptr.as_raw(),
-            &srv_desc as *const _,
-            descriptor,
-        );
+        self.0
+            .CreateShaderResourceView(resource.get_mut(), &srv_desc as *const _, descriptor);
     }
 
     pub unsafe fn create_structured_buffer_shader_resource_view(
@@ -611,11 +629,8 @@ impl Device {
             StructureByteStride: structure_byte_stride,
             Flags: d3d12::D3D12_BUFFER_SRV_FLAG_NONE,
         };
-        self.0.CreateShaderResourceView(
-            resource.com_ptr.as_raw(),
-            &srv_desc as *const _,
-            descriptor,
-        );
+        self.0
+            .CreateShaderResourceView(resource.get_mut(), &srv_desc as *const _, descriptor);
     }
 
     pub unsafe fn create_texture2d_shader_resource_view(
@@ -636,11 +651,8 @@ impl Device {
             PlaneSlice: 0,
             ResourceMinLODClamp: 0.0,
         };
-        self.0.CreateShaderResourceView(
-            resource.com_ptr.as_raw(),
-            &srv_desc as *const _,
-            descriptor,
-        );
+        self.0
+            .CreateShaderResourceView(resource.get_mut(), &srv_desc as *const _, descriptor);
     }
 
     pub unsafe fn create_render_target_view(
@@ -650,18 +662,21 @@ impl Device {
         descriptor: CpuDescriptor,
     ) {
         self.0
-            .CreateRenderTargetView(resource.com_ptr.as_raw(), desc, descriptor);
+            .CreateRenderTargetView(resource.get_mut(), desc, descriptor);
     }
 
     // TODO: interface not complete
     pub unsafe fn create_fence(&self, initial: u64) -> Result<Fence, Error> {
         let mut fence = ptr::null_mut();
-        explain_error(self.0.CreateFence(
-            initial,
-            d3d12::D3D12_FENCE_FLAG_NONE,
-            &d3d12::ID3D12Fence::uuidof(),
-            &mut fence as *mut _ as *mut _,
-        ), "device could not create fence")?;
+        explain_error(
+            self.0.CreateFence(
+                initial,
+                d3d12::D3D12_FENCE_FLAG_NONE,
+                &d3d12::ID3D12Fence::uuidof(),
+                &mut fence as *mut _ as *mut _,
+            ),
+            "device could not create fence",
+        )?;
 
         Ok(Fence(ComPtr::from_raw(fence)))
     }
@@ -673,21 +688,23 @@ impl Device {
         resource_description: &d3d12::D3D12_RESOURCE_DESC,
         initial_resource_state: d3d12::D3D12_RESOURCE_STATES,
         optimized_clear_value: *const d3d12::D3D12_CLEAR_VALUE,
-        descriptor_heap_offset: u32,
     ) -> Result<Resource, Error> {
         let mut resource = ptr::null_mut();
 
-        explain_error(self.0.CreateCommittedResource(
-            heap_properties as *const _,
-            flags,
-            resource_description as *const _,
-            initial_resource_state,
-            optimized_clear_value,
-            &d3d12::ID3D12Resource::uuidof(),
-            &mut resource as *mut _ as *mut _,
-        ), "device could not create committed resource")?;
+        explain_error(
+            self.0.CreateCommittedResource(
+                heap_properties as *const _,
+                flags,
+                resource_description as *const _,
+                initial_resource_state,
+                optimized_clear_value,
+                &d3d12::ID3D12Resource::uuidof(),
+                &mut resource as *mut _ as *mut _,
+            ),
+            "device could not create committed resource",
+        )?;
 
-        Ok(Resource::new(ComPtr::from_raw(resource), descriptor_heap_offset))
+        Ok(Resource::new(resource))
     }
 
     pub unsafe fn create_query_heap(
@@ -720,7 +737,7 @@ impl Device {
         first_subresource: u32,
         num_subresources: u32,
     ) -> u64 {
-        let desc: d3d12::D3D12_RESOURCE_DESC = dest_resource.com_ptr.GetDesc();
+        let desc: d3d12::D3D12_RESOURCE_DESC = (*dest_resource.get()).GetDesc();
 
         let mut required_size: *mut u64 = ptr::null_mut();
         self.0.GetCopyableFootprints(
@@ -742,14 +759,14 @@ impl Device {
         first_subresource: u32,
         num_subresources: usize,
         base_offset: u64,
-        dest_resource: Resource,
+        dest_resource: &Resource,
     ) -> (
         Vec<d3d12::D3D12_PLACED_SUBRESOURCE_FOOTPRINT>,
         Vec<u32>,
         Vec<u64>,
         u64,
     ) {
-        let desc: d3d12::D3D12_RESOURCE_DESC = dest_resource.com_ptr.GetDesc();
+        let desc: d3d12::D3D12_RESOURCE_DESC = (*dest_resource.get()).GetDesc();
 
         let mut layouts: Vec<d3d12::D3D12_PLACED_SUBRESOURCE_FOOTPRINT> =
             Vec::with_capacity(num_subresources);
@@ -779,9 +796,9 @@ impl Device {
         (layouts, num_rows, row_size_in_bytes, total_size)
     }
 
+    // TODO: probably combine these and add usage flags
     pub unsafe fn create_uploadable_buffer(
         &self,
-        descriptor_heap_offset: u32,
         buffer_size_in_bytes: u64,
     ) -> Result<Resource, Error> {
         let heap_properties = d3d12::D3D12_HEAP_PROPERTIES {
@@ -816,7 +833,6 @@ impl Device {
             &resource_description,
             d3d12::D3D12_RESOURCE_STATE_GENERIC_READ,
             ptr::null(),
-            descriptor_heap_offset,
         )?;
 
         Ok(buffer)
@@ -824,11 +840,8 @@ impl Device {
 
     pub unsafe fn create_uploadable_byte_addressed_buffer(
         &self,
-        descriptor_heap_offset: u32,
-        buffer_size_in_u32s: u32,
+        buffer_size_in_bytes: u32,
     ) -> Result<Resource, Error> {
-        let buffer_size_in_bytes = buffer_size_in_u32s as usize * mem::size_of::<u32>();
-
         let heap_properties = d3d12::D3D12_HEAP_PROPERTIES {
             Type: d3d12::D3D12_HEAP_TYPE_UPLOAD,
             CPUPageProperty: d3d12::D3D12_CPU_PAGE_PROPERTY_UNKNOWN,
@@ -860,7 +873,6 @@ impl Device {
             &resource_description,
             d3d12::D3D12_RESOURCE_STATE_GENERIC_READ,
             ptr::null(),
-            descriptor_heap_offset,
         )?;
 
         Ok(byte_addressed_buffer)
@@ -868,12 +880,8 @@ impl Device {
 
     pub unsafe fn create_gpu_only_byte_addressed_buffer(
         &self,
-        descriptor_heap_offset: u32,
-        buffer_size_in_u32s: u32,
+        buffer_size_in_bytes: u32,
     ) -> Result<Resource, Error> {
-        let size_of_u32_in_bytes = mem::size_of::<u32>();
-        let buffer_size_in_bytes = buffer_size_in_u32s as usize * size_of_u32_in_bytes;
-
         //TODO: consider flag D3D12_HEAP_FLAG_ALLOW_SHADER_ATOMICS?
         let heap_properties = d3d12::D3D12_HEAP_PROPERTIES {
             //for GPU access only
@@ -907,7 +915,6 @@ impl Device {
             &resource_description,
             d3d12::D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
             ptr::null(),
-            descriptor_heap_offset,
         )?;
 
         Ok(buffer)
@@ -968,7 +975,6 @@ impl Device {
             &resource_description,
             initial_resource_state,
             ptr::null(),
-            descriptor_heap_offset,
         )?;
 
         Ok(buffer)
@@ -1002,8 +1008,8 @@ impl SubresourceData {
 }
 
 impl CommandAllocator {
-    pub unsafe fn reset(&self) {
-        self.0.Reset();
+    pub unsafe fn reset(&self) -> Result<(), Error> {
+        explain_error(self.0.Reset(), "error resetting command allocator")
     }
 }
 
@@ -1138,8 +1144,11 @@ impl ShaderByteCode {
 }
 
 impl Fence {
-    pub unsafe fn set_event_on_completion(&self, event: Event, value: u64) -> winerror::HRESULT {
-        self.0.SetEventOnCompletion(value, event.0)
+    pub unsafe fn set_event_on_completion(&self, event: &Event, value: u64) -> Result<(), Error> {
+        explain_error(
+            self.0.SetEventOnCompletion(value, event.0),
+            "error setting event completion",
+        )
     }
 
     pub unsafe fn get_value(&self) -> u64 {
@@ -1152,21 +1161,43 @@ impl Fence {
 }
 
 impl Event {
-    pub unsafe fn create(manual_reset: bool, initial_state: bool) -> Self {
-        Event(synchapi::CreateEventA(
+    pub unsafe fn create(manual_reset: bool, initial_state: bool) -> Result<Self, Error> {
+        let handle = synchapi::CreateEventA(
             ptr::null_mut(),
             manual_reset as _,
             initial_state as _,
             ptr::null(),
-        ))
+        );
+        if handle.is_null() {
+            // TODO: should probably call GetLastError here
+            Err(Error::Hresult(-1))
+        } else {
+            Ok(Event(handle))
+        }
     }
 
+    /// Wait for the event, or a timeout.
+    ///
+    /// If the timeout is `winapi::um::winbase::INFINITE`, it will wait until the
+    /// event is signaled.
+    ///
+    /// The return value is defined here:
+    /// https://docs.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-waitforsingleobject
     pub unsafe fn wait(&self, timeout_ms: u32) -> u32 {
         synchapi::WaitForSingleObject(self.0, timeout_ms)
     }
 
+    // TODO: probably remove, yagni
     pub unsafe fn wait_ex(&self, timeout_ms: u32, alertable: bool) -> u32 {
         synchapi::WaitForSingleObjectEx(self.0, timeout_ms, alertable as _)
+    }
+}
+
+impl Drop for Event {
+    fn drop(&mut self) {
+        unsafe {
+            handleapi::CloseHandle(self.0);
+        }
     }
 }
 
@@ -1175,15 +1206,14 @@ impl GraphicsCommandList {
         self.0.as_raw() as *mut d3d12::ID3D12CommandList
     }
 
-    pub unsafe fn close(&self) -> winerror::HRESULT {
-        self.0.Close()
+    pub unsafe fn close(&self) -> Result<(), Error> {
+        explain_error(self.0.Close(), "error closing command list")
     }
 
-    pub unsafe fn reset(&self, allocator: CommandAllocator, initial_pso: PipelineState) {
-        error::error_if_failed_else_unit(
-            self.0.Reset(allocator.0.as_raw(), initial_pso.0.as_raw()),
-        )
-        .expect("could not reset command list");
+    pub unsafe fn reset(&self, allocator: &CommandAllocator, initial_pso: Option<&PipelineState>) {
+        let p_initial_state = initial_pso.map(|p| p.0.as_raw()).unwrap_or(ptr::null_mut());
+        error::error_if_failed_else_unit(self.0.Reset(allocator.0.as_raw(), p_initial_state))
+            .expect("could not reset command list");
     }
 
     pub unsafe fn set_compute_pipeline_root_signature(&self, signature: RootSignature) {
@@ -1341,7 +1371,7 @@ impl GraphicsCommandList {
             d3d12::D3D12_QUERY_TYPE_TIMESTAMP,
             start_index,
             num_queries,
-            destination_buffer.com_ptr.as_raw() as *mut _,
+            destination_buffer.get_mut(),
             aligned_destination_buffer_offset,
         );
     }
@@ -1349,18 +1379,18 @@ impl GraphicsCommandList {
         &self,
         device: Device,
         intermediate_buffer: Resource,
-        texture: Resource,
+        texture: &Resource,
     ) {
         let mut src = d3d12::D3D12_TEXTURE_COPY_LOCATION {
-            pResource: intermediate_buffer.com_ptr.as_raw(),
+            pResource: intermediate_buffer.get_mut(),
             Type: d3d12::D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,
             ..mem::zeroed()
         };
-        let (layout, _, _, _) = device.get_copyable_footprint(0, 1, 0, texture.clone());
+        let (layout, _, _, _) = device.get_copyable_footprint(0, 1, 0, texture);
         *src.u.PlacedFootprint_mut() = layout[0];
 
         let mut dst = d3d12::D3D12_TEXTURE_COPY_LOCATION {
-            pResource: texture.com_ptr.as_raw(),
+            pResource: texture.get_mut(),
             Type: d3d12::D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
             ..mem::zeroed()
         };
