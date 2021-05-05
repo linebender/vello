@@ -1,0 +1,217 @@
+// Copyright 2021 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Implementation of stack monoid (companion to blog post)
+
+#version 450
+
+#define LG_PART_SIZE 4
+#define PART_SIZE (1 << LG_PART_SIZE)
+
+layout(local_size_x = PART_SIZE) in;
+
+layout(set = 0, binding = 0) buffer DataBuf {
+    uint[] data;
+};
+
+layout(set = 0, binding = 1) volatile buffer StateBuf {
+    uint[] state;
+};
+
+#define STATE_COUNTER 0
+#define STATE_FLAGS 1
+#define STATE_NPOP_LOCAL 2
+#define STATE_NPUSH_LOCAL 3
+#define STATE_NPUSH_PREFIX 4
+#define STATE_SIZE 6
+
+#define FLAG_INIT 0
+#define FLAG_LOCAL 1
+#define FLAG_DONE 2
+
+layout(set = 0, binding = 2) volatile buffer StackBuf {
+    uint[] scratch;
+};
+
+shared uint sh_part_ix;
+shared uint sh_flags;
+shared uint sh_npop[PART_SIZE];
+shared uint sh_npush[PART_SIZE];
+shared uint sh_stack[PART_SIZE];
+
+void main() {
+    uint th_ix = gl_LocalInvocationID.x;
+    // Determine partition by atomic counter.
+    if (th_ix == 0) {
+        sh_part_ix = atomicAdd(state[STATE_COUNTER], 1);
+    }
+    barrier();
+    uint part_ix = sh_part_ix;
+    uint el_ix = part_ix * PART_SIZE + th_ix;
+    uint inp = data[el_ix];
+
+    uint local_pop = 1 - inp;
+    uint npop = local_pop;
+    uint npush = inp;
+    uint stack = el_ix;
+    sh_npop[th_ix] = npop;
+    sh_npush[th_ix] = npush;
+    sh_stack[th_ix] = stack;
+    bool pending = true;
+
+    // Reduction tree for computation of monoid for this partition
+    for (uint j = 0; j < LG_PART_SIZE; j++) {
+        uint bit = 1 << j;
+        uint first = th_ix & (-2u * bit);
+        uint mid = first + bit - 1;
+        uint last = mid + bit;
+        // Combine monoid from first..first + bit and first + bit..first + bit * 2
+        // to first..first + bit * 2
+        barrier();
+        // In this section, only read from shared memory
+        uint push_mid = sh_npush[mid];
+        if ((th_ix & bit) != 0) {
+            uint m = max(push_mid, npop);
+            npush = m - npop + npush;
+            uint prepop = npop - local_pop;
+            npop = sh_npop[mid] + m - push_mid;
+            if (pending && push_mid > prepop) {
+                // Generate final output when it can be resolved in this partition
+                data[el_ix] = sh_stack[mid - prepop];
+                pending = false;
+            }
+        }
+        uint pop_last = sh_npop[last];
+        uint m = max(push_mid, pop_last);
+        uint push_last = sh_npush[last];
+        if (last - th_ix >= push_last) {
+            uint iprev = last - th_ix - push_last;
+            if (iprev < m - pop_last) {
+                stack = sh_stack[mid - pop_last - iprev];
+            } else {
+                // TODO: not needed
+                stack = 99;
+            }
+        }
+        barrier();
+        // Write local values to shared memory
+        sh_npop[th_ix] = npop;
+        sh_npush[th_ix] = npush;
+        sh_stack[th_ix] = stack;
+    }
+
+    // If pending, then stack depth of result of stack snapshot immediately
+    // preceding this partition.
+    uint prepop = npop - local_pop;
+
+    barrier();
+    // Publish local aggregate
+    uint part_npush = sh_npush[PART_SIZE - 1];
+    uint part_npop = sh_npop[PART_SIZE - 1];
+    if (PART_SIZE - 1 - th_ix < part_npush) {
+        scratch[el_ix] = stack;
+    }
+    uint state_base = part_ix * STATE_SIZE;
+    if (th_ix == PART_SIZE - 1) {
+        state[state_base + STATE_NPOP_LOCAL] = npop;
+        state[state_base + STATE_NPUSH_LOCAL] = npush;
+        uint flags = FLAG_LOCAL;
+        if (part_ix == 0) {
+            flags = FLAG_DONE;
+            state[state_base + STATE_NPUSH_PREFIX] = npush;
+        }
+        state[state_base + STATE_FLAGS] = part_ix == 0 ? FLAG_DONE : FLAG_LOCAL;
+    }
+
+    // Do lookback
+    // Note: unlike prefix sum example, we need all threads active to do stack reduction.
+    if (part_ix != 0) {
+        bool backlink = false;
+        uint look_back_ix = part_ix - 1;
+        while (true) {
+            if (th_ix == PART_SIZE - 1) {
+                // This is for evaluation and will be removed or conditional
+                //atomicAdd(state[part_ix * STATE_SIZE + 5], 1);
+                // Need to make sure all threads get the same view
+                sh_flags = state[look_back_ix * STATE_SIZE + STATE_FLAGS];
+            }
+            barrier();
+            uint flags = sh_flags;
+            // The partition needs to be fully published if we're following a backlink.
+            // Otherwise, we can make progress if just the local aggregate is ready.
+            if (flags >= FLAG_LOCAL + uint(backlink)) {
+                uint prev_npop = 0;
+                uint prev_npush;
+                if (flags == FLAG_LOCAL) {
+                    prev_npop = state[look_back_ix * STATE_SIZE + STATE_NPOP_LOCAL];
+                    prev_npush = state[look_back_ix * STATE_SIZE + STATE_NPUSH_LOCAL];
+                } else {
+                    prev_npush = state[look_back_ix * STATE_SIZE + STATE_NPUSH_PREFIX];
+                    if (backlink) {
+                        part_npop = prev_npush - part_npop;
+                        prepop += part_npop;
+                    }
+                }
+                // Copy stack buffer subsequence
+                // Determine source index based on destination being th_ix
+                if (PART_SIZE - 1 - th_ix >= part_npush) {
+                    uint nback = PART_SIZE - 1 - th_ix + part_npop - part_npush;
+                    if (nback < min(prev_npush, PART_SIZE)) {
+                        uint src_ix = look_back_ix * PART_SIZE + PART_SIZE - 1 - nback;
+                        scratch[el_ix] = scratch[src_ix];
+                    }
+                }
+                // Resolve output
+                if (pending) {
+                    if (prepop < min(prev_npush, PART_SIZE)) {
+                        uint src_ix = look_back_ix * PART_SIZE + PART_SIZE - 1 - prepop;
+                        data[el_ix] = scratch[src_ix];
+                        pending = false;
+                    } else {
+                        prepop += prev_npop - prev_npush;
+                    }
+                }
+
+                // Resolve monoid
+                // Note: this may be some wasted work in the FLAG_DONE case
+                uint m = max(prev_npush, part_npop);
+                uint delta_push = m - part_npop;
+                part_npush += delta_push;
+                part_npop = prev_npop + m - prev_npush;
+
+                if (flags == FLAG_DONE) {
+                    if (prev_npush > max(part_npush, PART_SIZE)) {
+                        // Our stack is not complete, follow backlink
+                        backlink = true;
+                        uint link_ix = look_back_ix * PART_SIZE;
+                        look_back_ix = (scratch[link_ix] - 1) >> LG_PART_SIZE;
+                        // This is the stack depth to prepend to the existing part
+                        part_npop = min(delta_push, prev_npush - PART_SIZE);
+                        part_npush = part_npush - part_npop;
+                        prepop += part_npop;
+                    } else {
+                        // Publish.
+                        if (th_ix == PART_SIZE - 1) {
+                            state[part_ix * STATE_SIZE + STATE_NPUSH_PREFIX] = part_npush;
+                            state[part_ix * STATE_SIZE + STATE_FLAGS] = FLAG_DONE;
+                        }
+                        break;
+                    }
+                } else {
+                    look_back_ix -= 1;
+                }
+            }
+        }
+    }
+}

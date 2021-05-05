@@ -8,3 +8,5 @@ rule glsl
   command = $glslang_validator -V -o $out $in
 
 build collatz.spv: glsl collatz.comp
+
+build stack.spv: glsl stack.comp
