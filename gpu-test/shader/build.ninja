@@ -1,0 +1,19 @@
+# Build file for shaders.
+
+# You must have glslangValidator in your path, or patch here.
+
+glslang_validator = glslangValidator
+
+rule glsl
+  command = $glslang_validator -V $flags -o $out $in
+
+build coherence_test.spv: glsl coherence_test.comp
+
+build coherence_vkmm.spv: glsl coherence_test.comp
+  flags = --target-env vulkan1.1 -DVKMM
+
+build coherence_volatile.spv: glsl coherence_test.comp
+  flags = -DVOLATILE_DATA
+
+build coherence_atomic.spv: glsl coherence_test.comp
+  flags = -DATOMIC_DATA0 -DATOMIC_DATA1

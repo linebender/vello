@@ -1,0 +1,125 @@
+// SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
+
+// Compute shader to test memory coherence
+
+#version 450
+#ifdef VKMM
+#extension GL_KHR_memory_scope_semantics : enable
+#endif
+
+layout(local_size_x = 256) in;
+
+layout(set = 0, binding = 0) buffer ControlBuf {
+    uint n_iter;
+    uint failures;
+    uint status;
+};
+
+#ifdef VOLATILE_DATA
+#define BUFFER_QUALIFIERS volatile buffer
+#else
+#define BUFFER_QUALIFIERS buffer
+#endif
+
+layout(set = 0, binding = 1) BUFFER_QUALIFIERS DataBuf {
+    uint[] data;
+};
+
+// The data index for data1 given the address of data0
+uint permute_ix0_ix1(uint ix) {
+    return (ix * 31) & 0xffff;
+}
+
+// The data index for data0 written by thread ix
+uint permute_ix0_wr(uint ix) {
+    return ix;
+}
+
+// The data index for data0 read by thread ix
+uint permute_ix0_rd(uint ix) {
+    return ((ix & 0xff) << 8) | (ix >> 8);
+}
+
+void write_data0(uint raw_ix, uint val) {
+#ifdef VKMM
+    atomicStore(data[raw_ix], val, gl_ScopeDevice, gl_StorageSemanticsBuffer, gl_SemanticsRelaxed);
+#else
+#ifdef ATOMIC_DATA0
+    atomicExchange(data[raw_ix], val);
+#else
+    data[raw_ix] = val;
+#endif
+#endif
+}
+
+uint read_data0(uint raw_ix) {
+#ifdef VKMM
+    return atomicLoad(data[raw_ix], gl_ScopeDevice, gl_StorageSemanticsBuffer, gl_SemanticsRelaxed);
+#else
+#ifdef ATOMIC_DATA0
+    return atomicOr(data[raw_ix], 0);
+#else
+    return data[raw_ix];
+#endif
+#endif
+}
+
+void write_data1(uint raw_ix, uint val) {
+#ifdef VKMM
+    atomicStore(data[raw_ix], val, gl_ScopeDevice, gl_StorageSemanticsBuffer, gl_SemanticsRelease);
+#else
+#ifdef ATOMIC_DATA1
+    atomicExchange(data[raw_ix], val);
+#else
+    data[raw_ix] = val;
+#endif
+#endif
+}
+
+uint read_data1(uint raw_ix) {
+#ifdef VKMM
+    return atomicLoad(data[raw_ix], gl_ScopeDevice, gl_StorageSemanticsBuffer, gl_SemanticsAcquire);
+#else
+#ifdef ATOMIC_DATA1
+    return atomicOr(data[raw_ix], 0);
+#else
+    return data[raw_ix];
+#endif
+#endif
+}
+
+// We'll probably need this later.
+#if 0
+bool be_slow(uint n) {
+    float dt = 1.0 / float(n);
+    float sum = 0.0;
+    for (uint i = 0; i < n; i++) {
+        float t = (float(i) + 0.5) * dt;
+        sum += sqrt(1.0 - t * t);
+    }
+    float est_pi = 4.0 * dt * sum;
+    return est_pi < 4.0;
+}
+#endif
+
+void main() {
+    uint my_ix = gl_GlobalInvocationID.x;
+    uint n_iter_local = n_iter;
+
+    uint my_failures = 0;
+    for (uint i = 0; i < n_iter_local; i++) {
+        uint wr_ix = permute_ix0_wr(my_ix);
+        // if sequentially consistent, data0 >= data1
+        write_data0(wr_ix * 2, i + 1);
+        write_data1(permute_ix0_ix1(wr_ix) * 2 + 1, i + 1);
+        uint rd_ix = permute_ix0_rd(my_ix);
+        uint x = read_data1(permute_ix0_ix1(rd_ix) * 2 + 1);
+        uint y = read_data0(rd_ix * 2);
+        if (x > y) {
+            my_failures++;
+        }
+    }
+    if (my_failures > 0) {
+        atomicAdd(failures, my_failures);
+    }
+}
