@@ -16,7 +16,7 @@
 
 #version 450
 
-#define LG_PART_SIZE 4
+#define LG_PART_SIZE 5
 #define PART_SIZE (1 << LG_PART_SIZE)
 
 layout(local_size_x = PART_SIZE) in;

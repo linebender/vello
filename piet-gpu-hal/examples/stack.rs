@@ -55,9 +55,9 @@ fn verify_stack(input: &[u32], output: &[u32]) {
     }
 }
 
-const N: usize = 512;
+const N: usize = 1024 * 1024;
 
-const WG_SIZE: usize = 16;
+const WG_SIZE: usize = 32;
 
 /// Size in bytes of each element of the state buffer.
 const STATE_SIZE: u64 = 24;
@@ -67,53 +67,69 @@ fn main() {
     unsafe {
         let device = instance.device(None).unwrap();
         let session = hub::Session::new(device);
-        let mem_flags = MemFlags::host_coherent();
+        let mem_host = MemFlags::host_coherent();
+        let mem_dev = MemFlags::device_local();
+        // Should probably be cmdline options
+        let debug_buffers = false;
+        let debug_output = false;
         let src = generate_dyck(N);
-        println!("{:?}", src);
-        let mut buffer = session
-            .create_buffer(std::mem::size_of_val(&src[..]) as u64, mem_flags)
-            .unwrap();
-        buffer.write(&src).unwrap();
+        if debug_output {
+            println!("{:?}", src);
+        }
+        let data_buf_size = std::mem::size_of_val(&src[..]) as u64;
+        let mut src_host = session.create_buffer(data_buf_size, mem_host).unwrap();
+        let data_dev = session.create_buffer(data_buf_size, mem_dev).unwrap();
+        let dst_host = session.create_buffer(data_buf_size, mem_host).unwrap();
+        src_host.write(&src).unwrap();
         let n_workgroup = (N / WG_SIZE) as u32;
+        let state_mem_flags = if debug_buffers { mem_host } else { mem_dev };
         let state_buf = session
-            .create_buffer(n_workgroup as u64 * STATE_SIZE, mem_flags)
+            .create_buffer(n_workgroup as u64 * STATE_SIZE, state_mem_flags)
             .unwrap();
         let stack_buf = session
-            .create_buffer(std::mem::size_of_val(&src[..]) as u64, mem_flags)
+            .create_buffer(data_buf_size, state_mem_flags)
             .unwrap();
         let code = include_bytes!("./shader/stack.spv");
         let pipeline = session.create_simple_compute_pipeline(code, 3).unwrap();
         let descriptor_set = session
-            .create_simple_descriptor_set(&pipeline, &[&buffer, &state_buf, &stack_buf])
+            .create_simple_descriptor_set(&pipeline, &[&data_dev, &state_buf, &stack_buf])
             .unwrap();
         let query_pool = session.create_query_pool(2).unwrap();
         let mut cmd_buf = session.cmd_buf().unwrap();
         cmd_buf.begin();
         cmd_buf.clear_buffer(&state_buf.vk_buffer(), None);
+        cmd_buf.copy_buffer(src_host.vk_buffer(), data_dev.vk_buffer());
+        cmd_buf.memory_barrier();
         cmd_buf.reset_query_pool(&query_pool);
         cmd_buf.write_timestamp(&query_pool, 0);
         cmd_buf.dispatch(&pipeline, &descriptor_set, (n_workgroup, 1, 1));
         cmd_buf.write_timestamp(&query_pool, 1);
+        cmd_buf.memory_barrier();
+        cmd_buf.copy_buffer(data_dev.vk_buffer(), dst_host.vk_buffer());
         cmd_buf.host_barrier();
         cmd_buf.finish();
         let submitted = session.run_cmd_buf(cmd_buf, &[], &[]).unwrap();
         submitted.wait().unwrap();
         let timestamps = session.fetch_query_pool(&query_pool);
         let mut dst: Vec<u32> = Default::default();
-        buffer.read(&mut dst).unwrap();
-        for i in 0..n_workgroup as usize {
-            println!(" out {}: {:?}", i, &dst[WG_SIZE * i..WG_SIZE * (i + 1)]);
+        src_host.read(&mut dst).unwrap();
+        if debug_output {
+            for i in 0..n_workgroup as usize {
+                println!(" out {}: {:?}", i, &dst[WG_SIZE * i..WG_SIZE * (i + 1)]);
+            }
         }
-        stack_buf.read(&mut dst).unwrap();
-        for i in 0..n_workgroup as usize {
-            println!("stack {}: {:?}", i, &dst[WG_SIZE * i..WG_SIZE * (i + 1)]);
-        }
-        state_buf.read(&mut dst).unwrap();
-        for i in 0..n_workgroup as usize {
-            println!("state {}: {:?}", i, &dst[6 * i..6 * (i + 1)]);
+        if debug_buffers {
+            stack_buf.read(&mut dst).unwrap();
+            for i in 0..n_workgroup as usize {
+                println!("stack {}: {:?}", i, &dst[WG_SIZE * i..WG_SIZE * (i + 1)]);
+            }
+            state_buf.read(&mut dst).unwrap();
+            for i in 0..n_workgroup as usize {
+                println!("state {}: {:?}", i, &dst[6 * i..6 * (i + 1)]);
+            }
         }
         println!("{:?}", timestamps);
-        buffer.read(&mut dst).unwrap();
+        dst_host.read(&mut dst).unwrap();
         verify_stack(&src, &dst);
     }
 }
