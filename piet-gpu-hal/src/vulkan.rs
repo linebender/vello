@@ -6,10 +6,10 @@ use std::os::raw::c_char;
 use std::sync::Arc;
 
 use ash::extensions::{ext::DebugUtils, khr};
-use ash::version::{DeviceV1_0, EntryV1_0, InstanceV1_0};
+use ash::version::{DeviceV1_0, EntryV1_0, InstanceV1_0, InstanceV1_1};
 use ash::{vk, Device, Entry, Instance};
 
-use crate::{Device as DeviceTrait, Error, ImageLayout, SamplerParams};
+use crate::{Device as DeviceTrait, Error, GpuInfo, ImageLayout, SamplerParams, SubgroupSize};
 
 pub struct VkInstance {
     /// Retain the dynamic lib.
@@ -17,6 +17,7 @@ pub struct VkInstance {
     entry: Entry,
     instance: Instance,
     get_phys_dev_props: Option<vk::KhrGetPhysicalDeviceProperties2Fn>,
+    vk_version: u32,
     _dbg_loader: Option<DebugUtils>,
     _dbg_callbk: Option<vk::DebugUtilsMessengerEXT>,
 }
@@ -28,8 +29,7 @@ pub struct VkDevice {
     queue: vk::Queue,
     qfi: u32,
     timestamp_period: f32,
-    /// Does the device support descriptor indexing?
-    pub has_descriptor_indexing: bool,
+    gpu_info: GpuInfo,
 }
 
 struct RawDevice {
@@ -181,6 +181,16 @@ impl VkInstance {
                 }
             }
 
+            let supported_version = entry
+                .try_enumerate_instance_version()?
+                .unwrap_or(vk::make_version(1, 0, 0));
+            let vk_version = if supported_version >= vk::make_version(1, 1, 0) {
+                // We need Vulkan 1.1 to do subgroups; most other things can be extensions.
+                vk::make_version(1, 1, 0)
+            } else {
+                vk::make_version(1, 0, 0)
+            };
+
             let instance = entry.create_instance(
                 &vk::InstanceCreateInfo::builder()
                     .application_info(
@@ -188,7 +198,7 @@ impl VkInstance {
                             .application_name(&app_name)
                             .application_version(0)
                             .engine_name(&app_name)
-                            .api_version(vk::make_version(1, 0, 0)),
+                            .api_version(vk_version),
                     )
                     .enabled_layer_names(layers.as_ptrs())
                     .enabled_extension_names(exts.as_ptrs()),
@@ -234,6 +244,7 @@ impl VkInstance {
                 entry,
                 instance,
                 get_phys_dev_props,
+                vk_version,
                 _dbg_loader,
                 _dbg_callbk,
             };
@@ -282,17 +293,24 @@ impl VkInstance {
             .descriptor_binding_variable_descriptor_count(true)
             .runtime_descriptor_array(true);
 
-        let mut extensions = Vec::new();
+        let mut extensions = Extensions::new(
+            self.instance
+                .enumerate_device_extension_properties(pdevice)?,
+        );
         if surface.is_some() {
-            extensions.push(khr::Swapchain::name().as_ptr());
+            extensions.try_add(khr::Swapchain::name());
         }
         if has_descriptor_indexing {
-            extensions.push(vk::KhrMaintenance3Fn::name().as_ptr());
-            extensions.push(vk::ExtDescriptorIndexingFn::name().as_ptr());
+            extensions.try_add(vk::KhrMaintenance3Fn::name());
+            extensions.try_add(vk::ExtDescriptorIndexingFn::name());
         }
+        let has_subgroup_size = self.vk_version >= vk::make_version(1, 1, 0)
+            && extensions.try_add(vk::ExtSubgroupSizeControlFn::name());
+        let has_memory_model = self.vk_version >= vk::make_version(1, 1, 0)
+            && extensions.try_add(vk::KhrVulkanMemoryModelFn::name());
         let mut create_info = vk::DeviceCreateInfo::builder()
             .queue_create_infos(&queue_create_infos)
-            .enabled_extension_names(&extensions);
+            .enabled_extension_names(extensions.as_ptrs());
         if has_descriptor_indexing {
             create_info = create_info.push_next(&mut descriptor_indexing);
         }
@@ -307,6 +325,28 @@ impl VkInstance {
 
         let props = self.instance.get_physical_device_properties(pdevice);
         let timestamp_period = props.limits.timestamp_period;
+        let subgroup_size = if has_subgroup_size {
+            let mut subgroup_props = vk::PhysicalDeviceSubgroupSizeControlPropertiesEXT::default();
+            let mut properties =
+                vk::PhysicalDeviceProperties2::builder().push_next(&mut subgroup_props);
+            self.instance
+                .get_physical_device_properties2(pdevice, &mut properties);
+            Some(SubgroupSize {
+                min: subgroup_props.min_subgroup_size,
+                max: subgroup_props.max_subgroup_size,
+            })
+        } else {
+            None
+        };
+
+        // TODO: finer grained query of specific subgroup info.
+        let has_subgroups = self.vk_version >= vk::make_version(1, 1, 0);
+        let gpu_info = GpuInfo {
+            has_descriptor_indexing,
+            has_subgroups,
+            subgroup_size,
+            has_memory_model,
+        };
 
         Ok(VkDevice {
             device,
@@ -315,7 +355,7 @@ impl VkInstance {
             qfi,
             queue,
             timestamp_period,
-            has_descriptor_indexing,
+            gpu_info,
         })
     }
 
@@ -413,6 +453,10 @@ impl crate::Device for VkDevice {
     type PipelineBuilder = PipelineBuilder;
     type DescriptorSetBuilder = DescriptorSetBuilder;
     type Sampler = vk::Sampler;
+
+    fn query_gpu_info(&self) -> GpuInfo {
+        self.gpu_info.clone()
+    }
 
     fn create_buffer(&self, size: u64, mem_flags: MemFlags) -> Result<Buffer, Error> {
         unsafe {
@@ -570,7 +614,7 @@ impl crate::Device for VkDevice {
             bindings: Vec::new(),
             binding_flags: Vec::new(),
             max_textures: 0,
-            has_descriptor_indexing: self.has_descriptor_indexing,
+            has_descriptor_indexing: self.gpu_info.has_descriptor_indexing,
         }
     }
 

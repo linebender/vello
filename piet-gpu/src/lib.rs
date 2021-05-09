@@ -128,11 +128,20 @@ fn render_clip_test(rc: &mut impl RenderContext) {
 #[allow(unused)]
 fn render_alpha_test(rc: &mut impl RenderContext) {
     // Alpha compositing tests.
-    rc.fill(diamond(Point::new(1024.0, 100.0)), &Color::Rgba32(0xff0000ff));
-    rc.fill(diamond(Point::new(1024.0, 125.0)), &Color::Rgba32(0x00ff0080));
+    rc.fill(
+        diamond(Point::new(1024.0, 100.0)),
+        &Color::Rgba32(0xff0000ff),
+    );
+    rc.fill(
+        diamond(Point::new(1024.0, 125.0)),
+        &Color::Rgba32(0x00ff0080),
+    );
     rc.save();
     rc.clip(diamond(Point::new(1024.0, 150.0)));
-    rc.fill(diamond(Point::new(1024.0, 175.0)), &Color::Rgba32(0x0000ff80));
+    rc.fill(
+        diamond(Point::new(1024.0, 175.0)),
+        &Color::Rgba32(0x0000ff80),
+    );
     rc.restore();
 }
 
@@ -325,7 +334,7 @@ impl Renderer {
 
         let bg_image = Self::make_test_bg_image(&session);
 
-        let k4_code = if session.has_descriptor_indexing() {
+        let k4_code = if session.gpu_info().has_descriptor_indexing {
             &include_bytes!("../shader/kernel4_idx.spv")[..]
         } else {
             println!("doing non-indexed k4");
