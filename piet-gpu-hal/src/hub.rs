@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex, Weak};
 use crate::vulkan;
 use crate::DescriptorSetBuilder as DescriptorSetBuilderTrait;
 use crate::PipelineBuilder as PipelineBuilderTrait;
-use crate::{Device, Error, SamplerParams};
+use crate::{Device, Error, GpuInfo, SamplerParams};
 
 pub type MemFlags = <vulkan::VkDevice as Device>::MemFlags;
 pub type Semaphore = <vulkan::VkDevice as Device>::Semaphore;
@@ -32,6 +32,7 @@ struct SessionInner {
     cmd_buf_pool: Mutex<Vec<(vulkan::CmdBuf, Fence)>>,
     /// Command buffers that are still pending (so resources can't be freed).
     pending: Mutex<Vec<SubmittedCmdBufInner>>,
+    gpu_info: GpuInfo,
 }
 
 pub struct CmdBuf {
@@ -72,8 +73,10 @@ pub struct DescriptorSetBuilder(vulkan::DescriptorSetBuilder);
 
 impl Session {
     pub fn new(device: vulkan::VkDevice) -> Session {
+        let gpu_info = device.query_gpu_info();
         Session(Arc::new(SessionInner {
             device,
+            gpu_info,
             cmd_buf_pool: Default::default(),
             pending: Default::default(),
         }))
@@ -210,11 +213,8 @@ impl Session {
         self.0.device.create_sampler(params)
     }
 
-    /// Report whether the device supports descriptor indexing.
-    ///
-    /// As we have more queries, we might replace this with a capabilities structure.
-    pub fn has_descriptor_indexing(&self) -> bool {
-        self.0.device.has_descriptor_indexing
+    pub fn gpu_info(&self) -> &GpuInfo {
+        &self.0.gpu_info
     }
 }
 

@@ -1,8 +1,8 @@
 use std::{borrow::Cow, ops::RangeBounds};
 
 use piet::{
-    HitTestPosition,
-    kurbo::{Affine, Insets, PathEl, Point, Rect, Shape, Size}, TextAttribute, TextStorage,
+    kurbo::{Affine, Insets, PathEl, Point, Rect, Shape, Size},
+    HitTestPosition, TextAttribute, TextStorage,
 };
 use piet::{
     Color, Error, FixedGradient, FontFamily, HitTestPoint, ImageFormat, InterpolationMode,
@@ -143,7 +143,12 @@ impl RenderContext for PietGpuRenderContext {
         //
         // See also http://ssp.impulsetrain.com/gamma-premult.html.
         let (r, g, b, a) = color.as_rgba();
-        let premul = Color::rgba(to_srgb(from_srgb(r) * a), to_srgb(from_srgb(g) * a), to_srgb(from_srgb(b) * a), a);
+        let premul = Color::rgba(
+            to_srgb(from_srgb(r) * a),
+            to_srgb(from_srgb(g) * a),
+            to_srgb(from_srgb(b) * a),
+            a,
+        );
         PietGpuBrush::Solid(premul.as_rgba_u32())
     }
 
@@ -182,7 +187,8 @@ impl RenderContext for PietGpuRenderContext {
         _brush: &impl IntoBrush<Self>,
         _width: f64,
         _style: &StrokeStyle,
-    ) {}
+    ) {
+    }
 
     fn fill(&mut self, shape: impl Shape, brush: &impl IntoBrush<Self>) {
         let brush = brush.make_brush(self, || shape.bounding_box()).into_owned();
@@ -284,7 +290,8 @@ impl RenderContext for PietGpuRenderContext {
         _image: &Self::Image,
         _rect: impl Into<Rect>,
         _interp: InterpolationMode,
-    ) {}
+    ) {
+    }
 
     fn draw_image_area(
         &mut self,
@@ -292,7 +299,8 @@ impl RenderContext for PietGpuRenderContext {
         _src_rect: impl Into<Rect>,
         _dst_rect: impl Into<Rect>,
         _interp: InterpolationMode,
-    ) {}
+    ) {
+    }
 
     fn blurred_rect(&mut self, _rect: Rect, _blur_radius: f64, _brush: &impl IntoBrush<Self>) {}
 
@@ -323,7 +331,7 @@ impl PietGpuRenderContext {
         self.pathseg_count += 1;
     }
 
-    fn encode_path(&mut self, path: impl Iterator<Item=PathEl>, is_fill: bool) {
+    fn encode_path(&mut self, path: impl Iterator<Item = PathEl>, is_fill: bool) {
         if is_fill {
             self.encode_path_inner(
                 path.flat_map(|el| {
@@ -341,7 +349,7 @@ impl PietGpuRenderContext {
         }
     }
 
-    fn encode_path_inner(&mut self, path: impl Iterator<Item=PathEl>) {
+    fn encode_path_inner(&mut self, path: impl Iterator<Item = PathEl>) {
         let flatten = false;
         if flatten {
             let mut start_pt = None;

@@ -29,6 +29,29 @@ pub enum SamplerParams {
     Linear,
 }
 
+#[derive(Clone, Debug)]
+/// Information about the GPU.
+pub struct GpuInfo {
+    /// The GPU supports descriptor indexing.
+    pub has_descriptor_indexing: bool,
+    /// The GPU supports subgroups.
+    ///
+    /// Right now, this just checks for basic subgroup capability (as
+    /// required in Vulkan 1.1), and we should have finer grained
+    /// queries for shuffles, etc.
+    pub has_subgroups: bool,
+    /// Info about subgroup size control, if available.
+    pub subgroup_size: Option<SubgroupSize>,
+    /// The GPU supports a real, grown-ass memory model.
+    pub has_memory_model: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct SubgroupSize {
+    min: u32,
+    max: u32,
+}
+
 pub trait Device: Sized {
     type Buffer: 'static;
     type Image;
@@ -42,6 +65,12 @@ pub trait Device: Sized {
     type PipelineBuilder: PipelineBuilder<Self>;
     type DescriptorSetBuilder: DescriptorSetBuilder<Self>;
     type Sampler;
+
+    /// Query the GPU info.
+    ///
+    /// This method may be expensive, so the hub should call it once and retain
+    /// the info.
+    fn query_gpu_info(&self) -> GpuInfo;
 
     fn create_buffer(&self, size: u64, mem_flags: Self::MemFlags) -> Result<Self::Buffer, Error>;
 
