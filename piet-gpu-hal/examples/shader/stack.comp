@@ -1,22 +1,10 @@
-// Copyright 2021 Google LLC
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     https://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
 
 // Implementation of stack monoid (companion to blog post)
 
 #version 450
 
-#define LG_PART_SIZE 5
+#define LG_PART_SIZE 8
 #define PART_SIZE (1 << LG_PART_SIZE)
 
 layout(local_size_x = PART_SIZE) in;
@@ -25,7 +13,7 @@ layout(set = 0, binding = 0) buffer DataBuf {
     uint[] data;
 };
 
-layout(set = 0, binding = 1) volatile buffer StateBuf {
+layout(set = 0, binding = 1) coherent buffer StateBuf {
     uint[] state;
 };
 
@@ -40,12 +28,14 @@ layout(set = 0, binding = 1) volatile buffer StateBuf {
 #define FLAG_LOCAL 1
 #define FLAG_DONE 2
 
-layout(set = 0, binding = 2) volatile buffer StackBuf {
+layout(set = 0, binding = 2) coherent buffer StackBuf {
     uint[] scratch;
 };
 
 shared uint sh_part_ix;
 shared uint sh_flags;
+shared uint sh_prev_npop;
+shared uint sh_prev_npush;
 shared uint sh_npop[PART_SIZE];
 shared uint sh_npush[PART_SIZE];
 shared uint sh_stack[PART_SIZE];
@@ -131,6 +121,10 @@ void main() {
             flags = FLAG_DONE;
             state[state_base + STATE_NPUSH_PREFIX] = npush;
         }
+    }
+    memoryBarrierBuffer(); // release barrier
+    barrier();
+    if (th_ix == PART_SIZE - 1) {
         state[state_base + STATE_FLAGS] = part_ix == 0 ? FLAG_DONE : FLAG_LOCAL;
     }
 
@@ -140,11 +134,21 @@ void main() {
         bool backlink = false;
         uint look_back_ix = part_ix - 1;
         while (true) {
+            uint local_flags = FLAG_INIT;
             if (th_ix == PART_SIZE - 1) {
                 // This is for evaluation and will be removed or conditional
                 //atomicAdd(state[part_ix * STATE_SIZE + 5], 1);
                 // Need to make sure all threads get the same view
-                sh_flags = state[look_back_ix * STATE_SIZE + STATE_FLAGS];
+
+                local_flags = state[look_back_ix * STATE_SIZE + STATE_FLAGS];
+                sh_flags = local_flags;
+            }
+            memoryBarrierBuffer(); // acquire barrier
+            if (local_flags == FLAG_LOCAL) {
+                sh_prev_npop = state[look_back_ix * STATE_SIZE + STATE_NPOP_LOCAL];
+                sh_prev_npush = state[look_back_ix * STATE_SIZE + STATE_NPUSH_LOCAL];
+            } else if (local_flags == FLAG_DONE) {
+                sh_prev_npush = state[look_back_ix * STATE_SIZE + STATE_NPUSH_PREFIX];
             }
             barrier();
             uint flags = sh_flags;
@@ -152,12 +156,10 @@ void main() {
             // Otherwise, we can make progress if just the local aggregate is ready.
             if (flags >= FLAG_LOCAL + uint(backlink)) {
                 uint prev_npop = 0;
-                uint prev_npush;
+                uint prev_npush = sh_prev_npush;
                 if (flags == FLAG_LOCAL) {
-                    prev_npop = state[look_back_ix * STATE_SIZE + STATE_NPOP_LOCAL];
-                    prev_npush = state[look_back_ix * STATE_SIZE + STATE_NPUSH_LOCAL];
+                    prev_npop = sh_prev_npop;
                 } else {
-                    prev_npush = state[look_back_ix * STATE_SIZE + STATE_NPUSH_PREFIX];
                     if (backlink) {
                         part_npop = prev_npush - part_npop;
                         prepop += part_npop;
@@ -204,6 +206,10 @@ void main() {
                         // Publish.
                         if (th_ix == PART_SIZE - 1) {
                             state[part_ix * STATE_SIZE + STATE_NPUSH_PREFIX] = part_npush;
+                        }
+                        memoryBarrierBuffer(); // release barrier
+                        barrier();
+                        if (th_ix == PART_SIZE - 1) {
                             state[part_ix * STATE_SIZE + STATE_FLAGS] = FLAG_DONE;
                         }
                         break;

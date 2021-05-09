@@ -11,6 +11,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+//
+// Also licensed under MIT license, at your choice.
 
 use piet_gpu_hal::hub;
 use piet_gpu_hal::vulkan::VkInstance;
@@ -57,7 +59,7 @@ fn verify_stack(input: &[u32], output: &[u32]) {
 
 const N: usize = 1024 * 1024;
 
-const WG_SIZE: usize = 32;
+const WG_SIZE: usize = 256;
 
 /// Size in bytes of each element of the state buffer.
 const STATE_SIZE: u64 = 24;
@@ -112,8 +114,8 @@ fn main() {
         submitted.wait().unwrap();
         let timestamps = session.fetch_query_pool(&query_pool);
         let mut dst: Vec<u32> = Default::default();
-        src_host.read(&mut dst).unwrap();
         if debug_output {
+            dst_host.read(&mut dst).unwrap();
             for i in 0..n_workgroup as usize {
                 println!(" out {}: {:?}", i, &dst[WG_SIZE * i..WG_SIZE * (i + 1)]);
             }
