@@ -17,3 +17,6 @@ build coherence_volatile.spv: glsl coherence_test.comp
 
 build coherence_atomic.spv: glsl coherence_test.comp
   flags = -DATOMIC_DATA0 -DATOMIC_DATA1
+
+build coherence_coherent.spv: glsl coherence_test.comp
+  flags = -DCOHERENT

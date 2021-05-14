@@ -84,6 +84,10 @@ fn main() {
             "Raw array access w/ volatile",
         );
         context.report_coherence(include_bytes!("../shader/coherence_atomic.spv"), "Atomics");
+        context.report_coherence(
+            include_bytes!("../shader/coherence_coherent.spv"),
+            "Coherent with barriers",
+        );
         if context.has_memory_model() {
             context.report_coherence(
                 include_bytes!("../shader/coherence_vkmm.spv"),

@@ -15,10 +15,14 @@ layout(set = 0, binding = 0) buffer ControlBuf {
     uint status;
 };
 
+#ifdef COHERENT
+#define BUFFER_QUALIFIERS coherent buffer
+#else
 #ifdef VOLATILE_DATA
 #define BUFFER_QUALIFIERS volatile buffer
 #else
 #define BUFFER_QUALIFIERS buffer
+#endif
 #endif
 
 layout(set = 0, binding = 1) BUFFER_QUALIFIERS DataBuf {
@@ -111,9 +115,15 @@ void main() {
         uint wr_ix = permute_ix0_wr(my_ix);
         // if sequentially consistent, data0 >= data1
         write_data0(wr_ix * 2, i + 1);
+#ifdef COHERENT
+        memoryBarrierBuffer(); // release
+#endif
         write_data1(permute_ix0_ix1(wr_ix) * 2 + 1, i + 1);
         uint rd_ix = permute_ix0_rd(my_ix);
         uint x = read_data1(permute_ix0_ix1(rd_ix) * 2 + 1);
+#ifdef COHERENT
+        memoryBarrierBuffer(); // acquire
+#endif
         uint y = read_data0(rd_ix * 2);
         if (x > y) {
             my_failures++;
