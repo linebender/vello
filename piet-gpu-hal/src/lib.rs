@@ -67,6 +67,7 @@ pub trait Device: Sized {
     type PipelineBuilder: PipelineBuilder<Self>;
     type DescriptorSetBuilder: DescriptorSetBuilder<Self>;
     type Sampler;
+    type ShaderSource: ?Sized;
 
     /// Query the GPU info.
     ///
@@ -118,7 +119,7 @@ pub trait Device: Sized {
     /// is subsumed by the builder.
     unsafe fn create_simple_compute_pipeline(
         &self,
-        code: &[u8],
+        code: &Self::ShaderSource,
         n_buffers: u32,
         n_images: u32,
     ) -> Result<Self::Pipeline, Error> {
@@ -259,7 +260,11 @@ pub trait PipelineBuilder<D: Device> {
     fn add_images(&mut self, n_images: u32);
     /// Add a binding with a variable-size array of textures.
     fn add_textures(&mut self, max_textures: u32);
-    unsafe fn create_compute_pipeline(self, device: &D, code: &[u8]) -> Result<D::Pipeline, Error>;
+    unsafe fn create_compute_pipeline(
+        self,
+        device: &D,
+        code: &D::ShaderSource,
+    ) -> Result<D::Pipeline, Error>;
 }
 
 /// A builder for descriptor sets with more complex layouts.

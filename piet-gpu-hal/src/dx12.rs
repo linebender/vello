@@ -3,7 +3,7 @@
 mod error;
 mod wrappers;
 
-use std::{cell::Cell, convert::TryInto};
+use std::{cell::Cell, convert::TryInto, mem, ptr};
 
 use winapi::shared::dxgi1_3;
 use winapi::um::d3d12;
@@ -11,7 +11,7 @@ use winapi::um::d3d12;
 use crate::Error;
 
 use self::wrappers::{
-    CommandAllocator, CommandQueue, Device, Factory4, GraphicsCommandList, Resource,
+    CommandAllocator, CommandQueue, Device, Factory4, GraphicsCommandList, Resource, ShaderByteCode,
 };
 
 pub struct Dx12Instance {
@@ -24,6 +24,7 @@ pub struct Dx12Device {
     command_queue: CommandQueue,
 }
 
+#[derive(Clone)]
 pub struct Buffer {
     resource: Resource,
     size: u64,
@@ -44,9 +45,15 @@ pub enum MemFlags {
 
 pub struct CmdBuf(GraphicsCommandList);
 
-pub struct Pipeline;
+pub struct Pipeline {
+    pipeline_state: wrappers::PipelineState,
+    root_signature: wrappers::RootSignature,
+}
 
-pub struct DescriptorSet;
+// Right now, each descriptor set gets its own heap, but we'll move
+// to a more sophisticated allocation scheme, probably using the
+// gpu-descriptor crate.
+pub struct DescriptorSet(wrappers::DescriptorHeap);
 
 pub struct QueryPool;
 
@@ -59,11 +66,18 @@ pub struct Fence {
 
 pub struct Semaphore;
 
-// TODO
-pub struct PipelineBuilder;
+#[derive(Default)]
+pub struct PipelineBuilder {
+    ranges: Vec<d3d12::D3D12_DESCRIPTOR_RANGE>,
+    n_uav: u32,
+    // TODO: add counters for other resource types
+}
 
 // TODO
-pub struct DescriptorSetBuilder;
+#[derive(Default)]
+pub struct DescriptorSetBuilder {
+    buffers: Vec<Buffer>,
+}
 
 impl Dx12Instance {
     /// Create a new instance.
@@ -72,6 +86,12 @@ impl Dx12Instance {
     /// TODO: can probably be a trait.
     pub fn new() -> Result<Dx12Instance, Error> {
         unsafe {
+            #[cfg(debug_assertions)]
+            if let Err(e) = wrappers::enable_debug_layer() {
+                // Maybe a better logging solution?
+                println!("{}", e);
+            }
+
             #[cfg(debug_assertions)]
             let factory_flags = dxgi1_3::DXGI_CREATE_FACTORY_DEBUG;
 
@@ -131,6 +151,9 @@ impl crate::Device for Dx12Device {
     type DescriptorSetBuilder = DescriptorSetBuilder;
 
     type Sampler = ();
+
+    // Currently this is HLSL source, but we'll probably change it to IR.
+    type ShaderSource = str;
 
     fn create_buffer(&self, size: u64, mem_flags: Self::MemFlags) -> Result<Self::Buffer, Error> {
         unsafe {
@@ -258,11 +281,11 @@ impl crate::Device for Dx12Device {
     }
 
     unsafe fn pipeline_builder(&self) -> Self::PipelineBuilder {
-        todo!()
+        PipelineBuilder::default()
     }
 
     unsafe fn descriptor_set_builder(&self) -> Self::DescriptorSetBuilder {
-        todo!()
+        DescriptorSetBuilder::default()
     }
 
     unsafe fn create_sampler(&self, params: crate::SamplerParams) -> Result<Self::Sampler, Error> {
@@ -283,15 +306,29 @@ impl crate::CmdBuf<Dx12Device> for CmdBuf {
         descriptor_set: &DescriptorSet,
         size: (u32, u32, u32),
     ) {
-        todo!()
+        self.0.set_pipeline_state(&pipeline.pipeline_state);
+        self.0
+            .set_compute_pipeline_root_signature(&pipeline.root_signature);
+        self.0.set_descriptor_heaps(&[&descriptor_set.0]);
+        self.0.set_compute_root_descriptor_table(
+            0,
+            descriptor_set.0.get_gpu_descriptor_handle_at_offset(0),
+        );
+        self.0.dispatch(size.0, size.1, size.2);
     }
 
     unsafe fn memory_barrier(&mut self) {
-        todo!()
+        // See comments in CommandBuffer::pipeline_barrier in gfx-hal dx12 backend.
+        // The "proper" way to do this would be to name the actual buffers participating
+        // in the barrier. But it seems like this is a reasonable way to create a
+        // global barrier.
+        let bar = wrappers::create_uav_resource_barrier(ptr::null_mut());
+        self.0.resource_barrier(&[bar]);
     }
 
     unsafe fn host_barrier(&mut self) {
-        todo!()
+        // TODO: anything special here?
+        self.memory_barrier();
     }
 
     unsafe fn image_barrier(
@@ -308,7 +345,8 @@ impl crate::CmdBuf<Dx12Device> for CmdBuf {
     }
 
     unsafe fn copy_buffer(&self, src: &Buffer, dst: &Buffer) {
-        todo!()
+        let size = src.size.min(dst.size);
+        self.0.copy_buffer(&dst.resource, 0, &src.resource, 0, size);
     }
 
     unsafe fn copy_image_to_buffer(&self, src: &Image, dst: &Buffer) {
@@ -344,36 +382,124 @@ impl crate::MemFlags for MemFlags {
 
 impl crate::PipelineBuilder<Dx12Device> for PipelineBuilder {
     fn add_buffers(&mut self, n_buffers: u32) {
-        todo!()
+        if n_buffers != 0 {
+            self.ranges.push(d3d12::D3D12_DESCRIPTOR_RANGE {
+                RangeType: d3d12::D3D12_DESCRIPTOR_RANGE_TYPE_UAV,
+                NumDescriptors: n_buffers,
+                BaseShaderRegister: self.n_uav,
+                RegisterSpace: 0,
+                OffsetInDescriptorsFromTableStart: d3d12::D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND,
+            });
+            self.n_uav += n_buffers;
+        }
     }
 
     fn add_images(&mut self, n_images: u32) {
-        todo!()
+        if n_images != 0 {
+            todo!()
+        }
     }
 
     fn add_textures(&mut self, max_textures: u32) {
         todo!()
     }
 
-    unsafe fn create_compute_pipeline(self, device: &Dx12Device, code: &[u8]) -> Result<Pipeline, Error> {
-        todo!()
+    unsafe fn create_compute_pipeline(
+        self,
+        device: &Dx12Device,
+        code: &str,
+    ) -> Result<Pipeline, Error> {
+        #[cfg(debug_assertions)]
+        let flags = winapi::um::d3dcompiler::D3DCOMPILE_DEBUG
+            | winapi::um::d3dcompiler::D3DCOMPILE_SKIP_OPTIMIZATION;
+        #[cfg(not(debug_assertions))]
+        let flags = 0;
+        let shader_blob = ShaderByteCode::compile(code, "cs_5_1", "main", flags)?;
+        let shader = ShaderByteCode::from_blob(shader_blob);
+        let mut root_parameter = d3d12::D3D12_ROOT_PARAMETER {
+            ParameterType: d3d12::D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE,
+            ShaderVisibility: d3d12::D3D12_SHADER_VISIBILITY_ALL,
+            ..mem::zeroed()
+        };
+        *root_parameter.u.DescriptorTable_mut() = d3d12::D3D12_ROOT_DESCRIPTOR_TABLE {
+            NumDescriptorRanges: self.ranges.len().try_into()?,
+            pDescriptorRanges: self.ranges.as_ptr(),
+        };
+        let root_signature_desc = d3d12::D3D12_ROOT_SIGNATURE_DESC {
+            NumParameters: 1,
+            pParameters: &root_parameter,
+            NumStaticSamplers: 0,
+            pStaticSamplers: ptr::null(),
+            Flags: d3d12::D3D12_ROOT_SIGNATURE_FLAG_NONE,
+        };
+        let root_signature_blob = wrappers::RootSignature::serialize_description(
+            &root_signature_desc,
+            d3d12::D3D_ROOT_SIGNATURE_VERSION_1,
+        )?;
+        let root_signature = device
+            .device
+            .create_root_signature(0, root_signature_blob)?;
+        let desc = d3d12::D3D12_COMPUTE_PIPELINE_STATE_DESC {
+            pRootSignature: root_signature.0.as_raw(),
+            CS: shader.bytecode,
+            NodeMask: 0,
+            CachedPSO: d3d12::D3D12_CACHED_PIPELINE_STATE {
+                pCachedBlob: ptr::null(),
+                CachedBlobSizeInBytes: 0,
+            },
+            Flags: d3d12::D3D12_PIPELINE_STATE_FLAG_NONE,
+        };
+        let pipeline_state = device.device.create_compute_pipeline_state(&desc)?;
+        Ok(Pipeline {
+            pipeline_state,
+            root_signature,
+        })
     }
 }
 
 impl crate::DescriptorSetBuilder<Dx12Device> for DescriptorSetBuilder {
     fn add_buffers(&mut self, buffers: &[&Buffer]) {
-        todo!()
+        // Note: we could get rid of the clone here (which is an AddRef)
+        // and store a raw pointer, as it's a safety precondition that
+        // the resources are kept alive til build.
+        self.buffers.extend(buffers.iter().copied().cloned());
     }
 
     fn add_images(&mut self, images: &[&Image]) {
-        todo!()
+        if !images.is_empty() {
+            todo!()
+        }
     }
 
     fn add_textures(&mut self, images: &[&Image]) {
         todo!()
     }
 
-    unsafe fn build(self, device: &Dx12Device, pipeline: &Pipeline) -> Result<DescriptorSet, Error> {
-        todo!()
+    unsafe fn build(
+        self,
+        device: &Dx12Device,
+        _pipeline: &Pipeline,
+    ) -> Result<DescriptorSet, Error> {
+        let n_descriptors = self.buffers.len();
+        let heap_desc = d3d12::D3D12_DESCRIPTOR_HEAP_DESC {
+            Type: d3d12::D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
+            NumDescriptors: n_descriptors.try_into()?,
+            Flags: d3d12::D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,
+            NodeMask: 0,
+        };
+        let heap = device.device.create_descriptor_heap(&heap_desc)?;
+        let mut ix = 0;
+        for buffer in self.buffers {
+            device
+                .device
+                .create_byte_addressed_buffer_unordered_access_view(
+                    &buffer.resource,
+                    heap.get_cpu_descriptor_handle_at_offset(ix),
+                    0,
+                    (buffer.size / 4).try_into()?,
+                );
+            ix += 1;
+        }
+        Ok(DescriptorSet(heap))
     }
 }

@@ -161,10 +161,19 @@ impl Drop for Resource {
         unsafe {
             let ptr = self.get();
             if !ptr.is_null() {
-                // Should warn here if resource was created for buffer, but
-                // it will probably happen in normal operation for things like
-                // swapchain textures.
                 (*ptr).Release();
+            }
+        }
+    }
+}
+
+impl Clone for Resource {
+    fn clone(&self) -> Self {
+        unsafe {
+            let ptr = self.get_mut();
+            (*ptr).AddRef();
+            Resource {
+                ptr: AtomicPtr::new(ptr),
             }
         }
     }
@@ -236,7 +245,7 @@ impl CommandQueue {
         explain_error(
             self.0.GetTimestampFrequency(&mut result),
             "could not get timestamp frequency",
-        );
+        )?;
 
         Ok(result)
     }
@@ -310,7 +319,7 @@ impl SwapChain3 {
 }
 
 impl Blob {
-    pub unsafe fn print_to_console(blob: Blob) {
+    pub unsafe fn print_to_console(blob: &Blob) {
         println!("==SHADER COMPILE MESSAGES==");
         let message = {
             let pointer = blob.0.GetBufferPointer();
@@ -457,7 +466,7 @@ impl Device {
                 &mut pipeline_state as *mut _ as *mut _,
             ),
             "device could not create compute pipeline state",
-        );
+        )?;
 
         Ok(PipelineState(ComPtr::from_raw(pipeline_state)))
     }
@@ -468,14 +477,16 @@ impl Device {
         blob: Blob,
     ) -> Result<RootSignature, Error> {
         let mut signature = ptr::null_mut();
-        explain_error(self.0.CreateRootSignature(
-            node_mask,
-            blob.0.GetBufferPointer(),
-            blob.0.GetBufferSize(),
-            &d3d12::ID3D12RootSignature::uuidof(),
-            &mut signature as *mut _ as *mut _,
-        ),
-        "device could not create root signature");
+        explain_error(
+            self.0.CreateRootSignature(
+                node_mask,
+                blob.0.GetBufferPointer(),
+                blob.0.GetBufferSize(),
+                &d3d12::ID3D12RootSignature::uuidof(),
+                &mut signature as *mut _ as *mut _,
+            ),
+            "device could not create root signature",
+        )?;
 
         Ok(RootSignature(ComPtr::from_raw(signature)))
     }
@@ -532,7 +543,7 @@ impl Device {
 
     pub unsafe fn create_byte_addressed_buffer_unordered_access_view(
         &self,
-        resource: Resource,
+        resource: &Resource,
         descriptor: CpuDescriptor,
         first_element: u64,
         num_elements: u32,
@@ -558,7 +569,7 @@ impl Device {
 
     pub unsafe fn create_unordered_access_view(
         &self,
-        resource: Resource,
+        resource: &Resource,
         descriptor: CpuDescriptor,
     ) {
         self.0.CreateUnorderedAccessView(
@@ -571,7 +582,7 @@ impl Device {
 
     pub unsafe fn create_constant_buffer_view(
         &self,
-        resource: Resource,
+        resource: &Resource,
         descriptor: CpuDescriptor,
         size_in_bytes: u32,
     ) {
@@ -585,7 +596,7 @@ impl Device {
 
     pub unsafe fn create_byte_addressed_buffer_shader_resource_view(
         &self,
-        resource: Resource,
+        resource: &Resource,
         descriptor: CpuDescriptor,
         first_element: u64,
         num_elements: u32,
@@ -611,7 +622,7 @@ impl Device {
 
     pub unsafe fn create_structured_buffer_shader_resource_view(
         &self,
-        resource: Resource,
+        resource: &Resource,
         descriptor: CpuDescriptor,
         first_element: u64,
         num_elements: u32,
@@ -635,7 +646,7 @@ impl Device {
 
     pub unsafe fn create_texture2d_shader_resource_view(
         &self,
-        resource: Resource,
+        resource: &Resource,
         format: dxgiformat::DXGI_FORMAT,
         descriptor: CpuDescriptor,
     ) {
@@ -657,7 +668,7 @@ impl Device {
 
     pub unsafe fn create_render_target_view(
         &self,
-        resource: Resource,
+        resource: &Resource,
         desc: *const d3d12::D3D12_RENDER_TARGET_VIEW_DESC,
         descriptor: CpuDescriptor,
     ) {
@@ -1045,20 +1056,28 @@ impl RootSignature {
     pub unsafe fn serialize_description(
         desc: &d3d12::D3D12_ROOT_SIGNATURE_DESC,
         version: d3d12::D3D_ROOT_SIGNATURE_VERSION,
-    ) -> Blob {
+    ) -> Result<Blob, Error> {
         let mut blob = ptr::null_mut();
-        //TODO: properly use error blob
-        let mut _error = ptr::null_mut();
+        let mut error_blob_ptr = ptr::null_mut();
 
-        error::error_if_failed_else_unit(d3d12::D3D12SerializeRootSignature(
-            desc as *const _,
-            version,
-            &mut blob as *mut _ as *mut _,
-            &mut _error as *mut _ as *mut _,
-        ))
-        .expect("could not serialize root signature description");
+        let hresult =
+            d3d12::D3D12SerializeRootSignature(desc, version, &mut blob, &mut error_blob_ptr);
 
-        Blob(ComPtr::from_raw(blob))
+        let error_blob = if error_blob_ptr.is_null() {
+            None
+        } else {
+            Some(Blob(ComPtr::from_raw(error_blob_ptr)))
+        };
+        #[cfg(debug_assertions)]
+        {
+            if let Some(error_blob) = &error_blob {
+                Blob::print_to_console(error_blob);
+            }
+        }
+
+        explain_error(hresult, "could not serialize root signature description")?;
+
+        Ok(Blob(ComPtr::from_raw(blob)))
     }
 }
 
@@ -1075,6 +1094,8 @@ impl ShaderByteCode {
     }
 
     // `blob` may not be null.
+    // TODO: this is not super elegant, maybe want to move the get
+    // operations closer to where they're used.
     pub unsafe fn from_blob(blob: Blob) -> ShaderByteCode {
         ShaderByteCode {
             bytecode: d3d12::D3D12_SHADER_BYTECODE {
@@ -1089,11 +1110,11 @@ impl ShaderByteCode {
     ///
     /// * `target`: example format: `ps_5_1`.
     pub unsafe fn compile(
-        source: String,
-        target: String,
-        entry: String,
+        source: &str,
+        target: &str,
+        entry: &str,
         flags: minwindef::DWORD,
-    ) -> Blob {
+    ) -> Result<Blob, Error> {
         let mut shader_blob_ptr: *mut ID3DBlob = ptr::null_mut();
         //TODO: use error blob properly
         let mut error_blob_ptr: *mut ID3DBlob = ptr::null_mut();
@@ -1109,37 +1130,42 @@ impl ShaderByteCode {
             ptr::null(),
             ptr::null(),
             d3dcompiler::D3D_COMPILE_STANDARD_FILE_INCLUDE,
-            entry.as_ptr() as *const _,
-            target.as_ptr() as *const _,
+            entry.as_ptr(),
+            target.as_ptr(),
             flags,
             0,
-            &mut shader_blob_ptr as *mut _ as *mut _,
-            &mut error_blob_ptr as *mut _ as *mut _,
+            &mut shader_blob_ptr,
+            &mut error_blob_ptr,
         );
 
+        let error_blob = if error_blob_ptr.is_null() {
+            None
+        } else {
+            Some(Blob(ComPtr::from_raw(error_blob_ptr)))
+        };
         #[cfg(debug_assertions)]
         {
-            if !error_blob_ptr.is_null() {
-                let error_blob = Blob(ComPtr::from_raw(error_blob_ptr));
-                Blob::print_to_console(error_blob.clone());
+            if let Some(error_blob) = &error_blob {
+                Blob::print_to_console(error_blob);
             }
         }
 
-        error::error_if_failed_else_unit(hresult).expect("shader compilation failed");
+        // TODO: we can put the shader compilation error into the returned error.
+        explain_error(hresult, "shader compilation failed")?;
 
-        Blob(ComPtr::from_raw(shader_blob_ptr))
+        Ok(Blob(ComPtr::from_raw(shader_blob_ptr)))
     }
 
     pub unsafe fn compile_from_file(
         file_path: &Path,
-        target: String,
-        entry: String,
+        target: &str,
+        entry: &str,
         flags: minwindef::DWORD,
-    ) -> Blob {
+    ) -> Result<Blob, Error> {
         let file_open_error = format!("could not open shader source file for entry: {}", &entry);
         let source = std::fs::read_to_string(file_path).expect(&file_open_error);
 
-        ShaderByteCode::compile(source, target, entry, flags)
+        ShaderByteCode::compile(&source, target, entry, flags)
     }
 }
 
@@ -1216,22 +1242,21 @@ impl GraphicsCommandList {
             .expect("could not reset command list");
     }
 
-    pub unsafe fn set_compute_pipeline_root_signature(&self, signature: RootSignature) {
+    pub unsafe fn set_compute_pipeline_root_signature(&self, signature: &RootSignature) {
         self.0.SetComputeRootSignature(signature.0.as_raw());
     }
 
-    pub unsafe fn set_graphics_pipeline_root_signature(&self, signature: RootSignature) {
+    pub unsafe fn set_graphics_pipeline_root_signature(&self, signature: &RootSignature) {
         self.0.SetGraphicsRootSignature(signature.0.as_raw());
     }
 
-    pub unsafe fn set_resource_barrier(
-        &self,
-        resource_barriers: Vec<d3d12::D3D12_RESOURCE_BARRIER>,
-    ) {
+    pub unsafe fn resource_barrier(&self, resource_barriers: &[d3d12::D3D12_RESOURCE_BARRIER]) {
         self.0.ResourceBarrier(
-            u32::try_from(resource_barriers.len())
-                .expect("could not safely convert resource_barriers.len() into u32"),
-            (&resource_barriers).as_ptr(),
+            resource_barriers
+                .len()
+                .try_into()
+                .expect("Waaaaaay too many barriers"),
+            resource_barriers.as_ptr(),
         );
     }
 
@@ -1258,7 +1283,7 @@ impl GraphicsCommandList {
             .DrawInstanced(num_vertices, num_instances, start_vertex, start_instance);
     }
 
-    pub unsafe fn set_pipeline_state(&self, pipeline_state: PipelineState) {
+    pub unsafe fn set_pipeline_state(&self, pipeline_state: &PipelineState) {
         self.0.SetPipelineState(pipeline_state.0.as_raw());
     }
 
@@ -1340,13 +1365,13 @@ impl GraphicsCommandList {
             .IASetVertexBuffers(start_slot, num_views, vertex_buffer_view as *const _);
     }
 
-    pub unsafe fn set_descriptor_heaps(&self, descriptor_heaps: Vec<DescriptorHeap>) {
-        let descriptor_heap_pointers: Vec<*mut d3d12::ID3D12DescriptorHeap> =
+    pub unsafe fn set_descriptor_heaps(&self, descriptor_heaps: &[&DescriptorHeap]) {
+        let mut descriptor_heap_pointers: Vec<_> =
             descriptor_heaps.iter().map(|dh| dh.heap.as_raw()).collect();
         self.0.SetDescriptorHeaps(
             u32::try_from(descriptor_heap_pointers.len())
                 .expect("could not safely convert descriptor_heap_pointers.len() into u32"),
-            (&descriptor_heap_pointers).as_ptr() as *mut _,
+            descriptor_heap_pointers.as_mut_ptr(),
         );
     }
 
@@ -1398,6 +1423,23 @@ impl GraphicsCommandList {
 
         self.0
             .CopyTextureRegion(&dst as *const _, 0, 0, 0, &src as *const _, ptr::null());
+    }
+
+    pub unsafe fn copy_buffer(
+        &self,
+        dst_buf: &Resource,
+        dst_offset: u64,
+        src_buf: &Resource,
+        src_offset: u64,
+        size: u64,
+    ) {
+        self.0.CopyBufferRegion(
+            dst_buf.get_mut(),
+            dst_offset,
+            src_buf.get_mut(),
+            src_offset,
+            size,
+        );
     }
 }
 
@@ -1471,17 +1513,20 @@ pub unsafe fn create_transition_resource_barrier(
     resource_barrier
 }
 
-pub unsafe fn enable_debug_layer() {
+pub unsafe fn enable_debug_layer() -> Result<(), Error> {
     println!("enabling debug layer.");
 
     let mut debug_controller: *mut d3d12sdklayers::ID3D12Debug1 = ptr::null_mut();
-    error::error_if_failed_else_unit(d3d12::D3D12GetDebugInterface(
-        &d3d12sdklayers::ID3D12Debug1::uuidof(),
-        &mut debug_controller as *mut _ as *mut _,
-    ))
-    .expect("could not create debug controller");
+    explain_error(
+        d3d12::D3D12GetDebugInterface(
+            &d3d12sdklayers::ID3D12Debug1::uuidof(),
+            &mut debug_controller as *mut _ as *mut _,
+        ),
+        "could not create debug controller",
+    )?;
 
-    (*debug_controller).EnableDebugLayer();
+    let debug_controller = ComPtr::from_raw(debug_controller);
+    debug_controller.EnableDebugLayer();
 
     let mut queue = ptr::null_mut();
     let hr = dxgi1_3::DXGIGetDebugInterface1(
@@ -1490,13 +1535,10 @@ pub unsafe fn enable_debug_layer() {
         &mut queue as *mut _ as *mut _,
     );
 
-    if winerror::SUCCEEDED(hr) {
-        (*debug_controller).SetEnableGPUBasedValidation(minwindef::TRUE);
-    } else {
-        println!("failed to enable debug layer!");
-    }
+    explain_error(hr, "failed to enable debug layer")?;
 
-    (*debug_controller).Release();
+    debug_controller.SetEnableGPUBasedValidation(minwindef::TRUE);
+    Ok(())
 }
 
 pub struct InputElementDesc {

@@ -453,6 +453,7 @@ impl crate::Device for VkDevice {
     type PipelineBuilder = PipelineBuilder;
     type DescriptorSetBuilder = DescriptorSetBuilder;
     type Sampler = vk::Sampler;
+    type ShaderSource = [u8];
 
     fn query_gpu_info(&self) -> GpuInfo {
         self.gpu_info.clone()

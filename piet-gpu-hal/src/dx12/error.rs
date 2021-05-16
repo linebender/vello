@@ -21,7 +21,7 @@ impl std::fmt::Debug for Error {
         match self {
             Error::Hresult(hr) => write!(f, "hresult {:x}", hr),
             Error::ExplainedHr(exp, hr) => {
-                write!(f, "{}: ", hr)?;
+                write!(f, "{}: ", exp)?;
                 write_hr(f, *hr)
             }
         }
