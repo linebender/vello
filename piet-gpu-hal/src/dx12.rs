@@ -59,6 +59,12 @@ pub struct Fence {
 
 pub struct Semaphore;
 
+// TODO
+pub struct PipelineBuilder;
+
+// TODO
+pub struct DescriptorSetBuilder;
+
 impl Dx12Instance {
     /// Create a new instance.
     ///
@@ -120,6 +126,12 @@ impl crate::Device for Dx12Device {
 
     type Semaphore = Semaphore;
 
+    type PipelineBuilder = PipelineBuilder;
+
+    type DescriptorSetBuilder = DescriptorSetBuilder;
+
+    type Sampler = ();
+
     fn create_buffer(&self, size: u64, mem_flags: Self::MemFlags) -> Result<Self::Buffer, Error> {
         unsafe {
             let resource = match mem_flags {
@@ -149,24 +161,6 @@ impl crate::Device for Dx12Device {
     }
 
     unsafe fn destroy_image(&self, image: &Self::Image) -> Result<(), Error> {
-        todo!()
-    }
-
-    unsafe fn create_simple_compute_pipeline(
-        &self,
-        code: &[u8],
-        n_buffers: u32,
-        n_images: u32,
-    ) -> Result<Self::Pipeline, Error> {
-        todo!()
-    }
-
-    unsafe fn create_descriptor_set(
-        &self,
-        pipeline: &Self::Pipeline,
-        bufs: &[&Self::Buffer],
-        images: &[&Self::Image],
-    ) -> Result<Self::DescriptorSet, Error> {
         todo!()
     }
 
@@ -258,6 +252,22 @@ impl crate::Device for Dx12Device {
         let fence_val = fence.fence.get_value();
         Ok(fence_val == fence.val.get())
     }
+
+    fn query_gpu_info(&self) -> crate::GpuInfo {
+        todo!()
+    }
+
+    unsafe fn pipeline_builder(&self) -> Self::PipelineBuilder {
+        todo!()
+    }
+
+    unsafe fn descriptor_set_builder(&self) -> Self::DescriptorSetBuilder {
+        todo!()
+    }
+
+    unsafe fn create_sampler(&self, params: crate::SamplerParams) -> Result<Self::Sampler, Error> {
+        todo!()
+    }
 }
 
 impl crate::CmdBuf<Dx12Device> for CmdBuf {
@@ -293,7 +303,7 @@ impl crate::CmdBuf<Dx12Device> for CmdBuf {
         todo!()
     }
 
-    unsafe fn clear_buffer(&self, buffer: &Buffer) {
+    unsafe fn clear_buffer(&self, buffer: &Buffer, size: Option<u64>) {
         todo!()
     }
 
@@ -329,5 +339,41 @@ impl crate::MemFlags for MemFlags {
 
     fn host_coherent() -> Self {
         MemFlags::HostCoherent
+    }
+}
+
+impl crate::PipelineBuilder<Dx12Device> for PipelineBuilder {
+    fn add_buffers(&mut self, n_buffers: u32) {
+        todo!()
+    }
+
+    fn add_images(&mut self, n_images: u32) {
+        todo!()
+    }
+
+    fn add_textures(&mut self, max_textures: u32) {
+        todo!()
+    }
+
+    unsafe fn create_compute_pipeline(self, device: &Dx12Device, code: &[u8]) -> Result<Pipeline, Error> {
+        todo!()
+    }
+}
+
+impl crate::DescriptorSetBuilder<Dx12Device> for DescriptorSetBuilder {
+    fn add_buffers(&mut self, buffers: &[&Buffer]) {
+        todo!()
+    }
+
+    fn add_images(&mut self, images: &[&Image]) {
+        todo!()
+    }
+
+    fn add_textures(&mut self, images: &[&Image]) {
+        todo!()
+    }
+
+    unsafe fn build(self, device: &Dx12Device, pipeline: &Pipeline) -> Result<DescriptorSet, Error> {
+        todo!()
     }
 }
