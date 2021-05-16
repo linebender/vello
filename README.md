@@ -12,21 +12,15 @@ The main goal is to answer research questions about the future of 2D rendering:
 
 * To what extent do "advanced" GPU features (subgroups, descriptor arrays) help?
 
+* Can we improve quality and extend the imaging model in useful ways?
+
 Another goal is to explore a standards-based, portable approach to GPU compute.
 
-## Non-goals
+## Blogs and other writing
 
-There are a great number of concerns that need to be addressed in production:
+Much of the research progress on piet-gpu is documented in blog entries. See [doc/blogs.md](doc/blogs.md) for pointers to those.
 
-* Compatibility with older graphics hardware (including runtime detection)
-
-* Asynchrony
-
-* Swapchains and presentation
-
-## Notes
-
-A more detailed explanation will come. But for now, a few notes. Also refer to [Fast 2D rendering on GPU] and linked blog posts for more information.
+There is a much larger and detailed [vision](doc/vision.md) that explains the longer-term goals of the project, and how we might get there.
 
 ### Why not gfx-hal?
 
@@ -36,7 +30,7 @@ The hal layer in this repo is strongly inspired by gfx-hal, but with some differ
 
 ### Why not wgpu?
 
-The case for wgpu is also strong, but it's even less mature. I'd love to see it become a solid foundation, at which point I'd use it as the main integration with [druid].
+The case for wgpu is also strong, but it's even less mature. I'd love to see it become a solid foundation, at which point I'd use it as the main integration with [Druid].
 
 In short, the goal is to facilitate the research now, collect the data, and then use that to choose a best path for shipping later.
 
@@ -56,7 +50,6 @@ Contributions are welcome by pull request. The [Rust code of conduct] applies.
 [SPIRV-Cross]: https://github.com/KhronosGroup/SPIRV-Cross
 [Shader Model 6]: https://docs.microsoft.com/en-us/windows/win32/direct3dhlsl/hlsl-shader-model-6-0-features-for-direct3d-12
 [DXC]: https://github.com/microsoft/DirectXShaderCompiler
-[druid]: https://github.com/xi-editor/druid
+[Druid]: https://github.com/xi-editor/druid
 [Unlicense]: https://unlicense.org/
 [Rust code of conduct]: https://www.rust-lang.org/policies/code-of-conduct
-[Fast 2D rendering on GPU]: https://raphlinus.github.io/rust/graphics/gpu/2020/06/13/fast-2d-rendering.html

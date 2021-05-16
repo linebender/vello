@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
+
 // Coarse rasterization of path segments.
 
 // Allocation and initialization of tiles for paths.
@@ -5,6 +7,7 @@
 #version 450
 #extension GL_GOOGLE_include_directive : enable
 
+#include "mem.h"
 #include "setup.h"
 
 #define LG_COARSE_WG 5
@@ -12,18 +15,8 @@
 
 layout(local_size_x = COARSE_WG, local_size_y = 1) in;
 
-layout(set = 0, binding = 0) buffer PathSegBuf {
-    uint[] pathseg;
-};
-
-layout(set = 0, binding = 1) buffer AllocBuf {
-    uint n_paths;
-    uint n_pathseg;
-    uint alloc;
-};
-
-layout(set = 0, binding = 2) buffer TileBuf {
-    uint[] tile;
+layout(set = 0, binding = 1) readonly buffer ConfigBuf {
+    Config conf;
 };
 
 #include "pathseg.h"
@@ -95,22 +88,27 @@ SubdivResult estimate_subdiv(vec2 p0, vec2 p1, vec2 p2, float sqrt_tol) {
 
 void main() {
     uint element_ix = gl_GlobalInvocationID.x;
-    PathSegRef ref = PathSegRef(element_ix * PathSeg_size);
+    PathSegRef ref = PathSegRef(conf.pathseg_alloc.offset + element_ix * PathSeg_size);
 
-    uint tag = PathSeg_Nop;
-    if (element_ix < n_pathseg) {
-        tag = PathSeg_tag(ref);
+    PathSegTag tag = PathSegTag(PathSeg_Nop, 0);
+    if (element_ix < conf.n_pathseg) {
+        tag = PathSeg_tag(conf.pathseg_alloc, ref);
     }
-    // Setup for coverage algorithm.
-    float a, b, c;
-    // Bounding box of element in pixel coordinates.
-    float xmin, xmax, ymin, ymax;
-    PathStrokeLine line;
-    float dx;
-    switch (tag) {
-    case PathSeg_FillCubic:
-    case PathSeg_StrokeCubic:
-        PathStrokeCubic cubic = PathSeg_StrokeCubic_read(ref);
+    bool mem_ok = mem_error == NO_ERROR;
+    switch (tag.tag) {
+    case PathSeg_Cubic:
+        PathCubic cubic = PathSeg_Cubic_read(conf.pathseg_alloc, ref);
+
+        uint trans_ix = cubic.trans_ix;
+        if (trans_ix > 0) {
+            TransformSegRef trans_ref = TransformSegRef(conf.trans_alloc.offset + (trans_ix - 1) * TransformSeg_size);
+            TransformSeg trans = TransformSeg_read(conf.trans_alloc, trans_ref);
+            cubic.p0 = trans.mat.xy * cubic.p0.x + trans.mat.zw * cubic.p0.y + trans.translate;
+            cubic.p1 = trans.mat.xy * cubic.p1.x + trans.mat.zw * cubic.p1.y + trans.translate;
+            cubic.p2 = trans.mat.xy * cubic.p2.x + trans.mat.zw * cubic.p2.y + trans.translate;
+            cubic.p3 = trans.mat.xy * cubic.p3.x + trans.mat.zw * cubic.p3.y + trans.translate;
+        }
+
         vec2 err_v = 3.0 * (cubic.p2 - cubic.p1) + cubic.p0 - cubic.p3;
         float err = err_v.x * err_v.x + err_v.y * err_v.y;
         // The number of quadratics.
@@ -131,8 +129,10 @@ void main() {
         }
         uint n = max(uint(ceil(val * 0.5 / sqrt(REM_ACCURACY))), 1);
 
+        bool is_stroke = fill_mode_from_flags(tag.flags) == MODE_STROKE;
         uint path_ix = cubic.path_ix;
-        Path path = Path_read(PathRef(path_ix * Path_size));
+        Path path = Path_read(conf.tile_alloc, PathRef(conf.tile_alloc.offset + path_ix * Path_size));
+        Alloc path_alloc = new_alloc(path.tiles.offset, (path.bbox.z - path.bbox.x) * (path.bbox.w - path.bbox.y) * Tile_size, mem_ok);
         ivec4 bbox = ivec4(path.bbox);
         vec2 p0 = cubic.p0;
         qp0 = cubic.p0;
@@ -162,22 +162,24 @@ void main() {
                 }
 
                 // Output line segment
-                xmin = min(p0.x, p1.x) - cubic.stroke.x;
-                xmax = max(p0.x, p1.x) + cubic.stroke.x;
-                ymin = min(p0.y, p1.y) - cubic.stroke.y;
-                ymax = max(p0.y, p1.y) + cubic.stroke.y;
+
+                // Bounding box of element in pixel coordinates.
+                float xmin = min(p0.x, p1.x) - cubic.stroke.x;
+                float xmax = max(p0.x, p1.x) + cubic.stroke.x;
+                float ymin = min(p0.y, p1.y) - cubic.stroke.y;
+                float ymax = max(p0.y, p1.y) + cubic.stroke.y;
                 float dx = p1.x - p0.x;
                 float dy = p1.y - p0.y;
                 // Set up for per-scanline coverage formula, below.
                 float invslope = abs(dy) < 1e-9 ? 1e9 : dx / dy;
-                c = (cubic.stroke.x + abs(invslope) * (0.5 * float(TILE_HEIGHT_PX) + cubic.stroke.y)) * SX;
-                b = invslope; // Note: assumes square tiles, otherwise scale.
-                a = (p0.x - (p0.y - 0.5 * float(TILE_HEIGHT_PX)) * b) * SX;
+                float c = (cubic.stroke.x + abs(invslope) * (0.5 * float(TILE_HEIGHT_PX) + cubic.stroke.y)) * SX;
+                float b = invslope; // Note: assumes square tiles, otherwise scale.
+                float a = (p0.x - (p0.y - 0.5 * float(TILE_HEIGHT_PX)) * b) * SX;
 
-                int x0 = int(floor((xmin) * SX));
-                int x1 = int(ceil((xmax) * SX));
-                int y0 = int(floor((ymin) * SY));
-                int y1 = int(ceil((ymax) * SY));
+                int x0 = int(floor(xmin * SX));
+                int x1 = int(floor(xmax * SX) + 1);
+                int y0 = int(floor(ymin * SY));
+                int y1 = int(floor(ymax * SY) + 1);
 
                 x0 = clamp(x0, bbox.x, bbox.z);
                 y0 = clamp(y0, bbox.y, bbox.w);
@@ -189,48 +191,89 @@ void main() {
                 // TODO: can be tighter, use c to bound width
                 uint n_tile_alloc = uint((x1 - x0) * (y1 - y0));
                 // Consider using subgroups to aggregate atomic add.
-                uint tile_offset = atomicAdd(alloc, n_tile_alloc * TileSeg_size);
+                MallocResult tile_alloc = malloc(n_tile_alloc * TileSeg_size);
+                if (tile_alloc.failed || !mem_ok) {
+                    return;
+                }
+                uint tile_offset = tile_alloc.alloc.offset;
+
                 TileSeg tile_seg;
+
+                int xray = int(floor(p0.x*SX));
+                int last_xray = int(floor(p1.x*SX));
+                if (p0.y > p1.y) {
+                    int tmp = xray;
+                    xray = last_xray;
+                    last_xray = tmp;
+                }
                 for (int y = y0; y < y1; y++) {
                     float tile_y0 = float(y * TILE_HEIGHT_PX);
-                    if (tag == PathSeg_FillCubic && min(p0.y, p1.y) <= tile_y0) {
-                        int xray = max(int(ceil(xc - 0.5 * b)), bbox.x);
-                        if (xray < bbox.z) {
-                            int backdrop = p1.y < p0.y ? 1 : -1;
-                            TileRef tile_ref = Tile_index(path.tiles, uint(base + xray));
-                            uint tile_el = tile_ref.offset >> 2;
-                            atomicAdd(tile[tile_el + 1], backdrop);
+                    int xbackdrop = max(xray + 1, bbox.x);
+                    if (!is_stroke && min(p0.y, p1.y) < tile_y0 && xbackdrop < bbox.z) {
+                        int backdrop = p1.y < p0.y ? 1 : -1;
+                        TileRef tile_ref = Tile_index(path.tiles, uint(base + xbackdrop));
+                        uint tile_el = tile_ref.offset >> 2;
+                        if (touch_mem(path_alloc, tile_el + 1)) {
+                            atomicAdd(memory[tile_el + 1], backdrop);
                         }
                     }
-                    int xx0 = clamp(int(floor(xc - c)), x0, x1);
-                    int xx1 = clamp(int(ceil(xc + c)), x0, x1);
+
+                    // next_xray is the xray for the next scanline; the line segment intersects
+                    // all tiles between xray and next_xray.
+                    int next_xray = last_xray;
+                    if (y < y1 - 1) {
+                        float tile_y1 = float((y + 1) * TILE_HEIGHT_PX);
+                        float x_edge = mix(p0.x, p1.x, (tile_y1 - p0.y) / dy);
+                        next_xray = int(floor(x_edge*SX));
+                    }
+
+                    int min_xray = min(xray, next_xray);
+                    int max_xray = max(xray, next_xray);
+                    int xx0 = min(int(floor(xc - c)), min_xray);
+                    int xx1 = max(int(ceil(xc + c)), max_xray + 1);
+                    xx0 = clamp(xx0, x0, x1);
+                    xx1 = clamp(xx1, x0, x1);
+
                     for (int x = xx0; x < xx1; x++) {
                         float tile_x0 = float(x * TILE_WIDTH_PX);
-                        TileRef tile_ref = Tile_index(path.tiles, uint(base + x));
+                        TileRef tile_ref = Tile_index(TileRef(path.tiles.offset), uint(base + x));
                         uint tile_el = tile_ref.offset >> 2;
-                        uint old = atomicExchange(tile[tile_el], tile_offset);
-                        tile_seg.start = p0;
-                        tile_seg.end = p1;
+                        uint old = 0;
+                        if (touch_mem(path_alloc, tile_el)) {
+                            old = atomicExchange(memory[tile_el], tile_offset);
+                        }
+                        tile_seg.origin = p0;
+                        tile_seg.vector = p1 - p0;
                         float y_edge = 0.0;
-                        if (tag == PathSeg_FillCubic) {
+                        if (!is_stroke) {
                             y_edge = mix(p0.y, p1.y, (tile_x0 - p0.x) / dx);
-                            if (min(p0.x, p1.x) < tile_x0 && y_edge >= tile_y0 && y_edge < tile_y0 + TILE_HEIGHT_PX) {
+                            if (min(p0.x, p1.x) < tile_x0) {
+                                vec2 p = vec2(tile_x0, y_edge);
                                 if (p0.x > p1.x) {
-                                    tile_seg.end = vec2(tile_x0, y_edge);
+                                    tile_seg.vector = p - p0;
                                 } else {
-                                    tile_seg.start = vec2(tile_x0, y_edge);
+                                    tile_seg.origin = p;
+                                    tile_seg.vector = p1 - p;
                                 }
-                            } else {
+                                // kernel4 uses sign(vector.x) for the sign of the intersection backdrop.
+                                // Nudge zeroes towards the intended sign.
+                                if (tile_seg.vector.x == 0) {
+                                    tile_seg.vector.x = sign(p1.x - p0.x)*1e-9;
+                                }
+                            }
+                            if (x <= min_xray || max_xray < x) {
+                                // Reject inconsistent intersections.
                                 y_edge = 1e9;
                             }
                         }
                         tile_seg.y_edge = y_edge;
                         tile_seg.next.offset = old;
-                        TileSeg_write(TileSegRef(tile_offset), tile_seg);
+                        TileSeg_write(tile_alloc.alloc, TileSegRef(tile_offset), tile_seg);
                         tile_offset += TileSeg_size;
                     }
                     xc += b;
                     base += stride;
+                    xray = next_xray;
                 }
 
                 n_out += 1;

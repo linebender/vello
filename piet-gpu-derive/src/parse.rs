@@ -20,6 +20,7 @@ pub enum GpuScalar {
     U8,
     U16,
     U32,
+    TagFlags,
 }
 
 /// An algebraic datatype.
@@ -59,6 +60,7 @@ impl GpuScalar {
             "u8" => Some(GpuScalar::U8),
             "u16" => Some(GpuScalar::U16),
             "u32" => Some(GpuScalar::U32),
+            "TagFlags" => Some(GpuScalar::TagFlags),
             _ => None,
         })
     }
@@ -72,6 +74,7 @@ impl GpuScalar {
             GpuScalar::F32 | GpuScalar::I32 | GpuScalar::U32 => 4,
             GpuScalar::I8 | GpuScalar::U8 => 1,
             GpuScalar::F16 | GpuScalar::I16 | GpuScalar::U16 => 2,
+            GpuScalar::TagFlags => 0,
         }
     }
 }

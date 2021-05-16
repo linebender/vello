@@ -1,19 +1,17 @@
 use std::{borrow::Cow, ops::RangeBounds};
 
-use piet_gpu_types::encoder::{Encode, Encoder};
-
-use piet_gpu_types::scene::{
-    Clip, CubicSeg, Element, Fill, LineSeg, QuadSeg, SetLineWidth, Stroke, Transform,
-};
-
 use piet::{
     kurbo::{Affine, Insets, PathEl, Point, Rect, Shape, Size},
     HitTestPosition, TextAttribute, TextStorage,
 };
-
 use piet::{
     Color, Error, FixedGradient, FontFamily, HitTestPoint, ImageFormat, InterpolationMode,
     IntoBrush, LineMetric, RenderContext, StrokeStyle, Text, TextLayout, TextLayoutBuilder,
+};
+
+use piet_gpu_types::encoder::{Encode, Encoder};
+use piet_gpu_types::scene::{
+    Clip, CubicSeg, Element, FillColor, LineSeg, QuadSeg, SetFillMode, SetLineWidth, Transform,
 };
 
 pub struct PietGpuImage;
@@ -32,12 +30,15 @@ pub struct PietGpuRenderContext {
     // Will probably need direct accesss to hal Device to create images etc.
     inner_text: PietGpuText,
     stroke_width: f32,
+    fill_mode: FillMode,
     // We're tallying these cpu-side for expedience, but will probably
     // move this to some kind of readback from element processing.
     /// The count of elements that make it through to coarse rasterization.
     path_count: usize,
     /// The count of path segment elements.
     pathseg_count: usize,
+    /// The count of transform elements.
+    trans_count: usize,
 
     cur_transform: Affine,
     state_stack: Vec<State>,
@@ -67,6 +68,14 @@ struct ClipElement {
     bbox: Option<Rect>,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum FillMode {
+    // Fill path according to the non-zero winding rule.
+    Nonzero = 0,
+    // Fill stroked path.
+    Stroke = 1,
+}
+
 const TOLERANCE: f64 = 0.25;
 
 impl PietGpuRenderContext {
@@ -80,8 +89,10 @@ impl PietGpuRenderContext {
             elements,
             inner_text,
             stroke_width,
+            fill_mode: FillMode::Nonzero,
             path_count: 0,
             pathseg_count: 0,
+            trans_count: 0,
             cur_transform: Affine::default(),
             state_stack: Vec::new(),
             clip_stack: Vec::new(),
@@ -100,6 +111,19 @@ impl PietGpuRenderContext {
     pub fn pathseg_count(&self) -> usize {
         self.pathseg_count
     }
+
+    pub fn trans_count(&self) -> usize {
+        self.trans_count
+    }
+}
+
+fn set_fill_mode(ctx: &mut PietGpuRenderContext, fill_mode: FillMode) {
+    if ctx.fill_mode != fill_mode {
+        ctx.elements.push(Element::SetFillMode(SetFillMode {
+            fill_mode: fill_mode as u32,
+        }));
+        ctx.fill_mode = fill_mode;
+    }
 }
 
 impl RenderContext for PietGpuRenderContext {
@@ -113,7 +137,19 @@ impl RenderContext for PietGpuRenderContext {
     }
 
     fn solid_brush(&mut self, color: Color) -> Self::Brush {
-        PietGpuBrush::Solid(color.as_rgba_u32())
+        // kernel4 expects colors encoded in alpha-premultiplied sRGB:
+        //
+        // [α,sRGB(α⋅R),sRGB(α⋅G),sRGB(α⋅B)]
+        //
+        // See also http://ssp.impulsetrain.com/gamma-premult.html.
+        let (r, g, b, a) = color.as_rgba();
+        let premul = Color::rgba(
+            to_srgb(from_srgb(r) * a),
+            to_srgb(from_srgb(g) * a),
+            to_srgb(from_srgb(b) * a),
+            a,
+        );
+        PietGpuBrush::Solid(premul.as_rgba_u32())
     }
 
     fn gradient(&mut self, _gradient: impl Into<FixedGradient>) -> Result<Self::Brush, Error> {
@@ -129,6 +165,7 @@ impl RenderContext for PietGpuRenderContext {
                 .push(Element::SetLineWidth(SetLineWidth { width: width_f32 }));
             self.stroke_width = width_f32;
         }
+        set_fill_mode(self, FillMode::Stroke);
         let brush = brush.make_brush(self, || shape.bounding_box()).into_owned();
         match brush {
             PietGpuBrush::Solid(rgba_color) => {
@@ -136,8 +173,8 @@ impl RenderContext for PietGpuRenderContext {
                 self.accumulate_bbox(|| shape.bounding_box() + Insets::uniform(width * 0.5));
                 let path = shape.path_elements(TOLERANCE);
                 self.encode_path(path, false);
-                let stroke = Stroke { rgba_color };
-                self.elements.push(Element::Stroke(stroke));
+                let stroke = FillColor { rgba_color };
+                self.elements.push(Element::FillColor(stroke));
                 self.path_count += 1;
             }
             _ => (),
@@ -160,9 +197,10 @@ impl RenderContext for PietGpuRenderContext {
             // Perhaps that should be added to kurbo.
             self.accumulate_bbox(|| shape.bounding_box());
             let path = shape.path_elements(TOLERANCE);
+            set_fill_mode(self, FillMode::Nonzero);
             self.encode_path(path, true);
-            let fill = Fill { rgba_color };
-            self.elements.push(Element::Fill(fill));
+            let fill = FillColor { rgba_color };
+            self.elements.push(Element::FillColor(fill));
             self.path_count += 1;
         }
     }
@@ -170,6 +208,7 @@ impl RenderContext for PietGpuRenderContext {
     fn fill_even_odd(&mut self, _shape: impl Shape, _brush: &impl IntoBrush<Self>) {}
 
     fn clip(&mut self, shape: impl Shape) {
+        set_fill_mode(self, FillMode::Nonzero);
         let path = shape.path_elements(TOLERANCE);
         self.encode_path(path, true);
         let begin_ix = self.elements.len();
@@ -207,6 +246,7 @@ impl RenderContext for PietGpuRenderContext {
                 let a_inv = state.rel_transform.inverse();
                 self.elements
                     .push(Element::Transform(to_scene_transform(a_inv)));
+                self.trans_count += 1;
             }
             self.cur_transform = state.transform;
             for _ in 0..state.n_clip {
@@ -228,6 +268,7 @@ impl RenderContext for PietGpuRenderContext {
     fn transform(&mut self, transform: Affine) {
         self.elements
             .push(Element::Transform(to_scene_transform(transform)));
+        self.trans_count += 1;
         if let Some(tos) = self.state_stack.last_mut() {
             tos.rel_transform *= transform;
         }
@@ -275,34 +316,40 @@ impl RenderContext for PietGpuRenderContext {
 }
 
 impl PietGpuRenderContext {
-    fn encode_line_seg(&mut self, seg: LineSeg, is_fill: bool) {
-        if is_fill {
-            self.elements.push(Element::FillLine(seg));
-        } else {
-            self.elements.push(Element::StrokeLine(seg));
-        }
+    fn encode_line_seg(&mut self, seg: LineSeg) {
+        self.elements.push(Element::Line(seg));
         self.pathseg_count += 1;
     }
 
-    fn encode_quad_seg(&mut self, seg: QuadSeg, is_fill: bool) {
-        if is_fill {
-            self.elements.push(Element::FillQuad(seg));
-        } else {
-            self.elements.push(Element::StrokeQuad(seg));
-        }
+    fn encode_quad_seg(&mut self, seg: QuadSeg) {
+        self.elements.push(Element::Quad(seg));
         self.pathseg_count += 1;
     }
 
-    fn encode_cubic_seg(&mut self, seg: CubicSeg, is_fill: bool) {
-        if is_fill {
-            self.elements.push(Element::FillCubic(seg));
-        } else {
-            self.elements.push(Element::StrokeCubic(seg));
-        }
+    fn encode_cubic_seg(&mut self, seg: CubicSeg) {
+        self.elements.push(Element::Cubic(seg));
         self.pathseg_count += 1;
     }
 
     fn encode_path(&mut self, path: impl Iterator<Item = PathEl>, is_fill: bool) {
+        if is_fill {
+            self.encode_path_inner(
+                path.flat_map(|el| {
+                    match el {
+                        PathEl::MoveTo(..) => Some(PathEl::ClosePath),
+                        _ => None,
+                    }
+                    .into_iter()
+                    .chain(Some(el))
+                })
+                .chain(Some(PathEl::ClosePath)),
+            )
+        } else {
+            self.encode_path_inner(path)
+        }
+    }
+
+    fn encode_path_inner(&mut self, path: impl Iterator<Item = PathEl>) {
         let flatten = false;
         if flatten {
             let mut start_pt = None;
@@ -320,7 +367,7 @@ impl PietGpuRenderContext {
                             p0: last_pt.unwrap(),
                             p1: scene_pt,
                         };
-                        self.encode_line_seg(seg, is_fill);
+                        self.encode_line_seg(seg);
                         last_pt = Some(scene_pt);
                     }
                     PathEl::ClosePath => {
@@ -330,7 +377,7 @@ impl PietGpuRenderContext {
                                     p0: last,
                                     p1: start,
                                 };
-                                self.encode_line_seg(seg, is_fill);
+                                self.encode_line_seg(seg);
                             }
                         }
                     }
@@ -354,7 +401,7 @@ impl PietGpuRenderContext {
                             p0: last_pt.unwrap(),
                             p1: scene_pt,
                         };
-                        self.encode_line_seg(seg, is_fill);
+                        self.encode_line_seg(seg);
                         last_pt = Some(scene_pt);
                     }
                     PathEl::QuadTo(p1, p2) => {
@@ -365,7 +412,7 @@ impl PietGpuRenderContext {
                             p1: scene_p1,
                             p2: scene_p2,
                         };
-                        self.encode_quad_seg(seg, is_fill);
+                        self.encode_quad_seg(seg);
                         last_pt = Some(scene_p2);
                     }
                     PathEl::CurveTo(p1, p2, p3) => {
@@ -378,7 +425,7 @@ impl PietGpuRenderContext {
                             p2: scene_p2,
                             p3: scene_p3,
                         };
-                        self.encode_cubic_seg(seg, is_fill);
+                        self.encode_cubic_seg(seg);
                         last_pt = Some(scene_p3);
                     }
                     PathEl::ClosePath => {
@@ -388,7 +435,7 @@ impl PietGpuRenderContext {
                                     p0: last,
                                     p1: start,
                                 };
-                                self.encode_line_seg(seg, is_fill);
+                                self.encode_line_seg(seg);
                             }
                         }
                     }
@@ -548,5 +595,23 @@ fn to_scene_transform(transform: Affine) -> Transform {
     Transform {
         mat: [c[0] as f32, c[1] as f32, c[2] as f32, c[3] as f32],
         translate: [c[4] as f32, c[5] as f32],
+    }
+}
+
+fn to_srgb(f: f64) -> f64 {
+    if f <= 0.0031308 {
+        f * 12.92
+    } else {
+        let a = 0.055;
+        (1. + a) * f64::powf(f, f64::recip(2.4)) - a
+    }
+}
+
+fn from_srgb(f: f64) -> f64 {
+    if f <= 0.04045 {
+        f / 12.92
+    } else {
+        let a = 0.055;
+        f64::powf((f + a) * f64::recip(1. + a), 2.4)
     }
 }

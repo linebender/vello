@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
+
 // Propagation of tile backdrop for filling.
 //
 // Each thread reads one path element and calculates the number of spanned tiles
@@ -13,6 +15,7 @@
 #version 450
 #extension GL_GOOGLE_include_directive : enable
 
+#include "mem.h"
 #include "setup.h"
 
 #define LG_BACKDROP_WG (7 + LG_WG_FACTOR)
@@ -20,54 +23,49 @@
 
 layout(local_size_x = BACKDROP_WG, local_size_y = 1) in;
 
-layout(set = 0, binding = 0) buffer AnnotatedBuf {
-    uint[] annotated;
-};
-
-// This is really only used for n_elements; maybe we can handle that
-// a different way, but it's convenient to have the same signature as
-// tile allocation.
-layout(set = 0, binding = 1) readonly buffer AllocBuf {
-    uint n_elements; // paths
-    uint n_pathseg;
-    uint alloc;
-};
-
-layout(set = 0, binding = 2) buffer TileBuf {
-    uint[] tile;
+layout(set = 0, binding = 1) readonly buffer ConfigBuf {
+    Config conf;
 };
 
 #include "annotated.h"
 #include "tile.h"
 
 shared uint sh_row_count[BACKDROP_WG];
-shared uint sh_row_base[BACKDROP_WG];
+shared Alloc sh_row_alloc[BACKDROP_WG];
 shared uint sh_row_width[BACKDROP_WG];
 
 void main() {
     uint th_ix = gl_LocalInvocationID.x;
     uint element_ix = gl_GlobalInvocationID.x;
-    AnnotatedRef ref = AnnotatedRef(element_ix * Annotated_size);
+    AnnotatedRef ref = AnnotatedRef(conf.anno_alloc.offset + element_ix * Annotated_size);
 
     // Work assignment: 1 thread : 1 path element
     uint row_count = 0;
-    if (element_ix < n_elements) {
-        uint tag = Annotated_tag(ref);
-        switch (tag) {
-        case Annotated_Fill:
-        case Annotated_FillMask:
-        case Annotated_FillMaskInv:
+    bool mem_ok = mem_error == NO_ERROR;
+    if (element_ix < conf.n_elements) {
+        AnnotatedTag tag = Annotated_tag(conf.anno_alloc, ref);
+        switch (tag.tag) {
+        case Annotated_Image:
         case Annotated_BeginClip:
-            PathRef path_ref = PathRef(element_ix * Path_size);
-            Path path = Path_read(path_ref);
+        case Annotated_Color:
+            if (fill_mode_from_flags(tag.flags) != MODE_NONZERO) {
+                break;
+            }
+            // Fall through.
+            PathRef path_ref = PathRef(conf.tile_alloc.offset + element_ix * Path_size);
+            Path path = Path_read(conf.tile_alloc, path_ref);
             sh_row_width[th_ix] = path.bbox.z - path.bbox.x;
             row_count = path.bbox.w - path.bbox.y;
-            if (row_count == 1) {
+            // Paths that don't cross tile top edges don't have backdrops.
+            // Don't apply the optimization to paths that may cross the y = 0
+            // top edge, but clipped to 1 row.
+            if (row_count == 1 && path.bbox.y > 0) {
                 // Note: this can probably be expanded to width = 2 as
                 // long as it doesn't cross the left edge.
                 row_count = 0;
             }
-            sh_row_base[th_ix] = (path.tiles.offset >> 2) + 1;
+            Alloc path_alloc = new_alloc(path.tiles.offset, (path.bbox.z - path.bbox.x) * (path.bbox.w - path.bbox.y) * Tile_size, mem_ok);
+            sh_row_alloc[th_ix] = path_alloc;
         }
     }
 
@@ -93,16 +91,19 @@ void main() {
                 el_ix = probe;
             }
         }
-        uint seq_ix = row - (el_ix > 0 ? sh_row_count[el_ix - 1] : 0);
         uint width = sh_row_width[el_ix];
-        // Process one row sequentially
-        // Read backdrop value per tile and prefix sum it
-        uint tile_el_ix = sh_row_base[el_ix] + seq_ix * 2 * width;
-        uint sum = tile[tile_el_ix];
-        for (uint x = 1; x < width; x++) {
-            tile_el_ix += 2;
-            sum += tile[tile_el_ix];
-            tile[tile_el_ix] = sum;
+        if (width > 0 && mem_ok) {
+            // Process one row sequentially
+            // Read backdrop value per tile and prefix sum it
+            Alloc tiles_alloc = sh_row_alloc[el_ix];
+            uint seq_ix = row - (el_ix > 0 ? sh_row_count[el_ix - 1] : 0);
+            uint tile_el_ix = (tiles_alloc.offset >> 2) + 1 + seq_ix * 2 * width;
+            uint sum = read_mem(tiles_alloc, tile_el_ix);
+            for (uint x = 1; x < width; x++) {
+                tile_el_ix += 2;
+                sum += read_mem(tiles_alloc, tile_el_ix);
+                write_mem(tiles_alloc, tile_el_ix, sum);
+            }
         }
     }
 }

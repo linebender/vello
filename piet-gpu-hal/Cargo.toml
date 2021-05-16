@@ -8,7 +8,6 @@ edition = "2018"
 
 [dependencies]
 ash = "0.31"
-once_cell = "1.3.1"
 ash-window = "0.5"
 raw-window-handle = "0.3"
 

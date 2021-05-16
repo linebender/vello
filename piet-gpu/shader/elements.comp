@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
+
 // The element processing stage, first in the pipeline.
 //
 // This stage is primarily about applying transforms and computing bounding
@@ -7,6 +9,9 @@
 #version 450
 #extension GL_GOOGLE_include_directive : enable
 
+#include "mem.h"
+#include "setup.h"
+
 #define N_ROWS 4
 #define WG_SIZE 32
 #define LG_WG_SIZE 5
@@ -14,44 +19,40 @@
 
 layout(local_size_x = WG_SIZE, local_size_y = 1) in;
 
-layout(set = 0, binding = 0) readonly buffer SceneBuf {
+layout(set = 0, binding = 1) readonly buffer ConfigBuf {
+    Config conf;
+};
+
+layout(set = 0, binding = 2) readonly buffer SceneBuf {
     uint[] scene;
 };
 
 // It would be better to use the Vulkan memory model than
 // "volatile" but shooting for compatibility here rather
 // than doing things right.
-layout(set = 0, binding = 1) volatile buffer StateBuf {
+layout(set = 0, binding = 3) volatile buffer StateBuf {
+    uint part_counter;
     uint[] state;
-};
-
-// The annotated results are stored here.
-layout(set = 0, binding = 2) buffer AnnotatedBuf {
-    uint[] annotated;
-};
-
-// Path segments are stored here.
-layout(set = 0, binding = 3) buffer PathSegBuf {
-    uint[] pathseg;
 };
 
 #include "scene.h"
 #include "state.h"
 #include "annotated.h"
 #include "pathseg.h"
+#include "tile.h"
 
-#define StateBuf_stride (8 + 2 * State_size)
+#define StateBuf_stride (4 + 2 * State_size)
 
 StateRef state_aggregate_ref(uint partition_ix) {
-    return StateRef(12 + partition_ix * StateBuf_stride);
+    return StateRef(4 + partition_ix * StateBuf_stride);
 }
 
 StateRef state_prefix_ref(uint partition_ix) {
-    return StateRef(12 + partition_ix * StateBuf_stride + State_size);
+    return StateRef(4 + partition_ix * StateBuf_stride + State_size);
 }
 
 uint state_flag_index(uint partition_ix) {
-    return 1 + partition_ix * (StateBuf_stride / 4);
+    return partition_ix * (StateBuf_stride / 4);
 }
 
 // These correspond to X, A, P respectively in the prefix sum paper.
@@ -62,6 +63,11 @@ uint state_flag_index(uint partition_ix) {
 #define FLAG_SET_LINEWIDTH 1
 #define FLAG_SET_BBOX 2
 #define FLAG_RESET_BBOX 4
+#define FLAG_SET_FILL_MODE 8
+// Fill modes take up the next bit. Non-zero fill is 0, stroke is 1.
+#define LG_FILL_MODE 4
+#define FILL_MODE_BITS 1
+#define FILL_MODE_MASK (FILL_MODE_BITS << LG_FILL_MODE)
 
 // This is almost like a monoid (the interaction between transformation and
 // bounding boxes is approximate)
@@ -87,17 +93,21 @@ State combine_state(State a, State b) {
     c.translate.x = a.mat.x * b.translate.x + a.mat.z * b.translate.y + a.translate.x;
     c.translate.y = a.mat.y * b.translate.x + a.mat.w * b.translate.y + a.translate.y;
     c.linewidth = (b.flags & FLAG_SET_LINEWIDTH) == 0 ? a.linewidth : b.linewidth;
-    c.flags = (a.flags & (FLAG_SET_LINEWIDTH | FLAG_SET_BBOX)) | b.flags;
+    c.flags = (a.flags & (FLAG_SET_LINEWIDTH | FLAG_SET_BBOX | FLAG_SET_FILL_MODE)) | b.flags;
     c.flags |= (a.flags & FLAG_RESET_BBOX) >> 1;
+    uint fill_mode = (b.flags & FLAG_SET_FILL_MODE) == 0 ? a.flags : b.flags;
+    fill_mode &= FILL_MODE_MASK;
+    c.flags = (c.flags & ~FILL_MODE_MASK) | fill_mode;
     c.path_count = a.path_count + b.path_count;
     c.pathseg_count = a.pathseg_count + b.pathseg_count;
+    c.trans_count = a.trans_count + b.trans_count;
     return c;
 }
 
 State map_element(ElementRef ref) {
     // TODO: it would *probably* be more efficient to make the memory read patterns less
     // divergent, though it would be more wasted memory.
-    uint tag = Element_tag(ref);
+    uint tag = Element_tag(ref).tag;
     State c;
     c.bbox = vec4(0.0, 0.0, 0.0, 0.0);
     c.mat = vec4(1.0, 0.0, 0.0, 1.0);
@@ -106,32 +116,28 @@ State map_element(ElementRef ref) {
     c.flags = 0;
     c.path_count = 0;
     c.pathseg_count = 0;
+    c.trans_count = 0;
     switch (tag) {
-    case Element_FillLine:
-    case Element_StrokeLine:
-        LineSeg line = Element_FillLine_read(ref);
+    case Element_Line:
+        LineSeg line = Element_Line_read(ref);
         c.bbox.xy = min(line.p0, line.p1);
         c.bbox.zw = max(line.p0, line.p1);
         c.pathseg_count = 1;
         break;
-    case Element_FillQuad:
-    case Element_StrokeQuad:
-        QuadSeg quad = Element_FillQuad_read(ref);
+    case Element_Quad:
+        QuadSeg quad = Element_Quad_read(ref);
         c.bbox.xy = min(min(quad.p0, quad.p1), quad.p2);
         c.bbox.zw = max(max(quad.p0, quad.p1), quad.p2);
         c.pathseg_count = 1;
         break;
-    case Element_FillCubic:
-    case Element_StrokeCubic:
-        CubicSeg cubic = Element_FillCubic_read(ref);
+    case Element_Cubic:
+        CubicSeg cubic = Element_Cubic_read(ref);
         c.bbox.xy = min(min(cubic.p0, cubic.p1), min(cubic.p2, cubic.p3));
         c.bbox.zw = max(max(cubic.p0, cubic.p1), max(cubic.p2, cubic.p3));
         c.pathseg_count = 1;
         break;
-    case Element_Fill:
-    case Element_FillMask:
-    case Element_FillMaskInv:
-    case Element_Stroke:
+    case Element_FillColor:
+    case Element_FillImage:
     case Element_BeginClip:
         c.flags = FLAG_RESET_BBOX;
         c.path_count = 1;
@@ -148,6 +154,11 @@ State map_element(ElementRef ref) {
         Transform t = Element_Transform_read(ref);
         c.mat = t.mat;
         c.translate = t.translate;
+        c.trans_count = 1;
+        break;
+    case Element_SetFillMode:
+        SetFillMode fm = Element_SetFillMode_read(ref);
+        c.flags = FLAG_SET_FILL_MODE | (fm.fill_mode << LG_FILL_MODE);
         break;
     }
     return c;
@@ -159,16 +170,7 @@ vec2 get_linewidth(State st) {
     return 0.5 * st.linewidth * vec2(length(st.mat.xz), length(st.mat.yw));
 }
 
-// We should be able to use an array of structs but the NV shader compiler
-// doesn't seem to like it :/
-//shared State sh_state[WG_SIZE];
-shared vec4 sh_mat[WG_SIZE];
-shared vec2 sh_translate[WG_SIZE];
-shared vec4 sh_bbox[WG_SIZE];
-shared float sh_width[WG_SIZE];
-shared uint sh_flags[WG_SIZE];
-shared uint sh_path_count[WG_SIZE];
-shared uint sh_pathseg_count[WG_SIZE];
+shared State sh_state[WG_SIZE];
 
 shared uint sh_part_ix;
 shared State sh_prefix;
@@ -178,7 +180,7 @@ void main() {
     // Determine partition to process by atomic counter (described in Section
     // 4.4 of prefix sum paper).
     if (gl_LocalInvocationID.x == 0) {
-        sh_part_ix = atomicAdd(state[0], 1);
+        sh_part_ix = atomicAdd(part_counter, 1);
     }
     barrier();
     uint part_ix = sh_part_ix;
@@ -193,35 +195,15 @@ void main() {
         th_state[i] = combine_state(th_state[i - 1], map_element(Element_index(ref, i)));
     }
     State agg = th_state[N_ROWS - 1];
-    sh_mat[gl_LocalInvocationID.x] = agg.mat;
-    sh_translate[gl_LocalInvocationID.x] = agg.translate;
-    sh_bbox[gl_LocalInvocationID.x] = agg.bbox;
-    sh_width[gl_LocalInvocationID.x] = agg.linewidth;
-    sh_flags[gl_LocalInvocationID.x] = agg.flags;
-    sh_path_count[gl_LocalInvocationID.x] = agg.path_count;
-    sh_pathseg_count[gl_LocalInvocationID.x] = agg.pathseg_count;
+    sh_state[gl_LocalInvocationID.x] = agg;
     for (uint i = 0; i < LG_WG_SIZE; i++) {
         barrier();
         if (gl_LocalInvocationID.x >= (1 << i)) {
-            State other;
-            uint ix = gl_LocalInvocationID.x - (1 << i);
-            other.mat = sh_mat[ix];
-            other.translate = sh_translate[ix];
-            other.bbox = sh_bbox[ix];
-            other.linewidth = sh_width[ix];
-            other.flags = sh_flags[ix];
-            other.path_count = sh_path_count[ix];
-            other.pathseg_count = sh_pathseg_count[ix];
+            State other = sh_state[gl_LocalInvocationID.x - (1 << i)];
             agg = combine_state(other, agg);
         }
         barrier();
-        sh_mat[gl_LocalInvocationID.x] = agg.mat;
-        sh_translate[gl_LocalInvocationID.x] = agg.translate;
-        sh_bbox[gl_LocalInvocationID.x] = agg.bbox;
-        sh_width[gl_LocalInvocationID.x] = agg.linewidth;
-        sh_flags[gl_LocalInvocationID.x] = agg.flags;
-        sh_path_count[gl_LocalInvocationID.x] = agg.path_count;
-        sh_pathseg_count[gl_LocalInvocationID.x] = agg.pathseg_count;
+        sh_state[gl_LocalInvocationID.x] = agg;
     }
 
     State exclusive;
@@ -232,6 +214,7 @@ void main() {
     exclusive.flags = 0;
     exclusive.path_count = 0;
     exclusive.pathseg_count = 0;
+    exclusive.trans_count = 0;
 
     // Publish aggregate for this partition
     if (gl_LocalInvocationID.x == WG_SIZE - 1) {
@@ -302,15 +285,7 @@ void main() {
 
     State row = exclusive;
     if (gl_LocalInvocationID.x > 0) {
-        uint ix = gl_LocalInvocationID.x - 1;
-        State other;
-        other.mat = sh_mat[ix];
-        other.translate = sh_translate[ix];
-        other.bbox = sh_bbox[ix];
-        other.linewidth = sh_width[ix];
-        other.flags = sh_flags[ix];
-        other.path_count = sh_path_count[ix];
-        other.pathseg_count = sh_pathseg_count[ix];
+        State other = sh_state[gl_LocalInvocationID.x - 1];
         row = combine_state(row, other);
     }
     for (uint i = 0; i < N_ROWS; i++) {
@@ -320,125 +295,115 @@ void main() {
         // gains to be had from stashing in shared memory or possibly
         // registers (though register pressure is an issue).
         ElementRef this_ref = Element_index(ref, i);
-        uint tag = Element_tag(this_ref);
-        switch (tag) {
-        case Element_FillLine:
-        case Element_StrokeLine:
-            LineSeg line = Element_StrokeLine_read(this_ref);
-            vec2 p0 = st.mat.xy * line.p0.x + st.mat.zw * line.p0.y + st.translate;
-            vec2 p1 = st.mat.xy * line.p1.x + st.mat.zw * line.p1.y + st.translate;
-            PathStrokeCubic path_cubic;
-            path_cubic.p0 = p0;
-            path_cubic.p1 = mix(p0, p1, 1.0 / 3.0);
-            path_cubic.p2 = mix(p1, p0, 1.0 / 3.0);
-            path_cubic.p3 = p1;
+        ElementTag tag = Element_tag(this_ref);
+        uint fill_mode = fill_mode_from_flags(st.flags >> LG_FILL_MODE);
+        bool is_stroke = fill_mode == MODE_STROKE;
+        switch (tag.tag) {
+        case Element_Line:
+            LineSeg line = Element_Line_read(this_ref);
+            PathCubic path_cubic;
+            path_cubic.p0 = line.p0;
+            path_cubic.p1 = mix(line.p0, line.p1, 1.0 / 3.0);
+            path_cubic.p2 = mix(line.p1, line.p0, 1.0 / 3.0);
+            path_cubic.p3 = line.p1;
             path_cubic.path_ix = st.path_count;
-            if (tag == Element_StrokeLine) {
+            path_cubic.trans_ix = st.trans_count;
+            if (is_stroke) {
                 path_cubic.stroke = get_linewidth(st);
             } else {
                 path_cubic.stroke = vec2(0.0);
             }
-            // We do encoding a bit by hand to minimize divergence. Another approach
-            // would be to have a fill/stroke bool.
-            PathSegRef path_out_ref = PathSegRef((st.pathseg_count - 1) * PathSeg_size);
-            uint out_tag = tag == Element_FillLine ? PathSeg_FillCubic : PathSeg_StrokeCubic;
-            pathseg[path_out_ref.offset >> 2] = out_tag;
-            PathStrokeCubic_write(PathStrokeCubicRef(path_out_ref.offset + 4), path_cubic);
+            PathSegRef path_out_ref = PathSegRef(conf.pathseg_alloc.offset + (st.pathseg_count - 1) * PathSeg_size);
+            PathSeg_Cubic_write(conf.pathseg_alloc, path_out_ref, fill_mode, path_cubic);
             break;
-        case Element_FillQuad:
-        case Element_StrokeQuad:
-            QuadSeg quad = Element_StrokeQuad_read(this_ref);
-            p0 = st.mat.xy * quad.p0.x + st.mat.zw * quad.p0.y + st.translate;
-            p1 = st.mat.xy * quad.p1.x + st.mat.zw * quad.p1.y + st.translate;
-            vec2 p2 = st.mat.xy * quad.p2.x + st.mat.zw * quad.p2.y + st.translate;
-            path_cubic;
-            path_cubic.p0 = p0;
-            path_cubic.p1 = mix(p1, p0, 1.0 / 3.0);
-            path_cubic.p2 = mix(p1, p2, 1.0 / 3.0);
-            path_cubic.p3 = p2;
+        case Element_Quad:
+            QuadSeg quad = Element_Quad_read(this_ref);
+            path_cubic.p0 = quad.p0;
+            path_cubic.p1 = mix(quad.p1, quad.p0, 1.0 / 3.0);
+            path_cubic.p2 = mix(quad.p1, quad.p2, 1.0 / 3.0);
+            path_cubic.p3 = quad.p2;
             path_cubic.path_ix = st.path_count;
-            if (tag == Element_StrokeQuad) {
+            path_cubic.trans_ix = st.trans_count;
+            if (is_stroke) {
                 path_cubic.stroke = get_linewidth(st);
             } else {
                 path_cubic.stroke = vec2(0.0);
             }
-            // We do encoding a bit by hand to minimize divergence. Another approach
-            // would be to have a fill/stroke bool.
-            path_out_ref = PathSegRef((st.pathseg_count - 1) * PathSeg_size);
-            out_tag = tag == Element_FillQuad ? PathSeg_FillCubic : PathSeg_StrokeCubic;
-            pathseg[path_out_ref.offset >> 2] = out_tag;
-            PathStrokeCubic_write(PathStrokeCubicRef(path_out_ref.offset + 4), path_cubic);
+            path_out_ref = PathSegRef(conf.pathseg_alloc.offset + (st.pathseg_count - 1) * PathSeg_size);
+            PathSeg_Cubic_write(conf.pathseg_alloc, path_out_ref, fill_mode, path_cubic);
             break;
-        case Element_FillCubic:
-        case Element_StrokeCubic:
-            CubicSeg cubic = Element_StrokeCubic_read(this_ref);
-            path_cubic;
-            path_cubic.p0 = st.mat.xy * cubic.p0.x + st.mat.zw * cubic.p0.y + st.translate;
-            path_cubic.p1 = st.mat.xy * cubic.p1.x + st.mat.zw * cubic.p1.y + st.translate;
-            path_cubic.p2 = st.mat.xy * cubic.p2.x + st.mat.zw * cubic.p2.y + st.translate;
-            path_cubic.p3 = st.mat.xy * cubic.p3.x + st.mat.zw * cubic.p3.y + st.translate;
+        case Element_Cubic:
+            CubicSeg cubic = Element_Cubic_read(this_ref);
+            path_cubic.p0 = cubic.p0;
+            path_cubic.p1 = cubic.p1;
+            path_cubic.p2 = cubic.p2;
+            path_cubic.p3 = cubic.p3;
             path_cubic.path_ix = st.path_count;
-            if (tag == Element_StrokeCubic) {
+            path_cubic.trans_ix = st.trans_count;
+            if (is_stroke) {
                 path_cubic.stroke = get_linewidth(st);
             } else {
                 path_cubic.stroke = vec2(0.0);
             }
-            // We do encoding a bit by hand to minimize divergence. Another approach
-            // would be to have a fill/stroke bool.
-            path_out_ref = PathSegRef((st.pathseg_count - 1) * PathSeg_size);
-            out_tag = tag == Element_FillCubic ? PathSeg_FillCubic : PathSeg_StrokeCubic;
-            pathseg[path_out_ref.offset >> 2] = out_tag;
-            PathStrokeCubic_write(PathStrokeCubicRef(path_out_ref.offset + 4), path_cubic);
+            path_out_ref = PathSegRef(conf.pathseg_alloc.offset + (st.pathseg_count - 1) * PathSeg_size);
+            PathSeg_Cubic_write(conf.pathseg_alloc, path_out_ref, fill_mode, path_cubic);
             break;
-        case Element_Stroke:
-            Stroke stroke = Element_Stroke_read(this_ref);
-            AnnoStroke anno_stroke;
-            anno_stroke.rgba_color = stroke.rgba_color;
-            vec2 lw = get_linewidth(st);
-            anno_stroke.bbox = st.bbox + vec4(-lw, lw);
-            anno_stroke.linewidth = st.linewidth * sqrt(abs(st.mat.x * st.mat.w - st.mat.y * st.mat.z));
-            AnnotatedRef out_ref = AnnotatedRef((st.path_count - 1) * Annotated_size);
-            Annotated_Stroke_write(out_ref, anno_stroke);
-            break;
-        case Element_Fill:
-            Fill fill = Element_Fill_read(this_ref);
-            AnnoFill anno_fill;
+        case Element_FillColor:
+            FillColor fill = Element_FillColor_read(this_ref);
+            AnnoColor anno_fill;
             anno_fill.rgba_color = fill.rgba_color;
-            anno_fill.bbox = st.bbox;
-            out_ref = AnnotatedRef((st.path_count - 1) * Annotated_size);
-            Annotated_Fill_write(out_ref, anno_fill);
+            if (is_stroke) {
+                vec2 lw = get_linewidth(st);
+                anno_fill.bbox = st.bbox + vec4(-lw, lw);
+                anno_fill.linewidth = st.linewidth * sqrt(abs(st.mat.x * st.mat.w - st.mat.y * st.mat.z));
+            } else {
+                anno_fill.bbox = st.bbox;
+                anno_fill.linewidth = 0.0;
+            }
+            AnnotatedRef out_ref = AnnotatedRef(conf.anno_alloc.offset + (st.path_count - 1) * Annotated_size);
+            Annotated_Color_write(conf.anno_alloc, out_ref, fill_mode, anno_fill);
             break;
-        case Element_FillMask:
-            FillMask fill_mask = Element_FillMask_read(this_ref);
-            AnnoFillMask anno_fill_mask;
-            anno_fill_mask.mask = fill_mask.mask;
-            anno_fill_mask.bbox = st.bbox;
-            out_ref = AnnotatedRef((st.path_count - 1) * Annotated_size);
-            Annotated_FillMask_write(out_ref, anno_fill_mask);
-            break;
-        case Element_FillMaskInv:
-            fill_mask = Element_FillMaskInv_read(this_ref);
-            anno_fill_mask.mask = fill_mask.mask;
-            // The inverse fill conceptually takes up the entire screen.
-            // TODO: Tighten bounds to contain only affected paths.
-            anno_fill_mask.bbox = vec4(0, 0, 1e9, 1e9);
-            out_ref = AnnotatedRef((st.path_count - 1) * Annotated_size);
-            Annotated_FillMaskInv_write(out_ref, anno_fill_mask);
+        case Element_FillImage:
+            FillImage fill_img = Element_FillImage_read(this_ref);
+            AnnoImage anno_img;
+            anno_img.index = fill_img.index;
+            anno_img.offset = fill_img.offset;
+            if (is_stroke) {
+                vec2 lw = get_linewidth(st);
+                anno_img.bbox = st.bbox + vec4(-lw, lw);
+                anno_img.linewidth = st.linewidth * sqrt(abs(st.mat.x * st.mat.w - st.mat.y * st.mat.z));
+            } else {
+                anno_img.bbox = st.bbox;
+                anno_img.linewidth = 0.0;
+            }
+            out_ref = AnnotatedRef(conf.anno_alloc.offset + (st.path_count - 1) * Annotated_size);
+            Annotated_Image_write(conf.anno_alloc, out_ref, fill_mode, anno_img);
             break;
         case Element_BeginClip:
             Clip begin_clip = Element_BeginClip_read(this_ref);
-            AnnoClip anno_begin_clip = AnnoClip(begin_clip.bbox);
+            AnnoBeginClip anno_begin_clip;
             // This is the absolute bbox, it's been transformed during encoding.
             anno_begin_clip.bbox = begin_clip.bbox;
-            out_ref = AnnotatedRef((st.path_count - 1) * Annotated_size);
-            Annotated_BeginClip_write(out_ref, anno_begin_clip);
+            if (is_stroke) {
+                vec2 lw = get_linewidth(st);
+                anno_begin_clip.linewidth = st.linewidth * sqrt(abs(st.mat.x * st.mat.w - st.mat.y * st.mat.z));
+            } else {
+                anno_fill.linewidth = 0.0;
+            }
+            out_ref = AnnotatedRef(conf.anno_alloc.offset + (st.path_count - 1) * Annotated_size);
+            Annotated_BeginClip_write(conf.anno_alloc, out_ref, fill_mode, anno_begin_clip);
             break;
         case Element_EndClip:
             Clip end_clip = Element_EndClip_read(this_ref);
             // This bbox is expected to be the same as the begin one.
-            AnnoClip anno_end_clip = AnnoClip(end_clip.bbox);
-            out_ref = AnnotatedRef((st.path_count - 1) * Annotated_size);
-            Annotated_EndClip_write(out_ref, anno_end_clip);
+            AnnoEndClip anno_end_clip = AnnoEndClip(end_clip.bbox);
+            out_ref = AnnotatedRef(conf.anno_alloc.offset + (st.path_count - 1) * Annotated_size);
+            Annotated_EndClip_write(conf.anno_alloc, out_ref, anno_end_clip);
+            break;
+        case Element_Transform:
+            TransformSeg transform = TransformSeg(st.mat, st.translate);
+            TransformSegRef trans_ref = TransformSegRef(conf.trans_alloc.offset + (st.trans_count - 1) * TransformSeg_size);
+            TransformSeg_write(conf.trans_alloc, trans_ref, transform);
             break;
         }
     }

@@ -8,12 +8,5 @@ piet_gpu! {
         struct BinInstance {
             element_ix: u32,
         }
-
-        struct BinChunk {
-            // First chunk can have n = 0, subsequent ones not.
-            n: u32,
-            next: Ref<BinChunk>,
-            // Instances follow
-        }
     }
 }

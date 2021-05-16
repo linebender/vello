@@ -240,5 +240,5 @@ impl Size {
 }
 
 fn align_padding(offset: usize, alignment: usize) -> usize {
-    offset.wrapping_neg() & (alignment - 1)
+    offset.wrapping_neg() & (alignment.max(1) - 1)
 }

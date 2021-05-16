@@ -3,34 +3,33 @@ use piet_gpu_derive::piet_gpu;
 piet_gpu! {
     #[gpu_write]
     mod annotated {
-        struct AnnoFill {
-            // The bbox is always first, as we take advantage of common
-            // layout when binning.
+        struct AnnoImage {
             bbox: [f32; 4],
-            rgba_color: u32,
+            linewidth: f32,
+            index: u32,
+            offset: [i16; 2],
         }
-        struct AnnoFillMask {
+        struct AnnoColor {
             bbox: [f32; 4],
-            mask: f32,
-        }
-        struct AnnoStroke {
-            bbox: [f32; 4],
-            rgba_color: u32,
+            // For stroked fills.
             // For the nonuniform scale case, this needs to be a 2x2 matrix.
             // That's expected to be uncommon, so we could special-case it.
             linewidth: f32,
+            rgba_color: u32,
         }
-        struct AnnoClip {
+        struct AnnoBeginClip {
+            bbox: [f32; 4],
+            linewidth: f32,
+        }
+        struct AnnoEndClip {
             bbox: [f32; 4],
         }
         enum Annotated {
             Nop,
-            Stroke(AnnoStroke),
-            Fill(AnnoFill),
-            FillMask(AnnoFillMask),
-            FillMaskInv(AnnoFillMask),
-            BeginClip(AnnoClip),
-            EndClip(AnnoClip),
+            Color(TagFlags, AnnoColor),
+            Image(TagFlags, AnnoImage),
+            BeginClip(TagFlags, AnnoBeginClip),
+            EndClip(AnnoEndClip),
         }
     }
 }

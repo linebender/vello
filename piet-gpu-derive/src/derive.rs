@@ -73,18 +73,31 @@ fn gen_derive_def(name: &str, size: usize, def: &LayoutTypeDef) -> proc_macro2::
 
                 let mut args = Vec::new();
                 let mut field_encoders = proc_macro2::TokenStream::new();
-                for (i, (offset, _ty)) in payload.iter().enumerate() {
+                let mut tag_field = None;
+                for (i, (offset, ty)) in payload.iter().enumerate() {
                     let field_id = format_ident!("f{}", i);
-                    let field_encoder = quote! {
-                        #field_id.encode_to(&mut buf[#offset..]);
-                    };
-                    field_encoders.extend(field_encoder);
+                    if matches!(ty.ty, GpuType::Scalar(GpuScalar::TagFlags)) {
+                        tag_field = Some(field_id.clone());
+                    } else {
+                        let field_encoder = quote! {
+                            #field_id.encode_to(&mut buf[#offset..]);
+                        };
+                        field_encoders.extend(field_encoder);
+                    }
                     args.push(field_id);
                 }
                 let tag = variant_ix as u32;
+                let tag_encode = match tag_field {
+                    None => quote! {
+                        buf[0..4].copy_from_slice(&#tag.to_le_bytes());
+                    },
+                    Some(tag_field) => quote! {
+                        buf[0..4].copy_from_slice(&(#tag | ((*#tag_field as u32) << 16)).to_le_bytes());
+                    },
+                };
                 let case = quote! {
                     #name_id::#variant_id(#(#args),*) => {
-                        buf[0..4].copy_from_slice(&#tag.to_le_bytes());
+                        #tag_encode
                         #field_encoders
                     }
                 };
@@ -139,12 +152,15 @@ fn gen_derive_scalar_ty(ty: &GpuScalar) -> proc_macro2::TokenStream {
         GpuScalar::U8 => quote!(u8),
         GpuScalar::U16 => quote!(u16),
         GpuScalar::U32 => quote!(u32),
+        GpuScalar::TagFlags => quote!(u16),
     }
 }
 
 fn gen_encode_field(name: &str, offset: usize, ty: &GpuType) -> proc_macro2::TokenStream {
     let name_id = format_ident!("{}", name);
     match ty {
+        // encoding of flags into tag word is handled elsewhere
+        GpuType::Scalar(GpuScalar::TagFlags) => quote! {},
         GpuType::Scalar(s) => {
             let end = offset + s.size();
             quote! {

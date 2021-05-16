@@ -7,7 +7,7 @@ pub use render_ctx::PietGpuRenderContext;
 
 use rand::{Rng, RngCore};
 
-use piet::kurbo::{BezPath, Circle, Point, Vec2};
+use piet::kurbo::{BezPath, Circle, Point, Shape, Vec2};
 use piet::{Color, ImageFormat, RenderContext};
 
 use piet_gpu_types::encoder::Encode;
@@ -73,7 +73,9 @@ pub fn render_scene(rc: &mut impl RenderContext) {
         5.0,
     );
     //render_cardioid(rc);
-    render_tiger(rc);
+    render_clip_test(rc);
+    render_alpha_test(rc);
+    //render_tiger(rc);
 }
 
 #[allow(unused)]
@@ -94,6 +96,67 @@ fn render_cardioid(rc: &mut impl RenderContext) {
     rc.stroke(&path, &Color::BLACK, 2.0);
 }
 
+#[allow(unused)]
+fn render_clip_test(rc: &mut impl RenderContext) {
+    const N: usize = 16;
+    const X0: f64 = 50.0;
+    const Y0: f64 = 450.0;
+    // Note: if it gets much larger, it will exceed the 1MB scratch buffer.
+    // But this is a pretty demanding test.
+    const X1: f64 = 550.0;
+    const Y1: f64 = 950.0;
+    let step = 1.0 / ((N + 1) as f64);
+    for i in 0..N {
+        let t = ((i + 1) as f64) * step;
+        rc.save();
+        let mut path = BezPath::new();
+        path.move_to((X0, Y0));
+        path.line_to((X1, Y0));
+        path.line_to((X1, Y0 + t * (Y1 - Y0)));
+        path.line_to((X1 + t * (X0 - X1), Y1));
+        path.line_to((X0, Y1));
+        path.close_path();
+        rc.clip(path);
+    }
+    let rect = piet::kurbo::Rect::new(X0, Y0, X1, Y1);
+    rc.fill(rect, &Color::BLACK);
+    for _ in 0..N {
+        rc.restore();
+    }
+}
+
+#[allow(unused)]
+fn render_alpha_test(rc: &mut impl RenderContext) {
+    // Alpha compositing tests.
+    rc.fill(
+        diamond(Point::new(1024.0, 100.0)),
+        &Color::Rgba32(0xff0000ff),
+    );
+    rc.fill(
+        diamond(Point::new(1024.0, 125.0)),
+        &Color::Rgba32(0x00ff0080),
+    );
+    rc.save();
+    rc.clip(diamond(Point::new(1024.0, 150.0)));
+    rc.fill(
+        diamond(Point::new(1024.0, 175.0)),
+        &Color::Rgba32(0x0000ff80),
+    );
+    rc.restore();
+}
+
+fn diamond(origin: Point) -> impl Shape {
+    let mut path = BezPath::new();
+    const SIZE: f64 = 50.0;
+    path.move_to((origin.x, origin.y - SIZE));
+    path.line_to((origin.x + SIZE, origin.y));
+    path.line_to((origin.x, origin.y + SIZE));
+    path.line_to((origin.x - SIZE, origin.y));
+    path.close_path();
+    return path;
+}
+
+#[allow(unused)]
 fn render_tiger(rc: &mut impl RenderContext) {
     let xml_str = std::str::from_utf8(include_bytes!("../Ghostscript_Tiger.svg")).unwrap();
     let start = std::time::Instant::now();
@@ -126,15 +189,16 @@ pub fn dump_k1_data(k1_buf: &[u32]) {
 pub struct Renderer {
     pub image_dev: hub::Image, // resulting image
 
-    scene_buf: hub::Buffer,
-    scene_dev: hub::Buffer,
+    scene_buf_host: hub::Buffer,
+    scene_buf_dev: hub::Buffer,
 
-    pub state_buf: hub::Buffer,
-    pub anno_buf: hub::Buffer,
-    pub pathseg_buf: hub::Buffer,
-    pub tile_buf: hub::Buffer,
-    pub bin_buf: hub::Buffer,
-    pub ptcl_buf: hub::Buffer,
+    memory_buf_host: hub::Buffer,
+    memory_buf_dev: hub::Buffer,
+
+    state_buf: hub::Buffer,
+
+    config_buf_host: hub::Buffer,
+    config_buf_dev: hub::Buffer,
 
     el_pipeline: hub::Pipeline,
     el_ds: hub::DescriptorSet,
@@ -148,20 +212,11 @@ pub struct Renderer {
     backdrop_pipeline: hub::Pipeline,
     backdrop_ds: hub::DescriptorSet,
 
-    tile_alloc_buf_host: hub::Buffer,
-    tile_alloc_buf_dev: hub::Buffer,
-
     bin_pipeline: hub::Pipeline,
     bin_ds: hub::DescriptorSet,
 
-    bin_alloc_buf_host: hub::Buffer,
-    bin_alloc_buf_dev: hub::Buffer,
-
     coarse_pipeline: hub::Pipeline,
     coarse_ds: hub::DescriptorSet,
-
-    coarse_alloc_buf_host: hub::Buffer,
-    coarse_alloc_buf_dev: hub::Buffer,
 
     k4_pipeline: hub::Pipeline,
     k4_ds: hub::DescriptorSet,
@@ -169,6 +224,9 @@ pub struct Renderer {
     n_elements: usize,
     n_paths: usize,
     n_pathseg: usize,
+
+    // Keep a reference to the image so that it is not destroyed.
+    _bg_image: hub::Image,
 }
 
 impl Renderer {
@@ -177,137 +235,142 @@ impl Renderer {
         scene: &[u8],
         n_paths: usize,
         n_pathseg: usize,
+        n_trans: usize,
     ) -> Result<Self, Error> {
         let host = MemFlags::host_coherent();
         let dev = MemFlags::device_local();
 
         let n_elements = scene.len() / piet_gpu_types::scene::Element::fixed_size();
         println!(
-            "scene: {} elements, {} paths, {} path_segments",
-            n_elements, n_paths, n_pathseg
+            "scene: {} elements, {} paths, {} path_segments, {} transforms",
+            n_elements, n_paths, n_pathseg, n_trans
         );
 
-        let mut scene_buf = session
+        let mut scene_buf_host = session
             .create_buffer(std::mem::size_of_val(&scene[..]) as u64, host)
             .unwrap();
-        let scene_dev = session
+        let scene_buf_dev = session
             .create_buffer(std::mem::size_of_val(&scene[..]) as u64, dev)
             .unwrap();
-        scene_buf.write(&scene)?;
+        scene_buf_host.write(&scene)?;
 
         let state_buf = session.create_buffer(1 * 1024 * 1024, dev)?;
-        let anno_buf = session.create_buffer(64 * 1024 * 1024, dev)?;
-        let pathseg_buf = session.create_buffer(64 * 1024 * 1024, dev)?;
-        let tile_buf = session.create_buffer(64 * 1024 * 1024, dev)?;
-        let bin_buf = session.create_buffer(64 * 1024 * 1024, dev)?;
-        let ptcl_buf = session.create_buffer(48 * 1024 * 1024, dev)?;
         let image_dev = session.create_image2d(WIDTH as u32, HEIGHT as u32, dev)?;
 
-        let el_code = include_bytes!("../shader/elements.spv");
-        let el_pipeline = session.create_simple_compute_pipeline(el_code, 4, 0)?;
-        let el_ds = session.create_descriptor_set(
-            &el_pipeline,
-            &[
-                scene_dev.vk_buffer(),
-                state_buf.vk_buffer(),
-                anno_buf.vk_buffer(),
-                pathseg_buf.vk_buffer(),
-            ],
-            &[],
-        )?;
-
-        let mut tile_alloc_buf_host = session.create_buffer(12, host)?;
-        let tile_alloc_buf_dev = session.create_buffer(12, dev)?;
+        const CONFIG_SIZE: u64 = 10 * 4; // Size of Config in setup.h.
+        let mut config_buf_host = session.create_buffer(CONFIG_SIZE, host)?;
+        let config_buf_dev = session.create_buffer(CONFIG_SIZE, dev)?;
 
         // TODO: constants
         const PATH_SIZE: usize = 12;
-        let tile_alloc_start = ((n_paths + 31) & !31) * PATH_SIZE;
-        tile_alloc_buf_host.write(&[n_paths as u32, n_pathseg as u32, tile_alloc_start as u32])?;
-        let tile_alloc_code = include_bytes!("../shader/tile_alloc.spv");
-        let tile_pipeline = session.create_simple_compute_pipeline(tile_alloc_code, 3, 0)?;
-        let tile_ds = session.create_descriptor_set(
-            &tile_pipeline,
-            &[
-                anno_buf.vk_buffer(),
-                tile_alloc_buf_dev.vk_buffer(),
-                tile_buf.vk_buffer(),
-            ],
-            &[],
+        const BIN_SIZE: usize = 8;
+        const PATHSEG_SIZE: usize = 52;
+        const ANNO_SIZE: usize = 32;
+        const TRANS_SIZE: usize = 24;
+        let mut alloc = 0;
+        let tile_base = alloc;
+        alloc += ((n_paths + 3) & !3) * PATH_SIZE;
+        let bin_base = alloc;
+        alloc += ((n_paths + 255) & !255) * BIN_SIZE;
+        let ptcl_base = alloc;
+        alloc += WIDTH_IN_TILES * HEIGHT_IN_TILES * PTCL_INITIAL_ALLOC;
+        let pathseg_base = alloc;
+        alloc += (n_pathseg * PATHSEG_SIZE + 3) & !3;
+        let anno_base = alloc;
+        alloc += (n_paths * ANNO_SIZE + 3) & !3;
+        let trans_base = alloc;
+        alloc += (n_trans * TRANS_SIZE + 3) & !3;
+        config_buf_host.write(&[
+            n_paths as u32,
+            n_pathseg as u32,
+            WIDTH_IN_TILES as u32,
+            HEIGHT_IN_TILES as u32,
+            tile_base as u32,
+            bin_base as u32,
+            ptcl_base as u32,
+            pathseg_base as u32,
+            anno_base as u32,
+            trans_base as u32,
+        ])?;
+
+        let mut memory_buf_host = session.create_buffer(2 * 4, host)?;
+        let memory_buf_dev = session.create_buffer(128 * 1024 * 1024, dev)?;
+        memory_buf_host.write(&[alloc as u32, 0 /* Overflow flag */])?;
+
+        let el_code = include_bytes!("../shader/elements.spv");
+        let el_pipeline = session.create_simple_compute_pipeline(el_code, 4)?;
+        let el_ds = session.create_simple_descriptor_set(
+            &el_pipeline,
+            &[&memory_buf_dev, &config_buf_dev, &scene_buf_dev, &state_buf],
         )?;
+
+        let tile_alloc_code = include_bytes!("../shader/tile_alloc.spv");
+        let tile_pipeline = session.create_simple_compute_pipeline(tile_alloc_code, 2)?;
+        let tile_ds = session
+            .create_simple_descriptor_set(&tile_pipeline, &[&memory_buf_dev, &config_buf_dev])?;
 
         let path_alloc_code = include_bytes!("../shader/path_coarse.spv");
-        let path_pipeline = session.create_simple_compute_pipeline(path_alloc_code, 3, 0)?;
-        let path_ds = session.create_descriptor_set(
-            &path_pipeline,
-            &[
-                pathseg_buf.vk_buffer(),
-                tile_alloc_buf_dev.vk_buffer(),
-                tile_buf.vk_buffer(),
-            ],
-            &[],
-        )?;
+        let path_pipeline = session.create_simple_compute_pipeline(path_alloc_code, 2)?;
+        let path_ds = session
+            .create_simple_descriptor_set(&path_pipeline, &[&memory_buf_dev, &config_buf_dev])?;
 
         let backdrop_alloc_code = include_bytes!("../shader/backdrop.spv");
-        let backdrop_pipeline =
-            session.create_simple_compute_pipeline(backdrop_alloc_code, 3, 0)?;
-        let backdrop_ds = session.create_descriptor_set(
+        let backdrop_pipeline = session.create_simple_compute_pipeline(backdrop_alloc_code, 2)?;
+        let backdrop_ds = session.create_simple_descriptor_set(
             &backdrop_pipeline,
-            &[
-                anno_buf.vk_buffer(),
-                tile_alloc_buf_dev.vk_buffer(),
-                tile_buf.vk_buffer(),
-            ],
-            &[],
+            &[&memory_buf_dev, &config_buf_dev],
         )?;
-
-        let mut bin_alloc_buf_host = session.create_buffer(8, host)?;
-        let bin_alloc_buf_dev = session.create_buffer(8, dev)?;
 
         // TODO: constants
-        let bin_alloc_start = ((n_paths + 255) & !255) * 8;
-        bin_alloc_buf_host.write(&[n_paths as u32, bin_alloc_start as u32])?;
         let bin_code = include_bytes!("../shader/binning.spv");
-        let bin_pipeline = session.create_simple_compute_pipeline(bin_code, 3, 0)?;
-        let bin_ds = session.create_descriptor_set(
-            &bin_pipeline,
-            &[
-                anno_buf.vk_buffer(),
-                bin_alloc_buf_dev.vk_buffer(),
-                bin_buf.vk_buffer(),
-            ],
-            &[],
-        )?;
+        let bin_pipeline = session.create_simple_compute_pipeline(bin_code, 2)?;
+        let bin_ds = session
+            .create_simple_descriptor_set(&bin_pipeline, &[&memory_buf_dev, &config_buf_dev])?;
 
-        let mut coarse_alloc_buf_host = session.create_buffer(8, host)?;
-        let coarse_alloc_buf_dev = session.create_buffer(8, dev)?;
-
-        let coarse_alloc_start = WIDTH_IN_TILES * HEIGHT_IN_TILES * PTCL_INITIAL_ALLOC;
-        coarse_alloc_buf_host.write(&[n_paths as u32, coarse_alloc_start as u32])?;
         let coarse_code = include_bytes!("../shader/coarse.spv");
-        let coarse_pipeline = session.create_simple_compute_pipeline(coarse_code, 5, 0)?;
-        let coarse_ds = session.create_descriptor_set(
-            &coarse_pipeline,
-            &[
-                anno_buf.vk_buffer(),
-                bin_buf.vk_buffer(),
-                tile_buf.vk_buffer(),
-                coarse_alloc_buf_dev.vk_buffer(),
-                ptcl_buf.vk_buffer(),
-            ],
-            &[],
-        )?;
+        let coarse_pipeline = session.create_simple_compute_pipeline(coarse_code, 2)?;
+        let coarse_ds = session
+            .create_simple_descriptor_set(&coarse_pipeline, &[&memory_buf_dev, &config_buf_dev])?;
 
-        let k4_code = include_bytes!("../shader/kernel4.spv");
-        let k4_pipeline = session.create_simple_compute_pipeline(k4_code, 2, 1)?;
-        let k4_ds = session.create_descriptor_set(
-            &k4_pipeline,
-            &[ptcl_buf.vk_buffer(), tile_buf.vk_buffer()],
-            &[image_dev.vk_image()],
-        )?;
+        let bg_image = Self::make_test_bg_image(&session);
+
+        let k4_code = if session.gpu_info().has_descriptor_indexing {
+            &include_bytes!("../shader/kernel4_idx.spv")[..]
+        } else {
+            println!("doing non-indexed k4");
+            &include_bytes!("../shader/kernel4.spv")[..]
+        };
+        // This is an arbitrary limit on the number of textures that can be referenced by
+        // the fine rasterizer. To set it for real, we probably want to pay attention both
+        // to the device limit (maxDescriptorSetSampledImages) but also to the number of
+        // images encoded (I believe there's an cost when allocating descriptor pools). If
+        // it can't be satisfied, then for compatibility we'll probably want to fall back
+        // to an atlasing approach.
+        //
+        // However, we're adding only one texture for now. Avoid a harmless Vulkan validation
+        // error by using a tight bound.
+        let max_textures = 1;
+        let k4_pipeline = session
+            .pipeline_builder()
+            .add_buffers(2)
+            .add_images(1)
+            .add_textures(max_textures)
+            .create_compute_pipeline(&session, k4_code)?;
+        let k4_ds = session
+            .descriptor_set_builder()
+            .add_buffers(&[&memory_buf_dev, &config_buf_dev])
+            .add_images(&[&image_dev])
+            .add_textures(&[&bg_image])
+            .build(&session, &k4_pipeline)?;
 
         Ok(Renderer {
-            scene_buf,
-            scene_dev,
+            scene_buf_host,
+            scene_buf_dev,
+            memory_buf_host,
+            memory_buf_dev,
+            state_buf,
+            config_buf_host,
+            config_buf_dev,
             image_dev,
             el_pipeline,
             el_ds,
@@ -323,39 +386,27 @@ impl Renderer {
             coarse_ds,
             k4_pipeline,
             k4_ds,
-            state_buf,
-            anno_buf,
-            pathseg_buf,
-            tile_buf,
-            bin_buf,
-            ptcl_buf,
-            tile_alloc_buf_host,
-            tile_alloc_buf_dev,
-            bin_alloc_buf_host,
-            bin_alloc_buf_dev,
-            coarse_alloc_buf_host,
-            coarse_alloc_buf_dev,
             n_elements,
             n_paths,
             n_pathseg,
+            _bg_image: bg_image,
         })
     }
 
     pub unsafe fn record(&self, cmd_buf: &mut hub::CmdBuf, query_pool: &hub::QueryPool) {
-        cmd_buf.copy_buffer(self.scene_buf.vk_buffer(), self.scene_dev.vk_buffer());
         cmd_buf.copy_buffer(
-            self.tile_alloc_buf_host.vk_buffer(),
-            self.tile_alloc_buf_dev.vk_buffer(),
+            self.scene_buf_host.vk_buffer(),
+            self.scene_buf_dev.vk_buffer(),
         );
         cmd_buf.copy_buffer(
-            self.bin_alloc_buf_host.vk_buffer(),
-            self.bin_alloc_buf_dev.vk_buffer(),
+            self.config_buf_host.vk_buffer(),
+            self.config_buf_dev.vk_buffer(),
         );
         cmd_buf.copy_buffer(
-            self.coarse_alloc_buf_host.vk_buffer(),
-            self.coarse_alloc_buf_dev.vk_buffer(),
+            self.memory_buf_host.vk_buffer(),
+            self.memory_buf_dev.vk_buffer(),
         );
-        cmd_buf.clear_buffer(self.state_buf.vk_buffer());
+        cmd_buf.clear_buffer(self.state_buf.vk_buffer(), None);
         cmd_buf.memory_barrier();
         cmd_buf.image_barrier(
             self.image_dev.vk_image(),
@@ -405,7 +456,7 @@ impl Renderer {
         cmd_buf.dispatch(
             &self.coarse_pipeline,
             &self.coarse_ds,
-            (WIDTH as u32 / 256, HEIGHT as u32 / 256, 1),
+            ((WIDTH as u32 + 255) / 256, (HEIGHT as u32 + 255) / 256, 1),
         );
         cmd_buf.write_timestamp(&query_pool, 6);
         cmd_buf.memory_barrier();
@@ -448,7 +499,6 @@ impl Renderer {
                 ImageLayout::BlitDst,
             );
             cmd_buf.copy_buffer_to_image(buffer.vk_buffer(), image.vk_image());
-            // TODO: instead of General, we might want ShaderReadOnly
             cmd_buf.image_barrier(image.vk_image(), ImageLayout::BlitDst, ImageLayout::General);
             cmd_buf.finish();
             // Make sure not to drop the buffer and image until the command buffer completes.
@@ -458,5 +508,23 @@ impl Renderer {
             // We let the session reclaim the fence.
             Ok(image)
         }
+    }
+
+    /// Make a test image.
+    fn make_test_bg_image(session: &hub::Session) -> hub::Image {
+        const WIDTH: usize = 256;
+        const HEIGHT: usize = 256;
+        let mut buf = vec![255u8; WIDTH * HEIGHT * 4];
+        for y in 0..HEIGHT {
+            for x in 0..WIDTH {
+                let r = x as u8;
+                let g = y as u8;
+                let b = r ^ g;
+                buf[(y * WIDTH + x) * 4] = r;
+                buf[(y * WIDTH + x) * 4 + 1] = g;
+                buf[(y * WIDTH + x) * 4 + 2] = b;
+            }
+        }
+        Self::make_image(session, WIDTH, HEIGHT, &buf, ImageFormat::RgbaPremul).unwrap()
     }
 }
