@@ -13,7 +13,7 @@ pub mod vulkan;
 /// This isn't great but is expedient.
 pub type Error = Box<dyn std::error::Error>;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ImageLayout {
     Undefined,
     Present,

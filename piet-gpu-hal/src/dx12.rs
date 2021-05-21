@@ -9,7 +9,7 @@ use winapi::shared::dxgi1_3;
 use winapi::shared::minwindef::TRUE;
 use winapi::um::d3d12;
 
-use crate::{BufferUsage, Error};
+use crate::{BufferUsage, Error, ImageLayout};
 
 use self::wrappers::{
     CommandAllocator, CommandQueue, Device, Factory4, GraphicsCommandList, Resource, ShaderByteCode,
@@ -33,8 +33,10 @@ pub struct Buffer {
     size: u64,
 }
 
+#[derive(Clone)]
 pub struct Image {
     resource: Resource,
+    size: (u32, u32),
 }
 
 pub struct CmdBuf(GraphicsCommandList);
@@ -75,6 +77,7 @@ pub struct PipelineBuilder {
 #[derive(Default)]
 pub struct DescriptorSetBuilder {
     buffers: Vec<Buffer>,
+    images: Vec<Image>,
 }
 
 #[derive(PartialEq, Eq)]
@@ -198,11 +201,17 @@ impl crate::Device for Dx12Device {
     }
 
     unsafe fn create_image2d(&self, width: u32, height: u32) -> Result<Self::Image, Error> {
-        todo!()
+        let format = winapi::shared::dxgiformat::DXGI_FORMAT_R8G8B8A8_UNORM;
+        let resource = self
+            .device
+            .create_texture2d_buffer(width.into(), height, format, true)?;
+        let size = (width, height);
+        Ok(Image { resource, size })
     }
 
     unsafe fn destroy_image(&self, image: &Self::Image) -> Result<(), Error> {
-        todo!()
+        image.resource.destroy();
+        Ok(())
     }
 
     fn create_cmd_buf(&self) -> Result<Self::CmdBuf, Error> {
@@ -380,8 +389,11 @@ impl crate::CmdBuf<Dx12Device> for CmdBuf {
     }
 
     unsafe fn host_barrier(&mut self) {
-        // TODO: anything special here?
-        self.memory_barrier();
+        // My understanding is that a host barrier is not needed, but am still hunting
+        // down an authoritative source for that. Among other things, the docs for
+        // Map suggest that it does the needed visibility operation.
+        //
+        // https://docs.microsoft.com/en-us/windows/win32/api/d3d12/nf-d3d12-id3d12resource-map
     }
 
     unsafe fn image_barrier(
@@ -390,28 +402,42 @@ impl crate::CmdBuf<Dx12Device> for CmdBuf {
         src_layout: crate::ImageLayout,
         dst_layout: crate::ImageLayout,
     ) {
-        todo!()
+        let src_state = resource_state_for_image_layout(src_layout);
+        let dst_state = resource_state_for_image_layout(dst_layout);
+        if src_state != dst_state {
+            let bar = wrappers::create_transition_resource_barrier(
+                image.resource.get_mut(),
+                src_state,
+                dst_state,
+            );
+            self.0.resource_barrier(&[bar]);
+        }
     }
 
     unsafe fn clear_buffer(&self, buffer: &Buffer, size: Option<u64>) {
+        // Open question: do we call ClearUnorderedAccessViewUint or dispatch a
+        // compute shader? Either way we will need descriptors here.
         todo!()
     }
 
     unsafe fn copy_buffer(&self, src: &Buffer, dst: &Buffer) {
+        // TODO: consider using copy_resource here (if sizes match)
         let size = src.size.min(dst.size);
         self.0.copy_buffer(&dst.resource, 0, &src.resource, 0, size);
     }
 
     unsafe fn copy_image_to_buffer(&self, src: &Image, dst: &Buffer) {
-        todo!()
+        self.0
+            .copy_texture_to_buffer(&src.resource, &dst.resource, src.size.0, src.size.1);
     }
 
     unsafe fn copy_buffer_to_image(&self, src: &Buffer, dst: &Image) {
-        todo!()
+        self.0
+            .copy_buffer_to_texture(&src.resource, &dst.resource, dst.size.0, dst.size.1);
     }
 
     unsafe fn blit_image(&self, src: &Image, dst: &Image) {
-        todo!()
+        self.0.copy_resource(&src.resource, &dst.resource);
     }
 
     unsafe fn reset_query_pool(&mut self, pool: &QueryPool) {
@@ -443,9 +469,8 @@ impl crate::PipelineBuilder<Dx12Device> for PipelineBuilder {
     }
 
     fn add_images(&mut self, n_images: u32) {
-        if n_images != 0 {
-            todo!()
-        }
+        // These are UAV images, so the descriptor type is the same as buffers.
+        self.add_buffers(n_images)
     }
 
     fn add_textures(&mut self, max_textures: u32) {
@@ -514,9 +539,7 @@ impl crate::DescriptorSetBuilder<Dx12Device> for DescriptorSetBuilder {
     }
 
     fn add_images(&mut self, images: &[&Image]) {
-        if !images.is_empty() {
-            todo!()
-        }
+        self.images.extend(images.iter().copied().cloned());
     }
 
     fn add_textures(&mut self, images: &[&Image]) {
@@ -528,7 +551,7 @@ impl crate::DescriptorSetBuilder<Dx12Device> for DescriptorSetBuilder {
         device: &Dx12Device,
         _pipeline: &Pipeline,
     ) -> Result<DescriptorSet, Error> {
-        let n_descriptors = self.buffers.len();
+        let n_descriptors = self.buffers.len() + self.images.len();
         let heap_desc = d3d12::D3D12_DESCRIPTOR_HEAP_DESC {
             Type: d3d12::D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
             NumDescriptors: n_descriptors.try_into()?,
@@ -546,6 +569,13 @@ impl crate::DescriptorSetBuilder<Dx12Device> for DescriptorSetBuilder {
                     0,
                     (buffer.size / 4).try_into()?,
                 );
+            ix += 1;
+        }
+        for image in self.images {
+            device.device.create_unordered_access_view(
+                &image.resource,
+                heap.get_cpu_descriptor_handle_at_offset(ix),
+            );
             ix += 1;
         }
         Ok(DescriptorSet(heap))
@@ -577,5 +607,16 @@ impl MemoryArchitecture {
         } else {
             d3d12::D3D12_MEMORY_POOL_L0
         }
+    }
+}
+
+fn resource_state_for_image_layout(layout: ImageLayout) -> d3d12::D3D12_RESOURCE_STATES {
+    match layout {
+        ImageLayout::Undefined => d3d12::D3D12_RESOURCE_STATE_COMMON,
+        ImageLayout::Present => d3d12::D3D12_RESOURCE_STATE_PRESENT,
+        ImageLayout::BlitSrc => d3d12::D3D12_RESOURCE_STATE_COPY_SOURCE,
+        ImageLayout::BlitDst => d3d12::D3D12_RESOURCE_STATE_COPY_DEST,
+        ImageLayout::General => d3d12::D3D12_RESOURCE_STATE_COMMON,
+        ImageLayout::ShaderRead => d3d12::D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
     }
 }

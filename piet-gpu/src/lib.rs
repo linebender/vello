@@ -488,8 +488,7 @@ impl Renderer {
             let host_upload = BufferUsage::MAP_WRITE | BufferUsage::COPY_SRC;
             let mut buffer = session.create_buffer(buf.len() as u64, host_upload)?;
             buffer.write(buf)?;
-            let image =
-                session.create_image2d(width.try_into()?, height.try_into()?)?;
+            let image = session.create_image2d(width.try_into()?, height.try_into()?)?;
             let mut cmd_buf = session.cmd_buf()?;
             cmd_buf.begin();
             cmd_buf.image_barrier(

@@ -6,6 +6,8 @@ use piet_gpu_hal::{dx12, BufferUsage, CmdBuf, Device, Error};
 
 const SHADER_CODE: &str = r#"RWByteAddressBuffer _53 : register(u0, space0);
 
+RWTexture2D<float4> textureOut : register(u1);
+
 static uint3 gl_GlobalInvocationID;
 struct SPIRV_Cross_Input
 {
@@ -36,6 +38,7 @@ void comp_main()
     uint param = _53.Load(index * 4 + 0);
     uint _61 = collatz_iterations(param);
     _53.Store(index * 4 + 0, _61);
+    textureOut[uint2(index, 0)] = float4(1.0, 0.0, 0.0, 1.0);
 }
 
 [numthreads(256, 1, 1)]
@@ -60,12 +63,15 @@ fn toy() -> Result<(), Error> {
         1024,
         BufferUsage::STORAGE | BufferUsage::COPY_SRC | BufferUsage::COPY_DST,
     )?;
+    let img_readback_buf =
+        device.create_buffer(1024, BufferUsage::MAP_READ | BufferUsage::COPY_DST)?;
     let data: Vec<u32> = (1..257).collect();
     let query_pool = device.create_query_pool(2)?;
     unsafe {
+        let img = device.create_image2d(256, 1)?;
         device.write_buffer(&buf, &data)?;
-        let pipeline = device.create_simple_compute_pipeline(SHADER_CODE, 1, 0)?;
-        let ds = device.create_descriptor_set(&pipeline, &[&dev_buf], &[])?;
+        let pipeline = device.create_simple_compute_pipeline(SHADER_CODE, 1, 1)?;
+        let ds = device.create_descriptor_set(&pipeline, &[&dev_buf], &[&img])?;
         let mut cmd_buf = device.create_cmd_buf()?;
         let fence = device.create_fence(false)?;
         cmd_buf.begin();
@@ -76,6 +82,7 @@ fn toy() -> Result<(), Error> {
         cmd_buf.write_timestamp(&query_pool, 1);
         cmd_buf.memory_barrier();
         cmd_buf.copy_buffer(&dev_buf, &buf);
+        cmd_buf.copy_image_to_buffer(&img, &img_readback_buf);
         cmd_buf.finish_timestamps(&query_pool);
         cmd_buf.host_barrier();
         cmd_buf.finish();

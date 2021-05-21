@@ -852,18 +852,17 @@ impl Device {
         Ok(buffer)
     }
 
-    pub unsafe fn create_gpu_only_texture2d_buffer(
+    pub unsafe fn create_texture2d_buffer(
         &self,
-        descriptor_heap_offset: u32,
         width: u64,
         height: u32,
         format: dxgiformat::DXGI_FORMAT,
         allow_unordered_access: bool,
     ) -> Result<Resource, Error> {
+        // Images are always created device-local.
         let heap_properties = d3d12::D3D12_HEAP_PROPERTIES {
             Type: d3d12::D3D12_HEAP_TYPE_DEFAULT,
             CPUPageProperty: d3d12::D3D12_CPU_PAGE_PROPERTY_UNKNOWN,
-            //TODO: what should MemoryPoolPreference flag be?
             MemoryPoolPreference: d3d12::D3D12_MEMORY_POOL_UNKNOWN,
             //we don't care about multi-adapter operation, so these next two will be zero
             CreationNodeMask: 0,
@@ -1336,29 +1335,10 @@ impl GraphicsCommandList {
             aligned_destination_buffer_offset,
         );
     }
-    pub unsafe fn update_texture2d_using_intermediate_buffer(
-        &self,
-        device: Device,
-        intermediate_buffer: Resource,
-        texture: &Resource,
-    ) {
-        let mut src = d3d12::D3D12_TEXTURE_COPY_LOCATION {
-            pResource: intermediate_buffer.get_mut(),
-            Type: d3d12::D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,
-            ..mem::zeroed()
-        };
-        let (layout, _, _, _) = device.get_copyable_footprint(0, 1, 0, texture);
-        *src.u.PlacedFootprint_mut() = layout[0];
 
-        let mut dst = d3d12::D3D12_TEXTURE_COPY_LOCATION {
-            pResource: texture.get_mut(),
-            Type: d3d12::D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
-            ..mem::zeroed()
-        };
-        *dst.u.SubresourceIndex_mut() = 0;
-
-        self.0
-            .CopyTextureRegion(&dst as *const _, 0, 0, 0, &src as *const _, ptr::null());
+    /// Copy an entire resource (buffer or image)
+    pub unsafe fn copy_resource(&self, src: &Resource, dst: &Resource) {
+        self.0.CopyResource(src.get_mut(), dst.get_mut());
     }
 
     pub unsafe fn copy_buffer(
@@ -1376,6 +1356,84 @@ impl GraphicsCommandList {
             src_offset,
             size,
         );
+    }
+
+    pub unsafe fn copy_buffer_to_texture(
+        &self,
+        buffer: &Resource,
+        texture: &Resource,
+        width: u32,
+        height: u32,
+    ) {
+        let mut src = d3d12::D3D12_TEXTURE_COPY_LOCATION {
+            pResource: buffer.get_mut(),
+            Type: d3d12::D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,
+            ..mem::zeroed()
+        };
+        let row_pitch = width * 4;
+        assert!(
+            row_pitch % d3d12::D3D12_TEXTURE_DATA_PITCH_ALIGNMENT == 0,
+            "TODO: handle unaligned row pitch"
+        );
+        let footprint = d3d12::D3D12_PLACED_SUBRESOURCE_FOOTPRINT {
+            Offset: 0,
+            Footprint: d3d12::D3D12_SUBRESOURCE_FOOTPRINT {
+                Format: dxgiformat::DXGI_FORMAT_R8G8B8A8_UNORM,
+                Width: width,
+                Height: height,
+                Depth: 1,
+                RowPitch: row_pitch,
+            },
+        };
+        *src.u.PlacedFootprint_mut() = footprint;
+
+        let mut dst = d3d12::D3D12_TEXTURE_COPY_LOCATION {
+            pResource: texture.get_mut(),
+            Type: d3d12::D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
+            ..mem::zeroed()
+        };
+        *dst.u.SubresourceIndex_mut() = 0;
+
+        self.0.CopyTextureRegion(&dst, 0, 0, 0, &src, ptr::null());
+    }
+
+    pub unsafe fn copy_texture_to_buffer(
+        &self,
+        texture: &Resource,
+        buffer: &Resource,
+        width: u32,
+        height: u32,
+    ) {
+        let mut src = d3d12::D3D12_TEXTURE_COPY_LOCATION {
+            pResource: texture.get_mut(),
+            Type: d3d12::D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
+            ..mem::zeroed()
+        };
+        *src.u.SubresourceIndex_mut() = 0;
+
+        let mut dst = d3d12::D3D12_TEXTURE_COPY_LOCATION {
+            pResource: buffer.get_mut(),
+            Type: d3d12::D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,
+            ..mem::zeroed()
+        };
+        let row_pitch = width * 4;
+        assert!(
+            row_pitch % d3d12::D3D12_TEXTURE_DATA_PITCH_ALIGNMENT == 0,
+            "TODO: handle unaligned row pitch"
+        );
+        let footprint = d3d12::D3D12_PLACED_SUBRESOURCE_FOOTPRINT {
+            Offset: 0,
+            Footprint: d3d12::D3D12_SUBRESOURCE_FOOTPRINT {
+                Format: dxgiformat::DXGI_FORMAT_R8G8B8A8_UNORM,
+                Width: width,
+                Height: height,
+                Depth: 1,
+                RowPitch: row_pitch,
+            },
+        };
+        *dst.u.PlacedFootprint_mut() = footprint;
+
+        self.0.CopyTextureRegion(&dst, 0, 0, 0, &src, ptr::null());
     }
 }
 

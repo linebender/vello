@@ -41,6 +41,7 @@ impl std::error::Error for Error {}
 /// See https://docs.microsoft.com/en-us/windows/win32/direct3ddxgi/dxgi-error
 fn err_str_for_hr(hr: winerror::HRESULT) -> Option<&'static str> {
     Some(match hr as u32 {
+        0x80070057 => "E_INVALIDARG",
         0x887a0001 => "DXGI_ERROR_INVALID_CALL",
         0x887a0002 => "DXGI_ERROR_NOT_FOUND",
         0x887a0004 => "DXGI_ERROR_UNSUPPORTED",
