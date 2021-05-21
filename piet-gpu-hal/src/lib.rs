@@ -244,6 +244,10 @@ pub trait CmdBuf<D: Device> {
     unsafe fn reset_query_pool(&mut self, pool: &D::QueryPool);
 
     unsafe fn write_timestamp(&mut self, pool: &D::QueryPool, query: u32);
+
+    /// Prepare the timestamps for reading. This isn't required on Vulkan but
+    /// is required on (at least) DX12.
+    unsafe fn finish_timestamps(&mut self, pool: &D::QueryPool) {}
 }
 
 pub trait MemFlags: Sized + Clone + Copy {

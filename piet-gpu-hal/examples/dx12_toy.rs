@@ -52,6 +52,7 @@ fn toy() -> Result<(), Error> {
     let buf = device.create_buffer(1024, MemFlags::host_coherent())?;
     let dev_buf = device.create_buffer(1024, MemFlags::device_local())?;
     let data: Vec<u32> = (1..257).collect();
+    let query_pool = device.create_query_pool(2)?;
     unsafe {
         device.write_buffer(&buf, &data)?;
         let pipeline = device.create_simple_compute_pipeline(SHADER_CODE, 1, 0)?;
@@ -61,9 +62,12 @@ fn toy() -> Result<(), Error> {
         cmd_buf.begin();
         cmd_buf.copy_buffer(&buf, &dev_buf);
         cmd_buf.memory_barrier();
+        cmd_buf.write_timestamp(&query_pool, 0);
         cmd_buf.dispatch(&pipeline, &ds, (1, 1, 1));
+        cmd_buf.write_timestamp(&query_pool, 1);
         cmd_buf.memory_barrier();
         cmd_buf.copy_buffer(&dev_buf, &buf);
+        cmd_buf.finish_timestamps(&query_pool);
         cmd_buf.host_barrier();
         cmd_buf.finish();
         device.run_cmd_buf(&cmd_buf, &[], &[], Some(&fence))?;
@@ -71,6 +75,7 @@ fn toy() -> Result<(), Error> {
         let mut readback: Vec<u32> = Vec::new();
         device.read_buffer(&buf, &mut readback)?;
         println!("{:?}", readback);
+        println!("{:?}", device.fetch_query_pool(&query_pool));
     }
     Ok(())
 }

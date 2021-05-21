@@ -22,6 +22,7 @@ pub struct Dx12Device {
     device: Device,
     command_allocator: CommandAllocator,
     command_queue: CommandQueue,
+    ts_freq: u64,
 }
 
 #[derive(Clone)]
@@ -55,7 +56,15 @@ pub struct Pipeline {
 // gpu-descriptor crate.
 pub struct DescriptorSet(wrappers::DescriptorHeap);
 
-pub struct QueryPool;
+pub struct QueryPool {
+    heap: wrappers::QueryHeap,
+    buf: Buffer,
+    // TODO: piet-dx12 manages to do this with one buffer. I think a
+    // HEAP_TYPE_READBACK will work, but we currently don't have fine
+    // grained usage flags to express this.
+    readback_buf: Buffer,
+    n_queries: u32,
+}
 
 pub struct Fence {
     fence: wrappers::Fence,
@@ -118,10 +127,12 @@ impl Dx12Instance {
                 0,
             )?;
             let command_allocator = device.create_command_allocator(list_type)?;
+            let ts_freq = command_queue.get_timestamp_frequency()?;
             Ok(Dx12Device {
                 device,
                 command_queue,
                 command_allocator,
+                ts_freq,
             })
         }
     }
@@ -202,11 +213,33 @@ impl crate::Device for Dx12Device {
     }
 
     fn create_query_pool(&self, n_queries: u32) -> Result<Self::QueryPool, Error> {
-        todo!()
+        unsafe {
+            let heap = self
+                .device
+                .create_query_heap(d3d12::D3D12_QUERY_HEAP_TYPE_TIMESTAMP, n_queries)?;
+            let buf =
+                self.create_buffer((n_queries * 8) as u64, crate::MemFlags::device_local())?;
+            let readback_buf =
+                self.create_buffer((n_queries * 8) as u64, crate::MemFlags::host_coherent())?;
+            Ok(QueryPool {
+                heap,
+                buf,
+                readback_buf,
+                n_queries,
+            })
+        }
     }
 
     unsafe fn fetch_query_pool(&self, pool: &Self::QueryPool) -> Result<Vec<f64>, Error> {
-        todo!()
+        let mut buf = vec![0u64; pool.n_queries as usize];
+        self.read_buffer(&pool.readback_buf, &mut buf)?;
+        let ts0 = buf[0];
+        let tsp = (self.ts_freq as f64).recip();
+        let result = buf[1..]
+            .iter()
+            .map(|ts| ts.wrapping_sub(ts0) as f64 * tsp)
+            .collect();
+        Ok(result)
     }
 
     unsafe fn run_cmd_buf(
@@ -248,6 +281,7 @@ impl crate::Device for Dx12Device {
         contents: &[T],
     ) -> Result<(), Error> {
         let len = buffer.size as usize / std::mem::size_of::<T>();
+        assert!(len >= contents.len());
         buffer.resource.write_resource(len, contents.as_ptr())?;
         Ok(())
     }
@@ -366,7 +400,13 @@ impl crate::CmdBuf<Dx12Device> for CmdBuf {
     }
 
     unsafe fn write_timestamp(&mut self, pool: &QueryPool, query: u32) {
-        todo!()
+        self.0.end_timing_query(&pool.heap, query);
+    }
+
+    unsafe fn finish_timestamps(&mut self, pool: &QueryPool) {
+        self.0
+            .resolve_timing_query_data(&pool.heap, 0, pool.n_queries, &pool.buf.resource, 0);
+        self.copy_buffer(&pool.buf, &pool.readback_buf);
     }
 }
 

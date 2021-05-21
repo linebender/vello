@@ -107,7 +107,7 @@ impl Resource {
     }
 
     pub fn get(&self) -> *const d3d12::ID3D12Resource {
-        self.ptr.load(Ordering::Relaxed)
+        self.get_mut()
     }
 
     pub fn get_mut(&self) -> *mut d3d12::ID3D12Resource {
@@ -491,6 +491,7 @@ impl Device {
         Ok(RootSignature(ComPtr::from_raw(signature)))
     }
 
+    // This is for indirect command submission and we probably won't use it.
     pub unsafe fn create_command_signature(
         &self,
         root_signature: RootSignature,
@@ -722,7 +723,7 @@ impl Device {
         &self,
         heap_type: d3d12::D3D12_QUERY_HEAP_TYPE,
         num_expected_queries: u32,
-    ) -> QueryHeap {
+    ) -> Result<QueryHeap, Error> {
         let query_heap_desc = d3d12::D3D12_QUERY_HEAP_DESC {
             Type: heap_type,
             Count: num_expected_queries,
@@ -731,14 +732,16 @@ impl Device {
 
         let mut query_heap = ptr::null_mut();
 
-        error_if_failed_else_unit(self.0.CreateQueryHeap(
-            &query_heap_desc as *const _,
-            &d3d12::ID3D12QueryHeap::uuidof(),
-            &mut query_heap as *mut _ as *mut _,
-        ))
-        .expect("could not create query heap");
+        explain_error(
+            self.0.CreateQueryHeap(
+                &query_heap_desc as *const _,
+                &d3d12::ID3D12QueryHeap::uuidof(),
+                &mut query_heap as *mut _ as *mut _,
+            ),
+            "could not create query heap",
+        )?;
 
-        QueryHeap(ComPtr::from_raw(query_heap))
+        Ok(QueryHeap(ComPtr::from_raw(query_heap)))
     }
 
     // based on: https://github.com/microsoft/DirectX-Graphics-Samples/blob/682051ddbe4be820195fffed0bfbdbbde8611a90/Libraries/D3DX12/d3dx12.h#L1875
@@ -1375,9 +1378,9 @@ impl GraphicsCommandList {
         );
     }
 
-    pub unsafe fn end_timing_query(&self, query_heap: QueryHeap, index: u32) {
+    pub unsafe fn end_timing_query(&self, query_heap: &QueryHeap, index: u32) {
         self.0.EndQuery(
-            query_heap.0.as_raw() as *mut _,
+            query_heap.0.as_raw(),
             d3d12::D3D12_QUERY_TYPE_TIMESTAMP,
             index,
         );
@@ -1385,10 +1388,10 @@ impl GraphicsCommandList {
 
     pub unsafe fn resolve_timing_query_data(
         &self,
-        query_heap: QueryHeap,
+        query_heap: &QueryHeap,
         start_index: u32,
         num_queries: u32,
-        destination_buffer: Resource,
+        destination_buffer: &Resource,
         aligned_destination_buffer_offset: u64,
     ) {
         self.0.ResolveQueryData(
