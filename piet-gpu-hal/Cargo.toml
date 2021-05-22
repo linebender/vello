@@ -10,6 +10,7 @@ edition = "2018"
 ash = "0.31"
 ash-window = "0.5"
 raw-window-handle = "0.3"
+bitflags = "1.2.1"
 
 winapi = { version = "0.3.9", features = [
     'd3d12', 'd3d12sdklayers', 'd3dcommon', 'd3dcompiler', 'dxgi',

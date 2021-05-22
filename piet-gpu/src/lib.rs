@@ -13,7 +13,7 @@ use piet::{Color, ImageFormat, RenderContext};
 use piet_gpu_types::encoder::Encode;
 
 use piet_gpu_hal::hub;
-use piet_gpu_hal::{CmdBuf, Error, ImageLayout, MemFlags};
+use piet_gpu_hal::{BufferUsage, CmdBuf, Error, ImageLayout};
 
 use pico_svg::PicoSvg;
 
@@ -237,8 +237,8 @@ impl Renderer {
         n_pathseg: usize,
         n_trans: usize,
     ) -> Result<Self, Error> {
-        let host = MemFlags::host_coherent();
-        let dev = MemFlags::device_local();
+        let dev = BufferUsage::STORAGE | BufferUsage::COPY_DST;
+        let host_upload = BufferUsage::MAP_WRITE | BufferUsage::COPY_SRC;
 
         let n_elements = scene.len() / piet_gpu_types::scene::Element::fixed_size();
         println!(
@@ -247,7 +247,7 @@ impl Renderer {
         );
 
         let mut scene_buf_host = session
-            .create_buffer(std::mem::size_of_val(&scene[..]) as u64, host)
+            .create_buffer(std::mem::size_of_val(&scene[..]) as u64, host_upload)
             .unwrap();
         let scene_buf_dev = session
             .create_buffer(std::mem::size_of_val(&scene[..]) as u64, dev)
@@ -255,10 +255,10 @@ impl Renderer {
         scene_buf_host.write(&scene)?;
 
         let state_buf = session.create_buffer(1 * 1024 * 1024, dev)?;
-        let image_dev = session.create_image2d(WIDTH as u32, HEIGHT as u32, dev)?;
+        let image_dev = session.create_image2d(WIDTH as u32, HEIGHT as u32)?;
 
         const CONFIG_SIZE: u64 = 10 * 4; // Size of Config in setup.h.
-        let mut config_buf_host = session.create_buffer(CONFIG_SIZE, host)?;
+        let mut config_buf_host = session.create_buffer(CONFIG_SIZE, host_upload)?;
         let config_buf_dev = session.create_buffer(CONFIG_SIZE, dev)?;
 
         // TODO: constants
@@ -293,7 +293,7 @@ impl Renderer {
             trans_base as u32,
         ])?;
 
-        let mut memory_buf_host = session.create_buffer(2 * 4, host)?;
+        let mut memory_buf_host = session.create_buffer(2 * 4, host_upload)?;
         let memory_buf_dev = session.create_buffer(128 * 1024 * 1024, dev)?;
         memory_buf_host.write(&[alloc as u32, 0 /* Overflow flag */])?;
 
@@ -485,12 +485,11 @@ impl Renderer {
             if format != ImageFormat::RgbaPremul {
                 return Err("unsupported image format".into());
             }
-            let host_mem_flags = MemFlags::host_coherent();
-            let dev_mem_flags = MemFlags::device_local();
-            let mut buffer = session.create_buffer(buf.len() as u64, host_mem_flags)?;
+            let host_upload = BufferUsage::MAP_WRITE | BufferUsage::COPY_SRC;
+            let mut buffer = session.create_buffer(buf.len() as u64, host_upload)?;
             buffer.write(buf)?;
             let image =
-                session.create_image2d(width.try_into()?, height.try_into()?, dev_mem_flags)?;
+                session.create_image2d(width.try_into()?, height.try_into()?)?;
             let mut cmd_buf = session.cmd_buf()?;
             cmd_buf.begin();
             cmd_buf.image_barrier(

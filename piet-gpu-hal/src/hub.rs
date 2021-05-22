@@ -10,9 +10,8 @@ use std::sync::{Arc, Mutex, Weak};
 use crate::vulkan;
 use crate::DescriptorSetBuilder as DescriptorSetBuilderTrait;
 use crate::PipelineBuilder as PipelineBuilderTrait;
-use crate::{Device, Error, GpuInfo, SamplerParams};
+use crate::{BufferUsage, Device, Error, GpuInfo, SamplerParams};
 
-pub type MemFlags = <vulkan::VkDevice as Device>::MemFlags;
 pub type Semaphore = <vulkan::VkDevice as Device>::Semaphore;
 pub type Pipeline = <vulkan::VkDevice as Device>::Pipeline;
 pub type DescriptorSet = <vulkan::VkDevice as Device>::DescriptorSet;
@@ -143,8 +142,8 @@ impl Session {
         ))
     }
 
-    pub fn create_buffer(&self, size: u64, mem_flags: MemFlags) -> Result<Buffer, Error> {
-        let buffer = self.0.device.create_buffer(size, mem_flags)?;
+    pub fn create_buffer(&self, size: u64, usage: BufferUsage) -> Result<Buffer, Error> {
+        let buffer = self.0.device.create_buffer(size, usage)?;
         Ok(Buffer(Arc::new(BufferInner {
             buffer,
             session: Arc::downgrade(&self.0),
@@ -155,9 +154,8 @@ impl Session {
         &self,
         width: u32,
         height: u32,
-        mem_flags: MemFlags,
     ) -> Result<Image, Error> {
-        let image = self.0.device.create_image2d(width, height, mem_flags)?;
+        let image = self.0.device.create_image2d(width, height)?;
         Ok(Image(Arc::new(ImageInner {
             image,
             session: Arc::downgrade(&self.0),
