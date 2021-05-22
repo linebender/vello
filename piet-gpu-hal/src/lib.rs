@@ -4,6 +4,8 @@
 /// In time, it may go away and be replaced by either gfx-hal or wgpu.
 pub mod hub;
 
+#[cfg(target_os = "macos")]
+pub mod metal;
 pub mod vulkan;
 
 /// This isn't great but is expedient.

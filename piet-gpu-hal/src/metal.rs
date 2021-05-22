@@ -1,0 +1,326 @@
+// Copyright 2021 The piet-gpu authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// Also licensed under MIT license, at your choice.
+
+use crate::Error;
+
+use bitflags::bitflags;
+
+pub struct MetalInstance;
+
+pub struct MetalDevice {
+    device: metal::Device,
+}
+
+pub struct Buffer(metal::Buffer);
+
+pub struct Image;
+
+pub struct Pipeline;
+
+pub struct DescriptorSet;
+
+pub struct Fence;
+
+pub struct Semaphore;
+
+// This is the new direction of how I want this to go, and will
+// move it to crate level. It's very similar to wgpu's BufferUsage.
+bitflags! {
+    pub struct MemFlags: u32 {
+        const MAP_READ = 1;
+        const MAP_WRITE = 2;
+        const COPY_SRC = 4;
+        const COPY_DST = 8;
+        const STORAGE = 128;
+    }
+}
+
+
+pub struct CmdBuf;
+
+pub struct QueryPool;
+
+pub struct PipelineBuilder;
+
+pub struct DescriptorSetBuilder;
+
+impl MetalInstance {
+    pub fn new() -> MetalInstance {
+        MetalInstance
+    }
+
+    // TODO might do some enumeration of devices
+
+    pub fn device(&self) -> Result<MetalDevice, Error> {
+        if let Some(device) = metal::Device::system_default() {
+            Ok(MetalDevice { device })
+        } else {
+            Err("can't create system default Metal device".into())
+        }
+    }
+}
+
+impl crate::Device for MetalDevice {
+    type Buffer = Buffer;
+
+    type Image = Image;
+
+    type MemFlags = MemFlags;
+
+    type Pipeline = Pipeline;
+
+    type DescriptorSet = DescriptorSet;
+
+    type QueryPool = QueryPool;
+
+    type CmdBuf = CmdBuf;
+
+    type Fence = Fence;
+
+    type Semaphore = Semaphore;
+
+    type PipelineBuilder = PipelineBuilder;
+
+    type DescriptorSetBuilder = DescriptorSetBuilder;
+
+    type Sampler = ();
+
+    fn query_gpu_info(&self) -> crate::GpuInfo {
+        todo!()
+    }
+
+    fn create_buffer(&self, size: u64, mem_flags: Self::MemFlags) -> Result<Self::Buffer, Error> {
+        let options = if mem_flags.contains(MemFlags::MAP_READ) {
+            metal::MTLResourceOptions::StorageModeShared | metal::MTLResourceOptions::CPUCacheModeDefaultCache
+        } else if mem_flags.contains(MemFlags::MAP_WRITE) {
+            metal::MTLResourceOptions::StorageModeShared | metal::MTLResourceOptions::CPUCacheModeWriteCombined
+        } else {
+            metal::MTLResourceOptions::StorageModePrivate
+        };
+        let buffer = self.device.new_buffer(size, options);
+        Ok(Buffer(buffer))
+    }
+
+    unsafe fn destroy_buffer(&self, buffer: &Self::Buffer) -> Result<(), Error> {
+        todo!()
+    }
+
+    unsafe fn create_image2d(
+        &self,
+        width: u32,
+        height: u32,
+        mem_flags: Self::MemFlags,
+    ) -> Result<Self::Image, Error> {
+        todo!()
+    }
+
+    unsafe fn destroy_image(&self, image: &Self::Image) -> Result<(), Error> {
+        todo!()
+    }
+
+    unsafe fn pipeline_builder(&self) -> Self::PipelineBuilder {
+        todo!()
+    }
+
+    unsafe fn descriptor_set_builder(&self) -> Self::DescriptorSetBuilder {
+        todo!()
+    }
+
+    fn create_cmd_buf(&self) -> Result<Self::CmdBuf, Error> {
+        todo!()
+    }
+
+    fn create_query_pool(&self, n_queries: u32) -> Result<Self::QueryPool, Error> {
+        todo!()
+    }
+
+    unsafe fn fetch_query_pool(&self, pool: &Self::QueryPool) -> Result<Vec<f64>, Error> {
+        todo!()
+    }
+
+    unsafe fn run_cmd_buf(
+        &self,
+        cmd_buf: &Self::CmdBuf,
+        wait_semaphores: &[Self::Semaphore],
+        signal_semaphores: &[Self::Semaphore],
+        fence: Option<&Self::Fence>,
+    ) -> Result<(), Error> {
+        todo!()
+    }
+
+    unsafe fn read_buffer<T: Sized>(
+        &self,
+        buffer: &Self::Buffer,
+        result: &mut Vec<T>,
+    ) -> Result<(), Error> {
+        let contents_ptr = buffer.0.contents();
+        if contents_ptr.is_null() {
+            return Err("probably trying to read from private buffer".into());
+        }
+        let len = buffer.0.length() as usize / std::mem::size_of::<T>();
+        if len > result.len() {
+            result.reserve(len - result.len());
+        }
+        std::ptr::copy_nonoverlapping(contents_ptr as *const T, result.as_mut_ptr(), len);
+        result.set_len(len);
+        Ok(())
+    }
+
+    unsafe fn write_buffer<T: Sized>(
+        &self,
+        buffer: &Self::Buffer,
+        contents: &[T],
+    ) -> Result<(), Error> {
+        let contents_ptr = buffer.0.contents();
+        if contents_ptr.is_null() {
+            return Err("probably trying to write to private buffer".into());
+        }
+        let len = buffer.0.length() as usize / std::mem::size_of::<T>();
+        assert!(len >= contents.len());
+        std::ptr::copy_nonoverlapping(contents.as_ptr(), contents_ptr as *mut T, len);
+        Ok(())
+    }
+
+    unsafe fn create_semaphore(&self) -> Result<Self::Semaphore, Error> {
+        todo!()
+    }
+
+    unsafe fn create_fence(&self, signaled: bool) -> Result<Self::Fence, Error> {
+        todo!()
+    }
+
+    unsafe fn wait_and_reset(&self, fences: &[Self::Fence]) -> Result<(), Error> {
+        todo!()
+    }
+
+    unsafe fn get_fence_status(&self, fence: Self::Fence) -> Result<bool, Error> {
+        todo!()
+    }
+
+    unsafe fn create_sampler(&self, params: crate::SamplerParams) -> Result<Self::Sampler, Error> {
+        todo!()
+    }
+}
+
+impl crate::MemFlags for MemFlags {
+    fn device_local() -> Self {
+        MemFlags::COPY_SRC | MemFlags::COPY_DST | MemFlags::STORAGE
+    }
+
+    fn host_coherent() -> Self {
+        MemFlags::device_local() | MemFlags::MAP_READ | MemFlags::MAP_WRITE
+    }
+}
+
+impl crate::CmdBuf<MetalDevice> for CmdBuf {
+    unsafe fn begin(&mut self) {
+        todo!()
+    }
+
+    unsafe fn finish(&mut self) {
+        todo!()
+    }
+
+    unsafe fn dispatch(
+        &mut self,
+        pipeline: &Pipeline,
+        descriptor_set: &DescriptorSet,
+        size: (u32, u32, u32),
+    ) {
+        todo!()
+    }
+
+    unsafe fn memory_barrier(&mut self) {
+        todo!()
+    }
+
+    unsafe fn host_barrier(&mut self) {
+        todo!()
+    }
+
+    unsafe fn image_barrier(
+        &mut self,
+        image: &Image,
+        src_layout: crate::ImageLayout,
+        dst_layout: crate::ImageLayout,
+    ) {
+        todo!()
+    }
+
+    unsafe fn clear_buffer(&self, buffer: &Buffer, size: Option<u64>) {
+        todo!()
+    }
+
+    unsafe fn copy_buffer(&self, src: &Buffer, dst: &Buffer) {
+        todo!()
+    }
+
+    unsafe fn copy_image_to_buffer(&self, src: &Image, dst: &Buffer) {
+        todo!()
+    }
+
+    unsafe fn copy_buffer_to_image(&self, src: &Buffer, dst: &Image) {
+        todo!()
+    }
+
+    unsafe fn blit_image(&self, src: &Image, dst: &Image) {
+        todo!()
+    }
+
+    unsafe fn reset_query_pool(&mut self, pool: &QueryPool) {
+        todo!()
+    }
+
+    unsafe fn write_timestamp(&mut self, pool: &QueryPool, query: u32) {
+        todo!()
+    }
+}
+
+impl crate::PipelineBuilder<MetalDevice> for PipelineBuilder {
+    fn add_buffers(&mut self, n_buffers: u32) {
+        todo!()
+    }
+
+    fn add_images(&mut self, n_images: u32) {
+        todo!()
+    }
+
+    fn add_textures(&mut self, max_textures: u32) {
+        todo!()
+    }
+
+    unsafe fn create_compute_pipeline(self, device: &MetalDevice, code: &[u8]) -> Result<Pipeline, Error> {
+        todo!()
+    }
+}
+
+impl crate::DescriptorSetBuilder<MetalDevice> for DescriptorSetBuilder {
+    fn add_buffers(&mut self, buffers: &[&Buffer]) {
+        todo!()
+    }
+
+    fn add_images(&mut self, images: &[&Image]) {
+        todo!()
+    }
+
+    fn add_textures(&mut self, images: &[&Image]) {
+        todo!()
+    }
+
+    unsafe fn build(self, device: &MetalDevice, pipeline: &Pipeline) -> Result<DescriptorSet, Error> {
+        todo!()
+    }
+}
