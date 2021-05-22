@@ -2,6 +2,9 @@
 ///
 /// This abstraction is inspired by gfx-hal, but is specialized to the needs of piet-gpu.
 /// In time, it may go away and be replaced by either gfx-hal or wgpu.
+
+use bitflags::bitflags;
+
 pub mod hub;
 
 pub mod vulkan;
@@ -27,6 +30,25 @@ pub enum ImageLayout {
 pub enum SamplerParams {
     Nearest,
     Linear,
+}
+
+bitflags! {
+    /// The intended usage for this buffer.
+    pub struct BufferUsage: u32 {
+        /// The buffer can be mapped for reading CPU-side.
+        const MAP_READ = 0x1;
+        /// The buffer can be mapped for writing CPU-side.
+        const MAP_WRITE = 0x2;
+        /// The buffer can be copied from.
+        const COPY_SRC = 0x4;
+        /// The buffer can be copied to.
+        const COPY_DST = 0x8;
+        /// The buffer can be bound to a compute shader.
+        const STORAGE = 0x80;
+        /// The buffer can be used to store the results of queries.
+        const QUERY_RESOLVE = 0x200;
+        // May add other types.
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -55,7 +77,6 @@ pub struct SubgroupSize {
 pub trait Device: Sized {
     type Buffer: 'static;
     type Image;
-    type MemFlags: MemFlags;
     type Pipeline;
     type DescriptorSet;
     type QueryPool;
@@ -72,7 +93,7 @@ pub trait Device: Sized {
     /// the info.
     fn query_gpu_info(&self) -> GpuInfo;
 
-    fn create_buffer(&self, size: u64, mem_flags: Self::MemFlags) -> Result<Self::Buffer, Error>;
+    fn create_buffer(&self, size: u64, usage: BufferUsage) -> Result<Self::Buffer, Error>;
 
     /// Destroy a buffer.
     ///
@@ -86,7 +107,6 @@ pub trait Device: Sized {
         &self,
         width: u32,
         height: u32,
-        mem_flags: Self::MemFlags,
     ) -> Result<Self::Image, Error>;
 
     /// Destroy an image.
