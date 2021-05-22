@@ -263,12 +263,6 @@ pub trait CmdBuf<D: Device> {
     unsafe fn write_timestamp(&mut self, pool: &D::QueryPool, query: u32);
 }
 
-pub trait MemFlags: Sized + Clone + Copy {
-    fn device_local() -> Self;
-
-    fn host_coherent() -> Self;
-}
-
 /// A builder for pipelines with more complex layouts.
 pub trait PipelineBuilder<D: Device> {
     /// Add buffers to the pipeline. Each has its own binding.
