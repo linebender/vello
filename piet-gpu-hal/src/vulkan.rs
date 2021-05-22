@@ -9,7 +9,9 @@ use ash::extensions::{ext::DebugUtils, khr};
 use ash::version::{DeviceV1_0, EntryV1_0, InstanceV1_0, InstanceV1_1};
 use ash::{vk, Device, Entry, Instance};
 
-use crate::{BufferUsage, Device as DeviceTrait, Error, GpuInfo, ImageLayout, SamplerParams, SubgroupSize};
+use crate::{
+    BufferUsage, Device as DeviceTrait, Error, GpuInfo, ImageLayout, SamplerParams, SubgroupSize,
+};
 
 pub struct VkInstance {
     /// Retain the dynamic lib.
@@ -512,11 +514,7 @@ impl crate::Device for VkDevice {
         Ok(())
     }
 
-    unsafe fn create_image2d(
-        &self,
-        width: u32,
-        height: u32,
-    ) -> Result<Self::Image, Error> {
+    unsafe fn create_image2d(&self, width: u32, height: u32) -> Result<Self::Image, Error> {
         let device = &self.device.device;
         let extent = vk::Extent3D {
             width,

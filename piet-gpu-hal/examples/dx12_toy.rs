@@ -2,7 +2,7 @@
 //! This will probably go away when it's fully implemented and we can
 //! just use the hub.
 
-use piet_gpu_hal::{dx12, CmdBuf, Device, Error, MemFlags};
+use piet_gpu_hal::{dx12, BufferUsage, CmdBuf, Device, Error};
 
 const SHADER_CODE: &str = r#"RWByteAddressBuffer _53 : register(u0, space0);
 
@@ -49,8 +49,17 @@ void main(SPIRV_Cross_Input stage_input)
 fn toy() -> Result<(), Error> {
     let instance = dx12::Dx12Instance::new()?;
     let device = instance.device()?;
-    let buf = device.create_buffer(1024, MemFlags::host_coherent())?;
-    let dev_buf = device.create_buffer(1024, MemFlags::device_local())?;
+    let buf = device.create_buffer(
+        1024,
+        BufferUsage::MAP_READ
+            | BufferUsage::MAP_WRITE
+            | BufferUsage::COPY_SRC
+            | BufferUsage::COPY_DST,
+    )?;
+    let dev_buf = device.create_buffer(
+        1024,
+        BufferUsage::STORAGE | BufferUsage::COPY_SRC | BufferUsage::COPY_DST,
+    )?;
     let data: Vec<u32> = (1..257).collect();
     let query_pool = device.create_query_pool(2)?;
     unsafe {

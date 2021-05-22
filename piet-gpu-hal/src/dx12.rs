@@ -6,9 +6,10 @@ mod wrappers;
 use std::{cell::Cell, convert::TryInto, mem, ptr};
 
 use winapi::shared::dxgi1_3;
+use winapi::shared::minwindef::TRUE;
 use winapi::um::d3d12;
 
-use crate::Error;
+use crate::{BufferUsage, Error};
 
 use self::wrappers::{
     CommandAllocator, CommandQueue, Device, Factory4, GraphicsCommandList, Resource, ShaderByteCode,
@@ -23,6 +24,7 @@ pub struct Dx12Device {
     command_allocator: CommandAllocator,
     command_queue: CommandQueue,
     ts_freq: u64,
+    memory_arch: MemoryArchitecture,
 }
 
 #[derive(Clone)]
@@ -33,15 +35,6 @@ pub struct Buffer {
 
 pub struct Image {
     resource: Resource,
-}
-
-// TODO: this doesn't make an upload/download distinction. Probably
-// we want to move toward webgpu-style usage flags, ie map_read and
-// map_write are the main ones that affect buffer creation.
-#[derive(Clone, Copy)]
-pub enum MemFlags {
-    DeviceLocal,
-    HostCoherent,
 }
 
 pub struct CmdBuf(GraphicsCommandList);
@@ -59,10 +52,6 @@ pub struct DescriptorSet(wrappers::DescriptorHeap);
 pub struct QueryPool {
     heap: wrappers::QueryHeap,
     buf: Buffer,
-    // TODO: piet-dx12 manages to do this with one buffer. I think a
-    // HEAP_TYPE_READBACK will work, but we currently don't have fine
-    // grained usage flags to express this.
-    readback_buf: Buffer,
     n_queries: u32,
 }
 
@@ -86,6 +75,16 @@ pub struct PipelineBuilder {
 #[derive(Default)]
 pub struct DescriptorSetBuilder {
     buffers: Vec<Buffer>,
+}
+
+#[derive(PartialEq, Eq)]
+enum MemoryArchitecture {
+    /// Integrated graphics
+    CacheCoherentUMA,
+    /// Unified memory with no cache coherence (does this happen?)
+    UMA,
+    /// Discrete graphics
+    NUMA,
 }
 
 impl Dx12Instance {
@@ -128,11 +127,20 @@ impl Dx12Instance {
             )?;
             let command_allocator = device.create_command_allocator(list_type)?;
             let ts_freq = command_queue.get_timestamp_frequency()?;
+            let features_architecture = device.get_features_architecture()?;
+            let uma = features_architecture.UMA == TRUE;
+            let cc_uma = features_architecture.CacheCoherentUMA == TRUE;
+            let memory_arch = match (uma, cc_uma) {
+                (true, true) => MemoryArchitecture::CacheCoherentUMA,
+                (true, false) => MemoryArchitecture::UMA,
+                _ => MemoryArchitecture::NUMA,
+            };
             Ok(Dx12Device {
                 device,
                 command_queue,
                 command_allocator,
                 ts_freq,
+                memory_arch,
             })
         }
     }
@@ -142,8 +150,6 @@ impl crate::Device for Dx12Device {
     type Buffer = Buffer;
 
     type Image = Image;
-
-    type MemFlags = MemFlags;
 
     type Pipeline = Pipeline;
 
@@ -166,16 +172,22 @@ impl crate::Device for Dx12Device {
     // Currently this is HLSL source, but we'll probably change it to IR.
     type ShaderSource = str;
 
-    fn create_buffer(&self, size: u64, mem_flags: Self::MemFlags) -> Result<Self::Buffer, Error> {
+    fn create_buffer(&self, size: u64, usage: BufferUsage) -> Result<Self::Buffer, Error> {
+        // TODO: consider supporting BufferUsage::QUERY_RESOLVE here rather than
+        // having a separate function.
         unsafe {
-            let resource = match mem_flags {
-                MemFlags::DeviceLocal => self
-                    .device
-                    .create_gpu_only_byte_addressed_buffer(size.try_into()?)?,
-                MemFlags::HostCoherent => self
-                    .device
-                    .create_uploadable_byte_addressed_buffer(size.try_into()?)?,
-            };
+            let page_property = self.memory_arch.page_property(usage);
+            let memory_pool = self.memory_arch.memory_pool(usage);
+            //TODO: consider flag D3D12_HEAP_FLAG_ALLOW_SHADER_ATOMICS?
+            let flags = d3d12::D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+            let resource = self.device.create_buffer(
+                size.try_into()?,
+                d3d12::D3D12_HEAP_TYPE_CUSTOM,
+                page_property,
+                memory_pool,
+                d3d12::D3D12_RESOURCE_STATE_COMMON,
+                flags,
+            )?;
             Ok(Buffer { resource, size })
         }
     }
@@ -185,12 +197,7 @@ impl crate::Device for Dx12Device {
         Ok(())
     }
 
-    unsafe fn create_image2d(
-        &self,
-        width: u32,
-        height: u32,
-        mem_flags: Self::MemFlags,
-    ) -> Result<Self::Image, Error> {
+    unsafe fn create_image2d(&self, width: u32, height: u32) -> Result<Self::Image, Error> {
         todo!()
     }
 
@@ -217,14 +224,10 @@ impl crate::Device for Dx12Device {
             let heap = self
                 .device
                 .create_query_heap(d3d12::D3D12_QUERY_HEAP_TYPE_TIMESTAMP, n_queries)?;
-            let buf =
-                self.create_buffer((n_queries * 8) as u64, crate::MemFlags::device_local())?;
-            let readback_buf =
-                self.create_buffer((n_queries * 8) as u64, crate::MemFlags::host_coherent())?;
+            let buf = self.create_readback_buffer((n_queries * 8) as u64)?;
             Ok(QueryPool {
                 heap,
                 buf,
-                readback_buf,
                 n_queries,
             })
         }
@@ -232,7 +235,7 @@ impl crate::Device for Dx12Device {
 
     unsafe fn fetch_query_pool(&self, pool: &Self::QueryPool) -> Result<Vec<f64>, Error> {
         let mut buf = vec![0u64; pool.n_queries as usize];
-        self.read_buffer(&pool.readback_buf, &mut buf)?;
+        self.read_buffer(&pool.buf, &mut buf)?;
         let ts0 = buf[0];
         let tsp = (self.ts_freq as f64).recip();
         let result = buf[1..]
@@ -327,6 +330,22 @@ impl crate::Device for Dx12Device {
     }
 }
 
+impl Dx12Device {
+    fn create_readback_buffer(&self, size: u64) -> Result<Buffer, Error> {
+        unsafe {
+            let resource = self.device.create_buffer(
+                size.try_into()?,
+                d3d12::D3D12_HEAP_TYPE_READBACK,
+                d3d12::D3D12_CPU_PAGE_PROPERTY_UNKNOWN,
+                d3d12::D3D12_MEMORY_POOL_UNKNOWN,
+                d3d12::D3D12_RESOURCE_STATE_COPY_DEST,
+                d3d12::D3D12_RESOURCE_FLAG_NONE,
+            )?;
+            Ok(Buffer { resource, size })
+        }
+    }
+}
+
 impl crate::CmdBuf<Dx12Device> for CmdBuf {
     unsafe fn begin(&mut self) {}
 
@@ -406,17 +425,6 @@ impl crate::CmdBuf<Dx12Device> for CmdBuf {
     unsafe fn finish_timestamps(&mut self, pool: &QueryPool) {
         self.0
             .resolve_timing_query_data(&pool.heap, 0, pool.n_queries, &pool.buf.resource, 0);
-        self.copy_buffer(&pool.buf, &pool.readback_buf);
-    }
-}
-
-impl crate::MemFlags for MemFlags {
-    fn device_local() -> Self {
-        MemFlags::DeviceLocal
-    }
-
-    fn host_coherent() -> Self {
-        MemFlags::HostCoherent
     }
 }
 
@@ -541,5 +549,33 @@ impl crate::DescriptorSetBuilder<Dx12Device> for DescriptorSetBuilder {
             ix += 1;
         }
         Ok(DescriptorSet(heap))
+    }
+}
+
+impl MemoryArchitecture {
+    // See https://msdn.microsoft.com/de-de/library/windows/desktop/dn788678(v=vs.85).aspx
+
+    fn page_property(&self, usage: BufferUsage) -> d3d12::D3D12_CPU_PAGE_PROPERTY {
+        if usage.contains(BufferUsage::MAP_READ) {
+            d3d12::D3D12_CPU_PAGE_PROPERTY_WRITE_BACK
+        } else if usage.contains(BufferUsage::MAP_WRITE) {
+            if *self == MemoryArchitecture::CacheCoherentUMA {
+                d3d12::D3D12_CPU_PAGE_PROPERTY_WRITE_BACK
+            } else {
+                d3d12::D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE
+            }
+        } else {
+            d3d12::D3D12_CPU_PAGE_PROPERTY_NOT_AVAILABLE
+        }
+    }
+
+    fn memory_pool(&self, usage: BufferUsage) -> d3d12::D3D12_MEMORY_POOL {
+        if *self == MemoryArchitecture::NUMA
+            && !usage.intersects(BufferUsage::MAP_READ | BufferUsage::MAP_WRITE)
+        {
+            d3d12::D3D12_MEMORY_POOL_L1
+        } else {
+            d3d12::D3D12_MEMORY_POOL_L0
+        }
     }
 }

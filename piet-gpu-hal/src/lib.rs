@@ -2,7 +2,6 @@
 ///
 /// This abstraction is inspired by gfx-hal, but is specialized to the needs of piet-gpu.
 /// In time, it may go away and be replaced by either gfx-hal or wgpu.
-
 use bitflags::bitflags;
 
 pub mod hub;
@@ -106,11 +105,7 @@ pub trait Device: Sized {
     /// Maybe doesn't need result return?
     unsafe fn destroy_buffer(&self, buffer: &Self::Buffer) -> Result<(), Error>;
 
-    unsafe fn create_image2d(
-        &self,
-        width: u32,
-        height: u32,
-    ) -> Result<Self::Image, Error>;
+    unsafe fn create_image2d(&self, width: u32, height: u32) -> Result<Self::Image, Error>;
 
     /// Destroy an image.
     ///

@@ -677,7 +677,6 @@ impl Device {
             .CreateRenderTargetView(resource.get_mut(), desc, descriptor);
     }
 
-    // TODO: interface not complete
     pub unsafe fn create_fence(&self, initial: u64) -> Result<Fence, Error> {
         let mut fence = ptr::null_mut();
         explain_error(
@@ -810,57 +809,19 @@ impl Device {
         (layouts, num_rows, row_size_in_bytes, total_size)
     }
 
-    // TODO: probably combine these and add usage flags
-    pub unsafe fn create_uploadable_buffer(
-        &self,
-        buffer_size_in_bytes: u64,
-    ) -> Result<Resource, Error> {
-        let heap_properties = d3d12::D3D12_HEAP_PROPERTIES {
-            //for GPU access only
-            Type: d3d12::D3D12_HEAP_TYPE_UPLOAD,
-            CPUPageProperty: d3d12::D3D12_CPU_PAGE_PROPERTY_UNKNOWN,
-            //TODO: what should MemoryPoolPreference flag be?
-            MemoryPoolPreference: d3d12::D3D12_MEMORY_POOL_UNKNOWN,
-            //we don't care about multi-adapter operation, so these next two will be zero
-            CreationNodeMask: 0,
-            VisibleNodeMask: 0,
-        };
-        let resource_description = d3d12::D3D12_RESOURCE_DESC {
-            Dimension: d3d12::D3D12_RESOURCE_DIMENSION_BUFFER,
-            Width: buffer_size_in_bytes,
-            Height: 1,
-            DepthOrArraySize: 1,
-            MipLevels: 1,
-            SampleDesc: dxgitype::DXGI_SAMPLE_DESC {
-                Count: 1,
-                Quality: 0,
-            },
-            Layout: d3d12::D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
-            Flags: d3d12::D3D12_RESOURCE_FLAG_NONE,
-            ..mem::zeroed()
-        };
-
-        let buffer = self.create_committed_resource(
-            &heap_properties,
-            //TODO: is this heap flag ok?
-            d3d12::D3D12_HEAP_FLAG_NONE,
-            &resource_description,
-            d3d12::D3D12_RESOURCE_STATE_GENERIC_READ,
-            ptr::null(),
-        )?;
-
-        Ok(buffer)
-    }
-
-    pub unsafe fn create_uploadable_byte_addressed_buffer(
+    pub unsafe fn create_buffer(
         &self,
         buffer_size_in_bytes: u32,
+        heap_type: d3d12::D3D12_HEAP_TYPE,
+        cpu_page: d3d12::D3D12_CPU_PAGE_PROPERTY,
+        memory_pool_preference: d3d12::D3D12_MEMORY_POOL,
+        init_resource_state: d3d12::D3D12_RESOURCE_STATES,
+        resource_flags: d3d12::D3D12_RESOURCE_FLAGS,
     ) -> Result<Resource, Error> {
         let heap_properties = d3d12::D3D12_HEAP_PROPERTIES {
-            Type: d3d12::D3D12_HEAP_TYPE_UPLOAD,
-            CPUPageProperty: d3d12::D3D12_CPU_PAGE_PROPERTY_UNKNOWN,
-            //TODO: what should MemoryPoolPreference flag be?
-            MemoryPoolPreference: d3d12::D3D12_MEMORY_POOL_UNKNOWN,
+            Type: heap_type,
+            CPUPageProperty: cpu_page,
+            MemoryPoolPreference: memory_pool_preference,
             //we don't care about multi-adapter operation, so these next two will be zero
             CreationNodeMask: 0,
             VisibleNodeMask: 0,
@@ -876,50 +837,7 @@ impl Device {
                 Quality: 0,
             },
             Layout: d3d12::D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
-            Flags: d3d12::D3D12_RESOURCE_FLAG_NONE,
-            ..mem::zeroed()
-        };
-
-        let byte_addressed_buffer = self.create_committed_resource(
-            &heap_properties,
-            //TODO: is this heap flag ok?
-            d3d12::D3D12_HEAP_FLAG_NONE,
-            &resource_description,
-            d3d12::D3D12_RESOURCE_STATE_GENERIC_READ,
-            ptr::null(),
-        )?;
-
-        Ok(byte_addressed_buffer)
-    }
-
-    pub unsafe fn create_gpu_only_byte_addressed_buffer(
-        &self,
-        buffer_size_in_bytes: u32,
-    ) -> Result<Resource, Error> {
-        //TODO: consider flag D3D12_HEAP_FLAG_ALLOW_SHADER_ATOMICS?
-        let heap_properties = d3d12::D3D12_HEAP_PROPERTIES {
-            //for GPU access only
-            Type: d3d12::D3D12_HEAP_TYPE_DEFAULT,
-            CPUPageProperty: d3d12::D3D12_CPU_PAGE_PROPERTY_UNKNOWN,
-            //TODO: what should MemoryPoolPreference flag be?
-            MemoryPoolPreference: d3d12::D3D12_MEMORY_POOL_UNKNOWN,
-            //we don't care about multi-adapter operation, so these next two will be zero
-            CreationNodeMask: 0,
-            VisibleNodeMask: 0,
-        };
-        let resource_description = d3d12::D3D12_RESOURCE_DESC {
-            Dimension: d3d12::D3D12_RESOURCE_DIMENSION_BUFFER,
-            Width: buffer_size_in_bytes as u64,
-            Height: 1,
-            DepthOrArraySize: 1,
-            MipLevels: 1,
-            SampleDesc: dxgitype::DXGI_SAMPLE_DESC {
-                Count: 1,
-                Quality: 0,
-            },
-            //essentially we're letting the adapter decide the layout
-            Layout: d3d12::D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
-            Flags: d3d12::D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+            Flags: resource_flags,
             ..mem::zeroed()
         };
 
@@ -927,7 +845,7 @@ impl Device {
             &heap_properties,
             d3d12::D3D12_HEAP_FLAG_NONE,
             &resource_description,
-            d3d12::D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+            init_resource_state,
             ptr::null(),
         )?;
 
@@ -992,6 +910,21 @@ impl Device {
         )?;
 
         Ok(buffer)
+    }
+
+    pub unsafe fn get_features_architecture(
+        &self,
+    ) -> Result<d3d12::D3D12_FEATURE_DATA_ARCHITECTURE, Error> {
+        let mut features_architecture = mem::zeroed();
+        explain_error(
+            self.0.CheckFeatureSupport(
+                d3d12::D3D12_FEATURE_ARCHITECTURE,
+                &mut features_architecture as *mut _ as *mut _,
+                mem::size_of::<d3d12::D3D12_FEATURE_DATA_ARCHITECTURE>() as u32,
+            ),
+            "error querying feature architecture",
+        )?;
+        Ok(features_architecture)
     }
 
     pub unsafe fn get_removal_reason(&self) -> Error {

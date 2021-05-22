@@ -150,11 +150,7 @@ impl Session {
         })))
     }
 
-    pub unsafe fn create_image2d(
-        &self,
-        width: u32,
-        height: u32,
-    ) -> Result<Image, Error> {
+    pub unsafe fn create_image2d(&self, width: u32, height: u32) -> Result<Image, Error> {
         let image = self.0.device.create_image2d(width, height)?;
         Ok(Image(Arc::new(ImageInner {
             image,
