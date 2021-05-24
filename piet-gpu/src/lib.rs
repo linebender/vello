@@ -189,16 +189,18 @@ pub fn dump_k1_data(k1_buf: &[u32]) {
 pub struct Renderer {
     pub image_dev: hub::Image, // resulting image
 
-    scene_buf_host: hub::Buffer,
-    scene_buf_dev: hub::Buffer,
+    // The reference is held by the pipelines. We will be changing
+    // this to make the scene upload dynamic.
+    #[allow(dead_code)]
+    scene_buf: hub::Buffer,
 
     memory_buf_host: hub::Buffer,
     memory_buf_dev: hub::Buffer,
 
     state_buf: hub::Buffer,
 
-    config_buf_host: hub::Buffer,
-    config_buf_dev: hub::Buffer,
+    #[allow(dead_code)]
+    config_buf: hub::Buffer,
 
     el_pipeline: hub::Pipeline,
     el_ds: hub::DescriptorSet,
@@ -246,20 +248,10 @@ impl Renderer {
             n_elements, n_paths, n_pathseg, n_trans
         );
 
-        let mut scene_buf_host = session
-            .create_buffer(std::mem::size_of_val(&scene[..]) as u64, host_upload)
-            .unwrap();
-        let scene_buf_dev = session
-            .create_buffer(std::mem::size_of_val(&scene[..]) as u64, dev)
-            .unwrap();
-        scene_buf_host.write(&scene)?;
+        let scene_buf = session.create_buffer_init(&scene[..], dev).unwrap();
 
         let state_buf = session.create_buffer(1 * 1024 * 1024, dev)?;
         let image_dev = session.create_image2d(WIDTH as u32, HEIGHT as u32)?;
-
-        const CONFIG_SIZE: u64 = 10 * 4; // Size of Config in setup.h.
-        let mut config_buf_host = session.create_buffer(CONFIG_SIZE, host_upload)?;
-        let config_buf_dev = session.create_buffer(CONFIG_SIZE, dev)?;
 
         // TODO: constants
         const PATH_SIZE: usize = 12;
@@ -280,7 +272,7 @@ impl Renderer {
         alloc += (n_paths * ANNO_SIZE + 3) & !3;
         let trans_base = alloc;
         alloc += (n_trans * TRANS_SIZE + 3) & !3;
-        config_buf_host.write(&[
+        let config = &[
             n_paths as u32,
             n_pathseg as u32,
             WIDTH_IN_TILES as u32,
@@ -291,8 +283,11 @@ impl Renderer {
             pathseg_base as u32,
             anno_base as u32,
             trans_base as u32,
-        ])?;
+        ];
+        let config_buf = session.create_buffer_init(&config[..], dev).unwrap();
 
+        // Perhaps we could avoid the explicit staging buffer by having buffer creation method
+        // that takes both initial contents and a size.
         let mut memory_buf_host = session.create_buffer(2 * 4, host_upload)?;
         let memory_buf_dev = session.create_buffer(128 * 1024 * 1024, dev)?;
         memory_buf_host.write(&[alloc as u32, 0 /* Overflow flag */])?;
@@ -301,36 +296,34 @@ impl Renderer {
         let el_pipeline = session.create_simple_compute_pipeline(el_code, 4)?;
         let el_ds = session.create_simple_descriptor_set(
             &el_pipeline,
-            &[&memory_buf_dev, &config_buf_dev, &scene_buf_dev, &state_buf],
+            &[&memory_buf_dev, &config_buf, &scene_buf, &state_buf],
         )?;
 
         let tile_alloc_code = include_bytes!("../shader/tile_alloc.spv");
         let tile_pipeline = session.create_simple_compute_pipeline(tile_alloc_code, 2)?;
         let tile_ds = session
-            .create_simple_descriptor_set(&tile_pipeline, &[&memory_buf_dev, &config_buf_dev])?;
+            .create_simple_descriptor_set(&tile_pipeline, &[&memory_buf_dev, &config_buf])?;
 
         let path_alloc_code = include_bytes!("../shader/path_coarse.spv");
         let path_pipeline = session.create_simple_compute_pipeline(path_alloc_code, 2)?;
         let path_ds = session
-            .create_simple_descriptor_set(&path_pipeline, &[&memory_buf_dev, &config_buf_dev])?;
+            .create_simple_descriptor_set(&path_pipeline, &[&memory_buf_dev, &config_buf])?;
 
         let backdrop_alloc_code = include_bytes!("../shader/backdrop.spv");
         let backdrop_pipeline = session.create_simple_compute_pipeline(backdrop_alloc_code, 2)?;
-        let backdrop_ds = session.create_simple_descriptor_set(
-            &backdrop_pipeline,
-            &[&memory_buf_dev, &config_buf_dev],
-        )?;
+        let backdrop_ds = session
+            .create_simple_descriptor_set(&backdrop_pipeline, &[&memory_buf_dev, &config_buf])?;
 
         // TODO: constants
         let bin_code = include_bytes!("../shader/binning.spv");
         let bin_pipeline = session.create_simple_compute_pipeline(bin_code, 2)?;
-        let bin_ds = session
-            .create_simple_descriptor_set(&bin_pipeline, &[&memory_buf_dev, &config_buf_dev])?;
+        let bin_ds =
+            session.create_simple_descriptor_set(&bin_pipeline, &[&memory_buf_dev, &config_buf])?;
 
         let coarse_code = include_bytes!("../shader/coarse.spv");
         let coarse_pipeline = session.create_simple_compute_pipeline(coarse_code, 2)?;
         let coarse_ds = session
-            .create_simple_descriptor_set(&coarse_pipeline, &[&memory_buf_dev, &config_buf_dev])?;
+            .create_simple_descriptor_set(&coarse_pipeline, &[&memory_buf_dev, &config_buf])?;
 
         let bg_image = Self::make_test_bg_image(&session);
 
@@ -358,19 +351,17 @@ impl Renderer {
             .create_compute_pipeline(&session, k4_code)?;
         let k4_ds = session
             .descriptor_set_builder()
-            .add_buffers(&[&memory_buf_dev, &config_buf_dev])
+            .add_buffers(&[&memory_buf_dev, &config_buf])
             .add_images(&[&image_dev])
             .add_textures(&[&bg_image])
             .build(&session, &k4_pipeline)?;
 
         Ok(Renderer {
-            scene_buf_host,
-            scene_buf_dev,
+            scene_buf,
             memory_buf_host,
             memory_buf_dev,
             state_buf,
-            config_buf_host,
-            config_buf_dev,
+            config_buf,
             image_dev,
             el_pipeline,
             el_ds,
@@ -394,14 +385,6 @@ impl Renderer {
     }
 
     pub unsafe fn record(&self, cmd_buf: &mut hub::CmdBuf, query_pool: &hub::QueryPool) {
-        cmd_buf.copy_buffer(
-            self.scene_buf_host.vk_buffer(),
-            self.scene_buf_dev.vk_buffer(),
-        );
-        cmd_buf.copy_buffer(
-            self.config_buf_host.vk_buffer(),
-            self.config_buf_dev.vk_buffer(),
-        );
         cmd_buf.copy_buffer(
             self.memory_buf_host.vk_buffer(),
             self.memory_buf_dev.vk_buffer(),
@@ -488,8 +471,7 @@ impl Renderer {
             let host_upload = BufferUsage::MAP_WRITE | BufferUsage::COPY_SRC;
             let mut buffer = session.create_buffer(buf.len() as u64, host_upload)?;
             buffer.write(buf)?;
-            let image =
-                session.create_image2d(width.try_into()?, height.try_into()?)?;
+            let image = session.create_image2d(width.try_into()?, height.try_into()?)?;
             let mut cmd_buf = session.cmd_buf()?;
             cmd_buf.begin();
             cmd_buf.image_barrier(

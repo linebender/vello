@@ -254,8 +254,7 @@ fn main() -> Result<(), Error> {
 
         let renderer = Renderer::new(&session, scene, n_paths, n_pathseg, n_trans)?;
         let image_usage = BufferUsage::MAP_READ | BufferUsage::COPY_DST;
-        let image_buf =
-            session.create_buffer((WIDTH * HEIGHT * 4) as u64, image_usage)?;
+        let image_buf = session.create_buffer((WIDTH * HEIGHT * 4) as u64, image_usage)?;
 
         cmd_buf.begin();
         renderer.record(&mut cmd_buf, &query_pool);

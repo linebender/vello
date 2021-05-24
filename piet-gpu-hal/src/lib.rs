@@ -2,7 +2,6 @@
 ///
 /// This abstraction is inspired by gfx-hal, but is specialized to the needs of piet-gpu.
 /// In time, it may go away and be replaced by either gfx-hal or wgpu.
-
 use bitflags::bitflags;
 
 pub mod hub;
@@ -66,6 +65,8 @@ pub struct GpuInfo {
     pub subgroup_size: Option<SubgroupSize>,
     /// The GPU supports a real, grown-ass memory model.
     pub has_memory_model: bool,
+    /// Whether staging buffers should be used.
+    pub use_staging_buffers: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -103,11 +104,7 @@ pub trait Device: Sized {
     /// Maybe doesn't need result return?
     unsafe fn destroy_buffer(&self, buffer: &Self::Buffer) -> Result<(), Error>;
 
-    unsafe fn create_image2d(
-        &self,
-        width: u32,
-        height: u32,
-    ) -> Result<Self::Image, Error>;
+    unsafe fn create_image2d(&self, width: u32, height: u32) -> Result<Self::Image, Error>;
 
     /// Destroy an image.
     ///
@@ -175,6 +172,7 @@ pub trait Device: Sized {
     /// All submitted commands that refer to this query pool must have completed.
     unsafe fn fetch_query_pool(&self, pool: &Self::QueryPool) -> Result<Vec<f64>, Error>;
 
+    #[deprecated]
     unsafe fn run_cmd_buf(
         &self,
         cmd_buf: &Self::CmdBuf,
@@ -183,16 +181,44 @@ pub trait Device: Sized {
         fence: Option<&Self::Fence>,
     ) -> Result<(), Error>;
 
-    unsafe fn read_buffer<T: Sized>(
+    unsafe fn run_cmd_bufs(
         &self,
-        buffer: &Self::Buffer,
-        result: &mut Vec<T>,
+        cmd_buf: &[&Self::CmdBuf],
+        wait_semaphores: &[Self::Semaphore],
+        signal_semaphores: &[Self::Semaphore],
+        fence: Option<&Self::Fence>,
     ) -> Result<(), Error>;
 
-    unsafe fn write_buffer<T: Sized>(
+    /// Copy data from the buffer to memory.
+    ///
+    /// Discussion question: add offset?
+    ///
+    /// # Safety
+    ///
+    /// The buffer must be valid to access. The destination memory must be valid to
+    /// write to. The ranges must not overlap. The offset + size must be within
+    /// the buffer's allocation, and size within the destination.
+    unsafe fn read_buffer(
         &self,
         buffer: &Self::Buffer,
-        contents: &[T],
+        dst: *mut u8,
+        offset: u64,
+        size: u64,
+    ) -> Result<(), Error>;
+
+    /// Copy data from memory to the buffer.
+    ///
+    /// # Safety
+    ///
+    /// The buffer must be valid to access. The source memory must be valid to
+    /// read from. The ranges must not overlap. The offset + size must be within
+    /// the buffer's allocation, and size within the source.
+    unsafe fn write_buffer(
+        &self,
+        buffer: &Self::Buffer,
+        contents: *const u8,
+        offset: u64,
+        size: u64,
     ) -> Result<(), Error>;
 
     unsafe fn create_semaphore(&self) -> Result<Self::Semaphore, Error>;
