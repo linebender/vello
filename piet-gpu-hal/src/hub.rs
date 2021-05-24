@@ -4,7 +4,6 @@
 //! It is likely that it will also take care of compile time and runtime
 //! negotiation of backends (Vulkan, DX12), but right now it's Vulkan-only.
 
-use std::any::Any;
 use std::convert::TryInto;
 use std::sync::{Arc, Mutex, Weak};
 
@@ -41,7 +40,7 @@ struct SessionInner {
 pub struct CmdBuf {
     cmd_buf: vulkan::CmdBuf,
     fence: Fence,
-    resources: Vec<Box<dyn Any>>,
+    resources: Vec<RetainResource>,
     session: Weak<SessionInner>,
 }
 
@@ -53,7 +52,7 @@ struct SubmittedCmdBufInner {
     // better to chose one or the other.
     cmd_buf: vulkan::CmdBuf,
     fence: Fence,
-    resources: Vec<Box<dyn Any>>,
+    resources: Vec<RetainResource>,
     staging_cmd_buf: Option<CmdBuf>,
 }
 
@@ -90,6 +89,12 @@ unsafe impl PlainData for i32 {}
 unsafe impl PlainData for i64 {}
 unsafe impl PlainData for f32 {}
 unsafe impl PlainData for f64 {}
+
+/// A resource to retain during the lifetime of a command submission.
+pub enum RetainResource {
+    Buffer(Buffer),
+    Image(Image),
+}
 
 impl Session {
     pub fn new(device: vulkan::VkDevice) -> Session {
@@ -227,9 +232,9 @@ impl Session {
                 *staging_cmd_buf = Some(cmd_buf);
             }
             let staging_cmd_buf = staging_cmd_buf.as_mut().unwrap();
-            // This will ensure the staging buffer is deallocated
-            staging_cmd_buf.add_resource(&create_buf);
+            // This will ensure the staging buffer is deallocated. It would be nice to
             staging_cmd_buf.copy_buffer(create_buf.vk_buffer(), buf.vk_buffer());
+            staging_cmd_buf.add_resource(create_buf);
             Ok(buf)
         } else {
             Ok(create_buf)
@@ -307,8 +312,8 @@ impl CmdBuf {
     /// There are two choices for upholding the lifetime invariant: this function, or
     /// the caller can manually hold the reference. The latter is appropriate when it's
     /// part of retained state.
-    pub fn add_resource<T: Clone + 'static>(&mut self, resource: &T) {
-        self.resources.push(Box::new(resource.clone()));
+    pub fn add_resource(&mut self, resource: impl Into<RetainResource>) {
+        self.resources.push(resource.into());
     }
 }
 
@@ -544,5 +549,23 @@ impl<'a, T> IntoRefs<'a, T> for Vec<&'a T> {
     type Iterator = std::vec::IntoIter<&'a T>;
     fn into_refs(self) -> Self::Iterator {
         self.into_iter()
+    }
+}
+
+impl From<Buffer> for RetainResource {
+    fn from(buf: Buffer) -> Self {
+        RetainResource::Buffer(buf)
+    }
+}
+
+impl From<Image> for RetainResource {
+    fn from(img: Image) -> Self {
+        RetainResource::Image(img)
+    }
+}
+
+impl<'a, T: Into<RetainResource>> From<&'a T> for RetainResource {
+    fn from(resource: &'a T) -> Self {
+        resource.clone().into()
     }
 }
