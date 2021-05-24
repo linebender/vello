@@ -69,7 +69,7 @@ fn toy() -> Result<(), Error> {
     let query_pool = device.create_query_pool(2)?;
     unsafe {
         let img = device.create_image2d(256, 1)?;
-        device.write_buffer(&buf, &data)?;
+        device.write_buffer(&buf, data.as_ptr() as *const u8, 0, 1024)?;
         let pipeline = device.create_simple_compute_pipeline(SHADER_CODE, 1, 1)?;
         let ds = device.create_descriptor_set(&pipeline, &[&dev_buf], &[&img])?;
         let mut cmd_buf = device.create_cmd_buf()?;
@@ -86,10 +86,10 @@ fn toy() -> Result<(), Error> {
         cmd_buf.finish_timestamps(&query_pool);
         cmd_buf.host_barrier();
         cmd_buf.finish();
-        device.run_cmd_buf(&cmd_buf, &[], &[], Some(&fence))?;
+        device.run_cmd_bufs(&[&cmd_buf], &[], &[], Some(&fence))?;
         device.wait_and_reset(&[fence])?;
-        let mut readback: Vec<u32> = Vec::new();
-        device.read_buffer(&buf, &mut readback)?;
+        let mut readback: Vec<u32> = vec![0u32; 256];
+        device.read_buffer(&buf, readback.as_mut_ptr() as *mut u8, 0, 1024)?;
         println!("{:?}", readback);
         println!("{:?}", device.fetch_query_pool(&query_pool));
     }

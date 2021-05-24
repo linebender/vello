@@ -120,34 +120,46 @@ impl Resource {
         self.ptr.store(ptr::null_mut(), Ordering::Relaxed);
     }
 
-    pub unsafe fn write_resource<T>(&self, count: usize, data: *const T) -> Result<(), Error> {
-        let mut mapped_memory = ptr::null_mut();
+    pub unsafe fn write_resource(
+        &self,
+        data: *const u8,
+        offset: usize,
+        size: usize,
+    ) -> Result<(), Error> {
+        let mut mapped_memory: *mut u8 = ptr::null_mut();
         let zero_range = d3d12::D3D12_RANGE { ..mem::zeroed() };
+        let range = d3d12::D3D12_RANGE {
+            Begin: offset,
+            End: offset + size,
+        };
         explain_error(
             (*self.get()).Map(0, &zero_range, &mut mapped_memory as *mut _ as *mut _),
             "could not map GPU mem to CPU mem",
         )?;
 
-        ptr::copy_nonoverlapping(data, mapped_memory, count);
-        (*self.get()).Unmap(0, ptr::null());
+        ptr::copy_nonoverlapping(data, mapped_memory.add(offset), size);
+        (*self.get()).Unmap(0, &range);
         Ok(())
     }
 
-    pub unsafe fn read_resource<T>(&self, dst: *mut T, count: usize) -> Result<(), Error> {
-        let mut mapped_memory = ptr::null_mut();
-        let n_bytes = count * std::mem::size_of::<T>();
+    pub unsafe fn read_resource(
+        &self,
+        dst: *mut u8,
+        offset: usize,
+        size: usize,
+    ) -> Result<(), Error> {
+        let mut mapped_memory: *mut u8 = ptr::null_mut();
         let range = d3d12::D3D12_RANGE {
-            Begin: 0,
-            End: n_bytes,
+            Begin: offset,
+            End: offset + size,
         };
         let zero_range = d3d12::D3D12_RANGE { ..mem::zeroed() };
         explain_error(
             (*self.get()).Map(0, &range, &mut mapped_memory as *mut _ as *mut _),
             "could not map GPU mem to CPU mem",
         )?;
-        ptr::copy_nonoverlapping(mapped_memory as *const T, dst, count);
+        ptr::copy_nonoverlapping(mapped_memory.add(offset), dst, size);
         (*self.get()).Unmap(0, &zero_range);
-
         Ok(())
     }
 
@@ -1163,7 +1175,7 @@ impl Drop for Event {
 }
 
 impl GraphicsCommandList {
-    pub unsafe fn as_raw_list(&self) -> *mut d3d12::ID3D12CommandList {
+    pub unsafe fn as_raw_command_list(&self) -> *mut d3d12::ID3D12CommandList {
         self.0.as_raw() as *mut d3d12::ID3D12CommandList
     }
 

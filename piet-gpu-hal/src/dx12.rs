@@ -244,7 +244,12 @@ impl crate::Device for Dx12Device {
 
     unsafe fn fetch_query_pool(&self, pool: &Self::QueryPool) -> Result<Vec<f64>, Error> {
         let mut buf = vec![0u64; pool.n_queries as usize];
-        self.read_buffer(&pool.buf, &mut buf)?;
+        self.read_buffer(
+            &pool.buf,
+            buf.as_mut_ptr() as *mut u8,
+            0,
+            mem::size_of_val(buf.as_slice()) as u64,
+        )?;
         let ts0 = buf[0];
         let tsp = (self.ts_freq as f64).recip();
         let result = buf[1..]
@@ -254,16 +259,20 @@ impl crate::Device for Dx12Device {
         Ok(result)
     }
 
-    unsafe fn run_cmd_buf(
+    unsafe fn run_cmd_bufs(
         &self,
-        cmd_buf: &Self::CmdBuf,
+        cmd_bufs: &[&Self::CmdBuf],
         wait_semaphores: &[Self::Semaphore],
         signal_semaphores: &[Self::Semaphore],
         fence: Option<&Self::Fence>,
     ) -> Result<(), Error> {
         // TODO: handle semaphores
-        self.command_queue
-            .execute_command_lists(&[cmd_buf.0.as_raw_list()]);
+        // SmallVec?
+        let lists = cmd_bufs
+            .iter()
+            .map(|c| c.0.as_raw_command_list())
+            .collect::<Vec<_>>();
+        self.command_queue.execute_command_lists(&lists);
         if let Some(fence) = fence {
             let val = fence.val.get() + 1;
             fence.val.set(val);
@@ -273,28 +282,29 @@ impl crate::Device for Dx12Device {
         Ok(())
     }
 
-    unsafe fn read_buffer<T: Sized>(
+    unsafe fn read_buffer(
         &self,
         buffer: &Self::Buffer,
-        result: &mut Vec<T>,
+        dst: *mut u8,
+        offset: u64,
+        size: u64,
     ) -> Result<(), Error> {
-        let len = buffer.size as usize / std::mem::size_of::<T>();
-        if len > result.len() {
-            result.reserve(len - result.len());
-        }
-        buffer.resource.read_resource(result.as_mut_ptr(), len)?;
-        result.set_len(len);
+        buffer
+            .resource
+            .read_resource(dst, offset as usize, size as usize)?;
         Ok(())
     }
 
-    unsafe fn write_buffer<T: Sized>(
+    unsafe fn write_buffer(
         &self,
         buffer: &Self::Buffer,
-        contents: &[T],
+        contents: *const u8,
+        offset: u64,
+        size: u64,
     ) -> Result<(), Error> {
-        let len = buffer.size as usize / std::mem::size_of::<T>();
-        assert!(len >= contents.len());
-        buffer.resource.write_resource(len, contents.as_ptr())?;
+        buffer
+            .resource
+            .write_resource(contents, offset as usize, size as usize)?;
         Ok(())
     }
 
