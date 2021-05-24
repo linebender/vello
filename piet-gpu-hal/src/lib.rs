@@ -67,6 +67,8 @@ pub struct GpuInfo {
     pub subgroup_size: Option<SubgroupSize>,
     /// The GPU supports a real, grown-ass memory model.
     pub has_memory_model: bool,
+    /// Whether staging buffers should be used.
+    pub use_staging_buffers: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -173,24 +175,44 @@ pub trait Device: Sized {
     /// All submitted commands that refer to this query pool must have completed.
     unsafe fn fetch_query_pool(&self, pool: &Self::QueryPool) -> Result<Vec<f64>, Error>;
 
-    unsafe fn run_cmd_buf(
+    unsafe fn run_cmd_bufs(
         &self,
-        cmd_buf: &Self::CmdBuf,
+        cmd_buf: &[&Self::CmdBuf],
         wait_semaphores: &[Self::Semaphore],
         signal_semaphores: &[Self::Semaphore],
         fence: Option<&Self::Fence>,
     ) -> Result<(), Error>;
 
-    unsafe fn read_buffer<T: Sized>(
+    /// Copy data from the buffer to memory.
+    ///
+    /// Discussion question: add offset?
+    ///
+    /// # Safety
+    ///
+    /// The buffer must be valid to access. The destination memory must be valid to
+    /// write to. The ranges must not overlap. The offset + size must be within
+    /// the buffer's allocation, and size within the destination.
+    unsafe fn read_buffer(
         &self,
         buffer: &Self::Buffer,
-        result: &mut Vec<T>,
+        dst: *mut u8,
+        offset: u64,
+        size: u64,
     ) -> Result<(), Error>;
 
-    unsafe fn write_buffer<T: Sized>(
+    /// Copy data from memory to the buffer.
+    ///
+    /// # Safety
+    ///
+    /// The buffer must be valid to access. The source memory must be valid to
+    /// read from. The ranges must not overlap. The offset + size must be within
+    /// the buffer's allocation, and size within the source.
+    unsafe fn write_buffer(
         &self,
         buffer: &Self::Buffer,
-        contents: &[T],
+        contents: *const u8,
+        offset: u64,
+        size: u64,
     ) -> Result<(), Error>;
 
     unsafe fn create_semaphore(&self) -> Result<Self::Semaphore, Error>;

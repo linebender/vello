@@ -4,10 +4,11 @@
 //! It is likely that it will also take care of compile time and runtime
 //! negotiation of backends (Vulkan, DX12), but right now it's Vulkan-only.
 
-use std::any::Any;
+use std::convert::TryInto;
 use std::sync::{Arc, Mutex, Weak};
 
 use crate::vulkan;
+use crate::CmdBuf as CmdBufTrait;
 use crate::DescriptorSetBuilder as DescriptorSetBuilderTrait;
 use crate::PipelineBuilder as PipelineBuilderTrait;
 use crate::{BufferUsage, Device, Error, GpuInfo, SamplerParams};
@@ -31,13 +32,15 @@ struct SessionInner {
     cmd_buf_pool: Mutex<Vec<(vulkan::CmdBuf, Fence)>>,
     /// Command buffers that are still pending (so resources can't be freed).
     pending: Mutex<Vec<SubmittedCmdBufInner>>,
+    /// A command buffer that is used for copying from staging buffers.
+    staging_cmd_buf: Mutex<Option<CmdBuf>>,
     gpu_info: GpuInfo,
 }
 
 pub struct CmdBuf {
     cmd_buf: vulkan::CmdBuf,
     fence: Fence,
-    resources: Vec<Box<dyn Any>>,
+    resources: Vec<RetainResource>,
     session: Weak<SessionInner>,
 }
 
@@ -45,9 +48,12 @@ pub struct CmdBuf {
 pub struct SubmittedCmdBuf(Option<SubmittedCmdBufInner>, Weak<SessionInner>);
 
 struct SubmittedCmdBufInner {
+    // It's inconsistent, cmd_buf is unpacked, staging_cmd_buf isn't. Probably
+    // better to chose one or the other.
     cmd_buf: vulkan::CmdBuf,
     fence: Fence,
-    resources: Vec<Box<dyn Any>>,
+    resources: Vec<RetainResource>,
+    staging_cmd_buf: Option<CmdBuf>,
 }
 
 #[derive(Clone)]
@@ -70,6 +76,26 @@ pub struct PipelineBuilder(vulkan::PipelineBuilder);
 
 pub struct DescriptorSetBuilder(vulkan::DescriptorSetBuilder);
 
+/// Data types that can be stored in a GPU buffer.
+pub unsafe trait PlainData {}
+
+unsafe impl PlainData for u8 {}
+unsafe impl PlainData for u16 {}
+unsafe impl PlainData for u32 {}
+unsafe impl PlainData for u64 {}
+unsafe impl PlainData for i8 {}
+unsafe impl PlainData for i16 {}
+unsafe impl PlainData for i32 {}
+unsafe impl PlainData for i64 {}
+unsafe impl PlainData for f32 {}
+unsafe impl PlainData for f64 {}
+
+/// A resource to retain during the lifetime of a command submission.
+pub enum RetainResource {
+    Buffer(Buffer),
+    Image(Image),
+}
+
 impl Session {
     pub fn new(device: vulkan::VkDevice) -> Session {
         let gpu_info = device.query_gpu_info();
@@ -78,6 +104,7 @@ impl Session {
             gpu_info,
             cmd_buf_pool: Default::default(),
             pending: Default::default(),
+            staging_cmd_buf: Default::default(),
         }))
     }
 
@@ -107,12 +134,13 @@ impl Session {
                     let item = pending.swap_remove(i);
                     // TODO: wait is superfluous, can just reset
                     let _ = self.0.device.wait_and_reset(&[item.fence]);
-                    self.0
-                        .cmd_buf_pool
-                        .lock()
-                        .unwrap()
-                        .push((item.cmd_buf, item.fence));
+                    let mut pool = self.0.cmd_buf_pool.lock().unwrap();
+                    pool.push((item.cmd_buf, item.fence));
                     std::mem::drop(item.resources);
+                    if let Some(staging_cmd_buf) = item.staging_cmd_buf {
+                        pool.push((staging_cmd_buf.cmd_buf, staging_cmd_buf.fence));
+                        std::mem::drop(staging_cmd_buf.resources);
+                    }
                 } else {
                     i += 1;
                 }
@@ -126,8 +154,19 @@ impl Session {
         wait_semaphores: &[Semaphore],
         signal_semaphores: &[Semaphore],
     ) -> Result<SubmittedCmdBuf, Error> {
-        self.0.device.run_cmd_buf(
-            &cmd_buf.cmd_buf,
+        // Again, SmallVec here?
+        let mut cmd_bufs = Vec::with_capacity(2);
+        let mut staging_cmd_buf = self.0.staging_cmd_buf.lock().unwrap().take();
+        if let Some(staging) = &mut staging_cmd_buf {
+            // With finer grained resource tracking, we might be able to avoid this in
+            // some cases.
+            staging.memory_barrier();
+            staging.finish();
+            cmd_bufs.push(&staging.cmd_buf);
+        }
+        cmd_bufs.push(&cmd_buf.cmd_buf);
+        self.0.device.run_cmd_bufs(
+            &cmd_bufs,
             wait_semaphores,
             signal_semaphores,
             Some(&cmd_buf.fence),
@@ -137,6 +176,7 @@ impl Session {
                 cmd_buf: cmd_buf.cmd_buf,
                 fence: cmd_buf.fence,
                 resources: cmd_buf.resources,
+                staging_cmd_buf,
             }),
             cmd_buf.session,
         ))
@@ -148,6 +188,57 @@ impl Session {
             buffer,
             session: Arc::downgrade(&self.0),
         })))
+    }
+
+    /// Create a buffer with initialized data.
+    pub fn create_buffer_init(
+        &self,
+        contents: &[impl PlainData],
+        usage: BufferUsage,
+    ) -> Result<Buffer, Error> {
+        unsafe {
+            self.create_buffer_init_raw(
+                contents.as_ptr() as *const u8,
+                std::mem::size_of_val(contents).try_into()?,
+                usage,
+            )
+        }
+    }
+
+    /// Create a buffer with initialized data, from a raw pointer memory region.
+    pub unsafe fn create_buffer_init_raw(
+        &self,
+        contents: *const u8,
+        size: u64,
+        usage: BufferUsage,
+    ) -> Result<Buffer, Error> {
+        let use_staging_buffer = !usage.intersects(BufferUsage::MAP_READ | BufferUsage::MAP_WRITE)
+            && self.gpu_info().use_staging_buffers;
+        let create_usage = if use_staging_buffer {
+            BufferUsage::MAP_WRITE | BufferUsage::COPY_SRC
+        } else {
+            usage | BufferUsage::MAP_WRITE
+        };
+        let create_buf = self.create_buffer(size, create_usage)?;
+        self.0
+            .device
+            .write_buffer(&create_buf.vk_buffer(), contents, 0, size)?;
+        if use_staging_buffer {
+            let buf = self.create_buffer(size, usage | BufferUsage::COPY_DST)?;
+            let mut staging_cmd_buf = self.0.staging_cmd_buf.lock().unwrap();
+            if staging_cmd_buf.is_none() {
+                let mut cmd_buf = self.cmd_buf()?;
+                cmd_buf.begin();
+                *staging_cmd_buf = Some(cmd_buf);
+            }
+            let staging_cmd_buf = staging_cmd_buf.as_mut().unwrap();
+            // This will ensure the staging buffer is deallocated. It would be nice to
+            staging_cmd_buf.copy_buffer(create_buf.vk_buffer(), buf.vk_buffer());
+            staging_cmd_buf.add_resource(create_buf);
+            Ok(buf)
+        } else {
+            Ok(create_buf)
+        }
     }
 
     pub unsafe fn create_image2d(&self, width: u32, height: u32) -> Result<Image, Error> {
@@ -221,8 +312,8 @@ impl CmdBuf {
     /// There are two choices for upholding the lifetime invariant: this function, or
     /// the caller can manually hold the reference. The latter is appropriate when it's
     /// part of retained state.
-    pub fn add_resource<T: Clone + 'static>(&mut self, resource: &T) {
-        self.resources.push(Box::new(resource.clone()));
+    pub fn add_resource(&mut self, resource: impl Into<RetainResource>) {
+        self.resources.push(resource.into());
     }
 }
 
@@ -301,16 +392,29 @@ impl Buffer {
         &self.0.buffer
     }
 
-    pub unsafe fn write<T: Sized>(&mut self, contents: &[T]) -> Result<(), Error> {
+    pub unsafe fn write<T: PlainData>(&mut self, contents: &[T]) -> Result<(), Error> {
         if let Some(session) = Weak::upgrade(&self.0.session) {
-            session.device.write_buffer(&self.0.buffer, contents)?;
+            session.device.write_buffer(
+                &self.0.buffer,
+                contents.as_ptr() as *const u8,
+                0,
+                std::mem::size_of_val(contents).try_into()?,
+            )?;
         }
         // else session lost error?
         Ok(())
     }
-    pub unsafe fn read<T: Sized>(&self, result: &mut Vec<T>) -> Result<(), Error> {
+    pub unsafe fn read<T: PlainData>(&self, result: &mut Vec<T>) -> Result<(), Error> {
+        let size = self.vk_buffer().size;
+        let len = size as usize / std::mem::size_of::<T>();
+        if len > result.len() {
+            result.reserve(len - result.len());
+        }
         if let Some(session) = Weak::upgrade(&self.0.session) {
-            session.device.read_buffer(&self.0.buffer, result)?;
+            session
+                .device
+                .read_buffer(&self.0.buffer, result.as_mut_ptr() as *mut u8, 0, size)?;
+            result.set_len(len);
         }
         // else session lost error?
         Ok(())
@@ -398,43 +502,7 @@ impl<'a, T> IntoRefs<'a, T> for &'a [&'a T] {
     }
 }
 
-// TODO: this will benefit from const generics!
-impl<'a, T> IntoRefs<'a, T> for &'a [&'a T; 1] {
-    type Iterator = std::iter::Copied<std::slice::Iter<'a, &'a T>>;
-    fn into_refs(self) -> Self::Iterator {
-        self.into_iter().copied()
-    }
-}
-
-impl<'a, T> IntoRefs<'a, T> for &'a [&'a T; 2] {
-    type Iterator = std::iter::Copied<std::slice::Iter<'a, &'a T>>;
-    fn into_refs(self) -> Self::Iterator {
-        self.into_iter().copied()
-    }
-}
-
-impl<'a, T> IntoRefs<'a, T> for &'a [&'a T; 3] {
-    type Iterator = std::iter::Copied<std::slice::Iter<'a, &'a T>>;
-    fn into_refs(self) -> Self::Iterator {
-        self.into_iter().copied()
-    }
-}
-
-impl<'a, T> IntoRefs<'a, T> for &'a [&'a T; 4] {
-    type Iterator = std::iter::Copied<std::slice::Iter<'a, &'a T>>;
-    fn into_refs(self) -> Self::Iterator {
-        self.into_iter().copied()
-    }
-}
-
-impl<'a, T> IntoRefs<'a, T> for &'a [&'a T; 5] {
-    type Iterator = std::iter::Copied<std::slice::Iter<'a, &'a T>>;
-    fn into_refs(self) -> Self::Iterator {
-        self.into_iter().copied()
-    }
-}
-
-impl<'a, T> IntoRefs<'a, T> for &'a [&'a T; 6] {
+impl<'a, T, const N: usize> IntoRefs<'a, T> for &'a [&'a T; N] {
     type Iterator = std::iter::Copied<std::slice::Iter<'a, &'a T>>;
     fn into_refs(self) -> Self::Iterator {
         self.into_iter().copied()
@@ -445,5 +513,23 @@ impl<'a, T> IntoRefs<'a, T> for Vec<&'a T> {
     type Iterator = std::vec::IntoIter<&'a T>;
     fn into_refs(self) -> Self::Iterator {
         self.into_iter()
+    }
+}
+
+impl From<Buffer> for RetainResource {
+    fn from(buf: Buffer) -> Self {
+        RetainResource::Buffer(buf)
+    }
+}
+
+impl From<Image> for RetainResource {
+    fn from(img: Image) -> Self {
+        RetainResource::Image(img)
+    }
+}
+
+impl<'a, T: Clone + Into<RetainResource>> From<&'a T> for RetainResource {
+    fn from(resource: &'a T) -> Self {
+        resource.clone().into()
     }
 }

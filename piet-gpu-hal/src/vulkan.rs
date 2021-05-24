@@ -1,6 +1,7 @@
 //! Vulkan implemenation of HAL trait.
 
 use std::borrow::Cow;
+use std::convert::TryInto;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::sync::Arc;
@@ -62,7 +63,8 @@ pub struct VkSwapchain {
 pub struct Buffer {
     buffer: vk::Buffer,
     buffer_memory: vk::DeviceMemory,
-    size: u64,
+    // TODO: there should probably be a Buffer trait and this should be a method.
+    pub size: u64,
 }
 
 pub struct Image {
@@ -341,6 +343,14 @@ impl VkInstance {
             None
         };
 
+        // The question of when and when not to use staging buffers is complex, and this
+        // is only a first approximation. Basically, it *must* be false when buffers can
+        // be created with a memory type that is not host-visible. That is not guaranteed
+        // here but is likely to be the case.
+        //
+        // I'm still investigating what should be done in systems with Resizable BAR.
+        let use_staging_buffers = props.device_type != vk::PhysicalDeviceType::INTEGRATED_GPU;
+
         // TODO: finer grained query of specific subgroup info.
         let has_subgroups = self.vk_version >= vk::make_version(1, 1, 0);
         let gpu_info = GpuInfo {
@@ -348,6 +358,7 @@ impl VkInstance {
             has_subgroups,
             subgroup_size,
             has_memory_model,
+            use_staging_buffers,
         };
 
         Ok(VkDevice {
@@ -691,13 +702,13 @@ impl crate::Device for VkDevice {
         Ok(result)
     }
 
-    /// Run the command buffer.
+    /// Run the command buffers.
     ///
     /// This submits the command buffer for execution. The provided fence
     /// is signalled when the execution is complete.
-    unsafe fn run_cmd_buf(
+    unsafe fn run_cmd_bufs(
         &self,
-        cmd_buf: &CmdBuf,
+        cmd_bufs: &[&CmdBuf],
         wait_semaphores: &[Self::Semaphore],
         signal_semaphores: &[Self::Semaphore],
         fence: Option<&Self::Fence>,
@@ -712,10 +723,12 @@ impl crate::Device for VkDevice {
             .iter()
             .map(|_| vk::PipelineStageFlags::ALL_COMMANDS)
             .collect::<Vec<_>>();
+        // Use SmallVec or similar here to reduce allocation?
+        let cmd_bufs = cmd_bufs.iter().map(|c| c.cmd_buf).collect::<Vec<_>>();
         device.queue_submit(
             self.queue,
             &[vk::SubmitInfo::builder()
-                .command_buffers(&[cmd_buf.cmd_buf])
+                .command_buffers(&cmd_bufs)
                 .wait_semaphores(wait_semaphores)
                 .wait_dst_stage_mask(&wait_stages)
                 .signal_semaphores(signal_semaphores)
@@ -725,37 +738,42 @@ impl crate::Device for VkDevice {
         Ok(())
     }
 
-    unsafe fn read_buffer<T: Sized>(
+    unsafe fn read_buffer(
         &self,
-        buffer: &Buffer,
-        result: &mut Vec<T>,
+        buffer: &Self::Buffer,
+        dst: *mut u8,
+        offset: u64,
+        size: u64,
     ) -> Result<(), Error> {
+        let copy_size = size.try_into()?;
         let device = &self.device.device;
         let buf = device.map_memory(
             buffer.buffer_memory,
-            0,
-            buffer.size,
+            offset,
+            size,
             vk::MemoryMapFlags::empty(),
         )?;
-        let len = buffer.size as usize / std::mem::size_of::<T>();
-        if len > result.len() {
-            result.reserve(len - result.len());
-        }
-        std::ptr::copy_nonoverlapping(buf as *const T, result.as_mut_ptr(), len);
-        result.set_len(len);
+        std::ptr::copy_nonoverlapping(buf as *const u8, dst, copy_size);
         device.unmap_memory(buffer.buffer_memory);
         Ok(())
     }
 
-    unsafe fn write_buffer<T: Sized>(&self, buffer: &Buffer, contents: &[T]) -> Result<(), Error> {
+    unsafe fn write_buffer(
+        &self,
+        buffer: &Buffer,
+        contents: *const u8,
+        offset: u64,
+        size: u64,
+    ) -> Result<(), Error> {
+        let copy_size = size.try_into()?;
         let device = &self.device.device;
         let buf = device.map_memory(
             buffer.buffer_memory,
-            0,
-            std::mem::size_of_val(contents) as u64,
+            offset,
+            size,
             vk::MemoryMapFlags::empty(),
         )?;
-        std::ptr::copy_nonoverlapping(contents.as_ptr(), buf as *mut T, contents.len());
+        std::ptr::copy_nonoverlapping(contents, buf as *mut u8, copy_size);
         device.unmap_memory(buffer.buffer_memory);
         Ok(())
     }
