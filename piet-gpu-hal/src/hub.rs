@@ -502,43 +502,7 @@ impl<'a, T> IntoRefs<'a, T> for &'a [&'a T] {
     }
 }
 
-// TODO: this will benefit from const generics!
-impl<'a, T> IntoRefs<'a, T> for &'a [&'a T; 1] {
-    type Iterator = std::iter::Copied<std::slice::Iter<'a, &'a T>>;
-    fn into_refs(self) -> Self::Iterator {
-        self.into_iter().copied()
-    }
-}
-
-impl<'a, T> IntoRefs<'a, T> for &'a [&'a T; 2] {
-    type Iterator = std::iter::Copied<std::slice::Iter<'a, &'a T>>;
-    fn into_refs(self) -> Self::Iterator {
-        self.into_iter().copied()
-    }
-}
-
-impl<'a, T> IntoRefs<'a, T> for &'a [&'a T; 3] {
-    type Iterator = std::iter::Copied<std::slice::Iter<'a, &'a T>>;
-    fn into_refs(self) -> Self::Iterator {
-        self.into_iter().copied()
-    }
-}
-
-impl<'a, T> IntoRefs<'a, T> for &'a [&'a T; 4] {
-    type Iterator = std::iter::Copied<std::slice::Iter<'a, &'a T>>;
-    fn into_refs(self) -> Self::Iterator {
-        self.into_iter().copied()
-    }
-}
-
-impl<'a, T> IntoRefs<'a, T> for &'a [&'a T; 5] {
-    type Iterator = std::iter::Copied<std::slice::Iter<'a, &'a T>>;
-    fn into_refs(self) -> Self::Iterator {
-        self.into_iter().copied()
-    }
-}
-
-impl<'a, T> IntoRefs<'a, T> for &'a [&'a T; 6] {
+impl<'a, T, const N: usize> IntoRefs<'a, T> for &'a [&'a T; N] {
     type Iterator = std::iter::Copied<std::slice::Iter<'a, &'a T>>;
     fn into_refs(self) -> Self::Iterator {
         self.into_iter().copied()
