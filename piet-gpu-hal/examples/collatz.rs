@@ -1,16 +1,16 @@
 use piet_gpu_hal::hub;
 use piet_gpu_hal::vulkan::VkInstance;
-use piet_gpu_hal::{CmdBuf, MemFlags};
+use piet_gpu_hal::{BufferUsage, CmdBuf};
 
 fn main() {
     let (instance, _) = VkInstance::new(None).unwrap();
     unsafe {
         let device = instance.device(None).unwrap();
         let session = hub::Session::new(device);
-        let mem_flags = MemFlags::host_coherent();
+        let usage = BufferUsage::MAP_READ | BufferUsage::MAP_WRITE | BufferUsage::STORAGE;
         let src = (0..256).map(|x| x + 1).collect::<Vec<u32>>();
         let mut buffer = session
-            .create_buffer(std::mem::size_of_val(&src[..]) as u64, mem_flags)
+            .create_buffer(std::mem::size_of_val(&src[..]) as u64, usage)
             .unwrap();
         buffer.write(&src).unwrap();
         let code = include_bytes!("./shader/collatz.spv");

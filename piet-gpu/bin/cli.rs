@@ -6,7 +6,7 @@ use clap::{App, Arg};
 
 use piet_gpu_hal::hub;
 use piet_gpu_hal::vulkan::VkInstance;
-use piet_gpu_hal::{CmdBuf, Error, MemFlags};
+use piet_gpu_hal::{BufferUsage, CmdBuf, Error};
 
 use piet_gpu::{render_scene, render_svg, PietGpuRenderContext, Renderer, HEIGHT, WIDTH};
 
@@ -253,8 +253,9 @@ fn main() -> Result<(), Error> {
         //dump_scene(&scene);
 
         let renderer = Renderer::new(&session, scene, n_paths, n_pathseg, n_trans)?;
+        let image_usage = BufferUsage::MAP_READ | BufferUsage::COPY_DST;
         let image_buf =
-            session.create_buffer((WIDTH * HEIGHT * 4) as u64, MemFlags::host_coherent())?;
+            session.create_buffer((WIDTH * HEIGHT * 4) as u64, image_usage)?;
 
         cmd_buf.begin();
         renderer.record(&mut cmd_buf, &query_pool);
