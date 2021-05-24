@@ -172,15 +172,6 @@ pub trait Device: Sized {
     /// All submitted commands that refer to this query pool must have completed.
     unsafe fn fetch_query_pool(&self, pool: &Self::QueryPool) -> Result<Vec<f64>, Error>;
 
-    #[deprecated]
-    unsafe fn run_cmd_buf(
-        &self,
-        cmd_buf: &Self::CmdBuf,
-        wait_semaphores: &[Self::Semaphore],
-        signal_semaphores: &[Self::Semaphore],
-        fence: Option<&Self::Fence>,
-    ) -> Result<(), Error>;
-
     unsafe fn run_cmd_bufs(
         &self,
         cmd_buf: &[&Self::CmdBuf],

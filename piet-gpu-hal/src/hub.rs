@@ -528,7 +528,7 @@ impl From<Image> for RetainResource {
     }
 }
 
-impl<'a, T: Into<RetainResource>> From<&'a T> for RetainResource {
+impl<'a, T: Clone + Into<RetainResource>> From<&'a T> for RetainResource {
     fn from(resource: &'a T) -> Self {
         resource.clone().into()
     }

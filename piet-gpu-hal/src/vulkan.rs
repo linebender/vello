@@ -701,40 +701,6 @@ impl crate::Device for VkDevice {
         Ok(result)
     }
 
-    /// Run the command buffer.
-    ///
-    /// This submits the command buffer for execution. The provided fence
-    /// is signalled when the execution is complete.
-    unsafe fn run_cmd_buf(
-        &self,
-        cmd_buf: &CmdBuf,
-        wait_semaphores: &[Self::Semaphore],
-        signal_semaphores: &[Self::Semaphore],
-        fence: Option<&Self::Fence>,
-    ) -> Result<(), Error> {
-        let device = &self.device.device;
-
-        let fence = match fence {
-            Some(fence) => *fence,
-            None => vk::Fence::null(),
-        };
-        let wait_stages = wait_semaphores
-            .iter()
-            .map(|_| vk::PipelineStageFlags::ALL_COMMANDS)
-            .collect::<Vec<_>>();
-        device.queue_submit(
-            self.queue,
-            &[vk::SubmitInfo::builder()
-                .command_buffers(&[cmd_buf.cmd_buf])
-                .wait_semaphores(wait_semaphores)
-                .wait_dst_stage_mask(&wait_stages)
-                .signal_semaphores(signal_semaphores)
-                .build()],
-            fence,
-        )?;
-        Ok(())
-    }
-
     /// Run the command buffers.
     ///
     /// This submits the command buffer for execution. The provided fence
