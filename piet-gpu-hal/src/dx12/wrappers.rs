@@ -40,10 +40,6 @@ pub struct Factory2(pub ComPtr<dxgi1_2::IDXGIFactory2>);
 #[derive(Clone)]
 pub struct Factory4(pub ComPtr<dxgi1_4::IDXGIFactory4>);
 #[derive(Clone)]
-pub struct SwapChain(pub ComPtr<dxgi::IDXGISwapChain>);
-#[derive(Clone)]
-pub struct SwapChain1(pub ComPtr<dxgi1_2::IDXGISwapChain1>);
-#[derive(Clone)]
 pub struct SwapChain3(pub ComPtr<dxgi1_4::IDXGISwapChain3>);
 
 #[derive(Clone)]
@@ -218,22 +214,24 @@ impl Factory4 {
 
     pub unsafe fn create_swapchain_for_hwnd(
         &self,
-        command_queue: CommandQueue,
+        command_queue: &CommandQueue,
         hwnd: windef::HWND,
         desc: dxgi1_2::DXGI_SWAP_CHAIN_DESC1,
-    ) -> SwapChain3 {
+    ) -> Result<SwapChain3, Error> {
         let mut swap_chain = ptr::null_mut();
-        error::error_if_failed_else_unit(self.0.CreateSwapChainForHwnd(
-            command_queue.0.as_raw() as *mut _,
-            hwnd,
-            &desc,
-            ptr::null(),
-            ptr::null_mut(),
-            &mut swap_chain as *mut _ as *mut _,
-        ))
-        .expect("could not creation swapchain for hwnd");
+        explain_error(
+            self.0.CreateSwapChainForHwnd(
+                command_queue.0.as_raw() as *mut _,
+                hwnd,
+                &desc,
+                ptr::null(),
+                ptr::null_mut(),
+                &mut swap_chain as *mut _ as *mut _,
+            ),
+            "could not creation swapchain for hwnd",
+        )?;
 
-        SwapChain3(ComPtr::from_raw(swap_chain))
+        Ok(SwapChain3(ComPtr::from_raw(swap_chain)))
     }
 }
 
@@ -260,47 +258,6 @@ impl CommandQueue {
         )?;
 
         Ok(result)
-    }
-}
-
-impl SwapChain {
-    pub unsafe fn get_buffer(&self, id: u32) -> Resource {
-        let mut resource = ptr::null_mut();
-        error::error_if_failed_else_unit(self.0.GetBuffer(
-            id,
-            &d3d12::ID3D12Resource::uuidof(),
-            &mut resource as *mut _ as *mut _,
-        ))
-        .expect("SwapChain could not get buffer");
-
-        Resource::new(resource)
-    }
-
-    // TODO: present flags
-    pub unsafe fn present(&self, interval: u32, flags: u32) -> winerror::HRESULT {
-        self.0.Present(interval, flags)
-    }
-}
-
-impl SwapChain1 {
-    pub unsafe fn cast_into_swap_chain3(&self) -> SwapChain3 {
-        SwapChain3(
-            self.0
-                .cast::<dxgi1_4::IDXGISwapChain3>()
-                .expect("could not cast into SwapChain3"),
-        )
-    }
-
-    pub unsafe fn get_buffer(&self, id: u32) -> Resource {
-        let mut resource = ptr::null_mut();
-        error::error_if_failed_else_unit(self.0.GetBuffer(
-            id,
-            &d3d12::ID3D12Resource::uuidof(),
-            &mut resource as *mut _ as *mut _,
-        ))
-        .expect("SwapChain1 could not get buffer");
-
-        Resource::new(resource)
     }
 }
 

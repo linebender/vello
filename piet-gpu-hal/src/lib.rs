@@ -9,9 +9,12 @@ pub mod hub;
 #[macro_use]
 mod macros;
 
-// TODO make this not pub
+// TODO: Don't make the module pub, but do figure out which types to
+// export at the root level.
 pub mod mux;
 
+// TODO: because these are conditionally included, "cargo fmt" does not
+// see them. Figure that out, possibly including running rustfmt manually.
 mux_cfg! {
     #[cfg(vk)]
     pub mod vulkan;
