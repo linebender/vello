@@ -110,8 +110,8 @@ fn main() -> Result<(), Error> {
                     submitted = Some(session
                         .run_cmd_buf(
                             cmd_buf,
-                            &[acquisition_semaphore],
-                            &[present_semaphores[frame_idx]],
+                            &[&acquisition_semaphore],
+                            &[&present_semaphores[frame_idx]],
                         )
                         .unwrap());
                     last_frame_idx = frame_idx;

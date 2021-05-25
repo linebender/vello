@@ -50,8 +50,8 @@ void main(SPIRV_Cross_Input stage_input)
 "#;
 
 fn toy() -> Result<(), Error> {
-    let instance = dx12::Dx12Instance::new()?;
-    let device = instance.device()?;
+    let (instance, _surface) = dx12::Dx12Instance::new(None)?;
+    let device = instance.device(None)?;
     let buf = device.create_buffer(
         1024,
         BufferUsage::MAP_READ
@@ -87,7 +87,7 @@ fn toy() -> Result<(), Error> {
         cmd_buf.host_barrier();
         cmd_buf.finish();
         device.run_cmd_bufs(&[&cmd_buf], &[], &[], Some(&fence))?;
-        device.wait_and_reset(&[fence])?;
+        device.wait_and_reset(&[&fence])?;
         let mut readback: Vec<u32> = vec![0u32; 256];
         device.read_buffer(&buf, readback.as_mut_ptr() as *mut u8, 0, 1024)?;
         println!("{:?}", readback);

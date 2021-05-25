@@ -9,6 +9,8 @@ use winapi::shared::dxgi1_3;
 use winapi::shared::minwindef::TRUE;
 use winapi::um::d3d12;
 
+use smallvec::SmallVec;
+
 use crate::{BufferUsage, Error, ImageLayout};
 
 use self::wrappers::{
@@ -18,6 +20,9 @@ use self::wrappers::{
 pub struct Dx12Instance {
     factory: Factory4,
 }
+
+// TODO
+pub struct Dx12Surface;
 
 pub struct Dx12Device {
     device: Device,
@@ -95,7 +100,7 @@ impl Dx12Instance {
     ///
     /// TODO: take a raw window handle.
     /// TODO: can probably be a trait.
-    pub fn new() -> Result<Dx12Instance, Error> {
+    pub fn new(window_handle: Option<&dyn raw_window_handle::HasRawWindowHandle>) -> Result<(Dx12Instance, Option<Dx12Surface>), Error> {
         unsafe {
             #[cfg(debug_assertions)]
             if let Err(e) = wrappers::enable_debug_layer() {
@@ -110,7 +115,7 @@ impl Dx12Instance {
             let factory_flags: u32 = 0;
 
             let factory = Factory4::create(factory_flags)?;
-            Ok(Dx12Instance { factory })
+            Ok((Dx12Instance { factory }, None))
         }
     }
 
@@ -118,7 +123,7 @@ impl Dx12Instance {
     ///
     /// TODO: handle window.
     /// TODO: probably can also be trait'ified.
-    pub fn device(&self) -> Result<Dx12Device, Error> {
+    pub fn device(&self, surface: Option<&Dx12Surface>) -> Result<Dx12Device, Error> {
         unsafe {
             let device = Device::create_device(&self.factory)?;
             let list_type = d3d12::D3D12_COMMAND_LIST_TYPE_DIRECT;
@@ -262,16 +267,15 @@ impl crate::Device for Dx12Device {
     unsafe fn run_cmd_bufs(
         &self,
         cmd_bufs: &[&Self::CmdBuf],
-        wait_semaphores: &[Self::Semaphore],
-        signal_semaphores: &[Self::Semaphore],
+        wait_semaphores: &[&Self::Semaphore],
+        signal_semaphores: &[&Self::Semaphore],
         fence: Option<&Self::Fence>,
     ) -> Result<(), Error> {
         // TODO: handle semaphores
-        // SmallVec?
         let lists = cmd_bufs
             .iter()
             .map(|c| c.0.as_raw_command_list())
-            .collect::<Vec<_>>();
+            .collect::<SmallVec<[_; 4]>>();
         self.command_queue.execute_command_lists(&lists);
         if let Some(fence) = fence {
             let val = fence.val.get() + 1;
@@ -319,7 +323,7 @@ impl crate::Device for Dx12Device {
         Ok(Fence { fence, event, val })
     }
 
-    unsafe fn wait_and_reset(&self, fences: &[Self::Fence]) -> Result<(), Error> {
+    unsafe fn wait_and_reset(&self, fences: &[&Self::Fence]) -> Result<(), Error> {
         for fence in fences {
             // TODO: probably handle errors here.
             let _status = fence.event.wait(winapi::um::winbase::INFINITE);

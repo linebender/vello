@@ -10,6 +10,8 @@ use ash::extensions::{ext::DebugUtils, khr};
 use ash::version::{DeviceV1_0, EntryV1_0, InstanceV1_0, InstanceV1_1};
 use ash::{vk, Device, Entry, Instance};
 
+use smallvec::SmallVec;
+
 use crate::{
     BufferUsage, Device as DeviceTrait, Error, GpuInfo, ImageLayout, SamplerParams, SubgroupSize,
 };
@@ -617,10 +619,15 @@ impl crate::Device for VkDevice {
         Ok(device.create_semaphore(&vk::SemaphoreCreateInfo::default(), None)?)
     }
 
-    unsafe fn wait_and_reset(&self, fences: &[Self::Fence]) -> Result<(), Error> {
+    unsafe fn wait_and_reset(&self, fences: &[&Self::Fence]) -> Result<(), Error> {
         let device = &self.device.device;
-        device.wait_for_fences(fences, true, !0)?;
-        device.reset_fences(fences)?;
+        let fences = fences
+            .iter()
+            .copied()
+            .copied()
+            .collect::<SmallVec<[_; 4]>>();
+        device.wait_for_fences(&fences, true, !0)?;
+        device.reset_fences(&fences)?;
         Ok(())
     }
 
@@ -709,8 +716,8 @@ impl crate::Device for VkDevice {
     unsafe fn run_cmd_bufs(
         &self,
         cmd_bufs: &[&CmdBuf],
-        wait_semaphores: &[Self::Semaphore],
-        signal_semaphores: &[Self::Semaphore],
+        wait_semaphores: &[&Self::Semaphore],
+        signal_semaphores: &[&Self::Semaphore],
         fence: Option<&Self::Fence>,
     ) -> Result<(), Error> {
         let device = &self.device.device;
@@ -722,16 +729,28 @@ impl crate::Device for VkDevice {
         let wait_stages = wait_semaphores
             .iter()
             .map(|_| vk::PipelineStageFlags::ALL_COMMANDS)
-            .collect::<Vec<_>>();
-        // Use SmallVec or similar here to reduce allocation?
-        let cmd_bufs = cmd_bufs.iter().map(|c| c.cmd_buf).collect::<Vec<_>>();
+            .collect::<SmallVec<[_; 4]>>();
+        let cmd_bufs = cmd_bufs
+            .iter()
+            .map(|c| c.cmd_buf)
+            .collect::<SmallVec<[_; 4]>>();
+        let wait_semaphores = wait_semaphores
+            .iter()
+            .copied()
+            .copied()
+            .collect::<SmallVec<[_; 2]>>();
+        let signal_semaphores = signal_semaphores
+            .iter()
+            .copied()
+            .copied()
+            .collect::<SmallVec<[_; 2]>>();
         device.queue_submit(
             self.queue,
             &[vk::SubmitInfo::builder()
                 .command_buffers(&cmd_bufs)
-                .wait_semaphores(wait_semaphores)
+                .wait_semaphores(&wait_semaphores)
                 .wait_dst_stage_mask(&wait_stages)
-                .signal_semaphores(signal_semaphores)
+                .signal_semaphores(&signal_semaphores)
                 .build()],
             fence,
         )?;

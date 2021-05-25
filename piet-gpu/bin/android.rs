@@ -159,8 +159,8 @@ impl GfxState {
                 self.session
                     .run_cmd_buf(
                         cmd_buf,
-                        &[acquisition_semaphore],
-                        &[self.present_semaphores[frame_idx]],
+                        &[&acquisition_semaphore],
+                        &[&self.present_semaphores[frame_idx]],
                     )
                     .unwrap(),
             );
