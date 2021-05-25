@@ -7,12 +7,9 @@ fn main() {
     unsafe {
         let device = instance.device(None).unwrap();
         let session = hub::Session::new(device);
-        let usage = BufferUsage::MAP_READ | BufferUsage::MAP_WRITE | BufferUsage::STORAGE;
+        let usage = BufferUsage::MAP_READ | BufferUsage::STORAGE;
         let src = (0..256).map(|x| x + 1).collect::<Vec<u32>>();
-        let mut buffer = session
-            .create_buffer(std::mem::size_of_val(&src[..]) as u64, usage)
-            .unwrap();
-        buffer.write(&src).unwrap();
+        let buffer = session.create_buffer_init(&src, usage).unwrap();
         let code = include_bytes!("./shader/collatz.spv");
         let pipeline = session.create_simple_compute_pipeline(code, 1).unwrap();
         let descriptor_set = session
