@@ -6,9 +6,20 @@ use bitflags::bitflags;
 
 pub mod hub;
 
-#[cfg(target_os = "windows")]
-pub mod dx12;
-pub mod vulkan;
+#[macro_use]
+mod macros;
+
+// TODO make this not pub
+pub mod mux;
+
+mux_cfg! {
+    #[cfg(vk)]
+    pub mod vulkan;
+}
+mux_cfg! {
+    #[cfg(dx12)]
+    pub mod dx12;
+}
 
 /// This isn't great but is expedient.
 pub type Error = Box<dyn std::error::Error>;
@@ -178,8 +189,8 @@ pub trait Device: Sized {
     unsafe fn run_cmd_bufs(
         &self,
         cmd_buf: &[&Self::CmdBuf],
-        wait_semaphores: &[Self::Semaphore],
-        signal_semaphores: &[Self::Semaphore],
+        wait_semaphores: &[&Self::Semaphore],
+        signal_semaphores: &[&Self::Semaphore],
         fence: Option<&Self::Fence>,
     ) -> Result<(), Error>;
 
@@ -217,8 +228,8 @@ pub trait Device: Sized {
 
     unsafe fn create_semaphore(&self) -> Result<Self::Semaphore, Error>;
     unsafe fn create_fence(&self, signaled: bool) -> Result<Self::Fence, Error>;
-    unsafe fn wait_and_reset(&self, fences: &[Self::Fence]) -> Result<(), Error>;
-    unsafe fn get_fence_status(&self, fence: Self::Fence) -> Result<bool, Error>;
+    unsafe fn wait_and_reset(&self, fences: &[&Self::Fence]) -> Result<(), Error>;
+    unsafe fn get_fence_status(&self, fence: &Self::Fence) -> Result<bool, Error>;
 
     unsafe fn create_sampler(&self, params: SamplerParams) -> Result<Self::Sampler, Error>;
 }

@@ -13,7 +13,8 @@ use piet::{Color, ImageFormat, RenderContext};
 use piet_gpu_types::encoder::Encode;
 
 use piet_gpu_hal::hub;
-use piet_gpu_hal::{BufferUsage, CmdBuf, Error, ImageLayout};
+use piet_gpu_hal::hub::ShaderCode;
+use piet_gpu_hal::{BufferUsage, Error, ImageLayout};
 
 use pico_svg::PicoSvg;
 
@@ -292,35 +293,35 @@ impl Renderer {
         let memory_buf_dev = session.create_buffer(128 * 1024 * 1024, dev)?;
         memory_buf_host.write(&[alloc as u32, 0 /* Overflow flag */])?;
 
-        let el_code = include_bytes!("../shader/elements.spv");
+        let el_code = ShaderCode::Spv(include_bytes!("../shader/elements.spv"));
         let el_pipeline = session.create_simple_compute_pipeline(el_code, 4)?;
         let el_ds = session.create_simple_descriptor_set(
             &el_pipeline,
             &[&memory_buf_dev, &config_buf, &scene_buf, &state_buf],
         )?;
 
-        let tile_alloc_code = include_bytes!("../shader/tile_alloc.spv");
+        let tile_alloc_code = ShaderCode::Spv(include_bytes!("../shader/tile_alloc.spv"));
         let tile_pipeline = session.create_simple_compute_pipeline(tile_alloc_code, 2)?;
         let tile_ds = session
             .create_simple_descriptor_set(&tile_pipeline, &[&memory_buf_dev, &config_buf])?;
 
-        let path_alloc_code = include_bytes!("../shader/path_coarse.spv");
+        let path_alloc_code = ShaderCode::Spv(include_bytes!("../shader/path_coarse.spv"));
         let path_pipeline = session.create_simple_compute_pipeline(path_alloc_code, 2)?;
         let path_ds = session
             .create_simple_descriptor_set(&path_pipeline, &[&memory_buf_dev, &config_buf])?;
 
-        let backdrop_alloc_code = include_bytes!("../shader/backdrop.spv");
+        let backdrop_alloc_code = ShaderCode::Spv(include_bytes!("../shader/backdrop.spv"));
         let backdrop_pipeline = session.create_simple_compute_pipeline(backdrop_alloc_code, 2)?;
         let backdrop_ds = session
             .create_simple_descriptor_set(&backdrop_pipeline, &[&memory_buf_dev, &config_buf])?;
 
         // TODO: constants
-        let bin_code = include_bytes!("../shader/binning.spv");
+        let bin_code = ShaderCode::Spv(include_bytes!("../shader/binning.spv"));
         let bin_pipeline = session.create_simple_compute_pipeline(bin_code, 2)?;
         let bin_ds =
             session.create_simple_descriptor_set(&bin_pipeline, &[&memory_buf_dev, &config_buf])?;
 
-        let coarse_code = include_bytes!("../shader/coarse.spv");
+        let coarse_code = ShaderCode::Spv(include_bytes!("../shader/coarse.spv"));
         let coarse_pipeline = session.create_simple_compute_pipeline(coarse_code, 2)?;
         let coarse_ds = session
             .create_simple_descriptor_set(&coarse_pipeline, &[&memory_buf_dev, &config_buf])?;
@@ -328,10 +329,10 @@ impl Renderer {
         let bg_image = Self::make_test_bg_image(&session);
 
         let k4_code = if session.gpu_info().has_descriptor_indexing {
-            &include_bytes!("../shader/kernel4_idx.spv")[..]
+            ShaderCode::Spv(include_bytes!("../shader/kernel4_idx.spv"))
         } else {
             println!("doing non-indexed k4");
-            &include_bytes!("../shader/kernel4.spv")[..]
+            ShaderCode::Spv(include_bytes!("../shader/kernel4.spv"))
         };
         // This is an arbitrary limit on the number of textures that can be referenced by
         // the fine rasterizer. To set it for real, we probably want to pay attention both
@@ -386,13 +387,13 @@ impl Renderer {
 
     pub unsafe fn record(&self, cmd_buf: &mut hub::CmdBuf, query_pool: &hub::QueryPool) {
         cmd_buf.copy_buffer(
-            self.memory_buf_host.vk_buffer(),
-            self.memory_buf_dev.vk_buffer(),
+            self.memory_buf_host.mux_buffer(),
+            self.memory_buf_dev.mux_buffer(),
         );
-        cmd_buf.clear_buffer(self.state_buf.vk_buffer(), None);
+        cmd_buf.clear_buffer(self.state_buf.mux_buffer(), None);
         cmd_buf.memory_barrier();
         cmd_buf.image_barrier(
-            self.image_dev.vk_image(),
+            self.image_dev.mux_image(),
             ImageLayout::Undefined,
             ImageLayout::General,
         );
@@ -451,7 +452,7 @@ impl Renderer {
         cmd_buf.write_timestamp(&query_pool, 7);
         cmd_buf.memory_barrier();
         cmd_buf.image_barrier(
-            self.image_dev.vk_image(),
+            self.image_dev.mux_image(),
             ImageLayout::General,
             ImageLayout::BlitSrc,
         );
@@ -475,12 +476,16 @@ impl Renderer {
             let mut cmd_buf = session.cmd_buf()?;
             cmd_buf.begin();
             cmd_buf.image_barrier(
-                image.vk_image(),
+                image.mux_image(),
                 ImageLayout::Undefined,
                 ImageLayout::BlitDst,
             );
-            cmd_buf.copy_buffer_to_image(buffer.vk_buffer(), image.vk_image());
-            cmd_buf.image_barrier(image.vk_image(), ImageLayout::BlitDst, ImageLayout::General);
+            cmd_buf.copy_buffer_to_image(buffer.mux_buffer(), image.mux_image());
+            cmd_buf.image_barrier(
+                image.mux_image(),
+                ImageLayout::BlitDst,
+                ImageLayout::General,
+            );
             cmd_buf.finish();
             // Make sure not to drop the buffer and image until the command buffer completes.
             cmd_buf.add_resource(&buffer);
