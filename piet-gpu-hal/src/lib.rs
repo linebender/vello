@@ -14,10 +14,12 @@ pub mod mux;
 
 mux! {
     #[cfg(vk)]
+    pub mod vulkan;
+}
+mux! {
+    #[cfg(dx12)]
     pub mod dx12;
 }
-#[cfg(not(target_os = "macos"))]
-pub mod vulkan;
 
 /// This isn't great but is expedient.
 pub type Error = Box<dyn std::error::Error>;
