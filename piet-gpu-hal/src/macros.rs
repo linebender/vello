@@ -17,7 +17,7 @@
 //! Macros, mostly to automate backend selection tedium.
 
 #[macro_export]
-macro_rules! mux {
+macro_rules! mux_cfg {
     ( #[cfg(vk)] $($tokens:tt)* ) => {
         #[cfg(not(target_os="macos"))] $( $tokens )*
     };
@@ -41,7 +41,7 @@ macro_rules! mux_enum {
         }
 
         impl $name {
-            $crate::mux! {
+            $crate::mux_cfg! {
                 #[cfg(vk)]
                 #[allow(unused)]
                 fn vk(&self) -> &$vk {
@@ -52,7 +52,7 @@ macro_rules! mux_enum {
                 }
             }
 
-            $crate::mux! {
+            $crate::mux_cfg! {
                 #[cfg(dx12)]
                 #[allow(unused)]
                 fn dx12(&self) -> &$dx12 {
@@ -76,4 +76,29 @@ macro_rules! mux_device_enum {
             }
         }
     }
+}
+
+#[macro_export]
+macro_rules! mux_match {
+    ( $e:expr ;
+        $vkname:ident::Vk($vkvar:ident) => $vkblock: block
+        $dx12name:ident::Dx12($dx12var:ident) => $dx12block: block
+    ) => {
+        match $e {
+            #[cfg(not(target_os="macos"))]
+            $vkname::Vk($vkvar) => $vkblock
+            #[cfg(target_os="windows")]
+            $dx12name::Dx12($dx12var) => $dx12block
+        }
+    };
+
+    ( $e:expr ;
+        $vkname:ident::Vk($vkvar:ident) => $vkblock: expr,
+        $dx12name:ident::Dx12($dx12var:ident) => $dx12block: expr,
+    ) => {
+        $crate::mux_match! { $e;
+            $vkname::Vk($vkvar) => { $vkblock }
+            $dx12name::Dx12($dx12var) => { $dx12block }
+        }
+    };
 }

@@ -1,35 +1,28 @@
-//! A convenience layer on top of raw hal.
+//! A somewhat higher level GPU abstraction.
 //!
-//! This layer takes care of some lifetime and synchronization bookkeeping.
-//! It is likely that it will also take care of compile time and runtime
-//! negotiation of backends (Vulkan, DX12), but right now it's Vulkan-only.
+//! This layer is on top of the lower-level layer that multiplexes different
+//! back-ends. It handles details such as managing staging buffers for creating
+//! buffers with initial content, deferring dropping of resources until command
+//! submission is complete, and a bit more. These conveniences might expand
+//! even more in time.
 
 use std::convert::TryInto;
 use std::sync::{Arc, Mutex, Weak};
 
-use crate::vulkan;
-use crate::CmdBuf as CmdBufTrait;
-use crate::DescriptorSetBuilder as DescriptorSetBuilderTrait;
-use crate::PipelineBuilder as PipelineBuilderTrait;
-use crate::{BufferUsage, Device, Error, GpuInfo, SamplerParams};
+use smallvec::SmallVec;
 
-pub type Semaphore = <vulkan::VkDevice as Device>::Semaphore;
-pub type Pipeline = <vulkan::VkDevice as Device>::Pipeline;
-pub type DescriptorSet = <vulkan::VkDevice as Device>::DescriptorSet;
-pub type QueryPool = <vulkan::VkDevice as Device>::QueryPool;
-pub type Sampler = <vulkan::VkDevice as Device>::Sampler;
+use crate::mux;
 
-type Fence = <vulkan::VkDevice as Device>::Fence;
+use crate::{BufferUsage, Error, GpuInfo, SamplerParams};
 
-type VkImage = <vulkan::VkDevice as Device>::Image;
-type VkBuffer = <vulkan::VkDevice as Device>::Buffer;
+pub use crate::mux::{DescriptorSet, Fence, Pipeline, QueryPool, Sampler, Semaphore, ShaderCode};
 
 #[derive(Clone)]
 pub struct Session(Arc<SessionInner>);
 
 struct SessionInner {
-    device: vulkan::VkDevice,
-    cmd_buf_pool: Mutex<Vec<(vulkan::CmdBuf, Fence)>>,
+    device: mux::Device,
+    cmd_buf_pool: Mutex<Vec<(mux::CmdBuf, Fence)>>,
     /// Command buffers that are still pending (so resources can't be freed).
     pending: Mutex<Vec<SubmittedCmdBufInner>>,
     /// A command buffer that is used for copying from staging buffers.
@@ -38,7 +31,7 @@ struct SessionInner {
 }
 
 pub struct CmdBuf {
-    cmd_buf: vulkan::CmdBuf,
+    cmd_buf: mux::CmdBuf,
     fence: Fence,
     resources: Vec<RetainResource>,
     session: Weak<SessionInner>,
@@ -50,7 +43,7 @@ pub struct SubmittedCmdBuf(Option<SubmittedCmdBufInner>, Weak<SessionInner>);
 struct SubmittedCmdBufInner {
     // It's inconsistent, cmd_buf is unpacked, staging_cmd_buf isn't. Probably
     // better to chose one or the other.
-    cmd_buf: vulkan::CmdBuf,
+    cmd_buf: mux::CmdBuf,
     fence: Fence,
     resources: Vec<RetainResource>,
     staging_cmd_buf: Option<CmdBuf>,
@@ -60,7 +53,7 @@ struct SubmittedCmdBufInner {
 pub struct Image(Arc<ImageInner>);
 
 struct ImageInner {
-    image: VkImage,
+    image: mux::Image,
     session: Weak<SessionInner>,
 }
 
@@ -68,13 +61,13 @@ struct ImageInner {
 pub struct Buffer(Arc<BufferInner>);
 
 struct BufferInner {
-    buffer: VkBuffer,
+    buffer: mux::Buffer,
     session: Weak<SessionInner>,
 }
 
-pub struct PipelineBuilder(vulkan::PipelineBuilder);
+pub struct PipelineBuilder(mux::PipelineBuilder);
 
-pub struct DescriptorSetBuilder(vulkan::DescriptorSetBuilder);
+pub struct DescriptorSetBuilder(mux::DescriptorSetBuilder);
 
 /// Data types that can be stored in a GPU buffer.
 pub unsafe trait PlainData {}
@@ -97,7 +90,7 @@ pub enum RetainResource {
 }
 
 impl Session {
-    pub fn new(device: vulkan::VkDevice) -> Session {
+    pub fn new(device: mux::Device) -> Session {
         let gpu_info = device.query_gpu_info();
         Session(Arc::new(SessionInner {
             device,
@@ -130,7 +123,7 @@ impl Session {
         unsafe {
             let mut i = 0;
             while i < pending.len() {
-                if let Ok(true) = self.0.device.get_fence_status(pending[i].fence) {
+                if let Ok(true) = self.0.device.get_fence_status(&pending[i].fence) {
                     let item = pending.swap_remove(i);
                     // TODO: wait is superfluous, can just reset
                     let _ = self.0.device.wait_and_reset(&[&item.fence]);
@@ -222,7 +215,7 @@ impl Session {
         let create_buf = self.create_buffer(size, create_usage)?;
         self.0
             .device
-            .write_buffer(&create_buf.vk_buffer(), contents, 0, size)?;
+            .write_buffer(&create_buf.mux_buffer(), contents, 0, size)?;
         if use_staging_buffer {
             let buf = self.create_buffer(size, usage | BufferUsage::COPY_DST)?;
             let mut staging_cmd_buf = self.0.staging_cmd_buf.lock().unwrap();
@@ -232,8 +225,8 @@ impl Session {
                 *staging_cmd_buf = Some(cmd_buf);
             }
             let staging_cmd_buf = staging_cmd_buf.as_mut().unwrap();
-            // This will ensure the staging buffer is deallocated. It would be nice to
-            staging_cmd_buf.copy_buffer(create_buf.vk_buffer(), buf.vk_buffer());
+            // This will ensure the staging buffer is deallocated.
+            staging_cmd_buf.copy_buffer(create_buf.mux_buffer(), buf.mux_buffer());
             staging_cmd_buf.add_resource(create_buf);
             Ok(buf)
         } else {
@@ -256,9 +249,9 @@ impl Session {
     /// This creates a pipeline that operates on some buffers and images.
     ///
     /// The descriptor set layout is just some number of storage buffers and storage images (this might change).
-    pub unsafe fn create_simple_compute_pipeline(
+    pub unsafe fn create_simple_compute_pipeline<'a>(
         &self,
-        code: &[u8],
+        code: ShaderCode<'a>,
         n_buffers: u32,
     ) -> Result<Pipeline, Error> {
         self.pipeline_builder()
@@ -295,7 +288,8 @@ impl Session {
     }
 
     pub unsafe fn create_sampler(&self, params: SamplerParams) -> Result<Sampler, Error> {
-        self.0.device.create_sampler(params)
+        todo!()
+        //self.0.device.create_sampler(params)
     }
 
     pub fn gpu_info(&self) -> &GpuInfo {
@@ -366,10 +360,9 @@ impl Drop for ImageInner {
     }
 }
 
-/// For now, we deref, but for runtime backend switching we'll need to wrap
-/// all methods.
+// Probably migrate from deref here to wrapping all methods.
 impl std::ops::Deref for CmdBuf {
-    type Target = vulkan::CmdBuf;
+    type Target = mux::CmdBuf;
     fn deref(&self) -> &Self::Target {
         &self.cmd_buf
     }
@@ -382,13 +375,13 @@ impl std::ops::DerefMut for CmdBuf {
 }
 
 impl Image {
-    pub fn vk_image(&self) -> &vulkan::Image {
+    pub fn mux_image(&self) -> &mux::Image {
         &self.0.image
     }
 }
 
 impl Buffer {
-    pub fn vk_buffer(&self) -> &vulkan::Buffer {
+    pub fn mux_buffer(&self) -> &mux::Buffer {
         &self.0.buffer
     }
 
@@ -405,7 +398,7 @@ impl Buffer {
         Ok(())
     }
     pub unsafe fn read<T: PlainData>(&self, result: &mut Vec<T>) -> Result<(), Error> {
-        let size = self.vk_buffer().size;
+        let size = self.mux_buffer().size();
         let len = size as usize / std::mem::size_of::<T>();
         if len > result.len() {
             result.reserve(len - result.len());
@@ -440,10 +433,10 @@ impl PipelineBuilder {
         self
     }
 
-    pub unsafe fn create_compute_pipeline(
+    pub unsafe fn create_compute_pipeline<'a>(
         self,
         session: &Session,
-        code: &[u8],
+        code: ShaderCode<'a>,
     ) -> Result<Pipeline, Error> {
         self.0.create_compute_pipeline(&session.0.device, code)
     }
@@ -451,23 +444,29 @@ impl PipelineBuilder {
 
 impl DescriptorSetBuilder {
     pub fn add_buffers<'a>(mut self, buffers: impl IntoRefs<'a, Buffer>) -> Self {
-        let vk_buffers = buffers
+        let mux_buffers = buffers
             .into_refs()
-            .map(|b| b.vk_buffer())
-            .collect::<Vec<_>>();
-        self.0.add_buffers(&vk_buffers);
+            .map(|b| b.mux_buffer())
+            .collect::<SmallVec<[_; 8]>>();
+        self.0.add_buffers(&mux_buffers);
         self
     }
 
     pub fn add_images<'a>(mut self, images: impl IntoRefs<'a, Image>) -> Self {
-        let vk_images = images.into_refs().map(|i| i.vk_image()).collect::<Vec<_>>();
-        self.0.add_images(&vk_images);
+        let mux_images = images
+            .into_refs()
+            .map(|i| i.mux_image())
+            .collect::<Vec<_>>();
+        self.0.add_images(&mux_images);
         self
     }
 
     pub fn add_textures<'a>(mut self, images: impl IntoRefs<'a, Image>) -> Self {
-        let vk_images = images.into_refs().map(|i| i.vk_image()).collect::<Vec<_>>();
-        self.0.add_textures(&vk_images);
+        let mux_images = images
+            .into_refs()
+            .map(|i| i.mux_image())
+            .collect::<Vec<_>>();
+        self.0.add_textures(&mux_images);
         self
     }
 

@@ -18,8 +18,14 @@
 
 use smallvec::SmallVec;
 
-use crate::dx12;
-use crate::vulkan;
+mux_cfg! {
+    #[cfg(vk)]
+    use crate::vulkan;    
+}
+mux_cfg! {
+    #[cfg(dx12)]
+    use crate::dx12;
+}
 use crate::CmdBuf as CmdBufTrait;
 use crate::DescriptorSetBuilder as DescriptorSetBuilderTrait;
 use crate::Device as DeviceTrait;
@@ -50,6 +56,14 @@ mux_enum! {
     }
 }
 
+mux_enum! {
+    /// A surface, which can apply to one of multiple backends.
+    pub enum Swapchain {
+        Vk(vulkan::VkSwapchain),
+        Dx12(dx12::Dx12Swapchain),
+    }
+}
+
 mux_device_enum! { Buffer }
 mux_device_enum! { Image }
 mux_device_enum! { Fence }
@@ -60,6 +74,7 @@ mux_device_enum! { DescriptorSetBuilder }
 mux_device_enum! { DescriptorSet }
 mux_device_enum! { CmdBuf }
 mux_device_enum! { QueryPool }
+mux_device_enum! { Sampler }
 
 /// The code for a shader, either as source or intermediate representation.
 pub enum ShaderCode<'a> {
@@ -71,7 +86,7 @@ impl Instance {
     pub fn new(
         window_handle: Option<&dyn raw_window_handle::HasRawWindowHandle>,
     ) -> Result<(Instance, Option<Surface>), Error> {
-        mux! {
+        mux_cfg! {
             #[cfg(vk)]
             {
                 let result = vulkan::VkInstance::new(window_handle);
@@ -80,7 +95,7 @@ impl Instance {
                 }
             }
         }
-        mux! {
+        mux_cfg! {
             #[cfg(dx12)]
             {
                 let result = dx12::Dx12Instance::new(window_handle);
@@ -94,9 +109,24 @@ impl Instance {
     }
 
     pub unsafe fn device(&self, surface: Option<&Surface>) -> Result<Device, Error> {
-        match self {
+        mux_match! { self;
             Instance::Vk(i) => i.device(surface.map(Surface::vk)).map(Device::Vk),
             Instance::Dx12(i) => i.device(surface.map(Surface::dx12)).map(Device::Dx12),
+        }
+    }
+
+    pub unsafe fn swapchain(
+        &self,
+        width: usize,
+        height: usize,
+        device: &Device,
+        surface: &Surface,
+    ) -> Result<Swapchain, Error> {
+        mux_match! { self;
+            Instance::Vk(i) => i
+                .swapchain(width, height, device.vk(), surface.vk())
+                .map(Swapchain::Vk),
+            Instance::Dx12(_i) => todo!(),
         }
     }
 }
@@ -106,35 +136,49 @@ impl Instance {
 // missing functionality).
 impl Device {
     pub fn query_gpu_info(&self) -> GpuInfo {
-        match self {
+        mux_match! { self;
             Device::Vk(d) => d.query_gpu_info(),
             Device::Dx12(d) => d.query_gpu_info(),
         }
     }
 
     pub fn create_buffer(&self, size: u64, usage: BufferUsage) -> Result<Buffer, Error> {
-        match self {
+        mux_match! { self;
             Device::Vk(d) => d.create_buffer(size, usage).map(Buffer::Vk),
             Device::Dx12(d) => d.create_buffer(size, usage).map(Buffer::Dx12),
         }
     }
 
     pub unsafe fn destroy_buffer(&self, buffer: &Buffer) -> Result<(), Error> {
-        match self {
+        mux_match! { self;
             Device::Vk(d) => d.destroy_buffer(buffer.vk()),
             Device::Dx12(d) => d.destroy_buffer(buffer.dx12()),
         }
     }
 
+    pub unsafe fn create_image2d(&self, width: u32, height: u32) -> Result<Image, Error> {
+        mux_match! { self;
+            Device::Vk(d) => d.create_image2d(width, height).map(Image::Vk),
+            Device::Dx12(d) => d.create_image2d(width, height).map(Image::Dx12),
+        }
+    }
+
+    pub unsafe fn destroy_image(&self, image: &Image) -> Result<(), Error> {
+        mux_match! { self;
+            Device::Vk(d) => d.destroy_image(image.vk()),
+            Device::Dx12(d) => d.destroy_image(image.dx12()),
+        }
+    }
+
     pub unsafe fn create_fence(&self, signaled: bool) -> Result<Fence, Error> {
-        match self {
+        mux_match! { self;
             Device::Vk(d) => d.create_fence(signaled).map(Fence::Vk),
             Device::Dx12(d) => d.create_fence(signaled).map(Fence::Dx12),
         }
     }
 
     pub unsafe fn wait_and_reset(&self, fences: &[&Fence]) -> Result<(), Error> {
-        match self {
+        mux_match! { self;
             Device::Vk(d) => {
                 let fences = fences
                     .iter()
@@ -151,41 +195,53 @@ impl Device {
                     .collect::<SmallVec<[_; 4]>>();
                 d.wait_and_reset(&*fences)
             }
-            // Probably need to change device trait to accept &Fence
-            _ => todo!(),
+        }
+    }
+
+    pub unsafe fn get_fence_status(&self, fence: &Fence) -> Result<bool, Error> {
+        mux_match! { self;
+            Device::Vk(d) => d.get_fence_status(fence.vk()),
+            Device::Dx12(d) => d.get_fence_status(fence.dx12()),
+        }
+    }
+
+    pub unsafe fn create_semaphore(&self) -> Result<Semaphore, Error> {
+        mux_match! { self;
+            Device::Vk(d) => d.create_semaphore().map(Semaphore::Vk),
+            Device::Dx12(d) => d.create_semaphore().map(Semaphore::Dx12),
         }
     }
 
     pub unsafe fn pipeline_builder(&self) -> PipelineBuilder {
-        match self {
+        mux_match! { self;
             Device::Vk(d) => PipelineBuilder::Vk(d.pipeline_builder()),
             Device::Dx12(d) => PipelineBuilder::Dx12(d.pipeline_builder()),
         }
     }
 
     pub unsafe fn descriptor_set_builder(&self) -> DescriptorSetBuilder {
-        match self {
+        mux_match! { self;
             Device::Vk(d) => DescriptorSetBuilder::Vk(d.descriptor_set_builder()),
             Device::Dx12(d) => DescriptorSetBuilder::Dx12(d.descriptor_set_builder()),
         }
     }
 
     pub fn create_cmd_buf(&self) -> Result<CmdBuf, Error> {
-        match self {
+        mux_match! { self;
             Device::Vk(d) => d.create_cmd_buf().map(CmdBuf::Vk),
             Device::Dx12(d) => d.create_cmd_buf().map(CmdBuf::Dx12),
         }
     }
 
     pub fn create_query_pool(&self, n_queries: u32) -> Result<QueryPool, Error> {
-        match self {
+        mux_match! { self;
             Device::Vk(d) => d.create_query_pool(n_queries).map(QueryPool::Vk),
             Device::Dx12(d) => d.create_query_pool(n_queries).map(QueryPool::Dx12),
         }
     }
 
     pub unsafe fn fetch_query_pool(&self, pool: &QueryPool) -> Result<Vec<f64>, Error> {
-        match self {
+        mux_match! { self;
             Device::Vk(d) => d.fetch_query_pool(pool.vk()),
             Device::Dx12(d) => d.fetch_query_pool(pool.dx12()),
         }
@@ -198,14 +254,22 @@ impl Device {
         signal_semaphores: &[&Semaphore],
         fence: Option<&Fence>,
     ) -> Result<(), Error> {
-        match self {
+        mux_match! { self;
             Device::Vk(d) => d.run_cmd_bufs(
                 &cmd_bufs
                     .iter()
                     .map(|c| c.vk())
                     .collect::<SmallVec<[_; 4]>>(),
-                &wait_semaphores.iter().copied().map(Semaphore::vk).collect::<SmallVec<[_; 4]>>(),
-                &signal_semaphores.iter().copied().map(Semaphore::vk).collect::<SmallVec<[_; 4]>>(),
+                &wait_semaphores
+                    .iter()
+                    .copied()
+                    .map(Semaphore::vk)
+                    .collect::<SmallVec<[_; 4]>>(),
+                &signal_semaphores
+                    .iter()
+                    .copied()
+                    .map(Semaphore::vk)
+                    .collect::<SmallVec<[_; 4]>>(),
                 fence.map(Fence::vk),
             ),
             Device::Dx12(d) => d.run_cmd_bufs(
@@ -213,8 +277,16 @@ impl Device {
                     .iter()
                     .map(|c| c.dx12())
                     .collect::<SmallVec<[_; 4]>>(),
-                &wait_semaphores.iter().copied().map(Semaphore::dx12).collect::<SmallVec<[_; 4]>>(),
-                &signal_semaphores.iter().copied().map(Semaphore::dx12).collect::<SmallVec<[_; 4]>>(),
+                &wait_semaphores
+                    .iter()
+                    .copied()
+                    .map(Semaphore::dx12)
+                    .collect::<SmallVec<[_; 4]>>(),
+                &signal_semaphores
+                    .iter()
+                    .copied()
+                    .map(Semaphore::dx12)
+                    .collect::<SmallVec<[_; 4]>>(),
                 fence.map(Fence::dx12),
             ),
         }
@@ -227,7 +299,7 @@ impl Device {
         offset: u64,
         size: u64,
     ) -> Result<(), Error> {
-        match self {
+        mux_match! { self;
             Device::Vk(d) => d.read_buffer(buffer.vk(), dst, offset, size),
             Device::Dx12(d) => d.read_buffer(buffer.dx12(), dst, offset, size),
         }
@@ -240,7 +312,7 @@ impl Device {
         offset: u64,
         size: u64,
     ) -> Result<(), Error> {
-        match self {
+        mux_match! { self;
             Device::Vk(d) => d.write_buffer(buffer.vk(), contents, offset, size),
             Device::Dx12(d) => d.write_buffer(buffer.dx12(), contents, offset, size),
         }
@@ -249,21 +321,21 @@ impl Device {
 
 impl PipelineBuilder {
     pub fn add_buffers(&mut self, n_buffers: u32) {
-        match self {
+        mux_match! { self;
             PipelineBuilder::Vk(x) => x.add_buffers(n_buffers),
             PipelineBuilder::Dx12(x) => x.add_buffers(n_buffers),
         }
     }
 
     pub fn add_images(&mut self, n_buffers: u32) {
-        match self {
+        mux_match! { self;
             PipelineBuilder::Vk(x) => x.add_images(n_buffers),
             PipelineBuilder::Dx12(x) => x.add_images(n_buffers),
         }
     }
 
     pub fn add_textures(&mut self, n_buffers: u32) {
-        match self {
+        mux_match! { self;
             PipelineBuilder::Vk(x) => x.add_textures(n_buffers),
             PipelineBuilder::Dx12(x) => x.add_textures(n_buffers),
         }
@@ -274,7 +346,7 @@ impl PipelineBuilder {
         device: &Device,
         code: ShaderCode<'a>,
     ) -> Result<Pipeline, Error> {
-        match self {
+        mux_match! { self;
             PipelineBuilder::Vk(x) => {
                 let shader_code = match code {
                     ShaderCode::Spv(spv) => spv,
@@ -298,39 +370,60 @@ impl PipelineBuilder {
 }
 
 impl DescriptorSetBuilder {
-    pub fn add_buffers(&mut self, buffers: &[Buffer]) {
-        match self {
-            DescriptorSetBuilder::Vk(x) => {
-                x.add_buffers(&buffers.iter().map(Buffer::vk).collect::<SmallVec<[_; 8]>>())
-            }
+    pub fn add_buffers(&mut self, buffers: &[&Buffer]) {
+        mux_match! { self;
+            DescriptorSetBuilder::Vk(x) => x.add_buffers(
+                &buffers
+                    .iter()
+                    .copied()
+                    .map(Buffer::vk)
+                    .collect::<SmallVec<[_; 8]>>(),
+            ),
             DescriptorSetBuilder::Dx12(x) => x.add_buffers(
                 &buffers
                     .iter()
+                    .copied()
                     .map(Buffer::dx12)
                     .collect::<SmallVec<[_; 8]>>(),
             ),
         }
     }
 
-    pub fn add_images(&mut self, images: &[Image]) {
-        match self {
-            DescriptorSetBuilder::Vk(x) => {
-                x.add_images(&images.iter().map(Image::vk).collect::<SmallVec<[_; 8]>>())
-            }
-            DescriptorSetBuilder::Dx12(x) => {
-                x.add_images(&images.iter().map(Image::dx12).collect::<SmallVec<[_; 8]>>())
-            }
+    pub fn add_images(&mut self, images: &[&Image]) {
+        mux_match! { self;
+            DescriptorSetBuilder::Vk(x) => x.add_images(
+                &images
+                    .iter()
+                    .copied()
+                    .map(Image::vk)
+                    .collect::<SmallVec<[_; 8]>>(),
+            ),
+            DescriptorSetBuilder::Dx12(x) => x.add_images(
+                &images
+                    .iter()
+                    .copied()
+                    .map(Image::dx12)
+                    .collect::<SmallVec<[_; 8]>>(),
+            ),
         }
     }
 
-    pub fn add_textures(&mut self, images: &[Image]) {
-        match self {
-            DescriptorSetBuilder::Vk(x) => {
-                x.add_textures(&images.iter().map(Image::vk).collect::<SmallVec<[_; 8]>>())
-            }
-            DescriptorSetBuilder::Dx12(x) => {
-                x.add_textures(&images.iter().map(Image::dx12).collect::<SmallVec<[_; 8]>>())
-            }
+    pub fn add_textures(&mut self, images: &[&Image]) {
+        mux_match! { self;
+            DescriptorSetBuilder::Vk(x) => x.add_textures(
+                &images
+                    .iter()
+                    .copied()
+                    .map(Image::vk)
+                    .collect::<SmallVec<[_; 8]>>(),
+            ),
+            DescriptorSetBuilder::Dx12(x) => x.add_textures(
+                &images
+                    .iter()
+                    .copied()
+                    .map(Image::dx12)
+                    .collect::<SmallVec<[_; 8]>>(),
+            ),
         }
     }
 
@@ -339,10 +432,9 @@ impl DescriptorSetBuilder {
         device: &Device,
         pipeline: &Pipeline,
     ) -> Result<DescriptorSet, Error> {
-        match self {
-            DescriptorSetBuilder::Vk(x) => {
-                x.build(device.vk(), pipeline.vk()).map(DescriptorSet::Vk)
-            }
+        mux_match! { self;
+            DescriptorSetBuilder::Vk(x) =>
+                x.build(device.vk(), pipeline.vk()).map(DescriptorSet::Vk),
             DescriptorSetBuilder::Dx12(x) => x
                 .build(device.dx12(), pipeline.dx12())
                 .map(DescriptorSet::Dx12),
@@ -352,14 +444,14 @@ impl DescriptorSetBuilder {
 
 impl CmdBuf {
     pub unsafe fn begin(&mut self) {
-        match self {
+        mux_match! { self;
             CmdBuf::Vk(c) => c.begin(),
             CmdBuf::Dx12(c) => c.begin(),
         }
     }
 
     pub unsafe fn finish(&mut self) {
-        match self {
+        mux_match! { self;
             CmdBuf::Vk(c) => c.finish(),
             CmdBuf::Dx12(c) => c.finish(),
         }
@@ -371,21 +463,21 @@ impl CmdBuf {
         descriptor_set: &DescriptorSet,
         size: (u32, u32, u32),
     ) {
-        match self {
+        mux_match! { self;
             CmdBuf::Vk(c) => c.dispatch(pipeline.vk(), descriptor_set.vk(), size),
             CmdBuf::Dx12(c) => c.dispatch(pipeline.dx12(), descriptor_set.dx12(), size),
         }
     }
 
     pub unsafe fn memory_barrier(&mut self) {
-        match self {
+        mux_match! { self;
             CmdBuf::Vk(c) => c.memory_barrier(),
             CmdBuf::Dx12(c) => c.memory_barrier(),
         }
     }
 
     pub unsafe fn host_barrier(&mut self) {
-        match self {
+        mux_match! { self;
             CmdBuf::Vk(c) => c.host_barrier(),
             CmdBuf::Dx12(c) => c.host_barrier(),
         }
@@ -397,65 +489,113 @@ impl CmdBuf {
         src_layout: ImageLayout,
         dst_layout: ImageLayout,
     ) {
-        match self {
+        mux_match! { self;
             CmdBuf::Vk(c) => c.image_barrier(image.vk(), src_layout, dst_layout),
             CmdBuf::Dx12(c) => c.image_barrier(image.dx12(), src_layout, dst_layout),
         }
     }
 
     pub unsafe fn clear_buffer(&mut self, buffer: &Buffer, size: Option<u64>) {
-        match self {
+        mux_match! { self;
             CmdBuf::Vk(c) => c.clear_buffer(buffer.vk(), size),
             CmdBuf::Dx12(c) => c.clear_buffer(buffer.dx12(), size),
         }
     }
 
     pub unsafe fn copy_buffer(&mut self, src: &Buffer, dst: &Buffer) {
-        match self {
+        mux_match! { self;
             CmdBuf::Vk(c) => c.copy_buffer(src.vk(), dst.vk()),
             CmdBuf::Dx12(c) => c.copy_buffer(src.dx12(), dst.dx12()),
         }
     }
 
     pub unsafe fn copy_image_to_buffer(&mut self, src: &Image, dst: &Buffer) {
-        match self {
+        mux_match! { self;
             CmdBuf::Vk(c) => c.copy_image_to_buffer(src.vk(), dst.vk()),
             CmdBuf::Dx12(c) => c.copy_image_to_buffer(src.dx12(), dst.dx12()),
         }
     }
 
     pub unsafe fn copy_buffer_to_image(&mut self, src: &Buffer, dst: &Image) {
-        match self {
+        mux_match! { self;
             CmdBuf::Vk(c) => c.copy_buffer_to_image(src.vk(), dst.vk()),
             CmdBuf::Dx12(c) => c.copy_buffer_to_image(src.dx12(), dst.dx12()),
         }
     }
 
     pub unsafe fn blit_image(&mut self, src: &Image, dst: &Image) {
-        match self {
+        mux_match! { self;
             CmdBuf::Vk(c) => c.blit_image(src.vk(), dst.vk()),
             CmdBuf::Dx12(c) => c.blit_image(src.dx12(), dst.dx12()),
         }
     }
 
     pub unsafe fn reset_query_pool(&mut self, pool: &QueryPool) {
-        match self {
+        mux_match! { self;
             CmdBuf::Vk(c) => c.reset_query_pool(pool.vk()),
             CmdBuf::Dx12(c) => c.reset_query_pool(pool.dx12()),
         }
     }
 
     pub unsafe fn write_timestamp(&mut self, pool: &QueryPool, query: u32) {
-        match self {
+        mux_match! { self;
             CmdBuf::Vk(c) => c.write_timestamp(pool.vk(), query),
             CmdBuf::Dx12(c) => c.write_timestamp(pool.dx12(), query),
         }
     }
 
     pub unsafe fn finish_timestamps(&mut self, pool: &QueryPool) {
-        match self {
+        mux_match! { self;
             CmdBuf::Vk(c) => c.finish_timestamps(pool.vk()),
             CmdBuf::Dx12(c) => c.finish_timestamps(pool.dx12()),
+        }
+    }
+}
+
+impl Buffer {
+    pub fn size(&self) -> u64 {
+        mux_match! { self;
+            Buffer::Vk(b) => b.size,
+            Buffer::Dx12(b) => b.size,
+        }
+    }
+}
+
+impl Swapchain {
+    pub unsafe fn next(&mut self) -> Result<(usize, Semaphore), Error> {
+        mux_match! { self;
+            Swapchain::Vk(s) => {
+                let (idx, sem) = s.next()?;
+                Ok((idx, Semaphore::Vk(sem)))
+            }
+            Swapchain::Dx12(_s) => {
+                todo!()
+            }
+        }
+    }
+
+    pub unsafe fn image(&self, idx: usize) -> Image {
+        mux_match! { self;
+            Swapchain::Vk(s) => Image::Vk(s.image(idx)),
+            Swapchain::Dx12(_s) => todo!(),
+        }
+    }
+
+    pub unsafe fn present(
+        &self,
+        image_idx: usize,
+        semaphores: &[&Semaphore],
+    ) -> Result<bool, Error> {
+        mux_match! { self;
+            Swapchain::Vk(s) => s.present(
+                image_idx,
+                &semaphores
+                    .iter()
+                    .copied()
+                    .map(Semaphore::vk)
+                    .collect::<SmallVec<[_; 4]>>(),
+            ),
+            Swapchain::Dx12(_s) => todo!(),
         }
     }
 }

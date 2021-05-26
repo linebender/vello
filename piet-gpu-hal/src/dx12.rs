@@ -24,6 +24,9 @@ pub struct Dx12Instance {
 // TODO
 pub struct Dx12Surface;
 
+// TODO
+pub struct Dx12Swapchain;
+
 pub struct Dx12Device {
     device: Device,
     command_allocator: CommandAllocator,
@@ -35,7 +38,7 @@ pub struct Dx12Device {
 #[derive(Clone)]
 pub struct Buffer {
     resource: Resource,
-    size: u64,
+    pub size: u64,
 }
 
 #[derive(Clone)]
@@ -331,7 +334,7 @@ impl crate::Device for Dx12Device {
         Ok(())
     }
 
-    unsafe fn get_fence_status(&self, fence: Self::Fence) -> Result<bool, Error> {
+    unsafe fn get_fence_status(&self, fence: &Self::Fence) -> Result<bool, Error> {
         let fence_val = fence.fence.get_value();
         Ok(fence_val == fence.val.get())
     }

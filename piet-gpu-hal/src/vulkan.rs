@@ -631,9 +631,9 @@ impl crate::Device for VkDevice {
         Ok(())
     }
 
-    unsafe fn get_fence_status(&self, fence: Self::Fence) -> Result<bool, Error> {
+    unsafe fn get_fence_status(&self, fence: &Self::Fence) -> Result<bool, Error> {
         let device = &self.device.device;
-        Ok(device.get_fence_status(fence)?)
+        Ok(device.get_fence_status(*fence)?)
     }
 
     unsafe fn pipeline_builder(&self) -> PipelineBuilder {
@@ -1306,14 +1306,15 @@ impl VkSwapchain {
     pub unsafe fn present(
         &self,
         image_idx: usize,
-        semaphores: &[vk::Semaphore],
+        semaphores: &[&vk::Semaphore],
     ) -> Result<bool, Error> {
+        let semaphores = semaphores.iter().copied().copied().collect::<SmallVec<[_; 4]>>();
         Ok(self.swapchain_fn.queue_present(
             self.present_queue,
             &vk::PresentInfoKHR::builder()
                 .swapchains(&[self.swapchain])
                 .image_indices(&[image_idx as u32])
-                .wait_semaphores(semaphores)
+                .wait_semaphores(&semaphores)
                 .build(),
         )?)
     }
