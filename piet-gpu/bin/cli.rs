@@ -5,8 +5,8 @@ use std::path::Path;
 use clap::{App, Arg};
 
 use piet_gpu_hal::hub;
-use piet_gpu_hal::vulkan::VkInstance;
-use piet_gpu_hal::{CmdBuf, Error, MemFlags};
+use piet_gpu_hal::mux::Instance;
+use piet_gpu_hal::{BufferUsage, Error};
 
 use piet_gpu::{render_scene, render_svg, PietGpuRenderContext, Renderer, HEIGHT, WIDTH};
 
@@ -225,7 +225,7 @@ fn main() -> Result<(), Error> {
                 .takes_value(true),
         )
         .get_matches();
-    let (instance, _) = VkInstance::new(None)?;
+    let (instance, _) = Instance::new(None)?;
     unsafe {
         let device = instance.device(None)?;
         let session = hub::Session::new(device);
@@ -253,12 +253,12 @@ fn main() -> Result<(), Error> {
         //dump_scene(&scene);
 
         let renderer = Renderer::new(&session, scene, n_paths, n_pathseg, n_trans)?;
-        let image_buf =
-            session.create_buffer((WIDTH * HEIGHT * 4) as u64, MemFlags::host_coherent())?;
+        let image_usage = BufferUsage::MAP_READ | BufferUsage::COPY_DST;
+        let image_buf = session.create_buffer((WIDTH * HEIGHT * 4) as u64, image_usage)?;
 
         cmd_buf.begin();
         renderer.record(&mut cmd_buf, &query_pool);
-        cmd_buf.copy_image_to_buffer(renderer.image_dev.vk_image(), image_buf.vk_buffer());
+        cmd_buf.copy_image_to_buffer(renderer.image_dev.mux_image(), image_buf.mux_buffer());
         cmd_buf.host_barrier();
         cmd_buf.finish();
         let start = std::time::Instant::now();

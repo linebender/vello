@@ -12,7 +12,7 @@ use ndk::native_window::NativeWindow;
 use ndk_glue::Event;
 
 use piet_gpu_hal::hub;
-use piet_gpu_hal::vulkan::{QueryPool, VkInstance, VkSurface, VkSwapchain};
+use piet_gpu_hal::mux::{QueryPool, Instance, Surface, Swapchain};
 use piet_gpu_hal::{CmdBuf, Error, ImageLayout};
 
 use piet_gpu::{render_scene, PietGpuRenderContext, Renderer};
@@ -30,7 +30,7 @@ struct MyHandle {
 struct GfxState {
     session: hub::Session,
     renderer: Renderer,
-    swapchain: VkSwapchain,
+    swapchain: Swapchain,
     current_frame: usize,
     last_frame_idx: usize,
     submitted: Option<hub::SubmittedCmdBuf>,
@@ -52,7 +52,7 @@ fn my_main() -> Result<(), Error> {
                     let window = ndk_glue::native_window();
                     if let Some(window) = &*window {
                         let handle = get_handle(window);
-                        let (instance, surface) = VkInstance::new(Some(&handle))?;
+                        let (instance, surface) = Instance::new(Some(&handle))?;
                         gfx_state = Some(GfxState::new(&instance, surface.as_ref())?);
                     } else {
                         println!("native window is sadly none");
@@ -90,7 +90,7 @@ unsafe impl HasRawWindowHandle for MyHandle {
 }
 
 impl GfxState {
-    fn new(instance: &VkInstance, surface: Option<&VkSurface>) -> Result<GfxState, Error> {
+    fn new(instance: &Instance, surface: Option<&Surface>) -> Result<GfxState, Error> {
         unsafe {
             let device = instance.device(surface)?;
             let mut swapchain =
@@ -151,7 +151,7 @@ impl GfxState {
 
             // Image -> Swapchain
             cmd_buf.image_barrier(&swap_image, ImageLayout::Undefined, ImageLayout::BlitDst);
-            cmd_buf.blit_image(self.renderer.image_dev.vk_image(), &swap_image);
+            cmd_buf.blit_image(self.renderer.image_dev.mux_image(), &swap_image);
             cmd_buf.image_barrier(&swap_image, ImageLayout::BlitDst, ImageLayout::Present);
             cmd_buf.finish();
 
@@ -159,15 +159,15 @@ impl GfxState {
                 self.session
                     .run_cmd_buf(
                         cmd_buf,
-                        &[acquisition_semaphore],
-                        &[self.present_semaphores[frame_idx]],
+                        &[&acquisition_semaphore],
+                        &[&self.present_semaphores[frame_idx]],
                     )
                     .unwrap(),
             );
             self.last_frame_idx = frame_idx;
 
             self.swapchain
-                .present(image_idx, &[self.present_semaphores[frame_idx]])
+                .present(image_idx, &[&self.present_semaphores[frame_idx]])
                 .unwrap();
 
             self.current_frame += 1;

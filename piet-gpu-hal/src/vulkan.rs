@@ -1,6 +1,7 @@
 //! Vulkan implemenation of HAL trait.
 
 use std::borrow::Cow;
+use std::convert::TryInto;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::sync::Arc;
@@ -9,7 +10,11 @@ use ash::extensions::{ext::DebugUtils, khr};
 use ash::version::{DeviceV1_0, EntryV1_0, InstanceV1_0, InstanceV1_1};
 use ash::{vk, Device, Entry, Instance};
 
-use crate::{Device as DeviceTrait, Error, GpuInfo, ImageLayout, SamplerParams, SubgroupSize};
+use smallvec::SmallVec;
+
+use crate::{
+    BufferUsage, Device as DeviceTrait, Error, GpuInfo, ImageLayout, SamplerParams, SubgroupSize,
+};
 
 pub struct VkInstance {
     /// Retain the dynamic lib.
@@ -60,7 +65,8 @@ pub struct VkSwapchain {
 pub struct Buffer {
     buffer: vk::Buffer,
     buffer_memory: vk::DeviceMemory,
-    size: u64,
+    // TODO: there should probably be a Buffer trait and this should be a method.
+    pub size: u64,
 }
 
 pub struct Image {
@@ -339,6 +345,14 @@ impl VkInstance {
             None
         };
 
+        // The question of when and when not to use staging buffers is complex, and this
+        // is only a first approximation. Basically, it *must* be false when buffers can
+        // be created with a memory type that is not host-visible. That is not guaranteed
+        // here but is likely to be the case.
+        //
+        // I'm still investigating what should be done in systems with Resizable BAR.
+        let use_staging_buffers = props.device_type != vk::PhysicalDeviceType::INTEGRATED_GPU;
+
         // TODO: finer grained query of specific subgroup info.
         let has_subgroups = self.vk_version >= vk::make_version(1, 1, 0);
         let gpu_info = GpuInfo {
@@ -346,6 +360,7 @@ impl VkInstance {
             has_subgroups,
             subgroup_size,
             has_memory_model,
+            use_staging_buffers,
         };
 
         Ok(VkDevice {
@@ -447,20 +462,30 @@ impl crate::Device for VkDevice {
     type DescriptorSet = DescriptorSet;
     type Pipeline = Pipeline;
     type QueryPool = QueryPool;
-    type MemFlags = MemFlags;
     type Fence = vk::Fence;
     type Semaphore = vk::Semaphore;
     type PipelineBuilder = PipelineBuilder;
     type DescriptorSetBuilder = DescriptorSetBuilder;
     type Sampler = vk::Sampler;
+    type ShaderSource = [u8];
 
     fn query_gpu_info(&self) -> GpuInfo {
         self.gpu_info.clone()
     }
 
-    fn create_buffer(&self, size: u64, mem_flags: MemFlags) -> Result<Buffer, Error> {
+    fn create_buffer(&self, size: u64, usage: BufferUsage) -> Result<Buffer, Error> {
         unsafe {
             let device = &self.device.device;
+            let mut vk_usage = vk::BufferUsageFlags::empty();
+            if usage.contains(BufferUsage::STORAGE) {
+                vk_usage |= vk::BufferUsageFlags::STORAGE_BUFFER;
+            }
+            if usage.contains(BufferUsage::COPY_SRC) {
+                vk_usage |= vk::BufferUsageFlags::TRANSFER_SRC;
+            }
+            if usage.contains(BufferUsage::COPY_DST) {
+                vk_usage |= vk::BufferUsageFlags::TRANSFER_DST;
+            }
             let buffer = device.create_buffer(
                 &vk::BufferCreateInfo::builder()
                     .size(size)
@@ -473,9 +498,10 @@ impl crate::Device for VkDevice {
                 None,
             )?;
             let mem_requirements = device.get_buffer_memory_requirements(buffer);
+            let mem_flags = memory_property_flags_for_usage(usage);
             let mem_type = find_memory_type(
                 mem_requirements.memory_type_bits,
-                mem_flags.0,
+                mem_flags,
                 &self.device_mem_props,
             )
             .unwrap(); // TODO: proper error
@@ -501,12 +527,7 @@ impl crate::Device for VkDevice {
         Ok(())
     }
 
-    unsafe fn create_image2d(
-        &self,
-        width: u32,
-        height: u32,
-        mem_flags: Self::MemFlags,
-    ) -> Result<Self::Image, Error> {
+    unsafe fn create_image2d(&self, width: u32, height: u32) -> Result<Self::Image, Error> {
         let device = &self.device.device;
         let extent = vk::Extent3D {
             width,
@@ -533,9 +554,10 @@ impl crate::Device for VkDevice {
             None,
         )?;
         let mem_requirements = device.get_image_memory_requirements(image);
+        let mem_flags = vk::MemoryPropertyFlags::DEVICE_LOCAL;
         let mem_type = find_memory_type(
             mem_requirements.memory_type_bits,
-            mem_flags.0,
+            mem_flags,
             &self.device_mem_props,
         )
         .unwrap(); // TODO: proper error
@@ -597,16 +619,21 @@ impl crate::Device for VkDevice {
         Ok(device.create_semaphore(&vk::SemaphoreCreateInfo::default(), None)?)
     }
 
-    unsafe fn wait_and_reset(&self, fences: &[Self::Fence]) -> Result<(), Error> {
+    unsafe fn wait_and_reset(&self, fences: &[&Self::Fence]) -> Result<(), Error> {
         let device = &self.device.device;
-        device.wait_for_fences(fences, true, !0)?;
-        device.reset_fences(fences)?;
+        let fences = fences
+            .iter()
+            .copied()
+            .copied()
+            .collect::<SmallVec<[_; 4]>>();
+        device.wait_for_fences(&fences, true, !0)?;
+        device.reset_fences(&fences)?;
         Ok(())
     }
 
-    unsafe fn get_fence_status(&self, fence: Self::Fence) -> Result<bool, Error> {
+    unsafe fn get_fence_status(&self, fence: &Self::Fence) -> Result<bool, Error> {
         let device = &self.device.device;
-        Ok(device.get_fence_status(fence)?)
+        Ok(device.get_fence_status(*fence)?)
     }
 
     unsafe fn pipeline_builder(&self) -> PipelineBuilder {
@@ -682,15 +709,15 @@ impl crate::Device for VkDevice {
         Ok(result)
     }
 
-    /// Run the command buffer.
+    /// Run the command buffers.
     ///
     /// This submits the command buffer for execution. The provided fence
     /// is signalled when the execution is complete.
-    unsafe fn run_cmd_buf(
+    unsafe fn run_cmd_bufs(
         &self,
-        cmd_buf: &CmdBuf,
-        wait_semaphores: &[Self::Semaphore],
-        signal_semaphores: &[Self::Semaphore],
+        cmd_bufs: &[&CmdBuf],
+        wait_semaphores: &[&Self::Semaphore],
+        signal_semaphores: &[&Self::Semaphore],
         fence: Option<&Self::Fence>,
     ) -> Result<(), Error> {
         let device = &self.device.device;
@@ -702,51 +729,70 @@ impl crate::Device for VkDevice {
         let wait_stages = wait_semaphores
             .iter()
             .map(|_| vk::PipelineStageFlags::ALL_COMMANDS)
-            .collect::<Vec<_>>();
+            .collect::<SmallVec<[_; 4]>>();
+        let cmd_bufs = cmd_bufs
+            .iter()
+            .map(|c| c.cmd_buf)
+            .collect::<SmallVec<[_; 4]>>();
+        let wait_semaphores = wait_semaphores
+            .iter()
+            .copied()
+            .copied()
+            .collect::<SmallVec<[_; 2]>>();
+        let signal_semaphores = signal_semaphores
+            .iter()
+            .copied()
+            .copied()
+            .collect::<SmallVec<[_; 2]>>();
         device.queue_submit(
             self.queue,
             &[vk::SubmitInfo::builder()
-                .command_buffers(&[cmd_buf.cmd_buf])
-                .wait_semaphores(wait_semaphores)
+                .command_buffers(&cmd_bufs)
+                .wait_semaphores(&wait_semaphores)
                 .wait_dst_stage_mask(&wait_stages)
-                .signal_semaphores(signal_semaphores)
+                .signal_semaphores(&signal_semaphores)
                 .build()],
             fence,
         )?;
         Ok(())
     }
 
-    unsafe fn read_buffer<T: Sized>(
+    unsafe fn read_buffer(
         &self,
-        buffer: &Buffer,
-        result: &mut Vec<T>,
+        buffer: &Self::Buffer,
+        dst: *mut u8,
+        offset: u64,
+        size: u64,
     ) -> Result<(), Error> {
+        let copy_size = size.try_into()?;
         let device = &self.device.device;
         let buf = device.map_memory(
             buffer.buffer_memory,
-            0,
-            buffer.size,
+            offset,
+            size,
             vk::MemoryMapFlags::empty(),
         )?;
-        let len = buffer.size as usize / std::mem::size_of::<T>();
-        if len > result.len() {
-            result.reserve(len - result.len());
-        }
-        std::ptr::copy_nonoverlapping(buf as *const T, result.as_mut_ptr(), len);
-        result.set_len(len);
+        std::ptr::copy_nonoverlapping(buf as *const u8, dst, copy_size);
         device.unmap_memory(buffer.buffer_memory);
         Ok(())
     }
 
-    unsafe fn write_buffer<T: Sized>(&self, buffer: &Buffer, contents: &[T]) -> Result<(), Error> {
+    unsafe fn write_buffer(
+        &self,
+        buffer: &Buffer,
+        contents: *const u8,
+        offset: u64,
+        size: u64,
+    ) -> Result<(), Error> {
+        let copy_size = size.try_into()?;
         let device = &self.device.device;
         let buf = device.map_memory(
             buffer.buffer_memory,
-            0,
-            std::mem::size_of_val(contents) as u64,
+            offset,
+            size,
             vk::MemoryMapFlags::empty(),
         )?;
-        std::ptr::copy_nonoverlapping(contents.as_ptr(), buf as *mut T, contents.len());
+        std::ptr::copy_nonoverlapping(contents, buf as *mut u8, copy_size);
         device.unmap_memory(buffer.buffer_memory);
         Ok(())
     }
@@ -999,16 +1045,6 @@ impl crate::CmdBuf<VkDevice> for CmdBuf {
             pool.pool,
             query,
         );
-    }
-}
-
-impl crate::MemFlags for MemFlags {
-    fn device_local() -> Self {
-        MemFlags(vk::MemoryPropertyFlags::DEVICE_LOCAL)
-    }
-
-    fn host_coherent() -> Self {
-        MemFlags(vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT)
     }
 }
 
@@ -1270,14 +1306,15 @@ impl VkSwapchain {
     pub unsafe fn present(
         &self,
         image_idx: usize,
-        semaphores: &[vk::Semaphore],
+        semaphores: &[&vk::Semaphore],
     ) -> Result<bool, Error> {
+        let semaphores = semaphores.iter().copied().copied().collect::<SmallVec<[_; 4]>>();
         Ok(self.swapchain_fn.queue_present(
             self.present_queue,
             &vk::PresentInfoKHR::builder()
                 .swapchains(&[self.swapchain])
                 .image_indices(&[image_idx as u32])
-                .wait_semaphores(semaphores)
+                .wait_semaphores(&semaphores)
                 .build(),
         )?)
     }
@@ -1368,6 +1405,16 @@ unsafe fn choose_compute_device(
     None
 }
 
+fn memory_property_flags_for_usage(usage: BufferUsage) -> vk::MemoryPropertyFlags {
+    if usage.intersects(BufferUsage::MAP_READ | BufferUsage::MAP_WRITE) {
+        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT
+    } else {
+        vk::MemoryPropertyFlags::DEVICE_LOCAL
+    }
+}
+
+// This could get more sophisticated about asking for CACHED when appropriate, but is
+// probably going to get replaced by a gpu-alloc solution anyway.
 fn find_memory_type(
     memory_type_bits: u32,
     property_flags: vk::MemoryPropertyFlags,

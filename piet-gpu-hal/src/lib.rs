@@ -2,16 +2,34 @@
 ///
 /// This abstraction is inspired by gfx-hal, but is specialized to the needs of piet-gpu.
 /// In time, it may go away and be replaced by either gfx-hal or wgpu.
+use bitflags::bitflags;
+
 pub mod hub;
 
+#[macro_use]
+mod macros;
+
+// TODO: Don't make the module pub, but do figure out which types to
+// export at the root level.
+pub mod mux;
+
+// TODO: because these are conditionally included, "cargo fmt" does not
+// see them. Figure that out, possibly including running rustfmt manually.
+mux_cfg! {
+    #[cfg(vk)]
+    pub mod vulkan;
+}
+mux_cfg! {
+    #[cfg(dx12)]
+    pub mod dx12;
+}
 #[cfg(target_os = "macos")]
 pub mod metal;
-pub mod vulkan;
 
 /// This isn't great but is expedient.
 pub type Error = Box<dyn std::error::Error>;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ImageLayout {
     Undefined,
     Present,
@@ -31,6 +49,25 @@ pub enum SamplerParams {
     Linear,
 }
 
+bitflags! {
+    /// The intended usage for this buffer.
+    pub struct BufferUsage: u32 {
+        /// The buffer can be mapped for reading CPU-side.
+        const MAP_READ = 0x1;
+        /// The buffer can be mapped for writing CPU-side.
+        const MAP_WRITE = 0x2;
+        /// The buffer can be copied from.
+        const COPY_SRC = 0x4;
+        /// The buffer can be copied to.
+        const COPY_DST = 0x8;
+        /// The buffer can be bound to a compute shader.
+        const STORAGE = 0x80;
+        /// The buffer can be used to store the results of queries.
+        const QUERY_RESOLVE = 0x200;
+        // May add other types.
+    }
+}
+
 #[derive(Clone, Debug)]
 /// Information about the GPU.
 pub struct GpuInfo {
@@ -46,6 +83,8 @@ pub struct GpuInfo {
     pub subgroup_size: Option<SubgroupSize>,
     /// The GPU supports a real, grown-ass memory model.
     pub has_memory_model: bool,
+    /// Whether staging buffers should be used.
+    pub use_staging_buffers: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -57,7 +96,6 @@ pub struct SubgroupSize {
 pub trait Device: Sized {
     type Buffer: 'static;
     type Image;
-    type MemFlags: MemFlags;
     type Pipeline;
     type DescriptorSet;
     type QueryPool;
@@ -67,6 +105,7 @@ pub trait Device: Sized {
     type PipelineBuilder: PipelineBuilder<Self>;
     type DescriptorSetBuilder: DescriptorSetBuilder<Self>;
     type Sampler;
+    type ShaderSource: ?Sized;
 
     /// Query the GPU info.
     ///
@@ -74,7 +113,7 @@ pub trait Device: Sized {
     /// the info.
     fn query_gpu_info(&self) -> GpuInfo;
 
-    fn create_buffer(&self, size: u64, mem_flags: Self::MemFlags) -> Result<Self::Buffer, Error>;
+    fn create_buffer(&self, size: u64, usage: BufferUsage) -> Result<Self::Buffer, Error>;
 
     /// Destroy a buffer.
     ///
@@ -84,12 +123,7 @@ pub trait Device: Sized {
     /// Maybe doesn't need result return?
     unsafe fn destroy_buffer(&self, buffer: &Self::Buffer) -> Result<(), Error>;
 
-    unsafe fn create_image2d(
-        &self,
-        width: u32,
-        height: u32,
-        mem_flags: Self::MemFlags,
-    ) -> Result<Self::Image, Error>;
+    unsafe fn create_image2d(&self, width: u32, height: u32) -> Result<Self::Image, Error>;
 
     /// Destroy an image.
     ///
@@ -118,7 +152,7 @@ pub trait Device: Sized {
     /// is subsumed by the builder.
     unsafe fn create_simple_compute_pipeline(
         &self,
-        code: &[u8],
+        code: &Self::ShaderSource,
         n_buffers: u32,
         n_images: u32,
     ) -> Result<Self::Pipeline, Error> {
@@ -157,30 +191,50 @@ pub trait Device: Sized {
     /// All submitted commands that refer to this query pool must have completed.
     unsafe fn fetch_query_pool(&self, pool: &Self::QueryPool) -> Result<Vec<f64>, Error>;
 
-    unsafe fn run_cmd_buf(
+    unsafe fn run_cmd_bufs(
         &self,
-        cmd_buf: &Self::CmdBuf,
-        wait_semaphores: &[Self::Semaphore],
-        signal_semaphores: &[Self::Semaphore],
+        cmd_buf: &[&Self::CmdBuf],
+        wait_semaphores: &[&Self::Semaphore],
+        signal_semaphores: &[&Self::Semaphore],
         fence: Option<&Self::Fence>,
     ) -> Result<(), Error>;
 
-    unsafe fn read_buffer<T: Sized>(
+    /// Copy data from the buffer to memory.
+    ///
+    /// Discussion question: add offset?
+    ///
+    /// # Safety
+    ///
+    /// The buffer must be valid to access. The destination memory must be valid to
+    /// write to. The ranges must not overlap. The offset + size must be within
+    /// the buffer's allocation, and size within the destination.
+    unsafe fn read_buffer(
         &self,
         buffer: &Self::Buffer,
-        result: &mut Vec<T>,
+        dst: *mut u8,
+        offset: u64,
+        size: u64,
     ) -> Result<(), Error>;
 
-    unsafe fn write_buffer<T: Sized>(
+    /// Copy data from memory to the buffer.
+    ///
+    /// # Safety
+    ///
+    /// The buffer must be valid to access. The source memory must be valid to
+    /// read from. The ranges must not overlap. The offset + size must be within
+    /// the buffer's allocation, and size within the source.
+    unsafe fn write_buffer(
         &self,
         buffer: &Self::Buffer,
-        contents: &[T],
+        contents: *const u8,
+        offset: u64,
+        size: u64,
     ) -> Result<(), Error>;
 
     unsafe fn create_semaphore(&self) -> Result<Self::Semaphore, Error>;
     unsafe fn create_fence(&self, signaled: bool) -> Result<Self::Fence, Error>;
-    unsafe fn wait_and_reset(&self, fences: &[Self::Fence]) -> Result<(), Error>;
-    unsafe fn get_fence_status(&self, fence: Self::Fence) -> Result<bool, Error>;
+    unsafe fn wait_and_reset(&self, fences: &[&Self::Fence]) -> Result<(), Error>;
+    unsafe fn get_fence_status(&self, fence: &Self::Fence) -> Result<bool, Error>;
 
     unsafe fn create_sampler(&self, params: SamplerParams) -> Result<Self::Sampler, Error>;
 }
@@ -243,12 +297,10 @@ pub trait CmdBuf<D: Device> {
     unsafe fn reset_query_pool(&mut self, pool: &D::QueryPool);
 
     unsafe fn write_timestamp(&mut self, pool: &D::QueryPool, query: u32);
-}
 
-pub trait MemFlags: Sized + Clone + Copy {
-    fn device_local() -> Self;
-
-    fn host_coherent() -> Self;
+    /// Prepare the timestamps for reading. This isn't required on Vulkan but
+    /// is required on (at least) DX12.
+    unsafe fn finish_timestamps(&mut self, pool: &D::QueryPool) {}
 }
 
 /// A builder for pipelines with more complex layouts.
@@ -259,7 +311,11 @@ pub trait PipelineBuilder<D: Device> {
     fn add_images(&mut self, n_images: u32);
     /// Add a binding with a variable-size array of textures.
     fn add_textures(&mut self, max_textures: u32);
-    unsafe fn create_compute_pipeline(self, device: &D, code: &[u8]) -> Result<D::Pipeline, Error>;
+    unsafe fn create_compute_pipeline(
+        self,
+        device: &D,
+        code: &D::ShaderSource,
+    ) -> Result<D::Pipeline, Error>;
 }
 
 /// A builder for descriptor sets with more complex layouts.

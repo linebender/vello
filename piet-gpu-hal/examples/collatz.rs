@@ -1,19 +1,16 @@
 use piet_gpu_hal::hub;
-use piet_gpu_hal::vulkan::VkInstance;
-use piet_gpu_hal::{CmdBuf, MemFlags};
+use piet_gpu_hal::mux::{Instance, ShaderCode};
+use piet_gpu_hal::BufferUsage;
 
 fn main() {
-    let (instance, _) = VkInstance::new(None).unwrap();
+    let (instance, _) = Instance::new(None).unwrap();
     unsafe {
         let device = instance.device(None).unwrap();
         let session = hub::Session::new(device);
-        let mem_flags = MemFlags::host_coherent();
+        let usage = BufferUsage::MAP_READ | BufferUsage::STORAGE;
         let src = (0..256).map(|x| x + 1).collect::<Vec<u32>>();
-        let mut buffer = session
-            .create_buffer(std::mem::size_of_val(&src[..]) as u64, mem_flags)
-            .unwrap();
-        buffer.write(&src).unwrap();
-        let code = include_bytes!("./shader/collatz.spv");
+        let buffer = session.create_buffer_init(&src, usage).unwrap();
+        let code = ShaderCode::Spv(include_bytes!("./shader/collatz.spv"));
         let pipeline = session.create_simple_compute_pipeline(code, 1).unwrap();
         let descriptor_set = session
             .create_simple_descriptor_set(&pipeline, &[&buffer])

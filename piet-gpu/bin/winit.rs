@@ -1,6 +1,6 @@
 use piet_gpu_hal::hub;
-use piet_gpu_hal::vulkan::VkInstance;
-use piet_gpu_hal::{CmdBuf, Error, ImageLayout};
+use piet_gpu_hal::mux::Instance;
+use piet_gpu_hal::{Error, ImageLayout};
 
 use piet_gpu::{render_scene, PietGpuRenderContext, Renderer, HEIGHT, WIDTH};
 
@@ -22,7 +22,7 @@ fn main() -> Result<(), Error> {
         .with_resizable(false) // currently not supported
         .build(&event_loop)?;
 
-    let (instance, surface) = VkInstance::new(Some(&window))?;
+    let (instance, surface) = Instance::new(Some(&window))?;
     unsafe {
         let device = instance.device(surface.as_ref())?;
         let mut swapchain =
@@ -103,21 +103,21 @@ fn main() -> Result<(), Error> {
                         ImageLayout::Undefined,
                         ImageLayout::BlitDst,
                     );
-                    cmd_buf.blit_image(renderer.image_dev.vk_image(), &swap_image);
+                    cmd_buf.blit_image(renderer.image_dev.mux_image(), &swap_image);
                     cmd_buf.image_barrier(&swap_image, ImageLayout::BlitDst, ImageLayout::Present);
                     cmd_buf.finish();
 
                     submitted = Some(session
                         .run_cmd_buf(
                             cmd_buf,
-                            &[acquisition_semaphore],
-                            &[present_semaphores[frame_idx]],
+                            &[&acquisition_semaphore],
+                            &[&present_semaphores[frame_idx]],
                         )
                         .unwrap());
                     last_frame_idx = frame_idx;
 
                     swapchain
-                        .present(image_idx, &[present_semaphores[frame_idx]])
+                        .present(image_idx, &[&present_semaphores[frame_idx]])
                         .unwrap();
 
                     current_frame += 1;
