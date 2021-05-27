@@ -26,6 +26,10 @@ mux_cfg! {
     #[cfg(dx12)]
     use crate::dx12;
 }
+mux_cfg! {
+    #[cfg(mtl)]
+    use crate::metal;
+}
 use crate::CmdBuf as CmdBufTrait;
 use crate::DescriptorSetBuilder as DescriptorSetBuilderTrait;
 use crate::Device as DeviceTrait;
@@ -37,6 +41,7 @@ mux_enum! {
     pub enum Instance {
         Vk(vulkan::VkInstance),
         Dx12(dx12::Dx12Instance),
+        Mtl(metal::MtlInstance),
     }
 }
 
@@ -45,6 +50,7 @@ mux_enum! {
     pub enum Device {
         Vk(vulkan::VkDevice),
         Dx12(dx12::Dx12Device),
+        Mtl(metal::MtlDevice),
     }
 }
 
@@ -53,6 +59,7 @@ mux_enum! {
     pub enum Surface {
         Vk(vulkan::VkSurface),
         Dx12(dx12::Dx12Surface),
+        Mtl(metal::MtlSurface),
     }
 }
 
@@ -61,6 +68,7 @@ mux_enum! {
     pub enum Swapchain {
         Vk(vulkan::VkSwapchain),
         Dx12(dx12::Dx12Swapchain),
+        Mtl(metal::MtlSwapchain),
     }
 }
 
@@ -78,8 +86,12 @@ mux_device_enum! { Sampler }
 
 /// The code for a shader, either as source or intermediate representation.
 pub enum ShaderCode<'a> {
+    /// SPIR-V (binary intermediate representation)
     Spv(&'a [u8]),
+    /// HLSL (source)
     Hlsl(&'a str),
+    /// Metal Shading Language (source)
+    Msl(&'a str),
 }
 
 impl Instance {
@@ -111,6 +123,15 @@ impl Instance {
                 }
             }
         }
+        mux_cfg! {
+            #[cfg(mtl)]
+            {
+                let result = metal::MtlInstance::new(window_handle);
+                if let Ok((instance, surface)) = result {
+                    return Ok((Instance::Mtl(instance), surface.map(Surface::Mtl)));
+                }
+            }
+        }
         // TODO plumb creation errors through.
         Err("No suitable instances found".into())
     }
@@ -124,6 +145,7 @@ impl Instance {
         mux_match! { self;
             Instance::Vk(i) => i.device(surface.map(Surface::vk)).map(Device::Vk),
             Instance::Dx12(i) => i.device(surface.map(Surface::dx12)).map(Device::Dx12),
+            Instance::Mtl(i) => i.device(surface.map(Surface::mtl)).map(Device::Mtl),
         }
     }
 
@@ -147,6 +169,9 @@ impl Instance {
             Instance::Dx12(i) => i
                 .swapchain(width, height, device.dx12(), surface.dx12())
                 .map(Swapchain::Dx12),
+            Instance::Mtl(i) => i
+                .swapchain(width, height, device.mtl(), surface.mtl())
+                .map(Swapchain::Mtl),
         }
     }
 }
@@ -159,6 +184,7 @@ impl Device {
         mux_match! { self;
             Device::Vk(d) => d.query_gpu_info(),
             Device::Dx12(d) => d.query_gpu_info(),
+            Device::Mtl(d) => d.query_gpu_info(),
         }
     }
 
@@ -166,6 +192,7 @@ impl Device {
         mux_match! { self;
             Device::Vk(d) => d.create_buffer(size, usage).map(Buffer::Vk),
             Device::Dx12(d) => d.create_buffer(size, usage).map(Buffer::Dx12),
+            Device::Mtl(d) => d.create_buffer(size, usage).map(Buffer::Mtl),
         }
     }
 
@@ -173,6 +200,7 @@ impl Device {
         mux_match! { self;
             Device::Vk(d) => d.destroy_buffer(buffer.vk()),
             Device::Dx12(d) => d.destroy_buffer(buffer.dx12()),
+            Device::Mtl(d) => d.destroy_buffer(buffer.mtl()),
         }
     }
 
@@ -180,6 +208,7 @@ impl Device {
         mux_match! { self;
             Device::Vk(d) => d.create_image2d(width, height).map(Image::Vk),
             Device::Dx12(d) => d.create_image2d(width, height).map(Image::Dx12),
+            Device::Mtl(d) => d.create_image2d(width, height).map(Image::Mtl),
         }
     }
 
@@ -187,6 +216,7 @@ impl Device {
         mux_match! { self;
             Device::Vk(d) => d.destroy_image(image.vk()),
             Device::Dx12(d) => d.destroy_image(image.dx12()),
+            Device::Mtl(d) => d.destroy_image(image.mtl()),
         }
     }
 
@@ -194,6 +224,7 @@ impl Device {
         mux_match! { self;
             Device::Vk(d) => d.create_fence(signaled).map(Fence::Vk),
             Device::Dx12(d) => d.create_fence(signaled).map(Fence::Dx12),
+            Device::Mtl(d) => d.create_fence(signaled).map(Fence::Mtl),
         }
     }
 
@@ -215,6 +246,14 @@ impl Device {
                     .collect::<SmallVec<[_; 4]>>();
                 d.wait_and_reset(&*fences)
             }
+            Device::Mtl(d) => {
+                let fences = fences
+                    .iter()
+                    .copied()
+                    .map(Fence::mtl)
+                    .collect::<SmallVec<[_; 4]>>();
+                d.wait_and_reset(&*fences)
+            }
         }
     }
 
@@ -222,6 +261,7 @@ impl Device {
         mux_match! { self;
             Device::Vk(d) => d.get_fence_status(fence.vk()),
             Device::Dx12(d) => d.get_fence_status(fence.dx12()),
+            Device::Mtl(d) => d.get_fence_status(fence.mtl()),
         }
     }
 
@@ -229,6 +269,7 @@ impl Device {
         mux_match! { self;
             Device::Vk(d) => d.create_semaphore().map(Semaphore::Vk),
             Device::Dx12(d) => d.create_semaphore().map(Semaphore::Dx12),
+            Device::Mtl(d) => d.create_semaphore().map(Semaphore::Mtl),
         }
     }
 
@@ -236,6 +277,7 @@ impl Device {
         mux_match! { self;
             Device::Vk(d) => PipelineBuilder::Vk(d.pipeline_builder()),
             Device::Dx12(d) => PipelineBuilder::Dx12(d.pipeline_builder()),
+            Device::Mtl(d) => PipelineBuilder::Mtl(d.pipeline_builder()),
         }
     }
 
@@ -243,6 +285,7 @@ impl Device {
         mux_match! { self;
             Device::Vk(d) => DescriptorSetBuilder::Vk(d.descriptor_set_builder()),
             Device::Dx12(d) => DescriptorSetBuilder::Dx12(d.descriptor_set_builder()),
+            Device::Mtl(d) => DescriptorSetBuilder::Mtl(d.descriptor_set_builder()),
         }
     }
 
@@ -250,6 +293,7 @@ impl Device {
         mux_match! { self;
             Device::Vk(d) => d.create_cmd_buf().map(CmdBuf::Vk),
             Device::Dx12(d) => d.create_cmd_buf().map(CmdBuf::Dx12),
+            Device::Mtl(d) => d.create_cmd_buf().map(CmdBuf::Mtl),
         }
     }
 
@@ -257,6 +301,7 @@ impl Device {
         mux_match! { self;
             Device::Vk(d) => d.create_query_pool(n_queries).map(QueryPool::Vk),
             Device::Dx12(d) => d.create_query_pool(n_queries).map(QueryPool::Dx12),
+            Device::Mtl(d) => d.create_query_pool(n_queries).map(QueryPool::Mtl),
         }
     }
 
@@ -264,6 +309,7 @@ impl Device {
         mux_match! { self;
             Device::Vk(d) => d.fetch_query_pool(pool.vk()),
             Device::Dx12(d) => d.fetch_query_pool(pool.dx12()),
+            Device::Mtl(d) => d.fetch_query_pool(pool.mtl()),
         }
     }
 
@@ -309,6 +355,23 @@ impl Device {
                     .collect::<SmallVec<[_; 4]>>(),
                 fence.map(Fence::dx12),
             ),
+            Device::Mtl(d) => d.run_cmd_bufs(
+                &cmd_bufs
+                    .iter()
+                    .map(|c| c.mtl())
+                    .collect::<SmallVec<[_; 4]>>(),
+                &wait_semaphores
+                    .iter()
+                    .copied()
+                    .map(Semaphore::mtl)
+                    .collect::<SmallVec<[_; 4]>>(),
+                &signal_semaphores
+                    .iter()
+                    .copied()
+                    .map(Semaphore::mtl)
+                    .collect::<SmallVec<[_; 4]>>(),
+                fence.map(Fence::mtl),
+            ),
         }
     }
 
@@ -322,6 +385,7 @@ impl Device {
         mux_match! { self;
             Device::Vk(d) => d.read_buffer(buffer.vk(), dst, offset, size),
             Device::Dx12(d) => d.read_buffer(buffer.dx12(), dst, offset, size),
+            Device::Mtl(d) => d.read_buffer(buffer.mtl(), dst, offset, size),
         }
     }
 
@@ -335,6 +399,7 @@ impl Device {
         mux_match! { self;
             Device::Vk(d) => d.write_buffer(buffer.vk(), contents, offset, size),
             Device::Dx12(d) => d.write_buffer(buffer.dx12(), contents, offset, size),
+            Device::Mtl(d) => d.write_buffer(buffer.mtl(), contents, offset, size),
         }
     }
 }
@@ -344,6 +409,7 @@ impl PipelineBuilder {
         mux_match! { self;
             PipelineBuilder::Vk(x) => x.add_buffers(n_buffers),
             PipelineBuilder::Dx12(x) => x.add_buffers(n_buffers),
+            PipelineBuilder::Mtl(x) => x.add_buffers(n_buffers),
         }
     }
 
@@ -351,6 +417,7 @@ impl PipelineBuilder {
         mux_match! { self;
             PipelineBuilder::Vk(x) => x.add_images(n_buffers),
             PipelineBuilder::Dx12(x) => x.add_images(n_buffers),
+            PipelineBuilder::Mtl(x) => x.add_images(n_buffers),
         }
     }
 
@@ -358,6 +425,7 @@ impl PipelineBuilder {
         mux_match! { self;
             PipelineBuilder::Vk(x) => x.add_textures(n_buffers),
             PipelineBuilder::Dx12(x) => x.add_textures(n_buffers),
+            PipelineBuilder::Mtl(x) => x.add_textures(n_buffers),
         }
     }
 
@@ -385,6 +453,15 @@ impl PipelineBuilder {
                 x.create_compute_pipeline(device.dx12(), shader_code)
                     .map(Pipeline::Dx12)
             }
+            PipelineBuilder::Mtl(x) => {
+                let shader_code = match code {
+                    ShaderCode::Msl(msl) => msl,
+                    // Panic or return "incompatible shader" error here?
+                    _ => panic!("Metal backend requires shader code in MSL format"),
+                };
+                x.create_compute_pipeline(device.mtl(), shader_code)
+                    .map(Pipeline::Mtl)
+            }
         }
     }
 }
@@ -406,6 +483,13 @@ impl DescriptorSetBuilder {
                     .map(Buffer::dx12)
                     .collect::<SmallVec<[_; 8]>>(),
             ),
+            DescriptorSetBuilder::Mtl(x) => x.add_buffers(
+                &buffers
+                    .iter()
+                    .copied()
+                    .map(Buffer::mtl)
+                    .collect::<SmallVec<[_; 8]>>(),
+            ),
         }
     }
 
@@ -423,6 +507,13 @@ impl DescriptorSetBuilder {
                     .iter()
                     .copied()
                     .map(Image::dx12)
+                    .collect::<SmallVec<[_; 8]>>(),
+            ),
+            DescriptorSetBuilder::Mtl(x) => x.add_images(
+                &images
+                    .iter()
+                    .copied()
+                    .map(Image::mtl)
                     .collect::<SmallVec<[_; 8]>>(),
             ),
         }
@@ -444,6 +535,13 @@ impl DescriptorSetBuilder {
                     .map(Image::dx12)
                     .collect::<SmallVec<[_; 8]>>(),
             ),
+            DescriptorSetBuilder::Mtl(x) => x.add_textures(
+                &images
+                    .iter()
+                    .copied()
+                    .map(Image::mtl)
+                    .collect::<SmallVec<[_; 8]>>(),
+            ),
         }
     }
 
@@ -458,6 +556,9 @@ impl DescriptorSetBuilder {
             DescriptorSetBuilder::Dx12(x) => x
                 .build(device.dx12(), pipeline.dx12())
                 .map(DescriptorSet::Dx12),
+            DescriptorSetBuilder::Mtl(x) => x
+                .build(device.mtl(), pipeline.mtl())
+                .map(DescriptorSet::Mtl),
         }
     }
 }
@@ -467,6 +568,7 @@ impl CmdBuf {
         mux_match! { self;
             CmdBuf::Vk(c) => c.begin(),
             CmdBuf::Dx12(c) => c.begin(),
+            CmdBuf::Mtl(c) => c.begin(),
         }
     }
 
@@ -474,6 +576,7 @@ impl CmdBuf {
         mux_match! { self;
             CmdBuf::Vk(c) => c.finish(),
             CmdBuf::Dx12(c) => c.finish(),
+            CmdBuf::Mtl(c) => c.finish(),
         }
     }
 
@@ -486,6 +589,7 @@ impl CmdBuf {
         mux_match! { self;
             CmdBuf::Vk(c) => c.dispatch(pipeline.vk(), descriptor_set.vk(), size),
             CmdBuf::Dx12(c) => c.dispatch(pipeline.dx12(), descriptor_set.dx12(), size),
+            CmdBuf::Mtl(c) => c.dispatch(pipeline.mtl(), descriptor_set.mtl(), size),
         }
     }
 
@@ -493,6 +597,7 @@ impl CmdBuf {
         mux_match! { self;
             CmdBuf::Vk(c) => c.memory_barrier(),
             CmdBuf::Dx12(c) => c.memory_barrier(),
+            CmdBuf::Mtl(c) => c.memory_barrier(),
         }
     }
 
@@ -500,6 +605,7 @@ impl CmdBuf {
         mux_match! { self;
             CmdBuf::Vk(c) => c.host_barrier(),
             CmdBuf::Dx12(c) => c.host_barrier(),
+            CmdBuf::Mtl(c) => c.host_barrier(),
         }
     }
 
@@ -512,6 +618,7 @@ impl CmdBuf {
         mux_match! { self;
             CmdBuf::Vk(c) => c.image_barrier(image.vk(), src_layout, dst_layout),
             CmdBuf::Dx12(c) => c.image_barrier(image.dx12(), src_layout, dst_layout),
+            CmdBuf::Mtl(c) => c.image_barrier(image.mtl(), src_layout, dst_layout),
         }
     }
 
@@ -519,6 +626,7 @@ impl CmdBuf {
         mux_match! { self;
             CmdBuf::Vk(c) => c.clear_buffer(buffer.vk(), size),
             CmdBuf::Dx12(c) => c.clear_buffer(buffer.dx12(), size),
+            CmdBuf::Mtl(c) => c.clear_buffer(buffer.mtl(), size),
         }
     }
 
@@ -526,6 +634,7 @@ impl CmdBuf {
         mux_match! { self;
             CmdBuf::Vk(c) => c.copy_buffer(src.vk(), dst.vk()),
             CmdBuf::Dx12(c) => c.copy_buffer(src.dx12(), dst.dx12()),
+            CmdBuf::Mtl(c) => c.copy_buffer(src.mtl(), dst.mtl()),
         }
     }
 
@@ -533,6 +642,7 @@ impl CmdBuf {
         mux_match! { self;
             CmdBuf::Vk(c) => c.copy_image_to_buffer(src.vk(), dst.vk()),
             CmdBuf::Dx12(c) => c.copy_image_to_buffer(src.dx12(), dst.dx12()),
+            CmdBuf::Mtl(c) => c.copy_image_to_buffer(src.mtl(), dst.mtl()),
         }
     }
 
@@ -540,6 +650,7 @@ impl CmdBuf {
         mux_match! { self;
             CmdBuf::Vk(c) => c.copy_buffer_to_image(src.vk(), dst.vk()),
             CmdBuf::Dx12(c) => c.copy_buffer_to_image(src.dx12(), dst.dx12()),
+            CmdBuf::Mtl(c) => c.copy_buffer_to_image(src.mtl(), dst.mtl()),
         }
     }
 
@@ -547,6 +658,7 @@ impl CmdBuf {
         mux_match! { self;
             CmdBuf::Vk(c) => c.blit_image(src.vk(), dst.vk()),
             CmdBuf::Dx12(c) => c.blit_image(src.dx12(), dst.dx12()),
+            CmdBuf::Mtl(c) => c.blit_image(src.mtl(), dst.mtl()),
         }
     }
 
@@ -554,6 +666,7 @@ impl CmdBuf {
         mux_match! { self;
             CmdBuf::Vk(c) => c.reset_query_pool(pool.vk()),
             CmdBuf::Dx12(c) => c.reset_query_pool(pool.dx12()),
+            CmdBuf::Mtl(c) => c.reset_query_pool(pool.mtl()),
         }
     }
 
@@ -561,6 +674,7 @@ impl CmdBuf {
         mux_match! { self;
             CmdBuf::Vk(c) => c.write_timestamp(pool.vk(), query),
             CmdBuf::Dx12(c) => c.write_timestamp(pool.dx12(), query),
+            CmdBuf::Mtl(c) => c.write_timestamp(pool.mtl(), query),
         }
     }
 
@@ -568,6 +682,7 @@ impl CmdBuf {
         mux_match! { self;
             CmdBuf::Vk(c) => c.finish_timestamps(pool.vk()),
             CmdBuf::Dx12(c) => c.finish_timestamps(pool.dx12()),
+            CmdBuf::Mtl(c) => c.finish_timestamps(pool.mtl()),
         }
     }
 }
@@ -577,6 +692,7 @@ impl Buffer {
         mux_match! { self;
             Buffer::Vk(b) => b.size,
             Buffer::Dx12(b) => b.size,
+            Buffer::Mtl(b) => b.size,
         }
     }
 }
@@ -592,6 +708,10 @@ impl Swapchain {
                 let (idx, sem) = s.next()?;
                 Ok((idx, Semaphore::Dx12(sem)))
             }
+            Swapchain::Mtl(s) => {
+                let (idx, sem) = s.next()?;
+                Ok((idx, Semaphore::Mtl(sem)))
+            }
         }
     }
 
@@ -599,6 +719,7 @@ impl Swapchain {
         mux_match! { self;
             Swapchain::Vk(s) => Image::Vk(s.image(idx)),
             Swapchain::Dx12(s) => Image::Dx12(s.image(idx)),
+            Swapchain::Mtl(s) => Image::Mtl(s.image(idx)),
         }
     }
 
@@ -622,6 +743,14 @@ impl Swapchain {
                     .iter()
                     .copied()
                     .map(Semaphore::dx12)
+                    .collect::<SmallVec<[_; 4]>>(),
+            ),
+            Swapchain::Mtl(s) => s.present(
+                image_idx,
+                &semaphores
+                    .iter()
+                    .copied()
+                    .map(Semaphore::mtl)
                     .collect::<SmallVec<[_; 4]>>(),
             ),
         }

@@ -14,17 +14,22 @@
 //
 // Also licensed under MIT license, at your choice.
 
-use crate::Error;
+use crate::{BufferUsage, Error};
 
-use bitflags::bitflags;
+pub struct MtlInstance;
 
-pub struct MetalInstance;
-
-pub struct MetalDevice {
+pub struct MtlDevice {
     device: metal::Device,
 }
 
-pub struct Buffer(metal::Buffer);
+pub struct MtlSurface;
+
+pub struct MtlSwapchain;
+
+pub struct Buffer {
+    buffer: metal::Buffer,
+    pub(crate) size: u64,
+}
 
 pub struct Image;
 
@@ -36,19 +41,6 @@ pub struct Fence;
 
 pub struct Semaphore;
 
-// This is the new direction of how I want this to go, and will
-// move it to crate level. It's very similar to wgpu's BufferUsage.
-bitflags! {
-    pub struct MemFlags: u32 {
-        const MAP_READ = 1;
-        const MAP_WRITE = 2;
-        const COPY_SRC = 4;
-        const COPY_DST = 8;
-        const STORAGE = 128;
-    }
-}
-
-
 pub struct CmdBuf;
 
 pub struct QueryPool;
@@ -57,28 +49,38 @@ pub struct PipelineBuilder;
 
 pub struct DescriptorSetBuilder;
 
-impl MetalInstance {
-    pub fn new() -> MetalInstance {
-        MetalInstance
+impl MtlInstance {
+    pub fn new(
+        window_handle: Option<&dyn raw_window_handle::HasRawWindowHandle>,
+    ) -> Result<(MtlInstance, Option<MtlSurface>), Error> {
+        Ok((MtlInstance, None))
     }
 
     // TODO might do some enumeration of devices
 
-    pub fn device(&self) -> Result<MetalDevice, Error> {
+    pub fn device(&self, surface: Option<&MtlSurface>) -> Result<MtlDevice, Error> {
         if let Some(device) = metal::Device::system_default() {
-            Ok(MetalDevice { device })
+            Ok(MtlDevice { device })
         } else {
             Err("can't create system default Metal device".into())
         }
     }
+
+    pub unsafe fn swapchain(
+        &self,
+        width: usize,
+        height: usize,
+        device: &MtlDevice,
+        surface: &MtlSurface,
+    ) -> Result<MtlSwapchain, Error> {
+        todo!()
+    }
 }
 
-impl crate::Device for MetalDevice {
+impl crate::Device for MtlDevice {
     type Buffer = Buffer;
 
     type Image = Image;
-
-    type MemFlags = MemFlags;
 
     type Pipeline = Pipeline;
 
@@ -98,20 +100,22 @@ impl crate::Device for MetalDevice {
 
     type Sampler = ();
 
+    type ShaderSource = str;
+
     fn query_gpu_info(&self) -> crate::GpuInfo {
         todo!()
     }
 
-    fn create_buffer(&self, size: u64, mem_flags: Self::MemFlags) -> Result<Self::Buffer, Error> {
-        let options = if mem_flags.contains(MemFlags::MAP_READ) {
+    fn create_buffer(&self, size: u64, usage: BufferUsage) -> Result<Self::Buffer, Error> {
+        let options = if usage.contains(BufferUsage::MAP_READ) {
             metal::MTLResourceOptions::StorageModeShared | metal::MTLResourceOptions::CPUCacheModeDefaultCache
-        } else if mem_flags.contains(MemFlags::MAP_WRITE) {
+        } else if usage.contains(BufferUsage::MAP_WRITE) {
             metal::MTLResourceOptions::StorageModeShared | metal::MTLResourceOptions::CPUCacheModeWriteCombined
         } else {
             metal::MTLResourceOptions::StorageModePrivate
         };
         let buffer = self.device.new_buffer(size, options);
-        Ok(Buffer(buffer))
+        Ok(Buffer { buffer, size })
     }
 
     unsafe fn destroy_buffer(&self, buffer: &Self::Buffer) -> Result<(), Error> {
@@ -122,7 +126,6 @@ impl crate::Device for MetalDevice {
         &self,
         width: u32,
         height: u32,
-        mem_flags: Self::MemFlags,
     ) -> Result<Self::Image, Error> {
         todo!()
     }
@@ -151,46 +154,43 @@ impl crate::Device for MetalDevice {
         todo!()
     }
 
-    unsafe fn run_cmd_buf(
+    unsafe fn run_cmd_bufs(
         &self,
-        cmd_buf: &Self::CmdBuf,
-        wait_semaphores: &[Self::Semaphore],
-        signal_semaphores: &[Self::Semaphore],
+        cmd_bufs: &[&Self::CmdBuf],
+        wait_semaphores: &[&Self::Semaphore],
+        signal_semaphores: &[&Self::Semaphore],
         fence: Option<&Self::Fence>,
     ) -> Result<(), Error> {
         todo!()
     }
 
-    unsafe fn read_buffer<T: Sized>(
+    unsafe fn read_buffer(
         &self,
         buffer: &Self::Buffer,
-        result: &mut Vec<T>,
+        dst: *mut u8,
+        offset: u64,
+        size: u64,
     ) -> Result<(), Error> {
-        let contents_ptr = buffer.0.contents();
+        let contents_ptr = buffer.buffer.contents();
         if contents_ptr.is_null() {
             return Err("probably trying to read from private buffer".into());
         }
-        let len = buffer.0.length() as usize / std::mem::size_of::<T>();
-        if len > result.len() {
-            result.reserve(len - result.len());
-        }
-        std::ptr::copy_nonoverlapping(contents_ptr as *const T, result.as_mut_ptr(), len);
-        result.set_len(len);
+        std::ptr::copy_nonoverlapping((contents_ptr as *const u8).add(offset as usize), dst, size as usize);
         Ok(())
     }
 
-    unsafe fn write_buffer<T: Sized>(
+    unsafe fn write_buffer(
         &self,
-        buffer: &Self::Buffer,
-        contents: &[T],
+        buffer: &Buffer,
+        contents: *const u8,
+        offset: u64,
+        size: u64,
     ) -> Result<(), Error> {
-        let contents_ptr = buffer.0.contents();
+        let contents_ptr = buffer.buffer.contents();
         if contents_ptr.is_null() {
             return Err("probably trying to write to private buffer".into());
         }
-        let len = buffer.0.length() as usize / std::mem::size_of::<T>();
-        assert!(len >= contents.len());
-        std::ptr::copy_nonoverlapping(contents.as_ptr(), contents_ptr as *mut T, len);
+        std::ptr::copy_nonoverlapping(contents, (contents_ptr as *mut u8).add(offset as usize), size as usize);
         Ok(())
     }
 
@@ -202,11 +202,11 @@ impl crate::Device for MetalDevice {
         todo!()
     }
 
-    unsafe fn wait_and_reset(&self, fences: &[Self::Fence]) -> Result<(), Error> {
+    unsafe fn wait_and_reset(&self, fences: &[&Self::Fence]) -> Result<(), Error> {
         todo!()
     }
 
-    unsafe fn get_fence_status(&self, fence: Self::Fence) -> Result<bool, Error> {
+    unsafe fn get_fence_status(&self, fence: &Self::Fence) -> Result<bool, Error> {
         todo!()
     }
 
@@ -215,17 +215,7 @@ impl crate::Device for MetalDevice {
     }
 }
 
-impl crate::MemFlags for MemFlags {
-    fn device_local() -> Self {
-        MemFlags::COPY_SRC | MemFlags::COPY_DST | MemFlags::STORAGE
-    }
-
-    fn host_coherent() -> Self {
-        MemFlags::device_local() | MemFlags::MAP_READ | MemFlags::MAP_WRITE
-    }
-}
-
-impl crate::CmdBuf<MetalDevice> for CmdBuf {
+impl crate::CmdBuf<MtlDevice> for CmdBuf {
     unsafe fn begin(&mut self) {
         todo!()
     }
@@ -289,7 +279,7 @@ impl crate::CmdBuf<MetalDevice> for CmdBuf {
     }
 }
 
-impl crate::PipelineBuilder<MetalDevice> for PipelineBuilder {
+impl crate::PipelineBuilder<MtlDevice> for PipelineBuilder {
     fn add_buffers(&mut self, n_buffers: u32) {
         todo!()
     }
@@ -302,12 +292,12 @@ impl crate::PipelineBuilder<MetalDevice> for PipelineBuilder {
         todo!()
     }
 
-    unsafe fn create_compute_pipeline(self, device: &MetalDevice, code: &[u8]) -> Result<Pipeline, Error> {
+    unsafe fn create_compute_pipeline(self, device: &MtlDevice, code: &str) -> Result<Pipeline, Error> {
         todo!()
     }
 }
 
-impl crate::DescriptorSetBuilder<MetalDevice> for DescriptorSetBuilder {
+impl crate::DescriptorSetBuilder<MtlDevice> for DescriptorSetBuilder {
     fn add_buffers(&mut self, buffers: &[&Buffer]) {
         todo!()
     }
@@ -320,7 +310,25 @@ impl crate::DescriptorSetBuilder<MetalDevice> for DescriptorSetBuilder {
         todo!()
     }
 
-    unsafe fn build(self, device: &MetalDevice, pipeline: &Pipeline) -> Result<DescriptorSet, Error> {
+    unsafe fn build(self, device: &MtlDevice, pipeline: &Pipeline) -> Result<DescriptorSet, Error> {
         todo!()
     }
+}
+
+impl MtlSwapchain {
+    pub unsafe fn next(&mut self) -> Result<(usize, Semaphore), Error> {
+        todo!()
+    }
+
+    pub unsafe fn image(&self, idx: usize) -> Image {
+        todo!()
+    }
+
+    pub unsafe fn present(
+        &self,
+        image_idx: usize,
+        semaphores: &[&Semaphore],
+    ) -> Result<bool, Error> {
+        todo!()
+    }    
 }
