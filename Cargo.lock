@@ -875,6 +875,7 @@ dependencies = [
  "ash-window",
  "bitflags",
  "block",
+ "cocoa-foundation",
  "metal",
  "objc",
  "raw-window-handle",

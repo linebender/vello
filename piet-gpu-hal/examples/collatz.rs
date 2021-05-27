@@ -10,7 +10,7 @@ fn main() {
         let usage = BufferUsage::MAP_READ | BufferUsage::STORAGE;
         let src = (0..256).map(|x| x + 1).collect::<Vec<u32>>();
         let buffer = session.create_buffer_init(&src, usage).unwrap();
-        let code = ShaderCode::Spv(include_bytes!("./shader/collatz.spv"));
+        let code = ShaderCode::Msl(include_str!("./shader/collatz.msl"));
         let pipeline = session.create_simple_compute_pipeline(code, 1).unwrap();
         let descriptor_set = session
             .create_simple_descriptor_set(&pipeline, &[&buffer])
