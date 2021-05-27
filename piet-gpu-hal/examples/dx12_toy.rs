@@ -87,7 +87,7 @@ fn toy() -> Result<(), Error> {
         cmd_buf.host_barrier();
         cmd_buf.finish();
         device.run_cmd_bufs(&[&cmd_buf], &[], &[], Some(&mut fence))?;
-        device.wait_and_reset(&[&mut fence])?;
+        device.wait_and_reset(vec![&mut fence])?;
         let mut readback: Vec<u32> = vec![0u32; 256];
         device.read_buffer(&buf, readback.as_mut_ptr() as *mut u8, 0, 1024)?;
         println!("{:?}", readback);

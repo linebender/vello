@@ -204,15 +204,15 @@ impl Device {
                 let mut fences = fences
                     .into_iter()
                     .map(|f| f.vk_mut())
-                    .collect::<SmallVec<[_; 4]>>();
-                d.wait_and_reset(&mut fences)
+                    .collect::<Vec<_>>();
+                d.wait_and_reset(fences)
             }
             Device::Dx12(d) => {
                 let mut fences = fences
                     .into_iter()
                     .map(|f| f.dx12_mut())
-                    .collect::<SmallVec<[_; 4]>>();
-                d.wait_and_reset(&mut fences)
+                    .collect::<Vec<_>>();
+                d.wait_and_reset(fences)
             }
         }
     }

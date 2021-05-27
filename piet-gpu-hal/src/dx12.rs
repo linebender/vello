@@ -405,7 +405,7 @@ impl crate::Device for Dx12Device {
         Ok(Fence { fence, event, val })
     }
 
-    unsafe fn wait_and_reset(&self, fences: &[&mut Self::Fence]) -> Result<(), Error> {
+    unsafe fn wait_and_reset(&self, fences: Vec<&mut Self::Fence>) -> Result<(), Error> {
         for fence in fences {
             // TODO: probably handle errors here.
             let _status = fence.event.wait(winapi::um::winbase::INFINITE);
