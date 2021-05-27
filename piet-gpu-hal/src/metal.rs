@@ -251,7 +251,7 @@ impl crate::Device for MtlDevice {
         todo!()
     }
 
-    unsafe fn wait_and_reset(&self, fences: &[&mut Self::Fence]) -> Result<(), Error> {
+    unsafe fn wait_and_reset(&self, fences: Vec<&mut Self::Fence>) -> Result<(), Error> {
         todo!()
     }
 

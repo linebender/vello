@@ -619,7 +619,7 @@ impl crate::Device for VkDevice {
         Ok(device.create_semaphore(&vk::SemaphoreCreateInfo::default(), None)?)
     }
 
-    unsafe fn wait_and_reset(&self, fences: &[&mut Self::Fence]) -> Result<(), Error> {
+    unsafe fn wait_and_reset(&self, fences: Vec<&mut Self::Fence>) -> Result<(), Error> {
         let device = &self.device.device;
         let fences = fences
             .iter()
