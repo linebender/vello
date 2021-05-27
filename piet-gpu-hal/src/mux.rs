@@ -228,31 +228,29 @@ impl Device {
         }
     }
 
-    pub unsafe fn wait_and_reset(&self, fences: &[&Fence]) -> Result<(), Error> {
+    // Consider changing Vec to iterator (as is done in gfx-hal)
+    pub unsafe fn wait_and_reset(&self, fences: Vec<&mut Fence>) -> Result<(), Error> {
         mux_match! { self;
             Device::Vk(d) => {
-                let fences = fences
-                    .iter()
-                    .copied()
-                    .map(Fence::vk)
+                let mut fences = fences
+                    .into_iter()
+                    .map(|f| f.vk_mut())
                     .collect::<SmallVec<[_; 4]>>();
-                d.wait_and_reset(&*fences)
+                d.wait_and_reset(&mut fences)
             }
             Device::Dx12(d) => {
-                let fences = fences
-                    .iter()
-                    .copied()
-                    .map(Fence::dx12)
+                let mut fences = fences
+                    .into_iter()
+                    .map(|f| f.dx12_mut())
                     .collect::<SmallVec<[_; 4]>>();
-                d.wait_and_reset(&*fences)
+                d.wait_and_reset(&mut fences)
             }
             Device::Mtl(d) => {
-                let fences = fences
-                    .iter()
-                    .copied()
-                    .map(Fence::mtl)
+                let mut fences = fences
+                    .into_iter()
+                    .map(|f| f.mtl_mut())
                     .collect::<SmallVec<[_; 4]>>();
-                d.wait_and_reset(&*fences)
+                d.wait_and_reset(&mut fences)
             }
         }
     }
@@ -318,7 +316,7 @@ impl Device {
         cmd_bufs: &[&CmdBuf],
         wait_semaphores: &[&Semaphore],
         signal_semaphores: &[&Semaphore],
-        fence: Option<&Fence>,
+        fence: Option<&mut Fence>,
     ) -> Result<(), Error> {
         mux_match! { self;
             Device::Vk(d) => d.run_cmd_bufs(
@@ -336,7 +334,7 @@ impl Device {
                     .copied()
                     .map(Semaphore::vk)
                     .collect::<SmallVec<[_; 4]>>(),
-                fence.map(Fence::vk),
+                fence.map(Fence::vk_mut),
             ),
             Device::Dx12(d) => d.run_cmd_bufs(
                 &cmd_bufs
@@ -353,7 +351,7 @@ impl Device {
                     .copied()
                     .map(Semaphore::dx12)
                     .collect::<SmallVec<[_; 4]>>(),
-                fence.map(Fence::dx12),
+                fence.map(Fence::dx12_mut_mut),
             ),
             Device::Mtl(d) => d.run_cmd_bufs(
                 &cmd_bufs
@@ -370,7 +368,7 @@ impl Device {
                     .copied()
                     .map(Semaphore::mtl)
                     .collect::<SmallVec<[_; 4]>>(),
-                fence.map(Fence::mtl),
+                fence.map(Fence::mtl_mut),
             ),
         }
     }

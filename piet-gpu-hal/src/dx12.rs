@@ -348,7 +348,7 @@ impl crate::Device for Dx12Device {
         cmd_bufs: &[&Self::CmdBuf],
         _wait_semaphores: &[&Self::Semaphore],
         _signal_semaphores: &[&Self::Semaphore],
-        fence: Option<&Self::Fence>,
+        fence: Option<&mut Self::Fence>,
     ) -> Result<(), Error> {
         // TODO: handle semaphores
         let lists = cmd_bufs
@@ -405,7 +405,7 @@ impl crate::Device for Dx12Device {
         Ok(Fence { fence, event, val })
     }
 
-    unsafe fn wait_and_reset(&self, fences: &[&Self::Fence]) -> Result<(), Error> {
+    unsafe fn wait_and_reset(&self, fences: &[&mut Self::Fence]) -> Result<(), Error> {
         for fence in fences {
             // TODO: probably handle errors here.
             let _status = fence.event.wait(winapi::um::winbase::INFINITE);

@@ -196,7 +196,7 @@ pub trait Device: Sized {
         cmd_buf: &[&Self::CmdBuf],
         wait_semaphores: &[&Self::Semaphore],
         signal_semaphores: &[&Self::Semaphore],
-        fence: Option<&Self::Fence>,
+        fence: Option<&mut Self::Fence>,
     ) -> Result<(), Error>;
 
     /// Copy data from the buffer to memory.
@@ -233,7 +233,7 @@ pub trait Device: Sized {
 
     unsafe fn create_semaphore(&self) -> Result<Self::Semaphore, Error>;
     unsafe fn create_fence(&self, signaled: bool) -> Result<Self::Fence, Error>;
-    unsafe fn wait_and_reset(&self, fences: &[&Self::Fence]) -> Result<(), Error>;
+    unsafe fn wait_and_reset(&self, fences: &[&mut Self::Fence]) -> Result<(), Error>;
     unsafe fn get_fence_status(&self, fence: &Self::Fence) -> Result<bool, Error>;
 
     unsafe fn create_sampler(&self, params: SamplerParams) -> Result<Self::Sampler, Error>;

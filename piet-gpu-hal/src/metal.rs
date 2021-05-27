@@ -200,7 +200,7 @@ impl crate::Device for MtlDevice {
         cmd_bufs: &[&Self::CmdBuf],
         wait_semaphores: &[&Self::Semaphore],
         signal_semaphores: &[&Self::Semaphore],
-        fence: Option<&Self::Fence>,
+        fence: Option<&mut Self::Fence>,
     ) -> Result<(), Error> {
         todo!()
     }
@@ -251,7 +251,7 @@ impl crate::Device for MtlDevice {
         todo!()
     }
 
-    unsafe fn wait_and_reset(&self, fences: &[&Self::Fence]) -> Result<(), Error> {
+    unsafe fn wait_and_reset(&self, fences: &[&mut Self::Fence]) -> Result<(), Error> {
         todo!()
     }
 

@@ -73,7 +73,7 @@ fn toy() -> Result<(), Error> {
         let pipeline = device.create_simple_compute_pipeline(SHADER_CODE, 1, 1)?;
         let ds = device.create_descriptor_set(&pipeline, &[&dev_buf], &[&img])?;
         let mut cmd_buf = device.create_cmd_buf()?;
-        let fence = device.create_fence(false)?;
+        let mut fence = device.create_fence(false)?;
         cmd_buf.begin();
         cmd_buf.copy_buffer(&buf, &dev_buf);
         cmd_buf.memory_barrier();
@@ -86,8 +86,8 @@ fn toy() -> Result<(), Error> {
         cmd_buf.finish_timestamps(&query_pool);
         cmd_buf.host_barrier();
         cmd_buf.finish();
-        device.run_cmd_bufs(&[&cmd_buf], &[], &[], Some(&fence))?;
-        device.wait_and_reset(&[&fence])?;
+        device.run_cmd_bufs(&[&cmd_buf], &[], &[], Some(&mut fence))?;
+        device.wait_and_reset(&[&mut fence])?;
         let mut readback: Vec<u32> = vec![0u32; 256];
         device.read_buffer(&buf, readback.as_mut_ptr() as *mut u8, 0, 1024)?;
         println!("{:?}", readback);
