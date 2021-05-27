@@ -619,12 +619,11 @@ impl crate::Device for VkDevice {
         Ok(device.create_semaphore(&vk::SemaphoreCreateInfo::default(), None)?)
     }
 
-    unsafe fn wait_and_reset(&self, fences: &[&Self::Fence]) -> Result<(), Error> {
+    unsafe fn wait_and_reset(&self, fences: &[&mut Self::Fence]) -> Result<(), Error> {
         let device = &self.device.device;
         let fences = fences
             .iter()
-            .copied()
-            .copied()
+            .map(|f| **f)
             .collect::<SmallVec<[_; 4]>>();
         device.wait_for_fences(&fences, true, !0)?;
         device.reset_fences(&fences)?;
@@ -718,7 +717,7 @@ impl crate::Device for VkDevice {
         cmd_bufs: &[&CmdBuf],
         wait_semaphores: &[&Self::Semaphore],
         signal_semaphores: &[&Self::Semaphore],
-        fence: Option<&Self::Fence>,
+        fence: Option<&mut Self::Fence>,
     ) -> Result<(), Error> {
         let device = &self.device.device;
 

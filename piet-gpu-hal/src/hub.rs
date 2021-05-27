@@ -124,9 +124,9 @@ impl Session {
             let mut i = 0;
             while i < pending.len() {
                 if let Ok(true) = self.0.device.get_fence_status(&pending[i].fence) {
-                    let item = pending.swap_remove(i);
+                    let mut item = pending.swap_remove(i);
                     // TODO: wait is superfluous, can just reset
-                    let _ = self.0.device.wait_and_reset(&[&item.fence]);
+                    let _ = self.0.device.wait_and_reset(vec![&mut item.fence]);
                     let mut pool = self.0.cmd_buf_pool.lock().unwrap();
                     pool.push((item.cmd_buf, item.fence));
                     std::mem::drop(item.resources);
@@ -143,7 +143,7 @@ impl Session {
 
     pub unsafe fn run_cmd_buf(
         &self,
-        cmd_buf: CmdBuf,
+        mut cmd_buf: CmdBuf,
         wait_semaphores: &[&Semaphore],
         signal_semaphores: &[&Semaphore],
     ) -> Result<SubmittedCmdBuf, Error> {
@@ -162,7 +162,7 @@ impl Session {
             &cmd_bufs,
             wait_semaphores,
             signal_semaphores,
-            Some(&cmd_buf.fence),
+            Some(&mut cmd_buf.fence),
         )?;
         Ok(SubmittedCmdBuf(
             Some(SubmittedCmdBufInner {
@@ -313,10 +313,10 @@ impl CmdBuf {
 
 impl SubmittedCmdBuf {
     pub fn wait(mut self) -> Result<(), Error> {
-        let item = self.0.take().unwrap();
+        let mut item = self.0.take().unwrap();
         if let Some(session) = Weak::upgrade(&self.1) {
             unsafe {
-                session.device.wait_and_reset(&[&item.fence])?;
+                session.device.wait_and_reset(vec![&mut item.fence])?;
             }
             session
                 .cmd_buf_pool
