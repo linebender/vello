@@ -25,6 +25,10 @@ macro_rules! mux_cfg {
     ( #[cfg(dx12)] $($tokens:tt)* ) => {
         #[cfg(target_os="windows")] $( $tokens )*
     };
+
+    ( #[cfg(mtl)] $($tokens:tt)* ) => {
+        #[cfg(target_os="macos")] $( $tokens )*
+    };
 }
 
 #[macro_export]
@@ -32,12 +36,15 @@ macro_rules! mux_enum {
     ( $(#[$outer:meta])* $v:vis enum $name:ident {
         Vk($vk:ty),
         Dx12($dx12:ty),
+        Mtl($mtl:ty),
     } ) => {
         $(#[$outer])* $v enum $name {
             #[cfg(not(target_os="macos"))]
             Vk($vk),
             #[cfg(target_os="windows")]
             Dx12($dx12),
+            #[cfg(target_os="macos")]
+            Mtl($mtl),
         }
 
         impl $name {
@@ -82,6 +89,25 @@ macro_rules! mux_enum {
                     }
                 }
             }
+
+            $crate::mux_cfg! {
+                #[cfg(mtl)]
+                #[allow(unused)]
+                fn mtl(&self) -> &$mtl {
+                    match self {
+                        $name::Mtl(x) => x,
+                    }
+                }
+            }
+            $crate::mux_cfg! {
+                #[cfg(mtl)]
+                #[allow(unused)]
+                fn mtl_mut(&mut self) -> &mut $mtl {
+                    match self {
+                        $name::Mtl(x) => x,
+                    }
+                }
+            }
         }
     };
 }
@@ -93,6 +119,7 @@ macro_rules! mux_device_enum {
             pub enum $assoc_type {
                 Vk(<$crate::vulkan::VkDevice as $crate::Device>::$assoc_type),
                 Dx12(<$crate::dx12::Dx12Device as $crate::Device>::$assoc_type),
+                Mtl(<$crate::metal::MtlDevice as $crate::Device>::$assoc_type),
             }
         }
     }
@@ -103,22 +130,27 @@ macro_rules! mux_match {
     ( $e:expr ;
         $vkname:ident::Vk($vkvar:ident) => $vkblock: block
         $dx12name:ident::Dx12($dx12var:ident) => $dx12block: block
+        $mtlname:ident::Mtl($mtlvar:ident) => $mtlblock: block
     ) => {
         match $e {
             #[cfg(not(target_os="macos"))]
             $vkname::Vk($vkvar) => $vkblock
             #[cfg(target_os="windows")]
             $dx12name::Dx12($dx12var) => $dx12block
+            #[cfg(target_os="macos")]
+            $mtlname::Mtl($mtlvar) => $mtlblock
         }
     };
 
     ( $e:expr ;
         $vkname:ident::Vk($vkvar:ident) => $vkblock: expr,
         $dx12name:ident::Dx12($dx12var:ident) => $dx12block: expr,
+        $mtlname:ident::Mtl($mtlvar:ident) => $mtlblock: expr,
     ) => {
         $crate::mux_match! { $e;
             $vkname::Vk($vkvar) => { $vkblock }
             $dx12name::Dx12($dx12var) => { $dx12block }
+            $mtlname::Mtl($mtlvar) => { $mtlblock }
         }
     };
 }

@@ -21,3 +21,9 @@ winapi = { version = "0.3.9", features = [
     'winerror', 'winuser'
 ] }
 wio = "0.2.2"
+
+[target.'cfg(target_os="macos")'.dependencies]
+metal = "0.22"
+objc = "0.2.5"
+block = "0.1.6"
+cocoa-foundation = "0.1"

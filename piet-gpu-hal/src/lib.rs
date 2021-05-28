@@ -23,6 +23,8 @@ mux_cfg! {
     #[cfg(dx12)]
     pub mod dx12;
 }
+#[cfg(target_os = "macos")]
+pub mod metal;
 
 /// This isn't great but is expedient.
 pub type Error = Box<dyn std::error::Error>;
