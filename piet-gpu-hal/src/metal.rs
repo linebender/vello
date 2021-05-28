@@ -43,7 +43,13 @@ pub struct Buffer {
 
 pub struct Image;
 
-pub struct Fence;
+// This is the way gfx-hal does it, but a more Vulkan-like strategy would be
+// to have a semaphore that gets signaled from the command buffer's completion
+// handler.
+pub enum Fence {
+    Idle,
+    CmdBufPending(metal::CommandBuffer),
+}
 
 pub struct Semaphore;
 
@@ -198,11 +204,19 @@ impl crate::Device for MtlDevice {
     unsafe fn run_cmd_bufs(
         &self,
         cmd_bufs: &[&Self::CmdBuf],
-        wait_semaphores: &[&Self::Semaphore],
-        signal_semaphores: &[&Self::Semaphore],
+        _wait_semaphores: &[&Self::Semaphore],
+        _signal_semaphores: &[&Self::Semaphore],
         fence: Option<&mut Self::Fence>,
     ) -> Result<(), Error> {
-        todo!()
+        for cmd_buf in cmd_bufs {
+            cmd_buf.cmd_buf.commit();
+        }
+        if let Some(last_cmd_buf) = cmd_bufs.last() {
+            if let Some(fence) = fence {
+                *fence = Fence::CmdBufPending(last_cmd_buf.cmd_buf.to_owned());
+            }
+        }
+        Ok(())
     }
 
     unsafe fn read_buffer(
@@ -247,15 +261,29 @@ impl crate::Device for MtlDevice {
         todo!()
     }
 
-    unsafe fn create_fence(&self, signaled: bool) -> Result<Self::Fence, Error> {
-        todo!()
+    unsafe fn create_fence(&self, _signaled: bool) -> Result<Self::Fence, Error> {
+        // Doesn't handle signaled case. Maybe the fences should have more
+        // limited functionality than, say, Vulkan.
+        Ok(Fence::Idle)
     }
 
     unsafe fn wait_and_reset(&self, fences: Vec<&mut Self::Fence>) -> Result<(), Error> {
-        todo!()
+        for fence in fences {
+            match fence {
+                Fence::Idle => (),
+                Fence::CmdBufPending(cmd_buf) => {
+                    cmd_buf.wait_until_completed();
+                    // TODO: this would be a good place to check errors, currently
+                    // dropped on the floor.
+                    *fence = Fence::Idle;
+                }
+            }
+        }
+        Ok(())
     }
 
     unsafe fn get_fence_status(&self, fence: &Self::Fence) -> Result<bool, Error> {
+        // fence need to be mutable here :/
         todo!()
     }
 
@@ -266,11 +294,9 @@ impl crate::Device for MtlDevice {
 
 impl crate::CmdBuf<MtlDevice> for CmdBuf {
     unsafe fn begin(&mut self) {
-        todo!()
     }
 
     unsafe fn finish(&mut self) {
-        todo!()
     }
 
     unsafe fn dispatch(
@@ -295,7 +321,7 @@ impl crate::CmdBuf<MtlDevice> for CmdBuf {
         // TODO: we need to pass this in explicitly. In gfx-hal, this is parsed from
         // the spv before translation.
         let work_group_size = metal::MTLSize {
-            width: 256,
+            width: 1,
             height: 1,
             depth: 1,
         };
@@ -304,11 +330,11 @@ impl crate::CmdBuf<MtlDevice> for CmdBuf {
     }
 
     unsafe fn memory_barrier(&mut self) {
-        todo!()
+        // We'll probably move to explicit barriers, but for now rely on
+        // Metal's own tracking.
     }
 
     unsafe fn host_barrier(&mut self) {
-        todo!()
     }
 
     unsafe fn image_barrier(
@@ -341,11 +367,13 @@ impl crate::CmdBuf<MtlDevice> for CmdBuf {
     }
 
     unsafe fn reset_query_pool(&mut self, pool: &QueryPool) {
-        todo!()
+        
     }
 
     unsafe fn write_timestamp(&mut self, pool: &QueryPool, query: u32) {
-        todo!()
+        // TODO
+        // This really a PITA because it's pretty different than Vulkan.
+        // See https://developer.apple.com/documentation/metal/counter_sampling
     }
 }
 
