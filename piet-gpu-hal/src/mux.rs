@@ -351,7 +351,7 @@ impl Device {
                     .copied()
                     .map(Semaphore::dx12)
                     .collect::<SmallVec<[_; 4]>>(),
-                fence.map(Fence::dx12_mut_mut),
+                fence.map(Fence::dx12_mut),
             ),
             Device::Mtl(d) => d.run_cmd_bufs(
                 &cmd_bufs
