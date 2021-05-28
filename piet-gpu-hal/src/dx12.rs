@@ -3,35 +3,40 @@
 mod error;
 mod wrappers;
 
+use std::sync::{Arc, Mutex, Weak};
 use std::{cell::Cell, convert::TryInto, mem, ptr};
 
-use winapi::shared::dxgi1_3;
 use winapi::shared::minwindef::TRUE;
+use winapi::shared::{dxgi, dxgi1_2, dxgi1_3, dxgitype};
 use winapi::um::d3d12;
+
+use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
 
 use smallvec::SmallVec;
 
-use crate::{BufferUsage, Error, ImageLayout};
+use crate::{BufferUsage, Error, GpuInfo, ImageLayout};
 
-use self::wrappers::{
-    CommandAllocator, CommandQueue, Device, Factory4, GraphicsCommandList, Resource, ShaderByteCode,
-};
+use self::wrappers::{CommandAllocator, CommandQueue, Device, Factory4, Resource, ShaderByteCode};
 
 pub struct Dx12Instance {
     factory: Factory4,
 }
 
-// TODO
-pub struct Dx12Surface;
+pub struct Dx12Surface {
+    hwnd: winapi::shared::windef::HWND,
+}
 
-// TODO
-pub struct Dx12Swapchain;
+pub struct Dx12Swapchain {
+    swapchain: wrappers::SwapChain3,
+    size: (u32, u32),
+}
 
 pub struct Dx12Device {
     device: Device,
-    command_allocator: CommandAllocator,
+    free_allocators: Arc<Mutex<Vec<CommandAllocator>>>,
     command_queue: CommandQueue,
     ts_freq: u64,
+    gpu_info: GpuInfo,
     memory_arch: MemoryArchitecture,
 }
 
@@ -47,7 +52,13 @@ pub struct Image {
     size: (u32, u32),
 }
 
-pub struct CmdBuf(GraphicsCommandList);
+pub struct CmdBuf {
+    c: wrappers::GraphicsCommandList,
+    allocator: Option<CommandAllocator>,
+    // One for resetting, one to put back into the allocator pool
+    allocator_clone: CommandAllocator,
+    free_allocators: Weak<Mutex<Vec<CommandAllocator>>>,
+}
 
 pub struct Pipeline {
     pipeline_state: wrappers::PipelineState,
@@ -72,6 +83,8 @@ pub struct Fence {
     val: Cell<u64>,
 }
 
+/// This will probably be renamed "PresentSem" or similar. I believe no
+/// semaphore is needed for presentation on DX12.
 pub struct Semaphore;
 
 #[derive(Default)]
@@ -103,7 +116,9 @@ impl Dx12Instance {
     ///
     /// TODO: take a raw window handle.
     /// TODO: can probably be a trait.
-    pub fn new(window_handle: Option<&dyn raw_window_handle::HasRawWindowHandle>) -> Result<(Dx12Instance, Option<Dx12Surface>), Error> {
+    pub fn new(
+        window_handle: Option<&dyn HasRawWindowHandle>,
+    ) -> Result<(Dx12Instance, Option<Dx12Surface>), Error> {
         unsafe {
             #[cfg(debug_assertions)]
             if let Err(e) = wrappers::enable_debug_layer() {
@@ -118,7 +133,16 @@ impl Dx12Instance {
             let factory_flags: u32 = 0;
 
             let factory = Factory4::create(factory_flags)?;
-            Ok((Dx12Instance { factory }, None))
+
+            let mut surface = None;
+            if let Some(window_handle) = window_handle {
+                let window_handle = window_handle.raw_window_handle();
+                if let RawWindowHandle::Windows(w) = window_handle {
+                    let hwnd = w.hwnd as *mut _;
+                    surface = Some(Dx12Surface { hwnd });
+                }
+            }
+            Ok((Dx12Instance { factory }, surface))
         }
     }
 
@@ -136,7 +160,7 @@ impl Dx12Instance {
                 d3d12::D3D12_COMMAND_QUEUE_FLAG_NONE,
                 0,
             )?;
-            let command_allocator = device.create_command_allocator(list_type)?;
+
             let ts_freq = command_queue.get_timestamp_frequency()?;
             let features_architecture = device.get_features_architecture()?;
             let uma = features_architecture.UMA == TRUE;
@@ -146,14 +170,57 @@ impl Dx12Instance {
                 (true, false) => MemoryArchitecture::UMA,
                 _ => MemoryArchitecture::NUMA,
             };
+            let use_staging_buffers = memory_arch == MemoryArchitecture::NUMA;
+            // These values are appropriate for Shader Model 5. When we open up
+            // DXIL, fix this with proper dynamic queries.
+            let gpu_info = GpuInfo {
+                has_descriptor_indexing: false,
+                has_subgroups: false,
+                subgroup_size: None,
+                has_memory_model: false,
+                use_staging_buffers,
+            };
+            let free_allocators = Default::default();
             Ok(Dx12Device {
                 device,
                 command_queue,
-                command_allocator,
+                free_allocators,
                 ts_freq,
                 memory_arch,
+                gpu_info,
             })
         }
+    }
+
+    pub unsafe fn swapchain(
+        &self,
+        width: usize,
+        height: usize,
+        device: &Dx12Device,
+        surface: &Dx12Surface,
+    ) -> Result<Dx12Swapchain, Error> {
+        const FRAME_COUNT: u32 = 2;
+        let desc = dxgi1_2::DXGI_SWAP_CHAIN_DESC1 {
+            Width: width as u32,
+            Height: height as u32,
+            AlphaMode: dxgi1_2::DXGI_ALPHA_MODE_IGNORE,
+            BufferCount: FRAME_COUNT,
+            Format: winapi::shared::dxgiformat::DXGI_FORMAT_R8G8B8A8_UNORM,
+            Flags: 0,
+            BufferUsage: dxgitype::DXGI_USAGE_RENDER_TARGET_OUTPUT,
+            SampleDesc: dxgitype::DXGI_SAMPLE_DESC {
+                Count: 1,
+                Quality: 0,
+            },
+            Scaling: dxgi1_2::DXGI_SCALING_STRETCH,
+            Stereo: winapi::shared::minwindef::FALSE,
+            SwapEffect: dxgi::DXGI_SWAP_EFFECT_FLIP_DISCARD,
+        };
+        let swapchain =
+            self.factory
+                .create_swapchain_for_hwnd(&device.command_queue, surface.hwnd, desc)?;
+        let size = (width as u32, height as u32);
+        Ok(Dx12Swapchain { swapchain, size })
     }
 }
 
@@ -224,15 +291,24 @@ impl crate::Device for Dx12Device {
 
     fn create_cmd_buf(&self) -> Result<Self::CmdBuf, Error> {
         let list_type = d3d12::D3D12_COMMAND_LIST_TYPE_DIRECT;
+        let allocator = self.free_allocators.lock().unwrap().pop();
+        let allocator = if let Some(allocator) = allocator {
+            allocator
+        } else {
+            unsafe { self.device.create_command_allocator(list_type)? }
+        };
         let node_mask = 0;
         unsafe {
-            let cmd_buf = self.device.create_graphics_command_list(
-                list_type,
-                &self.command_allocator,
-                None,
-                node_mask,
-            )?;
-            Ok(CmdBuf(cmd_buf))
+            let c = self
+                .device
+                .create_graphics_command_list(list_type, &allocator, None, node_mask)?;
+            let free_allocators = Arc::downgrade(&self.free_allocators);
+            Ok(CmdBuf {
+                c,
+                allocator: Some(allocator.clone()),
+                allocator_clone: allocator,
+                free_allocators,
+            })
         }
     }
 
@@ -270,16 +346,19 @@ impl crate::Device for Dx12Device {
     unsafe fn run_cmd_bufs(
         &self,
         cmd_bufs: &[&Self::CmdBuf],
-        wait_semaphores: &[&Self::Semaphore],
-        signal_semaphores: &[&Self::Semaphore],
-        fence: Option<&Self::Fence>,
+        _wait_semaphores: &[&Self::Semaphore],
+        _signal_semaphores: &[&Self::Semaphore],
+        fence: Option<&mut Self::Fence>,
     ) -> Result<(), Error> {
         // TODO: handle semaphores
         let lists = cmd_bufs
             .iter()
-            .map(|c| c.0.as_raw_command_list())
+            .map(|c| c.c.as_raw_command_list())
             .collect::<SmallVec<[_; 4]>>();
         self.command_queue.execute_command_lists(&lists);
+        for c in cmd_bufs {
+            c.c.reset(&c.allocator_clone, None);
+        }
         if let Some(fence) = fence {
             let val = fence.val.get() + 1;
             fence.val.set(val);
@@ -316,7 +395,7 @@ impl crate::Device for Dx12Device {
     }
 
     unsafe fn create_semaphore(&self) -> Result<Self::Semaphore, Error> {
-        todo!()
+        Ok(Semaphore)
     }
 
     unsafe fn create_fence(&self, signaled: bool) -> Result<Self::Fence, Error> {
@@ -326,7 +405,7 @@ impl crate::Device for Dx12Device {
         Ok(Fence { fence, event, val })
     }
 
-    unsafe fn wait_and_reset(&self, fences: &[&Self::Fence]) -> Result<(), Error> {
+    unsafe fn wait_and_reset(&self, fences: Vec<&mut Self::Fence>) -> Result<(), Error> {
         for fence in fences {
             // TODO: probably handle errors here.
             let _status = fence.event.wait(winapi::um::winbase::INFINITE);
@@ -340,7 +419,7 @@ impl crate::Device for Dx12Device {
     }
 
     fn query_gpu_info(&self) -> crate::GpuInfo {
-        todo!()
+        self.gpu_info.clone()
     }
 
     unsafe fn pipeline_builder(&self) -> Self::PipelineBuilder {
@@ -376,7 +455,13 @@ impl crate::CmdBuf<Dx12Device> for CmdBuf {
     unsafe fn begin(&mut self) {}
 
     unsafe fn finish(&mut self) {
-        let _ = self.0.close();
+        let _ = self.c.close();
+        if let Some(free_allocators) = self.free_allocators.upgrade() {
+            free_allocators
+                .lock()
+                .unwrap()
+                .push(self.allocator.take().unwrap());
+        }
     }
 
     unsafe fn dispatch(
@@ -385,15 +470,15 @@ impl crate::CmdBuf<Dx12Device> for CmdBuf {
         descriptor_set: &DescriptorSet,
         size: (u32, u32, u32),
     ) {
-        self.0.set_pipeline_state(&pipeline.pipeline_state);
-        self.0
+        self.c.set_pipeline_state(&pipeline.pipeline_state);
+        self.c
             .set_compute_pipeline_root_signature(&pipeline.root_signature);
-        self.0.set_descriptor_heaps(&[&descriptor_set.0]);
-        self.0.set_compute_root_descriptor_table(
+        self.c.set_descriptor_heaps(&[&descriptor_set.0]);
+        self.c.set_compute_root_descriptor_table(
             0,
             descriptor_set.0.get_gpu_descriptor_handle_at_offset(0),
         );
-        self.0.dispatch(size.0, size.1, size.2);
+        self.c.dispatch(size.0, size.1, size.2);
     }
 
     unsafe fn memory_barrier(&mut self) {
@@ -402,7 +487,7 @@ impl crate::CmdBuf<Dx12Device> for CmdBuf {
         // in the barrier. But it seems like this is a reasonable way to create a
         // global barrier.
         let bar = wrappers::create_uav_resource_barrier(ptr::null_mut());
-        self.0.resource_barrier(&[bar]);
+        self.c.resource_barrier(&[bar]);
     }
 
     unsafe fn host_barrier(&mut self) {
@@ -427,7 +512,7 @@ impl crate::CmdBuf<Dx12Device> for CmdBuf {
                 src_state,
                 dst_state,
             );
-            self.0.resource_barrier(&[bar]);
+            self.c.resource_barrier(&[bar]);
         }
     }
 
@@ -440,33 +525,31 @@ impl crate::CmdBuf<Dx12Device> for CmdBuf {
     unsafe fn copy_buffer(&self, src: &Buffer, dst: &Buffer) {
         // TODO: consider using copy_resource here (if sizes match)
         let size = src.size.min(dst.size);
-        self.0.copy_buffer(&dst.resource, 0, &src.resource, 0, size);
+        self.c.copy_buffer(&dst.resource, 0, &src.resource, 0, size);
     }
 
     unsafe fn copy_image_to_buffer(&self, src: &Image, dst: &Buffer) {
-        self.0
+        self.c
             .copy_texture_to_buffer(&src.resource, &dst.resource, src.size.0, src.size.1);
     }
 
     unsafe fn copy_buffer_to_image(&self, src: &Buffer, dst: &Image) {
-        self.0
+        self.c
             .copy_buffer_to_texture(&src.resource, &dst.resource, dst.size.0, dst.size.1);
     }
 
     unsafe fn blit_image(&self, src: &Image, dst: &Image) {
-        self.0.copy_resource(&src.resource, &dst.resource);
+        self.c.copy_resource(&src.resource, &dst.resource);
     }
 
-    unsafe fn reset_query_pool(&mut self, pool: &QueryPool) {
-        todo!()
-    }
+    unsafe fn reset_query_pool(&mut self, _pool: &QueryPool) {}
 
     unsafe fn write_timestamp(&mut self, pool: &QueryPool, query: u32) {
-        self.0.end_timing_query(&pool.heap, query);
+        self.c.end_timing_query(&pool.heap, query);
     }
 
     unsafe fn finish_timestamps(&mut self, pool: &QueryPool) {
-        self.0
+        self.c
             .resolve_timing_query_data(&pool.heap, 0, pool.n_queries, &pool.buf.resource, 0);
     }
 }
@@ -635,5 +718,29 @@ fn resource_state_for_image_layout(layout: ImageLayout) -> d3d12::D3D12_RESOURCE
         ImageLayout::BlitDst => d3d12::D3D12_RESOURCE_STATE_COPY_DEST,
         ImageLayout::General => d3d12::D3D12_RESOURCE_STATE_COMMON,
         ImageLayout::ShaderRead => d3d12::D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+    }
+}
+
+impl Dx12Swapchain {
+    pub unsafe fn next(&mut self) -> Result<(usize, Semaphore), Error> {
+        let idx = self.swapchain.get_current_back_buffer_index();
+        Ok((idx as usize, Semaphore))
+    }
+
+    pub unsafe fn image(&self, idx: usize) -> Image {
+        let buffer = self.swapchain.get_buffer(idx as u32);
+        Image {
+            resource: buffer,
+            size: self.size,
+        }
+    }
+
+    pub unsafe fn present(
+        &self,
+        _image_idx: usize,
+        _semaphores: &[&Semaphore],
+    ) -> Result<bool, Error> {
+        self.swapchain.present(1, 0)?;
+        Ok(false)
     }
 }

@@ -20,7 +20,7 @@ use smallvec::SmallVec;
 
 mux_cfg! {
     #[cfg(vk)]
-    use crate::vulkan;    
+    use crate::vulkan;
 }
 mux_cfg! {
     #[cfg(dx12)]
@@ -83,6 +83,13 @@ pub enum ShaderCode<'a> {
 }
 
 impl Instance {
+    /// Create a new GPU instance appropriate for the surface.
+    ///
+    /// When multiple back-end GPU APIs are available (for example, Vulkan
+    /// and DX12), this function selects one at runtime.
+    ///
+    /// When no surface is given, the instance is suitable for compute-only
+    /// work.
     pub fn new(
         window_handle: Option<&dyn raw_window_handle::HasRawWindowHandle>,
     ) -> Result<(Instance, Option<Surface>), Error> {
@@ -108,6 +115,11 @@ impl Instance {
         Err("No suitable instances found".into())
     }
 
+    /// Create a device appropriate for the surface.
+    ///
+    /// The "device" is the low-level GPU abstraction for creating resources
+    /// and submitting work. Most users of this library will want to wrap it in
+    /// a "session" which is similar but provides many conveniences.
     pub unsafe fn device(&self, surface: Option<&Surface>) -> Result<Device, Error> {
         mux_match! { self;
             Instance::Vk(i) => i.device(surface.map(Surface::vk)).map(Device::Vk),
@@ -115,6 +127,12 @@ impl Instance {
         }
     }
 
+    /// Create a swapchain.
+    ///
+    /// A swapchain is a small vector of images shared with the platform's
+    /// presentation logic. To actually display pixels, the application writes
+    /// into the swapchain images, then calls the present method to display
+    /// them.
     pub unsafe fn swapchain(
         &self,
         width: usize,
@@ -126,7 +144,9 @@ impl Instance {
             Instance::Vk(i) => i
                 .swapchain(width, height, device.vk(), surface.vk())
                 .map(Swapchain::Vk),
-            Instance::Dx12(_i) => todo!(),
+            Instance::Dx12(i) => i
+                .swapchain(width, height, device.dx12(), surface.dx12())
+                .map(Swapchain::Dx12),
         }
     }
 }
@@ -177,23 +197,22 @@ impl Device {
         }
     }
 
-    pub unsafe fn wait_and_reset(&self, fences: &[&Fence]) -> Result<(), Error> {
+    // Consider changing Vec to iterator (as is done in gfx-hal)
+    pub unsafe fn wait_and_reset(&self, fences: Vec<&mut Fence>) -> Result<(), Error> {
         mux_match! { self;
             Device::Vk(d) => {
-                let fences = fences
-                    .iter()
-                    .copied()
-                    .map(Fence::vk)
-                    .collect::<SmallVec<[_; 4]>>();
-                d.wait_and_reset(&*fences)
+                let mut fences = fences
+                    .into_iter()
+                    .map(|f| f.vk_mut())
+                    .collect::<Vec<_>>();
+                d.wait_and_reset(fences)
             }
             Device::Dx12(d) => {
-                let fences = fences
-                    .iter()
-                    .copied()
-                    .map(Fence::dx12)
-                    .collect::<SmallVec<[_; 4]>>();
-                d.wait_and_reset(&*fences)
+                let mut fences = fences
+                    .into_iter()
+                    .map(|f| f.dx12_mut())
+                    .collect::<Vec<_>>();
+                d.wait_and_reset(fences)
             }
         }
     }
@@ -252,7 +271,7 @@ impl Device {
         cmd_bufs: &[&CmdBuf],
         wait_semaphores: &[&Semaphore],
         signal_semaphores: &[&Semaphore],
-        fence: Option<&Fence>,
+        fence: Option<&mut Fence>,
     ) -> Result<(), Error> {
         mux_match! { self;
             Device::Vk(d) => d.run_cmd_bufs(
@@ -270,7 +289,7 @@ impl Device {
                     .copied()
                     .map(Semaphore::vk)
                     .collect::<SmallVec<[_; 4]>>(),
-                fence.map(Fence::vk),
+                fence.map(Fence::vk_mut),
             ),
             Device::Dx12(d) => d.run_cmd_bufs(
                 &cmd_bufs
@@ -287,7 +306,7 @@ impl Device {
                     .copied()
                     .map(Semaphore::dx12)
                     .collect::<SmallVec<[_; 4]>>(),
-                fence.map(Fence::dx12),
+                fence.map(Fence::dx12_mut),
             ),
         }
     }
@@ -568,8 +587,9 @@ impl Swapchain {
                 let (idx, sem) = s.next()?;
                 Ok((idx, Semaphore::Vk(sem)))
             }
-            Swapchain::Dx12(_s) => {
-                todo!()
+            Swapchain::Dx12(s) => {
+                let (idx, sem) = s.next()?;
+                Ok((idx, Semaphore::Dx12(sem)))
             }
         }
     }
@@ -577,7 +597,7 @@ impl Swapchain {
     pub unsafe fn image(&self, idx: usize) -> Image {
         mux_match! { self;
             Swapchain::Vk(s) => Image::Vk(s.image(idx)),
-            Swapchain::Dx12(_s) => todo!(),
+            Swapchain::Dx12(s) => Image::Dx12(s.image(idx)),
         }
     }
 
@@ -595,7 +615,14 @@ impl Swapchain {
                     .map(Semaphore::vk)
                     .collect::<SmallVec<[_; 4]>>(),
             ),
-            Swapchain::Dx12(_s) => todo!(),
+            Swapchain::Dx12(s) => s.present(
+                image_idx,
+                &semaphores
+                    .iter()
+                    .copied()
+                    .map(Semaphore::dx12)
+                    .collect::<SmallVec<[_; 4]>>(),
+            ),
         }
     }
 }
