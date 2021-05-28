@@ -117,9 +117,9 @@ macro_rules! mux_device_enum {
         $crate::mux_enum! {
             $(#[$outer])*
             pub enum $assoc_type {
-                Vk(<$crate::vulkan::VkDevice as $crate::Device>::$assoc_type),
-                Dx12(<$crate::dx12::Dx12Device as $crate::Device>::$assoc_type),
-                Mtl(<$crate::metal::MtlDevice as $crate::Device>::$assoc_type),
+                Vk(<$crate::vulkan::VkDevice as $crate::backend::Device>::$assoc_type),
+                Dx12(<$crate::dx12::Dx12Device as $crate::backend::Device>::$assoc_type),
+                Mtl(<$crate::metal::MtlDevice as $crate::backend::Device>::$assoc_type),
             }
         }
     }
@@ -152,5 +152,17 @@ macro_rules! mux_match {
             $dx12name::Dx12($dx12var) => { $dx12block }
             $mtlname::Mtl($mtlvar) => { $mtlblock }
         }
+    };
+}
+
+/// A convenience macro for selecting a shader from included files.
+#[macro_export]
+macro_rules! include_shader {
+    ( $device:expr, $path_base:expr) => {
+        $device.choose_shader(
+            include_bytes!(concat!($path_base, ".spv")),
+            include_str!(concat!($path_base, ".hlsl")),
+            include_str!(concat!($path_base, ".msl")),
+        )
     };
 }

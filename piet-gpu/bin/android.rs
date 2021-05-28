@@ -12,7 +12,7 @@ use ndk::native_window::NativeWindow;
 use ndk_glue::Event;
 
 use piet_gpu_hal::hub;
-use piet_gpu_hal::mux::{QueryPool, Instance, Surface, Swapchain};
+use piet_gpu_hal::mux::{Instance, QueryPool, Surface, Swapchain};
 use piet_gpu_hal::{CmdBuf, Error, ImageLayout};
 
 use piet_gpu::{render_scene, PietGpuRenderContext, Renderer};

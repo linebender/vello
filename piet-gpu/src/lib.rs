@@ -403,6 +403,7 @@ impl Renderer {
             &self.el_pipeline,
             &self.el_ds,
             (((self.n_elements + 127) / 128) as u32, 1, 1),
+            (128, 1, 1),
         );
         cmd_buf.write_timestamp(&query_pool, 1);
         cmd_buf.memory_barrier();
@@ -410,6 +411,7 @@ impl Renderer {
             &self.tile_pipeline,
             &self.tile_ds,
             (((self.n_paths + 255) / 256) as u32, 1, 1),
+            (256, 1, 1),
         );
         cmd_buf.write_timestamp(&query_pool, 2);
         cmd_buf.memory_barrier();
@@ -417,6 +419,7 @@ impl Renderer {
             &self.path_pipeline,
             &self.path_ds,
             (((self.n_pathseg + 31) / 32) as u32, 1, 1),
+            (32, 1, 1),
         );
         cmd_buf.write_timestamp(&query_pool, 3);
         cmd_buf.memory_barrier();
@@ -424,6 +427,7 @@ impl Renderer {
             &self.backdrop_pipeline,
             &self.backdrop_ds,
             (((self.n_paths + 255) / 256) as u32, 1, 1),
+            (256, 1, 1),
         );
         cmd_buf.write_timestamp(&query_pool, 4);
         // Note: this barrier is not needed as an actual dependency between
@@ -434,6 +438,7 @@ impl Renderer {
             &self.bin_pipeline,
             &self.bin_ds,
             (((self.n_paths + 255) / 256) as u32, 1, 1),
+            (256, 1, 1),
         );
         cmd_buf.write_timestamp(&query_pool, 5);
         cmd_buf.memory_barrier();
@@ -441,6 +446,7 @@ impl Renderer {
             &self.coarse_pipeline,
             &self.coarse_ds,
             ((WIDTH as u32 + 255) / 256, (HEIGHT as u32 + 255) / 256, 1),
+            (256, 256, 1),
         );
         cmd_buf.write_timestamp(&query_pool, 6);
         cmd_buf.memory_barrier();
@@ -448,6 +454,7 @@ impl Renderer {
             &self.k4_pipeline,
             &self.k4_ds,
             ((WIDTH / TILE_W) as u32, (HEIGHT / TILE_H) as u32, 1),
+            (8, 4, 1),
         );
         cmd_buf.write_timestamp(&query_pool, 7);
         cmd_buf.memory_barrier();

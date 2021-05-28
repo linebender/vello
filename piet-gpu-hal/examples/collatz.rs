@@ -1,6 +1,7 @@
 use piet_gpu_hal::hub;
-use piet_gpu_hal::mux::{Instance, ShaderCode};
+use piet_gpu_hal::mux::Instance;
 use piet_gpu_hal::BufferUsage;
+use piet_gpu_hal::include_shader;
 
 fn main() {
     let (instance, _) = Instance::new(None).unwrap();
@@ -10,7 +11,7 @@ fn main() {
         let usage = BufferUsage::MAP_READ | BufferUsage::STORAGE;
         let src = (0..256).map(|x| x + 1).collect::<Vec<u32>>();
         let buffer = session.create_buffer_init(&src, usage).unwrap();
-        let code = ShaderCode::Msl(include_str!("./shader/collatz.msl"));
+        let code = include_shader!(&session, "./shader/gen/collatz");
         let pipeline = session.create_simple_compute_pipeline(code, 1).unwrap();
         let descriptor_set = session
             .create_simple_descriptor_set(&pipeline, &[&buffer])
@@ -20,7 +21,7 @@ fn main() {
         cmd_buf.begin();
         cmd_buf.reset_query_pool(&query_pool);
         cmd_buf.write_timestamp(&query_pool, 0);
-        cmd_buf.dispatch(&pipeline, &descriptor_set, (256, 1, 1));
+        cmd_buf.dispatch(&pipeline, &descriptor_set, (256, 1, 1), (1, 1, 1));
         cmd_buf.write_timestamp(&query_pool, 1);
         cmd_buf.host_barrier();
         cmd_buf.finish();

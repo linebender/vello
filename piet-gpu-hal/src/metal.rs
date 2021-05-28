@@ -102,7 +102,11 @@ impl MtlInstance {
                 has_memory_model: false,
                 use_staging_buffers: use_staging_buffers,
             };
-            Ok(MtlDevice { device, cmd_queue, gpu_info })
+            Ok(MtlDevice {
+                device,
+                cmd_queue,
+                gpu_info,
+            })
         } else {
             Err("can't create system default Metal device".into())
         }
@@ -119,7 +123,7 @@ impl MtlInstance {
     }
 }
 
-impl crate::Device for MtlDevice {
+impl crate::backend::Device for MtlDevice {
     type Buffer = Buffer;
 
     type Image = Image;
@@ -282,9 +286,13 @@ impl crate::Device for MtlDevice {
         Ok(())
     }
 
-    unsafe fn get_fence_status(&self, fence: &Self::Fence) -> Result<bool, Error> {
-        // fence need to be mutable here :/
-        todo!()
+    unsafe fn get_fence_status(&self, fence: &mut Self::Fence) -> Result<bool, Error> {
+        match fence {
+            Fence::Idle => Ok(true),
+            Fence::CmdBufPending(cmd_buf) => {
+                Ok(cmd_buf.status() == metal::MTLCommandBufferStatus::Completed)
+            }
+        }
     }
 
     unsafe fn create_sampler(&self, params: crate::SamplerParams) -> Result<Self::Sampler, Error> {
@@ -292,18 +300,17 @@ impl crate::Device for MtlDevice {
     }
 }
 
-impl crate::CmdBuf<MtlDevice> for CmdBuf {
-    unsafe fn begin(&mut self) {
-    }
+impl crate::backend::CmdBuf<MtlDevice> for CmdBuf {
+    unsafe fn begin(&mut self) {}
 
-    unsafe fn finish(&mut self) {
-    }
+    unsafe fn finish(&mut self) {}
 
     unsafe fn dispatch(
         &mut self,
         pipeline: &Pipeline,
         descriptor_set: &DescriptorSet,
-        size: (u32, u32, u32),
+        workgroup_count: (u32, u32, u32),
+        workgroup_size: (u32, u32, u32),
     ) {
         let encoder = self.cmd_buf.new_compute_command_encoder();
         encoder.set_compute_pipeline_state(&pipeline.0);
@@ -313,19 +320,17 @@ impl crate::CmdBuf<MtlDevice> for CmdBuf {
             ix += 1;
         }
         // TODO: set images
-        let work_group_count = metal::MTLSize {
-            width: size.0 as u64,
-            height: size.1 as u64,
-            depth: size.2 as u64,
+        let workgroup_count = metal::MTLSize {
+            width: workgroup_count.0 as u64,
+            height: workgroup_count.1 as u64,
+            depth: workgroup_count.2 as u64,
         };
-        // TODO: we need to pass this in explicitly. In gfx-hal, this is parsed from
-        // the spv before translation.
-        let work_group_size = metal::MTLSize {
-            width: 1,
-            height: 1,
-            depth: 1,
+        let workgroup_size = metal::MTLSize {
+            width: workgroup_size.0 as u64,
+            height: workgroup_size.1 as u64,
+            depth: workgroup_size.2 as u64,
         };
-        encoder.dispatch_thread_groups(work_group_count, work_group_size);
+        encoder.dispatch_thread_groups(workgroup_count, workgroup_size);
         encoder.end_encoding();
     }
 
@@ -334,8 +339,7 @@ impl crate::CmdBuf<MtlDevice> for CmdBuf {
         // Metal's own tracking.
     }
 
-    unsafe fn host_barrier(&mut self) {
-    }
+    unsafe fn host_barrier(&mut self) {}
 
     unsafe fn image_barrier(
         &mut self,
@@ -366,9 +370,7 @@ impl crate::CmdBuf<MtlDevice> for CmdBuf {
         todo!()
     }
 
-    unsafe fn reset_query_pool(&mut self, pool: &QueryPool) {
-        
-    }
+    unsafe fn reset_query_pool(&mut self, pool: &QueryPool) {}
 
     unsafe fn write_timestamp(&mut self, pool: &QueryPool, query: u32) {
         // TODO
@@ -377,17 +379,15 @@ impl crate::CmdBuf<MtlDevice> for CmdBuf {
     }
 }
 
-impl crate::PipelineBuilder<MtlDevice> for PipelineBuilder {
+impl crate::backend::PipelineBuilder<MtlDevice> for PipelineBuilder {
     fn add_buffers(&mut self, _n_buffers: u32) {
         // My understanding is that Metal infers the pipeline layout from
         // the source.
     }
 
-    fn add_images(&mut self, _n_images: u32) {
-    }
+    fn add_images(&mut self, _n_images: u32) {}
 
-    fn add_textures(&mut self, _max_textures: u32) {
-    }
+    fn add_textures(&mut self, _max_textures: u32) {}
 
     unsafe fn create_compute_pipeline(
         self,
@@ -399,12 +399,14 @@ impl crate::PipelineBuilder<MtlDevice> for PipelineBuilder {
         let library = device.device.new_library_with_source(code, &options)?;
         // This seems to be the default name from spirv-cross, but we may need to tweak.
         let function = library.get_function("main0", None)?;
-        let pipeline = device.device.new_compute_pipeline_state_with_function(&function)?;
+        let pipeline = device
+            .device
+            .new_compute_pipeline_state_with_function(&function)?;
         Ok(Pipeline(pipeline))
     }
 }
 
-impl crate::DescriptorSetBuilder<MtlDevice> for DescriptorSetBuilder {
+impl crate::backend::DescriptorSetBuilder<MtlDevice> for DescriptorSetBuilder {
     fn add_buffers(&mut self, buffers: &[&Buffer]) {
         self.0.buffers.extend(buffers.iter().copied().cloned());
     }

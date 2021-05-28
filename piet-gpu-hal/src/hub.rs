@@ -123,7 +123,7 @@ impl Session {
         unsafe {
             let mut i = 0;
             while i < pending.len() {
-                if let Ok(true) = self.0.device.get_fence_status(&pending[i].fence) {
+                if let Ok(true) = self.0.device.get_fence_status(&mut pending[i].fence) {
                     let mut item = pending.swap_remove(i);
                     // TODO: wait is superfluous, can just reset
                     let _ = self.0.device.wait_and_reset(vec![&mut item.fence]);
@@ -294,6 +294,11 @@ impl Session {
 
     pub fn gpu_info(&self) -> &GpuInfo {
         &self.0.gpu_info
+    }
+
+    /// Choose shader code from the available choices.
+    pub fn choose_shader<'a>(&self, spv: &'a [u8], hlsl: &'a str, msl: &'a str) -> ShaderCode<'a> {
+        self.0.device.choose_shader(spv, hlsl, msl)
     }
 }
 

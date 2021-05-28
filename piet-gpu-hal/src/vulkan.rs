@@ -13,8 +13,10 @@ use ash::{vk, Device, Entry, Instance};
 use smallvec::SmallVec;
 
 use crate::{
-    BufferUsage, Device as DeviceTrait, Error, GpuInfo, ImageLayout, SamplerParams, SubgroupSize,
+    BufferUsage, Error, GpuInfo, ImageLayout, SamplerParams, SubgroupSize,
 };
+use crate::backend::Device as DeviceTrait;
+
 
 pub struct VkInstance {
     /// Retain the dynamic lib.
@@ -455,7 +457,7 @@ impl VkInstance {
     }
 }
 
-impl crate::Device for VkDevice {
+impl crate::backend::Device for VkDevice {
     type Buffer = Buffer;
     type Image = Image;
     type CmdBuf = CmdBuf;
@@ -621,16 +623,13 @@ impl crate::Device for VkDevice {
 
     unsafe fn wait_and_reset(&self, fences: Vec<&mut Self::Fence>) -> Result<(), Error> {
         let device = &self.device.device;
-        let fences = fences
-            .iter()
-            .map(|f| **f)
-            .collect::<SmallVec<[_; 4]>>();
+        let fences = fences.iter().map(|f| **f).collect::<SmallVec<[_; 4]>>();
         device.wait_for_fences(&fences, true, !0)?;
         device.reset_fences(&fences)?;
         Ok(())
     }
 
-    unsafe fn get_fence_status(&self, fence: &Self::Fence) -> Result<bool, Error> {
+    unsafe fn get_fence_status(&self, fence: &mut Self::Fence) -> Result<bool, Error> {
         let device = &self.device.device;
         Ok(device.get_fence_status(*fence)?)
     }
@@ -843,7 +842,8 @@ impl crate::CmdBuf<VkDevice> for CmdBuf {
         &mut self,
         pipeline: &Pipeline,
         descriptor_set: &DescriptorSet,
-        size: (u32, u32, u32),
+        workgroup_count: (u32, u32, u32),
+        _workgroup_size: (u32, u32, u32),
     ) {
         let device = &self.device.device;
         device.cmd_bind_pipeline(
@@ -859,7 +859,12 @@ impl crate::CmdBuf<VkDevice> for CmdBuf {
             &[descriptor_set.descriptor_set],
             &[],
         );
-        device.cmd_dispatch(self.cmd_buf, size.0, size.1, size.2);
+        device.cmd_dispatch(
+            self.cmd_buf,
+            workgroup_count.0,
+            workgroup_count.1,
+            workgroup_count.2,
+        );
     }
 
     /// Insert a pipeline barrier for all memory accesses.
@@ -1047,7 +1052,7 @@ impl crate::CmdBuf<VkDevice> for CmdBuf {
     }
 }
 
-impl crate::PipelineBuilder<VkDevice> for PipelineBuilder {
+impl crate::backend::PipelineBuilder<VkDevice> for PipelineBuilder {
     fn add_buffers(&mut self, n_buffers: u32) {
         let start = self.bindings.len() as u32;
         for i in 0..n_buffers {
@@ -1153,7 +1158,7 @@ impl crate::PipelineBuilder<VkDevice> for PipelineBuilder {
     }
 }
 
-impl crate::DescriptorSetBuilder<VkDevice> for DescriptorSetBuilder {
+impl crate::backend::DescriptorSetBuilder<VkDevice> for DescriptorSetBuilder {
     fn add_buffers(&mut self, buffers: &[&Buffer]) {
         self.buffers.extend(buffers.iter().map(|b| b.buffer));
     }
@@ -1307,7 +1312,11 @@ impl VkSwapchain {
         image_idx: usize,
         semaphores: &[&vk::Semaphore],
     ) -> Result<bool, Error> {
-        let semaphores = semaphores.iter().copied().copied().collect::<SmallVec<[_; 4]>>();
+        let semaphores = semaphores
+            .iter()
+            .copied()
+            .copied()
+            .collect::<SmallVec<[_; 4]>>();
         Ok(self.swapchain_fn.queue_present(
             self.present_queue,
             &vk::PresentInfoKHR::builder()
