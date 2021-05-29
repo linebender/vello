@@ -2,7 +2,8 @@
 //! This will probably go away when it's fully implemented and we can
 //! just use the hub.
 
-use piet_gpu_hal::{dx12, BufferUsage, CmdBuf, Device, Error};
+use piet_gpu_hal::{dx12, BufferUsage, Error};
+use piet_gpu_hal::backend::{CmdBuf, Device};
 
 const SHADER_CODE: &str = r#"RWByteAddressBuffer _53 : register(u0, space0);
 
@@ -78,7 +79,7 @@ fn toy() -> Result<(), Error> {
         cmd_buf.copy_buffer(&buf, &dev_buf);
         cmd_buf.memory_barrier();
         cmd_buf.write_timestamp(&query_pool, 0);
-        cmd_buf.dispatch(&pipeline, &ds, (1, 1, 1));
+        cmd_buf.dispatch(&pipeline, &ds, (1, 1, 1), (256, 1, 1));
         cmd_buf.write_timestamp(&query_pool, 1);
         cmd_buf.memory_barrier();
         cmd_buf.copy_buffer(&dev_buf, &buf);

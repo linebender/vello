@@ -224,7 +224,7 @@ impl Dx12Instance {
     }
 }
 
-impl crate::Device for Dx12Device {
+impl crate::backend::Device for Dx12Device {
     type Buffer = Buffer;
 
     type Image = Image;
@@ -413,7 +413,7 @@ impl crate::Device for Dx12Device {
         Ok(())
     }
 
-    unsafe fn get_fence_status(&self, fence: &Self::Fence) -> Result<bool, Error> {
+    unsafe fn get_fence_status(&self, fence: &mut Self::Fence) -> Result<bool, Error> {
         let fence_val = fence.fence.get_value();
         Ok(fence_val == fence.val.get())
     }
@@ -451,7 +451,7 @@ impl Dx12Device {
     }
 }
 
-impl crate::CmdBuf<Dx12Device> for CmdBuf {
+impl crate::backend::CmdBuf<Dx12Device> for CmdBuf {
     unsafe fn begin(&mut self) {}
 
     unsafe fn finish(&mut self) {
@@ -468,7 +468,8 @@ impl crate::CmdBuf<Dx12Device> for CmdBuf {
         &mut self,
         pipeline: &Pipeline,
         descriptor_set: &DescriptorSet,
-        size: (u32, u32, u32),
+        workgroup_count: (u32, u32, u32),
+        _workgroup_size: (u32, u32, u32),
     ) {
         self.c.set_pipeline_state(&pipeline.pipeline_state);
         self.c
@@ -478,7 +479,8 @@ impl crate::CmdBuf<Dx12Device> for CmdBuf {
             0,
             descriptor_set.0.get_gpu_descriptor_handle_at_offset(0),
         );
-        self.c.dispatch(size.0, size.1, size.2);
+        self.c
+            .dispatch(workgroup_count.0, workgroup_count.1, workgroup_count.2);
     }
 
     unsafe fn memory_barrier(&mut self) {
@@ -554,7 +556,7 @@ impl crate::CmdBuf<Dx12Device> for CmdBuf {
     }
 }
 
-impl crate::PipelineBuilder<Dx12Device> for PipelineBuilder {
+impl crate::backend::PipelineBuilder<Dx12Device> for PipelineBuilder {
     fn add_buffers(&mut self, n_buffers: u32) {
         if n_buffers != 0 {
             self.ranges.push(d3d12::D3D12_DESCRIPTOR_RANGE {
@@ -630,7 +632,7 @@ impl crate::PipelineBuilder<Dx12Device> for PipelineBuilder {
     }
 }
 
-impl crate::DescriptorSetBuilder<Dx12Device> for DescriptorSetBuilder {
+impl crate::backend::DescriptorSetBuilder<Dx12Device> for DescriptorSetBuilder {
     fn add_buffers(&mut self, buffers: &[&Buffer]) {
         // Note: we could get rid of the clone here (which is an AddRef)
         // and store a raw pointer, as it's a safety precondition that

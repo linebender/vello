@@ -30,10 +30,10 @@ mux_cfg! {
     #[cfg(mtl)]
     use crate::metal;
 }
-use crate::CmdBuf as CmdBufTrait;
-use crate::DescriptorSetBuilder as DescriptorSetBuilderTrait;
-use crate::Device as DeviceTrait;
-use crate::PipelineBuilder as PipelineBuilderTrait;
+use crate::backend::CmdBuf as CmdBufTrait;
+use crate::backend::DescriptorSetBuilder as DescriptorSetBuilderTrait;
+use crate::backend::Device as DeviceTrait;
+use crate::backend::PipelineBuilder as PipelineBuilderTrait;
 use crate::{BufferUsage, Error, GpuInfo, ImageLayout};
 
 mux_enum! {
@@ -255,11 +255,11 @@ impl Device {
         }
     }
 
-    pub unsafe fn get_fence_status(&self, fence: &Fence) -> Result<bool, Error> {
+    pub unsafe fn get_fence_status(&self, fence: &mut Fence) -> Result<bool, Error> {
         mux_match! { self;
-            Device::Vk(d) => d.get_fence_status(fence.vk()),
-            Device::Dx12(d) => d.get_fence_status(fence.dx12()),
-            Device::Mtl(d) => d.get_fence_status(fence.mtl()),
+            Device::Vk(d) => d.get_fence_status(fence.vk_mut()),
+            Device::Dx12(d) => d.get_fence_status(fence.dx12_mut()),
+            Device::Mtl(d) => d.get_fence_status(fence.mtl_mut()),
         }
     }
 
@@ -398,6 +398,15 @@ impl Device {
             Device::Vk(d) => d.write_buffer(buffer.vk(), contents, offset, size),
             Device::Dx12(d) => d.write_buffer(buffer.dx12(), contents, offset, size),
             Device::Mtl(d) => d.write_buffer(buffer.mtl(), contents, offset, size),
+        }
+    }
+
+    /// Choose shader code from the available choices.
+    pub fn choose_shader<'a>(&self, _spv: &'a [u8], _hlsl: &'a str, _msl: &'a str) -> ShaderCode<'a> {
+        mux_match! { self;
+            Device::Vk(_d) => ShaderCode::Spv(_spv),
+            Device::Dx12(_d) => ShaderCode::Hlsl(_hlsl),
+            Device::Mtl(_d) => ShaderCode::Msl(_msl),
         }
     }
 }
@@ -578,16 +587,25 @@ impl CmdBuf {
         }
     }
 
+    /// Dispatch a compute shader.
+    ///
+    /// Note that both the number of workgroups (`workgroup_count`) and the number of
+    /// threads in a workgroup (`workgroup_size`) are given. The latter is needed on
+    /// Metal, while it's baked into the shader on Vulkan and DX12.
+    ///
+    /// Perhaps we'll have a mechanism to plumb the latter value to configure the size
+    /// of a workgroup using specialization constants in the future.
     pub unsafe fn dispatch(
         &mut self,
         pipeline: &Pipeline,
         descriptor_set: &DescriptorSet,
-        size: (u32, u32, u32),
+        workgroup_count: (u32, u32, u32),
+        workgroup_size: (u32, u32, u32),
     ) {
         mux_match! { self;
-            CmdBuf::Vk(c) => c.dispatch(pipeline.vk(), descriptor_set.vk(), size),
-            CmdBuf::Dx12(c) => c.dispatch(pipeline.dx12(), descriptor_set.dx12(), size),
-            CmdBuf::Mtl(c) => c.dispatch(pipeline.mtl(), descriptor_set.mtl(), size),
+            CmdBuf::Vk(c) => c.dispatch(pipeline.vk(), descriptor_set.vk(), workgroup_count, workgroup_size),
+            CmdBuf::Dx12(c) => c.dispatch(pipeline.dx12(), descriptor_set.dx12(), workgroup_count, workgroup_size),
+            CmdBuf::Mtl(c) => c.dispatch(pipeline.mtl(), descriptor_set.mtl(), workgroup_count, workgroup_size),
         }
     }
 
