@@ -12,9 +12,10 @@ use piet::{Color, ImageFormat, RenderContext};
 
 use piet_gpu_types::encoder::Encode;
 
-use piet_gpu_hal::hub;
-use piet_gpu_hal::hub::ShaderCode;
-use piet_gpu_hal::{BufferUsage, Error, ImageLayout};
+use piet_gpu_hal::{
+    Buffer, BufferUsage, CmdBuf, DescriptorSet, Error, Image, ImageLayout, Pipeline, QueryPool,
+    Session, ShaderCode,
+};
 
 use pico_svg::PicoSvg;
 
@@ -188,53 +189,53 @@ pub fn dump_k1_data(k1_buf: &[u32]) {
 }
 
 pub struct Renderer {
-    pub image_dev: hub::Image, // resulting image
+    pub image_dev: Image, // resulting image
 
     // The reference is held by the pipelines. We will be changing
     // this to make the scene upload dynamic.
     #[allow(dead_code)]
-    scene_buf: hub::Buffer,
+    scene_buf: Buffer,
 
-    memory_buf_host: hub::Buffer,
-    memory_buf_dev: hub::Buffer,
+    memory_buf_host: Buffer,
+    memory_buf_dev: Buffer,
 
-    state_buf: hub::Buffer,
+    state_buf: Buffer,
 
     #[allow(dead_code)]
-    config_buf: hub::Buffer,
+    config_buf: Buffer,
 
-    el_pipeline: hub::Pipeline,
-    el_ds: hub::DescriptorSet,
+    el_pipeline: Pipeline,
+    el_ds: DescriptorSet,
 
-    tile_pipeline: hub::Pipeline,
-    tile_ds: hub::DescriptorSet,
+    tile_pipeline: Pipeline,
+    tile_ds: DescriptorSet,
 
-    path_pipeline: hub::Pipeline,
-    path_ds: hub::DescriptorSet,
+    path_pipeline: Pipeline,
+    path_ds: DescriptorSet,
 
-    backdrop_pipeline: hub::Pipeline,
-    backdrop_ds: hub::DescriptorSet,
+    backdrop_pipeline: Pipeline,
+    backdrop_ds: DescriptorSet,
 
-    bin_pipeline: hub::Pipeline,
-    bin_ds: hub::DescriptorSet,
+    bin_pipeline: Pipeline,
+    bin_ds: DescriptorSet,
 
-    coarse_pipeline: hub::Pipeline,
-    coarse_ds: hub::DescriptorSet,
+    coarse_pipeline: Pipeline,
+    coarse_ds: DescriptorSet,
 
-    k4_pipeline: hub::Pipeline,
-    k4_ds: hub::DescriptorSet,
+    k4_pipeline: Pipeline,
+    k4_ds: DescriptorSet,
 
     n_elements: usize,
     n_paths: usize,
     n_pathseg: usize,
 
     // Keep a reference to the image so that it is not destroyed.
-    _bg_image: hub::Image,
+    _bg_image: Image,
 }
 
 impl Renderer {
     pub unsafe fn new(
-        session: &hub::Session,
+        session: &Session,
         scene: &[u8],
         n_paths: usize,
         n_pathseg: usize,
@@ -385,15 +386,12 @@ impl Renderer {
         })
     }
 
-    pub unsafe fn record(&self, cmd_buf: &mut hub::CmdBuf, query_pool: &hub::QueryPool) {
-        cmd_buf.copy_buffer(
-            self.memory_buf_host.mux_buffer(),
-            self.memory_buf_dev.mux_buffer(),
-        );
-        cmd_buf.clear_buffer(self.state_buf.mux_buffer(), None);
+    pub unsafe fn record(&self, cmd_buf: &mut CmdBuf, query_pool: &QueryPool) {
+        cmd_buf.copy_buffer(&self.memory_buf_host, &self.memory_buf_dev);
+        cmd_buf.clear_buffer(&self.state_buf, None);
         cmd_buf.memory_barrier();
         cmd_buf.image_barrier(
-            self.image_dev.mux_image(),
+            &self.image_dev,
             ImageLayout::Undefined,
             ImageLayout::General,
         );
@@ -458,20 +456,16 @@ impl Renderer {
         );
         cmd_buf.write_timestamp(&query_pool, 7);
         cmd_buf.memory_barrier();
-        cmd_buf.image_barrier(
-            self.image_dev.mux_image(),
-            ImageLayout::General,
-            ImageLayout::BlitSrc,
-        );
+        cmd_buf.image_barrier(&self.image_dev, ImageLayout::General, ImageLayout::BlitSrc);
     }
 
     pub fn make_image(
-        session: &hub::Session,
+        session: &Session,
         width: usize,
         height: usize,
         buf: &[u8],
         format: ImageFormat,
-    ) -> Result<hub::Image, Error> {
+    ) -> Result<Image, Error> {
         unsafe {
             if format != ImageFormat::RgbaPremul {
                 return Err("unsupported image format".into());
@@ -482,17 +476,9 @@ impl Renderer {
             let image = session.create_image2d(width.try_into()?, height.try_into()?)?;
             let mut cmd_buf = session.cmd_buf()?;
             cmd_buf.begin();
-            cmd_buf.image_barrier(
-                image.mux_image(),
-                ImageLayout::Undefined,
-                ImageLayout::BlitDst,
-            );
-            cmd_buf.copy_buffer_to_image(buffer.mux_buffer(), image.mux_image());
-            cmd_buf.image_barrier(
-                image.mux_image(),
-                ImageLayout::BlitDst,
-                ImageLayout::General,
-            );
+            cmd_buf.image_barrier(&image, ImageLayout::Undefined, ImageLayout::BlitDst);
+            cmd_buf.copy_buffer_to_image(&buffer, &image);
+            cmd_buf.image_barrier(&image, ImageLayout::BlitDst, ImageLayout::General);
             cmd_buf.finish();
             // Make sure not to drop the buffer and image until the command buffer completes.
             cmd_buf.add_resource(&buffer);
@@ -504,7 +490,7 @@ impl Renderer {
     }
 
     /// Make a test image.
-    fn make_test_bg_image(session: &hub::Session) -> hub::Image {
+    fn make_test_bg_image(session: &Session) -> Image {
         const WIDTH: usize = 256;
         const HEIGHT: usize = 256;
         let mut buf = vec![255u8; WIDTH * HEIGHT * 4];

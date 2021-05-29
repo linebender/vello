@@ -4,43 +4,58 @@
 /// In time, it may go away and be replaced by either gfx-hal or wgpu.
 use bitflags::bitflags;
 
-pub mod backend;
-pub mod hub;
+mod backend;
+mod hub;
 
 #[macro_use]
 mod macros;
 
-// TODO: Don't make the module pub, but do figure out which types to
-// export at the root level.
-pub mod mux;
+mod mux;
+
+pub use crate::mux::{
+    DescriptorSet, Fence, Instance, Pipeline, QueryPool, Sampler, Semaphore, ShaderCode, Surface,
+    Swapchain,
+};
+pub use hub::{
+    Buffer, CmdBuf, DescriptorSetBuilder, Image, PipelineBuilder, PlainData, RetainResource,
+    Session, SubmittedCmdBuf,
+};
 
 // TODO: because these are conditionally included, "cargo fmt" does not
 // see them. Figure that out, possibly including running rustfmt manually.
 mux_cfg! {
     #[cfg(vk)]
-    pub mod vulkan;
+    mod vulkan;
 }
 mux_cfg! {
     #[cfg(dx12)]
-    pub mod dx12;
+    mod dx12;
 }
 #[cfg(target_os = "macos")]
-pub mod metal;
+mod metal;
 
 /// The common error type for the crate.
 ///
 /// This keeps things imple and can be expanded later.
 pub type Error = Box<dyn std::error::Error>;
 
-pub use crate::backend::CmdBuf;
-
+/// An image layout state.
+///
+/// An image must be in a particular layout state to be used for
+/// a purpose such as being bound to a shader.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ImageLayout {
+    /// The initial state for a newly created image.
     Undefined,
+    /// A swapchain ready to be presented.
     Present,
+    /// The source for a copy operation.
     BlitSrc,
+    /// The destination for a copy operation.
     BlitDst,
+    /// Read/write binding to a shader.
     General,
+    /// Able to be sampled from by shaders.
     ShaderRead,
 }
 
@@ -55,7 +70,7 @@ pub enum SamplerParams {
 }
 
 bitflags! {
-    /// The intended usage for this buffer.
+    /// The intended usage for a buffer, specified on creation.
     pub struct BufferUsage: u32 {
         /// The buffer can be mapped for reading CPU-side.
         const MAP_READ = 0x1;
@@ -92,6 +107,11 @@ pub struct GpuInfo {
     pub use_staging_buffers: bool,
 }
 
+/// The range of subgroup sizes supported by a back-end, when available.
+///
+/// The subgroup size is always a power of 2. The ability to specify
+/// subgroup size for a compute shader is a newer feature, not always
+/// available.
 #[derive(Clone, Debug)]
 pub struct SubgroupSize {
     min: u32,

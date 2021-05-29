@@ -11,9 +11,10 @@ use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
 use ndk::native_window::NativeWindow;
 use ndk_glue::Event;
 
-use piet_gpu_hal::hub;
-use piet_gpu_hal::mux::{Instance, QueryPool, Surface, Swapchain};
-use piet_gpu_hal::{CmdBuf, Error, ImageLayout};
+use piet_gpu_hal::{
+    Error, ImageLayout, Instance, QueryPool, Semaphore, Session, SubmittedCmdBuf, Surface,
+    Swapchain,
+};
 
 use piet_gpu::{render_scene, PietGpuRenderContext, Renderer};
 
@@ -28,14 +29,14 @@ struct MyHandle {
 
 // State required to render and present the contents
 struct GfxState {
-    session: hub::Session,
+    session: Session,
     renderer: Renderer,
     swapchain: Swapchain,
     current_frame: usize,
     last_frame_idx: usize,
-    submitted: Option<hub::SubmittedCmdBuf>,
+    submitted: Option<SubmittedCmdBuf>,
     query_pools: Vec<QueryPool>,
-    present_semaphores: Vec<hub::Semaphore>,
+    present_semaphores: Vec<Semaphore>,
 }
 
 const WIDTH: usize = 1080;
@@ -95,7 +96,7 @@ impl GfxState {
             let device = instance.device(surface)?;
             let mut swapchain =
                 instance.swapchain(WIDTH / 2, HEIGHT / 2, &device, surface.unwrap())?;
-            let session = hub::Session::new(device);
+            let session = Session::new(device);
             let mut current_frame = 0;
             let present_semaphores = (0..NUM_FRAMES)
                 .map(|_| session.create_semaphore())
@@ -113,7 +114,7 @@ impl GfxState {
 
             let renderer = Renderer::new(&session, scene, n_paths, n_pathseg, n_trans)?;
 
-            let submitted: Option<hub::SubmittedCmdBuf> = None;
+            let submitted: Option<SubmittedCmdBuf> = None;
             let current_frame = 0;
             let last_frame_idx = 0;
             Ok(GfxState {
@@ -151,7 +152,7 @@ impl GfxState {
 
             // Image -> Swapchain
             cmd_buf.image_barrier(&swap_image, ImageLayout::Undefined, ImageLayout::BlitDst);
-            cmd_buf.blit_image(self.renderer.image_dev.mux_image(), &swap_image);
+            cmd_buf.blit_image(&self.renderer.image_dev, &swap_image);
             cmd_buf.image_barrier(&swap_image, ImageLayout::BlitDst, ImageLayout::Present);
             cmd_buf.finish();
 

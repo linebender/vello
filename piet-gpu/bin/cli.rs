@@ -4,9 +4,7 @@ use std::path::Path;
 
 use clap::{App, Arg};
 
-use piet_gpu_hal::hub;
-use piet_gpu_hal::mux::Instance;
-use piet_gpu_hal::{BufferUsage, Error};
+use piet_gpu_hal::{BufferUsage, Error, Instance, Session};
 
 use piet_gpu::{render_scene, render_svg, PietGpuRenderContext, Renderer, HEIGHT, WIDTH};
 
@@ -228,7 +226,7 @@ fn main() -> Result<(), Error> {
     let (instance, _) = Instance::new(None)?;
     unsafe {
         let device = instance.device(None)?;
-        let session = hub::Session::new(device);
+        let session = Session::new(device);
 
         let mut cmd_buf = session.cmd_buf()?;
         let query_pool = session.create_query_pool(8)?;
@@ -258,7 +256,7 @@ fn main() -> Result<(), Error> {
 
         cmd_buf.begin();
         renderer.record(&mut cmd_buf, &query_pool);
-        cmd_buf.copy_image_to_buffer(renderer.image_dev.mux_image(), image_buf.mux_buffer());
+        cmd_buf.copy_image_to_buffer(&renderer.image_dev, &image_buf);
         cmd_buf.host_barrier();
         cmd_buf.finish();
         let start = std::time::Instant::now();
