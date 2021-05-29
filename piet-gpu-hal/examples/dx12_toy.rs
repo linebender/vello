@@ -2,8 +2,8 @@
 //! This will probably go away when it's fully implemented and we can
 //! just use the hub.
 
-use piet_gpu_hal::{dx12, BufferUsage, Error};
 use piet_gpu_hal::backend::{CmdBuf, Device};
+use piet_gpu_hal::{dx12, BufferUsage, Error};
 
 const SHADER_CODE: &str = r#"RWByteAddressBuffer _53 : register(u0, space0);
 

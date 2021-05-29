@@ -402,7 +402,12 @@ impl Device {
     }
 
     /// Choose shader code from the available choices.
-    pub fn choose_shader<'a>(&self, _spv: &'a [u8], _hlsl: &'a str, _msl: &'a str) -> ShaderCode<'a> {
+    pub fn choose_shader<'a>(
+        &self,
+        _spv: &'a [u8],
+        _hlsl: &'a str,
+        _msl: &'a str,
+    ) -> ShaderCode<'a> {
         mux_match! { self;
             Device::Vk(_d) => ShaderCode::Spv(_spv),
             Device::Dx12(_d) => ShaderCode::Hlsl(_hlsl),
