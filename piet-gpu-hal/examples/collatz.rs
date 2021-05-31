@@ -1,7 +1,7 @@
 use piet_gpu_hal::hub;
+use piet_gpu_hal::include_shader;
 use piet_gpu_hal::mux::Instance;
 use piet_gpu_hal::BufferUsage;
-use piet_gpu_hal::include_shader;
 
 fn main() {
     let (instance, _) = Instance::new(None).unwrap();

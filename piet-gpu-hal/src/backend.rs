@@ -16,7 +16,7 @@
 
 //! The generic trait for backends to implement.
 
-use crate::{BufferUsage, Error, GpuInfo, ImageLayout, SamplerParams, mux::ShaderCode};
+use crate::{mux::ShaderCode, BufferUsage, Error, GpuInfo, ImageLayout, SamplerParams};
 
 pub trait Device: Sized {
     type Buffer: 'static;
