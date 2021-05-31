@@ -14,26 +14,44 @@
 //
 // Also licensed under MIT license, at your choice.
 
-use cocoa_foundation::foundation::NSInteger;
+mod util;
+
+use std::mem;
+use std::sync::{Arc, Mutex};
+
+use cocoa_foundation::base::id;
+use cocoa_foundation::foundation::{NSInteger, NSUInteger};
 use objc::rc::autoreleasepool;
-use objc::runtime::Object;
+use objc::runtime::{Object, BOOL, YES};
 use objc::{class, msg_send, sel, sel_impl};
 
-use metal::MTLFeatureSet;
+use metal::{CGFloat, MTLFeatureSet};
+
+use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
 
 use crate::{BufferUsage, Error, GpuInfo};
+
+use util::*;
 
 pub struct MtlInstance;
 
 pub struct MtlDevice {
     device: metal::Device,
-    cmd_queue: metal::CommandQueue,
+    cmd_queue: Arc<Mutex<metal::CommandQueue>>,
     gpu_info: GpuInfo,
 }
 
-pub struct MtlSurface;
+pub struct MtlSurface {
+    layer: metal::MetalLayer,
+}
 
-pub struct MtlSwapchain;
+pub struct MtlSwapchain {
+    layer: metal::MetalLayer,
+    cmd_queue: Arc<Mutex<metal::CommandQueue>>,
+    drawable: Mutex<Option<metal::MetalDrawable>>,
+    n_drawables: usize,
+    drawable_ix: usize,
+}
 
 #[derive(Clone)]
 pub struct Buffer {
@@ -41,7 +59,12 @@ pub struct Buffer {
     pub(crate) size: u64,
 }
 
-pub struct Image;
+#[derive(Clone)]
+pub struct Image {
+    texture: metal::Texture,
+    width: u32,
+    height: u32,
+}
 
 // This is the way gfx-hal does it, but a more Vulkan-like strategy would be
 // to have a semaphore that gets signaled from the command buffer's completion
@@ -69,13 +92,55 @@ pub struct DescriptorSetBuilder(DescriptorSet);
 #[derive(Default)]
 pub struct DescriptorSet {
     buffers: Vec<Buffer>,
+    images: Vec<Image>,
 }
 
 impl MtlInstance {
     pub fn new(
-        _window_handle: Option<&dyn raw_window_handle::HasRawWindowHandle>,
+        window_handle: Option<&dyn HasRawWindowHandle>,
     ) -> Result<(MtlInstance, Option<MtlSurface>), Error> {
-        Ok((MtlInstance, None))
+        let mut surface = None;
+        if let Some(window_handle) = window_handle {
+            let window_handle = window_handle.raw_window_handle();
+            if let RawWindowHandle::MacOS(w) = window_handle {
+                unsafe {
+                    surface = Self::make_surface(w.ns_view as id, w.ns_window as id);
+                }
+            }
+        }
+
+        Ok((MtlInstance, surface))
+    }
+
+    unsafe fn make_surface(ns_view: id, ns_window: id) -> Option<MtlSurface> {
+        let ca_ml_class = class!(CAMetalLayer);
+        let is_ca_ml: BOOL = msg_send![ns_view, isKindOfClass: ca_ml_class];
+        if is_ca_ml == YES {
+            todo!("create surface from layer")
+        }
+        let layer: id = msg_send![ns_view, layer];
+        let use_current = !layer.is_null() && {
+            let result: BOOL = msg_send![layer, isKindOfClass: ca_ml_class];
+            result == YES
+        };
+        let metal_layer = if use_current {
+            mem::transmute::<_, &metal::MetalLayerRef>(layer).to_owned()
+        } else {
+            let metal_layer: metal::MetalLayer = msg_send![ca_ml_class, new];
+            let () = msg_send![ns_view, setLayer: metal_layer.as_ref()];
+            let () = msg_send![ns_view, setWantsLayer: YES];
+            let bounds: CGRect = msg_send![ns_view, bounds];
+            let () = msg_send![metal_layer, setFrame: bounds];
+
+            if !ns_window.is_null() {
+                let scale_factor: CGFloat = msg_send![ns_window, backingScaleFactor];
+                let () = msg_send![metal_layer, setContentsScale: scale_factor];
+            }
+            // gfx-hal sets a delegate here
+            metal_layer
+        };
+        let () = msg_send![metal_layer, setContentsGravity: kCAGravityTopLeft];
+        Some(MtlSurface { layer: metal_layer })
     }
 
     // TODO might do some enumeration of devices
@@ -100,11 +165,11 @@ impl MtlInstance {
                 has_subgroups: false,
                 subgroup_size: None,
                 has_memory_model: false,
-                use_staging_buffers: use_staging_buffers,
+                use_staging_buffers,
             };
             Ok(MtlDevice {
                 device,
-                cmd_queue,
+                cmd_queue: Arc::new(Mutex::new(cmd_queue)),
                 gpu_info,
             })
         } else {
@@ -114,12 +179,20 @@ impl MtlInstance {
 
     pub unsafe fn swapchain(
         &self,
-        width: usize,
-        height: usize,
+        _width: usize,
+        _height: usize,
         device: &MtlDevice,
         surface: &MtlSurface,
     ) -> Result<MtlSwapchain, Error> {
-        todo!()
+        surface.layer.set_device(&device.device);
+        let n_drawables = surface.layer.maximum_drawable_count() as usize;
+        Ok(MtlSwapchain {
+            layer: surface.layer.to_owned(),
+            cmd_queue: device.cmd_queue.clone(),
+            drawable: Default::default(),
+            n_drawables,
+            drawable_ix: 0,
+        })
     }
 }
 
@@ -166,17 +239,30 @@ impl crate::backend::Device for MtlDevice {
         Ok(Buffer { buffer, size })
     }
 
-    unsafe fn destroy_buffer(&self, buffer: &Self::Buffer) -> Result<(), Error> {
+    unsafe fn destroy_buffer(&self, _buffer: &Self::Buffer) -> Result<(), Error> {
         // This defers dropping until the buffer object is dropped. We probably need
         // to rethink buffer lifetime if descriptor sets can retain references.
         Ok(())
     }
 
     unsafe fn create_image2d(&self, width: u32, height: u32) -> Result<Self::Image, Error> {
-        todo!()
+        let desc = metal::TextureDescriptor::new();
+        desc.set_width(width as u64);
+        desc.set_height(height as u64);
+        // These are defaults so don't need to be explicitly set.
+        //desc.set_depth(1);
+        //desc.set_mipmap_level_count(1);
+        //desc.set_pixel_format(metal::MTLPixelFormat::RGBA8Unorm);
+        desc.set_usage(metal::MTLTextureUsage::ShaderRead | metal::MTLTextureUsage::ShaderWrite);
+        let texture = self.device.new_texture(&desc);
+        Ok(Image {
+            texture,
+            width,
+            height,
+        })
     }
 
-    unsafe fn destroy_image(&self, image: &Self::Image) -> Result<(), Error> {
+    unsafe fn destroy_image(&self, _image: &Self::Image) -> Result<(), Error> {
         todo!()
     }
 
@@ -189,8 +275,9 @@ impl crate::backend::Device for MtlDevice {
     }
 
     fn create_cmd_buf(&self) -> Result<Self::CmdBuf, Error> {
+        let cmd_queue = self.cmd_queue.lock().unwrap();
         // consider new_command_buffer_with_unretained_references for performance
-        let cmd_buf = self.cmd_queue.new_command_buffer();
+        let cmd_buf = cmd_queue.new_command_buffer();
         let cmd_buf = autoreleasepool(|| cmd_buf.to_owned());
         Ok(CmdBuf { cmd_buf })
     }
@@ -262,7 +349,7 @@ impl crate::backend::Device for MtlDevice {
     }
 
     unsafe fn create_semaphore(&self) -> Result<Self::Semaphore, Error> {
-        todo!()
+        Ok(Semaphore)
     }
 
     unsafe fn create_fence(&self, _signaled: bool) -> Result<Self::Fence, Error> {
@@ -314,12 +401,16 @@ impl crate::backend::CmdBuf<MtlDevice> for CmdBuf {
     ) {
         let encoder = self.cmd_buf.new_compute_command_encoder();
         encoder.set_compute_pipeline_state(&pipeline.0);
-        let mut ix = 0;
+        let mut buf_ix = 0;
         for buffer in &descriptor_set.buffers {
-            encoder.set_buffer(ix, Some(&buffer.buffer), 0);
-            ix += 1;
+            encoder.set_buffer(buf_ix, Some(&buffer.buffer), 0);
+            buf_ix += 1;
         }
-        // TODO: set images
+        let mut img_ix = 0;
+        for image in &descriptor_set.images {
+            encoder.set_texture(img_ix, Some(&image.texture));
+            img_ix += 1;
+        }
         let workgroup_count = metal::MTLSize {
             width: workgroup_count.0 as u64,
             height: workgroup_count.1 as u64,
@@ -343,11 +434,11 @@ impl crate::backend::CmdBuf<MtlDevice> for CmdBuf {
 
     unsafe fn image_barrier(
         &mut self,
-        image: &Image,
-        src_layout: crate::ImageLayout,
-        dst_layout: crate::ImageLayout,
+        _image: &Image,
+        _src_layout: crate::ImageLayout,
+        _dst_layout: crate::ImageLayout,
     ) {
-        todo!()
+        // I think these are being tracked.
     }
 
     unsafe fn clear_buffer(&self, buffer: &Buffer, size: Option<u64>) {
@@ -355,19 +446,82 @@ impl crate::backend::CmdBuf<MtlDevice> for CmdBuf {
     }
 
     unsafe fn copy_buffer(&self, src: &Buffer, dst: &Buffer) {
-        todo!()
+        let encoder = self.cmd_buf.new_blit_command_encoder();
+        let size = src.size.min(dst.size);
+        encoder.copy_from_buffer(&src.buffer, 0, &dst.buffer, 0, size);
+        encoder.end_encoding();
     }
 
     unsafe fn copy_image_to_buffer(&self, src: &Image, dst: &Buffer) {
-        todo!()
+        let encoder = self.cmd_buf.new_blit_command_encoder();
+        assert_eq!(dst.size, (src.width as u64) * (src.height as u64) * 4);
+        let bytes_per_row = (src.width * 4) as NSUInteger;
+        let src_size = metal::MTLSize {
+            width: src.width as NSUInteger,
+            height: src.height as NSUInteger,
+            depth: 1,
+        };
+        let origin = metal::MTLOrigin { x: 0, y: 0, z: 0 };
+        encoder.copy_from_texture_to_buffer(
+            &src.texture,
+            0,
+            0,
+            origin,
+            src_size,
+            &dst.buffer,
+            0,
+            bytes_per_row,
+            bytes_per_row * src.height as NSUInteger,
+            metal::MTLBlitOption::empty(),
+        );
+        encoder.end_encoding();
     }
 
     unsafe fn copy_buffer_to_image(&self, src: &Buffer, dst: &Image) {
-        todo!()
+        let encoder = self.cmd_buf.new_blit_command_encoder();
+        assert_eq!(src.size, (dst.width as u64) * (dst.height as u64) * 4);
+        let bytes_per_row = (dst.width * 4) as NSUInteger;
+        let src_size = metal::MTLSize {
+            width: dst.width as NSUInteger,
+            height: dst.height as NSUInteger,
+            depth: 1,
+        };
+        let origin = metal::MTLOrigin { x: 0, y: 0, z: 0 };
+        encoder.copy_from_buffer_to_texture(
+            &src.buffer,
+            0,
+            bytes_per_row,
+            bytes_per_row * dst.height as NSUInteger,
+            src_size,
+            &dst.texture,
+            0,
+            0,
+            origin,
+            metal::MTLBlitOption::empty(),
+        );
+        encoder.end_encoding();
     }
 
     unsafe fn blit_image(&self, src: &Image, dst: &Image) {
-        todo!()
+        let encoder = self.cmd_buf.new_blit_command_encoder();
+        let src_size = metal::MTLSize {
+            width: src.width.min(dst.width) as NSUInteger,
+            height: src.width.min(dst.height) as NSUInteger,
+            depth: 1,
+        };
+        let origin = metal::MTLOrigin { x: 0, y: 0, z: 0 };
+        encoder.copy_from_texture(
+            &src.texture,
+            0,
+            0,
+            origin,
+            src_size,
+            &dst.texture,
+            0,
+            0,
+            origin,
+        );
+        encoder.end_encoding();
     }
 
     unsafe fn reset_query_pool(&mut self, pool: &QueryPool) {}
@@ -412,33 +566,60 @@ impl crate::backend::DescriptorSetBuilder<MtlDevice> for DescriptorSetBuilder {
     }
 
     fn add_images(&mut self, images: &[&Image]) {
-        todo!()
+        self.0.images.extend(images.iter().copied().cloned());
     }
 
     fn add_textures(&mut self, images: &[&Image]) {
-        todo!()
+        self.add_images(images);
     }
 
-    unsafe fn build(self, device: &MtlDevice, pipeline: &Pipeline) -> Result<DescriptorSet, Error> {
+    unsafe fn build(
+        self,
+        _device: &MtlDevice,
+        _pipeline: &Pipeline,
+    ) -> Result<DescriptorSet, Error> {
         Ok(self.0)
     }
 }
 
 impl MtlSwapchain {
     pub unsafe fn next(&mut self) -> Result<(usize, Semaphore), Error> {
-        todo!()
+        let drawable_ix = self.drawable_ix;
+        self.drawable_ix = (drawable_ix + 1) % self.n_drawables;
+        Ok((drawable_ix, Semaphore))
     }
 
-    pub unsafe fn image(&self, idx: usize) -> Image {
-        todo!()
+    pub unsafe fn image(&self, _idx: usize) -> Image {
+        let (drawable, texture) = autoreleasepool(|| {
+            let drawable = self.layer.next_drawable().unwrap();
+            (drawable.to_owned(), drawable.texture().to_owned())
+        });
+        *self.drawable.lock().unwrap() = Some(drawable);
+        let size = self.layer.drawable_size();
+        Image {
+            texture,
+            width: size.width.round() as u32,
+            height: size.height.round() as u32,
+        }
     }
 
     pub unsafe fn present(
         &self,
-        image_idx: usize,
-        semaphores: &[&Semaphore],
+        _image_idx: usize,
+        _semaphores: &[&Semaphore],
     ) -> Result<bool, Error> {
-        todo!()
+        let drawable = self.drawable.lock().unwrap().take();
+        if let Some(drawable) = drawable {
+            autoreleasepool(|| {
+                let cmd_queue = self.cmd_queue.lock().unwrap();
+                let cmd_buf = cmd_queue.new_command_buffer();
+                cmd_buf.present_drawable(&drawable);
+                cmd_buf.commit();
+            });
+        } else {
+            println!("no drawable; present called without acquiring image?");
+        }
+        Ok(false)
     }
 }
 
