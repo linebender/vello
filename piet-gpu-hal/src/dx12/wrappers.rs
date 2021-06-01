@@ -1307,7 +1307,7 @@ impl GraphicsCommandList {
 
     /// Copy an entire resource (buffer or image)
     pub unsafe fn copy_resource(&self, src: &Resource, dst: &Resource) {
-        self.0.CopyResource(src.get_mut(), dst.get_mut());
+        self.0.CopyResource(dst.get_mut(), src.get_mut());
     }
 
     pub unsafe fn copy_buffer(
