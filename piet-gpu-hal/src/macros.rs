@@ -16,6 +16,8 @@
 
 //! Macros, mostly to automate backend selection tedium.
 
+#[doc(hidden)]
+/// Configure an item to be included only for the given GPU.
 #[macro_export]
 macro_rules! mux_cfg {
     ( #[cfg(vk)] $($tokens:tt)* ) => {
@@ -31,6 +33,8 @@ macro_rules! mux_cfg {
     };
 }
 
+#[doc(hidden)]
+/// Define an enum with a variant per GPU.
 #[macro_export]
 macro_rules! mux_enum {
     ( $(#[$outer:meta])* $v:vis enum $name:ident {
@@ -112,6 +116,7 @@ macro_rules! mux_enum {
     };
 }
 
+/// Define an enum with a variant per GPU for a Device associated type.
 macro_rules! mux_device_enum {
     ( $(#[$outer:meta])* $assoc_type: ident) => {
         $crate::mux_enum! {
@@ -125,6 +130,8 @@ macro_rules! mux_device_enum {
     }
 }
 
+#[doc(hidden)]
+/// A match statement where match arms are conditionally configured per GPU.
 #[macro_export]
 macro_rules! mux_match {
     ( $e:expr ;

@@ -74,14 +74,28 @@ mux_enum! {
 
 mux_device_enum! { Buffer }
 mux_device_enum! { Image }
-mux_device_enum! { Fence }
-mux_device_enum! { Semaphore }
+mux_device_enum! {
+/// An object for waiting on command buffer completion.
+Fence }
+mux_device_enum! {
+/// A semaphore for swapchain presentation.
+///
+/// Depending on what kind of synchronization is needed for swapchain
+/// presentation by the back-end, this may or may not be a "real"
+/// semaphore.
+Semaphore }
 mux_device_enum! { PipelineBuilder }
-mux_device_enum! { Pipeline }
+mux_device_enum! {
+/// A pipeline object; basically a compiled shader.
+Pipeline }
 mux_device_enum! { DescriptorSetBuilder }
-mux_device_enum! { DescriptorSet }
+mux_device_enum! {
+/// A descriptor set; a binding of resources for access by a shader.
+DescriptorSet }
 mux_device_enum! { CmdBuf }
-mux_device_enum! { QueryPool }
+mux_device_enum! {
+/// An object for recording timer queries.
+QueryPool }
 mux_device_enum! { Sampler }
 
 /// The code for a shader, either as source or intermediate representation.
@@ -736,7 +750,11 @@ impl Swapchain {
         }
     }
 
-    pub unsafe fn image(&self, idx: usize) -> Image {
+    pub unsafe fn image(&self, idx: usize) -> crate::Image {
+        crate::Image::wrap_swapchain_image(self.image_raw(idx))
+    }
+
+    pub unsafe fn image_raw(&self, idx: usize) -> Image {
         mux_match! { self;
             Swapchain::Vk(s) => Image::Vk(s.image(idx)),
             Swapchain::Dx12(s) => Image::Dx12(s.image(idx)),

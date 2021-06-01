@@ -1,6 +1,4 @@
-use piet_gpu_hal::hub;
-use piet_gpu_hal::mux::Instance;
-use piet_gpu_hal::{Error, ImageLayout};
+use piet_gpu_hal::{Error, ImageLayout, Instance, Session, SubmittedCmdBuf};
 
 use piet_gpu::{render_scene, PietGpuRenderContext, Renderer, HEIGHT, WIDTH};
 
@@ -27,7 +25,7 @@ fn main() -> Result<(), Error> {
         let device = instance.device(surface.as_ref())?;
         let mut swapchain =
             instance.swapchain(WIDTH / 2, HEIGHT / 2, &device, surface.as_ref().unwrap())?;
-        let session = hub::Session::new(device);
+        let session = Session::new(device);
 
         let mut current_frame = 0;
         let present_semaphores = (0..NUM_FRAMES)
@@ -46,7 +44,7 @@ fn main() -> Result<(), Error> {
 
         let renderer = Renderer::new(&session, scene, n_paths, n_pathseg, n_trans)?;
 
-        let mut submitted: Option<hub::SubmittedCmdBuf> = None;
+        let mut submitted: Option<SubmittedCmdBuf> = None;
         let mut last_frame_idx = 0;
 
         event_loop.run(move |event, _, control_flow| {
@@ -89,7 +87,6 @@ fn main() -> Result<(), Error> {
                         ));
                     }
 
-
                     let (image_idx, acquisition_semaphore) = swapchain.next().unwrap();
                     let swap_image = swapchain.image(image_idx);
                     let query_pool = &query_pools[frame_idx];
@@ -103,7 +100,7 @@ fn main() -> Result<(), Error> {
                         ImageLayout::Undefined,
                         ImageLayout::BlitDst,
                     );
-                    cmd_buf.blit_image(renderer.image_dev.mux_image(), &swap_image);
+                    cmd_buf.blit_image(&renderer.image_dev, &swap_image);
                     cmd_buf.image_barrier(&swap_image, ImageLayout::BlitDst, ImageLayout::Present);
                     cmd_buf.finish();
 

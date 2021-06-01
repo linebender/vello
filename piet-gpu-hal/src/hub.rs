@@ -13,10 +13,18 @@ use smallvec::SmallVec;
 
 use crate::mux;
 
-use crate::{BufferUsage, Error, GpuInfo, SamplerParams};
+use crate::{BufferUsage, Error, GpuInfo, ImageLayout, SamplerParams};
 
 pub use crate::mux::{DescriptorSet, Fence, Pipeline, QueryPool, Sampler, Semaphore, ShaderCode};
 
+/// A session of GPU operations.
+///
+/// This abstraction is generally called a "device" in other APIs, but that
+/// term is very overloaded. It is the point to access resource creation,
+/// work submission, and related concerns.
+///
+/// Most of the methods are `&self`, indicating that they can be called from
+/// multiple threads.
 #[derive(Clone)]
 pub struct Session(Arc<SessionInner>);
 
@@ -30,6 +38,10 @@ struct SessionInner {
     gpu_info: GpuInfo,
 }
 
+/// A command buffer.
+///
+/// Actual work done by the GPU is encoded into a command buffer and then
+/// submitted to the session in a batch.
 pub struct CmdBuf {
     cmd_buf: mux::CmdBuf,
     fence: Fence,
@@ -37,7 +49,13 @@ pub struct CmdBuf {
     session: Weak<SessionInner>,
 }
 
-// Maybe "pending" is a better name?
+/// A command buffer in submitted state.
+///
+/// Submission of a command buffer is asynchronous, meaning that the submit
+/// method returns immediately. The work done in the command buffer cannot
+/// be accessed (for example, readback from buffers written) until the the
+/// submission is complete. The main purpose of this structure is to wait on
+/// that completion.
 pub struct SubmittedCmdBuf(Option<SubmittedCmdBufInner>, Weak<SessionInner>);
 
 struct SubmittedCmdBufInner {
@@ -49,6 +67,9 @@ struct SubmittedCmdBufInner {
     staging_cmd_buf: Option<CmdBuf>,
 }
 
+/// An image or texture.
+///
+/// At the moment, images are limited to 2D.
 #[derive(Clone)]
 pub struct Image(Arc<ImageInner>);
 
@@ -57,6 +78,11 @@ struct ImageInner {
     session: Weak<SessionInner>,
 }
 
+/// A buffer.
+///
+/// A buffer is a segment of memory that can be accessed by the GPU, and
+/// in some cases also by the host (if the appropriate [`BufferUsage`] flags
+/// are set).
 #[derive(Clone)]
 pub struct Buffer(Arc<BufferInner>);
 
@@ -65,8 +91,15 @@ struct BufferInner {
     session: Weak<SessionInner>,
 }
 
+/// A builder for creating pipelines.
+///
+/// Configure the signature (buffers and images accessed) for a pipeline,
+/// which is essentially compiled shader code, ready to be dispatched.
 pub struct PipelineBuilder(mux::PipelineBuilder);
 
+/// A builder for creating descriptor sets.
+///
+/// Add bindings to the descriptor set before dispatching a shader.
 pub struct DescriptorSetBuilder(mux::DescriptorSetBuilder);
 
 /// Data types that can be stored in a GPU buffer.
@@ -90,6 +123,7 @@ pub enum RetainResource {
 }
 
 impl Session {
+    /// Create a new session, choosing the best backend.
     pub fn new(device: mux::Device) -> Session {
         let gpu_info = device.query_gpu_info();
         Session(Arc::new(SessionInner {
@@ -101,6 +135,14 @@ impl Session {
         }))
     }
 
+    /// Create a new command buffer.
+    ///
+    /// The caller is responsible for inserting pipeline barriers and other
+    /// transitions. If one dispatch writes a buffer (or image), and another
+    /// reads it, a barrier must intervene. No such barrier is needed for
+    /// uploads by the host before command submission, but a host barrier is
+    /// needed if the host will do readback of any buffers written by the
+    /// command list.
     pub fn cmd_buf(&self) -> Result<CmdBuf, Error> {
         self.poll_cleanup();
         let (cmd_buf, fence) = if let Some(cf) = self.0.cmd_buf_pool.lock().unwrap().pop() {
@@ -141,6 +183,12 @@ impl Session {
         }
     }
 
+    /// Run a command buffer.
+    ///
+    /// The semaphores are for swapchain presentation and can be empty for
+    /// compute-only work. When provided, work is synchronized to start only
+    /// when the wait semaphores are signaled, and when work is complete, the
+    /// signal semaphores are signaled.
     pub unsafe fn run_cmd_buf(
         &self,
         mut cmd_buf: CmdBuf,
@@ -175,6 +223,13 @@ impl Session {
         ))
     }
 
+    /// Create a buffer.
+    ///
+    /// The `usage` flags must be specified to indicate what the buffer will
+    /// be used for. In general, when no `MAP_` flags are specified, the buffer
+    /// will be created in device memory, which means they are not host
+    /// accessible, but GPU access is much higher performance (at least on
+    /// discrete GPUs).
     pub fn create_buffer(&self, size: u64, usage: BufferUsage) -> Result<Buffer, Error> {
         let buffer = self.0.device.create_buffer(size, usage)?;
         Ok(Buffer(Arc::new(BufferInner {
@@ -184,6 +239,10 @@ impl Session {
     }
 
     /// Create a buffer with initialized data.
+    ///
+    /// This method takes care of creating a staging buffer if needed, so
+    /// it is not necessary to specify `MAP_WRITE` usage, unless of course
+    /// the buffer will subsequently be written by the host.
     pub fn create_buffer_init(
         &self,
         contents: &[impl PlainData],
@@ -226,7 +285,7 @@ impl Session {
             }
             let staging_cmd_buf = staging_cmd_buf.as_mut().unwrap();
             // This will ensure the staging buffer is deallocated.
-            staging_cmd_buf.copy_buffer(create_buf.mux_buffer(), buf.mux_buffer());
+            staging_cmd_buf.copy_buffer(&create_buf, &buf);
             staging_cmd_buf.add_resource(create_buf);
             Ok(buf)
         } else {
@@ -234,6 +293,10 @@ impl Session {
         }
     }
 
+    /// Create an image.
+    ///
+    /// Currently this creates only a 2D image in RGBA8 format, with usage
+    /// so that it can be accessed by shaders and used for transfer.
     pub unsafe fn create_image2d(&self, width: u32, height: u32) -> Result<Image, Error> {
         let image = self.0.device.create_image2d(width, height)?;
         Ok(Image(Arc::new(ImageInner {
@@ -242,13 +305,18 @@ impl Session {
         })))
     }
 
+    /// Create a semaphore.
+    ///
+    /// These "semaphores" are only for swapchain integration and may be
+    /// stubs on back-ends that don't require semaphore synchronization.
     pub unsafe fn create_semaphore(&self) -> Result<Semaphore, Error> {
         self.0.device.create_semaphore()
     }
 
     /// This creates a pipeline that operates on some buffers and images.
     ///
-    /// The descriptor set layout is just some number of storage buffers and storage images (this might change).
+    /// The descriptor set layout is just some number of storage buffers
+    /// and storage images (this might change).
     pub unsafe fn create_simple_compute_pipeline<'a>(
         &self,
         code: ShaderCode<'a>,
@@ -257,6 +325,14 @@ impl Session {
         self.pipeline_builder()
             .add_buffers(n_buffers)
             .create_compute_pipeline(self, code)
+    }
+
+    /// Start building a pipeline.
+    ///
+    /// A pipeline is essentially a compiled shader, with more specific
+    /// details about what resources may be bound to it.
+    pub unsafe fn pipeline_builder(&self) -> PipelineBuilder {
+        PipelineBuilder(self.0.device.pipeline_builder())
     }
 
     /// Create a descriptor set for a simple pipeline that just references buffers.
@@ -270,28 +346,37 @@ impl Session {
             .build(self, pipeline)
     }
 
+    /// Start building a descriptor set.
+    ///
+    /// A descriptor set is a binding of actual resources (buffers and
+    /// images) to slots as specified in the pipeline.
+    pub unsafe fn descriptor_set_builder(&self) -> DescriptorSetBuilder {
+        DescriptorSetBuilder(self.0.device.descriptor_set_builder())
+    }
+
     /// Create a query pool for timestamp queries.
     pub fn create_query_pool(&self, n_queries: u32) -> Result<QueryPool, Error> {
         self.0.device.create_query_pool(n_queries)
     }
 
+    /// Fetch the contents of the query pool.
+    ///
+    /// This should be called after waiting on the command buffer that wrote the
+    /// timer queries.
     pub unsafe fn fetch_query_pool(&self, pool: &QueryPool) -> Result<Vec<f64>, Error> {
         self.0.device.fetch_query_pool(pool)
     }
 
-    pub unsafe fn pipeline_builder(&self) -> PipelineBuilder {
-        PipelineBuilder(self.0.device.pipeline_builder())
-    }
-
-    pub unsafe fn descriptor_set_builder(&self) -> DescriptorSetBuilder {
-        DescriptorSetBuilder(self.0.device.descriptor_set_builder())
-    }
-
+    #[doc(hidden)]
+    /// Create a sampler.
+    ///
+    /// Noy yet implemented.
     pub unsafe fn create_sampler(&self, params: SamplerParams) -> Result<Sampler, Error> {
         todo!()
         //self.0.device.create_sampler(params)
     }
 
+    /// Query the GPU info.
     pub fn gpu_info(&self) -> &GpuInfo {
         &self.0.gpu_info
     }
@@ -303,6 +388,149 @@ impl Session {
 }
 
 impl CmdBuf {
+    /// Begin recording into a command buffer.
+    ///
+    /// Always call this before encoding any actual work.
+    ///
+    /// Discussion question: can this be subsumed?
+    pub unsafe fn begin(&mut self) {
+        self.cmd_buf.begin();
+    }
+
+    /// Finish recording into a command buffer.
+    ///
+    /// Always call this as the last method before submitting the command
+    /// buffer.
+    pub unsafe fn finish(&mut self) {
+        self.cmd_buf.finish();
+    }
+
+    /// Dispatch a compute shader.
+    ///
+    /// Request a compute shader to be run, using the pipeline to specify the
+    /// code, and the descriptor set to address the resources read and written.
+    ///
+    /// Both the workgroup count (number of workgroups) and the workgroup size
+    /// (number of threads in a workgroup) must be specified here, though not
+    /// all back-ends require the latter info.
+    pub unsafe fn dispatch(
+        &mut self,
+        pipeline: &Pipeline,
+        descriptor_set: &DescriptorSet,
+        workgroup_count: (u32, u32, u32),
+        workgroup_size: (u32, u32, u32),
+    ) {
+        self.cmd_buf
+            .dispatch(pipeline, descriptor_set, workgroup_count, workgroup_size);
+    }
+
+    /// Insert an execution and memory barrier.
+    ///
+    /// Compute kernels (and other actions) after this barrier may read from buffers
+    /// that were written before this barrier.
+    pub unsafe fn memory_barrier(&mut self) {
+        self.cmd_buf.memory_barrier();
+    }
+
+    /// Insert a barrier for host access to buffers.
+    ///
+    /// The host may read buffers written before this barrier, after the fence for
+    /// the command buffer is signaled.
+    ///
+    /// See http://themaister.net/blog/2019/08/14/yet-another-blog-explaining-vulkan-synchronization/
+    /// ("Host memory reads") for an explanation of this barrier.
+    pub unsafe fn host_barrier(&mut self) {
+        self.cmd_buf.memory_barrier();
+    }
+
+    /// Insert an image barrier, transitioning image layout.
+    ///
+    /// When an image is written by one command and then read by another, an image
+    /// barrier must separate the uses. Also, the image layout must match the use
+    /// of the image.
+    ///
+    /// Additionally, when writing to an image for the first time, it must be
+    /// transitioned from an unknown layout to specify the layout.
+    pub unsafe fn image_barrier(
+        &mut self,
+        image: &Image,
+        src_layout: ImageLayout,
+        dst_layout: ImageLayout,
+    ) {
+        self.cmd_buf
+            .image_barrier(image.mux_image(), src_layout, dst_layout);
+    }
+
+    /// Clear the buffer.
+    ///
+    /// When the size is not specified, it clears the whole buffer.
+    pub unsafe fn clear_buffer(&mut self, buffer: &Buffer, size: Option<u64>) {
+        self.cmd_buf.clear_buffer(buffer.mux_buffer(), size);
+    }
+
+    /// Copy one buffer to another.
+    ///
+    /// When the buffers differ in size, the minimum of the sizes is used.
+    pub unsafe fn copy_buffer(&mut self, src: &Buffer, dst: &Buffer) {
+        self.cmd_buf.copy_buffer(src.mux_buffer(), dst.mux_buffer());
+    }
+
+    /// Copy an image to a buffer.
+    ///
+    /// The size of the image and buffer must match.
+    pub unsafe fn copy_image_to_buffer(&mut self, src: &Image, dst: &Buffer) {
+        self.cmd_buf
+            .copy_image_to_buffer(src.mux_image(), dst.mux_buffer());
+        // TODO: change the backend signature to allow failure, as in "not
+        // implemented" or "unaligned", and fall back to compute shader
+        // submission.
+    }
+
+    /// Copy a buffer to an image.
+    ///
+    /// The size of the image and buffer must match.
+    pub unsafe fn copy_buffer_to_image(&mut self, src: &Buffer, dst: &Image) {
+        self.cmd_buf
+            .copy_buffer_to_image(src.mux_buffer(), dst.mux_image());
+        // See above.
+    }
+
+    /// Copy an image to another.
+    ///
+    /// This is especially useful for writing to the swapchain image, as in
+    /// general that can't be bound to a compute shader.
+    ///
+    /// Discussion question: we might have a specialized version of this
+    /// function for copying to the swapchain image, and a separate type.
+    pub unsafe fn blit_image(&mut self, src: &Image, dst: &Image) {
+        self.cmd_buf.blit_image(src.mux_image(), dst.mux_image());
+    }
+
+    /// Reset the query pool.
+    ///
+    /// The query pool must be reset before each use, to avoid validation errors.
+    /// This is annoying, and we could tweak the API to make it implicit, doing
+    /// the reset before the first timestamp write.
+    pub unsafe fn reset_query_pool(&mut self, pool: &QueryPool) {
+        self.cmd_buf.reset_query_pool(pool);
+    }
+
+    /// Write a timestamp.
+    ///
+    /// The query index must be less than the size of the query pool on creation.
+    pub unsafe fn write_timestamp(&mut self, pool: &QueryPool, query: u32) {
+        self.cmd_buf.write_timestamp(pool, query);
+    }
+
+    /// Prepare the timestamps for reading. This isn't required on Vulkan but
+    /// is required on (at least) DX12.
+    ///
+    /// It's possible we'll make this go away, by implicitly including it
+    /// on command buffer submission when a query pool has been written.
+    pub unsafe fn finish_timestamps(&mut self, pool: &QueryPool) {
+        self.cmd_buf.finish_timestamps(pool);
+    }
+
     /// Make sure the resource lives until the command buffer completes.
     ///
     /// The submitted command buffer will hold this reference until the corresponding
@@ -317,6 +545,17 @@ impl CmdBuf {
 }
 
 impl SubmittedCmdBuf {
+    /// Wait for the work to complete.
+    ///
+    /// After calling this function, buffers written by the command buffer
+    /// can be read (assuming they were created with `MAP_READ` usage and also
+    /// that a host barrier was placed in the command list).
+    ///
+    /// Further, resources referenced by the command list may be destroyed or
+    /// reused; it is a safety violation to do so beforehand.
+    ///
+    /// Resources for which destruction was deferred through
+    /// [`add_resource`][`CmdBuf::add_resource`] will actually be dropped here.
     pub fn wait(mut self) -> Result<(), Error> {
         let mut item = self.0.take().unwrap();
         if let Some(session) = Weak::upgrade(&self.1) {
@@ -365,31 +604,33 @@ impl Drop for ImageInner {
     }
 }
 
-// Probably migrate from deref here to wrapping all methods.
-impl std::ops::Deref for CmdBuf {
-    type Target = mux::CmdBuf;
-    fn deref(&self) -> &Self::Target {
-        &self.cmd_buf
-    }
-}
-
-impl std::ops::DerefMut for CmdBuf {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.cmd_buf
-    }
-}
-
 impl Image {
-    pub fn mux_image(&self) -> &mux::Image {
+    /// Get a lower level image handle.
+    pub(crate) fn mux_image(&self) -> &mux::Image {
         &self.0.image
+    }
+
+    /// Wrap a swapchain image so it can be exported to the hub level.
+    /// Swapchain images don't need resource tracking (or at least we
+    /// don't do it), so no session ref is needed.
+    pub(crate) fn wrap_swapchain_image(image: mux::Image) -> Image {
+        Image(Arc::new(ImageInner {
+            image,
+            session: Weak::new(),
+        }))
     }
 }
 
 impl Buffer {
-    pub fn mux_buffer(&self) -> &mux::Buffer {
+    /// Get a lower level buffer handle.
+    pub(crate) fn mux_buffer(&self) -> &mux::Buffer {
         &self.0.buffer
     }
 
+    /// Write the buffer contents.
+    ///
+    /// The buffer must have been created with `MAP_WRITE` usage, and with
+    /// a size large enough to accommodate the given slice.
     pub unsafe fn write<T: PlainData>(&mut self, contents: &[T]) -> Result<(), Error> {
         if let Some(session) = Weak::upgrade(&self.0.session) {
             session.device.write_buffer(
@@ -402,6 +643,12 @@ impl Buffer {
         // else session lost error?
         Ok(())
     }
+
+    /// Read the buffer contents.
+    ///
+    /// The buffer must have been created with `MAP_READ` usage. The caller
+    /// is also responsible for ensuring that this does not read uninitialized
+    /// memory.
     pub unsafe fn read<T: PlainData>(&self, result: &mut Vec<T>) -> Result<(), Error> {
         let size = self.mux_buffer().size();
         let len = size as usize / std::mem::size_of::<T>();
@@ -438,6 +685,10 @@ impl PipelineBuilder {
         self
     }
 
+    /// Create the compute pipeline.
+    ///
+    /// The shader code must be given in an appropriate format for
+    /// the back-end. See [`Session::choose_shader`] for a helper.
     pub unsafe fn create_compute_pipeline<'a>(
         self,
         session: &Session,

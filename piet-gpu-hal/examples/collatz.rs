@@ -1,13 +1,11 @@
-use piet_gpu_hal::hub;
 use piet_gpu_hal::include_shader;
-use piet_gpu_hal::mux::Instance;
-use piet_gpu_hal::BufferUsage;
+use piet_gpu_hal::{BufferUsage, Instance, Session};
 
 fn main() {
     let (instance, _) = Instance::new(None).unwrap();
     unsafe {
         let device = instance.device(None).unwrap();
-        let session = hub::Session::new(device);
+        let session = Session::new(device);
         let usage = BufferUsage::MAP_READ | BufferUsage::STORAGE;
         let src = (0..256).map(|x| x + 1).collect::<Vec<u32>>();
         let buffer = session.create_buffer_init(&src, usage).unwrap();

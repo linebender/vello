@@ -822,7 +822,7 @@ impl crate::backend::Device for VkDevice {
     }
 }
 
-impl crate::CmdBuf<VkDevice> for CmdBuf {
+impl crate::backend::CmdBuf<VkDevice> for CmdBuf {
     unsafe fn begin(&mut self) {
         self.device
             .device
