@@ -456,12 +456,17 @@ impl crate::backend::CmdBuf<Dx12Device> for CmdBuf {
 
     unsafe fn finish(&mut self) {
         let _ = self.c.close();
+        // This is a bit of a mess. Returning the allocator to the free pool
+        // makes sense if the command list will be dropped, but not if it will
+        // be reused. Probably need to implement some logic on drop.
+        /*
         if let Some(free_allocators) = self.free_allocators.upgrade() {
             free_allocators
                 .lock()
                 .unwrap()
                 .push(self.allocator.take().unwrap());
         }
+        */
     }
 
     unsafe fn dispatch(
@@ -516,6 +521,9 @@ impl crate::backend::CmdBuf<Dx12Device> for CmdBuf {
             );
             self.c.resource_barrier(&[bar]);
         }
+        // Always do a memory barrier in case of UAV image access. We probably
+        // want to make these barriers more precise.
+        self.memory_barrier();
     }
 
     unsafe fn clear_buffer(&self, buffer: &Buffer, size: Option<u64>) {
@@ -558,6 +566,10 @@ impl crate::backend::CmdBuf<Dx12Device> for CmdBuf {
 
 impl crate::backend::PipelineBuilder<Dx12Device> for PipelineBuilder {
     fn add_buffers(&mut self, n_buffers: u32) {
+        // Note: if the buffer is readonly, then it needs to be bound
+        // as an SRV, not a UAV. I think that requires distinguishing
+        // readonly and read-write cases in pipeline and descriptor set
+        // creation. For now we punt.
         if n_buffers != 0 {
             self.ranges.push(d3d12::D3D12_DESCRIPTOR_RANGE {
                 RangeType: d3d12::D3D12_DESCRIPTOR_RANGE_TYPE_UAV,
@@ -572,7 +584,7 @@ impl crate::backend::PipelineBuilder<Dx12Device> for PipelineBuilder {
 
     fn add_images(&mut self, n_images: u32) {
         // These are UAV images, so the descriptor type is the same as buffers.
-        self.add_buffers(n_images)
+        self.add_buffers(n_images);
     }
 
     fn add_textures(&mut self, max_textures: u32) {
