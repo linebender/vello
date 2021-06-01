@@ -169,6 +169,11 @@ impl Session {
                     let mut item = pending.swap_remove(i);
                     // TODO: wait is superfluous, can just reset
                     let _ = self.0.device.wait_and_reset(vec![&mut item.fence]);
+
+                    // Reuse of command buffers works on Vulkan, but not at all on
+                    // Metal and is problematic on DX12 (the allocator is returned)
+                    // to the pool. Punt for now.
+                    /*
                     let mut pool = self.0.cmd_buf_pool.lock().unwrap();
                     pool.push((item.cmd_buf, item.fence));
                     std::mem::drop(item.resources);
@@ -176,6 +181,7 @@ impl Session {
                         pool.push((staging_cmd_buf.cmd_buf, staging_cmd_buf.fence));
                         std::mem::drop(staging_cmd_buf.resources);
                     }
+                    */
                 } else {
                     i += 1;
                 }
@@ -562,11 +568,14 @@ impl SubmittedCmdBuf {
             unsafe {
                 session.device.wait_and_reset(vec![&mut item.fence])?;
             }
+            // See discussion in `poll_cleanup`
+            /*
             session
                 .cmd_buf_pool
                 .lock()
                 .unwrap()
                 .push((item.cmd_buf, item.fence));
+            */
             std::mem::drop(item.resources);
         }
         // else session dropped error?

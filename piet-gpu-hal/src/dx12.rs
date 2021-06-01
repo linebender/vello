@@ -459,14 +459,12 @@ impl crate::backend::CmdBuf<Dx12Device> for CmdBuf {
         // This is a bit of a mess. Returning the allocator to the free pool
         // makes sense if the command list will be dropped, but not if it will
         // be reused. Probably need to implement some logic on drop.
-        /*
         if let Some(free_allocators) = self.free_allocators.upgrade() {
             free_allocators
                 .lock()
                 .unwrap()
                 .push(self.allocator.take().unwrap());
         }
-        */
     }
 
     unsafe fn dispatch(
