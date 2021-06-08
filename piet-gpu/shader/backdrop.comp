@@ -21,11 +21,16 @@
 
 #define LG_BACKDROP_WG (7 + LG_WG_FACTOR)
 #define BACKDROP_WG (1 << LG_BACKDROP_WG)
+#ifndef BACKDROP_DIST_FACTOR
 // Some paths (those covering a large area) can generate a lot of backdrop tiles; BACKDROP_DIST_FACTOR defines how much
 // additional threads should we spawn for parallel row processing. The additional threads does not participate in the
 // earlier stages (calculating the tile counts) but does work in the final prefix sum stage which has a lot more
 // parallelism.
-#define BACKDROP_DIST_FACTOR 4
+
+// This feature is opt-in: one variant is compiled with the following default, while the other variant is compiled with
+// a larger BACKDROP_DIST_FACTOR, which is used on GPUs supporting a larger workgroup size to improve performance.
+#define BACKDROP_DIST_FACTOR 1
+#endif
 
 layout(local_size_x = BACKDROP_WG, local_size_y = BACKDROP_DIST_FACTOR) in;
 

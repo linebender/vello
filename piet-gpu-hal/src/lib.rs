@@ -99,6 +99,8 @@ pub struct GpuInfo {
     /// required in Vulkan 1.1), and we should have finer grained
     /// queries for shuffles, etc.
     pub has_subgroups: bool,
+    /// Limits on workgroup size for compute shaders.
+    pub workgroup_limits: WorkgroupLimits,
     /// Info about subgroup size control, if available.
     pub subgroup_size: Option<SubgroupSize>,
     /// The GPU supports a real, grown-ass memory model.
@@ -114,6 +116,16 @@ pub struct GpuInfo {
 /// available.
 #[derive(Clone, Debug)]
 pub struct SubgroupSize {
-    min: u32,
-    max: u32,
+    pub min: u32,
+    pub max: u32,
+}
+
+/// The range of workgroup sizes supported by a back-end.
+#[derive(Clone, Debug)]
+pub struct WorkgroupLimits {
+    /// The maximum size on each workgroup dimension can be.
+    pub max_size: [u32; 3],
+    /// The maximum overall invocations a workgroup can have. That is, the product of sizes in each
+    /// dimension.
+    pub max_invocations: u32,
 }

@@ -12,9 +12,7 @@ use ash::{vk, Device, Entry, Instance};
 
 use smallvec::SmallVec;
 
-use crate::{
-    BufferUsage, Error, GpuInfo, ImageLayout, SamplerParams, SubgroupSize,
-};
+use crate::{BufferUsage, Error, GpuInfo, ImageLayout, SamplerParams, SubgroupSize, WorkgroupLimits};
 use crate::backend::Device as DeviceTrait;
 
 
@@ -357,10 +355,17 @@ impl VkInstance {
 
         // TODO: finer grained query of specific subgroup info.
         let has_subgroups = self.vk_version >= vk::make_version(1, 1, 0);
+
+        let workgroup_limits = WorkgroupLimits {
+            max_invocations: props.limits.max_compute_work_group_invocations,
+            max_size: props.limits.max_compute_work_group_size,
+        };
+
         let gpu_info = GpuInfo {
             has_descriptor_indexing,
             has_subgroups,
             subgroup_size,
+            workgroup_limits,
             has_memory_model,
             use_staging_buffers,
         };

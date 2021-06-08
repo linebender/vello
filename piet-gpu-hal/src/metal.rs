@@ -29,7 +29,7 @@ use metal::{CGFloat, MTLFeatureSet};
 
 use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
 
-use crate::{BufferUsage, Error, GpuInfo};
+use crate::{BufferUsage, Error, GpuInfo, WorkgroupLimits};
 
 use util::*;
 
@@ -164,6 +164,10 @@ impl MtlInstance {
                 has_descriptor_indexing: false,
                 has_subgroups: false,
                 subgroup_size: None,
+                workgroup_limits: WorkgroupLimits {
+                    max_size: [512, 512, 512],
+                    max_invocations: 512,
+                },
                 has_memory_model: false,
                 use_staging_buffers,
             };
