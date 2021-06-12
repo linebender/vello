@@ -14,7 +14,7 @@ use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
 
 use smallvec::SmallVec;
 
-use crate::{BufferUsage, Error, GpuInfo, ImageLayout};
+use crate::{BufferUsage, Error, GpuInfo, ImageLayout, WorkgroupLimits};
 
 use self::wrappers::{CommandAllocator, CommandQueue, Device, Factory4, Resource, ShaderByteCode};
 
@@ -177,6 +177,10 @@ impl Dx12Instance {
                 has_descriptor_indexing: false,
                 has_subgroups: false,
                 subgroup_size: None,
+                workgroup_limits: WorkgroupLimits {
+                    max_size: [1024, 1024, 64],
+                    max_invocations: 1024,
+                },
                 has_memory_model: false,
                 use_staging_buffers,
             };

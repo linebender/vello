@@ -311,8 +311,13 @@ impl Renderer {
         let path_ds = session
             .create_simple_descriptor_set(&path_pipeline, &[&memory_buf_dev, &config_buf])?;
 
-        let backdrop_alloc_code = ShaderCode::Spv(include_bytes!("../shader/backdrop.spv"));
-        let backdrop_pipeline = session.create_simple_compute_pipeline(backdrop_alloc_code, 2)?;
+        let backdrop_code = if session.gpu_info().workgroup_limits.max_invocations >= 1024 {
+            ShaderCode::Spv(include_bytes!("../shader/backdrop_lg.spv"))
+        } else {
+            println!("using small workgroup backdrop kernel");
+            ShaderCode::Spv(include_bytes!("../shader/backdrop.spv"))
+        };
+        let backdrop_pipeline = session.create_simple_compute_pipeline(backdrop_code, 2)?;
         let backdrop_ds = session
             .create_simple_descriptor_set(&backdrop_pipeline, &[&memory_buf_dev, &config_buf])?;
 

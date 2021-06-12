@@ -29,7 +29,7 @@ use metal::{CGFloat, MTLFeatureSet};
 
 use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
 
-use crate::{BufferUsage, Error, GpuInfo};
+use crate::{BufferUsage, Error, GpuInfo, WorkgroupLimits};
 
 use util::*;
 
@@ -164,6 +164,13 @@ impl MtlInstance {
                 has_descriptor_indexing: false,
                 has_subgroups: false,
                 subgroup_size: None,
+                // The workgroup limits are taken from the minimum of a desktop installation;
+                // we don't support iOS right now, but in case of testing on those devices it might
+                // need to change these (or just queried properly).
+                workgroup_limits: WorkgroupLimits {
+                    max_size: [1024, 1024, 64],
+                    max_invocations: 1024,
+                },
                 has_memory_model: false,
                 use_staging_buffers,
             };
