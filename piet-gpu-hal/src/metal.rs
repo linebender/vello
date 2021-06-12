@@ -164,9 +164,12 @@ impl MtlInstance {
                 has_descriptor_indexing: false,
                 has_subgroups: false,
                 subgroup_size: None,
+                // The workgroup limits are taken from the minimum of a desktop installation;
+                // we don't support iOS right now, but in case of testing on those devices it might
+                // need to change these (or just queried properly).
                 workgroup_limits: WorkgroupLimits {
-                    max_size: [512, 512, 512],
-                    max_invocations: 512,
+                    max_size: [1024, 1024, 64],
+                    max_invocations: 1024,
                 },
                 has_memory_model: false,
                 use_staging_buffers,
