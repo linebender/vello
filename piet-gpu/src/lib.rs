@@ -1,3 +1,4 @@
+mod gradient;
 mod pico_svg;
 mod render_ctx;
 mod text;
@@ -248,6 +249,8 @@ pub struct Renderer {
 
     // Keep a reference to the image so that it is not destroyed.
     _bg_image: Image,
+
+    gradients: Image,
 }
 
 impl Renderer {
@@ -351,22 +354,14 @@ impl Renderer {
 
         let bg_image = Self::make_test_bg_image(&session);
 
-        let k4_code = if session.gpu_info().has_descriptor_indexing {
-            ShaderCode::Spv(include_bytes!("../shader/kernel4_idx.spv"))
-        } else {
-            println!("doing non-indexed k4");
-            ShaderCode::Spv(include_bytes!("../shader/kernel4.spv"))
-        };
-        // This is an arbitrary limit on the number of textures that can be referenced by
-        // the fine rasterizer. To set it for real, we probably want to pay attention both
-        // to the device limit (maxDescriptorSetSampledImages) but also to the number of
-        // images encoded (I believe there's an cost when allocating descriptor pools). If
-        // it can't be satisfied, then for compatibility we'll probably want to fall back
-        // to an atlasing approach.
-        //
-        // However, we're adding only one texture for now. Avoid a harmless Vulkan validation
-        // error by using a tight bound.
-        let max_textures = 1;
+        let gradients = Self::make_gradient_image(&session);
+
+        let k4_code = ShaderCode::Spv(include_bytes!("../shader/kernel4.spv"));
+        // This is a bit of a stand-in for future development. For now, we assume one
+        // atlas image for all images, and another image for the gradients. In the future,
+        // on GPUs that support it, we will probably want to go to descriptor indexing in
+        // order to cut down on allocation and copying for the atlas image.
+        let max_textures = 2;
         let k4_pipeline = session
             .pipeline_builder()
             .add_buffers(2)
@@ -377,7 +372,7 @@ impl Renderer {
             .descriptor_set_builder()
             .add_buffers(&[&memory_buf_dev, &config_buf])
             .add_images(&[&image_dev])
-            .add_textures(&[&bg_image])
+            .add_textures(&[&bg_image, &gradients])
             .build(&session, &k4_pipeline)?;
 
         Ok(Renderer {
@@ -405,6 +400,7 @@ impl Renderer {
             n_paths,
             n_pathseg,
             _bg_image: bg_image,
+            gradients: gradients,
         })
     }
 
@@ -414,6 +410,12 @@ impl Renderer {
         cmd_buf.memory_barrier();
         cmd_buf.image_barrier(
             &self.image_dev,
+            ImageLayout::Undefined,
+            ImageLayout::General,
+        );
+        // TODO: make gradient upload optional, only if it's changed
+        cmd_buf.image_barrier(
+            &self.gradients,
             ImageLayout::Undefined,
             ImageLayout::General,
         );
@@ -492,9 +494,7 @@ impl Renderer {
             if format != ImageFormat::RgbaPremul {
                 return Err("unsupported image format".into());
             }
-            let host_upload = BufferUsage::MAP_WRITE | BufferUsage::COPY_SRC;
-            let mut buffer = session.create_buffer(buf.len() as u64, host_upload)?;
-            buffer.write(buf)?;
+            let buffer = session.create_buffer_init(&buf, BufferUsage::COPY_SRC)?;
             let image = session.create_image2d(width.try_into()?, height.try_into()?)?;
             let mut cmd_buf = session.cmd_buf()?;
             cmd_buf.begin();
@@ -527,5 +527,11 @@ impl Renderer {
             }
         }
         Self::make_image(session, WIDTH, HEIGHT, &buf, ImageFormat::RgbaPremul).unwrap()
+    }
+
+    fn make_gradient_image(session: &Session) -> Image {
+        unsafe {
+            session.create_image2d(gradient::N_SAMPLES as u32, gradient::N_GRADIENTS as u32).unwrap()
+        }
     }
 }

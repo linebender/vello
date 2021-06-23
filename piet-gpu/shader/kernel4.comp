@@ -28,11 +28,9 @@ layout(set = 0, binding = 1) restrict readonly buffer ConfigBuf {
 
 layout(rgba8, set = 0, binding = 2) uniform restrict writeonly image2D image;
 
-#ifdef ENABLE_IMAGE_INDICES
-layout(rgba8, set = 0, binding = 3) uniform restrict readonly image2D images[];
-#else
-layout(rgba8, set = 0, binding = 3) uniform restrict readonly image2D images[1];
-#endif
+layout(rgba8, set = 0, binding = 3) uniform restrict readonly image2D image_atlas;
+
+layout(rgba8, set = 0, binding = 4) uniform restrict readonly image2D gradients;
 
 #include "ptcl.h"
 #include "tile.h"
@@ -74,11 +72,7 @@ mediump vec4[CHUNK] fillImage(uvec2 xy, CmdImage cmd_img) {
     for (uint i = 0; i < CHUNK; i++) {
         ivec2 uv = ivec2(xy + chunk_offset(i)) + cmd_img.offset;
         mediump vec4 fg_rgba;
-#ifdef ENABLE_IMAGE_INDICES
-        fg_rgba = imageLoad(images[cmd_img.index], uv);
-#else
-        fg_rgba = imageLoad(images[0], uv);
-#endif
+        fg_rgba = imageLoad(image_atlas, uv);
         fg_rgba.rgb = fromsRGB(fg_rgba.rgb);
         rgba[i] = fg_rgba;
     }
@@ -99,18 +93,6 @@ void main() {
     mediump vec4 rgba[CHUNK];
     for (uint i = 0; i < CHUNK; i++) {
         rgba[i] = vec4(0.0);
-        // TODO: remove this debug image support when the actual image method is plumbed.
-#ifdef DEBUG_IMAGES
-#ifdef ENABLE_IMAGE_INDICES
-        if (xy_uint.x < 1024 && xy_uint.y < 1024) {
-            rgba[i] = imageLoad(images[gl_WorkGroupID.x / 64], ivec2(xy_uint + chunk_offset(i))/4);
-        }
-#else
-        if (xy_uint.x < 1024 && xy_uint.y < 1024) {
-            rgb[i] = imageLoad(images[0], ivec2(xy_uint + chunk_offset(i))/4).rgb;
-        }
-#endif
-#endif
     }
 
     mediump float area[CHUNK];
@@ -197,6 +179,19 @@ void main() {
                 rgba[k] = rgba[k] * (1.0 - fg_k.a) + fg_k;
             }
             cmd_ref.offset += 4 + CmdColor_size;
+            break;
+        case Cmd_LinGrad:
+            CmdLinGrad lin = Cmd_LinGrad_read(cmd_alloc, cmd_ref);
+            float d = lin.line_x * float(xy.x) + lin.line_y * float(xy.y) + lin.line_c;
+            for (uint k = 0; k < CHUNK; k++) {
+                vec2 chunk_xy = vec2(chunk_offset(k));
+                float my_d = d + lin.line_x * chunk_xy.x + lin.line_y * chunk_xy.y;
+                int x = int(round(clamp(my_d, 0.0, 1.0) * float(GRADIENT_WIDTH - 1)));
+                mediump vec4 fg_rgba = imageLoad(gradients, ivec2(x, int(lin.index)));
+                fg_rgba.rgb = fromsRGB(fg_rgba.rgb);
+                rgba[k] = fg_rgba;
+            }
+            cmd_ref.offset += 4 + CmdLinGrad_size;
             break;
         case Cmd_Image:
             CmdImage fill_img = Cmd_Image_read(cmd_alloc, cmd_ref);

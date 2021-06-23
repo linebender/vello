@@ -18,6 +18,10 @@ struct FillColorRef {
     uint offset;
 };
 
+struct FillLinGradientRef {
+    uint offset;
+};
+
 struct FillImageRef {
     uint offset;
 };
@@ -88,6 +92,18 @@ FillColorRef FillColor_index(FillColorRef ref, uint index) {
     return FillColorRef(ref.offset + index * FillColor_size);
 }
 
+struct FillLinGradient {
+    uint index;
+    vec2 p0;
+    vec2 p1;
+};
+
+#define FillLinGradient_size 20
+
+FillLinGradientRef FillLinGradient_index(FillLinGradientRef ref, uint index) {
+    return FillLinGradientRef(ref.offset + index * FillLinGradient_size);
+}
+
 struct FillImage {
     uint index;
     ivec2 offset;
@@ -145,12 +161,13 @@ SetFillModeRef SetFillMode_index(SetFillModeRef ref, uint index) {
 #define Element_Quad 2
 #define Element_Cubic 3
 #define Element_FillColor 4
-#define Element_SetLineWidth 5
-#define Element_Transform 6
-#define Element_BeginClip 7
-#define Element_EndClip 8
-#define Element_FillImage 9
-#define Element_SetFillMode 10
+#define Element_FillLinGradient 5
+#define Element_FillImage 6
+#define Element_SetLineWidth 7
+#define Element_Transform 8
+#define Element_BeginClip 9
+#define Element_EndClip 10
+#define Element_SetFillMode 11
 #define Element_size 36
 
 ElementRef Element_index(ElementRef ref, uint index) {
@@ -212,6 +229,20 @@ FillColor FillColor_read(FillColorRef ref) {
     uint raw0 = scene[ix + 0];
     FillColor s;
     s.rgba_color = raw0;
+    return s;
+}
+
+FillLinGradient FillLinGradient_read(FillLinGradientRef ref) {
+    uint ix = ref.offset >> 2;
+    uint raw0 = scene[ix + 0];
+    uint raw1 = scene[ix + 1];
+    uint raw2 = scene[ix + 2];
+    uint raw3 = scene[ix + 3];
+    uint raw4 = scene[ix + 4];
+    FillLinGradient s;
+    s.index = raw0;
+    s.p0 = vec2(uintBitsToFloat(raw1), uintBitsToFloat(raw2));
+    s.p1 = vec2(uintBitsToFloat(raw3), uintBitsToFloat(raw4));
     return s;
 }
 
@@ -287,6 +318,14 @@ FillColor Element_FillColor_read(ElementRef ref) {
     return FillColor_read(FillColorRef(ref.offset + 4));
 }
 
+FillLinGradient Element_FillLinGradient_read(ElementRef ref) {
+    return FillLinGradient_read(FillLinGradientRef(ref.offset + 4));
+}
+
+FillImage Element_FillImage_read(ElementRef ref) {
+    return FillImage_read(FillImageRef(ref.offset + 4));
+}
+
 SetLineWidth Element_SetLineWidth_read(ElementRef ref) {
     return SetLineWidth_read(SetLineWidthRef(ref.offset + 4));
 }
@@ -301,10 +340,6 @@ Clip Element_BeginClip_read(ElementRef ref) {
 
 Clip Element_EndClip_read(ElementRef ref) {
     return Clip_read(ClipRef(ref.offset + 4));
-}
-
-FillImage Element_FillImage_read(ElementRef ref) {
-    return FillImage_read(FillImageRef(ref.offset + 4));
 }
 
 SetFillMode Element_SetFillMode_read(ElementRef ref) {

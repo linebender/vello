@@ -14,6 +14,10 @@ struct CmdColorRef {
     uint offset;
 };
 
+struct CmdLinGradRef {
+    uint offset;
+};
+
 struct CmdImageRef {
     uint offset;
 };
@@ -62,6 +66,19 @@ CmdColorRef CmdColor_index(CmdColorRef ref, uint index) {
     return CmdColorRef(ref.offset + index * CmdColor_size);
 }
 
+struct CmdLinGrad {
+    uint index;
+    float line_x;
+    float line_y;
+    float line_c;
+};
+
+#define CmdLinGrad_size 16
+
+CmdLinGradRef CmdLinGrad_index(CmdLinGradRef ref, uint index) {
+    return CmdLinGradRef(ref.offset + index * CmdLinGrad_size);
+}
+
 struct CmdImage {
     uint index;
     ivec2 offset;
@@ -99,11 +116,12 @@ CmdJumpRef CmdJump_index(CmdJumpRef ref, uint index) {
 #define Cmd_Solid 3
 #define Cmd_Alpha 4
 #define Cmd_Color 5
-#define Cmd_Image 6
-#define Cmd_BeginClip 7
-#define Cmd_EndClip 8
-#define Cmd_Jump 9
-#define Cmd_size 12
+#define Cmd_LinGrad 6
+#define Cmd_Image 7
+#define Cmd_BeginClip 8
+#define Cmd_EndClip 9
+#define Cmd_Jump 10
+#define Cmd_size 20
 
 CmdRef Cmd_index(CmdRef ref, uint index) {
     return CmdRef(ref.offset + index * Cmd_size);
@@ -157,6 +175,28 @@ CmdColor CmdColor_read(Alloc a, CmdColorRef ref) {
 void CmdColor_write(Alloc a, CmdColorRef ref, CmdColor s) {
     uint ix = ref.offset >> 2;
     write_mem(a, ix + 0, s.rgba_color);
+}
+
+CmdLinGrad CmdLinGrad_read(Alloc a, CmdLinGradRef ref) {
+    uint ix = ref.offset >> 2;
+    uint raw0 = read_mem(a, ix + 0);
+    uint raw1 = read_mem(a, ix + 1);
+    uint raw2 = read_mem(a, ix + 2);
+    uint raw3 = read_mem(a, ix + 3);
+    CmdLinGrad s;
+    s.index = raw0;
+    s.line_x = uintBitsToFloat(raw1);
+    s.line_y = uintBitsToFloat(raw2);
+    s.line_c = uintBitsToFloat(raw3);
+    return s;
+}
+
+void CmdLinGrad_write(Alloc a, CmdLinGradRef ref, CmdLinGrad s) {
+    uint ix = ref.offset >> 2;
+    write_mem(a, ix + 0, s.index);
+    write_mem(a, ix + 1, floatBitsToUint(s.line_x));
+    write_mem(a, ix + 2, floatBitsToUint(s.line_y));
+    write_mem(a, ix + 3, floatBitsToUint(s.line_c));
 }
 
 CmdImage CmdImage_read(Alloc a, CmdImageRef ref) {
@@ -222,6 +262,10 @@ CmdColor Cmd_Color_read(Alloc a, CmdRef ref) {
     return CmdColor_read(a, CmdColorRef(ref.offset + 4));
 }
 
+CmdLinGrad Cmd_LinGrad_read(Alloc a, CmdRef ref) {
+    return CmdLinGrad_read(a, CmdLinGradRef(ref.offset + 4));
+}
+
 CmdImage Cmd_Image_read(Alloc a, CmdRef ref) {
     return CmdImage_read(a, CmdImageRef(ref.offset + 4));
 }
@@ -256,6 +300,11 @@ void Cmd_Alpha_write(Alloc a, CmdRef ref, CmdAlpha s) {
 void Cmd_Color_write(Alloc a, CmdRef ref, CmdColor s) {
     write_mem(a, ref.offset >> 2, Cmd_Color);
     CmdColor_write(a, CmdColorRef(ref.offset + 4), s);
+}
+
+void Cmd_LinGrad_write(Alloc a, CmdRef ref, CmdLinGrad s) {
+    write_mem(a, ref.offset >> 2, Cmd_LinGrad);
+    CmdLinGrad_write(a, CmdLinGradRef(ref.offset + 4), s);
 }
 
 void Cmd_Image_write(Alloc a, CmdRef ref, CmdImage s) {

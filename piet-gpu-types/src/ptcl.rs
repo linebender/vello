@@ -17,6 +17,13 @@ piet_gpu! {
         struct CmdColor {
             rgba_color: u32,
         }
+        struct CmdLinGrad {
+            index: u32,
+            // line equation for gradient
+            line_x: f32,
+            line_y: f32,
+            line_c: f32,
+        }
         struct CmdImage {
             index: u32,
             offset: [i16; 2],
@@ -34,6 +41,7 @@ piet_gpu! {
             Solid,
             Alpha(CmdAlpha),
             Color(CmdColor),
+            LinGrad(CmdLinGrad),
             Image(CmdImage),
             BeginClip,
             EndClip,

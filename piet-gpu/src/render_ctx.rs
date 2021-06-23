@@ -14,6 +14,7 @@ use piet_gpu_types::scene::{
     Clip, CubicSeg, Element, FillColor, LineSeg, QuadSeg, SetFillMode, SetLineWidth, Transform,
 };
 
+use crate::gradient::{LinearGradient, RampCache};
 use crate::text::Font;
 pub use crate::text::{PathEncoder, PietGpuText, PietGpuTextLayout, PietGpuTextLayoutBuilder};
 
@@ -38,12 +39,14 @@ pub struct PietGpuRenderContext {
     cur_transform: Affine,
     state_stack: Vec<State>,
     clip_stack: Vec<ClipElement>,
+
+    ramp_cache: RampCache,
 }
 
 #[derive(Clone)]
 pub enum PietGpuBrush {
     Solid(u32),
-    Gradient,
+    LinGradient(LinearGradient),
 }
 
 #[derive(Default)]
@@ -92,6 +95,7 @@ impl PietGpuRenderContext {
             cur_transform: Affine::default(),
             state_stack: Vec::new(),
             clip_stack: Vec::new(),
+            ramp_cache: RampCache::default(),
         }
     }
 
@@ -148,8 +152,14 @@ impl RenderContext for PietGpuRenderContext {
         PietGpuBrush::Solid(premul.as_rgba_u32())
     }
 
-    fn gradient(&mut self, _gradient: impl Into<FixedGradient>) -> Result<Self::Brush, Error> {
-        Ok(Self::Brush::Gradient)
+    fn gradient(&mut self, gradient: impl Into<FixedGradient>) -> Result<Self::Brush, Error> {
+        match gradient.into() {
+            FixedGradient::Linear(lin) => {
+                let lin = self.ramp_cache.add_linear_gradient(&lin);
+                Ok(PietGpuBrush::LinGradient(lin))
+            }
+            _ => todo!("don't do radial gradients yet"),
+        }
     }
 
     fn clear(&mut self, _color: Color) {}

@@ -4,7 +4,7 @@
 //!
 //! Requires the [cargo-apk] tool.
 //! [cargo-apk]: https://crates.io/crates/cargo-apk
-
+/*
 use raw_window_handle::android::AndroidHandle;
 use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
 
@@ -175,3 +175,5 @@ impl GfxState {
         }
     }
 }
+*/
+fn main() {}
