@@ -46,6 +46,7 @@ fn gen_derive_def(name: &str, size: usize, def: &LayoutTypeDef) -> proc_macro2::
                 encode_fields.extend(gen_encode_field(field_name, *offset, &ty.ty));
             }
             quote! {
+                #[derive(Clone)]
                 pub struct #name_id {
                     #gen_fields
                 }
@@ -104,6 +105,7 @@ fn gen_derive_def(name: &str, size: usize, def: &LayoutTypeDef) -> proc_macro2::
                 cases.extend(case);
             }
             quote! {
+                #[derive(Clone)]
                 pub enum #name_id {
                     #gen_variants
                 }

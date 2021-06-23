@@ -1,5 +1,6 @@
 mod pico_svg;
 mod render_ctx;
+mod text;
 
 use std::convert::TryInto;
 
@@ -7,8 +8,8 @@ pub use render_ctx::PietGpuRenderContext;
 
 use rand::{Rng, RngCore};
 
-use piet::kurbo::{BezPath, Circle, Point, Shape, Vec2};
-use piet::{Color, ImageFormat, RenderContext};
+use piet::kurbo::{Affine, BezPath, Circle, Point, Shape, Vec2};
+use piet::{Color, ImageFormat, RenderContext, Text, TextAttribute, TextLayoutBuilder};
 
 use piet_gpu_types::encoder::Encode;
 
@@ -77,6 +78,7 @@ pub fn render_scene(rc: &mut impl RenderContext) {
     //render_cardioid(rc);
     render_clip_test(rc);
     render_alpha_test(rc);
+    render_text_test(rc);
     //render_tiger(rc);
 }
 
@@ -156,6 +158,21 @@ fn diamond(origin: Point) -> impl Shape {
     path.line_to((origin.x - SIZE, origin.y));
     path.close_path();
     return path;
+}
+
+#[allow(unused)]
+fn render_text_test(rc: &mut impl RenderContext) {
+    rc.save();
+    //rc.transform(Affine::new([0.2, 0.0, 0.0, -0.2, 200.0, 800.0]));
+    let layout = rc
+        .text()
+        .new_text_layout("hello piet-gpu text!")
+        .default_attribute(TextAttribute::FontSize(100.0))
+        .build()
+        .unwrap();
+    rc.draw_text(&layout, Point::new(110.0, 600.0));
+    rc.draw_text(&layout, Point::new(110.0, 700.0));
+    rc.restore();
 }
 
 #[allow(unused)]

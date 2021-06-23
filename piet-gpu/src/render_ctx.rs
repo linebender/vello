@@ -14,15 +14,10 @@ use piet_gpu_types::scene::{
     Clip, CubicSeg, Element, FillColor, LineSeg, QuadSeg, SetFillMode, SetLineWidth, Transform,
 };
 
+use crate::text::Font;
+pub use crate::text::{PathEncoder, PietGpuText, PietGpuTextLayout, PietGpuTextLayoutBuilder};
+
 pub struct PietGpuImage;
-
-#[derive(Clone)]
-pub struct PietGpuTextLayout;
-
-pub struct PietGpuTextLayoutBuilder;
-
-#[derive(Clone)]
-pub struct PietGpuText;
 
 pub struct PietGpuRenderContext {
     encoder: Encoder,
@@ -69,7 +64,7 @@ struct ClipElement {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-enum FillMode {
+pub(crate) enum FillMode {
     // Fill path according to the non-zero winding rule.
     Nonzero = 0,
     // Fill stroked path.
@@ -82,7 +77,8 @@ impl PietGpuRenderContext {
     pub fn new() -> PietGpuRenderContext {
         let encoder = Encoder::new();
         let elements = Vec::new();
-        let inner_text = PietGpuText;
+        let font = Font::new();
+        let inner_text = PietGpuText::new(font);
         let stroke_width = 0.0;
         PietGpuRenderContext {
             encoder,
@@ -115,14 +111,14 @@ impl PietGpuRenderContext {
     pub fn trans_count(&self) -> usize {
         self.trans_count
     }
-}
 
-fn set_fill_mode(ctx: &mut PietGpuRenderContext, fill_mode: FillMode) {
-    if ctx.fill_mode != fill_mode {
-        ctx.elements.push(Element::SetFillMode(SetFillMode {
-            fill_mode: fill_mode as u32,
-        }));
-        ctx.fill_mode = fill_mode;
+    pub(crate) fn set_fill_mode(&mut self, fill_mode: FillMode) {
+        if self.fill_mode != fill_mode {
+            self.elements.push(Element::SetFillMode(SetFillMode {
+                fill_mode: fill_mode as u32,
+            }));
+            self.fill_mode = fill_mode;
+        }
     }
 }
 
@@ -165,7 +161,7 @@ impl RenderContext for PietGpuRenderContext {
                 .push(Element::SetLineWidth(SetLineWidth { width: width_f32 }));
             self.stroke_width = width_f32;
         }
-        set_fill_mode(self, FillMode::Stroke);
+        self.set_fill_mode(FillMode::Stroke);
         let brush = brush.make_brush(self, || shape.bounding_box()).into_owned();
         match brush {
             PietGpuBrush::Solid(rgba_color) => {
@@ -197,7 +193,7 @@ impl RenderContext for PietGpuRenderContext {
             // Perhaps that should be added to kurbo.
             self.accumulate_bbox(|| shape.bounding_box());
             let path = shape.path_elements(TOLERANCE);
-            set_fill_mode(self, FillMode::Nonzero);
+            self.set_fill_mode(FillMode::Nonzero);
             self.encode_path(path, true);
             let fill = FillColor { rgba_color };
             self.elements.push(Element::FillColor(fill));
@@ -208,7 +204,7 @@ impl RenderContext for PietGpuRenderContext {
     fn fill_even_odd(&mut self, _shape: impl Shape, _brush: &impl IntoBrush<Self>) {}
 
     fn clip(&mut self, shape: impl Shape) {
-        set_fill_mode(self, FillMode::Nonzero);
+        self.set_fill_mode(FillMode::Nonzero);
         let path = shape.path_elements(TOLERANCE);
         self.encode_path(path, true);
         let begin_ix = self.elements.len();
@@ -229,7 +225,9 @@ impl RenderContext for PietGpuRenderContext {
         &mut self.inner_text
     }
 
-    fn draw_text(&mut self, _layout: &Self::TextLayout, _pos: impl Into<Point>) {}
+    fn draw_text(&mut self, layout: &Self::TextLayout, pos: impl Into<Point>) {
+        layout.draw_text(self, pos.into());
+    }
 
     fn save(&mut self) -> Result<(), Error> {
         self.state_stack.push(State {
@@ -244,9 +242,7 @@ impl RenderContext for PietGpuRenderContext {
         if let Some(state) = self.state_stack.pop() {
             if state.rel_transform != Affine::default() {
                 let a_inv = state.rel_transform.inverse();
-                self.elements
-                    .push(Element::Transform(to_scene_transform(a_inv)));
-                self.trans_count += 1;
+                self.encode_transform(to_scene_transform(a_inv));
             }
             self.cur_transform = state.transform;
             for _ in 0..state.n_clip {
@@ -266,9 +262,7 @@ impl RenderContext for PietGpuRenderContext {
     }
 
     fn transform(&mut self, transform: Affine) {
-        self.elements
-            .push(Element::Transform(to_scene_transform(transform)));
-        self.trans_count += 1;
+        self.encode_transform(to_scene_transform(transform));
         if let Some(tos) = self.state_stack.last_mut() {
             tos.rel_transform *= transform;
         }
@@ -486,84 +480,22 @@ impl PietGpuRenderContext {
             };
         }
     }
-}
 
-impl Text for PietGpuText {
-    type TextLayout = PietGpuTextLayout;
-    type TextLayoutBuilder = PietGpuTextLayoutBuilder;
-
-    fn load_font(&mut self, _data: &[u8]) -> Result<FontFamily, Error> {
-        Ok(FontFamily::default())
+    pub(crate) fn append_path_encoder(&mut self, path: &PathEncoder) {
+        let elements = path.elements();
+        self.elements.extend(elements.iter().cloned());
+        self.pathseg_count += elements.len();
     }
 
-    fn new_text_layout(&mut self, _text: impl TextStorage) -> Self::TextLayoutBuilder {
-        PietGpuTextLayoutBuilder
+    pub(crate) fn fill_glyph(&mut self, rgba_color: u32) {
+        let fill = FillColor { rgba_color };
+        self.elements.push(Element::FillColor(fill));
+        self.path_count += 1;
     }
 
-    fn font_family(&mut self, _family_name: &str) -> Option<FontFamily> {
-        Some(FontFamily::default())
-    }
-}
-
-impl TextLayoutBuilder for PietGpuTextLayoutBuilder {
-    type Out = PietGpuTextLayout;
-
-    fn max_width(self, _width: f64) -> Self {
-        self
-    }
-
-    fn alignment(self, _alignment: piet::TextAlignment) -> Self {
-        self
-    }
-
-    fn default_attribute(self, _attribute: impl Into<TextAttribute>) -> Self {
-        self
-    }
-
-    fn range_attribute(
-        self,
-        _range: impl RangeBounds<usize>,
-        _attribute: impl Into<TextAttribute>,
-    ) -> Self {
-        self
-    }
-
-    fn build(self) -> Result<Self::Out, Error> {
-        Ok(PietGpuTextLayout)
-    }
-}
-
-impl TextLayout for PietGpuTextLayout {
-    fn size(&self) -> Size {
-        Size::ZERO
-    }
-
-    fn image_bounds(&self) -> Rect {
-        Rect::ZERO
-    }
-
-    fn line_text(&self, _line_number: usize) -> Option<&str> {
-        None
-    }
-
-    fn line_metric(&self, _line_number: usize) -> Option<LineMetric> {
-        None
-    }
-
-    fn line_count(&self) -> usize {
-        0
-    }
-
-    fn hit_test_point(&self, _point: Point) -> HitTestPoint {
-        HitTestPoint::default()
-    }
-
-    fn hit_test_text_position(&self, _text_position: usize) -> HitTestPosition {
-        HitTestPosition::default()
-    }
-
-    fn text(&self) -> &str {
-        ""
+    pub(crate) fn encode_transform(&mut self, transform: Transform) {
+        self.elements.push(Element::Transform(transform));
+        self.trans_count += 1;
     }
 }
 
@@ -577,7 +509,7 @@ impl IntoBrush<PietGpuRenderContext> for PietGpuBrush {
     }
 }
 
-fn to_f32_2(point: Point) -> [f32; 2] {
+pub(crate) fn to_f32_2(point: Point) -> [f32; 2] {
     [point.x as f32, point.y as f32]
 }
 
