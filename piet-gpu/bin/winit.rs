@@ -1,6 +1,8 @@
 use piet_gpu_hal::{Error, ImageLayout, Instance, Session, SubmittedCmdBuf};
 
-use piet_gpu::{render_scene, PietGpuRenderContext, Renderer, HEIGHT, WIDTH};
+use piet_gpu::{render_scene, PietGpuRenderContext, Renderer, HEIGHT, WIDTH, render_svg};
+
+use clap::{App, Arg};
 
 use winit::{
     event::{Event, WindowEvent},
@@ -11,6 +13,17 @@ use winit::{
 const NUM_FRAMES: usize = 2;
 
 fn main() -> Result<(), Error> {
+    let matches = App::new("piet-gpu test")
+        .arg(Arg::with_name("INPUT").index(1))
+        .arg(Arg::with_name("flip").short("f").long("flip"))
+        .arg(
+            Arg::with_name("scale")
+                .short("s")
+                .long("scale")
+                .takes_value(true),
+        )
+        .get_matches();
+
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
         .with_inner_size(winit::dpi::LogicalSize {
@@ -36,7 +49,18 @@ fn main() -> Result<(), Error> {
             .collect::<Result<Vec<_>, Error>>()?;
 
         let mut ctx = PietGpuRenderContext::new();
-        render_scene(&mut ctx);
+        if let Some(input) = matches.value_of("INPUT") {
+            let mut scale = matches
+                .value_of("scale")
+                .map(|scale| scale.parse().unwrap())
+                .unwrap_or(8.0);
+            if matches.is_present("flip") {
+                scale = -scale;
+            }
+            render_svg(&mut ctx, input, scale);
+        } else {
+            render_scene(&mut ctx);
+        }
         let n_paths = ctx.path_count();
         let n_pathseg = ctx.pathseg_count();
         let n_trans = ctx.trans_count();
