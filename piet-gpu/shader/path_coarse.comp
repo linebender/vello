@@ -276,6 +276,7 @@ void main() {
                     xray = next_xray;
                 }
 
+                if (n_out == n) break;
                 n_out += 1;
                 target += v_step;
                 p0 = p1;
