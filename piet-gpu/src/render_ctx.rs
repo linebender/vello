@@ -8,6 +8,7 @@ use piet::{
     Color, Error, FixedGradient, FontFamily, HitTestPoint, ImageFormat, InterpolationMode,
     IntoBrush, LineMetric, RenderContext, StrokeStyle, Text, TextLayout, TextLayoutBuilder,
 };
+use crate::MAX_BLEND_STACK;
 
 use piet_gpu_types::encoder::{Encode, Encoder};
 use piet_gpu_types::scene::{
@@ -211,6 +212,9 @@ impl RenderContext for PietGpuRenderContext {
         self.elements.push(Element::BeginClip(Clip {
             bbox: Default::default(),
         }));
+        if self.clip_stack.len() >= MAX_BLEND_STACK {
+            panic!("Maximum clip/blend stack size {} exceeded", MAX_BLEND_STACK);
+        }
         self.clip_stack.push(ClipElement {
             bbox: None,
             begin_ix,
