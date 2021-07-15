@@ -30,6 +30,7 @@ layout(set = 0, binding = 1) readonly buffer ConfigBuf {
 #define Q_ACCURACY (ACCURACY * 0.1)
 #define REM_ACCURACY (ACCURACY - Q_ACCURACY)
 #define MAX_HYPOT2 (432.0 * Q_ACCURACY * Q_ACCURACY)
+#define MAX_QUADS 16
 
 vec2 eval_quad(vec2 p0, vec2 p1, vec2 p2, float t) {
     float mt = 1.0 - t;
@@ -69,6 +70,9 @@ SubdivResult estimate_subdiv(vec2 p0, vec2 p1, vec2 p2, float sqrt_tol) {
     float x0 = (d01.x * dd.x + d01.y * dd.y) / cross;
     float x2 = (d12.x * dd.x + d12.y * dd.y) / cross;
     float scale = abs(cross / (length(dd) * (x2 - x0)));
+    if (abs(cross) < 1e-9) {
+        //return SubdivResult(0.0, 0.0, 0.0);
+    }
 
     float a0 = approx_parabola_integral(x0);
     float a2 = approx_parabola_integral(x2);
@@ -113,6 +117,8 @@ void main() {
         float err = err_v.x * err_v.x + err_v.y * err_v.y;
         // The number of quadratics.
         uint n_quads = max(uint(ceil(pow(err * (1.0 / MAX_HYPOT2), 1.0 / 6.0))), 1);
+        n_quads = min(n_quads, MAX_QUADS);
+        SubdivResult keep_params[MAX_QUADS];
         // Iterate over quadratics and tote up the estimated number of segments.
         float val = 0.0;
         vec2 qp0 = cubic.p0;
@@ -123,6 +129,7 @@ void main() {
             vec2 qp1 = eval_cubic(cubic.p0, cubic.p1, cubic.p2, cubic.p3, t - 0.5 * step);
             qp1 = 2.0 * qp1 - 0.5 * (qp0 + qp2);
             SubdivResult params = estimate_subdiv(qp0, qp1, qp2, sqrt(REM_ACCURACY));
+            keep_params[i] = params;
             val += params.val;
 
             qp0 = qp2;
@@ -144,12 +151,13 @@ void main() {
             vec2 qp2 = eval_cubic(cubic.p0, cubic.p1, cubic.p2, cubic.p3, t);
             vec2 qp1 = eval_cubic(cubic.p0, cubic.p1, cubic.p2, cubic.p3, t - 0.5 * step);
             qp1 = 2.0 * qp1 - 0.5 * (qp0 + qp2);
-            SubdivResult params = estimate_subdiv(qp0, qp1, qp2, sqrt(REM_ACCURACY));
+            SubdivResult params = keep_params[i];
             float u0 = approx_parabola_inv_integral(params.a0);
             float u2 = approx_parabola_inv_integral(params.a2);
             float uscale = 1.0 / (u2 - u0);
             float target = float(n_out) * v_step;
             while (n_out == n || target < val_sum + params.val) {
+                if (n_out == 1000) break;
                 vec2 p1;
                 if (n_out == n) {
                     p1 = cubic.p3;
