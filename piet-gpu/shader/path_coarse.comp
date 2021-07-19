@@ -70,9 +70,6 @@ SubdivResult estimate_subdiv(vec2 p0, vec2 p1, vec2 p2, float sqrt_tol) {
     float x0 = (d01.x * dd.x + d01.y * dd.y) / cross;
     float x2 = (d12.x * dd.x + d12.y * dd.y) / cross;
     float scale = abs(cross / (length(dd) * (x2 - x0)));
-    if (abs(cross) < 1e-9) {
-        //return SubdivResult(0.0, 0.0, 0.0);
-    }
 
     float a0 = approx_parabola_integral(x0);
     float a2 = approx_parabola_integral(x2);
@@ -157,7 +154,6 @@ void main() {
             float uscale = 1.0 / (u2 - u0);
             float target = float(n_out) * v_step;
             while (n_out == n || target < val_sum + params.val) {
-                if (n_out == 1000) break;
                 vec2 p1;
                 if (n_out == n) {
                     p1 = cubic.p3;
