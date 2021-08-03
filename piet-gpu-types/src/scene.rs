@@ -1,7 +1,7 @@
 use piet_gpu_derive::piet_gpu;
 
 pub use self::scene::{
-    Clip, CubicSeg, Element, FillColor, LineSeg, QuadSeg, SetFillMode, SetLineWidth, Transform,
+    Clip, CubicSeg, Element, FillColor, FillLinGradient, LineSeg, QuadSeg, SetFillMode, SetLineWidth, Transform,
 };
 
 piet_gpu! {

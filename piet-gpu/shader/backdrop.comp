@@ -58,6 +58,7 @@ void main() {
             AnnotatedTag tag = Annotated_tag(conf.anno_alloc, ref);
             switch (tag.tag) {
                 case Annotated_Image:
+                case Annotated_LinGradient:
                 case Annotated_BeginClip:
                 case Annotated_Color:
                 if (fill_mode_from_flags(tag.flags) != MODE_NONZERO) {

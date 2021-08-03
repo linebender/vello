@@ -137,6 +137,7 @@ State map_element(ElementRef ref) {
         c.pathseg_count = 1;
         break;
     case Element_FillColor:
+    case Element_FillLinGradient:
     case Element_FillImage:
     case Element_BeginClip:
         c.flags = FLAG_RESET_BBOX;
@@ -370,7 +371,7 @@ void main() {
             vec2 p0 = st.mat.xy * lin.p0.x + st.mat.zw * lin.p0.y + st.translate;
             vec2 p1 = st.mat.xy * lin.p1.x + st.mat.zw * lin.p1.y + st.translate;
             vec2 dxy = p1 - p0;
-            float scale = inversesqrt(dxy.x * dxy.x + dxy.y * dxy.y);
+            float scale = 1.0 / (dxy.x * dxy.x + dxy.y * dxy.y);
             float line_x = dxy.x * scale;
             float line_y = dxy.y * scale;
             anno_lin.line_x = line_x;

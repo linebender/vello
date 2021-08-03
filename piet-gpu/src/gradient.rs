@@ -25,11 +25,13 @@ pub struct BakedGradient {
     ramp: Vec<u32>,
 }
 
+/// This is basically the same type as scene::FillLinGradient, so could
+/// potentially use that directly.
 #[derive(Clone)]
 pub struct LinearGradient {
-    start: [f32; 2],
-    end: [f32; 2],
-    ramp_id: u32,
+    pub(crate) start: [f32; 2],
+    pub(crate) end: [f32; 2],
+    pub(crate) ramp_id: u32,
 }
 
 #[derive(Default)]
@@ -58,7 +60,11 @@ impl PremulRgba {
 
     fn to_u32(&self) -> u32 {
         let z = self.0;
-        Color::rgba(z[0], z[1], z[2], z[3]).as_rgba_u32()
+        let r = (z[0].max(0.0).min(1.0) * 255.0).round() as u32;
+        let g = (z[1].max(0.0).min(1.0) * 255.0).round() as u32;
+        let b = (z[2].max(0.0).min(1.0) * 255.0).round() as u32;
+        let a = (z[3].max(0.0).min(1.0) * 255.0).round() as u32;
+        r | (g << 8) | (b << 16) | (a << 24)
     }
 
     fn lerp(&self, other: PremulRgba, t: f64) -> PremulRgba {
@@ -67,7 +73,12 @@ impl PremulRgba {
         }
         let a = self.0;
         let b = other.0;
-        PremulRgba([l(a[0], b[0], t), l(a[1], b[1], t), l(a[2], b[2], t), l(a[2], b[3], t)])
+        PremulRgba([
+            l(a[0], b[0], t),
+            l(a[1], b[1], t),
+            l(a[2], b[2], t),
+            l(a[3], b[3], t),
+        ])
     }
 }
 
@@ -78,28 +89,37 @@ impl GradientRamp {
         let mut this_u = last_u;
         let mut this_c = last_c;
         let mut j = 0;
-        let v = (0..N_SAMPLES).map(|i| {
-            let u = (i as f64) / 255.0;
-            while u > this_u {
-                last_u = this_u;
-                last_c = this_c;
-                if let Some(s) = stops.get(j + 1) {
-                    this_u = s.pos as f64;
-                    this_c = PremulRgba::from_color(&s.color);
-                    j += 1;
-                } else {
-                    break;
+        let v = (0..N_SAMPLES)
+            .map(|i| {
+                let u = (i as f64) / (N_SAMPLES - 1) as f64;
+                while u > this_u {
+                    last_u = this_u;
+                    last_c = this_c;
+                    if let Some(s) = stops.get(j + 1) {
+                        this_u = s.pos as f64;
+                        this_c = PremulRgba::from_color(&s.color);
+                        j += 1;
+                    } else {
+                        break;
+                    }
                 }
-            }
-            let du = this_u - last_u;
-            let c = if du < 1e-9 {
-                this_c
-            } else {
-                last_c.lerp(this_c, (u - last_u) / du)
-            };
-            c.to_u32()
-        }).collect();
+                let du = this_u - last_u;
+                let c = if du < 1e-9 {
+                    this_c
+                } else {
+                    last_c.lerp(this_c, (u - last_u) / du)
+                };
+                c.to_u32()
+            })
+            .collect();
         GradientRamp(v)
+    }
+
+    /// For debugging/development.
+    pub(crate) fn dump(&self) {
+        for val in &self.0 {
+            println!("{:x}", val);
+        }
     }
 }
 
@@ -133,13 +153,52 @@ impl RampCache {
             end: crate::render_ctx::to_f32_2(lin.end),
         }
     }
-}
 
+    /// Dump the contents of a gradient. This is for debugging.
+    #[allow(unused)]
+    pub(crate) fn dump_gradient(&self, lin: &LinearGradient) {
+        println!("id = {}", lin.ramp_id);
+        self.ramps[lin.ramp_id as usize].dump();
+    }
+
+    /// Get the ramp data.
+    ///
+    /// This concatenates all the ramps; we'll want a more sophisticated approach to
+    /// incremental update.
+    pub fn get_ramp_data(&self) -> Vec<u32> {
+        let mut result = Vec::with_capacity(N_SAMPLES * self.ramps.len());
+        for ramp in &self.ramps {
+            result.extend(&ramp.0);
+        }
+        result
+    }
+}
 
 #[cfg(test)]
 mod test {
+    use super::RampCache;
+    use piet::kurbo::Point;
+    use piet::{Color, FixedLinearGradient, GradientStop};
+
     #[test]
-    fn it_works() {
-        println!("it works!");
+    fn simple_ramp() {
+        let stops = vec![
+            GradientStop {
+                color: Color::WHITE,
+                pos: 0.0,
+            },
+            GradientStop {
+                color: Color::BLACK,
+                pos: 1.0,
+            },
+        ];
+        let mut cache = RampCache::default();
+        let lin = FixedLinearGradient {
+            start: Point::new(0.0, 0.0),
+            end: Point::new(0.0, 1.0),
+            stops,
+        };
+        let our_lin = cache.add_linear_gradient(&lin);
+        cache.dump_gradient(&our_lin);
     }
 }

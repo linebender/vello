@@ -346,7 +346,6 @@ void main() {
                     cmd_ref.offset += 4 + CmdColor_size;
                     break;
                 case Annotated_LinGradient:
-                    // TODO: process and write linear gradient
                     tile = Tile_read(read_tile_alloc(element_ref_ix, mem_ok), TileRef(sh_tile_base[element_ref_ix]
                         + (sh_tile_stride[element_ref_ix] * tile_y + tile_x) * Tile_size));
                     AnnoLinGradient lin = Annotated_LinGradient_read(conf.anno_alloc, ref);
