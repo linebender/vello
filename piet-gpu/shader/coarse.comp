@@ -148,12 +148,6 @@ void main() {
     uint part_start_ix = 0;
     uint ready_ix = 0;
 
-    // Leave room for the fine rasterizer scratch allocation.
-    Alloc scratch_alloc = slice_mem(cmd_alloc, 0, Alloc_size);
-    cmd_ref.offset += Alloc_size;
-
-    uint num_begin_slots = 0;
-    uint begin_slot = 0;
     bool mem_ok = mem_error == NO_ERROR;
     while (true) {
         for (uint i = 0; i < N_SLICE; i++) {
@@ -390,8 +384,6 @@ void main() {
                         if (clip_depth < 32) {
                             clip_one_mask &= ~(1 << clip_depth);
                         }
-                        begin_slot++;
-                        num_begin_slots = max(num_begin_slots, begin_slot);
                     }
                     clip_depth++;
                     break;
@@ -403,7 +395,6 @@ void main() {
                         }
                         Cmd_Solid_write(cmd_alloc, cmd_ref);
                         cmd_ref.offset += 4;
-                        begin_slot--;
                         Cmd_EndClip_write(cmd_alloc, cmd_ref);
                         cmd_ref.offset += 4;
                     }
@@ -431,13 +422,5 @@ void main() {
     }
     if (bin_tile_x + tile_x < conf.width_in_tiles && bin_tile_y + tile_y < conf.height_in_tiles) {
         Cmd_End_write(cmd_alloc, cmd_ref);
-        if (num_begin_slots > 0) {
-            // Write scratch allocation: one state per BeginClip per rasterizer chunk.
-            uint scratch_size = num_begin_slots * TILE_WIDTH_PX * TILE_HEIGHT_PX * CLIP_STATE_SIZE * 4;
-            MallocResult scratch = malloc(scratch_size);
-            // Ignore scratch.failed; we don't use the allocation and kernel4
-            // checks for memory overflow before using it.
-            alloc_write(scratch_alloc, scratch_alloc.offset, scratch.alloc);
-        }
     }
 }

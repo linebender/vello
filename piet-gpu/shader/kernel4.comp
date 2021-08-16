@@ -35,6 +35,7 @@ layout(rgba8, set = 0, binding = 4) uniform restrict readonly image2D gradients;
 #include "ptcl.h"
 #include "tile.h"
 
+#define MAX_BLEND_STACK 128
 mediump vec3 tosRGB(mediump vec3 rgb) {
     bvec3 cutoff = greaterThanEqual(rgb, vec3(0.0031308));
     mediump vec3 below = vec3(12.92)*rgb;
@@ -84,13 +85,11 @@ void main() {
     Alloc cmd_alloc = slice_mem(conf.ptcl_alloc, tile_ix * PTCL_INITIAL_ALLOC, PTCL_INITIAL_ALLOC);
     CmdRef cmd_ref = CmdRef(cmd_alloc.offset);
 
-    // Read scrach space allocation, written first in the command list.
-    Alloc scratch_alloc = alloc_read(cmd_alloc, cmd_ref.offset);
-    cmd_ref.offset += Alloc_size;
-
     uvec2 xy_uint = uvec2(gl_LocalInvocationID.x + TILE_WIDTH_PX * gl_WorkGroupID.x, gl_LocalInvocationID.y + TILE_HEIGHT_PX * gl_WorkGroupID.y);
     vec2 xy = vec2(xy_uint);
     mediump vec4 rgba[CHUNK];
+    uint blend_stack[MAX_BLEND_STACK][CHUNK];
+    mediump float blend_alpha_stack[MAX_BLEND_STACK][CHUNK];
     for (uint i = 0; i < CHUNK; i++) {
         rgba[i] = vec4(0.0);
     }
@@ -203,14 +202,12 @@ void main() {
             cmd_ref.offset += 4 + CmdImage_size;
             break;
         case Cmd_BeginClip:
-            uint base_ix = (scratch_alloc.offset >> 2) + CLIP_STATE_SIZE * (clip_depth * TILE_WIDTH_PX * TILE_HEIGHT_PX +
-                gl_LocalInvocationID.x + TILE_WIDTH_PX * gl_LocalInvocationID.y);
             for (uint k = 0; k < CHUNK; k++) {
-                uvec2 offset = chunk_offset(k);
-                uint srgb = packsRGB(vec4(rgba[k]));
-                mediump float alpha = clamp(abs(area[k]), 0.0, 1.0);
-                write_mem(scratch_alloc, base_ix + 0 + CLIP_STATE_SIZE * (offset.x + offset.y * TILE_WIDTH_PX), srgb);
-                write_mem(scratch_alloc, base_ix + 1 + CLIP_STATE_SIZE * (offset.x + offset.y * TILE_WIDTH_PX), floatBitsToUint(alpha));
+                // We reject any inputs that might overflow in render_ctx.rs.
+                // The following is a sanity check so we don't corrupt memory should there be malformed inputs.
+                uint d = min(clip_depth, MAX_BLEND_STACK - 1);
+                blend_stack[d][k] = packsRGB(vec4(rgba[k]));
+                blend_alpha_stack[d][k] = clamp(abs(area[k]), 0.0, 1.0);
                 rgba[k] = vec4(0.0);
             }
             clip_depth++;
@@ -218,14 +215,10 @@ void main() {
             break;
         case Cmd_EndClip:
             clip_depth--;
-            base_ix = (scratch_alloc.offset >> 2) + CLIP_STATE_SIZE * (clip_depth * TILE_WIDTH_PX * TILE_HEIGHT_PX +
-                gl_LocalInvocationID.x + TILE_WIDTH_PX * gl_LocalInvocationID.y);
             for (uint k = 0; k < CHUNK; k++) {
-                uvec2 offset = chunk_offset(k);
-                uint srgb = read_mem(scratch_alloc, base_ix + 0 + CLIP_STATE_SIZE * (offset.x + offset.y * TILE_WIDTH_PX));
-                uint alpha = read_mem(scratch_alloc, base_ix + 1 + CLIP_STATE_SIZE * (offset.x + offset.y * TILE_WIDTH_PX));
-                mediump vec4 bg = unpacksRGB(srgb);
-                mediump vec4 fg = rgba[k] * area[k] * uintBitsToFloat(alpha);
+                uint d = min(clip_depth, MAX_BLEND_STACK - 1);
+                mediump vec4 bg = unpacksRGB(blend_stack[d][k]);
+                mediump vec4 fg = rgba[k] * area[k] * blend_alpha_stack[d][k];
                 rgba[k] = bg * (1.0 - fg.a) + fg;
             }
             cmd_ref.offset += 4;
