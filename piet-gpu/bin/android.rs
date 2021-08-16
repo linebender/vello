@@ -39,8 +39,6 @@ struct GfxState {
     present_semaphores: Vec<Semaphore>,
 }
 
-const WIDTH: usize = 1080;
-const HEIGHT: usize = 2280;
 const NUM_FRAMES: usize = 2;
 
 fn my_main() -> Result<(), Error> {
@@ -52,9 +50,12 @@ fn my_main() -> Result<(), Error> {
                 Event::WindowCreated => {
                     let window = ndk_glue::native_window();
                     if let Some(window) = &*window {
+                        let width = window.width() as usize;
+                        let height = window.height() as usize;
                         let handle = get_handle(window);
                         let (instance, surface) = Instance::new(Some(&handle))?;
-                        gfx_state = Some(GfxState::new(&instance, surface.as_ref())?);
+                        gfx_state =
+                            Some(GfxState::new(&instance, surface.as_ref(), width, height)?);
                     } else {
                         println!("native window is sadly none");
                     }
@@ -91,11 +92,16 @@ unsafe impl HasRawWindowHandle for MyHandle {
 }
 
 impl GfxState {
-    fn new(instance: &Instance, surface: Option<&Surface>) -> Result<GfxState, Error> {
+    fn new(
+        instance: &Instance,
+        surface: Option<&Surface>,
+        width: usize,
+        height: usize,
+    ) -> Result<GfxState, Error> {
         unsafe {
             let device = instance.device(surface)?;
             let mut swapchain =
-                instance.swapchain(WIDTH / 2, HEIGHT / 2, &device, surface.unwrap())?;
+                instance.swapchain(width, height, &device, surface.unwrap())?;
             let session = Session::new(device);
             let mut current_frame = 0;
             let present_semaphores = (0..NUM_FRAMES)
@@ -108,7 +114,7 @@ impl GfxState {
             let mut ctx = PietGpuRenderContext::new();
             render_scene(&mut ctx);
 
-            let mut renderer = Renderer::new(&session)?;
+            let mut renderer = Renderer::new(&session, width, height)?;
             renderer.upload_render_ctx(&mut ctx)?;
 
             let submitted: Option<SubmittedCmdBuf> = None;

@@ -24,14 +24,9 @@ use piet_gpu_hal::{
 
 use pico_svg::PicoSvg;
 
-pub const WIDTH: usize = TILE_W * WIDTH_IN_TILES;
-pub const HEIGHT: usize = TILE_H * HEIGHT_IN_TILES;
-
 const TILE_W: usize = 16;
 const TILE_H: usize = 16;
 
-const WIDTH_IN_TILES: usize = 128;
-const HEIGHT_IN_TILES: usize = 96;
 const PTCL_INITIAL_ALLOC: usize = 1024;
 
 const MAX_BLEND_STACK: usize = 128;
@@ -50,6 +45,8 @@ pub fn render_svg(rc: &mut impl RenderContext, filename: &str, scale: f64) {
 }
 
 pub fn render_scene(rc: &mut impl RenderContext) {
+    const WIDTH: usize = 2048;
+    const HEIGHT: usize = 1536;
     let mut rng = rand::thread_rng();
     for _ in 0..N_CIRCLES {
         let color = Color::from_rgba32_u32(rng.next_u32());
@@ -235,6 +232,11 @@ pub fn dump_k1_data(k1_buf: &[u32]) {
 }
 
 pub struct Renderer {
+    // These sizes are aligned to tile boundaries, though at some point
+    // we'll want to have a good strategy for dealing with odd sizes.
+    width: usize,
+    height: usize,
+
     pub image_dev: Image, // resulting image
 
     // The reference is held by the pipelines. We will be changing
@@ -284,7 +286,10 @@ pub struct Renderer {
 
 impl Renderer {
     /// Create a new renderer.
-    pub unsafe fn new(session: &Session) -> Result<Self, Error> {
+    pub unsafe fn new(session: &Session, width: usize, height: usize) -> Result<Self, Error> {
+        // For now, round up to tile alignment
+        let width = width + (width.wrapping_neg() & (TILE_W - 1));
+        let height = height + (height.wrapping_neg() & (TILE_W - 1));
         let dev = BufferUsage::STORAGE | BufferUsage::COPY_DST;
         let host_upload = BufferUsage::MAP_WRITE | BufferUsage::COPY_SRC;
 
@@ -293,7 +298,7 @@ impl Renderer {
         let scene_buf = session.create_buffer(1 * 1024 * 1024, host_upload).unwrap();
 
         let state_buf = session.create_buffer(1 * 1024 * 1024, dev)?;
-        let image_dev = session.create_image2d(WIDTH as u32, HEIGHT as u32)?;
+        let image_dev = session.create_image2d(width as u32, height as u32)?;
 
         // Note: this must be updated when the config struct size changes.
         const CONFIG_BUFFER_SIZE: u64 = 40;
@@ -372,6 +377,8 @@ impl Renderer {
             .build(&session, &k4_pipeline)?;
 
         Ok(Renderer {
+            width,
+            height,
             scene_buf,
             memory_buf_host,
             memory_buf_dev,
@@ -423,13 +430,15 @@ impl Renderer {
         const PATHSEG_SIZE: usize = 52;
         const ANNO_SIZE: usize = 40;
         const TRANS_SIZE: usize = 24;
+        let width_in_tiles = self.width / TILE_W;
+        let height_in_tiles = self.height / TILE_H;
         let mut alloc = 0;
         let tile_base = alloc;
         alloc += ((n_paths + 3) & !3) * PATH_SIZE;
         let bin_base = alloc;
         alloc += ((n_paths + 255) & !255) * BIN_SIZE;
         let ptcl_base = alloc;
-        alloc += WIDTH_IN_TILES * HEIGHT_IN_TILES * PTCL_INITIAL_ALLOC;
+        alloc += width_in_tiles * height_in_tiles * PTCL_INITIAL_ALLOC;
         let pathseg_base = alloc;
         alloc += (n_pathseg * PATHSEG_SIZE + 3) & !3;
         let anno_base = alloc;
@@ -439,8 +448,8 @@ impl Renderer {
         let config = &[
             n_paths as u32,
             n_pathseg as u32,
-            WIDTH_IN_TILES as u32,
-            HEIGHT_IN_TILES as u32,
+            width_in_tiles as u32,
+            height_in_tiles as u32,
             tile_base as u32,
             bin_base as u32,
             ptcl_base as u32,
@@ -533,7 +542,11 @@ impl Renderer {
         cmd_buf.dispatch(
             &self.coarse_pipeline,
             &self.coarse_ds,
-            ((WIDTH as u32 + 255) / 256, (HEIGHT as u32 + 255) / 256, 1),
+            (
+                (self.width as u32 + 255) / 256,
+                (self.height as u32 + 255) / 256,
+                1,
+            ),
             (256, 256, 1),
         );
         cmd_buf.write_timestamp(&query_pool, 6);
@@ -541,7 +554,11 @@ impl Renderer {
         cmd_buf.dispatch(
             &self.k4_pipeline,
             &self.k4_ds,
-            ((WIDTH / TILE_W) as u32, (HEIGHT / TILE_H) as u32, 1),
+            (
+                (self.width / TILE_W) as u32,
+                (self.height / TILE_H) as u32,
+                1,
+            ),
             (8, 4, 1),
         );
         cmd_buf.write_timestamp(&query_pool, 7);

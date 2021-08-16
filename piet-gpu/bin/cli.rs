@@ -6,7 +6,10 @@ use clap::{App, Arg};
 
 use piet_gpu_hal::{BufferUsage, Error, Instance, Session};
 
-use piet_gpu::{render_scene, render_svg, PietGpuRenderContext, Renderer, HEIGHT, WIDTH};
+use piet_gpu::{render_scene, render_svg, PietGpuRenderContext, Renderer};
+
+const WIDTH: usize = 2048;
+const HEIGHT: usize = 1536;
 
 #[allow(unused)]
 fn dump_scene(buf: &[u8]) {
@@ -245,7 +248,7 @@ fn main() -> Result<(), Error> {
             render_scene(&mut ctx);
         }
 
-        let mut renderer = Renderer::new(&session)?;
+        let mut renderer = Renderer::new(&session, WIDTH, HEIGHT)?;
         renderer.upload_render_ctx(&mut ctx)?;
         let image_usage = BufferUsage::MAP_READ | BufferUsage::COPY_DST;
         let image_buf = session.create_buffer((WIDTH * HEIGHT * 4) as u64, image_usage)?;
