@@ -1,3 +1,4 @@
+mod gradient;
 mod pico_svg;
 mod render_ctx;
 mod text;
@@ -8,8 +9,11 @@ pub use render_ctx::PietGpuRenderContext;
 
 use rand::{Rng, RngCore};
 
-use piet::kurbo::{Affine, BezPath, Circle, Point, Shape, Vec2};
-use piet::{Color, ImageFormat, RenderContext, Text, TextAttribute, TextLayoutBuilder};
+use piet::kurbo::{BezPath, Circle, Point, Rect, Shape, Vec2};
+use piet::{
+    Color, FixedGradient, FixedLinearGradient, GradientStop, ImageFormat, RenderContext, Text,
+    TextAttribute, TextLayoutBuilder,
+};
 
 use piet_gpu_types::encoder::Encode;
 
@@ -80,6 +84,7 @@ pub fn render_scene(rc: &mut impl RenderContext) {
     //render_cardioid(rc);
     render_clip_test(rc);
     render_alpha_test(rc);
+    render_gradient_test(rc);
     render_text_test(rc);
     //render_tiger(rc);
 }
@@ -149,6 +154,28 @@ fn render_alpha_test(rc: &mut impl RenderContext) {
         &Color::Rgba32(0x0000ff80),
     );
     rc.restore();
+}
+
+#[allow(unused)]
+fn render_gradient_test(rc: &mut impl RenderContext) {
+    let stops = vec![
+        GradientStop {
+            color: Color::rgb8(0, 255, 0),
+            pos: 0.0,
+        },
+        GradientStop {
+            color: Color::BLACK,
+            pos: 1.0,
+        },
+    ];
+    let lin = FixedLinearGradient {
+        start: Point::new(0.0, 100.0),
+        end: Point::new(0.0, 300.0),
+        stops,
+    };
+    let brush = FixedGradient::Linear(lin);
+    //let brush = Color::rgb8(0, 128, 0);
+    rc.fill(Rect::new(100.0, 100.0, 300.0, 300.0), &brush);
 }
 
 fn diamond(origin: Point) -> impl Shape {
@@ -250,68 +277,35 @@ pub struct Renderer {
 
     // Keep a reference to the image so that it is not destroyed.
     _bg_image: Image,
+
+    gradient_buf: Buffer,
+    gradients: Image,
 }
 
 impl Renderer {
-    pub unsafe fn new(
-        session: &Session,
-        scene: &[u8],
-        n_paths: usize,
-        n_pathseg: usize,
-        n_trans: usize,
-    ) -> Result<Self, Error> {
+    /// Create a new renderer.
+    pub unsafe fn new(session: &Session) -> Result<Self, Error> {
         let dev = BufferUsage::STORAGE | BufferUsage::COPY_DST;
         let host_upload = BufferUsage::MAP_WRITE | BufferUsage::COPY_SRC;
 
-        let n_elements = scene.len() / piet_gpu_types::scene::Element::fixed_size();
-        println!(
-            "scene: {} elements, {} paths, {} path_segments, {} transforms",
-            n_elements, n_paths, n_pathseg, n_trans
-        );
-
-        let scene_buf = session.create_buffer_init(&scene[..], dev).unwrap();
+        // This may be inadequate for very complex scenes (paris etc)
+        // TODO: separate staging buffer (if needed)
+        let scene_buf = session.create_buffer(1 * 1024 * 1024, host_upload).unwrap();
 
         let state_buf = session.create_buffer(1 * 1024 * 1024, dev)?;
         let image_dev = session.create_image2d(WIDTH as u32, HEIGHT as u32)?;
 
-        // TODO: constants
-        const PATH_SIZE: usize = 12;
-        const BIN_SIZE: usize = 8;
-        const PATHSEG_SIZE: usize = 52;
-        const ANNO_SIZE: usize = 32;
-        const TRANS_SIZE: usize = 24;
-        let mut alloc = 0;
-        let tile_base = alloc;
-        alloc += ((n_paths + 3) & !3) * PATH_SIZE;
-        let bin_base = alloc;
-        alloc += ((n_paths + 255) & !255) * BIN_SIZE;
-        let ptcl_base = alloc;
-        alloc += WIDTH_IN_TILES * HEIGHT_IN_TILES * PTCL_INITIAL_ALLOC;
-        let pathseg_base = alloc;
-        alloc += (n_pathseg * PATHSEG_SIZE + 3) & !3;
-        let anno_base = alloc;
-        alloc += (n_paths * ANNO_SIZE + 3) & !3;
-        let trans_base = alloc;
-        alloc += (n_trans * TRANS_SIZE + 3) & !3;
-        let config = &[
-            n_paths as u32,
-            n_pathseg as u32,
-            WIDTH_IN_TILES as u32,
-            HEIGHT_IN_TILES as u32,
-            tile_base as u32,
-            bin_base as u32,
-            ptcl_base as u32,
-            pathseg_base as u32,
-            anno_base as u32,
-            trans_base as u32,
-        ];
-        let config_buf = session.create_buffer_init(&config[..], dev).unwrap();
+        // Note: this must be updated when the config struct size changes.
+        const CONFIG_BUFFER_SIZE: u64 = 40;
+        // TODO: separate staging buffer (if needed)
+        let config_buf = session
+            .create_buffer(CONFIG_BUFFER_SIZE, host_upload)
+            .unwrap();
 
         // Perhaps we could avoid the explicit staging buffer by having buffer creation method
         // that takes both initial contents and a size.
-        let mut memory_buf_host = session.create_buffer(2 * 4, host_upload)?;
+        let memory_buf_host = session.create_buffer(2 * 4, host_upload)?;
         let memory_buf_dev = session.create_buffer(128 * 1024 * 1024, dev)?;
-        memory_buf_host.write(&[alloc as u32, 0 /* Overflow flag */])?;
 
         let el_code = ShaderCode::Spv(include_bytes!("../shader/elements.spv"));
         let el_pipeline = session.create_simple_compute_pipeline(el_code, 4)?;
@@ -353,22 +347,17 @@ impl Renderer {
 
         let bg_image = Self::make_test_bg_image(&session);
 
-        let k4_code = if session.gpu_info().has_descriptor_indexing {
-            ShaderCode::Spv(include_bytes!("../shader/kernel4_idx.spv"))
-        } else {
-            println!("doing non-indexed k4");
-            ShaderCode::Spv(include_bytes!("../shader/kernel4.spv"))
-        };
-        // This is an arbitrary limit on the number of textures that can be referenced by
-        // the fine rasterizer. To set it for real, we probably want to pay attention both
-        // to the device limit (maxDescriptorSetSampledImages) but also to the number of
-        // images encoded (I believe there's an cost when allocating descriptor pools). If
-        // it can't be satisfied, then for compatibility we'll probably want to fall back
-        // to an atlasing approach.
-        //
-        // However, we're adding only one texture for now. Avoid a harmless Vulkan validation
-        // error by using a tight bound.
-        let max_textures = 1;
+        const GRADIENT_BUF_SIZE: usize =
+            crate::gradient::N_GRADIENTS * crate::gradient::N_SAMPLES * 4;
+        let gradient_buf = session.create_buffer(GRADIENT_BUF_SIZE as u64, host_upload)?;
+        let gradients = Self::make_gradient_image(&session);
+
+        let k4_code = ShaderCode::Spv(include_bytes!("../shader/kernel4.spv"));
+        // This is a bit of a stand-in for future development. For now, we assume one
+        // atlas image for all images, and another image for the gradients. In the future,
+        // on GPUs that support it, we will probably want to go to descriptor indexing in
+        // order to cut down on allocation and copying for the atlas image.
+        let max_textures = 2;
         let k4_pipeline = session
             .pipeline_builder()
             .add_buffers(2)
@@ -379,7 +368,7 @@ impl Renderer {
             .descriptor_set_builder()
             .add_buffers(&[&memory_buf_dev, &config_buf])
             .add_images(&[&image_dev])
-            .add_textures(&[&bg_image])
+            .add_textures(&[&bg_image, &gradients])
             .build(&session, &k4_pipeline)?;
 
         Ok(Renderer {
@@ -403,11 +392,80 @@ impl Renderer {
             coarse_ds,
             k4_pipeline,
             k4_ds,
-            n_elements,
-            n_paths,
-            n_pathseg,
+            n_elements: 0,
+            n_paths: 0,
+            n_pathseg: 0,
             _bg_image: bg_image,
+            gradient_buf,
+            gradients,
         })
+    }
+
+    /// Convert the scene in the render context to GPU resources.
+    ///
+    /// At present, this requires that any command buffer submission has completed.
+    /// A future evolution will handle staging of the next frame's scene while the
+    /// rendering of the current frame is in flight.
+    pub fn upload_render_ctx(
+        &mut self,
+        render_ctx: &mut PietGpuRenderContext,
+    ) -> Result<(), Error> {
+        let n_paths = render_ctx.path_count();
+        let n_pathseg = render_ctx.pathseg_count();
+        let n_trans = render_ctx.trans_count();
+        self.n_paths = n_paths;
+        self.n_pathseg = n_pathseg;
+
+        // These constants depend on encoding and may need to be updated.
+        // Perhaps we can plumb these from piet-gpu-derive?
+        const PATH_SIZE: usize = 12;
+        const BIN_SIZE: usize = 8;
+        const PATHSEG_SIZE: usize = 52;
+        const ANNO_SIZE: usize = 40;
+        const TRANS_SIZE: usize = 24;
+        let mut alloc = 0;
+        let tile_base = alloc;
+        alloc += ((n_paths + 3) & !3) * PATH_SIZE;
+        let bin_base = alloc;
+        alloc += ((n_paths + 255) & !255) * BIN_SIZE;
+        let ptcl_base = alloc;
+        alloc += WIDTH_IN_TILES * HEIGHT_IN_TILES * PTCL_INITIAL_ALLOC;
+        let pathseg_base = alloc;
+        alloc += (n_pathseg * PATHSEG_SIZE + 3) & !3;
+        let anno_base = alloc;
+        alloc += (n_paths * ANNO_SIZE + 3) & !3;
+        let trans_base = alloc;
+        alloc += (n_trans * TRANS_SIZE + 3) & !3;
+        let config = &[
+            n_paths as u32,
+            n_pathseg as u32,
+            WIDTH_IN_TILES as u32,
+            HEIGHT_IN_TILES as u32,
+            tile_base as u32,
+            bin_base as u32,
+            ptcl_base as u32,
+            pathseg_base as u32,
+            anno_base as u32,
+            trans_base as u32,
+        ];
+        unsafe {
+            let scene = render_ctx.get_scene_buf();
+            self.n_elements = scene.len() / piet_gpu_types::scene::Element::fixed_size();
+            // TODO: reallocate scene buffer if size is inadequate
+            assert!(self.scene_buf.size() as usize >= scene.len());
+            self.scene_buf.write(scene)?;
+            self.config_buf.write(config)?;
+            self.memory_buf_host
+                .write(&[alloc as u32, 0 /* Overflow flag */])?;
+
+            // Upload gradient data.
+            let ramp_data = render_ctx.get_ramp_data();
+            if !ramp_data.is_empty() {
+                assert!(self.gradient_buf.size() as usize >= std::mem::size_of_val(&*ramp_data));
+                self.gradient_buf.write(&ramp_data)?;
+            }
+        }
+        Ok(())
     }
 
     pub unsafe fn record(&self, cmd_buf: &mut CmdBuf, query_pool: &QueryPool) {
@@ -419,6 +477,14 @@ impl Renderer {
             ImageLayout::Undefined,
             ImageLayout::General,
         );
+        // TODO: make gradient upload optional, only if it's changed
+        cmd_buf.image_barrier(
+            &self.gradients,
+            ImageLayout::Undefined,
+            ImageLayout::BlitDst,
+        );
+        cmd_buf.copy_buffer_to_image(&self.gradient_buf, &self.gradients);
+        cmd_buf.image_barrier(&self.gradients, ImageLayout::BlitDst, ImageLayout::General);
         cmd_buf.reset_query_pool(&query_pool);
         cmd_buf.write_timestamp(&query_pool, 0);
         cmd_buf.dispatch(
@@ -494,9 +560,7 @@ impl Renderer {
             if format != ImageFormat::RgbaPremul {
                 return Err("unsupported image format".into());
             }
-            let host_upload = BufferUsage::MAP_WRITE | BufferUsage::COPY_SRC;
-            let mut buffer = session.create_buffer(buf.len() as u64, host_upload)?;
-            buffer.write(buf)?;
+            let buffer = session.create_buffer_init(&buf, BufferUsage::COPY_SRC)?;
             let image = session.create_image2d(width.try_into()?, height.try_into()?)?;
             let mut cmd_buf = session.cmd_buf()?;
             cmd_buf.begin();
@@ -529,5 +593,13 @@ impl Renderer {
             }
         }
         Self::make_image(session, WIDTH, HEIGHT, &buf, ImageFormat::RgbaPremul).unwrap()
+    }
+
+    fn make_gradient_image(session: &Session) -> Image {
+        unsafe {
+            session
+                .create_image2d(gradient::N_SAMPLES as u32, gradient::N_GRADIENTS as u32)
+                .unwrap()
+        }
     }
 }

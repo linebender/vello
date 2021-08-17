@@ -673,6 +673,13 @@ impl Buffer {
         // else session lost error?
         Ok(())
     }
+
+    /// The size of the buffer.
+    ///
+    /// This is at least as large as the value provided on creation.
+    pub fn size(&self) -> u64 {
+        self.0.buffer.size()
+    }
 }
 
 impl PipelineBuilder {

@@ -28,6 +28,8 @@
 #define LG_N_TILE (7 + LG_WG_FACTOR)
 #define N_SLICE (N_TILE / 32)
 
+#define GRADIENT_WIDTH 512
+
 struct Config {
     uint n_elements; // paths
     uint n_pathseg;

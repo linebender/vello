@@ -244,13 +244,9 @@ fn main() -> Result<(), Error> {
         } else {
             render_scene(&mut ctx);
         }
-        let n_paths = ctx.path_count();
-        let n_pathseg = ctx.pathseg_count();
-        let n_trans = ctx.trans_count();
-        let scene = ctx.get_scene_buf();
-        //dump_scene(&scene);
 
-        let renderer = Renderer::new(&session, scene, n_paths, n_pathseg, n_trans)?;
+        let mut renderer = Renderer::new(&session)?;
+        renderer.upload_render_ctx(&mut ctx)?;
         let image_usage = BufferUsage::MAP_READ | BufferUsage::COPY_DST;
         let image_buf = session.create_buffer((WIDTH * HEIGHT * 4) as u64, image_usage)?;
 

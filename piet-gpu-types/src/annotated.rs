@@ -17,6 +17,15 @@ piet_gpu! {
             linewidth: f32,
             rgba_color: u32,
         }
+        struct AnnoLinGradient {
+            bbox: [f32; 4],
+            // For stroked fills.
+            linewidth: f32,
+            index: u32,
+            line_x: f32,
+            line_y: f32,
+            line_c: f32,
+        }
         struct AnnoBeginClip {
             bbox: [f32; 4],
             linewidth: f32,
@@ -27,6 +36,7 @@ piet_gpu! {
         enum Annotated {
             Nop,
             Color(TagFlags, AnnoColor),
+            LinGradient(TagFlags, AnnoLinGradient),
             Image(TagFlags, AnnoImage),
             BeginClip(TagFlags, AnnoBeginClip),
             EndClip(AnnoEndClip),

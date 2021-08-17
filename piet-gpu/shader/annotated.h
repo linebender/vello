@@ -10,6 +10,10 @@ struct AnnoColorRef {
     uint offset;
 };
 
+struct AnnoLinGradientRef {
+    uint offset;
+};
+
 struct AnnoBeginClipRef {
     uint offset;
 };
@@ -47,6 +51,21 @@ AnnoColorRef AnnoColor_index(AnnoColorRef ref, uint index) {
     return AnnoColorRef(ref.offset + index * AnnoColor_size);
 }
 
+struct AnnoLinGradient {
+    vec4 bbox;
+    float linewidth;
+    uint index;
+    float line_x;
+    float line_y;
+    float line_c;
+};
+
+#define AnnoLinGradient_size 36
+
+AnnoLinGradientRef AnnoLinGradient_index(AnnoLinGradientRef ref, uint index) {
+    return AnnoLinGradientRef(ref.offset + index * AnnoLinGradient_size);
+}
+
 struct AnnoBeginClip {
     vec4 bbox;
     float linewidth;
@@ -70,10 +89,11 @@ AnnoEndClipRef AnnoEndClip_index(AnnoEndClipRef ref, uint index) {
 
 #define Annotated_Nop 0
 #define Annotated_Color 1
-#define Annotated_Image 2
-#define Annotated_BeginClip 3
-#define Annotated_EndClip 4
-#define Annotated_size 32
+#define Annotated_LinGradient 2
+#define Annotated_Image 3
+#define Annotated_BeginClip 4
+#define Annotated_EndClip 5
+#define Annotated_size 40
 
 AnnotatedRef Annotated_index(AnnotatedRef ref, uint index) {
     return AnnotatedRef(ref.offset + index * Annotated_size);
@@ -137,6 +157,40 @@ void AnnoColor_write(Alloc a, AnnoColorRef ref, AnnoColor s) {
     write_mem(a, ix + 5, s.rgba_color);
 }
 
+AnnoLinGradient AnnoLinGradient_read(Alloc a, AnnoLinGradientRef ref) {
+    uint ix = ref.offset >> 2;
+    uint raw0 = read_mem(a, ix + 0);
+    uint raw1 = read_mem(a, ix + 1);
+    uint raw2 = read_mem(a, ix + 2);
+    uint raw3 = read_mem(a, ix + 3);
+    uint raw4 = read_mem(a, ix + 4);
+    uint raw5 = read_mem(a, ix + 5);
+    uint raw6 = read_mem(a, ix + 6);
+    uint raw7 = read_mem(a, ix + 7);
+    uint raw8 = read_mem(a, ix + 8);
+    AnnoLinGradient s;
+    s.bbox = vec4(uintBitsToFloat(raw0), uintBitsToFloat(raw1), uintBitsToFloat(raw2), uintBitsToFloat(raw3));
+    s.linewidth = uintBitsToFloat(raw4);
+    s.index = raw5;
+    s.line_x = uintBitsToFloat(raw6);
+    s.line_y = uintBitsToFloat(raw7);
+    s.line_c = uintBitsToFloat(raw8);
+    return s;
+}
+
+void AnnoLinGradient_write(Alloc a, AnnoLinGradientRef ref, AnnoLinGradient s) {
+    uint ix = ref.offset >> 2;
+    write_mem(a, ix + 0, floatBitsToUint(s.bbox.x));
+    write_mem(a, ix + 1, floatBitsToUint(s.bbox.y));
+    write_mem(a, ix + 2, floatBitsToUint(s.bbox.z));
+    write_mem(a, ix + 3, floatBitsToUint(s.bbox.w));
+    write_mem(a, ix + 4, floatBitsToUint(s.linewidth));
+    write_mem(a, ix + 5, s.index);
+    write_mem(a, ix + 6, floatBitsToUint(s.line_x));
+    write_mem(a, ix + 7, floatBitsToUint(s.line_y));
+    write_mem(a, ix + 8, floatBitsToUint(s.line_c));
+}
+
 AnnoBeginClip AnnoBeginClip_read(Alloc a, AnnoBeginClipRef ref) {
     uint ix = ref.offset >> 2;
     uint raw0 = read_mem(a, ix + 0);
@@ -187,6 +241,10 @@ AnnoColor Annotated_Color_read(Alloc a, AnnotatedRef ref) {
     return AnnoColor_read(a, AnnoColorRef(ref.offset + 4));
 }
 
+AnnoLinGradient Annotated_LinGradient_read(Alloc a, AnnotatedRef ref) {
+    return AnnoLinGradient_read(a, AnnoLinGradientRef(ref.offset + 4));
+}
+
 AnnoImage Annotated_Image_read(Alloc a, AnnotatedRef ref) {
     return AnnoImage_read(a, AnnoImageRef(ref.offset + 4));
 }
@@ -206,6 +264,11 @@ void Annotated_Nop_write(Alloc a, AnnotatedRef ref) {
 void Annotated_Color_write(Alloc a, AnnotatedRef ref, uint flags, AnnoColor s) {
     write_mem(a, ref.offset >> 2, (flags << 16) | Annotated_Color);
     AnnoColor_write(a, AnnoColorRef(ref.offset + 4), s);
+}
+
+void Annotated_LinGradient_write(Alloc a, AnnotatedRef ref, uint flags, AnnoLinGradient s) {
+    write_mem(a, ref.offset >> 2, (flags << 16) | Annotated_LinGradient);
+    AnnoLinGradient_write(a, AnnoLinGradientRef(ref.offset + 4), s);
 }
 
 void Annotated_Image_write(Alloc a, AnnotatedRef ref, uint flags, AnnoImage s) {

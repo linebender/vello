@@ -137,6 +137,7 @@ State map_element(ElementRef ref) {
         c.pathseg_count = 1;
         break;
     case Element_FillColor:
+    case Element_FillLinGradient:
     case Element_FillImage:
     case Element_BeginClip:
         c.flags = FLAG_RESET_BBOX;
@@ -362,6 +363,31 @@ void main() {
             }
             AnnotatedRef out_ref = AnnotatedRef(conf.anno_alloc.offset + (st.path_count - 1) * Annotated_size);
             Annotated_Color_write(conf.anno_alloc, out_ref, fill_mode, anno_fill);
+            break;
+        case Element_FillLinGradient:
+            FillLinGradient lin = Element_FillLinGradient_read(this_ref);
+            AnnoLinGradient anno_lin;
+            anno_lin.index = lin.index;
+            vec2 p0 = st.mat.xy * lin.p0.x + st.mat.zw * lin.p0.y + st.translate;
+            vec2 p1 = st.mat.xy * lin.p1.x + st.mat.zw * lin.p1.y + st.translate;
+            vec2 dxy = p1 - p0;
+            float scale = 1.0 / (dxy.x * dxy.x + dxy.y * dxy.y);
+            float line_x = dxy.x * scale;
+            float line_y = dxy.y * scale;
+            anno_lin.line_x = line_x;
+            anno_lin.line_y = line_y;
+            anno_lin.line_c = -(p0.x * line_x + p0.y * line_y);
+            // TODO: consider consolidating bbox calculation
+            if (is_stroke) {
+                vec2 lw = get_linewidth(st);
+                anno_lin.bbox = st.bbox + vec4(-lw, lw);
+                anno_lin.linewidth = st.linewidth * sqrt(abs(st.mat.x * st.mat.w - st.mat.y * st.mat.z));
+            } else {
+                anno_lin.bbox = st.bbox;
+                anno_lin.linewidth = 0.0;
+            }
+            out_ref = AnnotatedRef(conf.anno_alloc.offset + (st.path_count - 1) * Annotated_size);
+            Annotated_LinGradient_write(conf.anno_alloc, out_ref, fill_mode, anno_lin);
             break;
         case Element_FillImage:
             FillImage fill_img = Element_FillImage_read(this_ref);

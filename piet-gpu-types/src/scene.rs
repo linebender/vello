@@ -1,7 +1,7 @@
 use piet_gpu_derive::piet_gpu;
 
 pub use self::scene::{
-    Clip, CubicSeg, Element, FillColor, LineSeg, QuadSeg, SetFillMode, SetLineWidth, Transform,
+    Clip, CubicSeg, Element, FillColor, FillLinGradient, LineSeg, QuadSeg, SetFillMode, SetLineWidth, Transform,
 };
 
 piet_gpu! {
@@ -24,6 +24,11 @@ piet_gpu! {
         }
         struct FillColor {
             rgba_color: u32,
+        }
+        struct FillLinGradient {
+            index: u32,
+            p0: [f32; 2],
+            p1: [f32; 2],
         }
         struct FillImage {
             index: u32,
@@ -51,11 +56,12 @@ piet_gpu! {
             Cubic(CubicSeg),
 
             FillColor(FillColor),
+            FillLinGradient(FillLinGradient),
+            FillImage(FillImage),
             SetLineWidth(SetLineWidth),
             Transform(Transform),
             BeginClip(Clip),
             EndClip(Clip),
-            FillImage(FillImage),
             SetFillMode(SetFillMode),
         }
     }

@@ -12,9 +12,11 @@ use crate::MAX_BLEND_STACK;
 
 use piet_gpu_types::encoder::{Encode, Encoder};
 use piet_gpu_types::scene::{
-    Clip, CubicSeg, Element, FillColor, LineSeg, QuadSeg, SetFillMode, SetLineWidth, Transform,
+    Clip, CubicSeg, Element, FillColor, FillLinGradient, LineSeg, QuadSeg, SetFillMode,
+    SetLineWidth, Transform,
 };
 
+use crate::gradient::{LinearGradient, RampCache};
 use crate::text::Font;
 pub use crate::text::{PathEncoder, PietGpuText, PietGpuTextLayout, PietGpuTextLayoutBuilder};
 
@@ -39,12 +41,14 @@ pub struct PietGpuRenderContext {
     cur_transform: Affine,
     state_stack: Vec<State>,
     clip_stack: Vec<ClipElement>,
+
+    ramp_cache: RampCache,
 }
 
 #[derive(Clone)]
 pub enum PietGpuBrush {
     Solid(u32),
-    Gradient,
+    LinGradient(LinearGradient),
 }
 
 #[derive(Default)]
@@ -93,6 +97,7 @@ impl PietGpuRenderContext {
             cur_transform: Affine::default(),
             state_stack: Vec::new(),
             clip_stack: Vec::new(),
+            ramp_cache: RampCache::default(),
         }
     }
 
@@ -111,6 +116,10 @@ impl PietGpuRenderContext {
 
     pub fn trans_count(&self) -> usize {
         self.trans_count
+    }
+
+    pub fn get_ramp_data(&self) -> Vec<u32> {
+        self.ramp_cache.get_ramp_data()
     }
 
     pub(crate) fn set_fill_mode(&mut self, fill_mode: FillMode) {
@@ -149,8 +158,14 @@ impl RenderContext for PietGpuRenderContext {
         PietGpuBrush::Solid(premul.as_rgba_u32())
     }
 
-    fn gradient(&mut self, _gradient: impl Into<FixedGradient>) -> Result<Self::Brush, Error> {
-        Ok(Self::Brush::Gradient)
+    fn gradient(&mut self, gradient: impl Into<FixedGradient>) -> Result<Self::Brush, Error> {
+        match gradient.into() {
+            FixedGradient::Linear(lin) => {
+                let lin = self.ramp_cache.add_linear_gradient(&lin);
+                Ok(PietGpuBrush::LinGradient(lin))
+            }
+            _ => todo!("don't do radial gradients yet"),
+        }
     }
 
     fn clear(&mut self, _color: Color) {}
@@ -164,18 +179,11 @@ impl RenderContext for PietGpuRenderContext {
         }
         self.set_fill_mode(FillMode::Stroke);
         let brush = brush.make_brush(self, || shape.bounding_box()).into_owned();
-        match brush {
-            PietGpuBrush::Solid(rgba_color) => {
-                // Note: the bbox contribution of stroke becomes more complicated with miter joins.
-                self.accumulate_bbox(|| shape.bounding_box() + Insets::uniform(width * 0.5));
-                let path = shape.path_elements(TOLERANCE);
-                self.encode_path(path, false);
-                let stroke = FillColor { rgba_color };
-                self.elements.push(Element::FillColor(stroke));
-                self.path_count += 1;
-            }
-            _ => (),
-        }
+        // Note: the bbox contribution of stroke becomes more complicated with miter joins.
+        self.accumulate_bbox(|| shape.bounding_box() + Insets::uniform(width * 0.5));
+        let path = shape.path_elements(TOLERANCE);
+        self.encode_path(path, false);
+        self.encode_brush(&brush);
     }
 
     fn stroke_styled(
@@ -189,17 +197,13 @@ impl RenderContext for PietGpuRenderContext {
 
     fn fill(&mut self, shape: impl Shape, brush: &impl IntoBrush<Self>) {
         let brush = brush.make_brush(self, || shape.bounding_box()).into_owned();
-        if let PietGpuBrush::Solid(rgba_color) = brush {
-            // Note: we might get a good speedup from using an approximate bounding box.
-            // Perhaps that should be added to kurbo.
-            self.accumulate_bbox(|| shape.bounding_box());
-            let path = shape.path_elements(TOLERANCE);
-            self.set_fill_mode(FillMode::Nonzero);
-            self.encode_path(path, true);
-            let fill = FillColor { rgba_color };
-            self.elements.push(Element::FillColor(fill));
-            self.path_count += 1;
-        }
+        // Note: we might get a good speedup from using an approximate bounding box.
+        // Perhaps that should be added to kurbo.
+        self.accumulate_bbox(|| shape.bounding_box());
+        let path = shape.path_elements(TOLERANCE);
+        self.set_fill_mode(FillMode::Nonzero);
+        self.encode_path(path, true);
+        self.encode_brush(&brush);
     }
 
     fn fill_even_odd(&mut self, _shape: impl Shape, _brush: &impl IntoBrush<Self>) {}
@@ -500,6 +504,27 @@ impl PietGpuRenderContext {
     pub(crate) fn encode_transform(&mut self, transform: Transform) {
         self.elements.push(Element::Transform(transform));
         self.trans_count += 1;
+    }
+
+    fn encode_brush(&mut self, brush: &PietGpuBrush) {
+        match brush {
+            PietGpuBrush::Solid(rgba_color) => {
+                let fill = FillColor {
+                    rgba_color: *rgba_color,
+                };
+                self.elements.push(Element::FillColor(fill));
+                self.path_count += 1;
+            }
+            PietGpuBrush::LinGradient(lin) => {
+                let fill_lin = FillLinGradient {
+                    index: lin.ramp_id,
+                    p0: lin.start,
+                    p1: lin.end,
+                };
+                self.elements.push(Element::FillLinGradient(fill_lin));
+                self.path_count += 1;
+            }
+        }
     }
 }
 
