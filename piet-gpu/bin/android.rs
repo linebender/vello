@@ -100,8 +100,7 @@ impl GfxState {
     ) -> Result<GfxState, Error> {
         unsafe {
             let device = instance.device(surface)?;
-            let mut swapchain =
-                instance.swapchain(width, height, &device, surface.unwrap())?;
+            let mut swapchain = instance.swapchain(width, height, &device, surface.unwrap())?;
             let session = Session::new(device);
             let mut current_frame = 0;
             let present_semaphores = (0..NUM_FRAMES)

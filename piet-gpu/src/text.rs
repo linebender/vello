@@ -1,6 +1,8 @@
 use std::ops::RangeBounds;
 
-use ttf_parser::{Face, GlyphId, OutlineBuilder};
+use swash::scale::ScaleContext;
+use swash::zeno::{Vector, Verb};
+use swash::{FontRef, GlyphId};
 
 use piet::kurbo::{Point, Rect, Size};
 use piet::{
@@ -18,7 +20,9 @@ const FONT_DATA: &[u8] = include_bytes!("../third-party/Roboto-Regular.ttf");
 
 #[derive(Clone)]
 pub struct Font {
-    face: Face<'static>,
+    // Storing the font_ref is ok for static font data, but the better way to do
+    // this is to store the CacheKey.
+    font_ref: FontRef<'static>,
 }
 
 #[derive(Clone)]
@@ -48,8 +52,6 @@ struct Glyph {
 
 #[derive(Default)]
 pub struct PathEncoder {
-    start_pt: [f32; 2],
-    cur_pt: [f32; 2],
     elements: Vec<Element>,
 }
 
@@ -112,13 +114,78 @@ impl TextLayout for PietGpuTextLayout {
 
 impl Font {
     pub fn new() -> Font {
-        let face = Face::from_slice(FONT_DATA, 0).expect("error parsing font");
-        Font { face }
+        let font_ref = FontRef::from_index(FONT_DATA, 0).expect("error parsing font");
+        Font { font_ref }
     }
 
     fn make_path(&self, glyph_id: GlyphId) -> PathEncoder {
+        /*
         let mut encoder = PathEncoder::default();
         self.face.outline_glyph(glyph_id, &mut encoder);
+        encoder
+        */
+        // Should the scale context be in the font? In the RenderCtx?
+        let mut scale_context = ScaleContext::new();
+        let mut scaler = scale_context.builder(self.font_ref).size(2048.).build();
+        let mut encoder = PathEncoder::default();
+        if let Some(outline) = scaler.scale_outline(glyph_id) {
+            let verbs = outline.verbs();
+            let points = outline.points();
+            let elements = &mut encoder.elements;
+            let mut i = 0;
+            let mut start_pt = [0.0f32; 2];
+            let mut last_pt = [0.0f32; 2];
+            for verb in verbs {
+                match verb {
+                    Verb::MoveTo => {
+                        start_pt = convert_swash_point(points[i]);
+                        last_pt = start_pt;
+                        i += 1;
+                    }
+                    Verb::LineTo => {
+                        let p1 = convert_swash_point(points[i]);
+                        elements.push(Element::Line(LineSeg {
+                            p0: last_pt,
+                            p1,
+                        }));
+                        last_pt = p1;
+                        i += 1;
+                    }
+                    Verb::QuadTo => {
+                        let p1 = convert_swash_point(points[i]);
+                        let p2 = convert_swash_point(points[i + 1]);
+                        elements.push(Element::Quad(QuadSeg {
+                            p0: last_pt,
+                            p1,
+                            p2,
+                        }));
+                        last_pt = p2;
+                        i += 2;
+                    }
+                    Verb::CurveTo => {
+                        let p1 = convert_swash_point(points[i]);
+                        let p2 = convert_swash_point(points[i + 1]);
+                        let p3 = convert_swash_point(points[i + 2]);
+                        elements.push(Element::Cubic(CubicSeg {
+                            p0: last_pt,
+                            p1,
+                            p2,
+                            p3,
+                        }));
+                        last_pt = p3;
+                        i += 3;
+                    }
+                    Verb::Close => {
+                        if start_pt != last_pt {
+                            elements.push(Element::Line(LineSeg {
+                                p0: last_pt,
+                                p1: start_pt,
+                            }));
+                        }
+                    }
+                }
+            }
+        }
         encoder
     }
 }
@@ -129,24 +196,23 @@ impl PietGpuTextLayout {
         let mut x = 0.0;
         let y = 0.0;
         for c in text.chars() {
-            if let Some(glyph_id) = font.face.glyph_index(c) {
-                let glyph = Glyph { glyph_id, x, y };
-                glyphs.push(glyph);
-                if let Some(adv) = font.face.glyph_hor_advance(glyph_id) {
-                    x += adv as f32;
-                }
-            }
+            let glyph_id = font.font_ref.charmap().map(c);
+            let glyph = Glyph { glyph_id, x, y };
+            glyphs.push(glyph);
+            let adv = font.font_ref.glyph_metrics(&[]).advance_width(glyph_id);
+            x += adv;
         }
         PietGpuTextLayout {
             glyphs,
             font: font.clone(),
-            size: size,
+            size,
         }
     }
 
     pub(crate) fn draw_text(&self, ctx: &mut PietGpuRenderContext, pos: Point) {
-        const DEFAULT_UPEM: u16 = 1024;
-        let scale = self.size as f32 / self.font.face.units_per_em().unwrap_or(DEFAULT_UPEM) as f32;
+        // Should we use ppem from font, or let swash scale?
+        const DEFAULT_UPEM: u16 = 2048;
+        let scale = self.size as f32 / DEFAULT_UPEM as f32;
         let mut inv_transform = None;
         // TODO: handle y offsets also
         let mut last_x = 0.0;
@@ -237,61 +303,12 @@ impl TextLayoutBuilder for PietGpuTextLayoutBuilder {
     }
 }
 
-impl OutlineBuilder for PathEncoder {
-    fn move_to(&mut self, x: f32, y: f32) {
-        self.start_pt = [x, y];
-        self.cur_pt = [x, y];
-    }
-
-    fn line_to(&mut self, x: f32, y: f32) {
-        let p1 = [x, y];
-        let seg = LineSeg {
-            p0: self.cur_pt,
-            p1: p1,
-        };
-        self.cur_pt = p1;
-        self.elements.push(Element::Line(seg));
-    }
-
-    fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) {
-        let p1 = [x1, y1];
-        let p2 = [x, y];
-        let seg = QuadSeg {
-            p0: self.cur_pt,
-            p1: p1,
-            p2: p2,
-        };
-        self.cur_pt = p2;
-        self.elements.push(Element::Quad(seg));
-    }
-
-    fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
-        let p1 = [x1, y1];
-        let p2 = [x2, y2];
-        let p3 = [x, y];
-        let seg = CubicSeg {
-            p0: self.cur_pt,
-            p1: p1,
-            p2: p2,
-            p3: p3,
-        };
-        self.cur_pt = p3;
-        self.elements.push(Element::Cubic(seg));
-    }
-
-    fn close(&mut self) {
-        if self.cur_pt != self.start_pt {
-            let seg = LineSeg {
-                p0: self.cur_pt,
-                p1: self.start_pt,
-            };
-            self.elements.push(Element::Line(seg));
-        }
-    }
-}
-
 impl PathEncoder {
     pub(crate) fn elements(&self) -> &[Element] {
         &self.elements
     }
+}
+
+fn convert_swash_point(v: Vector) -> [f32; 2] {
+    [v.x, v.y]
 }
