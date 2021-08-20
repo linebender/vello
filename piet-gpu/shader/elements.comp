@@ -221,8 +221,10 @@ void main() {
     if (gl_LocalInvocationID.x == WG_SIZE - 1) {
         // Note: with memory model, we'd want to generate the atomic store version of this.
         State_write(state_aggregate_ref(part_ix), agg);
+    }
+    memoryBarrierBuffer();
+    if (gl_LocalInvocationID.x == WG_SIZE - 1) {
         uint flag = FLAG_AGGREGATE_READY;
-        memoryBarrierBuffer();
         if (part_ix == 0) {
             State_write(state_prefix_ref(part_ix), agg);
             flag = FLAG_PREFIX_READY;
@@ -274,10 +276,11 @@ void main() {
             State inclusive_prefix = combine_state(exclusive, agg);
             sh_prefix = exclusive;
             State_write(state_prefix_ref(part_ix), inclusive_prefix);
-            memoryBarrierBuffer();
-            flag = FLAG_PREFIX_READY;
-            state[state_flag_index(part_ix)] = flag;
         }
+    }
+    memoryBarrierBuffer();
+    if (gl_LocalInvocationID.x == WG_SIZE - 1 && part_ix != 0) {
+        state[state_flag_index(part_ix)] = FLAG_PREFIX_READY;
     }
     barrier();
     if (part_ix != 0) {
