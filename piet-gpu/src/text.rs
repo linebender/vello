@@ -16,7 +16,7 @@ use crate::render_ctx::{self, FillMode};
 use crate::PietGpuRenderContext;
 
 // This is very much a hack to get things working.
-const FONT_DATA: &[u8] = include_bytes!("../third-party/Roboto-Regular.ttf");
+const FONT_DATA: &[u8] = include_bytes!("c:\\Windows\\Fonts\\seguiemj.ttf");
 
 #[derive(Clone)]
 pub struct Font {
@@ -53,6 +53,9 @@ struct Glyph {
 #[derive(Default)]
 pub struct PathEncoder {
     elements: Vec<Element>,
+    n_segs: usize,
+    // If this is zero, then it's a text glyph and should be followed by a fill
+    n_colr_layers: usize,
 }
 
 impl PietGpuText {
@@ -128,6 +131,7 @@ impl Font {
         let mut scale_context = ScaleContext::new();
         let mut scaler = scale_context.builder(self.font_ref).size(2048.).build();
         let mut encoder = PathEncoder::default();
+        println!("glyph {} has_color_outlines {}", glyph_id, scaler.has_color_outlines());
         if let Some(outline) = scaler.scale_outline(glyph_id) {
             let verbs = outline.verbs();
             let points = outline.points();
@@ -186,6 +190,7 @@ impl Font {
                 }
             }
         }
+        encoder.n_segs = encoder.elements.len();
         encoder
     }
 }
@@ -306,6 +311,10 @@ impl TextLayoutBuilder for PietGpuTextLayoutBuilder {
 impl PathEncoder {
     pub(crate) fn elements(&self) -> &[Element] {
         &self.elements
+    }
+
+    pub(crate) fn n_segs(&self) -> usize {
+        self.n_segs
     }
 }
 

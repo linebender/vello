@@ -192,7 +192,7 @@ fn render_text_test(rc: &mut impl RenderContext) {
     //rc.transform(Affine::new([0.2, 0.0, 0.0, -0.2, 200.0, 800.0]));
     let layout = rc
         .text()
-        .new_text_layout("hello piet-gpu text!")
+        .new_text_layout("\u{1f600}hello piet-gpu text!")
         .default_attribute(TextAttribute::FontSize(100.0))
         .build()
         .unwrap();

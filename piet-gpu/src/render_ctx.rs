@@ -492,7 +492,7 @@ impl PietGpuRenderContext {
     pub(crate) fn append_path_encoder(&mut self, path: &PathEncoder) {
         let elements = path.elements();
         self.elements.extend(elements.iter().cloned());
-        self.pathseg_count += elements.len();
+        self.pathseg_count += path.n_segs();
     }
 
     pub(crate) fn fill_glyph(&mut self, rgba_color: u32) {
