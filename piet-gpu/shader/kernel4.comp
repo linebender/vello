@@ -8,9 +8,6 @@
 
 #version 450
 #extension GL_GOOGLE_include_directive : enable
-#ifdef ENABLE_IMAGE_INDICES
-#extension GL_EXT_nonuniform_qualifier : enable
-#endif
 
 #include "mem.h"
 #include "setup.h"
