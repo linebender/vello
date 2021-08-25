@@ -501,6 +501,11 @@ impl PietGpuRenderContext {
         self.path_count += 1;
     }
 
+    /// Bump the path count when rendering a color emoji.
+    pub(crate) fn bump_n_paths(&mut self, n_paths: usize) {
+        self.path_count += n_paths;
+    }
+
     pub(crate) fn encode_transform(&mut self, transform: Transform) {
         self.elements.push(Element::Transform(transform));
         self.trans_count += 1;

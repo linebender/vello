@@ -10,13 +10,14 @@ use piet::{
     TextLayoutBuilder, TextStorage,
 };
 
-use piet_gpu_types::scene::{CubicSeg, Element, LineSeg, QuadSeg, Transform};
+use piet_gpu_types::scene::{CubicSeg, Element, FillColor, LineSeg, QuadSeg, Transform};
 
 use crate::render_ctx::{self, FillMode};
 use crate::PietGpuRenderContext;
 
 // This is very much a hack to get things working.
-const FONT_DATA: &[u8] = include_bytes!("c:\\Windows\\Fonts\\seguiemj.ttf");
+// On Windows, can set this to "c:\\Windows\\Fonts\\seguiemj.ttf" to get color emoji
+const FONT_DATA: &[u8] = include_bytes!("../third-party/Roboto-Regular.ttf");
 
 #[derive(Clone)]
 pub struct Font {
@@ -118,6 +119,12 @@ impl TextLayout for PietGpuTextLayout {
 impl Font {
     pub fn new() -> Font {
         let font_ref = FontRef::from_index(FONT_DATA, 0).expect("error parsing font");
+        for palette in font_ref.color_palettes() {
+            println!("palette, len={}", palette.len());
+            for i in 0..palette.len() {
+                println!("{}: {:?}", i, palette.get(i));
+            }
+        }
         Font { font_ref }
     }
 
@@ -131,66 +138,27 @@ impl Font {
         let mut scale_context = ScaleContext::new();
         let mut scaler = scale_context.builder(self.font_ref).size(2048.).build();
         let mut encoder = PathEncoder::default();
-        println!("glyph {} has_color_outlines {}", glyph_id, scaler.has_color_outlines());
-        if let Some(outline) = scaler.scale_outline(glyph_id) {
-            let verbs = outline.verbs();
-            let points = outline.points();
-            let elements = &mut encoder.elements;
-            let mut i = 0;
-            let mut start_pt = [0.0f32; 2];
-            let mut last_pt = [0.0f32; 2];
-            for verb in verbs {
-                match verb {
-                    Verb::MoveTo => {
-                        start_pt = convert_swash_point(points[i]);
-                        last_pt = start_pt;
-                        i += 1;
+        if scaler.has_color_outlines() {
+            if let Some(outline) = scaler.scale_color_outline(glyph_id) {
+                // TODO: be more sophisticated choosing a palette
+                let palette = self.font_ref.color_palettes().next().unwrap();
+                println!("is_color {}", outline.is_color());
+                let mut i = 0;
+                while let Some(layer) = outline.get(i) {
+                    if let Some(color_ix) = layer.color_index() {
+                        let color = palette.get(color_ix);
+                        encoder.append_outline(layer.verbs(), layer.points());
+                        encoder.append_solid_fill(color);
+                        println!("layer {} color {:?}", i, color);
                     }
-                    Verb::LineTo => {
-                        let p1 = convert_swash_point(points[i]);
-                        elements.push(Element::Line(LineSeg {
-                            p0: last_pt,
-                            p1,
-                        }));
-                        last_pt = p1;
-                        i += 1;
-                    }
-                    Verb::QuadTo => {
-                        let p1 = convert_swash_point(points[i]);
-                        let p2 = convert_swash_point(points[i + 1]);
-                        elements.push(Element::Quad(QuadSeg {
-                            p0: last_pt,
-                            p1,
-                            p2,
-                        }));
-                        last_pt = p2;
-                        i += 2;
-                    }
-                    Verb::CurveTo => {
-                        let p1 = convert_swash_point(points[i]);
-                        let p2 = convert_swash_point(points[i + 1]);
-                        let p3 = convert_swash_point(points[i + 2]);
-                        elements.push(Element::Cubic(CubicSeg {
-                            p0: last_pt,
-                            p1,
-                            p2,
-                            p3,
-                        }));
-                        last_pt = p3;
-                        i += 3;
-                    }
-                    Verb::Close => {
-                        if start_pt != last_pt {
-                            elements.push(Element::Line(LineSeg {
-                                p0: last_pt,
-                                p1: start_pt,
-                            }));
-                        }
-                    }
+                    i += 1;
                 }
+                return encoder;
             }
         }
-        encoder.n_segs = encoder.elements.len();
+        if let Some(outline) = scaler.scale_outline(glyph_id) {
+            encoder.append_outline(outline.verbs(), outline.points());
+        }
         encoder
     }
 }
@@ -255,7 +223,11 @@ impl PietGpuTextLayout {
             ctx.encode_transform(transform);
             let path = self.font.make_path(glyph.glyph_id);
             ctx.append_path_encoder(&path);
-            ctx.fill_glyph(0xff_ff_ff_ff);
+            if path.n_colr_layers == 0 {
+                ctx.fill_glyph(0xff_ff_ff_ff);
+            } else {
+                ctx.bump_n_paths(path.n_colr_layers);
+            }
         }
         if let Some(transform) = inv_transform {
             ctx.encode_transform(transform);
@@ -315,6 +287,69 @@ impl PathEncoder {
 
     pub(crate) fn n_segs(&self) -> usize {
         self.n_segs
+    }
+
+    fn append_outline(&mut self, verbs: &[Verb], points: &[Vector]) {
+        let elements = &mut self.elements;
+        let old_len = elements.len();
+        let mut i = 0;
+        let mut start_pt = [0.0f32; 2];
+        let mut last_pt = [0.0f32; 2];
+        for verb in verbs {
+            match verb {
+                Verb::MoveTo => {
+                    start_pt = convert_swash_point(points[i]);
+                    last_pt = start_pt;
+                    i += 1;
+                }
+                Verb::LineTo => {
+                    let p1 = convert_swash_point(points[i]);
+                    elements.push(Element::Line(LineSeg { p0: last_pt, p1 }));
+                    last_pt = p1;
+                    i += 1;
+                }
+                Verb::QuadTo => {
+                    let p1 = convert_swash_point(points[i]);
+                    let p2 = convert_swash_point(points[i + 1]);
+                    elements.push(Element::Quad(QuadSeg {
+                        p0: last_pt,
+                        p1,
+                        p2,
+                    }));
+                    last_pt = p2;
+                    i += 2;
+                }
+                Verb::CurveTo => {
+                    let p1 = convert_swash_point(points[i]);
+                    let p2 = convert_swash_point(points[i + 1]);
+                    let p3 = convert_swash_point(points[i + 2]);
+                    elements.push(Element::Cubic(CubicSeg {
+                        p0: last_pt,
+                        p1,
+                        p2,
+                        p3,
+                    }));
+                    last_pt = p3;
+                    i += 3;
+                }
+                Verb::Close => {
+                    if start_pt != last_pt {
+                        elements.push(Element::Line(LineSeg {
+                            p0: last_pt,
+                            p1: start_pt,
+                        }));
+                    }
+                }
+            }
+        }
+        self.n_segs += elements.len() - old_len;
+    }
+
+    fn append_solid_fill(&mut self, color: [u8; 4]) {
+        let rgba_color = u32::from_be_bytes(color);
+        self.elements
+            .push(Element::FillColor(FillColor { rgba_color }));
+        self.n_colr_layers += 1;
     }
 }
 
