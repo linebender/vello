@@ -119,12 +119,6 @@ impl TextLayout for PietGpuTextLayout {
 impl Font {
     pub fn new() -> Font {
         let font_ref = FontRef::from_index(FONT_DATA, 0).expect("error parsing font");
-        for palette in font_ref.color_palettes() {
-            println!("palette, len={}", palette.len());
-            for i in 0..palette.len() {
-                println!("{}: {:?}", i, palette.get(i));
-            }
-        }
         Font { font_ref }
     }
 
@@ -142,14 +136,12 @@ impl Font {
             if let Some(outline) = scaler.scale_color_outline(glyph_id) {
                 // TODO: be more sophisticated choosing a palette
                 let palette = self.font_ref.color_palettes().next().unwrap();
-                println!("is_color {}", outline.is_color());
                 let mut i = 0;
                 while let Some(layer) = outline.get(i) {
                     if let Some(color_ix) = layer.color_index() {
                         let color = palette.get(color_ix);
                         encoder.append_outline(layer.verbs(), layer.points());
                         encoder.append_solid_fill(color);
-                        println!("layer {} color {:?}", i, color);
                     }
                     i += 1;
                 }

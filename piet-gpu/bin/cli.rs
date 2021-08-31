@@ -6,7 +6,7 @@ use clap::{App, Arg};
 
 use piet_gpu_hal::{BufferUsage, Error, Instance, Session};
 
-use piet_gpu::{render_scene, render_svg, PietGpuRenderContext, Renderer};
+use piet_gpu::{test_scenes, PietGpuRenderContext, Renderer};
 
 const WIDTH: usize = 2048;
 const HEIGHT: usize = 1536;
@@ -243,9 +243,9 @@ fn main() -> Result<(), Error> {
             if matches.is_present("flip") {
                 scale = -scale;
             }
-            render_svg(&mut ctx, input, scale);
+            test_scenes::render_svg(&mut ctx, input, scale);
         } else {
-            render_scene(&mut ctx);
+            test_scenes::render_scene(&mut ctx);
         }
 
         let mut renderer = Renderer::new(&session, WIDTH, HEIGHT)?;

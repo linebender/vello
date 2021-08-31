@@ -102,6 +102,9 @@ impl PietGpuRenderContext {
     }
 
     pub fn get_scene_buf(&mut self) -> &[u8] {
+        const ALIGN: usize = 128;
+        let padded_size = (self.elements.len() + (ALIGN - 1)) & ALIGN.wrapping_neg();
+        self.elements.resize(padded_size, Element::Nop());
         self.elements.encode(&mut self.encoder);
         self.encoder.buf()
     }

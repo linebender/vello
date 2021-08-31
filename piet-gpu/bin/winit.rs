@@ -1,6 +1,7 @@
+use piet::RenderContext;
 use piet_gpu_hal::{Error, ImageLayout, Instance, Session, SubmittedCmdBuf};
 
-use piet_gpu::{render_scene, render_svg, PietGpuRenderContext, Renderer};
+use piet_gpu::{test_scenes, PietGpuRenderContext, Renderer};
 
 use clap::{App, Arg};
 
@@ -60,9 +61,10 @@ fn main() -> Result<(), Error> {
             if matches.is_present("flip") {
                 scale = -scale;
             }
-            render_svg(&mut ctx, input, scale);
+            test_scenes::render_svg(&mut ctx, input, scale);
         } else {
-            render_scene(&mut ctx);
+            test_scenes::render_scene(&mut ctx);
+            //test_scenes::render_anim_frame(&mut ctx, 0);
         }
 
         let mut renderer = Renderer::new(&session, WIDTH, HEIGHT)?;
@@ -96,6 +98,13 @@ fn main() -> Result<(), Error> {
                     // Getting this right will take some thought.
                     if let Some(submitted) = submitted.take() {
                         submitted.wait().unwrap();
+                        if matches.value_of("INPUT").is_none() {
+                            let mut ctx = PietGpuRenderContext::new();
+                            test_scenes::render_anim_frame(&mut ctx, current_frame);
+                            if let Err(e) = renderer.upload_render_ctx(&mut ctx) {
+                                println!("error in uploading: {}", e);
+                            }
+                        }
 
                         let ts = session.fetch_query_pool(&query_pools[last_frame_idx]).unwrap();
                         window.set_title(&format!(
