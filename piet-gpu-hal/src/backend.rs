@@ -16,7 +16,7 @@
 
 //! The generic trait for backends to implement.
 
-use crate::{mux::ShaderCode, BufferUsage, Error, GpuInfo, ImageLayout, SamplerParams};
+use crate::{BufferUsage, Error, GpuInfo, ImageLayout, SamplerParams};
 
 pub trait Device: Sized {
     type Buffer: 'static;
@@ -105,6 +105,9 @@ pub trait Device: Sized {
 
     fn create_cmd_buf(&self) -> Result<Self::CmdBuf, Error>;
 
+    /// If the command buffer was submitted, it must complete before this is called.
+    unsafe fn destroy_cmd_buf(&self, cmd_buf: Self::CmdBuf) -> Result<(), Error>;
+
     fn create_query_pool(&self, n_queries: u32) -> Result<Self::QueryPool, Error>;
 
     /// Get results from query pool, destroying it in the process.
@@ -158,6 +161,7 @@ pub trait Device: Sized {
 
     unsafe fn create_semaphore(&self) -> Result<Self::Semaphore, Error>;
     unsafe fn create_fence(&self, signaled: bool) -> Result<Self::Fence, Error>;
+    unsafe fn destroy_fence(&self, fence: Self::Fence) -> Result<(), Error>;
     unsafe fn wait_and_reset(&self, fences: Vec<&mut Self::Fence>) -> Result<(), Error>;
     unsafe fn get_fence_status(&self, fence: &mut Self::Fence) -> Result<bool, Error>;
 

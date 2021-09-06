@@ -316,6 +316,10 @@ impl crate::backend::Device for Dx12Device {
         }
     }
 
+    unsafe fn destroy_cmd_buf(&self, _cmd_buf: Self::CmdBuf) -> Result<(), Error> {
+        Ok(())
+    }
+
     fn create_query_pool(&self, n_queries: u32) -> Result<Self::QueryPool, Error> {
         unsafe {
             let heap = self
@@ -407,6 +411,10 @@ impl crate::backend::Device for Dx12Device {
         let event = wrappers::Event::create(false, signaled)?;
         let val = Cell::new(0);
         Ok(Fence { fence, event, val })
+    }
+
+    unsafe fn destroy_fence(&self, _fence: Self::Fence) -> Result<(), Error> {
+        Ok(())
     }
 
     unsafe fn wait_and_reset(&self, fences: Vec<&mut Self::Fence>) -> Result<(), Error> {

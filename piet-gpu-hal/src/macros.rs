@@ -72,6 +72,16 @@ macro_rules! mux_enum {
                     }
                 }
             }
+            $crate::mux_cfg! {
+                #[cfg(vk)]
+                #[allow(unused)]
+                fn vk_owned(self) -> $vk {
+                    match self {
+                        $name::Vk(x) => x,
+                        _ => panic!("downcast error")
+                    }
+                }
+            }
 
             $crate::mux_cfg! {
                 #[cfg(dx12)]
@@ -93,6 +103,16 @@ macro_rules! mux_enum {
                     }
                 }
             }
+            $crate::mux_cfg! {
+                #[cfg(dx12)]
+                #[allow(unused)]
+                fn dx12_owned(self) -> $dx12 {
+                    match self {
+                        $name::Dx12(x) => x,
+                        _ => panic!("downcast error")
+                    }
+                }
+            }
 
             $crate::mux_cfg! {
                 #[cfg(mtl)]
@@ -107,6 +127,15 @@ macro_rules! mux_enum {
                 #[cfg(mtl)]
                 #[allow(unused)]
                 fn mtl_mut(&mut self) -> &mut $mtl {
+                    match self {
+                        $name::Mtl(x) => x,
+                    }
+                }
+            }
+            $crate::mux_cfg! {
+                #[cfg(mtl)]
+                #[allow(unused)]
+                fn mtl_owned(self) -> $mtl {
                     match self {
                         $name::Mtl(x) => x,
                     }
