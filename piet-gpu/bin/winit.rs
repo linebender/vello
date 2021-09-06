@@ -1,6 +1,6 @@
 use piet_gpu_hal::{Error, ImageLayout, Instance, Session, SubmittedCmdBuf};
 
-use piet_gpu::{render_scene, PietGpuRenderContext, Renderer, HEIGHT, WIDTH, render_svg};
+use piet_gpu::{render_scene, render_svg, PietGpuRenderContext, Renderer};
 
 use clap::{App, Arg};
 
@@ -11,6 +11,9 @@ use winit::{
 };
 
 const NUM_FRAMES: usize = 2;
+
+const WIDTH: usize = 2048;
+const HEIGHT: usize = 1536;
 
 fn main() -> Result<(), Error> {
     let matches = App::new("piet-gpu test")
@@ -62,7 +65,7 @@ fn main() -> Result<(), Error> {
             render_scene(&mut ctx);
         }
 
-        let mut renderer = Renderer::new(&session)?;
+        let mut renderer = Renderer::new(&session, WIDTH, HEIGHT)?;
         renderer.upload_render_ctx(&mut ctx)?;
 
         let mut submitted: Option<SubmittedCmdBuf> = None;

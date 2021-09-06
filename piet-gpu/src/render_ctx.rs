@@ -1,5 +1,6 @@
 use std::{borrow::Cow, ops::RangeBounds};
 
+use crate::MAX_BLEND_STACK;
 use piet::{
     kurbo::{Affine, Insets, PathEl, Point, Rect, Shape, Size},
     HitTestPosition, TextAttribute, TextStorage,
@@ -8,7 +9,6 @@ use piet::{
     Color, Error, FixedGradient, FontFamily, HitTestPoint, ImageFormat, InterpolationMode,
     IntoBrush, LineMetric, RenderContext, StrokeStyle, Text, TextLayout, TextLayoutBuilder,
 };
-use crate::MAX_BLEND_STACK;
 
 use piet_gpu_types::encoder::{Encode, Encoder};
 use piet_gpu_types::scene::{
