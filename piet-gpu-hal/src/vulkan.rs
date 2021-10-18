@@ -708,12 +708,16 @@ impl crate::backend::Device for VkDevice {
     unsafe fn fetch_query_pool(&self, pool: &Self::QueryPool) -> Result<Vec<f64>, Error> {
         let device = &self.device.device;
         let mut buf = vec![0u64; pool.n_queries as usize];
+        // It's unclear to me why WAIT is needed here, as the wait on the command buffer's
+        // fence should make the query available, but otherwise we get sporadic NOT_READY
+        // results (Windows 10, AMD 5700 XT).
+        let flags = vk::QueryResultFlags::TYPE_64 | vk::QueryResultFlags::WAIT;
         device.get_query_pool_results(
             pool.pool,
             0,
             pool.n_queries,
             &mut buf,
-            vk::QueryResultFlags::TYPE_64,
+            flags,
         )?;
         let ts0 = buf[0];
         let tsp = self.timestamp_period as f64 * 1e-9;
