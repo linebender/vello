@@ -6,6 +6,7 @@ mod text;
 
 use std::convert::TryInto;
 
+use piet_gpu_types::scene;
 pub use render_ctx::PietGpuRenderContext;
 
 use rand::{Rng, RngCore};
@@ -60,19 +61,20 @@ pub struct Renderer {
 
     // The reference is held by the pipelines. We will be changing
     // this to make the scene upload dynamic.
-    #[allow(dead_code)]
-    scene_buf: Buffer,
+    scene_bufs: Vec<Buffer>,
 
-    memory_buf_host: Buffer,
+    memory_buf_host: Vec<Buffer>,
     memory_buf_dev: Buffer,
 
     state_buf: Buffer,
 
-    #[allow(dead_code)]
+    // Staging buffers
+    config_bufs: Vec<Buffer>,
+    // Device config buf
     config_buf: Buffer,
 
     el_pipeline: Pipeline,
-    el_ds: DescriptorSet,
+    el_ds: Vec<DescriptorSet>,
 
     tile_pipeline: Pipeline,
     tile_ds: DescriptorSet,
@@ -99,13 +101,18 @@ pub struct Renderer {
     // Keep a reference to the image so that it is not destroyed.
     _bg_image: Image,
 
-    gradient_buf: Buffer,
+    gradient_bufs: Vec<Buffer>,
     gradients: Image,
 }
 
 impl Renderer {
     /// Create a new renderer.
-    pub unsafe fn new(session: &Session, width: usize, height: usize) -> Result<Self, Error> {
+    pub unsafe fn new(
+        session: &Session,
+        width: usize,
+        height: usize,
+        n_bufs: usize,
+    ) -> Result<Self, Error> {
         // For now, round up to tile alignment
         let width = width + (width.wrapping_neg() & (TILE_W - 1));
         let height = height + (height.wrapping_neg() & (TILE_W - 1));
@@ -114,29 +121,39 @@ impl Renderer {
 
         // This may be inadequate for very complex scenes (paris etc)
         // TODO: separate staging buffer (if needed)
-        let scene_buf = session.create_buffer(1 * 1024 * 1024, host_upload).unwrap();
+        let scene_bufs = (0..n_bufs)
+            .map(|_| session.create_buffer(8 * 1024 * 1024, host_upload).unwrap())
+            .collect();
 
         let state_buf = session.create_buffer(1 * 1024 * 1024, dev)?;
         let image_dev = session.create_image2d(width as u32, height as u32)?;
 
         // Note: this must be updated when the config struct size changes.
         const CONFIG_BUFFER_SIZE: u64 = 40;
+        let config_buf = session.create_buffer(CONFIG_BUFFER_SIZE, dev).unwrap();
         // TODO: separate staging buffer (if needed)
-        let config_buf = session
-            .create_buffer(CONFIG_BUFFER_SIZE, host_upload)
-            .unwrap();
+        let config_bufs = (0..n_bufs)
+            .map(|_| {
+                session
+                    .create_buffer(CONFIG_BUFFER_SIZE, host_upload)
+                    .unwrap()
+            })
+            .collect();
 
-        // Perhaps we could avoid the explicit staging buffer by having buffer creation method
-        // that takes both initial contents and a size.
-        let memory_buf_host = session.create_buffer(2 * 4, host_upload)?;
+        let memory_buf_host = (0..n_bufs)
+            .map(|_| session.create_buffer(2 * 4, host_upload).unwrap())
+            .collect();
         let memory_buf_dev = session.create_buffer(128 * 1024 * 1024, dev)?;
 
         let el_code = ShaderCode::Spv(include_bytes!("../shader/elements.spv"));
         let el_pipeline = session.create_simple_compute_pipeline(el_code, 4)?;
-        let el_ds = session.create_simple_descriptor_set(
-            &el_pipeline,
-            &[&memory_buf_dev, &config_buf, &scene_buf, &state_buf],
-        )?;
+        let mut el_ds = Vec::with_capacity(n_bufs);
+        for scene_buf in &scene_bufs {
+            el_ds.push(session.create_simple_descriptor_set(
+                &el_pipeline,
+                &[&memory_buf_dev, &config_buf, scene_buf, &state_buf],
+            )?);
+        }
 
         let tile_alloc_code = ShaderCode::Spv(include_bytes!("../shader/tile_alloc.spv"));
         let tile_pipeline = session.create_simple_compute_pipeline(tile_alloc_code, 2)?;
@@ -173,7 +190,13 @@ impl Renderer {
 
         const GRADIENT_BUF_SIZE: usize =
             crate::gradient::N_GRADIENTS * crate::gradient::N_SAMPLES * 4;
-        let gradient_buf = session.create_buffer(GRADIENT_BUF_SIZE as u64, host_upload)?;
+        let gradient_bufs = (0..n_bufs)
+            .map(|_| {
+                session
+                    .create_buffer(GRADIENT_BUF_SIZE as u64, host_upload)
+                    .unwrap()
+            })
+            .collect();
         let gradients = Self::make_gradient_image(&session);
 
         let k4_code = ShaderCode::Spv(include_bytes!("../shader/kernel4.spv"));
@@ -198,11 +221,12 @@ impl Renderer {
         Ok(Renderer {
             width,
             height,
-            scene_buf,
+            scene_bufs,
             memory_buf_host,
             memory_buf_dev,
             state_buf,
             config_buf,
+            config_bufs,
             image_dev,
             el_pipeline,
             el_ds,
@@ -222,7 +246,7 @@ impl Renderer {
             n_paths: 0,
             n_pathseg: 0,
             _bg_image: bg_image,
-            gradient_buf,
+            gradient_bufs,
             gradients,
         })
     }
@@ -235,6 +259,7 @@ impl Renderer {
     pub fn upload_render_ctx(
         &mut self,
         render_ctx: &mut PietGpuRenderContext,
+        buf_ix: usize,
     ) -> Result<(), Error> {
         let n_paths = render_ctx.path_count();
         let n_pathseg = render_ctx.pathseg_count();
@@ -280,28 +305,24 @@ impl Renderer {
             let scene = render_ctx.get_scene_buf();
             self.n_elements = scene.len() / piet_gpu_types::scene::Element::fixed_size();
             // TODO: reallocate scene buffer if size is inadequate
-            assert!(self.scene_buf.size() as usize >= scene.len());
-            self.scene_buf.write(scene)?;
-            self.config_buf.write(config)?;
-            self.memory_buf_host
-                .write(&[alloc as u32, 0 /* Overflow flag */])?;
+            assert!(self.scene_bufs[buf_ix].size() as usize >= scene.len());
+            self.scene_bufs[buf_ix].write(scene)?;
+            self.config_bufs[buf_ix].write(config)?;
+            self.memory_buf_host[buf_ix].write(&[alloc as u32, 0 /* Overflow flag */])?;
 
             // Upload gradient data.
             let ramp_data = render_ctx.get_ramp_data();
             if !ramp_data.is_empty() {
-                assert!(self.gradient_buf.size() as usize >= std::mem::size_of_val(&*ramp_data));
-                self.gradient_buf.write(&ramp_data)?;
+                assert!(self.gradient_bufs[buf_ix].size() as usize >= std::mem::size_of_val(&*ramp_data));
+                self.gradient_bufs[buf_ix].write(&ramp_data)?;
             }
         }
         Ok(())
     }
 
-    pub unsafe fn record(&self, cmd_buf: &mut CmdBuf, query_pool: &QueryPool) {
-        //cmd_buf.clear_buffer(&self.memory_buf_dev, None);
-        //cmd_buf.memory_barrier();
-        // Only need to copy the first few words; need to upgrade HAL to be able to
-        // express sub-buffer copies.
-        cmd_buf.copy_buffer(&self.memory_buf_host, &self.memory_buf_dev);
+    pub unsafe fn record(&self, cmd_buf: &mut CmdBuf, query_pool: &QueryPool, buf_ix: usize) {
+        cmd_buf.copy_buffer(&self.config_bufs[buf_ix], &self.config_buf);
+        cmd_buf.copy_buffer(&self.memory_buf_host[buf_ix], &self.memory_buf_dev);
         cmd_buf.clear_buffer(&self.state_buf, None);
         cmd_buf.memory_barrier();
         cmd_buf.image_barrier(
@@ -315,13 +336,13 @@ impl Renderer {
             ImageLayout::Undefined,
             ImageLayout::BlitDst,
         );
-        cmd_buf.copy_buffer_to_image(&self.gradient_buf, &self.gradients);
+        cmd_buf.copy_buffer_to_image(&self.gradient_bufs[buf_ix], &self.gradients);
         cmd_buf.image_barrier(&self.gradients, ImageLayout::BlitDst, ImageLayout::General);
         cmd_buf.reset_query_pool(&query_pool);
         cmd_buf.write_timestamp(&query_pool, 0);
         cmd_buf.dispatch(
             &self.el_pipeline,
-            &self.el_ds,
+            &self.el_ds[buf_ix],
             (((self.n_elements + 127) / 128) as u32, 1, 1),
             (128, 1, 1),
         );

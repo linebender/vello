@@ -1,3 +1,5 @@
+use piet::kurbo::Point;
+use piet::{RenderContext, Text, TextAttribute, TextLayoutBuilder};
 use piet_gpu_hal::{Error, ImageLayout, Instance, Session, SubmittedCmdBuf};
 
 use piet_gpu::{test_scenes, PietGpuRenderContext, Renderer};
@@ -37,6 +39,7 @@ fn main() -> Result<(), Error> {
         .build(&event_loop)?;
 
     let (instance, surface) = Instance::new(Some(&window))?;
+    let mut info_string = "info".to_string();
     unsafe {
         let device = instance.device(surface.as_ref())?;
         let mut swapchain =
@@ -50,27 +53,9 @@ fn main() -> Result<(), Error> {
         let query_pools = (0..NUM_FRAMES)
             .map(|_| session.create_query_pool(8))
             .collect::<Result<Vec<_>, Error>>()?;
+        let mut submitted: [Option<SubmittedCmdBuf>; NUM_FRAMES] = Default::default();
 
-        let mut ctx = PietGpuRenderContext::new();
-        if let Some(input) = matches.value_of("INPUT") {
-            let mut scale = matches
-                .value_of("scale")
-                .map(|scale| scale.parse().unwrap())
-                .unwrap_or(8.0);
-            if matches.is_present("flip") {
-                scale = -scale;
-            }
-            test_scenes::render_svg(&mut ctx, input, scale);
-        } else {
-            test_scenes::render_scene(&mut ctx);
-            //test_scenes::render_anim_frame(&mut ctx, 0);
-        }
-
-        let mut renderer = Renderer::new(&session, WIDTH, HEIGHT)?;
-        renderer.upload_render_ctx(&mut ctx)?;
-
-        let mut submitted: Option<SubmittedCmdBuf> = None;
-        let mut last_frame_idx = 0;
+        let mut renderer = Renderer::new(&session, WIDTH, HEIGHT, NUM_FRAMES)?;
 
         event_loop.run(move |event, _, control_flow| {
             *control_flow = ControlFlow::Poll; // `ControlFlow::Wait` if only re-render on event
@@ -90,23 +75,10 @@ fn main() -> Result<(), Error> {
                 Event::RedrawRequested(window_id) if window_id == window.id() => {
                     let frame_idx = current_frame % NUM_FRAMES;
 
-                    // Note: this logic is a little strange. We have two sets of renderer
-                    // resources, so we could have two frames in flight (submit two, wait on
-                    // the first), but we actually just wait on the last submitted.
-                    //
-                    // Getting this right will take some thought.
-                    if let Some(submitted) = submitted.take() {
+                    if let Some(submitted) = submitted[frame_idx].take() {
                         submitted.wait().unwrap();
-                        if matches.value_of("INPUT").is_none() {
-                            let mut ctx = PietGpuRenderContext::new();
-                            test_scenes::render_anim_frame(&mut ctx, current_frame);
-                            if let Err(e) = renderer.upload_render_ctx(&mut ctx) {
-                                println!("error in uploading: {}", e);
-                            }
-                        }
-
-                        let ts = session.fetch_query_pool(&query_pools[last_frame_idx]).unwrap();
-                        window.set_title(&format!(
+                        let ts = session.fetch_query_pool(&query_pools[frame_idx]).unwrap();
+                        info_string = format!(
                             "{:.3}ms :: e:{:.3}ms|alloc:{:.3}ms|cp:{:.3}ms|bd:{:.3}ms|bin:{:.3}ms|cr:{:.3}ms|r:{:.3}ms",
                             ts[6] * 1e3,
                             ts[0] * 1e3,
@@ -116,7 +88,25 @@ fn main() -> Result<(), Error> {
                             (ts[4] - ts[3]) * 1e3,
                             (ts[5] - ts[4]) * 1e3,
                             (ts[6] - ts[5]) * 1e3,
-                        ));
+                        );
+                    }
+
+                    let mut ctx = PietGpuRenderContext::new();
+                    if let Some(input) = matches.value_of("INPUT") {
+                        let mut scale = matches
+                            .value_of("scale")
+                            .map(|scale| scale.parse().unwrap())
+                            .unwrap_or(8.0);
+                        if matches.is_present("flip") {
+                            scale = -scale;
+                        }
+                        test_scenes::render_svg(&mut ctx, input, scale);
+                    } else {
+                        test_scenes::render_anim_frame(&mut ctx, current_frame);
+                    }
+                    render_info_string(&mut ctx, &info_string);
+                    if let Err(e) = renderer.upload_render_ctx(&mut ctx, frame_idx) {
+                        println!("error in uploading: {}", e);
                     }
 
                     let (image_idx, acquisition_semaphore) = swapchain.next().unwrap();
@@ -124,7 +114,7 @@ fn main() -> Result<(), Error> {
                     let query_pool = &query_pools[frame_idx];
                     let mut cmd_buf = session.cmd_buf().unwrap();
                     cmd_buf.begin();
-                    renderer.record(&mut cmd_buf, &query_pool);
+                    renderer.record(&mut cmd_buf, &query_pool, frame_idx);
 
                     // Image -> Swapchain
                     cmd_buf.image_barrier(
@@ -136,14 +126,13 @@ fn main() -> Result<(), Error> {
                     cmd_buf.image_barrier(&swap_image, ImageLayout::BlitDst, ImageLayout::Present);
                     cmd_buf.finish();
 
-                    submitted = Some(session
+                    submitted[frame_idx] = Some(session
                         .run_cmd_buf(
                             cmd_buf,
                             &[&acquisition_semaphore],
                             &[&present_semaphores[frame_idx]],
                         )
                         .unwrap());
-                    last_frame_idx = frame_idx;
 
                     swapchain
                         .present(image_idx, &[&present_semaphores[frame_idx]])
@@ -152,14 +141,26 @@ fn main() -> Result<(), Error> {
                     current_frame += 1;
                 }
                 Event::LoopDestroyed => {
-                    if let Some(submitted) = submitted.take() {
+                    for cmd_buf in &mut submitted {
                         // Wait for command list submission, otherwise dropping of renderer may
                         // cause validation errors (and possibly crashes).
-                        submitted.wait().unwrap();
+                        if let Some(cmd_buf) = cmd_buf.take() {
+                            cmd_buf.wait().unwrap();
+                        }
                     }
                 }
                 _ => (),
             }
         })
     }
+}
+
+fn render_info_string(rc: &mut impl RenderContext, info: &str) {
+    let layout = rc
+        .text()
+        .new_text_layout(info.to_string())
+        .default_attribute(TextAttribute::FontSize(40.0))
+        .build()
+        .unwrap();
+    rc.draw_text(&layout, Point::new(110.0, 50.0));
 }

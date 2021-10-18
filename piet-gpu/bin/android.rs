@@ -16,6 +16,9 @@ use piet_gpu_hal::{
     Swapchain,
 };
 
+use piet::kurbo::Point;
+use piet::{RenderContext, Text, TextAttribute, TextLayoutBuilder};
+
 use piet_gpu::{test_scenes, PietGpuRenderContext, Renderer};
 
 #[cfg_attr(target_os = "android", ndk_glue::main(backtrace = "on"))]
@@ -33,8 +36,7 @@ struct GfxState {
     renderer: Renderer,
     swapchain: Swapchain,
     current_frame: usize,
-    last_frame_idx: usize,
-    submitted: Option<SubmittedCmdBuf>,
+    submitted: [Option<SubmittedCmdBuf>; NUM_FRAMES],
     query_pools: Vec<QueryPool>,
     present_semaphores: Vec<Semaphore>,
 }
@@ -100,31 +102,24 @@ impl GfxState {
     ) -> Result<GfxState, Error> {
         unsafe {
             let device = instance.device(surface)?;
-            let mut swapchain = instance.swapchain(width, height, &device, surface.unwrap())?;
+            let swapchain = instance.swapchain(width, height, &device, surface.unwrap())?;
             let session = Session::new(device);
-            let mut current_frame = 0;
+            let current_frame = 0;
             let present_semaphores = (0..NUM_FRAMES)
                 .map(|_| session.create_semaphore())
                 .collect::<Result<Vec<_>, Error>>()?;
             let query_pools = (0..NUM_FRAMES)
                 .map(|_| session.create_query_pool(8))
                 .collect::<Result<Vec<_>, Error>>()?;
+            let submitted = Default::default();
 
-            let mut ctx = PietGpuRenderContext::new();
-            test_scenes::render_anim_frame(&mut ctx, 0);
+            let renderer = Renderer::new(&session, width, height, NUM_FRAMES)?;
 
-            let mut renderer = Renderer::new(&session, width, height)?;
-            renderer.upload_render_ctx(&mut ctx)?;
-
-            let submitted: Option<SubmittedCmdBuf> = None;
-            let current_frame = 0;
-            let last_frame_idx = 0;
             Ok(GfxState {
                 session,
                 renderer,
                 swapchain,
                 current_frame,
-                last_frame_idx,
                 submitted,
                 query_pools,
                 present_semaphores,
@@ -135,28 +130,31 @@ impl GfxState {
     fn redraw(&mut self) {
         println!("redraw");
         unsafe {
-            if let Some(submitted) = self.submitted.take() {
+            let frame_idx = self.current_frame % NUM_FRAMES;
+            let mut info_string = String::new();
+
+            if let Some(submitted) = self.submitted[frame_idx].take() {
                 submitted.wait().unwrap();
-
-                let mut ctx = PietGpuRenderContext::new();
-                test_scenes::render_anim_frame(&mut ctx, self.current_frame);
-                if let Err(e) = self.renderer.upload_render_ctx(&mut ctx) {
-                    println!("error in uploading: {}", e);
-                }
-
                 let ts = self
                     .session
-                    .fetch_query_pool(&self.query_pools[self.last_frame_idx])
+                    .fetch_query_pool(&self.query_pools[frame_idx])
                     .unwrap();
+                info_string = format!("{:.1}ms", ts.last().unwrap() * 1e3);
                 println!("render time: {:?}", ts);
             }
-            let frame_idx = self.current_frame % NUM_FRAMES;
+            let mut ctx = PietGpuRenderContext::new();
+            test_scenes::render_anim_frame(&mut ctx, self.current_frame);
+            //test_scenes::render_tiger(&mut ctx);
+            render_info_string(&mut ctx, &info_string);
+            if let Err(e) = self.renderer.upload_render_ctx(&mut ctx, frame_idx) {
+                println!("error in uploading: {}", e);
+            }
             let (image_idx, acquisition_semaphore) = self.swapchain.next().unwrap();
             let swap_image = self.swapchain.image(image_idx);
             let query_pool = &self.query_pools[frame_idx];
             let mut cmd_buf = self.session.cmd_buf().unwrap();
             cmd_buf.begin();
-            self.renderer.record(&mut cmd_buf, &query_pool);
+            self.renderer.record(&mut cmd_buf, &query_pool, frame_idx);
 
             // Image -> Swapchain
             cmd_buf.image_barrier(&swap_image, ImageLayout::Undefined, ImageLayout::BlitDst);
@@ -164,7 +162,7 @@ impl GfxState {
             cmd_buf.image_barrier(&swap_image, ImageLayout::BlitDst, ImageLayout::Present);
             cmd_buf.finish();
 
-            self.submitted = Some(
+            self.submitted[frame_idx] = Some(
                 self.session
                     .run_cmd_buf(
                         cmd_buf,
@@ -173,7 +171,6 @@ impl GfxState {
                     )
                     .unwrap(),
             );
-            self.last_frame_idx = frame_idx;
 
             self.swapchain
                 .present(image_idx, &[&self.present_semaphores[frame_idx]])
@@ -182,4 +179,14 @@ impl GfxState {
             self.current_frame += 1;
         }
     }
+}
+
+fn render_info_string(rc: &mut impl RenderContext, info: &str) {
+    let layout = rc
+        .text()
+        .new_text_layout(info.to_string())
+        .default_attribute(TextAttribute::FontSize(60.0))
+        .build()
+        .unwrap();
+    rc.draw_text(&layout, Point::new(110.0, 120.0));
 }
