@@ -102,6 +102,9 @@ impl PietGpuRenderContext {
     }
 
     pub fn get_scene_buf(&mut self) -> &[u8] {
+        const ALIGN: usize = 128;
+        let padded_size = (self.elements.len() + (ALIGN - 1)) & ALIGN.wrapping_neg();
+        self.elements.resize(padded_size, Element::Nop());
         self.elements.encode(&mut self.encoder);
         self.encoder.buf()
     }
@@ -492,13 +495,18 @@ impl PietGpuRenderContext {
     pub(crate) fn append_path_encoder(&mut self, path: &PathEncoder) {
         let elements = path.elements();
         self.elements.extend(elements.iter().cloned());
-        self.pathseg_count += elements.len();
+        self.pathseg_count += path.n_segs();
     }
 
     pub(crate) fn fill_glyph(&mut self, rgba_color: u32) {
         let fill = FillColor { rgba_color };
         self.elements.push(Element::FillColor(fill));
         self.path_count += 1;
+    }
+
+    /// Bump the path count when rendering a color emoji.
+    pub(crate) fn bump_n_paths(&mut self, n_paths: usize) {
+        self.path_count += n_paths;
     }
 
     pub(crate) fn encode_transform(&mut self, transform: Transform) {

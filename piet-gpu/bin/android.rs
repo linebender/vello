@@ -16,7 +16,7 @@ use piet_gpu_hal::{
     Swapchain,
 };
 
-use piet_gpu::{render_scene, PietGpuRenderContext, Renderer};
+use piet_gpu::{test_scenes, PietGpuRenderContext, Renderer};
 
 #[cfg_attr(target_os = "android", ndk_glue::main(backtrace = "on"))]
 fn main() {
@@ -62,7 +62,7 @@ fn my_main() -> Result<(), Error> {
                 }
                 Event::WindowRedrawNeeded => {
                     if let Some(gfx_state) = gfx_state.as_mut() {
-                        for _ in 0..10 {
+                        for _ in 0..1000 {
                             gfx_state.redraw();
                         }
                     }
@@ -100,8 +100,7 @@ impl GfxState {
     ) -> Result<GfxState, Error> {
         unsafe {
             let device = instance.device(surface)?;
-            let mut swapchain =
-                instance.swapchain(width, height, &device, surface.unwrap())?;
+            let mut swapchain = instance.swapchain(width, height, &device, surface.unwrap())?;
             let session = Session::new(device);
             let mut current_frame = 0;
             let present_semaphores = (0..NUM_FRAMES)
@@ -112,7 +111,7 @@ impl GfxState {
                 .collect::<Result<Vec<_>, Error>>()?;
 
             let mut ctx = PietGpuRenderContext::new();
-            render_scene(&mut ctx);
+            test_scenes::render_anim_frame(&mut ctx, 0);
 
             let mut renderer = Renderer::new(&session, width, height)?;
             renderer.upload_render_ctx(&mut ctx)?;
@@ -138,6 +137,12 @@ impl GfxState {
         unsafe {
             if let Some(submitted) = self.submitted.take() {
                 submitted.wait().unwrap();
+
+                let mut ctx = PietGpuRenderContext::new();
+                test_scenes::render_anim_frame(&mut ctx, self.current_frame);
+                if let Err(e) = self.renderer.upload_render_ctx(&mut ctx) {
+                    println!("error in uploading: {}", e);
+                }
 
                 let ts = self
                     .session
