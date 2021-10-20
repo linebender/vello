@@ -1,4 +1,3 @@
-use piet::RenderContext;
 use piet_gpu_hal::{Error, ImageLayout, Instance, Session, SubmittedCmdBuf};
 
 use piet_gpu::{test_scenes, PietGpuRenderContext, Renderer};
@@ -151,6 +150,13 @@ fn main() -> Result<(), Error> {
                         .unwrap();
 
                     current_frame += 1;
+                }
+                Event::LoopDestroyed => {
+                    if let Some(submitted) = submitted.take() {
+                        // Wait for command list submission, otherwise dropping of renderer may
+                        // cause validation errors (and possibly crashes).
+                        submitted.wait().unwrap();
+                    }
                 }
                 _ => (),
             }
