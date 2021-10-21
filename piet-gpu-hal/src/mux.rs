@@ -242,6 +242,14 @@ impl Device {
         }
     }
 
+    pub unsafe fn destroy_fence(&self, fence: Fence) -> Result<(), Error> {
+        mux_match! { self;
+            Device::Vk(d) => d.destroy_fence(fence.vk_owned()),
+            Device::Dx12(d) => d.destroy_fence(fence.dx12_owned()),
+            Device::Mtl(d) => d.destroy_fence(fence.mtl_owned()),
+        }
+    }
+
     // Consider changing Vec to iterator (as is done in gfx-hal)
     pub unsafe fn wait_and_reset(&self, fences: Vec<&mut Fence>) -> Result<(), Error> {
         mux_match! { self;
@@ -306,6 +314,14 @@ impl Device {
             Device::Vk(d) => d.create_cmd_buf().map(CmdBuf::Vk),
             Device::Dx12(d) => d.create_cmd_buf().map(CmdBuf::Dx12),
             Device::Mtl(d) => d.create_cmd_buf().map(CmdBuf::Mtl),
+        }
+    }
+
+    pub unsafe fn destroy_cmd_buf(&self, cmd_buf: CmdBuf) -> Result<(), Error> {
+        mux_match! { self;
+            Device::Vk(d) => d.destroy_cmd_buf(cmd_buf.vk_owned()),
+            Device::Dx12(d) => d.destroy_cmd_buf(cmd_buf.dx12_owned()),
+            Device::Mtl(d) => d.destroy_cmd_buf(cmd_buf.mtl_owned()),
         }
     }
 

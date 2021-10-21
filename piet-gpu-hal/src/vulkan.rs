@@ -89,6 +89,7 @@ pub struct DescriptorSet {
 
 pub struct CmdBuf {
     cmd_buf: vk::CommandBuffer,
+    cmd_pool: vk::CommandPool,
     device: Arc<RawDevice>,
 }
 
@@ -620,6 +621,12 @@ impl crate::backend::Device for VkDevice {
         Ok(device.create_fence(&vk::FenceCreateInfo::builder().flags(flags).build(), None)?)
     }
 
+    unsafe fn destroy_fence(&self, fence: Self::Fence) -> Result<(), Error> {
+        let device = &self.device.device;
+        device.destroy_fence(fence, None);
+        Ok(())
+    }
+
     unsafe fn create_semaphore(&self) -> Result<Self::Semaphore, Error> {
         let device = &self.device.device;
         Ok(device.create_semaphore(&vk::SemaphoreCreateInfo::default(), None)?)
@@ -658,7 +665,7 @@ impl crate::backend::Device for VkDevice {
     fn create_cmd_buf(&self) -> Result<CmdBuf, Error> {
         unsafe {
             let device = &self.device.device;
-            let command_pool = device.create_command_pool(
+            let cmd_pool = device.create_command_pool(
                 &vk::CommandPoolCreateInfo::builder()
                     .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
                     .queue_family_index(self.qfi),
@@ -666,15 +673,22 @@ impl crate::backend::Device for VkDevice {
             )?;
             let cmd_buf = device.allocate_command_buffers(
                 &vk::CommandBufferAllocateInfo::builder()
-                    .command_pool(command_pool)
+                    .command_pool(cmd_pool)
                     .level(vk::CommandBufferLevel::PRIMARY)
                     .command_buffer_count(1),
             )?[0];
             Ok(CmdBuf {
                 cmd_buf,
+                cmd_pool,
                 device: self.device.clone(),
             })
         }
+    }
+
+    unsafe fn destroy_cmd_buf(&self, cmd_buf: CmdBuf) -> Result<(), Error> {
+        let device = &self.device.device;
+        device.destroy_command_pool(cmd_buf.cmd_pool, None);
+        Ok(())
     }
 
     /// Create a query pool for timestamp queries.
@@ -694,12 +708,16 @@ impl crate::backend::Device for VkDevice {
     unsafe fn fetch_query_pool(&self, pool: &Self::QueryPool) -> Result<Vec<f64>, Error> {
         let device = &self.device.device;
         let mut buf = vec![0u64; pool.n_queries as usize];
+        // It's unclear to me why WAIT is needed here, as the wait on the command buffer's
+        // fence should make the query available, but otherwise we get sporadic NOT_READY
+        // results (Windows 10, AMD 5700 XT).
+        let flags = vk::QueryResultFlags::TYPE_64 | vk::QueryResultFlags::WAIT;
         device.get_query_pool_results(
             pool.pool,
             0,
             pool.n_queries,
             &mut buf,
-            vk::QueryResultFlags::TYPE_64,
+            flags,
         )?;
         let ts0 = buf[0];
         let tsp = self.timestamp_period as f64 * 1e-9;

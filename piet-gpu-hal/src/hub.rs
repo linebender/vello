@@ -30,8 +30,13 @@ pub struct Session(Arc<SessionInner>);
 
 struct SessionInner {
     device: mux::Device,
+    /// A pool of command buffers that can be reused.
+    ///
+    /// Currently this is not used, as it only works well on Vulkan. At some
+    /// point, we will want to efficiently reuse command buffers rather than
+    /// allocating them each time, but that is a TODO.
     cmd_buf_pool: Mutex<Vec<(mux::CmdBuf, Fence)>>,
-    /// Command buffers that are still pending (so resources can't be freed).
+    /// Command buffers that are still pending (so resources can't be freed yet).
     pending: Mutex<Vec<SubmittedCmdBufInner>>,
     /// A command buffer that is used for copying from staging buffers.
     staging_cmd_buf: Mutex<Option<CmdBuf>>,
@@ -169,18 +174,7 @@ impl Session {
                     let mut item = pending.swap_remove(i);
                     // TODO: wait is superfluous, can just reset
                     let _ = self.0.device.wait_and_reset(vec![&mut item.fence]);
-
-                    // Reuse of command buffers works on Vulkan, but not at all on
-                    // Metal and is problematic on DX12 (the allocator is returned)
-                    // to the pool. Punt for now.
-
-                    let mut pool = self.0.cmd_buf_pool.lock().unwrap();
-                    pool.push((item.cmd_buf, item.fence));
-                    std::mem::drop(item.resources);
-                    if let Some(staging_cmd_buf) = item.staging_cmd_buf {
-                        pool.push((staging_cmd_buf.cmd_buf, staging_cmd_buf.fence));
-                        std::mem::drop(staging_cmd_buf.resources);
-                    }
+                    self.0.cleanup_submitted_cmd_buf(item);
                 } else {
                     i += 1;
                 }
@@ -392,6 +386,25 @@ impl Session {
     }
 }
 
+impl SessionInner {
+    /// Clean up a submitted command buffer.
+    ///
+    /// This drops the resources used by the command buffer and also cleans up the command
+    /// buffer itself. Currently that means destroying it, but at some point we'll want to
+    /// be better at reuse.
+    unsafe fn cleanup_submitted_cmd_buf(&self, item: SubmittedCmdBufInner) {
+        let _should_handle_err = self.device.destroy_cmd_buf(item.cmd_buf);
+        let _should_handle_err = self.device.destroy_fence(item.fence);
+
+        std::mem::drop(item.resources);
+        if let Some(staging_cmd_buf) = item.staging_cmd_buf {
+            let _should_handle_err = self.device.destroy_cmd_buf(staging_cmd_buf.cmd_buf);
+            let _should_handle_err = self.device.destroy_fence(staging_cmd_buf.fence);
+            std::mem::drop(staging_cmd_buf.resources);
+        }
+    }
+}
+
 impl CmdBuf {
     /// Begin recording into a command buffer.
     ///
@@ -566,14 +579,8 @@ impl SubmittedCmdBuf {
         if let Some(session) = Weak::upgrade(&self.1) {
             unsafe {
                 session.device.wait_and_reset(vec![&mut item.fence])?;
+                session.cleanup_submitted_cmd_buf(item);
             }
-            // See discussion in `poll_cleanup`
-            session
-                .cmd_buf_pool
-                .lock()
-                .unwrap()
-                .push((item.cmd_buf, item.fence));
-            std::mem::drop(item.resources);
         }
         // else session dropped error?
         Ok(())

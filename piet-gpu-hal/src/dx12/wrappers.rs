@@ -661,6 +661,10 @@ impl Device {
         Ok(Fence(ComPtr::from_raw(fence)))
     }
 
+    pub unsafe fn destroy_fence(&self, fence: &Fence) -> Result<(), Error> {
+        Ok(())
+    }
+
     pub unsafe fn create_committed_resource(
         &self,
         heap_properties: &d3d12::D3D12_HEAP_PROPERTIES,

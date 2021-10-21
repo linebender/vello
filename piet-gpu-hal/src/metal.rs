@@ -289,6 +289,10 @@ impl crate::backend::Device for MtlDevice {
         Ok(CmdBuf { cmd_buf })
     }
 
+    unsafe fn destroy_cmd_buf(&self, _cmd_buf: Self::CmdBuf) -> Result<(), Error> {
+        Ok(())
+    }
+
     fn create_query_pool(&self, n_queries: u32) -> Result<Self::QueryPool, Error> {
         // TODO
         Ok(QueryPool)
@@ -363,6 +367,10 @@ impl crate::backend::Device for MtlDevice {
         // Doesn't handle signaled case. Maybe the fences should have more
         // limited functionality than, say, Vulkan.
         Ok(Fence::Idle)
+    }
+
+    unsafe fn destroy_fence(&self, _fence: Self::Fence) -> Result<(), Error> {
+        Ok(())
     }
 
     unsafe fn wait_and_reset(&self, fences: Vec<&mut Self::Fence>) -> Result<(), Error> {
