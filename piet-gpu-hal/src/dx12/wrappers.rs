@@ -9,9 +9,9 @@
 use crate::dx12::error::{self, error_if_failed_else_unit, explain_error, Error};
 use std::convert::{TryFrom, TryInto};
 use std::sync::atomic::{AtomicPtr, Ordering};
-use std::{ffi, mem, path::Path, ptr};
+use std::{ffi, mem, ptr};
 use winapi::shared::{
-    dxgi, dxgi1_2, dxgi1_3, dxgi1_4, dxgiformat, dxgitype, minwindef, windef, winerror,
+    dxgi, dxgi1_2, dxgi1_3, dxgi1_4, dxgiformat, dxgitype, minwindef, windef,
 };
 use winapi::um::d3dcommon::ID3DBlob;
 use winapi::um::{
@@ -30,8 +30,6 @@ pub struct Resource {
     // similar to Vulkan.
     ptr: AtomicPtr<d3d12::ID3D12Resource>,
 }
-
-pub struct VertexBufferView(pub ComPtr<d3d12::D3D12_VERTEX_BUFFER_VIEW>);
 
 #[derive(Clone)]
 pub struct Adapter1(pub ComPtr<dxgi::IDXGIAdapter1>);
@@ -61,8 +59,6 @@ pub struct DescriptorHeap {
     pub heap: ComPtr<d3d12::ID3D12DescriptorHeap>,
 }
 
-pub type TextureAddressMode = [d3d12::D3D12_TEXTURE_ADDRESS_MODE; 3];
-
 #[derive(Clone)]
 pub struct RootSignature(pub ComPtr<d3d12::ID3D12RootSignature>);
 
@@ -89,8 +85,6 @@ pub struct ShaderByteCode {
     pub bytecode: d3d12::D3D12_SHADER_BYTECODE,
     blob: Option<Blob>,
 }
-
-pub struct DebugController(pub d3d12sdklayers::ID3D12Debug);
 
 #[derive(Clone)]
 pub struct QueryHeap(pub ComPtr<d3d12::ID3D12QueryHeap>);
@@ -157,10 +151,6 @@ impl Resource {
         ptr::copy_nonoverlapping(mapped_memory.add(offset), dst, size);
         (*self.get()).Unmap(0, &zero_range);
         Ok(())
-    }
-
-    pub unsafe fn get_gpu_virtual_address(&self) -> d3d12::D3D12_GPU_VIRTUAL_ADDRESS {
-        (*self.get()).GetGPUVirtualAddress()
     }
 }
 
@@ -406,22 +396,6 @@ impl Device {
         self.0.GetDescriptorHandleIncrementSize(heap_type)
     }
 
-    pub unsafe fn create_graphics_pipeline_state(
-        &self,
-        graphics_pipeline_desc: &d3d12::D3D12_GRAPHICS_PIPELINE_STATE_DESC,
-    ) -> PipelineState {
-        let mut pipeline_state = ptr::null_mut();
-
-        error::error_if_failed_else_unit(self.0.CreateGraphicsPipelineState(
-            graphics_pipeline_desc as *const _,
-            &d3d12::ID3D12PipelineState::uuidof(),
-            &mut pipeline_state as *mut _ as *mut _,
-        ))
-        .expect("device could not create graphics pipeline state");
-
-        PipelineState(ComPtr::from_raw(pipeline_state))
-    }
-
     pub unsafe fn create_compute_pipeline_state(
         &self,
         compute_pipeline_desc: &d3d12::D3D12_COMPUTE_PIPELINE_STATE_DESC,
@@ -458,33 +432,6 @@ impl Device {
         )?;
 
         Ok(RootSignature(ComPtr::from_raw(signature)))
-    }
-
-    // This is for indirect command submission and we probably won't use it.
-    pub unsafe fn create_command_signature(
-        &self,
-        root_signature: RootSignature,
-        arguments: &[d3d12::D3D12_INDIRECT_ARGUMENT_DESC],
-        stride: u32,
-        node_mask: minwindef::UINT,
-    ) -> CommandSignature {
-        let mut signature = ptr::null_mut();
-        let desc = d3d12::D3D12_COMMAND_SIGNATURE_DESC {
-            ByteStride: stride,
-            NumArgumentDescs: arguments.len() as _,
-            pArgumentDescs: arguments.as_ptr() as *const _,
-            NodeMask: node_mask,
-        };
-
-        error::error_if_failed_else_unit(self.0.CreateCommandSignature(
-            &desc,
-            root_signature.0.as_raw(),
-            &d3d12::ID3D12CommandSignature::uuidof(),
-            &mut signature as *mut _ as *mut _,
-        ))
-        .expect("device could not create command signature");
-
-        CommandSignature(ComPtr::from_raw(signature))
     }
 
     pub unsafe fn create_graphics_command_list(
@@ -550,102 +497,6 @@ impl Device {
         )
     }
 
-    pub unsafe fn create_constant_buffer_view(
-        &self,
-        resource: &Resource,
-        descriptor: CpuDescriptor,
-        size_in_bytes: u32,
-    ) {
-        let cbv_desc = d3d12::D3D12_CONSTANT_BUFFER_VIEW_DESC {
-            BufferLocation: resource.get_gpu_virtual_address(),
-            SizeInBytes: size_in_bytes,
-        };
-        self.0
-            .CreateConstantBufferView(&cbv_desc as *const _, descriptor);
-    }
-
-    pub unsafe fn create_byte_addressed_buffer_shader_resource_view(
-        &self,
-        resource: &Resource,
-        descriptor: CpuDescriptor,
-        first_element: u64,
-        num_elements: u32,
-    ) {
-        let mut srv_desc = d3d12::D3D12_SHADER_RESOURCE_VIEW_DESC {
-            // shouldn't flags be dxgiformat::DXGI_FORMAT_R32_TYPELESS?
-            Format: dxgiformat::DXGI_FORMAT_R32_TYPELESS,
-            ViewDimension: d3d12::D3D12_SRV_DIMENSION_BUFFER,
-            Shader4ComponentMapping: 0x1688,
-            ..mem::zeroed()
-        };
-        *srv_desc.u.Buffer_mut() = d3d12::D3D12_BUFFER_SRV {
-            FirstElement: first_element,
-            NumElements: num_elements,
-            // shouldn't StructureByteStride be 0?
-            StructureByteStride: 0,
-            // shouldn't flags be d3d12::D3D12_BUFFER_SRV_FLAG_RAW?
-            Flags: d3d12::D3D12_BUFFER_SRV_FLAG_RAW,
-        };
-        self.0
-            .CreateShaderResourceView(resource.get_mut(), &srv_desc as *const _, descriptor);
-    }
-
-    pub unsafe fn create_structured_buffer_shader_resource_view(
-        &self,
-        resource: &Resource,
-        descriptor: CpuDescriptor,
-        first_element: u64,
-        num_elements: u32,
-        structure_byte_stride: u32,
-    ) {
-        let mut srv_desc = d3d12::D3D12_SHADER_RESOURCE_VIEW_DESC {
-            Format: dxgiformat::DXGI_FORMAT_UNKNOWN,
-            ViewDimension: d3d12::D3D12_SRV_DIMENSION_BUFFER,
-            Shader4ComponentMapping: 0x1688,
-            ..mem::zeroed()
-        };
-        *srv_desc.u.Buffer_mut() = d3d12::D3D12_BUFFER_SRV {
-            FirstElement: first_element,
-            NumElements: num_elements,
-            StructureByteStride: structure_byte_stride,
-            Flags: d3d12::D3D12_BUFFER_SRV_FLAG_NONE,
-        };
-        self.0
-            .CreateShaderResourceView(resource.get_mut(), &srv_desc as *const _, descriptor);
-    }
-
-    pub unsafe fn create_texture2d_shader_resource_view(
-        &self,
-        resource: &Resource,
-        format: dxgiformat::DXGI_FORMAT,
-        descriptor: CpuDescriptor,
-    ) {
-        let mut srv_desc = d3d12::D3D12_SHADER_RESOURCE_VIEW_DESC {
-            Format: format,
-            ViewDimension: d3d12::D3D12_SRV_DIMENSION_TEXTURE2D,
-            Shader4ComponentMapping: 0x1688,
-            ..mem::zeroed()
-        };
-        *srv_desc.u.Texture2D_mut() = d3d12::D3D12_TEX2D_SRV {
-            MostDetailedMip: 0,
-            MipLevels: 1,
-            PlaneSlice: 0,
-            ResourceMinLODClamp: 0.0,
-        };
-        self.0
-            .CreateShaderResourceView(resource.get_mut(), &srv_desc as *const _, descriptor);
-    }
-
-    pub unsafe fn create_render_target_view(
-        &self,
-        resource: &Resource,
-        desc: *const d3d12::D3D12_RENDER_TARGET_VIEW_DESC,
-        descriptor: CpuDescriptor,
-    ) {
-        self.0
-            .CreateRenderTargetView(resource.get_mut(), desc, descriptor);
-    }
-
     pub unsafe fn create_fence(&self, initial: u64) -> Result<Fence, Error> {
         let mut fence = ptr::null_mut();
         explain_error(
@@ -659,10 +510,6 @@ impl Device {
         )?;
 
         Ok(Fence(ComPtr::from_raw(fence)))
-    }
-
-    pub unsafe fn destroy_fence(&self, fence: &Fence) -> Result<(), Error> {
-        Ok(())
     }
 
     pub unsafe fn create_committed_resource(
@@ -716,71 +563,6 @@ impl Device {
         Ok(QueryHeap(ComPtr::from_raw(query_heap)))
     }
 
-    // based on: https://github.com/microsoft/DirectX-Graphics-Samples/blob/682051ddbe4be820195fffed0bfbdbbde8611a90/Libraries/D3DX12/d3dx12.h#L1875
-    pub unsafe fn get_required_intermediate_buffer_size(
-        &self,
-        dest_resource: Resource,
-        first_subresource: u32,
-        num_subresources: u32,
-    ) -> u64 {
-        let desc: d3d12::D3D12_RESOURCE_DESC = (*dest_resource.get()).GetDesc();
-
-        let mut required_size: *mut u64 = ptr::null_mut();
-        self.0.GetCopyableFootprints(
-            &desc as *const _,
-            first_subresource,
-            num_subresources,
-            0,
-            ptr::null_mut(),
-            ptr::null_mut(),
-            ptr::null_mut(),
-            &mut required_size as *mut _ as *mut _,
-        );
-
-        *required_size
-    }
-
-    pub unsafe fn get_copyable_footprint(
-        &self,
-        first_subresource: u32,
-        num_subresources: usize,
-        base_offset: u64,
-        dest_resource: &Resource,
-    ) -> (
-        Vec<d3d12::D3D12_PLACED_SUBRESOURCE_FOOTPRINT>,
-        Vec<u32>,
-        Vec<u64>,
-        u64,
-    ) {
-        let desc: d3d12::D3D12_RESOURCE_DESC = (*dest_resource.get()).GetDesc();
-
-        let mut layouts: Vec<d3d12::D3D12_PLACED_SUBRESOURCE_FOOTPRINT> =
-            Vec::with_capacity(num_subresources);
-
-        let mut num_rows: Vec<u32> = Vec::with_capacity(num_subresources);
-
-        let mut row_size_in_bytes: Vec<u64> = Vec::with_capacity(num_subresources);
-
-        let mut total_size: u64 = 0;
-
-        self.0.GetCopyableFootprints(
-            &desc as *const _,
-            first_subresource,
-            u32::try_from(num_subresources)
-                .expect("could not safely convert num_subresources into u32"),
-            base_offset,
-            layouts.as_mut_ptr(),
-            num_rows.as_mut_ptr(),
-            row_size_in_bytes.as_mut_ptr(),
-            &mut total_size as *mut _,
-        );
-
-        layouts.set_len(num_subresources);
-        num_rows.set_len(num_subresources);
-        row_size_in_bytes.set_len(num_subresources);
-
-        (layouts, num_rows, row_size_in_bytes, total_size)
-    }
 
     pub unsafe fn create_buffer(
         &self,
@@ -898,38 +680,6 @@ impl Device {
         )?;
         Ok(features_architecture)
     }
-
-    pub unsafe fn get_removal_reason(&self) -> Error {
-        Error::Hresult(self.0.GetDeviceRemovedReason())
-    }
-}
-
-pub struct SubresourceData {
-    pub data: Vec<u8>,
-    pub row_size: isize,
-    pub column_size: isize,
-}
-
-impl SubresourceData {
-    pub fn size(&self) -> usize {
-        self.data.len()
-    }
-
-    pub fn as_d3d12_subresource_data(&self) -> d3d12::D3D12_SUBRESOURCE_DATA {
-        assert_eq!(self.row_size % 256, 0);
-
-        d3d12::D3D12_SUBRESOURCE_DATA {
-            pData: self.data.as_ptr() as *const _,
-            RowPitch: self.row_size,
-            SlicePitch: self.column_size,
-        }
-    }
-}
-
-impl CommandAllocator {
-    pub unsafe fn reset(&self) -> Result<(), Error> {
-        explain_error(self.0.Reset(), "error resetting command allocator")
-    }
 }
 
 impl DescriptorHeap {
@@ -955,10 +705,6 @@ impl DescriptorHeap {
         descriptor
     }
 }
-
-#[repr(transparent)]
-pub struct DescriptorRange(d3d12::D3D12_DESCRIPTOR_RANGE);
-impl DescriptorRange {}
 
 impl RootSignature {
     pub unsafe fn serialize_description(
@@ -990,17 +736,6 @@ impl RootSignature {
 }
 
 impl ShaderByteCode {
-    // empty byte code
-    pub unsafe fn empty() -> ShaderByteCode {
-        ShaderByteCode {
-            bytecode: d3d12::D3D12_SHADER_BYTECODE {
-                BytecodeLength: 0,
-                pShaderBytecode: ptr::null(),
-            },
-            blob: None,
-        }
-    }
-
     // `blob` may not be null.
     // TODO: this is not super elegant, maybe want to move the get
     // operations closer to where they're used.
@@ -1063,18 +798,6 @@ impl ShaderByteCode {
 
         Ok(Blob(ComPtr::from_raw(shader_blob_ptr)))
     }
-
-    pub unsafe fn compile_from_file(
-        file_path: &Path,
-        target: &str,
-        entry: &str,
-        flags: minwindef::DWORD,
-    ) -> Result<Blob, Error> {
-        let file_open_error = format!("could not open shader source file for entry: {}", &entry);
-        let source = std::fs::read_to_string(file_path).expect(&file_open_error);
-
-        ShaderByteCode::compile(&source, target, entry, flags)
-    }
 }
 
 impl Fence {
@@ -1087,10 +810,6 @@ impl Fence {
 
     pub unsafe fn get_value(&self) -> u64 {
         self.0.GetCompletedValue()
-    }
-
-    pub unsafe fn signal(&self, value: u64) -> winerror::HRESULT {
-        self.0.Signal(value)
     }
 }
 
@@ -1119,11 +838,6 @@ impl Event {
     /// https://docs.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-waitforsingleobject
     pub unsafe fn wait(&self, timeout_ms: u32) -> u32 {
         synchapi::WaitForSingleObject(self.0, timeout_ms)
-    }
-
-    // TODO: probably remove, yagni
-    pub unsafe fn wait_ex(&self, timeout_ms: u32, alertable: bool) -> u32 {
-        synchapi::WaitForSingleObjectEx(self.0, timeout_ms, alertable as _)
     }
 }
 
@@ -1154,10 +868,6 @@ impl GraphicsCommandList {
         self.0.SetComputeRootSignature(signature.0.as_raw());
     }
 
-    pub unsafe fn set_graphics_pipeline_root_signature(&self, signature: &RootSignature) {
-        self.0.SetGraphicsRootSignature(signature.0.as_raw());
-    }
-
     pub unsafe fn resource_barrier(&self, resource_barriers: &[d3d12::D3D12_RESOURCE_BARRIER]) {
         self.0.ResourceBarrier(
             resource_barriers
@@ -1168,40 +878,12 @@ impl GraphicsCommandList {
         );
     }
 
-    pub unsafe fn set_viewport(&self, viewport: &d3d12::D3D12_VIEWPORT) {
-        self.0.RSSetViewports(1, viewport as *const _);
-    }
-
-    pub unsafe fn set_scissor_rect(&self, scissor_rect: &d3d12::D3D12_RECT) {
-        self.0.RSSetScissorRects(1, scissor_rect as *const _);
-    }
-
     pub unsafe fn dispatch(&self, count_x: u32, count_y: u32, count_z: u32) {
         self.0.Dispatch(count_x, count_y, count_z);
     }
 
-    pub unsafe fn draw_instanced(
-        &self,
-        num_vertices: u32,
-        num_instances: u32,
-        start_vertex: u32,
-        start_instance: u32,
-    ) {
-        self.0
-            .DrawInstanced(num_vertices, num_instances, start_vertex, start_instance);
-    }
-
     pub unsafe fn set_pipeline_state(&self, pipeline_state: &PipelineState) {
         self.0.SetPipelineState(pipeline_state.0.as_raw());
-    }
-
-    pub unsafe fn set_compute_root_unordered_access_view(
-        &self,
-        root_parameter_index: u32,
-        buffer_location: d3d12::D3D12_GPU_VIRTUAL_ADDRESS,
-    ) {
-        self.0
-            .SetComputeRootUnorderedAccessView(root_parameter_index, buffer_location);
     }
 
     pub unsafe fn set_compute_root_descriptor_table(
@@ -1211,66 +893,6 @@ impl GraphicsCommandList {
     ) {
         self.0
             .SetComputeRootDescriptorTable(root_parameter_index, base_descriptor);
-    }
-
-    pub unsafe fn set_graphics_root_shader_resource_view(
-        &self,
-        root_parameter_index: u32,
-        buffer_location: d3d12::D3D12_GPU_VIRTUAL_ADDRESS,
-    ) {
-        self.0
-            .SetGraphicsRootShaderResourceView(root_parameter_index, buffer_location);
-    }
-
-    pub unsafe fn set_graphics_root_descriptor_table(
-        &self,
-        root_parameter_index: u32,
-        base_descriptor: d3d12::D3D12_GPU_DESCRIPTOR_HANDLE,
-    ) {
-        self.0
-            .SetGraphicsRootDescriptorTable(root_parameter_index, base_descriptor);
-    }
-
-    pub unsafe fn set_render_target(
-        &self,
-        render_target_descriptor: d3d12::D3D12_CPU_DESCRIPTOR_HANDLE,
-    ) {
-        self.0.OMSetRenderTargets(
-            1,
-            &render_target_descriptor as *const _,
-            false as _,
-            ptr::null(),
-        );
-    }
-
-    pub unsafe fn clear_render_target_view(
-        &self,
-        render_target_descriptor: d3d12::D3D12_CPU_DESCRIPTOR_HANDLE,
-        clear_color: &[f32; 4],
-    ) {
-        self.0.ClearRenderTargetView(
-            render_target_descriptor,
-            clear_color as *const _,
-            0,
-            ptr::null(),
-        );
-    }
-
-    pub unsafe fn set_primitive_topology(
-        &self,
-        primitive_topology: d3dcommon::D3D_PRIMITIVE_TOPOLOGY,
-    ) {
-        self.0.IASetPrimitiveTopology(primitive_topology);
-    }
-
-    pub unsafe fn set_vertex_buffer(
-        &self,
-        start_slot: u32,
-        num_views: u32,
-        vertex_buffer_view: &d3d12::D3D12_VERTEX_BUFFER_VIEW,
-    ) {
-        self.0
-            .IASetVertexBuffers(start_slot, num_views, vertex_buffer_view as *const _);
     }
 
     pub unsafe fn set_descriptor_heaps(&self, descriptor_heaps: &[&DescriptorHeap]) {
@@ -1410,41 +1032,6 @@ impl GraphicsCommandList {
     }
 }
 
-pub fn default_render_target_blend_desc() -> d3d12::D3D12_RENDER_TARGET_BLEND_DESC {
-    d3d12::D3D12_RENDER_TARGET_BLEND_DESC {
-        BlendEnable: minwindef::FALSE,
-        LogicOpEnable: minwindef::FALSE,
-        SrcBlend: d3d12::D3D12_BLEND_ONE,
-        DestBlend: d3d12::D3D12_BLEND_ZERO,
-        // enum variant 0
-        BlendOp: d3d12::D3D12_BLEND_OP_ADD,
-        SrcBlendAlpha: d3d12::D3D12_BLEND_ONE,
-        DestBlendAlpha: d3d12::D3D12_BLEND_ZERO,
-        BlendOpAlpha: d3d12::D3D12_BLEND_OP_ADD,
-        // enum variant 0
-        LogicOp: d3d12::D3D12_LOGIC_OP_NOOP,
-        RenderTargetWriteMask: d3d12::D3D12_COLOR_WRITE_ENABLE_ALL as u8,
-    }
-}
-
-pub fn default_blend_desc() -> d3d12::D3D12_BLEND_DESC {
-    // see default description here: https://docs.microsoft.com/en-us/windows/win32/direct3d12/cd3dx12-blend-desc
-    d3d12::D3D12_BLEND_DESC {
-        AlphaToCoverageEnable: minwindef::FALSE,
-        IndependentBlendEnable: minwindef::FALSE,
-        RenderTarget: [
-            default_render_target_blend_desc(),
-            default_render_target_blend_desc(),
-            default_render_target_blend_desc(),
-            default_render_target_blend_desc(),
-            default_render_target_blend_desc(),
-            default_render_target_blend_desc(),
-            default_render_target_blend_desc(),
-            default_render_target_blend_desc(),
-        ],
-    }
-}
-
 pub unsafe fn create_uav_resource_barrier(
     resource: *mut d3d12::ID3D12Resource,
 ) -> d3d12::D3D12_RESOURCE_BARRIER {
@@ -1506,30 +1093,4 @@ pub unsafe fn enable_debug_layer() -> Result<(), Error> {
 
     debug_controller.SetEnableGPUBasedValidation(minwindef::TRUE);
     Ok(())
-}
-
-pub struct InputElementDesc {
-    pub semantic_name: String,
-    pub semantic_index: u32,
-    pub format: dxgiformat::DXGI_FORMAT,
-    pub input_slot: u32,
-    pub aligned_byte_offset: u32,
-    pub input_slot_class: d3d12::D3D12_INPUT_CLASSIFICATION,
-    pub instance_data_step_rate: u32,
-}
-
-impl InputElementDesc {
-    pub fn as_winapi_struct(&self) -> d3d12::D3D12_INPUT_ELEMENT_DESC {
-        d3d12::D3D12_INPUT_ELEMENT_DESC {
-            SemanticName: std::ffi::CString::new(self.semantic_name.as_str())
-                .unwrap()
-                .into_raw() as *const _,
-            SemanticIndex: self.semantic_index,
-            Format: self.format,
-            InputSlot: self.input_slot,
-            AlignedByteOffset: self.aligned_byte_offset,
-            InputSlotClass: self.input_slot_class,
-            InstanceDataStepRate: self.instance_data_step_rate,
-        }
-    }
 }

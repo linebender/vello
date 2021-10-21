@@ -1,13 +1,10 @@
-use std::{borrow::Cow, ops::RangeBounds};
+use std::borrow::Cow;
 
 use crate::MAX_BLEND_STACK;
+use piet::kurbo::{Affine, Insets, PathEl, Point, Rect, Shape};
 use piet::{
-    kurbo::{Affine, Insets, PathEl, Point, Rect, Shape, Size},
-    HitTestPosition, TextAttribute, TextStorage,
-};
-use piet::{
-    Color, Error, FixedGradient, FontFamily, HitTestPoint, ImageFormat, InterpolationMode,
-    IntoBrush, LineMetric, RenderContext, StrokeStyle, Text, TextLayout, TextLayoutBuilder,
+    Color, Error, FixedGradient, ImageFormat, InterpolationMode, IntoBrush, RenderContext,
+    StrokeStyle,
 };
 
 use piet_gpu_types::encoder::{Encode, Encoder};

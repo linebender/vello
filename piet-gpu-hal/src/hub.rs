@@ -369,8 +369,8 @@ impl Session {
     #[doc(hidden)]
     /// Create a sampler.
     ///
-    /// Noy yet implemented.
-    pub unsafe fn create_sampler(&self, params: SamplerParams) -> Result<Sampler, Error> {
+    /// Not yet implemented.
+    pub unsafe fn create_sampler(&self, _params: SamplerParams) -> Result<Sampler, Error> {
         todo!()
         //self.0.device.create_sampler(params)
     }

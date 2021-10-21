@@ -237,10 +237,10 @@ fn gen_extract(offset: usize, ty: &GpuType, preload: bool) -> (String, String) {
 
             let mut setup = String::new();
             let mut extract = glsl_type(ty);
-            &extract.push_str("(");
+            extract.push_str("(");
             for i in 0..*size {
                 if i != 0 {
-                    &extract.push_str(", ");
+                    extract.push_str(", ");
                 }
 
                 if is_f16 && i % 2 == 0 {
@@ -250,9 +250,9 @@ fn gen_extract(offset: usize, ty: &GpuType, preload: bool) -> (String, String) {
                 };
 
                 let el_offset = offset + i * scalar.size();
-                &extract.push_str(&gen_extract_scalar(el_offset, scalar));
+                extract.push_str(&gen_extract_scalar(el_offset, scalar));
             }
-            &extract.push_str(")");
+            extract.push_str(")");
             (setup, extract)
         }
         GpuType::InlineStruct(name) => (

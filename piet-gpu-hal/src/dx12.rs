@@ -150,7 +150,7 @@ impl Dx12Instance {
     ///
     /// TODO: handle window.
     /// TODO: probably can also be trait'ified.
-    pub fn device(&self, surface: Option<&Dx12Surface>) -> Result<Dx12Device, Error> {
+    pub fn device(&self, _surface: Option<&Dx12Surface>) -> Result<Dx12Device, Error> {
         unsafe {
             let device = Device::create_device(&self.factory)?;
             let list_type = d3d12::D3D12_COMMAND_LIST_TYPE_DIRECT;
@@ -442,7 +442,7 @@ impl crate::backend::Device for Dx12Device {
         DescriptorSetBuilder::default()
     }
 
-    unsafe fn create_sampler(&self, params: crate::SamplerParams) -> Result<Self::Sampler, Error> {
+    unsafe fn create_sampler(&self, _params: crate::SamplerParams) -> Result<Self::Sampler, Error> {
         todo!()
     }
 }
@@ -536,7 +536,7 @@ impl crate::backend::CmdBuf<Dx12Device> for CmdBuf {
         self.memory_barrier();
     }
 
-    unsafe fn clear_buffer(&self, buffer: &Buffer, size: Option<u64>) {
+    unsafe fn clear_buffer(&self, _buffer: &Buffer, _size: Option<u64>) {
         // Open question: do we call ClearUnorderedAccessViewUint or dispatch a
         // compute shader? Either way we will need descriptors here.
         todo!()
@@ -597,7 +597,7 @@ impl crate::backend::PipelineBuilder<Dx12Device> for PipelineBuilder {
         self.add_buffers(n_images);
     }
 
-    fn add_textures(&mut self, max_textures: u32) {
+    fn add_textures(&mut self, _max_textures: u32) {
         todo!()
     }
 
@@ -666,7 +666,7 @@ impl crate::backend::DescriptorSetBuilder<Dx12Device> for DescriptorSetBuilder {
         self.images.extend(images.iter().copied().cloned());
     }
 
-    fn add_textures(&mut self, images: &[&Image]) {
+    fn add_textures(&mut self, _images: &[&Image]) {
         todo!()
     }
 

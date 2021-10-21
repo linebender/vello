@@ -6,16 +6,10 @@ mod text;
 
 use std::convert::TryInto;
 
-use piet_gpu_types::scene;
 pub use render_ctx::PietGpuRenderContext;
 
-use rand::{Rng, RngCore};
-
-use piet::kurbo::{BezPath, Circle, Point, Rect, Shape, Vec2};
-use piet::{
-    Color, FixedGradient, FixedLinearGradient, GradientStop, ImageFormat, RenderContext, Text,
-    TextAttribute, TextLayoutBuilder,
-};
+use piet::kurbo::Vec2;
+use piet::{ImageFormat, RenderContext};
 
 use piet_gpu_types::encoder::Encode;
 
@@ -313,7 +307,10 @@ impl Renderer {
             // Upload gradient data.
             let ramp_data = render_ctx.get_ramp_data();
             if !ramp_data.is_empty() {
-                assert!(self.gradient_bufs[buf_ix].size() as usize >= std::mem::size_of_val(&*ramp_data));
+                assert!(
+                    self.gradient_bufs[buf_ix].size() as usize
+                        >= std::mem::size_of_val(&*ramp_data)
+                );
                 self.gradient_bufs[buf_ix].write(&ramp_data)?;
             }
         }
