@@ -1,6 +1,6 @@
 use std::ops::RangeBounds;
 
-use swash::scale::ScaleContext;
+use swash::scale::{ScaleContext, Scaler};
 use swash::zeno::{Vector, Verb};
 use swash::{FontRef, GlyphId};
 
@@ -57,6 +57,10 @@ pub struct PathEncoder {
     n_segs: usize,
     // If this is zero, then it's a text glyph and should be followed by a fill
     n_colr_layers: usize,
+}
+
+struct TextRenderCtx<'a> {
+    scaler: Scaler<'a>,
 }
 
 impl PietGpuText {
@@ -122,18 +126,10 @@ impl Font {
         Font { font_ref }
     }
 
-    fn make_path(&self, glyph_id: GlyphId) -> PathEncoder {
-        /*
+    fn make_path<'a>(&self, glyph_id: GlyphId, tc: &mut TextRenderCtx<'a>) -> PathEncoder {
         let mut encoder = PathEncoder::default();
-        self.face.outline_glyph(glyph_id, &mut encoder);
-        encoder
-        */
-        // Should the scale context be in the font? In the RenderCtx?
-        let mut scale_context = ScaleContext::new();
-        let mut scaler = scale_context.builder(self.font_ref).size(2048.).build();
-        let mut encoder = PathEncoder::default();
-        if scaler.has_color_outlines() {
-            if let Some(outline) = scaler.scale_color_outline(glyph_id) {
+        if tc.scaler.has_color_outlines() {
+            if let Some(outline) = tc.scaler.scale_color_outline(glyph_id) {
                 // TODO: be more sophisticated choosing a palette
                 let palette = self.font_ref.color_palettes().next().unwrap();
                 let mut i = 0;
@@ -148,7 +144,7 @@ impl Font {
                 return encoder;
             }
         }
-        if let Some(outline) = scaler.scale_outline(glyph_id) {
+        if let Some(outline) = tc.scaler.scale_outline(glyph_id) {
             encoder.append_outline(outline.verbs(), outline.points());
         }
         encoder
@@ -175,6 +171,12 @@ impl PietGpuTextLayout {
     }
 
     pub(crate) fn draw_text(&self, ctx: &mut PietGpuRenderContext, pos: Point) {
+        let mut scale_ctx = ScaleContext::new();
+        let scaler = scale_ctx.builder(self.font.font_ref).size(2048.)
+            .build();
+        let mut tc = TextRenderCtx {
+            scaler,
+        };
         // Should we use ppem from font, or let swash scale?
         const DEFAULT_UPEM: u16 = 2048;
         let scale = self.size as f32 / DEFAULT_UPEM as f32;
@@ -213,7 +215,7 @@ impl PietGpuTextLayout {
             last_x = glyph.x;
             //println!("{:?}, {:?}", transform.mat, transform.translate);
             ctx.encode_transform(transform);
-            let path = self.font.make_path(glyph.glyph_id);
+            let path = self.font.make_path(glyph.glyph_id, &mut tc);
             ctx.append_path_encoder(&path);
             if path.n_colr_layers == 0 {
                 ctx.fill_glyph(0xff_ff_ff_ff);
