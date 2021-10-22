@@ -849,6 +849,12 @@ impl Drop for Event {
     }
 }
 
+impl CommandAllocator {
+    pub unsafe fn reset(&self) -> Result<(), Error> {
+        error::error_if_failed_else_unit(self.0.Reset())
+    }
+}
+
 impl GraphicsCommandList {
     pub unsafe fn as_raw_command_list(&self) -> *mut d3d12::ID3D12CommandList {
         self.0.as_raw() as *mut d3d12::ID3D12CommandList
@@ -858,10 +864,9 @@ impl GraphicsCommandList {
         explain_error(self.0.Close(), "error closing command list")
     }
 
-    pub unsafe fn reset(&self, allocator: &CommandAllocator, initial_pso: Option<&PipelineState>) {
+    pub unsafe fn reset(&self, allocator: &CommandAllocator, initial_pso: Option<&PipelineState>) -> Result<(), Error> {
         let p_initial_state = initial_pso.map(|p| p.0.as_raw()).unwrap_or(ptr::null_mut());
         error::error_if_failed_else_unit(self.0.Reset(allocator.0.as_raw(), p_initial_state))
-            .expect("could not reset command list");
     }
 
     pub unsafe fn set_compute_pipeline_root_signature(&self, signature: &RootSignature) {

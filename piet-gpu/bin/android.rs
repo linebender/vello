@@ -12,7 +12,7 @@ use ndk::native_window::NativeWindow;
 use ndk_glue::Event;
 
 use piet_gpu_hal::{
-    Error, ImageLayout, Instance, QueryPool, Semaphore, Session, SubmittedCmdBuf, Surface,
+    CmdBuf, Error, ImageLayout, Instance, QueryPool, Semaphore, Session, SubmittedCmdBuf, Surface,
     Swapchain,
 };
 
@@ -37,6 +37,7 @@ struct GfxState {
     swapchain: Swapchain,
     current_frame: usize,
     submitted: [Option<SubmittedCmdBuf>; NUM_FRAMES],
+    cmd_bufs: [Option<CmdBuf>; NUM_FRAMES],
     query_pools: Vec<QueryPool>,
     present_semaphores: Vec<Semaphore>,
 }
@@ -112,6 +113,7 @@ impl GfxState {
                 .map(|_| session.create_query_pool(8))
                 .collect::<Result<Vec<_>, Error>>()?;
             let submitted = Default::default();
+            let cmd_bufs = Default::default();
 
             let renderer = Renderer::new(&session, width, height, NUM_FRAMES)?;
 
@@ -121,6 +123,7 @@ impl GfxState {
                 swapchain,
                 current_frame,
                 submitted,
+                cmd_bufs,
                 query_pools,
                 present_semaphores,
             })
@@ -134,7 +137,7 @@ impl GfxState {
             let mut info_string = String::new();
 
             if let Some(submitted) = self.submitted[frame_idx].take() {
-                submitted.wait().unwrap();
+                self.cmd_bufs[frame_idx] = submitted.wait().unwrap();
                 let ts = self
                     .session
                     .fetch_query_pool(&self.query_pools[frame_idx])
@@ -152,7 +155,9 @@ impl GfxState {
             let (image_idx, acquisition_semaphore) = self.swapchain.next().unwrap();
             let swap_image = self.swapchain.image(image_idx);
             let query_pool = &self.query_pools[frame_idx];
-            let mut cmd_buf = self.session.cmd_buf().unwrap();
+            let mut cmd_buf = self.cmd_bufs[frame_idx]
+                .take()
+                .unwrap_or_else(|| self.session.cmd_buf().unwrap());
             cmd_buf.begin();
             self.renderer.record(&mut cmd_buf, &query_pool, frame_idx);
 
