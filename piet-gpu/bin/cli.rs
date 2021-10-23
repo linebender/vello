@@ -248,13 +248,13 @@ fn main() -> Result<(), Error> {
             test_scenes::render_scene(&mut ctx);
         }
 
-        let mut renderer = Renderer::new(&session, WIDTH, HEIGHT)?;
-        renderer.upload_render_ctx(&mut ctx)?;
+        let mut renderer = Renderer::new(&session, WIDTH, HEIGHT, 1)?;
+        renderer.upload_render_ctx(&mut ctx, 0)?;
         let image_usage = BufferUsage::MAP_READ | BufferUsage::COPY_DST;
         let image_buf = session.create_buffer((WIDTH * HEIGHT * 4) as u64, image_usage)?;
 
         cmd_buf.begin();
-        renderer.record(&mut cmd_buf, &query_pool);
+        renderer.record(&mut cmd_buf, &query_pool, 0);
         cmd_buf.copy_image_to_buffer(&renderer.image_dev, &image_buf);
         cmd_buf.host_barrier();
         cmd_buf.finish();

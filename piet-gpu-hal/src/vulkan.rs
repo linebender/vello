@@ -413,12 +413,17 @@ impl VkInstance {
             .surface_fn
             .get_physical_device_surface_present_modes(device.physical_device, surface.surface)?;
 
+        // Can change to MAILBOX to force high frame rates.
+        const PREFERRED_MODE: vk::PresentModeKHR = vk::PresentModeKHR::FIFO;
         let present_mode = present_modes
             .into_iter()
-            .find(|mode| mode == &vk::PresentModeKHR::MAILBOX)
+            .find(|mode| *mode == PREFERRED_MODE)
             .unwrap_or(vk::PresentModeKHR::FIFO);
 
-        let image_count = capabilities.min_image_count;
+        // Note: can be 2 for non-Android to improve latency, but the real answer is to
+        // implement some kind of frame pacing.
+        const PREFERRED_IMAGE_COUNT: u32 = 3;
+        let image_count = PREFERRED_IMAGE_COUNT.clamp(capabilities.min_image_count, capabilities.max_image_count);
         let mut extent = capabilities.current_extent;
         if extent.width == u32::MAX || extent.height == u32::MAX {
             // We're deciding the size.
