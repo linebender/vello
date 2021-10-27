@@ -423,7 +423,11 @@ impl VkInstance {
         // Note: can be 2 for non-Android to improve latency, but the real answer is to
         // implement some kind of frame pacing.
         const PREFERRED_IMAGE_COUNT: u32 = 3;
-        let image_count = PREFERRED_IMAGE_COUNT.clamp(capabilities.min_image_count, capabilities.max_image_count);
+        let max_image_count = match capabilities.max_image_count {
+            0 => u32::MAX,
+            x => x,
+        };
+        let image_count = PREFERRED_IMAGE_COUNT.clamp(capabilities.min_image_count, max_image_count);
         let mut extent = capabilities.current_extent;
         if extent.width == u32::MAX || extent.height == u32::MAX {
             // We're deciding the size.
