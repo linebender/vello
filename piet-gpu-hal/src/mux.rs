@@ -622,6 +622,14 @@ impl CmdBuf {
         }
     }
 
+    pub unsafe fn reset(&mut self) -> bool {
+        mux_match! { self;
+            CmdBuf::Vk(c) => c.reset(),
+            CmdBuf::Dx12(c) => c.reset(),
+            CmdBuf::Mtl(c) => c.reset(),
+        }
+    }
+
     /// Dispatch a compute shader.
     ///
     /// Note that both the number of workgroups (`workgroup_count`) and the number of

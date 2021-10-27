@@ -407,6 +407,10 @@ impl crate::backend::CmdBuf<MtlDevice> for CmdBuf {
 
     unsafe fn finish(&mut self) {}
 
+    unsafe fn reset(&mut self) -> bool {
+        false
+    }
+
     unsafe fn dispatch(
         &mut self,
         pipeline: &Pipeline,

@@ -3,7 +3,6 @@
 mod error;
 mod wrappers;
 
-use std::sync::{Arc, Mutex, Weak};
 use std::{cell::Cell, convert::TryInto, mem, ptr};
 
 use winapi::shared::minwindef::TRUE;
@@ -33,7 +32,6 @@ pub struct Dx12Swapchain {
 
 pub struct Dx12Device {
     device: Device,
-    free_allocators: Arc<Mutex<Vec<CommandAllocator>>>,
     command_queue: CommandQueue,
     ts_freq: u64,
     gpu_info: GpuInfo,
@@ -54,10 +52,8 @@ pub struct Image {
 
 pub struct CmdBuf {
     c: wrappers::GraphicsCommandList,
-    allocator: Option<CommandAllocator>,
-    // One for resetting, one to put back into the allocator pool
-    allocator_clone: CommandAllocator,
-    free_allocators: Weak<Mutex<Vec<CommandAllocator>>>,
+    allocator: CommandAllocator,
+    needs_reset: bool,
 }
 
 pub struct Pipeline {
@@ -150,7 +146,7 @@ impl Dx12Instance {
     ///
     /// TODO: handle window.
     /// TODO: probably can also be trait'ified.
-    pub fn device(&self, surface: Option<&Dx12Surface>) -> Result<Dx12Device, Error> {
+    pub fn device(&self, _surface: Option<&Dx12Surface>) -> Result<Dx12Device, Error> {
         unsafe {
             let device = Device::create_device(&self.factory)?;
             let list_type = d3d12::D3D12_COMMAND_LIST_TYPE_DIRECT;
@@ -184,11 +180,9 @@ impl Dx12Instance {
                 has_memory_model: false,
                 use_staging_buffers,
             };
-            let free_allocators = Default::default();
             Ok(Dx12Device {
                 device,
                 command_queue,
-                free_allocators,
                 ts_freq,
                 memory_arch,
                 gpu_info,
@@ -295,23 +289,18 @@ impl crate::backend::Device for Dx12Device {
 
     fn create_cmd_buf(&self) -> Result<Self::CmdBuf, Error> {
         let list_type = d3d12::D3D12_COMMAND_LIST_TYPE_DIRECT;
-        let allocator = self.free_allocators.lock().unwrap().pop();
-        let allocator = if let Some(allocator) = allocator {
-            allocator
-        } else {
+        let allocator = 
             unsafe { self.device.create_command_allocator(list_type)? }
-        };
+        ;
         let node_mask = 0;
         unsafe {
             let c = self
                 .device
                 .create_graphics_command_list(list_type, &allocator, None, node_mask)?;
-            let free_allocators = Arc::downgrade(&self.free_allocators);
             Ok(CmdBuf {
                 c,
-                allocator: Some(allocator.clone()),
-                allocator_clone: allocator,
-                free_allocators,
+                allocator,
+                needs_reset: false,
             })
         }
     }
@@ -364,9 +353,6 @@ impl crate::backend::Device for Dx12Device {
             .map(|c| c.c.as_raw_command_list())
             .collect::<SmallVec<[_; 4]>>();
         self.command_queue.execute_command_lists(&lists);
-        for c in cmd_bufs {
-            c.c.reset(&c.allocator_clone, None);
-        }
         if let Some(fence) = fence {
             let val = fence.val.get() + 1;
             fence.val.set(val);
@@ -442,7 +428,7 @@ impl crate::backend::Device for Dx12Device {
         DescriptorSetBuilder::default()
     }
 
-    unsafe fn create_sampler(&self, params: crate::SamplerParams) -> Result<Self::Sampler, Error> {
+    unsafe fn create_sampler(&self, _params: crate::SamplerParams) -> Result<Self::Sampler, Error> {
         todo!()
     }
 }
@@ -464,19 +450,18 @@ impl Dx12Device {
 }
 
 impl crate::backend::CmdBuf<Dx12Device> for CmdBuf {
-    unsafe fn begin(&mut self) {}
+    unsafe fn begin(&mut self) {
+        if self.needs_reset {
+        }
+    }
 
     unsafe fn finish(&mut self) {
         let _ = self.c.close();
-        // This is a bit of a mess. Returning the allocator to the free pool
-        // makes sense if the command list will be dropped, but not if it will
-        // be reused. Probably need to implement some logic on drop.
-        if let Some(free_allocators) = self.free_allocators.upgrade() {
-            free_allocators
-                .lock()
-                .unwrap()
-                .push(self.allocator.take().unwrap());
-        }
+        self.needs_reset = true;
+    }
+
+    unsafe fn reset(&mut self) -> bool {
+        self.allocator.reset().is_ok() && self.c.reset(&self.allocator, None).is_ok()
     }
 
     unsafe fn dispatch(
@@ -536,7 +521,7 @@ impl crate::backend::CmdBuf<Dx12Device> for CmdBuf {
         self.memory_barrier();
     }
 
-    unsafe fn clear_buffer(&self, buffer: &Buffer, size: Option<u64>) {
+    unsafe fn clear_buffer(&self, _buffer: &Buffer, _size: Option<u64>) {
         // Open question: do we call ClearUnorderedAccessViewUint or dispatch a
         // compute shader? Either way we will need descriptors here.
         todo!()
@@ -597,7 +582,7 @@ impl crate::backend::PipelineBuilder<Dx12Device> for PipelineBuilder {
         self.add_buffers(n_images);
     }
 
-    fn add_textures(&mut self, max_textures: u32) {
+    fn add_textures(&mut self, _max_textures: u32) {
         todo!()
     }
 
@@ -666,7 +651,7 @@ impl crate::backend::DescriptorSetBuilder<Dx12Device> for DescriptorSetBuilder {
         self.images.extend(images.iter().copied().cloned());
     }
 
-    fn add_textures(&mut self, images: &[&Image]) {
+    fn add_textures(&mut self, _images: &[&Image]) {
         todo!()
     }
 

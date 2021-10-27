@@ -80,7 +80,6 @@ pub struct Pipeline {
     pipeline: vk::Pipeline,
     descriptor_set_layout: vk::DescriptorSetLayout,
     pipeline_layout: vk::PipelineLayout,
-    max_textures: u32,
 }
 
 pub struct DescriptorSet {
@@ -111,7 +110,7 @@ pub struct DescriptorSetBuilder {
     buffers: Vec<vk::Buffer>,
     images: Vec<vk::ImageView>,
     textures: Vec<vk::ImageView>,
-    sampler: vk::Sampler,
+    // TODO: we had a sampler here, might need it again
 }
 
 struct Extensions {
@@ -667,7 +666,6 @@ impl crate::backend::Device for VkDevice {
             buffers: Vec::new(),
             images: Vec::new(),
             textures: Vec::new(),
-            sampler: vk::Sampler::null(),
         }
     }
 
@@ -866,6 +864,10 @@ impl crate::backend::CmdBuf<VkDevice> for CmdBuf {
 
     unsafe fn finish(&mut self) {
         self.device.device.end_command_buffer(self.cmd_buf).unwrap();
+    }
+
+    unsafe fn reset(&mut self) -> bool {
+        true
     }
 
     unsafe fn dispatch(
@@ -1181,7 +1183,6 @@ impl crate::backend::PipelineBuilder<VkDevice> for PipelineBuilder {
             pipeline,
             pipeline_layout,
             descriptor_set_layout,
-            max_textures: self.max_textures,
         })
     }
 }

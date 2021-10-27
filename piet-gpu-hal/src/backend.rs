@@ -173,6 +173,9 @@ pub trait CmdBuf<D: Device> {
 
     unsafe fn finish(&mut self);
 
+    /// Return true if the command buffer is suitable for reuse.
+    unsafe fn reset(&mut self) -> bool;
+
     unsafe fn dispatch(
         &mut self,
         pipeline: &D::Pipeline,

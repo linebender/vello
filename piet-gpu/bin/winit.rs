@@ -1,6 +1,6 @@
 use piet::kurbo::Point;
 use piet::{RenderContext, Text, TextAttribute, TextLayoutBuilder};
-use piet_gpu_hal::{Error, ImageLayout, Instance, Session, SubmittedCmdBuf};
+use piet_gpu_hal::{CmdBuf, Error, ImageLayout, Instance, Session, SubmittedCmdBuf};
 
 use piet_gpu::{test_scenes, PietGpuRenderContext, Renderer};
 
@@ -53,6 +53,7 @@ fn main() -> Result<(), Error> {
         let query_pools = (0..NUM_FRAMES)
             .map(|_| session.create_query_pool(8))
             .collect::<Result<Vec<_>, Error>>()?;
+        let mut cmd_bufs: [Option<CmdBuf>; NUM_FRAMES] = Default::default();
         let mut submitted: [Option<SubmittedCmdBuf>; NUM_FRAMES] = Default::default();
 
         let mut renderer = Renderer::new(&session, WIDTH, HEIGHT, NUM_FRAMES)?;
@@ -76,7 +77,7 @@ fn main() -> Result<(), Error> {
                     let frame_idx = current_frame % NUM_FRAMES;
 
                     if let Some(submitted) = submitted[frame_idx].take() {
-                        submitted.wait().unwrap();
+                        cmd_bufs[frame_idx] = submitted.wait().unwrap();
                         let ts = session.fetch_query_pool(&query_pools[frame_idx]).unwrap();
                         info_string = format!(
                             "{:.3}ms :: e:{:.3}ms|alloc:{:.3}ms|cp:{:.3}ms|bd:{:.3}ms|bin:{:.3}ms|cr:{:.3}ms|r:{:.3}ms",
@@ -112,7 +113,7 @@ fn main() -> Result<(), Error> {
                     let (image_idx, acquisition_semaphore) = swapchain.next().unwrap();
                     let swap_image = swapchain.image(image_idx);
                     let query_pool = &query_pools[frame_idx];
-                    let mut cmd_buf = session.cmd_buf().unwrap();
+                    let mut cmd_buf = cmd_bufs[frame_idx].take().unwrap_or_else(|| session.cmd_buf().unwrap());
                     cmd_buf.begin();
                     renderer.record(&mut cmd_buf, &query_pool, frame_idx);
 

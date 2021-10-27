@@ -39,3 +39,6 @@ ndk = "0.3"
 ndk-sys = "0.2.0"
 ndk-glue = "0.3"
 raw-window-handle = "0.3"
+
+[package.metadata.android.application]
+debuggable = true

@@ -48,8 +48,12 @@ struct SessionInner {
 /// Actual work done by the GPU is encoded into a command buffer and then
 /// submitted to the session in a batch.
 pub struct CmdBuf {
-    cmd_buf: mux::CmdBuf,
-    fence: Fence,
+    // The invariant is that these options are always populated except
+    // when the struct is being destroyed. It would be possible to get
+    // rid of them by using this unsafe trick:
+    // https://phaazon.net/blog/blog/rust-no-drop
+    cmd_buf: Option<mux::CmdBuf>,
+    fence: Option<Fence>,
     resources: Vec<RetainResource>,
     session: Weak<SessionInner>,
 }
@@ -158,8 +162,8 @@ impl Session {
             (cmd_buf, fence)
         };
         Ok(CmdBuf {
-            cmd_buf,
-            fence,
+            cmd_buf: Some(cmd_buf),
+            fence: Some(fence),
             resources: Vec::new(),
             session: Arc::downgrade(&self.0),
         })
@@ -202,23 +206,23 @@ impl Session {
             // some cases.
             staging.memory_barrier();
             staging.finish();
-            cmd_bufs.push(&staging.cmd_buf);
+            cmd_bufs.push(staging.cmd_buf.as_ref().unwrap());
         }
-        cmd_bufs.push(&cmd_buf.cmd_buf);
+        cmd_bufs.push(cmd_buf.cmd_buf.as_ref().unwrap());
         self.0.device.run_cmd_bufs(
             &cmd_bufs,
             wait_semaphores,
             signal_semaphores,
-            Some(&mut cmd_buf.fence),
+            Some(cmd_buf.fence.as_mut().unwrap()),
         )?;
         Ok(SubmittedCmdBuf(
             Some(SubmittedCmdBufInner {
-                cmd_buf: cmd_buf.cmd_buf,
-                fence: cmd_buf.fence,
-                resources: cmd_buf.resources,
+                cmd_buf: cmd_buf.cmd_buf.take().unwrap(),
+                fence: cmd_buf.fence.take().unwrap(),
+                resources: std::mem::take(&mut cmd_buf.resources),
                 staging_cmd_buf,
             }),
-            cmd_buf.session,
+            std::mem::replace(&mut cmd_buf.session, Weak::new()),
         ))
     }
 
@@ -369,8 +373,8 @@ impl Session {
     #[doc(hidden)]
     /// Create a sampler.
     ///
-    /// Noy yet implemented.
-    pub unsafe fn create_sampler(&self, params: SamplerParams) -> Result<Sampler, Error> {
+    /// Not yet implemented.
+    pub unsafe fn create_sampler(&self, _params: SamplerParams) -> Result<Sampler, Error> {
         todo!()
         //self.0.device.create_sampler(params)
     }
@@ -397,22 +401,24 @@ impl SessionInner {
         let _should_handle_err = self.device.destroy_fence(item.fence);
 
         std::mem::drop(item.resources);
-        if let Some(staging_cmd_buf) = item.staging_cmd_buf {
-            let _should_handle_err = self.device.destroy_cmd_buf(staging_cmd_buf.cmd_buf);
-            let _should_handle_err = self.device.destroy_fence(staging_cmd_buf.fence);
-            std::mem::drop(staging_cmd_buf.resources);
+        if let Some(mut staging_cmd_buf) = item.staging_cmd_buf {
+            staging_cmd_buf.destroy(self);
         }
     }
 }
 
 impl CmdBuf {
+    fn cmd_buf(&mut self) -> &mut mux::CmdBuf {
+        self.cmd_buf.as_mut().unwrap()
+    }
+
     /// Begin recording into a command buffer.
     ///
     /// Always call this before encoding any actual work.
     ///
     /// Discussion question: can this be subsumed?
     pub unsafe fn begin(&mut self) {
-        self.cmd_buf.begin();
+        self.cmd_buf().begin();
     }
 
     /// Finish recording into a command buffer.
@@ -420,7 +426,7 @@ impl CmdBuf {
     /// Always call this as the last method before submitting the command
     /// buffer.
     pub unsafe fn finish(&mut self) {
-        self.cmd_buf.finish();
+        self.cmd_buf().finish();
     }
 
     /// Dispatch a compute shader.
@@ -438,7 +444,7 @@ impl CmdBuf {
         workgroup_count: (u32, u32, u32),
         workgroup_size: (u32, u32, u32),
     ) {
-        self.cmd_buf
+        self.cmd_buf()
             .dispatch(pipeline, descriptor_set, workgroup_count, workgroup_size);
     }
 
@@ -447,7 +453,7 @@ impl CmdBuf {
     /// Compute kernels (and other actions) after this barrier may read from buffers
     /// that were written before this barrier.
     pub unsafe fn memory_barrier(&mut self) {
-        self.cmd_buf.memory_barrier();
+        self.cmd_buf().memory_barrier();
     }
 
     /// Insert a barrier for host access to buffers.
@@ -458,7 +464,7 @@ impl CmdBuf {
     /// See http://themaister.net/blog/2019/08/14/yet-another-blog-explaining-vulkan-synchronization/
     /// ("Host memory reads") for an explanation of this barrier.
     pub unsafe fn host_barrier(&mut self) {
-        self.cmd_buf.memory_barrier();
+        self.cmd_buf().memory_barrier();
     }
 
     /// Insert an image barrier, transitioning image layout.
@@ -475,7 +481,7 @@ impl CmdBuf {
         src_layout: ImageLayout,
         dst_layout: ImageLayout,
     ) {
-        self.cmd_buf
+        self.cmd_buf()
             .image_barrier(image.mux_image(), src_layout, dst_layout);
     }
 
@@ -483,21 +489,22 @@ impl CmdBuf {
     ///
     /// When the size is not specified, it clears the whole buffer.
     pub unsafe fn clear_buffer(&mut self, buffer: &Buffer, size: Option<u64>) {
-        self.cmd_buf.clear_buffer(buffer.mux_buffer(), size);
+        self.cmd_buf().clear_buffer(buffer.mux_buffer(), size);
     }
 
     /// Copy one buffer to another.
     ///
     /// When the buffers differ in size, the minimum of the sizes is used.
     pub unsafe fn copy_buffer(&mut self, src: &Buffer, dst: &Buffer) {
-        self.cmd_buf.copy_buffer(src.mux_buffer(), dst.mux_buffer());
+        self.cmd_buf()
+            .copy_buffer(src.mux_buffer(), dst.mux_buffer());
     }
 
     /// Copy an image to a buffer.
     ///
     /// The size of the image and buffer must match.
     pub unsafe fn copy_image_to_buffer(&mut self, src: &Image, dst: &Buffer) {
-        self.cmd_buf
+        self.cmd_buf()
             .copy_image_to_buffer(src.mux_image(), dst.mux_buffer());
         // TODO: change the backend signature to allow failure, as in "not
         // implemented" or "unaligned", and fall back to compute shader
@@ -508,7 +515,7 @@ impl CmdBuf {
     ///
     /// The size of the image and buffer must match.
     pub unsafe fn copy_buffer_to_image(&mut self, src: &Buffer, dst: &Image) {
-        self.cmd_buf
+        self.cmd_buf()
             .copy_buffer_to_image(src.mux_buffer(), dst.mux_image());
         // See above.
     }
@@ -521,7 +528,7 @@ impl CmdBuf {
     /// Discussion question: we might have a specialized version of this
     /// function for copying to the swapchain image, and a separate type.
     pub unsafe fn blit_image(&mut self, src: &Image, dst: &Image) {
-        self.cmd_buf.blit_image(src.mux_image(), dst.mux_image());
+        self.cmd_buf().blit_image(src.mux_image(), dst.mux_image());
     }
 
     /// Reset the query pool.
@@ -530,14 +537,14 @@ impl CmdBuf {
     /// This is annoying, and we could tweak the API to make it implicit, doing
     /// the reset before the first timestamp write.
     pub unsafe fn reset_query_pool(&mut self, pool: &QueryPool) {
-        self.cmd_buf.reset_query_pool(pool);
+        self.cmd_buf().reset_query_pool(pool);
     }
 
     /// Write a timestamp.
     ///
     /// The query index must be less than the size of the query pool on creation.
     pub unsafe fn write_timestamp(&mut self, pool: &QueryPool, query: u32) {
-        self.cmd_buf.write_timestamp(pool, query);
+        self.cmd_buf().write_timestamp(pool, query);
     }
 
     /// Prepare the timestamps for reading. This isn't required on Vulkan but
@@ -546,7 +553,7 @@ impl CmdBuf {
     /// It's possible we'll make this go away, by implicitly including it
     /// on command buffer submission when a query pool has been written.
     pub unsafe fn finish_timestamps(&mut self, pool: &QueryPool) {
-        self.cmd_buf.finish_timestamps(pool);
+        self.cmd_buf().finish_timestamps(pool);
     }
 
     /// Make sure the resource lives until the command buffer completes.
@@ -574,16 +581,52 @@ impl SubmittedCmdBuf {
     ///
     /// Resources for which destruction was deferred through
     /// [`add_resource`][`CmdBuf::add_resource`] will actually be dropped here.
-    pub fn wait(mut self) -> Result<(), Error> {
+    ///
+    /// If the command buffer is still available for reuse, it is returned.
+    pub fn wait(mut self) -> Result<Option<CmdBuf>, Error> {
         let mut item = self.0.take().unwrap();
         if let Some(session) = Weak::upgrade(&self.1) {
             unsafe {
                 session.device.wait_and_reset(vec![&mut item.fence])?;
-                session.cleanup_submitted_cmd_buf(item);
+                if let Some(mut staging_cmd_buf) = item.staging_cmd_buf {
+                    staging_cmd_buf.destroy(&session);
+                }
+                if item.cmd_buf.reset() {
+                    return Ok(Some(CmdBuf {
+                        cmd_buf: Some(item.cmd_buf),
+                        fence: Some(item.fence),
+                        resources: Vec::new(),
+                        session: std::mem::take(&mut self.1),
+                    }));
+                } else {
+                    return Ok(None);
+                }
             }
         }
         // else session dropped error?
-        Ok(())
+        Ok(None)
+    }
+}
+
+impl Drop for CmdBuf {
+    fn drop(&mut self) {
+        if let Some(session) = Weak::upgrade(&self.session) {
+            unsafe {
+                self.destroy(&session);
+            }
+        }
+    }
+}
+
+impl CmdBuf {
+    unsafe fn destroy(&mut self, session: &SessionInner) {
+        if let Some(cmd_buf) = self.cmd_buf.take() {
+            let _ = session.device.destroy_cmd_buf(cmd_buf);
+        }
+        if let Some(fence) = self.fence.take() {
+            let _ = session.device.destroy_fence(fence);
+        }
+        self.resources.clear();
     }
 }
 
