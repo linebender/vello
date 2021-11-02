@@ -220,14 +220,16 @@ void main() {
 
     // Publish aggregate for this partition
     if (gl_LocalInvocationID.x == WG_SIZE - 1) {
-        // Note: with memory model, we'd want to generate the atomic store version of this.
         State_write(state_aggregate_ref(part_ix), agg);
+        if (part_ix == 0) {
+            State_write(state_prefix_ref(part_ix), agg);
+        }
     }
+    // Write flag with release semantics; this is done portably with a barrier.
     memoryBarrierBuffer();
     if (gl_LocalInvocationID.x == WG_SIZE - 1) {
         uint flag = FLAG_AGGREGATE_READY;
         if (part_ix == 0) {
-            State_write(state_prefix_ref(part_ix), agg);
             flag = FLAG_PREFIX_READY;
         }
         state[state_flag_index(part_ix)] = flag;
@@ -239,6 +241,7 @@ void main() {
         State their_agg;
         uint their_ix = 0;
         while (true) {
+            // Read flag with acquire semantics.
             if (gl_LocalInvocationID.x == WG_SIZE - 1) {
                 sh_flag = state[state_flag_index(look_back_ix)];
             }
