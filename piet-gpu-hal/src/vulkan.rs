@@ -7,7 +7,6 @@ use std::os::raw::c_char;
 use std::sync::Arc;
 
 use ash::extensions::{ext::DebugUtils, khr};
-use ash::version::{DeviceV1_0, EntryV1_0, InstanceV1_0, InstanceV1_1};
 use ash::{vk, Device, Entry, Instance};
 
 use smallvec::SmallVec;
@@ -21,7 +20,6 @@ pub struct VkInstance {
     #[allow(unused)]
     entry: Entry,
     instance: Instance,
-    get_phys_dev_props: Option<vk::KhrGetPhysicalDeviceProperties2Fn>,
     vk_version: u32,
     _dbg_loader: Option<DebugUtils>,
     _dbg_callbk: Option<vk::DebugUtilsMessengerEXT>,
@@ -178,8 +176,6 @@ impl VkInstance {
             if cfg!(debug_assertions) {
                 has_debug_ext = exts.try_add(DebugUtils::name());
             }
-            // We'll need this to do runtime query of descriptor indexing.
-            let has_phys_dev_props = exts.try_add(vk::KhrGetPhysicalDeviceProperties2Fn::name());
             if let Some(ref handle) = window_handle {
                 for ext in ash_window::enumerate_required_extensions(*handle)? {
                     exts.try_add(ext);
@@ -188,12 +184,12 @@ impl VkInstance {
 
             let supported_version = entry
                 .try_enumerate_instance_version()?
-                .unwrap_or(vk::make_version(1, 0, 0));
-            let vk_version = if supported_version >= vk::make_version(1, 1, 0) {
+                .unwrap_or(vk::make_api_version(0, 1, 0, 0));
+            let vk_version = if supported_version >= vk::make_api_version(0, 1, 1, 0) {
                 // We need Vulkan 1.1 to do subgroups; most other things can be extensions.
-                vk::make_version(1, 1, 0)
+                vk::make_api_version(0, 1, 1, 0)
             } else {
-                vk::make_version(1, 0, 0)
+                vk::make_api_version(0, 1, 0, 0)
             };
 
             let instance = entry.create_instance(
@@ -235,20 +231,9 @@ impl VkInstance {
                 None => None,
             };
 
-            let get_phys_dev_props = if has_phys_dev_props {
-                Some(vk::KhrGetPhysicalDeviceProperties2Fn::load(|name| {
-                    std::mem::transmute(
-                        entry.get_instance_proc_addr(instance.handle(), name.as_ptr()),
-                    )
-                }))
-            } else {
-                None
-            };
-
             let vk_instance = VkInstance {
                 entry,
                 instance,
-                get_phys_dev_props,
                 vk_version,
                 _dbg_loader,
                 _dbg_callbk,
@@ -271,14 +256,13 @@ impl VkInstance {
             choose_compute_device(&self.instance, &devices, surface).ok_or("no suitable device")?;
 
         let mut has_descriptor_indexing = false;
-        if let Some(ref get_phys_dev_props) = self.get_phys_dev_props {
+        let vk1_1 = self.vk_version >= vk::make_api_version(0, 1, 1, 0);
+        if vk1_1 {
             let mut descriptor_indexing_features =
                 vk::PhysicalDeviceDescriptorIndexingFeatures::builder();
-            // See https://github.com/MaikKlein/ash/issues/325 for why we do this workaround.
-            let mut features_v2 = vk::PhysicalDeviceFeatures2::default();
-            features_v2.p_next =
-                &mut descriptor_indexing_features as *mut _ as *mut std::ffi::c_void;
-            get_phys_dev_props.get_physical_device_features2_khr(pdevice, &mut features_v2);
+            let mut features_v2 = vk::PhysicalDeviceFeatures2::builder()
+                .push_next(&mut descriptor_indexing_features);
+            self.instance.get_physical_device_features2(pdevice, &mut features_v2);
             has_descriptor_indexing = descriptor_indexing_features
                 .shader_storage_image_array_non_uniform_indexing
                 == vk::TRUE
@@ -309,9 +293,9 @@ impl VkInstance {
             extensions.try_add(vk::KhrMaintenance3Fn::name());
             extensions.try_add(vk::ExtDescriptorIndexingFn::name());
         }
-        let has_subgroup_size = self.vk_version >= vk::make_version(1, 1, 0)
+        let has_subgroup_size = vk1_1
             && extensions.try_add(vk::ExtSubgroupSizeControlFn::name());
-        let has_memory_model = self.vk_version >= vk::make_version(1, 1, 0)
+        let has_memory_model = vk1_1
             && extensions.try_add(vk::KhrVulkanMemoryModelFn::name());
         let mut create_info = vk::DeviceCreateInfo::builder()
             .queue_create_infos(&queue_create_infos)
@@ -353,7 +337,7 @@ impl VkInstance {
         let use_staging_buffers = props.device_type != vk::PhysicalDeviceType::INTEGRATED_GPU;
 
         // TODO: finer grained query of specific subgroup info.
-        let has_subgroups = self.vk_version >= vk::make_version(1, 1, 0);
+        let has_subgroups = vk1_1;
 
         let workgroup_limits = WorkgroupLimits {
             max_invocations: props.limits.max_compute_work_group_invocations,

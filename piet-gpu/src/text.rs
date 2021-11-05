@@ -172,11 +172,8 @@ impl PietGpuTextLayout {
 
     pub(crate) fn draw_text(&self, ctx: &mut PietGpuRenderContext, pos: Point) {
         let mut scale_ctx = ScaleContext::new();
-        let scaler = scale_ctx.builder(self.font.font_ref).size(2048.)
-            .build();
-        let mut tc = TextRenderCtx {
-            scaler,
-        };
+        let scaler = scale_ctx.builder(self.font.font_ref).size(2048.).build();
+        let mut tc = TextRenderCtx { scaler };
         // Should we use ppem from font, or let swash scale?
         const DEFAULT_UPEM: u16 = 2048;
         let scale = self.size as f32 / DEFAULT_UPEM as f32;
