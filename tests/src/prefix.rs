@@ -59,7 +59,7 @@ pub unsafe fn run_prefix_test(runner: &mut Runner) {
     let stage = PrefixStage::new(runner, n_elements);
     let binding = stage.bind(runner, &code, &data_buf, &out_buf.dev_buf);
     // Also will be configurable of course.
-    let n_iter = 5000;
+    let n_iter = 1000;
     let mut total_elapsed = 0.0;
     for i in 0..n_iter {
         let mut commands = runner.commands();
@@ -110,7 +110,13 @@ impl PrefixStage {
         }
     }
 
-    unsafe fn bind(&self, runner: &mut Runner, code: &PrefixCode, in_buf: &Buffer, out_buf: &Buffer) -> PrefixBinding {
+    unsafe fn bind(
+        &self,
+        runner: &mut Runner,
+        code: &PrefixCode,
+        in_buf: &Buffer,
+        out_buf: &Buffer,
+    ) -> PrefixBinding {
         let descriptor_set = runner
             .session
             .create_simple_descriptor_set(&code.pipeline, &[in_buf, out_buf, &self.state_buf])

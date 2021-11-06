@@ -17,6 +17,7 @@
 //! Tests for piet-gpu shaders and GPU capabilities.
 
 mod prefix;
+mod prefix_tree;
 mod runner;
 
 use runner::Runner;
@@ -25,5 +26,6 @@ fn main() {
     unsafe {
         let mut runner = Runner::new();
         prefix::run_prefix_test(&mut runner);
+        prefix_tree::run_prefix_test(&mut runner);
     }
 }
