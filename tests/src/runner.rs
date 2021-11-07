@@ -76,6 +76,7 @@ impl Runner {
     pub unsafe fn submit(&mut self, commands: Commands) -> f64 {
         let mut cmd_buf = commands.cmd_buf;
         let query_pool = commands.query_pool;
+        cmd_buf.finish_timestamps(&query_pool);
         cmd_buf.host_barrier();
         cmd_buf.finish();
         let submitted = self.session.run_cmd_buf(cmd_buf, &[], &[]).unwrap();
