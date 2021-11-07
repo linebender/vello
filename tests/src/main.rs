@@ -18,6 +18,7 @@
 
 mod clear;
 mod config;
+mod linkedlist;
 mod message_passing;
 mod prefix;
 mod prefix_tree;
@@ -28,8 +29,9 @@ use clap::{App, Arg};
 use piet_gpu_hal::InstanceFlags;
 
 use crate::config::Config;
-use crate::runner::Runner;
-use crate::test_result::{ReportStyle, TestResult};
+pub use crate::runner::Runner;
+use crate::test_result::ReportStyle;
+pub use crate::test_result::TestResult;
 
 fn main() {
     let matches = App::new("piet-gpu-tests")
@@ -119,6 +121,7 @@ fn main() {
                     message_passing::Variant::Vkmm,
                 ));
             }
+            report(&linkedlist::run_linkedlist_test(&mut runner, &config));
         }
     }
 }
