@@ -17,7 +17,9 @@
 use piet_gpu_hal::{include_shader, BufferUsage, DescriptorSet};
 use piet_gpu_hal::{Buffer, Pipeline};
 
+use crate::config::Config;
 use crate::runner::{Commands, Runner};
+use crate::test_result::TestResult;
 
 const WG_SIZE: u64 = 512;
 const N_ROWS: u64 = 16;
@@ -46,9 +48,10 @@ struct PrefixBinding {
     descriptor_set: DescriptorSet,
 }
 
-pub unsafe fn run_prefix_test(runner: &mut Runner) {
+pub unsafe fn run_prefix_test(runner: &mut Runner, config: &Config) -> TestResult {
+    let mut result = TestResult::new("prefix sum, decoupled look-back");
     // This will be configurable.
-    let n_elements: u64 = 1 << 23;
+    let n_elements: u64 = config.size.choose(1 << 12, 1 << 24, 1 << 25);
     let data: Vec<u32> = (0..n_elements as u32).collect();
     let data_buf = runner
         .session
@@ -74,15 +77,13 @@ pub unsafe fn run_prefix_test(runner: &mut Runner) {
         if i == 0 {
             let mut dst: Vec<u32> = Default::default();
             out_buf.read(&mut dst);
-            println!("failures: {:?}", verify(&dst));
+            if let Some(failure) = verify(&dst) {
+                result.fail(format!("failure at {}", failure));
+            }
         }
     }
-    let throughput = (n_elements * n_iter) as f64 / total_elapsed;
-    println!(
-        "total {:?}ms, throughput = {}G el/s",
-        total_elapsed * 1e3,
-        throughput * 1e-9
-    );
+    result.timing(total_elapsed, n_elements * n_iter);
+    result
 }
 
 impl PrefixCode {
