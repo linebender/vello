@@ -257,12 +257,15 @@ impl VkInstance {
 
         let mut has_descriptor_indexing = false;
         let vk1_1 = self.vk_version >= vk::make_api_version(0, 1, 1, 0);
+        let mut features2 = vk::PhysicalDeviceFeatures2::builder();
+        let mut set_features2 = vk::PhysicalDeviceFeatures2::builder();
         if vk1_1 {
             let mut descriptor_indexing_features =
                 vk::PhysicalDeviceDescriptorIndexingFeatures::builder();
-            let mut features_v2 = vk::PhysicalDeviceFeatures2::builder()
+            features2 = features2
                 .push_next(&mut descriptor_indexing_features);
-            self.instance.get_physical_device_features2(pdevice, &mut features_v2);
+            self.instance.get_physical_device_features2(pdevice, &mut features2);
+            set_features2 = set_features2.features(features2.features);
             has_descriptor_indexing = descriptor_indexing_features
                 .shader_storage_image_array_non_uniform_indexing
                 == vk::TRUE
@@ -300,6 +303,15 @@ impl VkInstance {
         let mut create_info = vk::DeviceCreateInfo::builder()
             .queue_create_infos(&queue_create_infos)
             .enabled_extension_names(extensions.as_ptrs());
+            let mut set_memory_model_features = vk::PhysicalDeviceVulkanMemoryModelFeatures::builder();        if vk1_1 {
+            create_info = create_info.push_next(&mut set_features2);
+            if has_memory_model {
+                set_memory_model_features = set_memory_model_features
+                    .vulkan_memory_model(true)
+                    .vulkan_memory_model_device_scope(true);
+                create_info = create_info.push_next(&mut set_memory_model_features);
+            }
+        }
         if has_descriptor_indexing {
             create_info = create_info.push_next(&mut descriptor_indexing);
         }
