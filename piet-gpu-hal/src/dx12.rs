@@ -83,13 +83,6 @@ pub struct Fence {
 /// semaphore is needed for presentation on DX12.
 pub struct Semaphore;
 
-#[derive(Default)]
-pub struct PipelineBuilder {
-    ranges: Vec<d3d12::D3D12_DESCRIPTOR_RANGE>,
-    n_uav: u32,
-    // TODO: add counters for other resource types
-}
-
 // TODO
 #[derive(Default)]
 pub struct DescriptorSetBuilder {
@@ -238,8 +231,6 @@ impl crate::backend::Device for Dx12Device {
     type Fence = Fence;
 
     type Semaphore = Semaphore;
-
-    type PipelineBuilder = PipelineBuilder;
 
     type DescriptorSetBuilder = DescriptorSetBuilder;
 
@@ -430,7 +421,7 @@ impl crate::backend::Device for Dx12Device {
         let mut i = 0;
         fn map_range_type(bind_type: BindType) -> d3d12::D3D12_DESCRIPTOR_RANGE_TYPE {
             match bind_type {
-                BindType::Buffer | BindType::Image => d3d12::D3D12_DESCRIPTOR_RANGE_TYPE_UAV,
+                BindType::Buffer | BindType::Image | BindType::ImageRead => d3d12::D3D12_DESCRIPTOR_RANGE_TYPE_UAV,
                 BindType::BufReadOnly => d3d12::D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
             }
         }
@@ -496,10 +487,6 @@ impl crate::backend::Device for Dx12Device {
             pipeline_state,
             root_signature,
         })
-    }
-
-    unsafe fn pipeline_builder(&self) -> Self::PipelineBuilder {
-        PipelineBuilder::default()
     }
 
     unsafe fn descriptor_set_builder(&self) -> Self::DescriptorSetBuilder {
@@ -633,86 +620,6 @@ impl crate::backend::CmdBuf<Dx12Device> for CmdBuf {
     unsafe fn finish_timestamps(&mut self, pool: &QueryPool) {
         self.c
             .resolve_timing_query_data(&pool.heap, 0, pool.n_queries, &pool.buf.resource, 0);
-    }
-}
-
-impl crate::backend::PipelineBuilder<Dx12Device> for PipelineBuilder {
-    fn add_buffers(&mut self, n_buffers: u32) {
-        // Note: if the buffer is readonly, then it needs to be bound
-        // as an SRV, not a UAV. I think that requires distinguishing
-        // readonly and read-write cases in pipeline and descriptor set
-        // creation. For now we punt.
-        if n_buffers != 0 {
-            self.ranges.push(d3d12::D3D12_DESCRIPTOR_RANGE {
-                RangeType: d3d12::D3D12_DESCRIPTOR_RANGE_TYPE_UAV,
-                NumDescriptors: n_buffers,
-                BaseShaderRegister: self.n_uav,
-                RegisterSpace: 0,
-                OffsetInDescriptorsFromTableStart: d3d12::D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND,
-            });
-            self.n_uav += n_buffers;
-        }
-    }
-
-    fn add_images(&mut self, n_images: u32) {
-        // These are UAV images, so the descriptor type is the same as buffers.
-        self.add_buffers(n_images);
-    }
-
-    fn add_textures(&mut self, _max_textures: u32) {
-        todo!()
-    }
-
-    unsafe fn create_compute_pipeline(
-        self,
-        device: &Dx12Device,
-        code: &str,
-    ) -> Result<Pipeline, Error> {
-        #[cfg(debug_assertions)]
-        let flags = winapi::um::d3dcompiler::D3DCOMPILE_DEBUG
-            | winapi::um::d3dcompiler::D3DCOMPILE_SKIP_OPTIMIZATION;
-        #[cfg(not(debug_assertions))]
-        let flags = 0;
-        let shader_blob = ShaderByteCode::compile(code, "cs_5_1", "main", flags)?;
-        let shader = ShaderByteCode::from_blob(shader_blob);
-        let mut root_parameter = d3d12::D3D12_ROOT_PARAMETER {
-            ParameterType: d3d12::D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE,
-            ShaderVisibility: d3d12::D3D12_SHADER_VISIBILITY_ALL,
-            ..mem::zeroed()
-        };
-        *root_parameter.u.DescriptorTable_mut() = d3d12::D3D12_ROOT_DESCRIPTOR_TABLE {
-            NumDescriptorRanges: self.ranges.len().try_into()?,
-            pDescriptorRanges: self.ranges.as_ptr(),
-        };
-        let root_signature_desc = d3d12::D3D12_ROOT_SIGNATURE_DESC {
-            NumParameters: 1,
-            pParameters: &root_parameter,
-            NumStaticSamplers: 0,
-            pStaticSamplers: ptr::null(),
-            Flags: d3d12::D3D12_ROOT_SIGNATURE_FLAG_NONE,
-        };
-        let root_signature_blob = wrappers::RootSignature::serialize_description(
-            &root_signature_desc,
-            d3d12::D3D_ROOT_SIGNATURE_VERSION_1,
-        )?;
-        let root_signature = device
-            .device
-            .create_root_signature(0, root_signature_blob)?;
-        let desc = d3d12::D3D12_COMPUTE_PIPELINE_STATE_DESC {
-            pRootSignature: root_signature.0.as_raw(),
-            CS: shader.bytecode,
-            NodeMask: 0,
-            CachedPSO: d3d12::D3D12_CACHED_PIPELINE_STATE {
-                pCachedBlob: ptr::null(),
-                CachedBlobSizeInBytes: 0,
-            },
-            Flags: d3d12::D3D12_PIPELINE_STATE_FLAG_NONE,
-        };
-        let pipeline_state = device.device.create_compute_pipeline_state(&desc)?;
-        Ok(Pipeline {
-            pipeline_state,
-            root_signature,
-        })
     }
 }
 

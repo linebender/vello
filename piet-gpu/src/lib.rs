@@ -14,8 +14,8 @@ use piet::{ImageFormat, RenderContext};
 use piet_gpu_types::encoder::Encode;
 
 use piet_gpu_hal::{
-    Buffer, BufferUsage, CmdBuf, DescriptorSet, Error, Image, ImageLayout, Pipeline, QueryPool,
-    Session, ShaderCode,
+    BindType, Buffer, BufferUsage, CmdBuf, DescriptorSet, Error, Image, ImageLayout, Pipeline,
+    QueryPool, Session, ShaderCode,
 };
 
 use pico_svg::PicoSvg;
@@ -140,7 +140,15 @@ impl Renderer {
         let memory_buf_dev = session.create_buffer(128 * 1024 * 1024, dev)?;
 
         let el_code = ShaderCode::Spv(include_bytes!("../shader/elements.spv"));
-        let el_pipeline = session.create_simple_compute_pipeline(el_code, 4)?;
+        let el_pipeline = session.create_compute_pipeline(
+            el_code,
+            &[
+                BindType::Buffer,
+                BindType::Buffer,
+                BindType::Buffer,
+                BindType::Buffer,
+            ],
+        )?;
         let mut el_ds = Vec::with_capacity(n_bufs);
         for scene_buf in &scene_bufs {
             el_ds.push(session.create_simple_descriptor_set(
@@ -150,12 +158,14 @@ impl Renderer {
         }
 
         let tile_alloc_code = ShaderCode::Spv(include_bytes!("../shader/tile_alloc.spv"));
-        let tile_pipeline = session.create_simple_compute_pipeline(tile_alloc_code, 2)?;
+        let tile_pipeline = session
+            .create_compute_pipeline(tile_alloc_code, &[BindType::Buffer, BindType::Buffer])?;
         let tile_ds = session
             .create_simple_descriptor_set(&tile_pipeline, &[&memory_buf_dev, &config_buf])?;
 
         let path_alloc_code = ShaderCode::Spv(include_bytes!("../shader/path_coarse.spv"));
-        let path_pipeline = session.create_simple_compute_pipeline(path_alloc_code, 2)?;
+        let path_pipeline = session
+            .create_compute_pipeline(path_alloc_code, &[BindType::Buffer, BindType::Buffer])?;
         let path_ds = session
             .create_simple_descriptor_set(&path_pipeline, &[&memory_buf_dev, &config_buf])?;
 
@@ -165,18 +175,21 @@ impl Renderer {
             println!("using small workgroup backdrop kernel");
             ShaderCode::Spv(include_bytes!("../shader/backdrop.spv"))
         };
-        let backdrop_pipeline = session.create_simple_compute_pipeline(backdrop_code, 2)?;
+        let backdrop_pipeline = session
+            .create_compute_pipeline(backdrop_code, &[BindType::Buffer, BindType::Buffer])?;
         let backdrop_ds = session
             .create_simple_descriptor_set(&backdrop_pipeline, &[&memory_buf_dev, &config_buf])?;
 
         // TODO: constants
         let bin_code = ShaderCode::Spv(include_bytes!("../shader/binning.spv"));
-        let bin_pipeline = session.create_simple_compute_pipeline(bin_code, 2)?;
+        let bin_pipeline =
+            session.create_compute_pipeline(bin_code, &[BindType::Buffer, BindType::Buffer])?;
         let bin_ds =
             session.create_simple_descriptor_set(&bin_pipeline, &[&memory_buf_dev, &config_buf])?;
 
         let coarse_code = ShaderCode::Spv(include_bytes!("../shader/coarse.spv"));
-        let coarse_pipeline = session.create_simple_compute_pipeline(coarse_code, 2)?;
+        let coarse_pipeline =
+            session.create_compute_pipeline(coarse_code, &[BindType::Buffer, BindType::Buffer])?;
         let coarse_ds = session
             .create_simple_descriptor_set(&coarse_pipeline, &[&memory_buf_dev, &config_buf])?;
 
@@ -194,17 +207,16 @@ impl Renderer {
         let gradients = Self::make_gradient_image(&session);
 
         let k4_code = ShaderCode::Spv(include_bytes!("../shader/kernel4.spv"));
-        // This is a bit of a stand-in for future development. For now, we assume one
-        // atlas image for all images, and another image for the gradients. In the future,
-        // on GPUs that support it, we will probably want to go to descriptor indexing in
-        // order to cut down on allocation and copying for the atlas image.
-        let max_textures = 2;
-        let k4_pipeline = session
-            .pipeline_builder()
-            .add_buffers(2)
-            .add_images(1)
-            .add_textures(max_textures)
-            .create_compute_pipeline(&session, k4_code)?;
+        let k4_pipeline = session.create_compute_pipeline(
+            k4_code,
+            &[
+                BindType::Buffer,
+                BindType::Buffer,
+                BindType::Image,
+                BindType::ImageRead,
+                BindType::ImageRead,
+            ],
+        )?;
         let k4_ds = session
             .descriptor_set_builder()
             .add_buffers(&[&memory_buf_dev, &config_buf])

@@ -14,7 +14,7 @@
 //
 // Also licensed under MIT license, at your choice.
 
-use piet_gpu_hal::{BackendType, BindType, BufferUsage, DescriptorSet, include_shader};
+use piet_gpu_hal::{include_shader, BackendType, BindType, BufferUsage, DescriptorSet};
 use piet_gpu_hal::{Buffer, Pipeline};
 
 use crate::config::Config;

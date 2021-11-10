@@ -100,12 +100,6 @@ pub struct QueryPool {
 #[derive(Clone, Copy)]
 pub struct MemFlags(vk::MemoryPropertyFlags);
 
-pub struct PipelineBuilder {
-    bindings: Vec<vk::DescriptorSetLayoutBinding>,
-    binding_flags: Vec<vk::DescriptorBindingFlags>,
-    max_textures: u32,
-}
-
 pub struct DescriptorSetBuilder {
     buffers: Vec<vk::Buffer>,
     images: Vec<vk::ImageView>,
@@ -477,7 +471,6 @@ impl crate::backend::Device for VkDevice {
     type QueryPool = QueryPool;
     type Fence = vk::Fence;
     type Semaphore = vk::Semaphore;
-    type PipelineBuilder = PipelineBuilder;
     type DescriptorSetBuilder = DescriptorSetBuilder;
     type Sampler = vk::Sampler;
     type ShaderSource = [u8];
@@ -663,7 +656,7 @@ impl crate::backend::Device for VkDevice {
             .map(|(i, bind_type)| {
                 let descriptor_type = match bind_type {
                     BindType::Buffer | BindType::BufReadOnly => vk::DescriptorType::STORAGE_BUFFER,
-                    BindType::Image => vk::DescriptorType::STORAGE_IMAGE,
+                    BindType::Image | BindType::ImageRead => vk::DescriptorType::STORAGE_IMAGE,
                 };
                 vk::DescriptorSetLayoutBinding::builder()
                     .binding(i.try_into().unwrap())
@@ -710,14 +703,6 @@ impl crate::backend::Device for VkDevice {
             pipeline_layout,
             descriptor_set_layout,
         })
-    }
-
-    unsafe fn pipeline_builder(&self) -> PipelineBuilder {
-        PipelineBuilder {
-            bindings: Vec::new(),
-            binding_flags: Vec::new(),
-            max_textures: 0,
-        }
     }
 
     unsafe fn descriptor_set_builder(&self) -> DescriptorSetBuilder {
@@ -1134,109 +1119,6 @@ impl crate::backend::CmdBuf<VkDevice> for CmdBuf {
             pool.pool,
             query,
         );
-    }
-}
-
-impl crate::backend::PipelineBuilder<VkDevice> for PipelineBuilder {
-    fn add_buffers(&mut self, n_buffers: u32) {
-        let start = self.bindings.len() as u32;
-        for i in 0..n_buffers {
-            self.bindings.push(
-                vk::DescriptorSetLayoutBinding::builder()
-                    .binding(start + i)
-                    .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                    .descriptor_count(1)
-                    .stage_flags(vk::ShaderStageFlags::COMPUTE)
-                    .build(),
-            );
-            self.binding_flags
-                .push(vk::DescriptorBindingFlags::default());
-        }
-    }
-
-    fn add_images(&mut self, n_images: u32) {
-        let start = self.bindings.len() as u32;
-        for i in 0..n_images {
-            self.bindings.push(
-                vk::DescriptorSetLayoutBinding::builder()
-                    .binding(start + i)
-                    .descriptor_type(vk::DescriptorType::STORAGE_IMAGE)
-                    .descriptor_count(1)
-                    .stage_flags(vk::ShaderStageFlags::COMPUTE)
-                    .build(),
-            );
-            self.binding_flags
-                .push(vk::DescriptorBindingFlags::default());
-        }
-    }
-
-    fn add_textures(&mut self, n_images: u32) {
-        let start = self.bindings.len() as u32;
-        for i in 0..n_images {
-            self.bindings.push(
-                vk::DescriptorSetLayoutBinding::builder()
-                    .binding(start + i)
-                    .descriptor_type(vk::DescriptorType::STORAGE_IMAGE)
-                    .descriptor_count(1)
-                    .stage_flags(vk::ShaderStageFlags::COMPUTE)
-                    .build(),
-            );
-            self.binding_flags
-                .push(vk::DescriptorBindingFlags::default());
-        }
-        self.max_textures += n_images;
-    }
-
-    unsafe fn create_compute_pipeline(
-        self,
-        device: &VkDevice,
-        code: &[u8],
-    ) -> Result<Pipeline, Error> {
-        let device = &device.device.device;
-        let descriptor_set_layout = device.create_descriptor_set_layout(
-            &vk::DescriptorSetLayoutCreateInfo::builder()
-                .bindings(&self.bindings)
-                // It might be a slight optimization not to push this if max_textures = 0
-                .push_next(
-                    &mut vk::DescriptorSetLayoutBindingFlagsCreateInfo::builder()
-                        .binding_flags(&self.binding_flags)
-                        .build(),
-                ),
-            None,
-        )?;
-        let descriptor_set_layouts = [descriptor_set_layout];
-
-        // Create compute pipeline.
-        let code_u32 = convert_u32_vec(code);
-        let compute_shader_module = device
-            .create_shader_module(&vk::ShaderModuleCreateInfo::builder().code(&code_u32), None)?;
-        let entry_name = CString::new("main").unwrap();
-        let pipeline_layout = device.create_pipeline_layout(
-            &vk::PipelineLayoutCreateInfo::builder().set_layouts(&descriptor_set_layouts),
-            None,
-        )?;
-
-        let pipeline = device
-            .create_compute_pipelines(
-                vk::PipelineCache::null(),
-                &[vk::ComputePipelineCreateInfo::builder()
-                    .stage(
-                        vk::PipelineShaderStageCreateInfo::builder()
-                            .stage(vk::ShaderStageFlags::COMPUTE)
-                            .module(compute_shader_module)
-                            .name(&entry_name)
-                            .build(),
-                    )
-                    .layout(pipeline_layout)
-                    .build()],
-                None,
-            )
-            .map_err(|(_pipeline, err)| err)?[0];
-        Ok(Pipeline {
-            pipeline,
-            pipeline_layout,
-            descriptor_set_layout,
-        })
     }
 }
 

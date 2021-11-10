@@ -1,7 +1,8 @@
-/// The cross-platform abstraction for a GPU device.
-///
-/// This abstraction is inspired by gfx-hal, but is specialized to the needs of piet-gpu.
-/// In time, it may go away and be replaced by either gfx-hal or wgpu.
+//! The cross-platform abstraction for a GPU device.
+//!
+//! This abstraction is inspired by gfx-hal, but is specialized to the needs of piet-gpu.
+//! In time, it may go away and be replaced by either gfx-hal or wgpu.
+
 use bitflags::bitflags;
 
 mod backend;
@@ -17,8 +18,8 @@ pub use crate::mux::{
     Swapchain,
 };
 pub use hub::{
-    Buffer, CmdBuf, DescriptorSetBuilder, Image, PipelineBuilder, PlainData, RetainResource,
-    Session, SubmittedCmdBuf,
+    Buffer, CmdBuf, DescriptorSetBuilder, Image, PlainData, RetainResource, Session,
+    SubmittedCmdBuf,
 };
 
 // TODO: because these are conditionally included, "cargo fmt" does not
@@ -117,6 +118,13 @@ pub enum BindType {
     BufReadOnly,
     /// A storage image.
     Image,
+    /// A storage image with read only access.
+    ///
+    /// A note on this. None of the backends are currently making a
+    /// distinction between Image and ImageRead as far as bindings go,
+    /// but the `--hlsl-nonwritable-uav-texture-as-srv` option to
+    /// spirv-cross (marked as unstable) would do so.
+    ImageRead,
     // TODO: Uniform, Sampler, maybe others
 }
 

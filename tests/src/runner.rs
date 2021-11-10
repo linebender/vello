@@ -16,7 +16,10 @@
 
 //! Test runner intended to make it easy to write tests.
 
-use piet_gpu_hal::{BackendType, Buffer, BufferUsage, CmdBuf, Instance, InstanceFlags, PlainData, QueryPool, Session};
+use piet_gpu_hal::{
+    BackendType, Buffer, BufferUsage, CmdBuf, Instance, InstanceFlags, PlainData, QueryPool,
+    Session,
+};
 
 pub struct Runner {
     #[allow(unused)]
