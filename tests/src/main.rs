@@ -16,6 +16,7 @@
 
 //! Tests for piet-gpu shaders and GPU capabilities.
 
+mod clear;
 mod config;
 mod prefix;
 mod prefix_tree;
@@ -79,6 +80,7 @@ fn main() {
             flags |= InstanceFlags::DX12;
         }
         let mut runner = Runner::new(flags);
+        report(&clear::run_clear_test(&mut runner, &config));
         if config.groups.matches("prefix") {
             report(&prefix::run_prefix_test(&mut runner, &config));
             report(&prefix_tree::run_prefix_test(&mut runner, &config));

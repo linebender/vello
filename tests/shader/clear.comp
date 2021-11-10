@@ -1,0 +1,26 @@
+// SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
+
+// Clear a buffer.
+
+#version 450
+
+layout(local_size_x = 256) in;
+
+// This should probably be uniform rather than readonly,
+// but we haven't done the binding work yet.
+layout(binding = 0) readonly buffer ConfigBuf {
+    // size is in uint (4 byte) units
+    uint size;
+    uint value;
+};
+
+layout(binding = 1) buffer TargetBuf {
+    uint[] data;
+};
+
+void main() {
+    uint ix = gl_GlobalInvocationID.x;
+    if (ix < size) {
+        data[ix] = value;
+    }
+}

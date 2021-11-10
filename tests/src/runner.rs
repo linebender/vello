@@ -85,7 +85,7 @@ impl Runner {
         let submitted = self.session.run_cmd_buf(cmd_buf, &[], &[]).unwrap();
         self.cmd_buf_pool.extend(submitted.wait().unwrap());
         let timestamps = self.session.fetch_query_pool(&query_pool).unwrap();
-        timestamps[0]
+        timestamps.get(0).copied().unwrap_or_default()
     }
 
     #[allow(unused)]

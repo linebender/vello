@@ -14,6 +14,10 @@ rule hlsl
 rule msl
   command = $spirv_cross --msl $in --output $out
 
+build gen/clear.spv: glsl clear.comp
+build gen/clear.hlsl: hlsl gen/clear.spv
+build gen/clear.msl: msl gen/clear.spv
+
 build gen/prefix.spv: glsl prefix.comp
 build gen/prefix.hlsl: hlsl gen/prefix.spv
 build gen/prefix.msl: msl gen/prefix.spv
