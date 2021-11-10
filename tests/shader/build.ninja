@@ -1,0 +1,32 @@
+# Build file for shaders.
+
+# You must have Vulkan tools in your path, or patch here.
+
+glslang_validator = glslangValidator
+spirv_cross = spirv-cross
+
+rule glsl
+  command = $glslang_validator $flags -V -o $out $in
+
+rule hlsl
+  command = $spirv_cross --hlsl $in --output $out
+
+rule msl
+  command = $spirv_cross --msl $in --output $out
+
+build gen/prefix.spv: glsl prefix.comp
+build gen/prefix.hlsl: hlsl gen/prefix.spv
+build gen/prefix.msl: msl gen/prefix.spv
+
+build gen/prefix_reduce.spv: glsl prefix_reduce.comp
+build gen/prefix_reduce.hlsl: hlsl gen/prefix_reduce.spv
+build gen/prefix_reduce.msl: msl gen/prefix_reduce.spv
+
+build gen/prefix_root.spv: glsl prefix_scan.comp
+  flags = -DROOT
+build gen/prefix_root.hlsl: hlsl gen/prefix_root.spv
+build gen/prefix_root.msl: msl gen/prefix_root.spv
+
+build gen/prefix_scan.spv: glsl prefix_scan.comp
+build gen/prefix_scan.hlsl: hlsl gen/prefix_scan.spv
+build gen/prefix_scan.msl: msl gen/prefix_scan.spv
