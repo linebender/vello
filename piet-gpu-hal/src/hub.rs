@@ -11,9 +11,9 @@ use std::sync::{Arc, Mutex, Weak};
 
 use smallvec::SmallVec;
 
-use crate::mux;
+use crate::{BackendType, mux};
 
-use crate::{BufferUsage, Error, GpuInfo, ImageLayout, SamplerParams};
+use crate::{BindType, BufferUsage, Error, GpuInfo, ImageLayout, SamplerParams};
 
 pub use crate::mux::{DescriptorSet, Fence, Pipeline, QueryPool, Sampler, Semaphore, ShaderCode};
 
@@ -330,6 +330,15 @@ impl Session {
             .create_compute_pipeline(self, code)
     }
 
+    /// Create a compute shader pipeline.
+    pub unsafe fn create_compute_pipeline<'a>(
+        &self,
+        code: ShaderCode<'a>,
+        bind_types: &[BindType],
+    ) -> Result<Pipeline, Error> {
+        self.0.device.create_compute_pipeline(code, bind_types)
+    }
+
     /// Start building a pipeline.
     ///
     /// A pipeline is essentially a compiled shader, with more specific
@@ -387,6 +396,11 @@ impl Session {
     /// Choose shader code from the available choices.
     pub fn choose_shader<'a>(&self, spv: &'a [u8], hlsl: &'a str, msl: &'a str) -> ShaderCode<'a> {
         self.0.device.choose_shader(spv, hlsl, msl)
+    }
+
+    /// Report the backend type that was chosen.
+    pub fn backend_type(&self) -> BackendType {
+        self.0.device.backend_type()
     }
 }
 

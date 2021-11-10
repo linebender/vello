@@ -21,7 +21,13 @@ pub struct TestResult {
     // TODO: statistics. We're lean and mean for now.
     total_time: f64,
     n_elements: u64,
-    failure: Option<String>,
+    status: Status,
+}
+
+pub enum Status {
+    Pass,
+    Fail(String),
+    Skipped(String),
 }
 
 #[derive(Clone, Copy)]
@@ -36,14 +42,15 @@ impl TestResult {
             name: name.to_string(),
             total_time: 0.0,
             n_elements: 0,
-            failure: None,
+            status: Status::Pass,
         }
     }
 
     pub fn report(&self, style: ReportStyle) {
-        let fail_string = match &self.failure {
-            None => "pass".into(),
-            Some(s) => format!("fail ({})", s),
+        let fail_string = match &self.status {
+            Status::Pass => "pass".into(),
+            Status::Fail(s) => format!("fail ({})", s),
+            Status::Skipped(s) => format!("skipped ({})", s),
         };
         match style {
             ReportStyle::Short => {
@@ -73,8 +80,12 @@ impl TestResult {
         }
     }
 
-    pub fn fail(&mut self, explanation: String) {
-        self.failure = Some(explanation);
+    pub fn fail(&mut self, explanation: impl Into<String>) {
+        self.status = Status::Fail(explanation.into());
+    }
+
+    pub fn skip(&mut self, explanation: impl Into<String>) {
+        self.status = Status::Skipped(explanation.into());
     }
 
     pub fn timing(&mut self, total_time: f64, n_elements: u64) {

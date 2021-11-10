@@ -16,7 +16,7 @@
 
 //! The generic trait for backends to implement.
 
-use crate::{BufferUsage, Error, GpuInfo, ImageLayout, SamplerParams};
+use crate::{BindType, BufferUsage, Error, GpuInfo, ImageLayout, SamplerParams};
 
 pub trait Device: Sized {
     type Buffer: 'static;
@@ -66,8 +66,17 @@ pub trait Device: Sized {
     /// it expects.
     unsafe fn pipeline_builder(&self) -> Self::PipelineBuilder;
 
+    /// Build a compute pipeline.
     /// Start building a descriptor set.
     ///
+    /// A pipeline is a bit of shader IR plus a signature for what kinds of resources
+    /// it expects.
+    unsafe fn create_compute_pipeline(
+        &self,
+        code: &Self::ShaderSource,
+        bind_types: &[BindType],
+    ) -> Result<Self::Pipeline, Error>;
+
     /// A descriptor set is a binding of resources for a given pipeline.
     unsafe fn descriptor_set_builder(&self) -> Self::DescriptorSetBuilder;
 

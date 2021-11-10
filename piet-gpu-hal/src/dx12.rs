@@ -3,7 +3,7 @@
 mod error;
 mod wrappers;
 
-use std::{cell::Cell, convert::TryInto, mem, ptr};
+use std::{cell::Cell, convert::{TryFrom, TryInto}, mem, ptr};
 
 use winapi::shared::minwindef::TRUE;
 use winapi::shared::{dxgi, dxgi1_2, dxgi1_3, dxgitype};
@@ -13,7 +13,7 @@ use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
 
 use smallvec::SmallVec;
 
-use crate::{BufferUsage, Error, GpuInfo, ImageLayout, WorkgroupLimits};
+use crate::{BindType, BufferUsage, Error, GpuInfo, ImageLayout, WorkgroupLimits};
 
 use self::wrappers::{CommandAllocator, CommandQueue, Device, Factory4, Resource, ShaderByteCode};
 
@@ -289,9 +289,7 @@ impl crate::backend::Device for Dx12Device {
 
     fn create_cmd_buf(&self) -> Result<Self::CmdBuf, Error> {
         let list_type = d3d12::D3D12_COMMAND_LIST_TYPE_DIRECT;
-        let allocator = 
-            unsafe { self.device.create_command_allocator(list_type)? }
-        ;
+        let allocator = unsafe { self.device.create_command_allocator(list_type)? };
         let node_mask = 0;
         unsafe {
             let c = self
@@ -420,6 +418,86 @@ impl crate::backend::Device for Dx12Device {
         self.gpu_info.clone()
     }
 
+    unsafe fn create_compute_pipeline(
+        &self,
+        code: &str,
+        bind_types: &[BindType],
+    ) -> Result<Pipeline, Error> {
+        if u32::try_from(bind_types.len()).is_err() {
+            panic!("bind type length overflow");
+        }
+        let mut ranges = Vec::new();
+        let mut i = 0;
+        fn map_range_type(bind_type: BindType) -> d3d12::D3D12_DESCRIPTOR_RANGE_TYPE {
+            match bind_type {
+                BindType::Buffer | BindType::Image => d3d12::D3D12_DESCRIPTOR_RANGE_TYPE_UAV,
+                BindType::BufReadOnly => d3d12::D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
+            }
+        }
+        while i < bind_types.len() {
+            let range_type = map_range_type(bind_types[i]);
+            let mut end = i + 1;
+            while end < bind_types.len() && map_range_type(bind_types[end]) == range_type {
+                end += 1;
+            }
+            let n_descriptors = (end - i) as u32;
+            ranges.push(d3d12::D3D12_DESCRIPTOR_RANGE {
+                RangeType: range_type,
+                NumDescriptors: n_descriptors,
+                BaseShaderRegister: i as u32,
+                RegisterSpace: 0,
+                OffsetInDescriptorsFromTableStart: d3d12::D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND,
+            });
+            i = end;
+        }
+
+        #[cfg(debug_assertions)]
+        let flags = winapi::um::d3dcompiler::D3DCOMPILE_DEBUG
+            | winapi::um::d3dcompiler::D3DCOMPILE_SKIP_OPTIMIZATION;
+        #[cfg(not(debug_assertions))]
+        let flags = 0;
+        let shader_blob = ShaderByteCode::compile(code, "cs_5_1", "main", flags)?;
+        let shader = ShaderByteCode::from_blob(shader_blob);
+        let mut root_parameter = d3d12::D3D12_ROOT_PARAMETER {
+            ParameterType: d3d12::D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE,
+            ShaderVisibility: d3d12::D3D12_SHADER_VISIBILITY_ALL,
+            ..mem::zeroed()
+        };
+        *root_parameter.u.DescriptorTable_mut() = d3d12::D3D12_ROOT_DESCRIPTOR_TABLE {
+            NumDescriptorRanges: ranges.len() as u32,
+            pDescriptorRanges: ranges.as_ptr(),
+        };
+        let root_signature_desc = d3d12::D3D12_ROOT_SIGNATURE_DESC {
+            NumParameters: 1,
+            pParameters: &root_parameter,
+            NumStaticSamplers: 0,
+            pStaticSamplers: ptr::null(),
+            Flags: d3d12::D3D12_ROOT_SIGNATURE_FLAG_NONE,
+        };
+        let root_signature_blob = wrappers::RootSignature::serialize_description(
+            &root_signature_desc,
+            d3d12::D3D_ROOT_SIGNATURE_VERSION_1,
+        )?;
+        let root_signature = self
+            .device
+            .create_root_signature(0, root_signature_blob)?;
+        let desc = d3d12::D3D12_COMPUTE_PIPELINE_STATE_DESC {
+            pRootSignature: root_signature.0.as_raw(),
+            CS: shader.bytecode,
+            NodeMask: 0,
+            CachedPSO: d3d12::D3D12_CACHED_PIPELINE_STATE {
+                pCachedBlob: ptr::null(),
+                CachedBlobSizeInBytes: 0,
+            },
+            Flags: d3d12::D3D12_PIPELINE_STATE_FLAG_NONE,
+        };
+        let pipeline_state = self.device.create_compute_pipeline_state(&desc)?;
+        Ok(Pipeline {
+            pipeline_state,
+            root_signature,
+        })
+    }
+
     unsafe fn pipeline_builder(&self) -> Self::PipelineBuilder {
         PipelineBuilder::default()
     }
@@ -451,8 +529,7 @@ impl Dx12Device {
 
 impl crate::backend::CmdBuf<Dx12Device> for CmdBuf {
     unsafe fn begin(&mut self) {
-        if self.needs_reset {
-        }
+        if self.needs_reset {}
     }
 
     unsafe fn finish(&mut self) {

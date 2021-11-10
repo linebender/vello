@@ -36,8 +36,26 @@ mod metal;
 
 /// The common error type for the crate.
 ///
-/// This keeps things imple and can be expanded later.
+/// This keeps things simple and can be expanded later.
 pub type Error = Box<dyn std::error::Error>;
+
+bitflags! {
+    /// Options when creating an instance.
+    #[derive(Default)]
+    pub struct InstanceFlags: u32 {
+        /// Prefer DX12 over Vulkan.
+        const DX12 = 0x1;
+        // TODO: discrete vs integrated selection
+    }
+}
+
+/// The GPU backend that was selected.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum BackendType {
+    Vulkan,
+    Dx12,
+    Metal,
+}
 
 /// An image layout state.
 ///
@@ -84,8 +102,22 @@ bitflags! {
         const STORAGE = 0x80;
         /// The buffer can be used to store the results of queries.
         const QUERY_RESOLVE = 0x200;
+        /// The buffer may be cleared.
+        const CLEAR = 0x8000;
         // May add other types.
     }
+}
+
+/// The type of resource that will be bound to a slot in a shader.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum BindType {
+    /// A storage buffer with read/write access.
+    Buffer,
+    /// A storage buffer with read only access.
+    BufReadOnly,
+    /// A storage image.
+    Image,
+    // TODO: Uniform, Sampler, maybe others
 }
 
 #[derive(Clone, Debug)]

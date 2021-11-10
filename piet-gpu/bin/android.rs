@@ -56,7 +56,7 @@ fn my_main() -> Result<(), Error> {
                         let width = window.width() as usize;
                         let height = window.height() as usize;
                         let handle = get_handle(window);
-                        let (instance, surface) = Instance::new(Some(&handle))?;
+                        let (instance, surface) = Instance::new(Some(&handle), Default::default())?;
                         gfx_state =
                             Some(GfxState::new(&instance, surface.as_ref(), width, height)?);
                     } else {

@@ -30,11 +30,13 @@ mux_cfg! {
     #[cfg(mtl)]
     use crate::metal;
 }
+use crate::BackendType;
 use crate::backend::CmdBuf as CmdBufTrait;
 use crate::backend::DescriptorSetBuilder as DescriptorSetBuilderTrait;
 use crate::backend::Device as DeviceTrait;
 use crate::backend::PipelineBuilder as PipelineBuilderTrait;
-use crate::{BufferUsage, Error, GpuInfo, ImageLayout};
+use crate::BindType;
+use crate::{BufferUsage, Error, GpuInfo, ImageLayout, InstanceFlags};
 
 mux_enum! {
     /// An instance, selected from multiple backends.
@@ -118,22 +120,33 @@ impl Instance {
     /// work.
     pub fn new(
         window_handle: Option<&dyn raw_window_handle::HasRawWindowHandle>,
+        flags: InstanceFlags,
     ) -> Result<(Instance, Option<Surface>), Error> {
-        mux_cfg! {
-            #[cfg(vk)]
-            {
-                let result = vulkan::VkInstance::new(window_handle);
-                if let Ok((instance, surface)) = result {
-                    return Ok((Instance::Vk(instance), surface.map(Surface::Vk)));
+        let mut backends = [BackendType::Vulkan, BackendType::Dx12];
+        if flags.contains(InstanceFlags::DX12) {
+            backends.swap(0, 1);
+        }
+        for backend in backends {
+            if backend == BackendType::Vulkan {
+                mux_cfg! {
+                    #[cfg(vk)]
+                    {
+                        let result = vulkan::VkInstance::new(window_handle);
+                        if let Ok((instance, surface)) = result {
+                            return Ok((Instance::Vk(instance), surface.map(Surface::Vk)));
+                        }
+                    }
                 }
             }
-        }
-        mux_cfg! {
-            #[cfg(dx12)]
-            {
-                let result = dx12::Dx12Instance::new(window_handle);
-                if let Ok((instance, surface)) = result {
-                    return Ok((Instance::Dx12(instance), surface.map(Surface::Dx12)));
+            if backend == BackendType::Dx12 {
+                mux_cfg! {
+                    #[cfg(dx12)]
+                    {
+                        let result = dx12::Dx12Instance::new(window_handle);
+                        if let Ok((instance, surface)) = result {
+                            return Ok((Instance::Dx12(instance), surface.map(Surface::Dx12)));
+                        }
+                    }
                 }
             }
         }
@@ -293,6 +306,42 @@ impl Device {
         }
     }
 
+    pub unsafe fn create_compute_pipeline<'a>(
+        &self,
+        code: ShaderCode<'a>,
+        bind_types: &[BindType],
+    ) -> Result<Pipeline, Error> {
+        mux_match! { self;
+            Device::Vk(d) => {
+                let shader_code = match code {
+                    ShaderCode::Spv(spv) => spv,
+                    // Panic or return "incompatible shader" error here?
+                    _ => panic!("Vulkan backend requires shader code in SPIR-V format"),
+                };
+                d.create_compute_pipeline(shader_code, bind_types)
+                    .map(Pipeline::Vk)
+            }
+            Device::Dx12(d) => {
+                let shader_code = match code {
+                    ShaderCode::Hlsl(hlsl) => hlsl,
+                    // Panic or return "incompatible shader" error here?
+                    _ => panic!("DX12 backend requires shader code in HLSL format"),
+                };
+                d.create_compute_pipeline(shader_code, bind_types)
+                    .map(Pipeline::Dx12)
+            }
+            Device::Mtl(d) => {
+                let shader_code = match code {
+                    ShaderCode::Msl(msl) => msl,
+                    // Panic or return "incompatible shader" error here?
+                    _ => panic!("Metal backend requires shader code in MSL format"),
+                };
+                d.create_compute_pipeline(shader_code, bind_types)
+                    .map(Pipeline::Mtl)
+            }
+        }
+    }
+
     pub unsafe fn pipeline_builder(&self) -> PipelineBuilder {
         mux_match! { self;
             Device::Vk(d) => PipelineBuilder::Vk(d.pipeline_builder()),
@@ -442,6 +491,14 @@ impl Device {
             Device::Vk(_d) => ShaderCode::Spv(_spv),
             Device::Dx12(_d) => ShaderCode::Hlsl(_hlsl),
             Device::Mtl(_d) => ShaderCode::Msl(_msl),
+        }
+    }
+
+    pub fn backend_type(&self) -> BackendType {
+        mux_match! { self;
+            Device::Vk(_d) => BackendType::Vulkan,
+            Device::Dx12(_d) => BackendType::Dx12,
+            Device::Mtl(_d) => BackendType::Metal,
         }
     }
 }

@@ -10,9 +10,7 @@ use crate::dx12::error::{self, error_if_failed_else_unit, explain_error, Error};
 use std::convert::{TryFrom, TryInto};
 use std::sync::atomic::{AtomicPtr, Ordering};
 use std::{ffi, mem, ptr};
-use winapi::shared::{
-    dxgi, dxgi1_2, dxgi1_3, dxgi1_4, dxgiformat, dxgitype, minwindef, windef,
-};
+use winapi::shared::{dxgi, dxgi1_2, dxgi1_3, dxgi1_4, dxgiformat, dxgitype, minwindef, windef};
 use winapi::um::d3dcommon::ID3DBlob;
 use winapi::um::{
     d3d12, d3d12sdklayers, d3dcommon, d3dcompiler, dxgidebug, handleapi, synchapi, winnt,
@@ -563,7 +561,6 @@ impl Device {
         Ok(QueryHeap(ComPtr::from_raw(query_heap)))
     }
 
-
     pub unsafe fn create_buffer(
         &self,
         buffer_size_in_bytes: u32,
@@ -864,7 +861,11 @@ impl GraphicsCommandList {
         explain_error(self.0.Close(), "error closing command list")
     }
 
-    pub unsafe fn reset(&self, allocator: &CommandAllocator, initial_pso: Option<&PipelineState>) -> Result<(), Error> {
+    pub unsafe fn reset(
+        &self,
+        allocator: &CommandAllocator,
+        initial_pso: Option<&PipelineState>,
+    ) -> Result<(), Error> {
         let p_initial_state = initial_pso.map(|p| p.0.as_raw()).unwrap_or(ptr::null_mut());
         error::error_if_failed_else_unit(self.0.Reset(allocator.0.as_raw(), p_initial_state))
     }

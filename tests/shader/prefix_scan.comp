@@ -20,7 +20,7 @@ layout(set = 0, binding = 0) buffer DataBuf {
 };
 
 #ifndef ROOT
-layout(set = 0, binding = 1) buffer ParentBuf {
+layout(set = 0, binding = 1) readonly buffer ParentBuf {
     Monoid[] parent;
 };
 #endif

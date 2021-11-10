@@ -72,7 +72,7 @@ Monoid combine_monoid(thread const Monoid& a, thread const Monoid& b)
     return Monoid{ a.element + b.element };
 }
 
-kernel void main0(device DataBuf& _42 [[buffer(0)]], device ParentBuf& _143 [[buffer(1)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]])
+kernel void main0(device DataBuf& _42 [[buffer(0)]], const device ParentBuf& _143 [[buffer(1)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]])
 {
     threadgroup Monoid sh_scratch[512];
     uint ix = gl_GlobalInvocationID.x * 8u;

@@ -35,9 +35,7 @@ impl Config {
     pub fn from_matches(matches: &ArgMatches) -> Config {
         let groups = Groups::from_str(matches.value_of("groups").unwrap_or("all"));
         let size = Size::from_str(matches.value_of("size").unwrap_or("m"));
-        Config {
-            groups, size
-        }
+        Config { groups, size }
     }
 }
 

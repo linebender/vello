@@ -14,7 +14,7 @@
 //
 // Also licensed under MIT license, at your choice.
 
-use piet_gpu_hal::{include_shader, BufferUsage, DescriptorSet};
+use piet_gpu_hal::{BackendType, BindType, BufferUsage, DescriptorSet, include_shader};
 use piet_gpu_hal::{Buffer, Pipeline};
 
 use crate::config::Config;
@@ -50,6 +50,10 @@ struct PrefixBinding {
 
 pub unsafe fn run_prefix_test(runner: &mut Runner, config: &Config) -> TestResult {
     let mut result = TestResult::new("prefix sum, decoupled look-back");
+    if runner.backend_type() == BackendType::Dx12 {
+        result.skip("Shader won't compile on FXC");
+        return result;
+    }
     // This will be configurable.
     let n_elements: u64 = config.size.choose(1 << 12, 1 << 24, 1 << 25);
     let data: Vec<u32> = (0..n_elements as u32).collect();
@@ -91,7 +95,10 @@ impl PrefixCode {
         let code = include_shader!(&runner.session, "../shader/gen/prefix");
         let pipeline = runner
             .session
-            .create_simple_compute_pipeline(code, 3)
+            .create_compute_pipeline(
+                code,
+                &[BindType::BufReadOnly, BindType::Buffer, BindType::Buffer],
+            )
             .unwrap();
         PrefixCode { pipeline }
     }

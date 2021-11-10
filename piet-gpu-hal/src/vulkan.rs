@@ -11,9 +11,11 @@ use ash::{vk, Device, Entry, Instance};
 
 use smallvec::SmallVec;
 
-use crate::{BufferUsage, Error, GpuInfo, ImageLayout, SamplerParams, SubgroupSize, WorkgroupLimits};
 use crate::backend::Device as DeviceTrait;
-
+use crate::{
+    BindType, BufferUsage, Error, GpuInfo, ImageLayout, SamplerParams, SubgroupSize,
+    WorkgroupLimits,
+};
 
 pub struct VkInstance {
     /// Retain the dynamic lib.
@@ -262,9 +264,9 @@ impl VkInstance {
         if vk1_1 {
             let mut descriptor_indexing_features =
                 vk::PhysicalDeviceDescriptorIndexingFeatures::builder();
-            features2 = features2
-                .push_next(&mut descriptor_indexing_features);
-            self.instance.get_physical_device_features2(pdevice, &mut features2);
+            features2 = features2.push_next(&mut descriptor_indexing_features);
+            self.instance
+                .get_physical_device_features2(pdevice, &mut features2);
             set_features2 = set_features2.features(features2.features);
             has_descriptor_indexing = descriptor_indexing_features
                 .shader_storage_image_array_non_uniform_indexing
@@ -296,14 +298,13 @@ impl VkInstance {
             extensions.try_add(vk::KhrMaintenance3Fn::name());
             extensions.try_add(vk::ExtDescriptorIndexingFn::name());
         }
-        let has_subgroup_size = vk1_1
-            && extensions.try_add(vk::ExtSubgroupSizeControlFn::name());
-        let has_memory_model = vk1_1
-            && extensions.try_add(vk::KhrVulkanMemoryModelFn::name());
+        let has_subgroup_size = vk1_1 && extensions.try_add(vk::ExtSubgroupSizeControlFn::name());
+        let has_memory_model = vk1_1 && extensions.try_add(vk::KhrVulkanMemoryModelFn::name());
         let mut create_info = vk::DeviceCreateInfo::builder()
             .queue_create_infos(&queue_create_infos)
             .enabled_extension_names(extensions.as_ptrs());
-            let mut set_memory_model_features = vk::PhysicalDeviceVulkanMemoryModelFeatures::builder();        if vk1_1 {
+        let mut set_memory_model_features = vk::PhysicalDeviceVulkanMemoryModelFeatures::builder();
+        if vk1_1 {
             create_info = create_info.push_next(&mut set_features2);
             if has_memory_model {
                 set_memory_model_features = set_memory_model_features
@@ -422,7 +423,8 @@ impl VkInstance {
             0 => u32::MAX,
             x => x,
         };
-        let image_count = PREFERRED_IMAGE_COUNT.clamp(capabilities.min_image_count, max_image_count);
+        let image_count =
+            PREFERRED_IMAGE_COUNT.clamp(capabilities.min_image_count, max_image_count);
         let mut extent = capabilities.current_extent;
         if extent.width == u32::MAX || extent.height == u32::MAX {
             // We're deciding the size.
@@ -649,6 +651,67 @@ impl crate::backend::Device for VkDevice {
         Ok(device.get_fence_status(*fence)?)
     }
 
+    unsafe fn create_compute_pipeline(
+        &self,
+        code: &[u8],
+        bind_types: &[BindType],
+    ) -> Result<Pipeline, Error> {
+        let device = &self.device.device;
+        let bindings = bind_types
+            .iter()
+            .enumerate()
+            .map(|(i, bind_type)| {
+                let descriptor_type = match bind_type {
+                    BindType::Buffer | BindType::BufReadOnly => vk::DescriptorType::STORAGE_BUFFER,
+                    BindType::Image => vk::DescriptorType::STORAGE_IMAGE,
+                };
+                vk::DescriptorSetLayoutBinding::builder()
+                    .binding(i.try_into().unwrap())
+                    .descriptor_type(descriptor_type)
+                    .descriptor_count(1)
+                    .stage_flags(vk::ShaderStageFlags::COMPUTE)
+                    .build()
+            })
+            .collect::<Vec<_>>();
+        let descriptor_set_layout = device.create_descriptor_set_layout(
+            &vk::DescriptorSetLayoutCreateInfo::builder().bindings(&bindings),
+            None,
+        )?;
+        let descriptor_set_layouts = [descriptor_set_layout];
+
+        // Create compute pipeline.
+        let code_u32 = convert_u32_vec(code);
+        let compute_shader_module = device
+            .create_shader_module(&vk::ShaderModuleCreateInfo::builder().code(&code_u32), None)?;
+        let entry_name = CString::new("main").unwrap();
+        let pipeline_layout = device.create_pipeline_layout(
+            &vk::PipelineLayoutCreateInfo::builder().set_layouts(&descriptor_set_layouts),
+            None,
+        )?;
+
+        let pipeline = device
+            .create_compute_pipelines(
+                vk::PipelineCache::null(),
+                &[vk::ComputePipelineCreateInfo::builder()
+                    .stage(
+                        vk::PipelineShaderStageCreateInfo::builder()
+                            .stage(vk::ShaderStageFlags::COMPUTE)
+                            .module(compute_shader_module)
+                            .name(&entry_name)
+                            .build(),
+                    )
+                    .layout(pipeline_layout)
+                    .build()],
+                None,
+            )
+            .map_err(|(_pipeline, err)| err)?[0];
+        Ok(Pipeline {
+            pipeline,
+            pipeline_layout,
+            descriptor_set_layout,
+        })
+    }
+
     unsafe fn pipeline_builder(&self) -> PipelineBuilder {
         PipelineBuilder {
             bindings: Vec::new(),
@@ -715,13 +778,7 @@ impl crate::backend::Device for VkDevice {
         // fence should make the query available, but otherwise we get sporadic NOT_READY
         // results (Windows 10, AMD 5700 XT).
         let flags = vk::QueryResultFlags::TYPE_64 | vk::QueryResultFlags::WAIT;
-        device.get_query_pool_results(
-            pool.pool,
-            0,
-            pool.n_queries,
-            &mut buf,
-            flags,
-        )?;
+        device.get_query_pool_results(pool.pool, 0, pool.n_queries, &mut buf, flags)?;
         let ts0 = buf[0];
         let tsp = self.timestamp_period as f64 * 1e-9;
         let result = buf[1..]
