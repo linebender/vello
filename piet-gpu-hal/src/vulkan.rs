@@ -409,7 +409,7 @@ impl VkInstance {
             .get_physical_device_surface_present_modes(device.physical_device, surface.surface)?;
 
         // Can change to MAILBOX to force high frame rates.
-        const PREFERRED_MODE: vk::PresentModeKHR = vk::PresentModeKHR::FIFO;
+        const PREFERRED_MODE: vk::PresentModeKHR = vk::PresentModeKHR::IMMEDIATE;
         let present_mode = present_modes
             .into_iter()
             .find(|mode| *mode == PREFERRED_MODE)

@@ -17,6 +17,8 @@ const NUM_FRAMES: usize = 2;
 const WIDTH: usize = 2048;
 const HEIGHT: usize = 1536;
 
+const MMARK_SIZE: usize = 60_000;
+
 fn main() -> Result<(), Error> {
     let matches = App::new("piet-gpu test")
         .arg(Arg::with_name("INPUT").index(1))
@@ -57,6 +59,8 @@ fn main() -> Result<(), Error> {
         let mut submitted: [Option<SubmittedCmdBuf>; NUM_FRAMES] = Default::default();
 
         let mut renderer = Renderer::new(&session, WIDTH, HEIGHT, NUM_FRAMES)?;
+        let mut mmark = piet_gpu::mmark::MMark::new(MMARK_SIZE);
+        let mut last_time = std::time::Instant::now();
 
         event_loop.run(move |event, _, control_flow| {
             *control_flow = ControlFlow::Poll; // `ControlFlow::Wait` if only re-render on event
@@ -75,12 +79,17 @@ fn main() -> Result<(), Error> {
                 }
                 Event::RedrawRequested(window_id) if window_id == window.id() => {
                     let frame_idx = current_frame % NUM_FRAMES;
+                    let now = std::time::Instant::now();
+                    let elapsed = now - last_time;
+                    last_time = now;
+                    let frame_s = format!("{:.1}ms", elapsed.as_micros() as f64 * 1e-3);
 
                     if let Some(submitted) = submitted[frame_idx].take() {
                         cmd_bufs[frame_idx] = submitted.wait().unwrap();
                         let ts = session.fetch_query_pool(&query_pools[frame_idx]).unwrap();
                         info_string = format!(
-                            "{:.3}ms :: e:{:.3}ms|alloc:{:.3}ms|cp:{:.3}ms|bd:{:.3}ms|bin:{:.3}ms|cr:{:.3}ms|r:{:.3}ms",
+                            "{} {:.3}ms :: e:{:.3}ms|alloc:{:.3}ms|cp:{:.3}ms|bd:{:.3}ms|bin:{:.3}ms|cr:{:.3}ms|r:{:.3}ms",
+                            frame_s,
                             ts[6] * 1e3,
                             ts[0] * 1e3,
                             (ts[1] - ts[0]) * 1e3,
@@ -103,7 +112,7 @@ fn main() -> Result<(), Error> {
                         }
                         test_scenes::render_svg(&mut ctx, input, scale);
                     } else {
-                        test_scenes::render_anim_frame(&mut ctx, current_frame);
+                        mmark.draw(&mut ctx);
                     }
                     render_info_string(&mut ctx, &info_string);
                     if let Err(e) = renderer.upload_render_ctx(&mut ctx, frame_idx) {
