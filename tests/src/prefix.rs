@@ -69,7 +69,7 @@ pub unsafe fn run_prefix_test(runner: &mut Runner, config: &Config) -> TestResul
     let stage = PrefixStage::new(runner, &code, n_elements);
     let binding = stage.bind(runner, &code, &data_buf, &out_buf.dev_buf);
     // Also will be configurable of course.
-    let n_iter = 1000;
+    let n_iter = config.n_iter;
     let mut total_elapsed = 0.0;
     for i in 0..n_iter {
         let mut commands = runner.commands();

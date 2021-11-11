@@ -43,14 +43,12 @@ pub struct ClearBinding {
 
 pub unsafe fn run_clear_test(runner: &mut Runner, config: &Config) -> TestResult {
     let mut result = TestResult::new("clear buffers");
-    // This will be configurable.
     let n_elements: u64 = config.size.choose(1 << 12, 1 << 20, 1 << 24);
     let out_buf = runner.buf_down(n_elements * 4);
     let code = ClearCode::new(runner);
     let stage = ClearStage::new_with_value(runner, n_elements, 0x42);
     let binding = stage.bind(runner, &code, &out_buf.dev_buf);
-    // Also will be configurable of course.
-    let n_iter = 1000;
+    let n_iter = config.n_iter;
     let mut total_elapsed = 0.0;
     for i in 0..n_iter {
         let mut commands = runner.commands();
@@ -79,10 +77,7 @@ impl ClearCode {
         let code = include_shader!(&runner.session, "../shader/gen/Clear");
         let pipeline = runner
             .session
-            .create_compute_pipeline(
-                code,
-                &[BindType::BufReadOnly, BindType::Buffer],
-            )
+            .create_compute_pipeline(code, &[BindType::BufReadOnly, BindType::Buffer])
             .unwrap();
         ClearCode { pipeline }
     }
