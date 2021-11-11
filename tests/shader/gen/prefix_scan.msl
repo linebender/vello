@@ -72,7 +72,7 @@ Monoid combine_monoid(thread const Monoid& a, thread const Monoid& b)
     return Monoid{ a.element + b.element };
 }
 
-kernel void main0(device DataBuf& _42 [[buffer(0)]], const device ParentBuf& _143 [[buffer(1)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]])
+kernel void main0(device DataBuf& _42 [[buffer(0)]], const device ParentBuf& _141 [[buffer(1)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]])
 {
     threadgroup Monoid sh_scratch[512];
     uint ix = gl_GlobalInvocationID.x * 8u;
@@ -90,9 +90,9 @@ kernel void main0(device DataBuf& _42 [[buffer(0)]], const device ParentBuf& _14
     for (uint i_1 = 0u; i_1 < 9u; i_1++)
     {
         threadgroup_barrier(mem_flags::mem_threadgroup);
-        if (gl_LocalInvocationID.x >= uint(1 << int(i_1)))
+        if (gl_LocalInvocationID.x >= (1u << i_1))
         {
-            Monoid other = sh_scratch[gl_LocalInvocationID.x - uint(1 << int(i_1))];
+            Monoid other = sh_scratch[gl_LocalInvocationID.x - (1u << i_1)];
             Monoid param_2 = other;
             Monoid param_3 = agg;
             agg = combine_monoid(param_2, param_3);
@@ -104,7 +104,7 @@ kernel void main0(device DataBuf& _42 [[buffer(0)]], const device ParentBuf& _14
     Monoid row = Monoid{ 0u };
     if (gl_WorkGroupID.x > 0u)
     {
-        row.element = _143.parent[gl_WorkGroupID.x - 1u].element;
+        row.element = _141.parent[gl_WorkGroupID.x - 1u].element;
     }
     if (gl_LocalInvocationID.x > 0u)
     {

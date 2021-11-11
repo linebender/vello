@@ -40,8 +40,8 @@ void main() {
     for (uint i = 0; i < LG_WG_SIZE; i++) {
         barrier();
         // We could make this predicate tighter, but would it help?
-        if (gl_LocalInvocationID.x + (1 << i) < WG_SIZE) {
-            Monoid other = sh_scratch[gl_LocalInvocationID.x + (1 << i)];
+        if (gl_LocalInvocationID.x + (1u << i) < WG_SIZE) {
+            Monoid other = sh_scratch[gl_LocalInvocationID.x + (1u << i)];
             agg = combine_monoid(agg, other);
         }
         barrier();

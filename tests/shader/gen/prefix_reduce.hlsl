@@ -6,7 +6,7 @@ struct Monoid
 static const uint3 gl_WorkGroupSize = uint3(512u, 1u, 1u);
 
 ByteAddressBuffer _40 : register(t0);
-RWByteAddressBuffer _129 : register(u1);
+RWByteAddressBuffer _127 : register(u1);
 
 static uint3 gl_WorkGroupID;
 static uint3 gl_LocalInvocationID;
@@ -46,9 +46,9 @@ void comp_main()
     for (uint i_1 = 0u; i_1 < 9u; i_1++)
     {
         GroupMemoryBarrierWithGroupSync();
-        if ((gl_LocalInvocationID.x + uint(1 << int(i_1))) < 512u)
+        if ((gl_LocalInvocationID.x + (1u << i_1)) < 512u)
         {
-            Monoid other = sh_scratch[gl_LocalInvocationID.x + uint(1 << int(i_1))];
+            Monoid other = sh_scratch[gl_LocalInvocationID.x + (1u << i_1)];
             Monoid param_2 = agg;
             Monoid param_3 = other;
             agg = combine_monoid(param_2, param_3);
@@ -58,7 +58,7 @@ void comp_main()
     }
     if (gl_LocalInvocationID.x == 0u)
     {
-        _129.Store(gl_WorkGroupID.x * 4 + 0, agg.element);
+        _127.Store(gl_WorkGroupID.x * 4 + 0, agg.element);
     }
 }
 

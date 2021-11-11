@@ -12,11 +12,11 @@ struct State
 
 static const uint3 gl_WorkGroupSize = uint3(512u, 1u, 1u);
 
-static const Monoid _187 = { 0u };
+static const Monoid _185 = { 0u };
 
 globallycoherent RWByteAddressBuffer _43 : register(u2);
 ByteAddressBuffer _67 : register(t0);
-RWByteAddressBuffer _374 : register(u1);
+RWByteAddressBuffer _372 : register(u1);
 
 static uint3 gl_LocalInvocationID;
 struct SPIRV_Cross_Input
@@ -64,9 +64,9 @@ void comp_main()
     for (uint i_1 = 0u; i_1 < 9u; i_1++)
     {
         GroupMemoryBarrierWithGroupSync();
-        if (gl_LocalInvocationID.x >= uint(1 << int(i_1)))
+        if (gl_LocalInvocationID.x >= (1u << i_1))
         {
-            Monoid other = sh_scratch[gl_LocalInvocationID.x - uint(1 << int(i_1))];
+            Monoid other = sh_scratch[gl_LocalInvocationID.x - (1u << i_1)];
             Monoid param_2 = other;
             Monoid param_3 = agg;
             agg = combine_monoid(param_2, param_3);
@@ -92,7 +92,7 @@ void comp_main()
         }
         _43.Store(part_ix * 12 + 4, flag);
     }
-    Monoid exclusive = _187;
+    Monoid exclusive = _185;
     if (part_ix != 0u)
     {
         uint look_back_ix = part_ix - 1u;
@@ -113,9 +113,9 @@ void comp_main()
             {
                 if (gl_LocalInvocationID.x == 511u)
                 {
-                    Monoid _225;
-                    _225.element = _43.Load(look_back_ix * 12 + 12);
-                    their_prefix.element = _225.element;
+                    Monoid _223;
+                    _223.element = _43.Load(look_back_ix * 12 + 12);
+                    their_prefix.element = _223.element;
                     Monoid param_4 = their_prefix;
                     Monoid param_5 = exclusive;
                     exclusive = combine_monoid(param_4, param_5);
@@ -128,9 +128,9 @@ void comp_main()
                 {
                     if (gl_LocalInvocationID.x == 511u)
                     {
-                        Monoid _247;
-                        _247.element = _43.Load(look_back_ix * 12 + 8);
-                        their_agg.element = _247.element;
+                        Monoid _245;
+                        _245.element = _43.Load(look_back_ix * 12 + 8);
+                        their_agg.element = _245.element;
                         Monoid param_6 = their_agg;
                         Monoid param_7 = exclusive;
                         exclusive = combine_monoid(param_6, param_7);
@@ -142,9 +142,9 @@ void comp_main()
             }
             if (gl_LocalInvocationID.x == 511u)
             {
-                Monoid _269;
-                _269.element = _67.Load(((look_back_ix * 8192u) + their_ix) * 4 + 0);
-                m.element = _269.element;
+                Monoid _267;
+                _267.element = _67.Load(((look_back_ix * 8192u) + their_ix) * 4 + 0);
+                m.element = _267.element;
                 if (their_ix == 0u)
                 {
                     their_agg = m;
@@ -211,7 +211,7 @@ void comp_main()
         Monoid param_16 = row;
         Monoid param_17 = local[i_2];
         Monoid m_1 = combine_monoid(param_16, param_17);
-        _374.Store((ix + i_2) * 4 + 0, m_1.element);
+        _372.Store((ix + i_2) * 4 + 0, m_1.element);
     }
 }
 

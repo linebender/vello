@@ -5,6 +5,10 @@
 glslang_validator = glslangValidator
 spirv_cross = spirv-cross
 
+# See https://github.com/KhronosGroup/SPIRV-Cross/issues/1248 for
+# why we set this.
+msl_flags = --msl-decoration-binding
+
 rule glsl
   command = $glslang_validator $flags -V -o $out $in
 
@@ -12,7 +16,7 @@ rule hlsl
   command = $spirv_cross --hlsl $in --output $out
 
 rule msl
-  command = $spirv_cross --msl $in --output $out
+  command = $spirv_cross --msl $in --output $out $msl_flags
 
 build gen/clear.spv: glsl clear.comp
 build gen/clear.hlsl: hlsl gen/clear.spv

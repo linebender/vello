@@ -87,7 +87,7 @@ Monoid combine_monoid(thread const Monoid& a, thread const Monoid& b)
     return Monoid{ a.element + b.element };
 }
 
-kernel void main0(volatile device StateBuf& _43 [[buffer(0)]], const device InBuf& _67 [[buffer(1)]], device OutBuf& _374 [[buffer(2)]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
+kernel void main0(const device InBuf& _67 [[buffer(0)]], device OutBuf& _372 [[buffer(1)]], volatile device StateBuf& _43 [[buffer(2)]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
 {
     threadgroup uint sh_part_ix;
     threadgroup Monoid sh_scratch[512];
@@ -115,9 +115,9 @@ kernel void main0(volatile device StateBuf& _43 [[buffer(0)]], const device InBu
     for (uint i_1 = 0u; i_1 < 9u; i_1++)
     {
         threadgroup_barrier(mem_flags::mem_threadgroup);
-        if (gl_LocalInvocationID.x >= uint(1 << int(i_1)))
+        if (gl_LocalInvocationID.x >= (1u << i_1))
         {
-            Monoid other = sh_scratch[gl_LocalInvocationID.x - uint(1 << int(i_1))];
+            Monoid other = sh_scratch[gl_LocalInvocationID.x - (1u << i_1)];
             Monoid param_2 = other;
             Monoid param_3 = agg;
             agg = combine_monoid(param_2, param_3);
@@ -256,7 +256,7 @@ kernel void main0(volatile device StateBuf& _43 [[buffer(0)]], const device InBu
         Monoid param_16 = row;
         Monoid param_17 = local[i_2];
         Monoid m_1 = combine_monoid(param_16, param_17);
-        _374.outbuf[ix + i_2].element = m_1.element;
+        _372.outbuf[ix + i_2].element = m_1.element;
     }
 }
 

@@ -45,8 +45,8 @@ void main() {
     sh_scratch[gl_LocalInvocationID.x] = agg;
     for (uint i = 0; i < LG_WG_SIZE; i++) {
         barrier();
-        if (gl_LocalInvocationID.x >= (1 << i)) {
-            Monoid other = sh_scratch[gl_LocalInvocationID.x - (1 << i)];
+        if (gl_LocalInvocationID.x >= (1u << i)) {
+            Monoid other = sh_scratch[gl_LocalInvocationID.x - (1u << i)];
             agg = combine_monoid(other, agg);
         }
         barrier();
