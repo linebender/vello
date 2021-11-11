@@ -32,6 +32,16 @@ build gen/prefix.hlsl: hlsl gen/prefix.spv
 build gen/prefix.dxil: dxil gen/prefix.hlsl
 build gen/prefix.msl: msl gen/prefix.spv
 
+build gen/prefix_atomic.spv: glsl prefix.comp
+  flags = -DATOMIC
+build gen/prefix_atomic.hlsl: hlsl gen/prefix_atomic.spv
+build gen/prefix_atomic.dxil: dxil gen/prefix_atomic.hlsl
+build gen/prefix_atomic.msl: msl gen/prefix_atomic.spv
+
+build gen/prefix_vkmm.spv: glsl prefix.comp
+  flags = -DATOMIC -DVKMM
+# Vulkan memory model doesn't translate
+
 build gen/prefix_reduce.spv: glsl prefix_reduce.comp
 build gen/prefix_reduce.hlsl: hlsl gen/prefix_reduce.spv
 build gen/prefix_reduce.dxil: dxil gen/prefix_reduce.hlsl

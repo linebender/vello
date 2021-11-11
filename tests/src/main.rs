@@ -86,7 +86,23 @@ fn main() {
         }
         report(&clear::run_clear_test(&mut runner, &config));
         if config.groups.matches("prefix") {
-            report(&prefix::run_prefix_test(&mut runner, &config));
+            report(&prefix::run_prefix_test(
+                &mut runner,
+                &config,
+                prefix::Variant::Compatibility,
+            ));
+            report(&prefix::run_prefix_test(
+                &mut runner,
+                &config,
+                prefix::Variant::Atomic,
+            ));
+            if runner.session.gpu_info().has_memory_model {
+                report(&prefix::run_prefix_test(
+                    &mut runner,
+                    &config,
+                    prefix::Variant::Vkmm,
+                ));
+            }
             report(&prefix_tree::run_prefix_test(&mut runner, &config));
         }
     }

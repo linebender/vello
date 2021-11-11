@@ -38,9 +38,9 @@ pub enum ReportStyle {
 }
 
 impl TestResult {
-    pub fn new(name: &str) -> TestResult {
+    pub fn new(name: impl Into<String>) -> TestResult {
         TestResult {
-            name: name.to_string(),
+            name: name.into(),
             total_time: 0.0,
             n_elements: 0,
             status: Status::Pass,
