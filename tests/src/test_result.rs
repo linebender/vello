@@ -27,10 +27,11 @@ pub struct TestResult {
 pub enum Status {
     Pass,
     Fail(String),
+    #[allow(unused)]
     Skipped(String),
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum ReportStyle {
     Short,
     Verbose,
@@ -84,6 +85,7 @@ impl TestResult {
         self.status = Status::Fail(explanation.into());
     }
 
+    #[allow(unused)]
     pub fn skip(&mut self, explanation: impl Into<String>) {
         self.status = Status::Skipped(explanation.into());
     }

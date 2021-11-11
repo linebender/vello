@@ -104,6 +104,8 @@ pub enum ShaderCode<'a> {
     Spv(&'a [u8]),
     /// HLSL (source)
     Hlsl(&'a str),
+    /// DXIL (DX12 intermediate language)
+    Dxil(&'a [u8]),
     /// Metal Shading Language (source)
     Msl(&'a str),
 }
@@ -321,9 +323,10 @@ impl Device {
             }
             Device::Dx12(d) => {
                 let shader_code = match code {
-                    ShaderCode::Hlsl(hlsl) => hlsl,
+                    //ShaderCode::Hlsl(hlsl) => hlsl,
+                    ShaderCode::Dxil(dxil) => dxil,
                     // Panic or return "incompatible shader" error here?
-                    _ => panic!("DX12 backend requires shader code in HLSL format"),
+                    _ => panic!("DX12 backend requires shader code in DXIL format"),
                 };
                 d.create_compute_pipeline(shader_code, bind_types)
                     .map(Pipeline::Dx12)
@@ -475,11 +478,12 @@ impl Device {
         &self,
         _spv: &'a [u8],
         _hlsl: &'a str,
+        _dxil: &'a [u8],
         _msl: &'a str,
     ) -> ShaderCode<'a> {
         mux_match! { self;
             Device::Vk(_d) => ShaderCode::Spv(_spv),
-            Device::Dx12(_d) => ShaderCode::Hlsl(_hlsl),
+            Device::Dx12(_d) => ShaderCode::Dxil(_dxil),
             Device::Mtl(_d) => ShaderCode::Msl(_msl),
         }
     }

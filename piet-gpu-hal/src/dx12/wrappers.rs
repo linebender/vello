@@ -196,7 +196,7 @@ impl Factory4 {
         error_if_failed_else_unit(self.0.EnumAdapters1(id, &mut adapter))?;
         let mut desc = mem::zeroed();
         (*adapter).GetDesc(&mut desc);
-        println!("desc: {:?}", desc.Description);
+        //println!("desc: {:?}", desc.Description);
         Ok(Adapter1(ComPtr::from_raw(adapter)))
     }
 
@@ -276,6 +276,7 @@ impl SwapChain3 {
 }
 
 impl Blob {
+    #[allow(unused)]
     pub unsafe fn print_to_console(blob: &Blob) {
         println!("==SHADER COMPILE MESSAGES==");
         let message = {
@@ -714,13 +715,13 @@ impl RootSignature {
         let hresult =
             d3d12::D3D12SerializeRootSignature(desc, version, &mut blob, &mut error_blob_ptr);
 
-        let error_blob = if error_blob_ptr.is_null() {
-            None
-        } else {
-            Some(Blob(ComPtr::from_raw(error_blob_ptr)))
-        };
         #[cfg(debug_assertions)]
         {
+            let error_blob = if error_blob_ptr.is_null() {
+                None
+            } else {
+                Some(Blob(ComPtr::from_raw(error_blob_ptr)))
+            };
             if let Some(error_blob) = &error_blob {
                 Blob::print_to_console(error_blob);
             }
@@ -736,6 +737,7 @@ impl ShaderByteCode {
     // `blob` may not be null.
     // TODO: this is not super elegant, maybe want to move the get
     // operations closer to where they're used.
+    #[allow(unused)]
     pub unsafe fn from_blob(blob: Blob) -> ShaderByteCode {
         ShaderByteCode {
             bytecode: d3d12::D3D12_SHADER_BYTECODE {
@@ -749,6 +751,7 @@ impl ShaderByteCode {
     /// Compile a shader from raw HLSL.
     ///
     /// * `target`: example format: `ps_5_1`.
+    #[allow(unused)]
     pub unsafe fn compile(
         source: &str,
         target: &str,
@@ -794,6 +797,24 @@ impl ShaderByteCode {
         explain_error(hresult, "shader compilation failed")?;
 
         Ok(Blob(ComPtr::from_raw(shader_blob_ptr)))
+    }
+
+    /// Create bytecode from a slice.
+    ///
+    /// # Safety
+    ///
+    /// This call elides the lifetime from the slice. The caller is responsible
+    /// for making sure the reference remains valid for the lifetime of this
+    /// object.
+    #[allow(unused)]
+    pub unsafe fn from_slice(bytecode: &[u8]) -> ShaderByteCode {
+        ShaderByteCode {
+            bytecode: d3d12::D3D12_SHADER_BYTECODE {
+                BytecodeLength: bytecode.len(),
+                pShaderBytecode: bytecode.as_ptr() as *const _,
+            },
+            blob: None,
+        }
     }
 }
 
@@ -1073,9 +1094,8 @@ pub unsafe fn create_transition_resource_barrier(
     resource_barrier
 }
 
+#[allow(unused)]
 pub unsafe fn enable_debug_layer() -> Result<(), Error> {
-    println!("enabling debug layer.");
-
     let mut debug_controller: *mut d3d12sdklayers::ID3D12Debug1 = ptr::null_mut();
     explain_error(
         d3d12::D3D12GetDebugInterface(

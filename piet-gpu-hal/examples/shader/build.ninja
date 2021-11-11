@@ -4,6 +4,7 @@
 
 glslang_validator = glslangValidator
 spirv_cross = spirv-cross
+dxc = dxc
 
 rule glsl
   command = $glslang_validator -V -o $out $in
@@ -11,9 +12,13 @@ rule glsl
 rule hlsl
   command = $spirv_cross --hlsl $in --output $out
 
+rule dxil
+  command = $dxc -T cs_6_0 $in -Fo $out
+
 rule msl
   command = $spirv_cross --msl $in --output $out
 
 build gen/collatz.spv: glsl collatz.comp
 build gen/collatz.hlsl: hlsl gen/collatz.spv
+build gen/collatz.dxil: dxil gen/collatz.hlsl
 build gen/collatz.msl: msl gen/collatz.spv

@@ -51,7 +51,7 @@ bitflags! {
 }
 
 /// The GPU backend that was selected.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum BackendType {
     Vulkan,
     Dx12,

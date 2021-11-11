@@ -6,7 +6,9 @@ mod wrappers;
 use std::{cell::Cell, convert::{TryFrom, TryInto}, mem, ptr};
 
 use winapi::shared::minwindef::TRUE;
-use winapi::shared::{dxgi, dxgi1_2, dxgi1_3, dxgitype};
+use winapi::shared::{dxgi, dxgi1_2, dxgitype};
+#[allow(unused)]
+use winapi::shared::dxgi1_3; // for error reporting in debug mode
 use winapi::um::d3d12;
 
 use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
@@ -236,8 +238,9 @@ impl crate::backend::Device for Dx12Device {
 
     type Sampler = ();
 
-    // Currently this is HLSL source, but we'll probably change it to IR.
-    type ShaderSource = str;
+    // Currently due to type inflexibility this is hardcoded to either HLSL or
+    // DXIL, but it would be nice to be able to handle both at runtime.
+    type ShaderSource = [u8];
 
     fn create_buffer(&self, size: u64, usage: BufferUsage) -> Result<Self::Buffer, Error> {
         // TODO: consider supporting BufferUsage::QUERY_RESOLVE here rather than
@@ -411,7 +414,7 @@ impl crate::backend::Device for Dx12Device {
 
     unsafe fn create_compute_pipeline(
         &self,
-        code: &str,
+        code: &Self::ShaderSource,
         bind_types: &[BindType],
     ) -> Result<Pipeline, Error> {
         if u32::try_from(bind_types.len()).is_err() {
@@ -442,6 +445,11 @@ impl crate::backend::Device for Dx12Device {
             i = end;
         }
 
+        // We could always have ShaderSource as [u8] even when it's HLSL, and use the
+        // magic number to distinguish. In any case, for now it's hardcoded as one or
+        // the other.
+        /*
+        // HLSL code path
         #[cfg(debug_assertions)]
         let flags = winapi::um::d3dcompiler::D3DCOMPILE_DEBUG
             | winapi::um::d3dcompiler::D3DCOMPILE_SKIP_OPTIMIZATION;
@@ -449,6 +457,11 @@ impl crate::backend::Device for Dx12Device {
         let flags = 0;
         let shader_blob = ShaderByteCode::compile(code, "cs_5_1", "main", flags)?;
         let shader = ShaderByteCode::from_blob(shader_blob);
+        */
+
+        // DXIL code path
+        let shader = ShaderByteCode::from_slice(code);
+
         let mut root_parameter = d3d12::D3D12_ROOT_PARAMETER {
             ParameterType: d3d12::D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE,
             ShaderVisibility: d3d12::D3D12_SHADER_VISIBILITY_ALL,

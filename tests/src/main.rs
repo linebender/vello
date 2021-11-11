@@ -80,6 +80,10 @@ fn main() {
             flags |= InstanceFlags::DX12;
         }
         let mut runner = Runner::new(flags);
+        if style == ReportStyle::Verbose {
+            // TODO: get adapter name in here too
+            println!("Backend: {:?}", runner.backend_type());
+        }
         report(&clear::run_clear_test(&mut runner, &config));
         if config.groups.matches("prefix") {
             report(&prefix::run_prefix_test(&mut runner, &config));

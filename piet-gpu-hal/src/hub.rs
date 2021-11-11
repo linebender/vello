@@ -369,8 +369,8 @@ impl Session {
     }
 
     /// Choose shader code from the available choices.
-    pub fn choose_shader<'a>(&self, spv: &'a [u8], hlsl: &'a str, msl: &'a str) -> ShaderCode<'a> {
-        self.0.device.choose_shader(spv, hlsl, msl)
+    pub fn choose_shader<'a>(&self, spv: &'a [u8], hlsl: &'a str, dxil: &'a [u8], msl: &'a str) -> ShaderCode<'a> {
+        self.0.device.choose_shader(spv, hlsl, dxil, msl)
     }
 
     /// Report the backend type that was chosen.

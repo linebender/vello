@@ -198,6 +198,7 @@ macro_rules! include_shader {
         $device.choose_shader(
             include_bytes!(concat!($path_base, ".spv")),
             include_str!(concat!($path_base, ".hlsl")),
+            include_bytes!(concat!($path_base, ".dxil")),
             include_str!(concat!($path_base, ".msl")),
         )
     };
