@@ -41,7 +41,7 @@ struct LinkedListBinding {
 
 pub unsafe fn run_linkedlist_test(runner: &mut Runner, config: &Config) -> TestResult {
     let mut result = TestResult::new("linked list");
-    let mem_buf = runner.buf_down(256 * N_BUCKETS);
+    let mem_buf = runner.buf_down(1024 * N_BUCKETS);
     let code = LinkedListCode::new(runner);
     let stage = LinkedListStage::new(runner, &code, N_BUCKETS);
     let binding = stage.bind(runner, &code, &mem_buf.dev_buf);
@@ -61,6 +61,9 @@ pub unsafe fn run_linkedlist_test(runner: &mut Runner, config: &Config) -> TestR
         if i == 0 {
             let mut dst: Vec<u32> = Default::default();
             mem_buf.read(&mut dst);
+            if !verify(&dst) {
+                result.fail("incorrect data");
+            }
         }
     }
     result.timing(total_elapsed, N_BUCKETS * 100 * n_iter);
@@ -142,4 +145,41 @@ impl LinkedListStage {
             (WG_SIZE as u32, 1, 1),
         );
     }
+}
+
+fn verify(data: &[u32]) -> bool {
+    let mut expected = (0..N_BUCKETS).map(|_| Vec::new()).collect::<Vec<_>>();
+    for ix in 0..N_BUCKETS {
+        let mut rng = ix as u32 + 1;
+        for _ in 0..100 {
+            // xorshift32
+            rng ^= rng.wrapping_shl(13);
+            rng ^= rng.wrapping_shr(17);
+            rng ^= rng.wrapping_shl(5);
+            let bucket = rng % N_BUCKETS as u32;
+            if bucket != 0 {
+                expected[bucket as usize].push(ix as u32);
+            }
+        }
+    }
+    let mut actual = Vec::new();
+    for (i, expected) in expected.iter_mut().enumerate().skip(1) {
+        actual.clear();
+        let mut ptr = i;
+        loop {
+            let next = data[ptr] as usize;
+            if next == 0 {
+                break;
+            }
+            let val = data[next + 1];
+            actual.push(val);
+            ptr = next;
+        }
+        actual.sort();
+        expected.sort();
+        if actual != *expected {
+            return false;
+        }
+    }
+    true
 }
