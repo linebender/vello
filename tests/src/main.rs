@@ -18,6 +18,7 @@
 
 mod clear;
 mod config;
+mod message_passing;
 mod prefix;
 mod prefix_tree;
 mod runner;
@@ -104,6 +105,20 @@ fn main() {
                 ));
             }
             report(&prefix_tree::run_prefix_test(&mut runner, &config));
+        }
+        if config.groups.matches("atomic") {
+            report(&message_passing::run_message_passing_test(
+                &mut runner,
+                &config,
+                message_passing::Variant::Atomic,
+            ));
+            if runner.session.gpu_info().has_memory_model {
+                report(&message_passing::run_message_passing_test(
+                    &mut runner,
+                    &config,
+                    message_passing::Variant::Vkmm,
+                ));
+            }
         }
     }
 }
