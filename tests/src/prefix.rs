@@ -14,9 +14,10 @@
 //
 // Also licensed under MIT license, at your choice.
 
-use piet_gpu_hal::{include_shader, BufferUsage, DescriptorSet};
+use piet_gpu_hal::{include_shader, BackendType, BindType, BufferUsage, DescriptorSet};
 use piet_gpu_hal::{Buffer, Pipeline};
 
+use crate::clear::{ClearBinding, ClearCode, ClearStage};
 use crate::config::Config;
 use crate::runner::{Commands, Runner};
 use crate::test_result::TestResult;
@@ -30,6 +31,7 @@ const ELEMENTS_PER_WG: u64 = WG_SIZE * N_ROWS;
 /// A code struct can be created once and reused any number of times.
 struct PrefixCode {
     pipeline: Pipeline,
+    clear_code: Option<ClearCode>,
 }
 
 /// The stage resources for the prefix sum example.
@@ -41,6 +43,7 @@ struct PrefixStage {
     // treat it as a capacity.
     n_elements: u64,
     state_buf: Buffer,
+    clear_stage: Option<(ClearStage, ClearBinding)>,
 }
 
 /// The binding for the prefix sum example.
@@ -50,7 +53,13 @@ struct PrefixBinding {
 
 pub unsafe fn run_prefix_test(runner: &mut Runner, config: &Config) -> TestResult {
     let mut result = TestResult::new("prefix sum, decoupled look-back");
-    // This will be configurable.
+    /*
+    // We're good if we're using DXC.
+    if runner.backend_type() == BackendType::Dx12 {
+        result.skip("Shader won't compile on FXC");
+        return result;
+    }
+    */
     let n_elements: u64 = config.size.choose(1 << 12, 1 << 24, 1 << 25);
     let data: Vec<u32> = (0..n_elements as u32).collect();
     let data_buf = runner
@@ -59,10 +68,9 @@ pub unsafe fn run_prefix_test(runner: &mut Runner, config: &Config) -> TestResul
         .unwrap();
     let out_buf = runner.buf_down(data_buf.size());
     let code = PrefixCode::new(runner);
-    let stage = PrefixStage::new(runner, n_elements);
+    let stage = PrefixStage::new(runner, &code, n_elements);
     let binding = stage.bind(runner, &code, &data_buf, &out_buf.dev_buf);
-    // Also will be configurable of course.
-    let n_iter = 1000;
+    let n_iter = config.n_iter;
     let mut total_elapsed = 0.0;
     for i in 0..n_iter {
         let mut commands = runner.commands();
@@ -91,23 +99,44 @@ impl PrefixCode {
         let code = include_shader!(&runner.session, "../shader/gen/prefix");
         let pipeline = runner
             .session
-            .create_simple_compute_pipeline(code, 3)
+            .create_compute_pipeline(
+                code,
+                &[BindType::BufReadOnly, BindType::Buffer, BindType::Buffer],
+            )
             .unwrap();
-        PrefixCode { pipeline }
+        // Currently, DX12 and Metal backends don't support buffer clearing, so use a
+        // compute shader as a workaround.
+        let clear_code = if runner.backend_type() != BackendType::Vulkan {
+            Some(ClearCode::new(runner))
+        } else {
+            None
+        };
+        PrefixCode {
+            pipeline,
+            clear_code,
+        }
     }
 }
 
 impl PrefixStage {
-    unsafe fn new(runner: &mut Runner, n_elements: u64) -> PrefixStage {
+    unsafe fn new(runner: &mut Runner, code: &PrefixCode, n_elements: u64) -> PrefixStage {
         let n_workgroups = (n_elements + ELEMENTS_PER_WG - 1) / ELEMENTS_PER_WG;
         let state_buf_size = 4 + 12 * n_workgroups;
         let state_buf = runner
             .session
             .create_buffer(state_buf_size, BufferUsage::STORAGE | BufferUsage::COPY_DST)
             .unwrap();
+        let clear_stage = if let Some(clear_code) = &code.clear_code {
+            let stage = ClearStage::new(runner, state_buf_size / 4);
+            let binding = stage.bind(runner, clear_code, &state_buf);
+            Some((stage, binding))
+        } else {
+            None
+        };
         PrefixStage {
             n_elements,
             state_buf,
+            clear_stage,
         }
     }
 
@@ -127,7 +156,11 @@ impl PrefixStage {
 
     unsafe fn record(&self, commands: &mut Commands, code: &PrefixCode, bindings: &PrefixBinding) {
         let n_workgroups = (self.n_elements + ELEMENTS_PER_WG - 1) / ELEMENTS_PER_WG;
-        commands.cmd_buf.clear_buffer(&self.state_buf, None);
+        if let Some((stage, binding)) = &self.clear_stage {
+            stage.record(commands, code.clear_code.as_ref().unwrap(), binding);
+        } else {
+            commands.cmd_buf.clear_buffer(&self.state_buf, None);
+        }
         commands.cmd_buf.memory_barrier();
         commands.cmd_buf.dispatch(
             &code.pipeline,

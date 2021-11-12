@@ -1,8 +1,8 @@
-use piet_gpu_hal::include_shader;
-use piet_gpu_hal::{BufferUsage, Instance, Session};
+use piet_gpu_hal::{include_shader, BindType};
+use piet_gpu_hal::{BufferUsage, Instance, InstanceFlags, Session};
 
 fn main() {
-    let (instance, _) = Instance::new(None).unwrap();
+    let (instance, _) = Instance::new(None, InstanceFlags::empty()).unwrap();
     unsafe {
         let device = instance.device(None).unwrap();
         let session = Session::new(device);
@@ -10,7 +10,9 @@ fn main() {
         let src = (0..256).map(|x| x + 1).collect::<Vec<u32>>();
         let buffer = session.create_buffer_init(&src, usage).unwrap();
         let code = include_shader!(&session, "./shader/gen/collatz");
-        let pipeline = session.create_simple_compute_pipeline(code, 1).unwrap();
+        let pipeline = session
+            .create_compute_pipeline(code, &[BindType::Buffer])
+            .unwrap();
         let descriptor_set = session
             .create_simple_descriptor_set(&pipeline, &[&buffer])
             .unwrap();

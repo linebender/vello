@@ -4,6 +4,11 @@
 
 glslang_validator = glslangValidator
 spirv_cross = spirv-cross
+dxc = dxc
+
+# See https://github.com/KhronosGroup/SPIRV-Cross/issues/1248 for
+# why we set this.
+msl_flags = --msl-decoration-binding
 
 rule glsl
   command = $glslang_validator $flags -V -o $out $in
@@ -11,22 +16,34 @@ rule glsl
 rule hlsl
   command = $spirv_cross --hlsl $in --output $out
 
+rule dxil
+  command = $dxc -T cs_6_0 $in -Fo $out
+
 rule msl
-  command = $spirv_cross --msl $in --output $out
+  command = $spirv_cross --msl $in --output $out $msl_flags
+
+build gen/clear.spv: glsl clear.comp
+build gen/clear.hlsl: hlsl gen/clear.spv
+build gen/clear.dxil: dxil gen/clear.hlsl
+build gen/clear.msl: msl gen/clear.spv
 
 build gen/prefix.spv: glsl prefix.comp
 build gen/prefix.hlsl: hlsl gen/prefix.spv
+build gen/prefix.dxil: dxil gen/prefix.hlsl
 build gen/prefix.msl: msl gen/prefix.spv
 
 build gen/prefix_reduce.spv: glsl prefix_reduce.comp
 build gen/prefix_reduce.hlsl: hlsl gen/prefix_reduce.spv
+build gen/prefix_reduce.dxil: dxil gen/prefix_reduce.hlsl
 build gen/prefix_reduce.msl: msl gen/prefix_reduce.spv
 
 build gen/prefix_root.spv: glsl prefix_scan.comp
   flags = -DROOT
 build gen/prefix_root.hlsl: hlsl gen/prefix_root.spv
+build gen/prefix_root.dxil: dxil gen/prefix_root.hlsl
 build gen/prefix_root.msl: msl gen/prefix_root.spv
 
 build gen/prefix_scan.spv: glsl prefix_scan.comp
 build gen/prefix_scan.hlsl: hlsl gen/prefix_scan.spv
+build gen/prefix_scan.dxil: dxil gen/prefix_scan.hlsl
 build gen/prefix_scan.msl: msl gen/prefix_scan.spv

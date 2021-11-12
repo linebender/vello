@@ -16,6 +16,7 @@
 
 //! Tests for piet-gpu shaders and GPU capabilities.
 
+mod clear;
 mod config;
 mod prefix;
 mod prefix_tree;
@@ -23,6 +24,7 @@ mod runner;
 mod test_result;
 
 use clap::{App, Arg};
+use piet_gpu_hal::InstanceFlags;
 
 use crate::config::Config;
 use crate::runner::Runner;
@@ -41,21 +43,26 @@ fn main() {
                 .short("g")
                 .long("groups")
                 .help("Groups to run")
-                .takes_value(true)
+                .takes_value(true),
         )
         .arg(
             Arg::with_name("size")
                 .short("s")
                 .long("size")
                 .help("Size of tests")
-                .takes_value(true)
+                .takes_value(true),
         )
         .arg(
             Arg::with_name("n_iter")
                 .short("n")
                 .long("n_iter")
                 .help("Number of iterations")
-                .takes_value(true)
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("dx12")
+                .long("dx12")
+                .help("Prefer DX12 backend"),
         )
         .get_matches();
     let style = if matches.is_present("verbose") {
@@ -68,7 +75,16 @@ fn main() {
         let report = |test_result: &TestResult| {
             test_result.report(style);
         };
-        let mut runner = Runner::new();
+        let mut flags = InstanceFlags::empty();
+        if matches.is_present("dx12") {
+            flags |= InstanceFlags::DX12;
+        }
+        let mut runner = Runner::new(flags);
+        if style == ReportStyle::Verbose {
+            // TODO: get adapter name in here too
+            println!("Backend: {:?}", runner.backend_type());
+        }
+        report(&clear::run_clear_test(&mut runner, &config));
         if config.groups.matches("prefix") {
             report(&prefix::run_prefix_test(&mut runner, &config));
             report(&prefix_tree::run_prefix_test(&mut runner, &config));

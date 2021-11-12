@@ -30,7 +30,7 @@ piet = "0.2.0"
 png = "0.16.2"
 rand = "0.7.3"
 roxmltree = "0.13"
-winit = "0.23"
+winit = "0.25"
 clap = "2.33"
 swash = "0.1.4"
 

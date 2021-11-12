@@ -38,7 +38,7 @@ fn main() -> Result<(), Error> {
         .with_resizable(false) // currently not supported
         .build(&event_loop)?;
 
-    let (instance, surface) = Instance::new(Some(&window))?;
+    let (instance, surface) = Instance::new(Some(&window), Default::default())?;
     let mut info_string = "info".to_string();
     unsafe {
         let device = instance.device(surface.as_ref())?;

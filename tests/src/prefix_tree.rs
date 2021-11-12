@@ -14,7 +14,7 @@
 //
 // Also licensed under MIT license, at your choice.
 
-use piet_gpu_hal::{include_shader, BufferUsage, DescriptorSet};
+use piet_gpu_hal::{include_shader, BindType, BufferUsage, DescriptorSet};
 use piet_gpu_hal::{Buffer, Pipeline};
 
 use crate::config::Config;
@@ -57,7 +57,7 @@ pub unsafe fn run_prefix_test(runner: &mut Runner, config: &Config) -> TestResul
     let stage = PrefixTreeStage::new(runner, n_elements);
     let binding = stage.bind(runner, &code, &out_buf.dev_buf);
     // Also will be configurable of course.
-    let n_iter = 1000;
+    let n_iter = config.n_iter;
     let mut total_elapsed = 0.0;
     for i in 0..n_iter {
         let mut commands = runner.commands();
@@ -88,17 +88,17 @@ impl PrefixTreeCode {
         let reduce_code = include_shader!(&runner.session, "../shader/gen/prefix_reduce");
         let reduce_pipeline = runner
             .session
-            .create_simple_compute_pipeline(reduce_code, 2)
+            .create_compute_pipeline(reduce_code, &[BindType::BufReadOnly, BindType::Buffer])
             .unwrap();
         let scan_code = include_shader!(&runner.session, "../shader/gen/prefix_scan");
         let scan_pipeline = runner
             .session
-            .create_simple_compute_pipeline(scan_code, 2)
+            .create_compute_pipeline(scan_code, &[BindType::Buffer, BindType::BufReadOnly])
             .unwrap();
         let root_code = include_shader!(&runner.session, "../shader/gen/prefix_root");
         let root_pipeline = runner
             .session
-            .create_simple_compute_pipeline(root_code, 1)
+            .create_compute_pipeline(root_code, &[BindType::Buffer])
             .unwrap();
         PrefixTreeCode {
             reduce_pipeline,

@@ -16,7 +16,7 @@
 
 //! The generic trait for backends to implement.
 
-use crate::{BufferUsage, Error, GpuInfo, ImageLayout, SamplerParams};
+use crate::{BindType, BufferUsage, Error, GpuInfo, ImageLayout, SamplerParams};
 
 pub trait Device: Sized {
     type Buffer: 'static;
@@ -27,7 +27,6 @@ pub trait Device: Sized {
     type CmdBuf: CmdBuf<Self>;
     type Fence;
     type Semaphore;
-    type PipelineBuilder: PipelineBuilder<Self>;
     type DescriptorSetBuilder: DescriptorSetBuilder<Self>;
     type Sampler;
     type ShaderSource: ?Sized;
@@ -60,32 +59,20 @@ pub trait Device: Sized {
     /// Maybe doesn't need result return?
     unsafe fn destroy_image(&self, image: &Self::Image) -> Result<(), Error>;
 
-    /// Start building a pipeline.
+    /// Build a compute pipeline.
     ///
     /// A pipeline is a bit of shader IR plus a signature for what kinds of resources
     /// it expects.
-    unsafe fn pipeline_builder(&self) -> Self::PipelineBuilder;
+    unsafe fn create_compute_pipeline(
+        &self,
+        code: &Self::ShaderSource,
+        bind_types: &[BindType],
+    ) -> Result<Self::Pipeline, Error>;
 
     /// Start building a descriptor set.
     ///
     /// A descriptor set is a binding of resources for a given pipeline.
     unsafe fn descriptor_set_builder(&self) -> Self::DescriptorSetBuilder;
-
-    /// Create a simple compute pipeline that operates on buffers and storage images.
-    ///
-    /// This is provided as a convenience but will probably go away, as the functionality
-    /// is subsumed by the builder.
-    unsafe fn create_simple_compute_pipeline(
-        &self,
-        code: &Self::ShaderSource,
-        n_buffers: u32,
-        n_images: u32,
-    ) -> Result<Self::Pipeline, Error> {
-        let mut builder = self.pipeline_builder();
-        builder.add_buffers(n_buffers);
-        builder.add_images(n_images);
-        builder.create_compute_pipeline(self, code)
-    }
 
     /// Create a descriptor set for a given pipeline, binding buffers and images.
     ///
@@ -234,21 +221,6 @@ pub trait CmdBuf<D: Device> {
     /// Prepare the timestamps for reading. This isn't required on Vulkan but
     /// is required on (at least) DX12.
     unsafe fn finish_timestamps(&mut self, _pool: &D::QueryPool) {}
-}
-
-/// A builder for pipelines with more complex layouts.
-pub trait PipelineBuilder<D: Device> {
-    /// Add buffers to the pipeline. Each has its own binding.
-    fn add_buffers(&mut self, n_buffers: u32);
-    /// Add storage images to the pipeline. Each has its own binding.
-    fn add_images(&mut self, n_images: u32);
-    /// Add a binding with a variable-size array of textures.
-    fn add_textures(&mut self, max_textures: u32);
-    unsafe fn create_compute_pipeline(
-        self,
-        device: &D,
-        code: &D::ShaderSource,
-    ) -> Result<D::Pipeline, Error>;
 }
 
 /// A builder for descriptor sets with more complex layouts.

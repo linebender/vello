@@ -85,9 +85,9 @@ kernel void main0(device DataBuf& _42 [[buffer(0)]], uint3 gl_GlobalInvocationID
     for (uint i_1 = 0u; i_1 < 9u; i_1++)
     {
         threadgroup_barrier(mem_flags::mem_threadgroup);
-        if (gl_LocalInvocationID.x >= uint(1 << int(i_1)))
+        if (gl_LocalInvocationID.x >= (1u << i_1))
         {
-            Monoid other = sh_scratch[gl_LocalInvocationID.x - uint(1 << int(i_1))];
+            Monoid other = sh_scratch[gl_LocalInvocationID.x - (1u << i_1)];
             Monoid param_2 = other;
             Monoid param_3 = agg;
             agg = combine_monoid(param_2, param_3);

@@ -21,6 +21,7 @@ use clap::ArgMatches;
 pub struct Config {
     pub groups: Groups,
     pub size: Size,
+    pub n_iter: u64,
 }
 
 pub struct Groups(String);
@@ -35,8 +36,14 @@ impl Config {
     pub fn from_matches(matches: &ArgMatches) -> Config {
         let groups = Groups::from_str(matches.value_of("groups").unwrap_or("all"));
         let size = Size::from_str(matches.value_of("size").unwrap_or("m"));
+        let n_iter = matches
+            .value_of("n_iter")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(1000);
         Config {
-            groups, size
+            groups,
+            size,
+            n_iter,
         }
     }
 }

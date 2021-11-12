@@ -11,9 +11,9 @@ use std::sync::{Arc, Mutex, Weak};
 
 use smallvec::SmallVec;
 
-use crate::mux;
+use crate::{mux, BackendType};
 
-use crate::{BufferUsage, Error, GpuInfo, ImageLayout, SamplerParams};
+use crate::{BindType, BufferUsage, Error, GpuInfo, ImageLayout, SamplerParams};
 
 pub use crate::mux::{DescriptorSet, Fence, Pipeline, QueryPool, Sampler, Semaphore, ShaderCode};
 
@@ -99,12 +99,6 @@ struct BufferInner {
     buffer: mux::Buffer,
     session: Weak<SessionInner>,
 }
-
-/// A builder for creating pipelines.
-///
-/// Configure the signature (buffers and images accessed) for a pipeline,
-/// which is essentially compiled shader code, ready to be dispatched.
-pub struct PipelineBuilder(mux::PipelineBuilder);
 
 /// A builder for creating descriptor sets.
 ///
@@ -316,26 +310,16 @@ impl Session {
         self.0.device.create_semaphore()
     }
 
-    /// This creates a pipeline that operates on some buffers and images.
-    ///
-    /// The descriptor set layout is just some number of storage buffers
-    /// and storage images (this might change).
-    pub unsafe fn create_simple_compute_pipeline<'a>(
-        &self,
-        code: ShaderCode<'a>,
-        n_buffers: u32,
-    ) -> Result<Pipeline, Error> {
-        self.pipeline_builder()
-            .add_buffers(n_buffers)
-            .create_compute_pipeline(self, code)
-    }
-
-    /// Start building a pipeline.
+    /// Create a compute shader pipeline.
     ///
     /// A pipeline is essentially a compiled shader, with more specific
     /// details about what resources may be bound to it.
-    pub unsafe fn pipeline_builder(&self) -> PipelineBuilder {
-        PipelineBuilder(self.0.device.pipeline_builder())
+    pub unsafe fn create_compute_pipeline<'a>(
+        &self,
+        code: ShaderCode<'a>,
+        bind_types: &[BindType],
+    ) -> Result<Pipeline, Error> {
+        self.0.device.create_compute_pipeline(code, bind_types)
     }
 
     /// Create a descriptor set for a simple pipeline that just references buffers.
@@ -385,8 +369,13 @@ impl Session {
     }
 
     /// Choose shader code from the available choices.
-    pub fn choose_shader<'a>(&self, spv: &'a [u8], hlsl: &'a str, msl: &'a str) -> ShaderCode<'a> {
-        self.0.device.choose_shader(spv, hlsl, msl)
+    pub fn choose_shader<'a>(&self, spv: &'a [u8], hlsl: &'a str, dxil: &'a [u8], msl: &'a str) -> ShaderCode<'a> {
+        self.0.device.choose_shader(spv, hlsl, dxil, msl)
+    }
+
+    /// Report the backend type that was chosen.
+    pub fn backend_type(&self) -> BackendType {
+        self.0.device.backend_type()
     }
 }
 
@@ -726,38 +715,6 @@ impl Buffer {
     /// This is at least as large as the value provided on creation.
     pub fn size(&self) -> u64 {
         self.0.buffer.size()
-    }
-}
-
-impl PipelineBuilder {
-    /// Add buffers to the pipeline. Each has its own binding.
-    pub fn add_buffers(mut self, n_buffers: u32) -> Self {
-        self.0.add_buffers(n_buffers);
-        self
-    }
-
-    /// Add storage images to the pipeline. Each has its own binding.
-    pub fn add_images(mut self, n_images: u32) -> Self {
-        self.0.add_images(n_images);
-        self
-    }
-
-    /// Add a binding with a variable-size array of textures.
-    pub fn add_textures(mut self, max_textures: u32) -> Self {
-        self.0.add_textures(max_textures);
-        self
-    }
-
-    /// Create the compute pipeline.
-    ///
-    /// The shader code must be given in an appropriate format for
-    /// the back-end. See [`Session::choose_shader`] for a helper.
-    pub unsafe fn create_compute_pipeline<'a>(
-        self,
-        session: &Session,
-        code: ShaderCode<'a>,
-    ) -> Result<Pipeline, Error> {
-        self.0.create_compute_pipeline(&session.0.device, code)
     }
 }
 

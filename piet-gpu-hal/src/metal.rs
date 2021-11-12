@@ -82,8 +82,6 @@ pub struct CmdBuf {
 
 pub struct QueryPool;
 
-pub struct PipelineBuilder;
-
 pub struct Pipeline(metal::ComputePipelineState);
 
 #[derive(Default)]
@@ -220,8 +218,6 @@ impl crate::backend::Device for MtlDevice {
 
     type Semaphore = Semaphore;
 
-    type PipelineBuilder = PipelineBuilder;
-
     type DescriptorSetBuilder = DescriptorSetBuilder;
 
     type Sampler = ();
@@ -273,8 +269,18 @@ impl crate::backend::Device for MtlDevice {
         todo!()
     }
 
-    unsafe fn pipeline_builder(&self) -> Self::PipelineBuilder {
-        PipelineBuilder
+    unsafe fn create_compute_pipeline(
+        &self,
+        code: &Self::ShaderSource,
+        _bind_types: &[crate::BindType],
+    ) -> Result<Self::Pipeline, Error> {
+        let options = metal::CompileOptions::new();
+        let library = self.device.new_library_with_source(code, &options)?;
+        let function = library.get_function("main0", None)?;
+        let pipeline = self
+            .device
+            .new_compute_pipeline_state_with_function(&function)?;
+        Ok(Pipeline(pipeline))
     }
 
     unsafe fn descriptor_set_builder(&self) -> Self::DescriptorSetBuilder {
@@ -549,33 +555,6 @@ impl crate::backend::CmdBuf<MtlDevice> for CmdBuf {
         // TODO
         // This really a PITA because it's pretty different than Vulkan.
         // See https://developer.apple.com/documentation/metal/counter_sampling
-    }
-}
-
-impl crate::backend::PipelineBuilder<MtlDevice> for PipelineBuilder {
-    fn add_buffers(&mut self, _n_buffers: u32) {
-        // My understanding is that Metal infers the pipeline layout from
-        // the source.
-    }
-
-    fn add_images(&mut self, _n_images: u32) {}
-
-    fn add_textures(&mut self, _max_textures: u32) {}
-
-    unsafe fn create_compute_pipeline(
-        self,
-        device: &MtlDevice,
-        code: &str,
-    ) -> Result<Pipeline, Error> {
-        let options = metal::CompileOptions::new();
-        // Probably want to set MSL version here.
-        let library = device.device.new_library_with_source(code, &options)?;
-        // This seems to be the default name from spirv-cross, but we may need to tweak.
-        let function = library.get_function("main0", None)?;
-        let pipeline = device
-            .device
-            .new_compute_pipeline_state_with_function(&function)?;
-        Ok(Pipeline(pipeline))
     }
 }
 

@@ -16,7 +16,10 @@
 
 //! Test runner intended to make it easy to write tests.
 
-use piet_gpu_hal::{Buffer, BufferUsage, CmdBuf, Instance, PlainData, QueryPool, Session};
+use piet_gpu_hal::{
+    BackendType, Buffer, BufferUsage, CmdBuf, Instance, InstanceFlags, PlainData, QueryPool,
+    Session,
+};
 
 pub struct Runner {
     #[allow(unused)]
@@ -45,8 +48,8 @@ pub struct BufDown {
 }
 
 impl Runner {
-    pub unsafe fn new() -> Runner {
-        let (instance, _) = Instance::new(None).unwrap();
+    pub unsafe fn new(flags: InstanceFlags) -> Runner {
+        let (instance, _) = Instance::new(None, flags).unwrap();
         let device = instance.device(None).unwrap();
         let session = Session::new(device);
         let cmd_buf_pool = Vec::new();
@@ -82,7 +85,7 @@ impl Runner {
         let submitted = self.session.run_cmd_buf(cmd_buf, &[], &[]).unwrap();
         self.cmd_buf_pool.extend(submitted.wait().unwrap());
         let timestamps = self.session.fetch_query_pool(&query_pool).unwrap();
-        timestamps[0]
+        timestamps.get(0).copied().unwrap_or_default()
     }
 
     #[allow(unused)]
@@ -113,6 +116,10 @@ impl Runner {
             )
             .unwrap();
         BufDown { stage_buf, dev_buf }
+    }
+
+    pub fn backend_type(&self) -> BackendType {
+        self.session.backend_type()
     }
 }
 

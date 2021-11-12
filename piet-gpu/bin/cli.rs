@@ -226,7 +226,7 @@ fn main() -> Result<(), Error> {
                 .takes_value(true),
         )
         .get_matches();
-    let (instance, _) = Instance::new(None)?;
+    let (instance, _) = Instance::new(None, Default::default())?;
     unsafe {
         let device = instance.device(None)?;
         let session = Session::new(device);
