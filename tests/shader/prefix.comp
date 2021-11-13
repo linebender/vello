@@ -99,9 +99,9 @@ void main() {
 
     // Publish aggregate for this partition
     if (gl_LocalInvocationID.x == WG_SIZE - 1) {
-        state[part_ix].aggregate = agg;
+        atomicStore(state[part_ix].aggregate.element, agg.element, gl_ScopeDevice, 0, 0);
         if (part_ix == 0) {
-            state[0].prefix = agg;
+            atomicStore(state[0].prefix.element, agg.element, gl_ScopeDevice, 0, 0);
         }
     }
     // Write flag with release semantics; this is done portably with a barrier.
@@ -147,13 +147,13 @@ void main() {
 
             if (flag == FLAG_PREFIX_READY) {
                 if (gl_LocalInvocationID.x == WG_SIZE - 1) {
-                    Monoid their_prefix = state[look_back_ix].prefix;
+                    Monoid their_prefix = Monoid(atomicLoad(state[look_back_ix].prefix.element, gl_ScopeDevice, 0, 0));
                     exclusive = combine_monoid(their_prefix, exclusive);
                 }
                 break;
             } else if (flag == FLAG_AGGREGATE_READY) {
                 if (gl_LocalInvocationID.x == WG_SIZE - 1) {
-                    their_agg = state[look_back_ix].aggregate;
+                    their_agg.element = atomicLoad(state[look_back_ix].aggregate.element, gl_ScopeDevice, 0, 0);
                     exclusive = combine_monoid(their_agg, exclusive);
                 }
                 look_back_ix--;
@@ -193,7 +193,7 @@ void main() {
         if (gl_LocalInvocationID.x == WG_SIZE - 1) {
             Monoid inclusive_prefix = combine_monoid(exclusive, agg);
             sh_prefix = exclusive;
-            state[part_ix].prefix = inclusive_prefix;
+            atomicStore(state[part_ix].prefix.element, inclusive_prefix.element, gl_ScopeDevice, 0, 0);
         }
 #ifndef VKMM
         memoryBarrierBuffer();

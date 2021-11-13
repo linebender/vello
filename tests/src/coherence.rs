@@ -72,7 +72,13 @@ pub unsafe fn run_coherence_test(
             commands.cmd_buf.memory_barrier();
             commands.download(&out_buf);
         }
-        total_elapsed += runner.submit(commands);
+        let start_clock = std::time::Instant::now();
+        let mut elapsed = runner.submit(commands);
+        // Work around lack of timer queries on Metal
+        if runner.backend_type() == BackendType::Metal {
+            elapsed = start_clock.elapsed().as_secs_f64();
+        }
+        total_elapsed += elapsed;
         if i == 0 {
             let mut dst: Vec<u32> = Default::default();
             out_buf.read(&mut dst);

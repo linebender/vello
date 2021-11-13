@@ -6,7 +6,7 @@ struct Element
 
 static const uint3 gl_WorkGroupSize = uint3(256u, 1u, 1u);
 
-RWByteAddressBuffer data_buf : register(u0);
+globallycoherent RWByteAddressBuffer data_buf : register(u0);
 RWByteAddressBuffer control_buf : register(u1);
 
 static uint3 gl_GlobalInvocationID;
@@ -22,13 +22,12 @@ uint permute_flag_ix(uint data_ix)
 
 void comp_main()
 {
-    uint _76;
-    data_buf.InterlockedExchange(gl_GlobalInvocationID.x * 8 + 0, 1u, _76);
+    data_buf.Store(gl_GlobalInvocationID.x * 8 + 0, 1u);
     DeviceMemoryBarrier();
     uint param = gl_GlobalInvocationID.x;
     uint write_flag_ix = permute_flag_ix(param);
-    uint _77;
-    data_buf.InterlockedExchange(write_flag_ix * 8 + 4, 1u, _77);
+    uint _76;
+    data_buf.InterlockedExchange(write_flag_ix * 8 + 4, 1u, _76);
     uint read_ix = (gl_GlobalInvocationID.x * 4099u) & 65535u;
     uint param_1 = read_ix;
     uint read_flag_ix = permute_flag_ix(param_1);
@@ -36,9 +35,7 @@ void comp_main()
     data_buf.InterlockedAdd(read_flag_ix * 8 + 4, 0, _58);
     uint flag = _58;
     DeviceMemoryBarrier();
-    uint _62;
-    data_buf.InterlockedAdd(read_ix * 8 + 0, 0, _62);
-    uint data = _62;
+    uint data = data_buf.Load(read_ix * 8 + 0);
     if (flag > data)
     {
         uint _73;

@@ -23,7 +23,7 @@ struct Element
     uint flag;
 };
 
-layout(binding = 0) buffer DataBuf
+layout(binding = 0) coherent buffer DataBuf
 {
     Element data[];
 } data_buf;
@@ -40,7 +40,7 @@ uint permute_flag_ix(uint data_ix)
 
 void main()
 {
-    atomicStore(data_buf.data[gl_GlobalInvocationID.x].data, 1u, gl_ScopeDevice, 0, 0);
+    data_buf.data[gl_GlobalInvocationID.x].data = 1u;
 #ifndef VKMM
     memoryBarrierBuffer();
 #endif
@@ -52,7 +52,7 @@ void main()
 #ifndef VKMM
     memoryBarrierBuffer();
 #endif
-    uint data = atomicLoad(data_buf.data[read_ix].data, gl_ScopeDevice, 0, 0);
+    uint data = data_buf.data[read_ix].data;
     if (flag > data)
     {
         atomicAdd(control_buf.failures, 1u);
