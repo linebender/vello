@@ -70,3 +70,14 @@ build gen/linkedlist.spv: glsl linkedlist.comp
 build gen/linkedlist.hlsl: hlsl gen/linkedlist.spv
 build gen/linkedlist.dxil: dxil gen/linkedlist.hlsl
 build gen/linkedlist.msl: msl gen/linkedlist.spv
+
+build gen/coherence.spv: glsl coherence.comp
+build gen/coherence.hlsl: hlsl gen/coherence.spv
+build gen/coherence.dxil: dxil gen/coherence.hlsl
+build gen/coherence.msl: msl gen/coherence.spv
+
+build gen/coherence_rmw.spv: glsl coherence.comp
+  flags = -DRMW
+build gen/coherence_rmw.hlsl: hlsl gen/coherence_rmw.spv
+build gen/coherence_rmw.dxil: dxil gen/coherence_rmw.hlsl
+build gen/coherence_rmw.msl: msl gen/coherence_rmw.spv

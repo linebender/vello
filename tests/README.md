@@ -39,6 +39,12 @@ The message passing tests basically do bunch of the basic message passing operat
 
 The linked list test is mostly a bandwidth test of atomicExchange, and is a simplified version of what the coarse path rasterizer does in piet-gpu to build per-tile lists of path segments. The verification of the resulting lists is also a pretty good test of device scoped modification order (not that this is likely to fail).
 
+### Coherence test
+
+This one is currently in pretty rough form, but it might be measuring something interesting. There's a global clock that gets incremented when anything happens. Each thread has a value it continuously monitors. Each iteration, a thread with 1/256 probability picks another thread, ticking the clock and storing a timestamp in another thread's slot. It does either an atomic read or a read-modify-write (or with 0) to read its own value, and checks to see whether it's changed. If so, it ticks the clock and records the difference between the two timestamps.
+
+The resolution of the clock is estimated as the gpu elapsed time (measured by timer queries) divided by the number of ticks. Currently the analysis of the recorded values is very simplistic, just the mean, but that still shows interesting differences.
+
 ## More tests
 
 I'll be adding more tests specific to piet-gpu. I'm also open to tests being added here, feel free to file an issue.

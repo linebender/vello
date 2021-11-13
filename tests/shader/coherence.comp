@@ -1,0 +1,63 @@
+// SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
+
+// Test coherence of relaxed atomic load/store.
+
+#version 450
+
+#extension GL_KHR_memory_scope_semantics : enable
+
+layout(local_size_x = 256) in;
+
+layout(binding = 0) buffer MainBuf {
+    uint clock;
+    uint[] data;
+};
+
+layout(binding = 1) buffer OutBuf {
+    uint[] out_buf;
+};
+
+#define OUT_BUF_SIZE 256
+#define N_BUCKETS 65536
+#define N_ITER 4096
+
+void main() {
+    uint ix = gl_GlobalInvocationID.x;
+    uint now = atomicAdd(clock, 1u);
+    out_buf[ix * OUT_BUF_SIZE] = now;
+    uint last_val = atomicLoad(data[ix], gl_ScopeDevice, 0, 0);
+    uint out_ix = 1;
+    uint rng = gl_GlobalInvocationID.x + 1;
+    for (uint i = 0; i < N_ITER; i++) {
+#ifdef RMW
+        uint new_val = atomicOr(data[ix], 0);
+#else
+        uint new_val = atomicLoad(data[ix], gl_ScopeDevice, 0, 0);
+#endif
+        if (new_val != last_val) {
+            // Somebody wrote a timestamp into our bucket.
+            last_val = new_val;
+            now = atomicAdd(clock, 1u);
+            // Consider: gather stats rather than recording time series.
+            if (out_ix < OUT_BUF_SIZE - 1) {
+                out_buf[ix * OUT_BUF_SIZE + out_ix] = (now - new_val);
+                out_ix++;
+            }
+        }
+        // xorshift32
+        rng ^= rng << 13;
+        rng ^= rng >> 17;
+        rng ^= rng << 5;
+        if (rng < 0x1000000) {
+            // Randomly write a timestamp into another bucket.
+            now = atomicAdd(clock, 1u);
+            uint target = rng % N_BUCKETS;
+            atomicExchange(data[target], now, gl_ScopeDevice, 0, 0);
+        }
+    }
+    now = atomicAdd(clock, 1u);
+    out_buf[ix * OUT_BUF_SIZE + out_ix] = now;
+    if (out_ix < OUT_BUF_SIZE - 1) {
+        out_buf[ix * OUT_BUF_SIZE + out_ix + 1] = ~0u;
+    }
+}

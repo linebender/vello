@@ -29,6 +29,7 @@ pub enum Status {
     Fail(String),
     #[allow(unused)]
     Skipped(String),
+    Info(String),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -52,6 +53,7 @@ impl TestResult {
             Status::Pass => "pass".into(),
             Status::Fail(s) => format!("fail ({})", s),
             Status::Skipped(s) => format!("skipped ({})", s),
+            Status::Info(s) => s.clone(),
         };
         match style {
             ReportStyle::Short => {
@@ -90,13 +92,17 @@ impl TestResult {
         self.status = Status::Skipped(explanation.into());
     }
 
+    pub fn info(&mut self, info: String) {
+        self.status = Status::Info(info);
+    }
+
     pub fn timing(&mut self, total_time: f64, n_elements: u64) {
         self.total_time = total_time;
         self.n_elements = n_elements;
     }
 }
 
-fn format_nice(x: f64, precision: usize) -> String {
+pub fn format_nice(x: f64, precision: usize) -> String {
     // Precision should probably scale; later
     let (scale, suffix) = if x >= 1e12 && x < 1e15 {
         (1e-12, "T")

@@ -1,0 +1,66 @@
+#pragma clang diagnostic ignored "-Wunused-variable"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+#include <metal_atomic>
+
+using namespace metal;
+
+struct MainBuf
+{
+    uint clock;
+    uint data[1];
+};
+
+struct OutBuf
+{
+    uint out_buf[1];
+};
+
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(256u, 1u, 1u);
+
+kernel void main0(device MainBuf& _20 [[buffer(0)]], device OutBuf& _30 [[buffer(1)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+{
+    uint ix = gl_GlobalInvocationID.x;
+    uint _26 = atomic_fetch_add_explicit((device atomic_uint*)&_20.clock, 1u, memory_order_relaxed);
+    uint now = _26;
+    _30.out_buf[ix * 256u] = now;
+    uint _40 = atomic_load_explicit((device atomic_uint*)&_20.data[ix], memory_order_relaxed);
+    uint last_val = _40;
+    uint out_ix = 1u;
+    uint rng = gl_GlobalInvocationID.x + 1u;
+    for (uint i = 0u; i < 4096u; i++)
+    {
+        uint _59 = atomic_load_explicit((device atomic_uint*)&_20.data[ix], memory_order_relaxed);
+        uint new_val = _59;
+        if (new_val != last_val)
+        {
+            last_val = new_val;
+            uint _67 = atomic_fetch_add_explicit((device atomic_uint*)&_20.clock, 1u, memory_order_relaxed);
+            now = _67;
+            if (out_ix < 255u)
+            {
+                _30.out_buf[(ix * 256u) + out_ix] = now - new_val;
+                out_ix++;
+            }
+        }
+        rng ^= (rng << uint(13));
+        rng ^= (rng >> uint(17));
+        rng ^= (rng << uint(5));
+        if (rng < 16777216u)
+        {
+            uint _104 = atomic_fetch_add_explicit((device atomic_uint*)&_20.clock, 1u, memory_order_relaxed);
+            now = _104;
+            uint target = rng % 65536u;
+            uint _112 = atomic_exchange_explicit((device atomic_uint*)&_20.data[target], now, memory_order_relaxed);
+        }
+    }
+    uint _116 = atomic_fetch_add_explicit((device atomic_uint*)&_20.clock, 1u, memory_order_relaxed);
+    now = _116;
+    _30.out_buf[(ix * 256u) + out_ix] = now;
+    if (out_ix < 255u)
+    {
+        _30.out_buf[((ix * 256u) + out_ix) + 1u] = 4294967295u;
+    }
+}
+

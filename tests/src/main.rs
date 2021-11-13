@@ -17,6 +17,7 @@
 //! Tests for piet-gpu shaders and GPU capabilities.
 
 mod clear;
+mod coherence;
 mod config;
 mod linkedlist;
 mod message_passing;
@@ -122,6 +123,16 @@ fn main() {
                 ));
             }
             report(&linkedlist::run_linkedlist_test(&mut runner, &config));
+            report(&coherence::run_coherence_test(
+                &mut runner,
+                &config,
+                coherence::Variant::Load,
+            ));
+            report(&coherence::run_coherence_test(
+                &mut runner,
+                &config,
+                coherence::Variant::Rmw,
+            ));
         }
     }
 }
