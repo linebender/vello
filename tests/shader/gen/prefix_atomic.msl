@@ -87,7 +87,7 @@ Monoid combine_monoid(thread const Monoid& a, thread const Monoid& b)
     return Monoid{ a.element + b.element };
 }
 
-kernel void main0(const device InBuf& _67 [[buffer(0)]], device OutBuf& _367 [[buffer(1)]], volatile device StateBuf& _43 [[buffer(2)]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
+kernel void main0(const device InBuf& _67 [[buffer(0)]], device OutBuf& _372 [[buffer(1)]], volatile device StateBuf& _43 [[buffer(2)]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
 {
     threadgroup uint sh_part_ix;
     threadgroup Monoid sh_scratch[512];
@@ -127,10 +127,10 @@ kernel void main0(const device InBuf& _67 [[buffer(0)]], device OutBuf& _367 [[b
     }
     if (gl_LocalInvocationID.x == 511u)
     {
-        atomic_store_explicit((volatile device atomic_uint*)&_43.state[part_ix].aggregate.element, agg.element, memory_order_relaxed);
+        _43.state[part_ix].aggregate.element = agg.element;
         if (part_ix == 0u)
         {
-            atomic_store_explicit((volatile device atomic_uint*)&_43.state[0].prefix.element, agg.element, memory_order_relaxed);
+            _43.state[0].prefix.element = agg.element;
         }
     }
     threadgroup_barrier(mem_flags::mem_device);
@@ -148,14 +148,15 @@ kernel void main0(const device InBuf& _67 [[buffer(0)]], device OutBuf& _367 [[b
     {
         uint look_back_ix = part_ix - 1u;
         uint their_ix = 0u;
+        Monoid their_prefix;
         Monoid their_agg;
         Monoid m;
         while (true)
         {
             if (gl_LocalInvocationID.x == 511u)
             {
-                uint _206 = atomic_load_explicit((volatile device atomic_uint*)&_43.state[look_back_ix].flag, memory_order_relaxed);
-                sh_flag = _206;
+                uint _208 = atomic_load_explicit((volatile device atomic_uint*)&_43.state[look_back_ix].flag, memory_order_relaxed);
+                sh_flag = _208;
             }
             threadgroup_barrier(mem_flags::mem_threadgroup);
             threadgroup_barrier(mem_flags::mem_device);
@@ -164,8 +165,7 @@ kernel void main0(const device InBuf& _67 [[buffer(0)]], device OutBuf& _367 [[b
             {
                 if (gl_LocalInvocationID.x == 511u)
                 {
-                    uint _221 = atomic_load_explicit((volatile device atomic_uint*)&_43.state[look_back_ix].prefix.element, memory_order_relaxed);
-                    Monoid their_prefix = Monoid{ _221 };
+                    their_prefix.element = _43.state[look_back_ix].prefix.element;
                     Monoid param_4 = their_prefix;
                     Monoid param_5 = exclusive;
                     exclusive = combine_monoid(param_4, param_5);
@@ -178,8 +178,7 @@ kernel void main0(const device InBuf& _67 [[buffer(0)]], device OutBuf& _367 [[b
                 {
                     if (gl_LocalInvocationID.x == 511u)
                     {
-                        uint _242 = atomic_load_explicit((volatile device atomic_uint*)&_43.state[look_back_ix].aggregate.element, memory_order_relaxed);
-                        their_agg.element = _242;
+                        their_agg.element = _43.state[look_back_ix].aggregate.element;
                         Monoid param_6 = their_agg;
                         Monoid param_7 = exclusive;
                         exclusive = combine_monoid(param_6, param_7);
@@ -232,7 +231,7 @@ kernel void main0(const device InBuf& _67 [[buffer(0)]], device OutBuf& _367 [[b
             Monoid param_13 = agg;
             Monoid inclusive_prefix = combine_monoid(param_12, param_13);
             sh_prefix = exclusive;
-            atomic_store_explicit((volatile device atomic_uint*)&_43.state[part_ix].prefix.element, inclusive_prefix.element, memory_order_relaxed);
+            _43.state[part_ix].prefix.element = inclusive_prefix.element;
         }
         threadgroup_barrier(mem_flags::mem_device);
         if (gl_LocalInvocationID.x == 511u)
@@ -258,7 +257,7 @@ kernel void main0(const device InBuf& _67 [[buffer(0)]], device OutBuf& _367 [[b
         Monoid param_16 = row;
         Monoid param_17 = local[i_2];
         Monoid m_1 = combine_monoid(param_16, param_17);
-        _367.outbuf[ix + i_2].element = m_1.element;
+        _372.outbuf[ix + i_2].element = m_1.element;
     }
 }
 
