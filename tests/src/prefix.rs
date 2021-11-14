@@ -14,7 +14,7 @@
 //
 // Also licensed under MIT license, at your choice.
 
-use piet_gpu_hal::{include_shader, BackendType, BindType, BufferUsage, DescriptorSet};
+use piet_gpu_hal::{include_shader, BackendType, BindType, BufferUsage, DescriptorSet, ShaderCode};
 use piet_gpu_hal::{Buffer, Pipeline};
 
 use crate::clear::{ClearBinding, ClearCode, ClearStage};
@@ -51,8 +51,19 @@ struct PrefixBinding {
     descriptor_set: DescriptorSet,
 }
 
-pub unsafe fn run_prefix_test(runner: &mut Runner, config: &Config) -> TestResult {
-    let mut result = TestResult::new("prefix sum, decoupled look-back");
+#[derive(Debug)]
+pub enum Variant {
+    Compatibility,
+    Atomic,
+    Vkmm,
+}
+
+pub unsafe fn run_prefix_test(
+    runner: &mut Runner,
+    config: &Config,
+    variant: Variant,
+) -> TestResult {
+    let mut result = TestResult::new(format!("prefix sum, decoupled look-back, {:?}", variant));
     /*
     // We're good if we're using DXC.
     if runner.backend_type() == BackendType::Dx12 {
@@ -67,7 +78,7 @@ pub unsafe fn run_prefix_test(runner: &mut Runner, config: &Config) -> TestResul
         .create_buffer_init(&data, BufferUsage::STORAGE)
         .unwrap();
     let out_buf = runner.buf_down(data_buf.size());
-    let code = PrefixCode::new(runner);
+    let code = PrefixCode::new(runner, variant);
     let stage = PrefixStage::new(runner, &code, n_elements);
     let binding = stage.bind(runner, &code, &data_buf, &out_buf.dev_buf);
     let n_iter = config.n_iter;
@@ -95,8 +106,12 @@ pub unsafe fn run_prefix_test(runner: &mut Runner, config: &Config) -> TestResul
 }
 
 impl PrefixCode {
-    unsafe fn new(runner: &mut Runner) -> PrefixCode {
-        let code = include_shader!(&runner.session, "../shader/gen/prefix");
+    unsafe fn new(runner: &mut Runner, variant: Variant) -> PrefixCode {
+        let code = match variant {
+            Variant::Compatibility => include_shader!(&runner.session, "../shader/gen/prefix"),
+            Variant::Atomic => include_shader!(&runner.session, "../shader/gen/prefix_atomic"),
+            Variant::Vkmm => ShaderCode::Spv(include_bytes!("../shader/gen/prefix_vkmm.spv")),
+        };
         let pipeline = runner
             .session
             .create_compute_pipeline(

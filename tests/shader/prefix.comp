@@ -1,8 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
 
 // A prefix sum.
+//
+// This test builds in three configurations. The default is a
+// compatibility mode, essentially plain GLSL. With ATOMIC set, the
+// flag loads and stores are atomic operations, but uses barriers.
+// With both ATOMIC and VKMM set, it uses acquire/release semantics
+// instead of barriers.
 
 #version 450
+
+#extension GL_KHR_memory_scope_semantics : enable
+
+#ifdef VKMM
+#pragma use_vulkan_memory_model
+#define ACQUIRE gl_StorageSemanticsBuffer, gl_SemanticsAcquire
+#define RELEASE gl_StorageSemanticsBuffer, gl_SemanticsRelease
+#else
+#define ACQUIRE 0, 0
+#define RELEASE 0, 0
+#endif
 
 #define N_ROWS 16
 #define LG_WG_SIZE 9
@@ -24,9 +41,9 @@ layout(set = 0, binding = 1) buffer OutBuf {
 };
 
 // These correspond to X, A, P respectively in the prefix sum paper.
-#define FLAG_NOT_READY 0
-#define FLAG_AGGREGATE_READY 1
-#define FLAG_PREFIX_READY 2
+#define FLAG_NOT_READY 0u
+#define FLAG_AGGREGATE_READY 1u
+#define FLAG_PREFIX_READY 2u
 
 struct State {
     uint flag;
@@ -34,6 +51,7 @@ struct State {
     Monoid prefix;
 };
 
+// Perhaps this should be "nonprivate" with VKMM
 layout(set = 0, binding = 2) volatile buffer StateBuf {
     uint part_counter;
     State[] state;
@@ -87,13 +105,19 @@ void main() {
         }
     }
     // Write flag with release semantics; this is done portably with a barrier.
+#ifndef VKMM
     memoryBarrierBuffer();
+#endif
     if (gl_LocalInvocationID.x == WG_SIZE - 1) {
         uint flag = FLAG_AGGREGATE_READY;
         if (part_ix == 0) {
             flag = FLAG_PREFIX_READY;
         }
+#ifdef ATOMIC
+        atomicStore(state[part_ix].flag, flag, gl_ScopeDevice, RELEASE);
+#else
         state[part_ix].flag = flag;
+#endif
     }
 
     Monoid exclusive = Monoid(0);
@@ -106,13 +130,19 @@ void main() {
         while (true) {
             // Read flag with acquire semantics.
             if (gl_LocalInvocationID.x == WG_SIZE - 1) {
+#ifdef ATOMIC
+                sh_flag = atomicLoad(state[look_back_ix].flag, gl_ScopeDevice, ACQUIRE);
+#else
                 sh_flag = state[look_back_ix].flag;
+#endif
             }
             // The flag load is done only in the last thread. However, because the
             // translation of memoryBarrierBuffer to Metal requires uniform control
             // flow, we broadcast it to all threads.
             barrier();
+#ifndef VKMM
             memoryBarrierBuffer();
+#endif
             uint flag = sh_flag;
 
             if (flag == FLAG_PREFIX_READY) {
@@ -165,9 +195,15 @@ void main() {
             sh_prefix = exclusive;
             state[part_ix].prefix = inclusive_prefix;
         }
+#ifndef VKMM
         memoryBarrierBuffer();
+#endif
         if (gl_LocalInvocationID.x == WG_SIZE - 1) {
+#ifdef ATOMIC
+            atomicStore(state[part_ix].flag, FLAG_PREFIX_READY, gl_ScopeDevice, RELEASE);
+#else
             state[part_ix].flag = FLAG_PREFIX_READY;
+#endif
         }
     }
     barrier();

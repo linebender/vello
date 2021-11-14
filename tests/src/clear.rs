@@ -74,7 +74,7 @@ pub unsafe fn run_clear_test(runner: &mut Runner, config: &Config) -> TestResult
 
 impl ClearCode {
     pub unsafe fn new(runner: &mut Runner) -> ClearCode {
-        let code = include_shader!(&runner.session, "../shader/gen/Clear");
+        let code = include_shader!(&runner.session, "../shader/gen/clear");
         let pipeline = runner
             .session
             .create_compute_pipeline(code, &[BindType::BufReadOnly, BindType::Buffer])

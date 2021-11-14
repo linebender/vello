@@ -1,0 +1,31 @@
+// SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
+
+// Linked list building.
+
+#version 450
+
+#define N_BUCKETS 65536
+#define N_ITER 100
+
+layout(local_size_x = 256, local_size_y = 1) in;
+
+layout(set = 0, binding = 0) buffer MemBuf {
+    uint[] mem;
+};
+
+void main() {
+    uint rng = gl_GlobalInvocationID.x + 1;
+    for (uint i = 0; i < N_ITER; i++) {
+        // xorshift32
+        rng ^= rng << 13;
+        rng ^= rng >> 17;
+        rng ^= rng << 5;
+        uint bucket = rng % N_BUCKETS;
+        if (bucket != 0) {
+            uint alloc = atomicAdd(mem[0], 2) + N_BUCKETS;
+            uint old = atomicExchange(mem[bucket], alloc);
+            mem[alloc] = old;
+            mem[alloc + 1] = gl_GlobalInvocationID.x;
+        }
+    }
+}

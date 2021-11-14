@@ -18,6 +18,8 @@
 
 mod clear;
 mod config;
+mod linkedlist;
+mod message_passing;
 mod prefix;
 mod prefix_tree;
 mod runner;
@@ -27,8 +29,9 @@ use clap::{App, Arg};
 use piet_gpu_hal::InstanceFlags;
 
 use crate::config::Config;
-use crate::runner::Runner;
-use crate::test_result::{ReportStyle, TestResult};
+pub use crate::runner::Runner;
+use crate::test_result::ReportStyle;
+pub use crate::test_result::TestResult;
 
 fn main() {
     let matches = App::new("piet-gpu-tests")
@@ -86,8 +89,39 @@ fn main() {
         }
         report(&clear::run_clear_test(&mut runner, &config));
         if config.groups.matches("prefix") {
-            report(&prefix::run_prefix_test(&mut runner, &config));
+            report(&prefix::run_prefix_test(
+                &mut runner,
+                &config,
+                prefix::Variant::Compatibility,
+            ));
+            report(&prefix::run_prefix_test(
+                &mut runner,
+                &config,
+                prefix::Variant::Atomic,
+            ));
+            if runner.session.gpu_info().has_memory_model {
+                report(&prefix::run_prefix_test(
+                    &mut runner,
+                    &config,
+                    prefix::Variant::Vkmm,
+                ));
+            }
             report(&prefix_tree::run_prefix_test(&mut runner, &config));
+        }
+        if config.groups.matches("atomic") {
+            report(&message_passing::run_message_passing_test(
+                &mut runner,
+                &config,
+                message_passing::Variant::Atomic,
+            ));
+            if runner.session.gpu_info().has_memory_model {
+                report(&message_passing::run_message_passing_test(
+                    &mut runner,
+                    &config,
+                    message_passing::Variant::Vkmm,
+                ));
+            }
+            report(&linkedlist::run_linkedlist_test(&mut runner, &config));
         }
     }
 }
