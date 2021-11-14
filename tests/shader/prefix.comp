@@ -144,6 +144,7 @@ void main() {
             memoryBarrierBuffer();
 #endif
             uint flag = sh_flag;
+            barrier();
 
             if (flag == FLAG_PREFIX_READY) {
                 if (gl_LocalInvocationID.x == WG_SIZE - 1) {
@@ -185,6 +186,7 @@ void main() {
             }
             barrier();
             flag = sh_flag;
+            barrier();
             if (flag == FLAG_PREFIX_READY) {
                 break;
             }
