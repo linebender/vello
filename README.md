@@ -50,6 +50,6 @@ Contributions are welcome by pull request. The [Rust code of conduct] applies.
 [SPIRV-Cross]: https://github.com/KhronosGroup/SPIRV-Cross
 [Shader Model 6]: https://docs.microsoft.com/en-us/windows/win32/direct3dhlsl/hlsl-shader-model-6-0-features-for-direct3d-12
 [DXC]: https://github.com/microsoft/DirectXShaderCompiler
-[Druid]: https://github.com/xi-editor/druid
+[Druid]: https://github.com/linebender/druid
 [Unlicense]: https://unlicense.org/
 [Rust code of conduct]: https://www.rust-lang.org/policies/code-of-conduct
