@@ -161,6 +161,7 @@ kernel void main0(const device InBuf& _67 [[buffer(0)]], device OutBuf& _372 [[b
             threadgroup_barrier(mem_flags::mem_threadgroup);
             threadgroup_barrier(mem_flags::mem_device);
             uint flag_1 = sh_flag;
+            threadgroup_barrier(mem_flags::mem_threadgroup);
             if (flag_1 == 2u)
             {
                 if (gl_LocalInvocationID.x == 511u)
@@ -220,6 +221,7 @@ kernel void main0(const device InBuf& _67 [[buffer(0)]], device OutBuf& _372 [[b
             }
             threadgroup_barrier(mem_flags::mem_threadgroup);
             flag_1 = sh_flag;
+            threadgroup_barrier(mem_flags::mem_threadgroup);
             if (flag_1 == 2u)
             {
                 break;

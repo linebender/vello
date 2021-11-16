@@ -248,9 +248,10 @@ void main() {
             // The flag load is done only in the last thread. However, because the
             // translation of memoryBarrierBuffer to Metal requires uniform control
             // flow, we broadcast it to all threads.
-            barrier();
             memoryBarrierBuffer();
+            barrier();
             uint flag = sh_flag;
+            barrier();
 
             if (flag == FLAG_PREFIX_READY) {
                 if (gl_LocalInvocationID.x == WG_SIZE - 1) {
@@ -293,6 +294,7 @@ void main() {
             }
             barrier();
             flag = sh_flag;
+            barrier();
             if (flag == FLAG_PREFIX_READY) {
                 break;
             }

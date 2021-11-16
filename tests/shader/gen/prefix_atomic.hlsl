@@ -112,6 +112,7 @@ void comp_main()
             GroupMemoryBarrierWithGroupSync();
             DeviceMemoryBarrier();
             uint flag_1 = sh_flag;
+            GroupMemoryBarrierWithGroupSync();
             if (flag_1 == 2u)
             {
                 if (gl_LocalInvocationID.x == 511u)
@@ -177,6 +178,7 @@ void comp_main()
             }
             GroupMemoryBarrierWithGroupSync();
             flag_1 = sh_flag;
+            GroupMemoryBarrierWithGroupSync();
             if (flag_1 == 2u)
             {
                 break;
