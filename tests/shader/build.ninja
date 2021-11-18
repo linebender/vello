@@ -66,6 +66,12 @@ build gen/message_passing.msl: msl gen/message_passing.spv
 build gen/message_passing_vkmm.spv: glsl message_passing.comp
   flags = -DVKMM
 
+build gen/corr4.spv: glsl corr4.comp
+  flags = -DVKMM
+build gen/corr4.hlsl: hlsl gen/corr4.spv
+build gen/corr4.dxil: dxil gen/corr4.hlsl
+build gen/corr4.msl: msl gen/corr4.spv
+
 build gen/linkedlist.spv: glsl linkedlist.comp
 build gen/linkedlist.hlsl: hlsl gen/linkedlist.spv
 build gen/linkedlist.dxil: dxil gen/linkedlist.hlsl

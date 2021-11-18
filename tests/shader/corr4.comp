@@ -1,0 +1,68 @@
+// SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
+
+// Our version of the CorRR4 atomic litmus test.
+
+#version 450
+
+#extension GL_KHR_memory_scope_semantics : enable
+
+#ifdef VKMM
+#pragma use_vulkan_memory_model
+#define ACQUIRE gl_StorageSemanticsBuffer, gl_SemanticsAcquire
+#define RELEASE gl_StorageSemanticsBuffer, gl_SemanticsRelease
+#else
+#define ACQUIRE 0, 0
+#define RELEASE 0, 0
+#endif
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(binding = 0) buffer DataBuf
+{
+    uint data[];
+} data_buf;
+
+struct Result {
+    uint r0;
+    uint r1;
+    uint r2;
+    uint r3;
+};
+
+layout(binding = 1) buffer OutBuf
+{
+    Result r[];
+} out_buf;
+
+void main()
+{
+    uint ix = gl_GlobalInvocationID.x;
+
+    // This code will do all four roles. For any given "x" we want 4 (different)
+    // threads to map to it. We'll use prime permutations.
+
+    uint role_0_ix = (ix * 661u) & 65535u;
+    uint role_1_ix = (ix * 1087u) & 65535u;
+    uint role_2_ix = (ix * 2749u) & 65535u;
+    uint role_3_ix = (ix * 3433u) & 65535u;
+
+    // Role 0: atomicStore(x, 1)
+    atomicStore(data_buf.data[role_0_ix], 1u, gl_ScopeDevice, 0, 0);
+
+    // Role 1: two atomic loads
+    uint r0 = atomicLoad(data_buf.data[role_1_ix], gl_ScopeDevice, 0, 0);
+    uint r1 = atomicLoad(data_buf.data[role_1_ix], gl_ScopeDevice, 0, 0);
+
+    // Role 2: atomicStore(x, 2)
+    atomicStore(data_buf.data[role_2_ix], 2u, gl_ScopeDevice, 0, 0);
+
+    // Role 3: two atomic loads
+    uint r2 = atomicLoad(data_buf.data[role_3_ix], gl_ScopeDevice, 0, 0);
+    uint r3 = atomicLoad(data_buf.data[role_3_ix], gl_ScopeDevice, 0, 0);
+
+    // Store results in output buffer
+    out_buf.r[role_1_ix].r0 = r0;
+    out_buf.r[role_1_ix].r1 = r1;
+    out_buf.r[role_3_ix].r2 = r2;
+    out_buf.r[role_3_ix].r3 = r3;
+}

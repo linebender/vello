@@ -18,6 +18,7 @@
 
 mod clear;
 mod config;
+mod corr4;
 mod linkedlist;
 mod message_passing;
 mod prefix;
@@ -121,6 +122,7 @@ fn main() {
                     message_passing::Variant::Vkmm,
                 ));
             }
+            report(&corr4::run_corr4_test(&mut runner, &config));
             report(&linkedlist::run_linkedlist_test(&mut runner, &config));
         }
     }
