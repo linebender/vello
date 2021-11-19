@@ -202,16 +202,16 @@ pub trait CmdBuf<D: Device> {
     /// This is readily supported in Vulkan, but for portability it is remarkably
     /// tricky (unimplemented in gfx-hal right now). Possibly best to write a compute
     /// kernel, or organize the code not to need it.
-    unsafe fn clear_buffer(&self, buffer: &D::Buffer, size: Option<u64>);
+    unsafe fn clear_buffer(&mut self, buffer: &D::Buffer, size: Option<u64>);
 
-    unsafe fn copy_buffer(&self, src: &D::Buffer, dst: &D::Buffer);
+    unsafe fn copy_buffer(&mut self, src: &D::Buffer, dst: &D::Buffer);
 
-    unsafe fn copy_image_to_buffer(&self, src: &D::Image, dst: &D::Buffer);
+    unsafe fn copy_image_to_buffer(&mut self, src: &D::Image, dst: &D::Buffer);
 
-    unsafe fn copy_buffer_to_image(&self, src: &D::Buffer, dst: &D::Image);
+    unsafe fn copy_buffer_to_image(&mut self, src: &D::Buffer, dst: &D::Image);
 
     // low portability, dx12 doesn't support it natively
-    unsafe fn blit_image(&self, src: &D::Image, dst: &D::Image);
+    unsafe fn blit_image(&mut self, src: &D::Image, dst: &D::Image);
 
     /// Reset the query pool.
     ///

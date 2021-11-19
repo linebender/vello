@@ -15,18 +15,20 @@
 // Also licensed under MIT license, at your choice.
 
 mod clear;
+mod timer;
 mod util;
 
 use std::mem;
 use std::sync::{Arc, Mutex};
 
+use block::Block;
 use cocoa_foundation::base::id;
 use cocoa_foundation::foundation::{NSInteger, NSUInteger};
 use objc::rc::autoreleasepool;
 use objc::runtime::{Object, BOOL, YES};
 use objc::{class, msg_send, sel, sel_impl};
 
-use metal::{CGFloat, MTLFeatureSet};
+use metal::{CGFloat, CommandBufferRef, MTLFeatureSet};
 
 use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
 
@@ -81,6 +83,22 @@ pub struct Semaphore;
 pub struct CmdBuf {
     cmd_buf: metal::CommandBuffer,
     helpers: Arc<Helpers>,
+    cur_encoder: Encoder,
+    time_calibration: Arc<Mutex<TimeCalibration>>,
+}
+
+enum Encoder {
+    None,
+    Compute(metal::ComputeCommandEncoder),
+    Blit(metal::BlitCommandEncoder),
+}
+
+#[derive(Default)]
+struct TimeCalibration {
+    cpu_start_ts: u64,
+    gpu_start_ts: u64,
+    cpu_end_ts: u64,
+    gpu_end_ts: u64,
 }
 
 pub struct QueryPool;
@@ -209,6 +227,10 @@ impl MtlDevice {
         let helpers = Arc::new(Helpers {
             clear_pipeline: clear::make_clear_pipeline(&device),
         });
+        // Timer stuff
+        if let Some(timer_set) = timer::CounterSet::get_timer_counter_set(&device) {
+            let timer = timer::CounterSampleBuffer::new(&device, 4, &timer_set);
+        }
         MtlDevice {
             device,
             cmd_queue: Arc::new(Mutex::new(cmd_queue)),
@@ -220,7 +242,9 @@ impl MtlDevice {
     pub fn cmd_buf_from_raw_mtl(&self, raw_cmd_buf: metal::CommandBuffer) -> CmdBuf {
         let cmd_buf = raw_cmd_buf;
         let helpers = self.helpers.clone();
-        CmdBuf { cmd_buf, helpers }
+        let cur_encoder = Encoder::None;
+        let time_calibration = Default::default();
+        CmdBuf { cmd_buf, helpers, cur_encoder, time_calibration }
     }
 
     pub fn image_from_raw_mtl(&self, texture: metal::Texture, width: u32, height: u32) -> Image {
@@ -331,10 +355,16 @@ impl crate::backend::Device for MtlDevice {
     fn create_cmd_buf(&self) -> Result<Self::CmdBuf, Error> {
         let cmd_queue = self.cmd_queue.lock().unwrap();
         // consider new_command_buffer_with_unretained_references for performance
-        let cmd_buf = cmd_queue.new_command_buffer();
-        let cmd_buf = autoreleasepool(|| cmd_buf.to_owned());
+        let cmd_buf = cmd_queue.new_command_buffer().to_owned();
         let helpers = self.helpers.clone();
-        Ok(CmdBuf { cmd_buf, helpers })
+        let cur_encoder = Encoder::None;
+        let time_calibration = Default::default();
+        Ok(CmdBuf {
+            cmd_buf,
+            helpers,
+            cur_encoder,
+            time_calibration,
+        })
     }
 
     unsafe fn destroy_cmd_buf(&self, _cmd_buf: Self::CmdBuf) -> Result<(), Error> {
@@ -358,7 +388,45 @@ impl crate::backend::Device for MtlDevice {
         _signal_semaphores: &[&Self::Semaphore],
         fence: Option<&mut Self::Fence>,
     ) -> Result<(), Error> {
+        unsafe fn add_scheduled_handler(
+            cmd_buf: &metal::CommandBufferRef,
+            block: &Block<(&CommandBufferRef,), ()>,
+        ) {
+            msg_send![cmd_buf, addScheduledHandler: block]
+        }
         for cmd_buf in cmd_bufs {
+            let time_calibration = cmd_buf.time_calibration.clone();
+            let start_block = block::ConcreteBlock::new(move |buffer: &metal::CommandBufferRef| {
+                let device: id = msg_send![buffer, device];
+                let mut time_calibration = time_calibration.lock().unwrap();
+                let cpu_ts_ptr = &mut time_calibration.cpu_start_ts as *mut _;
+                let gpu_ts_ptr = &mut time_calibration.gpu_start_ts as *mut _;
+                // TODO: only do this if supported.
+                let () = msg_send![device, sampleTimestamps: cpu_ts_ptr gpuTimestamp: gpu_ts_ptr];
+                println!(
+                    "scheduled, {}, {}",
+                    time_calibration.cpu_start_ts, time_calibration.gpu_start_ts
+                );
+            })
+            .copy();
+            add_scheduled_handler(&cmd_buf.cmd_buf, &start_block);
+            let time_calibration = cmd_buf.time_calibration.clone();
+            let completed_block =
+                block::ConcreteBlock::new(move |buffer: &metal::CommandBufferRef| {
+                    let device: id = msg_send![buffer, device];
+                    let mut time_calibration = time_calibration.lock().unwrap();
+                    let cpu_ts_ptr = &mut time_calibration.cpu_end_ts as *mut _;
+                    let gpu_ts_ptr = &mut time_calibration.gpu_end_ts as *mut _;
+                    // TODO: only do this if supported.
+                    let () =
+                        msg_send![device, sampleTimestamps: cpu_ts_ptr gpuTimestamp: gpu_ts_ptr];
+                    println!(
+                        "completed, {}, {}",
+                        time_calibration.cpu_end_ts, time_calibration.gpu_end_ts
+                    );
+                })
+                .copy();
+            cmd_buf.cmd_buf.add_completed_handler(&completed_block);
             cmd_buf.cmd_buf.commit();
         }
         if let Some(last_cmd_buf) = cmd_bufs.last() {
@@ -439,7 +507,9 @@ impl crate::backend::Device for MtlDevice {
 impl crate::backend::CmdBuf<MtlDevice> for CmdBuf {
     unsafe fn begin(&mut self) {}
 
-    unsafe fn finish(&mut self) {}
+    unsafe fn finish(&mut self) {
+        self.flush_encoder();
+    }
 
     unsafe fn reset(&mut self) -> bool {
         false
@@ -452,7 +522,7 @@ impl crate::backend::CmdBuf<MtlDevice> for CmdBuf {
         workgroup_count: (u32, u32, u32),
         workgroup_size: (u32, u32, u32),
     ) {
-        let encoder = self.cmd_buf.new_compute_command_encoder();
+        let encoder = self.compute_command_encoder();
         encoder.set_compute_pipeline_state(&pipeline.0);
         let mut buf_ix = 0;
         for buffer in &descriptor_set.buffers {
@@ -475,7 +545,6 @@ impl crate::backend::CmdBuf<MtlDevice> for CmdBuf {
             depth: workgroup_size.2 as u64,
         };
         encoder.dispatch_thread_groups(workgroup_count, workgroup_size);
-        encoder.end_encoding();
     }
 
     unsafe fn memory_barrier(&mut self) {
@@ -494,22 +563,23 @@ impl crate::backend::CmdBuf<MtlDevice> for CmdBuf {
         // I think these are being tracked.
     }
 
-    unsafe fn clear_buffer(&self, buffer: &Buffer, size: Option<u64>) {
+    unsafe fn clear_buffer(&mut self, buffer: &Buffer, size: Option<u64>) {
         let size = size.unwrap_or(buffer.size);
-        let encoder = self.cmd_buf.new_compute_command_encoder();
-        clear::encode_clear(&encoder, &self.helpers.clear_pipeline, &buffer.buffer, size);
-        encoder.end_encoding()
+        let _ = self.compute_command_encoder();
+        // Getting this directly is a workaround for a borrow checker issue.
+        if let Encoder::Compute(e) = &self.cur_encoder {
+            clear::encode_clear(e, &self.helpers.clear_pipeline, &buffer.buffer, size);
+        }
     }
 
-    unsafe fn copy_buffer(&self, src: &Buffer, dst: &Buffer) {
-        let encoder = self.cmd_buf.new_blit_command_encoder();
+    unsafe fn copy_buffer(&mut self, src: &Buffer, dst: &Buffer) {
+        let encoder = self.blit_command_encoder();
         let size = src.size.min(dst.size);
         encoder.copy_from_buffer(&src.buffer, 0, &dst.buffer, 0, size);
-        encoder.end_encoding();
     }
 
-    unsafe fn copy_image_to_buffer(&self, src: &Image, dst: &Buffer) {
-        let encoder = self.cmd_buf.new_blit_command_encoder();
+    unsafe fn copy_image_to_buffer(&mut self, src: &Image, dst: &Buffer) {
+        let encoder = self.blit_command_encoder();
         assert_eq!(dst.size, (src.width as u64) * (src.height as u64) * 4);
         let bytes_per_row = (src.width * 4) as NSUInteger;
         let src_size = metal::MTLSize {
@@ -530,11 +600,10 @@ impl crate::backend::CmdBuf<MtlDevice> for CmdBuf {
             bytes_per_row * src.height as NSUInteger,
             metal::MTLBlitOption::empty(),
         );
-        encoder.end_encoding();
     }
 
-    unsafe fn copy_buffer_to_image(&self, src: &Buffer, dst: &Image) {
-        let encoder = self.cmd_buf.new_blit_command_encoder();
+    unsafe fn copy_buffer_to_image(&mut self, src: &Buffer, dst: &Image) {
+        let encoder = self.blit_command_encoder();
         assert_eq!(src.size, (dst.width as u64) * (dst.height as u64) * 4);
         let bytes_per_row = (dst.width * 4) as NSUInteger;
         let src_size = metal::MTLSize {
@@ -555,11 +624,10 @@ impl crate::backend::CmdBuf<MtlDevice> for CmdBuf {
             origin,
             metal::MTLBlitOption::empty(),
         );
-        encoder.end_encoding();
     }
 
-    unsafe fn blit_image(&self, src: &Image, dst: &Image) {
-        let encoder = self.cmd_buf.new_blit_command_encoder();
+    unsafe fn blit_image(&mut self, src: &Image, dst: &Image) {
+        let encoder = self.blit_command_encoder();
         let src_size = metal::MTLSize {
             width: src.width.min(dst.width) as NSUInteger,
             height: src.width.min(dst.height) as NSUInteger,
@@ -577,7 +645,6 @@ impl crate::backend::CmdBuf<MtlDevice> for CmdBuf {
             0,
             origin,
         );
-        encoder.end_encoding();
     }
 
     unsafe fn reset_query_pool(&mut self, pool: &QueryPool) {}
@@ -586,6 +653,41 @@ impl crate::backend::CmdBuf<MtlDevice> for CmdBuf {
         // TODO
         // This really a PITA because it's pretty different than Vulkan.
         // See https://developer.apple.com/documentation/metal/counter_sampling
+    }
+}
+
+impl CmdBuf {
+    fn compute_command_encoder(&mut self) -> &metal::ComputeCommandEncoder {
+        if !matches!(self.cur_encoder, Encoder::Compute(_)) {
+            self.flush_encoder();
+            self.cur_encoder =
+                Encoder::Compute(self.cmd_buf.new_compute_command_encoder().to_owned());
+        }
+        if let Encoder::Compute(e) = &self.cur_encoder {
+            e
+        } else {
+            unreachable!()
+        }
+    }
+
+    fn blit_command_encoder(&mut self) -> &metal::BlitCommandEncoder {
+        if !matches!(self.cur_encoder, Encoder::Blit(_)) {
+            self.flush_encoder();
+            self.cur_encoder = Encoder::Blit(self.cmd_buf.new_blit_command_encoder().to_owned());
+        }
+        if let Encoder::Blit(e) = &self.cur_encoder {
+            e
+        } else {
+            unreachable!()
+        }
+    }
+
+    fn flush_encoder(&mut self) {
+        match std::mem::replace(&mut self.cur_encoder, Encoder::None) {
+            Encoder::Compute(e) => e.end_encoding(),
+            Encoder::Blit(e) => e.end_encoding(),
+            Encoder::None => (),
+        }
     }
 }
 
