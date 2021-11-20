@@ -14,7 +14,7 @@
 //
 // Also licensed under MIT license, at your choice.
 
-use piet_gpu_hal::{include_shader, BackendType, BindType, DescriptorSet};
+use piet_gpu_hal::{include_shader, BackendType, BindType, BufferUsage, DescriptorSet};
 use piet_gpu_hal::{Buffer, Pipeline};
 
 use crate::clear::{ClearBinding, ClearCode, ClearStage};
@@ -41,7 +41,7 @@ struct LinkedListBinding {
 
 pub unsafe fn run_linkedlist_test(runner: &mut Runner, config: &Config) -> TestResult {
     let mut result = TestResult::new("linked list");
-    let mem_buf = runner.buf_down(1024 * N_BUCKETS);
+    let mem_buf = runner.buf_down(1024 * N_BUCKETS, BufferUsage::CLEAR);
     let code = LinkedListCode::new(runner);
     let stage = LinkedListStage::new(runner, &code, N_BUCKETS);
     let binding = stage.bind(runner, &code, &mem_buf.dev_buf);
@@ -77,7 +77,7 @@ impl LinkedListCode {
             .session
             .create_compute_pipeline(code, &[BindType::Buffer])
             .unwrap();
-        let clear_code = if runner.backend_type() != BackendType::Vulkan {
+        let clear_code = if runner.backend_type() == BackendType::Metal {
             Some(ClearCode::new(runner))
         } else {
             None

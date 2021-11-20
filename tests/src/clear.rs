@@ -44,7 +44,7 @@ pub struct ClearBinding {
 pub unsafe fn run_clear_test(runner: &mut Runner, config: &Config) -> TestResult {
     let mut result = TestResult::new("clear buffers");
     let n_elements: u64 = config.size.choose(1 << 12, 1 << 20, 1 << 24);
-    let out_buf = runner.buf_down(n_elements * 4);
+    let out_buf = runner.buf_down(n_elements * 4, BufferUsage::empty());
     let code = ClearCode::new(runner);
     let stage = ClearStage::new_with_value(runner, n_elements, 0x42);
     let binding = stage.bind(runner, &code, &out_buf.dev_buf);

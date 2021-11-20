@@ -54,7 +54,7 @@ pub unsafe fn run_message_passing_test(
     variant: Variant,
 ) -> TestResult {
     let mut result = TestResult::new(format!("message passing litmus, {:?}", variant));
-    let out_buf = runner.buf_down(4);
+    let out_buf = runner.buf_down(4, BufferUsage::CLEAR);
     let code = MessagePassingCode::new(runner, variant);
     let stage = MessagePassingStage::new(runner, &code);
     let binding = stage.bind(runner, &code, &out_buf.dev_buf);
@@ -92,9 +92,9 @@ impl MessagePassingCode {
             .session
             .create_compute_pipeline(code, &[BindType::Buffer, BindType::Buffer])
             .unwrap();
-        // Currently, DX12 and Metal backends don't support buffer clearing, so use a
+        // Currently, Metal backend doesn't support buffer clearing, so use a
         // compute shader as a workaround.
-        let clear_code = if runner.backend_type() != BackendType::Vulkan {
+        let clear_code = if runner.backend_type() == BackendType::Metal {
             Some(ClearCode::new(runner))
         } else {
             None
@@ -111,7 +111,10 @@ impl MessagePassingStage {
         let data_buf_size = 8 * N_ELEMENTS;
         let data_buf = runner
             .session
-            .create_buffer(data_buf_size, BufferUsage::STORAGE | BufferUsage::COPY_DST)
+            .create_buffer(
+                data_buf_size,
+                BufferUsage::STORAGE | BufferUsage::COPY_DST | BufferUsage::CLEAR,
+            )
             .unwrap();
         let clear_stages = if let Some(clear_code) = &code.clear_code {
             let stage0 = ClearStage::new(runner, N_ELEMENTS * 2);

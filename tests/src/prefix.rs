@@ -77,7 +77,7 @@ pub unsafe fn run_prefix_test(
         .session
         .create_buffer_init(&data, BufferUsage::STORAGE)
         .unwrap();
-    let out_buf = runner.buf_down(data_buf.size());
+    let out_buf = runner.buf_down(data_buf.size(), BufferUsage::empty());
     let code = PrefixCode::new(runner, variant);
     let stage = PrefixStage::new(runner, &code, n_elements);
     let binding = stage.bind(runner, &code, &data_buf, &out_buf.dev_buf);
@@ -121,7 +121,7 @@ impl PrefixCode {
             .unwrap();
         // Currently, DX12 and Metal backends don't support buffer clearing, so use a
         // compute shader as a workaround.
-        let clear_code = if runner.backend_type() != BackendType::Vulkan {
+        let clear_code = if runner.backend_type() == BackendType::Metal {
             Some(ClearCode::new(runner))
         } else {
             None
@@ -139,7 +139,10 @@ impl PrefixStage {
         let state_buf_size = 4 + 12 * n_workgroups;
         let state_buf = runner
             .session
-            .create_buffer(state_buf_size, BufferUsage::STORAGE | BufferUsage::COPY_DST)
+            .create_buffer(
+                state_buf_size,
+                BufferUsage::STORAGE | BufferUsage::COPY_DST | BufferUsage::CLEAR,
+            )
             .unwrap();
         let clear_stage = if let Some(clear_code) = &code.clear_code {
             let stage = ClearStage::new(runner, state_buf_size / 4);
