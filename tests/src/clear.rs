@@ -84,10 +84,6 @@ impl ClearCode {
 }
 
 impl ClearStage {
-    pub unsafe fn new(runner: &mut Runner, n_elements: u64) -> ClearStage {
-        Self::new_with_value(runner, n_elements, 0)
-    }
-
     pub unsafe fn new_with_value(runner: &mut Runner, n_elements: u64, value: u32) -> ClearStage {
         let config = [n_elements as u32, value];
         let config_buf = runner

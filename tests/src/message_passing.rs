@@ -14,10 +14,9 @@
 //
 // Also licensed under MIT license, at your choice.
 
-use piet_gpu_hal::{include_shader, BackendType, BindType, BufferUsage, DescriptorSet, ShaderCode};
+use piet_gpu_hal::{include_shader, BindType, BufferUsage, DescriptorSet, ShaderCode};
 use piet_gpu_hal::{Buffer, Pipeline};
 
-use crate::clear::{ClearBinding, ClearCode, ClearStage};
 use crate::config::Config;
 use crate::runner::{Commands, Runner};
 use crate::test_result::TestResult;
@@ -27,19 +26,16 @@ const N_ELEMENTS: u64 = 65536;
 /// The shader code forMessagePassing sum example.
 struct MessagePassingCode {
     pipeline: Pipeline,
-    clear_code: Option<ClearCode>,
 }
 
 /// The stage resources for the prefix sum example.
 struct MessagePassingStage {
     data_buf: Buffer,
-    clear_stages: Option<(ClearStage, ClearBinding, ClearStage)>,
 }
 
 /// The binding for the prefix sum example.
 struct MessagePassingBinding {
     descriptor_set: DescriptorSet,
-    clear_binding: Option<ClearBinding>,
 }
 
 #[derive(Debug)]
@@ -56,7 +52,7 @@ pub unsafe fn run_message_passing_test(
     let mut result = TestResult::new(format!("message passing litmus, {:?}", variant));
     let out_buf = runner.buf_down(4, BufferUsage::CLEAR);
     let code = MessagePassingCode::new(runner, variant);
-    let stage = MessagePassingStage::new(runner, &code);
+    let stage = MessagePassingStage::new(runner);
     let binding = stage.bind(runner, &code, &out_buf.dev_buf);
     let n_iter = config.n_iter;
     let mut total_elapsed = 0.0;
@@ -92,22 +88,12 @@ impl MessagePassingCode {
             .session
             .create_compute_pipeline(code, &[BindType::Buffer, BindType::Buffer])
             .unwrap();
-        // Currently, Metal backend doesn't support buffer clearing, so use a
-        // compute shader as a workaround.
-        let clear_code = if runner.backend_type() == BackendType::Metal {
-            Some(ClearCode::new(runner))
-        } else {
-            None
-        };
-        MessagePassingCode {
-            pipeline,
-            clear_code,
-        }
+        MessagePassingCode { pipeline }
     }
 }
 
 impl MessagePassingStage {
-    unsafe fn new(runner: &mut Runner, code: &MessagePassingCode) -> MessagePassingStage {
+    unsafe fn new(runner: &mut Runner) -> MessagePassingStage {
         let data_buf_size = 8 * N_ELEMENTS;
         let data_buf = runner
             .session
@@ -116,18 +102,7 @@ impl MessagePassingStage {
                 BufferUsage::STORAGE | BufferUsage::COPY_DST | BufferUsage::CLEAR,
             )
             .unwrap();
-        let clear_stages = if let Some(clear_code) = &code.clear_code {
-            let stage0 = ClearStage::new(runner, N_ELEMENTS * 2);
-            let binding0 = stage0.bind(runner, clear_code, &data_buf);
-            let stage1 = ClearStage::new(runner, 1);
-            Some((stage0, binding0, stage1))
-        } else {
-            None
-        };
-        MessagePassingStage {
-            data_buf,
-            clear_stages,
-        }
+        MessagePassingStage { data_buf }
     }
 
     unsafe fn bind(
@@ -140,21 +115,7 @@ impl MessagePassingStage {
             .session
             .create_simple_descriptor_set(&code.pipeline, &[&self.data_buf, out_buf])
             .unwrap();
-        let clear_binding = if let Some(clear_code) = &code.clear_code {
-            Some(
-                self.clear_stages
-                    .as_ref()
-                    .unwrap()
-                    .2
-                    .bind(runner, clear_code, out_buf),
-            )
-        } else {
-            None
-        };
-        MessagePassingBinding {
-            descriptor_set,
-            clear_binding,
-        }
+        MessagePassingBinding { descriptor_set }
     }
 
     unsafe fn record(
@@ -164,14 +125,8 @@ impl MessagePassingStage {
         bindings: &MessagePassingBinding,
         out_buf: &Buffer,
     ) {
-        if let Some((stage0, binding0, stage1)) = &self.clear_stages {
-            let code = code.clear_code.as_ref().unwrap();
-            stage0.record(commands, code, binding0);
-            stage1.record(commands, code, bindings.clear_binding.as_ref().unwrap());
-        } else {
-            commands.cmd_buf.clear_buffer(&self.data_buf, None);
-            commands.cmd_buf.clear_buffer(out_buf, None);
-        }
+        commands.cmd_buf.clear_buffer(&self.data_buf, None);
+        commands.cmd_buf.clear_buffer(out_buf, None);
         commands.cmd_buf.memory_barrier();
         commands.cmd_buf.dispatch(
             &code.pipeline,

@@ -14,6 +14,7 @@
 //
 // Also licensed under MIT license, at your choice.
 
+mod clear;
 mod util;
 
 use std::mem;
@@ -39,6 +40,7 @@ pub struct MtlDevice {
     device: metal::Device,
     cmd_queue: Arc<Mutex<metal::CommandQueue>>,
     gpu_info: GpuInfo,
+    helpers: Arc<Helpers>,
 }
 
 pub struct MtlSurface {
@@ -78,6 +80,7 @@ pub struct Semaphore;
 
 pub struct CmdBuf {
     cmd_buf: metal::CommandBuffer,
+    helpers: Arc<Helpers>,
 }
 
 pub struct QueryPool;
@@ -91,6 +94,10 @@ pub struct DescriptorSetBuilder(DescriptorSet);
 pub struct DescriptorSet {
     buffers: Vec<Buffer>,
     images: Vec<Image>,
+}
+
+struct Helpers {
+    clear_pipeline: metal::ComputePipelineState,
 }
 
 impl MtlInstance {
@@ -172,10 +179,14 @@ impl MtlInstance {
                 has_memory_model: false,
                 use_staging_buffers,
             };
+            let helpers = Arc::new(Helpers {
+                clear_pipeline: clear::make_clear_pipeline(&device),
+            });
             Ok(MtlDevice {
                 device,
                 cmd_queue: Arc::new(Mutex::new(cmd_queue)),
                 gpu_info,
+                helpers,
             })
         } else {
             Err("can't create system default Metal device".into())
@@ -292,7 +303,8 @@ impl crate::backend::Device for MtlDevice {
         // consider new_command_buffer_with_unretained_references for performance
         let cmd_buf = cmd_queue.new_command_buffer();
         let cmd_buf = autoreleasepool(|| cmd_buf.to_owned());
-        Ok(CmdBuf { cmd_buf })
+        let helpers = self.helpers.clone();
+        Ok(CmdBuf { cmd_buf, helpers })
     }
 
     unsafe fn destroy_cmd_buf(&self, _cmd_buf: Self::CmdBuf) -> Result<(), Error> {
@@ -467,7 +479,10 @@ impl crate::backend::CmdBuf<MtlDevice> for CmdBuf {
     }
 
     unsafe fn clear_buffer(&self, buffer: &Buffer, size: Option<u64>) {
-        todo!()
+        let size = size.unwrap_or(buffer.size);
+        let encoder = self.cmd_buf.new_compute_command_encoder();
+        clear::encode_clear(&encoder, &self.helpers.clear_pipeline, &buffer.buffer, size);
+        encoder.end_encoding()
     }
 
     unsafe fn copy_buffer(&self, src: &Buffer, dst: &Buffer) {
