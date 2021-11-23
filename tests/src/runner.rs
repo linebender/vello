@@ -101,19 +101,17 @@ impl Runner {
         BufUp { stage_buf, dev_buf }
     }
 
-    pub fn buf_down(&self, size: u64) -> BufDown {
+    /// Create a buffer for download (readback).
+    ///
+    /// The `usage` parameter need not include COPY_SRC and STORAGE.
+    pub fn buf_down(&self, size: u64, usage: BufferUsage) -> BufDown {
         let stage_buf = self
             .session
             .create_buffer(size, BufferUsage::MAP_READ | BufferUsage::COPY_DST)
             .unwrap();
-        // Note: the COPY_DST isn't needed in all use cases, but I don't think
-        // making this tighter would help.
         let dev_buf = self
             .session
-            .create_buffer(
-                size,
-                BufferUsage::COPY_SRC | BufferUsage::COPY_DST | BufferUsage::STORAGE,
-            )
+            .create_buffer(size, usage | BufferUsage::COPY_SRC | BufferUsage::STORAGE)
             .unwrap();
         BufDown { stage_buf, dev_buf }
     }

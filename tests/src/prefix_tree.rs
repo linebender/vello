@@ -52,7 +52,7 @@ pub unsafe fn run_prefix_test(runner: &mut Runner, config: &Config) -> TestResul
         .session
         .create_buffer_init(&data, BufferUsage::STORAGE)
         .unwrap();
-    let out_buf = runner.buf_down(data_buf.size());
+    let out_buf = runner.buf_down(data_buf.size(), BufferUsage::empty());
     let code = PrefixTreeCode::new(runner);
     let stage = PrefixTreeStage::new(runner, n_elements);
     let binding = stage.bind(runner, &code, &out_buf.dev_buf);

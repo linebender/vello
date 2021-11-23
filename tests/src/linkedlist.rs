@@ -14,10 +14,9 @@
 //
 // Also licensed under MIT license, at your choice.
 
-use piet_gpu_hal::{include_shader, BackendType, BindType, DescriptorSet};
+use piet_gpu_hal::{include_shader, BindType, BufferUsage, DescriptorSet};
 use piet_gpu_hal::{Buffer, Pipeline};
 
-use crate::clear::{ClearBinding, ClearCode, ClearStage};
 use crate::runner::{Commands, Runner};
 use crate::test_result::TestResult;
 use crate::Config;
@@ -27,21 +26,17 @@ const N_BUCKETS: u64 = 65536;
 
 struct LinkedListCode {
     pipeline: Pipeline,
-    clear_code: Option<ClearCode>,
 }
 
-struct LinkedListStage {
-    clear_stage: Option<ClearStage>,
-}
+struct LinkedListStage;
 
 struct LinkedListBinding {
     descriptor_set: DescriptorSet,
-    clear_binding: Option<ClearBinding>,
 }
 
 pub unsafe fn run_linkedlist_test(runner: &mut Runner, config: &Config) -> TestResult {
     let mut result = TestResult::new("linked list");
-    let mem_buf = runner.buf_down(1024 * N_BUCKETS);
+    let mem_buf = runner.buf_down(1024 * N_BUCKETS, BufferUsage::CLEAR);
     let code = LinkedListCode::new(runner);
     let stage = LinkedListStage::new(runner, &code, N_BUCKETS);
     let binding = stage.bind(runner, &code, &mem_buf.dev_buf);
@@ -77,26 +72,17 @@ impl LinkedListCode {
             .session
             .create_compute_pipeline(code, &[BindType::Buffer])
             .unwrap();
-        let clear_code = if runner.backend_type() != BackendType::Vulkan {
-            Some(ClearCode::new(runner))
-        } else {
-            None
-        };
-        LinkedListCode {
-            pipeline,
-            clear_code,
-        }
+        LinkedListCode { pipeline }
     }
 }
 
 impl LinkedListStage {
-    unsafe fn new(runner: &mut Runner, code: &LinkedListCode, n_buckets: u64) -> LinkedListStage {
-        let clear_stage = if code.clear_code.is_some() {
-            Some(ClearStage::new(runner, n_buckets))
-        } else {
-            None
-        };
-        LinkedListStage { clear_stage }
+    unsafe fn new(
+        _runner: &mut Runner,
+        _code: &LinkedListCode,
+        _n_buckets: u64,
+    ) -> LinkedListStage {
+        LinkedListStage
     }
 
     unsafe fn bind(
@@ -109,15 +95,7 @@ impl LinkedListStage {
             .session
             .create_simple_descriptor_set(&code.pipeline, &[mem_buf])
             .unwrap();
-        let clear_binding = if let Some(stage) = &self.clear_stage {
-            Some(stage.bind(runner, &code.clear_code.as_ref().unwrap(), mem_buf))
-        } else {
-            None
-        };
-        LinkedListBinding {
-            descriptor_set,
-            clear_binding,
-        }
+        LinkedListBinding { descriptor_set }
     }
 
     unsafe fn record(
@@ -127,15 +105,7 @@ impl LinkedListStage {
         bindings: &LinkedListBinding,
         out_buf: &Buffer,
     ) {
-        if let Some(stage) = &self.clear_stage {
-            stage.record(
-                commands,
-                code.clear_code.as_ref().unwrap(),
-                bindings.clear_binding.as_ref().unwrap(),
-            );
-        } else {
-            commands.cmd_buf.clear_buffer(out_buf, None);
-        }
+        commands.cmd_buf.clear_buffer(out_buf, None);
         commands.cmd_buf.memory_barrier();
         let n_workgroups = N_BUCKETS / WG_SIZE;
         commands.cmd_buf.dispatch(

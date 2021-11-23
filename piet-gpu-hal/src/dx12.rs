@@ -1,14 +1,20 @@
 //! DX12 implemenation of HAL trait.
 
+mod descriptor;
 mod error;
 mod wrappers;
 
-use std::{cell::Cell, convert::{TryFrom, TryInto}, mem, ptr};
+use std::{
+    cell::Cell,
+    convert::{TryFrom, TryInto},
+    mem, ptr,
+    sync::{Arc, Mutex},
+};
 
-use winapi::shared::minwindef::TRUE;
-use winapi::shared::{dxgi, dxgi1_2, dxgitype};
 #[allow(unused)]
 use winapi::shared::dxgi1_3; // for error reporting in debug mode
+use winapi::shared::minwindef::TRUE;
+use winapi::shared::{dxgi, dxgi1_2, dxgitype};
 use winapi::um::d3d12;
 
 use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
@@ -17,7 +23,12 @@ use smallvec::SmallVec;
 
 use crate::{BindType, BufferUsage, Error, GpuInfo, ImageLayout, WorkgroupLimits};
 
-use self::wrappers::{CommandAllocator, CommandQueue, Device, Factory4, Resource, ShaderByteCode};
+use self::{
+    descriptor::{CpuHeapRefOwned, DescriptorPool, GpuHeapRefOwned},
+    wrappers::{
+        CommandAllocator, CommandQueue, DescriptorHeap, Device, Factory4, Resource, ShaderByteCode,
+    },
+};
 
 pub struct Dx12Instance {
     factory: Factory4,
@@ -38,17 +49,26 @@ pub struct Dx12Device {
     ts_freq: u64,
     gpu_info: GpuInfo,
     memory_arch: MemoryArchitecture,
+    descriptor_pool: Mutex<DescriptorPool>,
 }
 
 #[derive(Clone)]
 pub struct Buffer {
     resource: Resource,
     pub size: u64,
+    // Always present except for query readback buffer.
+    cpu_ref: Option<Arc<CpuHeapRefOwned>>,
+    // Present when created with CLEAR usage. Heap is here for
+    // the same reason it's in DescriptorSet, and might be removed
+    // when CmdBuf has access to the descriptor pool.
+    gpu_ref: Option<(Arc<GpuHeapRefOwned>, DescriptorHeap)>,
 }
 
 #[derive(Clone)]
 pub struct Image {
     resource: Resource,
+    // Present except for swapchain images.
+    cpu_ref: Option<Arc<CpuHeapRefOwned>>,
     size: (u32, u32),
 }
 
@@ -63,13 +83,17 @@ pub struct Pipeline {
     root_signature: wrappers::RootSignature,
 }
 
-// Right now, each descriptor set gets its own heap, but we'll move
-// to a more sophisticated allocation scheme, probably using the
-// gpu-descriptor crate.
-pub struct DescriptorSet(wrappers::DescriptorHeap);
+pub struct DescriptorSet {
+    gpu_ref: GpuHeapRefOwned,
+    // Note: the heap is only needed here so CmdBuf::dispatch can get
+    // use it easily. If CmdBuf had a reference to the Device (or just
+    // the descriptor pool), we could get rid of this.
+    heap: DescriptorHeap,
+}
 
 pub struct QueryPool {
     heap: wrappers::QueryHeap,
+    // Maybe this should just be a Resource, not a full Buffer.
     buf: Buffer,
     n_queries: u32,
 }
@@ -85,11 +109,9 @@ pub struct Fence {
 /// semaphore is needed for presentation on DX12.
 pub struct Semaphore;
 
-// TODO
 #[derive(Default)]
 pub struct DescriptorSetBuilder {
-    buffers: Vec<Buffer>,
-    images: Vec<Image>,
+    handles: SmallVec<[d3d12::D3D12_CPU_DESCRIPTOR_HANDLE; 16]>,
 }
 
 #[derive(PartialEq, Eq)]
@@ -175,12 +197,14 @@ impl Dx12Instance {
                 has_memory_model: false,
                 use_staging_buffers,
             };
+            let descriptor_pool = Default::default();
             Ok(Dx12Device {
                 device,
                 command_queue,
                 ts_freq,
                 memory_arch,
                 gpu_info,
+                descriptor_pool,
             })
         }
     }
@@ -251,14 +275,44 @@ impl crate::backend::Device for Dx12Device {
             //TODO: consider flag D3D12_HEAP_FLAG_ALLOW_SHADER_ATOMICS?
             let flags = d3d12::D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
             let resource = self.device.create_buffer(
-                size.try_into()?,
+                size,
                 d3d12::D3D12_HEAP_TYPE_CUSTOM,
                 page_property,
                 memory_pool,
                 d3d12::D3D12_RESOURCE_STATE_COMMON,
                 flags,
             )?;
-            Ok(Buffer { resource, size })
+            let mut descriptor_pool = self.descriptor_pool.lock().unwrap();
+            let cpu_ref = Arc::new(descriptor_pool.alloc_cpu(&self.device)?);
+            let cpu_handle = descriptor_pool.cpu_handle(&cpu_ref);
+            self.device
+                .create_byte_addressed_buffer_unordered_access_view(
+                    &resource,
+                    cpu_handle,
+                    0,
+                    (size / 4).try_into()?,
+                );
+            let gpu_ref = if usage.contains(BufferUsage::CLEAR) {
+                let gpu_ref = Arc::new(descriptor_pool.alloc_gpu(&self.device, 1)?);
+                let gpu_handle = descriptor_pool.cpu_handle_of_gpu(&gpu_ref, 0);
+                self.device.copy_descriptors(
+                    &[gpu_handle],
+                    &[1],
+                    &[cpu_handle],
+                    &[1],
+                    d3d12::D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
+                );
+                let heap = descriptor_pool.gpu_heap(&gpu_ref).to_owned();
+                Some((gpu_ref, heap))
+            } else {
+                None
+            };
+            Ok(Buffer {
+                resource,
+                size,
+                cpu_ref: Some(cpu_ref),
+                gpu_ref,
+            })
         }
     }
 
@@ -272,8 +326,18 @@ impl crate::backend::Device for Dx12Device {
         let resource = self
             .device
             .create_texture2d_buffer(width.into(), height, format, true)?;
+
+        let mut descriptor_pool = self.descriptor_pool.lock().unwrap();
+        let cpu_ref = Arc::new(descriptor_pool.alloc_cpu(&self.device)?);
+        let cpu_handle = descriptor_pool.cpu_handle(&cpu_ref);
+        self.device
+            .create_unordered_access_view(&resource, cpu_handle);
         let size = (width, height);
-        Ok(Image { resource, size })
+        Ok(Image {
+            resource,
+            cpu_ref: Some(cpu_ref),
+            size,
+        })
     }
 
     unsafe fn destroy_image(&self, image: &Self::Image) -> Result<(), Error> {
@@ -424,7 +488,9 @@ impl crate::backend::Device for Dx12Device {
         let mut i = 0;
         fn map_range_type(bind_type: BindType) -> d3d12::D3D12_DESCRIPTOR_RANGE_TYPE {
             match bind_type {
-                BindType::Buffer | BindType::Image | BindType::ImageRead => d3d12::D3D12_DESCRIPTOR_RANGE_TYPE_UAV,
+                BindType::Buffer | BindType::Image | BindType::ImageRead => {
+                    d3d12::D3D12_DESCRIPTOR_RANGE_TYPE_UAV
+                }
                 BindType::BufReadOnly => d3d12::D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
             }
         }
@@ -482,9 +548,7 @@ impl crate::backend::Device for Dx12Device {
             &root_signature_desc,
             d3d12::D3D_ROOT_SIGNATURE_VERSION_1,
         )?;
-        let root_signature = self
-            .device
-            .create_root_signature(0, root_signature_blob)?;
+        let root_signature = self.device.create_root_signature(0, root_signature_blob)?;
         let desc = d3d12::D3D12_COMPUTE_PIPELINE_STATE_DESC {
             pRootSignature: root_signature.0.as_raw(),
             CS: shader.bytecode,
@@ -515,14 +579,21 @@ impl Dx12Device {
     fn create_readback_buffer(&self, size: u64) -> Result<Buffer, Error> {
         unsafe {
             let resource = self.device.create_buffer(
-                size.try_into()?,
+                size,
                 d3d12::D3D12_HEAP_TYPE_READBACK,
                 d3d12::D3D12_CPU_PAGE_PROPERTY_UNKNOWN,
                 d3d12::D3D12_MEMORY_POOL_UNKNOWN,
                 d3d12::D3D12_RESOURCE_STATE_COPY_DEST,
                 d3d12::D3D12_RESOURCE_FLAG_NONE,
             )?;
-            Ok(Buffer { resource, size })
+            let cpu_ref = None;
+            let gpu_ref = None;
+            Ok(Buffer {
+                resource,
+                size,
+                cpu_ref,
+                gpu_ref,
+            })
         }
     }
 }
@@ -551,11 +622,10 @@ impl crate::backend::CmdBuf<Dx12Device> for CmdBuf {
         self.c.set_pipeline_state(&pipeline.pipeline_state);
         self.c
             .set_compute_pipeline_root_signature(&pipeline.root_signature);
-        self.c.set_descriptor_heaps(&[&descriptor_set.0]);
-        self.c.set_compute_root_descriptor_table(
-            0,
-            descriptor_set.0.get_gpu_descriptor_handle_at_offset(0),
-        );
+        // TODO: persist heap ix and only set if changed.
+        self.c.set_descriptor_heaps(&[&descriptor_set.heap]);
+        self.c
+            .set_compute_root_descriptor_table(0, descriptor_set.gpu_ref.gpu_handle());
         self.c
             .dispatch(workgroup_count.0, workgroup_count.1, workgroup_count.2);
     }
@@ -598,10 +668,22 @@ impl crate::backend::CmdBuf<Dx12Device> for CmdBuf {
         self.memory_barrier();
     }
 
-    unsafe fn clear_buffer(&self, _buffer: &Buffer, _size: Option<u64>) {
-        // Open question: do we call ClearUnorderedAccessViewUint or dispatch a
-        // compute shader? Either way we will need descriptors here.
-        todo!()
+    unsafe fn clear_buffer(&self, buffer: &Buffer, size: Option<u64>) {
+        let cpu_ref = buffer.cpu_ref.as_ref().unwrap();
+        let (gpu_ref, heap) = buffer
+            .gpu_ref
+            .as_ref()
+            .expect("Need to set CLEAR usage on buffer");
+        // Same TODO as dispatch: track and only set if changed.
+        self.c.set_descriptor_heaps(&[heap]);
+        // Discussion question: would compute shader be faster? Should measure.
+        self.c.clear_uav(
+            gpu_ref.gpu_handle(),
+            cpu_ref.handle(),
+            &buffer.resource,
+            0,
+            size,
+        );
     }
 
     unsafe fn copy_buffer(&self, src: &Buffer, dst: &Buffer) {
@@ -638,14 +720,15 @@ impl crate::backend::CmdBuf<Dx12Device> for CmdBuf {
 
 impl crate::backend::DescriptorSetBuilder<Dx12Device> for DescriptorSetBuilder {
     fn add_buffers(&mut self, buffers: &[&Buffer]) {
-        // Note: we could get rid of the clone here (which is an AddRef)
-        // and store a raw pointer, as it's a safety precondition that
-        // the resources are kept alive til build.
-        self.buffers.extend(buffers.iter().copied().cloned());
+        for buf in buffers {
+            self.handles.push(buf.cpu_ref.as_ref().unwrap().handle());
+        }
     }
 
     fn add_images(&mut self, images: &[&Image]) {
-        self.images.extend(images.iter().copied().cloned());
+        for img in images {
+            self.handles.push(img.cpu_ref.as_ref().unwrap().handle());
+        }
     }
 
     fn add_textures(&mut self, _images: &[&Image]) {
@@ -657,34 +740,12 @@ impl crate::backend::DescriptorSetBuilder<Dx12Device> for DescriptorSetBuilder {
         device: &Dx12Device,
         _pipeline: &Pipeline,
     ) -> Result<DescriptorSet, Error> {
-        let n_descriptors = self.buffers.len() + self.images.len();
-        let heap_desc = d3d12::D3D12_DESCRIPTOR_HEAP_DESC {
-            Type: d3d12::D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
-            NumDescriptors: n_descriptors.try_into()?,
-            Flags: d3d12::D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,
-            NodeMask: 0,
-        };
-        let heap = device.device.create_descriptor_heap(&heap_desc)?;
-        let mut ix = 0;
-        for buffer in self.buffers {
-            device
-                .device
-                .create_byte_addressed_buffer_unordered_access_view(
-                    &buffer.resource,
-                    heap.get_cpu_descriptor_handle_at_offset(ix),
-                    0,
-                    (buffer.size / 4).try_into()?,
-                );
-            ix += 1;
-        }
-        for image in self.images {
-            device.device.create_unordered_access_view(
-                &image.resource,
-                heap.get_cpu_descriptor_handle_at_offset(ix),
-            );
-            ix += 1;
-        }
-        Ok(DescriptorSet(heap))
+        let mut descriptor_pool = device.descriptor_pool.lock().unwrap();
+        let n_descriptors = self.handles.len().try_into()?;
+        let gpu_ref = descriptor_pool.alloc_gpu(&device.device, n_descriptors)?;
+        gpu_ref.copy_descriptors(&device.device, &self.handles);
+        let heap = descriptor_pool.gpu_heap(&gpu_ref).to_owned();
+        Ok(DescriptorSet { gpu_ref, heap })
     }
 }
 
@@ -737,6 +798,7 @@ impl Dx12Swapchain {
         let buffer = self.swapchain.get_buffer(idx as u32);
         Image {
             resource: buffer,
+            cpu_ref: None,
             size: self.size,
         }
     }

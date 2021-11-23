@@ -7,6 +7,7 @@
 // except according to those terms.
 
 use crate::dx12::error::{self, error_if_failed_else_unit, explain_error, Error};
+use smallvec::SmallVec;
 use std::convert::{TryFrom, TryInto};
 use std::sync::atomic::{AtomicPtr, Ordering};
 use std::{ffi, mem, ptr};
@@ -51,11 +52,7 @@ pub type CpuDescriptor = d3d12::D3D12_CPU_DESCRIPTOR_HANDLE;
 pub type GpuDescriptor = d3d12::D3D12_GPU_DESCRIPTOR_HANDLE;
 
 #[derive(Clone)]
-pub struct DescriptorHeap {
-    pub heap_type: d3d12::D3D12_DESCRIPTOR_HEAP_TYPE,
-    pub increment_size: u32,
-    pub heap: ComPtr<d3d12::ID3D12DescriptorHeap>,
-}
+pub struct DescriptorHeap(ComPtr<d3d12::ID3D12DescriptorHeap>);
 
 #[derive(Clone)]
 pub struct RootSignature(pub ComPtr<d3d12::ID3D12RootSignature>);
@@ -381,11 +378,7 @@ impl Device {
             "device could not create descriptor heap",
         )?;
 
-        Ok(DescriptorHeap {
-            heap_type: heap_description.Type,
-            increment_size: self.get_descriptor_increment_size(heap_description.Type),
-            heap: ComPtr::from_raw(heap),
-        })
+        Ok(DescriptorHeap(ComPtr::from_raw(heap)))
     }
 
     pub unsafe fn get_descriptor_increment_size(
@@ -393,6 +386,31 @@ impl Device {
         heap_type: d3d12::D3D12_DESCRIPTOR_HEAP_TYPE,
     ) -> u32 {
         self.0.GetDescriptorHandleIncrementSize(heap_type)
+    }
+
+    pub unsafe fn copy_descriptors(
+        &self,
+        dst_starts: &[d3d12::D3D12_CPU_DESCRIPTOR_HANDLE],
+        dst_sizes: &[u32],
+        src_starts: &[d3d12::D3D12_CPU_DESCRIPTOR_HANDLE],
+        src_sizes: &[u32],
+        descriptor_heap_type: d3d12::D3D12_DESCRIPTOR_HEAP_TYPE,
+    ) {
+        debug_assert_eq!(dst_starts.len(), dst_sizes.len());
+        debug_assert_eq!(src_starts.len(), src_sizes.len());
+        debug_assert_eq!(
+            src_sizes.iter().copied().sum::<u32>(),
+            dst_sizes.iter().copied().sum()
+        );
+        self.0.CopyDescriptors(
+            dst_starts.len().try_into().unwrap(),
+            dst_starts.as_ptr(),
+            dst_sizes.as_ptr(),
+            src_starts.len().try_into().unwrap(),
+            src_starts.as_ptr(),
+            src_sizes.as_ptr(),
+            descriptor_heap_type,
+        );
     }
 
     pub unsafe fn create_compute_pipeline_state(
@@ -564,7 +582,7 @@ impl Device {
 
     pub unsafe fn create_buffer(
         &self,
-        buffer_size_in_bytes: u32,
+        buffer_size_in_bytes: u64,
         heap_type: d3d12::D3D12_HEAP_TYPE,
         cpu_page: d3d12::D3D12_CPU_PAGE_PROPERTY,
         memory_pool_preference: d3d12::D3D12_MEMORY_POOL,
@@ -581,7 +599,7 @@ impl Device {
         };
         let resource_description = d3d12::D3D12_RESOURCE_DESC {
             Dimension: d3d12::D3D12_RESOURCE_DIMENSION_BUFFER,
-            Width: buffer_size_in_bytes as u64,
+            Width: buffer_size_in_bytes,
             Height: 1,
             DepthOrArraySize: 1,
             MipLevels: 1,
@@ -681,26 +699,12 @@ impl Device {
 }
 
 impl DescriptorHeap {
-    unsafe fn get_cpu_descriptor_handle_for_heap_start(&self) -> CpuDescriptor {
-        self.heap.GetCPUDescriptorHandleForHeapStart()
+    pub unsafe fn get_cpu_descriptor_handle_for_heap_start(&self) -> CpuDescriptor {
+        self.0.GetCPUDescriptorHandleForHeapStart()
     }
 
-    unsafe fn get_gpu_descriptor_handle_for_heap_start(&self) -> GpuDescriptor {
-        self.heap.GetGPUDescriptorHandleForHeapStart()
-    }
-
-    pub unsafe fn get_cpu_descriptor_handle_at_offset(&self, offset: u32) -> CpuDescriptor {
-        let mut descriptor = self.get_cpu_descriptor_handle_for_heap_start();
-        descriptor.ptr += (offset as usize) * (self.increment_size as usize);
-
-        descriptor
-    }
-
-    pub unsafe fn get_gpu_descriptor_handle_at_offset(&self, offset: u32) -> GpuDescriptor {
-        let mut descriptor = self.get_gpu_descriptor_handle_for_heap_start();
-        descriptor.ptr += (offset as u64) * (self.increment_size as u64);
-
-        descriptor
+    pub unsafe fn get_gpu_descriptor_handle_for_heap_start(&self) -> GpuDescriptor {
+        self.0.GetGPUDescriptorHandleForHeapStart()
     }
 }
 
@@ -923,8 +927,8 @@ impl GraphicsCommandList {
     }
 
     pub unsafe fn set_descriptor_heaps(&self, descriptor_heaps: &[&DescriptorHeap]) {
-        let mut descriptor_heap_pointers: Vec<_> =
-            descriptor_heaps.iter().map(|dh| dh.heap.as_raw()).collect();
+        let mut descriptor_heap_pointers: SmallVec<[_; 4]> =
+            descriptor_heaps.iter().map(|dh| dh.0.as_raw()).collect();
         self.0.SetDescriptorHeaps(
             u32::try_from(descriptor_heap_pointers.len())
                 .expect("could not safely convert descriptor_heap_pointers.len() into u32"),
@@ -955,6 +959,38 @@ impl GraphicsCommandList {
             num_queries,
             destination_buffer.get_mut(),
             aligned_destination_buffer_offset,
+        );
+    }
+
+    pub unsafe fn clear_uav(
+        &self,
+        gpu_handle: d3d12::D3D12_GPU_DESCRIPTOR_HANDLE,
+        cpu_handle: d3d12::D3D12_CPU_DESCRIPTOR_HANDLE,
+        resource: &Resource,
+        value: u32,
+        size: Option<u64>,
+    ) {
+        // In testing, only the first value seems to be used, but just in case...
+        let values = [value, value, value, value];
+        let mut rect = d3d12::D3D12_RECT {
+            left: 0,
+            right: 0,
+            top: 0,
+            bottom: 1,
+        };
+        let (num_rects, p_rects) = if let Some(size) = size {
+            rect.right = (size / 4).try_into().unwrap();
+            (1, &rect as *const _)
+        } else {
+            (0, std::ptr::null())
+        };
+        self.0.ClearUnorderedAccessViewUint(
+            gpu_handle,
+            cpu_handle,
+            resource.get_mut(),
+            &values,
+            num_rects,
+            p_rects,
         );
     }
 

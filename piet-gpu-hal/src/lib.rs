@@ -6,6 +6,7 @@
 use bitflags::bitflags;
 
 mod backend;
+mod bestfit;
 mod hub;
 
 #[macro_use]
