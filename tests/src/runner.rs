@@ -18,8 +18,7 @@
 
 use bytemuck::Pod;
 use piet_gpu_hal::{
-    BackendType, Buffer, BufferUsage, CmdBuf, Instance, InstanceFlags, QueryPool,
-    Session,
+    BackendType, Buffer, BufferUsage, CmdBuf, Instance, InstanceFlags, QueryPool, Session,
 };
 
 pub struct Runner {
