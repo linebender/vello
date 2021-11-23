@@ -22,6 +22,7 @@ pub struct Config {
     pub groups: Groups,
     pub size: Size,
     pub n_iter: u64,
+    pub verify_all: bool,
 }
 
 pub struct Groups(String);
@@ -40,10 +41,12 @@ impl Config {
             .value_of("n_iter")
             .and_then(|s| s.parse().ok())
             .unwrap_or(1000);
+        let verify_all = matches.is_present("verify_all");
         Config {
             groups,
             size,
             n_iter,
+            verify_all,
         }
     }
 }

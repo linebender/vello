@@ -55,12 +55,12 @@ pub unsafe fn run_clear_test(runner: &mut Runner, config: &Config) -> TestResult
         commands.write_timestamp(0);
         stage.record(&mut commands, &code, &binding);
         commands.write_timestamp(1);
-        if i == 0 {
+        if i == 0 || config.verify_all {
             commands.cmd_buf.memory_barrier();
             commands.download(&out_buf);
         }
         total_elapsed += runner.submit(commands);
-        if i == 0 {
+        if i == 0 || config.verify_all {
             let mut dst: Vec<u32> = Default::default();
             out_buf.read(&mut dst);
             if let Some(failure) = verify(&dst) {
