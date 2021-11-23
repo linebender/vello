@@ -42,16 +42,25 @@ pub fn make_clear_pipeline(device: &Device) -> ComputePipelineState {
     let library = device.new_library_with_source(CLEAR_MSL, &options).unwrap();
     let function = library.get_function("main0", None).unwrap();
     device
-        .new_compute_pipeline_state_with_function(&function).unwrap()
-
+        .new_compute_pipeline_state_with_function(&function)
+        .unwrap()
 }
 
-pub fn encode_clear(encoder: &metal::ComputeCommandEncoderRef, clear_pipeline: &ComputePipelineState, buffer: &metal::Buffer, size: u64) {
+pub fn encode_clear(
+    encoder: &metal::ComputeCommandEncoderRef,
+    clear_pipeline: &ComputePipelineState,
+    buffer: &metal::Buffer,
+    size: u64,
+) {
     // TODO: should be more careful with overflow
     let size_in_u32s = (size / 4) as u32;
     encoder.set_compute_pipeline_state(&clear_pipeline);
     let config = [size_in_u32s, 0];
-    encoder.set_bytes(0, std::mem::size_of_val(&config) as u64, config.as_ptr() as *const _);
+    encoder.set_bytes(
+        0,
+        std::mem::size_of_val(&config) as u64,
+        config.as_ptr() as *const _,
+    );
     encoder.set_buffer(1, Some(buffer), 0);
     let n_wg = (size_in_u32s + 255) / 256;
     let workgroup_count = metal::MTLSize {
