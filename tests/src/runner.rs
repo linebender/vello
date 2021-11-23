@@ -16,8 +16,9 @@
 
 //! Test runner intended to make it easy to write tests.
 
+use bytemuck::Pod;
 use piet_gpu_hal::{
-    BackendType, Buffer, BufferUsage, CmdBuf, Instance, InstanceFlags, PlainData, QueryPool,
+    BackendType, Buffer, BufferUsage, CmdBuf, Instance, InstanceFlags, QueryPool,
     Session,
 };
 
@@ -137,7 +138,7 @@ impl Commands {
 }
 
 impl BufDown {
-    pub unsafe fn read(&self, dst: &mut Vec<impl PlainData>) {
+    pub unsafe fn read(&self, dst: &mut Vec<impl Pod>) {
         self.stage_buf.read(dst).unwrap()
     }
 }
