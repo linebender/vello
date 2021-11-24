@@ -19,8 +19,7 @@ pub use crate::mux::{
     Swapchain,
 };
 pub use hub::{
-    Buffer, CmdBuf, DescriptorSetBuilder, Image, PlainData, RetainResource, Session,
-    SubmittedCmdBuf,
+    Buffer, CmdBuf, DescriptorSetBuilder, Image, RetainResource, Session, SubmittedCmdBuf,
 };
 
 // TODO: because these are conditionally included, "cargo fmt" does not

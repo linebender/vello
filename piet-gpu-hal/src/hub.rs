@@ -9,6 +9,7 @@
 use std::convert::TryInto;
 use std::sync::{Arc, Mutex, Weak};
 
+use bytemuck::Pod;
 use smallvec::SmallVec;
 
 use crate::{mux, BackendType};
@@ -104,20 +105,6 @@ struct BufferInner {
 ///
 /// Add bindings to the descriptor set before dispatching a shader.
 pub struct DescriptorSetBuilder(mux::DescriptorSetBuilder);
-
-/// Data types that can be stored in a GPU buffer.
-pub unsafe trait PlainData {}
-
-unsafe impl PlainData for u8 {}
-unsafe impl PlainData for u16 {}
-unsafe impl PlainData for u32 {}
-unsafe impl PlainData for u64 {}
-unsafe impl PlainData for i8 {}
-unsafe impl PlainData for i16 {}
-unsafe impl PlainData for i32 {}
-unsafe impl PlainData for i64 {}
-unsafe impl PlainData for f32 {}
-unsafe impl PlainData for f64 {}
 
 /// A resource to retain during the lifetime of a command submission.
 pub enum RetainResource {
@@ -242,15 +229,12 @@ impl Session {
     /// the buffer will subsequently be written by the host.
     pub fn create_buffer_init(
         &self,
-        contents: &[impl PlainData],
+        contents: &[impl Pod],
         usage: BufferUsage,
     ) -> Result<Buffer, Error> {
         unsafe {
-            self.create_buffer_init_raw(
-                contents.as_ptr() as *const u8,
-                std::mem::size_of_val(contents).try_into()?,
-                usage,
-            )
+            let bytes = bytemuck::cast_slice(contents);
+            self.create_buffer_init_raw(bytes.as_ptr(), bytes.len().try_into()?, usage)
         }
     }
 
@@ -682,13 +666,14 @@ impl Buffer {
     ///
     /// The buffer must have been created with `MAP_WRITE` usage, and with
     /// a size large enough to accommodate the given slice.
-    pub unsafe fn write<T: PlainData>(&mut self, contents: &[T]) -> Result<(), Error> {
+    pub unsafe fn write(&mut self, contents: &[impl Pod]) -> Result<(), Error> {
+        let bytes = bytemuck::cast_slice(contents);
         if let Some(session) = Weak::upgrade(&self.0.session) {
             session.device.write_buffer(
                 &self.0.buffer,
-                contents.as_ptr() as *const u8,
+                bytes.as_ptr(),
                 0,
-                std::mem::size_of_val(contents).try_into()?,
+                bytes.len().try_into()?,
             )?;
         }
         // else session lost error?
@@ -700,8 +685,10 @@ impl Buffer {
     /// The buffer must have been created with `MAP_READ` usage. The caller
     /// is also responsible for ensuring that this does not read uninitialized
     /// memory.
-    pub unsafe fn read<T: PlainData>(&self, result: &mut Vec<T>) -> Result<(), Error> {
+    pub unsafe fn read<T: Pod>(&self, result: &mut Vec<T>) -> Result<(), Error> {
         let size = self.mux_buffer().size();
+        // TODO: can bytemuck grow a method to do this more safely?
+        // It's similar to pod_collect_to_vec.
         let len = size as usize / std::mem::size_of::<T>();
         if len > result.len() {
             result.reserve(len - result.len());

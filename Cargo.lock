@@ -904,6 +904,7 @@ dependencies = [
  "ash-window",
  "bitflags",
  "block",
+ "bytemuck",
  "cocoa-foundation",
  "metal",
  "objc",
