@@ -61,9 +61,8 @@ pub unsafe fn run_clear_test(runner: &mut Runner, config: &Config) -> TestResult
         }
         total_elapsed += runner.submit(commands);
         if i == 0 {
-            let mut dst: Vec<u32> = Default::default();
-            out_buf.read(&mut dst);
-            if let Some(failure) = verify(&dst) {
+            let dst = out_buf.map_read(..);
+            if let Some(failure) = verify(dst.cast_slice()) {
                 result.fail(format!("failure at {}", failure));
             }
         }

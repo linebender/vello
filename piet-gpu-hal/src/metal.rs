@@ -377,6 +377,30 @@ impl crate::backend::Device for MtlDevice {
         Ok(())
     }
 
+    unsafe fn map_buffer(
+        &self,
+        buffer: &Self::Buffer,
+        offset: u64,
+        size: u64,
+        mode: MapMode,
+    ) -> Result<*mut u8, Error> {
+        let contents_ptr = buffer.buffer.contents();
+        if contents_ptr.is_null() {
+            return Err("probably trying to map private buffer".into());
+        }
+        Ok((contents_ptr as *mut u8).add(offset as usize))
+    }
+
+    unsafe fn unmap_buffer(
+        &self,
+        buffer: &Self::Buffer,
+        _offset: u64,
+        _size: u64,
+        _mode: MapMode,
+    ) -> Result<(), Error> {
+        Ok(())
+    }
+
     unsafe fn create_semaphore(&self) -> Result<Self::Semaphore, Error> {
         Ok(Semaphore)
     }

@@ -16,7 +16,7 @@
 
 //! The generic trait for backends to implement.
 
-use crate::{BindType, BufferUsage, Error, GpuInfo, ImageLayout, SamplerParams};
+use crate::{BindType, BufferUsage, Error, GpuInfo, ImageLayout, MapMode, SamplerParams};
 
 pub trait Device: Sized {
     type Buffer: 'static;
@@ -114,36 +114,33 @@ pub trait Device: Sized {
         fence: Option<&mut Self::Fence>,
     ) -> Result<(), Error>;
 
-    /// Copy data from the buffer to memory.
-    ///
-    /// Discussion question: add offset?
+    /// Map the buffer into addressable memory.
     ///
     /// # Safety
     ///
-    /// The buffer must be valid to access. The destination memory must be valid to
-    /// write to. The ranges must not overlap. The offset + size must be within
-    /// the buffer's allocation, and size within the destination.
-    unsafe fn read_buffer(
+    /// The buffer must be valid to access. The offset + size much be within the
+    /// buffer's allocation. The buffer must not already be mapped. Of course,
+    /// the usual safety rules apply to the returned pointer.
+    unsafe fn map_buffer(
         &self,
         buffer: &Self::Buffer,
-        dst: *mut u8,
         offset: u64,
         size: u64,
-    ) -> Result<(), Error>;
+        mode: MapMode,
+    ) -> Result<*mut u8, Error>;
 
-    /// Copy data from memory to the buffer.
+    /// Map the buffer into addressable memory.
     ///
     /// # Safety
     ///
-    /// The buffer must be valid to access. The source memory must be valid to
-    /// read from. The ranges must not overlap. The offset + size must be within
-    /// the buffer's allocation, and size within the source.
-    unsafe fn write_buffer(
+    /// The buffer must be mapped. The parameters must be the same as the map
+    /// call.
+    unsafe fn unmap_buffer(
         &self,
         buffer: &Self::Buffer,
-        contents: *const u8,
         offset: u64,
         size: u64,
+        mode: MapMode,
     ) -> Result<(), Error>;
 
     unsafe fn create_semaphore(&self) -> Result<Self::Semaphore, Error>;

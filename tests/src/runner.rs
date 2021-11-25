@@ -16,9 +16,12 @@
 
 //! Test runner intended to make it easy to write tests.
 
+use std::ops::RangeBounds;
+
 use bytemuck::Pod;
 use piet_gpu_hal::{
-    BackendType, Buffer, BufferUsage, CmdBuf, Instance, InstanceFlags, QueryPool, Session,
+    BackendType, BufReadGuard, Buffer, BufferUsage, CmdBuf, Instance, InstanceFlags, QueryPool,
+    Session,
 };
 
 pub struct Runner {
@@ -139,5 +142,9 @@ impl Commands {
 impl BufDown {
     pub unsafe fn read(&self, dst: &mut Vec<impl Pod>) {
         self.stage_buf.read(dst).unwrap()
+    }
+
+    pub unsafe fn map_read<'a>(&'a self, range: impl RangeBounds<usize>) -> BufReadGuard<'a> {
+        self.stage_buf.map_read(range).unwrap()
     }
 }

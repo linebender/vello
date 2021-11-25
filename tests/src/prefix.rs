@@ -69,10 +69,17 @@ pub unsafe fn run_prefix_test(
     }
     */
     let n_elements: u64 = config.size.choose(1 << 12, 1 << 24, 1 << 25);
-    let data: Vec<u32> = (0..n_elements as u32).collect();
     let data_buf = runner
         .session
-        .create_buffer_init(&data, BufferUsage::STORAGE)
+        .create_buffer_with(
+            n_elements * 4,
+            |b| {
+                for i in 0..n_elements as u32 {
+                    b.push(&i);
+                }
+            },
+            BufferUsage::STORAGE,
+        )
         .unwrap();
     let out_buf = runner.buf_down(data_buf.size(), BufferUsage::empty());
     let code = PrefixCode::new(runner, variant);
@@ -91,9 +98,8 @@ pub unsafe fn run_prefix_test(
         }
         total_elapsed += runner.submit(commands);
         if i == 0 {
-            let mut dst: Vec<u32> = Default::default();
-            out_buf.read(&mut dst);
-            if let Some(failure) = verify(&dst) {
+            let dst = out_buf.map_read(..);
+            if let Some(failure) = verify(dst.cast_slice()) {
                 result.fail(format!("failure at {}", failure));
             }
         }

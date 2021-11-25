@@ -7,6 +7,7 @@ use bitflags::bitflags;
 
 mod backend;
 mod bestfit;
+mod bufwrite;
 mod hub;
 
 #[macro_use]
@@ -18,8 +19,10 @@ pub use crate::mux::{
     DescriptorSet, Fence, Instance, Pipeline, QueryPool, Sampler, Semaphore, ShaderCode, Surface,
     Swapchain,
 };
+pub use bufwrite::BufWrite;
 pub use hub::{
-    Buffer, CmdBuf, DescriptorSetBuilder, Image, RetainResource, Session, SubmittedCmdBuf,
+    BufReadGuard, BufWriteGuard, Buffer, CmdBuf, DescriptorSetBuilder, Image, RetainResource,
+    Session, SubmittedCmdBuf,
 };
 
 // TODO: because these are conditionally included, "cargo fmt" does not
@@ -126,6 +129,14 @@ pub enum BindType {
     /// spirv-cross (marked as unstable) would do so.
     ImageRead,
     // TODO: Uniform, Sampler, maybe others
+}
+
+/// Whether to map a buffer in read or write mode.
+pub enum MapMode {
+    /// Map for reading.
+    Read,
+    /// Map for writing.
+    Write,
 }
 
 #[derive(Clone, Debug)]

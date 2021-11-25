@@ -13,7 +13,7 @@ use smallvec::SmallVec;
 
 use crate::backend::Device as DeviceTrait;
 use crate::{
-    BindType, BufferUsage, Error, GpuInfo, ImageLayout, SamplerParams, SubgroupSize,
+    BindType, BufferUsage, Error, GpuInfo, ImageLayout, MapMode, SamplerParams, SubgroupSize,
     WorkgroupLimits,
 };
 
@@ -821,14 +821,13 @@ impl crate::backend::Device for VkDevice {
         Ok(())
     }
 
-    unsafe fn read_buffer(
+    unsafe fn map_buffer(
         &self,
         buffer: &Self::Buffer,
-        dst: *mut u8,
         offset: u64,
         size: u64,
-    ) -> Result<(), Error> {
-        let copy_size = size.try_into()?;
+        _mode: MapMode,
+    ) -> Result<*mut u8, Error> {
         let device = &self.device.device;
         let buf = device.map_memory(
             buffer.buffer_memory,
@@ -836,28 +835,17 @@ impl crate::backend::Device for VkDevice {
             size,
             vk::MemoryMapFlags::empty(),
         )?;
-        std::ptr::copy_nonoverlapping(buf as *const u8, dst, copy_size);
-        device.unmap_memory(buffer.buffer_memory);
-        Ok(())
+        Ok(buf as *mut u8)
     }
 
-    unsafe fn write_buffer(
+    unsafe fn unmap_buffer(
         &self,
-        buffer: &Buffer,
-        contents: *const u8,
-        offset: u64,
-        size: u64,
+        buffer: &Self::Buffer,
+        _offset: u64,
+        _size: u64,
+        _mode: MapMode,
     ) -> Result<(), Error> {
-        let copy_size = size.try_into()?;
-        let device = &self.device.device;
-        let buf = device.map_memory(
-            buffer.buffer_memory,
-            offset,
-            size,
-            vk::MemoryMapFlags::empty(),
-        )?;
-        std::ptr::copy_nonoverlapping(contents, buf as *mut u8, copy_size);
-        device.unmap_memory(buffer.buffer_memory);
+        self.device.device.unmap_memory(buffer.buffer_memory);
         Ok(())
     }
 
