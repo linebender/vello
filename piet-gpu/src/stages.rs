@@ -16,12 +16,16 @@
 
 //! Stages for new element pipeline, exposed for testing.
 
+mod path;
+
 use bytemuck::{Pod, Zeroable};
 
 use piet::kurbo::Affine;
 use piet_gpu_hal::{
     include_shader, BindType, Buffer, BufferUsage, CmdBuf, DescriptorSet, Pipeline, Session,
 };
+
+pub use path::{PathBinding, PathCode, PathEncoder, PathStage};
 
 /// The configuration block passed to piet-gpu shaders.
 ///
@@ -39,8 +43,12 @@ pub struct Config {
     pub pathseg_alloc: u32,
     pub anno_alloc: u32,
     pub trans_alloc: u32,
+    pub bbox_alloc: u32,
     pub n_trans: u32,
     pub trans_offset: u32,
+    pub pathtag_offset: u32,
+    pub linewidth_offset: u32,
+    pub pathseg_offset: u32,
 }
 
 // The individual stages will probably be separate files but for now, all in one.

@@ -813,8 +813,8 @@ impl Buffer {
     ) -> Result<BufReadGuard<'a>, Error> {
         let offset = match range.start_bound() {
             Bound::Unbounded => 0,
-            Bound::Excluded(&s) => s.try_into()?,
-            Bound::Included(_) => unreachable!(),
+            Bound::Excluded(_) => unreachable!(),
+            Bound::Included(&s) => s.try_into()?,
         };
         let end = match range.end_bound() {
             Bound::Unbounded => self.size(),

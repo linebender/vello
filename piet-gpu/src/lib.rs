@@ -298,7 +298,6 @@ impl Renderer {
         alloc += (n_paths * ANNO_SIZE + 3) & !3;
         let trans_base = alloc;
         alloc += (n_trans * TRANS_SIZE + 3) & !3;
-        let trans_offset = 0; // For new element pipeline, not yet used
         let config = Config {
             n_elements: n_paths as u32,
             n_pathseg: n_pathseg as u32,
@@ -311,7 +310,8 @@ impl Renderer {
             anno_alloc: anno_base as u32,
             trans_alloc: trans_base as u32,
             n_trans: n_trans as u32,
-            trans_offset: trans_offset as u32,
+            // We'll fill the rest of the fields in when we hook up the new element pipeline.
+            ..Default::default()
         };
         unsafe {
             let scene = render_ctx.get_scene_buf();

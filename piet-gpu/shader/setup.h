@@ -40,10 +40,20 @@ struct Config {
     Alloc trans_alloc;
     // new element pipeline stuff follows
 
+    // Bounding boxes of paths, stored as int (so atomics work)
+    Alloc bbox_alloc;
+
     // Number of transforms in scene
+    // This is probably not needed.
     uint n_trans;
     // Offset (in bytes) of transform stream in scene buffer
     uint trans_offset;
+    // Offset (in bytes) of path tag stream in scene
+    uint pathtag_offset;
+    // Offset (in bytes) of linewidth stream in scene
+    uint linewidth_offset;
+    // Offset (in bytes) of path segment stream in scene
+    uint pathseg_offset;
 };
 
 // Fill modes.

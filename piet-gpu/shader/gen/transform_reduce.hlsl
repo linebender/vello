@@ -26,8 +26,12 @@ struct Config
     Alloc pathseg_alloc;
     Alloc anno_alloc;
     Alloc trans_alloc;
+    Alloc bbox_alloc;
     uint n_trans;
     uint trans_offset;
+    uint pathtag_offset;
+    uint linewidth_offset;
+    uint pathseg_offset;
 };
 
 static const uint3 gl_WorkGroupSize = uint3(512u, 1u, 1u);
@@ -81,7 +85,7 @@ Transform combine_monoid(Transform a, Transform b)
 void comp_main()
 {
     uint ix = gl_GlobalInvocationID.x * 8u;
-    TransformRef _168 = { _161.Load(44) + (ix * 24u) };
+    TransformRef _168 = { _161.Load(48) + (ix * 24u) };
     TransformRef ref = _168;
     TransformRef param = ref;
     Transform agg = Transform_read(param);

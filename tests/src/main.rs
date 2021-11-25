@@ -26,6 +26,8 @@ mod runner;
 mod test_result;
 
 #[cfg(feature = "piet-gpu")]
+mod path;
+#[cfg(feature = "piet-gpu")]
 mod transform;
 
 use clap::{App, Arg};
@@ -134,6 +136,7 @@ fn main() {
         #[cfg(feature = "piet-gpu")]
         if config.groups.matches("piet") {
             report(&transform::transform_test(&mut runner, &config));
+            report(&path::path_test(&mut runner, &config));
         }
     }
 }

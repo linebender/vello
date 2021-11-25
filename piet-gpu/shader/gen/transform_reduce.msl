@@ -38,8 +38,12 @@ struct Config
     Alloc pathseg_alloc;
     Alloc anno_alloc;
     Alloc trans_alloc;
+    Alloc bbox_alloc;
     uint n_trans;
     uint trans_offset;
+    uint pathtag_offset;
+    uint linewidth_offset;
+    uint pathseg_offset;
 };
 
 struct ConfigBuf

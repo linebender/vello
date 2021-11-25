@@ -1,0 +1,29 @@
+// SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
+
+// Clear path bbox to prepare for atomic min/max.
+
+#version 450
+#extension GL_GOOGLE_include_directive : enable
+
+#include "mem.h"
+#include "setup.h"
+
+#define LG_WG_SIZE 9
+#define WG_SIZE (1 << LG_WG_SIZE)
+
+layout(local_size_x = WG_SIZE, local_size_y = 1) in;
+
+layout(binding = 1) readonly buffer ConfigBuf {
+    Config conf;
+};
+
+void main() {
+    uint ix = gl_GlobalInvocationID.x;
+    if (ix < conf.n_elements) {
+        uint out_ix = (conf.bbox_alloc.offset >> 2) + 4 * ix;
+        memory[out_ix] = 0xffff;
+        memory[out_ix + 1] = 0xffff;
+        memory[out_ix + 2] = 0;
+        memory[out_ix + 3] = 0;
+    }
+}
