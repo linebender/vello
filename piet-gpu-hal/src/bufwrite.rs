@@ -26,8 +26,8 @@ impl BufWrite {
     ///
     /// Panics if capacity is inadequate.
     #[inline]
-    pub fn push(&mut self, item: &impl Pod) {
-        self.push_bytes(bytemuck::bytes_of(item));
+    pub fn push(&mut self, item: impl Pod) {
+        self.push_bytes(bytemuck::bytes_of(&item));
     }
 
     /// Extend with a slice of plain data objects.
