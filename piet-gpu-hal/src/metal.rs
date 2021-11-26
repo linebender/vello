@@ -30,7 +30,7 @@ use metal::{CGFloat, MTLFeatureSet};
 
 use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
 
-use crate::{BufferUsage, Error, GpuInfo, WorkgroupLimits};
+use crate::{BufferUsage, Error, GpuInfo, MapMode, WorkgroupLimits};
 
 use util::*;
 
@@ -339,50 +339,12 @@ impl crate::backend::Device for MtlDevice {
         Ok(())
     }
 
-    unsafe fn read_buffer(
-        &self,
-        buffer: &Self::Buffer,
-        dst: *mut u8,
-        offset: u64,
-        size: u64,
-    ) -> Result<(), Error> {
-        let contents_ptr = buffer.buffer.contents();
-        if contents_ptr.is_null() {
-            return Err("probably trying to read from private buffer".into());
-        }
-        std::ptr::copy_nonoverlapping(
-            (contents_ptr as *const u8).add(offset as usize),
-            dst,
-            size as usize,
-        );
-        Ok(())
-    }
-
-    unsafe fn write_buffer(
-        &self,
-        buffer: &Buffer,
-        contents: *const u8,
-        offset: u64,
-        size: u64,
-    ) -> Result<(), Error> {
-        let contents_ptr = buffer.buffer.contents();
-        if contents_ptr.is_null() {
-            return Err("probably trying to write to private buffer".into());
-        }
-        std::ptr::copy_nonoverlapping(
-            contents,
-            (contents_ptr as *mut u8).add(offset as usize),
-            size as usize,
-        );
-        Ok(())
-    }
-
     unsafe fn map_buffer(
         &self,
         buffer: &Self::Buffer,
         offset: u64,
-        size: u64,
-        mode: MapMode,
+        _size: u64,
+        _mode: MapMode,
     ) -> Result<*mut u8, Error> {
         let contents_ptr = buffer.buffer.contents();
         if contents_ptr.is_null() {
@@ -393,7 +355,7 @@ impl crate::backend::Device for MtlDevice {
 
     unsafe fn unmap_buffer(
         &self,
-        buffer: &Self::Buffer,
+        _buffer: &Self::Buffer,
         _offset: u64,
         _size: u64,
         _mode: MapMode,
