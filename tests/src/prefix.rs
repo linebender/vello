@@ -73,11 +73,7 @@ pub unsafe fn run_prefix_test(
         .session
         .create_buffer_with(
             n_elements * 4,
-            |b| {
-                for i in 0..n_elements as u32 {
-                    b.push(&i);
-                }
-            },
+            |b| b.extend(0..n_elements as u32),
             BufferUsage::STORAGE,
         )
         .unwrap();

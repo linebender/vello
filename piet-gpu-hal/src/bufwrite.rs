@@ -73,7 +73,9 @@ impl BufWrite {
     /// Extend with an iterator over plain data objects.
     ///
     /// Currently, this doesn't panic, just truncates. That may change.
-    pub fn extend<'a, I, T: Pod + 'a>(&mut self, iter: I)
+    // Note: when specialization lands, this can be another impl of
+    // `Extend`.
+    pub fn extend_ref_iter<'a, I, T: Pod + 'a>(&mut self, iter: I)
     where
         I: IntoIterator<Item = &'a T>,
     {
@@ -113,5 +115,36 @@ impl std::ops::Deref for BufWrite {
 impl std::ops::DerefMut for BufWrite {
     fn deref_mut(&mut self) -> &mut [u8] {
         unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) }
+    }
+}
+
+impl<T: Pod> std::iter::Extend<T> for BufWrite {
+    fn extend<I>(&mut self, iter: I)
+    where
+        I: IntoIterator<Item = T>,
+    {
+        let item_size = std::mem::size_of::<T>();
+        if item_size == 0 {
+            return;
+        }
+        let mut iter = iter.into_iter();
+        let n_remaining = (self.capacity - self.len) / item_size;
+        unsafe {
+            let mut dst = self.ptr.add(self.len);
+            for _ in 0..n_remaining {
+                if let Some(item) = iter.next() {
+                    std::ptr::copy_nonoverlapping(
+                        bytemuck::bytes_of(&item).as_ptr(),
+                        dst,
+                        item_size,
+                    );
+                    self.len += item_size;
+                    dst = dst.add(item_size);
+                } else {
+                    break;
+                }
+            }
+        }
+        // TODO: should we test the iter and panic on overflow?
     }
 }
