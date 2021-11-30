@@ -25,6 +25,9 @@ mod prefix_tree;
 mod runner;
 mod test_result;
 
+#[cfg(feature = "piet-gpu")]
+mod transform;
+
 use clap::{App, Arg};
 use piet_gpu_hal::InstanceFlags;
 
@@ -61,6 +64,11 @@ fn main() {
                 .long("n_iter")
                 .help("Number of iterations")
                 .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("verify_all")
+                .long("verify_all")
+                .help("Verify all iterations"),
         )
         .arg(
             Arg::with_name("dx12")
@@ -122,6 +130,10 @@ fn main() {
                 ));
             }
             report(&linkedlist::run_linkedlist_test(&mut runner, &config));
+        }
+        #[cfg(feature = "piet-gpu")]
+        if config.groups.matches("piet") {
+            report(&transform::transform_test(&mut runner, &config));
         }
     }
 }

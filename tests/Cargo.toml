@@ -6,9 +6,18 @@ description = "Tests for piet-gpu shaders and generic GPU capabilities."
 license = "MIT/Apache-2.0"
 edition = "2021"
 
+[features]
+default = ["piet-gpu"]
+
 [dependencies]
 clap = "2.33"
 bytemuck = "1.7.2"
+kurbo = "0.7.1"
+rand = "0.7.3"
 
 [dependencies.piet-gpu-hal]
 path = "../piet-gpu-hal"
+
+[dependencies.piet-gpu]
+path = "../piet-gpu"
+optional = true
