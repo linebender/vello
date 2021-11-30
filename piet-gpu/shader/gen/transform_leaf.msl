@@ -1,0 +1,272 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+#pragma clang diagnostic ignored "-Wmissing-braces"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+template<typename T, size_t Num>
+struct spvUnsafeArray
+{
+    T elements[Num ? Num : 1];
+    
+    thread T& operator [] (size_t pos) thread
+    {
+        return elements[pos];
+    }
+    constexpr const thread T& operator [] (size_t pos) const thread
+    {
+        return elements[pos];
+    }
+    
+    device T& operator [] (size_t pos) device
+    {
+        return elements[pos];
+    }
+    constexpr const device T& operator [] (size_t pos) const device
+    {
+        return elements[pos];
+    }
+    
+    constexpr const constant T& operator [] (size_t pos) const constant
+    {
+        return elements[pos];
+    }
+    
+    threadgroup T& operator [] (size_t pos) threadgroup
+    {
+        return elements[pos];
+    }
+    constexpr const threadgroup T& operator [] (size_t pos) const threadgroup
+    {
+        return elements[pos];
+    }
+};
+
+struct Alloc
+{
+    uint offset;
+};
+
+struct TransformRef
+{
+    uint offset;
+};
+
+struct Transform
+{
+    float4 mat;
+    float2 translate;
+};
+
+struct TransformSegRef
+{
+    uint offset;
+};
+
+struct TransformSeg
+{
+    float4 mat;
+    float2 translate;
+};
+
+struct Memory
+{
+    uint mem_offset;
+    uint mem_error;
+    uint memory[1];
+};
+
+struct SceneBuf
+{
+    uint scene[1];
+};
+
+struct Alloc_1
+{
+    uint offset;
+};
+
+struct Config
+{
+    uint n_elements;
+    uint n_pathseg;
+    uint width_in_tiles;
+    uint height_in_tiles;
+    Alloc_1 tile_alloc;
+    Alloc_1 bin_alloc;
+    Alloc_1 ptcl_alloc;
+    Alloc_1 pathseg_alloc;
+    Alloc_1 anno_alloc;
+    Alloc_1 trans_alloc;
+    uint n_trans;
+    uint trans_offset;
+};
+
+struct ConfigBuf
+{
+    Config conf;
+};
+
+struct Transform_1
+{
+    float4 mat;
+    float2 translate;
+    char _m0_final_padding[8];
+};
+
+struct ParentBuf
+{
+    Transform_1 parent[1];
+};
+
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(512u, 1u, 1u);
+
+static inline __attribute__((always_inline))
+Transform Transform_read(thread const TransformRef& ref, const device SceneBuf& v_96)
+{
+    uint ix = ref.offset >> uint(2);
+    uint raw0 = v_96.scene[ix + 0u];
+    uint raw1 = v_96.scene[ix + 1u];
+    uint raw2 = v_96.scene[ix + 2u];
+    uint raw3 = v_96.scene[ix + 3u];
+    uint raw4 = v_96.scene[ix + 4u];
+    uint raw5 = v_96.scene[ix + 5u];
+    Transform s;
+    s.mat = float4(as_type<float>(raw0), as_type<float>(raw1), as_type<float>(raw2), as_type<float>(raw3));
+    s.translate = float2(as_type<float>(raw4), as_type<float>(raw5));
+    return s;
+}
+
+static inline __attribute__((always_inline))
+TransformRef Transform_index(thread const TransformRef& ref, thread const uint& index)
+{
+    return TransformRef{ ref.offset + (index * 24u) };
+}
+
+static inline __attribute__((always_inline))
+Transform combine_monoid(thread const Transform& a, thread const Transform& b)
+{
+    Transform c;
+    c.mat = (a.mat.xyxy * b.mat.xxzz) + (a.mat.zwzw * b.mat.yyww);
+    c.translate = ((a.mat.xy * b.translate.x) + (a.mat.zw * b.translate.y)) + a.translate;
+    return c;
+}
+
+static inline __attribute__((always_inline))
+Transform monoid_identity()
+{
+    return Transform{ float4(1.0, 0.0, 0.0, 1.0), float2(0.0) };
+}
+
+static inline __attribute__((always_inline))
+bool touch_mem(thread const Alloc& alloc, thread const uint& offset)
+{
+    return true;
+}
+
+static inline __attribute__((always_inline))
+void write_mem(thread const Alloc& alloc, thread const uint& offset, thread const uint& val, device Memory& v_71)
+{
+    Alloc param = alloc;
+    uint param_1 = offset;
+    if (!touch_mem(param, param_1))
+    {
+        return;
+    }
+    v_71.memory[offset] = val;
+}
+
+static inline __attribute__((always_inline))
+void TransformSeg_write(thread const Alloc& a, thread const TransformSegRef& ref, thread const TransformSeg& s, device Memory& v_71)
+{
+    uint ix = ref.offset >> uint(2);
+    Alloc param = a;
+    uint param_1 = ix + 0u;
+    uint param_2 = as_type<uint>(s.mat.x);
+    write_mem(param, param_1, param_2, v_71);
+    Alloc param_3 = a;
+    uint param_4 = ix + 1u;
+    uint param_5 = as_type<uint>(s.mat.y);
+    write_mem(param_3, param_4, param_5, v_71);
+    Alloc param_6 = a;
+    uint param_7 = ix + 2u;
+    uint param_8 = as_type<uint>(s.mat.z);
+    write_mem(param_6, param_7, param_8, v_71);
+    Alloc param_9 = a;
+    uint param_10 = ix + 3u;
+    uint param_11 = as_type<uint>(s.mat.w);
+    write_mem(param_9, param_10, param_11, v_71);
+    Alloc param_12 = a;
+    uint param_13 = ix + 4u;
+    uint param_14 = as_type<uint>(s.translate.x);
+    write_mem(param_12, param_13, param_14, v_71);
+    Alloc param_15 = a;
+    uint param_16 = ix + 5u;
+    uint param_17 = as_type<uint>(s.translate.y);
+    write_mem(param_15, param_16, param_17, v_71);
+}
+
+kernel void main0(device Memory& v_71 [[buffer(0)]], const device ConfigBuf& _278 [[buffer(1)]], const device SceneBuf& v_96 [[buffer(2)]], const device ParentBuf& _377 [[buffer(3)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]])
+{
+    threadgroup Transform sh_scratch[512];
+    uint ix = gl_GlobalInvocationID.x * 8u;
+    TransformRef ref = TransformRef{ _278.conf.trans_offset + (ix * 24u) };
+    TransformRef param = ref;
+    Transform agg = Transform_read(param, v_96);
+    spvUnsafeArray<Transform, 8> local;
+    local[0] = agg;
+    for (uint i = 1u; i < 8u; i++)
+    {
+        TransformRef param_1 = ref;
+        uint param_2 = i;
+        TransformRef param_3 = Transform_index(param_1, param_2);
+        Transform param_4 = agg;
+        Transform param_5 = Transform_read(param_3, v_96);
+        agg = combine_monoid(param_4, param_5);
+        local[i] = agg;
+    }
+    sh_scratch[gl_LocalInvocationID.x] = agg;
+    for (uint i_1 = 0u; i_1 < 9u; i_1++)
+    {
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        if (gl_LocalInvocationID.x >= (1u << i_1))
+        {
+            Transform other = sh_scratch[gl_LocalInvocationID.x - (1u << i_1)];
+            Transform param_6 = other;
+            Transform param_7 = agg;
+            agg = combine_monoid(param_6, param_7);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        sh_scratch[gl_LocalInvocationID.x] = agg;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    Transform row = monoid_identity();
+    if (gl_WorkGroupID.x > 0u)
+    {
+        uint _380 = gl_WorkGroupID.x - 1u;
+        row.mat = _377.parent[_380].mat;
+        row.translate = _377.parent[_380].translate;
+    }
+    if (gl_LocalInvocationID.x > 0u)
+    {
+        Transform param_8 = row;
+        Transform param_9 = sh_scratch[gl_LocalInvocationID.x - 1u];
+        row = combine_monoid(param_8, param_9);
+    }
+    Alloc param_12;
+    for (uint i_2 = 0u; i_2 < 8u; i_2++)
+    {
+        Transform param_10 = row;
+        Transform param_11 = local[i_2];
+        Transform m = combine_monoid(param_10, param_11);
+        TransformSeg transform = TransformSeg{ m.mat, m.translate };
+        TransformSegRef trans_ref = TransformSegRef{ _278.conf.trans_alloc.offset + ((ix + i_2) * 24u) };
+        param_12.offset = _278.conf.trans_alloc.offset;
+        TransformSegRef param_13 = trans_ref;
+        TransformSeg param_14 = transform;
+        TransformSeg_write(param_12, param_13, param_14, v_71);
+    }
+}
+

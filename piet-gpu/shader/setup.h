@@ -38,6 +38,12 @@ struct Config {
     Alloc pathseg_alloc;
     Alloc anno_alloc;
     Alloc trans_alloc;
+    // new element pipeline stuff follows
+
+    // Number of transforms in scene
+    uint n_trans;
+    // Offset (in bytes) of transform stream in scene buffer
+    uint trans_offset;
 };
 
 // Fill modes.

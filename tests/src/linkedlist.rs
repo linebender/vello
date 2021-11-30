@@ -48,12 +48,12 @@ pub unsafe fn run_linkedlist_test(runner: &mut Runner, config: &Config) -> TestR
         commands.write_timestamp(0);
         stage.record(&mut commands, &code, &binding, &mem_buf.dev_buf);
         commands.write_timestamp(1);
-        if i == 0 {
+        if i == 0 || config.verify_all {
             commands.cmd_buf.memory_barrier();
             commands.download(&mem_buf);
         }
         total_elapsed += runner.submit(commands);
-        if i == 0 {
+        if i == 0 || config.verify_all {
             let dst = mem_buf.map_read(..);
             if !verify(dst.cast_slice()) {
                 result.fail("incorrect data");

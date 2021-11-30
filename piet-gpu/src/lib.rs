@@ -1,6 +1,7 @@
 mod gradient;
 mod pico_svg;
 mod render_ctx;
+pub mod stages;
 pub mod test_scenes;
 mod text;
 
@@ -19,6 +20,8 @@ use piet_gpu_hal::{
 };
 
 use pico_svg::PicoSvg;
+
+use crate::stages::Config;
 
 const TILE_W: usize = 16;
 const TILE_H: usize = 16;
@@ -123,7 +126,7 @@ impl Renderer {
         let image_dev = session.create_image2d(width as u32, height as u32)?;
 
         // Note: this must be updated when the config struct size changes.
-        const CONFIG_BUFFER_SIZE: u64 = 40;
+        const CONFIG_BUFFER_SIZE: u64 = std::mem::size_of::<Config>() as u64;
         let config_buf = session.create_buffer(CONFIG_BUFFER_SIZE, dev).unwrap();
         // TODO: separate staging buffer (if needed)
         let config_bufs = (0..n_bufs)
@@ -295,25 +298,28 @@ impl Renderer {
         alloc += (n_paths * ANNO_SIZE + 3) & !3;
         let trans_base = alloc;
         alloc += (n_trans * TRANS_SIZE + 3) & !3;
-        let config = &[
-            n_paths as u32,
-            n_pathseg as u32,
-            width_in_tiles as u32,
-            height_in_tiles as u32,
-            tile_base as u32,
-            bin_base as u32,
-            ptcl_base as u32,
-            pathseg_base as u32,
-            anno_base as u32,
-            trans_base as u32,
-        ];
+        let trans_offset = 0; // For new element pipeline, not yet used
+        let config = Config {
+            n_elements: n_paths as u32,
+            n_pathseg: n_pathseg as u32,
+            width_in_tiles: width_in_tiles as u32,
+            height_in_tiles: height_in_tiles as u32,
+            tile_alloc: tile_base as u32,
+            bin_alloc: bin_base as u32,
+            ptcl_alloc: ptcl_base as u32,
+            pathseg_alloc: pathseg_base as u32,
+            anno_alloc: anno_base as u32,
+            trans_alloc: trans_base as u32,
+            n_trans: n_trans as u32,
+            trans_offset: trans_offset as u32,
+        };
         unsafe {
             let scene = render_ctx.get_scene_buf();
             self.n_elements = scene.len() / piet_gpu_types::scene::Element::fixed_size();
             // TODO: reallocate scene buffer if size is inadequate
             assert!(self.scene_bufs[buf_ix].size() as usize >= scene.len());
             self.scene_bufs[buf_ix].write(scene)?;
-            self.config_bufs[buf_ix].write(config)?;
+            self.config_bufs[buf_ix].write(&[config])?;
             self.memory_buf_host[buf_ix].write(&[alloc as u32, 0 /* Overflow flag */])?;
 
             // Upload gradient data.
