@@ -17,7 +17,7 @@
 //! The path stage (includes substages).
 
 use piet_gpu_hal::{
-    BindType, Buffer, BufferUsage, CmdBuf, DescriptorSet, Pipeline, Session, ShaderCode,
+    BindType, Buffer, BufferUsage, CmdBuf, DescriptorSet, Pipeline, Session, include_shader,
 };
 
 pub struct PathCode {
@@ -55,7 +55,7 @@ const CLEAR_WG: u32 = 512;
 impl PathCode {
     pub unsafe fn new(session: &Session) -> PathCode {
         // TODO: add cross-compilation
-        let reduce_code = ShaderCode::Spv(include_bytes!("../../shader/gen/pathtag_reduce.spv"));
+        let reduce_code = include_shader!(session, "../../shader/gen/pathtag_reduce");
         let reduce_pipeline = session
             .create_compute_pipeline(
                 reduce_code,
@@ -67,15 +67,15 @@ impl PathCode {
                 ],
             )
             .unwrap();
-        let tag_root_code = ShaderCode::Spv(include_bytes!("../../shader/gen/pathtag_root.spv"));
+        let tag_root_code = include_shader!(session, "../../shader/gen/pathtag_root");
         let tag_root_pipeline = session
             .create_compute_pipeline(tag_root_code, &[BindType::Buffer])
             .unwrap();
-        let clear_code = ShaderCode::Spv(include_bytes!("../../shader/gen/bbox_clear.spv"));
+        let clear_code = include_shader!(session, "../../shader/gen/bbox_clear");
         let clear_pipeline = session
             .create_compute_pipeline(clear_code, &[BindType::Buffer, BindType::BufReadOnly])
             .unwrap();
-        let pathseg_code = ShaderCode::Spv(include_bytes!("../../shader/gen/pathseg.spv"));
+        let pathseg_code = include_shader!(session, "../../shader/gen/pathseg");
         let pathseg_pipeline = session
             .create_compute_pipeline(
                 pathseg_code,
