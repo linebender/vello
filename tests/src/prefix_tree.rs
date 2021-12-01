@@ -47,10 +47,13 @@ pub unsafe fn run_prefix_test(runner: &mut Runner, config: &Config) -> TestResul
     // prone to reading and writing past the end of buffers if this is
     // not a power of the number of elements processed in a workgroup.
     let n_elements: u64 = config.size.choose(1 << 12, 1 << 24, 1 << 24);
-    let data: Vec<u32> = (0..n_elements as u32).collect();
     let data_buf = runner
         .session
-        .create_buffer_init(&data, BufferUsage::STORAGE)
+        .create_buffer_with(
+            n_elements * 4,
+            |b| b.extend(0..n_elements as u32),
+            BufferUsage::STORAGE,
+        )
         .unwrap();
     let out_buf = runner.buf_down(data_buf.size(), BufferUsage::empty());
     let code = PrefixTreeCode::new(runner);
@@ -72,9 +75,8 @@ pub unsafe fn run_prefix_test(runner: &mut Runner, config: &Config) -> TestResul
         }
         total_elapsed += runner.submit(commands);
         if i == 0 || config.verify_all {
-            let mut dst: Vec<u32> = Default::default();
-            out_buf.read(&mut dst);
-            if let Some(failure) = verify(&dst) {
+            let dst = out_buf.map_read(..);
+            if let Some(failure) = verify(dst.cast_slice()) {
                 result.fail(format!("failure at {}", failure));
             }
         }

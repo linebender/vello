@@ -21,7 +21,7 @@ use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
 
 use smallvec::SmallVec;
 
-use crate::{BindType, BufferUsage, Error, GpuInfo, ImageLayout, WorkgroupLimits};
+use crate::{BindType, BufferUsage, Error, GpuInfo, ImageLayout, MapMode, WorkgroupLimits};
 
 use self::{
     descriptor::{CpuHeapRefOwned, DescriptorPool, GpuHeapRefOwned},
@@ -381,12 +381,10 @@ impl crate::backend::Device for Dx12Device {
 
     unsafe fn fetch_query_pool(&self, pool: &Self::QueryPool) -> Result<Vec<f64>, Error> {
         let mut buf = vec![0u64; pool.n_queries as usize];
-        self.read_buffer(
-            &pool.buf,
-            buf.as_mut_ptr() as *mut u8,
-            0,
-            mem::size_of_val(buf.as_slice()) as u64,
-        )?;
+        let size = mem::size_of_val(buf.as_slice());
+        let mapped = self.map_buffer(&pool.buf, 0, size as u64, MapMode::Read)?;
+        std::ptr::copy_nonoverlapping(mapped, buf.as_mut_ptr() as *mut u8, size);
+        self.unmap_buffer(&pool.buf, 0, size as u64, MapMode::Read)?;
         let ts0 = buf[0];
         let tsp = (self.ts_freq as f64).recip();
         let result = buf[1..]
@@ -418,29 +416,25 @@ impl crate::backend::Device for Dx12Device {
         Ok(())
     }
 
-    unsafe fn read_buffer(
+    unsafe fn map_buffer(
         &self,
         buffer: &Self::Buffer,
-        dst: *mut u8,
         offset: u64,
         size: u64,
-    ) -> Result<(), Error> {
-        buffer
-            .resource
-            .read_resource(dst, offset as usize, size as usize)?;
-        Ok(())
+        mode: MapMode,
+    ) -> Result<*mut u8, Error> {
+        let mapped = buffer.resource.map_buffer(offset, size, mode)?;
+        Ok(mapped)
     }
 
-    unsafe fn write_buffer(
+    unsafe fn unmap_buffer(
         &self,
         buffer: &Self::Buffer,
-        contents: *const u8,
         offset: u64,
         size: u64,
+        mode: MapMode,
     ) -> Result<(), Error> {
-        buffer
-            .resource
-            .write_resource(contents, offset as usize, size as usize)?;
+        buffer.resource.unmap_buffer(offset, size, mode)?;
         Ok(())
     }
 

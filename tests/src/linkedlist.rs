@@ -54,9 +54,8 @@ pub unsafe fn run_linkedlist_test(runner: &mut Runner, config: &Config) -> TestR
         }
         total_elapsed += runner.submit(commands);
         if i == 0 || config.verify_all {
-            let mut dst: Vec<u32> = Default::default();
-            mem_buf.read(&mut dst);
-            if !verify(&dst) {
+            let dst = mem_buf.map_read(..);
+            if !verify(dst.cast_slice()) {
                 result.fail("incorrect data");
             }
         }

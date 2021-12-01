@@ -35,6 +35,7 @@ use crate::backend::DescriptorSetBuilder as DescriptorSetBuilderTrait;
 use crate::backend::Device as DeviceTrait;
 use crate::BackendType;
 use crate::BindType;
+use crate::MapMode;
 use crate::{BufferUsage, Error, GpuInfo, ImageLayout, InstanceFlags};
 
 mux_enum! {
@@ -445,31 +446,31 @@ impl Device {
         }
     }
 
-    pub unsafe fn read_buffer(
+    pub unsafe fn map_buffer(
         &self,
         buffer: &Buffer,
-        dst: *mut u8,
         offset: u64,
         size: u64,
-    ) -> Result<(), Error> {
+        mode: MapMode,
+    ) -> Result<*mut u8, Error> {
         mux_match! { self;
-            Device::Vk(d) => d.read_buffer(buffer.vk(), dst, offset, size),
-            Device::Dx12(d) => d.read_buffer(buffer.dx12(), dst, offset, size),
-            Device::Mtl(d) => d.read_buffer(buffer.mtl(), dst, offset, size),
+            Device::Vk(d) => d.map_buffer(buffer.vk(), offset, size, mode),
+            Device::Dx12(d) => d.map_buffer(buffer.dx12(), offset, size, mode),
+            Device::Mtl(d) => d.map_buffer(buffer.mtl(), offset, size, mode),
         }
     }
 
-    pub unsafe fn write_buffer(
+    pub unsafe fn unmap_buffer(
         &self,
         buffer: &Buffer,
-        contents: *const u8,
         offset: u64,
         size: u64,
+        mode: MapMode,
     ) -> Result<(), Error> {
         mux_match! { self;
-            Device::Vk(d) => d.write_buffer(buffer.vk(), contents, offset, size),
-            Device::Dx12(d) => d.write_buffer(buffer.dx12(), contents, offset, size),
-            Device::Mtl(d) => d.write_buffer(buffer.mtl(), contents, offset, size),
+            Device::Vk(d) => d.unmap_buffer(buffer.vk(), offset, size, mode),
+            Device::Dx12(d) => d.unmap_buffer(buffer.dx12(), offset, size, mode),
+            Device::Mtl(d) => d.unmap_buffer(buffer.mtl(), offset, size, mode),
         }
     }
 

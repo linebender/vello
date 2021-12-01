@@ -7,6 +7,7 @@
 // except according to those terms.
 
 use crate::dx12::error::{self, error_if_failed_else_unit, explain_error, Error};
+use crate::MapMode;
 use smallvec::SmallVec;
 use std::convert::{TryFrom, TryInto};
 use std::sync::atomic::{AtomicPtr, Ordering};
@@ -105,46 +106,38 @@ impl Resource {
         self.ptr.store(ptr::null_mut(), Ordering::Relaxed);
     }
 
-    pub unsafe fn write_resource(
+    pub unsafe fn map_buffer(
         &self,
-        data: *const u8,
-        offset: usize,
-        size: usize,
-    ) -> Result<(), Error> {
+        offset: u64,
+        size: u64,
+        mode: MapMode,
+    ) -> Result<*mut u8, Error> {
         let mut mapped_memory: *mut u8 = ptr::null_mut();
-        let zero_range = d3d12::D3D12_RANGE { ..mem::zeroed() };
-        let range = d3d12::D3D12_RANGE {
-            Begin: offset,
-            End: offset + size,
+        let (begin, end) = match mode {
+            MapMode::Read => (offset as usize, (offset + size) as usize),
+            MapMode::Write => (0, 0),
         };
-        explain_error(
-            (*self.get()).Map(0, &zero_range, &mut mapped_memory as *mut _ as *mut _),
-            "could not map GPU mem to CPU mem",
-        )?;
-
-        ptr::copy_nonoverlapping(data, mapped_memory.add(offset), size);
-        (*self.get()).Unmap(0, &range);
-        Ok(())
-    }
-
-    pub unsafe fn read_resource(
-        &self,
-        dst: *mut u8,
-        offset: usize,
-        size: usize,
-    ) -> Result<(), Error> {
-        let mut mapped_memory: *mut u8 = ptr::null_mut();
         let range = d3d12::D3D12_RANGE {
-            Begin: offset,
-            End: offset + size,
+            Begin: begin,
+            End: end,
         };
-        let zero_range = d3d12::D3D12_RANGE { ..mem::zeroed() };
         explain_error(
             (*self.get()).Map(0, &range, &mut mapped_memory as *mut _ as *mut _),
             "could not map GPU mem to CPU mem",
         )?;
-        ptr::copy_nonoverlapping(mapped_memory.add(offset), dst, size);
-        (*self.get()).Unmap(0, &zero_range);
+        Ok(mapped_memory.add(offset as usize))
+    }
+
+    pub unsafe fn unmap_buffer(&self, offset: u64, size: u64, mode: MapMode) -> Result<(), Error> {
+        let (begin, end) = match mode {
+            MapMode::Read => (0, 0),
+            MapMode::Write => (offset as usize, (offset + size) as usize),
+        };
+        let range = d3d12::D3D12_RANGE {
+            Begin: begin,
+            End: end,
+        };
+        (*self.get()).Unmap(0, &range);
         Ok(())
     }
 }

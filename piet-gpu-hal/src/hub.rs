@@ -7,12 +7,13 @@
 //! even more in time.
 
 use std::convert::TryInto;
+use std::ops::{Bound, RangeBounds};
 use std::sync::{Arc, Mutex, Weak};
 
 use bytemuck::Pod;
 use smallvec::SmallVec;
 
-use crate::{mux, BackendType};
+use crate::{mux, BackendType, BufWrite, MapMode};
 
 use crate::{BindType, BufferUsage, Error, GpuInfo, ImageLayout, SamplerParams};
 
@@ -110,6 +111,28 @@ pub struct DescriptorSetBuilder(mux::DescriptorSetBuilder);
 pub enum RetainResource {
     Buffer(Buffer),
     Image(Image),
+}
+
+/// A buffer mapped for writing.
+///
+/// When this structure is dropped, the buffer will be unmapped.
+pub struct BufWriteGuard<'a> {
+    buf_write: BufWrite,
+    session: Arc<SessionInner>,
+    buffer: &'a mux::Buffer,
+    offset: u64,
+    size: u64,
+}
+
+/// A buffer mapped for reading.
+///
+/// When this structure is dropped, the buffer will be unmapped.
+pub struct BufReadGuard<'a> {
+    bytes: &'a [u8],
+    session: Arc<SessionInner>,
+    buffer: &'a mux::Buffer,
+    offset: u64,
+    size: u64,
 }
 
 impl Session {
@@ -232,45 +255,56 @@ impl Session {
         contents: &[impl Pod],
         usage: BufferUsage,
     ) -> Result<Buffer, Error> {
-        unsafe {
-            let bytes = bytemuck::cast_slice(contents);
-            self.create_buffer_init_raw(bytes.as_ptr(), bytes.len().try_into()?, usage)
-        }
+        let size = std::mem::size_of_val(contents);
+        let bytes = bytemuck::cast_slice(contents);
+        self.create_buffer_with(size as u64, |b| b.push_bytes(bytes), usage)
     }
 
-    /// Create a buffer with initialized data, from a raw pointer memory region.
-    pub unsafe fn create_buffer_init_raw(
+    /// Create a buffer with initialized data.
+    ///
+    /// The buffer is filled by the provided function. The same details about
+    /// staging buffers apply as [`create_buffer_init`].
+    pub fn create_buffer_with(
         &self,
-        contents: *const u8,
         size: u64,
+        f: impl Fn(&mut BufWrite),
         usage: BufferUsage,
     ) -> Result<Buffer, Error> {
-        let use_staging_buffer = !usage.intersects(BufferUsage::MAP_READ | BufferUsage::MAP_WRITE)
-            && self.gpu_info().use_staging_buffers;
-        let create_usage = if use_staging_buffer {
-            BufferUsage::MAP_WRITE | BufferUsage::COPY_SRC
-        } else {
-            usage | BufferUsage::MAP_WRITE
-        };
-        let create_buf = self.create_buffer(size, create_usage)?;
-        self.0
-            .device
-            .write_buffer(&create_buf.mux_buffer(), contents, 0, size)?;
-        if use_staging_buffer {
-            let buf = self.create_buffer(size, usage | BufferUsage::COPY_DST)?;
-            let mut staging_cmd_buf = self.0.staging_cmd_buf.lock().unwrap();
-            if staging_cmd_buf.is_none() {
-                let mut cmd_buf = self.cmd_buf()?;
-                cmd_buf.begin();
-                *staging_cmd_buf = Some(cmd_buf);
+        unsafe {
+            let use_staging_buffer = !usage
+                .intersects(BufferUsage::MAP_READ | BufferUsage::MAP_WRITE)
+                && self.gpu_info().use_staging_buffers;
+            let create_usage = if use_staging_buffer {
+                BufferUsage::MAP_WRITE | BufferUsage::COPY_SRC
+            } else {
+                usage | BufferUsage::MAP_WRITE
+            };
+            let create_buf = self.create_buffer(size, create_usage)?;
+            let mapped =
+                self.0
+                    .device
+                    .map_buffer(&create_buf.mux_buffer(), 0, size, MapMode::Write)?;
+            let mut buf_write = BufWrite::new(mapped, 0, size as usize);
+            f(&mut buf_write);
+            self.0
+                .device
+                .unmap_buffer(&create_buf.mux_buffer(), 0, size, MapMode::Write)?;
+            if use_staging_buffer {
+                let buf = self.create_buffer(size, usage | BufferUsage::COPY_DST)?;
+                let mut staging_cmd_buf = self.0.staging_cmd_buf.lock().unwrap();
+                if staging_cmd_buf.is_none() {
+                    let mut cmd_buf = self.cmd_buf()?;
+                    cmd_buf.begin();
+                    *staging_cmd_buf = Some(cmd_buf);
+                }
+                let staging_cmd_buf = staging_cmd_buf.as_mut().unwrap();
+                // This will ensure the staging buffer is deallocated.
+                staging_cmd_buf.copy_buffer(&create_buf, &buf);
+                staging_cmd_buf.add_resource(create_buf);
+                Ok(buf)
+            } else {
+                Ok(create_buf)
             }
-            let staging_cmd_buf = staging_cmd_buf.as_mut().unwrap();
-            // This will ensure the staging buffer is deallocated.
-            staging_cmd_buf.copy_buffer(&create_buf, &buf);
-            staging_cmd_buf.add_resource(create_buf);
-            Ok(buf)
-        } else {
-            Ok(create_buf)
         }
     }
 
@@ -669,12 +703,22 @@ impl Buffer {
     pub unsafe fn write(&mut self, contents: &[impl Pod]) -> Result<(), Error> {
         let bytes = bytemuck::cast_slice(contents);
         if let Some(session) = Weak::upgrade(&self.0.session) {
-            session.device.write_buffer(
-                &self.0.buffer,
-                bytes.as_ptr(),
-                0,
-                bytes.len().try_into()?,
-            )?;
+            let size = bytes.len().try_into()?;
+            let buf_size = self.0.buffer.size();
+            if size > buf_size {
+                return Err(format!(
+                    "Trying to write {} bytes into buffer of size {}",
+                    size, buf_size
+                )
+                .into());
+            }
+            let mapped = session
+                .device
+                .map_buffer(&self.0.buffer, 0, size, MapMode::Write)?;
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), mapped, bytes.len());
+            session
+                .device
+                .unmap_buffer(&self.0.buffer, 0, size, MapMode::Write)?;
         }
         // else session lost error?
         Ok(())
@@ -694,13 +738,113 @@ impl Buffer {
             result.reserve(len - result.len());
         }
         if let Some(session) = Weak::upgrade(&self.0.session) {
+            let mapped = session
+                .device
+                .map_buffer(&self.0.buffer, 0, size, MapMode::Read)?;
+            std::ptr::copy_nonoverlapping(mapped, result.as_mut_ptr() as *mut u8, size as usize);
             session
                 .device
-                .read_buffer(&self.0.buffer, result.as_mut_ptr() as *mut u8, 0, size)?;
+                .unmap_buffer(&self.0.buffer, 0, size, MapMode::Read)?;
             result.set_len(len);
         }
         // else session lost error?
         Ok(())
+    }
+
+    /// Map a buffer for writing.
+    ///
+    /// The mapped buffer is represented by a "guard" structure, which will unmap
+    /// the buffer when it's dropped. That also has a number of methods for pushing
+    /// bytes and [`bytemuck::Pod`] objects.
+    ///
+    /// The buffer must have been created with `MAP_WRITE` usage.
+    pub unsafe fn map_write<'a>(
+        &'a mut self,
+        range: impl RangeBounds<usize>,
+    ) -> Result<BufWriteGuard<'a>, Error> {
+        let offset = match range.start_bound() {
+            Bound::Unbounded => 0,
+            Bound::Included(&s) => s.try_into()?,
+            Bound::Excluded(_) => unreachable!(),
+        };
+        let end = match range.end_bound() {
+            Bound::Unbounded => self.size(),
+            Bound::Included(&s) => s.try_into()?,
+            Bound::Excluded(&s) => s.checked_add(1).unwrap().try_into()?,
+        };
+        self.map_write_impl(offset, end - offset)
+    }
+
+    unsafe fn map_write_impl<'a>(
+        &'a self,
+        offset: u64,
+        size: u64,
+    ) -> Result<BufWriteGuard<'a>, Error> {
+        if let Some(session) = Weak::upgrade(&self.0.session) {
+            let ptr = session
+                .device
+                .map_buffer(&self.0.buffer, offset, size, MapMode::Write)?;
+            let buf_write = BufWrite::new(ptr, 0, size as usize);
+            let guard = BufWriteGuard {
+                buf_write,
+                session,
+                buffer: &self.0.buffer,
+                offset,
+                size,
+            };
+            Ok(guard)
+        } else {
+            Err("session lost".into())
+        }
+    }
+
+    /// Map a buffer for reading.
+    ///
+    /// The mapped buffer is represented by a "guard" structure, which will unmap
+    /// the buffer when it's dropped, and derefs to a plain byte slice.
+    ///
+    /// The buffer must have been created with `MAP_READ` usage. The caller
+    /// is also responsible for ensuring that this does not read uninitialized
+    /// memory.
+    pub unsafe fn map_read<'a>(
+        // Discussion: should be &mut? Buffer is Clone, but maybe that should change.
+        &'a self,
+        range: impl RangeBounds<usize>,
+    ) -> Result<BufReadGuard<'a>, Error> {
+        let offset = match range.start_bound() {
+            Bound::Unbounded => 0,
+            Bound::Excluded(&s) => s.try_into()?,
+            Bound::Included(_) => unreachable!(),
+        };
+        let end = match range.end_bound() {
+            Bound::Unbounded => self.size(),
+            Bound::Excluded(&s) => s.try_into()?,
+            Bound::Included(&s) => s.checked_add(1).unwrap().try_into()?,
+        };
+        self.map_read_impl(offset, end - offset)
+    }
+
+    unsafe fn map_read_impl<'a>(
+        &'a self,
+        offset: u64,
+        size: u64,
+    ) -> Result<BufReadGuard<'a>, Error> {
+        if let Some(session) = Weak::upgrade(&self.0.session) {
+            let ptr = session
+                .device
+                .map_buffer(&self.0.buffer, offset, size, MapMode::Read)?;
+            let bytes = std::slice::from_raw_parts(ptr, size as usize);
+            let guard = BufReadGuard {
+                bytes,
+                session,
+                buffer: &self.0.buffer,
+                offset,
+                size,
+            };
+            Ok(guard)
+        } else {
+            Err("session lost".into())
+        }
     }
 
     /// The size of the buffer.
@@ -799,5 +943,60 @@ impl From<Image> for RetainResource {
 impl<'a, T: Clone + Into<RetainResource>> From<&'a T> for RetainResource {
     fn from(resource: &'a T) -> Self {
         resource.clone().into()
+    }
+}
+
+impl<'a> Drop for BufWriteGuard<'a> {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = self.session.device.unmap_buffer(
+                self.buffer,
+                self.offset,
+                self.size,
+                MapMode::Write,
+            );
+        }
+    }
+}
+
+impl<'a> std::ops::Deref for BufWriteGuard<'a> {
+    type Target = BufWrite;
+
+    fn deref(&self) -> &Self::Target {
+        &self.buf_write
+    }
+}
+
+impl<'a> std::ops::DerefMut for BufWriteGuard<'a> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.buf_write
+    }
+}
+
+impl<'a> Drop for BufReadGuard<'a> {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = self.session.device.unmap_buffer(
+                self.buffer,
+                self.offset,
+                self.size,
+                MapMode::Read,
+            );
+        }
+    }
+}
+
+impl<'a> std::ops::Deref for BufReadGuard<'a> {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        self.bytes
+    }
+}
+
+impl<'a> BufReadGuard<'a> {
+    /// Interpret the buffer as a slice of a plain data type.
+    pub fn cast_slice<T: Pod>(&self) -> &[T] {
+        bytemuck::cast_slice(self.bytes)
     }
 }
