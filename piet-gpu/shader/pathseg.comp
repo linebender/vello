@@ -100,7 +100,7 @@ void main() {
     // Scan the tag monoid
     TagMonoid local_tm = reduce_tag(tag_word);
     sh_tag[gl_LocalInvocationID.x] = local_tm;
-    for (uint i; i < LG_WG_SIZE; i++) {
+    for (uint i = 0; i < LG_WG_SIZE; i++) {
         barrier();
         if (gl_LocalInvocationID.x >= (1u << i)) {
             TagMonoid other = sh_tag[gl_LocalInvocationID.x - (1u << i)];
