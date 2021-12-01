@@ -17,7 +17,7 @@
 //! The path stage (includes substages).
 
 use piet_gpu_hal::{
-    BindType, Buffer, BufferUsage, CmdBuf, DescriptorSet, Pipeline, Session, include_shader,
+    include_shader, BindType, Buffer, BufferUsage, CmdBuf, DescriptorSet, Pipeline, Session,
 };
 
 pub struct PathCode {
