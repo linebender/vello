@@ -40,9 +40,10 @@ struct Config
     Alloc bbox_alloc;
     Alloc drawmonoid_alloc;
     uint n_trans;
+    uint n_path;
     uint trans_offset;
-    uint pathtag_offset;
     uint linewidth_offset;
+    uint pathtag_offset;
     uint pathseg_offset;
 };
 
@@ -149,7 +150,7 @@ void TransformSeg_write(Alloc a, TransformSegRef ref, TransformSeg s)
 void comp_main()
 {
     uint ix = gl_GlobalInvocationID.x * 8u;
-    TransformRef _285 = { _278.Load(52) + (ix * 24u) };
+    TransformRef _285 = { _278.Load(56) + (ix * 24u) };
     TransformRef ref = _285;
     TransformRef param = ref;
     Transform agg = Transform_read(param);

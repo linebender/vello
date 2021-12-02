@@ -19,7 +19,7 @@
 use crate::{Config, Runner, TestResult};
 
 use bytemuck::{Pod, Zeroable};
-use piet_gpu::stages::{self, PathCode, PathEncoder, PathStage};
+use piet_gpu::stages::{self, PathCode, PathEncoder, PathStage, Transform};
 use piet_gpu_hal::{BufWrite, BufferUsage};
 use rand::{prelude::ThreadRng, Rng};
 
@@ -55,6 +55,8 @@ struct Bbox {
     top: u32,
     right: u32,
     bottom: u32,
+    linewidth: f32,
+    trans_ix: u32,
 }
 
 pub unsafe fn path_test(runner: &mut Runner, config: &Config) -> TestResult {
@@ -206,11 +208,11 @@ impl PathData {
         let pathseg_alloc = trans_alloc + n_trans * 24;
         let bbox_alloc = pathseg_alloc + self.n_pathseg * PATHSEG_SIZE;
         let stage_config = stages::Config {
-            n_elements: self.n_path,
             pathseg_alloc,
             trans_alloc,
             bbox_alloc,
             n_trans,
+            n_path: self.n_path,
             pathtag_offset,
             linewidth_offset,
             pathseg_offset,
@@ -236,7 +238,7 @@ impl PathData {
     fn memory_full_size(&self) -> u64 {
         let mut size = self.memory_init_size();
         size += (self.n_pathseg * PATHSEG_SIZE) as u64;
-        size += (self.n_path * 16) as u64;
+        size += (self.n_path * 24) as u64;
         size
     }
 
@@ -246,7 +248,7 @@ impl PathData {
         let mem_error = 0u32;
         let mem_init = [mem_offset, mem_error];
         buf.push(mem_init);
-        let trans = [1.0f32, 0.0, 0.0, 1.0, 0.0, 0.0];
+        let trans = Transform::IDENTITY;
         buf.push(trans);
     }
 
@@ -274,17 +276,15 @@ impl PathData {
         }
         let begin_bbox = 32 + PATHSEG_SIZE * self.n_pathseg;
         for i in 0..self.n_path {
-            let offset = (begin_bbox + 16 * i) as usize;
-            let actual = bytemuck::from_bytes::<Bbox>(&memory[offset..offset + 16]);
+            let offset = (begin_bbox + 24 * i) as usize;
+            let actual = bytemuck::from_bytes::<Bbox>(&memory[offset..offset + 24]);
             let expected_f32 = self.bbox[i as usize];
-            let expected = Bbox {
-                left: round_down(expected_f32.0),
-                top: round_down(expected_f32.1),
-                right: round_up(expected_f32.2),
-                bottom: round_up(expected_f32.3),
-            };
-            if expected != *actual {
-                println!("{}: {:?} {:?}", i, actual, expected);
+            if round_down(expected_f32.0) != actual.left
+                || round_down(expected_f32.1) != actual.top
+                || round_up(expected_f32.2) != actual.right
+                || round_up(expected_f32.3) != actual.bottom
+            {
+                println!("{}: {:?} {:?}", i, actual, expected_f32);
                 return Some(format!("bbox mismatch at {}", i));
             }
         }

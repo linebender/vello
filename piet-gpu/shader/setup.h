@@ -48,12 +48,14 @@ struct Config {
     // Number of transforms in scene
     // This is probably not needed.
     uint n_trans;
+    // This only counts actual paths, not EndClip.
+    uint n_path;
     // Offset (in bytes) of transform stream in scene buffer
     uint trans_offset;
-    // Offset (in bytes) of path tag stream in scene
-    uint pathtag_offset;
     // Offset (in bytes) of linewidth stream in scene
     uint linewidth_offset;
+    // Offset (in bytes) of path tag stream in scene
+    uint pathtag_offset;
     // Offset (in bytes) of path segment stream in scene
     uint pathseg_offset;
 };

@@ -151,8 +151,8 @@ impl DrawStage {
                 (1, 1, 1),
                 (DRAW_WG as u32, 1, 1),
             );
-            cmd_buf.memory_barrier();
         }
+        cmd_buf.memory_barrier();
         cmd_buf.dispatch(
             &code.leaf_pipeline,
             &binding.leaf_ds,

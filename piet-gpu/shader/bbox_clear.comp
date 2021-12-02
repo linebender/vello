@@ -19,8 +19,8 @@ layout(binding = 1) readonly buffer ConfigBuf {
 
 void main() {
     uint ix = gl_GlobalInvocationID.x;
-    if (ix < conf.n_elements) {
-        uint out_ix = (conf.bbox_alloc.offset >> 2) + 4 * ix;
+    if (ix < conf.n_path) {
+        uint out_ix = (conf.bbox_alloc.offset >> 2) + 6 * ix;
         memory[out_ix] = 0xffff;
         memory[out_ix + 1] = 0xffff;
         memory[out_ix + 2] = 0;

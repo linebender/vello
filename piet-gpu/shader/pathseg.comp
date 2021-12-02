@@ -92,6 +92,8 @@ uint round_up(float x) {
 
 void main() {
     Monoid local[N_SEQ];
+    float linewidth[N_SEQ];
+    uint save_trans_ix[N_SEQ];
 
     uint ix = gl_GlobalInvocationID.x * N_SEQ;
 
@@ -124,9 +126,12 @@ void main() {
     uint ps_ix = (conf.pathseg_offset >> 2) + tm.pathseg_offset;
     uint lw_ix = (conf.linewidth_offset >> 2) + tm.linewidth_ix;
     uint save_path_ix = tm.path_ix;
-    TransformSegRef trans_ref = TransformSegRef(conf.trans_alloc.offset + tm.trans_ix * TransformSeg_size);
+    uint trans_ix = tm.trans_ix;
+    TransformSegRef trans_ref = TransformSegRef(conf.trans_alloc.offset + trans_ix * TransformSeg_size);
     PathSegRef ps_ref = PathSegRef(conf.pathseg_alloc.offset + tm.pathseg_ix * PathSeg_size);
     for (uint i = 0; i < N_SEQ; i++) {
+        linewidth[i] = uintBitsToFloat(scene[lw_ix]);
+        save_trans_ix[i] = trans_ix;
         // if N_SEQ > 4, need to load tag_word from local if N_SEQ % 4 == 0
         uint tag_byte = tag_word >> (i * 8);
         uint seg_type = tag_byte & 3;
@@ -158,7 +163,6 @@ void main() {
                     }
                 }
             }
-            float linewidth = uintBitsToFloat(scene[lw_ix]);
             TransformSeg transform = TransformSeg_read(conf.trans_alloc, trans_ref);
             p0 = transform.mat.xy * p0.x + transform.mat.zw * p0.y + transform.translate;
             p1 = transform.mat.xy * p1.x + transform.mat.zw * p1.y + transform.translate;
@@ -183,9 +187,9 @@ void main() {
                 p1 = mix(p0, p3, 1.0 / 3.0);
             }
             vec2 stroke = vec2(0.0, 0.0);
-            if (linewidth >= 0.0) {
+            if (linewidth[i] >= 0.0) {
                 // See https://www.iquilezles.org/www/articles/ellipses/ellipses.htm
-                stroke = 0.5 * linewidth * vec2(length(transform.mat.xz), length(transform.mat.yw));
+                stroke = 0.5 * linewidth[i] * vec2(length(transform.mat.xz), length(transform.mat.yw));
                 bbox += vec4(-stroke, stroke);
             }
             local[i].bbox = bbox;
@@ -201,7 +205,7 @@ void main() {
             // Not needed, TODO remove from struct
             cubic.trans_ix = gl_GlobalInvocationID.x * 4 + i;
             cubic.stroke = stroke;
-            uint fill_mode = uint(linewidth >= 0.0);
+            uint fill_mode = uint(linewidth[i] >= 0.0);
             PathSeg_Cubic_write(conf.pathseg_alloc, ps_ref, fill_mode, cubic);
 
             ps_ref.offset += PathSeg_size;
@@ -215,6 +219,7 @@ void main() {
             // Relies on the fact that RESET_BBOX == 1
             local[i].flags = is_path;
             tm.path_ix += is_path;
+            trans_ix += (tag_byte >> 5) & 1;
             trans_ref.offset += ((tag_byte >> 5) & 1) * TransformSeg_size;
             lw_ix += (tag_byte >> 6) & 1;
         }
@@ -244,7 +249,7 @@ void main() {
     
     barrier();
     uint path_ix = save_path_ix;
-    uint bbox_out_ix = (conf.bbox_alloc.offset >> 2) + path_ix * 4;
+    uint bbox_out_ix = (conf.bbox_alloc.offset >> 2) + path_ix * 6;
     // Write bboxes to paths; do atomic min/max if partial
     Monoid row = monoid_identity();
     if (gl_LocalInvocationID.x > 0) {
@@ -259,6 +264,8 @@ void main() {
             do_atomic = true;
         }
         if ((m.flags & FLAG_RESET_BBOX) != 0) {
+            memory[bbox_out_ix + 4] = floatBitsToUint(linewidth[i]);
+            memory[bbox_out_ix + 5] = save_trans_ix[i];
             if ((m.flags & FLAG_SET_BBOX) == 0) {
                 do_atomic = true;
             } else {
@@ -266,7 +273,7 @@ void main() {
                 memory[bbox_out_ix + 1] = round_down(m.bbox.y);
                 memory[bbox_out_ix + 2] = round_up(m.bbox.z);
                 memory[bbox_out_ix + 3] = round_up(m.bbox.w);
-                bbox_out_ix += 4;
+                bbox_out_ix += 6;
                 do_atomic = false;
             }
         }
@@ -278,7 +285,7 @@ void main() {
                 atomicMax(memory[bbox_out_ix + 2], round_up(m.bbox.z));
                 atomicMax(memory[bbox_out_ix + 3], round_up(m.bbox.w));
             }
-            bbox_out_ix += 4;
+            bbox_out_ix += 6;
         }
     }
 }

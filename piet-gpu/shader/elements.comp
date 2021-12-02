@@ -445,7 +445,7 @@ void main() {
                 vec2 lw = get_linewidth(st);
                 anno_begin_clip.linewidth = st.linewidth * sqrt(abs(st.mat.x * st.mat.w - st.mat.y * st.mat.z));
             } else {
-                anno_fill.linewidth = 0.0;
+                anno_begin_clip.linewidth = 0.0;
             }
             out_ref = AnnotatedRef(conf.anno_alloc.offset + (st.path_count - 1) * Annotated_size);
             Annotated_BeginClip_write(conf.anno_alloc, out_ref, fill_mode, anno_begin_clip);

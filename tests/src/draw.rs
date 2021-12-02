@@ -24,6 +24,7 @@ use crate::{Config, Runner, TestResult};
 use piet_gpu::stages::{self, DrawCode, DrawMonoid, DrawStage};
 
 const ELEMENT_SIZE: usize = 36;
+const ANNOTATED_SIZE: usize = 40;
 
 const ELEMENT_FILLCOLOR: u32 = 4;
 const ELEMENT_FILLLINGRADIENT: u32 = 5;
@@ -99,16 +100,18 @@ impl DrawTestData {
 
         // Layout of memory
         let drawmonoid_alloc = 0;
+        let anno_alloc = drawmonoid_alloc + 8 * n_tags;
         let stage_config = stages::Config {
             n_elements: n_tags as u32,
-            drawmonoid_alloc,
+            anno_alloc: anno_alloc as u32,
+            drawmonoid_alloc: drawmonoid_alloc as u32,
             ..Default::default()
         };
         stage_config
     }
 
     fn memory_size(&self) -> u64 {
-        8 + self.tags.len() as u64 * 8
+        (8 + self.tags.len() * (8 + ANNOTATED_SIZE)) as u64
     }
 
     fn fill_scene(&self, buf: &mut BufWrite) {

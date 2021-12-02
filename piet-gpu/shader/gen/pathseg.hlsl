@@ -65,9 +65,10 @@ struct Config
     Alloc bbox_alloc;
     Alloc drawmonoid_alloc;
     uint n_trans;
+    uint n_path;
     uint trans_offset;
-    uint pathtag_offset;
     uint linewidth_offset;
+    uint pathtag_offset;
     uint pathseg_offset;
 };
 
@@ -79,7 +80,7 @@ static const Monoid _567 = { 0.0f.xxxx, 0u };
 RWByteAddressBuffer _111 : register(u0);
 ByteAddressBuffer _574 : register(t2);
 ByteAddressBuffer _639 : register(t1);
-ByteAddressBuffer _710 : register(t3);
+ByteAddressBuffer _709 : register(t3);
 
 static uint3 gl_WorkGroupID;
 static uint3 gl_LocalInvocationID;
@@ -355,7 +356,7 @@ uint round_up(float x)
 void comp_main()
 {
     uint ix = gl_GlobalInvocationID.x * 4u;
-    uint tag_word = _574.Load(((_639.Load(56) >> uint(2)) + (ix >> uint(2))) * 4 + 0);
+    uint tag_word = _574.Load(((_639.Load(64) >> uint(2)) + (ix >> uint(2))) * 4 + 0);
     uint param = tag_word;
     TagMonoid local_tm = reduce_tag(param);
     sh_tag[gl_LocalInvocationID.x] = local_tm;
@@ -376,17 +377,17 @@ void comp_main()
     TagMonoid tm = tag_monoid_identity();
     if (gl_WorkGroupID.x > 0u)
     {
-        TagMonoid _716;
-        _716.trans_ix = _710.Load((gl_WorkGroupID.x - 1u) * 20 + 0);
-        _716.linewidth_ix = _710.Load((gl_WorkGroupID.x - 1u) * 20 + 4);
-        _716.pathseg_ix = _710.Load((gl_WorkGroupID.x - 1u) * 20 + 8);
-        _716.path_ix = _710.Load((gl_WorkGroupID.x - 1u) * 20 + 12);
-        _716.pathseg_offset = _710.Load((gl_WorkGroupID.x - 1u) * 20 + 16);
-        tm.trans_ix = _716.trans_ix;
-        tm.linewidth_ix = _716.linewidth_ix;
-        tm.pathseg_ix = _716.pathseg_ix;
-        tm.path_ix = _716.path_ix;
-        tm.pathseg_offset = _716.pathseg_offset;
+        TagMonoid _715;
+        _715.trans_ix = _709.Load((gl_WorkGroupID.x - 1u) * 20 + 0);
+        _715.linewidth_ix = _709.Load((gl_WorkGroupID.x - 1u) * 20 + 4);
+        _715.pathseg_ix = _709.Load((gl_WorkGroupID.x - 1u) * 20 + 8);
+        _715.path_ix = _709.Load((gl_WorkGroupID.x - 1u) * 20 + 12);
+        _715.pathseg_offset = _709.Load((gl_WorkGroupID.x - 1u) * 20 + 16);
+        tm.trans_ix = _715.trans_ix;
+        tm.linewidth_ix = _715.linewidth_ix;
+        tm.pathseg_ix = _715.pathseg_ix;
+        tm.path_ix = _715.path_ix;
+        tm.pathseg_offset = _715.pathseg_offset;
     }
     if (gl_LocalInvocationID.x > 0u)
     {
@@ -394,13 +395,16 @@ void comp_main()
         TagMonoid param_4 = sh_tag[gl_LocalInvocationID.x - 1u];
         tm = combine_tag_monoid(param_3, param_4);
     }
-    uint ps_ix = (_639.Load(64) >> uint(2)) + tm.pathseg_offset;
+    uint ps_ix = (_639.Load(68) >> uint(2)) + tm.pathseg_offset;
     uint lw_ix = (_639.Load(60) >> uint(2)) + tm.linewidth_ix;
     uint save_path_ix = tm.path_ix;
-    TransformSegRef _768 = { _639.Load(36) + (tm.trans_ix * 24u) };
-    TransformSegRef trans_ref = _768;
-    PathSegRef _778 = { _639.Load(28) + (tm.pathseg_ix * 52u) };
-    PathSegRef ps_ref = _778;
+    uint trans_ix = tm.trans_ix;
+    TransformSegRef _770 = { _639.Load(36) + (trans_ix * 24u) };
+    TransformSegRef trans_ref = _770;
+    PathSegRef _780 = { _639.Load(28) + (tm.pathseg_ix * 52u) };
+    PathSegRef ps_ref = _780;
+    float linewidth[4];
+    uint save_trans_ix[4];
     float2 p0;
     float2 p1;
     float2 p2;
@@ -411,6 +415,8 @@ void comp_main()
     Alloc param_15;
     for (uint i_1 = 0u; i_1 < 4u; i_1++)
     {
+        linewidth[i_1] = asfloat(_574.Load(lw_ix * 4 + 0));
+        save_trans_ix[i_1] = trans_ix;
         uint tag_byte = tag_word >> (i_1 * 8u);
         uint seg_type = tag_byte & 3u;
         if (seg_type != 0u)
@@ -449,10 +455,9 @@ void comp_main()
                     }
                 }
             }
-            float linewidth = asfloat(_574.Load(lw_ix * 4 + 0));
-            Alloc _864;
-            _864.offset = _639.Load(36);
-            param_13.offset = _864.offset;
+            Alloc _876;
+            _876.offset = _639.Load(36);
+            param_13.offset = _876.offset;
             TransformSegRef param_14 = trans_ref;
             TransformSeg transform = TransformSeg_read(param_13, param_14);
             p0 = ((transform.mat.xy * p0.x) + (transform.mat.zw * p0.y)) + transform.translate;
@@ -461,25 +466,25 @@ void comp_main()
             if (seg_type >= 2u)
             {
                 p2 = ((transform.mat.xy * p2.x) + (transform.mat.zw * p2.y)) + transform.translate;
-                float4 _934 = bbox;
-                float2 _937 = min(_934.xy, p2);
-                bbox.x = _937.x;
-                bbox.y = _937.y;
-                float4 _942 = bbox;
-                float2 _945 = max(_942.zw, p2);
-                bbox.z = _945.x;
-                bbox.w = _945.y;
+                float4 _946 = bbox;
+                float2 _949 = min(_946.xy, p2);
+                bbox.x = _949.x;
+                bbox.y = _949.y;
+                float4 _954 = bbox;
+                float2 _957 = max(_954.zw, p2);
+                bbox.z = _957.x;
+                bbox.w = _957.y;
                 if (seg_type == 3u)
                 {
                     p3 = ((transform.mat.xy * p3.x) + (transform.mat.zw * p3.y)) + transform.translate;
-                    float4 _970 = bbox;
-                    float2 _973 = min(_970.xy, p3);
-                    bbox.x = _973.x;
-                    bbox.y = _973.y;
-                    float4 _978 = bbox;
-                    float2 _981 = max(_978.zw, p3);
-                    bbox.z = _981.x;
-                    bbox.w = _981.y;
+                    float4 _982 = bbox;
+                    float2 _985 = min(_982.xy, p3);
+                    bbox.x = _985.x;
+                    bbox.y = _985.y;
+                    float4 _990 = bbox;
+                    float2 _993 = max(_990.zw, p3);
+                    bbox.z = _993.x;
+                    bbox.w = _993.y;
                 }
                 else
                 {
@@ -495,9 +500,9 @@ void comp_main()
                 p1 = lerp(p0, p3, 0.3333333432674407958984375f.xx);
             }
             float2 stroke = 0.0f.xx;
-            if (linewidth >= 0.0f)
+            if (linewidth[i_1] >= 0.0f)
             {
-                stroke = float2(length(transform.mat.xz), length(transform.mat.yw)) * (0.5f * linewidth);
+                stroke = float2(length(transform.mat.xz), length(transform.mat.yw)) * (0.5f * linewidth[i_1]);
                 bbox += float4(-stroke, stroke);
             }
             local[i_1].bbox = bbox;
@@ -509,10 +514,10 @@ void comp_main()
             cubic.path_ix = tm.path_ix;
             cubic.trans_ix = (gl_GlobalInvocationID.x * 4u) + i_1;
             cubic.stroke = stroke;
-            uint fill_mode = uint(linewidth >= 0.0f);
-            Alloc _1070;
-            _1070.offset = _639.Load(28);
-            param_15.offset = _1070.offset;
+            uint fill_mode = uint(linewidth[i_1] >= 0.0f);
+            Alloc _1088;
+            _1088.offset = _639.Load(28);
+            param_15.offset = _1088.offset;
             PathSegRef param_16 = ps_ref;
             uint param_17 = fill_mode;
             PathCubic param_18 = cubic;
@@ -528,6 +533,7 @@ void comp_main()
             uint is_path = (tag_byte >> uint(4)) & 1u;
             local[i_1].flags = is_path;
             tm.path_ix += is_path;
+            trans_ix += ((tag_byte >> uint(5)) & 1u);
             trans_ref.offset += (((tag_byte >> uint(5)) & 1u) * 24u);
             lw_ix += ((tag_byte >> uint(6)) & 1u);
         }
@@ -556,7 +562,7 @@ void comp_main()
     }
     GroupMemoryBarrierWithGroupSync();
     uint path_ix = save_path_ix;
-    uint bbox_out_ix = (_639.Load(40) >> uint(2)) + (path_ix * 4u);
+    uint bbox_out_ix = (_639.Load(40) >> uint(2)) + (path_ix * 6u);
     Monoid row = monoid_identity();
     if (gl_LocalInvocationID.x > 0u)
     {
@@ -568,22 +574,24 @@ void comp_main()
         Monoid param_24 = local[i_4];
         Monoid m = combine_monoid(param_23, param_24);
         bool do_atomic = false;
-        bool _1240 = i_4 == 3u;
-        bool _1247;
-        if (_1240)
+        bool _1263 = i_4 == 3u;
+        bool _1270;
+        if (_1263)
         {
-            _1247 = gl_LocalInvocationID.x == 511u;
+            _1270 = gl_LocalInvocationID.x == 511u;
         }
         else
         {
-            _1247 = _1240;
+            _1270 = _1263;
         }
-        if (_1247)
+        if (_1270)
         {
             do_atomic = true;
         }
         if ((m.flags & 1u) != 0u)
         {
+            _111.Store((bbox_out_ix + 4u) * 4 + 8, asuint(linewidth[i_4]));
+            _111.Store((bbox_out_ix + 5u) * 4 + 8, save_trans_ix[i_4]);
             if ((m.flags & 2u) == 0u)
             {
                 do_atomic = true;
@@ -598,38 +606,38 @@ void comp_main()
                 _111.Store((bbox_out_ix + 2u) * 4 + 8, round_up(param_27));
                 float param_28 = m.bbox.w;
                 _111.Store((bbox_out_ix + 3u) * 4 + 8, round_up(param_28));
-                bbox_out_ix += 4u;
+                bbox_out_ix += 6u;
                 do_atomic = false;
             }
         }
         if (do_atomic)
         {
-            bool _1299 = m.bbox.z > m.bbox.x;
-            bool _1308;
-            if (!_1299)
+            bool _1335 = m.bbox.z > m.bbox.x;
+            bool _1344;
+            if (!_1335)
             {
-                _1308 = m.bbox.w > m.bbox.y;
+                _1344 = m.bbox.w > m.bbox.y;
             }
             else
             {
-                _1308 = _1299;
+                _1344 = _1335;
             }
-            if (_1308)
+            if (_1344)
             {
                 float param_29 = m.bbox.x;
-                uint _1317;
-                _111.InterlockedMin(bbox_out_ix * 4 + 8, round_down(param_29), _1317);
+                uint _1353;
+                _111.InterlockedMin(bbox_out_ix * 4 + 8, round_down(param_29), _1353);
                 float param_30 = m.bbox.y;
-                uint _1325;
-                _111.InterlockedMin((bbox_out_ix + 1u) * 4 + 8, round_down(param_30), _1325);
+                uint _1361;
+                _111.InterlockedMin((bbox_out_ix + 1u) * 4 + 8, round_down(param_30), _1361);
                 float param_31 = m.bbox.z;
-                uint _1333;
-                _111.InterlockedMax((bbox_out_ix + 2u) * 4 + 8, round_up(param_31), _1333);
+                uint _1369;
+                _111.InterlockedMax((bbox_out_ix + 2u) * 4 + 8, round_up(param_31), _1369);
                 float param_32 = m.bbox.w;
-                uint _1341;
-                _111.InterlockedMax((bbox_out_ix + 3u) * 4 + 8, round_up(param_32), _1341);
+                uint _1377;
+                _111.InterlockedMax((bbox_out_ix + 3u) * 4 + 8, round_up(param_32), _1377);
             }
-            bbox_out_ix += 4u;
+            bbox_out_ix += 6u;
         }
     }
 }

@@ -167,6 +167,11 @@ impl TransformStage {
 }
 
 impl Transform {
+    pub const IDENTITY: Transform = Transform {
+        mat: [1.0, 0.0, 0.0, 1.0],
+        translate: [0.0, 0.0],
+    };
+
     pub fn from_kurbo(a: Affine) -> Transform {
         let c = a.as_coeffs();
         Transform {

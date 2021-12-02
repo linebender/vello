@@ -25,7 +25,7 @@ rule msl
 
 build elements.spv: glsl elements.comp | scene.h state.h annotated.h
 
-build binning.spv: glsl binning.comp | annotated.h state.h bins.h setup.h
+build binning.spv: glsl binning.comp | annotated.h state.h bins.h setup.h mem.h
 
 build tile_alloc.spv: glsl tile_alloc.comp | annotated.h tile.h setup.h
 
@@ -90,7 +90,7 @@ build gen/draw_root.hlsl: hlsl gen/draw_root.spv
 build gen/draw_root.dxil: dxil gen/draw_root.hlsl
 build gen/draw_root.msl: msl gen/draw_root.spv
 
-build gen/draw_leaf.spv: glsl draw_leaf.comp | scene.h drawtag.h setup.h mem.h
+build gen/draw_leaf.spv: glsl draw_leaf.comp | scene.h drawtag.h annotated.h setup.h mem.h
 build gen/draw_leaf.hlsl: hlsl gen/draw_leaf.spv
 build gen/draw_leaf.dxil: dxil gen/draw_leaf.hlsl
 build gen/draw_leaf.msl: msl gen/draw_leaf.spv

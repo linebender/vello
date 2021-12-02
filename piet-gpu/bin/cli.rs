@@ -276,8 +276,8 @@ fn main() -> Result<(), Error> {
 
         /*
         let mut data: Vec<u32> = Default::default();
-        renderer.tile_buf.read(&mut data).unwrap();
-        piet_gpu::dump_k1_data(&data);
+        renderer.memory_buf_dev.read(&mut data).unwrap();
+        piet_gpu::dump_k1_data(&data[2..]);
         trace_ptcl(&data);
         */
 
