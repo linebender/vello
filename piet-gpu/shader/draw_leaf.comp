@@ -1,0 +1,79 @@
+// SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
+
+// The leaf scan pass for draw tag scan implemented as a tree reduction.
+// This stage can be fused with its consumer but is separate now.
+
+
+#version 450
+#extension GL_GOOGLE_include_directive : enable
+
+#include "mem.h"
+#include "setup.h"
+
+#define N_ROWS 8
+#define LG_WG_SIZE 9
+#define WG_SIZE (1 << LG_WG_SIZE)
+#define PARTITION_SIZE (WG_SIZE * N_ROWS)
+
+layout(local_size_x = WG_SIZE, local_size_y = 1) in;
+
+layout(binding = 1) readonly buffer ConfigBuf {
+    Config conf;
+};
+
+layout(binding = 2) readonly buffer SceneBuf {
+    uint[] scene;
+};
+
+#include "scene.h"
+#include "tile.h"
+#include "drawtag.h"
+
+#define Monoid DrawMonoid
+
+layout(set = 0, binding = 3) readonly buffer ParentBuf {
+    Monoid[] parent;
+};
+
+shared Monoid sh_scratch[WG_SIZE];
+
+void main() {
+    Monoid local[N_ROWS];
+
+    uint ix = gl_GlobalInvocationID.x * N_ROWS;
+    ElementRef ref = ElementRef(ix * Element_size);
+    uint tag_word = Element_tag(ref).tag;
+
+    Monoid agg = map_tag(tag_word);
+    local[0] = agg;
+    for (uint i = 1; i < N_ROWS; i++) {
+        tag_word = Element_tag(Element_index(ref, i)).tag;
+        agg = combine_tag_monoid(agg, map_tag(tag_word));
+        local[i] = agg;
+    }
+    sh_scratch[gl_LocalInvocationID.x] = agg;
+    for (uint i = 0; i < LG_WG_SIZE; i++) {
+        barrier();
+        if (gl_LocalInvocationID.x >= (1u << i)) {
+            Monoid other = sh_scratch[gl_LocalInvocationID.x - (1u << i)];
+            agg = combine_tag_monoid(other, agg);
+        }
+        barrier();
+        sh_scratch[gl_LocalInvocationID.x] = agg;
+    }
+    
+    barrier();
+    Monoid row = tag_monoid_identity();
+    if (gl_WorkGroupID.x > 0) {
+        row = parent[gl_WorkGroupID.x - 1];
+    }
+    if (gl_LocalInvocationID.x > 0) {
+        row = combine_tag_monoid(row, sh_scratch[gl_LocalInvocationID.x - 1]);
+    }
+    uint out_base = (conf.drawmonoid_alloc.offset >> 2) + gl_GlobalInvocationID.x * 2 * N_ROWS;
+    for (uint i = 0; i < N_ROWS; i++) {
+        Monoid m = combine_tag_monoid(row, local[i]);
+        memory[out_base + i * 2] = m.path_ix;
+        memory[out_base + i * 2 + 1] = m.clip_ix;
+    }
+}

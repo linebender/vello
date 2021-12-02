@@ -16,11 +16,13 @@
 
 //! Stages for new element pipeline, exposed for testing.
 
+mod draw;
 mod path;
 mod transform;
 
 use bytemuck::{Pod, Zeroable};
 
+pub use draw::{DrawBinding, DrawCode, DrawMonoid, DrawStage};
 pub use path::{PathBinding, PathCode, PathEncoder, PathStage};
 pub use transform::{Transform, TransformBinding, TransformCode, TransformStage};
 
@@ -41,6 +43,7 @@ pub struct Config {
     pub anno_alloc: u32,
     pub trans_alloc: u32,
     pub bbox_alloc: u32,
+    pub drawmonoid_alloc: u32,
     pub n_trans: u32,
     pub trans_offset: u32,
     pub pathtag_offset: u32,

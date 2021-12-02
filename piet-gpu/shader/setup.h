@@ -42,6 +42,8 @@ struct Config {
 
     // Bounding boxes of paths, stored as int (so atomics work)
     Alloc bbox_alloc;
+    // Monoid for draw objects
+    Alloc drawmonoid_alloc;
 
     // Number of transforms in scene
     // This is probably not needed.

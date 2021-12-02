@@ -1,0 +1,128 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+#pragma clang diagnostic ignored "-Wmissing-braces"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+template<typename T, size_t Num>
+struct spvUnsafeArray
+{
+    T elements[Num ? Num : 1];
+    
+    thread T& operator [] (size_t pos) thread
+    {
+        return elements[pos];
+    }
+    constexpr const thread T& operator [] (size_t pos) const thread
+    {
+        return elements[pos];
+    }
+    
+    device T& operator [] (size_t pos) device
+    {
+        return elements[pos];
+    }
+    constexpr const device T& operator [] (size_t pos) const device
+    {
+        return elements[pos];
+    }
+    
+    constexpr const constant T& operator [] (size_t pos) const constant
+    {
+        return elements[pos];
+    }
+    
+    threadgroup T& operator [] (size_t pos) threadgroup
+    {
+        return elements[pos];
+    }
+    constexpr const threadgroup T& operator [] (size_t pos) const threadgroup
+    {
+        return elements[pos];
+    }
+};
+
+struct DrawMonoid
+{
+    uint path_ix;
+    uint clip_ix;
+};
+
+struct DrawMonoid_1
+{
+    uint path_ix;
+    uint clip_ix;
+};
+
+struct DataBuf
+{
+    DrawMonoid_1 data[1];
+};
+
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(512u, 1u, 1u);
+
+static inline __attribute__((always_inline))
+DrawMonoid combine_tag_monoid(thread const DrawMonoid& a, thread const DrawMonoid& b)
+{
+    DrawMonoid c;
+    c.path_ix = a.path_ix + b.path_ix;
+    c.clip_ix = a.clip_ix + b.clip_ix;
+    return c;
+}
+
+static inline __attribute__((always_inline))
+DrawMonoid tag_monoid_identity()
+{
+    return DrawMonoid{ 0u, 0u };
+}
+
+kernel void main0(device DataBuf& _57 [[buffer(0)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
+{
+    threadgroup DrawMonoid sh_scratch[512];
+    uint ix = gl_GlobalInvocationID.x * 8u;
+    spvUnsafeArray<DrawMonoid, 8> local;
+    local[0].path_ix = _57.data[ix].path_ix;
+    local[0].clip_ix = _57.data[ix].clip_ix;
+    DrawMonoid param_1;
+    for (uint i = 1u; i < 8u; i++)
+    {
+        uint _82 = ix + i;
+        DrawMonoid param = local[i - 1u];
+        param_1.path_ix = _57.data[_82].path_ix;
+        param_1.clip_ix = _57.data[_82].clip_ix;
+        local[i] = combine_tag_monoid(param, param_1);
+    }
+    DrawMonoid agg = local[7];
+    sh_scratch[gl_LocalInvocationID.x] = agg;
+    for (uint i_1 = 0u; i_1 < 9u; i_1++)
+    {
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        if (gl_LocalInvocationID.x >= (1u << i_1))
+        {
+            DrawMonoid other = sh_scratch[gl_LocalInvocationID.x - (1u << i_1)];
+            DrawMonoid param_2 = other;
+            DrawMonoid param_3 = agg;
+            agg = combine_tag_monoid(param_2, param_3);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        sh_scratch[gl_LocalInvocationID.x] = agg;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    DrawMonoid row = tag_monoid_identity();
+    if (gl_LocalInvocationID.x > 0u)
+    {
+        row = sh_scratch[gl_LocalInvocationID.x - 1u];
+    }
+    for (uint i_2 = 0u; i_2 < 8u; i_2++)
+    {
+        DrawMonoid param_4 = row;
+        DrawMonoid param_5 = local[i_2];
+        DrawMonoid m = combine_tag_monoid(param_4, param_5);
+        uint _178 = ix + i_2;
+        _57.data[_178].path_ix = m.path_ix;
+        _57.data[_178].clip_ix = m.clip_ix;
+    }
+}
+

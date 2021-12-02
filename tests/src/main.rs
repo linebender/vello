@@ -18,6 +18,7 @@
 
 mod clear;
 mod config;
+mod draw;
 mod linkedlist;
 mod message_passing;
 mod prefix;
@@ -137,6 +138,7 @@ fn main() {
         if config.groups.matches("piet") {
             report(&transform::transform_test(&mut runner, &config));
             report(&path::path_test(&mut runner, &config));
+            report(&draw::draw_test(&mut runner, &config));
         }
     }
 }
