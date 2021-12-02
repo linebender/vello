@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
 
-// A scan for a tree reduction prefix scan (either root or not, by ifdef).
+// A scan for path tag scan implemented as a tree reduction.
 
 #version 450
+#extension GL_GOOGLE_include_directive : enable
+
+#include "pathtag.h"
 
 #define N_ROWS 8
 #define LG_WG_SIZE 9
@@ -11,14 +14,9 @@
 
 layout(local_size_x = WG_SIZE, local_size_y = 1) in;
 
-// This is copy-pasted from scene.h. It might be better for DRY
-// to include it, but that pulls in more stuff we don't need.
-struct Transform {
-    vec4 mat;
-    vec2 translate;
-};
-
-#define Monoid Transform
+#define Monoid TagMonoid
+#define combine_monoid combine_tag_monoid
+#define monoid_identity tag_monoid_identity
 
 layout(binding = 0) buffer DataBuf {
     Monoid[] data;
@@ -29,17 +27,6 @@ layout(binding = 1) readonly buffer ParentBuf {
     Monoid[] parent;
 };
 #endif
-
-Monoid monoid_identity() {
-    return Monoid(vec4(1.0, 0.0, 0.0, 1.0), vec2(0.0, 0.0));
-}
-
-Monoid combine_monoid(Monoid a, Monoid b) {
-    Monoid c;
-    c.mat = a.mat.xyxy * b.mat.xxzz + a.mat.zwzw * b.mat.yyww;
-    c.translate = a.mat.xy * b.translate.x + a.mat.zw * b.translate.y + a.translate;
-    return c;
-}
 
 shared Monoid sh_scratch[WG_SIZE];
 
@@ -82,7 +69,6 @@ void main() {
 #endif
     for (uint i = 0; i < N_ROWS; i++) {
         Monoid m = combine_monoid(row, local[i]);
-        // TODO: gate buffer write
         data[ix + i] = m;
     }
 }

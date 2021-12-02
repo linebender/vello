@@ -14,7 +14,7 @@
 //
 // Also licensed under MIT license, at your choice.
 
-//! Tests for piet-gpu shaders.
+//! Tests for the piet-gpu transform stage.
 
 use crate::{Config, Runner, TestResult};
 
@@ -37,11 +37,9 @@ pub unsafe fn transform_test(runner: &mut Runner, config: &Config) -> TestResult
         .session
         .create_buffer_init(&data.input_data, BufferUsage::STORAGE)
         .unwrap();
-    let memory = runner.buf_down(data_buf.size() + 24, BufferUsage::empty());
+    let memory = runner.buf_down(data_buf.size() + 8, BufferUsage::empty());
     let stage_config = stages::Config {
         n_trans: n_elements as u32,
-        // This is a hack to get elements aligned.
-        trans_alloc: 16,
         ..Default::default()
     };
     let config_buf = runner
@@ -71,9 +69,8 @@ pub unsafe fn transform_test(runner: &mut Runner, config: &Config) -> TestResult
         }
         total_elapsed += runner.submit(commands);
         if i == 0 || config.verify_all {
-            let mut dst: Vec<Transform> = Default::default();
-            memory.read(&mut dst);
-            if let Some(failure) = data.verify(&dst[1..]) {
+            let dst = memory.map_read(8..);
+            if let Some(failure) = data.verify(dst.cast_slice()) {
                 result.fail(failure);
             }
         }

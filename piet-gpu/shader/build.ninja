@@ -57,3 +57,24 @@ build gen/transform_leaf.spv: glsl transform_leaf.comp | scene.h tile.h setup.h 
 build gen/transform_leaf.hlsl: hlsl gen/transform_leaf.spv
 build gen/transform_leaf.dxil: dxil gen/transform_leaf.hlsl
 build gen/transform_leaf.msl: msl gen/transform_leaf.spv
+
+build gen/pathtag_reduce.spv: glsl pathtag_reduce.comp | pathtag.h setup.h mem.h
+build gen/pathtag_reduce.hlsl: hlsl gen/pathtag_reduce.spv
+build gen/pathtag_reduce.dxil: dxil gen/pathtag_reduce.hlsl
+build gen/pathtag_reduce.msl: msl gen/pathtag_reduce.spv
+
+build gen/pathtag_root.spv: glsl pathtag_scan.comp | pathtag.h
+  flags = -DROOT
+build gen/pathtag_root.hlsl: hlsl gen/pathtag_root.spv
+build gen/pathtag_root.dxil: dxil gen/pathtag_root.hlsl
+build gen/pathtag_root.msl: msl gen/pathtag_root.spv
+
+build gen/bbox_clear.spv: glsl bbox_clear.comp | setup.h mem.h
+build gen/bbox_clear.hlsl: hlsl gen/bbox_clear.spv
+build gen/bbox_clear.dxil: dxil gen/bbox_clear.hlsl
+build gen/bbox_clear.msl: msl gen/bbox_clear.spv
+
+build gen/pathseg.spv: glsl pathseg.comp | tile.h pathseg.h pathtag.h setup.h mem.h
+build gen/pathseg.hlsl: hlsl gen/pathseg.spv
+build gen/pathseg.dxil: dxil gen/pathseg.hlsl
+build gen/pathseg.msl: msl gen/pathseg.spv
