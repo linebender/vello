@@ -15,7 +15,7 @@ use piet::{ImageFormat, RenderContext};
 
 use piet_gpu_hal::{
     BindType, Buffer, BufferUsage, CmdBuf, DescriptorSet, Error, Image, ImageLayout, Pipeline,
-    QueryPool, Session, ShaderCode,
+    QueryPool, Session, ShaderCode, include_shader,
 };
 
 use pico_svg::PicoSvg;
@@ -161,23 +161,23 @@ impl Renderer {
             })
             .collect();
 
-        let tile_alloc_code = ShaderCode::Spv(include_bytes!("../shader/tile_alloc.spv"));
+        let tile_alloc_code = include_shader!(session, "../shader/gen/tile_alloc");
         let tile_pipeline = session
             .create_compute_pipeline(tile_alloc_code, &[BindType::Buffer, BindType::Buffer])?;
         let tile_ds = session
             .create_simple_descriptor_set(&tile_pipeline, &[&memory_buf_dev, &config_buf])?;
 
-        let path_alloc_code = ShaderCode::Spv(include_bytes!("../shader/path_coarse.spv"));
+        let path_alloc_code = include_shader!(session, "../shader/gen/path_coarse");
         let path_pipeline = session
             .create_compute_pipeline(path_alloc_code, &[BindType::Buffer, BindType::Buffer])?;
         let path_ds = session
             .create_simple_descriptor_set(&path_pipeline, &[&memory_buf_dev, &config_buf])?;
 
         let backdrop_code = if session.gpu_info().workgroup_limits.max_invocations >= 1024 {
-            ShaderCode::Spv(include_bytes!("../shader/backdrop_lg.spv"))
+            include_shader!(session, "../shader/gen/backdrop_lg")
         } else {
             println!("using small workgroup backdrop kernel");
-            ShaderCode::Spv(include_bytes!("../shader/backdrop.spv"))
+            include_shader!(session, "../shader/gen/backdrop")
         };
         let backdrop_pipeline = session
             .create_compute_pipeline(backdrop_code, &[BindType::Buffer, BindType::Buffer])?;
@@ -185,13 +185,13 @@ impl Renderer {
             .create_simple_descriptor_set(&backdrop_pipeline, &[&memory_buf_dev, &config_buf])?;
 
         // TODO: constants
-        let bin_code = ShaderCode::Spv(include_bytes!("../shader/binning.spv"));
+        let bin_code = include_shader!(session, "../shader/gen/binning");
         let bin_pipeline =
             session.create_compute_pipeline(bin_code, &[BindType::Buffer, BindType::Buffer])?;
         let bin_ds =
             session.create_simple_descriptor_set(&bin_pipeline, &[&memory_buf_dev, &config_buf])?;
 
-        let coarse_code = ShaderCode::Spv(include_bytes!("../shader/coarse.spv"));
+        let coarse_code = include_shader!(session, "../shader/gen/coarse");
         let coarse_pipeline =
             session.create_compute_pipeline(coarse_code, &[BindType::Buffer, BindType::Buffer])?;
         let coarse_ds = session
@@ -210,7 +210,7 @@ impl Renderer {
             .collect();
         let gradients = Self::make_gradient_image(&session);
 
-        let k4_code = ShaderCode::Spv(include_bytes!("../shader/kernel4.spv"));
+        let k4_code = include_shader!(session, "../shader/gen/kernel4");
         let k4_pipeline = session.create_compute_pipeline(
             k4_code,
             &[

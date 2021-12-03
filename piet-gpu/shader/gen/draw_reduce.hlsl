@@ -49,10 +49,10 @@ static const DrawMonoid _90 = { 1u, 1u };
 static const DrawMonoid _92 = { 0u, 1u };
 static const DrawMonoid _94 = { 0u, 0u };
 
-ByteAddressBuffer _46 : register(t2);
-RWByteAddressBuffer _203 : register(u3);
-RWByteAddressBuffer _217 : register(u0);
-ByteAddressBuffer _223 : register(t1);
+ByteAddressBuffer _46 : register(t2, space0);
+RWByteAddressBuffer _203 : register(u3, space0);
+RWByteAddressBuffer _217 : register(u0, space0);
+ByteAddressBuffer _223 : register(t1, space0);
 
 static uint3 gl_WorkGroupID;
 static uint3 gl_LocalInvocationID;

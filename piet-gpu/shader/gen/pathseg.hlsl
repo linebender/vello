@@ -77,10 +77,10 @@ static const uint3 gl_WorkGroupSize = uint3(512u, 1u, 1u);
 static const TagMonoid _135 = { 0u, 0u, 0u, 0u, 0u };
 static const Monoid _567 = { 0.0f.xxxx, 0u };
 
-RWByteAddressBuffer _111 : register(u0);
-ByteAddressBuffer _574 : register(t2);
-ByteAddressBuffer _639 : register(t1);
-ByteAddressBuffer _709 : register(t3);
+RWByteAddressBuffer _111 : register(u0, space0);
+ByteAddressBuffer _574 : register(t2, space0);
+ByteAddressBuffer _639 : register(t1, space0);
+ByteAddressBuffer _709 : register(t3, space0);
 
 static uint3 gl_WorkGroupID;
 static uint3 gl_LocalInvocationID;

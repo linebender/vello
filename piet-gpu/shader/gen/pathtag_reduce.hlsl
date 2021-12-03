@@ -36,10 +36,10 @@ struct Config
 
 static const uint3 gl_WorkGroupSize = uint3(128u, 1u, 1u);
 
-ByteAddressBuffer _139 : register(t1);
-ByteAddressBuffer _150 : register(t2);
-RWByteAddressBuffer _238 : register(u3);
-RWByteAddressBuffer _258 : register(u0);
+ByteAddressBuffer _139 : register(t1, space0);
+ByteAddressBuffer _150 : register(t2, space0);
+RWByteAddressBuffer _238 : register(u3, space0);
+RWByteAddressBuffer _258 : register(u0, space0);
 
 static uint3 gl_WorkGroupID;
 static uint3 gl_LocalInvocationID;

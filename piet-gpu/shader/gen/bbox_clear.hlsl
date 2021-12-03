@@ -27,8 +27,8 @@ struct Config
 
 static const uint3 gl_WorkGroupSize = uint3(512u, 1u, 1u);
 
-ByteAddressBuffer _21 : register(t1);
-RWByteAddressBuffer _45 : register(u0);
+ByteAddressBuffer _21 : register(t1, space0);
+RWByteAddressBuffer _45 : register(u0, space0);
 
 static uint3 gl_GlobalInvocationID;
 struct SPIRV_Cross_Input

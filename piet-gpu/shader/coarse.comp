@@ -172,8 +172,8 @@ void main() {
                     }
                     barrier();
                     if (th_ix < N_PART_READ) {
-                        if (th_ix >= (1 << i)) {
-                            count += sh_part_count[th_ix - (1 << i)];
+                        if (th_ix >= (1u << i)) {
+                            count += sh_part_count[th_ix - (1u << i)];
                         }
                     }
                     barrier();
@@ -190,7 +190,7 @@ void main() {
             if (ix >= wr_ix && ix < ready_ix && mem_ok) {
                 uint part_ix = 0;
                 for (uint i = 0; i < LG_N_PART_READ; i++) {
-                    uint probe = part_ix + ((N_PART_READ / 2) >> i);
+                    uint probe = part_ix + (uint(N_PART_READ / 2) >> i);
                     if (ix >= sh_part_count[probe - 1]) {
                         part_ix = probe;
                     }
@@ -257,8 +257,8 @@ void main() {
         sh_tile_count[th_ix] = tile_count;
         for (uint i = 0; i < LG_N_TILE; i++) {
             barrier();
-            if (th_ix >= (1 << i)) {
-                tile_count += sh_tile_count[th_ix - (1 << i)];
+            if (th_ix >= (1u << i)) {
+                tile_count += sh_tile_count[th_ix - (1u << i)];
             }
             barrier();
             sh_tile_count[th_ix] = tile_count;
@@ -269,7 +269,7 @@ void main() {
             // Binary search to find element
             uint el_ix = 0;
             for (uint i = 0; i < LG_N_TILE; i++) {
-                uint probe = el_ix + ((N_TILE / 2) >> i);
+                uint probe = el_ix + (uint(N_TILE / 2) >> i);
                 if (ix >= sh_tile_count[probe - 1]) {
                     el_ix = probe;
                 }
@@ -292,7 +292,7 @@ void main() {
             }
             if (include_tile) {
                 uint el_slice = el_ix / 32;
-                uint el_mask = 1 << (el_ix & 31);
+                uint el_mask = 1u << (el_ix & 31);
                 atomicOr(sh_bitmaps[el_slice][y * N_TILE_X + x], el_mask);
             }
         }
@@ -372,7 +372,7 @@ void main() {
                     if (tile.tile.offset == 0 && tile.backdrop == 0) {
                         clip_zero_depth = clip_depth + 1;
                     } else if (tile.tile.offset == 0 && clip_depth < 32) {
-                        clip_one_mask |= (1 << clip_depth);
+                        clip_one_mask |= (1u << clip_depth);
                     } else {
                         AnnoBeginClip begin_clip = Annotated_BeginClip_read(conf.anno_alloc, ref);
                         if (!alloc_cmd(cmd_alloc, cmd_ref, cmd_limit)) {
@@ -382,14 +382,14 @@ void main() {
                         Cmd_BeginClip_write(cmd_alloc, cmd_ref);
                         cmd_ref.offset += 4;
                         if (clip_depth < 32) {
-                            clip_one_mask &= ~(1 << clip_depth);
+                            clip_one_mask &= ~(1u << clip_depth);
                         }
                     }
                     clip_depth++;
                     break;
                 case Annotated_EndClip:
                     clip_depth--;
-                    if (clip_depth >= 32 || (clip_one_mask & (1 << clip_depth)) == 0) {
+                    if (clip_depth >= 32 || (clip_one_mask & (1u << clip_depth)) == 0) {
                         if (!alloc_cmd(cmd_alloc, cmd_ref, cmd_limit)) {
                             break;
                         }

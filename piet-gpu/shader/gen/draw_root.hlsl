@@ -8,7 +8,7 @@ static const uint3 gl_WorkGroupSize = uint3(512u, 1u, 1u);
 
 static const DrawMonoid _18 = { 0u, 0u };
 
-RWByteAddressBuffer _57 : register(u0);
+RWByteAddressBuffer _57 : register(u0, space0);
 
 static uint3 gl_LocalInvocationID;
 static uint3 gl_GlobalInvocationID;

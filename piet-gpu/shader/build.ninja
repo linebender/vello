@@ -14,7 +14,7 @@ rule glsl
   command = $glslang_validator $flags -V -o $out $in
 
 rule hlsl
-  command = $spirv_cross --hlsl $in --output $out
+  command = $spirv_cross --hlsl --shader-model 60 $in --output $out
 
 rule dxil
   command = $dxc -T cs_6_0 $in -Fo $out
@@ -22,23 +22,41 @@ rule dxil
 rule msl
   command = $spirv_cross --msl $in --output $out $msl_flags
 
+build gen/binning.spv: glsl binning.comp | annotated.h state.h bins.h setup.h mem.h
+build gen/binning.hlsl: hlsl gen/binning.spv
+build gen/binning.dxil: dxil gen/binning.hlsl
+build gen/binning.msl: msl gen/binning.spv
 
-build elements.spv: glsl elements.comp | scene.h state.h annotated.h
+build gen/tile_alloc.spv: glsl tile_alloc.comp | annotated.h tile.h setup.h
+build gen/tile_alloc.hlsl: hlsl gen/tile_alloc.spv
+build gen/tile_alloc.dxil: dxil gen/tile_alloc.hlsl
+build gen/tile_alloc.msl: msl gen/tile_alloc.spv
 
-build binning.spv: glsl binning.comp | annotated.h state.h bins.h setup.h mem.h
+build gen/path_coarse.spv: glsl path_coarse.comp | annotated.h pathseg.h tile.h setup.h
+build gen/path_coarse.hlsl: hlsl gen/path_coarse.spv
+build gen/path_coarse.dxil: dxil gen/path_coarse.hlsl
+build gen/path_coarse.msl: msl gen/path_coarse.spv
 
-build tile_alloc.spv: glsl tile_alloc.comp | annotated.h tile.h setup.h
+build gen/backdrop.spv: glsl backdrop.comp | annotated.h tile.h setup.h
+build gen/backdrop.hlsl: hlsl gen/backdrop.spv
+build gen/backdrop.dxil: dxil gen/backdrop.hlsl
+build gen/backdrop.msl: msl gen/backdrop.spv
 
-build path_coarse.spv: glsl path_coarse.comp | annotated.h pathseg.h tile.h setup.h
-
-build backdrop.spv: glsl backdrop.comp | annotated.h tile.h setup.h
-
-build backdrop_lg.spv: glsl backdrop.comp | annotated.h tile.h setup.h
+build gen/backdrop_lg.spv: glsl backdrop.comp | annotated.h tile.h setup.h
   flags = -DBACKDROP_DIST_FACTOR=4
+build gen/backdrop_lg.hlsl: hlsl gen/backdrop_lg.spv
+build gen/backdrop_lg.dxil: dxil gen/backdrop_lg.hlsl
+build gen/backdrop_lg.msl: msl gen/backdrop_lg.spv
 
-build coarse.spv: glsl coarse.comp | annotated.h bins.h ptcl.h setup.h
+build gen/coarse.spv: glsl coarse.comp | annotated.h bins.h ptcl.h setup.h
+build gen/coarse.hlsl: hlsl gen/coarse.spv
+build gen/coarse.dxil: dxil gen/coarse.hlsl
+build gen/coarse.msl: msl gen/coarse.spv
 
-build kernel4.spv: glsl kernel4.comp | ptcl.h setup.h
+build gen/kernel4.spv: glsl kernel4.comp | ptcl.h setup.h
+build gen/kernel4.hlsl: hlsl gen/kernel4.spv
+build gen/kernel4.dxil: dxil gen/kernel4.hlsl
+build gen/kernel4.msl: msl gen/kernel4.spv
 
 # New element pipeline follows
 

@@ -8,7 +8,7 @@ static const uint3 gl_WorkGroupSize = uint3(512u, 1u, 1u);
 
 static const Transform _23 = { float4(1.0f, 0.0f, 0.0f, 1.0f), 0.0f.xx };
 
-RWByteAddressBuffer _89 : register(u0);
+RWByteAddressBuffer _89 : register(u0, space0);
 
 static uint3 gl_LocalInvocationID;
 static uint3 gl_GlobalInvocationID;
