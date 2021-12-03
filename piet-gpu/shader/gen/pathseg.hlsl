@@ -63,6 +63,7 @@ struct Config
     Alloc anno_alloc;
     Alloc trans_alloc;
     Alloc bbox_alloc;
+    Alloc drawmonoid_alloc;
     uint n_trans;
     uint trans_offset;
     uint pathtag_offset;
@@ -354,7 +355,7 @@ uint round_up(float x)
 void comp_main()
 {
     uint ix = gl_GlobalInvocationID.x * 4u;
-    uint tag_word = _574.Load(((_639.Load(52) >> uint(2)) + (ix >> uint(2))) * 4 + 0);
+    uint tag_word = _574.Load(((_639.Load(56) >> uint(2)) + (ix >> uint(2))) * 4 + 0);
     uint param = tag_word;
     TagMonoid local_tm = reduce_tag(param);
     sh_tag[gl_LocalInvocationID.x] = local_tm;
@@ -393,13 +394,13 @@ void comp_main()
         TagMonoid param_4 = sh_tag[gl_LocalInvocationID.x - 1u];
         tm = combine_tag_monoid(param_3, param_4);
     }
-    uint ps_ix = (_639.Load(60) >> uint(2)) + tm.pathseg_offset;
-    uint lw_ix = (_639.Load(56) >> uint(2)) + tm.linewidth_ix;
+    uint ps_ix = (_639.Load(64) >> uint(2)) + tm.pathseg_offset;
+    uint lw_ix = (_639.Load(60) >> uint(2)) + tm.linewidth_ix;
     uint save_path_ix = tm.path_ix;
-    TransformSegRef _769 = { _639.Load(36) + (tm.trans_ix * 24u) };
-    TransformSegRef trans_ref = _769;
-    PathSegRef _779 = { _639.Load(28) + (tm.pathseg_ix * 52u) };
-    PathSegRef ps_ref = _779;
+    TransformSegRef _768 = { _639.Load(36) + (tm.trans_ix * 24u) };
+    TransformSegRef trans_ref = _768;
+    PathSegRef _778 = { _639.Load(28) + (tm.pathseg_ix * 52u) };
+    PathSegRef ps_ref = _778;
     float2 p0;
     float2 p1;
     float2 p2;
@@ -449,9 +450,9 @@ void comp_main()
                 }
             }
             float linewidth = asfloat(_574.Load(lw_ix * 4 + 0));
-            Alloc _865;
-            _865.offset = _639.Load(36);
-            param_13.offset = _865.offset;
+            Alloc _864;
+            _864.offset = _639.Load(36);
+            param_13.offset = _864.offset;
             TransformSegRef param_14 = trans_ref;
             TransformSeg transform = TransformSeg_read(param_13, param_14);
             p0 = ((transform.mat.xy * p0.x) + (transform.mat.zw * p0.y)) + transform.translate;
@@ -460,25 +461,25 @@ void comp_main()
             if (seg_type >= 2u)
             {
                 p2 = ((transform.mat.xy * p2.x) + (transform.mat.zw * p2.y)) + transform.translate;
-                float4 _935 = bbox;
-                float2 _938 = min(_935.xy, p2);
-                bbox.x = _938.x;
-                bbox.y = _938.y;
-                float4 _943 = bbox;
-                float2 _946 = max(_943.zw, p2);
-                bbox.z = _946.x;
-                bbox.w = _946.y;
+                float4 _934 = bbox;
+                float2 _937 = min(_934.xy, p2);
+                bbox.x = _937.x;
+                bbox.y = _937.y;
+                float4 _942 = bbox;
+                float2 _945 = max(_942.zw, p2);
+                bbox.z = _945.x;
+                bbox.w = _945.y;
                 if (seg_type == 3u)
                 {
                     p3 = ((transform.mat.xy * p3.x) + (transform.mat.zw * p3.y)) + transform.translate;
-                    float4 _971 = bbox;
-                    float2 _974 = min(_971.xy, p3);
-                    bbox.x = _974.x;
-                    bbox.y = _974.y;
-                    float4 _979 = bbox;
-                    float2 _982 = max(_979.zw, p3);
-                    bbox.z = _982.x;
-                    bbox.w = _982.y;
+                    float4 _970 = bbox;
+                    float2 _973 = min(_970.xy, p3);
+                    bbox.x = _973.x;
+                    bbox.y = _973.y;
+                    float4 _978 = bbox;
+                    float2 _981 = max(_978.zw, p3);
+                    bbox.z = _981.x;
+                    bbox.w = _981.y;
                 }
                 else
                 {
@@ -509,9 +510,9 @@ void comp_main()
             cubic.trans_ix = (gl_GlobalInvocationID.x * 4u) + i_1;
             cubic.stroke = stroke;
             uint fill_mode = uint(linewidth >= 0.0f);
-            Alloc _1071;
-            _1071.offset = _639.Load(28);
-            param_15.offset = _1071.offset;
+            Alloc _1070;
+            _1070.offset = _639.Load(28);
+            param_15.offset = _1070.offset;
             PathSegRef param_16 = ps_ref;
             uint param_17 = fill_mode;
             PathCubic param_18 = cubic;
@@ -567,17 +568,17 @@ void comp_main()
         Monoid param_24 = local[i_4];
         Monoid m = combine_monoid(param_23, param_24);
         bool do_atomic = false;
-        bool _1241 = i_4 == 3u;
-        bool _1248;
-        if (_1241)
+        bool _1240 = i_4 == 3u;
+        bool _1247;
+        if (_1240)
         {
-            _1248 = gl_LocalInvocationID.x == 511u;
+            _1247 = gl_LocalInvocationID.x == 511u;
         }
         else
         {
-            _1248 = _1241;
+            _1247 = _1240;
         }
-        if (_1248)
+        if (_1247)
         {
             do_atomic = true;
         }
@@ -603,30 +604,30 @@ void comp_main()
         }
         if (do_atomic)
         {
-            bool _1300 = m.bbox.z > m.bbox.x;
-            bool _1309;
-            if (!_1300)
+            bool _1299 = m.bbox.z > m.bbox.x;
+            bool _1308;
+            if (!_1299)
             {
-                _1309 = m.bbox.w > m.bbox.y;
+                _1308 = m.bbox.w > m.bbox.y;
             }
             else
             {
-                _1309 = _1300;
+                _1308 = _1299;
             }
-            if (_1309)
+            if (_1308)
             {
                 float param_29 = m.bbox.x;
-                uint _1318;
-                _111.InterlockedMin(bbox_out_ix * 4 + 8, round_down(param_29), _1318);
+                uint _1317;
+                _111.InterlockedMin(bbox_out_ix * 4 + 8, round_down(param_29), _1317);
                 float param_30 = m.bbox.y;
-                uint _1326;
-                _111.InterlockedMin((bbox_out_ix + 1u) * 4 + 8, round_down(param_30), _1326);
+                uint _1325;
+                _111.InterlockedMin((bbox_out_ix + 1u) * 4 + 8, round_down(param_30), _1325);
                 float param_31 = m.bbox.z;
-                uint _1334;
-                _111.InterlockedMax((bbox_out_ix + 2u) * 4 + 8, round_up(param_31), _1334);
+                uint _1333;
+                _111.InterlockedMax((bbox_out_ix + 2u) * 4 + 8, round_up(param_31), _1333);
                 float param_32 = m.bbox.w;
-                uint _1342;
-                _111.InterlockedMax((bbox_out_ix + 3u) * 4 + 8, round_up(param_32), _1342);
+                uint _1341;
+                _111.InterlockedMax((bbox_out_ix + 3u) * 4 + 8, round_up(param_32), _1341);
             }
             bbox_out_ix += 4u;
         }

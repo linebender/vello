@@ -16,6 +16,7 @@ struct Config
     Alloc anno_alloc;
     Alloc trans_alloc;
     Alloc bbox_alloc;
+    Alloc drawmonoid_alloc;
     uint n_trans;
     uint trans_offset;
     uint pathtag_offset;

@@ -78,3 +78,19 @@ build gen/pathseg.spv: glsl pathseg.comp | tile.h pathseg.h pathtag.h setup.h me
 build gen/pathseg.hlsl: hlsl gen/pathseg.spv
 build gen/pathseg.dxil: dxil gen/pathseg.hlsl
 build gen/pathseg.msl: msl gen/pathseg.spv
+
+build gen/draw_reduce.spv: glsl draw_reduce.comp | scene.h drawtag.h setup.h mem.h
+build gen/draw_reduce.hlsl: hlsl gen/draw_reduce.spv
+build gen/draw_reduce.dxil: dxil gen/draw_reduce.hlsl
+build gen/draw_reduce.msl: msl gen/draw_reduce.spv
+
+build gen/draw_root.spv: glsl draw_scan.comp | drawtag.h
+  flags = -DROOT
+build gen/draw_root.hlsl: hlsl gen/draw_root.spv
+build gen/draw_root.dxil: dxil gen/draw_root.hlsl
+build gen/draw_root.msl: msl gen/draw_root.spv
+
+build gen/draw_leaf.spv: glsl draw_leaf.comp | scene.h drawtag.h setup.h mem.h
+build gen/draw_leaf.hlsl: hlsl gen/draw_leaf.spv
+build gen/draw_leaf.dxil: dxil gen/draw_leaf.hlsl
+build gen/draw_leaf.msl: msl gen/draw_leaf.spv
