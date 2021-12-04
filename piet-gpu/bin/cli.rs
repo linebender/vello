@@ -4,7 +4,7 @@ use std::path::Path;
 
 use clap::{App, Arg};
 
-use piet_gpu_hal::{BufferUsage, Error, Instance, Session};
+use piet_gpu_hal::{BufferUsage, Error, Instance, InstanceFlags, Session};
 
 use piet_gpu::{test_scenes, PietGpuRenderContext, Renderer};
 
@@ -226,7 +226,7 @@ fn main() -> Result<(), Error> {
                 .takes_value(true),
         )
         .get_matches();
-    let (instance, _) = Instance::new(None, Default::default())?;
+    let (instance, _) = Instance::new(None, InstanceFlags::default())?;
     unsafe {
         let device = instance.device(None)?;
         let session = Session::new(device);
@@ -256,6 +256,7 @@ fn main() -> Result<(), Error> {
         cmd_buf.begin();
         renderer.record(&mut cmd_buf, &query_pool, 0);
         cmd_buf.copy_image_to_buffer(&renderer.image_dev, &image_buf);
+        cmd_buf.finish_timestamps(&query_pool);
         cmd_buf.host_barrier();
         cmd_buf.finish();
         let start = std::time::Instant::now();

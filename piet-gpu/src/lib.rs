@@ -14,8 +14,8 @@ use piet::kurbo::Vec2;
 use piet::{ImageFormat, RenderContext};
 
 use piet_gpu_hal::{
-    BindType, Buffer, BufferUsage, CmdBuf, DescriptorSet, Error, Image, ImageLayout, Pipeline,
-    QueryPool, Session, ShaderCode, include_shader,
+    include_shader, BindType, Buffer, BufferUsage, CmdBuf, DescriptorSet, Error, Image,
+    ImageLayout, Pipeline, QueryPool, Session,
 };
 
 use pico_svg::PicoSvg;
@@ -62,8 +62,6 @@ pub struct Renderer {
 
     memory_buf_host: Vec<Buffer>,
     memory_buf_dev: Buffer,
-
-    state_buf: Buffer,
 
     // Staging buffers
     config_bufs: Vec<Buffer>,
@@ -125,7 +123,6 @@ impl Renderer {
             .map(|_| session.create_buffer(8 * 1024 * 1024, host_upload).unwrap())
             .collect::<Vec<_>>();
 
-        let state_buf = session.create_buffer(1 * 1024 * 1024, dev)?;
         let image_dev = session.create_image2d(width as u32, height as u32)?;
 
         // Note: this must be updated when the config struct size changes.
@@ -163,13 +160,13 @@ impl Renderer {
 
         let tile_alloc_code = include_shader!(session, "../shader/gen/tile_alloc");
         let tile_pipeline = session
-            .create_compute_pipeline(tile_alloc_code, &[BindType::Buffer, BindType::Buffer])?;
+            .create_compute_pipeline(tile_alloc_code, &[BindType::Buffer, BindType::BufReadOnly])?;
         let tile_ds = session
             .create_simple_descriptor_set(&tile_pipeline, &[&memory_buf_dev, &config_buf])?;
 
         let path_alloc_code = include_shader!(session, "../shader/gen/path_coarse");
         let path_pipeline = session
-            .create_compute_pipeline(path_alloc_code, &[BindType::Buffer, BindType::Buffer])?;
+            .create_compute_pipeline(path_alloc_code, &[BindType::Buffer, BindType::BufReadOnly])?;
         let path_ds = session
             .create_simple_descriptor_set(&path_pipeline, &[&memory_buf_dev, &config_buf])?;
 
@@ -180,20 +177,20 @@ impl Renderer {
             include_shader!(session, "../shader/gen/backdrop")
         };
         let backdrop_pipeline = session
-            .create_compute_pipeline(backdrop_code, &[BindType::Buffer, BindType::Buffer])?;
+            .create_compute_pipeline(backdrop_code, &[BindType::Buffer, BindType::BufReadOnly])?;
         let backdrop_ds = session
             .create_simple_descriptor_set(&backdrop_pipeline, &[&memory_buf_dev, &config_buf])?;
 
         // TODO: constants
         let bin_code = include_shader!(session, "../shader/gen/binning");
-        let bin_pipeline =
-            session.create_compute_pipeline(bin_code, &[BindType::Buffer, BindType::Buffer])?;
+        let bin_pipeline = session
+            .create_compute_pipeline(bin_code, &[BindType::Buffer, BindType::BufReadOnly])?;
         let bin_ds =
             session.create_simple_descriptor_set(&bin_pipeline, &[&memory_buf_dev, &config_buf])?;
 
         let coarse_code = include_shader!(session, "../shader/gen/coarse");
-        let coarse_pipeline =
-            session.create_compute_pipeline(coarse_code, &[BindType::Buffer, BindType::Buffer])?;
+        let coarse_pipeline = session
+            .create_compute_pipeline(coarse_code, &[BindType::Buffer, BindType::BufReadOnly])?;
         let coarse_ds = session
             .create_simple_descriptor_set(&coarse_pipeline, &[&memory_buf_dev, &config_buf])?;
 
@@ -215,7 +212,7 @@ impl Renderer {
             k4_code,
             &[
                 BindType::Buffer,
-                BindType::Buffer,
+                BindType::BufReadOnly,
                 BindType::Image,
                 BindType::ImageRead,
                 BindType::ImageRead,
@@ -234,7 +231,6 @@ impl Renderer {
             scene_bufs,
             memory_buf_host,
             memory_buf_dev,
-            state_buf,
             config_buf,
             config_bufs,
             image_dev,
@@ -324,7 +320,6 @@ impl Renderer {
     pub unsafe fn record(&self, cmd_buf: &mut CmdBuf, query_pool: &QueryPool, buf_ix: usize) {
         cmd_buf.copy_buffer(&self.config_bufs[buf_ix], &self.config_buf);
         cmd_buf.copy_buffer(&self.memory_buf_host[buf_ix], &self.memory_buf_dev);
-        cmd_buf.clear_buffer(&self.state_buf, None);
         cmd_buf.memory_barrier();
         cmd_buf.image_barrier(
             &self.image_dev,
@@ -386,7 +381,9 @@ impl Renderer {
             (256, 1, 1),
         );
         cmd_buf.write_timestamp(&query_pool, 5);
+        println!("before barrier");
         cmd_buf.memory_barrier();
+        println!("after barrier, before coarse");
         cmd_buf.dispatch(
             &self.coarse_pipeline,
             &self.coarse_ds,
@@ -397,6 +394,7 @@ impl Renderer {
             ),
             (256, 256, 1),
         );
+        println!("after coarse");
         cmd_buf.write_timestamp(&query_pool, 6);
         cmd_buf.memory_barrier();
         cmd_buf.dispatch(
