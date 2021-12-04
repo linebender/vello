@@ -381,9 +381,7 @@ impl Renderer {
             (256, 1, 1),
         );
         cmd_buf.write_timestamp(&query_pool, 5);
-        println!("before barrier");
         cmd_buf.memory_barrier();
-        println!("after barrier, before coarse");
         cmd_buf.dispatch(
             &self.coarse_pipeline,
             &self.coarse_ds,
@@ -394,7 +392,6 @@ impl Renderer {
             ),
             (256, 256, 1),
         );
-        println!("after coarse");
         cmd_buf.write_timestamp(&query_pool, 6);
         cmd_buf.memory_barrier();
         cmd_buf.dispatch(
