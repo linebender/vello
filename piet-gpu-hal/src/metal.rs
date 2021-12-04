@@ -277,7 +277,8 @@ impl crate::backend::Device for MtlDevice {
     }
 
     unsafe fn destroy_image(&self, _image: &Self::Image) -> Result<(), Error> {
-        todo!()
+        // TODO figure out what we want to do here
+        Ok(())
     }
 
     unsafe fn create_compute_pipeline(
@@ -429,7 +430,7 @@ impl crate::backend::CmdBuf<MtlDevice> for CmdBuf {
             encoder.set_buffer(buf_ix, Some(&buffer.buffer), 0);
             buf_ix += 1;
         }
-        let mut img_ix = 0;
+        let mut img_ix = buf_ix;
         for image in &descriptor_set.images {
             encoder.set_texture(img_ix, Some(&image.texture));
             img_ix += 1;

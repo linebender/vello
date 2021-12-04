@@ -264,22 +264,23 @@ fn main() -> Result<(), Error> {
         submitted.wait()?;
         println!("elapsed = {:?}", start.elapsed());
         let ts = session.fetch_query_pool(&query_pool).unwrap();
-        println!("Element kernel time: {:.3}ms", ts[0] * 1e3);
-        println!(
-            "Tile allocation kernel time: {:.3}ms",
-            (ts[1] - ts[0]) * 1e3
-        );
-        println!("Coarse path kernel time: {:.3}ms", (ts[2] - ts[1]) * 1e3);
-        println!("Backdrop kernel time: {:.3}ms", (ts[3] - ts[2]) * 1e3);
-        println!("Binning kernel time: {:.3}ms", (ts[4] - ts[3]) * 1e3);
-        println!("Coarse raster kernel time: {:.3}ms", (ts[5] - ts[4]) * 1e3);
-        println!("Render kernel time: {:.3}ms", (ts[6] - ts[5]) * 1e3);
+        if !ts.is_empty() {
+            println!("Element kernel time: {:.3}ms", ts[0] * 1e3);
+            println!(
+                "Tile allocation kernel time: {:.3}ms",
+                (ts[1] - ts[0]) * 1e3
+            );
+            println!("Coarse path kernel time: {:.3}ms", (ts[2] - ts[1]) * 1e3);
+            println!("Backdrop kernel time: {:.3}ms", (ts[3] - ts[2]) * 1e3);
+            println!("Binning kernel time: {:.3}ms", (ts[4] - ts[3]) * 1e3);
+            println!("Coarse raster kernel time: {:.3}ms", (ts[5] - ts[4]) * 1e3);
+            println!("Render kernel time: {:.3}ms", (ts[6] - ts[5]) * 1e3);
+        }
 
         /*
         let mut data: Vec<u32> = Default::default();
         renderer.memory_buf_dev.read(&mut data).unwrap();
         piet_gpu::dump_k1_data(&data[2..]);
-        trace_ptcl(&data);
         */
 
         let mut img_data: Vec<u8> = Default::default();

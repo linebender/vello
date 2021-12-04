@@ -81,6 +81,7 @@ pub struct Renderer {
 
     backdrop_pipeline: Pipeline,
     backdrop_ds: DescriptorSet,
+    backdrop_y: u32,
 
     bin_pipeline: Pipeline,
     bin_ds: DescriptorSet,
@@ -170,12 +171,13 @@ impl Renderer {
         let path_ds = session
             .create_simple_descriptor_set(&path_pipeline, &[&memory_buf_dev, &config_buf])?;
 
-        let backdrop_code = if session.gpu_info().workgroup_limits.max_invocations >= 1024 {
-            include_shader!(session, "../shader/gen/backdrop_lg")
-        } else {
-            println!("using small workgroup backdrop kernel");
-            include_shader!(session, "../shader/gen/backdrop")
-        };
+        let (backdrop_code, backdrop_y) =
+            if session.gpu_info().workgroup_limits.max_invocations >= 1024 {
+                (include_shader!(session, "../shader/gen/backdrop_lg"), 4)
+            } else {
+                println!("using small workgroup backdrop kernel");
+                (include_shader!(session, "../shader/gen/backdrop"), 1)
+            };
         let backdrop_pipeline = session
             .create_compute_pipeline(backdrop_code, &[BindType::Buffer, BindType::BufReadOnly])?;
         let backdrop_ds = session
@@ -243,6 +245,7 @@ impl Renderer {
             path_ds,
             backdrop_pipeline,
             backdrop_ds,
+            backdrop_y,
             bin_pipeline,
             bin_ds,
             coarse_pipeline,
@@ -367,7 +370,7 @@ impl Renderer {
             &self.backdrop_pipeline,
             &self.backdrop_ds,
             (((self.n_paths + 255) / 256) as u32, 1, 1),
-            (256, 1, 1),
+            (256, self.backdrop_y, 1),
         );
         cmd_buf.write_timestamp(&query_pool, 4);
         // Note: this barrier is not needed as an actual dependency between
@@ -390,7 +393,7 @@ impl Renderer {
                 (self.height as u32 + 255) / 256,
                 1,
             ),
-            (256, 256, 1),
+            (256, 1, 1),
         );
         cmd_buf.write_timestamp(&query_pool, 6);
         cmd_buf.memory_barrier();
