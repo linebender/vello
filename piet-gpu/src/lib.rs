@@ -96,6 +96,7 @@ pub struct Renderer {
     n_drawobj: usize,
     n_paths: usize,
     n_pathseg: usize,
+    n_pathtag: usize,
 
     // Keep a reference to the image so that it is not destroyed.
     _bg_image: Image,
@@ -256,6 +257,7 @@ impl Renderer {
             n_drawobj: 0,
             n_paths: 0,
             n_pathseg: 0,
+            n_pathtag: 0,
             _bg_image: bg_image,
             gradient_bufs,
             gradients,
@@ -280,6 +282,7 @@ impl Renderer {
         self.n_transform = render_ctx.n_transform();
         self.n_drawobj = render_ctx.n_drawobj();
         self.n_pathseg = render_ctx.n_pathseg() as usize;
+        self.n_pathtag = render_ctx.n_pathtag();
 
         // These constants depend on encoding and may need to be updated.
         // Perhaps we can plumb these from piet-gpu-derive?
@@ -345,7 +348,7 @@ impl Renderer {
             &self.element_bindings[buf_ix],
             self.n_transform as u64,
             self.n_paths as u32,
-            self.n_pathseg as u32,
+            self.n_pathtag as u32,
             self.n_drawobj as u64,
         );
         cmd_buf.write_timestamp(&query_pool, 1);

@@ -125,6 +125,10 @@ impl PietGpuRenderContext {
         self.new_encoder.n_pathseg()
     }
 
+    pub fn n_pathtag(&self) -> usize {
+        self.new_encoder.n_pathtag()
+    }
+
     pub fn n_transform(&self) -> usize {
         self.new_encoder.n_transform()
     }

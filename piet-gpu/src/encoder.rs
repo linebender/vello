@@ -200,6 +200,11 @@ impl Encoder {
         self.transform_stream.len()
     }
 
+    /// The number of tags in the path stream.
+    pub(crate) fn n_pathtag(&self) -> usize {
+        self.tag_stream.len()
+    }
+
     pub(crate) fn encode_glyph(&mut self, glyph: &GlyphEncoder) {
         self.tag_stream.extend(&glyph.tag_stream);
         self.pathseg_stream.extend(&glyph.pathseg_stream);
