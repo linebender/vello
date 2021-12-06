@@ -31,6 +31,18 @@ pub struct Encoder {
     n_pathseg: u32,
 }
 
+/// A scene fragment encoding a glyph.
+///
+/// This is a reduced version of the full encoder.
+#[derive(Default)]
+pub struct GlyphEncoder {
+    tag_stream: Vec<u8>,
+    pathseg_stream: Vec<u8>,
+    drawobj_stream: Vec<u8>,
+    n_path: u32,
+    n_pathseg: u32,
+}
+
 // Currently same as Element, but may change - should become packed.
 const DRAWOBJ_SIZE: usize = 36;
 const TRANSFORM_SIZE: usize = 24;
@@ -187,6 +199,14 @@ impl Encoder {
     pub(crate) fn n_transform(&self) -> usize {
         self.transform_stream.len()
     }
+
+    pub(crate) fn encode_glyph(&mut self, glyph: &GlyphEncoder) {
+        self.tag_stream.extend(&glyph.tag_stream);
+        self.pathseg_stream.extend(&glyph.pathseg_stream);
+        self.drawobj_stream.extend(&glyph.drawobj_stream);
+        self.n_path += glyph.n_path;
+        self.n_pathseg += glyph.n_pathseg;
+    }
 }
 
 fn align_up(x: usize, align: usize) -> usize {
@@ -196,4 +216,31 @@ fn align_up(x: usize, align: usize) -> usize {
 
 fn padding(x: usize, align: usize) -> usize {
     x.wrapping_neg() & (align - 1)
+}
+
+impl GlyphEncoder {
+    pub(crate) fn path_encoder(&mut self) -> PathEncoder {
+        PathEncoder::new(&mut self.tag_stream, &mut self.pathseg_stream)
+    }
+
+    pub(crate) fn finish_path(&mut self, n_pathseg: u32) {
+        self.n_path += 1;
+        self.n_pathseg += n_pathseg;
+    }
+
+    /// Encode a fill color draw object.
+    ///
+    /// This should be encoded after a path.
+    pub(crate) fn fill_color(&mut self, rgba_color: u32) {
+        let element = FillColor {
+            tag: ELEMENT_FILLCOLOR,
+            rgba_color,
+            ..Default::default()
+        };
+        self.drawobj_stream.extend(bytemuck::bytes_of(&element));
+    }
+
+    pub(crate) fn is_color(&self) -> bool {
+        !self.drawobj_stream.is_empty()
+    }
 }

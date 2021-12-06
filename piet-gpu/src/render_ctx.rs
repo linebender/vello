@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 
-use crate::stages::Config;
+use crate::encoder::GlyphEncoder;
+use crate::stages::{Config, Transform};
 use crate::MAX_BLEND_STACK;
 use piet::kurbo::{Affine, Insets, PathEl, Point, Rect, Shape};
 use piet::{
@@ -10,11 +11,11 @@ use piet::{
 
 use piet_gpu_hal::BufWrite;
 use piet_gpu_types::encoder::{Encode, Encoder};
-use piet_gpu_types::scene::{Clip, Element, FillColor, FillLinGradient, SetFillMode, Transform};
+use piet_gpu_types::scene::{Clip, Element, FillLinGradient, SetFillMode};
 
 use crate::gradient::{LinearGradient, RampCache};
 use crate::text::Font;
-pub use crate::text::{PathEncoder, PietGpuText, PietGpuTextLayout, PietGpuTextLayoutBuilder};
+pub use crate::text::{PietGpuText, PietGpuTextLayout, PietGpuTextLayoutBuilder};
 
 pub struct PietGpuImage;
 
@@ -262,6 +263,7 @@ impl RenderContext for PietGpuRenderContext {
     }
 
     fn draw_text(&mut self, layout: &Self::TextLayout, pos: impl Into<Point>) {
+        self.encode_linewidth(-1.0);
         layout.draw_text(self, pos.into());
     }
 
@@ -278,7 +280,7 @@ impl RenderContext for PietGpuRenderContext {
         if let Some(state) = self.state_stack.pop() {
             if state.rel_transform != Affine::default() {
                 let a_inv = state.rel_transform.inverse();
-                self.encode_transform(to_scene_transform(a_inv));
+                self.encode_transform(Transform::from_kurbo(a_inv));
             }
             self.cur_transform = state.transform;
             for _ in 0..state.n_clip {
@@ -298,7 +300,7 @@ impl RenderContext for PietGpuRenderContext {
     }
 
     fn transform(&mut self, transform: Affine) {
-        self.encode_transform(to_scene_transform(transform));
+        self.encode_transform(Transform::from_kurbo(transform));
         if let Some(tos) = self.state_stack.last_mut() {
             tos.rel_transform *= transform;
         }
@@ -437,26 +439,16 @@ impl PietGpuRenderContext {
         }
     }
 
-    pub(crate) fn append_path_encoder(&mut self, path: &PathEncoder) {
-        let elements = path.elements();
-        self.elements.extend(elements.iter().cloned());
-        self.pathseg_count += path.n_segs();
+    pub(crate) fn encode_glyph(&mut self, glyph: &GlyphEncoder) {
+        self.new_encoder.encode_glyph(glyph);
     }
 
     pub(crate) fn fill_glyph(&mut self, rgba_color: u32) {
-        let fill = FillColor { rgba_color };
-        self.elements.push(Element::FillColor(fill));
-        self.path_count += 1;
-    }
-
-    /// Bump the path count when rendering a color emoji.
-    pub(crate) fn bump_n_paths(&mut self, n_paths: usize) {
-        self.path_count += n_paths;
+        self.new_encoder.fill_color(rgba_color);
     }
 
     pub(crate) fn encode_transform(&mut self, transform: Transform) {
-        self.elements.push(Element::Transform(transform));
-        self.trans_count += 1;
+        self.new_encoder.transform(transform);
     }
 
     fn encode_linewidth(&mut self, linewidth: f32) {
@@ -505,14 +497,6 @@ fn rect_to_f32_4(rect: Rect) -> [f32; 4] {
         rect.x1 as f32,
         rect.y1 as f32,
     ]
-}
-
-fn to_scene_transform(transform: Affine) -> Transform {
-    let c = transform.as_coeffs();
-    Transform {
-        mat: [c[0] as f32, c[1] as f32, c[2] as f32, c[3] as f32],
-        translate: [c[4] as f32, c[5] as f32],
-    }
 }
 
 fn to_srgb(f: f64) -> f64 {
