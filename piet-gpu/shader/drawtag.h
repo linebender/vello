@@ -26,9 +26,10 @@ DrawMonoid map_tag(uint tag_word) {
     case Element_FillImage:
         return DrawMonoid(1, 0);
     case Element_BeginClip:
-        return DrawMonoid(1, 1);
+    // TODO: endclip should be (0, 1), ie not generate a path. But for now
+    // we generate a dummy path.
     case Element_EndClip:
-        return DrawMonoid(0, 1);
+        return DrawMonoid(1, 1);
     default:
         return DrawMonoid(0, 0);
     }

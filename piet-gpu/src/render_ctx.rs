@@ -11,7 +11,7 @@ use piet::{
 
 use piet_gpu_hal::BufWrite;
 use piet_gpu_types::encoder::{Encode, Encoder};
-use piet_gpu_types::scene::{Clip, Element, FillLinGradient, SetFillMode};
+use piet_gpu_types::scene::{Element, SetFillMode};
 
 use crate::gradient::{LinearGradient, RampCache};
 use crate::text::Font;
@@ -64,8 +64,8 @@ struct State {
 }
 
 struct ClipElement {
-    /// Index of BeginClip element in element vec, for bbox fixup.
-    begin_ix: usize,
+    /// Byte offset of BeginClip element in element vec, for bbox fixup.
+    save_point: usize,
     bbox: Option<Rect>,
 }
 
@@ -242,21 +242,17 @@ impl RenderContext for PietGpuRenderContext {
     fn fill_even_odd(&mut self, _shape: impl Shape, _brush: &impl IntoBrush<Self>) {}
 
     fn clip(&mut self, shape: impl Shape) {
-        self.set_fill_mode(FillMode::Nonzero);
+        self.encode_linewidth(-1.0);
         let path = shape.path_elements(TOLERANCE);
         self.encode_path(path, true);
-        let begin_ix = self.elements.len();
-        self.elements.push(Element::BeginClip(Clip {
-            bbox: Default::default(),
-        }));
+        let save_point = self.new_encoder.begin_clip();
         if self.clip_stack.len() >= MAX_BLEND_STACK {
             panic!("Maximum clip/blend stack size {} exceeded", MAX_BLEND_STACK);
         }
         self.clip_stack.push(ClipElement {
             bbox: None,
-            begin_ix,
+            save_point,
         });
-        self.path_count += 1;
         if let Some(tos) = self.state_stack.last_mut() {
             tos.n_clip += 1;
         }
@@ -405,14 +401,7 @@ impl PietGpuRenderContext {
         let tos = self.clip_stack.pop().unwrap();
         let bbox = tos.bbox.unwrap_or_default();
         let bbox_f32_4 = rect_to_f32_4(bbox);
-        self.elements
-            .push(Element::EndClip(Clip { bbox: bbox_f32_4 }));
-        self.path_count += 1;
-        if let Element::BeginClip(begin_clip) = &mut self.elements[tos.begin_ix] {
-            begin_clip.bbox = bbox_f32_4;
-        } else {
-            unreachable!("expected BeginClip, not found");
-        }
+        self.new_encoder.end_clip(bbox_f32_4, tos.save_point);
         if let Some(bbox) = tos.bbox {
             self.union_bbox(bbox);
         }
@@ -468,13 +457,8 @@ impl PietGpuRenderContext {
                 self.new_encoder.fill_color(*rgba_color);
             }
             PietGpuBrush::LinGradient(lin) => {
-                let fill_lin = FillLinGradient {
-                    index: lin.ramp_id,
-                    p0: lin.start,
-                    p1: lin.end,
-                };
-                self.elements.push(Element::FillLinGradient(fill_lin));
-                self.path_count += 1;
+                self.new_encoder
+                    .fill_lin_gradient(lin.ramp_id, lin.start, lin.end);
             }
         }
     }

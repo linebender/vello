@@ -154,14 +154,13 @@ struct Config
 static const uint3 gl_WorkGroupSize = uint3(512u, 1u, 1u);
 
 static const DrawMonoid _418 = { 0u, 0u };
-static const DrawMonoid _443 = { 1u, 0u };
-static const DrawMonoid _445 = { 1u, 1u };
-static const DrawMonoid _447 = { 0u, 1u };
+static const DrawMonoid _442 = { 1u, 0u };
+static const DrawMonoid _444 = { 1u, 1u };
 
 RWByteAddressBuffer _201 : register(u0, space0);
 ByteAddressBuffer _225 : register(t2, space0);
-ByteAddressBuffer _1008 : register(t3, space0);
-ByteAddressBuffer _1042 : register(t1, space0);
+ByteAddressBuffer _1005 : register(t3, space0);
+ByteAddressBuffer _1039 : register(t1, space0);
 
 static uint3 gl_WorkGroupID;
 static uint3 gl_LocalInvocationID;
@@ -190,15 +189,12 @@ DrawMonoid map_tag(uint tag_word)
         case 5u:
         case 6u:
         {
-            return _443;
+            return _442;
         }
         case 9u:
-        {
-            return _445;
-        }
         case 10u:
         {
-            return _447;
+            return _444;
         }
         default:
         {
@@ -293,9 +289,9 @@ void Annotated_Color_write(Alloc a, AnnotatedRef ref, uint flags, AnnoColor s)
     uint param_1 = ref.offset >> uint(2);
     uint param_2 = (flags << uint(16)) | 1u;
     write_mem(param, param_1, param_2);
-    AnnoColorRef _808 = { ref.offset + 4u };
+    AnnoColorRef _805 = { ref.offset + 4u };
     Alloc param_3 = a;
-    AnnoColorRef param_4 = _808;
+    AnnoColorRef param_4 = _805;
     AnnoColor param_5 = s;
     AnnoColor_write(param_3, param_4, param_5);
 }
@@ -369,9 +365,9 @@ void Annotated_LinGradient_write(Alloc a, AnnotatedRef ref, uint flags, AnnoLinG
     uint param_1 = ref.offset >> uint(2);
     uint param_2 = (flags << uint(16)) | 2u;
     write_mem(param, param_1, param_2);
-    AnnoLinGradientRef _829 = { ref.offset + 4u };
+    AnnoLinGradientRef _826 = { ref.offset + 4u };
     Alloc param_3 = a;
-    AnnoLinGradientRef param_4 = _829;
+    AnnoLinGradientRef param_4 = _826;
     AnnoLinGradient param_5 = s;
     AnnoLinGradient_write(param_3, param_4, param_5);
 }
@@ -433,9 +429,9 @@ void Annotated_Image_write(Alloc a, AnnotatedRef ref, uint flags, AnnoImage s)
     uint param_1 = ref.offset >> uint(2);
     uint param_2 = (flags << uint(16)) | 3u;
     write_mem(param, param_1, param_2);
-    AnnoImageRef _850 = { ref.offset + 4u };
+    AnnoImageRef _847 = { ref.offset + 4u };
     Alloc param_3 = a;
-    AnnoImageRef param_4 = _850;
+    AnnoImageRef param_4 = _847;
     AnnoImage param_5 = s;
     AnnoImage_write(param_3, param_4, param_5);
 }
@@ -490,9 +486,9 @@ void Annotated_BeginClip_write(Alloc a, AnnotatedRef ref, uint flags, AnnoBeginC
     uint param_1 = ref.offset >> uint(2);
     uint param_2 = (flags << uint(16)) | 4u;
     write_mem(param, param_1, param_2);
-    AnnoBeginClipRef _871 = { ref.offset + 4u };
+    AnnoBeginClipRef _868 = { ref.offset + 4u };
     Alloc param_3 = a;
-    AnnoBeginClipRef param_4 = _871;
+    AnnoBeginClipRef param_4 = _868;
     AnnoBeginClip param_5 = s;
     AnnoBeginClip_write(param_3, param_4, param_5);
 }
@@ -531,9 +527,9 @@ void Annotated_EndClip_write(Alloc a, AnnotatedRef ref, AnnoEndClip s)
     uint param_1 = ref.offset >> uint(2);
     uint param_2 = 5u;
     write_mem(param, param_1, param_2);
-    AnnoEndClipRef _889 = { ref.offset + 4u };
+    AnnoEndClipRef _886 = { ref.offset + 4u };
     Alloc param_3 = a;
-    AnnoEndClipRef param_4 = _889;
+    AnnoEndClipRef param_4 = _886;
     AnnoEndClip param_5 = s;
     AnnoEndClip_write(param_3, param_4, param_5);
 }
@@ -541,8 +537,8 @@ void Annotated_EndClip_write(Alloc a, AnnotatedRef ref, AnnoEndClip s)
 void comp_main()
 {
     uint ix = gl_GlobalInvocationID.x * 8u;
-    ElementRef _907 = { ix * 36u };
-    ElementRef ref = _907;
+    ElementRef _904 = { ix * 36u };
+    ElementRef ref = _904;
     ElementRef param = ref;
     uint tag_word = Element_tag(param).tag;
     uint param_1 = tag_word;
@@ -579,11 +575,11 @@ void comp_main()
     DrawMonoid row = tag_monoid_identity();
     if (gl_WorkGroupID.x > 0u)
     {
-        DrawMonoid _1014;
-        _1014.path_ix = _1008.Load((gl_WorkGroupID.x - 1u) * 8 + 0);
-        _1014.clip_ix = _1008.Load((gl_WorkGroupID.x - 1u) * 8 + 4);
-        row.path_ix = _1014.path_ix;
-        row.clip_ix = _1014.clip_ix;
+        DrawMonoid _1011;
+        _1011.path_ix = _1005.Load((gl_WorkGroupID.x - 1u) * 8 + 0);
+        _1011.clip_ix = _1005.Load((gl_WorkGroupID.x - 1u) * 8 + 4);
+        row.path_ix = _1011.path_ix;
+        row.clip_ix = _1011.clip_ix;
     }
     if (gl_LocalInvocationID.x > 0u)
     {
@@ -592,9 +588,9 @@ void comp_main()
         row = combine_tag_monoid(param_10, param_11);
     }
     uint out_ix = gl_GlobalInvocationID.x * 8u;
-    uint out_base = (_1042.Load(44) >> uint(2)) + (out_ix * 2u);
-    AnnotatedRef _1058 = { _1042.Load(32) + (out_ix * 40u) };
-    AnnotatedRef out_ref = _1058;
+    uint out_base = (_1039.Load(44) >> uint(2)) + (out_ix * 2u);
+    AnnotatedRef _1055 = { _1039.Load(32) + (out_ix * 40u) };
+    AnnotatedRef out_ref = _1055;
     float4 mat;
     float2 translate;
     AnnoColor anno_fill;
@@ -621,7 +617,7 @@ void comp_main()
         tag_word = Element_tag(param_16).tag;
         if (((tag_word == 4u) || (tag_word == 5u)) || (tag_word == 6u))
         {
-            uint bbox_offset = (_1042.Load(40) >> uint(2)) + (6u * (m.path_ix - 1u));
+            uint bbox_offset = (_1039.Load(40) >> uint(2)) + (6u * (m.path_ix - 1u));
             float bbox_l = float(_201.Load(bbox_offset * 4 + 8)) - 32768.0f;
             float bbox_t = float(_201.Load((bbox_offset + 1u) * 4 + 8)) - 32768.0f;
             float bbox_r = float(_201.Load((bbox_offset + 2u) * 4 + 8)) - 32768.0f;
@@ -632,7 +628,7 @@ void comp_main()
             if ((linewidth >= 0.0f) || (tag_word == 5u))
             {
                 uint trans_ix = _201.Load((bbox_offset + 5u) * 4 + 8);
-                uint t = (_1042.Load(36) >> uint(2)) + (6u * trans_ix);
+                uint t = (_1039.Load(36) >> uint(2)) + (6u * trans_ix);
                 mat = asfloat(uint4(_201.Load(t * 4 + 8), _201.Load((t + 1u) * 4 + 8), _201.Load((t + 2u) * 4 + 8), _201.Load((t + 3u) * 4 + 8)));
                 if (tag_word == 5u)
                 {
@@ -653,9 +649,9 @@ void comp_main()
                     anno_fill.bbox = bbox;
                     anno_fill.linewidth = linewidth;
                     anno_fill.rgba_color = fill.rgba_color;
-                    Alloc _1261;
-                    _1261.offset = _1042.Load(32);
-                    param_18.offset = _1261.offset;
+                    Alloc _1258;
+                    _1258.offset = _1039.Load(32);
+                    param_18.offset = _1258.offset;
                     AnnotatedRef param_19 = out_ref;
                     uint param_20 = fill_mode;
                     AnnoColor param_21 = anno_fill;
@@ -678,9 +674,9 @@ void comp_main()
                     anno_lin.line_x = line_x;
                     anno_lin.line_y = line_y;
                     anno_lin.line_c = -((p0.x * line_x) + (p0.y * line_y));
-                    Alloc _1357;
-                    _1357.offset = _1042.Load(32);
-                    param_23.offset = _1357.offset;
+                    Alloc _1354;
+                    _1354.offset = _1039.Load(32);
+                    param_23.offset = _1354.offset;
                     AnnotatedRef param_24 = out_ref;
                     uint param_25 = fill_mode;
                     AnnoLinGradient param_26 = anno_lin;
@@ -695,9 +691,9 @@ void comp_main()
                     anno_img.linewidth = linewidth;
                     anno_img.index = fill_img.index;
                     anno_img.offset = fill_img.offset;
-                    Alloc _1385;
-                    _1385.offset = _1042.Load(32);
-                    param_28.offset = _1385.offset;
+                    Alloc _1382;
+                    _1382.offset = _1039.Load(32);
+                    param_28.offset = _1382.offset;
                     AnnotatedRef param_29 = out_ref;
                     uint param_30 = fill_mode;
                     AnnoImage param_31 = anno_img;
@@ -714,9 +710,9 @@ void comp_main()
                 Clip begin_clip = Element_BeginClip_read(param_32);
                 anno_begin_clip.bbox = begin_clip.bbox;
                 anno_begin_clip.linewidth = 0.0f;
-                Alloc _1413;
-                _1413.offset = _1042.Load(32);
-                param_33.offset = _1413.offset;
+                Alloc _1410;
+                _1410.offset = _1039.Load(32);
+                param_33.offset = _1410.offset;
                 AnnotatedRef param_34 = out_ref;
                 uint param_35 = 0u;
                 AnnoBeginClip param_36 = anno_begin_clip;
@@ -729,9 +725,9 @@ void comp_main()
                     ElementRef param_37 = this_ref;
                     Clip end_clip = Element_EndClip_read(param_37);
                     anno_end_clip.bbox = end_clip.bbox;
-                    Alloc _1438;
-                    _1438.offset = _1042.Load(32);
-                    param_38.offset = _1438.offset;
+                    Alloc _1435;
+                    _1435.offset = _1039.Load(32);
+                    param_38.offset = _1435.offset;
                     AnnotatedRef param_39 = out_ref;
                     AnnoEndClip param_40 = anno_end_clip;
                     Annotated_EndClip_write(param_38, param_39, param_40);

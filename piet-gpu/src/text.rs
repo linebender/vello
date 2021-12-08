@@ -12,8 +12,8 @@ use piet::{
 
 use crate::encoder::GlyphEncoder;
 use crate::render_ctx::{self, FillMode};
-use crate::PietGpuRenderContext;
 use crate::stages::Transform;
+use crate::PietGpuRenderContext;
 
 // This is very much a hack to get things working.
 // On Windows, can set this to "c:\\Windows\\Fonts\\seguiemj.ttf" to get color emoji
@@ -50,7 +50,6 @@ struct Glyph {
     x: f32,
     y: f32,
 }
-
 
 struct TextRenderCtx<'a> {
     scaler: Scaler<'a>,

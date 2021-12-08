@@ -44,15 +44,14 @@ struct Config
     uint pathseg_offset;
 };
 
-static const DrawMonoid _88 = { 1u, 0u };
-static const DrawMonoid _90 = { 1u, 1u };
-static const DrawMonoid _92 = { 0u, 1u };
-static const DrawMonoid _94 = { 0u, 0u };
+static const DrawMonoid _87 = { 1u, 0u };
+static const DrawMonoid _89 = { 1u, 1u };
+static const DrawMonoid _91 = { 0u, 0u };
 
 ByteAddressBuffer _46 : register(t2, space0);
-RWByteAddressBuffer _203 : register(u3, space0);
-RWByteAddressBuffer _217 : register(u0, space0);
-ByteAddressBuffer _223 : register(t1, space0);
+RWByteAddressBuffer _200 : register(u3, space0);
+RWByteAddressBuffer _214 : register(u0, space0);
+ByteAddressBuffer _220 : register(t1, space0);
 
 static uint3 gl_WorkGroupID;
 static uint3 gl_LocalInvocationID;
@@ -81,19 +80,16 @@ DrawMonoid map_tag(uint tag_word)
         case 5u:
         case 6u:
         {
-            return _88;
+            return _87;
         }
         case 9u:
-        {
-            return _90;
-        }
         case 10u:
         {
-            return _92;
+            return _89;
         }
         default:
         {
-            return _94;
+            return _91;
         }
     }
 }
@@ -115,8 +111,8 @@ DrawMonoid combine_tag_monoid(DrawMonoid a, DrawMonoid b)
 void comp_main()
 {
     uint ix = gl_GlobalInvocationID.x * 8u;
-    ElementRef _110 = { ix * 36u };
-    ElementRef ref = _110;
+    ElementRef _107 = { ix * 36u };
+    ElementRef ref = _107;
     ElementRef param = ref;
     uint tag_word = Element_tag(param).tag;
     uint param_1 = tag_word;
@@ -148,8 +144,8 @@ void comp_main()
     }
     if (gl_LocalInvocationID.x == 0u)
     {
-        _203.Store(gl_WorkGroupID.x * 8 + 0, agg.path_ix);
-        _203.Store(gl_WorkGroupID.x * 8 + 4, agg.clip_ix);
+        _200.Store(gl_WorkGroupID.x * 8 + 0, agg.path_ix);
+        _200.Store(gl_WorkGroupID.x * 8 + 4, agg.clip_ix);
     }
 }
 

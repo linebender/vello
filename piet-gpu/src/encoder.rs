@@ -62,6 +62,9 @@ const DRAWOBJ_PART_SIZE: usize = 4096;
 // Element struct in piet-gpu-types; that's pretty much going away.
 
 const ELEMENT_FILLCOLOR: u32 = 4;
+const ELEMENT_FILLLINGRADIENT: u32 = 5;
+const ELEMENT_BEGINCLIP: u32 = 9;
+const ELEMENT_ENDCLIP: u32 = 10;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
@@ -69,6 +72,24 @@ pub struct FillColor {
     tag: u32,
     rgba_color: u32,
     padding: [u32; 7],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
+pub struct FillLinGradient {
+    tag: u32,
+    index: u32,
+    p0: [f32; 2],
+    p1: [f32; 2],
+    padding: [u32; 3],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
+pub struct Clip {
+    tag: u32,
+    bbox: [f32; 4],
+    padding: [u32; 4],
 }
 
 impl Encoder {
@@ -114,6 +135,45 @@ impl Encoder {
             ..Default::default()
         };
         self.drawobj_stream.extend(bytemuck::bytes_of(&element));
+    }
+
+    /// Encode a fill linear gradient draw object.
+    ///
+    /// This should be encoded after a path.
+    pub fn fill_lin_gradient(&mut self, index: u32, p0: [f32; 2], p1: [f32; 2]) {
+        let element = FillLinGradient {
+            tag: ELEMENT_FILLLINGRADIENT,
+            index,
+            p0,
+            p1,
+            ..Default::default()
+        };
+        self.drawobj_stream.extend(bytemuck::bytes_of(&element));
+    }
+
+    /// Start a clip and return a save point to be filled in later.
+    pub fn begin_clip(&mut self) -> usize {
+        let saved = self.drawobj_stream.len();
+        let element = Clip {
+            tag: ELEMENT_BEGINCLIP,
+            ..Default::default()
+        };
+        self.drawobj_stream.extend(bytemuck::bytes_of(&element));
+        saved
+    }
+
+    pub fn end_clip(&mut self, bbox: [f32; 4], save_point: usize) {
+        let element = Clip {
+            tag: ELEMENT_ENDCLIP,
+            bbox,
+            ..Default::default()
+        };
+        self.drawobj_stream[save_point + 4..save_point + 20]
+            .clone_from_slice(bytemuck::bytes_of(&bbox));
+        self.drawobj_stream.extend(bytemuck::bytes_of(&element));
+        // This is a dummy path, and will go away with the new clip impl.
+        self.tag_stream.push(0x10);
+        self.n_path += 1;
     }
 
     /// Return a config for the element processing pipeline.

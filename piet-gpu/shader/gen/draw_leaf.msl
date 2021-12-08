@@ -251,12 +251,9 @@ DrawMonoid map_tag(thread const uint& tag_word)
             return DrawMonoid{ 1u, 0u };
         }
         case 9u:
-        {
-            return DrawMonoid{ 1u, 1u };
-        }
         case 10u:
         {
-            return DrawMonoid{ 0u, 1u };
+            return DrawMonoid{ 1u, 1u };
         }
         default:
         {
@@ -609,7 +606,7 @@ void Annotated_EndClip_write(thread const Alloc& a, thread const AnnotatedRef& r
     AnnoEndClip_write(param_3, param_4, param_5, v_201);
 }
 
-kernel void main0(device Memory& v_201 [[buffer(0)]], const device ConfigBuf& _1042 [[buffer(1)]], const device SceneBuf& v_225 [[buffer(2)]], const device ParentBuf& _1008 [[buffer(3)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]])
+kernel void main0(device Memory& v_201 [[buffer(0)]], const device ConfigBuf& _1039 [[buffer(1)]], const device SceneBuf& v_225 [[buffer(2)]], const device ParentBuf& _1005 [[buffer(3)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]])
 {
     threadgroup DrawMonoid sh_scratch[512];
     uint ix = gl_GlobalInvocationID.x * 8u;
@@ -650,9 +647,9 @@ kernel void main0(device Memory& v_201 [[buffer(0)]], const device ConfigBuf& _1
     DrawMonoid row = tag_monoid_identity();
     if (gl_WorkGroupID.x > 0u)
     {
-        uint _1011 = gl_WorkGroupID.x - 1u;
-        row.path_ix = _1008.parent[_1011].path_ix;
-        row.clip_ix = _1008.parent[_1011].clip_ix;
+        uint _1008 = gl_WorkGroupID.x - 1u;
+        row.path_ix = _1005.parent[_1008].path_ix;
+        row.clip_ix = _1005.parent[_1008].clip_ix;
     }
     if (gl_LocalInvocationID.x > 0u)
     {
@@ -661,8 +658,8 @@ kernel void main0(device Memory& v_201 [[buffer(0)]], const device ConfigBuf& _1
         row = combine_tag_monoid(param_10, param_11);
     }
     uint out_ix = gl_GlobalInvocationID.x * 8u;
-    uint out_base = (_1042.conf.drawmonoid_alloc.offset >> uint(2)) + (out_ix * 2u);
-    AnnotatedRef out_ref = AnnotatedRef{ _1042.conf.anno_alloc.offset + (out_ix * 40u) };
+    uint out_base = (_1039.conf.drawmonoid_alloc.offset >> uint(2)) + (out_ix * 2u);
+    AnnotatedRef out_ref = AnnotatedRef{ _1039.conf.anno_alloc.offset + (out_ix * 40u) };
     float4 mat;
     float2 translate;
     AnnoColor anno_fill;
@@ -689,7 +686,7 @@ kernel void main0(device Memory& v_201 [[buffer(0)]], const device ConfigBuf& _1
         tag_word = Element_tag(param_16, v_225).tag;
         if (((tag_word == 4u) || (tag_word == 5u)) || (tag_word == 6u))
         {
-            uint bbox_offset = (_1042.conf.bbox_alloc.offset >> uint(2)) + (6u * (m.path_ix - 1u));
+            uint bbox_offset = (_1039.conf.bbox_alloc.offset >> uint(2)) + (6u * (m.path_ix - 1u));
             float bbox_l = float(v_201.memory[bbox_offset]) - 32768.0;
             float bbox_t = float(v_201.memory[bbox_offset + 1u]) - 32768.0;
             float bbox_r = float(v_201.memory[bbox_offset + 2u]) - 32768.0;
@@ -700,7 +697,7 @@ kernel void main0(device Memory& v_201 [[buffer(0)]], const device ConfigBuf& _1
             if ((linewidth >= 0.0) || (tag_word == 5u))
             {
                 uint trans_ix = v_201.memory[bbox_offset + 5u];
-                uint t = (_1042.conf.trans_alloc.offset >> uint(2)) + (6u * trans_ix);
+                uint t = (_1039.conf.trans_alloc.offset >> uint(2)) + (6u * trans_ix);
                 mat = as_type<float4>(uint4(v_201.memory[t], v_201.memory[t + 1u], v_201.memory[t + 2u], v_201.memory[t + 3u]));
                 if (tag_word == 5u)
                 {
@@ -721,7 +718,7 @@ kernel void main0(device Memory& v_201 [[buffer(0)]], const device ConfigBuf& _1
                     anno_fill.bbox = bbox;
                     anno_fill.linewidth = linewidth;
                     anno_fill.rgba_color = fill.rgba_color;
-                    param_18.offset = _1042.conf.anno_alloc.offset;
+                    param_18.offset = _1039.conf.anno_alloc.offset;
                     AnnotatedRef param_19 = out_ref;
                     uint param_20 = fill_mode;
                     AnnoColor param_21 = anno_fill;
@@ -744,7 +741,7 @@ kernel void main0(device Memory& v_201 [[buffer(0)]], const device ConfigBuf& _1
                     anno_lin.line_x = line_x;
                     anno_lin.line_y = line_y;
                     anno_lin.line_c = -((p0.x * line_x) + (p0.y * line_y));
-                    param_23.offset = _1042.conf.anno_alloc.offset;
+                    param_23.offset = _1039.conf.anno_alloc.offset;
                     AnnotatedRef param_24 = out_ref;
                     uint param_25 = fill_mode;
                     AnnoLinGradient param_26 = anno_lin;
@@ -759,7 +756,7 @@ kernel void main0(device Memory& v_201 [[buffer(0)]], const device ConfigBuf& _1
                     anno_img.linewidth = linewidth;
                     anno_img.index = fill_img.index;
                     anno_img.offset = fill_img.offset;
-                    param_28.offset = _1042.conf.anno_alloc.offset;
+                    param_28.offset = _1039.conf.anno_alloc.offset;
                     AnnotatedRef param_29 = out_ref;
                     uint param_30 = fill_mode;
                     AnnoImage param_31 = anno_img;
@@ -776,7 +773,7 @@ kernel void main0(device Memory& v_201 [[buffer(0)]], const device ConfigBuf& _1
                 Clip begin_clip = Element_BeginClip_read(param_32, v_225);
                 anno_begin_clip.bbox = begin_clip.bbox;
                 anno_begin_clip.linewidth = 0.0;
-                param_33.offset = _1042.conf.anno_alloc.offset;
+                param_33.offset = _1039.conf.anno_alloc.offset;
                 AnnotatedRef param_34 = out_ref;
                 uint param_35 = 0u;
                 AnnoBeginClip param_36 = anno_begin_clip;
@@ -789,7 +786,7 @@ kernel void main0(device Memory& v_201 [[buffer(0)]], const device ConfigBuf& _1
                     ElementRef param_37 = this_ref;
                     Clip end_clip = Element_EndClip_read(param_37, v_225);
                     anno_end_clip.bbox = end_clip.bbox;
-                    param_38.offset = _1042.conf.anno_alloc.offset;
+                    param_38.offset = _1039.conf.anno_alloc.offset;
                     AnnotatedRef param_39 = out_ref;
                     AnnoEndClip param_40 = anno_end_clip;
                     Annotated_EndClip_write(param_38, param_39, param_40, v_201);
