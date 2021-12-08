@@ -142,8 +142,8 @@ impl DrawTestData {
     fn reduce_tag(tag: u32) -> (u32, u32) {
         match tag {
             ELEMENT_FILLCOLOR | ELEMENT_FILLLINGRADIENT | ELEMENT_FILLIMAGE => (1, 0),
-            ELEMENT_BEGINCLIP => (1, 1),
-            ELEMENT_ENDCLIP => (0, 1),
+            ELEMENT_BEGINCLIP | ELEMENT_ENDCLIP => (1, 1),
+            // TODO: ENDCLIP will become (0, 1)
             _ => (0, 0),
         }
     }
