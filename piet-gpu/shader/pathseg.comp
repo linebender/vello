@@ -10,7 +10,7 @@
 #include "pathtag.h"
 
 #define N_SEQ 4
-#define LG_WG_SIZE 9
+#define LG_WG_SIZE (7 + LG_WG_FACTOR)
 #define WG_SIZE (1 << LG_WG_SIZE)
 #define PARTITION_SIZE (WG_SIZE * N_SEQ)
 

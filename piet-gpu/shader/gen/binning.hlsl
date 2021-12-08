@@ -248,11 +248,11 @@ void comp_main()
     int x = x0;
     int y = y0;
     uint my_slice = gl_LocalInvocationID.x / 32u;
-    uint my_mask = uint(1 << int(gl_LocalInvocationID.x & 31u));
+    uint my_mask = 1u << (gl_LocalInvocationID.x & 31u);
     while (y < y1)
     {
-        uint _438;
-        InterlockedOr(bitmaps[my_slice][(uint(y) * width_in_bins) + uint(x)], my_mask, _438);
+        uint _437;
+        InterlockedOr(bitmaps[my_slice][(uint(y) * width_in_bins) + uint(x)], my_mask, _437);
         x++;
         if (x == x1)
         {
@@ -274,8 +274,8 @@ void comp_main()
     if (element_count != 0u)
     {
         uint param_7 = element_count * 4u;
-        MallocResult _488 = malloc(param_7);
-        MallocResult chunk = _488;
+        MallocResult _487 = malloc(param_7);
+        MallocResult chunk = _487;
         chunk_alloc = chunk.alloc;
         sh_chunk_alloc[gl_LocalInvocationID.x] = chunk_alloc;
         if (chunk.failed)
@@ -284,31 +284,31 @@ void comp_main()
         }
     }
     uint out_ix = (_253.Load(20) >> uint(2)) + (((my_partition * 256u) + gl_LocalInvocationID.x) * 2u);
-    Alloc _517;
-    _517.offset = _253.Load(20);
+    Alloc _516;
+    _516.offset = _253.Load(20);
     Alloc param_8;
-    param_8.offset = _517.offset;
+    param_8.offset = _516.offset;
     uint param_9 = out_ix;
     uint param_10 = element_count;
     write_mem(param_8, param_9, param_10);
-    Alloc _529;
-    _529.offset = _253.Load(20);
+    Alloc _528;
+    _528.offset = _253.Load(20);
     Alloc param_11;
-    param_11.offset = _529.offset;
+    param_11.offset = _528.offset;
     uint param_12 = out_ix + 1u;
     uint param_13 = chunk_alloc.offset;
     write_mem(param_11, param_12, param_13);
     GroupMemoryBarrierWithGroupSync();
-    bool _544;
+    bool _543;
     if (!sh_alloc_failed)
     {
-        _544 = _84.Load(4) != 0u;
+        _543 = _84.Load(4) != 0u;
     }
     else
     {
-        _544 = sh_alloc_failed;
+        _543 = sh_alloc_failed;
     }
-    if (_544)
+    if (_543)
     {
         return;
     }
@@ -327,11 +327,11 @@ void comp_main()
             }
             Alloc out_alloc = sh_chunk_alloc[bin_ix];
             uint out_offset = out_alloc.offset + (idx * 4u);
-            BinInstanceRef _606 = { out_offset };
-            BinInstance _608 = { element_ix };
+            BinInstanceRef _605 = { out_offset };
+            BinInstance _607 = { element_ix };
             Alloc param_14 = out_alloc;
-            BinInstanceRef param_15 = _606;
-            BinInstance param_16 = _608;
+            BinInstanceRef param_15 = _605;
+            BinInstance param_16 = _607;
             BinInstance_write(param_14, param_15, param_16);
         }
         x++;

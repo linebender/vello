@@ -22,10 +22,12 @@ mod transform;
 
 use bytemuck::{Pod, Zeroable};
 
-pub use draw::{DrawBinding, DrawCode, DrawMonoid, DrawStage};
-pub use path::{PathBinding, PathCode, PathEncoder, PathStage};
+pub use draw::{DrawBinding, DrawCode, DrawMonoid, DrawStage, DRAW_PART_SIZE};
+pub use path::{PathBinding, PathCode, PathEncoder, PathStage, PATHSEG_PART_SIZE};
 use piet_gpu_hal::{Buffer, CmdBuf, Session};
-pub use transform::{Transform, TransformBinding, TransformCode, TransformStage};
+pub use transform::{
+    Transform, TransformBinding, TransformCode, TransformStage, TRANSFORM_PART_SIZE,
+};
 
 /// The configuration block passed to piet-gpu shaders.
 ///

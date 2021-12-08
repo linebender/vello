@@ -261,7 +261,7 @@ void comp_main()
     for (uint i = 0u; i < 8u; i++)
     {
         GroupMemoryBarrierWithGroupSync();
-        if (th_ix >= uint(1 << int(i)))
+        if (th_ix >= (1u << i))
         {
             total_tile_count += sh_tile_count[th_ix - (1u << i)];
         }
@@ -271,46 +271,46 @@ void comp_main()
     if (th_ix == 255u)
     {
         uint param_4 = total_tile_count * 8u;
-        MallocResult _477 = malloc(param_4);
-        sh_tile_alloc = _477;
+        MallocResult _476 = malloc(param_4);
+        sh_tile_alloc = _476;
     }
     GroupMemoryBarrierWithGroupSync();
     MallocResult alloc_start = sh_tile_alloc;
-    bool _488;
+    bool _487;
     if (!alloc_start.failed)
     {
-        _488 = _92.Load(4) != 0u;
+        _487 = _92.Load(4) != 0u;
     }
     else
     {
-        _488 = alloc_start.failed;
+        _487 = alloc_start.failed;
     }
-    if (_488)
+    if (_487)
     {
         return;
     }
     if (element_ix < _305.Load(0))
     {
-        uint _501;
+        uint _500;
         if (th_ix > 0u)
         {
-            _501 = sh_tile_count[th_ix - 1u];
+            _500 = sh_tile_count[th_ix - 1u];
         }
         else
         {
-            _501 = 0u;
+            _500 = 0u;
         }
-        uint tile_subix = _501;
+        uint tile_subix = _500;
         Alloc param_5 = alloc_start.alloc;
         uint param_6 = 8u * tile_subix;
         uint param_7 = 8u * tile_count;
         Alloc tiles_alloc = slice_mem(param_5, param_6, param_7);
-        TileRef _523 = { tiles_alloc.offset };
-        path.tiles = _523;
-        Alloc _528;
-        _528.offset = _305.Load(16);
+        TileRef _522 = { tiles_alloc.offset };
+        path.tiles = _522;
+        Alloc _527;
+        _527.offset = _305.Load(16);
         Alloc param_8;
-        param_8.offset = _528.offset;
+        param_8.offset = _527.offset;
         PathRef param_9 = path_ref;
         Path param_10 = path;
         Path_write(param_8, param_9, param_10);

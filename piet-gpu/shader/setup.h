@@ -27,6 +27,7 @@
 
 #define GRADIENT_WIDTH 512
 
+#ifdef ERR_MALLOC_FAILED
 struct Config {
     uint n_elements; // paths
     uint n_pathseg;
@@ -59,6 +60,7 @@ struct Config {
     // Offset (in bytes) of path segment stream in scene
     uint pathseg_offset;
 };
+#endif
 
 // Fill modes.
 #define MODE_NONZERO 0

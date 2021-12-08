@@ -272,7 +272,7 @@ kernel void main0(constant uint* spvBufferSizeConstants [[buffer(25)]], device M
     for (uint i = 0u; i < 8u; i++)
     {
         threadgroup_barrier(mem_flags::mem_threadgroup);
-        if (th_ix >= uint(1 << int(i)))
+        if (th_ix >= (1u << i))
         {
             total_tile_count += sh_tile_count[th_ix - (1u << i)];
         }
@@ -282,36 +282,36 @@ kernel void main0(constant uint* spvBufferSizeConstants [[buffer(25)]], device M
     if (th_ix == 255u)
     {
         uint param_4 = total_tile_count * 8u;
-        MallocResult _477 = malloc(param_4, v_92, v_92BufferSize);
-        sh_tile_alloc = _477;
+        MallocResult _476 = malloc(param_4, v_92, v_92BufferSize);
+        sh_tile_alloc = _476;
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
     MallocResult alloc_start = sh_tile_alloc;
-    bool _488;
+    bool _487;
     if (!alloc_start.failed)
     {
-        _488 = v_92.mem_error != 0u;
+        _487 = v_92.mem_error != 0u;
     }
     else
     {
-        _488 = alloc_start.failed;
+        _487 = alloc_start.failed;
     }
-    if (_488)
+    if (_487)
     {
         return;
     }
     if (element_ix < _305.conf.n_elements)
     {
-        uint _501;
+        uint _500;
         if (th_ix > 0u)
         {
-            _501 = sh_tile_count[th_ix - 1u];
+            _500 = sh_tile_count[th_ix - 1u];
         }
         else
         {
-            _501 = 0u;
+            _500 = 0u;
         }
-        uint tile_subix = _501;
+        uint tile_subix = _500;
         Alloc param_5 = alloc_start.alloc;
         uint param_6 = 8u * tile_subix;
         uint param_7 = 8u * tile_count;

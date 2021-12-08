@@ -39,22 +39,23 @@ pub struct PathBinding {
 }
 
 const REDUCE_WG: u32 = 128;
-const REDUCE_N_ROWS: u32 = 4;
+const REDUCE_N_ROWS: u32 = 2;
 const REDUCE_PART_SIZE: u32 = REDUCE_WG * REDUCE_N_ROWS;
 
-const ROOT_WG: u32 = 512;
+const ROOT_WG: u32 = 256;
 const ROOT_N_ROWS: u32 = 8;
 const ROOT_PART_SIZE: u32 = ROOT_WG * ROOT_N_ROWS;
 
-const SCAN_WG: u32 = 512;
+const SCAN_WG: u32 = 256;
 const SCAN_N_ROWS: u32 = 4;
 const SCAN_PART_SIZE: u32 = SCAN_WG * SCAN_N_ROWS;
 
-const CLEAR_WG: u32 = 512;
+pub const PATHSEG_PART_SIZE: u32 = SCAN_PART_SIZE;
+
+const CLEAR_WG: u32 = 256;
 
 impl PathCode {
     pub unsafe fn new(session: &Session) -> PathCode {
-        // TODO: add cross-compilation
         let reduce_code = include_shader!(session, "../../shader/gen/pathtag_reduce");
         let reduce_pipeline = session
             .create_compute_pipeline(

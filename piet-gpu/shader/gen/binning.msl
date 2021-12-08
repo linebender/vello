@@ -260,10 +260,10 @@ kernel void main0(constant uint* spvBufferSizeConstants [[buffer(25)]], device M
     int x = x0;
     int y = y0;
     uint my_slice = gl_LocalInvocationID.x / 32u;
-    uint my_mask = uint(1 << int(gl_LocalInvocationID.x & 31u));
+    uint my_mask = 1u << (gl_LocalInvocationID.x & 31u);
     while (y < y1)
     {
-        uint _438 = atomic_fetch_or_explicit((threadgroup atomic_uint*)&bitmaps[my_slice][(uint(y) * width_in_bins) + uint(x)], my_mask, memory_order_relaxed);
+        uint _437 = atomic_fetch_or_explicit((threadgroup atomic_uint*)&bitmaps[my_slice][(uint(y) * width_in_bins) + uint(x)], my_mask, memory_order_relaxed);
         x++;
         if (x == x1)
         {
@@ -285,8 +285,8 @@ kernel void main0(constant uint* spvBufferSizeConstants [[buffer(25)]], device M
     if (element_count != 0u)
     {
         uint param_7 = element_count * 4u;
-        MallocResult _488 = malloc(param_7, v_84, v_84BufferSize);
-        MallocResult chunk = _488;
+        MallocResult _487 = malloc(param_7, v_84, v_84BufferSize);
+        MallocResult chunk = _487;
         chunk_alloc = chunk.alloc;
         sh_chunk_alloc[gl_LocalInvocationID.x] = chunk_alloc;
         if (chunk.failed)
@@ -306,16 +306,16 @@ kernel void main0(constant uint* spvBufferSizeConstants [[buffer(25)]], device M
     uint param_13 = chunk_alloc.offset;
     write_mem(param_11, param_12, param_13, v_84, v_84BufferSize);
     threadgroup_barrier(mem_flags::mem_threadgroup);
-    bool _544;
+    bool _543;
     if (!bool(sh_alloc_failed))
     {
-        _544 = v_84.mem_error != 0u;
+        _543 = v_84.mem_error != 0u;
     }
     else
     {
-        _544 = bool(sh_alloc_failed);
+        _543 = bool(sh_alloc_failed);
     }
-    if (_544)
+    if (_543)
     {
         return;
     }

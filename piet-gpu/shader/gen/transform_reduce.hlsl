@@ -36,12 +36,12 @@ struct Config
     uint pathseg_offset;
 };
 
-static const uint3 gl_WorkGroupSize = uint3(512u, 1u, 1u);
+static const uint3 gl_WorkGroupSize = uint3(256u, 1u, 1u);
 
 ByteAddressBuffer _49 : register(t2, space0);
 ByteAddressBuffer _161 : register(t1, space0);
-RWByteAddressBuffer _251 : register(u3, space0);
-RWByteAddressBuffer _267 : register(u0, space0);
+RWByteAddressBuffer _250 : register(u3, space0);
+RWByteAddressBuffer _266 : register(u0, space0);
 
 static uint3 gl_WorkGroupID;
 static uint3 gl_LocalInvocationID;
@@ -53,7 +53,7 @@ struct SPIRV_Cross_Input
     uint3 gl_GlobalInvocationID : SV_DispatchThreadID;
 };
 
-groupshared Transform sh_scratch[512];
+groupshared Transform sh_scratch[256];
 
 Transform Transform_read(TransformRef ref)
 {
@@ -101,10 +101,10 @@ void comp_main()
         agg = combine_monoid(param_4, param_5);
     }
     sh_scratch[gl_LocalInvocationID.x] = agg;
-    for (uint i_1 = 0u; i_1 < 9u; i_1++)
+    for (uint i_1 = 0u; i_1 < 8u; i_1++)
     {
         GroupMemoryBarrierWithGroupSync();
-        if ((gl_LocalInvocationID.x + (1u << i_1)) < 512u)
+        if ((gl_LocalInvocationID.x + (1u << i_1)) < 256u)
         {
             Transform other = sh_scratch[gl_LocalInvocationID.x + (1u << i_1)];
             Transform param_6 = agg;
@@ -116,12 +116,12 @@ void comp_main()
     }
     if (gl_LocalInvocationID.x == 0u)
     {
-        _251.Store4(gl_WorkGroupID.x * 32 + 0, asuint(agg.mat));
-        _251.Store2(gl_WorkGroupID.x * 32 + 16, asuint(agg.translate));
+        _250.Store4(gl_WorkGroupID.x * 32 + 0, asuint(agg.mat));
+        _250.Store2(gl_WorkGroupID.x * 32 + 16, asuint(agg.translate));
     }
 }
 
-[numthreads(512, 1, 1)]
+[numthreads(256, 1, 1)]
 void main(SPIRV_Cross_Input stage_input)
 {
     gl_WorkGroupID = stage_input.gl_WorkGroupID;

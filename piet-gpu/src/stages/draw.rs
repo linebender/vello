@@ -30,9 +30,9 @@ pub struct DrawMonoid {
     pub clip_ix: u32,
 }
 
-const DRAW_WG: u64 = 512;
+const DRAW_WG: u64 = 256;
 const DRAW_N_ROWS: u64 = 8;
-const DRAW_PART_SIZE: u64 = DRAW_WG * DRAW_N_ROWS;
+pub const DRAW_PART_SIZE: u64 = DRAW_WG * DRAW_N_ROWS;
 
 pub struct DrawCode {
     reduce_pipeline: Pipeline,

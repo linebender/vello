@@ -156,7 +156,7 @@ struct ParentBuf
     TagMonoid_1 parent[1];
 };
 
-constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(512u, 1u, 1u);
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(256u, 1u, 1u);
 
 static inline __attribute__((always_inline))
 TagMonoid reduce_tag(thread const uint& tag_word)
@@ -432,14 +432,14 @@ uint round_up(thread const float& x)
 
 kernel void main0(device Memory& v_111 [[buffer(0)]], const device ConfigBuf& _639 [[buffer(1)]], const device SceneBuf& v_574 [[buffer(2)]], const device ParentBuf& _709 [[buffer(3)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]])
 {
-    threadgroup TagMonoid sh_tag[512];
-    threadgroup Monoid sh_scratch[512];
+    threadgroup TagMonoid sh_tag[256];
+    threadgroup Monoid sh_scratch[256];
     uint ix = gl_GlobalInvocationID.x * 4u;
     uint tag_word = v_574.scene[(_639.conf.pathtag_offset >> uint(2)) + (ix >> uint(2))];
     uint param = tag_word;
     TagMonoid local_tm = reduce_tag(param);
     sh_tag[gl_LocalInvocationID.x] = local_tm;
-    for (uint i = 0u; i < 9u; i++)
+    for (uint i = 0u; i < 8u; i++)
     {
         threadgroup_barrier(mem_flags::mem_threadgroup);
         if (gl_LocalInvocationID.x >= (1u << i))
@@ -615,7 +615,7 @@ kernel void main0(device Memory& v_111 [[buffer(0)]], const device ConfigBuf& _6
         local[i_2] = agg;
     }
     sh_scratch[gl_LocalInvocationID.x] = agg;
-    for (uint i_3 = 0u; i_3 < 9u; i_3++)
+    for (uint i_3 = 0u; i_3 < 8u; i_3++)
     {
         threadgroup_barrier(mem_flags::mem_threadgroup);
         if (gl_LocalInvocationID.x >= (1u << i_3))
@@ -643,16 +643,16 @@ kernel void main0(device Memory& v_111 [[buffer(0)]], const device ConfigBuf& _6
         Monoid m = combine_monoid(param_23, param_24);
         bool do_atomic = false;
         bool _1263 = i_4 == 3u;
-        bool _1270;
+        bool _1269;
         if (_1263)
         {
-            _1270 = gl_LocalInvocationID.x == 511u;
+            _1269 = gl_LocalInvocationID.x == 255u;
         }
         else
         {
-            _1270 = _1263;
+            _1269 = _1263;
         }
-        if (_1270)
+        if (_1269)
         {
             do_atomic = true;
         }
@@ -680,26 +680,26 @@ kernel void main0(device Memory& v_111 [[buffer(0)]], const device ConfigBuf& _6
         }
         if (do_atomic)
         {
-            bool _1335 = m.bbox.z > m.bbox.x;
-            bool _1344;
-            if (!_1335)
+            bool _1334 = m.bbox.z > m.bbox.x;
+            bool _1343;
+            if (!_1334)
             {
-                _1344 = m.bbox.w > m.bbox.y;
+                _1343 = m.bbox.w > m.bbox.y;
             }
             else
             {
-                _1344 = _1335;
+                _1343 = _1334;
             }
-            if (_1344)
+            if (_1343)
             {
                 float param_29 = m.bbox.x;
-                uint _1353 = atomic_fetch_min_explicit((device atomic_uint*)&v_111.memory[bbox_out_ix], round_down(param_29), memory_order_relaxed);
+                uint _1352 = atomic_fetch_min_explicit((device atomic_uint*)&v_111.memory[bbox_out_ix], round_down(param_29), memory_order_relaxed);
                 float param_30 = m.bbox.y;
-                uint _1361 = atomic_fetch_min_explicit((device atomic_uint*)&v_111.memory[bbox_out_ix + 1u], round_down(param_30), memory_order_relaxed);
+                uint _1360 = atomic_fetch_min_explicit((device atomic_uint*)&v_111.memory[bbox_out_ix + 1u], round_down(param_30), memory_order_relaxed);
                 float param_31 = m.bbox.z;
-                uint _1369 = atomic_fetch_max_explicit((device atomic_uint*)&v_111.memory[bbox_out_ix + 2u], round_up(param_31), memory_order_relaxed);
+                uint _1368 = atomic_fetch_max_explicit((device atomic_uint*)&v_111.memory[bbox_out_ix + 2u], round_up(param_31), memory_order_relaxed);
                 float param_32 = m.bbox.w;
-                uint _1377 = atomic_fetch_max_explicit((device atomic_uint*)&v_111.memory[bbox_out_ix + 3u], round_up(param_32), memory_order_relaxed);
+                uint _1376 = atomic_fetch_max_explicit((device atomic_uint*)&v_111.memory[bbox_out_ix + 3u], round_up(param_32), memory_order_relaxed);
             }
             bbox_out_ix += 6u;
         }

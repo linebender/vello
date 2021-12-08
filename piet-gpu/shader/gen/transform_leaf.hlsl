@@ -47,14 +47,14 @@ struct Config
     uint pathseg_offset;
 };
 
-static const uint3 gl_WorkGroupSize = uint3(512u, 1u, 1u);
+static const uint3 gl_WorkGroupSize = uint3(256u, 1u, 1u);
 
 static const Transform _224 = { float4(1.0f, 0.0f, 0.0f, 1.0f), 0.0f.xx };
 
 RWByteAddressBuffer _71 : register(u0, space0);
 ByteAddressBuffer _96 : register(t2, space0);
 ByteAddressBuffer _278 : register(t1, space0);
-ByteAddressBuffer _377 : register(t3, space0);
+ByteAddressBuffer _376 : register(t3, space0);
 
 static uint3 gl_WorkGroupID;
 static uint3 gl_LocalInvocationID;
@@ -66,7 +66,7 @@ struct SPIRV_Cross_Input
     uint3 gl_GlobalInvocationID : SV_DispatchThreadID;
 };
 
-groupshared Transform sh_scratch[512];
+groupshared Transform sh_scratch[256];
 
 Transform Transform_read(TransformRef ref)
 {
@@ -167,7 +167,7 @@ void comp_main()
         local[i] = agg;
     }
     sh_scratch[gl_LocalInvocationID.x] = agg;
-    for (uint i_1 = 0u; i_1 < 9u; i_1++)
+    for (uint i_1 = 0u; i_1 < 8u; i_1++)
     {
         GroupMemoryBarrierWithGroupSync();
         if (gl_LocalInvocationID.x >= (1u << i_1))
@@ -184,11 +184,11 @@ void comp_main()
     Transform row = monoid_identity();
     if (gl_WorkGroupID.x > 0u)
     {
-        Transform _383;
-        _383.mat = asfloat(_377.Load4((gl_WorkGroupID.x - 1u) * 32 + 0));
-        _383.translate = asfloat(_377.Load2((gl_WorkGroupID.x - 1u) * 32 + 16));
-        row.mat = _383.mat;
-        row.translate = _383.translate;
+        Transform _382;
+        _382.mat = asfloat(_376.Load4((gl_WorkGroupID.x - 1u) * 32 + 0));
+        _382.translate = asfloat(_376.Load2((gl_WorkGroupID.x - 1u) * 32 + 16));
+        row.mat = _382.mat;
+        row.translate = _382.translate;
     }
     if (gl_LocalInvocationID.x > 0u)
     {
@@ -202,20 +202,20 @@ void comp_main()
         Transform param_10 = row;
         Transform param_11 = local[i_2];
         Transform m = combine_monoid(param_10, param_11);
-        TransformSeg _423 = { m.mat, m.translate };
-        TransformSeg transform = _423;
-        TransformSegRef _433 = { _278.Load(36) + ((ix + i_2) * 24u) };
-        TransformSegRef trans_ref = _433;
-        Alloc _437;
-        _437.offset = _278.Load(36);
-        param_12.offset = _437.offset;
+        TransformSeg _422 = { m.mat, m.translate };
+        TransformSeg transform = _422;
+        TransformSegRef _432 = { _278.Load(36) + ((ix + i_2) * 24u) };
+        TransformSegRef trans_ref = _432;
+        Alloc _436;
+        _436.offset = _278.Load(36);
+        param_12.offset = _436.offset;
         TransformSegRef param_13 = trans_ref;
         TransformSeg param_14 = transform;
         TransformSeg_write(param_12, param_13, param_14);
     }
 }
 
-[numthreads(512, 1, 1)]
+[numthreads(256, 1, 1)]
 void main(SPIRV_Cross_Input stage_input)
 {
     gl_WorkGroupID = stage_input.gl_WorkGroupID;

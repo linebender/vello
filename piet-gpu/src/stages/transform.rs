@@ -33,9 +33,9 @@ pub struct Transform {
     pub translate: [f32; 2],
 }
 
-const TRANSFORM_WG: u64 = 512;
+const TRANSFORM_WG: u64 = 256;
 const TRANSFORM_N_ROWS: u64 = 8;
-const TRANSFORM_PART_SIZE: u64 = TRANSFORM_WG * TRANSFORM_N_ROWS;
+pub const TRANSFORM_PART_SIZE: u64 = TRANSFORM_WG * TRANSFORM_N_ROWS;
 
 pub struct TransformCode {
     reduce_pipeline: Pipeline,

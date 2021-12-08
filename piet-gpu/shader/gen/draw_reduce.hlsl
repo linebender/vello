@@ -15,7 +15,7 @@ struct DrawMonoid
     uint clip_ix;
 };
 
-static const uint3 gl_WorkGroupSize = uint3(512u, 1u, 1u);
+static const uint3 gl_WorkGroupSize = uint3(256u, 1u, 1u);
 
 struct Alloc
 {
@@ -49,9 +49,9 @@ static const DrawMonoid _89 = { 1u, 1u };
 static const DrawMonoid _91 = { 0u, 0u };
 
 ByteAddressBuffer _46 : register(t2, space0);
-RWByteAddressBuffer _200 : register(u3, space0);
-RWByteAddressBuffer _214 : register(u0, space0);
-ByteAddressBuffer _220 : register(t1, space0);
+RWByteAddressBuffer _199 : register(u3, space0);
+RWByteAddressBuffer _213 : register(u0, space0);
+ByteAddressBuffer _219 : register(t1, space0);
 
 static uint3 gl_WorkGroupID;
 static uint3 gl_LocalInvocationID;
@@ -63,7 +63,7 @@ struct SPIRV_Cross_Input
     uint3 gl_GlobalInvocationID : SV_DispatchThreadID;
 };
 
-groupshared DrawMonoid sh_scratch[512];
+groupshared DrawMonoid sh_scratch[256];
 
 ElementTag Element_tag(ElementRef ref)
 {
@@ -129,10 +129,10 @@ void comp_main()
         agg = combine_tag_monoid(param_6, param_7);
     }
     sh_scratch[gl_LocalInvocationID.x] = agg;
-    for (uint i_1 = 0u; i_1 < 9u; i_1++)
+    for (uint i_1 = 0u; i_1 < 8u; i_1++)
     {
         GroupMemoryBarrierWithGroupSync();
-        if ((gl_LocalInvocationID.x + (1u << i_1)) < 512u)
+        if ((gl_LocalInvocationID.x + (1u << i_1)) < 256u)
         {
             DrawMonoid other = sh_scratch[gl_LocalInvocationID.x + (1u << i_1)];
             DrawMonoid param_8 = agg;
@@ -144,12 +144,12 @@ void comp_main()
     }
     if (gl_LocalInvocationID.x == 0u)
     {
-        _200.Store(gl_WorkGroupID.x * 8 + 0, agg.path_ix);
-        _200.Store(gl_WorkGroupID.x * 8 + 4, agg.clip_ix);
+        _199.Store(gl_WorkGroupID.x * 8 + 0, agg.path_ix);
+        _199.Store(gl_WorkGroupID.x * 8 + 4, agg.clip_ix);
     }
 }
 
-[numthreads(512, 1, 1)]
+[numthreads(256, 1, 1)]
 void main(SPIRV_Cross_Input stage_input)
 {
     gl_WorkGroupID = stage_input.gl_WorkGroupID;

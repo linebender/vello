@@ -151,7 +151,7 @@ struct Config
     uint pathseg_offset;
 };
 
-static const uint3 gl_WorkGroupSize = uint3(512u, 1u, 1u);
+static const uint3 gl_WorkGroupSize = uint3(256u, 1u, 1u);
 
 static const DrawMonoid _418 = { 0u, 0u };
 static const DrawMonoid _442 = { 1u, 0u };
@@ -159,8 +159,8 @@ static const DrawMonoid _444 = { 1u, 1u };
 
 RWByteAddressBuffer _201 : register(u0, space0);
 ByteAddressBuffer _225 : register(t2, space0);
-ByteAddressBuffer _1005 : register(t3, space0);
-ByteAddressBuffer _1039 : register(t1, space0);
+ByteAddressBuffer _1004 : register(t3, space0);
+ByteAddressBuffer _1038 : register(t1, space0);
 
 static uint3 gl_WorkGroupID;
 static uint3 gl_LocalInvocationID;
@@ -172,7 +172,7 @@ struct SPIRV_Cross_Input
     uint3 gl_GlobalInvocationID : SV_DispatchThreadID;
 };
 
-groupshared DrawMonoid sh_scratch[512];
+groupshared DrawMonoid sh_scratch[256];
 
 ElementTag Element_tag(ElementRef ref)
 {
@@ -558,7 +558,7 @@ void comp_main()
         local[i] = agg;
     }
     sh_scratch[gl_LocalInvocationID.x] = agg;
-    for (uint i_1 = 0u; i_1 < 9u; i_1++)
+    for (uint i_1 = 0u; i_1 < 8u; i_1++)
     {
         GroupMemoryBarrierWithGroupSync();
         if (gl_LocalInvocationID.x >= (1u << i_1))
@@ -575,11 +575,11 @@ void comp_main()
     DrawMonoid row = tag_monoid_identity();
     if (gl_WorkGroupID.x > 0u)
     {
-        DrawMonoid _1011;
-        _1011.path_ix = _1005.Load((gl_WorkGroupID.x - 1u) * 8 + 0);
-        _1011.clip_ix = _1005.Load((gl_WorkGroupID.x - 1u) * 8 + 4);
-        row.path_ix = _1011.path_ix;
-        row.clip_ix = _1011.clip_ix;
+        DrawMonoid _1010;
+        _1010.path_ix = _1004.Load((gl_WorkGroupID.x - 1u) * 8 + 0);
+        _1010.clip_ix = _1004.Load((gl_WorkGroupID.x - 1u) * 8 + 4);
+        row.path_ix = _1010.path_ix;
+        row.clip_ix = _1010.clip_ix;
     }
     if (gl_LocalInvocationID.x > 0u)
     {
@@ -588,9 +588,9 @@ void comp_main()
         row = combine_tag_monoid(param_10, param_11);
     }
     uint out_ix = gl_GlobalInvocationID.x * 8u;
-    uint out_base = (_1039.Load(44) >> uint(2)) + (out_ix * 2u);
-    AnnotatedRef _1055 = { _1039.Load(32) + (out_ix * 40u) };
-    AnnotatedRef out_ref = _1055;
+    uint out_base = (_1038.Load(44) >> uint(2)) + (out_ix * 2u);
+    AnnotatedRef _1054 = { _1038.Load(32) + (out_ix * 40u) };
+    AnnotatedRef out_ref = _1054;
     float4 mat;
     float2 translate;
     AnnoColor anno_fill;
@@ -617,7 +617,7 @@ void comp_main()
         tag_word = Element_tag(param_16).tag;
         if (((tag_word == 4u) || (tag_word == 5u)) || (tag_word == 6u))
         {
-            uint bbox_offset = (_1039.Load(40) >> uint(2)) + (6u * (m.path_ix - 1u));
+            uint bbox_offset = (_1038.Load(40) >> uint(2)) + (6u * (m.path_ix - 1u));
             float bbox_l = float(_201.Load(bbox_offset * 4 + 8)) - 32768.0f;
             float bbox_t = float(_201.Load((bbox_offset + 1u) * 4 + 8)) - 32768.0f;
             float bbox_r = float(_201.Load((bbox_offset + 2u) * 4 + 8)) - 32768.0f;
@@ -628,7 +628,7 @@ void comp_main()
             if ((linewidth >= 0.0f) || (tag_word == 5u))
             {
                 uint trans_ix = _201.Load((bbox_offset + 5u) * 4 + 8);
-                uint t = (_1039.Load(36) >> uint(2)) + (6u * trans_ix);
+                uint t = (_1038.Load(36) >> uint(2)) + (6u * trans_ix);
                 mat = asfloat(uint4(_201.Load(t * 4 + 8), _201.Load((t + 1u) * 4 + 8), _201.Load((t + 2u) * 4 + 8), _201.Load((t + 3u) * 4 + 8)));
                 if (tag_word == 5u)
                 {
@@ -649,9 +649,9 @@ void comp_main()
                     anno_fill.bbox = bbox;
                     anno_fill.linewidth = linewidth;
                     anno_fill.rgba_color = fill.rgba_color;
-                    Alloc _1258;
-                    _1258.offset = _1039.Load(32);
-                    param_18.offset = _1258.offset;
+                    Alloc _1257;
+                    _1257.offset = _1038.Load(32);
+                    param_18.offset = _1257.offset;
                     AnnotatedRef param_19 = out_ref;
                     uint param_20 = fill_mode;
                     AnnoColor param_21 = anno_fill;
@@ -674,9 +674,9 @@ void comp_main()
                     anno_lin.line_x = line_x;
                     anno_lin.line_y = line_y;
                     anno_lin.line_c = -((p0.x * line_x) + (p0.y * line_y));
-                    Alloc _1354;
-                    _1354.offset = _1039.Load(32);
-                    param_23.offset = _1354.offset;
+                    Alloc _1353;
+                    _1353.offset = _1038.Load(32);
+                    param_23.offset = _1353.offset;
                     AnnotatedRef param_24 = out_ref;
                     uint param_25 = fill_mode;
                     AnnoLinGradient param_26 = anno_lin;
@@ -691,9 +691,9 @@ void comp_main()
                     anno_img.linewidth = linewidth;
                     anno_img.index = fill_img.index;
                     anno_img.offset = fill_img.offset;
-                    Alloc _1382;
-                    _1382.offset = _1039.Load(32);
-                    param_28.offset = _1382.offset;
+                    Alloc _1381;
+                    _1381.offset = _1038.Load(32);
+                    param_28.offset = _1381.offset;
                     AnnotatedRef param_29 = out_ref;
                     uint param_30 = fill_mode;
                     AnnoImage param_31 = anno_img;
@@ -711,7 +711,7 @@ void comp_main()
                 anno_begin_clip.bbox = begin_clip.bbox;
                 anno_begin_clip.linewidth = 0.0f;
                 Alloc _1410;
-                _1410.offset = _1039.Load(32);
+                _1410.offset = _1038.Load(32);
                 param_33.offset = _1410.offset;
                 AnnotatedRef param_34 = out_ref;
                 uint param_35 = 0u;
@@ -726,7 +726,7 @@ void comp_main()
                     Clip end_clip = Element_EndClip_read(param_37);
                     anno_end_clip.bbox = end_clip.bbox;
                     Alloc _1435;
-                    _1435.offset = _1039.Load(32);
+                    _1435.offset = _1038.Load(32);
                     param_38.offset = _1435.offset;
                     AnnotatedRef param_39 = out_ref;
                     AnnoEndClip param_40 = anno_end_clip;
@@ -738,7 +738,7 @@ void comp_main()
     }
 }
 
-[numthreads(512, 1, 1)]
+[numthreads(256, 1, 1)]
 void main(SPIRV_Cross_Input stage_input)
 {
     gl_WorkGroupID = stage_input.gl_WorkGroupID;

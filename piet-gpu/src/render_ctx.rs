@@ -11,7 +11,7 @@ use piet::{
 
 use piet_gpu_hal::BufWrite;
 use piet_gpu_types::encoder::{Encode, Encoder};
-use piet_gpu_types::scene::{Element, SetFillMode};
+use piet_gpu_types::scene::Element;
 
 use crate::gradient::{LinearGradient, RampCache};
 use crate::text::Font;
@@ -25,7 +25,6 @@ pub struct PietGpuRenderContext {
     // Will probably need direct accesss to hal Device to create images etc.
     inner_text: PietGpuText,
     stroke_width: f32,
-    fill_mode: FillMode,
     // We're tallying these cpu-side for expedience, but will probably
     // move this to some kind of readback from element processing.
     /// The count of elements that make it through to coarse rasterization.
@@ -69,14 +68,6 @@ struct ClipElement {
     bbox: Option<Rect>,
 }
 
-#[derive(Clone, Copy, PartialEq)]
-pub(crate) enum FillMode {
-    // Fill path according to the non-zero winding rule.
-    Nonzero = 0,
-    // Fill stroked path.
-    Stroke = 1,
-}
-
 const TOLERANCE: f64 = 0.25;
 
 impl PietGpuRenderContext {
@@ -91,7 +82,6 @@ impl PietGpuRenderContext {
             elements,
             inner_text,
             stroke_width,
-            fill_mode: FillMode::Nonzero,
             path_count: 0,
             pathseg_count: 0,
             trans_count: 0,
@@ -159,15 +149,6 @@ impl PietGpuRenderContext {
 
     pub fn get_ramp_data(&self) -> Vec<u32> {
         self.ramp_cache.get_ramp_data()
-    }
-
-    pub(crate) fn set_fill_mode(&mut self, fill_mode: FillMode) {
-        if self.fill_mode != fill_mode {
-            self.elements.push(Element::SetFillMode(SetFillMode {
-                fill_mode: fill_mode as u32,
-            }));
-            self.fill_mode = fill_mode;
-        }
     }
 }
 

@@ -30,7 +30,8 @@ struct AffineTestData {
 
 pub unsafe fn transform_test(runner: &mut Runner, config: &Config) -> TestResult {
     let mut result = TestResult::new("transform");
-    let n_elements: u64 = config.size.choose(1 << 12, 1 << 18, 1 << 24);
+    // TODO: implement large scan and set large to 1 << 24
+    let n_elements: u64 = config.size.choose(1 << 12, 1 << 18, 1 << 22);
     // Validate with real transform data.
     let data = AffineTestData::new(n_elements as usize);
     let data_buf = runner

@@ -67,7 +67,7 @@ struct DataBuf
     TagMonoid_1 data[1];
 };
 
-constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(512u, 1u, 1u);
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(256u, 1u, 1u);
 
 static inline __attribute__((always_inline))
 TagMonoid combine_tag_monoid(thread const TagMonoid& a, thread const TagMonoid& b)
@@ -89,7 +89,7 @@ TagMonoid tag_monoid_identity()
 
 kernel void main0(device DataBuf& _78 [[buffer(0)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
 {
-    threadgroup TagMonoid sh_scratch[512];
+    threadgroup TagMonoid sh_scratch[256];
     uint ix = gl_GlobalInvocationID.x * 8u;
     spvUnsafeArray<TagMonoid, 8> local;
     local[0].trans_ix = _78.data[ix].trans_ix;
@@ -111,7 +111,7 @@ kernel void main0(device DataBuf& _78 [[buffer(0)]], uint3 gl_GlobalInvocationID
     }
     TagMonoid agg = local[7];
     sh_scratch[gl_LocalInvocationID.x] = agg;
-    for (uint i_1 = 0u; i_1 < 9u; i_1++)
+    for (uint i_1 = 0u; i_1 < 8u; i_1++)
     {
         threadgroup_barrier(mem_flags::mem_threadgroup);
         if (gl_LocalInvocationID.x >= (1u << i_1))
@@ -135,12 +135,12 @@ kernel void main0(device DataBuf& _78 [[buffer(0)]], uint3 gl_GlobalInvocationID
         TagMonoid param_4 = row;
         TagMonoid param_5 = local[i_2];
         TagMonoid m = combine_tag_monoid(param_4, param_5);
-        uint _211 = ix + i_2;
-        _78.data[_211].trans_ix = m.trans_ix;
-        _78.data[_211].linewidth_ix = m.linewidth_ix;
-        _78.data[_211].pathseg_ix = m.pathseg_ix;
-        _78.data[_211].path_ix = m.path_ix;
-        _78.data[_211].pathseg_offset = m.pathseg_offset;
+        uint _210 = ix + i_2;
+        _78.data[_210].trans_ix = m.trans_ix;
+        _78.data[_210].linewidth_ix = m.linewidth_ix;
+        _78.data[_210].pathseg_ix = m.pathseg_ix;
+        _78.data[_210].path_ix = m.path_ix;
+        _78.data[_210].pathseg_offset = m.pathseg_offset;
     }
 }
 

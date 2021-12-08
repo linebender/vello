@@ -62,7 +62,8 @@ struct Bbox {
 pub unsafe fn path_test(runner: &mut Runner, config: &Config) -> TestResult {
     let mut result = TestResult::new("path");
 
-    let n_path: u64 = config.size.choose(1 << 12, 1 << 16, 1 << 18);
+    // TODO: implement large scans and raise limit
+    let n_path: u64 = config.size.choose(1 << 12, 1 << 16, 209_000);
     let path_data = PathData::new(n_path as u32);
     let stage_config = path_data.get_config();
     let config_buf = runner

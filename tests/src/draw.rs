@@ -38,7 +38,8 @@ struct DrawTestData {
 
 pub unsafe fn draw_test(runner: &mut Runner, config: &Config) -> TestResult {
     let mut result = TestResult::new("draw");
-    let n_tag: u64 = config.size.choose(1 << 12, 1 << 20, 1 << 24);
+    // TODO: implement large scan and set large to 1 << 24
+    let n_tag: u64 = config.size.choose(1 << 12, 1 << 20, 1 << 22);
     let data = DrawTestData::new(n_tag);
     let stage_config = data.get_config();
 

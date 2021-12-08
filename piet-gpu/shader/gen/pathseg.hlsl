@@ -72,7 +72,7 @@ struct Config
     uint pathseg_offset;
 };
 
-static const uint3 gl_WorkGroupSize = uint3(512u, 1u, 1u);
+static const uint3 gl_WorkGroupSize = uint3(256u, 1u, 1u);
 
 static const TagMonoid _135 = { 0u, 0u, 0u, 0u, 0u };
 static const Monoid _567 = { 0.0f.xxxx, 0u };
@@ -92,8 +92,8 @@ struct SPIRV_Cross_Input
     uint3 gl_GlobalInvocationID : SV_DispatchThreadID;
 };
 
-groupshared TagMonoid sh_tag[512];
-groupshared Monoid sh_scratch[512];
+groupshared TagMonoid sh_tag[256];
+groupshared Monoid sh_scratch[256];
 
 TagMonoid reduce_tag(uint tag_word)
 {
@@ -360,7 +360,7 @@ void comp_main()
     uint param = tag_word;
     TagMonoid local_tm = reduce_tag(param);
     sh_tag[gl_LocalInvocationID.x] = local_tm;
-    for (uint i = 0u; i < 9u; i++)
+    for (uint i = 0u; i < 8u; i++)
     {
         GroupMemoryBarrierWithGroupSync();
         if (gl_LocalInvocationID.x >= (1u << i))
@@ -547,7 +547,7 @@ void comp_main()
         local[i_2] = agg;
     }
     sh_scratch[gl_LocalInvocationID.x] = agg;
-    for (uint i_3 = 0u; i_3 < 9u; i_3++)
+    for (uint i_3 = 0u; i_3 < 8u; i_3++)
     {
         GroupMemoryBarrierWithGroupSync();
         if (gl_LocalInvocationID.x >= (1u << i_3))
@@ -575,16 +575,16 @@ void comp_main()
         Monoid m = combine_monoid(param_23, param_24);
         bool do_atomic = false;
         bool _1263 = i_4 == 3u;
-        bool _1270;
+        bool _1269;
         if (_1263)
         {
-            _1270 = gl_LocalInvocationID.x == 511u;
+            _1269 = gl_LocalInvocationID.x == 255u;
         }
         else
         {
-            _1270 = _1263;
+            _1269 = _1263;
         }
-        if (_1270)
+        if (_1269)
         {
             do_atomic = true;
         }
@@ -612,37 +612,37 @@ void comp_main()
         }
         if (do_atomic)
         {
-            bool _1335 = m.bbox.z > m.bbox.x;
-            bool _1344;
-            if (!_1335)
+            bool _1334 = m.bbox.z > m.bbox.x;
+            bool _1343;
+            if (!_1334)
             {
-                _1344 = m.bbox.w > m.bbox.y;
+                _1343 = m.bbox.w > m.bbox.y;
             }
             else
             {
-                _1344 = _1335;
+                _1343 = _1334;
             }
-            if (_1344)
+            if (_1343)
             {
                 float param_29 = m.bbox.x;
-                uint _1353;
-                _111.InterlockedMin(bbox_out_ix * 4 + 8, round_down(param_29), _1353);
+                uint _1352;
+                _111.InterlockedMin(bbox_out_ix * 4 + 8, round_down(param_29), _1352);
                 float param_30 = m.bbox.y;
-                uint _1361;
-                _111.InterlockedMin((bbox_out_ix + 1u) * 4 + 8, round_down(param_30), _1361);
+                uint _1360;
+                _111.InterlockedMin((bbox_out_ix + 1u) * 4 + 8, round_down(param_30), _1360);
                 float param_31 = m.bbox.z;
-                uint _1369;
-                _111.InterlockedMax((bbox_out_ix + 2u) * 4 + 8, round_up(param_31), _1369);
+                uint _1368;
+                _111.InterlockedMax((bbox_out_ix + 2u) * 4 + 8, round_up(param_31), _1368);
                 float param_32 = m.bbox.w;
-                uint _1377;
-                _111.InterlockedMax((bbox_out_ix + 3u) * 4 + 8, round_up(param_32), _1377);
+                uint _1376;
+                _111.InterlockedMax((bbox_out_ix + 3u) * 4 + 8, round_up(param_32), _1376);
             }
             bbox_out_ix += 6u;
         }
     }
 }
 
-[numthreads(512, 1, 1)]
+[numthreads(256, 1, 1)]
 void main(SPIRV_Cross_Input stage_input)
 {
     gl_WorkGroupID = stage_input.gl_WorkGroupID;

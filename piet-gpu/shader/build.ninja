@@ -65,7 +65,7 @@ build gen/transform_reduce.hlsl: hlsl gen/transform_reduce.spv
 build gen/transform_reduce.dxil: dxil gen/transform_reduce.hlsl
 build gen/transform_reduce.msl: msl gen/transform_reduce.spv
 
-build gen/transform_root.spv: glsl transform_scan.comp
+build gen/transform_root.spv: glsl transform_scan.comp | setup.h
   flags = -DROOT
 build gen/transform_root.hlsl: hlsl gen/transform_root.spv
 build gen/transform_root.dxil: dxil gen/transform_root.hlsl
@@ -81,7 +81,7 @@ build gen/pathtag_reduce.hlsl: hlsl gen/pathtag_reduce.spv
 build gen/pathtag_reduce.dxil: dxil gen/pathtag_reduce.hlsl
 build gen/pathtag_reduce.msl: msl gen/pathtag_reduce.spv
 
-build gen/pathtag_root.spv: glsl pathtag_scan.comp | pathtag.h
+build gen/pathtag_root.spv: glsl pathtag_scan.comp | pathtag.h setup.h
   flags = -DROOT
 build gen/pathtag_root.hlsl: hlsl gen/pathtag_root.spv
 build gen/pathtag_root.dxil: dxil gen/pathtag_root.hlsl
@@ -102,7 +102,7 @@ build gen/draw_reduce.hlsl: hlsl gen/draw_reduce.spv
 build gen/draw_reduce.dxil: dxil gen/draw_reduce.hlsl
 build gen/draw_reduce.msl: msl gen/draw_reduce.spv
 
-build gen/draw_root.spv: glsl draw_scan.comp | drawtag.h
+build gen/draw_root.spv: glsl draw_scan.comp | drawtag.h setup.h
   flags = -DROOT
 build gen/draw_root.hlsl: hlsl gen/draw_root.spv
 build gen/draw_root.dxil: dxil gen/draw_root.hlsl

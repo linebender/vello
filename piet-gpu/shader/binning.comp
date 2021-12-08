@@ -84,7 +84,7 @@ void main() {
     if (x0 == x1) y1 = y0;
     int x = x0, y = y0;
     uint my_slice = gl_LocalInvocationID.x / 32;
-    uint my_mask = 1 << (gl_LocalInvocationID.x & 31);
+    uint my_mask = 1u << (gl_LocalInvocationID.x & 31);
     while (y < y1) {
         atomicOr(bitmaps[my_slice][y * width_in_bins + x], my_mask);
         x++;

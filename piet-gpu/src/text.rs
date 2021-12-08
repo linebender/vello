@@ -11,7 +11,7 @@ use piet::{
 };
 
 use crate::encoder::GlyphEncoder;
-use crate::render_ctx::{self, FillMode};
+use crate::render_ctx;
 use crate::stages::Transform;
 use crate::PietGpuRenderContext;
 
@@ -172,7 +172,6 @@ impl PietGpuTextLayout {
         let mut inv_transform = None;
         // TODO: handle y offsets also
         let mut last_x = 0.0;
-        ctx.set_fill_mode(FillMode::Nonzero);
         for glyph in &self.glyphs {
             let transform = match &mut inv_transform {
                 None => {

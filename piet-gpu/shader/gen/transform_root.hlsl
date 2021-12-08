@@ -4,7 +4,7 @@ struct Transform
     float2 translate;
 };
 
-static const uint3 gl_WorkGroupSize = uint3(512u, 1u, 1u);
+static const uint3 gl_WorkGroupSize = uint3(256u, 1u, 1u);
 
 static const Transform _23 = { float4(1.0f, 0.0f, 0.0f, 1.0f), 0.0f.xx };
 
@@ -18,7 +18,7 @@ struct SPIRV_Cross_Input
     uint3 gl_GlobalInvocationID : SV_DispatchThreadID;
 };
 
-groupshared Transform sh_scratch[512];
+groupshared Transform sh_scratch[256];
 
 Transform combine_monoid(Transform a, Transform b)
 {
@@ -55,7 +55,7 @@ void comp_main()
     }
     Transform agg = local[7];
     sh_scratch[gl_LocalInvocationID.x] = agg;
-    for (uint i_1 = 0u; i_1 < 9u; i_1++)
+    for (uint i_1 = 0u; i_1 < 8u; i_1++)
     {
         GroupMemoryBarrierWithGroupSync();
         if (gl_LocalInvocationID.x >= (1u << i_1))
@@ -79,13 +79,13 @@ void comp_main()
         Transform param_4 = row;
         Transform param_5 = local[i_2];
         Transform m = combine_monoid(param_4, param_5);
-        uint _209 = ix + i_2;
-        _89.Store4(_209 * 32 + 0, asuint(m.mat));
-        _89.Store2(_209 * 32 + 16, asuint(m.translate));
+        uint _208 = ix + i_2;
+        _89.Store4(_208 * 32 + 0, asuint(m.mat));
+        _89.Store2(_208 * 32 + 16, asuint(m.translate));
     }
 }
 
-[numthreads(512, 1, 1)]
+[numthreads(256, 1, 1)]
 void main(SPIRV_Cross_Input stage_input)
 {
     gl_LocalInvocationID = stage_input.gl_LocalInvocationID;

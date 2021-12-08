@@ -19,7 +19,9 @@
 use bytemuck::{Pod, Zeroable};
 use piet_gpu_hal::BufWrite;
 
-use crate::stages::{self, Config, PathEncoder, Transform};
+use crate::stages::{
+    self, Config, PathEncoder, Transform, DRAW_PART_SIZE, PATHSEG_PART_SIZE, TRANSFORM_PART_SIZE,
+};
 
 pub struct Encoder {
     transform_stream: Vec<stages::Transform>,
@@ -51,12 +53,6 @@ const PATHSEG_SIZE: usize = 52;
 const BBOX_SIZE: usize = 24;
 const DRAWMONOID_SIZE: usize = 8;
 const ANNOTATED_SIZE: usize = 40;
-
-// Maybe pull these from the relevant stages? In any case, they may depend
-// on runtime query of GPU (supported workgroup size).
-const TRANSFORM_PART_SIZE: usize = 4096;
-const PATHSEG_PART_SIZE: usize = 2048;
-const DRAWOBJ_PART_SIZE: usize = 4096;
 
 // These are bytemuck versions of elements currently defined in the
 // Element struct in piet-gpu-types; that's pretty much going away.
@@ -183,15 +179,15 @@ impl Encoder {
     pub fn stage_config(&self) -> (Config, usize) {
         // Layout of scene buffer
         let n_drawobj = self.n_drawobj();
-        let n_drawobj_padded = align_up(n_drawobj, DRAWOBJ_PART_SIZE);
+        let n_drawobj_padded = align_up(n_drawobj, DRAW_PART_SIZE as usize);
         let trans_offset = n_drawobj_padded * DRAWOBJ_SIZE;
         let n_trans = self.transform_stream.len();
-        let n_trans_padded = align_up(n_trans, TRANSFORM_PART_SIZE);
+        let n_trans_padded = align_up(n_trans, TRANSFORM_PART_SIZE as usize);
         let linewidth_offset = trans_offset + n_trans_padded * TRANSFORM_SIZE;
         let n_linewidth = self.linewidth_stream.len();
         let pathtag_offset = linewidth_offset + n_linewidth * LINEWIDTH_SIZE;
         let n_pathtag = self.tag_stream.len();
-        let n_pathtag_padded = align_up(n_pathtag, PATHSEG_PART_SIZE);
+        let n_pathtag_padded = align_up(n_pathtag, PATHSEG_PART_SIZE as usize);
         let pathseg_offset = pathtag_offset + n_pathtag_padded;
 
         // Layout of memory
@@ -230,14 +226,14 @@ impl Encoder {
     pub fn write_scene(&self, buf: &mut BufWrite) {
         buf.extend_slice(&self.drawobj_stream);
         let n_drawobj = self.drawobj_stream.len() / DRAWOBJ_SIZE;
-        buf.fill_zero(padding(n_drawobj, DRAWOBJ_PART_SIZE) * DRAWOBJ_SIZE);
+        buf.fill_zero(padding(n_drawobj, DRAW_PART_SIZE as usize) * DRAWOBJ_SIZE);
         buf.extend_slice(&self.transform_stream);
         let n_trans = self.transform_stream.len();
-        buf.fill_zero(padding(n_trans, TRANSFORM_PART_SIZE) * TRANSFORM_SIZE);
+        buf.fill_zero(padding(n_trans, TRANSFORM_PART_SIZE as usize) * TRANSFORM_SIZE);
         buf.extend_slice(&self.linewidth_stream);
         buf.extend_slice(&self.tag_stream);
         let n_pathtag = self.tag_stream.len();
-        buf.fill_zero(padding(n_pathtag, PATHSEG_PART_SIZE));
+        buf.fill_zero(padding(n_pathtag, PATHSEG_PART_SIZE as usize));
         buf.extend_slice(&self.pathseg_stream);
     }
 
