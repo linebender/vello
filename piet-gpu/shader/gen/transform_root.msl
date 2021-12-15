@@ -62,7 +62,7 @@ struct DataBuf
     Transform_1 data[1];
 };
 
-constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(512u, 1u, 1u);
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(256u, 1u, 1u);
 
 static inline __attribute__((always_inline))
 Transform combine_monoid(thread const Transform& a, thread const Transform& b)
@@ -81,7 +81,7 @@ Transform monoid_identity()
 
 kernel void main0(device DataBuf& _89 [[buffer(0)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
 {
-    threadgroup Transform sh_scratch[512];
+    threadgroup Transform sh_scratch[256];
     uint ix = gl_GlobalInvocationID.x * 8u;
     spvUnsafeArray<Transform, 8> local;
     local[0].mat = _89.data[ix].mat;
@@ -97,7 +97,7 @@ kernel void main0(device DataBuf& _89 [[buffer(0)]], uint3 gl_GlobalInvocationID
     }
     Transform agg = local[7];
     sh_scratch[gl_LocalInvocationID.x] = agg;
-    for (uint i_1 = 0u; i_1 < 9u; i_1++)
+    for (uint i_1 = 0u; i_1 < 8u; i_1++)
     {
         threadgroup_barrier(mem_flags::mem_threadgroup);
         if (gl_LocalInvocationID.x >= (1u << i_1))
@@ -121,9 +121,9 @@ kernel void main0(device DataBuf& _89 [[buffer(0)]], uint3 gl_GlobalInvocationID
         Transform param_4 = row;
         Transform param_5 = local[i_2];
         Transform m = combine_monoid(param_4, param_5);
-        uint _209 = ix + i_2;
-        _89.data[_209].mat = m.mat;
-        _89.data[_209].translate = m.translate;
+        uint _208 = ix + i_2;
+        _89.data[_208].mat = m.mat;
+        _89.data[_208].translate = m.translate;
     }
 }
 

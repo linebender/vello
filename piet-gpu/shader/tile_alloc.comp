@@ -72,8 +72,8 @@ void main() {
     // Prefix sum of sh_tile_count
     for (uint i = 0; i < LG_TILE_ALLOC_WG; i++) {
         barrier();
-        if (th_ix >= (1 << i)) {
-            total_tile_count += sh_tile_count[th_ix - (1 << i)];
+        if (th_ix >= (1u << i)) {
+            total_tile_count += sh_tile_count[th_ix - (1u << i)];
         }
         barrier();
         sh_tile_count[th_ix] = total_tile_count;

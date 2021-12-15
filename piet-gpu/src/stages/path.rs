@@ -39,22 +39,23 @@ pub struct PathBinding {
 }
 
 const REDUCE_WG: u32 = 128;
-const REDUCE_N_ROWS: u32 = 4;
+const REDUCE_N_ROWS: u32 = 2;
 const REDUCE_PART_SIZE: u32 = REDUCE_WG * REDUCE_N_ROWS;
 
-const ROOT_WG: u32 = 512;
+const ROOT_WG: u32 = 256;
 const ROOT_N_ROWS: u32 = 8;
 const ROOT_PART_SIZE: u32 = ROOT_WG * ROOT_N_ROWS;
 
-const SCAN_WG: u32 = 512;
+const SCAN_WG: u32 = 256;
 const SCAN_N_ROWS: u32 = 4;
 const SCAN_PART_SIZE: u32 = SCAN_WG * SCAN_N_ROWS;
 
-const CLEAR_WG: u32 = 512;
+pub const PATHSEG_PART_SIZE: u32 = SCAN_PART_SIZE;
+
+const CLEAR_WG: u32 = 256;
 
 impl PathCode {
     pub unsafe fn new(session: &Session) -> PathCode {
-        // TODO: add cross-compilation
         let reduce_code = include_shader!(session, "../../shader/gen/pathtag_reduce");
         let reduce_pipeline = session
             .create_compute_pipeline(
@@ -258,11 +259,11 @@ impl<'a> PathEncoder<'a> {
         self.n_pathseg += 1;
     }
 
-    pub fn quad_to(&mut self, x0: f32, y0: f32, x1: f32, y1: f32) {
+    pub fn quad_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32) {
         if self.state == State::Start {
             return;
         }
-        let buf = [x0, y0, x1, y1];
+        let buf = [x1, y1, x2, y2];
         let bytes = bytemuck::bytes_of(&buf);
         self.pathseg_stream.extend_from_slice(bytes);
         self.tag_stream.push(10);
@@ -270,11 +271,11 @@ impl<'a> PathEncoder<'a> {
         self.n_pathseg += 1;
     }
 
-    pub fn cubic_to(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, x2: f32, y2: f32) {
+    pub fn cubic_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x3: f32, y3: f32) {
         if self.state == State::Start {
             return;
         }
-        let buf = [x0, y0, x1, y1, x2, y2];
+        let buf = [x1, y1, x2, y2, x3, y3];
         let bytes = bytemuck::bytes_of(&buf);
         self.pathseg_stream.extend_from_slice(bytes);
         self.tag_stream.push(11);
@@ -288,6 +289,7 @@ impl<'a> PathEncoder<'a> {
             State::MoveTo => {
                 let new_len = self.pathseg_stream.len() - 8;
                 self.pathseg_stream.truncate(new_len);
+                self.state = State::Start;
                 return;
             }
             State::NonemptySubpath => (),
@@ -333,7 +335,9 @@ impl<'a> PathEncoder<'a> {
     ///
     /// This is the number of path segments that will be written by the
     /// path stage; use this for allocating the output buffer.
-    pub fn n_pathseg(&self) -> u32 {
+    ///
+    /// Also note: it takes `self` for lifetime reasons.
+    pub fn n_pathseg(self) -> u32 {
         self.n_pathseg
     }
 }

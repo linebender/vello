@@ -4,7 +4,7 @@ use std::path::Path;
 
 use clap::{App, Arg};
 
-use piet_gpu_hal::{BufferUsage, Error, Instance, Session};
+use piet_gpu_hal::{BufferUsage, Error, Instance, InstanceFlags, Session};
 
 use piet_gpu::{test_scenes, PietGpuRenderContext, Renderer};
 
@@ -226,7 +226,7 @@ fn main() -> Result<(), Error> {
                 .takes_value(true),
         )
         .get_matches();
-    let (instance, _) = Instance::new(None, Default::default())?;
+    let (instance, _) = Instance::new(None, InstanceFlags::default())?;
     unsafe {
         let device = instance.device(None)?;
         let session = Session::new(device);
@@ -256,6 +256,7 @@ fn main() -> Result<(), Error> {
         cmd_buf.begin();
         renderer.record(&mut cmd_buf, &query_pool, 0);
         cmd_buf.copy_image_to_buffer(&renderer.image_dev, &image_buf);
+        cmd_buf.finish_timestamps(&query_pool);
         cmd_buf.host_barrier();
         cmd_buf.finish();
         let start = std::time::Instant::now();
@@ -263,22 +264,23 @@ fn main() -> Result<(), Error> {
         submitted.wait()?;
         println!("elapsed = {:?}", start.elapsed());
         let ts = session.fetch_query_pool(&query_pool).unwrap();
-        println!("Element kernel time: {:.3}ms", ts[0] * 1e3);
-        println!(
-            "Tile allocation kernel time: {:.3}ms",
-            (ts[1] - ts[0]) * 1e3
-        );
-        println!("Coarse path kernel time: {:.3}ms", (ts[2] - ts[1]) * 1e3);
-        println!("Backdrop kernel time: {:.3}ms", (ts[3] - ts[2]) * 1e3);
-        println!("Binning kernel time: {:.3}ms", (ts[4] - ts[3]) * 1e3);
-        println!("Coarse raster kernel time: {:.3}ms", (ts[5] - ts[4]) * 1e3);
-        println!("Render kernel time: {:.3}ms", (ts[6] - ts[5]) * 1e3);
+        if !ts.is_empty() {
+            println!("Element kernel time: {:.3}ms", ts[0] * 1e3);
+            println!(
+                "Tile allocation kernel time: {:.3}ms",
+                (ts[1] - ts[0]) * 1e3
+            );
+            println!("Coarse path kernel time: {:.3}ms", (ts[2] - ts[1]) * 1e3);
+            println!("Backdrop kernel time: {:.3}ms", (ts[3] - ts[2]) * 1e3);
+            println!("Binning kernel time: {:.3}ms", (ts[4] - ts[3]) * 1e3);
+            println!("Coarse raster kernel time: {:.3}ms", (ts[5] - ts[4]) * 1e3);
+            println!("Render kernel time: {:.3}ms", (ts[6] - ts[5]) * 1e3);
+        }
 
         /*
         let mut data: Vec<u32> = Default::default();
-        renderer.tile_buf.read(&mut data).unwrap();
-        piet_gpu::dump_k1_data(&data);
-        trace_ptcl(&data);
+        renderer.memory_buf_dev.read(&mut data).unwrap();
+        piet_gpu::dump_k1_data(&data[2..]);
         */
 
         let mut img_data: Vec<u8> = Default::default();

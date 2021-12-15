@@ -27,6 +27,7 @@
 
 #define GRADIENT_WIDTH 512
 
+#ifdef ERR_MALLOC_FAILED
 struct Config {
     uint n_elements; // paths
     uint n_pathseg;
@@ -48,15 +49,18 @@ struct Config {
     // Number of transforms in scene
     // This is probably not needed.
     uint n_trans;
+    // This only counts actual paths, not EndClip.
+    uint n_path;
     // Offset (in bytes) of transform stream in scene buffer
     uint trans_offset;
-    // Offset (in bytes) of path tag stream in scene
-    uint pathtag_offset;
     // Offset (in bytes) of linewidth stream in scene
     uint linewidth_offset;
+    // Offset (in bytes) of path tag stream in scene
+    uint pathtag_offset;
     // Offset (in bytes) of path segment stream in scene
     uint pathseg_offset;
 };
+#endif
 
 // Fill modes.
 #define MODE_NONZERO 0

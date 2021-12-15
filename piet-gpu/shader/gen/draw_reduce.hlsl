@@ -15,7 +15,7 @@ struct DrawMonoid
     uint clip_ix;
 };
 
-static const uint3 gl_WorkGroupSize = uint3(512u, 1u, 1u);
+static const uint3 gl_WorkGroupSize = uint3(256u, 1u, 1u);
 
 struct Alloc
 {
@@ -37,21 +37,21 @@ struct Config
     Alloc bbox_alloc;
     Alloc drawmonoid_alloc;
     uint n_trans;
+    uint n_path;
     uint trans_offset;
-    uint pathtag_offset;
     uint linewidth_offset;
+    uint pathtag_offset;
     uint pathseg_offset;
 };
 
-static const DrawMonoid _88 = { 1u, 0u };
-static const DrawMonoid _90 = { 1u, 1u };
-static const DrawMonoid _92 = { 0u, 1u };
-static const DrawMonoid _94 = { 0u, 0u };
+static const DrawMonoid _87 = { 1u, 0u };
+static const DrawMonoid _89 = { 1u, 1u };
+static const DrawMonoid _91 = { 0u, 0u };
 
-ByteAddressBuffer _46 : register(t2);
-RWByteAddressBuffer _203 : register(u3);
-RWByteAddressBuffer _217 : register(u0);
-ByteAddressBuffer _223 : register(t1);
+ByteAddressBuffer _46 : register(t2, space0);
+RWByteAddressBuffer _199 : register(u3, space0);
+RWByteAddressBuffer _213 : register(u0, space0);
+ByteAddressBuffer _219 : register(t1, space0);
 
 static uint3 gl_WorkGroupID;
 static uint3 gl_LocalInvocationID;
@@ -63,7 +63,7 @@ struct SPIRV_Cross_Input
     uint3 gl_GlobalInvocationID : SV_DispatchThreadID;
 };
 
-groupshared DrawMonoid sh_scratch[512];
+groupshared DrawMonoid sh_scratch[256];
 
 ElementTag Element_tag(ElementRef ref)
 {
@@ -80,19 +80,16 @@ DrawMonoid map_tag(uint tag_word)
         case 5u:
         case 6u:
         {
-            return _88;
+            return _87;
         }
         case 9u:
-        {
-            return _90;
-        }
         case 10u:
         {
-            return _92;
+            return _89;
         }
         default:
         {
-            return _94;
+            return _91;
         }
     }
 }
@@ -114,8 +111,8 @@ DrawMonoid combine_tag_monoid(DrawMonoid a, DrawMonoid b)
 void comp_main()
 {
     uint ix = gl_GlobalInvocationID.x * 8u;
-    ElementRef _110 = { ix * 36u };
-    ElementRef ref = _110;
+    ElementRef _107 = { ix * 36u };
+    ElementRef ref = _107;
     ElementRef param = ref;
     uint tag_word = Element_tag(param).tag;
     uint param_1 = tag_word;
@@ -132,10 +129,10 @@ void comp_main()
         agg = combine_tag_monoid(param_6, param_7);
     }
     sh_scratch[gl_LocalInvocationID.x] = agg;
-    for (uint i_1 = 0u; i_1 < 9u; i_1++)
+    for (uint i_1 = 0u; i_1 < 8u; i_1++)
     {
         GroupMemoryBarrierWithGroupSync();
-        if ((gl_LocalInvocationID.x + (1u << i_1)) < 512u)
+        if ((gl_LocalInvocationID.x + (1u << i_1)) < 256u)
         {
             DrawMonoid other = sh_scratch[gl_LocalInvocationID.x + (1u << i_1)];
             DrawMonoid param_8 = agg;
@@ -147,12 +144,12 @@ void comp_main()
     }
     if (gl_LocalInvocationID.x == 0u)
     {
-        _203.Store(gl_WorkGroupID.x * 8 + 0, agg.path_ix);
-        _203.Store(gl_WorkGroupID.x * 8 + 4, agg.clip_ix);
+        _199.Store(gl_WorkGroupID.x * 8 + 0, agg.path_ix);
+        _199.Store(gl_WorkGroupID.x * 8 + 4, agg.clip_ix);
     }
 }
 
-[numthreads(512, 1, 1)]
+[numthreads(256, 1, 1)]
 void main(SPIRV_Cross_Input stage_input)
 {
     gl_WorkGroupID = stage_input.gl_WorkGroupID;

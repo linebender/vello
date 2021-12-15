@@ -103,9 +103,10 @@ struct Config
     Alloc_1 bbox_alloc;
     Alloc_1 drawmonoid_alloc;
     uint n_trans;
+    uint n_path;
     uint trans_offset;
-    uint pathtag_offset;
     uint linewidth_offset;
+    uint pathtag_offset;
     uint pathseg_offset;
 };
 
@@ -126,7 +127,7 @@ struct ParentBuf
     Transform_1 parent[1];
 };
 
-constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(512u, 1u, 1u);
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(256u, 1u, 1u);
 
 static inline __attribute__((always_inline))
 Transform Transform_read(thread const TransformRef& ref, const device SceneBuf& v_96)
@@ -213,9 +214,9 @@ void TransformSeg_write(thread const Alloc& a, thread const TransformSegRef& ref
     write_mem(param_15, param_16, param_17, v_71);
 }
 
-kernel void main0(device Memory& v_71 [[buffer(0)]], const device ConfigBuf& _278 [[buffer(1)]], const device SceneBuf& v_96 [[buffer(2)]], const device ParentBuf& _377 [[buffer(3)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]])
+kernel void main0(device Memory& v_71 [[buffer(0)]], const device ConfigBuf& _278 [[buffer(1)]], const device SceneBuf& v_96 [[buffer(2)]], const device ParentBuf& _376 [[buffer(3)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]])
 {
-    threadgroup Transform sh_scratch[512];
+    threadgroup Transform sh_scratch[256];
     uint ix = gl_GlobalInvocationID.x * 8u;
     TransformRef ref = TransformRef{ _278.conf.trans_offset + (ix * 24u) };
     TransformRef param = ref;
@@ -233,7 +234,7 @@ kernel void main0(device Memory& v_71 [[buffer(0)]], const device ConfigBuf& _27
         local[i] = agg;
     }
     sh_scratch[gl_LocalInvocationID.x] = agg;
-    for (uint i_1 = 0u; i_1 < 9u; i_1++)
+    for (uint i_1 = 0u; i_1 < 8u; i_1++)
     {
         threadgroup_barrier(mem_flags::mem_threadgroup);
         if (gl_LocalInvocationID.x >= (1u << i_1))
@@ -250,9 +251,9 @@ kernel void main0(device Memory& v_71 [[buffer(0)]], const device ConfigBuf& _27
     Transform row = monoid_identity();
     if (gl_WorkGroupID.x > 0u)
     {
-        uint _380 = gl_WorkGroupID.x - 1u;
-        row.mat = _377.parent[_380].mat;
-        row.translate = _377.parent[_380].translate;
+        uint _379 = gl_WorkGroupID.x - 1u;
+        row.mat = _376.parent[_379].mat;
+        row.translate = _376.parent[_379].translate;
     }
     if (gl_LocalInvocationID.x > 0u)
     {

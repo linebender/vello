@@ -130,9 +130,10 @@ struct Config
     Alloc_1 bbox_alloc;
     Alloc_1 drawmonoid_alloc;
     uint n_trans;
+    uint n_path;
     uint trans_offset;
-    uint pathtag_offset;
     uint linewidth_offset;
+    uint pathtag_offset;
     uint pathseg_offset;
 };
 
@@ -155,7 +156,7 @@ struct ParentBuf
     TagMonoid_1 parent[1];
 };
 
-constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(512u, 1u, 1u);
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(256u, 1u, 1u);
 
 static inline __attribute__((always_inline))
 TagMonoid reduce_tag(thread const uint& tag_word)
@@ -429,16 +430,16 @@ uint round_up(thread const float& x)
     return uint(fast::min(65535.0, ceil(x) + 32768.0));
 }
 
-kernel void main0(device Memory& v_111 [[buffer(0)]], const device ConfigBuf& _639 [[buffer(1)]], const device SceneBuf& v_574 [[buffer(2)]], const device ParentBuf& _710 [[buffer(3)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]])
+kernel void main0(device Memory& v_111 [[buffer(0)]], const device ConfigBuf& _639 [[buffer(1)]], const device SceneBuf& v_574 [[buffer(2)]], const device ParentBuf& _709 [[buffer(3)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]])
 {
-    threadgroup TagMonoid sh_tag[512];
-    threadgroup Monoid sh_scratch[512];
+    threadgroup TagMonoid sh_tag[256];
+    threadgroup Monoid sh_scratch[256];
     uint ix = gl_GlobalInvocationID.x * 4u;
     uint tag_word = v_574.scene[(_639.conf.pathtag_offset >> uint(2)) + (ix >> uint(2))];
     uint param = tag_word;
     TagMonoid local_tm = reduce_tag(param);
     sh_tag[gl_LocalInvocationID.x] = local_tm;
-    for (uint i = 0u; i < 9u; i++)
+    for (uint i = 0u; i < 8u; i++)
     {
         threadgroup_barrier(mem_flags::mem_threadgroup);
         if (gl_LocalInvocationID.x >= (1u << i))
@@ -455,12 +456,12 @@ kernel void main0(device Memory& v_111 [[buffer(0)]], const device ConfigBuf& _6
     TagMonoid tm = tag_monoid_identity();
     if (gl_WorkGroupID.x > 0u)
     {
-        uint _713 = gl_WorkGroupID.x - 1u;
-        tm.trans_ix = _710.parent[_713].trans_ix;
-        tm.linewidth_ix = _710.parent[_713].linewidth_ix;
-        tm.pathseg_ix = _710.parent[_713].pathseg_ix;
-        tm.path_ix = _710.parent[_713].path_ix;
-        tm.pathseg_offset = _710.parent[_713].pathseg_offset;
+        uint _712 = gl_WorkGroupID.x - 1u;
+        tm.trans_ix = _709.parent[_712].trans_ix;
+        tm.linewidth_ix = _709.parent[_712].linewidth_ix;
+        tm.pathseg_ix = _709.parent[_712].pathseg_ix;
+        tm.path_ix = _709.parent[_712].path_ix;
+        tm.pathseg_offset = _709.parent[_712].pathseg_offset;
     }
     if (gl_LocalInvocationID.x > 0u)
     {
@@ -471,8 +472,11 @@ kernel void main0(device Memory& v_111 [[buffer(0)]], const device ConfigBuf& _6
     uint ps_ix = (_639.conf.pathseg_offset >> uint(2)) + tm.pathseg_offset;
     uint lw_ix = (_639.conf.linewidth_offset >> uint(2)) + tm.linewidth_ix;
     uint save_path_ix = tm.path_ix;
-    TransformSegRef trans_ref = TransformSegRef{ _639.conf.trans_alloc.offset + (tm.trans_ix * 24u) };
+    uint trans_ix = tm.trans_ix;
+    TransformSegRef trans_ref = TransformSegRef{ _639.conf.trans_alloc.offset + (trans_ix * 24u) };
     PathSegRef ps_ref = PathSegRef{ _639.conf.pathseg_alloc.offset + (tm.pathseg_ix * 52u) };
+    spvUnsafeArray<float, 4> linewidth;
+    spvUnsafeArray<uint, 4> save_trans_ix;
     float2 p0;
     float2 p1;
     float2 p2;
@@ -483,6 +487,8 @@ kernel void main0(device Memory& v_111 [[buffer(0)]], const device ConfigBuf& _6
     Alloc param_15;
     for (uint i_1 = 0u; i_1 < 4u; i_1++)
     {
+        linewidth[i_1] = as_type<float>(v_574.scene[lw_ix]);
+        save_trans_ix[i_1] = trans_ix;
         uint tag_byte = tag_word >> (i_1 * 8u);
         uint seg_type = tag_byte & 3u;
         if (seg_type != 0u)
@@ -521,7 +527,6 @@ kernel void main0(device Memory& v_111 [[buffer(0)]], const device ConfigBuf& _6
                     }
                 }
             }
-            float linewidth = as_type<float>(v_574.scene[lw_ix]);
             param_13.offset = _639.conf.trans_alloc.offset;
             TransformSegRef param_14 = trans_ref;
             TransformSeg transform = TransformSeg_read(param_13, param_14, v_111);
@@ -531,25 +536,25 @@ kernel void main0(device Memory& v_111 [[buffer(0)]], const device ConfigBuf& _6
             if (seg_type >= 2u)
             {
                 p2 = ((transform.mat.xy * p2.x) + (transform.mat.zw * p2.y)) + transform.translate;
-                float4 _934 = bbox;
-                float2 _937 = fast::min(_934.xy, p2);
-                bbox.x = _937.x;
-                bbox.y = _937.y;
-                float4 _942 = bbox;
-                float2 _945 = fast::max(_942.zw, p2);
-                bbox.z = _945.x;
-                bbox.w = _945.y;
+                float4 _946 = bbox;
+                float2 _949 = fast::min(_946.xy, p2);
+                bbox.x = _949.x;
+                bbox.y = _949.y;
+                float4 _954 = bbox;
+                float2 _957 = fast::max(_954.zw, p2);
+                bbox.z = _957.x;
+                bbox.w = _957.y;
                 if (seg_type == 3u)
                 {
                     p3 = ((transform.mat.xy * p3.x) + (transform.mat.zw * p3.y)) + transform.translate;
-                    float4 _970 = bbox;
-                    float2 _973 = fast::min(_970.xy, p3);
-                    bbox.x = _973.x;
-                    bbox.y = _973.y;
-                    float4 _978 = bbox;
-                    float2 _981 = fast::max(_978.zw, p3);
-                    bbox.z = _981.x;
-                    bbox.w = _981.y;
+                    float4 _982 = bbox;
+                    float2 _985 = fast::min(_982.xy, p3);
+                    bbox.x = _985.x;
+                    bbox.y = _985.y;
+                    float4 _990 = bbox;
+                    float2 _993 = fast::max(_990.zw, p3);
+                    bbox.z = _993.x;
+                    bbox.w = _993.y;
                 }
                 else
                 {
@@ -565,9 +570,9 @@ kernel void main0(device Memory& v_111 [[buffer(0)]], const device ConfigBuf& _6
                 p1 = mix(p0, p3, float2(0.3333333432674407958984375));
             }
             float2 stroke = float2(0.0);
-            if (linewidth >= 0.0)
+            if (linewidth[i_1] >= 0.0)
             {
-                stroke = float2(length(transform.mat.xz), length(transform.mat.yw)) * (0.5 * linewidth);
+                stroke = float2(length(transform.mat.xz), length(transform.mat.yw)) * (0.5 * linewidth[i_1]);
                 bbox += float4(-stroke, stroke);
             }
             local[i_1].bbox = bbox;
@@ -579,7 +584,7 @@ kernel void main0(device Memory& v_111 [[buffer(0)]], const device ConfigBuf& _6
             cubic.path_ix = tm.path_ix;
             cubic.trans_ix = (gl_GlobalInvocationID.x * 4u) + i_1;
             cubic.stroke = stroke;
-            uint fill_mode = uint(linewidth >= 0.0);
+            uint fill_mode = uint(linewidth[i_1] >= 0.0);
             param_15.offset = _639.conf.pathseg_alloc.offset;
             PathSegRef param_16 = ps_ref;
             uint param_17 = fill_mode;
@@ -596,6 +601,7 @@ kernel void main0(device Memory& v_111 [[buffer(0)]], const device ConfigBuf& _6
             uint is_path = (tag_byte >> uint(4)) & 1u;
             local[i_1].flags = is_path;
             tm.path_ix += is_path;
+            trans_ix += ((tag_byte >> uint(5)) & 1u);
             trans_ref.offset += (((tag_byte >> uint(5)) & 1u) * 24u);
             lw_ix += ((tag_byte >> uint(6)) & 1u);
         }
@@ -609,7 +615,7 @@ kernel void main0(device Memory& v_111 [[buffer(0)]], const device ConfigBuf& _6
         local[i_2] = agg;
     }
     sh_scratch[gl_LocalInvocationID.x] = agg;
-    for (uint i_3 = 0u; i_3 < 9u; i_3++)
+    for (uint i_3 = 0u; i_3 < 8u; i_3++)
     {
         threadgroup_barrier(mem_flags::mem_threadgroup);
         if (gl_LocalInvocationID.x >= (1u << i_3))
@@ -624,7 +630,7 @@ kernel void main0(device Memory& v_111 [[buffer(0)]], const device ConfigBuf& _6
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
     uint path_ix = save_path_ix;
-    uint bbox_out_ix = (_639.conf.bbox_alloc.offset >> uint(2)) + (path_ix * 4u);
+    uint bbox_out_ix = (_639.conf.bbox_alloc.offset >> uint(2)) + (path_ix * 6u);
     Monoid row = monoid_identity();
     if (gl_LocalInvocationID.x > 0u)
     {
@@ -636,22 +642,24 @@ kernel void main0(device Memory& v_111 [[buffer(0)]], const device ConfigBuf& _6
         Monoid param_24 = local[i_4];
         Monoid m = combine_monoid(param_23, param_24);
         bool do_atomic = false;
-        bool _1240 = i_4 == 3u;
-        bool _1247;
-        if (_1240)
+        bool _1263 = i_4 == 3u;
+        bool _1269;
+        if (_1263)
         {
-            _1247 = gl_LocalInvocationID.x == 511u;
+            _1269 = gl_LocalInvocationID.x == 255u;
         }
         else
         {
-            _1247 = _1240;
+            _1269 = _1263;
         }
-        if (_1247)
+        if (_1269)
         {
             do_atomic = true;
         }
         if ((m.flags & 1u) != 0u)
         {
+            v_111.memory[bbox_out_ix + 4u] = as_type<uint>(linewidth[i_4]);
+            v_111.memory[bbox_out_ix + 5u] = save_trans_ix[i_4];
             if ((m.flags & 2u) == 0u)
             {
                 do_atomic = true;
@@ -666,34 +674,34 @@ kernel void main0(device Memory& v_111 [[buffer(0)]], const device ConfigBuf& _6
                 v_111.memory[bbox_out_ix + 2u] = round_up(param_27);
                 float param_28 = m.bbox.w;
                 v_111.memory[bbox_out_ix + 3u] = round_up(param_28);
-                bbox_out_ix += 4u;
+                bbox_out_ix += 6u;
                 do_atomic = false;
             }
         }
         if (do_atomic)
         {
-            bool _1299 = m.bbox.z > m.bbox.x;
-            bool _1308;
-            if (!_1299)
+            bool _1334 = m.bbox.z > m.bbox.x;
+            bool _1343;
+            if (!_1334)
             {
-                _1308 = m.bbox.w > m.bbox.y;
+                _1343 = m.bbox.w > m.bbox.y;
             }
             else
             {
-                _1308 = _1299;
+                _1343 = _1334;
             }
-            if (_1308)
+            if (_1343)
             {
                 float param_29 = m.bbox.x;
-                uint _1317 = atomic_fetch_min_explicit((device atomic_uint*)&v_111.memory[bbox_out_ix], round_down(param_29), memory_order_relaxed);
+                uint _1352 = atomic_fetch_min_explicit((device atomic_uint*)&v_111.memory[bbox_out_ix], round_down(param_29), memory_order_relaxed);
                 float param_30 = m.bbox.y;
-                uint _1325 = atomic_fetch_min_explicit((device atomic_uint*)&v_111.memory[bbox_out_ix + 1u], round_down(param_30), memory_order_relaxed);
+                uint _1360 = atomic_fetch_min_explicit((device atomic_uint*)&v_111.memory[bbox_out_ix + 1u], round_down(param_30), memory_order_relaxed);
                 float param_31 = m.bbox.z;
-                uint _1333 = atomic_fetch_max_explicit((device atomic_uint*)&v_111.memory[bbox_out_ix + 2u], round_up(param_31), memory_order_relaxed);
+                uint _1368 = atomic_fetch_max_explicit((device atomic_uint*)&v_111.memory[bbox_out_ix + 2u], round_up(param_31), memory_order_relaxed);
                 float param_32 = m.bbox.w;
-                uint _1341 = atomic_fetch_max_explicit((device atomic_uint*)&v_111.memory[bbox_out_ix + 3u], round_up(param_32), memory_order_relaxed);
+                uint _1376 = atomic_fetch_max_explicit((device atomic_uint*)&v_111.memory[bbox_out_ix + 3u], round_up(param_32), memory_order_relaxed);
             }
-            bbox_out_ix += 4u;
+            bbox_out_ix += 6u;
         }
     }
 }

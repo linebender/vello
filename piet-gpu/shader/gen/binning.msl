@@ -1,0 +1,350 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+#pragma clang diagnostic ignored "-Wunused-variable"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+#include <metal_atomic>
+
+using namespace metal;
+
+struct Alloc
+{
+    uint offset;
+};
+
+struct MallocResult
+{
+    Alloc alloc;
+    bool failed;
+};
+
+struct AnnoEndClipRef
+{
+    uint offset;
+};
+
+struct AnnoEndClip
+{
+    float4 bbox;
+};
+
+struct AnnotatedRef
+{
+    uint offset;
+};
+
+struct AnnotatedTag
+{
+    uint tag;
+    uint flags;
+};
+
+struct BinInstanceRef
+{
+    uint offset;
+};
+
+struct BinInstance
+{
+    uint element_ix;
+};
+
+struct Memory
+{
+    uint mem_offset;
+    uint mem_error;
+    uint memory[1];
+};
+
+struct Alloc_1
+{
+    uint offset;
+};
+
+struct Config
+{
+    uint n_elements;
+    uint n_pathseg;
+    uint width_in_tiles;
+    uint height_in_tiles;
+    Alloc_1 tile_alloc;
+    Alloc_1 bin_alloc;
+    Alloc_1 ptcl_alloc;
+    Alloc_1 pathseg_alloc;
+    Alloc_1 anno_alloc;
+    Alloc_1 trans_alloc;
+    Alloc_1 bbox_alloc;
+    Alloc_1 drawmonoid_alloc;
+    uint n_trans;
+    uint n_path;
+    uint trans_offset;
+    uint linewidth_offset;
+    uint pathtag_offset;
+    uint pathseg_offset;
+};
+
+struct ConfigBuf
+{
+    Config conf;
+};
+
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(256u, 1u, 1u);
+
+static inline __attribute__((always_inline))
+bool touch_mem(thread const Alloc& alloc, thread const uint& offset)
+{
+    return true;
+}
+
+static inline __attribute__((always_inline))
+uint read_mem(thread const Alloc& alloc, thread const uint& offset, device Memory& v_84, constant uint& v_84BufferSize)
+{
+    Alloc param = alloc;
+    uint param_1 = offset;
+    if (!touch_mem(param, param_1))
+    {
+        return 0u;
+    }
+    uint v = v_84.memory[offset];
+    return v;
+}
+
+static inline __attribute__((always_inline))
+AnnotatedTag Annotated_tag(thread const Alloc& a, thread const AnnotatedRef& ref, device Memory& v_84, constant uint& v_84BufferSize)
+{
+    Alloc param = a;
+    uint param_1 = ref.offset >> uint(2);
+    uint tag_and_flags = read_mem(param, param_1, v_84, v_84BufferSize);
+    return AnnotatedTag{ tag_and_flags & 65535u, tag_and_flags >> uint(16) };
+}
+
+static inline __attribute__((always_inline))
+AnnoEndClip AnnoEndClip_read(thread const Alloc& a, thread const AnnoEndClipRef& ref, device Memory& v_84, constant uint& v_84BufferSize)
+{
+    uint ix = ref.offset >> uint(2);
+    Alloc param = a;
+    uint param_1 = ix + 0u;
+    uint raw0 = read_mem(param, param_1, v_84, v_84BufferSize);
+    Alloc param_2 = a;
+    uint param_3 = ix + 1u;
+    uint raw1 = read_mem(param_2, param_3, v_84, v_84BufferSize);
+    Alloc param_4 = a;
+    uint param_5 = ix + 2u;
+    uint raw2 = read_mem(param_4, param_5, v_84, v_84BufferSize);
+    Alloc param_6 = a;
+    uint param_7 = ix + 3u;
+    uint raw3 = read_mem(param_6, param_7, v_84, v_84BufferSize);
+    AnnoEndClip s;
+    s.bbox = float4(as_type<float>(raw0), as_type<float>(raw1), as_type<float>(raw2), as_type<float>(raw3));
+    return s;
+}
+
+static inline __attribute__((always_inline))
+AnnoEndClip Annotated_EndClip_read(thread const Alloc& a, thread const AnnotatedRef& ref, device Memory& v_84, constant uint& v_84BufferSize)
+{
+    Alloc param = a;
+    AnnoEndClipRef param_1 = AnnoEndClipRef{ ref.offset + 4u };
+    return AnnoEndClip_read(param, param_1, v_84, v_84BufferSize);
+}
+
+static inline __attribute__((always_inline))
+Alloc new_alloc(thread const uint& offset, thread const uint& size, thread const bool& mem_ok)
+{
+    Alloc a;
+    a.offset = offset;
+    return a;
+}
+
+static inline __attribute__((always_inline))
+MallocResult malloc(thread const uint& size, device Memory& v_84, constant uint& v_84BufferSize)
+{
+    uint _90 = atomic_fetch_add_explicit((device atomic_uint*)&v_84.mem_offset, size, memory_order_relaxed);
+    uint offset = _90;
+    MallocResult r;
+    r.failed = (offset + size) > uint(int((v_84BufferSize - 8) / 4) * 4);
+    uint param = offset;
+    uint param_1 = size;
+    bool param_2 = !r.failed;
+    r.alloc = new_alloc(param, param_1, param_2);
+    if (r.failed)
+    {
+        uint _119 = atomic_fetch_max_explicit((device atomic_uint*)&v_84.mem_error, 1u, memory_order_relaxed);
+        return r;
+    }
+    return r;
+}
+
+static inline __attribute__((always_inline))
+void write_mem(thread const Alloc& alloc, thread const uint& offset, thread const uint& val, device Memory& v_84, constant uint& v_84BufferSize)
+{
+    Alloc param = alloc;
+    uint param_1 = offset;
+    if (!touch_mem(param, param_1))
+    {
+        return;
+    }
+    v_84.memory[offset] = val;
+}
+
+static inline __attribute__((always_inline))
+void BinInstance_write(thread const Alloc& a, thread const BinInstanceRef& ref, thread const BinInstance& s, device Memory& v_84, constant uint& v_84BufferSize)
+{
+    uint ix = ref.offset >> uint(2);
+    Alloc param = a;
+    uint param_1 = ix + 0u;
+    uint param_2 = s.element_ix;
+    write_mem(param, param_1, param_2, v_84, v_84BufferSize);
+}
+
+kernel void main0(constant uint* spvBufferSizeConstants [[buffer(25)]], device Memory& v_84 [[buffer(0)]], const device ConfigBuf& _253 [[buffer(1)]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
+{
+    threadgroup uint bitmaps[8][256];
+    threadgroup short sh_alloc_failed;
+    threadgroup uint count[8][256];
+    threadgroup Alloc sh_chunk_alloc[256];
+    constant uint& v_84BufferSize = spvBufferSizeConstants[0];
+    uint my_n_elements = _253.conf.n_elements;
+    uint my_partition = gl_WorkGroupID.x;
+    for (uint i = 0u; i < 8u; i++)
+    {
+        bitmaps[i][gl_LocalInvocationID.x] = 0u;
+    }
+    if (gl_LocalInvocationID.x == 0u)
+    {
+        sh_alloc_failed = short(false);
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    uint element_ix = (my_partition * 256u) + gl_LocalInvocationID.x;
+    AnnotatedRef ref = AnnotatedRef{ _253.conf.anno_alloc.offset + (element_ix * 40u) };
+    uint tag = 0u;
+    if (element_ix < my_n_elements)
+    {
+        Alloc param;
+        param.offset = _253.conf.anno_alloc.offset;
+        AnnotatedRef param_1 = ref;
+        tag = Annotated_tag(param, param_1, v_84, v_84BufferSize).tag;
+    }
+    int x0 = 0;
+    int y0 = 0;
+    int x1 = 0;
+    int y1 = 0;
+    switch (tag)
+    {
+        case 1u:
+        case 2u:
+        case 3u:
+        case 4u:
+        case 5u:
+        {
+            Alloc param_2;
+            param_2.offset = _253.conf.anno_alloc.offset;
+            AnnotatedRef param_3 = ref;
+            AnnoEndClip clip = Annotated_EndClip_read(param_2, param_3, v_84, v_84BufferSize);
+            x0 = int(floor(clip.bbox.x * 0.00390625));
+            y0 = int(floor(clip.bbox.y * 0.00390625));
+            x1 = int(ceil(clip.bbox.z * 0.00390625));
+            y1 = int(ceil(clip.bbox.w * 0.00390625));
+            break;
+        }
+    }
+    uint width_in_bins = ((_253.conf.width_in_tiles + 16u) - 1u) / 16u;
+    uint height_in_bins = ((_253.conf.height_in_tiles + 16u) - 1u) / 16u;
+    x0 = clamp(x0, 0, int(width_in_bins));
+    x1 = clamp(x1, x0, int(width_in_bins));
+    y0 = clamp(y0, 0, int(height_in_bins));
+    y1 = clamp(y1, y0, int(height_in_bins));
+    if (x0 == x1)
+    {
+        y1 = y0;
+    }
+    int x = x0;
+    int y = y0;
+    uint my_slice = gl_LocalInvocationID.x / 32u;
+    uint my_mask = 1u << (gl_LocalInvocationID.x & 31u);
+    while (y < y1)
+    {
+        uint _437 = atomic_fetch_or_explicit((threadgroup atomic_uint*)&bitmaps[my_slice][(uint(y) * width_in_bins) + uint(x)], my_mask, memory_order_relaxed);
+        x++;
+        if (x == x1)
+        {
+            x = x0;
+            y++;
+        }
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    uint element_count = 0u;
+    for (uint i_1 = 0u; i_1 < 8u; i_1++)
+    {
+        element_count += uint(int(popcount(bitmaps[i_1][gl_LocalInvocationID.x])));
+        count[i_1][gl_LocalInvocationID.x] = element_count;
+    }
+    uint param_4 = 0u;
+    uint param_5 = 0u;
+    bool param_6 = true;
+    Alloc chunk_alloc = new_alloc(param_4, param_5, param_6);
+    if (element_count != 0u)
+    {
+        uint param_7 = element_count * 4u;
+        MallocResult _487 = malloc(param_7, v_84, v_84BufferSize);
+        MallocResult chunk = _487;
+        chunk_alloc = chunk.alloc;
+        sh_chunk_alloc[gl_LocalInvocationID.x] = chunk_alloc;
+        if (chunk.failed)
+        {
+            sh_alloc_failed = short(true);
+        }
+    }
+    uint out_ix = (_253.conf.bin_alloc.offset >> uint(2)) + (((my_partition * 256u) + gl_LocalInvocationID.x) * 2u);
+    Alloc param_8;
+    param_8.offset = _253.conf.bin_alloc.offset;
+    uint param_9 = out_ix;
+    uint param_10 = element_count;
+    write_mem(param_8, param_9, param_10, v_84, v_84BufferSize);
+    Alloc param_11;
+    param_11.offset = _253.conf.bin_alloc.offset;
+    uint param_12 = out_ix + 1u;
+    uint param_13 = chunk_alloc.offset;
+    write_mem(param_11, param_12, param_13, v_84, v_84BufferSize);
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    bool _543;
+    if (!bool(sh_alloc_failed))
+    {
+        _543 = v_84.mem_error != 0u;
+    }
+    else
+    {
+        _543 = bool(sh_alloc_failed);
+    }
+    if (_543)
+    {
+        return;
+    }
+    x = x0;
+    y = y0;
+    while (y < y1)
+    {
+        uint bin_ix = (uint(y) * width_in_bins) + uint(x);
+        uint out_mask = bitmaps[my_slice][bin_ix];
+        if ((out_mask & my_mask) != 0u)
+        {
+            uint idx = uint(int(popcount(out_mask & (my_mask - 1u))));
+            if (my_slice > 0u)
+            {
+                idx += count[my_slice - 1u][bin_ix];
+            }
+            Alloc out_alloc = sh_chunk_alloc[bin_ix];
+            uint out_offset = out_alloc.offset + (idx * 4u);
+            Alloc param_14 = out_alloc;
+            BinInstanceRef param_15 = BinInstanceRef{ out_offset };
+            BinInstance param_16 = BinInstance{ element_ix };
+            BinInstance_write(param_14, param_15, param_16, v_84, v_84BufferSize);
+        }
+        x++;
+        if (x == x1)
+        {
+            x = x0;
+            y++;
+        }
+    }
+}
+

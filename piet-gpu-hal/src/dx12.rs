@@ -554,6 +554,7 @@ impl crate::backend::Device for Dx12Device {
             Flags: d3d12::D3D12_PIPELINE_STATE_FLAG_NONE,
         };
         let pipeline_state = self.device.create_compute_pipeline_state(&desc)?;
+
         Ok(Pipeline {
             pipeline_state,
             root_signature,
@@ -725,8 +726,10 @@ impl crate::backend::DescriptorSetBuilder<Dx12Device> for DescriptorSetBuilder {
         }
     }
 
-    fn add_textures(&mut self, _images: &[&Image]) {
-        todo!()
+    fn add_textures(&mut self, images: &[&Image]) {
+        for img in images {
+            self.handles.push(img.cpu_ref.as_ref().unwrap().handle());
+        }
     }
 
     unsafe fn build(

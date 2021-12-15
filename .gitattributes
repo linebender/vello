@@ -1,1 +1,3 @@
 **/shader/* linguist-language=glsl
+**/shader/gen/* linguist-generated
+

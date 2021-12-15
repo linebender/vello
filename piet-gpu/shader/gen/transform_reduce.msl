@@ -41,9 +41,10 @@ struct Config
     Alloc bbox_alloc;
     Alloc drawmonoid_alloc;
     uint n_trans;
+    uint n_path;
     uint trans_offset;
-    uint pathtag_offset;
     uint linewidth_offset;
+    uint pathtag_offset;
     uint pathseg_offset;
 };
 
@@ -71,7 +72,7 @@ struct Memory
     uint memory[1];
 };
 
-constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(512u, 1u, 1u);
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(256u, 1u, 1u);
 
 static inline __attribute__((always_inline))
 Transform Transform_read(thread const TransformRef& ref, const device SceneBuf& v_49)
@@ -104,9 +105,9 @@ Transform combine_monoid(thread const Transform& a, thread const Transform& b)
     return c;
 }
 
-kernel void main0(const device ConfigBuf& _161 [[buffer(1)]], const device SceneBuf& v_49 [[buffer(2)]], device OutBuf& _251 [[buffer(3)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]])
+kernel void main0(const device ConfigBuf& _161 [[buffer(1)]], const device SceneBuf& v_49 [[buffer(2)]], device OutBuf& _250 [[buffer(3)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]])
 {
-    threadgroup Transform sh_scratch[512];
+    threadgroup Transform sh_scratch[256];
     uint ix = gl_GlobalInvocationID.x * 8u;
     TransformRef ref = TransformRef{ _161.conf.trans_offset + (ix * 24u) };
     TransformRef param = ref;
@@ -121,10 +122,10 @@ kernel void main0(const device ConfigBuf& _161 [[buffer(1)]], const device Scene
         agg = combine_monoid(param_4, param_5);
     }
     sh_scratch[gl_LocalInvocationID.x] = agg;
-    for (uint i_1 = 0u; i_1 < 9u; i_1++)
+    for (uint i_1 = 0u; i_1 < 8u; i_1++)
     {
         threadgroup_barrier(mem_flags::mem_threadgroup);
-        if ((gl_LocalInvocationID.x + (1u << i_1)) < 512u)
+        if ((gl_LocalInvocationID.x + (1u << i_1)) < 256u)
         {
             Transform other = sh_scratch[gl_LocalInvocationID.x + (1u << i_1)];
             Transform param_6 = agg;
@@ -136,8 +137,8 @@ kernel void main0(const device ConfigBuf& _161 [[buffer(1)]], const device Scene
     }
     if (gl_LocalInvocationID.x == 0u)
     {
-        _251.outbuf[gl_WorkGroupID.x].mat = agg.mat;
-        _251.outbuf[gl_WorkGroupID.x].translate = agg.translate;
+        _250.outbuf[gl_WorkGroupID.x].mat = agg.mat;
+        _250.outbuf[gl_WorkGroupID.x].translate = agg.translate;
     }
 }
 

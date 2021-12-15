@@ -79,17 +79,19 @@ fn main() -> Result<(), Error> {
                     if let Some(submitted) = submitted[frame_idx].take() {
                         cmd_bufs[frame_idx] = submitted.wait().unwrap();
                         let ts = session.fetch_query_pool(&query_pools[frame_idx]).unwrap();
-                        info_string = format!(
-                            "{:.3}ms :: e:{:.3}ms|alloc:{:.3}ms|cp:{:.3}ms|bd:{:.3}ms|bin:{:.3}ms|cr:{:.3}ms|r:{:.3}ms",
-                            ts[6] * 1e3,
-                            ts[0] * 1e3,
-                            (ts[1] - ts[0]) * 1e3,
-                            (ts[2] - ts[1]) * 1e3,
-                            (ts[3] - ts[2]) * 1e3,
-                            (ts[4] - ts[3]) * 1e3,
-                            (ts[5] - ts[4]) * 1e3,
-                            (ts[6] - ts[5]) * 1e3,
-                        );
+                        if !ts.is_empty() {
+                            info_string = format!(
+                                "{:.3}ms :: e:{:.3}ms|alloc:{:.3}ms|cp:{:.3}ms|bd:{:.3}ms|bin:{:.3}ms|cr:{:.3}ms|r:{:.3}ms",
+                                ts[6] * 1e3,
+                                ts[0] * 1e3,
+                                (ts[1] - ts[0]) * 1e3,
+                                (ts[2] - ts[1]) * 1e3,
+                                (ts[3] - ts[2]) * 1e3,
+                                (ts[4] - ts[3]) * 1e3,
+                                (ts[5] - ts[4]) * 1e3,
+                                (ts[6] - ts[5]) * 1e3,
+                            );
+                        }
                     }
 
                     let mut ctx = PietGpuRenderContext::new();

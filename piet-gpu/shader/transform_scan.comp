@@ -3,9 +3,12 @@
 // A scan for a tree reduction prefix scan (either root or not, by ifdef).
 
 #version 450
+#extension GL_GOOGLE_include_directive : enable
+
+#include "setup.h"
 
 #define N_ROWS 8
-#define LG_WG_SIZE 9
+#define LG_WG_SIZE (7 + LG_WG_FACTOR)
 #define WG_SIZE (1 << LG_WG_SIZE)
 #define PARTITION_SIZE (WG_SIZE * N_ROWS)
 

@@ -1,5 +1,7 @@
 use std::borrow::Cow;
 
+use crate::encoder::GlyphEncoder;
+use crate::stages::{Config, Transform};
 use crate::MAX_BLEND_STACK;
 use piet::kurbo::{Affine, Insets, PathEl, Point, Rect, Shape};
 use piet::{
@@ -7,15 +9,13 @@ use piet::{
     StrokeStyle,
 };
 
+use piet_gpu_hal::BufWrite;
 use piet_gpu_types::encoder::{Encode, Encoder};
-use piet_gpu_types::scene::{
-    Clip, CubicSeg, Element, FillColor, FillLinGradient, LineSeg, QuadSeg, SetFillMode,
-    SetLineWidth, Transform,
-};
+use piet_gpu_types::scene::Element;
 
 use crate::gradient::{LinearGradient, RampCache};
 use crate::text::Font;
-pub use crate::text::{PathEncoder, PietGpuText, PietGpuTextLayout, PietGpuTextLayoutBuilder};
+pub use crate::text::{PietGpuText, PietGpuTextLayout, PietGpuTextLayoutBuilder};
 
 pub struct PietGpuImage;
 
@@ -25,7 +25,6 @@ pub struct PietGpuRenderContext {
     // Will probably need direct accesss to hal Device to create images etc.
     inner_text: PietGpuText,
     stroke_width: f32,
-    fill_mode: FillMode,
     // We're tallying these cpu-side for expedience, but will probably
     // move this to some kind of readback from element processing.
     /// The count of elements that make it through to coarse rasterization.
@@ -40,6 +39,10 @@ pub struct PietGpuRenderContext {
     clip_stack: Vec<ClipElement>,
 
     ramp_cache: RampCache,
+
+    // Fields for new element processing pipeline below
+    // TODO: delete old encoder, rename
+    new_encoder: crate::encoder::Encoder,
 }
 
 #[derive(Clone)]
@@ -60,17 +63,9 @@ struct State {
 }
 
 struct ClipElement {
-    /// Index of BeginClip element in element vec, for bbox fixup.
-    begin_ix: usize,
+    /// Byte offset of BeginClip element in element vec, for bbox fixup.
+    save_point: usize,
     bbox: Option<Rect>,
-}
-
-#[derive(Clone, Copy, PartialEq)]
-pub(crate) enum FillMode {
-    // Fill path according to the non-zero winding rule.
-    Nonzero = 0,
-    // Fill stroked path.
-    Stroke = 1,
 }
 
 const TOLERANCE: f64 = 0.25;
@@ -81,13 +76,12 @@ impl PietGpuRenderContext {
         let elements = Vec::new();
         let font = Font::new();
         let inner_text = PietGpuText::new(font);
-        let stroke_width = 0.0;
+        let stroke_width = -1.0;
         PietGpuRenderContext {
             encoder,
             elements,
             inner_text,
             stroke_width,
-            fill_mode: FillMode::Nonzero,
             path_count: 0,
             pathseg_count: 0,
             trans_count: 0,
@@ -95,7 +89,42 @@ impl PietGpuRenderContext {
             state_stack: Vec::new(),
             clip_stack: Vec::new(),
             ramp_cache: RampCache::default(),
+            new_encoder: crate::encoder::Encoder::new(),
         }
+    }
+
+    pub fn stage_config(&self) -> (Config, usize) {
+        self.new_encoder.stage_config()
+    }
+
+    /// Number of draw objects.
+    ///
+    /// This is for the new element processing pipeline. It's not necessarily the
+    /// same as the number of paths (as in the old pipeline), but it might take a
+    /// while to sort that out.
+    pub fn n_drawobj(&self) -> usize {
+        self.new_encoder.n_drawobj()
+    }
+
+    /// Number of paths.
+    pub fn n_path(&self) -> u32 {
+        self.new_encoder.n_path()
+    }
+
+    pub fn n_pathseg(&self) -> u32 {
+        self.new_encoder.n_pathseg()
+    }
+
+    pub fn n_pathtag(&self) -> usize {
+        self.new_encoder.n_pathtag()
+    }
+
+    pub fn n_transform(&self) -> usize {
+        self.new_encoder.n_transform()
+    }
+
+    pub fn write_scene(&self, buf: &mut BufWrite) {
+        self.new_encoder.write_scene(buf);
     }
 
     pub fn get_scene_buf(&mut self) -> &[u8] {
@@ -120,15 +149,6 @@ impl PietGpuRenderContext {
 
     pub fn get_ramp_data(&self) -> Vec<u32> {
         self.ramp_cache.get_ramp_data()
-    }
-
-    pub(crate) fn set_fill_mode(&mut self, fill_mode: FillMode) {
-        if self.fill_mode != fill_mode {
-            self.elements.push(Element::SetFillMode(SetFillMode {
-                fill_mode: fill_mode as u32,
-            }));
-            self.fill_mode = fill_mode;
-        }
     }
 }
 
@@ -171,13 +191,7 @@ impl RenderContext for PietGpuRenderContext {
     fn clear(&mut self, _color: Color) {}
 
     fn stroke(&mut self, shape: impl Shape, brush: &impl IntoBrush<Self>, width: f64) {
-        let width_f32 = width as f32;
-        if self.stroke_width != width_f32 {
-            self.elements
-                .push(Element::SetLineWidth(SetLineWidth { width: width_f32 }));
-            self.stroke_width = width_f32;
-        }
-        self.set_fill_mode(FillMode::Stroke);
+        self.encode_linewidth(width.abs() as f32);
         let brush = brush.make_brush(self, || shape.bounding_box()).into_owned();
         // Note: the bbox contribution of stroke becomes more complicated with miter joins.
         self.accumulate_bbox(|| shape.bounding_box() + Insets::uniform(width * 0.5));
@@ -201,7 +215,7 @@ impl RenderContext for PietGpuRenderContext {
         // Perhaps that should be added to kurbo.
         self.accumulate_bbox(|| shape.bounding_box());
         let path = shape.path_elements(TOLERANCE);
-        self.set_fill_mode(FillMode::Nonzero);
+        self.encode_linewidth(-1.0);
         self.encode_path(path, true);
         self.encode_brush(&brush);
     }
@@ -209,21 +223,17 @@ impl RenderContext for PietGpuRenderContext {
     fn fill_even_odd(&mut self, _shape: impl Shape, _brush: &impl IntoBrush<Self>) {}
 
     fn clip(&mut self, shape: impl Shape) {
-        self.set_fill_mode(FillMode::Nonzero);
+        self.encode_linewidth(-1.0);
         let path = shape.path_elements(TOLERANCE);
         self.encode_path(path, true);
-        let begin_ix = self.elements.len();
-        self.elements.push(Element::BeginClip(Clip {
-            bbox: Default::default(),
-        }));
+        let save_point = self.new_encoder.begin_clip();
         if self.clip_stack.len() >= MAX_BLEND_STACK {
             panic!("Maximum clip/blend stack size {} exceeded", MAX_BLEND_STACK);
         }
         self.clip_stack.push(ClipElement {
             bbox: None,
-            begin_ix,
+            save_point,
         });
-        self.path_count += 1;
         if let Some(tos) = self.state_stack.last_mut() {
             tos.n_clip += 1;
         }
@@ -234,6 +244,7 @@ impl RenderContext for PietGpuRenderContext {
     }
 
     fn draw_text(&mut self, layout: &Self::TextLayout, pos: impl Into<Point>) {
+        self.encode_linewidth(-1.0);
         layout.draw_text(self, pos.into());
     }
 
@@ -250,7 +261,7 @@ impl RenderContext for PietGpuRenderContext {
         if let Some(state) = self.state_stack.pop() {
             if state.rel_transform != Affine::default() {
                 let a_inv = state.rel_transform.inverse();
-                self.encode_transform(to_scene_transform(a_inv));
+                self.encode_transform(Transform::from_kurbo(a_inv));
             }
             self.cur_transform = state.transform;
             for _ in 0..state.n_clip {
@@ -270,7 +281,7 @@ impl RenderContext for PietGpuRenderContext {
     }
 
     fn transform(&mut self, transform: Affine) {
-        self.encode_transform(to_scene_transform(transform));
+        self.encode_transform(Transform::from_kurbo(transform));
         if let Some(tos) = self.state_stack.last_mut() {
             tos.rel_transform *= transform;
         }
@@ -318,21 +329,6 @@ impl RenderContext for PietGpuRenderContext {
 }
 
 impl PietGpuRenderContext {
-    fn encode_line_seg(&mut self, seg: LineSeg) {
-        self.elements.push(Element::Line(seg));
-        self.pathseg_count += 1;
-    }
-
-    fn encode_quad_seg(&mut self, seg: QuadSeg) {
-        self.elements.push(Element::Quad(seg));
-        self.pathseg_count += 1;
-    }
-
-    fn encode_cubic_seg(&mut self, seg: CubicSeg) {
-        self.elements.push(Element::Cubic(seg));
-        self.pathseg_count += 1;
-    }
-
     fn encode_path(&mut self, path: impl Iterator<Item = PathEl>, is_fill: bool) {
         if is_fill {
             self.encode_path_inner(
@@ -352,113 +348,41 @@ impl PietGpuRenderContext {
     }
 
     fn encode_path_inner(&mut self, path: impl Iterator<Item = PathEl>) {
-        let flatten = false;
-        if flatten {
-            let mut start_pt = None;
-            let mut last_pt = None;
-            piet::kurbo::flatten(path, TOLERANCE, |el| {
-                match el {
-                    PathEl::MoveTo(p) => {
-                        let scene_pt = to_f32_2(p);
-                        start_pt = Some(scene_pt);
-                        last_pt = Some(scene_pt);
-                    }
-                    PathEl::LineTo(p) => {
-                        let scene_pt = to_f32_2(p);
-                        let seg = LineSeg {
-                            p0: last_pt.unwrap(),
-                            p1: scene_pt,
-                        };
-                        self.encode_line_seg(seg);
-                        last_pt = Some(scene_pt);
-                    }
-                    PathEl::ClosePath => {
-                        if let (Some(start), Some(last)) = (start_pt.take(), last_pt.take()) {
-                            if last != start {
-                                let seg = LineSeg {
-                                    p0: last,
-                                    p1: start,
-                                };
-                                self.encode_line_seg(seg);
-                            }
-                        }
-                    }
-                    _ => (),
+        let mut pe = self.new_encoder.path_encoder();
+        for el in path {
+            match el {
+                PathEl::MoveTo(p) => {
+                    let p = to_f32_2(p);
+                    pe.move_to(p[0], p[1]);
                 }
-                //println!("{:?}", el);
-            });
-        } else {
-            let mut start_pt = None;
-            let mut last_pt = None;
-            for el in path {
-                match el {
-                    PathEl::MoveTo(p) => {
-                        let scene_pt = to_f32_2(p);
-                        start_pt = Some(scene_pt);
-                        last_pt = Some(scene_pt);
-                    }
-                    PathEl::LineTo(p) => {
-                        let scene_pt = to_f32_2(p);
-                        let seg = LineSeg {
-                            p0: last_pt.unwrap(),
-                            p1: scene_pt,
-                        };
-                        self.encode_line_seg(seg);
-                        last_pt = Some(scene_pt);
-                    }
-                    PathEl::QuadTo(p1, p2) => {
-                        let scene_p1 = to_f32_2(p1);
-                        let scene_p2 = to_f32_2(p2);
-                        let seg = QuadSeg {
-                            p0: last_pt.unwrap(),
-                            p1: scene_p1,
-                            p2: scene_p2,
-                        };
-                        self.encode_quad_seg(seg);
-                        last_pt = Some(scene_p2);
-                    }
-                    PathEl::CurveTo(p1, p2, p3) => {
-                        let scene_p1 = to_f32_2(p1);
-                        let scene_p2 = to_f32_2(p2);
-                        let scene_p3 = to_f32_2(p3);
-                        let seg = CubicSeg {
-                            p0: last_pt.unwrap(),
-                            p1: scene_p1,
-                            p2: scene_p2,
-                            p3: scene_p3,
-                        };
-                        self.encode_cubic_seg(seg);
-                        last_pt = Some(scene_p3);
-                    }
-                    PathEl::ClosePath => {
-                        if let (Some(start), Some(last)) = (start_pt.take(), last_pt.take()) {
-                            if last != start {
-                                let seg = LineSeg {
-                                    p0: last,
-                                    p1: start,
-                                };
-                                self.encode_line_seg(seg);
-                            }
-                        }
-                    }
+                PathEl::LineTo(p) => {
+                    let p = to_f32_2(p);
+                    pe.line_to(p[0], p[1]);
                 }
-                //println!("{:?}", el);
+                PathEl::QuadTo(p1, p2) => {
+                    let p1 = to_f32_2(p1);
+                    let p2 = to_f32_2(p2);
+                    pe.quad_to(p1[0], p1[1], p2[0], p2[1]);
+                }
+                PathEl::CurveTo(p1, p2, p3) => {
+                    let p1 = to_f32_2(p1);
+                    let p2 = to_f32_2(p2);
+                    let p3 = to_f32_2(p3);
+                    pe.cubic_to(p1[0], p1[1], p2[0], p2[1], p3[0], p3[1]);
+                }
+                PathEl::ClosePath => pe.close_path(),
             }
         }
+        pe.path();
+        let n_pathseg = pe.n_pathseg();
+        self.new_encoder.finish_path(n_pathseg);
     }
 
     fn pop_clip(&mut self) {
         let tos = self.clip_stack.pop().unwrap();
         let bbox = tos.bbox.unwrap_or_default();
         let bbox_f32_4 = rect_to_f32_4(bbox);
-        self.elements
-            .push(Element::EndClip(Clip { bbox: bbox_f32_4 }));
-        self.path_count += 1;
-        if let Element::BeginClip(begin_clip) = &mut self.elements[tos.begin_ix] {
-            begin_clip.bbox = bbox_f32_4;
-        } else {
-            unreachable!("expected BeginClip, not found");
-        }
+        self.new_encoder.end_clip(bbox_f32_4, tos.save_point);
         if let Some(bbox) = tos.bbox {
             self.union_bbox(bbox);
         }
@@ -489,45 +413,33 @@ impl PietGpuRenderContext {
         }
     }
 
-    pub(crate) fn append_path_encoder(&mut self, path: &PathEncoder) {
-        let elements = path.elements();
-        self.elements.extend(elements.iter().cloned());
-        self.pathseg_count += path.n_segs();
+    pub(crate) fn encode_glyph(&mut self, glyph: &GlyphEncoder) {
+        self.new_encoder.encode_glyph(glyph);
     }
 
     pub(crate) fn fill_glyph(&mut self, rgba_color: u32) {
-        let fill = FillColor { rgba_color };
-        self.elements.push(Element::FillColor(fill));
-        self.path_count += 1;
-    }
-
-    /// Bump the path count when rendering a color emoji.
-    pub(crate) fn bump_n_paths(&mut self, n_paths: usize) {
-        self.path_count += n_paths;
+        self.new_encoder.fill_color(rgba_color);
     }
 
     pub(crate) fn encode_transform(&mut self, transform: Transform) {
-        self.elements.push(Element::Transform(transform));
-        self.trans_count += 1;
+        self.new_encoder.transform(transform);
+    }
+
+    fn encode_linewidth(&mut self, linewidth: f32) {
+        if self.stroke_width != linewidth {
+            self.new_encoder.linewidth(linewidth);
+            self.stroke_width = linewidth;
+        }
     }
 
     fn encode_brush(&mut self, brush: &PietGpuBrush) {
         match brush {
             PietGpuBrush::Solid(rgba_color) => {
-                let fill = FillColor {
-                    rgba_color: *rgba_color,
-                };
-                self.elements.push(Element::FillColor(fill));
-                self.path_count += 1;
+                self.new_encoder.fill_color(*rgba_color);
             }
             PietGpuBrush::LinGradient(lin) => {
-                let fill_lin = FillLinGradient {
-                    index: lin.ramp_id,
-                    p0: lin.start,
-                    p1: lin.end,
-                };
-                self.elements.push(Element::FillLinGradient(fill_lin));
-                self.path_count += 1;
+                self.new_encoder
+                    .fill_lin_gradient(lin.ramp_id, lin.start, lin.end);
             }
         }
     }
@@ -554,14 +466,6 @@ fn rect_to_f32_4(rect: Rect) -> [f32; 4] {
         rect.x1 as f32,
         rect.y1 as f32,
     ]
-}
-
-fn to_scene_transform(transform: Affine) -> Transform {
-    let c = transform.as_coeffs();
-    Transform {
-        mat: [c[0] as f32, c[1] as f32, c[2] as f32, c[3] as f32],
-        translate: [c[4] as f32, c[5] as f32],
-    }
 }
 
 fn to_srgb(f: f64) -> f64 {

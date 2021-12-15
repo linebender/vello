@@ -45,7 +45,7 @@ struct Memory
     uint memory[1];
 };
 
-constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(512u, 1u, 1u);
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(256u, 1u, 1u);
 
 struct Alloc
 {
@@ -67,9 +67,10 @@ struct Config
     Alloc bbox_alloc;
     Alloc drawmonoid_alloc;
     uint n_trans;
+    uint n_path;
     uint trans_offset;
-    uint pathtag_offset;
     uint linewidth_offset;
+    uint pathtag_offset;
     uint pathseg_offset;
 };
 
@@ -97,12 +98,9 @@ DrawMonoid map_tag(thread const uint& tag_word)
             return DrawMonoid{ 1u, 0u };
         }
         case 9u:
-        {
-            return DrawMonoid{ 1u, 1u };
-        }
         case 10u:
         {
-            return DrawMonoid{ 0u, 1u };
+            return DrawMonoid{ 1u, 1u };
         }
         default:
         {
@@ -126,9 +124,9 @@ DrawMonoid combine_tag_monoid(thread const DrawMonoid& a, thread const DrawMonoi
     return c;
 }
 
-kernel void main0(const device SceneBuf& v_46 [[buffer(2)]], device OutBuf& _203 [[buffer(3)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]])
+kernel void main0(const device SceneBuf& v_46 [[buffer(2)]], device OutBuf& _199 [[buffer(3)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]])
 {
-    threadgroup DrawMonoid sh_scratch[512];
+    threadgroup DrawMonoid sh_scratch[256];
     uint ix = gl_GlobalInvocationID.x * 8u;
     ElementRef ref = ElementRef{ ix * 36u };
     ElementRef param = ref;
@@ -147,10 +145,10 @@ kernel void main0(const device SceneBuf& v_46 [[buffer(2)]], device OutBuf& _203
         agg = combine_tag_monoid(param_6, param_7);
     }
     sh_scratch[gl_LocalInvocationID.x] = agg;
-    for (uint i_1 = 0u; i_1 < 9u; i_1++)
+    for (uint i_1 = 0u; i_1 < 8u; i_1++)
     {
         threadgroup_barrier(mem_flags::mem_threadgroup);
-        if ((gl_LocalInvocationID.x + (1u << i_1)) < 512u)
+        if ((gl_LocalInvocationID.x + (1u << i_1)) < 256u)
         {
             DrawMonoid other = sh_scratch[gl_LocalInvocationID.x + (1u << i_1)];
             DrawMonoid param_8 = agg;
@@ -162,8 +160,8 @@ kernel void main0(const device SceneBuf& v_46 [[buffer(2)]], device OutBuf& _203
     }
     if (gl_LocalInvocationID.x == 0u)
     {
-        _203.outbuf[gl_WorkGroupID.x].path_ix = agg.path_ix;
-        _203.outbuf[gl_WorkGroupID.x].clip_ix = agg.clip_ix;
+        _199.outbuf[gl_WorkGroupID.x].path_ix = agg.path_ix;
+        _199.outbuf[gl_WorkGroupID.x].clip_ix = agg.clip_ix;
     }
 }
 

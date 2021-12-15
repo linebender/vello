@@ -18,16 +18,17 @@ struct Config
     Alloc bbox_alloc;
     Alloc drawmonoid_alloc;
     uint n_trans;
+    uint n_path;
     uint trans_offset;
-    uint pathtag_offset;
     uint linewidth_offset;
+    uint pathtag_offset;
     uint pathseg_offset;
 };
 
 static const uint3 gl_WorkGroupSize = uint3(512u, 1u, 1u);
 
-ByteAddressBuffer _21 : register(t1);
-RWByteAddressBuffer _44 : register(u0);
+ByteAddressBuffer _21 : register(t1, space0);
+RWByteAddressBuffer _45 : register(u0, space0);
 
 static uint3 gl_GlobalInvocationID;
 struct SPIRV_Cross_Input
@@ -38,13 +39,13 @@ struct SPIRV_Cross_Input
 void comp_main()
 {
     uint ix = gl_GlobalInvocationID.x;
-    if (ix < _21.Load(0))
+    if (ix < _21.Load(52))
     {
-        uint out_ix = (_21.Load(40) >> uint(2)) + (4u * ix);
-        _44.Store(out_ix * 4 + 8, 65535u);
-        _44.Store((out_ix + 1u) * 4 + 8, 65535u);
-        _44.Store((out_ix + 2u) * 4 + 8, 0u);
-        _44.Store((out_ix + 3u) * 4 + 8, 0u);
+        uint out_ix = (_21.Load(40) >> uint(2)) + (6u * ix);
+        _45.Store(out_ix * 4 + 8, 65535u);
+        _45.Store((out_ix + 1u) * 4 + 8, 65535u);
+        _45.Store((out_ix + 2u) * 4 + 8, 0u);
+        _45.Store((out_ix + 3u) * 4 + 8, 0u);
     }
 }
 

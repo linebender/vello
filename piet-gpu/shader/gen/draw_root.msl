@@ -61,7 +61,7 @@ struct DataBuf
     DrawMonoid_1 data[1];
 };
 
-constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(512u, 1u, 1u);
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(256u, 1u, 1u);
 
 static inline __attribute__((always_inline))
 DrawMonoid combine_tag_monoid(thread const DrawMonoid& a, thread const DrawMonoid& b)
@@ -80,7 +80,7 @@ DrawMonoid tag_monoid_identity()
 
 kernel void main0(device DataBuf& _57 [[buffer(0)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
 {
-    threadgroup DrawMonoid sh_scratch[512];
+    threadgroup DrawMonoid sh_scratch[256];
     uint ix = gl_GlobalInvocationID.x * 8u;
     spvUnsafeArray<DrawMonoid, 8> local;
     local[0].path_ix = _57.data[ix].path_ix;
@@ -96,7 +96,7 @@ kernel void main0(device DataBuf& _57 [[buffer(0)]], uint3 gl_GlobalInvocationID
     }
     DrawMonoid agg = local[7];
     sh_scratch[gl_LocalInvocationID.x] = agg;
-    for (uint i_1 = 0u; i_1 < 9u; i_1++)
+    for (uint i_1 = 0u; i_1 < 8u; i_1++)
     {
         threadgroup_barrier(mem_flags::mem_threadgroup);
         if (gl_LocalInvocationID.x >= (1u << i_1))
@@ -120,9 +120,9 @@ kernel void main0(device DataBuf& _57 [[buffer(0)]], uint3 gl_GlobalInvocationID
         DrawMonoid param_4 = row;
         DrawMonoid param_5 = local[i_2];
         DrawMonoid m = combine_tag_monoid(param_4, param_5);
-        uint _178 = ix + i_2;
-        _57.data[_178].path_ix = m.path_ix;
-        _57.data[_178].clip_ix = m.clip_ix;
+        uint _177 = ix + i_2;
+        _57.data[_177].path_ix = m.path_ix;
+        _57.data[_177].clip_ix = m.clip_ix;
     }
 }
 

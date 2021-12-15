@@ -24,6 +24,7 @@ use crate::{Config, Runner, TestResult};
 use piet_gpu::stages::{self, DrawCode, DrawMonoid, DrawStage};
 
 const ELEMENT_SIZE: usize = 36;
+const ANNOTATED_SIZE: usize = 40;
 
 const ELEMENT_FILLCOLOR: u32 = 4;
 const ELEMENT_FILLLINGRADIENT: u32 = 5;
@@ -37,7 +38,8 @@ struct DrawTestData {
 
 pub unsafe fn draw_test(runner: &mut Runner, config: &Config) -> TestResult {
     let mut result = TestResult::new("draw");
-    let n_tag: u64 = config.size.choose(1 << 12, 1 << 20, 1 << 24);
+    // TODO: implement large scan and set large to 1 << 24
+    let n_tag: u64 = config.size.choose(1 << 12, 1 << 20, 1 << 22);
     let data = DrawTestData::new(n_tag);
     let stage_config = data.get_config();
 
@@ -99,16 +101,18 @@ impl DrawTestData {
 
         // Layout of memory
         let drawmonoid_alloc = 0;
+        let anno_alloc = drawmonoid_alloc + 8 * n_tags;
         let stage_config = stages::Config {
             n_elements: n_tags as u32,
-            drawmonoid_alloc,
+            anno_alloc: anno_alloc as u32,
+            drawmonoid_alloc: drawmonoid_alloc as u32,
             ..Default::default()
         };
         stage_config
     }
 
     fn memory_size(&self) -> u64 {
-        8 + self.tags.len() as u64 * 8
+        (8 + self.tags.len() * (8 + ANNOTATED_SIZE)) as u64
     }
 
     fn fill_scene(&self, buf: &mut BufWrite) {
@@ -139,8 +143,8 @@ impl DrawTestData {
     fn reduce_tag(tag: u32) -> (u32, u32) {
         match tag {
             ELEMENT_FILLCOLOR | ELEMENT_FILLLINGRADIENT | ELEMENT_FILLIMAGE => (1, 0),
-            ELEMENT_BEGINCLIP => (1, 1),
-            ELEMENT_ENDCLIP => (0, 1),
+            ELEMENT_BEGINCLIP | ELEMENT_ENDCLIP => (1, 1),
+            // TODO: ENDCLIP will become (0, 1)
             _ => (0, 0),
         }
     }

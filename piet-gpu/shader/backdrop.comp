@@ -87,8 +87,8 @@ void main() {
     // Prefix sum of sh_row_count
     for (uint i = 0; i < LG_BACKDROP_WG; i++) {
         barrier();
-        if (gl_LocalInvocationID.y == 0 && th_ix >= (1 << i)) {
-            row_count += sh_row_count[th_ix - (1 << i)];
+        if (gl_LocalInvocationID.y == 0 && th_ix >= (1u << i)) {
+            row_count += sh_row_count[th_ix - (1u << i)];
         }
         barrier();
         if (gl_LocalInvocationID.y == 0) {
@@ -102,7 +102,7 @@ void main() {
         // Binary search to find element
         uint el_ix = 0;
         for (uint i = 0; i < LG_BACKDROP_WG; i++) {
-            uint probe = el_ix + ((BACKDROP_WG / 2) >> i);
+            uint probe = el_ix + (uint(BACKDROP_WG / 2) >> i);
             if (row >= sh_row_count[probe - 1]) {
                 el_ix = probe;
             }

@@ -100,6 +100,8 @@ void main() {
     case PathSeg_Cubic:
         PathCubic cubic = PathSeg_Cubic_read(conf.pathseg_alloc, ref);
 
+        // Affine transform is now applied in pathseg
+        /*
         uint trans_ix = cubic.trans_ix;
         if (trans_ix > 0) {
             TransformSegRef trans_ref = TransformSegRef(conf.trans_alloc.offset + (trans_ix - 1) * TransformSeg_size);
@@ -109,6 +111,7 @@ void main() {
             cubic.p2 = trans.mat.xy * cubic.p2.x + trans.mat.zw * cubic.p2.y + trans.translate;
             cubic.p3 = trans.mat.xy * cubic.p3.x + trans.mat.zw * cubic.p3.y + trans.translate;
         }
+        */
 
         vec2 err_v = 3.0 * (cubic.p2 - cubic.p1) + cubic.p0 - cubic.p3;
         float err = err_v.x * err_v.x + err_v.y * err_v.y;
