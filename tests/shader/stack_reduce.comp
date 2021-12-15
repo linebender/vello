@@ -1,0 +1,66 @@
+// SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
+
+// The reduction phase for the stack monoid
+
+#version 450
+
+// Currently N_SEQ is hardcoded at 1
+#define LG_WG_SIZE 9
+#define WG_SIZE (1 << LG_WG_SIZE)
+#define PART_SIZE WG_SIZE
+
+layout(local_size_x = WG_SIZE, local_size_y = 1) in;
+
+// The bicyclic monoid
+struct Bic {
+    uint a;
+    uint b;
+};
+
+Bic bic_combine(Bic x, Bic y) {
+    uint m = min(x.b, y.a);
+    return Bic(x.a + y.a - m, x.b + y.b - m);
+}
+
+layout(binding = 0) readonly buffer InBuf {
+    uint[] inbuf;
+};
+
+layout(binding = 1) buffer OutBuf {
+    Bic[] outbuf;
+};
+
+layout(binding = 2) buffer StackBuf {
+    uint[] stack;
+};
+
+shared Bic sh_bic[WG_SIZE];
+
+void main() {
+    uint inp = inbuf[gl_GlobalInvocationID.x];
+    // reverse scan of bicyclic semigroup
+    Bic bic = Bic(1 - inp, inp);
+    sh_bic[gl_LocalInvocationID.x] = bic;
+    for (uint i = 0; i < LG_WG_SIZE; i++) {
+        barrier();
+        if (gl_LocalInvocationID.x + (1u << i) < WG_SIZE) {
+            Bic other = sh_bic[gl_LocalInvocationID.x + (1u << i)];
+            bic = bic_combine(bic, other);
+        }
+        barrier();
+        sh_bic[gl_LocalInvocationID.x] = bic;
+    }
+    if (gl_LocalInvocationID.x == 0) {
+        outbuf[gl_WorkGroupID.x] = bic;
+    }
+    barrier();
+    uint size = sh_bic[0].b;
+    bic = Bic(0, 0);
+    if (gl_LocalInvocationID.x + 1 < WG_SIZE) {
+        bic = sh_bic[gl_LocalInvocationID.x + 1];
+    }
+    // stream compaction based on exclusive scan
+    if (inp == 1 && bic.a == 0) {
+        stack[gl_WorkGroupID.x * PART_SIZE + size - 1 - bic.b] = gl_GlobalInvocationID.x;
+    }
+}

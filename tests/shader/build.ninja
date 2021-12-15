@@ -70,3 +70,7 @@ build gen/linkedlist.spv: glsl linkedlist.comp
 build gen/linkedlist.hlsl: hlsl gen/linkedlist.spv
 build gen/linkedlist.dxil: dxil gen/linkedlist.hlsl
 build gen/linkedlist.msl: msl gen/linkedlist.spv
+
+build gen/stack_reduce.spv: glsl stack_reduce.comp
+
+build gen/stack_leaf.spv: glsl stack_leaf.comp

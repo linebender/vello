@@ -24,6 +24,7 @@ mod message_passing;
 mod prefix;
 mod prefix_tree;
 mod runner;
+mod stack;
 mod test_result;
 
 #[cfg(feature = "piet-gpu")]
@@ -133,6 +134,9 @@ fn main() {
                 ));
             }
             report(&linkedlist::run_linkedlist_test(&mut runner, &config));
+        }
+        if config.groups.matches("stack") {
+            report(&stack::run_stack_test(&mut runner, &config));
         }
         #[cfg(feature = "piet-gpu")]
         if config.groups.matches("piet") {
