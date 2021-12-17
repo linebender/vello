@@ -4,10 +4,10 @@
 
 #version 450
 
-// Currently N_SEQ is hardcoded at 1
-#define LG_WG_SIZE 9
+#define N_SEQ 4
+#define LG_WG_SIZE 7
 #define WG_SIZE (1 << LG_WG_SIZE)
-#define PART_SIZE WG_SIZE
+#define PART_SIZE (WG_SIZE * N_SEQ)
 
 layout(local_size_x = WG_SIZE, local_size_y = 1) in;
 
@@ -37,9 +37,15 @@ layout(binding = 2) buffer StackBuf {
 shared Bic sh_bic[WG_SIZE];
 
 void main() {
-    uint inp = inbuf[gl_GlobalInvocationID.x];
+    uint inp[N_SEQ];
+    inp[0] = inbuf[gl_GlobalInvocationID.x * N_SEQ];
     // reverse scan of bicyclic semigroup
-    Bic bic = Bic(1 - inp, inp);
+    Bic bic = Bic(1 - inp[0], inp[0]);
+    for (uint i = 1; i < N_SEQ; i++) {
+        inp[i] = inbuf[gl_GlobalInvocationID.x * N_SEQ + i];
+        Bic other = Bic(1 - inp[i], inp[i]);
+        bic = bic_combine(bic, other);
+    }
     sh_bic[gl_LocalInvocationID.x] = bic;
     for (uint i = 0; i < LG_WG_SIZE; i++) {
         barrier();
@@ -60,7 +66,13 @@ void main() {
         bic = sh_bic[gl_LocalInvocationID.x + 1];
     }
     // stream compaction based on exclusive scan
-    if (inp == 1 && bic.a == 0) {
-        stack[gl_WorkGroupID.x * PART_SIZE + size - 1 - bic.b] = gl_GlobalInvocationID.x;
+    uint out_ix = gl_WorkGroupID.x * PART_SIZE + size - bic.b;
+    for (uint i = N_SEQ; i > 0; i--) {
+        if (inp[i - 1] == 1 && bic.a == 0) {
+            out_ix--;
+            stack[out_ix] = gl_GlobalInvocationID.x * N_SEQ + i - 1;
+        }
+        Bic other = Bic(1 - inp[i - 1], inp[i - 1]);
+        bic = bic_combine(other, bic);
     }
 }
