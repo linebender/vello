@@ -153,41 +153,7 @@ impl MtlInstance {
     pub fn device(&self, _surface: Option<&MtlSurface>) -> Result<MtlDevice, Error> {
         if let Some(device) = metal::Device::system_default() {
             let cmd_queue = device.new_command_queue();
-            let is_mac = device.supports_feature_set(MTLFeatureSet::macOS_GPUFamily1_v1);
-            let is_ios = device.supports_feature_set(MTLFeatureSet::iOS_GPUFamily1_v1);
-            let version = NSOperatingSystemVersion::get();
-
-            let use_staging_buffers =
-                if (is_mac && version.at_least(10, 15)) || (is_ios && version.at_least(13, 0)) {
-                    !device.has_unified_memory()
-                } else {
-                    !device.is_low_power()
-                };
-            // TODO: these are conservative; we need to derive these from
-            // supports_feature_set queries.
-            let gpu_info = GpuInfo {
-                has_descriptor_indexing: false,
-                has_subgroups: false,
-                subgroup_size: None,
-                // The workgroup limits are taken from the minimum of a desktop installation;
-                // we don't support iOS right now, but in case of testing on those devices it might
-                // need to change these (or just queried properly).
-                workgroup_limits: WorkgroupLimits {
-                    max_size: [1024, 1024, 64],
-                    max_invocations: 1024,
-                },
-                has_memory_model: false,
-                use_staging_buffers,
-            };
-            let helpers = Arc::new(Helpers {
-                clear_pipeline: clear::make_clear_pipeline(&device),
-            });
-            Ok(MtlDevice {
-                device,
-                cmd_queue: Arc::new(Mutex::new(cmd_queue)),
-                gpu_info,
-                helpers,
-            })
+            Ok(MtlDevice::new_from_raw_mtl(device, cmd_queue))
         } else {
             Err("can't create system default Metal device".into())
         }
@@ -209,6 +175,46 @@ impl MtlInstance {
             n_drawables,
             drawable_ix: 0,
         })
+    }
+}
+
+impl MtlDevice {
+    pub fn new_from_raw_mtl(device: metal::Device, cmd_queue: metal::CommandQueue) -> MtlDevice {
+        let is_mac = device.supports_feature_set(MTLFeatureSet::macOS_GPUFamily1_v1);
+        let is_ios = device.supports_feature_set(MTLFeatureSet::iOS_GPUFamily1_v1);
+        let version = NSOperatingSystemVersion::get();
+
+        let use_staging_buffers =
+            if (is_mac && version.at_least(10, 15)) || (is_ios && version.at_least(13, 0)) {
+                !device.has_unified_memory()
+            } else {
+                !device.is_low_power()
+            };
+        // TODO: these are conservative; we need to derive these from
+        // supports_feature_set queries.
+        let gpu_info = GpuInfo {
+            has_descriptor_indexing: false,
+            has_subgroups: false,
+            subgroup_size: None,
+            // The workgroup limits are taken from the minimum of a desktop installation;
+            // we don't support iOS right now, but in case of testing on those devices it might
+            // need to change these (or just queried properly).
+            workgroup_limits: WorkgroupLimits {
+                max_size: [1024, 1024, 64],
+                max_invocations: 1024,
+            },
+            has_memory_model: false,
+            use_staging_buffers,
+        };
+        let helpers = Arc::new(Helpers {
+            clear_pipeline: clear::make_clear_pipeline(&device),
+        });
+        MtlDevice {
+            device,
+            cmd_queue: Arc::new(Mutex::new(cmd_queue)),
+            gpu_info,
+            helpers,
+        }
     }
 }
 

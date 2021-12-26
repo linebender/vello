@@ -208,6 +208,11 @@ impl Instance {
 // but not doing so lets us diverge more easily (at the moment, the divergence is
 // missing functionality).
 impl Device {
+    #[cfg(target_os = "macos")]
+    pub fn new_from_raw_mtl(device: &::metal::DeviceRef, queue: &::metal::CommandQueueRef) -> Device {
+        Device::Mtl(metal::MtlDevice::new_from_raw_mtl(device.to_owned(), queue.to_owned()))
+    }
+
     pub fn query_gpu_info(&self) -> GpuInfo {
         mux_match! { self;
             Device::Vk(d) => d.query_gpu_info(),
