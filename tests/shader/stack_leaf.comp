@@ -4,11 +4,11 @@
 
 #version 450
 
-#define LG_N_SEQ 0
+#define LG_N_SEQ 3
 #define N_SEQ (1 << LG_N_SEQ)
-#define LG_WG_SIZE 9
+#define LG_WG_SIZE 6
 #define WG_SIZE (1 << LG_WG_SIZE)
-#define PART_SIZE WG_SIZE
+#define PART_SIZE (WG_SIZE * N_SEQ)
 
 layout(local_size_x = WG_SIZE, local_size_y = 1) in;
 
@@ -160,6 +160,7 @@ void main() {
         last_b = bic.b;
     }
     sh_bitmaps[th] = bitmap;
+
     // forward scan links to nonempty bitmaps
     uint link = 0;
     if (bitmap != 0) {
@@ -169,7 +170,7 @@ void main() {
     for (uint i = 0; i < LG_WG_SIZE; i++) {
         barrier();
         if (th >= (1u << i)) {
-            link = max(link, sh_link(th - (1u << i)));
+            link = max(link, sh_link[th - (1u << i)]);
         }
         barrier();
         sh_link[th] = link;
@@ -187,24 +188,24 @@ void main() {
     }
     // ix is the largest value such that sp < sh_stack[ix] (if any)
     uint b = sh_stack[ix];
-    uint loc_stack[N_SEQ];
+    uint local_stack[N_SEQ];
     for (uint i = 0; i < N_SEQ; i++) {
         // Probably not really necessary, but avoid UB
-        loc_stack[i] = 0;
+        local_stack[i] = 0;
     }
     // Copy stack values sequentially
     uint i = 0;
     while (sp + i < b) {
-        loc_stack[i] = stack[ix * PART_SIZE + b - (sp + i) - 1];
+        local_stack[N_SEQ - 1 - i] = stack[ix * PART_SIZE + b - (sp + i) - 1];
+        i++;
         if (i == N_SEQ) {
             break;
         }
-        i++;
         if (sp + i == b) {
             // find previous nonempty slice
             uint bits = sh_bitmaps[ix / N_SEQ] & ((1 << (ix % N_SEQ)) - 1);
             if (bits == 0) {
-                ix = search_link[max(ix / N_SEQ, 1) - 1];
+                ix = sh_link[max(ix / N_SEQ, 1) - 1];
             } else {
                 ix = (ix & -N_SEQ) + findMSB(bits);
             }
@@ -213,7 +214,7 @@ void main() {
     }
     barrier();
     for (uint i = 0; i < N_SEQ; i++) {
-        sh_stack[i] = loc_stack[i];
+        sh_stack[th * N_SEQ + i] = local_stack[i];
     }
 #else
     // binary search in stack
@@ -239,7 +240,7 @@ void main() {
     bitmap = inp << (N_SEQ - 1);
     for (uint i = N_SEQ - 1; i > 0; i--) {
         inp = inbuf[gl_GlobalInvocationID.x * N_SEQ + i - 1];
-        if (inp == 1 && bic.a = 0) {
+        if (inp == 1 && bic.a == 0) {
             bitmap |= 1u << (i - 1);
         }
         Bic other = Bic(1 - inp, inp);
@@ -296,7 +297,7 @@ void main() {
                 if (int(ix) >= 0) {
                     uint bits = sh_bitmaps[ix / N_SEQ] & ((1 << (ix % N_SEQ)) - 1);
                     if (bits == 0) {
-                        ix = search_link[ix / N_SEQ];
+                        ix = sh_link[ix / N_SEQ];
                     } else {
                         ix = (ix & -N_SEQ) + findMSB(bits);
                     }
