@@ -160,6 +160,8 @@ pub trait Device: Sized {
 }
 
 pub trait CmdBuf<D: Device> {
+    type ComputeEncoder;
+
     unsafe fn begin(&mut self);
 
     unsafe fn finish(&mut self);
@@ -231,6 +233,8 @@ pub trait CmdBuf<D: Device> {
 
     /// End a section opened by `begin_debug_label`.
     unsafe fn end_debug_label(&mut self) {}
+
+    unsafe fn new_compute_encoder(&mut self) -> Self::ComputeEncoder;
 }
 
 /// A builder for descriptor sets with more complex layouts.
@@ -251,4 +255,17 @@ pub trait DescriptorSetBuilder<D: Device> {
     /// we should have a way to vary the sampler.
     fn add_textures(&mut self, images: &[&D::Image]);
     unsafe fn build(self, device: &D, pipeline: &D::Pipeline) -> Result<D::DescriptorSet, Error>;
+}
+
+pub trait ComputeEncoder<D: Device> {
+    unsafe fn dispatch(
+        &mut self,
+        pipeline: &D::Pipeline,
+        descriptor_set: &D::DescriptorSet,
+        workgroup_count: (u32, u32, u32),
+        workgroup_size: (u32, u32, u32),
+    );
+
+    // Question: should be self?
+    unsafe fn finish(&mut self);
 }

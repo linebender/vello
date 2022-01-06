@@ -20,12 +20,16 @@
 
 use std::{ffi::CStr, ptr::null_mut};
 
-use cocoa_foundation::{base::id, foundation::NSUInteger};
-use metal::DeviceRef;
+use cocoa_foundation::{
+    base::id,
+    foundation::{NSRange, NSUInteger},
+};
+use metal::{DeviceRef, MTLStorageMode};
 use objc::{class, msg_send, sel, sel_impl};
 
 pub struct CounterSampleBuffer {
     id: id,
+    count: u64,
 }
 
 pub struct CounterSet {
@@ -43,8 +47,15 @@ impl Clone for CounterSampleBuffer {
         unsafe {
             CounterSampleBuffer {
                 id: msg_send![self.id, retain],
+                count: self.count,
             }
         }
+    }
+}
+
+impl CounterSampleBuffer {
+    pub fn id(&self) -> id {
+        self.id
     }
 }
 
@@ -81,6 +92,10 @@ impl CounterSampleBuffer {
             let count = count as NSUInteger;
             let () = msg_send![descriptor, setSampleCount: count];
             let () = msg_send![descriptor, setCounterSet: counter_set.id];
+            let () = msg_send![
+                descriptor,
+                setStorageMode: MTLStorageMode::Shared as NSUInteger
+            ];
             let mut error: id = null_mut();
             let buf: id = msg_send![device, newCounterSampleBufferWithDescriptor: descriptor error: &mut error];
             let () = msg_send![descriptor, release];
@@ -88,11 +103,21 @@ impl CounterSampleBuffer {
                 let () = msg_send![error, release];
                 return None;
             }
-            Some(CounterSampleBuffer { id: buf })
+            Some(CounterSampleBuffer { id: buf, count })
         }
     }
 
-    pub fn id(&self) -> id {
-        self.id
+    // Read the timestamps.
+    //
+    // Safety: the lifetime of the returned slice is wrong, it's actually autoreleased.
+    pub unsafe fn resolve(&self) -> &[u64] {
+        let range = NSRange::new(0, self.count);
+        let data: id = msg_send![self.id, resolveCounterRange: range];
+        if data.is_null() {
+            &[]
+        } else {
+            let bytes: *const u64 = msg_send![data, bytes];
+            std::slice::from_raw_parts(bytes, self.count as usize)
+        }
     }
 }

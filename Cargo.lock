@@ -921,6 +921,7 @@ dependencies = [
  "block",
  "bytemuck",
  "cocoa-foundation",
+ "foreign-types",
  "metal",
  "objc",
  "raw-window-handle",

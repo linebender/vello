@@ -24,6 +24,7 @@ use std::sync::{Arc, Mutex};
 use block::Block;
 use cocoa_foundation::base::id;
 use cocoa_foundation::foundation::{NSInteger, NSUInteger};
+use foreign_types::ForeignType;
 use objc::rc::autoreleasepool;
 use objc::runtime::{Object, BOOL, YES};
 use objc::{class, msg_send, sel, sel_impl};
@@ -36,6 +37,8 @@ use crate::{BufferUsage, Error, GpuInfo, ImageFormat, MapMode, WorkgroupLimits};
 
 use util::*;
 
+use self::timer::{CounterSampleBuffer, CounterSet};
+
 pub struct MtlInstance;
 
 pub struct MtlDevice {
@@ -43,6 +46,18 @@ pub struct MtlDevice {
     cmd_queue: Arc<Mutex<metal::CommandQueue>>,
     gpu_info: GpuInfo,
     helpers: Arc<Helpers>,
+    timer_set: Option<CounterSet>,
+    counter_style: CounterStyle,
+}
+
+/// Type of counter sampling.
+///
+/// See https://developer.apple.com/documentation/metal/counter_sampling/sampling_gpu_data_into_counter_sample_buffers
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CounterStyle {
+    None,
+    Stage,
+    Command,
 }
 
 pub struct MtlSurface {
@@ -85,6 +100,7 @@ pub struct CmdBuf {
     helpers: Arc<Helpers>,
     cur_encoder: Encoder,
     time_calibration: Arc<Mutex<TimeCalibration>>,
+    counter_style: CounterStyle,
 }
 
 enum Encoder {
@@ -101,7 +117,7 @@ struct TimeCalibration {
     gpu_end_ts: u64,
 }
 
-pub struct QueryPool;
+pub struct QueryPool(Option<CounterSampleBuffer>);
 
 pub struct Pipeline(metal::ComputePipelineState);
 
@@ -116,6 +132,10 @@ pub struct DescriptorSet {
 
 struct Helpers {
     clear_pipeline: metal::ComputePipelineState,
+}
+
+pub struct ComputeEncoder {
+    raw: metal::ComputeCommandEncoder,
 }
 
 impl MtlInstance {
@@ -228,15 +248,22 @@ impl MtlDevice {
             clear_pipeline: clear::make_clear_pipeline(&device),
         });
         // Timer stuff
-        if let Some(timer_set) = timer::CounterSet::get_timer_counter_set(&device) {
-            let timer = timer::CounterSampleBuffer::new(&device, 4, &timer_set);
-        }
+        let timer_set = CounterSet::get_timer_counter_set(&device);
+        let counter_style = if timer_set.is_some() {
+            // TODO: M1 is stage style, but should do proper runtime detection.
+            CounterStyle::Stage
+        } else {
+            CounterStyle::None
+        };
+
         MtlDevice {
             device,
             cmd_queue: Arc::new(Mutex::new(cmd_queue)),
             gpu_info,
             helpers,
-        }
+            timer_set,
+            counter_style,
+    }
     }
 
     pub fn cmd_buf_from_raw_mtl(&self, raw_cmd_buf: metal::CommandBuffer) -> CmdBuf {
@@ -244,7 +271,13 @@ impl MtlDevice {
         let helpers = self.helpers.clone();
         let cur_encoder = Encoder::None;
         let time_calibration = Default::default();
-        CmdBuf { cmd_buf, helpers, cur_encoder, time_calibration }
+        CmdBuf {
+            cmd_buf,
+            helpers,
+            cur_encoder,
+            time_calibration,
+            counter_style: self.counter_style,
+        }
     }
 
     pub fn image_from_raw_mtl(&self, texture: metal::Texture, width: u32, height: u32) -> Image {
@@ -364,6 +397,7 @@ impl crate::backend::Device for MtlDevice {
             helpers,
             cur_encoder,
             time_calibration,
+            counter_style: self.counter_style,
         })
     }
 
@@ -372,12 +406,19 @@ impl crate::backend::Device for MtlDevice {
     }
 
     fn create_query_pool(&self, n_queries: u32) -> Result<Self::QueryPool, Error> {
-        // TODO
-        Ok(QueryPool)
+        if let Some(timer_set) = &self.timer_set {
+            let pool = CounterSampleBuffer::new(&self.device, n_queries as u64, timer_set)
+                .ok_or("error creating timer query pool")?;
+            return Ok(QueryPool(Some(pool)));
+        }
+        Ok(QueryPool(None))
     }
 
     unsafe fn fetch_query_pool(&self, pool: &Self::QueryPool) -> Result<Vec<f64>, Error> {
-        // TODO
+        if let Some(raw) = &pool.0 {
+            let resolved = raw.resolve();
+            println!("resolved = {:?}", resolved);
+        }
         Ok(Vec::new())
     }
 
@@ -505,6 +546,8 @@ impl crate::backend::Device for MtlDevice {
 }
 
 impl crate::backend::CmdBuf<MtlDevice> for CmdBuf {
+    type ComputeEncoder = ComputeEncoder;
+
     unsafe fn begin(&mut self) {}
 
     unsafe fn finish(&mut self) {
@@ -647,12 +690,39 @@ impl crate::backend::CmdBuf<MtlDevice> for CmdBuf {
         );
     }
 
-    unsafe fn reset_query_pool(&mut self, pool: &QueryPool) {}
+    unsafe fn reset_query_pool(&mut self, _pool: &QueryPool) {}
 
     unsafe fn write_timestamp(&mut self, pool: &QueryPool, query: u32) {
-        // TODO
-        // This really a PITA because it's pretty different than Vulkan.
-        // See https://developer.apple.com/documentation/metal/counter_sampling
+        if let Some(buf) = &pool.0 {
+            if matches!(self.cur_encoder, Encoder::None) {
+                self.cur_encoder =
+                    Encoder::Compute(self.cmd_buf.new_compute_command_encoder().to_owned());
+            }
+            let sample_index = query as NSUInteger;
+            if self.counter_style == CounterStyle::Command {
+                match &self.cur_encoder {
+                    Encoder::Compute(e) => {
+                        let () = msg_send![e.as_ptr(), sampleCountersInBuffer: buf.id() atSampleIndex: sample_index withBarrier: true];
+                    }
+                    Encoder::None => unreachable!(),
+                    _ => todo!(),
+                }
+            } else if self.counter_style == CounterStyle::Stage {
+                match &self.cur_encoder {
+                    Encoder::Compute(e) => {
+                        println!("here we are");
+                    }
+                    _ => (),
+                }
+            }
+        }
+    }
+
+    unsafe fn new_compute_encoder(&mut self) -> Self::ComputeEncoder {
+        let raw = self.cmd_buf.new_compute_command_encoder().to_owned();
+        ComputeEncoder {
+            raw
+        }
     }
 }
 
@@ -688,6 +758,43 @@ impl CmdBuf {
             Encoder::Blit(e) => e.end_encoding(),
             Encoder::None => (),
         }
+    }
+}
+
+impl crate::backend::ComputeEncoder<MtlDevice> for ComputeEncoder {
+    unsafe fn dispatch(
+        &mut self,
+        pipeline: &Pipeline,
+        descriptor_set: &DescriptorSet,
+        workgroup_count: (u32, u32, u32),
+        workgroup_size: (u32, u32, u32),
+    ) {
+        self.raw.set_compute_pipeline_state(&pipeline.0);
+        let mut buf_ix = 0;
+        for buffer in &descriptor_set.buffers {
+            self.raw.set_buffer(buf_ix, Some(&buffer.buffer), 0);
+            buf_ix += 1;
+        }
+        let mut img_ix = buf_ix;
+        for image in &descriptor_set.images {
+            self.raw.set_texture(img_ix, Some(&image.texture));
+            img_ix += 1;
+        }
+        let workgroup_count = metal::MTLSize {
+            width: workgroup_count.0 as u64,
+            height: workgroup_count.1 as u64,
+            depth: workgroup_count.2 as u64,
+        };
+        let workgroup_size = metal::MTLSize {
+            width: workgroup_size.0 as u64,
+            height: workgroup_size.1 as u64,
+            depth: workgroup_size.2 as u64,
+        };
+        self.raw.dispatch_thread_groups(workgroup_count, workgroup_size);
+    }
+
+    unsafe fn finish(&mut self) {
+        self.raw.end_encoding();
     }
 }
 

@@ -100,6 +100,14 @@ mux_device_enum! {
 QueryPool }
 mux_device_enum! { Sampler }
 
+mux_enum! {
+    pub enum ComputeEncoder {
+        Vk(<crate::vulkan::CmdBuf as crate::backend::CmdBuf<vulkan::VkDevice>>::ComputeEncoder),
+        Dx12(<crate::dx12::Dx12Device as crate::backend::CmdBuf<dx12::Dx12Device>>::ComputeEncoder),
+        Mtl(<crate::metal::CmdBuf as crate::backend::CmdBuf<metal::MtlDevice>>::ComputeEncoder),
+    }
+}
+
 /// The code for a shader, either as source or intermediate representation.
 pub enum ShaderCode<'a> {
     /// SPIR-V (binary intermediate representation)
