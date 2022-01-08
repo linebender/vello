@@ -41,7 +41,7 @@ mod metal;
 /// The common error type for the crate.
 ///
 /// This keeps things simple and can be expanded later.
-pub type Error = Box<dyn std::error::Error>;
+pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
 bitflags! {
     /// Options when creating an instance.

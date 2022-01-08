@@ -15,7 +15,9 @@ use smallvec::SmallVec;
 
 use crate::{mux, BackendType, BufWrite, MapMode};
 
-use crate::{BindType, BufferUsage, Error, GpuInfo, ImageLayout, SamplerParams};
+use crate::{
+    BindType, BufferUsage, Error, GpuInfo, ImageLayout, Instance, SamplerParams, Surface, Swapchain,
+};
 
 pub use crate::mux::{DescriptorSet, Fence, Pipeline, QueryPool, Sampler, Semaphore, ShaderCode};
 
@@ -146,6 +148,17 @@ impl Session {
             pending: Default::default(),
             staging_cmd_buf: Default::default(),
         }))
+    }
+
+    /// Create a new swapchain.
+    pub unsafe fn swapchain(
+        &self,
+        instance: &Instance,
+        width: usize,
+        height: usize,
+        surface: &Surface,
+    ) -> Result<Swapchain, Error> {
+        instance.swapchain(width, height, &self.0.device, surface)
     }
 
     /// Create a new command buffer.
