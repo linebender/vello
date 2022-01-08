@@ -5,8 +5,7 @@
 //! Requires the [cargo-apk] tool.
 //! [cargo-apk]: https://crates.io/crates/cargo-apk
 
-use raw_window_handle::android::AndroidHandle;
-use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
+use raw_window_handle::{AndroidNdkHandle, HasRawWindowHandle, RawWindowHandle};
 
 use ndk::native_window::NativeWindow;
 use ndk_glue::Event;
@@ -27,7 +26,7 @@ fn main() {
 }
 
 struct MyHandle {
-    handle: AndroidHandle,
+    handle: AndroidNdkHandle,
 }
 
 // State required to render and present the contents
@@ -83,14 +82,14 @@ fn get_handle(window: &NativeWindow) -> MyHandle {
         window.width(),
         window.height()
     );
-    let mut handle = AndroidHandle::empty();
+    let mut handle = AndroidNdkHandle::empty();
     handle.a_native_window = window.ptr().as_ptr() as *mut std::ffi::c_void;
     MyHandle { handle }
 }
 
 unsafe impl HasRawWindowHandle for MyHandle {
     fn raw_window_handle(&self) -> RawWindowHandle {
-        RawWindowHandle::Android(self.handle)
+        RawWindowHandle::AndroidNdk(self.handle)
     }
 }
 

@@ -26,20 +26,20 @@ path = "../piet-gpu-hal"
 path = "../piet-gpu-types"
 
 [dependencies]
-piet = "0.2.0"
-png = "0.16.2"
-rand = "0.7.3"
-roxmltree = "0.13"
-winit = "0.25"
-clap = "2.33"
+piet = "0.5.0"
+png = "0.17.2"
+rand = "0.8.4"
+roxmltree = "0.14.1"
+winit = "0.26.1"
+clap = "3.0.5"
 swash = "0.1.4"
 bytemuck = { version = "1.7.2", features = ["derive"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
-ndk = "0.3"
-ndk-sys = "0.2.0"
-ndk-glue = "0.3"
-raw-window-handle = "0.3"
+ndk = "0.6.0"
+ndk-sys = "0.3.0"
+ndk-glue = "0.6.0"
+raw-window-handle = "0.4.2"
 
 [package.metadata.android.application]
 debuggable = true

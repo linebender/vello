@@ -10,10 +10,10 @@ edition = "2021"
 default = ["piet-gpu"]
 
 [dependencies]
-clap = "2.33"
+clap = "3.0.5"
 bytemuck = "1.7.2"
-kurbo = "0.7.1"
-rand = "0.7.3"
+kurbo = "0.8.3"
+rand = "0.8.4"
 
 [dependencies.piet-gpu-hal]
 path = "../piet-gpu-hal"

@@ -19,14 +19,9 @@ const HEIGHT: usize = 1536;
 
 fn main() -> Result<(), Error> {
     let matches = App::new("piet-gpu test")
-        .arg(Arg::with_name("INPUT").index(1))
-        .arg(Arg::with_name("flip").short("f").long("flip"))
-        .arg(
-            Arg::with_name("scale")
-                .short("s")
-                .long("scale")
-                .takes_value(true),
-        )
+        .arg(Arg::new("INPUT").index(1))
+        .arg(Arg::new("flip").short('f').long("flip"))
+        .arg(Arg::new("scale").short('s').long("scale").takes_value(true))
         .get_matches();
 
     let event_loop = EventLoop::new();

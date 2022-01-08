@@ -92,7 +92,7 @@ pub unsafe fn draw_test(runner: &mut Runner, config: &Config) -> TestResult {
 impl DrawTestData {
     fn new(n: u64) -> DrawTestData {
         let mut rng = rand::thread_rng();
-        let tags = (0..n).map(|_| rng.gen_range(0, 12)).collect();
+        let tags = (0..n).map(|_| rng.gen_range(0..12)).collect();
         DrawTestData { tags }
     }
 

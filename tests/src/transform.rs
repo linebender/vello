@@ -89,12 +89,12 @@ impl AffineTestData {
         for _ in 0..n {
             loop {
                 let b = Affine::new([
-                    rng.gen_range(-3.0, 3.0),
-                    rng.gen_range(-3.0, 3.0),
-                    rng.gen_range(-3.0, 3.0),
-                    rng.gen_range(-3.0, 3.0),
-                    rng.gen_range(-3.0, 3.0),
-                    rng.gen_range(-3.0, 3.0),
+                    rng.gen_range(-3.0..3.0),
+                    rng.gen_range(-3.0..3.0),
+                    rng.gen_range(-3.0..3.0),
+                    rng.gen_range(-3.0..3.0),
+                    rng.gen_range(-3.0..3.0),
+                    rng.gen_range(-3.0..3.0),
                 ]);
                 if b.determinant().abs() >= 1.0 {
                     expected.push(b);

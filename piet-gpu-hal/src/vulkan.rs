@@ -159,7 +159,7 @@ impl VkInstance {
     ) -> Result<(VkInstance, Option<VkSurface>), Error> {
         unsafe {
             let app_name = CString::new("VkToy").unwrap();
-            let entry = Entry::new()?;
+            let entry = Entry::load()?;
 
             let mut layers = Layers::new(entry.enumerate_instance_layer_properties()?);
             if cfg!(debug_assertions) {
@@ -208,7 +208,9 @@ impl VkInstance {
                         vk::DebugUtilsMessageSeverityFlagsEXT::ERROR
                             | vk::DebugUtilsMessageSeverityFlagsEXT::WARNING,
                     )
-                    .message_type(vk::DebugUtilsMessageTypeFlagsEXT::all())
+                    .message_type(
+                        vk::DebugUtilsMessageTypeFlagsEXT::GENERAL | vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION |
+                    vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE)
                     .pfn_user_callback(Some(vulkan_debug_callback));
                 let dbg_loader = DebugUtils::new(&entry, &instance);
                 let dbg_callbk = dbg_loader

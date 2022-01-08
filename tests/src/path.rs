@@ -133,8 +133,8 @@ pub unsafe fn path_test(runner: &mut Runner, config: &Config) -> TestResult {
 }
 
 fn rand_point(rng: &mut ThreadRng) -> (f32, f32) {
-    let x = rng.gen_range(0.0, 100.0);
-    let y = rng.gen_range(0.0, 100.0);
+    let x = rng.gen_range(0.0..100.0);
+    let y = rng.gen_range(0.0..100.0);
     (x, y)
 }
 

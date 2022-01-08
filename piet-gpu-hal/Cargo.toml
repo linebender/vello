@@ -7,9 +7,9 @@ license = "MIT/Apache-2.0"
 edition = "2018"
 
 [dependencies]
-ash = "0.33"
-ash-window = "0.7"
-raw-window-handle = "0.3"
+ash = "0.35.0"
+ash-window = "0.9.0"
+raw-window-handle = "0.3.4"
 bitflags = "1.2.1"
 smallvec = "1.6.1"
 bytemuck = "1.7.2"
@@ -24,7 +24,7 @@ winapi = { version = "0.3.9", features = [
 wio = "0.2.2"
 
 [target.'cfg(target_os="macos")'.dependencies]
-metal = "0.22"
+metal = "0.23.1"
 objc = "0.2.5"
 block = "0.1.6"
 cocoa-foundation = "0.1"

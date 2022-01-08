@@ -3,9 +3,9 @@ use std::borrow::Cow;
 use crate::encoder::GlyphEncoder;
 use crate::stages::{Config, Transform};
 use crate::MAX_BLEND_STACK;
-use piet::kurbo::{Affine, Insets, PathEl, Point, Rect, Shape};
+use piet::kurbo::{Affine, Insets, PathEl, Point, Rect, Shape, Size};
 use piet::{
-    Color, Error, FixedGradient, ImageFormat, InterpolationMode, IntoBrush, RenderContext,
+    Color, Error, FixedGradient, Image, ImageFormat, InterpolationMode, IntoBrush, RenderContext,
     StrokeStyle,
 };
 
@@ -17,7 +17,14 @@ use crate::gradient::{LinearGradient, RampCache};
 use crate::text::Font;
 pub use crate::text::{PietGpuText, PietGpuTextLayout, PietGpuTextLayoutBuilder};
 
+#[derive(Clone)]
 pub struct PietGpuImage;
+
+impl Image for PietGpuImage {
+    fn size(&self) -> Size {
+        Size::new(0.0, 0.0)
+    }
+}
 
 pub struct PietGpuRenderContext {
     encoder: Encoder,
@@ -188,7 +195,7 @@ impl RenderContext for PietGpuRenderContext {
         }
     }
 
-    fn clear(&mut self, _color: Color) {}
+    fn clear(&mut self, _area: impl Into<Option<Rect>>, _color: Color) {}
 
     fn stroke(&mut self, shape: impl Shape, brush: &impl IntoBrush<Self>, width: f64) {
         self.encode_linewidth(width.abs() as f32);
@@ -325,6 +332,10 @@ impl RenderContext for PietGpuRenderContext {
         self.save()?;
         // Always try to restore the stack, even if `f` errored.
         f(self).and(self.restore())
+    }
+
+    fn capture_image_area(&mut self, _: impl Into<Rect>) -> Result<Self::Image, Error> {
+        todo!()
     }
 }
 

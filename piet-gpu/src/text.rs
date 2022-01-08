@@ -110,6 +110,10 @@ impl TextLayout for PietGpuTextLayout {
     fn text(&self) -> &str {
         ""
     }
+
+    fn trailing_whitespace_width(&self) -> f64 {
+        0.0
+    }
 }
 
 impl Font {

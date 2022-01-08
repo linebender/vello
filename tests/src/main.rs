@@ -42,42 +42,38 @@ pub use crate::test_result::TestResult;
 fn main() {
     let matches = App::new("piet-gpu-tests")
         .arg(
-            Arg::with_name("verbose")
-                .short("v")
+            Arg::new("verbose")
+                .short('v')
                 .long("verbose")
                 .help("Verbose reporting of results"),
         )
         .arg(
-            Arg::with_name("groups")
-                .short("g")
+            Arg::new("groups")
+                .short('g')
                 .long("groups")
                 .help("Groups to run")
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("size")
-                .short("s")
+            Arg::new("size")
+                .short('s')
                 .long("size")
                 .help("Size of tests")
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("n_iter")
-                .short("n")
+            Arg::new("n_iter")
+                .short('n')
                 .long("n_iter")
                 .help("Number of iterations")
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("verify_all")
+            Arg::new("verify_all")
                 .long("verify_all")
                 .help("Verify all iterations"),
         )
-        .arg(
-            Arg::with_name("dx12")
-                .long("dx12")
-                .help("Prefer DX12 backend"),
-        )
+        .arg(Arg::new("dx12").long("dx12").help("Prefer DX12 backend"))
         .get_matches();
     let style = if matches.is_present("verbose") {
         ReportStyle::Verbose

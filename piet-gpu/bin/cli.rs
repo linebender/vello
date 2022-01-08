@@ -217,14 +217,9 @@ fn trace_ptcl(buf: &[u32]) {
 
 fn main() -> Result<(), Error> {
     let matches = App::new("piet-gpu test")
-        .arg(Arg::with_name("INPUT").index(1))
-        .arg(Arg::with_name("flip").short("f").long("flip"))
-        .arg(
-            Arg::with_name("scale")
-                .short("s")
-                .long("scale")
-                .takes_value(true),
-        )
+        .arg(Arg::new("INPUT").index(1))
+        .arg(Arg::new("flip").short('f').long("flip"))
+        .arg(Arg::new("scale").short('s').long("scale").takes_value(true))
         .get_matches();
     let (instance, _) = Instance::new(None, InstanceFlags::default())?;
     unsafe {
@@ -294,7 +289,7 @@ fn main() -> Result<(), Error> {
         let ref mut w = BufWriter::new(file);
 
         let mut encoder = png::Encoder::new(w, WIDTH as u32, HEIGHT as u32);
-        encoder.set_color(png::ColorType::RGBA);
+        encoder.set_color(png::ColorType::Rgba);
         encoder.set_depth(png::BitDepth::Eight);
         let mut writer = encoder.write_header().unwrap();
 
