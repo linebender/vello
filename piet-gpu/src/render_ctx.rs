@@ -13,9 +13,10 @@ use piet_gpu_hal::BufWrite;
 use piet_gpu_types::encoder::{Encode, Encoder};
 use piet_gpu_types::scene::Element;
 
+pub use piet_parley::fount::{Library, LibraryBuilder};
+pub use piet_parley::{ParleyText, ParleyTextLayout, ParleyTextLayoutBuilder};
+
 use crate::gradient::{LinearGradient, RampCache};
-use crate::text::Font;
-pub use crate::text::{PietGpuText, PietGpuTextLayout, PietGpuTextLayoutBuilder};
 
 #[derive(Clone)]
 pub struct PietGpuImage;
@@ -30,7 +31,7 @@ pub struct PietGpuRenderContext {
     encoder: Encoder,
     elements: Vec<Element>,
     // Will probably need direct accesss to hal Device to create images etc.
-    inner_text: PietGpuText,
+    inner_text: ParleyText,
     stroke_width: f32,
     // We're tallying these cpu-side for expedience, but will probably
     // move this to some kind of readback from element processing.
@@ -78,11 +79,10 @@ struct ClipElement {
 const TOLERANCE: f64 = 0.25;
 
 impl PietGpuRenderContext {
-    pub fn new() -> PietGpuRenderContext {
+    pub fn new(library: &Library) -> PietGpuRenderContext {
         let encoder = Encoder::new();
         let elements = Vec::new();
-        let font = Font::new();
-        let inner_text = PietGpuText::new(font);
+        let inner_text = ParleyText::new(library);
         let stroke_width = -1.0;
         PietGpuRenderContext {
             encoder,
@@ -162,8 +162,8 @@ impl PietGpuRenderContext {
 impl RenderContext for PietGpuRenderContext {
     type Brush = PietGpuBrush;
     type Image = PietGpuImage;
-    type Text = PietGpuText;
-    type TextLayout = PietGpuTextLayout;
+    type Text = ParleyText;
+    type TextLayout = ParleyTextLayout;
 
     fn status(&mut self) -> Result<(), Error> {
         Ok(())
@@ -252,7 +252,7 @@ impl RenderContext for PietGpuRenderContext {
 
     fn draw_text(&mut self, layout: &Self::TextLayout, pos: impl Into<Point>) {
         self.encode_linewidth(-1.0);
-        layout.draw_text(self, pos.into());
+        super::text::draw_text(self, layout, pos.into());
     }
 
     fn save(&mut self) -> Result<(), Error> {

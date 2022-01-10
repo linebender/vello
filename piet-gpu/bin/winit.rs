@@ -2,7 +2,7 @@ use piet::kurbo::Point;
 use piet::{RenderContext, Text, TextAttribute, TextLayoutBuilder};
 use piet_gpu_hal::{CmdBuf, Error, ImageLayout, Instance, Session, SubmittedCmdBuf};
 
-use piet_gpu::{test_scenes, PietGpuRenderContext, Renderer};
+use piet_gpu::{test_scenes, LibraryBuilder, PietGpuRenderContext, Renderer};
 
 use clap::{App, Arg};
 
@@ -32,6 +32,14 @@ fn main() -> Result<(), Error> {
         })
         .with_resizable(false) // currently not supported
         .build(&event_loop)?;
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    let library = Library::default();
+    #[cfg(target_os = "linux")]
+    let library = {
+        let mut builder = LibraryBuilder::default();
+        builder.add_system_path("/usr/share/fonts")?;
+        builder.build()
+    };
 
     let (instance, surface) = Instance::new(Some(&window), Default::default())?;
     let mut info_string = "info".to_string();
@@ -89,7 +97,7 @@ fn main() -> Result<(), Error> {
                         }
                     }
 
-                    let mut ctx = PietGpuRenderContext::new();
+                    let mut ctx = PietGpuRenderContext::new(&library);
                     if let Some(input) = matches.value_of("INPUT") {
                         let mut scale = matches
                             .value_of("scale")

@@ -11,6 +11,10 @@ use crate::{PicoSvg, RenderContext, Vec2};
 
 const N_CIRCLES: usize = 0;
 
+// This is very much a hack to get things working.
+// On Windows, can set this to "c:\\Windows\\Fonts\\seguiemj.ttf" to get color emoji
+pub const FONT_DATA: &[u8] = include_bytes!("../third-party/Roboto-Regular.ttf");
+
 pub fn render_svg(rc: &mut impl RenderContext, filename: &str, scale: f64) {
     let xml_str = std::fs::read_to_string(filename).unwrap();
     let start = std::time::Instant::now();

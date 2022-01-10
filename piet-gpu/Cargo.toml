@@ -32,8 +32,9 @@ rand = "0.8.4"
 roxmltree = "0.14.1"
 winit = "0.26.1"
 clap = "3.0.5"
-swash = "0.1.4"
 bytemuck = { version = "1.7.2", features = ["derive"] }
+#piet-parley = { git = "https://github.com/dfrg/parley" }
+piet-parley = { path = "../../parley/piet-parley" }
 
 [target.'cfg(target_os = "android")'.dependencies]
 ndk = "0.6.0"

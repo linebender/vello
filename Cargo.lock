@@ -417,6 +417,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "00b0228411908ca8685dba7fc2cdd70ec9990a6e753e89b6ac91a84c40fbaf4b"
 
 [[package]]
+name = "fount"
+version = "0.1.0"
+source = "git+https://github.com/dfrg/fount#8f9259ef6b634c434f3dd9472f5200565e5dcd81"
+dependencies = [
+ "swash",
+]
+
+[[package]]
 name = "getrandom"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -827,6 +835,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "parley"
+version = "0.1.0"
+dependencies = [
+ "fount",
+ "swash",
+]
+
+[[package]]
 name = "percent-encoding"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -854,11 +870,11 @@ dependencies = [
  "piet",
  "piet-gpu-hal",
  "piet-gpu-types",
+ "piet-parley",
  "png",
  "rand",
  "raw-window-handle 0.4.2",
  "roxmltree",
- "swash",
  "winit",
 ]
 
@@ -907,6 +923,14 @@ version = "0.0.0"
 dependencies = [
  "half",
  "piet-gpu-derive",
+]
+
+[[package]]
+name = "piet-parley"
+version = "0.1.0"
+dependencies = [
+ "parley",
+ "piet",
 ]
 
 [[package]]
@@ -1103,8 +1127,7 @@ checksum = "73473c0e59e6d5812c5dfe2a064a6444949f089e20eec9a2e5506596494e4623"
 [[package]]
 name = "swash"
 version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a1bdb2004b76b5f5f3afe722d70b1aea160d2362cb7e40716a7106197ee7f82d"
+source = "git+https://github.com/dfrg/swash#d3f8bbfa5f96688ab94278db6f85e00ba383e3f8"
 dependencies = [
  "yazi",
  "zeno",

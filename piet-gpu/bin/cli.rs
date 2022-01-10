@@ -4,9 +4,8 @@ use std::path::Path;
 
 use clap::{App, Arg};
 
+use piet_gpu::{test_scenes, LibraryBuilder, PietGpuRenderContext, Renderer};
 use piet_gpu_hal::{BufferUsage, Error, Instance, InstanceFlags, Session};
-
-use piet_gpu::{test_scenes, PietGpuRenderContext, Renderer};
 
 const WIDTH: usize = 2048;
 const HEIGHT: usize = 1536;
@@ -221,6 +220,16 @@ fn main() -> Result<(), Error> {
         .arg(Arg::new("flip").short('f').long("flip"))
         .arg(Arg::new("scale").short('s').long("scale").takes_value(true))
         .get_matches();
+
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    let library = Library::default();
+    #[cfg(target_os = "linux")]
+    let library = {
+        let mut builder = LibraryBuilder::default();
+        builder.add_system_path("/usr/share/fonts")?;
+        builder.build()
+    };
+
     let (instance, _) = Instance::new(None, InstanceFlags::default())?;
     unsafe {
         let device = instance.device(None)?;
@@ -229,7 +238,7 @@ fn main() -> Result<(), Error> {
         let mut cmd_buf = session.cmd_buf()?;
         let query_pool = session.create_query_pool(8)?;
 
-        let mut ctx = PietGpuRenderContext::new();
+        let mut ctx = PietGpuRenderContext::new(&library);
         if let Some(input) = matches.value_of("INPUT") {
             let mut scale = matches
                 .value_of("scale")

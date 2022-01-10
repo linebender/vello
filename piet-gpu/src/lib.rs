@@ -8,6 +8,7 @@ mod text;
 
 use std::convert::TryInto;
 
+pub use piet_parley::fount::{Library, LibraryBuilder};
 pub use render_ctx::PietGpuRenderContext;
 
 use piet::kurbo::Vec2;
