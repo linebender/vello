@@ -16,8 +16,8 @@ mod macros;
 mod mux;
 
 pub use crate::mux::{
-    DescriptorSet, Device, Fence, Instance, Pipeline, QueryPool, Sampler, Semaphore, ShaderCode, Surface,
-    Swapchain,
+    DescriptorSet, Device, Fence, Instance, Pipeline, QueryPool, Sampler, Semaphore, ShaderCode,
+    Surface, Swapchain,
 };
 pub use bufwrite::BufWrite;
 pub use hub::{

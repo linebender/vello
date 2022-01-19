@@ -401,6 +401,33 @@ impl Session {
     pub fn backend_type(&self) -> BackendType {
         self.0.device.backend_type()
     }
+
+    #[cfg(target_os = "macos")]
+    pub unsafe fn cmd_buf_from_raw_mtl(&self, raw_cmd_buf: &::metal::CommandBufferRef) -> CmdBuf {
+        let cmd_buf = Some(self.0.device.cmd_buf_from_raw_mtl(raw_cmd_buf));
+        let resources = Vec::new();
+        // Expect client to do cleanup manually.
+        let session = Weak::new();
+        CmdBuf {
+            cmd_buf,
+            fence: None,
+            resources,
+            session,
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    pub unsafe fn image_from_raw_mtl(
+        &self,
+        raw_texture: &::metal::TextureRef,
+        width: u32,
+        height: u32,
+    ) -> Image {
+        let image = self.0.device.image_from_raw_mtl(raw_texture, width, height);
+        // Expect client to do cleanup manually.
+        let session = Weak::new();
+        Image(Arc::new(ImageInner { image, session }))
+    }
 }
 
 impl SessionInner {

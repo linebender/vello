@@ -1,4 +1,5 @@
 mod encoder;
+pub mod glyph_render;
 mod gradient;
 mod pico_svg;
 mod render_ctx;

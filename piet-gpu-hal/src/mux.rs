@@ -209,8 +209,35 @@ impl Instance {
 // missing functionality).
 impl Device {
     #[cfg(target_os = "macos")]
-    pub fn new_from_raw_mtl(device: &::metal::DeviceRef, queue: &::metal::CommandQueueRef) -> Device {
-        Device::Mtl(metal::MtlDevice::new_from_raw_mtl(device.to_owned(), queue.to_owned()))
+    pub fn new_from_raw_mtl(
+        device: &::metal::DeviceRef,
+        queue: &::metal::CommandQueueRef,
+    ) -> Device {
+        Device::Mtl(metal::MtlDevice::new_from_raw_mtl(
+            device.to_owned(),
+            queue.to_owned(),
+        ))
+    }
+
+    #[cfg(target_os = "macos")]
+    pub fn cmd_buf_from_raw_mtl(&self, raw_cmd_buf: &::metal::CommandBufferRef) -> CmdBuf {
+        // Note: this will cause problems if we support multiple back-ends on mac. But it will
+        // be a compile error;
+        let Device::Mtl(d) = self;
+        CmdBuf::Mtl(d.cmd_buf_from_raw_mtl(raw_cmd_buf.to_owned()))
+    }
+
+    #[cfg(target_os = "macos")]
+    pub fn image_from_raw_mtl(
+        &self,
+        raw_texture: &::metal::TextureRef,
+        width: u32,
+        height: u32,
+    ) -> Image {
+        // Note: this will cause problems if we support multiple back-ends on mac. But it will
+        // be a compile error;
+        let Device::Mtl(d) = self;
+        Image::Mtl(d.image_from_raw_mtl(raw_texture.to_owned(), width, height))
     }
 
     pub fn query_gpu_info(&self) -> GpuInfo {

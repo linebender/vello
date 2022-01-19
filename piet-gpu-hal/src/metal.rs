@@ -216,6 +216,20 @@ impl MtlDevice {
             helpers,
         }
     }
+
+    pub fn cmd_buf_from_raw_mtl(&self, raw_cmd_buf: metal::CommandBuffer) -> CmdBuf {
+        let cmd_buf = raw_cmd_buf;
+        let helpers = self.helpers.clone();
+        CmdBuf { cmd_buf, helpers }
+    }
+
+    pub fn image_from_raw_mtl(&self, texture: metal::Texture, width: u32, height: u32) -> Image {
+        Image {
+            texture,
+            width,
+            height,
+        }
+    }
 }
 
 impl crate::backend::Device for MtlDevice {
