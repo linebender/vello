@@ -30,7 +30,7 @@ use metal::{CGFloat, MTLFeatureSet};
 
 use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
 
-use crate::{BufferUsage, Error, GpuInfo, MapMode, WorkgroupLimits};
+use crate::{BufferUsage, Error, GpuInfo, ImageFormat, MapMode, WorkgroupLimits};
 
 use util::*;
 
@@ -279,14 +279,23 @@ impl crate::backend::Device for MtlDevice {
         Ok(())
     }
 
-    unsafe fn create_image2d(&self, width: u32, height: u32) -> Result<Self::Image, Error> {
+    unsafe fn create_image2d(
+        &self,
+        width: u32,
+        height: u32,
+        format: ImageFormat,
+    ) -> Result<Self::Image, Error> {
         let desc = metal::TextureDescriptor::new();
         desc.set_width(width as u64);
         desc.set_height(height as u64);
         // These are defaults so don't need to be explicitly set.
         //desc.set_depth(1);
         //desc.set_mipmap_level_count(1);
-        //desc.set_pixel_format(metal::MTLPixelFormat::RGBA8Unorm);
+        let mtl_format = match format {
+            ImageFormat::A8 => metal::MTLPixelFormat::R8Unorm,
+            ImageFormat::Rgba8 => metal::MTLPixelFormat::RGBA8Unorm,
+        };
+        desc.set_pixel_format(mtl_format);
         desc.set_usage(metal::MTLTextureUsage::ShaderRead | metal::MTLTextureUsage::ShaderWrite);
         let texture = self.device.new_texture(&desc);
         Ok(Image {

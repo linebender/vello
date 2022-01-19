@@ -23,7 +23,11 @@ layout(set = 0, binding = 1) restrict readonly buffer ConfigBuf {
     Config conf;
 };
 
+#ifdef GRAY
+layout(r8, set = 0, binding = 2) uniform restrict writeonly image2D image;
+#else
 layout(rgba8, set = 0, binding = 2) uniform restrict writeonly image2D image;
+#endif
 
 layout(rgba8, set = 0, binding = 3) uniform restrict readonly image2D image_atlas;
 
@@ -228,6 +232,12 @@ void main() {
     }
 
     for (uint i = 0; i < CHUNK; i++) {
+#ifdef GRAY
+        // Just store the alpha value; later we can specialize this kernel more to avoid
+        // computing unneeded RGB colors.
+        imageStore(image, ivec2(xy_uint + chunk_offset(i)), vec4(rgba[i].a));
+#else
         imageStore(image, ivec2(xy_uint + chunk_offset(i)), vec4(tosRGB(rgba[i].rgb), rgba[i].a));
+#endif
     }
 }

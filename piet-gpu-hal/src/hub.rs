@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex, Weak};
 use bytemuck::Pod;
 use smallvec::SmallVec;
 
-use crate::{mux, BackendType, BufWrite, MapMode};
+use crate::{mux, BackendType, BufWrite, ImageFormat, MapMode};
 
 use crate::{BindType, BufferUsage, Error, GpuInfo, ImageLayout, SamplerParams};
 
@@ -312,8 +312,13 @@ impl Session {
     ///
     /// Currently this creates only a 2D image in RGBA8 format, with usage
     /// so that it can be accessed by shaders and used for transfer.
-    pub unsafe fn create_image2d(&self, width: u32, height: u32) -> Result<Image, Error> {
-        let image = self.0.device.create_image2d(width, height)?;
+    pub unsafe fn create_image2d(
+        &self,
+        width: u32,
+        height: u32,
+        format: ImageFormat,
+    ) -> Result<Image, Error> {
+        let image = self.0.device.create_image2d(width, height, format)?;
         Ok(Image(Arc::new(ImageInner {
             image,
             session: Arc::downgrade(&self.0),

@@ -91,6 +91,15 @@ pub enum SamplerParams {
     Linear,
 }
 
+/// Image format.
+#[derive(Copy, Clone, Debug)]
+pub enum ImageFormat {
+    // 8 bit grayscale / alpha
+    A8,
+    // 8 bit per pixel RGBA
+    Rgba8,
+}
+
 bitflags! {
     /// The intended usage for a buffer, specified on creation.
     pub struct BufferUsage: u32 {

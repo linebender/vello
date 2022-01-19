@@ -16,7 +16,8 @@
 
 //! An experimental API for glyph rendering.
 
-use swash::{scale::ScaleContext, CacheKey, FontRef};
+use piet::{kurbo::Affine, RenderContext};
+use swash::{scale::ScaleContext, CacheKey, FontDataRef, FontRef};
 
 use crate::{encoder::GlyphEncoder, PietGpuRenderContext};
 
@@ -30,33 +31,56 @@ pub struct FontId(CacheKey);
 
 impl GlyphRenderer {
     pub fn new() -> GlyphRenderer {
+        let render_ctx = PietGpuRenderContext::new();
+        let scale_context = ScaleContext::new();
         GlyphRenderer {
-            render_ctx: PietGpuRenderContext::new(),
-            scale_context: ScaleContext::new(),
+            render_ctx,
+            scale_context,
         }
     }
 
-    pub unsafe fn add_glyph(&mut self, font_data: &[u8], font_id: u64, glyph_id: u16) {
+    pub unsafe fn add_glyph(
+        &mut self,
+        font_data: &[u8],
+        font_id: u64,
+        glyph_id: u16,
+        transform: [f32; 6],
+    ) {
         // This transmute is dodgy because the definition in swash isn't repr(transparent).
         // I think the best solution is to have a from_u64 method, but we'll work that out
         // later.
         let font_id = FontId(std::mem::transmute(font_id));
         let encoder = self.make_glyph(font_data, font_id, glyph_id);
+        const DEFAULT_UPEM: u16 = 2048;
+        let affine = Affine::new([
+            transform[0] as f64,
+            transform[1] as f64,
+            transform[2] as f64,
+            transform[3] as f64,
+            transform[4] as f64,
+            transform[5] as f64,
+        ]) * Affine::scale(1.0 / DEFAULT_UPEM as f64);
+        self.render_ctx.transform(affine);
         self.render_ctx.encode_glyph(&encoder);
         // TODO: don't fill glyph if RGBA
         self.render_ctx.fill_glyph(0xff_ff_ff_ff);
+        self.render_ctx.transform(affine.inverse());
+    }
+
+    pub fn reset(&mut self) {
+        self.render_ctx = PietGpuRenderContext::new();
     }
 
     fn make_glyph(&mut self, font_data: &[u8], font_id: FontId, glyph_id: u16) -> GlyphEncoder {
         let mut encoder = GlyphEncoder::default();
-        let font_ref = FontRef {
-            data: font_data,
-            offset: 0,
-            key: font_id.0,
-        };
+        let font_data = FontDataRef::new(font_data).expect("invalid font");
+        let mut font_ref = font_data.get(0).expect("invalid font index");
+        font_ref.key = font_id.0;
         let mut scaler = self.scale_context.builder(font_ref).size(2048.).build();
         if let Some(outline) = scaler.scale_outline(glyph_id) {
             crate::text::append_outline(&mut encoder, outline.verbs(), outline.points());
+        } else {
+            println!("failed to scale");
         }
         encoder
     }

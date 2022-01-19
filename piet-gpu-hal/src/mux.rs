@@ -35,6 +35,7 @@ use crate::backend::DescriptorSetBuilder as DescriptorSetBuilderTrait;
 use crate::backend::Device as DeviceTrait;
 use crate::BackendType;
 use crate::BindType;
+use crate::ImageFormat;
 use crate::MapMode;
 use crate::{BufferUsage, Error, GpuInfo, ImageLayout, InstanceFlags};
 
@@ -264,11 +265,16 @@ impl Device {
         }
     }
 
-    pub unsafe fn create_image2d(&self, width: u32, height: u32) -> Result<Image, Error> {
+    pub unsafe fn create_image2d(
+        &self,
+        width: u32,
+        height: u32,
+        format: ImageFormat,
+    ) -> Result<Image, Error> {
         mux_match! { self;
-            Device::Vk(d) => d.create_image2d(width, height).map(Image::Vk),
-            Device::Dx12(d) => d.create_image2d(width, height).map(Image::Dx12),
-            Device::Mtl(d) => d.create_image2d(width, height).map(Image::Mtl),
+            Device::Vk(d) => d.create_image2d(width, height, format).map(Image::Vk),
+            Device::Dx12(d) => d.create_image2d(width, height, format).map(Image::Dx12),
+            Device::Mtl(d) => d.create_image2d(width, height, format).map(Image::Mtl),
         }
     }
 
