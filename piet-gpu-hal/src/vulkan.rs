@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use ash::extensions::{ext::DebugUtils, khr};
 use ash::{vk, Device, Entry, Instance};
+use ash::vk::DebugUtilsLabelEXT;
 
 use smallvec::SmallVec;
 
@@ -23,7 +24,7 @@ pub struct VkInstance {
     entry: Entry,
     instance: Instance,
     vk_version: u32,
-    _dbg_loader: Option<DebugUtils>,
+    dbg_loader: Option<DebugUtils>,
     _dbg_callbk: Option<vk::DebugUtilsMessengerEXT>,
 }
 
@@ -39,6 +40,7 @@ pub struct VkDevice {
 
 struct RawDevice {
     device: Device,
+    dbg_loader: Option<DebugUtils>,
 }
 
 pub struct VkSurface {
@@ -202,7 +204,7 @@ impl VkInstance {
                 None,
             )?;
 
-            let (_dbg_loader, _dbg_callbk) = if has_debug_ext {
+            let (dbg_loader, _dbg_callbk) = if has_debug_ext {
                 let dbg_info = vk::DebugUtilsMessengerCreateInfoEXT::builder()
                     .message_severity(
                         vk::DebugUtilsMessageSeverityFlagsEXT::ERROR
@@ -231,7 +233,7 @@ impl VkInstance {
                 entry,
                 instance,
                 vk_version,
-                _dbg_loader,
+                dbg_loader,
                 _dbg_callbk,
             };
 
@@ -317,7 +319,7 @@ impl VkInstance {
         let queue_index = 0;
         let queue = device.get_device_queue(qfi, queue_index);
 
-        let device = Arc::new(RawDevice { device });
+        let device = Arc::new(RawDevice { device, dbg_loader: self.dbg_loader.clone() });
 
         let props = self.instance.get_physical_device_properties(pdevice);
         let timestamp_period = props.limits.timestamp_period;
@@ -1107,6 +1109,20 @@ impl crate::backend::CmdBuf<VkDevice> for CmdBuf {
             pool.pool,
             query,
         );
+    }
+
+    unsafe fn begin_debug_label(&mut self, label: &str) {
+        if let Some(utils) = &self.device.dbg_loader {
+            let label_cstr = CString::new(label).unwrap();
+            let label_ext = DebugUtilsLabelEXT::builder().label_name(&label_cstr).build();
+            utils.cmd_begin_debug_utils_label(self.cmd_buf, &label_ext);
+        }
+    }
+
+    unsafe fn end_debug_label(&mut self) {
+        if let Some(utils) = &self.device.dbg_loader {
+            utils.cmd_end_debug_utils_label(self.cmd_buf);
+        }
     }
 }
 

@@ -342,6 +342,7 @@ impl Renderer {
         cmd_buf.image_barrier(&self.gradients, ImageLayout::BlitDst, ImageLayout::General);
         cmd_buf.reset_query_pool(&query_pool);
         cmd_buf.write_timestamp(&query_pool, 0);
+        cmd_buf.begin_debug_label("Element bounding box calculation");
         self.element_stage.record(
             cmd_buf,
             &self.element_code,
@@ -351,43 +352,53 @@ impl Renderer {
             self.n_pathtag as u32,
             self.n_drawobj as u64,
         );
+        cmd_buf.end_debug_label();
         cmd_buf.write_timestamp(&query_pool, 1);
         cmd_buf.memory_barrier();
+        cmd_buf.begin_debug_label("Tile allocation");
         cmd_buf.dispatch(
             &self.tile_pipeline,
             &self.tile_ds,
             (((self.n_paths + 255) / 256) as u32, 1, 1),
             (256, 1, 1),
         );
+        cmd_buf.end_debug_label();
         cmd_buf.write_timestamp(&query_pool, 2);
         cmd_buf.memory_barrier();
+        cmd_buf.begin_debug_label("Path flattening");
         cmd_buf.dispatch(
             &self.path_pipeline,
             &self.path_ds,
             (((self.n_pathseg + 31) / 32) as u32, 1, 1),
             (32, 1, 1),
         );
+        cmd_buf.end_debug_label();
         cmd_buf.write_timestamp(&query_pool, 3);
         cmd_buf.memory_barrier();
+        cmd_buf.begin_debug_label("Backdrop propagation");
         cmd_buf.dispatch(
             &self.backdrop_pipeline,
             &self.backdrop_ds,
             (((self.n_paths + 255) / 256) as u32, 1, 1),
             (256, self.backdrop_y, 1),
         );
+        cmd_buf.end_debug_label();
         cmd_buf.write_timestamp(&query_pool, 4);
         // Note: this barrier is not needed as an actual dependency between
         // pipeline stages, but I am keeping it in so that timer queries are
         // easier to interpret.
         cmd_buf.memory_barrier();
+        cmd_buf.begin_debug_label("Element binning");
         cmd_buf.dispatch(
             &self.bin_pipeline,
             &self.bin_ds,
             (((self.n_paths + 255) / 256) as u32, 1, 1),
             (256, 1, 1),
         );
+        cmd_buf.end_debug_label();
         cmd_buf.write_timestamp(&query_pool, 5);
         cmd_buf.memory_barrier();
+        cmd_buf.begin_debug_label("Coarse raster");
         cmd_buf.dispatch(
             &self.coarse_pipeline,
             &self.coarse_ds,
@@ -398,8 +409,10 @@ impl Renderer {
             ),
             (256, 1, 1),
         );
+        cmd_buf.end_debug_label();
         cmd_buf.write_timestamp(&query_pool, 6);
         cmd_buf.memory_barrier();
+        cmd_buf.begin_debug_label("Fine raster");
         cmd_buf.dispatch(
             &self.k4_pipeline,
             &self.k4_ds,
@@ -410,6 +423,7 @@ impl Renderer {
             ),
             (8, 4, 1),
         );
+        cmd_buf.end_debug_label();
         cmd_buf.write_timestamp(&query_pool, 7);
         cmd_buf.memory_barrier();
         cmd_buf.image_barrier(&self.image_dev, ImageLayout::General, ImageLayout::BlitSrc);
