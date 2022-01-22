@@ -569,6 +569,16 @@ impl CmdBuf {
         self.cmd_buf().finish_timestamps(pool);
     }
 
+    /// Begin a labeled section for debugging and profiling purposes.
+    pub unsafe fn begin_debug_label(&mut self, label: &str) {
+        self.cmd_buf().begin_debug_label(label);
+    }
+
+    /// End a section opened by `begin_debug_label`.
+    pub unsafe fn end_debug_label(&mut self) {
+        self.cmd_buf().end_debug_label();
+    }
+
     /// Make sure the resource lives until the command buffer completes.
     ///
     /// The submitted command buffer will hold this reference until the corresponding
