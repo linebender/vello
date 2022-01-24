@@ -33,6 +33,12 @@ layout(rgba8, set = 0, binding = 4) uniform restrict readonly image2D gradients;
 #include "tile.h"
 
 #define MAX_BLEND_STACK 128
+
+shared int cov[TILE_HEIGHT_PX * TILE_WIDTH_PX];
+
+#define COV(x, y) cov[(x) + (y)*TILE_WIDTH_PX]
+#define COV_MULTIPLIER 65536.0
+
 mediump vec3 tosRGB(mediump vec3 rgb) {
     bvec3 cutoff = greaterThanEqual(rgb, vec3(0.0031308));
     mediump vec3 below = vec3(12.92) * rgb;
@@ -82,6 +88,7 @@ void main() {
     Alloc cmd_alloc = slice_mem(conf.ptcl_alloc, tile_ix * PTCL_INITIAL_ALLOC, PTCL_INITIAL_ALLOC);
     CmdRef cmd_ref = CmdRef(cmd_alloc.offset);
 
+    uint th_ix = gl_LocalInvocationIndex;
     uvec2 xy_uint = uvec2(gl_LocalInvocationID.x + TILE_WIDTH_PX * gl_WorkGroupID.x,
                           gl_LocalInvocationID.y + TILE_HEIGHT_PX * gl_WorkGroupID.y);
     vec2 xy = vec2(xy_uint);
@@ -112,8 +119,7 @@ void main() {
                 TileSeg seg = TileSeg_read(new_alloc(tile_seg_ref.offset, TileSeg_size, mem_ok), tile_seg_ref);
                 vec2 line_vec = seg.vector;
                 for (uint k = 0; k < CHUNK; k++) {
-                    vec2 dpos = xy + vec2(0.5, 0.5) - seg.origin;
-                    dpos += vec2(chunk_offset(k));
+                    vec2 dpos = gl_LocalInvocationID.xy + vec2(chunk_offset(k)) + vec2(0.5, 0.5) - seg.origin;
                     float t = clamp(dot(line_vec, dpos) / dot(line_vec, line_vec), 0.0, 1.0);
                     df[k] = min(df[k], length(line_vec * t - dpos));
                 }
@@ -126,34 +132,151 @@ void main() {
             break;
         case Cmd_Fill:
             CmdFill fill = Cmd_Fill_read(cmd_alloc, cmd_ref);
-            for (uint k = 0; k < CHUNK; k++)
-                area[k] = float(fill.backdrop);
             tile_seg_ref = TileSegRef(fill.tile_ref);
+            for (uint k = 0; k < CHUNK; k++) {
+                uint i = gl_LocalInvocationIndex + k * gl_WorkGroupSize.x * gl_WorkGroupSize.y;
+                area[k] = float(fill.backdrop);
+                cov[i] = 0;
+            }
             // Calculate coverage based on backdrop + coverage of each line segment
             do {
                 TileSeg seg = TileSeg_read(new_alloc(tile_seg_ref.offset, TileSeg_size, mem_ok), tile_seg_ref);
-                for (uint k = 0; k < CHUNK; k++) {
-                    vec2 my_xy = xy + vec2(chunk_offset(k));
-                    vec2 start = seg.origin - my_xy;
-                    vec2 end = start + seg.vector;
-                    vec2 window = clamp(vec2(start.y, end.y), 0.0, 1.0);
-                    if (window.x != window.y) {
-                        vec2 t = (window - start.y) / seg.vector.y;
-                        vec2 xs = vec2(mix(start.x, end.x, t.x), mix(start.x, end.x, t.y));
-                        float xmin = min(min(xs.x, xs.y), 1.0) - 1e-6;
-                        float xmax = max(xs.x, xs.y);
-                        float b = min(xmax, 1.0);
-                        float c = max(b, 0.0);
-                        float d = max(xmin, 0.0);
-                        float a = (b + 0.5 * (d * d - c * c) - xmin) / (xmax - xmin);
-                        area[k] += a * (window.x - window.y);
+                vec2 start_o = seg.origin;
+                vec2 vec = seg.vector;
+                // First, do a fast and non-antialiased calculation of coverage at the left top corner of each pixel.
+                // We first shoot a ray to the left to get the horizontal winding change using an implicit test.
+                // Then we start from the left edge and go up, testing for a vertical winding change using an implicit
+                // test again.
+                //
+                // To solve degenerate cases, we derive a tiebreaking rule by deliberately modifying the problem we are
+                // solving. Since it is hard to reason about the behavior when the tested point is right on the line, we
+                // move the tested point slightly in a way that it will never reside on an edge. Let ε be an
+                // arbitrarily small positve number. We shift the point by (ε^2, ε). This points toward an angle that is
+                // arbitrarily close to the x axis. (The reason that we shift x by ε^2 is because sometimes the line is
+                // completely vertical, which means that a shift by (0, ε) still makes it land on the line.) The
+                // shift being positive means that it stays inside the bounds of tile, preventing another potential
+                // source of issues.
+                // Now we derive a rule that is free of this imaginary ε. When we encounter zeroes in an implicit test,
+                // moving y to y+ε would change the sign to sign(-n.y). (Note that start = seg.origin - point, so the
+                // sign is reversed.) If n.y is zero, then we move x to x+ε^2, which gives us the sign of sign(-n.x).
+                // As an optimization, we pick the direction of the normal vector so that the shift will always make
+                // the implicit test move toward negative values. Zeroes are therefore always treated like negative
+                // values.
+                // We also need a rule for testing whether the point resides in the segment's x or y range. Since we
+                // shift by an positive amount, this means that a range of [xmin, xmax] becomes [xmin, xmax). Testing
+                // for [xmin, xmax) can be done through ((xmin - x) > 0 != (xmax - x) > 0). Same for y.
+                vec2 n;
+                uint negate_mask = ((seg.flags & TILESEG_NORMAL_NEGATE_X) * ((1 << 31) / TILESEG_NORMAL_NEGATE_X));
+                n.x = uintBitsToFloat(floatBitsToUint(vec.y) ^ negate_mask);
+                n.y = abs(vec.x);
+                for (uint j = 0; j < CHUNK_Y; j++) {
+                    float my_y = gl_LocalInvocationID.y + CHUNK_DY * j;
+                    for (uint i = 0; i < CHUNK_X; i++) {
+                        float my_x = gl_LocalInvocationID.x + CHUNK_DX * i;
+                        vec2 start = seg.origin - vec2(my_x, my_y);
+                        float outer_x0 = dot(vec2(start_o.x, start.y), n);
+                        float outer = dot(start, n);
+                        bool change = (outer > 0 != outer_x0 > 0);
+                        change = change && (start.y > 0 != (start.y + vec.y) > 0);
+                        bool has_left_edge = (seg.flags & TILESEG_HAS_LEFT_EDGE) != 0;
+                        bool y_edge = outer_x0 <= 0 && has_left_edge;
+                        change = change != y_edge;
+                        if (change)
+                            area[j * CHUNK_X + i] += !has_left_edge ? -sign(vec.y) : sign(vec.x);
                     }
-                    area[k] += sign(seg.vector.x) * clamp(my_xy.y - seg.y_edge + 1.0, 0.0, 1.0);
+                }
+
+                // Determine antialiased coverage, only for tiles that might be touched by the line.
+                // The coverage and winding is relative to the top left corner of the pixel, and we do the winding test
+                // in the same left -> top order as the non-AA pass.
+                // This means that the overall winding is determined through:
+                //   left (pixel) -> top (pixel) -> left (tile) -> top (tile)
+                // and this is not always equal to directly doing left -> top to the tile's top left corner.
+                // However, when the winding is summed over a closed path, the integral matches (cf. Stokes' theorem).
+
+                // Drawing ideas from the Digital Differential Analyzer algorithm, we swap the axis if dy/dx < 1.
+                // This means that only up to two pixels with the same y value can be touched by the line.
+                // We can now dedicate 2 threads per y value to process the sparse coverage.
+                bool swap_xy = abs(vec.y) < abs(vec.x);
+                if (th_ix < TILE_WIDTH_PX * 2) { // TILE_WIDTH_PX must be equal to TILE_HEIGHT_PX
+                    bool low_side = th_ix < TILE_WIDTH_PX;
+                    uint i = th_ix % TILE_WIDTH_PX;
+                    vec2 start = seg.origin;
+                    if (swap_xy) {
+                        start = start.yx;
+                        vec = vec.yx;
+                    }
+                    start.y -= i;
+                    vec2 end = start + vec;
+                    vec2 ywindow = clamp(vec2(start.y, end.y), 0.0, 1.0);
+                    // Use the unclamped point as the origin. This ensures that we get the accurate start and end
+                    // coordinates.
+                    vec2 t = (ywindow - vec2(start.y, end.y)) / vec.y;
+                    vec2 x_tmp = vec2(start.x, end.x) + t * vec.x;
+                    // The line segment limited to ywindow can span max 1 pixel in x coordinates. When bounded by pixels
+                    // with integer x, it will span max 2 pixels. There are a few way to bound in a way to satisfy the
+                    // conditions. The following is the only one that can deal with the edge cases:
+                    // 1. If both x_tmp.x and x_tmp.y is out of bounds, then the inferred ywindow will have a garbage
+                    //    value as well. It is rejected by ywindow.x != ywindow.y in the condition below, unless...
+                    // 2. If vec.x is 0, then ywindow doesn't get rescaled at all and it will pass to inequality. We
+                    //    need to ensure that the calculated coverage is 0 in this case so it ends up being a noop.
+                    //    Using max(x_tmp) as the base means that the out-of-bound cell will get its xwindow clamped to
+                    //    two 1.0s, which gives 0 in the term (2.0 - xs.x - xs.y).
+                    float jf = floor(max(x_tmp.x, x_tmp.y)) - (low_side ? 1 : 0);
+                    x_tmp -= vec2(jf);
+                    start.x -= jf;
+                    int j = int(jf);
+                    vec2 xwindow = clamp(x_tmp, 0.0, 1.0);
+                    if (vec.x != 0) {
+                        vec2 t = (xwindow - x_tmp.x) / vec.x;
+                        ywindow = ywindow.x + t * vec.y;
+                    }
+                    if (j >= 0 && j < TILE_HEIGHT_PX && ywindow.x != ywindow.y) {
+                        vec2 xs = swap_xy ? ywindow : xwindow;
+                        vec2 ys = swap_xy ? xwindow : ywindow;
+
+                        // Go back to the original coordinate system.
+                        if (swap_xy) {
+                            start = start.yx;
+                        }
+                        vec = seg.vector;
+
+                        // Determine whether the segment crosses the left edge of the current pixel. We need to do this
+                        // in a way that is consistent with the non-AA pass. A good way is to do the same implicit test
+                        // as the non-AA pass which is a bit costly but avoids the large inaccuracy coming from the
+                        // division.
+                        //
+                        // As n.y is normalized to either a positive value or zero, we use it for another optimization
+                        // in the implicit test. The segment will never cross the left edge when it's completely
+                        // vertical, so we can assume n.y > 0. The implicit test monotonically decreases as we increase
+                        // the y of testing point. When the vertical crossing is both below and outside the pixel,
+                        // y_edge will resolve to 1.0, which gives 0 contribution to the coverage. Therefore only
+                        // testing for the top left corner is sufficient. Remember that, since n.y > 0, `dot(start, n) >
+                        // 0` implies that the vertical crossing is above the corner.
+                        bool has_y_edge = dot(start, n) > 0 && (start.x > 0 != start.x + vec.x > 0);
+                        float y_edge = xs.x < xs.y ? ys.x : ys.y;
+
+                        // The coverage is simply the area to the right of the segment, calculated as a trapezoid.
+                        float coverage = 0.5 * (2.0 - xs.x - xs.y) * (ys.x - ys.y);
+                        // Add area below the vertical crossing.
+                        if (has_y_edge)
+                            coverage += sign(seg.vector.x) * (1.0 - y_edge);
+                        uint idx = swap_xy ? j * TILE_WIDTH_PX + i : i * TILE_WIDTH_PX + j;
+                        // Use integer atomics; float atomics are typically emulated and excessively slow.
+                        // There are potentially a lot of bank conflicts, but currently we don't really use shared
+                        // memory that much for that to become a bottleneck. Should we need to optimize for it, it's
+                        // trivial to solve by splitting the coverage map into a row-major one and column-major one.
+                        atomicAdd(cov[idx], int(coverage * COV_MULTIPLIER));
+                    }
                 }
                 tile_seg_ref = seg.next;
             } while (tile_seg_ref.offset != 0);
+            barrier();
             for (uint k = 0; k < CHUNK; k++) {
-                area[k] = min(abs(area[k]), 1.0);
+                uvec2 pos = gl_LocalInvocationID.xy + chunk_offset(k);
+                float aa = float(COV(pos.x, pos.y)) / COV_MULTIPLIER;
+                // Add up the tile and pixel winding values to obtain the final coverage.
+                area[k] = min(abs(area[k] + aa), 1.0);
             }
             cmd_ref.offset += 4 + CmdFill_size;
             break;
@@ -207,7 +330,7 @@ void main() {
                 // The following is a sanity check so we don't corrupt memory should there be malformed inputs.
                 uint d = min(clip_depth, MAX_BLEND_STACK - 1);
                 blend_stack[d][k] = packsRGB(vec4(rgba[k]));
-                blend_alpha_stack[d][k] = clamp(abs(area[k]), 0.0, 1.0);
+                blend_alpha_stack[d][k] = area[k];
                 rgba[k] = vec4(0.0);
             }
             clip_depth++;

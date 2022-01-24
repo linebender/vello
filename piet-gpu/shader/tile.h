@@ -43,7 +43,7 @@ TileRef Tile_index(TileRef ref, uint index) {
 struct TileSeg {
     vec2 origin;
     vec2 vector;
-    float y_edge;
+    uint flags;
     TileSegRef next;
 };
 
@@ -109,7 +109,7 @@ TileSeg TileSeg_read(Alloc a, TileSegRef ref) {
     TileSeg s;
     s.origin = vec2(uintBitsToFloat(raw0), uintBitsToFloat(raw1));
     s.vector = vec2(uintBitsToFloat(raw2), uintBitsToFloat(raw3));
-    s.y_edge = uintBitsToFloat(raw4);
+    s.flags = raw4;
     s.next = TileSegRef(raw5);
     return s;
 }
@@ -120,7 +120,7 @@ void TileSeg_write(Alloc a, TileSegRef ref, TileSeg s) {
     write_mem(a, ix + 1, floatBitsToUint(s.origin.y));
     write_mem(a, ix + 2, floatBitsToUint(s.vector.x));
     write_mem(a, ix + 3, floatBitsToUint(s.vector.y));
-    write_mem(a, ix + 4, floatBitsToUint(s.y_edge));
+    write_mem(a, ix + 4, s.flags);
     write_mem(a, ix + 5, s.next.offset);
 }
 

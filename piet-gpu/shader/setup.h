@@ -66,6 +66,9 @@ struct Config {
 #define MODE_NONZERO 0
 #define MODE_STROKE 1
 
+#define TILESEG_HAS_LEFT_EDGE 1
+#define TILESEG_NORMAL_NEGATE_X (1 << 1)
+
 // Size of kernel4 clip state, in words.
 #define CLIP_STATE_SIZE 2
 

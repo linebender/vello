@@ -250,31 +250,19 @@ void main() {
                         if (touch_mem(path_alloc, tile_el)) {
                             old = atomicExchange(memory[tile_el], tile_offset);
                         }
-                        tile_seg.origin = p0;
-                        tile_seg.vector = p1 - p0;
-                        float y_edge = 0.0;
+                        vec2 vec = p1 - p0;
+                        tile_seg.origin = p0 - vec2(tile_x0, tile_y0);
+                        tile_seg.vector = vec;
+                        tile_seg.flags = 0;
                         if (!is_stroke) {
-                            y_edge = mix(p0.y, p1.y, (tile_x0 - p0.x) / dx);
-                            if (min(p0.x, p1.x) < tile_x0) {
-                                vec2 p = vec2(tile_x0, y_edge);
-                                if (p0.x > p1.x) {
-                                    tile_seg.vector = p - p0;
-                                } else {
-                                    tile_seg.origin = p;
-                                    tile_seg.vector = p1 - p;
-                                }
-                                // kernel4 uses sign(vector.x) for the sign of the intersection backdrop.
-                                // Nudge zeroes towards the intended sign.
-                                if (tile_seg.vector.x == 0) {
-                                    tile_seg.vector.x = sign(p1.x - p0.x) * 1e-9;
-                                }
+                            // See how these flags are used in kernel4.comp.
+                            if (x > min_xray && max_xray >= x) {
+                                tile_seg.flags |= TILESEG_HAS_LEFT_EDGE;
                             }
-                            if (x <= min_xray || max_xray < x) {
-                                // Reject inconsistent intersections.
-                                y_edge = 1e9;
+                            if (vec.x > 0 || (vec.x == 0 && vec.y < 0)) {
+                                tile_seg.flags |= TILESEG_NORMAL_NEGATE_X;
                             }
                         }
-                        tile_seg.y_edge = y_edge;
                         tile_seg.next.offset = old;
                         TileSeg_write(tile_alloc.alloc, TileSegRef(tile_offset), tile_seg);
                         tile_offset += TileSeg_size;
