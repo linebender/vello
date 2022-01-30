@@ -139,7 +139,8 @@ void main() {
         bool is_stroke = fill_mode_from_flags(tag.flags) == MODE_STROKE;
         uint path_ix = cubic.path_ix;
         Path path = Path_read(conf.tile_alloc, PathRef(conf.tile_alloc.offset + path_ix * Path_size));
-        Alloc path_alloc = new_alloc(path.tiles.offset, (path.bbox.z - path.bbox.x) * (path.bbox.w - path.bbox.y) * Tile_size, mem_ok);
+        Alloc path_alloc =
+            new_alloc(path.tiles.offset, (path.bbox.z - path.bbox.x) * (path.bbox.w - path.bbox.y) * Tile_size, mem_ok);
         ivec4 bbox = ivec4(path.bbox);
         vec2 p0 = cubic.p0;
         qp0 = cubic.p0;
@@ -206,8 +207,8 @@ void main() {
 
                 TileSeg tile_seg;
 
-                int xray = int(floor(p0.x*SX));
-                int last_xray = int(floor(p1.x*SX));
+                int xray = int(floor(p0.x * SX));
+                int last_xray = int(floor(p1.x * SX));
                 if (p0.y > p1.y) {
                     int tmp = xray;
                     xray = last_xray;
@@ -231,7 +232,7 @@ void main() {
                     if (y < y1 - 1) {
                         float tile_y1 = float((y + 1) * TILE_HEIGHT_PX);
                         float x_edge = mix(p0.x, p1.x, (tile_y1 - p0.y) / dy);
-                        next_xray = int(floor(x_edge*SX));
+                        next_xray = int(floor(x_edge * SX));
                     }
 
                     int min_xray = min(xray, next_xray);
@@ -265,7 +266,7 @@ void main() {
                                 // kernel4 uses sign(vector.x) for the sign of the intersection backdrop.
                                 // Nudge zeroes towards the intended sign.
                                 if (tile_seg.vector.x == 0) {
-                                    tile_seg.vector.x = sign(p1.x - p0.x)*1e-9;
+                                    tile_seg.vector.x = sign(p1.x - p0.x) * 1e-9;
                                 }
                             }
                             if (x <= min_xray || max_xray < x) {

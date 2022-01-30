@@ -3,7 +3,6 @@
 // The leaf scan pass for draw tag scan implemented as a tree reduction.
 // This stage can be fused with its consumer but is separate now.
 
-
 #version 450
 #extension GL_GOOGLE_include_directive : enable
 
@@ -62,7 +61,7 @@ void main() {
         barrier();
         sh_scratch[gl_LocalInvocationID.x] = agg;
     }
-    
+
     barrier();
     Monoid row = tag_monoid_identity();
     if (gl_WorkGroupID.x > 0) {

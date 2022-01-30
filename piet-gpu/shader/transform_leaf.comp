@@ -68,7 +68,7 @@ void main() {
         barrier();
         sh_scratch[gl_LocalInvocationID.x] = agg;
     }
-    
+
     barrier();
     Monoid row = monoid_identity();
     if (gl_WorkGroupID.x > 0) {

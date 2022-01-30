@@ -51,7 +51,7 @@ void main() {
         barrier();
         sh_scratch[gl_LocalInvocationID.x] = agg;
     }
-    
+
     barrier();
     // This could be a semigroup instead of a monoid if we reworked the
     // conditional logic, but that might impact performance.
