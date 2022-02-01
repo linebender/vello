@@ -57,10 +57,10 @@ void main() {
         if (element_ix < conf.n_elements) {
             AnnotatedTag tag = Annotated_tag(conf.anno_alloc, ref);
             switch (tag.tag) {
-                case Annotated_Image:
-                case Annotated_LinGradient:
-                case Annotated_BeginClip:
-                case Annotated_Color:
+            case Annotated_Image:
+            case Annotated_LinGradient:
+            case Annotated_BeginClip:
+            case Annotated_Color:
                 if (fill_mode_from_flags(tag.flags) != MODE_NONZERO) {
                     break;
                 }
@@ -77,7 +77,8 @@ void main() {
                     // long as it doesn't cross the left edge.
                     row_count = 0;
                 }
-                Alloc path_alloc = new_alloc(path.tiles.offset, (path.bbox.z - path.bbox.x) * (path.bbox.w - path.bbox.y) * Tile_size, mem_ok);
+                Alloc path_alloc = new_alloc(
+                    path.tiles.offset, (path.bbox.z - path.bbox.x) * (path.bbox.w - path.bbox.y) * Tile_size, mem_ok);
                 sh_row_alloc[th_ix] = path_alloc;
             }
         }

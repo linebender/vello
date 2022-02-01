@@ -46,8 +46,7 @@ Monoid combine_monoid(Monoid a, Monoid b) {
     if ((a.flags & FLAG_RESET_BBOX) == 0 && b.bbox.z <= b.bbox.x && b.bbox.w <= b.bbox.y) {
         c.bbox = a.bbox;
     } else if ((a.flags & FLAG_RESET_BBOX) == 0 && (b.flags & FLAG_SET_BBOX) == 0 &&
-        (a.bbox.z > a.bbox.x || a.bbox.w > a.bbox.y))
-    {
+               (a.bbox.z > a.bbox.x || a.bbox.w > a.bbox.y)) {
         c.bbox.xy = min(a.bbox.xy, c.bbox.xy);
         c.bbox.zw = max(a.bbox.zw, c.bbox.zw);
     }
@@ -246,7 +245,7 @@ void main() {
     }
     // sh_scratch is the partition-wide inclusive scan of the bbox monoid,
     // sampled at the end of the N_SEQ sub-partition.
-    
+
     barrier();
     uint path_ix = save_path_ix;
     uint bbox_out_ix = (conf.bbox_alloc.offset >> 2) + path_ix * 6;
