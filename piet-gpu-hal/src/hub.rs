@@ -308,10 +308,7 @@ impl Session {
         }
     }
 
-    /// Create an image.
-    ///
-    /// Currently this creates only a 2D image in RGBA8 format, with usage
-    /// so that it can be accessed by shaders and used for transfer.
+    /// Create an image of the given size and pixel format.
     pub unsafe fn create_image2d(
         &self,
         width: u32,

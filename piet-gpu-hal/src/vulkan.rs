@@ -13,7 +13,7 @@ use smallvec::SmallVec;
 
 use crate::backend::Device as DeviceTrait;
 use crate::{
-    BindType, BufferUsage, Error, GpuInfo, ImageLayout, MapMode, SamplerParams, SubgroupSize,
+    BindType, BufferUsage, Error, GpuInfo, ImageFormat, ImageLayout, MapMode, SamplerParams, SubgroupSize,
     WorkgroupLimits,
 };
 
@@ -533,7 +533,7 @@ impl crate::backend::Device for VkDevice {
         Ok(())
     }
 
-    unsafe fn create_image2d(&self, width: u32, height: u32) -> Result<Self::Image, Error> {
+    unsafe fn create_image2d(&self, width: u32, height: u32, format: ImageFormat) -> Result<Self::Image, Error> {
         let device = &self.device.device;
         let extent = vk::Extent3D {
             width,
@@ -545,10 +545,14 @@ impl crate::backend::Device for VkDevice {
         let usage = vk::ImageUsageFlags::STORAGE
             | vk::ImageUsageFlags::TRANSFER_SRC
             | vk::ImageUsageFlags::TRANSFER_DST;
+        let vk_format = match format {
+            ImageFormat::A8 => vk::Format::R8_UNORM,
+            ImageFormat::Rgba8 => vk::Format::R8G8B8A8_UNORM,
+        };
         let image = device.create_image(
             &vk::ImageCreateInfo::builder()
                 .image_type(vk::ImageType::TYPE_2D)
-                .format(vk::Format::R8G8B8A8_UNORM)
+                .format(vk_format)
                 .extent(extent)
                 .mip_levels(1)
                 .array_layers(1)

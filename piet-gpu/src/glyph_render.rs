@@ -17,7 +17,7 @@
 //! An experimental API for glyph rendering.
 
 use piet::{kurbo::Affine, RenderContext};
-use swash::{scale::ScaleContext, CacheKey, FontDataRef, FontRef};
+use swash::{scale::ScaleContext, CacheKey, FontDataRef};
 
 use crate::{encoder::GlyphEncoder, PietGpuRenderContext};
 
