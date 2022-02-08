@@ -225,6 +225,12 @@ pub trait CmdBuf<D: Device> {
     /// Prepare the timestamps for reading. This isn't required on Vulkan but
     /// is required on (at least) DX12.
     unsafe fn finish_timestamps(&mut self, _pool: &D::QueryPool) {}
+
+    /// Begin a labeled section for debugging and profiling purposes.
+    unsafe fn begin_debug_label(&mut self, label: &str) {}
+
+    /// End a section opened by `begin_debug_label`.
+    unsafe fn end_debug_label(&mut self) {}
 }
 
 /// A builder for descriptor sets with more complex layouts.

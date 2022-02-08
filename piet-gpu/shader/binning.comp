@@ -75,13 +75,14 @@ void main() {
     // trying to keep divergence low.
     // Right now, it's just a bbox, but we'll get finer with
     // segments.
-    uint width_in_bins = (conf.width_in_tiles + N_TILE_X - 1)/N_TILE_X;
-    uint height_in_bins = (conf.height_in_tiles + N_TILE_Y - 1)/N_TILE_Y;
+    uint width_in_bins = (conf.width_in_tiles + N_TILE_X - 1) / N_TILE_X;
+    uint height_in_bins = (conf.height_in_tiles + N_TILE_Y - 1) / N_TILE_Y;
     x0 = clamp(x0, 0, int(width_in_bins));
     x1 = clamp(x1, x0, int(width_in_bins));
     y0 = clamp(y0, 0, int(height_in_bins));
     y1 = clamp(y1, y0, int(height_in_bins));
-    if (x0 == x1) y1 = y0;
+    if (x0 == x1)
+        y1 = y0;
     int x = x0, y = y0;
     uint my_slice = gl_LocalInvocationID.x / 32;
     uint my_mask = 1u << (gl_LocalInvocationID.x & 31);

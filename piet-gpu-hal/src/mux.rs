@@ -772,6 +772,22 @@ impl CmdBuf {
             CmdBuf::Mtl(c) => c.finish_timestamps(pool.mtl()),
         }
     }
+
+    pub unsafe fn begin_debug_label(&mut self, label: &str) {
+        mux_match! { self;
+            CmdBuf::Vk(c) => c.begin_debug_label(label),
+            CmdBuf::Dx12(c) => c.begin_debug_label(label),
+            CmdBuf::Mtl(c) => c.begin_debug_label(label),
+        }
+    }
+
+    pub unsafe fn end_debug_label(&mut self) {
+        mux_match! { self;
+            CmdBuf::Vk(c) => c.end_debug_label(),
+            CmdBuf::Dx12(c) => c.end_debug_label(),
+            CmdBuf::Mtl(c) => c.end_debug_label(),
+        }
+    }
 }
 
 impl Buffer {
