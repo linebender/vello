@@ -30,7 +30,7 @@ use metal::{CGFloat, MTLFeatureSet};
 
 use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
 
-use crate::{BufferUsage, Error, GpuInfo, MapMode, WorkgroupLimits};
+use crate::{BufferUsage, Error, GpuInfo, ImageFormat, MapMode, WorkgroupLimits};
 
 use util::*;
 
@@ -153,41 +153,7 @@ impl MtlInstance {
     pub fn device(&self, _surface: Option<&MtlSurface>) -> Result<MtlDevice, Error> {
         if let Some(device) = metal::Device::system_default() {
             let cmd_queue = device.new_command_queue();
-            let is_mac = device.supports_feature_set(MTLFeatureSet::macOS_GPUFamily1_v1);
-            let is_ios = device.supports_feature_set(MTLFeatureSet::iOS_GPUFamily1_v1);
-            let version = NSOperatingSystemVersion::get();
-
-            let use_staging_buffers =
-                if (is_mac && version.at_least(10, 15)) || (is_ios && version.at_least(13, 0)) {
-                    !device.has_unified_memory()
-                } else {
-                    !device.is_low_power()
-                };
-            // TODO: these are conservative; we need to derive these from
-            // supports_feature_set queries.
-            let gpu_info = GpuInfo {
-                has_descriptor_indexing: false,
-                has_subgroups: false,
-                subgroup_size: None,
-                // The workgroup limits are taken from the minimum of a desktop installation;
-                // we don't support iOS right now, but in case of testing on those devices it might
-                // need to change these (or just queried properly).
-                workgroup_limits: WorkgroupLimits {
-                    max_size: [1024, 1024, 64],
-                    max_invocations: 1024,
-                },
-                has_memory_model: false,
-                use_staging_buffers,
-            };
-            let helpers = Arc::new(Helpers {
-                clear_pipeline: clear::make_clear_pipeline(&device),
-            });
-            Ok(MtlDevice {
-                device,
-                cmd_queue: Arc::new(Mutex::new(cmd_queue)),
-                gpu_info,
-                helpers,
-            })
+            Ok(MtlDevice::new_from_raw_mtl(device, cmd_queue))
         } else {
             Err("can't create system default Metal device".into())
         }
@@ -209,6 +175,60 @@ impl MtlInstance {
             n_drawables,
             drawable_ix: 0,
         })
+    }
+}
+
+impl MtlDevice {
+    pub fn new_from_raw_mtl(device: metal::Device, cmd_queue: metal::CommandQueue) -> MtlDevice {
+        let is_mac = device.supports_feature_set(MTLFeatureSet::macOS_GPUFamily1_v1);
+        let is_ios = device.supports_feature_set(MTLFeatureSet::iOS_GPUFamily1_v1);
+        let version = NSOperatingSystemVersion::get();
+
+        let use_staging_buffers =
+            if (is_mac && version.at_least(10, 15)) || (is_ios && version.at_least(13, 0)) {
+                !device.has_unified_memory()
+            } else {
+                !device.is_low_power()
+            };
+        // TODO: these are conservative; we need to derive these from
+        // supports_feature_set queries.
+        let gpu_info = GpuInfo {
+            has_descriptor_indexing: false,
+            has_subgroups: false,
+            subgroup_size: None,
+            // The workgroup limits are taken from the minimum of a desktop installation;
+            // we don't support iOS right now, but in case of testing on those devices it might
+            // need to change these (or just queried properly).
+            workgroup_limits: WorkgroupLimits {
+                max_size: [1024, 1024, 64],
+                max_invocations: 1024,
+            },
+            has_memory_model: false,
+            use_staging_buffers,
+        };
+        let helpers = Arc::new(Helpers {
+            clear_pipeline: clear::make_clear_pipeline(&device),
+        });
+        MtlDevice {
+            device,
+            cmd_queue: Arc::new(Mutex::new(cmd_queue)),
+            gpu_info,
+            helpers,
+        }
+    }
+
+    pub fn cmd_buf_from_raw_mtl(&self, raw_cmd_buf: metal::CommandBuffer) -> CmdBuf {
+        let cmd_buf = raw_cmd_buf;
+        let helpers = self.helpers.clone();
+        CmdBuf { cmd_buf, helpers }
+    }
+
+    pub fn image_from_raw_mtl(&self, texture: metal::Texture, width: u32, height: u32) -> Image {
+        Image {
+            texture,
+            width,
+            height,
+        }
     }
 }
 
@@ -259,14 +279,23 @@ impl crate::backend::Device for MtlDevice {
         Ok(())
     }
 
-    unsafe fn create_image2d(&self, width: u32, height: u32) -> Result<Self::Image, Error> {
+    unsafe fn create_image2d(
+        &self,
+        width: u32,
+        height: u32,
+        format: ImageFormat,
+    ) -> Result<Self::Image, Error> {
         let desc = metal::TextureDescriptor::new();
         desc.set_width(width as u64);
         desc.set_height(height as u64);
         // These are defaults so don't need to be explicitly set.
         //desc.set_depth(1);
         //desc.set_mipmap_level_count(1);
-        //desc.set_pixel_format(metal::MTLPixelFormat::RGBA8Unorm);
+        let mtl_format = match format {
+            ImageFormat::A8 => metal::MTLPixelFormat::R8Unorm,
+            ImageFormat::Rgba8 => metal::MTLPixelFormat::RGBA8Unorm,
+        };
+        desc.set_pixel_format(mtl_format);
         desc.set_usage(metal::MTLTextureUsage::ShaderRead | metal::MTLTextureUsage::ShaderWrite);
         let texture = self.device.new_texture(&desc);
         Ok(Image {

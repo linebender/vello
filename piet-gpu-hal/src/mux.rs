@@ -35,6 +35,7 @@ use crate::backend::DescriptorSetBuilder as DescriptorSetBuilderTrait;
 use crate::backend::Device as DeviceTrait;
 use crate::BackendType;
 use crate::BindType;
+use crate::ImageFormat;
 use crate::MapMode;
 use crate::{BufferUsage, Error, GpuInfo, ImageLayout, InstanceFlags};
 
@@ -208,6 +209,38 @@ impl Instance {
 // but not doing so lets us diverge more easily (at the moment, the divergence is
 // missing functionality).
 impl Device {
+    #[cfg(target_os = "macos")]
+    pub fn new_from_raw_mtl(
+        device: &::metal::DeviceRef,
+        queue: &::metal::CommandQueueRef,
+    ) -> Device {
+        Device::Mtl(metal::MtlDevice::new_from_raw_mtl(
+            device.to_owned(),
+            queue.to_owned(),
+        ))
+    }
+
+    #[cfg(target_os = "macos")]
+    pub fn cmd_buf_from_raw_mtl(&self, raw_cmd_buf: &::metal::CommandBufferRef) -> CmdBuf {
+        // Note: this will cause problems if we support multiple back-ends on mac. But it will
+        // be a compile error;
+        let Device::Mtl(d) = self;
+        CmdBuf::Mtl(d.cmd_buf_from_raw_mtl(raw_cmd_buf.to_owned()))
+    }
+
+    #[cfg(target_os = "macos")]
+    pub fn image_from_raw_mtl(
+        &self,
+        raw_texture: &::metal::TextureRef,
+        width: u32,
+        height: u32,
+    ) -> Image {
+        // Note: this will cause problems if we support multiple back-ends on mac. But it will
+        // be a compile error;
+        let Device::Mtl(d) = self;
+        Image::Mtl(d.image_from_raw_mtl(raw_texture.to_owned(), width, height))
+    }
+
     pub fn query_gpu_info(&self) -> GpuInfo {
         mux_match! { self;
             Device::Vk(d) => d.query_gpu_info(),
@@ -232,11 +265,16 @@ impl Device {
         }
     }
 
-    pub unsafe fn create_image2d(&self, width: u32, height: u32) -> Result<Image, Error> {
+    pub unsafe fn create_image2d(
+        &self,
+        width: u32,
+        height: u32,
+        format: ImageFormat,
+    ) -> Result<Image, Error> {
         mux_match! { self;
-            Device::Vk(d) => d.create_image2d(width, height).map(Image::Vk),
-            Device::Dx12(d) => d.create_image2d(width, height).map(Image::Dx12),
-            Device::Mtl(d) => d.create_image2d(width, height).map(Image::Mtl),
+            Device::Vk(d) => d.create_image2d(width, height, format).map(Image::Vk),
+            Device::Dx12(d) => d.create_image2d(width, height, format).map(Image::Dx12),
+            Device::Mtl(d) => d.create_image2d(width, height, format).map(Image::Mtl),
         }
     }
 

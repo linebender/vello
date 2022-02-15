@@ -1,4 +1,5 @@
 mod encoder;
+pub mod glyph_render;
 mod gradient;
 mod pico_svg;
 mod render_ctx;
@@ -46,6 +47,18 @@ pub fn dump_k1_data(k1_buf: &[u32]) {
             println!("{:4x}: {:8x}", i * 4, k1_buf[i]);
         }
     }
+}
+
+pub struct RenderConfig {
+    width: usize,
+    height: usize,
+    format: PixelFormat,
+}
+
+// Should we just use the enum from piet-gpu-hal?
+pub enum PixelFormat {
+    A8,
+    Rgba8,
 }
 
 pub struct Renderer {
@@ -105,15 +118,41 @@ pub struct Renderer {
     gradients: Image,
 }
 
+impl RenderConfig {
+    pub fn new(width: usize, height: usize) -> RenderConfig {
+        RenderConfig {
+            width,
+            height,
+            format: PixelFormat::Rgba8,
+        }
+    }
+
+    pub fn pixel_format(mut self, format: PixelFormat) -> Self {
+        self.format = format;
+        self
+    }
+}
+
 impl Renderer {
-    /// Create a new renderer.
     pub unsafe fn new(
         session: &Session,
         width: usize,
         height: usize,
         n_bufs: usize,
     ) -> Result<Self, Error> {
+        let config = RenderConfig::new(width, height);
+        Self::new_from_config(session, config, n_bufs)
+    }
+
+    /// Create a new renderer.
+    pub unsafe fn new_from_config(
+        session: &Session,
+        config: RenderConfig,
+        n_bufs: usize,
+    ) -> Result<Self, Error> {
         // For now, round up to tile alignment
+        let width = config.width;
+        let height = config.height;
         let width = width + (width.wrapping_neg() & (TILE_W - 1));
         let height = height + (height.wrapping_neg() & (TILE_W - 1));
         let dev = BufferUsage::STORAGE | BufferUsage::COPY_DST;
@@ -125,7 +164,11 @@ impl Renderer {
             .map(|_| session.create_buffer(8 * 1024 * 1024, host_upload).unwrap())
             .collect::<Vec<_>>();
 
-        let image_dev = session.create_image2d(width as u32, height as u32)?;
+        let image_format = match config.format {
+            PixelFormat::A8 => piet_gpu_hal::ImageFormat::A8,
+            PixelFormat::Rgba8 => piet_gpu_hal::ImageFormat::Rgba8,
+        };
+        let image_dev = session.create_image2d(width as u32, height as u32, image_format)?;
 
         // Note: this must be updated when the config struct size changes.
         const CONFIG_BUFFER_SIZE: u64 = std::mem::size_of::<Config>() as u64;
@@ -210,7 +253,10 @@ impl Renderer {
             .collect();
         let gradients = Self::make_gradient_image(&session);
 
-        let k4_code = include_shader!(session, "../shader/gen/kernel4");
+        let k4_code = match config.format {
+            PixelFormat::A8 => include_shader!(session, "../shader/gen/kernel4_gray"),
+            PixelFormat::Rgba8 => include_shader!(session, "../shader/gen/kernel4"),
+        };
         let k4_pipeline = session.create_compute_pipeline(
             k4_code,
             &[
@@ -441,7 +487,8 @@ impl Renderer {
                 return Err("unsupported image format".into());
             }
             let buffer = session.create_buffer_init(&buf, BufferUsage::COPY_SRC)?;
-            let image = session.create_image2d(width.try_into()?, height.try_into()?)?;
+            const RGBA: piet_gpu_hal::ImageFormat = piet_gpu_hal::ImageFormat::Rgba8;
+            let image = session.create_image2d(width.try_into()?, height.try_into()?, RGBA)?;
             let mut cmd_buf = session.cmd_buf()?;
             cmd_buf.begin();
             cmd_buf.image_barrier(&image, ImageLayout::Undefined, ImageLayout::BlitDst);
@@ -477,8 +524,13 @@ impl Renderer {
 
     fn make_gradient_image(session: &Session) -> Image {
         unsafe {
+            const RGBA: piet_gpu_hal::ImageFormat = piet_gpu_hal::ImageFormat::Rgba8;
             session
-                .create_image2d(gradient::N_SAMPLES as u32, gradient::N_GRADIENTS as u32)
+                .create_image2d(
+                    gradient::N_SAMPLES as u32,
+                    gradient::N_GRADIENTS as u32,
+                    RGBA,
+                )
                 .unwrap()
         }
     }

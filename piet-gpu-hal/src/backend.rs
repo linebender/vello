@@ -16,7 +16,9 @@
 
 //! The generic trait for backends to implement.
 
-use crate::{BindType, BufferUsage, Error, GpuInfo, ImageLayout, MapMode, SamplerParams};
+use crate::{
+    BindType, BufferUsage, Error, GpuInfo, ImageFormat, ImageLayout, MapMode, SamplerParams,
+};
 
 pub trait Device: Sized {
     type Buffer: 'static;
@@ -47,7 +49,12 @@ pub trait Device: Sized {
     /// Maybe doesn't need result return?
     unsafe fn destroy_buffer(&self, buffer: &Self::Buffer) -> Result<(), Error>;
 
-    unsafe fn create_image2d(&self, width: u32, height: u32) -> Result<Self::Image, Error>;
+    unsafe fn create_image2d(
+        &self,
+        width: u32,
+        height: u32,
+        format: ImageFormat,
+    ) -> Result<Self::Image, Error>;
 
     /// Destroy an image.
     ///

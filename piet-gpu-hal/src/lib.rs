@@ -16,8 +16,8 @@ mod macros;
 mod mux;
 
 pub use crate::mux::{
-    DescriptorSet, Fence, Instance, Pipeline, QueryPool, Sampler, Semaphore, ShaderCode, Surface,
-    Swapchain,
+    DescriptorSet, Device, Fence, Instance, Pipeline, QueryPool, Sampler, Semaphore, ShaderCode,
+    Surface, Swapchain,
 };
 pub use bufwrite::BufWrite;
 pub use hub::{
@@ -89,6 +89,15 @@ pub enum ImageLayout {
 pub enum SamplerParams {
     Nearest,
     Linear,
+}
+
+/// Image format.
+#[derive(Copy, Clone, Debug)]
+pub enum ImageFormat {
+    // 8 bit grayscale / alpha
+    A8,
+    // 8 bit per pixel RGBA
+    Rgba8,
 }
 
 bitflags! {

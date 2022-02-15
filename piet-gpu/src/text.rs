@@ -260,7 +260,7 @@ impl TextLayoutBuilder for PietGpuTextLayoutBuilder {
     }
 }
 
-fn append_outline(encoder: &mut GlyphEncoder, verbs: &[Verb], points: &[Vector]) {
+pub(crate) fn append_outline(encoder: &mut GlyphEncoder, verbs: &[Verb], points: &[Vector]) {
     let mut path_encoder = encoder.path_encoder();
     let mut i = 0;
     for verb in verbs {

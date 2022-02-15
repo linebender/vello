@@ -21,7 +21,7 @@ use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
 
 use smallvec::SmallVec;
 
-use crate::{BindType, BufferUsage, Error, GpuInfo, ImageLayout, MapMode, WorkgroupLimits};
+use crate::{BindType, BufferUsage, Error, GpuInfo, ImageLayout, MapMode, WorkgroupLimits, ImageFormat};
 
 use self::{
     descriptor::{CpuHeapRefOwned, DescriptorPool, GpuHeapRefOwned},
@@ -321,8 +321,11 @@ impl crate::backend::Device for Dx12Device {
         Ok(())
     }
 
-    unsafe fn create_image2d(&self, width: u32, height: u32) -> Result<Self::Image, Error> {
-        let format = winapi::shared::dxgiformat::DXGI_FORMAT_R8G8B8A8_UNORM;
+    unsafe fn create_image2d(&self, width: u32, height: u32, format: ImageFormat) -> Result<Self::Image, Error> {
+        let format = match format {
+            ImageFormat::A8 => winapi::shared::dxgiformat::DXGI_FORMAT_R8_UNORM,
+            ImageFormat::Rgba8 => winapi::shared::dxgiformat::DXGI_FORMAT_R8G8B8A8_UNORM,
+        };
         let resource = self
             .device
             .create_texture2d_buffer(width.into(), height, format, true)?;
