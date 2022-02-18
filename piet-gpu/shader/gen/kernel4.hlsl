@@ -117,8 +117,13 @@ struct Config
     Alloc trans_alloc;
     Alloc bbox_alloc;
     Alloc drawmonoid_alloc;
+    Alloc clip_alloc;
+    Alloc clip_bic_alloc;
+    Alloc clip_stack_alloc;
+    Alloc clip_bbox_alloc;
     uint n_trans;
     uint n_path;
+    uint n_clip;
     uint trans_offset;
     uint linewidth_offset;
     uint pathtag_offset;
@@ -457,7 +462,6 @@ void comp_main()
     TileSegRef tile_seg_ref;
     float area[8];
     uint blend_stack[128][8];
-    float blend_alpha_stack[128][8];
     while (mem_ok)
     {
         Alloc param_3 = cmd_alloc;
@@ -640,7 +644,6 @@ void comp_main()
                     float4 param_34 = float4(rgba[k_11]);
                     uint _1390 = packsRGB(param_34);
                     blend_stack[d_2][k_11] = _1390;
-                    blend_alpha_stack[d_2][k_11] = clamp(abs(area[k_11]), 0.0f, 1.0f);
                     rgba[k_11] = 0.0f.xxxx;
                 }
                 clip_depth++;
@@ -655,7 +658,7 @@ void comp_main()
                     uint d_3 = min(clip_depth, 127u);
                     uint param_35 = blend_stack[d_3][k_12];
                     float4 bg = unpacksRGB(param_35);
-                    float4 fg_1 = (rgba[k_12] * area[k_12]) * blend_alpha_stack[d_3][k_12];
+                    float4 fg_1 = rgba[k_12] * area[k_12];
                     rgba[k_12] = (bg * (1.0f - fg_1.w)) + fg_1;
                 }
                 cmd_ref.offset += 4u;
@@ -665,8 +668,8 @@ void comp_main()
             {
                 Alloc param_36 = cmd_alloc;
                 CmdRef param_37 = cmd_ref;
-                CmdRef _1469 = { Cmd_Jump_read(param_36, param_37).new_ref };
-                cmd_ref = _1469;
+                CmdRef _1453 = { Cmd_Jump_read(param_36, param_37).new_ref };
+                cmd_ref = _1453;
                 cmd_alloc.offset = cmd_ref.offset;
                 break;
             }

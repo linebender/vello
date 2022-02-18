@@ -20,9 +20,9 @@ use piet_gpu_hal::{
 };
 
 use pico_svg::PicoSvg;
-use stages::{ElementBinding, ElementCode};
+use stages::{ClipBinding, ElementBinding, ElementCode};
 
-use crate::stages::{Config, ElementStage};
+use crate::stages::{ClipCode, Config, ElementStage};
 
 const TILE_W: usize = 16;
 const TILE_H: usize = 16;
@@ -86,6 +86,9 @@ pub struct Renderer {
     element_stage: ElementStage,
     element_bindings: Vec<ElementBinding>,
 
+    clip_code: ClipCode,
+    clip_binding: ClipBinding,
+
     tile_pipeline: Pipeline,
     tile_ds: DescriptorSet,
 
@@ -110,6 +113,7 @@ pub struct Renderer {
     n_paths: usize,
     n_pathseg: usize,
     n_pathtag: usize,
+    n_clip: u32,
 
     // Keep a reference to the image so that it is not destroyed.
     _bg_image: Image,
@@ -191,17 +195,19 @@ impl Renderer {
         let element_stage = ElementStage::new(session, &element_code);
         let element_bindings = scene_bufs
             .iter()
-            .zip(&config_bufs)
-            .map(|(scene_buf, config_buf)| {
+            .map(|scene_buf| {
                 element_stage.bind(
                     session,
                     &element_code,
-                    config_buf,
+                    &config_buf,
                     scene_buf,
                     &memory_buf_dev,
                 )
             })
             .collect();
+
+        let clip_code = ClipCode::new(session);
+        let clip_binding = ClipBinding::new(session, &clip_code, &config_buf, &memory_buf_dev);
 
         let tile_alloc_code = include_shader!(session, "../shader/gen/tile_alloc");
         let tile_pipeline = session
@@ -286,6 +292,8 @@ impl Renderer {
             element_code,
             element_stage,
             element_bindings,
+            clip_code,
+            clip_binding,
             tile_pipeline,
             tile_ds,
             path_pipeline,
@@ -304,6 +312,7 @@ impl Renderer {
             n_paths: 0,
             n_pathseg: 0,
             n_pathtag: 0,
+            n_clip: 0,
             _bg_image: bg_image,
             gradient_bufs,
             gradients,
@@ -329,6 +338,7 @@ impl Renderer {
         self.n_drawobj = render_ctx.n_drawobj();
         self.n_pathseg = render_ctx.n_pathseg() as usize;
         self.n_pathtag = render_ctx.n_pathtag();
+        self.n_clip = render_ctx.n_clip();
 
         // These constants depend on encoding and may need to be updated.
         // Perhaps we can plumb these from piet-gpu-derive?
@@ -342,6 +352,7 @@ impl Renderer {
         alloc += ((n_drawobj + 255) & !255) * BIN_SIZE;
         let ptcl_base = alloc;
         alloc += width_in_tiles * height_in_tiles * PTCL_INITIAL_ALLOC;
+
         config.width_in_tiles = width_in_tiles as u32;
         config.height_in_tiles = height_in_tiles as u32;
         config.tile_alloc = tile_base as u32;
@@ -401,6 +412,19 @@ impl Renderer {
         cmd_buf.end_debug_label();
         cmd_buf.write_timestamp(&query_pool, 1);
         cmd_buf.memory_barrier();
+        cmd_buf.begin_debug_label("Clip bounding box calculation");
+        self.clip_binding
+            .record(cmd_buf, &self.clip_code, self.n_clip as u32);
+        cmd_buf.end_debug_label();
+        cmd_buf.begin_debug_label("Element binning");
+        cmd_buf.dispatch(
+            &self.bin_pipeline,
+            &self.bin_ds,
+            (((self.n_paths + 255) / 256) as u32, 1, 1),
+            (256, 1, 1),
+        );
+        cmd_buf.end_debug_label();
+        cmd_buf.memory_barrier();
         cmd_buf.begin_debug_label("Tile allocation");
         cmd_buf.dispatch(
             &self.tile_pipeline,
@@ -430,18 +454,7 @@ impl Renderer {
         );
         cmd_buf.end_debug_label();
         cmd_buf.write_timestamp(&query_pool, 4);
-        // Note: this barrier is not needed as an actual dependency between
-        // pipeline stages, but I am keeping it in so that timer queries are
-        // easier to interpret.
-        cmd_buf.memory_barrier();
-        cmd_buf.begin_debug_label("Element binning");
-        cmd_buf.dispatch(
-            &self.bin_pipeline,
-            &self.bin_ds,
-            (((self.n_paths + 255) / 256) as u32, 1, 1),
-            (256, 1, 1),
-        );
-        cmd_buf.end_debug_label();
+        // TODO: redo query accounting
         cmd_buf.write_timestamp(&query_pool, 5);
         cmd_buf.memory_barrier();
         cmd_buf.begin_debug_label("Coarse raster");

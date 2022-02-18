@@ -20,8 +20,8 @@ use std::ops::RangeBounds;
 
 use bytemuck::Pod;
 use piet_gpu_hal::{
-    BackendType, BufReadGuard, Buffer, BufferUsage, CmdBuf, Instance, InstanceFlags, QueryPool,
-    Session,
+    BackendType, BufReadGuard, BufWriteGuard, Buffer, BufferUsage, CmdBuf, Instance, InstanceFlags,
+    QueryPool, Session,
 };
 
 pub struct Runner {
@@ -37,15 +37,8 @@ pub struct Commands {
     query_pool: QueryPool,
 }
 
-/// Buffer for uploading data to GPU.
-#[allow(unused)]
-pub struct BufUp {
-    pub stage_buf: Buffer,
-    pub dev_buf: Buffer,
-}
-
-/// Buffer for downloading data from GPU.
-pub struct BufDown {
+/// Buffer for both uploading and downloading
+pub struct BufStage {
     pub stage_buf: Buffer,
     pub dev_buf: Buffer,
 }
@@ -92,7 +85,7 @@ impl Runner {
     }
 
     #[allow(unused)]
-    pub fn buf_up(&self, size: u64) -> BufUp {
+    pub fn buf_up(&self, size: u64) -> BufStage {
         let stage_buf = self
             .session
             .create_buffer(size, BufferUsage::MAP_WRITE | BufferUsage::COPY_SRC)
@@ -101,13 +94,13 @@ impl Runner {
             .session
             .create_buffer(size, BufferUsage::COPY_DST | BufferUsage::STORAGE)
             .unwrap();
-        BufUp { stage_buf, dev_buf }
+        BufStage { stage_buf, dev_buf }
     }
 
     /// Create a buffer for download (readback).
     ///
     /// The `usage` parameter need not include COPY_SRC and STORAGE.
-    pub fn buf_down(&self, size: u64, usage: BufferUsage) -> BufDown {
+    pub fn buf_down(&self, size: u64, usage: BufferUsage) -> BufStage {
         let stage_buf = self
             .session
             .create_buffer(size, BufferUsage::MAP_READ | BufferUsage::COPY_DST)
@@ -116,7 +109,7 @@ impl Runner {
             .session
             .create_buffer(size, usage | BufferUsage::COPY_SRC | BufferUsage::STORAGE)
             .unwrap();
-        BufDown { stage_buf, dev_buf }
+        BufStage { stage_buf, dev_buf }
     }
 
     pub fn backend_type(&self) -> BackendType {
@@ -129,22 +122,25 @@ impl Commands {
         self.cmd_buf.write_timestamp(&self.query_pool, query);
     }
 
-    #[allow(unused)]
-    pub unsafe fn upload(&mut self, buf: &BufUp) {
+    pub unsafe fn upload(&mut self, buf: &BufStage) {
         self.cmd_buf.copy_buffer(&buf.stage_buf, &buf.dev_buf);
     }
 
-    pub unsafe fn download(&mut self, buf: &BufDown) {
+    pub unsafe fn download(&mut self, buf: &BufStage) {
         self.cmd_buf.copy_buffer(&buf.dev_buf, &buf.stage_buf);
     }
 }
 
-impl BufDown {
+impl BufStage {
     pub unsafe fn read(&self, dst: &mut Vec<impl Pod>) {
         self.stage_buf.read(dst).unwrap()
     }
 
     pub unsafe fn map_read<'a>(&'a self, range: impl RangeBounds<usize>) -> BufReadGuard<'a> {
         self.stage_buf.map_read(range).unwrap()
+    }
+
+    pub unsafe fn map_write<'a>(&'a mut self, range: impl RangeBounds<usize>) -> BufWriteGuard {
+        self.stage_buf.map_write(range).unwrap()
     }
 }

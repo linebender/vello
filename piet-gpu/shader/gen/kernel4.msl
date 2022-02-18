@@ -175,8 +175,13 @@ struct Config
     Alloc_1 trans_alloc;
     Alloc_1 bbox_alloc;
     Alloc_1 drawmonoid_alloc;
+    Alloc_1 clip_alloc;
+    Alloc_1 clip_bic_alloc;
+    Alloc_1 clip_stack_alloc;
+    Alloc_1 clip_bbox_alloc;
     uint n_trans;
     uint n_path;
+    uint n_clip;
     uint trans_offset;
     uint linewidth_offset;
     uint pathtag_offset;
@@ -507,7 +512,6 @@ kernel void main0(device Memory& v_202 [[buffer(0)]], const device ConfigBuf& _7
     TileSegRef tile_seg_ref;
     spvUnsafeArray<float, 8> area;
     spvUnsafeArray<spvUnsafeArray<uint, 8>, 128> blend_stack;
-    spvUnsafeArray<spvUnsafeArray<float, 8>, 128> blend_alpha_stack;
     while (mem_ok)
     {
         Alloc param_3 = cmd_alloc;
@@ -687,7 +691,6 @@ kernel void main0(device Memory& v_202 [[buffer(0)]], const device ConfigBuf& _7
                     float4 param_34 = float4(rgba[k_11]);
                     uint _1390 = packsRGB(param_34);
                     blend_stack[d_2][k_11] = _1390;
-                    blend_alpha_stack[d_2][k_11] = fast::clamp(abs(area[k_11]), 0.0, 1.0);
                     rgba[k_11] = float4(0.0);
                 }
                 clip_depth++;
@@ -702,7 +705,7 @@ kernel void main0(device Memory& v_202 [[buffer(0)]], const device ConfigBuf& _7
                     uint d_3 = min(clip_depth, 127u);
                     uint param_35 = blend_stack[d_3][k_12];
                     float4 bg = unpacksRGB(param_35);
-                    float4 fg_1 = (rgba[k_12] * area[k_12]) * blend_alpha_stack[d_3][k_12];
+                    float4 fg_1 = rgba[k_12] * area[k_12];
                     rgba[k_12] = (bg * (1.0 - fg_1.w)) + fg_1;
                 }
                 cmd_ref.offset += 4u;
