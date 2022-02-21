@@ -102,17 +102,21 @@ impl DrawTestData {
         // Layout of memory
         let drawmonoid_alloc = 0;
         let anno_alloc = drawmonoid_alloc + 8 * n_tags;
+        let clip_alloc = anno_alloc + ANNOTATED_SIZE * n_tags;
         let stage_config = stages::Config {
             n_elements: n_tags as u32,
             anno_alloc: anno_alloc as u32,
             drawmonoid_alloc: drawmonoid_alloc as u32,
+            clip_alloc: clip_alloc as u32,
             ..Default::default()
         };
         stage_config
     }
 
     fn memory_size(&self) -> u64 {
-        (8 + self.tags.len() * (8 + ANNOTATED_SIZE)) as u64
+        // Note: this overallocates the clip buf a bit - only needed for the
+        // total number of begin_clip and end_clip tags.
+        (8 + self.tags.len() * (8 + 4 + ANNOTATED_SIZE)) as u64
     }
 
     fn fill_scene(&self, buf: &mut BufWrite) {
@@ -128,14 +132,13 @@ impl DrawTestData {
         let actual = bytemuck::cast_slice::<u8, DrawMonoid>(&buf[8..8 + size]);
         let mut expected = DrawMonoid::default();
         for (i, (tag, actual)) in self.tags.iter().zip(actual).enumerate() {
-            // We compute an inclusive prefix sum, but for this application
-            // exclusive would be slightly better. We can adapt though.
+            // Verify exclusive prefix sum.
             let (path_ix, clip_ix) = Self::reduce_tag(*tag);
-            expected.path_ix += path_ix;
-            expected.clip_ix += clip_ix;
             if *actual != expected {
                 return Some(format!("draw mismatch at {}", i));
             }
+            expected.path_ix += path_ix;
+            expected.clip_ix += clip_ix;
         }
         None
     }

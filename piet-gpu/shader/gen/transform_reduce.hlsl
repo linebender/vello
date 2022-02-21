@@ -28,8 +28,13 @@ struct Config
     Alloc trans_alloc;
     Alloc bbox_alloc;
     Alloc drawmonoid_alloc;
+    Alloc clip_alloc;
+    Alloc clip_bic_alloc;
+    Alloc clip_stack_alloc;
+    Alloc clip_bbox_alloc;
     uint n_trans;
     uint n_path;
+    uint n_clip;
     uint trans_offset;
     uint linewidth_offset;
     uint pathtag_offset;
@@ -87,7 +92,7 @@ Transform combine_monoid(Transform a, Transform b)
 void comp_main()
 {
     uint ix = gl_GlobalInvocationID.x * 8u;
-    TransformRef _168 = { _161.Load(56) + (ix * 24u) };
+    TransformRef _168 = { _161.Load(76) + (ix * 24u) };
     TransformRef ref = _168;
     TransformRef param = ref;
     Transform agg = Transform_read(param);

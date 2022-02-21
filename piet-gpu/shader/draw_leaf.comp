@@ -72,9 +72,14 @@ void main() {
     }
     uint out_ix = gl_GlobalInvocationID.x * N_ROWS;
     uint out_base = (conf.drawmonoid_alloc.offset >> 2) + out_ix * 2;
+    uint clip_out_base = conf.clip_alloc.offset >> 2;
     AnnotatedRef out_ref = AnnotatedRef(conf.anno_alloc.offset + out_ix * Annotated_size);
     for (uint i = 0; i < N_ROWS; i++) {
-        Monoid m = combine_tag_monoid(row, local[i]);
+        Monoid m = row;
+        if (i > 0) {
+            m = combine_tag_monoid(m, local[i - 1]);
+        }
+        // m now holds exclusive scan of draw monoid
         memory[out_base + i * 2] = m.path_ix;
         memory[out_base + i * 2 + 1] = m.clip_ix;
 
@@ -83,8 +88,9 @@ void main() {
         // later stages read scene + bbox etc.
         ElementRef this_ref = Element_index(ref, i);
         tag_word = Element_tag(this_ref).tag;
-        if (tag_word == Element_FillColor || tag_word == Element_FillLinGradient || tag_word == Element_FillImage) {
-            uint bbox_offset = (conf.bbox_alloc.offset >> 2) + 6 * (m.path_ix - 1);
+        if (tag_word == Element_FillColor || tag_word == Element_FillLinGradient || tag_word == Element_FillImage ||
+            tag_word == Element_BeginClip) {
+            uint bbox_offset = (conf.bbox_alloc.offset >> 2) + 6 * m.path_ix;
             float bbox_l = float(memory[bbox_offset]) - 32768.0;
             float bbox_t = float(memory[bbox_offset + 1]) - 32768.0;
             float bbox_r = float(memory[bbox_offset + 2]) - 32768.0;
@@ -142,20 +148,26 @@ void main() {
                 anno_img.offset = fill_img.offset;
                 Annotated_Image_write(conf.anno_alloc, out_ref, fill_mode, anno_img);
                 break;
+            case Element_BeginClip:
+                AnnoBeginClip anno_begin_clip;
+                anno_begin_clip.bbox = bbox;
+                anno_begin_clip.linewidth = 0.0; // don't support clip-with-stroke
+                Annotated_BeginClip_write(conf.anno_alloc, out_ref, 0, anno_begin_clip);
+                break;
             }
-        } else if (tag_word == Element_BeginClip) {
-            Clip begin_clip = Element_BeginClip_read(this_ref);
-            AnnoBeginClip anno_begin_clip;
-            // This is the absolute bbox, it's been transformed during encoding.
-            anno_begin_clip.bbox = begin_clip.bbox;
-            anno_begin_clip.linewidth = 0.0; // don't support clip-with-stroke
-            Annotated_BeginClip_write(conf.anno_alloc, out_ref, 0, anno_begin_clip);
         } else if (tag_word == Element_EndClip) {
-            Clip end_clip = Element_EndClip_read(this_ref);
             AnnoEndClip anno_end_clip;
-            // This bbox is expected to be the same as the begin one.
-            anno_end_clip.bbox = end_clip.bbox;
+            // The actual bbox will be reconstructed from clip stream output.
+            anno_end_clip.bbox = vec4(-1e9, -1e9, 1e9, 1e9);
             Annotated_EndClip_write(conf.anno_alloc, out_ref, anno_end_clip);
+        }
+        // Generate clip stream.
+        if (tag_word == Element_BeginClip || tag_word == Element_EndClip) {
+            uint path_ix = ~(out_ix + i);
+            if (tag_word == Element_BeginClip) {
+                path_ix = m.path_ix;
+            }
+            memory[clip_out_base + m.clip_ix] = path_ix;
         }
         out_ref.offset += Annotated_size;
     }

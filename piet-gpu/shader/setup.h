@@ -46,11 +46,23 @@ struct Config {
     // Monoid for draw objects
     Alloc drawmonoid_alloc;
 
+    // BeginClip(path_ix) / EndClip
+    Alloc clip_alloc;
+    // Intermediate bicyclic semigroup
+    Alloc clip_bic_alloc;
+    // Intermediate stack
+    Alloc clip_stack_alloc;
+    // Clip processing results (path_ix + bbox)
+    Alloc clip_bbox_alloc;
+
     // Number of transforms in scene
     // This is probably not needed.
     uint n_trans;
-    // This only counts actual paths, not EndClip.
+    // This *should* count only actual paths, but in the current
+    // implementation is redundant with n_elements.
     uint n_path;
+    // Total number of BeginClip and EndClip draw objects.
+    uint n_clip;
     // Offset (in bytes) of transform stream in scene buffer
     uint trans_offset;
     // Offset (in bytes) of linewidth stream in scene

@@ -91,7 +91,6 @@ void main() {
     vec2 xy = vec2(xy_uint);
     mediump vec4 rgba[CHUNK];
     uint blend_stack[MAX_BLEND_STACK][CHUNK];
-    mediump float blend_alpha_stack[MAX_BLEND_STACK][CHUNK];
     for (uint i = 0; i < CHUNK; i++) {
         rgba[i] = vec4(0.0);
     }
@@ -211,7 +210,6 @@ void main() {
                 // The following is a sanity check so we don't corrupt memory should there be malformed inputs.
                 uint d = min(clip_depth, MAX_BLEND_STACK - 1);
                 blend_stack[d][k] = packsRGB(vec4(rgba[k]));
-                blend_alpha_stack[d][k] = clamp(abs(area[k]), 0.0, 1.0);
                 rgba[k] = vec4(0.0);
             }
             clip_depth++;
@@ -222,7 +220,7 @@ void main() {
             for (uint k = 0; k < CHUNK; k++) {
                 uint d = min(clip_depth, MAX_BLEND_STACK - 1);
                 mediump vec4 bg = unpacksRGB(blend_stack[d][k]);
-                mediump vec4 fg = rgba[k] * area[k] * blend_alpha_stack[d][k];
+                mediump vec4 fg = rgba[k] * area[k];
                 rgba[k] = bg * (1.0 - fg.a) + fg;
             }
             cmd_ref.offset += 4;

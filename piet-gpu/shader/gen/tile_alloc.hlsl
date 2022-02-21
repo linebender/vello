@@ -60,8 +60,13 @@ struct Config
     Alloc trans_alloc;
     Alloc bbox_alloc;
     Alloc drawmonoid_alloc;
+    Alloc clip_alloc;
+    Alloc clip_bic_alloc;
+    Alloc clip_stack_alloc;
+    Alloc clip_bbox_alloc;
     uint n_trans;
     uint n_path;
+    uint n_clip;
     uint trans_offset;
     uint linewidth_offset;
     uint pathtag_offset;

@@ -20,6 +20,7 @@ layout(set = 0, binding = 1) readonly buffer ConfigBuf {
 
 #include "annotated.h"
 #include "bins.h"
+#include "drawtag.h"
 
 // scale factors useful for converting coordinates to bins
 #define SX (1.0 / float(N_TILE_X * TILE_WIDTH_PX))
@@ -34,6 +35,47 @@ shared uint bitmaps[N_SLICE][N_TILE];
 shared uint count[N_SLICE][N_TILE];
 shared Alloc sh_chunk_alloc[N_TILE];
 shared bool sh_alloc_failed;
+
+DrawMonoid load_draw_monoid(uint element_ix) {
+    uint base = (conf.drawmonoid_alloc.offset >> 2) + 2 * element_ix;
+    uint path_ix = memory[base];
+    uint clip_ix = memory[base + 1];
+    return DrawMonoid(path_ix, clip_ix);
+}
+
+// Load bounding box computed by clip processing
+vec4 load_clip_bbox(uint clip_ix) {
+    uint base = (conf.clip_bbox_alloc.offset >> 2) + 4 * clip_ix;
+    float x0 = uintBitsToFloat(memory[base]);
+    float y0 = uintBitsToFloat(memory[base + 1]);
+    float x1 = uintBitsToFloat(memory[base + 2]);
+    float y1 = uintBitsToFloat(memory[base + 3]);
+    vec4 bbox = vec4(x0, y0, x1, y1);
+    return bbox;
+}
+
+vec4 bbox_intersect(vec4 a, vec4 b) {
+    return vec4(max(a.xy, b.xy), min(a.zw, b.zw));
+}
+
+// Load path's bbox from bbox (as written by pathseg).
+vec4 load_path_bbox(uint path_ix) {
+    uint base = (conf.bbox_alloc.offset >> 2) + 6 * path_ix;
+    float bbox_l = float(memory[base]) - 32768.0;
+    float bbox_t = float(memory[base + 1]) - 32768.0;
+    float bbox_r = float(memory[base + 2]) - 32768.0;
+    float bbox_b = float(memory[base + 3]) - 32768.0;
+    vec4 bbox = vec4(bbox_l, bbox_t, bbox_r, bbox_b);
+    return bbox;
+}
+
+void store_path_bbox(AnnotatedRef ref, vec4 bbox) {
+    uint ix = ref.offset >> 2;
+    memory[ix + 1] = floatBitsToUint(bbox.x);
+    memory[ix + 2] = floatBitsToUint(bbox.y);
+    memory[ix + 3] = floatBitsToUint(bbox.z);
+    memory[ix + 4] = floatBitsToUint(bbox.w);
+}
 
 void main() {
     uint my_n_elements = conf.n_elements;
@@ -61,13 +103,27 @@ void main() {
     case Annotated_Image:
     case Annotated_BeginClip:
     case Annotated_EndClip:
-        // Note: we take advantage of the fact that these drawing elements
-        // have the bbox at the same place in their layout.
-        AnnoEndClip clip = Annotated_EndClip_read(conf.anno_alloc, ref);
-        x0 = int(floor(clip.bbox.x * SX));
-        y0 = int(floor(clip.bbox.y * SY));
-        x1 = int(ceil(clip.bbox.z * SX));
-        y1 = int(ceil(clip.bbox.w * SY));
+        DrawMonoid draw_monoid = load_draw_monoid(element_ix);
+        uint path_ix = draw_monoid.path_ix;
+        vec4 clip_bbox = vec4(-1e9, -1e9, 1e9, 1e9);
+        uint clip_ix = draw_monoid.clip_ix;
+        if (clip_ix > 0) {
+            clip_bbox = load_clip_bbox(clip_ix - 1);
+        }
+        // For clip elements, clip_bbox is the bbox of the clip path, intersected
+        // with enclosing clips.
+        // For other elements, it is the bbox of the enclosing clips.
+
+        vec4 path_bbox = load_path_bbox(path_ix);
+        vec4 bbox = bbox_intersect(path_bbox, clip_bbox);
+        // Avoid negative-size bbox (is this necessary)?
+        bbox.zw = max(bbox.xy, bbox.zw);
+        // Store clip-intersected bbox for tile_alloc.
+        store_path_bbox(ref, bbox);
+        x0 = int(floor(bbox.x * SX));
+        y0 = int(floor(bbox.y * SY));
+        x1 = int(ceil(bbox.z * SX));
+        y1 = int(ceil(bbox.w * SY));
         break;
     }
 

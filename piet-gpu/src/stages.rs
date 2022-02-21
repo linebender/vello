@@ -16,12 +16,14 @@
 
 //! Stages for new element pipeline, exposed for testing.
 
+mod clip;
 mod draw;
 mod path;
 mod transform;
 
 use bytemuck::{Pod, Zeroable};
 
+pub use clip::{ClipBinding, ClipCode, CLIP_PART_SIZE};
 pub use draw::{DrawBinding, DrawCode, DrawMonoid, DrawStage, DRAW_PART_SIZE};
 pub use path::{PathBinding, PathCode, PathEncoder, PathStage, PATHSEG_PART_SIZE};
 use piet_gpu_hal::{Buffer, CmdBuf, Session};
@@ -47,8 +49,13 @@ pub struct Config {
     pub trans_alloc: u32,
     pub bbox_alloc: u32,
     pub drawmonoid_alloc: u32,
+    pub clip_alloc: u32,
+    pub clip_bic_alloc: u32,
+    pub clip_stack_alloc: u32,
+    pub clip_bbox_alloc: u32,
     pub n_trans: u32,
     pub n_path: u32,
+    pub n_clip: u32,
     pub trans_offset: u32,
     pub linewidth_offset: u32,
     pub pathtag_offset: u32,

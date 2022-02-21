@@ -33,8 +33,13 @@ struct Config
     Alloc trans_alloc;
     Alloc bbox_alloc;
     Alloc drawmonoid_alloc;
+    Alloc clip_alloc;
+    Alloc clip_bic_alloc;
+    Alloc clip_stack_alloc;
+    Alloc clip_bbox_alloc;
     uint n_trans;
     uint n_path;
+    uint n_clip;
     uint trans_offset;
     uint linewidth_offset;
     uint pathtag_offset;
@@ -103,17 +108,17 @@ TagMonoid combine_tag_monoid(thread const TagMonoid& a, thread const TagMonoid& 
     return c;
 }
 
-kernel void main0(const device ConfigBuf& _139 [[buffer(1)]], const device SceneBuf& _150 [[buffer(2)]], device OutBuf& _237 [[buffer(3)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]])
+kernel void main0(const device ConfigBuf& _139 [[buffer(1)]], const device SceneBuf& _151 [[buffer(2)]], device OutBuf& _238 [[buffer(3)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]])
 {
     threadgroup TagMonoid sh_scratch[128];
     uint ix = gl_GlobalInvocationID.x * 2u;
     uint scene_ix = (_139.conf.pathtag_offset >> uint(2)) + ix;
-    uint tag_word = _150.scene[scene_ix];
+    uint tag_word = _151.scene[scene_ix];
     uint param = tag_word;
     TagMonoid agg = reduce_tag(param);
     for (uint i = 1u; i < 2u; i++)
     {
-        tag_word = _150.scene[scene_ix + i];
+        tag_word = _151.scene[scene_ix + i];
         uint param_1 = tag_word;
         TagMonoid param_2 = agg;
         TagMonoid param_3 = reduce_tag(param_1);
@@ -135,11 +140,11 @@ kernel void main0(const device ConfigBuf& _139 [[buffer(1)]], const device Scene
     }
     if (gl_LocalInvocationID.x == 0u)
     {
-        _237.outbuf[gl_WorkGroupID.x].trans_ix = agg.trans_ix;
-        _237.outbuf[gl_WorkGroupID.x].linewidth_ix = agg.linewidth_ix;
-        _237.outbuf[gl_WorkGroupID.x].pathseg_ix = agg.pathseg_ix;
-        _237.outbuf[gl_WorkGroupID.x].path_ix = agg.path_ix;
-        _237.outbuf[gl_WorkGroupID.x].pathseg_offset = agg.pathseg_offset;
+        _238.outbuf[gl_WorkGroupID.x].trans_ix = agg.trans_ix;
+        _238.outbuf[gl_WorkGroupID.x].linewidth_ix = agg.linewidth_ix;
+        _238.outbuf[gl_WorkGroupID.x].pathseg_ix = agg.pathseg_ix;
+        _238.outbuf[gl_WorkGroupID.x].path_ix = agg.path_ix;
+        _238.outbuf[gl_WorkGroupID.x].pathseg_offset = agg.pathseg_offset;
     }
 }
 

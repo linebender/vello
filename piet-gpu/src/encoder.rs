@@ -20,7 +20,8 @@ use bytemuck::{Pod, Zeroable};
 use piet_gpu_hal::BufWrite;
 
 use crate::stages::{
-    self, Config, PathEncoder, Transform, DRAW_PART_SIZE, PATHSEG_PART_SIZE, TRANSFORM_PART_SIZE,
+    self, Config, PathEncoder, Transform, CLIP_PART_SIZE, DRAW_PART_SIZE, PATHSEG_PART_SIZE,
+    TRANSFORM_PART_SIZE,
 };
 
 pub struct Encoder {
@@ -31,6 +32,7 @@ pub struct Encoder {
     drawobj_stream: Vec<u8>,
     n_path: u32,
     n_pathseg: u32,
+    n_clip: u32,
 }
 
 /// A scene fragment encoding a glyph.
@@ -98,6 +100,7 @@ impl Encoder {
             drawobj_stream: Vec::new(),
             n_path: 0,
             n_pathseg: 0,
+            n_clip: 0,
         }
     }
 
@@ -155,6 +158,7 @@ impl Encoder {
             ..Default::default()
         };
         self.drawobj_stream.extend(bytemuck::bytes_of(&element));
+        self.n_clip += 1;
         saved
     }
 
@@ -170,6 +174,7 @@ impl Encoder {
         // This is a dummy path, and will go away with the new clip impl.
         self.tag_stream.push(0x10);
         self.n_path += 1;
+        self.n_clip += 1;
     }
 
     /// Return a config for the element processing pipeline.
@@ -203,6 +208,20 @@ impl Encoder {
         alloc += n_drawobj_padded * DRAWMONOID_SIZE;
         let anno_alloc = alloc;
         alloc += n_drawobj * ANNOTATED_SIZE;
+        let clip_alloc = alloc;
+        let n_clip = self.n_clip as usize;
+        const CLIP_SIZE: usize = 4;
+        alloc += n_clip * CLIP_SIZE;
+        let clip_bic_alloc = alloc;
+        const CLIP_BIC_SIZE: usize = 8;
+        // This can round down, as we only reduce the prefix
+        alloc += (n_clip / CLIP_PART_SIZE as usize) * CLIP_BIC_SIZE;
+        let clip_stack_alloc = alloc;
+        const CLIP_EL_SIZE: usize = 20;
+        alloc += n_clip * CLIP_EL_SIZE;
+        let clip_bbox_alloc = alloc;
+        const CLIP_BBOX_SIZE: usize = 16;
+        alloc += align_up(n_clip as usize, CLIP_PART_SIZE as usize) * CLIP_BBOX_SIZE;
 
         let config = Config {
             n_elements: n_drawobj as u32,
@@ -212,8 +231,13 @@ impl Encoder {
             trans_alloc: trans_alloc as u32,
             bbox_alloc: bbox_alloc as u32,
             drawmonoid_alloc: drawmonoid_alloc as u32,
+            clip_alloc: clip_alloc as u32,
+            clip_bic_alloc: clip_bic_alloc as u32,
+            clip_stack_alloc: clip_stack_alloc as u32,
+            clip_bbox_alloc: clip_bbox_alloc as u32,
             n_trans: n_trans as u32,
             n_path: self.n_path,
+            n_clip: self.n_clip,
             trans_offset: trans_offset as u32,
             linewidth_offset: linewidth_offset as u32,
             pathtag_offset: pathtag_offset as u32,
@@ -259,6 +283,10 @@ impl Encoder {
     /// The number of tags in the path stream.
     pub(crate) fn n_pathtag(&self) -> usize {
         self.tag_stream.len()
+    }
+
+    pub(crate) fn n_clip(&self) -> u32 {
+        self.n_clip
     }
 
     pub(crate) fn encode_glyph(&mut self, glyph: &GlyphEncoder) {

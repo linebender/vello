@@ -17,6 +17,7 @@
 //! Tests for piet-gpu shaders and GPU capabilities.
 
 mod clear;
+mod clip;
 mod config;
 mod draw;
 mod linkedlist;
@@ -139,6 +140,7 @@ fn main() {
             report(&transform::transform_test(&mut runner, &config));
             report(&path::path_test(&mut runner, &config));
             report(&draw::draw_test(&mut runner, &config));
+            report(&clip::clip_test(&mut runner, &config));
         }
     }
 }

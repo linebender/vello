@@ -9,16 +9,6 @@ struct MallocResult
     bool failed;
 };
 
-struct AnnoEndClipRef
-{
-    uint offset;
-};
-
-struct AnnoEndClip
-{
-    float4 bbox;
-};
-
 struct AnnotatedRef
 {
     uint offset;
@@ -40,6 +30,12 @@ struct BinInstance
     uint element_ix;
 };
 
+struct DrawMonoid
+{
+    uint path_ix;
+    uint clip_ix;
+};
+
 struct Config
 {
     uint n_elements;
@@ -54,8 +50,13 @@ struct Config
     Alloc trans_alloc;
     Alloc bbox_alloc;
     Alloc drawmonoid_alloc;
+    Alloc clip_alloc;
+    Alloc clip_bic_alloc;
+    Alloc clip_stack_alloc;
+    Alloc clip_bbox_alloc;
     uint n_trans;
     uint n_path;
+    uint n_clip;
     uint trans_offset;
     uint linewidth_offset;
     uint pathtag_offset;
@@ -64,8 +65,8 @@ struct Config
 
 static const uint3 gl_WorkGroupSize = uint3(256u, 1u, 1u);
 
-RWByteAddressBuffer _84 : register(u0, space0);
-ByteAddressBuffer _253 : register(t1, space0);
+RWByteAddressBuffer _94 : register(u0, space0);
+ByteAddressBuffer _202 : register(t1, space0);
 
 static uint3 gl_WorkGroupID;
 static uint3 gl_LocalInvocationID;
@@ -93,7 +94,7 @@ uint read_mem(Alloc alloc, uint offset)
     {
         return 0u;
     }
-    uint v = _84.Load(offset * 4 + 8);
+    uint v = _94.Load(offset * 4 + 8);
     return v;
 }
 
@@ -102,36 +103,53 @@ AnnotatedTag Annotated_tag(Alloc a, AnnotatedRef ref)
     Alloc param = a;
     uint param_1 = ref.offset >> uint(2);
     uint tag_and_flags = read_mem(param, param_1);
-    AnnotatedTag _221 = { tag_and_flags & 65535u, tag_and_flags >> uint(16) };
-    return _221;
+    AnnotatedTag _181 = { tag_and_flags & 65535u, tag_and_flags >> uint(16) };
+    return _181;
 }
 
-AnnoEndClip AnnoEndClip_read(Alloc a, AnnoEndClipRef ref)
+DrawMonoid load_draw_monoid(uint element_ix)
+{
+    uint base = (_202.Load(44) >> uint(2)) + (2u * element_ix);
+    uint path_ix = _94.Load(base * 4 + 8);
+    uint clip_ix = _94.Load((base + 1u) * 4 + 8);
+    DrawMonoid _222 = { path_ix, clip_ix };
+    return _222;
+}
+
+float4 load_clip_bbox(uint clip_ix)
+{
+    uint base = (_202.Load(60) >> uint(2)) + (4u * clip_ix);
+    float x0 = asfloat(_94.Load(base * 4 + 8));
+    float y0 = asfloat(_94.Load((base + 1u) * 4 + 8));
+    float x1 = asfloat(_94.Load((base + 2u) * 4 + 8));
+    float y1 = asfloat(_94.Load((base + 3u) * 4 + 8));
+    float4 bbox = float4(x0, y0, x1, y1);
+    return bbox;
+}
+
+float4 load_path_bbox(uint path_ix)
+{
+    uint base = (_202.Load(40) >> uint(2)) + (6u * path_ix);
+    float bbox_l = float(_94.Load(base * 4 + 8)) - 32768.0f;
+    float bbox_t = float(_94.Load((base + 1u) * 4 + 8)) - 32768.0f;
+    float bbox_r = float(_94.Load((base + 2u) * 4 + 8)) - 32768.0f;
+    float bbox_b = float(_94.Load((base + 3u) * 4 + 8)) - 32768.0f;
+    float4 bbox = float4(bbox_l, bbox_t, bbox_r, bbox_b);
+    return bbox;
+}
+
+float4 bbox_intersect(float4 a, float4 b)
+{
+    return float4(max(a.xy, b.xy), min(a.zw, b.zw));
+}
+
+void store_path_bbox(AnnotatedRef ref, float4 bbox)
 {
     uint ix = ref.offset >> uint(2);
-    Alloc param = a;
-    uint param_1 = ix + 0u;
-    uint raw0 = read_mem(param, param_1);
-    Alloc param_2 = a;
-    uint param_3 = ix + 1u;
-    uint raw1 = read_mem(param_2, param_3);
-    Alloc param_4 = a;
-    uint param_5 = ix + 2u;
-    uint raw2 = read_mem(param_4, param_5);
-    Alloc param_6 = a;
-    uint param_7 = ix + 3u;
-    uint raw3 = read_mem(param_6, param_7);
-    AnnoEndClip s;
-    s.bbox = float4(asfloat(raw0), asfloat(raw1), asfloat(raw2), asfloat(raw3));
-    return s;
-}
-
-AnnoEndClip Annotated_EndClip_read(Alloc a, AnnotatedRef ref)
-{
-    AnnoEndClipRef _228 = { ref.offset + 4u };
-    Alloc param = a;
-    AnnoEndClipRef param_1 = _228;
-    return AnnoEndClip_read(param, param_1);
+    _94.Store((ix + 1u) * 4 + 8, asuint(bbox.x));
+    _94.Store((ix + 2u) * 4 + 8, asuint(bbox.y));
+    _94.Store((ix + 3u) * 4 + 8, asuint(bbox.z));
+    _94.Store((ix + 4u) * 4 + 8, asuint(bbox.w));
 }
 
 Alloc new_alloc(uint offset, uint size, bool mem_ok)
@@ -143,22 +161,22 @@ Alloc new_alloc(uint offset, uint size, bool mem_ok)
 
 MallocResult malloc(uint size)
 {
-    uint _90;
-    _84.InterlockedAdd(0, size, _90);
-    uint offset = _90;
-    uint _97;
-    _84.GetDimensions(_97);
-    _97 = (_97 - 8) / 4;
+    uint _100;
+    _94.InterlockedAdd(0, size, _100);
+    uint offset = _100;
+    uint _107;
+    _94.GetDimensions(_107);
+    _107 = (_107 - 8) / 4;
     MallocResult r;
-    r.failed = (offset + size) > uint(int(_97) * 4);
+    r.failed = (offset + size) > uint(int(_107) * 4);
     uint param = offset;
     uint param_1 = size;
     bool param_2 = !r.failed;
     r.alloc = new_alloc(param, param_1, param_2);
     if (r.failed)
     {
-        uint _119;
-        _84.InterlockedMax(4, 1u, _119);
+        uint _129;
+        _94.InterlockedMax(4, 1u, _129);
         return r;
     }
     return r;
@@ -172,7 +190,7 @@ void write_mem(Alloc alloc, uint offset, uint val)
     {
         return;
     }
-    _84.Store(offset * 4 + 8, val);
+    _94.Store(offset * 4 + 8, val);
 }
 
 void BinInstance_write(Alloc a, BinInstanceRef ref, BinInstance s)
@@ -186,7 +204,7 @@ void BinInstance_write(Alloc a, BinInstanceRef ref, BinInstance s)
 
 void comp_main()
 {
-    uint my_n_elements = _253.Load(0);
+    uint my_n_elements = _202.Load(0);
     uint my_partition = gl_WorkGroupID.x;
     for (uint i = 0u; i < 8u; i++)
     {
@@ -198,15 +216,15 @@ void comp_main()
     }
     GroupMemoryBarrierWithGroupSync();
     uint element_ix = (my_partition * 256u) + gl_LocalInvocationID.x;
-    AnnotatedRef _308 = { _253.Load(32) + (element_ix * 40u) };
-    AnnotatedRef ref = _308;
+    AnnotatedRef _415 = { _202.Load(32) + (element_ix * 40u) };
+    AnnotatedRef ref = _415;
     uint tag = 0u;
     if (element_ix < my_n_elements)
     {
-        Alloc _318;
-        _318.offset = _253.Load(32);
+        Alloc _425;
+        _425.offset = _202.Load(32);
         Alloc param;
-        param.offset = _318.offset;
+        param.offset = _425.offset;
         AnnotatedRef param_1 = ref;
         tag = Annotated_tag(param, param_1).tag;
     }
@@ -222,21 +240,38 @@ void comp_main()
         case 4u:
         case 5u:
         {
-            Alloc _336;
-            _336.offset = _253.Load(32);
-            Alloc param_2;
-            param_2.offset = _336.offset;
-            AnnotatedRef param_3 = ref;
-            AnnoEndClip clip = Annotated_EndClip_read(param_2, param_3);
-            x0 = int(floor(clip.bbox.x * 0.00390625f));
-            y0 = int(floor(clip.bbox.y * 0.00390625f));
-            x1 = int(ceil(clip.bbox.z * 0.00390625f));
-            y1 = int(ceil(clip.bbox.w * 0.00390625f));
+            uint param_2 = element_ix;
+            DrawMonoid draw_monoid = load_draw_monoid(param_2);
+            uint path_ix = draw_monoid.path_ix;
+            float4 clip_bbox = float4(-1000000000.0f, -1000000000.0f, 1000000000.0f, 1000000000.0f);
+            uint clip_ix = draw_monoid.clip_ix;
+            if (clip_ix > 0u)
+            {
+                uint param_3 = clip_ix - 1u;
+                clip_bbox = load_clip_bbox(param_3);
+            }
+            uint param_4 = path_ix;
+            float4 path_bbox = load_path_bbox(param_4);
+            float4 param_5 = path_bbox;
+            float4 param_6 = clip_bbox;
+            float4 bbox = bbox_intersect(param_5, param_6);
+            float4 _473 = bbox;
+            float4 _475 = bbox;
+            float2 _477 = max(_473.xy, _475.zw);
+            bbox.z = _477.x;
+            bbox.w = _477.y;
+            AnnotatedRef param_7 = ref;
+            float4 param_8 = bbox;
+            store_path_bbox(param_7, param_8);
+            x0 = int(floor(bbox.x * 0.00390625f));
+            y0 = int(floor(bbox.y * 0.00390625f));
+            x1 = int(ceil(bbox.z * 0.00390625f));
+            y1 = int(ceil(bbox.w * 0.00390625f));
             break;
         }
     }
-    uint width_in_bins = ((_253.Load(8) + 16u) - 1u) / 16u;
-    uint height_in_bins = ((_253.Load(12) + 16u) - 1u) / 16u;
+    uint width_in_bins = ((_202.Load(8) + 16u) - 1u) / 16u;
+    uint height_in_bins = ((_202.Load(12) + 16u) - 1u) / 16u;
     x0 = clamp(x0, 0, int(width_in_bins));
     x1 = clamp(x1, x0, int(width_in_bins));
     y0 = clamp(y0, 0, int(height_in_bins));
@@ -251,8 +286,8 @@ void comp_main()
     uint my_mask = 1u << (gl_LocalInvocationID.x & 31u);
     while (y < y1)
     {
-        uint _437;
-        InterlockedOr(bitmaps[my_slice][(uint(y) * width_in_bins) + uint(x)], my_mask, _437);
+        uint _581;
+        InterlockedOr(bitmaps[my_slice][(uint(y) * width_in_bins) + uint(x)], my_mask, _581);
         x++;
         if (x == x1)
         {
@@ -267,15 +302,15 @@ void comp_main()
         element_count += uint(int(countbits(bitmaps[i_1][gl_LocalInvocationID.x])));
         count[i_1][gl_LocalInvocationID.x] = element_count;
     }
-    uint param_4 = 0u;
-    uint param_5 = 0u;
-    bool param_6 = true;
-    Alloc chunk_alloc = new_alloc(param_4, param_5, param_6);
+    uint param_9 = 0u;
+    uint param_10 = 0u;
+    bool param_11 = true;
+    Alloc chunk_alloc = new_alloc(param_9, param_10, param_11);
     if (element_count != 0u)
     {
-        uint param_7 = element_count * 4u;
-        MallocResult _487 = malloc(param_7);
-        MallocResult chunk = _487;
+        uint param_12 = element_count * 4u;
+        MallocResult _631 = malloc(param_12);
+        MallocResult chunk = _631;
         chunk_alloc = chunk.alloc;
         sh_chunk_alloc[gl_LocalInvocationID.x] = chunk_alloc;
         if (chunk.failed)
@@ -283,32 +318,32 @@ void comp_main()
             sh_alloc_failed = true;
         }
     }
-    uint out_ix = (_253.Load(20) >> uint(2)) + (((my_partition * 256u) + gl_LocalInvocationID.x) * 2u);
-    Alloc _516;
-    _516.offset = _253.Load(20);
-    Alloc param_8;
-    param_8.offset = _516.offset;
-    uint param_9 = out_ix;
-    uint param_10 = element_count;
-    write_mem(param_8, param_9, param_10);
-    Alloc _528;
-    _528.offset = _253.Load(20);
-    Alloc param_11;
-    param_11.offset = _528.offset;
-    uint param_12 = out_ix + 1u;
-    uint param_13 = chunk_alloc.offset;
-    write_mem(param_11, param_12, param_13);
+    uint out_ix = (_202.Load(20) >> uint(2)) + (((my_partition * 256u) + gl_LocalInvocationID.x) * 2u);
+    Alloc _660;
+    _660.offset = _202.Load(20);
+    Alloc param_13;
+    param_13.offset = _660.offset;
+    uint param_14 = out_ix;
+    uint param_15 = element_count;
+    write_mem(param_13, param_14, param_15);
+    Alloc _672;
+    _672.offset = _202.Load(20);
+    Alloc param_16;
+    param_16.offset = _672.offset;
+    uint param_17 = out_ix + 1u;
+    uint param_18 = chunk_alloc.offset;
+    write_mem(param_16, param_17, param_18);
     GroupMemoryBarrierWithGroupSync();
-    bool _543;
+    bool _687;
     if (!sh_alloc_failed)
     {
-        _543 = _84.Load(4) != 0u;
+        _687 = _94.Load(4) != 0u;
     }
     else
     {
-        _543 = sh_alloc_failed;
+        _687 = sh_alloc_failed;
     }
-    if (_543)
+    if (_687)
     {
         return;
     }
@@ -327,12 +362,12 @@ void comp_main()
             }
             Alloc out_alloc = sh_chunk_alloc[bin_ix];
             uint out_offset = out_alloc.offset + (idx * 4u);
-            BinInstanceRef _605 = { out_offset };
-            BinInstance _607 = { element_ix };
-            Alloc param_14 = out_alloc;
-            BinInstanceRef param_15 = _605;
-            BinInstance param_16 = _607;
-            BinInstance_write(param_14, param_15, param_16);
+            BinInstanceRef _749 = { out_offset };
+            BinInstance _751 = { element_ix };
+            Alloc param_19 = out_alloc;
+            BinInstanceRef param_20 = _749;
+            BinInstance param_21 = _751;
+            BinInstance_write(param_19, param_20, param_21);
         }
         x++;
         if (x == x1)

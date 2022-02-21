@@ -123,6 +123,10 @@ impl PietGpuRenderContext {
         self.new_encoder.n_transform()
     }
 
+    pub fn n_clip(&self) -> u32 {
+        self.new_encoder.n_clip()
+    }
+
     pub fn write_scene(&self, buf: &mut BufWrite) {
         self.new_encoder.write_scene(buf);
     }

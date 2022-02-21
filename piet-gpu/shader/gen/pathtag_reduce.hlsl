@@ -26,8 +26,13 @@ struct Config
     Alloc trans_alloc;
     Alloc bbox_alloc;
     Alloc drawmonoid_alloc;
+    Alloc clip_alloc;
+    Alloc clip_bic_alloc;
+    Alloc clip_stack_alloc;
+    Alloc clip_bbox_alloc;
     uint n_trans;
     uint n_path;
+    uint n_clip;
     uint trans_offset;
     uint linewidth_offset;
     uint pathtag_offset;
@@ -37,9 +42,9 @@ struct Config
 static const uint3 gl_WorkGroupSize = uint3(128u, 1u, 1u);
 
 ByteAddressBuffer _139 : register(t1, space0);
-ByteAddressBuffer _150 : register(t2, space0);
-RWByteAddressBuffer _237 : register(u3, space0);
-RWByteAddressBuffer _257 : register(u0, space0);
+ByteAddressBuffer _151 : register(t2, space0);
+RWByteAddressBuffer _238 : register(u3, space0);
+RWByteAddressBuffer _258 : register(u0, space0);
 
 static uint3 gl_WorkGroupID;
 static uint3 gl_LocalInvocationID;
@@ -83,13 +88,13 @@ TagMonoid combine_tag_monoid(TagMonoid a, TagMonoid b)
 void comp_main()
 {
     uint ix = gl_GlobalInvocationID.x * 2u;
-    uint scene_ix = (_139.Load(64) >> uint(2)) + ix;
-    uint tag_word = _150.Load(scene_ix * 4 + 0);
+    uint scene_ix = (_139.Load(84) >> uint(2)) + ix;
+    uint tag_word = _151.Load(scene_ix * 4 + 0);
     uint param = tag_word;
     TagMonoid agg = reduce_tag(param);
     for (uint i = 1u; i < 2u; i++)
     {
-        tag_word = _150.Load((scene_ix + i) * 4 + 0);
+        tag_word = _151.Load((scene_ix + i) * 4 + 0);
         uint param_1 = tag_word;
         TagMonoid param_2 = agg;
         TagMonoid param_3 = reduce_tag(param_1);
@@ -111,11 +116,11 @@ void comp_main()
     }
     if (gl_LocalInvocationID.x == 0u)
     {
-        _237.Store(gl_WorkGroupID.x * 20 + 0, agg.trans_ix);
-        _237.Store(gl_WorkGroupID.x * 20 + 4, agg.linewidth_ix);
-        _237.Store(gl_WorkGroupID.x * 20 + 8, agg.pathseg_ix);
-        _237.Store(gl_WorkGroupID.x * 20 + 12, agg.path_ix);
-        _237.Store(gl_WorkGroupID.x * 20 + 16, agg.pathseg_offset);
+        _238.Store(gl_WorkGroupID.x * 20 + 0, agg.trans_ix);
+        _238.Store(gl_WorkGroupID.x * 20 + 4, agg.linewidth_ix);
+        _238.Store(gl_WorkGroupID.x * 20 + 8, agg.pathseg_ix);
+        _238.Store(gl_WorkGroupID.x * 20 + 12, agg.path_ix);
+        _238.Store(gl_WorkGroupID.x * 20 + 16, agg.pathseg_offset);
     }
 }
 
