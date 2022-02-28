@@ -53,7 +53,7 @@ build gen/coarse.hlsl: hlsl gen/coarse.spv
 build gen/coarse.dxil: dxil gen/coarse.hlsl
 build gen/coarse.msl: msl gen/coarse.spv
 
-build gen/kernel4.spv: glsl kernel4.comp | ptcl.h setup.h
+build gen/kernel4.spv: glsl kernel4.comp | blend.h ptcl.h setup.h
 build gen/kernel4.hlsl: hlsl gen/kernel4.spv
 build gen/kernel4.dxil: dxil gen/kernel4.hlsl
 build gen/kernel4.msl: msl gen/kernel4.spv
@@ -114,7 +114,7 @@ build gen/draw_root.hlsl: hlsl gen/draw_root.spv
 build gen/draw_root.dxil: dxil gen/draw_root.hlsl
 build gen/draw_root.msl: msl gen/draw_root.spv
 
-build gen/draw_leaf.spv: glsl draw_leaf.comp | scene.h drawtag.h annotated.h setup.h mem.h
+build gen/draw_leaf.spv: glsl draw_leaf.comp | blend.h scene.h drawtag.h annotated.h setup.h mem.h
 build gen/draw_leaf.hlsl: hlsl gen/draw_leaf.spv
 build gen/draw_leaf.dxil: dxil gen/draw_leaf.hlsl
 build gen/draw_leaf.msl: msl gen/draw_leaf.spv

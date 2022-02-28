@@ -16,6 +16,7 @@ use piet_gpu_types::scene::Element;
 use crate::gradient::{LinearGradient, RampCache};
 use crate::text::Font;
 pub use crate::text::{PietGpuText, PietGpuTextLayout, PietGpuTextLayoutBuilder};
+use crate::Blend;
 
 pub struct PietGpuImage;
 
@@ -66,6 +67,7 @@ struct ClipElement {
     /// Byte offset of BeginClip element in element vec, for bbox fixup.
     save_point: usize,
     bbox: Option<Rect>,
+    blend: Option<Blend>,
 }
 
 const TOLERANCE: f64 = 0.25;
@@ -230,13 +232,14 @@ impl RenderContext for PietGpuRenderContext {
         self.encode_linewidth(-1.0);
         let path = shape.path_elements(TOLERANCE);
         self.encode_path(path, true);
-        let save_point = self.new_encoder.begin_clip();
+        let save_point = self.new_encoder.begin_clip(None);
         if self.clip_stack.len() >= MAX_BLEND_STACK {
             panic!("Maximum clip/blend stack size {} exceeded", MAX_BLEND_STACK);
         }
         self.clip_stack.push(ClipElement {
             bbox: None,
             save_point,
+            blend: None,
         });
         if let Some(tos) = self.state_stack.last_mut() {
             tos.n_clip += 1;
@@ -333,6 +336,25 @@ impl RenderContext for PietGpuRenderContext {
 }
 
 impl PietGpuRenderContext {
+    pub fn blend(&mut self, shape: impl Shape, blend: Blend) {
+        self.encode_linewidth(-1.0);
+        let path = shape.path_elements(TOLERANCE);
+        self.encode_path(path, true);
+        let save_point = self.new_encoder.begin_clip(Some(blend));
+        if self.clip_stack.len() >= MAX_BLEND_STACK {
+            panic!("Maximum clip/blend stack size {} exceeded", MAX_BLEND_STACK);
+        }
+        self.clip_stack.push(ClipElement {
+            bbox: None,
+            save_point,
+            blend: Some(blend),
+        });
+        self.accumulate_bbox(|| shape.bounding_box());
+        if let Some(tos) = self.state_stack.last_mut() {
+            tos.n_clip += 1;
+        }
+    }
+
     fn encode_path(&mut self, path: impl Iterator<Item = PathEl>, is_fill: bool) {
         if is_fill {
             self.encode_path_inner(
@@ -386,7 +408,7 @@ impl PietGpuRenderContext {
         let tos = self.clip_stack.pop().unwrap();
         let bbox = tos.bbox.unwrap_or_default();
         let bbox_f32_4 = rect_to_f32_4(bbox);
-        self.new_encoder.end_clip(bbox_f32_4, tos.save_point);
+        self.new_encoder.end_clip(bbox_f32_4, tos.blend, tos.save_point);
         if let Some(bbox) = tos.bbox {
             self.union_bbox(bbox);
         }

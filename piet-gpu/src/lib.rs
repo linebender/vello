@@ -1,3 +1,4 @@
+mod blend;
 mod encoder;
 pub mod glyph_render;
 mod gradient;
@@ -9,6 +10,7 @@ mod text;
 
 use std::convert::TryInto;
 
+pub use blend::{Blend, BlendMode, CompositionMode};
 pub use render_ctx::PietGpuRenderContext;
 
 use piet::kurbo::Vec2;

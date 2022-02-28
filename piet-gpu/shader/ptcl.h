@@ -26,6 +26,10 @@ struct CmdAlphaRef {
     uint offset;
 };
 
+struct CmdEndClipRef {
+    uint offset;
+};
+
 struct CmdJumpRef {
     uint offset;
 };
@@ -98,6 +102,16 @@ struct CmdAlpha {
 
 CmdAlphaRef CmdAlpha_index(CmdAlphaRef ref, uint index) {
     return CmdAlphaRef(ref.offset + index * CmdAlpha_size);
+}
+
+struct CmdEndClip {
+    uint blend;
+};
+
+#define CmdEndClip_size 4
+
+CmdEndClipRef CmdEndClip_index(CmdEndClipRef ref, uint index) {
+    return CmdEndClipRef(ref.offset + index * CmdEndClip_size);
 }
 
 struct CmdJump {
@@ -228,6 +242,19 @@ void CmdAlpha_write(Alloc a, CmdAlphaRef ref, CmdAlpha s) {
     write_mem(a, ix + 0, floatBitsToUint(s.alpha));
 }
 
+CmdEndClip CmdEndClip_read(Alloc a, CmdEndClipRef ref) {
+    uint ix = ref.offset >> 2;
+    uint raw0 = read_mem(a, ix + 0);
+    CmdEndClip s;
+    s.blend = raw0;
+    return s;
+}
+
+void CmdEndClip_write(Alloc a, CmdEndClipRef ref, CmdEndClip s) {
+    uint ix = ref.offset >> 2;
+    write_mem(a, ix + 0, s.blend);
+}
+
 CmdJump CmdJump_read(Alloc a, CmdJumpRef ref) {
     uint ix = ref.offset >> 2;
     uint raw0 = read_mem(a, ix + 0);
@@ -268,6 +295,10 @@ CmdLinGrad Cmd_LinGrad_read(Alloc a, CmdRef ref) {
 
 CmdImage Cmd_Image_read(Alloc a, CmdRef ref) {
     return CmdImage_read(a, CmdImageRef(ref.offset + 4));
+}
+
+CmdEndClip Cmd_EndClip_read(Alloc a, CmdRef ref) {
+    return CmdEndClip_read(a, CmdEndClipRef(ref.offset + 4));
 }
 
 CmdJump Cmd_Jump_read(Alloc a, CmdRef ref) {
@@ -316,8 +347,9 @@ void Cmd_BeginClip_write(Alloc a, CmdRef ref) {
     write_mem(a, ref.offset >> 2, Cmd_BeginClip);
 }
 
-void Cmd_EndClip_write(Alloc a, CmdRef ref) {
+void Cmd_EndClip_write(Alloc a, CmdRef ref, CmdEndClip s) {
     write_mem(a, ref.offset >> 2, Cmd_EndClip);
+    CmdEndClip_write(a, CmdEndClipRef(ref.offset + 4), s);
 }
 
 void Cmd_Jump_write(Alloc a, CmdRef ref, CmdJump s) {

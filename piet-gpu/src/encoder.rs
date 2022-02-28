@@ -16,6 +16,7 @@
 
 //! Low-level scene encoding.
 
+use crate::Blend;
 use bytemuck::{Pod, Zeroable};
 use piet_gpu_hal::BufWrite;
 
@@ -87,7 +88,8 @@ pub struct FillLinGradient {
 pub struct Clip {
     tag: u32,
     bbox: [f32; 4],
-    padding: [u32; 4],
+    blend: u32,
+    padding: [u32; 3],
 }
 
 impl Encoder {
@@ -151,10 +153,11 @@ impl Encoder {
     }
 
     /// Start a clip and return a save point to be filled in later.
-    pub fn begin_clip(&mut self) -> usize {
+    pub fn begin_clip(&mut self, blend: Option<Blend>) -> usize {
         let saved = self.drawobj_stream.len();
         let element = Clip {
             tag: ELEMENT_BEGINCLIP,
+            blend: blend.unwrap_or(Blend::default()).pack(),
             ..Default::default()
         };
         self.drawobj_stream.extend(bytemuck::bytes_of(&element));
@@ -162,10 +165,11 @@ impl Encoder {
         saved
     }
 
-    pub fn end_clip(&mut self, bbox: [f32; 4], save_point: usize) {
+    pub fn end_clip(&mut self, bbox: [f32; 4], blend: Option<Blend>, save_point: usize) {
         let element = Clip {
             tag: ELEMENT_ENDCLIP,
             bbox,
+            blend: blend.unwrap_or(Blend::default()).pack(),
             ..Default::default()
         };
         self.drawobj_stream[save_point + 4..save_point + 20]

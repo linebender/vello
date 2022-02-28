@@ -87,6 +87,17 @@ struct FillImage
     int2 offset;
 };
 
+struct ClipRef
+{
+    uint offset;
+};
+
+struct Clip
+{
+    float4 bbox;
+    uint blend;
+};
+
 struct ElementTag
 {
     uint tag;
@@ -148,6 +159,7 @@ struct AnnoBeginClip
 {
     float4 bbox;
     float linewidth;
+    uint blend;
 };
 
 struct AnnoEndClipRef
@@ -158,6 +170,7 @@ struct AnnoEndClipRef
 struct AnnoEndClip
 {
     float4 bbox;
+    uint blend;
 };
 
 struct AnnotatedRef
@@ -228,9 +241,9 @@ struct ConfigBuf
 constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(256u, 1u, 1u);
 
 static inline __attribute__((always_inline))
-ElementTag Element_tag(thread const ElementRef& ref, const device SceneBuf& v_211)
+ElementTag Element_tag(thread const ElementRef& ref, const device SceneBuf& v_223)
 {
-    uint tag_and_flags = v_211.scene[ref.offset >> uint(2)];
+    uint tag_and_flags = v_223.scene[ref.offset >> uint(2)];
     return ElementTag{ tag_and_flags & 65535u, tag_and_flags >> uint(16) };
 }
 
@@ -279,20 +292,20 @@ DrawMonoid tag_monoid_identity()
 }
 
 static inline __attribute__((always_inline))
-FillColor FillColor_read(thread const FillColorRef& ref, const device SceneBuf& v_211)
+FillColor FillColor_read(thread const FillColorRef& ref, const device SceneBuf& v_223)
 {
     uint ix = ref.offset >> uint(2);
-    uint raw0 = v_211.scene[ix + 0u];
+    uint raw0 = v_223.scene[ix + 0u];
     FillColor s;
     s.rgba_color = raw0;
     return s;
 }
 
 static inline __attribute__((always_inline))
-FillColor Element_FillColor_read(thread const ElementRef& ref, const device SceneBuf& v_211)
+FillColor Element_FillColor_read(thread const ElementRef& ref, const device SceneBuf& v_223)
 {
     FillColorRef param = FillColorRef{ ref.offset + 4u };
-    return FillColor_read(param, v_211);
+    return FillColor_read(param, v_223);
 }
 
 static inline __attribute__((always_inline))
@@ -302,7 +315,7 @@ bool touch_mem(thread const Alloc& alloc, thread const uint& offset)
 }
 
 static inline __attribute__((always_inline))
-void write_mem(thread const Alloc& alloc, thread const uint& offset, thread const uint& val, device Memory& v_187)
+void write_mem(thread const Alloc& alloc, thread const uint& offset, thread const uint& val, device Memory& v_199)
 {
     Alloc param = alloc;
     uint param_1 = offset;
@@ -310,61 +323,61 @@ void write_mem(thread const Alloc& alloc, thread const uint& offset, thread cons
     {
         return;
     }
-    v_187.memory[offset] = val;
+    v_199.memory[offset] = val;
 }
 
 static inline __attribute__((always_inline))
-void AnnoColor_write(thread const Alloc& a, thread const AnnoColorRef& ref, thread const AnnoColor& s, device Memory& v_187)
+void AnnoColor_write(thread const Alloc& a, thread const AnnoColorRef& ref, thread const AnnoColor& s, device Memory& v_199)
 {
     uint ix = ref.offset >> uint(2);
     Alloc param = a;
     uint param_1 = ix + 0u;
     uint param_2 = as_type<uint>(s.bbox.x);
-    write_mem(param, param_1, param_2, v_187);
+    write_mem(param, param_1, param_2, v_199);
     Alloc param_3 = a;
     uint param_4 = ix + 1u;
     uint param_5 = as_type<uint>(s.bbox.y);
-    write_mem(param_3, param_4, param_5, v_187);
+    write_mem(param_3, param_4, param_5, v_199);
     Alloc param_6 = a;
     uint param_7 = ix + 2u;
     uint param_8 = as_type<uint>(s.bbox.z);
-    write_mem(param_6, param_7, param_8, v_187);
+    write_mem(param_6, param_7, param_8, v_199);
     Alloc param_9 = a;
     uint param_10 = ix + 3u;
     uint param_11 = as_type<uint>(s.bbox.w);
-    write_mem(param_9, param_10, param_11, v_187);
+    write_mem(param_9, param_10, param_11, v_199);
     Alloc param_12 = a;
     uint param_13 = ix + 4u;
     uint param_14 = as_type<uint>(s.linewidth);
-    write_mem(param_12, param_13, param_14, v_187);
+    write_mem(param_12, param_13, param_14, v_199);
     Alloc param_15 = a;
     uint param_16 = ix + 5u;
     uint param_17 = s.rgba_color;
-    write_mem(param_15, param_16, param_17, v_187);
+    write_mem(param_15, param_16, param_17, v_199);
 }
 
 static inline __attribute__((always_inline))
-void Annotated_Color_write(thread const Alloc& a, thread const AnnotatedRef& ref, thread const uint& flags, thread const AnnoColor& s, device Memory& v_187)
+void Annotated_Color_write(thread const Alloc& a, thread const AnnotatedRef& ref, thread const uint& flags, thread const AnnoColor& s, device Memory& v_199)
 {
     Alloc param = a;
     uint param_1 = ref.offset >> uint(2);
     uint param_2 = (flags << uint(16)) | 1u;
-    write_mem(param, param_1, param_2, v_187);
+    write_mem(param, param_1, param_2, v_199);
     Alloc param_3 = a;
     AnnoColorRef param_4 = AnnoColorRef{ ref.offset + 4u };
     AnnoColor param_5 = s;
-    AnnoColor_write(param_3, param_4, param_5, v_187);
+    AnnoColor_write(param_3, param_4, param_5, v_199);
 }
 
 static inline __attribute__((always_inline))
-FillLinGradient FillLinGradient_read(thread const FillLinGradientRef& ref, const device SceneBuf& v_211)
+FillLinGradient FillLinGradient_read(thread const FillLinGradientRef& ref, const device SceneBuf& v_223)
 {
     uint ix = ref.offset >> uint(2);
-    uint raw0 = v_211.scene[ix + 0u];
-    uint raw1 = v_211.scene[ix + 1u];
-    uint raw2 = v_211.scene[ix + 2u];
-    uint raw3 = v_211.scene[ix + 3u];
-    uint raw4 = v_211.scene[ix + 4u];
+    uint raw0 = v_223.scene[ix + 0u];
+    uint raw1 = v_223.scene[ix + 1u];
+    uint raw2 = v_223.scene[ix + 2u];
+    uint raw3 = v_223.scene[ix + 3u];
+    uint raw4 = v_223.scene[ix + 4u];
     FillLinGradient s;
     s.index = raw0;
     s.p0 = float2(as_type<float>(raw1), as_type<float>(raw2));
@@ -373,73 +386,73 @@ FillLinGradient FillLinGradient_read(thread const FillLinGradientRef& ref, const
 }
 
 static inline __attribute__((always_inline))
-FillLinGradient Element_FillLinGradient_read(thread const ElementRef& ref, const device SceneBuf& v_211)
+FillLinGradient Element_FillLinGradient_read(thread const ElementRef& ref, const device SceneBuf& v_223)
 {
     FillLinGradientRef param = FillLinGradientRef{ ref.offset + 4u };
-    return FillLinGradient_read(param, v_211);
+    return FillLinGradient_read(param, v_223);
 }
 
 static inline __attribute__((always_inline))
-void AnnoLinGradient_write(thread const Alloc& a, thread const AnnoLinGradientRef& ref, thread const AnnoLinGradient& s, device Memory& v_187)
+void AnnoLinGradient_write(thread const Alloc& a, thread const AnnoLinGradientRef& ref, thread const AnnoLinGradient& s, device Memory& v_199)
 {
     uint ix = ref.offset >> uint(2);
     Alloc param = a;
     uint param_1 = ix + 0u;
     uint param_2 = as_type<uint>(s.bbox.x);
-    write_mem(param, param_1, param_2, v_187);
+    write_mem(param, param_1, param_2, v_199);
     Alloc param_3 = a;
     uint param_4 = ix + 1u;
     uint param_5 = as_type<uint>(s.bbox.y);
-    write_mem(param_3, param_4, param_5, v_187);
+    write_mem(param_3, param_4, param_5, v_199);
     Alloc param_6 = a;
     uint param_7 = ix + 2u;
     uint param_8 = as_type<uint>(s.bbox.z);
-    write_mem(param_6, param_7, param_8, v_187);
+    write_mem(param_6, param_7, param_8, v_199);
     Alloc param_9 = a;
     uint param_10 = ix + 3u;
     uint param_11 = as_type<uint>(s.bbox.w);
-    write_mem(param_9, param_10, param_11, v_187);
+    write_mem(param_9, param_10, param_11, v_199);
     Alloc param_12 = a;
     uint param_13 = ix + 4u;
     uint param_14 = as_type<uint>(s.linewidth);
-    write_mem(param_12, param_13, param_14, v_187);
+    write_mem(param_12, param_13, param_14, v_199);
     Alloc param_15 = a;
     uint param_16 = ix + 5u;
     uint param_17 = s.index;
-    write_mem(param_15, param_16, param_17, v_187);
+    write_mem(param_15, param_16, param_17, v_199);
     Alloc param_18 = a;
     uint param_19 = ix + 6u;
     uint param_20 = as_type<uint>(s.line_x);
-    write_mem(param_18, param_19, param_20, v_187);
+    write_mem(param_18, param_19, param_20, v_199);
     Alloc param_21 = a;
     uint param_22 = ix + 7u;
     uint param_23 = as_type<uint>(s.line_y);
-    write_mem(param_21, param_22, param_23, v_187);
+    write_mem(param_21, param_22, param_23, v_199);
     Alloc param_24 = a;
     uint param_25 = ix + 8u;
     uint param_26 = as_type<uint>(s.line_c);
-    write_mem(param_24, param_25, param_26, v_187);
+    write_mem(param_24, param_25, param_26, v_199);
 }
 
 static inline __attribute__((always_inline))
-void Annotated_LinGradient_write(thread const Alloc& a, thread const AnnotatedRef& ref, thread const uint& flags, thread const AnnoLinGradient& s, device Memory& v_187)
+void Annotated_LinGradient_write(thread const Alloc& a, thread const AnnotatedRef& ref, thread const uint& flags, thread const AnnoLinGradient& s, device Memory& v_199)
 {
     Alloc param = a;
     uint param_1 = ref.offset >> uint(2);
     uint param_2 = (flags << uint(16)) | 2u;
-    write_mem(param, param_1, param_2, v_187);
+    write_mem(param, param_1, param_2, v_199);
     Alloc param_3 = a;
     AnnoLinGradientRef param_4 = AnnoLinGradientRef{ ref.offset + 4u };
     AnnoLinGradient param_5 = s;
-    AnnoLinGradient_write(param_3, param_4, param_5, v_187);
+    AnnoLinGradient_write(param_3, param_4, param_5, v_199);
 }
 
 static inline __attribute__((always_inline))
-FillImage FillImage_read(thread const FillImageRef& ref, const device SceneBuf& v_211)
+FillImage FillImage_read(thread const FillImageRef& ref, const device SceneBuf& v_223)
 {
     uint ix = ref.offset >> uint(2);
-    uint raw0 = v_211.scene[ix + 0u];
-    uint raw1 = v_211.scene[ix + 1u];
+    uint raw0 = v_223.scene[ix + 0u];
+    uint raw1 = v_223.scene[ix + 1u];
     FillImage s;
     s.index = raw0;
     s.offset = int2(int(raw1 << uint(16)) >> 16, int(raw1) >> 16);
@@ -447,140 +460,169 @@ FillImage FillImage_read(thread const FillImageRef& ref, const device SceneBuf& 
 }
 
 static inline __attribute__((always_inline))
-FillImage Element_FillImage_read(thread const ElementRef& ref, const device SceneBuf& v_211)
+FillImage Element_FillImage_read(thread const ElementRef& ref, const device SceneBuf& v_223)
 {
     FillImageRef param = FillImageRef{ ref.offset + 4u };
-    return FillImage_read(param, v_211);
+    return FillImage_read(param, v_223);
 }
 
 static inline __attribute__((always_inline))
-void AnnoImage_write(thread const Alloc& a, thread const AnnoImageRef& ref, thread const AnnoImage& s, device Memory& v_187)
+void AnnoImage_write(thread const Alloc& a, thread const AnnoImageRef& ref, thread const AnnoImage& s, device Memory& v_199)
 {
     uint ix = ref.offset >> uint(2);
     Alloc param = a;
     uint param_1 = ix + 0u;
     uint param_2 = as_type<uint>(s.bbox.x);
-    write_mem(param, param_1, param_2, v_187);
+    write_mem(param, param_1, param_2, v_199);
     Alloc param_3 = a;
     uint param_4 = ix + 1u;
     uint param_5 = as_type<uint>(s.bbox.y);
-    write_mem(param_3, param_4, param_5, v_187);
+    write_mem(param_3, param_4, param_5, v_199);
     Alloc param_6 = a;
     uint param_7 = ix + 2u;
     uint param_8 = as_type<uint>(s.bbox.z);
-    write_mem(param_6, param_7, param_8, v_187);
+    write_mem(param_6, param_7, param_8, v_199);
     Alloc param_9 = a;
     uint param_10 = ix + 3u;
     uint param_11 = as_type<uint>(s.bbox.w);
-    write_mem(param_9, param_10, param_11, v_187);
+    write_mem(param_9, param_10, param_11, v_199);
     Alloc param_12 = a;
     uint param_13 = ix + 4u;
     uint param_14 = as_type<uint>(s.linewidth);
-    write_mem(param_12, param_13, param_14, v_187);
+    write_mem(param_12, param_13, param_14, v_199);
     Alloc param_15 = a;
     uint param_16 = ix + 5u;
     uint param_17 = s.index;
-    write_mem(param_15, param_16, param_17, v_187);
+    write_mem(param_15, param_16, param_17, v_199);
     Alloc param_18 = a;
     uint param_19 = ix + 6u;
     uint param_20 = (uint(s.offset.x) & 65535u) | (uint(s.offset.y) << uint(16));
-    write_mem(param_18, param_19, param_20, v_187);
+    write_mem(param_18, param_19, param_20, v_199);
 }
 
 static inline __attribute__((always_inline))
-void Annotated_Image_write(thread const Alloc& a, thread const AnnotatedRef& ref, thread const uint& flags, thread const AnnoImage& s, device Memory& v_187)
+void Annotated_Image_write(thread const Alloc& a, thread const AnnotatedRef& ref, thread const uint& flags, thread const AnnoImage& s, device Memory& v_199)
 {
     Alloc param = a;
     uint param_1 = ref.offset >> uint(2);
     uint param_2 = (flags << uint(16)) | 3u;
-    write_mem(param, param_1, param_2, v_187);
+    write_mem(param, param_1, param_2, v_199);
     Alloc param_3 = a;
     AnnoImageRef param_4 = AnnoImageRef{ ref.offset + 4u };
     AnnoImage param_5 = s;
-    AnnoImage_write(param_3, param_4, param_5, v_187);
+    AnnoImage_write(param_3, param_4, param_5, v_199);
 }
 
 static inline __attribute__((always_inline))
-void AnnoBeginClip_write(thread const Alloc& a, thread const AnnoBeginClipRef& ref, thread const AnnoBeginClip& s, device Memory& v_187)
+Clip Clip_read(thread const ClipRef& ref, const device SceneBuf& v_223)
+{
+    uint ix = ref.offset >> uint(2);
+    uint raw0 = v_223.scene[ix + 0u];
+    uint raw1 = v_223.scene[ix + 1u];
+    uint raw2 = v_223.scene[ix + 2u];
+    uint raw3 = v_223.scene[ix + 3u];
+    Clip s;
+    s.bbox = float4(as_type<float>(raw0), as_type<float>(raw1), as_type<float>(raw2), as_type<float>(raw3));
+    s.blend = v_223.scene[ix + 4u];
+    return s;
+}
+
+static inline __attribute__((always_inline))
+Clip Element_BeginClip_read(thread const ElementRef& ref, const device SceneBuf& v_223)
+{
+    ClipRef param = ClipRef{ ref.offset + 4u };
+    return Clip_read(param, v_223);
+}
+
+static inline __attribute__((always_inline))
+void AnnoBeginClip_write(thread const Alloc& a, thread const AnnoBeginClipRef& ref, thread const AnnoBeginClip& s, device Memory& v_199)
 {
     uint ix = ref.offset >> uint(2);
     Alloc param = a;
     uint param_1 = ix + 0u;
     uint param_2 = as_type<uint>(s.bbox.x);
-    write_mem(param, param_1, param_2, v_187);
+    write_mem(param, param_1, param_2, v_199);
     Alloc param_3 = a;
     uint param_4 = ix + 1u;
     uint param_5 = as_type<uint>(s.bbox.y);
-    write_mem(param_3, param_4, param_5, v_187);
+    write_mem(param_3, param_4, param_5, v_199);
     Alloc param_6 = a;
     uint param_7 = ix + 2u;
     uint param_8 = as_type<uint>(s.bbox.z);
-    write_mem(param_6, param_7, param_8, v_187);
+    write_mem(param_6, param_7, param_8, v_199);
     Alloc param_9 = a;
     uint param_10 = ix + 3u;
     uint param_11 = as_type<uint>(s.bbox.w);
-    write_mem(param_9, param_10, param_11, v_187);
+    write_mem(param_9, param_10, param_11, v_199);
     Alloc param_12 = a;
     uint param_13 = ix + 4u;
     uint param_14 = as_type<uint>(s.linewidth);
-    write_mem(param_12, param_13, param_14, v_187);
+    write_mem(param_12, param_13, param_14, v_199);
+    Alloc param_15 = a;
+    uint param_16 = ix + 5u;
+    uint param_17 = s.blend;
+    write_mem(param_15, param_16, param_17, v_199);
 }
 
 static inline __attribute__((always_inline))
-void Annotated_BeginClip_write(thread const Alloc& a, thread const AnnotatedRef& ref, thread const uint& flags, thread const AnnoBeginClip& s, device Memory& v_187)
+void Annotated_BeginClip_write(thread const Alloc& a, thread const AnnotatedRef& ref, thread const uint& flags, thread const AnnoBeginClip& s, device Memory& v_199)
 {
     Alloc param = a;
     uint param_1 = ref.offset >> uint(2);
     uint param_2 = (flags << uint(16)) | 4u;
-    write_mem(param, param_1, param_2, v_187);
+    write_mem(param, param_1, param_2, v_199);
     Alloc param_3 = a;
     AnnoBeginClipRef param_4 = AnnoBeginClipRef{ ref.offset + 4u };
     AnnoBeginClip param_5 = s;
-    AnnoBeginClip_write(param_3, param_4, param_5, v_187);
+    AnnoBeginClip_write(param_3, param_4, param_5, v_199);
 }
 
 static inline __attribute__((always_inline))
-void AnnoEndClip_write(thread const Alloc& a, thread const AnnoEndClipRef& ref, thread const AnnoEndClip& s, device Memory& v_187)
+void AnnoEndClip_write(thread const Alloc& a, thread const AnnoEndClipRef& ref, thread const AnnoEndClip& s, device Memory& v_199)
 {
     uint ix = ref.offset >> uint(2);
     Alloc param = a;
     uint param_1 = ix + 0u;
     uint param_2 = as_type<uint>(s.bbox.x);
-    write_mem(param, param_1, param_2, v_187);
+    write_mem(param, param_1, param_2, v_199);
     Alloc param_3 = a;
     uint param_4 = ix + 1u;
     uint param_5 = as_type<uint>(s.bbox.y);
-    write_mem(param_3, param_4, param_5, v_187);
+    write_mem(param_3, param_4, param_5, v_199);
     Alloc param_6 = a;
     uint param_7 = ix + 2u;
     uint param_8 = as_type<uint>(s.bbox.z);
-    write_mem(param_6, param_7, param_8, v_187);
+    write_mem(param_6, param_7, param_8, v_199);
     Alloc param_9 = a;
     uint param_10 = ix + 3u;
     uint param_11 = as_type<uint>(s.bbox.w);
-    write_mem(param_9, param_10, param_11, v_187);
+    write_mem(param_9, param_10, param_11, v_199);
+    Alloc param_12 = a;
+    uint param_13 = ix + 4u;
+    uint param_14 = s.blend;
+    write_mem(param_12, param_13, param_14, v_199);
 }
 
 static inline __attribute__((always_inline))
-void Annotated_EndClip_write(thread const Alloc& a, thread const AnnotatedRef& ref, thread const AnnoEndClip& s, device Memory& v_187)
+void Annotated_EndClip_write(thread const Alloc& a, thread const AnnotatedRef& ref, thread const uint& flags, thread const AnnoEndClip& s, device Memory& v_199)
 {
     Alloc param = a;
     uint param_1 = ref.offset >> uint(2);
-    uint param_2 = 5u;
-    write_mem(param, param_1, param_2, v_187);
+    uint param_2 = (flags << uint(16)) | 5u;
+    write_mem(param, param_1, param_2, v_199);
     Alloc param_3 = a;
     AnnoEndClipRef param_4 = AnnoEndClipRef{ ref.offset + 4u };
     AnnoEndClip param_5 = s;
-    AnnoEndClip_write(param_3, param_4, param_5, v_187);
+    AnnoEndClip_write(param_3, param_4, param_5, v_199);
 }
 
-kernel void main0(device Memory& v_187 [[buffer(0)]], const device ConfigBuf& _968 [[buffer(1)]], const device SceneBuf& v_211 [[buffer(2)]], const device ParentBuf& _934 [[buffer(3)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]])
+kernel void main0(device Memory& v_199 [[buffer(0)]], const device ConfigBuf& _1054 [[buffer(1)]], const device SceneBuf& v_223 [[buffer(2)]], const device ParentBuf& _1020 [[buffer(3)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]])
 {
     threadgroup DrawMonoid sh_scratch[256];
     uint ix = gl_GlobalInvocationID.x * 8u;
     ElementRef ref = ElementRef{ ix * 36u };
     ElementRef param = ref;
-    uint tag_word = Element_tag(param, v_211).tag;
+    uint tag_word = Element_tag(param, v_223).tag;
     uint param_1 = tag_word;
     DrawMonoid agg = map_tag(param_1);
     spvUnsafeArray<DrawMonoid, 8> local;
@@ -590,7 +632,7 @@ kernel void main0(device Memory& v_187 [[buffer(0)]], const device ConfigBuf& _9
         ElementRef param_2 = ref;
         uint param_3 = i;
         ElementRef param_4 = Element_index(param_2, param_3);
-        tag_word = Element_tag(param_4, v_211).tag;
+        tag_word = Element_tag(param_4, v_223).tag;
         uint param_5 = tag_word;
         DrawMonoid param_6 = agg;
         DrawMonoid param_7 = map_tag(param_5);
@@ -615,9 +657,9 @@ kernel void main0(device Memory& v_187 [[buffer(0)]], const device ConfigBuf& _9
     DrawMonoid row = tag_monoid_identity();
     if (gl_WorkGroupID.x > 0u)
     {
-        uint _937 = gl_WorkGroupID.x - 1u;
-        row.path_ix = _934.parent[_937].path_ix;
-        row.clip_ix = _934.parent[_937].clip_ix;
+        uint _1023 = gl_WorkGroupID.x - 1u;
+        row.path_ix = _1020.parent[_1023].path_ix;
+        row.clip_ix = _1020.parent[_1023].clip_ix;
     }
     if (gl_LocalInvocationID.x > 0u)
     {
@@ -626,9 +668,9 @@ kernel void main0(device Memory& v_187 [[buffer(0)]], const device ConfigBuf& _9
         row = combine_tag_monoid(param_10, param_11);
     }
     uint out_ix = gl_GlobalInvocationID.x * 8u;
-    uint out_base = (_968.conf.drawmonoid_alloc.offset >> uint(2)) + (out_ix * 2u);
-    uint clip_out_base = _968.conf.clip_alloc.offset >> uint(2);
-    AnnotatedRef out_ref = AnnotatedRef{ _968.conf.anno_alloc.offset + (out_ix * 40u) };
+    uint out_base = (_1054.conf.drawmonoid_alloc.offset >> uint(2)) + (out_ix * 2u);
+    uint clip_out_base = _1054.conf.clip_alloc.offset >> uint(2);
+    AnnotatedRef out_ref = AnnotatedRef{ _1054.conf.anno_alloc.offset + (out_ix * 40u) };
     float4 mat;
     float2 translate;
     AnnoColor anno_fill;
@@ -638,9 +680,9 @@ kernel void main0(device Memory& v_187 [[buffer(0)]], const device ConfigBuf& _9
     AnnoImage anno_img;
     Alloc param_28;
     AnnoBeginClip anno_begin_clip;
-    Alloc param_32;
+    Alloc param_33;
     AnnoEndClip anno_end_clip;
-    Alloc param_36;
+    Alloc param_38;
     for (uint i_2 = 0u; i_2 < 8u; i_2++)
     {
         DrawMonoid m = row;
@@ -650,31 +692,31 @@ kernel void main0(device Memory& v_187 [[buffer(0)]], const device ConfigBuf& _9
             DrawMonoid param_13 = local[i_2 - 1u];
             m = combine_tag_monoid(param_12, param_13);
         }
-        v_187.memory[out_base + (i_2 * 2u)] = m.path_ix;
-        v_187.memory[(out_base + (i_2 * 2u)) + 1u] = m.clip_ix;
+        v_199.memory[out_base + (i_2 * 2u)] = m.path_ix;
+        v_199.memory[(out_base + (i_2 * 2u)) + 1u] = m.clip_ix;
         ElementRef param_14 = ref;
         uint param_15 = i_2;
         ElementRef this_ref = Element_index(param_14, param_15);
         ElementRef param_16 = this_ref;
-        tag_word = Element_tag(param_16, v_211).tag;
+        tag_word = Element_tag(param_16, v_223).tag;
         if ((((tag_word == 4u) || (tag_word == 5u)) || (tag_word == 6u)) || (tag_word == 9u))
         {
-            uint bbox_offset = (_968.conf.bbox_alloc.offset >> uint(2)) + (6u * m.path_ix);
-            float bbox_l = float(v_187.memory[bbox_offset]) - 32768.0;
-            float bbox_t = float(v_187.memory[bbox_offset + 1u]) - 32768.0;
-            float bbox_r = float(v_187.memory[bbox_offset + 2u]) - 32768.0;
-            float bbox_b = float(v_187.memory[bbox_offset + 3u]) - 32768.0;
+            uint bbox_offset = (_1054.conf.bbox_alloc.offset >> uint(2)) + (6u * m.path_ix);
+            float bbox_l = float(v_199.memory[bbox_offset]) - 32768.0;
+            float bbox_t = float(v_199.memory[bbox_offset + 1u]) - 32768.0;
+            float bbox_r = float(v_199.memory[bbox_offset + 2u]) - 32768.0;
+            float bbox_b = float(v_199.memory[bbox_offset + 3u]) - 32768.0;
             float4 bbox = float4(bbox_l, bbox_t, bbox_r, bbox_b);
-            float linewidth = as_type<float>(v_187.memory[bbox_offset + 4u]);
+            float linewidth = as_type<float>(v_199.memory[bbox_offset + 4u]);
             uint fill_mode = uint(linewidth >= 0.0);
             if ((linewidth >= 0.0) || (tag_word == 5u))
             {
-                uint trans_ix = v_187.memory[bbox_offset + 5u];
-                uint t = (_968.conf.trans_alloc.offset >> uint(2)) + (6u * trans_ix);
-                mat = as_type<float4>(uint4(v_187.memory[t], v_187.memory[t + 1u], v_187.memory[t + 2u], v_187.memory[t + 3u]));
+                uint trans_ix = v_199.memory[bbox_offset + 5u];
+                uint t = (_1054.conf.trans_alloc.offset >> uint(2)) + (6u * trans_ix);
+                mat = as_type<float4>(uint4(v_199.memory[t], v_199.memory[t + 1u], v_199.memory[t + 2u], v_199.memory[t + 3u]));
                 if (tag_word == 5u)
                 {
-                    translate = as_type<float2>(uint2(v_187.memory[t + 4u], v_187.memory[t + 5u]));
+                    translate = as_type<float2>(uint2(v_199.memory[t + 4u], v_199.memory[t + 5u]));
                 }
             }
             if (linewidth >= 0.0)
@@ -687,21 +729,21 @@ kernel void main0(device Memory& v_187 [[buffer(0)]], const device ConfigBuf& _9
                 case 4u:
                 {
                     ElementRef param_17 = this_ref;
-                    FillColor fill = Element_FillColor_read(param_17, v_211);
+                    FillColor fill = Element_FillColor_read(param_17, v_223);
                     anno_fill.bbox = bbox;
                     anno_fill.linewidth = linewidth;
                     anno_fill.rgba_color = fill.rgba_color;
-                    param_18.offset = _968.conf.anno_alloc.offset;
+                    param_18.offset = _1054.conf.anno_alloc.offset;
                     AnnotatedRef param_19 = out_ref;
                     uint param_20 = fill_mode;
                     AnnoColor param_21 = anno_fill;
-                    Annotated_Color_write(param_18, param_19, param_20, param_21, v_187);
+                    Annotated_Color_write(param_18, param_19, param_20, param_21, v_199);
                     break;
                 }
                 case 5u:
                 {
                     ElementRef param_22 = this_ref;
-                    FillLinGradient lin = Element_FillLinGradient_read(param_22, v_211);
+                    FillLinGradient lin = Element_FillLinGradient_read(param_22, v_223);
                     anno_lin.bbox = bbox;
                     anno_lin.linewidth = linewidth;
                     anno_lin.index = lin.index;
@@ -714,37 +756,41 @@ kernel void main0(device Memory& v_187 [[buffer(0)]], const device ConfigBuf& _9
                     anno_lin.line_x = line_x;
                     anno_lin.line_y = line_y;
                     anno_lin.line_c = -((p0.x * line_x) + (p0.y * line_y));
-                    param_23.offset = _968.conf.anno_alloc.offset;
+                    param_23.offset = _1054.conf.anno_alloc.offset;
                     AnnotatedRef param_24 = out_ref;
                     uint param_25 = fill_mode;
                     AnnoLinGradient param_26 = anno_lin;
-                    Annotated_LinGradient_write(param_23, param_24, param_25, param_26, v_187);
+                    Annotated_LinGradient_write(param_23, param_24, param_25, param_26, v_199);
                     break;
                 }
                 case 6u:
                 {
                     ElementRef param_27 = this_ref;
-                    FillImage fill_img = Element_FillImage_read(param_27, v_211);
+                    FillImage fill_img = Element_FillImage_read(param_27, v_223);
                     anno_img.bbox = bbox;
                     anno_img.linewidth = linewidth;
                     anno_img.index = fill_img.index;
                     anno_img.offset = fill_img.offset;
-                    param_28.offset = _968.conf.anno_alloc.offset;
+                    param_28.offset = _1054.conf.anno_alloc.offset;
                     AnnotatedRef param_29 = out_ref;
                     uint param_30 = fill_mode;
                     AnnoImage param_31 = anno_img;
-                    Annotated_Image_write(param_28, param_29, param_30, param_31, v_187);
+                    Annotated_Image_write(param_28, param_29, param_30, param_31, v_199);
                     break;
                 }
                 case 9u:
                 {
+                    ElementRef param_32 = this_ref;
+                    Clip begin_clip = Element_BeginClip_read(param_32, v_223);
                     anno_begin_clip.bbox = bbox;
                     anno_begin_clip.linewidth = 0.0;
-                    param_32.offset = _968.conf.anno_alloc.offset;
-                    AnnotatedRef param_33 = out_ref;
-                    uint param_34 = 0u;
-                    AnnoBeginClip param_35 = anno_begin_clip;
-                    Annotated_BeginClip_write(param_32, param_33, param_34, param_35, v_187);
+                    anno_begin_clip.blend = begin_clip.blend;
+                    uint flags = uint(begin_clip.blend != 3u) << uint(1);
+                    param_33.offset = _1054.conf.anno_alloc.offset;
+                    AnnotatedRef param_34 = out_ref;
+                    uint param_35 = flags;
+                    AnnoBeginClip param_36 = anno_begin_clip;
+                    Annotated_BeginClip_write(param_33, param_34, param_35, param_36, v_199);
                     break;
                 }
             }
@@ -753,11 +799,16 @@ kernel void main0(device Memory& v_187 [[buffer(0)]], const device ConfigBuf& _9
         {
             if (tag_word == 10u)
             {
+                ElementRef param_37 = this_ref;
+                Clip end_clip = Element_BeginClip_read(param_37, v_223);
                 anno_end_clip.bbox = float4(-1000000000.0, -1000000000.0, 1000000000.0, 1000000000.0);
-                param_36.offset = _968.conf.anno_alloc.offset;
-                AnnotatedRef param_37 = out_ref;
-                AnnoEndClip param_38 = anno_end_clip;
-                Annotated_EndClip_write(param_36, param_37, param_38, v_187);
+                anno_end_clip.blend = end_clip.blend;
+                uint flags_1 = uint(end_clip.blend != 3u) << uint(1);
+                param_38.offset = _1054.conf.anno_alloc.offset;
+                AnnotatedRef param_39 = out_ref;
+                uint param_40 = flags_1;
+                AnnoEndClip param_41 = anno_end_clip;
+                Annotated_EndClip_write(param_38, param_39, param_40, param_41, v_199);
             }
         }
         if ((tag_word == 9u) || (tag_word == 10u))
@@ -767,7 +818,7 @@ kernel void main0(device Memory& v_187 [[buffer(0)]], const device ConfigBuf& _9
             {
                 path_ix = m.path_ix;
             }
-            v_187.memory[clip_out_base + m.clip_ix] = path_ix;
+            v_199.memory[clip_out_base + m.clip_ix] = path_ix;
         }
         out_ref.offset += 40u;
     }
