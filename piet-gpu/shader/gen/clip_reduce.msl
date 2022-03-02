@@ -34,12 +34,14 @@ struct Config
     Alloc pathseg_alloc;
     Alloc anno_alloc;
     Alloc trans_alloc;
-    Alloc bbox_alloc;
+    Alloc path_bbox_alloc;
     Alloc drawmonoid_alloc;
     Alloc clip_alloc;
     Alloc clip_bic_alloc;
     Alloc clip_stack_alloc;
     Alloc clip_bbox_alloc;
+    Alloc draw_bbox_alloc;
+    Alloc drawinfo_alloc;
     uint n_trans;
     uint n_path;
     uint n_clip;
@@ -47,6 +49,8 @@ struct Config
     uint linewidth_offset;
     uint pathtag_offset;
     uint pathseg_offset;
+    uint drawtag_offset;
+    uint drawdata_offset;
 };
 
 struct ConfigBuf
@@ -81,7 +85,7 @@ void store_bic(thread const uint& ix, thread const Bic& bic, const device Config
 static inline __attribute__((always_inline))
 float4 load_path_bbox(thread const uint& path_ix, const device ConfigBuf& v_64, device Memory& v_80)
 {
-    uint base = (v_64.conf.bbox_alloc.offset >> uint(2)) + (6u * path_ix);
+    uint base = (v_64.conf.path_bbox_alloc.offset >> uint(2)) + (6u * path_ix);
     float bbox_l = float(v_80.memory[base]) - 32768.0;
     float bbox_t = float(v_80.memory[base + 1u]) - 32768.0;
     float bbox_r = float(v_80.memory[base + 2u]) - 32768.0;

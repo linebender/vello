@@ -36,13 +36,13 @@ shared Monoid sh_scratch[WG_SIZE];
 
 void main() {
     uint ix = gl_GlobalInvocationID.x * N_ROWS;
-    ElementRef ref = ElementRef(ix * Element_size);
-    uint tag_word = Element_tag(ref).tag;
+    uint drawtag_base = conf.drawtag_offset >> 2;
+    uint tag_word = scene[drawtag_base + ix];
 
     Monoid agg = map_tag(tag_word);
     for (uint i = 1; i < N_ROWS; i++) {
-        tag_word = Element_tag(Element_index(ref, i)).tag;
-        agg = combine_tag_monoid(agg, map_tag(tag_word));
+        uint tag_word = scene[drawtag_base + ix + i];
+        agg = combine_draw_monoid(agg, map_tag(tag_word));
     }
     sh_scratch[gl_LocalInvocationID.x] = agg;
     for (uint i = 0; i < LG_WG_SIZE; i++) {
@@ -50,7 +50,7 @@ void main() {
         // We could make this predicate tighter, but would it help?
         if (gl_LocalInvocationID.x + (1u << i) < WG_SIZE) {
             Monoid other = sh_scratch[gl_LocalInvocationID.x + (1u << i)];
-            agg = combine_tag_monoid(agg, other);
+            agg = combine_draw_monoid(agg, other);
         }
         barrier();
         sh_scratch[gl_LocalInvocationID.x] = agg;

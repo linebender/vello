@@ -17,20 +17,23 @@
 //! Tests for the piet-gpu draw object stage.
 
 use piet_gpu_hal::{BufWrite, BufferUsage};
-use rand::Rng;
+use rand::{Rng, seq::SliceRandom};
 
 use crate::{Config, Runner, TestResult};
 
 use piet_gpu::stages::{self, DrawCode, DrawMonoid, DrawStage};
 
-const ELEMENT_SIZE: usize = 36;
+const DRAWTAG_SIZE: usize = 4;
 const ANNOTATED_SIZE: usize = 40;
 
-const ELEMENT_FILLCOLOR: u32 = 4;
-const ELEMENT_FILLLINGRADIENT: u32 = 5;
-const ELEMENT_FILLIMAGE: u32 = 6;
-const ELEMENT_BEGINCLIP: u32 = 9;
-const ELEMENT_ENDCLIP: u32 = 10;
+// Tags for draw objects. See shader/drawtag.h for the authoritative source.
+const DRAWTAG_FILLCOLOR: u32 = 4;
+const DRAWTAG_FILLLINGRADIENT: u32 = 20;
+const DRAWTAG_FILLIMAGE: u32 = 8;
+const DRAWTAG_BEGINCLIP: u32 = 5;
+const DRAWTAG_ENDCLIP: u32 = 37;
+
+const TAGS: &[u32] = &[DRAWTAG_FILLCOLOR, DRAWTAG_FILLLINGRADIENT, DRAWTAG_FILLIMAGE, DRAWTAG_BEGINCLIP, DRAWTAG_ENDCLIP];
 
 struct DrawTestData {
     tags: Vec<u32>,
@@ -47,7 +50,7 @@ pub unsafe fn draw_test(runner: &mut Runner, config: &Config) -> TestResult {
         .session
         .create_buffer_init(std::slice::from_ref(&stage_config), BufferUsage::STORAGE)
         .unwrap();
-    let scene_size = n_tag * ELEMENT_SIZE as u64;
+    let scene_size = n_tag * DRAWTAG_SIZE as u64;
     let scene_buf = runner
         .session
         .create_buffer_with(scene_size, |b| data.fill_scene(b), BufferUsage::STORAGE)
@@ -92,7 +95,7 @@ pub unsafe fn draw_test(runner: &mut Runner, config: &Config) -> TestResult {
 impl DrawTestData {
     fn new(n: u64) -> DrawTestData {
         let mut rng = rand::thread_rng();
-        let tags = (0..n).map(|_| rng.gen_range(0, 12)).collect();
+        let tags = (0..n).map(|_| *TAGS.choose(&mut rng).unwrap()).collect();
         DrawTestData { tags }
     }
 
@@ -101,13 +104,14 @@ impl DrawTestData {
 
         // Layout of memory
         let drawmonoid_alloc = 0;
-        let anno_alloc = drawmonoid_alloc + 8 * n_tags;
+        let anno_alloc = drawmonoid_alloc + 16 * n_tags;
         let clip_alloc = anno_alloc + ANNOTATED_SIZE * n_tags;
         let stage_config = stages::Config {
             n_elements: n_tags as u32,
             anno_alloc: anno_alloc as u32,
             drawmonoid_alloc: drawmonoid_alloc as u32,
             clip_alloc: clip_alloc as u32,
+            drawtag_offset: 0,
             ..Default::default()
         };
         stage_config
@@ -116,37 +120,35 @@ impl DrawTestData {
     fn memory_size(&self) -> u64 {
         // Note: this overallocates the clip buf a bit - only needed for the
         // total number of begin_clip and end_clip tags.
-        (8 + self.tags.len() * (8 + 4 + ANNOTATED_SIZE)) as u64
+        (8 + self.tags.len() * (16 + 4 + ANNOTATED_SIZE)) as u64
     }
 
     fn fill_scene(&self, buf: &mut BufWrite) {
-        let mut element = [0u32; ELEMENT_SIZE / 4];
-        for tag in &self.tags {
-            element[0] = *tag;
-            buf.push(element);
-        }
+        buf.extend_slice(&self.tags);
     }
 
     fn verify(&self, buf: &[u8]) -> Option<String> {
-        let size = self.tags.len() * 8;
+        let size = self.tags.len() * 16;
         let actual = bytemuck::cast_slice::<u8, DrawMonoid>(&buf[8..8 + size]);
         let mut expected = DrawMonoid::default();
         for (i, (tag, actual)) in self.tags.iter().zip(actual).enumerate() {
             // Verify exclusive prefix sum.
             let (path_ix, clip_ix) = Self::reduce_tag(*tag);
             if *actual != expected {
+                println!("{:?} {:?}", actual, expected);
                 return Some(format!("draw mismatch at {}", i));
             }
             expected.path_ix += path_ix;
             expected.clip_ix += clip_ix;
+            expected.scene_offset += tag & 28;
         }
         None
     }
 
     fn reduce_tag(tag: u32) -> (u32, u32) {
         match tag {
-            ELEMENT_FILLCOLOR | ELEMENT_FILLLINGRADIENT | ELEMENT_FILLIMAGE => (1, 0),
-            ELEMENT_BEGINCLIP | ELEMENT_ENDCLIP => (1, 1),
+            DRAWTAG_FILLCOLOR | DRAWTAG_FILLLINGRADIENT | DRAWTAG_FILLIMAGE => (1, 0),
+            DRAWTAG_BEGINCLIP | DRAWTAG_ENDCLIP => (1, 1),
             // TODO: ENDCLIP will become (0, 1)
             _ => (0, 0),
         }

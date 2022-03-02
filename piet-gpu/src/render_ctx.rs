@@ -64,9 +64,6 @@ struct State {
 }
 
 struct ClipElement {
-    /// Byte offset of BeginClip element in element vec, for bbox fixup.
-    save_point: usize,
-    bbox: Option<Rect>,
     blend: Option<Blend>,
 }
 
@@ -199,8 +196,6 @@ impl RenderContext for PietGpuRenderContext {
     fn stroke(&mut self, shape: impl Shape, brush: &impl IntoBrush<Self>, width: f64) {
         self.encode_linewidth(width.abs() as f32);
         let brush = brush.make_brush(self, || shape.bounding_box()).into_owned();
-        // Note: the bbox contribution of stroke becomes more complicated with miter joins.
-        self.accumulate_bbox(|| shape.bounding_box() + Insets::uniform(width * 0.5));
         let path = shape.path_elements(TOLERANCE);
         self.encode_path(path, false);
         self.encode_brush(&brush);
@@ -217,9 +212,6 @@ impl RenderContext for PietGpuRenderContext {
 
     fn fill(&mut self, shape: impl Shape, brush: &impl IntoBrush<Self>) {
         let brush = brush.make_brush(self, || shape.bounding_box()).into_owned();
-        // Note: we might get a good speedup from using an approximate bounding box.
-        // Perhaps that should be added to kurbo.
-        self.accumulate_bbox(|| shape.bounding_box());
         let path = shape.path_elements(TOLERANCE);
         self.encode_linewidth(-1.0);
         self.encode_path(path, true);
@@ -232,13 +224,11 @@ impl RenderContext for PietGpuRenderContext {
         self.encode_linewidth(-1.0);
         let path = shape.path_elements(TOLERANCE);
         self.encode_path(path, true);
-        let save_point = self.new_encoder.begin_clip(None);
+        self.new_encoder.begin_clip(None);
         if self.clip_stack.len() >= MAX_BLEND_STACK {
             panic!("Maximum clip/blend stack size {} exceeded", MAX_BLEND_STACK);
         }
         self.clip_stack.push(ClipElement {
-            bbox: None,
-            save_point,
             blend: None,
         });
         if let Some(tos) = self.state_stack.last_mut() {
@@ -340,16 +330,13 @@ impl PietGpuRenderContext {
         self.encode_linewidth(-1.0);
         let path = shape.path_elements(TOLERANCE);
         self.encode_path(path, true);
-        let save_point = self.new_encoder.begin_clip(Some(blend));
+        self.new_encoder.begin_clip(Some(blend));
         if self.clip_stack.len() >= MAX_BLEND_STACK {
             panic!("Maximum clip/blend stack size {} exceeded", MAX_BLEND_STACK);
         }
         self.clip_stack.push(ClipElement {
-            bbox: None,
-            save_point,
             blend: Some(blend),
         });
-        self.accumulate_bbox(|| shape.bounding_box());
         if let Some(tos) = self.state_stack.last_mut() {
             tos.n_clip += 1;
         }
@@ -406,37 +393,7 @@ impl PietGpuRenderContext {
 
     fn pop_clip(&mut self) {
         let tos = self.clip_stack.pop().unwrap();
-        let bbox = tos.bbox.unwrap_or_default();
-        let bbox_f32_4 = rect_to_f32_4(bbox);
-        self.new_encoder.end_clip(bbox_f32_4, tos.blend, tos.save_point);
-        if let Some(bbox) = tos.bbox {
-            self.union_bbox(bbox);
-        }
-    }
-
-    /// Accumulate a bbox.
-    ///
-    /// The bbox is given lazily as a closure, relative to the current transform.
-    /// It's lazy because we don't need to compute it unless we're inside a clip.
-    fn accumulate_bbox(&mut self, f: impl FnOnce() -> Rect) {
-        if !self.clip_stack.is_empty() {
-            let bbox = f();
-            let bbox = self.cur_transform.transform_rect_bbox(bbox);
-            self.union_bbox(bbox);
-        }
-    }
-
-    /// Accumulate an absolute bbox.
-    ///
-    /// The bbox is given already transformed into surface coordinates.
-    fn union_bbox(&mut self, bbox: Rect) {
-        if let Some(tos) = self.clip_stack.last_mut() {
-            tos.bbox = if let Some(old_bbox) = tos.bbox {
-                Some(old_bbox.union(bbox))
-            } else {
-                Some(bbox)
-            };
-        }
+        self.new_encoder.end_clip(tos.blend);
     }
 
     pub(crate) fn encode_glyph(&mut self, glyph: &GlyphEncoder) {

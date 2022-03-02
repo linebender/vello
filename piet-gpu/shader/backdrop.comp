@@ -38,7 +38,6 @@ layout(set = 0, binding = 1) readonly buffer ConfigBuf {
     Config conf;
 };
 
-#include "annotated.h"
 #include "tile.h"
 
 shared uint sh_row_count[BACKDROP_WG];
@@ -48,39 +47,29 @@ shared uint sh_row_width[BACKDROP_WG];
 void main() {
     uint th_ix = gl_LocalInvocationIndex;
     uint element_ix = gl_GlobalInvocationID.x;
-    AnnotatedRef ref = AnnotatedRef(conf.anno_alloc.offset + element_ix * Annotated_size);
 
     // Work assignment: 1 thread : 1 path element
     uint row_count = 0;
     bool mem_ok = mem_error == NO_ERROR;
     if (gl_LocalInvocationID.y == 0) {
         if (element_ix < conf.n_elements) {
-            AnnotatedTag tag = Annotated_tag(conf.anno_alloc, ref);
-            switch (tag.tag) {
-            case Annotated_Image:
-            case Annotated_LinGradient:
-            case Annotated_BeginClip:
-            case Annotated_Color:
-                if (fill_mode_from_flags(tag.flags) != MODE_NONZERO) {
-                    break;
-                }
-                // Fall through.
-                PathRef path_ref = PathRef(conf.tile_alloc.offset + element_ix * Path_size);
-                Path path = Path_read(conf.tile_alloc, path_ref);
-                sh_row_width[th_ix] = path.bbox.z - path.bbox.x;
-                row_count = path.bbox.w - path.bbox.y;
-                // Paths that don't cross tile top edges don't have backdrops.
-                // Don't apply the optimization to paths that may cross the y = 0
-                // top edge, but clipped to 1 row.
-                if (row_count == 1 && path.bbox.y > 0) {
-                    // Note: this can probably be expanded to width = 2 as
-                    // long as it doesn't cross the left edge.
-                    row_count = 0;
-                }
-                Alloc path_alloc = new_alloc(
-                    path.tiles.offset, (path.bbox.z - path.bbox.x) * (path.bbox.w - path.bbox.y) * Tile_size, mem_ok);
-                sh_row_alloc[th_ix] = path_alloc;
+            // Possible TODO: it's not necessary to process backdrops of stroked paths.
+            // We had logic for that but took it out because it used the Annotated struct.
+            PathRef path_ref = PathRef(conf.tile_alloc.offset + element_ix * Path_size);
+            Path path = Path_read(conf.tile_alloc, path_ref);
+            sh_row_width[th_ix] = path.bbox.z - path.bbox.x;
+            row_count = path.bbox.w - path.bbox.y;
+            // Paths that don't cross tile top edges don't have backdrops.
+            // Don't apply the optimization to paths that may cross the y = 0
+            // top edge, but clipped to 1 row.
+            if (row_count == 1 && path.bbox.y > 0) {
+                // Note: this can probably be expanded to width = 2 as
+                // long as it doesn't cross the left edge.
+                row_count = 0;
             }
+            Alloc path_alloc = new_alloc(
+                path.tiles.offset, (path.bbox.z - path.bbox.x) * (path.bbox.w - path.bbox.y) * Tile_size, mem_ok);
+            sh_row_alloc[th_ix] = path_alloc;
         }
         sh_row_count[th_ix] = row_count;
     }

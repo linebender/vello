@@ -183,12 +183,14 @@ struct Config
     Alloc_1 pathseg_alloc;
     Alloc_1 anno_alloc;
     Alloc_1 trans_alloc;
-    Alloc_1 bbox_alloc;
+    Alloc_1 path_bbox_alloc;
     Alloc_1 drawmonoid_alloc;
     Alloc_1 clip_alloc;
     Alloc_1 clip_bic_alloc;
     Alloc_1 clip_stack_alloc;
     Alloc_1 clip_bbox_alloc;
+    Alloc_1 draw_bbox_alloc;
+    Alloc_1 drawinfo_alloc;
     uint n_trans;
     uint n_path;
     uint n_clip;
@@ -196,6 +198,8 @@ struct Config
     uint linewidth_offset;
     uint pathtag_offset;
     uint pathseg_offset;
+    uint drawtag_offset;
+    uint drawdata_offset;
 };
 
 struct ConfigBuf

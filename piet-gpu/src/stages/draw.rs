@@ -28,6 +28,8 @@ use piet_gpu_hal::{
 pub struct DrawMonoid {
     pub path_ix: u32,
     pub clip_ix: u32,
+    pub scene_offset: u32,
+    pub info_offset: u32,
 }
 
 const DRAW_WG: u64 = 256;
@@ -93,7 +95,7 @@ impl DrawStage {
     pub unsafe fn new(session: &Session, code: &DrawCode) -> DrawStage {
         // We're limited to DRAW_PART_SIZE^2
         // Also note: size here allows padding
-        let root_buf_size = DRAW_PART_SIZE * 8;
+        let root_buf_size = DRAW_PART_SIZE * 16;
         let root_buf = session
             .create_buffer(root_buf_size, BufferUsage::STORAGE)
             .unwrap();

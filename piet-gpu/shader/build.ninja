@@ -22,43 +22,43 @@ rule dxil
 rule msl
   command = $spirv_cross --msl $in --output $out $msl_flags
 
-build gen/binning.spv: glsl binning.comp | annotated.h bins.h drawtag.h setup.h mem.h
+build gen/binning.spv: glsl binning.comp | bins.h drawtag.h setup.h mem.h
 build gen/binning.hlsl: hlsl gen/binning.spv
 build gen/binning.dxil: dxil gen/binning.hlsl
 build gen/binning.msl: msl gen/binning.spv
 
-build gen/tile_alloc.spv: glsl tile_alloc.comp | annotated.h tile.h setup.h
+build gen/tile_alloc.spv: glsl tile_alloc.comp | drawtag.h tile.h setup.h mem.h
 build gen/tile_alloc.hlsl: hlsl gen/tile_alloc.spv
 build gen/tile_alloc.dxil: dxil gen/tile_alloc.hlsl
 build gen/tile_alloc.msl: msl gen/tile_alloc.spv
 
-build gen/path_coarse.spv: glsl path_coarse.comp | annotated.h pathseg.h tile.h setup.h
+build gen/path_coarse.spv: glsl path_coarse.comp | pathseg.h tile.h setup.h mem.h
 build gen/path_coarse.hlsl: hlsl gen/path_coarse.spv
 build gen/path_coarse.dxil: dxil gen/path_coarse.hlsl
 build gen/path_coarse.msl: msl gen/path_coarse.spv
 
-build gen/backdrop.spv: glsl backdrop.comp | annotated.h tile.h setup.h
+build gen/backdrop.spv: glsl backdrop.comp | tile.h setup.h mem.h
 build gen/backdrop.hlsl: hlsl gen/backdrop.spv
 build gen/backdrop.dxil: dxil gen/backdrop.hlsl
 build gen/backdrop.msl: msl gen/backdrop.spv
 
-build gen/backdrop_lg.spv: glsl backdrop.comp | annotated.h tile.h setup.h
+build gen/backdrop_lg.spv: glsl backdrop.comp | tile.h setup.h mem.h
   flags = -DBACKDROP_DIST_FACTOR=4
 build gen/backdrop_lg.hlsl: hlsl gen/backdrop_lg.spv
 build gen/backdrop_lg.dxil: dxil gen/backdrop_lg.hlsl
 build gen/backdrop_lg.msl: msl gen/backdrop_lg.spv
 
-build gen/coarse.spv: glsl coarse.comp | annotated.h bins.h ptcl.h setup.h
+build gen/coarse.spv: glsl coarse.comp | drawtag.h bins.h ptcl.h setup.h mem.h
 build gen/coarse.hlsl: hlsl gen/coarse.spv
 build gen/coarse.dxil: dxil gen/coarse.hlsl
 build gen/coarse.msl: msl gen/coarse.spv
 
-build gen/kernel4.spv: glsl kernel4.comp | blend.h ptcl.h setup.h
+build gen/kernel4.spv: glsl kernel4.comp | blend.h ptcl.h setup.h mem.h
 build gen/kernel4.hlsl: hlsl gen/kernel4.spv
 build gen/kernel4.dxil: dxil gen/kernel4.hlsl
 build gen/kernel4.msl: msl gen/kernel4.spv
 
-build gen/kernel4_gray.spv: glsl kernel4.comp | ptcl.h setup.h
+build gen/kernel4_gray.spv: glsl kernel4.comp | ptcl.h setup.h mem.h
   flags = -DGRAY
 build gen/kernel4_gray.hlsl: hlsl gen/kernel4_gray.spv
 build gen/kernel4_gray.dxil: dxil gen/kernel4_gray.hlsl
@@ -114,17 +114,17 @@ build gen/draw_root.hlsl: hlsl gen/draw_root.spv
 build gen/draw_root.dxil: dxil gen/draw_root.hlsl
 build gen/draw_root.msl: msl gen/draw_root.spv
 
-build gen/draw_leaf.spv: glsl draw_leaf.comp | blend.h scene.h drawtag.h annotated.h setup.h mem.h
+build gen/draw_leaf.spv: glsl draw_leaf.comp | blend.h scene.h drawtag.h setup.h mem.h
 build gen/draw_leaf.hlsl: hlsl gen/draw_leaf.spv
 build gen/draw_leaf.dxil: dxil gen/draw_leaf.hlsl
 build gen/draw_leaf.msl: msl gen/draw_leaf.spv
 
-build gen/clip_reduce.spv: glsl clip_reduce.comp | mem.h setup.h annotated.h
+build gen/clip_reduce.spv: glsl clip_reduce.comp | mem.h setup.h
 build gen/clip_reduce.hlsl: hlsl gen/clip_reduce.spv
 build gen/clip_reduce.dxil: dxil gen/clip_reduce.hlsl
 build gen/clip_reduce.msl: msl gen/clip_reduce.spv
 
-build gen/clip_leaf.spv: glsl clip_leaf.comp | mem.h setup.h annotated.h
+build gen/clip_leaf.spv: glsl clip_leaf.comp | mem.h setup.h
 build gen/clip_leaf.hlsl: hlsl gen/clip_leaf.spv
 build gen/clip_leaf.dxil: dxil gen/clip_leaf.hlsl
 build gen/clip_leaf.msl: msl gen/clip_leaf.spv

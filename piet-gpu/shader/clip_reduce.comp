@@ -31,8 +31,6 @@ layout(binding = 1) readonly buffer ConfigBuf {
     Config conf;
 };
 
-#include "annotated.h"
-
 // The intermediate state for clip processing.
 struct ClipEl {
     // index of parent node
@@ -59,7 +57,7 @@ shared vec4 sh_bbox[WG_SIZE];
 
 // Load path's bbox from bbox (as written by pathseg).
 vec4 load_path_bbox(uint path_ix) {
-    uint base = (conf.bbox_alloc.offset >> 2) + 6 * path_ix;
+    uint base = (conf.path_bbox_alloc.offset >> 2) + 6 * path_ix;
     float bbox_l = float(memory[base]) - 32768.0;
     float bbox_t = float(memory[base + 1]) - 32768.0;
     float bbox_r = float(memory[base + 2]) - 32768.0;

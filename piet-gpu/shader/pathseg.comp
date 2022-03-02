@@ -248,7 +248,7 @@ void main() {
 
     barrier();
     uint path_ix = save_path_ix;
-    uint bbox_out_ix = (conf.bbox_alloc.offset >> 2) + path_ix * 6;
+    uint bbox_out_ix = (conf.path_bbox_alloc.offset >> 2) + path_ix * 6;
     // Write bboxes to paths; do atomic min/max if partial
     Monoid row = monoid_identity();
     if (gl_LocalInvocationID.x > 0) {
