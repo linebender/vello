@@ -7,6 +7,13 @@
 
 using namespace metal;
 
+// Implementation of the GLSL findLSB() function
+template<typename T>
+inline T spvFindLSB(T x)
+{
+    return select(ctz(x), T(-1), x == T(0));
+}
+
 struct Alloc
 {
     uint offset;
@@ -243,13 +250,6 @@ struct ConfigBuf
 };
 
 constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(256u, 1u, 1u);
-
-// Implementation of the GLSL findLSB() function
-template<typename T>
-inline T spvFindLSB(T x)
-{
-    return select(ctz(x), T(-1), x == T(0));
-}
 
 static inline __attribute__((always_inline))
 Alloc slice_mem(thread const Alloc& a, thread const uint& offset, thread const uint& size)

@@ -220,7 +220,7 @@ void BinInstance_write(thread const Alloc& a, thread const BinInstanceRef& ref, 
 kernel void main0(constant uint* spvBufferSizeConstants [[buffer(25)]], device Memory& v_94 [[buffer(0)]], const device ConfigBuf& v_202 [[buffer(1)]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
 {
     threadgroup uint bitmaps[8][256];
-    threadgroup bool sh_alloc_failed;
+    threadgroup short sh_alloc_failed;
     threadgroup uint count[8][256];
     threadgroup Alloc sh_chunk_alloc[256];
     constant uint& v_94BufferSize = spvBufferSizeConstants[0];
@@ -232,7 +232,7 @@ kernel void main0(constant uint* spvBufferSizeConstants [[buffer(25)]], device M
     }
     if (gl_LocalInvocationID.x == 0u)
     {
-        sh_alloc_failed = false;
+        sh_alloc_failed = short(false);
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
     uint element_ix = (my_partition * 256u) + gl_LocalInvocationID.x;
@@ -331,7 +331,7 @@ kernel void main0(constant uint* spvBufferSizeConstants [[buffer(25)]], device M
         sh_chunk_alloc[gl_LocalInvocationID.x] = chunk_alloc;
         if (chunk.failed)
         {
-            sh_alloc_failed = true;
+            sh_alloc_failed = short(true);
         }
     }
     uint out_ix = (v_202.conf.bin_alloc.offset >> uint(2)) + (((my_partition * 256u) + gl_LocalInvocationID.x) * 2u);
@@ -347,13 +347,13 @@ kernel void main0(constant uint* spvBufferSizeConstants [[buffer(25)]], device M
     write_mem(param_16, param_17, param_18, v_94, v_94BufferSize);
     threadgroup_barrier(mem_flags::mem_threadgroup);
     bool _687;
-    if (!sh_alloc_failed)
+    if (!bool(sh_alloc_failed))
     {
         _687 = v_94.mem_error != 0u;
     }
     else
     {
-        _687 = sh_alloc_failed;
+        _687 = bool(sh_alloc_failed);
     }
     if (_687)
     {

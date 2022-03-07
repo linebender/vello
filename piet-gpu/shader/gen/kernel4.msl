@@ -511,7 +511,7 @@ float3 hard_light(thread const float3& cb, thread const float3& cs)
 {
     float3 param = cb;
     float3 param_1 = (cs * 2.0) - float3(1.0);
-    return mix(screen(param, param_1), (cb * 2.0) * cs, select(float3(0.0), float3(1.0), cs <= float3(0.5)));
+    return mix(screen(param, param_1), (cb * 2.0) * cs, float3(cs <= float3(0.5)));
 }
 
 static inline __attribute__((always_inline))
@@ -557,8 +557,8 @@ float color_burn(thread const float& cb, thread const float& cs)
 static inline __attribute__((always_inline))
 float3 soft_light(thread const float3& cb, thread const float3& cs)
 {
-    float3 d = mix(sqrt(cb), ((((cb * 16.0) - float3(12.0)) * cb) + float3(4.0)) * cb, select(float3(0.0), float3(1.0), cb <= float3(0.25)));
-    return mix(cb + (((cs * 2.0) - float3(1.0)) * (d - cb)), cb - (((float3(1.0) - (cs * 2.0)) * cb) * (float3(1.0) - cb)), select(float3(0.0), float3(1.0), cs <= float3(0.5)));
+    float3 d = mix(sqrt(cb), ((((cb * 16.0) - float3(12.0)) * cb) + float3(4.0)) * cb, float3(cb <= float3(0.25)));
+    return mix(cb + (((cs * 2.0) - float3(1.0)) * (d - cb)), cb - (((float3(1.0) - (cs * 2.0)) * cb) * (float3(1.0) - cb)), float3(cs <= float3(0.5)));
 }
 
 static inline __attribute__((always_inline))

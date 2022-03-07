@@ -17,6 +17,7 @@ struct AnnoEndClipRef
 struct AnnoEndClip
 {
     float4 bbox;
+    uint blend;
 };
 
 struct AnnotatedRef
@@ -76,7 +77,7 @@ struct Config
 static const uint3 gl_WorkGroupSize = uint3(256u, 1u, 1u);
 
 RWByteAddressBuffer _92 : register(u0, space0);
-ByteAddressBuffer _305 : register(t1, space0);
+ByteAddressBuffer _314 : register(t1, space0);
 
 static uint3 gl_LocalInvocationID;
 static uint3 gl_GlobalInvocationID;
@@ -111,8 +112,8 @@ AnnotatedTag Annotated_tag(Alloc a, AnnotatedRef ref)
     Alloc param = a;
     uint param_1 = ref.offset >> uint(2);
     uint tag_and_flags = read_mem(param, param_1);
-    AnnotatedTag _236 = { tag_and_flags & 65535u, tag_and_flags >> uint(16) };
-    return _236;
+    AnnotatedTag _246 = { tag_and_flags & 65535u, tag_and_flags >> uint(16) };
+    return _246;
 }
 
 AnnoEndClip AnnoEndClip_read(Alloc a, AnnoEndClipRef ref)
@@ -130,16 +131,20 @@ AnnoEndClip AnnoEndClip_read(Alloc a, AnnoEndClipRef ref)
     Alloc param_6 = a;
     uint param_7 = ix + 3u;
     uint raw3 = read_mem(param_6, param_7);
+    Alloc param_8 = a;
+    uint param_9 = ix + 4u;
+    uint raw4 = read_mem(param_8, param_9);
     AnnoEndClip s;
     s.bbox = float4(asfloat(raw0), asfloat(raw1), asfloat(raw2), asfloat(raw3));
+    s.blend = raw4;
     return s;
 }
 
 AnnoEndClip Annotated_EndClip_read(Alloc a, AnnotatedRef ref)
 {
-    AnnoEndClipRef _243 = { ref.offset + 4u };
+    AnnoEndClipRef _252 = { ref.offset + 4u };
     Alloc param = a;
-    AnnoEndClipRef param_1 = _243;
+    AnnoEndClipRef param_1 = _252;
     return AnnoEndClip_read(param, param_1);
 }
 
@@ -211,17 +216,17 @@ void comp_main()
 {
     uint th_ix = gl_LocalInvocationID.x;
     uint element_ix = gl_GlobalInvocationID.x;
-    PathRef _312 = { _305.Load(16) + (element_ix * 12u) };
-    PathRef path_ref = _312;
-    AnnotatedRef _321 = { _305.Load(32) + (element_ix * 40u) };
-    AnnotatedRef ref = _321;
+    PathRef _321 = { _314.Load(16) + (element_ix * 12u) };
+    PathRef path_ref = _321;
+    AnnotatedRef _330 = { _314.Load(32) + (element_ix * 40u) };
+    AnnotatedRef ref = _330;
     uint tag = 0u;
-    if (element_ix < _305.Load(0))
+    if (element_ix < _314.Load(0))
     {
-        Alloc _332;
-        _332.offset = _305.Load(32);
+        Alloc _341;
+        _341.offset = _314.Load(32);
         Alloc param;
-        param.offset = _332.offset;
+        param.offset = _341.offset;
         AnnotatedRef param_1 = ref;
         tag = Annotated_tag(param, param_1).tag;
     }
@@ -237,10 +242,10 @@ void comp_main()
         case 4u:
         case 5u:
         {
-            Alloc _350;
-            _350.offset = _305.Load(32);
+            Alloc _359;
+            _359.offset = _314.Load(32);
             Alloc param_2;
-            param_2.offset = _350.offset;
+            param_2.offset = _359.offset;
             AnnotatedRef param_3 = ref;
             AnnoEndClip clip = Annotated_EndClip_read(param_2, param_3);
             x0 = int(floor(clip.bbox.x * 0.0625f));
@@ -250,10 +255,10 @@ void comp_main()
             break;
         }
     }
-    x0 = clamp(x0, 0, int(_305.Load(8)));
-    y0 = clamp(y0, 0, int(_305.Load(12)));
-    x1 = clamp(x1, 0, int(_305.Load(8)));
-    y1 = clamp(y1, 0, int(_305.Load(12)));
+    x0 = clamp(x0, 0, int(_314.Load(8)));
+    y0 = clamp(y0, 0, int(_314.Load(12)));
+    x1 = clamp(x1, 0, int(_314.Load(8)));
+    y1 = clamp(y1, 0, int(_314.Load(12)));
     Path path;
     path.bbox = uint4(uint(x0), uint(y0), uint(x1), uint(y1));
     uint tile_count = uint((x1 - x0) * (y1 - y0));
@@ -276,46 +281,46 @@ void comp_main()
     if (th_ix == 255u)
     {
         uint param_4 = total_tile_count * 8u;
-        MallocResult _476 = malloc(param_4);
-        sh_tile_alloc = _476;
+        MallocResult _485 = malloc(param_4);
+        sh_tile_alloc = _485;
     }
     GroupMemoryBarrierWithGroupSync();
     MallocResult alloc_start = sh_tile_alloc;
-    bool _487;
+    bool _496;
     if (!alloc_start.failed)
     {
-        _487 = _92.Load(4) != 0u;
+        _496 = _92.Load(4) != 0u;
     }
     else
     {
-        _487 = alloc_start.failed;
+        _496 = alloc_start.failed;
     }
-    if (_487)
+    if (_496)
     {
         return;
     }
-    if (element_ix < _305.Load(0))
+    if (element_ix < _314.Load(0))
     {
-        uint _500;
+        uint _509;
         if (th_ix > 0u)
         {
-            _500 = sh_tile_count[th_ix - 1u];
+            _509 = sh_tile_count[th_ix - 1u];
         }
         else
         {
-            _500 = 0u;
+            _509 = 0u;
         }
-        uint tile_subix = _500;
+        uint tile_subix = _509;
         Alloc param_5 = alloc_start.alloc;
         uint param_6 = 8u * tile_subix;
         uint param_7 = 8u * tile_count;
         Alloc tiles_alloc = slice_mem(param_5, param_6, param_7);
-        TileRef _522 = { tiles_alloc.offset };
-        path.tiles = _522;
-        Alloc _527;
-        _527.offset = _305.Load(16);
+        TileRef _531 = { tiles_alloc.offset };
+        path.tiles = _531;
+        Alloc _536;
+        _536.offset = _314.Load(16);
         Alloc param_8;
-        param_8.offset = _527.offset;
+        param_8.offset = _536.offset;
         PathRef param_9 = path_ref;
         Path param_10 = path;
         Path_write(param_8, param_9, param_10);
