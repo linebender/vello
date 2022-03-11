@@ -18,6 +18,7 @@
 
 use crate::Blend;
 use bytemuck::{Pod, Zeroable};
+use piet::kurbo::{Affine, Point};
 use piet_gpu_hal::BufWrite;
 
 use crate::stages::{
@@ -335,5 +336,35 @@ impl GlyphEncoder {
 
     pub(crate) fn is_color(&self) -> bool {
         !self.drawobj_stream.is_empty()
+    }
+
+    /// Computes the bounding box of the points defining the encoded glyph,
+    /// optionally applying a transform.
+    pub(crate) fn bbox(&self, transform: Option<Affine>) -> [f32; 4] {
+        if self.pathseg_stream.is_empty() {
+            return [0.0; 4];
+        }
+        let points: &[[f32; 2]] = bytemuck::cast_slice(&self.pathseg_stream);
+        let mut x0 = f32::MAX;
+        let mut y0 = f32::MAX;
+        let mut x1 = f32::MIN;
+        let mut y1 = f32::MIN;
+        if let Some(transform) = transform {
+            for point in points {
+                let p = transform * Point::new(point[0] as f64, point[1] as f64);
+                x0 = x0.min(p.x as f32);
+                y0 = y0.min(p.y as f32);
+                x1 = x1.max(p.x as f32);
+                y1 = y1.max(p.y as f32);
+            }
+        } else {
+            for p in points {
+                x0 = x0.min(p[0]);
+                y0 = y0.min(p[1]);
+                x1 = x1.max(p[0]);
+                y1 = y1.max(p[1]);
+            }
+        }
+        [x0, y0, x1, y1]
     }
 }
