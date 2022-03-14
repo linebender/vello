@@ -69,9 +69,10 @@ AnnoLinGradientRef AnnoLinGradient_index(AnnoLinGradientRef ref, uint index) {
 struct AnnoBeginClip {
     vec4 bbox;
     float linewidth;
+    uint blend;
 };
 
-#define AnnoBeginClip_size 20
+#define AnnoBeginClip_size 24
 
 AnnoBeginClipRef AnnoBeginClip_index(AnnoBeginClipRef ref, uint index) {
     return AnnoBeginClipRef(ref.offset + index * AnnoBeginClip_size);
@@ -79,9 +80,10 @@ AnnoBeginClipRef AnnoBeginClip_index(AnnoBeginClipRef ref, uint index) {
 
 struct AnnoEndClip {
     vec4 bbox;
+    uint blend;
 };
 
-#define AnnoEndClip_size 16
+#define AnnoEndClip_size 20
 
 AnnoEndClipRef AnnoEndClip_index(AnnoEndClipRef ref, uint index) {
     return AnnoEndClipRef(ref.offset + index * AnnoEndClip_size);
@@ -198,9 +200,11 @@ AnnoBeginClip AnnoBeginClip_read(Alloc a, AnnoBeginClipRef ref) {
     uint raw2 = read_mem(a, ix + 2);
     uint raw3 = read_mem(a, ix + 3);
     uint raw4 = read_mem(a, ix + 4);
+    uint raw5 = read_mem(a, ix + 5);
     AnnoBeginClip s;
     s.bbox = vec4(uintBitsToFloat(raw0), uintBitsToFloat(raw1), uintBitsToFloat(raw2), uintBitsToFloat(raw3));
     s.linewidth = uintBitsToFloat(raw4);
+    s.blend = raw5;
     return s;
 }
 
@@ -211,6 +215,7 @@ void AnnoBeginClip_write(Alloc a, AnnoBeginClipRef ref, AnnoBeginClip s) {
     write_mem(a, ix + 2, floatBitsToUint(s.bbox.z));
     write_mem(a, ix + 3, floatBitsToUint(s.bbox.w));
     write_mem(a, ix + 4, floatBitsToUint(s.linewidth));
+    write_mem(a, ix + 5, s.blend);
 }
 
 AnnoEndClip AnnoEndClip_read(Alloc a, AnnoEndClipRef ref) {
@@ -219,8 +224,10 @@ AnnoEndClip AnnoEndClip_read(Alloc a, AnnoEndClipRef ref) {
     uint raw1 = read_mem(a, ix + 1);
     uint raw2 = read_mem(a, ix + 2);
     uint raw3 = read_mem(a, ix + 3);
+    uint raw4 = read_mem(a, ix + 4);
     AnnoEndClip s;
     s.bbox = vec4(uintBitsToFloat(raw0), uintBitsToFloat(raw1), uintBitsToFloat(raw2), uintBitsToFloat(raw3));
+    s.blend = raw4;
     return s;
 }
 
@@ -230,6 +237,7 @@ void AnnoEndClip_write(Alloc a, AnnoEndClipRef ref, AnnoEndClip s) {
     write_mem(a, ix + 1, floatBitsToUint(s.bbox.y));
     write_mem(a, ix + 2, floatBitsToUint(s.bbox.z));
     write_mem(a, ix + 3, floatBitsToUint(s.bbox.w));
+    write_mem(a, ix + 4, s.blend);
 }
 
 AnnotatedTag Annotated_tag(Alloc a, AnnotatedRef ref) {
@@ -281,8 +289,8 @@ void Annotated_BeginClip_write(Alloc a, AnnotatedRef ref, uint flags, AnnoBeginC
     AnnoBeginClip_write(a, AnnoBeginClipRef(ref.offset + 4), s);
 }
 
-void Annotated_EndClip_write(Alloc a, AnnotatedRef ref, AnnoEndClip s) {
-    write_mem(a, ref.offset >> 2, Annotated_EndClip);
+void Annotated_EndClip_write(Alloc a, AnnotatedRef ref, uint flags, AnnoEndClip s) {
+    write_mem(a, ref.offset >> 2, (flags << 16) | Annotated_EndClip);
     AnnoEndClip_write(a, AnnoEndClipRef(ref.offset + 4), s);
 }
 

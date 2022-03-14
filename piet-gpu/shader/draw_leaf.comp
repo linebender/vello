@@ -28,6 +28,7 @@ layout(binding = 2) readonly buffer SceneBuf {
 #include "tile.h"
 #include "drawtag.h"
 #include "annotated.h"
+#include "blend.h"
 
 #define Monoid DrawMonoid
 
@@ -149,17 +150,23 @@ void main() {
                 Annotated_Image_write(conf.anno_alloc, out_ref, fill_mode, anno_img);
                 break;
             case Element_BeginClip:
+                Clip begin_clip = Element_BeginClip_read(this_ref);
                 AnnoBeginClip anno_begin_clip;
                 anno_begin_clip.bbox = bbox;
                 anno_begin_clip.linewidth = 0.0; // don't support clip-with-stroke
-                Annotated_BeginClip_write(conf.anno_alloc, out_ref, 0, anno_begin_clip);
+                anno_begin_clip.blend = begin_clip.blend;
+                uint flags = uint(begin_clip.blend != BlendComp_default) << 1;
+                Annotated_BeginClip_write(conf.anno_alloc, out_ref, flags, anno_begin_clip);
                 break;
             }
         } else if (tag_word == Element_EndClip) {
+            Clip end_clip = Element_BeginClip_read(this_ref);
             AnnoEndClip anno_end_clip;
             // The actual bbox will be reconstructed from clip stream output.
             anno_end_clip.bbox = vec4(-1e9, -1e9, 1e9, 1e9);
-            Annotated_EndClip_write(conf.anno_alloc, out_ref, anno_end_clip);
+            anno_end_clip.blend = end_clip.blend;
+            uint flags = uint(end_clip.blend != BlendComp_default) << 1;
+            Annotated_EndClip_write(conf.anno_alloc, out_ref, flags, anno_end_clip);
         }
         // Generate clip stream.
         if (tag_word == Element_BeginClip || tag_word == Element_EndClip) {

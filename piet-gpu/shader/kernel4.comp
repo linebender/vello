@@ -35,6 +35,7 @@ layout(rgba8, set = 0, binding = 4) uniform restrict readonly image2D gradients;
 
 #include "ptcl.h"
 #include "tile.h"
+#include "blend.h"
 
 #define MAX_BLEND_STACK 128
 mediump vec3 tosRGB(mediump vec3 rgb) {
@@ -216,14 +217,20 @@ void main() {
             cmd_ref.offset += 4;
             break;
         case Cmd_EndClip:
+            CmdEndClip end_clip = Cmd_EndClip_read(cmd_alloc, cmd_ref);
+            uint blend_mode = uint(end_clip.blend >> 8);
+            uint comp_mode = uint(end_clip.blend & 0xFF);
             clip_depth--;
             for (uint k = 0; k < CHUNK; k++) {
                 uint d = min(clip_depth, MAX_BLEND_STACK - 1);
                 mediump vec4 bg = unpacksRGB(blend_stack[d][k]);
                 mediump vec4 fg = rgba[k] * area[k];
-                rgba[k] = bg * (1.0 - fg.a) + fg;
+                vec3 blend = mix_blend(bg.rgb, fg.rgb, blend_mode);
+                // Apply the blend color only where the foreground and background overlap.
+                fg.rgb = mix(fg.rgb, blend, float((fg.a * bg.a) > 0.0));
+                rgba[k] = mix_compose(bg.rgb, fg.rgb, bg.a, fg.a, comp_mode);
             }
-            cmd_ref.offset += 4;
+            cmd_ref.offset += 4 + CmdEndClip_size;
             break;
         case Cmd_Jump:
             cmd_ref = CmdRef(Cmd_Jump_read(cmd_alloc, cmd_ref).new_ref);

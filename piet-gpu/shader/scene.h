@@ -138,9 +138,10 @@ TransformRef Transform_index(TransformRef ref, uint index) {
 
 struct Clip {
     vec4 bbox;
+    uint blend;
 };
 
-#define Clip_size 16
+#define Clip_size 20
 
 ClipRef Clip_index(ClipRef ref, uint index) {
     return ClipRef(ref.offset + index * Clip_size);
@@ -286,6 +287,7 @@ Clip Clip_read(ClipRef ref) {
     uint raw3 = scene[ix + 3];
     Clip s;
     s.bbox = vec4(uintBitsToFloat(raw0), uintBitsToFloat(raw1), uintBitsToFloat(raw2), uintBitsToFloat(raw3));
+    s.blend = scene[ix + 4];
     return s;
 }
 

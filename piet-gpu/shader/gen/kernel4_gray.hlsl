@@ -69,6 +69,16 @@ struct CmdAlpha
     float alpha;
 };
 
+struct CmdEndClipRef
+{
+    uint offset;
+};
+
+struct CmdEndClip
+{
+    uint blend;
+};
+
 struct CmdJumpRef
 {
     uint offset;
@@ -132,8 +142,8 @@ struct Config
 
 static const uint3 gl_WorkGroupSize = uint3(8u, 4u, 1u);
 
-RWByteAddressBuffer _202 : register(u0, space0);
-ByteAddressBuffer _723 : register(t1, space0);
+RWByteAddressBuffer _278 : register(u0, space0);
+ByteAddressBuffer _1521 : register(t1, space0);
 RWTexture2D<unorm float4> image_atlas : register(u3, space0);
 RWTexture2D<unorm float4> gradients : register(u4, space0);
 RWTexture2D<unorm float> image : register(u2, space0);
@@ -160,8 +170,8 @@ float4 spvUnpackUnorm4x8(uint value)
 
 Alloc slice_mem(Alloc a, uint offset, uint size)
 {
-    Alloc _215 = { a.offset + offset };
-    return _215;
+    Alloc _291 = { a.offset + offset };
+    return _291;
 }
 
 bool touch_mem(Alloc alloc, uint offset)
@@ -177,7 +187,7 @@ uint read_mem(Alloc alloc, uint offset)
     {
         return 0u;
     }
-    uint v = _202.Load(offset * 4 + 8);
+    uint v = _278.Load(offset * 4 + 8);
     return v;
 }
 
@@ -186,8 +196,8 @@ CmdTag Cmd_tag(Alloc a, CmdRef ref)
     Alloc param = a;
     uint param_1 = ref.offset >> uint(2);
     uint tag_and_flags = read_mem(param, param_1);
-    CmdTag _432 = { tag_and_flags & 65535u, tag_and_flags >> uint(16) };
-    return _432;
+    CmdTag _525 = { tag_and_flags & 65535u, tag_and_flags >> uint(16) };
+    return _525;
 }
 
 CmdStroke CmdStroke_read(Alloc a, CmdStrokeRef ref)
@@ -207,9 +217,9 @@ CmdStroke CmdStroke_read(Alloc a, CmdStrokeRef ref)
 
 CmdStroke Cmd_Stroke_read(Alloc a, CmdRef ref)
 {
-    CmdStrokeRef _449 = { ref.offset + 4u };
+    CmdStrokeRef _542 = { ref.offset + 4u };
     Alloc param = a;
-    CmdStrokeRef param_1 = _449;
+    CmdStrokeRef param_1 = _542;
     return CmdStroke_read(param, param_1);
 }
 
@@ -245,8 +255,8 @@ TileSeg TileSeg_read(Alloc a, TileSegRef ref)
     s.origin = float2(asfloat(raw0), asfloat(raw1));
     s._vector = float2(asfloat(raw2), asfloat(raw3));
     s.y_edge = asfloat(raw4);
-    TileSegRef _572 = { raw5 };
-    s.next = _572;
+    TileSegRef _675 = { raw5 };
+    s.next = _675;
     return s;
 }
 
@@ -272,9 +282,9 @@ CmdFill CmdFill_read(Alloc a, CmdFillRef ref)
 
 CmdFill Cmd_Fill_read(Alloc a, CmdRef ref)
 {
-    CmdFillRef _439 = { ref.offset + 4u };
+    CmdFillRef _532 = { ref.offset + 4u };
     Alloc param = a;
-    CmdFillRef param_1 = _439;
+    CmdFillRef param_1 = _532;
     return CmdFill_read(param, param_1);
 }
 
@@ -291,9 +301,9 @@ CmdAlpha CmdAlpha_read(Alloc a, CmdAlphaRef ref)
 
 CmdAlpha Cmd_Alpha_read(Alloc a, CmdRef ref)
 {
-    CmdAlphaRef _459 = { ref.offset + 4u };
+    CmdAlphaRef _552 = { ref.offset + 4u };
     Alloc param = a;
-    CmdAlphaRef param_1 = _459;
+    CmdAlphaRef param_1 = _552;
     return CmdAlpha_read(param, param_1);
 }
 
@@ -310,9 +320,9 @@ CmdColor CmdColor_read(Alloc a, CmdColorRef ref)
 
 CmdColor Cmd_Color_read(Alloc a, CmdRef ref)
 {
-    CmdColorRef _469 = { ref.offset + 4u };
+    CmdColorRef _562 = { ref.offset + 4u };
     Alloc param = a;
-    CmdColorRef param_1 = _469;
+    CmdColorRef param_1 = _562;
     return CmdColor_read(param, param_1);
 }
 
@@ -356,9 +366,9 @@ CmdLinGrad CmdLinGrad_read(Alloc a, CmdLinGradRef ref)
 
 CmdLinGrad Cmd_LinGrad_read(Alloc a, CmdRef ref)
 {
-    CmdLinGradRef _479 = { ref.offset + 4u };
+    CmdLinGradRef _572 = { ref.offset + 4u };
     Alloc param = a;
-    CmdLinGradRef param_1 = _479;
+    CmdLinGradRef param_1 = _572;
     return CmdLinGrad_read(param, param_1);
 }
 
@@ -379,9 +389,9 @@ CmdImage CmdImage_read(Alloc a, CmdImageRef ref)
 
 CmdImage Cmd_Image_read(Alloc a, CmdRef ref)
 {
-    CmdImageRef _489 = { ref.offset + 4u };
+    CmdImageRef _582 = { ref.offset + 4u };
     Alloc param = a;
-    CmdImageRef param_1 = _489;
+    CmdImageRef param_1 = _582;
     return CmdImage_read(param, param_1);
 }
 
@@ -394,10 +404,10 @@ void fillImage(out float4 spvReturnValue[8], uint2 xy, CmdImage cmd_img)
         int2 uv = int2(xy + chunk_offset(param)) + cmd_img.offset;
         float4 fg_rgba = image_atlas[uv];
         float3 param_1 = fg_rgba.xyz;
-        float3 _695 = fromsRGB(param_1);
-        fg_rgba.x = _695.x;
-        fg_rgba.y = _695.y;
-        fg_rgba.z = _695.z;
+        float3 _1493 = fromsRGB(param_1);
+        fg_rgba.x = _1493.x;
+        fg_rgba.y = _1493.y;
+        fg_rgba.z = _1493.z;
         rgba[i] = fg_rgba;
     }
     spvReturnValue = rgba;
@@ -418,6 +428,438 @@ uint packsRGB(inout float4 rgba)
     return spvPackUnorm4x8(rgba.wzyx);
 }
 
+CmdEndClip CmdEndClip_read(Alloc a, CmdEndClipRef ref)
+{
+    uint ix = ref.offset >> uint(2);
+    Alloc param = a;
+    uint param_1 = ix + 0u;
+    uint raw0 = read_mem(param, param_1);
+    CmdEndClip s;
+    s.blend = raw0;
+    return s;
+}
+
+CmdEndClip Cmd_EndClip_read(Alloc a, CmdRef ref)
+{
+    CmdEndClipRef _592 = { ref.offset + 4u };
+    Alloc param = a;
+    CmdEndClipRef param_1 = _592;
+    return CmdEndClip_read(param, param_1);
+}
+
+float3 screen(float3 cb, float3 cs)
+{
+    return (cb + cs) - (cb * cs);
+}
+
+float3 hard_light(float3 cb, float3 cs)
+{
+    float3 param = cb;
+    float3 param_1 = (cs * 2.0f) - 1.0f.xxx;
+    return lerp(screen(param, param_1), (cb * 2.0f) * cs, float3(bool3(cs.x <= 0.5f.xxx.x, cs.y <= 0.5f.xxx.y, cs.z <= 0.5f.xxx.z)));
+}
+
+float color_dodge(float cb, float cs)
+{
+    if (cb == 0.0f)
+    {
+        return 0.0f;
+    }
+    else
+    {
+        if (cs == 1.0f)
+        {
+            return 1.0f;
+        }
+        else
+        {
+            return min(1.0f, cb / (1.0f - cs));
+        }
+    }
+}
+
+float color_burn(float cb, float cs)
+{
+    if (cb == 1.0f)
+    {
+        return 1.0f;
+    }
+    else
+    {
+        if (cs == 0.0f)
+        {
+            return 0.0f;
+        }
+        else
+        {
+            return 1.0f - min(1.0f, (1.0f - cb) / cs);
+        }
+    }
+}
+
+float3 soft_light(float3 cb, float3 cs)
+{
+    float3 d = lerp(sqrt(cb), ((((cb * 16.0f) - 12.0f.xxx) * cb) + 4.0f.xxx) * cb, float3(bool3(cb.x <= 0.25f.xxx.x, cb.y <= 0.25f.xxx.y, cb.z <= 0.25f.xxx.z)));
+    return lerp(cb + (((cs * 2.0f) - 1.0f.xxx) * (d - cb)), cb - (((1.0f.xxx - (cs * 2.0f)) * cb) * (1.0f.xxx - cb)), float3(bool3(cs.x <= 0.5f.xxx.x, cs.y <= 0.5f.xxx.y, cs.z <= 0.5f.xxx.z)));
+}
+
+float sat(float3 c)
+{
+    return max(c.x, max(c.y, c.z)) - min(c.x, min(c.y, c.z));
+}
+
+void set_sat_inner(inout float cmin, inout float cmid, inout float cmax, float s)
+{
+    if (cmax > cmin)
+    {
+        cmid = ((cmid - cmin) * s) / (cmax - cmin);
+        cmax = s;
+    }
+    else
+    {
+        cmid = 0.0f;
+        cmax = 0.0f;
+    }
+    cmin = 0.0f;
+}
+
+float3 set_sat(inout float3 c, float s)
+{
+    if (c.x <= c.y)
+    {
+        if (c.y <= c.z)
+        {
+            float param = c.x;
+            float param_1 = c.y;
+            float param_2 = c.z;
+            float param_3 = s;
+            set_sat_inner(param, param_1, param_2, param_3);
+            c.x = param;
+            c.y = param_1;
+            c.z = param_2;
+        }
+        else
+        {
+            if (c.x <= c.z)
+            {
+                float param_4 = c.x;
+                float param_5 = c.z;
+                float param_6 = c.y;
+                float param_7 = s;
+                set_sat_inner(param_4, param_5, param_6, param_7);
+                c.x = param_4;
+                c.z = param_5;
+                c.y = param_6;
+            }
+            else
+            {
+                float param_8 = c.z;
+                float param_9 = c.x;
+                float param_10 = c.y;
+                float param_11 = s;
+                set_sat_inner(param_8, param_9, param_10, param_11);
+                c.z = param_8;
+                c.x = param_9;
+                c.y = param_10;
+            }
+        }
+    }
+    else
+    {
+        if (c.x <= c.z)
+        {
+            float param_12 = c.y;
+            float param_13 = c.x;
+            float param_14 = c.z;
+            float param_15 = s;
+            set_sat_inner(param_12, param_13, param_14, param_15);
+            c.y = param_12;
+            c.x = param_13;
+            c.z = param_14;
+        }
+        else
+        {
+            if (c.y <= c.z)
+            {
+                float param_16 = c.y;
+                float param_17 = c.z;
+                float param_18 = c.x;
+                float param_19 = s;
+                set_sat_inner(param_16, param_17, param_18, param_19);
+                c.y = param_16;
+                c.z = param_17;
+                c.x = param_18;
+            }
+            else
+            {
+                float param_20 = c.z;
+                float param_21 = c.y;
+                float param_22 = c.x;
+                float param_23 = s;
+                set_sat_inner(param_20, param_21, param_22, param_23);
+                c.z = param_20;
+                c.y = param_21;
+                c.x = param_22;
+            }
+        }
+    }
+    return c;
+}
+
+float lum(float3 c)
+{
+    float3 f = float3(0.300000011920928955078125f, 0.589999973773956298828125f, 0.10999999940395355224609375f);
+    return dot(c, f);
+}
+
+float3 clip_color(inout float3 c)
+{
+    float3 param = c;
+    float L = lum(param);
+    float n = min(c.x, min(c.y, c.z));
+    float x = max(c.x, max(c.y, c.z));
+    if (n < 0.0f)
+    {
+        c = L.xxx + (((c - L.xxx) * L) / (L - n).xxx);
+    }
+    if (x > 1.0f)
+    {
+        c = L.xxx + (((c - L.xxx) * (1.0f - L)) / (x - L).xxx);
+    }
+    return c;
+}
+
+float3 set_lum(float3 c, float l)
+{
+    float3 param = c;
+    float3 param_1 = c + (l - lum(param)).xxx;
+    float3 _901 = clip_color(param_1);
+    return _901;
+}
+
+float3 mix_blend(float3 cb, float3 cs, uint mode)
+{
+    float3 b = 0.0f.xxx;
+    switch (mode)
+    {
+        case 1u:
+        {
+            b = cb * cs;
+            break;
+        }
+        case 2u:
+        {
+            float3 param = cb;
+            float3 param_1 = cs;
+            b = screen(param, param_1);
+            break;
+        }
+        case 3u:
+        {
+            float3 param_2 = cs;
+            float3 param_3 = cb;
+            b = hard_light(param_2, param_3);
+            break;
+        }
+        case 4u:
+        {
+            b = min(cb, cs);
+            break;
+        }
+        case 5u:
+        {
+            b = max(cb, cs);
+            break;
+        }
+        case 6u:
+        {
+            float param_4 = cb.x;
+            float param_5 = cs.x;
+            float param_6 = cb.y;
+            float param_7 = cs.y;
+            float param_8 = cb.z;
+            float param_9 = cs.z;
+            b = float3(color_dodge(param_4, param_5), color_dodge(param_6, param_7), color_dodge(param_8, param_9));
+            break;
+        }
+        case 7u:
+        {
+            float param_10 = cb.x;
+            float param_11 = cs.x;
+            float param_12 = cb.y;
+            float param_13 = cs.y;
+            float param_14 = cb.z;
+            float param_15 = cs.z;
+            b = float3(color_burn(param_10, param_11), color_burn(param_12, param_13), color_burn(param_14, param_15));
+            break;
+        }
+        case 8u:
+        {
+            float3 param_16 = cb;
+            float3 param_17 = cs;
+            b = hard_light(param_16, param_17);
+            break;
+        }
+        case 9u:
+        {
+            float3 param_18 = cb;
+            float3 param_19 = cs;
+            b = soft_light(param_18, param_19);
+            break;
+        }
+        case 10u:
+        {
+            b = abs(cb - cs);
+            break;
+        }
+        case 11u:
+        {
+            b = (cb + cs) - ((cb * 2.0f) * cs);
+            break;
+        }
+        case 12u:
+        {
+            float3 param_20 = cb;
+            float3 param_21 = cs;
+            float param_22 = sat(param_20);
+            float3 _1192 = set_sat(param_21, param_22);
+            float3 param_23 = cb;
+            float3 param_24 = _1192;
+            float param_25 = lum(param_23);
+            b = set_lum(param_24, param_25);
+            break;
+        }
+        case 13u:
+        {
+            float3 param_26 = cs;
+            float3 param_27 = cb;
+            float param_28 = sat(param_26);
+            float3 _1206 = set_sat(param_27, param_28);
+            float3 param_29 = cb;
+            float3 param_30 = _1206;
+            float param_31 = lum(param_29);
+            b = set_lum(param_30, param_31);
+            break;
+        }
+        case 14u:
+        {
+            float3 param_32 = cb;
+            float3 param_33 = cs;
+            float param_34 = lum(param_32);
+            b = set_lum(param_33, param_34);
+            break;
+        }
+        case 15u:
+        {
+            float3 param_35 = cs;
+            float3 param_36 = cb;
+            float param_37 = lum(param_35);
+            b = set_lum(param_36, param_37);
+            break;
+        }
+        default:
+        {
+            b = cs;
+            break;
+        }
+    }
+    return b;
+}
+
+float4 mix_compose(float3 cb, float3 cs, float ab, float as, uint mode)
+{
+    float fa = 0.0f;
+    float fb = 0.0f;
+    switch (mode)
+    {
+        case 1u:
+        {
+            fa = 1.0f;
+            fb = 0.0f;
+            break;
+        }
+        case 2u:
+        {
+            fa = 0.0f;
+            fb = 1.0f;
+            break;
+        }
+        case 3u:
+        {
+            fa = 1.0f;
+            fb = 1.0f - as;
+            break;
+        }
+        case 4u:
+        {
+            fa = 1.0f - ab;
+            fb = 1.0f;
+            break;
+        }
+        case 5u:
+        {
+            fa = ab;
+            fb = 0.0f;
+            break;
+        }
+        case 6u:
+        {
+            fa = 0.0f;
+            fb = as;
+            break;
+        }
+        case 7u:
+        {
+            fa = 1.0f - ab;
+            fb = 0.0f;
+            break;
+        }
+        case 8u:
+        {
+            fa = 0.0f;
+            fb = 1.0f - as;
+            break;
+        }
+        case 9u:
+        {
+            fa = ab;
+            fb = 1.0f - as;
+            break;
+        }
+        case 10u:
+        {
+            fa = 1.0f - ab;
+            fb = as;
+            break;
+        }
+        case 11u:
+        {
+            fa = 1.0f - ab;
+            fb = 1.0f - as;
+            break;
+        }
+        case 12u:
+        {
+            fa = 1.0f;
+            fb = 1.0f;
+            break;
+        }
+        case 13u:
+        {
+            return float4(max(0.0f.xxxx, ((1.0f.xxxx - (float4(cs, as) * as)) + 1.0f.xxxx) - (float4(cb, ab) * ab)).xyz, max(0.0f, ((1.0f - as) + 1.0f) - ab));
+        }
+        case 14u:
+        {
+            return float4(min(1.0f.xxxx, (float4(cs, as) * as) + (float4(cb, ab) * ab)).xyz, min(1.0f, as + ab));
+        }
+        default:
+        {
+            break;
+        }
+    }
+    return (float4(cs, as) * (as * fa)) + (float4(cb, ab) * (ab * fb));
+}
+
 CmdJump CmdJump_read(Alloc a, CmdJumpRef ref)
 {
     uint ix = ref.offset >> uint(2);
@@ -431,24 +873,24 @@ CmdJump CmdJump_read(Alloc a, CmdJumpRef ref)
 
 CmdJump Cmd_Jump_read(Alloc a, CmdRef ref)
 {
-    CmdJumpRef _499 = { ref.offset + 4u };
+    CmdJumpRef _602 = { ref.offset + 4u };
     Alloc param = a;
-    CmdJumpRef param_1 = _499;
+    CmdJumpRef param_1 = _602;
     return CmdJump_read(param, param_1);
 }
 
 void comp_main()
 {
-    uint tile_ix = (gl_WorkGroupID.y * _723.Load(8)) + gl_WorkGroupID.x;
-    Alloc _738;
-    _738.offset = _723.Load(24);
+    uint tile_ix = (gl_WorkGroupID.y * _1521.Load(8)) + gl_WorkGroupID.x;
+    Alloc _1536;
+    _1536.offset = _1521.Load(24);
     Alloc param;
-    param.offset = _738.offset;
+    param.offset = _1536.offset;
     uint param_1 = tile_ix * 1024u;
     uint param_2 = 1024u;
     Alloc cmd_alloc = slice_mem(param, param_1, param_2);
-    CmdRef _747 = { cmd_alloc.offset };
-    CmdRef cmd_ref = _747;
+    CmdRef _1545 = { cmd_alloc.offset };
+    CmdRef cmd_ref = _1545;
     uint2 xy_uint = uint2(gl_LocalInvocationID.x + (16u * gl_WorkGroupID.x), gl_LocalInvocationID.y + (16u * gl_WorkGroupID.y));
     float2 xy = float2(xy_uint);
     float4 rgba[8];
@@ -457,7 +899,7 @@ void comp_main()
         rgba[i] = 0.0f.xxxx;
     }
     uint clip_depth = 0u;
-    bool mem_ok = _202.Load(4) == 0u;
+    bool mem_ok = _278.Load(4) == 0u;
     float df[8];
     TileSegRef tile_seg_ref;
     float area[8];
@@ -482,8 +924,8 @@ void comp_main()
                 {
                     df[k] = 1000000000.0f;
                 }
-                TileSegRef _842 = { stroke.tile_ref };
-                tile_seg_ref = _842;
+                TileSegRef _1638 = { stroke.tile_ref };
+                tile_seg_ref = _1638;
                 do
                 {
                     uint param_7 = tile_seg_ref.offset;
@@ -519,8 +961,8 @@ void comp_main()
                 {
                     area[k_3] = float(fill.backdrop);
                 }
-                TileSegRef _964 = { fill.tile_ref };
-                tile_seg_ref = _964;
+                TileSegRef _1758 = { fill.tile_ref };
+                tile_seg_ref = _1758;
                 do
                 {
                     uint param_15 = tile_seg_ref.offset;
@@ -609,10 +1051,10 @@ void comp_main()
                     int x = int(round(clamp(my_d, 0.0f, 1.0f) * 511.0f));
                     float4 fg_rgba = gradients[int2(x, int(lin.index))];
                     float3 param_29 = fg_rgba.xyz;
-                    float3 _1298 = fromsRGB(param_29);
-                    fg_rgba.x = _1298.x;
-                    fg_rgba.y = _1298.y;
-                    fg_rgba.z = _1298.z;
+                    float3 _2092 = fromsRGB(param_29);
+                    fg_rgba.x = _2092.x;
+                    fg_rgba.y = _2092.y;
+                    fg_rgba.z = _2092.z;
                     rgba[k_9] = fg_rgba;
                 }
                 cmd_ref.offset += 20u;
@@ -625,9 +1067,9 @@ void comp_main()
                 CmdImage fill_img = Cmd_Image_read(param_30, param_31);
                 uint2 param_32 = xy_uint;
                 CmdImage param_33 = fill_img;
-                float4 _1327[8];
-                fillImage(_1327, param_32, param_33);
-                float4 img[8] = _1327;
+                float4 _2121[8];
+                fillImage(_2121, param_32, param_33);
+                float4 img[8] = _2121;
                 for (uint k_10 = 0u; k_10 < 8u; k_10++)
                 {
                     float4 fg_k_1 = img[k_10] * area[k_10];
@@ -642,8 +1084,8 @@ void comp_main()
                 {
                     uint d_2 = min(clip_depth, 127u);
                     float4 param_34 = float4(rgba[k_11]);
-                    uint _1390 = packsRGB(param_34);
-                    blend_stack[d_2][k_11] = _1390;
+                    uint _2184 = packsRGB(param_34);
+                    blend_stack[d_2][k_11] = _2184;
                     rgba[k_11] = 0.0f.xxxx;
                 }
                 clip_depth++;
@@ -652,24 +1094,44 @@ void comp_main()
             }
             case 9u:
             {
+                Alloc param_35 = cmd_alloc;
+                CmdRef param_36 = cmd_ref;
+                CmdEndClip end_clip = Cmd_EndClip_read(param_35, param_36);
+                uint blend_mode = end_clip.blend >> uint(8);
+                uint comp_mode = end_clip.blend & 255u;
                 clip_depth--;
                 for (uint k_12 = 0u; k_12 < 8u; k_12++)
                 {
                     uint d_3 = min(clip_depth, 127u);
-                    uint param_35 = blend_stack[d_3][k_12];
-                    float4 bg = unpacksRGB(param_35);
+                    uint param_37 = blend_stack[d_3][k_12];
+                    float4 bg = unpacksRGB(param_37);
                     float4 fg_1 = rgba[k_12] * area[k_12];
-                    rgba[k_12] = (bg * (1.0f - fg_1.w)) + fg_1;
+                    float3 param_38 = bg.xyz;
+                    float3 param_39 = fg_1.xyz;
+                    uint param_40 = blend_mode;
+                    float3 blend = mix_blend(param_38, param_39, param_40);
+                    float4 _2251 = fg_1;
+                    float _2255 = fg_1.w;
+                    float3 _2262 = lerp(_2251.xyz, blend, float((_2255 * bg.w) > 0.0f).xxx);
+                    fg_1.x = _2262.x;
+                    fg_1.y = _2262.y;
+                    fg_1.z = _2262.z;
+                    float3 param_41 = bg.xyz;
+                    float3 param_42 = fg_1.xyz;
+                    float param_43 = bg.w;
+                    float param_44 = fg_1.w;
+                    uint param_45 = comp_mode;
+                    rgba[k_12] = mix_compose(param_41, param_42, param_43, param_44, param_45);
                 }
-                cmd_ref.offset += 4u;
+                cmd_ref.offset += 8u;
                 break;
             }
             case 10u:
             {
-                Alloc param_36 = cmd_alloc;
-                CmdRef param_37 = cmd_ref;
-                CmdRef _1453 = { Cmd_Jump_read(param_36, param_37).new_ref };
-                cmd_ref = _1453;
+                Alloc param_46 = cmd_alloc;
+                CmdRef param_47 = cmd_ref;
+                CmdRef _2299 = { Cmd_Jump_read(param_46, param_47).new_ref };
+                cmd_ref = _2299;
                 cmd_alloc.offset = cmd_ref.offset;
                 break;
             }
@@ -677,8 +1139,8 @@ void comp_main()
     }
     for (uint i_1 = 0u; i_1 < 8u; i_1++)
     {
-        uint param_38 = i_1;
-        image[int2(xy_uint + chunk_offset(param_38))] = rgba[i_1].w.x;
+        uint param_48 = i_1;
+        image[int2(xy_uint + chunk_offset(param_48))] = rgba[i_1].w.x;
     }
 }
 

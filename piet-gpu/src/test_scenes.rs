@@ -2,7 +2,8 @@
 
 use rand::{Rng, RngCore};
 
-use piet::kurbo::{BezPath, Circle, Line, Point, Rect, Shape};
+use crate::{PietGpuRenderContext, Blend, BlendMode, CompositionMode};
+use piet::kurbo::{Affine, BezPath, Circle, Line, Point, Rect, Shape};
 use piet::{
     Color, FixedGradient, FixedLinearGradient, GradientStop, Text, TextAttribute, TextLayoutBuilder,
 };
@@ -10,6 +11,18 @@ use piet::{
 use crate::{PicoSvg, RenderContext, Vec2};
 
 const N_CIRCLES: usize = 0;
+
+pub fn render_blend_test(rc: &mut PietGpuRenderContext, i: usize, blend: Blend) {
+    rc.fill(
+        Rect::new(400., 400., 800., 800.),
+        &Color::rgb8(0, 0, 200),
+    );
+    rc.save().unwrap();
+    rc.blend(Rect::new(0., 0., 1000., 1000.), blend);
+    rc.transform(Affine::translate(Vec2::new(600., 600.)) * Affine::rotate(0.01 * i as f64));
+    rc.fill(Rect::new(0., 0., 400., 400.), &Color::rgba8(255, 0, 0, 255));
+    rc.restore().unwrap();
+}
 
 pub fn render_svg(rc: &mut impl RenderContext, filename: &str, scale: f64) {
     let xml_str = std::fs::read_to_string(filename).unwrap();

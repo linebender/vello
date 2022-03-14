@@ -273,7 +273,8 @@ void main() {
                 }
             }
             AnnotatedRef ref = AnnotatedRef(conf.anno_alloc.offset + sh_elements[el_ix] * Annotated_size);
-            uint tag = Annotated_tag(conf.anno_alloc, ref).tag;
+            AnnotatedTag anno_tag = Annotated_tag(conf.anno_alloc, ref);
+            uint tag = anno_tag.tag;
             uint seq_ix = ix - (el_ix > 0 ? sh_tile_count[el_ix - 1] : 0);
             uint width = sh_tile_width[el_ix];
             uint x = sh_tile_x0[el_ix] + seq_ix % width;
@@ -287,7 +288,10 @@ void main() {
                 // For draws, include the tile if it is solid.
                 // For clips, include the tile if it is empty - this way, logic
                 // below will suppress the drawing of inner elements.
-                include_tile = tile.tile.offset != 0 || (tile.backdrop == 0) == is_clip;
+                // For blends, include the tile if
+                // (blend_mode, composition_mode) != (Normal, SrcOver)
+                include_tile = tile.tile.offset != 0 || (tile.backdrop == 0) == is_clip
+                    || (is_clip && (anno_tag.flags & 0x2) != 0);
             }
             if (include_tile) {
                 uint el_slice = el_ix / 32;
@@ -387,13 +391,14 @@ void main() {
                     tile = Tile_read(read_tile_alloc(element_ref_ix, mem_ok),
                                      TileRef(sh_tile_base[element_ref_ix] +
                                              (sh_tile_stride[element_ref_ix] * tile_y + tile_x) * Tile_size));
+                    AnnoEndClip end_clip = Annotated_EndClip_read(conf.anno_alloc, ref);
                     clip_depth--;
                     if (!alloc_cmd(cmd_alloc, cmd_ref, cmd_limit)) {
                         break;
                     }
                     write_fill(cmd_alloc, cmd_ref, MODE_NONZERO, tile, 0.0);
-                    Cmd_EndClip_write(cmd_alloc, cmd_ref);
-                    cmd_ref.offset += 4;
+                    Cmd_EndClip_write(cmd_alloc, cmd_ref, CmdEndClip(end_clip.blend));
+                    cmd_ref.offset += 4 + CmdEndClip_size;
                     break;
                 }
             } else {

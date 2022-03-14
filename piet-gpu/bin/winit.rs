@@ -57,15 +57,26 @@ fn main() -> Result<(), Error> {
         let mut submitted: [Option<SubmittedCmdBuf>; NUM_FRAMES] = Default::default();
 
         let mut renderer = Renderer::new(&session, WIDTH, HEIGHT, NUM_FRAMES)?;
+        let mut mode = 0usize;
 
         event_loop.run(move |event, _, control_flow| {
             *control_flow = ControlFlow::Poll; // `ControlFlow::Wait` if only re-render on event
 
             match event {
                 Event::WindowEvent { event, window_id } if window_id == window.id() => {
+                    use winit::event::{ElementState, VirtualKeyCode};
                     match event {
                         WindowEvent::CloseRequested => {
                             *control_flow = ControlFlow::Exit;
+                        }
+                        WindowEvent::KeyboardInput { input, .. } => {
+                            if input.state == ElementState::Pressed {
+                                match input.virtual_keycode {
+                                    Some(VirtualKeyCode::Left) => mode = mode.wrapping_sub(1),
+                                    Some(VirtualKeyCode::Right) => mode = mode.wrapping_add(1),
+                                    _ => {}
+                                }
+                            }
                         }
                         _ => (),
                     }
@@ -105,7 +116,41 @@ fn main() -> Result<(), Error> {
                         }
                         test_scenes::render_svg(&mut ctx, input, scale);
                     } else {
-                        test_scenes::render_anim_frame(&mut ctx, current_frame);
+                        use piet_gpu::{Blend, BlendMode::*, CompositionMode::*};
+                        let blends = [
+                            Blend::new(Normal, SrcOver),
+                            Blend::new(Multiply, SrcOver),
+                            Blend::new(Screen, SrcOver),
+                            Blend::new(Overlay, SrcOver),
+                            Blend::new(Darken, SrcOver),
+                            Blend::new(Lighten, SrcOver),
+                            Blend::new(ColorDodge, SrcOver),
+                            Blend::new(ColorBurn, SrcOver),
+                            Blend::new(HardLight, SrcOver),
+                            Blend::new(SoftLight, SrcOver),
+                            Blend::new(Difference, SrcOver),
+                            Blend::new(Exclusion, SrcOver),
+                            Blend::new(Hue, SrcOver),
+                            Blend::new(Saturation, SrcOver),
+                            Blend::new(Color, SrcOver),
+                            Blend::new(Luminosity, SrcOver),
+                            Blend::new(Normal, Clear),
+                            Blend::new(Normal, Copy),
+                            Blend::new(Normal, Dest),
+                            Blend::new(Normal, SrcOver),
+                            Blend::new(Normal, DestOver),
+                            Blend::new(Normal, SrcIn),
+                            Blend::new(Normal, DestIn),
+                            Blend::new(Normal, SrcOut),
+                            Blend::new(Normal, DestOut),
+                            Blend::new(Normal, SrcAtop),
+                            Blend::new(Normal, DestAtop),
+                            Blend::new(Normal, Xor),
+                            Blend::new(Normal, Plus),
+                        ];
+                        let blend = blends[mode % blends.len()];
+                        test_scenes::render_blend_test(&mut ctx, current_frame, blend);
+                        info_string = format!("{:?}", blend);
                     }
                     render_info_string(&mut ctx, &info_string);
                     if let Err(e) = renderer.upload_render_ctx(&mut ctx, frame_idx) {
