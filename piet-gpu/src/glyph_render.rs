@@ -57,6 +57,7 @@ impl GlyphProvider {
         font_data: &[u8],
         font_id: u64,
         glyph_id: u16,
+        variations: Option<&[(u32, f32)]>,
     ) -> GlyphOutline {
         let mut encoder = GlyphEncoder::default();
         let font_data = FontDataRef::new(font_data).expect("invalid font");
@@ -64,8 +65,13 @@ impl GlyphProvider {
         // This transmute is dodgy because the definition in swash isn't repr(transparent).
         // I think the best solution is to have a from_u64 method, but we'll work that out
         // later.
+        // chad: this will be addressed with the new outline loader
         font_ref.key = std::mem::transmute(font_id);
-        let mut scaler = self.0.builder(font_ref).build();
+        let mut builder = self.0.builder(font_ref);
+        if let Some(variations) = variations {
+            builder = builder.variations(variations);
+        }
+        let mut scaler = builder.build();
         if let Some(outline) = scaler.scale_outline(glyph_id) {
             crate::text::append_outline(&mut encoder, outline.verbs(), outline.points());
         } else {
@@ -90,9 +96,9 @@ impl GlyphRenderer {
     pub fn add_glyph(
         &mut self,
         outline: &GlyphOutline,
-        x: u16,
-        y: u16,
         font_size: f32,
+        x: f32,
+        y: f32,
         transform: [f32; 6],
     ) {
         let affine = Affine::translate((x as f64, y as f64))
