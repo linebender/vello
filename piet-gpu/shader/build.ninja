@@ -48,7 +48,7 @@ build gen/backdrop_lg.hlsl: hlsl gen/backdrop_lg.spv
 build gen/backdrop_lg.dxil: dxil gen/backdrop_lg.hlsl
 build gen/backdrop_lg.msl: msl gen/backdrop_lg.spv
 
-build gen/coarse.spv: glsl coarse.comp | drawtag.h bins.h ptcl.h setup.h mem.h
+build gen/coarse.spv: glsl coarse.comp | drawtag.h bins.h ptcl.h blend.h setup.h mem.h
 build gen/coarse.hlsl: hlsl gen/coarse.spv
 build gen/coarse.dxil: dxil gen/coarse.hlsl
 build gen/coarse.msl: msl gen/coarse.spv

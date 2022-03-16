@@ -195,7 +195,7 @@ impl Renderer {
         let element_stage = ElementStage::new(session, &element_code);
         let element_bindings = scene_bufs
             .iter()
-            .map(|scene_buf|
+            .map(|scene_buf| {
                 element_stage.bind(
                     session,
                     &element_code,
@@ -203,15 +203,21 @@ impl Renderer {
                     scene_buf,
                     &memory_buf_dev,
                 )
-            )
+            })
             .collect();
 
         let clip_code = ClipCode::new(session);
         let clip_binding = ClipBinding::new(session, &clip_code, &config_buf, &memory_buf_dev);
 
         let tile_alloc_code = include_shader!(session, "../shader/gen/tile_alloc");
-        let tile_pipeline = session
-            .create_compute_pipeline(tile_alloc_code, &[BindType::Buffer, BindType::BufReadOnly])?;
+        let tile_pipeline = session.create_compute_pipeline(
+            tile_alloc_code,
+            &[
+                BindType::Buffer,
+                BindType::BufReadOnly,
+                BindType::BufReadOnly,
+            ],
+        )?;
         let tile_ds = scene_bufs
             .iter()
             .map(|scene_buf| {
@@ -265,7 +271,6 @@ impl Renderer {
                 )
             })
             .collect::<Result<Vec<_>, _>>()?;
-
         let bg_image = Self::make_test_bg_image(&session);
 
         const GRADIENT_BUF_SIZE: usize =

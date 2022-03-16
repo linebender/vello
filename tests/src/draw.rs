@@ -17,7 +17,7 @@
 //! Tests for the piet-gpu draw object stage.
 
 use piet_gpu_hal::{BufWrite, BufferUsage};
-use rand::{Rng, seq::SliceRandom};
+use rand::{seq::SliceRandom, Rng};
 
 use crate::{Config, Runner, TestResult};
 
@@ -33,7 +33,13 @@ const DRAWTAG_FILLIMAGE: u32 = 8;
 const DRAWTAG_BEGINCLIP: u32 = 5;
 const DRAWTAG_ENDCLIP: u32 = 37;
 
-const TAGS: &[u32] = &[DRAWTAG_FILLCOLOR, DRAWTAG_FILLLINGRADIENT, DRAWTAG_FILLIMAGE, DRAWTAG_BEGINCLIP, DRAWTAG_ENDCLIP];
+const TAGS: &[u32] = &[
+    DRAWTAG_FILLCOLOR,
+    DRAWTAG_FILLLINGRADIENT,
+    DRAWTAG_FILLIMAGE,
+    DRAWTAG_BEGINCLIP,
+    DRAWTAG_ENDCLIP,
+];
 
 struct DrawTestData {
     tags: Vec<u32>,

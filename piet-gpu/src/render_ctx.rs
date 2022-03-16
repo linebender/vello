@@ -228,9 +228,7 @@ impl RenderContext for PietGpuRenderContext {
         if self.clip_stack.len() >= MAX_BLEND_STACK {
             panic!("Maximum clip/blend stack size {} exceeded", MAX_BLEND_STACK);
         }
-        self.clip_stack.push(ClipElement {
-            blend: None,
-        });
+        self.clip_stack.push(ClipElement { blend: None });
         if let Some(tos) = self.state_stack.last_mut() {
             tos.n_clip += 1;
         }
@@ -334,9 +332,7 @@ impl PietGpuRenderContext {
         if self.clip_stack.len() >= MAX_BLEND_STACK {
             panic!("Maximum clip/blend stack size {} exceeded", MAX_BLEND_STACK);
         }
-        self.clip_stack.push(ClipElement {
-            blend: Some(blend),
-        });
+        self.clip_stack.push(ClipElement { blend: Some(blend) });
         if let Some(tos) = self.state_stack.last_mut() {
             tos.n_clip += 1;
         }

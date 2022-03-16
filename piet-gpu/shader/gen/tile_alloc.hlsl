@@ -185,10 +185,6 @@ void comp_main()
     Path path;
     path.bbox = uint4(uint(x0), uint(y0), uint(x1), uint(y1));
     uint tile_count = uint((x1 - x0) * (y1 - y0));
-    if (drawtag == 37u)
-    {
-        tile_count = 0u;
-    }
     sh_tile_count[th_ix] = tile_count;
     uint total_tile_count = tile_count;
     for (uint i = 0u; i < 8u; i++)
@@ -204,46 +200,46 @@ void comp_main()
     if (th_ix == 255u)
     {
         uint param_1 = total_tile_count * 8u;
-        MallocResult _396 = malloc(param_1);
-        sh_tile_alloc = _396;
+        MallocResult _392 = malloc(param_1);
+        sh_tile_alloc = _392;
     }
     GroupMemoryBarrierWithGroupSync();
     MallocResult alloc_start = sh_tile_alloc;
-    bool _407;
+    bool _403;
     if (!alloc_start.failed)
     {
-        _407 = _70.Load(4) != 0u;
+        _403 = _70.Load(4) != 0u;
     }
     else
     {
-        _407 = alloc_start.failed;
+        _403 = alloc_start.failed;
     }
-    if (_407)
+    if (_403)
     {
         return;
     }
     if (element_ix < _181.Load(0))
     {
-        uint _420;
+        uint _416;
         if (th_ix > 0u)
         {
-            _420 = sh_tile_count[th_ix - 1u];
+            _416 = sh_tile_count[th_ix - 1u];
         }
         else
         {
-            _420 = 0u;
+            _416 = 0u;
         }
-        uint tile_subix = _420;
+        uint tile_subix = _416;
         Alloc param_2 = alloc_start.alloc;
         uint param_3 = 8u * tile_subix;
         uint param_4 = 8u * tile_count;
         Alloc tiles_alloc = slice_mem(param_2, param_3, param_4);
-        TileRef _442 = { tiles_alloc.offset };
-        path.tiles = _442;
-        Alloc _448;
-        _448.offset = _181.Load(16);
+        TileRef _438 = { tiles_alloc.offset };
+        path.tiles = _438;
+        Alloc _444;
+        _444.offset = _181.Load(16);
         Alloc param_5;
-        param_5.offset = _448.offset;
+        param_5.offset = _444.offset;
         PathRef param_6 = path_ref;
         Path param_7 = path;
         Path_write(param_5, param_6, param_7);

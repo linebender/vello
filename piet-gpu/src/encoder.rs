@@ -134,9 +134,7 @@ impl Encoder {
     /// This should be encoded after a path.
     pub fn fill_color(&mut self, rgba_color: u32) {
         self.drawtag_stream.push(DRAWTAG_FILLCOLOR);
-        let element = FillColor {
-            rgba_color,
-        };
+        let element = FillColor { rgba_color };
         self.drawdata_stream.extend(bytemuck::bytes_of(&element));
     }
 
@@ -145,11 +143,7 @@ impl Encoder {
     /// This should be encoded after a path.
     pub fn fill_lin_gradient(&mut self, index: u32, p0: [f32; 2], p1: [f32; 2]) {
         self.drawtag_stream.push(DRAWTAG_FILLLINGRADIENT);
-        let element = FillLinGradient {
-            index,
-            p0,
-            p1,
-        };
+        let element = FillLinGradient { index, p0, p1 };
         self.drawdata_stream.extend(bytemuck::bytes_of(&element));
     }
 
@@ -334,9 +328,7 @@ impl GlyphEncoder {
     /// This should be encoded after a path.
     pub(crate) fn fill_color(&mut self, rgba_color: u32) {
         self.drawtag_stream.push(DRAWTAG_FILLCOLOR);
-        let element = FillColor {
-            rgba_color,
-        };
+        let element = FillColor { rgba_color };
         self.drawdata_stream.extend(bytemuck::bytes_of(&element));
     }
 

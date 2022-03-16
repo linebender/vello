@@ -204,10 +204,6 @@ kernel void main0(constant uint* spvBufferSizeConstants [[buffer(25)]], device M
     Path path;
     path.bbox = uint4(uint(x0), uint(y0), uint(x1), uint(y1));
     uint tile_count = uint((x1 - x0) * (y1 - y0));
-    if (drawtag == 37u)
-    {
-        tile_count = 0u;
-    }
     sh_tile_count[th_ix] = tile_count;
     uint total_tile_count = tile_count;
     for (uint i = 0u; i < 8u; i++)
@@ -223,36 +219,36 @@ kernel void main0(constant uint* spvBufferSizeConstants [[buffer(25)]], device M
     if (th_ix == 255u)
     {
         uint param_1 = total_tile_count * 8u;
-        MallocResult _396 = malloc(param_1, v_70, v_70BufferSize);
-        sh_tile_alloc = _396;
+        MallocResult _392 = malloc(param_1, v_70, v_70BufferSize);
+        sh_tile_alloc = _392;
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
     MallocResult alloc_start = sh_tile_alloc;
-    bool _407;
+    bool _403;
     if (!alloc_start.failed)
     {
-        _407 = v_70.mem_error != 0u;
+        _403 = v_70.mem_error != 0u;
     }
     else
     {
-        _407 = alloc_start.failed;
+        _403 = alloc_start.failed;
     }
-    if (_407)
+    if (_403)
     {
         return;
     }
     if (element_ix < v_181.conf.n_elements)
     {
-        uint _420;
+        uint _416;
         if (th_ix > 0u)
         {
-            _420 = sh_tile_count[th_ix - 1u];
+            _416 = sh_tile_count[th_ix - 1u];
         }
         else
         {
-            _420 = 0u;
+            _416 = 0u;
         }
-        uint tile_subix = _420;
+        uint tile_subix = _416;
         Alloc param_2 = alloc_start.alloc;
         uint param_3 = 8u * tile_subix;
         uint param_4 = 8u * tile_count;

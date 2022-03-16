@@ -31,6 +31,7 @@ layout(binding = 2) readonly buffer SceneBuf {
 #include "bins.h"
 #include "tile.h"
 #include "ptcl.h"
+#include "blend.h"
 
 #define LG_N_PART_READ (7 + LG_WG_FACTOR)
 #define N_PART_READ (1 << LG_N_PART_READ)
@@ -278,7 +279,8 @@ void main() {
                     el_ix = probe;
                 }
             }
-            uint tag = scene[drawtag_start + sh_elements[el_ix]];
+            uint element_ix = sh_elements[el_ix];
+            uint tag = scene[drawtag_start + element_ix];
             uint seq_ix = ix - (el_ix > 0 ? sh_tile_count[el_ix - 1] : 0);
             uint width = sh_tile_width[el_ix];
             uint x = sh_tile_x0[el_ix] + seq_ix % width;
@@ -294,7 +296,14 @@ void main() {
                 // below will suppress the drawing of inner elements.
                 // For blends, include the tile if
                 // (blend_mode, composition_mode) != (Normal, SrcOver)
-                bool is_blend = false; // TODO
+                bool is_blend = false;
+                if (is_clip) {
+                    uint drawmonoid_base = drawmonoid_start + 4 * element_ix;
+                    uint scene_offset = memory[drawmonoid_base + 2];
+                    uint dd = drawdata_start + (scene_offset >> 2);
+                    uint blend = scene[dd];
+                    is_blend = (blend != BlendComp_default);
+                }
                 include_tile = tile.tile.offset != 0 || (tile.backdrop == 0) == is_clip
                     || (is_clip && is_blend);
             }
