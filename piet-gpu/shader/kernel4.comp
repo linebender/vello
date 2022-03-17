@@ -192,9 +192,26 @@ void main() {
                 int x = int(round(clamp(my_d, 0.0, 1.0) * float(GRADIENT_WIDTH - 1)));
                 mediump vec4 fg_rgba = imageLoad(gradients, ivec2(x, int(lin.index)));
                 fg_rgba.rgb = fromsRGB(fg_rgba.rgb);
-                rgba[k] = fg_rgba;
+                mediump vec4 fg_k = fg_rgba * area[k];
+                rgba[k] = rgba[k] * (1.0 - fg_k.a) + fg_k;
             }
             cmd_ref.offset += 4 + CmdLinGrad_size;
+            break;
+        case Cmd_RadGrad:
+            CmdRadGrad rad = Cmd_RadGrad_read(cmd_alloc, cmd_ref);
+            for (uint k = 0; k < CHUNK; k++) {
+                vec2 my_xy = xy + vec2(chunk_offset(k));
+                my_xy = rad.mat.xz * my_xy.x + rad.mat.yw * my_xy.y - rad.xlat;
+                float ba = dot(my_xy, rad.c1);
+                float ca = rad.ra * dot(my_xy, my_xy);
+                float t = sqrt(ba * ba  + ca) - ba - rad.roff;
+                int x = int(round(clamp(t, 0.0, 1.0) * float(GRADIENT_WIDTH - 1)));
+                mediump vec4 fg_rgba = imageLoad(gradients, ivec2(x, int(rad.index)));
+                fg_rgba.rgb = fromsRGB(fg_rgba.rgb);
+                mediump vec4 fg_k = fg_rgba * area[k];
+                rgba[k] = rgba[k] * (1.0 - fg_k.a) + fg_k;
+            }
+            cmd_ref.offset += 4 + CmdRadGrad_size;
             break;
         case Cmd_Image:
             CmdImage fill_img = Cmd_Image_read(cmd_alloc, cmd_ref);
