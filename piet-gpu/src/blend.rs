@@ -63,7 +63,10 @@ pub struct Blend {
 
 impl Blend {
     pub fn new(mode: BlendMode, composition_mode: CompositionMode) -> Self {
-        Self { mode, composition_mode }
+        Self {
+            mode,
+            composition_mode,
+        }
     }
 
     pub(crate) fn pack(&self) -> u32 {

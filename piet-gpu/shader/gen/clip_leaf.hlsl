@@ -27,12 +27,14 @@ struct Config
     Alloc pathseg_alloc;
     Alloc anno_alloc;
     Alloc trans_alloc;
-    Alloc bbox_alloc;
+    Alloc path_bbox_alloc;
     Alloc drawmonoid_alloc;
     Alloc clip_alloc;
     Alloc clip_bic_alloc;
     Alloc clip_stack_alloc;
     Alloc clip_bbox_alloc;
+    Alloc draw_bbox_alloc;
+    Alloc drawinfo_alloc;
     uint n_trans;
     uint n_path;
     uint n_clip;
@@ -40,6 +42,8 @@ struct Config
     uint linewidth_offset;
     uint pathtag_offset;
     uint pathseg_offset;
+    uint drawtag_offset;
+    uint drawdata_offset;
 };
 
 static const uint3 gl_WorkGroupSize = uint3(256u, 1u, 1u);
@@ -99,7 +103,7 @@ float4 bbox_intersect(float4 a, float4 b)
 
 uint load_path_ix(uint ix)
 {
-    if (ix < _80.Load(72))
+    if (ix < _80.Load(80))
     {
         return _96.Load(((_80.Load(48) >> uint(2)) + ix) * 4 + 8);
     }
@@ -324,7 +328,7 @@ void comp_main()
     bool _725;
     if (_717)
     {
-        _725 = gl_GlobalInvocationID.x < _80.Load(72);
+        _725 = gl_GlobalInvocationID.x < _80.Load(80);
     }
     else
     {
@@ -334,7 +338,7 @@ void comp_main()
     {
         uint param_15 = parent;
         path_ix = load_path_ix(param_15);
-        uint drawmonoid_out_base = (_80.Load(44) >> uint(2)) + (2u * (~inp));
+        uint drawmonoid_out_base = (_80.Load(44) >> uint(2)) + (4u * (~inp));
         _96.Store(drawmonoid_out_base * 4 + 8, path_ix);
         if (int(grandparent) >= 0)
         {

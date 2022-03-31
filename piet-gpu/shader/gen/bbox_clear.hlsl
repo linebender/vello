@@ -15,12 +15,14 @@ struct Config
     Alloc pathseg_alloc;
     Alloc anno_alloc;
     Alloc trans_alloc;
-    Alloc bbox_alloc;
+    Alloc path_bbox_alloc;
     Alloc drawmonoid_alloc;
     Alloc clip_alloc;
     Alloc clip_bic_alloc;
     Alloc clip_stack_alloc;
     Alloc clip_bbox_alloc;
+    Alloc draw_bbox_alloc;
+    Alloc drawinfo_alloc;
     uint n_trans;
     uint n_path;
     uint n_clip;
@@ -28,6 +30,8 @@ struct Config
     uint linewidth_offset;
     uint pathtag_offset;
     uint pathseg_offset;
+    uint drawtag_offset;
+    uint drawdata_offset;
 };
 
 static const uint3 gl_WorkGroupSize = uint3(512u, 1u, 1u);
@@ -44,7 +48,7 @@ struct SPIRV_Cross_Input
 void comp_main()
 {
     uint ix = gl_GlobalInvocationID.x;
-    if (ix < _21.Load(68))
+    if (ix < _21.Load(76))
     {
         uint out_ix = (_21.Load(40) >> uint(2)) + (6u * ix);
         _45.Store(out_ix * 4 + 8, 65535u);

@@ -207,11 +207,11 @@ impl PathData {
         // Layout of memory
         let trans_alloc = 0;
         let pathseg_alloc = trans_alloc + n_trans * 24;
-        let bbox_alloc = pathseg_alloc + self.n_pathseg * PATHSEG_SIZE;
+        let path_bbox_alloc = pathseg_alloc + self.n_pathseg * PATHSEG_SIZE;
         let stage_config = stages::Config {
             pathseg_alloc,
             trans_alloc,
-            bbox_alloc,
+            path_bbox_alloc,
             n_trans,
             n_path: self.n_path,
             pathtag_offset,

@@ -19,14 +19,19 @@
 
 layout(local_size_x = N_TILE, local_size_y = 1) in;
 
-layout(set = 0, binding = 1) readonly buffer ConfigBuf {
+layout(binding = 1) readonly buffer ConfigBuf {
     Config conf;
 };
 
-#include "annotated.h"
+layout(binding = 2) readonly buffer SceneBuf {
+    uint[] scene;
+};
+
+#include "drawtag.h"
 #include "bins.h"
 #include "tile.h"
 #include "ptcl.h"
+#include "blend.h"
 
 #define LG_N_PART_READ (7 + LG_WG_FACTOR)
 #define N_PART_READ (1 << LG_N_PART_READ)
@@ -92,8 +97,8 @@ bool alloc_cmd(inout Alloc cmd_alloc, inout CmdRef cmd_ref, inout uint cmd_limit
     return true;
 }
 
-void write_fill(Alloc alloc, inout CmdRef cmd_ref, uint flags, Tile tile, float linewidth) {
-    if (fill_mode_from_flags(flags) == MODE_NONZERO) {
+void write_fill(Alloc alloc, inout CmdRef cmd_ref, Tile tile, float linewidth) {
+    if (linewidth < 0.0) {
         if (tile.tile.offset != 0) {
             CmdFill cmd_fill = CmdFill(tile.tile.offset, tile.backdrop);
             Cmd_Fill_write(alloc, cmd_ref, cmd_fill);
@@ -146,6 +151,10 @@ void main() {
     uint part_start_ix = 0;
     uint ready_ix = 0;
 
+    uint drawmonoid_start = conf.drawmonoid_alloc.offset >> 2;
+    uint drawtag_start = conf.drawtag_offset >> 2;
+    uint drawdata_start = conf.drawdata_offset >> 2;
+    uint drawinfo_start = conf.drawinfo_alloc.offset >> 2;
     bool mem_ok = mem_error == NO_ERROR;
     while (true) {
         for (uint i = 0; i < N_SLICE; i++) {
@@ -207,24 +216,22 @@ void main() {
         // We've done the merge and filled the buffer.
 
         // Read one element, compute coverage.
-        uint tag = Annotated_Nop;
+        uint tag = Drawtag_Nop;
         uint element_ix;
-        AnnotatedRef ref;
         if (th_ix + rd_ix < wr_ix) {
             element_ix = sh_elements[th_ix];
-            ref = AnnotatedRef(conf.anno_alloc.offset + element_ix * Annotated_size);
-            tag = Annotated_tag(conf.anno_alloc, ref).tag;
+            tag = scene[drawtag_start + element_ix];
         }
 
         // Bounding box of element in pixel coordinates.
         uint tile_count;
         switch (tag) {
-        case Annotated_Color:
-        case Annotated_Image:
-        case Annotated_LinGradient:
-        case Annotated_BeginClip:
-        case Annotated_EndClip:
-            uint drawmonoid_base = (conf.drawmonoid_alloc.offset >> 2) + 2 * element_ix;
+        case Drawtag_FillColor:
+        case Drawtag_FillImage:
+        case Drawtag_FillLinGradient:
+        case Drawtag_BeginClip:
+        case Drawtag_EndClip:
+            uint drawmonoid_base = drawmonoid_start + 4 * element_ix;
             uint path_ix = memory[drawmonoid_base];
             Path path = Path_read(conf.tile_alloc, PathRef(conf.tile_alloc.offset + path_ix * Path_size));
             uint stride = path.bbox.z - path.bbox.x;
@@ -272,9 +279,8 @@ void main() {
                     el_ix = probe;
                 }
             }
-            AnnotatedRef ref = AnnotatedRef(conf.anno_alloc.offset + sh_elements[el_ix] * Annotated_size);
-            AnnotatedTag anno_tag = Annotated_tag(conf.anno_alloc, ref);
-            uint tag = anno_tag.tag;
+            uint element_ix = sh_elements[el_ix];
+            uint tag = scene[drawtag_start + element_ix];
             uint seq_ix = ix - (el_ix > 0 ? sh_tile_count[el_ix - 1] : 0);
             uint width = sh_tile_width[el_ix];
             uint x = sh_tile_x0[el_ix] + seq_ix % width;
@@ -283,15 +289,23 @@ void main() {
             if (mem_ok) {
                 Tile tile = Tile_read(read_tile_alloc(el_ix, mem_ok),
                                       TileRef(sh_tile_base[el_ix] + (sh_tile_stride[el_ix] * y + x) * Tile_size));
-                bool is_clip = tag == Annotated_BeginClip || tag == Annotated_EndClip;
+                bool is_clip = (tag & 1) != 0;
                 // Always include the tile if it contains a path segment.
                 // For draws, include the tile if it is solid.
                 // For clips, include the tile if it is empty - this way, logic
                 // below will suppress the drawing of inner elements.
                 // For blends, include the tile if
                 // (blend_mode, composition_mode) != (Normal, SrcOver)
+                bool is_blend = false;
+                if (is_clip) {
+                    uint drawmonoid_base = drawmonoid_start + 4 * element_ix;
+                    uint scene_offset = memory[drawmonoid_base + 2];
+                    uint dd = drawdata_start + (scene_offset >> 2);
+                    uint blend = scene[dd];
+                    is_blend = (blend != BlendComp_default);
+                }
                 include_tile = tile.tile.offset != 0 || (tile.backdrop == 0) == is_clip
-                    || (is_clip && (anno_tag.flags & 0x2) != 0);
+                    || is_blend;
             }
             if (include_tile) {
                 uint el_slice = el_ix / 32;
@@ -302,8 +316,8 @@ void main() {
 
         barrier();
 
-        // Output non-segment elements for this tile. The thread does a sequential walk
-        // through the non-segment elements.
+        // Output draw objects for this tile. The thread does a sequential walk
+        // through the draw objects.
         uint slice_ix = 0;
         uint bitmap = sh_bitmaps[0][th_ix];
         while (mem_ok) {
@@ -323,59 +337,55 @@ void main() {
             // Clear LSB
             bitmap &= bitmap - 1;
 
-            // At this point, we read the element again from global memory.
-            // If that turns out to be expensive, maybe we can pack it into
-            // shared memory (or perhaps just the tag).
-            ref = AnnotatedRef(conf.anno_alloc.offset + element_ix * Annotated_size);
-            AnnotatedTag tag = Annotated_tag(conf.anno_alloc, ref);
+            uint drawtag = scene[drawtag_start + element_ix];
 
             if (clip_zero_depth == 0) {
-                switch (tag.tag) {
-                case Annotated_Color:
-                    Tile tile = Tile_read(read_tile_alloc(element_ref_ix, mem_ok),
-                                          TileRef(sh_tile_base[element_ref_ix] +
-                                                  (sh_tile_stride[element_ref_ix] * tile_y + tile_x) * Tile_size));
-                    AnnoColor fill = Annotated_Color_read(conf.anno_alloc, ref);
+                Tile tile = Tile_read(read_tile_alloc(element_ref_ix, mem_ok),
+                                        TileRef(sh_tile_base[element_ref_ix] +
+                                                (sh_tile_stride[element_ref_ix] * tile_y + tile_x) * Tile_size));
+                uint drawmonoid_base = drawmonoid_start + 4 * element_ix;
+                uint scene_offset = memory[drawmonoid_base + 2];
+                uint info_offset = memory[drawmonoid_base + 3];
+                uint dd = drawdata_start + (scene_offset >> 2);
+                uint di = drawinfo_start + (info_offset >> 2);
+                switch (drawtag) {
+                case Drawtag_FillColor:
+                    float linewidth = uintBitsToFloat(memory[di]);
                     if (!alloc_cmd(cmd_alloc, cmd_ref, cmd_limit)) {
                         break;
                     }
-                    write_fill(cmd_alloc, cmd_ref, tag.flags, tile, fill.linewidth);
-                    Cmd_Color_write(cmd_alloc, cmd_ref, CmdColor(fill.rgba_color));
+                    write_fill(cmd_alloc, cmd_ref, tile, linewidth);
+                    uint rgba = scene[dd];
+                    Cmd_Color_write(cmd_alloc, cmd_ref, CmdColor(rgba));
                     cmd_ref.offset += 4 + CmdColor_size;
                     break;
-                case Annotated_LinGradient:
-                    tile = Tile_read(read_tile_alloc(element_ref_ix, mem_ok),
-                                     TileRef(sh_tile_base[element_ref_ix] +
-                                             (sh_tile_stride[element_ref_ix] * tile_y + tile_x) * Tile_size));
-                    AnnoLinGradient lin = Annotated_LinGradient_read(conf.anno_alloc, ref);
+                case Drawtag_FillLinGradient:
                     if (!alloc_cmd(cmd_alloc, cmd_ref, cmd_limit)) {
                         break;
                     }
-                    write_fill(cmd_alloc, cmd_ref, tag.flags, tile, fill.linewidth);
+                    linewidth = uintBitsToFloat(memory[di]);
+                    write_fill(cmd_alloc, cmd_ref, tile, linewidth);
                     CmdLinGrad cmd_lin;
-                    cmd_lin.index = lin.index;
-                    cmd_lin.line_x = lin.line_x;
-                    cmd_lin.line_y = lin.line_y;
-                    cmd_lin.line_c = lin.line_c;
+                    cmd_lin.index = scene[dd];
+                    cmd_lin.line_x = uintBitsToFloat(memory[di + 1]);
+                    cmd_lin.line_y = uintBitsToFloat(memory[di + 2]);
+                    cmd_lin.line_c = uintBitsToFloat(memory[di + 3]);
                     Cmd_LinGrad_write(cmd_alloc, cmd_ref, cmd_lin);
                     cmd_ref.offset += 4 + CmdLinGrad_size;
                     break;
-                case Annotated_Image:
-                    tile = Tile_read(read_tile_alloc(element_ref_ix, mem_ok),
-                                     TileRef(sh_tile_base[element_ref_ix] +
-                                             (sh_tile_stride[element_ref_ix] * tile_y + tile_x) * Tile_size));
-                    AnnoImage fill_img = Annotated_Image_read(conf.anno_alloc, ref);
+                case Drawtag_FillImage:
+                    linewidth = uintBitsToFloat(memory[di]);
                     if (!alloc_cmd(cmd_alloc, cmd_ref, cmd_limit)) {
                         break;
                     }
-                    write_fill(cmd_alloc, cmd_ref, tag.flags, tile, fill_img.linewidth);
-                    Cmd_Image_write(cmd_alloc, cmd_ref, CmdImage(fill_img.index, fill_img.offset));
+                    write_fill(cmd_alloc, cmd_ref, tile, linewidth);
+                    uint index = scene[dd];
+                    uint raw1 = scene[dd + 1];
+                    ivec2 offset = ivec2(int(raw1 << 16) >> 16, int(raw1) >> 16);
+                    Cmd_Image_write(cmd_alloc, cmd_ref, CmdImage(index, offset));
                     cmd_ref.offset += 4 + CmdImage_size;
                     break;
-                case Annotated_BeginClip:
-                    tile = Tile_read(read_tile_alloc(element_ref_ix, mem_ok),
-                                     TileRef(sh_tile_base[element_ref_ix] +
-                                             (sh_tile_stride[element_ref_ix] * tile_y + tile_x) * Tile_size));
+                case Drawtag_BeginClip:
                     if (tile.tile.offset == 0 && tile.backdrop == 0) {
                         clip_zero_depth = clip_depth + 1;
                     } else {
@@ -387,27 +397,24 @@ void main() {
                     }
                     clip_depth++;
                     break;
-                case Annotated_EndClip:
-                    tile = Tile_read(read_tile_alloc(element_ref_ix, mem_ok),
-                                     TileRef(sh_tile_base[element_ref_ix] +
-                                             (sh_tile_stride[element_ref_ix] * tile_y + tile_x) * Tile_size));
-                    AnnoEndClip end_clip = Annotated_EndClip_read(conf.anno_alloc, ref);
+                case Drawtag_EndClip:
                     clip_depth--;
                     if (!alloc_cmd(cmd_alloc, cmd_ref, cmd_limit)) {
                         break;
                     }
-                    write_fill(cmd_alloc, cmd_ref, MODE_NONZERO, tile, 0.0);
-                    Cmd_EndClip_write(cmd_alloc, cmd_ref, CmdEndClip(end_clip.blend));
+                    write_fill(cmd_alloc, cmd_ref, tile, -1.0);
+                    uint blend = scene[dd];
+                    Cmd_EndClip_write(cmd_alloc, cmd_ref, CmdEndClip(blend));
                     cmd_ref.offset += 4 + CmdEndClip_size;
                     break;
                 }
             } else {
                 // In "clip zero" state, suppress all drawing
-                switch (tag.tag) {
-                case Annotated_BeginClip:
+                switch (drawtag) {
+                case Drawtag_BeginClip:
                     clip_depth++;
                     break;
-                case Annotated_EndClip:
+                case Drawtag_EndClip:
                     if (clip_depth == clip_zero_depth) {
                         clip_zero_depth = 0;
                     }

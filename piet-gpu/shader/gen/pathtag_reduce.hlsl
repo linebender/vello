@@ -24,12 +24,14 @@ struct Config
     Alloc pathseg_alloc;
     Alloc anno_alloc;
     Alloc trans_alloc;
-    Alloc bbox_alloc;
+    Alloc path_bbox_alloc;
     Alloc drawmonoid_alloc;
     Alloc clip_alloc;
     Alloc clip_bic_alloc;
     Alloc clip_stack_alloc;
     Alloc clip_bbox_alloc;
+    Alloc draw_bbox_alloc;
+    Alloc drawinfo_alloc;
     uint n_trans;
     uint n_path;
     uint n_clip;
@@ -37,6 +39,8 @@ struct Config
     uint linewidth_offset;
     uint pathtag_offset;
     uint pathseg_offset;
+    uint drawtag_offset;
+    uint drawdata_offset;
 };
 
 static const uint3 gl_WorkGroupSize = uint3(128u, 1u, 1u);
@@ -88,7 +92,7 @@ TagMonoid combine_tag_monoid(TagMonoid a, TagMonoid b)
 void comp_main()
 {
     uint ix = gl_GlobalInvocationID.x * 2u;
-    uint scene_ix = (_139.Load(84) >> uint(2)) + ix;
+    uint scene_ix = (_139.Load(92) >> uint(2)) + ix;
     uint tag_word = _151.Load(scene_ix * 4 + 0);
     uint param = tag_word;
     TagMonoid agg = reduce_tag(param);

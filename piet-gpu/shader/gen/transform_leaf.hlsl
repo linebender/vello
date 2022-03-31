@@ -37,12 +37,14 @@ struct Config
     Alloc pathseg_alloc;
     Alloc anno_alloc;
     Alloc trans_alloc;
-    Alloc bbox_alloc;
+    Alloc path_bbox_alloc;
     Alloc drawmonoid_alloc;
     Alloc clip_alloc;
     Alloc clip_bic_alloc;
     Alloc clip_stack_alloc;
     Alloc clip_bbox_alloc;
+    Alloc draw_bbox_alloc;
+    Alloc drawinfo_alloc;
     uint n_trans;
     uint n_path;
     uint n_clip;
@@ -50,6 +52,8 @@ struct Config
     uint linewidth_offset;
     uint pathtag_offset;
     uint pathseg_offset;
+    uint drawtag_offset;
+    uint drawdata_offset;
 };
 
 static const uint3 gl_WorkGroupSize = uint3(256u, 1u, 1u);
@@ -155,7 +159,7 @@ void TransformSeg_write(Alloc a, TransformSegRef ref, TransformSeg s)
 void comp_main()
 {
     uint ix = gl_GlobalInvocationID.x * 8u;
-    TransformRef _285 = { _278.Load(76) + (ix * 24u) };
+    TransformRef _285 = { _278.Load(84) + (ix * 24u) };
     TransformRef ref = _285;
     TransformRef param = ref;
     Transform agg = Transform_read(param);

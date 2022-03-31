@@ -42,7 +42,7 @@ struct Config {
     // new element pipeline stuff follows
 
     // Bounding boxes of paths, stored as int (so atomics work)
-    Alloc bbox_alloc;
+    Alloc path_bbox_alloc;
     // Monoid for draw objects
     Alloc drawmonoid_alloc;
 
@@ -54,6 +54,10 @@ struct Config {
     Alloc clip_stack_alloc;
     // Clip processing results (path_ix + bbox)
     Alloc clip_bbox_alloc;
+    // Bounding box per draw object
+    Alloc draw_bbox_alloc;
+    // Info computed in draw stage, per draw object
+    Alloc drawinfo_alloc;
 
     // Number of transforms in scene
     // This is probably not needed.
@@ -63,6 +67,10 @@ struct Config {
     uint n_path;
     // Total number of BeginClip and EndClip draw objects.
     uint n_clip;
+
+    // Note: one of these offsets *could* be hardcoded to zero (as was the
+    // original element stream), but for now retain flexibility.
+
     // Offset (in bytes) of transform stream in scene buffer
     uint trans_offset;
     // Offset (in bytes) of linewidth stream in scene
@@ -71,6 +79,10 @@ struct Config {
     uint pathtag_offset;
     // Offset (in bytes) of path segment stream in scene
     uint pathseg_offset;
+    // Offset (in bytes) of draw object tag stream in scene; see drawtag.h
+    uint drawtag_offset;
+    // Offset (in bytes) of draw payload stream in scene
+    uint drawdata_offset;
 };
 #endif
 

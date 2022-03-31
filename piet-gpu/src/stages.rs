@@ -47,12 +47,14 @@ pub struct Config {
     pub pathseg_alloc: u32,
     pub anno_alloc: u32,
     pub trans_alloc: u32,
-    pub bbox_alloc: u32,
+    pub path_bbox_alloc: u32,
     pub drawmonoid_alloc: u32,
     pub clip_alloc: u32,
     pub clip_bic_alloc: u32,
     pub clip_stack_alloc: u32,
     pub clip_bbox_alloc: u32,
+    pub draw_bbox_alloc: u32,
+    pub drawinfo_alloc: u32,
     pub n_trans: u32,
     pub n_path: u32,
     pub n_clip: u32,
@@ -60,6 +62,8 @@ pub struct Config {
     pub linewidth_offset: u32,
     pub pathtag_offset: u32,
     pub pathseg_offset: u32,
+    pub drawtag_offset: u32,
+    pub drawdata_offset: u32,
 }
 
 // The "element" stage combines a number of stages for parts of the pipeline.

@@ -127,12 +127,14 @@ struct Config
     Alloc_1 pathseg_alloc;
     Alloc_1 anno_alloc;
     Alloc_1 trans_alloc;
-    Alloc_1 bbox_alloc;
+    Alloc_1 path_bbox_alloc;
     Alloc_1 drawmonoid_alloc;
     Alloc_1 clip_alloc;
     Alloc_1 clip_bic_alloc;
     Alloc_1 clip_stack_alloc;
     Alloc_1 clip_bbox_alloc;
+    Alloc_1 draw_bbox_alloc;
+    Alloc_1 drawinfo_alloc;
     uint n_trans;
     uint n_path;
     uint n_clip;
@@ -140,6 +142,8 @@ struct Config
     uint linewidth_offset;
     uint pathtag_offset;
     uint pathseg_offset;
+    uint drawtag_offset;
+    uint drawdata_offset;
 };
 
 struct ConfigBuf
@@ -635,7 +639,7 @@ kernel void main0(device Memory& v_111 [[buffer(0)]], const device ConfigBuf& _6
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
     uint path_ix = save_path_ix;
-    uint bbox_out_ix = (_639.conf.bbox_alloc.offset >> uint(2)) + (path_ix * 6u);
+    uint bbox_out_ix = (_639.conf.path_bbox_alloc.offset >> uint(2)) + (path_ix * 6u);
     Monoid row = monoid_identity();
     if (gl_LocalInvocationID.x > 0u)
     {

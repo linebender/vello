@@ -27,7 +27,6 @@ layout(binding = 2) readonly buffer SceneBuf {
 #include "scene.h"
 #include "tile.h"
 #include "drawtag.h"
-#include "annotated.h"
 #include "blend.h"
 
 #define Monoid DrawMonoid
@@ -42,14 +41,14 @@ void main() {
     Monoid local[N_ROWS];
 
     uint ix = gl_GlobalInvocationID.x * N_ROWS;
-    ElementRef ref = ElementRef(ix * Element_size);
-    uint tag_word = Element_tag(ref).tag;
+    uint drawtag_base = conf.drawtag_offset >> 2;
+    uint tag_word = scene[drawtag_base + ix];
 
     Monoid agg = map_tag(tag_word);
     local[0] = agg;
     for (uint i = 1; i < N_ROWS; i++) {
-        tag_word = Element_tag(Element_index(ref, i)).tag;
-        agg = combine_tag_monoid(agg, map_tag(tag_word));
+        tag_word = scene[drawtag_base + ix + i];
+        agg = combine_draw_monoid(agg, map_tag(tag_word));
         local[i] = agg;
     }
     sh_scratch[gl_LocalInvocationID.x] = agg;
@@ -57,41 +56,47 @@ void main() {
         barrier();
         if (gl_LocalInvocationID.x >= (1u << i)) {
             Monoid other = sh_scratch[gl_LocalInvocationID.x - (1u << i)];
-            agg = combine_tag_monoid(other, agg);
+            agg = combine_draw_monoid(other, agg);
         }
         barrier();
         sh_scratch[gl_LocalInvocationID.x] = agg;
     }
 
     barrier();
-    Monoid row = tag_monoid_identity();
+    Monoid row = draw_monoid_identity();
     if (gl_WorkGroupID.x > 0) {
         row = parent[gl_WorkGroupID.x - 1];
     }
     if (gl_LocalInvocationID.x > 0) {
-        row = combine_tag_monoid(row, sh_scratch[gl_LocalInvocationID.x - 1]);
+        row = combine_draw_monoid(row, sh_scratch[gl_LocalInvocationID.x - 1]);
     }
+    uint drawdata_base = conf.drawdata_offset >> 2;
+    uint drawinfo_base = conf.drawinfo_alloc.offset >> 2;
     uint out_ix = gl_GlobalInvocationID.x * N_ROWS;
-    uint out_base = (conf.drawmonoid_alloc.offset >> 2) + out_ix * 2;
+    uint out_base = (conf.drawmonoid_alloc.offset >> 2) + out_ix * 4;
     uint clip_out_base = conf.clip_alloc.offset >> 2;
-    AnnotatedRef out_ref = AnnotatedRef(conf.anno_alloc.offset + out_ix * Annotated_size);
     for (uint i = 0; i < N_ROWS; i++) {
         Monoid m = row;
         if (i > 0) {
-            m = combine_tag_monoid(m, local[i - 1]);
+            m = combine_draw_monoid(m, local[i - 1]);
         }
         // m now holds exclusive scan of draw monoid
-        memory[out_base + i * 2] = m.path_ix;
-        memory[out_base + i * 2 + 1] = m.clip_ix;
+        memory[out_base + i * 4] = m.path_ix;
+        memory[out_base + i * 4 + 1] = m.clip_ix;
+        memory[out_base + i * 4 + 2] = m.scene_offset;
+        memory[out_base + i * 4 + 3] = m.info_offset;
+
+        // u32 offset of drawobj data
+        uint dd = drawdata_base + (m.scene_offset >> 2);
+        uint di = drawinfo_base + (m.info_offset >> 2);
 
         // For compatibility, we'll generate an Annotated object, same as old
         // pipeline. However, going forward we'll get rid of that, and have
         // later stages read scene + bbox etc.
-        ElementRef this_ref = Element_index(ref, i);
-        tag_word = Element_tag(this_ref).tag;
-        if (tag_word == Element_FillColor || tag_word == Element_FillLinGradient || tag_word == Element_FillImage ||
-            tag_word == Element_BeginClip) {
-            uint bbox_offset = (conf.bbox_alloc.offset >> 2) + 6 * m.path_ix;
+        tag_word = scene[drawtag_base + ix + i];
+        if (tag_word == Drawtag_FillColor || tag_word == Drawtag_FillLinGradient || tag_word == Drawtag_FillImage ||
+            tag_word == Drawtag_BeginClip) {
+            uint bbox_offset = (conf.path_bbox_alloc.offset >> 2) + 6 * m.path_ix;
             float bbox_l = float(memory[bbox_offset]) - 32768.0;
             float bbox_t = float(memory[bbox_offset + 1]) - 32768.0;
             float bbox_r = float(memory[bbox_offset + 2]) - 32768.0;
@@ -101,11 +106,11 @@ void main() {
             uint fill_mode = uint(linewidth >= 0.0);
             vec4 mat;
             vec2 translate;
-            if (linewidth >= 0.0 || tag_word == Element_FillLinGradient) {
+            if (linewidth >= 0.0 || tag_word == Drawtag_FillLinGradient) {
                 uint trans_ix = memory[bbox_offset + 5];
                 uint t = (conf.trans_alloc.offset >> 2) + 6 * trans_ix;
                 mat = uintBitsToFloat(uvec4(memory[t], memory[t + 1], memory[t + 2], memory[t + 3]));
-                if (tag_word == Element_FillLinGradient) {
+                if (tag_word == Drawtag_FillLinGradient) {
                     translate = uintBitsToFloat(uvec2(memory[t + 4], memory[t + 5]));
                 }
             }
@@ -113,69 +118,38 @@ void main() {
                 // TODO: need to deal with anisotropic case
                 linewidth *= sqrt(abs(mat.x * mat.w - mat.y * mat.z));
             }
-            linewidth = max(linewidth, 0.0);
             switch (tag_word) {
-            case Element_FillColor:
-                FillColor fill = Element_FillColor_read(this_ref);
-                AnnoColor anno_fill;
-                anno_fill.bbox = bbox;
-                anno_fill.linewidth = linewidth;
-                anno_fill.rgba_color = fill.rgba_color;
-                Annotated_Color_write(conf.anno_alloc, out_ref, fill_mode, anno_fill);
+            case Drawtag_FillColor:
+            case Drawtag_FillImage:
+                memory[di] = floatBitsToUint(linewidth);
                 break;
-            case Element_FillLinGradient:
-                FillLinGradient lin = Element_FillLinGradient_read(this_ref);
-                AnnoLinGradient anno_lin;
-                anno_lin.bbox = bbox;
-                anno_lin.linewidth = linewidth;
-                anno_lin.index = lin.index;
-                vec2 p0 = mat.xy * lin.p0.x + mat.zw * lin.p0.y + translate;
-                vec2 p1 = mat.xy * lin.p1.x + mat.zw * lin.p1.y + translate;
+            case Drawtag_FillLinGradient:
+                memory[di] = floatBitsToUint(linewidth);
+                uint index = scene[dd];
+                vec2 p0 = uintBitsToFloat(uvec2(scene[dd + 1], scene[dd + 2]));
+                vec2 p1 = uintBitsToFloat(uvec2(scene[dd + 3], scene[dd + 4]));
+                p0 = mat.xy * p0.x + mat.zw * p0.y + translate;
+                p1 = mat.xy * p1.x + mat.zw * p1.y + translate;
                 vec2 dxy = p1 - p0;
                 float scale = 1.0 / (dxy.x * dxy.x + dxy.y * dxy.y);
                 float line_x = dxy.x * scale;
                 float line_y = dxy.y * scale;
-                anno_lin.line_x = line_x;
-                anno_lin.line_y = line_y;
-                anno_lin.line_c = -(p0.x * line_x + p0.y * line_y);
-                Annotated_LinGradient_write(conf.anno_alloc, out_ref, fill_mode, anno_lin);
+                float line_c = -(p0.x * line_x + p0.y * line_y);
+                memory[di + 1] = floatBitsToUint(line_x);
+                memory[di + 2] = floatBitsToUint(line_y);
+                memory[di + 3] = floatBitsToUint(line_c);
                 break;
-            case Element_FillImage:
-                FillImage fill_img = Element_FillImage_read(this_ref);
-                AnnoImage anno_img;
-                anno_img.bbox = bbox;
-                anno_img.linewidth = linewidth;
-                anno_img.index = fill_img.index;
-                anno_img.offset = fill_img.offset;
-                Annotated_Image_write(conf.anno_alloc, out_ref, fill_mode, anno_img);
-                break;
-            case Element_BeginClip:
-                Clip begin_clip = Element_BeginClip_read(this_ref);
-                AnnoBeginClip anno_begin_clip;
-                anno_begin_clip.bbox = bbox;
-                anno_begin_clip.linewidth = 0.0; // don't support clip-with-stroke
-                anno_begin_clip.blend = begin_clip.blend;
-                uint flags = uint(begin_clip.blend != BlendComp_default) << 1;
-                Annotated_BeginClip_write(conf.anno_alloc, out_ref, flags, anno_begin_clip);
+            case Drawtag_BeginClip:
                 break;
             }
-        } else if (tag_word == Element_EndClip) {
-            Clip end_clip = Element_BeginClip_read(this_ref);
-            AnnoEndClip anno_end_clip;
-            // The actual bbox will be reconstructed from clip stream output.
-            anno_end_clip.bbox = vec4(-1e9, -1e9, 1e9, 1e9);
-            anno_end_clip.blend = end_clip.blend;
-            uint flags = uint(end_clip.blend != BlendComp_default) << 1;
-            Annotated_EndClip_write(conf.anno_alloc, out_ref, flags, anno_end_clip);
         }
         // Generate clip stream.
-        if (tag_word == Element_BeginClip || tag_word == Element_EndClip) {
+        if (tag_word == Drawtag_BeginClip || tag_word == Drawtag_EndClip) {
             uint path_ix = ~(out_ix + i);
-            if (tag_word == Element_BeginClip) {
+            if (tag_word == Drawtag_BeginClip) {
                 path_ix = m.path_ix;
             }
             memory[clip_out_base + m.clip_ix] = path_ix;
         }
-        out_ref.offset += Annotated_size;
     }
 }

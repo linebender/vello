@@ -92,7 +92,7 @@ pub struct Renderer {
     clip_binding: ClipBinding,
 
     tile_pipeline: Pipeline,
-    tile_ds: DescriptorSet,
+    tile_ds: Vec<DescriptorSet>,
 
     path_pipeline: Pipeline,
     path_ds: DescriptorSet,
@@ -105,7 +105,7 @@ pub struct Renderer {
     bin_ds: DescriptorSet,
 
     coarse_pipeline: Pipeline,
-    coarse_ds: DescriptorSet,
+    coarse_ds: Vec<DescriptorSet>,
 
     k4_pipeline: Pipeline,
     k4_ds: DescriptorSet,
@@ -176,10 +176,8 @@ impl Renderer {
         };
         let image_dev = session.create_image2d(width as u32, height as u32, image_format)?;
 
-        // Note: this must be updated when the config struct size changes.
         const CONFIG_BUFFER_SIZE: u64 = std::mem::size_of::<Config>() as u64;
         let config_buf = session.create_buffer(CONFIG_BUFFER_SIZE, dev).unwrap();
-        // TODO: separate staging buffer (if needed)
         let config_bufs = (0..n_bufs)
             .map(|_| {
                 session
@@ -212,10 +210,23 @@ impl Renderer {
         let clip_binding = ClipBinding::new(session, &clip_code, &config_buf, &memory_buf_dev);
 
         let tile_alloc_code = include_shader!(session, "../shader/gen/tile_alloc");
-        let tile_pipeline = session
-            .create_compute_pipeline(tile_alloc_code, &[BindType::Buffer, BindType::BufReadOnly])?;
-        let tile_ds = session
-            .create_simple_descriptor_set(&tile_pipeline, &[&memory_buf_dev, &config_buf])?;
+        let tile_pipeline = session.create_compute_pipeline(
+            tile_alloc_code,
+            &[
+                BindType::Buffer,
+                BindType::BufReadOnly,
+                BindType::BufReadOnly,
+            ],
+        )?;
+        let tile_ds = scene_bufs
+            .iter()
+            .map(|scene_buf| {
+                session.create_simple_descriptor_set(
+                    &tile_pipeline,
+                    &[&memory_buf_dev, &config_buf, scene_buf],
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
 
         let path_alloc_code = include_shader!(session, "../shader/gen/path_coarse");
         let path_pipeline = session
@@ -243,11 +254,23 @@ impl Renderer {
             session.create_simple_descriptor_set(&bin_pipeline, &[&memory_buf_dev, &config_buf])?;
 
         let coarse_code = include_shader!(session, "../shader/gen/coarse");
-        let coarse_pipeline = session
-            .create_compute_pipeline(coarse_code, &[BindType::Buffer, BindType::BufReadOnly])?;
-        let coarse_ds = session
-            .create_simple_descriptor_set(&coarse_pipeline, &[&memory_buf_dev, &config_buf])?;
-
+        let coarse_pipeline = session.create_compute_pipeline(
+            coarse_code,
+            &[
+                BindType::Buffer,
+                BindType::BufReadOnly,
+                BindType::BufReadOnly,
+            ],
+        )?;
+        let coarse_ds = scene_bufs
+            .iter()
+            .map(|scene_buf| {
+                session.create_simple_descriptor_set(
+                    &coarse_pipeline,
+                    &[&memory_buf_dev, &config_buf, scene_buf],
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         let bg_image = Self::make_test_bg_image(&session);
 
         const GRADIENT_BUF_SIZE: usize =
@@ -430,7 +453,7 @@ impl Renderer {
         cmd_buf.begin_debug_label("Tile allocation");
         cmd_buf.dispatch(
             &self.tile_pipeline,
-            &self.tile_ds,
+            &self.tile_ds[buf_ix],
             (((self.n_paths + 255) / 256) as u32, 1, 1),
             (256, 1, 1),
         );
@@ -462,7 +485,7 @@ impl Renderer {
         cmd_buf.begin_debug_label("Coarse raster");
         cmd_buf.dispatch(
             &self.coarse_pipeline,
-            &self.coarse_ds,
+            &self.coarse_ds[buf_ix],
             (
                 (self.width as u32 + 255) / 256,
                 (self.height as u32 + 255) / 256,
