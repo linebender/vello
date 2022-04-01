@@ -163,8 +163,7 @@ impl ClipData {
         let clip_bbox_alloc = clip_stack_alloc + 20 * n_clip;
         stages::Config {
             clip_alloc: clip_alloc as u32,
-            // TODO: this wants to be renamed to path_bbox_alloc
-            bbox_alloc: path_bbox_alloc as u32,
+            path_bbox_alloc: path_bbox_alloc as u32,
             drawmonoid_alloc: drawmonoid_alloc as u32,
             clip_bic_alloc: clip_bic_alloc as u32,
             clip_stack_alloc: clip_stack_alloc as u32,
@@ -194,7 +193,7 @@ impl ClipData {
         let clip_range = clip_bbox_start..(clip_bbox_start + n_clip * 16);
         let clip_result = bytemuck::cast_slice::<u8, [f32; 4]>(&buf[clip_range]);
         let draw_start = 8 + n_clip * 4 + n_path * 24;
-        let draw_range = draw_start..(draw_start + n_clip * 8);
+        let draw_range = draw_start..(draw_start + n_clip * 16);
         let draw_result = bytemuck::cast_slice::<u8, DrawMonoid>(&buf[draw_range]);
         let mut bbox_stack = Vec::new();
         let mut parent_stack = Vec::new();

@@ -5,47 +5,13 @@
 
 using namespace metal;
 
-struct ElementRef
-{
-    uint offset;
-};
-
-struct ElementTag
-{
-    uint tag;
-    uint flags;
-};
-
 struct DrawMonoid
 {
     uint path_ix;
     uint clip_ix;
+    uint scene_offset;
+    uint info_offset;
 };
-
-struct SceneBuf
-{
-    uint scene[1];
-};
-
-struct DrawMonoid_1
-{
-    uint path_ix;
-    uint clip_ix;
-};
-
-struct OutBuf
-{
-    DrawMonoid_1 outbuf[1];
-};
-
-struct Memory
-{
-    uint mem_offset;
-    uint mem_error;
-    uint memory[1];
-};
-
-constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(256u, 1u, 1u);
 
 struct Alloc
 {
@@ -64,12 +30,14 @@ struct Config
     Alloc pathseg_alloc;
     Alloc anno_alloc;
     Alloc trans_alloc;
-    Alloc bbox_alloc;
+    Alloc path_bbox_alloc;
     Alloc drawmonoid_alloc;
     Alloc clip_alloc;
     Alloc clip_bic_alloc;
     Alloc clip_stack_alloc;
     Alloc clip_bbox_alloc;
+    Alloc draw_bbox_alloc;
+    Alloc drawinfo_alloc;
     uint n_trans;
     uint n_path;
     uint n_clip;
@@ -77,6 +45,8 @@ struct Config
     uint linewidth_offset;
     uint pathtag_offset;
     uint pathseg_offset;
+    uint drawtag_offset;
+    uint drawdata_offset;
 };
 
 struct ConfigBuf
@@ -84,70 +54,66 @@ struct ConfigBuf
     Config conf;
 };
 
-static inline __attribute__((always_inline))
-ElementTag Element_tag(thread const ElementRef& ref, const device SceneBuf& v_46)
+struct SceneBuf
 {
-    uint tag_and_flags = v_46.scene[ref.offset >> uint(2)];
-    return ElementTag{ tag_and_flags & 65535u, tag_and_flags >> uint(16) };
-}
+    uint scene[1];
+};
+
+struct DrawMonoid_1
+{
+    uint path_ix;
+    uint clip_ix;
+    uint scene_offset;
+    uint info_offset;
+};
+
+struct OutBuf
+{
+    DrawMonoid_1 outbuf[1];
+};
+
+struct Memory
+{
+    uint mem_offset;
+    uint mem_error;
+    uint memory[1];
+};
+
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(256u, 1u, 1u);
 
 static inline __attribute__((always_inline))
 DrawMonoid map_tag(thread const uint& tag_word)
 {
-    switch (tag_word)
-    {
-        case 4u:
-        case 5u:
-        case 6u:
-        {
-            return DrawMonoid{ 1u, 0u };
-        }
-        case 9u:
-        case 10u:
-        {
-            return DrawMonoid{ 1u, 1u };
-        }
-        default:
-        {
-            return DrawMonoid{ 0u, 0u };
-        }
-    }
+    uint has_path = uint(tag_word != 0u);
+    return DrawMonoid{ has_path, tag_word & 1u, tag_word & 28u, (tag_word >> uint(4)) & 28u };
 }
 
 static inline __attribute__((always_inline))
-ElementRef Element_index(thread const ElementRef& ref, thread const uint& index)
-{
-    return ElementRef{ ref.offset + (index * 36u) };
-}
-
-static inline __attribute__((always_inline))
-DrawMonoid combine_tag_monoid(thread const DrawMonoid& a, thread const DrawMonoid& b)
+DrawMonoid combine_draw_monoid(thread const DrawMonoid& a, thread const DrawMonoid& b)
 {
     DrawMonoid c;
     c.path_ix = a.path_ix + b.path_ix;
     c.clip_ix = a.clip_ix + b.clip_ix;
+    c.scene_offset = a.scene_offset + b.scene_offset;
+    c.info_offset = a.info_offset + b.info_offset;
     return c;
 }
 
-kernel void main0(const device SceneBuf& v_46 [[buffer(2)]], device OutBuf& _199 [[buffer(3)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]])
+kernel void main0(const device ConfigBuf& _86 [[buffer(1)]], const device SceneBuf& _96 [[buffer(2)]], device OutBuf& _187 [[buffer(3)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]])
 {
     threadgroup DrawMonoid sh_scratch[256];
     uint ix = gl_GlobalInvocationID.x * 8u;
-    ElementRef ref = ElementRef{ ix * 36u };
-    ElementRef param = ref;
-    uint tag_word = Element_tag(param, v_46).tag;
-    uint param_1 = tag_word;
-    DrawMonoid agg = map_tag(param_1);
+    uint drawtag_base = _86.conf.drawtag_offset >> uint(2);
+    uint tag_word = _96.scene[drawtag_base + ix];
+    uint param = tag_word;
+    DrawMonoid agg = map_tag(param);
     for (uint i = 1u; i < 8u; i++)
     {
-        ElementRef param_2 = ref;
-        uint param_3 = i;
-        ElementRef param_4 = Element_index(param_2, param_3);
-        tag_word = Element_tag(param_4, v_46).tag;
-        uint param_5 = tag_word;
-        DrawMonoid param_6 = agg;
-        DrawMonoid param_7 = map_tag(param_5);
-        agg = combine_tag_monoid(param_6, param_7);
+        uint tag_word_1 = _96.scene[(drawtag_base + ix) + i];
+        uint param_1 = tag_word_1;
+        DrawMonoid param_2 = agg;
+        DrawMonoid param_3 = map_tag(param_1);
+        agg = combine_draw_monoid(param_2, param_3);
     }
     sh_scratch[gl_LocalInvocationID.x] = agg;
     for (uint i_1 = 0u; i_1 < 8u; i_1++)
@@ -156,17 +122,19 @@ kernel void main0(const device SceneBuf& v_46 [[buffer(2)]], device OutBuf& _199
         if ((gl_LocalInvocationID.x + (1u << i_1)) < 256u)
         {
             DrawMonoid other = sh_scratch[gl_LocalInvocationID.x + (1u << i_1)];
-            DrawMonoid param_8 = agg;
-            DrawMonoid param_9 = other;
-            agg = combine_tag_monoid(param_8, param_9);
+            DrawMonoid param_4 = agg;
+            DrawMonoid param_5 = other;
+            agg = combine_draw_monoid(param_4, param_5);
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
         sh_scratch[gl_LocalInvocationID.x] = agg;
     }
     if (gl_LocalInvocationID.x == 0u)
     {
-        _199.outbuf[gl_WorkGroupID.x].path_ix = agg.path_ix;
-        _199.outbuf[gl_WorkGroupID.x].clip_ix = agg.clip_ix;
+        _187.outbuf[gl_WorkGroupID.x].path_ix = agg.path_ix;
+        _187.outbuf[gl_WorkGroupID.x].clip_ix = agg.clip_ix;
+        _187.outbuf[gl_WorkGroupID.x].scene_offset = agg.scene_offset;
+        _187.outbuf[gl_WorkGroupID.x].info_offset = agg.info_offset;
     }
 }
 

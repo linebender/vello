@@ -16,8 +16,8 @@
 layout(local_size_x = WG_SIZE, local_size_y = 1) in;
 
 #define Monoid DrawMonoid
-#define combine_monoid combine_tag_monoid
-#define monoid_identity tag_monoid_identity
+#define combine_monoid combine_draw_monoid
+#define monoid_identity draw_monoid_identity
 
 layout(binding = 0) buffer DataBuf {
     Monoid[] data;

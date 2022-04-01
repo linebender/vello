@@ -18,7 +18,6 @@ layout(set = 0, binding = 1) readonly buffer ConfigBuf {
     Config conf;
 };
 
-#include "annotated.h"
 #include "bins.h"
 #include "drawtag.h"
 
@@ -37,10 +36,12 @@ shared Alloc sh_chunk_alloc[N_TILE];
 shared bool sh_alloc_failed;
 
 DrawMonoid load_draw_monoid(uint element_ix) {
-    uint base = (conf.drawmonoid_alloc.offset >> 2) + 2 * element_ix;
+    uint base = (conf.drawmonoid_alloc.offset >> 2) + 4 * element_ix;
     uint path_ix = memory[base];
     uint clip_ix = memory[base + 1];
-    return DrawMonoid(path_ix, clip_ix);
+    uint scene_offset = memory[base + 2];
+    uint info_offset = memory[base + 3];
+    return DrawMonoid(path_ix, clip_ix, scene_offset, info_offset);
 }
 
 // Load bounding box computed by clip processing
@@ -60,7 +61,7 @@ vec4 bbox_intersect(vec4 a, vec4 b) {
 
 // Load path's bbox from bbox (as written by pathseg).
 vec4 load_path_bbox(uint path_ix) {
-    uint base = (conf.bbox_alloc.offset >> 2) + 6 * path_ix;
+    uint base = (conf.path_bbox_alloc.offset >> 2) + 6 * path_ix;
     float bbox_l = float(memory[base]) - 32768.0;
     float bbox_t = float(memory[base + 1]) - 32768.0;
     float bbox_r = float(memory[base + 2]) - 32768.0;
@@ -69,16 +70,15 @@ vec4 load_path_bbox(uint path_ix) {
     return bbox;
 }
 
-void store_path_bbox(AnnotatedRef ref, vec4 bbox) {
-    uint ix = ref.offset >> 2;
-    memory[ix + 1] = floatBitsToUint(bbox.x);
-    memory[ix + 2] = floatBitsToUint(bbox.y);
-    memory[ix + 3] = floatBitsToUint(bbox.z);
-    memory[ix + 4] = floatBitsToUint(bbox.w);
+void store_draw_bbox(uint draw_ix, vec4 bbox) {
+    uint base = (conf.draw_bbox_alloc.offset >> 2) + 4 * draw_ix;
+    memory[base] = floatBitsToUint(bbox.x);
+    memory[base + 1] = floatBitsToUint(bbox.y);
+    memory[base + 2] = floatBitsToUint(bbox.z);
+    memory[base + 3] = floatBitsToUint(bbox.w);
 }
 
 void main() {
-    uint my_n_elements = conf.n_elements;
     uint my_partition = gl_WorkGroupID.x;
 
     for (uint i = 0; i < N_SLICE; i++) {
@@ -91,18 +91,8 @@ void main() {
 
     // Read inputs and determine coverage of bins
     uint element_ix = my_partition * N_TILE + gl_LocalInvocationID.x;
-    AnnotatedRef ref = AnnotatedRef(conf.anno_alloc.offset + element_ix * Annotated_size);
-    uint tag = Annotated_Nop;
-    if (element_ix < my_n_elements) {
-        tag = Annotated_tag(conf.anno_alloc, ref).tag;
-    }
     int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
-    switch (tag) {
-    case Annotated_Color:
-    case Annotated_LinGradient:
-    case Annotated_Image:
-    case Annotated_BeginClip:
-    case Annotated_EndClip:
+    if (element_ix < conf.n_elements) {
         DrawMonoid draw_monoid = load_draw_monoid(element_ix);
         uint path_ix = draw_monoid.path_ix;
         vec4 clip_bbox = vec4(-1e9, -1e9, 1e9, 1e9);
@@ -119,12 +109,11 @@ void main() {
         // Avoid negative-size bbox (is this necessary)?
         bbox.zw = max(bbox.xy, bbox.zw);
         // Store clip-intersected bbox for tile_alloc.
-        store_path_bbox(ref, bbox);
+        store_draw_bbox(element_ix, bbox);
         x0 = int(floor(bbox.x * SX));
         y0 = int(floor(bbox.y * SY));
         x1 = int(ceil(bbox.z * SX));
         y1 = int(ceil(bbox.w * SY));
-        break;
     }
 
     // At this point, we run an iterator over the coverage area,
