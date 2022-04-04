@@ -21,7 +21,7 @@ use piet_gpu_hal::{
     ImageLayout, Pipeline, QueryPool, Session,
 };
 
-use pico_svg::PicoSvg;
+pub use pico_svg::PicoSvg;
 use stages::{ClipBinding, ElementBinding, ElementCode};
 
 use crate::stages::{ClipCode, Config, ElementStage};
