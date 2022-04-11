@@ -1,12 +1,14 @@
-mod ramp_cache;
+mod gradient;
 
 use crate::brush::{Brush, Stop};
-use ramp_cache::RampCache;
+use gradient::RampCache;
+use std::collections::HashMap;
 
 /// Context for caching resources across rendering operations.
 #[derive(Default)]
 pub struct ResourceContext {
-    ramp_cache: RampCache,
+    ramps: RampCache,
+    persistent_map: HashMap<u64, PersistentBrushData>,
 }
 
 impl ResourceContext {
@@ -15,14 +17,23 @@ impl ResourceContext {
     }
 
     pub fn advance(&mut self) {
-        self.ramp_cache.advance();
+        self.ramps.advance();
+    }
+
+    pub fn clear(&mut self) {
+        self.ramps.clear();
+        self.persistent_map.clear();
     }
 
     pub fn add_ramp(&mut self, stops: &[Stop]) -> u32 {
-        self.ramp_cache.add(stops)
+        self.ramps.add(stops)
     }
 
     pub fn create_brush(&mut self, brush: &Brush) -> PersistentBrush {
+        match brush {
+            Brush::Persistent(dup) => return *dup,
+            _ => {}
+        }
         PersistentBrush { kind: 0, id: 0 }
     }
 
@@ -34,4 +45,9 @@ impl ResourceContext {
 pub struct PersistentBrush {
     kind: u8,
     id: u64,
+}
+
+struct PersistentBrushData {
+    brush: Brush,
+
 }

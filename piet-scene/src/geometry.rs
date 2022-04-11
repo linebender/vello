@@ -115,6 +115,26 @@ impl Affine {
             y: point.y * self.yy + point.y * self.xy + self.dy,
         }
     }
+
+    /// Compute the determinant of this transform.
+    pub fn determinant(self) -> f32 {
+        self.xx * self.yy - self.yx * self.xy
+    }
+
+    /// Compute the inverse transform.
+    ///
+    /// Produces NaN values when the determinant is zero.
+    pub fn inverse(self) -> Self {
+        let inv_det = self.determinant().recip();
+        Self::new(&[
+            inv_det * self.yy,
+            -inv_det * self.yx,
+            -inv_det * self.xy,
+            inv_det * self.xx,
+            inv_det * (self.xy * self.dy - self.yy * self.dx),
+            inv_det * (self.yx * self.dx - self.xx * self.dy),
+        ])
+    }
 }
 
 impl std::ops::Mul for Affine {

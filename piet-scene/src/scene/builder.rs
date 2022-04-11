@@ -21,6 +21,8 @@ use crate::resource::ResourceContext;
 use bytemuck::{Pod, Zeroable};
 use core::borrow::Borrow;
 
+const MAX_BLEND_STACK: usize = 256;
+
 /// Creates a new builder for constructing a scene.
 pub fn build_scene<'a>(scene: &'a mut Scene, resources: &'a mut ResourceContext) -> Builder<'a> {
     Builder::new(&mut scene.data, ResourceData::Scene(resources))
@@ -38,12 +40,15 @@ pub fn build_fragment<'a>(fragment: &'a mut Fragment) -> Builder<'a> {
 pub struct Builder<'a> {
     scene: &'a mut SceneData,
     resources: ResourceData<'a>,
+    layers: Vec<Blend>,
 }
 
 impl<'a> Builder<'a> {
     /// Creates a new builder for constructing a scene.
     fn new(scene: &'a mut SceneData, resources: ResourceData<'a>) -> Self {
-        Self { scene, resources }
+        scene.clear();
+        resources.clear();
+        Self { scene, resources, layers: vec![] }
     }
 
     /// Pushes a transform matrix onto the stack.
@@ -60,12 +65,22 @@ impl<'a> Builder<'a> {
         E::IntoIter: Clone,
         E::Item: Borrow<Element>,
     {
+        self.linewidth(-1.0);
         let elements = elements.into_iter();
         self.encode_path(elements, true);
+        self.begin_clip(Some(blend));
+        if self.layers.len() >= MAX_BLEND_STACK {
+            panic!("Maximum clip/blend stack size {} exceeded", MAX_BLEND_STACK);
+        }
+        self.layers.push(blend);
     }
 
     /// Pops the current layer.
-    pub fn pop_layer(&mut self) {}
+    pub fn pop_layer(&mut self) {
+        if let Some(layer) = self.layers.pop() {
+            self.end_clip(Some(layer));
+        }
+    }
 
     /// Fills a shape using the specified style and brush.
     pub fn fill<'s, E>(
@@ -79,8 +94,17 @@ impl<'a> Builder<'a> {
         E::IntoIter: Clone,
         E::Item: Borrow<Element>,
     {
+        self.linewidth(-1.0);
         let elements = elements.into_iter();
         self.encode_path(elements, true);
+        if let Some(brush_transform) = brush_transform {
+            self.transform(brush_transform);
+            self.swap_last_tags();
+            self.encode_brush(brush);
+            self.transform(brush_transform.inverse());
+        } else {
+            self.encode_brush(brush);
+        }
     }
 
     /// Strokes a shape using the specified style and brush.
@@ -96,8 +120,17 @@ impl<'a> Builder<'a> {
         E::IntoIter: Clone,
         E::Item: Borrow<Element>,
     {
+        self.linewidth(style.width);
         let elements = elements.into_iter();
         self.encode_path(elements, false);
+        if let Some(brush_transform) = brush_transform {
+            self.transform(brush_transform);
+            self.swap_last_tags();
+            self.encode_brush(brush);
+            self.transform(brush_transform.inverse());
+        } else {
+            self.encode_brush(brush);
+        }
     }
 
     /// Appends a fragment to the scene.
@@ -140,8 +173,14 @@ impl<'a> Builder<'a> {
     }
 
     /// Completes construction and finalizes the underlying scene.
-    pub fn finish(self) {}
+    pub fn finish(self) {
+        while let Some(layer) = self.layers.pop() {
+            self.end_clip(Some(layer));
+        }
+    }
+}
 
+impl<'a> Builder<'a> {
     fn encode_path<E>(&mut self, elements: E, is_fill: bool)
     where
         E: Iterator,
@@ -181,6 +220,24 @@ impl<'a> Builder<'a> {
         let n_pathseg = b.n_pathseg();
         self.scene.n_path += 1;
         self.scene.n_pathseg += n_pathseg;
+    }
+
+    fn transform(&mut self, transform: Affine) {
+        self.scene.tag_stream.push(0x20);
+        self.scene.transform_stream.push(transform);
+    }
+
+    // Swap the last two tags in the tag stream; used for transformed
+    // gradients.
+    fn swap_last_tags(&mut self) {
+        let len = self.scene.tag_stream.len();
+        self.scene.tag_stream.swap(len - 1, len - 2);
+    }
+
+    // -1.0 means "fill"
+    fn linewidth(&mut self, linewidth: f32) {
+        self.scene.tag_stream.push(0x40);
+        self.scene.linewidth_stream.push(linewidth);
     }
 
     fn encode_brush(&mut self, brush: &Brush) {
@@ -237,11 +294,44 @@ impl<'a> Builder<'a> {
             }
         }
     }
+
+    /// Start a clip.
+    fn begin_clip(&mut self, blend: Option<Blend>) {
+        self.scene.drawtag_stream.push(DRAWTAG_BEGINCLIP);
+        let element = Clip {
+            blend: blend.unwrap_or(Blend::default()).pack(),
+        };
+        self.scene.drawdata_stream.extend(bytemuck::bytes_of(&element));
+        self.scene.n_clip += 1;
+    }
+
+    fn end_clip(&mut self, blend: Option<Blend>) {
+        self.scene.drawtag_stream.push(DRAWTAG_ENDCLIP);
+        let element = Clip {
+            blend: blend.unwrap_or(Blend::default()).pack(),
+        };
+        self.scene.drawdata_stream.extend(bytemuck::bytes_of(&element));
+        // This is a dummy path, and will go away with the new clip impl.
+        self.scene.tag_stream.push(0x10);
+        self.scene.n_path += 1;
+        self.scene.n_clip += 1;
+    }
 }
 
 enum ResourceData<'a> {
     Fragment(&'a mut FragmentResources),
     Scene(&'a mut ResourceContext),
+}
+
+impl ResourceData<'_> {
+    fn clear(&mut self) {
+        match self {
+            Self::Fragment(res) {
+                res.patches.clear();
+                res.stops.clear();
+            }
+        }
+    }
 }
 
 // Tags for draw objects. See shader/drawtag.h for the authoritative source.
