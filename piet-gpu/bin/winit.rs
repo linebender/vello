@@ -2,7 +2,7 @@ use piet::kurbo::Point;
 use piet::{RenderContext, Text, TextAttribute, TextLayoutBuilder};
 use piet_gpu_hal::{CmdBuf, Error, ImageLayout, Instance, Session, SubmittedCmdBuf};
 
-use piet_gpu::{test_scenes, PicoSvg, PietGpuRenderContext, Renderer};
+use piet_gpu::{test_scenes, PietGpuRenderContext, Renderer};
 
 use clap::{App, Arg};
 
@@ -28,25 +28,6 @@ fn main() -> Result<(), Error> {
                 .takes_value(true),
         )
         .get_matches();
-
-    // Collect SVG if input
-    let svg = match matches.value_of("INPUT") {
-        Some(file) => {
-            let mut scale = matches
-                .value_of("scale")
-                .map(|scale| scale.parse().unwrap())
-                .unwrap_or(8.0);
-            if matches.is_present("flip") {
-                scale = -scale;
-            }
-            let xml_str = std::fs::read_to_string(file).unwrap();
-            let start = std::time::Instant::now();
-            let svg = PicoSvg::load(&xml_str, scale).unwrap();
-            println!("parsing time: {:?}", start.elapsed());
-            Some(svg)
-        }
-        None => None,
-    };
 
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
@@ -125,8 +106,15 @@ fn main() -> Result<(), Error> {
                     }
 
                     let mut ctx = PietGpuRenderContext::new();
-                    if let Some(svg) = &svg {
-                        test_scenes::render_svg(&mut ctx, svg);
+                    if let Some(input) = matches.value_of("INPUT") {
+                        let mut scale = matches
+                            .value_of("scale")
+                            .map(|scale| scale.parse().unwrap())
+                            .unwrap_or(8.0);
+                        if matches.is_present("flip") {
+                            scale = -scale;
+                        }
+                        test_scenes::render_svg(&mut ctx, input, scale);
                     } else {
                         use piet_gpu::{Blend, BlendMode::*, CompositionMode::*};
                         let blends = [

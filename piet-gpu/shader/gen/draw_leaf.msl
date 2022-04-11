@@ -124,7 +124,7 @@ static inline __attribute__((always_inline))
 DrawMonoid map_tag(thread const uint& tag_word)
 {
     uint has_path = uint(tag_word != 0u);
-    return DrawMonoid{ has_path, tag_word & 1u, tag_word & 28u, (tag_word >> uint(4)) & 28u };
+    return DrawMonoid{ has_path, tag_word & 1u, tag_word & 28u, (tag_word >> uint(4)) & 60u };
 }
 
 static inline __attribute__((always_inline))
@@ -144,19 +144,19 @@ DrawMonoid draw_monoid_identity()
     return DrawMonoid{ 0u, 0u, 0u, 0u };
 }
 
-kernel void main0(device Memory& _284 [[buffer(0)]], const device ConfigBuf& _92 [[buffer(1)]], const device SceneBuf& _102 [[buffer(2)]], const device ParentBuf& _202 [[buffer(3)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]])
+kernel void main0(device Memory& _285 [[buffer(0)]], const device ConfigBuf& _93 [[buffer(1)]], const device SceneBuf& _103 [[buffer(2)]], const device ParentBuf& _203 [[buffer(3)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]])
 {
     threadgroup DrawMonoid sh_scratch[256];
     uint ix = gl_GlobalInvocationID.x * 8u;
-    uint drawtag_base = _92.conf.drawtag_offset >> uint(2);
-    uint tag_word = _102.scene[drawtag_base + ix];
+    uint drawtag_base = _93.conf.drawtag_offset >> uint(2);
+    uint tag_word = _103.scene[drawtag_base + ix];
     uint param = tag_word;
     DrawMonoid agg = map_tag(param);
     spvUnsafeArray<DrawMonoid, 8> local;
     local[0] = agg;
     for (uint i = 1u; i < 8u; i++)
     {
-        tag_word = _102.scene[(drawtag_base + ix) + i];
+        tag_word = _103.scene[(drawtag_base + ix) + i];
         uint param_1 = tag_word;
         DrawMonoid param_2 = agg;
         DrawMonoid param_3 = map_tag(param_1);
@@ -181,11 +181,11 @@ kernel void main0(device Memory& _284 [[buffer(0)]], const device ConfigBuf& _92
     DrawMonoid row = draw_monoid_identity();
     if (gl_WorkGroupID.x > 0u)
     {
-        uint _205 = gl_WorkGroupID.x - 1u;
-        row.path_ix = _202.parent[_205].path_ix;
-        row.clip_ix = _202.parent[_205].clip_ix;
-        row.scene_offset = _202.parent[_205].scene_offset;
-        row.info_offset = _202.parent[_205].info_offset;
+        uint _206 = gl_WorkGroupID.x - 1u;
+        row.path_ix = _203.parent[_206].path_ix;
+        row.clip_ix = _203.parent[_206].clip_ix;
+        row.scene_offset = _203.parent[_206].scene_offset;
+        row.info_offset = _203.parent[_206].info_offset;
     }
     if (gl_LocalInvocationID.x > 0u)
     {
@@ -193,13 +193,15 @@ kernel void main0(device Memory& _284 [[buffer(0)]], const device ConfigBuf& _92
         DrawMonoid param_7 = sh_scratch[gl_LocalInvocationID.x - 1u];
         row = combine_draw_monoid(param_6, param_7);
     }
-    uint drawdata_base = _92.conf.drawdata_offset >> uint(2);
-    uint drawinfo_base = _92.conf.drawinfo_alloc.offset >> uint(2);
+    uint drawdata_base = _93.conf.drawdata_offset >> uint(2);
+    uint drawinfo_base = _93.conf.drawinfo_alloc.offset >> uint(2);
     uint out_ix = gl_GlobalInvocationID.x * 8u;
-    uint out_base = (_92.conf.drawmonoid_alloc.offset >> uint(2)) + (out_ix * 4u);
-    uint clip_out_base = _92.conf.clip_alloc.offset >> uint(2);
+    uint out_base = (_93.conf.drawmonoid_alloc.offset >> uint(2)) + (out_ix * 4u);
+    uint clip_out_base = _93.conf.clip_alloc.offset >> uint(2);
     float4 mat;
     float2 translate;
+    float2 p0;
+    float2 p1;
     for (uint i_2 = 0u; i_2 < 8u; i_2++)
     {
         DrawMonoid m = row;
@@ -209,31 +211,31 @@ kernel void main0(device Memory& _284 [[buffer(0)]], const device ConfigBuf& _92
             DrawMonoid param_9 = local[i_2 - 1u];
             m = combine_draw_monoid(param_8, param_9);
         }
-        _284.memory[out_base + (i_2 * 4u)] = m.path_ix;
-        _284.memory[(out_base + (i_2 * 4u)) + 1u] = m.clip_ix;
-        _284.memory[(out_base + (i_2 * 4u)) + 2u] = m.scene_offset;
-        _284.memory[(out_base + (i_2 * 4u)) + 3u] = m.info_offset;
+        _285.memory[out_base + (i_2 * 4u)] = m.path_ix;
+        _285.memory[(out_base + (i_2 * 4u)) + 1u] = m.clip_ix;
+        _285.memory[(out_base + (i_2 * 4u)) + 2u] = m.scene_offset;
+        _285.memory[(out_base + (i_2 * 4u)) + 3u] = m.info_offset;
         uint dd = drawdata_base + (m.scene_offset >> uint(2));
         uint di = drawinfo_base + (m.info_offset >> uint(2));
-        tag_word = _102.scene[(drawtag_base + ix) + i_2];
-        if ((((tag_word == 68u) || (tag_word == 276u)) || (tag_word == 72u)) || (tag_word == 5u))
+        tag_word = _103.scene[(drawtag_base + ix) + i_2];
+        if (((((tag_word == 68u) || (tag_word == 276u)) || (tag_word == 732u)) || (tag_word == 72u)) || (tag_word == 5u))
         {
-            uint bbox_offset = (_92.conf.path_bbox_alloc.offset >> uint(2)) + (6u * m.path_ix);
-            float bbox_l = float(_284.memory[bbox_offset]) - 32768.0;
-            float bbox_t = float(_284.memory[bbox_offset + 1u]) - 32768.0;
-            float bbox_r = float(_284.memory[bbox_offset + 2u]) - 32768.0;
-            float bbox_b = float(_284.memory[bbox_offset + 3u]) - 32768.0;
+            uint bbox_offset = (_93.conf.path_bbox_alloc.offset >> uint(2)) + (6u * m.path_ix);
+            float bbox_l = float(_285.memory[bbox_offset]) - 32768.0;
+            float bbox_t = float(_285.memory[bbox_offset + 1u]) - 32768.0;
+            float bbox_r = float(_285.memory[bbox_offset + 2u]) - 32768.0;
+            float bbox_b = float(_285.memory[bbox_offset + 3u]) - 32768.0;
             float4 bbox = float4(bbox_l, bbox_t, bbox_r, bbox_b);
-            float linewidth = as_type<float>(_284.memory[bbox_offset + 4u]);
+            float linewidth = as_type<float>(_285.memory[bbox_offset + 4u]);
             uint fill_mode = uint(linewidth >= 0.0);
-            if ((linewidth >= 0.0) || (tag_word == 276u))
+            if (((linewidth >= 0.0) || (tag_word == 276u)) || (tag_word == 732u))
             {
-                uint trans_ix = _284.memory[bbox_offset + 5u];
-                uint t = (_92.conf.trans_alloc.offset >> uint(2)) + (6u * trans_ix);
-                mat = as_type<float4>(uint4(_284.memory[t], _284.memory[t + 1u], _284.memory[t + 2u], _284.memory[t + 3u]));
-                if (tag_word == 276u)
+                uint trans_ix = _285.memory[bbox_offset + 5u];
+                uint t = (_93.conf.trans_alloc.offset >> uint(2)) + (6u * trans_ix);
+                mat = as_type<float4>(uint4(_285.memory[t], _285.memory[t + 1u], _285.memory[t + 2u], _285.memory[t + 3u]));
+                if ((tag_word == 276u) || (tag_word == 732u))
                 {
-                    translate = as_type<float2>(uint2(_284.memory[t + 4u], _284.memory[t + 5u]));
+                    translate = as_type<float2>(uint2(_285.memory[t + 4u], _285.memory[t + 5u]));
                 }
             }
             if (linewidth >= 0.0)
@@ -245,15 +247,14 @@ kernel void main0(device Memory& _284 [[buffer(0)]], const device ConfigBuf& _92
                 case 68u:
                 case 72u:
                 {
-                    _284.memory[di] = as_type<uint>(linewidth);
+                    _285.memory[di] = as_type<uint>(linewidth);
                     break;
                 }
                 case 276u:
                 {
-                    _284.memory[di] = as_type<uint>(linewidth);
-                    uint index = _102.scene[dd];
-                    float2 p0 = as_type<float2>(uint2(_102.scene[dd + 1u], _102.scene[dd + 2u]));
-                    float2 p1 = as_type<float2>(uint2(_102.scene[dd + 3u], _102.scene[dd + 4u]));
+                    _285.memory[di] = as_type<uint>(linewidth);
+                    p0 = as_type<float2>(uint2(_103.scene[dd + 1u], _103.scene[dd + 2u]));
+                    p1 = as_type<float2>(uint2(_103.scene[dd + 3u], _103.scene[dd + 4u]));
                     p0 = ((mat.xy * p0.x) + (mat.zw * p0.y)) + translate;
                     p1 = ((mat.xy * p1.x) + (mat.zw * p1.y)) + translate;
                     float2 dxy = p1 - p0;
@@ -261,9 +262,38 @@ kernel void main0(device Memory& _284 [[buffer(0)]], const device ConfigBuf& _92
                     float line_x = dxy.x * scale;
                     float line_y = dxy.y * scale;
                     float line_c = -((p0.x * line_x) + (p0.y * line_y));
-                    _284.memory[di + 1u] = as_type<uint>(line_x);
-                    _284.memory[di + 2u] = as_type<uint>(line_y);
-                    _284.memory[di + 3u] = as_type<uint>(line_c);
+                    _285.memory[di + 1u] = as_type<uint>(line_x);
+                    _285.memory[di + 2u] = as_type<uint>(line_y);
+                    _285.memory[di + 3u] = as_type<uint>(line_c);
+                    break;
+                }
+                case 732u:
+                {
+                    p0 = as_type<float2>(uint2(_103.scene[dd + 1u], _103.scene[dd + 2u]));
+                    p1 = as_type<float2>(uint2(_103.scene[dd + 3u], _103.scene[dd + 4u]));
+                    float r0 = as_type<float>(_103.scene[dd + 5u]);
+                    float r1 = as_type<float>(_103.scene[dd + 6u]);
+                    float inv_det = 1.0 / ((mat.x * mat.w) - (mat.y * mat.z));
+                    float4 inv_mat = float4(mat.w, -mat.y, -mat.z, mat.x) * inv_det;
+                    float2 inv_tr = (inv_mat.xz * translate.x) + (inv_mat.yw * translate.y);
+                    inv_tr += p0;
+                    float2 center1 = p1 - p0;
+                    float rr = r1 / (r1 - r0);
+                    float rainv = rr / ((r1 * r1) - dot(center1, center1));
+                    float2 c1 = center1 * rainv;
+                    float ra = rr * rainv;
+                    float roff = rr - 1.0;
+                    _285.memory[di] = as_type<uint>(linewidth);
+                    _285.memory[di + 1u] = as_type<uint>(inv_mat.x);
+                    _285.memory[di + 2u] = as_type<uint>(inv_mat.y);
+                    _285.memory[di + 3u] = as_type<uint>(inv_mat.z);
+                    _285.memory[di + 4u] = as_type<uint>(inv_mat.w);
+                    _285.memory[di + 5u] = as_type<uint>(inv_tr.x);
+                    _285.memory[di + 6u] = as_type<uint>(inv_tr.y);
+                    _285.memory[di + 7u] = as_type<uint>(c1.x);
+                    _285.memory[di + 8u] = as_type<uint>(c1.y);
+                    _285.memory[di + 9u] = as_type<uint>(ra);
+                    _285.memory[di + 10u] = as_type<uint>(roff);
                     break;
                 }
                 case 5u:
@@ -279,7 +309,7 @@ kernel void main0(device Memory& _284 [[buffer(0)]], const device ConfigBuf& _92
             {
                 path_ix = m.path_ix;
             }
-            _284.memory[clip_out_base + m.clip_ix] = path_ix;
+            _285.memory[clip_out_base + m.clip_ix] = path_ix;
         }
     }
 }

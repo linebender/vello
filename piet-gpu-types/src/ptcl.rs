@@ -24,12 +24,23 @@ piet_gpu! {
             line_y: f32,
             line_c: f32,
         }
+        struct CmdRadGrad {
+            index: u32,
+            mat: [f32; 4],
+            xlat: [f32; 2],
+            c1: [f32; 2],
+            ra: f32,
+            roff: f32,
+        }
         struct CmdImage {
             index: u32,
             offset: [i16; 2],
         }
         struct CmdAlpha {
             alpha: f32,
+        }
+        struct CmdEndClip {
+            blend: u32,
         }
         struct CmdJump {
             new_ref: u32,
@@ -42,9 +53,10 @@ piet_gpu! {
             Alpha(CmdAlpha),
             Color(CmdColor),
             LinGrad(CmdLinGrad),
+            RadGrad(CmdRadGrad),
             Image(CmdImage),
             BeginClip,
-            EndClip,
+            EndClip(CmdEndClip),
             Jump(CmdJump),
         }
     }

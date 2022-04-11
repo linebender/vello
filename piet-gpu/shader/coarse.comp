@@ -229,6 +229,7 @@ void main() {
         case Drawtag_FillColor:
         case Drawtag_FillImage:
         case Drawtag_FillLinGradient:
+        case Drawtag_FillRadGradient:
         case Drawtag_BeginClip:
         case Drawtag_EndClip:
             uint drawmonoid_base = drawmonoid_start + 4 * element_ix;
@@ -305,7 +306,7 @@ void main() {
                     is_blend = (blend != BlendComp_default);
                 }
                 include_tile = tile.tile.offset != 0 || (tile.backdrop == 0) == is_clip
-                    || is_blend;
+                    || (is_clip && is_blend);
             }
             if (include_tile) {
                 uint el_slice = el_ix / 32;
@@ -372,6 +373,25 @@ void main() {
                     cmd_lin.line_c = uintBitsToFloat(memory[di + 3]);
                     Cmd_LinGrad_write(cmd_alloc, cmd_ref, cmd_lin);
                     cmd_ref.offset += 4 + CmdLinGrad_size;
+                    break;
+                case Drawtag_FillRadGradient:
+                    if (!alloc_cmd(cmd_alloc, cmd_ref, cmd_limit)) {
+                        break;
+                    }
+                    linewidth = uintBitsToFloat(memory[di]);
+                    write_fill(cmd_alloc, cmd_ref, tile, linewidth);
+                    CmdRadGrad cmd_rad;
+                    cmd_rad.index = scene[dd];
+                    // Given that this is basically a memcpy, we might consider
+                    // letting the fine raster read the info itself.
+                    cmd_rad.mat = uintBitsToFloat(uvec4(memory[di + 1], memory[di + 2],
+                        memory[di + 3], memory[di + 4]));
+                    cmd_rad.xlat = uintBitsToFloat(uvec2(memory[di + 5], memory[di + 6]));
+                    cmd_rad.c1 = uintBitsToFloat(uvec2(memory[di + 7], memory[di + 8]));
+                    cmd_rad.ra = uintBitsToFloat(memory[di + 9]);
+                    cmd_rad.roff = uintBitsToFloat(memory[di + 10]);
+                    Cmd_RadGrad_write(cmd_alloc, cmd_ref, cmd_rad);
+                    cmd_ref.offset += 4 + CmdRadGrad_size;
                     break;
                 case Drawtag_FillImage:
                     linewidth = uintBitsToFloat(memory[di]);

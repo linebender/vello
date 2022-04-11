@@ -12,6 +12,7 @@ use std::convert::TryInto;
 
 pub use blend::{Blend, BlendMode, CompositionMode};
 pub use render_ctx::PietGpuRenderContext;
+pub use gradient::Colrv1RadialGradient;
 
 use piet::kurbo::Vec2;
 use piet::{ImageFormat, RenderContext};
@@ -21,7 +22,7 @@ use piet_gpu_hal::{
     ImageLayout, Pipeline, QueryPool, Session,
 };
 
-pub use pico_svg::PicoSvg;
+use pico_svg::PicoSvg;
 use stages::{ClipBinding, ElementBinding, ElementCode};
 
 use crate::stages::{ClipCode, Config, ElementStage};
