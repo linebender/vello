@@ -49,5 +49,4 @@ pub struct PersistentBrush {
 
 struct PersistentBrushData {
     brush: Brush,
-
 }

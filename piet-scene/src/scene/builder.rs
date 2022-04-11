@@ -45,10 +45,14 @@ pub struct Builder<'a> {
 
 impl<'a> Builder<'a> {
     /// Creates a new builder for constructing a scene.
-    fn new(scene: &'a mut SceneData, resources: ResourceData<'a>) -> Self {
+    fn new(scene: &'a mut SceneData, mut resources: ResourceData<'a>) -> Self {
         scene.clear();
         resources.clear();
-        Self { scene, resources, layers: vec![] }
+        Self {
+            scene,
+            resources,
+            layers: vec![],
+        }
     }
 
     /// Pushes a transform matrix onto the stack.
@@ -173,7 +177,7 @@ impl<'a> Builder<'a> {
     }
 
     /// Completes construction and finalizes the underlying scene.
-    pub fn finish(self) {
+    pub fn finish(mut self) {
         while let Some(layer) = self.layers.pop() {
             self.end_clip(Some(layer));
         }
@@ -301,7 +305,9 @@ impl<'a> Builder<'a> {
         let element = Clip {
             blend: blend.unwrap_or(Blend::default()).pack(),
         };
-        self.scene.drawdata_stream.extend(bytemuck::bytes_of(&element));
+        self.scene
+            .drawdata_stream
+            .extend(bytemuck::bytes_of(&element));
         self.scene.n_clip += 1;
     }
 
@@ -310,7 +316,9 @@ impl<'a> Builder<'a> {
         let element = Clip {
             blend: blend.unwrap_or(Blend::default()).pack(),
         };
-        self.scene.drawdata_stream.extend(bytemuck::bytes_of(&element));
+        self.scene
+            .drawdata_stream
+            .extend(bytemuck::bytes_of(&element));
         // This is a dummy path, and will go away with the new clip impl.
         self.scene.tag_stream.push(0x10);
         self.scene.n_path += 1;
@@ -326,10 +334,11 @@ enum ResourceData<'a> {
 impl ResourceData<'_> {
     fn clear(&mut self) {
         match self {
-            Self::Fragment(res) {
+            Self::Fragment(res) => {
                 res.patches.clear();
                 res.stops.clear();
             }
+            _ => {}
         }
     }
 }
