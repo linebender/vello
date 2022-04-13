@@ -33,11 +33,13 @@ use metal::{CGFloat, CommandBufferRef, MTLFeatureSet};
 
 use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
 
-use crate::{BufferUsage, Error, GpuInfo, ImageFormat, MapMode, WorkgroupLimits};
+use crate::{
+    BufferUsage, ComputePassDescriptor, Error, GpuInfo, ImageFormat, MapMode, WorkgroupLimits,
+};
 
 use util::*;
 
-use self::timer::{CounterSampleBuffer, CounterSet};
+use self::timer::{CounterSampleBuffer, CounterSet, TimeCalibration};
 
 pub struct MtlInstance;
 
@@ -110,14 +112,10 @@ enum Encoder {
 }
 
 #[derive(Default)]
-struct TimeCalibration {
-    cpu_start_ts: u64,
-    gpu_start_ts: u64,
-    cpu_end_ts: u64,
-    gpu_end_ts: u64,
+pub struct QueryPool {
+    counter_sample_buf: Option<CounterSampleBuffer>,
+    calibration: Arc<Mutex<Option<Arc<Mutex<TimeCalibration>>>>>,
 }
-
-pub struct QueryPool(Option<CounterSampleBuffer>);
 
 pub struct Pipeline(metal::ComputePipelineState);
 
@@ -132,10 +130,6 @@ pub struct DescriptorSet {
 
 struct Helpers {
     clear_pipeline: metal::ComputePipelineState,
-}
-
-pub struct ComputeEncoder {
-    raw: metal::ComputeCommandEncoder,
 }
 
 impl MtlInstance {
@@ -263,7 +257,7 @@ impl MtlDevice {
             helpers,
             timer_set,
             counter_style,
-    }
+        }
     }
 
     pub fn cmd_buf_from_raw_mtl(&self, raw_cmd_buf: metal::CommandBuffer) -> CmdBuf {
@@ -409,16 +403,28 @@ impl crate::backend::Device for MtlDevice {
         if let Some(timer_set) = &self.timer_set {
             let pool = CounterSampleBuffer::new(&self.device, n_queries as u64, timer_set)
                 .ok_or("error creating timer query pool")?;
-            return Ok(QueryPool(Some(pool)));
+            return Ok(QueryPool {
+                counter_sample_buf: Some(pool),
+                calibration: Default::default(),
+            });
         }
-        Ok(QueryPool(None))
+        Ok(QueryPool::default())
     }
 
     unsafe fn fetch_query_pool(&self, pool: &Self::QueryPool) -> Result<Vec<f64>, Error> {
-        if let Some(raw) = &pool.0 {
+        if let Some(raw) = &pool.counter_sample_buf {
             let resolved = raw.resolve();
-            println!("resolved = {:?}", resolved);
+            let calibration = pool.calibration.lock().unwrap();
+            if let Some(calibration) = &*calibration {
+                let calibration = calibration.lock().unwrap();
+                let result = resolved
+                    .iter()
+                    .map(|time_ns| calibration.correlate(*time_ns))
+                    .collect();
+                return Ok(result);
+            }
         }
+        // Maybe should return None indicating it wasn't successful? But that might break.
         Ok(Vec::new())
     }
 
@@ -444,10 +450,6 @@ impl crate::backend::Device for MtlDevice {
                 let gpu_ts_ptr = &mut time_calibration.gpu_start_ts as *mut _;
                 // TODO: only do this if supported.
                 let () = msg_send![device, sampleTimestamps: cpu_ts_ptr gpuTimestamp: gpu_ts_ptr];
-                println!(
-                    "scheduled, {}, {}",
-                    time_calibration.cpu_start_ts, time_calibration.gpu_start_ts
-                );
             })
             .copy();
             add_scheduled_handler(&cmd_buf.cmd_buf, &start_block);
@@ -461,10 +463,6 @@ impl crate::backend::Device for MtlDevice {
                     // TODO: only do this if supported.
                     let () =
                         msg_send![device, sampleTimestamps: cpu_ts_ptr gpuTimestamp: gpu_ts_ptr];
-                    println!(
-                        "completed, {}, {}",
-                        time_calibration.cpu_end_ts, time_calibration.gpu_end_ts
-                    );
                 })
                 .copy();
             cmd_buf.cmd_buf.add_completed_handler(&completed_block);
@@ -546,8 +544,6 @@ impl crate::backend::Device for MtlDevice {
 }
 
 impl crate::backend::CmdBuf<MtlDevice> for CmdBuf {
-    type ComputeEncoder = ComputeEncoder;
-
     unsafe fn begin(&mut self) {}
 
     unsafe fn finish(&mut self) {
@@ -556,6 +552,35 @@ impl crate::backend::CmdBuf<MtlDevice> for CmdBuf {
 
     unsafe fn reset(&mut self) -> bool {
         false
+    }
+
+    unsafe fn begin_compute_pass(&mut self, desc: &ComputePassDescriptor) {
+        debug_assert!(matches!(self.cur_encoder, Encoder::None));
+        let encoder = if let Some(queries) = &desc.timer_queries {
+            let descriptor: id = msg_send![class!(MTLComputePassDescriptor), computePassDescriptor];
+            let attachments: id = msg_send![descriptor, sampleBufferAttachments];
+            let index: NSUInteger = 0;
+            let attachment: id = msg_send![attachments, objectAtIndexedSubscript: index];
+            // Here we break the hub/mux separation a bit, for expedience
+            #[allow(irrefutable_let_patterns)]
+            if let crate::hub::QueryPool::Mtl(query_pool) = queries.0 {
+                if let Some(sample_buf) = &query_pool.counter_sample_buf {
+                    let () = msg_send![attachment, setSampleBuffer: sample_buf.id()];
+                }
+            }
+            let start_index = queries.1 as NSUInteger;
+            let end_index = queries.2 as NSInteger;
+            let () = msg_send![attachment, setStartOfEncoderSampleIndex: start_index];
+            let () = msg_send![attachment, setEndOfEncoderSampleIndex: end_index];
+            let encoder = msg_send![
+                self.cmd_buf,
+                computeCommandEncoderWithDescriptor: descriptor
+            ];
+            encoder
+        } else {
+            self.cmd_buf.new_compute_command_encoder()
+        };
+        self.cur_encoder = Encoder::Compute(encoder.to_owned());
     }
 
     unsafe fn dispatch(
@@ -588,6 +613,11 @@ impl crate::backend::CmdBuf<MtlDevice> for CmdBuf {
             depth: workgroup_size.2 as u64,
         };
         encoder.dispatch_thread_groups(workgroup_count, workgroup_size);
+    }
+
+    unsafe fn end_compute_pass(&mut self) {
+        // TODO: might validate that we are in a compute encoder state
+        self.flush_encoder();
     }
 
     unsafe fn memory_barrier(&mut self) {
@@ -690,10 +720,13 @@ impl crate::backend::CmdBuf<MtlDevice> for CmdBuf {
         );
     }
 
-    unsafe fn reset_query_pool(&mut self, _pool: &QueryPool) {}
+    unsafe fn reset_query_pool(&mut self, pool: &QueryPool) {
+        let mut calibration = pool.calibration.lock().unwrap();
+        *calibration = Some(self.time_calibration.clone());
+    }
 
     unsafe fn write_timestamp(&mut self, pool: &QueryPool, query: u32) {
-        if let Some(buf) = &pool.0 {
+        if let Some(buf) = &pool.counter_sample_buf {
             if matches!(self.cur_encoder, Encoder::None) {
                 self.cur_encoder =
                     Encoder::Compute(self.cmd_buf.new_compute_command_encoder().to_owned());
@@ -709,19 +742,12 @@ impl crate::backend::CmdBuf<MtlDevice> for CmdBuf {
                 }
             } else if self.counter_style == CounterStyle::Stage {
                 match &self.cur_encoder {
-                    Encoder::Compute(e) => {
-                        println!("here we are");
+                    Encoder::Compute(_e) => {
+                        println!("write_timestamp is not supported for stage-style encoders");
                     }
                     _ => (),
                 }
             }
-        }
-    }
-
-    unsafe fn new_compute_encoder(&mut self) -> Self::ComputeEncoder {
-        let raw = self.cmd_buf.new_compute_command_encoder().to_owned();
-        ComputeEncoder {
-            raw
         }
     }
 }
@@ -758,43 +784,6 @@ impl CmdBuf {
             Encoder::Blit(e) => e.end_encoding(),
             Encoder::None => (),
         }
-    }
-}
-
-impl crate::backend::ComputeEncoder<MtlDevice> for ComputeEncoder {
-    unsafe fn dispatch(
-        &mut self,
-        pipeline: &Pipeline,
-        descriptor_set: &DescriptorSet,
-        workgroup_count: (u32, u32, u32),
-        workgroup_size: (u32, u32, u32),
-    ) {
-        self.raw.set_compute_pipeline_state(&pipeline.0);
-        let mut buf_ix = 0;
-        for buffer in &descriptor_set.buffers {
-            self.raw.set_buffer(buf_ix, Some(&buffer.buffer), 0);
-            buf_ix += 1;
-        }
-        let mut img_ix = buf_ix;
-        for image in &descriptor_set.images {
-            self.raw.set_texture(img_ix, Some(&image.texture));
-            img_ix += 1;
-        }
-        let workgroup_count = metal::MTLSize {
-            width: workgroup_count.0 as u64,
-            height: workgroup_count.1 as u64,
-            depth: workgroup_count.2 as u64,
-        };
-        let workgroup_size = metal::MTLSize {
-            width: workgroup_size.0 as u64,
-            height: workgroup_size.1 as u64,
-            depth: workgroup_size.2 as u64,
-        };
-        self.raw.dispatch_thread_groups(workgroup_count, workgroup_size);
-    }
-
-    unsafe fn finish(&mut self) {
-        self.raw.end_encoding();
     }
 }
 

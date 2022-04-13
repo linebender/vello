@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex, Weak};
 use bytemuck::Pod;
 use smallvec::SmallVec;
 
-use crate::{mux, BackendType, BufWrite, ImageFormat, MapMode};
+use crate::{mux, BackendType, BufWrite, ComputePassDescriptor, ImageFormat, MapMode};
 
 use crate::{BindType, BufferUsage, Error, GpuInfo, ImageLayout, SamplerParams};
 
@@ -133,6 +133,11 @@ pub struct BufReadGuard<'a> {
     buffer: &'a mux::Buffer,
     offset: u64,
     size: u64,
+}
+
+/// A sub-object of a command buffer for a sequence of compute dispatches.
+pub struct ComputePass<'a> {
+    cmd_buf: &'a mut CmdBuf,
 }
 
 impl Session {
@@ -471,6 +476,12 @@ impl CmdBuf {
         self.cmd_buf().finish();
     }
 
+    /// Begin a compute pass.
+    pub unsafe fn begin_compute_pass(&mut self, desc: &ComputePassDescriptor) -> ComputePass {
+        self.cmd_buf().begin_compute_pass(desc);
+        ComputePass { cmd_buf: self }
+    }
+
     /// Dispatch a compute shader.
     ///
     /// Request a compute shader to be run, using the pipeline to specify the
@@ -479,6 +490,11 @@ impl CmdBuf {
     /// Both the workgroup count (number of workgroups) and the workgroup size
     /// (number of threads in a workgroup) must be specified here, though not
     /// all back-ends require the latter info.
+    ///
+    /// This version is deprecated because (a) you do not get timer queries and
+    /// (b) it doesn't aggregate multiple dispatches into a single compute
+    /// pass, which is a performance concern.
+    #[deprecated(note = "moving to ComputePass")]
     pub unsafe fn dispatch(
         &mut self,
         pipeline: &Pipeline,
@@ -486,8 +502,9 @@ impl CmdBuf {
         workgroup_count: (u32, u32, u32),
         workgroup_size: (u32, u32, u32),
     ) {
-        self.cmd_buf()
-            .dispatch(pipeline, descriptor_set, workgroup_count, workgroup_size);
+        let mut pass = self.begin_compute_pass(&Default::default());
+        pass.dispatch(pipeline, descriptor_set, workgroup_count, workgroup_size);
+        pass.end();
     }
 
     /// Insert an execution and memory barrier.
@@ -689,6 +706,32 @@ impl Drop for SubmittedCmdBuf {
                 session.pending.lock().unwrap().push(inner);
             }
         }
+    }
+}
+
+impl<'a> ComputePass<'a> {
+    /// Dispatch a compute shader.
+    ///
+    /// Request a compute shader to be run, using the pipeline to specify the
+    /// code, and the descriptor set to address the resources read and written.
+    ///
+    /// Both the workgroup count (number of workgroups) and the workgroup size
+    /// (number of threads in a workgroup) must be specified here, though not
+    /// all back-ends require the latter info.
+    pub unsafe fn dispatch(
+        &mut self,
+        pipeline: &Pipeline,
+        descriptor_set: &DescriptorSet,
+        workgroup_count: (u32, u32, u32),
+        workgroup_size: (u32, u32, u32),
+    ) {
+        self.cmd_buf
+            .cmd_buf()
+            .dispatch(pipeline, descriptor_set, workgroup_count, workgroup_size);
+    }
+
+    pub unsafe fn end(&mut self) {
+        self.cmd_buf.cmd_buf().end_compute_pass();
     }
 }
 

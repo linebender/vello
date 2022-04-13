@@ -35,6 +35,7 @@ use crate::backend::DescriptorSetBuilder as DescriptorSetBuilderTrait;
 use crate::backend::Device as DeviceTrait;
 use crate::BackendType;
 use crate::BindType;
+use crate::ComputePassDescriptor;
 use crate::ImageFormat;
 use crate::MapMode;
 use crate::{BufferUsage, Error, GpuInfo, ImageLayout, InstanceFlags};
@@ -99,14 +100,6 @@ mux_device_enum! {
 /// An object for recording timer queries.
 QueryPool }
 mux_device_enum! { Sampler }
-
-mux_enum! {
-    pub enum ComputeEncoder {
-        Vk(<crate::vulkan::CmdBuf as crate::backend::CmdBuf<vulkan::VkDevice>>::ComputeEncoder),
-        Dx12(<crate::dx12::Dx12Device as crate::backend::CmdBuf<dx12::Dx12Device>>::ComputeEncoder),
-        Mtl(<crate::metal::CmdBuf as crate::backend::CmdBuf<metal::MtlDevice>>::ComputeEncoder),
-    }
-}
 
 /// The code for a shader, either as source or intermediate representation.
 pub enum ShaderCode<'a> {
@@ -666,6 +659,14 @@ impl CmdBuf {
         }
     }
 
+    pub unsafe fn begin_compute_pass(&mut self, desc: &ComputePassDescriptor) {
+        mux_match! { self;
+            CmdBuf::Vk(c) => c.begin_compute_pass(desc),
+            CmdBuf::Dx12(c) => c.begin_compute_pass(desc),
+            CmdBuf::Mtl(c) => c.begin_compute_pass(desc),
+        }
+    }
+
     /// Dispatch a compute shader.
     ///
     /// Note that both the number of workgroups (`workgroup_count`) and the number of
@@ -685,6 +686,14 @@ impl CmdBuf {
             CmdBuf::Vk(c) => c.dispatch(pipeline.vk(), descriptor_set.vk(), workgroup_count, workgroup_size),
             CmdBuf::Dx12(c) => c.dispatch(pipeline.dx12(), descriptor_set.dx12(), workgroup_count, workgroup_size),
             CmdBuf::Mtl(c) => c.dispatch(pipeline.mtl(), descriptor_set.mtl(), workgroup_count, workgroup_size),
+        }
+    }
+
+    pub unsafe fn end_compute_pass(&mut self) {
+        mux_match! { self;
+            CmdBuf::Vk(c) => c.end_compute_pass(),
+            CmdBuf::Dx12(c) => c.end_compute_pass(),
+            CmdBuf::Mtl(c) => c.end_compute_pass(),
         }
     }
 

@@ -1,4 +1,4 @@
-use piet_gpu_hal::{include_shader, BindType};
+use piet_gpu_hal::{include_shader, BindType, ComputePassDescriptor};
 use piet_gpu_hal::{BufferUsage, Instance, InstanceFlags, Session};
 
 fn main() {
@@ -20,9 +20,9 @@ fn main() {
         let mut cmd_buf = session.cmd_buf().unwrap();
         cmd_buf.begin();
         cmd_buf.reset_query_pool(&query_pool);
-        cmd_buf.write_timestamp(&query_pool, 0);
-        cmd_buf.dispatch(&pipeline, &descriptor_set, (256, 1, 1), (1, 1, 1));
-        cmd_buf.write_timestamp(&query_pool, 1);
+        let mut pass = cmd_buf.begin_compute_pass(&ComputePassDescriptor::timer(&query_pool, 0, 1));
+        pass.dispatch(&pipeline, &descriptor_set, (256, 1, 1), (1, 1, 1));
+        pass.end();
         cmd_buf.finish_timestamps(&query_pool);
         cmd_buf.host_barrier();
         cmd_buf.finish();

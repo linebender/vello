@@ -36,6 +36,14 @@ pub struct CounterSet {
     id: id,
 }
 
+#[derive(Default)]
+pub struct TimeCalibration {
+    pub cpu_start_ts: u64,
+    pub gpu_start_ts: u64,
+    pub cpu_end_ts: u64,
+    pub gpu_end_ts: u64,
+}
+
 impl Drop for CounterSampleBuffer {
     fn drop(&mut self) {
         unsafe { msg_send![self.id, release] }
@@ -87,7 +95,6 @@ impl CounterSampleBuffer {
         unsafe {
             let desc_cls = class!(MTLCounterSampleBufferDescriptor);
             let descriptor: id = msg_send![desc_cls, alloc];
-            println!("descriptor = {:?}", descriptor);
             let _: id = msg_send![descriptor, init];
             let count = count as NSUInteger;
             let () = msg_send![descriptor, setSampleCount: count];
@@ -119,5 +126,23 @@ impl CounterSampleBuffer {
             let bytes: *const u64 = msg_send![data, bytes];
             std::slice::from_raw_parts(bytes, self.count as usize)
         }
+    }
+}
+
+impl TimeCalibration {
+    /// Convert GPU timestamp into CPU time base.
+    ///
+    /// See https://developer.apple.com/documentation/metal/performance_tuning/correlating_cpu_and_gpu_timestamps
+    pub fn correlate(&self, raw_ts: u64) -> f64 {
+        let delta_cpu = self.cpu_end_ts - self.cpu_start_ts;
+        let delta_gpu = self.gpu_end_ts - self.gpu_start_ts;
+        let adj_ts = if delta_gpu > 0 {
+            let scale = delta_cpu as f64 / delta_gpu as f64;
+            self.cpu_start_ts as f64 + (raw_ts - self.gpu_start_ts) as f64 * scale
+        } else {
+            // Default is ns on Apple Silicon; on other hardware this will be wrong
+            raw_ts as f64
+        };
+        adj_ts * 1e-9
     }
 }

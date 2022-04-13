@@ -189,3 +189,17 @@ pub struct WorkgroupLimits {
     /// dimension.
     pub max_invocations: u32,
 }
+
+#[derive(Default)]
+pub struct ComputePassDescriptor<'a> {
+    // Maybe label should go here? It does in wgpu and wgpu_hal.
+    timer_queries: Option<(&'a QueryPool, u32, u32)>,
+}
+
+impl<'a> ComputePassDescriptor<'a> {
+    pub fn timer(pool: &'a QueryPool, start_query: u32, end_query: u32) -> ComputePassDescriptor {
+        ComputePassDescriptor {
+            timer_queries: Some((pool, start_query, end_query)),
+        }
+    }
+}

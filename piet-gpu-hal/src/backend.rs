@@ -17,7 +17,8 @@
 //! The generic trait for backends to implement.
 
 use crate::{
-    BindType, BufferUsage, Error, GpuInfo, ImageFormat, ImageLayout, MapMode, SamplerParams,
+    BindType, BufferUsage, ComputePassDescriptor, Error, GpuInfo, ImageFormat, ImageLayout,
+    MapMode, SamplerParams,
 };
 
 pub trait Device: Sized {
@@ -159,16 +160,32 @@ pub trait Device: Sized {
     unsafe fn create_sampler(&self, params: SamplerParams) -> Result<Self::Sampler, Error>;
 }
 
+/// The trait implemented by backend command buffer implementations.
+///
+/// Valid encoding is represented by a state machine (currently not validated
+/// but it is easy to imagine there might be at least debug validation). Most
+/// methods are only valid in a particular state, and some move it to another
+/// state.
 pub trait CmdBuf<D: Device> {
-    type ComputeEncoder;
-
+    /// Begin encoding.
+    ///
+    /// State: init -> ready
     unsafe fn begin(&mut self);
 
+    /// State: ready -> finished
     unsafe fn finish(&mut self);
 
     /// Return true if the command buffer is suitable for reuse.
     unsafe fn reset(&mut self) -> bool;
 
+    /// Begin a compute pass.
+    ///
+    /// State: ready -> in_compute_pass
+    unsafe fn begin_compute_pass(&mut self, desc: &ComputePassDescriptor);
+
+    /// Dispatch
+    ///
+    /// State: in_compute_pass
     unsafe fn dispatch(
         &mut self,
         pipeline: &D::Pipeline,
@@ -176,6 +193,9 @@ pub trait CmdBuf<D: Device> {
         workgroup_count: (u32, u32, u32),
         workgroup_size: (u32, u32, u32),
     );
+
+    /// State: in_compute_pass -> ready
+    unsafe fn end_compute_pass(&mut self);
 
     /// Insert an execution and memory barrier.
     ///
@@ -229,12 +249,10 @@ pub trait CmdBuf<D: Device> {
     unsafe fn finish_timestamps(&mut self, _pool: &D::QueryPool) {}
 
     /// Begin a labeled section for debugging and profiling purposes.
-    unsafe fn begin_debug_label(&mut self, label: &str) {}
+    unsafe fn begin_debug_label(&mut self, _label: &str) {}
 
     /// End a section opened by `begin_debug_label`.
     unsafe fn end_debug_label(&mut self) {}
-
-    unsafe fn new_compute_encoder(&mut self) -> Self::ComputeEncoder;
 }
 
 /// A builder for descriptor sets with more complex layouts.
@@ -255,17 +273,4 @@ pub trait DescriptorSetBuilder<D: Device> {
     /// we should have a way to vary the sampler.
     fn add_textures(&mut self, images: &[&D::Image]);
     unsafe fn build(self, device: &D, pipeline: &D::Pipeline) -> Result<D::DescriptorSet, Error>;
-}
-
-pub trait ComputeEncoder<D: Device> {
-    unsafe fn dispatch(
-        &mut self,
-        pipeline: &D::Pipeline,
-        descriptor_set: &D::DescriptorSet,
-        workgroup_count: (u32, u32, u32),
-        workgroup_size: (u32, u32, u32),
-    );
-
-    // Question: should be self?
-    unsafe fn finish(&mut self);
 }
