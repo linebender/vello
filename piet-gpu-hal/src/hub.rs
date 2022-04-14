@@ -375,8 +375,17 @@ impl Session {
     ///
     /// This should be called after waiting on the command buffer that wrote the
     /// timer queries.
+    ///
+    /// The returned vector is one shorter than the number of timer queries in the
+    /// pool; the first value is subtracted off. It would likely be better to return
+    /// the raw timestamps, but that change should be made consistently.
     pub unsafe fn fetch_query_pool(&self, pool: &QueryPool) -> Result<Vec<f64>, Error> {
-        self.0.device.fetch_query_pool(pool)
+        let result = self.0.device.fetch_query_pool(pool)?;
+        // Subtract off first timestamp.
+        Ok(result[1..]
+            .iter()
+            .map(|ts| *ts as f64 - result[0])
+            .collect())
     }
 
     #[doc(hidden)]
@@ -602,6 +611,10 @@ impl CmdBuf {
     /// Write a timestamp.
     ///
     /// The query index must be less than the size of the query pool on creation.
+    ///
+    /// Deprecation: for greater portability, set timestamp queries on compute
+    /// passes instead.
+    #[deprecated(note = "use compute pass descriptor instead")]
     pub unsafe fn write_timestamp(&mut self, pool: &QueryPool, query: u32) {
         self.cmd_buf().write_timestamp(pool, query);
     }

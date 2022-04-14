@@ -190,9 +190,15 @@ pub struct WorkgroupLimits {
     pub max_invocations: u32,
 }
 
+/// Options for creating a compute pass.
 #[derive(Default)]
 pub struct ComputePassDescriptor<'a> {
     // Maybe label should go here? It does in wgpu and wgpu_hal.
+    /// Timer query parameters.
+    ///
+    /// To record timer queries for a compute pass, set the query pool, start
+    /// query index, and end query index here. The indices must be less than
+    /// the size of the query pool.
     timer_queries: Option<(&'a QueryPool, u32, u32)>,
 }
 

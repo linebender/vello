@@ -79,7 +79,6 @@ pub struct Blob(pub ComPtr<d3dcommon::ID3DBlob>);
 #[derive(Clone)]
 pub struct ShaderByteCode {
     pub bytecode: d3d12::D3D12_SHADER_BYTECODE,
-    blob: Option<Blob>,
 }
 
 #[derive(Clone)]
@@ -741,7 +740,6 @@ impl ShaderByteCode {
                 BytecodeLength: blob.0.GetBufferSize(),
                 pShaderBytecode: blob.0.GetBufferPointer(),
             },
-            blob: Some(blob),
         }
     }
 
@@ -810,7 +808,6 @@ impl ShaderByteCode {
                 BytecodeLength: bytecode.len(),
                 pShaderBytecode: bytecode.as_ptr() as *const _,
             },
-            blob: None,
         }
     }
 }
