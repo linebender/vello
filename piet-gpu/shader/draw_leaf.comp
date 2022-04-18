@@ -94,8 +94,8 @@ void main() {
         // pipeline. However, going forward we'll get rid of that, and have
         // later stages read scene + bbox etc.
         tag_word = scene[drawtag_base + ix + i];
-        if (tag_word == Drawtag_FillColor || tag_word == Drawtag_FillLinGradient || tag_word == Drawtag_FillImage ||
-            tag_word == Drawtag_BeginClip) {
+        if (tag_word == Drawtag_FillColor || tag_word == Drawtag_FillLinGradient || tag_word == Drawtag_FillRadGradient ||
+            tag_word == Drawtag_FillImage || tag_word == Drawtag_BeginClip) {
             uint bbox_offset = (conf.path_bbox_alloc.offset >> 2) + 6 * m.path_ix;
             float bbox_l = float(memory[bbox_offset]) - 32768.0;
             float bbox_t = float(memory[bbox_offset + 1]) - 32768.0;
@@ -106,11 +106,11 @@ void main() {
             uint fill_mode = uint(linewidth >= 0.0);
             vec4 mat;
             vec2 translate;
-            if (linewidth >= 0.0 || tag_word == Drawtag_FillLinGradient) {
+            if (linewidth >= 0.0 || tag_word == Drawtag_FillLinGradient || tag_word == Drawtag_FillRadGradient) {
                 uint trans_ix = memory[bbox_offset + 5];
                 uint t = (conf.trans_alloc.offset >> 2) + 6 * trans_ix;
                 mat = uintBitsToFloat(uvec4(memory[t], memory[t + 1], memory[t + 2], memory[t + 3]));
-                if (tag_word == Drawtag_FillLinGradient) {
+                if (tag_word == Drawtag_FillLinGradient || tag_word == Drawtag_FillRadGradient) {
                     translate = uintBitsToFloat(uvec2(memory[t + 4], memory[t + 5]));
                 }
             }
@@ -125,7 +125,6 @@ void main() {
                 break;
             case Drawtag_FillLinGradient:
                 memory[di] = floatBitsToUint(linewidth);
-                uint index = scene[dd];
                 vec2 p0 = uintBitsToFloat(uvec2(scene[dd + 1], scene[dd + 2]));
                 vec2 p1 = uintBitsToFloat(uvec2(scene[dd + 3], scene[dd + 4]));
                 p0 = mat.xy * p0.x + mat.zw * p0.y + translate;
@@ -138,6 +137,33 @@ void main() {
                 memory[di + 1] = floatBitsToUint(line_x);
                 memory[di + 2] = floatBitsToUint(line_y);
                 memory[di + 3] = floatBitsToUint(line_c);
+                break;
+            case Drawtag_FillRadGradient:
+                p0 = uintBitsToFloat(uvec2(scene[dd + 1], scene[dd + 2]));
+                p1 = uintBitsToFloat(uvec2(scene[dd + 3], scene[dd + 4]));
+                float r0 = uintBitsToFloat(scene[dd + 5]);
+                float r1 = uintBitsToFloat(scene[dd + 6]);
+                float inv_det = 1.0 / (mat.x * mat.w - mat.y * mat.z);
+                vec4 inv_mat = inv_det * vec4(mat.w, -mat.y, -mat.z, mat.x);
+                vec2 inv_tr = inv_mat.xz * translate.x + inv_mat.yw * translate.y;
+                inv_tr += p0;
+                vec2 center1 = p1 - p0;
+                float rr = r1 / (r1 - r0);
+                float rainv = rr / (r1 * r1 - dot(center1, center1));
+                vec2 c1 = center1 * rainv;
+                float ra = rr * rainv;
+                float roff = rr - 1.0;
+                memory[di] = floatBitsToUint(linewidth);
+                memory[di + 1] = floatBitsToUint(inv_mat.x);
+                memory[di + 2] = floatBitsToUint(inv_mat.y);
+                memory[di + 3] = floatBitsToUint(inv_mat.z);
+                memory[di + 4] = floatBitsToUint(inv_mat.w);
+                memory[di + 5] = floatBitsToUint(inv_tr.x);
+                memory[di + 6] = floatBitsToUint(inv_tr.y);
+                memory[di + 7] = floatBitsToUint(c1.x);
+                memory[di + 8] = floatBitsToUint(c1.y);
+                memory[di + 9] = floatBitsToUint(ra);
+                memory[di + 10] = floatBitsToUint(roff);
                 break;
             case Drawtag_BeginClip:
                 break;

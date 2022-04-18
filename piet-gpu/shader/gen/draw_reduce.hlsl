@@ -44,10 +44,10 @@ struct Config
 
 static const uint3 gl_WorkGroupSize = uint3(256u, 1u, 1u);
 
-ByteAddressBuffer _86 : register(t1, space0);
-ByteAddressBuffer _96 : register(t2, space0);
-RWByteAddressBuffer _187 : register(u3, space0);
-RWByteAddressBuffer _205 : register(u0, space0);
+ByteAddressBuffer _87 : register(t1, space0);
+ByteAddressBuffer _97 : register(t2, space0);
+RWByteAddressBuffer _188 : register(u3, space0);
+RWByteAddressBuffer _206 : register(u0, space0);
 
 static uint3 gl_WorkGroupID;
 static uint3 gl_LocalInvocationID;
@@ -64,8 +64,8 @@ groupshared DrawMonoid sh_scratch[256];
 DrawMonoid map_tag(uint tag_word)
 {
     uint has_path = uint(tag_word != 0u);
-    DrawMonoid _69 = { has_path, tag_word & 1u, tag_word & 28u, (tag_word >> uint(4)) & 28u };
-    return _69;
+    DrawMonoid _70 = { has_path, tag_word & 1u, tag_word & 28u, (tag_word >> uint(4)) & 60u };
+    return _70;
 }
 
 DrawMonoid combine_draw_monoid(DrawMonoid a, DrawMonoid b)
@@ -81,13 +81,13 @@ DrawMonoid combine_draw_monoid(DrawMonoid a, DrawMonoid b)
 void comp_main()
 {
     uint ix = gl_GlobalInvocationID.x * 8u;
-    uint drawtag_base = _86.Load(100) >> uint(2);
-    uint tag_word = _96.Load((drawtag_base + ix) * 4 + 0);
+    uint drawtag_base = _87.Load(100) >> uint(2);
+    uint tag_word = _97.Load((drawtag_base + ix) * 4 + 0);
     uint param = tag_word;
     DrawMonoid agg = map_tag(param);
     for (uint i = 1u; i < 8u; i++)
     {
-        uint tag_word_1 = _96.Load(((drawtag_base + ix) + i) * 4 + 0);
+        uint tag_word_1 = _97.Load(((drawtag_base + ix) + i) * 4 + 0);
         uint param_1 = tag_word_1;
         DrawMonoid param_2 = agg;
         DrawMonoid param_3 = map_tag(param_1);
@@ -109,10 +109,10 @@ void comp_main()
     }
     if (gl_LocalInvocationID.x == 0u)
     {
-        _187.Store(gl_WorkGroupID.x * 16 + 0, agg.path_ix);
-        _187.Store(gl_WorkGroupID.x * 16 + 4, agg.clip_ix);
-        _187.Store(gl_WorkGroupID.x * 16 + 8, agg.scene_offset);
-        _187.Store(gl_WorkGroupID.x * 16 + 12, agg.info_offset);
+        _188.Store(gl_WorkGroupID.x * 16 + 0, agg.path_ix);
+        _188.Store(gl_WorkGroupID.x * 16 + 4, agg.clip_ix);
+        _188.Store(gl_WorkGroupID.x * 16 + 8, agg.scene_offset);
+        _188.Store(gl_WorkGroupID.x * 16 + 12, agg.info_offset);
     }
 }
 

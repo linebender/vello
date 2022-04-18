@@ -13,7 +13,7 @@ use piet_gpu_hal::BufWrite;
 use piet_gpu_types::encoder::{Encode, Encoder};
 use piet_gpu_types::scene::Element;
 
-use crate::gradient::{LinearGradient, RampCache};
+use crate::gradient::{LinearGradient, RadialGradient, RampCache, Colrv1RadialGradient};
 use crate::text::Font;
 pub use crate::text::{PietGpuText, PietGpuTextLayout, PietGpuTextLayoutBuilder};
 use crate::Blend;
@@ -50,6 +50,7 @@ pub struct PietGpuRenderContext {
 pub enum PietGpuBrush {
     Solid(u32),
     LinGradient(LinearGradient),
+    RadGradient(RadialGradient),
 }
 
 #[derive(Default)]
@@ -186,6 +187,10 @@ impl RenderContext for PietGpuRenderContext {
             FixedGradient::Linear(lin) => {
                 let lin = self.ramp_cache.add_linear_gradient(&lin);
                 Ok(PietGpuBrush::LinGradient(lin))
+            }
+            FixedGradient::Radial(rad) => {
+                let rad = self.ramp_cache.add_radial_gradient(&rad);
+                Ok(PietGpuBrush::RadGradient(rad))
             }
             _ => todo!("don't do radial gradients yet"),
         }
@@ -338,6 +343,20 @@ impl PietGpuRenderContext {
         }
     }
 
+    pub fn radial_gradient_colrv1(&mut self, rad: &Colrv1RadialGradient) -> PietGpuBrush {
+        PietGpuBrush::RadGradient(self.ramp_cache.add_radial_gradient_colrv1(rad))
+    }
+
+    pub fn fill_transform(&mut self, shape: impl Shape, brush: &PietGpuBrush, transform: Affine) {
+        let path = shape.path_elements(TOLERANCE);
+        self.encode_linewidth(-1.0);
+        self.encode_path(path, true);
+        self.encode_transform(Transform::from_kurbo(transform));
+        self.new_encoder.swap_last_tags();
+        self.encode_brush(&brush);
+        self.encode_transform(Transform::from_kurbo(transform.inverse()));
+    }
+
     fn encode_path(&mut self, path: impl Iterator<Item = PathEl>, is_fill: bool) {
         if is_fill {
             self.encode_path_inner(
@@ -419,6 +438,10 @@ impl PietGpuRenderContext {
             PietGpuBrush::LinGradient(lin) => {
                 self.new_encoder
                     .fill_lin_gradient(lin.ramp_id, lin.start, lin.end);
+            }
+            PietGpuBrush::RadGradient(rad) => {
+                self.new_encoder
+                    .fill_rad_gradient(rad.ramp_id, rad.start, rad.end, rad.r0, rad.r1);
             }
         }
     }

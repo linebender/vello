@@ -85,7 +85,7 @@ static inline __attribute__((always_inline))
 DrawMonoid map_tag(thread const uint& tag_word)
 {
     uint has_path = uint(tag_word != 0u);
-    return DrawMonoid{ has_path, tag_word & 1u, tag_word & 28u, (tag_word >> uint(4)) & 28u };
+    return DrawMonoid{ has_path, tag_word & 1u, tag_word & 28u, (tag_word >> uint(4)) & 60u };
 }
 
 static inline __attribute__((always_inline))
@@ -99,17 +99,17 @@ DrawMonoid combine_draw_monoid(thread const DrawMonoid& a, thread const DrawMono
     return c;
 }
 
-kernel void main0(const device ConfigBuf& _86 [[buffer(1)]], const device SceneBuf& _96 [[buffer(2)]], device OutBuf& _187 [[buffer(3)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]])
+kernel void main0(const device ConfigBuf& _87 [[buffer(1)]], const device SceneBuf& _97 [[buffer(2)]], device OutBuf& _188 [[buffer(3)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]])
 {
     threadgroup DrawMonoid sh_scratch[256];
     uint ix = gl_GlobalInvocationID.x * 8u;
-    uint drawtag_base = _86.conf.drawtag_offset >> uint(2);
-    uint tag_word = _96.scene[drawtag_base + ix];
+    uint drawtag_base = _87.conf.drawtag_offset >> uint(2);
+    uint tag_word = _97.scene[drawtag_base + ix];
     uint param = tag_word;
     DrawMonoid agg = map_tag(param);
     for (uint i = 1u; i < 8u; i++)
     {
-        uint tag_word_1 = _96.scene[(drawtag_base + ix) + i];
+        uint tag_word_1 = _97.scene[(drawtag_base + ix) + i];
         uint param_1 = tag_word_1;
         DrawMonoid param_2 = agg;
         DrawMonoid param_3 = map_tag(param_1);
@@ -131,10 +131,10 @@ kernel void main0(const device ConfigBuf& _86 [[buffer(1)]], const device SceneB
     }
     if (gl_LocalInvocationID.x == 0u)
     {
-        _187.outbuf[gl_WorkGroupID.x].path_ix = agg.path_ix;
-        _187.outbuf[gl_WorkGroupID.x].clip_ix = agg.clip_ix;
-        _187.outbuf[gl_WorkGroupID.x].scene_offset = agg.scene_offset;
-        _187.outbuf[gl_WorkGroupID.x].info_offset = agg.info_offset;
+        _188.outbuf[gl_WorkGroupID.x].path_ix = agg.path_ix;
+        _188.outbuf[gl_WorkGroupID.x].clip_ix = agg.clip_ix;
+        _188.outbuf[gl_WorkGroupID.x].scene_offset = agg.scene_offset;
+        _188.outbuf[gl_WorkGroupID.x].info_offset = agg.info_offset;
     }
 }
 
