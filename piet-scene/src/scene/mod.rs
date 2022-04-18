@@ -28,20 +28,20 @@ use super::path::Element;
 use core::ops::Range;
 
 #[derive(Default)]
-struct SceneData {
-    transform_stream: Vec<Affine>,
-    tag_stream: Vec<u8>,
-    pathseg_stream: Vec<u8>,
-    linewidth_stream: Vec<f32>,
-    drawtag_stream: Vec<u32>,
-    drawdata_stream: Vec<u8>,
-    n_path: u32,
-    n_pathseg: u32,
-    n_clip: u32,
+pub struct SceneData {
+    pub transform_stream: Vec<Affine>,
+    pub tag_stream: Vec<u8>,
+    pub pathseg_stream: Vec<u8>,
+    pub linewidth_stream: Vec<f32>,
+    pub drawtag_stream: Vec<u32>,
+    pub drawdata_stream: Vec<u8>,
+    pub n_path: u32,
+    pub n_pathseg: u32,
+    pub n_clip: u32,
 }
 
 impl SceneData {
-    fn clear(&mut self) {
+    fn reset(&mut self, is_fragment: bool) {
         self.transform_stream.clear();
         self.tag_stream.clear();
         self.pathseg_stream.clear();
@@ -51,6 +51,11 @@ impl SceneData {
         self.n_path = 0;
         self.n_pathseg = 0;
         self.n_clip = 0;
+        if !is_fragment {
+            self.transform_stream
+                .push(Affine::new(&[1.0, 0.0, 0.0, 1.0, 0.0, 0.0]));
+            self.linewidth_stream.push(-1.0);
+        }
     }
 
     fn append(&mut self, other: &SceneData) {
@@ -74,6 +79,12 @@ impl SceneData {
 #[derive(Default)]
 pub struct Scene {
     data: SceneData,
+}
+
+impl Scene {
+    pub fn data(&self) -> &SceneData {
+        &self.data
+    }
 }
 
 /// Encoded definition of a scene fragment and associated resources.

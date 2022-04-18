@@ -14,6 +14,7 @@
 //
 // Also licensed under MIT license, at your choice.
 
+use bytemuck::{Pod, Zeroable};
 use core::borrow::Borrow;
 use core::hash::{Hash, Hasher};
 
@@ -58,7 +59,7 @@ impl From<(f32, f32)> for Point {
 }
 
 /// Affine transformation matrix.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
 #[repr(C)]
 pub struct Affine {
     pub xx: f32,
@@ -70,6 +71,15 @@ pub struct Affine {
 }
 
 impl Affine {
+    pub const IDENTITY: Self = Self {
+        xx: 1.0,
+        yx: 0.0,
+        xy: 0.0,
+        yy: 1.0,
+        dx: 0.0,
+        dy: 0.0,
+    };
+
     pub const fn new(elements: &[f32; 6]) -> Self {
         Self {
             xx: elements[0],
@@ -134,6 +144,12 @@ impl Affine {
             inv_det * (self.xy * self.dy - self.yy * self.dx),
             inv_det * (self.yx * self.dx - self.xx * self.dy),
         ])
+    }
+}
+
+impl Default for Affine {
+    fn default() -> Self {
+        Self::IDENTITY
     }
 }
 

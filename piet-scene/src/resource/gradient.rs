@@ -102,7 +102,7 @@ fn make_ramp<'a>(stops: &'a [Stop]) -> impl Iterator<Item = u32> + 'a {
     })
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 struct ColorF64([f64; 4]);
 
 impl ColorF64 {
@@ -117,7 +117,7 @@ impl ColorF64 {
 
     fn lerp(&self, other: &Self, a: f64) -> Self {
         fn l(x: f64, y: f64, a: f64) -> f64 {
-            x + (y - x) * a
+            x * (1.0 - a) + y * a
         }
         Self([
             l(self.0[0], other.0[0], a),
@@ -129,10 +129,10 @@ impl ColorF64 {
 
     fn to_premul_u32(&self) -> u32 {
         let a = self.0[3].min(1.0).max(0.0);
-        let r = ((self.0[0] * a).min(1.0).max(0.0) / 255.0) as u32;
-        let g = ((self.0[1] * a).min(1.0).max(0.0) / 255.0) as u32;
-        let b = ((self.0[2] * a).min(1.0).max(0.0) / 255.0) as u32;
-        let a = (a / 255.0) as u32;
+        let r = ((self.0[0] * a).min(1.0).max(0.0) * 255.0) as u32;
+        let g = ((self.0[1] * a).min(1.0).max(0.0) * 255.0) as u32;
+        let b = ((self.0[2] * a).min(1.0).max(0.0) * 255.0) as u32;
+        let a = (a * 255.0) as u32;
         r | (g << 8) | (b << 16) | (a << 24)
     }
 }

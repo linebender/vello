@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use crate::encoder::GlyphEncoder;
+use crate::encoder::{EncodedSceneRef, GlyphEncoder};
 use crate::stages::{Config, Transform};
 use crate::MAX_BLEND_STACK;
 use piet::kurbo::{Affine, Insets, PathEl, Point, Rect, Shape};
@@ -95,6 +95,10 @@ impl PietGpuRenderContext {
 
     pub fn stage_config(&self) -> (Config, usize) {
         self.new_encoder.stage_config()
+    }
+
+    pub fn encoded_scene(&self) -> EncodedSceneRef<crate::stages::Transform> {
+        self.new_encoder.scene_ref()
     }
 
     /// Number of draw objects.

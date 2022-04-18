@@ -38,6 +38,10 @@ impl ResourceContext {
     }
 
     pub fn destroy_brush(&mut self, brush: PersistentBrush) {}
+
+    pub fn ramp_data(&self) -> &[u32] {
+        &self.ramps.data()
+    }
 }
 
 /// Handle for a brush that is managed by the resource context.

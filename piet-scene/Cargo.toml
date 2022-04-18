@@ -7,3 +7,13 @@ edition = "2021"
 [dependencies]
 bytemuck = { version = "1.7.2", features = ["derive"] }
 smallvec = "1.8.0"
+
+# remove these and move demo to another directory
+piet-gpu = { path = "../piet-gpu" }
+piet-gpu-hal = { path = "../piet-gpu-hal" }
+winit = "0.25"
+piet = "0.2.0"
+png = "0.16.2"
+rand = "0.7.3"
+roxmltree = "0.13"
+clap = "2.33"

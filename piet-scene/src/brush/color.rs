@@ -57,6 +57,6 @@ impl Color {
         let r = (self.r as f64 * a) as u32;
         let g = (self.g as f64 * a) as u32;
         let b = (self.b as f64 * a) as u32;
-        r | (g << 8) | (b << 16) | ((self.a as u32) << 24)
+        (r << 24) | (g << 16) | (b << 8) | self.a as u32
     }
 }

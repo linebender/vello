@@ -10,7 +10,10 @@ mod text;
 
 use std::convert::TryInto;
 
+use bytemuck::Pod;
+
 pub use blend::{Blend, BlendMode, CompositionMode};
+pub use encoder::EncodedSceneRef;
 pub use render_ctx::PietGpuRenderContext;
 pub use gradient::Colrv1RadialGradient;
 
@@ -355,16 +358,27 @@ impl Renderer {
         render_ctx: &mut PietGpuRenderContext,
         buf_ix: usize,
     ) -> Result<(), Error> {
-        let (mut config, mut alloc) = render_ctx.stage_config();
-        let n_drawobj = render_ctx.n_drawobj();
+        let mut scene = render_ctx.encoded_scene();
+        let ramp_data = render_ctx.get_ramp_data();
+        scene.ramp_data = &ramp_data;
+        self.upload_scene(&scene, buf_ix)
+    }
+
+    pub fn upload_scene<T: Copy + Pod>(
+        &mut self,
+        scene: &EncodedSceneRef<T>,
+        buf_ix: usize,
+    ) -> Result<(), Error> {
+        let (mut config, mut alloc) = scene.stage_config();
+        let n_drawobj = scene.n_drawobj();
         // TODO: be more consistent in size types
-        let n_path = render_ctx.n_path() as usize;
+        let n_path = scene.n_path() as usize;
         self.n_paths = n_path;
-        self.n_transform = render_ctx.n_transform();
-        self.n_drawobj = render_ctx.n_drawobj();
-        self.n_pathseg = render_ctx.n_pathseg() as usize;
-        self.n_pathtag = render_ctx.n_pathtag();
-        self.n_clip = render_ctx.n_clip();
+        self.n_transform = scene.n_transform();
+        self.n_drawobj = scene.n_drawobj();
+        self.n_pathseg = scene.n_pathseg() as usize;
+        self.n_pathtag = scene.n_pathtag();
+        self.n_clip = scene.n_clip();
 
         // These constants depend on encoding and may need to be updated.
         // Perhaps we can plumb these from piet-gpu-derive?
@@ -388,19 +402,18 @@ impl Renderer {
             // TODO: reallocate scene buffer if size is inadequate
             {
                 let mut mapped_scene = self.scene_bufs[buf_ix].map_write(..)?;
-                render_ctx.write_scene(&mut mapped_scene);
+                scene.write_scene(&mut mapped_scene);
             }
             self.config_bufs[buf_ix].write(&[config])?;
             self.memory_buf_host[buf_ix].write(&[alloc as u32, 0 /* Overflow flag */])?;
 
             // Upload gradient data.
-            let ramp_data = render_ctx.get_ramp_data();
-            if !ramp_data.is_empty() {
+            if !scene.ramp_data.is_empty() {
                 assert!(
                     self.gradient_bufs[buf_ix].size() as usize
-                        >= std::mem::size_of_val(&*ramp_data)
+                        >= std::mem::size_of_val(&*scene.ramp_data)
                 );
-                self.gradient_bufs[buf_ix].write(&ramp_data)?;
+                self.gradient_bufs[buf_ix].write(scene.ramp_data)?;
             }
         }
         Ok(())

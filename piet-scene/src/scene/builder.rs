@@ -41,25 +41,38 @@ pub struct Builder<'a> {
     scene: &'a mut SceneData,
     resources: ResourceData<'a>,
     layers: Vec<Blend>,
+    transforms: Vec<Affine>,
 }
 
 impl<'a> Builder<'a> {
     /// Creates a new builder for constructing a scene.
     fn new(scene: &'a mut SceneData, mut resources: ResourceData<'a>) -> Self {
-        scene.clear();
+        let is_fragment = match resources {
+            ResourceData::Fragment(_) => true,
+            _ => false,
+        };
+        scene.reset(is_fragment);
         resources.clear();
         Self {
             scene,
             resources,
             layers: vec![],
+            transforms: vec![],
         }
     }
 
     /// Pushes a transform matrix onto the stack.
-    pub fn push_transform(&mut self, transform: &Affine) {}
+    pub fn push_transform(&mut self, transform: Affine) {
+        self.transform(transform);
+        self.transforms.push(transform);
+    }
 
     /// Pops the current transform matrix.
-    pub fn pop_transform(&mut self) {}
+    pub fn pop_transform(&mut self) {
+        if let Some(transform) = self.transforms.pop() {
+            self.transform(transform.inverse());
+        }
+    }
 
     /// Pushes a new layer bound by the specifed shape and composed with
     /// previous layers using the specified blend mode.
@@ -180,6 +193,15 @@ impl<'a> Builder<'a> {
     pub fn finish(mut self) {
         while let Some(layer) = self.layers.pop() {
             self.end_clip(Some(layer));
+        }
+        match self.resources {
+            ResourceData::Fragment(_) => {
+                // Make sure the transform state is invariant for fragments
+                while !self.transforms.is_empty() {
+                    self.pop_transform();
+                }
+            }
+            _ => {}
         }
     }
 }
