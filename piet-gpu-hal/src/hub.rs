@@ -743,7 +743,7 @@ impl<'a> ComputePass<'a> {
             .dispatch(pipeline, descriptor_set, workgroup_count, workgroup_size);
     }
 
-    pub unsafe fn end(&mut self) {
+    pub unsafe fn end(self) {
         self.cmd_buf.cmd_buf().end_compute_pass();
     }
 }
