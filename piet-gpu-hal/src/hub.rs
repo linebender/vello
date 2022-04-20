@@ -743,6 +743,15 @@ impl<'a> ComputePass<'a> {
             .dispatch(pipeline, descriptor_set, workgroup_count, workgroup_size);
     }
 
+    /// Add a memory barrier.
+    ///
+    /// Inserts a memory barrier in the compute encoder. This is a convenience
+    /// function for calling the same function on the underlying command buffer,
+    /// avoiding borrow check issues.
+    pub unsafe fn memory_barrier(&mut self) {
+        self.cmd_buf.memory_barrier();
+    }
+
     pub unsafe fn end(self) {
         self.cmd_buf.cmd_buf().end_compute_pass();
     }
