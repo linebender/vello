@@ -67,6 +67,12 @@ impl CounterSampleBuffer {
     }
 }
 
+impl Drop for CounterSet {
+    fn drop(&mut self) {
+        unsafe { msg_send![self.id, release] }
+    }
+}
+
 impl CounterSet {
     pub fn get_timer_counter_set(device: &DeviceRef) -> Option<CounterSet> {
         unsafe {
@@ -83,6 +89,19 @@ impl CounterSet {
             }
             None
         }
+    }
+}
+
+// copied from metal-rs; should be in common utilities maybe?
+fn nsstring_as_str(nsstr: &objc::runtime::Object) -> &str {
+    let bytes = unsafe {
+        let bytes: *const std::os::raw::c_char = msg_send![nsstr, UTF8String];
+        bytes as *const u8
+    };
+    let len: NSUInteger = unsafe { msg_send![nsstr, length] };
+    unsafe {
+        let bytes = std::slice::from_raw_parts(bytes, len as usize);
+        std::str::from_utf8(bytes).unwrap()
     }
 }
 
@@ -107,6 +126,11 @@ impl CounterSampleBuffer {
             let buf: id = msg_send![device, newCounterSampleBufferWithDescriptor: descriptor error: &mut error];
             let () = msg_send![descriptor, release];
             if !error.is_null() {
+                let description = msg_send![error, localizedDescription];
+                println!(
+                    "error allocating sample buffer, code = {}",
+                    nsstring_as_str(description)
+                );
                 let () = msg_send![error, release];
                 return None;
             }
@@ -138,7 +162,7 @@ impl TimeCalibration {
         let delta_gpu = self.gpu_end_ts - self.gpu_start_ts;
         let adj_ts = if delta_gpu > 0 {
             let scale = delta_cpu as f64 / delta_gpu as f64;
-            self.cpu_start_ts as f64 + (raw_ts - self.gpu_start_ts) as f64 * scale
+            self.cpu_start_ts as f64 + (raw_ts as f64 - self.gpu_start_ts as f64) * scale
         } else {
             // Default is ns on Apple Silicon; on other hardware this will be wrong
             raw_ts as f64

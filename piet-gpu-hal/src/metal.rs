@@ -381,8 +381,25 @@ impl crate::backend::Device for MtlDevice {
 
     fn create_cmd_buf(&self) -> Result<Self::CmdBuf, Error> {
         let cmd_queue = self.cmd_queue.lock().unwrap();
+        // A discussion about autorelease pools.
+        //
+        // Autorelease pools are a sore point in Rust/Objective-C interop. Basically,
+        // you can have any two of correctness, ergonomics, and performance. Here we've
+        // chosen the first two, using the pattern of a fine grained autorelease pool
+        // to give the Obj-C object Rust-like lifetime semantics whenever objects are
+        // created as autorelease (by convention, this is any object creation with an
+        // Obj-C method name that doesn't begin with "new" or "alloc").
+        //
+        // To gain back some of the performance, we'd need a way to wrap an autorelease
+        // pool over a chunk of work - that could be one frame of rendering, but for
+        // tests that iterate a number of command buffer submissions, it would need to
+        // be around that. On non-mac platforms, it would be a no-op.
+        //
+        // In any case, this way, the caller doesn't need to worry, and the performance
+        // hit might not be so bad (perhaps we should measure).
+
         // consider new_command_buffer_with_unretained_references for performance
-        let cmd_buf = cmd_queue.new_command_buffer().to_owned();
+        let cmd_buf = autoreleasepool(|| cmd_queue.new_command_buffer().to_owned());
         let helpers = self.helpers.clone();
         let cur_encoder = Encoder::None;
         let time_calibration = Default::default();
@@ -555,32 +572,38 @@ impl crate::backend::CmdBuf<MtlDevice> for CmdBuf {
     }
 
     unsafe fn begin_compute_pass(&mut self, desc: &ComputePassDescriptor) {
-        debug_assert!(matches!(self.cur_encoder, Encoder::None));
-        let encoder = if let Some(queries) = &desc.timer_queries {
-            let descriptor: id = msg_send![class!(MTLComputePassDescriptor), computePassDescriptor];
-            let attachments: id = msg_send![descriptor, sampleBufferAttachments];
-            let index: NSUInteger = 0;
-            let attachment: id = msg_send![attachments, objectAtIndexedSubscript: index];
-            // Here we break the hub/mux separation a bit, for expedience
-            #[allow(irrefutable_let_patterns)]
-            if let crate::hub::QueryPool::Mtl(query_pool) = queries.0 {
-                if let Some(sample_buf) = &query_pool.counter_sample_buf {
-                    let () = msg_send![attachment, setSampleBuffer: sample_buf.id()];
+        // TODO: we might want to get better about validation but the following
+        // assert is likely to trigger, and also a case can be made that
+        // validation should be done at the hub level, for consistency.
+        //debug_assert!(matches!(self.cur_encoder, Encoder::None));
+        self.flush_encoder();
+        autoreleasepool(|| {
+            let encoder = if let Some(queries) = &desc.timer_queries {
+                let descriptor: id =
+                    msg_send![class!(MTLComputePassDescriptor), computePassDescriptor];
+                let attachments: id = msg_send![descriptor, sampleBufferAttachments];
+                let index: NSUInteger = 0;
+                let attachment: id = msg_send![attachments, objectAtIndexedSubscript: index];
+                // Here we break the hub/mux separation a bit, for expedience
+                #[allow(irrefutable_let_patterns)]
+                if let crate::hub::QueryPool::Mtl(query_pool) = queries.0 {
+                    if let Some(sample_buf) = &query_pool.counter_sample_buf {
+                        let () = msg_send![attachment, setSampleBuffer: sample_buf.id()];
+                    }
                 }
-            }
-            let start_index = queries.1 as NSUInteger;
-            let end_index = queries.2 as NSInteger;
-            let () = msg_send![attachment, setStartOfEncoderSampleIndex: start_index];
-            let () = msg_send![attachment, setEndOfEncoderSampleIndex: end_index];
-            let encoder = msg_send![
-                self.cmd_buf,
-                computeCommandEncoderWithDescriptor: descriptor
-            ];
-            encoder
-        } else {
-            self.cmd_buf.new_compute_command_encoder()
-        };
-        self.cur_encoder = Encoder::Compute(encoder.to_owned());
+                let start_index = queries.1 as NSUInteger;
+                let end_index = queries.2 as NSInteger;
+                let () = msg_send![attachment, setStartOfEncoderSampleIndex: start_index];
+                let () = msg_send![attachment, setEndOfEncoderSampleIndex: end_index];
+                msg_send![
+                    self.cmd_buf,
+                    computeCommandEncoderWithDescriptor: descriptor
+                ]
+            } else {
+                self.cmd_buf.new_compute_command_encoder()
+            };
+            self.cur_encoder = Encoder::Compute(encoder.to_owned());
+        });
     }
 
     unsafe fn dispatch(

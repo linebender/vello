@@ -21,8 +21,8 @@ pub use crate::mux::{
 };
 pub use bufwrite::BufWrite;
 pub use hub::{
-    BufReadGuard, BufWriteGuard, Buffer, CmdBuf, DescriptorSetBuilder, Image, RetainResource,
-    Session, SubmittedCmdBuf,
+    BufReadGuard, BufWriteGuard, Buffer, CmdBuf, ComputePass, DescriptorSetBuilder, Image,
+    RetainResource, Session, SubmittedCmdBuf,
 };
 
 // TODO: because these are conditionally included, "cargo fmt" does not
