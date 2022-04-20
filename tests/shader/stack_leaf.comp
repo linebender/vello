@@ -203,7 +203,7 @@ void main() {
         }
         if (sp + i == b) {
             // find previous nonempty slice
-            uint bits = sh_bitmaps[ix / N_SEQ] & ((1 << (ix % N_SEQ)) - 1);
+            uint bits = sh_bitmaps[ix / N_SEQ] & ((1u << (ix % N_SEQ)) - 1);
             if (bits == 0) {
                 ix = sh_link[max(ix / N_SEQ, 1) - 1];
             } else {
@@ -295,7 +295,7 @@ void main() {
             } else {
                 // backlink logic
                 if (int(ix) >= 0) {
-                    uint bits = sh_bitmaps[ix / N_SEQ] & ((1 << (ix % N_SEQ)) - 1);
+                    uint bits = sh_bitmaps[ix / N_SEQ] & ((1u << (ix % N_SEQ)) - 1);
                     if (bits == 0) {
                         ix = sh_link[ix / N_SEQ];
                     } else {

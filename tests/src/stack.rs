@@ -14,15 +14,15 @@
 //
 // Also licensed under MIT license, at your choice.
 
-use piet_gpu_hal::{include_shader, BindType, BufferUsage, DescriptorSet};
+use piet_gpu_hal::{include_shader, BindType, BufferUsage, DescriptorSet, ComputePass};
 use piet_gpu_hal::{Buffer, Pipeline};
 
 use crate::config::Config;
-use crate::runner::{Commands, Runner};
+use crate::runner::Runner;
 use crate::test_result::TestResult;
 
-const WG_SIZE: u64 = 512;
-const N_ROWS: u64 = 1;
+const WG_SIZE: u64 = 64;
+const N_ROWS: u64 = 8;
 const ELEMENTS_PER_WG: u64 = WG_SIZE * N_ROWS;
 
 struct StackCode {
@@ -62,9 +62,9 @@ pub unsafe fn run_stack_test(runner: &mut Runner, config: &Config) -> TestResult
     let n_iter = config.n_iter;
     for i in 0..n_iter {
         let mut commands = runner.commands();
-        commands.write_timestamp(0);
-        stage.record(&mut commands, &code, &binding, n_elements);
-        commands.write_timestamp(1);
+        let mut pass = commands.compute_pass(0, 1);
+        stage.record(&mut pass, &code, &binding, n_elements);
+        pass.end();
         if i == 0 || config.verify_all {
             commands.cmd_buf.memory_barrier();
             commands.download(&out_buf);
@@ -84,8 +84,7 @@ pub unsafe fn run_stack_test(runner: &mut Runner, config: &Config) -> TestResult
 
 impl StackCode {
     unsafe fn new(runner: &mut Runner) -> StackCode {
-        let reduce_code =
-            piet_gpu_hal::ShaderCode::Spv(include_bytes!("../shader/gen/stack_reduce.spv"));
+        let reduce_code = include_shader!(&runner.session, "../shader/gen/stack_reduce");
         let reduce_pipeline = runner
             .session
             .create_compute_pipeline(
@@ -93,8 +92,7 @@ impl StackCode {
                 &[BindType::BufReadOnly, BindType::Buffer, BindType::Buffer],
             )
             .unwrap();
-        let leaf_code =
-            piet_gpu_hal::ShaderCode::Spv(include_bytes!("../shader/gen/stack_leaf.spv"));
+        let leaf_code = include_shader!(&runner.session, "../shader/gen/stack_leaf");
         let leaf_pipeline = runner
             .session
             .create_compute_pipeline(
@@ -155,20 +153,20 @@ impl StackStage {
 
     unsafe fn record(
         &self,
-        commands: &mut Commands,
+        pass: &mut ComputePass,
         code: &StackCode,
         binding: &StackBinding,
         size: u64,
     ) {
         let n_workgroups = (size + ELEMENTS_PER_WG - 1) / ELEMENTS_PER_WG;
-        commands.cmd_buf.dispatch(
+        pass.dispatch(
             &code.reduce_pipeline,
             &binding.reduce_ds,
             (n_workgroups as u32, 1, 1),
             (WG_SIZE as u32, 1, 1),
         );
-        commands.cmd_buf.memory_barrier();
-        commands.cmd_buf.dispatch(
+        pass.memory_barrier();
+        pass.dispatch(
             &code.leaf_pipeline,
             &binding.leaf_ds,
             (n_workgroups as u32, 1, 1),

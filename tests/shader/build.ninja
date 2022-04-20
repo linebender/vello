@@ -72,5 +72,11 @@ build gen/linkedlist.dxil: dxil gen/linkedlist.hlsl
 build gen/linkedlist.msl: msl gen/linkedlist.spv
 
 build gen/stack_reduce.spv: glsl stack_reduce.comp
+build gen/stack_reduce.hlsl: hlsl gen/stack_reduce.spv
+build gen/stack_reduce.dxil: dxil gen/stack_reduce.hlsl
+build gen/stack_reduce.msl: msl gen/stack_reduce.spv
 
 build gen/stack_leaf.spv: glsl stack_leaf.comp
+build gen/stack_leaf.hlsl: hlsl gen/stack_leaf.spv
+build gen/stack_leaf.dxil: dxil gen/stack_leaf.hlsl
+build gen/stack_leaf.msl: msl gen/stack_leaf.spv
