@@ -59,9 +59,7 @@ pub unsafe fn run_message_passing_test(
     let mut failures = 0;
     for _ in 0..n_iter {
         let mut commands = runner.commands();
-        commands.write_timestamp(0);
         stage.record(&mut commands, &code, &binding, &out_buf.dev_buf);
-        commands.write_timestamp(1);
         commands.cmd_buf.memory_barrier();
         commands.download(&out_buf);
         total_elapsed += runner.submit(commands);
@@ -128,11 +126,13 @@ impl MessagePassingStage {
         commands.cmd_buf.clear_buffer(&self.data_buf, None);
         commands.cmd_buf.clear_buffer(out_buf, None);
         commands.cmd_buf.memory_barrier();
-        commands.cmd_buf.dispatch(
+        let mut pass = commands.compute_pass(0, 1);
+        pass.dispatch(
             &code.pipeline,
             &bindings.descriptor_set,
             (256, 1, 1),
             (256, 1, 1),
         );
+        pass.end();
     }
 }

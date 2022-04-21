@@ -107,7 +107,7 @@ pub struct CmdBuf {
 
 enum Encoder {
     None,
-    Compute(metal::ComputeCommandEncoder),
+    Compute(metal::ComputeCommandEncoder, Option<(id, u32)>),
     Blit(metal::BlitCommandEncoder),
 }
 
@@ -578,31 +578,52 @@ impl crate::backend::CmdBuf<MtlDevice> for CmdBuf {
         //debug_assert!(matches!(self.cur_encoder, Encoder::None));
         self.flush_encoder();
         autoreleasepool(|| {
-            let encoder = if let Some(queries) = &desc.timer_queries {
-                let descriptor: id =
-                    msg_send![class!(MTLComputePassDescriptor), computePassDescriptor];
-                let attachments: id = msg_send![descriptor, sampleBufferAttachments];
-                let index: NSUInteger = 0;
-                let attachment: id = msg_send![attachments, objectAtIndexedSubscript: index];
-                // Here we break the hub/mux separation a bit, for expedience
-                #[allow(irrefutable_let_patterns)]
-                if let crate::hub::QueryPool::Mtl(query_pool) = queries.0 {
-                    if let Some(sample_buf) = &query_pool.counter_sample_buf {
-                        let () = msg_send![attachment, setSampleBuffer: sample_buf.id()];
+            let (encoder, end_query) = match (&desc.timer_queries, self.counter_style) {
+                (Some(queries), CounterStyle::Stage) => {
+                    let descriptor: id =
+                        msg_send![class!(MTLComputePassDescriptor), computePassDescriptor];
+                    let attachments: id = msg_send![descriptor, sampleBufferAttachments];
+                    let index: NSUInteger = 0;
+                    let attachment: id = msg_send![attachments, objectAtIndexedSubscript: index];
+                    // Here we break the hub/mux separation a bit, for expedience
+                    #[allow(irrefutable_let_patterns)]
+                    if let crate::hub::QueryPool::Mtl(query_pool) = queries.0 {
+                        if let Some(sample_buf) = &query_pool.counter_sample_buf {
+                            let () = msg_send![attachment, setSampleBuffer: sample_buf.id()];
+                        }
                     }
+                    let start_index = queries.1 as NSUInteger;
+                    let end_index = queries.2 as NSInteger;
+                    let () = msg_send![attachment, setStartOfEncoderSampleIndex: start_index];
+                    let () = msg_send![attachment, setEndOfEncoderSampleIndex: end_index];
+                    (
+                        msg_send![
+                            self.cmd_buf,
+                            computeCommandEncoderWithDescriptor: descriptor
+                        ],
+                        None,
+                    )
                 }
-                let start_index = queries.1 as NSUInteger;
-                let end_index = queries.2 as NSInteger;
-                let () = msg_send![attachment, setStartOfEncoderSampleIndex: start_index];
-                let () = msg_send![attachment, setEndOfEncoderSampleIndex: end_index];
-                msg_send![
-                    self.cmd_buf,
-                    computeCommandEncoderWithDescriptor: descriptor
-                ]
-            } else {
-                self.cmd_buf.new_compute_command_encoder()
+                (Some(queries), CounterStyle::Command) => {
+                    let encoder = self.cmd_buf.new_compute_command_encoder();
+                    #[allow(irrefutable_let_patterns)]
+                    let end_query = if let crate::hub::QueryPool::Mtl(query_pool) = queries.0 {
+                        if let Some(sample_buf) = &query_pool.counter_sample_buf {
+                            let sample_index = queries.1 as NSUInteger;
+                            let sample_buf = sample_buf.id();
+                            let () = msg_send![encoder, sampleCountersInBuffer: sample_buf atSampleIndex: sample_index withBarrier: true];
+                            Some((sample_buf, queries.2))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+                    (encoder, end_query)
+                }
+                _ => (self.cmd_buf.new_compute_command_encoder(), None),
             };
-            self.cur_encoder = Encoder::Compute(encoder.to_owned());
+            self.cur_encoder = Encoder::Compute(encoder.to_owned(), end_query);
         });
     }
 
@@ -663,7 +684,7 @@ impl crate::backend::CmdBuf<MtlDevice> for CmdBuf {
         let size = size.unwrap_or(buffer.size);
         let _ = self.compute_command_encoder();
         // Getting this directly is a workaround for a borrow checker issue.
-        if let Encoder::Compute(e) = &self.cur_encoder {
+        if let Encoder::Compute(e, _) = &self.cur_encoder {
             clear::encode_clear(e, &self.helpers.clear_pipeline, &buffer.buffer, size);
         }
     }
@@ -752,12 +773,12 @@ impl crate::backend::CmdBuf<MtlDevice> for CmdBuf {
         if let Some(buf) = &pool.counter_sample_buf {
             if matches!(self.cur_encoder, Encoder::None) {
                 self.cur_encoder =
-                    Encoder::Compute(self.cmd_buf.new_compute_command_encoder().to_owned());
+                    Encoder::Compute(self.cmd_buf.new_compute_command_encoder().to_owned(), None);
             }
             let sample_index = query as NSUInteger;
             if self.counter_style == CounterStyle::Command {
                 match &self.cur_encoder {
-                    Encoder::Compute(e) => {
+                    Encoder::Compute(e, _) => {
                         let () = msg_send![e.as_ptr(), sampleCountersInBuffer: buf.id() atSampleIndex: sample_index withBarrier: true];
                     }
                     Encoder::None => unreachable!(),
@@ -765,7 +786,7 @@ impl crate::backend::CmdBuf<MtlDevice> for CmdBuf {
                 }
             } else if self.counter_style == CounterStyle::Stage {
                 match &self.cur_encoder {
-                    Encoder::Compute(_e) => {
+                    Encoder::Compute(_e, _) => {
                         println!("write_timestamp is not supported for stage-style encoders");
                     }
                     _ => (),
@@ -777,12 +798,12 @@ impl crate::backend::CmdBuf<MtlDevice> for CmdBuf {
 
 impl CmdBuf {
     fn compute_command_encoder(&mut self) -> &metal::ComputeCommandEncoder {
-        if !matches!(self.cur_encoder, Encoder::Compute(_)) {
+        if !matches!(self.cur_encoder, Encoder::Compute(..)) {
             self.flush_encoder();
             self.cur_encoder =
-                Encoder::Compute(self.cmd_buf.new_compute_command_encoder().to_owned());
+                Encoder::Compute(self.cmd_buf.new_compute_command_encoder().to_owned(), None);
         }
-        if let Encoder::Compute(e) = &self.cur_encoder {
+        if let Encoder::Compute(e, _) = &self.cur_encoder {
             e
         } else {
             unreachable!()
@@ -803,7 +824,14 @@ impl CmdBuf {
 
     fn flush_encoder(&mut self) {
         match std::mem::replace(&mut self.cur_encoder, Encoder::None) {
-            Encoder::Compute(e) => e.end_encoding(),
+            Encoder::Compute(e, Some((sample_buf, end_query))) => {
+                let sample_index = end_query as NSUInteger;
+                unsafe {
+                    let () = msg_send![e.as_ptr(), sampleCountersInBuffer: sample_buf atSampleIndex: sample_index withBarrier: true];
+                }
+                e.end_encoding();
+            }
+            Encoder::Compute(e, None) => e.end_encoding(),
             Encoder::Blit(e) => e.end_encoding(),
             Encoder::None => (),
         }

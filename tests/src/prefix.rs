@@ -85,9 +85,7 @@ pub unsafe fn run_prefix_test(
     let mut total_elapsed = 0.0;
     for i in 0..n_iter {
         let mut commands = runner.commands();
-        commands.write_timestamp(0);
         stage.record(&mut commands, &code, &binding);
-        commands.write_timestamp(1);
         if i == 0 || config.verify_all {
             commands.cmd_buf.memory_barrier();
             commands.download(&out_buf);
@@ -159,12 +157,14 @@ impl PrefixStage {
         let n_workgroups = (self.n_elements + ELEMENTS_PER_WG - 1) / ELEMENTS_PER_WG;
         commands.cmd_buf.clear_buffer(&self.state_buf, None);
         commands.cmd_buf.memory_barrier();
-        commands.cmd_buf.dispatch(
+        let mut pass = commands.compute_pass(0, 1);
+        pass.dispatch(
             &code.pipeline,
             &bindings.descriptor_set,
             (n_workgroups as u32, 1, 1),
             (WG_SIZE as u32, 1, 1),
         );
+        pass.end();
         // One thing that's missing here is registering the buffers so
         // they can be safely dropped by Rust code before the execution
         // of the command buffer completes.

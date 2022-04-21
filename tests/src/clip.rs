@@ -58,11 +58,11 @@ pub unsafe fn clip_test(runner: &mut Runner, config: &Config) -> TestResult {
     let binding = ClipBinding::new(&runner.session, &code, &config_buf, &memory.dev_buf);
 
     let mut commands = runner.commands();
-    commands.write_timestamp(0);
     commands.upload(&memory);
-    binding.record(&mut commands.cmd_buf, &code, n_clip as u32);
+    let mut pass = commands.compute_pass(0, 1);
+    binding.record(&mut pass, &code, n_clip as u32);
+    pass.end();
     commands.download(&memory);
-    commands.write_timestamp(1);
     runner.submit(commands);
     let dst = memory.map_read(..);
     if let Some(failure) = data.verify(&dst) {

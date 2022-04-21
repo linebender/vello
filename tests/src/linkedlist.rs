@@ -45,9 +45,7 @@ pub unsafe fn run_linkedlist_test(runner: &mut Runner, config: &Config) -> TestR
     for i in 0..n_iter {
         let mut commands = runner.commands();
         // Might clear only buckets to save time.
-        commands.write_timestamp(0);
         stage.record(&mut commands, &code, &binding, &mem_buf.dev_buf);
-        commands.write_timestamp(1);
         if i == 0 || config.verify_all {
             commands.cmd_buf.memory_barrier();
             commands.download(&mem_buf);
@@ -107,12 +105,14 @@ impl LinkedListStage {
         commands.cmd_buf.clear_buffer(out_buf, None);
         commands.cmd_buf.memory_barrier();
         let n_workgroups = N_BUCKETS / WG_SIZE;
-        commands.cmd_buf.dispatch(
+        let mut pass = commands.compute_pass(0, 1);
+        pass.dispatch(
             &code.pipeline,
             &bindings.descriptor_set,
             (n_workgroups as u32, 1, 1),
             (WG_SIZE as u32, 1, 1),
         );
+        pass.end();
     }
 }
 

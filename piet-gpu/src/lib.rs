@@ -17,8 +17,8 @@ use piet::kurbo::Vec2;
 use piet::{ImageFormat, RenderContext};
 
 use piet_gpu_hal::{
-    include_shader, BindType, Buffer, BufferUsage, CmdBuf, DescriptorSet, Error, Image,
-    ImageLayout, Pipeline, QueryPool, Session,
+    include_shader, BindType, Buffer, BufferUsage, CmdBuf, ComputePassDescriptor, DescriptorSet,
+    Error, Image, ImageLayout, Pipeline, QueryPool, Session,
 };
 
 pub use pico_svg::PicoSvg;
@@ -423,10 +423,11 @@ impl Renderer {
         cmd_buf.copy_buffer_to_image(&self.gradient_bufs[buf_ix], &self.gradients);
         cmd_buf.image_barrier(&self.gradients, ImageLayout::BlitDst, ImageLayout::General);
         cmd_buf.reset_query_pool(&query_pool);
-        cmd_buf.write_timestamp(&query_pool, 0);
         cmd_buf.begin_debug_label("Element bounding box calculation");
+        let mut pass = cmd_buf.begin_compute_pass(&ComputePassDescriptor::timer(&query_pool, 0, 1));
+        // cmd_buf.write_timestamp(&query_pool, 0);
         self.element_stage.record(
-            cmd_buf,
+            &mut pass,
             &self.element_code,
             &self.element_bindings[buf_ix],
             self.n_transform as u64,
@@ -434,56 +435,64 @@ impl Renderer {
             self.n_pathtag as u32,
             self.n_drawobj as u64,
         );
+        pass.end();
         cmd_buf.end_debug_label();
-        cmd_buf.write_timestamp(&query_pool, 1);
+        // cmd_buf.write_timestamp(&query_pool, 1);
         cmd_buf.memory_barrier();
         cmd_buf.begin_debug_label("Clip bounding box calculation");
+        let mut pass = cmd_buf.begin_compute_pass(&ComputePassDescriptor::timer(&query_pool, 2, 3));
         self.clip_binding
-            .record(cmd_buf, &self.clip_code, self.n_clip as u32);
-        cmd_buf.end_debug_label();
-        cmd_buf.begin_debug_label("Element binning");
-        cmd_buf.dispatch(
+            .record(&mut pass, &self.clip_code, self.n_clip as u32);
+        // cmd_buf.end_debug_label();
+        // cmd_buf.begin_debug_label("Element binning");
+        pass.dispatch(
             &self.bin_pipeline,
             &self.bin_ds,
             (((self.n_paths + 255) / 256) as u32, 1, 1),
             (256, 1, 1),
         );
-        cmd_buf.end_debug_label();
-        cmd_buf.memory_barrier();
-        cmd_buf.begin_debug_label("Tile allocation");
-        cmd_buf.dispatch(
+        // cmd_buf.end_debug_label();
+        pass.memory_barrier();
+        // cmd_buf.begin_debug_label("Tile allocation");
+        pass.dispatch(
             &self.tile_pipeline,
             &self.tile_ds[buf_ix],
             (((self.n_paths + 255) / 256) as u32, 1, 1),
             (256, 1, 1),
         );
-        cmd_buf.end_debug_label();
-        cmd_buf.write_timestamp(&query_pool, 2);
-        cmd_buf.memory_barrier();
+        // cmd_buf.end_debug_label();
+        pass.end();
+        // cmd_buf.write_timestamp(&query_pool, 2);
         cmd_buf.begin_debug_label("Path flattening");
-        cmd_buf.dispatch(
+        cmd_buf.memory_barrier();
+        let mut pass = cmd_buf.begin_compute_pass(&ComputePassDescriptor::timer(&query_pool, 4, 5));
+        pass.dispatch(
             &self.path_pipeline,
             &self.path_ds,
             (((self.n_pathseg + 31) / 32) as u32, 1, 1),
             (32, 1, 1),
         );
+        pass.end();
+        // cmd_buf.write_timestamp(&query_pool, 3);
         cmd_buf.end_debug_label();
-        cmd_buf.write_timestamp(&query_pool, 3);
         cmd_buf.memory_barrier();
         cmd_buf.begin_debug_label("Backdrop propagation");
-        cmd_buf.dispatch(
+        let mut pass = cmd_buf.begin_compute_pass(&ComputePassDescriptor::timer(&query_pool, 6, 7));
+        pass.dispatch(
             &self.backdrop_pipeline,
             &self.backdrop_ds,
             (((self.n_paths + 255) / 256) as u32, 1, 1),
             (256, self.backdrop_y, 1),
         );
+        pass.end();
+        // cmd_buf.write_timestamp(&query_pool, 4);
         cmd_buf.end_debug_label();
-        cmd_buf.write_timestamp(&query_pool, 4);
         // TODO: redo query accounting
-        cmd_buf.write_timestamp(&query_pool, 5);
+        // cmd_buf.write_timestamp(&query_pool, 5);
         cmd_buf.memory_barrier();
         cmd_buf.begin_debug_label("Coarse raster");
-        cmd_buf.dispatch(
+        let mut pass = cmd_buf.begin_compute_pass(&ComputePassDescriptor::timer(&query_pool, 8, 9));
+        pass.dispatch(
             &self.coarse_pipeline,
             &self.coarse_ds[buf_ix],
             (
@@ -493,11 +502,14 @@ impl Renderer {
             ),
             (256, 1, 1),
         );
+        pass.end();
         cmd_buf.end_debug_label();
-        cmd_buf.write_timestamp(&query_pool, 6);
+        // cmd_buf.write_timestamp(&query_pool, 6);
         cmd_buf.memory_barrier();
         cmd_buf.begin_debug_label("Fine raster");
-        cmd_buf.dispatch(
+        let mut pass =
+            cmd_buf.begin_compute_pass(&ComputePassDescriptor::timer(&query_pool, 10, 11));
+        pass.dispatch(
             &self.k4_pipeline,
             &self.k4_ds,
             (
@@ -507,8 +519,9 @@ impl Renderer {
             ),
             (8, 4, 1),
         );
+        pass.end();
         cmd_buf.end_debug_label();
-        cmd_buf.write_timestamp(&query_pool, 7);
+        // cmd_buf.write_timestamp(&query_pool, 7);
         cmd_buf.memory_barrier();
         cmd_buf.image_barrier(&self.image_dev, ImageLayout::General, ImageLayout::BlitSrc);
     }
