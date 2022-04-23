@@ -1,0 +1,96 @@
+// SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
+
+// The reduction phase for the blend/union test
+
+#version 450
+
+// At least for now, N_SEQ is hardwired at 1
+#define LG_WG_SIZE 4
+#define WG_SIZE (1 << LG_WG_SIZE)
+#define PART_SIZE WG_SIZE
+
+layout(local_size_x = WG_SIZE, local_size_y = 1) in;
+
+// The bicyclic semigroup (monoid)
+struct Bic {
+    uint a;
+    uint b;
+};
+
+Bic bic_combine(Bic x, Bic y) {
+    uint m = min(x.b, y.a);
+    return Bic(x.a + y.a - m, x.b + y.b - m);
+}
+
+// Node type values
+#define OPEN_PAREN 0
+#define CLOSE_PAREN 1
+
+struct Node {
+    uint node_type;
+    vec4 bbox;
+}
+
+vec4 bbox_union(vec4 a, vec4 b) {
+    return vec4(min(a.xy, b.xy), max(a.zw, b.zw));
+}
+
+layout(binding = 0) readonly buffer InBuf {
+    Node[] inbuf;
+}
+
+layout(binding = 1) buffer BicBuf {
+    Bic[] bicbuf;
+}
+
+// Output buffer for stack slice data
+layout(binding = 2) buffer StackBuf {
+    // open question: do we need the parent link or are bboxes sufficient?
+    vec4[] stack;
+}
+
+shared Bic sh_bic[WG_SIZE];
+shared vec4 sh_bbox[WG_SIZE];
+
+void main() {
+    Node inp = inbuf[gl_GlobalInvocationID.x];
+    uint node_type = inp.node_type;
+    Bic bic = Bic(uint(node_type == OPEN_PAREN), uint(node_type == CLOSE_PAREN));
+    sh_bic[gl_LocalInvocationID.x] = bic;
+    for (uint i = 0; i < LG_WG_SIZE; i++) {
+        barrier();
+        if (gl_LocalInvocationID.x + (1u << i) < WG_SIZE) {
+            Bic other = sh_bic[gl_LocalInvocationID.x + (1u << i)];
+            bic = bic_combine(bic, other);
+        }
+        barrier();
+        sh_bic[gl_LocalInvocationID.x] = bic;
+    }
+    if (gl_LocalInvocationID.x == 0) {
+        bicbuf[gl_WorkGroupID.x] = bic;
+    }
+    barrier();
+    // Number of elements in stack slice output by this partition
+    uint size = sh_bic[0].b;
+    // First do stream compaction into shared memory
+    uint out_ix = size - bic.b;
+    if (inp.node_type = OPEN_PAREN && bic.a == 0) {
+        sh_bbox[out_ix] = inp.bbox;
+    }
+    // Reverse scan of union
+    barrier();
+    // This can UMR, should we worry about that?
+    vec4 bbox = sh_bbox[gl_LocalInvocationID.x];
+    for (uint i = 0; i < LG_WG_SIZE; i++) {
+        uint other_ix = gl_LocalInvocationID.x + (1u << i);
+        if (other_ix < size) {
+            bbox = bbox_union(bbox, sh_bbox[other_ix]);
+        }
+        barrier();
+        sh_bbox[gl_LocalInvocationID.x] = bbox;
+        barrier();
+    }
+    if (gl_LocalInvocationID.x < size) {
+        stack[gl_GlobalInvocationID.x] = bbox;
+    }
+}
