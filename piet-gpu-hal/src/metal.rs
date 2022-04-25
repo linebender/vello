@@ -55,7 +55,7 @@ pub struct MtlDevice {
 /// Type of counter sampling.
 ///
 /// See https://developer.apple.com/documentation/metal/counter_sampling/sampling_gpu_data_into_counter_sample_buffers
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum CounterStyle {
     None,
     Stage,
@@ -244,12 +244,18 @@ impl MtlDevice {
         // Timer stuff
         let timer_set = CounterSet::get_timer_counter_set(&device);
         let counter_style = if timer_set.is_some() {
-            // TODO: M1 is stage style, but should do proper runtime detection.
-            CounterStyle::Stage
+            if device.supports_counter_sampling(metal::MTLCounterSamplingPoint::AtStageBoundary) {
+                CounterStyle::Stage
+            } else if device
+                .supports_counter_sampling(metal::MTLCounterSamplingPoint::AtDispatchBoundary)
+            {
+                CounterStyle::Command
+            } else {
+                CounterStyle::None
+            }
         } else {
             CounterStyle::None
         };
-
         MtlDevice {
             device,
             cmd_queue: Arc::new(Mutex::new(cmd_queue)),
