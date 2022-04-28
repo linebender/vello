@@ -27,6 +27,7 @@ mod prefix_tree;
 mod runner;
 mod stack;
 mod test_result;
+mod union;
 
 #[cfg(feature = "piet-gpu")]
 mod path;
@@ -138,6 +139,7 @@ fn main() {
         }
         if config.groups.matches("stack") {
             report(&stack::run_stack_test(&mut runner, &config));
+            report(&union::run_union_test(&mut runner, &config));
         }
         #[cfg(feature = "piet-gpu")]
         if config.groups.matches("piet") {

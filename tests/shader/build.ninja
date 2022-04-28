@@ -80,3 +80,13 @@ build gen/stack_leaf.spv: glsl stack_leaf.comp
 build gen/stack_leaf.hlsl: hlsl gen/stack_leaf.spv
 build gen/stack_leaf.dxil: dxil gen/stack_leaf.hlsl
 build gen/stack_leaf.msl: msl gen/stack_leaf.spv
+
+build gen/union_reduce.spv: glsl union_reduce.comp
+build gen/union_reduce.hlsl: hlsl gen/union_reduce.spv
+build gen/union_reduce.dxil: dxil gen/union_reduce.hlsl
+build gen/union_reduce.msl: msl gen/union_reduce.spv
+
+build gen/union_leaf.spv: glsl union_leaf.comp
+build gen/union_leaf.hlsl: hlsl gen/union_leaf.spv
+build gen/union_leaf.dxil: dxil gen/union_leaf.hlsl
+build gen/union_leaf.msl: msl gen/union_leaf.spv

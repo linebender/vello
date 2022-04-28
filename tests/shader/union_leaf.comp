@@ -4,9 +4,9 @@
 
 #version 450
 
-#define LG_N_SEQ 3
+#define LG_N_SEQ 0
 #define N_SEQ (1 << LG_N_SEQ)
-#define LG_WG_SIZE 6
+#define LG_WG_SIZE 8
 #define WG_SIZE (1 << LG_WG_SIZE)
 #define PART_SIZE (WG_SIZE * N_SEQ)
 
@@ -16,6 +16,13 @@ layout(local_size_x = WG_SIZE, local_size_y = 1) in;
 struct Bic {
     uint a;
     uint b;
+};
+
+struct BicBbox {
+    Bic bic;
+    uint pad2;
+    uint pad3;
+    vec4 bbox;
 };
 
 Bic bic_combine(Bic x, Bic y) {
@@ -29,8 +36,11 @@ Bic bic_combine(Bic x, Bic y) {
 
 struct Node {
     uint node_type;
+    uint pad1;
+    uint pad2;
+    uint pad3;
     vec4 bbox;
-}
+};
 
 #define BBOX_IDENTITY vec4(1e9, 1e9, -1e9, -1e9)
 
@@ -43,7 +53,7 @@ layout(binding = 0) readonly buffer InBuf {
 };
 
 layout(binding = 1) readonly buffer BicBuf {
-    Bic[] bicbuf;
+    BicBbox[] bicbuf;
 };
 
 layout(binding = 2) readonly buffer StackBuf {
@@ -58,76 +68,31 @@ shared Bic sh_bic[WG_SIZE * 2 - 2];
 shared vec4 sh_stack[WG_SIZE];
 shared vec4 sh_bbox[WG_SIZE * 2 - 2];
 
-// Note to self: we'll want to put the bboxes in here too.
-// This is adapted directly from the stack monoid impl.
-// Return value is reference within partition if >= 0,
-// otherwise reference to stack.
-uint search_link(inout Bic bic) {
-    uint ix = gl_LocalInvocationID.x;
-    uint j = 0;
-    while (j < LG_WG_SIZE) {
-        uint base = 2 * WG_SIZE - (2u << (LG_WG_SIZE - j));
-        if (((ix >> j) & 1) != 0) {
-            Bic test = bic_combine(sh_bic[base + (ix >> j) - 1], bic);
-            if (test.b > 0) {
-                break;
-            }
-            bic = test;
-            ix -= 1u << j;
-        }
-        j++;
-    }
-    if (ix > 0) {
-        while (j > 0) {
-            j--;
-            uint base = 2 * WG_SIZE - (2u << (LG_WG_SIZE - j));
-            Bic test = bic_combine(sh_bic[base + (ix >> j) - 1], bic);
-            if (test.b == 0) {
-                bic = test;
-                ix -= 1u << j;
-            }
-        }
-    }
-    // ix is the smallest value such that reduce(ix..th).b == 0
-    if (ix > 0) {
-        return ix - 1;
-    } else {
-        return ~0u - bic.a;
-    }
-}
-
 void main() {
     uint th = gl_LocalInvocationID.x;
     // materialize stack snapshot as of the start of this partition
     Bic bic = Bic(0, 0);
+    vec4 bbox = BBOX_IDENTITY;
     if (th < gl_WorkGroupID.x) {
-        bic = bicbuf[th];
+        bic = bicbuf[th].bic;
+        bbox = bicbuf[th].bbox;
     }
     sh_bic[th] = bic;
+    sh_bbox[th] = bbox;
     for (uint i = 0; i < LG_WG_SIZE; i++) {
         barrier();
-        if (th + (1u << i) < WG_SIZE) {
-            Bic other = sh_bic[th + (1u << i)];
-            bic = bic_combine(bic, other);
+        uint other_ix = th + (1u << i);
+        if (other_ix < WG_SIZE) {
+            bic = bic_combine(bic, sh_bic[other_ix]);
+            bbox = bbox_union(bbox, sh_bbox[other_ix]);
         }
         barrier();
         sh_bic[th] = bic;
+        sh_bbox[th] = bbox;
     }
 
-    // reverse scan of "bottom of stack" values
     barrier();
-    uint next_bic_b = th + 1 == WG_SIZE ? 0 : sh_bic[th + 1].b;
-    vec4 bbox = bic.b == next_bic_b ? BBOX_IDENTITY : stack[th * PART_SIZE].bbox;
-    for (uint i = 0; i < LG_WG_SIZE; i++) {
-        sh_bbox[th] = bbox;
-        barrier();
-        if (th + (1u << i) < WG_SIZE) {
-            bbox = bbox_union(bbox, sh_bbox[th + (1u << i)]);
-        }
-        barrier();
-    }
-    sh_bbox[th] = bbox;
-    barrier();
+    uint size = sh_bic[0].b;
     // binary search in stack to do stream compaction
     uint sp = PART_SIZE - 1 - th;
     uint ix = 0;
@@ -150,7 +115,7 @@ void main() {
     // Do tree reduction of bicyclic semigroups and bounding boxes
     Node inp = inbuf[gl_GlobalInvocationID.x];
     uint node_type = inp.node_type;
-    bic = Bic(uint(node_type == OPEN_PAREN), uint(node_type == CLOSE_PAREN));
+    bic = Bic(uint(node_type == CLOSE_PAREN), uint(node_type == OPEN_PAREN));
     sh_bic[th] = bic;
     sh_bbox[th] = inp.bbox;
     uint inbase = 0;
@@ -163,39 +128,46 @@ void main() {
         }
         inbase = outbase;
     }
+    barrier();
 
     // Search for predecessor node and aggregate bounding boxes
     ix = th;
-    bbox = BBOX_IDENTITY;
-    uint j = 0;
-    while (j < LG_WG_SIZE) {
-        uint base = 2 * WG_SIZE - (2u << (LG_WG_SIZE - j));
-        if (((ix >> j) & 1) != 0) {
-            Bic test = bic_combine(sh_bic[base + (ix >> j) - 1], bic);
-            if (test.b > 0) {
-                break;
-            }
-            bic = test;
-            bbox = bbox_union(sh_bbox[base + (ix >> j) - 1], bbox);
-            ix -= 1u << j;
-        }
-        j++;
-    }
-    if (ix > 0) {
-        while (j > 0) {
-            j--;
+    bbox = inp.bbox;
+    bic = Bic(0, 0);
+    if (node_type == CLOSE_PAREN) {
+        // only aggregate bbox for nodes with children; ascribe to close paren
+        // Note: if we also maintained the link to the open paren, we could
+        // store the bbox there. This will depend on the use case.
+        uint j = 0;
+        while (j < LG_WG_SIZE) {
             uint base = 2 * WG_SIZE - (2u << (LG_WG_SIZE - j));
-            Bic test = bic_combine(sh_bic[base + (ix >> j) - 1], bic);
-            if (test.b == 0) {
+            if (((ix >> j) & 1) != 0) {
+                Bic test = bic_combine(sh_bic[base + (ix >> j) - 1], bic);
+                if (test.b > 0) {
+                    break;
+                }
                 bic = test;
                 bbox = bbox_union(sh_bbox[base + (ix >> j) - 1], bbox);
                 ix -= 1u << j;
             }
+            j++;
+        }
+        if (ix > 0) {
+            while (j > 0) {
+                j--;
+                uint base = 2 * WG_SIZE - (2u << (LG_WG_SIZE - j));
+                Bic test = bic_combine(sh_bic[base + (ix >> j) - 1], bic);
+                if (test.b == 0) {
+                    bic = test;
+                    bbox = bbox_union(sh_bbox[base + (ix >> j) - 1], bbox);
+                    ix -= 1u << j;
+                }
+            }
+        }
+        // ix is the smallest value such that reduce(ix..th).b == 0
+        if (ix == 0 && bic.a < size) {
+            bbox = bbox_union(sh_stack[PART_SIZE - 1 - bic.a], bbox);
         }
     }
-    // ix is the smallest value such that reduce(ix..th).b == 0
-    if (ix == 0) {
-        bbox = bbox_union(sh_stack[PART_SIZE - 1 - bic.a], bbox);
-    }
-    outbuf[th] = bbox;
+    outbuf[gl_GlobalInvocationID.x] = bbox;
 }
