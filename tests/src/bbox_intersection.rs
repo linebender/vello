@@ -64,39 +64,45 @@ struct IntersectionData {
 
 pub unsafe fn run_intersection_test(runner: &mut Runner, config: &Config) -> TestResult {
     let mut result = TestResult::new("Bounding box Intersection");
-    let n_elements: u64 = config.size.choose(1 << 9, 1 << 12, 1 << 18);
-    let data = IntersectionData::new(n_elements);
-    let data_buf = runner
-        .session
-        .create_buffer_init(&data.nodes, BufferUsage::STORAGE)
-        .unwrap();
-    let out_buf = runner.buf_down(data_buf.size(), BufferUsage::empty());
+    println!("# bounding box intersection");
+    for exp in 10..=16 {
+        let n_elements: u64 = 1 << exp;
+        let data = IntersectionData::new(n_elements);
+        let data_buf = runner
+            .session
+            .create_buffer_init(&data.nodes, BufferUsage::STORAGE)
+            .unwrap();
+        let out_buf = runner.buf_down(data_buf.size(), BufferUsage::empty());
 
-    let code = IntersectionCode::new(runner);
-    let stage = IntersectionStage::new(runner, n_elements);
-    let binding = stage.bind(runner, &code, &data_buf, &out_buf.dev_buf);
+        let code = IntersectionCode::new(runner);
+        let stage = IntersectionStage::new(runner, n_elements);
+        let binding = stage.bind(runner, &code, &data_buf, &out_buf.dev_buf);
 
-    let mut total_elapsed = 0.0;
-    let n_iter = config.n_iter;
-    for i in 0..n_iter {
-        let mut commands = runner.commands();
-        let mut pass = commands.compute_pass(0, 1);
-        stage.record(&mut pass, &code, &binding, n_elements);
-        pass.end();
-        if i == 0 || config.verify_all {
-            commands.cmd_buf.memory_barrier();
-            commands.download(&out_buf);
-        }
-        total_elapsed += runner.submit(commands);
-        if i == 0 || config.verify_all {
-            let dst = out_buf.map_read(..);
-            if let Some(failure) = data.verify(dst.cast_slice()) {
-                result.fail(failure);
+        let mut total_elapsed = 0.0;
+        let n_iter = config.n_iter;
+        for i in 0..n_iter {
+            let mut commands = runner.commands();
+            let mut pass = commands.compute_pass(0, 1);
+            stage.record(&mut pass, &code, &binding, n_elements);
+            pass.end();
+            if i == 0 || config.verify_all {
+                commands.cmd_buf.memory_barrier();
+                commands.download(&out_buf);
+            }
+            total_elapsed += runner.submit(commands);
+            if i == 0 || config.verify_all {
+                let dst = out_buf.map_read(..);
+                if let Some(failure) = data.verify(dst.cast_slice()) {
+                    result.fail(failure);
+                }
             }
         }
+        let throughput = (n_elements * n_iter) as f64 / total_elapsed;
+        println!("{} {}", n_elements, throughput);
     }
+    println!("e");
 
-    result.timing(total_elapsed, n_elements * n_iter);
+    //result.timing(total_elapsed, n_elements * n_iter);
     result
 }
 
