@@ -1,0 +1,189 @@
+// SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
+
+// The main phase for the bbox union computation
+
+#version 450
+
+#define LG_N_SEQ 0
+#define N_SEQ (1 << LG_N_SEQ)
+#define LG_WG_SIZE 8
+#define WG_SIZE (1 << LG_WG_SIZE)
+#define PART_SIZE (WG_SIZE * N_SEQ)
+
+layout(local_size_x = WG_SIZE, local_size_y = 1) in;
+
+// The bicyclic monoid
+struct Bic {
+    uint a;
+    uint b;
+};
+
+Bic bic_combine(Bic x, Bic y) {
+    uint m = min(x.b, y.a);
+    return Bic(x.a + y.a - m, x.b + y.b - m);
+}
+
+// Node type values
+#define OPEN_PAREN 0
+#define CLOSE_PAREN 1
+
+struct Node {
+    uint node_type;
+    uint pad1;
+    uint pad2;
+    uint pad3;
+    vec4 bbox;
+};
+
+#define BBOX_IDENTITY vec4(-1e9, -1e9, 1e9, 1e9)
+
+vec4 bbox_intersect(vec4 a, vec4 b) {
+    return vec4(max(a.xy, b.xy), min(a.zw, b.zw));
+}
+
+layout(binding = 0) readonly buffer InBuf {
+    Node[] inbuf;
+};
+
+layout(binding = 1) readonly buffer BicBuf {
+    Bic[] bicbuf;
+};
+
+layout(binding = 2) readonly buffer StackBuf {
+    vec4[] stack;
+};
+
+layout(binding = 3) buffer OutBuf {
+    vec4[] outbuf;
+};
+
+shared Bic sh_bic[WG_SIZE * 2 - 2];
+shared vec4 sh_stack[WG_SIZE];
+shared uint sh_link[WG_SIZE];
+shared vec4 sh_bbox[WG_SIZE];
+
+void main() {
+    uint th = gl_LocalInvocationID.x;
+    // materialize stack snapshot as of the start of this partition
+
+    // start with reverse scan of bic values from first dispatch
+    Bic bic = Bic(0, 0);
+    if (th < gl_WorkGroupID.x) {
+        bic = bicbuf[th];
+    }
+    sh_bic[th] = bic;
+    for (uint i = 0; i < LG_WG_SIZE; i++) {
+        barrier();
+        uint other_ix = th + (1u << i);
+        if (other_ix < WG_SIZE) {
+            bic = bic_combine(bic, sh_bic[other_ix]);
+        }
+        barrier();
+        sh_bic[th] = bic;
+    }
+
+    barrier();
+    uint size = sh_bic[0].b;
+
+    // forward scan of "top of stack" values
+    uint bic_next_b = 0;
+    if (th + 1 < WG_SIZE) {
+        bic_next_b = sh_bic[th + 1].b;
+    }
+    vec4 bbox = BBOX_IDENTITY;
+    if (bic.b > bic_next_b) {
+        bbox = stack[th * PART_SIZE + bic.b - bic_next_b - 1];
+    }
+    for (uint i = 0; i < LG_WG_SIZE; i++) {
+        sh_bbox[th] = bbox;
+        barrier();
+        if (th >= (1u << i)) {
+            bbox = bbox_intersect(sh_bbox[th - (1u << i)], bbox);
+        }
+        barrier();
+    }
+    sh_bbox[th] = bbox;
+    barrier();
+
+    // binary search in stack to do stream compaction
+    uint sp = PART_SIZE - 1 - th;
+    uint ix = 0;
+    for (uint i = 0; i < LG_WG_SIZE; i++) {
+        uint probe = ix + (uint(PART_SIZE / 2) >> i);
+        if (sp < sh_bic[probe].b) {
+            ix = probe;
+        }
+    }
+    // ix is the largest value such that sp < sh_bic[ix].b (if any)
+    uint b = sh_bic[ix].b;
+    if (sp < b) {
+        bbox = stack[ix * PART_SIZE + b - sp - 1];
+        if (ix > 0) {
+            bbox = bbox_intersect(sh_bbox[ix - 1], bbox);
+        }
+        sh_stack[th] = bbox;
+    }
+
+    // Do tree reduction of bicyclic semigroups
+    Node inp = inbuf[gl_GlobalInvocationID.x];
+    uint node_type = inp.node_type;
+    bic = Bic(uint(node_type == CLOSE_PAREN), uint(node_type == OPEN_PAREN));
+    sh_bic[th] = bic;
+    uint inbase = 0;
+    for (uint i = 0; i < LG_WG_SIZE - 1; i++) {
+        uint outbase = 2 * WG_SIZE - (1u << (LG_WG_SIZE - i));
+        barrier();
+        if (th < (1u << (LG_WG_SIZE - 1 - i))) {
+            sh_bic[outbase + th] = bic_combine(sh_bic[inbase + th * 2], sh_bic[inbase + th * 2 + 1]);
+        }
+        inbase = outbase;
+    }
+    barrier();
+
+    // Search for predecessor node
+    ix = th;
+    bic = Bic(0, 0);
+    uint j = 0;
+    while (j < LG_WG_SIZE) {
+        uint base = 2 * WG_SIZE - (2u << (LG_WG_SIZE - j));
+        if (((ix >> j) & 1) != 0) {
+            Bic test = bic_combine(sh_bic[base + (ix >> j) - 1], bic);
+            if (test.b > 0) {
+                break;
+            }
+            bic = test;
+            ix -= 1u << j;
+        }
+        j++;
+    }
+    if (ix > 0) {
+        while (j > 0) {
+            j--;
+            uint base = 2 * WG_SIZE - (2u << (LG_WG_SIZE - j));
+            Bic test = bic_combine(sh_bic[base + (ix >> j) - 1], bic);
+            if (test.b == 0) {
+                bic = test;
+                ix -= 1u << j;
+            }
+        }
+    }
+    // ix is the smallest value such that reduce(ix..th).b == 0
+    uint link = ix > 0 ? ix - 1 : ~0u - bic.a;
+    bbox = inp.bbox;
+
+    // scan along parent links
+    for (uint i = 0; i < LG_WG_SIZE; i++) {
+        sh_link[th] = link;
+        sh_bbox[th] = bbox;
+        barrier();
+        if (int(link) >= 0) {
+            bbox = bbox_intersect(sh_bbox[link], bbox);
+            link = sh_link[link];
+        }
+        barrier();
+    }
+    if (int(link + size) >= 0) {
+        bbox = bbox_intersect(sh_stack[WG_SIZE + link], bbox);
+    }
+    outbuf[gl_GlobalInvocationID.x] = bbox;
+}

@@ -17,13 +17,6 @@ struct Bic {
     uint b;
 };
 
-struct BicBbox {
-    Bic bic;
-    uint pad2;
-    uint pad3;
-    vec4 bbox;
-};
-
 Bic bic_combine(Bic x, Bic y) {
     uint m = min(x.b, y.a);
     return Bic(x.a + y.a - m, x.b + y.b - m);
@@ -41,8 +34,8 @@ struct Node {
     vec4 bbox;
 };
 
-vec4 bbox_union(vec4 a, vec4 b) {
-    return vec4(min(a.xy, b.xy), max(a.zw, b.zw));
+vec4 bbox_intersect(vec4 a, vec4 b) {
+    return vec4(max(a.xy, b.xy), min(a.zw, b.zw));
 }
 
 layout(binding = 0) readonly buffer InBuf {
@@ -50,7 +43,7 @@ layout(binding = 0) readonly buffer InBuf {
 };
 
 layout(binding = 1) buffer BicBuf {
-    BicBbox[] bicbuf;
+    Bic[] bicbuf;
 };
 
 // Output buffer for stack slice data
@@ -63,37 +56,52 @@ shared Bic sh_bic[WG_SIZE];
 shared vec4 sh_bbox[WG_SIZE];
 
 void main() {
+    uint th = gl_LocalInvocationID.x;
     Node inp = inbuf[gl_GlobalInvocationID.x];
     uint node_type = inp.node_type;
-    vec4 bbox = inp.bbox;
     Bic bic = Bic(uint(node_type == CLOSE_PAREN), uint(node_type == OPEN_PAREN));
     sh_bic[gl_LocalInvocationID.x] = bic;
-    sh_bbox[gl_LocalInvocationID.x] = bbox;
     for (uint i = 0; i < LG_WG_SIZE; i++) {
         barrier();
         uint other_ix = gl_LocalInvocationID.x + (1u << i);
         if (other_ix < WG_SIZE) {
             bic = bic_combine(bic, sh_bic[other_ix]);
-            bbox = bbox_union(bbox, sh_bbox[other_ix]);
         }
         barrier();
-        sh_bic[gl_LocalInvocationID.x] = bic;
-        sh_bbox[gl_LocalInvocationID.x] = bbox;
+        sh_bic[th] = bic;
     }
-    if (gl_LocalInvocationID.x == 0) {
-        BicBbox bic_bbox = BicBbox(bic, 0, 0, bbox);
-        bicbuf[gl_WorkGroupID.x] = bic_bbox;
+    if (th == 0) {
+        bicbuf[gl_WorkGroupID.x] = bic;
     }
     barrier();
     // Number of elements in stack slice output by this partition
     uint size = sh_bic[0].b;
     bic = Bic(0, 0);
-    if (gl_LocalInvocationID.x + 1 < WG_SIZE) {
-        bic = sh_bic[gl_LocalInvocationID.x + 1];
+    if (th + 1 < WG_SIZE) {
+        bic = sh_bic[th + 1];
     }
     // Do stream compaction
     if (inp.node_type == OPEN_PAREN && bic.a == 0) {
-        uint out_ix = gl_WorkGroupID.x * PART_SIZE + size - bic.b - 1;
-        stack[out_ix] = sh_bbox[gl_LocalInvocationID.x];
+        uint out_ix = size - bic.b - 1;
+        sh_bbox[out_ix] = inp.bbox;
+    }
+    barrier();
+    vec4 bbox;
+    if (th < size) {
+        bbox = sh_bbox[th];
+    }
+    // Forward scan of intersection over resulting stack slice
+    for (uint i = 0; i < LG_WG_SIZE; i++) {
+        if (th < size && th >= (1u << i)) {
+            bbox = bbox_intersect(sh_bbox[th - (1u << i)], bbox);
+        }
+        barrier();
+        if (th < size) {
+            sh_bbox[th] = bbox;
+        }
+        barrier();
+    }
+    if (th < size) {
+        stack[gl_GlobalInvocationID.x] = bbox;
     }
 }

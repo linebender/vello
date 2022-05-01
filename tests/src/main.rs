@@ -16,6 +16,8 @@
 
 //! Tests for piet-gpu shaders and GPU capabilities.
 
+mod bbox_intersection;
+mod bbox_union;
 mod clear;
 mod clip;
 mod config;
@@ -27,7 +29,6 @@ mod prefix_tree;
 mod runner;
 mod stack;
 mod test_result;
-mod union;
 
 #[cfg(feature = "piet-gpu")]
 mod path;
@@ -139,7 +140,8 @@ fn main() {
         }
         if config.groups.matches("stack") {
             report(&stack::run_stack_test(&mut runner, &config));
-            report(&union::run_union_test(&mut runner, &config));
+            report(&bbox_union::run_union_test(&mut runner, &config));
+            report(&bbox_intersection::run_intersection_test(&mut runner, &config));
         }
         #[cfg(feature = "piet-gpu")]
         if config.groups.matches("piet") {

@@ -90,3 +90,13 @@ build gen/union_leaf.spv: glsl union_leaf.comp
 build gen/union_leaf.hlsl: hlsl gen/union_leaf.spv
 build gen/union_leaf.dxil: dxil gen/union_leaf.hlsl
 build gen/union_leaf.msl: msl gen/union_leaf.spv
+
+build gen/intersection_reduce.spv: glsl intersection_reduce.comp
+build gen/intersection_reduce.hlsl: hlsl gen/intersection_reduce.spv
+build gen/intersection_reduce.dxil: dxil gen/intersection_reduce.hlsl
+build gen/intersection_reduce.msl: msl gen/intersection_reduce.spv
+
+build gen/intersection_leaf.spv: glsl intersection_leaf.comp
+build gen/intersection_leaf.hlsl: hlsl gen/intersection_leaf.spv
+build gen/intersection_leaf.dxil: dxil gen/intersection_leaf.hlsl
+build gen/intersection_leaf.msl: msl gen/intersection_leaf.spv
