@@ -141,7 +141,10 @@ fn main() {
         if config.groups.matches("stack") {
             report(&stack::run_stack_test(&mut runner, &config));
             report(&bbox_union::run_union_test(&mut runner, &config));
-            report(&bbox_intersection::run_intersection_test(&mut runner, &config));
+            report(&bbox_intersection::run_intersection_test(
+                &mut runner,
+                &config,
+            ));
         }
         #[cfg(feature = "piet-gpu")]
         if config.groups.matches("piet") {

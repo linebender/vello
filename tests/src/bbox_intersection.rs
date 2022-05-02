@@ -65,7 +65,8 @@ struct IntersectionData {
 pub unsafe fn run_intersection_test(runner: &mut Runner, config: &Config) -> TestResult {
     let mut result = TestResult::new("Bounding box Intersection");
     println!("# bounding box intersection");
-    for exp in 10..=16 {
+    let expmax = 2 * WG_SIZE.trailing_zeros();
+    for exp in 10..=expmax {
         let n_elements: u64 = 1 << exp;
         let data = IntersectionData::new(n_elements);
         let data_buf = runner
@@ -99,6 +100,18 @@ pub unsafe fn run_intersection_test(runner: &mut Runner, config: &Config) -> Tes
         }
         let throughput = (n_elements * n_iter) as f64 / total_elapsed;
         println!("{} {}", n_elements, throughput);
+    }
+    println!("e");
+    println!("# bounding box intersection, CPU");
+    for exp in 10..=expmax {
+        let n_elements: u64 = 1 << exp;
+        let data = IntersectionData::new(n_elements);
+        let start = std::time::Instant::now();
+        let result = data.run();
+        let elapsed = start.elapsed().as_secs_f64();
+        let throughput = n_elements as f64 / elapsed;
+        println!("{} {}", n_elements, throughput);
+        data.verify(&result);
     }
     println!("e");
 
@@ -148,7 +161,10 @@ impl IntersectionStage {
             .session
             .create_buffer(bic_size, BufferUsage::STORAGE)
             .unwrap();
-        IntersectionStage { bic_buf, intersection_buf }
+        IntersectionStage {
+            bic_buf,
+            intersection_buf,
+        }
     }
 
     unsafe fn bind(
@@ -217,7 +233,12 @@ fn rand_bbox() -> [f32; 4] {
 }
 
 fn bbox_intersection(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
-    [a[0].max(b[0]), a[1].max(b[1]), a[2].min(b[2]), a[3].min(b[3])]
+    [
+        a[0].max(b[0]),
+        a[1].max(b[1]),
+        a[2].min(b[2]),
+        a[3].min(b[3]),
+    ]
 }
 
 const EMPTY_BBOX: [f32; 4] = [-1e9, -1e9, 1e9, 1e9];
@@ -246,10 +267,35 @@ impl IntersectionData {
                 } else {
                     EMPTY_BBOX
                 };
-                Node { node_type, bbox, .. Default::default() }
+                Node {
+                    node_type,
+                    bbox,
+                    ..Default::default()
+                }
             })
             .collect();
         IntersectionData { nodes }
+    }
+
+    fn run(&self) -> Vec<[f32; 4]> {
+        let mut stack = Vec::new();
+        let mut tos = EMPTY_BBOX;
+        self.nodes
+            .iter()
+            .map(|inp| match inp.node_type {
+                OPEN_PAREN => {
+                    tos = bbox_intersection(tos, inp.bbox);
+                    stack.push(tos);
+                    tos
+                }
+                CLOSE_PAREN => {
+                    stack.pop().unwrap();
+                    tos = *stack.last().unwrap_or(&EMPTY_BBOX);
+                    EMPTY_BBOX
+                }
+                _ => unreachable!(),
+            })
+            .collect()
     }
 
     fn verify(&self, data: &[[f32; 4]]) -> Option<String> {

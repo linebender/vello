@@ -47,7 +47,8 @@ struct StackData {
 pub unsafe fn run_stack_test(runner: &mut Runner, config: &Config) -> TestResult {
     let mut result = TestResult::new("stack monoid");
     println!("# stack monoid (just parentheses matching)");
-    for exp in 10..=18 {
+    let expmax = 2 * (WG_SIZE * N_ROWS).trailing_zeros();
+    for exp in 10..=expmax {
         let n_elements: u64 = 1 << exp;
         let data = StackData::new(n_elements);
         let data_buf = runner
@@ -81,6 +82,18 @@ pub unsafe fn run_stack_test(runner: &mut Runner, config: &Config) -> TestResult
         }
         let throughput = (n_elements * n_iter) as f64 / total_elapsed;
         println!("{} {}", n_elements, throughput);
+    }
+    println!("e");
+    println!("# stack monoid, CPU");
+    for exp in 10..=expmax {
+        let n_elements: u64 = 1 << exp;
+        let data = StackData::new(n_elements);
+        let start = std::time::Instant::now();
+        let result = data.run();
+        let elapsed = start.elapsed().as_secs_f64();
+        let throughput = n_elements as f64 / elapsed;
+        println!("{} {}", n_elements, throughput);
+        data.verify(&result);
     }
     println!("e");
 
@@ -206,6 +219,24 @@ impl StackData {
             })
             .collect();
         StackData { dyck }
+    }
+
+    // Run on CPU side, for performance comparison
+    fn run(&self) -> Vec<u32> {
+        let mut stack = Vec::new();
+        self.dyck
+            .iter()
+            .enumerate()
+            .map(|(i, inp)| {
+                let expected = *stack.last().unwrap_or(&!0);
+                if *inp == 0 {
+                    stack.pop();
+                } else {
+                    stack.push(i as u32);
+                }
+                expected
+            })
+            .collect()
     }
 
     fn verify(&self, data: &[u32]) -> Option<String> {

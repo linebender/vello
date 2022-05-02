@@ -66,7 +66,8 @@ struct UnionData {
 pub unsafe fn run_union_test(runner: &mut Runner, config: &Config) -> TestResult {
     let mut result = TestResult::new("Bounding box union");
     println!("# bounding box union");
-    for exp in 10..=16 {
+    let expmax = 2 * WG_SIZE.trailing_zeros();
+    for exp in 10..=expmax {
         let n_elements: u64 = 1 << exp;
         let data = UnionData::new(n_elements);
         let data_buf = runner
@@ -100,6 +101,18 @@ pub unsafe fn run_union_test(runner: &mut Runner, config: &Config) -> TestResult
         }
         let throughput = (n_elements * n_iter) as f64 / total_elapsed;
         println!("{} {}", n_elements, throughput);
+    }
+    println!("e");
+    println!("# bounding box union, CPU");
+    for exp in 10..=expmax {
+        let n_elements: u64 = 1 << exp;
+        let data = UnionData::new(n_elements);
+        let start = std::time::Instant::now();
+        let result = data.run();
+        let elapsed = start.elapsed().as_secs_f64();
+        let throughput = n_elements as f64 / elapsed;
+        println!("{} {}", n_elements, throughput);
+        data.verify(&result);
     }
     println!("e");
 
@@ -218,7 +231,12 @@ fn rand_bbox() -> [f32; 4] {
 }
 
 fn bbox_union(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
-    [a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])]
+    [
+        a[0].min(b[0]),
+        a[1].min(b[1]),
+        a[2].max(b[2]),
+        a[3].max(b[3]),
+    ]
 }
 
 const EMPTY_BBOX: [f32; 4] = [1e9, 1e9, -1e9, -1e9];
@@ -246,10 +264,41 @@ impl UnionData {
                 } else {
                     EMPTY_BBOX
                 };
-                Node { node_type, bbox, .. Default::default() }
+                Node {
+                    node_type,
+                    bbox,
+                    ..Default::default()
+                }
             })
             .collect();
         UnionData { nodes }
+    }
+
+    // Run on CPU side, for performance comparison
+    fn run(&self) -> Vec<[f32; 4]> {
+        let mut stack = Vec::new();
+        self.nodes
+            .iter()
+            .map(|inp| {
+                let mut expected = inp.bbox;
+                match inp.node_type {
+                    OPEN_PAREN => stack.push(EMPTY_BBOX),
+                    CLOSE_PAREN => {
+                        let tos = stack.pop().unwrap();
+                        expected = tos;
+                        if let Some(nos) = stack.last_mut() {
+                            *nos = bbox_union(*nos, tos);
+                        }
+                    }
+                    LEAF => {
+                        let tos = stack.last_mut().unwrap();
+                        *tos = bbox_union(*tos, inp.bbox);
+                    }
+                    _ => unreachable!(),
+                }
+                expected
+            })
+            .collect()
     }
 
     fn verify(&self, data: &[[f32; 4]]) -> Option<String> {
