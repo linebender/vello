@@ -123,6 +123,7 @@ void main() {
         }
         sh_stack[th] = bbox;
     }
+    barrier();
 
     // Do tree reduction of bicyclic semigroups
     Node inp = inbuf[gl_GlobalInvocationID.x];
