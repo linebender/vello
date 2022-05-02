@@ -71,7 +71,7 @@ struct StackBuf
     uint stack[1];
 };
 
-constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(64u, 1u, 1u);
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(512u, 1u, 1u);
 
 static inline __attribute__((always_inline))
 Bic bic_combine(thread const Bic& x, thread const Bic& y)
@@ -80,25 +80,25 @@ Bic bic_combine(thread const Bic& x, thread const Bic& y)
     return Bic{ (x.a + y.a) - m, (x.b + y.b) - m };
 }
 
-kernel void main0(const device InBuf& _48 [[buffer(0)]], device OutBuf& _160 [[buffer(1)]], device StackBuf& _223 [[buffer(2)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]])
+kernel void main0(const device InBuf& _48 [[buffer(0)]], device OutBuf& _159 [[buffer(1)]], device StackBuf& _221 [[buffer(2)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]])
 {
-    threadgroup Bic sh_bic[64];
-    spvUnsafeArray<uint, 8> inp;
-    inp[0] = _48.inbuf[gl_GlobalInvocationID.x * 8u];
+    threadgroup Bic sh_bic[512];
+    spvUnsafeArray<uint, 1> inp;
+    inp[0] = _48.inbuf[gl_GlobalInvocationID.x * 1u];
     Bic bic = Bic{ 1u - inp[0], inp[0] };
-    for (uint i = 1u; i < 8u; i++)
+    for (uint i = 1u; i < 1u; i++)
     {
-        inp[i] = _48.inbuf[(gl_GlobalInvocationID.x * 8u) + i];
+        inp[i] = _48.inbuf[(gl_GlobalInvocationID.x * 1u) + i];
         Bic other = Bic{ 1u - inp[i], inp[i] };
         Bic param = bic;
         Bic param_1 = other;
         bic = bic_combine(param, param_1);
     }
     sh_bic[gl_LocalInvocationID.x] = bic;
-    for (uint i_1 = 0u; i_1 < 6u; i_1++)
+    for (uint i_1 = 0u; i_1 < 9u; i_1++)
     {
         threadgroup_barrier(mem_flags::mem_threadgroup);
-        if ((gl_LocalInvocationID.x + (1u << i_1)) < 64u)
+        if ((gl_LocalInvocationID.x + (1u << i_1)) < 512u)
         {
             Bic other_1 = sh_bic[gl_LocalInvocationID.x + (1u << i_1)];
             Bic param_2 = bic;
@@ -110,33 +110,33 @@ kernel void main0(const device InBuf& _48 [[buffer(0)]], device OutBuf& _160 [[b
     }
     if (gl_LocalInvocationID.x == 0u)
     {
-        _160.outbuf[gl_WorkGroupID.x].a = bic.a;
-        _160.outbuf[gl_WorkGroupID.x].b = bic.b;
+        _159.outbuf[gl_WorkGroupID.x].a = bic.a;
+        _159.outbuf[gl_WorkGroupID.x].b = bic.b;
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
     uint size = sh_bic[0].b;
     bic = Bic{ 0u, 0u };
-    if ((gl_LocalInvocationID.x + 1u) < 64u)
+    if ((gl_LocalInvocationID.x + 1u) < 512u)
     {
         bic = sh_bic[gl_LocalInvocationID.x + 1u];
     }
     uint out_ix = ((gl_WorkGroupID.x * 512u) + size) - bic.b;
-    for (uint i_2 = 8u; i_2 > 0u; i_2--)
+    for (uint i_2 = 1u; i_2 > 0u; i_2--)
     {
-        bool _209 = inp[i_2 - 1u] == 1u;
-        bool _215;
-        if (_209)
+        bool _207 = inp[i_2 - 1u] == 1u;
+        bool _213;
+        if (_207)
         {
-            _215 = bic.a == 0u;
+            _213 = bic.a == 0u;
         }
         else
         {
-            _215 = _209;
+            _213 = _207;
         }
-        if (_215)
+        if (_213)
         {
             out_ix--;
-            _223.stack[out_ix] = ((gl_GlobalInvocationID.x * 8u) + i_2) - 1u;
+            _221.stack[out_ix] = ((gl_GlobalInvocationID.x * 1u) + i_2) - 1u;
         }
         Bic other_2 = Bic{ 1u - inp[i_2 - 1u], inp[i_2 - 1u] };
         Bic param_4 = other_2;

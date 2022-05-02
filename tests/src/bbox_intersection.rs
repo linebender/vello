@@ -24,7 +24,7 @@ use crate::config::Config;
 use crate::runner::Runner;
 use crate::test_result::TestResult;
 
-const WG_SIZE: u64 = 256;
+const WG_SIZE: u64 = 512;
 const N_ROWS: u64 = 1;
 const ELEMENTS_PER_WG: u64 = WG_SIZE * N_ROWS;
 

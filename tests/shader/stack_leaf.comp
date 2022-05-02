@@ -4,9 +4,9 @@
 
 #version 450
 
-#define LG_N_SEQ 3
+#define LG_N_SEQ 0
 #define N_SEQ (1 << LG_N_SEQ)
-#define LG_WG_SIZE 6
+#define LG_WG_SIZE 9
 #define WG_SIZE (1 << LG_WG_SIZE)
 #define PART_SIZE (WG_SIZE * N_SEQ)
 
@@ -232,6 +232,7 @@ void main() {
         sh_stack[th] = stack[ix * PART_SIZE + b - sp - 1];
     }
 #endif
+    barrier();
 
     // Do tree reduction of bicyclic semigroups (up-sweep)
     uint inp = inbuf[gl_GlobalInvocationID.x * N_SEQ + N_SEQ - 1];

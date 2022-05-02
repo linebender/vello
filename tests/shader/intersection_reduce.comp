@@ -5,7 +5,7 @@
 #version 450
 
 // At least for now, N_SEQ is hardwired at 1
-#define LG_WG_SIZE 8
+#define LG_WG_SIZE 9
 #define WG_SIZE (1 << LG_WG_SIZE)
 #define PART_SIZE WG_SIZE
 

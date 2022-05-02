@@ -6,7 +6,7 @@
 
 #define LG_N_SEQ 0
 #define N_SEQ (1 << LG_N_SEQ)
-#define LG_WG_SIZE 8
+#define LG_WG_SIZE 9
 #define WG_SIZE (1 << LG_WG_SIZE)
 #define PART_SIZE (WG_SIZE * N_SEQ)
 
