@@ -1,0 +1,158 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct Bic
+{
+    uint a;
+    uint b;
+};
+
+struct Node
+{
+    uint node_type;
+    uint pad1;
+    uint pad2;
+    uint pad3;
+    float4 bbox;
+};
+
+struct Node_1
+{
+    uint node_type;
+    uint pad1;
+    uint pad2;
+    uint pad3;
+    float4 bbox;
+};
+
+struct InBuf
+{
+    Node_1 inbuf[1];
+};
+
+struct Bic_1
+{
+    uint a;
+    uint b;
+};
+
+struct BicBuf
+{
+    Bic_1 bicbuf[1];
+};
+
+struct StackBuf
+{
+    float4 stack[1];
+};
+
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(512u, 1u, 1u);
+
+static inline __attribute__((always_inline))
+Bic bic_combine(thread const Bic& x, thread const Bic& y)
+{
+    uint m = min(x.b, y.a);
+    return Bic{ (x.a + y.a) - m, (x.b + y.b) - m };
+}
+
+static inline __attribute__((always_inline))
+float4 bbox_intersect(thread const float4& a, thread const float4& b)
+{
+    return float4(fast::max(a.xy, b.xy), fast::min(a.zw, b.zw));
+}
+
+kernel void main0(const device InBuf& _82 [[buffer(0)]], device BicBuf& _165 [[buffer(1)]], device StackBuf& _273 [[buffer(2)]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]])
+{
+    threadgroup Bic sh_bic[512];
+    threadgroup float4 sh_bbox[512];
+    uint th = gl_LocalInvocationID.x;
+    Node inp;
+    inp.node_type = _82.inbuf[gl_GlobalInvocationID.x].node_type;
+    inp.pad1 = _82.inbuf[gl_GlobalInvocationID.x].pad1;
+    inp.pad2 = _82.inbuf[gl_GlobalInvocationID.x].pad2;
+    inp.pad3 = _82.inbuf[gl_GlobalInvocationID.x].pad3;
+    inp.bbox = _82.inbuf[gl_GlobalInvocationID.x].bbox;
+    uint node_type = inp.node_type;
+    Bic bic = Bic{ uint(node_type == 1u), uint(node_type == 0u) };
+    sh_bic[gl_LocalInvocationID.x] = bic;
+    for (uint i = 0u; i < 9u; i++)
+    {
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        uint other_ix = gl_LocalInvocationID.x + (1u << i);
+        if (other_ix < 512u)
+        {
+            Bic param = bic;
+            Bic param_1 = sh_bic[other_ix];
+            bic = bic_combine(param, param_1);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        sh_bic[th] = bic;
+    }
+    if (th == 0u)
+    {
+        _165.bicbuf[gl_WorkGroupID.x].a = bic.a;
+        _165.bicbuf[gl_WorkGroupID.x].b = bic.b;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    uint size = sh_bic[0].b;
+    bic = Bic{ 0u, 0u };
+    if ((th + 1u) < 512u)
+    {
+        bic = sh_bic[th + 1u];
+    }
+    bool _193 = inp.node_type == 0u;
+    bool _199;
+    if (_193)
+    {
+        _199 = bic.a == 0u;
+    }
+    else
+    {
+        _199 = _193;
+    }
+    if (_199)
+    {
+        uint out_ix = (size - bic.b) - 1u;
+        sh_bbox[out_ix] = inp.bbox;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    float4 bbox;
+    if (th < size)
+    {
+        bbox = sh_bbox[th];
+    }
+    for (uint i_1 = 0u; i_1 < 9u; i_1++)
+    {
+        bool _235 = th < size;
+        bool _242;
+        if (_235)
+        {
+            _242 = th >= (1u << i_1);
+        }
+        else
+        {
+            _242 = _235;
+        }
+        if (_242)
+        {
+            float4 param_2 = sh_bbox[th - (1u << i_1)];
+            float4 param_3 = bbox;
+            bbox = bbox_intersect(param_2, param_3);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        if (th < size)
+        {
+            sh_bbox[th] = bbox;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    if (th < size)
+    {
+        _273.stack[gl_GlobalInvocationID.x] = bbox;
+    }
+}
+

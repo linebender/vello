@@ -1,0 +1,241 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct Bic
+{
+    uint a;
+    uint b;
+};
+
+struct Bic_1
+{
+    uint a;
+    uint b;
+};
+
+struct BicBuf
+{
+    Bic_1 bicbuf[1];
+};
+
+struct StackBuf
+{
+    float4 stack[1];
+};
+
+struct Node
+{
+    uint node_type;
+    uint pad1;
+    uint pad2;
+    uint pad3;
+    float4 bbox;
+};
+
+struct Node_1
+{
+    uint node_type;
+    uint pad1;
+    uint pad2;
+    uint pad3;
+    float4 bbox;
+};
+
+struct InBuf
+{
+    Node_1 inbuf[1];
+};
+
+struct OutBuf
+{
+    float4 outbuf[1];
+};
+
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(512u, 1u, 1u);
+
+static inline __attribute__((always_inline))
+Bic bic_combine(thread const Bic& x, thread const Bic& y)
+{
+    uint m = min(x.b, y.a);
+    return Bic{ (x.a + y.a) - m, (x.b + y.b) - m };
+}
+
+static inline __attribute__((always_inline))
+float4 bbox_intersect(thread const float4& a, thread const float4& b)
+{
+    return float4(fast::max(a.xy, b.xy), fast::min(a.zw, b.zw));
+}
+
+kernel void main0(const device InBuf& _285 [[buffer(0)]], const device BicBuf& _89 [[buffer(1)]], const device StackBuf& _167 [[buffer(2)]], device OutBuf& _520 [[buffer(3)]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+{
+    threadgroup Bic sh_bic[1022];
+    threadgroup float4 sh_bbox[512];
+    threadgroup float4 sh_stack[512];
+    threadgroup uint sh_link[512];
+    uint th = gl_LocalInvocationID.x;
+    Bic bic = Bic{ 0u, 0u };
+    if (th < gl_WorkGroupID.x)
+    {
+        bic.a = _89.bicbuf[th].a;
+        bic.b = _89.bicbuf[th].b;
+    }
+    sh_bic[th] = bic;
+    for (uint i = 0u; i < 9u; i++)
+    {
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        uint other_ix = th + (1u << i);
+        if (other_ix < 512u)
+        {
+            Bic param = bic;
+            Bic param_1 = sh_bic[other_ix];
+            bic = bic_combine(param, param_1);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        sh_bic[th] = bic;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    uint size = sh_bic[0].b;
+    uint bic_next_b = 0u;
+    if ((th + 1u) < 512u)
+    {
+        bic_next_b = sh_bic[th + 1u].b;
+    }
+    float4 bbox = float4(-1000000000.0, -1000000000.0, 1000000000.0, 1000000000.0);
+    if (bic.b > bic_next_b)
+    {
+        bbox = _167.stack[(((th * 512u) + bic.b) - bic_next_b) - 1u];
+    }
+    for (uint i_1 = 0u; i_1 < 9u; i_1++)
+    {
+        sh_bbox[th] = bbox;
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        if (th >= (1u << i_1))
+        {
+            float4 param_2 = sh_bbox[th - (1u << i_1)];
+            float4 param_3 = bbox;
+            bbox = bbox_intersect(param_2, param_3);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    sh_bbox[th] = bbox;
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    uint sp = 511u - th;
+    uint ix = 0u;
+    for (uint i_2 = 0u; i_2 < 9u; i_2++)
+    {
+        uint probe = ix + (256u >> i_2);
+        if (sp < sh_bic[probe].b)
+        {
+            ix = probe;
+        }
+    }
+    uint b = sh_bic[ix].b;
+    if (sp < b)
+    {
+        bbox = _167.stack[(((ix * 512u) + b) - sp) - 1u];
+        if (ix > 0u)
+        {
+            float4 param_4 = sh_bbox[ix - 1u];
+            float4 param_5 = bbox;
+            bbox = bbox_intersect(param_4, param_5);
+        }
+        sh_stack[th] = bbox;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    Node inp;
+    inp.node_type = _285.inbuf[gl_GlobalInvocationID.x].node_type;
+    inp.pad1 = _285.inbuf[gl_GlobalInvocationID.x].pad1;
+    inp.pad2 = _285.inbuf[gl_GlobalInvocationID.x].pad2;
+    inp.pad3 = _285.inbuf[gl_GlobalInvocationID.x].pad3;
+    inp.bbox = _285.inbuf[gl_GlobalInvocationID.x].bbox;
+    uint node_type = inp.node_type;
+    bic = Bic{ uint(node_type == 1u), uint(node_type == 0u) };
+    sh_bic[th] = bic;
+    uint inbase = 0u;
+    for (uint i_3 = 0u; i_3 < 8u; i_3++)
+    {
+        uint outbase = 1024u - (1u << (9u - i_3));
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        if (th < (1u << (8u - i_3)))
+        {
+            Bic param_6 = sh_bic[inbase + (th * 2u)];
+            Bic param_7 = sh_bic[(inbase + (th * 2u)) + 1u];
+            sh_bic[outbase + th] = bic_combine(param_6, param_7);
+        }
+        inbase = outbase;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    ix = th;
+    bic = Bic{ 0u, 0u };
+    uint j = 0u;
+    while (j < 9u)
+    {
+        uint base = 1024u - (2u << (9u - j));
+        if (((ix >> j) & 1u) != 0u)
+        {
+            Bic param_8 = sh_bic[(base + (ix >> j)) - 1u];
+            Bic param_9 = bic;
+            Bic test = bic_combine(param_8, param_9);
+            if (test.b > 0u)
+            {
+                break;
+            }
+            bic = test;
+            ix -= (1u << j);
+        }
+        j++;
+    }
+    if (ix > 0u)
+    {
+        while (j > 0u)
+        {
+            j--;
+            uint base_1 = 1024u - (2u << (9u - j));
+            Bic param_10 = sh_bic[(base_1 + (ix >> j)) - 1u];
+            Bic param_11 = bic;
+            Bic test_1 = bic_combine(param_10, param_11);
+            if (test_1.b == 0u)
+            {
+                bic = test_1;
+                ix -= (1u << j);
+            }
+        }
+    }
+    uint _455;
+    if (ix > 0u)
+    {
+        _455 = ix - 1u;
+    }
+    else
+    {
+        _455 = 4294967295u - bic.a;
+    }
+    uint link = _455;
+    bbox = inp.bbox;
+    for (uint i_4 = 0u; i_4 < 9u; i_4++)
+    {
+        sh_link[th] = link;
+        sh_bbox[th] = bbox;
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        if (int(link) >= 0)
+        {
+            float4 param_12 = sh_bbox[link];
+            float4 param_13 = bbox;
+            bbox = bbox_intersect(param_12, param_13);
+            link = sh_link[link];
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    if (int(link + size) >= 0)
+    {
+        float4 param_14 = sh_stack[512u + link];
+        float4 param_15 = bbox;
+        bbox = bbox_intersect(param_14, param_15);
+    }
+    _520.outbuf[gl_GlobalInvocationID.x] = bbox;
+}
+
