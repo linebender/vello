@@ -308,7 +308,6 @@ fn test_scene1(scene: &mut Scene, rcx: &mut ResourceContext) {
     let mut fragment = Fragment::default();
     let mut b = build_fragment(&mut fragment);
     let linear = Brush::LinearGradient(LinearGradient {
-        space: Space::Global,
         start: Point::new(0., 0.),
         end: Point::new(200., 100.),
         extend: Extend::Pad,
@@ -329,7 +328,6 @@ fn test_scene1(scene: &mut Scene, rcx: &mut ResourceContext) {
             .into(),
     });
     let radial = Brush::RadialGradient(RadialGradient {
-        space: Space::Global,
         center0: Point::new(50., 50.),
         center1: Point::new(50., 50.),
         radius0: 0.,

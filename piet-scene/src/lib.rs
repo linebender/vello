@@ -16,6 +16,7 @@
 
 pub mod brush;
 pub mod geometry;
+pub mod glyph;
 pub mod path;
 pub mod resource;
 pub mod scene;

@@ -50,15 +50,8 @@ pub enum Extend {
     Reflect,
 }
 
-#[derive(Copy, Clone, PartialEq, Debug)]
-pub enum Space {
-    Object,
-    Global,
-}
-
 #[derive(Clone, Debug)]
 pub struct LinearGradient {
-    pub space: Space,
     pub start: Point,
     pub end: Point,
     pub stops: StopVec,
@@ -67,7 +60,6 @@ pub struct LinearGradient {
 
 #[derive(Clone, Debug)]
 pub struct RadialGradient {
-    pub space: Space,
     pub center0: Point,
     pub radius0: f32,
     pub center1: Point,
@@ -78,7 +70,6 @@ pub struct RadialGradient {
 
 #[derive(Clone, Debug)]
 pub struct SweepGradient {
-    pub space: Space,
     pub center: Point,
     pub start_angle: f32,
     pub end_angle: f32,
