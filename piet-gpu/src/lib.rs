@@ -425,7 +425,6 @@ impl Renderer {
         cmd_buf.reset_query_pool(&query_pool);
         cmd_buf.begin_debug_label("Element bounding box calculation");
         let mut pass = cmd_buf.begin_compute_pass(&ComputePassDescriptor::timer(&query_pool, 0, 1));
-        // cmd_buf.write_timestamp(&query_pool, 0);
         self.element_stage.record(
             &mut pass,
             &self.element_code,
