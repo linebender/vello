@@ -437,32 +437,30 @@ impl Renderer {
         );
         pass.end();
         cmd_buf.end_debug_label();
-        // cmd_buf.write_timestamp(&query_pool, 1);
         cmd_buf.memory_barrier();
-        cmd_buf.begin_debug_label("Clip bounding box calculation");
         let mut pass = cmd_buf.begin_compute_pass(&ComputePassDescriptor::timer(&query_pool, 2, 3));
+        pass.begin_debug_label("Clip bounding box calculation");
         self.clip_binding
             .record(&mut pass, &self.clip_code, self.n_clip as u32);
-        // cmd_buf.end_debug_label();
-        // cmd_buf.begin_debug_label("Element binning");
+        pass.end_debug_label();
+        pass.begin_debug_label("Element binning");
         pass.dispatch(
             &self.bin_pipeline,
             &self.bin_ds,
             (((self.n_paths + 255) / 256) as u32, 1, 1),
             (256, 1, 1),
         );
-        // cmd_buf.end_debug_label();
+        pass.end_debug_label();
         pass.memory_barrier();
-        // cmd_buf.begin_debug_label("Tile allocation");
+        pass.begin_debug_label("Tile allocation");
         pass.dispatch(
             &self.tile_pipeline,
             &self.tile_ds[buf_ix],
             (((self.n_paths + 255) / 256) as u32, 1, 1),
             (256, 1, 1),
         );
-        // cmd_buf.end_debug_label();
+        pass.end_debug_label();
         pass.end();
-        // cmd_buf.write_timestamp(&query_pool, 2);
         cmd_buf.begin_debug_label("Path flattening");
         cmd_buf.memory_barrier();
         let mut pass = cmd_buf.begin_compute_pass(&ComputePassDescriptor::timer(&query_pool, 4, 5));
@@ -473,7 +471,6 @@ impl Renderer {
             (32, 1, 1),
         );
         pass.end();
-        // cmd_buf.write_timestamp(&query_pool, 3);
         cmd_buf.end_debug_label();
         cmd_buf.memory_barrier();
         cmd_buf.begin_debug_label("Backdrop propagation");
@@ -485,10 +482,8 @@ impl Renderer {
             (256, self.backdrop_y, 1),
         );
         pass.end();
-        // cmd_buf.write_timestamp(&query_pool, 4);
         cmd_buf.end_debug_label();
         // TODO: redo query accounting
-        // cmd_buf.write_timestamp(&query_pool, 5);
         cmd_buf.memory_barrier();
         cmd_buf.begin_debug_label("Coarse raster");
         let mut pass = cmd_buf.begin_compute_pass(&ComputePassDescriptor::timer(&query_pool, 8, 9));
@@ -504,7 +499,6 @@ impl Renderer {
         );
         pass.end();
         cmd_buf.end_debug_label();
-        // cmd_buf.write_timestamp(&query_pool, 6);
         cmd_buf.memory_barrier();
         cmd_buf.begin_debug_label("Fine raster");
         let mut pass =
@@ -521,7 +515,6 @@ impl Renderer {
         );
         pass.end();
         cmd_buf.end_debug_label();
-        // cmd_buf.write_timestamp(&query_pool, 7);
         cmd_buf.memory_barrier();
         cmd_buf.image_barrier(&self.image_dev, ImageLayout::General, ImageLayout::BlitSrc);
     }

@@ -752,6 +752,16 @@ impl<'a> ComputePass<'a> {
         self.cmd_buf.memory_barrier();
     }
 
+    /// Begin a labeled section for debugging and profiling purposes.
+    pub unsafe fn begin_debug_label(&mut self, label: &str) {
+        self.cmd_buf.begin_debug_label(label);
+    }
+
+    /// End a section opened by `begin_debug_label`.
+    pub unsafe fn end_debug_label(&mut self) {
+        self.cmd_buf.end_debug_label();
+    }
+
     pub unsafe fn end(self) {
         self.cmd_buf.cmd_buf().end_compute_pass();
     }
