@@ -491,31 +491,6 @@ impl CmdBuf {
         ComputePass { cmd_buf: self }
     }
 
-    /// Dispatch a compute shader.
-    ///
-    /// Request a compute shader to be run, using the pipeline to specify the
-    /// code, and the descriptor set to address the resources read and written.
-    ///
-    /// Both the workgroup count (number of workgroups) and the workgroup size
-    /// (number of threads in a workgroup) must be specified here, though not
-    /// all back-ends require the latter info.
-    ///
-    /// This version is deprecated because (a) you do not get timer queries and
-    /// (b) it doesn't aggregate multiple dispatches into a single compute
-    /// pass, which is a performance concern.
-    #[deprecated(note = "moving to ComputePass")]
-    pub unsafe fn dispatch(
-        &mut self,
-        pipeline: &Pipeline,
-        descriptor_set: &DescriptorSet,
-        workgroup_count: (u32, u32, u32),
-        workgroup_size: (u32, u32, u32),
-    ) {
-        let mut pass = self.begin_compute_pass(&Default::default());
-        pass.dispatch(pipeline, descriptor_set, workgroup_count, workgroup_size);
-        pass.end();
-    }
-
     /// Insert an execution and memory barrier.
     ///
     /// Compute kernels (and other actions) after this barrier may read from buffers
@@ -606,17 +581,6 @@ impl CmdBuf {
     /// the reset before the first timestamp write.
     pub unsafe fn reset_query_pool(&mut self, pool: &QueryPool) {
         self.cmd_buf().reset_query_pool(pool);
-    }
-
-    /// Write a timestamp.
-    ///
-    /// The query index must be less than the size of the query pool on creation.
-    ///
-    /// Deprecation: for greater portability, set timestamp queries on compute
-    /// passes instead.
-    #[deprecated(note = "use compute pass descriptor instead")]
-    pub unsafe fn write_timestamp(&mut self, pool: &QueryPool, query: u32) {
-        self.cmd_buf().write_timestamp(pool, query);
     }
 
     /// Prepare the timestamps for reading. This isn't required on Vulkan but

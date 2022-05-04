@@ -118,11 +118,6 @@ impl Runner {
 }
 
 impl Commands {
-    #[deprecated(note = "use compute_pass instead")]
-    pub unsafe fn write_timestamp(&mut self, query: u32) {
-        self.cmd_buf.write_timestamp(&self.query_pool, query);
-    }
-
     /// Start a compute pass with timer queries.
     pub unsafe fn compute_pass(&mut self, start_query: u32, end_query: u32) -> ComputePass {
         self.cmd_buf
