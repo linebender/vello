@@ -70,7 +70,7 @@ fn main() -> Result<(), Error> {
             .map(|_| session.create_semaphore())
             .collect::<Result<Vec<_>, Error>>()?;
         let query_pools = (0..NUM_FRAMES)
-            .map(|_| session.create_query_pool(8))
+            .map(|_| session.create_query_pool(12))
             .collect::<Result<Vec<_>, Error>>()?;
         let mut cmd_bufs: [Option<CmdBuf>; NUM_FRAMES] = Default::default();
         let mut submitted: [Option<SubmittedCmdBuf>; NUM_FRAMES] = Default::default();
@@ -112,22 +112,23 @@ fn main() -> Result<(), Error> {
                         if !ts.is_empty() {
                             info_string = format!(
                                 "{:.3}ms :: e:{:.3}ms|alloc:{:.3}ms|cp:{:.3}ms|bd:{:.3}ms|bin:{:.3}ms|cr:{:.3}ms|r:{:.3}ms",
-                                ts[6] * 1e3,
+                                ts[10] * 1e3,
                                 ts[0] * 1e3,
                                 (ts[1] - ts[0]) * 1e3,
                                 (ts[2] - ts[1]) * 1e3,
-                                (ts[3] - ts[2]) * 1e3,
                                 (ts[4] - ts[3]) * 1e3,
-                                (ts[5] - ts[4]) * 1e3,
                                 (ts[6] - ts[5]) * 1e3,
+                                (ts[8] - ts[7]) * 1e3,
+                                (ts[10] - ts[9]) * 1e3,
                             );
                         }
                     }
 
                     let mut ctx = PietGpuRenderContext::new();
+                    let test_blend = false;
                     if let Some(svg) = &svg {
                         test_scenes::render_svg(&mut ctx, svg);
-                    } else {
+                    } else if test_blend {
                         use piet_gpu::{Blend, BlendMode::*, CompositionMode::*};
                         let blends = [
                             Blend::new(Normal, SrcOver),
@@ -163,6 +164,8 @@ fn main() -> Result<(), Error> {
                         let blend = blends[mode % blends.len()];
                         test_scenes::render_blend_test(&mut ctx, current_frame, blend);
                         info_string = format!("{:?}", blend);
+                    } else {
+                        test_scenes::render_anim_frame(&mut ctx, current_frame);
                     }
                     render_info_string(&mut ctx, &info_string);
                     if let Err(e) = renderer.upload_render_ctx(&mut ctx, frame_idx) {

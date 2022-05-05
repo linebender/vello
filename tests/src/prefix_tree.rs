@@ -66,9 +66,7 @@ pub unsafe fn run_prefix_test(runner: &mut Runner, config: &Config) -> TestResul
         let mut commands = runner.commands();
         commands.cmd_buf.copy_buffer(&data_buf, &out_buf.dev_buf);
         commands.cmd_buf.memory_barrier();
-        commands.write_timestamp(0);
         stage.record(&mut commands, &code, &binding);
-        commands.write_timestamp(1);
         if i == 0 || config.verify_all {
             commands.cmd_buf.memory_barrier();
             commands.download(&out_buf);
@@ -175,33 +173,35 @@ impl PrefixTreeStage {
         code: &PrefixTreeCode,
         bindings: &PrefixTreeBinding,
     ) {
+        let mut pass = commands.compute_pass(0, 1);
         let n = self.tmp_bufs.len();
         for i in 0..n {
             let n_workgroups = self.sizes[i + 1];
-            commands.cmd_buf.dispatch(
+            pass.dispatch(
                 &code.reduce_pipeline,
                 &bindings.descriptor_sets[i],
                 (n_workgroups as u32, 1, 1),
                 (WG_SIZE as u32, 1, 1),
             );
-            commands.cmd_buf.memory_barrier();
+            pass.memory_barrier();
         }
-        commands.cmd_buf.dispatch(
+        pass.dispatch(
             &code.root_pipeline,
             &bindings.descriptor_sets[n],
             (1, 1, 1),
             (WG_SIZE as u32, 1, 1),
         );
         for i in (0..n).rev() {
-            commands.cmd_buf.memory_barrier();
+            pass.memory_barrier();
             let n_workgroups = self.sizes[i + 1];
-            commands.cmd_buf.dispatch(
+            pass.dispatch(
                 &code.scan_pipeline,
                 &bindings.descriptor_sets[2 * n - i],
                 (n_workgroups as u32, 1, 1),
                 (WG_SIZE as u32, 1, 1),
             );
         }
+        pass.end();
     }
 }
 

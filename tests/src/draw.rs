@@ -77,9 +77,9 @@ pub unsafe fn draw_test(runner: &mut Runner, config: &Config) -> TestResult {
     let n_iter = config.n_iter;
     for i in 0..n_iter {
         let mut commands = runner.commands();
-        commands.write_timestamp(0);
-        stage.record(&mut commands.cmd_buf, &code, &binding, n_tag);
-        commands.write_timestamp(1);
+        let mut pass = commands.compute_pass(0, 1);
+        stage.record(&mut pass, &code, &binding, n_tag);
+        pass.end();
         if i == 0 || config.verify_all {
             commands.cmd_buf.memory_barrier();
             commands.download(&memory);

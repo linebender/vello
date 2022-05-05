@@ -16,7 +16,7 @@
 
 //! The clip processing stage (includes substages).
 
-use piet_gpu_hal::{include_shader, BindType, Buffer, CmdBuf, DescriptorSet, Pipeline, Session};
+use piet_gpu_hal::{include_shader, BindType, Buffer, ComputePass, DescriptorSet, Pipeline, Session};
 
 // Note that this isn't the code/stage/binding pattern of most of the other stages
 // in the new element processing pipeline. We want to move those temporary buffers
@@ -69,26 +69,26 @@ impl ClipBinding {
     /// Record the clip dispatches.
     ///
     /// Assumes memory barrier on entry. Provides memory barrier on exit.
-    pub unsafe fn record(&self, cmd_buf: &mut CmdBuf, code: &ClipCode, n_clip: u32) {
+    pub unsafe fn record(&self, pass: &mut ComputePass, code: &ClipCode, n_clip: u32) {
         let n_wg_reduce = n_clip.saturating_sub(1) / CLIP_PART_SIZE;
         if n_wg_reduce > 0 {
-            cmd_buf.dispatch(
+            pass.dispatch(
                 &code.reduce_pipeline,
                 &self.reduce_ds,
                 (n_wg_reduce, 1, 1),
                 (CLIP_PART_SIZE, 1, 1),
             );
-            cmd_buf.memory_barrier();
+            pass.memory_barrier();
         }
         let n_wg = (n_clip + CLIP_PART_SIZE - 1) / CLIP_PART_SIZE;
         if n_wg > 0 {
-            cmd_buf.dispatch(
+            pass.dispatch(
                 &code.leaf_pipeline,
                 &self.leaf_ds,
                 (n_wg, 1, 1),
                 (CLIP_PART_SIZE, 1, 1),
             );
-            cmd_buf.memory_barrier();
+            pass.memory_barrier();
         }
     }
 }

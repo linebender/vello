@@ -21,7 +21,7 @@ use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
 
 use smallvec::SmallVec;
 
-use crate::{BindType, BufferUsage, Error, GpuInfo, ImageLayout, MapMode, WorkgroupLimits, ImageFormat};
+use crate::{BindType, BufferUsage, Error, GpuInfo, ImageLayout, MapMode, WorkgroupLimits, ImageFormat, ComputePassDescriptor};
 
 use self::{
     descriptor::{CpuHeapRefOwned, DescriptorPool, GpuHeapRefOwned},
@@ -76,6 +76,7 @@ pub struct CmdBuf {
     c: wrappers::GraphicsCommandList,
     allocator: CommandAllocator,
     needs_reset: bool,
+    end_query: Option<(wrappers::QueryHeap, u32)>,
 }
 
 pub struct Pipeline {
@@ -360,6 +361,7 @@ impl crate::backend::Device for Dx12Device {
                 c,
                 allocator,
                 needs_reset: false,
+                end_query: None,
             })
         }
     }
@@ -388,11 +390,10 @@ impl crate::backend::Device for Dx12Device {
         let mapped = self.map_buffer(&pool.buf, 0, size as u64, MapMode::Read)?;
         std::ptr::copy_nonoverlapping(mapped, buf.as_mut_ptr() as *mut u8, size);
         self.unmap_buffer(&pool.buf, 0, size as u64, MapMode::Read)?;
-        let ts0 = buf[0];
         let tsp = (self.ts_freq as f64).recip();
-        let result = buf[1..]
+        let result = buf
             .iter()
-            .map(|ts| ts.wrapping_sub(ts0) as f64 * tsp)
+            .map(|ts| *ts as f64 * tsp)
             .collect();
         Ok(result)
     }
@@ -610,6 +611,16 @@ impl crate::backend::CmdBuf<Dx12Device> for CmdBuf {
         self.allocator.reset().is_ok() && self.c.reset(&self.allocator, None).is_ok()
     }
 
+    unsafe fn begin_compute_pass(&mut self, desc: &ComputePassDescriptor) {
+        if let Some((pool, start, end)) = &desc.timer_queries {
+            #[allow(irrefutable_let_patterns)]
+            if let crate::hub::QueryPool::Dx12(pool) = pool {
+                self.write_timestamp(pool, *start);
+                self.end_query = Some((pool.heap.clone(), *end));
+            }
+        }
+    }
+
     unsafe fn dispatch(
         &mut self,
         pipeline: &Pipeline,
@@ -626,6 +637,12 @@ impl crate::backend::CmdBuf<Dx12Device> for CmdBuf {
             .set_compute_root_descriptor_table(0, descriptor_set.gpu_ref.gpu_handle());
         self.c
             .dispatch(workgroup_count.0, workgroup_count.1, workgroup_count.2);
+    }
+
+    unsafe fn end_compute_pass(&mut self) {
+        if let Some((heap, end)) = self.end_query.take() {
+            self.c.end_timing_query(&heap, end);
+        }
     }
 
     unsafe fn memory_barrier(&mut self) {
@@ -666,7 +683,7 @@ impl crate::backend::CmdBuf<Dx12Device> for CmdBuf {
         self.memory_barrier();
     }
 
-    unsafe fn clear_buffer(&self, buffer: &Buffer, size: Option<u64>) {
+    unsafe fn clear_buffer(&mut self, buffer: &Buffer, size: Option<u64>) {
         let cpu_ref = buffer.cpu_ref.as_ref().unwrap();
         let (gpu_ref, heap) = buffer
             .gpu_ref
@@ -684,23 +701,23 @@ impl crate::backend::CmdBuf<Dx12Device> for CmdBuf {
         );
     }
 
-    unsafe fn copy_buffer(&self, src: &Buffer, dst: &Buffer) {
+    unsafe fn copy_buffer(&mut self, src: &Buffer, dst: &Buffer) {
         // TODO: consider using copy_resource here (if sizes match)
         let size = src.size.min(dst.size);
         self.c.copy_buffer(&dst.resource, 0, &src.resource, 0, size);
     }
 
-    unsafe fn copy_image_to_buffer(&self, src: &Image, dst: &Buffer) {
+    unsafe fn copy_image_to_buffer(&mut self, src: &Image, dst: &Buffer) {
         self.c
             .copy_texture_to_buffer(&src.resource, &dst.resource, src.size.0, src.size.1);
     }
 
-    unsafe fn copy_buffer_to_image(&self, src: &Buffer, dst: &Image) {
+    unsafe fn copy_buffer_to_image(&mut self, src: &Buffer, dst: &Image) {
         self.c
             .copy_buffer_to_texture(&src.resource, &dst.resource, dst.size.0, dst.size.1);
     }
 
-    unsafe fn blit_image(&self, src: &Image, dst: &Image) {
+    unsafe fn blit_image(&mut self, src: &Image, dst: &Image) {
         self.c.copy_resource(&src.resource, &dst.resource);
     }
 

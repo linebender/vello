@@ -35,6 +35,7 @@ use crate::backend::DescriptorSetBuilder as DescriptorSetBuilderTrait;
 use crate::backend::Device as DeviceTrait;
 use crate::BackendType;
 use crate::BindType;
+use crate::ComputePassDescriptor;
 use crate::ImageFormat;
 use crate::MapMode;
 use crate::{BufferUsage, Error, GpuInfo, ImageLayout, InstanceFlags};
@@ -658,6 +659,14 @@ impl CmdBuf {
         }
     }
 
+    pub unsafe fn begin_compute_pass(&mut self, desc: &ComputePassDescriptor) {
+        mux_match! { self;
+            CmdBuf::Vk(c) => c.begin_compute_pass(desc),
+            CmdBuf::Dx12(c) => c.begin_compute_pass(desc),
+            CmdBuf::Mtl(c) => c.begin_compute_pass(desc),
+        }
+    }
+
     /// Dispatch a compute shader.
     ///
     /// Note that both the number of workgroups (`workgroup_count`) and the number of
@@ -677,6 +686,14 @@ impl CmdBuf {
             CmdBuf::Vk(c) => c.dispatch(pipeline.vk(), descriptor_set.vk(), workgroup_count, workgroup_size),
             CmdBuf::Dx12(c) => c.dispatch(pipeline.dx12(), descriptor_set.dx12(), workgroup_count, workgroup_size),
             CmdBuf::Mtl(c) => c.dispatch(pipeline.mtl(), descriptor_set.mtl(), workgroup_count, workgroup_size),
+        }
+    }
+
+    pub unsafe fn end_compute_pass(&mut self) {
+        mux_match! { self;
+            CmdBuf::Vk(c) => c.end_compute_pass(),
+            CmdBuf::Dx12(c) => c.end_compute_pass(),
+            CmdBuf::Mtl(c) => c.end_compute_pass(),
         }
     }
 
