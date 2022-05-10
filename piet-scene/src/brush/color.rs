@@ -48,10 +48,6 @@ impl Color {
         )
     }
 
-    pub fn pack(self) -> u32 {
-        (self.b as u32) << 24 | (self.g as u32) << 16 | (self.r as u32) << 8 | self.a as u32
-    }
-
     pub fn to_premul_u32(self) -> u32 {
         let a = self.a as f64 / 255.0;
         let r = (self.r as f64 * a) as u32;

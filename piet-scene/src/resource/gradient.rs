@@ -133,6 +133,6 @@ impl ColorF64 {
         let g = ((self.0[1] * a).min(1.0).max(0.0) * 255.0) as u32;
         let b = ((self.0[2] * a).min(1.0).max(0.0) * 255.0) as u32;
         let a = (a * 255.0) as u32;
-        r | (g << 8) | (b << 16) | (a << 24)
+        b | (g << 8) | (r << 16) | (a << 24)
     }
 }
