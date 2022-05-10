@@ -1,0 +1,21 @@
+[package]
+name = "pgpu-render"
+version = "0.1.0"
+description = "C interface for glyph rendering using piet-gpu."
+license = "MIT/Apache-2.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+piet-gpu = { path = "../piet-gpu" }
+piet-gpu-hal = { path = "../piet-gpu-hal" }
+piet-scene = { path = "../piet-scene" }
+
+metal = "0.22"
+cocoa = "0.24.0"
+objc = "0.2.5"
+
+[build-dependencies]
+cbindgen = "0.20.0"

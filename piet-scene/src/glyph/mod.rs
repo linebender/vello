@@ -17,10 +17,14 @@
 pub use pinot;
 
 use crate::brush::{Brush, Color};
+use crate::geometry::Affine;
 use crate::path::Element;
 use crate::scene::{build_fragment, Fill, Fragment};
+
 use moscato::{Context, Scaler};
 use pinot::{types::Tag, FontRef};
+
+use smallvec::SmallVec;
 
 /// General context for creating scene fragments for glyph outlines.
 pub struct GlyphContext {
@@ -99,40 +103,70 @@ impl<'a> GlyphProvider<'a> {
         let glyph = self.scaler.color_glyph(palette_index, gid)?;
         let mut fragment = Fragment::default();
         let mut builder = build_fragment(&mut fragment);
+        let mut xform_stack: SmallVec<[Affine; 8]> = SmallVec::new();
         for command in glyph.commands() {
             match command {
                 Command::PushTransform(xform) => {
-                    builder.push_transform(convert_transform(xform));
+                    xform_stack.push(convert_transform(xform));
                 }
-                Command::PopTransform => builder.pop_transform(),
+                Command::PopTransform => { xform_stack.pop(); },
                 Command::PushClip(path_index) => {
                     let path = glyph.path(*path_index)?;
-                    builder.push_layer(Default::default(), convert_path(path.elements()));
+                    if let Some(xform) = xform_stack.last() {
+                        builder.push_layer(
+                            Default::default(),
+                            convert_transformed_path(path.elements(), xform),
+                        );
+                    } else {
+                        builder.push_layer(Default::default(), convert_path(path.elements()));
+                    }
                 }
                 Command::PopClip => builder.pop_layer(),
                 Command::PushLayer(bounds) => {
-                    let rect = Rect {
+                    let mut rect = Rect {
                         min: Point::new(bounds.min.x, bounds.min.y),
                         max: Point::new(bounds.max.x, bounds.max.y),
                     };
+                    if let Some(xform) = xform_stack.last() {
+                        rect.min = rect.min.transform(xform);
+                        rect.max = rect.max.transform(xform);
+                    }
                     builder.push_layer(Default::default(), rect.elements());
                 }
                 Command::PopLayer => builder.pop_layer(),
                 Command::BeginBlend(bounds, mode) => {
-                    let rect = Rect {
+                    let mut rect = Rect {
                         min: Point::new(bounds.min.x, bounds.min.y),
                         max: Point::new(bounds.max.x, bounds.max.y),
                     };
+                    if let Some(xform) = xform_stack.last() {
+                        rect.min = rect.min.transform(xform);
+                        rect.max = rect.max.transform(xform);
+                    }
                     builder.push_layer(convert_blend(*mode), rect.elements())
                 }
                 Command::EndBlend => builder.pop_layer(),
-                Command::SimpleFill(path_index, brush, xform) => {
+                Command::SimpleFill(path_index, brush, brush_xform) => {
                     let path = glyph.path(*path_index)?;
                     let brush = convert_brush(brush);
-                    let xform = xform.map(|xform| convert_transform(&xform));
-                    builder.fill(Fill::NonZero, &brush, xform, convert_path(path.elements()));
+                    let brush_xform = brush_xform.map(|xform| convert_transform(&xform));
+                    if let Some(xform) = xform_stack.last() {
+                        builder.fill(
+                            Fill::NonZero,
+                            &brush,
+                            brush_xform,
+                            convert_transformed_path(path.elements(), xform),
+                        );
+                    } else {
+                        builder.fill(
+                            Fill::NonZero,
+                            &brush,
+                            brush_xform,
+                            convert_path(path.elements()),
+                        );
+                    }
                 }
-                Command::Fill(brush, xform) => {
+                Command::Fill(brush, brush_xform) => {
                     // TODO: this needs to compute a bounding box for
                     // the parent clips
                 }
@@ -156,6 +190,28 @@ fn convert_path(
             Point::new(p0.x, p0.y),
             Point::new(p1.x, p1.y),
             Point::new(p2.x, p2.y),
+        ),
+        moscato::Element::Close => Element::Close,
+    })
+}
+
+fn convert_transformed_path(
+    path: impl Iterator<Item = moscato::Element> + Clone,
+    xform: &Affine,
+) -> impl Iterator<Item = Element> + Clone {
+    use crate::geometry::Point;
+    let xform = *xform;
+    path.map(move |el| match el {
+        moscato::Element::MoveTo(p0) => Element::MoveTo(Point::new(p0.x, p0.y).transform(&xform)),
+        moscato::Element::LineTo(p0) => Element::LineTo(Point::new(p0.x, p0.y).transform(&xform)),
+        moscato::Element::QuadTo(p0, p1) => Element::QuadTo(
+            Point::new(p0.x, p0.y).transform(&xform),
+            Point::new(p1.x, p1.y).transform(&xform),
+        ),
+        moscato::Element::CurveTo(p0, p1, p2) => Element::CurveTo(
+            Point::new(p0.x, p0.y).transform(&xform),
+            Point::new(p1.x, p1.y).transform(&xform),
+            Point::new(p2.x, p2.y).transform(&xform),
         ),
         moscato::Element::Close => Element::Close,
     })

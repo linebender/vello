@@ -23,8 +23,9 @@ pub use builder::{build_fragment, build_scene, Builder};
 pub use style::*;
 
 use super::brush::*;
-use super::geometry::{Affine, Rect};
+use super::geometry::{Affine, Point, Rect};
 use super::path::Element;
+
 use core::ops::Range;
 
 #[derive(Default)]
@@ -92,6 +93,12 @@ impl Scene {
 pub struct Fragment {
     data: SceneData,
     resources: FragmentResources,
+}
+
+impl Fragment {
+    pub fn points(&self) -> &[Point] {
+        bytemuck::cast_slice(&self.data.pathseg_stream)
+    }
 }
 
 #[derive(Default)]

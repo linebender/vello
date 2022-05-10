@@ -19,7 +19,7 @@ use core::borrow::Borrow;
 use core::hash::{Hash, Hasher};
 
 /// Two dimensional point.
-#[derive(Copy, Clone, PartialEq, PartialOrd, Default, Debug)]
+#[derive(Copy, Clone, PartialEq, PartialOrd, Default, Debug, Pod, Zeroable)]
 #[repr(C)]
 pub struct Point {
     pub x: f32,
@@ -168,7 +168,7 @@ impl std::ops::Mul for Affine {
 }
 
 /// Axis-aligned rectangle represented as minimum and maximum points.
-#[derive(Copy, Clone, Default, Debug)]
+#[derive(Copy, Clone, Default, Debug, Pod, Zeroable)]
 #[repr(C)]
 pub struct Rect {
     pub min: Point,
