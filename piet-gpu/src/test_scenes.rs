@@ -21,12 +21,7 @@ pub fn render_blend_test(rc: &mut PietGpuRenderContext, i: usize, blend: Blend) 
     rc.restore().unwrap();
 }
 
-pub fn render_svg(rc: &mut impl RenderContext, filename: &str, scale: f64) {
-    let xml_str = std::fs::read_to_string(filename).unwrap();
-    let start = std::time::Instant::now();
-    let svg = PicoSvg::load(&xml_str, scale).unwrap();
-    println!("parsing time: {:?}", start.elapsed());
-
+pub fn render_svg(rc: &mut impl RenderContext, svg: &PicoSvg) {
     let start = std::time::Instant::now();
     svg.render(rc);
     println!("flattening and encoding time: {:?}", start.elapsed());

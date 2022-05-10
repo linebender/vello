@@ -931,23 +931,14 @@ void comp_main()
                 {
                     _1701 = _1692;
                 }
-                bool _1708;
-                if (!_1701)
-                {
-                    _1708 = is_clip && is_blend;
-                }
-                else
-                {
-                    _1708 = _1701;
-                }
-                include_tile = _1708;
+                include_tile = _1701 || is_blend;
             }
             if (include_tile)
             {
                 uint el_slice = el_ix / 32u;
                 uint el_mask = 1u << (el_ix & 31u);
-                uint _1728;
-                InterlockedOr(sh_bitmaps[el_slice][(y * 16u) + x], el_mask, _1728);
+                uint _1723;
+                InterlockedOr(sh_bitmaps[el_slice][(y * 16u) + x], el_mask, _1723);
             }
         }
         GroupMemoryBarrierWithGroupSync();
@@ -976,9 +967,9 @@ void comp_main()
             {
                 uint param_25 = element_ref_ix;
                 bool param_26 = mem_ok;
-                TileRef _1805 = { sh_tile_base[element_ref_ix] + (((sh_tile_stride[element_ref_ix] * tile_y) + tile_x) * 8u) };
+                TileRef _1800 = { sh_tile_base[element_ref_ix] + (((sh_tile_stride[element_ref_ix] * tile_y) + tile_x) * 8u) };
                 Alloc param_27 = read_tile_alloc(param_25, param_26);
-                TileRef param_28 = _1805;
+                TileRef param_28 = _1800;
                 Tile tile_1 = Tile_read(param_27, param_28);
                 uint drawmonoid_base_2 = drawmonoid_start + (4u * element_ix_2);
                 uint scene_offset_1 = _260.Load((drawmonoid_base_2 + 2u) * 4 + 8);
@@ -993,11 +984,11 @@ void comp_main()
                         Alloc param_29 = cmd_alloc;
                         CmdRef param_30 = cmd_ref;
                         uint param_31 = cmd_limit;
-                        bool _1853 = alloc_cmd(param_29, param_30, param_31);
+                        bool _1848 = alloc_cmd(param_29, param_30, param_31);
                         cmd_alloc = param_29;
                         cmd_ref = param_30;
                         cmd_limit = param_31;
-                        if (!_1853)
+                        if (!_1848)
                         {
                             break;
                         }
@@ -1008,10 +999,10 @@ void comp_main()
                         write_fill(param_32, param_33, param_34, param_35);
                         cmd_ref = param_33;
                         uint rgba = _1372.Load(dd_1 * 4 + 0);
-                        CmdColor _1876 = { rgba };
+                        CmdColor _1871 = { rgba };
                         Alloc param_36 = cmd_alloc;
                         CmdRef param_37 = cmd_ref;
-                        CmdColor param_38 = _1876;
+                        CmdColor param_38 = _1871;
                         Cmd_Color_write(param_36, param_37, param_38);
                         cmd_ref.offset += 8u;
                         break;
@@ -1021,11 +1012,11 @@ void comp_main()
                         Alloc param_39 = cmd_alloc;
                         CmdRef param_40 = cmd_ref;
                         uint param_41 = cmd_limit;
-                        bool _1894 = alloc_cmd(param_39, param_40, param_41);
+                        bool _1889 = alloc_cmd(param_39, param_40, param_41);
                         cmd_alloc = param_39;
                         cmd_ref = param_40;
                         cmd_limit = param_41;
-                        if (!_1894)
+                        if (!_1889)
                         {
                             break;
                         }
@@ -1052,11 +1043,11 @@ void comp_main()
                         Alloc param_49 = cmd_alloc;
                         CmdRef param_50 = cmd_ref;
                         uint param_51 = cmd_limit;
-                        bool _1958 = alloc_cmd(param_49, param_50, param_51);
+                        bool _1953 = alloc_cmd(param_49, param_50, param_51);
                         cmd_alloc = param_49;
                         cmd_ref = param_50;
                         cmd_limit = param_51;
-                        if (!_1958)
+                        if (!_1953)
                         {
                             break;
                         }
@@ -1086,11 +1077,11 @@ void comp_main()
                         Alloc param_59 = cmd_alloc;
                         CmdRef param_60 = cmd_ref;
                         uint param_61 = cmd_limit;
-                        bool _2064 = alloc_cmd(param_59, param_60, param_61);
+                        bool _2059 = alloc_cmd(param_59, param_60, param_61);
                         cmd_alloc = param_59;
                         cmd_ref = param_60;
                         cmd_limit = param_61;
-                        if (!_2064)
+                        if (!_2059)
                         {
                             break;
                         }
@@ -1103,27 +1094,27 @@ void comp_main()
                         uint index = _1372.Load(dd_1 * 4 + 0);
                         uint raw1 = _1372.Load((dd_1 + 1u) * 4 + 0);
                         int2 offset_1 = int2(int(raw1 << uint(16)) >> 16, int(raw1) >> 16);
-                        CmdImage _2103 = { index, offset_1 };
+                        CmdImage _2098 = { index, offset_1 };
                         Alloc param_66 = cmd_alloc;
                         CmdRef param_67 = cmd_ref;
-                        CmdImage param_68 = _2103;
+                        CmdImage param_68 = _2098;
                         Cmd_Image_write(param_66, param_67, param_68);
                         cmd_ref.offset += 12u;
                         break;
                     }
                     case 5u:
                     {
-                        bool _2117 = tile_1.tile.offset == 0u;
-                        bool _2123;
-                        if (_2117)
+                        bool _2112 = tile_1.tile.offset == 0u;
+                        bool _2118;
+                        if (_2112)
                         {
-                            _2123 = tile_1.backdrop == 0;
+                            _2118 = tile_1.backdrop == 0;
                         }
                         else
                         {
-                            _2123 = _2117;
+                            _2118 = _2112;
                         }
-                        if (_2123)
+                        if (_2118)
                         {
                             clip_zero_depth = clip_depth + 1u;
                         }
@@ -1132,11 +1123,11 @@ void comp_main()
                             Alloc param_69 = cmd_alloc;
                             CmdRef param_70 = cmd_ref;
                             uint param_71 = cmd_limit;
-                            bool _2135 = alloc_cmd(param_69, param_70, param_71);
+                            bool _2130 = alloc_cmd(param_69, param_70, param_71);
                             cmd_alloc = param_69;
                             cmd_ref = param_70;
                             cmd_limit = param_71;
-                            if (!_2135)
+                            if (!_2130)
                             {
                                 break;
                             }
@@ -1154,11 +1145,11 @@ void comp_main()
                         Alloc param_74 = cmd_alloc;
                         CmdRef param_75 = cmd_ref;
                         uint param_76 = cmd_limit;
-                        bool _2163 = alloc_cmd(param_74, param_75, param_76);
+                        bool _2158 = alloc_cmd(param_74, param_75, param_76);
                         cmd_alloc = param_74;
                         cmd_ref = param_75;
                         cmd_limit = param_76;
-                        if (!_2163)
+                        if (!_2158)
                         {
                             break;
                         }
@@ -1169,10 +1160,10 @@ void comp_main()
                         write_fill(param_77, param_78, param_79, param_80);
                         cmd_ref = param_78;
                         uint blend_1 = _1372.Load(dd_1 * 4 + 0);
-                        CmdEndClip _2186 = { blend_1 };
+                        CmdEndClip _2181 = { blend_1 };
                         Alloc param_81 = cmd_alloc;
                         CmdRef param_82 = cmd_ref;
-                        CmdEndClip param_83 = _2186;
+                        CmdEndClip param_83 = _2181;
                         Cmd_EndClip_write(param_81, param_82, param_83);
                         cmd_ref.offset += 8u;
                         break;
@@ -1207,17 +1198,17 @@ void comp_main()
             break;
         }
     }
-    bool _2233 = (bin_tile_x + tile_x) < _1005.Load(8);
-    bool _2242;
-    if (_2233)
+    bool _2228 = (bin_tile_x + tile_x) < _1005.Load(8);
+    bool _2237;
+    if (_2228)
     {
-        _2242 = (bin_tile_y + tile_y) < _1005.Load(12);
+        _2237 = (bin_tile_y + tile_y) < _1005.Load(12);
     }
     else
     {
-        _2242 = _2233;
+        _2237 = _2228;
     }
-    if (_2242)
+    if (_2237)
     {
         Alloc param_84 = cmd_alloc;
         CmdRef param_85 = cmd_ref;

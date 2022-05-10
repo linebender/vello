@@ -10,10 +10,7 @@ mod text;
 
 use std::convert::TryInto;
 
-use bytemuck::Pod;
-
 pub use blend::{Blend, BlendMode, CompositionMode};
-pub use encoder::EncodedSceneRef;
 pub use render_ctx::PietGpuRenderContext;
 pub use gradient::Colrv1RadialGradient;
 
@@ -21,11 +18,11 @@ use piet::kurbo::Vec2;
 use piet::{ImageFormat, RenderContext};
 
 use piet_gpu_hal::{
-    include_shader, BindType, Buffer, BufferUsage, CmdBuf, DescriptorSet, Error, Image,
-    ImageLayout, Pipeline, QueryPool, Session,
+    include_shader, BindType, Buffer, BufferUsage, CmdBuf, ComputePassDescriptor, DescriptorSet,
+    Error, Image, ImageLayout, Pipeline, QueryPool, Session,
 };
 
-use pico_svg::PicoSvg;
+pub use pico_svg::PicoSvg;
 use stages::{ClipBinding, ElementBinding, ElementCode};
 
 use crate::stages::{ClipCode, Config, ElementStage};
@@ -358,27 +355,16 @@ impl Renderer {
         render_ctx: &mut PietGpuRenderContext,
         buf_ix: usize,
     ) -> Result<(), Error> {
-        let mut scene = render_ctx.encoded_scene();
-        let ramp_data = render_ctx.get_ramp_data();
-        scene.ramp_data = &ramp_data;
-        self.upload_scene(&scene, buf_ix)
-    }
-
-    pub fn upload_scene<T: Copy + Pod>(
-        &mut self,
-        scene: &EncodedSceneRef<T>,
-        buf_ix: usize,
-    ) -> Result<(), Error> {
-        let (mut config, mut alloc) = scene.stage_config();
-        let n_drawobj = scene.n_drawobj();
+        let (mut config, mut alloc) = render_ctx.stage_config();
+        let n_drawobj = render_ctx.n_drawobj();
         // TODO: be more consistent in size types
-        let n_path = scene.n_path() as usize;
+        let n_path = render_ctx.n_path() as usize;
         self.n_paths = n_path;
-        self.n_transform = scene.n_transform();
-        self.n_drawobj = scene.n_drawobj();
-        self.n_pathseg = scene.n_pathseg() as usize;
-        self.n_pathtag = scene.n_pathtag();
-        self.n_clip = scene.n_clip();
+        self.n_transform = render_ctx.n_transform();
+        self.n_drawobj = render_ctx.n_drawobj();
+        self.n_pathseg = render_ctx.n_pathseg() as usize;
+        self.n_pathtag = render_ctx.n_pathtag();
+        self.n_clip = render_ctx.n_clip();
 
         // These constants depend on encoding and may need to be updated.
         // Perhaps we can plumb these from piet-gpu-derive?
@@ -402,18 +388,19 @@ impl Renderer {
             // TODO: reallocate scene buffer if size is inadequate
             {
                 let mut mapped_scene = self.scene_bufs[buf_ix].map_write(..)?;
-                scene.write_scene(&mut mapped_scene);
+                render_ctx.write_scene(&mut mapped_scene);
             }
             self.config_bufs[buf_ix].write(&[config])?;
             self.memory_buf_host[buf_ix].write(&[alloc as u32, 0 /* Overflow flag */])?;
 
             // Upload gradient data.
-            if !scene.ramp_data.is_empty() {
+            let ramp_data = render_ctx.get_ramp_data();
+            if !ramp_data.is_empty() {
                 assert!(
                     self.gradient_bufs[buf_ix].size() as usize
-                        >= std::mem::size_of_val(&*scene.ramp_data)
+                        >= std::mem::size_of_val(&*ramp_data)
                 );
-                self.gradient_bufs[buf_ix].write(scene.ramp_data)?;
+                self.gradient_bufs[buf_ix].write(&ramp_data)?;
             }
         }
         Ok(())
@@ -437,10 +424,10 @@ impl Renderer {
         cmd_buf.copy_buffer_to_image(&self.gradient_bufs[buf_ix], &self.gradients);
         cmd_buf.image_barrier(&self.gradients, ImageLayout::BlitDst, ImageLayout::General);
         cmd_buf.reset_query_pool(&query_pool);
-        cmd_buf.write_timestamp(&query_pool, 0);
         cmd_buf.begin_debug_label("Element bounding box calculation");
+        let mut pass = cmd_buf.begin_compute_pass(&ComputePassDescriptor::timer(&query_pool, 0, 1));
         self.element_stage.record(
-            cmd_buf,
+            &mut pass,
             &self.element_code,
             &self.element_bindings[buf_ix],
             self.n_transform as u64,
@@ -448,56 +435,59 @@ impl Renderer {
             self.n_pathtag as u32,
             self.n_drawobj as u64,
         );
+        pass.end();
         cmd_buf.end_debug_label();
-        cmd_buf.write_timestamp(&query_pool, 1);
         cmd_buf.memory_barrier();
-        cmd_buf.begin_debug_label("Clip bounding box calculation");
+        let mut pass = cmd_buf.begin_compute_pass(&ComputePassDescriptor::timer(&query_pool, 2, 3));
+        pass.begin_debug_label("Clip bounding box calculation");
         self.clip_binding
-            .record(cmd_buf, &self.clip_code, self.n_clip as u32);
-        cmd_buf.end_debug_label();
-        cmd_buf.begin_debug_label("Element binning");
-        cmd_buf.dispatch(
+            .record(&mut pass, &self.clip_code, self.n_clip as u32);
+        pass.end_debug_label();
+        pass.begin_debug_label("Element binning");
+        pass.dispatch(
             &self.bin_pipeline,
             &self.bin_ds,
             (((self.n_paths + 255) / 256) as u32, 1, 1),
             (256, 1, 1),
         );
-        cmd_buf.end_debug_label();
-        cmd_buf.memory_barrier();
-        cmd_buf.begin_debug_label("Tile allocation");
-        cmd_buf.dispatch(
+        pass.end_debug_label();
+        pass.memory_barrier();
+        pass.begin_debug_label("Tile allocation");
+        pass.dispatch(
             &self.tile_pipeline,
             &self.tile_ds[buf_ix],
             (((self.n_paths + 255) / 256) as u32, 1, 1),
             (256, 1, 1),
         );
-        cmd_buf.end_debug_label();
-        cmd_buf.write_timestamp(&query_pool, 2);
-        cmd_buf.memory_barrier();
+        pass.end_debug_label();
+        pass.end();
         cmd_buf.begin_debug_label("Path flattening");
-        cmd_buf.dispatch(
+        cmd_buf.memory_barrier();
+        let mut pass = cmd_buf.begin_compute_pass(&ComputePassDescriptor::timer(&query_pool, 4, 5));
+        pass.dispatch(
             &self.path_pipeline,
             &self.path_ds,
             (((self.n_pathseg + 31) / 32) as u32, 1, 1),
             (32, 1, 1),
         );
+        pass.end();
         cmd_buf.end_debug_label();
-        cmd_buf.write_timestamp(&query_pool, 3);
         cmd_buf.memory_barrier();
         cmd_buf.begin_debug_label("Backdrop propagation");
-        cmd_buf.dispatch(
+        let mut pass = cmd_buf.begin_compute_pass(&ComputePassDescriptor::timer(&query_pool, 6, 7));
+        pass.dispatch(
             &self.backdrop_pipeline,
             &self.backdrop_ds,
             (((self.n_paths + 255) / 256) as u32, 1, 1),
             (256, self.backdrop_y, 1),
         );
+        pass.end();
         cmd_buf.end_debug_label();
-        cmd_buf.write_timestamp(&query_pool, 4);
         // TODO: redo query accounting
-        cmd_buf.write_timestamp(&query_pool, 5);
         cmd_buf.memory_barrier();
         cmd_buf.begin_debug_label("Coarse raster");
-        cmd_buf.dispatch(
+        let mut pass = cmd_buf.begin_compute_pass(&ComputePassDescriptor::timer(&query_pool, 8, 9));
+        pass.dispatch(
             &self.coarse_pipeline,
             &self.coarse_ds[buf_ix],
             (
@@ -507,11 +497,13 @@ impl Renderer {
             ),
             (256, 1, 1),
         );
+        pass.end();
         cmd_buf.end_debug_label();
-        cmd_buf.write_timestamp(&query_pool, 6);
         cmd_buf.memory_barrier();
         cmd_buf.begin_debug_label("Fine raster");
-        cmd_buf.dispatch(
+        let mut pass =
+            cmd_buf.begin_compute_pass(&ComputePassDescriptor::timer(&query_pool, 10, 11));
+        pass.dispatch(
             &self.k4_pipeline,
             &self.k4_ds,
             (
@@ -521,8 +513,8 @@ impl Renderer {
             ),
             (8, 4, 1),
         );
+        pass.end();
         cmd_buf.end_debug_label();
-        cmd_buf.write_timestamp(&query_pool, 7);
         cmd_buf.memory_barrier();
         cmd_buf.image_barrier(&self.image_dev, ImageLayout::General, ImageLayout::BlitSrc);
     }

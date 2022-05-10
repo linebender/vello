@@ -105,15 +105,15 @@ pub unsafe fn path_test(runner: &mut Runner, config: &Config) -> TestResult {
         let mut commands = runner.commands();
         commands.cmd_buf.copy_buffer(&memory_init, &memory.dev_buf);
         commands.cmd_buf.memory_barrier();
-        commands.write_timestamp(0);
+        let mut pass = commands.compute_pass(0, 1);
         stage.record(
-            &mut commands.cmd_buf,
+            &mut pass,
             &code,
             &binding,
             path_data.n_path,
             path_data.tags.len() as u32,
         );
-        commands.write_timestamp(1);
+        pass.end();
         if i == 0 || config.verify_all {
             commands.cmd_buf.memory_barrier();
             commands.download(&memory);

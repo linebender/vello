@@ -15,7 +15,7 @@ use smallvec::SmallVec;
 use crate::backend::Device as DeviceTrait;
 use crate::{
     BindType, BufferUsage, Error, GpuInfo, ImageFormat, ImageLayout, MapMode, SamplerParams, SubgroupSize,
-    WorkgroupLimits,
+    WorkgroupLimits, ComputePassDescriptor,
 };
 
 pub struct VkInstance {
@@ -92,6 +92,7 @@ pub struct CmdBuf {
     cmd_buf: vk::CommandBuffer,
     cmd_pool: vk::CommandPool,
     device: Arc<RawDevice>,
+    end_query: Option<(vk::QueryPool, u32)>,
 }
 
 pub struct QueryPool {
@@ -738,6 +739,7 @@ impl crate::backend::Device for VkDevice {
                 cmd_buf,
                 cmd_pool,
                 device: self.device.clone(),
+                end_query: None,
             })
         }
     }
@@ -770,11 +772,10 @@ impl crate::backend::Device for VkDevice {
         // results (Windows 10, AMD 5700 XT).
         let flags = vk::QueryResultFlags::TYPE_64 | vk::QueryResultFlags::WAIT;
         device.get_query_pool_results(pool.pool, 0, pool.n_queries, &mut buf, flags)?;
-        let ts0 = buf[0];
         let tsp = self.timestamp_period as f64 * 1e-9;
-        let result = buf[1..]
+        let result = buf
             .iter()
-            .map(|ts| ts.wrapping_sub(ts0) as f64 * tsp)
+            .map(|ts| *ts as f64 * tsp)
             .collect();
         Ok(result)
     }
@@ -902,6 +903,16 @@ impl crate::backend::CmdBuf<VkDevice> for CmdBuf {
         true
     }
 
+    unsafe fn begin_compute_pass(&mut self, desc: &ComputePassDescriptor) {
+        if let Some((pool, start, end)) = &desc.timer_queries {
+            #[allow(irrefutable_let_patterns)]
+            if let crate::hub::QueryPool::Vk(pool) = pool {
+                self.write_timestamp_raw(pool.pool, *start);
+                self.end_query = Some((pool.pool, *end));
+            }
+        }
+    }
+
     unsafe fn dispatch(
         &mut self,
         pipeline: &Pipeline,
@@ -929,6 +940,12 @@ impl crate::backend::CmdBuf<VkDevice> for CmdBuf {
             workgroup_count.1,
             workgroup_count.2,
         );
+    }
+
+    unsafe fn end_compute_pass(&mut self) {
+        if let Some((pool, end)) = self.end_query.take() {
+            self.write_timestamp_raw(pool, end);
+        }
     }
 
     /// Insert a pipeline barrier for all memory accesses.
@@ -995,13 +1012,13 @@ impl crate::backend::CmdBuf<VkDevice> for CmdBuf {
         );
     }
 
-    unsafe fn clear_buffer(&self, buffer: &Buffer, size: Option<u64>) {
+    unsafe fn clear_buffer(&mut self, buffer: &Buffer, size: Option<u64>) {
         let device = &self.device.device;
         let size = size.unwrap_or(vk::WHOLE_SIZE);
         device.cmd_fill_buffer(self.cmd_buf, buffer.buffer, 0, size, 0);
     }
 
-    unsafe fn copy_buffer(&self, src: &Buffer, dst: &Buffer) {
+    unsafe fn copy_buffer(&mut self, src: &Buffer, dst: &Buffer) {
         let device = &self.device.device;
         let size = src.size.min(dst.size);
         device.cmd_copy_buffer(
@@ -1012,7 +1029,7 @@ impl crate::backend::CmdBuf<VkDevice> for CmdBuf {
         );
     }
 
-    unsafe fn copy_image_to_buffer(&self, src: &Image, dst: &Buffer) {
+    unsafe fn copy_image_to_buffer(&mut self, src: &Image, dst: &Buffer) {
         let device = &self.device.device;
         device.cmd_copy_image_to_buffer(
             self.cmd_buf,
@@ -1035,7 +1052,7 @@ impl crate::backend::CmdBuf<VkDevice> for CmdBuf {
         );
     }
 
-    unsafe fn copy_buffer_to_image(&self, src: &Buffer, dst: &Image) {
+    unsafe fn copy_buffer_to_image(&mut self, src: &Buffer, dst: &Image) {
         let device = &self.device.device;
         device.cmd_copy_buffer_to_image(
             self.cmd_buf,
@@ -1058,7 +1075,7 @@ impl crate::backend::CmdBuf<VkDevice> for CmdBuf {
         );
     }
 
-    unsafe fn blit_image(&self, src: &Image, dst: &Image) {
+    unsafe fn blit_image(&mut self, src: &Image, dst: &Image) {
         let device = &self.device.device;
         device.cmd_blit_image(
             self.cmd_buf,
@@ -1106,13 +1123,7 @@ impl crate::backend::CmdBuf<VkDevice> for CmdBuf {
     }
 
     unsafe fn write_timestamp(&mut self, pool: &QueryPool, query: u32) {
-        let device = &self.device.device;
-        device.cmd_write_timestamp(
-            self.cmd_buf,
-            vk::PipelineStageFlags::COMPUTE_SHADER,
-            pool.pool,
-            query,
-        );
+        self.write_timestamp_raw(pool.pool, query);
     }
 
     unsafe fn begin_debug_label(&mut self, label: &str) {
@@ -1127,6 +1138,18 @@ impl crate::backend::CmdBuf<VkDevice> for CmdBuf {
         if let Some(utils) = &self.device.dbg_loader {
             utils.cmd_end_debug_utils_label(self.cmd_buf);
         }
+    }
+}
+
+impl CmdBuf {
+    unsafe fn write_timestamp_raw(&mut self, pool: vk::QueryPool, query: u32) {
+        let device = &self.device.device;
+        device.cmd_write_timestamp(
+            self.cmd_buf,
+            vk::PipelineStageFlags::COMPUTE_SHADER,
+            pool,
+            query,
+        );
     }
 }
 

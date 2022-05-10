@@ -17,7 +17,7 @@
 //! The path stage (includes substages).
 
 use piet_gpu_hal::{
-    include_shader, BindType, Buffer, BufferUsage, CmdBuf, DescriptorSet, Pipeline, Session,
+    include_shader, BindType, Buffer, BufferUsage, ComputePass, DescriptorSet, Pipeline, Session,
 };
 
 pub struct PathCode {
@@ -148,7 +148,7 @@ impl PathStage {
     /// those are consumed. Result is written without barrier.
     pub unsafe fn record(
         &self,
-        cmd_buf: &mut CmdBuf,
+        pass: &mut ComputePass,
         code: &PathCode,
         binding: &PathBinding,
         n_paths: u32,
@@ -166,15 +166,15 @@ impl PathStage {
         let reduce_part_tags = REDUCE_PART_SIZE * 4;
         let n_wg_tag_reduce = (n_tags + reduce_part_tags - 1) / reduce_part_tags;
         if n_wg_tag_reduce > 1 {
-            cmd_buf.dispatch(
+            pass.dispatch(
                 &code.reduce_pipeline,
                 &binding.reduce_ds,
                 (n_wg_tag_reduce, 1, 1),
                 (REDUCE_WG, 1, 1),
             );
             // I think we can skip root if n_wg_tag_reduce == 2
-            cmd_buf.memory_barrier();
-            cmd_buf.dispatch(
+            pass.memory_barrier();
+            pass.dispatch(
                 &code.tag_root_pipeline,
                 &self.tag_root_ds,
                 (1, 1, 1),
@@ -183,15 +183,15 @@ impl PathStage {
             // No barrier needed here; clear doesn't depend on path tags
         }
         let n_wg_clear = (n_paths + CLEAR_WG - 1) / CLEAR_WG;
-        cmd_buf.dispatch(
+        pass.dispatch(
             &code.clear_pipeline,
             &binding.clear_ds,
             (n_wg_clear, 1, 1),
             (CLEAR_WG, 1, 1),
         );
-        cmd_buf.memory_barrier();
+        pass.memory_barrier();
         let n_wg_pathseg = (n_tags + SCAN_PART_SIZE - 1) / SCAN_PART_SIZE;
-        cmd_buf.dispatch(
+        pass.dispatch(
             &code.pathseg_pipeline,
             &binding.path_ds,
             (n_wg_pathseg, 1, 1),

@@ -20,7 +20,7 @@ use bytemuck::{Pod, Zeroable};
 
 use piet::kurbo::Affine;
 use piet_gpu_hal::{
-    include_shader, BindType, Buffer, BufferUsage, CmdBuf, DescriptorSet, Pipeline, Session,
+    include_shader, BindType, Buffer, BufferUsage, ComputePass, DescriptorSet, Pipeline, Session,
 };
 
 /// An affine transform.
@@ -132,7 +132,7 @@ impl TransformStage {
 
     pub unsafe fn record(
         &self,
-        cmd_buf: &mut CmdBuf,
+        pass: &mut ComputePass,
         code: &TransformCode,
         binding: &TransformBinding,
         size: u64,
@@ -142,22 +142,22 @@ impl TransformStage {
         }
         let n_workgroups = (size + TRANSFORM_PART_SIZE - 1) / TRANSFORM_PART_SIZE;
         if n_workgroups > 1 {
-            cmd_buf.dispatch(
+            pass.dispatch(
                 &code.reduce_pipeline,
                 &binding.reduce_ds,
                 (n_workgroups as u32, 1, 1),
                 (TRANSFORM_WG as u32, 1, 1),
             );
-            cmd_buf.memory_barrier();
-            cmd_buf.dispatch(
+            pass.memory_barrier();
+            pass.dispatch(
                 &code.root_pipeline,
                 &self.root_ds,
                 (1, 1, 1),
                 (TRANSFORM_WG as u32, 1, 1),
             );
-            cmd_buf.memory_barrier();
+            pass.memory_barrier();
         }
-        cmd_buf.dispatch(
+        pass.dispatch(
             &code.leaf_pipeline,
             &binding.leaf_ds,
             (n_workgroups as u32, 1, 1),

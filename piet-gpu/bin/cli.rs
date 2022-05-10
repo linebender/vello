@@ -6,7 +6,7 @@ use clap::{App, Arg};
 
 use piet_gpu_hal::{BufferUsage, Error, Instance, InstanceFlags, Session};
 
-use piet_gpu::{test_scenes, PietGpuRenderContext, Renderer};
+use piet_gpu::{test_scenes, PicoSvg, PietGpuRenderContext, Renderer};
 
 const WIDTH: usize = 2048;
 const HEIGHT: usize = 1536;
@@ -243,7 +243,11 @@ fn main() -> Result<(), Error> {
             if matches.is_present("flip") {
                 scale = -scale;
             }
-            test_scenes::render_svg(&mut ctx, input, scale);
+            let xml_str = std::fs::read_to_string(input).unwrap();
+            let start = std::time::Instant::now();
+            let svg = PicoSvg::load(&xml_str, scale).unwrap();
+            println!("parsing time: {:?}", start.elapsed());
+            test_scenes::render_svg(&mut ctx, &svg);
         } else {
             test_scenes::render_scene(&mut ctx);
         }

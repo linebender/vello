@@ -21,8 +21,8 @@ pub use crate::mux::{
 };
 pub use bufwrite::BufWrite;
 pub use hub::{
-    BufReadGuard, BufWriteGuard, Buffer, CmdBuf, DescriptorSetBuilder, Image, RetainResource,
-    Session, SubmittedCmdBuf,
+    BufReadGuard, BufWriteGuard, Buffer, CmdBuf, ComputePass, DescriptorSetBuilder, Image,
+    RetainResource, Session, SubmittedCmdBuf,
 };
 
 // TODO: because these are conditionally included, "cargo fmt" does not
@@ -188,4 +188,24 @@ pub struct WorkgroupLimits {
     /// The maximum overall invocations a workgroup can have. That is, the product of sizes in each
     /// dimension.
     pub max_invocations: u32,
+}
+
+/// Options for creating a compute pass.
+#[derive(Default)]
+pub struct ComputePassDescriptor<'a> {
+    // Maybe label should go here? It does in wgpu and wgpu_hal.
+    /// Timer query parameters.
+    ///
+    /// To record timer queries for a compute pass, set the query pool, start
+    /// query index, and end query index here. The indices must be less than
+    /// the size of the query pool.
+    timer_queries: Option<(&'a QueryPool, u32, u32)>,
+}
+
+impl<'a> ComputePassDescriptor<'a> {
+    pub fn timer(pool: &'a QueryPool, start_query: u32, end_query: u32) -> ComputePassDescriptor {
+        ComputePassDescriptor {
+            timer_queries: Some((pool, start_query, end_query)),
+        }
+    }
 }

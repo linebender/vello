@@ -306,7 +306,7 @@ void main() {
                     is_blend = (blend != BlendComp_default);
                 }
                 include_tile = tile.tile.offset != 0 || (tile.backdrop == 0) == is_clip
-                    || (is_clip && is_blend);
+                    || is_blend;
             }
             if (include_tile) {
                 uint el_slice = el_ix / 32;

@@ -16,11 +16,11 @@
 
 //! Utilities (and a benchmark) for clearing buffers with compute shaders.
 
-use piet_gpu_hal::{include_shader, BindType, BufferUsage, DescriptorSet};
+use piet_gpu_hal::{include_shader, BindType, BufferUsage, ComputePass, DescriptorSet};
 use piet_gpu_hal::{Buffer, Pipeline};
 
 use crate::config::Config;
-use crate::runner::{Commands, Runner};
+use crate::runner::Runner;
 use crate::test_result::TestResult;
 
 const WG_SIZE: u64 = 256;
@@ -52,9 +52,9 @@ pub unsafe fn run_clear_test(runner: &mut Runner, config: &Config) -> TestResult
     let mut total_elapsed = 0.0;
     for i in 0..n_iter {
         let mut commands = runner.commands();
-        commands.write_timestamp(0);
-        stage.record(&mut commands, &code, &binding);
-        commands.write_timestamp(1);
+        let mut pass = commands.compute_pass(0, 1);
+        stage.record(&mut pass, &code, &binding);
+        pass.end();
         if i == 0 || config.verify_all {
             commands.cmd_buf.memory_barrier();
             commands.download(&out_buf);
@@ -108,17 +108,12 @@ impl ClearStage {
         ClearBinding { descriptor_set }
     }
 
-    pub unsafe fn record(
-        &self,
-        commands: &mut Commands,
-        code: &ClearCode,
-        bindings: &ClearBinding,
-    ) {
+    pub unsafe fn record(&self, pass: &mut ComputePass, code: &ClearCode, bindings: &ClearBinding) {
         let n_workgroups = (self.n_elements + WG_SIZE - 1) / WG_SIZE;
         // An issue: for clearing large buffers (>16M), we need to check the
         // number of workgroups against the (dynamically detected) limit, and
         // potentially issue multiple dispatches.
-        commands.cmd_buf.dispatch(
+        pass.dispatch(
             &code.pipeline,
             &bindings.descriptor_set,
             (n_workgroups as u32, 1, 1),

@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex, Weak};
 use bytemuck::Pod;
 use smallvec::SmallVec;
 
-use crate::{mux, BackendType, BufWrite, ImageFormat, MapMode};
+use crate::{mux, BackendType, BufWrite, ComputePassDescriptor, ImageFormat, MapMode};
 
 use crate::{BindType, BufferUsage, Error, GpuInfo, ImageLayout, SamplerParams};
 
@@ -133,6 +133,11 @@ pub struct BufReadGuard<'a> {
     buffer: &'a mux::Buffer,
     offset: u64,
     size: u64,
+}
+
+/// A sub-object of a command buffer for a sequence of compute dispatches.
+pub struct ComputePass<'a> {
+    cmd_buf: &'a mut CmdBuf,
 }
 
 impl Session {
@@ -370,8 +375,17 @@ impl Session {
     ///
     /// This should be called after waiting on the command buffer that wrote the
     /// timer queries.
+    ///
+    /// The returned vector is one shorter than the number of timer queries in the
+    /// pool; the first value is subtracted off. It would likely be better to return
+    /// the raw timestamps, but that change should be made consistently.
     pub unsafe fn fetch_query_pool(&self, pool: &QueryPool) -> Result<Vec<f64>, Error> {
-        self.0.device.fetch_query_pool(pool)
+        let result = self.0.device.fetch_query_pool(pool)?;
+        // Subtract off first timestamp.
+        Ok(result[1..]
+            .iter()
+            .map(|ts| *ts as f64 - result[0])
+            .collect())
     }
 
     #[doc(hidden)]
@@ -471,23 +485,10 @@ impl CmdBuf {
         self.cmd_buf().finish();
     }
 
-    /// Dispatch a compute shader.
-    ///
-    /// Request a compute shader to be run, using the pipeline to specify the
-    /// code, and the descriptor set to address the resources read and written.
-    ///
-    /// Both the workgroup count (number of workgroups) and the workgroup size
-    /// (number of threads in a workgroup) must be specified here, though not
-    /// all back-ends require the latter info.
-    pub unsafe fn dispatch(
-        &mut self,
-        pipeline: &Pipeline,
-        descriptor_set: &DescriptorSet,
-        workgroup_count: (u32, u32, u32),
-        workgroup_size: (u32, u32, u32),
-    ) {
-        self.cmd_buf()
-            .dispatch(pipeline, descriptor_set, workgroup_count, workgroup_size);
+    /// Begin a compute pass.
+    pub unsafe fn begin_compute_pass(&mut self, desc: &ComputePassDescriptor) -> ComputePass {
+        self.cmd_buf().begin_compute_pass(desc);
+        ComputePass { cmd_buf: self }
     }
 
     /// Insert an execution and memory barrier.
@@ -580,13 +581,6 @@ impl CmdBuf {
     /// the reset before the first timestamp write.
     pub unsafe fn reset_query_pool(&mut self, pool: &QueryPool) {
         self.cmd_buf().reset_query_pool(pool);
-    }
-
-    /// Write a timestamp.
-    ///
-    /// The query index must be less than the size of the query pool on creation.
-    pub unsafe fn write_timestamp(&mut self, pool: &QueryPool, query: u32) {
-        self.cmd_buf().write_timestamp(pool, query);
     }
 
     /// Prepare the timestamps for reading. This isn't required on Vulkan but
@@ -689,6 +683,51 @@ impl Drop for SubmittedCmdBuf {
                 session.pending.lock().unwrap().push(inner);
             }
         }
+    }
+}
+
+impl<'a> ComputePass<'a> {
+    /// Dispatch a compute shader.
+    ///
+    /// Request a compute shader to be run, using the pipeline to specify the
+    /// code, and the descriptor set to address the resources read and written.
+    ///
+    /// Both the workgroup count (number of workgroups) and the workgroup size
+    /// (number of threads in a workgroup) must be specified here, though not
+    /// all back-ends require the latter info.
+    pub unsafe fn dispatch(
+        &mut self,
+        pipeline: &Pipeline,
+        descriptor_set: &DescriptorSet,
+        workgroup_count: (u32, u32, u32),
+        workgroup_size: (u32, u32, u32),
+    ) {
+        self.cmd_buf
+            .cmd_buf()
+            .dispatch(pipeline, descriptor_set, workgroup_count, workgroup_size);
+    }
+
+    /// Add a memory barrier.
+    ///
+    /// Inserts a memory barrier in the compute encoder. This is a convenience
+    /// function for calling the same function on the underlying command buffer,
+    /// avoiding borrow check issues.
+    pub unsafe fn memory_barrier(&mut self) {
+        self.cmd_buf.memory_barrier();
+    }
+
+    /// Begin a labeled section for debugging and profiling purposes.
+    pub unsafe fn begin_debug_label(&mut self, label: &str) {
+        self.cmd_buf.begin_debug_label(label);
+    }
+
+    /// End a section opened by `begin_debug_label`.
+    pub unsafe fn end_debug_label(&mut self) {
+        self.cmd_buf.end_debug_label();
+    }
+
+    pub unsafe fn end(self) {
+        self.cmd_buf.cmd_buf().end_compute_pass();
     }
 }
 

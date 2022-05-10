@@ -26,7 +26,7 @@ use bytemuck::{Pod, Zeroable};
 pub use clip::{ClipBinding, ClipCode, CLIP_PART_SIZE};
 pub use draw::{DrawBinding, DrawCode, DrawMonoid, DrawStage, DRAW_PART_SIZE};
 pub use path::{PathBinding, PathCode, PathEncoder, PathStage, PATHSEG_PART_SIZE};
-use piet_gpu_hal::{Buffer, CmdBuf, Session};
+use piet_gpu_hal::{Buffer, ComputePass, Session};
 pub use transform::{
     Transform, TransformBinding, TransformCode, TransformStage, TRANSFORM_PART_SIZE,
 };
@@ -140,7 +140,7 @@ impl ElementStage {
 
     pub unsafe fn record(
         &self,
-        cmd_buf: &mut CmdBuf,
+        pass: &mut ComputePass,
         code: &ElementCode,
         binding: &ElementBinding,
         n_transform: u64,
@@ -149,14 +149,14 @@ impl ElementStage {
         n_drawobj: u64,
     ) {
         self.transform_stage.record(
-            cmd_buf,
+            pass,
             &code.transform_code,
             &binding.transform_binding,
             n_transform,
         );
         // No memory barrier needed here; path has at least one before pathseg
         self.path_stage.record(
-            cmd_buf,
+            pass,
             &code.path_code,
             &binding.path_binding,
             n_paths,
@@ -164,6 +164,6 @@ impl ElementStage {
         );
         // No memory barrier needed here; draw has at least one before draw_leaf
         self.draw_stage
-            .record(cmd_buf, &code.draw_code, &binding.draw_binding, n_drawobj);
+            .record(pass, &code.draw_code, &binding.draw_binding, n_drawobj);
     }
 }

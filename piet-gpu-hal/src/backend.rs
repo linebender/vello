@@ -17,7 +17,8 @@
 //! The generic trait for backends to implement.
 
 use crate::{
-    BindType, BufferUsage, Error, GpuInfo, ImageFormat, ImageLayout, MapMode, SamplerParams,
+    BindType, BufferUsage, ComputePassDescriptor, Error, GpuInfo, ImageFormat, ImageLayout,
+    MapMode, SamplerParams,
 };
 
 pub trait Device: Sized {
@@ -159,14 +160,32 @@ pub trait Device: Sized {
     unsafe fn create_sampler(&self, params: SamplerParams) -> Result<Self::Sampler, Error>;
 }
 
+/// The trait implemented by backend command buffer implementations.
+///
+/// Valid encoding is represented by a state machine (currently not validated
+/// but it is easy to imagine there might be at least debug validation). Most
+/// methods are only valid in a particular state, and some move it to another
+/// state.
 pub trait CmdBuf<D: Device> {
+    /// Begin encoding.
+    ///
+    /// State: init -> ready
     unsafe fn begin(&mut self);
 
+    /// State: ready -> finished
     unsafe fn finish(&mut self);
 
     /// Return true if the command buffer is suitable for reuse.
     unsafe fn reset(&mut self) -> bool;
 
+    /// Begin a compute pass.
+    ///
+    /// State: ready -> in_compute_pass
+    unsafe fn begin_compute_pass(&mut self, desc: &ComputePassDescriptor);
+
+    /// Dispatch
+    ///
+    /// State: in_compute_pass
     unsafe fn dispatch(
         &mut self,
         pipeline: &D::Pipeline,
@@ -174,6 +193,9 @@ pub trait CmdBuf<D: Device> {
         workgroup_count: (u32, u32, u32),
         workgroup_size: (u32, u32, u32),
     );
+
+    /// State: in_compute_pass -> ready
+    unsafe fn end_compute_pass(&mut self);
 
     /// Insert an execution and memory barrier.
     ///
@@ -202,16 +224,16 @@ pub trait CmdBuf<D: Device> {
     /// This is readily supported in Vulkan, but for portability it is remarkably
     /// tricky (unimplemented in gfx-hal right now). Possibly best to write a compute
     /// kernel, or organize the code not to need it.
-    unsafe fn clear_buffer(&self, buffer: &D::Buffer, size: Option<u64>);
+    unsafe fn clear_buffer(&mut self, buffer: &D::Buffer, size: Option<u64>);
 
-    unsafe fn copy_buffer(&self, src: &D::Buffer, dst: &D::Buffer);
+    unsafe fn copy_buffer(&mut self, src: &D::Buffer, dst: &D::Buffer);
 
-    unsafe fn copy_image_to_buffer(&self, src: &D::Image, dst: &D::Buffer);
+    unsafe fn copy_image_to_buffer(&mut self, src: &D::Image, dst: &D::Buffer);
 
-    unsafe fn copy_buffer_to_image(&self, src: &D::Buffer, dst: &D::Image);
+    unsafe fn copy_buffer_to_image(&mut self, src: &D::Buffer, dst: &D::Image);
 
     // low portability, dx12 doesn't support it natively
-    unsafe fn blit_image(&self, src: &D::Image, dst: &D::Image);
+    unsafe fn blit_image(&mut self, src: &D::Image, dst: &D::Image);
 
     /// Reset the query pool.
     ///
@@ -227,7 +249,7 @@ pub trait CmdBuf<D: Device> {
     unsafe fn finish_timestamps(&mut self, _pool: &D::QueryPool) {}
 
     /// Begin a labeled section for debugging and profiling purposes.
-    unsafe fn begin_debug_label(&mut self, label: &str) {}
+    unsafe fn begin_debug_label(&mut self, _label: &str) {}
 
     /// End a section opened by `begin_debug_label`.
     unsafe fn end_debug_label(&mut self) {}
