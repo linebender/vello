@@ -172,11 +172,11 @@ pub unsafe extern "C" fn pgpu_glyph_provider_new(
 pub unsafe extern "C" fn pgpu_glyph_provider_get(
     provider: *mut PgpuGlyphProvider,
     gid: u16,
-) -> *const PgpuGlyph {
+) -> *mut PgpuGlyph {
     if let Some(glyph) = (*provider).get(gid) {
         Box::into_raw(Box::new(glyph))
     } else {
-        std::ptr::null()
+        std::ptr::null_mut()
     }
 }
 

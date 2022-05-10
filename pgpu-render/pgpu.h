@@ -118,7 +118,7 @@ PgpuGlyphProvider *pgpu_glyph_provider_new(PgpuGlyphContext *gcx, const PgpuFont
 
 /// Returns an encoded outline for the specified glyph provider and glyph id.
 /// May return nullptr if the requested glyph is not available.
-const PgpuGlyph *pgpu_glyph_provider_get(PgpuGlyphProvider *provider, uint16_t gid);
+PgpuGlyph *pgpu_glyph_provider_get(PgpuGlyphProvider *provider, uint16_t gid);
 
 /// Returns an encoded color outline for the specified glyph provider, color
 /// palette index and glyph id. May return nullptr if the requested glyph is
