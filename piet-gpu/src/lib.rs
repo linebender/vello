@@ -8,9 +8,11 @@ pub mod stages;
 pub mod test_scenes;
 mod text;
 
+use bytemuck::Pod;
 use std::convert::TryInto;
 
 pub use blend::{Blend, BlendMode, CompositionMode};
+pub use encoder::EncodedSceneRef;
 pub use render_ctx::PietGpuRenderContext;
 pub use gradient::Colrv1RadialGradient;
 
@@ -401,6 +403,61 @@ impl Renderer {
                         >= std::mem::size_of_val(&*ramp_data)
                 );
                 self.gradient_bufs[buf_ix].write(&ramp_data)?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn upload_scene<T: Copy + Pod>(
+        &mut self,
+        scene: &EncodedSceneRef<T>,
+        buf_ix: usize,
+    ) -> Result<(), Error> {
+        let (mut config, mut alloc) = scene.stage_config();
+        let n_drawobj = scene.n_drawobj();
+        // TODO: be more consistent in size types
+        let n_path = scene.n_path() as usize;
+        self.n_paths = n_path;
+        self.n_transform = scene.n_transform();
+        self.n_drawobj = scene.n_drawobj();
+        self.n_pathseg = scene.n_pathseg() as usize;
+        self.n_pathtag = scene.n_pathtag();
+        self.n_clip = scene.n_clip();
+
+        // These constants depend on encoding and may need to be updated.
+        // Perhaps we can plumb these from piet-gpu-derive?
+        const PATH_SIZE: usize = 12;
+        const BIN_SIZE: usize = 8;
+        let width_in_tiles = self.width / TILE_W;
+        let height_in_tiles = self.height / TILE_H;
+        let tile_base = alloc;
+        alloc += ((n_path + 3) & !3) * PATH_SIZE;
+        let bin_base = alloc;
+        alloc += ((n_drawobj + 255) & !255) * BIN_SIZE;
+        let ptcl_base = alloc;
+        alloc += width_in_tiles * height_in_tiles * PTCL_INITIAL_ALLOC;
+
+        config.width_in_tiles = width_in_tiles as u32;
+        config.height_in_tiles = height_in_tiles as u32;
+        config.tile_alloc = tile_base as u32;
+        config.bin_alloc = bin_base as u32;
+        config.ptcl_alloc = ptcl_base as u32;
+        unsafe {
+            // TODO: reallocate scene buffer if size is inadequate
+            {
+                let mut mapped_scene = self.scene_bufs[buf_ix].map_write(..)?;
+                scene.write_scene(&mut mapped_scene);
+            }
+            self.config_bufs[buf_ix].write(&[config])?;
+            self.memory_buf_host[buf_ix].write(&[alloc as u32, 0 /* Overflow flag */])?;
+
+            // Upload gradient data.
+            if !scene.ramp_data.is_empty() {
+                assert!(
+                    self.gradient_bufs[buf_ix].size() as usize
+                        >= std::mem::size_of_val(&*scene.ramp_data)
+                );
+                self.gradient_bufs[buf_ix].write(scene.ramp_data)?;
             }
         }
         Ok(())

@@ -57,7 +57,7 @@ fn main() -> Result<(), Error> {
             .map(|_| session.create_semaphore())
             .collect::<Result<Vec<_>, Error>>()?;
         let query_pools = (0..NUM_FRAMES)
-            .map(|_| session.create_query_pool(8))
+            .map(|_| session.create_query_pool(12))
             .collect::<Result<Vec<_>, Error>>()?;
         let mut cmd_bufs: [Option<CmdBuf>; NUM_FRAMES] = Default::default();
         let mut submitted: [Option<SubmittedCmdBuf>; NUM_FRAMES] = Default::default();
@@ -99,72 +99,26 @@ fn main() -> Result<(), Error> {
                         if !ts.is_empty() {
                             info_string = format!(
                                 "{:.3}ms :: e:{:.3}ms|alloc:{:.3}ms|cp:{:.3}ms|bd:{:.3}ms|bin:{:.3}ms|cr:{:.3}ms|r:{:.3}ms",
-                                ts[6] * 1e3,
+                                ts[10] * 1e3,
                                 ts[0] * 1e3,
                                 (ts[1] - ts[0]) * 1e3,
                                 (ts[2] - ts[1]) * 1e3,
-                                (ts[3] - ts[2]) * 1e3,
                                 (ts[4] - ts[3]) * 1e3,
-                                (ts[5] - ts[4]) * 1e3,
                                 (ts[6] - ts[5]) * 1e3,
+                                (ts[8] - ts[7]) * 1e3,
+                                (ts[10] - ts[9]) * 1e3,
                             );
                         }
                     }
 
                     let mut ctx = PietGpuRenderContext::new();
-                    if let Some(input) = matches.value_of("INPUT") {
-                        let mut scale = matches
-                            .value_of("scale")
-                            .map(|scale| scale.parse().unwrap())
-                            .unwrap_or(8.0);
-                        if matches.is_present("flip") {
-                            scale = -scale;
-                        }
-                        test_scenes::render_svg(&mut ctx, input, scale);
-                    } else {
-                        use piet_gpu::{Blend, BlendMode::*, CompositionMode::*};
-                        let blends = [
-                            Blend::new(Normal, SrcOver),
-                            Blend::new(Multiply, SrcOver),
-                            Blend::new(Screen, SrcOver),
-                            Blend::new(Overlay, SrcOver),
-                            Blend::new(Darken, SrcOver),
-                            Blend::new(Lighten, SrcOver),
-                            Blend::new(ColorDodge, SrcOver),
-                            Blend::new(ColorBurn, SrcOver),
-                            Blend::new(HardLight, SrcOver),
-                            Blend::new(SoftLight, SrcOver),
-                            Blend::new(Difference, SrcOver),
-                            Blend::new(Exclusion, SrcOver),
-                            Blend::new(Hue, SrcOver),
-                            Blend::new(Saturation, SrcOver),
-                            Blend::new(Color, SrcOver),
-                            Blend::new(Luminosity, SrcOver),
-                            Blend::new(Normal, Clear),
-                            Blend::new(Normal, Copy),
-                            Blend::new(Normal, Dest),
-                            Blend::new(Normal, SrcOver),
-                            Blend::new(Normal, DestOver),
-                            Blend::new(Normal, SrcIn),
-                            Blend::new(Normal, DestIn),
-                            Blend::new(Normal, SrcOut),
-                            Blend::new(Normal, DestOut),
-                            Blend::new(Normal, SrcAtop),
-                            Blend::new(Normal, DestAtop),
-                            Blend::new(Normal, Xor),
-                            Blend::new(Normal, Plus),
-                        ];
-                        let blend = blends[mode % blends.len()];
-                        test_scenes::render_blend_test(&mut ctx, current_frame, blend);
-                        info_string = format!("{:?}", blend);
-                    }
                     render_info_string(&mut ctx, &info_string);
 
                     ctx = PietGpuRenderContext::new();
                     test_scene1_old(&mut ctx);
-                    let mut encoded_scene_old = ctx.encoded_scene();
-                    let ramp_data = ctx.get_ramp_data();
-                    encoded_scene_old.ramp_data = &ramp_data;
+                    //let mut encoded_scene_old = ctx.encoded_scene();
+                    // let ramp_data = ctx.get_ramp_data();
+                    //encoded_scene_old.ramp_data = &ramp_data;
                     test_scene1(&mut scene, &mut rcx);
                     let encoded_scene = scene_to_encoded_scene(&scene, &rcx);
                     // println!("{:?}\n============\n{:?}", encoded_scene_old, encoded_scene);
