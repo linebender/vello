@@ -1,3 +1,5 @@
+/** Automatically generated from pgpu-render/src/lib.rs with cbindgen. **/
+
 #include <cstdarg>
 #include <cstdint>
 #include <cstdlib>

@@ -14,6 +14,8 @@
 //
 // Also licensed under MIT license, at your choice.
 
+// This module is based in part on kurbo (https://github.com/linebender/kurbo)
+
 use bytemuck::{Pod, Zeroable};
 use core::borrow::Borrow;
 use core::hash::{Hash, Hasher};

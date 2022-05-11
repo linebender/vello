@@ -1031,17 +1031,9 @@ name = "piet-scene"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
- "clap",
  "moscato",
- "piet",
- "piet-gpu",
- "piet-gpu-hal",
  "pinot",
- "png",
- "rand",
- "roxmltree",
  "smallvec",
- "winit",
 ]
 
 [[package]]

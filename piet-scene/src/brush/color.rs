@@ -31,28 +31,11 @@ impl Color {
         Self { r, g, b, a }
     }
 
-    pub fn rgb<C: Into<f64>>(r: C, g: C, b: C) -> Self {
-        Self::rgb8(
-            (r.into() / 255.0) as u8,
-            (g.into() / 255.0) as u8,
-            (b.into() / 255.0) as u8,
-        )
-    }
-
-    pub fn rgba<C: Into<f64>>(r: C, g: C, b: C, a: C) -> Self {
-        Self::rgba8(
-            (r.into() / 255.0) as u8,
-            (g.into() / 255.0) as u8,
-            (b.into() / 255.0) as u8,
-            (a.into() / 255.0) as u8,
-        )
-    }
-
     pub fn to_premul_u32(self) -> u32 {
-        let a = self.a as f64 / 255.0;
-        let r = (self.r as f64 * a) as u32;
-        let g = (self.g as f64 * a) as u32;
-        let b = (self.b as f64 * a) as u32;
+        let a = self.a as f64 * (1.0 / 255.0);
+        let r = (self.r as f64 * a).round() as u32;
+        let g = (self.g as f64 * a).round() as u32;
+        let b = (self.b as f64 * a).round() as u32;
         (r << 24) | (g << 16) | (b << 8) | self.a as u32
     }
 }
