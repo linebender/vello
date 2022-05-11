@@ -1,0 +1,11 @@
+[package]
+name = "piet-scene"
+version = "0.1.0"
+license = "MIT/Apache-2.0"
+edition = "2021"
+
+[dependencies]
+bytemuck = { version = "1.7.2", features = ["derive"] }
+smallvec = "1.8.0"
+pinot = "0.1.5"
+moscato = "0.1.2"

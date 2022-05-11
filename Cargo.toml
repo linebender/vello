@@ -1,9 +1,11 @@
 [workspace]
 
 members = [
+    "pgpu-render",
     "piet-gpu",
     "piet-gpu-derive",
     "piet-gpu-hal",
     "piet-gpu-types",
+    "piet-scene",
     "tests"
 ]
