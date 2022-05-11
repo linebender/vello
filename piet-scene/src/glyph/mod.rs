@@ -107,7 +107,12 @@ impl<'a> GlyphProvider<'a> {
         for command in glyph.commands() {
             match command {
                 Command::PushTransform(xform) => {
-                    xform_stack.push(convert_transform(xform));
+                    let xform = if let Some(parent) = xform_stack.last() {
+                        convert_transform(xform) * *parent
+                    } else {
+                        convert_transform(xform)
+                    };
+                    xform_stack.push(xform);
                 }
                 Command::PopTransform => { xform_stack.pop(); },
                 Command::PushClip(path_index) => {
@@ -128,8 +133,7 @@ impl<'a> GlyphProvider<'a> {
                         max: Point::new(bounds.max.x, bounds.max.y),
                     };
                     if let Some(xform) = xform_stack.last() {
-                        rect.min = rect.min.transform(xform);
-                        rect.max = rect.max.transform(xform);
+                        rect = rect.transform(xform);
                     }
                     builder.push_layer(Default::default(), rect.elements());
                 }
@@ -140,8 +144,7 @@ impl<'a> GlyphProvider<'a> {
                         max: Point::new(bounds.max.x, bounds.max.y),
                     };
                     if let Some(xform) = xform_stack.last() {
-                        rect.min = rect.min.transform(xform);
-                        rect.max = rect.max.transform(xform);
+                        rect = rect.transform(xform);
                     }
                     builder.push_layer(convert_blend(*mode), rect.elements())
                 }
@@ -154,7 +157,7 @@ impl<'a> GlyphProvider<'a> {
                         builder.fill(
                             Fill::NonZero,
                             &brush,
-                            brush_xform,
+                            brush_xform.map(|x| x * *xform),
                             convert_transformed_path(path.elements(), xform),
                         );
                     } else {
