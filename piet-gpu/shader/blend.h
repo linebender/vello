@@ -122,6 +122,8 @@ vec3 set_sat(vec3 c, float s) {
     return c;
 }
 
+// Blends two RGB colors together. The colors are assumed to be in sRGB
+// color space, and this function does not take alpha into account.
 vec3 mix_blend(vec3 cb, vec3 cs, uint mode) {
 	vec3 b = vec3(0.0);
 	switch (mode) {
@@ -190,9 +192,10 @@ vec3 mix_blend(vec3 cb, vec3 cs, uint mode) {
 #define Comp_DestAtop 10
 #define Comp_Xor 11
 #define Comp_Plus 12
-#define Comp_PlusDarker 13
-#define Comp_PlusLighter 14
+#define Comp_PlusLighter 13
 
+// Apply general compositing operation.
+// Inputs are separated colors and alpha, output is premultiplied.
 vec4 mix_compose(vec3 cb, vec3 cs, float ab, float as, uint mode) {
 	float fa = 0.0;
 	float fb = 0.0;
@@ -245,16 +248,41 @@ vec4 mix_compose(vec3 cb, vec3 cs, float ab, float as, uint mode) {
 		fa = 1.0;
 		fb = 1.0;
 		break;
-	case Comp_PlusDarker:
-		return vec4(max(vec4(0.0), 1.0 - as * vec4(cs, as) + 1.0 - ab * vec4(cb, ab)).xyz, 
-			    max(0.0, 1.0 - as + 1.0 - ab));
 	case Comp_PlusLighter:
-		return vec4(min(vec4(1.0), as * vec4(cs, as) + ab * vec4(cb, ab)).xyz,
-			    min(1.0, as + ab));
+		return min(vec4(1.0), vec4(as * cs + ab * cb, as + ab));
 	default:
 		break;
 	}
-	return as * fa * vec4(cs, as) + ab * fb * vec4(cb, ab);
+	float as_fa = as * fa;
+	float ab_fb = ab * fb;
+	vec3 co = as_fa * cs + ab_fb * cb;
+	return vec4(co, as_fa + ab_fb);
 }
 
 #define BlendComp_default (Blend_Normal << 8 | Comp_SrcOver)
+
+// This is added to alpha to prevent divide-by-zero
+#define EPSILON 1e-15
+
+// Apply blending and composition. Both input and output colors are
+// premultiplied RGB.
+vec4 mix_blend_compose(vec4 backdrop, vec4 src, uint mode) {
+	if (mode == BlendComp_default) {
+		return backdrop * (1.0 - src.a) + src;
+	}
+	// Un-premultiply colors for blending
+	float inv_src_a = 1.0 / (src.a + EPSILON);
+	vec3 cs = src.rgb * inv_src_a;
+	float inv_backdrop_a = 1.0 / (backdrop.a + EPSILON);
+	vec3 cb = backdrop.rgb * inv_backdrop_a;
+	uint blend_mode = mode >> 8;
+	vec3 blended = mix_blend(cs, cb, blend_mode);
+	cs = mix(cs, blended, backdrop.a);
+	uint comp_mode = mode * 0xff;
+	if (comp_mode == Comp_SrcOver) {
+		vec3 co = mix(backdrop.rgb, cs, src.a);
+		return vec4(co, src.a + backdrop.a * (1 - src.a));
+	} else {
+		return mix_compose(cb, cs, backdrop.a, src.a, comp_mode);
+	}
+}

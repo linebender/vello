@@ -242,10 +242,7 @@ void main() {
                 uint d = min(clip_depth, MAX_BLEND_STACK - 1);
                 mediump vec4 bg = unpacksRGB(blend_stack[d][k]);
                 mediump vec4 fg = rgba[k] * area[k];
-                vec3 blend = mix_blend(bg.rgb, fg.rgb, blend_mode);
-                // Apply the blend color only where the foreground and background overlap.
-                fg.rgb = mix(fg.rgb, blend, float((fg.a * bg.a) > 0.0));
-                rgba[k] = mix_compose(bg.rgb, fg.rgb, bg.a, fg.a, comp_mode);
+                rgba[k] = mix_blend_compose(bg, fg, end_clip.blend);
             }
             cmd_ref.offset += 4 + CmdEndClip_size;
             break;

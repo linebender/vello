@@ -51,8 +51,7 @@ pub enum CompositionMode {
     DestAtop = 10,
     Xor = 11,
     Plus = 12,
-    PlusDarker = 13,
-    PlusLighter = 14,
+    PlusLighter = 13,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
