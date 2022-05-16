@@ -528,10 +528,10 @@ spvUnsafeArray<float4, 8> fillImage(thread const uint2& xy, thread const CmdImag
         int2 uv = int2(xy + chunk_offset(param)) + cmd_img.offset;
         float4 fg_rgba = image_atlas.read(uint2(uv));
         float3 param_1 = fg_rgba.xyz;
-        float3 _1721 = fromsRGB(param_1);
-        fg_rgba.x = _1721.x;
-        fg_rgba.y = _1721.y;
-        fg_rgba.z = _1721.z;
+        float3 _1697 = fromsRGB(param_1);
+        fg_rgba.x = _1697.x;
+        fg_rgba.y = _1697.y;
+        fg_rgba.z = _1697.z;
         rgba[i] = fg_rgba;
     }
     return rgba;
@@ -986,12 +986,6 @@ float4 mix_compose(thread const float3& cb, thread const float3& cs, thread cons
         }
         case 13u:
         {
-            float rev_as = 1.0 - as;
-            float rev_ab = 1.0 - ab;
-            return fast::max(float4(0.0), float4((cs * rev_as) + (cb * rev_ab), rev_as + rev_ab));
-        }
-        case 14u:
-        {
             return fast::min(float4(1.0), float4((cs * as) + (cb * ab), as + ab));
         }
         default:
@@ -1059,15 +1053,17 @@ CmdJump Cmd_Jump_read(thread const Alloc& a, thread const CmdRef& ref, device Me
     return CmdJump_read(param, param_1, v_297);
 }
 
-kernel void main0(device Memory& v_297 [[buffer(0)]], const device ConfigBuf& _1749 [[buffer(1)]], texture2d<float, access::write> image [[texture(2)]], texture2d<float> image_atlas [[texture(3)]], texture2d<float> gradients [[texture(4)]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
+kernel void main0(device Memory& v_297 [[buffer(0)]], const device ConfigBuf& _1725 [[buffer(1)]], texture2d<float, access::write> image [[texture(2)]], texture2d<float> image_atlas [[texture(3)]], texture2d<float> gradients [[texture(4)]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
 {
-    uint tile_ix = (gl_WorkGroupID.y * _1749.conf.width_in_tiles) + gl_WorkGroupID.x;
+    uint tile_ix = (gl_WorkGroupID.y * _1725.conf.width_in_tiles) + gl_WorkGroupID.x;
     Alloc param;
-    param.offset = _1749.conf.ptcl_alloc.offset;
+    param.offset = _1725.conf.ptcl_alloc.offset;
     uint param_1 = tile_ix * 1024u;
     uint param_2 = 1024u;
     Alloc cmd_alloc = slice_mem(param, param_1, param_2);
     CmdRef cmd_ref = CmdRef{ cmd_alloc.offset };
+    uint blend_offset = v_297.memory[cmd_ref.offset >> uint(2)];
+    cmd_ref.offset += 4u;
     uint2 xy_uint = uint2(gl_LocalInvocationID.x + (16u * gl_WorkGroupID.x), gl_LocalInvocationID.y + (16u * gl_WorkGroupID.y));
     float2 xy = float2(xy_uint);
     spvUnsafeArray<float4, 8> rgba;
@@ -1080,7 +1076,9 @@ kernel void main0(device Memory& v_297 [[buffer(0)]], const device ConfigBuf& _1
     spvUnsafeArray<float, 8> df;
     TileSegRef tile_seg_ref;
     spvUnsafeArray<float, 8> area;
-    spvUnsafeArray<spvUnsafeArray<uint, 8>, 128> blend_stack;
+    spvUnsafeArray<spvUnsafeArray<uint, 8>, 4> blend_stack;
+    uint base_ix_1;
+    uint bg_rgba;
     while (mem_ok)
     {
         Alloc param_3 = cmd_alloc;
@@ -1226,10 +1224,10 @@ kernel void main0(device Memory& v_297 [[buffer(0)]], const device ConfigBuf& _1
                     int x = int(round(fast::clamp(my_d, 0.0, 1.0) * 511.0));
                     float4 fg_rgba = gradients.read(uint2(int2(x, int(lin.index))));
                     float3 param_29 = fg_rgba.xyz;
-                    float3 _2321 = fromsRGB(param_29);
-                    fg_rgba.x = _2321.x;
-                    fg_rgba.y = _2321.y;
-                    fg_rgba.z = _2321.z;
+                    float3 _2308 = fromsRGB(param_29);
+                    fg_rgba.x = _2308.x;
+                    fg_rgba.y = _2308.y;
+                    fg_rgba.z = _2308.z;
                     float4 fg_k_1 = fg_rgba * area[k_9];
                     rgba[k_9] = (rgba[k_9] * (1.0 - fg_k_1.w)) + fg_k_1;
                 }
@@ -1252,10 +1250,10 @@ kernel void main0(device Memory& v_297 [[buffer(0)]], const device ConfigBuf& _1
                     int x_1 = int(round(fast::clamp(t_2, 0.0, 1.0) * 511.0));
                     float4 fg_rgba_1 = gradients.read(uint2(int2(x_1, int(rad.index))));
                     float3 param_33 = fg_rgba_1.xyz;
-                    float3 _2431 = fromsRGB(param_33);
-                    fg_rgba_1.x = _2431.x;
-                    fg_rgba_1.y = _2431.y;
-                    fg_rgba_1.z = _2431.z;
+                    float3 _2418 = fromsRGB(param_33);
+                    fg_rgba_1.x = _2418.x;
+                    fg_rgba_1.y = _2418.y;
+                    fg_rgba_1.z = _2418.z;
                     float4 fg_k_2 = fg_rgba_1 * area[k_10];
                     rgba[k_10] = (rgba[k_10] * (1.0 - fg_k_2.w)) + fg_k_2;
                 }
@@ -1281,13 +1279,26 @@ kernel void main0(device Memory& v_297 [[buffer(0)]], const device ConfigBuf& _1
             }
             case 9u:
             {
-                for (uint k_12 = 0u; k_12 < 8u; k_12++)
+                if (clip_depth < 4u)
                 {
-                    uint d_2 = min(clip_depth, 127u);
-                    float4 param_38 = float4(rgba[k_12]);
-                    uint _2537 = packsRGB(param_38);
-                    blend_stack[d_2][k_12] = _2537;
-                    rgba[k_12] = float4(0.0);
+                    for (uint k_12 = 0u; k_12 < 8u; k_12++)
+                    {
+                        float4 param_38 = float4(rgba[k_12]);
+                        uint _2523 = packsRGB(param_38);
+                        blend_stack[clip_depth][k_12] = _2523;
+                        rgba[k_12] = float4(0.0);
+                    }
+                }
+                else
+                {
+                    uint base_ix = ((blend_offset >> uint(2)) + (((clip_depth - 4u) * 16u) * 16u)) + (8u * (gl_LocalInvocationID.x + (8u * gl_LocalInvocationID.y)));
+                    for (uint k_13 = 0u; k_13 < 8u; k_13++)
+                    {
+                        float4 param_39 = float4(rgba[k_13]);
+                        uint _2566 = packsRGB(param_39);
+                        v_297.memory[base_ix + k_13] = _2566;
+                        rgba[k_13] = float4(0.0);
+                    }
                 }
                 clip_depth++;
                 cmd_ref.offset += 4u;
@@ -1295,31 +1306,40 @@ kernel void main0(device Memory& v_297 [[buffer(0)]], const device ConfigBuf& _1
             }
             case 10u:
             {
-                Alloc param_39 = cmd_alloc;
-                CmdRef param_40 = cmd_ref;
-                CmdEndClip end_clip = Cmd_EndClip_read(param_39, param_40, v_297);
-                uint blend_mode = end_clip.blend >> uint(8);
-                uint comp_mode = end_clip.blend & 255u;
+                Alloc param_40 = cmd_alloc;
+                CmdRef param_41 = cmd_ref;
+                CmdEndClip end_clip = Cmd_EndClip_read(param_40, param_41, v_297);
                 clip_depth--;
-                for (uint k_13 = 0u; k_13 < 8u; k_13++)
+                if (clip_depth < 4u)
                 {
-                    uint d_3 = min(clip_depth, 127u);
-                    uint param_41 = blend_stack[d_3][k_13];
-                    float4 bg = unpacksRGB(param_41);
-                    float4 fg_1 = rgba[k_13] * area[k_13];
-                    float4 param_42 = bg;
-                    float4 param_43 = fg_1;
-                    uint param_44 = end_clip.blend;
-                    rgba[k_13] = mix_blend_compose(param_42, param_43, param_44);
+                    base_ix_1 = ((blend_offset >> uint(2)) + (((clip_depth - 4u) * 16u) * 16u)) + (8u * (gl_LocalInvocationID.x + (8u * gl_LocalInvocationID.y)));
+                }
+                for (uint k_14 = 0u; k_14 < 8u; k_14++)
+                {
+                    if (clip_depth < 4u)
+                    {
+                        bg_rgba = blend_stack[clip_depth][k_14];
+                    }
+                    else
+                    {
+                        bg_rgba = v_297.memory[base_ix_1 + k_14];
+                    }
+                    uint param_42 = bg_rgba;
+                    float4 bg = unpacksRGB(param_42);
+                    float4 fg_1 = rgba[k_14] * area[k_14];
+                    float4 param_43 = bg;
+                    float4 param_44 = fg_1;
+                    uint param_45 = end_clip.blend;
+                    rgba[k_14] = mix_blend_compose(param_43, param_44, param_45);
                 }
                 cmd_ref.offset += 8u;
                 break;
             }
             case 11u:
             {
-                Alloc param_45 = cmd_alloc;
-                CmdRef param_46 = cmd_ref;
-                cmd_ref = CmdRef{ Cmd_Jump_read(param_45, param_46, v_297).new_ref };
+                Alloc param_46 = cmd_alloc;
+                CmdRef param_47 = cmd_ref;
+                cmd_ref = CmdRef{ Cmd_Jump_read(param_46, param_47, v_297).new_ref };
                 cmd_alloc.offset = cmd_ref.offset;
                 break;
             }
@@ -1327,8 +1347,8 @@ kernel void main0(device Memory& v_297 [[buffer(0)]], const device ConfigBuf& _1
     }
     for (uint i_1 = 0u; i_1 < 8u; i_1++)
     {
-        uint param_47 = i_1;
-        image.write(float4(rgba[i_1].w), uint2(int2(xy_uint + chunk_offset(param_47))));
+        uint param_48 = i_1;
+        image.write(float4(rgba[i_1].w), uint2(int2(xy_uint + chunk_offset(param_48))));
     }
 }
 

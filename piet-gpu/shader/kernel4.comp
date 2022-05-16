@@ -87,11 +87,14 @@ void main() {
     Alloc cmd_alloc = slice_mem(conf.ptcl_alloc, tile_ix * PTCL_INITIAL_ALLOC, PTCL_INITIAL_ALLOC);
     CmdRef cmd_ref = CmdRef(cmd_alloc.offset);
 
+    uint blend_offset = memory[cmd_ref.offset >> 2];
+    cmd_ref.offset += 4;
+
     uvec2 xy_uint = uvec2(gl_LocalInvocationID.x + TILE_WIDTH_PX * gl_WorkGroupID.x,
                           gl_LocalInvocationID.y + TILE_HEIGHT_PX * gl_WorkGroupID.y);
     vec2 xy = vec2(xy_uint);
     mediump vec4 rgba[CHUNK];
-    uint blend_stack[MAX_BLEND_STACK][CHUNK];
+    uint blend_stack[BLEND_STACK_SPLIT][CHUNK];
     for (uint i = 0; i < CHUNK; i++) {
         rgba[i] = vec4(0.0);
     }
@@ -223,24 +226,38 @@ void main() {
             cmd_ref.offset += 4 + CmdImage_size;
             break;
         case Cmd_BeginClip:
-            for (uint k = 0; k < CHUNK; k++) {
-                // We reject any inputs that might overflow in render_ctx.rs.
-                // The following is a sanity check so we don't corrupt memory should there be malformed inputs.
-                uint d = min(clip_depth, MAX_BLEND_STACK - 1);
-                blend_stack[d][k] = packsRGB(vec4(rgba[k]));
-                rgba[k] = vec4(0.0);
+            if (clip_depth < BLEND_STACK_SPLIT) {
+                for (uint k = 0; k < CHUNK; k++) {
+                    blend_stack[clip_depth][k] = packsRGB(vec4(rgba[k]));
+                    rgba[k] = vec4(0.0);
+                }
+            } else {
+                uint base_ix = (blend_offset >> 2) + (clip_depth - BLEND_STACK_SPLIT) * TILE_HEIGHT_PX * TILE_WIDTH_PX +
+                    CHUNK * (gl_LocalInvocationID.x + CHUNK_DX * gl_LocalInvocationID.y);
+                for (uint k = 0; k < CHUNK; k++) {
+                    memory[base_ix + k] = packsRGB(vec4(rgba[k]));
+                    rgba[k] = vec4(0.0);
+                }
             }
             clip_depth++;
             cmd_ref.offset += 4;
             break;
         case Cmd_EndClip:
             CmdEndClip end_clip = Cmd_EndClip_read(cmd_alloc, cmd_ref);
-            uint blend_mode = uint(end_clip.blend >> 8);
-            uint comp_mode = uint(end_clip.blend & 0xFF);
             clip_depth--;
+            uint base_ix;
+            if (clip_depth < BLEND_STACK_SPLIT) {
+                base_ix = (blend_offset >> 2) + (clip_depth - BLEND_STACK_SPLIT) * TILE_HEIGHT_PX * TILE_WIDTH_PX +
+                    CHUNK * (gl_LocalInvocationID.x + CHUNK_DX * gl_LocalInvocationID.y);
+            }
             for (uint k = 0; k < CHUNK; k++) {
-                uint d = min(clip_depth, MAX_BLEND_STACK - 1);
-                mediump vec4 bg = unpacksRGB(blend_stack[d][k]);
+                uint bg_rgba;
+                if (clip_depth < BLEND_STACK_SPLIT) {
+                    bg_rgba = blend_stack[clip_depth][k];
+                } else {
+                    bg_rgba = memory[base_ix + k];
+                }
+                mediump vec4 bg = unpacksRGB(bg_rgba);
                 mediump vec4 fg = rgba[k] * area[k];
                 rgba[k] = mix_blend_compose(bg, fg, end_clip.blend);
             }

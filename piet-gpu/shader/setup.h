@@ -27,6 +27,10 @@
 
 #define GRADIENT_WIDTH 512
 
+// We allocate this many blend stack entries in registers, and spill
+// to memory for the overflow.
+#define BLEND_STACK_SPLIT 4
+
 #ifdef ERR_MALLOC_FAILED
 struct Config {
     uint n_elements; // paths
@@ -91,7 +95,7 @@ struct Config {
 #define MODE_STROKE 1
 
 // Size of kernel4 clip state, in words.
-#define CLIP_STATE_SIZE 2
+#define CLIP_STATE_SIZE 1
 
 // fill_mode_from_flags extracts the fill mode from tag flags.
 uint fill_mode_from_flags(uint flags) {

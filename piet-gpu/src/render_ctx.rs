@@ -2,7 +2,6 @@ use std::borrow::Cow;
 
 use crate::encoder::GlyphEncoder;
 use crate::stages::{Config, Transform};
-use crate::MAX_BLEND_STACK;
 use piet::kurbo::{Affine, Insets, PathEl, Point, Rect, Shape};
 use piet::{
     Color, Error, FixedGradient, ImageFormat, InterpolationMode, IntoBrush, RenderContext,
@@ -230,9 +229,6 @@ impl RenderContext for PietGpuRenderContext {
         let path = shape.path_elements(TOLERANCE);
         self.encode_path(path, true);
         self.new_encoder.begin_clip(None);
-        if self.clip_stack.len() >= MAX_BLEND_STACK {
-            panic!("Maximum clip/blend stack size {} exceeded", MAX_BLEND_STACK);
-        }
         self.clip_stack.push(ClipElement { blend: None });
         if let Some(tos) = self.state_stack.last_mut() {
             tos.n_clip += 1;
@@ -334,9 +330,6 @@ impl PietGpuRenderContext {
         let path = shape.path_elements(TOLERANCE);
         self.encode_path(path, true);
         self.new_encoder.begin_clip(Some(blend));
-        if self.clip_stack.len() >= MAX_BLEND_STACK {
-            panic!("Maximum clip/blend stack size {} exceeded", MAX_BLEND_STACK);
-        }
         self.clip_stack.push(ClipElement { blend: Some(blend) });
         if let Some(tos) = self.state_stack.last_mut() {
             tos.n_clip += 1;
