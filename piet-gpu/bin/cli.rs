@@ -249,7 +249,8 @@ fn main() -> Result<(), Error> {
             println!("parsing time: {:?}", start.elapsed());
             test_scenes::render_svg(&mut ctx, &svg);
         } else {
-            test_scenes::render_scene(&mut ctx);
+            //test_scenes::render_scene(&mut ctx);
+            test_scenes::render_blend_grid(&mut ctx);
         }
 
         let mut renderer = Renderer::new(&session, WIDTH, HEIGHT, 1)?;

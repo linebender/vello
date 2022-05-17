@@ -306,16 +306,21 @@ impl Encoder {
         self.drawdata_stream.extend(bytemuck::bytes_of(&element));
     }
 
-
     /// Encode a fill radial gradient draw object.
     ///
     /// This should be encoded after a path.
     pub fn fill_rad_gradient(&mut self, index: u32, p0: [f32; 2], p1: [f32; 2], r0: f32, r1: f32) {
         self.drawtag_stream.push(DRAWTAG_FILLRADGRADIENT);
-        let element = FillRadGradient { index, p0, p1, r0, r1 };
+        let element = FillRadGradient {
+            index,
+            p0,
+            p1,
+            r0,
+            r1,
+        };
         self.drawdata_stream.extend(bytemuck::bytes_of(&element));
     }
-    
+
     /// Start a clip.
     pub fn begin_clip(&mut self, blend: Option<Blend>) {
         self.drawtag_stream.push(DRAWTAG_BEGINCLIP);

@@ -13,8 +13,8 @@ use std::convert::TryInto;
 
 pub use blend::{Blend, BlendMode, CompositionMode};
 pub use encoder::EncodedSceneRef;
-pub use render_ctx::PietGpuRenderContext;
 pub use gradient::Colrv1RadialGradient;
+pub use render_ctx::PietGpuRenderContext;
 
 use piet::kurbo::Vec2;
 use piet::{ImageFormat, RenderContext};

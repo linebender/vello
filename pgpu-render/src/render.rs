@@ -16,8 +16,8 @@
 
 use piet_gpu::{EncodedSceneRef, PixelFormat, RenderConfig};
 use piet_gpu_hal::{QueryPool, Session};
-use piet_scene::glyph::pinot::{types::Tag, FontDataRef};
 use piet_scene::geometry::{Affine, Rect};
+use piet_scene::glyph::pinot::{types::Tag, FontDataRef};
 use piet_scene::glyph::{GlyphContext, GlyphProvider};
 use piet_scene::resource::ResourceContext;
 use piet_scene::scene::{Fragment, Scene};
@@ -214,7 +214,12 @@ pub struct PgpuGlyph {
 impl PgpuGlyph {
     pub fn bbox(&self, transform: Option<Affine>) -> Rect {
         if let Some(transform) = &transform {
-            Rect::from_points(self.fragment.points().iter().map(|p| p.transform(transform)))
+            Rect::from_points(
+                self.fragment
+                    .points()
+                    .iter()
+                    .map(|p| p.transform(transform)),
+            )
         } else {
             Rect::from_points(self.fragment.points())
         }
