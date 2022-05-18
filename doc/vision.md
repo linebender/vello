@@ -112,7 +112,7 @@ These potential quality improvements may well provide the answer to the question
 
 ## Enriching the imaging model
 
-There is consensus on “the modern 2D imaging model,” roughly encompassing PDF, SVG, HTML Canvas, and Direct2D, but it is not set in stone and with considerable variation in advanced features within those systems (for example, gradient meshes are more or less unique to PDF — the feature was proposed for SVG 2 but [then removed](http://libregraphicsworld.org/blog/entry/gradient-meshes-and-hatching-to-be-removed-from-svg-2-0)).
+There is consensus on “the modern 2D imaging model,” roughly encompassing PDF, SVG, HTML Canvas, and Direct2D, but it is not set in stone and with considerable variation in advanced features within those systems (for example, gradient meshes are more or less unique to PDF — the feature was proposed for SVG 2 but [then removed](https://librearts.org/2018/05/gradient-meshes-and-hatching-to-be-removed-from-svg-2-0/)).
 
 I like this consensus 2D imaging model because I feel it is extremely well suited for UI and documents of considerable richness and complexity, and is quite designer-friendly. There is also tension pulling away from it, I think for two reasons. One is that it is not always implemented efficiently on GPU, especially with deeply nested soft clipping and other nontrivial compositing requirements. The other is that it’s possible to do things on GPU (especially using custom shaders) that are not easily possible with the standard 2D api. Shadertoy shows *many* things that are possible in shaders. One idea I’d like to explore is watercolor brush strokes (see [Computer-Generated Watercolor](https://grail.cs.washington.edu/projects/watercolor/paper_small.pdf) for inspiration). I think it would be possible to get pretty far with distance fields and procedural noise, and a simple function to go from those to paint values for paint-like compositing.
 
@@ -173,7 +173,7 @@ There's been some great discussion on [/r/rust](https://www.reddit.com/r/rust/co
 [variable font technology]: https://docs.microsoft.com/en-us/typography/opentype/spec/otvaroverview
 [MSAA]: https://en.wikipedia.org/wiki/Multisample_anti-aliasing
 [tradition of libart]: https://people.gnome.org/~mathieu/libart/internals.html
-[stem darkening]: https://www.freetype.org/freetype2/docs/text-rendering-general.html
+[stem darkening]: https://freetype.org/freetype2/docs/hinting/text-rendering-general.html
 [subpixel rendering]: https://en.wikipedia.org/wiki/Subpixel_rendering
 [HDR]: https://en.wikipedia.org/wiki/High-dynamic-range_imaging
 [blurred rounded rectangle]: https://raphlinus.github.io/graphics/2020/04/21/blurred-rounded-rects.html
