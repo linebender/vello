@@ -24,8 +24,8 @@ use core::borrow::Borrow;
 const MAX_BLEND_STACK: usize = 256;
 
 /// Creates a new builder for constructing a scene.
-pub fn build_scene<'a>(scene: &'a mut Scene, resources: &'a mut ResourceContext) -> Builder<'a> {
-    Builder::new(&mut scene.data, ResourceData::Scene(resources))
+pub fn build_scene<'a>(scene: &'a mut Scene, rcx: &'a mut ResourceContext) -> Builder<'a> {
+    Builder::new(&mut scene.data, ResourceData::Scene(rcx))
 }
 
 /// Creates a new builder for construction a scene fragment.
@@ -62,7 +62,8 @@ impl<'a> Builder<'a> {
     }
 
     /// Pushes a transform matrix onto the stack.
-    pub fn push_transform(&mut self, transform: Affine) {
+    pub fn push_transform(&mut self, transform: impl Into<Affine>) {
+        let transform = transform.into();
         self.transform(transform);
         self.transforms.push(transform);
     }
