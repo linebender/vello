@@ -53,8 +53,7 @@ pub enum Compose {
     DestAtop = 10,
     Xor = 11,
     Plus = 12,
-    PlusDarker = 13,
-    PlusLighter = 14,
+    PlusLighter = 13,
 }
 
 /// Blend mode consisting of mixing and composition functions.
