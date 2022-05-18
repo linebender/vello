@@ -20,3 +20,96 @@ pub mod glyph;
 pub mod path;
 pub mod resource;
 pub mod scene;
+
+/// Implement conversions to and from Kurbo types when the `kurbo` feature is
+/// enabled.
+#[cfg(feature = "kurbo")]
+mod kurbo_conv {
+    use super::geometry::{Affine, Point, Rect};
+    use super::path::Element;
+
+    impl From<kurbo::Point> for Point {
+        fn from(p: kurbo::Point) -> Self {
+            Self::new(p.x as f32, p.y as f32)
+        }
+    }
+
+    impl From<Point> for kurbo::Point {
+        fn from(p: Point) -> kurbo::Point {
+            Self::new(p.x as f64, p.y as f64)
+        }
+    }
+
+    impl From<kurbo::Affine> for Affine {
+        fn from(a: kurbo::Affine) -> Self {
+            let c = a.as_coeffs();
+            Self {
+                xx: c[0] as f32,
+                yx: c[1] as f32,
+                xy: c[2] as f32,
+                yy: c[3] as f32,
+                dx: c[4] as f32,
+                dy: c[5] as f32,
+            }
+        }
+    }
+
+    impl From<Affine> for kurbo::Affine {
+        fn from(a: Affine) -> Self {
+            Self::new([
+                a.xx as f64,
+                a.yx as f64,
+                a.yx as f64,
+                a.yy as f64,
+                a.dx as f64,
+                a.dy as f64,
+            ])
+        }
+    }
+
+    impl From<kurbo::Rect> for Rect {
+        fn from(r: kurbo::Rect) -> Self {
+            Self {
+                min: Point::new(r.x0 as f32, r.y0 as f32),
+                max: Point::new(r.x1 as f32, r.y1 as f32),
+            }
+        }
+    }
+
+    impl From<Rect> for kurbo::Rect {
+        fn from(r: Rect) -> Self {
+            Self {
+                x0: r.min.x as f64,
+                y0: r.min.y as f64,
+                x1: r.max.x as f64,
+                y1: r.max.y as f64,
+            }
+        }
+    }
+
+    impl From<kurbo::PathEl> for Element {
+        fn from(e: kurbo::PathEl) -> Self {
+            use kurbo::PathEl::*;
+            match e {
+                MoveTo(p0) => Self::MoveTo(p0.into()),
+                LineTo(p0) => Self::LineTo(p0.into()),
+                QuadTo(p0, p1) => Self::QuadTo(p0.into(), p1.into()),
+                CurveTo(p0, p1, p2) => Self::CurveTo(p0.into(), p1.into(), p2.into()),
+                ClosePath => Self::Close,
+            }
+        }
+    }
+
+    impl From<Element> for kurbo::PathEl {
+        fn from(e: Element) -> Self {
+            use Element::*;
+            match e {
+                MoveTo(p0) => Self::MoveTo(p0.into()),
+                LineTo(p0) => Self::LineTo(p0.into()),
+                QuadTo(p0, p1) => Self::QuadTo(p0.into(), p1.into()),
+                CurveTo(p0, p1, p2) => Self::CurveTo(p0.into(), p1.into(), p2.into()),
+                Close => Self::ClosePath,
+            }
+        }
+    }
+}
