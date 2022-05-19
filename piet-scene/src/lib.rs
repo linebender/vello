@@ -90,19 +90,6 @@ mod kurbo_conv {
         }
     }
 
-    impl From<kurbo::PathEl> for Element {
-        fn from(e: kurbo::PathEl) -> Self {
-            use kurbo::PathEl::*;
-            match e {
-                MoveTo(p0) => Self::MoveTo(p0.into()),
-                LineTo(p0) => Self::LineTo(p0.into()),
-                QuadTo(p0, p1) => Self::QuadTo(p0.into(), p1.into()),
-                CurveTo(p0, p1, p2) => Self::CurveTo(p0.into(), p1.into(), p2.into()),
-                ClosePath => Self::Close,
-            }
-        }
-    }
-
     impl Element {
         /// Creates a new path element from the equivalent kurbo type.
         pub fn from_kurbo(el: kurbo::PathEl) -> Self {
