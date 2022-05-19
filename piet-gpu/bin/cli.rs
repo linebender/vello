@@ -270,16 +270,17 @@ fn main() -> Result<(), Error> {
         println!("elapsed = {:?}", start.elapsed());
         let ts = session.fetch_query_pool(&query_pool).unwrap();
         if !ts.is_empty() {
+            println!("Total GPU time: {:.3}ms", ts[10] * 1e3);
             println!("Element kernel time: {:.3}ms", ts[0] * 1e3);
             println!(
                 "Tile allocation kernel time: {:.3}ms",
                 (ts[1] - ts[0]) * 1e3
             );
             println!("Coarse path kernel time: {:.3}ms", (ts[2] - ts[1]) * 1e3);
-            println!("Backdrop kernel time: {:.3}ms", (ts[3] - ts[2]) * 1e3);
-            println!("Binning kernel time: {:.3}ms", (ts[4] - ts[3]) * 1e3);
-            println!("Coarse raster kernel time: {:.3}ms", (ts[5] - ts[4]) * 1e3);
-            println!("Render kernel time: {:.3}ms", (ts[6] - ts[5]) * 1e3);
+            println!("Backdrop kernel time: {:.3}ms", (ts[4] - ts[3]) * 1e3);
+            println!("Binning kernel time: {:.3}ms", (ts[6] - ts[5]) * 1e3);
+            println!("Coarse raster kernel time: {:.3}ms", (ts[8] - ts[7]) * 1e3);
+            println!("Render kernel time: {:.3}ms", (ts[10] - ts[9]) * 1e3);
         }
 
         /*
