@@ -232,7 +232,7 @@ fn main() -> Result<(), Error> {
         let session = Session::new(device);
 
         let mut cmd_buf = session.cmd_buf()?;
-        let query_pool = session.create_query_pool(8)?;
+        let query_pool = session.create_query_pool(12)?;
 
         let mut ctx = PietGpuRenderContext::new();
         if let Some(input) = matches.value_of("INPUT") {
