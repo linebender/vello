@@ -33,6 +33,8 @@ pub enum BlendMode {
     Saturation = 13,
     Color = 14,
     Luminosity = 15,
+    // Clip is the same as normal, but doesn't always push a blend group.
+    Clip = 128,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -51,8 +53,7 @@ pub enum CompositionMode {
     DestAtop = 10,
     Xor = 11,
     Plus = 12,
-    PlusDarker = 13,
-    PlusLighter = 14,
+    PlusLighter = 13,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -77,7 +78,7 @@ impl Blend {
 impl Default for Blend {
     fn default() -> Self {
         Self {
-            mode: BlendMode::Normal,
+            mode: BlendMode::Clip,
             composition_mode: CompositionMode::SrcOver,
         }
     }

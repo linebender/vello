@@ -19,7 +19,7 @@
 use std::collections::hash_map::{Entry, HashMap};
 
 use piet::kurbo::Point;
-use piet::{Color, FixedLinearGradient, GradientStop, FixedRadialGradient};
+use piet::{Color, FixedLinearGradient, FixedRadialGradient, GradientStop};
 
 /// Radial gradient compatible with COLRv1 spec
 #[derive(Debug, Clone)]

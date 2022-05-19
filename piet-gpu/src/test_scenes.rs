@@ -2,10 +2,10 @@
 
 use rand::{Rng, RngCore};
 
-use crate::{Blend, BlendMode, CompositionMode, PietGpuRenderContext, Colrv1RadialGradient};
+use crate::{Blend, BlendMode, Colrv1RadialGradient, CompositionMode, PietGpuRenderContext};
 use piet::kurbo::{Affine, BezPath, Circle, Line, Point, Rect, Shape};
 use piet::{
-    Color, FixedGradient, FixedRadialGradient, GradientStop, Text, TextAttribute, TextLayoutBuilder,
+    Color, GradientStop, LinearGradient, Text, TextAttribute, TextLayoutBuilder, UnitPoint,
 };
 
 use crate::{PicoSvg, RenderContext, Vec2};
@@ -198,6 +198,113 @@ fn render_tiger(rc: &mut impl RenderContext) {
     let start = std::time::Instant::now();
     svg.render(rc);
     println!("flattening and encoding time: {:?}", start.elapsed());
+}
+
+pub fn render_blend_square(rc: &mut PietGpuRenderContext, blend: Blend) {
+    // Inspired by https://developer.mozilla.org/en-US/docs/Web/CSS/mix-blend-mode
+    let rect = Rect::new(0., 0., 200., 200.);
+    let stops = vec![
+        GradientStop {
+            color: Color::BLACK,
+            pos: 0.0,
+        },
+        GradientStop {
+            color: Color::WHITE,
+            pos: 1.0,
+        },
+    ];
+    let linear = LinearGradient::new(UnitPoint::LEFT, UnitPoint::RIGHT, stops);
+    rc.fill(rect, &linear);
+    const GRADIENTS: &[(f64, f64, Color)] = &[
+        (150., 0., Color::rgb8(255, 240, 64)),
+        (175., 100., Color::rgb8(255, 96, 240)),
+        (125., 200., Color::rgb8(64, 192, 255)),
+    ];
+    for (x, y, c) in GRADIENTS {
+        let stops = vec![
+            GradientStop {
+                color: c.clone(),
+                pos: 0.0,
+            },
+            GradientStop {
+                color: Color::rgba8(0, 0, 0, 0),
+                pos: 1.0,
+            },
+        ];
+        let rad = Colrv1RadialGradient {
+            center0: Point::new(*x, *y),
+            center1: Point::new(*x, *y),
+            radius0: 0.0,
+            radius1: 100.0,
+            stops,
+        };
+        let brush = rc.radial_gradient_colrv1(&rad);
+        rc.fill(Rect::new(0., 0., 200., 200.), &brush);
+    }
+    const COLORS: &[Color] = &[
+        Color::rgb8(255, 0, 0),
+        Color::rgb8(0, 255, 0),
+        Color::rgb8(0, 0, 255),
+    ];
+    let _ = rc.with_save(|rc| {
+        // Isolation (this can be removed for non-isolated version)
+        rc.blend(rect, BlendMode::Normal.into());
+        for (i, c) in COLORS.iter().enumerate() {
+            let stops = vec![
+                GradientStop {
+                    color: Color::WHITE,
+                    pos: 0.0,
+                },
+                GradientStop {
+                    color: c.clone(),
+                    pos: 1.0,
+                },
+            ];
+            // squash the ellipse
+            let a = Affine::translate((100., 100.))
+                * Affine::rotate(std::f64::consts::FRAC_PI_3 * (i * 2 + 1) as f64)
+                * Affine::scale_non_uniform(1.0, 0.357)
+                * Affine::translate((-100., -100.));
+            let linear = LinearGradient::new(UnitPoint::TOP, UnitPoint::BOTTOM, stops);
+            let _ = rc.with_save(|rc| {
+                rc.blend(rect, blend);
+                rc.transform(a);
+                rc.fill(Circle::new((100., 100.), 90.), &linear);
+                Ok(())
+            });
+        }
+        Ok(())
+    });
+}
+
+pub fn render_blend_grid(rc: &mut PietGpuRenderContext) {
+    const BLEND_MODES: &[BlendMode] = &[
+        BlendMode::Normal,
+        BlendMode::Multiply,
+        BlendMode::Darken,
+        BlendMode::Screen,
+        BlendMode::Lighten,
+        BlendMode::Overlay,
+        BlendMode::ColorDodge,
+        BlendMode::ColorBurn,
+        BlendMode::HardLight,
+        BlendMode::SoftLight,
+        BlendMode::Difference,
+        BlendMode::Exclusion,
+        BlendMode::Hue,
+        BlendMode::Saturation,
+        BlendMode::Color,
+        BlendMode::Luminosity,
+    ];
+    for (ix, &blend) in BLEND_MODES.iter().enumerate() {
+        let _ = rc.with_save(|rc| {
+            let i = ix % 4;
+            let j = ix / 4;
+            rc.transform(Affine::translate((i as f64 * 225., j as f64 * 225.)));
+            render_blend_square(rc, blend.into());
+            Ok(())
+        });
+    }
 }
 
 pub fn render_anim_frame(rc: &mut impl RenderContext, i: usize) {

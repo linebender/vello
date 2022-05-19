@@ -58,7 +58,7 @@ build gen/kernel4.hlsl: hlsl gen/kernel4.spv
 build gen/kernel4.dxil: dxil gen/kernel4.hlsl
 build gen/kernel4.msl: msl gen/kernel4.spv
 
-build gen/kernel4_gray.spv: glsl kernel4.comp | ptcl.h setup.h mem.h
+build gen/kernel4_gray.spv: glsl kernel4.comp | blend.h ptcl.h setup.h mem.h
   flags = -DGRAY
 build gen/kernel4_gray.hlsl: hlsl gen/kernel4_gray.spv
 build gen/kernel4_gray.dxil: dxil gen/kernel4_gray.hlsl

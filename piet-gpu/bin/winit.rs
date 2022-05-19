@@ -125,7 +125,7 @@ fn main() -> Result<(), Error> {
                     }
 
                     let mut ctx = PietGpuRenderContext::new();
-                    let test_blend = false;
+                    let test_blend = true;
                     if let Some(svg) = &svg {
                         test_scenes::render_svg(&mut ctx, svg);
                     } else if test_blend {

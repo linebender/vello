@@ -942,25 +942,25 @@ kernel void main0(constant uint* spvBufferSizeConstants [[buffer(25)]], device M
                     uint scene_offset = v_260.memory[drawmonoid_base_1 + 2u];
                     uint dd = drawdata_start + (scene_offset >> uint(2));
                     uint blend = _1372.scene[dd];
-                    is_blend = blend != 3u;
+                    is_blend = blend != 32771u;
                 }
-                bool _1692 = tile.tile.offset != 0u;
-                bool _1701;
-                if (!_1692)
+                bool _1693 = tile.tile.offset != 0u;
+                bool _1702;
+                if (!_1693)
                 {
-                    _1701 = (tile.backdrop == 0) == is_clip;
+                    _1702 = (tile.backdrop == 0) == is_clip;
                 }
                 else
                 {
-                    _1701 = _1692;
+                    _1702 = _1693;
                 }
-                include_tile = _1701 || is_blend;
+                include_tile = _1702 || is_blend;
             }
             if (include_tile)
             {
                 uint el_slice = el_ix / 32u;
                 uint el_mask = 1u << (el_ix & 31u);
-                uint _1723 = atomic_fetch_or_explicit((threadgroup atomic_uint*)&sh_bitmaps[el_slice][(y * 16u) + x], el_mask, memory_order_relaxed);
+                uint _1724 = atomic_fetch_or_explicit((threadgroup atomic_uint*)&sh_bitmaps[el_slice][(y * 16u) + x], el_mask, memory_order_relaxed);
             }
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -1005,11 +1005,11 @@ kernel void main0(constant uint* spvBufferSizeConstants [[buffer(25)]], device M
                         Alloc param_29 = cmd_alloc;
                         CmdRef param_30 = cmd_ref;
                         uint param_31 = cmd_limit;
-                        bool _1848 = alloc_cmd(param_29, param_30, param_31, v_260, v_260BufferSize);
+                        bool _1849 = alloc_cmd(param_29, param_30, param_31, v_260, v_260BufferSize);
                         cmd_alloc = param_29;
                         cmd_ref = param_30;
                         cmd_limit = param_31;
-                        if (!_1848)
+                        if (!_1849)
                         {
                             break;
                         }
@@ -1032,11 +1032,11 @@ kernel void main0(constant uint* spvBufferSizeConstants [[buffer(25)]], device M
                         Alloc param_39 = cmd_alloc;
                         CmdRef param_40 = cmd_ref;
                         uint param_41 = cmd_limit;
-                        bool _1889 = alloc_cmd(param_39, param_40, param_41, v_260, v_260BufferSize);
+                        bool _1890 = alloc_cmd(param_39, param_40, param_41, v_260, v_260BufferSize);
                         cmd_alloc = param_39;
                         cmd_ref = param_40;
                         cmd_limit = param_41;
-                        if (!_1889)
+                        if (!_1890)
                         {
                             break;
                         }
@@ -1063,11 +1063,11 @@ kernel void main0(constant uint* spvBufferSizeConstants [[buffer(25)]], device M
                         Alloc param_49 = cmd_alloc;
                         CmdRef param_50 = cmd_ref;
                         uint param_51 = cmd_limit;
-                        bool _1953 = alloc_cmd(param_49, param_50, param_51, v_260, v_260BufferSize);
+                        bool _1954 = alloc_cmd(param_49, param_50, param_51, v_260, v_260BufferSize);
                         cmd_alloc = param_49;
                         cmd_ref = param_50;
                         cmd_limit = param_51;
-                        if (!_1953)
+                        if (!_1954)
                         {
                             break;
                         }
@@ -1097,11 +1097,11 @@ kernel void main0(constant uint* spvBufferSizeConstants [[buffer(25)]], device M
                         Alloc param_59 = cmd_alloc;
                         CmdRef param_60 = cmd_ref;
                         uint param_61 = cmd_limit;
-                        bool _2059 = alloc_cmd(param_59, param_60, param_61, v_260, v_260BufferSize);
+                        bool _2060 = alloc_cmd(param_59, param_60, param_61, v_260, v_260BufferSize);
                         cmd_alloc = param_59;
                         cmd_ref = param_60;
                         cmd_limit = param_61;
-                        if (!_2059)
+                        if (!_2060)
                         {
                             break;
                         }
@@ -1123,17 +1123,17 @@ kernel void main0(constant uint* spvBufferSizeConstants [[buffer(25)]], device M
                     }
                     case 5u:
                     {
-                        bool _2112 = tile_1.tile.offset == 0u;
-                        bool _2118;
-                        if (_2112)
+                        bool _2113 = tile_1.tile.offset == 0u;
+                        bool _2119;
+                        if (_2113)
                         {
-                            _2118 = tile_1.backdrop == 0;
+                            _2119 = tile_1.backdrop == 0;
                         }
                         else
                         {
-                            _2118 = _2112;
+                            _2119 = _2113;
                         }
-                        if (_2118)
+                        if (_2119)
                         {
                             clip_zero_depth = clip_depth + 1u;
                         }
@@ -1142,11 +1142,11 @@ kernel void main0(constant uint* spvBufferSizeConstants [[buffer(25)]], device M
                             Alloc param_69 = cmd_alloc;
                             CmdRef param_70 = cmd_ref;
                             uint param_71 = cmd_limit;
-                            bool _2130 = alloc_cmd(param_69, param_70, param_71, v_260, v_260BufferSize);
+                            bool _2131 = alloc_cmd(param_69, param_70, param_71, v_260, v_260BufferSize);
                             cmd_alloc = param_69;
                             cmd_ref = param_70;
                             cmd_limit = param_71;
-                            if (!_2130)
+                            if (!_2131)
                             {
                                 break;
                             }
@@ -1164,11 +1164,11 @@ kernel void main0(constant uint* spvBufferSizeConstants [[buffer(25)]], device M
                         Alloc param_74 = cmd_alloc;
                         CmdRef param_75 = cmd_ref;
                         uint param_76 = cmd_limit;
-                        bool _2158 = alloc_cmd(param_74, param_75, param_76, v_260, v_260BufferSize);
+                        bool _2159 = alloc_cmd(param_74, param_75, param_76, v_260, v_260BufferSize);
                         cmd_alloc = param_74;
                         cmd_ref = param_75;
                         cmd_limit = param_76;
-                        if (!_2158)
+                        if (!_2159)
                         {
                             break;
                         }
@@ -1216,17 +1216,17 @@ kernel void main0(constant uint* spvBufferSizeConstants [[buffer(25)]], device M
             break;
         }
     }
-    bool _2228 = (bin_tile_x + tile_x) < _1005.conf.width_in_tiles;
-    bool _2237;
-    if (_2228)
+    bool _2229 = (bin_tile_x + tile_x) < _1005.conf.width_in_tiles;
+    bool _2238;
+    if (_2229)
     {
-        _2237 = (bin_tile_y + tile_y) < _1005.conf.height_in_tiles;
+        _2238 = (bin_tile_y + tile_y) < _1005.conf.height_in_tiles;
     }
     else
     {
-        _2237 = _2228;
+        _2238 = _2229;
     }
-    if (_2237)
+    if (_2238)
     {
         Alloc param_84 = cmd_alloc;
         CmdRef param_85 = cmd_ref;

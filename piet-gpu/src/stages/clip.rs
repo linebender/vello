@@ -16,7 +16,9 @@
 
 //! The clip processing stage (includes substages).
 
-use piet_gpu_hal::{include_shader, BindType, Buffer, ComputePass, DescriptorSet, Pipeline, Session};
+use piet_gpu_hal::{
+    include_shader, BindType, Buffer, ComputePass, DescriptorSet, Pipeline, Session,
+};
 
 // Note that this isn't the code/stage/binding pattern of most of the other stages
 // in the new element processing pipeline. We want to move those temporary buffers
