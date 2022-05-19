@@ -14,7 +14,7 @@
 //
 // Also licensed under MIT license, at your choice.
 
-pub use pinot;
+pub use moscato::pinot;
 
 use crate::brush::{Brush, Color};
 use crate::geometry::Affine;

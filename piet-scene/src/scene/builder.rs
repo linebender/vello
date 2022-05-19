@@ -23,12 +23,14 @@ use core::borrow::Borrow;
 
 const MAX_BLEND_STACK: usize = 256;
 
-/// Creates a new builder for constructing a scene.
-pub fn build_scene<'a>(scene: &'a mut Scene, resources: &'a mut ResourceContext) -> Builder<'a> {
-    Builder::new(&mut scene.data, ResourceData::Scene(resources))
+/// Creates a new builder for filling a scene. Any current content in the scene
+/// will be cleared.
+pub fn build_scene<'a>(scene: &'a mut Scene, rcx: &'a mut ResourceContext) -> Builder<'a> {
+    Builder::new(&mut scene.data, ResourceData::Scene(rcx))
 }
 
-/// Creates a new builder for construction a scene fragment.
+/// Creates a new builder for filling a scene fragment. Any current content in
+/// the fragment will be cleared.
 pub fn build_fragment<'a>(fragment: &'a mut Fragment) -> Builder<'a> {
     Builder::new(
         &mut fragment.data,
