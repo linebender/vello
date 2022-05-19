@@ -25,7 +25,6 @@ pub use style::*;
 use super::brush::*;
 use super::geometry::{Affine, Point};
 use super::path::Element;
-use super::resource::ResourceContext;
 
 use core::ops::Range;
 
@@ -85,12 +84,6 @@ pub struct Scene {
 }
 
 impl Scene {
-    /// Creates a new builder for filling the scene. Any current content in
-    /// the scene is cleared.
-    pub fn build<'a>(&'a mut self, rcx: &'a mut ResourceContext) -> Builder<'a> {
-        build_scene(self, rcx)
-    }
-
     /// Returns the raw encoded scene data streams.
     pub fn data(&self) -> &SceneData {
         &self.data
@@ -109,12 +102,6 @@ impl Fragment {
     /// segments.
     pub fn points(&self) -> &[Point] {
         bytemuck::cast_slice(&self.data.pathseg_stream)
-    }
-
-    /// Creates a new builder for filling the fragment. Any current content in
-    /// the fragment is cleared.
-    pub fn build<'a>(&'a mut self) -> Builder<'a> {
-        build_fragment(self)
     }
 }
 
