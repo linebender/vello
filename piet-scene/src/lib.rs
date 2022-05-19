@@ -28,9 +28,10 @@ mod kurbo_conv {
     use super::geometry::{Affine, Point, Rect};
     use super::path::Element;
 
-    impl From<kurbo::Point> for Point {
-        fn from(p: kurbo::Point) -> Self {
-            Self::new(p.x as f32, p.y as f32)
+    impl Point {
+        /// Creates a new point from the equivalent kurbo type.
+        pub fn from_kurbo(point: kurbo::Point) -> Self {
+            Self::new(point.x as f32, point.y as f32)
         }
     }
 
@@ -40,9 +41,10 @@ mod kurbo_conv {
         }
     }
 
-    impl From<kurbo::Affine> for Affine {
-        fn from(a: kurbo::Affine) -> Self {
-            let c = a.as_coeffs();
+    impl Affine {
+        /// Creates a new affine transformation from the equivalent kurbo type.
+        pub fn from_kurbo(affine: kurbo::Affine) -> Self {
+            let c = affine.as_coeffs();
             Self {
                 xx: c[0] as f32,
                 yx: c[1] as f32,
@@ -67,11 +69,12 @@ mod kurbo_conv {
         }
     }
 
-    impl From<kurbo::Rect> for Rect {
-        fn from(r: kurbo::Rect) -> Self {
+    impl Rect {
+        /// Creates a new rectangle from the equivalent kurbo type.
+        pub fn from_kurbo(rect: kurbo::Rect) -> Self {
             Self {
-                min: Point::new(r.x0 as f32, r.y0 as f32),
-                max: Point::new(r.x1 as f32, r.y1 as f32),
+                min: Point::new(rect.x0 as f32, rect.y0 as f32),
+                max: Point::new(rect.x1 as f32, rect.y1 as f32),
             }
         }
     }
@@ -95,6 +98,23 @@ mod kurbo_conv {
                 LineTo(p0) => Self::LineTo(p0.into()),
                 QuadTo(p0, p1) => Self::QuadTo(p0.into(), p1.into()),
                 CurveTo(p0, p1, p2) => Self::CurveTo(p0.into(), p1.into(), p2.into()),
+                ClosePath => Self::Close,
+            }
+        }
+    }
+
+    impl Element {
+        /// Creates a new path element from the equivalent kurbo type.
+        pub fn from_kurbo(el: kurbo::PathEl) -> Self {
+            use kurbo::PathEl::*;
+            use Point::from_kurbo;
+            match e {
+                MoveTo(p0) => Self::MoveTo(from_kurbo(p0)),
+                LineTo(p0) => Self::LineTo(from_kurbo(p0)),
+                QuadTo(p0, p1) => Self::QuadTo(from_kurbo(p0), from_kurbo(p1)),
+                CurveTo(p0, p1, p2) => {
+                    Self::CurveTo(from_kurbo(p0), from_kurbo(p1), from_kurbo(p2))
+                }
                 ClosePath => Self::Close,
             }
         }
