@@ -34,6 +34,8 @@ pub enum Mix {
     Saturation = 13,
     Color = 14,
     Luminosity = 15,
+    // Clip is the same as normal, but doesn't always push a blend group.
+    Clip = 128,
 }
 
 /// Defines the layer composition function for a blend operation.
@@ -76,7 +78,7 @@ impl Blend {
 impl Default for Blend {
     fn default() -> Self {
         Self {
-            mix: Mix::Normal,
+            mix: Mix::Clip,
             compose: Compose::SrcOver,
         }
     }
