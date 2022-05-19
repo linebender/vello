@@ -70,7 +70,7 @@ fn main() -> Result<(), Error> {
             .map(|_| session.create_semaphore())
             .collect::<Result<Vec<_>, Error>>()?;
         let query_pools = (0..NUM_FRAMES)
-            .map(|_| session.create_query_pool(12))
+            .map(|_| session.create_query_pool(Renderer::QUERY_POOL_SIZE))
             .collect::<Result<Vec<_>, Error>>()?;
         let mut cmd_bufs: [Option<CmdBuf>; NUM_FRAMES] = Default::default();
         let mut submitted: [Option<SubmittedCmdBuf>; NUM_FRAMES] = Default::default();
