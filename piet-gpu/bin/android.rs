@@ -110,7 +110,7 @@ impl GfxState {
                 .map(|_| session.create_semaphore())
                 .collect::<Result<Vec<_>, Error>>()?;
             let query_pools = (0..NUM_FRAMES)
-                .map(|_| session.create_query_pool(8))
+                .map(|_| session.create_query_pool(Renderer::QUERY_POOL_SIZE))
                 .collect::<Result<Vec<_>, Error>>()?;
             let submitted = Default::default();
             let cmd_bufs = Default::default();

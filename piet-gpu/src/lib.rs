@@ -143,6 +143,9 @@ impl RenderConfig {
 }
 
 impl Renderer {
+    /// The number of query pool entries needed to run the renderer.
+    pub const QUERY_POOL_SIZE: u32 = 12;
+
     pub unsafe fn new(
         session: &Session,
         width: usize,
