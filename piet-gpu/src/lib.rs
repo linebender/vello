@@ -13,8 +13,8 @@ use std::convert::TryInto;
 
 pub use blend::{Blend, BlendMode, CompositionMode};
 pub use encoder::EncodedSceneRef;
-pub use render_ctx::PietGpuRenderContext;
 pub use gradient::Colrv1RadialGradient;
+pub use render_ctx::PietGpuRenderContext;
 
 use piet::kurbo::Vec2;
 use piet::{ImageFormat, RenderContext};
@@ -141,6 +141,9 @@ impl RenderConfig {
 }
 
 impl Renderer {
+    /// The number of query pool entries needed to run the renderer.
+    pub const QUERY_POOL_SIZE: u32 = 12;
+
     pub unsafe fn new(
         session: &Session,
         width: usize,

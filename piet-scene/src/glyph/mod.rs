@@ -14,7 +14,7 @@
 //
 // Also licensed under MIT license, at your choice.
 
-pub use pinot;
+pub use moscato::pinot;
 
 use crate::brush::{Brush, Color};
 use crate::geometry::Affine;
@@ -114,7 +114,9 @@ impl<'a> GlyphProvider<'a> {
                     };
                     xform_stack.push(xform);
                 }
-                Command::PopTransform => { xform_stack.pop(); },
+                Command::PopTransform => {
+                    xform_stack.pop();
+                }
                 Command::PushClip(path_index) => {
                     let path = glyph.path(*path_index)?;
                     if let Some(xform) = xform_stack.last() {

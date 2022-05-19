@@ -43,6 +43,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23b62fc65de8e4e7f52534fb52b0f3ed04746ae267519eef2a83941e8085068b"
 
 [[package]]
+name = "arrayvec"
+version = "0.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8da52d66c7071e2e3fa2a1e5c6d088fec47b593032b254f5e980de8ea54454d6"
+
+[[package]]
 name = "ash"
 version = "0.33.3+1.2.191"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -596,7 +602,16 @@ version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "16cb54cd28cb3d2e964d9444ca185676a94fd9b7cce5f02b22c717947ed8e9a2"
 dependencies = [
- "arrayvec",
+ "arrayvec 0.5.2",
+]
+
+[[package]]
+name = "kurbo"
+version = "0.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7a53776d271cfb873b17c618af0298445c88afc52837f3e948fa3fafd131f449"
+dependencies = [
+ "arrayvec 0.7.2",
 ]
 
 [[package]]
@@ -755,8 +770,7 @@ dependencies = [
 [[package]]
 name = "moscato"
 version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8372f6cdc8b2c431750a9c4edbc8d9c511ef1a68472aaa02500493414a407c64"
+source = "git+https://github.com/dfrg/pinot#59db153ff83420449a909dfaace18466bddbf814"
 dependencies = [
  "pinot",
 ]
@@ -954,7 +968,7 @@ version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f00543608fb5ee6063f5ff1259246ae23073c1a5e413e643d0469da3d4b7b4de"
 dependencies = [
- "kurbo",
+ "kurbo 0.7.1",
  "unic-bidi",
 ]
 
@@ -1012,7 +1026,7 @@ version = "0.1.0"
 dependencies = [
  "bytemuck",
  "clap",
- "kurbo",
+ "kurbo 0.7.1",
  "piet-gpu",
  "piet-gpu-hal",
  "rand",
@@ -1031,8 +1045,8 @@ name = "piet-scene"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
+ "kurbo 0.8.3",
  "moscato",
- "pinot",
  "smallvec",
 ]
 

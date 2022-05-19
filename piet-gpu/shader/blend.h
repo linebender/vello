@@ -18,6 +18,7 @@
 #define Blend_Saturation 13
 #define Blend_Color 14
 #define Blend_Luminosity 15
+#define Blend_Clip 128
 
 vec3 screen(vec3 cb, vec3 cs) {
 	return cb + cs - (cb * cs);
@@ -45,7 +46,7 @@ vec3 hard_light(vec3 cb, vec3 cs) {
 	return mix(
 		screen(cb, 2.0 * cs - 1.0),
 		cb * 2.0 * cs, 
-		vec3(lessThanEqual(cs, vec3(0.5)))
+		lessThanEqual(cs, vec3(0.5))
 	);
 }
 
@@ -53,12 +54,12 @@ vec3 soft_light(vec3 cb, vec3 cs) {
 	vec3 d = mix(
 		sqrt(cb),
 		((16.0 * cb - vec3(12.0)) * cb + vec3(4.0)) * cb,
-		vec3(lessThanEqual(cb, vec3(0.25)))
+		lessThanEqual(cb, vec3(0.25))
 	);
 	return mix(
 		cb + (2.0 * cs - vec3(1.0)) * (d - cb),
 		cb - (vec3(1.0) - 2.0 * cs) * cb * (vec3(1.0) - cb),
-		vec3(lessThanEqual(cs, vec3(0.5)))
+		lessThanEqual(cs, vec3(0.5))
 	);
 }
 
@@ -260,6 +261,7 @@ vec4 mix_compose(vec3 cb, vec3 cs, float ab, float as, uint mode) {
 }
 
 #define BlendComp_default (Blend_Normal << 8 | Comp_SrcOver)
+#define BlendComp_clip (Blend_Clip << 8 | Comp_SrcOver)
 
 // This is added to alpha to prevent divide-by-zero
 #define EPSILON 1e-15
@@ -267,7 +269,8 @@ vec4 mix_compose(vec3 cb, vec3 cs, float ab, float as, uint mode) {
 // Apply blending and composition. Both input and output colors are
 // premultiplied RGB.
 vec4 mix_blend_compose(vec4 backdrop, vec4 src, uint mode) {
-	if (mode == BlendComp_default) {
+	if ((mode & 0x7fff) == BlendComp_default) {
+		// Both normal+src_over blend and clip case
 		return backdrop * (1.0 - src.a) + src;
 	}
 	// Un-premultiply colors for blending
@@ -276,9 +279,9 @@ vec4 mix_blend_compose(vec4 backdrop, vec4 src, uint mode) {
 	float inv_backdrop_a = 1.0 / (backdrop.a + EPSILON);
 	vec3 cb = backdrop.rgb * inv_backdrop_a;
 	uint blend_mode = mode >> 8;
-	vec3 blended = mix_blend(cs, cb, blend_mode);
+	vec3 blended = mix_blend(cb, cs, blend_mode);
 	cs = mix(cs, blended, backdrop.a);
-	uint comp_mode = mode * 0xff;
+	uint comp_mode = mode & 0xff;
 	if (comp_mode == Comp_SrcOver) {
 		vec3 co = mix(backdrop.rgb, cs, src.a);
 		return vec4(co, src.a + backdrop.a * (1 - src.a));

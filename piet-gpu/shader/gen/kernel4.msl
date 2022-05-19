@@ -393,10 +393,7 @@ CmdColor Cmd_Color_read(thread const Alloc& a, thread const CmdRef& ref, device 
 static inline __attribute__((always_inline))
 float3 fromsRGB(thread const float3& srgb)
 {
-    bool3 cutoff = srgb >= float3(0.040449999272823333740234375);
-    float3 below = srgb / float3(12.9200000762939453125);
-    float3 above = pow((srgb + float3(0.054999999701976776123046875)) / float3(1.05499994754791259765625), float3(2.400000095367431640625));
-    return select(below, above, cutoff);
+    return srgb;
 }
 
 static inline __attribute__((always_inline))
@@ -528,10 +525,10 @@ spvUnsafeArray<float4, 8> fillImage(thread const uint2& xy, thread const CmdImag
         int2 uv = int2(xy + chunk_offset(param)) + cmd_img.offset;
         float4 fg_rgba = image_atlas.read(uint2(uv));
         float3 param_1 = fg_rgba.xyz;
-        float3 _1697 = fromsRGB(param_1);
-        fg_rgba.x = _1697.x;
-        fg_rgba.y = _1697.y;
-        fg_rgba.z = _1697.z;
+        float3 _1653 = fromsRGB(param_1);
+        fg_rgba.x = _1653.x;
+        fg_rgba.y = _1653.y;
+        fg_rgba.z = _1653.z;
         rgba[i] = fg_rgba;
     }
     return rgba;
@@ -540,10 +537,7 @@ spvUnsafeArray<float4, 8> fillImage(thread const uint2& xy, thread const CmdImag
 static inline __attribute__((always_inline))
 float3 tosRGB(thread const float3& rgb)
 {
-    bool3 cutoff = rgb >= float3(0.003130800090730190277099609375);
-    float3 below = float3(12.9200000762939453125) * rgb;
-    float3 above = (float3(1.05499994754791259765625) * pow(rgb, float3(0.416660010814666748046875))) - float3(0.054999999701976776123046875);
-    return select(below, above, cutoff);
+    return rgb;
 }
 
 static inline __attribute__((always_inline))
@@ -585,7 +579,7 @@ float3 hard_light(thread const float3& cb, thread const float3& cs)
 {
     float3 param = cb;
     float3 param_1 = (cs * 2.0) - float3(1.0);
-    return mix(screen(param, param_1), (cb * 2.0) * cs, float3(cs <= float3(0.5)));
+    return select(screen(param, param_1), (cb * 2.0) * cs, cs <= float3(0.5));
 }
 
 static inline __attribute__((always_inline))
@@ -631,8 +625,8 @@ float color_burn(thread const float& cb, thread const float& cs)
 static inline __attribute__((always_inline))
 float3 soft_light(thread const float3& cb, thread const float3& cs)
 {
-    float3 d = mix(sqrt(cb), ((((cb * 16.0) - float3(12.0)) * cb) + float3(4.0)) * cb, float3(cb <= float3(0.25)));
-    return mix(cb + (((cs * 2.0) - float3(1.0)) * (d - cb)), cb - (((float3(1.0) - (cs * 2.0)) * cb) * (float3(1.0) - cb)), float3(cs <= float3(0.5)));
+    float3 d = select(sqrt(cb), ((((cb * 16.0) - float3(12.0)) * cb) + float3(4.0)) * cb, cb <= float3(0.25));
+    return select(cb + (((cs * 2.0) - float3(1.0)) * (d - cb)), cb - (((float3(1.0) - (cs * 2.0)) * cb) * (float3(1.0) - cb)), cs <= float3(0.5));
 }
 
 static inline __attribute__((always_inline))
@@ -771,8 +765,8 @@ float3 set_lum(thread const float3& c, thread const float& l)
 {
     float3 param = c;
     float3 param_1 = c + float3(l - lum(param));
-    float3 _1052 = clip_color(param_1);
-    return _1052;
+    float3 _1048 = clip_color(param_1);
+    return _1048;
 }
 
 static inline __attribute__((always_inline))
@@ -861,9 +855,9 @@ float3 mix_blend(thread const float3& cb, thread const float3& cs, thread const 
             float3 param_20 = cb;
             float3 param_21 = cs;
             float param_22 = sat(param_20);
-            float3 _1343 = set_sat(param_21, param_22);
+            float3 _1340 = set_sat(param_21, param_22);
             float3 param_23 = cb;
-            float3 param_24 = _1343;
+            float3 param_24 = _1340;
             float param_25 = lum(param_23);
             b = set_lum(param_24, param_25);
             break;
@@ -873,9 +867,9 @@ float3 mix_blend(thread const float3& cb, thread const float3& cs, thread const 
             float3 param_26 = cs;
             float3 param_27 = cb;
             float param_28 = sat(param_26);
-            float3 _1357 = set_sat(param_27, param_28);
+            float3 _1354 = set_sat(param_27, param_28);
             float3 param_29 = cb;
-            float3 param_30 = _1357;
+            float3 param_30 = _1354;
             float param_31 = lum(param_29);
             b = set_lum(param_30, param_31);
             break;
@@ -1002,7 +996,7 @@ float4 mix_compose(thread const float3& cb, thread const float3& cs, thread cons
 static inline __attribute__((always_inline))
 float4 mix_blend_compose(thread const float4& backdrop, thread const float4& src, thread const uint& mode)
 {
-    if (mode == 3u)
+    if ((mode & 32767u) == 3u)
     {
         return (backdrop * (1.0 - src.w)) + src;
     }
@@ -1011,12 +1005,12 @@ float4 mix_blend_compose(thread const float4& backdrop, thread const float4& src
     float inv_backdrop_a = 1.0 / (backdrop.w + 1.0000000036274937255387218471014e-15);
     float3 cb = backdrop.xyz * inv_backdrop_a;
     uint blend_mode = mode >> uint(8);
-    float3 param = cs;
-    float3 param_1 = cb;
+    float3 param = cb;
+    float3 param_1 = cs;
     uint param_2 = blend_mode;
     float3 blended = mix_blend(param, param_1, param_2);
     cs = mix(cs, blended, float3(backdrop.w));
-    uint comp_mode = mode * 255u;
+    uint comp_mode = mode & 255u;
     if (comp_mode == 3u)
     {
         float3 co = mix(backdrop.xyz, cs, float3(src.w));
@@ -1053,11 +1047,11 @@ CmdJump Cmd_Jump_read(thread const Alloc& a, thread const CmdRef& ref, device Me
     return CmdJump_read(param, param_1, v_297);
 }
 
-kernel void main0(device Memory& v_297 [[buffer(0)]], const device ConfigBuf& _1725 [[buffer(1)]], texture2d<float, access::write> image [[texture(2)]], texture2d<float> image_atlas [[texture(3)]], texture2d<float> gradients [[texture(4)]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
+kernel void main0(device Memory& v_297 [[buffer(0)]], const device ConfigBuf& _1681 [[buffer(1)]], texture2d<float, access::write> image [[texture(2)]], texture2d<float> image_atlas [[texture(3)]], texture2d<float> gradients [[texture(4)]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
 {
-    uint tile_ix = (gl_WorkGroupID.y * _1725.conf.width_in_tiles) + gl_WorkGroupID.x;
+    uint tile_ix = (gl_WorkGroupID.y * _1681.conf.width_in_tiles) + gl_WorkGroupID.x;
     Alloc param;
-    param.offset = _1725.conf.ptcl_alloc.offset;
+    param.offset = _1681.conf.ptcl_alloc.offset;
     uint param_1 = tile_ix * 1024u;
     uint param_2 = 1024u;
     Alloc cmd_alloc = slice_mem(param, param_1, param_2);
@@ -1224,10 +1218,10 @@ kernel void main0(device Memory& v_297 [[buffer(0)]], const device ConfigBuf& _1
                     int x = int(round(fast::clamp(my_d, 0.0, 1.0) * 511.0));
                     float4 fg_rgba = gradients.read(uint2(int2(x, int(lin.index))));
                     float3 param_29 = fg_rgba.xyz;
-                    float3 _2308 = fromsRGB(param_29);
-                    fg_rgba.x = _2308.x;
-                    fg_rgba.y = _2308.y;
-                    fg_rgba.z = _2308.z;
+                    float3 _2264 = fromsRGB(param_29);
+                    fg_rgba.x = _2264.x;
+                    fg_rgba.y = _2264.y;
+                    fg_rgba.z = _2264.z;
                     float4 fg_k_1 = fg_rgba * area[k_9];
                     rgba[k_9] = (rgba[k_9] * (1.0 - fg_k_1.w)) + fg_k_1;
                 }
@@ -1250,10 +1244,10 @@ kernel void main0(device Memory& v_297 [[buffer(0)]], const device ConfigBuf& _1
                     int x_1 = int(round(fast::clamp(t_2, 0.0, 1.0) * 511.0));
                     float4 fg_rgba_1 = gradients.read(uint2(int2(x_1, int(rad.index))));
                     float3 param_33 = fg_rgba_1.xyz;
-                    float3 _2418 = fromsRGB(param_33);
-                    fg_rgba_1.x = _2418.x;
-                    fg_rgba_1.y = _2418.y;
-                    fg_rgba_1.z = _2418.z;
+                    float3 _2374 = fromsRGB(param_33);
+                    fg_rgba_1.x = _2374.x;
+                    fg_rgba_1.y = _2374.y;
+                    fg_rgba_1.z = _2374.z;
                     float4 fg_k_2 = fg_rgba_1 * area[k_10];
                     rgba[k_10] = (rgba[k_10] * (1.0 - fg_k_2.w)) + fg_k_2;
                 }
@@ -1284,8 +1278,8 @@ kernel void main0(device Memory& v_297 [[buffer(0)]], const device ConfigBuf& _1
                     for (uint k_12 = 0u; k_12 < 8u; k_12++)
                     {
                         float4 param_38 = float4(rgba[k_12]);
-                        uint _2523 = packsRGB(param_38);
-                        blend_stack[clip_depth][k_12] = _2523;
+                        uint _2479 = packsRGB(param_38);
+                        blend_stack[clip_depth][k_12] = _2479;
                         rgba[k_12] = float4(0.0);
                     }
                 }
@@ -1295,8 +1289,8 @@ kernel void main0(device Memory& v_297 [[buffer(0)]], const device ConfigBuf& _1
                     for (uint k_13 = 0u; k_13 < 8u; k_13++)
                     {
                         float4 param_39 = float4(rgba[k_13]);
-                        uint _2566 = packsRGB(param_39);
-                        v_297.memory[base_ix + k_13] = _2566;
+                        uint _2522 = packsRGB(param_39);
+                        v_297.memory[base_ix + k_13] = _2522;
                         rgba[k_13] = float4(0.0);
                     }
                 }

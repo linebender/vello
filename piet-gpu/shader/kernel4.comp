@@ -9,6 +9,11 @@
 #version 450
 #extension GL_GOOGLE_include_directive : enable
 
+// We can do rendering either in sRGB colorspace (for compatibility)
+// or in a linear colorspace, with conversions to sRGB (which will give
+// higher quality antialiasing among other things).
+#define DO_SRGB_CONVERSION 0
+
 #include "mem.h"
 #include "setup.h"
 
@@ -39,18 +44,26 @@ layout(rgba8, set = 0, binding = 4) uniform restrict readonly image2D gradients;
 
 #define MAX_BLEND_STACK 128
 mediump vec3 tosRGB(mediump vec3 rgb) {
+#if DO_SRGB_CONVERSION
     bvec3 cutoff = greaterThanEqual(rgb, vec3(0.0031308));
     mediump vec3 below = vec3(12.92) * rgb;
     mediump vec3 above = vec3(1.055) * pow(rgb, vec3(0.41666)) - vec3(0.055);
     return mix(below, above, cutoff);
+#else
+    return rgb;
+#endif
 }
 
 mediump vec3 fromsRGB(mediump vec3 srgb) {
+#if DO_SRGB_CONVERSION
     // Formula from EXT_sRGB.
     bvec3 cutoff = greaterThanEqual(srgb, vec3(0.04045));
     mediump vec3 below = srgb / vec3(12.92);
     mediump vec3 above = pow((srgb + vec3(0.055)) / vec3(1.055), vec3(2.4));
     return mix(below, above, cutoff);
+#else
+    return srgb;
+#endif
 }
 
 // unpacksRGB unpacks a color in the sRGB color space to a vec4 in the linear color

@@ -215,7 +215,10 @@ pub struct PgpuRect {
 /// Computes the bounding box for the glyph after applying the specified
 /// transform.
 #[no_mangle]
-pub unsafe extern "C" fn pgpu_glyph_bbox(glyph: *const PgpuGlyph, transform: &[f32; 6]) -> PgpuRect {
+pub unsafe extern "C" fn pgpu_glyph_bbox(
+    glyph: *const PgpuGlyph,
+    transform: &[f32; 6],
+) -> PgpuRect {
     let transform = piet_scene::geometry::Affine::new(transform);
     let rect = (*glyph).bbox(Some(transform));
     PgpuRect {

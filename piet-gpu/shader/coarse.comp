@@ -308,7 +308,7 @@ void main() {
                     uint scene_offset = memory[drawmonoid_base + 2];
                     uint dd = drawdata_start + (scene_offset >> 2);
                     uint blend = scene[dd];
-                    is_blend = (blend != BlendComp_default);
+                    is_blend = (blend != BlendComp_clip);
                 }
                 include_tile = tile.tile.offset != 0 || (tile.backdrop == 0) == is_clip
                     || is_blend;

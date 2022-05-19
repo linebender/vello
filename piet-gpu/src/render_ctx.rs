@@ -1,8 +1,11 @@
+// This should match the value in kernel4.comp for correct rendering.
+const DO_SRGB_CONVERSION: bool = false;
+
 use std::borrow::Cow;
 
 use crate::encoder::GlyphEncoder;
 use crate::stages::{Config, Transform};
-use piet::kurbo::{Affine, Insets, PathEl, Point, Rect, Shape};
+use piet::kurbo::{Affine, PathEl, Point, Rect, Shape};
 use piet::{
     Color, Error, FixedGradient, ImageFormat, InterpolationMode, IntoBrush, RenderContext,
     StrokeStyle,
@@ -12,7 +15,7 @@ use piet_gpu_hal::BufWrite;
 use piet_gpu_types::encoder::{Encode, Encoder};
 use piet_gpu_types::scene::Element;
 
-use crate::gradient::{LinearGradient, RadialGradient, RampCache, Colrv1RadialGradient};
+use crate::gradient::{Colrv1RadialGradient, LinearGradient, RadialGradient, RampCache};
 use crate::text::Font;
 pub use crate::text::{PietGpuText, PietGpuTextLayout, PietGpuTextLayoutBuilder};
 use crate::Blend;
@@ -464,19 +467,27 @@ fn rect_to_f32_4(rect: Rect) -> [f32; 4] {
 }
 
 fn to_srgb(f: f64) -> f64 {
-    if f <= 0.0031308 {
-        f * 12.92
+    if DO_SRGB_CONVERSION {
+        if f <= 0.0031308 {
+            f * 12.92
+        } else {
+            let a = 0.055;
+            (1. + a) * f64::powf(f, f64::recip(2.4)) - a
+        }
     } else {
-        let a = 0.055;
-        (1. + a) * f64::powf(f, f64::recip(2.4)) - a
+        f
     }
 }
 
 fn from_srgb(f: f64) -> f64 {
-    if f <= 0.04045 {
-        f / 12.92
+    if DO_SRGB_CONVERSION {
+        if f <= 0.04045 {
+            f / 12.92
+        } else {
+            let a = 0.055;
+            f64::powf((f + a) * f64::recip(1. + a), 2.4)
+        }
     } else {
-        let a = 0.055;
-        f64::powf((f + a) * f64::recip(1. + a), 2.4)
+        f
     }
 }

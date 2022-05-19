@@ -232,7 +232,7 @@ fn main() -> Result<(), Error> {
         let session = Session::new(device);
 
         let mut cmd_buf = session.cmd_buf()?;
-        let query_pool = session.create_query_pool(8)?;
+        let query_pool = session.create_query_pool(Renderer::QUERY_POOL_SIZE)?;
 
         let mut ctx = PietGpuRenderContext::new();
         if let Some(input) = matches.value_of("INPUT") {
@@ -249,7 +249,8 @@ fn main() -> Result<(), Error> {
             println!("parsing time: {:?}", start.elapsed());
             test_scenes::render_svg(&mut ctx, &svg);
         } else {
-            test_scenes::render_scene(&mut ctx);
+            //test_scenes::render_scene(&mut ctx);
+            test_scenes::render_blend_grid(&mut ctx);
         }
 
         let mut renderer = Renderer::new(&session, WIDTH, HEIGHT, 1)?;
