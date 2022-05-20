@@ -999,6 +999,8 @@ void comp_main()
     Alloc cmd_alloc = slice_mem(param, param_1, param_2);
     CmdRef _1705 = { cmd_alloc.offset };
     CmdRef cmd_ref = _1705;
+    uint blend_offset = _297.Load((cmd_ref.offset >> uint(2)) * 4 + 8);
+    cmd_ref.offset += 4u;
     uint2 xy_uint = uint2(gl_LocalInvocationID.x + (16u * gl_WorkGroupID.x), gl_LocalInvocationID.y + (16u * gl_WorkGroupID.y));
     float2 xy = float2(xy_uint);
     float4 rgba[8];
@@ -1011,7 +1013,9 @@ void comp_main()
     float df[8];
     TileSegRef tile_seg_ref;
     float area[8];
-    uint blend_stack[128][8];
+    uint blend_stack[4][8];
+    uint base_ix_1;
+    uint bg_rgba;
     while (mem_ok)
     {
         Alloc param_3 = cmd_alloc;
@@ -1032,8 +1036,8 @@ void comp_main()
                 {
                     df[k] = 1000000000.0f;
                 }
-                TileSegRef _1800 = { stroke.tile_ref };
-                tile_seg_ref = _1800;
+                TileSegRef _1810 = { stroke.tile_ref };
+                tile_seg_ref = _1810;
                 do
                 {
                     uint param_7 = tile_seg_ref.offset;
@@ -1069,8 +1073,8 @@ void comp_main()
                 {
                     area[k_3] = float(fill.backdrop);
                 }
-                TileSegRef _1920 = { fill.tile_ref };
-                tile_seg_ref = _1920;
+                TileSegRef _1930 = { fill.tile_ref };
+                tile_seg_ref = _1930;
                 do
                 {
                     uint param_15 = tile_seg_ref.offset;
@@ -1159,10 +1163,10 @@ void comp_main()
                     int x = int(round(clamp(my_d, 0.0f, 1.0f) * 511.0f));
                     float4 fg_rgba = gradients[int2(x, int(lin.index))];
                     float3 param_29 = fg_rgba.xyz;
-                    float3 _2254 = fromsRGB(param_29);
-                    fg_rgba.x = _2254.x;
-                    fg_rgba.y = _2254.y;
-                    fg_rgba.z = _2254.z;
+                    float3 _2264 = fromsRGB(param_29);
+                    fg_rgba.x = _2264.x;
+                    fg_rgba.y = _2264.y;
+                    fg_rgba.z = _2264.z;
                     float4 fg_k_1 = fg_rgba * area[k_9];
                     rgba[k_9] = (rgba[k_9] * (1.0f - fg_k_1.w)) + fg_k_1;
                 }
@@ -1185,10 +1189,10 @@ void comp_main()
                     int x_1 = int(round(clamp(t_2, 0.0f, 1.0f) * 511.0f));
                     float4 fg_rgba_1 = gradients[int2(x_1, int(rad.index))];
                     float3 param_33 = fg_rgba_1.xyz;
-                    float3 _2364 = fromsRGB(param_33);
-                    fg_rgba_1.x = _2364.x;
-                    fg_rgba_1.y = _2364.y;
-                    fg_rgba_1.z = _2364.z;
+                    float3 _2374 = fromsRGB(param_33);
+                    fg_rgba_1.x = _2374.x;
+                    fg_rgba_1.y = _2374.y;
+                    fg_rgba_1.z = _2374.z;
                     float4 fg_k_2 = fg_rgba_1 * area[k_10];
                     rgba[k_10] = (rgba[k_10] * (1.0f - fg_k_2.w)) + fg_k_2;
                 }
@@ -1202,9 +1206,9 @@ void comp_main()
                 CmdImage fill_img = Cmd_Image_read(param_34, param_35);
                 uint2 param_36 = xy_uint;
                 CmdImage param_37 = fill_img;
-                float4 _2407[8];
-                fillImage(_2407, param_36, param_37);
-                float4 img[8] = _2407;
+                float4 _2417[8];
+                fillImage(_2417, param_36, param_37);
+                float4 img[8] = _2417;
                 for (uint k_11 = 0u; k_11 < 8u; k_11++)
                 {
                     float4 fg_k_3 = img[k_11] * area[k_11];
@@ -1215,13 +1219,26 @@ void comp_main()
             }
             case 9u:
             {
-                for (uint k_12 = 0u; k_12 < 8u; k_12++)
+                if (clip_depth < 4u)
                 {
-                    uint d_2 = min(clip_depth, 127u);
-                    float4 param_38 = float4(rgba[k_12]);
-                    uint _2470 = packsRGB(param_38);
-                    blend_stack[d_2][k_12] = _2470;
-                    rgba[k_12] = 0.0f.xxxx;
+                    for (uint k_12 = 0u; k_12 < 8u; k_12++)
+                    {
+                        float4 param_38 = float4(rgba[k_12]);
+                        uint _2479 = packsRGB(param_38);
+                        blend_stack[clip_depth][k_12] = _2479;
+                        rgba[k_12] = 0.0f.xxxx;
+                    }
+                }
+                else
+                {
+                    uint base_ix = ((blend_offset >> uint(2)) + (((clip_depth - 4u) * 16u) * 16u)) + (8u * (gl_LocalInvocationID.x + (8u * gl_LocalInvocationID.y)));
+                    for (uint k_13 = 0u; k_13 < 8u; k_13++)
+                    {
+                        float4 param_39 = float4(rgba[k_13]);
+                        uint _2522 = packsRGB(param_39);
+                        _297.Store((base_ix + k_13) * 4 + 8, _2522);
+                        rgba[k_13] = 0.0f.xxxx;
+                    }
                 }
                 clip_depth++;
                 cmd_ref.offset += 4u;
@@ -1229,32 +1246,41 @@ void comp_main()
             }
             case 10u:
             {
-                Alloc param_39 = cmd_alloc;
-                CmdRef param_40 = cmd_ref;
-                CmdEndClip end_clip = Cmd_EndClip_read(param_39, param_40);
-                uint blend_mode = end_clip.blend >> uint(8);
-                uint comp_mode = end_clip.blend & 255u;
+                Alloc param_40 = cmd_alloc;
+                CmdRef param_41 = cmd_ref;
+                CmdEndClip end_clip = Cmd_EndClip_read(param_40, param_41);
                 clip_depth--;
-                for (uint k_13 = 0u; k_13 < 8u; k_13++)
+                if (clip_depth >= 4u)
                 {
-                    uint d_3 = min(clip_depth, 127u);
-                    uint param_41 = blend_stack[d_3][k_13];
-                    float4 bg = unpacksRGB(param_41);
-                    float4 fg_1 = rgba[k_13] * area[k_13];
-                    float4 param_42 = bg;
-                    float4 param_43 = fg_1;
-                    uint param_44 = end_clip.blend;
-                    rgba[k_13] = mix_blend_compose(param_42, param_43, param_44);
+                    base_ix_1 = ((blend_offset >> uint(2)) + (((clip_depth - 4u) * 16u) * 16u)) + (8u * (gl_LocalInvocationID.x + (8u * gl_LocalInvocationID.y)));
+                }
+                for (uint k_14 = 0u; k_14 < 8u; k_14++)
+                {
+                    if (clip_depth < 4u)
+                    {
+                        bg_rgba = blend_stack[clip_depth][k_14];
+                    }
+                    else
+                    {
+                        bg_rgba = _297.Load((base_ix_1 + k_14) * 4 + 8);
+                    }
+                    uint param_42 = bg_rgba;
+                    float4 bg = unpacksRGB(param_42);
+                    float4 fg_1 = rgba[k_14] * area[k_14];
+                    float4 param_43 = bg;
+                    float4 param_44 = fg_1;
+                    uint param_45 = end_clip.blend;
+                    rgba[k_14] = mix_blend_compose(param_43, param_44, param_45);
                 }
                 cmd_ref.offset += 8u;
                 break;
             }
             case 11u:
             {
-                Alloc param_45 = cmd_alloc;
-                CmdRef param_46 = cmd_ref;
-                CmdRef _2548 = { Cmd_Jump_read(param_45, param_46).new_ref };
-                cmd_ref = _2548;
+                Alloc param_46 = cmd_alloc;
+                CmdRef param_47 = cmd_ref;
+                CmdRef _2621 = { Cmd_Jump_read(param_46, param_47).new_ref };
+                cmd_ref = _2621;
                 cmd_alloc.offset = cmd_ref.offset;
                 break;
             }
@@ -1262,9 +1288,9 @@ void comp_main()
     }
     for (uint i_1 = 0u; i_1 < 8u; i_1++)
     {
-        uint param_47 = i_1;
-        float3 param_48 = rgba[i_1].xyz;
-        image[int2(xy_uint + chunk_offset(param_47))] = float4(tosRGB(param_48), rgba[i_1].w);
+        uint param_48 = i_1;
+        float3 param_49 = rgba[i_1].xyz;
+        image[int2(xy_uint + chunk_offset(param_48))] = float4(tosRGB(param_49), rgba[i_1].w);
     }
 }
 

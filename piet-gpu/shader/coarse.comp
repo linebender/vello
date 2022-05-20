@@ -151,6 +151,12 @@ void main() {
     uint part_start_ix = 0;
     uint ready_ix = 0;
 
+    Alloc scratch_alloc = slice_mem(cmd_alloc, 0, Alloc_size);
+    cmd_ref.offset += 4;
+    // Accounting for allocation of blend memory
+    uint render_blend_depth = 0;
+    uint max_blend_depth = 0;
+
     uint drawmonoid_start = conf.drawmonoid_alloc.offset >> 2;
     uint drawtag_start = conf.drawtag_offset >> 2;
     uint drawdata_start = conf.drawdata_offset >> 2;
@@ -414,6 +420,8 @@ void main() {
                         }
                         Cmd_BeginClip_write(cmd_alloc, cmd_ref);
                         cmd_ref.offset += 4;
+                        render_blend_depth++;
+                        max_blend_depth = max(max_blend_depth, render_blend_depth);
                     }
                     clip_depth++;
                     break;
@@ -426,6 +434,7 @@ void main() {
                     uint blend = scene[dd];
                     Cmd_EndClip_write(cmd_alloc, cmd_ref, CmdEndClip(blend));
                     cmd_ref.offset += 4 + CmdEndClip_size;
+                    render_blend_depth--;
                     break;
                 }
             } else {
@@ -451,5 +460,10 @@ void main() {
     }
     if (bin_tile_x + tile_x < conf.width_in_tiles && bin_tile_y + tile_y < conf.height_in_tiles) {
         Cmd_End_write(cmd_alloc, cmd_ref);
+        if (max_blend_depth > BLEND_STACK_SPLIT) {
+            uint scratch_size = max_blend_depth * TILE_WIDTH_PX * TILE_HEIGHT_PX * CLIP_STATE_SIZE * 4;
+            MallocResult scratch = malloc(scratch_size);
+            alloc_write(scratch_alloc, scratch_alloc.offset, scratch.alloc);
+        }
     }
 }

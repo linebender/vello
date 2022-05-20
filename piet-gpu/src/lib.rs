@@ -34,8 +34,6 @@ const TILE_H: usize = 16;
 
 const PTCL_INITIAL_ALLOC: usize = 1024;
 
-const MAX_BLEND_STACK: usize = 128;
-
 #[allow(unused)]
 fn dump_scene(buf: &[u8]) {
     for i in 0..(buf.len() / 4) {
