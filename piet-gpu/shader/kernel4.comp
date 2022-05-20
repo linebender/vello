@@ -259,7 +259,7 @@ void main() {
             CmdEndClip end_clip = Cmd_EndClip_read(cmd_alloc, cmd_ref);
             clip_depth--;
             uint base_ix;
-            if (clip_depth < BLEND_STACK_SPLIT) {
+            if (clip_depth >= BLEND_STACK_SPLIT) {
                 base_ix = (blend_offset >> 2) + (clip_depth - BLEND_STACK_SPLIT) * TILE_HEIGHT_PX * TILE_WIDTH_PX +
                     CHUNK * (gl_LocalInvocationID.x + CHUNK_DX * gl_LocalInvocationID.y);
             }

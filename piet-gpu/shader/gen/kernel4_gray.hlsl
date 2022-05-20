@@ -1250,7 +1250,7 @@ void comp_main()
                 CmdRef param_41 = cmd_ref;
                 CmdEndClip end_clip = Cmd_EndClip_read(param_40, param_41);
                 clip_depth--;
-                if (clip_depth < 4u)
+                if (clip_depth >= 4u)
                 {
                     base_ix_1 = ((blend_offset >> uint(2)) + (((clip_depth - 4u) * 16u) * 16u)) + (8u * (gl_LocalInvocationID.x + (8u * gl_LocalInvocationID.y)));
                 }
