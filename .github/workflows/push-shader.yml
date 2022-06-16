@@ -1,0 +1,37 @@
+on:
+  push:
+    branches:
+      - dev
+
+jobs:
+  push-shaders:
+    runs-on: windows-latest
+    name: compile shaders and push to main
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          # need history to make the merge work
+          # possibly we can optimize this and set
+          # allow-unrelated-histories on merge
+          fetch-depth: 0
+      - name: prepare repo for compilation
+        run: |
+          git fetch origin main
+          git switch main
+          git merge dev -m "merge from dev branch"
+          git rm -r --ignore-unmatch piet-gpu/shader/gen
+          mkdir piet-gpu/shader/gen
+      - uses: ./.github/actions/shader
+      - name: commit
+        id: commit
+        continue-on-error: true
+        run: |
+          git add piet-gpu/shader/gen
+          git config user.name "Commit by GitHub Action"
+          git config user.email "nobody@example.com"
+          git commit -m "commit compiled shaders"
+      - name: push
+        if: steps.commit.outcome == 'success'
+        run: |
+          git show-ref
+          git push origin main

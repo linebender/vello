@@ -1,0 +1,13 @@
+on:
+  pull_request:
+    branches-ignore:
+     - main
+
+jobs:
+  push-shaders:
+    runs-on: windows-latest
+    name: compile shaders
+    steps:
+      - uses: actions/checkout@v3
+      - run: mkdir piet-gpu/shader/gen
+      - uses: ./.github/actions/shader
