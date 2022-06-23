@@ -3,27 +3,23 @@
 layout(set = 0, binding = 0) buffer Memory {
     // offset into memory of the next allocation, initialized by the user.
     uint mem_offset;
-    // mem_error tracks the status of memory accesses, initialized to NO_ERROR
-    // by the user. ERR_MALLOC_FAILED is reported for insufficient memory.
-    // If MEM_DEBUG is defined the following errors are reported:
-    // - ERR_OUT_OF_BOUNDS is reported for out of bounds writes.
-    // - ERR_UNALIGNED_ACCESS for memory access not aligned to 32-bit words.
+    // mem_error is a bitmask of stages that have failed allocation.
     uint mem_error;
+    // offset into blend memory of allocations for blend stack.
+    uint blend_offset;
     uint[] memory;
 };
 
 // Uncomment this line to add the size field to Alloc and enable memory checks.
 // Note that the Config struct in setup.h grows size fields as well.
-//#define MEM_DEBUG
 
-#define NO_ERROR 0
-#define ERR_MALLOC_FAILED 1
-#define ERR_OUT_OF_BOUNDS 2
-#define ERR_UNALIGNED_ACCESS 3
+// This setting is not working and the mechanism will be removed.
+//#define MEM_DEBUG
 
 #ifdef MEM_DEBUG
 #define Alloc_size 16
 #else
+// TODO: this seems wrong
 #define Alloc_size 8
 #endif
 
@@ -35,12 +31,6 @@ struct Alloc {
     // size in bytes of the allocation.
     uint size;
 #endif
-};
-
-struct MallocResult {
-    Alloc alloc;
-    // failed is true if the allocation overflowed memory.
-    bool failed;
 };
 
 // new_alloc synthesizes an Alloc from an offset and size.
@@ -57,24 +47,32 @@ Alloc new_alloc(uint offset, uint size, bool mem_ok) {
     return a;
 }
 
-// malloc allocates size bytes of memory.
-MallocResult malloc(uint size) {
-    MallocResult r;
+#define STAGE_BINNING (1u << 0)
+#define STAGE_TILE_ALLOC (1u << 1)
+#define STAGE_PATH_COARSE (1u << 2)
+#define STAGE_COARSE (1u << 3)
+
+// Allocations in main memory will never be 0, and this might be slightly
+// faster to test against than some other value.
+#define MALLOC_FAILED 0
+
+// Check that previous dependent stages have succeeded.
+bool check_deps(uint dep_stage) {
+    // TODO: this should be an atomic relaxed load, but that involves
+    // bringing in "memory scope semantics"
+    return (atomicOr(mem_error, 0) & dep_stage) == 0;
+}
+
+// Allocate size bytes of memory, offset in bytes.
+// Note: with a bit of rearrangement of header files, we could make the
+// mem_size argument go away (it comes from the config binding).
+uint malloc_stage(uint size, uint mem_size, uint stage) {
     uint offset = atomicAdd(mem_offset, size);
-    r.failed = offset + size > memory.length() * 4;
-    r.alloc = new_alloc(offset, size, !r.failed);
-    if (r.failed) {
-        atomicMax(mem_error, ERR_MALLOC_FAILED);
-        return r;
+    if (offset + size > mem_size) {
+        atomicOr(mem_error, stage);
+        offset = MALLOC_FAILED;
     }
-#ifdef MEM_DEBUG
-    if ((size & 3) != 0) {
-        r.failed = true;
-        atomicMax(mem_error, ERR_UNALIGNED_ACCESS);
-        return r;
-    }
-#endif
-    return r;
+    return offset;
 }
 
 // touch_mem checks whether access to the memory word at offset is valid.

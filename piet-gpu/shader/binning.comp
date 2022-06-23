@@ -32,8 +32,7 @@ layout(set = 0, binding = 1) readonly buffer ConfigBuf {
 // Bitmaps are sliced (256bit into 8 (N_SLICE) 32bit submaps)
 shared uint bitmaps[N_SLICE][N_TILE];
 shared uint count[N_SLICE][N_TILE];
-shared Alloc sh_chunk_alloc[N_TILE];
-shared bool sh_alloc_failed;
+shared uint sh_chunk_offset[N_TILE];
 
 DrawMonoid load_draw_monoid(uint element_ix) {
     uint base = (conf.drawmonoid_alloc.offset >> 2) + 4 * element_ix;
@@ -84,10 +83,6 @@ void main() {
     for (uint i = 0; i < N_SLICE; i++) {
         bitmaps[i][gl_LocalInvocationID.x] = 0;
     }
-    if (gl_LocalInvocationID.x == 0) {
-        sh_alloc_failed = false;
-    }
-    barrier();
 
     // Read inputs and determine coverage of bins
     uint element_ix = my_partition * N_TILE + gl_LocalInvocationID.x;
@@ -148,26 +143,18 @@ void main() {
         count[i][gl_LocalInvocationID.x] = element_count;
     }
     // element_count is number of elements covering bin for this invocation.
-    Alloc chunk_alloc = new_alloc(0, 0, true);
+    uint chunk_offset = 0;
     if (element_count != 0) {
-        // TODO: aggregate atomic adds (subgroup is probably fastest)
-        MallocResult chunk = malloc(element_count * BinInstance_size);
-        chunk_alloc = chunk.alloc;
-        sh_chunk_alloc[gl_LocalInvocationID.x] = chunk_alloc;
-        if (chunk.failed) {
-            sh_alloc_failed = true;
-        }
+        chunk_offset = malloc_stage(element_count * BinInstance_size, conf.mem_size, STAGE_BINNING);
+        sh_chunk_offset[gl_LocalInvocationID.x] = chunk_offset;
     }
     // Note: it might be more efficient for reading to do this in the
     // other order (each bin is a contiguous sequence of partitions)
     uint out_ix = (conf.bin_alloc.offset >> 2) + (my_partition * N_TILE + gl_LocalInvocationID.x) * 2;
     write_mem(conf.bin_alloc, out_ix, element_count);
-    write_mem(conf.bin_alloc, out_ix + 1, chunk_alloc.offset);
+    write_mem(conf.bin_alloc, out_ix + 1, chunk_offset);
 
     barrier();
-    if (sh_alloc_failed || mem_error != NO_ERROR) {
-        return;
-    }
 
     // Use similar strategy as Laine & Karras paper; loop over bbox of bins
     // touched by this element
@@ -181,9 +168,10 @@ void main() {
             if (my_slice > 0) {
                 idx += count[my_slice - 1][bin_ix];
             }
-            Alloc out_alloc = sh_chunk_alloc[bin_ix];
-            uint out_offset = out_alloc.offset + idx * BinInstance_size;
-            BinInstance_write(out_alloc, BinInstanceRef(out_offset), BinInstance(element_ix));
+            uint chunk_offset = sh_chunk_offset[bin_ix];
+            if (chunk_offset != MALLOC_FAILED) {
+                memory[(chunk_offset >> 2) + idx] = element_ix;
+            }
         }
         x++;
         if (x == x1) {

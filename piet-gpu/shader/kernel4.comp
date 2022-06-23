@@ -14,6 +14,7 @@
 // higher quality antialiasing among other things).
 #define DO_SRGB_CONVERSION 0
 
+// TODO: the binding of the main buffer can be readonly
 #include "mem.h"
 #include "setup.h"
 
@@ -24,19 +25,23 @@
 #define CHUNK_DY (TILE_HEIGHT_PX / CHUNK_Y)
 layout(local_size_x = CHUNK_DX, local_size_y = CHUNK_DY) in;
 
-layout(set = 0, binding = 1) restrict readonly buffer ConfigBuf {
+layout(binding = 1) restrict readonly buffer ConfigBuf {
     Config conf;
 };
 
+layout(binding = 2) buffer BlendBuf {
+    uint blend_mem[];
+};
+
 #ifdef GRAY
-layout(r8, set = 0, binding = 2) uniform restrict writeonly image2D image;
+layout(r8, binding = 3) uniform restrict writeonly image2D image;
 #else
-layout(rgba8, set = 0, binding = 2) uniform restrict writeonly image2D image;
+layout(rgba8, binding = 3) uniform restrict writeonly image2D image;
 #endif
 
-layout(rgba8, set = 0, binding = 3) uniform restrict readonly image2D image_atlas;
+layout(rgba8, binding = 4) uniform restrict readonly image2D image_atlas;
 
-layout(rgba8, set = 0, binding = 4) uniform restrict readonly image2D gradients;
+layout(rgba8, binding = 5) uniform restrict readonly image2D gradients;
 
 #include "ptcl.h"
 #include "tile.h"
@@ -114,8 +119,9 @@ void main() {
 
     mediump float area[CHUNK];
     uint clip_depth = 0;
-    bool mem_ok = mem_error == NO_ERROR;
-    while (mem_ok) {
+    // Previously we would early-out if there was a memory failure, so we wouldn't try to read corrupt
+    // tiles. But now we assume this is checked CPU-side before launching fine rasterization.
+    while (true) {
         uint tag = Cmd_tag(cmd_alloc, cmd_ref).tag;
         if (tag == Cmd_End) {
             break;
@@ -129,7 +135,7 @@ void main() {
                 df[k] = 1e9;
             TileSegRef tile_seg_ref = TileSegRef(stroke.tile_ref);
             do {
-                TileSeg seg = TileSeg_read(new_alloc(tile_seg_ref.offset, TileSeg_size, mem_ok), tile_seg_ref);
+                TileSeg seg = TileSeg_read(new_alloc(tile_seg_ref.offset, TileSeg_size, true), tile_seg_ref);
                 vec2 line_vec = seg.vector;
                 for (uint k = 0; k < CHUNK; k++) {
                     vec2 dpos = xy + vec2(0.5, 0.5) - seg.origin;
@@ -151,7 +157,7 @@ void main() {
             tile_seg_ref = TileSegRef(fill.tile_ref);
             // Calculate coverage based on backdrop + coverage of each line segment
             do {
-                TileSeg seg = TileSeg_read(new_alloc(tile_seg_ref.offset, TileSeg_size, mem_ok), tile_seg_ref);
+                TileSeg seg = TileSeg_read(new_alloc(tile_seg_ref.offset, TileSeg_size, true), tile_seg_ref);
                 for (uint k = 0; k < CHUNK; k++) {
                     vec2 my_xy = xy + vec2(chunk_offset(k));
                     vec2 start = seg.origin - my_xy;
@@ -248,7 +254,7 @@ void main() {
                 uint base_ix = (blend_offset >> 2) + (clip_depth - BLEND_STACK_SPLIT) * TILE_HEIGHT_PX * TILE_WIDTH_PX +
                     CHUNK * (gl_LocalInvocationID.x + CHUNK_DX * gl_LocalInvocationID.y);
                 for (uint k = 0; k < CHUNK; k++) {
-                    memory[base_ix + k] = packsRGB(vec4(rgba[k]));
+                    blend_mem[base_ix + k] = packsRGB(vec4(rgba[k]));
                     rgba[k] = vec4(0.0);
                 }
             }
@@ -268,7 +274,7 @@ void main() {
                 if (clip_depth < BLEND_STACK_SPLIT) {
                     bg_rgba = blend_stack[clip_depth][k];
                 } else {
-                    bg_rgba = memory[base_ix + k];
+                    bg_rgba = blend_mem[base_ix + k];
                 }
                 mediump vec4 bg = unpacksRGB(bg_rgba);
                 mediump vec4 fg = rgba[k] * area[k];
