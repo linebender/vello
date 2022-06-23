@@ -4,7 +4,7 @@ const DO_SRGB_CONVERSION: bool = false;
 use std::borrow::Cow;
 
 use crate::encoder::GlyphEncoder;
-use crate::stages::{Config, Transform};
+use crate::stages::Transform;
 use piet::kurbo::{Affine, PathEl, Point, Rect, Shape};
 use piet::{
     Color, Error, FixedGradient, ImageFormat, InterpolationMode, IntoBrush, RenderContext,
@@ -18,7 +18,7 @@ use piet_gpu_types::scene::Element;
 use crate::gradient::{Colrv1RadialGradient, LinearGradient, RadialGradient, RampCache};
 use crate::text::Font;
 pub use crate::text::{PietGpuText, PietGpuTextLayout, PietGpuTextLayoutBuilder};
-use crate::Blend;
+use crate::{Blend, SceneStats};
 
 pub struct PietGpuImage;
 
@@ -95,44 +95,15 @@ impl PietGpuRenderContext {
         }
     }
 
-    pub fn stage_config(&self) -> (Config, usize) {
-        self.new_encoder.stage_config()
-    }
-
-    /// Number of draw objects.
-    ///
-    /// This is for the new element processing pipeline. It's not necessarily the
-    /// same as the number of paths (as in the old pipeline), but it might take a
-    /// while to sort that out.
-    pub fn n_drawobj(&self) -> usize {
-        self.new_encoder.n_drawobj()
-    }
-
-    /// Number of paths.
-    pub fn n_path(&self) -> u32 {
-        self.new_encoder.n_path()
-    }
-
-    pub fn n_pathseg(&self) -> u32 {
-        self.new_encoder.n_pathseg()
-    }
-
-    pub fn n_pathtag(&self) -> usize {
-        self.new_encoder.n_pathtag()
-    }
-
-    pub fn n_transform(&self) -> usize {
-        self.new_encoder.n_transform()
-    }
-
-    pub fn n_clip(&self) -> u32 {
-        self.new_encoder.n_clip()
+    pub(crate) fn stats(&self) -> SceneStats {
+        self.new_encoder.stats()
     }
 
     pub fn write_scene(&self, buf: &mut BufWrite) {
         self.new_encoder.write_scene(buf);
     }
 
+    // TODO: delete
     pub fn get_scene_buf(&mut self) -> &[u8] {
         const ALIGN: usize = 128;
         let padded_size = (self.elements.len() + (ALIGN - 1)) & ALIGN.wrapping_neg();
@@ -194,7 +165,6 @@ impl RenderContext for PietGpuRenderContext {
                 let rad = self.ramp_cache.add_radial_gradient(&rad);
                 Ok(PietGpuBrush::RadGradient(rad))
             }
-            _ => todo!("don't do radial gradients yet"),
         }
     }
 
