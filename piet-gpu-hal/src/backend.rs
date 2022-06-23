@@ -98,6 +98,36 @@ pub trait Device: Sized {
         builder.build(self, pipeline)
     }
 
+    /// Update a descriptor in a descriptor set.
+    ///
+    /// The index is the same as the binding number in Vulkan.
+    ///
+    /// # Safety
+    ///
+    /// The descriptor set must not be used in any in-flight command buffer. The index must be valid.
+    /// The resource type must match that at descriptor set creation time.
+    unsafe fn update_buffer_descriptor(
+        &self,
+        ds: &mut Self::DescriptorSet,
+        index: u32,
+        buf: &Self::Buffer,
+    );
+
+    /// Update a descriptor in a descriptor set.
+    ///
+    /// The index is the same as the binding number in Vulkan.
+    ///
+    /// # Safety
+    ///
+    /// The descriptor set must not be used in any in-flight command buffer. The index must be valid.
+    /// The resource type must match that at descriptor set creation time.
+    unsafe fn update_image_descriptor(
+        &self,
+        ds: &mut Self::DescriptorSet,
+        index: u32,
+        image: &Self::Image,
+    );
+
     fn create_cmd_buf(&self) -> Result<Self::CmdBuf, Error>;
 
     /// If the command buffer was submitted, it must complete before this is called.
