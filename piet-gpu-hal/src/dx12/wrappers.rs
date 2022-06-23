@@ -405,6 +405,16 @@ impl Device {
         );
     }
 
+    pub unsafe fn copy_one_descriptor(
+        &self,
+        dst: d3d12::D3D12_CPU_DESCRIPTOR_HANDLE,
+        src: d3d12::D3D12_CPU_DESCRIPTOR_HANDLE,
+        descriptor_heap_type: d3d12::D3D12_DESCRIPTOR_HEAP_TYPE,
+    ) {
+        self.0
+            .CopyDescriptorsSimple(1, dst, src, descriptor_heap_type);
+    }
+
     pub unsafe fn create_compute_pipeline_state(
         &self,
         compute_pipeline_desc: &d3d12::D3D12_COMPUTE_PIPELINE_STATE_DESC,

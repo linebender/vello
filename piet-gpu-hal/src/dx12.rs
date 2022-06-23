@@ -21,7 +21,10 @@ use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
 
 use smallvec::SmallVec;
 
-use crate::{BindType, BufferUsage, Error, GpuInfo, ImageLayout, MapMode, WorkgroupLimits, ImageFormat, ComputePassDescriptor};
+use crate::{
+    BindType, BufferUsage, ComputePassDescriptor, Error, GpuInfo, ImageFormat, ImageLayout,
+    MapMode, WorkgroupLimits,
+};
 
 use self::{
     descriptor::{CpuHeapRefOwned, DescriptorPool, GpuHeapRefOwned},
@@ -322,7 +325,12 @@ impl crate::backend::Device for Dx12Device {
         Ok(())
     }
 
-    unsafe fn create_image2d(&self, width: u32, height: u32, format: ImageFormat) -> Result<Self::Image, Error> {
+    unsafe fn create_image2d(
+        &self,
+        width: u32,
+        height: u32,
+        format: ImageFormat,
+    ) -> Result<Self::Image, Error> {
         let format = match format {
             ImageFormat::A8 => winapi::shared::dxgiformat::DXGI_FORMAT_R8_UNORM,
             ImageFormat::Rgba8 => winapi::shared::dxgiformat::DXGI_FORMAT_R8G8B8A8_UNORM,
@@ -391,10 +399,7 @@ impl crate::backend::Device for Dx12Device {
         std::ptr::copy_nonoverlapping(mapped, buf.as_mut_ptr() as *mut u8, size);
         self.unmap_buffer(&pool.buf, 0, size as u64, MapMode::Read)?;
         let tsp = (self.ts_freq as f64).recip();
-        let result = buf
-            .iter()
-            .map(|ts| *ts as f64 * tsp)
-            .collect();
+        let result = buf.iter().map(|ts| *ts as f64 * tsp).collect();
         Ok(result)
     }
 
@@ -567,6 +572,28 @@ impl crate::backend::Device for Dx12Device {
 
     unsafe fn descriptor_set_builder(&self) -> Self::DescriptorSetBuilder {
         DescriptorSetBuilder::default()
+    }
+
+    unsafe fn update_buffer_descriptor(
+        &self,
+        ds: &mut Self::DescriptorSet,
+        index: u32,
+        buf: &Self::Buffer,
+    ) {
+        let src_cpu_ref = buf.cpu_ref.as_ref().unwrap().handle();
+        ds.gpu_ref
+            .copy_one_descriptor(&self.device, src_cpu_ref, index);
+    }
+
+    unsafe fn update_image_descriptor(
+        &self,
+        ds: &mut Self::DescriptorSet,
+        index: u32,
+        image: &Self::Image,
+    ) {
+        let src_cpu_ref = image.cpu_ref.as_ref().unwrap().handle();
+        ds.gpu_ref
+            .copy_one_descriptor(&self.device, src_cpu_ref, index);
     }
 
     unsafe fn create_sampler(&self, _params: crate::SamplerParams) -> Result<Self::Sampler, Error> {
