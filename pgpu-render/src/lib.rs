@@ -14,6 +14,16 @@
 //
 // Also licensed under MIT license, at your choice.
 
+// We only really have implementations for IOS targets so far
+// Note that this is the same cfg that wgpu uses for metal support
+#![cfg_attr(
+    not(all(
+        not(target_arch = "wasm32"),
+        any(target_os = "ios", target_os = "macos")
+    )),
+    allow(unused)
+)]
+
 mod render;
 
 use render::*;
@@ -26,6 +36,10 @@ use std::mem::transmute;
 /// device: MTLDevice*
 /// queue: MTLCommandQueue*
 #[no_mangle]
+#[cfg(all(
+    not(target_arch = "wasm32"),
+    any(target_os = "ios", target_os = "macos")
+))]
 pub unsafe extern "C" fn pgpu_renderer_new(
     device: *mut c_void,
     queue: *mut c_void,
@@ -44,6 +58,10 @@ pub unsafe extern "C" fn pgpu_renderer_new(
 /// target: MTLTexture*
 /// cmdbuf: MTLCommandBuffer*
 #[no_mangle]
+#[cfg(all(
+    not(target_arch = "wasm32"),
+    any(target_os = "ios", target_os = "macos")
+))]
 pub unsafe extern "C" fn pgpu_renderer_render(
     renderer: *mut PgpuRenderer,
     scene: *const PgpuScene,

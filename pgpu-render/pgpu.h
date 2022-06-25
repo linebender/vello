@@ -61,13 +61,16 @@ struct PgpuRect {
 
 extern "C" {
 
+#if defined(__APPLE__)
 /// Creates a new piet-gpu renderer for the specified Metal device and
 /// command queue.
 ///
 /// device: MTLDevice*
 /// queue: MTLCommandQueue*
 PgpuRenderer *pgpu_renderer_new(void *device, void *queue);
+#endif
 
+#if defined(__APPLE__)
 /// Renders a prepared scene into a texture target. Commands for rendering are
 /// recorded into the specified command buffer. Returns an id representing
 /// resources that may have been allocated during this process. After the
@@ -80,6 +83,7 @@ uint32_t pgpu_renderer_render(PgpuRenderer *renderer,
                               const PgpuScene *scene,
                               void *target,
                               void *cmdbuf);
+#endif
 
 /// Releases the internal resources associated with the specified id from a
 /// previous render operation.

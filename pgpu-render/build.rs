@@ -22,6 +22,7 @@ fn main() {
     let crate_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     cbindgen::Builder::new()
         .with_crate(crate_dir)
+        .with_define("target_os", "ios", "__APPLE__")
         .with_header("/** Automatically generated from pgpu-render/src/lib.rs with cbindgen. **/")
         .generate()
         .expect("Unable to generate bindings")
