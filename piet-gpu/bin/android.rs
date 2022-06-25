@@ -1,3 +1,4 @@
+#![cfg(target_os = "android")]
 //! Android example
 //!
 //! Run using `cargo apk run --example android`
