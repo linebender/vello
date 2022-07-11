@@ -385,6 +385,24 @@ impl crate::backend::Device for MtlDevice {
         DescriptorSetBuilder::default()
     }
 
+    unsafe fn update_buffer_descriptor(
+        &self,
+        ds: &mut Self::DescriptorSet,
+        index: u32,
+        buf: &Self::Buffer,
+    ) {
+        ds.buffers[index as usize] = buf.clone();
+    }
+
+    unsafe fn update_image_descriptor(
+        &self,
+        ds: &mut Self::DescriptorSet,
+        index: u32,
+        image: &Self::Image,
+    ) {
+        ds.images[index as usize - ds.buffers.len()] = image.clone();
+    }
+
     fn create_cmd_buf(&self) -> Result<Self::CmdBuf, Error> {
         let cmd_queue = self.cmd_queue.lock().unwrap();
         // A discussion about autorelease pools.

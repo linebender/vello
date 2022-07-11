@@ -391,6 +391,32 @@ impl Device {
         }
     }
 
+    pub unsafe fn update_buffer_descriptor(
+        &self,
+        ds: &mut DescriptorSet,
+        index: u32,
+        buffer: &Buffer,
+    ) {
+        mux_match! { self;
+            Device::Vk(d) => d.update_buffer_descriptor(ds.vk_mut(), index, buffer.vk()),
+            Device::Dx12(d) => d.update_buffer_descriptor(ds.dx12_mut(), index, buffer.dx12()),
+            Device::Mtl(d) => d.update_buffer_descriptor(ds.mtl_mut(), index, buffer.mtl()),
+        }
+    }
+
+    pub unsafe fn update_image_descriptor(
+        &self,
+        ds: &mut DescriptorSet,
+        index: u32,
+        image: &Image,
+    ) {
+        mux_match! { self;
+            Device::Vk(d) => d.update_image_descriptor(ds.vk_mut(), index, image.vk()),
+            Device::Dx12(d) => d.update_image_descriptor(ds.dx12_mut(), index, image.dx12()),
+            Device::Mtl(d) => d.update_image_descriptor(ds.mtl_mut(), index, image.mtl()),
+        }
+    }
+
     pub fn create_cmd_buf(&self) -> Result<CmdBuf, Error> {
         mux_match! { self;
             Device::Vk(d) => d.create_cmd_buf().map(CmdBuf::Vk),

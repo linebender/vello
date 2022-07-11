@@ -366,6 +366,30 @@ impl Session {
         DescriptorSetBuilder(self.0.device.descriptor_set_builder())
     }
 
+    /// Update a buffer in a descriptor set.
+    pub unsafe fn update_buffer_descriptor(
+        &self,
+        ds: &mut DescriptorSet,
+        index: u32,
+        buffer: &Buffer,
+    ) {
+        self.0
+            .device
+            .update_buffer_descriptor(ds, index, &buffer.0.buffer)
+    }
+
+    /// Update an image in a descriptor set.
+    pub unsafe fn update_image_descriptor(
+        &self,
+        ds: &mut DescriptorSet,
+        index: u32,
+        image: &Image,
+    ) {
+        self.0
+            .device
+            .update_image_descriptor(ds, index, &image.0.image)
+    }
+
     /// Create a query pool for timestamp queries.
     pub fn create_query_pool(&self, n_queries: u32) -> Result<QueryPool, Error> {
         self.0.device.create_query_pool(n_queries)
