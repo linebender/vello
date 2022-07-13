@@ -462,10 +462,7 @@ impl Renderer {
     }
 
     // Note: configuration has to be re-uploaded when memory buffer is resized
-    pub(crate) unsafe fn upload_config(
-        &mut self,
-        buf_ix: usize,
-    ) -> Result<(), Error> {
+    pub(crate) unsafe fn upload_config(&mut self, buf_ix: usize) -> Result<(), Error> {
         let stats = &self.scene_stats;
         let n_path = stats.n_path as usize;
         self.n_paths = n_path;
