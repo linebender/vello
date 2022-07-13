@@ -1,0 +1,27 @@
+on:
+  push:
+    branches:
+      - main
+      - dev
+  pull_request:
+
+jobs:
+  rustfmt:
+    runs-on: ubuntu-latest
+    name: cargo fmt
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          components: rustfmt
+          override: true
+
+      - name: cargo fmt
+        uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: --all -- --check
