@@ -84,6 +84,7 @@ pub struct GpuHeapRefOwned {
     heap_ref: GpuHeapRef,
     cpu_handle: D3D12_CPU_DESCRIPTOR_HANDLE,
     gpu_handle: D3D12_GPU_DESCRIPTOR_HANDLE,
+    increment_size: u32,
     free_list: Weak<Mutex<DescriptorFreeList>>,
 }
 
@@ -137,10 +138,13 @@ impl DescriptorPool {
 
     pub fn alloc_gpu(&mut self, device: &Device, n: u32) -> Result<GpuHeapRefOwned, Error> {
         let free_list = &self.free_list;
+        let heap_type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        let increment_size = unsafe { device.get_descriptor_increment_size(heap_type) };
         let mk_owned = |heap_ref, cpu_handle, gpu_handle| GpuHeapRefOwned {
             heap_ref,
             cpu_handle,
             gpu_handle,
+            increment_size,
             free_list: Arc::downgrade(free_list),
         };
         let mut free_list = free_list.lock().unwrap();
@@ -158,7 +162,6 @@ impl DescriptorPool {
         }
         unsafe {
             let size = n.max(GPU_CHUNK_SIZE).next_power_of_two();
-            let heap_type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
             let desc = D3D12_DESCRIPTOR_HEAP_DESC {
                 Type: heap_type,
                 NumDescriptors: size,
@@ -245,6 +248,17 @@ impl GpuHeapRefOwned {
             &sizes,
             D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
         );
+    }
+
+    pub unsafe fn copy_one_descriptor(
+        &self,
+        device: &Device,
+        src: D3D12_CPU_DESCRIPTOR_HANDLE,
+        index: u32,
+    ) {
+        let mut dst = self.cpu_handle;
+        dst.ptr += (index * self.increment_size) as usize;
+        device.copy_one_descriptor(dst, src, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
     }
 }
 

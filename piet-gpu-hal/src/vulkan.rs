@@ -7,15 +7,15 @@ use std::os::raw::c_char;
 use std::sync::Arc;
 
 use ash::extensions::{ext::DebugUtils, khr};
-use ash::{vk, Device, Entry, Instance};
 use ash::vk::DebugUtilsLabelEXT;
+use ash::{vk, Device, Entry, Instance};
 
 use smallvec::SmallVec;
 
 use crate::backend::Device as DeviceTrait;
 use crate::{
-    BindType, BufferUsage, Error, GpuInfo, ImageFormat, ImageLayout, MapMode, SamplerParams, SubgroupSize,
-    WorkgroupLimits, ComputePassDescriptor,
+    BindType, BufferUsage, ComputePassDescriptor, Error, GpuInfo, ImageFormat, ImageLayout,
+    MapMode, SamplerParams, SubgroupSize, WorkgroupLimits,
 };
 
 pub struct VkInstance {
@@ -320,7 +320,10 @@ impl VkInstance {
         let queue_index = 0;
         let queue = device.get_device_queue(qfi, queue_index);
 
-        let device = Arc::new(RawDevice { device, dbg_loader: self.dbg_loader.clone() });
+        let device = Arc::new(RawDevice {
+            device,
+            dbg_loader: self.dbg_loader.clone(),
+        });
 
         let props = self.instance.get_physical_device_properties(pdevice);
         let timestamp_period = props.limits.timestamp_period;
@@ -536,7 +539,12 @@ impl crate::backend::Device for VkDevice {
         Ok(())
     }
 
-    unsafe fn create_image2d(&self, width: u32, height: u32, format: ImageFormat) -> Result<Self::Image, Error> {
+    unsafe fn create_image2d(
+        &self,
+        width: u32,
+        height: u32,
+        format: ImageFormat,
+    ) -> Result<Self::Image, Error> {
         let device = &self.device.device;
         let extent = vk::Extent3D {
             width,
@@ -720,6 +728,49 @@ impl crate::backend::Device for VkDevice {
         }
     }
 
+    unsafe fn update_buffer_descriptor(
+        &self,
+        ds: &mut Self::DescriptorSet,
+        index: u32,
+        buf: &Self::Buffer,
+    ) {
+        let device = &self.device.device;
+        device.update_descriptor_sets(
+            &[vk::WriteDescriptorSet::builder()
+                .dst_set(ds.descriptor_set)
+                .dst_binding(index)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .buffer_info(&[vk::DescriptorBufferInfo::builder()
+                    .buffer(buf.buffer)
+                    .offset(0)
+                    .range(vk::WHOLE_SIZE)
+                    .build()])
+                .build()],
+            &[],
+        );
+    }
+
+    unsafe fn update_image_descriptor(
+        &self,
+        ds: &mut Self::DescriptorSet,
+        index: u32,
+        image: &Self::Image,
+    ) {
+        let device = &self.device.device;
+        device.update_descriptor_sets(
+            &[vk::WriteDescriptorSet::builder()
+                .dst_set(ds.descriptor_set)
+                .dst_binding(index)
+                .descriptor_type(vk::DescriptorType::STORAGE_IMAGE)
+                .image_info(&[vk::DescriptorImageInfo::builder()
+                    .image_view(image.image_view)
+                    .image_layout(vk::ImageLayout::GENERAL)
+                    .build()])
+                .build()],
+            &[],
+        );
+    }
+
     fn create_cmd_buf(&self) -> Result<CmdBuf, Error> {
         unsafe {
             let device = &self.device.device;
@@ -773,10 +824,7 @@ impl crate::backend::Device for VkDevice {
         let flags = vk::QueryResultFlags::TYPE_64 | vk::QueryResultFlags::WAIT;
         device.get_query_pool_results(pool.pool, 0, pool.n_queries, &mut buf, flags)?;
         let tsp = self.timestamp_period as f64 * 1e-9;
-        let result = buf
-            .iter()
-            .map(|ts| *ts as f64 * tsp)
-            .collect();
+        let result = buf.iter().map(|ts| *ts as f64 * tsp).collect();
         Ok(result)
     }
 
@@ -1129,7 +1177,9 @@ impl crate::backend::CmdBuf<VkDevice> for CmdBuf {
     unsafe fn begin_debug_label(&mut self, label: &str) {
         if let Some(utils) = &self.device.dbg_loader {
             let label_cstr = CString::new(label).unwrap();
-            let label_ext = DebugUtilsLabelEXT::builder().label_name(&label_cstr).build();
+            let label_ext = DebugUtilsLabelEXT::builder()
+                .label_name(&label_cstr)
+                .build();
             utils.cmd_begin_debug_utils_label(self.cmd_buf, &label_ext);
         }
     }
