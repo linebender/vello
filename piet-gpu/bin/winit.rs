@@ -1,8 +1,8 @@
 use piet::kurbo::Point;
 use piet::{RenderContext, Text, TextAttribute, TextLayoutBuilder};
-use piet_gpu_hal::{CmdBuf, Error, ImageLayout, Instance, Session, SubmittedCmdBuf};
+use piet_gpu_hal::{Error, ImageLayout, Instance, Session};
 
-use piet_gpu::{test_scenes, PicoSvg, PietGpuRenderContext, Renderer};
+use piet_gpu::{test_scenes, PicoSvg, PietGpuRenderContext, RenderDriver, Renderer};
 
 use clap::{App, Arg};
 
@@ -69,13 +69,9 @@ fn main() -> Result<(), Error> {
         let present_semaphores = (0..NUM_FRAMES)
             .map(|_| session.create_semaphore())
             .collect::<Result<Vec<_>, Error>>()?;
-        let query_pools = (0..NUM_FRAMES)
-            .map(|_| session.create_query_pool(Renderer::QUERY_POOL_SIZE))
-            .collect::<Result<Vec<_>, Error>>()?;
-        let mut cmd_bufs: [Option<CmdBuf>; NUM_FRAMES] = Default::default();
-        let mut submitted: [Option<SubmittedCmdBuf>; NUM_FRAMES] = Default::default();
 
-        let mut renderer = Renderer::new(&session, WIDTH, HEIGHT, NUM_FRAMES)?;
+        let renderer = Renderer::new(&session, WIDTH, HEIGHT, NUM_FRAMES)?;
+        let mut render_driver = RenderDriver::new(&session, NUM_FRAMES, renderer);
         let mut mode = 0usize;
 
         event_loop.run(move |event, _, control_flow| {
@@ -106,26 +102,13 @@ fn main() -> Result<(), Error> {
                 Event::RedrawRequested(window_id) if window_id == window.id() => {
                     let frame_idx = current_frame % NUM_FRAMES;
 
-                    if let Some(submitted) = submitted[frame_idx].take() {
-                        cmd_bufs[frame_idx] = submitted.wait().unwrap();
-                        let ts = session.fetch_query_pool(&query_pools[frame_idx]).unwrap();
-                        if !ts.is_empty() {
-                            info_string = format!(
-                                "{:.3}ms :: e:{:.3}ms|alloc:{:.3}ms|cp:{:.3}ms|bd:{:.3}ms|bin:{:.3}ms|cr:{:.3}ms|r:{:.3}ms",
-                                ts[10] * 1e3,
-                                ts[0] * 1e3,
-                                (ts[1] - ts[0]) * 1e3,
-                                (ts[2] - ts[1]) * 1e3,
-                                (ts[4] - ts[3]) * 1e3,
-                                (ts[6] - ts[5]) * 1e3,
-                                (ts[8] - ts[7]) * 1e3,
-                                (ts[10] - ts[9]) * 1e3,
-                            );
-                        }
+                    if current_frame >= NUM_FRAMES {
+                        let stats = render_driver.get_timing_stats(&session, frame_idx);
+                        info_string = stats.short_summary();
                     }
 
                     let mut ctx = PietGpuRenderContext::new();
-                    let test_blend = true;
+                    let test_blend = false;
                     if let Some(svg) = &svg {
                         test_scenes::render_svg(&mut ctx, svg);
                     } else if test_blend {
@@ -168,16 +151,15 @@ fn main() -> Result<(), Error> {
                         test_scenes::render_anim_frame(&mut ctx, current_frame);
                     }
                     render_info_string(&mut ctx, &info_string);
-                    if let Err(e) = renderer.upload_render_ctx(&mut ctx, frame_idx) {
+                    if let Err(e) = render_driver.upload_render_ctx(&session, &mut ctx) {
                         println!("error in uploading: {}", e);
                     }
 
                     let (image_idx, acquisition_semaphore) = swapchain.next().unwrap();
                     let swap_image = swapchain.image(image_idx);
-                    let query_pool = &query_pools[frame_idx];
-                    let mut cmd_buf = cmd_bufs[frame_idx].take().unwrap_or_else(|| session.cmd_buf().unwrap());
-                    cmd_buf.begin();
-                    renderer.record(&mut cmd_buf, &query_pool, frame_idx);
+                    render_driver.run_coarse(&session).unwrap();
+                    let target = render_driver.record_fine(&session).unwrap();
+                    let cmd_buf = target.cmd_buf;
 
                     // Image -> Swapchain
                     cmd_buf.image_barrier(
@@ -185,32 +167,25 @@ fn main() -> Result<(), Error> {
                         ImageLayout::Undefined,
                         ImageLayout::BlitDst,
                     );
-                    cmd_buf.blit_image(&renderer.image_dev, &swap_image);
+                    cmd_buf.blit_image(target.image, &swap_image);
                     cmd_buf.image_barrier(&swap_image, ImageLayout::BlitDst, ImageLayout::Present);
-                    cmd_buf.finish();
-
-                    submitted[frame_idx] = Some(session
-                        .run_cmd_buf(
-                            cmd_buf,
+                    render_driver
+                        .submit(
+                            &session,
                             &[&acquisition_semaphore],
                             &[&present_semaphores[frame_idx]],
                         )
-                        .unwrap());
+                        .unwrap();
 
                     swapchain
                         .present(image_idx, &[&present_semaphores[frame_idx]])
                         .unwrap();
 
+                    render_driver.next_buffer();
                     current_frame += 1;
                 }
                 Event::LoopDestroyed => {
-                    for cmd_buf in &mut submitted {
-                        // Wait for command list submission, otherwise dropping of renderer may
-                        // cause validation errors (and possibly crashes).
-                        if let Some(cmd_buf) = cmd_buf.take() {
-                            cmd_buf.wait().unwrap();
-                        }
-                    }
+                    render_driver.wait_all(&session);
                 }
                 _ => (),
             }

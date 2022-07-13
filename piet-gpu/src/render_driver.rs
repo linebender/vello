@@ -36,9 +36,17 @@ pub struct TargetState<'a> {
     pub image: &'a Image,
 }
 
+#[derive(Default, Debug)]
+pub struct TimingStats {
+    coarse: Vec<f64>,
+    fine: Vec<f64>,
+}
+
 struct RenderFrame {
     cmd_buf: CmdBufState,
-    query_pool: QueryPool,
+    coarse_query_pool: QueryPool,
+    fine_query_pool: QueryPool,
+    timing_stats: TimingStats,
 }
 
 enum CmdBufState {
@@ -58,10 +66,14 @@ impl RenderDriver {
             .map(|_| {
                 // Maybe should allocate here so it doesn't happen on first frame?
                 let cmd_buf = CmdBufState::default();
-                let query_pool = session.create_query_pool(Renderer::QUERY_POOL_SIZE)?;
+                let coarse_query_pool =
+                    session.create_query_pool(Renderer::COARSE_QUERY_POOL_SIZE)?;
+                let fine_query_pool = session.create_query_pool(Renderer::FINE_QUERY_POOL_SIZE)?;
                 Ok(RenderFrame {
                     cmd_buf,
-                    query_pool,
+                    coarse_query_pool,
+                    fine_query_pool,
+                    timing_stats: TimingStats::default(),
                 })
             })
             .collect::<Result<_, Error>>()
@@ -127,14 +139,15 @@ impl RenderDriver {
             cmd_buf.begin();
             // TODO: probably want to return query results as well
             self.renderer
-                .record_coarse(cmd_buf, &frame.query_pool, self.buf_ix);
+                .record_coarse(cmd_buf, &frame.coarse_query_pool, self.buf_ix);
             self.renderer.record_readback(cmd_buf);
             let cmd_buf = frame.cmd_buf.cmd_buf(session)?;
-            cmd_buf.finish_timestamps(&frame.query_pool);
+            cmd_buf.finish_timestamps(&frame.coarse_query_pool);
             cmd_buf.host_barrier();
             cmd_buf.finish();
             frame.cmd_buf.submit(session, &[], &[])?;
             frame.cmd_buf.wait();
+            frame.timing_stats.coarse = session.fetch_query_pool(&frame.coarse_query_pool)?;
             let mut result = Vec::new();
             // TODO: consider read method for single POD value
             self.renderer.memory_buf_readback.read(&mut result)?;
@@ -146,7 +159,7 @@ impl RenderDriver {
     pub fn run_coarse(&mut self, session: &Session) -> Result<(), Error> {
         loop {
             let mem_header = self.try_run_coarse(session)?;
-            println!("{:?}", mem_header);
+            //println!("{:?}", mem_header);
             if mem_header.mem_error == 0 {
                 let blend_needed = mem_header.blend_offset as u64;
                 if blend_needed > self.renderer.blend_size() {
@@ -173,7 +186,8 @@ impl RenderDriver {
         let frame = &mut self.frames[self.buf_ix];
         let cmd_buf = frame.cmd_buf.cmd_buf(session)?;
         unsafe {
-            self.renderer.record_fine(cmd_buf, &frame.query_pool, 0);
+            self.renderer
+                .record_fine(cmd_buf, &frame.fine_query_pool, 0);
         }
         let image = &self.renderer.image_dev;
         Ok(TargetState { cmd_buf, image })
@@ -189,7 +203,7 @@ impl RenderDriver {
         let frame = &mut self.frames[self.buf_ix];
         let cmd_buf = frame.cmd_buf.cmd_buf(session)?;
         unsafe {
-            cmd_buf.finish_timestamps(&frame.query_pool);
+            cmd_buf.finish_timestamps(&frame.fine_query_pool);
             cmd_buf.host_barrier();
             cmd_buf.finish();
             frame
@@ -200,14 +214,37 @@ impl RenderDriver {
         Ok(())
     }
 
-    pub fn wait(&mut self) {
-        self.frames[self.buf_ix].cmd_buf.wait();
-        self.pending = None;
+    unsafe fn wait_frame(&mut self, session: &Session, buf_ix: usize) {
+        let frame = &mut self.frames[buf_ix];
+        frame.cmd_buf.wait();
+        if let Ok(stats) = session.fetch_query_pool(&frame.fine_query_pool) {
+            frame.timing_stats.fine = stats;
+        }
+        if self.pending == Some(buf_ix) {
+            self.pending = None;
+        }
+    }
+
+    pub unsafe fn wait(&mut self, session: &Session) {
+        self.wait_frame(session, self.buf_ix);
     }
 
     /// Move to the next buffer.
     pub fn next_buffer(&mut self) {
         self.buf_ix = (self.buf_ix + 1) % self.frames.len()
+    }
+
+    pub unsafe fn get_timing_stats(&mut self, session: &Session, buf_ix: usize) -> &TimingStats {
+        self.wait_frame(session, buf_ix);
+        &self.frames[buf_ix].timing_stats
+    }
+
+    pub fn wait_all(&mut self, session: &Session) {
+        for buf_ix in 0..self.frames.len() {
+            unsafe {
+                self.wait_frame(session, buf_ix);
+            }
+        }
     }
 }
 
@@ -263,5 +300,32 @@ impl CmdBufState {
                 }
             }
         }
+    }
+}
+
+impl TimingStats {
+    pub fn print_summary(&self) {
+        let ts = &self.coarse;
+        println!("Element time: {:.3}ms", ts[0] * 1e3);
+        println!("Clip + bin + tile time: {:.3}ms", (ts[2] - ts[1]) * 1e3);
+        println!("Coarse path time: {:.3}ms", (ts[4] - ts[2]) * 1e3);
+        println!("Backdrop time: {:.3}ms", (ts[6] - ts[5]) * 1e3);
+        println!("Coarse raster kernel time: {:.3}ms", (ts[8] - ts[7]) * 1e3);
+        println!("Fine kernel time: {:.3}ms", self.fine[0] * 1e3);
+    }
+
+    pub fn short_summary(&self) -> String {
+        let ts = &self.coarse;
+        let el = ts[0] * 1e3;
+        let cl = (ts[2] - ts[1]) * 1e3;
+        let cp = (ts[4] - ts[3]) * 1e3;
+        let bd = (ts[6] - ts[5]) * 1e3;
+        let cr = (ts[8] - ts[7]) * 1e3;
+        let fr = self.fine[0] * 1e3;
+        let total = el + cl + cp + bd + cr + fr;
+        format!(
+            "{:.3}ms :: el:{:.3}ms|cl:{:.3}ms|cp:{:.3}ms|bd:{:.3}ms|cr:{:.3}ms|fr:{:.3}ms",
+            total, el, cl, cp, bd, cr, fr
+        )
     }
 }

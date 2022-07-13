@@ -179,7 +179,13 @@ impl RenderConfig {
 
 impl Renderer {
     /// The number of query pool entries needed to run the renderer.
-    pub const QUERY_POOL_SIZE: u32 = 12;
+    pub const QUERY_POOL_SIZE: u32 = Self::COARSE_QUERY_POOL_SIZE + Self::FINE_QUERY_POOL_SIZE;
+
+    /// The number of query pool entries needed to run the coarse pipeline.
+    pub const COARSE_QUERY_POOL_SIZE: u32 = 10;
+
+    /// The number of query pool entries needed to run the fine pipeline.
+    pub const FINE_QUERY_POOL_SIZE: u32 = 2;
 
     pub unsafe fn new(
         session: &Session,
@@ -597,6 +603,7 @@ impl Renderer {
         query_pool: &QueryPool,
         query_start: u32,
     ) {
+        cmd_buf.reset_query_pool(&query_pool);
         cmd_buf.begin_debug_label("Fine raster");
         let mut pass = cmd_buf.begin_compute_pass(&ComputePassDescriptor::timer(
             &query_pool,

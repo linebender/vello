@@ -6,7 +6,7 @@ use clap::{App, Arg};
 
 use piet_gpu_hal::{BufferUsage, Error, Instance, InstanceFlags, Session};
 
-use piet_gpu::{test_scenes, PicoSvg, PietGpuRenderContext, Renderer};
+use piet_gpu::{test_scenes, PicoSvg, PietGpuRenderContext, RenderDriver, Renderer};
 
 const WIDTH: usize = 2048;
 const HEIGHT: usize = 1536;
@@ -231,9 +231,6 @@ fn main() -> Result<(), Error> {
         let device = instance.device(None)?;
         let session = Session::new(device);
 
-        let mut cmd_buf = session.cmd_buf()?;
-        let query_pool = session.create_query_pool(Renderer::QUERY_POOL_SIZE)?;
-
         let mut ctx = PietGpuRenderContext::new();
         if let Some(input) = matches.value_of("INPUT") {
             let mut scale = matches
@@ -253,40 +250,22 @@ fn main() -> Result<(), Error> {
             test_scenes::render_blend_grid(&mut ctx);
         }
 
-        let mut renderer = Renderer::new(&session, WIDTH, HEIGHT, 1)?;
-        renderer.upload_render_ctx(&mut ctx, 0)?;
+        let renderer = Renderer::new(&session, WIDTH, HEIGHT, 1)?;
+        let mut render_driver = RenderDriver::new(&session, 1, renderer);
+        let start = std::time::Instant::now();
+        render_driver.upload_render_ctx(&session, &mut ctx)?;
         let image_usage = BufferUsage::MAP_READ | BufferUsage::COPY_DST;
         let image_buf = session.create_buffer((WIDTH * HEIGHT * 4) as u64, image_usage)?;
 
-        cmd_buf.begin();
-        renderer.record(&mut cmd_buf, &query_pool, 0);
-        cmd_buf.copy_image_to_buffer(&renderer.image_dev, &image_buf);
-        cmd_buf.finish_timestamps(&query_pool);
-        cmd_buf.host_barrier();
-        cmd_buf.finish();
-        let start = std::time::Instant::now();
-        let submitted = session.run_cmd_buf(cmd_buf, &[], &[])?;
-        submitted.wait()?;
+        render_driver.run_coarse(&session)?;
+        let target = render_driver.record_fine(&session)?;
+        target
+            .cmd_buf
+            .copy_image_to_buffer(target.image, &image_buf);
+        render_driver.submit(&session, &[], &[])?;
+        render_driver.wait(&session);
         println!("elapsed = {:?}", start.elapsed());
-        let ts = session.fetch_query_pool(&query_pool).unwrap();
-        if !ts.is_empty() {
-            println!("Element kernel time: {:.3}ms", ts[0] * 1e3);
-            println!(
-                "Tile allocation kernel time: {:.3}ms",
-                (ts[1] - ts[0]) * 1e3
-            );
-            println!("Coarse path kernel time: {:.3}ms", (ts[2] - ts[1]) * 1e3);
-            println!("Backdrop kernel time: {:.3}ms", (ts[3] - ts[2]) * 1e3);
-            println!("Binning kernel time: {:.3}ms", (ts[4] - ts[3]) * 1e3);
-            println!("Coarse raster kernel time: {:.3}ms", (ts[5] - ts[4]) * 1e3);
-            println!("Render kernel time: {:.3}ms", (ts[6] - ts[5]) * 1e3);
-        }
-
-        /*
-        let mut data: Vec<u32> = Default::default();
-        renderer.memory_buf_dev.read(&mut data).unwrap();
-        piet_gpu::dump_k1_data(&data[2..]);
-        */
+        render_driver.get_timing_stats(&session, 0).print_summary();
 
         let mut img_data: Vec<u8> = Default::default();
         // Note: because png can use a `&[u8]` slice, we could avoid an extra copy
