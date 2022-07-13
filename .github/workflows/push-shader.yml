@@ -19,19 +19,21 @@ jobs:
           git fetch origin main
           git switch main
           git merge dev -m "merge from dev branch"
+          sed -i '' '/shader\/gen/d' .gitignore
           git rm -r --ignore-unmatch piet-gpu/shader/gen
-          mkdir piet-gpu/shader/gen
+          git rm -r --ignore-unmatch tests/shader/gen
+          git rm -r --ignore-unmatch piet-gpu-hal/examples/shader/gen
       - uses: ./.github/actions/shader
       - name: commit
         id: commit
         continue-on-error: true
         run: |
           git add piet-gpu/shader/gen
+          git add tests/shader/gen
+          git add piet-gpu-hal/examples/shader/gen
           git config user.name "Commit by GitHub Action"
           git config user.email "nobody@example.com"
           git commit -m "commit compiled shaders"
       - name: push
         if: steps.commit.outcome == 'success'
-        run: |
-          git show-ref
-          git push origin main
+        run: git push origin main

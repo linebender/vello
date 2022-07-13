@@ -16,7 +16,15 @@ runs:
     - name: install DXC
       uses: napokue/setup-dxc@v1.0.0
 
-    - name: run shader compilers
-      run: ninja
+    - name: 'run shader compilers: piet-gpu'
+      run: mkdir gen && ninja
       shell: pwsh
       working-directory: piet-gpu/shader
+    - name: 'run shader compilers: tests'
+      run: mkdir gen && ninja
+      shell: pwsh
+      working-directory: tests/shader
+    - name: 'run shader compilers: piet-gpu-hal/examples'
+      run: mkdir gen && ninja
+      shell: pwsh
+      working-directory: piet-gpu-hal/examples/shader
