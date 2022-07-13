@@ -42,7 +42,7 @@ In addition, the shaders are provided under the terms of the [Unlicense]. The in
 
 The dx12 backend was adapted from piet-dx12 by Brian Merchant.
 
-Contributions are welcome by pull request. The [Rust code of conduct] applies.
+Contributions are welcome by pull request. The [Rust code of conduct] applies. Pull requests should be against the `dev` branch; see [shader_compilation.md] for explanation and details.
 
 [piet-metal]: https://github.com/linebender/piet-metal
 [Direct2D]: https://docs.microsoft.com/en-us/windows/win32/direct2d/direct2d-portal
@@ -53,3 +53,4 @@ Contributions are welcome by pull request. The [Rust code of conduct] applies.
 [Druid]: https://github.com/linebender/druid
 [Unlicense]: https://unlicense.org/
 [Rust code of conduct]: https://www.rust-lang.org/policies/code-of-conduct
+[shader_compilation.md]: ./doc/shader_compilation.md
