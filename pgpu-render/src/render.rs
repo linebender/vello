@@ -33,6 +33,10 @@ pub struct PgpuRenderer {
 }
 
 impl PgpuRenderer {
+    #[cfg(all(
+        not(target_arch = "wasm32"),
+        any(target_os = "ios", target_os = "macos")
+    ))]
     pub fn new(device: &metal::DeviceRef, queue: &metal::CommandQueueRef) -> Self {
         let piet_device = piet_gpu_hal::Device::new_from_raw_mtl(device, &queue);
         let session = Session::new(piet_device);
@@ -47,6 +51,10 @@ impl PgpuRenderer {
         }
     }
 
+    #[cfg(all(
+        not(target_arch = "wasm32"),
+        any(target_os = "ios", target_os = "macos")
+    ))]
     pub fn render(
         &mut self,
         scene: &PgpuScene,

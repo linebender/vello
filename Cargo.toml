@@ -1,4 +1,5 @@
 [workspace]
+resolver = "2"
 
 members = [
     "pgpu-render",
@@ -7,5 +8,5 @@ members = [
     "piet-gpu-hal",
     "piet-gpu-types",
     "piet-scene",
-    "tests"
+    "tests",
 ]
