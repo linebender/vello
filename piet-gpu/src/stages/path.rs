@@ -200,6 +200,19 @@ impl PathStage {
     }
 }
 
+impl PathBinding {
+    pub unsafe fn rebind_memory(&mut self, session: &Session, memory: &Buffer) {
+        session.update_buffer_descriptor(&mut self.reduce_ds, 0, memory);
+        session.update_buffer_descriptor(&mut self.clear_ds, 0, memory);
+        session.update_buffer_descriptor(&mut self.path_ds, 0, memory);
+    }
+
+    pub unsafe fn rebind_scene(&mut self, session: &Session, scene: &Buffer) {
+        session.update_buffer_descriptor(&mut self.reduce_ds, 2, scene);
+        session.update_buffer_descriptor(&mut self.path_ds, 2, scene);
+    }
+}
+
 pub struct PathEncoder<'a> {
     tag_stream: &'a mut Vec<u8>,
     // If we're never going to use the i16 encoding, it might be

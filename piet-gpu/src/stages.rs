@@ -37,6 +37,7 @@ pub use transform::{
 #[repr(C)]
 #[derive(Clone, Copy, Default, Debug, Zeroable, Pod)]
 pub struct Config {
+    pub mem_size: u32,
     pub n_elements: u32, // paths
     pub n_pathseg: u32,
     pub width_in_tiles: u32,
@@ -165,5 +166,19 @@ impl ElementStage {
         // No memory barrier needed here; draw has at least one before draw_leaf
         self.draw_stage
             .record(pass, &code.draw_code, &binding.draw_binding, n_drawobj);
+    }
+}
+
+impl ElementBinding {
+    pub unsafe fn rebind_memory(&mut self, session: &Session, memory: &Buffer) {
+        self.transform_binding.rebind_memory(session, memory);
+        self.path_binding.rebind_memory(session, memory);
+        self.draw_binding.rebind_memory(session, memory);
+    }
+
+    pub unsafe fn rebind_scene(&mut self, session: &Session, scene: &Buffer) {
+        self.transform_binding.rebind_scene(session, scene);
+        self.path_binding.rebind_scene(session, scene);
+        self.draw_binding.rebind_scene(session, scene);
     }
 }

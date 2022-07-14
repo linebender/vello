@@ -45,12 +45,15 @@ shared Alloc sh_row_alloc[BACKDROP_WG];
 shared uint sh_row_width[BACKDROP_WG];
 
 void main() {
+    if (!check_deps(STAGE_BINNING | STAGE_TILE_ALLOC | STAGE_PATH_COARSE)) {
+        return;
+    }
+
     uint th_ix = gl_LocalInvocationIndex;
     uint element_ix = gl_GlobalInvocationID.x;
 
     // Work assignment: 1 thread : 1 path element
     uint row_count = 0;
-    bool mem_ok = mem_error == NO_ERROR;
     if (gl_LocalInvocationID.y == 0) {
         if (element_ix < conf.n_elements) {
             // Possible TODO: it's not necessary to process backdrops of stroked paths.
@@ -68,7 +71,7 @@ void main() {
                 row_count = 0;
             }
             Alloc path_alloc = new_alloc(
-                path.tiles.offset, (path.bbox.z - path.bbox.x) * (path.bbox.w - path.bbox.y) * Tile_size, mem_ok);
+                path.tiles.offset, (path.bbox.z - path.bbox.x) * (path.bbox.w - path.bbox.y) * Tile_size, true);
             sh_row_alloc[th_ix] = path_alloc;
         }
         sh_row_count[th_ix] = row_count;
@@ -98,7 +101,7 @@ void main() {
             }
         }
         uint width = sh_row_width[el_ix];
-        if (width > 0 && mem_ok) {
+        if (width > 0) {
             // Process one row sequentially
             // Read backdrop value per tile and prefix sum it
             Alloc tiles_alloc = sh_row_alloc[el_ix];

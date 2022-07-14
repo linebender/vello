@@ -72,49 +72,62 @@ void write_tile_alloc(uint el_ix, Alloc a) {
 
 Alloc read_tile_alloc(uint el_ix, bool mem_ok) {
     // All memory.
-    return new_alloc(0, memory.length() * 4, mem_ok);
+    return new_alloc(0, conf.mem_size, mem_ok);
 }
 #endif
 
 // The maximum number of commands per annotated element.
 #define ANNO_COMMANDS 2
 
-// Perhaps cmd_alloc should be a global? This is a style question.
-bool alloc_cmd(inout Alloc cmd_alloc, inout CmdRef cmd_ref, inout uint cmd_limit) {
+// All writes to the output must be gated by mem_ok.
+bool mem_ok = true;
+
+// Perhaps cmd allocations should be a global? This is a style question.
+void alloc_cmd(inout Alloc cmd_alloc, inout CmdRef cmd_ref, inout uint cmd_limit) {
     if (cmd_ref.offset < cmd_limit) {
-        return true;
+        return;
     }
-    MallocResult new_cmd = malloc(PTCL_INITIAL_ALLOC);
-    if (new_cmd.failed) {
-        return false;
+    uint new_cmd = malloc_stage(PTCL_INITIAL_ALLOC, conf.mem_size, STAGE_COARSE);
+    if (new_cmd == MALLOC_FAILED) {
+        mem_ok = false;
     }
-    CmdJump jump = CmdJump(new_cmd.alloc.offset);
-    Cmd_Jump_write(cmd_alloc, cmd_ref, jump);
-    cmd_alloc = new_cmd.alloc;
-    cmd_ref = CmdRef(cmd_alloc.offset);
+    if (mem_ok) {
+        CmdJump jump = CmdJump(new_cmd);
+        Cmd_Jump_write(cmd_alloc, cmd_ref, jump);
+    }
+    cmd_alloc = new_alloc(new_cmd, PTCL_INITIAL_ALLOC, true);
+    cmd_ref = CmdRef(new_cmd);
     // Reserve space for the maximum number of commands and a potential jump.
-    cmd_limit = cmd_alloc.offset + PTCL_INITIAL_ALLOC - (ANNO_COMMANDS + 1) * Cmd_size;
-    return true;
+    cmd_limit = new_cmd + PTCL_INITIAL_ALLOC - (ANNO_COMMANDS + 1) * Cmd_size;
 }
 
 void write_fill(Alloc alloc, inout CmdRef cmd_ref, Tile tile, float linewidth) {
     if (linewidth < 0.0) {
         if (tile.tile.offset != 0) {
             CmdFill cmd_fill = CmdFill(tile.tile.offset, tile.backdrop);
-            Cmd_Fill_write(alloc, cmd_ref, cmd_fill);
+            if (mem_ok) {
+                Cmd_Fill_write(alloc, cmd_ref, cmd_fill);
+            }
             cmd_ref.offset += 4 + CmdFill_size;
         } else {
-            Cmd_Solid_write(alloc, cmd_ref);
+            if (mem_ok) {
+                Cmd_Solid_write(alloc, cmd_ref);
+            }
             cmd_ref.offset += 4;
         }
     } else {
         CmdStroke cmd_stroke = CmdStroke(tile.tile.offset, 0.5 * linewidth);
-        Cmd_Stroke_write(alloc, cmd_ref, cmd_stroke);
+        if (mem_ok) {
+            Cmd_Stroke_write(alloc, cmd_ref, cmd_stroke);
+        }
         cmd_ref.offset += 4 + CmdStroke_size;
     }
 }
 
 void main() {
+    if (!check_deps(STAGE_BINNING | STAGE_TILE_ALLOC | STAGE_PATH_COARSE)) {
+        return;
+    }
     // Could use either linear or 2d layouts for both dispatch and
     // invocations within the workgroup. We'll use variables to abstract.
     uint width_in_bins = (conf.width_in_tiles + N_TILE_X - 1) / N_TILE_X;
@@ -161,7 +174,6 @@ void main() {
     uint drawtag_start = conf.drawtag_offset >> 2;
     uint drawdata_start = conf.drawdata_offset >> 2;
     uint drawinfo_start = conf.drawinfo_alloc.offset >> 2;
-    bool mem_ok = mem_error == NO_ERROR;
     while (true) {
         for (uint i = 0; i < N_SLICE; i++) {
             sh_bitmaps[i][th_ix] = 0;
@@ -176,7 +188,7 @@ void main() {
                     uint in_ix = (conf.bin_alloc.offset >> 2) + ((partition_ix + th_ix) * N_TILE + bin_ix) * 2;
                     count = read_mem(conf.bin_alloc, in_ix);
                     uint offset = read_mem(conf.bin_alloc, in_ix + 1);
-                    sh_part_elements[th_ix] = new_alloc(offset, count * BinInstance_size, mem_ok);
+                    sh_part_elements[th_ix] = new_alloc(offset, count * BinInstance_size, true);
                 }
                 // prefix sum of counts
                 for (uint i = 0; i < LG_N_PART_READ; i++) {
@@ -200,7 +212,7 @@ void main() {
             }
             // use binary search to find element to read
             uint ix = rd_ix + th_ix;
-            if (ix >= wr_ix && ix < ready_ix && mem_ok) {
+            if (ix >= wr_ix && ix < ready_ix) {
                 uint part_ix = 0;
                 for (uint i = 0; i < LG_N_PART_READ; i++) {
                     uint probe = part_ix + (uint(N_PART_READ / 2) >> i);
@@ -257,7 +269,7 @@ void main() {
             uint base = path.tiles.offset - uint(dy * stride + dx) * Tile_size;
             sh_tile_base[th_ix] = base;
             Alloc path_alloc = new_alloc(path.tiles.offset,
-                                         (path.bbox.z - path.bbox.x) * (path.bbox.w - path.bbox.y) * Tile_size, mem_ok);
+                                         (path.bbox.z - path.bbox.x) * (path.bbox.w - path.bbox.y) * Tile_size, true);
             write_tile_alloc(th_ix, path_alloc);
             break;
         default:
@@ -293,27 +305,25 @@ void main() {
             uint x = sh_tile_x0[el_ix] + seq_ix % width;
             uint y = sh_tile_y0[el_ix] + seq_ix / width;
             bool include_tile = false;
-            if (mem_ok) {
-                Tile tile = Tile_read(read_tile_alloc(el_ix, mem_ok),
-                                      TileRef(sh_tile_base[el_ix] + (sh_tile_stride[el_ix] * y + x) * Tile_size));
-                bool is_clip = (tag & 1) != 0;
-                // Always include the tile if it contains a path segment.
-                // For draws, include the tile if it is solid.
-                // For clips, include the tile if it is empty - this way, logic
-                // below will suppress the drawing of inner elements.
-                // For blends, include the tile if
-                // (blend_mode, composition_mode) != (Normal, SrcOver)
-                bool is_blend = false;
-                if (is_clip) {
-                    uint drawmonoid_base = drawmonoid_start + 4 * element_ix;
-                    uint scene_offset = memory[drawmonoid_base + 2];
-                    uint dd = drawdata_start + (scene_offset >> 2);
-                    uint blend = scene[dd];
-                    is_blend = (blend != BlendComp_clip);
-                }
-                include_tile = tile.tile.offset != 0 || (tile.backdrop == 0) == is_clip
-                    || is_blend;
+            Tile tile = Tile_read(read_tile_alloc(el_ix, true),
+                                    TileRef(sh_tile_base[el_ix] + (sh_tile_stride[el_ix] * y + x) * Tile_size));
+            bool is_clip = (tag & 1) != 0;
+            // Always include the tile if it contains a path segment.
+            // For draws, include the tile if it is solid.
+            // For clips, include the tile if it is empty - this way, logic
+            // below will suppress the drawing of inner elements.
+            // For blends, include the tile if
+            // (blend_mode, composition_mode) != (Normal, SrcOver)
+            bool is_blend = false;
+            if (is_clip) {
+                uint drawmonoid_base = drawmonoid_start + 4 * element_ix;
+                uint scene_offset = memory[drawmonoid_base + 2];
+                uint dd = drawdata_start + (scene_offset >> 2);
+                uint blend = scene[dd];
+                is_blend = (blend != BlendComp_clip);
             }
+            include_tile = tile.tile.offset != 0 || (tile.backdrop == 0) == is_clip
+                || is_blend;
             if (include_tile) {
                 uint el_slice = el_ix / 32;
                 uint el_mask = 1u << (el_ix & 31);
@@ -327,7 +337,7 @@ void main() {
         // through the draw objects.
         uint slice_ix = 0;
         uint bitmap = sh_bitmaps[0][th_ix];
-        while (mem_ok) {
+        while (true) {
             if (bitmap == 0) {
                 slice_ix++;
                 if (slice_ix == N_SLICE) {
@@ -347,7 +357,7 @@ void main() {
             uint drawtag = scene[drawtag_start + element_ix];
 
             if (clip_zero_depth == 0) {
-                Tile tile = Tile_read(read_tile_alloc(element_ref_ix, mem_ok),
+                Tile tile = Tile_read(read_tile_alloc(element_ref_ix, true),
                                         TileRef(sh_tile_base[element_ref_ix] +
                                                 (sh_tile_stride[element_ref_ix] * tile_y + tile_x) * Tile_size));
                 uint drawmonoid_base = drawmonoid_start + 4 * element_ix;
@@ -358,18 +368,16 @@ void main() {
                 switch (drawtag) {
                 case Drawtag_FillColor:
                     float linewidth = uintBitsToFloat(memory[di]);
-                    if (!alloc_cmd(cmd_alloc, cmd_ref, cmd_limit)) {
-                        break;
-                    }
+                    alloc_cmd(cmd_alloc, cmd_ref, cmd_limit);
                     write_fill(cmd_alloc, cmd_ref, tile, linewidth);
                     uint rgba = scene[dd];
-                    Cmd_Color_write(cmd_alloc, cmd_ref, CmdColor(rgba));
+                    if (mem_ok) {
+                        Cmd_Color_write(cmd_alloc, cmd_ref, CmdColor(rgba));
+                    }
                     cmd_ref.offset += 4 + CmdColor_size;
                     break;
                 case Drawtag_FillLinGradient:
-                    if (!alloc_cmd(cmd_alloc, cmd_ref, cmd_limit)) {
-                        break;
-                    }
+                    alloc_cmd(cmd_alloc, cmd_ref, cmd_limit);
                     linewidth = uintBitsToFloat(memory[di]);
                     write_fill(cmd_alloc, cmd_ref, tile, linewidth);
                     CmdLinGrad cmd_lin;
@@ -377,13 +385,13 @@ void main() {
                     cmd_lin.line_x = uintBitsToFloat(memory[di + 1]);
                     cmd_lin.line_y = uintBitsToFloat(memory[di + 2]);
                     cmd_lin.line_c = uintBitsToFloat(memory[di + 3]);
-                    Cmd_LinGrad_write(cmd_alloc, cmd_ref, cmd_lin);
+                    if (mem_ok) {
+                        Cmd_LinGrad_write(cmd_alloc, cmd_ref, cmd_lin);
+                    }
                     cmd_ref.offset += 4 + CmdLinGrad_size;
                     break;
                 case Drawtag_FillRadGradient:
-                    if (!alloc_cmd(cmd_alloc, cmd_ref, cmd_limit)) {
-                        break;
-                    }
+                    alloc_cmd(cmd_alloc, cmd_ref, cmd_limit);
                     linewidth = uintBitsToFloat(memory[di]);
                     write_fill(cmd_alloc, cmd_ref, tile, linewidth);
                     CmdRadGrad cmd_rad;
@@ -396,29 +404,31 @@ void main() {
                     cmd_rad.c1 = uintBitsToFloat(uvec2(memory[di + 7], memory[di + 8]));
                     cmd_rad.ra = uintBitsToFloat(memory[di + 9]);
                     cmd_rad.roff = uintBitsToFloat(memory[di + 10]);
-                    Cmd_RadGrad_write(cmd_alloc, cmd_ref, cmd_rad);
+                    if (mem_ok) {
+                        Cmd_RadGrad_write(cmd_alloc, cmd_ref, cmd_rad);
+                    }
                     cmd_ref.offset += 4 + CmdRadGrad_size;
                     break;
                 case Drawtag_FillImage:
+                    alloc_cmd(cmd_alloc, cmd_ref, cmd_limit);
                     linewidth = uintBitsToFloat(memory[di]);
-                    if (!alloc_cmd(cmd_alloc, cmd_ref, cmd_limit)) {
-                        break;
-                    }
                     write_fill(cmd_alloc, cmd_ref, tile, linewidth);
                     uint index = scene[dd];
                     uint raw1 = scene[dd + 1];
                     ivec2 offset = ivec2(int(raw1 << 16) >> 16, int(raw1) >> 16);
-                    Cmd_Image_write(cmd_alloc, cmd_ref, CmdImage(index, offset));
+                    if (mem_ok) {
+                        Cmd_Image_write(cmd_alloc, cmd_ref, CmdImage(index, offset));
+                    }
                     cmd_ref.offset += 4 + CmdImage_size;
                     break;
                 case Drawtag_BeginClip:
                     if (tile.tile.offset == 0 && tile.backdrop == 0) {
                         clip_zero_depth = clip_depth + 1;
                     } else {
-                        if (!alloc_cmd(cmd_alloc, cmd_ref, cmd_limit)) {
-                            break;
+                        alloc_cmd(cmd_alloc, cmd_ref, cmd_limit);
+                        if (mem_ok) {
+                            Cmd_BeginClip_write(cmd_alloc, cmd_ref);
                         }
-                        Cmd_BeginClip_write(cmd_alloc, cmd_ref);
                         cmd_ref.offset += 4;
                         render_blend_depth++;
                         max_blend_depth = max(max_blend_depth, render_blend_depth);
@@ -427,12 +437,11 @@ void main() {
                     break;
                 case Drawtag_EndClip:
                     clip_depth--;
-                    if (!alloc_cmd(cmd_alloc, cmd_ref, cmd_limit)) {
-                        break;
-                    }
                     write_fill(cmd_alloc, cmd_ref, tile, -1.0);
                     uint blend = scene[dd];
-                    Cmd_EndClip_write(cmd_alloc, cmd_ref, CmdEndClip(blend));
+                    if (mem_ok) {
+                        Cmd_EndClip_write(cmd_alloc, cmd_ref, CmdEndClip(blend));
+                    }
                     cmd_ref.offset += 4 + CmdEndClip_size;
                     render_blend_depth--;
                     break;
@@ -459,11 +468,13 @@ void main() {
             break;
     }
     if (bin_tile_x + tile_x < conf.width_in_tiles && bin_tile_y + tile_y < conf.height_in_tiles) {
-        Cmd_End_write(cmd_alloc, cmd_ref);
+        if (mem_ok) {
+            Cmd_End_write(cmd_alloc, cmd_ref);
+        }
         if (max_blend_depth > BLEND_STACK_SPLIT) {
             uint scratch_size = max_blend_depth * TILE_WIDTH_PX * TILE_HEIGHT_PX * CLIP_STATE_SIZE * 4;
-            MallocResult scratch = malloc(scratch_size);
-            alloc_write(scratch_alloc, scratch_alloc.offset, scratch.alloc);
+            uint scratch = atomicAdd(blend_offset, scratch_size);
+            write_mem(scratch_alloc, scratch_alloc.offset >> 2, scratch);
         }
     }
 }

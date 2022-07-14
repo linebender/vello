@@ -20,7 +20,7 @@ jobs:
           git switch main
           git config user.name "Commit by GitHub Action"
           git config user.email "nobody@example.com"
-          git merge dev -m "merge from dev branch"
+          git merge dev -m "merge from dev branch - ${{ github.ref_name }}"
           sed -i '' '/shader\/gen/d' .gitignore
           git add .gitignore
           git rm -r --ignore-unmatch piet-gpu/shader/gen

@@ -31,8 +31,9 @@
 // to memory for the overflow.
 #define BLEND_STACK_SPLIT 4
 
-#ifdef ERR_MALLOC_FAILED
+#ifdef MALLOC_FAILED
 struct Config {
+    uint mem_size; // in bytes
     uint n_elements; // paths
     uint n_pathseg;
     uint width_in_tiles;
