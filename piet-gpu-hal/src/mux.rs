@@ -183,7 +183,7 @@ impl Instance {
         mux_match! { self;
             Instance::Vk(i) => i.device(true).map(Device::Vk),
             Instance::Dx12(i) => i.device().map(Device::Dx12),
-            Instance::Mtl(i) => i.device(surface.map(Surface::mtl)).map(Device::Mtl),
+            Instance::Mtl(i) => i.device().map(Device::Mtl),
         }
     }
 

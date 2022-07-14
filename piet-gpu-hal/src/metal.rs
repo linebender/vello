@@ -133,7 +133,7 @@ struct Helpers {
 }
 
 impl MtlInstance {
-    pub fn new(window_handle: Option<&dyn HasRawWindowHandle>) -> Result<MtlInstance, Error> {
+    pub fn new() -> Result<MtlInstance, Error> {
         Ok(MtlInstance)
     }
 
@@ -142,10 +142,7 @@ impl MtlInstance {
         window_handle: &dyn HasRawWindowHandle,
     ) -> Result<MtlSurface, Error> {
         if let RawWindowHandle::MacOS(handle) = window_handle.raw_window_handle() {
-            Ok(Self::make_surface(
-                handle.ns_view as id,
-                handle.ns_window as id,
-            ))
+            Ok(Self::make_surface(handle.ns_view as id, handle.ns_window as id).unwrap())
         } else {
             Err("can't create surface for window handle".into())
         }
