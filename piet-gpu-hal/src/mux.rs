@@ -121,9 +121,7 @@ impl Instance {
     ///
     /// When no surface is given, the instance is suitable for compute-only
     /// work.
-    pub fn new(
-        flags: InstanceFlags,
-    ) -> Result<Instance, Error> {
+    pub fn new(flags: InstanceFlags) -> Result<Instance, Error> {
         let mut backends = [BackendType::Vulkan, BackendType::Dx12];
         if flags.contains(InstanceFlags::DX12) {
             backends.swap(0, 1);
