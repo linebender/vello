@@ -93,4 +93,9 @@ impl ClipBinding {
             pass.memory_barrier();
         }
     }
+
+    pub unsafe fn rebind_memory(&mut self, session: &Session, memory: &Buffer) {
+        session.update_buffer_descriptor(&mut self.reduce_ds, 0, memory);
+        session.update_buffer_descriptor(&mut self.leaf_ds, 0, memory);
+    }
 }

@@ -29,7 +29,7 @@ layout(binding = 2) readonly buffer SceneBuf {
 #define SY (1.0 / float(TILE_HEIGHT_PX))
 
 shared uint sh_tile_count[TILE_ALLOC_WG];
-shared MallocResult sh_tile_alloc;
+shared uint sh_tile_offset;
 
 vec4 load_draw_bbox(uint draw_ix) {
     uint base = (conf.draw_bbox_alloc.offset >> 2) + 4 * draw_ix;
@@ -42,6 +42,9 @@ vec4 load_draw_bbox(uint draw_ix) {
 }
 
 void main() {
+    if (!check_deps(STAGE_BINNING)) {
+        return;
+    }
     uint th_ix = gl_LocalInvocationID.x;
     uint element_ix = gl_GlobalInvocationID.x;
     // At the moment, element_ix == path_ix. The clip-intersected bounding boxes
@@ -86,27 +89,24 @@ void main() {
         sh_tile_count[th_ix] = total_tile_count;
     }
     if (th_ix == TILE_ALLOC_WG - 1) {
-        sh_tile_alloc = malloc(total_tile_count * Tile_size);
+        sh_tile_offset = malloc_stage(total_tile_count * Tile_size, conf.mem_size, STAGE_TILE_ALLOC);
     }
     barrier();
-    MallocResult alloc_start = sh_tile_alloc;
-    if (alloc_start.failed || mem_error != NO_ERROR) {
+    uint offset_start = sh_tile_offset;
+    if (offset_start == MALLOC_FAILED) {
         return;
     }
 
     if (element_ix < conf.n_elements) {
         uint tile_subix = th_ix > 0 ? sh_tile_count[th_ix - 1] : 0;
-        Alloc tiles_alloc = slice_mem(alloc_start.alloc, Tile_size * tile_subix, Tile_size * tile_count);
-        path.tiles = TileRef(tiles_alloc.offset);
+        path.tiles = TileRef(offset_start + Tile_size * tile_subix);
         Path_write(conf.tile_alloc, path_ref, path);
     }
 
     // Zero out allocated tiles efficiently
     uint total_count = sh_tile_count[TILE_ALLOC_WG - 1] * (Tile_size / 4);
-    uint start_ix = alloc_start.alloc.offset >> 2;
+    uint start_ix = offset_start >> 2;
     for (uint i = th_ix; i < total_count; i += TILE_ALLOC_WG) {
-        // Note: this interleaving is faster than using Tile_write
-        // by a significant amount.
-        write_mem(alloc_start.alloc, start_ix + i, 0);
+        memory[start_ix + i] = 0;
     }
 }

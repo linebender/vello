@@ -163,3 +163,15 @@ impl DrawStage {
         );
     }
 }
+
+impl DrawBinding {
+    pub unsafe fn rebind_memory(&mut self, session: &Session, memory: &Buffer) {
+        session.update_buffer_descriptor(&mut self.reduce_ds, 0, memory);
+        session.update_buffer_descriptor(&mut self.leaf_ds, 0, memory);
+    }
+
+    pub unsafe fn rebind_scene(&mut self, session: &Session, scene: &Buffer) {
+        session.update_buffer_descriptor(&mut self.reduce_ds, 2, scene);
+        session.update_buffer_descriptor(&mut self.leaf_ds, 2, scene);
+    }
+}

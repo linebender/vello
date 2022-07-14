@@ -20,7 +20,7 @@ use piet_gpu_hal::{
 use piet::kurbo::Point;
 use piet::{RenderContext, Text, TextAttribute, TextLayoutBuilder};
 
-use piet_gpu::{test_scenes, PietGpuRenderContext, Renderer};
+use piet_gpu::{test_scenes, PietGpuRenderContext, RenderDriver, Renderer};
 
 #[cfg_attr(target_os = "android", ndk_glue::main(backtrace = "on"))]
 fn main() {
@@ -34,12 +34,9 @@ struct MyHandle {
 // State required to render and present the contents
 struct GfxState {
     session: Session,
-    renderer: Renderer,
+    render_driver: RenderDriver,
     swapchain: Swapchain,
     current_frame: usize,
-    submitted: [Option<SubmittedCmdBuf>; NUM_FRAMES],
-    cmd_bufs: [Option<CmdBuf>; NUM_FRAMES],
-    query_pools: Vec<QueryPool>,
     present_semaphores: Vec<Semaphore>,
 }
 
@@ -110,22 +107,15 @@ impl GfxState {
             let present_semaphores = (0..NUM_FRAMES)
                 .map(|_| session.create_semaphore())
                 .collect::<Result<Vec<_>, Error>>()?;
-            let query_pools = (0..NUM_FRAMES)
-                .map(|_| session.create_query_pool(Renderer::QUERY_POOL_SIZE))
-                .collect::<Result<Vec<_>, Error>>()?;
-            let submitted = Default::default();
-            let cmd_bufs = Default::default();
 
             let renderer = Renderer::new(&session, width, height, NUM_FRAMES)?;
+            let render_driver = RenderDriver::new(&session, NUM_FRAMES, renderer);
 
             Ok(GfxState {
                 session,
-                renderer,
+                render_driver,
                 swapchain,
                 current_frame,
-                submitted,
-                cmd_bufs,
-                query_pools,
                 present_semaphores,
             })
         }
@@ -137,51 +127,47 @@ impl GfxState {
             let frame_idx = self.current_frame % NUM_FRAMES;
             let mut info_string = String::new();
 
-            if let Some(submitted) = self.submitted[frame_idx].take() {
-                self.cmd_bufs[frame_idx] = submitted.wait().unwrap();
-                let ts = self
-                    .session
-                    .fetch_query_pool(&self.query_pools[frame_idx])
-                    .unwrap();
-                info_string = format!("{:.1}ms", ts.last().unwrap() * 1e3);
-                println!("render time: {:?}", ts);
+            if self.current_frame >= NUM_FRAMES {
+                let stats = self
+                    .render_driver
+                    .get_timing_stats(&self.session, frame_idx);
+                info_string = stats.short_summary();
+                println!("{}", info_string);
             }
             let mut ctx = PietGpuRenderContext::new();
             test_scenes::render_anim_frame(&mut ctx, self.current_frame);
             //test_scenes::render_tiger(&mut ctx);
             render_info_string(&mut ctx, &info_string);
-            if let Err(e) = self.renderer.upload_render_ctx(&mut ctx, frame_idx) {
+            if let Err(e) = self
+                .render_driver
+                .upload_render_ctx(&self.session, &mut ctx)
+            {
                 println!("error in uploading: {}", e);
             }
             let (image_idx, acquisition_semaphore) = self.swapchain.next().unwrap();
             let swap_image = self.swapchain.image(image_idx);
-            let query_pool = &self.query_pools[frame_idx];
-            let mut cmd_buf = self.cmd_bufs[frame_idx]
-                .take()
-                .unwrap_or_else(|| self.session.cmd_buf().unwrap());
-            cmd_buf.begin();
-            self.renderer.record(&mut cmd_buf, &query_pool, frame_idx);
+            self.render_driver.run_coarse(&self.session).unwrap();
+            let target = self.render_driver.record_fine(&self.session).unwrap();
+            let cmd_buf = target.cmd_buf;
 
             // Image -> Swapchain
             cmd_buf.image_barrier(&swap_image, ImageLayout::Undefined, ImageLayout::BlitDst);
-            cmd_buf.blit_image(&self.renderer.image_dev, &swap_image);
+            cmd_buf.blit_image(target.image, &swap_image);
             cmd_buf.image_barrier(&swap_image, ImageLayout::BlitDst, ImageLayout::Present);
-            cmd_buf.finish();
 
-            self.submitted[frame_idx] = Some(
-                self.session
-                    .run_cmd_buf(
-                        cmd_buf,
-                        &[&acquisition_semaphore],
-                        &[&self.present_semaphores[frame_idx]],
-                    )
-                    .unwrap(),
-            );
+            self.render_driver
+                .submit(
+                    &self.session,
+                    &[&acquisition_semaphore],
+                    &[&self.present_semaphores[frame_idx]],
+                )
+                .unwrap();
 
             self.swapchain
                 .present(image_idx, &[&self.present_semaphores[frame_idx]])
                 .unwrap();
 
+            self.render_driver.next_buffer();
             self.current_frame += 1;
         }
     }
