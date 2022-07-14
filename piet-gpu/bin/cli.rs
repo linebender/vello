@@ -226,9 +226,9 @@ fn main() -> Result<(), Error> {
                 .takes_value(true),
         )
         .get_matches();
-    let (instance, _) = Instance::new(None, InstanceFlags::default())?;
+    let instance = Instance::new(InstanceFlags::default())?;
     unsafe {
-        let device = instance.device(None)?;
+        let device = instance.device()?;
         let session = Session::new(device);
 
         let mut ctx = PietGpuRenderContext::new();

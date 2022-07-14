@@ -157,9 +157,7 @@ impl VkInstance {
     ///
     /// The caller is responsible for making sure that window which owns the raw window handle
     /// outlives the surface.
-    pub fn new(
-        window_handle: Option<&dyn raw_window_handle::HasRawWindowHandle>,
-    ) -> Result<(VkInstance, Option<VkSurface>), Error> {
+    pub fn new(support_present: bool) -> Result<VkInstance, Error> {
         unsafe {
             let app_name = CString::new("VkToy").unwrap();
             let entry = Entry::new()?;
@@ -175,10 +173,33 @@ impl VkInstance {
             if cfg!(debug_assertions) {
                 has_debug_ext = exts.try_add(DebugUtils::name());
             }
-            if let Some(ref handle) = window_handle {
-                for ext in ash_window::enumerate_required_extensions(*handle)? {
-                    exts.try_add(ext);
+
+            // Enable platform specific surface extensions if presentation
+            // support is requested.
+            if support_present {
+                exts.try_add(khr::Surface::name());
+
+                #[cfg(target_os = "windows")]
+                exts.try_add(khr::Win32Surface::name());
+
+                #[cfg(any(
+                    target_os = "linux",
+                    target_os = "dragonfly",
+                    target_os = "freebsd",
+                    target_os = "netbsd",
+                    target_os = "openbsd"
+                ))]
+                {
+                    exts.try_add(khr::XlibSurface::name());
+                    exts.try_add(khr::XcbSurface::name());
+                    exts.try_add(khr::WaylandSurface::name());
                 }
+
+                #[cfg(any(target_os = "android"))]
+                exts.try_add(khr::AndroidSurface::name());
+
+                #[cfg(any(target_os = "macos", target_os = "ios"))]
+                exts.try_add(kkr::MetalSurface::name());
             }
 
             let supported_version = entry
@@ -222,14 +243,6 @@ impl VkInstance {
                 (None, None)
             };
 
-            let vk_surface = match window_handle {
-                Some(handle) => Some(VkSurface {
-                    surface: ash_window::create_surface(&entry, &instance, handle, None)?,
-                    surface_fn: khr::Surface::new(&entry, &instance),
-                }),
-                None => None,
-            };
-
             let vk_instance = VkInstance {
                 entry,
                 instance,
@@ -238,21 +251,37 @@ impl VkInstance {
                 _dbg_callbk,
             };
 
-            Ok((vk_instance, vk_surface))
+            Ok(vk_instance)
         }
     }
 
-    /// Create a device from the instance, suitable for compute, with an optional surface.
+    /// Create a surface from the instance for the specified window handle.
+    /// 
+    /// # Safety
+    /// 
+    /// The caller is responsible for making sure that the instance outlives the surface.
+    pub unsafe fn surface(
+        &self,
+        window_handle: &dyn raw_window_handle::HasRawWindowHandle,
+    ) -> Result<VkSurface, Error> {
+        Ok(VkSurface {
+            surface: ash_window::create_surface(&self.entry, &self.instance, window_handle, None)?,
+            surface_fn: khr::Surface::new(&self.entry, &self.instance),
+        })
+    }
+
+    /// Create a device from the instance, suitable for compute, with an optional presentation
+    /// support.
     ///
     /// # Safety
     ///
     /// The caller is responsible for making sure that the instance outlives the device
     /// and surface. We could enforce that, for example having an `Arc` of the raw instance,
     /// but for now keep things simple.
-    pub unsafe fn device(&self, surface: Option<&VkSurface>) -> Result<VkDevice, Error> {
+    pub unsafe fn device(&self, support_present: bool) -> Result<VkDevice, Error> {
         let devices = self.instance.enumerate_physical_devices()?;
         let (pdevice, qfi) =
-            choose_compute_device(&self.instance, &devices, surface).ok_or("no suitable device")?;
+            choose_device(&self.instance, &devices, support_present).ok_or("no suitable device")?;
 
         let mut has_descriptor_indexing = false;
         let vk1_1 = self.vk_version >= vk::make_api_version(0, 1, 1, 0);
@@ -288,7 +317,7 @@ impl VkInstance {
             self.instance
                 .enumerate_device_extension_properties(pdevice)?,
         );
-        if surface.is_some() {
+        if support_present {
             extensions.try_add(khr::Swapchain::name());
         }
         if has_descriptor_indexing {
@@ -1421,26 +1450,35 @@ impl Layers {
     }
 }
 
-unsafe fn choose_compute_device(
+unsafe fn choose_device(
     instance: &Instance,
     devices: &[vk::PhysicalDevice],
-    surface: Option<&VkSurface>,
+    support_graphics: bool,
 ) -> Option<(vk::PhysicalDevice, u32)> {
+    let mut desired_flags = vk::QueueFlags::COMPUTE;
+    if support_graphics {
+        desired_flags |= vk::QueueFlags::GRAPHICS;
+    }
     for pdevice in devices {
         let props = instance.get_physical_device_queue_family_properties(*pdevice);
         for (ix, info) in props.iter().enumerate() {
-            // Check for surface presentation support
-            if let Some(surface) = surface {
-                if !surface
-                    .surface_fn
-                    .get_physical_device_surface_support(*pdevice, ix as u32, surface.surface)
-                    .unwrap()
-                {
-                    continue;
-                }
-            }
+            // TODO: is this strictly necessary? We'll need a queue supporting graphics
+            // for image rendering regardless, and I'm leaning on the assumption that 
+            // all physical device + queue family combinations that support graphics also
+            // support presentation particularly when the appropriate extensions are enabled
+            // at instance creation. This may be faulty.
 
-            if info.queue_flags.contains(vk::QueueFlags::COMPUTE) {
+            // Check for surface presentation support
+            // if let Some(surface) = surface {
+            //     if !surface
+            //         .surface_fn
+            //         .get_physical_device_surface_support(*pdevice, ix as u32, surface.surface)
+            //         .unwrap()
+            //     {
+            //         continue;
+            //     }
+            // }
+            if info.queue_flags.contains(desired_flags) {
                 return Some((*pdevice, ix as u32));
             }
         }

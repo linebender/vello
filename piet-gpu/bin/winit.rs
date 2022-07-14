@@ -1,6 +1,6 @@
 use piet::kurbo::Point;
 use piet::{RenderContext, Text, TextAttribute, TextLayoutBuilder};
-use piet_gpu_hal::{Error, ImageLayout, Instance, Session};
+use piet_gpu_hal::{Error, ImageLayout, Instance, InstanceFlags, Session};
 
 use piet_gpu::{test_scenes, PicoSvg, PietGpuRenderContext, RenderDriver, Renderer};
 
@@ -57,12 +57,12 @@ fn main() -> Result<(), Error> {
         .with_resizable(false) // currently not supported
         .build(&event_loop)?;
 
-    let (instance, surface) = Instance::new(Some(&window), Default::default())?;
+    let instance = Instance::new(InstanceFlags::PRESENT)?;
     let mut info_string = "info".to_string();
     unsafe {
-        let device = instance.device(surface.as_ref())?;
-        let mut swapchain =
-            instance.swapchain(WIDTH / 2, HEIGHT / 2, &device, surface.as_ref().unwrap())?;
+        let surface = instance.surface(&window)?;
+        let device = instance.device()?;
+        let mut swapchain = instance.swapchain(WIDTH / 2, HEIGHT / 2, &device, &surface)?;
         let session = Session::new(device);
 
         let mut current_frame = 0;
