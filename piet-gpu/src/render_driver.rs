@@ -186,6 +186,7 @@ impl RenderDriver {
         let frame = &mut self.frames[self.buf_ix];
         let cmd_buf = frame.cmd_buf.cmd_buf(session)?;
         unsafe {
+            cmd_buf.begin();
             self.renderer
                 .record_fine(cmd_buf, &frame.fine_query_pool, 0);
         }
