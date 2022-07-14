@@ -1,7 +1,9 @@
 #pragma clang diagnostic ignored "-Wmissing-prototypes"
+#pragma clang diagnostic ignored "-Wunused-variable"
 
 #include <metal_stdlib>
 #include <simd/simd.h>
+#include <metal_atomic>
 
 using namespace metal;
 
@@ -30,6 +32,7 @@ struct Memory
 {
     uint mem_offset;
     uint mem_error;
+    uint blend_offset;
     uint memory[1];
 };
 
@@ -40,6 +43,7 @@ struct Alloc_1
 
 struct Config
 {
+    uint mem_size;
     uint n_elements;
     uint n_pathseg;
     uint width_in_tiles;
@@ -77,13 +81,20 @@ struct ConfigBuf
 constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(256u, 1u, 1u);
 
 static inline __attribute__((always_inline))
+bool check_deps(thread const uint& dep_stage, device Memory& v_59)
+{
+    uint _65 = atomic_fetch_or_explicit((device atomic_uint*)&v_59.mem_error, 0u, memory_order_relaxed);
+    return (_65 & dep_stage) == 0u;
+}
+
+static inline __attribute__((always_inline))
 bool touch_mem(thread const Alloc& alloc, thread const uint& offset)
 {
     return true;
 }
 
 static inline __attribute__((always_inline))
-uint read_mem(thread const Alloc& alloc, thread const uint& offset, device Memory& v_67)
+uint read_mem(thread const Alloc& alloc, thread const uint& offset, device Memory& v_59)
 {
     Alloc param = alloc;
     uint param_1 = offset;
@@ -91,23 +102,23 @@ uint read_mem(thread const Alloc& alloc, thread const uint& offset, device Memor
     {
         return 0u;
     }
-    uint v = v_67.memory[offset];
+    uint v = v_59.memory[offset];
     return v;
 }
 
 static inline __attribute__((always_inline))
-Path Path_read(thread const Alloc& a, thread const PathRef& ref, device Memory& v_67)
+Path Path_read(thread const Alloc& a, thread const PathRef& ref, device Memory& v_59)
 {
     uint ix = ref.offset >> uint(2);
     Alloc param = a;
     uint param_1 = ix + 0u;
-    uint raw0 = read_mem(param, param_1, v_67);
+    uint raw0 = read_mem(param, param_1, v_59);
     Alloc param_2 = a;
     uint param_3 = ix + 1u;
-    uint raw1 = read_mem(param_2, param_3, v_67);
+    uint raw1 = read_mem(param_2, param_3, v_59);
     Alloc param_4 = a;
     uint param_5 = ix + 2u;
-    uint raw2 = read_mem(param_4, param_5, v_67);
+    uint raw2 = read_mem(param_4, param_5, v_59);
     Path s;
     s.bbox = uint4(raw0 & 65535u, raw0 >> uint(16), raw1 & 65535u, raw1 >> uint(16));
     s.tiles = TileRef{ raw2 };
@@ -123,7 +134,7 @@ Alloc new_alloc(thread const uint& offset, thread const uint& size, thread const
 }
 
 static inline __attribute__((always_inline))
-void write_mem(thread const Alloc& alloc, thread const uint& offset, thread const uint& val, device Memory& v_67)
+void write_mem(thread const Alloc& alloc, thread const uint& offset, thread const uint& val, device Memory& v_59)
 {
     Alloc param = alloc;
     uint param_1 = offset;
@@ -131,47 +142,52 @@ void write_mem(thread const Alloc& alloc, thread const uint& offset, thread cons
     {
         return;
     }
-    v_67.memory[offset] = val;
+    v_59.memory[offset] = val;
 }
 
-kernel void main0(device Memory& v_67 [[buffer(0)]], const device ConfigBuf& _166 [[buffer(1)]], uint gl_LocalInvocationIndex [[thread_index_in_threadgroup]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
+kernel void main0(device Memory& v_59 [[buffer(0)]], const device ConfigBuf& _181 [[buffer(1)]], uint gl_LocalInvocationIndex [[thread_index_in_threadgroup]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
 {
     threadgroup uint sh_row_width[256];
     threadgroup Alloc sh_row_alloc[256];
     threadgroup uint sh_row_count[256];
+    uint param = 7u;
+    bool _154 = check_deps(param, v_59);
+    if (!_154)
+    {
+        return;
+    }
     uint th_ix = gl_LocalInvocationIndex;
     uint element_ix = gl_GlobalInvocationID.x;
     uint row_count = 0u;
-    bool mem_ok = v_67.mem_error == 0u;
     if (gl_LocalInvocationID.y == 0u)
     {
-        if (element_ix < _166.conf.n_elements)
+        if (element_ix < _181.conf.n_elements)
         {
-            PathRef path_ref = PathRef{ _166.conf.tile_alloc.offset + (element_ix * 12u) };
-            Alloc param;
-            param.offset = _166.conf.tile_alloc.offset;
-            PathRef param_1 = path_ref;
-            Path path = Path_read(param, param_1, v_67);
+            PathRef path_ref = PathRef{ _181.conf.tile_alloc.offset + (element_ix * 12u) };
+            Alloc param_1;
+            param_1.offset = _181.conf.tile_alloc.offset;
+            PathRef param_2 = path_ref;
+            Path path = Path_read(param_1, param_2, v_59);
             sh_row_width[th_ix] = path.bbox.z - path.bbox.x;
             row_count = path.bbox.w - path.bbox.y;
-            bool _210 = row_count == 1u;
-            bool _216;
-            if (_210)
+            bool _225 = row_count == 1u;
+            bool _231;
+            if (_225)
             {
-                _216 = path.bbox.y > 0u;
+                _231 = path.bbox.y > 0u;
             }
             else
             {
-                _216 = _210;
+                _231 = _225;
             }
-            if (_216)
+            if (_231)
             {
                 row_count = 0u;
             }
-            uint param_2 = path.tiles.offset;
-            uint param_3 = ((path.bbox.z - path.bbox.x) * (path.bbox.w - path.bbox.y)) * 8u;
-            bool param_4 = mem_ok;
-            Alloc path_alloc = new_alloc(param_2, param_3, param_4);
+            uint param_3 = path.tiles.offset;
+            uint param_4 = ((path.bbox.z - path.bbox.x) * (path.bbox.w - path.bbox.y)) * 8u;
+            bool param_5 = true;
+            Alloc path_alloc = new_alloc(param_3, param_4, param_5);
             sh_row_alloc[th_ix] = path_alloc;
         }
         sh_row_count[th_ix] = row_count;
@@ -179,17 +195,17 @@ kernel void main0(device Memory& v_67 [[buffer(0)]], const device ConfigBuf& _16
     for (uint i = 0u; i < 8u; i++)
     {
         threadgroup_barrier(mem_flags::mem_threadgroup);
-        bool _262 = gl_LocalInvocationID.y == 0u;
-        bool _269;
-        if (_262)
+        bool _276 = gl_LocalInvocationID.y == 0u;
+        bool _283;
+        if (_276)
         {
-            _269 = th_ix >= (1u << i);
+            _283 = th_ix >= (1u << i);
         }
         else
         {
-            _269 = _262;
+            _283 = _276;
         }
-        if (_269)
+        if (_283)
         {
             row_count += sh_row_count[th_ix - (1u << i)];
         }
@@ -201,7 +217,7 @@ kernel void main0(device Memory& v_67 [[buffer(0)]], const device ConfigBuf& _16
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
     uint total_rows = sh_row_count[255];
-    uint _348;
+    uint _360;
     for (uint row = th_ix; row < total_rows; row += 256u)
     {
         uint el_ix = 0u;
@@ -214,32 +230,32 @@ kernel void main0(device Memory& v_67 [[buffer(0)]], const device ConfigBuf& _16
             }
         }
         uint width = sh_row_width[el_ix];
-        if ((width > 0u) && mem_ok)
+        if (width > 0u)
         {
             Alloc tiles_alloc = sh_row_alloc[el_ix];
             if (el_ix > 0u)
             {
-                _348 = sh_row_count[el_ix - 1u];
+                _360 = sh_row_count[el_ix - 1u];
             }
             else
             {
-                _348 = 0u;
+                _360 = 0u;
             }
-            uint seq_ix = row - _348;
+            uint seq_ix = row - _360;
             uint tile_el_ix = ((tiles_alloc.offset >> uint(2)) + 1u) + ((seq_ix * 2u) * width);
-            Alloc param_5 = tiles_alloc;
-            uint param_6 = tile_el_ix;
-            uint sum = read_mem(param_5, param_6, v_67);
+            Alloc param_6 = tiles_alloc;
+            uint param_7 = tile_el_ix;
+            uint sum = read_mem(param_6, param_7, v_59);
             for (uint x = 1u; x < width; x++)
             {
                 tile_el_ix += 2u;
-                Alloc param_7 = tiles_alloc;
-                uint param_8 = tile_el_ix;
-                sum += read_mem(param_7, param_8, v_67);
-                Alloc param_9 = tiles_alloc;
-                uint param_10 = tile_el_ix;
-                uint param_11 = sum;
-                write_mem(param_9, param_10, param_11, v_67);
+                Alloc param_8 = tiles_alloc;
+                uint param_9 = tile_el_ix;
+                sum += read_mem(param_8, param_9, v_59);
+                Alloc param_10 = tiles_alloc;
+                uint param_11 = tile_el_ix;
+                uint param_12 = sum;
+                write_mem(param_10, param_11, param_12, v_59);
             }
         }
     }

@@ -102,6 +102,7 @@ struct Memory
 {
     uint mem_offset;
     uint mem_error;
+    uint blend_offset;
     uint memory[1];
 };
 
@@ -117,6 +118,7 @@ struct Alloc_1
 
 struct Config
 {
+    uint mem_size;
     uint n_elements;
     uint n_pathseg;
     uint width_in_tiles;
@@ -545,25 +547,25 @@ kernel void main0(device Memory& v_111 [[buffer(0)]], const device ConfigBuf& _6
             if (seg_type >= 2u)
             {
                 p2 = ((transform.mat.xy * p2.x) + (transform.mat.zw * p2.y)) + transform.translate;
-                float4 _947 = bbox;
-                float2 _950 = fast::min(_947.xy, p2);
-                bbox.x = _950.x;
-                bbox.y = _950.y;
-                float4 _955 = bbox;
-                float2 _958 = fast::max(_955.zw, p2);
-                bbox.z = _958.x;
-                bbox.w = _958.y;
+                float4 _946 = bbox;
+                float2 _949 = fast::min(_946.xy, p2);
+                bbox.x = _949.x;
+                bbox.y = _949.y;
+                float4 _954 = bbox;
+                float2 _957 = fast::max(_954.zw, p2);
+                bbox.z = _957.x;
+                bbox.w = _957.y;
                 if (seg_type == 3u)
                 {
                     p3 = ((transform.mat.xy * p3.x) + (transform.mat.zw * p3.y)) + transform.translate;
-                    float4 _983 = bbox;
-                    float2 _986 = fast::min(_983.xy, p3);
-                    bbox.x = _986.x;
-                    bbox.y = _986.y;
-                    float4 _991 = bbox;
-                    float2 _994 = fast::max(_991.zw, p3);
-                    bbox.z = _994.x;
-                    bbox.w = _994.y;
+                    float4 _982 = bbox;
+                    float2 _985 = fast::min(_982.xy, p3);
+                    bbox.x = _985.x;
+                    bbox.y = _985.y;
+                    float4 _990 = bbox;
+                    float2 _993 = fast::max(_990.zw, p3);
+                    bbox.z = _993.x;
+                    bbox.w = _993.y;
                 }
                 else
                 {
@@ -651,17 +653,17 @@ kernel void main0(device Memory& v_111 [[buffer(0)]], const device ConfigBuf& _6
         Monoid param_24 = local[i_4];
         Monoid m = combine_monoid(param_23, param_24);
         bool do_atomic = false;
-        bool _1264 = i_4 == 3u;
-        bool _1270;
-        if (_1264)
+        bool _1263 = i_4 == 3u;
+        bool _1269;
+        if (_1263)
         {
-            _1270 = gl_LocalInvocationID.x == 255u;
+            _1269 = gl_LocalInvocationID.x == 255u;
         }
         else
         {
-            _1270 = _1264;
+            _1269 = _1263;
         }
-        if (_1270)
+        if (_1269)
         {
             do_atomic = true;
         }
@@ -689,26 +691,26 @@ kernel void main0(device Memory& v_111 [[buffer(0)]], const device ConfigBuf& _6
         }
         if (do_atomic)
         {
-            bool _1335 = m.bbox.z > m.bbox.x;
-            bool _1344;
-            if (!_1335)
+            bool _1334 = m.bbox.z > m.bbox.x;
+            bool _1343;
+            if (!_1334)
             {
-                _1344 = m.bbox.w > m.bbox.y;
+                _1343 = m.bbox.w > m.bbox.y;
             }
             else
             {
-                _1344 = _1335;
+                _1343 = _1334;
             }
-            if (_1344)
+            if (_1343)
             {
                 float param_29 = m.bbox.x;
-                uint _1353 = atomic_fetch_min_explicit((device atomic_uint*)&v_111.memory[bbox_out_ix], round_down(param_29), memory_order_relaxed);
+                uint _1352 = atomic_fetch_min_explicit((device atomic_uint*)&v_111.memory[bbox_out_ix], round_down(param_29), memory_order_relaxed);
                 float param_30 = m.bbox.y;
-                uint _1361 = atomic_fetch_min_explicit((device atomic_uint*)&v_111.memory[bbox_out_ix + 1u], round_down(param_30), memory_order_relaxed);
+                uint _1360 = atomic_fetch_min_explicit((device atomic_uint*)&v_111.memory[bbox_out_ix + 1u], round_down(param_30), memory_order_relaxed);
                 float param_31 = m.bbox.z;
-                uint _1369 = atomic_fetch_max_explicit((device atomic_uint*)&v_111.memory[bbox_out_ix + 2u], round_up(param_31), memory_order_relaxed);
+                uint _1368 = atomic_fetch_max_explicit((device atomic_uint*)&v_111.memory[bbox_out_ix + 2u], round_up(param_31), memory_order_relaxed);
                 float param_32 = m.bbox.w;
-                uint _1377 = atomic_fetch_max_explicit((device atomic_uint*)&v_111.memory[bbox_out_ix + 3u], round_up(param_32), memory_order_relaxed);
+                uint _1376 = atomic_fetch_max_explicit((device atomic_uint*)&v_111.memory[bbox_out_ix + 3u], round_up(param_32), memory_order_relaxed);
             }
             bbox_out_ix += 6u;
         }

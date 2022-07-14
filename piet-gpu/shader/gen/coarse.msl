@@ -19,12 +19,6 @@ struct Alloc
     uint offset;
 };
 
-struct MallocResult
-{
-    Alloc alloc;
-    bool failed;
-};
-
 struct BinInstanceRef
 {
     uint offset;
@@ -162,6 +156,7 @@ struct Memory
 {
     uint mem_offset;
     uint mem_error;
+    uint blend_offset;
     uint memory[1];
 };
 
@@ -172,6 +167,7 @@ struct Alloc_1
 
 struct Config
 {
+    uint mem_size;
     uint n_elements;
     uint n_pathseg;
     uint width_in_tiles;
@@ -214,6 +210,13 @@ struct SceneBuf
 constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(256u, 1u, 1u);
 
 static inline __attribute__((always_inline))
+bool check_deps(thread const uint& dep_stage, device Memory& v_267)
+{
+    uint _273 = atomic_fetch_or_explicit((device atomic_uint*)&v_267.mem_error, 0u, memory_order_relaxed);
+    return (_273 & dep_stage) == 0u;
+}
+
+static inline __attribute__((always_inline))
 Alloc slice_mem(thread const Alloc& a, thread const uint& offset, thread const uint& size)
 {
     return Alloc{ a.offset + offset };
@@ -226,7 +229,7 @@ bool touch_mem(thread const Alloc& alloc, thread const uint& offset)
 }
 
 static inline __attribute__((always_inline))
-uint read_mem(thread const Alloc& alloc, thread const uint& offset, device Memory& v_266, constant uint& v_266BufferSize)
+uint read_mem(thread const Alloc& alloc, thread const uint& offset, device Memory& v_267)
 {
     Alloc param = alloc;
     uint param_1 = offset;
@@ -234,7 +237,7 @@ uint read_mem(thread const Alloc& alloc, thread const uint& offset, device Memor
     {
         return 0u;
     }
-    uint v = v_266.memory[offset];
+    uint v = v_267.memory[offset];
     return v;
 }
 
@@ -253,30 +256,30 @@ BinInstanceRef BinInstance_index(thread const BinInstanceRef& ref, thread const 
 }
 
 static inline __attribute__((always_inline))
-BinInstance BinInstance_read(thread const Alloc& a, thread const BinInstanceRef& ref, device Memory& v_266, constant uint& v_266BufferSize)
+BinInstance BinInstance_read(thread const Alloc& a, thread const BinInstanceRef& ref, device Memory& v_267)
 {
     uint ix = ref.offset >> uint(2);
     Alloc param = a;
     uint param_1 = ix + 0u;
-    uint raw0 = read_mem(param, param_1, v_266, v_266BufferSize);
+    uint raw0 = read_mem(param, param_1, v_267);
     BinInstance s;
     s.element_ix = raw0;
     return s;
 }
 
 static inline __attribute__((always_inline))
-Path Path_read(thread const Alloc& a, thread const PathRef& ref, device Memory& v_266, constant uint& v_266BufferSize)
+Path Path_read(thread const Alloc& a, thread const PathRef& ref, device Memory& v_267)
 {
     uint ix = ref.offset >> uint(2);
     Alloc param = a;
     uint param_1 = ix + 0u;
-    uint raw0 = read_mem(param, param_1, v_266, v_266BufferSize);
+    uint raw0 = read_mem(param, param_1, v_267);
     Alloc param_2 = a;
     uint param_3 = ix + 1u;
-    uint raw1 = read_mem(param_2, param_3, v_266, v_266BufferSize);
+    uint raw1 = read_mem(param_2, param_3, v_267);
     Alloc param_4 = a;
     uint param_5 = ix + 2u;
-    uint raw2 = read_mem(param_4, param_5, v_266, v_266BufferSize);
+    uint raw2 = read_mem(param_4, param_5, v_267);
     Path s;
     s.bbox = uint4(raw0 & 65535u, raw0 >> uint(16), raw1 & 65535u, raw1 >> uint(16));
     s.tiles = TileRef{ raw2 };
@@ -289,24 +292,24 @@ void write_tile_alloc(thread const uint& el_ix, thread const Alloc& a)
 }
 
 static inline __attribute__((always_inline))
-Alloc read_tile_alloc(thread const uint& el_ix, thread const bool& mem_ok, device Memory& v_266, constant uint& v_266BufferSize)
+Alloc read_tile_alloc(thread const uint& el_ix, thread const bool& mem_ok, const device ConfigBuf& v_891)
 {
     uint param = 0u;
-    uint param_1 = uint(int((v_266BufferSize - 8) / 4) * 4);
+    uint param_1 = v_891.conf.mem_size;
     bool param_2 = mem_ok;
     return new_alloc(param, param_1, param_2);
 }
 
 static inline __attribute__((always_inline))
-Tile Tile_read(thread const Alloc& a, thread const TileRef& ref, device Memory& v_266, constant uint& v_266BufferSize)
+Tile Tile_read(thread const Alloc& a, thread const TileRef& ref, device Memory& v_267)
 {
     uint ix = ref.offset >> uint(2);
     Alloc param = a;
     uint param_1 = ix + 0u;
-    uint raw0 = read_mem(param, param_1, v_266, v_266BufferSize);
+    uint raw0 = read_mem(param, param_1, v_267);
     Alloc param_2 = a;
     uint param_3 = ix + 1u;
-    uint raw1 = read_mem(param_2, param_3, v_266, v_266BufferSize);
+    uint raw1 = read_mem(param_2, param_3, v_267);
     Tile s;
     s.tile = TileSegRef{ raw0 };
     s.backdrop = int(raw1);
@@ -314,26 +317,20 @@ Tile Tile_read(thread const Alloc& a, thread const TileRef& ref, device Memory& 
 }
 
 static inline __attribute__((always_inline))
-MallocResult malloc(thread const uint& size, device Memory& v_266, constant uint& v_266BufferSize)
+uint malloc_stage(thread const uint& size, thread const uint& mem_size, thread const uint& stage, device Memory& v_267)
 {
-    uint _272 = atomic_fetch_add_explicit((device atomic_uint*)&v_266.mem_offset, size, memory_order_relaxed);
-    uint offset = _272;
-    MallocResult r;
-    r.failed = (offset + size) > uint(int((v_266BufferSize - 8) / 4) * 4);
-    uint param = offset;
-    uint param_1 = size;
-    bool param_2 = !r.failed;
-    r.alloc = new_alloc(param, param_1, param_2);
-    if (r.failed)
+    uint _282 = atomic_fetch_add_explicit((device atomic_uint*)&v_267.mem_offset, size, memory_order_relaxed);
+    uint offset = _282;
+    if ((offset + size) > mem_size)
     {
-        uint _301 = atomic_fetch_max_explicit((device atomic_uint*)&v_266.mem_error, 1u, memory_order_relaxed);
-        return r;
+        uint _292 = atomic_fetch_or_explicit((device atomic_uint*)&v_267.mem_error, stage, memory_order_relaxed);
+        offset = 0u;
     }
-    return r;
+    return offset;
 }
 
 static inline __attribute__((always_inline))
-void write_mem(thread const Alloc& alloc, thread const uint& offset, thread const uint& val, device Memory& v_266, constant uint& v_266BufferSize)
+void write_mem(thread const Alloc& alloc, thread const uint& offset, thread const uint& val, device Memory& v_267)
 {
     Alloc param = alloc;
     uint param_1 = offset;
@@ -341,352 +338,359 @@ void write_mem(thread const Alloc& alloc, thread const uint& offset, thread cons
     {
         return;
     }
-    v_266.memory[offset] = val;
+    v_267.memory[offset] = val;
 }
 
 static inline __attribute__((always_inline))
-void CmdJump_write(thread const Alloc& a, thread const CmdJumpRef& ref, thread const CmdJump& s, device Memory& v_266, constant uint& v_266BufferSize)
+void CmdJump_write(thread const Alloc& a, thread const CmdJumpRef& ref, thread const CmdJump& s, device Memory& v_267)
 {
     uint ix = ref.offset >> uint(2);
     Alloc param = a;
     uint param_1 = ix + 0u;
     uint param_2 = s.new_ref;
-    write_mem(param, param_1, param_2, v_266, v_266BufferSize);
+    write_mem(param, param_1, param_2, v_267);
 }
 
 static inline __attribute__((always_inline))
-void Cmd_Jump_write(thread const Alloc& a, thread const CmdRef& ref, thread const CmdJump& s, device Memory& v_266, constant uint& v_266BufferSize)
+void Cmd_Jump_write(thread const Alloc& a, thread const CmdRef& ref, thread const CmdJump& s, device Memory& v_267)
 {
     Alloc param = a;
     uint param_1 = ref.offset >> uint(2);
     uint param_2 = 11u;
-    write_mem(param, param_1, param_2, v_266, v_266BufferSize);
+    write_mem(param, param_1, param_2, v_267);
     Alloc param_3 = a;
     CmdJumpRef param_4 = CmdJumpRef{ ref.offset + 4u };
     CmdJump param_5 = s;
-    CmdJump_write(param_3, param_4, param_5, v_266, v_266BufferSize);
+    CmdJump_write(param_3, param_4, param_5, v_267);
 }
 
 static inline __attribute__((always_inline))
-bool alloc_cmd(thread Alloc& cmd_alloc, thread CmdRef& cmd_ref, thread uint& cmd_limit, device Memory& v_266, constant uint& v_266BufferSize)
+void alloc_cmd(thread Alloc& cmd_alloc, thread CmdRef& cmd_ref, thread uint& cmd_limit, thread bool& mem_ok, device Memory& v_267, const device ConfigBuf& v_891)
 {
     if (cmd_ref.offset < cmd_limit)
     {
-        return true;
+        return;
     }
     uint param = 1024u;
-    MallocResult _928 = malloc(param, v_266, v_266BufferSize);
-    MallocResult new_cmd = _928;
-    if (new_cmd.failed)
+    uint param_1 = v_891.conf.mem_size;
+    uint param_2 = 8u;
+    uint _915 = malloc_stage(param, param_1, param_2, v_267);
+    uint new_cmd = _915;
+    if (new_cmd == 0u)
     {
-        return false;
+        mem_ok = false;
     }
-    CmdJump jump = CmdJump{ new_cmd.alloc.offset };
-    Alloc param_1 = cmd_alloc;
-    CmdRef param_2 = cmd_ref;
-    CmdJump param_3 = jump;
-    Cmd_Jump_write(param_1, param_2, param_3, v_266, v_266BufferSize);
-    cmd_alloc = new_cmd.alloc;
-    cmd_ref = CmdRef{ cmd_alloc.offset };
-    cmd_limit = (cmd_alloc.offset + 1024u) - 144u;
-    return true;
+    if (mem_ok)
+    {
+        CmdJump jump = CmdJump{ new_cmd };
+        Alloc param_3 = cmd_alloc;
+        CmdRef param_4 = cmd_ref;
+        CmdJump param_5 = jump;
+        Cmd_Jump_write(param_3, param_4, param_5, v_267);
+    }
+    uint param_6 = new_cmd;
+    uint param_7 = 1024u;
+    bool param_8 = true;
+    cmd_alloc = new_alloc(param_6, param_7, param_8);
+    cmd_ref = CmdRef{ new_cmd };
+    cmd_limit = (new_cmd + 1024u) - 144u;
 }
 
 static inline __attribute__((always_inline))
-void CmdFill_write(thread const Alloc& a, thread const CmdFillRef& ref, thread const CmdFill& s, device Memory& v_266, constant uint& v_266BufferSize)
+void CmdFill_write(thread const Alloc& a, thread const CmdFillRef& ref, thread const CmdFill& s, device Memory& v_267)
 {
     uint ix = ref.offset >> uint(2);
     Alloc param = a;
     uint param_1 = ix + 0u;
     uint param_2 = s.tile_ref;
-    write_mem(param, param_1, param_2, v_266, v_266BufferSize);
+    write_mem(param, param_1, param_2, v_267);
     Alloc param_3 = a;
     uint param_4 = ix + 1u;
     uint param_5 = uint(s.backdrop);
-    write_mem(param_3, param_4, param_5, v_266, v_266BufferSize);
+    write_mem(param_3, param_4, param_5, v_267);
 }
 
 static inline __attribute__((always_inline))
-void Cmd_Fill_write(thread const Alloc& a, thread const CmdRef& ref, thread const CmdFill& s, device Memory& v_266, constant uint& v_266BufferSize)
+void Cmd_Fill_write(thread const Alloc& a, thread const CmdRef& ref, thread const CmdFill& s, device Memory& v_267)
 {
     Alloc param = a;
     uint param_1 = ref.offset >> uint(2);
     uint param_2 = 1u;
-    write_mem(param, param_1, param_2, v_266, v_266BufferSize);
+    write_mem(param, param_1, param_2, v_267);
     Alloc param_3 = a;
     CmdFillRef param_4 = CmdFillRef{ ref.offset + 4u };
     CmdFill param_5 = s;
-    CmdFill_write(param_3, param_4, param_5, v_266, v_266BufferSize);
+    CmdFill_write(param_3, param_4, param_5, v_267);
 }
 
 static inline __attribute__((always_inline))
-void Cmd_Solid_write(thread const Alloc& a, thread const CmdRef& ref, device Memory& v_266, constant uint& v_266BufferSize)
+void Cmd_Solid_write(thread const Alloc& a, thread const CmdRef& ref, device Memory& v_267)
 {
     Alloc param = a;
     uint param_1 = ref.offset >> uint(2);
     uint param_2 = 3u;
-    write_mem(param, param_1, param_2, v_266, v_266BufferSize);
+    write_mem(param, param_1, param_2, v_267);
 }
 
 static inline __attribute__((always_inline))
-void CmdStroke_write(thread const Alloc& a, thread const CmdStrokeRef& ref, thread const CmdStroke& s, device Memory& v_266, constant uint& v_266BufferSize)
+void CmdStroke_write(thread const Alloc& a, thread const CmdStrokeRef& ref, thread const CmdStroke& s, device Memory& v_267)
 {
     uint ix = ref.offset >> uint(2);
     Alloc param = a;
     uint param_1 = ix + 0u;
     uint param_2 = s.tile_ref;
-    write_mem(param, param_1, param_2, v_266, v_266BufferSize);
+    write_mem(param, param_1, param_2, v_267);
     Alloc param_3 = a;
     uint param_4 = ix + 1u;
     uint param_5 = as_type<uint>(s.half_width);
-    write_mem(param_3, param_4, param_5, v_266, v_266BufferSize);
+    write_mem(param_3, param_4, param_5, v_267);
 }
 
 static inline __attribute__((always_inline))
-void Cmd_Stroke_write(thread const Alloc& a, thread const CmdRef& ref, thread const CmdStroke& s, device Memory& v_266, constant uint& v_266BufferSize)
+void Cmd_Stroke_write(thread const Alloc& a, thread const CmdRef& ref, thread const CmdStroke& s, device Memory& v_267)
 {
     Alloc param = a;
     uint param_1 = ref.offset >> uint(2);
     uint param_2 = 2u;
-    write_mem(param, param_1, param_2, v_266, v_266BufferSize);
+    write_mem(param, param_1, param_2, v_267);
     Alloc param_3 = a;
     CmdStrokeRef param_4 = CmdStrokeRef{ ref.offset + 4u };
     CmdStroke param_5 = s;
-    CmdStroke_write(param_3, param_4, param_5, v_266, v_266BufferSize);
+    CmdStroke_write(param_3, param_4, param_5, v_267);
 }
 
 static inline __attribute__((always_inline))
-void write_fill(thread const Alloc& alloc, thread CmdRef& cmd_ref, thread const Tile& tile, thread const float& linewidth, device Memory& v_266, constant uint& v_266BufferSize)
+void write_fill(thread const Alloc& alloc, thread CmdRef& cmd_ref, thread const Tile& tile, thread const float& linewidth, thread bool& mem_ok, device Memory& v_267)
 {
     if (linewidth < 0.0)
     {
         if (tile.tile.offset != 0u)
         {
             CmdFill cmd_fill = CmdFill{ tile.tile.offset, tile.backdrop };
-            Alloc param = alloc;
-            CmdRef param_1 = cmd_ref;
-            CmdFill param_2 = cmd_fill;
-            Cmd_Fill_write(param, param_1, param_2, v_266, v_266BufferSize);
+            if (mem_ok)
+            {
+                Alloc param = alloc;
+                CmdRef param_1 = cmd_ref;
+                CmdFill param_2 = cmd_fill;
+                Cmd_Fill_write(param, param_1, param_2, v_267);
+            }
             cmd_ref.offset += 12u;
         }
         else
         {
-            Alloc param_3 = alloc;
-            CmdRef param_4 = cmd_ref;
-            Cmd_Solid_write(param_3, param_4, v_266, v_266BufferSize);
+            if (mem_ok)
+            {
+                Alloc param_3 = alloc;
+                CmdRef param_4 = cmd_ref;
+                Cmd_Solid_write(param_3, param_4, v_267);
+            }
             cmd_ref.offset += 4u;
         }
     }
     else
     {
         CmdStroke cmd_stroke = CmdStroke{ tile.tile.offset, 0.5 * linewidth };
-        Alloc param_5 = alloc;
-        CmdRef param_6 = cmd_ref;
-        CmdStroke param_7 = cmd_stroke;
-        Cmd_Stroke_write(param_5, param_6, param_7, v_266, v_266BufferSize);
+        if (mem_ok)
+        {
+            Alloc param_5 = alloc;
+            CmdRef param_6 = cmd_ref;
+            CmdStroke param_7 = cmd_stroke;
+            Cmd_Stroke_write(param_5, param_6, param_7, v_267);
+        }
         cmd_ref.offset += 12u;
     }
 }
 
 static inline __attribute__((always_inline))
-void CmdColor_write(thread const Alloc& a, thread const CmdColorRef& ref, thread const CmdColor& s, device Memory& v_266, constant uint& v_266BufferSize)
+void CmdColor_write(thread const Alloc& a, thread const CmdColorRef& ref, thread const CmdColor& s, device Memory& v_267)
 {
     uint ix = ref.offset >> uint(2);
     Alloc param = a;
     uint param_1 = ix + 0u;
     uint param_2 = s.rgba_color;
-    write_mem(param, param_1, param_2, v_266, v_266BufferSize);
+    write_mem(param, param_1, param_2, v_267);
 }
 
 static inline __attribute__((always_inline))
-void Cmd_Color_write(thread const Alloc& a, thread const CmdRef& ref, thread const CmdColor& s, device Memory& v_266, constant uint& v_266BufferSize)
+void Cmd_Color_write(thread const Alloc& a, thread const CmdRef& ref, thread const CmdColor& s, device Memory& v_267)
 {
     Alloc param = a;
     uint param_1 = ref.offset >> uint(2);
     uint param_2 = 5u;
-    write_mem(param, param_1, param_2, v_266, v_266BufferSize);
+    write_mem(param, param_1, param_2, v_267);
     Alloc param_3 = a;
     CmdColorRef param_4 = CmdColorRef{ ref.offset + 4u };
     CmdColor param_5 = s;
-    CmdColor_write(param_3, param_4, param_5, v_266, v_266BufferSize);
+    CmdColor_write(param_3, param_4, param_5, v_267);
 }
 
 static inline __attribute__((always_inline))
-void CmdLinGrad_write(thread const Alloc& a, thread const CmdLinGradRef& ref, thread const CmdLinGrad& s, device Memory& v_266, constant uint& v_266BufferSize)
+void CmdLinGrad_write(thread const Alloc& a, thread const CmdLinGradRef& ref, thread const CmdLinGrad& s, device Memory& v_267)
 {
     uint ix = ref.offset >> uint(2);
     Alloc param = a;
     uint param_1 = ix + 0u;
     uint param_2 = s.index;
-    write_mem(param, param_1, param_2, v_266, v_266BufferSize);
+    write_mem(param, param_1, param_2, v_267);
     Alloc param_3 = a;
     uint param_4 = ix + 1u;
     uint param_5 = as_type<uint>(s.line_x);
-    write_mem(param_3, param_4, param_5, v_266, v_266BufferSize);
+    write_mem(param_3, param_4, param_5, v_267);
     Alloc param_6 = a;
     uint param_7 = ix + 2u;
     uint param_8 = as_type<uint>(s.line_y);
-    write_mem(param_6, param_7, param_8, v_266, v_266BufferSize);
+    write_mem(param_6, param_7, param_8, v_267);
     Alloc param_9 = a;
     uint param_10 = ix + 3u;
     uint param_11 = as_type<uint>(s.line_c);
-    write_mem(param_9, param_10, param_11, v_266, v_266BufferSize);
+    write_mem(param_9, param_10, param_11, v_267);
 }
 
 static inline __attribute__((always_inline))
-void Cmd_LinGrad_write(thread const Alloc& a, thread const CmdRef& ref, thread const CmdLinGrad& s, device Memory& v_266, constant uint& v_266BufferSize)
+void Cmd_LinGrad_write(thread const Alloc& a, thread const CmdRef& ref, thread const CmdLinGrad& s, device Memory& v_267)
 {
     Alloc param = a;
     uint param_1 = ref.offset >> uint(2);
     uint param_2 = 6u;
-    write_mem(param, param_1, param_2, v_266, v_266BufferSize);
+    write_mem(param, param_1, param_2, v_267);
     Alloc param_3 = a;
     CmdLinGradRef param_4 = CmdLinGradRef{ ref.offset + 4u };
     CmdLinGrad param_5 = s;
-    CmdLinGrad_write(param_3, param_4, param_5, v_266, v_266BufferSize);
+    CmdLinGrad_write(param_3, param_4, param_5, v_267);
 }
 
 static inline __attribute__((always_inline))
-void CmdRadGrad_write(thread const Alloc& a, thread const CmdRadGradRef& ref, thread const CmdRadGrad& s, device Memory& v_266, constant uint& v_266BufferSize)
+void CmdRadGrad_write(thread const Alloc& a, thread const CmdRadGradRef& ref, thread const CmdRadGrad& s, device Memory& v_267)
 {
     uint ix = ref.offset >> uint(2);
     Alloc param = a;
     uint param_1 = ix + 0u;
     uint param_2 = s.index;
-    write_mem(param, param_1, param_2, v_266, v_266BufferSize);
+    write_mem(param, param_1, param_2, v_267);
     Alloc param_3 = a;
     uint param_4 = ix + 1u;
     uint param_5 = as_type<uint>(s.mat.x);
-    write_mem(param_3, param_4, param_5, v_266, v_266BufferSize);
+    write_mem(param_3, param_4, param_5, v_267);
     Alloc param_6 = a;
     uint param_7 = ix + 2u;
     uint param_8 = as_type<uint>(s.mat.y);
-    write_mem(param_6, param_7, param_8, v_266, v_266BufferSize);
+    write_mem(param_6, param_7, param_8, v_267);
     Alloc param_9 = a;
     uint param_10 = ix + 3u;
     uint param_11 = as_type<uint>(s.mat.z);
-    write_mem(param_9, param_10, param_11, v_266, v_266BufferSize);
+    write_mem(param_9, param_10, param_11, v_267);
     Alloc param_12 = a;
     uint param_13 = ix + 4u;
     uint param_14 = as_type<uint>(s.mat.w);
-    write_mem(param_12, param_13, param_14, v_266, v_266BufferSize);
+    write_mem(param_12, param_13, param_14, v_267);
     Alloc param_15 = a;
     uint param_16 = ix + 5u;
     uint param_17 = as_type<uint>(s.xlat.x);
-    write_mem(param_15, param_16, param_17, v_266, v_266BufferSize);
+    write_mem(param_15, param_16, param_17, v_267);
     Alloc param_18 = a;
     uint param_19 = ix + 6u;
     uint param_20 = as_type<uint>(s.xlat.y);
-    write_mem(param_18, param_19, param_20, v_266, v_266BufferSize);
+    write_mem(param_18, param_19, param_20, v_267);
     Alloc param_21 = a;
     uint param_22 = ix + 7u;
     uint param_23 = as_type<uint>(s.c1.x);
-    write_mem(param_21, param_22, param_23, v_266, v_266BufferSize);
+    write_mem(param_21, param_22, param_23, v_267);
     Alloc param_24 = a;
     uint param_25 = ix + 8u;
     uint param_26 = as_type<uint>(s.c1.y);
-    write_mem(param_24, param_25, param_26, v_266, v_266BufferSize);
+    write_mem(param_24, param_25, param_26, v_267);
     Alloc param_27 = a;
     uint param_28 = ix + 9u;
     uint param_29 = as_type<uint>(s.ra);
-    write_mem(param_27, param_28, param_29, v_266, v_266BufferSize);
+    write_mem(param_27, param_28, param_29, v_267);
     Alloc param_30 = a;
     uint param_31 = ix + 10u;
     uint param_32 = as_type<uint>(s.roff);
-    write_mem(param_30, param_31, param_32, v_266, v_266BufferSize);
+    write_mem(param_30, param_31, param_32, v_267);
 }
 
 static inline __attribute__((always_inline))
-void Cmd_RadGrad_write(thread const Alloc& a, thread const CmdRef& ref, thread const CmdRadGrad& s, device Memory& v_266, constant uint& v_266BufferSize)
+void Cmd_RadGrad_write(thread const Alloc& a, thread const CmdRef& ref, thread const CmdRadGrad& s, device Memory& v_267)
 {
     Alloc param = a;
     uint param_1 = ref.offset >> uint(2);
     uint param_2 = 7u;
-    write_mem(param, param_1, param_2, v_266, v_266BufferSize);
+    write_mem(param, param_1, param_2, v_267);
     Alloc param_3 = a;
     CmdRadGradRef param_4 = CmdRadGradRef{ ref.offset + 4u };
     CmdRadGrad param_5 = s;
-    CmdRadGrad_write(param_3, param_4, param_5, v_266, v_266BufferSize);
+    CmdRadGrad_write(param_3, param_4, param_5, v_267);
 }
 
 static inline __attribute__((always_inline))
-void CmdImage_write(thread const Alloc& a, thread const CmdImageRef& ref, thread const CmdImage& s, device Memory& v_266, constant uint& v_266BufferSize)
+void CmdImage_write(thread const Alloc& a, thread const CmdImageRef& ref, thread const CmdImage& s, device Memory& v_267)
 {
     uint ix = ref.offset >> uint(2);
     Alloc param = a;
     uint param_1 = ix + 0u;
     uint param_2 = s.index;
-    write_mem(param, param_1, param_2, v_266, v_266BufferSize);
+    write_mem(param, param_1, param_2, v_267);
     Alloc param_3 = a;
     uint param_4 = ix + 1u;
     uint param_5 = (uint(s.offset.x) & 65535u) | (uint(s.offset.y) << uint(16));
-    write_mem(param_3, param_4, param_5, v_266, v_266BufferSize);
+    write_mem(param_3, param_4, param_5, v_267);
 }
 
 static inline __attribute__((always_inline))
-void Cmd_Image_write(thread const Alloc& a, thread const CmdRef& ref, thread const CmdImage& s, device Memory& v_266, constant uint& v_266BufferSize)
+void Cmd_Image_write(thread const Alloc& a, thread const CmdRef& ref, thread const CmdImage& s, device Memory& v_267)
 {
     Alloc param = a;
     uint param_1 = ref.offset >> uint(2);
     uint param_2 = 8u;
-    write_mem(param, param_1, param_2, v_266, v_266BufferSize);
+    write_mem(param, param_1, param_2, v_267);
     Alloc param_3 = a;
     CmdImageRef param_4 = CmdImageRef{ ref.offset + 4u };
     CmdImage param_5 = s;
-    CmdImage_write(param_3, param_4, param_5, v_266, v_266BufferSize);
+    CmdImage_write(param_3, param_4, param_5, v_267);
 }
 
 static inline __attribute__((always_inline))
-void Cmd_BeginClip_write(thread const Alloc& a, thread const CmdRef& ref, device Memory& v_266, constant uint& v_266BufferSize)
+void Cmd_BeginClip_write(thread const Alloc& a, thread const CmdRef& ref, device Memory& v_267)
 {
     Alloc param = a;
     uint param_1 = ref.offset >> uint(2);
     uint param_2 = 9u;
-    write_mem(param, param_1, param_2, v_266, v_266BufferSize);
+    write_mem(param, param_1, param_2, v_267);
 }
 
 static inline __attribute__((always_inline))
-void CmdEndClip_write(thread const Alloc& a, thread const CmdEndClipRef& ref, thread const CmdEndClip& s, device Memory& v_266, constant uint& v_266BufferSize)
+void CmdEndClip_write(thread const Alloc& a, thread const CmdEndClipRef& ref, thread const CmdEndClip& s, device Memory& v_267)
 {
     uint ix = ref.offset >> uint(2);
     Alloc param = a;
     uint param_1 = ix + 0u;
     uint param_2 = s.blend;
-    write_mem(param, param_1, param_2, v_266, v_266BufferSize);
+    write_mem(param, param_1, param_2, v_267);
 }
 
 static inline __attribute__((always_inline))
-void Cmd_EndClip_write(thread const Alloc& a, thread const CmdRef& ref, thread const CmdEndClip& s, device Memory& v_266, constant uint& v_266BufferSize)
+void Cmd_EndClip_write(thread const Alloc& a, thread const CmdRef& ref, thread const CmdEndClip& s, device Memory& v_267)
 {
     Alloc param = a;
     uint param_1 = ref.offset >> uint(2);
     uint param_2 = 10u;
-    write_mem(param, param_1, param_2, v_266, v_266BufferSize);
+    write_mem(param, param_1, param_2, v_267);
     Alloc param_3 = a;
     CmdEndClipRef param_4 = CmdEndClipRef{ ref.offset + 4u };
     CmdEndClip param_5 = s;
-    CmdEndClip_write(param_3, param_4, param_5, v_266, v_266BufferSize);
+    CmdEndClip_write(param_3, param_4, param_5, v_267);
 }
 
 static inline __attribute__((always_inline))
-void Cmd_End_write(thread const Alloc& a, thread const CmdRef& ref, device Memory& v_266, constant uint& v_266BufferSize)
+void Cmd_End_write(thread const Alloc& a, thread const CmdRef& ref, device Memory& v_267)
 {
     Alloc param = a;
     uint param_1 = ref.offset >> uint(2);
     uint param_2 = 0u;
-    write_mem(param, param_1, param_2, v_266, v_266BufferSize);
+    write_mem(param, param_1, param_2, v_267);
 }
 
-static inline __attribute__((always_inline))
-void alloc_write(thread const Alloc& a, thread const uint& offset, thread const Alloc& alloc, device Memory& v_266, constant uint& v_266BufferSize)
-{
-    Alloc param = a;
-    uint param_1 = offset >> uint(2);
-    uint param_2 = alloc.offset;
-    write_mem(param, param_1, param_2, v_266, v_266BufferSize);
-}
-
-kernel void main0(constant uint* spvBufferSizeConstants [[buffer(25)]], device Memory& v_266 [[buffer(0)]], const device ConfigBuf& _1020 [[buffer(1)]], const device SceneBuf& _1399 [[buffer(2)]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
+kernel void main0(device Memory& v_267 [[buffer(0)]], const device ConfigBuf& v_891 [[buffer(1)]], const device SceneBuf& _1390 [[buffer(2)]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
 {
     threadgroup uint sh_bitmaps[8][256];
     threadgroup Alloc sh_part_elements[256];
@@ -698,22 +702,28 @@ kernel void main0(constant uint* spvBufferSizeConstants [[buffer(25)]], device M
     threadgroup uint sh_tile_y0[256];
     threadgroup uint sh_tile_base[256];
     threadgroup uint sh_tile_count[256];
-    constant uint& v_266BufferSize = spvBufferSizeConstants[0];
-    uint width_in_bins = ((_1020.conf.width_in_tiles + 16u) - 1u) / 16u;
+    bool mem_ok = true;
+    uint param = 7u;
+    bool _1012 = check_deps(param, v_267);
+    if (!_1012)
+    {
+        return;
+    }
+    uint width_in_bins = ((v_891.conf.width_in_tiles + 16u) - 1u) / 16u;
     uint bin_ix = (width_in_bins * gl_WorkGroupID.y) + gl_WorkGroupID.x;
     uint partition_ix = 0u;
-    uint n_partitions = ((_1020.conf.n_elements + 256u) - 1u) / 256u;
+    uint n_partitions = ((v_891.conf.n_elements + 256u) - 1u) / 256u;
     uint th_ix = gl_LocalInvocationID.x;
     uint bin_tile_x = 16u * gl_WorkGroupID.x;
     uint bin_tile_y = 16u * gl_WorkGroupID.y;
     uint tile_x = gl_LocalInvocationID.x % 16u;
     uint tile_y = gl_LocalInvocationID.x / 16u;
-    uint this_tile_ix = (((bin_tile_y + tile_y) * _1020.conf.width_in_tiles) + bin_tile_x) + tile_x;
-    Alloc param;
-    param.offset = _1020.conf.ptcl_alloc.offset;
-    uint param_1 = this_tile_ix * 1024u;
-    uint param_2 = 1024u;
-    Alloc cmd_alloc = slice_mem(param, param_1, param_2);
+    uint this_tile_ix = (((bin_tile_y + tile_y) * v_891.conf.width_in_tiles) + bin_tile_x) + tile_x;
+    Alloc param_1;
+    param_1.offset = v_891.conf.ptcl_alloc.offset;
+    uint param_2 = this_tile_ix * 1024u;
+    uint param_3 = 1024u;
+    Alloc cmd_alloc = slice_mem(param_1, param_2, param_3);
     CmdRef cmd_ref = CmdRef{ cmd_alloc.offset };
     uint cmd_limit = (cmd_ref.offset + 1024u) - 144u;
     uint clip_depth = 0u;
@@ -722,25 +732,24 @@ kernel void main0(constant uint* spvBufferSizeConstants [[buffer(25)]], device M
     uint wr_ix = 0u;
     uint part_start_ix = 0u;
     uint ready_ix = 0u;
-    Alloc param_3 = cmd_alloc;
-    uint param_4 = 0u;
-    uint param_5 = 8u;
-    Alloc scratch_alloc = slice_mem(param_3, param_4, param_5);
+    Alloc param_4 = cmd_alloc;
+    uint param_5 = 0u;
+    uint param_6 = 8u;
+    Alloc scratch_alloc = slice_mem(param_4, param_5, param_6);
     cmd_ref.offset += 4u;
     uint render_blend_depth = 0u;
     uint max_blend_depth = 0u;
-    uint drawmonoid_start = _1020.conf.drawmonoid_alloc.offset >> uint(2);
-    uint drawtag_start = _1020.conf.drawtag_offset >> uint(2);
-    uint drawdata_start = _1020.conf.drawdata_offset >> uint(2);
-    uint drawinfo_start = _1020.conf.drawinfo_alloc.offset >> uint(2);
-    bool mem_ok = v_266.mem_error == 0u;
-    Alloc param_6;
-    Alloc param_8;
-    uint _1331;
+    uint drawmonoid_start = v_891.conf.drawmonoid_alloc.offset >> uint(2);
+    uint drawtag_start = v_891.conf.drawtag_offset >> uint(2);
+    uint drawdata_start = v_891.conf.drawdata_offset >> uint(2);
+    uint drawinfo_start = v_891.conf.drawinfo_alloc.offset >> uint(2);
+    Alloc param_7;
+    Alloc param_9;
+    uint _1322;
     uint element_ix;
-    Alloc param_17;
+    Alloc param_18;
     uint tile_count;
-    uint _1632;
+    uint _1622;
     float linewidth;
     CmdLinGrad cmd_lin;
     CmdRadGrad cmd_rad;
@@ -750,36 +759,36 @@ kernel void main0(constant uint* spvBufferSizeConstants [[buffer(25)]], device M
         {
             sh_bitmaps[i][th_ix] = 0u;
         }
-        bool _1383;
+        bool _1374;
         for (;;)
         {
             if ((ready_ix == wr_ix) && (partition_ix < n_partitions))
             {
                 part_start_ix = ready_ix;
                 uint count = 0u;
-                bool _1181 = th_ix < 256u;
-                bool _1189;
-                if (_1181)
+                bool _1174 = th_ix < 256u;
+                bool _1182;
+                if (_1174)
                 {
-                    _1189 = (partition_ix + th_ix) < n_partitions;
+                    _1182 = (partition_ix + th_ix) < n_partitions;
                 }
                 else
                 {
-                    _1189 = _1181;
+                    _1182 = _1174;
                 }
-                if (_1189)
+                if (_1182)
                 {
-                    uint in_ix = (_1020.conf.bin_alloc.offset >> uint(2)) + ((((partition_ix + th_ix) * 256u) + bin_ix) * 2u);
-                    param_6.offset = _1020.conf.bin_alloc.offset;
-                    uint param_7 = in_ix;
-                    count = read_mem(param_6, param_7, v_266, v_266BufferSize);
-                    param_8.offset = _1020.conf.bin_alloc.offset;
-                    uint param_9 = in_ix + 1u;
-                    uint offset = read_mem(param_8, param_9, v_266, v_266BufferSize);
-                    uint param_10 = offset;
-                    uint param_11 = count * 4u;
-                    bool param_12 = mem_ok;
-                    sh_part_elements[th_ix] = new_alloc(param_10, param_11, param_12);
+                    uint in_ix = (v_891.conf.bin_alloc.offset >> uint(2)) + ((((partition_ix + th_ix) * 256u) + bin_ix) * 2u);
+                    param_7.offset = v_891.conf.bin_alloc.offset;
+                    uint param_8 = in_ix;
+                    count = read_mem(param_7, param_8, v_267);
+                    param_9.offset = v_891.conf.bin_alloc.offset;
+                    uint param_10 = in_ix + 1u;
+                    uint offset = read_mem(param_9, param_10, v_267);
+                    uint param_11 = offset;
+                    uint param_12 = count * 4u;
+                    bool param_13 = true;
+                    sh_part_elements[th_ix] = new_alloc(param_11, param_12, param_13);
                 }
                 for (uint i_1 = 0u; i_1 < 8u; i_1++)
                 {
@@ -806,7 +815,7 @@ kernel void main0(constant uint* spvBufferSizeConstants [[buffer(25)]], device M
                 partition_ix += 256u;
             }
             uint ix = rd_ix + th_ix;
-            if (((ix >= wr_ix) && (ix < ready_ix)) && mem_ok)
+            if ((ix >= wr_ix) && (ix < ready_ix))
             {
                 uint part_ix = 0u;
                 for (uint i_2 = 0u; i_2 < 8u; i_2++)
@@ -819,34 +828,34 @@ kernel void main0(constant uint* spvBufferSizeConstants [[buffer(25)]], device M
                 }
                 if (part_ix > 0u)
                 {
-                    _1331 = sh_part_count[part_ix - 1u];
+                    _1322 = sh_part_count[part_ix - 1u];
                 }
                 else
                 {
-                    _1331 = part_start_ix;
+                    _1322 = part_start_ix;
                 }
-                ix -= _1331;
+                ix -= _1322;
                 Alloc bin_alloc = sh_part_elements[part_ix];
                 BinInstanceRef inst_ref = BinInstanceRef{ bin_alloc.offset };
-                BinInstanceRef param_13 = inst_ref;
-                uint param_14 = ix;
-                Alloc param_15 = bin_alloc;
-                BinInstanceRef param_16 = BinInstance_index(param_13, param_14);
-                BinInstance inst = BinInstance_read(param_15, param_16, v_266, v_266BufferSize);
+                BinInstanceRef param_14 = inst_ref;
+                uint param_15 = ix;
+                Alloc param_16 = bin_alloc;
+                BinInstanceRef param_17 = BinInstance_index(param_14, param_15);
+                BinInstance inst = BinInstance_read(param_16, param_17, v_267);
                 sh_elements[th_ix] = inst.element_ix;
             }
             threadgroup_barrier(mem_flags::mem_threadgroup);
             wr_ix = min((rd_ix + 256u), ready_ix);
-            bool _1373 = (wr_ix - rd_ix) < 256u;
-            if (_1373)
+            bool _1364 = (wr_ix - rd_ix) < 256u;
+            if (_1364)
             {
-                _1383 = (wr_ix < ready_ix) || (partition_ix < n_partitions);
+                _1374 = (wr_ix < ready_ix) || (partition_ix < n_partitions);
             }
             else
             {
-                _1383 = _1373;
+                _1374 = _1364;
             }
-            if (_1383)
+            if (_1374)
             {
                 continue;
             }
@@ -859,7 +868,7 @@ kernel void main0(constant uint* spvBufferSizeConstants [[buffer(25)]], device M
         if ((th_ix + rd_ix) < wr_ix)
         {
             element_ix = sh_elements[th_ix];
-            tag = _1399.scene[drawtag_start + element_ix];
+            tag = _1390.scene[drawtag_start + element_ix];
         }
         switch (tag)
         {
@@ -871,10 +880,10 @@ kernel void main0(constant uint* spvBufferSizeConstants [[buffer(25)]], device M
             case 37u:
             {
                 uint drawmonoid_base = drawmonoid_start + (4u * element_ix);
-                uint path_ix = v_266.memory[drawmonoid_base];
-                param_17.offset = _1020.conf.tile_alloc.offset;
-                PathRef param_18 = PathRef{ _1020.conf.tile_alloc.offset + (path_ix * 12u) };
-                Path path = Path_read(param_17, param_18, v_266, v_266BufferSize);
+                uint path_ix = v_267.memory[drawmonoid_base];
+                param_18.offset = v_891.conf.tile_alloc.offset;
+                PathRef param_19 = PathRef{ v_891.conf.tile_alloc.offset + (path_ix * 12u) };
+                Path path = Path_read(param_18, param_19, v_267);
                 uint stride = path.bbox.z - path.bbox.x;
                 sh_tile_stride[th_ix] = stride;
                 int dx = int(path.bbox.x) - int(bin_tile_x);
@@ -889,13 +898,13 @@ kernel void main0(constant uint* spvBufferSizeConstants [[buffer(25)]], device M
                 tile_count = uint(x1 - x0) * uint(y1 - y0);
                 uint base = path.tiles.offset - (((uint(dy) * stride) + uint(dx)) * 8u);
                 sh_tile_base[th_ix] = base;
-                uint param_19 = path.tiles.offset;
-                uint param_20 = ((path.bbox.z - path.bbox.x) * (path.bbox.w - path.bbox.y)) * 8u;
-                bool param_21 = mem_ok;
-                Alloc path_alloc = new_alloc(param_19, param_20, param_21);
-                uint param_22 = th_ix;
-                Alloc param_23 = path_alloc;
-                write_tile_alloc(param_22, param_23);
+                uint param_20 = path.tiles.offset;
+                uint param_21 = ((path.bbox.z - path.bbox.x) * (path.bbox.w - path.bbox.y)) * 8u;
+                bool param_22 = true;
+                Alloc path_alloc = new_alloc(param_20, param_21, param_22);
+                uint param_23 = th_ix;
+                Alloc param_24 = path_alloc;
+                write_tile_alloc(param_23, param_24);
                 break;
             }
             default:
@@ -929,60 +938,57 @@ kernel void main0(constant uint* spvBufferSizeConstants [[buffer(25)]], device M
                 }
             }
             uint element_ix_1 = sh_elements[el_ix];
-            uint tag_1 = _1399.scene[drawtag_start + element_ix_1];
+            uint tag_1 = _1390.scene[drawtag_start + element_ix_1];
             if (el_ix > 0u)
             {
-                _1632 = sh_tile_count[el_ix - 1u];
+                _1622 = sh_tile_count[el_ix - 1u];
             }
             else
             {
-                _1632 = 0u;
+                _1622 = 0u;
             }
-            uint seq_ix = ix_1 - _1632;
+            uint seq_ix = ix_1 - _1622;
             uint width = sh_tile_width[el_ix];
             uint x = sh_tile_x0[el_ix] + (seq_ix % width);
             uint y = sh_tile_y0[el_ix] + (seq_ix / width);
             bool include_tile = false;
-            if (mem_ok)
+            uint param_25 = el_ix;
+            bool param_26 = true;
+            Alloc param_27 = read_tile_alloc(param_25, param_26, v_891);
+            TileRef param_28 = TileRef{ sh_tile_base[el_ix] + (((sh_tile_stride[el_ix] * y) + x) * 8u) };
+            Tile tile = Tile_read(param_27, param_28, v_267);
+            bool is_clip = (tag_1 & 1u) != 0u;
+            bool is_blend = false;
+            if (is_clip)
             {
-                uint param_24 = el_ix;
-                bool param_25 = mem_ok;
-                Alloc param_26 = read_tile_alloc(param_24, param_25, v_266, v_266BufferSize);
-                TileRef param_27 = TileRef{ sh_tile_base[el_ix] + (((sh_tile_stride[el_ix] * y) + x) * 8u) };
-                Tile tile = Tile_read(param_26, param_27, v_266, v_266BufferSize);
-                bool is_clip = (tag_1 & 1u) != 0u;
-                bool is_blend = false;
-                if (is_clip)
-                {
-                    uint drawmonoid_base_1 = drawmonoid_start + (4u * element_ix_1);
-                    uint scene_offset = v_266.memory[drawmonoid_base_1 + 2u];
-                    uint dd = drawdata_start + (scene_offset >> uint(2));
-                    uint blend = _1399.scene[dd];
-                    is_blend = blend != 32771u;
-                }
-                bool _1720 = tile.tile.offset != 0u;
-                bool _1729;
-                if (!_1720)
-                {
-                    _1729 = (tile.backdrop == 0) == is_clip;
-                }
-                else
-                {
-                    _1729 = _1720;
-                }
-                include_tile = _1729 || is_blend;
+                uint drawmonoid_base_1 = drawmonoid_start + (4u * element_ix_1);
+                uint scene_offset = v_267.memory[drawmonoid_base_1 + 2u];
+                uint dd = drawdata_start + (scene_offset >> uint(2));
+                uint blend = _1390.scene[dd];
+                is_blend = blend != 32771u;
             }
+            bool _1706 = tile.tile.offset != 0u;
+            bool _1715;
+            if (!_1706)
+            {
+                _1715 = (tile.backdrop == 0) == is_clip;
+            }
+            else
+            {
+                _1715 = _1706;
+            }
+            include_tile = _1715 || is_blend;
             if (include_tile)
             {
                 uint el_slice = el_ix / 32u;
                 uint el_mask = 1u << (el_ix & 31u);
-                uint _1751 = atomic_fetch_or_explicit((threadgroup atomic_uint*)&sh_bitmaps[el_slice][(y * 16u) + x], el_mask, memory_order_relaxed);
+                uint _1737 = atomic_fetch_or_explicit((threadgroup atomic_uint*)&sh_bitmaps[el_slice][(y * 16u) + x], el_mask, memory_order_relaxed);
             }
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
         uint slice_ix = 0u;
         uint bitmap = sh_bitmaps[0][th_ix];
-        while (mem_ok)
+        while (true)
         {
             if (bitmap == 0u)
             {
@@ -1000,175 +1006,170 @@ kernel void main0(constant uint* spvBufferSizeConstants [[buffer(25)]], device M
             uint element_ref_ix = (slice_ix * 32u) + uint(int(spvFindLSB(bitmap)));
             uint element_ix_2 = sh_elements[element_ref_ix];
             bitmap &= (bitmap - 1u);
-            uint drawtag = _1399.scene[drawtag_start + element_ix_2];
+            uint drawtag = _1390.scene[drawtag_start + element_ix_2];
             if (clip_zero_depth == 0u)
             {
-                uint param_28 = element_ref_ix;
-                bool param_29 = mem_ok;
-                Alloc param_30 = read_tile_alloc(param_28, param_29, v_266, v_266BufferSize);
-                TileRef param_31 = TileRef{ sh_tile_base[element_ref_ix] + (((sh_tile_stride[element_ref_ix] * tile_y) + tile_x) * 8u) };
-                Tile tile_1 = Tile_read(param_30, param_31, v_266, v_266BufferSize);
+                uint param_29 = element_ref_ix;
+                bool param_30 = true;
+                Alloc param_31 = read_tile_alloc(param_29, param_30, v_891);
+                TileRef param_32 = TileRef{ sh_tile_base[element_ref_ix] + (((sh_tile_stride[element_ref_ix] * tile_y) + tile_x) * 8u) };
+                Tile tile_1 = Tile_read(param_31, param_32, v_267);
                 uint drawmonoid_base_2 = drawmonoid_start + (4u * element_ix_2);
-                uint scene_offset_1 = v_266.memory[drawmonoid_base_2 + 2u];
-                uint info_offset = v_266.memory[drawmonoid_base_2 + 3u];
+                uint scene_offset_1 = v_267.memory[drawmonoid_base_2 + 2u];
+                uint info_offset = v_267.memory[drawmonoid_base_2 + 3u];
                 uint dd_1 = drawdata_start + (scene_offset_1 >> uint(2));
                 uint di = drawinfo_start + (info_offset >> uint(2));
                 switch (drawtag)
                 {
                     case 68u:
                     {
-                        linewidth = as_type<float>(v_266.memory[di]);
-                        Alloc param_32 = cmd_alloc;
-                        CmdRef param_33 = cmd_ref;
-                        uint param_34 = cmd_limit;
-                        bool _1876 = alloc_cmd(param_32, param_33, param_34, v_266, v_266BufferSize);
-                        cmd_alloc = param_32;
-                        cmd_ref = param_33;
-                        cmd_limit = param_34;
-                        if (!_1876)
+                        linewidth = as_type<float>(v_267.memory[di]);
+                        Alloc param_33 = cmd_alloc;
+                        CmdRef param_34 = cmd_ref;
+                        uint param_35 = cmd_limit;
+                        alloc_cmd(param_33, param_34, param_35, mem_ok, v_267, v_891);
+                        cmd_alloc = param_33;
+                        cmd_ref = param_34;
+                        cmd_limit = param_35;
+                        Alloc param_36 = cmd_alloc;
+                        CmdRef param_37 = cmd_ref;
+                        Tile param_38 = tile_1;
+                        float param_39 = linewidth;
+                        write_fill(param_36, param_37, param_38, param_39, mem_ok, v_267);
+                        cmd_ref = param_37;
+                        uint rgba = _1390.scene[dd_1];
+                        if (mem_ok)
                         {
-                            break;
+                            Alloc param_40 = cmd_alloc;
+                            CmdRef param_41 = cmd_ref;
+                            CmdColor param_42 = CmdColor{ rgba };
+                            Cmd_Color_write(param_40, param_41, param_42, v_267);
                         }
-                        Alloc param_35 = cmd_alloc;
-                        CmdRef param_36 = cmd_ref;
-                        Tile param_37 = tile_1;
-                        float param_38 = linewidth;
-                        write_fill(param_35, param_36, param_37, param_38, v_266, v_266BufferSize);
-                        cmd_ref = param_36;
-                        uint rgba = _1399.scene[dd_1];
-                        Alloc param_39 = cmd_alloc;
-                        CmdRef param_40 = cmd_ref;
-                        CmdColor param_41 = CmdColor{ rgba };
-                        Cmd_Color_write(param_39, param_40, param_41, v_266, v_266BufferSize);
                         cmd_ref.offset += 8u;
                         break;
                     }
                     case 276u:
                     {
-                        Alloc param_42 = cmd_alloc;
-                        CmdRef param_43 = cmd_ref;
-                        uint param_44 = cmd_limit;
-                        bool _1917 = alloc_cmd(param_42, param_43, param_44, v_266, v_266BufferSize);
-                        cmd_alloc = param_42;
-                        cmd_ref = param_43;
-                        cmd_limit = param_44;
-                        if (!_1917)
+                        Alloc param_43 = cmd_alloc;
+                        CmdRef param_44 = cmd_ref;
+                        uint param_45 = cmd_limit;
+                        alloc_cmd(param_43, param_44, param_45, mem_ok, v_267, v_891);
+                        cmd_alloc = param_43;
+                        cmd_ref = param_44;
+                        cmd_limit = param_45;
+                        linewidth = as_type<float>(v_267.memory[di]);
+                        Alloc param_46 = cmd_alloc;
+                        CmdRef param_47 = cmd_ref;
+                        Tile param_48 = tile_1;
+                        float param_49 = linewidth;
+                        write_fill(param_46, param_47, param_48, param_49, mem_ok, v_267);
+                        cmd_ref = param_47;
+                        cmd_lin.index = _1390.scene[dd_1];
+                        cmd_lin.line_x = as_type<float>(v_267.memory[di + 1u]);
+                        cmd_lin.line_y = as_type<float>(v_267.memory[di + 2u]);
+                        cmd_lin.line_c = as_type<float>(v_267.memory[di + 3u]);
+                        if (mem_ok)
                         {
-                            break;
+                            Alloc param_50 = cmd_alloc;
+                            CmdRef param_51 = cmd_ref;
+                            CmdLinGrad param_52 = cmd_lin;
+                            Cmd_LinGrad_write(param_50, param_51, param_52, v_267);
                         }
-                        linewidth = as_type<float>(v_266.memory[di]);
-                        Alloc param_45 = cmd_alloc;
-                        CmdRef param_46 = cmd_ref;
-                        Tile param_47 = tile_1;
-                        float param_48 = linewidth;
-                        write_fill(param_45, param_46, param_47, param_48, v_266, v_266BufferSize);
-                        cmd_ref = param_46;
-                        cmd_lin.index = _1399.scene[dd_1];
-                        cmd_lin.line_x = as_type<float>(v_266.memory[di + 1u]);
-                        cmd_lin.line_y = as_type<float>(v_266.memory[di + 2u]);
-                        cmd_lin.line_c = as_type<float>(v_266.memory[di + 3u]);
-                        Alloc param_49 = cmd_alloc;
-                        CmdRef param_50 = cmd_ref;
-                        CmdLinGrad param_51 = cmd_lin;
-                        Cmd_LinGrad_write(param_49, param_50, param_51, v_266, v_266BufferSize);
                         cmd_ref.offset += 20u;
                         break;
                     }
                     case 732u:
                     {
-                        Alloc param_52 = cmd_alloc;
-                        CmdRef param_53 = cmd_ref;
-                        uint param_54 = cmd_limit;
-                        bool _1981 = alloc_cmd(param_52, param_53, param_54, v_266, v_266BufferSize);
-                        cmd_alloc = param_52;
-                        cmd_ref = param_53;
-                        cmd_limit = param_54;
-                        if (!_1981)
+                        Alloc param_53 = cmd_alloc;
+                        CmdRef param_54 = cmd_ref;
+                        uint param_55 = cmd_limit;
+                        alloc_cmd(param_53, param_54, param_55, mem_ok, v_267, v_891);
+                        cmd_alloc = param_53;
+                        cmd_ref = param_54;
+                        cmd_limit = param_55;
+                        linewidth = as_type<float>(v_267.memory[di]);
+                        Alloc param_56 = cmd_alloc;
+                        CmdRef param_57 = cmd_ref;
+                        Tile param_58 = tile_1;
+                        float param_59 = linewidth;
+                        write_fill(param_56, param_57, param_58, param_59, mem_ok, v_267);
+                        cmd_ref = param_57;
+                        cmd_rad.index = _1390.scene[dd_1];
+                        cmd_rad.mat = as_type<float4>(uint4(v_267.memory[di + 1u], v_267.memory[di + 2u], v_267.memory[di + 3u], v_267.memory[di + 4u]));
+                        cmd_rad.xlat = as_type<float2>(uint2(v_267.memory[di + 5u], v_267.memory[di + 6u]));
+                        cmd_rad.c1 = as_type<float2>(uint2(v_267.memory[di + 7u], v_267.memory[di + 8u]));
+                        cmd_rad.ra = as_type<float>(v_267.memory[di + 9u]);
+                        cmd_rad.roff = as_type<float>(v_267.memory[di + 10u]);
+                        if (mem_ok)
                         {
-                            break;
+                            Alloc param_60 = cmd_alloc;
+                            CmdRef param_61 = cmd_ref;
+                            CmdRadGrad param_62 = cmd_rad;
+                            Cmd_RadGrad_write(param_60, param_61, param_62, v_267);
                         }
-                        linewidth = as_type<float>(v_266.memory[di]);
-                        Alloc param_55 = cmd_alloc;
-                        CmdRef param_56 = cmd_ref;
-                        Tile param_57 = tile_1;
-                        float param_58 = linewidth;
-                        write_fill(param_55, param_56, param_57, param_58, v_266, v_266BufferSize);
-                        cmd_ref = param_56;
-                        cmd_rad.index = _1399.scene[dd_1];
-                        cmd_rad.mat = as_type<float4>(uint4(v_266.memory[di + 1u], v_266.memory[di + 2u], v_266.memory[di + 3u], v_266.memory[di + 4u]));
-                        cmd_rad.xlat = as_type<float2>(uint2(v_266.memory[di + 5u], v_266.memory[di + 6u]));
-                        cmd_rad.c1 = as_type<float2>(uint2(v_266.memory[di + 7u], v_266.memory[di + 8u]));
-                        cmd_rad.ra = as_type<float>(v_266.memory[di + 9u]);
-                        cmd_rad.roff = as_type<float>(v_266.memory[di + 10u]);
-                        Alloc param_59 = cmd_alloc;
-                        CmdRef param_60 = cmd_ref;
-                        CmdRadGrad param_61 = cmd_rad;
-                        Cmd_RadGrad_write(param_59, param_60, param_61, v_266, v_266BufferSize);
                         cmd_ref.offset += 48u;
                         break;
                     }
                     case 72u:
                     {
-                        linewidth = as_type<float>(v_266.memory[di]);
-                        Alloc param_62 = cmd_alloc;
-                        CmdRef param_63 = cmd_ref;
-                        uint param_64 = cmd_limit;
-                        bool _2087 = alloc_cmd(param_62, param_63, param_64, v_266, v_266BufferSize);
-                        cmd_alloc = param_62;
-                        cmd_ref = param_63;
-                        cmd_limit = param_64;
-                        if (!_2087)
-                        {
-                            break;
-                        }
-                        Alloc param_65 = cmd_alloc;
-                        CmdRef param_66 = cmd_ref;
-                        Tile param_67 = tile_1;
-                        float param_68 = linewidth;
-                        write_fill(param_65, param_66, param_67, param_68, v_266, v_266BufferSize);
-                        cmd_ref = param_66;
-                        uint index = _1399.scene[dd_1];
-                        uint raw1 = _1399.scene[dd_1 + 1u];
+                        Alloc param_63 = cmd_alloc;
+                        CmdRef param_64 = cmd_ref;
+                        uint param_65 = cmd_limit;
+                        alloc_cmd(param_63, param_64, param_65, mem_ok, v_267, v_891);
+                        cmd_alloc = param_63;
+                        cmd_ref = param_64;
+                        cmd_limit = param_65;
+                        linewidth = as_type<float>(v_267.memory[di]);
+                        Alloc param_66 = cmd_alloc;
+                        CmdRef param_67 = cmd_ref;
+                        Tile param_68 = tile_1;
+                        float param_69 = linewidth;
+                        write_fill(param_66, param_67, param_68, param_69, mem_ok, v_267);
+                        cmd_ref = param_67;
+                        uint index = _1390.scene[dd_1];
+                        uint raw1 = _1390.scene[dd_1 + 1u];
                         int2 offset_1 = int2(int(raw1 << uint(16)) >> 16, int(raw1) >> 16);
-                        Alloc param_69 = cmd_alloc;
-                        CmdRef param_70 = cmd_ref;
-                        CmdImage param_71 = CmdImage{ index, offset_1 };
-                        Cmd_Image_write(param_69, param_70, param_71, v_266, v_266BufferSize);
+                        if (mem_ok)
+                        {
+                            Alloc param_70 = cmd_alloc;
+                            CmdRef param_71 = cmd_ref;
+                            CmdImage param_72 = CmdImage{ index, offset_1 };
+                            Cmd_Image_write(param_70, param_71, param_72, v_267);
+                        }
                         cmd_ref.offset += 12u;
                         break;
                     }
                     case 5u:
                     {
-                        bool _2140 = tile_1.tile.offset == 0u;
-                        bool _2146;
-                        if (_2140)
+                        bool _2120 = tile_1.tile.offset == 0u;
+                        bool _2126;
+                        if (_2120)
                         {
-                            _2146 = tile_1.backdrop == 0;
+                            _2126 = tile_1.backdrop == 0;
                         }
                         else
                         {
-                            _2146 = _2140;
+                            _2126 = _2120;
                         }
-                        if (_2146)
+                        if (_2126)
                         {
                             clip_zero_depth = clip_depth + 1u;
                         }
                         else
                         {
-                            Alloc param_72 = cmd_alloc;
-                            CmdRef param_73 = cmd_ref;
-                            uint param_74 = cmd_limit;
-                            bool _2158 = alloc_cmd(param_72, param_73, param_74, v_266, v_266BufferSize);
-                            cmd_alloc = param_72;
-                            cmd_ref = param_73;
-                            cmd_limit = param_74;
-                            if (!_2158)
+                            Alloc param_73 = cmd_alloc;
+                            CmdRef param_74 = cmd_ref;
+                            uint param_75 = cmd_limit;
+                            alloc_cmd(param_73, param_74, param_75, mem_ok, v_267, v_891);
+                            cmd_alloc = param_73;
+                            cmd_ref = param_74;
+                            cmd_limit = param_75;
+                            if (mem_ok)
                             {
-                                break;
+                                Alloc param_76 = cmd_alloc;
+                                CmdRef param_77 = cmd_ref;
+                                Cmd_BeginClip_write(param_76, param_77, v_267);
                             }
-                            Alloc param_75 = cmd_alloc;
-                            CmdRef param_76 = cmd_ref;
-                            Cmd_BeginClip_write(param_75, param_76, v_266, v_266BufferSize);
                             cmd_ref.offset += 4u;
                             render_blend_depth++;
                             max_blend_depth = max(max_blend_depth, render_blend_depth);
@@ -1179,28 +1180,20 @@ kernel void main0(constant uint* spvBufferSizeConstants [[buffer(25)]], device M
                     case 37u:
                     {
                         clip_depth--;
-                        Alloc param_77 = cmd_alloc;
-                        CmdRef param_78 = cmd_ref;
-                        uint param_79 = cmd_limit;
-                        bool _2191 = alloc_cmd(param_77, param_78, param_79, v_266, v_266BufferSize);
-                        cmd_alloc = param_77;
-                        cmd_ref = param_78;
-                        cmd_limit = param_79;
-                        if (!_2191)
+                        Alloc param_78 = cmd_alloc;
+                        CmdRef param_79 = cmd_ref;
+                        Tile param_80 = tile_1;
+                        float param_81 = -1.0;
+                        write_fill(param_78, param_79, param_80, param_81, mem_ok, v_267);
+                        cmd_ref = param_79;
+                        uint blend_1 = _1390.scene[dd_1];
+                        if (mem_ok)
                         {
-                            break;
+                            Alloc param_82 = cmd_alloc;
+                            CmdRef param_83 = cmd_ref;
+                            CmdEndClip param_84 = CmdEndClip{ blend_1 };
+                            Cmd_EndClip_write(param_82, param_83, param_84, v_267);
                         }
-                        Alloc param_80 = cmd_alloc;
-                        CmdRef param_81 = cmd_ref;
-                        Tile param_82 = tile_1;
-                        float param_83 = -1.0;
-                        write_fill(param_80, param_81, param_82, param_83, v_266, v_266BufferSize);
-                        cmd_ref = param_81;
-                        uint blend_1 = _1399.scene[dd_1];
-                        Alloc param_84 = cmd_alloc;
-                        CmdRef param_85 = cmd_ref;
-                        CmdEndClip param_86 = CmdEndClip{ blend_1 };
-                        Cmd_EndClip_write(param_84, param_85, param_86, v_266, v_266BufferSize);
                         cmd_ref.offset += 8u;
                         render_blend_depth--;
                         break;
@@ -1235,31 +1228,33 @@ kernel void main0(constant uint* spvBufferSizeConstants [[buffer(25)]], device M
             break;
         }
     }
-    bool _2263 = (bin_tile_x + tile_x) < _1020.conf.width_in_tiles;
-    bool _2272;
-    if (_2263)
+    bool _2231 = (bin_tile_x + tile_x) < v_891.conf.width_in_tiles;
+    bool _2240;
+    if (_2231)
     {
-        _2272 = (bin_tile_y + tile_y) < _1020.conf.height_in_tiles;
+        _2240 = (bin_tile_y + tile_y) < v_891.conf.height_in_tiles;
     }
     else
     {
-        _2272 = _2263;
+        _2240 = _2231;
     }
-    if (_2272)
+    if (_2240)
     {
-        Alloc param_87 = cmd_alloc;
-        CmdRef param_88 = cmd_ref;
-        Cmd_End_write(param_87, param_88, v_266, v_266BufferSize);
+        if (mem_ok)
+        {
+            Alloc param_85 = cmd_alloc;
+            CmdRef param_86 = cmd_ref;
+            Cmd_End_write(param_85, param_86, v_267);
+        }
         if (max_blend_depth > 4u)
         {
             uint scratch_size = (((max_blend_depth * 16u) * 16u) * 1u) * 4u;
-            uint param_89 = scratch_size;
-            MallocResult _2293 = malloc(param_89, v_266, v_266BufferSize);
-            MallocResult scratch = _2293;
-            Alloc param_90 = scratch_alloc;
-            uint param_91 = scratch_alloc.offset;
-            Alloc param_92 = scratch.alloc;
-            alloc_write(param_90, param_91, param_92, v_266, v_266BufferSize);
+            uint _2264 = atomic_fetch_add_explicit((device atomic_uint*)&v_267.blend_offset, scratch_size, memory_order_relaxed);
+            uint scratch = _2264;
+            Alloc param_87 = scratch_alloc;
+            uint param_88 = scratch_alloc.offset >> uint(2);
+            uint param_89 = scratch;
+            write_mem(param_87, param_88, param_89, v_267);
         }
     }
 }

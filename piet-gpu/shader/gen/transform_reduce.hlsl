@@ -16,6 +16,7 @@ struct Alloc
 
 struct Config
 {
+    uint mem_size;
     uint n_elements;
     uint n_pathseg;
     uint width_in_tiles;
@@ -96,7 +97,7 @@ Transform combine_monoid(Transform a, Transform b)
 void comp_main()
 {
     uint ix = gl_GlobalInvocationID.x * 8u;
-    TransformRef _168 = { _161.Load(84) + (ix * 24u) };
+    TransformRef _168 = { _161.Load(88) + (ix * 24u) };
     TransformRef ref = _168;
     TransformRef param = ref;
     Transform agg = Transform_read(param);

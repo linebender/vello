@@ -21,6 +21,7 @@ struct Path
 
 struct Config
 {
+    uint mem_size;
     uint n_elements;
     uint n_pathseg;
     uint width_in_tiles;
@@ -52,8 +53,8 @@ struct Config
 
 static const uint3 gl_WorkGroupSize = uint3(256u, 4u, 1u);
 
-RWByteAddressBuffer _67 : register(u0, space0);
-ByteAddressBuffer _166 : register(t1, space0);
+RWByteAddressBuffer _59 : register(u0, space0);
+ByteAddressBuffer _181 : register(t1, space0);
 
 static uint3 gl_LocalInvocationID;
 static uint3 gl_GlobalInvocationID;
@@ -69,6 +70,13 @@ groupshared uint sh_row_width[256];
 groupshared Alloc sh_row_alloc[256];
 groupshared uint sh_row_count[256];
 
+bool check_deps(uint dep_stage)
+{
+    uint _65;
+    _59.InterlockedOr(4, 0u, _65);
+    return (_65 & dep_stage) == 0u;
+}
+
 bool touch_mem(Alloc alloc, uint offset)
 {
     return true;
@@ -82,7 +90,7 @@ uint read_mem(Alloc alloc, uint offset)
     {
         return 0u;
     }
-    uint v = _67.Load(offset * 4 + 8);
+    uint v = _59.Load(offset * 4 + 12);
     return v;
 }
 
@@ -100,8 +108,8 @@ Path Path_read(Alloc a, PathRef ref)
     uint raw2 = read_mem(param_4, param_5);
     Path s;
     s.bbox = uint4(raw0 & 65535u, raw0 >> uint(16), raw1 & 65535u, raw1 >> uint(16));
-    TileRef _134 = { raw2 };
-    s.tiles = _134;
+    TileRef _146 = { raw2 };
+    s.tiles = _146;
     return s;
 }
 
@@ -120,47 +128,52 @@ void write_mem(Alloc alloc, uint offset, uint val)
     {
         return;
     }
-    _67.Store(offset * 4 + 8, val);
+    _59.Store(offset * 4 + 12, val);
 }
 
 void comp_main()
 {
+    uint param = 7u;
+    bool _154 = check_deps(param);
+    if (!_154)
+    {
+        return;
+    }
     uint th_ix = gl_LocalInvocationIndex;
     uint element_ix = gl_GlobalInvocationID.x;
     uint row_count = 0u;
-    bool mem_ok = _67.Load(4) == 0u;
     if (gl_LocalInvocationID.y == 0u)
     {
-        if (element_ix < _166.Load(0))
+        if (element_ix < _181.Load(4))
         {
-            PathRef _180 = { _166.Load(16) + (element_ix * 12u) };
-            PathRef path_ref = _180;
-            Alloc _185;
-            _185.offset = _166.Load(16);
-            Alloc param;
-            param.offset = _185.offset;
-            PathRef param_1 = path_ref;
-            Path path = Path_read(param, param_1);
+            PathRef _195 = { _181.Load(20) + (element_ix * 12u) };
+            PathRef path_ref = _195;
+            Alloc _200;
+            _200.offset = _181.Load(20);
+            Alloc param_1;
+            param_1.offset = _200.offset;
+            PathRef param_2 = path_ref;
+            Path path = Path_read(param_1, param_2);
             sh_row_width[th_ix] = path.bbox.z - path.bbox.x;
             row_count = path.bbox.w - path.bbox.y;
-            bool _210 = row_count == 1u;
-            bool _216;
-            if (_210)
+            bool _225 = row_count == 1u;
+            bool _231;
+            if (_225)
             {
-                _216 = path.bbox.y > 0u;
+                _231 = path.bbox.y > 0u;
             }
             else
             {
-                _216 = _210;
+                _231 = _225;
             }
-            if (_216)
+            if (_231)
             {
                 row_count = 0u;
             }
-            uint param_2 = path.tiles.offset;
-            uint param_3 = ((path.bbox.z - path.bbox.x) * (path.bbox.w - path.bbox.y)) * 8u;
-            bool param_4 = mem_ok;
-            Alloc path_alloc = new_alloc(param_2, param_3, param_4);
+            uint param_3 = path.tiles.offset;
+            uint param_4 = ((path.bbox.z - path.bbox.x) * (path.bbox.w - path.bbox.y)) * 8u;
+            bool param_5 = true;
+            Alloc path_alloc = new_alloc(param_3, param_4, param_5);
             sh_row_alloc[th_ix] = path_alloc;
         }
         sh_row_count[th_ix] = row_count;
@@ -168,17 +181,17 @@ void comp_main()
     for (uint i = 0u; i < 8u; i++)
     {
         GroupMemoryBarrierWithGroupSync();
-        bool _262 = gl_LocalInvocationID.y == 0u;
-        bool _269;
-        if (_262)
+        bool _276 = gl_LocalInvocationID.y == 0u;
+        bool _283;
+        if (_276)
         {
-            _269 = th_ix >= (1u << i);
+            _283 = th_ix >= (1u << i);
         }
         else
         {
-            _269 = _262;
+            _283 = _276;
         }
-        if (_269)
+        if (_283)
         {
             row_count += sh_row_count[th_ix - (1u << i)];
         }
@@ -190,7 +203,7 @@ void comp_main()
     }
     GroupMemoryBarrierWithGroupSync();
     uint total_rows = sh_row_count[255];
-    uint _348;
+    uint _360;
     for (uint row = th_ix; row < total_rows; row += 1024u)
     {
         uint el_ix = 0u;
@@ -203,32 +216,32 @@ void comp_main()
             }
         }
         uint width = sh_row_width[el_ix];
-        if ((width > 0u) && mem_ok)
+        if (width > 0u)
         {
             Alloc tiles_alloc = sh_row_alloc[el_ix];
             if (el_ix > 0u)
             {
-                _348 = sh_row_count[el_ix - 1u];
+                _360 = sh_row_count[el_ix - 1u];
             }
             else
             {
-                _348 = 0u;
+                _360 = 0u;
             }
-            uint seq_ix = row - _348;
+            uint seq_ix = row - _360;
             uint tile_el_ix = ((tiles_alloc.offset >> uint(2)) + 1u) + ((seq_ix * 2u) * width);
-            Alloc param_5 = tiles_alloc;
-            uint param_6 = tile_el_ix;
-            uint sum = read_mem(param_5, param_6);
+            Alloc param_6 = tiles_alloc;
+            uint param_7 = tile_el_ix;
+            uint sum = read_mem(param_6, param_7);
             for (uint x = 1u; x < width; x++)
             {
                 tile_el_ix += 2u;
-                Alloc param_7 = tiles_alloc;
-                uint param_8 = tile_el_ix;
-                sum += read_mem(param_7, param_8);
-                Alloc param_9 = tiles_alloc;
-                uint param_10 = tile_el_ix;
-                uint param_11 = sum;
-                write_mem(param_9, param_10, param_11);
+                Alloc param_8 = tiles_alloc;
+                uint param_9 = tile_el_ix;
+                sum += read_mem(param_8, param_9);
+                Alloc param_10 = tiles_alloc;
+                uint param_11 = tile_el_ix;
+                uint param_12 = sum;
+                write_mem(param_10, param_11, param_12);
             }
         }
     }

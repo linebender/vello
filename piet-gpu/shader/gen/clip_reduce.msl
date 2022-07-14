@@ -24,6 +24,7 @@ struct Alloc
 
 struct Config
 {
+    uint mem_size;
     uint n_elements;
     uint n_pathseg;
     uint width_in_tiles;
@@ -62,6 +63,7 @@ struct Memory
 {
     uint mem_offset;
     uint mem_error;
+    uint blend_offset;
     uint memory[1];
 };
 
@@ -142,16 +144,16 @@ kernel void main0(device Memory& v_80 [[buffer(0)]], const device ConfigBuf& v_6
     {
         bic = sh_bic[th + 1u];
     }
-    bool _283;
+    bool _284;
     if (is_push)
     {
-        _283 = bic.a == 0u;
+        _284 = bic.a == 0u;
     }
     else
     {
-        _283 = is_push;
+        _284 = is_push;
     }
-    if (_283)
+    if (_284)
     {
         uint local_ix = (size - bic.b) - 1u;
         sh_parent[local_ix] = th;

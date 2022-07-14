@@ -17,6 +17,7 @@ struct Alloc
 
 struct Config
 {
+    uint mem_size;
     uint n_elements;
     uint n_pathseg;
     uint width_in_tiles;
@@ -48,7 +49,7 @@ struct Config
 
 static const uint3 gl_WorkGroupSize = uint3(256u, 1u, 1u);
 
-static const Bic _267 = { 0u, 0u };
+static const Bic _268 = { 0u, 0u };
 
 ByteAddressBuffer _64 : register(t1, space0);
 RWByteAddressBuffer _80 : register(u0, space0);
@@ -77,39 +78,39 @@ Bic bic_combine(Bic x, Bic y)
 
 void store_bic(uint ix, Bic bic)
 {
-    uint base = (_64.Load(52) >> uint(2)) + (2u * ix);
-    _80.Store(base * 4 + 8, bic.a);
-    _80.Store((base + 1u) * 4 + 8, bic.b);
+    uint base = (_64.Load(56) >> uint(2)) + (2u * ix);
+    _80.Store(base * 4 + 12, bic.a);
+    _80.Store((base + 1u) * 4 + 12, bic.b);
 }
 
 float4 load_path_bbox(uint path_ix)
 {
-    uint base = (_64.Load(40) >> uint(2)) + (6u * path_ix);
-    float bbox_l = float(_80.Load(base * 4 + 8)) - 32768.0f;
-    float bbox_t = float(_80.Load((base + 1u) * 4 + 8)) - 32768.0f;
-    float bbox_r = float(_80.Load((base + 2u) * 4 + 8)) - 32768.0f;
-    float bbox_b = float(_80.Load((base + 3u) * 4 + 8)) - 32768.0f;
+    uint base = (_64.Load(44) >> uint(2)) + (6u * path_ix);
+    float bbox_l = float(_80.Load(base * 4 + 12)) - 32768.0f;
+    float bbox_t = float(_80.Load((base + 1u) * 4 + 12)) - 32768.0f;
+    float bbox_r = float(_80.Load((base + 2u) * 4 + 12)) - 32768.0f;
+    float bbox_b = float(_80.Load((base + 3u) * 4 + 12)) - 32768.0f;
     float4 bbox = float4(bbox_l, bbox_t, bbox_r, bbox_b);
     return bbox;
 }
 
 void store_clip_el(uint ix, ClipEl el)
 {
-    uint base = (_64.Load(56) >> uint(2)) + (5u * ix);
-    _80.Store(base * 4 + 8, el.parent_ix);
-    _80.Store((base + 1u) * 4 + 8, asuint(el.bbox.x));
-    _80.Store((base + 2u) * 4 + 8, asuint(el.bbox.y));
-    _80.Store((base + 3u) * 4 + 8, asuint(el.bbox.z));
-    _80.Store((base + 4u) * 4 + 8, asuint(el.bbox.w));
+    uint base = (_64.Load(60) >> uint(2)) + (5u * ix);
+    _80.Store(base * 4 + 12, el.parent_ix);
+    _80.Store((base + 1u) * 4 + 12, asuint(el.bbox.x));
+    _80.Store((base + 2u) * 4 + 12, asuint(el.bbox.y));
+    _80.Store((base + 3u) * 4 + 12, asuint(el.bbox.z));
+    _80.Store((base + 4u) * 4 + 12, asuint(el.bbox.w));
 }
 
 void comp_main()
 {
     uint th = gl_LocalInvocationID.x;
-    uint inp = _80.Load(((_64.Load(48) >> uint(2)) + gl_GlobalInvocationID.x) * 4 + 8);
+    uint inp = _80.Load(((_64.Load(52) >> uint(2)) + gl_GlobalInvocationID.x) * 4 + 12);
     bool is_push = int(inp) >= 0;
-    Bic _207 = { 1u - uint(is_push), uint(is_push) };
-    Bic bic = _207;
+    Bic _208 = { 1u - uint(is_push), uint(is_push) };
+    Bic bic = _208;
     sh_bic[gl_LocalInvocationID.x] = bic;
     for (uint i = 0u; i < 8u; i++)
     {
@@ -132,21 +133,21 @@ void comp_main()
     }
     GroupMemoryBarrierWithGroupSync();
     uint size = sh_bic[0].b;
-    bic = _267;
+    bic = _268;
     if ((th + 1u) < 256u)
     {
         bic = sh_bic[th + 1u];
     }
-    bool _283;
+    bool _284;
     if (is_push)
     {
-        _283 = bic.a == 0u;
+        _284 = bic.a == 0u;
     }
     else
     {
-        _283 = is_push;
+        _284 = is_push;
     }
-    if (_283)
+    if (_284)
     {
         uint local_ix = (size - bic.b) - 1u;
         sh_parent[local_ix] = th;
@@ -163,8 +164,8 @@ void comp_main()
     if (th < size)
     {
         uint parent_ix = sh_parent[th] + (gl_WorkGroupID.x * 256u);
-        ClipEl _331 = { parent_ix, bbox };
-        ClipEl el = _331;
+        ClipEl _332 = { parent_ix, bbox };
+        ClipEl el = _332;
         uint param_5 = gl_GlobalInvocationID.x;
         ClipEl param_6 = el;
         store_clip_el(param_5, param_6);

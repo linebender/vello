@@ -13,6 +13,7 @@ struct Alloc
 
 struct Config
 {
+    uint mem_size;
     uint n_elements;
     uint n_pathseg;
     uint width_in_tiles;
@@ -81,7 +82,7 @@ DrawMonoid combine_draw_monoid(DrawMonoid a, DrawMonoid b)
 void comp_main()
 {
     uint ix = gl_GlobalInvocationID.x * 8u;
-    uint drawtag_base = _87.Load(100) >> uint(2);
+    uint drawtag_base = _87.Load(104) >> uint(2);
     uint tag_word = _97.Load((drawtag_base + ix) * 4 + 0);
     uint param = tag_word;
     DrawMonoid agg = map_tag(param);

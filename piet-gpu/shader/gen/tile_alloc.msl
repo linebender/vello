@@ -12,12 +12,6 @@ struct Alloc
     uint offset;
 };
 
-struct MallocResult
-{
-    Alloc alloc;
-    bool failed;
-};
-
 struct PathRef
 {
     uint offset;
@@ -38,6 +32,7 @@ struct Memory
 {
     uint mem_offset;
     uint mem_error;
+    uint blend_offset;
     uint memory[1];
 };
 
@@ -48,6 +43,7 @@ struct Alloc_1
 
 struct Config
 {
+    uint mem_size;
     uint n_elements;
     uint n_pathseg;
     uint width_in_tiles;
@@ -90,48 +86,35 @@ struct SceneBuf
 constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(256u, 1u, 1u);
 
 static inline __attribute__((always_inline))
-float4 load_draw_bbox(thread const uint& draw_ix, device Memory& v_70, constant uint& v_70BufferSize, const device ConfigBuf& v_181)
+bool check_deps(thread const uint& dep_stage, device Memory& v_53)
 {
-    uint base = (v_181.conf.draw_bbox_alloc.offset >> uint(2)) + (4u * draw_ix);
-    float x0 = as_type<float>(v_70.memory[base]);
-    float y0 = as_type<float>(v_70.memory[base + 1u]);
-    float x1 = as_type<float>(v_70.memory[base + 2u]);
-    float y1 = as_type<float>(v_70.memory[base + 3u]);
+    uint _60 = atomic_fetch_or_explicit((device atomic_uint*)&v_53.mem_error, 0u, memory_order_relaxed);
+    return (_60 & dep_stage) == 0u;
+}
+
+static inline __attribute__((always_inline))
+float4 load_draw_bbox(thread const uint& draw_ix, device Memory& v_53, const device ConfigBuf& v_148)
+{
+    uint base = (v_148.conf.draw_bbox_alloc.offset >> uint(2)) + (4u * draw_ix);
+    float x0 = as_type<float>(v_53.memory[base]);
+    float y0 = as_type<float>(v_53.memory[base + 1u]);
+    float x1 = as_type<float>(v_53.memory[base + 2u]);
+    float y1 = as_type<float>(v_53.memory[base + 3u]);
     float4 bbox = float4(x0, y0, x1, y1);
     return bbox;
 }
 
 static inline __attribute__((always_inline))
-Alloc new_alloc(thread const uint& offset, thread const uint& size, thread const bool& mem_ok)
+uint malloc_stage(thread const uint& size, thread const uint& mem_size, thread const uint& stage, device Memory& v_53)
 {
-    Alloc a;
-    a.offset = offset;
-    return a;
-}
-
-static inline __attribute__((always_inline))
-MallocResult malloc(thread const uint& size, device Memory& v_70, constant uint& v_70BufferSize)
-{
-    uint _76 = atomic_fetch_add_explicit((device atomic_uint*)&v_70.mem_offset, size, memory_order_relaxed);
-    uint offset = _76;
-    MallocResult r;
-    r.failed = (offset + size) > uint(int((v_70BufferSize - 8) / 4) * 4);
-    uint param = offset;
-    uint param_1 = size;
-    bool param_2 = !r.failed;
-    r.alloc = new_alloc(param, param_1, param_2);
-    if (r.failed)
+    uint _70 = atomic_fetch_add_explicit((device atomic_uint*)&v_53.mem_offset, size, memory_order_relaxed);
+    uint offset = _70;
+    if ((offset + size) > mem_size)
     {
-        uint _105 = atomic_fetch_max_explicit((device atomic_uint*)&v_70.mem_error, 1u, memory_order_relaxed);
-        return r;
+        uint _80 = atomic_fetch_or_explicit((device atomic_uint*)&v_53.mem_error, stage, memory_order_relaxed);
+        offset = 0u;
     }
-    return r;
-}
-
-static inline __attribute__((always_inline))
-Alloc slice_mem(thread const Alloc& a, thread const uint& offset, thread const uint& size)
-{
-    return Alloc{ a.offset + offset };
+    return offset;
 }
 
 static inline __attribute__((always_inline))
@@ -141,7 +124,7 @@ bool touch_mem(thread const Alloc& alloc, thread const uint& offset)
 }
 
 static inline __attribute__((always_inline))
-void write_mem(thread const Alloc& alloc, thread const uint& offset, thread const uint& val, device Memory& v_70, constant uint& v_70BufferSize)
+void write_mem(thread const Alloc& alloc, thread const uint& offset, thread const uint& val, device Memory& v_53)
 {
     Alloc param = alloc;
     uint param_1 = offset;
@@ -149,40 +132,45 @@ void write_mem(thread const Alloc& alloc, thread const uint& offset, thread cons
     {
         return;
     }
-    v_70.memory[offset] = val;
+    v_53.memory[offset] = val;
 }
 
 static inline __attribute__((always_inline))
-void Path_write(thread const Alloc& a, thread const PathRef& ref, thread const Path& s, device Memory& v_70, constant uint& v_70BufferSize)
+void Path_write(thread const Alloc& a, thread const PathRef& ref, thread const Path& s, device Memory& v_53)
 {
     uint ix = ref.offset >> uint(2);
     Alloc param = a;
     uint param_1 = ix + 0u;
     uint param_2 = s.bbox.x | (s.bbox.y << uint(16));
-    write_mem(param, param_1, param_2, v_70, v_70BufferSize);
+    write_mem(param, param_1, param_2, v_53);
     Alloc param_3 = a;
     uint param_4 = ix + 1u;
     uint param_5 = s.bbox.z | (s.bbox.w << uint(16));
-    write_mem(param_3, param_4, param_5, v_70, v_70BufferSize);
+    write_mem(param_3, param_4, param_5, v_53);
     Alloc param_6 = a;
     uint param_7 = ix + 2u;
     uint param_8 = s.tiles.offset;
-    write_mem(param_6, param_7, param_8, v_70, v_70BufferSize);
+    write_mem(param_6, param_7, param_8, v_53);
 }
 
-kernel void main0(constant uint* spvBufferSizeConstants [[buffer(25)]], device Memory& v_70 [[buffer(0)]], const device ConfigBuf& v_181 [[buffer(1)]], const device SceneBuf& _257 [[buffer(2)]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+kernel void main0(device Memory& v_53 [[buffer(0)]], const device ConfigBuf& v_148 [[buffer(1)]], const device SceneBuf& _232 [[buffer(2)]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
 {
     threadgroup uint sh_tile_count[256];
-    threadgroup MallocResult sh_tile_alloc;
-    constant uint& v_70BufferSize = spvBufferSizeConstants[0];
+    threadgroup uint sh_tile_offset;
+    uint param = 1u;
+    bool _192 = check_deps(param, v_53);
+    if (!_192)
+    {
+        return;
+    }
     uint th_ix = gl_LocalInvocationID.x;
     uint element_ix = gl_GlobalInvocationID.x;
-    PathRef path_ref = PathRef{ v_181.conf.tile_alloc.offset + (element_ix * 12u) };
-    uint drawtag_base = v_181.conf.drawtag_offset >> uint(2);
+    PathRef path_ref = PathRef{ v_148.conf.tile_alloc.offset + (element_ix * 12u) };
+    uint drawtag_base = v_148.conf.drawtag_offset >> uint(2);
     uint drawtag = 0u;
-    if (element_ix < v_181.conf.n_elements)
+    if (element_ix < v_148.conf.n_elements)
     {
-        drawtag = _257.scene[drawtag_base + element_ix];
+        drawtag = _232.scene[drawtag_base + element_ix];
     }
     int x0 = 0;
     int y0 = 0;
@@ -190,17 +178,17 @@ kernel void main0(constant uint* spvBufferSizeConstants [[buffer(25)]], device M
     int y1 = 0;
     if ((drawtag != 0u) && (drawtag != 37u))
     {
-        uint param = element_ix;
-        float4 bbox = load_draw_bbox(param, v_70, v_70BufferSize, v_181);
+        uint param_1 = element_ix;
+        float4 bbox = load_draw_bbox(param_1, v_53, v_148);
         x0 = int(floor(bbox.x * 0.0625));
         y0 = int(floor(bbox.y * 0.0625));
         x1 = int(ceil(bbox.z * 0.0625));
         y1 = int(ceil(bbox.w * 0.0625));
     }
-    x0 = clamp(x0, 0, int(v_181.conf.width_in_tiles));
-    y0 = clamp(y0, 0, int(v_181.conf.height_in_tiles));
-    x1 = clamp(x1, 0, int(v_181.conf.width_in_tiles));
-    y1 = clamp(y1, 0, int(v_181.conf.height_in_tiles));
+    x0 = clamp(x0, 0, int(v_148.conf.width_in_tiles));
+    y0 = clamp(y0, 0, int(v_148.conf.height_in_tiles));
+    x1 = clamp(x1, 0, int(v_148.conf.width_in_tiles));
+    y1 = clamp(y1, 0, int(v_148.conf.height_in_tiles));
     Path path;
     path.bbox = uint4(uint(x0), uint(y0), uint(x1), uint(y1));
     uint tile_count = uint((x1 - x0) * (y1 - y0));
@@ -218,56 +206,42 @@ kernel void main0(constant uint* spvBufferSizeConstants [[buffer(25)]], device M
     }
     if (th_ix == 255u)
     {
-        uint param_1 = total_tile_count * 8u;
-        MallocResult _392 = malloc(param_1, v_70, v_70BufferSize);
-        sh_tile_alloc = _392;
+        uint param_2 = total_tile_count * 8u;
+        uint param_3 = v_148.conf.mem_size;
+        uint param_4 = 2u;
+        uint _370 = malloc_stage(param_2, param_3, param_4, v_53);
+        sh_tile_offset = _370;
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
-    MallocResult alloc_start = sh_tile_alloc;
-    bool _403;
-    if (!alloc_start.failed)
-    {
-        _403 = v_70.mem_error != 0u;
-    }
-    else
-    {
-        _403 = alloc_start.failed;
-    }
-    if (_403)
+    uint offset_start = sh_tile_offset;
+    if (offset_start == 0u)
     {
         return;
     }
-    if (element_ix < v_181.conf.n_elements)
+    if (element_ix < v_148.conf.n_elements)
     {
-        uint _416;
+        uint _387;
         if (th_ix > 0u)
         {
-            _416 = sh_tile_count[th_ix - 1u];
+            _387 = sh_tile_count[th_ix - 1u];
         }
         else
         {
-            _416 = 0u;
+            _387 = 0u;
         }
-        uint tile_subix = _416;
-        Alloc param_2 = alloc_start.alloc;
-        uint param_3 = 8u * tile_subix;
-        uint param_4 = 8u * tile_count;
-        Alloc tiles_alloc = slice_mem(param_2, param_3, param_4);
-        path.tiles = TileRef{ tiles_alloc.offset };
+        uint tile_subix = _387;
+        path.tiles = TileRef{ offset_start + (8u * tile_subix) };
         Alloc param_5;
-        param_5.offset = v_181.conf.tile_alloc.offset;
+        param_5.offset = v_148.conf.tile_alloc.offset;
         PathRef param_6 = path_ref;
         Path param_7 = path;
-        Path_write(param_5, param_6, param_7, v_70, v_70BufferSize);
+        Path_write(param_5, param_6, param_7, v_53);
     }
     uint total_count = sh_tile_count[255] * 2u;
-    uint start_ix = alloc_start.alloc.offset >> uint(2);
+    uint start_ix = offset_start >> uint(2);
     for (uint i_1 = th_ix; i_1 < total_count; i_1 += 256u)
     {
-        Alloc param_8 = alloc_start.alloc;
-        uint param_9 = start_ix + i_1;
-        uint param_10 = 0u;
-        write_mem(param_8, param_9, param_10, v_70, v_70BufferSize);
+        v_53.memory[start_ix + i_1] = 0u;
     }
 }
 

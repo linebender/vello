@@ -3,12 +3,6 @@ struct Alloc
     uint offset;
 };
 
-struct MallocResult
-{
-    Alloc alloc;
-    bool failed;
-};
-
 struct PathCubicRef
 {
     uint offset;
@@ -74,6 +68,7 @@ struct SubdivResult
 
 struct Config
 {
+    uint mem_size;
     uint n_elements;
     uint n_pathseg;
     uint width_in_tiles;
@@ -105,16 +100,25 @@ struct Config
 
 static const uint3 gl_WorkGroupSize = uint3(32u, 1u, 1u);
 
-static const PathSegTag _721 = { 0u, 0u };
+static const PathSegTag _722 = { 0u, 0u };
 
-RWByteAddressBuffer _136 : register(u0, space0);
-ByteAddressBuffer _710 : register(t1, space0);
+RWByteAddressBuffer _143 : register(u0, space0);
+ByteAddressBuffer _711 : register(t1, space0);
 
 static uint3 gl_GlobalInvocationID;
 struct SPIRV_Cross_Input
 {
     uint3 gl_GlobalInvocationID : SV_DispatchThreadID;
 };
+
+static bool mem_ok;
+
+bool check_deps(uint dep_stage)
+{
+    uint _149;
+    _143.InterlockedOr(4, 0u, _149);
+    return (_149 & dep_stage) == 0u;
+}
 
 bool touch_mem(Alloc alloc, uint offset)
 {
@@ -129,7 +133,7 @@ uint read_mem(Alloc alloc, uint offset)
     {
         return 0u;
     }
-    uint v = _136.Load(offset * 4 + 8);
+    uint v = _143.Load(offset * 4 + 12);
     return v;
 }
 
@@ -138,8 +142,8 @@ PathSegTag PathSeg_tag(Alloc a, PathSegRef ref)
     Alloc param = a;
     uint param_1 = ref.offset >> uint(2);
     uint tag_and_flags = read_mem(param, param_1);
-    PathSegTag _367 = { tag_and_flags & 65535u, tag_and_flags >> uint(16) };
-    return _367;
+    PathSegTag _362 = { tag_and_flags & 65535u, tag_and_flags >> uint(16) };
+    return _362;
 }
 
 PathCubic PathCubic_read(Alloc a, PathCubicRef ref)
@@ -194,9 +198,9 @@ PathCubic PathCubic_read(Alloc a, PathCubicRef ref)
 
 PathCubic PathSeg_Cubic_read(Alloc a, PathSegRef ref)
 {
-    PathCubicRef _373 = { ref.offset + 4u };
+    PathCubicRef _368 = { ref.offset + 4u };
     Alloc param = a;
-    PathCubicRef param_1 = _373;
+    PathCubicRef param_1 = _368;
     return PathCubic_read(param, param_1);
 }
 
@@ -240,8 +244,8 @@ SubdivResult estimate_subdiv(float2 p0, float2 p1, float2 p2, float sqrt_tol)
             val = (sqrt_tol * da) / approx_parabola_integral(param_2);
         }
     }
-    SubdivResult _695 = { val, a0, a2 };
-    return _695;
+    SubdivResult _690 = { val, a0, a2 };
+    return _690;
 }
 
 uint fill_mode_from_flags(uint flags)
@@ -263,12 +267,12 @@ Path Path_read(Alloc a, PathRef ref)
     uint raw2 = read_mem(param_4, param_5);
     Path s;
     s.bbox = uint4(raw0 & 65535u, raw0 >> uint(16), raw1 & 65535u, raw1 >> uint(16));
-    TileRef _427 = { raw2 };
-    s.tiles = _427;
+    TileRef _422 = { raw2 };
+    s.tiles = _422;
     return s;
 }
 
-Alloc new_alloc(uint offset, uint size, bool mem_ok)
+Alloc new_alloc(uint offset, uint size, bool mem_ok_1)
 {
     Alloc a;
     a.offset = offset;
@@ -286,33 +290,24 @@ float2 eval_quad(float2 p0, float2 p1, float2 p2, float t)
     return (p0 * (mt * mt)) + (((p1 * (mt * 2.0f)) + (p2 * t)) * t);
 }
 
-MallocResult malloc(uint size)
+uint malloc_stage(uint size, uint mem_size, uint stage)
 {
-    uint _142;
-    _136.InterlockedAdd(0, size, _142);
-    uint offset = _142;
-    uint _149;
-    _136.GetDimensions(_149);
-    _149 = (_149 - 8) / 4;
-    MallocResult r;
-    r.failed = (offset + size) > uint(int(_149) * 4);
-    uint param = offset;
-    uint param_1 = size;
-    bool param_2 = !r.failed;
-    r.alloc = new_alloc(param, param_1, param_2);
-    if (r.failed)
+    uint _158;
+    _143.InterlockedAdd(0, size, _158);
+    uint offset = _158;
+    if ((offset + size) > mem_size)
     {
-        uint _171;
-        _136.InterlockedMax(4, 1u, _171);
-        return r;
+        uint _168;
+        _143.InterlockedOr(4, stage, _168);
+        offset = 0u;
     }
-    return r;
+    return offset;
 }
 
 TileRef Tile_index(TileRef ref, uint index)
 {
-    TileRef _385 = { ref.offset + (index * 8u) };
-    return _385;
+    TileRef _380 = { ref.offset + (index * 8u) };
+    return _380;
 }
 
 void write_mem(Alloc alloc, uint offset, uint val)
@@ -323,7 +318,7 @@ void write_mem(Alloc alloc, uint offset, uint val)
     {
         return;
     }
-    _136.Store(offset * 4 + 8, val);
+    _143.Store(offset * 4 + 12, val);
 }
 
 void TileSeg_write(Alloc a, TileSegRef ref, TileSeg s)
@@ -357,30 +352,36 @@ void TileSeg_write(Alloc a, TileSegRef ref, TileSeg s)
 
 void comp_main()
 {
-    uint element_ix = gl_GlobalInvocationID.x;
-    PathSegRef _718 = { _710.Load(28) + (element_ix * 52u) };
-    PathSegRef ref = _718;
-    PathSegTag tag = _721;
-    if (element_ix < _710.Load(4))
+    mem_ok = true;
+    uint param = 7u;
+    bool _694 = check_deps(param);
+    if (!_694)
     {
-        Alloc _731;
-        _731.offset = _710.Load(28);
-        Alloc param;
-        param.offset = _731.offset;
-        PathSegRef param_1 = ref;
-        tag = PathSeg_tag(param, param_1);
+        return;
     }
-    bool mem_ok = _136.Load(4) == 0u;
+    uint element_ix = gl_GlobalInvocationID.x;
+    PathSegRef _719 = { _711.Load(32) + (element_ix * 52u) };
+    PathSegRef ref = _719;
+    PathSegTag tag = _722;
+    if (element_ix < _711.Load(8))
+    {
+        Alloc _732;
+        _732.offset = _711.Load(32);
+        Alloc param_1;
+        param_1.offset = _732.offset;
+        PathSegRef param_2 = ref;
+        tag = PathSeg_tag(param_1, param_2);
+    }
     switch (tag.tag)
     {
         case 1u:
         {
-            Alloc _748;
-            _748.offset = _710.Load(28);
-            Alloc param_2;
-            param_2.offset = _748.offset;
-            PathSegRef param_3 = ref;
-            PathCubic cubic = PathSeg_Cubic_read(param_2, param_3);
+            Alloc _745;
+            _745.offset = _711.Load(32);
+            Alloc param_3;
+            param_3.offset = _745.offset;
+            PathSegRef param_4 = ref;
+            PathCubic cubic = PathSeg_Cubic_read(param_3, param_4);
             float2 err_v = (((cubic.p2 - cubic.p1) * 3.0f) + cubic.p0) - cubic.p3;
             float err = (err_v.x * err_v.x) + (err_v.y * err_v.y);
             uint n_quads = max(uint(ceil(pow(err * 3.7037036418914794921875f, 0.16666667163372039794921875f))), 1u);
@@ -392,43 +393,43 @@ void comp_main()
             for (uint i = 0u; i < n_quads; i++)
             {
                 float t = float(i + 1u) * _step;
-                float2 param_4 = cubic.p0;
-                float2 param_5 = cubic.p1;
-                float2 param_6 = cubic.p2;
-                float2 param_7 = cubic.p3;
-                float param_8 = t;
-                float2 qp2 = eval_cubic(param_4, param_5, param_6, param_7, param_8);
-                float2 param_9 = cubic.p0;
-                float2 param_10 = cubic.p1;
-                float2 param_11 = cubic.p2;
-                float2 param_12 = cubic.p3;
-                float param_13 = t - (0.5f * _step);
-                float2 qp1 = eval_cubic(param_9, param_10, param_11, param_12, param_13);
+                float2 param_5 = cubic.p0;
+                float2 param_6 = cubic.p1;
+                float2 param_7 = cubic.p2;
+                float2 param_8 = cubic.p3;
+                float param_9 = t;
+                float2 qp2 = eval_cubic(param_5, param_6, param_7, param_8, param_9);
+                float2 param_10 = cubic.p0;
+                float2 param_11 = cubic.p1;
+                float2 param_12 = cubic.p2;
+                float2 param_13 = cubic.p3;
+                float param_14 = t - (0.5f * _step);
+                float2 qp1 = eval_cubic(param_10, param_11, param_12, param_13, param_14);
                 qp1 = (qp1 * 2.0f) - ((qp0 + qp2) * 0.5f);
-                float2 param_14 = qp0;
-                float2 param_15 = qp1;
-                float2 param_16 = qp2;
-                float param_17 = 0.4743416607379913330078125f;
-                SubdivResult params = estimate_subdiv(param_14, param_15, param_16, param_17);
+                float2 param_15 = qp0;
+                float2 param_16 = qp1;
+                float2 param_17 = qp2;
+                float param_18 = 0.4743416607379913330078125f;
+                SubdivResult params = estimate_subdiv(param_15, param_16, param_17, param_18);
                 keep_params[i] = params;
                 val += params.val;
                 qp0 = qp2;
             }
             uint n = max(uint(ceil((val * 0.5f) / 0.4743416607379913330078125f)), 1u);
-            uint param_18 = tag.flags;
-            bool is_stroke = fill_mode_from_flags(param_18) == 1u;
+            uint param_19 = tag.flags;
+            bool is_stroke = fill_mode_from_flags(param_19) == 1u;
             uint path_ix = cubic.path_ix;
-            PathRef _904 = { _710.Load(16) + (path_ix * 12u) };
-            Alloc _907;
-            _907.offset = _710.Load(16);
-            Alloc param_19;
-            param_19.offset = _907.offset;
-            PathRef param_20 = _904;
-            Path path = Path_read(param_19, param_20);
-            uint param_21 = path.tiles.offset;
-            uint param_22 = ((path.bbox.z - path.bbox.x) * (path.bbox.w - path.bbox.y)) * 8u;
-            bool param_23 = mem_ok;
-            Alloc path_alloc = new_alloc(param_21, param_22, param_23);
+            PathRef _901 = { _711.Load(20) + (path_ix * 12u) };
+            Alloc _904;
+            _904.offset = _711.Load(20);
+            Alloc param_20;
+            param_20.offset = _904.offset;
+            PathRef param_21 = _901;
+            Path path = Path_read(param_20, param_21);
+            uint param_22 = path.tiles.offset;
+            uint param_23 = ((path.bbox.z - path.bbox.x) * (path.bbox.w - path.bbox.y)) * 8u;
+            bool param_24 = true;
+            Alloc path_alloc = new_alloc(param_22, param_23, param_24);
             int4 bbox = int4(path.bbox);
             float2 p0 = cubic.p0;
             qp0 = cubic.p0;
@@ -436,44 +437,44 @@ void comp_main()
             int n_out = 1;
             float val_sum = 0.0f;
             float2 p1;
-            float _1147;
+            float _1143;
             TileSeg tile_seg;
             for (uint i_1 = 0u; i_1 < n_quads; i_1++)
             {
                 float t_1 = float(i_1 + 1u) * _step;
-                float2 param_24 = cubic.p0;
-                float2 param_25 = cubic.p1;
-                float2 param_26 = cubic.p2;
-                float2 param_27 = cubic.p3;
-                float param_28 = t_1;
-                float2 qp2_1 = eval_cubic(param_24, param_25, param_26, param_27, param_28);
-                float2 param_29 = cubic.p0;
-                float2 param_30 = cubic.p1;
-                float2 param_31 = cubic.p2;
-                float2 param_32 = cubic.p3;
-                float param_33 = t_1 - (0.5f * _step);
-                float2 qp1_1 = eval_cubic(param_29, param_30, param_31, param_32, param_33);
+                float2 param_25 = cubic.p0;
+                float2 param_26 = cubic.p1;
+                float2 param_27 = cubic.p2;
+                float2 param_28 = cubic.p3;
+                float param_29 = t_1;
+                float2 qp2_1 = eval_cubic(param_25, param_26, param_27, param_28, param_29);
+                float2 param_30 = cubic.p0;
+                float2 param_31 = cubic.p1;
+                float2 param_32 = cubic.p2;
+                float2 param_33 = cubic.p3;
+                float param_34 = t_1 - (0.5f * _step);
+                float2 qp1_1 = eval_cubic(param_30, param_31, param_32, param_33, param_34);
                 qp1_1 = (qp1_1 * 2.0f) - ((qp0 + qp2_1) * 0.5f);
                 SubdivResult params_1 = keep_params[i_1];
-                float param_34 = params_1.a0;
-                float u0 = approx_parabola_inv_integral(param_34);
-                float param_35 = params_1.a2;
-                float u2 = approx_parabola_inv_integral(param_35);
+                float param_35 = params_1.a0;
+                float u0 = approx_parabola_inv_integral(param_35);
+                float param_36 = params_1.a2;
+                float u2 = approx_parabola_inv_integral(param_36);
                 float uscale = 1.0f / (u2 - u0);
                 float target = float(n_out) * v_step;
                 for (;;)
                 {
-                    bool _1040 = uint(n_out) == n;
-                    bool _1050;
-                    if (!_1040)
+                    bool _1036 = uint(n_out) == n;
+                    bool _1046;
+                    if (!_1036)
                     {
-                        _1050 = target < (val_sum + params_1.val);
+                        _1046 = target < (val_sum + params_1.val);
                     }
                     else
                     {
-                        _1050 = _1040;
+                        _1046 = _1036;
                     }
-                    if (_1050)
+                    if (_1046)
                     {
                         if (uint(n_out) == n)
                         {
@@ -483,14 +484,14 @@ void comp_main()
                         {
                             float u = (target - val_sum) / params_1.val;
                             float a = lerp(params_1.a0, params_1.a2, u);
-                            float param_36 = a;
-                            float au = approx_parabola_inv_integral(param_36);
+                            float param_37 = a;
+                            float au = approx_parabola_inv_integral(param_37);
                             float t_2 = (au - u0) * uscale;
-                            float2 param_37 = qp0;
-                            float2 param_38 = qp1_1;
-                            float2 param_39 = qp2_1;
-                            float param_40 = t_2;
-                            p1 = eval_quad(param_37, param_38, param_39, param_40);
+                            float2 param_38 = qp0;
+                            float2 param_39 = qp1_1;
+                            float2 param_40 = qp2_1;
+                            float param_41 = t_2;
+                            p1 = eval_quad(param_38, param_39, param_40, param_41);
                         }
                         float xmin = min(p0.x, p1.x) - cubic.stroke.x;
                         float xmax = max(p0.x, p1.x) + cubic.stroke.x;
@@ -500,13 +501,13 @@ void comp_main()
                         float dy = p1.y - p0.y;
                         if (abs(dy) < 9.999999717180685365747194737196e-10f)
                         {
-                            _1147 = 1000000000.0f;
+                            _1143 = 1000000000.0f;
                         }
                         else
                         {
-                            _1147 = dx / dy;
+                            _1143 = dx / dy;
                         }
-                        float invslope = _1147;
+                        float invslope = _1143;
                         float c = (cubic.stroke.x + (abs(invslope) * (8.0f + cubic.stroke.y))) * 0.0625f;
                         float b = invslope;
                         float a_1 = (p0.x - ((p0.y - 8.0f) * b)) * 0.0625f;
@@ -522,14 +523,20 @@ void comp_main()
                         int stride = bbox.z - bbox.x;
                         int base = ((y0 - bbox.y) * stride) - bbox.x;
                         uint n_tile_alloc = uint((x1 - x0) * (y1 - y0));
-                        uint param_41 = n_tile_alloc * 24u;
-                        MallocResult _1263 = malloc(param_41);
-                        MallocResult tile_alloc = _1263;
-                        if (tile_alloc.failed || (!mem_ok))
+                        uint malloc_size = n_tile_alloc * 24u;
+                        uint param_42 = malloc_size;
+                        uint param_43 = _711.Load(0);
+                        uint param_44 = 4u;
+                        uint _1265 = malloc_stage(param_42, param_43, param_44);
+                        uint tile_offset = _1265;
+                        if (tile_offset == 0u)
                         {
-                            return;
+                            mem_ok = false;
                         }
-                        uint tile_offset = tile_alloc.alloc.offset;
+                        uint param_45 = tile_offset;
+                        uint param_46 = malloc_size;
+                        bool param_47 = true;
+                        Alloc tile_alloc = new_alloc(param_45, param_46, param_47);
                         int xray = int(floor(p0.x * 0.0625f));
                         int last_xray = int(floor(p1.x * 0.0625f));
                         if (p0.y > p1.y)
@@ -542,39 +549,34 @@ void comp_main()
                         {
                             float tile_y0 = float(y * 16);
                             int xbackdrop = max((xray + 1), bbox.x);
-                            bool _1319 = !is_stroke;
-                            bool _1329;
-                            if (_1319)
+                            bool _1322 = !is_stroke;
+                            bool _1332;
+                            if (_1322)
                             {
-                                _1329 = min(p0.y, p1.y) < tile_y0;
+                                _1332 = min(p0.y, p1.y) < tile_y0;
                             }
                             else
                             {
-                                _1329 = _1319;
+                                _1332 = _1322;
                             }
-                            bool _1336;
-                            if (_1329)
+                            bool _1339;
+                            if (_1332)
                             {
-                                _1336 = xbackdrop < bbox.z;
+                                _1339 = xbackdrop < bbox.z;
                             }
                             else
                             {
-                                _1336 = _1329;
+                                _1339 = _1332;
                             }
-                            if (_1336)
+                            if (_1339)
                             {
                                 int backdrop = (p1.y < p0.y) ? 1 : (-1);
-                                TileRef param_42 = path.tiles;
-                                uint param_43 = uint(base + xbackdrop);
-                                TileRef tile_ref = Tile_index(param_42, param_43);
+                                TileRef param_48 = path.tiles;
+                                uint param_49 = uint(base + xbackdrop);
+                                TileRef tile_ref = Tile_index(param_48, param_49);
                                 uint tile_el = tile_ref.offset >> uint(2);
-                                Alloc param_44 = path_alloc;
-                                uint param_45 = tile_el + 1u;
-                                if (touch_mem(param_44, param_45))
-                                {
-                                    uint _1374;
-                                    _136.InterlockedAdd((tile_el + 1u) * 4 + 8, uint(backdrop), _1374);
-                                }
+                                uint _1369;
+                                _143.InterlockedAdd((tile_el + 1u) * 4 + 12, uint(backdrop), _1369);
                             }
                             int next_xray = last_xray;
                             if (y < (y1 - 1))
@@ -592,20 +594,15 @@ void comp_main()
                             for (int x = xx0; x < xx1; x++)
                             {
                                 float tile_x0 = float(x * 16);
-                                TileRef _1454 = { path.tiles.offset };
-                                TileRef param_46 = _1454;
-                                uint param_47 = uint(base + x);
-                                TileRef tile_ref_1 = Tile_index(param_46, param_47);
+                                TileRef _1449 = { path.tiles.offset };
+                                TileRef param_50 = _1449;
+                                uint param_51 = uint(base + x);
+                                TileRef tile_ref_1 = Tile_index(param_50, param_51);
                                 uint tile_el_1 = tile_ref_1.offset >> uint(2);
                                 uint old = 0u;
-                                Alloc param_48 = path_alloc;
-                                uint param_49 = tile_el_1;
-                                if (touch_mem(param_48, param_49))
-                                {
-                                    uint _1477;
-                                    _136.InterlockedExchange(tile_el_1 * 4 + 8, tile_offset, _1477);
-                                    old = _1477;
-                                }
+                                uint _1465;
+                                _143.InterlockedExchange(tile_el_1 * 4 + 12, tile_offset, _1465);
+                                old = _1465;
                                 tile_seg.origin = p0;
                                 tile_seg._vector = p1 - p0;
                                 float y_edge = 0.0f;
@@ -636,11 +633,14 @@ void comp_main()
                                 }
                                 tile_seg.y_edge = y_edge;
                                 tile_seg.next.offset = old;
-                                TileSegRef _1559 = { tile_offset };
-                                Alloc param_50 = tile_alloc.alloc;
-                                TileSegRef param_51 = _1559;
-                                TileSeg param_52 = tile_seg;
-                                TileSeg_write(param_50, param_51, param_52);
+                                if (mem_ok)
+                                {
+                                    TileSegRef _1550 = { tile_offset };
+                                    Alloc param_52 = tile_alloc;
+                                    TileSegRef param_53 = _1550;
+                                    TileSeg param_54 = tile_seg;
+                                    TileSeg_write(param_52, param_53, param_54);
+                                }
                                 tile_offset += 24u;
                             }
                             xc += b;

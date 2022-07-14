@@ -75,6 +75,7 @@ struct Memory
 {
     uint mem_offset;
     uint mem_error;
+    uint blend_offset;
     uint memory[1];
 };
 
@@ -90,6 +91,7 @@ struct Alloc_1
 
 struct Config
 {
+    uint mem_size;
     uint n_elements;
     uint n_pathseg;
     uint width_in_tiles;
@@ -139,15 +141,15 @@ struct ParentBuf
 constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(256u, 1u, 1u);
 
 static inline __attribute__((always_inline))
-Transform Transform_read(thread const TransformRef& ref, const device SceneBuf& v_96)
+Transform Transform_read(thread const TransformRef& ref, const device SceneBuf& v_97)
 {
     uint ix = ref.offset >> uint(2);
-    uint raw0 = v_96.scene[ix + 0u];
-    uint raw1 = v_96.scene[ix + 1u];
-    uint raw2 = v_96.scene[ix + 2u];
-    uint raw3 = v_96.scene[ix + 3u];
-    uint raw4 = v_96.scene[ix + 4u];
-    uint raw5 = v_96.scene[ix + 5u];
+    uint raw0 = v_97.scene[ix + 0u];
+    uint raw1 = v_97.scene[ix + 1u];
+    uint raw2 = v_97.scene[ix + 2u];
+    uint raw3 = v_97.scene[ix + 3u];
+    uint raw4 = v_97.scene[ix + 4u];
+    uint raw5 = v_97.scene[ix + 5u];
     Transform s;
     s.mat = float4(as_type<float>(raw0), as_type<float>(raw1), as_type<float>(raw2), as_type<float>(raw3));
     s.translate = float2(as_type<float>(raw4), as_type<float>(raw5));
@@ -223,13 +225,13 @@ void TransformSeg_write(thread const Alloc& a, thread const TransformSegRef& ref
     write_mem(param_15, param_16, param_17, v_71);
 }
 
-kernel void main0(device Memory& v_71 [[buffer(0)]], const device ConfigBuf& _278 [[buffer(1)]], const device SceneBuf& v_96 [[buffer(2)]], const device ParentBuf& _376 [[buffer(3)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]])
+kernel void main0(device Memory& v_71 [[buffer(0)]], const device ConfigBuf& _279 [[buffer(1)]], const device SceneBuf& v_97 [[buffer(2)]], const device ParentBuf& _377 [[buffer(3)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]])
 {
     threadgroup Transform sh_scratch[256];
     uint ix = gl_GlobalInvocationID.x * 8u;
-    TransformRef ref = TransformRef{ _278.conf.trans_offset + (ix * 24u) };
+    TransformRef ref = TransformRef{ _279.conf.trans_offset + (ix * 24u) };
     TransformRef param = ref;
-    Transform agg = Transform_read(param, v_96);
+    Transform agg = Transform_read(param, v_97);
     spvUnsafeArray<Transform, 8> local;
     local[0] = agg;
     for (uint i = 1u; i < 8u; i++)
@@ -238,7 +240,7 @@ kernel void main0(device Memory& v_71 [[buffer(0)]], const device ConfigBuf& _27
         uint param_2 = i;
         TransformRef param_3 = Transform_index(param_1, param_2);
         Transform param_4 = agg;
-        Transform param_5 = Transform_read(param_3, v_96);
+        Transform param_5 = Transform_read(param_3, v_97);
         agg = combine_monoid(param_4, param_5);
         local[i] = agg;
     }
@@ -260,9 +262,9 @@ kernel void main0(device Memory& v_71 [[buffer(0)]], const device ConfigBuf& _27
     Transform row = monoid_identity();
     if (gl_WorkGroupID.x > 0u)
     {
-        uint _379 = gl_WorkGroupID.x - 1u;
-        row.mat = _376.parent[_379].mat;
-        row.translate = _376.parent[_379].translate;
+        uint _380 = gl_WorkGroupID.x - 1u;
+        row.mat = _377.parent[_380].mat;
+        row.translate = _377.parent[_380].translate;
     }
     if (gl_LocalInvocationID.x > 0u)
     {
@@ -277,8 +279,8 @@ kernel void main0(device Memory& v_71 [[buffer(0)]], const device ConfigBuf& _27
         Transform param_11 = local[i_2];
         Transform m = combine_monoid(param_10, param_11);
         TransformSeg transform = TransformSeg{ m.mat, m.translate };
-        TransformSegRef trans_ref = TransformSegRef{ _278.conf.trans_alloc.offset + ((ix + i_2) * 24u) };
-        param_12.offset = _278.conf.trans_alloc.offset;
+        TransformSegRef trans_ref = TransformSegRef{ _279.conf.trans_alloc.offset + ((ix + i_2) * 24u) };
+        param_12.offset = _279.conf.trans_alloc.offset;
         TransformSegRef param_13 = trans_ref;
         TransformSeg param_14 = transform;
         TransformSeg_write(param_12, param_13, param_14, v_71);

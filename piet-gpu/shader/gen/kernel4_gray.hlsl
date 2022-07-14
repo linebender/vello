@@ -130,6 +130,7 @@ struct TileSeg
 
 struct Config
 {
+    uint mem_size;
     uint n_elements;
     uint n_pathseg;
     uint width_in_tiles;
@@ -163,9 +164,10 @@ static const uint3 gl_WorkGroupSize = uint3(8u, 4u, 1u);
 
 RWByteAddressBuffer _297 : register(u0, space0);
 ByteAddressBuffer _1681 : register(t1, space0);
-RWTexture2D<unorm float4> image_atlas : register(u3, space0);
-RWTexture2D<unorm float4> gradients : register(u4, space0);
-RWTexture2D<unorm float> image : register(u2, space0);
+RWByteAddressBuffer _2506 : register(u2, space0);
+RWTexture2D<unorm float4> image_atlas : register(u4, space0);
+RWTexture2D<unorm float4> gradients : register(u5, space0);
+RWTexture2D<unorm float> image : register(u3, space0);
 
 static uint3 gl_WorkGroupID;
 static uint3 gl_LocalInvocationID;
@@ -206,7 +208,7 @@ uint read_mem(Alloc alloc, uint offset)
     {
         return 0u;
     }
-    uint v = _297.Load(offset * 4 + 8);
+    uint v = _297.Load(offset * 4 + 12);
     return v;
 }
 
@@ -989,9 +991,9 @@ CmdJump Cmd_Jump_read(Alloc a, CmdRef ref)
 
 void comp_main()
 {
-    uint tile_ix = (gl_WorkGroupID.y * _1681.Load(8)) + gl_WorkGroupID.x;
+    uint tile_ix = (gl_WorkGroupID.y * _1681.Load(12)) + gl_WorkGroupID.x;
     Alloc _1696;
-    _1696.offset = _1681.Load(24);
+    _1696.offset = _1681.Load(28);
     Alloc param;
     param.offset = _1696.offset;
     uint param_1 = tile_ix * 1024u;
@@ -999,7 +1001,7 @@ void comp_main()
     Alloc cmd_alloc = slice_mem(param, param_1, param_2);
     CmdRef _1705 = { cmd_alloc.offset };
     CmdRef cmd_ref = _1705;
-    uint blend_offset = _297.Load((cmd_ref.offset >> uint(2)) * 4 + 8);
+    uint blend_offset = _297.Load((cmd_ref.offset >> uint(2)) * 4 + 12);
     cmd_ref.offset += 4u;
     uint2 xy_uint = uint2(gl_LocalInvocationID.x + (16u * gl_WorkGroupID.x), gl_LocalInvocationID.y + (16u * gl_WorkGroupID.y));
     float2 xy = float2(xy_uint);
@@ -1009,14 +1011,13 @@ void comp_main()
         rgba[i] = 0.0f.xxxx;
     }
     uint clip_depth = 0u;
-    bool mem_ok = _297.Load(4) == 0u;
     float df[8];
     TileSegRef tile_seg_ref;
     float area[8];
     uint blend_stack[4][8];
     uint base_ix_1;
     uint bg_rgba;
-    while (mem_ok)
+    while (true)
     {
         Alloc param_3 = cmd_alloc;
         CmdRef param_4 = cmd_ref;
@@ -1036,13 +1037,13 @@ void comp_main()
                 {
                     df[k] = 1000000000.0f;
                 }
-                TileSegRef _1810 = { stroke.tile_ref };
-                tile_seg_ref = _1810;
+                TileSegRef _1805 = { stroke.tile_ref };
+                tile_seg_ref = _1805;
                 do
                 {
                     uint param_7 = tile_seg_ref.offset;
                     uint param_8 = 24u;
-                    bool param_9 = mem_ok;
+                    bool param_9 = true;
                     Alloc param_10 = new_alloc(param_7, param_8, param_9);
                     TileSegRef param_11 = tile_seg_ref;
                     TileSeg seg = TileSeg_read(param_10, param_11);
@@ -1073,13 +1074,13 @@ void comp_main()
                 {
                     area[k_3] = float(fill.backdrop);
                 }
-                TileSegRef _1930 = { fill.tile_ref };
-                tile_seg_ref = _1930;
+                TileSegRef _1924 = { fill.tile_ref };
+                tile_seg_ref = _1924;
                 do
                 {
                     uint param_15 = tile_seg_ref.offset;
                     uint param_16 = 24u;
-                    bool param_17 = mem_ok;
+                    bool param_17 = true;
                     Alloc param_18 = new_alloc(param_15, param_16, param_17);
                     TileSegRef param_19 = tile_seg_ref;
                     TileSeg seg_1 = TileSeg_read(param_18, param_19);
@@ -1163,10 +1164,10 @@ void comp_main()
                     int x = int(round(clamp(my_d, 0.0f, 1.0f) * 511.0f));
                     float4 fg_rgba = gradients[int2(x, int(lin.index))];
                     float3 param_29 = fg_rgba.xyz;
-                    float3 _2264 = fromsRGB(param_29);
-                    fg_rgba.x = _2264.x;
-                    fg_rgba.y = _2264.y;
-                    fg_rgba.z = _2264.z;
+                    float3 _2257 = fromsRGB(param_29);
+                    fg_rgba.x = _2257.x;
+                    fg_rgba.y = _2257.y;
+                    fg_rgba.z = _2257.z;
                     float4 fg_k_1 = fg_rgba * area[k_9];
                     rgba[k_9] = (rgba[k_9] * (1.0f - fg_k_1.w)) + fg_k_1;
                 }
@@ -1189,10 +1190,10 @@ void comp_main()
                     int x_1 = int(round(clamp(t_2, 0.0f, 1.0f) * 511.0f));
                     float4 fg_rgba_1 = gradients[int2(x_1, int(rad.index))];
                     float3 param_33 = fg_rgba_1.xyz;
-                    float3 _2374 = fromsRGB(param_33);
-                    fg_rgba_1.x = _2374.x;
-                    fg_rgba_1.y = _2374.y;
-                    fg_rgba_1.z = _2374.z;
+                    float3 _2367 = fromsRGB(param_33);
+                    fg_rgba_1.x = _2367.x;
+                    fg_rgba_1.y = _2367.y;
+                    fg_rgba_1.z = _2367.z;
                     float4 fg_k_2 = fg_rgba_1 * area[k_10];
                     rgba[k_10] = (rgba[k_10] * (1.0f - fg_k_2.w)) + fg_k_2;
                 }
@@ -1206,9 +1207,9 @@ void comp_main()
                 CmdImage fill_img = Cmd_Image_read(param_34, param_35);
                 uint2 param_36 = xy_uint;
                 CmdImage param_37 = fill_img;
-                float4 _2417[8];
-                fillImage(_2417, param_36, param_37);
-                float4 img[8] = _2417;
+                float4 _2410[8];
+                fillImage(_2410, param_36, param_37);
+                float4 img[8] = _2410;
                 for (uint k_11 = 0u; k_11 < 8u; k_11++)
                 {
                     float4 fg_k_3 = img[k_11] * area[k_11];
@@ -1224,8 +1225,8 @@ void comp_main()
                     for (uint k_12 = 0u; k_12 < 8u; k_12++)
                     {
                         float4 param_38 = float4(rgba[k_12]);
-                        uint _2479 = packsRGB(param_38);
-                        blend_stack[clip_depth][k_12] = _2479;
+                        uint _2472 = packsRGB(param_38);
+                        blend_stack[clip_depth][k_12] = _2472;
                         rgba[k_12] = 0.0f.xxxx;
                     }
                 }
@@ -1235,8 +1236,8 @@ void comp_main()
                     for (uint k_13 = 0u; k_13 < 8u; k_13++)
                     {
                         float4 param_39 = float4(rgba[k_13]);
-                        uint _2522 = packsRGB(param_39);
-                        _297.Store((base_ix + k_13) * 4 + 8, _2522);
+                        uint _2519 = packsRGB(param_39);
+                        _2506.Store((base_ix + k_13) * 4 + 0, _2519);
                         rgba[k_13] = 0.0f.xxxx;
                     }
                 }
@@ -1262,7 +1263,7 @@ void comp_main()
                     }
                     else
                     {
-                        bg_rgba = _297.Load((base_ix_1 + k_14) * 4 + 8);
+                        bg_rgba = _2506.Load((base_ix_1 + k_14) * 4 + 0);
                     }
                     uint param_42 = bg_rgba;
                     float4 bg = unpacksRGB(param_42);
@@ -1279,8 +1280,8 @@ void comp_main()
             {
                 Alloc param_46 = cmd_alloc;
                 CmdRef param_47 = cmd_ref;
-                CmdRef _2621 = { Cmd_Jump_read(param_46, param_47).new_ref };
-                cmd_ref = _2621;
+                CmdRef _2618 = { Cmd_Jump_read(param_46, param_47).new_ref };
+                cmd_ref = _2618;
                 cmd_alloc.offset = cmd_ref.offset;
                 break;
             }

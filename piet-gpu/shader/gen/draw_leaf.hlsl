@@ -13,6 +13,7 @@ struct Alloc
 
 struct Config
 {
+    uint mem_size;
     uint n_elements;
     uint n_pathseg;
     uint width_in_tiles;
@@ -88,7 +89,7 @@ DrawMonoid draw_monoid_identity()
 void comp_main()
 {
     uint ix = gl_GlobalInvocationID.x * 8u;
-    uint drawtag_base = _93.Load(100) >> uint(2);
+    uint drawtag_base = _93.Load(104) >> uint(2);
     uint tag_word = _103.Load((drawtag_base + ix) * 4 + 0);
     uint param = tag_word;
     DrawMonoid agg = map_tag(param);
@@ -137,11 +138,11 @@ void comp_main()
         DrawMonoid param_7 = sh_scratch[gl_LocalInvocationID.x - 1u];
         row = combine_draw_monoid(param_6, param_7);
     }
-    uint drawdata_base = _93.Load(104) >> uint(2);
-    uint drawinfo_base = _93.Load(68) >> uint(2);
+    uint drawdata_base = _93.Load(108) >> uint(2);
+    uint drawinfo_base = _93.Load(72) >> uint(2);
     uint out_ix = gl_GlobalInvocationID.x * 8u;
-    uint out_base = (_93.Load(44) >> uint(2)) + (out_ix * 4u);
-    uint clip_out_base = _93.Load(48) >> uint(2);
+    uint out_base = (_93.Load(48) >> uint(2)) + (out_ix * 4u);
+    uint clip_out_base = _93.Load(52) >> uint(2);
     float4 mat;
     float2 translate;
     float2 p0;
@@ -155,31 +156,31 @@ void comp_main()
             DrawMonoid param_9 = local[i_2 - 1u];
             m = combine_draw_monoid(param_8, param_9);
         }
-        _285.Store((out_base + (i_2 * 4u)) * 4 + 8, m.path_ix);
-        _285.Store(((out_base + (i_2 * 4u)) + 1u) * 4 + 8, m.clip_ix);
-        _285.Store(((out_base + (i_2 * 4u)) + 2u) * 4 + 8, m.scene_offset);
-        _285.Store(((out_base + (i_2 * 4u)) + 3u) * 4 + 8, m.info_offset);
+        _285.Store((out_base + (i_2 * 4u)) * 4 + 12, m.path_ix);
+        _285.Store(((out_base + (i_2 * 4u)) + 1u) * 4 + 12, m.clip_ix);
+        _285.Store(((out_base + (i_2 * 4u)) + 2u) * 4 + 12, m.scene_offset);
+        _285.Store(((out_base + (i_2 * 4u)) + 3u) * 4 + 12, m.info_offset);
         uint dd = drawdata_base + (m.scene_offset >> uint(2));
         uint di = drawinfo_base + (m.info_offset >> uint(2));
         tag_word = _103.Load(((drawtag_base + ix) + i_2) * 4 + 0);
         if (((((tag_word == 68u) || (tag_word == 276u)) || (tag_word == 732u)) || (tag_word == 72u)) || (tag_word == 5u))
         {
-            uint bbox_offset = (_93.Load(40) >> uint(2)) + (6u * m.path_ix);
-            float bbox_l = float(_285.Load(bbox_offset * 4 + 8)) - 32768.0f;
-            float bbox_t = float(_285.Load((bbox_offset + 1u) * 4 + 8)) - 32768.0f;
-            float bbox_r = float(_285.Load((bbox_offset + 2u) * 4 + 8)) - 32768.0f;
-            float bbox_b = float(_285.Load((bbox_offset + 3u) * 4 + 8)) - 32768.0f;
+            uint bbox_offset = (_93.Load(44) >> uint(2)) + (6u * m.path_ix);
+            float bbox_l = float(_285.Load(bbox_offset * 4 + 12)) - 32768.0f;
+            float bbox_t = float(_285.Load((bbox_offset + 1u) * 4 + 12)) - 32768.0f;
+            float bbox_r = float(_285.Load((bbox_offset + 2u) * 4 + 12)) - 32768.0f;
+            float bbox_b = float(_285.Load((bbox_offset + 3u) * 4 + 12)) - 32768.0f;
             float4 bbox = float4(bbox_l, bbox_t, bbox_r, bbox_b);
-            float linewidth = asfloat(_285.Load((bbox_offset + 4u) * 4 + 8));
+            float linewidth = asfloat(_285.Load((bbox_offset + 4u) * 4 + 12));
             uint fill_mode = uint(linewidth >= 0.0f);
             if (((linewidth >= 0.0f) || (tag_word == 276u)) || (tag_word == 732u))
             {
-                uint trans_ix = _285.Load((bbox_offset + 5u) * 4 + 8);
-                uint t = (_93.Load(36) >> uint(2)) + (6u * trans_ix);
-                mat = asfloat(uint4(_285.Load(t * 4 + 8), _285.Load((t + 1u) * 4 + 8), _285.Load((t + 2u) * 4 + 8), _285.Load((t + 3u) * 4 + 8)));
+                uint trans_ix = _285.Load((bbox_offset + 5u) * 4 + 12);
+                uint t = (_93.Load(40) >> uint(2)) + (6u * trans_ix);
+                mat = asfloat(uint4(_285.Load(t * 4 + 12), _285.Load((t + 1u) * 4 + 12), _285.Load((t + 2u) * 4 + 12), _285.Load((t + 3u) * 4 + 12)));
                 if ((tag_word == 276u) || (tag_word == 732u))
                 {
-                    translate = asfloat(uint2(_285.Load((t + 4u) * 4 + 8), _285.Load((t + 5u) * 4 + 8)));
+                    translate = asfloat(uint2(_285.Load((t + 4u) * 4 + 12), _285.Load((t + 5u) * 4 + 12)));
                 }
             }
             if (linewidth >= 0.0f)
@@ -191,12 +192,12 @@ void comp_main()
                 case 68u:
                 case 72u:
                 {
-                    _285.Store(di * 4 + 8, asuint(linewidth));
+                    _285.Store(di * 4 + 12, asuint(linewidth));
                     break;
                 }
                 case 276u:
                 {
-                    _285.Store(di * 4 + 8, asuint(linewidth));
+                    _285.Store(di * 4 + 12, asuint(linewidth));
                     p0 = asfloat(uint2(_103.Load((dd + 1u) * 4 + 0), _103.Load((dd + 2u) * 4 + 0)));
                     p1 = asfloat(uint2(_103.Load((dd + 3u) * 4 + 0), _103.Load((dd + 4u) * 4 + 0)));
                     p0 = ((mat.xy * p0.x) + (mat.zw * p0.y)) + translate;
@@ -206,9 +207,9 @@ void comp_main()
                     float line_x = dxy.x * scale;
                     float line_y = dxy.y * scale;
                     float line_c = -((p0.x * line_x) + (p0.y * line_y));
-                    _285.Store((di + 1u) * 4 + 8, asuint(line_x));
-                    _285.Store((di + 2u) * 4 + 8, asuint(line_y));
-                    _285.Store((di + 3u) * 4 + 8, asuint(line_c));
+                    _285.Store((di + 1u) * 4 + 12, asuint(line_x));
+                    _285.Store((di + 2u) * 4 + 12, asuint(line_y));
+                    _285.Store((di + 3u) * 4 + 12, asuint(line_c));
                     break;
                 }
                 case 732u:
@@ -227,17 +228,17 @@ void comp_main()
                     float2 c1 = center1 * rainv;
                     float ra = rr * rainv;
                     float roff = rr - 1.0f;
-                    _285.Store(di * 4 + 8, asuint(linewidth));
-                    _285.Store((di + 1u) * 4 + 8, asuint(inv_mat.x));
-                    _285.Store((di + 2u) * 4 + 8, asuint(inv_mat.y));
-                    _285.Store((di + 3u) * 4 + 8, asuint(inv_mat.z));
-                    _285.Store((di + 4u) * 4 + 8, asuint(inv_mat.w));
-                    _285.Store((di + 5u) * 4 + 8, asuint(inv_tr.x));
-                    _285.Store((di + 6u) * 4 + 8, asuint(inv_tr.y));
-                    _285.Store((di + 7u) * 4 + 8, asuint(c1.x));
-                    _285.Store((di + 8u) * 4 + 8, asuint(c1.y));
-                    _285.Store((di + 9u) * 4 + 8, asuint(ra));
-                    _285.Store((di + 10u) * 4 + 8, asuint(roff));
+                    _285.Store(di * 4 + 12, asuint(linewidth));
+                    _285.Store((di + 1u) * 4 + 12, asuint(inv_mat.x));
+                    _285.Store((di + 2u) * 4 + 12, asuint(inv_mat.y));
+                    _285.Store((di + 3u) * 4 + 12, asuint(inv_mat.z));
+                    _285.Store((di + 4u) * 4 + 12, asuint(inv_mat.w));
+                    _285.Store((di + 5u) * 4 + 12, asuint(inv_tr.x));
+                    _285.Store((di + 6u) * 4 + 12, asuint(inv_tr.y));
+                    _285.Store((di + 7u) * 4 + 12, asuint(c1.x));
+                    _285.Store((di + 8u) * 4 + 12, asuint(c1.y));
+                    _285.Store((di + 9u) * 4 + 12, asuint(ra));
+                    _285.Store((di + 10u) * 4 + 12, asuint(roff));
                     break;
                 }
                 case 5u:
@@ -253,7 +254,7 @@ void comp_main()
             {
                 path_ix = m.path_ix;
             }
-            _285.Store((clip_out_base + m.clip_ix) * 4 + 8, path_ix);
+            _285.Store((clip_out_base + m.clip_ix) * 4 + 12, path_ix);
         }
     }
 }

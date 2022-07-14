@@ -17,6 +17,7 @@ struct Alloc
 
 struct Config
 {
+    uint mem_size;
     uint n_elements;
     uint n_pathseg;
     uint width_in_tiles;
@@ -48,7 +49,7 @@ struct Config
 
 static const uint3 gl_WorkGroupSize = uint3(256u, 1u, 1u);
 
-static const Bic _393 = { 0u, 0u };
+static const Bic _394 = { 0u, 0u };
 
 ByteAddressBuffer _80 : register(t1, space0);
 RWByteAddressBuffer _96 : register(u0, space0);
@@ -71,9 +72,9 @@ groupshared float4 sh_bbox[256];
 
 Bic load_bic(uint ix)
 {
-    uint base = (_80.Load(52) >> uint(2)) + (2u * ix);
-    Bic _286 = { _96.Load(base * 4 + 8), _96.Load((base + 1u) * 4 + 8) };
-    return _286;
+    uint base = (_80.Load(56) >> uint(2)) + (2u * ix);
+    Bic _287 = { _96.Load(base * 4 + 12), _96.Load((base + 1u) * 4 + 12) };
+    return _287;
 }
 
 Bic bic_combine(Bic x, Bic y)
@@ -85,15 +86,15 @@ Bic bic_combine(Bic x, Bic y)
 
 ClipEl load_clip_el(uint ix)
 {
-    uint base = (_80.Load(56) >> uint(2)) + (5u * ix);
-    uint parent_ix = _96.Load(base * 4 + 8);
-    float x0 = asfloat(_96.Load((base + 1u) * 4 + 8));
-    float y0 = asfloat(_96.Load((base + 2u) * 4 + 8));
-    float x1 = asfloat(_96.Load((base + 3u) * 4 + 8));
-    float y1 = asfloat(_96.Load((base + 4u) * 4 + 8));
+    uint base = (_80.Load(60) >> uint(2)) + (5u * ix);
+    uint parent_ix = _96.Load(base * 4 + 12);
+    float x0 = asfloat(_96.Load((base + 1u) * 4 + 12));
+    float y0 = asfloat(_96.Load((base + 2u) * 4 + 12));
+    float x1 = asfloat(_96.Load((base + 3u) * 4 + 12));
+    float y1 = asfloat(_96.Load((base + 4u) * 4 + 12));
     float4 bbox = float4(x0, y0, x1, y1);
-    ClipEl _335 = { parent_ix, bbox };
-    return _335;
+    ClipEl _336 = { parent_ix, bbox };
+    return _336;
 }
 
 float4 bbox_intersect(float4 a, float4 b)
@@ -103,9 +104,9 @@ float4 bbox_intersect(float4 a, float4 b)
 
 uint load_path_ix(uint ix)
 {
-    if (ix < _80.Load(80))
+    if (ix < _80.Load(84))
     {
-        return _96.Load(((_80.Load(48) >> uint(2)) + ix) * 4 + 8);
+        return _96.Load(((_80.Load(52) >> uint(2)) + ix) * 4 + 12);
     }
     else
     {
@@ -115,11 +116,11 @@ uint load_path_ix(uint ix)
 
 float4 load_path_bbox(uint path_ix)
 {
-    uint base = (_80.Load(40) >> uint(2)) + (6u * path_ix);
-    float bbox_l = float(_96.Load(base * 4 + 8)) - 32768.0f;
-    float bbox_t = float(_96.Load((base + 1u) * 4 + 8)) - 32768.0f;
-    float bbox_r = float(_96.Load((base + 2u) * 4 + 8)) - 32768.0f;
-    float bbox_b = float(_96.Load((base + 3u) * 4 + 8)) - 32768.0f;
+    uint base = (_80.Load(44) >> uint(2)) + (6u * path_ix);
+    float bbox_l = float(_96.Load(base * 4 + 12)) - 32768.0f;
+    float bbox_t = float(_96.Load((base + 1u) * 4 + 12)) - 32768.0f;
+    float bbox_r = float(_96.Load((base + 2u) * 4 + 12)) - 32768.0f;
+    float bbox_b = float(_96.Load((base + 3u) * 4 + 12)) - 32768.0f;
     float4 bbox = float4(bbox_l, bbox_t, bbox_r, bbox_b);
     return bbox;
 }
@@ -173,17 +174,17 @@ uint search_link(inout Bic bic)
 
 void store_clip_bbox(uint ix, float4 bbox)
 {
-    uint base = (_80.Load(60) >> uint(2)) + (4u * ix);
-    _96.Store(base * 4 + 8, asuint(bbox.x));
-    _96.Store((base + 1u) * 4 + 8, asuint(bbox.y));
-    _96.Store((base + 2u) * 4 + 8, asuint(bbox.z));
-    _96.Store((base + 3u) * 4 + 8, asuint(bbox.w));
+    uint base = (_80.Load(64) >> uint(2)) + (4u * ix);
+    _96.Store(base * 4 + 12, asuint(bbox.x));
+    _96.Store((base + 1u) * 4 + 12, asuint(bbox.y));
+    _96.Store((base + 2u) * 4 + 12, asuint(bbox.z));
+    _96.Store((base + 3u) * 4 + 12, asuint(bbox.w));
 }
 
 void comp_main()
 {
     uint th = gl_LocalInvocationID.x;
-    Bic bic = _393;
+    Bic bic = _394;
     if (th < gl_WorkGroupID.x)
     {
         uint param = th;
@@ -240,8 +241,8 @@ void comp_main()
     uint param_6 = gl_GlobalInvocationID.x;
     uint inp = load_path_ix(param_6);
     bool is_push = int(inp) >= 0;
-    Bic _559 = { 1u - uint(is_push), uint(is_push) };
-    bic = _559;
+    Bic _560 = { 1u - uint(is_push), uint(is_push) };
+    bic = _560;
     sh_bic[th] = bic;
     if (is_push)
     {
@@ -266,11 +267,11 @@ void comp_main()
         inbase = outbase;
     }
     GroupMemoryBarrierWithGroupSync();
-    bic = _393;
+    bic = _394;
     Bic param_10 = bic;
-    uint _618 = search_link(param_10);
+    uint _619 = search_link(param_10);
     bic = param_10;
-    uint link = _618;
+    uint link = _619;
     sh_link[th] = link;
     GroupMemoryBarrierWithGroupSync();
     uint grandparent;
@@ -324,22 +325,22 @@ void comp_main()
     sh_bbox[th] = bbox;
     GroupMemoryBarrierWithGroupSync();
     uint path_ix = inp;
-    bool _717 = !is_push;
-    bool _725;
-    if (_717)
+    bool _718 = !is_push;
+    bool _726;
+    if (_718)
     {
-        _725 = gl_GlobalInvocationID.x < _80.Load(80);
+        _726 = gl_GlobalInvocationID.x < _80.Load(84);
     }
     else
     {
-        _725 = _717;
+        _726 = _718;
     }
-    if (_725)
+    if (_726)
     {
         uint param_15 = parent;
         path_ix = load_path_ix(param_15);
-        uint drawmonoid_out_base = (_80.Load(44) >> uint(2)) + (4u * (~inp));
-        _96.Store(drawmonoid_out_base * 4 + 8, path_ix);
+        uint drawmonoid_out_base = (_80.Load(48) >> uint(2)) + (4u * (~inp));
+        _96.Store(drawmonoid_out_base * 4 + 12, path_ix);
         if (int(grandparent) >= 0)
         {
             bbox = sh_bbox[grandparent];

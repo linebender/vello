@@ -178,6 +178,7 @@ struct Memory
 {
     uint mem_offset;
     uint mem_error;
+    uint blend_offset;
     uint memory[1];
 };
 
@@ -188,6 +189,7 @@ struct Alloc_1
 
 struct Config
 {
+    uint mem_size;
     uint n_elements;
     uint n_pathseg;
     uint width_in_tiles;
@@ -220,6 +222,11 @@ struct Config
 struct ConfigBuf
 {
     Config conf;
+};
+
+struct BlendBuf
+{
+    uint blend_mem[1];
 };
 
 constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(8u, 4u, 1u);
@@ -1047,7 +1054,7 @@ CmdJump Cmd_Jump_read(thread const Alloc& a, thread const CmdRef& ref, device Me
     return CmdJump_read(param, param_1, v_297);
 }
 
-kernel void main0(device Memory& v_297 [[buffer(0)]], const device ConfigBuf& _1681 [[buffer(1)]], texture2d<float, access::write> image [[texture(2)]], texture2d<float> image_atlas [[texture(3)]], texture2d<float> gradients [[texture(4)]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
+kernel void main0(device Memory& v_297 [[buffer(0)]], const device ConfigBuf& _1681 [[buffer(1)]], device BlendBuf& _2506 [[buffer(2)]], texture2d<float, access::write> image [[texture(3)]], texture2d<float> image_atlas [[texture(4)]], texture2d<float> gradients [[texture(5)]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
 {
     uint tile_ix = (gl_WorkGroupID.y * _1681.conf.width_in_tiles) + gl_WorkGroupID.x;
     Alloc param;
@@ -1066,14 +1073,13 @@ kernel void main0(device Memory& v_297 [[buffer(0)]], const device ConfigBuf& _1
         rgba[i] = float4(0.0);
     }
     uint clip_depth = 0u;
-    bool mem_ok = v_297.mem_error == 0u;
     spvUnsafeArray<float, 8> df;
     TileSegRef tile_seg_ref;
     spvUnsafeArray<float, 8> area;
     spvUnsafeArray<spvUnsafeArray<uint, 8>, 4> blend_stack;
     uint base_ix_1;
     uint bg_rgba;
-    while (mem_ok)
+    while (true)
     {
         Alloc param_3 = cmd_alloc;
         CmdRef param_4 = cmd_ref;
@@ -1098,7 +1104,7 @@ kernel void main0(device Memory& v_297 [[buffer(0)]], const device ConfigBuf& _1
                 {
                     uint param_7 = tile_seg_ref.offset;
                     uint param_8 = 24u;
-                    bool param_9 = mem_ok;
+                    bool param_9 = true;
                     Alloc param_10 = new_alloc(param_7, param_8, param_9);
                     TileSegRef param_11 = tile_seg_ref;
                     TileSeg seg = TileSeg_read(param_10, param_11, v_297);
@@ -1134,7 +1140,7 @@ kernel void main0(device Memory& v_297 [[buffer(0)]], const device ConfigBuf& _1
                 {
                     uint param_15 = tile_seg_ref.offset;
                     uint param_16 = 24u;
-                    bool param_17 = mem_ok;
+                    bool param_17 = true;
                     Alloc param_18 = new_alloc(param_15, param_16, param_17);
                     TileSegRef param_19 = tile_seg_ref;
                     TileSeg seg_1 = TileSeg_read(param_18, param_19, v_297);
@@ -1218,10 +1224,10 @@ kernel void main0(device Memory& v_297 [[buffer(0)]], const device ConfigBuf& _1
                     int x = int(round(fast::clamp(my_d, 0.0, 1.0) * 511.0));
                     float4 fg_rgba = gradients.read(uint2(int2(x, int(lin.index))));
                     float3 param_29 = fg_rgba.xyz;
-                    float3 _2264 = fromsRGB(param_29);
-                    fg_rgba.x = _2264.x;
-                    fg_rgba.y = _2264.y;
-                    fg_rgba.z = _2264.z;
+                    float3 _2257 = fromsRGB(param_29);
+                    fg_rgba.x = _2257.x;
+                    fg_rgba.y = _2257.y;
+                    fg_rgba.z = _2257.z;
                     float4 fg_k_1 = fg_rgba * area[k_9];
                     rgba[k_9] = (rgba[k_9] * (1.0 - fg_k_1.w)) + fg_k_1;
                 }
@@ -1244,10 +1250,10 @@ kernel void main0(device Memory& v_297 [[buffer(0)]], const device ConfigBuf& _1
                     int x_1 = int(round(fast::clamp(t_2, 0.0, 1.0) * 511.0));
                     float4 fg_rgba_1 = gradients.read(uint2(int2(x_1, int(rad.index))));
                     float3 param_33 = fg_rgba_1.xyz;
-                    float3 _2374 = fromsRGB(param_33);
-                    fg_rgba_1.x = _2374.x;
-                    fg_rgba_1.y = _2374.y;
-                    fg_rgba_1.z = _2374.z;
+                    float3 _2367 = fromsRGB(param_33);
+                    fg_rgba_1.x = _2367.x;
+                    fg_rgba_1.y = _2367.y;
+                    fg_rgba_1.z = _2367.z;
                     float4 fg_k_2 = fg_rgba_1 * area[k_10];
                     rgba[k_10] = (rgba[k_10] * (1.0 - fg_k_2.w)) + fg_k_2;
                 }
@@ -1278,8 +1284,8 @@ kernel void main0(device Memory& v_297 [[buffer(0)]], const device ConfigBuf& _1
                     for (uint k_12 = 0u; k_12 < 8u; k_12++)
                     {
                         float4 param_38 = float4(rgba[k_12]);
-                        uint _2479 = packsRGB(param_38);
-                        blend_stack[clip_depth][k_12] = _2479;
+                        uint _2472 = packsRGB(param_38);
+                        blend_stack[clip_depth][k_12] = _2472;
                         rgba[k_12] = float4(0.0);
                     }
                 }
@@ -1289,8 +1295,8 @@ kernel void main0(device Memory& v_297 [[buffer(0)]], const device ConfigBuf& _1
                     for (uint k_13 = 0u; k_13 < 8u; k_13++)
                     {
                         float4 param_39 = float4(rgba[k_13]);
-                        uint _2522 = packsRGB(param_39);
-                        v_297.memory[base_ix + k_13] = _2522;
+                        uint _2519 = packsRGB(param_39);
+                        _2506.blend_mem[base_ix + k_13] = _2519;
                         rgba[k_13] = float4(0.0);
                     }
                 }
@@ -1316,7 +1322,7 @@ kernel void main0(device Memory& v_297 [[buffer(0)]], const device ConfigBuf& _1
                     }
                     else
                     {
-                        bg_rgba = v_297.memory[base_ix_1 + k_14];
+                        bg_rgba = _2506.blend_mem[base_ix_1 + k_14];
                     }
                     uint param_42 = bg_rgba;
                     float4 bg = unpacksRGB(param_42);

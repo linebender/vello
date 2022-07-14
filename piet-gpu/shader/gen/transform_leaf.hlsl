@@ -27,6 +27,7 @@ struct TransformSeg
 
 struct Config
 {
+    uint mem_size;
     uint n_elements;
     uint n_pathseg;
     uint width_in_tiles;
@@ -58,12 +59,12 @@ struct Config
 
 static const uint3 gl_WorkGroupSize = uint3(256u, 1u, 1u);
 
-static const Transform _224 = { float4(1.0f, 0.0f, 0.0f, 1.0f), 0.0f.xx };
+static const Transform _225 = { float4(1.0f, 0.0f, 0.0f, 1.0f), 0.0f.xx };
 
 RWByteAddressBuffer _71 : register(u0, space0);
-ByteAddressBuffer _96 : register(t2, space0);
-ByteAddressBuffer _278 : register(t1, space0);
-ByteAddressBuffer _376 : register(t3, space0);
+ByteAddressBuffer _97 : register(t2, space0);
+ByteAddressBuffer _279 : register(t1, space0);
+ByteAddressBuffer _377 : register(t3, space0);
 
 static uint3 gl_WorkGroupID;
 static uint3 gl_LocalInvocationID;
@@ -80,12 +81,12 @@ groupshared Transform sh_scratch[256];
 Transform Transform_read(TransformRef ref)
 {
     uint ix = ref.offset >> uint(2);
-    uint raw0 = _96.Load((ix + 0u) * 4 + 0);
-    uint raw1 = _96.Load((ix + 1u) * 4 + 0);
-    uint raw2 = _96.Load((ix + 2u) * 4 + 0);
-    uint raw3 = _96.Load((ix + 3u) * 4 + 0);
-    uint raw4 = _96.Load((ix + 4u) * 4 + 0);
-    uint raw5 = _96.Load((ix + 5u) * 4 + 0);
+    uint raw0 = _97.Load((ix + 0u) * 4 + 0);
+    uint raw1 = _97.Load((ix + 1u) * 4 + 0);
+    uint raw2 = _97.Load((ix + 2u) * 4 + 0);
+    uint raw3 = _97.Load((ix + 3u) * 4 + 0);
+    uint raw4 = _97.Load((ix + 4u) * 4 + 0);
+    uint raw5 = _97.Load((ix + 5u) * 4 + 0);
     Transform s;
     s.mat = float4(asfloat(raw0), asfloat(raw1), asfloat(raw2), asfloat(raw3));
     s.translate = float2(asfloat(raw4), asfloat(raw5));
@@ -108,7 +109,7 @@ Transform combine_monoid(Transform a, Transform b)
 
 Transform monoid_identity()
 {
-    return _224;
+    return _225;
 }
 
 bool touch_mem(Alloc alloc, uint offset)
@@ -124,7 +125,7 @@ void write_mem(Alloc alloc, uint offset, uint val)
     {
         return;
     }
-    _71.Store(offset * 4 + 8, val);
+    _71.Store(offset * 4 + 12, val);
 }
 
 void TransformSeg_write(Alloc a, TransformSegRef ref, TransformSeg s)
@@ -159,8 +160,8 @@ void TransformSeg_write(Alloc a, TransformSegRef ref, TransformSeg s)
 void comp_main()
 {
     uint ix = gl_GlobalInvocationID.x * 8u;
-    TransformRef _285 = { _278.Load(84) + (ix * 24u) };
-    TransformRef ref = _285;
+    TransformRef _286 = { _279.Load(88) + (ix * 24u) };
+    TransformRef ref = _286;
     TransformRef param = ref;
     Transform agg = Transform_read(param);
     Transform local[8];
@@ -193,11 +194,11 @@ void comp_main()
     Transform row = monoid_identity();
     if (gl_WorkGroupID.x > 0u)
     {
-        Transform _382;
-        _382.mat = asfloat(_376.Load4((gl_WorkGroupID.x - 1u) * 32 + 0));
-        _382.translate = asfloat(_376.Load2((gl_WorkGroupID.x - 1u) * 32 + 16));
-        row.mat = _382.mat;
-        row.translate = _382.translate;
+        Transform _383;
+        _383.mat = asfloat(_377.Load4((gl_WorkGroupID.x - 1u) * 32 + 0));
+        _383.translate = asfloat(_377.Load2((gl_WorkGroupID.x - 1u) * 32 + 16));
+        row.mat = _383.mat;
+        row.translate = _383.translate;
     }
     if (gl_LocalInvocationID.x > 0u)
     {
@@ -211,13 +212,13 @@ void comp_main()
         Transform param_10 = row;
         Transform param_11 = local[i_2];
         Transform m = combine_monoid(param_10, param_11);
-        TransformSeg _422 = { m.mat, m.translate };
-        TransformSeg transform = _422;
-        TransformSegRef _432 = { _278.Load(36) + ((ix + i_2) * 24u) };
-        TransformSegRef trans_ref = _432;
-        Alloc _436;
-        _436.offset = _278.Load(36);
-        param_12.offset = _436.offset;
+        TransformSeg _423 = { m.mat, m.translate };
+        TransformSeg transform = _423;
+        TransformSegRef _433 = { _279.Load(40) + ((ix + i_2) * 24u) };
+        TransformSegRef trans_ref = _433;
+        Alloc _437;
+        _437.offset = _279.Load(40);
+        param_12.offset = _437.offset;
         TransformSegRef param_13 = trans_ref;
         TransformSeg param_14 = transform;
         TransformSeg_write(param_12, param_13, param_14);
