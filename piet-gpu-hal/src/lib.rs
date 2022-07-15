@@ -49,8 +49,6 @@ bitflags! {
     pub struct InstanceFlags: u32 {
         /// Prefer DX12 over Vulkan.
         const DX12 = 0x1;
-        /// Support presentation to a surface.
-        const PRESENT = 0x2;
         // TODO: discrete vs integrated selection
     }
 }

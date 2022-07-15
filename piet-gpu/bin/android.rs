@@ -54,7 +54,7 @@ fn my_main() -> Result<(), Error> {
                         let width = window.width() as usize;
                         let height = window.height() as usize;
                         let handle = get_handle(window);
-                        let instance = Instance::new(InstanceFlags::PRESENT)?;
+                        let instance = Instance::new(InstanceFlags::default())?;
                         let surface = unsafe { instance.surface(&handle)? };
                         gfx_state = Some(GfxState::new(&instance, Some(&surface), width, height)?);
                     } else {

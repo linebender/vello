@@ -57,7 +57,7 @@ fn main() -> Result<(), Error> {
         .with_resizable(false) // currently not supported
         .build(&event_loop)?;
 
-    let instance = Instance::new(InstanceFlags::PRESENT)?;
+    let instance = Instance::new(InstanceFlags::default())?;
     let mut info_string = "info".to_string();
     unsafe {
         let surface = instance.surface(&window)?;

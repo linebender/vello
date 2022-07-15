@@ -131,7 +131,7 @@ impl Instance {
                 mux_cfg! {
                     #[cfg(vk)]
                     {
-                        if let Ok(instance) = vulkan::VkInstance::new(flags.contains(InstanceFlags::PRESENT)) {
+                        if let Ok(instance) = vulkan::VkInstance::new() {
                             return Ok(Instance::Vk(instance));
                         }
                     }
@@ -179,7 +179,7 @@ impl Instance {
     /// a "session" which is similar but provides many conveniences.
     pub unsafe fn device(&self) -> Result<Device, Error> {
         mux_match! { self;
-            Instance::Vk(i) => i.device(true).map(Device::Vk),
+            Instance::Vk(i) => i.device().map(Device::Vk),
             Instance::Dx12(i) => i.device().map(Device::Dx12),
             Instance::Mtl(i) => i.device().map(Device::Mtl),
         }
