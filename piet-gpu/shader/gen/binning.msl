@@ -1,0 +1,282 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+#pragma clang diagnostic ignored "-Wunused-variable"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+#include <metal_atomic>
+
+using namespace metal;
+
+struct Alloc
+{
+    uint offset;
+};
+
+struct DrawMonoid
+{
+    uint path_ix;
+    uint clip_ix;
+    uint scene_offset;
+    uint info_offset;
+};
+
+struct Memory
+{
+    uint mem_offset;
+    uint mem_error;
+    uint blend_offset;
+    uint memory[1];
+};
+
+struct Alloc_1
+{
+    uint offset;
+};
+
+struct Config
+{
+    uint mem_size;
+    uint n_elements;
+    uint n_pathseg;
+    uint width_in_tiles;
+    uint height_in_tiles;
+    Alloc_1 tile_alloc;
+    Alloc_1 bin_alloc;
+    Alloc_1 ptcl_alloc;
+    Alloc_1 pathseg_alloc;
+    Alloc_1 anno_alloc;
+    Alloc_1 trans_alloc;
+    Alloc_1 path_bbox_alloc;
+    Alloc_1 drawmonoid_alloc;
+    Alloc_1 clip_alloc;
+    Alloc_1 clip_bic_alloc;
+    Alloc_1 clip_stack_alloc;
+    Alloc_1 clip_bbox_alloc;
+    Alloc_1 draw_bbox_alloc;
+    Alloc_1 drawinfo_alloc;
+    uint n_trans;
+    uint n_path;
+    uint n_clip;
+    uint trans_offset;
+    uint linewidth_offset;
+    uint pathtag_offset;
+    uint pathseg_offset;
+    uint drawtag_offset;
+    uint drawdata_offset;
+};
+
+struct ConfigBuf
+{
+    Config conf;
+};
+
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(256u, 1u, 1u);
+
+static inline __attribute__((always_inline))
+DrawMonoid load_draw_monoid(thread const uint& element_ix, device Memory& v_57, const device ConfigBuf& v_101)
+{
+    uint base = (v_101.conf.drawmonoid_alloc.offset >> uint(2)) + (4u * element_ix);
+    uint path_ix = v_57.memory[base];
+    uint clip_ix = v_57.memory[base + 1u];
+    uint scene_offset = v_57.memory[base + 2u];
+    uint info_offset = v_57.memory[base + 3u];
+    return DrawMonoid{ path_ix, clip_ix, scene_offset, info_offset };
+}
+
+static inline __attribute__((always_inline))
+float4 load_clip_bbox(thread const uint& clip_ix, device Memory& v_57, const device ConfigBuf& v_101)
+{
+    uint base = (v_101.conf.clip_bbox_alloc.offset >> uint(2)) + (4u * clip_ix);
+    float x0 = as_type<float>(v_57.memory[base]);
+    float y0 = as_type<float>(v_57.memory[base + 1u]);
+    float x1 = as_type<float>(v_57.memory[base + 2u]);
+    float y1 = as_type<float>(v_57.memory[base + 3u]);
+    float4 bbox = float4(x0, y0, x1, y1);
+    return bbox;
+}
+
+static inline __attribute__((always_inline))
+float4 load_path_bbox(thread const uint& path_ix, device Memory& v_57, const device ConfigBuf& v_101)
+{
+    uint base = (v_101.conf.path_bbox_alloc.offset >> uint(2)) + (6u * path_ix);
+    float bbox_l = float(v_57.memory[base]) - 32768.0;
+    float bbox_t = float(v_57.memory[base + 1u]) - 32768.0;
+    float bbox_r = float(v_57.memory[base + 2u]) - 32768.0;
+    float bbox_b = float(v_57.memory[base + 3u]) - 32768.0;
+    float4 bbox = float4(bbox_l, bbox_t, bbox_r, bbox_b);
+    return bbox;
+}
+
+static inline __attribute__((always_inline))
+float4 bbox_intersect(thread const float4& a, thread const float4& b)
+{
+    return float4(fast::max(a.xy, b.xy), fast::min(a.zw, b.zw));
+}
+
+static inline __attribute__((always_inline))
+void store_draw_bbox(thread const uint& draw_ix, thread const float4& bbox, device Memory& v_57, const device ConfigBuf& v_101)
+{
+    uint base = (v_101.conf.draw_bbox_alloc.offset >> uint(2)) + (4u * draw_ix);
+    v_57.memory[base] = as_type<uint>(bbox.x);
+    v_57.memory[base + 1u] = as_type<uint>(bbox.y);
+    v_57.memory[base + 2u] = as_type<uint>(bbox.z);
+    v_57.memory[base + 3u] = as_type<uint>(bbox.w);
+}
+
+static inline __attribute__((always_inline))
+uint malloc_stage(thread const uint& size, thread const uint& mem_size, thread const uint& stage, device Memory& v_57)
+{
+    uint _65 = atomic_fetch_add_explicit((device atomic_uint*)&v_57.mem_offset, size, memory_order_relaxed);
+    uint offset = _65;
+    if ((offset + size) > mem_size)
+    {
+        uint _76 = atomic_fetch_or_explicit((device atomic_uint*)&v_57.mem_error, stage, memory_order_relaxed);
+        offset = 0u;
+    }
+    return offset;
+}
+
+static inline __attribute__((always_inline))
+bool touch_mem(thread const Alloc& alloc, thread const uint& offset)
+{
+    return true;
+}
+
+static inline __attribute__((always_inline))
+void write_mem(thread const Alloc& alloc, thread const uint& offset, thread const uint& val, device Memory& v_57)
+{
+    Alloc param = alloc;
+    uint param_1 = offset;
+    if (!touch_mem(param, param_1))
+    {
+        return;
+    }
+    v_57.memory[offset] = val;
+}
+
+kernel void main0(device Memory& v_57 [[buffer(0)]], const device ConfigBuf& v_101 [[buffer(1)]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
+{
+    threadgroup uint bitmaps[8][256];
+    threadgroup uint count[8][256];
+    threadgroup uint sh_chunk_offset[256];
+    uint my_partition = gl_WorkGroupID.x;
+    for (uint i = 0u; i < 8u; i++)
+    {
+        bitmaps[i][gl_LocalInvocationID.x] = 0u;
+    }
+    uint element_ix = (my_partition * 256u) + gl_LocalInvocationID.x;
+    int x0 = 0;
+    int y0 = 0;
+    int x1 = 0;
+    int y1 = 0;
+    if (element_ix < v_101.conf.n_elements)
+    {
+        uint param = element_ix;
+        DrawMonoid draw_monoid = load_draw_monoid(param, v_57, v_101);
+        uint path_ix = draw_monoid.path_ix;
+        float4 clip_bbox = float4(-1000000000.0, -1000000000.0, 1000000000.0, 1000000000.0);
+        uint clip_ix = draw_monoid.clip_ix;
+        if (clip_ix > 0u)
+        {
+            uint param_1 = clip_ix - 1u;
+            clip_bbox = load_clip_bbox(param_1, v_57, v_101);
+        }
+        uint param_2 = path_ix;
+        float4 path_bbox = load_path_bbox(param_2, v_57, v_101);
+        float4 param_3 = path_bbox;
+        float4 param_4 = clip_bbox;
+        float4 bbox = bbox_intersect(param_3, param_4);
+        float4 _354 = bbox;
+        float4 _356 = bbox;
+        float2 _358 = fast::max(_354.xy, _356.zw);
+        bbox.z = _358.x;
+        bbox.w = _358.y;
+        uint param_5 = element_ix;
+        float4 param_6 = bbox;
+        store_draw_bbox(param_5, param_6, v_57, v_101);
+        x0 = int(floor(bbox.x * 0.00390625));
+        y0 = int(floor(bbox.y * 0.00390625));
+        x1 = int(ceil(bbox.z * 0.00390625));
+        y1 = int(ceil(bbox.w * 0.00390625));
+    }
+    uint width_in_bins = ((v_101.conf.width_in_tiles + 16u) - 1u) / 16u;
+    uint height_in_bins = ((v_101.conf.height_in_tiles + 16u) - 1u) / 16u;
+    x0 = clamp(x0, 0, int(width_in_bins));
+    x1 = clamp(x1, x0, int(width_in_bins));
+    y0 = clamp(y0, 0, int(height_in_bins));
+    y1 = clamp(y1, y0, int(height_in_bins));
+    if (x0 == x1)
+    {
+        y1 = y0;
+    }
+    int x = x0;
+    int y = y0;
+    uint my_slice = gl_LocalInvocationID.x / 32u;
+    uint my_mask = 1u << (gl_LocalInvocationID.x & 31u);
+    while (y < y1)
+    {
+        uint _460 = atomic_fetch_or_explicit((threadgroup atomic_uint*)&bitmaps[my_slice][(uint(y) * width_in_bins) + uint(x)], my_mask, memory_order_relaxed);
+        x++;
+        if (x == x1)
+        {
+            x = x0;
+            y++;
+        }
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    uint element_count = 0u;
+    for (uint i_1 = 0u; i_1 < 8u; i_1++)
+    {
+        element_count += uint(int(popcount(bitmaps[i_1][gl_LocalInvocationID.x])));
+        count[i_1][gl_LocalInvocationID.x] = element_count;
+    }
+    uint chunk_offset = 0u;
+    if (element_count != 0u)
+    {
+        uint param_7 = element_count * 4u;
+        uint param_8 = v_101.conf.mem_size;
+        uint param_9 = 1u;
+        uint _510 = malloc_stage(param_7, param_8, param_9, v_57);
+        chunk_offset = _510;
+        sh_chunk_offset[gl_LocalInvocationID.x] = chunk_offset;
+    }
+    uint out_ix = (v_101.conf.bin_alloc.offset >> uint(2)) + (((my_partition * 256u) + gl_LocalInvocationID.x) * 2u);
+    Alloc param_10;
+    param_10.offset = v_101.conf.bin_alloc.offset;
+    uint param_11 = out_ix;
+    uint param_12 = element_count;
+    write_mem(param_10, param_11, param_12, v_57);
+    Alloc param_13;
+    param_13.offset = v_101.conf.bin_alloc.offset;
+    uint param_14 = out_ix + 1u;
+    uint param_15 = chunk_offset;
+    write_mem(param_13, param_14, param_15, v_57);
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    x = x0;
+    y = y0;
+    while (y < y1)
+    {
+        uint bin_ix = (uint(y) * width_in_bins) + uint(x);
+        uint out_mask = bitmaps[my_slice][bin_ix];
+        if ((out_mask & my_mask) != 0u)
+        {
+            uint idx = uint(int(popcount(out_mask & (my_mask - 1u))));
+            if (my_slice > 0u)
+            {
+                idx += count[my_slice - 1u][bin_ix];
+            }
+            uint chunk_offset_1 = sh_chunk_offset[bin_ix];
+            if (chunk_offset_1 != 0u)
+            {
+                v_57.memory[(chunk_offset_1 >> uint(2)) + idx] = element_ix;
+            }
+        }
+        x++;
+        if (x == x1)
+        {
+            x = x0;
+            y++;
+        }
+    }
+}
+

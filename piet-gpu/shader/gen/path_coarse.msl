@@ -1,0 +1,718 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+#pragma clang diagnostic ignored "-Wmissing-braces"
+#pragma clang diagnostic ignored "-Wunused-variable"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+#include <metal_atomic>
+
+using namespace metal;
+
+template<typename T, size_t Num>
+struct spvUnsafeArray
+{
+    T elements[Num ? Num : 1];
+    
+    thread T& operator [] (size_t pos) thread
+    {
+        return elements[pos];
+    }
+    constexpr const thread T& operator [] (size_t pos) const thread
+    {
+        return elements[pos];
+    }
+    
+    device T& operator [] (size_t pos) device
+    {
+        return elements[pos];
+    }
+    constexpr const device T& operator [] (size_t pos) const device
+    {
+        return elements[pos];
+    }
+    
+    constexpr const constant T& operator [] (size_t pos) const constant
+    {
+        return elements[pos];
+    }
+    
+    threadgroup T& operator [] (size_t pos) threadgroup
+    {
+        return elements[pos];
+    }
+    constexpr const threadgroup T& operator [] (size_t pos) const threadgroup
+    {
+        return elements[pos];
+    }
+};
+
+struct Alloc
+{
+    uint offset;
+};
+
+struct PathCubicRef
+{
+    uint offset;
+};
+
+struct PathCubic
+{
+    float2 p0;
+    float2 p1;
+    float2 p2;
+    float2 p3;
+    uint path_ix;
+    uint trans_ix;
+    float2 stroke;
+};
+
+struct PathSegRef
+{
+    uint offset;
+};
+
+struct PathSegTag
+{
+    uint tag;
+    uint flags;
+};
+
+struct TileRef
+{
+    uint offset;
+};
+
+struct PathRef
+{
+    uint offset;
+};
+
+struct Path
+{
+    uint4 bbox;
+    TileRef tiles;
+};
+
+struct TileSegRef
+{
+    uint offset;
+};
+
+struct TileSeg
+{
+    float2 origin;
+    float2 vector;
+    float y_edge;
+    TileSegRef next;
+};
+
+struct SubdivResult
+{
+    float val;
+    float a0;
+    float a2;
+};
+
+struct Memory
+{
+    uint mem_offset;
+    uint mem_error;
+    uint blend_offset;
+    uint memory[1];
+};
+
+struct Alloc_1
+{
+    uint offset;
+};
+
+struct Config
+{
+    uint mem_size;
+    uint n_elements;
+    uint n_pathseg;
+    uint width_in_tiles;
+    uint height_in_tiles;
+    Alloc_1 tile_alloc;
+    Alloc_1 bin_alloc;
+    Alloc_1 ptcl_alloc;
+    Alloc_1 pathseg_alloc;
+    Alloc_1 anno_alloc;
+    Alloc_1 trans_alloc;
+    Alloc_1 path_bbox_alloc;
+    Alloc_1 drawmonoid_alloc;
+    Alloc_1 clip_alloc;
+    Alloc_1 clip_bic_alloc;
+    Alloc_1 clip_stack_alloc;
+    Alloc_1 clip_bbox_alloc;
+    Alloc_1 draw_bbox_alloc;
+    Alloc_1 drawinfo_alloc;
+    uint n_trans;
+    uint n_path;
+    uint n_clip;
+    uint trans_offset;
+    uint linewidth_offset;
+    uint pathtag_offset;
+    uint pathseg_offset;
+    uint drawtag_offset;
+    uint drawdata_offset;
+};
+
+struct ConfigBuf
+{
+    Config conf;
+};
+
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(32u, 1u, 1u);
+
+static inline __attribute__((always_inline))
+bool check_deps(thread const uint& dep_stage, device Memory& v_143)
+{
+    uint _149 = atomic_fetch_or_explicit((device atomic_uint*)&v_143.mem_error, 0u, memory_order_relaxed);
+    return (_149 & dep_stage) == 0u;
+}
+
+static inline __attribute__((always_inline))
+bool touch_mem(thread const Alloc& alloc, thread const uint& offset)
+{
+    return true;
+}
+
+static inline __attribute__((always_inline))
+uint read_mem(thread const Alloc& alloc, thread const uint& offset, device Memory& v_143)
+{
+    Alloc param = alloc;
+    uint param_1 = offset;
+    if (!touch_mem(param, param_1))
+    {
+        return 0u;
+    }
+    uint v = v_143.memory[offset];
+    return v;
+}
+
+static inline __attribute__((always_inline))
+PathSegTag PathSeg_tag(thread const Alloc& a, thread const PathSegRef& ref, device Memory& v_143)
+{
+    Alloc param = a;
+    uint param_1 = ref.offset >> uint(2);
+    uint tag_and_flags = read_mem(param, param_1, v_143);
+    return PathSegTag{ tag_and_flags & 65535u, tag_and_flags >> uint(16) };
+}
+
+static inline __attribute__((always_inline))
+PathCubic PathCubic_read(thread const Alloc& a, thread const PathCubicRef& ref, device Memory& v_143)
+{
+    uint ix = ref.offset >> uint(2);
+    Alloc param = a;
+    uint param_1 = ix + 0u;
+    uint raw0 = read_mem(param, param_1, v_143);
+    Alloc param_2 = a;
+    uint param_3 = ix + 1u;
+    uint raw1 = read_mem(param_2, param_3, v_143);
+    Alloc param_4 = a;
+    uint param_5 = ix + 2u;
+    uint raw2 = read_mem(param_4, param_5, v_143);
+    Alloc param_6 = a;
+    uint param_7 = ix + 3u;
+    uint raw3 = read_mem(param_6, param_7, v_143);
+    Alloc param_8 = a;
+    uint param_9 = ix + 4u;
+    uint raw4 = read_mem(param_8, param_9, v_143);
+    Alloc param_10 = a;
+    uint param_11 = ix + 5u;
+    uint raw5 = read_mem(param_10, param_11, v_143);
+    Alloc param_12 = a;
+    uint param_13 = ix + 6u;
+    uint raw6 = read_mem(param_12, param_13, v_143);
+    Alloc param_14 = a;
+    uint param_15 = ix + 7u;
+    uint raw7 = read_mem(param_14, param_15, v_143);
+    Alloc param_16 = a;
+    uint param_17 = ix + 8u;
+    uint raw8 = read_mem(param_16, param_17, v_143);
+    Alloc param_18 = a;
+    uint param_19 = ix + 9u;
+    uint raw9 = read_mem(param_18, param_19, v_143);
+    Alloc param_20 = a;
+    uint param_21 = ix + 10u;
+    uint raw10 = read_mem(param_20, param_21, v_143);
+    Alloc param_22 = a;
+    uint param_23 = ix + 11u;
+    uint raw11 = read_mem(param_22, param_23, v_143);
+    PathCubic s;
+    s.p0 = float2(as_type<float>(raw0), as_type<float>(raw1));
+    s.p1 = float2(as_type<float>(raw2), as_type<float>(raw3));
+    s.p2 = float2(as_type<float>(raw4), as_type<float>(raw5));
+    s.p3 = float2(as_type<float>(raw6), as_type<float>(raw7));
+    s.path_ix = raw8;
+    s.trans_ix = raw9;
+    s.stroke = float2(as_type<float>(raw10), as_type<float>(raw11));
+    return s;
+}
+
+static inline __attribute__((always_inline))
+PathCubic PathSeg_Cubic_read(thread const Alloc& a, thread const PathSegRef& ref, device Memory& v_143)
+{
+    Alloc param = a;
+    PathCubicRef param_1 = PathCubicRef{ ref.offset + 4u };
+    return PathCubic_read(param, param_1, v_143);
+}
+
+static inline __attribute__((always_inline))
+float2 eval_cubic(thread const float2& p0, thread const float2& p1, thread const float2& p2, thread const float2& p3, thread const float& t)
+{
+    float mt = 1.0 - t;
+    return (p0 * ((mt * mt) * mt)) + (((p1 * ((mt * mt) * 3.0)) + (((p2 * (mt * 3.0)) + (p3 * t)) * t)) * t);
+}
+
+static inline __attribute__((always_inline))
+float approx_parabola_integral(thread const float& x)
+{
+    return x * rsqrt(sqrt(0.3300000131130218505859375 + (0.201511204242706298828125 + ((0.25 * x) * x))));
+}
+
+static inline __attribute__((always_inline))
+SubdivResult estimate_subdiv(thread const float2& p0, thread const float2& p1, thread const float2& p2, thread const float& sqrt_tol)
+{
+    float2 d01 = p1 - p0;
+    float2 d12 = p2 - p1;
+    float2 dd = d01 - d12;
+    float _cross = ((p2.x - p0.x) * dd.y) - ((p2.y - p0.y) * dd.x);
+    float x0 = ((d01.x * dd.x) + (d01.y * dd.y)) / _cross;
+    float x2 = ((d12.x * dd.x) + (d12.y * dd.y)) / _cross;
+    float scale = abs(_cross / (length(dd) * (x2 - x0)));
+    float param = x0;
+    float a0 = approx_parabola_integral(param);
+    float param_1 = x2;
+    float a2 = approx_parabola_integral(param_1);
+    float val = 0.0;
+    if (scale < 1000000000.0)
+    {
+        float da = abs(a2 - a0);
+        float sqrt_scale = sqrt(scale);
+        if (sign(x0) == sign(x2))
+        {
+            val = da * sqrt_scale;
+        }
+        else
+        {
+            float xmin = sqrt_tol / sqrt_scale;
+            float param_2 = xmin;
+            val = (sqrt_tol * da) / approx_parabola_integral(param_2);
+        }
+    }
+    return SubdivResult{ val, a0, a2 };
+}
+
+static inline __attribute__((always_inline))
+uint fill_mode_from_flags(thread const uint& flags)
+{
+    return flags & 1u;
+}
+
+static inline __attribute__((always_inline))
+Path Path_read(thread const Alloc& a, thread const PathRef& ref, device Memory& v_143)
+{
+    uint ix = ref.offset >> uint(2);
+    Alloc param = a;
+    uint param_1 = ix + 0u;
+    uint raw0 = read_mem(param, param_1, v_143);
+    Alloc param_2 = a;
+    uint param_3 = ix + 1u;
+    uint raw1 = read_mem(param_2, param_3, v_143);
+    Alloc param_4 = a;
+    uint param_5 = ix + 2u;
+    uint raw2 = read_mem(param_4, param_5, v_143);
+    Path s;
+    s.bbox = uint4(raw0 & 65535u, raw0 >> uint(16), raw1 & 65535u, raw1 >> uint(16));
+    s.tiles = TileRef{ raw2 };
+    return s;
+}
+
+static inline __attribute__((always_inline))
+Alloc new_alloc(thread const uint& offset, thread const uint& size, thread const bool& mem_ok)
+{
+    Alloc a;
+    a.offset = offset;
+    return a;
+}
+
+static inline __attribute__((always_inline))
+float approx_parabola_inv_integral(thread const float& x)
+{
+    return x * sqrt(0.61000001430511474609375 + (0.1520999968051910400390625 + ((0.25 * x) * x)));
+}
+
+static inline __attribute__((always_inline))
+float2 eval_quad(thread const float2& p0, thread const float2& p1, thread const float2& p2, thread const float& t)
+{
+    float mt = 1.0 - t;
+    return (p0 * (mt * mt)) + (((p1 * (mt * 2.0)) + (p2 * t)) * t);
+}
+
+static inline __attribute__((always_inline))
+uint malloc_stage(thread const uint& size, thread const uint& mem_size, thread const uint& stage, device Memory& v_143)
+{
+    uint _158 = atomic_fetch_add_explicit((device atomic_uint*)&v_143.mem_offset, size, memory_order_relaxed);
+    uint offset = _158;
+    if ((offset + size) > mem_size)
+    {
+        uint _168 = atomic_fetch_or_explicit((device atomic_uint*)&v_143.mem_error, stage, memory_order_relaxed);
+        offset = 0u;
+    }
+    return offset;
+}
+
+static inline __attribute__((always_inline))
+TileRef Tile_index(thread const TileRef& ref, thread const uint& index)
+{
+    return TileRef{ ref.offset + (index * 8u) };
+}
+
+static inline __attribute__((always_inline))
+void write_mem(thread const Alloc& alloc, thread const uint& offset, thread const uint& val, device Memory& v_143)
+{
+    Alloc param = alloc;
+    uint param_1 = offset;
+    if (!touch_mem(param, param_1))
+    {
+        return;
+    }
+    v_143.memory[offset] = val;
+}
+
+static inline __attribute__((always_inline))
+void TileSeg_write(thread const Alloc& a, thread const TileSegRef& ref, thread const TileSeg& s, device Memory& v_143)
+{
+    uint ix = ref.offset >> uint(2);
+    Alloc param = a;
+    uint param_1 = ix + 0u;
+    uint param_2 = as_type<uint>(s.origin.x);
+    write_mem(param, param_1, param_2, v_143);
+    Alloc param_3 = a;
+    uint param_4 = ix + 1u;
+    uint param_5 = as_type<uint>(s.origin.y);
+    write_mem(param_3, param_4, param_5, v_143);
+    Alloc param_6 = a;
+    uint param_7 = ix + 2u;
+    uint param_8 = as_type<uint>(s.vector.x);
+    write_mem(param_6, param_7, param_8, v_143);
+    Alloc param_9 = a;
+    uint param_10 = ix + 3u;
+    uint param_11 = as_type<uint>(s.vector.y);
+    write_mem(param_9, param_10, param_11, v_143);
+    Alloc param_12 = a;
+    uint param_13 = ix + 4u;
+    uint param_14 = as_type<uint>(s.y_edge);
+    write_mem(param_12, param_13, param_14, v_143);
+    Alloc param_15 = a;
+    uint param_16 = ix + 5u;
+    uint param_17 = s.next.offset;
+    write_mem(param_15, param_16, param_17, v_143);
+}
+
+kernel void main0(device Memory& v_143 [[buffer(0)]], const device ConfigBuf& _711 [[buffer(1)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+{
+    bool mem_ok = true;
+    uint param = 7u;
+    bool _694 = check_deps(param, v_143);
+    if (!_694)
+    {
+        return;
+    }
+    uint element_ix = gl_GlobalInvocationID.x;
+    PathSegRef ref = PathSegRef{ _711.conf.pathseg_alloc.offset + (element_ix * 52u) };
+    PathSegTag tag = PathSegTag{ 0u, 0u };
+    if (element_ix < _711.conf.n_pathseg)
+    {
+        Alloc param_1;
+        param_1.offset = _711.conf.pathseg_alloc.offset;
+        PathSegRef param_2 = ref;
+        tag = PathSeg_tag(param_1, param_2, v_143);
+    }
+    switch (tag.tag)
+    {
+        case 1u:
+        {
+            Alloc param_3;
+            param_3.offset = _711.conf.pathseg_alloc.offset;
+            PathSegRef param_4 = ref;
+            PathCubic cubic = PathSeg_Cubic_read(param_3, param_4, v_143);
+            float2 err_v = (((cubic.p2 - cubic.p1) * 3.0) + cubic.p0) - cubic.p3;
+            float err = (err_v.x * err_v.x) + (err_v.y * err_v.y);
+            uint n_quads = max(uint(ceil(pow(err * 3.7037036418914794921875, 0.16666667163372039794921875))), 1u);
+            n_quads = min(n_quads, 16u);
+            float val = 0.0;
+            float2 qp0 = cubic.p0;
+            float _step = 1.0 / float(n_quads);
+            spvUnsafeArray<SubdivResult, 16> keep_params;
+            for (uint i = 0u; i < n_quads; i++)
+            {
+                float t = float(i + 1u) * _step;
+                float2 param_5 = cubic.p0;
+                float2 param_6 = cubic.p1;
+                float2 param_7 = cubic.p2;
+                float2 param_8 = cubic.p3;
+                float param_9 = t;
+                float2 qp2 = eval_cubic(param_5, param_6, param_7, param_8, param_9);
+                float2 param_10 = cubic.p0;
+                float2 param_11 = cubic.p1;
+                float2 param_12 = cubic.p2;
+                float2 param_13 = cubic.p3;
+                float param_14 = t - (0.5 * _step);
+                float2 qp1 = eval_cubic(param_10, param_11, param_12, param_13, param_14);
+                qp1 = (qp1 * 2.0) - ((qp0 + qp2) * 0.5);
+                float2 param_15 = qp0;
+                float2 param_16 = qp1;
+                float2 param_17 = qp2;
+                float param_18 = 0.4743416607379913330078125;
+                SubdivResult params = estimate_subdiv(param_15, param_16, param_17, param_18);
+                keep_params[i] = params;
+                val += params.val;
+                qp0 = qp2;
+            }
+            uint n = max(uint(ceil((val * 0.5) / 0.4743416607379913330078125)), 1u);
+            uint param_19 = tag.flags;
+            bool is_stroke = fill_mode_from_flags(param_19) == 1u;
+            uint path_ix = cubic.path_ix;
+            Alloc param_20;
+            param_20.offset = _711.conf.tile_alloc.offset;
+            PathRef param_21 = PathRef{ _711.conf.tile_alloc.offset + (path_ix * 12u) };
+            Path path = Path_read(param_20, param_21, v_143);
+            uint param_22 = path.tiles.offset;
+            uint param_23 = ((path.bbox.z - path.bbox.x) * (path.bbox.w - path.bbox.y)) * 8u;
+            bool param_24 = true;
+            Alloc path_alloc = new_alloc(param_22, param_23, param_24);
+            int4 bbox = int4(path.bbox);
+            float2 p0 = cubic.p0;
+            qp0 = cubic.p0;
+            float v_step = val / float(n);
+            int n_out = 1;
+            float val_sum = 0.0;
+            float2 p1;
+            float _1143;
+            TileSeg tile_seg;
+            for (uint i_1 = 0u; i_1 < n_quads; i_1++)
+            {
+                float t_1 = float(i_1 + 1u) * _step;
+                float2 param_25 = cubic.p0;
+                float2 param_26 = cubic.p1;
+                float2 param_27 = cubic.p2;
+                float2 param_28 = cubic.p3;
+                float param_29 = t_1;
+                float2 qp2_1 = eval_cubic(param_25, param_26, param_27, param_28, param_29);
+                float2 param_30 = cubic.p0;
+                float2 param_31 = cubic.p1;
+                float2 param_32 = cubic.p2;
+                float2 param_33 = cubic.p3;
+                float param_34 = t_1 - (0.5 * _step);
+                float2 qp1_1 = eval_cubic(param_30, param_31, param_32, param_33, param_34);
+                qp1_1 = (qp1_1 * 2.0) - ((qp0 + qp2_1) * 0.5);
+                SubdivResult params_1 = keep_params[i_1];
+                float param_35 = params_1.a0;
+                float u0 = approx_parabola_inv_integral(param_35);
+                float param_36 = params_1.a2;
+                float u2 = approx_parabola_inv_integral(param_36);
+                float uscale = 1.0 / (u2 - u0);
+                float target = float(n_out) * v_step;
+                for (;;)
+                {
+                    bool _1036 = uint(n_out) == n;
+                    bool _1046;
+                    if (!_1036)
+                    {
+                        _1046 = target < (val_sum + params_1.val);
+                    }
+                    else
+                    {
+                        _1046 = _1036;
+                    }
+                    if (_1046)
+                    {
+                        if (uint(n_out) == n)
+                        {
+                            p1 = cubic.p3;
+                        }
+                        else
+                        {
+                            float u = (target - val_sum) / params_1.val;
+                            float a = mix(params_1.a0, params_1.a2, u);
+                            float param_37 = a;
+                            float au = approx_parabola_inv_integral(param_37);
+                            float t_2 = (au - u0) * uscale;
+                            float2 param_38 = qp0;
+                            float2 param_39 = qp1_1;
+                            float2 param_40 = qp2_1;
+                            float param_41 = t_2;
+                            p1 = eval_quad(param_38, param_39, param_40, param_41);
+                        }
+                        float xmin = fast::min(p0.x, p1.x) - cubic.stroke.x;
+                        float xmax = fast::max(p0.x, p1.x) + cubic.stroke.x;
+                        float ymin = fast::min(p0.y, p1.y) - cubic.stroke.y;
+                        float ymax = fast::max(p0.y, p1.y) + cubic.stroke.y;
+                        float dx = p1.x - p0.x;
+                        float dy = p1.y - p0.y;
+                        if (abs(dy) < 9.999999717180685365747194737196e-10)
+                        {
+                            _1143 = 1000000000.0;
+                        }
+                        else
+                        {
+                            _1143 = dx / dy;
+                        }
+                        float invslope = _1143;
+                        float c = (cubic.stroke.x + (abs(invslope) * (8.0 + cubic.stroke.y))) * 0.0625;
+                        float b = invslope;
+                        float a_1 = (p0.x - ((p0.y - 8.0) * b)) * 0.0625;
+                        int x0 = int(floor(xmin * 0.0625));
+                        int x1 = int(floor(xmax * 0.0625) + 1.0);
+                        int y0 = int(floor(ymin * 0.0625));
+                        int y1 = int(floor(ymax * 0.0625) + 1.0);
+                        x0 = clamp(x0, bbox.x, bbox.z);
+                        y0 = clamp(y0, bbox.y, bbox.w);
+                        x1 = clamp(x1, bbox.x, bbox.z);
+                        y1 = clamp(y1, bbox.y, bbox.w);
+                        float xc = a_1 + (b * float(y0));
+                        int stride = bbox.z - bbox.x;
+                        int base = ((y0 - bbox.y) * stride) - bbox.x;
+                        uint n_tile_alloc = uint((x1 - x0) * (y1 - y0));
+                        uint malloc_size = n_tile_alloc * 24u;
+                        uint param_42 = malloc_size;
+                        uint param_43 = _711.conf.mem_size;
+                        uint param_44 = 4u;
+                        uint _1265 = malloc_stage(param_42, param_43, param_44, v_143);
+                        uint tile_offset = _1265;
+                        if (tile_offset == 0u)
+                        {
+                            mem_ok = false;
+                        }
+                        uint param_45 = tile_offset;
+                        uint param_46 = malloc_size;
+                        bool param_47 = true;
+                        Alloc tile_alloc = new_alloc(param_45, param_46, param_47);
+                        int xray = int(floor(p0.x * 0.0625));
+                        int last_xray = int(floor(p1.x * 0.0625));
+                        if (p0.y > p1.y)
+                        {
+                            int tmp = xray;
+                            xray = last_xray;
+                            last_xray = tmp;
+                        }
+                        for (int y = y0; y < y1; y++)
+                        {
+                            float tile_y0 = float(y * 16);
+                            int xbackdrop = max((xray + 1), bbox.x);
+                            bool _1322 = !is_stroke;
+                            bool _1332;
+                            if (_1322)
+                            {
+                                _1332 = fast::min(p0.y, p1.y) < tile_y0;
+                            }
+                            else
+                            {
+                                _1332 = _1322;
+                            }
+                            bool _1339;
+                            if (_1332)
+                            {
+                                _1339 = xbackdrop < bbox.z;
+                            }
+                            else
+                            {
+                                _1339 = _1332;
+                            }
+                            if (_1339)
+                            {
+                                int backdrop = (p1.y < p0.y) ? 1 : (-1);
+                                TileRef param_48 = path.tiles;
+                                uint param_49 = uint(base + xbackdrop);
+                                TileRef tile_ref = Tile_index(param_48, param_49);
+                                uint tile_el = tile_ref.offset >> uint(2);
+                                uint _1369 = atomic_fetch_add_explicit((device atomic_uint*)&v_143.memory[tile_el + 1u], uint(backdrop), memory_order_relaxed);
+                            }
+                            int next_xray = last_xray;
+                            if (y < (y1 - 1))
+                            {
+                                float tile_y1 = float((y + 1) * 16);
+                                float x_edge = mix(p0.x, p1.x, (tile_y1 - p0.y) / dy);
+                                next_xray = int(floor(x_edge * 0.0625));
+                            }
+                            int min_xray = min(xray, next_xray);
+                            int max_xray = max(xray, next_xray);
+                            int xx0 = min(int(floor(xc - c)), min_xray);
+                            int xx1 = max(int(ceil(xc + c)), (max_xray + 1));
+                            xx0 = clamp(xx0, x0, x1);
+                            xx1 = clamp(xx1, x0, x1);
+                            for (int x = xx0; x < xx1; x++)
+                            {
+                                float tile_x0 = float(x * 16);
+                                TileRef param_50 = TileRef{ path.tiles.offset };
+                                uint param_51 = uint(base + x);
+                                TileRef tile_ref_1 = Tile_index(param_50, param_51);
+                                uint tile_el_1 = tile_ref_1.offset >> uint(2);
+                                uint old = 0u;
+                                uint _1465 = atomic_exchange_explicit((device atomic_uint*)&v_143.memory[tile_el_1], tile_offset, memory_order_relaxed);
+                                old = _1465;
+                                tile_seg.origin = p0;
+                                tile_seg.vector = p1 - p0;
+                                float y_edge = 0.0;
+                                if (!is_stroke)
+                                {
+                                    y_edge = mix(p0.y, p1.y, (tile_x0 - p0.x) / dx);
+                                    if (fast::min(p0.x, p1.x) < tile_x0)
+                                    {
+                                        float2 p = float2(tile_x0, y_edge);
+                                        if (p0.x > p1.x)
+                                        {
+                                            tile_seg.vector = p - p0;
+                                        }
+                                        else
+                                        {
+                                            tile_seg.origin = p;
+                                            tile_seg.vector = p1 - p;
+                                        }
+                                        if (tile_seg.vector.x == 0.0)
+                                        {
+                                            tile_seg.vector.x = sign(p1.x - p0.x) * 9.999999717180685365747194737196e-10;
+                                        }
+                                    }
+                                    if ((x <= min_xray) || (max_xray < x))
+                                    {
+                                        y_edge = 1000000000.0;
+                                    }
+                                }
+                                tile_seg.y_edge = y_edge;
+                                tile_seg.next.offset = old;
+                                if (mem_ok)
+                                {
+                                    Alloc param_52 = tile_alloc;
+                                    TileSegRef param_53 = TileSegRef{ tile_offset };
+                                    TileSeg param_54 = tile_seg;
+                                    TileSeg_write(param_52, param_53, param_54, v_143);
+                                }
+                                tile_offset += 24u;
+                            }
+                            xc += b;
+                            base += stride;
+                            xray = next_xray;
+                        }
+                        n_out++;
+                        target += v_step;
+                        p0 = p1;
+                        continue;
+                    }
+                    else
+                    {
+                        break;
+                    }
+                }
+                val_sum += params_1.val;
+                qp0 = qp2_1;
+            }
+            break;
+        }
+    }
+}
+

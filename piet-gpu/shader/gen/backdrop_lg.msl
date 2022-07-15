@@ -1,0 +1,263 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+#pragma clang diagnostic ignored "-Wunused-variable"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+#include <metal_atomic>
+
+using namespace metal;
+
+struct Alloc
+{
+    uint offset;
+};
+
+struct PathRef
+{
+    uint offset;
+};
+
+struct TileRef
+{
+    uint offset;
+};
+
+struct Path
+{
+    uint4 bbox;
+    TileRef tiles;
+};
+
+struct Memory
+{
+    uint mem_offset;
+    uint mem_error;
+    uint blend_offset;
+    uint memory[1];
+};
+
+struct Alloc_1
+{
+    uint offset;
+};
+
+struct Config
+{
+    uint mem_size;
+    uint n_elements;
+    uint n_pathseg;
+    uint width_in_tiles;
+    uint height_in_tiles;
+    Alloc_1 tile_alloc;
+    Alloc_1 bin_alloc;
+    Alloc_1 ptcl_alloc;
+    Alloc_1 pathseg_alloc;
+    Alloc_1 anno_alloc;
+    Alloc_1 trans_alloc;
+    Alloc_1 path_bbox_alloc;
+    Alloc_1 drawmonoid_alloc;
+    Alloc_1 clip_alloc;
+    Alloc_1 clip_bic_alloc;
+    Alloc_1 clip_stack_alloc;
+    Alloc_1 clip_bbox_alloc;
+    Alloc_1 draw_bbox_alloc;
+    Alloc_1 drawinfo_alloc;
+    uint n_trans;
+    uint n_path;
+    uint n_clip;
+    uint trans_offset;
+    uint linewidth_offset;
+    uint pathtag_offset;
+    uint pathseg_offset;
+    uint drawtag_offset;
+    uint drawdata_offset;
+};
+
+struct ConfigBuf
+{
+    Config conf;
+};
+
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(256u, 4u, 1u);
+
+static inline __attribute__((always_inline))
+bool check_deps(thread const uint& dep_stage, device Memory& v_59)
+{
+    uint _65 = atomic_fetch_or_explicit((device atomic_uint*)&v_59.mem_error, 0u, memory_order_relaxed);
+    return (_65 & dep_stage) == 0u;
+}
+
+static inline __attribute__((always_inline))
+bool touch_mem(thread const Alloc& alloc, thread const uint& offset)
+{
+    return true;
+}
+
+static inline __attribute__((always_inline))
+uint read_mem(thread const Alloc& alloc, thread const uint& offset, device Memory& v_59)
+{
+    Alloc param = alloc;
+    uint param_1 = offset;
+    if (!touch_mem(param, param_1))
+    {
+        return 0u;
+    }
+    uint v = v_59.memory[offset];
+    return v;
+}
+
+static inline __attribute__((always_inline))
+Path Path_read(thread const Alloc& a, thread const PathRef& ref, device Memory& v_59)
+{
+    uint ix = ref.offset >> uint(2);
+    Alloc param = a;
+    uint param_1 = ix + 0u;
+    uint raw0 = read_mem(param, param_1, v_59);
+    Alloc param_2 = a;
+    uint param_3 = ix + 1u;
+    uint raw1 = read_mem(param_2, param_3, v_59);
+    Alloc param_4 = a;
+    uint param_5 = ix + 2u;
+    uint raw2 = read_mem(param_4, param_5, v_59);
+    Path s;
+    s.bbox = uint4(raw0 & 65535u, raw0 >> uint(16), raw1 & 65535u, raw1 >> uint(16));
+    s.tiles = TileRef{ raw2 };
+    return s;
+}
+
+static inline __attribute__((always_inline))
+Alloc new_alloc(thread const uint& offset, thread const uint& size, thread const bool& mem_ok)
+{
+    Alloc a;
+    a.offset = offset;
+    return a;
+}
+
+static inline __attribute__((always_inline))
+void write_mem(thread const Alloc& alloc, thread const uint& offset, thread const uint& val, device Memory& v_59)
+{
+    Alloc param = alloc;
+    uint param_1 = offset;
+    if (!touch_mem(param, param_1))
+    {
+        return;
+    }
+    v_59.memory[offset] = val;
+}
+
+kernel void main0(device Memory& v_59 [[buffer(0)]], const device ConfigBuf& _181 [[buffer(1)]], uint gl_LocalInvocationIndex [[thread_index_in_threadgroup]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
+{
+    threadgroup uint sh_row_width[256];
+    threadgroup Alloc sh_row_alloc[256];
+    threadgroup uint sh_row_count[256];
+    uint param = 7u;
+    bool _154 = check_deps(param, v_59);
+    if (!_154)
+    {
+        return;
+    }
+    uint th_ix = gl_LocalInvocationIndex;
+    uint element_ix = gl_GlobalInvocationID.x;
+    uint row_count = 0u;
+    if (gl_LocalInvocationID.y == 0u)
+    {
+        if (element_ix < _181.conf.n_elements)
+        {
+            PathRef path_ref = PathRef{ _181.conf.tile_alloc.offset + (element_ix * 12u) };
+            Alloc param_1;
+            param_1.offset = _181.conf.tile_alloc.offset;
+            PathRef param_2 = path_ref;
+            Path path = Path_read(param_1, param_2, v_59);
+            sh_row_width[th_ix] = path.bbox.z - path.bbox.x;
+            row_count = path.bbox.w - path.bbox.y;
+            bool _225 = row_count == 1u;
+            bool _231;
+            if (_225)
+            {
+                _231 = path.bbox.y > 0u;
+            }
+            else
+            {
+                _231 = _225;
+            }
+            if (_231)
+            {
+                row_count = 0u;
+            }
+            uint param_3 = path.tiles.offset;
+            uint param_4 = ((path.bbox.z - path.bbox.x) * (path.bbox.w - path.bbox.y)) * 8u;
+            bool param_5 = true;
+            Alloc path_alloc = new_alloc(param_3, param_4, param_5);
+            sh_row_alloc[th_ix] = path_alloc;
+        }
+        sh_row_count[th_ix] = row_count;
+    }
+    for (uint i = 0u; i < 8u; i++)
+    {
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        bool _276 = gl_LocalInvocationID.y == 0u;
+        bool _283;
+        if (_276)
+        {
+            _283 = th_ix >= (1u << i);
+        }
+        else
+        {
+            _283 = _276;
+        }
+        if (_283)
+        {
+            row_count += sh_row_count[th_ix - (1u << i)];
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        if (gl_LocalInvocationID.y == 0u)
+        {
+            sh_row_count[th_ix] = row_count;
+        }
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    uint total_rows = sh_row_count[255];
+    uint _360;
+    for (uint row = th_ix; row < total_rows; row += 1024u)
+    {
+        uint el_ix = 0u;
+        for (uint i_1 = 0u; i_1 < 8u; i_1++)
+        {
+            uint probe = el_ix + (128u >> i_1);
+            if (row >= sh_row_count[probe - 1u])
+            {
+                el_ix = probe;
+            }
+        }
+        uint width = sh_row_width[el_ix];
+        if (width > 0u)
+        {
+            Alloc tiles_alloc = sh_row_alloc[el_ix];
+            if (el_ix > 0u)
+            {
+                _360 = sh_row_count[el_ix - 1u];
+            }
+            else
+            {
+                _360 = 0u;
+            }
+            uint seq_ix = row - _360;
+            uint tile_el_ix = ((tiles_alloc.offset >> uint(2)) + 1u) + ((seq_ix * 2u) * width);
+            Alloc param_6 = tiles_alloc;
+            uint param_7 = tile_el_ix;
+            uint sum = read_mem(param_6, param_7, v_59);
+            for (uint x = 1u; x < width; x++)
+            {
+                tile_el_ix += 2u;
+                Alloc param_8 = tiles_alloc;
+                uint param_9 = tile_el_ix;
+                sum += read_mem(param_8, param_9, v_59);
+                Alloc param_10 = tiles_alloc;
+                uint param_11 = tile_el_ix;
+                uint param_12 = sum;
+                write_mem(param_10, param_11, param_12, v_59);
+            }
+        }
+    }
+}
+

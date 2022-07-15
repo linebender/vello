@@ -1,0 +1,179 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct Bic
+{
+    uint a;
+    uint b;
+};
+
+struct ClipEl
+{
+    uint parent_ix;
+    float4 bbox;
+};
+
+struct Alloc
+{
+    uint offset;
+};
+
+struct Config
+{
+    uint mem_size;
+    uint n_elements;
+    uint n_pathseg;
+    uint width_in_tiles;
+    uint height_in_tiles;
+    Alloc tile_alloc;
+    Alloc bin_alloc;
+    Alloc ptcl_alloc;
+    Alloc pathseg_alloc;
+    Alloc anno_alloc;
+    Alloc trans_alloc;
+    Alloc path_bbox_alloc;
+    Alloc drawmonoid_alloc;
+    Alloc clip_alloc;
+    Alloc clip_bic_alloc;
+    Alloc clip_stack_alloc;
+    Alloc clip_bbox_alloc;
+    Alloc draw_bbox_alloc;
+    Alloc drawinfo_alloc;
+    uint n_trans;
+    uint n_path;
+    uint n_clip;
+    uint trans_offset;
+    uint linewidth_offset;
+    uint pathtag_offset;
+    uint pathseg_offset;
+    uint drawtag_offset;
+    uint drawdata_offset;
+};
+
+struct ConfigBuf
+{
+    Config conf;
+};
+
+struct Memory
+{
+    uint mem_offset;
+    uint mem_error;
+    uint blend_offset;
+    uint memory[1];
+};
+
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(256u, 1u, 1u);
+
+static inline __attribute__((always_inline))
+Bic bic_combine(thread const Bic& x, thread const Bic& y)
+{
+    uint m = min(x.b, y.a);
+    return Bic{ (x.a + y.a) - m, (x.b + y.b) - m };
+}
+
+static inline __attribute__((always_inline))
+void store_bic(thread const uint& ix, thread const Bic& bic, const device ConfigBuf& v_64, device Memory& v_80)
+{
+    uint base = (v_64.conf.clip_bic_alloc.offset >> uint(2)) + (2u * ix);
+    v_80.memory[base] = bic.a;
+    v_80.memory[base + 1u] = bic.b;
+}
+
+static inline __attribute__((always_inline))
+float4 load_path_bbox(thread const uint& path_ix, const device ConfigBuf& v_64, device Memory& v_80)
+{
+    uint base = (v_64.conf.path_bbox_alloc.offset >> uint(2)) + (6u * path_ix);
+    float bbox_l = float(v_80.memory[base]) - 32768.0;
+    float bbox_t = float(v_80.memory[base + 1u]) - 32768.0;
+    float bbox_r = float(v_80.memory[base + 2u]) - 32768.0;
+    float bbox_b = float(v_80.memory[base + 3u]) - 32768.0;
+    float4 bbox = float4(bbox_l, bbox_t, bbox_r, bbox_b);
+    return bbox;
+}
+
+static inline __attribute__((always_inline))
+void store_clip_el(thread const uint& ix, thread const ClipEl& el, const device ConfigBuf& v_64, device Memory& v_80)
+{
+    uint base = (v_64.conf.clip_stack_alloc.offset >> uint(2)) + (5u * ix);
+    v_80.memory[base] = el.parent_ix;
+    v_80.memory[base + 1u] = as_type<uint>(el.bbox.x);
+    v_80.memory[base + 2u] = as_type<uint>(el.bbox.y);
+    v_80.memory[base + 3u] = as_type<uint>(el.bbox.z);
+    v_80.memory[base + 4u] = as_type<uint>(el.bbox.w);
+}
+
+kernel void main0(device Memory& v_80 [[buffer(0)]], const device ConfigBuf& v_64 [[buffer(1)]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]])
+{
+    threadgroup Bic sh_bic[256];
+    threadgroup uint sh_parent[256];
+    threadgroup uint sh_path_ix[256];
+    threadgroup float4 sh_bbox[256];
+    uint th = gl_LocalInvocationID.x;
+    uint inp = v_80.memory[(v_64.conf.clip_alloc.offset >> uint(2)) + gl_GlobalInvocationID.x];
+    bool is_push = int(inp) >= 0;
+    Bic bic = Bic{ 1u - uint(is_push), uint(is_push) };
+    sh_bic[gl_LocalInvocationID.x] = bic;
+    for (uint i = 0u; i < 8u; i++)
+    {
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        if ((th + (1u << i)) < 256u)
+        {
+            Bic other = sh_bic[gl_LocalInvocationID.x + (1u << i)];
+            Bic param = bic;
+            Bic param_1 = other;
+            bic = bic_combine(param, param_1);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        sh_bic[th] = bic;
+    }
+    if (th == 0u)
+    {
+        uint param_2 = gl_WorkGroupID.x;
+        Bic param_3 = bic;
+        store_bic(param_2, param_3, v_64, v_80);
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    uint size = sh_bic[0].b;
+    bic = Bic{ 0u, 0u };
+    if ((th + 1u) < 256u)
+    {
+        bic = sh_bic[th + 1u];
+    }
+    bool _284;
+    if (is_push)
+    {
+        _284 = bic.a == 0u;
+    }
+    else
+    {
+        _284 = is_push;
+    }
+    if (_284)
+    {
+        uint local_ix = (size - bic.b) - 1u;
+        sh_parent[local_ix] = th;
+        sh_path_ix[local_ix] = inp;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    float4 bbox;
+    if (th < size)
+    {
+        uint path_ix = sh_path_ix[th];
+        uint param_4 = path_ix;
+        bbox = load_path_bbox(param_4, v_64, v_80);
+    }
+    if (th < size)
+    {
+        uint parent_ix = sh_parent[th] + (gl_WorkGroupID.x * 256u);
+        ClipEl el = ClipEl{ parent_ix, bbox };
+        uint param_5 = gl_GlobalInvocationID.x;
+        ClipEl param_6 = el;
+        store_clip_el(param_5, param_6, v_64, v_80);
+    }
+}
+

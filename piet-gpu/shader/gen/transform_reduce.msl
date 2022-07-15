@@ -1,0 +1,155 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct TransformRef
+{
+    uint offset;
+};
+
+struct Transform
+{
+    float4 mat;
+    float2 translate;
+};
+
+struct SceneBuf
+{
+    uint scene[1];
+};
+
+struct Alloc
+{
+    uint offset;
+};
+
+struct Config
+{
+    uint mem_size;
+    uint n_elements;
+    uint n_pathseg;
+    uint width_in_tiles;
+    uint height_in_tiles;
+    Alloc tile_alloc;
+    Alloc bin_alloc;
+    Alloc ptcl_alloc;
+    Alloc pathseg_alloc;
+    Alloc anno_alloc;
+    Alloc trans_alloc;
+    Alloc path_bbox_alloc;
+    Alloc drawmonoid_alloc;
+    Alloc clip_alloc;
+    Alloc clip_bic_alloc;
+    Alloc clip_stack_alloc;
+    Alloc clip_bbox_alloc;
+    Alloc draw_bbox_alloc;
+    Alloc drawinfo_alloc;
+    uint n_trans;
+    uint n_path;
+    uint n_clip;
+    uint trans_offset;
+    uint linewidth_offset;
+    uint pathtag_offset;
+    uint pathseg_offset;
+    uint drawtag_offset;
+    uint drawdata_offset;
+};
+
+struct ConfigBuf
+{
+    Config conf;
+};
+
+struct Transform_1
+{
+    float4 mat;
+    float2 translate;
+    char _m0_final_padding[8];
+};
+
+struct OutBuf
+{
+    Transform_1 outbuf[1];
+};
+
+struct Memory
+{
+    uint mem_offset;
+    uint mem_error;
+    uint blend_offset;
+    uint memory[1];
+};
+
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(256u, 1u, 1u);
+
+static inline __attribute__((always_inline))
+Transform Transform_read(thread const TransformRef& ref, const device SceneBuf& v_49)
+{
+    uint ix = ref.offset >> uint(2);
+    uint raw0 = v_49.scene[ix + 0u];
+    uint raw1 = v_49.scene[ix + 1u];
+    uint raw2 = v_49.scene[ix + 2u];
+    uint raw3 = v_49.scene[ix + 3u];
+    uint raw4 = v_49.scene[ix + 4u];
+    uint raw5 = v_49.scene[ix + 5u];
+    Transform s;
+    s.mat = float4(as_type<float>(raw0), as_type<float>(raw1), as_type<float>(raw2), as_type<float>(raw3));
+    s.translate = float2(as_type<float>(raw4), as_type<float>(raw5));
+    return s;
+}
+
+static inline __attribute__((always_inline))
+TransformRef Transform_index(thread const TransformRef& ref, thread const uint& index)
+{
+    return TransformRef{ ref.offset + (index * 24u) };
+}
+
+static inline __attribute__((always_inline))
+Transform combine_monoid(thread const Transform& a, thread const Transform& b)
+{
+    Transform c;
+    c.mat = (a.mat.xyxy * b.mat.xxzz) + (a.mat.zwzw * b.mat.yyww);
+    c.translate = ((a.mat.xy * b.translate.x) + (a.mat.zw * b.translate.y)) + a.translate;
+    return c;
+}
+
+kernel void main0(const device ConfigBuf& _161 [[buffer(1)]], const device SceneBuf& v_49 [[buffer(2)]], device OutBuf& _250 [[buffer(3)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]])
+{
+    threadgroup Transform sh_scratch[256];
+    uint ix = gl_GlobalInvocationID.x * 8u;
+    TransformRef ref = TransformRef{ _161.conf.trans_offset + (ix * 24u) };
+    TransformRef param = ref;
+    Transform agg = Transform_read(param, v_49);
+    for (uint i = 1u; i < 8u; i++)
+    {
+        TransformRef param_1 = ref;
+        uint param_2 = i;
+        TransformRef param_3 = Transform_index(param_1, param_2);
+        Transform param_4 = agg;
+        Transform param_5 = Transform_read(param_3, v_49);
+        agg = combine_monoid(param_4, param_5);
+    }
+    sh_scratch[gl_LocalInvocationID.x] = agg;
+    for (uint i_1 = 0u; i_1 < 8u; i_1++)
+    {
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        if ((gl_LocalInvocationID.x + (1u << i_1)) < 256u)
+        {
+            Transform other = sh_scratch[gl_LocalInvocationID.x + (1u << i_1)];
+            Transform param_6 = agg;
+            Transform param_7 = other;
+            agg = combine_monoid(param_6, param_7);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        sh_scratch[gl_LocalInvocationID.x] = agg;
+    }
+    if (gl_LocalInvocationID.x == 0u)
+    {
+        _250.outbuf[gl_WorkGroupID.x].mat = agg.mat;
+        _250.outbuf[gl_WorkGroupID.x].translate = agg.translate;
+    }
+}
+

@@ -1,0 +1,1355 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+#pragma clang diagnostic ignored "-Wmissing-braces"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+template<typename T, size_t Num>
+struct spvUnsafeArray
+{
+    T elements[Num ? Num : 1];
+    
+    thread T& operator [] (size_t pos) thread
+    {
+        return elements[pos];
+    }
+    constexpr const thread T& operator [] (size_t pos) const thread
+    {
+        return elements[pos];
+    }
+    
+    device T& operator [] (size_t pos) device
+    {
+        return elements[pos];
+    }
+    constexpr const device T& operator [] (size_t pos) const device
+    {
+        return elements[pos];
+    }
+    
+    constexpr const constant T& operator [] (size_t pos) const constant
+    {
+        return elements[pos];
+    }
+    
+    threadgroup T& operator [] (size_t pos) threadgroup
+    {
+        return elements[pos];
+    }
+    constexpr const threadgroup T& operator [] (size_t pos) const threadgroup
+    {
+        return elements[pos];
+    }
+};
+
+struct Alloc
+{
+    uint offset;
+};
+
+struct CmdStrokeRef
+{
+    uint offset;
+};
+
+struct CmdStroke
+{
+    uint tile_ref;
+    float half_width;
+};
+
+struct CmdFillRef
+{
+    uint offset;
+};
+
+struct CmdFill
+{
+    uint tile_ref;
+    int backdrop;
+};
+
+struct CmdColorRef
+{
+    uint offset;
+};
+
+struct CmdColor
+{
+    uint rgba_color;
+};
+
+struct CmdLinGradRef
+{
+    uint offset;
+};
+
+struct CmdLinGrad
+{
+    uint index;
+    float line_x;
+    float line_y;
+    float line_c;
+};
+
+struct CmdRadGradRef
+{
+    uint offset;
+};
+
+struct CmdRadGrad
+{
+    uint index;
+    float4 mat;
+    float2 xlat;
+    float2 c1;
+    float ra;
+    float roff;
+};
+
+struct CmdImageRef
+{
+    uint offset;
+};
+
+struct CmdImage
+{
+    uint index;
+    int2 offset;
+};
+
+struct CmdAlphaRef
+{
+    uint offset;
+};
+
+struct CmdAlpha
+{
+    float alpha;
+};
+
+struct CmdEndClipRef
+{
+    uint offset;
+};
+
+struct CmdEndClip
+{
+    uint blend;
+};
+
+struct CmdJumpRef
+{
+    uint offset;
+};
+
+struct CmdJump
+{
+    uint new_ref;
+};
+
+struct CmdRef
+{
+    uint offset;
+};
+
+struct CmdTag
+{
+    uint tag;
+    uint flags;
+};
+
+struct TileSegRef
+{
+    uint offset;
+};
+
+struct TileSeg
+{
+    float2 origin;
+    float2 vector;
+    float y_edge;
+    TileSegRef next;
+};
+
+struct Memory
+{
+    uint mem_offset;
+    uint mem_error;
+    uint blend_offset;
+    uint memory[1];
+};
+
+struct Alloc_1
+{
+    uint offset;
+};
+
+struct Config
+{
+    uint mem_size;
+    uint n_elements;
+    uint n_pathseg;
+    uint width_in_tiles;
+    uint height_in_tiles;
+    Alloc_1 tile_alloc;
+    Alloc_1 bin_alloc;
+    Alloc_1 ptcl_alloc;
+    Alloc_1 pathseg_alloc;
+    Alloc_1 anno_alloc;
+    Alloc_1 trans_alloc;
+    Alloc_1 path_bbox_alloc;
+    Alloc_1 drawmonoid_alloc;
+    Alloc_1 clip_alloc;
+    Alloc_1 clip_bic_alloc;
+    Alloc_1 clip_stack_alloc;
+    Alloc_1 clip_bbox_alloc;
+    Alloc_1 draw_bbox_alloc;
+    Alloc_1 drawinfo_alloc;
+    uint n_trans;
+    uint n_path;
+    uint n_clip;
+    uint trans_offset;
+    uint linewidth_offset;
+    uint pathtag_offset;
+    uint pathseg_offset;
+    uint drawtag_offset;
+    uint drawdata_offset;
+};
+
+struct ConfigBuf
+{
+    Config conf;
+};
+
+struct BlendBuf
+{
+    uint blend_mem[1];
+};
+
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(8u, 4u, 1u);
+
+static inline __attribute__((always_inline))
+Alloc slice_mem(thread const Alloc& a, thread const uint& offset, thread const uint& size)
+{
+    return Alloc{ a.offset + offset };
+}
+
+static inline __attribute__((always_inline))
+bool touch_mem(thread const Alloc& alloc, thread const uint& offset)
+{
+    return true;
+}
+
+static inline __attribute__((always_inline))
+uint read_mem(thread const Alloc& alloc, thread const uint& offset, device Memory& v_297)
+{
+    Alloc param = alloc;
+    uint param_1 = offset;
+    if (!touch_mem(param, param_1))
+    {
+        return 0u;
+    }
+    uint v = v_297.memory[offset];
+    return v;
+}
+
+static inline __attribute__((always_inline))
+CmdTag Cmd_tag(thread const Alloc& a, thread const CmdRef& ref, device Memory& v_297)
+{
+    Alloc param = a;
+    uint param_1 = ref.offset >> uint(2);
+    uint tag_and_flags = read_mem(param, param_1, v_297);
+    return CmdTag{ tag_and_flags & 65535u, tag_and_flags >> uint(16) };
+}
+
+static inline __attribute__((always_inline))
+CmdStroke CmdStroke_read(thread const Alloc& a, thread const CmdStrokeRef& ref, device Memory& v_297)
+{
+    uint ix = ref.offset >> uint(2);
+    Alloc param = a;
+    uint param_1 = ix + 0u;
+    uint raw0 = read_mem(param, param_1, v_297);
+    Alloc param_2 = a;
+    uint param_3 = ix + 1u;
+    uint raw1 = read_mem(param_2, param_3, v_297);
+    CmdStroke s;
+    s.tile_ref = raw0;
+    s.half_width = as_type<float>(raw1);
+    return s;
+}
+
+static inline __attribute__((always_inline))
+CmdStroke Cmd_Stroke_read(thread const Alloc& a, thread const CmdRef& ref, device Memory& v_297)
+{
+    Alloc param = a;
+    CmdStrokeRef param_1 = CmdStrokeRef{ ref.offset + 4u };
+    return CmdStroke_read(param, param_1, v_297);
+}
+
+static inline __attribute__((always_inline))
+Alloc new_alloc(thread const uint& offset, thread const uint& size, thread const bool& mem_ok)
+{
+    Alloc a;
+    a.offset = offset;
+    return a;
+}
+
+static inline __attribute__((always_inline))
+TileSeg TileSeg_read(thread const Alloc& a, thread const TileSegRef& ref, device Memory& v_297)
+{
+    uint ix = ref.offset >> uint(2);
+    Alloc param = a;
+    uint param_1 = ix + 0u;
+    uint raw0 = read_mem(param, param_1, v_297);
+    Alloc param_2 = a;
+    uint param_3 = ix + 1u;
+    uint raw1 = read_mem(param_2, param_3, v_297);
+    Alloc param_4 = a;
+    uint param_5 = ix + 2u;
+    uint raw2 = read_mem(param_4, param_5, v_297);
+    Alloc param_6 = a;
+    uint param_7 = ix + 3u;
+    uint raw3 = read_mem(param_6, param_7, v_297);
+    Alloc param_8 = a;
+    uint param_9 = ix + 4u;
+    uint raw4 = read_mem(param_8, param_9, v_297);
+    Alloc param_10 = a;
+    uint param_11 = ix + 5u;
+    uint raw5 = read_mem(param_10, param_11, v_297);
+    TileSeg s;
+    s.origin = float2(as_type<float>(raw0), as_type<float>(raw1));
+    s.vector = float2(as_type<float>(raw2), as_type<float>(raw3));
+    s.y_edge = as_type<float>(raw4);
+    s.next = TileSegRef{ raw5 };
+    return s;
+}
+
+static inline __attribute__((always_inline))
+uint2 chunk_offset(thread const uint& i)
+{
+    return uint2((i % 2u) * 8u, (i / 2u) * 4u);
+}
+
+static inline __attribute__((always_inline))
+CmdFill CmdFill_read(thread const Alloc& a, thread const CmdFillRef& ref, device Memory& v_297)
+{
+    uint ix = ref.offset >> uint(2);
+    Alloc param = a;
+    uint param_1 = ix + 0u;
+    uint raw0 = read_mem(param, param_1, v_297);
+    Alloc param_2 = a;
+    uint param_3 = ix + 1u;
+    uint raw1 = read_mem(param_2, param_3, v_297);
+    CmdFill s;
+    s.tile_ref = raw0;
+    s.backdrop = int(raw1);
+    return s;
+}
+
+static inline __attribute__((always_inline))
+CmdFill Cmd_Fill_read(thread const Alloc& a, thread const CmdRef& ref, device Memory& v_297)
+{
+    Alloc param = a;
+    CmdFillRef param_1 = CmdFillRef{ ref.offset + 4u };
+    return CmdFill_read(param, param_1, v_297);
+}
+
+static inline __attribute__((always_inline))
+CmdAlpha CmdAlpha_read(thread const Alloc& a, thread const CmdAlphaRef& ref, device Memory& v_297)
+{
+    uint ix = ref.offset >> uint(2);
+    Alloc param = a;
+    uint param_1 = ix + 0u;
+    uint raw0 = read_mem(param, param_1, v_297);
+    CmdAlpha s;
+    s.alpha = as_type<float>(raw0);
+    return s;
+}
+
+static inline __attribute__((always_inline))
+CmdAlpha Cmd_Alpha_read(thread const Alloc& a, thread const CmdRef& ref, device Memory& v_297)
+{
+    Alloc param = a;
+    CmdAlphaRef param_1 = CmdAlphaRef{ ref.offset + 4u };
+    return CmdAlpha_read(param, param_1, v_297);
+}
+
+static inline __attribute__((always_inline))
+CmdColor CmdColor_read(thread const Alloc& a, thread const CmdColorRef& ref, device Memory& v_297)
+{
+    uint ix = ref.offset >> uint(2);
+    Alloc param = a;
+    uint param_1 = ix + 0u;
+    uint raw0 = read_mem(param, param_1, v_297);
+    CmdColor s;
+    s.rgba_color = raw0;
+    return s;
+}
+
+static inline __attribute__((always_inline))
+CmdColor Cmd_Color_read(thread const Alloc& a, thread const CmdRef& ref, device Memory& v_297)
+{
+    Alloc param = a;
+    CmdColorRef param_1 = CmdColorRef{ ref.offset + 4u };
+    return CmdColor_read(param, param_1, v_297);
+}
+
+static inline __attribute__((always_inline))
+float3 fromsRGB(thread const float3& srgb)
+{
+    return srgb;
+}
+
+static inline __attribute__((always_inline))
+float4 unpacksRGB(thread const uint& srgba)
+{
+    float4 color = unpack_unorm4x8_to_float(srgba).wzyx;
+    float3 param = color.xyz;
+    return float4(fromsRGB(param), color.w);
+}
+
+static inline __attribute__((always_inline))
+CmdLinGrad CmdLinGrad_read(thread const Alloc& a, thread const CmdLinGradRef& ref, device Memory& v_297)
+{
+    uint ix = ref.offset >> uint(2);
+    Alloc param = a;
+    uint param_1 = ix + 0u;
+    uint raw0 = read_mem(param, param_1, v_297);
+    Alloc param_2 = a;
+    uint param_3 = ix + 1u;
+    uint raw1 = read_mem(param_2, param_3, v_297);
+    Alloc param_4 = a;
+    uint param_5 = ix + 2u;
+    uint raw2 = read_mem(param_4, param_5, v_297);
+    Alloc param_6 = a;
+    uint param_7 = ix + 3u;
+    uint raw3 = read_mem(param_6, param_7, v_297);
+    CmdLinGrad s;
+    s.index = raw0;
+    s.line_x = as_type<float>(raw1);
+    s.line_y = as_type<float>(raw2);
+    s.line_c = as_type<float>(raw3);
+    return s;
+}
+
+static inline __attribute__((always_inline))
+CmdLinGrad Cmd_LinGrad_read(thread const Alloc& a, thread const CmdRef& ref, device Memory& v_297)
+{
+    Alloc param = a;
+    CmdLinGradRef param_1 = CmdLinGradRef{ ref.offset + 4u };
+    return CmdLinGrad_read(param, param_1, v_297);
+}
+
+static inline __attribute__((always_inline))
+CmdRadGrad CmdRadGrad_read(thread const Alloc& a, thread const CmdRadGradRef& ref, device Memory& v_297)
+{
+    uint ix = ref.offset >> uint(2);
+    Alloc param = a;
+    uint param_1 = ix + 0u;
+    uint raw0 = read_mem(param, param_1, v_297);
+    Alloc param_2 = a;
+    uint param_3 = ix + 1u;
+    uint raw1 = read_mem(param_2, param_3, v_297);
+    Alloc param_4 = a;
+    uint param_5 = ix + 2u;
+    uint raw2 = read_mem(param_4, param_5, v_297);
+    Alloc param_6 = a;
+    uint param_7 = ix + 3u;
+    uint raw3 = read_mem(param_6, param_7, v_297);
+    Alloc param_8 = a;
+    uint param_9 = ix + 4u;
+    uint raw4 = read_mem(param_8, param_9, v_297);
+    Alloc param_10 = a;
+    uint param_11 = ix + 5u;
+    uint raw5 = read_mem(param_10, param_11, v_297);
+    Alloc param_12 = a;
+    uint param_13 = ix + 6u;
+    uint raw6 = read_mem(param_12, param_13, v_297);
+    Alloc param_14 = a;
+    uint param_15 = ix + 7u;
+    uint raw7 = read_mem(param_14, param_15, v_297);
+    Alloc param_16 = a;
+    uint param_17 = ix + 8u;
+    uint raw8 = read_mem(param_16, param_17, v_297);
+    Alloc param_18 = a;
+    uint param_19 = ix + 9u;
+    uint raw9 = read_mem(param_18, param_19, v_297);
+    Alloc param_20 = a;
+    uint param_21 = ix + 10u;
+    uint raw10 = read_mem(param_20, param_21, v_297);
+    CmdRadGrad s;
+    s.index = raw0;
+    s.mat = float4(as_type<float>(raw1), as_type<float>(raw2), as_type<float>(raw3), as_type<float>(raw4));
+    s.xlat = float2(as_type<float>(raw5), as_type<float>(raw6));
+    s.c1 = float2(as_type<float>(raw7), as_type<float>(raw8));
+    s.ra = as_type<float>(raw9);
+    s.roff = as_type<float>(raw10);
+    return s;
+}
+
+static inline __attribute__((always_inline))
+CmdRadGrad Cmd_RadGrad_read(thread const Alloc& a, thread const CmdRef& ref, device Memory& v_297)
+{
+    Alloc param = a;
+    CmdRadGradRef param_1 = CmdRadGradRef{ ref.offset + 4u };
+    return CmdRadGrad_read(param, param_1, v_297);
+}
+
+static inline __attribute__((always_inline))
+CmdImage CmdImage_read(thread const Alloc& a, thread const CmdImageRef& ref, device Memory& v_297)
+{
+    uint ix = ref.offset >> uint(2);
+    Alloc param = a;
+    uint param_1 = ix + 0u;
+    uint raw0 = read_mem(param, param_1, v_297);
+    Alloc param_2 = a;
+    uint param_3 = ix + 1u;
+    uint raw1 = read_mem(param_2, param_3, v_297);
+    CmdImage s;
+    s.index = raw0;
+    s.offset = int2(int(raw1 << uint(16)) >> 16, int(raw1) >> 16);
+    return s;
+}
+
+static inline __attribute__((always_inline))
+CmdImage Cmd_Image_read(thread const Alloc& a, thread const CmdRef& ref, device Memory& v_297)
+{
+    Alloc param = a;
+    CmdImageRef param_1 = CmdImageRef{ ref.offset + 4u };
+    return CmdImage_read(param, param_1, v_297);
+}
+
+static inline __attribute__((always_inline))
+spvUnsafeArray<float4, 8> fillImage(thread const uint2& xy, thread const CmdImage& cmd_img, texture2d<float> image_atlas)
+{
+    spvUnsafeArray<float4, 8> rgba;
+    for (uint i = 0u; i < 8u; i++)
+    {
+        uint param = i;
+        int2 uv = int2(xy + chunk_offset(param)) + cmd_img.offset;
+        float4 fg_rgba = image_atlas.read(uint2(uv));
+        float3 param_1 = fg_rgba.xyz;
+        float3 _1653 = fromsRGB(param_1);
+        fg_rgba.x = _1653.x;
+        fg_rgba.y = _1653.y;
+        fg_rgba.z = _1653.z;
+        rgba[i] = fg_rgba;
+    }
+    return rgba;
+}
+
+static inline __attribute__((always_inline))
+float3 tosRGB(thread const float3& rgb)
+{
+    return rgb;
+}
+
+static inline __attribute__((always_inline))
+uint packsRGB(thread float4& rgba)
+{
+    float3 param = rgba.xyz;
+    rgba = float4(tosRGB(param), rgba.w);
+    return pack_float_to_unorm4x8(rgba.wzyx);
+}
+
+static inline __attribute__((always_inline))
+CmdEndClip CmdEndClip_read(thread const Alloc& a, thread const CmdEndClipRef& ref, device Memory& v_297)
+{
+    uint ix = ref.offset >> uint(2);
+    Alloc param = a;
+    uint param_1 = ix + 0u;
+    uint raw0 = read_mem(param, param_1, v_297);
+    CmdEndClip s;
+    s.blend = raw0;
+    return s;
+}
+
+static inline __attribute__((always_inline))
+CmdEndClip Cmd_EndClip_read(thread const Alloc& a, thread const CmdRef& ref, device Memory& v_297)
+{
+    Alloc param = a;
+    CmdEndClipRef param_1 = CmdEndClipRef{ ref.offset + 4u };
+    return CmdEndClip_read(param, param_1, v_297);
+}
+
+static inline __attribute__((always_inline))
+float3 screen(thread const float3& cb, thread const float3& cs)
+{
+    return (cb + cs) - (cb * cs);
+}
+
+static inline __attribute__((always_inline))
+float3 hard_light(thread const float3& cb, thread const float3& cs)
+{
+    float3 param = cb;
+    float3 param_1 = (cs * 2.0) - float3(1.0);
+    return select(screen(param, param_1), (cb * 2.0) * cs, cs <= float3(0.5));
+}
+
+static inline __attribute__((always_inline))
+float color_dodge(thread const float& cb, thread const float& cs)
+{
+    if (cb == 0.0)
+    {
+        return 0.0;
+    }
+    else
+    {
+        if (cs == 1.0)
+        {
+            return 1.0;
+        }
+        else
+        {
+            return fast::min(1.0, cb / (1.0 - cs));
+        }
+    }
+}
+
+static inline __attribute__((always_inline))
+float color_burn(thread const float& cb, thread const float& cs)
+{
+    if (cb == 1.0)
+    {
+        return 1.0;
+    }
+    else
+    {
+        if (cs == 0.0)
+        {
+            return 0.0;
+        }
+        else
+        {
+            return 1.0 - fast::min(1.0, (1.0 - cb) / cs);
+        }
+    }
+}
+
+static inline __attribute__((always_inline))
+float3 soft_light(thread const float3& cb, thread const float3& cs)
+{
+    float3 d = select(sqrt(cb), ((((cb * 16.0) - float3(12.0)) * cb) + float3(4.0)) * cb, cb <= float3(0.25));
+    return select(cb + (((cs * 2.0) - float3(1.0)) * (d - cb)), cb - (((float3(1.0) - (cs * 2.0)) * cb) * (float3(1.0) - cb)), cs <= float3(0.5));
+}
+
+static inline __attribute__((always_inline))
+float sat(thread const float3& c)
+{
+    return fast::max(c.x, fast::max(c.y, c.z)) - fast::min(c.x, fast::min(c.y, c.z));
+}
+
+static inline __attribute__((always_inline))
+void set_sat_inner(thread float& cmin, thread float& cmid, thread float& cmax, thread const float& s)
+{
+    if (cmax > cmin)
+    {
+        cmid = ((cmid - cmin) * s) / (cmax - cmin);
+        cmax = s;
+    }
+    else
+    {
+        cmid = 0.0;
+        cmax = 0.0;
+    }
+    cmin = 0.0;
+}
+
+static inline __attribute__((always_inline))
+float3 set_sat(thread float3& c, thread const float& s)
+{
+    if (c.x <= c.y)
+    {
+        if (c.y <= c.z)
+        {
+            float param = c.x;
+            float param_1 = c.y;
+            float param_2 = c.z;
+            float param_3 = s;
+            set_sat_inner(param, param_1, param_2, param_3);
+            c.x = param;
+            c.y = param_1;
+            c.z = param_2;
+        }
+        else
+        {
+            if (c.x <= c.z)
+            {
+                float param_4 = c.x;
+                float param_5 = c.z;
+                float param_6 = c.y;
+                float param_7 = s;
+                set_sat_inner(param_4, param_5, param_6, param_7);
+                c.x = param_4;
+                c.z = param_5;
+                c.y = param_6;
+            }
+            else
+            {
+                float param_8 = c.z;
+                float param_9 = c.x;
+                float param_10 = c.y;
+                float param_11 = s;
+                set_sat_inner(param_8, param_9, param_10, param_11);
+                c.z = param_8;
+                c.x = param_9;
+                c.y = param_10;
+            }
+        }
+    }
+    else
+    {
+        if (c.x <= c.z)
+        {
+            float param_12 = c.y;
+            float param_13 = c.x;
+            float param_14 = c.z;
+            float param_15 = s;
+            set_sat_inner(param_12, param_13, param_14, param_15);
+            c.y = param_12;
+            c.x = param_13;
+            c.z = param_14;
+        }
+        else
+        {
+            if (c.y <= c.z)
+            {
+                float param_16 = c.y;
+                float param_17 = c.z;
+                float param_18 = c.x;
+                float param_19 = s;
+                set_sat_inner(param_16, param_17, param_18, param_19);
+                c.y = param_16;
+                c.z = param_17;
+                c.x = param_18;
+            }
+            else
+            {
+                float param_20 = c.z;
+                float param_21 = c.y;
+                float param_22 = c.x;
+                float param_23 = s;
+                set_sat_inner(param_20, param_21, param_22, param_23);
+                c.z = param_20;
+                c.y = param_21;
+                c.x = param_22;
+            }
+        }
+    }
+    return c;
+}
+
+static inline __attribute__((always_inline))
+float lum(thread const float3& c)
+{
+    float3 f = float3(0.300000011920928955078125, 0.589999973773956298828125, 0.10999999940395355224609375);
+    return dot(c, f);
+}
+
+static inline __attribute__((always_inline))
+float3 clip_color(thread float3& c)
+{
+    float3 param = c;
+    float L = lum(param);
+    float n = fast::min(c.x, fast::min(c.y, c.z));
+    float x = fast::max(c.x, fast::max(c.y, c.z));
+    if (n < 0.0)
+    {
+        c = float3(L) + (((c - float3(L)) * L) / float3(L - n));
+    }
+    if (x > 1.0)
+    {
+        c = float3(L) + (((c - float3(L)) * (1.0 - L)) / float3(x - L));
+    }
+    return c;
+}
+
+static inline __attribute__((always_inline))
+float3 set_lum(thread const float3& c, thread const float& l)
+{
+    float3 param = c;
+    float3 param_1 = c + float3(l - lum(param));
+    float3 _1048 = clip_color(param_1);
+    return _1048;
+}
+
+static inline __attribute__((always_inline))
+float3 mix_blend(thread const float3& cb, thread const float3& cs, thread const uint& mode)
+{
+    float3 b = float3(0.0);
+    switch (mode)
+    {
+        case 1u:
+        {
+            b = cb * cs;
+            break;
+        }
+        case 2u:
+        {
+            float3 param = cb;
+            float3 param_1 = cs;
+            b = screen(param, param_1);
+            break;
+        }
+        case 3u:
+        {
+            float3 param_2 = cs;
+            float3 param_3 = cb;
+            b = hard_light(param_2, param_3);
+            break;
+        }
+        case 4u:
+        {
+            b = fast::min(cb, cs);
+            break;
+        }
+        case 5u:
+        {
+            b = fast::max(cb, cs);
+            break;
+        }
+        case 6u:
+        {
+            float param_4 = cb.x;
+            float param_5 = cs.x;
+            float param_6 = cb.y;
+            float param_7 = cs.y;
+            float param_8 = cb.z;
+            float param_9 = cs.z;
+            b = float3(color_dodge(param_4, param_5), color_dodge(param_6, param_7), color_dodge(param_8, param_9));
+            break;
+        }
+        case 7u:
+        {
+            float param_10 = cb.x;
+            float param_11 = cs.x;
+            float param_12 = cb.y;
+            float param_13 = cs.y;
+            float param_14 = cb.z;
+            float param_15 = cs.z;
+            b = float3(color_burn(param_10, param_11), color_burn(param_12, param_13), color_burn(param_14, param_15));
+            break;
+        }
+        case 8u:
+        {
+            float3 param_16 = cb;
+            float3 param_17 = cs;
+            b = hard_light(param_16, param_17);
+            break;
+        }
+        case 9u:
+        {
+            float3 param_18 = cb;
+            float3 param_19 = cs;
+            b = soft_light(param_18, param_19);
+            break;
+        }
+        case 10u:
+        {
+            b = abs(cb - cs);
+            break;
+        }
+        case 11u:
+        {
+            b = (cb + cs) - ((cb * 2.0) * cs);
+            break;
+        }
+        case 12u:
+        {
+            float3 param_20 = cb;
+            float3 param_21 = cs;
+            float param_22 = sat(param_20);
+            float3 _1340 = set_sat(param_21, param_22);
+            float3 param_23 = cb;
+            float3 param_24 = _1340;
+            float param_25 = lum(param_23);
+            b = set_lum(param_24, param_25);
+            break;
+        }
+        case 13u:
+        {
+            float3 param_26 = cs;
+            float3 param_27 = cb;
+            float param_28 = sat(param_26);
+            float3 _1354 = set_sat(param_27, param_28);
+            float3 param_29 = cb;
+            float3 param_30 = _1354;
+            float param_31 = lum(param_29);
+            b = set_lum(param_30, param_31);
+            break;
+        }
+        case 14u:
+        {
+            float3 param_32 = cb;
+            float3 param_33 = cs;
+            float param_34 = lum(param_32);
+            b = set_lum(param_33, param_34);
+            break;
+        }
+        case 15u:
+        {
+            float3 param_35 = cs;
+            float3 param_36 = cb;
+            float param_37 = lum(param_35);
+            b = set_lum(param_36, param_37);
+            break;
+        }
+        default:
+        {
+            b = cs;
+            break;
+        }
+    }
+    return b;
+}
+
+static inline __attribute__((always_inline))
+float4 mix_compose(thread const float3& cb, thread const float3& cs, thread const float& ab, thread const float& as, thread const uint& mode)
+{
+    float fa = 0.0;
+    float fb = 0.0;
+    switch (mode)
+    {
+        case 1u:
+        {
+            fa = 1.0;
+            fb = 0.0;
+            break;
+        }
+        case 2u:
+        {
+            fa = 0.0;
+            fb = 1.0;
+            break;
+        }
+        case 3u:
+        {
+            fa = 1.0;
+            fb = 1.0 - as;
+            break;
+        }
+        case 4u:
+        {
+            fa = 1.0 - ab;
+            fb = 1.0;
+            break;
+        }
+        case 5u:
+        {
+            fa = ab;
+            fb = 0.0;
+            break;
+        }
+        case 6u:
+        {
+            fa = 0.0;
+            fb = as;
+            break;
+        }
+        case 7u:
+        {
+            fa = 1.0 - ab;
+            fb = 0.0;
+            break;
+        }
+        case 8u:
+        {
+            fa = 0.0;
+            fb = 1.0 - as;
+            break;
+        }
+        case 9u:
+        {
+            fa = ab;
+            fb = 1.0 - as;
+            break;
+        }
+        case 10u:
+        {
+            fa = 1.0 - ab;
+            fb = as;
+            break;
+        }
+        case 11u:
+        {
+            fa = 1.0 - ab;
+            fb = 1.0 - as;
+            break;
+        }
+        case 12u:
+        {
+            fa = 1.0;
+            fb = 1.0;
+            break;
+        }
+        case 13u:
+        {
+            return fast::min(float4(1.0), float4((cs * as) + (cb * ab), as + ab));
+        }
+        default:
+        {
+            break;
+        }
+    }
+    float as_fa = as * fa;
+    float ab_fb = ab * fb;
+    float3 co = (cs * as_fa) + (cb * ab_fb);
+    return float4(co, as_fa + ab_fb);
+}
+
+static inline __attribute__((always_inline))
+float4 mix_blend_compose(thread const float4& backdrop, thread const float4& src, thread const uint& mode)
+{
+    if ((mode & 32767u) == 3u)
+    {
+        return (backdrop * (1.0 - src.w)) + src;
+    }
+    float inv_src_a = 1.0 / (src.w + 1.0000000036274937255387218471014e-15);
+    float3 cs = src.xyz * inv_src_a;
+    float inv_backdrop_a = 1.0 / (backdrop.w + 1.0000000036274937255387218471014e-15);
+    float3 cb = backdrop.xyz * inv_backdrop_a;
+    uint blend_mode = mode >> uint(8);
+    float3 param = cb;
+    float3 param_1 = cs;
+    uint param_2 = blend_mode;
+    float3 blended = mix_blend(param, param_1, param_2);
+    cs = mix(cs, blended, float3(backdrop.w));
+    uint comp_mode = mode & 255u;
+    if (comp_mode == 3u)
+    {
+        float3 co = mix(backdrop.xyz, cs, float3(src.w));
+        return float4(co, src.w + (backdrop.w * (1.0 - src.w)));
+    }
+    else
+    {
+        float3 param_3 = cb;
+        float3 param_4 = cs;
+        float param_5 = backdrop.w;
+        float param_6 = src.w;
+        uint param_7 = comp_mode;
+        return mix_compose(param_3, param_4, param_5, param_6, param_7);
+    }
+}
+
+static inline __attribute__((always_inline))
+CmdJump CmdJump_read(thread const Alloc& a, thread const CmdJumpRef& ref, device Memory& v_297)
+{
+    uint ix = ref.offset >> uint(2);
+    Alloc param = a;
+    uint param_1 = ix + 0u;
+    uint raw0 = read_mem(param, param_1, v_297);
+    CmdJump s;
+    s.new_ref = raw0;
+    return s;
+}
+
+static inline __attribute__((always_inline))
+CmdJump Cmd_Jump_read(thread const Alloc& a, thread const CmdRef& ref, device Memory& v_297)
+{
+    Alloc param = a;
+    CmdJumpRef param_1 = CmdJumpRef{ ref.offset + 4u };
+    return CmdJump_read(param, param_1, v_297);
+}
+
+kernel void main0(device Memory& v_297 [[buffer(0)]], const device ConfigBuf& _1681 [[buffer(1)]], device BlendBuf& _2506 [[buffer(2)]], texture2d<float, access::write> image [[texture(3)]], texture2d<float> image_atlas [[texture(4)]], texture2d<float> gradients [[texture(5)]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
+{
+    uint tile_ix = (gl_WorkGroupID.y * _1681.conf.width_in_tiles) + gl_WorkGroupID.x;
+    Alloc param;
+    param.offset = _1681.conf.ptcl_alloc.offset;
+    uint param_1 = tile_ix * 1024u;
+    uint param_2 = 1024u;
+    Alloc cmd_alloc = slice_mem(param, param_1, param_2);
+    CmdRef cmd_ref = CmdRef{ cmd_alloc.offset };
+    uint blend_offset = v_297.memory[cmd_ref.offset >> uint(2)];
+    cmd_ref.offset += 4u;
+    uint2 xy_uint = uint2(gl_LocalInvocationID.x + (16u * gl_WorkGroupID.x), gl_LocalInvocationID.y + (16u * gl_WorkGroupID.y));
+    float2 xy = float2(xy_uint);
+    spvUnsafeArray<float4, 8> rgba;
+    for (uint i = 0u; i < 8u; i++)
+    {
+        rgba[i] = float4(0.0);
+    }
+    uint clip_depth = 0u;
+    spvUnsafeArray<float, 8> df;
+    TileSegRef tile_seg_ref;
+    spvUnsafeArray<float, 8> area;
+    spvUnsafeArray<spvUnsafeArray<uint, 8>, 4> blend_stack;
+    uint base_ix_1;
+    uint bg_rgba;
+    while (true)
+    {
+        Alloc param_3 = cmd_alloc;
+        CmdRef param_4 = cmd_ref;
+        uint tag = Cmd_tag(param_3, param_4, v_297).tag;
+        if (tag == 0u)
+        {
+            break;
+        }
+        switch (tag)
+        {
+            case 2u:
+            {
+                Alloc param_5 = cmd_alloc;
+                CmdRef param_6 = cmd_ref;
+                CmdStroke stroke = Cmd_Stroke_read(param_5, param_6, v_297);
+                for (uint k = 0u; k < 8u; k++)
+                {
+                    df[k] = 1000000000.0;
+                }
+                tile_seg_ref = TileSegRef{ stroke.tile_ref };
+                do
+                {
+                    uint param_7 = tile_seg_ref.offset;
+                    uint param_8 = 24u;
+                    bool param_9 = true;
+                    Alloc param_10 = new_alloc(param_7, param_8, param_9);
+                    TileSegRef param_11 = tile_seg_ref;
+                    TileSeg seg = TileSeg_read(param_10, param_11, v_297);
+                    float2 line_vec = seg.vector;
+                    for (uint k_1 = 0u; k_1 < 8u; k_1++)
+                    {
+                        float2 dpos = (xy + float2(0.5)) - seg.origin;
+                        uint param_12 = k_1;
+                        dpos += float2(chunk_offset(param_12));
+                        float t = fast::clamp(dot(line_vec, dpos) / dot(line_vec, line_vec), 0.0, 1.0);
+                        df[k_1] = fast::min(df[k_1], length((line_vec * t) - dpos));
+                    }
+                    tile_seg_ref = seg.next;
+                } while (tile_seg_ref.offset != 0u);
+                for (uint k_2 = 0u; k_2 < 8u; k_2++)
+                {
+                    area[k_2] = fast::clamp((stroke.half_width + 0.5) - df[k_2], 0.0, 1.0);
+                }
+                cmd_ref.offset += 12u;
+                break;
+            }
+            case 1u:
+            {
+                Alloc param_13 = cmd_alloc;
+                CmdRef param_14 = cmd_ref;
+                CmdFill fill = Cmd_Fill_read(param_13, param_14, v_297);
+                for (uint k_3 = 0u; k_3 < 8u; k_3++)
+                {
+                    area[k_3] = float(fill.backdrop);
+                }
+                tile_seg_ref = TileSegRef{ fill.tile_ref };
+                do
+                {
+                    uint param_15 = tile_seg_ref.offset;
+                    uint param_16 = 24u;
+                    bool param_17 = true;
+                    Alloc param_18 = new_alloc(param_15, param_16, param_17);
+                    TileSegRef param_19 = tile_seg_ref;
+                    TileSeg seg_1 = TileSeg_read(param_18, param_19, v_297);
+                    for (uint k_4 = 0u; k_4 < 8u; k_4++)
+                    {
+                        uint param_20 = k_4;
+                        float2 my_xy = xy + float2(chunk_offset(param_20));
+                        float2 start = seg_1.origin - my_xy;
+                        float2 end = start + seg_1.vector;
+                        float2 window = fast::clamp(float2(start.y, end.y), float2(0.0), float2(1.0));
+                        if ((isunordered(window.x, window.y) || window.x != window.y))
+                        {
+                            float2 t_1 = (window - float2(start.y)) / float2(seg_1.vector.y);
+                            float2 xs = float2(mix(start.x, end.x, t_1.x), mix(start.x, end.x, t_1.y));
+                            float xmin = fast::min(fast::min(xs.x, xs.y), 1.0) - 9.9999999747524270787835121154785e-07;
+                            float xmax = fast::max(xs.x, xs.y);
+                            float b = fast::min(xmax, 1.0);
+                            float c = fast::max(b, 0.0);
+                            float d = fast::max(xmin, 0.0);
+                            float a = ((b + (0.5 * ((d * d) - (c * c)))) - xmin) / (xmax - xmin);
+                            area[k_4] += (a * (window.x - window.y));
+                        }
+                        area[k_4] += (sign(seg_1.vector.x) * fast::clamp((my_xy.y - seg_1.y_edge) + 1.0, 0.0, 1.0));
+                    }
+                    tile_seg_ref = seg_1.next;
+                } while (tile_seg_ref.offset != 0u);
+                for (uint k_5 = 0u; k_5 < 8u; k_5++)
+                {
+                    area[k_5] = fast::min(abs(area[k_5]), 1.0);
+                }
+                cmd_ref.offset += 12u;
+                break;
+            }
+            case 3u:
+            {
+                for (uint k_6 = 0u; k_6 < 8u; k_6++)
+                {
+                    area[k_6] = 1.0;
+                }
+                cmd_ref.offset += 4u;
+                break;
+            }
+            case 4u:
+            {
+                Alloc param_21 = cmd_alloc;
+                CmdRef param_22 = cmd_ref;
+                CmdAlpha alpha = Cmd_Alpha_read(param_21, param_22, v_297);
+                for (uint k_7 = 0u; k_7 < 8u; k_7++)
+                {
+                    area[k_7] = alpha.alpha;
+                }
+                cmd_ref.offset += 8u;
+                break;
+            }
+            case 5u:
+            {
+                Alloc param_23 = cmd_alloc;
+                CmdRef param_24 = cmd_ref;
+                CmdColor color = Cmd_Color_read(param_23, param_24, v_297);
+                uint param_25 = color.rgba_color;
+                float4 fg = unpacksRGB(param_25);
+                for (uint k_8 = 0u; k_8 < 8u; k_8++)
+                {
+                    float4 fg_k = fg * area[k_8];
+                    rgba[k_8] = (rgba[k_8] * (1.0 - fg_k.w)) + fg_k;
+                }
+                cmd_ref.offset += 8u;
+                break;
+            }
+            case 6u:
+            {
+                Alloc param_26 = cmd_alloc;
+                CmdRef param_27 = cmd_ref;
+                CmdLinGrad lin = Cmd_LinGrad_read(param_26, param_27, v_297);
+                float d_1 = ((lin.line_x * xy.x) + (lin.line_y * xy.y)) + lin.line_c;
+                for (uint k_9 = 0u; k_9 < 8u; k_9++)
+                {
+                    uint param_28 = k_9;
+                    float2 chunk_xy = float2(chunk_offset(param_28));
+                    float my_d = (d_1 + (lin.line_x * chunk_xy.x)) + (lin.line_y * chunk_xy.y);
+                    int x = int(round(fast::clamp(my_d, 0.0, 1.0) * 511.0));
+                    float4 fg_rgba = gradients.read(uint2(int2(x, int(lin.index))));
+                    float3 param_29 = fg_rgba.xyz;
+                    float3 _2257 = fromsRGB(param_29);
+                    fg_rgba.x = _2257.x;
+                    fg_rgba.y = _2257.y;
+                    fg_rgba.z = _2257.z;
+                    float4 fg_k_1 = fg_rgba * area[k_9];
+                    rgba[k_9] = (rgba[k_9] * (1.0 - fg_k_1.w)) + fg_k_1;
+                }
+                cmd_ref.offset += 20u;
+                break;
+            }
+            case 7u:
+            {
+                Alloc param_30 = cmd_alloc;
+                CmdRef param_31 = cmd_ref;
+                CmdRadGrad rad = Cmd_RadGrad_read(param_30, param_31, v_297);
+                for (uint k_10 = 0u; k_10 < 8u; k_10++)
+                {
+                    uint param_32 = k_10;
+                    float2 my_xy_1 = xy + float2(chunk_offset(param_32));
+                    my_xy_1 = ((rad.mat.xz * my_xy_1.x) + (rad.mat.yw * my_xy_1.y)) - rad.xlat;
+                    float ba = dot(my_xy_1, rad.c1);
+                    float ca = rad.ra * dot(my_xy_1, my_xy_1);
+                    float t_2 = (sqrt((ba * ba) + ca) - ba) - rad.roff;
+                    int x_1 = int(round(fast::clamp(t_2, 0.0, 1.0) * 511.0));
+                    float4 fg_rgba_1 = gradients.read(uint2(int2(x_1, int(rad.index))));
+                    float3 param_33 = fg_rgba_1.xyz;
+                    float3 _2367 = fromsRGB(param_33);
+                    fg_rgba_1.x = _2367.x;
+                    fg_rgba_1.y = _2367.y;
+                    fg_rgba_1.z = _2367.z;
+                    float4 fg_k_2 = fg_rgba_1 * area[k_10];
+                    rgba[k_10] = (rgba[k_10] * (1.0 - fg_k_2.w)) + fg_k_2;
+                }
+                cmd_ref.offset += 48u;
+                break;
+            }
+            case 8u:
+            {
+                Alloc param_34 = cmd_alloc;
+                CmdRef param_35 = cmd_ref;
+                CmdImage fill_img = Cmd_Image_read(param_34, param_35, v_297);
+                uint2 param_36 = xy_uint;
+                CmdImage param_37 = fill_img;
+                spvUnsafeArray<float4, 8> img;
+                img = fillImage(param_36, param_37, image_atlas);
+                for (uint k_11 = 0u; k_11 < 8u; k_11++)
+                {
+                    float4 fg_k_3 = img[k_11] * area[k_11];
+                    rgba[k_11] = (rgba[k_11] * (1.0 - fg_k_3.w)) + fg_k_3;
+                }
+                cmd_ref.offset += 12u;
+                break;
+            }
+            case 9u:
+            {
+                if (clip_depth < 4u)
+                {
+                    for (uint k_12 = 0u; k_12 < 8u; k_12++)
+                    {
+                        float4 param_38 = float4(rgba[k_12]);
+                        uint _2472 = packsRGB(param_38);
+                        blend_stack[clip_depth][k_12] = _2472;
+                        rgba[k_12] = float4(0.0);
+                    }
+                }
+                else
+                {
+                    uint base_ix = ((blend_offset >> uint(2)) + (((clip_depth - 4u) * 16u) * 16u)) + (8u * (gl_LocalInvocationID.x + (8u * gl_LocalInvocationID.y)));
+                    for (uint k_13 = 0u; k_13 < 8u; k_13++)
+                    {
+                        float4 param_39 = float4(rgba[k_13]);
+                        uint _2519 = packsRGB(param_39);
+                        _2506.blend_mem[base_ix + k_13] = _2519;
+                        rgba[k_13] = float4(0.0);
+                    }
+                }
+                clip_depth++;
+                cmd_ref.offset += 4u;
+                break;
+            }
+            case 10u:
+            {
+                Alloc param_40 = cmd_alloc;
+                CmdRef param_41 = cmd_ref;
+                CmdEndClip end_clip = Cmd_EndClip_read(param_40, param_41, v_297);
+                clip_depth--;
+                if (clip_depth >= 4u)
+                {
+                    base_ix_1 = ((blend_offset >> uint(2)) + (((clip_depth - 4u) * 16u) * 16u)) + (8u * (gl_LocalInvocationID.x + (8u * gl_LocalInvocationID.y)));
+                }
+                for (uint k_14 = 0u; k_14 < 8u; k_14++)
+                {
+                    if (clip_depth < 4u)
+                    {
+                        bg_rgba = blend_stack[clip_depth][k_14];
+                    }
+                    else
+                    {
+                        bg_rgba = _2506.blend_mem[base_ix_1 + k_14];
+                    }
+                    uint param_42 = bg_rgba;
+                    float4 bg = unpacksRGB(param_42);
+                    float4 fg_1 = rgba[k_14] * area[k_14];
+                    float4 param_43 = bg;
+                    float4 param_44 = fg_1;
+                    uint param_45 = end_clip.blend;
+                    rgba[k_14] = mix_blend_compose(param_43, param_44, param_45);
+                }
+                cmd_ref.offset += 8u;
+                break;
+            }
+            case 11u:
+            {
+                Alloc param_46 = cmd_alloc;
+                CmdRef param_47 = cmd_ref;
+                cmd_ref = CmdRef{ Cmd_Jump_read(param_46, param_47, v_297).new_ref };
+                cmd_alloc.offset = cmd_ref.offset;
+                break;
+            }
+        }
+    }
+    for (uint i_1 = 0u; i_1 < 8u; i_1++)
+    {
+        uint param_48 = i_1;
+        float3 param_49 = rgba[i_1].xyz;
+        image.write(float4(tosRGB(param_49), rgba[i_1].w), uint2(int2(xy_uint + chunk_offset(param_48))));
+    }
+}
+

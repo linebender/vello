@@ -1,0 +1,146 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+#pragma clang diagnostic ignored "-Wmissing-braces"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+template<typename T, size_t Num>
+struct spvUnsafeArray
+{
+    T elements[Num ? Num : 1];
+    
+    thread T& operator [] (size_t pos) thread
+    {
+        return elements[pos];
+    }
+    constexpr const thread T& operator [] (size_t pos) const thread
+    {
+        return elements[pos];
+    }
+    
+    device T& operator [] (size_t pos) device
+    {
+        return elements[pos];
+    }
+    constexpr const device T& operator [] (size_t pos) const device
+    {
+        return elements[pos];
+    }
+    
+    constexpr const constant T& operator [] (size_t pos) const constant
+    {
+        return elements[pos];
+    }
+    
+    threadgroup T& operator [] (size_t pos) threadgroup
+    {
+        return elements[pos];
+    }
+    constexpr const threadgroup T& operator [] (size_t pos) const threadgroup
+    {
+        return elements[pos];
+    }
+};
+
+struct TagMonoid
+{
+    uint trans_ix;
+    uint linewidth_ix;
+    uint pathseg_ix;
+    uint path_ix;
+    uint pathseg_offset;
+};
+
+struct TagMonoid_1
+{
+    uint trans_ix;
+    uint linewidth_ix;
+    uint pathseg_ix;
+    uint path_ix;
+    uint pathseg_offset;
+};
+
+struct DataBuf
+{
+    TagMonoid_1 data[1];
+};
+
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(256u, 1u, 1u);
+
+static inline __attribute__((always_inline))
+TagMonoid combine_tag_monoid(thread const TagMonoid& a, thread const TagMonoid& b)
+{
+    TagMonoid c;
+    c.trans_ix = a.trans_ix + b.trans_ix;
+    c.linewidth_ix = a.linewidth_ix + b.linewidth_ix;
+    c.pathseg_ix = a.pathseg_ix + b.pathseg_ix;
+    c.path_ix = a.path_ix + b.path_ix;
+    c.pathseg_offset = a.pathseg_offset + b.pathseg_offset;
+    return c;
+}
+
+static inline __attribute__((always_inline))
+TagMonoid tag_monoid_identity()
+{
+    return TagMonoid{ 0u, 0u, 0u, 0u, 0u };
+}
+
+kernel void main0(device DataBuf& _78 [[buffer(0)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
+{
+    threadgroup TagMonoid sh_scratch[256];
+    uint ix = gl_GlobalInvocationID.x * 8u;
+    spvUnsafeArray<TagMonoid, 8> local;
+    local[0].trans_ix = _78.data[ix].trans_ix;
+    local[0].linewidth_ix = _78.data[ix].linewidth_ix;
+    local[0].pathseg_ix = _78.data[ix].pathseg_ix;
+    local[0].path_ix = _78.data[ix].path_ix;
+    local[0].pathseg_offset = _78.data[ix].pathseg_offset;
+    TagMonoid param_1;
+    for (uint i = 1u; i < 8u; i++)
+    {
+        uint _109 = ix + i;
+        TagMonoid param = local[i - 1u];
+        param_1.trans_ix = _78.data[_109].trans_ix;
+        param_1.linewidth_ix = _78.data[_109].linewidth_ix;
+        param_1.pathseg_ix = _78.data[_109].pathseg_ix;
+        param_1.path_ix = _78.data[_109].path_ix;
+        param_1.pathseg_offset = _78.data[_109].pathseg_offset;
+        local[i] = combine_tag_monoid(param, param_1);
+    }
+    TagMonoid agg = local[7];
+    sh_scratch[gl_LocalInvocationID.x] = agg;
+    for (uint i_1 = 0u; i_1 < 8u; i_1++)
+    {
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        if (gl_LocalInvocationID.x >= (1u << i_1))
+        {
+            TagMonoid other = sh_scratch[gl_LocalInvocationID.x - (1u << i_1)];
+            TagMonoid param_2 = other;
+            TagMonoid param_3 = agg;
+            agg = combine_tag_monoid(param_2, param_3);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        sh_scratch[gl_LocalInvocationID.x] = agg;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    TagMonoid row = tag_monoid_identity();
+    if (gl_LocalInvocationID.x > 0u)
+    {
+        row = sh_scratch[gl_LocalInvocationID.x - 1u];
+    }
+    for (uint i_2 = 0u; i_2 < 8u; i_2++)
+    {
+        TagMonoid param_4 = row;
+        TagMonoid param_5 = local[i_2];
+        TagMonoid m = combine_tag_monoid(param_4, param_5);
+        uint _210 = ix + i_2;
+        _78.data[_210].trans_ix = m.trans_ix;
+        _78.data[_210].linewidth_ix = m.linewidth_ix;
+        _78.data[_210].pathseg_ix = m.pathseg_ix;
+        _78.data[_210].path_ix = m.path_ix;
+        _78.data[_210].pathseg_offset = m.pathseg_offset;
+    }
+}
+

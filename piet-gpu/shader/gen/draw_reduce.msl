@@ -1,0 +1,142 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct DrawMonoid
+{
+    uint path_ix;
+    uint clip_ix;
+    uint scene_offset;
+    uint info_offset;
+};
+
+struct Alloc
+{
+    uint offset;
+};
+
+struct Config
+{
+    uint mem_size;
+    uint n_elements;
+    uint n_pathseg;
+    uint width_in_tiles;
+    uint height_in_tiles;
+    Alloc tile_alloc;
+    Alloc bin_alloc;
+    Alloc ptcl_alloc;
+    Alloc pathseg_alloc;
+    Alloc anno_alloc;
+    Alloc trans_alloc;
+    Alloc path_bbox_alloc;
+    Alloc drawmonoid_alloc;
+    Alloc clip_alloc;
+    Alloc clip_bic_alloc;
+    Alloc clip_stack_alloc;
+    Alloc clip_bbox_alloc;
+    Alloc draw_bbox_alloc;
+    Alloc drawinfo_alloc;
+    uint n_trans;
+    uint n_path;
+    uint n_clip;
+    uint trans_offset;
+    uint linewidth_offset;
+    uint pathtag_offset;
+    uint pathseg_offset;
+    uint drawtag_offset;
+    uint drawdata_offset;
+};
+
+struct ConfigBuf
+{
+    Config conf;
+};
+
+struct SceneBuf
+{
+    uint scene[1];
+};
+
+struct DrawMonoid_1
+{
+    uint path_ix;
+    uint clip_ix;
+    uint scene_offset;
+    uint info_offset;
+};
+
+struct OutBuf
+{
+    DrawMonoid_1 outbuf[1];
+};
+
+struct Memory
+{
+    uint mem_offset;
+    uint mem_error;
+    uint blend_offset;
+    uint memory[1];
+};
+
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(256u, 1u, 1u);
+
+static inline __attribute__((always_inline))
+DrawMonoid map_tag(thread const uint& tag_word)
+{
+    uint has_path = uint(tag_word != 0u);
+    return DrawMonoid{ has_path, tag_word & 1u, tag_word & 28u, (tag_word >> uint(4)) & 60u };
+}
+
+static inline __attribute__((always_inline))
+DrawMonoid combine_draw_monoid(thread const DrawMonoid& a, thread const DrawMonoid& b)
+{
+    DrawMonoid c;
+    c.path_ix = a.path_ix + b.path_ix;
+    c.clip_ix = a.clip_ix + b.clip_ix;
+    c.scene_offset = a.scene_offset + b.scene_offset;
+    c.info_offset = a.info_offset + b.info_offset;
+    return c;
+}
+
+kernel void main0(const device ConfigBuf& _87 [[buffer(1)]], const device SceneBuf& _97 [[buffer(2)]], device OutBuf& _188 [[buffer(3)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]])
+{
+    threadgroup DrawMonoid sh_scratch[256];
+    uint ix = gl_GlobalInvocationID.x * 8u;
+    uint drawtag_base = _87.conf.drawtag_offset >> uint(2);
+    uint tag_word = _97.scene[drawtag_base + ix];
+    uint param = tag_word;
+    DrawMonoid agg = map_tag(param);
+    for (uint i = 1u; i < 8u; i++)
+    {
+        uint tag_word_1 = _97.scene[(drawtag_base + ix) + i];
+        uint param_1 = tag_word_1;
+        DrawMonoid param_2 = agg;
+        DrawMonoid param_3 = map_tag(param_1);
+        agg = combine_draw_monoid(param_2, param_3);
+    }
+    sh_scratch[gl_LocalInvocationID.x] = agg;
+    for (uint i_1 = 0u; i_1 < 8u; i_1++)
+    {
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        if ((gl_LocalInvocationID.x + (1u << i_1)) < 256u)
+        {
+            DrawMonoid other = sh_scratch[gl_LocalInvocationID.x + (1u << i_1)];
+            DrawMonoid param_4 = agg;
+            DrawMonoid param_5 = other;
+            agg = combine_draw_monoid(param_4, param_5);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        sh_scratch[gl_LocalInvocationID.x] = agg;
+    }
+    if (gl_LocalInvocationID.x == 0u)
+    {
+        _188.outbuf[gl_WorkGroupID.x].path_ix = agg.path_ix;
+        _188.outbuf[gl_WorkGroupID.x].clip_ix = agg.clip_ix;
+        _188.outbuf[gl_WorkGroupID.x].scene_offset = agg.scene_offset;
+        _188.outbuf[gl_WorkGroupID.x].info_offset = agg.info_offset;
+    }
+}
+

@@ -1,0 +1,70 @@
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct Alloc
+{
+    uint offset;
+};
+
+struct Config
+{
+    uint mem_size;
+    uint n_elements;
+    uint n_pathseg;
+    uint width_in_tiles;
+    uint height_in_tiles;
+    Alloc tile_alloc;
+    Alloc bin_alloc;
+    Alloc ptcl_alloc;
+    Alloc pathseg_alloc;
+    Alloc anno_alloc;
+    Alloc trans_alloc;
+    Alloc path_bbox_alloc;
+    Alloc drawmonoid_alloc;
+    Alloc clip_alloc;
+    Alloc clip_bic_alloc;
+    Alloc clip_stack_alloc;
+    Alloc clip_bbox_alloc;
+    Alloc draw_bbox_alloc;
+    Alloc drawinfo_alloc;
+    uint n_trans;
+    uint n_path;
+    uint n_clip;
+    uint trans_offset;
+    uint linewidth_offset;
+    uint pathtag_offset;
+    uint pathseg_offset;
+    uint drawtag_offset;
+    uint drawdata_offset;
+};
+
+struct ConfigBuf
+{
+    Config conf;
+};
+
+struct Memory
+{
+    uint mem_offset;
+    uint mem_error;
+    uint blend_offset;
+    uint memory[1];
+};
+
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(512u, 1u, 1u);
+
+kernel void main0(device Memory& _45 [[buffer(0)]], const device ConfigBuf& _21 [[buffer(1)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+{
+    uint ix = gl_GlobalInvocationID.x;
+    if (ix < _21.conf.n_path)
+    {
+        uint out_ix = (_21.conf.path_bbox_alloc.offset >> uint(2)) + (6u * ix);
+        _45.memory[out_ix] = 65535u;
+        _45.memory[out_ix + 1u] = 65535u;
+        _45.memory[out_ix + 2u] = 0u;
+        _45.memory[out_ix + 3u] = 0u;
+    }
+}
+
