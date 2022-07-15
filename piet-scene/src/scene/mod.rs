@@ -60,9 +60,14 @@ impl SceneData {
         }
     }
 
-    fn append(&mut self, other: &SceneData) {
-        self.transform_stream
-            .extend_from_slice(&other.transform_stream);
+    fn append(&mut self, other: &SceneData, transform: &Option<Affine>) {
+        if let Some(transform) = *transform {
+            self.transform_stream
+                .extend(other.transform_stream.iter().map(|x| *x * transform));
+        } else {
+            self.transform_stream
+                .extend_from_slice(&other.transform_stream);
+        }
         self.tag_stream.extend_from_slice(&other.tag_stream);
         self.pathseg_stream.extend_from_slice(&other.pathseg_stream);
         self.linewidth_stream

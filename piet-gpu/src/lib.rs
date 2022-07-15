@@ -27,10 +27,7 @@ use piet_gpu_hal::{
 };
 
 pub use pico_svg::PicoSvg;
-use stages::{
-    ClipBinding, ElementBinding, ElementCode, DRAW_PART_SIZE, PATHSEG_PART_SIZE,
-    TRANSFORM_PART_SIZE,
-};
+use stages::{ClipBinding, ElementBinding, ElementCode, DRAW_PART_SIZE, PATHSEG_PART_SIZE};
 
 use crate::stages::{ClipCode, Config, ElementStage, CLIP_PART_SIZE};
 
@@ -525,7 +522,6 @@ impl Renderer {
             &mut pass,
             &self.element_code,
             &self.element_bindings[buf_ix],
-            self.n_transform as u64,
             self.n_paths as u32,
             self.n_pathtag as u32,
             self.n_drawobj as u64,
@@ -796,7 +792,7 @@ impl SceneStats {
     pub(crate) fn scene_size(&self) -> usize {
         align_up(self.n_drawobj, DRAW_PART_SIZE as usize) * DRAWTAG_SIZE
             + self.drawdata_len
-            + align_up(self.n_transform, TRANSFORM_PART_SIZE as usize) * TRANSFORM_SIZE
+            + self.n_transform * TRANSFORM_SIZE
             + self.linewidth_len
             + align_up(self.n_pathtag, PATHSEG_PART_SIZE as usize)
             + self.pathseg_len
@@ -813,8 +809,7 @@ impl SceneStats {
         let drawdata_offset = drawtag_offset + n_drawobj_padded * DRAWTAG_SIZE;
         let trans_offset = drawdata_offset + self.drawdata_len;
         let n_trans = self.n_transform;
-        let n_trans_padded = align_up(n_trans, TRANSFORM_PART_SIZE as usize);
-        let linewidth_offset = trans_offset + n_trans_padded * TRANSFORM_SIZE;
+        let linewidth_offset = trans_offset + n_trans * TRANSFORM_SIZE;
         let pathtag_offset = linewidth_offset + self.linewidth_len;
         let n_pathtag = self.n_pathtag;
         let n_pathtag_padded = align_up(n_pathtag, PATHSEG_PART_SIZE as usize);
@@ -822,8 +817,6 @@ impl SceneStats {
 
         // Layout of memory
         let mut alloc = 0;
-        let trans_alloc = alloc;
-        alloc += trans_alloc + n_trans_padded * TRANSFORM_SIZE;
         let pathseg_alloc = alloc;
         alloc += pathseg_alloc + self.n_pathseg as usize * PATHSEG_SIZE;
         let path_bbox_alloc = alloc;
@@ -872,7 +865,6 @@ impl SceneStats {
             n_pathseg: self.n_pathseg,
             pathseg_alloc: pathseg_alloc as u32,
             anno_alloc: anno_alloc as u32,
-            trans_alloc: trans_alloc as u32,
             path_bbox_alloc: path_bbox_alloc as u32,
             drawmonoid_alloc: drawmonoid_alloc as u32,
             clip_alloc: clip_alloc as u32,

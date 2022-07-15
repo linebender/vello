@@ -57,11 +57,7 @@ pub enum PietGpuBrush {
 
 #[derive(Default)]
 struct State {
-    /// The transform relative to the parent state.
-    rel_transform: Affine,
     /// The transform at the parent state.
-    ///
-    /// This invariant should hold: transform * rel_transform = cur_transform
     transform: Affine,
     n_clip: usize,
 }
@@ -219,7 +215,6 @@ impl RenderContext for PietGpuRenderContext {
 
     fn save(&mut self) -> Result<(), Error> {
         self.state_stack.push(State {
-            rel_transform: Affine::default(),
             transform: self.cur_transform,
             n_clip: 0,
         });
@@ -228,10 +223,7 @@ impl RenderContext for PietGpuRenderContext {
 
     fn restore(&mut self) -> Result<(), Error> {
         if let Some(state) = self.state_stack.pop() {
-            if state.rel_transform != Affine::default() {
-                let a_inv = state.rel_transform.inverse();
-                self.encode_transform(Transform::from_kurbo(a_inv));
-            }
+            self.encode_transform(Transform::from_kurbo(state.transform));
             self.cur_transform = state.transform;
             for _ in 0..state.n_clip {
                 self.pop_clip();
@@ -250,11 +242,8 @@ impl RenderContext for PietGpuRenderContext {
     }
 
     fn transform(&mut self, transform: Affine) {
-        self.encode_transform(Transform::from_kurbo(transform));
-        if let Some(tos) = self.state_stack.last_mut() {
-            tos.rel_transform *= transform;
-        }
         self.cur_transform *= transform;
+        self.encode_transform(Transform::from_kurbo(self.cur_transform));
     }
 
     fn make_image(

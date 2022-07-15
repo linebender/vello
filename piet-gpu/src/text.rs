@@ -6,8 +6,8 @@ use swash::{FontRef, GlyphId};
 
 use piet::kurbo::{Point, Rect, Size};
 use piet::{
-    Error, FontFamily, HitTestPoint, HitTestPosition, LineMetric, Text, TextAttribute, TextLayout,
-    TextLayoutBuilder, TextStorage,
+    Error, FontFamily, HitTestPoint, HitTestPosition, LineMetric, RenderContext, Text,
+    TextAttribute, TextLayout, TextLayoutBuilder, TextStorage,
 };
 
 use crate::encoder::GlyphEncoder;
@@ -169,38 +169,14 @@ impl PietGpuTextLayout {
         // Should we use ppem from font, or let swash scale?
         const DEFAULT_UPEM: u16 = 2048;
         let scale = self.size as f32 / DEFAULT_UPEM as f32;
-        let mut inv_transform = None;
+        ctx.save().unwrap();
         // TODO: handle y offsets also
-        let mut last_x = 0.0;
         for glyph in &self.glyphs {
-            let transform = match &mut inv_transform {
-                None => {
-                    let inv_scale = scale.recip();
-                    let translate = render_ctx::to_f32_2(pos);
-                    inv_transform = Some(Transform {
-                        mat: [inv_scale, 0.0, 0.0, -inv_scale],
-                        translate: [
-                            -translate[0] * inv_scale - glyph.x,
-                            translate[1] * inv_scale,
-                        ],
-                    });
-                    let tpos = render_ctx::to_f32_2(pos);
-                    let translate = [tpos[0] + scale * glyph.x, tpos[1]];
-                    Transform {
-                        mat: [scale, 0.0, 0.0, -scale],
-                        translate,
-                    }
-                }
-                Some(inv) => {
-                    let delta_x = glyph.x - last_x;
-                    inv.translate[0] -= delta_x;
-                    Transform {
-                        mat: [1.0, 0.0, 0.0, 1.0],
-                        translate: [delta_x, 0.0],
-                    }
-                }
+            let tpos = render_ctx::to_f32_2(pos);
+            let transform = Transform {
+                mat: [scale, 0.0, 0.0, -scale],
+                translate: [tpos[0] + scale * glyph.x, tpos[1]],
             };
-            last_x = glyph.x;
             //println!("{:?}, {:?}", transform.mat, transform.translate);
             ctx.encode_transform(transform);
             let glyph = self.font.make_path(glyph.glyph_id, &mut tc);
@@ -209,9 +185,7 @@ impl PietGpuTextLayout {
                 ctx.fill_glyph(0xff_ff_ff_ff);
             }
         }
-        if let Some(transform) = inv_transform {
-            ctx.encode_transform(transform);
-        }
+        ctx.restore().unwrap();
     }
 }
 
