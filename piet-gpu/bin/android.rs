@@ -55,7 +55,7 @@ fn my_main() -> Result<(), Error> {
                         let height = window.height() as usize;
                         let handle = get_handle(window);
                         let instance = Instance::new(InstanceFlags::PRESENT)?;
-                        let surface = instance.surface(&handle)?;
+                        let surface = unsafe { instance.surface(&handle)? };
                         gfx_state = Some(GfxState::new(&instance, Some(&surface), width, height)?);
                     } else {
                         println!("native window is sadly none");
