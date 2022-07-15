@@ -45,8 +45,8 @@ pub struct BufStage {
 
 impl Runner {
     pub unsafe fn new(flags: InstanceFlags) -> Runner {
-        let (instance, _) = Instance::new(None, flags).unwrap();
-        let device = instance.device(None).unwrap();
+        let instance = Instance::new(flags).unwrap();
+        let device = instance.device().unwrap();
         let session = Session::new(device);
         let cmd_buf_pool = Vec::new();
         Runner {

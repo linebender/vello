@@ -133,20 +133,19 @@ struct Helpers {
 }
 
 impl MtlInstance {
-    pub fn new(
-        window_handle: Option<&dyn HasRawWindowHandle>,
-    ) -> Result<(MtlInstance, Option<MtlSurface>), Error> {
-        let mut surface = None;
-        if let Some(window_handle) = window_handle {
-            let window_handle = window_handle.raw_window_handle();
-            if let RawWindowHandle::MacOS(w) = window_handle {
-                unsafe {
-                    surface = Self::make_surface(w.ns_view as id, w.ns_window as id);
-                }
-            }
-        }
+    pub fn new() -> Result<MtlInstance, Error> {
+        Ok(MtlInstance)
+    }
 
-        Ok((MtlInstance, surface))
+    pub unsafe fn surface(
+        &self,
+        window_handle: &dyn HasRawWindowHandle,
+    ) -> Result<MtlSurface, Error> {
+        if let RawWindowHandle::MacOS(handle) = window_handle.raw_window_handle() {
+            Ok(Self::make_surface(handle.ns_view as id, handle.ns_window as id).unwrap())
+        } else {
+            Err("can't create surface for window handle".into())
+        }
     }
 
     unsafe fn make_surface(ns_view: id, ns_window: id) -> Option<MtlSurface> {
@@ -182,7 +181,7 @@ impl MtlInstance {
 
     // TODO might do some enumeration of devices
 
-    pub fn device(&self, _surface: Option<&MtlSurface>) -> Result<MtlDevice, Error> {
+    pub fn device(&self) -> Result<MtlDevice, Error> {
         if let Some(device) = metal::Device::system_default() {
             let cmd_queue = device.new_command_queue();
             Ok(MtlDevice::new_from_raw_mtl(device, cmd_queue))

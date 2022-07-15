@@ -2,9 +2,9 @@ use piet_gpu_hal::{include_shader, BindType, ComputePassDescriptor};
 use piet_gpu_hal::{BufferUsage, Instance, InstanceFlags, Session};
 
 fn main() {
-    let (instance, _) = Instance::new(None, InstanceFlags::empty()).unwrap();
+    let instance = Instance::new(InstanceFlags::empty()).unwrap();
     unsafe {
-        let device = instance.device(None).unwrap();
+        let device = instance.device().unwrap();
         let session = Session::new(device);
         let usage = BufferUsage::MAP_READ | BufferUsage::STORAGE;
         let src = (0..256).map(|x| x + 1).collect::<Vec<u32>>();

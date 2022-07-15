@@ -13,8 +13,8 @@ use ndk::native_window::NativeWindow;
 use ndk_glue::Event;
 
 use piet_gpu_hal::{
-    CmdBuf, Error, ImageLayout, Instance, QueryPool, Semaphore, Session, SubmittedCmdBuf, Surface,
-    Swapchain,
+    CmdBuf, Error, ImageLayout, Instance, InstanceFlags, QueryPool, Semaphore, Session,
+    SubmittedCmdBuf, Surface, Swapchain,
 };
 
 use piet::kurbo::Point;
@@ -54,9 +54,9 @@ fn my_main() -> Result<(), Error> {
                         let width = window.width() as usize;
                         let height = window.height() as usize;
                         let handle = get_handle(window);
-                        let (instance, surface) = Instance::new(Some(&handle), Default::default())?;
-                        gfx_state =
-                            Some(GfxState::new(&instance, surface.as_ref(), width, height)?);
+                        let instance = Instance::new(InstanceFlags::default())?;
+                        let surface = unsafe { instance.surface(&handle)? };
+                        gfx_state = Some(GfxState::new(&instance, Some(&surface), width, height)?);
                     } else {
                         println!("native window is sadly none");
                     }
@@ -100,7 +100,7 @@ impl GfxState {
         height: usize,
     ) -> Result<GfxState, Error> {
         unsafe {
-            let device = instance.device(surface)?;
+            let device = instance.device()?;
             let swapchain = instance.swapchain(width, height, &device, surface.unwrap())?;
             let session = Session::new(device);
             let current_frame = 0;

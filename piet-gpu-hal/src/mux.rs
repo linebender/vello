@@ -114,17 +114,14 @@ pub enum ShaderCode<'a> {
 }
 
 impl Instance {
-    /// Create a new GPU instance appropriate for the surface.
+    /// Create a new GPU instance.
     ///
     /// When multiple back-end GPU APIs are available (for example, Vulkan
     /// and DX12), this function selects one at runtime.
     ///
     /// When no surface is given, the instance is suitable for compute-only
     /// work.
-    pub fn new(
-        window_handle: Option<&dyn raw_window_handle::HasRawWindowHandle>,
-        flags: InstanceFlags,
-    ) -> Result<(Instance, Option<Surface>), Error> {
+    pub fn new(flags: InstanceFlags) -> Result<Instance, Error> {
         let mut backends = [BackendType::Vulkan, BackendType::Dx12];
         if flags.contains(InstanceFlags::DX12) {
             backends.swap(0, 1);
@@ -134,9 +131,8 @@ impl Instance {
                 mux_cfg! {
                     #[cfg(vk)]
                     {
-                        let result = vulkan::VkInstance::new(window_handle);
-                        if let Ok((instance, surface)) = result {
-                            return Ok((Instance::Vk(instance), surface.map(Surface::Vk)));
+                        if let Ok(instance) = vulkan::VkInstance::new() {
+                            return Ok(Instance::Vk(instance));
                         }
                     }
                 }
@@ -145,9 +141,8 @@ impl Instance {
                 mux_cfg! {
                     #[cfg(dx12)]
                     {
-                        let result = dx12::Dx12Instance::new(window_handle);
-                        if let Ok((instance, surface)) = result {
-                            return Ok((Instance::Dx12(instance), surface.map(Surface::Dx12)));
+                        if let Ok(instance) = dx12::Dx12Instance::new() {
+                            return Ok(Instance::Dx12(instance))
                         }
                     }
                 }
@@ -156,9 +151,8 @@ impl Instance {
         mux_cfg! {
             #[cfg(mtl)]
             {
-                let result = metal::MtlInstance::new(window_handle);
-                if let Ok((instance, surface)) = result {
-                    return Ok((Instance::Mtl(instance), surface.map(Surface::Mtl)));
+                if let Ok(instance) = metal::MtlInstance::new() {
+                    return Ok(Instance::Mtl(instance));
                 }
             }
         }
@@ -166,16 +160,28 @@ impl Instance {
         Err("No suitable instances found".into())
     }
 
-    /// Create a device appropriate for the surface.
+    /// Create a surface from the specified window handle.
+    pub unsafe fn surface(
+        &self,
+        window_handle: &dyn raw_window_handle::HasRawWindowHandle,
+    ) -> Result<Surface, Error> {
+        mux_match! { self;
+            Instance::Vk(i) => i.surface(window_handle).map(Surface::Vk),
+            Instance::Dx12(i) => i.surface(window_handle).map(Surface::Dx12),
+            Instance::Mtl(i) => i.surface(window_handle).map(Surface::Mtl),
+        }
+    }
+
+    /// Create a device.
     ///
     /// The "device" is the low-level GPU abstraction for creating resources
     /// and submitting work. Most users of this library will want to wrap it in
     /// a "session" which is similar but provides many conveniences.
-    pub unsafe fn device(&self, surface: Option<&Surface>) -> Result<Device, Error> {
+    pub unsafe fn device(&self) -> Result<Device, Error> {
         mux_match! { self;
-            Instance::Vk(i) => i.device(surface.map(Surface::vk)).map(Device::Vk),
-            Instance::Dx12(i) => i.device(surface.map(Surface::dx12)).map(Device::Dx12),
-            Instance::Mtl(i) => i.device(surface.map(Surface::mtl)).map(Device::Mtl),
+            Instance::Vk(i) => i.device().map(Device::Vk),
+            Instance::Dx12(i) => i.device().map(Device::Dx12),
+            Instance::Mtl(i) => i.device().map(Device::Mtl),
         }
     }
 

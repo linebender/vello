@@ -130,12 +130,7 @@ enum MemoryArchitecture {
 
 impl Dx12Instance {
     /// Create a new instance.
-    ///
-    /// TODO: take a raw window handle.
-    /// TODO: can probably be a trait.
-    pub fn new(
-        window_handle: Option<&dyn HasRawWindowHandle>,
-    ) -> Result<(Dx12Instance, Option<Dx12Surface>), Error> {
+    pub fn new() -> Result<Dx12Instance, Error> {
         unsafe {
             #[cfg(debug_assertions)]
             if let Err(e) = wrappers::enable_debug_layer() {
@@ -151,23 +146,25 @@ impl Dx12Instance {
 
             let factory = Factory4::create(factory_flags)?;
 
-            let mut surface = None;
-            if let Some(window_handle) = window_handle {
-                let window_handle = window_handle.raw_window_handle();
-                if let RawWindowHandle::Windows(w) = window_handle {
-                    let hwnd = w.hwnd as *mut _;
-                    surface = Some(Dx12Surface { hwnd });
-                }
-            }
-            Ok((Dx12Instance { factory }, surface))
+            Ok(Dx12Instance { factory })
+        }
+    }
+
+    /// Create a surface for the specified window handle.
+    pub fn surface(
+        &self,
+        window_handle: &dyn HasRawWindowHandle,
+    ) -> Result<Dx12Surface, Error> {
+        if let RawWindowHandle::Windows(w) = window_handle.raw_window_handle() {
+            let hwnd = w.hwnd as *mut _;
+            Ok(Dx12Surface { hwnd })
+        } else {
+            Err("can't create surface for window handle".into())
         }
     }
 
     /// Get a device suitable for compute workloads.
-    ///
-    /// TODO: handle window.
-    /// TODO: probably can also be trait'ified.
-    pub fn device(&self, _surface: Option<&Dx12Surface>) -> Result<Dx12Device, Error> {
+    pub fn device(&self) -> Result<Dx12Device, Error> {
         unsafe {
             let device = Device::create_device(&self.factory)?;
             let list_type = d3d12::D3D12_COMMAND_LIST_TYPE_DIRECT;
