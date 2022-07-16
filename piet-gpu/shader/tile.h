@@ -147,3 +147,4 @@ void TransformSeg_write(Alloc a, TransformSegRef ref, TransformSeg s) {
     write_mem(a, ix + 4, floatBitsToUint(s.translate.x));
     write_mem(a, ix + 5, floatBitsToUint(s.translate.y));
 }
+
