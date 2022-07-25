@@ -61,7 +61,7 @@ impl PgpuRenderer {
         cmdbuf: &metal::CommandBufferRef,
         target: &metal::TextureRef,
     ) -> u32 {
-        let is_color = target.pixel_format() != metal::MTLPixelFormat::A8Unorm;
+        let is_color = target.pixel_format() != metal::MTLPixelFormat::R8Unorm;
         let width = target.width() as u32;
         let height = target.height() as u32;
         if self.pgpu_renderer.is_none()
@@ -93,6 +93,7 @@ impl PgpuRenderer {
                 renderer.record(&mut cmd_buf, &self.query_pool, 0);
                 // TODO later: we can bind the destination image and avoid the copy.
                 cmd_buf.blit_image(&renderer.image_dev, &dst_image);
+                cmd_buf.finish();
             }
         }
         0
