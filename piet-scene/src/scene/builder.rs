@@ -160,11 +160,13 @@ impl<'a> Builder<'a> {
     pub fn append(&mut self, fragment: &Fragment, transform: Option<Affine>) {
         let drawdata_base = self.scene.drawdata_stream.len();
         let mut cur_transform = self.scene.transform_stream.last().copied();
-        if cur_transform.is_none() {
-            if let Some(transform) = transform {
-                self.encode_transform(transform);
+        if let Some(transform) = transform {
+            if cur_transform.is_none() {
                 cur_transform = Some(Affine::IDENTITY);
             }
+            self.encode_transform(transform);
+        } else if cur_transform != Some(Affine::IDENTITY) {
+            self.encode_transform(Affine::IDENTITY);
         }
         self.scene.append(&fragment.data, &transform);
         match &mut self.resources {
