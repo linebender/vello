@@ -147,9 +147,7 @@ pub struct PgpuSceneBuilder<'a>(piet_scene::scene::Builder<'a>);
 
 impl<'a> PgpuSceneBuilder<'a> {
     pub fn add_glyph(&mut self, glyph: &PgpuGlyph, transform: &piet_scene::geometry::Affine) {
-        self.0.push_transform(*transform);
-        self.0.append(&glyph.fragment);
-        self.0.pop_transform();
+        self.0.append(&glyph.fragment, Some(*transform));
     }
 
     pub fn finish(self) {

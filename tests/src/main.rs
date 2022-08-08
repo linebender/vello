@@ -29,8 +29,6 @@ mod test_result;
 
 #[cfg(feature = "piet-gpu")]
 mod path;
-#[cfg(feature = "piet-gpu")]
-mod transform;
 
 use clap::{App, Arg};
 use piet_gpu_hal::InstanceFlags;
@@ -137,7 +135,6 @@ fn main() {
         }
         #[cfg(feature = "piet-gpu")]
         if config.groups.matches("piet") {
-            report(&transform::transform_test(&mut runner, &config));
             report(&path::path_test(&mut runner, &config));
             report(&draw::draw_test(&mut runner, &config));
             report(&clip::clip_test(&mut runner, &config));

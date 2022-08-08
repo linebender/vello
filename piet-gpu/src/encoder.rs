@@ -20,9 +20,7 @@ use crate::{Blend, SceneStats, DRAWTAG_SIZE, TRANSFORM_SIZE};
 use bytemuck::{Pod, Zeroable};
 use piet_gpu_hal::BufWrite;
 
-use crate::stages::{
-    self, PathEncoder, Transform, DRAW_PART_SIZE, PATHSEG_PART_SIZE, TRANSFORM_PART_SIZE,
-};
+use crate::stages::{self, PathEncoder, Transform, DRAW_PART_SIZE, PATHSEG_PART_SIZE};
 
 pub struct Encoder {
     transform_stream: Vec<stages::Transform>,
@@ -72,8 +70,6 @@ impl<'a, T: Copy + Pod> EncodedSceneRef<'a, T> {
         buf.fill_zero(padding(n_drawobj, DRAW_PART_SIZE as usize) * DRAWTAG_SIZE);
         buf.extend_slice(&self.drawdata_stream);
         buf.extend_slice(&self.transform_stream);
-        let n_trans = self.transform_stream.len();
-        buf.fill_zero(padding(n_trans, TRANSFORM_PART_SIZE as usize) * TRANSFORM_SIZE);
         buf.extend_slice(&self.linewidth_stream);
         buf.extend_slice(&self.tag_stream);
         let n_pathtag = self.tag_stream.len();
@@ -244,8 +240,6 @@ impl Encoder {
         buf.fill_zero(padding(n_drawobj, DRAW_PART_SIZE as usize) * DRAWTAG_SIZE);
         buf.extend_slice(&self.drawdata_stream);
         buf.extend_slice(&self.transform_stream);
-        let n_trans = self.transform_stream.len();
-        buf.fill_zero(padding(n_trans, TRANSFORM_PART_SIZE as usize) * TRANSFORM_SIZE);
         buf.extend_slice(&self.linewidth_stream);
         buf.extend_slice(&self.tag_stream);
         let n_pathtag = self.tag_stream.len();

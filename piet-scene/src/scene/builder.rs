@@ -43,7 +43,6 @@ pub struct Builder<'a> {
     scene: &'a mut SceneData,
     resources: ResourceData<'a>,
     layers: Vec<Blend>,
-    transforms: Vec<Affine>,
 }
 
 impl<'a> Builder<'a> {
@@ -59,21 +58,12 @@ impl<'a> Builder<'a> {
             scene,
             resources,
             layers: vec![],
-            transforms: vec![],
         }
     }
 
-    /// Pushes a transform matrix onto the stack.
-    pub fn push_transform(&mut self, transform: Affine) {
-        self.transform(transform);
-        self.transforms.push(transform);
-    }
-
-    /// Pops the current transform matrix.
-    pub fn pop_transform(&mut self) {
-        if let Some(transform) = self.transforms.pop() {
-            self.transform(transform.inverse());
-        }
+    /// Sets the current transformation.
+    pub fn transform(&mut self, transform: Affine) {
+        self.encode_transform(transform);
     }
 
     /// Pushes a new layer bound by the specifed shape and composed with
@@ -117,10 +107,17 @@ impl<'a> Builder<'a> {
         let elements = elements.into_iter();
         self.encode_path(elements, true);
         if let Some(brush_transform) = brush_transform {
-            self.transform(brush_transform);
-            self.swap_last_tags();
-            self.encode_brush(brush);
-            self.transform(brush_transform.inverse());
+            if let Some(last_transform) = self.scene.transform_stream.last().copied() {
+                self.encode_transform(brush_transform * last_transform);
+                self.swap_last_tags();
+                self.encode_brush(brush);
+                self.encode_transform(last_transform);
+            } else {
+                self.encode_transform(brush_transform);
+                self.swap_last_tags();
+                self.encode_brush(brush);
+                self.encode_transform(Affine::IDENTITY);
+            }
         } else {
             self.encode_brush(brush);
         }
@@ -143,19 +140,35 @@ impl<'a> Builder<'a> {
         let elements = elements.into_iter();
         self.encode_path(elements, false);
         if let Some(brush_transform) = brush_transform {
-            self.transform(brush_transform);
-            self.swap_last_tags();
-            self.encode_brush(brush);
-            self.transform(brush_transform.inverse());
+            if let Some(last_transform) = self.scene.transform_stream.last().copied() {
+                self.encode_transform(brush_transform * last_transform);
+                self.swap_last_tags();
+                self.encode_brush(brush);
+                self.encode_transform(last_transform);
+            } else {
+                self.encode_transform(brush_transform);
+                self.swap_last_tags();
+                self.encode_brush(brush);
+                self.encode_transform(Affine::IDENTITY);
+            }
         } else {
             self.encode_brush(brush);
         }
     }
 
     /// Appends a fragment to the scene.
-    pub fn append(&mut self, fragment: &Fragment) {
+    pub fn append(&mut self, fragment: &Fragment, transform: Option<Affine>) {
         let drawdata_base = self.scene.drawdata_stream.len();
-        self.scene.append(&fragment.data);
+        let mut cur_transform = self.scene.transform_stream.last().copied();
+        if let Some(transform) = transform {
+            if cur_transform.is_none() {
+                cur_transform = Some(Affine::IDENTITY);
+            }
+            self.encode_transform(transform);
+        } else if cur_transform != Some(Affine::IDENTITY) {
+            self.encode_transform(Affine::IDENTITY);
+        }
+        self.scene.append(&fragment.data, &transform);
         match &mut self.resources {
             ResourceData::Scene(res) => {
                 for patch in &fragment.resources.patches {
@@ -189,21 +202,16 @@ impl<'a> Builder<'a> {
                 ));
             }
         }
+        // Prevent fragments from affecting transform state. Should we allow this?
+        if let Some(transform) = cur_transform {
+            self.encode_transform(transform);
+        }
     }
 
     /// Completes construction and finalizes the underlying scene.
     pub fn finish(mut self) {
         while let Some(layer) = self.layers.pop() {
             self.end_clip(Some(layer));
-        }
-        match self.resources {
-            ResourceData::Fragment(_) => {
-                // Make sure the transform state is invariant for fragments
-                while !self.transforms.is_empty() {
-                    self.pop_transform();
-                }
-            }
-            _ => {}
         }
     }
 }
@@ -250,7 +258,7 @@ impl<'a> Builder<'a> {
         self.scene.n_pathseg += n_pathseg;
     }
 
-    fn transform(&mut self, transform: Affine) {
+    fn encode_transform(&mut self, transform: Affine) {
         self.scene.tag_stream.push(0x20);
         self.scene.transform_stream.push(transform);
     }
