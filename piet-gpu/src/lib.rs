@@ -243,7 +243,10 @@ impl Renderer {
                     .unwrap()
             })
             .collect();
-        let memory_buf_dev = session.create_buffer(16 * 1024 * 1024, usage_mem_dev)?;
+        let target_dependent_size =
+            (width / TILE_W) as u64 * (height / TILE_H) as u64 * PTCL_INITIAL_ALLOC as u64;
+        let memory_buf_dev =
+            session.create_buffer(target_dependent_size + 8 * 1024 * 1024, usage_mem_dev)?;
         let memory_buf_readback =
             session.create_buffer(std::mem::size_of::<MemoryHeader>() as u64, usage_readback)?;
         let blend_buf = session.create_buffer(16 * 1024 * 1024, usage_blend)?;

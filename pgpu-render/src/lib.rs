@@ -26,6 +26,9 @@
 
 mod render;
 
+use piet_scene::brush::{Brush, Color};
+use piet_scene::path::Element;
+use piet_scene::scene::Fill;
 use render::*;
 use std::ffi::c_void;
 use std::mem::transmute;
@@ -98,13 +101,135 @@ pub unsafe extern "C" fn pgpu_scene_destroy(scene: *mut PgpuScene) {
     Box::from_raw(scene);
 }
 
+/// Creates a new, empty piet-gpu scene fragment.
+#[no_mangle]
+pub unsafe extern "C" fn pgpu_scene_fragment_new() -> *mut PgpuSceneFragment {
+    Box::into_raw(Box::new(PgpuSceneFragment::new()))
+}
+
+/// Destroys the piet-gpu scene fragment.
+#[no_mangle]
+pub unsafe extern "C" fn pgpu_scene_fragment_destroy(fragment: *mut PgpuSceneFragment) {
+    Box::from_raw(fragment);
+}
+
+#[derive(Copy, Clone, PartialEq, Debug)]
+#[repr(C)]
+pub enum PgpuPathVerb {
+    MoveTo = 0,
+    LineTo = 1,
+    QuadTo = 2,
+    CurveTo = 3,
+    Close = 4,
+}
+
+#[derive(Copy, Clone, Default, Debug)]
+#[repr(C)]
+pub struct PgpuPoint {
+    pub x: f32,
+    pub y: f32,
+}
+
+/// Rectangle defined by minimum and maximum points.
+#[derive(Copy, Clone, Default)]
+#[repr(C)]
+pub struct PgpuRect {
+    pub x0: f32,
+    pub y0: f32,
+    pub x1: f32,
+    pub y1: f32,
+}
+
+#[derive(Copy, Clone, Debug)]
+#[repr(C)]
+pub struct PgpuPathElement {
+    pub verb: PgpuPathVerb,
+    pub points: [PgpuPoint; 3],
+}
+
+#[derive(Clone)]
+#[repr(C)]
+pub struct PgpuPathIter {
+    pub context: *mut c_void,
+    pub next_element: extern "C" fn(*mut c_void, *mut PgpuPathElement) -> bool,
+}
+
+#[derive(Copy, Clone, PartialEq, Debug)]
+#[repr(C)]
+pub enum PgpuFill {
+    NonZero = 0,
+    EvenOdd = 1,
+}
+
+#[derive(Copy, Clone, PartialEq, Debug)]
+#[repr(C)]
+pub enum PgpuBrushKind {
+    Solid = 0,
+}
+
+#[derive(Copy, Clone, Debug)]
+#[repr(C)]
+pub struct PgpuColor {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+    pub a: u8,
+}
+
+#[repr(C)]
+pub union PgpuBrushData {
+    pub solid: PgpuColor,
+}
+
+#[repr(C)]
+pub struct PgpuBrush {
+    pub kind: PgpuBrushKind,
+    pub data: PgpuBrushData,
+}
+
+/// Affine transformation matrix.
+#[derive(Copy, Clone, Debug)]
+#[repr(C)]
+pub struct PgpuTransform {
+    pub xx: f32,
+    pub yx: f32,
+    pub xy: f32,
+    pub yy: f32,
+    pub dx: f32,
+    pub dy: f32,
+}
+
+impl From<PgpuTransform> for PgpuAffine {
+    fn from(xform: PgpuTransform) -> Self {
+        Self {
+            xx: xform.xx,
+            yx: xform.yx,
+            xy: xform.xy,
+            yy: xform.yy,
+            dx: xform.dx,
+            dy: xform.dy,
+        }
+    }
+}
+
+pub type PgpuAffine = piet_scene::geometry::Affine;
+
 /// Creates a new builder for filling a piet-gpu scene. The specified scene
 /// should not be accessed while the builder is live.
 #[no_mangle]
-pub unsafe extern "C" fn pgpu_scene_builder_new(
+pub unsafe extern "C" fn pgpu_scene_builder_for_scene(
     scene: *mut PgpuScene,
 ) -> *mut PgpuSceneBuilder<'static> {
-    Box::into_raw(Box::new((*scene).build()))
+    Box::into_raw(Box::new((*scene).builder()))
+}
+
+/// Creates a new builder for filling a piet-gpu scene fragment. The specified
+/// scene fragment should not be accessed while the builder is live.
+#[no_mangle]
+pub unsafe extern "C" fn pgpu_scene_builder_for_fragment(
+    fragment: *mut PgpuSceneFragment,
+) -> *mut PgpuSceneBuilder<'static> {
+    Box::into_raw(Box::new((*fragment).builder()))
 }
 
 /// Adds a glyph with the specified transform to the underlying scene.
@@ -112,10 +237,103 @@ pub unsafe extern "C" fn pgpu_scene_builder_new(
 pub unsafe extern "C" fn pgpu_scene_builder_add_glyph(
     builder: *mut PgpuSceneBuilder<'static>,
     glyph: *const PgpuGlyph,
-    transform: &[f32; 6],
+    transform: *const PgpuTransform,
 ) {
-    let transform = piet_scene::geometry::Affine::new(transform);
-    (*builder).add_glyph(&*glyph, &transform);
+    (*builder).add_glyph(&*glyph, &(*transform).into());
+}
+
+impl Iterator for PgpuPathIter {
+    type Item = piet_scene::path::Element;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut el = PgpuPathElement {
+            verb: PgpuPathVerb::MoveTo,
+            points: [PgpuPoint::default(); 3],
+        };
+        if (self.next_element)(self.context, &mut el as _) {
+            let p = &el.points;
+            Some(match el.verb {
+                PgpuPathVerb::MoveTo => Element::MoveTo((p[0].x, p[0].y).into()),
+                PgpuPathVerb::LineTo => Element::LineTo((p[0].x, p[0].y).into()),
+                PgpuPathVerb::QuadTo => {
+                    Element::QuadTo((p[0].x, p[0].y).into(), (p[1].x, p[1].y).into())
+                }
+                PgpuPathVerb::CurveTo => Element::CurveTo(
+                    (p[0].x, p[0].y).into(),
+                    (p[1].x, p[1].y).into(),
+                    (p[2].x, p[2].y).into(),
+                ),
+                PgpuPathVerb::Close => Element::Close,
+            })
+        } else {
+            None
+        }
+    }
+}
+
+/// Sets the current absolute transform for the scene builder.
+#[no_mangle]
+pub unsafe extern "C" fn pgpu_scene_builder_transform(
+    builder: *mut PgpuSceneBuilder<'static>,
+    transform: *const PgpuTransform,
+) {
+    if !transform.is_null() {
+        (*builder).0.transform((*transform).into())
+    }
+}
+
+/// Fills a path using the specified fill style and brush. If the brush
+/// parameter is nullptr, a solid color white brush will be used. The
+/// brush_transform may be nullptr.
+#[no_mangle]
+pub unsafe extern "C" fn pgpu_scene_builder_fill_path(
+    builder: *mut PgpuSceneBuilder<'static>,
+    fill: PgpuFill,
+    brush: *const PgpuBrush,
+    brush_transform: *const PgpuTransform,
+    path: *mut PgpuPathIter,
+) {
+    let fill = match fill {
+        PgpuFill::NonZero => Fill::NonZero,
+        PgpuFill::EvenOdd => Fill::EvenOdd,
+    };
+    let brush = if brush.is_null() {
+        Brush::Solid(Color::rgb8(255, 255, 255))
+    } else {
+        match (*brush).kind {
+            PgpuBrushKind::Solid => {
+                let color = &(*brush).data.solid;
+                Brush::Solid(Color::rgba8(color.r, color.g, color.b, color.a))
+            }
+        }
+    };
+    let brush_transform = if brush_transform.is_null() {
+        None
+    } else {
+        Some((*brush_transform).into())
+    };
+    (*builder)
+        .0
+        .fill(fill, &brush, brush_transform, (*path).clone());
+}
+
+/// Appends a scene fragment to the underlying scene or fragment. The
+/// transform parameter represents an absolute transform to apply to
+/// the fragment. If it is nullptr, the fragment will be appended to
+/// the scene with an assumed identity transform regardless of the
+/// current transform state.
+#[no_mangle]
+pub unsafe extern "C" fn pgpu_scene_builder_append_fragment(
+    builder: *mut PgpuSceneBuilder<'static>,
+    fragment: *const PgpuSceneFragment,
+    transform: *const PgpuTransform,
+) {
+    let transform = if transform.is_null() {
+        None
+    } else {
+        Some((*transform).into())
+    };
+    (*builder).0.append(&(*fragment).0, transform);
 }
 
 /// Finalizes the scene builder, making the underlying scene ready for
@@ -218,16 +436,6 @@ pub unsafe extern "C" fn pgpu_glyph_provider_get_color(
 #[no_mangle]
 pub unsafe extern "C" fn pgpu_glyph_provider_destroy(provider: *mut PgpuGlyphProvider) {
     Box::from_raw(provider);
-}
-
-/// Rectangle defined by minimum and maximum points.
-#[derive(Copy, Clone, Default)]
-#[repr(C)]
-pub struct PgpuRect {
-    pub x0: f32,
-    pub y0: f32,
-    pub x1: f32,
-    pub y1: f32,
 }
 
 /// Computes the bounding box for the glyph after applying the specified
