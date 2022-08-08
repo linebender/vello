@@ -15,17 +15,19 @@
 // Also licensed under MIT license, at your choice.
 
 use super::color::Color;
+use super::ExtendMode;
 use crate::geometry::Point;
 use smallvec::SmallVec;
 use std::hash::{Hash, Hasher};
 
+/// Offset and color of a transition point in a gradient.
 #[derive(Copy, Clone, PartialOrd, Default, Debug)]
-pub struct Stop {
+pub struct GradientStop {
     pub offset: f32,
     pub color: Color,
 }
 
-impl Hash for Stop {
+impl Hash for GradientStop {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.offset.to_bits().hash(state);
         self.color.hash(state);
@@ -33,46 +35,46 @@ impl Hash for Stop {
 }
 
 // Override PartialEq to use to_bits for the offset to match with the Hash impl
-impl std::cmp::PartialEq for Stop {
+impl std::cmp::PartialEq for GradientStop {
     fn eq(&self, other: &Self) -> bool {
         self.offset.to_bits() == other.offset.to_bits() && self.color == other.color
     }
 }
 
-impl std::cmp::Eq for Stop {}
+impl std::cmp::Eq for GradientStop {}
 
-pub type StopVec = SmallVec<[Stop; 4]>;
+/// Collection of gradient stops.
+pub type GradientStops = SmallVec<[GradientStop; 4]>;
 
-#[derive(Copy, Clone, PartialEq, Debug)]
-pub enum Extend {
-    Pad,
-    Repeat,
-    Reflect,
-}
-
+/// Definition of a gradient that transitions between two or more colors along
+/// a line.
 #[derive(Clone, Debug)]
 pub struct LinearGradient {
     pub start: Point,
     pub end: Point,
-    pub stops: StopVec,
-    pub extend: Extend,
+    pub stops: GradientStops,
+    pub extend: ExtendMode,
 }
 
+/// Definition of a gradient that transitions between two or more colors that
+/// radiate from an origin.
 #[derive(Clone, Debug)]
 pub struct RadialGradient {
     pub center0: Point,
     pub radius0: f32,
     pub center1: Point,
     pub radius1: f32,
-    pub stops: StopVec,
-    pub extend: Extend,
+    pub stops: GradientStops,
+    pub extend: ExtendMode,
 }
 
+/// Definition gradient that transitions between two or more colors that rotate
+/// around a center point.
 #[derive(Clone, Debug)]
 pub struct SweepGradient {
     pub center: Point,
     pub start_angle: f32,
     pub end_angle: f32,
-    pub stops: StopVec,
-    pub extend: Extend,
+    pub stops: GradientStops,
+    pub extend: ExtendMode,
 }

@@ -6,7 +6,8 @@ use clap::{App, Arg};
 
 use piet_gpu_hal::{BufferUsage, Error, Instance, InstanceFlags, Session};
 
-use piet_gpu::{test_scenes, PicoSvg, PietGpuRenderContext, RenderDriver, Renderer};
+use piet_gpu::{samples, PicoSvg, RenderDriver, Renderer};
+use piet_scene::{ResourceContext, Scene, SceneBuilder};
 
 const WIDTH: usize = 2048;
 const HEIGHT: usize = 1536;
@@ -227,11 +228,13 @@ fn main() -> Result<(), Error> {
         )
         .get_matches();
     let instance = Instance::new(InstanceFlags::default())?;
+    let mut scene = Scene::default();
+    let mut rcx = ResourceContext::default();
     unsafe {
         let device = instance.device()?;
         let session = Session::new(device);
-
-        let mut ctx = PietGpuRenderContext::new();
+        rcx.advance();
+        let mut builder = SceneBuilder::for_scene(&mut scene, &mut rcx);
         if let Some(input) = matches.value_of("INPUT") {
             let mut scale = matches
                 .value_of("scale")
@@ -244,16 +247,17 @@ fn main() -> Result<(), Error> {
             let start = std::time::Instant::now();
             let svg = PicoSvg::load(&xml_str, scale).unwrap();
             println!("parsing time: {:?}", start.elapsed());
-            test_scenes::render_svg(&mut ctx, &svg);
+            samples::render_svg(&mut builder, &svg, true);
         } else {
             //test_scenes::render_scene(&mut ctx);
-            test_scenes::render_blend_grid(&mut ctx);
+            samples::render_blend_grid(&mut builder);
         }
+        builder.finish();
 
         let renderer = Renderer::new(&session, WIDTH, HEIGHT, 1)?;
         let mut render_driver = RenderDriver::new(&session, 1, renderer);
         let start = std::time::Instant::now();
-        render_driver.upload_render_ctx(&session, &mut ctx)?;
+        render_driver.upload_scene(&session, &scene, &rcx)?;
         let image_usage = BufferUsage::MAP_READ | BufferUsage::COPY_DST;
         let image_buf = session.create_buffer((WIDTH * HEIGHT * 4) as u64, image_usage)?;
 

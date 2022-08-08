@@ -18,8 +18,6 @@
 
 use bytemuck::{Pod, Zeroable};
 
-use piet::kurbo::Affine;
-
 /// An affine transform.
 // This is equivalent to the version in piet-gpu-types, but the bytemuck
 // representation will likely be faster.
@@ -35,23 +33,4 @@ impl Transform {
         mat: [1.0, 0.0, 0.0, 1.0],
         translate: [0.0, 0.0],
     };
-
-    pub fn from_kurbo(a: Affine) -> Transform {
-        let c = a.as_coeffs();
-        Transform {
-            mat: [c[0] as f32, c[1] as f32, c[2] as f32, c[3] as f32],
-            translate: [c[4] as f32, c[5] as f32],
-        }
-    }
-
-    pub fn to_kurbo(self) -> Affine {
-        Affine::new([
-            self.mat[0] as f64,
-            self.mat[1] as f64,
-            self.mat[2] as f64,
-            self.mat[3] as f64,
-            self.translate[0] as f64,
-            self.translate[1] as f64,
-        ])
-    }
 }
