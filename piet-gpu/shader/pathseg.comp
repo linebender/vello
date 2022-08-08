@@ -26,6 +26,7 @@ layout(binding = 2) readonly buffer SceneBuf {
 
 #include "tile.h"
 #include "pathseg.h"
+#include "scene.h"
 
 layout(binding = 3) readonly buffer ParentBuf {
     TagMonoid[] parent;
@@ -126,7 +127,7 @@ void main() {
     uint lw_ix = (conf.linewidth_offset >> 2) + tm.linewidth_ix;
     uint save_path_ix = tm.path_ix;
     uint trans_ix = tm.trans_ix;
-    TransformSegRef trans_ref = TransformSegRef(conf.trans_alloc.offset + trans_ix * TransformSeg_size);
+    TransformRef trans_ref = TransformRef(conf.trans_offset + trans_ix * Transform_size);
     PathSegRef ps_ref = PathSegRef(conf.pathseg_alloc.offset + tm.pathseg_ix * PathSeg_size);
     for (uint i = 0; i < N_SEQ; i++) {
         linewidth[i] = uintBitsToFloat(scene[lw_ix]);
@@ -162,7 +163,7 @@ void main() {
                     }
                 }
             }
-            TransformSeg transform = TransformSeg_read(conf.trans_alloc, trans_ref);
+            Transform transform = Transform_read(trans_ref);
             p0 = transform.mat.xy * p0.x + transform.mat.zw * p0.y + transform.translate;
             p1 = transform.mat.xy * p1.x + transform.mat.zw * p1.y + transform.translate;
             vec4 bbox = vec4(min(p0, p1), max(p0, p1));
@@ -219,7 +220,7 @@ void main() {
             local[i].flags = is_path;
             tm.path_ix += is_path;
             trans_ix += (tag_byte >> 5) & 1;
-            trans_ref.offset += ((tag_byte >> 5) & 1) * TransformSeg_size;
+            trans_ref.offset += ((tag_byte >> 5) & 1) * Transform_size;
             lw_ix += (tag_byte >> 6) & 1;
         }
     }

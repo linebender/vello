@@ -43,7 +43,6 @@ struct Config {
     Alloc ptcl_alloc;
     Alloc pathseg_alloc;
     Alloc anno_alloc;
-    Alloc trans_alloc;
     // new element pipeline stuff follows
 
     // Bounding boxes of paths, stored as int (so atomics work)

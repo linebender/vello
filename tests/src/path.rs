@@ -210,7 +210,6 @@ impl PathData {
         let path_bbox_alloc = pathseg_alloc + self.n_pathseg * PATHSEG_SIZE;
         let stage_config = stages::Config {
             pathseg_alloc,
-            trans_alloc,
             path_bbox_alloc,
             n_trans,
             n_path: self.n_path,

@@ -61,7 +61,7 @@ impl From<(f32, f32)> for Point {
 }
 
 /// Affine transformation matrix.
-#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+#[derive(Copy, Clone, PartialEq, Debug, Pod, Zeroable)]
 #[repr(C)]
 pub struct Affine {
     pub xx: f32,

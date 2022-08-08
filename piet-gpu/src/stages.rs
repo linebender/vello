@@ -27,9 +27,7 @@ pub use clip::{ClipBinding, ClipCode, CLIP_PART_SIZE};
 pub use draw::{DrawBinding, DrawCode, DrawMonoid, DrawStage, DRAW_PART_SIZE};
 pub use path::{PathBinding, PathCode, PathEncoder, PathStage, PATHSEG_PART_SIZE};
 use piet_gpu_hal::{Buffer, ComputePass, Session};
-pub use transform::{
-    Transform, TransformBinding, TransformCode, TransformStage, TRANSFORM_PART_SIZE,
-};
+pub use transform::Transform;
 
 /// The configuration block passed to piet-gpu shaders.
 ///
@@ -47,7 +45,6 @@ pub struct Config {
     pub ptcl_alloc: u32,
     pub pathseg_alloc: u32,
     pub anno_alloc: u32,
-    pub trans_alloc: u32,
     pub path_bbox_alloc: u32,
     pub drawmonoid_alloc: u32,
     pub clip_alloc: u32,
@@ -70,19 +67,16 @@ pub struct Config {
 // The "element" stage combines a number of stages for parts of the pipeline.
 
 pub struct ElementCode {
-    transform_code: TransformCode,
     path_code: PathCode,
     draw_code: DrawCode,
 }
 
 pub struct ElementStage {
-    transform_stage: TransformStage,
     path_stage: PathStage,
     draw_stage: DrawStage,
 }
 
 pub struct ElementBinding {
-    transform_binding: TransformBinding,
     path_binding: PathBinding,
     draw_binding: DrawBinding,
 }
@@ -90,7 +84,6 @@ pub struct ElementBinding {
 impl ElementCode {
     pub unsafe fn new(session: &Session) -> ElementCode {
         ElementCode {
-            transform_code: TransformCode::new(session),
             path_code: PathCode::new(session),
             draw_code: DrawCode::new(session),
         }
@@ -100,7 +93,6 @@ impl ElementCode {
 impl ElementStage {
     pub unsafe fn new(session: &Session, code: &ElementCode) -> ElementStage {
         ElementStage {
-            transform_stage: TransformStage::new(session, &code.transform_code),
             path_stage: PathStage::new(session, &code.path_code),
             draw_stage: DrawStage::new(session, &code.draw_code),
         }
@@ -115,13 +107,6 @@ impl ElementStage {
         memory_buf: &Buffer,
     ) -> ElementBinding {
         ElementBinding {
-            transform_binding: self.transform_stage.bind(
-                session,
-                &code.transform_code,
-                config_buf,
-                scene_buf,
-                memory_buf,
-            ),
             path_binding: self.path_stage.bind(
                 session,
                 &code.path_code,
@@ -144,17 +129,10 @@ impl ElementStage {
         pass: &mut ComputePass,
         code: &ElementCode,
         binding: &ElementBinding,
-        n_transform: u64,
         n_paths: u32,
         n_tags: u32,
         n_drawobj: u64,
     ) {
-        self.transform_stage.record(
-            pass,
-            &code.transform_code,
-            &binding.transform_binding,
-            n_transform,
-        );
         // No memory barrier needed here; path has at least one before pathseg
         self.path_stage.record(
             pass,
@@ -171,13 +149,11 @@ impl ElementStage {
 
 impl ElementBinding {
     pub unsafe fn rebind_memory(&mut self, session: &Session, memory: &Buffer) {
-        self.transform_binding.rebind_memory(session, memory);
         self.path_binding.rebind_memory(session, memory);
         self.draw_binding.rebind_memory(session, memory);
     }
 
     pub unsafe fn rebind_scene(&mut self, session: &Session, scene: &Buffer) {
-        self.transform_binding.rebind_scene(session, scene);
         self.path_binding.rebind_scene(session, scene);
         self.draw_binding.rebind_scene(session, scene);
     }

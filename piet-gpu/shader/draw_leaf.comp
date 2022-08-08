@@ -108,10 +108,10 @@ void main() {
             vec2 translate;
             if (linewidth >= 0.0 || tag_word == Drawtag_FillLinGradient || tag_word == Drawtag_FillRadGradient) {
                 uint trans_ix = memory[bbox_offset + 5];
-                uint t = (conf.trans_alloc.offset >> 2) + 6 * trans_ix;
-                mat = uintBitsToFloat(uvec4(memory[t], memory[t + 1], memory[t + 2], memory[t + 3]));
+                uint t = (conf.trans_offset >> 2) + trans_ix * 6;
+                mat = uintBitsToFloat(uvec4(scene[t], scene[t + 1], scene[t + 2], scene[t + 3]));
                 if (tag_word == Drawtag_FillLinGradient || tag_word == Drawtag_FillRadGradient) {
-                    translate = uintBitsToFloat(uvec2(memory[t + 4], memory[t + 5]));
+                    translate = uintBitsToFloat(uvec2(scene[t + 4], scene[t + 5]));
                 }
             }
             if (linewidth >= 0.0) {
