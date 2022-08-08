@@ -1,4 +1,4 @@
-use crate::brush::{Color, Stop, StopVec};
+use crate::brush::{Color, GradientStop, GradientStops};
 use std::collections::HashMap;
 
 const N_SAMPLES: usize = 512;
@@ -7,15 +7,11 @@ const RETAINED_COUNT: usize = 64;
 #[derive(Default)]
 pub struct RampCache {
     epoch: u64,
-    map: HashMap<StopVec, (u32, u64)>,
+    map: HashMap<GradientStops, (u32, u64)>,
     data: Vec<u32>,
 }
 
 impl RampCache {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     pub fn advance(&mut self) {
         self.epoch += 1;
         if self.map.len() > RETAINED_COUNT {
@@ -31,7 +27,7 @@ impl RampCache {
         self.data.clear();
     }
 
-    pub fn add(&mut self, stops: &[Stop]) -> u32 {
+    pub fn add(&mut self, stops: &[GradientStop]) -> u32 {
         if let Some(entry) = self.map.get_mut(stops) {
             entry.1 = self.epoch;
             entry.0
@@ -73,7 +69,7 @@ impl RampCache {
     }
 }
 
-fn make_ramp<'a>(stops: &'a [Stop]) -> impl Iterator<Item = u32> + 'a {
+fn make_ramp<'a>(stops: &'a [GradientStop]) -> impl Iterator<Item = u32> + 'a {
     let mut last_u = 0.0;
     let mut last_c = ColorF64::from_color(stops[0].color);
     let mut this_u = last_u;

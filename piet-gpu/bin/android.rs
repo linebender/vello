@@ -17,10 +17,8 @@ use piet_gpu_hal::{
     SubmittedCmdBuf, Surface, Swapchain,
 };
 
-use piet::kurbo::Point;
-use piet::{RenderContext, Text, TextAttribute, TextLayoutBuilder};
-
-use piet_gpu::{test_scenes, PietGpuRenderContext, RenderDriver, Renderer};
+use piet_gpu::{samples, RenderDriver, Renderer, SimpleText};
+use piet_scene::{ResourceContext, Scene, SceneBuilder};
 
 #[cfg_attr(target_os = "android", ndk_glue::main(backtrace = "on"))]
 fn main() {
@@ -134,14 +132,15 @@ impl GfxState {
                 info_string = stats.short_summary();
                 println!("{}", info_string);
             }
-            let mut ctx = PietGpuRenderContext::new();
-            test_scenes::render_anim_frame(&mut ctx, self.current_frame);
-            //test_scenes::render_tiger(&mut ctx);
-            render_info_string(&mut ctx, &info_string);
-            if let Err(e) = self
-                .render_driver
-                .upload_render_ctx(&self.session, &mut ctx)
-            {
+            let mut text = SimpleText::new();
+            let mut scene = Scene::default();
+            let mut rcx = ResourceContext::default();
+            let mut builder = SceneBuilder::for_scene(&mut scene, &mut rcx);
+            samples::render_anim_frame(&mut builder, self.current_frame);
+            //samples::render_tiger(&mut builder, false);
+            render_info(&mut text, &mut builder, &info_string);
+            builder.finish();
+            if let Err(e) = self.render_driver.upload_scene(&self.session, &scene, &rcx) {
                 println!("error in uploading: {}", e);
             }
             let (image_idx, acquisition_semaphore) = self.swapchain.next().unwrap();
@@ -173,12 +172,13 @@ impl GfxState {
     }
 }
 
-fn render_info_string(rc: &mut impl RenderContext, info: &str) {
-    let layout = rc
-        .text()
-        .new_text_layout(info.to_string())
-        .default_attribute(TextAttribute::FontSize(60.0))
-        .build()
-        .unwrap();
-    rc.draw_text(&layout, Point::new(110.0, 120.0));
+fn render_info(simple_text: &mut SimpleText, sb: &mut SceneBuilder, info: &str) {
+    simple_text.add(
+        sb,
+        None,
+        60.0,
+        None,
+        piet_scene::Affine::translate(110.0, 120.0),
+        info,
+    );
 }

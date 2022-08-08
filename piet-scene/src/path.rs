@@ -18,7 +18,7 @@ use super::geometry::{Point, Rect};
 
 /// Action of a path element.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
-pub enum Verb {
+pub enum PathVerb {
     MoveTo,
     LineTo,
     QuadTo,
@@ -28,7 +28,7 @@ pub enum Verb {
 
 /// Element of a path represented by a verb and its associated points.
 #[derive(Copy, Clone, PartialEq, Debug)]
-pub enum Element {
+pub enum PathElement {
     MoveTo(Point),
     LineTo(Point),
     QuadTo(Point, Point),
@@ -36,27 +36,27 @@ pub enum Element {
     Close,
 }
 
-impl Element {
+impl PathElement {
     /// Returns the verb that describes the action of the path element.
-    pub fn verb(&self) -> Verb {
+    pub fn verb(&self) -> PathVerb {
         match self {
-            Self::MoveTo(..) => Verb::MoveTo,
-            Self::LineTo(..) => Verb::LineTo,
-            Self::QuadTo(..) => Verb::QuadTo,
-            Self::CurveTo(..) => Verb::CurveTo,
-            Self::Close => Verb::Close,
+            Self::MoveTo(..) => PathVerb::MoveTo,
+            Self::LineTo(..) => PathVerb::LineTo,
+            Self::QuadTo(..) => PathVerb::QuadTo,
+            Self::CurveTo(..) => PathVerb::CurveTo,
+            Self::Close => PathVerb::Close,
         }
     }
 }
 
 impl Rect {
-    pub fn elements(&self) -> impl Iterator<Item = Element> + Clone {
+    pub fn elements(&self) -> impl Iterator<Item = PathElement> + Clone {
         let elements = [
-            Element::MoveTo((self.min.x, self.min.y).into()),
-            Element::LineTo((self.max.x, self.min.y).into()),
-            Element::LineTo((self.max.x, self.max.y).into()),
-            Element::LineTo((self.min.x, self.max.y).into()),
-            Element::Close,
+            PathElement::MoveTo((self.min.x, self.min.y).into()),
+            PathElement::LineTo((self.max.x, self.min.y).into()),
+            PathElement::LineTo((self.max.x, self.max.y).into()),
+            PathElement::LineTo((self.min.x, self.max.y).into()),
+            PathElement::Close,
         ];
         (0..5).map(move |i| elements[i])
     }
