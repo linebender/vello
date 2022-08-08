@@ -23,7 +23,6 @@ struct Config
     Alloc ptcl_alloc;
     Alloc pathseg_alloc;
     Alloc anno_alloc;
-    Alloc trans_alloc;
     Alloc path_bbox_alloc;
     Alloc drawmonoid_alloc;
     Alloc clip_alloc;
@@ -82,7 +81,7 @@ DrawMonoid combine_draw_monoid(DrawMonoid a, DrawMonoid b)
 void comp_main()
 {
     uint ix = gl_GlobalInvocationID.x * 8u;
-    uint drawtag_base = _87.Load(104) >> uint(2);
+    uint drawtag_base = _87.Load(100) >> uint(2);
     uint tag_word = _97.Load((drawtag_base + ix) * 4 + 0);
     uint param = tag_word;
     DrawMonoid agg = map_tag(param);

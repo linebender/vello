@@ -15,7 +15,6 @@ struct Config
     Alloc ptcl_alloc;
     Alloc pathseg_alloc;
     Alloc anno_alloc;
-    Alloc trans_alloc;
     Alloc path_bbox_alloc;
     Alloc drawmonoid_alloc;
     Alloc clip_alloc;
@@ -49,9 +48,9 @@ struct SPIRV_Cross_Input
 void comp_main()
 {
     uint ix = gl_GlobalInvocationID.x;
-    if (ix < _21.Load(80))
+    if (ix < _21.Load(76))
     {
-        uint out_ix = (_21.Load(44) >> uint(2)) + (6u * ix);
+        uint out_ix = (_21.Load(40) >> uint(2)) + (6u * ix);
         _45.Store(out_ix * 4 + 12, 65535u);
         _45.Store((out_ix + 1u) * 4 + 12, 65535u);
         _45.Store((out_ix + 2u) * 4 + 12, 0u);

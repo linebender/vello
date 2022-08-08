@@ -69,7 +69,6 @@ struct Config
     Alloc ptcl_alloc;
     Alloc pathseg_alloc;
     Alloc anno_alloc;
-    Alloc trans_alloc;
     Alloc path_bbox_alloc;
     Alloc drawmonoid_alloc;
     Alloc clip_alloc;
@@ -233,11 +232,11 @@ kernel void main0(device Memory& _285 [[buffer(0)]], const device ConfigBuf& _93
             if (((linewidth >= 0.0) || (tag_word == 276u)) || (tag_word == 732u))
             {
                 uint trans_ix = _285.memory[bbox_offset + 5u];
-                uint t = (_93.conf.trans_alloc.offset >> uint(2)) + (6u * trans_ix);
-                mat = as_type<float4>(uint4(_285.memory[t], _285.memory[t + 1u], _285.memory[t + 2u], _285.memory[t + 3u]));
+                uint t = (_93.conf.trans_offset >> uint(2)) + (trans_ix * 6u);
+                mat = as_type<float4>(uint4(_103.scene[t], _103.scene[t + 1u], _103.scene[t + 2u], _103.scene[t + 3u]));
                 if ((tag_word == 276u) || (tag_word == 732u))
                 {
-                    translate = as_type<float2>(uint2(_285.memory[t + 4u], _285.memory[t + 5u]));
+                    translate = as_type<float2>(uint2(_103.scene[t + 4u], _103.scene[t + 5u]));
                 }
             }
             if (linewidth >= 0.0)

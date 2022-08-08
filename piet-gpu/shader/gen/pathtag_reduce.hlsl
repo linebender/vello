@@ -24,7 +24,6 @@ struct Config
     Alloc ptcl_alloc;
     Alloc pathseg_alloc;
     Alloc anno_alloc;
-    Alloc trans_alloc;
     Alloc path_bbox_alloc;
     Alloc drawmonoid_alloc;
     Alloc clip_alloc;
@@ -93,7 +92,7 @@ TagMonoid combine_tag_monoid(TagMonoid a, TagMonoid b)
 void comp_main()
 {
     uint ix = gl_GlobalInvocationID.x * 2u;
-    uint scene_ix = (_139.Load(96) >> uint(2)) + ix;
+    uint scene_ix = (_139.Load(92) >> uint(2)) + ix;
     uint tag_word = _151.Load(scene_ix * 4 + 0);
     uint param = tag_word;
     TagMonoid agg = reduce_tag(param);

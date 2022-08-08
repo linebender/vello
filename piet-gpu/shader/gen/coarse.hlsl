@@ -148,7 +148,6 @@ struct Config
     Alloc ptcl_alloc;
     Alloc pathseg_alloc;
     Alloc anno_alloc;
-    Alloc trans_alloc;
     Alloc path_bbox_alloc;
     Alloc drawmonoid_alloc;
     Alloc clip_alloc;
@@ -702,10 +701,10 @@ void comp_main()
     cmd_ref.offset += 4u;
     uint render_blend_depth = 0u;
     uint max_blend_depth = 0u;
-    uint drawmonoid_start = _891.Load(48) >> uint(2);
-    uint drawtag_start = _891.Load(104) >> uint(2);
-    uint drawdata_start = _891.Load(108) >> uint(2);
-    uint drawinfo_start = _891.Load(72) >> uint(2);
+    uint drawmonoid_start = _891.Load(44) >> uint(2);
+    uint drawtag_start = _891.Load(100) >> uint(2);
+    uint drawdata_start = _891.Load(104) >> uint(2);
+    uint drawinfo_start = _891.Load(68) >> uint(2);
     Alloc param_7;
     Alloc param_9;
     uint _1322;

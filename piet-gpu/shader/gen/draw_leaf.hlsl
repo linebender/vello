@@ -23,7 +23,6 @@ struct Config
     Alloc ptcl_alloc;
     Alloc pathseg_alloc;
     Alloc anno_alloc;
-    Alloc trans_alloc;
     Alloc path_bbox_alloc;
     Alloc drawmonoid_alloc;
     Alloc clip_alloc;
@@ -89,7 +88,7 @@ DrawMonoid draw_monoid_identity()
 void comp_main()
 {
     uint ix = gl_GlobalInvocationID.x * 8u;
-    uint drawtag_base = _93.Load(104) >> uint(2);
+    uint drawtag_base = _93.Load(100) >> uint(2);
     uint tag_word = _103.Load((drawtag_base + ix) * 4 + 0);
     uint param = tag_word;
     DrawMonoid agg = map_tag(param);
@@ -138,11 +137,11 @@ void comp_main()
         DrawMonoid param_7 = sh_scratch[gl_LocalInvocationID.x - 1u];
         row = combine_draw_monoid(param_6, param_7);
     }
-    uint drawdata_base = _93.Load(108) >> uint(2);
-    uint drawinfo_base = _93.Load(72) >> uint(2);
+    uint drawdata_base = _93.Load(104) >> uint(2);
+    uint drawinfo_base = _93.Load(68) >> uint(2);
     uint out_ix = gl_GlobalInvocationID.x * 8u;
-    uint out_base = (_93.Load(48) >> uint(2)) + (out_ix * 4u);
-    uint clip_out_base = _93.Load(52) >> uint(2);
+    uint out_base = (_93.Load(44) >> uint(2)) + (out_ix * 4u);
+    uint clip_out_base = _93.Load(48) >> uint(2);
     float4 mat;
     float2 translate;
     float2 p0;
@@ -165,7 +164,7 @@ void comp_main()
         tag_word = _103.Load(((drawtag_base + ix) + i_2) * 4 + 0);
         if (((((tag_word == 68u) || (tag_word == 276u)) || (tag_word == 732u)) || (tag_word == 72u)) || (tag_word == 5u))
         {
-            uint bbox_offset = (_93.Load(44) >> uint(2)) + (6u * m.path_ix);
+            uint bbox_offset = (_93.Load(40) >> uint(2)) + (6u * m.path_ix);
             float bbox_l = float(_285.Load(bbox_offset * 4 + 12)) - 32768.0f;
             float bbox_t = float(_285.Load((bbox_offset + 1u) * 4 + 12)) - 32768.0f;
             float bbox_r = float(_285.Load((bbox_offset + 2u) * 4 + 12)) - 32768.0f;
@@ -176,11 +175,11 @@ void comp_main()
             if (((linewidth >= 0.0f) || (tag_word == 276u)) || (tag_word == 732u))
             {
                 uint trans_ix = _285.Load((bbox_offset + 5u) * 4 + 12);
-                uint t = (_93.Load(40) >> uint(2)) + (6u * trans_ix);
-                mat = asfloat(uint4(_285.Load(t * 4 + 12), _285.Load((t + 1u) * 4 + 12), _285.Load((t + 2u) * 4 + 12), _285.Load((t + 3u) * 4 + 12)));
+                uint t = (_93.Load(84) >> uint(2)) + (trans_ix * 6u);
+                mat = asfloat(uint4(_103.Load(t * 4 + 0), _103.Load((t + 1u) * 4 + 0), _103.Load((t + 2u) * 4 + 0), _103.Load((t + 3u) * 4 + 0)));
                 if ((tag_word == 276u) || (tag_word == 732u))
                 {
-                    translate = asfloat(uint2(_285.Load((t + 4u) * 4 + 12), _285.Load((t + 5u) * 4 + 12)));
+                    translate = asfloat(uint2(_103.Load((t + 4u) * 4 + 0), _103.Load((t + 5u) * 4 + 0)));
                 }
             }
             if (linewidth >= 0.0f)

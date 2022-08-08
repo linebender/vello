@@ -199,7 +199,6 @@ struct Config
     Alloc_1 ptcl_alloc;
     Alloc_1 pathseg_alloc;
     Alloc_1 anno_alloc;
-    Alloc_1 trans_alloc;
     Alloc_1 path_bbox_alloc;
     Alloc_1 drawmonoid_alloc;
     Alloc_1 clip_alloc;

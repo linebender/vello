@@ -27,7 +27,6 @@ struct Config
     Alloc ptcl_alloc;
     Alloc pathseg_alloc;
     Alloc anno_alloc;
-    Alloc trans_alloc;
     Alloc path_bbox_alloc;
     Alloc drawmonoid_alloc;
     Alloc clip_alloc;
@@ -72,7 +71,7 @@ groupshared float4 sh_bbox[256];
 
 Bic load_bic(uint ix)
 {
-    uint base = (_80.Load(56) >> uint(2)) + (2u * ix);
+    uint base = (_80.Load(52) >> uint(2)) + (2u * ix);
     Bic _287 = { _96.Load(base * 4 + 12), _96.Load((base + 1u) * 4 + 12) };
     return _287;
 }
@@ -86,7 +85,7 @@ Bic bic_combine(Bic x, Bic y)
 
 ClipEl load_clip_el(uint ix)
 {
-    uint base = (_80.Load(60) >> uint(2)) + (5u * ix);
+    uint base = (_80.Load(56) >> uint(2)) + (5u * ix);
     uint parent_ix = _96.Load(base * 4 + 12);
     float x0 = asfloat(_96.Load((base + 1u) * 4 + 12));
     float y0 = asfloat(_96.Load((base + 2u) * 4 + 12));
@@ -104,9 +103,9 @@ float4 bbox_intersect(float4 a, float4 b)
 
 uint load_path_ix(uint ix)
 {
-    if (ix < _80.Load(84))
+    if (ix < _80.Load(80))
     {
-        return _96.Load(((_80.Load(52) >> uint(2)) + ix) * 4 + 12);
+        return _96.Load(((_80.Load(48) >> uint(2)) + ix) * 4 + 12);
     }
     else
     {
@@ -116,7 +115,7 @@ uint load_path_ix(uint ix)
 
 float4 load_path_bbox(uint path_ix)
 {
-    uint base = (_80.Load(44) >> uint(2)) + (6u * path_ix);
+    uint base = (_80.Load(40) >> uint(2)) + (6u * path_ix);
     float bbox_l = float(_96.Load(base * 4 + 12)) - 32768.0f;
     float bbox_t = float(_96.Load((base + 1u) * 4 + 12)) - 32768.0f;
     float bbox_r = float(_96.Load((base + 2u) * 4 + 12)) - 32768.0f;
@@ -174,7 +173,7 @@ uint search_link(inout Bic bic)
 
 void store_clip_bbox(uint ix, float4 bbox)
 {
-    uint base = (_80.Load(64) >> uint(2)) + (4u * ix);
+    uint base = (_80.Load(60) >> uint(2)) + (4u * ix);
     _96.Store(base * 4 + 12, asuint(bbox.x));
     _96.Store((base + 1u) * 4 + 12, asuint(bbox.y));
     _96.Store((base + 2u) * 4 + 12, asuint(bbox.z));
@@ -329,7 +328,7 @@ void comp_main()
     bool _726;
     if (_718)
     {
-        _726 = gl_GlobalInvocationID.x < _80.Load(84);
+        _726 = gl_GlobalInvocationID.x < _80.Load(80);
     }
     else
     {
@@ -339,7 +338,7 @@ void comp_main()
     {
         uint param_15 = parent;
         path_ix = load_path_ix(param_15);
-        uint drawmonoid_out_base = (_80.Load(48) >> uint(2)) + (4u * (~inp));
+        uint drawmonoid_out_base = (_80.Load(44) >> uint(2)) + (4u * (~inp));
         _96.Store(drawmonoid_out_base * 4 + 12, path_ix);
         if (int(grandparent) >= 0)
         {

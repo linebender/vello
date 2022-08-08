@@ -60,17 +60,6 @@ struct TagMonoid
     uint pathseg_offset;
 };
 
-struct TransformSegRef
-{
-    uint offset;
-};
-
-struct TransformSeg
-{
-    float4 mat;
-    float2 translate;
-};
-
 struct PathCubicRef
 {
     uint offset;
@@ -90,6 +79,17 @@ struct PathCubic
 struct PathSegRef
 {
     uint offset;
+};
+
+struct TransformRef
+{
+    uint offset;
+};
+
+struct Transform
+{
+    float4 mat;
+    float2 translate;
 };
 
 struct Monoid
@@ -128,7 +128,6 @@ struct Config
     Alloc_1 ptcl_alloc;
     Alloc_1 pathseg_alloc;
     Alloc_1 anno_alloc;
-    Alloc_1 trans_alloc;
     Alloc_1 path_bbox_alloc;
     Alloc_1 drawmonoid_alloc;
     Alloc_1 clip_alloc;
@@ -205,20 +204,36 @@ TagMonoid tag_monoid_identity()
 }
 
 static inline __attribute__((always_inline))
-float2 read_f32_point(thread const uint& ix, const device SceneBuf& v_574)
+float2 read_f32_point(thread const uint& ix, const device SceneBuf& v_382)
 {
-    float x = as_type<float>(v_574.scene[ix]);
-    float y = as_type<float>(v_574.scene[ix + 1u]);
+    float x = as_type<float>(v_382.scene[ix]);
+    float y = as_type<float>(v_382.scene[ix + 1u]);
     return float2(x, y);
 }
 
 static inline __attribute__((always_inline))
-float2 read_i16_point(thread const uint& ix, const device SceneBuf& v_574)
+float2 read_i16_point(thread const uint& ix, const device SceneBuf& v_382)
 {
-    uint raw = v_574.scene[ix];
+    uint raw = v_382.scene[ix];
     float x = float(int(raw << uint(16)) >> 16);
     float y = float(int(raw) >> 16);
     return float2(x, y);
+}
+
+static inline __attribute__((always_inline))
+Transform Transform_read(thread const TransformRef& ref, const device SceneBuf& v_382)
+{
+    uint ix = ref.offset >> uint(2);
+    uint raw0 = v_382.scene[ix + 0u];
+    uint raw1 = v_382.scene[ix + 1u];
+    uint raw2 = v_382.scene[ix + 2u];
+    uint raw3 = v_382.scene[ix + 3u];
+    uint raw4 = v_382.scene[ix + 4u];
+    uint raw5 = v_382.scene[ix + 5u];
+    Transform s;
+    s.mat = float4(as_type<float>(raw0), as_type<float>(raw1), as_type<float>(raw2), as_type<float>(raw3));
+    s.translate = float2(as_type<float>(raw4), as_type<float>(raw5));
+    return s;
 }
 
 static inline __attribute__((always_inline))
@@ -228,48 +243,7 @@ bool touch_mem(thread const Alloc& alloc, thread const uint& offset)
 }
 
 static inline __attribute__((always_inline))
-uint read_mem(thread const Alloc& alloc, thread const uint& offset, device Memory& v_111)
-{
-    Alloc param = alloc;
-    uint param_1 = offset;
-    if (!touch_mem(param, param_1))
-    {
-        return 0u;
-    }
-    uint v = v_111.memory[offset];
-    return v;
-}
-
-static inline __attribute__((always_inline))
-TransformSeg TransformSeg_read(thread const Alloc& a, thread const TransformSegRef& ref, device Memory& v_111)
-{
-    uint ix = ref.offset >> uint(2);
-    Alloc param = a;
-    uint param_1 = ix + 0u;
-    uint raw0 = read_mem(param, param_1, v_111);
-    Alloc param_2 = a;
-    uint param_3 = ix + 1u;
-    uint raw1 = read_mem(param_2, param_3, v_111);
-    Alloc param_4 = a;
-    uint param_5 = ix + 2u;
-    uint raw2 = read_mem(param_4, param_5, v_111);
-    Alloc param_6 = a;
-    uint param_7 = ix + 3u;
-    uint raw3 = read_mem(param_6, param_7, v_111);
-    Alloc param_8 = a;
-    uint param_9 = ix + 4u;
-    uint raw4 = read_mem(param_8, param_9, v_111);
-    Alloc param_10 = a;
-    uint param_11 = ix + 5u;
-    uint raw5 = read_mem(param_10, param_11, v_111);
-    TransformSeg s;
-    s.mat = float4(as_type<float>(raw0), as_type<float>(raw1), as_type<float>(raw2), as_type<float>(raw3));
-    s.translate = float2(as_type<float>(raw4), as_type<float>(raw5));
-    return s;
-}
-
-static inline __attribute__((always_inline))
-void write_mem(thread const Alloc& alloc, thread const uint& offset, thread const uint& val, device Memory& v_111)
+void write_mem(thread const Alloc& alloc, thread const uint& offset, thread const uint& val, device Memory& v_105)
 {
     Alloc param = alloc;
     uint param_1 = offset;
@@ -277,74 +251,74 @@ void write_mem(thread const Alloc& alloc, thread const uint& offset, thread cons
     {
         return;
     }
-    v_111.memory[offset] = val;
+    v_105.memory[offset] = val;
 }
 
 static inline __attribute__((always_inline))
-void PathCubic_write(thread const Alloc& a, thread const PathCubicRef& ref, thread const PathCubic& s, device Memory& v_111)
+void PathCubic_write(thread const Alloc& a, thread const PathCubicRef& ref, thread const PathCubic& s, device Memory& v_105)
 {
     uint ix = ref.offset >> uint(2);
     Alloc param = a;
     uint param_1 = ix + 0u;
     uint param_2 = as_type<uint>(s.p0.x);
-    write_mem(param, param_1, param_2, v_111);
+    write_mem(param, param_1, param_2, v_105);
     Alloc param_3 = a;
     uint param_4 = ix + 1u;
     uint param_5 = as_type<uint>(s.p0.y);
-    write_mem(param_3, param_4, param_5, v_111);
+    write_mem(param_3, param_4, param_5, v_105);
     Alloc param_6 = a;
     uint param_7 = ix + 2u;
     uint param_8 = as_type<uint>(s.p1.x);
-    write_mem(param_6, param_7, param_8, v_111);
+    write_mem(param_6, param_7, param_8, v_105);
     Alloc param_9 = a;
     uint param_10 = ix + 3u;
     uint param_11 = as_type<uint>(s.p1.y);
-    write_mem(param_9, param_10, param_11, v_111);
+    write_mem(param_9, param_10, param_11, v_105);
     Alloc param_12 = a;
     uint param_13 = ix + 4u;
     uint param_14 = as_type<uint>(s.p2.x);
-    write_mem(param_12, param_13, param_14, v_111);
+    write_mem(param_12, param_13, param_14, v_105);
     Alloc param_15 = a;
     uint param_16 = ix + 5u;
     uint param_17 = as_type<uint>(s.p2.y);
-    write_mem(param_15, param_16, param_17, v_111);
+    write_mem(param_15, param_16, param_17, v_105);
     Alloc param_18 = a;
     uint param_19 = ix + 6u;
     uint param_20 = as_type<uint>(s.p3.x);
-    write_mem(param_18, param_19, param_20, v_111);
+    write_mem(param_18, param_19, param_20, v_105);
     Alloc param_21 = a;
     uint param_22 = ix + 7u;
     uint param_23 = as_type<uint>(s.p3.y);
-    write_mem(param_21, param_22, param_23, v_111);
+    write_mem(param_21, param_22, param_23, v_105);
     Alloc param_24 = a;
     uint param_25 = ix + 8u;
     uint param_26 = s.path_ix;
-    write_mem(param_24, param_25, param_26, v_111);
+    write_mem(param_24, param_25, param_26, v_105);
     Alloc param_27 = a;
     uint param_28 = ix + 9u;
     uint param_29 = s.trans_ix;
-    write_mem(param_27, param_28, param_29, v_111);
+    write_mem(param_27, param_28, param_29, v_105);
     Alloc param_30 = a;
     uint param_31 = ix + 10u;
     uint param_32 = as_type<uint>(s.stroke.x);
-    write_mem(param_30, param_31, param_32, v_111);
+    write_mem(param_30, param_31, param_32, v_105);
     Alloc param_33 = a;
     uint param_34 = ix + 11u;
     uint param_35 = as_type<uint>(s.stroke.y);
-    write_mem(param_33, param_34, param_35, v_111);
+    write_mem(param_33, param_34, param_35, v_105);
 }
 
 static inline __attribute__((always_inline))
-void PathSeg_Cubic_write(thread const Alloc& a, thread const PathSegRef& ref, thread const uint& flags, thread const PathCubic& s, device Memory& v_111)
+void PathSeg_Cubic_write(thread const Alloc& a, thread const PathSegRef& ref, thread const uint& flags, thread const PathCubic& s, device Memory& v_105)
 {
     Alloc param = a;
     uint param_1 = ref.offset >> uint(2);
     uint param_2 = (flags << uint(16)) | 1u;
-    write_mem(param, param_1, param_2, v_111);
+    write_mem(param, param_1, param_2, v_105);
     Alloc param_3 = a;
     PathCubicRef param_4 = PathCubicRef{ ref.offset + 4u };
     PathCubic param_5 = s;
-    PathCubic_write(param_3, param_4, param_5, v_111);
+    PathCubic_write(param_3, param_4, param_5, v_105);
 }
 
 static inline __attribute__((always_inline))
@@ -352,70 +326,70 @@ Monoid combine_monoid(thread const Monoid& a, thread const Monoid& b)
 {
     Monoid c;
     c.bbox = b.bbox;
-    bool _472 = (a.flags & 1u) == 0u;
-    bool _480;
-    if (_472)
+    bool _442 = (a.flags & 1u) == 0u;
+    bool _450;
+    if (_442)
     {
-        _480 = b.bbox.z <= b.bbox.x;
+        _450 = b.bbox.z <= b.bbox.x;
     }
     else
     {
-        _480 = _472;
+        _450 = _442;
     }
-    bool _488;
-    if (_480)
+    bool _458;
+    if (_450)
     {
-        _488 = b.bbox.w <= b.bbox.y;
+        _458 = b.bbox.w <= b.bbox.y;
     }
     else
     {
-        _488 = _480;
+        _458 = _450;
     }
-    if (_488)
+    if (_458)
     {
         c.bbox = a.bbox;
     }
     else
     {
-        bool _498 = (a.flags & 1u) == 0u;
-        bool _505;
-        if (_498)
+        bool _468 = (a.flags & 1u) == 0u;
+        bool _475;
+        if (_468)
         {
-            _505 = (b.flags & 2u) == 0u;
+            _475 = (b.flags & 2u) == 0u;
         }
         else
         {
-            _505 = _498;
+            _475 = _468;
         }
-        bool _522;
-        if (_505)
+        bool _492;
+        if (_475)
         {
-            bool _512 = a.bbox.z > a.bbox.x;
-            bool _521;
-            if (!_512)
+            bool _482 = a.bbox.z > a.bbox.x;
+            bool _491;
+            if (!_482)
             {
-                _521 = a.bbox.w > a.bbox.y;
+                _491 = a.bbox.w > a.bbox.y;
             }
             else
             {
-                _521 = _512;
+                _491 = _482;
             }
-            _522 = _521;
+            _492 = _491;
         }
         else
         {
-            _522 = _505;
+            _492 = _475;
         }
-        if (_522)
+        if (_492)
         {
-            float4 _529 = c.bbox;
-            float2 _531 = fast::min(a.bbox.xy, _529.xy);
-            c.bbox.x = _531.x;
-            c.bbox.y = _531.y;
-            float4 _540 = c.bbox;
-            float2 _542 = fast::max(a.bbox.zw, _540.zw);
-            c.bbox.z = _542.x;
-            c.bbox.w = _542.y;
+            float4 _499 = c.bbox;
+            float2 _501 = fast::min(a.bbox.xy, _499.xy);
+            c.bbox.x = _501.x;
+            c.bbox.y = _501.y;
+            float4 _510 = c.bbox;
+            float2 _512 = fast::max(a.bbox.zw, _510.zw);
+            c.bbox.z = _512.x;
+            c.bbox.w = _512.y;
         }
     }
     c.flags = (a.flags & 2u) | b.flags;
@@ -441,12 +415,12 @@ uint round_up(thread const float& x)
     return uint(fast::min(65535.0, ceil(x) + 32768.0));
 }
 
-kernel void main0(device Memory& v_111 [[buffer(0)]], const device ConfigBuf& _639 [[buffer(1)]], const device SceneBuf& v_574 [[buffer(2)]], const device ParentBuf& _710 [[buffer(3)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]])
+kernel void main0(device Memory& v_105 [[buffer(0)]], const device ConfigBuf& _605 [[buffer(1)]], const device SceneBuf& v_382 [[buffer(2)]], const device ParentBuf& _676 [[buffer(3)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]])
 {
     threadgroup TagMonoid sh_tag[256];
     threadgroup Monoid sh_scratch[256];
     uint ix = gl_GlobalInvocationID.x * 4u;
-    uint tag_word = v_574.scene[(_639.conf.pathtag_offset >> uint(2)) + (ix >> uint(2))];
+    uint tag_word = v_382.scene[(_605.conf.pathtag_offset >> uint(2)) + (ix >> uint(2))];
     uint param = tag_word;
     TagMonoid local_tm = reduce_tag(param);
     sh_tag[gl_LocalInvocationID.x] = local_tm;
@@ -467,12 +441,12 @@ kernel void main0(device Memory& v_111 [[buffer(0)]], const device ConfigBuf& _6
     TagMonoid tm = tag_monoid_identity();
     if (gl_WorkGroupID.x > 0u)
     {
-        uint _713 = gl_WorkGroupID.x - 1u;
-        tm.trans_ix = _710.parent[_713].trans_ix;
-        tm.linewidth_ix = _710.parent[_713].linewidth_ix;
-        tm.pathseg_ix = _710.parent[_713].pathseg_ix;
-        tm.path_ix = _710.parent[_713].path_ix;
-        tm.pathseg_offset = _710.parent[_713].pathseg_offset;
+        uint _679 = gl_WorkGroupID.x - 1u;
+        tm.trans_ix = _676.parent[_679].trans_ix;
+        tm.linewidth_ix = _676.parent[_679].linewidth_ix;
+        tm.pathseg_ix = _676.parent[_679].pathseg_ix;
+        tm.path_ix = _676.parent[_679].path_ix;
+        tm.pathseg_offset = _676.parent[_679].pathseg_offset;
     }
     if (gl_LocalInvocationID.x > 0u)
     {
@@ -480,25 +454,24 @@ kernel void main0(device Memory& v_111 [[buffer(0)]], const device ConfigBuf& _6
         TagMonoid param_4 = sh_tag[gl_LocalInvocationID.x - 1u];
         tm = combine_tag_monoid(param_3, param_4);
     }
-    uint ps_ix = (_639.conf.pathseg_offset >> uint(2)) + tm.pathseg_offset;
-    uint lw_ix = (_639.conf.linewidth_offset >> uint(2)) + tm.linewidth_ix;
+    uint ps_ix = (_605.conf.pathseg_offset >> uint(2)) + tm.pathseg_offset;
+    uint lw_ix = (_605.conf.linewidth_offset >> uint(2)) + tm.linewidth_ix;
     uint save_path_ix = tm.path_ix;
     uint trans_ix = tm.trans_ix;
-    TransformSegRef trans_ref = TransformSegRef{ _639.conf.trans_alloc.offset + (trans_ix * 24u) };
-    PathSegRef ps_ref = PathSegRef{ _639.conf.pathseg_alloc.offset + (tm.pathseg_ix * 52u) };
+    TransformRef trans_ref = TransformRef{ _605.conf.trans_offset + (trans_ix * 24u) };
+    PathSegRef ps_ref = PathSegRef{ _605.conf.pathseg_alloc.offset + (tm.pathseg_ix * 52u) };
     spvUnsafeArray<float, 4> linewidth;
     spvUnsafeArray<uint, 4> save_trans_ix;
     float2 p0;
     float2 p1;
     float2 p2;
     float2 p3;
-    Alloc param_13;
     spvUnsafeArray<Monoid, 4> local;
     PathCubic cubic;
-    Alloc param_15;
+    Alloc param_14;
     for (uint i_1 = 0u; i_1 < 4u; i_1++)
     {
-        linewidth[i_1] = as_type<float>(v_574.scene[lw_ix]);
+        linewidth[i_1] = as_type<float>(v_382.scene[lw_ix]);
         save_trans_ix[i_1] = trans_ix;
         uint tag_byte = tag_word >> (i_1 * 8u);
         uint seg_type = tag_byte & 3u;
@@ -507,65 +480,64 @@ kernel void main0(device Memory& v_111 [[buffer(0)]], const device ConfigBuf& _6
             if ((tag_byte & 8u) != 0u)
             {
                 uint param_5 = ps_ix;
-                p0 = read_f32_point(param_5, v_574);
+                p0 = read_f32_point(param_5, v_382);
                 uint param_6 = ps_ix + 2u;
-                p1 = read_f32_point(param_6, v_574);
+                p1 = read_f32_point(param_6, v_382);
                 if (seg_type >= 2u)
                 {
                     uint param_7 = ps_ix + 4u;
-                    p2 = read_f32_point(param_7, v_574);
+                    p2 = read_f32_point(param_7, v_382);
                     if (seg_type == 3u)
                     {
                         uint param_8 = ps_ix + 6u;
-                        p3 = read_f32_point(param_8, v_574);
+                        p3 = read_f32_point(param_8, v_382);
                     }
                 }
             }
             else
             {
                 uint param_9 = ps_ix;
-                p0 = read_i16_point(param_9, v_574);
+                p0 = read_i16_point(param_9, v_382);
                 uint param_10 = ps_ix + 1u;
-                p1 = read_i16_point(param_10, v_574);
+                p1 = read_i16_point(param_10, v_382);
                 if (seg_type >= 2u)
                 {
                     uint param_11 = ps_ix + 2u;
-                    p2 = read_i16_point(param_11, v_574);
+                    p2 = read_i16_point(param_11, v_382);
                     if (seg_type == 3u)
                     {
                         uint param_12 = ps_ix + 3u;
-                        p3 = read_i16_point(param_12, v_574);
+                        p3 = read_i16_point(param_12, v_382);
                     }
                 }
             }
-            param_13.offset = _639.conf.trans_alloc.offset;
-            TransformSegRef param_14 = trans_ref;
-            TransformSeg transform = TransformSeg_read(param_13, param_14, v_111);
+            TransformRef param_13 = trans_ref;
+            Transform transform = Transform_read(param_13, v_382);
             p0 = ((transform.mat.xy * p0.x) + (transform.mat.zw * p0.y)) + transform.translate;
             p1 = ((transform.mat.xy * p1.x) + (transform.mat.zw * p1.y)) + transform.translate;
             float4 bbox = float4(fast::min(p0, p1), fast::max(p0, p1));
             if (seg_type >= 2u)
             {
                 p2 = ((transform.mat.xy * p2.x) + (transform.mat.zw * p2.y)) + transform.translate;
-                float4 _946 = bbox;
-                float2 _949 = fast::min(_946.xy, p2);
-                bbox.x = _949.x;
-                bbox.y = _949.y;
-                float4 _954 = bbox;
-                float2 _957 = fast::max(_954.zw, p2);
-                bbox.z = _957.x;
-                bbox.w = _957.y;
+                float4 _906 = bbox;
+                float2 _909 = fast::min(_906.xy, p2);
+                bbox.x = _909.x;
+                bbox.y = _909.y;
+                float4 _914 = bbox;
+                float2 _917 = fast::max(_914.zw, p2);
+                bbox.z = _917.x;
+                bbox.w = _917.y;
                 if (seg_type == 3u)
                 {
                     p3 = ((transform.mat.xy * p3.x) + (transform.mat.zw * p3.y)) + transform.translate;
-                    float4 _982 = bbox;
-                    float2 _985 = fast::min(_982.xy, p3);
-                    bbox.x = _985.x;
-                    bbox.y = _985.y;
-                    float4 _990 = bbox;
-                    float2 _993 = fast::max(_990.zw, p3);
-                    bbox.z = _993.x;
-                    bbox.w = _993.y;
+                    float4 _942 = bbox;
+                    float2 _945 = fast::min(_942.xy, p3);
+                    bbox.x = _945.x;
+                    bbox.y = _945.y;
+                    float4 _950 = bbox;
+                    float2 _953 = fast::max(_950.zw, p3);
+                    bbox.z = _953.x;
+                    bbox.w = _953.y;
                 }
                 else
                 {
@@ -596,11 +568,11 @@ kernel void main0(device Memory& v_111 [[buffer(0)]], const device ConfigBuf& _6
             cubic.trans_ix = (gl_GlobalInvocationID.x * 4u) + i_1;
             cubic.stroke = stroke;
             uint fill_mode = uint(linewidth[i_1] >= 0.0);
-            param_15.offset = _639.conf.pathseg_alloc.offset;
-            PathSegRef param_16 = ps_ref;
-            uint param_17 = fill_mode;
-            PathCubic param_18 = cubic;
-            PathSeg_Cubic_write(param_15, param_16, param_17, param_18, v_111);
+            param_14.offset = _605.conf.pathseg_alloc.offset;
+            PathSegRef param_15 = ps_ref;
+            uint param_16 = fill_mode;
+            PathCubic param_17 = cubic;
+            PathSeg_Cubic_write(param_14, param_15, param_16, param_17, v_105);
             ps_ref.offset += 52u;
             uint n_points = (tag_byte & 3u) + ((tag_byte >> uint(2)) & 1u);
             uint n_words = n_points + (n_points & (((tag_byte >> uint(3)) & 1u) * 15u));
@@ -620,9 +592,9 @@ kernel void main0(device Memory& v_111 [[buffer(0)]], const device ConfigBuf& _6
     Monoid agg = local[0];
     for (uint i_2 = 1u; i_2 < 4u; i_2++)
     {
-        Monoid param_19 = agg;
-        Monoid param_20 = local[i_2];
-        agg = combine_monoid(param_19, param_20);
+        Monoid param_18 = agg;
+        Monoid param_19 = local[i_2];
+        agg = combine_monoid(param_18, param_19);
         local[i_2] = agg;
     }
     sh_scratch[gl_LocalInvocationID.x] = agg;
@@ -632,16 +604,16 @@ kernel void main0(device Memory& v_111 [[buffer(0)]], const device ConfigBuf& _6
         if (gl_LocalInvocationID.x >= (1u << i_3))
         {
             Monoid other_1 = sh_scratch[gl_LocalInvocationID.x - (1u << i_3)];
-            Monoid param_21 = other_1;
-            Monoid param_22 = agg;
-            agg = combine_monoid(param_21, param_22);
+            Monoid param_20 = other_1;
+            Monoid param_21 = agg;
+            agg = combine_monoid(param_20, param_21);
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
         sh_scratch[gl_LocalInvocationID.x] = agg;
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
     uint path_ix = save_path_ix;
-    uint bbox_out_ix = (_639.conf.path_bbox_alloc.offset >> uint(2)) + (path_ix * 6u);
+    uint bbox_out_ix = (_605.conf.path_bbox_alloc.offset >> uint(2)) + (path_ix * 6u);
     Monoid row = monoid_identity();
     if (gl_LocalInvocationID.x > 0u)
     {
@@ -649,68 +621,68 @@ kernel void main0(device Memory& v_111 [[buffer(0)]], const device ConfigBuf& _6
     }
     for (uint i_4 = 0u; i_4 < 4u; i_4++)
     {
-        Monoid param_23 = row;
-        Monoid param_24 = local[i_4];
-        Monoid m = combine_monoid(param_23, param_24);
+        Monoid param_22 = row;
+        Monoid param_23 = local[i_4];
+        Monoid m = combine_monoid(param_22, param_23);
         bool do_atomic = false;
-        bool _1263 = i_4 == 3u;
-        bool _1269;
-        if (_1263)
+        bool _1224 = i_4 == 3u;
+        bool _1230;
+        if (_1224)
         {
-            _1269 = gl_LocalInvocationID.x == 255u;
+            _1230 = gl_LocalInvocationID.x == 255u;
         }
         else
         {
-            _1269 = _1263;
+            _1230 = _1224;
         }
-        if (_1269)
+        if (_1230)
         {
             do_atomic = true;
         }
         if ((m.flags & 1u) != 0u)
         {
-            v_111.memory[bbox_out_ix + 4u] = as_type<uint>(linewidth[i_4]);
-            v_111.memory[bbox_out_ix + 5u] = save_trans_ix[i_4];
+            v_105.memory[bbox_out_ix + 4u] = as_type<uint>(linewidth[i_4]);
+            v_105.memory[bbox_out_ix + 5u] = save_trans_ix[i_4];
             if ((m.flags & 2u) == 0u)
             {
                 do_atomic = true;
             }
             else
             {
-                float param_25 = m.bbox.x;
-                v_111.memory[bbox_out_ix] = round_down(param_25);
-                float param_26 = m.bbox.y;
-                v_111.memory[bbox_out_ix + 1u] = round_down(param_26);
-                float param_27 = m.bbox.z;
-                v_111.memory[bbox_out_ix + 2u] = round_up(param_27);
-                float param_28 = m.bbox.w;
-                v_111.memory[bbox_out_ix + 3u] = round_up(param_28);
+                float param_24 = m.bbox.x;
+                v_105.memory[bbox_out_ix] = round_down(param_24);
+                float param_25 = m.bbox.y;
+                v_105.memory[bbox_out_ix + 1u] = round_down(param_25);
+                float param_26 = m.bbox.z;
+                v_105.memory[bbox_out_ix + 2u] = round_up(param_26);
+                float param_27 = m.bbox.w;
+                v_105.memory[bbox_out_ix + 3u] = round_up(param_27);
                 bbox_out_ix += 6u;
                 do_atomic = false;
             }
         }
         if (do_atomic)
         {
-            bool _1334 = m.bbox.z > m.bbox.x;
-            bool _1343;
-            if (!_1334)
+            bool _1295 = m.bbox.z > m.bbox.x;
+            bool _1304;
+            if (!_1295)
             {
-                _1343 = m.bbox.w > m.bbox.y;
+                _1304 = m.bbox.w > m.bbox.y;
             }
             else
             {
-                _1343 = _1334;
+                _1304 = _1295;
             }
-            if (_1343)
+            if (_1304)
             {
-                float param_29 = m.bbox.x;
-                uint _1352 = atomic_fetch_min_explicit((device atomic_uint*)&v_111.memory[bbox_out_ix], round_down(param_29), memory_order_relaxed);
-                float param_30 = m.bbox.y;
-                uint _1360 = atomic_fetch_min_explicit((device atomic_uint*)&v_111.memory[bbox_out_ix + 1u], round_down(param_30), memory_order_relaxed);
-                float param_31 = m.bbox.z;
-                uint _1368 = atomic_fetch_max_explicit((device atomic_uint*)&v_111.memory[bbox_out_ix + 2u], round_up(param_31), memory_order_relaxed);
-                float param_32 = m.bbox.w;
-                uint _1376 = atomic_fetch_max_explicit((device atomic_uint*)&v_111.memory[bbox_out_ix + 3u], round_up(param_32), memory_order_relaxed);
+                float param_28 = m.bbox.x;
+                uint _1313 = atomic_fetch_min_explicit((device atomic_uint*)&v_105.memory[bbox_out_ix], round_down(param_28), memory_order_relaxed);
+                float param_29 = m.bbox.y;
+                uint _1321 = atomic_fetch_min_explicit((device atomic_uint*)&v_105.memory[bbox_out_ix + 1u], round_down(param_29), memory_order_relaxed);
+                float param_30 = m.bbox.z;
+                uint _1329 = atomic_fetch_max_explicit((device atomic_uint*)&v_105.memory[bbox_out_ix + 2u], round_up(param_30), memory_order_relaxed);
+                float param_31 = m.bbox.w;
+                uint _1337 = atomic_fetch_max_explicit((device atomic_uint*)&v_105.memory[bbox_out_ix + 3u], round_up(param_31), memory_order_relaxed);
             }
             bbox_out_ix += 6u;
         }

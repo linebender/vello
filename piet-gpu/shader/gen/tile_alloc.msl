@@ -53,7 +53,6 @@ struct Config
     Alloc_1 ptcl_alloc;
     Alloc_1 pathseg_alloc;
     Alloc_1 anno_alloc;
-    Alloc_1 trans_alloc;
     Alloc_1 path_bbox_alloc;
     Alloc_1 drawmonoid_alloc;
     Alloc_1 clip_alloc;
@@ -153,13 +152,13 @@ void Path_write(thread const Alloc& a, thread const PathRef& ref, thread const P
     write_mem(param_6, param_7, param_8, v_53);
 }
 
-kernel void main0(device Memory& v_53 [[buffer(0)]], const device ConfigBuf& v_148 [[buffer(1)]], const device SceneBuf& _232 [[buffer(2)]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+kernel void main0(device Memory& v_53 [[buffer(0)]], const device ConfigBuf& v_148 [[buffer(1)]], const device SceneBuf& _231 [[buffer(2)]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
 {
     threadgroup uint sh_tile_count[256];
     threadgroup uint sh_tile_offset;
     uint param = 1u;
-    bool _192 = check_deps(param, v_53);
-    if (!_192)
+    bool _191 = check_deps(param, v_53);
+    if (!_191)
     {
         return;
     }
@@ -170,7 +169,7 @@ kernel void main0(device Memory& v_53 [[buffer(0)]], const device ConfigBuf& v_1
     uint drawtag = 0u;
     if (element_ix < v_148.conf.n_elements)
     {
-        drawtag = _232.scene[drawtag_base + element_ix];
+        drawtag = _231.scene[drawtag_base + element_ix];
     }
     int x0 = 0;
     int y0 = 0;
@@ -209,8 +208,8 @@ kernel void main0(device Memory& v_53 [[buffer(0)]], const device ConfigBuf& v_1
         uint param_2 = total_tile_count * 8u;
         uint param_3 = v_148.conf.mem_size;
         uint param_4 = 2u;
-        uint _370 = malloc_stage(param_2, param_3, param_4, v_53);
-        sh_tile_offset = _370;
+        uint _369 = malloc_stage(param_2, param_3, param_4, v_53);
+        sh_tile_offset = _369;
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
     uint offset_start = sh_tile_offset;
@@ -220,16 +219,16 @@ kernel void main0(device Memory& v_53 [[buffer(0)]], const device ConfigBuf& v_1
     }
     if (element_ix < v_148.conf.n_elements)
     {
-        uint _387;
+        uint _386;
         if (th_ix > 0u)
         {
-            _387 = sh_tile_count[th_ix - 1u];
+            _386 = sh_tile_count[th_ix - 1u];
         }
         else
         {
-            _387 = 0u;
+            _386 = 0u;
         }
-        uint tile_subix = _387;
+        uint tile_subix = _386;
         path.tiles = TileRef{ offset_start + (8u * tile_subix) };
         Alloc param_5;
         param_5.offset = v_148.conf.tile_alloc.offset;

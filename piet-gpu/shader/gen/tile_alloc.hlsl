@@ -31,7 +31,6 @@ struct Config
     Alloc ptcl_alloc;
     Alloc pathseg_alloc;
     Alloc anno_alloc;
-    Alloc trans_alloc;
     Alloc path_bbox_alloc;
     Alloc drawmonoid_alloc;
     Alloc clip_alloc;
@@ -55,7 +54,7 @@ static const uint3 gl_WorkGroupSize = uint3(256u, 1u, 1u);
 
 RWByteAddressBuffer _53 : register(u0, space0);
 ByteAddressBuffer _148 : register(t1, space0);
-ByteAddressBuffer _232 : register(t2, space0);
+ByteAddressBuffer _231 : register(t2, space0);
 
 static uint3 gl_LocalInvocationID;
 static uint3 gl_GlobalInvocationID;
@@ -77,7 +76,7 @@ bool check_deps(uint dep_stage)
 
 float4 load_draw_bbox(uint draw_ix)
 {
-    uint base = (_148.Load(68) >> uint(2)) + (4u * draw_ix);
+    uint base = (_148.Load(64) >> uint(2)) + (4u * draw_ix);
     float x0 = asfloat(_53.Load(base * 4 + 12));
     float y0 = asfloat(_53.Load((base + 1u) * 4 + 12));
     float x1 = asfloat(_53.Load((base + 2u) * 4 + 12));
@@ -136,20 +135,20 @@ void Path_write(Alloc a, PathRef ref, Path s)
 void comp_main()
 {
     uint param = 1u;
-    bool _192 = check_deps(param);
-    if (!_192)
+    bool _191 = check_deps(param);
+    if (!_191)
     {
         return;
     }
     uint th_ix = gl_LocalInvocationID.x;
     uint element_ix = gl_GlobalInvocationID.x;
-    PathRef _216 = { _148.Load(20) + (element_ix * 12u) };
-    PathRef path_ref = _216;
-    uint drawtag_base = _148.Load(104) >> uint(2);
+    PathRef _215 = { _148.Load(20) + (element_ix * 12u) };
+    PathRef path_ref = _215;
+    uint drawtag_base = _148.Load(100) >> uint(2);
     uint drawtag = 0u;
     if (element_ix < _148.Load(4))
     {
-        drawtag = _232.Load((drawtag_base + element_ix) * 4 + 0);
+        drawtag = _231.Load((drawtag_base + element_ix) * 4 + 0);
     }
     int x0 = 0;
     int y0 = 0;
@@ -188,8 +187,8 @@ void comp_main()
         uint param_2 = total_tile_count * 8u;
         uint param_3 = _148.Load(0);
         uint param_4 = 2u;
-        uint _370 = malloc_stage(param_2, param_3, param_4);
-        sh_tile_offset = _370;
+        uint _369 = malloc_stage(param_2, param_3, param_4);
+        sh_tile_offset = _369;
     }
     GroupMemoryBarrierWithGroupSync();
     uint offset_start = sh_tile_offset;
@@ -199,22 +198,22 @@ void comp_main()
     }
     if (element_ix < _148.Load(4))
     {
-        uint _387;
+        uint _386;
         if (th_ix > 0u)
         {
-            _387 = sh_tile_count[th_ix - 1u];
+            _386 = sh_tile_count[th_ix - 1u];
         }
         else
         {
-            _387 = 0u;
+            _386 = 0u;
         }
-        uint tile_subix = _387;
-        TileRef _400 = { offset_start + (8u * tile_subix) };
-        path.tiles = _400;
-        Alloc _406;
-        _406.offset = _148.Load(20);
+        uint tile_subix = _386;
+        TileRef _399 = { offset_start + (8u * tile_subix) };
+        path.tiles = _399;
+        Alloc _405;
+        _405.offset = _148.Load(20);
         Alloc param_5;
-        param_5.offset = _406.offset;
+        param_5.offset = _405.offset;
         PathRef param_6 = path_ref;
         Path param_7 = path;
         Path_write(param_5, param_6, param_7);

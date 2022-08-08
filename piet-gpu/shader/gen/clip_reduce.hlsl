@@ -27,7 +27,6 @@ struct Config
     Alloc ptcl_alloc;
     Alloc pathseg_alloc;
     Alloc anno_alloc;
-    Alloc trans_alloc;
     Alloc path_bbox_alloc;
     Alloc drawmonoid_alloc;
     Alloc clip_alloc;
@@ -78,14 +77,14 @@ Bic bic_combine(Bic x, Bic y)
 
 void store_bic(uint ix, Bic bic)
 {
-    uint base = (_64.Load(56) >> uint(2)) + (2u * ix);
+    uint base = (_64.Load(52) >> uint(2)) + (2u * ix);
     _80.Store(base * 4 + 12, bic.a);
     _80.Store((base + 1u) * 4 + 12, bic.b);
 }
 
 float4 load_path_bbox(uint path_ix)
 {
-    uint base = (_64.Load(44) >> uint(2)) + (6u * path_ix);
+    uint base = (_64.Load(40) >> uint(2)) + (6u * path_ix);
     float bbox_l = float(_80.Load(base * 4 + 12)) - 32768.0f;
     float bbox_t = float(_80.Load((base + 1u) * 4 + 12)) - 32768.0f;
     float bbox_r = float(_80.Load((base + 2u) * 4 + 12)) - 32768.0f;
@@ -96,7 +95,7 @@ float4 load_path_bbox(uint path_ix)
 
 void store_clip_el(uint ix, ClipEl el)
 {
-    uint base = (_64.Load(60) >> uint(2)) + (5u * ix);
+    uint base = (_64.Load(56) >> uint(2)) + (5u * ix);
     _80.Store(base * 4 + 12, el.parent_ix);
     _80.Store((base + 1u) * 4 + 12, asuint(el.bbox.x));
     _80.Store((base + 2u) * 4 + 12, asuint(el.bbox.y));
@@ -107,7 +106,7 @@ void store_clip_el(uint ix, ClipEl el)
 void comp_main()
 {
     uint th = gl_LocalInvocationID.x;
-    uint inp = _80.Load(((_64.Load(52) >> uint(2)) + gl_GlobalInvocationID.x) * 4 + 12);
+    uint inp = _80.Load(((_64.Load(48) >> uint(2)) + gl_GlobalInvocationID.x) * 4 + 12);
     bool is_push = int(inp) >= 0;
     Bic _208 = { 1u - uint(is_push), uint(is_push) };
     Bic bic = _208;

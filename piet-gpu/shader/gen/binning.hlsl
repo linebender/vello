@@ -23,7 +23,6 @@ struct Config
     Alloc ptcl_alloc;
     Alloc pathseg_alloc;
     Alloc anno_alloc;
-    Alloc trans_alloc;
     Alloc path_bbox_alloc;
     Alloc drawmonoid_alloc;
     Alloc clip_alloc;
@@ -62,7 +61,7 @@ groupshared uint sh_chunk_offset[256];
 
 DrawMonoid load_draw_monoid(uint element_ix)
 {
-    uint base = (_101.Load(48) >> uint(2)) + (4u * element_ix);
+    uint base = (_101.Load(44) >> uint(2)) + (4u * element_ix);
     uint path_ix = _57.Load(base * 4 + 12);
     uint clip_ix = _57.Load((base + 1u) * 4 + 12);
     uint scene_offset = _57.Load((base + 2u) * 4 + 12);
@@ -73,7 +72,7 @@ DrawMonoid load_draw_monoid(uint element_ix)
 
 float4 load_clip_bbox(uint clip_ix)
 {
-    uint base = (_101.Load(64) >> uint(2)) + (4u * clip_ix);
+    uint base = (_101.Load(60) >> uint(2)) + (4u * clip_ix);
     float x0 = asfloat(_57.Load(base * 4 + 12));
     float y0 = asfloat(_57.Load((base + 1u) * 4 + 12));
     float x1 = asfloat(_57.Load((base + 2u) * 4 + 12));
@@ -84,7 +83,7 @@ float4 load_clip_bbox(uint clip_ix)
 
 float4 load_path_bbox(uint path_ix)
 {
-    uint base = (_101.Load(44) >> uint(2)) + (6u * path_ix);
+    uint base = (_101.Load(40) >> uint(2)) + (6u * path_ix);
     float bbox_l = float(_57.Load(base * 4 + 12)) - 32768.0f;
     float bbox_t = float(_57.Load((base + 1u) * 4 + 12)) - 32768.0f;
     float bbox_r = float(_57.Load((base + 2u) * 4 + 12)) - 32768.0f;
@@ -100,7 +99,7 @@ float4 bbox_intersect(float4 a, float4 b)
 
 void store_draw_bbox(uint draw_ix, float4 bbox)
 {
-    uint base = (_101.Load(68) >> uint(2)) + (4u * draw_ix);
+    uint base = (_101.Load(64) >> uint(2)) + (4u * draw_ix);
     _57.Store(base * 4 + 12, asuint(bbox.x));
     _57.Store((base + 1u) * 4 + 12, asuint(bbox.y));
     _57.Store((base + 2u) * 4 + 12, asuint(bbox.z));
