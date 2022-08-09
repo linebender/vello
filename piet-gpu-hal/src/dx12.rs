@@ -631,6 +631,8 @@ impl crate::backend::CmdBuf<Dx12Device> for CmdBuf {
         self.needs_reset = true;
     }
 
+    unsafe fn flush(&mut self) {}
+
     unsafe fn reset(&mut self) -> bool {
         self.allocator.reset().is_ok() && self.c.reset(&self.allocator, None).is_ok()
     }

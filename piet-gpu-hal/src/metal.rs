@@ -590,6 +590,10 @@ impl crate::backend::CmdBuf<MtlDevice> for CmdBuf {
         self.flush_encoder();
     }
 
+    unsafe fn flush(&mut self) {
+        self.flush_encoder();
+    }
+
     unsafe fn reset(&mut self) -> bool {
         false
     }

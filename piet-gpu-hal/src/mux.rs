@@ -675,6 +675,14 @@ impl CmdBuf {
         }
     }
 
+    pub unsafe fn flush(&mut self) {
+        mux_match! { self;
+            CmdBuf::Vk(c) => c.flush(),
+            CmdBuf::Dx12(c) => c.flush(),
+            CmdBuf::Mtl(c) => c.flush(),
+        }
+    }
+
     pub unsafe fn finish(&mut self) {
         mux_match! { self;
             CmdBuf::Vk(c) => c.finish(),
