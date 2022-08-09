@@ -6,6 +6,23 @@
 #include <ostream>
 #include <new>
 
+enum class PgpuBrushKind {
+  Solid = 0,
+};
+
+enum class PgpuFill {
+  NonZero = 0,
+  EvenOdd = 1,
+};
+
+enum class PgpuPathVerb {
+  MoveTo = 0,
+  LineTo = 1,
+  QuadTo = 2,
+  CurveTo = 3,
+  Close = 4,
+};
+
 /// Encoded (possibly color) outline for a glyph.
 struct PgpuGlyph;
 
@@ -23,6 +40,50 @@ struct PgpuScene;
 
 /// Builder for constructing an encoded scene.
 struct PgpuSceneBuilder;
+
+/// Encoded streams and resources describing a vector graphics scene fragment.
+struct PgpuSceneFragment;
+
+/// Affine transformation matrix.
+struct PgpuTransform {
+  float xx;
+  float yx;
+  float xy;
+  float yy;
+  float dx;
+  float dy;
+};
+
+struct PgpuColor {
+  uint8_t r;
+  uint8_t g;
+  uint8_t b;
+  uint8_t a;
+};
+
+union PgpuBrushData {
+  PgpuColor solid;
+};
+
+struct PgpuBrush {
+  PgpuBrushKind kind;
+  PgpuBrushData data;
+};
+
+struct PgpuPoint {
+  float x;
+  float y;
+};
+
+struct PgpuPathElement {
+  PgpuPathVerb verb;
+  PgpuPoint points[3];
+};
+
+struct PgpuPathIter {
+  void *context;
+  bool (*next_element)(void*, PgpuPathElement*);
+};
 
 /// Tag and value for a font variation axis.
 struct PgpuFontVariation {
@@ -98,14 +159,45 @@ PgpuScene *pgpu_scene_new();
 /// Destroys the piet-gpu scene.
 void pgpu_scene_destroy(PgpuScene *scene);
 
+/// Creates a new, empty piet-gpu scene fragment.
+PgpuSceneFragment *pgpu_scene_fragment_new();
+
+/// Destroys the piet-gpu scene fragment.
+void pgpu_scene_fragment_destroy(PgpuSceneFragment *fragment);
+
 /// Creates a new builder for filling a piet-gpu scene. The specified scene
 /// should not be accessed while the builder is live.
-PgpuSceneBuilder *pgpu_scene_builder_new(PgpuScene *scene);
+PgpuSceneBuilder *pgpu_scene_builder_for_scene(PgpuScene *scene);
+
+/// Creates a new builder for filling a piet-gpu scene fragment. The specified
+/// scene fragment should not be accessed while the builder is live.
+PgpuSceneBuilder *pgpu_scene_builder_for_fragment(PgpuSceneFragment *fragment);
 
 /// Adds a glyph with the specified transform to the underlying scene.
 void pgpu_scene_builder_add_glyph(PgpuSceneBuilder *builder,
                                   const PgpuGlyph *glyph,
-                                  const float (*transform)[6]);
+                                  const PgpuTransform *transform);
+
+/// Sets the current absolute transform for the scene builder.
+void pgpu_scene_builder_transform(PgpuSceneBuilder *builder, const PgpuTransform *transform);
+
+/// Fills a path using the specified fill style and brush. If the brush
+/// parameter is nullptr, a solid color white brush will be used. The
+/// brush_transform may be nullptr.
+void pgpu_scene_builder_fill_path(PgpuSceneBuilder *builder,
+                                  PgpuFill fill,
+                                  const PgpuBrush *brush,
+                                  const PgpuTransform *brush_transform,
+                                  PgpuPathIter *path);
+
+/// Appends a scene fragment to the underlying scene or fragment. The
+/// transform parameter represents an absolute transform to apply to
+/// the fragment. If it is nullptr, the fragment will be appended to
+/// the scene with an assumed identity transform regardless of the
+/// current transform state.
+void pgpu_scene_builder_append_fragment(PgpuSceneBuilder *builder,
+                                        const PgpuSceneFragment *fragment,
+                                        const PgpuTransform *transform);
 
 /// Finalizes the scene builder, making the underlying scene ready for
 /// rendering. This takes ownership and consumes the builder.

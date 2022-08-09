@@ -509,6 +509,11 @@ impl CmdBuf {
         self.cmd_buf().finish();
     }
 
+    /// Commits any open command encoder.
+    pub unsafe fn flush(&mut self) {
+        self.cmd_buf().flush();
+    }
+
     /// Begin a compute pass.
     pub unsafe fn begin_compute_pass(&mut self, desc: &ComputePassDescriptor) -> ComputePass {
         self.cmd_buf().begin_compute_pass(desc);

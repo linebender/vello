@@ -205,6 +205,9 @@ pub trait CmdBuf<D: Device> {
     /// State: ready -> finished
     unsafe fn finish(&mut self);
 
+    /// Commits any open command encoder.
+    unsafe fn flush(&mut self);
+
     /// Return true if the command buffer is suitable for reuse.
     unsafe fn reset(&mut self) -> bool;
 

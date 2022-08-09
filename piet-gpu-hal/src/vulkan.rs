@@ -967,6 +967,8 @@ impl crate::backend::CmdBuf<VkDevice> for CmdBuf {
         self.device.device.end_command_buffer(self.cmd_buf).unwrap();
     }
 
+    unsafe fn flush(&mut self) {}
+
     unsafe fn reset(&mut self) -> bool {
         true
     }

@@ -61,7 +61,7 @@ impl PgpuRenderer {
         cmdbuf: &metal::CommandBufferRef,
         target: &metal::TextureRef,
     ) -> u32 {
-        let is_color = target.pixel_format() != metal::MTLPixelFormat::A8Unorm;
+        let is_color = target.pixel_format() != metal::MTLPixelFormat::R8Unorm;
         let width = target.width() as u32;
         let height = target.height() as u32;
         if self.pgpu_renderer.is_none()
@@ -93,6 +93,7 @@ impl PgpuRenderer {
                 renderer.record(&mut cmd_buf, &self.query_pool, 0);
                 // TODO later: we can bind the destination image and avoid the copy.
                 cmd_buf.blit_image(&renderer.image_dev, &dst_image);
+                cmd_buf.flush();
             }
         }
         0
@@ -117,7 +118,7 @@ impl PgpuScene {
         }
     }
 
-    pub fn build(&mut self) -> PgpuSceneBuilder {
+    pub fn builder(&mut self) -> PgpuSceneBuilder {
         self.rcx.advance();
         PgpuSceneBuilder(piet_scene::scene::build_scene(
             &mut self.scene,
@@ -142,8 +143,21 @@ impl PgpuScene {
     }
 }
 
+/// Encoded streams and resources describing a vector graphics scene fragment.
+pub struct PgpuSceneFragment(pub Fragment);
+
+impl PgpuSceneFragment {
+    pub fn new() -> Self {
+        Self(Fragment::default())
+    }
+
+    pub fn builder(&mut self) -> PgpuSceneBuilder {
+        PgpuSceneBuilder(piet_scene::scene::build_fragment(&mut self.0))
+    }
+}
+
 /// Builder for constructing an encoded scene.
-pub struct PgpuSceneBuilder<'a>(piet_scene::scene::Builder<'a>);
+pub struct PgpuSceneBuilder<'a>(pub piet_scene::scene::Builder<'a>);
 
 impl<'a> PgpuSceneBuilder<'a> {
     pub fn add_glyph(&mut self, glyph: &PgpuGlyph, transform: &piet_scene::geometry::Affine) {
