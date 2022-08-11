@@ -17,7 +17,7 @@
 //! Tests for the piet-gpu draw object stage.
 
 use piet_gpu_hal::{BufWrite, BufferUsage};
-use rand::{seq::SliceRandom, Rng};
+use rand::seq::SliceRandom;
 
 use crate::{Config, Runner, TestResult};
 
