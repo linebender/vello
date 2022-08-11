@@ -1,6 +1,6 @@
 use piet_gpu::{samples, PicoSvg, RenderDriver, Renderer, SimpleText};
 use piet_gpu_hal::{Error, ImageLayout, Instance, InstanceFlags, Session};
-use piet_scene::{ResourceContext, Scene, SceneBuilder};
+use piet_scene::{Scene, SceneBuilder};
 
 use clap::{App, Arg};
 
@@ -60,7 +60,6 @@ fn main() -> Result<(), Error> {
     let instance = Instance::new(InstanceFlags::default())?;
     let mut info_string = "info".to_string();
     let mut scene = Scene::default();
-    let mut rcx = ResourceContext::default();
     let mut simple_text = piet_gpu::SimpleText::new();
     unsafe {
         let display_handle = window.raw_display_handle();
@@ -117,17 +116,15 @@ fn main() -> Result<(), Error> {
                     }
 
                     if let Some(svg) = &svg {
-                        rcx.advance();
-                        let mut builder = SceneBuilder::for_scene(&mut scene, &mut rcx);
+                        let mut builder = SceneBuilder::for_scene(&mut scene);
                         samples::render_svg(&mut builder, svg, false);
                         render_info(&mut simple_text, &mut builder, &info_string);
                         builder.finish();
-                        if let Err(e) = render_driver.upload_scene(&session, &scene, &rcx) {
+                        if let Err(e) = render_driver.upload_scene(&session, &scene) {
                             println!("error in uploading: {}", e);
                         }
                     } else {
-                        rcx.advance();
-                        let mut builder = SceneBuilder::for_scene(&mut scene, &mut rcx);
+                        let mut builder = SceneBuilder::for_scene(&mut scene);
 
                         const N_SAMPLES: usize = 4;
                         match sample_index % N_SAMPLES {
@@ -142,7 +139,7 @@ fn main() -> Result<(), Error> {
                         }
                         render_info(&mut simple_text, &mut builder, &info_string);
                         builder.finish();
-                        if let Err(e) = render_driver.upload_scene(&session, &scene, &rcx) {
+                        if let Err(e) = render_driver.upload_scene(&session, &scene) {
                             println!("error in uploading: {}", e);
                         }
                     }

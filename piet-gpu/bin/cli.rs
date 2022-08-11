@@ -7,7 +7,7 @@ use clap::{App, Arg};
 use piet_gpu_hal::{BufferUsage, Error, Instance, InstanceFlags, Session};
 
 use piet_gpu::{samples, PicoSvg, RenderDriver, Renderer};
-use piet_scene::{ResourceContext, Scene, SceneBuilder};
+use piet_scene::{Scene, SceneBuilder};
 
 const WIDTH: usize = 2048;
 const HEIGHT: usize = 1536;
@@ -229,12 +229,10 @@ fn main() -> Result<(), Error> {
         .get_matches();
     let instance = Instance::new(InstanceFlags::default())?;
     let mut scene = Scene::default();
-    let mut rcx = ResourceContext::default();
     unsafe {
         let device = instance.device()?;
         let session = Session::new(device);
-        rcx.advance();
-        let mut builder = SceneBuilder::for_scene(&mut scene, &mut rcx);
+        let mut builder = SceneBuilder::for_scene(&mut scene);
         if let Some(input) = matches.value_of("INPUT") {
             let mut scale = matches
                 .value_of("scale")
@@ -257,7 +255,7 @@ fn main() -> Result<(), Error> {
         let renderer = Renderer::new(&session, WIDTH, HEIGHT, 1)?;
         let mut render_driver = RenderDriver::new(&session, 1, renderer);
         let start = std::time::Instant::now();
-        render_driver.upload_scene(&session, &scene, &rcx)?;
+        render_driver.upload_scene(&session, &scene)?;
         let image_usage = BufferUsage::MAP_READ | BufferUsage::COPY_DST;
         let image_buf = session.create_buffer((WIDTH * HEIGHT * 4) as u64, image_usage)?;
 

@@ -18,7 +18,7 @@ use piet_gpu::{PixelFormat, RenderConfig};
 use piet_gpu_hal::{QueryPool, Session};
 use piet_scene::glyph::pinot::{types::Tag, FontDataRef};
 use piet_scene::glyph::{GlyphContext, GlyphProvider};
-use piet_scene::{Affine, Rect, ResourceContext, Scene, SceneFragment};
+use piet_scene::{Affine, Rect, Scene, SceneFragment};
 
 /// State and resources for rendering a scene.
 pub struct PgpuRenderer {
@@ -105,23 +105,17 @@ impl PgpuRenderer {
 /// Encoded streams and resources describing a vector graphics scene.
 pub struct PgpuScene {
     scene: Scene,
-    rcx: ResourceContext,
 }
 
 impl PgpuScene {
     pub fn new() -> Self {
         Self {
             scene: Scene::default(),
-            rcx: ResourceContext::new(),
         }
     }
 
     pub fn builder(&mut self) -> PgpuSceneBuilder {
-        self.rcx.advance();
-        PgpuSceneBuilder(piet_scene::SceneBuilder::for_scene(
-            &mut self.scene,
-            &mut self.rcx,
-        ))
+        PgpuSceneBuilder(piet_scene::SceneBuilder::for_scene(&mut self.scene))
     }
 }
 

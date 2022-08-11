@@ -17,7 +17,7 @@ use piet_gpu_hal::{
 };
 
 use piet_gpu::{samples, RenderDriver, Renderer, SimpleText};
-use piet_scene::{ResourceContext, Scene, SceneBuilder};
+use piet_scene::{Scene, SceneBuilder};
 
 #[cfg_attr(target_os = "android", ndk_glue::main(backtrace = "on"))]
 fn main() {
@@ -115,13 +115,12 @@ impl GfxState {
             }
             let mut text = SimpleText::new();
             let mut scene = Scene::default();
-            let mut rcx = ResourceContext::default();
-            let mut builder = SceneBuilder::for_scene(&mut scene, &mut rcx);
+            let mut builder = SceneBuilder::for_scene(&mut scene);
             samples::render_anim_frame(&mut builder, self.current_frame);
             //samples::render_tiger(&mut builder, false);
             render_info(&mut text, &mut builder, &info_string);
             builder.finish();
-            if let Err(e) = self.render_driver.upload_scene(&self.session, &scene, &rcx) {
+            if let Err(e) = self.render_driver.upload_scene(&self.session, &scene) {
                 println!("error in uploading: {}", e);
             }
             let (image_idx, acquisition_semaphore) = self.swapchain.next().unwrap();
