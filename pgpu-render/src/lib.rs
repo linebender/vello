@@ -26,9 +26,7 @@
 
 mod render;
 
-use piet_scene::brush::{Brush, Color};
-use piet_scene::path::Element;
-use piet_scene::scene::Fill;
+use piet_scene::{Brush, Color, Fill, PathElement};
 use render::*;
 use std::ffi::c_void;
 use std::mem::transmute;
@@ -199,7 +197,7 @@ pub struct PgpuTransform {
     pub dy: f32,
 }
 
-impl From<PgpuTransform> for PgpuAffine {
+impl From<PgpuTransform> for piet_scene::Affine {
     fn from(xform: PgpuTransform) -> Self {
         Self {
             xx: xform.xx,
@@ -211,8 +209,6 @@ impl From<PgpuTransform> for PgpuAffine {
         }
     }
 }
-
-pub type PgpuAffine = piet_scene::geometry::Affine;
 
 /// Creates a new builder for filling a piet-gpu scene. The specified scene
 /// should not be accessed while the builder is live.
@@ -243,7 +239,7 @@ pub unsafe extern "C" fn pgpu_scene_builder_add_glyph(
 }
 
 impl Iterator for PgpuPathIter {
-    type Item = piet_scene::path::Element;
+    type Item = PathElement;
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut el = PgpuPathElement {
@@ -253,17 +249,17 @@ impl Iterator for PgpuPathIter {
         if (self.next_element)(self.context, &mut el as _) {
             let p = &el.points;
             Some(match el.verb {
-                PgpuPathVerb::MoveTo => Element::MoveTo((p[0].x, p[0].y).into()),
-                PgpuPathVerb::LineTo => Element::LineTo((p[0].x, p[0].y).into()),
+                PgpuPathVerb::MoveTo => PathElement::MoveTo((p[0].x, p[0].y).into()),
+                PgpuPathVerb::LineTo => PathElement::LineTo((p[0].x, p[0].y).into()),
                 PgpuPathVerb::QuadTo => {
-                    Element::QuadTo((p[0].x, p[0].y).into(), (p[1].x, p[1].y).into())
+                    PathElement::QuadTo((p[0].x, p[0].y).into(), (p[1].x, p[1].y).into())
                 }
-                PgpuPathVerb::CurveTo => Element::CurveTo(
+                PgpuPathVerb::CurveTo => PathElement::CurveTo(
                     (p[0].x, p[0].y).into(),
                     (p[1].x, p[1].y).into(),
                     (p[2].x, p[2].y).into(),
                 ),
-                PgpuPathVerb::Close => Element::Close,
+                PgpuPathVerb::Close => PathElement::Close,
             })
         } else {
             None
@@ -445,7 +441,7 @@ pub unsafe extern "C" fn pgpu_glyph_bbox(
     glyph: *const PgpuGlyph,
     transform: &[f32; 6],
 ) -> PgpuRect {
-    let transform = piet_scene::geometry::Affine::new(transform);
+    let transform = piet_scene::Affine::new(transform);
     let rect = (*glyph).bbox(Some(transform));
     PgpuRect {
         x0: rect.min.x,

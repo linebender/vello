@@ -201,6 +201,14 @@ impl Rect {
         }
     }
 
+    /// Creates a new rectangle from an origin point and dimensions.
+    pub fn from_origin_size(origin: Point, width: f32, height: f32) -> Self {
+        Self {
+            min: origin,
+            max: Point::new(origin.x + width, origin.y + height),
+        }
+    }
+
     /// Returns the width of the rectangle.
     pub fn width(&self) -> f32 {
         self.max.x - self.min.x

@@ -18,53 +18,35 @@ use std::result::Result;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
-pub enum Format {
-    A8,
-    Rgba8,
-}
-
-impl Format {
-    pub fn data_size(self, width: u32, height: u32) -> Option<usize> {
-        (width as usize)
-            .checked_mul(height as usize)
-            .and_then(|size| {
-                size.checked_mul(match self {
-                    Self::A8 => 1,
-                    Self::Rgba8 => 4,
-                })
-            })
-    }
-}
-
+/// Image data resource.
 #[derive(Clone, Debug)]
 pub struct Image(Arc<Inner>);
 
 #[derive(Clone, Debug)]
 struct Inner {
     id: u64,
-    format: Format,
     width: u32,
     height: u32,
-    data: Vec<u8>,
+    data: Arc<[u8]>,
 }
 
 impl Image {
     pub fn new(
-        format: Format,
         width: u32,
         height: u32,
-        mut data: Vec<u8>,
-    ) -> Result<Self, DataSizeError> {
-        let data_size = format.data_size(width, height).ok_or(DataSizeError)?;
+        data: impl Into<Arc<[u8]>>,
+    ) -> Result<Self, ImageDataSizeError> {
+        let data_size = width
+            .checked_mul(height)
+            .and_then(|x| x.checked_mul(4))
+            .ok_or(ImageDataSizeError)? as usize;
+        let data = data.into();
         if data.len() < data_size {
-            return Err(DataSizeError);
+            return Err(ImageDataSizeError);
         }
-        data.truncate(data_size);
         static ID: AtomicU64 = AtomicU64::new(1);
         Ok(Self(Arc::new(Inner {
             id: ID.fetch_add(1, Ordering::Relaxed),
-            format,
             width,
             height,
             data,
@@ -73,10 +55,6 @@ impl Image {
 
     pub fn id(&self) -> u64 {
         self.0.id
-    }
-
-    pub fn format(&self) -> Format {
-        self.0.format
     }
 
     pub fn width(&self) -> u32 {
@@ -92,5 +70,7 @@ impl Image {
     }
 }
 
+/// Error returned when image data size is not sufficient for the specified
+/// dimensions.
 #[derive(Clone, Debug)]
-pub struct DataSizeError;
+pub struct ImageDataSizeError;

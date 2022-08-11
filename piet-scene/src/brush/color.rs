@@ -14,6 +14,7 @@
 //
 // Also licensed under MIT license, at your choice.
 
+/// 32-bit RGBA color.
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Debug)]
 pub struct Color {
     pub r: u8,

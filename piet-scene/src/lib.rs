@@ -14,19 +14,26 @@
 //
 // Also licensed under MIT license, at your choice.
 
-pub mod brush;
-pub mod geometry;
+mod brush;
+mod geometry;
+mod path;
+mod resource;
+mod scene;
+
 pub mod glyph;
-pub mod path;
-pub mod resource;
-pub mod scene;
+
+pub use brush::*;
+pub use geometry::*;
+pub use path::*;
+pub use resource::*;
+pub use scene::*;
 
 /// Implement conversions to and from Kurbo types when the `kurbo` feature is
 /// enabled.
 #[cfg(feature = "kurbo")]
 mod kurbo_conv {
     use super::geometry::{Affine, Point, Rect};
-    use super::path::Element;
+    use super::path::PathElement;
 
     impl Point {
         /// Creates a new point from the equivalent kurbo type.
@@ -90,26 +97,27 @@ mod kurbo_conv {
         }
     }
 
-    impl Element {
+    impl PathElement {
         /// Creates a new path element from the equivalent kurbo type.
         pub fn from_kurbo(el: kurbo::PathEl) -> Self {
             use kurbo::PathEl::*;
-            use Point::from_kurbo;
-            match e {
-                MoveTo(p0) => Self::MoveTo(from_kurbo(p0)),
-                LineTo(p0) => Self::LineTo(from_kurbo(p0)),
-                QuadTo(p0, p1) => Self::QuadTo(from_kurbo(p0), from_kurbo(p1)),
-                CurveTo(p0, p1, p2) => {
-                    Self::CurveTo(from_kurbo(p0), from_kurbo(p1), from_kurbo(p2))
-                }
+            match el {
+                MoveTo(p0) => Self::MoveTo(Point::from_kurbo(p0)),
+                LineTo(p0) => Self::LineTo(Point::from_kurbo(p0)),
+                QuadTo(p0, p1) => Self::QuadTo(Point::from_kurbo(p0), Point::from_kurbo(p1)),
+                CurveTo(p0, p1, p2) => Self::CurveTo(
+                    Point::from_kurbo(p0),
+                    Point::from_kurbo(p1),
+                    Point::from_kurbo(p2),
+                ),
                 ClosePath => Self::Close,
             }
         }
     }
 
-    impl From<Element> for kurbo::PathEl {
-        fn from(e: Element) -> Self {
-            use Element::*;
+    impl From<PathElement> for kurbo::PathEl {
+        fn from(e: PathElement) -> Self {
+            use PathElement::*;
             match e {
                 MoveTo(p0) => Self::MoveTo(p0.into()),
                 LineTo(p0) => Self::LineTo(p0.into()),
