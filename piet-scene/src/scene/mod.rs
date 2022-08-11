@@ -22,11 +22,9 @@ pub use blend::{BlendMode, Compose, Mix};
 pub use builder::SceneBuilder;
 pub use style::*;
 
-use super::brush::*;
 use super::geometry::{Affine, Point};
 use super::path::PathElement;
-
-use core::ops::Range;
+use super::resource::{ResourceBundle, ResourcePatch};
 
 /// Raw data streams describing an encoded scene.
 #[derive(Default)]
@@ -40,6 +38,7 @@ pub struct SceneData {
     pub n_path: u32,
     pub n_pathseg: u32,
     pub n_clip: u32,
+    pub resources: ResourceBundle,
 }
 
 impl SceneData {
@@ -57,6 +56,7 @@ impl SceneData {
         self.n_path = 0;
         self.n_pathseg = 0;
         self.n_clip = 0;
+        self.resources.clear();
         if !is_fragment {
             self.transform_stream
                 .push(Affine::new(&[1.0, 0.0, 0.0, 1.0, 0.0, 0.0]));
@@ -65,9 +65,11 @@ impl SceneData {
     }
 
     fn append(&mut self, other: &SceneData, transform: &Option<Affine>) {
+        let stops_base = self.resources.stops.len();
+        let drawdata_base = self.drawdata_stream.len();
         if let Some(transform) = *transform {
             self.transform_stream
-                .extend(other.transform_stream.iter().map(|x| *x * transform));
+                .extend(other.transform_stream.iter().map(|x| transform * *x));
         } else {
             self.transform_stream
                 .extend_from_slice(&other.transform_stream);
@@ -82,6 +84,20 @@ impl SceneData {
         self.n_path += other.n_path;
         self.n_pathseg += other.n_pathseg;
         self.n_clip += other.n_clip;
+        self.resources
+            .stops
+            .extend_from_slice(&other.resources.stops);
+        self.resources
+            .patches
+            .extend(other.resources.patches.iter().map(|patch| match patch {
+                ResourcePatch::Ramp { offset, stops } => {
+                    let stops = stops.start + stops_base..stops.end + stops_base;
+                    ResourcePatch::Ramp {
+                        offset: drawdata_base + offset,
+                        stops,
+                    }
+                }
+            }));
     }
 }
 
@@ -103,7 +119,6 @@ impl Scene {
 #[derive(Default)]
 pub struct SceneFragment {
     data: SceneData,
-    resources: FragmentResources,
 }
 
 impl SceneFragment {
@@ -121,17 +136,4 @@ impl SceneFragment {
             bytemuck::cast_slice(&self.data.pathseg_stream)
         }
     }
-}
-
-#[derive(Default)]
-struct FragmentResources {
-    patches: Vec<ResourcePatch>,
-    stops: Vec<GradientStop>,
-}
-
-enum ResourcePatch {
-    Ramp {
-        drawdata_offset: usize,
-        stops: Range<usize>,
-    },
 }

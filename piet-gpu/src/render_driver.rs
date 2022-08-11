@@ -15,7 +15,7 @@
 // Also licensed under MIT license, at your choice.
 
 use piet_gpu_hal::{CmdBuf, Error, Image, QueryPool, Semaphore, Session, SubmittedCmdBuf};
-use piet_scene::{ResourceContext, Scene};
+use piet_scene::Scene;
 
 use crate::{MemoryHeader, Renderer, SceneStats};
 
@@ -86,15 +86,10 @@ impl RenderDriver {
         }
     }
 
-    pub fn upload_scene(
-        &mut self,
-        session: &Session,
-        scene: &Scene,
-        rcx: &ResourceContext,
-    ) -> Result<(), Error> {
+    pub fn upload_scene(&mut self, session: &Session, scene: &Scene) -> Result<(), Error> {
         let stats = SceneStats::from_scene(scene);
         self.ensure_scene_buffers(session, &stats)?;
-        self.renderer.upload_scene(scene, rcx, self.buf_ix)
+        self.renderer.upload_scene(scene, self.buf_ix)
     }
 
     fn ensure_scene_buffers(&mut self, session: &Session, stats: &SceneStats) -> Result<(), Error> {

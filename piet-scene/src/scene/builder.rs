@@ -15,12 +15,8 @@
 // Also licensed under MIT license, at your choice.
 
 use super::style::{Fill, Stroke};
-use super::{
-    Affine, BlendMode, FragmentResources, PathElement, ResourcePatch, Scene, SceneData,
-    SceneFragment,
-};
-use crate::brush::*;
-use crate::resource::ResourceContext;
+use super::{Affine, BlendMode, PathElement, Scene, SceneData, SceneFragment};
+use crate::{brush::*, ResourcePatch};
 use bytemuck::{Pod, Zeroable};
 use core::borrow::Borrow;
 use smallvec::SmallVec;
@@ -28,37 +24,27 @@ use smallvec::SmallVec;
 /// Builder for constructing a scene or scene fragment.
 pub struct SceneBuilder<'a> {
     scene: &'a mut SceneData,
-    resources: ResourceData<'a>,
     layers: SmallVec<[BlendMode; 8]>,
 }
 
 impl<'a> SceneBuilder<'a> {
     /// Creates a new builder for filling a scene. Any current content in the scene
     /// will be cleared.
-    pub fn for_scene(scene: &'a mut Scene, rcx: &'a mut ResourceContext) -> Self {
-        Self::new(&mut scene.data, ResourceData::Scene(rcx))
+    pub fn for_scene(scene: &'a mut Scene) -> Self {
+        Self::new(&mut scene.data, false)
     }
 
     /// Creates a new builder for filling a scene fragment. Any current content in
     /// the fragment will be cleared.    
     pub fn for_fragment(fragment: &'a mut SceneFragment) -> Self {
-        Self::new(
-            &mut fragment.data,
-            ResourceData::Fragment(&mut fragment.resources),
-        )
+        Self::new(&mut fragment.data, true)
     }
 
     /// Creates a new builder for constructing a scene.
-    fn new(scene: &'a mut SceneData, mut resources: ResourceData<'a>) -> Self {
-        let is_fragment = match resources {
-            ResourceData::Fragment(_) => true,
-            _ => false,
-        };
+    fn new(scene: &'a mut SceneData, is_fragment: bool) -> Self {
         scene.reset(is_fragment);
-        resources.clear();
         Self {
             scene,
-            resources,
             layers: Default::default(),
         }
     }
@@ -161,7 +147,6 @@ impl<'a> SceneBuilder<'a> {
 
     /// Appends a fragment to the scene.
     pub fn append(&mut self, fragment: &SceneFragment, transform: Option<Affine>) {
-        let drawdata_base = self.scene.drawdata_stream.len();
         let mut cur_transform = self.scene.transform_stream.last().copied();
         if let Some(transform) = transform {
             if cur_transform.is_none() {
@@ -172,39 +157,6 @@ impl<'a> SceneBuilder<'a> {
             self.encode_transform(Affine::IDENTITY);
         }
         self.scene.append(&fragment.data, &transform);
-        match &mut self.resources {
-            ResourceData::Scene(res) => {
-                for patch in &fragment.resources.patches {
-                    match patch {
-                        ResourcePatch::Ramp {
-                            drawdata_offset,
-                            stops,
-                        } => {
-                            let stops = &fragment.resources.stops[stops.clone()];
-                            let ramp_id = res.add_ramp(stops);
-                            let patch_base = *drawdata_offset + drawdata_base;
-                            (&mut self.scene.drawdata_stream[patch_base..patch_base + 4])
-                                .copy_from_slice(bytemuck::bytes_of(&ramp_id));
-                        }
-                    }
-                }
-            }
-            ResourceData::Fragment(res) => {
-                let stops_base = res.stops.len();
-                res.stops.extend_from_slice(&fragment.resources.stops);
-                res.patches.extend(fragment.resources.patches.iter().map(
-                    |pending| match pending {
-                        ResourcePatch::Ramp {
-                            drawdata_offset,
-                            stops,
-                        } => ResourcePatch::Ramp {
-                            drawdata_offset: drawdata_offset + drawdata_base,
-                            stops: stops.start + stops_base..stops.end + stops_base,
-                        },
-                    },
-                ));
-            }
-        }
         // Prevent fragments from affecting transform state. Should we allow this?
         if let Some(transform) = cur_transform {
             self.transform(transform);
@@ -325,19 +277,15 @@ impl<'a> SceneBuilder<'a> {
     }
 
     fn add_ramp(&mut self, stops: &[GradientStop]) -> u32 {
-        match &mut self.resources {
-            ResourceData::Scene(res) => res.add_ramp(stops),
-            ResourceData::Fragment(res) => {
-                let stops_start = res.stops.len();
-                res.stops.extend_from_slice(stops);
-                let id = res.patches.len() as u32;
-                res.patches.push(ResourcePatch::Ramp {
-                    drawdata_offset: self.scene.drawdata_stream.len(),
-                    stops: stops_start..stops_start + stops.len(),
-                });
-                id
-            }
-        }
+        let offset = self.scene.drawdata_stream.len();
+        let resources = &mut self.scene.resources;
+        let stops_start = resources.stops.len();
+        resources.stops.extend_from_slice(stops);
+        resources.patches.push(ResourcePatch::Ramp {
+            offset,
+            stops: stops_start..stops_start + stops.len(),
+        });
+        0
     }
 
     /// Start a clip.
@@ -364,22 +312,6 @@ impl<'a> SceneBuilder<'a> {
         self.scene.tag_stream.push(0x10);
         self.scene.n_path += 1;
         self.scene.n_clip += 1;
-    }
-}
-enum ResourceData<'a> {
-    Fragment(&'a mut FragmentResources),
-    Scene(&'a mut ResourceContext),
-}
-
-impl ResourceData<'_> {
-    fn clear(&mut self) {
-        match self {
-            Self::Fragment(res) => {
-                res.patches.clear();
-                res.stops.clear();
-            }
-            _ => {}
-        }
     }
 }
 

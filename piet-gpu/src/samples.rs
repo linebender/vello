@@ -168,7 +168,10 @@ pub fn render_blend_grid(sb: &mut SceneBuilder) {
         let i = ix % 4;
         let j = ix / 4;
         let transform = Affine::translate(i as f32 * 225., j as f32 * 225.);
-        render_blend_square(sb, blend.into(), transform);
+        let square = blend_square(blend.into());
+        sb.append(&square, Some(transform));
+        // sb.append(&square, Some(transform));
+        // render_blend_square(sb, blend.into(), transform);
     }
 }
 
@@ -263,6 +266,101 @@ fn render_blend_square(sb: &mut SceneBuilder, blend: BlendMode, transform: Affin
         sb.pop_layer();
     }
     sb.pop_layer();
+}
+
+#[allow(unused)]
+fn blend_square(blend: BlendMode) -> SceneFragment {
+    let mut fragment = SceneFragment::default();
+    let mut sb = SceneBuilder::for_fragment(&mut fragment);
+    // Inspired by https://developer.mozilla.org/en-US/docs/Web/CSS/mix-blend-mode
+    let rect = Rect::from_origin_size(Point::new(0., 0.), 200., 200.);
+    let stops = &[
+        GradientStop {
+            color: Color::rgb8(0, 0, 0),
+            offset: 0.0,
+        },
+        GradientStop {
+            color: Color::rgb8(255, 255, 255),
+            offset: 1.0,
+        },
+    ][..];
+    let linear = Brush::LinearGradient(LinearGradient {
+        start: Point::new(0.0, 0.0),
+        end: Point::new(200.0, 0.0),
+        stops: stops.into(),
+        extend: ExtendMode::Pad,
+    });
+    sb.fill(Fill::NonZero, &linear, None, rect.elements());
+    const GRADIENTS: &[(f32, f32, Color)] = &[
+        (150., 0., Color::rgb8(64, 240, 255)),
+        (175., 100., Color::rgb8(240, 96, 255)),
+        (125., 200., Color::rgb8(255, 192, 64)),
+    ];
+    for (x, y, c) in GRADIENTS {
+        let mut color2 = c.clone();
+        color2.a = 0;
+        let stops = &[
+            GradientStop {
+                color: c.clone(),
+                offset: 0.0,
+            },
+            GradientStop {
+                color: color2,
+                offset: 1.0,
+            },
+        ][..];
+        let rad = Brush::RadialGradient(RadialGradient {
+            center0: Point::new(*x, *y),
+            center1: Point::new(*x, *y),
+            radius0: 0.0,
+            radius1: 100.0,
+            stops: stops.into(),
+            extend: ExtendMode::Pad,
+        });
+        sb.fill(Fill::NonZero, &rad, None, rect.elements());
+    }
+    const COLORS: &[Color] = &[
+        Color::rgb8(0, 0, 255),
+        Color::rgb8(0, 255, 0),
+        Color::rgb8(255, 0, 0),
+    ];
+    sb.push_layer(Mix::Normal.into(), rect.elements());
+    for (i, c) in COLORS.iter().enumerate() {
+        let stops = &[
+            GradientStop {
+                color: Color::rgb8(255, 255, 255),
+                offset: 0.0,
+            },
+            GradientStop {
+                color: c.clone(),
+                offset: 1.0,
+            },
+        ][..];
+        let linear = Brush::LinearGradient(LinearGradient {
+            start: Point::new(0.0, 0.0),
+            end: Point::new(0.0, 200.0),
+            stops: stops.into(),
+            extend: ExtendMode::Pad,
+        });
+        sb.transform(Affine::IDENTITY);
+        sb.push_layer(blend, rect.elements());
+        // squash the ellipse
+        let a = Affine::translate(100., 100.)
+            * Affine::rotate(std::f32::consts::FRAC_PI_3 * (i * 2 + 1) as f32)
+            * Affine::scale(1.0, 0.357)
+            * Affine::translate(-100., -100.);
+        sb.transform(a);
+        sb.fill(
+            Fill::NonZero,
+            &linear,
+            None,
+            make_ellipse(100., 100., 90., 90.),
+        );
+        sb.pop_layer();
+    }
+    sb.pop_layer();
+    sb.finish();
+    fragment
 }
 
 #[allow(unused)]

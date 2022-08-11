@@ -1,4 +1,5 @@
-use crate::brush::{Color, GradientStop, GradientStops};
+use piet_scene::{Color, GradientStop, GradientStops};
+
 use std::collections::HashMap;
 
 const N_SAMPLES: usize = 512;
@@ -19,12 +20,6 @@ impl RampCache {
                 .retain(|_key, value| value.0 < RETAINED_COUNT as u32);
             self.data.truncate(RETAINED_COUNT * N_SAMPLES);
         }
-    }
-
-    pub fn clear(&mut self) {
-        self.epoch = 0;
-        self.map.clear();
-        self.data.clear();
     }
 
     pub fn add(&mut self, stops: &[GradientStop]) -> u32 {

@@ -1,4 +1,5 @@
 mod pico_svg;
+mod ramp;
 mod render_driver;
 pub mod samples;
 mod simple_text;
@@ -7,6 +8,7 @@ pub mod stages;
 pub use piet_scene as scene;
 
 use bytemuck::{Pod, Zeroable};
+use scene::ResourcePatch;
 use std::convert::TryInto;
 
 pub use render_driver::RenderDriver;
@@ -17,7 +19,7 @@ use piet_gpu_hal::{
     DescriptorSet, Error, Image, ImageLayout, Pipeline, QueryPool, Session,
 };
 
-use piet_scene::{ResourceContext, Scene};
+use piet_scene::Scene;
 
 pub use pico_svg::PicoSvg;
 use stages::{ClipBinding, ElementBinding, ElementCode, DRAW_PART_SIZE, PATHSEG_PART_SIZE};
@@ -154,6 +156,9 @@ pub struct Renderer {
 
     gradient_bufs: Vec<Buffer>,
     gradients: Image,
+
+    ramps: ramp::RampCache,
+    drawdata_patches: Vec<(usize, u32)>,
 }
 
 impl RenderConfig {
@@ -364,6 +369,9 @@ impl Renderer {
             .build(&session, &k4_pipeline)?;
 
         let scene_stats = Default::default();
+        let ramps = ramp::RampCache::default();
+        let drawdata_patches = vec![];
+
         Ok(Renderer {
             width,
             height,
@@ -403,26 +411,34 @@ impl Renderer {
             _bg_image: bg_image,
             gradient_bufs,
             gradients,
+            ramps,
+            drawdata_patches,
         })
     }
 
-    pub fn upload_scene(
-        &mut self,
-        scene: &Scene,
-        rcx: &ResourceContext,
-        buf_ix: usize,
-    ) -> Result<(), Error> {
+    pub fn upload_scene(&mut self, scene: &Scene, buf_ix: usize) -> Result<(), Error> {
+        self.drawdata_patches.clear();
         self.scene_stats = SceneStats::from_scene(scene);
-
+        self.ramps.advance();
+        let data = scene.data();
+        let stop_data = &data.resources.stops;
+        for patch in &data.resources.patches {
+            match patch {
+                ResourcePatch::Ramp { offset, stops } => {
+                    let ramp_id = self.ramps.add(&stop_data[stops.clone()]);
+                    self.drawdata_patches.push((*offset, ramp_id));
+                }
+            }
+        }
         unsafe {
             self.upload_config(buf_ix)?;
             {
                 let mut mapped_scene = self.scene_bufs[buf_ix].map_write(..)?;
-                write_scene(scene, &mut mapped_scene);
+                write_scene(scene, &self.drawdata_patches, &mut mapped_scene);
             }
 
             // Upload gradient data.
-            let ramp_data = rcx.ramp_data();
+            let ramp_data = self.ramps.data();
             if !ramp_data.is_empty() {
                 assert!(
                     self.gradient_bufs[buf_ix].size() as usize
@@ -870,12 +886,28 @@ impl SceneStats {
     }
 }
 
-fn write_scene(scene: &Scene, buf: &mut BufWrite) {
+fn write_scene(scene: &Scene, drawdata_patches: &[(usize, u32)], buf: &mut BufWrite) {
     let data = scene.data();
     buf.extend_slice(&data.drawtag_stream);
     let n_drawobj = data.drawtag_stream.len();
     buf.fill_zero(padding(n_drawobj, DRAW_PART_SIZE as usize) * DRAWTAG_SIZE);
-    buf.extend_slice(&data.drawdata_stream);
+    if !drawdata_patches.is_empty() {
+        let mut pos = 0;
+        for patch in drawdata_patches {
+            let offset = patch.0;
+            let value = patch.1;
+            if pos < offset {
+                buf.extend_slice(&data.drawdata_stream[pos..offset]);
+            }
+            buf.push(value);
+            pos = offset + 4;
+        }
+        if pos < data.drawdata_stream.len() {
+            buf.extend_slice(&data.drawdata_stream[pos..])
+        }
+    } else {
+        buf.extend_slice(&data.drawdata_stream);
+    }
     buf.extend_slice(&data.transform_stream);
     buf.extend_slice(&data.linewidth_stream);
     buf.extend_slice(&data.tag_stream);
