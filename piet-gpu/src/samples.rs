@@ -363,7 +363,6 @@ pub fn render_brush_transform(sb: &mut SceneBuilder, i: usize) {
         Some(Affine::rotate(th).around_center(200.0, 100.0)),
         Rect::from_origin_size(Point::default(), 400.0, 200.0).elements(),
     );
-
 }
 
 fn convert_bez_path<'a>(path: &'a BezPath) -> impl Iterator<Item = PathElement> + 'a + Clone {
