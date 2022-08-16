@@ -103,19 +103,18 @@ impl PgpuRenderer {
 }
 
 /// Encoded streams and resources describing a vector graphics scene.
-pub struct PgpuScene {
-    scene: Scene,
-}
+pub struct PgpuScene(pub Scene);
 
 impl PgpuScene {
     pub fn new() -> Self {
-        Self {
-            scene: Scene::default(),
-        }
+        Self(Scene::default())
     }
 
     pub fn builder(&mut self) -> PgpuSceneBuilder {
-        PgpuSceneBuilder(piet_scene::SceneBuilder::for_scene(&mut self.scene))
+        PgpuSceneBuilder {
+            builder: piet_scene::SceneBuilder::for_scene(&mut self.0),
+            transform: Affine::IDENTITY,
+        }
     }
 }
 
@@ -128,20 +127,26 @@ impl PgpuSceneFragment {
     }
 
     pub fn builder(&mut self) -> PgpuSceneBuilder {
-        PgpuSceneBuilder(piet_scene::SceneBuilder::for_fragment(&mut self.0))
+        PgpuSceneBuilder {
+            builder: piet_scene::SceneBuilder::for_fragment(&mut self.0),
+            transform: Affine::IDENTITY,
+        }
     }
 }
 
 /// Builder for constructing an encoded scene.
-pub struct PgpuSceneBuilder<'a>(pub piet_scene::SceneBuilder<'a>);
+pub struct PgpuSceneBuilder<'a> {
+    pub builder: piet_scene::SceneBuilder<'a>,
+    pub transform: Affine,
+}
 
 impl<'a> PgpuSceneBuilder<'a> {
     pub fn add_glyph(&mut self, glyph: &PgpuGlyph, transform: &piet_scene::Affine) {
-        self.0.append(&glyph.fragment, Some(*transform));
+        self.builder.append(&glyph.fragment, Some(*transform));
     }
 
     pub fn finish(self) {
-        self.0.finish();
+        self.builder.finish();
     }
 }
 
