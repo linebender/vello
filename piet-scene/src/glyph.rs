@@ -90,6 +90,7 @@ impl<'a> GlyphProvider<'a> {
         let mut builder = SceneBuilder::for_fragment(&mut fragment);
         builder.fill(
             Fill::NonZero,
+            Affine::IDENTITY,
             brush.unwrap_or(&Brush::Solid(Color::rgb8(255, 255, 255))),
             None,
             convert_path(path.elements()),
@@ -125,10 +126,15 @@ impl<'a> GlyphProvider<'a> {
                     if let Some(xform) = xform_stack.last() {
                         builder.push_layer(
                             Default::default(),
+                            Affine::IDENTITY,
                             convert_transformed_path(path.elements(), xform),
                         );
                     } else {
-                        builder.push_layer(Default::default(), convert_path(path.elements()));
+                        builder.push_layer(
+                            Default::default(),
+                            Affine::IDENTITY,
+                            convert_path(path.elements()),
+                        );
                     }
                 }
                 Command::PopClip => builder.pop_layer(),
@@ -140,7 +146,7 @@ impl<'a> GlyphProvider<'a> {
                     if let Some(xform) = xform_stack.last() {
                         rect = rect.transform(xform);
                     }
-                    builder.push_layer(Default::default(), rect.elements());
+                    builder.push_layer(Default::default(), Affine::IDENTITY, rect.elements());
                 }
                 Command::PopLayer => builder.pop_layer(),
                 Command::BeginBlend(bounds, mode) => {
@@ -151,7 +157,7 @@ impl<'a> GlyphProvider<'a> {
                     if let Some(xform) = xform_stack.last() {
                         rect = rect.transform(xform);
                     }
-                    builder.push_layer(convert_blend(*mode), rect.elements())
+                    builder.push_layer(convert_blend(*mode), Affine::IDENTITY, rect.elements())
                 }
                 Command::EndBlend => builder.pop_layer(),
                 Command::SimpleFill(path_index, brush, brush_xform) => {
@@ -161,6 +167,7 @@ impl<'a> GlyphProvider<'a> {
                     if let Some(xform) = xform_stack.last() {
                         builder.fill(
                             Fill::NonZero,
+                            Affine::IDENTITY,
                             &brush,
                             brush_xform.map(|x| x * *xform),
                             convert_transformed_path(path.elements(), xform),
@@ -168,6 +175,7 @@ impl<'a> GlyphProvider<'a> {
                     } else {
                         builder.fill(
                             Fill::NonZero,
+                            Affine::IDENTITY,
                             &brush,
                             brush_xform,
                             convert_path(path.elements()),

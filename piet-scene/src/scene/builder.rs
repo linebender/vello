@@ -49,21 +49,15 @@ impl<'a> SceneBuilder<'a> {
         }
     }
 
-    /// Sets the current transformation.
-    pub fn transform(&mut self, transform: Affine) {
-        if self.scene.transform_stream.last() != Some(&transform) {
-            self.encode_transform(transform);
-        }
-    }
-
     /// Pushes a new layer bound by the specifed shape and composed with
     /// previous layers using the specified blend mode.
-    pub fn push_layer<'s, E>(&mut self, blend: BlendMode, elements: E)
+    pub fn push_layer<'s, E>(&mut self, blend: BlendMode, transform: Affine, elements: E)
     where
         E: IntoIterator,
         E::IntoIter: Clone,
         E::Item: Borrow<PathElement>,
     {
+        self.maybe_encode_transform(transform);
         self.linewidth(-1.0);
         let elements = elements.into_iter();
         self.encode_path(elements, true);
@@ -82,6 +76,7 @@ impl<'a> SceneBuilder<'a> {
     pub fn fill<'s, E>(
         &mut self,
         _style: Fill,
+        transform: Affine,
         brush: &Brush,
         brush_transform: Option<Affine>,
         elements: E,
@@ -90,21 +85,14 @@ impl<'a> SceneBuilder<'a> {
         E::IntoIter: Clone,
         E::Item: Borrow<PathElement>,
     {
+        self.maybe_encode_transform(transform);
         self.linewidth(-1.0);
         let elements = elements.into_iter();
         if self.encode_path(elements, true) {
             if let Some(brush_transform) = brush_transform {
-                if let Some(last_transform) = self.scene.transform_stream.last().copied() {
-                    self.encode_transform(brush_transform * last_transform);
-                    self.swap_last_tags();
-                    self.encode_brush(brush);
-                    self.encode_transform(last_transform);
-                } else {
-                    self.encode_transform(brush_transform);
-                    self.swap_last_tags();
-                    self.encode_brush(brush);
-                    self.encode_transform(Affine::IDENTITY);
-                }
+                self.encode_transform(transform * brush_transform);
+                self.swap_last_tags();
+                self.encode_brush(brush);
             } else {
                 self.encode_brush(brush);
             }
@@ -115,6 +103,7 @@ impl<'a> SceneBuilder<'a> {
     pub fn stroke<'s, D, E>(
         &mut self,
         style: &Stroke<D>,
+        transform: Affine,
         brush: &Brush,
         brush_transform: Option<Affine>,
         elements: E,
@@ -124,21 +113,14 @@ impl<'a> SceneBuilder<'a> {
         E::IntoIter: Clone,
         E::Item: Borrow<PathElement>,
     {
+        self.maybe_encode_transform(transform);
         self.linewidth(style.width);
         let elements = elements.into_iter();
         if self.encode_path(elements, false) {
             if let Some(brush_transform) = brush_transform {
-                if let Some(last_transform) = self.scene.transform_stream.last().copied() {
-                    self.encode_transform(brush_transform * last_transform);
-                    self.swap_last_tags();
-                    self.encode_brush(brush);
-                    self.encode_transform(last_transform);
-                } else {
-                    self.encode_transform(brush_transform);
-                    self.swap_last_tags();
-                    self.encode_brush(brush);
-                    self.encode_transform(Affine::IDENTITY);
-                }
+                self.encode_transform(transform * brush_transform);
+                self.swap_last_tags();
+                self.encode_brush(brush);
             } else {
                 self.encode_brush(brush);
             }
@@ -147,20 +129,7 @@ impl<'a> SceneBuilder<'a> {
 
     /// Appends a fragment to the scene.
     pub fn append(&mut self, fragment: &SceneFragment, transform: Option<Affine>) {
-        let mut cur_transform = self.scene.transform_stream.last().copied();
-        if let Some(transform) = transform {
-            if cur_transform.is_none() {
-                cur_transform = Some(Affine::IDENTITY);
-            }
-            self.transform(transform);
-        } else if cur_transform != Some(Affine::IDENTITY) {
-            self.encode_transform(Affine::IDENTITY);
-        }
         self.scene.append(&fragment.data, &transform);
-        // Prevent fragments from affecting transform state. Should we allow this?
-        if let Some(transform) = cur_transform {
-            self.transform(transform);
-        }
     }
 
     /// Completes construction and finalizes the underlying scene.
@@ -216,6 +185,12 @@ impl<'a> SceneBuilder<'a> {
             self.scene.n_pathseg += n_pathseg;
         }
         has_els
+    }
+
+    fn maybe_encode_transform(&mut self, transform: Affine) {
+        if self.scene.transform_stream.last() != Some(&transform) {
+            self.encode_transform(transform);
+        }
     }
 
     fn encode_transform(&mut self, transform: Affine) {

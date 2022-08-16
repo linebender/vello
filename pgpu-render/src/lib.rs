@@ -273,8 +273,8 @@ pub unsafe extern "C" fn pgpu_scene_builder_transform(
     builder: *mut PgpuSceneBuilder<'static>,
     transform: *const PgpuTransform,
 ) {
-    if !transform.is_null() {
-        (*builder).0.transform((*transform).into())
+    if let Some(transform) = transform.as_ref() {
+        (*builder).transform = (*transform).into();
     }
 }
 
@@ -308,9 +308,13 @@ pub unsafe extern "C" fn pgpu_scene_builder_fill_path(
     } else {
         Some((*brush_transform).into())
     };
-    (*builder)
-        .0
-        .fill(fill, &brush, brush_transform, (*path).clone());
+    (*builder).builder.fill(
+        fill,
+        (*builder).transform,
+        &brush,
+        brush_transform,
+        (*path).clone(),
+    );
 }
 
 /// Appends a scene fragment to the underlying scene or fragment. The
@@ -329,7 +333,7 @@ pub unsafe extern "C" fn pgpu_scene_builder_append_fragment(
     } else {
         Some((*transform).into())
     };
-    (*builder).0.append(&(*fragment).0, transform);
+    (*builder).builder.append(&(*fragment).0, transform);
 }
 
 /// Finalizes the scene builder, making the underlying scene ready for

@@ -16,6 +16,7 @@ pub fn render_svg(sb: &mut SceneBuilder, svg: &PicoSvg, print_stats: bool) {
             Item::Fill(fill) => {
                 sb.fill(
                     Fill::NonZero,
+                    Affine::IDENTITY,
                     &fill.color.into(),
                     None,
                     convert_bez_path(&fill.path),
@@ -24,6 +25,7 @@ pub fn render_svg(sb: &mut SceneBuilder, svg: &PicoSvg, print_stats: bool) {
             Item::Stroke(stroke) => {
                 sb.stroke(
                     &simple_stroke(stroke.width as f32),
+                    Affine::IDENTITY,
                     &stroke.color.into(),
                     None,
                     convert_bez_path(&stroke.path),
@@ -76,6 +78,7 @@ fn render_cardioid(sb: &mut SceneBuilder) {
     }
     sb.stroke(
         &simple_stroke(2.0),
+        Affine::IDENTITY,
         &Brush::Solid(Color::rgb8(0, 0, 0)),
         None,
         &path,
@@ -102,7 +105,7 @@ fn render_clip_test(sb: &mut SceneBuilder) {
             PathElement::LineTo((X0, Y1).into()),
             PathElement::Close,
         ];
-        sb.push_layer(Mix::Clip.into(), path);
+        sb.push_layer(Mix::Clip.into(), Affine::IDENTITY, path);
     }
     let rect = Rect {
         min: Point::new(X0, Y0),
@@ -110,6 +113,7 @@ fn render_clip_test(sb: &mut SceneBuilder) {
     };
     sb.fill(
         Fill::NonZero,
+        Affine::IDENTITY,
         &Brush::Solid(Color::rgb8(0, 0, 0)),
         None,
         rect.elements(),
@@ -124,22 +128,29 @@ fn render_alpha_test(sb: &mut SceneBuilder) {
     // Alpha compositing tests.
     sb.fill(
         Fill::NonZero,
+        Affine::IDENTITY,
         &Color::rgb8(255, 0, 0).into(),
         None,
-        make_diamond(Point::new(1024.0, 100.0)),
+        make_diamond(1024.0, 100.0),
     );
     sb.fill(
         Fill::NonZero,
+        Affine::IDENTITY,
         &Color::rgba8(0, 255, 0, 0x80).into(),
         None,
-        make_diamond(Point::new(1024.0, 125.0)),
+        make_diamond(1024.0, 125.0),
     );
-    sb.push_layer(Mix::Clip.into(), make_diamond(Point::new(1024.0, 150.0)));
+    sb.push_layer(
+        Mix::Clip.into(),
+        Affine::IDENTITY,
+        make_diamond(1024.0, 150.0),
+    );
     sb.fill(
         Fill::NonZero,
+        Affine::IDENTITY,
         &Color::rgba8(0, 0, 255, 0x80).into(),
         None,
-        make_diamond(Point::new(1024.0, 175.0)),
+        make_diamond(1024.0, 175.0),
     );
     sb.pop_layer();
 }
@@ -170,15 +181,12 @@ pub fn render_blend_grid(sb: &mut SceneBuilder) {
         let transform = Affine::translate(i as f32 * 225., j as f32 * 225.);
         let square = blend_square(blend.into());
         sb.append(&square, Some(transform));
-        // sb.append(&square, Some(transform));
-        // render_blend_square(sb, blend.into(), transform);
     }
 }
 
 #[allow(unused)]
 fn render_blend_square(sb: &mut SceneBuilder, blend: BlendMode, transform: Affine) {
     // Inspired by https://developer.mozilla.org/en-US/docs/Web/CSS/mix-blend-mode
-    sb.transform(transform);
     let rect = Rect::from_origin_size(Point::new(0., 0.), 200., 200.);
     let stops = &[
         GradientStop {
@@ -196,7 +204,7 @@ fn render_blend_square(sb: &mut SceneBuilder, blend: BlendMode, transform: Affin
         stops: stops.into(),
         extend: ExtendMode::Pad,
     });
-    sb.fill(Fill::NonZero, &linear, None, rect.elements());
+    sb.fill(Fill::NonZero, transform, &linear, None, rect.elements());
     const GRADIENTS: &[(f32, f32, Color)] = &[
         (150., 0., Color::rgb8(64, 240, 255)),
         (175., 100., Color::rgb8(240, 96, 255)),
@@ -223,14 +231,14 @@ fn render_blend_square(sb: &mut SceneBuilder, blend: BlendMode, transform: Affin
             stops: stops.into(),
             extend: ExtendMode::Pad,
         });
-        sb.fill(Fill::NonZero, &rad, None, rect.elements());
+        sb.fill(Fill::NonZero, transform, &rad, None, rect.elements());
     }
     const COLORS: &[Color] = &[
         Color::rgb8(0, 0, 255),
         Color::rgb8(0, 255, 0),
         Color::rgb8(255, 0, 0),
     ];
-    sb.push_layer(Mix::Normal.into(), rect.elements());
+    sb.push_layer(Mix::Normal.into(), transform, rect.elements());
     for (i, c) in COLORS.iter().enumerate() {
         let stops = &[
             GradientStop {
@@ -248,17 +256,16 @@ fn render_blend_square(sb: &mut SceneBuilder, blend: BlendMode, transform: Affin
             stops: stops.into(),
             extend: ExtendMode::Pad,
         });
-        sb.transform(transform);
-        sb.push_layer(blend, rect.elements());
+        sb.push_layer(blend, transform, rect.elements());
         // squash the ellipse
         let a = transform
             * Affine::translate(100., 100.)
             * Affine::rotate(std::f32::consts::FRAC_PI_3 * (i * 2 + 1) as f32)
             * Affine::scale(1.0, 0.357)
             * Affine::translate(-100., -100.);
-        sb.transform(a);
         sb.fill(
             Fill::NonZero,
+            a,
             &linear,
             None,
             make_ellipse(100., 100., 90., 90.),
@@ -272,93 +279,7 @@ fn render_blend_square(sb: &mut SceneBuilder, blend: BlendMode, transform: Affin
 fn blend_square(blend: BlendMode) -> SceneFragment {
     let mut fragment = SceneFragment::default();
     let mut sb = SceneBuilder::for_fragment(&mut fragment);
-    // Inspired by https://developer.mozilla.org/en-US/docs/Web/CSS/mix-blend-mode
-    let rect = Rect::from_origin_size(Point::new(0., 0.), 200., 200.);
-    let stops = &[
-        GradientStop {
-            color: Color::rgb8(0, 0, 0),
-            offset: 0.0,
-        },
-        GradientStop {
-            color: Color::rgb8(255, 255, 255),
-            offset: 1.0,
-        },
-    ][..];
-    let linear = Brush::LinearGradient(LinearGradient {
-        start: Point::new(0.0, 0.0),
-        end: Point::new(200.0, 0.0),
-        stops: stops.into(),
-        extend: ExtendMode::Pad,
-    });
-    sb.fill(Fill::NonZero, &linear, None, rect.elements());
-    const GRADIENTS: &[(f32, f32, Color)] = &[
-        (150., 0., Color::rgb8(64, 240, 255)),
-        (175., 100., Color::rgb8(240, 96, 255)),
-        (125., 200., Color::rgb8(255, 192, 64)),
-    ];
-    for (x, y, c) in GRADIENTS {
-        let mut color2 = c.clone();
-        color2.a = 0;
-        let stops = &[
-            GradientStop {
-                color: c.clone(),
-                offset: 0.0,
-            },
-            GradientStop {
-                color: color2,
-                offset: 1.0,
-            },
-        ][..];
-        let rad = Brush::RadialGradient(RadialGradient {
-            center0: Point::new(*x, *y),
-            center1: Point::new(*x, *y),
-            radius0: 0.0,
-            radius1: 100.0,
-            stops: stops.into(),
-            extend: ExtendMode::Pad,
-        });
-        sb.fill(Fill::NonZero, &rad, None, rect.elements());
-    }
-    const COLORS: &[Color] = &[
-        Color::rgb8(0, 0, 255),
-        Color::rgb8(0, 255, 0),
-        Color::rgb8(255, 0, 0),
-    ];
-    sb.push_layer(Mix::Normal.into(), rect.elements());
-    for (i, c) in COLORS.iter().enumerate() {
-        let stops = &[
-            GradientStop {
-                color: Color::rgb8(255, 255, 255),
-                offset: 0.0,
-            },
-            GradientStop {
-                color: c.clone(),
-                offset: 1.0,
-            },
-        ][..];
-        let linear = Brush::LinearGradient(LinearGradient {
-            start: Point::new(0.0, 0.0),
-            end: Point::new(0.0, 200.0),
-            stops: stops.into(),
-            extend: ExtendMode::Pad,
-        });
-        sb.transform(Affine::IDENTITY);
-        sb.push_layer(blend, rect.elements());
-        // squash the ellipse
-        let a = Affine::translate(100., 100.)
-            * Affine::rotate(std::f32::consts::FRAC_PI_3 * (i * 2 + 1) as f32)
-            * Affine::scale(1.0, 0.357)
-            * Affine::translate(-100., -100.);
-        sb.transform(a);
-        sb.fill(
-            Fill::NonZero,
-            &linear,
-            None,
-            make_ellipse(100., 100., 90., 90.),
-        );
-        sb.pop_layer();
-    }
-    sb.pop_layer();
+    render_blend_square(&mut sb, blend, Affine::IDENTITY);
     sb.finish();
     fragment
 }
@@ -367,6 +288,7 @@ fn blend_square(blend: BlendMode) -> SceneFragment {
 pub fn render_anim_frame(sb: &mut SceneBuilder, text: &mut SimpleText, i: usize) {
     sb.fill(
         Fill::NonZero,
+        Affine::IDENTITY,
         &Brush::Solid(Color::rgb8(128, 128, 128)),
         None,
         Rect::from_origin_size(Point::new(0.0, 0.0), 1000.0, 1000.0).elements(),
@@ -389,7 +311,6 @@ pub fn render_anim_frame(sb: &mut SceneBuilder, text: &mut SimpleText, i: usize)
         Affine::translate(110.0, 700.0),
         s,
     );
-    sb.transform(Affine::IDENTITY);
     let th = (std::f32::consts::PI / 180.0) * (i as f32);
     let center = Point::new(500.0, 500.0);
     let mut p1 = center;
@@ -397,10 +318,52 @@ pub fn render_anim_frame(sb: &mut SceneBuilder, text: &mut SimpleText, i: usize)
     p1.y += 400.0 * th.sin();
     sb.stroke(
         &simple_stroke(5.0),
+        Affine::IDENTITY,
         &Brush::Solid(Color::rgb8(128, 0, 0)),
         None,
         &[PathElement::MoveTo(center), PathElement::LineTo(p1)],
     );
+}
+
+#[allow(unused)]
+pub fn render_brush_transform(sb: &mut SceneBuilder, i: usize) {
+    let th = (std::f32::consts::PI / 180.0) * (i as f32);
+    let stops = &[
+        GradientStop {
+            color: Color::rgb8(255, 0, 0),
+            offset: 0.0,
+        },
+        GradientStop {
+            color: Color::rgb8(0, 255, 0),
+            offset: 0.5,
+        },
+        GradientStop {
+            color: Color::rgb8(0, 0, 255),
+            offset: 1.0,
+        },
+    ][..];
+    let linear = LinearGradient {
+        start: Point::new(0.0, 0.0),
+        end: Point::new(0.0, 200.0),
+        stops: stops.into(),
+        extend: ExtendMode::Pad,
+    }
+    .into();
+    sb.fill(
+        Fill::NonZero,
+        Affine::translate(200.0, 200.0),
+        &linear,
+        Some(Affine::rotate(th).around_center(200.0, 100.0)),
+        Rect::from_origin_size(Point::default(), 400.0, 200.0).elements(),
+    );
+    sb.stroke(
+        &simple_stroke(40.0),
+        Affine::translate(800.0, 200.0),
+        &linear,
+        Some(Affine::rotate(th).around_center(200.0, 100.0)),
+        Rect::from_origin_size(Point::default(), 400.0, 200.0).elements(),
+    );
+
 }
 
 fn convert_bez_path<'a>(path: &'a BezPath) -> impl Iterator<Item = PathElement> + 'a + Clone {
@@ -440,13 +403,13 @@ fn make_ellipse(cx: f32, cy: f32, rx: f32, ry: f32) -> impl Iterator<Item = Path
     (0..elements.len()).map(move |i| elements[i])
 }
 
-fn make_diamond(origin: Point) -> impl Iterator<Item = PathElement> + Clone {
+fn make_diamond(cx: f32, cy: f32) -> impl Iterator<Item = PathElement> + Clone {
     const SIZE: f32 = 50.0;
     let elements = [
-        PathElement::MoveTo(Point::new(origin.x, origin.y - SIZE)),
-        PathElement::LineTo(Point::new(origin.x + SIZE, origin.y)),
-        PathElement::LineTo(Point::new(origin.x, origin.y + SIZE)),
-        PathElement::LineTo(Point::new(origin.x - SIZE, origin.y)),
+        PathElement::MoveTo(Point::new(cx, cy - SIZE)),
+        PathElement::LineTo(Point::new(cx + SIZE, cy)),
+        PathElement::LineTo(Point::new(cx, cy + SIZE)),
+        PathElement::LineTo(Point::new(cx - SIZE, cy)),
         PathElement::Close,
     ];
     (0..elements.len()).map(move |i| elements[i])
