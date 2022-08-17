@@ -87,7 +87,7 @@ impl PgpuRenderer {
                 .session
                 .image_from_raw_mtl(target, self.width, self.height);
             if let Some(renderer) = &mut self.pgpu_renderer {
-                renderer.upload_scene(&scene.encoded_scene(), 0).unwrap();
+                renderer.upload_scene(&scene.0, 0).unwrap();
                 renderer.record(&mut cmd_buf, &self.query_pool, 0);
                 // TODO later: we can bind the destination image and avoid the copy.
                 cmd_buf.blit_image(&renderer.image_dev, &dst_image);
