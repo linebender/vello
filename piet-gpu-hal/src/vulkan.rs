@@ -578,7 +578,7 @@ impl crate::backend::Device for VkDevice {
             | vk::ImageUsageFlags::TRANSFER_DST;
         let vk_format = match format {
             ImageFormat::A8 => vk::Format::R8_UNORM,
-            ImageFormat::Rgba8 => vk::Format::R8G8B8A8_UNORM,
+            ImageFormat::Rgba8 | ImageFormat::Surface => vk::Format::R8G8B8A8_UNORM,
         };
         let image = device.create_image(
             &vk::ImageCreateInfo::builder()

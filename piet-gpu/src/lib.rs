@@ -224,7 +224,7 @@ impl Renderer {
 
         let image_format = match config.format {
             PixelFormat::A8 => piet_gpu_hal::ImageFormat::A8,
-            PixelFormat::Rgba8 => piet_gpu_hal::ImageFormat::Rgba8,
+            PixelFormat::Rgba8 => piet_gpu_hal::ImageFormat::Surface,
         };
         let image_dev = session.create_image2d(width as u32, height as u32, image_format)?;
 

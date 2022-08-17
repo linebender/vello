@@ -98,6 +98,8 @@ pub enum ImageFormat {
     A8,
     // 8 bit per pixel RGBA
     Rgba8,
+    // Match default surface format
+    Surface,
 }
 
 bitflags! {

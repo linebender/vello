@@ -349,7 +349,8 @@ impl crate::backend::Device for MtlDevice {
         //desc.set_mipmap_level_count(1);
         let mtl_format = match format {
             ImageFormat::A8 => metal::MTLPixelFormat::R8Unorm,
-            ImageFormat::Rgba8 => metal::MTLPixelFormat::BGRA8Unorm,
+            ImageFormat::Rgba8 => metal::MTLPixelFormat::RGBA8Unorm,
+            ImageFormat::Surface => metal::MTLPixelFormat::BGRA8Unorm,
         };
         desc.set_pixel_format(mtl_format);
         desc.set_usage(metal::MTLTextureUsage::ShaderRead | metal::MTLTextureUsage::ShaderWrite);
