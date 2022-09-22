@@ -20,10 +20,10 @@ const HEIGHT: usize = 1536;
 fn main() -> Result<(), Error> {
     let matches = App::new("piet-gpu test")
         .arg(Arg::with_name("INPUT").index(1))
-        .arg(Arg::with_name("flip").short("f").long("flip"))
+        .arg(Arg::with_name("flip").short('f').long("flip"))
         .arg(
             Arg::with_name("scale")
-                .short("s")
+                .short('s')
                 .long("scale")
                 .takes_value(true),
         )

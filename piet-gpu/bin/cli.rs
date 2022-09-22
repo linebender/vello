@@ -218,10 +218,10 @@ fn trace_ptcl(buf: &[u32]) {
 fn main() -> Result<(), Error> {
     let matches = App::new("piet-gpu test")
         .arg(Arg::with_name("INPUT").index(1))
-        .arg(Arg::with_name("flip").short("f").long("flip"))
+        .arg(Arg::with_name("flip").short('f').long("flip"))
         .arg(
             Arg::with_name("scale")
-                .short("s")
+                .short('s')
                 .long("scale")
                 .takes_value(true),
         )
@@ -278,7 +278,7 @@ fn main() -> Result<(), Error> {
         let ref mut w = BufWriter::new(file);
 
         let mut encoder = png::Encoder::new(w, WIDTH as u32, HEIGHT as u32);
-        encoder.set_color(png::ColorType::RGBA);
+        encoder.set_color(png::ColorType::Rgba);
         encoder.set_depth(png::BitDepth::Eight);
         let mut writer = encoder.write_header().unwrap();
 

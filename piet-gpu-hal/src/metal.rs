@@ -29,7 +29,8 @@ use objc::rc::autoreleasepool;
 use objc::runtime::{Object, BOOL, YES};
 use objc::{class, msg_send, sel, sel_impl};
 
-use metal::{CGFloat, CommandBufferRef, MTLFeatureSet};
+use metal::{CommandBufferRef, MTLFeatureSet};
+use core_graphics_types::base::CGFloat;
 
 use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
 
@@ -141,7 +142,7 @@ impl MtlInstance {
         &self,
         window_handle: &dyn HasRawWindowHandle,
     ) -> Result<MtlSurface, Error> {
-        if let RawWindowHandle::MacOS(handle) = window_handle.raw_window_handle() {
+        if let RawWindowHandle::AppKit(handle) = window_handle.raw_window_handle() {
             Ok(Self::make_surface(handle.ns_view as id, handle.ns_window as id).unwrap())
         } else {
             Err("can't create surface for window handle".into())

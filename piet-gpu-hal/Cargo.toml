@@ -7,12 +7,12 @@ license = "MIT/Apache-2.0"
 edition = "2018"
 
 [dependencies]
-ash = "0.33"
-ash-window = "0.7"
-raw-window-handle = "0.3"
-bitflags = "1.2.1"
-smallvec = "1.6.1"
-bytemuck = "1.7.2"
+ash = "0.37"
+ash-window = "0.11"
+raw-window-handle = "0.5"
+bitflags = "1.3.2"
+smallvec = "1.9"
+bytemuck = "1.12.1"
 
 [target.'cfg(target_os="windows")'.dependencies]
 winapi = { version = "0.3.9", features = [
@@ -24,8 +24,10 @@ winapi = { version = "0.3.9", features = [
 wio = "0.2.2"
 
 [target.'cfg(target_os="macos")'.dependencies]
-metal = "0.22"
-objc = "0.2.5"
+metal = "0.24"
+objc = "0.2.7"
 block = "0.1.6"
 cocoa-foundation = "0.1"
+# Note: foreign-types is up to 0.5 but metal hasn't upgraded to it
 foreign-types = "0.3.2"
+core-graphics-types = "0.1.1"

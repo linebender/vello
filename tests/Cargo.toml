@@ -10,7 +10,7 @@ edition = "2021"
 default = ["piet-gpu"]
 
 [dependencies]
-clap = "2.33"
+clap = "3.2.22"
 bytemuck = "1.7.2"
 kurbo = "0.7.1"
 rand = "0.7.3"
