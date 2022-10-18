@@ -17,7 +17,7 @@ use winapi::shared::minwindef::TRUE;
 use winapi::shared::{dxgi, dxgi1_2, dxgitype};
 use winapi::um::d3d12;
 
-use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
+use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 
 use smallvec::SmallVec;
 
@@ -153,9 +153,10 @@ impl Dx12Instance {
     /// Create a surface for the specified window handle.
     pub fn surface(
         &self,
-        window_handle: &dyn HasRawWindowHandle,
+        _display_handle: RawDisplayHandle,
+        window_handle: RawWindowHandle,
     ) -> Result<Dx12Surface, Error> {
-        if let RawWindowHandle::Windows(w) = window_handle.raw_window_handle() {
+        if let RawWindowHandle::Win32(w) = window_handle {
             let hwnd = w.hwnd as *mut _;
             Ok(Dx12Surface { hwnd })
         } else {

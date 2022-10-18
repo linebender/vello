@@ -2,7 +2,7 @@
 
 use rand::{Rng, RngCore};
 
-use crate::{Blend, BlendMode, Colrv1RadialGradient, CompositionMode, PietGpuRenderContext};
+use crate::{Blend, BlendMode, Colrv1RadialGradient, PietGpuRenderContext};
 use piet::kurbo::{Affine, BezPath, Circle, Line, Point, Rect, Shape};
 use piet::{
     Color, GradientStop, LinearGradient, Text, TextAttribute, TextLayoutBuilder, UnitPoint,
@@ -34,10 +34,10 @@ pub fn render_scene(rc: &mut PietGpuRenderContext) {
     for _ in 0..N_CIRCLES {
         let color = Color::from_rgba32_u32(rng.next_u32());
         let center = Point::new(
-            rng.gen_range(0.0, WIDTH as f64),
-            rng.gen_range(0.0, HEIGHT as f64),
+            rng.gen_range(0.0..WIDTH as f64),
+            rng.gen_range(0.0..HEIGHT as f64),
         );
-        let radius = rng.gen_range(0.0, 50.0);
+        let radius = rng.gen_range(0.0..50.0);
         let circle = Circle::new(center, radius);
         rc.fill(circle, &color);
     }

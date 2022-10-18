@@ -16,6 +16,8 @@
 
 //! A multiplexer module that selects a back-end at runtime.
 
+use raw_window_handle::RawDisplayHandle;
+use raw_window_handle::RawWindowHandle;
 use smallvec::SmallVec;
 
 mux_cfg! {
@@ -163,12 +165,13 @@ impl Instance {
     /// Create a surface from the specified window handle.
     pub unsafe fn surface(
         &self,
-        window_handle: &dyn raw_window_handle::HasRawWindowHandle,
+        display_handle: RawDisplayHandle,
+        window_handle: RawWindowHandle,
     ) -> Result<Surface, Error> {
         mux_match! { self;
-            Instance::Vk(i) => i.surface(window_handle).map(Surface::Vk),
-            Instance::Dx12(i) => i.surface(window_handle).map(Surface::Dx12),
-            Instance::Mtl(i) => i.surface(window_handle).map(Surface::Mtl),
+            Instance::Vk(i) => i.surface(display_handle, window_handle).map(Surface::Vk),
+            Instance::Dx12(i) => i.surface(display_handle, window_handle).map(Surface::Dx12),
+            Instance::Mtl(i) => i.surface(display_handle, window_handle).map(Surface::Mtl),
         }
     }
 
