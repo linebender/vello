@@ -29,10 +29,10 @@ use objc::rc::autoreleasepool;
 use objc::runtime::{Object, BOOL, YES};
 use objc::{class, msg_send, sel, sel_impl};
 
-use metal::{CommandBufferRef, MTLFeatureSet};
 use core_graphics_types::base::CGFloat;
+use metal::{CommandBufferRef, MTLFeatureSet};
 
-use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
+use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 
 use crate::{
     BufferUsage, ComputePassDescriptor, Error, GpuInfo, ImageFormat, MapMode, WorkgroupLimits,
@@ -140,9 +140,10 @@ impl MtlInstance {
 
     pub unsafe fn surface(
         &self,
-        window_handle: &dyn HasRawWindowHandle,
+        _display_handle: RawDisplayHandle,
+        window_handle: RawWindowHandle,
     ) -> Result<MtlSurface, Error> {
-        if let RawWindowHandle::AppKit(handle) = window_handle.raw_window_handle() {
+        if let RawWindowHandle::AppKit(handle) = window_handle {
             Ok(Self::make_surface(handle.ns_view as id, handle.ns_window as id).unwrap())
         } else {
             Err("can't create surface for window handle".into())

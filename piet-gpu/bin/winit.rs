@@ -6,6 +6,8 @@ use piet_gpu::{test_scenes, PicoSvg, PietGpuRenderContext, RenderDriver, Rendere
 
 use clap::{App, Arg};
 
+use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
+
 use winit::{
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
@@ -60,7 +62,9 @@ fn main() -> Result<(), Error> {
     let instance = Instance::new(InstanceFlags::default())?;
     let mut info_string = "info".to_string();
     unsafe {
-        let surface = instance.surface(&window)?;
+        let display_handle = window.raw_display_handle();
+        let window_handle = window.raw_window_handle();
+        let surface = instance.surface(display_handle, window_handle)?;
         let device = instance.device()?;
         let mut swapchain = instance.swapchain(WIDTH / 2, HEIGHT / 2, &device, &surface)?;
         let session = Session::new(device);

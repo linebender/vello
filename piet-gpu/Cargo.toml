@@ -32,6 +32,7 @@ png = "0.17.6"
 rand = "0.8.5"
 roxmltree = "0.13"
 winit = "0.27.3"
+raw-window-handle = "0.5"
 clap = "3.2.22"
 swash = "0.1.4"
 bytemuck = { version = "1.7.2", features = ["derive"] }

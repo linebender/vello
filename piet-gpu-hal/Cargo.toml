@@ -7,8 +7,8 @@ license = "MIT/Apache-2.0"
 edition = "2018"
 
 [dependencies]
-ash = "0.37"
-ash-window = "0.11"
+ash = { version = "0.37", features = ["loaded"] }
+ash-window = "0.12"
 raw-window-handle = "0.5"
 bitflags = "1.3.2"
 smallvec = "1.9"

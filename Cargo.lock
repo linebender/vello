@@ -46,12 +46,12 @@ dependencies = [
 
 [[package]]
 name = "ash-window"
-version = "0.11.0"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f0573d0bfb0da1260b38f4bfd33fae0c71466e78d070a0f72a490bc09ab6a57"
+checksum = "b912285a7c29f3a8f87ca6f55afc48768624e5e33ec17dbd2f2075903f5e35ab"
 dependencies = [
  "ash",
- "raw-window-handle 0.4.3",
+ "raw-window-handle 0.5.0",
  "raw-window-metal",
 ]
 
@@ -1034,6 +1034,7 @@ dependencies = [
  "png",
  "rand 0.8.5",
  "raw-window-handle 0.3.4",
+ "raw-window-handle 0.5.0",
  "roxmltree",
  "swash",
  "winit",
@@ -1267,14 +1268,14 @@ dependencies = [
 
 [[package]]
 name = "raw-window-metal"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7dd1dc19cf6fa2c1b7be107990884912d012c09d0d7b1631f76df7b01c07374b"
+checksum = "5d18241d631f19847a5f4cc0a3f81d978202c375573ab7d90ab14dcf0a9262ec"
 dependencies = [
  "cocoa",
  "core-graphics",
  "objc",
- "raw-window-handle 0.4.3",
+ "raw-window-handle 0.5.0",
 ]
 
 [[package]]
