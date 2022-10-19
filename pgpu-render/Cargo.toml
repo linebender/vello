@@ -14,9 +14,9 @@ piet-gpu-hal = { path = "../piet-gpu-hal" }
 piet-scene = { path = "../piet-scene" }
 
 [target.'cfg(all(not(target_arch = "wasm32"), any(target_os = "ios", target_os = "macos")))'.dependencies]
-metal = "0.22"
+metal = "0.24"
+objc = "0.2.7"
 cocoa = "0.24.0"
-objc = "0.2.5"
 
 [build-dependencies]
 cbindgen = "0.20.0"

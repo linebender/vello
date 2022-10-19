@@ -1,8 +1,6 @@
-use piet::kurbo::Point;
-use piet::{RenderContext, Text, TextAttribute, TextLayoutBuilder};
+use piet_gpu::{samples, PicoSvg, RenderDriver, Renderer, SimpleText};
 use piet_gpu_hal::{Error, ImageLayout, Instance, InstanceFlags, Session};
-
-use piet_gpu::{test_scenes, PicoSvg, PietGpuRenderContext, RenderDriver, Renderer};
+use piet_scene::{Scene, SceneBuilder};
 
 use clap::{App, Arg};
 
@@ -61,6 +59,8 @@ fn main() -> Result<(), Error> {
 
     let instance = Instance::new(InstanceFlags::default())?;
     let mut info_string = "info".to_string();
+    let mut scene = Scene::default();
+    let mut simple_text = piet_gpu::SimpleText::new();
     unsafe {
         let display_handle = window.raw_display_handle();
         let window_handle = window.raw_window_handle();
@@ -76,7 +76,7 @@ fn main() -> Result<(), Error> {
 
         let renderer = Renderer::new(&session, WIDTH, HEIGHT, NUM_FRAMES)?;
         let mut render_driver = RenderDriver::new(&session, NUM_FRAMES, renderer);
-        let mut mode = 0usize;
+        let mut sample_index = 0usize;
 
         event_loop.run(move |event, _, control_flow| {
             *control_flow = ControlFlow::Poll; // `ControlFlow::Wait` if only re-render on event
@@ -91,8 +91,12 @@ fn main() -> Result<(), Error> {
                         WindowEvent::KeyboardInput { input, .. } => {
                             if input.state == ElementState::Pressed {
                                 match input.virtual_keycode {
-                                    Some(VirtualKeyCode::Left) => mode = mode.wrapping_sub(1),
-                                    Some(VirtualKeyCode::Right) => mode = mode.wrapping_add(1),
+                                    Some(VirtualKeyCode::Left) => {
+                                        sample_index = sample_index.saturating_sub(1)
+                                    }
+                                    Some(VirtualKeyCode::Right) => {
+                                        sample_index = sample_index.saturating_add(1)
+                                    }
                                     _ => {}
                                 }
                             }
@@ -111,52 +115,34 @@ fn main() -> Result<(), Error> {
                         info_string = stats.short_summary();
                     }
 
-                    let mut ctx = PietGpuRenderContext::new();
-                    let test_blend = false;
                     if let Some(svg) = &svg {
-                        test_scenes::render_svg(&mut ctx, svg);
-                    } else if test_blend {
-                        use piet_gpu::{Blend, BlendMode::*, CompositionMode::*};
-                        let blends = [
-                            Blend::new(Normal, SrcOver),
-                            Blend::new(Multiply, SrcOver),
-                            Blend::new(Screen, SrcOver),
-                            Blend::new(Overlay, SrcOver),
-                            Blend::new(Darken, SrcOver),
-                            Blend::new(Lighten, SrcOver),
-                            Blend::new(ColorDodge, SrcOver),
-                            Blend::new(ColorBurn, SrcOver),
-                            Blend::new(HardLight, SrcOver),
-                            Blend::new(SoftLight, SrcOver),
-                            Blend::new(Difference, SrcOver),
-                            Blend::new(Exclusion, SrcOver),
-                            Blend::new(Hue, SrcOver),
-                            Blend::new(Saturation, SrcOver),
-                            Blend::new(Color, SrcOver),
-                            Blend::new(Luminosity, SrcOver),
-                            Blend::new(Normal, Clear),
-                            Blend::new(Normal, Copy),
-                            Blend::new(Normal, Dest),
-                            Blend::new(Normal, SrcOver),
-                            Blend::new(Normal, DestOver),
-                            Blend::new(Normal, SrcIn),
-                            Blend::new(Normal, DestIn),
-                            Blend::new(Normal, SrcOut),
-                            Blend::new(Normal, DestOut),
-                            Blend::new(Normal, SrcAtop),
-                            Blend::new(Normal, DestAtop),
-                            Blend::new(Normal, Xor),
-                            Blend::new(Normal, Plus),
-                        ];
-                        let blend = blends[mode % blends.len()];
-                        test_scenes::render_blend_test(&mut ctx, current_frame, blend);
-                        info_string = format!("{:?}", blend);
+                        let mut builder = SceneBuilder::for_scene(&mut scene);
+                        samples::render_svg(&mut builder, svg, false);
+                        render_info(&mut simple_text, &mut builder, &info_string);
+                        builder.finish();
+                        if let Err(e) = render_driver.upload_scene(&session, &scene) {
+                            println!("error in uploading: {}", e);
+                        }
                     } else {
-                        test_scenes::render_anim_frame(&mut ctx, current_frame);
-                    }
-                    render_info_string(&mut ctx, &info_string);
-                    if let Err(e) = render_driver.upload_render_ctx(&session, &mut ctx) {
-                        println!("error in uploading: {}", e);
+                        let mut builder = SceneBuilder::for_scene(&mut scene);
+
+                        const N_SAMPLES: usize = 5;
+                        match sample_index % N_SAMPLES {
+                            0 => samples::render_anim_frame(
+                                &mut builder,
+                                &mut simple_text,
+                                current_frame,
+                            ),
+                            1 => samples::render_blend_grid(&mut builder),
+                            2 => samples::render_tiger(&mut builder, false),
+                            3 => samples::render_brush_transform(&mut builder, current_frame),
+                            _ => samples::render_scene(&mut builder),
+                        }
+                        render_info(&mut simple_text, &mut builder, &info_string);
+                        builder.finish();
+                        if let Err(e) = render_driver.upload_scene(&session, &scene) {
+                            println!("error in uploading: {}", e);
+                        }
                     }
 
                     let (image_idx, acquisition_semaphore) = swapchain.next().unwrap();
@@ -197,12 +183,13 @@ fn main() -> Result<(), Error> {
     }
 }
 
-fn render_info_string(rc: &mut impl RenderContext, info: &str) {
-    let layout = rc
-        .text()
-        .new_text_layout(info.to_string())
-        .default_attribute(TextAttribute::FontSize(40.0))
-        .build()
-        .unwrap();
-    rc.draw_text(&layout, Point::new(110.0, 50.0));
+fn render_info(simple_text: &mut SimpleText, sb: &mut SceneBuilder, info: &str) {
+    simple_text.add(
+        sb,
+        None,
+        40.0,
+        None,
+        piet_scene::Affine::translate(110.0, 50.0),
+        info,
+    );
 }

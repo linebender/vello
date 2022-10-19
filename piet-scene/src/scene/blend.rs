@@ -60,12 +60,12 @@ pub enum Compose {
 
 /// Blend mode consisting of mixing and composition functions.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
-pub struct Blend {
+pub struct BlendMode {
     pub mix: Mix,
     pub compose: Compose,
 }
 
-impl Blend {
+impl BlendMode {
     pub fn new(mix: Mix, compose: Compose) -> Self {
         Self { mix, compose }
     }
@@ -75,7 +75,7 @@ impl Blend {
     }
 }
 
-impl Default for Blend {
+impl Default for BlendMode {
     fn default() -> Self {
         Self {
             mix: Mix::Clip,
@@ -84,7 +84,7 @@ impl Default for Blend {
     }
 }
 
-impl From<Mix> for Blend {
+impl From<Mix> for BlendMode {
     fn from(mix: Mix) -> Self {
         Self {
             mix,
@@ -93,7 +93,7 @@ impl From<Mix> for Blend {
     }
 }
 
-impl From<Compose> for Blend {
+impl From<Compose> for BlendMode {
     fn from(compose: Compose) -> Self {
         Self {
             mix: Mix::Normal,

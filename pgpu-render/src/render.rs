@@ -14,13 +14,11 @@
 //
 // Also licensed under MIT license, at your choice.
 
-use piet_gpu::{EncodedSceneRef, PixelFormat, RenderConfig};
+use piet_gpu::{PixelFormat, RenderConfig};
 use piet_gpu_hal::{QueryPool, Session};
-use piet_scene::geometry::{Affine, Rect};
 use piet_scene::glyph::pinot::{types::Tag, FontDataRef};
 use piet_scene::glyph::{GlyphContext, GlyphProvider};
-use piet_scene::resource::ResourceContext;
-use piet_scene::scene::{Fragment, Scene};
+use piet_scene::{Affine, Rect, Scene, SceneFragment};
 
 /// State and resources for rendering a scene.
 pub struct PgpuRenderer {
@@ -89,7 +87,7 @@ impl PgpuRenderer {
                 .session
                 .image_from_raw_mtl(target, self.width, self.height);
             if let Some(renderer) = &mut self.pgpu_renderer {
-                renderer.upload_scene(&scene.encoded_scene(), 0).unwrap();
+                renderer.upload_scene(&scene.0, 0).unwrap();
                 renderer.record(&mut cmd_buf, &self.query_pool, 0);
                 // TODO later: we can bind the destination image and avoid the copy.
                 cmd_buf.blit_image(&renderer.image_dev, &dst_image);
@@ -105,67 +103,50 @@ impl PgpuRenderer {
 }
 
 /// Encoded streams and resources describing a vector graphics scene.
-pub struct PgpuScene {
-    scene: Scene,
-    rcx: ResourceContext,
-}
+pub struct PgpuScene(pub Scene);
 
 impl PgpuScene {
     pub fn new() -> Self {
-        Self {
-            scene: Scene::default(),
-            rcx: ResourceContext::new(),
-        }
+        Self(Scene::default())
     }
 
     pub fn builder(&mut self) -> PgpuSceneBuilder {
-        self.rcx.advance();
-        PgpuSceneBuilder(piet_scene::scene::build_scene(
-            &mut self.scene,
-            &mut self.rcx,
-        ))
-    }
-
-    fn encoded_scene<'a>(&'a self) -> EncodedSceneRef<'a, piet_scene::geometry::Affine> {
-        let d = self.scene.data();
-        EncodedSceneRef {
-            transform_stream: &d.transform_stream,
-            tag_stream: &d.tag_stream,
-            pathseg_stream: &d.pathseg_stream,
-            linewidth_stream: &d.linewidth_stream,
-            drawtag_stream: &d.drawtag_stream,
-            drawdata_stream: &d.drawdata_stream,
-            n_path: d.n_path,
-            n_pathseg: d.n_pathseg,
-            n_clip: d.n_clip,
-            ramp_data: self.rcx.ramp_data(),
+        PgpuSceneBuilder {
+            builder: piet_scene::SceneBuilder::for_scene(&mut self.0),
+            transform: Affine::IDENTITY,
         }
     }
 }
 
 /// Encoded streams and resources describing a vector graphics scene fragment.
-pub struct PgpuSceneFragment(pub Fragment);
+pub struct PgpuSceneFragment(pub SceneFragment);
 
 impl PgpuSceneFragment {
     pub fn new() -> Self {
-        Self(Fragment::default())
+        Self(SceneFragment::default())
     }
 
     pub fn builder(&mut self) -> PgpuSceneBuilder {
-        PgpuSceneBuilder(piet_scene::scene::build_fragment(&mut self.0))
+        PgpuSceneBuilder {
+            builder: piet_scene::SceneBuilder::for_fragment(&mut self.0),
+            transform: Affine::IDENTITY,
+        }
     }
 }
 
 /// Builder for constructing an encoded scene.
-pub struct PgpuSceneBuilder<'a>(pub piet_scene::scene::Builder<'a>);
+pub struct PgpuSceneBuilder<'a> {
+    pub builder: piet_scene::SceneBuilder<'a>,
+    pub transform: Affine,
+}
 
 impl<'a> PgpuSceneBuilder<'a> {
-    pub fn add_glyph(&mut self, glyph: &PgpuGlyph, transform: &piet_scene::geometry::Affine) {
-        self.0.append(&glyph.fragment, Some(*transform));
+    pub fn add_glyph(&mut self, glyph: &PgpuGlyph, transform: &piet_scene::Affine) {
+        self.builder.append(&glyph.fragment, Some(*transform));
     }
 
     pub fn finish(self) {
-        self.0.finish();
+        self.builder.finish();
     }
 }
 
@@ -216,7 +197,7 @@ pub struct PgpuGlyphProvider<'a>(GlyphProvider<'a>);
 
 impl<'a> PgpuGlyphProvider<'a> {
     pub fn get(&mut self, gid: u16) -> Option<PgpuGlyph> {
-        let fragment = self.0.get(gid)?;
+        let fragment = self.0.get(gid, None)?;
         Some(PgpuGlyph { fragment })
     }
 
@@ -228,7 +209,7 @@ impl<'a> PgpuGlyphProvider<'a> {
 
 /// Encoded (possibly color) outline for a glyph.
 pub struct PgpuGlyph {
-    fragment: Fragment,
+    fragment: SceneFragment,
 }
 
 impl PgpuGlyph {

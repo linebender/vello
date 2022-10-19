@@ -4,12 +4,12 @@ use std::str::FromStr;
 
 use roxmltree::{Document, Node};
 
-use piet::kurbo::{Affine, BezPath};
+use kurbo::{Affine, BezPath};
 
-use piet::{Color, RenderContext};
+use piet_scene::Color;
 
 pub struct PicoSvg {
-    items: Vec<Item>,
+    pub items: Vec<Item>,
 }
 
 pub enum Item {
@@ -18,14 +18,14 @@ pub enum Item {
 }
 
 pub struct StrokeItem {
-    width: f64,
-    color: Color,
-    path: BezPath,
+    pub width: f64,
+    pub color: Color,
+    pub path: BezPath,
 }
 
 pub struct FillItem {
-    color: Color,
-    path: BezPath,
+    pub color: Color,
+    pub path: BezPath,
 }
 
 struct Parser<'a> {
@@ -43,20 +43,6 @@ impl PicoSvg {
             parser.rec_parse(node)?;
         }
         Ok(PicoSvg { items })
-    }
-
-    pub fn render(&self, rc: &mut impl RenderContext) {
-        for item in &self.items {
-            match item {
-                Item::Fill(fill_item) => {
-                    rc.fill(&fill_item.path, &fill_item.color);
-                    //rc.stroke(&fill_item.path, &fill_item.color, 1.0);
-                }
-                Item::Stroke(stroke_item) => {
-                    rc.stroke(&stroke_item.path, &stroke_item.color, stroke_item.width);
-                }
-            }
-        }
     }
 }
 
@@ -119,7 +105,14 @@ fn parse_color(color: &str) -> Color {
         if color.len() == 4 {
             hex = (hex >> 8) * 0x110000 + ((hex >> 4) & 0xf) * 0x1100 + (hex & 0xf) * 0x11;
         }
-        Color::from_rgba32_u32((hex << 8) + 0xff)
+        let rgba = (hex << 8) + 0xff;
+        let (r, g, b, a) = (
+            (rgba >> 24 & 255) as u8,
+            ((rgba >> 16) & 255) as u8,
+            ((rgba >> 8) & 255) as u8,
+            (rgba & 255) as u8,
+        );
+        Color::rgba8(r, g, b, a)
     } else if color.starts_with("rgb(") {
         let mut iter = color[4..color.len() - 1].split(',');
         let r = u8::from_str(iter.next().unwrap()).unwrap();
@@ -127,19 +120,20 @@ fn parse_color(color: &str) -> Color {
         let b = u8::from_str(iter.next().unwrap()).unwrap();
         Color::rgb8(r, g, b)
     } else {
-        Color::from_rgba32_u32(0xff00ff80)
+        Color::rgba8(255, 0, 255, 0x80)
     }
 }
 
-fn modify_opacity(color: Color, attr_name: &str, node: Node) -> Color {
+fn modify_opacity(mut color: Color, attr_name: &str, node: Node) -> Color {
     if let Some(opacity) = node.attribute(attr_name) {
         let alpha = if opacity.ends_with("%") {
             let pctg = opacity[..opacity.len() - 1].parse().unwrap_or(100.0);
             pctg * 0.01
         } else {
             opacity.parse().unwrap_or(1.0)
-        };
-        color.with_alpha(alpha)
+        } as f64;
+        color.a = (alpha.min(1.0).max(0.0) * 255.0).round() as u8;
+        color
     } else {
         color
     }

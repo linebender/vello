@@ -14,10 +14,10 @@
 //
 // Also licensed under MIT license, at your choice.
 
-use bytemuck::Pod;
 use piet_gpu_hal::{CmdBuf, Error, Image, QueryPool, Semaphore, Session, SubmittedCmdBuf};
+use piet_scene::Scene;
 
-use crate::{EncodedSceneRef, MemoryHeader, PietGpuRenderContext, Renderer, SceneStats};
+use crate::{MemoryHeader, Renderer, SceneStats};
 
 /// Additional logic for sequencing rendering operations, specifically
 /// for handling failure and reallocation.
@@ -86,22 +86,8 @@ impl RenderDriver {
         }
     }
 
-    pub fn upload_render_ctx(
-        &mut self,
-        session: &Session,
-        render_ctx: &mut PietGpuRenderContext,
-    ) -> Result<(), Error> {
-        let stats = render_ctx.stats();
-        self.ensure_scene_buffers(session, &stats)?;
-        self.renderer.upload_render_ctx(render_ctx, self.buf_ix)
-    }
-
-    pub fn upload_scene<T: Copy + Pod>(
-        &mut self,
-        session: &Session,
-        scene: &EncodedSceneRef<T>,
-    ) -> Result<(), Error> {
-        let stats = scene.stats();
+    pub fn upload_scene(&mut self, session: &Session, scene: &Scene) -> Result<(), Error> {
+        let stats = SceneStats::from_scene(scene);
         self.ensure_scene_buffers(session, &stats)?;
         self.renderer.upload_scene(scene, self.buf_ix)
     }
