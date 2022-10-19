@@ -1,30 +1,25 @@
-mod blend;
-mod encoder;
-pub mod glyph_render;
-mod gradient;
 mod pico_svg;
-mod render_ctx;
+mod ramp;
 mod render_driver;
+pub mod samples;
+mod simple_text;
 pub mod stages;
-pub mod test_scenes;
-mod text;
+
+pub use piet_scene as scene;
 
 use bytemuck::{Pod, Zeroable};
+use scene::ResourcePatch;
 use std::convert::TryInto;
 
-pub use blend::{Blend, BlendMode, CompositionMode};
-pub use encoder::EncodedSceneRef;
-pub use gradient::Colrv1RadialGradient;
-pub use render_ctx::PietGpuRenderContext;
 pub use render_driver::RenderDriver;
-
-use piet::kurbo::Vec2;
-use piet::{ImageFormat, RenderContext};
+pub use simple_text::SimpleText;
 
 use piet_gpu_hal::{
-    include_shader, BindType, Buffer, BufferUsage, CmdBuf, ComputePassDescriptor, DescriptorSet,
-    Error, Image, ImageLayout, Pipeline, QueryPool, Session,
+    include_shader, BindType, BufWrite, Buffer, BufferUsage, CmdBuf, ComputePassDescriptor,
+    DescriptorSet, Error, Image, ImageLayout, Pipeline, QueryPool, Session,
 };
+
+use piet_scene::Scene;
 
 pub use pico_svg::PicoSvg;
 use stages::{ClipBinding, ElementBinding, ElementCode, DRAW_PART_SIZE, PATHSEG_PART_SIZE};
@@ -35,6 +30,10 @@ const TILE_W: usize = 16;
 const TILE_H: usize = 16;
 
 const PTCL_INITIAL_ALLOC: usize = 1024;
+
+const N_GRADIENT_SAMPLES: usize = 512;
+// TODO: make this dynamic
+const N_GRADIENTS: usize = 256;
 
 #[allow(unused)]
 fn dump_scene(buf: &[u8]) {
@@ -157,6 +156,9 @@ pub struct Renderer {
 
     gradient_bufs: Vec<Buffer>,
     gradients: Image,
+
+    ramps: ramp::RampCache,
+    drawdata_patches: Vec<(usize, u32)>,
 }
 
 impl RenderConfig {
@@ -222,7 +224,7 @@ impl Renderer {
 
         let image_format = match config.format {
             PixelFormat::A8 => piet_gpu_hal::ImageFormat::A8,
-            PixelFormat::Rgba8 => piet_gpu_hal::ImageFormat::Rgba8,
+            PixelFormat::Rgba8 => piet_gpu_hal::ImageFormat::Surface,
         };
         let image_dev = session.create_image2d(width as u32, height as u32, image_format)?;
 
@@ -333,8 +335,8 @@ impl Renderer {
             .collect::<Result<Vec<_>, _>>()?;
         let bg_image = Self::make_test_bg_image(&session);
 
-        const GRADIENT_BUF_SIZE: usize =
-            crate::gradient::N_GRADIENTS * crate::gradient::N_SAMPLES * 4;
+        const GRADIENT_BUF_SIZE: usize = N_GRADIENTS * N_GRADIENT_SAMPLES * 4;
+
         let gradient_bufs = (0..n_bufs)
             .map(|_| {
                 session
@@ -367,6 +369,9 @@ impl Renderer {
             .build(&session, &k4_pipeline)?;
 
         let scene_stats = Default::default();
+        let ramps = ramp::RampCache::default();
+        let drawdata_patches = vec![];
+
         Ok(Renderer {
             width,
             height,
@@ -406,62 +411,40 @@ impl Renderer {
             _bg_image: bg_image,
             gradient_bufs,
             gradients,
+            ramps,
+            drawdata_patches,
         })
     }
 
-    /// Convert the scene in the render context to GPU resources.
-    ///
-    /// At present, this requires that any command buffer submission has completed.
-    /// A future evolution will handle staging of the next frame's scene while the
-    /// rendering of the current frame is in flight.
-    pub fn upload_render_ctx(
-        &mut self,
-        render_ctx: &mut PietGpuRenderContext,
-        buf_ix: usize,
-    ) -> Result<(), Error> {
-        self.scene_stats = render_ctx.stats();
-
+    pub fn upload_scene(&mut self, scene: &Scene, buf_ix: usize) -> Result<(), Error> {
+        self.drawdata_patches.clear();
+        self.scene_stats = SceneStats::from_scene(scene);
+        self.ramps.advance();
+        let data = scene.data();
+        let stop_data = &data.resources.stops;
+        for patch in &data.resources.patches {
+            match patch {
+                ResourcePatch::Ramp { offset, stops } => {
+                    let ramp_id = self.ramps.add(&stop_data[stops.clone()]);
+                    self.drawdata_patches.push((*offset, ramp_id));
+                }
+            }
+        }
         unsafe {
             self.upload_config(buf_ix)?;
             {
                 let mut mapped_scene = self.scene_bufs[buf_ix].map_write(..)?;
-                render_ctx.write_scene(&mut mapped_scene);
+                write_scene(scene, &self.drawdata_patches, &mut mapped_scene);
             }
 
             // Upload gradient data.
-            let ramp_data = render_ctx.get_ramp_data();
+            let ramp_data = self.ramps.data();
             if !ramp_data.is_empty() {
                 assert!(
                     self.gradient_bufs[buf_ix].size() as usize
                         >= std::mem::size_of_val(&*ramp_data)
                 );
-                self.gradient_bufs[buf_ix].write(&ramp_data)?;
-            }
-        }
-        Ok(())
-    }
-
-    pub fn upload_scene<T: Copy + Pod>(
-        &mut self,
-        scene: &EncodedSceneRef<T>,
-        buf_ix: usize,
-    ) -> Result<(), Error> {
-        self.scene_stats = scene.stats();
-
-        unsafe {
-            self.upload_config(buf_ix)?;
-            {
-                let mut mapped_scene = self.scene_bufs[buf_ix].map_write(..)?;
-                scene.write_scene(&mut mapped_scene);
-            }
-
-            // Upload gradient data.
-            if !scene.ramp_data.is_empty() {
-                assert!(
-                    self.gradient_bufs[buf_ix].size() as usize
-                        >= std::mem::size_of_val(&*scene.ramp_data)
-                );
-                self.gradient_bufs[buf_ix].write(scene.ramp_data)?;
+                self.gradient_bufs[buf_ix].write(ramp_data)?;
             }
         }
         Ok(())
@@ -643,12 +626,8 @@ impl Renderer {
         width: usize,
         height: usize,
         buf: &[u8],
-        format: ImageFormat,
     ) -> Result<Image, Error> {
         unsafe {
-            if format != ImageFormat::RgbaPremul {
-                return Err("unsupported image format".into());
-            }
             let buffer = session.create_buffer_init(&buf, BufferUsage::COPY_SRC)?;
             const RGBA: piet_gpu_hal::ImageFormat = piet_gpu_hal::ImageFormat::Rgba8;
             let image = session.create_image2d(width.try_into()?, height.try_into()?, RGBA)?;
@@ -682,18 +661,14 @@ impl Renderer {
                 buf[(y * WIDTH + x) * 4 + 2] = b;
             }
         }
-        Self::make_image(session, WIDTH, HEIGHT, &buf, ImageFormat::RgbaPremul).unwrap()
+        Self::make_image(session, WIDTH, HEIGHT, &buf).unwrap()
     }
 
     fn make_gradient_image(session: &Session) -> Image {
         unsafe {
             const RGBA: piet_gpu_hal::ImageFormat = piet_gpu_hal::ImageFormat::Rgba8;
             session
-                .create_image2d(
-                    gradient::N_SAMPLES as u32,
-                    gradient::N_GRADIENTS as u32,
-                    RGBA,
-                )
+                .create_image2d(N_GRADIENT_SAMPLES as u32, N_GRADIENTS as u32, RGBA)
                 .unwrap()
         }
     }
@@ -792,6 +767,21 @@ const DRAWTAG_SIZE: usize = 4;
 const ANNOTATED_SIZE: usize = 40;
 
 impl SceneStats {
+    pub fn from_scene(scene: &piet_scene::Scene) -> Self {
+        let data = scene.data();
+        Self {
+            n_drawobj: data.drawtag_stream.len(),
+            drawdata_len: data.drawdata_stream.len(),
+            n_transform: data.transform_stream.len(),
+            linewidth_len: std::mem::size_of_val(&*data.linewidth_stream),
+            pathseg_len: data.pathseg_stream.len(),
+            n_pathtag: data.tag_stream.len(),
+            n_path: data.n_path,
+            n_pathseg: data.n_pathseg,
+            n_clip: data.n_clip,
+        }
+    }
+
     pub(crate) fn scene_size(&self) -> usize {
         align_up(self.n_drawobj, DRAW_PART_SIZE as usize) * DRAWTAG_SIZE
             + self.drawdata_len
@@ -894,6 +884,40 @@ impl SceneStats {
 
         (config, alloc)
     }
+}
+
+fn write_scene(scene: &Scene, drawdata_patches: &[(usize, u32)], buf: &mut BufWrite) {
+    let data = scene.data();
+    buf.extend_slice(&data.drawtag_stream);
+    let n_drawobj = data.drawtag_stream.len();
+    buf.fill_zero(padding(n_drawobj, DRAW_PART_SIZE as usize) * DRAWTAG_SIZE);
+    if !drawdata_patches.is_empty() {
+        let mut pos = 0;
+        for patch in drawdata_patches {
+            let offset = patch.0;
+            let value = patch.1;
+            if pos < offset {
+                buf.extend_slice(&data.drawdata_stream[pos..offset]);
+            }
+            buf.push(value);
+            pos = offset + 4;
+        }
+        if pos < data.drawdata_stream.len() {
+            buf.extend_slice(&data.drawdata_stream[pos..])
+        }
+    } else {
+        buf.extend_slice(&data.drawdata_stream);
+    }
+    buf.extend_slice(&data.transform_stream);
+    buf.extend_slice(&data.linewidth_stream);
+    buf.extend_slice(&data.tag_stream);
+    let n_pathtag = data.tag_stream.len();
+    buf.fill_zero(padding(n_pathtag, PATHSEG_PART_SIZE as usize));
+    buf.extend_slice(&data.pathseg_stream);
+}
+
+fn padding(x: usize, align: usize) -> usize {
+    x.wrapping_neg() & (align - 1)
 }
 
 fn align_up(x: usize, align: usize) -> usize {

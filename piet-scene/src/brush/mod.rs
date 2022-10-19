@@ -22,8 +22,7 @@ pub use color::Color;
 pub use gradient::*;
 pub use image::*;
 
-use crate::resource::PersistentBrush;
-
+/// Describes the content of a filled or stroked shape.
 #[derive(Clone, Debug)]
 pub enum Brush {
     Solid(Color),
@@ -31,5 +30,31 @@ pub enum Brush {
     RadialGradient(RadialGradient),
     SweepGradient(SweepGradient),
     Image(Image),
-    Persistent(PersistentBrush),
+}
+
+/// Defines how a brush is extended when the content does not
+/// completely fill a shape.
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub enum ExtendMode {
+    Pad,
+    Repeat,
+    Reflect,
+}
+
+impl From<Color> for Brush {
+    fn from(c: Color) -> Self {
+        Self::Solid(c)
+    }
+}
+
+impl From<LinearGradient> for Brush {
+    fn from(g: LinearGradient) -> Self {
+        Self::LinearGradient(g)
+    }
+}
+
+impl From<RadialGradient> for Brush {
+    fn from(g: RadialGradient) -> Self {
+        Self::RadialGradient(g)
+    }
 }

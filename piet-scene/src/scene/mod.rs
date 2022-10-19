@@ -18,15 +18,13 @@ mod blend;
 mod builder;
 mod style;
 
-pub use blend::{Blend, Compose, Mix};
-pub use builder::{build_fragment, build_scene, Builder};
+pub use blend::{BlendMode, Compose, Mix};
+pub use builder::SceneBuilder;
 pub use style::*;
 
-use super::brush::*;
 use super::geometry::{Affine, Point};
-use super::path::Element;
-
-use core::ops::Range;
+use super::path::PathElement;
+use super::resource::{ResourceBundle, ResourcePatch};
 
 /// Raw data streams describing an encoded scene.
 #[derive(Default)]
@@ -40,9 +38,14 @@ pub struct SceneData {
     pub n_path: u32,
     pub n_pathseg: u32,
     pub n_clip: u32,
+    pub resources: ResourceBundle,
 }
 
 impl SceneData {
+    fn is_empty(&self) -> bool {
+        self.pathseg_stream.is_empty()
+    }
+
     fn reset(&mut self, is_fragment: bool) {
         self.transform_stream.clear();
         self.tag_stream.clear();
@@ -53,6 +56,7 @@ impl SceneData {
         self.n_path = 0;
         self.n_pathseg = 0;
         self.n_clip = 0;
+        self.resources.clear();
         if !is_fragment {
             self.transform_stream
                 .push(Affine::new(&[1.0, 0.0, 0.0, 1.0, 0.0, 0.0]));
@@ -61,9 +65,11 @@ impl SceneData {
     }
 
     fn append(&mut self, other: &SceneData, transform: &Option<Affine>) {
+        let stops_base = self.resources.stops.len();
+        let drawdata_base = self.drawdata_stream.len();
         if let Some(transform) = *transform {
             self.transform_stream
-                .extend(other.transform_stream.iter().map(|x| *x * transform));
+                .extend(other.transform_stream.iter().map(|x| transform * *x));
         } else {
             self.transform_stream
                 .extend_from_slice(&other.transform_stream);
@@ -78,6 +84,20 @@ impl SceneData {
         self.n_path += other.n_path;
         self.n_pathseg += other.n_pathseg;
         self.n_clip += other.n_clip;
+        self.resources
+            .stops
+            .extend_from_slice(&other.resources.stops);
+        self.resources
+            .patches
+            .extend(other.resources.patches.iter().map(|patch| match patch {
+                ResourcePatch::Ramp { offset, stops } => {
+                    let stops = stops.start + stops_base..stops.end + stops_base;
+                    ResourcePatch::Ramp {
+                        offset: drawdata_base + offset,
+                        stops,
+                    }
+                }
+            }));
     }
 }
 
@@ -97,28 +117,23 @@ impl Scene {
 
 /// Encoded definition of a scene fragment and associated resources.
 #[derive(Default)]
-pub struct Fragment {
+pub struct SceneFragment {
     data: SceneData,
-    resources: FragmentResources,
 }
 
-impl Fragment {
+impl SceneFragment {
+    /// Returns true if the fragment does not contain any paths.
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
+    }
+
     /// Returns the underlying stream of points that defined all encoded path
     /// segments.
     pub fn points(&self) -> &[Point] {
-        bytemuck::cast_slice(&self.data.pathseg_stream)
+        if self.is_empty() {
+            &[]
+        } else {
+            bytemuck::cast_slice(&self.data.pathseg_stream)
+        }
     }
-}
-
-#[derive(Default)]
-struct FragmentResources {
-    patches: Vec<ResourcePatch>,
-    stops: Vec<Stop>,
-}
-
-enum ResourcePatch {
-    Ramp {
-        drawdata_offset: usize,
-        stops: Range<usize>,
-    },
 }

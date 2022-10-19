@@ -14,12 +14,14 @@
 //
 // Also licensed under MIT license, at your choice.
 
+//! Support for glyph rendering.
+
 pub use moscato::pinot;
 
 use crate::brush::{Brush, Color};
 use crate::geometry::Affine;
-use crate::path::Element;
-use crate::scene::{build_fragment, Fill, Fragment};
+use crate::path::PathElement;
+use crate::scene::{Fill, SceneBuilder, SceneFragment};
 
 use moscato::{Context, Scaler};
 use pinot::{types::Tag, FontRef};
@@ -81,28 +83,30 @@ pub struct GlyphProvider<'a> {
 impl<'a> GlyphProvider<'a> {
     /// Returns a scene fragment containing the commands to render the
     /// specified glyph.
-    pub fn get(&mut self, gid: u16) -> Option<Fragment> {
+    pub fn get(&mut self, gid: u16, brush: Option<&Brush>) -> Option<SceneFragment> {
         let glyph = self.scaler.glyph(gid)?;
         let path = glyph.path(0)?;
-        let mut fragment = Fragment::default();
-        let mut builder = build_fragment(&mut fragment);
+        let mut fragment = SceneFragment::default();
+        let mut builder = SceneBuilder::for_fragment(&mut fragment);
         builder.fill(
             Fill::NonZero,
-            &Brush::Solid(Color::rgb8(255, 255, 255)),
+            Affine::IDENTITY,
+            brush.unwrap_or(&Brush::Solid(Color::rgb8(255, 255, 255))),
             None,
             convert_path(path.elements()),
         );
+        builder.finish();
         Some(fragment)
     }
 
     /// Returns a scene fragment containing the commands and resources to
     /// render the specified color glyph.
-    pub fn get_color(&mut self, palette_index: u16, gid: u16) -> Option<Fragment> {
+    pub fn get_color(&mut self, palette_index: u16, gid: u16) -> Option<SceneFragment> {
         use crate::geometry::*;
         use moscato::Command;
         let glyph = self.scaler.color_glyph(palette_index, gid)?;
-        let mut fragment = Fragment::default();
-        let mut builder = build_fragment(&mut fragment);
+        let mut fragment = SceneFragment::default();
+        let mut builder = SceneBuilder::for_fragment(&mut fragment);
         let mut xform_stack: SmallVec<[Affine; 8]> = SmallVec::new();
         for command in glyph.commands() {
             match command {
@@ -122,10 +126,15 @@ impl<'a> GlyphProvider<'a> {
                     if let Some(xform) = xform_stack.last() {
                         builder.push_layer(
                             Default::default(),
+                            Affine::IDENTITY,
                             convert_transformed_path(path.elements(), xform),
                         );
                     } else {
-                        builder.push_layer(Default::default(), convert_path(path.elements()));
+                        builder.push_layer(
+                            Default::default(),
+                            Affine::IDENTITY,
+                            convert_path(path.elements()),
+                        );
                     }
                 }
                 Command::PopClip => builder.pop_layer(),
@@ -137,7 +146,7 @@ impl<'a> GlyphProvider<'a> {
                     if let Some(xform) = xform_stack.last() {
                         rect = rect.transform(xform);
                     }
-                    builder.push_layer(Default::default(), rect.elements());
+                    builder.push_layer(Default::default(), Affine::IDENTITY, rect.elements());
                 }
                 Command::PopLayer => builder.pop_layer(),
                 Command::BeginBlend(bounds, mode) => {
@@ -148,7 +157,7 @@ impl<'a> GlyphProvider<'a> {
                     if let Some(xform) = xform_stack.last() {
                         rect = rect.transform(xform);
                     }
-                    builder.push_layer(convert_blend(*mode), rect.elements())
+                    builder.push_layer(convert_blend(*mode), Affine::IDENTITY, rect.elements())
                 }
                 Command::EndBlend => builder.pop_layer(),
                 Command::SimpleFill(path_index, brush, brush_xform) => {
@@ -158,6 +167,7 @@ impl<'a> GlyphProvider<'a> {
                     if let Some(xform) = xform_stack.last() {
                         builder.fill(
                             Fill::NonZero,
+                            Affine::IDENTITY,
                             &brush,
                             brush_xform.map(|x| x * *xform),
                             convert_transformed_path(path.elements(), xform),
@@ -165,65 +175,71 @@ impl<'a> GlyphProvider<'a> {
                     } else {
                         builder.fill(
                             Fill::NonZero,
+                            Affine::IDENTITY,
                             &brush,
                             brush_xform,
                             convert_path(path.elements()),
                         );
                     }
                 }
-                Command::Fill(brush, brush_xform) => {
+                Command::Fill(_brush, _brush_xform) => {
                     // TODO: this needs to compute a bounding box for
                     // the parent clips
                 }
             }
         }
+        builder.finish();
         Some(fragment)
     }
 }
 
 fn convert_path(
     path: impl Iterator<Item = moscato::Element> + Clone,
-) -> impl Iterator<Item = Element> + Clone {
+) -> impl Iterator<Item = PathElement> + Clone {
     use crate::geometry::Point;
     path.map(|el| match el {
-        moscato::Element::MoveTo(p0) => Element::MoveTo(Point::new(p0.x, p0.y)),
-        moscato::Element::LineTo(p0) => Element::LineTo(Point::new(p0.x, p0.y)),
+        moscato::Element::MoveTo(p0) => PathElement::MoveTo(Point::new(p0.x, p0.y)),
+        moscato::Element::LineTo(p0) => PathElement::LineTo(Point::new(p0.x, p0.y)),
         moscato::Element::QuadTo(p0, p1) => {
-            Element::QuadTo(Point::new(p0.x, p0.y), Point::new(p1.x, p1.y))
+            PathElement::QuadTo(Point::new(p0.x, p0.y), Point::new(p1.x, p1.y))
         }
-        moscato::Element::CurveTo(p0, p1, p2) => Element::CurveTo(
+        moscato::Element::CurveTo(p0, p1, p2) => PathElement::CurveTo(
             Point::new(p0.x, p0.y),
             Point::new(p1.x, p1.y),
             Point::new(p2.x, p2.y),
         ),
-        moscato::Element::Close => Element::Close,
+        moscato::Element::Close => PathElement::Close,
     })
 }
 
 fn convert_transformed_path(
     path: impl Iterator<Item = moscato::Element> + Clone,
     xform: &Affine,
-) -> impl Iterator<Item = Element> + Clone {
+) -> impl Iterator<Item = PathElement> + Clone {
     use crate::geometry::Point;
     let xform = *xform;
     path.map(move |el| match el {
-        moscato::Element::MoveTo(p0) => Element::MoveTo(Point::new(p0.x, p0.y).transform(&xform)),
-        moscato::Element::LineTo(p0) => Element::LineTo(Point::new(p0.x, p0.y).transform(&xform)),
-        moscato::Element::QuadTo(p0, p1) => Element::QuadTo(
+        moscato::Element::MoveTo(p0) => {
+            PathElement::MoveTo(Point::new(p0.x, p0.y).transform(&xform))
+        }
+        moscato::Element::LineTo(p0) => {
+            PathElement::LineTo(Point::new(p0.x, p0.y).transform(&xform))
+        }
+        moscato::Element::QuadTo(p0, p1) => PathElement::QuadTo(
             Point::new(p0.x, p0.y).transform(&xform),
             Point::new(p1.x, p1.y).transform(&xform),
         ),
-        moscato::Element::CurveTo(p0, p1, p2) => Element::CurveTo(
+        moscato::Element::CurveTo(p0, p1, p2) => PathElement::CurveTo(
             Point::new(p0.x, p0.y).transform(&xform),
             Point::new(p1.x, p1.y).transform(&xform),
             Point::new(p2.x, p2.y).transform(&xform),
         ),
-        moscato::Element::Close => Element::Close,
+        moscato::Element::Close => PathElement::Close,
     })
 }
 
-fn convert_blend(mode: moscato::CompositeMode) -> crate::scene::Blend {
-    use crate::scene::{Blend, Compose, Mix};
+fn convert_blend(mode: moscato::CompositeMode) -> crate::scene::BlendMode {
+    use crate::scene::{BlendMode, Compose, Mix};
     use moscato::CompositeMode;
     let mut mix = Mix::Normal;
     let mut compose = Compose::SrcOver;
@@ -257,7 +273,7 @@ fn convert_blend(mode: moscato::CompositeMode) -> crate::scene::Blend {
         CompositeMode::HslColor => mix = Mix::Color,
         CompositeMode::HslLuminosity => mix = Mix::Luminosity,
     }
-    Blend { mix, compose }
+    BlendMode { mix, compose }
 }
 
 fn convert_transform(xform: &moscato::Transform) -> crate::geometry::Affine {
@@ -298,11 +314,11 @@ fn convert_brush(brush: &moscato::Brush) -> crate::brush::Brush {
     }
 }
 
-fn convert_stops(stops: &[moscato::ColorStop]) -> crate::brush::StopVec {
-    use crate::brush::Stop;
+fn convert_stops(stops: &[moscato::ColorStop]) -> crate::brush::GradientStops {
+    use crate::brush::GradientStop;
     stops
         .iter()
-        .map(|stop| Stop {
+        .map(|stop| GradientStop {
             offset: stop.offset,
             color: Color {
                 r: stop.color.r,
@@ -314,8 +330,8 @@ fn convert_stops(stops: &[moscato::ColorStop]) -> crate::brush::StopVec {
         .collect()
 }
 
-fn convert_extend(extend: moscato::ExtendMode) -> crate::brush::Extend {
-    use crate::brush::Extend::*;
+fn convert_extend(extend: moscato::ExtendMode) -> crate::brush::ExtendMode {
+    use crate::brush::ExtendMode::*;
     match extend {
         moscato::ExtendMode::Pad => Pad,
         moscato::ExtendMode::Repeat => Repeat,

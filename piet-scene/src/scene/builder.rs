@@ -15,72 +15,53 @@
 // Also licensed under MIT license, at your choice.
 
 use super::style::{Fill, Stroke};
-use super::{Affine, Blend, Element, Fragment, FragmentResources, ResourcePatch, Scene, SceneData};
-use crate::brush::*;
-use crate::resource::ResourceContext;
+use super::{Affine, BlendMode, PathElement, Scene, SceneData, SceneFragment};
+use crate::{brush::*, ResourcePatch};
 use bytemuck::{Pod, Zeroable};
 use core::borrow::Borrow;
-
-const MAX_BLEND_STACK: usize = 256;
-
-/// Creates a new builder for filling a scene. Any current content in the scene
-/// will be cleared.
-pub fn build_scene<'a>(scene: &'a mut Scene, rcx: &'a mut ResourceContext) -> Builder<'a> {
-    Builder::new(&mut scene.data, ResourceData::Scene(rcx))
-}
-
-/// Creates a new builder for filling a scene fragment. Any current content in
-/// the fragment will be cleared.
-pub fn build_fragment<'a>(fragment: &'a mut Fragment) -> Builder<'a> {
-    Builder::new(
-        &mut fragment.data,
-        ResourceData::Fragment(&mut fragment.resources),
-    )
-}
+use smallvec::SmallVec;
 
 /// Builder for constructing a scene or scene fragment.
-pub struct Builder<'a> {
+pub struct SceneBuilder<'a> {
     scene: &'a mut SceneData,
-    resources: ResourceData<'a>,
-    layers: Vec<Blend>,
+    layers: SmallVec<[BlendMode; 8]>,
 }
 
-impl<'a> Builder<'a> {
-    /// Creates a new builder for constructing a scene.
-    fn new(scene: &'a mut SceneData, mut resources: ResourceData<'a>) -> Self {
-        let is_fragment = match resources {
-            ResourceData::Fragment(_) => true,
-            _ => false,
-        };
-        scene.reset(is_fragment);
-        resources.clear();
-        Self {
-            scene,
-            resources,
-            layers: vec![],
-        }
+impl<'a> SceneBuilder<'a> {
+    /// Creates a new builder for filling a scene. Any current content in the scene
+    /// will be cleared.
+    pub fn for_scene(scene: &'a mut Scene) -> Self {
+        Self::new(&mut scene.data, false)
     }
 
-    /// Sets the current transformation.
-    pub fn transform(&mut self, transform: Affine) {
-        self.encode_transform(transform);
+    /// Creates a new builder for filling a scene fragment. Any current content in
+    /// the fragment will be cleared.    
+    pub fn for_fragment(fragment: &'a mut SceneFragment) -> Self {
+        Self::new(&mut fragment.data, true)
+    }
+
+    /// Creates a new builder for constructing a scene.
+    fn new(scene: &'a mut SceneData, is_fragment: bool) -> Self {
+        scene.reset(is_fragment);
+        Self {
+            scene,
+            layers: Default::default(),
+        }
     }
 
     /// Pushes a new layer bound by the specifed shape and composed with
     /// previous layers using the specified blend mode.
-    pub fn push_layer<'s, E>(&mut self, blend: Blend, elements: E)
+    pub fn push_layer<'s, E>(&mut self, blend: BlendMode, transform: Affine, elements: E)
     where
         E: IntoIterator,
         E::IntoIter: Clone,
-        E::Item: Borrow<Element>,
+        E::Item: Borrow<PathElement>,
     {
+        self.maybe_encode_transform(transform);
         self.linewidth(-1.0);
         let elements = elements.into_iter();
         self.encode_path(elements, true);
         self.begin_clip(Some(blend));
-        if self.layers.len() >= MAX_BLEND_STACK {
-            panic!("Maximum clip/blend stack size {} exceeded", MAX_BLEND_STACK);
-        }
         self.layers.push(blend);
     }
 
@@ -94,32 +75,27 @@ impl<'a> Builder<'a> {
     /// Fills a shape using the specified style and brush.
     pub fn fill<'s, E>(
         &mut self,
-        style: Fill,
+        _style: Fill,
+        transform: Affine,
         brush: &Brush,
         brush_transform: Option<Affine>,
         elements: E,
     ) where
         E: IntoIterator,
         E::IntoIter: Clone,
-        E::Item: Borrow<Element>,
+        E::Item: Borrow<PathElement>,
     {
+        self.maybe_encode_transform(transform);
         self.linewidth(-1.0);
         let elements = elements.into_iter();
-        self.encode_path(elements, true);
-        if let Some(brush_transform) = brush_transform {
-            if let Some(last_transform) = self.scene.transform_stream.last().copied() {
-                self.encode_transform(brush_transform * last_transform);
+        if self.encode_path(elements, true) {
+            if let Some(brush_transform) = brush_transform {
+                self.encode_transform(transform * brush_transform);
                 self.swap_last_tags();
                 self.encode_brush(brush);
-                self.encode_transform(last_transform);
             } else {
-                self.encode_transform(brush_transform);
-                self.swap_last_tags();
                 self.encode_brush(brush);
-                self.encode_transform(Affine::IDENTITY);
             }
-        } else {
-            self.encode_brush(brush);
         }
     }
 
@@ -127,6 +103,7 @@ impl<'a> Builder<'a> {
     pub fn stroke<'s, D, E>(
         &mut self,
         style: &Stroke<D>,
+        transform: Affine,
         brush: &Brush,
         brush_transform: Option<Affine>,
         elements: E,
@@ -134,78 +111,25 @@ impl<'a> Builder<'a> {
         D: Borrow<[f32]>,
         E: IntoIterator,
         E::IntoIter: Clone,
-        E::Item: Borrow<Element>,
+        E::Item: Borrow<PathElement>,
     {
+        self.maybe_encode_transform(transform);
         self.linewidth(style.width);
         let elements = elements.into_iter();
-        self.encode_path(elements, false);
-        if let Some(brush_transform) = brush_transform {
-            if let Some(last_transform) = self.scene.transform_stream.last().copied() {
-                self.encode_transform(brush_transform * last_transform);
+        if self.encode_path(elements, false) {
+            if let Some(brush_transform) = brush_transform {
+                self.encode_transform(transform * brush_transform);
                 self.swap_last_tags();
                 self.encode_brush(brush);
-                self.encode_transform(last_transform);
             } else {
-                self.encode_transform(brush_transform);
-                self.swap_last_tags();
                 self.encode_brush(brush);
-                self.encode_transform(Affine::IDENTITY);
             }
-        } else {
-            self.encode_brush(brush);
         }
     }
 
     /// Appends a fragment to the scene.
-    pub fn append(&mut self, fragment: &Fragment, transform: Option<Affine>) {
-        let drawdata_base = self.scene.drawdata_stream.len();
-        let mut cur_transform = self.scene.transform_stream.last().copied();
-        if let Some(transform) = transform {
-            if cur_transform.is_none() {
-                cur_transform = Some(Affine::IDENTITY);
-            }
-            self.encode_transform(transform);
-        } else if cur_transform != Some(Affine::IDENTITY) {
-            self.encode_transform(Affine::IDENTITY);
-        }
+    pub fn append(&mut self, fragment: &SceneFragment, transform: Option<Affine>) {
         self.scene.append(&fragment.data, &transform);
-        match &mut self.resources {
-            ResourceData::Scene(res) => {
-                for patch in &fragment.resources.patches {
-                    match patch {
-                        ResourcePatch::Ramp {
-                            drawdata_offset,
-                            stops,
-                        } => {
-                            let stops = &fragment.resources.stops[stops.clone()];
-                            let ramp_id = res.add_ramp(stops);
-                            let patch_base = *drawdata_offset + drawdata_base;
-                            (&mut self.scene.drawdata_stream[patch_base..patch_base + 4])
-                                .copy_from_slice(bytemuck::bytes_of(&ramp_id));
-                        }
-                    }
-                }
-            }
-            ResourceData::Fragment(res) => {
-                let stops_base = res.stops.len();
-                res.stops.extend_from_slice(&fragment.resources.stops);
-                res.patches.extend(fragment.resources.patches.iter().map(
-                    |pending| match pending {
-                        ResourcePatch::Ramp {
-                            drawdata_offset,
-                            stops,
-                        } => ResourcePatch::Ramp {
-                            drawdata_offset: drawdata_offset + drawdata_base,
-                            stops: stops.start + stops_base..stops.end + stops_base,
-                        },
-                    },
-                ));
-            }
-        }
-        // Prevent fragments from affecting transform state. Should we allow this?
-        if let Some(transform) = cur_transform {
-            self.encode_transform(transform);
-        }
     }
 
     /// Completes construction and finalizes the underlying scene.
@@ -216,11 +140,11 @@ impl<'a> Builder<'a> {
     }
 }
 
-impl<'a> Builder<'a> {
-    fn encode_path<E>(&mut self, elements: E, is_fill: bool)
+impl<'a> SceneBuilder<'a> {
+    fn encode_path<E>(&mut self, elements: E, is_fill: bool) -> bool
     where
         E: Iterator,
-        E::Item: Borrow<Element>,
+        E::Item: Borrow<PathElement>,
     {
         if is_fill {
             self.encode_path_inner(
@@ -228,34 +152,45 @@ impl<'a> Builder<'a> {
                     .map(|el| *el.borrow())
                     .flat_map(|el| {
                         match el {
-                            Element::MoveTo(..) => Some(Element::Close),
+                            PathElement::MoveTo(..) => Some(PathElement::Close),
                             _ => None,
                         }
                         .into_iter()
                         .chain(Some(el))
                     })
-                    .chain(Some(Element::Close)),
+                    .chain(Some(PathElement::Close)),
             )
         } else {
             self.encode_path_inner(elements.map(|el| *el.borrow()))
         }
     }
 
-    fn encode_path_inner(&mut self, elements: impl Iterator<Item = Element>) {
+    fn encode_path_inner(&mut self, elements: impl Iterator<Item = PathElement>) -> bool {
         let mut b = PathBuilder::new(&mut self.scene.tag_stream, &mut self.scene.pathseg_stream);
+        let mut has_els = false;
         for el in elements {
             match el {
-                Element::MoveTo(p0) => b.move_to(p0.x, p0.y),
-                Element::LineTo(p0) => b.line_to(p0.x, p0.y),
-                Element::QuadTo(p0, p1) => b.quad_to(p0.x, p0.y, p1.x, p1.y),
-                Element::CurveTo(p0, p1, p2) => b.cubic_to(p0.x, p0.y, p1.x, p1.y, p2.x, p2.y),
-                Element::Close => b.close_path(),
+                PathElement::MoveTo(p0) => b.move_to(p0.x, p0.y),
+                PathElement::LineTo(p0) => b.line_to(p0.x, p0.y),
+                PathElement::QuadTo(p0, p1) => b.quad_to(p0.x, p0.y, p1.x, p1.y),
+                PathElement::CurveTo(p0, p1, p2) => b.cubic_to(p0.x, p0.y, p1.x, p1.y, p2.x, p2.y),
+                PathElement::Close => b.close_path(),
             }
+            has_els = true;
         }
-        b.path();
-        let n_pathseg = b.n_pathseg();
-        self.scene.n_path += 1;
-        self.scene.n_pathseg += n_pathseg;
+        if has_els {
+            b.path();
+            let n_pathseg = b.n_pathseg();
+            self.scene.n_path += 1;
+            self.scene.n_pathseg += n_pathseg;
+        }
+        has_els
+    }
+
+    fn maybe_encode_transform(&mut self, transform: Affine) {
+        if self.scene.transform_stream.last() != Some(&transform) {
+            self.encode_transform(transform);
+        }
     }
 
     fn encode_transform(&mut self, transform: Affine) {
@@ -272,8 +207,10 @@ impl<'a> Builder<'a> {
 
     // -1.0 means "fill"
     fn linewidth(&mut self, linewidth: f32) {
-        self.scene.tag_stream.push(0x40);
-        self.scene.linewidth_stream.push(linewidth);
+        if self.scene.linewidth_stream.last() != Some(&linewidth) {
+            self.scene.tag_stream.push(0x40);
+            self.scene.linewidth_stream.push(linewidth);
+        }
     }
 
     fn encode_brush(&mut self, brush: &Brush) {
@@ -311,31 +248,26 @@ impl<'a> Builder<'a> {
             }
             Brush::SweepGradient(_gradient) => todo!("sweep gradients aren't done yet!"),
             Brush::Image(_image) => todo!("images aren't done yet!"),
-            Brush::Persistent(_) => todo!("persistent brushes aren't done yet!"),
         }
     }
 
-    fn add_ramp(&mut self, stops: &[Stop]) -> u32 {
-        match &mut self.resources {
-            ResourceData::Scene(res) => res.add_ramp(stops),
-            ResourceData::Fragment(res) => {
-                let stops_start = res.stops.len();
-                res.stops.extend_from_slice(stops);
-                let id = res.patches.len() as u32;
-                res.patches.push(ResourcePatch::Ramp {
-                    drawdata_offset: self.scene.drawdata_stream.len(),
-                    stops: stops_start..stops_start + stops.len(),
-                });
-                id
-            }
-        }
+    fn add_ramp(&mut self, stops: &[GradientStop]) -> u32 {
+        let offset = self.scene.drawdata_stream.len();
+        let resources = &mut self.scene.resources;
+        let stops_start = resources.stops.len();
+        resources.stops.extend_from_slice(stops);
+        resources.patches.push(ResourcePatch::Ramp {
+            offset,
+            stops: stops_start..stops_start + stops.len(),
+        });
+        0
     }
 
     /// Start a clip.
-    fn begin_clip(&mut self, blend: Option<Blend>) {
+    fn begin_clip(&mut self, blend: Option<BlendMode>) {
         self.scene.drawtag_stream.push(DRAWTAG_BEGINCLIP);
         let element = Clip {
-            blend: blend.unwrap_or(Blend::default()).pack(),
+            blend: blend.unwrap_or(BlendMode::default()).pack(),
         };
         self.scene
             .drawdata_stream
@@ -343,10 +275,10 @@ impl<'a> Builder<'a> {
         self.scene.n_clip += 1;
     }
 
-    fn end_clip(&mut self, blend: Option<Blend>) {
+    fn end_clip(&mut self, blend: Option<BlendMode>) {
         self.scene.drawtag_stream.push(DRAWTAG_ENDCLIP);
         let element = Clip {
-            blend: blend.unwrap_or(Blend::default()).pack(),
+            blend: blend.unwrap_or(BlendMode::default()).pack(),
         };
         self.scene
             .drawdata_stream
@@ -355,23 +287,6 @@ impl<'a> Builder<'a> {
         self.scene.tag_stream.push(0x10);
         self.scene.n_path += 1;
         self.scene.n_clip += 1;
-    }
-}
-
-enum ResourceData<'a> {
-    Fragment(&'a mut FragmentResources),
-    Scene(&'a mut ResourceContext),
-}
-
-impl ResourceData<'_> {
-    fn clear(&mut self) {
-        match self {
-            Self::Fragment(res) => {
-                res.patches.clear();
-                res.stops.clear();
-            }
-            _ => {}
-        }
     }
 }
 

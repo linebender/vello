@@ -331,7 +331,7 @@ impl crate::backend::Device for Dx12Device {
     ) -> Result<Self::Image, Error> {
         let format = match format {
             ImageFormat::A8 => winapi::shared::dxgiformat::DXGI_FORMAT_R8_UNORM,
-            ImageFormat::Rgba8 => winapi::shared::dxgiformat::DXGI_FORMAT_R8G8B8A8_UNORM,
+            ImageFormat::Rgba8 | ImageFormat::Surface => winapi::shared::dxgiformat::DXGI_FORMAT_R8G8B8A8_UNORM,
         };
         let resource = self
             .device
