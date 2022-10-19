@@ -948,7 +948,7 @@ name = "piet-gpu-tests"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
- "clap 2.34.0",
+ "clap 3.2.22",
  "kurbo 0.7.1",
  "piet-gpu",
  "piet-gpu-hal",

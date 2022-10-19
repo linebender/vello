@@ -42,27 +42,27 @@ fn main() {
     let matches = App::new("piet-gpu-tests")
         .arg(
             Arg::with_name("verbose")
-                .short("v")
+                .short('v')
                 .long("verbose")
                 .help("Verbose reporting of results"),
         )
         .arg(
             Arg::with_name("groups")
-                .short("g")
+                .short('g')
                 .long("groups")
                 .help("Groups to run")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("size")
-                .short("s")
+                .short('s')
                 .long("size")
                 .help("Size of tests")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("n_iter")
-                .short("n")
+                .short('n')
                 .long("n_iter")
                 .help("Number of iterations")
                 .takes_value(true),
