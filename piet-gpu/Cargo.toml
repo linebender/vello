@@ -31,11 +31,12 @@ path = "../piet-scene"
 features = ["kurbo"]
 
 [dependencies]
-png = "0.16.2"
-rand = "0.7.3"
+png = "0.17.6"
+rand = "0.8.5"
 roxmltree = "0.13"
-winit = "0.26.1"
-clap = "2.33"
+winit = {version = "0.27.3",  default-features = false, features = ["x11", "wayland", "wayland-dlopen"]}
+raw-window-handle = "0.5"
+clap = "3.2.22"
 bytemuck = { version = "1.7.2", features = ["derive"] }
 kurbo = "0.8.3"
 

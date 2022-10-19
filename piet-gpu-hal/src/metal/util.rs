@@ -16,7 +16,7 @@
 
 //! Utilities and types for Metal integration
 
-use metal::{CGFloat, CGSize};
+use core_graphics_types::{base::CGFloat, geometry::CGSize};
 
 #[link(name = "QuartzCore", kind = "framework")]
 extern "C" {

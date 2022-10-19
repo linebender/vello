@@ -98,7 +98,7 @@ pub enum ImageFormat {
     A8,
     // 8 bit per pixel RGBA
     Rgba8,
-    // Match default surface format
+    // Format that matches the target surface
     Surface,
 }
 

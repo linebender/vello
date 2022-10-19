@@ -4,6 +4,8 @@ use piet_scene::{Scene, SceneBuilder};
 
 use clap::{App, Arg};
 
+use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
+
 use winit::{
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
@@ -18,10 +20,10 @@ const HEIGHT: usize = 1536;
 fn main() -> Result<(), Error> {
     let matches = App::new("piet-gpu test")
         .arg(Arg::with_name("INPUT").index(1))
-        .arg(Arg::with_name("flip").short("f").long("flip"))
+        .arg(Arg::with_name("flip").short('f').long("flip"))
         .arg(
             Arg::with_name("scale")
-                .short("s")
+                .short('s')
                 .long("scale")
                 .takes_value(true),
         )
@@ -60,7 +62,9 @@ fn main() -> Result<(), Error> {
     let mut scene = Scene::default();
     let mut simple_text = piet_gpu::SimpleText::new();
     unsafe {
-        let surface = instance.surface(&window)?;
+        let display_handle = window.raw_display_handle();
+        let window_handle = window.raw_window_handle();
+        let surface = instance.surface(display_handle, window_handle)?;
         let device = instance.device()?;
         let mut swapchain = instance.swapchain(WIDTH / 2, HEIGHT / 2, &device, &surface)?;
         let session = Session::new(device);

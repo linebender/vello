@@ -6,10 +6,10 @@
 //! Requires the [cargo-apk] tool.
 //! [cargo-apk]: https://crates.io/crates/cargo-apk
 
-use raw_window_handle::android::AndroidHandle;
-use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
+use raw_window_handle::{
+    AndroidDisplayHandle, AndroidNdkWindowHandle, RawDisplayHandle, RawWindowHandle,
+};
 
-use ndk::native_window::NativeWindow;
 use ndk_glue::Event;
 
 use piet_gpu_hal::{
@@ -23,10 +23,6 @@ use piet_scene::{Scene, SceneBuilder};
 #[cfg_attr(target_os = "android", ndk_glue::main(backtrace = "on"))]
 fn main() {
     my_main().unwrap();
-}
-
-struct MyHandle {
-    handle: AndroidHandle,
 }
 
 // State required to render and present the contents
@@ -51,9 +47,13 @@ fn my_main() -> Result<(), Error> {
                     if let Some(window) = &*window {
                         let width = window.width() as usize;
                         let height = window.height() as usize;
-                        let handle = get_handle(window);
                         let instance = Instance::new(InstanceFlags::default())?;
-                        let surface = unsafe { instance.surface(&handle)? };
+                        let mut android_handle = AndroidNdkWindowHandle::empty();
+                        android_handle.a_native_window = window.ptr().as_ptr() as *mut _;
+                        let window_handle = RawWindowHandle::AndroidNdk(android_handle);
+                        let display_handle =
+                            RawDisplayHandle::Android(AndroidDisplayHandle::empty());
+                        let surface = unsafe { instance.surface(display_handle, window_handle)? };
                         gfx_state = Some(GfxState::new(&instance, Some(&surface), width, height)?);
                     } else {
                         println!("native window is sadly none");
@@ -69,24 +69,6 @@ fn my_main() -> Result<(), Error> {
                 _ => (),
             }
         }
-    }
-}
-
-fn get_handle(window: &NativeWindow) -> MyHandle {
-    println!(
-        "window = {:?}, {}x{}",
-        window.ptr(),
-        window.width(),
-        window.height()
-    );
-    let mut handle = AndroidHandle::empty();
-    handle.a_native_window = window.ptr().as_ptr() as *mut std::ffi::c_void;
-    MyHandle { handle }
-}
-
-unsafe impl HasRawWindowHandle for MyHandle {
-    fn raw_window_handle(&self) -> RawWindowHandle {
-        RawWindowHandle::Android(self.handle)
     }
 }
 

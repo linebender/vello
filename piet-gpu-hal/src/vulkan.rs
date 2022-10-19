@@ -10,6 +10,7 @@ use ash::extensions::{ext::DebugUtils, khr};
 use ash::vk::DebugUtilsLabelEXT;
 use ash::{vk, Device, Entry, Instance};
 
+use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 use smallvec::SmallVec;
 
 use crate::backend::Device as DeviceTrait;
@@ -157,7 +158,7 @@ impl VkInstance {
     pub fn new() -> Result<VkInstance, Error> {
         unsafe {
             let app_name = CString::new("VkToy").unwrap();
-            let entry = Entry::new()?;
+            let entry = Entry::load()?;
 
             let mut layers = Layers::new(entry.enumerate_instance_layer_properties()?);
             if cfg!(debug_assertions) {
@@ -165,7 +166,7 @@ impl VkInstance {
                     .try_add(CStr::from_bytes_with_nul(b"VK_LAYER_KHRONOS_validation\0").unwrap());
             }
 
-            let mut exts = Extensions::new(entry.enumerate_instance_extension_properties()?);
+            let mut exts = Extensions::new(entry.enumerate_instance_extension_properties(None)?);
             let mut has_debug_ext = false;
             if cfg!(debug_assertions) {
                 has_debug_ext = exts.try_add(DebugUtils::name());
@@ -221,12 +222,15 @@ impl VkInstance {
             )?;
 
             let (dbg_loader, _dbg_callbk) = if has_debug_ext {
+                let flags = vk::DebugUtilsMessageTypeFlagsEXT::GENERAL
+                    | vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE
+                    | vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION;
                 let dbg_info = vk::DebugUtilsMessengerCreateInfoEXT::builder()
                     .message_severity(
                         vk::DebugUtilsMessageSeverityFlagsEXT::ERROR
                             | vk::DebugUtilsMessageSeverityFlagsEXT::WARNING,
                     )
-                    .message_type(vk::DebugUtilsMessageTypeFlagsEXT::all())
+                    .message_type(flags)
                     .pfn_user_callback(Some(vulkan_debug_callback));
                 let dbg_loader = DebugUtils::new(&entry, &instance);
                 let dbg_callbk = dbg_loader
@@ -256,10 +260,17 @@ impl VkInstance {
     /// The caller is responsible for making sure that the instance outlives the surface.
     pub unsafe fn surface(
         &self,
-        window_handle: &dyn raw_window_handle::HasRawWindowHandle,
+        display_handle: RawDisplayHandle,
+        window_handle: RawWindowHandle,
     ) -> Result<VkSurface, Error> {
         Ok(VkSurface {
-            surface: ash_window::create_surface(&self.entry, &self.instance, window_handle, None)?,
+            surface: ash_window::create_surface(
+                &self.entry,
+                &self.instance,
+                display_handle,
+                window_handle,
+                None,
+            )?,
             surface_fn: khr::Surface::new(&self.entry, &self.instance),
         })
     }
@@ -273,8 +284,7 @@ impl VkInstance {
     /// but for now keep things simple.
     pub unsafe fn device(&self) -> Result<VkDevice, Error> {
         let devices = self.instance.enumerate_physical_devices()?;
-        let (pdevice, qfi) =
-            choose_device(&self.instance, &devices).ok_or("no suitable device")?;
+        let (pdevice, qfi) = choose_device(&self.instance, &devices).ok_or("no suitable device")?;
 
         let mut has_descriptor_indexing = false;
         let vk1_1 = self.vk_version >= vk::make_api_version(0, 1, 1, 0);
@@ -1456,7 +1466,10 @@ unsafe fn choose_device(
             // both Metal and DX12 which do not require such validation. It might be worth
             // exposing this to the user in a future device enumeration API, which would
             // also allow selection between discrete and integrated devices.
-            if info.queue_flags.contains(vk::QueueFlags::COMPUTE | vk::QueueFlags::GRAPHICS) {
+            if info
+                .queue_flags
+                .contains(vk::QueueFlags::COMPUTE | vk::QueueFlags::GRAPHICS)
+            {
                 return Some((*pdevice, ix as u32));
             }
         }
