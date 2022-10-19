@@ -206,9 +206,9 @@ fn render_blend_square(sb: &mut SceneBuilder, blend: BlendMode, transform: Affin
     });
     sb.fill(Fill::NonZero, transform, &linear, None, rect.elements());
     const GRADIENTS: &[(f32, f32, Color)] = &[
-        (150., 0., Color::rgb8(64, 240, 255)),
-        (175., 100., Color::rgb8(240, 96, 255)),
-        (125., 200., Color::rgb8(255, 192, 64)),
+        (150., 0., Color::rgb8(255, 240, 64)),
+        (175., 100., Color::rgb8(255, 96, 240)),
+        (125., 200., Color::rgb8(64, 192, 255)),
     ];
     for (x, y, c) in GRADIENTS {
         let mut color2 = c.clone();
@@ -234,9 +234,9 @@ fn render_blend_square(sb: &mut SceneBuilder, blend: BlendMode, transform: Affin
         sb.fill(Fill::NonZero, transform, &rad, None, rect.elements());
     }
     const COLORS: &[Color] = &[
-        Color::rgb8(0, 0, 255),
-        Color::rgb8(0, 255, 0),
         Color::rgb8(255, 0, 0),
+        Color::rgb8(0, 255, 0),
+        Color::rgb8(0, 0, 255),
     ];
     sb.push_layer(Mix::Normal.into(), transform, rect.elements());
     for (i, c) in COLORS.iter().enumerate() {
