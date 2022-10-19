@@ -600,20 +600,6 @@ dependencies = [
 
 [[package]]
 name = "metal"
-version = "0.22.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c12e48c737ee9a55e8bb2352bcde588f79ae308d3529ee888f7cc0f469b5777"
-dependencies = [
- "bitflags",
- "block",
- "cocoa-foundation",
- "foreign-types",
- "log",
- "objc",
-]
-
-[[package]]
-name = "metal"
 version = "0.24.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "de11355d1f6781482d027a3b4d4de7825dcedb197bf573e0596d00008402d060"
@@ -873,7 +859,7 @@ version = "0.1.0"
 dependencies = [
  "cbindgen",
  "cocoa",
- "metal 0.22.0",
+ "metal",
  "objc",
  "piet-gpu",
  "piet-gpu-hal",
@@ -922,7 +908,7 @@ dependencies = [
  "cocoa-foundation",
  "core-graphics-types",
  "foreign-types",
- "metal 0.24.0",
+ "metal",
  "objc",
  "raw-window-handle 0.5.0",
  "smallvec",
