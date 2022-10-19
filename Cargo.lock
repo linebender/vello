@@ -1164,10 +1164,14 @@ version = "0.1.0"
 dependencies = [
  "bytemuck",
 <<<<<<< HEAD
+<<<<<<< HEAD
  "clap 3.2.22",
 =======
  "clap 2.34.0",
 >>>>>>> 1424777 (update dependencies)
+=======
+ "clap 3.2.22",
+>>>>>>> 73833eb (update tests)
  "kurbo 0.7.1",
  "piet-gpu",
  "piet-gpu-hal",
