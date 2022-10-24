@@ -16,7 +16,7 @@
 
 //! A simple application to run a compute shader.
 
-use std::{io::BufWriter, fs::File};
+use std::{fs::File, io::BufWriter};
 
 use engine::Engine;
 

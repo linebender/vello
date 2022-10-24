@@ -35,5 +35,8 @@ pub fn gen_test_scene() -> Scene {
 pub fn dump_scene_info(scene: &Scene) {
     let data = scene.data();
     println!("tags {:?}", data.tag_stream);
-    println!("pathsegs {:?}", bytemuck::cast_slice::<u8, f32>(&data.pathseg_stream));
+    println!(
+        "pathsegs {:?}",
+        bytemuck::cast_slice::<u8, f32>(&data.pathseg_stream)
+    );
 }
