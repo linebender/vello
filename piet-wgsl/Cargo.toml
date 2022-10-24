@@ -1,0 +1,20 @@
+[package]
+name = "piet-twgsl"
+version = "0.1.0"
+authors = ["Raph Levien <raph@google.com>"]
+license = "MIT/Apache-2.0"
+edition = "2021"
+
+[dependencies]
+wgpu = "0.14"
+env_logger = "0.9.1"
+pollster = "0.2.5"
+futures-intrusive = "0.4.1"
+parking_lot = "0.12"
+bytemuck = { version = "1.12.1", features = ["derive"] }
+handlebars = { version = "4.3.5", features = ["dir_source"] }
+serde_json = "1"
+serde = { version = "1", features = ["derive"] }
+png = "0.17.6"
+
+piet-scene = { path = "../piet-scene" }

@@ -8,5 +8,9 @@ members = [
     "piet-gpu-hal",
     "piet-gpu-types",
     "piet-scene",
+    "piet-wgsl",
     "tests",
 ]
+
+[patch.crates-io]
+naga = { path = "../../dl/naga" }
