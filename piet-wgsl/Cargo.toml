@@ -1,5 +1,5 @@
 [package]
-name = "piet-twgsl"
+name = "piet-wgsl"
 version = "0.1.0"
 authors = ["Raph Levien <raph@google.com>"]
 license = "MIT/Apache-2.0"

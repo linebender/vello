@@ -20,7 +20,6 @@ use std::{fs::File, io::BufWriter};
 
 use engine::Engine;
 
-use bytemuck;
 use render::render;
 use test_scene::dump_scene_info;
 use wgpu::{Device, Queue};

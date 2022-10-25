@@ -13,4 +13,6 @@ members = [
 ]
 
 [patch.crates-io]
-naga = { path = "../../dl/naga" }
+# Required for metal support to work on wgpu
+# TODO: remove when wgpu is upgraded to 0.15
+naga = { git = "https://github.com/gfx-rs/naga", rev="ddcd5d3121150b2b1beee6e54e9125ff31aaa9a2" }

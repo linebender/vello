@@ -25,7 +25,7 @@ impl ShaderTemplate {
     pub fn new() -> ShaderTemplate {
         let mut handlebars = Handlebars::new();
         handlebars
-            .register_templates_directory("twgsl", "shader")
+            .register_templates_directory("twgsl", concat!(env!("CARGO_MANIFEST_DIR"), "/shader"))
             .unwrap();
         handlebars.register_escape_fn(handlebars::no_escape);
         ShaderTemplate { handlebars }

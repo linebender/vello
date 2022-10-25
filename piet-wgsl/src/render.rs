@@ -65,6 +65,7 @@ pub fn render(scene: &Scene, shaders: &Shaders) -> (Recording, BufProxy) {
     // TODO: more principled size calc
     let tiles_buf = BufProxy::new(4097 * 8);
     let segments_buf = BufProxy::new(256 * 24);
+    recording.clear_all(tiles_buf);
     recording.dispatch(
         shaders.path_coarse,
         (path_coarse_wgs, 1, 1),
