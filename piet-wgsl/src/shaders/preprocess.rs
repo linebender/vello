@@ -1,6 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
     fs,
+    panic::Location,
     path::Path,
     vec,
 };
@@ -45,6 +46,7 @@ pub fn preprocess(
     for (line_number, line) in input.lines().enumerate() {
         let trimmed = line.trim();
         if trimmed.starts_with("#") {
+            let trimmed = &trimmed[1..];
             let val_idx = trimmed
                 .chars()
                 .take_while(|char| char.is_alphanumeric())
@@ -84,11 +86,14 @@ pub fn preprocess(
                         eprintln!("Unkown import `{arg}` (line {line_number})");
                     }
                 }
-                val => eprintln!("Unknown preprocessor directive `{val}` (line {line_number})"),
+                val => {
+                    eprintln!("Unknown preprocessor directive `{val}` (line {line_number})")
+                }
             }
         } else {
             if stack.last().map(|x| x.active).unwrap_or(true) {
                 output.push_str(line);
+                output.push('\n');
             }
         }
     }

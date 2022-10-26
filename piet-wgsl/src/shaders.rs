@@ -60,7 +60,7 @@ pub fn init_shaders(device: &Device, engine: &mut Engine) -> Result<Shaders, Err
 
     let path_coarse = engine.add_shader(
         device,
-        preprocess::preprocess(&read_shader("pathtag_scan"), &path_coarse_config, &imports).into(),
+        preprocess::preprocess(&read_shader("path_coarse"), &path_coarse_config, &imports).into(),
         &[
             BindType::BufReadOnly,
             BindType::BufReadOnly,

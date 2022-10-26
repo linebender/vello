@@ -14,7 +14,7 @@
 //
 // Also licensed under MIT license, at your choice.
 
-{{> pathtag}}
+#import pathtag
 
 @group(0) @binding(0)
 var<storage> path_tags: array<u32>;
@@ -26,18 +26,18 @@ var<storage> tag_monoids: array<TagMonoid>;
 @group(0) @binding(2)
 var<storage> path_data: array<u32>;
 
-{{#if cubics_out}}
+#ifdef cubics_out
 @group(0) @binding(3)
 var<storage, read_write> output: array<vec2<f32>>;
-{{else}}
-{{> config}}
+#else
+#import config
 
 struct Tile {
     backdrop: atomic<i32>,
     segments: atomic<u32>,
 }
 
-{{> segment}}
+#import segment
 
 // Should probably be uniform binding
 @group(0) @binding(3)
@@ -48,7 +48,7 @@ var<storage, read_write> tiles: array<Tile>;
 
 @group(0) @binding(5)
 var<storage, read_write> segments: array<Segment>;
-{{/if}}
+#endif
 
 fn read_f32_point(ix: u32) -> vec2<f32> {
     let x = bitcast<f32>(path_data[ix]);
@@ -63,7 +63,7 @@ fn read_i16_point(ix: u32) -> vec2<f32> {
     return vec2<f32>(x, y);
 }
 
-{{#unless cubics_out}}
+#ifndef cubics_out
 let TILE_WIDTH = 16u;
 let TILE_HEIGHT = 16u;
 
@@ -125,7 +125,7 @@ fn alloc_segment() -> u32 {
     // TODO: separate small buffer binding for this?
     return atomicAdd(&tiles[4096].segments, 1u) + 1u;
 }
-{{/unless}}
+#endif
 
 let MAX_QUADS = 16u;
 
@@ -180,13 +180,13 @@ fn main(
             p2 = mix(p1, p2, 1.0 / 3.0);
             p1 = mix(p1, p0, 1.0 / 3.0);
         }
-{{#if cubics_out}}
+#ifdef cubics_out
         let out_ix = ix * 4u;
         output[out_ix] = p0;
         output[out_ix + 1u] = p1;
         output[out_ix + 2u] = p2;
         output[out_ix + 3u] = p3;
-{{else}}
+#else
         let err_v = 3.0 * (p2 - p1) + p0 - p3;
         let err = dot(err_v, err_v);
         let ACCURACY = 0.25;
@@ -323,6 +323,6 @@ fn main(
             val_sum += params.val;
             qp0 = qp2;
         }
-{{/if}}
+#endif
     }
 }

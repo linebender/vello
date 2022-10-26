@@ -14,7 +14,7 @@
 //
 // Also licensed under MIT license, at your choice.
 
-{{> pathtag}}
+#import pathtag
 
 // Note: should have a single scene binding, path_tags are a slice
 // in that; need a config uniform.
