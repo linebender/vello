@@ -16,6 +16,8 @@
 
 //! Load rendering shaders.
 
+mod preprocess;
+
 use serde_json::json;
 use wgpu::Device;
 
