@@ -30,11 +30,7 @@ let PATH_TAG_PATH = 0x10u;
 let PATH_TAG_TRANSFORM = 0x20u;
 
 fn tag_monoid_identity() -> TagMonoid {
-    var c: TagMonoid;
-    c.trans_ix = 0u;
-    c.pathseg_ix = 0u;
-    c.pathseg_offset = 0u;
-    return c;
+    return TagMonoid();
 }
 
 fn combine_tag_monoid(a: TagMonoid, b: TagMonoid) -> TagMonoid {

@@ -14,14 +14,17 @@
 //
 // Also licensed under MIT license, at your choice.
 
-struct Config {
-    width_in_tiles: u32,
-    height_in_tiles: u32,
+// The annotated bounding box for a path. It has been transformed,
+// but contains a link to the active transform, mostly for gradients.
+struct PathBbox {
+    x0: u32,
+    y0: u32,
+    x1: u32,
+    y1: u32,
+    linewidth: f32,
+    trans_ix: u32,
+}
 
-    n_drawobj: u32,
-
-    // offsets within config file (in u32 units)
-    // Note: this is a difference from piet-gpu, which is in bytes
-    drawtag_base: u32,
-    drawdata_base: u32,
+fn bbox_intersect(a: vec4<f32>, b: vec4<f32>) -> f32 {
+    return vec4(max(a.xy, b.xy), min(a.zyw, b.zw));
 }

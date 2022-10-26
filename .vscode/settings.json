@@ -1,6 +1,8 @@
 {
   "wgsl-analyzer.customImports": {
+    "bbox": "${workspaceFolder}/piet-wgsl/shader/shared/bbox.wgsl",
     "config": "${workspaceFolder}/piet-wgsl/shader/shared/config.wgsl",
+    "drawtag": "${workspaceFolder}/piet-wgsl/shader/shared/drawtag.wgsl",
     "segment": "${workspaceFolder}/piet-wgsl/shader/shared/segment.wgsl",
     "pathtag": "${workspaceFolder}/piet-wgsl/shader/shared/pathtag.wgsl"
   },
