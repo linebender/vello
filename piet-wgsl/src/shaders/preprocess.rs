@@ -1,14 +1,44 @@
 use std::{
     collections::{HashMap, HashSet},
+    fs,
+    path::Path,
     vec,
 };
+
+pub fn get_imports(shader_dir: &Path) -> HashMap<String, String> {
+    let mut imports = HashMap::new();
+    let imports_dir = shader_dir.join("shared");
+    for entry in imports_dir
+        .read_dir()
+        .expect("Can read shader import directory")
+    {
+        let entry = entry.expect("Can continue reading shader import directory");
+        if entry.file_type().unwrap().is_file() {
+            let file_name = entry.file_name();
+            if let Some(name) = file_name.to_str() {
+                let suffix = ".wgsl";
+                if name.ends_with(suffix) {
+                    let import_name = name[..(name.len() - suffix.len())].to_owned();
+                    let contents = fs::read_to_string(imports_dir.join(file_name))
+                        .expect("Could read shader {import_name} contents");
+                    imports.insert(import_name, contents);
+                }
+            }
+        }
+    }
+    imports
+}
 
 pub struct StackItem {
     active: bool,
     else_passed: bool,
 }
 
-pub fn preprocess(input: &str, defines: &HashSet<&str>, imports: &HashMap<&str, &str>) -> String {
+pub fn preprocess(
+    input: &str,
+    defines: &HashSet<String>,
+    imports: &HashMap<String, String>,
+) -> String {
     let mut output = String::with_capacity(input.len());
     let mut stack = vec![];
 
