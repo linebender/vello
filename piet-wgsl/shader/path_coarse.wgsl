@@ -132,7 +132,7 @@ let MAX_QUADS = 16u;
 @compute @workgroup_size(256)
 fn main(
     @builtin(global_invocation_id) global_id: vec3<u32>,
-    @builtin(local_invocation_id) local_id: vec3<u32>,  
+    @builtin(local_invocation_id) local_id: vec3<u32>,
 ) {
     // Obtain exclusive prefix sum of tag monoid
     let ix = global_id.x;
@@ -295,7 +295,7 @@ fn main(
                         tile_seg.delta = dp;
                         var y_edge = mix(lp0.y, lp1.y, (tile_x0 - lp0.x) * recip_dx);
                         if xymin.x < tile_x0 {
-                            let p = vec2(tile_x0, y_edge);
+                            let p = vec2<f32>(tile_x0, y_edge);
                             if dp.x < 0.0 {
                                 tile_seg.delta = p - lp0;
                             } else {

@@ -45,7 +45,7 @@ fn main(
     @builtin(workgroup_id) wg_id: vec3<u32>,
 ) {
     let tile_ix = wg_id.y * config.width_in_tiles + wg_id.x;
-    let xy = vec2(f32(global_id.x * PIXELS_PER_THREAD), f32(global_id.y));
+    let xy = vec2<f32>(f32(global_id.x * PIXELS_PER_THREAD), f32(global_id.y));
     let tile = tiles[tile_ix];
     var area: array<f32, PIXELS_PER_THREAD>;
     let backdrop_f = f32(tile.backdrop);
@@ -59,7 +59,7 @@ fn main(
         let y0 = clamp(y, 0.0, 1.0);
         let y1 = clamp(y + segment.delta.y, 0.0, 1.0);
         let dy = y0 - y1;
-        if (dy != 0.0) {
+        if dy != 0.0 {
             let vec_y_recip = 1.0 / segment.delta.y;
             let t0 = (y0 - y) * vec_y_recip;
             let t1 = (y1 - y) * vec_y_recip;
