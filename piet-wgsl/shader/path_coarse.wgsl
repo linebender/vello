@@ -303,14 +303,11 @@ fn main(
                                 tile_seg.delta = lp1 - p;
                             }
                             if tile_seg.delta.x == 0.0 {
-                                tile_seg.delta.x = sign(dp.x) * 1
-                                e
-                                -9;
+                                tile_seg.delta.x = sign(dp.x) * 1e-9;
                             }
                         }
                         if x <= min_xray || max_xray < x {
-                            y_edge = 1
-                            e9;
+                            y_edge = 1e9;
                         }
                         tile_seg.y_edge = y_edge;
                         tile_seg.next = old;
