@@ -27,7 +27,6 @@ use wgpu::{Device, Queue};
 mod engine;
 mod render;
 mod shaders;
-mod template;
 mod test_scene;
 
 async fn run() -> Result<(), Box<dyn std::error::Error>> {

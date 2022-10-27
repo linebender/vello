@@ -1,0 +1,10 @@
+{
+  "wgsl-analyzer.customImports": {
+    // Update as appropriate to proper path
+    // temporary solution
+    // "config": "file:C:\\Users\\Daniel\\Documents\\repositories\\linebender\\piet-gpu\\piet-wgsl\\shader\\shared\\config.wgsl",
+    // "segment": "file:C:\\Users\\Daniel\\Documents\\repositories\\linebender\\piet-gpu\\piet-wgsl\\shader\\shared\\segment.wgsl",
+    // "pathtag": "file:C:\\Users\\Daniel\\Documents\\repositories\\linebender\\piet-gpu\\piet-wgsl\\shader\\shared\\pathtag.wgsl"
+  },
+  "wgsl-analyzer.diagnostics.nagaVersion": "main"
+}

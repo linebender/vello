@@ -20,8 +20,8 @@ struct Tile {
     segments: u32,
 }
 
-{{> segment}}
-{{> config}}
+#import segment
+#import config
 
 @group(0) @binding(0)
 var<storage> config: Config;
@@ -59,7 +59,7 @@ fn main(
         let y0 = clamp(y, 0.0, 1.0);
         let y1 = clamp(y + segment.delta.y, 0.0, 1.0);
         let dy = y0 - y1;
-        if dy != 0.0 {
+        if (dy != 0.0) {
             let vec_y_recip = 1.0 / segment.delta.y;
             let t0 = (y0 - y) * vec_y_recip;
             let t1 = (y1 - y) * vec_y_recip;

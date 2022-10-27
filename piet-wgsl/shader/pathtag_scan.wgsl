@@ -14,7 +14,7 @@
 //
 // Also licensed under MIT license, at your choice.
 
-{{> pathtag}}
+#import pathtag
 
 @group(0) @binding(0)
 var<storage> path_tags: array<u32>;
