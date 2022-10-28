@@ -38,7 +38,7 @@ var<storage> path_bbox: array<PathBbox>;
 @group(0) @binding(5)
 var<storage, read_write> info: array<u32>;
 
-let WG_SIZE = 256;
+let WG_SIZE = 256u;
 
 var<workgroup> sh_scratch: array<DrawMonoid, WG_SIZE>;
 
@@ -119,7 +119,7 @@ fn main(
                 let r0 = bitcast<f32>(scene[dd + 5u]);
                 let r1 = bitcast<f32>(scene[dd + 6u]);
                 let inv_det = 1.0 / (mat.x * mat.w - mat.y * mat.z);
-                let inv_mat = inv_det * vec4(mat.w, -mat.y, -mat.z, mat.x);
+                let inv_mat = inv_det * vec4<f32>(mat.w, -mat.y, -mat.z, mat.x);
                 var inv_tr = inv_mat.xz * translate.x + inv_mat.yw * translate.y;
                 inv_tr += p0;
                 let center1 = p1 - p0;

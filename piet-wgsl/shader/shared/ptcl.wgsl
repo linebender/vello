@@ -14,17 +14,25 @@
 //
 // Also licensed under MIT license, at your choice.
 
-// The annotated bounding box for a path. It has been transformed,
-// but contains a link to the active transform, mostly for gradients.
-struct PathBbox {
-    x0: u32,
-    y0: u32,
-    x1: u32,
-    y1: u32,
-    linewidth: f32,
-    trans_ix: u32,
+// Tags for PTCL commands
+let CMD_END = 0u;
+let CMD_FILL = 1u;
+let CMD_SOLID = 3u;
+let CMD_COLOR = 5u;
+let CMD_JUMP = 11u;
+
+// The individual PTCL structs are written here, but read/write is by
+// hand in the relevant shaders
+
+struct CmdFill {
+    tile: u32,
+    backdrop: i32,
 }
 
-fn bbox_intersect(a: vec4<f32>, b: vec4<f32>) -> vec4<f32> {
-    return vec4(max(a.xy, b.xy), min(a.zw, b.zw));
+struct CmdJump {
+    target: u32,
+}
+
+struct CmdColor {
+    rgba_color: u32,
 }

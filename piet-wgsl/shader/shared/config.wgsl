@@ -20,8 +20,28 @@ struct Config {
 
     n_drawobj: u32,
 
-    // offsets within config file (in u32 units)
+    // offsets within scene buffer (in u32 units)
     // Note: this is a difference from piet-gpu, which is in bytes
     drawtag_base: u32,
     drawdata_base: u32,
 }
+
+// Geometry of tiles and bins
+
+
+let TILE_WIDTH = 16u;
+let TILE_HEIGHT = 16u;
+// Number of tiles per bin
+let N_TILE_X = 16u;
+let N_TILE_Y = 16u;
+let N_TILE = N_TILE_X * N_TILE_Y;
+
+// Should ptcl stuff move to a separate import?
+
+// Layout of per-tile command list
+// Initial allocation, in u32's.
+let PTCL_INITIAL_ALLOC = 64u;
+let PTCL_INCREMENT = 256u;
+
+// Amount of space taken by jump
+let PTCL_HEADROOM = 2u;

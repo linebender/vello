@@ -19,13 +19,13 @@
 #import config
 #import drawtag
 #import bbox
+#import bump
 
 @group(0) @binding(0)
 var<storage> config: Config;
 
 @group(0) @binding(1)
 var<storage> draw_monoids: array<DrawMonoid>;
-
 
 @group(0) @binding(2)
 var<storage> path_bbox_buf: array<PathBBox>;
@@ -37,10 +37,6 @@ var<storage> clip_bbox_buf: array<vec4<f32>>;
 var<storage, read_write> intersected_bbox: array<vec4<f32>>;
 
 // TODO: put into shared include
-// TODO: robust memory (failure flags)
-struct BumpAllocators {
-    binning: atomic<u32>,
-}
 
 @group(0) @binding(5)
 var<storate, read_write> bump: BumpAllocators;
@@ -48,6 +44,7 @@ var<storate, read_write> bump: BumpAllocators;
 @group(0) @binding(6)
 var<storage, read_write> bin_data: array<u32>;
 
+// TODO: put in common place
 struct BinHeader {
     element_count: u32,
     chunk_offset: u32,
@@ -55,14 +52,6 @@ struct BinHeader {
 
 @group(0) @binding(7)
 var<storage, read_write> bin_header: array<BinHeader>;
-
-// These should probably be in a common block.
-let TILE_WIDTH = 16u;
-let TILE_HEIGHT = 16u;
-// Number of tiles per bin
-let N_TILE_X = 16u;
-let N_TILE_Y = 16u;
-let N_TILE = N_TILE_X * N_TILE_Y;
 
 // conversion factors from coordinates to bin
 let SX = 1.0 / f32(N_TILE_X * TILE_WIDTH);

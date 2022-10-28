@@ -31,11 +31,11 @@ struct DrawMonoid {
 // version of the draw monoid.
 let DRAWTAG_NOP = 0u;
 let DRAWTAG_FILL_COLOR = 0x44u;
-let DRAWTAG_FILL_LIN_GRADIENT = 0x114;
-let DRAWTAG_FILL_RAD_GRADIENT = 0x2dc;
-let DRAWTAG_FILL_IMAGE = 0x48;
-let DRAWTAG_BEGIN_CLIP = 0x05;
-let DRAWTAG_END_CLIP = 0x25;
+let DRAWTAG_FILL_LIN_GRADIENT = 0x114u;
+let DRAWTAG_FILL_RAD_GRADIENT = 0x2dcu;
+let DRAWTAG_FILL_IMAGE = 0x48u;
+let DRAWTAG_BEGIN_CLIP = 0x05u;
+let DRAWTAG_END_CLIP = 0x25u;
 
 fn draw_monoid_identity() -> DrawMonoid {
     return DrawMonoid();
@@ -49,8 +49,7 @@ fn combine_draw_monoid(a: DrawMonoid, b: DrawMonoid) {
     c.info_offset = a.info_offset + b.info_offset;
 }
 
-fn map_draw_tag(tag_word: u32) -> DawMonoid {
-    let has_path = ;
+fn map_draw_tag(tag_word: u32) -> DrawMonoid {
     var c: DrawMonoid;
     c.path_ix = u32(tag_word != DRAWTAG_NOP);
     c.clip_ix = tag_word & 1u;
