@@ -35,111 +35,106 @@ pub struct StackItem {
 }
 
 pub fn preprocess(
-    mut input: &str,
+    input: &str,
     defines: &HashSet<String>,
     imports: &HashMap<String, String>,
 ) -> String {
     let mut output = String::with_capacity(input.len());
-    let mut stack: Vec<StackItem> = vec![];
-
-    while let Some(hash_or_slash_index) = input.find(|char| matches!(char, '#' | '/')) {
-        // N.B. `#` is a single ascii character
-        let previous = &input[..hash_or_slash_index];
-        if stack.last().map(|x| x.active).unwrap_or(true) {
-            output.push_str(&previous);
-        }
-
-        let remaining = &input[hash_or_slash_index..];
-        if remaining.starts_with("//") {
-            let len = remaining
-                .find('\n')
-                .map_or(remaining.len(), |val| val + '\n'.len_utf8());
-            output.push_str(&remaining[..len]);
-            input = &remaining[len..];
-            continue;
-        } else if remaining.starts_with('/') {
-            // Unary divide, ignore
-            output.push('/');
-            input = &remaining['/'.len_utf8()..];
-            continue;
-        }
-        assert!(remaining.starts_with('#'));
-        let input_start_directive = &remaining[('#'.len_utf8())..];
-
-        let can_be_if = previous.len() == 0
-            || previous
-                // Don't bother with carriage return support, or any of the fancier line breaks
-                .trim_end_matches(|char| !matches!(char, '\n') && char.is_whitespace())
-                .ends_with('\n');
-
-        let directive_len = input_start_directive
-            .chars()
-            .take_while(|char| char.is_alphanumeric())
-            .map(char::len_utf8)
-            .sum();
-        let input_end_directive = &input_start_directive[directive_len..];
-        input = &input_end_directive;
-        let arg = || {
-            let first_arg_char = input_end_directive
-                .find(char::is_alphanumeric)
-                .unwrap_or(input_end_directive.len());
-            let input_arg_start = &input_end_directive[first_arg_char..];
-            let arg_len = input_arg_start
+    let mut stack = vec![];
+    'outer: for (line_number, mut line) in input.lines().enumerate() {
+        loop {
+            if line.is_empty() {
+                break;
+            }
+            let hash_index = line.find('#');
+            let comment_index = line.find("//");
+            let hash_index = match (hash_index, comment_index) {
+                (Some(hash_index), None) => hash_index,
+                (Some(hash_index), Some(comment_index)) if hash_index < comment_index => hash_index,
+                _ => break,
+            };
+            let directive_start = &line[hash_index + '#'.len_utf8()..];
+            let directive_len = directive_start
                 .chars()
-                .take_while(|c| c.is_alphabetic() || matches!(c, '_'))
+                .take_while(|char| char.is_alphanumeric())
                 .map(char::len_utf8)
                 .sum();
-            let arg = &input_arg_start[..arg_len];
-            let input_arg_end = &input_arg_start[arg_len..];
-            (arg, input_arg_end)
-        };
-        match &input_start_directive[..directive_len] {
-            if_type @ ("endif" | "ifdef" | "ifndef") if !can_be_if => {
-                panic!("Preprocessor directive {if_type} must be the first non-whitespace symbols in a line");
-            }
-            ifdef_symbol @ ("ifdef" | "ifndef") => {
-                let (arg, new_input) = arg();
-                let exists = defines.contains(arg);
-                let mode = ifdef_symbol == "ifdef";
-                stack.push(StackItem {
-                    active: mode == exists,
-                    else_passed: false,
-                });
-                input = new_input;
-            }
-            "else" => {
-                let item = stack.last_mut();
-                if let Some(item) = item {
-                    if item.else_passed {
-                        eprintln!("Second else for same ifdef/ifndef; ignoring second else")
-                    } else {
-                        item.else_passed = true;
-                        item.active = !item.active;
+            let directive = &directive_start[..directive_len];
+            let directive_is_at_start = line.trim_start().starts_with('#');
+
+            match directive {
+                if_item @ ("ifdef" | "ifndef" | "else" | "endif") if !directive_is_at_start => {
+                    eprintln!("#{if_item} directives must be the first non_whitespace items on their line, ignoring (line {line_number})");
+                    break;
+                }
+                def_test @ ("ifdef" | "ifndef") => {
+                    let def = directive_start[directive_len..].trim();
+                    let exists = defines.contains(def);
+                    let mode = def_test == "ifdef";
+                    stack.push(StackItem {
+                        active: mode == exists,
+                        else_passed: false,
+                    });
+                    continue 'outer;
+                }
+                "else" => {
+                    let item = stack.last_mut();
+                    if let Some(item) = item {
+                        if item.else_passed {
+                            eprintln!("Second else for same ifdef/ifndef (line {line_number}); ignoring second else")
+                        } else {
+                            item.else_passed = true;
+                            item.active = !item.active;
+                        }
                     }
+                    let remainder = directive_start[directive_len..].trim();
+                    if !remainder.is_empty() {
+                        eprintln!("#else directives don't take an argument. `{remainder}` will not be in output (line {line_number})");
+                    }
+                    continue 'outer;
                 }
-            }
-            "endif" => {
-                if let None = stack.pop() {
-                    eprintln!("Mismatched endif");
+                "endif" => {
+                    if let None = stack.pop() {
+                        eprintln!("Mismatched endif (line {line_number})");
+                    }
+                    continue 'outer;
                 }
-            }
-            "import" => {
-                let (arg, new_input) = arg();
-                let import = imports.get(arg);
-                if let Some(import) = import {
-                    output.push_str(&preprocess(import, defines, imports));
-                } else {
-                    eprintln!("Unkown import `{arg}`");
+                "import" => {
+                    output.push_str(&line[..hash_index]);
+                    let directive_end = &directive_start[directive_len..];
+                    let import_name_start = if let Some(import_name_start) =
+                        directive_end.find(|c: char| !c.is_whitespace())
+                    {
+                        import_name_start
+                    } else {
+                        eprintln!("#import needs a non_whitespace argument (line {line_number})");
+                        continue 'outer;
+                    };
+                    let import_name_start = &directive_end[import_name_start..];
+                    let import_name_end_index = import_name_start
+                        .find(|c| !(matches!(c, '_') || c.is_alphanumeric()))
+                        .unwrap_or(import_name_start.len());
+                    let import_name = &import_name_start[..import_name_end_index];
+                    line = &import_name_start[import_name_end_index..];
+                    let import = imports.get(import_name);
+                    if let Some(import) = import {
+                        if stack.last().map(|x| x.active).unwrap_or(true) {
+                            output.push_str(&preprocess(import, defines, imports));
+                        }
+                    } else {
+                        eprintln!("Unknown import `{import_name}` (line {line_number})");
+                    }
+                    continue;
                 }
-                input = new_input;
-            }
-            val => {
-                eprintln!("Unknown preprocessor directive `{val}`")
+                val => {
+                    eprintln!("Unknown preprocessor directive `{val}` (line {line_number})");
+                }
             }
         }
+        if stack.last().map(|x| x.active).unwrap_or(true) {
+            output.push_str(line);
+            output.push('\n');
+        }
     }
-    assert!(stack.len() == 0, "ifdef and ifndef must be balanced");
-    output.push_str(&input);
-    // println!("{output} \n END OF SHADER \n");
     output
 }
