@@ -64,9 +64,6 @@ fn read_i16_point(ix: u32) -> vec2<f32> {
 }
 
 #ifndef cubics_out
-let TILE_WIDTH = 16u;
-let TILE_HEIGHT = 16u;
-
 struct SubdivResult {
     val: f32,
     a0: f32,

@@ -50,7 +50,7 @@ fn main(
 ) {
     let ix = global_id.x;
     let tag_word = scene[config.drawtag_base + ix];
-    let agg = map_draw_tag(tag_word);
+    var agg = map_draw_tag(tag_word);
     sh_scratch[local_id.x] = agg;
     for (var i = 0u; i < firstTrailingBit(WG_SIZE); i += 1u) {
         workgroupBarrier();
@@ -64,7 +64,7 @@ fn main(
     workgroupBarrier();
     var m = draw_monoid_identity();
     if wg_id.x > 0u {
-        m = parent[wg_id.x - 1u];
+        m = reduced[wg_id.x - 1u];
     }
     if local_id.x > 0u {
         m = combine_draw_monoid(m, sh_scratch[local_id.x - 1u]);
@@ -84,7 +84,7 @@ fn main(
         let y1 = f32(bbox.y1) - 32768.0;
         let bbox_f = vec4(x0, y0, x1, y1);
         let fill_mode = u32(bbox.linewidth >= 0.0);
-        var mat: vec4<f32>;
+        var matrx: vec4<f32>;
         var translate: vec2<f32>;
         var linewidth = bbox.linewidth;
         if linewidth >= 0.0 || tag_word == DRAWTAG_FILL_LIN_GRADIENT || tag_word == DRAWTAG_FILL_RAD_GRADIENT {
@@ -92,18 +92,20 @@ fn main(
         }
         if linewidth >= 0.0 {
             // Note: doesn't deal with anisotropic case
-            linewidth *= sqrt(abs(mat.x * mat.w - mat.y * mat.z)); 
+            linewidth *= sqrt(abs(matrx.x * matrx.w - matrx.y * matrx.z)); 
         }
         switch tag_word {
-            case DRAWTAG_FILL_COLOR, DRAWTAG_FILL_IMAGE: {
+            // DRAWTAG_FILL_COLOR, DRAWTAG_FILL_IMAGE
+            case 0x44u, 0x48u: {
                 info[di] = bitcast<u32>(linewidth);
             }
-            case DRAWTAG_FILL_LIN_GRADIENT: {
+            // DRAWTAG_FILL_LIN_GRADIENT
+            case 0x114u: {
                 info[di] = bitcast<u32>(linewidth);
                 var p0 = bitcast<vec2<f32>>(vec2(scene[dd + 1u], scene[dd + 2u]));
                 var p1 = bitcast<vec2<f32>>(vec2(scene[dd + 3u], scene[dd + 4u]));
-                p0 = mat.xy * p0.x + mat.zw * p0.y + translate;
-                p1 = mat.xy * p1.x + mat.zw * p1.y + translate;
+                p0 = matrx.xy * p0.x + matrx.zw * p0.y + translate;
+                p1 = matrx.xy * p1.x + matrx.zw * p1.y + translate;
                 let dxy = p1 - p0;
                 let scale = 1.0 / dot(dxy, dxy);
                 let line_xy = dxy * scale;
@@ -112,14 +114,15 @@ fn main(
                 info[di + 2u] = bitcast<u32>(line_xy.y);
                 info[di + 3u] = bitcast<u32>(line_c);
             }
-            case DRAWTAG_FILL_RAD_GRADIENT: {
+            // DRAWTAG_FILL_RAD_GRADIENT
+            case 0x2dcu: {
                 info[di] = bitcast<u32>(linewidth);
                 var p0 = bitcast<vec2<f32>>(vec2(scene[dd + 1u], scene[dd + 2u]));
                 var p1 = bitcast<vec2<f32>>(vec2(scene[dd + 3u], scene[dd + 4u]));
                 let r0 = bitcast<f32>(scene[dd + 5u]);
                 let r1 = bitcast<f32>(scene[dd + 6u]);
-                let inv_det = 1.0 / (mat.x * mat.w - mat.y * mat.z);
-                let inv_mat = inv_det * vec4<f32>(mat.w, -mat.y, -mat.z, mat.x);
+                let inv_det = 1.0 / (matrx.x * matrx.w - matrx.y * matrx.z);
+                let inv_mat = inv_det * vec4<f32>(matrx.w, -matrx.y, -matrx.z, matrx.x);
                 var inv_tr = inv_mat.xz * translate.x + inv_mat.yw * translate.y;
                 inv_tr += p0;
                 let center1 = p1 - p0;

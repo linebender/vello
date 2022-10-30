@@ -14,6 +14,14 @@
 //
 // Also licensed under MIT license, at your choice.
 
+// Layout of per-tile command list
+// Initial allocation, in u32's.
+let PTCL_INITIAL_ALLOC = 64u;
+let PTCL_INCREMENT = 256u;
+
+// Amount of space taken by jump
+let PTCL_HEADROOM = 2u;
+
 // Tags for PTCL commands
 let CMD_END = 0u;
 let CMD_FILL = 1u;
@@ -30,7 +38,7 @@ struct CmdFill {
 }
 
 struct CmdJump {
-    target: u32,
+    new_ix: u32,
 }
 
 struct CmdColor {

@@ -71,7 +71,8 @@ var<storage> tiles: array<Tile>;
 // Much of this code assumes WG_SIZE == N_TILE. If these diverge, then
 // a fair amount of fixup is needed.
 let WG_SIZE = 256u;
-let N_SLICE = WG_SIZE / 32u;
+//let N_SLICE = WG_SIZE / 32u;
+let N_SLICE = 8u;
 
 var<workgroup> sh_bitmaps: array<array<atomic<u32>, N_TILE>, N_SLICE>;
 var<workgroup> sh_part_count: array<u32, WG_SIZE>;
@@ -174,7 +175,7 @@ fn main(
                     sh_part_count[local_id.x] = count;
                     workgroupBarrier();
                     if local_id.x >= (1u << i) {
-                        count += sh_part_count[local_id - (1u << i)];
+                        count += sh_part_count[local_id.x - (1u << i)];
                     }
                     workgroupBarrier();
                 }
@@ -235,7 +236,7 @@ fn main(
 
         // Prefix sum of tile counts
         sh_tile_count[local_id.x] = tile_count;
-        for (var i = 0; i < firstTrailingBit(N_TILE); i += 1u) {
+        for (var i = 0u; i < firstTrailingBit(N_TILE); i += 1u) {
             workgroupBarrier();
             if local_id.x >= (1u << i) {
                 tile_count += sh_tile_count[local_id.x - (1u << i)];
@@ -298,11 +299,13 @@ fn main(
             let drawtag = scene[config.drawtag_base + drawobj_ix];
             let dm = draw_monoids[drawobj_ix];
             let dd = config.drawdata_base + dm.scene_offset;
+            // TODO: set up draw info from monoid
             if clip_zero_depth == 0u {
                 let tile_ix = sh_tile_base[el_ix] + sh_tile_stride[el_ix] * tile_y + tile_x;
                 let tile = tiles[tile_ix];
                 switch drawtag {
-                    case DRAWTAG_FILL_COLOR: {
+                    // DRAWTAG_FILL_COLOR
+                    case 0x44u: {
                         // TODO: get linewidth from draw object
                         let linewidth = -1.0;
                         let rgba_color = scene[dd];

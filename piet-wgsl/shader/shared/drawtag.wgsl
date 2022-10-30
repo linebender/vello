@@ -41,12 +41,13 @@ fn draw_monoid_identity() -> DrawMonoid {
     return DrawMonoid();
 }
 
-fn combine_draw_monoid(a: DrawMonoid, b: DrawMonoid) {
+fn combine_draw_monoid(a: DrawMonoid, b: DrawMonoid) -> DrawMonoid {
     var c: DrawMonoid;
     c.path_ix = a.path_ix + b.path_ix;
     c.clip_ix = a.clip_ix + b.clip_ix;
     c.scene_offset = a.scene_offset + b.scene_offset;
     c.info_offset = a.info_offset + b.info_offset;
+    return c;
 }
 
 fn map_draw_tag(tag_word: u32) -> DrawMonoid {
