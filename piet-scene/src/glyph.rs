@@ -87,15 +87,17 @@ impl<'a> GlyphProvider<'a> {
         let glyph = self.scaler.glyph(gid)?;
         let path = glyph.path(0)?;
         let mut fragment = SceneFragment::default();
-        let mut builder = SceneBuilder::for_fragment(&mut fragment);
-        builder.fill(
-            Fill::NonZero,
-            Affine::IDENTITY,
-            brush.unwrap_or(&Brush::Solid(Color::rgb8(255, 255, 255))),
-            None,
-            convert_path(path.elements()),
-        );
-        builder.finish();
+        if !path.verbs.is_empty() {
+            let mut builder = SceneBuilder::for_fragment(&mut fragment);
+            builder.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                brush.unwrap_or(&Brush::Solid(Color::rgb8(255, 255, 255))),
+                None,
+                convert_path(path.elements()),
+            );
+            builder.finish();
+        }
         Some(fragment)
     }
 
