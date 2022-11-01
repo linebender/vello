@@ -14,6 +14,9 @@
 //
 // Also licensed under MIT license, at your choice.
 
+// Fine rasterizer. This can run in simple (just path rendering) and full
+// modes, controllable by #define.
+
 // This is a cut'n'paste w/ backdrop.
 struct Tile {
     backdrop: i32,
@@ -36,17 +39,16 @@ var<storage> segments: array<Segment>;
 @group(0) @binding(3)
 var<storage, read_write> output: array<u32>;
 
+#ifdef full
+#import ptcl
+
+@group(0) @binding(4)
+var<storage> ptcl: array<u32>;
+#endif
+
 let PIXELS_PER_THREAD = 4u;
 
-@compute @workgroup_size(4, 16)
-fn main(
-    @builtin(global_invocation_id) global_id: vec3<u32>,
-    @builtin(local_invocation_id) local_id: vec3<u32>,
-    @builtin(workgroup_id) wg_id: vec3<u32>,
-) {
-    let tile_ix = wg_id.y * config.width_in_tiles + wg_id.x;
-    let xy = vec2<f32>(f32(global_id.x * PIXELS_PER_THREAD), f32(global_id.y));
-    let tile = tiles[tile_ix];
+fn fill_path(tile: Tile, xy: vec2<f32>) -> array<f32, PIXELS_PER_THREAD> {
     var area: array<f32, PIXELS_PER_THREAD>;
     let backdrop_f = f32(tile.backdrop);
     for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
@@ -89,6 +91,19 @@ fn main(
     for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
         area[i] = abs(area[i]);
     }
+    return area;
+}
+
+@compute @workgroup_size(4, 16)
+fn main(
+    @builtin(global_invocation_id) global_id: vec3<u32>,
+    @builtin(local_invocation_id) local_id: vec3<u32>,
+    @builtin(workgroup_id) wg_id: vec3<u32>,
+) {
+    let tile_ix = wg_id.y * config.width_in_tiles + wg_id.x;
+    let xy = vec2<f32>(f32(global_id.x * PIXELS_PER_THREAD), f32(global_id.y));
+    let tile = tiles[tile_ix];
+    let area = fill_path(tile, xy);
 
     let bytes = pack4x8unorm(vec4<f32>(area[0], area[1], area[2], area[3]));
     let out_ix = global_id.y * (config.width_in_tiles * 4u) + global_id.x;

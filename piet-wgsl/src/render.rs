@@ -11,10 +11,13 @@ use crate::{
 const TAG_MONOID_SIZE: u64 = 12;
 
 #[repr(C)]
-#[derive(Clone, Copy, Zeroable, Pod)]
+#[derive(Clone, Copy, Default, Zeroable, Pod)]
 struct Config {
     width_in_tiles: u32,
     height_in_tiles: u32,
+    n_drawobj: u32,
+    drawtag_base: u32,
+    drawdata_base: u32,
 }
 
 #[repr(C)]
@@ -60,6 +63,7 @@ pub fn render(scene: &Scene, shaders: &Shaders) -> (Recording, BufProxy) {
     let config = Config {
         width_in_tiles: 64,
         height_in_tiles: 64,
+        ..Default::default()
     };
     let config_buf = recording.upload(bytemuck::bytes_of(&config).to_owned());
     // TODO: more principled size calc
