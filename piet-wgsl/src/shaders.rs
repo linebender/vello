@@ -44,12 +44,13 @@ pub fn init_shaders(device: &Device, engine: &mut Engine) -> Result<Shaders, Err
     let pathtag_reduce = engine.add_shader(
         device,
         preprocess::preprocess(&read_shader("pathtag_reduce"), &empty, &imports).into(),
-        &[BindType::BufReadOnly, BindType::Buffer],
+        &[BindType::BufReadOnly, BindType::BufReadOnly, BindType::Buffer],
     )?;
     let pathtag_scan = engine.add_shader(
         device,
         preprocess::preprocess(&read_shader("pathtag_scan"), &empty, &imports).into(),
         &[
+            BindType::BufReadOnly,
             BindType::BufReadOnly,
             BindType::BufReadOnly,
             BindType::Buffer,
@@ -62,7 +63,6 @@ pub fn init_shaders(device: &Device, engine: &mut Engine) -> Result<Shaders, Err
         device,
         preprocess::preprocess(&read_shader("path_coarse"), &path_coarse_config, &imports).into(),
         &[
-            BindType::BufReadOnly,
             BindType::BufReadOnly,
             BindType::BufReadOnly,
             BindType::BufReadOnly,

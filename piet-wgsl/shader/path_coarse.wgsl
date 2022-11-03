@@ -14,24 +14,22 @@
 //
 // Also licensed under MIT license, at your choice.
 
+#import config
 #import pathtag
 
 @group(0) @binding(0)
-var<storage> path_tags: array<u32>;
+var<storage> config: Config;
 
 @group(0) @binding(1)
-var<storage> tag_monoids: array<TagMonoid>;
+var<storage> scene: array<u32>;
 
-// TODO: should probably have single "scene" binding.
 @group(0) @binding(2)
-var<storage> path_data: array<u32>;
+var<storage> tag_monoids: array<TagMonoid>;
 
 #ifdef cubics_out
 @group(0) @binding(3)
 var<storage, read_write> output: array<vec2<f32>>;
 #else
-#import config
-
 struct Tile {
     backdrop: atomic<i32>,
     segments: atomic<u32>,
@@ -39,25 +37,23 @@ struct Tile {
 
 #import segment
 
-// Should probably be uniform binding
 @group(0) @binding(3)
-var<storage> config: Config;
-
-@group(0) @binding(4)
 var<storage, read_write> tiles: array<Tile>;
 
-@group(0) @binding(5)
+@group(0) @binding(4)
 var<storage, read_write> segments: array<Segment>;
 #endif
 
+var<private> pathdata_base: u32;
+
 fn read_f32_point(ix: u32) -> vec2<f32> {
-    let x = bitcast<f32>(path_data[ix]);
-    let y = bitcast<f32>(path_data[ix + 1u]);
+    let x = bitcast<f32>(scene[pathdata_base + ix]);
+    let y = bitcast<f32>(scene[pathdata_base + ix + 1u]);
     return vec2<f32>(x, y);
 }
 
 fn read_i16_point(ix: u32) -> vec2<f32> {
-    let raw = path_data[ix];
+    let raw = scene[pathdata_base + ix];
     let x = f32(i32(raw << 16u) >> 16u);
     let y = f32(i32(raw) >> 16u);
     return vec2<f32>(x, y);
@@ -133,7 +129,8 @@ fn main(
 ) {
     // Obtain exclusive prefix sum of tag monoid
     let ix = global_id.x;
-    let tag_word = path_tags[ix >> 2u];
+    let tag_word = scene[config.pathtag_base + (ix >> 2u)];
+    pathdata_base = config.pathdata_base;
     let shift = (ix & 3u) * 8u;
     var tm = reduce_tag(tag_word & ((1u << shift) - 1u));
     tm = combine_tag_monoid(tag_monoids[ix >> 2u], tm);

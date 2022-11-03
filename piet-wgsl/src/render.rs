@@ -16,6 +16,8 @@ struct Config {
     width_in_tiles: u32,
     height_in_tiles: u32,
     n_drawobj: u32,
+    pathtag_base: u32,
+    pathdata_base: u32,
     drawtag_base: u32,
     drawdata_base: u32,
 }
@@ -29,22 +31,39 @@ pub struct PathSegment {
     next: u32,
 }
 
+fn size_to_words(byte_size: usize) -> u32 {
+    (byte_size / std::mem::size_of::<u32>()) as u32
+}
+
 pub fn render(scene: &Scene, shaders: &Shaders) -> (Recording, BufProxy) {
     let mut recording = Recording::default();
     let data = scene.data();
     let n_pathtag = data.tag_stream.len();
     let pathtag_padded = align_up(n_pathtag, 4 * shaders::PATHTAG_REDUCE_WG);
     let pathtag_wgs = pathtag_padded / (4 * shaders::PATHTAG_REDUCE_WG as usize);
-    let mut tag_data: Vec<u8> = Vec::with_capacity(pathtag_padded);
-    tag_data.extend(&data.tag_stream);
-    tag_data.resize(pathtag_padded, 0);
-    let pathtag_buf = recording.upload(tag_data);
+    let mut scene: Vec<u8> = Vec::with_capacity(pathtag_padded);
+    let pathtag_base = size_to_words(scene.len());
+    scene.extend(&data.tag_stream);
+    scene.resize(pathtag_padded, 0);
+    let pathdata_base = size_to_words(scene.len());
+    scene.extend(&data.pathseg_stream);
+
+    let config = Config {
+        width_in_tiles: 64,
+        height_in_tiles: 64,
+        pathtag_base,
+        pathdata_base,
+        ..Default::default()
+    };
+    let scene_buf = recording.upload(scene);
+    let config_buf = recording.upload(bytemuck::bytes_of(&config).to_owned());
+
     let reduced_buf = BufProxy::new(pathtag_wgs as u64 * TAG_MONOID_SIZE);
     // TODO: really only need pathtag_wgs - 1
     recording.dispatch(
         shaders.pathtag_reduce,
         (pathtag_wgs as u32, 1, 1),
-        [pathtag_buf, reduced_buf],
+        [config_buf, scene_buf, reduced_buf],
     );
 
     let tagmonoid_buf =
@@ -52,20 +71,11 @@ pub fn render(scene: &Scene, shaders: &Shaders) -> (Recording, BufProxy) {
     recording.dispatch(
         shaders.pathtag_scan,
         (pathtag_wgs as u32, 1, 1),
-        [pathtag_buf, reduced_buf, tagmonoid_buf],
+        [config_buf, scene_buf, reduced_buf, tagmonoid_buf],
     );
 
     let path_coarse_wgs = (data.n_pathseg + shaders::PATH_COARSE_WG - 1) / shaders::PATH_COARSE_WG;
-    // The clone here is kinda BS, think about reducing copies
-    // Of course, we'll probably end up concatenating into a single scene binding.
-    let pathdata_buf = recording.upload(data.pathseg_stream.clone());
     //let cubics_buf = BufProxy::new(data.n_pathseg as u64 * 32);
-    let config = Config {
-        width_in_tiles: 64,
-        height_in_tiles: 64,
-        ..Default::default()
-    };
-    let config_buf = recording.upload(bytemuck::bytes_of(&config).to_owned());
     // TODO: more principled size calc
     let tiles_buf = BufProxy::new(4097 * 8);
     let segments_buf = BufProxy::new(256 * 24);
@@ -74,10 +84,9 @@ pub fn render(scene: &Scene, shaders: &Shaders) -> (Recording, BufProxy) {
         shaders.path_coarse,
         (path_coarse_wgs, 1, 1),
         [
-            pathtag_buf,
-            tagmonoid_buf,
-            pathdata_buf,
             config_buf,
+            scene_buf,
+            tagmonoid_buf,
             tiles_buf,
             segments_buf,
         ],

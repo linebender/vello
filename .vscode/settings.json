@@ -8,5 +8,6 @@
     "pathtag": "${workspaceFolder}/piet-wgsl/shader/shared/pathtag.wgsl",
     "ptcl": "${workspaceFolder}/piet-wgsl/shader/shared/ptcl.wgsl"
   },
-  "wgsl-analyzer.diagnostics.nagaVersion": "main"
+  "wgsl-analyzer.diagnostics.nagaVersion": "main",
+  "wgsl-analyzer.preprocessor.shaderDefs": ["full"]
 }

@@ -14,15 +14,19 @@
 //
 // Also licensed under MIT license, at your choice.
 
+#import config
 #import pathtag
 
 @group(0) @binding(0)
-var<storage> path_tags: array<u32>;
+var<storage> config: Config;
 
 @group(0) @binding(1)
-var<storage> reduced: array<TagMonoid>;
+var<storage> scene: array<u32>;
 
 @group(0) @binding(2)
+var<storage> reduced: array<TagMonoid>;
+
+@group(0) @binding(3)
 var<storage, read_write> tag_monoids: array<TagMonoid>;
 
 let LG_WG_SIZE = 8u;
@@ -54,7 +58,7 @@ fn main(
     }
 
     let ix = global_id.x;
-    let tag_word = path_tags[ix];
+    let tag_word = scene[config.pathtag_base + ix];
     agg = reduce_tag(tag_word);
     sh_monoid[local_id.x] = agg;
     for (var i = 0u; i < LG_WG_SIZE; i += 1u) {

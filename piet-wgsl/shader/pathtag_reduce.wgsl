@@ -14,14 +14,16 @@
 //
 // Also licensed under MIT license, at your choice.
 
+#import config
 #import pathtag
 
-// Note: should have a single scene binding, path_tags are a slice
-// in that; need a config uniform.
 @group(0) @binding(0)
-var<storage> path_tags: array<u32>;
+var<storage> config: Config;
 
 @group(0) @binding(1)
+var<storage> scene: array<u32>;
+
+@group(0) @binding(2)
 var<storage, read_write> reduced: array<TagMonoid>;
 
 let LG_WG_SIZE = 8u;
@@ -35,7 +37,7 @@ fn main(
     @builtin(local_invocation_id) local_id: vec3<u32>,
 ) {
     let ix = global_id.x;
-    let tag_word = path_tags[ix];
+    let tag_word = scene[config.pathtag_base + ix];
     var agg = reduce_tag(tag_word);
     sh_scratch[local_id.x] = agg;
     for (var i = 0u; i < firstTrailingBit(WG_SIZE); i += 1u) {

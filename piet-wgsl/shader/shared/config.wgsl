@@ -22,6 +22,9 @@ struct Config {
 
     // offsets within scene buffer (in u32 units)
     // Note: this is a difference from piet-gpu, which is in bytes
+    pathtag_base: u32,
+    pathdata_base: u32,
+
     drawtag_base: u32,
     drawdata_base: u32,
 }

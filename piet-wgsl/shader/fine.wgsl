@@ -44,6 +44,17 @@ var<storage, read_write> output: array<u32>;
 
 @group(0) @binding(4)
 var<storage> ptcl: array<u32>;
+
+fn read_fill(cmd_ix: u32) -> CmdFill {
+    let tile = ptcl[cmd_ix + 1u];
+    let backdrop = i32(ptcl[cmd_ix + 2u]);
+    return CmdFill(tile, backdrop);
+}
+
+fn read_color(cmd_ix: u32) -> CmdColor {
+    let rgba_color = ptcl[cmd_ix + 1u];
+    return CmdColor(rgba_color);
+}
 #endif
 
 let PIXELS_PER_THREAD = 4u;
@@ -103,7 +114,53 @@ fn main(
     let tile_ix = wg_id.y * config.width_in_tiles + wg_id.x;
     let xy = vec2<f32>(f32(global_id.x * PIXELS_PER_THREAD), f32(global_id.y));
     let tile = tiles[tile_ix];
+#ifdef full
+    var rgba: array<vec4<f32>, PIXELS_PER_THREAD>;
+    var area: array<f32, PIXELS_PER_THREAD>;
+    var cmd_ix = tile_ix * PTCL_INITIAL_ALLOC;
+
+    // main interpretation loop
+    while true {
+        let tag = ptcl[cmd_ix];
+        if tag == CMD_END {
+            break;
+        }
+        switch tag {
+            // CMD_FILL
+            case 1u: {
+                let fill = read_fill(cmd_ix);
+                let tile = Tile(fill.backdrop, fill.tile);
+                area = fill_path(tile, xy);
+                cmd_ix += 3u;
+            }
+            // CMD_SOLID
+            case 3u: {
+                for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
+                    area[i] = 1.0;
+                }
+                cmd_ix += 1u;
+            }
+            // CMD_COLOR
+            case 5u: {
+                let color = read_color(cmd_ix);
+                let fg = unpack4x8unorm(color.rgba_color);
+                for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
+                    let fg_i = fg * area[i];
+                    rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
+                }
+                cmd_ix += 1u;
+            }
+            // CMD_JUMP
+            case 11u: {
+                cmd_ix = ptcl[cmd_ix + 1u];
+            }
+            default: {}
+        }
+    }
+
+#else
     let area = fill_path(tile, xy);
+#endif
 
     let bytes = pack4x8unorm(vec4<f32>(area[0], area[1], area[2], area[3]));
     let out_ix = global_id.y * (config.width_in_tiles * 4u) + global_id.x;
