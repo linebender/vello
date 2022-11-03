@@ -22,7 +22,7 @@ use engine::Engine;
 
 use render::render;
 use test_scene::dump_scene_info;
-use wgpu::{Device, Queue};
+use wgpu::{Device, Queue, Limits};
 
 mod engine;
 mod render;
@@ -33,12 +33,14 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let instance = wgpu::Instance::new(wgpu::Backends::PRIMARY);
     let adapter = instance.request_adapter(&Default::default()).await.unwrap();
     let features = adapter.features();
+    let mut limits = Limits::default();
+    limits.max_storage_buffers_per_shader_stage = 16;
     let (device, queue) = adapter
         .request_device(
             &wgpu::DeviceDescriptor {
                 label: None,
                 features: features & wgpu::Features::TIMESTAMP_QUERY,
-                limits: Default::default(),
+                limits,
             },
             None,
         )
@@ -55,6 +57,7 @@ async fn do_render(
     engine: &mut Engine,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let shaders = shaders::init_shaders(device, engine)?;
+    let full_shaders = shaders::full_shaders(device, engine)?;
     let scene = test_scene::gen_test_scene();
     dump_scene_info(&scene);
     let (recording, buf) = render(&scene, &shaders);

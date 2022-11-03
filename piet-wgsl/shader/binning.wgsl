@@ -28,7 +28,7 @@ var<storage> config: Config;
 var<storage> draw_monoids: array<DrawMonoid>;
 
 @group(0) @binding(2)
-var<storage> path_bbox_buf: array<PathBBox>;
+var<storage> path_bbox_buf: array<PathBbox>;
 
 @group(0) @binding(3)
 var<storage> clip_bbox_buf: array<vec4<f32>>;
@@ -39,7 +39,7 @@ var<storage, read_write> intersected_bbox: array<vec4<f32>>;
 // TODO: put into shared include
 
 @group(0) @binding(5)
-var<storate, read_write> bump: BumpAllocators;
+var<storage, read_write> bump: BumpAllocators;
 
 @group(0) @binding(6)
 var<storage, read_write> bin_data: array<u32>;
@@ -54,11 +54,14 @@ struct BinHeader {
 var<storage, read_write> bin_header: array<BinHeader>;
 
 // conversion factors from coordinates to bin
-let SX = 1.0 / f32(N_TILE_X * TILE_WIDTH);
-let SY = 1.0 / f32(N_TILE_Y * TILE_HEIGHT);
+let SX = 0.00390625;
+let SY = 0.00390625;
+//let SX = 1.0 / f32(N_TILE_X * TILE_WIDTH);
+//let SY = 1.0 / f32(N_TILE_Y * TILE_HEIGHT);
 
 let WG_SIZE = 256u;
-let N_SLICE = WG_SIZE / 32u;
+let N_SLICE = 8u;
+//let N_SLICE = WG_SIZE / 32u;
 
 var<workgroup> sh_bitmaps: array<array<atomic<u32>, N_TILE>, N_SLICE>;
 var<workgroup> sh_count: array<array<u32, N_TILE>, N_SLICE>;
@@ -82,7 +85,7 @@ fn main(
     var y1 = 0;
     if element_ix < config.n_drawobj {
         let draw_monoid = draw_monoids[element_ix];
-        var clip_bbox = vec4(-1e9, -1e9, 1e9, 1e9);
+        var clip_bbox = vec4<f32>(-1e9, -1e9, 1e9, 1e9);
         if draw_monoid.clip_ix > 0u {
             clip_bbox = clip_bbox_buf[draw_monoid.clip_ix - 1u];
         }
@@ -92,10 +95,11 @@ fn main(
         // TODO check this is true
 
         let path_bbox = path_bbox_buf[draw_monoid.path_ix];
-        let pb = vec4(path_bbox.x0, path_bbox.y0, path_bbox.x1, path_bbox.y1);
-        let bbox = bbox_intersect(clip_bbox, pb);
+        let pb = vec4<f32>(vec4<i32>(path_bbox.x0, path_bbox.y0, path_bbox.x1, path_bbox.y1));
+        let bbox_raw = bbox_intersect(clip_bbox, pb);
+        // TODO(naga): clunky expression a workaround for broken lhs swizzle
+        let bbox = vec4<f32>(bbox_raw.xy, max(bbox_raw.xy, bbox_raw.zw));
 
-        bbox.zw = max(bbox.xy, bbox.zw);
         intersected_bbox[element_ix] = bbox;
         x0 = i32(floor(bbox.x * SX));
         y0 = i32(floor(bbox.y * SY));
@@ -117,7 +121,7 @@ fn main(
     let my_mask = 1u << (local_id.x & 31u);
     while y < y1 {
         atomicOr(&sh_bitmaps[my_slice][y * width_in_bins + x], my_mask);
-        x += 1u;
+        x += 1;
         if x == x1 {
             x = x0;
             y += 1;
@@ -128,8 +132,8 @@ fn main(
     // Allocate output segments
     var element_count = 0u;
     for (var i = 0u; i < N_SLICE; i += 1u) {
-        elementCount += countOneBits(atomicLoad(&sh_bitmaps[i][local_id.x]));
-        sh_count[i][id_ix] = element_count;
+        element_count += countOneBits(atomicLoad(&sh_bitmaps[i][local_id.x]));
+        sh_count[i][local_id.x] = element_count;
     }
     // element_count is the number of draw objects covering this thread's bin
     let chunk_offset = atomicAdd(&bump.binning, element_count);
@@ -145,18 +149,18 @@ fn main(
         let bin_ix = y * width_in_bins + x;
         let out_mask = atomicLoad(&sh_bitmaps[my_slice][bin_ix]);
         // I think this predicate will always be true...
-        if (out_mask & my_mask) != 0 {
+        if (out_mask & my_mask) != 0u {
             var idx = countOneBits(out_mask & (my_mask - 1u));
-            if my_slice > 0 {
+            if my_slice > 0u {
                 idx += sh_count[my_slice - 1u][bin_ix];
             }
             let offset = sh_chunk_offset[bin_ix];
             bin_data[offset + idx] = element_ix;
         }
-        x += 1u;
+        x += 1;
         if x == x1 {
             x = x0;
-            y += 1u;
+            y += 1;
         }
     }
 }

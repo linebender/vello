@@ -14,8 +14,12 @@
 //
 // Also licensed under MIT license, at your choice.
 
+// Path coarse rasterization for the full implementation.
+
 #import config
 #import pathtag
+#import tile
+#import segment
 
 @group(0) @binding(0)
 var<storage> config: Config;
@@ -23,44 +27,35 @@ var<storage> config: Config;
 @group(0) @binding(1)
 var<storage> scene: array<u32>;
 
+// Maybe dedup?
+struct Cubic {
+    p0: vec2<f32>,
+    p1: vec2<f32>,
+    p2: vec2<f32>,
+    p3: vec2<f32>,
+}
+
 @group(0) @binding(2)
 var<storage> tag_monoids: array<TagMonoid>;
 
-#ifdef cubics_out
 @group(0) @binding(3)
-var<storage, read_write> output: array<vec2<f32>>;
-#else
+var<storage> cubics: array<Cubic>;
+
+@group(0) @binding(4)
+var<storage> paths: array<Path>;
+
 // We don't get this from import as it's the atomic version
 struct AtomicTile {
     backdrop: atomic<i32>,
     segments: atomic<u32>,
 }
 
-#import segment
-
-@group(0) @binding(3)
+@group(0) @binding(5)
 var<storage, read_write> tiles: array<AtomicTile>;
 
-@group(0) @binding(4)
+@group(0) @binding(6)
 var<storage, read_write> segments: array<Segment>;
-#endif
 
-var<private> pathdata_base: u32;
-
-fn read_f32_point(ix: u32) -> vec2<f32> {
-    let x = bitcast<f32>(scene[pathdata_base + ix]);
-    let y = bitcast<f32>(scene[pathdata_base + ix + 1u]);
-    return vec2<f32>(x, y);
-}
-
-fn read_i16_point(ix: u32) -> vec2<f32> {
-    let raw = scene[pathdata_base + ix];
-    let x = f32(i32(raw << 16u) >> 16u);
-    let y = f32(i32(raw) >> 16u);
-    return vec2<f32>(x, y);
-}
-
-#ifndef cubics_out
 struct SubdivResult {
     val: f32,
     a0: f32,
@@ -119,69 +114,28 @@ fn alloc_segment() -> u32 {
     // TODO: separate small buffer binding for this?
     return atomicAdd(&tiles[4096].segments, 1u) + 1u;
 }
-#endif
 
 let MAX_QUADS = 16u;
 
 @compute @workgroup_size(256)
 fn main(
     @builtin(global_invocation_id) global_id: vec3<u32>,
-    @builtin(local_invocation_id) local_id: vec3<u32>,
 ) {
-    // Obtain exclusive prefix sum of tag monoid
     let ix = global_id.x;
     let tag_word = scene[config.pathtag_base + (ix >> 2u)];
-    pathdata_base = config.pathdata_base;
     let shift = (ix & 3u) * 8u;
-    var tm = reduce_tag(tag_word & ((1u << shift) - 1u));
-    tm = combine_tag_monoid(tag_monoids[ix >> 2u], tm);
     var tag_byte = (tag_word >> shift) & 0xffu;
-    // should be extractBits(tag_word, shift, 8)?
 
-    // Decode path data
-    let seg_type = tag_byte & PATH_TAG_SEG_TYPE;
-    if seg_type != 0u {
-        var p0: vec2<f32>;
-        var p1: vec2<f32>;
-        var p2: vec2<f32>;
-        var p3: vec2<f32>;
-        if (tag_byte & PATH_TAG_F32) != 0u {
-            p0 = read_f32_point(tm.pathseg_offset);
-            p1 = read_f32_point(tm.pathseg_offset + 2u);
-            if seg_type >= PATH_TAG_QUADTO {
-                p2 = read_f32_point(tm.pathseg_offset + 4u);
-                if seg_type == PATH_TAG_CUBICTO {
-                    p3 = read_f32_point(tm.pathseg_offset + 6u);
-                }
-            }
-        } else {
-            p0 = read_i16_point(tm.pathseg_offset);
-            p1 = read_i16_point(tm.pathseg_offset + 1u);
-            if seg_type >= PATH_TAG_QUADTO {
-                p2 = read_i16_point(tm.pathseg_offset + 2u);
-                if seg_type == PATH_TAG_CUBICTO {
-                    p3 = read_i16_point(tm.pathseg_offset + 3u);
-                }
-            }
-        }
-        // TODO: transform goes here
-        // Degree-raise
-        if seg_type == PATH_TAG_LINETO {
-            p3 = p1;
-            p2 = mix(p3, p0, 1.0 / 3.0);
-            p1 = mix(p0, p3, 1.0 / 3.0);
-        } else if seg_type == PATH_TAG_QUADTO {
-            p3 = p2;
-            p2 = mix(p1, p2, 1.0 / 3.0);
-            p1 = mix(p1, p0, 1.0 / 3.0);
-        }
-#ifdef cubics_out
-        let out_ix = ix * 4u;
-        output[out_ix] = p0;
-        output[out_ix + 1u] = p1;
-        output[out_ix + 2u] = p2;
-        output[out_ix + 3u] = p3;
-#else
+    // Reconstruct path_ix from monoid or store in cubic?
+    if (tag_byte & PATH_TAG_SEG_TYPE) != 0u {
+        let path_ix = 42u; // BIG GIANT TODO
+        let path = paths[path_ix];
+        let bbox = vec4<i32>(path.bbox);
+        let cubic = cubics[global_id.x];
+        let p0 = cubic.p0;
+        let p1 = cubic.p1;
+        let p2 = cubic.p2;
+        let p3 = cubic.p3;
         let err_v = 3.0 * (p2 - p1) + p0 - p3;
         let err = dot(err_v, err_v);
         let ACCURACY = 0.25;
@@ -318,6 +272,5 @@ fn main(
             val_sum += params.val;
             qp0 = qp2;
         }
-#endif
     }
 }

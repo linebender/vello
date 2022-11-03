@@ -6,7 +6,8 @@
     "drawtag": "${workspaceFolder}/piet-wgsl/shader/shared/drawtag.wgsl",
     "segment": "${workspaceFolder}/piet-wgsl/shader/shared/segment.wgsl",
     "pathtag": "${workspaceFolder}/piet-wgsl/shader/shared/pathtag.wgsl",
-    "ptcl": "${workspaceFolder}/piet-wgsl/shader/shared/ptcl.wgsl"
+    "ptcl": "${workspaceFolder}/piet-wgsl/shader/shared/ptcl.wgsl",
+    "tile": "${workspaceFolder}/piet-wgsl/shader/shared/tile.wgsl"
   },
   "wgsl-analyzer.diagnostics.nagaVersion": "main",
   "wgsl-analyzer.preprocessor.shaderDefs": ["full"]

@@ -20,6 +20,7 @@
 #import bump
 #import drawtag
 #import ptcl
+#import tile
 
 @group(0) @binding(0)
 var<storage> config: Config;
@@ -40,32 +41,20 @@ struct BinHeader {
 var<storage> bin_headers: array<BinHeader>;
 
 @group(0) @binding(4)
-var<storage, read_write> bin_data: array<u32>;
-
-@group(0) @binding(5)
-var<storage, read_write> bump: BumpAllocators;
-
-@group(0) @binding(6)
-var<storage, read_write> ptcl: array<u32>;
-
-// TODO: put this in the right place
-struct Path {
-    // bounding box in pixels
-    bbox: vec4<u32>,
-    // offset (in u32's) to tile rectangle
-    tiles: u32,
-}
-
-struct Tile {
-    backdrop: i32,
-    segments: u32,
-}
-
-@group(0) @binding(7)
 var<storage> paths: array<Path>;
 
-@group(0) @binding(8)
+@group(0) @binding(5)
 var<storage> tiles: array<Tile>;
+
+@group(0) @binding(6)
+var<storage> bin_data: array<u32>;
+
+@group(0) @binding(7)
+var<storage, read_write> bump: BumpAllocators;
+
+@group(0) @binding(8)
+var<storage, read_write> ptcl: array<u32>;
+
 
 
 // Much of this code assumes WG_SIZE == N_TILE. If these diverge, then

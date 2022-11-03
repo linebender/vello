@@ -30,10 +30,10 @@ var<storage> scene: array<u32>;
 var<storage> reduced: array<DrawMonoid>;
 
 @group(0) @binding(3)
-var<storage, read_write> draw_monoid: array<DrawMonoid>;
+var<storage> path_bbox: array<PathBbox>;
 
 @group(0) @binding(4)
-var<storage> path_bbox: array<PathBbox>;
+var<storage, read_write> draw_monoid: array<DrawMonoid>;
 
 @group(0) @binding(5)
 var<storage, read_write> info: array<u32>;
@@ -64,6 +64,8 @@ fn main(
     workgroupBarrier();
     var m = draw_monoid_identity();
     if wg_id.x > 0u {
+        // TODO: separate dispatch to scan these, or integrate into this one?
+        // In the meantime, will be limited to 2 * WG draw objs.
         m = reduced[wg_id.x - 1u];
     }
     if local_id.x > 0u {

@@ -16,6 +16,7 @@ struct Config {
     width_in_tiles: u32,
     height_in_tiles: u32,
     n_drawobj: u32,
+    n_path: u32,
     pathtag_base: u32,
     pathdata_base: u32,
     drawtag_base: u32,

@@ -16,11 +16,13 @@
 
 // The annotated bounding box for a path. It has been transformed,
 // but contains a link to the active transform, mostly for gradients.
+// Coordinates are integer pixels (for the convenience of atomic update)
+// but will probably become fixed-point fractions for rectangles.
 struct PathBbox {
-    x0: u32,
-    y0: u32,
-    x1: u32,
-    y1: u32,
+    x0: i32,
+    y0: i32,
+    x1: i32,
+    y1: i32,
     linewidth: f32,
     trans_ix: u32,
 }

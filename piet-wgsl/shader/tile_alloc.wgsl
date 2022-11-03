@@ -19,6 +19,7 @@
 #import config
 #import bump
 #import drawtag
+#import tile
 
 @group(0) @binding(0)
 var<storage> config: Config;
@@ -31,19 +32,6 @@ var<storage> draw_bboxes: array<vec4<f32>>;
 
 @group(0) @binding(3)
 var<storage, read_write> bump: BumpAllocators;
-
-// TODO: put this in the right place, dedup
-struct Path {
-    // bounding box in pixels
-    bbox: vec4<u32>,
-    // offset (in u32's) to tile rectangle
-    tiles: u32,
-}
-
-struct Tile {
-    backdrop: i32,
-    segments: u32,
-}
 
 @group(0) @binding(4)
 var<storage, read_write> paths: array<Path>;
