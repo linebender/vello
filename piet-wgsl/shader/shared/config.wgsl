@@ -30,6 +30,7 @@ struct Config {
     drawdata_base: u32,
 
     transform_base: u32,
+    linewidth_base: u32,
 }
 
 // Geometry of tiles and bins

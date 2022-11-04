@@ -31,6 +31,7 @@ struct Config {
     drawtag_base: u32,
     drawdata_base: u32,
     transform_base: u32,
+    linewidth_base: u32,
 }
 
 #[repr(C)]
@@ -137,6 +138,8 @@ pub fn render_full(scene: &Scene, shaders: &FullShaders) -> (Recording, BufProxy
     scene.extend(&data.drawdata_stream);
     let transform_base = size_to_words(scene.len());
     scene.extend(bytemuck::cast_slice(&data.transform_stream));
+    let linewidth_base = size_to_words(scene.len());
+    scene.extend(bytemuck::cast_slice(&data.linewidth_stream));
 
     let n_path = data.n_path;
     // TODO: calculate for real when we do rectangles
@@ -151,6 +154,7 @@ pub fn render_full(scene: &Scene, shaders: &FullShaders) -> (Recording, BufProxy
         drawtag_base,
         drawdata_base,
         transform_base,
+        linewidth_base,
     };
     println!("{:?}", config);
     let scene_buf = recording.upload(scene);
@@ -284,6 +288,7 @@ pub fn render_full(scene: &Scene, shaders: &FullShaders) -> (Recording, BufProxy
             bin_data_buf,
             path_buf,
             tile_buf,
+            info_buf,
             bump_buf,
             ptcl_buf,
         ],

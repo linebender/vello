@@ -51,6 +51,12 @@ fn read_fill(cmd_ix: u32) -> CmdFill {
     return CmdFill(tile, backdrop);
 }
 
+fn read_stroke(cmd_ix: u32) -> CmdStroke {
+    let tile = ptcl[cmd_ix + 1u];
+    let half_width = bitcast<f32>(ptcl[cmd_ix + 2u]);
+    return CmdStroke(tile, half_width);
+}
+
 fn read_color(cmd_ix: u32) -> CmdColor {
     let rgba_color = ptcl[cmd_ix + 1u];
     return CmdColor(rgba_color);
@@ -105,6 +111,32 @@ fn fill_path(tile: Tile, xy: vec2<f32>) -> array<f32, PIXELS_PER_THREAD> {
     return area;
 }
 
+fn stroke_path(seg: u32, half_width: f32, xy: vec2<f32>) -> array<f32, PIXELS_PER_THREAD> {
+    var df: array<f32, PIXELS_PER_THREAD>;
+    for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
+        df[i] = 1e9;
+    }
+    var segment_ix = seg;
+    while segment_ix != 0u {
+        let segment = segments[segment_ix];
+        let delta = segment.delta;
+        let dpos0 = xy + vec2<f32>(0.5, 0.5) - segment.origin;
+        let scale = 1.0 / dot(delta, delta);
+        for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
+            let dpos = vec2<f32>(dpos0.x + f32(i), dpos0.y);
+            let t = clamp(dot(dpos, delta) * scale, 0.0, 1.0);
+            // performance idea: hoist sqrt out of loop
+            df[i] = min(df[i], length(delta * t - dpos));
+        }
+        segment_ix = segment.next;
+    }
+    for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
+        // reuse array; return alpha rather than distance
+        df[i] = clamp(half_width + 0.5 - df[i], 0.0, 1.0);
+    }
+    return df;
+}
+
 @compute @workgroup_size(4, 16)
 fn main(
     @builtin(global_invocation_id) global_id: vec3<u32>,
@@ -130,6 +162,12 @@ fn main(
                 let fill = read_fill(cmd_ix);
                 let tile = Tile(fill.backdrop, fill.tile);
                 area = fill_path(tile, xy);
+                cmd_ix += 3u;
+            }
+            // CMD_STROKE
+            case 2u: {
+                let stroke = read_stroke(cmd_ix);
+                area = stroke_path(stroke.tile, stroke.half_width, xy);
                 cmd_ix += 3u;
             }
             // CMD_SOLID

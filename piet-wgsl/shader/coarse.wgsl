@@ -50,9 +50,12 @@ var<storage> paths: array<Path>;
 var<storage> tiles: array<Tile>;
 
 @group(0) @binding(7)
-var<storage, read_write> bump: BumpAllocators;
+var<storage> info: array<u32>;
 
 @group(0) @binding(8)
+var<storage, read_write> bump: BumpAllocators;
+
+@group(0) @binding(9)
 var<storage, read_write> ptcl: array<u32>;
 
 
@@ -95,15 +98,23 @@ fn write_path(tile: Tile, linewidth: f32) {
     // TODO: take flags
     // TODO: handle stroke
     alloc_cmd(3u);
-    if tile.segments != 0u {
-        let fill = CmdFill(tile.segments, tile.backdrop);
-        ptcl[cmd_offset] = CMD_FILL;
-        ptcl[cmd_offset + 1u] = fill.tile;
-        ptcl[cmd_offset + 2u] = u32(fill.backdrop);
-        cmd_offset += 3u;
+    if linewidth < 0.0 {
+        if tile.segments != 0u {
+            let fill = CmdFill(tile.segments, tile.backdrop);
+            ptcl[cmd_offset] = CMD_FILL;
+            ptcl[cmd_offset + 1u] = fill.tile;
+            ptcl[cmd_offset + 2u] = u32(fill.backdrop);
+            cmd_offset += 3u;
+        } else {
+            ptcl[cmd_offset] = CMD_SOLID;
+            cmd_offset += 1u;
+        }
     } else {
-        ptcl[cmd_offset] = CMD_SOLID;
-        cmd_offset += 1u;
+        let stroke = CmdStroke(tile.segments, 0.5 * linewidth);
+        ptcl[cmd_offset] = CMD_STROKE;
+        ptcl[cmd_offset + 1u] = stroke.tile;
+        ptcl[cmd_offset + 2u] = bitcast<u32>(stroke.half_width);
+        cmd_offset += 3u;
     }
 }
 
@@ -287,15 +298,14 @@ fn main(
             let drawtag = scene[config.drawtag_base + drawobj_ix];
             let dm = draw_monoids[drawobj_ix];
             let dd = config.drawdata_base + dm.scene_offset;
-            // TODO: set up draw info from monoid
+            let di = dm.info_offset;
             if clip_zero_depth == 0u {
                 let tile_ix = sh_tile_base[el_ix] + sh_tile_stride[el_ix] * tile_y + tile_x;
                 let tile = tiles[tile_ix];
                 switch drawtag {
                     // DRAWTAG_FILL_COLOR
                     case 0x44u: {
-                        // TODO: get linewidth from draw object
-                        let linewidth = -1.0;
+                        let linewidth = bitcast<f32>(info[di]);
                         let rgba_color = scene[dd];
                         write_path(tile, linewidth);
                         write_color(CmdColor(rgba_color));

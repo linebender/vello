@@ -14,7 +14,7 @@
 //
 // Also licensed under MIT license, at your choice.
 
-use piet_scene::{Affine, Brush, Color, Fill, PathElement, Point, Scene, SceneBuilder};
+use piet_scene::{Affine, Brush, Color, Fill, PathElement, Point, Scene, SceneBuilder, Stroke};
 
 pub fn gen_test_scene() -> Scene {
     let mut scene = Scene::default();
@@ -32,6 +32,19 @@ pub fn gen_test_scene() -> Scene {
     let transform = Affine::translate(50.0, 50.0);
     let brush = Brush::Solid(Color::rgba8(0xff, 0xff, 0x00, 0x80));
     builder.fill(Fill::NonZero, transform, &brush, None, &path);
+    let transform = Affine::translate(100.0, 100.0);
+    let style = Stroke {
+        width: 1.0,
+        join: piet_scene::Join::Round,
+        miter_limit: 1.4,
+        start_cap: piet_scene::Cap::Round,
+        end_cap: piet_scene::Cap::Round,
+        dash_pattern: [],
+        dash_offset: 0.0,
+        scale: true,
+    };
+    let brush = Brush::Solid(Color::rgb8(0xa0, 0x00, 0x00));
+    builder.stroke(&style, transform, &brush, None, &path);
     scene
 }
 

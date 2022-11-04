@@ -25,6 +25,7 @@ let PTCL_HEADROOM = 2u;
 // Tags for PTCL commands
 let CMD_END = 0u;
 let CMD_FILL = 1u;
+let CMD_STROKE = 2u;
 let CMD_SOLID = 3u;
 let CMD_COLOR = 5u;
 let CMD_JUMP = 11u;
@@ -35,6 +36,11 @@ let CMD_JUMP = 11u;
 struct CmdFill {
     tile: u32,
     backdrop: i32,
+}
+
+struct CmdStroke {
+    tile: u32,
+    half_width: f32,
 }
 
 struct CmdJump {
