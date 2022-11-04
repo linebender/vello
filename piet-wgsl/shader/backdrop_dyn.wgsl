@@ -17,20 +17,7 @@
 // Prefix sum for dynamically allocated backdrops
 
 #import config
-
-// TODO: dedup & put this in the right place
-struct Path {
-    // bounding box in pixels
-    bbox: vec4<u32>,
-    // offset (in u32's) to tile rectangle
-    tiles: u32,
-}
-
-// TODO: -> shared
-struct Tile {
-    backdrop: i32,
-    segments: u32,
-}
+#import tile
 
 @group(0) @binding(0)
 var<storage> config: Config;
@@ -45,6 +32,7 @@ let WG_SIZE = 256u;
 
 var<workgroup> sh_row_width: array<u32, WG_SIZE>;
 var<workgroup> sh_row_count: array<u32, WG_SIZE>;
+var<workgroup> sh_offset: array<u32, WG_SIZE>;
 
 @compute @workgroup_size(256)
 fn main(
@@ -58,8 +46,9 @@ fn main(
         let path = paths[drawobj_ix];
         sh_row_width[local_id.x] = path.bbox.z - path.bbox.x;
         row_count = path.bbox.w - path.bbox.y;
-        sh_row_count[local_id.x] = row_count;
+        sh_offset[local_id.x] = path.tiles;
     }
+    sh_row_count[local_id.x] = row_count;
 
     // Prefix sum of row counts
     for (var i = 0u; i < firstTrailingBit(WG_SIZE); i += 1u) {
@@ -83,7 +72,7 @@ fn main(
         let width = sh_row_width[el_ix];
         if width > 0u {
             var seq_ix = row - select(0u, sh_row_count[el_ix - 1u], el_ix > 0u);
-            var tile_ix = seq_ix * width;
+            var tile_ix = sh_offset[el_ix] + seq_ix * width;
             var sum = tiles[tile_ix].backdrop;
             for (var x = 1u; x < width; x += 1u) {
                 tile_ix += 1u;

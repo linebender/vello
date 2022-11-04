@@ -14,12 +14,13 @@ const PATH_BBOX_SIZE: u64 = 24;
 const CUBIC_SIZE: u64 = 40;
 const DRAWMONOID_SIZE: u64 = 16;
 const MAX_DRAWINFO_SIZE: u64 = 44;
-const PATH_SIZE: u64 = 8;
+const PATH_SIZE: u64 = 32;
 const DRAW_BBOX_SIZE: u64 = 16;
 const BUMP_SIZE: u64 = 16;
+const BIN_HEADER_SIZE: u64 = 8;
 
 #[repr(C)]
-#[derive(Clone, Copy, Default, Zeroable, Pod)]
+#[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
 struct Config {
     width_in_tiles: u32,
     height_in_tiles: u32,
@@ -84,8 +85,8 @@ pub fn render(scene: &Scene, shaders: &Shaders) -> (Recording, BufProxy) {
         [config_buf, scene_buf, reduced_buf, tagmonoid_buf],
     );
 
-    let path_coarse_wgs = (data.n_pathseg + shaders::PATH_COARSE_WG - 1) / shaders::PATH_COARSE_WG;
-    //let cubics_buf = BufProxy::new(data.n_pathseg as u64 * 32);
+    let n_pathtag = data.pathseg_stream.len();
+    let path_coarse_wgs = (n_pathtag as u32 + shaders::PATH_COARSE_WG - 1) / shaders::PATH_COARSE_WG;
     // TODO: more principled size calc
     let tiles_buf = BufProxy::new(4097 * 8);
     let segments_buf = BufProxy::new(256 * 24);
@@ -151,6 +152,7 @@ pub fn render_full(scene: &Scene, shaders: &FullShaders) -> (Recording, BufProxy
         drawdata_base,
         transform_base,
     };
+    println!("{:?}", config);
     let scene_buf = recording.upload(scene);
     let config_buf = recording.upload(bytemuck::bytes_of(&config).to_owned());
 
@@ -176,8 +178,9 @@ pub fn render_full(scene: &Scene, shaders: &FullShaders) -> (Recording, BufProxy
         (drawobj_wgs, 1, 1),
         [config_buf, path_bbox_buf],
     );
-    let cubic_buf = BufProxy::new(n_path as u64 * CUBIC_SIZE);
-    let path_coarse_wgs = (data.n_pathseg + shaders::PATH_COARSE_WG - 1) / shaders::PATH_COARSE_WG;
+    let n_pathtag = data.pathseg_stream.len();
+    let cubic_buf = BufProxy::new(n_pathtag as u64 * CUBIC_SIZE);
+    let path_coarse_wgs = (n_pathtag as u32 + shaders::PATH_COARSE_WG - 1) / shaders::PATH_COARSE_WG;
     recording.dispatch(
         shaders.pathseg,
         (path_coarse_wgs, 1, 1),
@@ -214,6 +217,10 @@ pub fn render_full(scene: &Scene, shaders: &FullShaders) -> (Recording, BufProxy
     // Not actually used yet.
     let clip_bbox_buf = BufProxy::new(1024);
     let bin_data_buf = BufProxy::new(1 << 16);
+    let width_in_bins = (config.width_in_tiles + 15) / 16;
+    let height_in_bins = (config.height_in_tiles + 15) / 16;
+    let n_bins = width_in_bins * height_in_bins;
+    let bin_header_buf = BufProxy::new((n_bins * drawobj_wgs) as u64 * BIN_HEADER_SIZE);
     recording.clear_all(bump_buf);
     recording.dispatch(
         shaders.binning,
@@ -226,6 +233,7 @@ pub fn render_full(scene: &Scene, shaders: &FullShaders) -> (Recording, BufProxy
             draw_bbox_buf,
             bump_buf,
             bin_data_buf,
+            bin_header_buf,
         ],
     );
     let path_buf = BufProxy::new(n_path as u64 * PATH_SIZE);
@@ -244,11 +252,7 @@ pub fn render_full(scene: &Scene, shaders: &FullShaders) -> (Recording, BufProxy
         ],
     );
 
-    //let cubics_buf = BufProxy::new(data.n_pathseg as u64 * 32);
-    // TODO: more principled size calc
-    let tiles_buf = BufProxy::new(4097 * 8);
-    let segments_buf = BufProxy::new(256 * 24);
-    recording.clear_all(tiles_buf);
+    let segments_buf = BufProxy::new(1 << 20);
     recording.dispatch(
         shaders.path_coarse,
         (path_coarse_wgs, 1, 1),
@@ -259,25 +263,42 @@ pub fn render_full(scene: &Scene, shaders: &FullShaders) -> (Recording, BufProxy
             cubic_buf,
             path_buf,
             bump_buf,
-            tiles_buf,
+            tile_buf,
             segments_buf,
         ],
     );
     recording.dispatch(
         shaders.backdrop,
         (path_wgs, 1, 1),
-        [config_buf, path_buf, tiles_buf],
+        [config_buf, path_buf, tile_buf],
     );
-    let out_buf_size = config.width_in_tiles * config.height_in_tiles * 256;
+    let ptcl_buf = BufProxy::new(1 << 20);
+    recording.dispatch(
+        shaders.coarse,
+        (width_in_bins, height_in_bins, 1),
+        [
+            config_buf,
+            scene_buf,
+            draw_monoid_buf,
+            bin_header_buf,
+            bin_data_buf,
+            path_buf,
+            tile_buf,
+            bump_buf,
+            ptcl_buf,
+        ],
+    );
+    let out_buf_size = config.width_in_tiles * config.height_in_tiles * 1024;
     let out_buf = BufProxy::new(out_buf_size as u64);
     recording.dispatch(
         shaders.fine,
         (config.width_in_tiles, config.height_in_tiles, 1),
-        [config_buf, tiles_buf, segments_buf, out_buf],
+        [config_buf, tile_buf, segments_buf, out_buf, ptcl_buf],
     );
 
-    recording.download(out_buf);
-    (recording, out_buf)
+    let download_buf = out_buf;
+    recording.download(download_buf);
+    (recording, download_buf)
 }
 
 pub fn align_up(len: usize, alignment: u32) -> usize {

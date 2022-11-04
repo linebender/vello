@@ -107,11 +107,11 @@ struct Transform {
 fn read_transform(transform_base: u32, ix: u32) -> Transform {
     let base = transform_base + ix * 6u;
     let c0 = bitcast<f32>(scene[base]);
-    let c1 = bitcast<f32>(scene[base] + 1u);
-    let c2 = bitcast<f32>(scene[base] + 2u);
-    let c3 = bitcast<f32>(scene[base] + 3u);
-    let c4 = bitcast<f32>(scene[base] + 4u);
-    let c5 = bitcast<f32>(scene[base] + 5u);
+    let c1 = bitcast<f32>(scene[base + 1u]);
+    let c2 = bitcast<f32>(scene[base + 2u]);
+    let c3 = bitcast<f32>(scene[base + 3u]);
+    let c4 = bitcast<f32>(scene[base + 4u]);
+    let c5 = bitcast<f32>(scene[base + 5u]);
     let matrx = vec4<f32>(c0, c1, c2, c3);
     let translate = vec2<f32>(c4, c5);
     return Transform(matrx, translate);
@@ -174,6 +174,7 @@ fn main(
             }
         }
         let transform = read_transform(config.transform_base, tm.trans_ix);
+        //let transform = Transform(vec4<f32>(1.0, 0.0, 0.0, 1.0), vec2<f32>());
         p0 = transform_apply(transform, p0);
         p1 = transform_apply(transform, p1);
         var bbox = vec4<f32>(min(p0, p1), max(p0, p1));

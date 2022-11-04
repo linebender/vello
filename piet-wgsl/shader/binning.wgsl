@@ -36,8 +36,6 @@ var<storage> clip_bbox_buf: array<vec4<f32>>;
 @group(0) @binding(4)
 var<storage, read_write> intersected_bbox: array<vec4<f32>>;
 
-// TODO: put into shared include
-
 @group(0) @binding(5)
 var<storage, read_write> bump: BumpAllocators;
 

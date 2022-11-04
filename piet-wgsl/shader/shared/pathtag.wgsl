@@ -16,6 +16,7 @@
 
 struct TagMonoid {
     trans_ix: u32,
+    // TODO: I don't think pathseg_ix is used.
     pathseg_ix: u32,
     pathseg_offset: u32,
 #ifdef full

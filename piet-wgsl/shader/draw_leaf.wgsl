@@ -49,11 +49,11 @@ struct Transform {
 fn read_transform(transform_base: u32, ix: u32) -> Transform {
     let base = transform_base + ix * 6u;
     let c0 = bitcast<f32>(scene[base]);
-    let c1 = bitcast<f32>(scene[base] + 1u);
-    let c2 = bitcast<f32>(scene[base] + 2u);
-    let c3 = bitcast<f32>(scene[base] + 3u);
-    let c4 = bitcast<f32>(scene[base] + 4u);
-    let c5 = bitcast<f32>(scene[base] + 5u);
+    let c1 = bitcast<f32>(scene[base + 1u]);
+    let c2 = bitcast<f32>(scene[base + 2u]);
+    let c3 = bitcast<f32>(scene[base + 3u]);
+    let c4 = bitcast<f32>(scene[base + 4u]);
+    let c5 = bitcast<f32>(scene[base + 5u]);
     let matrx = vec4<f32>(c0, c1, c2, c3);
     let translate = vec2<f32>(c4, c5);
     return Transform(matrx, translate);
@@ -73,8 +73,8 @@ fn main(
     sh_scratch[local_id.x] = agg;
     for (var i = 0u; i < firstTrailingBit(WG_SIZE); i += 1u) {
         workgroupBarrier();
-        if local_id.x + (1u << i) < WG_SIZE {
-            let other = sh_scratch[local_id.x + (1u << i)];
+        if local_id.x >= 1u << i {
+            let other = sh_scratch[local_id.x - (1u << i)];
             agg = combine_draw_monoid(agg, other);
         }
         workgroupBarrier();

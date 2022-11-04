@@ -20,7 +20,6 @@ use std::{fs::File, io::BufWriter};
 
 use engine::Engine;
 
-use render::render;
 use test_scene::dump_scene_info;
 use wgpu::{Device, Limits, Queue};
 
@@ -51,6 +50,20 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn dump_buf(buf: &[u32]) {
+    for (i, val) in buf.iter().enumerate() {
+        if *val != 0 {
+            let lo = val & 0x7fff_ffff;
+            if lo >= 0x3000_0000 && lo < 0x5000_0000 {
+                println!("{}: {:x} {}", i, val, f32::from_bits(*val));
+            } else {
+                println!("{}: {:x}", i, val);
+
+            }
+        }
+    }
+}
+
 async fn do_render(
     device: &Device,
     queue: &Queue,
@@ -60,17 +73,23 @@ async fn do_render(
     let full_shaders = shaders::full_shaders(device, engine)?;
     let scene = test_scene::gen_test_scene();
     dump_scene_info(&scene);
-    let (recording, buf) = render(&scene, &shaders);
+    //let (recording, buf) = render::render(&scene, &shaders);
+    let (recording, buf) = render::render_full(&scene, &full_shaders);
     let downloads = engine.run_recording(&device, &queue, &recording)?;
     let mapped = downloads.map();
     device.poll(wgpu::Maintain::Wait);
     let buf = mapped.get_mapped(buf).await?;
 
-    let file = File::create("image.png")?;
-    let w = BufWriter::new(file);
-    let encoder = png::Encoder::new(w, 1024, 1024);
-    let mut writer = encoder.write_header()?;
-    writer.write_image_data(&buf)?;
+    if false {
+        dump_buf(bytemuck::cast_slice(&buf));
+    } else {
+        let file = File::create("image.png")?;
+        let w = BufWriter::new(file);
+        let mut encoder = png::Encoder::new(w, 1024, 1024);
+        encoder.set_color(png::ColorType::Rgba);
+        let mut writer = encoder.write_header()?;
+        writer.write_image_data(&buf)?;
+    }
     Ok(())
 }
 

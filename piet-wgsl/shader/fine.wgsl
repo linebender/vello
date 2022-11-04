@@ -113,7 +113,6 @@ fn main(
 ) {
     let tile_ix = wg_id.y * config.width_in_tiles + wg_id.x;
     let xy = vec2<f32>(f32(global_id.x * PIXELS_PER_THREAD), f32(global_id.y));
-    let tile = tiles[tile_ix];
 #ifdef full
     var rgba: array<vec4<f32>, PIXELS_PER_THREAD>;
     var area: array<f32, PIXELS_PER_THREAD>;
@@ -148,7 +147,7 @@ fn main(
                     let fg_i = fg * area[i];
                     rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
                 }
-                cmd_ix += 1u;
+                cmd_ix += 2u;
             }
             // CMD_JUMP
             case 11u: {
@@ -163,6 +162,7 @@ fn main(
         output[out_ix + i] = bytes;
     }
 #else
+    let tile = tiles[tile_ix];
     let area = fill_path(tile, xy);
 
     let bytes = pack4x8unorm(vec4<f32>(area[0], area[1], area[2], area[3]));

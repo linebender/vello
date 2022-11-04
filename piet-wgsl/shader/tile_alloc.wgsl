@@ -79,14 +79,17 @@ fn main(
     sh_tile_count[local_id.x] = tile_count;
     for (var i = 0u; i < firstTrailingBit(WG_SIZE); i += 1u) {
         workgroupBarrier();
-        if local_id.x < (1u << i) {
+        if local_id.x >= (1u << i) {
             total_tile_count += sh_tile_count[local_id.x - (1u << i)];
         }
         workgroupBarrier();
         sh_tile_count[local_id.x] = total_tile_count;
     }
-    if local_id.x == WG_SIZE - 1u {
-        sh_tile_offset = atomicAdd(&bump.tile, total_tile_count);
+    workgroupBarrier();
+    // should be able to avoid a barrier by adding total_tile count from
+    // thread WG_SIZE - 1, but it doesn't work
+    if local_id.x == 0u {
+        sh_tile_offset = atomicAdd(&bump.tile, sh_tile_count[WG_SIZE - 1u]);
     }
     workgroupBarrier();
     let tile_offset = sh_tile_offset;
@@ -94,6 +97,7 @@ fn main(
         let tile_subix = select(0u, sh_tile_count[local_id.x - 1u], local_id.x > 0u);
         let bbox = vec4<u32>(ux0, uy0, ux1, uy1);
         let path = Path(bbox, tile_offset + tile_subix);
+        paths[drawobj_ix] = path;
     }
 
     // zero allocated memory

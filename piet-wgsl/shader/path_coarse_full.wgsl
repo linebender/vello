@@ -214,7 +214,7 @@ fn main(
                 for (var y = y0; y < y1; y += 1) {
                     let tile_y0 = f32(y) * f32(TILE_HEIGHT);
                     let xbackdrop = max(xray + 1, 0);
-                    if xymin.y < tile_y0 && xbackdrop < i32(config.width_in_tiles) {
+                    if xymin.y < tile_y0 && xbackdrop < bbox.z {
                         let backdrop = select(-1, 1, dp.y < 0.0);
                         let tile_ix = base + xbackdrop;
                         atomicAdd(&tiles[tile_ix].backdrop, backdrop);

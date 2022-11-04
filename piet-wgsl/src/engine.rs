@@ -183,6 +183,7 @@ impl Engine {
                     bind_map.insert_buf(buf_proxy.id, buf);
                 }
                 Command::Dispatch(shader_id, wg_size, bindings) => {
+                    println!("dispatching {:?} with {} bindings", wg_size, bindings.len());
                     let shader = &self.shaders[shader_id.0];
                     let bind_group =
                         bind_map.create_bind_group(device, &shader.bind_group_layout, bindings)?;

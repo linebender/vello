@@ -41,13 +41,13 @@ struct BinHeader {
 var<storage> bin_headers: array<BinHeader>;
 
 @group(0) @binding(4)
-var<storage> paths: array<Path>;
+var<storage> bin_data: array<u32>;
 
 @group(0) @binding(5)
-var<storage> tiles: array<Tile>;
+var<storage> paths: array<Path>;
 
 @group(0) @binding(6)
-var<storage> bin_data: array<u32>;
+var<storage> tiles: array<Tile>;
 
 @group(0) @binding(7)
 var<storage, read_write> bump: BumpAllocators;
@@ -109,7 +109,7 @@ fn write_path(tile: Tile, linewidth: f32) {
 
 fn write_color(color: CmdColor) {
     alloc_cmd(2u);
-    ptcl[cmd_offset] = CMD_FILL;
+    ptcl[cmd_offset] = CMD_COLOR;
     ptcl[cmd_offset + 1u] = color.rgba_color;
     cmd_offset += 2u;
 
@@ -117,7 +117,6 @@ fn write_color(color: CmdColor) {
 
 @compute @workgroup_size(256)
 fn main(
-    @builtin(global_invocation_id) global_id: vec3<u32>,
     @builtin(local_invocation_id) local_id: vec3<u32>,
     @builtin(workgroup_id) wg_id: vec3<u32>,
 ) {
@@ -130,7 +129,7 @@ fn main(
     let bin_tile_y = N_TILE_Y * wg_id.y;
 
     let tile_x = local_id.x % N_TILE_X;
-    let tile_y = local_id.y % N_TILE_Y;
+    let tile_y = local_id.x / N_TILE_X;
     let this_tile_ix = (bin_tile_y + tile_y) * config.width_in_tiles + bin_tile_x + tile_x;
     cmd_offset = this_tile_ix * PTCL_INITIAL_ALLOC;
     cmd_limit = cmd_offset + (PTCL_INITIAL_ALLOC - PTCL_HEADROOM);
@@ -313,7 +312,7 @@ fn main(
         workgroupBarrier();
     }
     if bin_tile_x < config.width_in_tiles && bin_tile_y < config.height_in_tiles {
-        ptcl[cmd_offset] = CMD_END;
+        //ptcl[cmd_offset] = CMD_END;
         // TODO: blend stack allocation
     }
 }

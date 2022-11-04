@@ -223,8 +223,12 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
     )?;
     let backdrop = engine.add_shader(
         device,
-        preprocess::preprocess(&read_shader("backdrop"), &empty, &imports).into(),
-        &[BindType::BufReadOnly, BindType::Buffer],
+        preprocess::preprocess(&read_shader("backdrop_dyn"), &empty, &imports).into(),
+        &[
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::Buffer,
+        ],
     )?;
     let coarse = engine.add_shader(
         device,
