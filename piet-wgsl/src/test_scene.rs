@@ -27,19 +27,10 @@ pub fn gen_test_scene() -> Scene {
         PathElement::LineTo(Point::new(150.0, 210.0)),
         PathElement::Close,
     ];
-    let brush = Brush::Solid(Color::rgb8(0x80, 0x80, 0x80));
+    let brush = Brush::Solid(Color::rgb8(0x40, 0x40, 0xff));
     builder.fill(Fill::NonZero, Affine::IDENTITY, &brush, None, &path);
-    let transform = Affine::translate(10.0, 200.0);
-    /*
-    let path = [
-        PathElement::MoveTo(Point::new(100.0, 300.0)),
-        PathElement::LineTo(Point::new(500.0, 320.0)),
-        PathElement::LineTo(Point::new(300.0, 350.0)),
-        PathElement::LineTo(Point::new(200.0, 460.0)),
-        PathElement::LineTo(Point::new(150.0, 410.0)),
-        PathElement::Close,
-    ];
-    */
+    let transform = Affine::translate(50.0, 50.0);
+    let brush = Brush::Solid(Color::rgba8(0xff, 0xff, 0x00, 0x80));
     builder.fill(Fill::NonZero, transform, &brush, None, &path);
     scene
 }

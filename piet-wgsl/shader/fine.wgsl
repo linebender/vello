@@ -142,7 +142,7 @@ fn main(
             // CMD_COLOR
             case 5u: {
                 let color = read_color(cmd_ix);
-                let fg = unpack4x8unorm(color.rgba_color);
+                let fg = unpack4x8unorm(color.rgba_color).wzyx;
                 for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
                     let fg_i = fg * area[i];
                     rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
@@ -158,7 +158,10 @@ fn main(
     }
     let out_ix = global_id.y * (config.width_in_tiles * TILE_WIDTH) + global_id.x * PIXELS_PER_THREAD;
     for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
-        let bytes = pack4x8unorm(rgba[i]);
+        let fg = rgba[i];
+        let a_inv = 1.0 / (fg.a + 1e-6);
+        let rgba_sep = vec4<f32>(fg.r * a_inv, fg.g * a_inv, fg.b * a_inv, fg.a);
+        let bytes = pack4x8unorm(rgba_sep);
         output[out_ix + i] = bytes;
     }
 #else
