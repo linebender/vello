@@ -85,7 +85,10 @@ var<private> cmd_limit: u32;
 // Make sure there is space for a command of given size, plus a jump if needed
 fn alloc_cmd(size: u32) {
     if cmd_offset + size >= cmd_limit {
-        let new_cmd = atomicAdd(&bump.ptcl, PTCL_INCREMENT);
+        // We might be able to save a little bit of computation here
+        // by setting the initial value of the bump allocator.
+        let ptcl_dyn_start = config.width_in_tiles * config.height_in_tiles * PTCL_INITIAL_ALLOC;
+        let new_cmd = ptcl_dyn_start + atomicAdd(&bump.ptcl, PTCL_INCREMENT);
         // TODO: robust memory
         ptcl[cmd_offset] = CMD_JUMP;
         ptcl[cmd_offset + 1u] = new_cmd;

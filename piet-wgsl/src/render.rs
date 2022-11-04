@@ -220,7 +220,7 @@ pub fn render_full(scene: &Scene, shaders: &FullShaders) -> (Recording, BufProxy
     let bump_buf = BufProxy::new(BUMP_SIZE);
     // Not actually used yet.
     let clip_bbox_buf = BufProxy::new(1024);
-    let bin_data_buf = BufProxy::new(1 << 16);
+    let bin_data_buf = BufProxy::new(1 << 20);
     let width_in_bins = (config.width_in_tiles + 15) / 16;
     let height_in_bins = (config.height_in_tiles + 15) / 16;
     let n_bins = width_in_bins * height_in_bins;
@@ -256,7 +256,7 @@ pub fn render_full(scene: &Scene, shaders: &FullShaders) -> (Recording, BufProxy
         ],
     );
 
-    let segments_buf = BufProxy::new(1 << 20);
+    let segments_buf = BufProxy::new(1 << 24);
     recording.dispatch(
         shaders.path_coarse,
         (path_coarse_wgs, 1, 1),
@@ -276,7 +276,7 @@ pub fn render_full(scene: &Scene, shaders: &FullShaders) -> (Recording, BufProxy
         (path_wgs, 1, 1),
         [config_buf, path_buf, tile_buf],
     );
-    let ptcl_buf = BufProxy::new(1 << 20);
+    let ptcl_buf = BufProxy::new(1 << 24);
     recording.dispatch(
         shaders.coarse,
         (width_in_bins, height_in_bins, 1),

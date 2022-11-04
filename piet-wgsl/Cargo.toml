@@ -14,4 +14,8 @@ parking_lot = "0.12"
 bytemuck = { version = "1.12.1", features = ["derive"] }
 png = "0.17.6"
 
-piet-scene = { path = "../piet-scene" }
+piet-scene = { path = "../piet-scene", features = ["kurbo"] }
+
+# for picosvg, should be split out
+roxmltree = "0.13"
+kurbo = "0.8.3"

@@ -24,6 +24,7 @@ use test_scene::dump_scene_info;
 use wgpu::{Device, Limits, Queue};
 
 mod engine;
+mod pico_svg;
 mod render;
 mod shaders;
 mod test_scene;
