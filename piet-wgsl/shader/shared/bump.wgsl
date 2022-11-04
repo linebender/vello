@@ -19,4 +19,5 @@ struct BumpAllocators {
     binning: atomic<u32>,
     ptcl: atomic<u32>,
     tile: atomic<u32>,
+    segments: atomic<u32>,
 }

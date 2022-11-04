@@ -27,6 +27,7 @@
 
 #import config
 #import pathtag
+#import cubic
 
 @group(0) @binding(0)
 var<storage> config: Config;
@@ -49,12 +50,6 @@ struct AtomicPathBbox {
 @group(0) @binding(3)
 var<storage, read_write> path_bboxes: array<AtomicPathBbox>;
 
-struct Cubic {
-    p0: vec2<f32>,
-    p1: vec2<f32>,
-    p2: vec2<f32>,
-    p3: vec2<f32>,
-}
 
 @group(0) @binding(4)
 var<storage, read_write> cubics: array<Cubic>;
@@ -90,7 +85,6 @@ var<storage, read_write> cubics: array<Cubic>;
 // }
 
 var<private> pathdata_base: u32;
-var<private> transform_base: u32;
 
 fn read_f32_point(ix: u32) -> vec2<f32> {
     let x = bitcast<f32>(scene[pathdata_base + ix]);
@@ -110,7 +104,7 @@ struct Transform {
     translate: vec2<f32>,
 }
 
-fn read_transform(ix: u32) -> Transform {
+fn read_transform(transform_base: u32, ix: u32) -> Transform {
     let base = transform_base + ix * 6u;
     let c0 = bitcast<f32>(scene[base]);
     let c1 = bitcast<f32>(scene[base] + 1u);
@@ -142,7 +136,6 @@ fn main(
 ) {
     let ix = global_id.x;
     let tag_word = scene[config.pathtag_base + (ix >> 2u)];
-    // TODO: set transform_base
     pathdata_base = config.pathdata_base;
     let shift = (ix & 3u) * 8u;
     var tm = reduce_tag(tag_word & ((1u << shift) - 1u));
@@ -180,7 +173,7 @@ fn main(
                 }
             }
         }
-        let transform = read_transform(tm.trans_ix);
+        let transform = read_transform(config.transform_base, tm.trans_ix);
         p0 = transform_apply(transform, p0);
         p1 = transform_apply(transform, p1);
         var bbox = vec4<f32>(min(p0, p1), max(p0, p1));
@@ -201,15 +194,14 @@ fn main(
                 p1 = mix(p1, p0, 1.0 / 3.0);
             }
         }
-        cubics[global_id.x] = Cubic(p0, p1, p2, p3);
+        cubics[global_id.x] = Cubic(p0, p1, p2, p3, tm.path_ix, 0u);
         // Update bounding box using atomics only. Computing a monoid is a
         // potential future optimization.
-        if bbox.z > bbox.x && bbox.w > bbox.y {
+        if bbox.z > bbox.x || bbox.w > bbox.y {
             atomicMin(&(*out).x0, round_down(bbox.x));
             atomicMin(&(*out).y0, round_down(bbox.y));
             atomicMax(&(*out).x1, round_up(bbox.z));
             atomicMax(&(*out).y1, round_up(bbox.w));
         }
     }
-
 }

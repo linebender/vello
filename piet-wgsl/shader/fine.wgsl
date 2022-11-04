@@ -157,12 +157,16 @@ fn main(
             default: {}
         }
     }
-
+    let out_ix = global_id.y * (config.width_in_tiles * TILE_WIDTH) + global_id.x * PIXELS_PER_THREAD;
+    for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
+        let bytes = pack4x8unorm(rgba[i]);
+        output[out_ix + i] = bytes;
+    }
 #else
     let area = fill_path(tile, xy);
-#endif
 
     let bytes = pack4x8unorm(vec4<f32>(area[0], area[1], area[2], area[3]));
     let out_ix = global_id.y * (config.width_in_tiles * 4u) + global_id.x;
     output[out_ix] = bytes;
+#endif
 }

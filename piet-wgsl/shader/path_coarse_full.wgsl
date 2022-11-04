@@ -20,20 +20,14 @@
 #import pathtag
 #import tile
 #import segment
+#import cubic
+#import bump
 
 @group(0) @binding(0)
 var<storage> config: Config;
 
 @group(0) @binding(1)
 var<storage> scene: array<u32>;
-
-// Maybe dedup?
-struct Cubic {
-    p0: vec2<f32>,
-    p1: vec2<f32>,
-    p2: vec2<f32>,
-    p3: vec2<f32>,
-}
 
 @group(0) @binding(2)
 var<storage> tag_monoids: array<TagMonoid>;
@@ -51,9 +45,12 @@ struct AtomicTile {
 }
 
 @group(0) @binding(5)
-var<storage, read_write> tiles: array<AtomicTile>;
+var<storage, read_write> bump: BumpAllocators;
 
 @group(0) @binding(6)
+var<storage, read_write> tiles: array<AtomicTile>;
+
+@group(0) @binding(7)
 var<storage, read_write> segments: array<Segment>;
 
 struct SubdivResult {
@@ -110,9 +107,7 @@ fn eval_cubic(p0: vec2<f32>, p1: vec2<f32>, p2: vec2<f32>, p3: vec2<f32>, t: f32
 }
 
 fn alloc_segment() -> u32 {
-    // Use 0-index segment (address is sentinel) as counter
-    // TODO: separate small buffer binding for this?
-    return atomicAdd(&tiles[4096].segments, 1u) + 1u;
+    return atomicAdd(&bump.segments, 1u) + 1u;
 }
 
 let MAX_QUADS = 16u;
@@ -126,12 +121,13 @@ fn main(
     let shift = (ix & 3u) * 8u;
     var tag_byte = (tag_word >> shift) & 0xffu;
 
-    // Reconstruct path_ix from monoid or store in cubic?
     if (tag_byte & PATH_TAG_SEG_TYPE) != 0u {
-        let path_ix = 42u; // BIG GIANT TODO
-        let path = paths[path_ix];
-        let bbox = vec4<i32>(path.bbox);
+        // Discussion question: it might actually be cheaper to do the path segment
+        // decoding & transform again rather than store the result in a buffer;
+        // classic memory vs ALU tradeoff.
         let cubic = cubics[global_id.x];
+        let path = paths[cubic.path_ix];
+        let bbox = vec4<i32>(path.bbox);
         let p0 = cubic.p0;
         let p1 = cubic.p1;
         let p2 = cubic.p2;
@@ -201,11 +197,13 @@ fn main(
                 var x1 = i32(floor(xymax.x * SX) + 1.0);
                 var y0 = i32(floor(xymin.y * SY));
                 var y1 = i32(floor(xymax.y * SY) + 1.0);
-                x0 = clamp(x0, 0, i32(config.width_in_tiles));
-                x1 = clamp(x1, 0, i32(config.width_in_tiles));
-                y0 = clamp(y0, 0, i32(config.height_in_tiles));
-                y1 = clamp(y1, 0, i32(config.height_in_tiles));
+                x0 = clamp(x0, bbox.x, bbox.z);
+                x1 = clamp(x1, bbox.x, bbox.z);
+                y0 = clamp(y0, bbox.y, bbox.w);
+                y1 = clamp(y1, bbox.y, bbox.w);
                 var xc = a + b * f32(y0);
+                let stride = bbox.z - bbox.x;
+                var base = i32(path.tiles) + (y0 - bbox.y) * stride - bbox.x;
                 var xray = i32(floor(lp0.x * SX));
                 var last_xray = i32(floor(lp1.x * SX));
                 if dp.y < 0.0 {
@@ -218,7 +216,7 @@ fn main(
                     let xbackdrop = max(xray + 1, 0);
                     if xymin.y < tile_y0 && xbackdrop < i32(config.width_in_tiles) {
                         let backdrop = select(-1, 1, dp.y < 0.0);
-                        let tile_ix = y * i32(config.width_in_tiles) + xbackdrop;
+                        let tile_ix = base + xbackdrop;
                         atomicAdd(&tiles[tile_ix].backdrop, backdrop);
                     }
                     var next_xray = last_xray;
@@ -236,7 +234,7 @@ fn main(
                     var tile_seg: Segment;
                     for (var x = xx0; x < xx1; x += 1) {
                         let tile_x0 = f32(x) * f32(TILE_WIDTH);
-                        let tile_ix = y * i32(config.width_in_tiles) + x;
+                        let tile_ix = base + x;
                         // allocate segment, insert linked list
                         let seg_ix = alloc_segment();
                         let old = atomicExchange(&tiles[tile_ix].segments, seg_ix);
@@ -263,6 +261,7 @@ fn main(
                         segments[seg_ix] = tile_seg;
                     }
                     xc += b;
+                    base += stride;
                     xray = next_xray;
                 }
                 n_out += 1u;

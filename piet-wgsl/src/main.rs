@@ -22,7 +22,7 @@ use engine::Engine;
 
 use render::render;
 use test_scene::dump_scene_info;
-use wgpu::{Device, Queue, Limits};
+use wgpu::{Device, Limits, Queue};
 
 mod engine;
 mod render;

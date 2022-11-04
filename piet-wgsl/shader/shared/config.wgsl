@@ -28,6 +28,8 @@ struct Config {
 
     drawtag_base: u32,
     drawdata_base: u32,
+
+    transform_base: u32,
 }
 
 // Geometry of tiles and bins

@@ -40,6 +40,25 @@ var<storage, read_write> info: array<u32>;
 
 let WG_SIZE = 256u;
 
+// Possibly dedup?
+struct Transform {
+    matrx: vec4<f32>,
+    translate: vec2<f32>,
+}
+
+fn read_transform(transform_base: u32, ix: u32) -> Transform {
+    let base = transform_base + ix * 6u;
+    let c0 = bitcast<f32>(scene[base]);
+    let c1 = bitcast<f32>(scene[base] + 1u);
+    let c2 = bitcast<f32>(scene[base] + 2u);
+    let c3 = bitcast<f32>(scene[base] + 3u);
+    let c4 = bitcast<f32>(scene[base] + 4u);
+    let c5 = bitcast<f32>(scene[base] + 5u);
+    let matrx = vec4<f32>(c0, c1, c2, c3);
+    let translate = vec2<f32>(c4, c5);
+    return Transform(matrx, translate);
+}
+
 var<workgroup> sh_scratch: array<DrawMonoid, WG_SIZE>;
 
 @compute @workgroup_size(256)
@@ -80,17 +99,20 @@ fn main(
         tag_word == DRAWTAG_BEGIN_CLIP
     {
         let bbox = path_bbox[m.path_ix];
-        let x0 = f32(bbox.x0) - 32768.0;
-        let y0 = f32(bbox.y0) - 32768.0;
-        let x1 = f32(bbox.x1) - 32768.0;
-        let y1 = f32(bbox.y1) - 32768.0;
-        let bbox_f = vec4(x0, y0, x1, y1);
+        // TODO: bbox is mostly yagni here, sort that out. Maybe clips?
+        // let x0 = f32(bbox.x0);
+        // let y0 = f32(bbox.y0);
+        // let x1 = f32(bbox.x1);
+        // let y1 = f32(bbox.y1);
+        // let bbox_f = vec4(x0, y0, x1, y1);
         let fill_mode = u32(bbox.linewidth >= 0.0);
         var matrx: vec4<f32>;
         var translate: vec2<f32>;
         var linewidth = bbox.linewidth;
         if linewidth >= 0.0 || tag_word == DRAWTAG_FILL_LIN_GRADIENT || tag_word == DRAWTAG_FILL_RAD_GRADIENT {
-            // TODO: retrieve transform from scene. Packed?
+            let transform = read_transform(config.transform_base, bbox.trans_ix);
+            matrx = transform.matrx;
+            translate = transform.translate;
         }
         if linewidth >= 0.0 {
             // Note: doesn't deal with anisotropic case
