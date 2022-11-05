@@ -139,6 +139,7 @@ impl Engine {
             label: None,
             entries: &entries,
         });
+        println!("{:?}", bind_group_layout);
         let compute_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: None,

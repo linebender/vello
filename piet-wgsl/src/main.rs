@@ -69,28 +69,15 @@ async fn do_render(
     queue: &Queue,
     engine: &mut Engine,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    #[allow(unused)]
-    let shaders = shaders::init_shaders(device, engine)?;
-    let full_shaders = shaders::full_shaders(device, engine)?;
-    let scene = test_scene::gen_test_scene();
-    //test_scene::dump_scene_info(&scene);
-    //let (recording, buf) = render::render(&scene, &shaders);
-    let (recording, buf) = render::render_full(&scene, &full_shaders);
+    let tile_alloc = shaders::reduced_shader(device, engine);
+
+    let (recording, buf) = render::render_reduced(tile_alloc);
     let downloads = engine.run_recording(&device, &queue, &recording)?;
     let mapped = downloads.map();
     device.poll(wgpu::Maintain::Wait);
     let buf = mapped.get_mapped(buf).await?;
 
-    if true {
-        dump_buf(bytemuck::cast_slice(&buf));
-    } else {
-        let file = File::create("image.png")?;
-        let w = BufWriter::new(file);
-        let mut encoder = png::Encoder::new(w, 1024, 1024);
-        encoder.set_color(png::ColorType::Rgba);
-        let mut writer = encoder.write_header()?;
-        writer.write_image_data(&buf)?;
-    }
+    dump_buf(bytemuck::cast_slice(&buf));
     Ok(())
 }
 
