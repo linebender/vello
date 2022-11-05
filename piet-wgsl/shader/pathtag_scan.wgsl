@@ -43,13 +43,13 @@ fn main(
     @builtin(workgroup_id) wg_id: vec3<u32>,
 ) {
     var agg = tag_monoid_identity();
-    if (local_id.x < wg_id.x) {
+    if local_id.x < wg_id.x {
         agg = reduced[local_id.x];
     }
     sh_parent[local_id.x] = agg;
     for (var i = 0u; i < LG_WG_SIZE; i += 1u) {
         workgroupBarrier();
-        if (local_id.x + (1u << i) < WG_SIZE) {
+        if local_id.x + (1u << i) < WG_SIZE {
             let other = sh_parent[local_id.x + (1u << i)];
             agg = combine_tag_monoid(agg, other);
         }
@@ -63,7 +63,7 @@ fn main(
     sh_monoid[local_id.x] = agg;
     for (var i = 0u; i < LG_WG_SIZE; i += 1u) {
         workgroupBarrier();
-        if (local_id.x >= 1u << i) {
+        if local_id.x >= 1u << i {
             let other = sh_monoid[local_id.x - (1u << i)];
             agg = combine_tag_monoid(other, agg);
         }
@@ -72,7 +72,7 @@ fn main(
     }
     // prefix up to this workgroup
     var tm = sh_parent[0];
-    if (local_id.x > 0u) {
+    if local_id.x > 0u {
         tm = combine_tag_monoid(tm, sh_monoid[local_id.x - 1u]);
     }
     // exclusive prefix sum, granularity of 4 tag bytes

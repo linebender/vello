@@ -86,7 +86,6 @@ pub fn render(scene: &Scene, shaders: &Shaders) -> (Recording, BufProxy) {
         [config_buf, scene_buf, reduced_buf, tagmonoid_buf],
     );
 
-    let n_pathtag = data.pathseg_stream.len();
     let path_coarse_wgs = (n_pathtag as u32 + shaders::PATH_COARSE_WG - 1) / shaders::PATH_COARSE_WG;
     // TODO: more principled size calc
     let tiles_buf = BufProxy::new(4097 * 8);
@@ -125,7 +124,7 @@ pub fn render_full(scene: &Scene, shaders: &FullShaders) -> (Recording, BufProxy
     let data = scene.data();
     let n_pathtag = data.tag_stream.len();
     let pathtag_padded = align_up(n_pathtag, 4 * shaders::PATHTAG_REDUCE_WG);
-    let pathtag_wgs = pathtag_padded / (4 * shaders::PATHTAG_REDUCE_WG as usize);
+    // TODO: can compute size accurately, avoid reallocation
     let mut scene: Vec<u8> = Vec::with_capacity(pathtag_padded);
     let pathtag_base = size_to_words(scene.len());
     scene.extend(&data.tag_stream);
@@ -160,6 +159,7 @@ pub fn render_full(scene: &Scene, shaders: &FullShaders) -> (Recording, BufProxy
     let scene_buf = recording.upload(scene);
     let config_buf = recording.upload(bytemuck::bytes_of(&config).to_owned());
 
+    let pathtag_wgs = pathtag_padded / (4 * shaders::PATHTAG_REDUCE_WG as usize);
     let reduced_buf = BufProxy::new(pathtag_wgs as u64 * TAG_MONOID_FULL_SIZE);
     // TODO: really only need pathtag_wgs - 1
     recording.dispatch(
@@ -169,7 +169,7 @@ pub fn render_full(scene: &Scene, shaders: &FullShaders) -> (Recording, BufProxy
     );
 
     let tagmonoid_buf =
-        BufProxy::new(pathtag_wgs as u64 * shaders::PATHTAG_REDUCE_WG as u64 * TAG_MONOID_SIZE);
+        BufProxy::new(pathtag_wgs as u64 * shaders::PATHTAG_REDUCE_WG as u64 * TAG_MONOID_FULL_SIZE);
     recording.dispatch(
         shaders.pathtag_scan,
         (pathtag_wgs as u32, 1, 1),
@@ -182,7 +182,6 @@ pub fn render_full(scene: &Scene, shaders: &FullShaders) -> (Recording, BufProxy
         (drawobj_wgs, 1, 1),
         [config_buf, path_bbox_buf],
     );
-    let n_pathtag = data.pathseg_stream.len();
     let cubic_buf = BufProxy::new(n_pathtag as u64 * CUBIC_SIZE);
     let path_coarse_wgs = (n_pathtag as u32 + shaders::PATH_COARSE_WG - 1) / shaders::PATH_COARSE_WG;
     recording.dispatch(

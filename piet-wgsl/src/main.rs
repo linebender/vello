@@ -20,7 +20,6 @@ use std::{fs::File, io::BufWriter};
 
 use engine::Engine;
 
-use test_scene::dump_scene_info;
 use wgpu::{Device, Limits, Queue};
 
 mod engine;
@@ -70,10 +69,11 @@ async fn do_render(
     queue: &Queue,
     engine: &mut Engine,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    #[allow(unused)]
     let shaders = shaders::init_shaders(device, engine)?;
     let full_shaders = shaders::full_shaders(device, engine)?;
     let scene = test_scene::gen_test_scene();
-    dump_scene_info(&scene);
+    //test_scene::dump_scene_info(&scene);
     //let (recording, buf) = render::render(&scene, &shaders);
     let (recording, buf) = render::render_full(&scene, &full_shaders);
     let downloads = engine.run_recording(&device, &queue, &recording)?;

@@ -48,6 +48,7 @@ pub fn gen_test_scene() -> Scene {
     scene
 }
 
+#[allow(unused)]
 pub fn dump_scene_info(scene: &Scene) {
     let data = scene.data();
     println!("tags {:?}", data.tag_stream);

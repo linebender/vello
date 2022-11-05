@@ -99,7 +99,6 @@ fn alloc_cmd(size: u32) {
 
 fn write_path(tile: Tile, linewidth: f32) {
     // TODO: take flags
-    // TODO: handle stroke
     alloc_cmd(3u);
     if linewidth < 0.0 {
         if tile.segments != 0u {

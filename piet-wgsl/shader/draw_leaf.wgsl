@@ -68,8 +68,28 @@ fn main(
     @builtin(workgroup_id) wg_id: vec3<u32>,
 ) {
     let ix = global_id.x;
+    // Reduce prefix of workgroups up to this one
+    var agg = draw_monoid_identity();
+    if local_id.x < wg_id.x {
+        agg = reduced[local_id.x];
+    }
+    sh_scratch[local_id.x] = agg;
+    for (var i = 0u; i < firstTrailingBit(WG_SIZE); i += 1u) {
+        workgroupBarrier();
+        if local_id.x + (1u << i) < WG_SIZE {
+            let other = sh_scratch[local_id.x + (1u << i)];
+            agg = combine_draw_monoid(agg, other);
+        }
+        workgroupBarrier();
+        sh_scratch[local_id.x] = agg;
+    }
+    // Two barriers can be eliminated if we use separate shared arrays
+    // for prefix and intra-workgroup prefix sum.
+    workgroupBarrier();
+    var m = sh_scratch[0];
+    workgroupBarrier();
     let tag_word = scene[config.drawtag_base + ix];
-    var agg = map_draw_tag(tag_word);
+    agg = map_draw_tag(tag_word);
     sh_scratch[local_id.x] = agg;
     for (var i = 0u; i < firstTrailingBit(WG_SIZE); i += 1u) {
         workgroupBarrier();
@@ -81,12 +101,6 @@ fn main(
         sh_scratch[local_id.x] = agg;
     }
     workgroupBarrier();
-    var m = draw_monoid_identity();
-    if wg_id.x > 0u {
-        // TODO: separate dispatch to scan these, or integrate into this one?
-        // In the meantime, will be limited to 2 * WG draw objs.
-        m = reduced[wg_id.x - 1u];
-    }
     if local_id.x > 0u {
         m = combine_draw_monoid(m, sh_scratch[local_id.x - 1u]);
     }
