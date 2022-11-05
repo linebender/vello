@@ -86,13 +86,12 @@ fn main(
         sh_tile_count[local_id.x] = total_tile_count;
     }
     if local_id.x == WG_SIZE - 1u {
-        paths[drawobj_ix].tiles = atomicAdd(&bump.tile, sh_tile_count[WG_SIZE - 1u]);
+        sh_tile_offset = atomicAdd(&bump.tile, sh_tile_count[WG_SIZE - 1u]);
     }
     // Using storage barriers is a workaround for what appears to be a miscompilation
     // when a normal workgroup-shared variable is used to broadcast the value.
-    storageBarrier();
-    let tile_offset = paths[drawobj_ix | (WG_SIZE - 1u)].tiles;
-    storageBarrier();
+    workgroupBarrier();
+    let tile_offset = sh_tile_offset;
     if drawobj_ix < config.n_drawobj {
         let tile_subix = select(0u, sh_tile_count[local_id.x - 1u], local_id.x > 0u);
         let bbox = vec4<u32>(ux0, uy0, ux1, uy1);

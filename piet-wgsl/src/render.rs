@@ -255,6 +255,7 @@ pub fn render_full(scene: &Scene, shaders: &FullShaders) -> (Recording, BufProxy
         ],
     );
 
+    /*
     let segments_buf = BufProxy::new(1 << 24);
     recording.dispatch(
         shaders.path_coarse,
@@ -299,8 +300,9 @@ pub fn render_full(scene: &Scene, shaders: &FullShaders) -> (Recording, BufProxy
         (config.width_in_tiles, config.height_in_tiles, 1),
         [config_buf, tile_buf, segments_buf, out_buf, ptcl_buf],
     );
+    */
 
-    let download_buf = out_buf;
+    let download_buf = path_buf;
     recording.download(download_buf);
     (recording, download_buf)
 }

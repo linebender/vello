@@ -22,7 +22,7 @@ use crate::pico_svg::PicoSvg;
 pub fn gen_test_scene() -> Scene {
     let mut scene = Scene::default();
     let mut builder = SceneBuilder::for_scene(&mut scene);
-    if false {
+    if true {
         let path = [
             PathElement::MoveTo(Point::new(100.0, 100.0)),
             PathElement::LineTo(Point::new(500.0, 120.0)),

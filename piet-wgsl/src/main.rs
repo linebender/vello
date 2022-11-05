@@ -81,7 +81,7 @@ async fn do_render(
     device.poll(wgpu::Maintain::Wait);
     let buf = mapped.get_mapped(buf).await?;
 
-    if false {
+    if true {
         dump_buf(bytemuck::cast_slice(&buf));
     } else {
         let file = File::create("image.png")?;
