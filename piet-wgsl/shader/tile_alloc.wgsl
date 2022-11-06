@@ -29,11 +29,10 @@ fn main(
     @builtin(global_invocation_id) global_id: vec3<u32>,
     @builtin(local_invocation_id) local_id: vec3<u32>,
 ) {
-
     let drawobj_ix = global_id.x;
     let tile_count_in = local_id.x + 1u;
     if local_id.x == WG_SIZE - 1u {
-        sh_tile_offset = atomicAdd(&bump, tile_count_in);
+        sh_tile_offset = 1u + atomicAdd(&bump, tile_count_in);
     }
     workgroupBarrier();
     let tile_offset = sh_tile_offset;
