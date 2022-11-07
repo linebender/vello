@@ -9,8 +9,14 @@ members = [
     "piet-gpu-types",
     "piet-scene",
     "piet-wgsl",
+    "run-wasm",
     "tests",
 ]
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+authors = ["piet-gpu developers"]
 
 [patch.crates-io]
 # Required for metal support to work on wgpu
