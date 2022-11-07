@@ -58,13 +58,22 @@ pub struct BufProxy {
     id: Id,
 }
 
+pub enum DownloadBufUsage {
+    MapRead,
+    BlitSrc,
+}
+
 pub enum Command {
     Upload(BufProxy, Vec<u8>),
     // Discussion question: third argument is vec of resources?
     // Maybe use tricks to make more ergonomic?
     // Alternative: provide bufs & images as separate sequences, like piet-gpu.
     Dispatch(ShaderId, (u32, u32, u32), Vec<BufProxy>),
-    Download(BufProxy),
+
+    // TODO(armansito): The second field is currently a stop-gap to make the Buffer->PNG and
+    // Buffer->Blit->Swapchain modes work for the WebGPU example. Instead having a version that
+    // returns a texture is probably more future-proof.
+    Download(BufProxy, DownloadBufUsage),
     Clear(BufProxy, u64, Option<NonZeroU64>),
 }
 
@@ -191,12 +200,15 @@ impl Engine {
                     cpass.set_bind_group(0, &bind_group, &[]);
                     cpass.dispatch_workgroups(wg_size.0, wg_size.1, wg_size.2);
                 }
-                Command::Download(proxy) => {
+                Command::Download(proxy, usage) => {
                     let src_buf = bind_map.buf_map.get(&proxy.id).ok_or("buffer not in map")?;
                     let buf = device.create_buffer(&wgpu::BufferDescriptor {
                         label: None,
                         size: proxy.size,
-                        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+                        usage: match usage {
+                            DownloadBufUsage::MapRead => wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+                            DownloadBufUsage::BlitSrc => wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
+                        },
                         mapped_at_creation: false,
                     });
                     encoder.copy_buffer_to_buffer(src_buf, 0, &buf, 0, proxy.size);
@@ -234,8 +246,8 @@ impl Recording {
         self.push(Command::Dispatch(shader, wg_size, resources.into()));
     }
 
-    pub fn download(&mut self, buf: BufProxy) {
-        self.push(Command::Download(buf));
+    pub fn download(&mut self, buf: BufProxy, usage: DownloadBufUsage) {
+        self.push(Command::Download(buf, usage));
     }
 
     pub fn clear_all(&mut self, buf: BufProxy) {
@@ -341,10 +353,14 @@ impl Downloads {
         }
         DownloadsMapped(map)
     }
+
+    pub fn get_buffer(&self, proxy: &BufProxy) -> &Buffer {
+        self.buf_map.get(&proxy.id).unwrap()
+    }
 }
 
 impl<'a> DownloadsMapped<'a> {
-    pub async fn get_mapped(&self, proxy: BufProxy) -> Result<BufferView, Error> {
+    pub async fn get_mapped(&self, proxy: BufProxy) -> Result<BufferView<'a>, Error> {
         let (slice, recv) = self.0.get(&proxy.id).ok_or("buffer not in map")?;
         if let Some(recv_result) = recv.receive().await {
             recv_result?;

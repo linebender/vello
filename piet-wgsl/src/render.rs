@@ -4,7 +4,7 @@ use bytemuck::{Pod, Zeroable};
 use piet_scene::Scene;
 
 use crate::{
-    engine::{BufProxy, Recording},
+    engine::{BufProxy, DownloadBufUsage, Recording},
     shaders::{self, Shaders},
 };
 
@@ -26,7 +26,7 @@ pub struct PathSegment {
     next: u32,
 }
 
-pub fn render(scene: &Scene, shaders: &Shaders) -> (Recording, BufProxy) {
+pub fn render(scene: &Scene, shaders: &Shaders, output_usage: DownloadBufUsage) -> (Recording, BufProxy) {
     let mut recording = Recording::default();
     let data = scene.data();
     let n_pathtag = data.tag_stream.len();
@@ -91,7 +91,7 @@ pub fn render(scene: &Scene, shaders: &Shaders) -> (Recording, BufProxy) {
         [config_buf, tiles_buf, segments_buf, out_buf],
     );
 
-    recording.download(out_buf);
+    recording.download(out_buf, output_usage);
     (recording, out_buf)
 }
 

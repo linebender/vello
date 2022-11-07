@@ -35,20 +35,49 @@ pub struct Shaders {
     pub fine: ShaderId,
 }
 
+fn load_shader_sources() -> (String, String, String, String, String) {
+    // When targeting WASM, we need to directly bundle shader source strings at compile-time since
+    // we cannot read from the local build directory at runtime.
+    let mut src = "".to_string();
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let shader_dir = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/shader"));
+        let read_shader =
+            |path: &str| fs::read_to_string(shader_dir.join(path.to_string() + ".wgsl")).unwrap();
+        return (
+            read_shader("pathtag_reduce"),
+            read_shader("pathtag_scan"),
+            read_shader("path_coarse"),
+            read_shader("backdrop"),
+            read_shader("fine"),
+        );
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        return (
+            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/shader", "/pathtag_reduce.wgsl")).to_string(),
+            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/shader", "/pathtag_scan.wgsl")).to_string(),
+            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/shader", "/path_coarse.wgsl")).to_string(),
+            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/shader", "/backdrop.wgsl")).to_string(),
+            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/shader", "/fine.wgsl")).to_string(),
+        );
+    }
+}
+
 pub fn init_shaders(device: &Device, engine: &mut Engine) -> Result<Shaders, Error> {
     let shader_dir = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/shader"));
     let imports = preprocess::get_imports(shader_dir);
-    let read_shader =
-        |path: &str| fs::read_to_string(shader_dir.join(path.to_string() + ".wgsl")).unwrap();
+    let (pathtag_reduce_src, pathtag_scan_src, path_coarse_src, backdrop_src, fine_src) = load_shader_sources();
+
     let empty = HashSet::new();
     let pathtag_reduce = engine.add_shader(
         device,
-        preprocess::preprocess(&read_shader("pathtag_reduce"), &empty, &imports).into(),
+        preprocess::preprocess(&pathtag_reduce_src, &empty, &imports).into(),
         &[BindType::BufReadOnly, BindType::Buffer],
     )?;
     let pathtag_scan = engine.add_shader(
         device,
-        preprocess::preprocess(&read_shader("pathtag_scan"), &empty, &imports).into(),
+        preprocess::preprocess(&pathtag_scan_src, &empty, &imports).into(),
         &[
             BindType::BufReadOnly,
             BindType::BufReadOnly,
@@ -60,7 +89,7 @@ pub fn init_shaders(device: &Device, engine: &mut Engine) -> Result<Shaders, Err
 
     let path_coarse = engine.add_shader(
         device,
-        preprocess::preprocess(&read_shader("path_coarse"), &path_coarse_config, &imports).into(),
+        preprocess::preprocess(&path_coarse_src, &path_coarse_config, &imports).into(),
         &[
             BindType::BufReadOnly,
             BindType::BufReadOnly,
@@ -72,12 +101,12 @@ pub fn init_shaders(device: &Device, engine: &mut Engine) -> Result<Shaders, Err
     )?;
     let backdrop = engine.add_shader(
         device,
-        preprocess::preprocess(&read_shader("backdrop"), &empty, &imports).into(),
+        preprocess::preprocess(&backdrop_src, &empty, &imports).into(),
         &[BindType::BufReadOnly, BindType::Buffer],
     )?;
     let fine = engine.add_shader(
         device,
-        preprocess::preprocess(&read_shader("fine"), &empty, &imports).into(),
+        preprocess::preprocess(&fine_src, &empty, &imports).into(),
         &[
             BindType::BufReadOnly,
             BindType::BufReadOnly,

@@ -21,10 +21,10 @@ pub fn gen_test_scene() -> Scene {
     let mut builder = SceneBuilder::for_scene(&mut scene);
     let path = [
         PathElement::MoveTo(Point::new(100.0, 100.0)),
-        PathElement::LineTo(Point::new(500.0, 120.0)),
-        PathElement::LineTo(Point::new(300.0, 150.0)),
-        PathElement::LineTo(Point::new(200.0, 260.0)),
-        PathElement::LineTo(Point::new(150.0, 210.0)),
+        PathElement::LineTo(Point::new(1000.0, 240.0)),
+        PathElement::LineTo(Point::new(600.0, 300.0)),
+        PathElement::LineTo(Point::new(400.0, 520.0)),
+        PathElement::LineTo(Point::new(300.0, 420.0)),
         PathElement::Close,
     ];
     let brush = Brush::Solid(Color::rgb8(0x80, 0x80, 0x80));

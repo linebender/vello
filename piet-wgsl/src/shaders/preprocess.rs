@@ -7,24 +7,17 @@ use std::{
 
 pub fn get_imports(shader_dir: &Path) -> HashMap<String, String> {
     let mut imports = HashMap::new();
-    let imports_dir = shader_dir.join("shared");
-    for entry in imports_dir
-        .read_dir()
-        .expect("Can read shader import directory")
+    // When targeting WASM, we need to directly bundle shader source strings at compile-time since
+    // we cannot read from the local build directory at runtime.
+    #[cfg(not(target_arch = "wasm32"))]
     {
-        let entry = entry.expect("Can continue reading shader import directory");
-        if entry.file_type().unwrap().is_file() {
-            let file_name = entry.file_name();
-            if let Some(name) = file_name.to_str() {
-                let suffix = ".wgsl";
-                if name.ends_with(suffix) {
-                    let import_name = name[..(name.len() - suffix.len())].to_owned();
-                    let contents = fs::read_to_string(imports_dir.join(file_name))
-                        .expect("Could read shader {import_name} contents");
-                    imports.insert(import_name, contents);
-                }
-            }
-        }
+        get_imports_from_local_dir(shader_dir, &mut imports);
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        imports.insert("config".to_string(), include_str!("../../shader/shared/config.wgsl").to_string());
+        imports.insert("pathtag".to_string(), include_str!("../../shader/shared/pathtag.wgsl").to_string());
+        imports.insert("segment".to_string(), include_str!("../../shader/shared/segment.wgsl").to_string());
     }
     imports
 }
@@ -149,4 +142,28 @@ pub fn preprocess(
         }
     }
     output
+}
+
+fn get_imports_from_local_dir(shader_dir: &Path, out_imports: &mut HashMap<String, String>) {
+    {
+        let imports_dir = shader_dir.join("shared");
+        for entry in imports_dir
+            .read_dir()
+            .expect("Can read shader import directory")
+        {
+            let entry = entry.expect("Can continue reading shader import directory");
+            if entry.file_type().unwrap().is_file() {
+                let file_name = entry.file_name();
+                if let Some(name) = file_name.to_str() {
+                    let suffix = ".wgsl";
+                    if name.ends_with(suffix) {
+                        let import_name = name[..(name.len() - suffix.len())].to_owned();
+                        let contents = fs::read_to_string(imports_dir.join(file_name))
+                            .expect("Could read shader {import_name} contents");
+                        out_imports.insert(import_name, contents);
+                    }
+                }
+            }
+        }
+    }
 }
