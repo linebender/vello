@@ -26,7 +26,11 @@ pub struct PathSegment {
     next: u32,
 }
 
-pub fn render(scene: &Scene, shaders: &Shaders, output_usage: DownloadBufUsage) -> (Recording, BufProxy) {
+pub fn render(
+    scene: &Scene,
+    shaders: &Shaders,
+    output_usage: DownloadBufUsage,
+) -> (Recording, BufProxy) {
     let mut recording = Recording::default();
     let data = scene.data();
     let n_pathtag = data.tag_stream.len();

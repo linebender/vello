@@ -16,8 +16,8 @@
 
 //! A simple application to run a compute shader.
 
-use std::{fs::File, io::BufWriter};
 use engine::{BufProxy, DownloadBufUsage, Downloads, Engine};
+use std::{fs::File, io::BufWriter};
 
 use render::render;
 use test_scene::dump_scene_info;
@@ -76,7 +76,8 @@ async fn do_render(
     queue: &Queue,
     engine: &mut Engine,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let (downloads, buf) = render_demo_scene(device, queue, engine, DownloadBufUsage::MapRead).await?;
+    let (downloads, buf) =
+        render_demo_scene(device, queue, engine, DownloadBufUsage::MapRead).await?;
     let mapped = downloads.map();
     device.poll(wgpu::Maintain::Wait);
     let buf = mapped.get_mapped(buf).await?;
@@ -151,7 +152,10 @@ async fn run_wasm(event_loop: EventLoop<()>, window: Window) {
 
     let mut engine = Engine::new();
 
-    let (downloads, buf) = render_demo_scene(&device, &queue, &mut engine, DownloadBufUsage::BlitSrc).await.unwrap();
+    let (downloads, buf) =
+        render_demo_scene(&device, &queue, &mut engine, DownloadBufUsage::BlitSrc)
+            .await
+            .unwrap();
     {
         device.poll(wgpu::Maintain::Wait);
     }
@@ -206,10 +210,11 @@ async fn run_wasm(event_loop: EventLoop<()>, window: Window) {
                                 bytes_per_row: Some(
                                     std::num::NonZeroU32::new(
                                         buffer_dimensions.padded_bytes_per_row,
-                                    ).unwrap()
+                                    )
+                                    .unwrap(),
                                 ),
                                 rows_per_image: None,
-                            }
+                            },
                         },
                         frame.texture.as_image_copy(),
                         buffer_dimensions.get_extent(),
@@ -249,10 +254,7 @@ fn main() {
         web_sys::window()
             .and_then(|win| win.document())
             .and_then(|doc| doc.body())
-            .and_then(|body| {
-                body.append_child(&web_sys::Element::from(canvas))
-                    .ok()
-            })
+            .and_then(|body| body.append_child(&web_sys::Element::from(canvas)).ok())
             .expect("couldn't append canvas to document body");
         wasm_bindgen_futures::spawn_local(run_wasm(event_loop, window));
     }

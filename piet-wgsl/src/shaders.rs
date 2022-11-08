@@ -55,10 +55,30 @@ fn load_shader_sources() -> (String, String, String, String, String) {
     #[cfg(target_arch = "wasm32")]
     {
         return (
-            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/shader", "/pathtag_reduce.wgsl")).to_string(),
-            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/shader", "/pathtag_scan.wgsl")).to_string(),
-            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/shader", "/path_coarse.wgsl")).to_string(),
-            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/shader", "/backdrop.wgsl")).to_string(),
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/shader",
+                "/pathtag_reduce.wgsl"
+            ))
+            .to_string(),
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/shader",
+                "/pathtag_scan.wgsl"
+            ))
+            .to_string(),
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/shader",
+                "/path_coarse.wgsl"
+            ))
+            .to_string(),
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/shader",
+                "/backdrop.wgsl"
+            ))
+            .to_string(),
             include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/shader", "/fine.wgsl")).to_string(),
         );
     }
@@ -67,7 +87,8 @@ fn load_shader_sources() -> (String, String, String, String, String) {
 pub fn init_shaders(device: &Device, engine: &mut Engine) -> Result<Shaders, Error> {
     let shader_dir = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/shader"));
     let imports = preprocess::get_imports(shader_dir);
-    let (pathtag_reduce_src, pathtag_scan_src, path_coarse_src, backdrop_src, fine_src) = load_shader_sources();
+    let (pathtag_reduce_src, pathtag_scan_src, path_coarse_src, backdrop_src, fine_src) =
+        load_shader_sources();
 
     let empty = HashSet::new();
     let pathtag_reduce = engine.add_shader(

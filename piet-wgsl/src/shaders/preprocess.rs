@@ -15,9 +15,18 @@ pub fn get_imports(shader_dir: &Path) -> HashMap<String, String> {
     }
     #[cfg(target_arch = "wasm32")]
     {
-        imports.insert("config".to_string(), include_str!("../../shader/shared/config.wgsl").to_string());
-        imports.insert("pathtag".to_string(), include_str!("../../shader/shared/pathtag.wgsl").to_string());
-        imports.insert("segment".to_string(), include_str!("../../shader/shared/segment.wgsl").to_string());
+        imports.insert(
+            "config".to_string(),
+            include_str!("../../shader/shared/config.wgsl").to_string(),
+        );
+        imports.insert(
+            "pathtag".to_string(),
+            include_str!("../../shader/shared/pathtag.wgsl").to_string(),
+        );
+        imports.insert(
+            "segment".to_string(),
+            include_str!("../../shader/shared/segment.wgsl").to_string(),
+        );
     }
     imports
 }

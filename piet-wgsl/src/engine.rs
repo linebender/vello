@@ -206,8 +206,12 @@ impl Engine {
                         label: None,
                         size: proxy.size,
                         usage: match usage {
-                            DownloadBufUsage::MapRead => wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-                            DownloadBufUsage::BlitSrc => wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
+                            DownloadBufUsage::MapRead => {
+                                wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST
+                            }
+                            DownloadBufUsage::BlitSrc => {
+                                wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST
+                            }
                         },
                         mapped_at_creation: false,
                     });
