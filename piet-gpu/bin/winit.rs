@@ -126,7 +126,7 @@ fn main() -> Result<(), Error> {
                     } else {
                         let mut builder = SceneBuilder::for_scene(&mut scene);
 
-                        const N_SAMPLES: usize = 5;
+                        const N_SAMPLES: usize = 6;
                         match sample_index % N_SAMPLES {
                             0 => samples::render_anim_frame(
                                 &mut builder,
@@ -136,6 +136,7 @@ fn main() -> Result<(), Error> {
                             1 => samples::render_blend_grid(&mut builder),
                             2 => samples::render_tiger(&mut builder, false),
                             3 => samples::render_brush_transform(&mut builder, current_frame),
+                            4 => samples::render_funky_paths(&mut builder),
                             _ => samples::render_scene(&mut builder),
                         }
                         render_info(&mut simple_text, &mut builder, &info_string);
