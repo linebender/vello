@@ -4,6 +4,39 @@ use piet_scene::*;
 
 use crate::SimpleText;
 
+pub fn render_funky_paths(sb: &mut SceneBuilder) {
+    use PathElement::*;
+    let missing_movetos = [
+        LineTo((100.0, 100.0).into()),
+        LineTo((100.0, 200.0).into()),
+        Close,
+        LineTo((0.0, 400.0).into()),
+        LineTo((100.0, 400.0).into()),
+    ];
+    let empty: [PathElement; 0] = [];
+    sb.fill(
+        Fill::NonZero,
+        Affine::translate(100.0, 100.0),
+        &Color::rgb8(0, 0, 255).into(),
+        None,
+        missing_movetos,
+    );
+    sb.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        &Color::rgb8(0, 0, 255).into(),
+        None,
+        empty,
+    );
+    sb.stroke(
+        &simple_stroke(8.0),
+        Affine::translate(100.0, 100.0),
+        &Color::rgb8(0, 255, 255).into(),
+        None,
+        missing_movetos,
+    );
+}
+
 #[allow(unused)]
 const N_CIRCLES: usize = 0;
 

@@ -67,12 +67,9 @@ impl SimpleText {
                         .unwrap_or(default_advance) as f32
                         * scale;
                     if let Some(glyph) = provider.get(gid, brush) {
-                        if !glyph.is_empty() {
-                            let xform = transform
-                                * Affine::translate(pen_x, 0.0)
-                                * Affine::scale(1.0, -1.0);
-                            builder.append(&glyph, Some(xform));
-                        }
+                        let xform =
+                            transform * Affine::translate(pen_x, 0.0) * Affine::scale(1.0, -1.0);
+                        builder.append(&glyph, Some(xform));
                     }
                     pen_x += advance;
                 }
