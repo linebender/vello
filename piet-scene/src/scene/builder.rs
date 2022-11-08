@@ -146,45 +146,28 @@ impl<'a> SceneBuilder<'a> {
         E: Iterator,
         E::Item: Borrow<PathElement>,
     {
-        if is_fill {
-            self.encode_path_inner(
-                elements
-                    .map(|el| *el.borrow())
-                    .flat_map(|el| {
-                        match el {
-                            PathElement::MoveTo(..) => Some(PathElement::Close),
-                            _ => None,
-                        }
-                        .into_iter()
-                        .chain(Some(el))
-                    })
-                    .chain(Some(PathElement::Close)),
-            )
-        } else {
-            self.encode_path_inner(elements.map(|el| *el.borrow()))
-        }
-    }
-
-    fn encode_path_inner(&mut self, elements: impl Iterator<Item = PathElement>) -> bool {
-        let mut b = PathBuilder::new(&mut self.scene.tag_stream, &mut self.scene.pathseg_stream);
-        let mut has_els = false;
+        let mut b = PathBuilder::new(
+            &mut self.scene.tag_stream,
+            &mut self.scene.pathseg_stream,
+            is_fill,
+        );
         for el in elements {
-            match el {
+            match el.borrow() {
                 PathElement::MoveTo(p0) => b.move_to(p0.x, p0.y),
                 PathElement::LineTo(p0) => b.line_to(p0.x, p0.y),
                 PathElement::QuadTo(p0, p1) => b.quad_to(p0.x, p0.y, p1.x, p1.y),
                 PathElement::CurveTo(p0, p1, p2) => b.cubic_to(p0.x, p0.y, p1.x, p1.y, p2.x, p2.y),
                 PathElement::Close => b.close_path(),
             }
-            has_els = true;
         }
-        if has_els {
-            b.path();
-            let n_pathseg = b.n_pathseg();
+        b.finish();
+        if b.n_pathseg != 0 {
             self.scene.n_path += 1;
-            self.scene.n_pathseg += n_pathseg;
+            self.scene.n_pathseg += b.n_pathseg;
+            true
+        } else {
+            false
         }
-        has_els
     }
 
     fn maybe_encode_transform(&mut self, transform: Affine) {
@@ -345,6 +328,7 @@ struct PathBuilder<'a> {
     first_pt: [f32; 2],
     state: PathState,
     n_pathseg: u32,
+    is_fill: bool,
 }
 
 #[derive(PartialEq)]
@@ -355,25 +339,28 @@ enum PathState {
 }
 
 impl<'a> PathBuilder<'a> {
-    pub fn new(tags: &'a mut Vec<u8>, pathsegs: &'a mut Vec<u8>) -> PathBuilder<'a> {
+    pub fn new(tags: &'a mut Vec<u8>, pathsegs: &'a mut Vec<u8>, is_fill: bool) -> PathBuilder<'a> {
         PathBuilder {
             tag_stream: tags,
             pathseg_stream: pathsegs,
             first_pt: [0.0, 0.0],
             state: PathState::Start,
             n_pathseg: 0,
+            is_fill,
         }
     }
 
     pub fn move_to(&mut self, x: f32, y: f32) {
+        if self.is_fill {
+            self.close_path();
+        }
         let buf = [x, y];
         let bytes = bytemuck::bytes_of(&buf);
         self.first_pt = buf;
         if self.state == PathState::MoveTo {
             let new_len = self.pathseg_stream.len() - 8;
             self.pathseg_stream.truncate(new_len);
-        }
-        if self.state == PathState::NonemptySubpath {
+        } else if self.state == PathState::NonemptySubpath {
             if let Some(tag) = self.tag_stream.last_mut() {
                 *tag |= 4;
             }
@@ -384,8 +371,7 @@ impl<'a> PathBuilder<'a> {
 
     pub fn line_to(&mut self, x: f32, y: f32) {
         if self.state == PathState::Start {
-            // should warn or error
-            return;
+            self.move_to(self.first_pt[0], self.first_pt[1]);
         }
         let buf = [x, y];
         let bytes = bytemuck::bytes_of(&buf);
@@ -397,7 +383,7 @@ impl<'a> PathBuilder<'a> {
 
     pub fn quad_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32) {
         if self.state == PathState::Start {
-            return;
+            self.move_to(self.first_pt[0], self.first_pt[1]);
         }
         let buf = [x1, y1, x2, y2];
         let bytes = bytemuck::bytes_of(&buf);
@@ -409,7 +395,7 @@ impl<'a> PathBuilder<'a> {
 
     pub fn cubic_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x3: f32, y3: f32) {
         if self.state == PathState::Start {
-            return;
+            self.move_to(self.first_pt[0], self.first_pt[1]);
         }
         let buf = [x1, y1, x2, y2, x3, y3];
         let bytes = bytemuck::bytes_of(&buf);
@@ -448,32 +434,19 @@ impl<'a> PathBuilder<'a> {
         self.state = PathState::Start;
     }
 
-    fn finish(&mut self) {
+    pub fn finish(&mut self) {
+        if self.is_fill {
+            self.close_path();
+        }
         if self.state == PathState::MoveTo {
             let new_len = self.pathseg_stream.len() - 8;
             self.pathseg_stream.truncate(new_len);
         }
-        if let Some(tag) = self.tag_stream.last_mut() {
-            *tag |= 4;
+        if self.n_pathseg != 0 {
+            if let Some(tag) = self.tag_stream.last_mut() {
+                *tag |= 4;
+            }
+            self.tag_stream.push(0x10);
         }
-    }
-
-    /// Finish encoding a path.
-    ///
-    /// Encode this after encoding path segments.
-    pub fn path(&mut self) {
-        self.finish();
-        // maybe don't encode if path is empty? might throw off sync though
-        self.tag_stream.push(0x10);
-    }
-
-    /// Get the number of path segments.
-    ///
-    /// This is the number of path segments that will be written by the
-    /// path stage; use this for allocating the output buffer.
-    ///
-    /// Also note: it takes `self` for lifetime reasons.
-    pub fn n_pathseg(self) -> u32 {
-        self.n_pathseg
     }
 }
