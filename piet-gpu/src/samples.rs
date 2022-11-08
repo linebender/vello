@@ -13,6 +13,10 @@ pub fn render_funky_paths(sb: &mut SceneBuilder) {
         LineTo((0.0, 400.0).into()),
         LineTo((100.0, 400.0).into()),
     ];
+    let only_movetos = [
+        PathElement::MoveTo((0.0, 0.0).into()),
+        PathElement::MoveTo((100.0, 100.0).into()),
+    ];
     let empty: [PathElement; 0] = [];
     sb.fill(
         Fill::NonZero,
@@ -27,6 +31,13 @@ pub fn render_funky_paths(sb: &mut SceneBuilder) {
         &Color::rgb8(0, 0, 255).into(),
         None,
         empty,
+    );
+    sb.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        &Color::rgb8(0, 0, 255).into(),
+        None,
+        only_movetos,
     );
     sb.stroke(
         &simple_stroke(8.0),

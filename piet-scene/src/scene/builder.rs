@@ -160,8 +160,8 @@ impl<'a> SceneBuilder<'a> {
                 PathElement::Close => b.close_path(),
             }
         }
+        b.finish();
         if b.n_pathseg != 0 {
-            b.path();
             self.scene.n_path += 1;
             self.scene.n_pathseg += b.n_pathseg;
             true
@@ -434,7 +434,7 @@ impl<'a> PathBuilder<'a> {
         self.state = PathState::Start;
     }
 
-    fn finish(&mut self) {
+    pub fn finish(&mut self) {
         if self.is_fill {
             self.close_path();
         }
@@ -442,17 +442,11 @@ impl<'a> PathBuilder<'a> {
             let new_len = self.pathseg_stream.len() - 8;
             self.pathseg_stream.truncate(new_len);
         }
-        if let Some(tag) = self.tag_stream.last_mut() {
-            *tag |= 4;
+        if self.n_pathseg != 0 {
+            if let Some(tag) = self.tag_stream.last_mut() {
+                *tag |= 4;
+            }
+            self.tag_stream.push(0x10);
         }
-    }
-
-    /// Finish encoding a path.
-    ///
-    /// Encode this after encoding path segments.
-    pub fn path(&mut self) {
-        self.finish();
-        // maybe don't encode if path is empty? might throw off sync though
-        self.tag_stream.push(0x10);
     }
 }
