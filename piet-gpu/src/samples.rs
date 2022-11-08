@@ -13,10 +13,7 @@ pub fn render_funky_paths(sb: &mut SceneBuilder) {
         LineTo((0.0, 400.0).into()),
         LineTo((100.0, 400.0).into()),
     ];
-    let only_movetos = [
-        PathElement::MoveTo((0.0, 0.0).into()),
-        PathElement::MoveTo((100.0, 100.0).into()),
-    ];
+    let only_movetos = [MoveTo((0.0, 0.0).into()), MoveTo((100.0, 100.0).into())];
     let empty: [PathElement; 0] = [];
     sb.fill(
         Fill::NonZero,
