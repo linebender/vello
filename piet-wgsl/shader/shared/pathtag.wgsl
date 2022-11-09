@@ -63,7 +63,7 @@ fn reduce_tag(tag_word: u32) -> TagMonoid {
     a += a >> 16u;
     c.pathseg_offset = a & 0xffu;
 #ifdef full
-    c.path_ix = countOneBits(tag_word & (PATH_TAG_PATH) * 0x1010101u);
+    c.path_ix = countOneBits(tag_word & (PATH_TAG_PATH * 0x1010101u));
     c.linewidth_ix = countOneBits(tag_word & (PATH_TAG_LINEWIDTH * 0x1010101u));
 #endif
     return c;
