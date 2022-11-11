@@ -42,8 +42,14 @@ var<storage, read_write> output: array<u32>;
 #ifdef full
 #import ptcl
 
+let GRADIENT_WIDTH = 512;
+let BLEND_STACK_SPLIT = 4u;
+
 @group(0) @binding(4)
 var<storage> ptcl: array<u32>;
+
+@group(0) @binding(5)
+var gradients: texture_2d<f32>;
 
 fn read_fill(cmd_ix: u32) -> CmdFill {
     let tile = ptcl[cmd_ix + 1u];
@@ -60,6 +66,33 @@ fn read_stroke(cmd_ix: u32) -> CmdStroke {
 fn read_color(cmd_ix: u32) -> CmdColor {
     let rgba_color = ptcl[cmd_ix + 1u];
     return CmdColor(rgba_color);
+}
+
+fn read_lin_grad(cmd_ix: u32) -> CmdLinGrad {
+    let index = ptcl[cmd_ix + 1u];
+    let line_x = bitcast<f32>(ptcl[cmd_ix + 2u]);
+    let line_y = bitcast<f32>(ptcl[cmd_ix + 3u]);
+    let line_c = bitcast<f32>(ptcl[cmd_ix + 4u]);
+    return CmdLinGrad(index, line_x, line_y, line_c);
+}
+
+fn read_rad_grad(cmd_ix: u32) -> CmdRadGrad {
+    let index = ptcl[cmd_ix + 1u];
+    let m0 = bitcast<f32>(ptcl[cmd_ix + 2u]);
+    let m1 = bitcast<f32>(ptcl[cmd_ix + 3u]);
+    let m2 = bitcast<f32>(ptcl[cmd_ix + 4u]);
+    let m3 = bitcast<f32>(ptcl[cmd_ix + 5u]);
+    let matrx = vec4<f32>(m0, m1, m2, m3);
+    let xlat = vec2<f32>(bitcast<f32>(ptcl[cmd_ix + 6u]), bitcast<f32>(ptcl[cmd_ix + 7u]));
+    let c1 = vec2<f32>(bitcast<f32>(ptcl[cmd_ix + 8u]), bitcast<f32>(ptcl[cmd_ix + 9u]));
+    let ra = bitcast<f32>(ptcl[cmd_ix + 10u]);
+    let roff = bitcast<f32>(ptcl[cmd_ix + 11u]);
+    return CmdRadGrad(index, matrx, xlat, c1, ra, roff);
+}
+
+fn mix_blend_compose(backdrop: vec4<f32>, src: vec4<f32>, mode: u32) -> vec4<f32> {
+    // TODO: ALL the blend modes. This is just vanilla src-over.
+    return backdrop * (1.0 - src.a) + src;
 }
 #endif
 
@@ -147,6 +180,8 @@ fn main(
     let xy = vec2<f32>(f32(global_id.x * PIXELS_PER_THREAD), f32(global_id.y));
 #ifdef full
     var rgba: array<vec4<f32>, PIXELS_PER_THREAD>;
+    var blend_stack: array<array<u32, BLEND_STACK_SPLIT>, PIXELS_PER_THREAD>;
+    var clip_depth = 0u;
     var area: array<f32, PIXELS_PER_THREAD>;
     var cmd_ix = tile_ix * PTCL_INITIAL_ALLOC;
 
@@ -184,6 +219,66 @@ fn main(
                 for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
                     let fg_i = fg * area[i];
                     rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
+                }
+                cmd_ix += 2u;
+            }
+            // CMD_LIN_GRAD
+            case 6u: {
+                let lin = read_lin_grad(cmd_ix);
+                let d = lin.line_x * xy.x + lin.line_y * xy.y + lin.line_c;
+                for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
+                    let my_d = d + lin.line_x * f32(i);
+                    let x = i32(round(clamp(my_d, 0.0, 1.0) * f32(GRADIENT_WIDTH - 1)));
+                    let fg_rgba = textureLoad(gradients, vec2<i32>(x, i32(lin.index)), 0);
+                    let fg_i = fg_rgba * area[i];
+                    rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
+                }
+                cmd_ix += 12u;
+            }
+            // CMD_RAD_GRAD
+            case 7u: {
+                let rad = read_rad_grad(cmd_ix);
+                for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
+                    let my_xy = vec2<f32>(xy.x + f32(i), xy.y);
+                    // TODO: can hoist y, but for now stick to piet-gpu
+                    let xy_xformed = rad.matrx.xz * my_xy.x + rad.matrx.yw * my_xy.y - rad.xlat;
+                    let ba = dot(xy_xformed, rad.c1);
+                    let ca = rad.ra * dot(xy_xformed, xy_xformed);
+                    let t = sqrt(ba * ba + ca) - ba - rad.roff;
+                    let x = i32(round(clamp(t, 0.0, 1.0) * f32(GRADIENT_WIDTH - 1)));
+                    let fg_rgba = textureLoad(gradients, vec2<i32>(x, i32(rad.index)), 0);
+                    let fg_i = fg_rgba * area[i];
+                    rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
+                }
+                cmd_ix += 12u;
+            }
+            // CMD_BEGIN_CLIP
+            case 9u: {
+                if clip_depth < BLEND_STACK_SPLIT {
+                    for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
+                        blend_stack[clip_depth][i] = pack4x8unorm(rgba[i]);
+                        rgba[i] = vec4<f32>(0.0);
+                    }
+                } else {
+                    // TODO: spill to memory
+                }
+                clip_depth += 1u;
+                cmd_ix += 1u;
+            }
+            // CMD_END_CLIP
+            case 10u: {
+                let blend = ptcl[cmd_ix + 1u];
+                clip_depth -= 1u;
+                for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
+                    var bg_rgba: u32;
+                    if clip_depth < BLEND_STACK_SPLIT {
+                        bg_rgba = blend_stack[clip_depth][i];
+                    } else {
+                        // load from memory
+                    }
+                    let bg = unpack4x8unorm(bg_rgba);
+                    let fg = rgba[i] * area[i];
+                    rgba[i] = mix_blend_compose(bg, fg, blend);
                 }
                 cmd_ix += 2u;
             }

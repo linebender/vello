@@ -20,6 +20,7 @@ struct Config {
 
     n_drawobj: u32,
     n_path: u32,
+    n_clip: u32,
 
     // offsets within scene buffer (in u32 units)
     // Note: this is a difference from piet-gpu, which is in bytes

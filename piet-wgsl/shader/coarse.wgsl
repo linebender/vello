@@ -125,7 +125,27 @@ fn write_color(color: CmdColor) {
     ptcl[cmd_offset] = CMD_COLOR;
     ptcl[cmd_offset + 1u] = color.rgba_color;
     cmd_offset += 2u;
+}
 
+// Discussion point: these are basically copying from info to ptcl. We
+// could just write an info offset and have fine bind that buffer and read
+// from it.
+
+fn write_lin_grad(lin: CmdLinGrad) {
+    alloc_cmd(5u);
+    ptcl[cmd_offset] = CMD_LIN_GRAD;
+    ptcl[cmd_offset + 1u] = lin.index;
+    ptcl[cmd_offset + 2u] = bitcast<u32>(lin.line_x);
+    ptcl[cmd_offset + 3u] = bitcast<u32>(lin.line_y);
+    ptcl[cmd_offset + 4u] = bitcast<u32>(lin.line_c);
+    cmd_offset += 5u;
+}
+
+fn write_rad_grad(rad: CmdRadGrad) {
+    alloc_cmd(12u);
+    ptcl[cmd_offset] = CMD_RAD_GRAD;
+    ptcl[cmd_offset + 1u] = rad.index;
+    cmd_offset += 12u;
 }
 
 @compute @workgroup_size(256)
@@ -304,13 +324,37 @@ fn main(
             if clip_zero_depth == 0u {
                 let tile_ix = sh_tile_base[el_ix] + sh_tile_stride[el_ix] * tile_y + tile_x;
                 let tile = tiles[tile_ix];
+                let linewidth = bitcast<f32>(info[di]);
+                write_path(tile, linewidth);
                 switch drawtag {
                     // DRAWTAG_FILL_COLOR
                     case 0x44u: {
-                        let linewidth = bitcast<f32>(info[di]);
                         let rgba_color = scene[dd];
-                        write_path(tile, linewidth);
                         write_color(CmdColor(rgba_color));
+                    }
+                    // DRAWTAG_FILL_LIN_GRADIENT
+                    case 0x114u: {
+                        var lin: CmdLinGrad;
+                        lin.index = scene[dd];
+                        lin.line_x = bitcast<f32>(info[di + 1u]);
+                        lin.line_y = bitcast<f32>(info[di + 2u]);
+                        lin.line_c = bitcast<f32>(info[di + 3u]);
+                        write_lin_grad(lin);
+                    }
+                    // DRAWTAG_FILL_RAD_GRADIENT
+                    case 0x2dcu: {
+                        var rad: CmdRadGrad;
+                        rad.index = scene[dd];
+                        let m0 = bitcast<f32>(info[di + 1u]);
+                        let m1 = bitcast<f32>(info[di + 2u]);
+                        let m2 = bitcast<f32>(info[di + 3u]);
+                        let m3 = bitcast<f32>(info[di + 4u]);
+                        rad.matrx = vec4<f32>(m0, m1, m2, m3);
+                        rad.xlat = vec2<f32>(bitcast<f32>(info[di + 5u]), bitcast<f32>(info[di + 6u]));
+                        rad.c1 = vec2<f32>(bitcast<f32>(info[di + 7u]), bitcast<f32>(info[di + 8u]));
+                        rad.ra = bitcast<f32>(info[di + 9u]);
+                        rad.roff = bitcast<f32>(info[di + 10u]);
+                        write_rad_grad(rad);
                     }
                     default: {}
                 }

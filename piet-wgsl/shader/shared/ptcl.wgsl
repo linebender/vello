@@ -28,6 +28,10 @@ let CMD_FILL = 1u;
 let CMD_STROKE = 2u;
 let CMD_SOLID = 3u;
 let CMD_COLOR = 5u;
+let CMD_LIN_GRAD = 6u;
+let CMD_RAD_GRAD = 7u;
+let CMD_BEGIN_CLIP = 9u;
+let CMD_END_CLIP = 10u;
 let CMD_JUMP = 11u;
 
 // The individual PTCL structs are written here, but read/write is by
@@ -49,4 +53,20 @@ struct CmdJump {
 
 struct CmdColor {
     rgba_color: u32,
+}
+
+struct CmdLinGrad {
+    index: u32,
+    line_x: f32,
+    line_y: f32,
+    line_c: f32,
+}
+
+struct CmdRadGrad {
+    index: u32,
+    matrx: vec4<f32>,
+    xlat: vec2<f32>,
+    c1: vec2<f32>,
+    ra: f32,
+    roff: f32,
 }

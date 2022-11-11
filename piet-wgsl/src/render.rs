@@ -26,6 +26,7 @@ struct Config {
     height_in_tiles: u32,
     n_drawobj: u32,
     n_path: u32,
+    n_clip: u32,
     pathtag_base: u32,
     pathdata_base: u32,
     drawtag_base: u32,
@@ -143,11 +144,13 @@ pub fn render_full(scene: &Scene, shaders: &FullShaders) -> (Recording, BufProxy
     let n_path = data.n_path;
     // TODO: calculate for real when we do rectangles
     let n_drawobj = n_path;
+    let n_clip = 0; // TODO: wire up correctly
     let config = Config {
         width_in_tiles: 64,
         height_in_tiles: 64,
         n_drawobj,
         n_path,
+        n_clip,
         pathtag_base,
         pathdata_base,
         drawtag_base,
