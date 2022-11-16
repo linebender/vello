@@ -15,35 +15,70 @@
 // Also licensed under MIT license, at your choice.
 
 use kurbo::BezPath;
-use piet_scene::{Affine, Brush, Color, Fill, PathElement, Point, Scene, SceneBuilder, Stroke};
+use piet_scene::{Affine, Brush, Color, Fill, LinearGradient, PathElement, Point, Scene, SceneBuilder, Stroke, GradientStop};
 
 use crate::pico_svg::PicoSvg;
 
 pub fn gen_test_scene() -> Scene {
     let mut scene = Scene::default();
     let mut builder = SceneBuilder::for_scene(&mut scene);
-    if false {
-        let path = [
-            PathElement::MoveTo(Point::new(100.0, 100.0)),
-            PathElement::LineTo(Point::new(500.0, 120.0)),
-            PathElement::LineTo(Point::new(300.0, 150.0)),
-            PathElement::LineTo(Point::new(200.0, 260.0)),
-            PathElement::LineTo(Point::new(150.0, 210.0)),
-            PathElement::Close,
-        ];
-        let brush = Brush::Solid(Color::rgb8(0x40, 0x40, 0xff));
-        builder.fill(Fill::NonZero, Affine::IDENTITY, &brush, None, &path);
-        let transform = Affine::translate(50.0, 50.0);
-        let brush = Brush::Solid(Color::rgba8(0xff, 0xff, 0x00, 0x80));
-        builder.fill(Fill::NonZero, transform, &brush, None, &path);
-        let transform = Affine::translate(100.0, 100.0);
-        let style = simple_stroke(1.0);
-        let brush = Brush::Solid(Color::rgb8(0xa0, 0x00, 0x00));
-        builder.stroke(&style, transform, &brush, None, &path);
-    } else {
-        let xml_str = std::str::from_utf8(include_bytes!("../../piet-gpu/Ghostscript_Tiger.svg")).unwrap();
-        let svg = PicoSvg::load(xml_str, 6.0).unwrap();
-        render_svg(&mut builder, &svg, false);
+    let scene_ix = 1;
+    match scene_ix {
+        0 => {
+            let path = [
+                PathElement::MoveTo(Point::new(100.0, 100.0)),
+                PathElement::LineTo(Point::new(500.0, 120.0)),
+                PathElement::LineTo(Point::new(300.0, 150.0)),
+                PathElement::LineTo(Point::new(200.0, 260.0)),
+                PathElement::LineTo(Point::new(150.0, 210.0)),
+                PathElement::Close,
+            ];
+            let brush = Brush::Solid(Color::rgb8(0x40, 0x40, 0xff));
+            builder.fill(Fill::NonZero, Affine::IDENTITY, &brush, None, &path);
+            let transform = Affine::translate(50.0, 50.0);
+            let brush = Brush::Solid(Color::rgba8(0xff, 0xff, 0x00, 0x80));
+            builder.fill(Fill::NonZero, transform, &brush, None, &path);
+            let transform = Affine::translate(100.0, 100.0);
+            let style = simple_stroke(1.0);
+            let brush = Brush::Solid(Color::rgb8(0xa0, 0x00, 0x00));
+            builder.stroke(&style, transform, &brush, None, &path);
+        }
+        1 => {
+            let path = [
+                PathElement::MoveTo(Point::new(100.0, 100.0)),
+                PathElement::LineTo(Point::new(300.0, 100.0)),
+                PathElement::LineTo(Point::new(300.0, 300.0)),
+                PathElement::LineTo(Point::new(100.0, 300.0)),
+                PathElement::Close,
+            ];
+            let gradient = Brush::LinearGradient(LinearGradient {
+                start: Point::new(100.0, 100.0),
+                end: Point::new(300.0, 300.0),
+                extend: piet_scene::ExtendMode::Pad,
+                stops: vec![
+                    GradientStop {
+                        offset: 0.0,
+                        color: Color::rgb8(255, 0, 0),
+                    },
+                    GradientStop {
+                        offset: 0.5,
+                        color: Color::rgb8(0, 255, 0),
+                    },
+                    GradientStop {
+                        offset: 1.0,
+                        color: Color::rgb8(0, 0, 255),
+                    },
+                ].into()
+            });
+            builder.fill(Fill::NonZero, Affine::scale(3.0, 3.0), &gradient, None, &path);
+        }
+        _ => {
+            let xml_str =
+                std::str::from_utf8(include_bytes!("../../piet-gpu/Ghostscript_Tiger.svg"))
+                    .unwrap();
+            let svg = PicoSvg::load(xml_str, 6.0).unwrap();
+            render_svg(&mut builder, &svg, false);
+        }
     }
     scene
 }
@@ -93,7 +128,6 @@ fn convert_bez_path<'a>(path: &'a BezPath) -> impl Iterator<Item = PathElement> 
         .iter()
         .map(|el| PathElement::from_kurbo(*el))
 }
-
 
 fn simple_stroke(width: f32) -> Stroke<[f32; 0]> {
     Stroke {

@@ -17,7 +17,7 @@
 use std::{
     borrow::Cow,
     collections::{hash_map::Entry, HashMap},
-    num::NonZeroU64,
+    num::{NonZeroU32, NonZeroU64},
     sync::atomic::{AtomicU64, Ordering},
 };
 
@@ -25,7 +25,8 @@ use futures_intrusive::channel::shared::GenericOneshotReceiver;
 use parking_lot::RawMutex;
 use wgpu::{
     util::DeviceExt, BindGroup, BindGroupLayout, Buffer, BufferAsyncError, BufferSlice, BufferView,
-    ComputePipeline, Device, Queue,
+    ComputePipeline, Device, Queue, Texture, TextureAspect, TextureFormat, TextureUsages,
+    TextureView, TextureViewDimension,
 };
 
 pub type Error = Box<dyn std::error::Error>;
@@ -58,12 +59,27 @@ pub struct BufProxy {
     id: Id,
 }
 
+#[derive(Clone, Copy)]
+pub struct ImageProxy {
+    width: u32,
+    height: u32,
+    // TODO: format
+    id: Id,
+}
+
+#[derive(Clone, Copy)]
+pub enum ResourceProxy {
+    Buf(BufProxy),
+    Image(ImageProxy),
+}
+
 pub enum Command {
     Upload(BufProxy, Vec<u8>),
+    UploadImage(ImageProxy, Vec<u8>),
     // Discussion question: third argument is vec of resources?
     // Maybe use tricks to make more ergonomic?
     // Alternative: provide bufs & images as separate sequences, like piet-gpu.
-    Dispatch(ShaderId, (u32, u32, u32), Vec<BufProxy>),
+    Dispatch(ShaderId, (u32, u32, u32), Vec<ResourceProxy>),
     Download(BufProxy),
     Clear(BufProxy, u64, Option<NonZeroU64>),
 }
@@ -92,6 +108,7 @@ pub enum BindType {
 #[derive(Default)]
 struct BindMap {
     buf_map: HashMap<Id, Buffer>,
+    image_map: HashMap<Id, (Texture, TextureView)>,
 }
 
 impl Engine {
@@ -129,6 +146,16 @@ impl Engine {
                         },
                         has_dynamic_offset: false,
                         min_binding_size: None,
+                    },
+                    count: None,
+                },
+                BindType::ImageRead => wgpu::BindGroupLayoutEntry {
+                    binding: i as u32,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
                     },
                     count: None,
                 },
@@ -182,6 +209,58 @@ impl Engine {
                     });
                     bind_map.insert_buf(buf_proxy.id, buf);
                 }
+                Command::UploadImage(image_proxy, bytes) => {
+                    let buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: None,
+                        contents: &bytes,
+                        usage: wgpu::BufferUsages::COPY_SRC,
+                    });
+                    let texture = device.create_texture(&wgpu::TextureDescriptor {
+                        label: None,
+                        size: wgpu::Extent3d {
+                            width: image_proxy.width,
+                            height: image_proxy.height,
+                            depth_or_array_layers: 1,
+                        },
+                        mip_level_count: 1,
+                        sample_count: 1,
+                        dimension: wgpu::TextureDimension::D2,
+                        usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+                        format: TextureFormat::Rgba8Unorm,
+                    });
+                    let texture_view = texture.create_view(&wgpu::TextureViewDescriptor {
+                        label: None,
+                        dimension: Some(TextureViewDimension::D2),
+                        aspect: TextureAspect::All,
+                        mip_level_count: None,
+                        base_mip_level: 0,
+                        base_array_layer: 0,
+                        array_layer_count: None,
+                        format: Some(TextureFormat::Rgba8Unorm),
+                    });
+                    encoder.copy_buffer_to_texture(
+                        wgpu::ImageCopyBuffer {
+                            buffer: &buf,
+                            layout: wgpu::ImageDataLayout {
+                                offset: 0,
+                                bytes_per_row: NonZeroU32::new(image_proxy.width * 4),
+                                rows_per_image: None,
+                            },
+                        },
+                        wgpu::ImageCopyTexture {
+                            texture: &texture,
+                            mip_level: 0,
+                            origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
+                            aspect: TextureAspect::All,
+                        },
+                        wgpu::Extent3d {
+                            width: image_proxy.width,
+                            height: image_proxy.height,
+                            depth_or_array_layers: 1,
+                        },
+                    );
+                    bind_map.insert_image(image_proxy.id, texture, texture_view)
+                }
                 Command::Dispatch(shader_id, wg_size, bindings) => {
                     println!("dispatching {:?} with {} bindings", wg_size, bindings.len());
                     let shader = &self.shaders[shader_id.0];
@@ -226,13 +305,23 @@ impl Recording {
         buf_proxy
     }
 
-    pub fn dispatch(
-        &mut self,
-        shader: ShaderId,
-        wg_size: (u32, u32, u32),
-        resources: impl Into<Vec<BufProxy>>,
-    ) {
-        self.push(Command::Dispatch(shader, wg_size, resources.into()));
+    pub fn upload_image(&mut self, width: u32, height: u32, data: impl Into<Vec<u8>>) -> ImageProxy {
+        let data = data.into();
+        let image_proxy = ImageProxy::new(width, height);
+        self.push(Command::UploadImage(image_proxy, data));
+        image_proxy
+    }
+
+    pub fn dispatch<R>(&mut self, shader: ShaderId, wg_size: (u32, u32, u32), resources: R)
+    where
+        R: IntoIterator,
+        R::Item: Into<ResourceProxy>,
+    {
+        self.push(Command::Dispatch(
+            shader,
+            wg_size,
+            resources.into_iter().map(|r| r.into()).collect(),
+        ));
     }
 
     pub fn download(&mut self, buf: BufProxy) {
@@ -251,6 +340,35 @@ impl BufProxy {
     }
 }
 
+impl ImageProxy {
+    pub fn new(width: u32, height: u32) -> Self {
+        let id = Id::next();
+        ImageProxy { width, height, id }
+    }
+}
+
+impl ResourceProxy {
+    pub fn new_buf(size: u64) -> Self {
+        Self::Buf(BufProxy::new(size))
+    }
+
+    pub fn new_image(width: u32, height: u32) -> Self {
+        Self::Image(ImageProxy::new(width, height))
+    }
+}
+
+impl From<BufProxy> for ResourceProxy {
+    fn from(value: BufProxy) -> Self {
+        Self::Buf(value)
+    }
+}
+
+impl From<ImageProxy> for ResourceProxy {
+    fn from(value: ImageProxy) -> Self {
+        Self::Image(value)
+    }
+}
+
 impl Id {
     pub fn next() -> Id {
         let val = ID_COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -264,34 +382,79 @@ impl BindMap {
         self.buf_map.insert(id, buf);
     }
 
+    fn insert_image(&mut self, id: Id, image: Texture, image_view: TextureView) {
+        self.image_map.insert(id, (image, image_view));
+    }
+
     fn create_bind_group(
         &mut self,
         device: &Device,
         layout: &BindGroupLayout,
-        bindings: &[BufProxy],
+        bindings: &[ResourceProxy],
     ) -> Result<BindGroup, Error> {
         for proxy in bindings {
-            if let Entry::Vacant(v) = self.buf_map.entry(proxy.id) {
-                let buf = device.create_buffer(&wgpu::BufferDescriptor {
-                    label: None,
-                    size: proxy.size,
-                    usage: wgpu::BufferUsages::STORAGE
-                        | wgpu::BufferUsages::COPY_DST
-                        | wgpu::BufferUsages::COPY_SRC,
-                    mapped_at_creation: false,
-                });
-                v.insert(buf);
+            match proxy {
+                ResourceProxy::Buf(proxy) => {
+                    if let Entry::Vacant(v) = self.buf_map.entry(proxy.id) {
+                        let buf = device.create_buffer(&wgpu::BufferDescriptor {
+                            label: None,
+                            size: proxy.size,
+                            usage: wgpu::BufferUsages::STORAGE
+                                | wgpu::BufferUsages::COPY_DST
+                                | wgpu::BufferUsages::COPY_SRC,
+                            mapped_at_creation: false,
+                        });
+                        v.insert(buf);
+                    }
+                }
+                ResourceProxy::Image(proxy) => {
+                    if let Entry::Vacant(v) = self.image_map.entry(proxy.id) {
+                        let texture = device.create_texture(&wgpu::TextureDescriptor {
+                            label: None,
+                            size: wgpu::Extent3d {
+                                width: proxy.width,
+                                height: proxy.height,
+                                depth_or_array_layers: 1,
+                            },
+                            mip_level_count: 1,
+                            sample_count: 1,
+                            dimension: wgpu::TextureDimension::D2,
+                            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+                            format: TextureFormat::Rgba8Unorm,
+                        });
+                        let texture_view = texture.create_view(&wgpu::TextureViewDescriptor {
+                            label: None,
+                            dimension: Some(TextureViewDimension::D2),
+                            aspect: TextureAspect::All,
+                            mip_level_count: None,
+                            base_mip_level: 0,
+                            base_array_layer: 0,
+                            array_layer_count: None,
+                            format: Some(TextureFormat::Rgba8Unorm),
+                        });
+                        v.insert((texture, texture_view));
+                    }
+                }
             }
         }
         let entries = bindings
             .iter()
             .enumerate()
-            .map(|(i, proxy)| {
-                let buf = self.buf_map.get(&proxy.id).unwrap();
-                Ok(wgpu::BindGroupEntry {
-                    binding: i as u32,
-                    resource: buf.as_entire_binding(),
-                })
+            .map(|(i, proxy)| match proxy {
+                ResourceProxy::Buf(proxy) => {
+                    let buf = self.buf_map.get(&proxy.id).unwrap();
+                    Ok(wgpu::BindGroupEntry {
+                        binding: i as u32,
+                        resource: buf.as_entire_binding(),
+                    })
+                }
+                ResourceProxy::Image(proxy) => {
+                    let texture = self.image_map.get(&proxy.id).unwrap();
+                    Ok(wgpu::BindGroupEntry {
+                        binding: i as u32,
+                        resource: wgpu::BindingResource::TextureView(&texture.1),
+                    })
+                }
             })
             .collect::<Result<Vec<_>, Error>>()?;
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {

@@ -24,6 +24,7 @@ use wgpu::{Device, Limits, Queue};
 
 mod engine;
 mod pico_svg;
+mod ramp;
 mod render;
 mod shaders;
 mod test_scene;
@@ -58,7 +59,6 @@ fn dump_buf(buf: &[u32]) {
                 println!("{}: {:x} {}", i, val, f32::from_bits(*val));
             } else {
                 println!("{}: {:x}", i, val);
-
             }
         }
     }
