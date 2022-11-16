@@ -305,7 +305,12 @@ impl Recording {
         buf_proxy
     }
 
-    pub fn upload_image(&mut self, width: u32, height: u32, data: impl Into<Vec<u8>>) -> ImageProxy {
+    pub fn upload_image(
+        &mut self,
+        width: u32,
+        height: u32,
+        data: impl Into<Vec<u8>>,
+    ) -> ImageProxy {
         let data = data.into();
         let image_proxy = ImageProxy::new(width, height);
         self.push(Command::UploadImage(image_proxy, data));

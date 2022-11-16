@@ -143,7 +143,12 @@ pub fn render_full(scene: &Scene, shaders: &FullShaders) -> (Recording, BufProxy
         let width = ramps.width();
         let height = ramps.height();
         let data: &[u8] = bytemuck::cast_slice(data);
-        println!("gradient image: {}x{} ({} bytes)", width, height, data.len());
+        println!(
+            "gradient image: {}x{} ({} bytes)",
+            width,
+            height,
+            data.len()
+        );
         ResourceProxy::Image(recording.upload_image(width, height, data))
     };
     let n_pathtag = data.tag_stream.len();

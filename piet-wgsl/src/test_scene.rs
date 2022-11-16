@@ -15,7 +15,10 @@
 // Also licensed under MIT license, at your choice.
 
 use kurbo::BezPath;
-use piet_scene::{Affine, Brush, Color, Fill, LinearGradient, PathElement, Point, Scene, SceneBuilder, Stroke, GradientStop};
+use piet_scene::{
+    Affine, Brush, Color, Fill, GradientStop, LinearGradient, PathElement, Point, Scene,
+    SceneBuilder, Stroke,
+};
 
 use crate::pico_svg::PicoSvg;
 
@@ -68,9 +71,16 @@ pub fn gen_test_scene() -> Scene {
                         offset: 1.0,
                         color: Color::rgb8(0, 0, 255),
                     },
-                ].into()
+                ]
+                .into(),
             });
-            builder.fill(Fill::NonZero, Affine::scale(3.0, 3.0), &gradient, None, &path);
+            builder.fill(
+                Fill::NonZero,
+                Affine::scale(3.0, 3.0),
+                &gradient,
+                None,
+                &path,
+            );
         }
         _ => {
             let xml_str =
