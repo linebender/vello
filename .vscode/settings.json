@@ -1,8 +1,16 @@
 {
   "wgsl-analyzer.customImports": {
+    "bbox": "${workspaceFolder}/piet-wgsl/shader/shared/bbox.wgsl",
+    "bump": "${workspaceFolder}/piet-wgsl/shader/shared/bump.wgsl",
+    "clip": "${workspaceFolder}/piet-wgsl/shader/shared/clip.wgsl",
     "config": "${workspaceFolder}/piet-wgsl/shader/shared/config.wgsl",
+    "cubic": "${workspaceFolder}/piet-wgsl/shader/shared/cubic.wgsl",
+    "drawtag": "${workspaceFolder}/piet-wgsl/shader/shared/drawtag.wgsl",
     "segment": "${workspaceFolder}/piet-wgsl/shader/shared/segment.wgsl",
-    "pathtag": "${workspaceFolder}/piet-wgsl/shader/shared/pathtag.wgsl"
+    "pathtag": "${workspaceFolder}/piet-wgsl/shader/shared/pathtag.wgsl",
+    "ptcl": "${workspaceFolder}/piet-wgsl/shader/shared/ptcl.wgsl",
+    "tile": "${workspaceFolder}/piet-wgsl/shader/shared/tile.wgsl"
   },
-  "wgsl-analyzer.diagnostics.nagaVersion": "main"
+  "wgsl-analyzer.diagnostics.nagaVersion": "main",
+  "wgsl-analyzer.preprocessor.shaderDefs": ["full"]
 }

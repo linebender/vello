@@ -1174,10 +1174,12 @@ dependencies = [
  "bytemuck",
  "env_logger",
  "futures-intrusive",
+ "kurbo 0.8.3",
  "parking_lot",
  "piet-scene",
  "png",
  "pollster",
+ "roxmltree",
  "wgpu",
 ]
 

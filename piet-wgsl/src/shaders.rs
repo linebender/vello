@@ -25,13 +25,34 @@ use wgpu::Device;
 use crate::engine::{BindType, Engine, Error, ShaderId};
 
 pub const PATHTAG_REDUCE_WG: u32 = 256;
+pub const PATH_BBOX_WG: u32 = 256;
 pub const PATH_COARSE_WG: u32 = 256;
+pub const PATH_DRAWOBJ_WG: u32 = 256;
+pub const CLIP_REDUCE_WG: u32 = 256;
 
 pub struct Shaders {
     pub pathtag_reduce: ShaderId,
     pub pathtag_scan: ShaderId,
     pub path_coarse: ShaderId,
     pub backdrop: ShaderId,
+    pub fine: ShaderId,
+}
+
+// Shaders for the full pipeline
+pub struct FullShaders {
+    pub pathtag_reduce: ShaderId,
+    pub pathtag_scan: ShaderId,
+    pub bbox_clear: ShaderId,
+    pub pathseg: ShaderId,
+    pub draw_reduce: ShaderId,
+    pub draw_leaf: ShaderId,
+    pub clip_reduce: ShaderId,
+    pub clip_leaf: ShaderId,
+    pub binning: ShaderId,
+    pub tile_alloc: ShaderId,
+    pub path_coarse: ShaderId,
+    pub backdrop: ShaderId,
+    pub coarse: ShaderId,
     pub fine: ShaderId,
 }
 
@@ -44,12 +65,17 @@ pub fn init_shaders(device: &Device, engine: &mut Engine) -> Result<Shaders, Err
     let pathtag_reduce = engine.add_shader(
         device,
         preprocess::preprocess(&read_shader("pathtag_reduce"), &empty, &imports).into(),
-        &[BindType::BufReadOnly, BindType::Buffer],
+        &[
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::Buffer,
+        ],
     )?;
     let pathtag_scan = engine.add_shader(
         device,
         preprocess::preprocess(&read_shader("pathtag_scan"), &empty, &imports).into(),
         &[
+            BindType::BufReadOnly,
             BindType::BufReadOnly,
             BindType::BufReadOnly,
             BindType::Buffer,
@@ -62,7 +88,6 @@ pub fn init_shaders(device: &Device, engine: &mut Engine) -> Result<Shaders, Err
         device,
         preprocess::preprocess(&read_shader("path_coarse"), &path_coarse_config, &imports).into(),
         &[
-            BindType::BufReadOnly,
             BindType::BufReadOnly,
             BindType::BufReadOnly,
             BindType::BufReadOnly,
@@ -90,6 +115,191 @@ pub fn init_shaders(device: &Device, engine: &mut Engine) -> Result<Shaders, Err
         pathtag_scan,
         path_coarse,
         backdrop,
+        fine,
+    })
+}
+
+pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders, Error> {
+    let shader_dir = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/shader"));
+    let imports = preprocess::get_imports(shader_dir);
+    let read_shader =
+        |path: &str| fs::read_to_string(shader_dir.join(path.to_string() + ".wgsl")).unwrap();
+    let empty = HashSet::new();
+    let mut full_config = HashSet::new();
+    full_config.insert("full".into());
+    let pathtag_reduce = engine.add_shader(
+        device,
+        preprocess::preprocess(&read_shader("pathtag_reduce"), &full_config, &imports).into(),
+        &[
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::Buffer,
+        ],
+    )?;
+    let pathtag_scan = engine.add_shader(
+        device,
+        preprocess::preprocess(&read_shader("pathtag_scan"), &full_config, &imports).into(),
+        &[
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::Buffer,
+        ],
+    )?;
+    let bbox_clear = engine.add_shader(
+        device,
+        preprocess::preprocess(&read_shader("bbox_clear"), &empty, &imports).into(),
+        &[BindType::BufReadOnly, BindType::Buffer],
+    )?;
+    let pathseg = engine.add_shader(
+        device,
+        preprocess::preprocess(&read_shader("pathseg"), &full_config, &imports).into(),
+        &[
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::Buffer,
+            BindType::Buffer,
+        ],
+    )?;
+    let draw_reduce = engine.add_shader(
+        device,
+        preprocess::preprocess(&read_shader("draw_reduce"), &empty, &imports).into(),
+        &[
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::Buffer,
+        ],
+    )?;
+    let draw_leaf = engine.add_shader(
+        device,
+        preprocess::preprocess(&read_shader("draw_leaf"), &empty, &imports).into(),
+        &[
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::Buffer,
+            BindType::Buffer,
+            BindType::Buffer,
+        ],
+    )?;
+    let clip_reduce = engine.add_shader(
+        device,
+        preprocess::preprocess(&read_shader("clip_reduce"), &empty, &imports).into(),
+        &[
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::Buffer,
+            BindType::Buffer,
+        ],
+    )?;
+    let clip_leaf = engine.add_shader(
+        device,
+        preprocess::preprocess(&read_shader("clip_leaf"), &empty, &imports).into(),
+        &[
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::Buffer,
+            BindType::Buffer,
+        ],
+    )?;
+    let binning = engine.add_shader(
+        device,
+        preprocess::preprocess(&read_shader("binning"), &empty, &imports).into(),
+        &[
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::Buffer,
+            BindType::Buffer,
+            BindType::Buffer,
+            BindType::Buffer,
+        ],
+    )?;
+    let tile_alloc = engine.add_shader(
+        device,
+        preprocess::preprocess(&read_shader("tile_alloc"), &empty, &imports).into(),
+        &[
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::Buffer,
+            BindType::Buffer,
+            BindType::Buffer,
+        ],
+    )?;
+
+    let path_coarse = engine.add_shader(
+        device,
+        preprocess::preprocess(&read_shader("path_coarse_full"), &full_config, &imports).into(),
+        &[
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::Buffer,
+            BindType::Buffer,
+            BindType::Buffer,
+        ],
+    )?;
+    let backdrop = engine.add_shader(
+        device,
+        preprocess::preprocess(&read_shader("backdrop_dyn"), &empty, &imports).into(),
+        &[
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::Buffer,
+        ],
+    )?;
+    let coarse = engine.add_shader(
+        device,
+        preprocess::preprocess(&read_shader("coarse"), &empty, &imports).into(),
+        &[
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::Buffer,
+            BindType::Buffer,
+        ],
+    )?;
+    let fine = engine.add_shader(
+        device,
+        preprocess::preprocess(&read_shader("fine"), &full_config, &imports).into(),
+        &[
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::Buffer,
+            BindType::BufReadOnly,
+            BindType::ImageRead,
+        ],
+    )?;
+    Ok(FullShaders {
+        pathtag_reduce,
+        pathtag_scan,
+        bbox_clear,
+        pathseg,
+        draw_reduce,
+        draw_leaf,
+        clip_reduce,
+        clip_leaf,
+        binning,
+        tile_alloc,
+        path_coarse,
+        backdrop,
+        coarse,
         fine,
     })
 }
