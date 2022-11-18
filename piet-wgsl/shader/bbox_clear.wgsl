@@ -14,32 +14,32 @@
 //
 // Also licensed under MIT license, at your choice.
 
-struct Config {
-    width_in_tiles: u32,
-    height_in_tiles: u32,
+#import config
 
-    n_drawobj: u32,
-    n_path: u32,
-    n_clip: u32,
+@group(0) @binding(0)
+var<storage> config: Config;
 
-    // offsets within scene buffer (in u32 units)
-    // Note: this is a difference from piet-gpu, which is in bytes
-    pathtag_base: u32,
-    pathdata_base: u32,
-
-    drawtag_base: u32,
-    drawdata_base: u32,
-
-    transform_base: u32,
-    linewidth_base: u32,
+struct PathBbox {
+    x0: i32,
+    y0: i32,
+    x1: i32,
+    y1: i32,
+    linewidth: f32,
+    trans_ix: u32,
 }
 
-// Geometry of tiles and bins
+@group(0) @binding(1)
+var<storage, read_write> path_bboxes: array<PathBbox>;
 
-let TILE_WIDTH = 16u;
-let TILE_HEIGHT = 16u;
-// Number of tiles per bin
-let N_TILE_X = 16u;
-let N_TILE_Y = 16u;
-//let N_TILE = N_TILE_X * N_TILE_Y;
-let N_TILE = 256u;
+@compute @workgroup_size(256)
+fn main(
+    @builtin(global_invocation_id) global_id: vec3<u32>,
+) {
+    let ix = global_id.x;
+    if ix < config.n_path {
+        path_bboxes[ix].x0 = 0x7fffffff;
+        path_bboxes[ix].y0 = 0x7fffffff;
+        path_bboxes[ix].x1 = -0x80000000;
+        path_bboxes[ix].y1 = -0x80000000;
+    }
+}
