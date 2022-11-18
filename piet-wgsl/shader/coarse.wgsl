@@ -145,7 +145,30 @@ fn write_rad_grad(rad: CmdRadGrad) {
     alloc_cmd(12u);
     ptcl[cmd_offset] = CMD_RAD_GRAD;
     ptcl[cmd_offset + 1u] = rad.index;
+    ptcl[cmd_offset + 2u] = bitcast<u32>(rad.matrx.x);
+    ptcl[cmd_offset + 3u] = bitcast<u32>(rad.matrx.y);
+    ptcl[cmd_offset + 4u] = bitcast<u32>(rad.matrx.z);
+    ptcl[cmd_offset + 5u] = bitcast<u32>(rad.matrx.w);
+    ptcl[cmd_offset + 6u] = bitcast<u32>(rad.xlat.x);
+    ptcl[cmd_offset + 7u] = bitcast<u32>(rad.xlat.y);
+    ptcl[cmd_offset + 8u] = bitcast<u32>(rad.c1.x);
+    ptcl[cmd_offset + 9u] = bitcast<u32>(rad.c1.y);
+    ptcl[cmd_offset + 10u] = bitcast<u32>(rad.ra);
+    ptcl[cmd_offset + 11u] = bitcast<u32>(rad.roff);
     cmd_offset += 12u;
+}
+
+fn write_begin_clip() {
+    alloc_cmd(1u);
+    ptcl[cmd_offset] = CMD_BEGIN_CLIP;
+    cmd_offset += 1u;
+}
+
+fn write_end_clip(blend: u32) {
+    alloc_cmd(2u);
+    ptcl[cmd_offset] = CMD_END_CLIP;
+    ptcl[cmd_offset + 1u] = blend;
+    cmd_offset += 2u;
 }
 
 @compute @workgroup_size(256)
@@ -166,15 +189,20 @@ fn main(
     let this_tile_ix = (bin_tile_y + tile_y) * config.width_in_tiles + bin_tile_x + tile_x;
     cmd_offset = this_tile_ix * PTCL_INITIAL_ALLOC;
     cmd_limit = cmd_offset + (PTCL_INITIAL_ALLOC - PTCL_HEADROOM);
-    // TODO: clip state
-    let clip_zero_depth = 0u;
+
+    // clip state
+    var clip_zero_depth = 0u;
+    var clip_depth = 0u;
 
     var partition_ix = 0u;
     var rd_ix = 0u;
     var wr_ix = 0u;
     var part_start_ix = 0u;
     var ready_ix = 0u;
-    // TODO: blend state
+
+    // blend state
+    var render_blend_depth = 0u;
+    var max_blend_depth = 0u;
     
     while true {
         for (var i = 0u; i < N_SLICE; i += 1u) {
@@ -286,8 +314,16 @@ fn main(
             let y = sh_tile_y0[el_ix] + seq_ix / width;
             let tile_ix = sh_tile_base[el_ix] + sh_tile_stride[el_ix] * y + x;
             let tile = tiles[tile_ix];
-            // TODO: this predicate becomes more interesting with clip
-            let include_tile = tile.segments != 0u || tile.backdrop != 0;
+            let is_clip = (tag & 1u) != 0u;
+            var is_blend = false;
+            if is_clip {
+                let BLEND_CLIP = (128u << 8u) | 3u;
+                let scene_offset = draw_monoids[drawobj_ix].scene_offset;
+                let dd = config.drawdata_base + scene_offset;
+                let blend = scene[dd];
+                is_blend = blend != BLEND_CLIP;
+            }
+            let include_tile = tile.segments != 0u || (tile.backdrop == 0) == is_clip || is_blend;
             if include_tile {
                 let el_slice = el_ix / 32u;
                 let el_mask = 1u << (el_ix & 31u);
@@ -324,16 +360,18 @@ fn main(
             if clip_zero_depth == 0u {
                 let tile_ix = sh_tile_base[el_ix] + sh_tile_stride[el_ix] * tile_y + tile_x;
                 let tile = tiles[tile_ix];
-                let linewidth = bitcast<f32>(info[di]);
-                write_path(tile, linewidth);
                 switch drawtag {
                     // DRAWTAG_FILL_COLOR
                     case 0x44u: {
+                        let linewidth = bitcast<f32>(info[di]);
+                        write_path(tile, linewidth);
                         let rgba_color = scene[dd];
                         write_color(CmdColor(rgba_color));
                     }
                     // DRAWTAG_FILL_LIN_GRADIENT
                     case 0x114u: {
+                        let linewidth = bitcast<f32>(info[di]);
+                        write_path(tile, linewidth);
                         var lin: CmdLinGrad;
                         lin.index = scene[dd];
                         lin.line_x = bitcast<f32>(info[di + 1u]);
@@ -343,6 +381,8 @@ fn main(
                     }
                     // DRAWTAG_FILL_RAD_GRADIENT
                     case 0x2dcu: {
+                        let linewidth = bitcast<f32>(info[di]);
+                        write_path(tile, linewidth);
                         var rad: CmdRadGrad;
                         rad.index = scene[dd];
                         let m0 = bitcast<f32>(info[di + 1u]);
@@ -355,6 +395,40 @@ fn main(
                         rad.ra = bitcast<f32>(info[di + 9u]);
                         rad.roff = bitcast<f32>(info[di + 10u]);
                         write_rad_grad(rad);
+                    }
+                    // DRAWTAG_BEGIN_CLIP
+                    case 0x05u: {
+                        if tile.segments == 0u && tile.backdrop == 0 {
+                            clip_zero_depth = clip_depth + 1u;
+                        } else {
+                            write_begin_clip();
+                            render_blend_depth += 1u;
+                            max_blend_depth = max(max_blend_depth, render_blend_depth);
+                        }
+                        clip_depth += 1u;
+                    }
+                    // DRAWTAG_END_CLIP
+                    case 0x25u: {
+                        clip_depth -= 1u;
+                        write_path(tile, -1.0);
+                        write_end_clip(scene[dd]);
+                        render_blend_depth -= 1u;
+                    }
+                    default: {}
+                }
+            } else {
+                // In "clip zero" state, suppress all drawing
+                switch drawtag {
+                    // DRAWTAG_BEGIN_CLIP
+                    case 0x05u: {
+                        clip_depth += 1u;
+                    }
+                    // DRAWTAG_END_CLIP
+                    case 0x25u: {
+                        if clip_depth == clip_zero_depth {
+                            clip_zero_depth = 0u;
+                        }
+                        clip_depth -= 1u;
                     }
                     default: {}
                 }

@@ -17,6 +17,7 @@
 // Finish prefix sum of drawtags, decode draw objects.
 
 #import config
+#import clip
 #import drawtag
 #import bbox
 
@@ -37,6 +38,9 @@ var<storage, read_write> draw_monoid: array<DrawMonoid>;
 
 @group(0) @binding(5)
 var<storage, read_write> info: array<u32>;
+
+@group(0) @binding(6)
+var<storage, read_write> clip_inp: array<i32>;
 
 let WG_SIZE = 256u;
 
@@ -182,5 +186,12 @@ fn main(
             }
             default: {}
         }
+    }
+    if tag_word == DRAWTAG_BEGIN_CLIP || tag_word == DRAWTAG_END_CLIP {
+        var path_ix = ~ix;
+        if tag_word == DRAWTAG_BEGIN_CLIP {
+            path_ix = m.path_ix;
+        }
+        clip_inp[m.clip_ix] = i32(path_ix);
     }
 }

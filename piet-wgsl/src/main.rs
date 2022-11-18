@@ -22,6 +22,7 @@ use engine::Engine;
 
 use wgpu::{Device, Limits, Queue};
 
+mod debug;
 mod engine;
 mod pico_svg;
 mod ramp;

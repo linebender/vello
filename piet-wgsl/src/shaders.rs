@@ -28,6 +28,7 @@ pub const PATHTAG_REDUCE_WG: u32 = 256;
 pub const PATH_BBOX_WG: u32 = 256;
 pub const PATH_COARSE_WG: u32 = 256;
 pub const PATH_DRAWOBJ_WG: u32 = 256;
+pub const CLIP_REDUCE_WG: u32 = 256;
 
 pub struct Shaders {
     pub pathtag_reduce: ShaderId,
@@ -45,6 +46,8 @@ pub struct FullShaders {
     pub pathseg: ShaderId,
     pub draw_reduce: ShaderId,
     pub draw_leaf: ShaderId,
+    pub clip_reduce: ShaderId,
+    pub clip_leaf: ShaderId,
     pub binning: ShaderId,
     pub tile_alloc: ShaderId,
     pub path_coarse: ShaderId,
@@ -178,6 +181,31 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
             BindType::BufReadOnly,
             BindType::Buffer,
             BindType::Buffer,
+            BindType::Buffer,
+        ],
+    )?;
+    let clip_reduce = engine.add_shader(
+        device,
+        preprocess::preprocess(&read_shader("clip_reduce"), &empty, &imports).into(),
+        &[
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::Buffer,
+            BindType::Buffer,
+        ],
+    )?;
+    let clip_leaf = engine.add_shader(
+        device,
+        preprocess::preprocess(&read_shader("clip_leaf"), &empty, &imports).into(),
+        &[
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::Buffer,
+            BindType::Buffer,
         ],
     )?;
     let binning = engine.add_shader(
@@ -265,6 +293,8 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
         pathseg,
         draw_reduce,
         draw_leaf,
+        clip_reduce,
+        clip_leaf,
         binning,
         tile_alloc,
         path_coarse,

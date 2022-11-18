@@ -14,6 +14,10 @@ const PATH_BBOX_SIZE: u64 = 24;
 const CUBIC_SIZE: u64 = 40;
 const DRAWMONOID_SIZE: u64 = 16;
 const MAX_DRAWINFO_SIZE: u64 = 44;
+const CLIP_BIC_SIZE: u64 = 8;
+const CLIP_EL_SIZE: u64 = 32;
+const CLIP_INP_SIZE: u64 = 4;
+const CLIP_BBOX_SIZE: u64 = 16;
 const PATH_SIZE: u64 = 32;
 const DRAW_BBOX_SIZE: u64 = 16;
 const BUMP_SIZE: u64 = 16;
@@ -187,7 +191,7 @@ pub fn render_full(scene: &Scene, shaders: &FullShaders) -> (Recording, BufProxy
     let n_path = data.n_path;
     // TODO: calculate for real when we do rectangles
     let n_drawobj = n_path;
-    let n_clip = 0; // TODO: wire up correctly
+    let n_clip = data.n_clip;
     let config = Config {
         width_in_tiles: 64,
         height_in_tiles: 64,
@@ -251,6 +255,7 @@ pub fn render_full(scene: &Scene, shaders: &FullShaders) -> (Recording, BufProxy
     );
     let draw_monoid_buf = ResourceProxy::new_buf(n_drawobj as u64 * DRAWMONOID_SIZE);
     let info_buf = ResourceProxy::new_buf(n_drawobj as u64 * MAX_DRAWINFO_SIZE);
+    let clip_inp_buf = ResourceProxy::new_buf(data.n_clip as u64 * CLIP_INP_SIZE);
     recording.dispatch(
         shaders.draw_leaf,
         (drawobj_wgs, 1, 1),
@@ -261,12 +266,45 @@ pub fn render_full(scene: &Scene, shaders: &FullShaders) -> (Recording, BufProxy
             path_bbox_buf,
             draw_monoid_buf,
             info_buf,
+            clip_inp_buf,
         ],
     );
+    let clip_el_buf = ResourceProxy::new_buf(data.n_clip as u64 * CLIP_EL_SIZE);
+    let clip_bic_buf =
+        ResourceProxy::new_buf((n_clip / shaders::CLIP_REDUCE_WG) as u64 * CLIP_BIC_SIZE);
+    let clip_wg_reduce = n_clip.saturating_sub(1) / shaders::CLIP_REDUCE_WG;
+    if clip_wg_reduce > 0 {
+        recording.dispatch(
+            shaders.clip_reduce,
+            (clip_wg_reduce, 1, 1),
+            [
+                config_buf,
+                clip_inp_buf,
+                path_bbox_buf,
+                clip_bic_buf,
+                clip_el_buf,
+            ],
+        );
+    }
+    let clip_wg = (n_clip + shaders::CLIP_REDUCE_WG - 1) / shaders::CLIP_REDUCE_WG;
+    let clip_bbox_buf = ResourceProxy::new_buf(n_clip as u64 * CLIP_BBOX_SIZE);
+    if clip_wg > 0 {
+        recording.dispatch(
+            shaders.clip_leaf,
+            (clip_wg, 1, 1),
+            [
+                config_buf,
+                clip_inp_buf,
+                path_bbox_buf,
+                clip_bic_buf,
+                clip_el_buf,
+                draw_monoid_buf,
+                clip_bbox_buf,
+            ],
+        );
+    }
     let draw_bbox_buf = ResourceProxy::new_buf(n_path as u64 * DRAW_BBOX_SIZE);
     let bump_buf = BufProxy::new(BUMP_SIZE);
-    // Not actually used yet.
-    let clip_bbox_buf = ResourceProxy::new_buf(1024);
     let bin_data_buf = ResourceProxy::new_buf(1 << 20);
     let width_in_bins = (config.width_in_tiles + 15) / 16;
     let height_in_bins = (config.height_in_tiles + 15) / 16;

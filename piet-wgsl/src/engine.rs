@@ -341,7 +341,10 @@ impl Recording {
 impl BufProxy {
     pub fn new(size: u64) -> Self {
         let id = Id::next();
-        BufProxy { id, size }
+        BufProxy {
+            id,
+            size: size.max(16),
+        }
     }
 }
 
@@ -359,6 +362,20 @@ impl ResourceProxy {
 
     pub fn new_image(width: u32, height: u32) -> Self {
         Self::Image(ImageProxy::new(width, height))
+    }
+
+    pub fn as_buf(&self) -> Option<&BufProxy> {
+        match self {
+            Self::Buf(proxy) => Some(&proxy),
+            _ => None,
+        }
+    }
+
+    pub fn as_image(&self) -> Option<&ImageProxy> {
+        match self {
+            Self::Image(proxy) => Some(&proxy),
+            _ => None,
+        }
     }
 }
 

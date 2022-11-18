@@ -33,15 +33,17 @@ var<workgroup> sh_bbox: array<vec4<f32>, WG_SIZE>;
 var<workgroup> sh_link: array<i32, WG_SIZE>;
 
 fn search_link(bic: ptr<function, Bic>, ix: u32) -> i32 {
+    var ix = ix;
     var j = 0u;
     while j < firstTrailingBit(WG_SIZE) {
         let base = 2u * WG_SIZE - (2u << (firstTrailingBit(WG_SIZE) - j));
         if ((ix >> j) & 1u) != 0u {
             let test = bic_combine(sh_bic[base + (ix >> j) - 1u], *bic);
-            if test.b >= 0u {
-                *bic = test;
-                ix -= 1u << j;
+            if test.b > 0u {
+                break;
             }
+            *bic = test;
+            ix -= 1u << j;
         }
         j += 1u;
     }
@@ -59,7 +61,7 @@ fn search_link(bic: ptr<function, Bic>, ix: u32) -> i32 {
     if ix > 0u {
         return i32(ix) - 1;
     } else {
-        return i32(~(*bic).a);
+        return i32(~0u - (*bic).a);
     }
 }
 
@@ -67,7 +69,9 @@ fn load_clip_inp(ix: u32) -> i32 {
     if ix < config.n_clip {
         return clip_inp[ix];
     } else {
-        return i32(0x80000000);
+        return -2147483648;
+        // literal too large?
+        // return 0x80000000;
     }
 }
 
@@ -129,12 +133,12 @@ fn main(
     sh_bic[local_id.x] = bic;
     if is_push {
         let path_bbox = path_bboxes[inp];
-        bbox = vec4<f32>(path_bbox.x0, path_bbox.y0, path_bbox.x1, path_bbox.y1);
+        bbox = vec4<f32>(f32(path_bbox.x0), f32(path_bbox.y0), f32(path_bbox.x1), f32(path_bbox.y1));
     } else {
         bbox = vec4<f32>(-1e9, -1e9, 1e9, 1e9);
     }
     var inbase = 0u;
-    for (var i = 0u; i < firstTrailingBit(WG_SIZE); i += 1u) {
+    for (var i = 0u; i < firstTrailingBit(WG_SIZE) - 1u; i += 1u) {
         let outbase = 2u * WG_SIZE - (1u << (firstTrailingBit(WG_SIZE) - i));
         workgroupBarrier();
         if local_id.x < 1u << (firstTrailingBit(WG_SIZE) - 1u - i) {
@@ -191,5 +195,5 @@ fn main(
             bbox = vec4<f32>(-1e9, -1e9, 1e9, 1e9);
         }
     }
-    clip_bboxes[global_id.x] = bbox
+    clip_bboxes[global_id.x] = bbox;
 }

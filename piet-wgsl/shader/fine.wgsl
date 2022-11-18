@@ -40,6 +40,8 @@ var<storage> segments: array<Segment>;
 var<storage, read_write> output: array<u32>;
 
 #ifdef full
+
+#import blend
 #import ptcl
 
 let GRADIENT_WIDTH = 512;
@@ -90,10 +92,6 @@ fn read_rad_grad(cmd_ix: u32) -> CmdRadGrad {
     return CmdRadGrad(index, matrx, xlat, c1, ra, roff);
 }
 
-fn mix_blend_compose(backdrop: vec4<f32>, src: vec4<f32>, mode: u32) -> vec4<f32> {
-    // TODO: ALL the blend modes. This is just vanilla src-over.
-    return backdrop * (1.0 - src.a) + src;
-}
 #endif
 
 let PIXELS_PER_THREAD = 4u;
@@ -233,7 +231,7 @@ fn main(
                     let fg_i = fg_rgba * area[i];
                     rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
                 }
-                cmd_ix += 12u;
+                cmd_ix += 5u;
             }
             // CMD_RAD_GRAD
             case 7u: {
@@ -278,7 +276,7 @@ fn main(
                     }
                     let bg = unpack4x8unorm(bg_rgba);
                     let fg = rgba[i] * area[i];
-                    rgba[i] = mix_blend_compose(bg, fg, blend);
+                    rgba[i] = blend_mix_compose(bg, fg, blend);
                 }
                 cmd_ix += 2u;
             }

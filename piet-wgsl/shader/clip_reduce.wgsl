@@ -60,7 +60,7 @@ fn main(
         let path_ix = sh_path_ix[local_id.x];
         let path_bbox = path_bboxes[path_ix];
         let parent_ix = sh_parent[local_id.x] + wg_id.x * WG_SIZE;
-        let bbox = vec4<f32>(path_bbox.x0, path_bbox.y0, path_bbox.x1, path_bbox.y1);
+        let bbox = vec4<f32>(f32(path_bbox.x0), f32(path_bbox.y0), f32(path_bbox.x1), f32(path_bbox.y1));
         clip_out[global_id.x] = ClipEl(parent_ix, bbox);
     }
 }
