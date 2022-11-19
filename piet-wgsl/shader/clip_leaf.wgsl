@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
 
 #import config
 #import bbox

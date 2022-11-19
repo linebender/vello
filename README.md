@@ -38,7 +38,7 @@ In short, the goal is to facilitate the research now, collect the data, and then
 
 The piet-gpu project is dual-licensed under both [Apache 2.0](LICENSE-APACHE) and [MIT](LICENSE_MIT) licenses.
 
-In addition, the shaders are provided under the terms of the [Unlicense]. The intent is for this research to be used in as broad a context as possible.
+In addition, the shaders are provided under the terms of the [Unlicense](UNLICENSE). The intent is for this research to be used in as broad a context as possible.
 
 The dx12 backend was adapted from piet-dx12 by Brian Merchant.
 
@@ -51,6 +51,5 @@ Contributions are welcome by pull request. The [Rust code of conduct] applies. P
 [Shader Model 6]: https://docs.microsoft.com/en-us/windows/win32/direct3dhlsl/hlsl-shader-model-6-0-features-for-direct3d-12
 [DXC]: https://github.com/microsoft/DirectXShaderCompiler
 [Druid]: https://github.com/linebender/druid
-[Unlicense]: https://unlicense.org/
 [Rust code of conduct]: https://www.rust-lang.org/policies/code-of-conduct
 [shader_compilation.md]: ./doc/shader_compilation.md
