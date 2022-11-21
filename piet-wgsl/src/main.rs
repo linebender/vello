@@ -94,14 +94,15 @@ async fn do_render(
         let mut writer = encoder.write_header()?;
         let expected_size = (dimensions.width * dimensions.height * 4) as usize;
 
-        let new_height = next_multiple_of(dimensions.height, 16) as usize;
+        let new_width = next_multiple_of(dimensions.width, 16) as usize;
+
         if expected_size == buf.len() {
             writer.write_image_data(&buf)?;
         } else {
             let mut output = Vec::<u8>::with_capacity(expected_size * 4);
             for height in 0..(dimensions.height as usize) {
                 output.extend_from_slice(
-                    &buf[height * new_height * 4..][..dimensions.width as usize * 4],
+                    &buf[height * new_width * 4..][..dimensions.width as usize * 4],
                 );
             }
             writer.write_image_data(&output)?;
