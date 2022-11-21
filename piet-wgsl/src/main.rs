@@ -20,6 +20,7 @@ use std::{fs::File, io::BufWriter};
 
 use engine::Engine;
 
+use render::next_multiple_of;
 use wgpu::{Device, Limits, Queue};
 
 mod debug;
@@ -30,7 +31,7 @@ mod render;
 mod shaders;
 mod test_scene;
 
-async fn run() -> Result<(), Box<dyn std::error::Error>> {
+async fn run(dimensions: &Dimensions) -> Result<(), Box<dyn std::error::Error>> {
     let instance = wgpu::Instance::new(wgpu::Backends::PRIMARY);
     let adapter = instance.request_adapter(&Default::default()).await.unwrap();
     let features = adapter.features();
@@ -47,7 +48,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         )
         .await?;
     let mut engine = Engine::new();
-    do_render(&device, &queue, &mut engine).await?;
+    do_render(&device, &queue, &mut engine, dimensions).await?;
 
     Ok(())
 }
@@ -69,6 +70,7 @@ async fn do_render(
     device: &Device,
     queue: &Queue,
     engine: &mut Engine,
+    dimensions: &Dimensions,
 ) -> Result<(), Box<dyn std::error::Error>> {
     #[allow(unused)]
     let shaders = shaders::init_shaders(device, engine)?;
@@ -76,7 +78,7 @@ async fn do_render(
     let scene = test_scene::gen_test_scene();
     //test_scene::dump_scene_info(&scene);
     //let (recording, buf) = render::render(&scene, &shaders);
-    let (recording, buf) = render::render_full(&scene, &full_shaders);
+    let (recording, buf) = render::render_full(&scene, &full_shaders, dimensions);
     let downloads = engine.run_recording(&device, &queue, &recording)?;
     let mapped = downloads.map();
     device.poll(wgpu::Maintain::Wait);
@@ -87,14 +89,42 @@ async fn do_render(
     } else {
         let file = File::create("image.png")?;
         let w = BufWriter::new(file);
-        let mut encoder = png::Encoder::new(w, 1024, 1024);
+        let mut encoder = png::Encoder::new(w, dimensions.width, dimensions.height);
         encoder.set_color(png::ColorType::Rgba);
         let mut writer = encoder.write_header()?;
-        writer.write_image_data(&buf)?;
+        let expected_size = (dimensions.width * dimensions.height * 4) as usize;
+
+        let new_height = next_multiple_of(dimensions.height, 16) as usize;
+        if expected_size == buf.len() {
+            writer.write_image_data(&buf)?;
+        } else {
+            let mut output = Vec::<u8>::with_capacity(expected_size * 4);
+            for height in 0..(dimensions.height as usize) {
+                output.extend_from_slice(
+                    &buf[height * new_height * 4..][..dimensions.width as usize * 4],
+                );
+            }
+            writer.write_image_data(&output)?;
+        }
     }
     Ok(())
 }
 
+pub struct Dimensions {
+    width: u32,
+    height: u32,
+}
+
 fn main() {
-    pollster::block_on(run()).unwrap();
+    let mut args = std::env::args();
+    args.next();
+    let width = args
+        .next()
+        .and_then(|it| it.parse::<u32>().ok())
+        .unwrap_or(1024);
+    let height = args
+        .next()
+        .and_then(|it| it.parse::<u32>().ok())
+        .unwrap_or(1024);
+    pollster::block_on(run(&Dimensions { width, height })).unwrap();
 }

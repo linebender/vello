@@ -6,6 +6,7 @@ use piet_scene::Scene;
 use crate::{
     engine::{BufProxy, Recording, ResourceProxy},
     shaders::{self, FullShaders, Shaders},
+    Dimensions,
 };
 
 const TAG_MONOID_SIZE: u64 = 12;
@@ -52,7 +53,14 @@ fn size_to_words(byte_size: usize) -> u32 {
     (byte_size / std::mem::size_of::<u32>()) as u32
 }
 
-pub fn render(scene: &Scene, shaders: &Shaders) -> (Recording, BufProxy) {
+pub const fn next_multiple_of(val: u32, rhs: u32) -> u32 {
+    match val % rhs {
+        0 => val,
+        r => val + (rhs - r),
+    }
+}
+
+fn render(scene: &Scene, shaders: &Shaders) -> (Recording, BufProxy) {
     let mut recording = Recording::default();
     let data = scene.data();
     let n_pathtag = data.tag_stream.len();
@@ -125,7 +133,11 @@ pub fn render(scene: &Scene, shaders: &Shaders) -> (Recording, BufProxy) {
     (recording, out_buf)
 }
 
-pub fn render_full(scene: &Scene, shaders: &FullShaders) -> (Recording, BufProxy) {
+pub fn render_full(
+    scene: &Scene,
+    shaders: &FullShaders,
+    dimensions: &Dimensions,
+) -> (Recording, BufProxy) {
     let mut recording = Recording::default();
     let mut ramps = crate::ramp::RampCache::default();
     let mut drawdata_patches: Vec<(usize, u32)> = vec![];
@@ -192,9 +204,14 @@ pub fn render_full(scene: &Scene, shaders: &FullShaders) -> (Recording, BufProxy
     // TODO: calculate for real when we do rectangles
     let n_drawobj = n_path;
     let n_clip = data.n_clip;
+
+    let new_width = next_multiple_of(dimensions.width, 16);
+    let new_height = next_multiple_of(dimensions.width, 16);
+
     let config = Config {
-        width_in_tiles: 64,
-        height_in_tiles: 64,
+        // TODO: Replace with div_ceil once stable
+        width_in_tiles: new_width / 16,
+        height_in_tiles: new_height / 16,
         n_drawobj,
         n_path,
         n_clip,
