@@ -4,8 +4,7 @@ use std::str::FromStr;
 
 use roxmltree::{Document, Node};
 
-use kurbo::{Affine, BezPath};
-
+use piet_scene::kurbo::{Affine, BezPath};
 use piet_scene::Color;
 
 pub struct PicoSvg {

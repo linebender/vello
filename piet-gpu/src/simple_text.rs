@@ -15,7 +15,8 @@
 // Also licensed under MIT license, at your choice.
 
 use piet_scene::glyph::{pinot, pinot::TableProvider, GlyphContext};
-use piet_scene::{Affine, Brush, SceneBuilder};
+use piet_scene::kurbo::Affine;
+use piet_scene::{Brush, SceneBuilder};
 
 pub use pinot::FontRef;
 
@@ -49,8 +50,8 @@ impl SimpleText {
         });
         if let Some(cmap) = font.cmap() {
             if let Some(hmtx) = font.hmtx() {
-                let upem = font.head().map(|head| head.units_per_em()).unwrap_or(1000) as f32;
-                let scale = size / upem;
+                let upem = font.head().map(|head| head.units_per_em()).unwrap_or(1000) as f64;
+                let scale = size as f64 / upem;
                 let vars: [(pinot::types::Tag, f32); 0] = [];
                 let mut provider = self.gcx.new_provider(font, None, size, false, vars);
                 let hmetrics = hmtx.hmetrics();
@@ -58,17 +59,18 @@ impl SimpleText {
                     .get(hmetrics.len().saturating_sub(1))
                     .map(|h| h.advance_width)
                     .unwrap_or(0);
-                let mut pen_x = 0f32;
+                let mut pen_x = 0f64;
                 for ch in text.chars() {
                     let gid = cmap.map(ch as u32).unwrap_or(0);
                     let advance = hmetrics
                         .get(gid as usize)
                         .map(|h| h.advance_width)
-                        .unwrap_or(default_advance) as f32
+                        .unwrap_or(default_advance) as f64
                         * scale;
                     if let Some(glyph) = provider.get(gid, brush) {
-                        let xform =
-                            transform * Affine::translate(pen_x, 0.0) * Affine::scale(1.0, -1.0);
+                        let xform = transform
+                            * Affine::translate((pen_x, 0.0))
+                            * Affine::scale_non_uniform(1.0, -1.0);
                         builder.append(&glyph, Some(xform));
                     }
                     pen_x += advance;

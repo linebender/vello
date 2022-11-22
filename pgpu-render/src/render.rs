@@ -18,7 +18,8 @@ use piet_gpu::{PixelFormat, RenderConfig};
 use piet_gpu_hal::{QueryPool, Session};
 use piet_scene::glyph::pinot::{types::Tag, FontDataRef};
 use piet_scene::glyph::{GlyphContext, GlyphProvider};
-use piet_scene::{Affine, Rect, Scene, SceneFragment};
+use piet_scene::kurbo::{Affine, Point, Rect};
+use piet_scene::{Scene, SceneFragment};
 
 /// State and resources for rendering a scene.
 pub struct PgpuRenderer {
@@ -141,7 +142,7 @@ pub struct PgpuSceneBuilder<'a> {
 }
 
 impl<'a> PgpuSceneBuilder<'a> {
-    pub fn add_glyph(&mut self, glyph: &PgpuGlyph, transform: &piet_scene::Affine) {
+    pub fn add_glyph(&mut self, glyph: &PgpuGlyph, transform: &Affine) {
         self.builder.append(&glyph.fragment, Some(*transform));
     }
 
@@ -214,15 +215,25 @@ pub struct PgpuGlyph {
 
 impl PgpuGlyph {
     pub fn bbox(&self, transform: Option<Affine>) -> Rect {
+        let points = self.fragment.points();
+        if points.is_empty() {
+            return Rect::default();
+        }
+        let mut points = points
+            .iter()
+            .map(|pt| Point::new(pt[0] as f64, pt[1] as f64));
         if let Some(transform) = &transform {
-            Rect::from_points(
-                self.fragment
-                    .points()
-                    .iter()
-                    .map(|p| p.transform(transform)),
-            )
+            let mut rect = Rect::from_center_size(points.next().unwrap(), (0.0, 0.0));
+            for point in points {
+                rect = rect.union_pt(*transform * point);
+            }
+            rect
         } else {
-            Rect::from_points(self.fragment.points())
+            let mut rect = Rect::from_center_size(points.next().unwrap(), (0.0, 0.0));
+            for point in points {
+                rect = rect.union_pt(point);
+            }
+            rect
         }
     }
 }

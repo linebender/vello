@@ -14,11 +14,11 @@
 //
 // Also licensed under MIT license, at your choice.
 
-use super::style::{Fill, Stroke};
-use super::{Affine, BlendMode, PathElement, Scene, SceneData, SceneFragment};
-use crate::{brush::*, ResourcePatch};
+use super::{conv, Scene, SceneData, SceneFragment};
+use crate::ResourcePatch;
 use bytemuck::{Pod, Zeroable};
-use core::borrow::Borrow;
+use peniko::kurbo::{Affine, PathEl, Shape};
+use peniko::{BlendMode, Brush, ColorStop, Fill, Stroke};
 use smallvec::SmallVec;
 
 /// Builder for constructing a scene or scene fragment.
@@ -51,44 +51,33 @@ impl<'a> SceneBuilder<'a> {
 
     /// Pushes a new layer bound by the specifed shape and composed with
     /// previous layers using the specified blend mode.
-    pub fn push_layer<'s, E>(&mut self, blend: BlendMode, transform: Affine, elements: E)
-    where
-        E: IntoIterator,
-        E::IntoIter: Clone,
-        E::Item: Borrow<PathElement>,
-    {
+    pub fn push_layer(&mut self, blend: BlendMode, transform: Affine, shape: &impl Shape) {
         self.maybe_encode_transform(transform);
         self.linewidth(-1.0);
-        let elements = elements.into_iter();
-        self.encode_path(elements, true);
-        self.begin_clip(Some(blend));
+        self.encode_path(shape, true);
+        self.begin_clip(blend);
         self.layers.push(blend);
     }
 
     /// Pops the current layer.
     pub fn pop_layer(&mut self) {
         if let Some(layer) = self.layers.pop() {
-            self.end_clip(Some(layer));
+            self.end_clip(layer);
         }
     }
 
     /// Fills a shape using the specified style and brush.
-    pub fn fill<'s, E>(
+    pub fn fill(
         &mut self,
         _style: Fill,
         transform: Affine,
         brush: &Brush,
         brush_transform: Option<Affine>,
-        elements: E,
-    ) where
-        E: IntoIterator,
-        E::IntoIter: Clone,
-        E::Item: Borrow<PathElement>,
-    {
+        shape: &impl Shape,
+    ) {
         self.maybe_encode_transform(transform);
         self.linewidth(-1.0);
-        let elements = elements.into_iter();
-        if self.encode_path(elements, true) {
+        if self.encode_path(shape, true) {
             if let Some(brush_transform) = brush_transform {
                 self.encode_transform(transform * brush_transform);
                 self.swap_last_tags();
@@ -100,23 +89,17 @@ impl<'a> SceneBuilder<'a> {
     }
 
     /// Strokes a shape using the specified style and brush.
-    pub fn stroke<'s, D, E>(
+    pub fn stroke(
         &mut self,
-        style: &Stroke<D>,
+        style: &Stroke,
         transform: Affine,
         brush: &Brush,
         brush_transform: Option<Affine>,
-        elements: E,
-    ) where
-        D: Borrow<[f32]>,
-        E: IntoIterator,
-        E::IntoIter: Clone,
-        E::Item: Borrow<PathElement>,
-    {
+        shape: &impl Shape,
+    ) {
         self.maybe_encode_transform(transform);
         self.linewidth(style.width);
-        let elements = elements.into_iter();
-        if self.encode_path(elements, false) {
+        if self.encode_path(shape, false) {
             if let Some(brush_transform) = brush_transform {
                 self.encode_transform(transform * brush_transform);
                 self.swap_last_tags();
@@ -135,29 +118,34 @@ impl<'a> SceneBuilder<'a> {
     /// Completes construction and finalizes the underlying scene.
     pub fn finish(mut self) {
         while let Some(layer) = self.layers.pop() {
-            self.end_clip(Some(layer));
+            self.end_clip(layer);
         }
     }
 }
 
 impl<'a> SceneBuilder<'a> {
-    fn encode_path<E>(&mut self, elements: E, is_fill: bool) -> bool
-    where
-        E: Iterator,
-        E::Item: Borrow<PathElement>,
-    {
+    fn encode_path(&mut self, shape: &impl Shape, is_fill: bool) -> bool {
         let mut b = PathBuilder::new(
             &mut self.scene.tag_stream,
             &mut self.scene.pathseg_stream,
             is_fill,
         );
-        for el in elements {
-            match el.borrow() {
-                PathElement::MoveTo(p0) => b.move_to(p0.x, p0.y),
-                PathElement::LineTo(p0) => b.line_to(p0.x, p0.y),
-                PathElement::QuadTo(p0, p1) => b.quad_to(p0.x, p0.y, p1.x, p1.y),
-                PathElement::CurveTo(p0, p1, p2) => b.cubic_to(p0.x, p0.y, p1.x, p1.y, p2.x, p2.y),
-                PathElement::Close => b.close_path(),
+        for el in shape.path_elements(0.1) {
+            match el {
+                PathEl::MoveTo(p0) => b.move_to(p0.x as f32, p0.y as f32),
+                PathEl::LineTo(p0) => b.line_to(p0.x as f32, p0.y as f32),
+                PathEl::QuadTo(p0, p1) => {
+                    b.quad_to(p0.x as f32, p0.y as f32, p1.x as f32, p1.y as f32)
+                }
+                PathEl::CurveTo(p0, p1, p2) => b.cubic_to(
+                    p0.x as f32,
+                    p0.y as f32,
+                    p1.x as f32,
+                    p1.y as f32,
+                    p2.x as f32,
+                    p2.y as f32,
+                ),
+                PathEl::ClosePath => b.close_path(),
             }
         }
         b.finish();
@@ -171,14 +159,16 @@ impl<'a> SceneBuilder<'a> {
     }
 
     fn maybe_encode_transform(&mut self, transform: Affine) {
-        if self.scene.transform_stream.last() != Some(&transform) {
+        if self.scene.transform_stream.last() != Some(&conv::affine_to_f32(&transform)) {
             self.encode_transform(transform);
         }
     }
 
     fn encode_transform(&mut self, transform: Affine) {
         self.scene.tag_stream.push(0x20);
-        self.scene.transform_stream.push(transform);
+        self.scene
+            .transform_stream
+            .push(conv::affine_to_f32(&transform));
     }
 
     // Swap the last two tags in the tag stream; used for transformed
@@ -212,8 +202,8 @@ impl<'a> SceneBuilder<'a> {
                     .drawdata_stream
                     .extend(bytemuck::bytes_of(&FillLinGradient {
                         index,
-                        p0: [gradient.start.x, gradient.start.y],
-                        p1: [gradient.end.x, gradient.end.y],
+                        p0: conv::point_to_f32(gradient.start),
+                        p1: conv::point_to_f32(gradient.end),
                     }));
             }
             Brush::RadialGradient(gradient) => {
@@ -223,18 +213,17 @@ impl<'a> SceneBuilder<'a> {
                     .drawdata_stream
                     .extend(bytemuck::bytes_of(&FillRadGradient {
                         index,
-                        p0: [gradient.center0.x, gradient.center0.y],
-                        p1: [gradient.center1.x, gradient.center1.y],
-                        r0: gradient.radius0,
-                        r1: gradient.radius1,
+                        p0: conv::point_to_f32(gradient.start_center),
+                        p1: conv::point_to_f32(gradient.end_center),
+                        r0: gradient.start_radius,
+                        r1: gradient.end_radius,
                     }));
             }
             Brush::SweepGradient(_gradient) => todo!("sweep gradients aren't done yet!"),
-            Brush::Image(_image) => todo!("images aren't done yet!"),
         }
     }
 
-    fn add_ramp(&mut self, stops: &[GradientStop]) -> u32 {
+    fn add_ramp(&mut self, stops: &[ColorStop]) -> u32 {
         let offset = self.scene.drawdata_stream.len();
         let resources = &mut self.scene.resources;
         let stops_start = resources.stops.len();
@@ -247,10 +236,10 @@ impl<'a> SceneBuilder<'a> {
     }
 
     /// Start a clip.
-    fn begin_clip(&mut self, blend: Option<BlendMode>) {
+    fn begin_clip(&mut self, blend: BlendMode) {
         self.scene.drawtag_stream.push(DRAWTAG_BEGINCLIP);
         let element = Clip {
-            blend: blend.unwrap_or(BlendMode::default()).pack(),
+            blend: encode_blend_mode(blend),
         };
         self.scene
             .drawdata_stream
@@ -258,10 +247,10 @@ impl<'a> SceneBuilder<'a> {
         self.scene.n_clip += 1;
     }
 
-    fn end_clip(&mut self, blend: Option<BlendMode>) {
+    fn end_clip(&mut self, blend: BlendMode) {
         self.scene.drawtag_stream.push(DRAWTAG_ENDCLIP);
         let element = Clip {
-            blend: blend.unwrap_or(BlendMode::default()).pack(),
+            blend: encode_blend_mode(blend),
         };
         self.scene
             .drawdata_stream
@@ -271,6 +260,10 @@ impl<'a> SceneBuilder<'a> {
         self.scene.n_path += 1;
         self.scene.n_clip += 1;
     }
+}
+
+fn encode_blend_mode(mode: BlendMode) -> u32 {
+    (mode.mix as u32) << 8 | mode.compose as u32
 }
 
 // Tags for draw objects. See shader/drawtag.h for the authoritative source.

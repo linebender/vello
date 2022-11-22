@@ -8,4 +8,4 @@ edition = "2021"
 bytemuck = { version = "1.7.2", features = ["derive"] }
 smallvec = "1.8.0"
 moscato = { git = "https://github.com/dfrg/pinot" }
-kurbo = { version = "0.8.3", optional = true }
+peniko = { git = "https://github.com/linebender/peniko" }
