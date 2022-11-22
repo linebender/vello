@@ -585,7 +585,9 @@ impl Renderer {
         query_pool: &QueryPool,
         query_start: u32,
     ) {
-        cmd_buf.reset_query_pool(&query_pool);
+        if query_start == 0 {
+            cmd_buf.reset_query_pool(&query_pool);
+        }
         cmd_buf.begin_debug_label("Fine raster");
         let mut pass = cmd_buf.begin_compute_pass(&ComputePassDescriptor::timer(
             &query_pool,
