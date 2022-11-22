@@ -133,7 +133,7 @@ pub fn render_blend_grid(sb: &mut SceneBuilder) {
 fn render_blend_square(sb: &mut SceneBuilder, blend: BlendMode, transform: Affine) {
     // Inspired by https://developer.mozilla.org/en-US/docs/Web/CSS/mix-blend-mode
     let rect = Rect::from_origin_size(Point::new(0., 0.), (200., 200.));
-    let linear = LinearGradient::new((0.0, 0.0), (0.0, 200.0)).stops([Color::BLACK, Color::WHITE]);
+    let linear = LinearGradient::new((0.0, 0.0), (200.0, 0.0)).stops([Color::BLACK, Color::WHITE]);
     sb.fill(Fill::NonZero, transform, &linear.into(), None, &rect);
     const GRADIENTS: &[(f64, f64, Color)] = &[
         (150., 0., Color::rgb8(255, 240, 64)),
@@ -143,7 +143,7 @@ fn render_blend_square(sb: &mut SceneBuilder, blend: BlendMode, transform: Affin
     for (x, y, c) in GRADIENTS {
         let mut color2 = c.clone();
         color2.a = 0;
-        let radial = RadialGradient::new((*x, *y), 100.0).stops([c.clone(), color2]);
+        let radial = RadialGradient::new((*x, *y), 100.0).stops([*c, color2]);
         sb.fill(Fill::NonZero, transform, &radial.into(), None, &rect);
     }
     const COLORS: &[Color] = &[
@@ -153,17 +153,7 @@ fn render_blend_square(sb: &mut SceneBuilder, blend: BlendMode, transform: Affin
     ];
     sb.push_layer(Mix::Normal.into(), transform, &rect);
     for (i, c) in COLORS.iter().enumerate() {
-        // let stops = &[
-        //     GradientStop {
-        //         color: Color::rgb8(255, 255, 255),
-        //         offset: 0.0,
-        //     },
-        //     GradientStop {
-        //         color: c.clone(),
-        //         offset: 1.0,
-        //     },
-        // ][..];
-        let linear = LinearGradient::new((0.0, 0.0), (0.0, 200.0)).stops([Color::WHITE, c.clone()]);
+        let linear = LinearGradient::new((0.0, 0.0), (0.0, 200.0)).stops([Color::WHITE, *c]);
         sb.push_layer(blend, transform, &rect);
         // squash the ellipse
         let a = transform

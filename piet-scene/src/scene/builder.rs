@@ -24,7 +24,7 @@ use smallvec::SmallVec;
 /// Builder for constructing a scene or scene fragment.
 pub struct SceneBuilder<'a> {
     scene: &'a mut SceneData,
-    layers: SmallVec<[BlendMode; 8]>,
+    layers: SmallVec<[(BlendMode, bool); 8]>,
 }
 
 impl<'a> SceneBuilder<'a> {
@@ -54,15 +54,23 @@ impl<'a> SceneBuilder<'a> {
     pub fn push_layer(&mut self, blend: BlendMode, transform: Affine, shape: &impl Shape) {
         self.maybe_encode_transform(transform);
         self.linewidth(-1.0);
-        self.encode_path(shape, true);
-        self.begin_clip(blend);
-        self.layers.push(blend);
+        if self.encode_path(shape, true) {
+            self.begin_clip(blend);
+            self.layers.push((blend, true));
+        } else {
+            // When the layer has an empty path, record an entry to prevent
+            // the stack from becoming unbalanced. This is handled in
+            // pop_layer.
+            self.layers.push((blend, false));
+        }
     }
 
     /// Pops the current layer.
     pub fn pop_layer(&mut self) {
-        if let Some(layer) = self.layers.pop() {
-            self.end_clip(layer);
+        if let Some((blend, active)) = self.layers.pop() {
+            if active {
+                self.end_clip(blend);
+            }
         }
     }
 
@@ -117,8 +125,8 @@ impl<'a> SceneBuilder<'a> {
 
     /// Completes construction and finalizes the underlying scene.
     pub fn finish(mut self) {
-        while let Some(layer) = self.layers.pop() {
-            self.end_clip(layer);
+        while !self.layers.is_empty() {
+            self.pop_layer();
         }
     }
 }
