@@ -28,13 +28,13 @@ pub fn gen_test_scene() -> Scene {
     let scene_ix = 1;
     match scene_ix {
         0 => {
-            let path = &[
+            let path = [
                 PathEl::MoveTo(Point::new(100.0, 100.0)),
                 PathEl::LineTo(Point::new(500.0, 120.0)),
                 PathEl::LineTo(Point::new(300.0, 150.0)),
                 PathEl::LineTo(Point::new(200.0, 260.0)),
                 PathEl::LineTo(Point::new(150.0, 210.0)),
-            ][..];
+            ];
             let brush = Brush::Solid(Color::rgb8(0x40, 0x40, 0xff));
             builder.fill(Fill::NonZero, Affine::IDENTITY, &brush, None, &path);
             let transform = Affine::translate((50.0, 50.0));
@@ -79,7 +79,7 @@ pub fn render_svg(sb: &mut SceneBuilder, svg: &PicoSvg, print_stats: bool) {
                 sb.fill(
                     Fill::NonZero,
                     Affine::IDENTITY,
-                    &fill.color.into(),
+                    fill.color,
                     None,
                     &fill.path,
                 );
@@ -88,7 +88,7 @@ pub fn render_svg(sb: &mut SceneBuilder, svg: &PicoSvg, print_stats: bool) {
                 sb.stroke(
                     &Stroke::new(stroke.width as f32),
                     Affine::IDENTITY,
-                    &stroke.color.into(),
+                    stroke.color,
                     None,
                     &stroke.path,
                 );
@@ -134,7 +134,7 @@ fn render_blend_square(sb: &mut SceneBuilder, blend: BlendMode, transform: Affin
     // Inspired by https://developer.mozilla.org/en-US/docs/Web/CSS/mix-blend-mode
     let rect = Rect::from_origin_size(Point::new(0., 0.), (200., 200.));
     let linear = LinearGradient::new((0.0, 0.0), (200.0, 0.0)).stops([Color::BLACK, Color::WHITE]);
-    sb.fill(Fill::NonZero, transform, &linear.into(), None, &rect);
+    sb.fill(Fill::NonZero, transform, &linear, None, &rect);
     const GRADIENTS: &[(f64, f64, Color)] = &[
         (150., 0., Color::rgb8(255, 240, 64)),
         (175., 100., Color::rgb8(255, 96, 240)),
@@ -144,14 +144,14 @@ fn render_blend_square(sb: &mut SceneBuilder, blend: BlendMode, transform: Affin
         let mut color2 = c.clone();
         color2.a = 0;
         let radial = RadialGradient::new((*x, *y), 100.0).stops([*c, color2]);
-        sb.fill(Fill::NonZero, transform, &radial.into(), None, &rect);
+        sb.fill(Fill::NonZero, transform, &radial, None, &rect);
     }
     const COLORS: &[Color] = &[
         Color::rgb8(255, 0, 0),
         Color::rgb8(0, 255, 0),
         Color::rgb8(0, 0, 255),
     ];
-    sb.push_layer(Mix::Normal.into(), transform, &rect);
+    sb.push_layer(Mix::Normal, transform, &rect);
     for (i, c) in COLORS.iter().enumerate() {
         let linear = LinearGradient::new((0.0, 0.0), (0.0, 200.0)).stops([Color::WHITE, *c]);
         sb.push_layer(blend, transform, &rect);
@@ -164,7 +164,7 @@ fn render_blend_square(sb: &mut SceneBuilder, blend: BlendMode, transform: Affin
         sb.fill(
             Fill::NonZero,
             a,
-            &linear.into(),
+            &linear,
             None,
             &Ellipse::new((100., 100.), (90., 90.), 0.),
         );

@@ -18,7 +18,7 @@ use super::{conv, Scene, SceneData, SceneFragment};
 use crate::ResourcePatch;
 use bytemuck::{Pod, Zeroable};
 use peniko::kurbo::{Affine, PathEl, Shape};
-use peniko::{BlendMode, Brush, ColorStop, Fill, Stroke};
+use peniko::{BlendMode, BrushRef, ColorStop, Fill, Stroke};
 use smallvec::SmallVec;
 
 /// Builder for constructing a scene or scene fragment.
@@ -51,7 +51,13 @@ impl<'a> SceneBuilder<'a> {
 
     /// Pushes a new layer bound by the specifed shape and composed with
     /// previous layers using the specified blend mode.
-    pub fn push_layer(&mut self, blend: BlendMode, transform: Affine, shape: &impl Shape) {
+    pub fn push_layer(
+        &mut self,
+        blend: impl Into<BlendMode>,
+        transform: Affine,
+        shape: &impl Shape,
+    ) {
+        let blend = blend.into();
         self.maybe_encode_transform(transform);
         self.linewidth(-1.0);
         if self.encode_path(shape, true) {
@@ -75,11 +81,11 @@ impl<'a> SceneBuilder<'a> {
     }
 
     /// Fills a shape using the specified style and brush.
-    pub fn fill(
+    pub fn fill<'b>(
         &mut self,
         _style: Fill,
         transform: Affine,
-        brush: &Brush,
+        brush: impl Into<BrushRef<'b>>,
         brush_transform: Option<Affine>,
         shape: &impl Shape,
     ) {
@@ -97,11 +103,11 @@ impl<'a> SceneBuilder<'a> {
     }
 
     /// Strokes a shape using the specified style and brush.
-    pub fn stroke(
+    pub fn stroke<'b>(
         &mut self,
         style: &Stroke,
         transform: Affine,
-        brush: &Brush,
+        brush: impl Into<BrushRef<'b>>,
         brush_transform: Option<Affine>,
         shape: &impl Shape,
     ) {
@@ -194,16 +200,16 @@ impl<'a> SceneBuilder<'a> {
         }
     }
 
-    fn encode_brush(&mut self, brush: &Brush) {
-        match brush {
-            Brush::Solid(color) => {
+    fn encode_brush<'b>(&mut self, brush: impl Into<BrushRef<'b>>) {
+        match brush.into() {
+            BrushRef::Solid(color) => {
                 self.scene.drawtag_stream.push(DRAWTAG_FILLCOLOR);
                 let rgba_color = color.to_premul_u32();
                 self.scene
                     .drawdata_stream
                     .extend(bytemuck::bytes_of(&FillColor { rgba_color }));
             }
-            Brush::LinearGradient(gradient) => {
+            BrushRef::LinearGradient(gradient) => {
                 let index = self.add_ramp(&gradient.stops);
                 self.scene.drawtag_stream.push(DRAWTAG_FILLLINGRADIENT);
                 self.scene
@@ -214,7 +220,7 @@ impl<'a> SceneBuilder<'a> {
                         p1: conv::point_to_f32(gradient.end),
                     }));
             }
-            Brush::RadialGradient(gradient) => {
+            BrushRef::RadialGradient(gradient) => {
                 let index = self.add_ramp(&gradient.stops);
                 self.scene.drawtag_stream.push(DRAWTAG_FILLRADGRADIENT);
                 self.scene
@@ -227,7 +233,7 @@ impl<'a> SceneBuilder<'a> {
                         r1: gradient.end_radius,
                     }));
             }
-            Brush::SweepGradient(_gradient) => todo!("sweep gradients aren't done yet!"),
+            BrushRef::SweepGradient(_gradient) => todo!("sweep gradients aren't done yet!"),
         }
     }
 

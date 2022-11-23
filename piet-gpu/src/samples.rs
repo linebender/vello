@@ -1,45 +1,45 @@
 use crate::PicoSvg;
-use piet_scene::kurbo::{Affine, BezPath, Ellipse, PathEl, Point, Rect};
+use piet_scene::kurbo::{Affine, Ellipse, PathEl, Point, Rect};
 use piet_scene::*;
 
 use crate::SimpleText;
 
 pub fn render_funky_paths(sb: &mut SceneBuilder) {
     use PathEl::*;
-    let missing_movetos = &[
+    let missing_movetos = [
         LineTo((100.0, 100.0).into()),
         LineTo((100.0, 200.0).into()),
         ClosePath,
         LineTo((0.0, 400.0).into()),
         LineTo((100.0, 400.0).into()),
-    ][..];
-    let only_movetos = &[MoveTo((0.0, 0.0).into()), MoveTo((100.0, 100.0).into())][..];
-    let empty: &[PathEl] = &[];
+    ];
+    let only_movetos = [MoveTo((0.0, 0.0).into()), MoveTo((100.0, 100.0).into())];
+    let empty: [PathEl; 0] = [];
     sb.fill(
         Fill::NonZero,
         Affine::translate((100.0, 100.0)),
-        &Color::rgb8(0, 0, 255).into(),
+        Color::rgb8(0, 0, 255),
         None,
         &missing_movetos,
     );
     sb.fill(
         Fill::NonZero,
         Affine::IDENTITY,
-        &Color::rgb8(0, 0, 255).into(),
+        Color::rgb8(0, 0, 255),
         None,
         &empty,
     );
     sb.fill(
         Fill::NonZero,
         Affine::IDENTITY,
-        &Color::rgb8(0, 0, 255).into(),
+        Color::rgb8(0, 0, 255),
         None,
         &only_movetos,
     );
     sb.stroke(
         &Stroke::new(8.0),
         Affine::translate((100.0, 100.0)),
-        &Color::rgb8(0, 255, 255).into(),
+        Color::rgb8(0, 255, 255),
         None,
         &missing_movetos,
     );
@@ -58,7 +58,7 @@ pub fn render_svg(sb: &mut SceneBuilder, svg: &PicoSvg, print_stats: bool) {
                 sb.fill(
                     Fill::NonZero,
                     Affine::IDENTITY,
-                    &fill.color.into(),
+                    fill.color,
                     None,
                     &fill.path,
                 );
@@ -67,7 +67,7 @@ pub fn render_svg(sb: &mut SceneBuilder, svg: &PicoSvg, print_stats: bool) {
                 sb.stroke(
                     &Stroke::new(stroke.width as f32),
                     Affine::IDENTITY,
-                    &stroke.color.into(),
+                    stroke.color,
                     None,
                     &stroke.path,
                 );
@@ -120,7 +120,7 @@ fn render_cardioid(sb: &mut SceneBuilder) {
     sb.stroke(
         &Stroke::new(2.0),
         Affine::IDENTITY,
-        &Brush::Solid(Color::rgb8(0, 0, 0)),
+        Color::rgb8(0, 0, 0),
         None,
         &&path[..],
     );
@@ -138,15 +138,15 @@ fn render_clip_test(sb: &mut SceneBuilder) {
     let step = 1.0 / ((N + 1) as f64);
     for i in 0..N {
         let t = ((i + 1) as f64) * step;
-        let path = &[
+        let path = [
             PathEl::MoveTo((X0, Y0).into()),
             PathEl::LineTo((X1, Y0).into()),
             PathEl::LineTo((X1, Y0 + t * (Y1 - Y0)).into()),
             PathEl::LineTo((X1 + t * (X0 - X1), Y1).into()),
             PathEl::LineTo((X0, Y1).into()),
             PathEl::ClosePath,
-        ][..];
-        sb.push_layer(Mix::Clip.into(), Affine::IDENTITY, &path);
+        ];
+        sb.push_layer(Mix::Clip, Affine::IDENTITY, &path);
     }
     let rect = Rect::new(X0, Y0, X1, Y1);
     sb.fill(
@@ -167,26 +167,26 @@ fn render_alpha_test(sb: &mut SceneBuilder) {
     sb.fill(
         Fill::NonZero,
         Affine::IDENTITY,
-        &Color::rgb8(255, 0, 0).into(),
+        Color::rgb8(255, 0, 0),
         None,
         &&make_diamond(1024.0, 100.0)[..],
     );
     sb.fill(
         Fill::NonZero,
         Affine::IDENTITY,
-        &Color::rgba8(0, 255, 0, 0x80).into(),
+        Color::rgba8(0, 255, 0, 0x80),
         None,
         &&make_diamond(1024.0, 125.0)[..],
     );
     sb.push_layer(
-        Mix::Clip.into(),
+        Mix::Clip,
         Affine::IDENTITY,
         &&make_diamond(1024.0, 150.0)[..],
     );
     sb.fill(
         Fill::NonZero,
         Affine::IDENTITY,
-        &Color::rgba8(0, 0, 255, 0x80).into(),
+        Color::rgba8(0, 0, 255, 0x80),
         None,
         &&make_diamond(1024.0, 175.0)[..],
     );
@@ -227,7 +227,7 @@ fn render_blend_square(sb: &mut SceneBuilder, blend: BlendMode, transform: Affin
     // Inspired by https://developer.mozilla.org/en-US/docs/Web/CSS/mix-blend-mode
     let rect = Rect::from_origin_size(Point::new(0., 0.), (200., 200.));
     let linear = LinearGradient::new((0.0, 0.0), (200.0, 0.0)).stops([Color::BLACK, Color::WHITE]);
-    sb.fill(Fill::NonZero, transform, &linear.into(), None, &rect);
+    sb.fill(Fill::NonZero, transform, &linear, None, &rect);
     const GRADIENTS: &[(f64, f64, Color)] = &[
         (150., 0., Color::rgb8(255, 240, 64)),
         (175., 100., Color::rgb8(255, 96, 240)),
@@ -237,14 +237,14 @@ fn render_blend_square(sb: &mut SceneBuilder, blend: BlendMode, transform: Affin
         let mut color2 = c.clone();
         color2.a = 0;
         let radial = RadialGradient::new((*x, *y), 100.0).stops([*c, color2]);
-        sb.fill(Fill::NonZero, transform, &radial.into(), None, &rect);
+        sb.fill(Fill::NonZero, transform, &radial, None, &rect);
     }
     const COLORS: &[Color] = &[
         Color::rgb8(255, 0, 0),
         Color::rgb8(0, 255, 0),
         Color::rgb8(0, 0, 255),
     ];
-    sb.push_layer(Mix::Normal.into(), transform, &rect);
+    sb.push_layer(Mix::Normal, transform, &rect);
     for (i, c) in COLORS.iter().enumerate() {
         let linear = LinearGradient::new((0.0, 0.0), (0.0, 200.0)).stops([Color::WHITE, *c]);
         sb.push_layer(blend, transform, &rect);
@@ -257,7 +257,7 @@ fn render_blend_square(sb: &mut SceneBuilder, blend: BlendMode, transform: Affin
         sb.fill(
             Fill::NonZero,
             a,
-            &linear.into(),
+            &linear,
             None,
             &Ellipse::new((100., 100.), (90., 90.), 0.),
         );
@@ -319,9 +319,11 @@ pub fn render_anim_frame(sb: &mut SceneBuilder, text: &mut SimpleText, i: usize)
 #[allow(unused)]
 pub fn render_brush_transform(sb: &mut SceneBuilder, i: usize) {
     let th = (std::f64::consts::PI / 180.0) * (i as f64);
-    let linear = LinearGradient::new((0.0, 0.0), (0.0, 200.0))
-        .stops([Color::RED, Color::GREEN, Color::BLUE])
-        .into();
+    let linear = LinearGradient::new((0.0, 0.0), (0.0, 200.0)).stops([
+        Color::RED,
+        Color::GREEN,
+        Color::BLUE,
+    ]);
     sb.fill(
         Fill::NonZero,
         Affine::translate((200.0, 200.0)),

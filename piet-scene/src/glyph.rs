@@ -20,7 +20,7 @@ pub use moscato::pinot;
 
 use crate::scene::{SceneBuilder, SceneFragment};
 use peniko::kurbo::{Affine, Rect};
-use peniko::{Brush, Color, Fill};
+use peniko::{Brush, Color, Fill, Mix};
 
 use moscato::{Context, Scaler};
 use pinot::{types::Tag, FontRef};
@@ -123,13 +123,13 @@ impl<'a> GlyphProvider<'a> {
                     let path = glyph.path(*path_index)?;
                     if let Some(xform) = xform_stack.last() {
                         builder.push_layer(
-                            Default::default(),
+                            Mix::Clip,
                             Affine::IDENTITY,
                             &convert_transformed_path(path.elements(), xform),
                         );
                     } else {
                         builder.push_layer(
-                            Default::default(),
+                            Mix::Clip,
                             Affine::IDENTITY,
                             &convert_path(path.elements()),
                         );
@@ -144,7 +144,7 @@ impl<'a> GlyphProvider<'a> {
                         max = *xform * max;
                     }
                     let rect = Rect::from_points(min, max);
-                    builder.push_layer(Default::default(), Affine::IDENTITY, &rect);
+                    builder.push_layer(Mix::Normal, Affine::IDENTITY, &rect);
                 }
                 Command::PopLayer => builder.pop_layer(),
                 Command::BeginBlend(bounds, mode) => {
@@ -212,7 +212,7 @@ fn convert_transformed_path(
 
 fn convert_blend(mode: moscato::CompositeMode) -> peniko::BlendMode {
     use moscato::CompositeMode;
-    use peniko::{BlendMode, Compose, Mix};
+    use peniko::{BlendMode, Compose};
     let mut mix = Mix::Normal;
     let mut compose = Compose::SrcOver;
     match mode {

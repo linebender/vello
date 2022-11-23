@@ -710,8 +710,9 @@ dependencies = [
 
 [[package]]
 name = "kurbo"
-version = "0.8.3"
-source = "git+https://github.com/linebender/kurbo#79e5787a57f12d4965fcea01ab9442ecf6795775"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e119590a03caff1f7a582e8ee8c2164ddcc975791701188132fd1d1b518d3871"
 dependencies = [
  "arrayvec 0.7.2",
 ]
@@ -1070,9 +1071,9 @@ dependencies = [
 [[package]]
 name = "peniko"
 version = "0.1.0"
-source = "git+https://github.com/linebender/peniko?rev=aca2934#aca29349e7dcbd31f598172953ea88b5ddcd86df"
+source = "git+https://github.com/linebender/peniko#b83821720aa51a3942be5d20c71525a1ae61ac0a"
 dependencies = [
- "kurbo 0.8.3",
+ "kurbo 0.9.0",
  "smallvec",
 ]
 
