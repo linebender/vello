@@ -1,13 +1,13 @@
-use crate::brush::GradientStop;
 use core::ops::Range;
+use peniko::ColorStop;
 
 #[derive(Default)]
 /// Collection of late bound resources for a scene or scene fragment.
 pub struct ResourceBundle {
     /// Sequence of resource patches.
     pub patches: Vec<ResourcePatch>,
-    /// Cache of gradient stops, referenced by range from the patches.
-    pub stops: Vec<GradientStop>,
+    /// Cache of color stops, referenced by range from the patches.
+    pub stops: Vec<ColorStop>,
 }
 
 impl ResourceBundle {

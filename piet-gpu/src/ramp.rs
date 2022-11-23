@@ -1,4 +1,4 @@
-use piet_scene::{Color, GradientStop, GradientStops};
+use piet_scene::{Color, ColorStop, ColorStops};
 
 use std::collections::HashMap;
 
@@ -8,7 +8,7 @@ const RETAINED_COUNT: usize = 64;
 #[derive(Default)]
 pub struct RampCache {
     epoch: u64,
-    map: HashMap<GradientStops, (u32, u64)>,
+    map: HashMap<ColorStops, (u32, u64)>,
     data: Vec<u32>,
 }
 
@@ -22,7 +22,7 @@ impl RampCache {
         }
     }
 
-    pub fn add(&mut self, stops: &[GradientStop]) -> u32 {
+    pub fn add(&mut self, stops: &[ColorStop]) -> u32 {
         if let Some(entry) = self.map.get_mut(stops) {
             entry.1 = self.epoch;
             entry.0
@@ -64,7 +64,7 @@ impl RampCache {
     }
 }
 
-fn make_ramp<'a>(stops: &'a [GradientStop]) -> impl Iterator<Item = u32> + 'a {
+fn make_ramp<'a>(stops: &'a [ColorStop]) -> impl Iterator<Item = u32> + 'a {
     let mut last_u = 0.0;
     let mut last_c = ColorF64::from_color(stops[0].color);
     let mut this_u = last_u;

@@ -45,11 +45,11 @@ fn color_burn(cb: f32, cs: f32) -> f32 {
 }
 
 fn hard_light(cb: vec3<f32>, cs: vec3<f32>) -> vec3<f32> {
-	return mix(
-		screen(cb, 2.0 * cs - 1.0),
-		cb * 2.0 * cs,
+    return mix(
+        screen(cb, 2.0 * cs - 1.0),
+        cb * 2.0 * cs,
         vec3<f32>(cs <= vec3<f32>(0.5))
-	);
+    );
 }
 
 fn soft_light(cb: vec3<f32>, cs: vec3<f32>) -> vec3<f32> {

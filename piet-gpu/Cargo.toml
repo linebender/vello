@@ -28,7 +28,6 @@ path = "../piet-gpu-types"
 
 [dependencies.piet-scene]
 path = "../piet-scene"
-features = ["kurbo"]
 
 [dependencies]
 png = "0.17.6"
@@ -38,7 +37,6 @@ winit = {version = "0.27.3",  default-features = false, features = ["x11", "wayl
 raw-window-handle = "0.5"
 clap = "3.2.22"
 bytemuck = { version = "1.7.2", features = ["derive"] }
-kurbo = "0.8.3"
 
 [target.'cfg(target_os = "android")'.dependencies]
 ndk = "0.3"
