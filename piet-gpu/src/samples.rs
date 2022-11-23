@@ -1,5 +1,5 @@
 use crate::PicoSvg;
-use piet_scene::kurbo::{Affine, Ellipse, PathEl, Point, Rect};
+use piet_scene::kurbo::{Affine, BezPath, Ellipse, PathEl, Point, Rect};
 use piet_scene::*;
 
 use crate::SimpleText;
@@ -104,7 +104,7 @@ fn render_cardioid(sb: &mut SceneBuilder) {
     let dth = std::f64::consts::PI * 2.0 / (n as f64);
     let center = Point::new(1024.0, 768.0);
     let r = 750.0;
-    let mut path = vec![];
+    let mut path = BezPath::new();
     for i in 1..n {
         let mut p0 = center;
         let a0 = i as f64 * dth;
@@ -122,7 +122,7 @@ fn render_cardioid(sb: &mut SceneBuilder) {
         Affine::IDENTITY,
         Color::rgb8(0, 0, 0),
         None,
-        &&path[..],
+        &path,
     );
 }
 
@@ -169,26 +169,22 @@ fn render_alpha_test(sb: &mut SceneBuilder) {
         Affine::IDENTITY,
         Color::rgb8(255, 0, 0),
         None,
-        &&make_diamond(1024.0, 100.0)[..],
+        &make_diamond(1024.0, 100.0),
     );
     sb.fill(
         Fill::NonZero,
         Affine::IDENTITY,
         Color::rgba8(0, 255, 0, 0x80),
         None,
-        &&make_diamond(1024.0, 125.0)[..],
+        &make_diamond(1024.0, 125.0),
     );
-    sb.push_layer(
-        Mix::Clip,
-        Affine::IDENTITY,
-        &&make_diamond(1024.0, 150.0)[..],
-    );
+    sb.push_layer(Mix::Clip, Affine::IDENTITY, &make_diamond(1024.0, 150.0));
     sb.fill(
         Fill::NonZero,
         Affine::IDENTITY,
         Color::rgba8(0, 0, 255, 0x80),
         None,
-        &&make_diamond(1024.0, 175.0)[..],
+        &make_diamond(1024.0, 175.0),
     );
     sb.pop_layer();
 }

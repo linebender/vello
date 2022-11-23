@@ -17,14 +17,14 @@
 use super::{conv, Scene, SceneData, SceneFragment};
 use crate::ResourcePatch;
 use bytemuck::{Pod, Zeroable};
-use peniko::kurbo::{Affine, PathEl, Shape};
+use peniko::kurbo::{Affine, PathEl, Rect, Shape};
 use peniko::{BlendMode, BrushRef, ColorStop, Fill, Stroke};
 use smallvec::SmallVec;
 
 /// Builder for constructing a scene or scene fragment.
 pub struct SceneBuilder<'a> {
     scene: &'a mut SceneData,
-    layers: SmallVec<[(BlendMode, bool); 8]>,
+    layers: SmallVec<[BlendMode; 8]>,
 }
 
 impl<'a> SceneBuilder<'a> {
@@ -60,23 +60,19 @@ impl<'a> SceneBuilder<'a> {
         let blend = blend.into();
         self.maybe_encode_transform(transform);
         self.linewidth(-1.0);
-        if self.encode_path(shape, true) {
-            self.begin_clip(blend);
-            self.layers.push((blend, true));
-        } else {
-            // When the layer has an empty path, record an entry to prevent
-            // the stack from becoming unbalanced. This is handled in
-            // pop_layer.
-            self.layers.push((blend, false));
+        if !self.encode_path(shape, true) {
+            // If the layer shape is invalid, encode a valid empty path. This suppresses
+            // all drawing until the layer is popped.
+            self.encode_path(&Rect::new(0.0, 0.0, 0.0, 0.0), true);
         }
+        self.begin_clip(blend);
+        self.layers.push(blend);
     }
 
     /// Pops the current layer.
     pub fn pop_layer(&mut self) {
-        if let Some((blend, active)) = self.layers.pop() {
-            if active {
-                self.end_clip(blend);
-            }
+        if let Some(blend) = self.layers.pop() {
+            self.end_clip(blend);
         }
     }
 
@@ -138,6 +134,10 @@ impl<'a> SceneBuilder<'a> {
 }
 
 impl<'a> SceneBuilder<'a> {
+    /// Encodes a path for the specified shape.
+    ///
+    /// When the `is_fill` parameter is true, closes any open subpaths by inserting
+    /// a line to the start point of the subpath with the end segment bit set.
     fn encode_path(&mut self, shape: &impl Shape, is_fill: bool) -> bool {
         let mut b = PathBuilder::new(
             &mut self.scene.tag_stream,
@@ -378,6 +378,12 @@ impl<'a> PathBuilder<'a> {
 
     pub fn line_to(&mut self, x: f32, y: f32) {
         if self.state == PathState::Start {
+            if self.n_pathseg == 0 {
+                // This copies the behavior of kurbo which treats an initial line, quad
+                // or curve as a move.
+                self.move_to(x, y);
+                return;
+            }
             self.move_to(self.first_pt[0], self.first_pt[1]);
         }
         let buf = [x, y];
@@ -390,6 +396,10 @@ impl<'a> PathBuilder<'a> {
 
     pub fn quad_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32) {
         if self.state == PathState::Start {
+            if self.n_pathseg == 0 {
+                self.move_to(x2, y2);
+                return;
+            }
             self.move_to(self.first_pt[0], self.first_pt[1]);
         }
         let buf = [x1, y1, x2, y2];
@@ -402,6 +412,10 @@ impl<'a> PathBuilder<'a> {
 
     pub fn cubic_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x3: f32, y3: f32) {
         if self.state == PathState::Start {
+            if self.n_pathseg == 0 {
+                self.move_to(x3, y3);
+                return;
+            }
             self.move_to(self.first_pt[0], self.first_pt[1]);
         }
         let buf = [x1, y1, x2, y2, x3, y3];
