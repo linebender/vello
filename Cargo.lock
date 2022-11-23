@@ -503,9 +503,9 @@ checksum = "04909a7a7e4633ae6c4a9ab280aeb86da1236243a77b694a49eacd659a4bd3ac"
 
 [[package]]
 name = "futures-intrusive"
-version = "0.4.1"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b6bdbb8c5a42b2bb5ee8dd9dc2c7d73ce3e15d26dfe100fb347ffa3f58c672b"
+checksum = "1d930c203dd0b6ff06e0201a4a2fe9149b43c684fd4420555b26d21b1a02956f"
 dependencies = [
  "futures-core",
  "lock_api",
@@ -710,9 +710,9 @@ dependencies = [
 
 [[package]]
 name = "kurbo"
-version = "0.8.3"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a53776d271cfb873b17c618af0298445c88afc52837f3e948fa3fafd131f449"
+checksum = "e119590a03caff1f7a582e8ee8c2164ddcc975791701188132fd1d1b518d3871"
 dependencies = [
  "arrayvec 0.7.2",
 ]
@@ -1069,6 +1069,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "peniko"
+version = "0.1.0"
+source = "git+https://github.com/linebender/peniko#b83821720aa51a3942be5d20c71525a1ae61ac0a"
+dependencies = [
+ "kurbo 0.9.0",
+ "smallvec",
+]
+
+[[package]]
 name = "percent-encoding"
 version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1093,7 +1102,6 @@ version = "0.1.0"
 dependencies = [
  "bytemuck",
  "clap 3.2.23",
- "kurbo 0.8.3",
  "ndk 0.3.0",
  "ndk-glue 0.3.0",
  "ndk-sys 0.2.2",
@@ -1162,8 +1170,8 @@ name = "piet-scene"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
- "kurbo 0.8.3",
  "moscato",
+ "peniko",
  "smallvec",
 ]
 
@@ -1174,7 +1182,6 @@ dependencies = [
  "bytemuck",
  "env_logger",
  "futures-intrusive",
- "kurbo 0.8.3",
  "parking_lot",
  "piet-scene",
  "png",

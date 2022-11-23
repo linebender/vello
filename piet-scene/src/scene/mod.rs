@@ -14,22 +14,19 @@
 //
 // Also licensed under MIT license, at your choice.
 
-mod blend;
 mod builder;
-mod style;
+mod resource;
 
-pub use blend::{BlendMode, Compose, Mix};
 pub use builder::SceneBuilder;
-pub use style::*;
+pub use resource::{ResourceBundle, ResourcePatch};
 
-use super::geometry::{Affine, Point};
-use super::path::PathElement;
-use super::resource::{ResourceBundle, ResourcePatch};
+use super::conv;
+use peniko::kurbo::Affine;
 
 /// Raw data streams describing an encoded scene.
 #[derive(Default)]
 pub struct SceneData {
-    pub transform_stream: Vec<Affine>,
+    pub transform_stream: Vec<[f32; 6]>,
     pub tag_stream: Vec<u8>,
     pub pathseg_stream: Vec<u8>,
     pub linewidth_stream: Vec<f32>,
@@ -58,8 +55,7 @@ impl SceneData {
         self.n_clip = 0;
         self.resources.clear();
         if !is_fragment {
-            self.transform_stream
-                .push(Affine::new(&[1.0, 0.0, 0.0, 1.0, 0.0, 0.0]));
+            self.transform_stream.push([1.0, 0.0, 0.0, 1.0, 0.0, 0.0]);
             self.linewidth_stream.push(-1.0);
         }
     }
@@ -68,8 +64,12 @@ impl SceneData {
         let stops_base = self.resources.stops.len();
         let drawdata_base = self.drawdata_stream.len();
         if let Some(transform) = *transform {
-            self.transform_stream
-                .extend(other.transform_stream.iter().map(|x| transform * *x));
+            self.transform_stream.extend(
+                other
+                    .transform_stream
+                    .iter()
+                    .map(|x| conv::affine_to_f32(&(transform * conv::affine_from_f32(x)))),
+            );
         } else {
             self.transform_stream
                 .extend_from_slice(&other.transform_stream);
@@ -127,9 +127,8 @@ impl SceneFragment {
         self.data.is_empty()
     }
 
-    /// Returns the underlying stream of points that defined all encoded path
-    /// segments.
-    pub fn points(&self) -> &[Point] {
+    /// Returns the the entire sequence of points in the scene fragment.
+    pub fn points(&self) -> &[[f32; 2]] {
         if self.is_empty() {
             &[]
         } else {

@@ -26,7 +26,8 @@
 
 mod render;
 
-use piet_scene::{Brush, Color, Fill, PathElement};
+use piet_scene::kurbo::{Affine, PathEl, Point};
+use piet_scene::{Brush, Color, Fill};
 use render::*;
 use std::ffi::c_void;
 use std::mem::transmute;
@@ -145,7 +146,7 @@ pub struct PgpuPathElement {
     pub points: [PgpuPoint; 3],
 }
 
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 #[repr(C)]
 pub struct PgpuPathIter {
     pub context: *mut c_void,
@@ -197,16 +198,16 @@ pub struct PgpuTransform {
     pub dy: f32,
 }
 
-impl From<PgpuTransform> for piet_scene::Affine {
+impl From<PgpuTransform> for Affine {
     fn from(xform: PgpuTransform) -> Self {
-        Self {
-            xx: xform.xx,
-            yx: xform.yx,
-            xy: xform.xy,
-            yy: xform.yy,
-            dx: xform.dx,
-            dy: xform.dy,
-        }
+        Affine::new([
+            xform.xx as f64,
+            xform.yx as f64,
+            xform.xy as f64,
+            xform.yy as f64,
+            xform.dx as f64,
+            xform.dy as f64,
+        ])
     }
 }
 
@@ -239,27 +240,26 @@ pub unsafe extern "C" fn pgpu_scene_builder_add_glyph(
 }
 
 impl Iterator for PgpuPathIter {
-    type Item = PathElement;
+    type Item = PathEl;
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut el = PgpuPathElement {
             verb: PgpuPathVerb::MoveTo,
             points: [PgpuPoint::default(); 3],
         };
+        fn conv_pt(pt: PgpuPoint) -> Point {
+            Point::new(pt.x as f64, pt.y as f64)
+        }
         if (self.next_element)(self.context, &mut el as _) {
             let p = &el.points;
             Some(match el.verb {
-                PgpuPathVerb::MoveTo => PathElement::MoveTo((p[0].x, p[0].y).into()),
-                PgpuPathVerb::LineTo => PathElement::LineTo((p[0].x, p[0].y).into()),
-                PgpuPathVerb::QuadTo => {
-                    PathElement::QuadTo((p[0].x, p[0].y).into(), (p[1].x, p[1].y).into())
+                PgpuPathVerb::MoveTo => PathEl::MoveTo(conv_pt(p[0])),
+                PgpuPathVerb::LineTo => PathEl::LineTo(conv_pt(p[0])),
+                PgpuPathVerb::QuadTo => PathEl::QuadTo(conv_pt(p[0]), conv_pt(p[1])),
+                PgpuPathVerb::CurveTo => {
+                    PathEl::CurveTo(conv_pt(p[0]), conv_pt(p[1]), conv_pt(p[2]))
                 }
-                PgpuPathVerb::CurveTo => PathElement::CurveTo(
-                    (p[0].x, p[0].y).into(),
-                    (p[1].x, p[1].y).into(),
-                    (p[2].x, p[2].y).into(),
-                ),
-                PgpuPathVerb::Close => PathElement::Close,
+                PgpuPathVerb::Close => PathEl::ClosePath,
             })
         } else {
             None
@@ -308,12 +308,13 @@ pub unsafe extern "C" fn pgpu_scene_builder_fill_path(
     } else {
         Some((*brush_transform).into())
     };
+    let path_els = (*path).collect::<Vec<_>>();
     (*builder).builder.fill(
         fill,
         (*builder).transform,
         &brush,
         brush_transform,
-        (*path).clone(),
+        &&path_els[..],
     );
 }
 
@@ -445,13 +446,14 @@ pub unsafe extern "C" fn pgpu_glyph_bbox(
     glyph: *const PgpuGlyph,
     transform: &[f32; 6],
 ) -> PgpuRect {
-    let transform = piet_scene::Affine::new(transform);
+    let transform: PgpuTransform = std::mem::transmute(*transform);
+    let transform = transform.into();
     let rect = (*glyph).bbox(Some(transform));
     PgpuRect {
-        x0: rect.min.x,
-        y0: rect.min.y,
-        x1: rect.max.x,
-        y1: rect.max.y,
+        x0: rect.min_x() as f32,
+        y0: rect.min_y() as f32,
+        x1: rect.max_x() as f32,
+        y1: rect.max_y() as f32,
     }
 }
 

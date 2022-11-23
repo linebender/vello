@@ -190,7 +190,7 @@ fn render_info(simple_text: &mut SimpleText, sb: &mut SceneBuilder, info: &str) 
         None,
         40.0,
         None,
-        piet_scene::Affine::translate(110.0, 50.0),
+        piet_scene::kurbo::Affine::translate((110.0, 50.0)),
         info,
     );
 }
