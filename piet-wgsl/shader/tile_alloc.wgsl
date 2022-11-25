@@ -81,7 +81,7 @@ fn main(
     storageBarrier();
     if drawobj_ix < config.n_drawobj {
         let tile_subix = select(0u, sh_tile_count[local_id.x - 1u], local_id.x > 0u);
-        let bbox = vec4<u32>(ux0, uy0, ux1, uy1);
+        let bbox = vec4(ux0, uy0, ux1, uy1);
         let path = Path(bbox, tile_offset + tile_subix);
         paths[drawobj_ix] = path;
     }

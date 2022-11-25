@@ -44,8 +44,8 @@ fn read_transform(transform_base: u32, ix: u32) -> Transform {
     let c3 = bitcast<f32>(scene[base + 3u]);
     let c4 = bitcast<f32>(scene[base + 4u]);
     let c5 = bitcast<f32>(scene[base + 5u]);
-    let matrx = vec4<f32>(c0, c1, c2, c3);
-    let translate = vec2<f32>(c4, c5);
+    let matrx = vec4(c0, c1, c2, c3);
+    let translate = vec2(c4, c5);
     return Transform(matrx, translate);
 }
 
@@ -150,7 +150,7 @@ fn main(
                 let r0 = bitcast<f32>(scene[dd + 5u]);
                 let r1 = bitcast<f32>(scene[dd + 6u]);
                 let inv_det = 1.0 / (matrx.x * matrx.w - matrx.y * matrx.z);
-                let inv_mat = inv_det * vec4<f32>(matrx.w, -matrx.y, -matrx.z, matrx.x);
+                let inv_mat = inv_det * vec4(matrx.w, -matrx.y, -matrx.z, matrx.x);
                 var inv_tr = inv_mat.xz * translate.x + inv_mat.yw * translate.y;
                 inv_tr += p0;
                 let center1 = p1 - p0;

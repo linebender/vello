@@ -110,7 +110,7 @@ fn main(
         }
     }
     let b = sh_bic[ix].b;
-    var bbox = vec4<f32>(-1e9, -1e9, 1e9, 1e9);
+    var bbox = vec4(-1e9, -1e9, 1e9, 1e9);
     if sp < b {
         let el = clip_els[ix * WG_SIZE + b - sp - 1u];
         sh_stack[local_id.x] = el.parent_ix;
@@ -134,9 +134,9 @@ fn main(
     sh_bic[local_id.x] = bic;
     if is_push {
         let path_bbox = path_bboxes[inp];
-        bbox = vec4<f32>(f32(path_bbox.x0), f32(path_bbox.y0), f32(path_bbox.x1), f32(path_bbox.y1));
+        bbox = vec4(f32(path_bbox.x0), f32(path_bbox.y0), f32(path_bbox.x1), f32(path_bbox.y1));
     } else {
-        bbox = vec4<f32>(-1e9, -1e9, 1e9, 1e9);
+        bbox = vec4(-1e9, -1e9, 1e9, 1e9);
     }
     var inbase = 0u;
     for (var i = 0u; i < firstTrailingBit(WG_SIZE) - 1u; i += 1u) {
@@ -193,7 +193,7 @@ fn main(
         } else if grandparent + i32(stack_size) >= 0 {
             bbox = sh_stack_bbox[i32(WG_SIZE) + grandparent];
         } else {
-            bbox = vec4<f32>(-1e9, -1e9, 1e9, 1e9);
+            bbox = vec4(-1e9, -1e9, 1e9, 1e9);
         }
     }
     clip_bboxes[global_id.x] = bbox;

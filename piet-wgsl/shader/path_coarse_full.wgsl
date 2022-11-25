@@ -228,7 +228,7 @@ fn main(
                         tile_seg.delta = dp;
                         var y_edge = mix(lp0.y, lp1.y, (tile_x0 - lp0.x) * recip_dx);
                         if xymin.x < tile_x0 {
-                            let p = vec2<f32>(tile_x0, y_edge);
+                            let p = vec2(tile_x0, y_edge);
                             if dp.x < 0.0 {
                                 tile_seg.delta = p - lp0;
                             } else {

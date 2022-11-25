@@ -75,14 +75,14 @@ var<private> pathdata_base: u32;
 fn read_f32_point(ix: u32) -> vec2<f32> {
     let x = bitcast<f32>(scene[pathdata_base + ix]);
     let y = bitcast<f32>(scene[pathdata_base + ix + 1u]);
-    return vec2<f32>(x, y);
+    return vec2(x, y);
 }
 
 fn read_i16_point(ix: u32) -> vec2<f32> {
     let raw = scene[pathdata_base + ix];
     let x = f32(i32(raw << 16u) >> 16u);
     let y = f32(i32(raw) >> 16u);
-    return vec2<f32>(x, y);
+    return vec2(x, y);
 }
 
 struct Transform {
@@ -98,8 +98,8 @@ fn read_transform(transform_base: u32, ix: u32) -> Transform {
     let c3 = bitcast<f32>(scene[base + 3u]);
     let c4 = bitcast<f32>(scene[base + 4u]);
     let c5 = bitcast<f32>(scene[base + 5u]);
-    let matrx = vec4<f32>(c0, c1, c2, c3);
-    let translate = vec2<f32>(c4, c5);
+    let matrx = vec4(c0, c1, c2, c3);
+    let translate = vec2(c4, c5);
     return Transform(matrx, translate);
 }
 
@@ -162,10 +162,9 @@ fn main(
             }
         }
         let transform = read_transform(config.transform_base, tm.trans_ix);
-        //let transform = Transform(vec4<f32>(1.0, 0.0, 0.0, 1.0), vec2<f32>());
         p0 = transform_apply(transform, p0);
         p1 = transform_apply(transform, p1);
-        var bbox = vec4<f32>(min(p0, p1), max(p0, p1));
+        var bbox = vec4(min(p0, p1), max(p0, p1));
         // Degree-raise
         if seg_type == PATH_TAG_LINETO {
             p3 = p1;
@@ -173,10 +172,10 @@ fn main(
             p1 = mix(p0, p3, 1.0 / 3.0);
         } else if seg_type >= PATH_TAG_QUADTO {
             p2 = transform_apply(transform, p2);
-            bbox = vec4<f32>(min(bbox.xy, p2), max(bbox.zw, p2));
+            bbox = vec4(min(bbox.xy, p2), max(bbox.zw, p2));
             if seg_type == PATH_TAG_CUBICTO {
                 p3 = transform_apply(transform, p3);
-                bbox = vec4<f32>(min(bbox.xy, p3), max(bbox.zw, p3));
+                bbox = vec4(min(bbox.xy, p3), max(bbox.zw, p3));
             } else {
                 p3 = p2;
                 p2 = mix(p1, p2, 1.0 / 3.0);
@@ -187,8 +186,8 @@ fn main(
             // See https://www.iquilezles.org/www/articles/ellipses/ellipses.htm
             // This is the correct bounding box, but we're not handling rendering
             // in the isotropic case, so it may mismatch.
-            let stroke = 0.5 * linewidth * vec2<f32>(length(transform.matrx.xz), length(transform.matrx.yw));
-            bbox += vec4<f32>(-stroke, stroke);
+            let stroke = 0.5 * linewidth * vec2(length(transform.matrx.xz), length(transform.matrx.yw));
+            bbox += vec4(-stroke, stroke);
         }
         cubics[global_id.x] = Cubic(p0, p1, p2, p3, tm.path_ix, 0u);
         // Update bounding box using atomics only. Computing a monoid is a

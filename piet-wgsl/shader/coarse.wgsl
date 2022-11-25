@@ -375,9 +375,9 @@ fn main(
                         let m1 = bitcast<f32>(info[di + 2u]);
                         let m2 = bitcast<f32>(info[di + 3u]);
                         let m3 = bitcast<f32>(info[di + 4u]);
-                        rad.matrx = vec4<f32>(m0, m1, m2, m3);
-                        rad.xlat = vec2<f32>(bitcast<f32>(info[di + 5u]), bitcast<f32>(info[di + 6u]));
-                        rad.c1 = vec2<f32>(bitcast<f32>(info[di + 7u]), bitcast<f32>(info[di + 8u]));
+                        rad.matrx = vec4(m0, m1, m2, m3);
+                        rad.xlat = vec2(bitcast<f32>(info[di + 5u]), bitcast<f32>(info[di + 6u]));
+                        rad.c1 = vec2(bitcast<f32>(info[di + 7u]), bitcast<f32>(info[di + 8u]));
                         rad.ra = bitcast<f32>(info[di + 9u]);
                         rad.roff = bitcast<f32>(info[di + 10u]);
                         write_rad_grad(rad);

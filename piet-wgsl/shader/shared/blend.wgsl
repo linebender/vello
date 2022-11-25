@@ -45,23 +45,23 @@ fn color_burn(cb: f32, cs: f32) -> f32 {
 }
 
 fn hard_light(cb: vec3<f32>, cs: vec3<f32>) -> vec3<f32> {
-    return mix(
+    return select(
         screen(cb, 2.0 * cs - 1.0),
         cb * 2.0 * cs,
-        vec3<f32>(cs <= vec3<f32>(0.5))
+        cs <= vec3(0.5)
     );
 }
 
 fn soft_light(cb: vec3<f32>, cs: vec3<f32>) -> vec3<f32> {
-    let d = mix(
+    let d = select(
         sqrt(cb),
-        ((16.0 * cb - vec3(12.0)) * cb + vec3(4.0)) * cb,
-        vec3<f32>(cb <= vec3<f32>(0.25))
+        ((16.0 * cb - 12.0) * cb + 4.0) * cb,
+        cb <= vec3(0.25)
     );
-    return mix(
-        cb + (2.0 * cs - vec3(1.0)) * (d - cb),
-        cb - (vec3(1.0) - 2.0 * cs) * cb * (vec3(1.0) - cb),
-        vec3<f32>(cs <= vec3<f32>(0.5))
+    return select(
+        cb + (2.0 * cs - 1.0) * (d - cb),
+        cb - (1.0 - 2.0 * cs) * cb * (1.0 - cb),
+        cs <= vec3(0.5)
     );
 }
 
@@ -70,7 +70,7 @@ fn sat(c: vec3<f32>) -> f32 {
 }
 
 fn lum(c: vec3<f32>) -> f32 {
-    let f = vec3<f32>(0.3, 0.59, 0.11);
+    let f = vec3(0.3, 0.59, 0.11);
     return dot(c, f);
 }
 
@@ -133,13 +133,13 @@ fn set_sat(c: vec3<f32>, s: f32) -> vec3<f32> {
             }
         }
     }
-    return vec3<f32>(r, g, b);
+    return vec3(r, g, b);
 }
 
 // Blends two RGB colors together. The colors are assumed to be in sRGB
 // color space, and this function does not take alpha into account.
 fn blend_mix(cb: vec3<f32>, cs: vec3<f32>, mode: u32) -> vec3<f32> {
-    var b = vec3<f32>(0.0);
+    var b = vec3(0.0);
     switch mode {
         // MIX_MULTIPLY
         case 1u: {
@@ -163,11 +163,11 @@ fn blend_mix(cb: vec3<f32>, cs: vec3<f32>, mode: u32) -> vec3<f32> {
         }
         // MIX_COLOR_DODGE
         case 6u: {
-            b = vec3<f32>(color_dodge(cb.x, cs.x), color_dodge(cb.y, cs.y), color_dodge(cb.z, cs.z));
+            b = vec3(color_dodge(cb.x, cs.x), color_dodge(cb.y, cs.y), color_dodge(cb.z, cs.z));
         }
         // MIX_COLOR_BURN
         case 7u: {
-            b = vec3<f32>(color_burn(cb.x, cs.x), color_burn(cb.y, cs.y), color_burn(cb.z, cs.z));
+            b = vec3(color_burn(cb.x, cs.x), color_burn(cb.y, cs.y), color_burn(cb.z, cs.z));
         }
         // MIX_HARD_LIGHT
         case 8u: {
@@ -299,14 +299,14 @@ fn blend_compose(
         }
         // COMPOSE_PLUS_LIGHTER
         case 13u: {
-            return min(vec4<f32>(1.0), vec4<f32>(as_ * cs + ab * cb, as_ + ab));
+            return min(vec4(1.0), vec4(as_ * cs + ab * cb, as_ + ab));
         }
         default: {}
     }
     let as_fa = as_ * fa;
     let ab_fb = ab * fb;
     let co = as_fa * cs + ab_fb * cb;
-    return vec4<f32>(co, as_fa + ab_fb);
+    return vec4(co, as_fa + ab_fb);
 }
 
 // Apply color mixing and composition. Both input and output colors are
@@ -329,7 +329,7 @@ fn blend_mix_compose(backdrop: vec4<f32>, src: vec4<f32>, mode: u32) -> vec4<f32
     let compose_mode = mode & 0xffu;
     if compose_mode == COMPOSE_SRC_OVER {
         let co = mix(backdrop.rgb, cs, src.a);
-        return vec4<f32>(co, src.a + backdrop.a * (1.0 - src.a));
+        return vec4(co, src.a + backdrop.a * (1.0 - src.a));
     } else {
         return blend_compose(cb, cs, backdrop.a, src.a, compose_mode);
     }
