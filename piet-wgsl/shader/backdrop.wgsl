@@ -28,20 +28,20 @@ fn main(
     let width_in_tiles = config.width_in_tiles;
     let ix = wg_id.x * width_in_tiles + local_id.x;
     var backdrop = 0;
-    if (local_id.x < width_in_tiles) {
+    if local_id.x < width_in_tiles {
         backdrop = tiles[ix].backdrop;
     }
     sh_backdrop[local_id.x] = backdrop;
     // iterate log2(WG_SIZE) times
     for (var i = 0u; i < firstTrailingBit(WG_SIZE); i += 1u) {
         workgroupBarrier();
-        if (local_id.x >= (1u << i)) {
+        if local_id.x >= (1u << i) {
             backdrop += sh_backdrop[local_id.x - (1u << i)];
         }
         workgroupBarrier();
         sh_backdrop[local_id.x] = backdrop;
     }
-    if (local_id.x < width_in_tiles) {
+    if local_id.x < width_in_tiles {
         tiles[ix].backdrop = backdrop;
     }
 }
