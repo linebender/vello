@@ -44,8 +44,8 @@ fn read_transform(transform_base: u32, ix: u32) -> Transform {
     let c3 = bitcast<f32>(scene[base + 3u]);
     let c4 = bitcast<f32>(scene[base + 4u]);
     let c5 = bitcast<f32>(scene[base + 5u]);
-    let matrx = vec4<f32>(c0, c1, c2, c3);
-    let translate = vec2<f32>(c4, c5);
+    let matrx = vec4(c0, c1, c2, c3);
+    let translate = vec2(c4, c5);
     return Transform(matrx, translate);
 }
 

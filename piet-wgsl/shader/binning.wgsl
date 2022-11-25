@@ -69,7 +69,7 @@ fn main(
     var y1 = 0;
     if element_ix < config.n_drawobj {
         let draw_monoid = draw_monoids[element_ix];
-        var clip_bbox = vec4<f32>(-1e9, -1e9, 1e9, 1e9);
+        var clip_bbox = vec4(-1e9, -1e9, 1e9, 1e9);
         if draw_monoid.clip_ix > 0u {
             clip_bbox = clip_bbox_buf[draw_monoid.clip_ix - 1u];
         }
@@ -79,10 +79,10 @@ fn main(
         // TODO check this is true
 
         let path_bbox = path_bbox_buf[draw_monoid.path_ix];
-        let pb = vec4<f32>(vec4<i32>(path_bbox.x0, path_bbox.y0, path_bbox.x1, path_bbox.y1));
+        let pb = vec4<f32>(vec4(path_bbox.x0, path_bbox.y0, path_bbox.x1, path_bbox.y1));
         let bbox_raw = bbox_intersect(clip_bbox, pb);
         // TODO(naga): clunky expression a workaround for broken lhs swizzle
-        let bbox = vec4<f32>(bbox_raw.xy, max(bbox_raw.xy, bbox_raw.zw));
+        let bbox = vec4(bbox_raw.xy, max(bbox_raw.xy, bbox_raw.zw));
 
         intersected_bbox[element_ix] = bbox;
         x0 = i32(floor(bbox.x * SX));

@@ -70,9 +70,9 @@ fn read_rad_grad(cmd_ix: u32) -> CmdRadGrad {
     let m1 = bitcast<f32>(ptcl[cmd_ix + 3u]);
     let m2 = bitcast<f32>(ptcl[cmd_ix + 4u]);
     let m3 = bitcast<f32>(ptcl[cmd_ix + 5u]);
-    let matrx = vec4<f32>(m0, m1, m2, m3);
-    let xlat = vec2<f32>(bitcast<f32>(ptcl[cmd_ix + 6u]), bitcast<f32>(ptcl[cmd_ix + 7u]));
-    let c1 = vec2<f32>(bitcast<f32>(ptcl[cmd_ix + 8u]), bitcast<f32>(ptcl[cmd_ix + 9u]));
+    let matrx = vec4(m0, m1, m2, m3);
+    let xlat = vec2(bitcast<f32>(ptcl[cmd_ix + 6u]), bitcast<f32>(ptcl[cmd_ix + 7u]));
+    let c1 = vec2(bitcast<f32>(ptcl[cmd_ix + 8u]), bitcast<f32>(ptcl[cmd_ix + 9u]));
     let ra = bitcast<f32>(ptcl[cmd_ix + 10u]);
     let roff = bitcast<f32>(ptcl[cmd_ix + 11u]);
     return CmdRadGrad(index, matrx, xlat, c1, ra, roff);
@@ -137,10 +137,10 @@ fn stroke_path(seg: u32, half_width: f32, xy: vec2<f32>) -> array<f32, PIXELS_PE
     while segment_ix != 0u {
         let segment = segments[segment_ix];
         let delta = segment.delta;
-        let dpos0 = xy + vec2<f32>(0.5, 0.5) - segment.origin;
+        let dpos0 = xy + vec2(0.5, 0.5) - segment.origin;
         let scale = 1.0 / dot(delta, delta);
         for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
-            let dpos = vec2<f32>(dpos0.x + f32(i), dpos0.y);
+            let dpos = vec2(dpos0.x + f32(i), dpos0.y);
             let t = clamp(dot(dpos, delta) * scale, 0.0, 1.0);
             // performance idea: hoist sqrt out of loop
             df[i] = min(df[i], length(delta * t - dpos));
@@ -161,7 +161,7 @@ fn main(
     @builtin(workgroup_id) wg_id: vec3<u32>,
 ) {
     let tile_ix = wg_id.y * config.width_in_tiles + wg_id.x;
-    let xy = vec2<f32>(f32(global_id.x * PIXELS_PER_THREAD), f32(global_id.y));
+    let xy = vec2(f32(global_id.x * PIXELS_PER_THREAD), f32(global_id.y));
 #ifdef full
     var rgba: array<vec4<f32>, PIXELS_PER_THREAD>;
     var blend_stack: array<array<u32, BLEND_STACK_SPLIT>, PIXELS_PER_THREAD>;
@@ -213,7 +213,7 @@ fn main(
                 for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
                     let my_d = d + lin.line_x * f32(i);
                     let x = i32(round(clamp(my_d, 0.0, 1.0) * f32(GRADIENT_WIDTH - 1)));
-                    let fg_rgba = textureLoad(gradients, vec2<i32>(x, i32(lin.index)), 0);
+                    let fg_rgba = textureLoad(gradients, vec2(x, i32(lin.index)), 0);
                     let fg_i = fg_rgba * area[i];
                     rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
                 }
@@ -223,14 +223,14 @@ fn main(
             case 7u: {
                 let rad = read_rad_grad(cmd_ix);
                 for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
-                    let my_xy = vec2<f32>(xy.x + f32(i), xy.y);
+                    let my_xy = vec2(xy.x + f32(i), xy.y);
                     // TODO: can hoist y, but for now stick to piet-gpu
                     let xy_xformed = rad.matrx.xz * my_xy.x + rad.matrx.yw * my_xy.y - rad.xlat;
                     let ba = dot(xy_xformed, rad.c1);
                     let ca = rad.ra * dot(xy_xformed, xy_xformed);
                     let t = sqrt(ba * ba + ca) - ba - rad.roff;
                     let x = i32(round(clamp(t, 0.0, 1.0) * f32(GRADIENT_WIDTH - 1)));
-                    let fg_rgba = textureLoad(gradients, vec2<i32>(x, i32(rad.index)), 0);
+                    let fg_rgba = textureLoad(gradients, vec2(x, i32(rad.index)), 0);
                     let fg_i = fg_rgba * area[i];
                     rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
                 }
@@ -241,7 +241,7 @@ fn main(
                 if clip_depth < BLEND_STACK_SPLIT {
                     for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
                         blend_stack[clip_depth][i] = pack4x8unorm(rgba[i]);
-                        rgba[i] = vec4<f32>(0.0);
+                        rgba[i] = vec4(0.0);
                     }
                 } else {
                     // TODO: spill to memory
@@ -277,7 +277,7 @@ fn main(
     for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
         let fg = rgba[i];
         let a_inv = 1.0 / (fg.a + 1e-6);
-        let rgba_sep = vec4<f32>(fg.r * a_inv, fg.g * a_inv, fg.b * a_inv, fg.a);
+        let rgba_sep = vec4(fg.r * a_inv, fg.g * a_inv, fg.b * a_inv, fg.a);
         let bytes = pack4x8unorm(rgba_sep);
         output[out_ix + i] = bytes;
     }
@@ -285,7 +285,7 @@ fn main(
     let tile = tiles[tile_ix];
     let area = fill_path(tile, xy);
 
-    let bytes = pack4x8unorm(vec4<f32>(area[0], area[1], area[2], area[3]));
+    let bytes = pack4x8unorm(vec4(area[0], area[1], area[2], area[3]));
     let out_ix = global_id.y * (config.width_in_tiles * 4u) + global_id.x;
     output[out_ix] = bytes;
 #endif
