@@ -93,9 +93,9 @@ fn set_lum(c: vec3<f32>, l: f32) -> vec3<f32> {
 }
 
 fn set_sat_inner(
-    cmin: ptr<function, f32>, 
-    cmid: ptr<function, f32>, 
-    cmax: ptr<function, f32>, 
+    cmin: ptr<function, f32>,
+    cmid: ptr<function, f32>,
+    cmax: ptr<function, f32>,
     s: f32
 ) {
     if *cmax > *cmin {
@@ -228,10 +228,10 @@ let COMPOSE_PLUS_LIGHTER = 13u;
 // Apply general compositing operation.
 // Inputs are separated colors and alpha, output is premultiplied.
 fn blend_compose(
-    cb: vec3<f32>, 
-    cs: vec3<f32>, 
-    ab: f32, 
-    as_: f32, 
+    cb: vec3<f32>,
+    cs: vec3<f32>,
+    ab: f32,
+    as_: f32,
     mode: u32
 ) -> vec4<f32> {
     var fa = 0.0;

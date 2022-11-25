@@ -28,7 +28,7 @@ var<workgroup> sh_path_ix: array<u32, WG_SIZE>;
 fn main(
     @builtin(global_invocation_id) global_id: vec3<u32>,
     @builtin(local_invocation_id) local_id: vec3<u32>,
-    @builtin(workgroup_id) wg_id: vec3<u32>, 
+    @builtin(workgroup_id) wg_id: vec3<u32>,
 ) {
     let inp = clip_inp[global_id.x];
     let is_push = inp >= 0;

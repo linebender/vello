@@ -120,7 +120,7 @@ fn main(
         }
         if linewidth >= 0.0 {
             // Note: doesn't deal with anisotropic case
-            linewidth *= sqrt(abs(matrx.x * matrx.w - matrx.y * matrx.z)); 
+            linewidth *= sqrt(abs(matrx.x * matrx.w - matrx.y * matrx.z));
         }
         switch tag_word {
             // DRAWTAG_FILL_COLOR, DRAWTAG_FILL_IMAGE

@@ -189,7 +189,7 @@ fn main(
     // blend state
     var render_blend_depth = 0u;
     var max_blend_depth = 0u;
-    
+
     while true {
         for (var i = 0u; i < N_SLICE; i += 1u) {
             atomicStore(&sh_bitmaps[i][local_id.x], 0u);
