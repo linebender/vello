@@ -22,7 +22,7 @@ use std::{collections::HashSet, fs, path::Path};
 
 use wgpu::Device;
 
-use crate::engine::{BindType, Engine, Error, ShaderId};
+use crate::engine::{BindType, Engine, Error, ImageFormat, ShaderId};
 
 pub const PATHTAG_REDUCE_WG: u32 = 256;
 pub const PATH_BBOX_WG: u32 = 256;
@@ -281,9 +281,9 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
             BindType::BufReadOnly,
             BindType::BufReadOnly,
             BindType::BufReadOnly,
-            BindType::Buffer,
+            BindType::Image(ImageFormat::Rgba8),
             BindType::BufReadOnly,
-            BindType::ImageRead,
+            BindType::ImageRead(ImageFormat::Rgba8),
         ],
     )?;
     Ok(FullShaders {
