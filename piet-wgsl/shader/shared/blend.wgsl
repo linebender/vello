@@ -61,7 +61,7 @@ fn soft_light(cb: vec3<f32>, cs: vec3<f32>) -> vec3<f32> {
     return select(
         cb + (2.0 * cs - 1.0) * (d - cb),
         cb - (1.0 - 2.0 * cs) * cb * (1.0 - cb),
-        (cs <= vec3(0.5))
+        cs <= vec3(0.5)
     );
 }
 
