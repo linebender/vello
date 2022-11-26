@@ -70,7 +70,7 @@ async fn run() -> Result<()> {
             current_frame += 1;
             let width = surface.config.width;
             let height = surface.config.height;
-            let mut builder = SceneBuilder::new(&mut scene);
+            let mut builder = SceneBuilder::for_scene(&mut scene);
             const N_SCENES: usize = 6;
             match scene_ix % N_SCENES {
                 0 => test_scene::render_anim_frame(&mut builder, &mut simple_text, current_frame),
