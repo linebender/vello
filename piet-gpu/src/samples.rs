@@ -82,7 +82,7 @@ pub fn render_svg(sb: &mut SceneBuilder, svg: &PicoSvg, print_stats: bool) {
 #[allow(unused)]
 pub fn render_tiger(sb: &mut SceneBuilder, print_stats: bool) {
     use super::pico_svg::*;
-    let xml_str = std::str::from_utf8(include_bytes!("../Ghostscript_Tiger.svg")).unwrap();
+    let xml_str = std::str::from_utf8(include_bytes!("../../piet-wgsl/examples/assets/Ghostscript_Tiger.svg")).unwrap();
     let start = std::time::Instant::now();
     let svg = PicoSvg::load(xml_str, 8.0).unwrap();
     if print_stats {

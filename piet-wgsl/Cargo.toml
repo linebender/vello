@@ -7,17 +7,8 @@ edition = "2021"
 
 [dependencies]
 wgpu = "0.14"
-env_logger = "0.9.1"
-pollster = "0.2.5"
+raw-window-handle = "0.5"
 futures-intrusive = "0.5.0"
 parking_lot = "0.12"
 bytemuck = { version = "1.12.1", features = ["derive"] }
-png = "0.17.6"
-
 piet-scene = { path = "../piet-scene" }
-
-# for picosvg, should be split out
-roxmltree = "0.13"
-
-# move this to an example
-winit = "0.27.5"
