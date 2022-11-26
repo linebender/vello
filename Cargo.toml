@@ -9,6 +9,7 @@ members = [
     "piet-gpu-types",
     "piet-scene",
     "piet-wgsl",
+    "piet-wgsl/examples/winit",
     "tests",
 ]
 

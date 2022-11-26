@@ -6,7 +6,6 @@ use piet_scene::Scene;
 use crate::{
     engine::{BufProxy, ImageFormat, ImageProxy, Recording, ResourceProxy},
     shaders::{self, FullShaders, Shaders},
-    Dimensions,
 };
 
 const TAG_MONOID_SIZE: u64 = 12;
@@ -62,6 +61,7 @@ pub const fn next_multiple_of(val: u32, rhs: u32) -> u32 {
     }
 }
 
+#[allow(unused)]
 fn render(scene: &Scene, shaders: &Shaders) -> (Recording, BufProxy) {
     let mut recording = Recording::default();
     let data = scene.data();
@@ -140,7 +140,8 @@ fn render(scene: &Scene, shaders: &Shaders) -> (Recording, BufProxy) {
 pub fn render_full(
     scene: &Scene,
     shaders: &FullShaders,
-    dimensions: &Dimensions,
+    width: u32,
+    height: u32,
 ) -> (Recording, ResourceProxy) {
     let mut recording = Recording::default();
     let mut ramps = crate::ramp::RampCache::default();
@@ -209,15 +210,15 @@ pub fn render_full(
     let n_drawobj = n_path;
     let n_clip = data.n_clip;
 
-    let new_width = next_multiple_of(dimensions.width, 16);
-    let new_height = next_multiple_of(dimensions.height, 16);
+    let new_width = next_multiple_of(width, 16);
+    let new_height = next_multiple_of(height, 16);
 
     let config = Config {
         // TODO: Replace with div_ceil once stable
         width_in_tiles: new_width / 16,
         height_in_tiles: new_height / 16,
-        target_width: dimensions.width,
-        target_height: dimensions.height,
+        target_width: width,
+        target_height: height,
         n_drawobj,
         n_path,
         n_clip,
@@ -402,7 +403,7 @@ pub fn render_full(
             ptcl_buf,
         ],
     );
-    let out_image = ImageProxy::new(dimensions.width, dimensions.height, ImageFormat::Rgba8);
+    let out_image = ImageProxy::new(width, height, ImageFormat::Rgba8);
     recording.dispatch(
         shaders.fine,
         (config.width_in_tiles, config.height_in_tiles, 1),
