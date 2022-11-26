@@ -4,6 +4,9 @@ struct Config {
     width_in_tiles: u32,
     height_in_tiles: u32,
 
+    target_width: u32,
+    target_height: u32,
+
     n_drawobj: u32,
     n_path: u32,
     n_clip: u32,

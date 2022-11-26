@@ -59,11 +59,17 @@ pub struct BufProxy {
     id: Id,
 }
 
+#[derive(Copy, Clone, PartialEq, Eq)]
+pub enum ImageFormat {
+    Rgba8,
+    Bgra8,
+}
+
 #[derive(Clone, Copy)]
 pub struct ImageProxy {
     width: u32,
     height: u32,
-    // TODO: format
+    format: ImageFormat,
     id: Id,
 }
 
@@ -71,6 +77,11 @@ pub struct ImageProxy {
 pub enum ResourceProxy {
     Buf(BufProxy),
     Image(ImageProxy),
+}
+
+pub enum ExternalResource<'a> {
+    Buf(BufProxy, &'a Buffer),
+    Image(ImageProxy, &'a TextureView),
 }
 
 pub enum Command {
@@ -97,11 +108,9 @@ pub enum BindType {
     /// A storage buffer with read only access.
     BufReadOnly,
     /// A storage image.
-    #[allow(unused)] // TODO
-    Image,
+    Image(ImageFormat),
     /// A storage image with read only access.
-    #[allow(unused)] // TODO
-    ImageRead,
+    ImageRead(ImageFormat),
     // TODO: Uniform, Sampler, maybe others
 }
 
@@ -149,16 +158,26 @@ impl Engine {
                     },
                     count: None,
                 },
-                BindType::ImageRead => wgpu::BindGroupLayoutEntry {
-                    binding: i as u32,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
+                BindType::Image(format) | BindType::ImageRead(format) => {
+                    wgpu::BindGroupLayoutEntry {
+                        binding: i as u32,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: if *bind_type == BindType::ImageRead(*format) {
+                            wgpu::BindingType::Texture {
+                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                                view_dimension: wgpu::TextureViewDimension::D2,
+                                multisampled: false,
+                            }
+                        } else {
+                            wgpu::BindingType::StorageTexture {
+                                access: wgpu::StorageTextureAccess::WriteOnly,
+                                format: format.to_wgpu(),
+                                view_dimension: wgpu::TextureViewDimension::D2,
+                            }
+                        },
+                        count: None,
+                    }
+                }
                 _ => todo!(),
             })
             .collect::<Vec<_>>();
@@ -192,6 +211,7 @@ impl Engine {
         device: &Device,
         queue: &Queue,
         recording: &Recording,
+        external_resources: &[ExternalResource],
     ) -> Result<Downloads, Error> {
         let mut bind_map = BindMap::default();
         let mut downloads = Downloads::default();
@@ -226,7 +246,7 @@ impl Engine {
                         sample_count: 1,
                         dimension: wgpu::TextureDimension::D2,
                         usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-                        format: TextureFormat::Rgba8Unorm,
+                        format: image_proxy.format.to_wgpu(),
                     });
                     let texture_view = texture.create_view(&wgpu::TextureViewDescriptor {
                         label: None,
@@ -262,10 +282,14 @@ impl Engine {
                     bind_map.insert_image(image_proxy.id, texture, texture_view)
                 }
                 Command::Dispatch(shader_id, wg_size, bindings) => {
-                    println!("dispatching {:?} with {} bindings", wg_size, bindings.len());
+                    // println!("dispatching {:?} with {} bindings", wg_size, bindings.len());
                     let shader = &self.shaders[shader_id.0];
-                    let bind_group =
-                        bind_map.create_bind_group(device, &shader.bind_group_layout, bindings)?;
+                    let bind_group = bind_map.create_bind_group(
+                        device,
+                        &shader.bind_group_layout,
+                        bindings,
+                        external_resources,
+                    )?;
                     let mut cpass = encoder.begin_compute_pass(&Default::default());
                     cpass.set_pipeline(&shader.pipeline);
                     cpass.set_bind_group(0, &bind_group, &[]);
@@ -309,10 +333,11 @@ impl Recording {
         &mut self,
         width: u32,
         height: u32,
+        format: ImageFormat,
         data: impl Into<Vec<u8>>,
     ) -> ImageProxy {
         let data = data.into();
-        let image_proxy = ImageProxy::new(width, height);
+        let image_proxy = ImageProxy::new(width, height, format);
         self.push(Command::UploadImage(image_proxy, data));
         image_proxy
     }
@@ -348,10 +373,24 @@ impl BufProxy {
     }
 }
 
+impl ImageFormat {
+    pub fn to_wgpu(self) -> wgpu::TextureFormat {
+        match self {
+            Self::Rgba8 => wgpu::TextureFormat::Rgba8Unorm,
+            Self::Bgra8 => wgpu::TextureFormat::Bgra8Unorm,
+        }
+    }
+}
+
 impl ImageProxy {
-    pub fn new(width: u32, height: u32) -> Self {
+    pub fn new(width: u32, height: u32, format: ImageFormat) -> Self {
         let id = Id::next();
-        ImageProxy { width, height, id }
+        ImageProxy {
+            width,
+            height,
+            format,
+            id,
+        }
     }
 }
 
@@ -360,8 +399,8 @@ impl ResourceProxy {
         Self::Buf(BufProxy::new(size))
     }
 
-    pub fn new_image(width: u32, height: u32) -> Self {
-        Self::Image(ImageProxy::new(width, height))
+    pub fn new_image(width: u32, height: u32, format: ImageFormat) -> Self {
+        Self::Image(ImageProxy::new(width, height, format))
     }
 
     pub fn as_buf(&self) -> Option<&BufProxy> {
@@ -413,10 +452,44 @@ impl BindMap {
         device: &Device,
         layout: &BindGroupLayout,
         bindings: &[ResourceProxy],
+        external_resources: &[ExternalResource],
     ) -> Result<BindGroup, Error> {
+        // These functions are ugly and linear, but the remap array should generally be
+        // small. Should find a better solution for this.
+        fn find_buf<'a>(
+            resources: &[ExternalResource<'a>],
+            proxy: &BufProxy,
+        ) -> Option<&'a Buffer> {
+            for resource in resources {
+                match resource {
+                    ExternalResource::Buf(p, buf) if p.id == proxy.id => {
+                        return Some(buf);
+                    }
+                    _ => {}
+                }
+            }
+            None
+        }
+        fn find_image<'a>(
+            resources: &[ExternalResource<'a>],
+            proxy: &ImageProxy,
+        ) -> Option<&'a TextureView> {
+            for resource in resources {
+                match resource {
+                    ExternalResource::Image(p, view) if p.id == proxy.id => {
+                        return Some(view);
+                    }
+                    _ => {}
+                }
+            }
+            None
+        }
         for proxy in bindings {
             match proxy {
                 ResourceProxy::Buf(proxy) => {
+                    if find_buf(external_resources, proxy).is_some() {
+                        continue;
+                    }
                     if let Entry::Vacant(v) = self.buf_map.entry(proxy.id) {
                         let buf = device.create_buffer(&wgpu::BufferDescriptor {
                             label: None,
@@ -430,6 +503,9 @@ impl BindMap {
                     }
                 }
                 ResourceProxy::Image(proxy) => {
+                    if find_image(external_resources, proxy).is_some() {
+                        continue;
+                    }
                     if let Entry::Vacant(v) = self.image_map.entry(proxy.id) {
                         let texture = device.create_texture(&wgpu::TextureDescriptor {
                             label: None,
@@ -442,7 +518,7 @@ impl BindMap {
                             sample_count: 1,
                             dimension: wgpu::TextureDimension::D2,
                             usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-                            format: TextureFormat::Rgba8Unorm,
+                            format: proxy.format.to_wgpu(),
                         });
                         let texture_view = texture.create_view(&wgpu::TextureViewDescriptor {
                             label: None,
@@ -452,7 +528,7 @@ impl BindMap {
                             base_mip_level: 0,
                             base_array_layer: 0,
                             array_layer_count: None,
-                            format: Some(TextureFormat::Rgba8Unorm),
+                            format: Some(proxy.format.to_wgpu()),
                         });
                         v.insert((texture, texture_view));
                     }
@@ -464,17 +540,21 @@ impl BindMap {
             .enumerate()
             .map(|(i, proxy)| match proxy {
                 ResourceProxy::Buf(proxy) => {
-                    let buf = self.buf_map.get(&proxy.id).unwrap();
+                    let buf = find_buf(external_resources, proxy)
+                        .or_else(|| self.buf_map.get(&proxy.id))
+                        .unwrap();
                     Ok(wgpu::BindGroupEntry {
                         binding: i as u32,
                         resource: buf.as_entire_binding(),
                     })
                 }
                 ResourceProxy::Image(proxy) => {
-                    let texture = self.image_map.get(&proxy.id).unwrap();
+                    let view = find_image(external_resources, proxy)
+                        .or_else(|| self.image_map.get(&proxy.id).map(|v| &v.1))
+                        .unwrap();
                     Ok(wgpu::BindGroupEntry {
                         binding: i as u32,
-                        resource: wgpu::BindingResource::TextureView(&texture.1),
+                        resource: wgpu::BindingResource::TextureView(view),
                     })
                 }
             })
