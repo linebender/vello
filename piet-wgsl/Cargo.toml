@@ -18,3 +18,6 @@ piet-scene = { path = "../piet-scene" }
 
 # for picosvg, should be split out
 roxmltree = "0.13"
+
+# move this to an example
+winit = "0.27.5"

@@ -1,79 +1,58 @@
-// Copyright 2022 Google LLC
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     https://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-//
-// Also licensed under MIT license, at your choice.
+use super::PicoSvg;
+use piet_scene::kurbo::{Affine, BezPath, Ellipse, PathEl, Point, Rect};
+use piet_scene::*;
 
-use piet_scene::kurbo::{Affine, Ellipse, PathEl, Point, Rect};
-use piet_scene::{
-    BlendMode, Brush, Color, Fill, LinearGradient, Mix, RadialGradient, Scene, SceneBuilder,
-    SceneFragment, Stroke,
-};
+use crate::SimpleText;
 
-use crate::pico_svg::PicoSvg;
-
-pub fn gen_test_scene() -> Scene {
-    let mut scene = Scene::default();
-    let mut builder = SceneBuilder::for_scene(&mut scene);
-    let scene_ix = 1;
-    match scene_ix {
-        0 => {
-            let path = [
-                PathEl::MoveTo(Point::new(100.0, 100.0)),
-                PathEl::LineTo(Point::new(500.0, 120.0)),
-                PathEl::LineTo(Point::new(300.0, 150.0)),
-                PathEl::LineTo(Point::new(200.0, 260.0)),
-                PathEl::LineTo(Point::new(150.0, 210.0)),
-            ];
-            let brush = Brush::Solid(Color::rgb8(0x40, 0x40, 0xff));
-            builder.fill(Fill::NonZero, Affine::IDENTITY, &brush, None, &path);
-            let transform = Affine::translate((50.0, 50.0));
-            let brush = Brush::Solid(Color::rgba8(0xff, 0xff, 0x00, 0x80));
-            builder.fill(Fill::NonZero, transform, &brush, None, &path);
-            let transform = Affine::translate((100.0, 100.0));
-            let style = Stroke::new(1.0);
-            let brush = Brush::Solid(Color::rgb8(0xa0, 0x00, 0x00));
-            builder.stroke(&style, transform, &brush, None, &path);
-        }
-        1 => {
-            render_blend_grid(&mut builder);
-        }
-        _ => {
-            let xml_str =
-                std::str::from_utf8(include_bytes!("../../piet-gpu/Ghostscript_Tiger.svg"))
-                    .unwrap();
-            let svg = PicoSvg::load(xml_str, 6.0).unwrap();
-            render_svg(&mut builder, &svg, false);
-        }
-    }
-    builder.finish();
-    scene
-}
-
-#[allow(unused)]
-pub fn dump_scene_info(scene: &Scene) {
-    let data = scene.data();
-    println!("tags {:?}", data.tag_stream);
-    println!(
-        "pathsegs {:?}",
-        bytemuck::cast_slice::<u8, f32>(&data.pathseg_stream)
+pub fn render_funky_paths(sb: &mut SceneBuilder) {
+    use PathEl::*;
+    let missing_movetos = [
+        LineTo((100.0, 100.0).into()),
+        LineTo((100.0, 200.0).into()),
+        ClosePath,
+        LineTo((0.0, 400.0).into()),
+        LineTo((100.0, 400.0).into()),
+    ];
+    let only_movetos = [MoveTo((0.0, 0.0).into()), MoveTo((100.0, 100.0).into())];
+    let empty: [PathEl; 0] = [];
+    sb.fill(
+        Fill::NonZero,
+        Affine::translate((100.0, 100.0)),
+        Color::rgb8(0, 0, 255),
+        None,
+        &missing_movetos,
+    );
+    sb.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        Color::rgb8(0, 0, 255),
+        None,
+        &empty,
+    );
+    sb.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        Color::rgb8(0, 0, 255),
+        None,
+        &only_movetos,
+    );
+    sb.stroke(
+        &Stroke::new(8.0),
+        Affine::translate((100.0, 100.0)),
+        Color::rgb8(0, 255, 255),
+        None,
+        &missing_movetos,
     );
 }
 
+#[allow(unused)]
+const N_CIRCLES: usize = 0;
+
+#[allow(unused)]
 pub fn render_svg(sb: &mut SceneBuilder, svg: &PicoSvg, print_stats: bool) {
     use crate::pico_svg::*;
     let start = std::time::Instant::now();
-    for item in svg.items.iter() {
+    for item in &svg.items {
         match item {
             Item::Fill(fill) => {
                 sb.fill(
@@ -98,6 +77,117 @@ pub fn render_svg(sb: &mut SceneBuilder, svg: &PicoSvg, print_stats: bool) {
     if print_stats {
         println!("flattening and encoding time: {:?}", start.elapsed());
     }
+}
+
+#[allow(unused)]
+pub fn render_tiger(sb: &mut SceneBuilder, print_stats: bool) {
+    use super::pico_svg::*;
+    let xml_str =
+        std::str::from_utf8(include_bytes!("../../piet-gpu/Ghostscript_Tiger.svg")).unwrap();
+    let start = std::time::Instant::now();
+    let svg = PicoSvg::load(xml_str, 6.0).unwrap();
+    if print_stats {
+        println!("parsing time: {:?}", start.elapsed());
+    }
+    render_svg(sb, &svg, print_stats);
+}
+
+pub fn render_scene(sb: &mut SceneBuilder) {
+    render_cardioid(sb);
+    render_clip_test(sb);
+    render_alpha_test(sb);
+    //render_tiger(sb, false);
+}
+
+#[allow(unused)]
+fn render_cardioid(sb: &mut SceneBuilder) {
+    let n = 601;
+    let dth = std::f64::consts::PI * 2.0 / (n as f64);
+    let center = Point::new(1024.0, 768.0);
+    let r = 750.0;
+    let mut path = BezPath::new();
+    for i in 1..n {
+        let mut p0 = center;
+        let a0 = i as f64 * dth;
+        p0.x += a0.cos() * r;
+        p0.y += a0.sin() * r;
+        let mut p1 = center;
+        let a1 = ((i * 2) % n) as f64 * dth;
+        p1.x += a1.cos() * r;
+        p1.y += a1.sin() * r;
+        path.push(PathEl::MoveTo(p0));
+        path.push(PathEl::LineTo(p1));
+    }
+    sb.stroke(
+        &Stroke::new(2.0),
+        Affine::IDENTITY,
+        Color::rgb8(0, 0, 0),
+        None,
+        &path,
+    );
+}
+
+#[allow(unused)]
+fn render_clip_test(sb: &mut SceneBuilder) {
+    const N: usize = 16;
+    const X0: f64 = 50.0;
+    const Y0: f64 = 450.0;
+    // Note: if it gets much larger, it will exceed the 1MB scratch buffer.
+    // But this is a pretty demanding test.
+    const X1: f64 = 550.0;
+    const Y1: f64 = 950.0;
+    let step = 1.0 / ((N + 1) as f64);
+    for i in 0..N {
+        let t = ((i + 1) as f64) * step;
+        let path = [
+            PathEl::MoveTo((X0, Y0).into()),
+            PathEl::LineTo((X1, Y0).into()),
+            PathEl::LineTo((X1, Y0 + t * (Y1 - Y0)).into()),
+            PathEl::LineTo((X1 + t * (X0 - X1), Y1).into()),
+            PathEl::LineTo((X0, Y1).into()),
+            PathEl::ClosePath,
+        ];
+        sb.push_layer(Mix::Clip, Affine::IDENTITY, &path);
+    }
+    let rect = Rect::new(X0, Y0, X1, Y1);
+    sb.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        &Brush::Solid(Color::rgb8(0, 0, 0)),
+        None,
+        &rect,
+    );
+    for _ in 0..N {
+        sb.pop_layer();
+    }
+}
+
+#[allow(unused)]
+fn render_alpha_test(sb: &mut SceneBuilder) {
+    // Alpha compositing tests.
+    sb.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        Color::rgb8(255, 0, 0),
+        None,
+        &make_diamond(1024.0, 100.0),
+    );
+    sb.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        Color::rgba8(0, 255, 0, 0x80),
+        None,
+        &make_diamond(1024.0, 125.0),
+    );
+    sb.push_layer(Mix::Clip, Affine::IDENTITY, &make_diamond(1024.0, 150.0));
+    sb.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        Color::rgba8(0, 0, 255, 0x80),
+        None,
+        &make_diamond(1024.0, 175.0),
+    );
+    sb.pop_layer();
 }
 
 #[allow(unused)]
@@ -180,4 +270,84 @@ fn blend_square(blend: BlendMode) -> SceneFragment {
     render_blend_square(&mut sb, blend, Affine::IDENTITY);
     sb.finish();
     fragment
+}
+
+#[allow(unused)]
+pub fn render_anim_frame(sb: &mut SceneBuilder, text: &mut SimpleText, i: usize) {
+    sb.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        &Brush::Solid(Color::rgb8(128, 128, 128)),
+        None,
+        &Rect::from_origin_size(Point::new(0.0, 0.0), (1000.0, 1000.0)),
+    );
+    let text_size = 60.0 + 40.0 * (0.01 * i as f32).sin();
+    let s = "\u{1f600}hello piet-gpu text!";
+    text.add(
+        sb,
+        None,
+        text_size,
+        None,
+        Affine::translate((110.0, 600.0)),
+        s,
+    );
+    text.add(
+        sb,
+        None,
+        text_size,
+        None,
+        Affine::translate((110.0, 700.0)),
+        s,
+    );
+    let th = (std::f64::consts::PI / 180.0) * (i as f64);
+    let center = Point::new(500.0, 500.0);
+    let mut p1 = center;
+    p1.x += 400.0 * th.cos();
+    p1.y += 400.0 * th.sin();
+    sb.stroke(
+        &Stroke::new(5.0),
+        Affine::IDENTITY,
+        &Brush::Solid(Color::rgb8(128, 0, 0)),
+        None,
+        &&[PathEl::MoveTo(center), PathEl::LineTo(p1)][..],
+    );
+}
+
+#[allow(unused)]
+pub fn render_brush_transform(sb: &mut SceneBuilder, i: usize) {
+    let th = (std::f64::consts::PI / 180.0) * (i as f64);
+    let linear = LinearGradient::new((0.0, 0.0), (0.0, 200.0)).stops([
+        Color::RED,
+        Color::GREEN,
+        Color::BLUE,
+    ]);
+    sb.fill(
+        Fill::NonZero,
+        Affine::translate((200.0, 200.0)),
+        &linear,
+        Some(around_center(Affine::rotate(th), Point::new(200.0, 100.0))),
+        &Rect::from_origin_size(Point::default(), (400.0, 200.0)),
+    );
+    sb.stroke(
+        &Stroke::new(40.0),
+        Affine::translate((800.0, 200.0)),
+        &linear,
+        Some(around_center(Affine::rotate(th), Point::new(200.0, 100.0))),
+        &Rect::from_origin_size(Point::default(), (400.0, 200.0)),
+    );
+}
+
+fn around_center(xform: Affine, center: Point) -> Affine {
+    Affine::translate(center.to_vec2()) * xform * Affine::translate(-center.to_vec2())
+}
+
+fn make_diamond(cx: f64, cy: f64) -> [PathEl; 5] {
+    const SIZE: f64 = 50.0;
+    [
+        PathEl::MoveTo(Point::new(cx, cy - SIZE)),
+        PathEl::LineTo(Point::new(cx + SIZE, cy)),
+        PathEl::LineTo(Point::new(cx, cy + SIZE)),
+        PathEl::LineTo(Point::new(cx - SIZE, cy)),
+        PathEl::ClosePath,
+    ]
 }

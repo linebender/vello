@@ -4,7 +4,7 @@ use bytemuck::{Pod, Zeroable};
 use piet_scene::Scene;
 
 use crate::{
-    engine::{BufProxy, Recording, ResourceProxy},
+    engine::{BufProxy, ImageFormat, ImageProxy, Recording, ResourceProxy},
     shaders::{self, FullShaders, Shaders},
     Dimensions,
 };
@@ -29,6 +29,8 @@ const BIN_HEADER_SIZE: u64 = 8;
 struct Config {
     width_in_tiles: u32,
     height_in_tiles: u32,
+    target_width: u32,
+    target_height: u32,
     n_drawobj: u32,
     n_path: u32,
     n_clip: u32,
@@ -76,6 +78,8 @@ fn render(scene: &Scene, shaders: &Shaders) -> (Recording, BufProxy) {
     let config = Config {
         width_in_tiles: 64,
         height_in_tiles: 64,
+        target_width: 64 * 16,
+        target_height: 64 * 16,
         pathtag_base,
         pathdata_base,
         ..Default::default()
@@ -137,7 +141,7 @@ pub fn render_full(
     scene: &Scene,
     shaders: &FullShaders,
     dimensions: &Dimensions,
-) -> (Recording, BufProxy) {
+) -> (Recording, ResourceProxy) {
     let mut recording = Recording::default();
     let mut ramps = crate::ramp::RampCache::default();
     let mut drawdata_patches: Vec<(usize, u32)> = vec![];
@@ -153,19 +157,19 @@ pub fn render_full(
         }
     }
     let gradient_image = if drawdata_patches.is_empty() {
-        ResourceProxy::new_image(1, 1)
+        ResourceProxy::new_image(1, 1, ImageFormat::Rgba8)
     } else {
         let data = ramps.data();
         let width = ramps.width();
         let height = ramps.height();
         let data: &[u8] = bytemuck::cast_slice(data);
-        println!(
-            "gradient image: {}x{} ({} bytes)",
-            width,
-            height,
-            data.len()
-        );
-        ResourceProxy::Image(recording.upload_image(width, height, data))
+        // println!(
+        //     "gradient image: {}x{} ({} bytes)",
+        //     width,
+        //     height,
+        //     data.len()
+        // );
+        ResourceProxy::Image(recording.upload_image(width, height, ImageFormat::Rgba8, data))
     };
     let n_pathtag = data.tag_stream.len();
     let pathtag_padded = align_up(n_pathtag, 4 * shaders::PATHTAG_REDUCE_WG);
@@ -206,12 +210,14 @@ pub fn render_full(
     let n_clip = data.n_clip;
 
     let new_width = next_multiple_of(dimensions.width, 16);
-    let new_height = next_multiple_of(dimensions.width, 16);
+    let new_height = next_multiple_of(dimensions.height, 16);
 
     let config = Config {
         // TODO: Replace with div_ceil once stable
         width_in_tiles: new_width / 16,
         height_in_tiles: new_height / 16,
+        target_width: dimensions.width,
+        target_height: dimensions.height,
         n_drawobj,
         n_path,
         n_clip,
@@ -222,7 +228,7 @@ pub fn render_full(
         transform_base,
         linewidth_base,
     };
-    println!("{:?}", config);
+    // println!("{:?}", config);
     let scene_buf = ResourceProxy::Buf(recording.upload(scene));
     let config_buf = ResourceProxy::Buf(recording.upload(bytemuck::bytes_of(&config).to_owned()));
 
@@ -396,8 +402,7 @@ pub fn render_full(
             ptcl_buf,
         ],
     );
-    let out_buf_size = config.width_in_tiles * config.height_in_tiles * 1024;
-    let out_buf = BufProxy::new(out_buf_size as u64);
+    let out_image = ImageProxy::new(dimensions.width, dimensions.height, ImageFormat::Rgba8);
     recording.dispatch(
         shaders.fine,
         (config.width_in_tiles, config.height_in_tiles, 1),
@@ -405,15 +410,12 @@ pub fn render_full(
             config_buf,
             tile_buf,
             segments_buf,
-            ResourceProxy::Buf(out_buf),
+            ResourceProxy::Image(out_image),
             ptcl_buf,
             gradient_image,
         ],
     );
-
-    let download_buf = out_buf;
-    recording.download(download_buf);
-    (recording, download_buf)
+    (recording, ResourceProxy::Image(out_image))
 }
 
 pub fn align_up(len: usize, alignment: u32) -> usize {

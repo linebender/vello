@@ -21,10 +21,6 @@ var<storage> tiles: array<Tile>;
 @group(0) @binding(2)
 var<storage> segments: array<Segment>;
 
-// This will become a texture, but keeping things simple for now
-@group(0) @binding(3)
-var<storage, read_write> output: array<u32>;
-
 #ifdef full
 
 #import blend
@@ -32,6 +28,9 @@ var<storage, read_write> output: array<u32>;
 
 let GRADIENT_WIDTH = 512;
 let BLEND_STACK_SPLIT = 4u;
+
+@group(0) @binding(3)
+var output: texture_storage_2d<rgba8unorm, write>;
 
 @group(0) @binding(4)
 var<storage> ptcl: array<u32>;
@@ -77,6 +76,11 @@ fn read_rad_grad(cmd_ix: u32) -> CmdRadGrad {
     let roff = bitcast<f32>(ptcl[cmd_ix + 11u]);
     return CmdRadGrad(index, matrx, xlat, c1, ra, roff);
 }
+
+#else
+
+@group(0) @binding(3)
+var output: texture_storage_2d<r8, write>;
 
 #endif
 
@@ -273,20 +277,23 @@ fn main(
             default: {}
         }
     }
-    let out_ix = global_id.y * (config.width_in_tiles * TILE_WIDTH) + global_id.x * PIXELS_PER_THREAD;
+    let xy_uint = vec2<u32>(xy);
     for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
-        let fg = rgba[i];
-        let a_inv = 1.0 / (fg.a + 1e-6);
-        let rgba_sep = vec4(fg.r * a_inv, fg.g * a_inv, fg.b * a_inv, fg.a);
-        let bytes = pack4x8unorm(rgba_sep);
-        output[out_ix + i] = bytes;
-    }
+        let coords = xy_uint + vec2(i, 0u);
+        if coords.x < config.target_width && coords.y < config.target_height {
+            textureStore(output, vec2<i32>(coords), rgba[i]);
+        }
+    } 
 #else
     let tile = tiles[tile_ix];
     let area = fill_path(tile, xy);
 
-    let bytes = pack4x8unorm(vec4(area[0], area[1], area[2], area[3]));
-    let out_ix = global_id.y * (config.width_in_tiles * 4u) + global_id.x;
-    output[out_ix] = bytes;
+    let xy_uint = vec2<u32>(xy);
+    for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
+        let coords = xy_uint + vec2(i, 0u);
+        if coords.x < config.target_width && coords.y < config.target_height {
+            textureStore(output, vec2<i32>(coords), vec4(area[i]));
+        }
+    }
 #endif
 }
