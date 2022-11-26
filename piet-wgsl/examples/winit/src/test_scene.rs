@@ -265,7 +265,7 @@ fn render_blend_square(sb: &mut SceneBuilder, blend: BlendMode, transform: Affin
 #[allow(unused)]
 fn blend_square(blend: BlendMode) -> SceneFragment {
     let mut fragment = SceneFragment::default();
-    let mut sb = SceneBuilder::for_fragment(&mut fragment);
+    let mut sb = SceneBuilder::new(&mut fragment);
     render_blend_square(&mut sb, blend, Affine::IDENTITY);
     sb.finish();
     fragment

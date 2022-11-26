@@ -30,18 +30,30 @@ pub struct SceneBuilder<'a> {
 impl<'a> SceneBuilder<'a> {
     /// Creates a new builder for filling a scene. Any current content in the scene
     /// will be cleared.
+    #[deprecated = "use SceneBuilder::new() instead"]
     pub fn for_scene(scene: &'a mut Scene) -> Self {
-        Self::new(&mut scene.data, false)
+        Self::new_inner(&mut scene.data, false)
     }
 
     /// Creates a new builder for filling a scene fragment. Any current content in
     /// the fragment will be cleared.    
+    #[deprecated = "use SceneBuilder::new() instead"]
     pub fn for_fragment(fragment: &'a mut SceneFragment) -> Self {
-        Self::new(&mut fragment.data, true)
+        Self::new_inner(&mut fragment.data, true)
+    }
+
+    /// Creates a new scene builder for a scene or scene fragment. Any content will be
+    /// cleared. The types accepted for the scene parameter are `&mut Scene` or
+    /// `&mut SceneFragment`.
+    pub fn new(scene: impl Into<AnyScene<'a>>) -> Self {
+        match scene.into() {
+            AnyScene::Scene(scene) => Self::new_inner(&mut scene.data, false),
+            AnyScene::Fragment(fragment) => Self::new_inner(&mut fragment.data, true),
+        }
     }
 
     /// Creates a new builder for constructing a scene.
-    fn new(scene: &'a mut SceneData, is_fragment: bool) -> Self {
+    fn new_inner(scene: &'a mut SceneData, is_fragment: bool) -> Self {
         scene.reset(is_fragment);
         Self {
             scene,
@@ -275,6 +287,26 @@ impl<'a> SceneBuilder<'a> {
         self.scene.n_clip += 1;
     }
 }
+
+/// Helper for constructing a scene builder.
+#[doc(hidden)]
+pub enum AnyScene<'a> {
+    Scene(&'a mut Scene),
+    Fragment(&'a mut SceneFragment),
+}
+
+impl<'a> From<&'a mut Scene> for AnyScene<'a> {
+    fn from(scene: &'a mut Scene) -> Self {
+        Self::Scene(scene)
+    }
+}
+
+impl<'a> From<&'a mut SceneFragment> for AnyScene<'a> {
+    fn from(scene: &'a mut SceneFragment) -> Self {
+        Self::Fragment(scene)
+    }
+}
+
 
 fn encode_blend_mode(mode: BlendMode) -> u32 {
     (mode.mix as u32) << 8 | mode.compose as u32
