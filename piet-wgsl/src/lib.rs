@@ -114,7 +114,7 @@ impl Renderer {
                 .create_view(&wgpu::TextureViewDescriptor::default());
             let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: None,
-                layout: &&self.blit.bind_layout,
+                layout: &self.blit.bind_layout,
                 entries: &[wgpu::BindGroupEntry {
                     binding: 0,
                     resource: wgpu::BindingResource::TextureView(&target.view),
