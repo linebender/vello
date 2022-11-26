@@ -16,6 +16,8 @@
 
 //! Simple helpers for managing wgpu state and surfaces.
 
+use super::Result;
+
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use wgpu::{Device, Instance, Limits, Queue, Surface, SurfaceConfiguration};
 
@@ -27,7 +29,7 @@ pub struct RenderContext {
 }
 
 impl RenderContext {
-    pub async fn new() -> Result<Self, Box<dyn std::error::Error>> {
+    pub async fn new() -> Result<Self> {
         let instance = Instance::new(wgpu::Backends::PRIMARY);
         let adapter = instance.request_adapter(&Default::default()).await.unwrap();
         let features = adapter.features();
