@@ -307,7 +307,6 @@ impl<'a> From<&'a mut SceneFragment> for AnyScene<'a> {
     }
 }
 
-
 fn encode_blend_mode(mode: BlendMode) -> u32 {
     (mode.mix as u32) << 8 | mode.compose as u32
 }
