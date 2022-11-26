@@ -1,8 +1,7 @@
-use super::PicoSvg;
+use crate::pico_svg::PicoSvg;
+use crate::simple_text::SimpleText;
 use piet_scene::kurbo::{Affine, BezPath, Ellipse, PathEl, Point, Rect};
 use piet_scene::*;
-
-use crate::SimpleText;
 
 pub fn render_funky_paths(sb: &mut SceneBuilder) {
     use PathEl::*;
@@ -83,7 +82,7 @@ pub fn render_svg(sb: &mut SceneBuilder, svg: &PicoSvg, print_stats: bool) {
 pub fn render_tiger(sb: &mut SceneBuilder, print_stats: bool) {
     use super::pico_svg::*;
     let xml_str =
-        std::str::from_utf8(include_bytes!("../../piet-gpu/Ghostscript_Tiger.svg")).unwrap();
+        std::str::from_utf8(include_bytes!("../../assets/Ghostscript_Tiger.svg")).unwrap();
     let start = std::time::Instant::now();
     let svg = PicoSvg::load(xml_str, 6.0).unwrap();
     if print_stats {

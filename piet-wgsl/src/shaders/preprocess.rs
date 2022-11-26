@@ -34,11 +34,7 @@ pub struct StackItem {
     else_passed: bool,
 }
 
-pub fn preprocess(
-    input: &str,
-    defines: &HashSet<String>,
-    imports: &HashMap<String, String>,
-) -> String {
+pub fn preprocess(input: &str, defines: &HashSet<String>, imports: &HashMap<&str, &str>) -> String {
     let mut output = String::with_capacity(input.len());
     let mut stack = vec![];
     'all_lines: for (line_number, mut line) in input.lines().enumerate() {
