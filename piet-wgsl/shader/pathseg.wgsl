@@ -181,7 +181,7 @@ fn main(
                 p1 = mix(p1, p0, 1.0 / 3.0);
             }
         }
-        var stroke = vec2<f32>(0.0, 0.0);
+        var stroke = vec2(0.0, 0.0);
         if linewidth >= 0.0 {
             // See https://www.iquilezles.org/www/articles/ellipses/ellipses.htm
             // This is the correct bounding box, but we're not handling rendering
