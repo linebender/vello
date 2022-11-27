@@ -129,9 +129,8 @@ fn main(
     var tag_byte = (tag_word >> shift) & 0xffu;
 
     let out = &path_bboxes[tm.path_ix];
-    var linewidth: f32;
+    let linewidth = bitcast<f32>(scene[config.linewidth_base + tm.linewidth_ix]);
     if (tag_byte & PATH_TAG_PATH) != 0u {
-        linewidth = bitcast<f32>(scene[config.linewidth_base + tm.linewidth_ix]);
         (*out).linewidth = linewidth;
         (*out).trans_ix = tm.trans_ix;
     }
@@ -182,14 +181,16 @@ fn main(
                 p1 = mix(p1, p0, 1.0 / 3.0);
             }
         }
+        var stroke = vec2<f32>(0.0, 0.0);
         if linewidth >= 0.0 {
             // See https://www.iquilezles.org/www/articles/ellipses/ellipses.htm
             // This is the correct bounding box, but we're not handling rendering
             // in the isotropic case, so it may mismatch.
-            let stroke = 0.5 * linewidth * vec2(length(transform.matrx.xz), length(transform.matrx.yw));
+            stroke = 0.5 * linewidth * vec2(length(transform.matrx.xz), length(transform.matrx.yw));
             bbox += vec4(-stroke, stroke);
         }
-        cubics[global_id.x] = Cubic(p0, p1, p2, p3, tm.path_ix, 0u);
+        let flags = u32(linewidth >= 0.0);
+        cubics[global_id.x] = Cubic(p0, p1, p2, p3, stroke, tm.path_ix, flags);
         // Update bounding box using atomics only. Computing a monoid is a
         // potential future optimization.
         if bbox.z > bbox.x || bbox.w > bbox.y {

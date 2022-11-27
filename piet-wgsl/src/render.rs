@@ -11,7 +11,7 @@ use crate::{
 const TAG_MONOID_SIZE: u64 = 12;
 const TAG_MONOID_FULL_SIZE: u64 = 20;
 const PATH_BBOX_SIZE: u64 = 24;
-const CUBIC_SIZE: u64 = 40;
+const CUBIC_SIZE: u64 = 48;
 const DRAWMONOID_SIZE: u64 = 16;
 const MAX_DRAWINFO_SIZE: u64 = 44;
 const CLIP_BIC_SIZE: u64 = 8;
