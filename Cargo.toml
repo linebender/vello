@@ -1,19 +1,9 @@
 [workspace]
 resolver = "2"
 
-members = [
-    "pgpu-render",
-    "piet-gpu",
-    "piet-gpu-derive",
-    "piet-gpu-hal",
-    "piet-gpu-types",
-    "piet-scene",
-    "piet-wgsl",
-    "piet-wgsl/examples/winit",
-    "tests",
-]
+members = ["piet-scene", "piet-wgsl", "piet-wgsl/examples/winit"]
 
 [patch.crates-io]
 # Required for metal support to work on wgpu
 # TODO: remove when wgpu is upgraded to 0.15
-naga = { git = "https://github.com/gfx-rs/naga", rev="ddcd5d3121150b2b1beee6e54e9125ff31aaa9a2" }
+naga = { git = "https://github.com/gfx-rs/naga", rev = "ddcd5d3121150b2b1beee6e54e9125ff31aaa9a2" }
