@@ -5,7 +5,9 @@ struct Cubic {
     p1: vec2<f32>,
     p2: vec2<f32>,
     p3: vec2<f32>,
+    stroke: vec2<f32>,
     path_ix: u32,
-    // Needed?
-    padding: u32,
+    flags: u32,
 }
+
+let CUBIC_IS_STROKE = 1u;

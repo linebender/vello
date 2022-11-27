@@ -113,6 +113,7 @@ fn main(
         // classic memory vs ALU tradeoff.
         let cubic = cubics[global_id.x];
         let path = paths[cubic.path_ix];
+        let is_stroke = (cubic.flags & CUBIC_IS_STROKE) != 0u;
         let bbox = vec4<i32>(path.bbox);
         let p0 = cubic.p0;
         let p1 = cubic.p1;
@@ -169,15 +170,15 @@ fn main(
                 }
 
                 // Output line segment lp0..lp1
-                let xymin = min(lp0, lp1);
-                let xymax = max(lp0, lp1);
+                let xymin = min(lp0, lp1) - cubic.stroke;
+                let xymax = max(lp0, lp1) + cubic.stroke;
                 let dp = lp1 - lp0;
                 let recip_dx = 1.0 / dp.x;
                 let invslope = select(dp.x / dp.y, 1.0e9, abs(dp.y) < 1.0e-9);
-                let c = 0.5 * abs(invslope);
-                let b = invslope;
                 let SX = 1.0 / f32(TILE_WIDTH);
                 let SY = 1.0 / f32(TILE_HEIGHT);
+                let c = (cubic.stroke.x + abs(invslope) * (0.5 * f32(TILE_HEIGHT) + cubic.stroke.y)) * SX;
+                let b = invslope;
                 let a = (lp0.x - (lp0.y - 0.5 * f32(TILE_HEIGHT)) * b) * SX;
                 var x0 = i32(floor(xymin.x * SX));
                 var x1 = i32(floor(xymax.x * SX) + 1.0);
@@ -200,7 +201,7 @@ fn main(
                 for (var y = y0; y < y1; y += 1) {
                     let tile_y0 = f32(y) * f32(TILE_HEIGHT);
                     let xbackdrop = max(xray + 1, bbox.x);
-                    if xymin.y < tile_y0 && xbackdrop < bbox.z {
+                    if !is_stroke && xymin.y < tile_y0 && xbackdrop < bbox.z {
                         let backdrop = select(-1, 1, dp.y < 0.0);
                         let tile_ix = base + xbackdrop;
                         atomicAdd(&tiles[tile_ix].backdrop, backdrop);
@@ -226,21 +227,24 @@ fn main(
                         let old = atomicExchange(&tiles[tile_ix].segments, seg_ix);
                         tile_seg.origin = lp0;
                         tile_seg.delta = dp;
-                        var y_edge = mix(lp0.y, lp1.y, (tile_x0 - lp0.x) * recip_dx);
-                        if xymin.x < tile_x0 {
-                            let p = vec2(tile_x0, y_edge);
-                            if dp.x < 0.0 {
-                                tile_seg.delta = p - lp0;
-                            } else {
-                                tile_seg.origin = p;
-                                tile_seg.delta = lp1 - p;
+                        var y_edge = 0.0;
+                        if !is_stroke {
+                            y_edge = mix(lp0.y, lp1.y, (tile_x0 - lp0.x) * recip_dx);
+                            if xymin.x < tile_x0 {
+                                let p = vec2(tile_x0, y_edge);
+                                if dp.x < 0.0 {
+                                    tile_seg.delta = p - lp0;
+                                } else {
+                                    tile_seg.origin = p;
+                                    tile_seg.delta = lp1 - p;
+                                }
+                                if tile_seg.delta.x == 0.0 {
+                                    tile_seg.delta.x = sign(dp.x) * 1e-9;
+                                }
                             }
-                            if tile_seg.delta.x == 0.0 {
-                                tile_seg.delta.x = sign(dp.x) * 1e-9;
+                            if x <= min_xray || max_xray < x {
+                                y_edge = 1e9;
                             }
-                        }
-                        if x <= min_xray || max_xray < x {
-                            y_edge = 1e9;
                         }
                         tile_seg.y_edge = y_edge;
                         tile_seg.next = old;
