@@ -1,7 +1,22 @@
 [workspace]
 resolver = "2"
+members = ["piet-scene", "examples/winit"]
 
-members = ["piet-scene", "piet-wgsl", "piet-wgsl/examples/winit"]
+[package]
+name = "piet-wgsl"
+version = "0.1.0"
+authors = ["Raph Levien <raph@google.com>"]
+license = "MIT/Apache-2.0"
+edition = "2021"
+
+[dependencies]
+wgpu = "0.14"
+raw-window-handle = "0.5"
+futures-intrusive = "0.5.0"
+parking_lot = "0.12"
+bytemuck = { version = "1.12.1", features = ["derive"] }
+piet-scene = { path = "piet-scene" }
+
 
 [patch.crates-io]
 # Required for metal support to work on wgpu

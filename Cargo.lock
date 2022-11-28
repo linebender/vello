@@ -1698,17 +1698,6 @@ checksum = "f40009d85759725a34da6d89a94e63d7bdc50a862acf0dbc7c8e488f1edcb6f5"
 
 [[package]]
 name = "winit"
-version = "0.1.0"
-dependencies = [
- "piet-scene",
- "piet-wgsl",
- "pollster",
- "roxmltree",
- "winit 0.27.5",
-]
-
-[[package]]
-name = "winit"
 version = "0.27.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bb796d6fbd86b2fd896c9471e6f04d39d750076ebe5680a3958f00f5ab97657c"
@@ -1738,6 +1727,17 @@ dependencies = [
  "web-sys",
  "windows-sys 0.36.1",
  "x11-dl",
+]
+
+[[package]]
+name = "winit-example"
+version = "0.1.0"
+dependencies = [
+ "piet-scene",
+ "piet-wgsl",
+ "pollster",
+ "roxmltree",
+ "winit",
 ]
 
 [[package]]
