@@ -113,10 +113,6 @@ fn write_color(color: CmdColor) {
     cmd_offset += 2u;
 }
 
-// Discussion point: these are basically copying from info to ptcl. We
-// could just write an info offset and have fine bind that buffer and read
-// from it.
-
 fn write_grad(ty: u32, index: u32, info_offset: u32) {
     alloc_cmd(3u);
     ptcl[cmd_offset] = ty;

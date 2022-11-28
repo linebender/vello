@@ -213,7 +213,7 @@ fn main(
                     let fg_i = fg * area[i];
                     rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
                 }
-                cmd_ix += 3u;
+                cmd_ix += 2u;
             }
             // CMD_LIN_GRAD
             case 6u: {
