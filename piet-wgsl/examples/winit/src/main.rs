@@ -96,6 +96,7 @@ async fn run() -> Result<()> {
                 )
                 .expect("failed to render to surface");
             surface_texture.present();
+            render_cx.device.poll(wgpu::Maintain::Wait);
         }
         _ => {}
     });

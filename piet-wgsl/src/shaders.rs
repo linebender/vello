@@ -32,7 +32,7 @@ pub const CLIP_REDUCE_WG: u32 = 256;
 
 macro_rules! shader {
     ($name:expr) => {
-        include_str!(concat!(concat!("../shader/", $name), ".wgsl"))
+        include_str!(concat!("../shader/", $name, ".wgsl"))
     };
 }
 
@@ -314,7 +314,7 @@ macro_rules! shared_shader {
     ($name:expr) => {
         (
             $name,
-            include_str!(concat!(concat!("../shader/shared/", $name), ".wgsl")),
+            include_str!(concat!("../shader/shared/", $name, ".wgsl")),
         )
     };
 }
@@ -326,7 +326,6 @@ const SHARED_SHADERS: &[(&str, &str)] = &[
     shared_shader!("clip"),
     shared_shader!("config"),
     shared_shader!("cubic"),
-    shared_shader!("bbox"),
     shared_shader!("drawtag"),
     shared_shader!("pathtag"),
     shared_shader!("ptcl"),

@@ -1704,6 +1704,7 @@ dependencies = [
  "piet-wgsl",
  "pollster",
  "roxmltree",
+ "wgpu",
  "winit 0.27.5",
 ]
 
