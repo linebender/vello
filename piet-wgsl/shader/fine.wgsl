@@ -38,6 +38,9 @@ var<storage> ptcl: array<u32>;
 @group(0) @binding(5)
 var gradients: texture_2d<f32>;
 
+@group(0) @binding(6)
+var<storage> info: array<u32>;
+
 fn read_fill(cmd_ix: u32) -> CmdFill {
     let tile = ptcl[cmd_ix + 1u];
     let backdrop = i32(ptcl[cmd_ix + 2u]);
@@ -57,23 +60,25 @@ fn read_color(cmd_ix: u32) -> CmdColor {
 
 fn read_lin_grad(cmd_ix: u32) -> CmdLinGrad {
     let index = ptcl[cmd_ix + 1u];
-    let line_x = bitcast<f32>(ptcl[cmd_ix + 2u]);
-    let line_y = bitcast<f32>(ptcl[cmd_ix + 3u]);
-    let line_c = bitcast<f32>(ptcl[cmd_ix + 4u]);
+    let info_offset = ptcl[cmd_ix + 2u];
+    let line_x = bitcast<f32>(info[info_offset]);
+    let line_y = bitcast<f32>(info[info_offset + 1u]);
+    let line_c = bitcast<f32>(info[info_offset + 2u]);
     return CmdLinGrad(index, line_x, line_y, line_c);
 }
 
 fn read_rad_grad(cmd_ix: u32) -> CmdRadGrad {
     let index = ptcl[cmd_ix + 1u];
-    let m0 = bitcast<f32>(ptcl[cmd_ix + 2u]);
-    let m1 = bitcast<f32>(ptcl[cmd_ix + 3u]);
-    let m2 = bitcast<f32>(ptcl[cmd_ix + 4u]);
-    let m3 = bitcast<f32>(ptcl[cmd_ix + 5u]);
+    let info_offset = ptcl[cmd_ix + 2u];
+    let m0 = bitcast<f32>(info[info_offset]);
+    let m1 = bitcast<f32>(info[info_offset + 1u]);
+    let m2 = bitcast<f32>(info[info_offset + 2u]);
+    let m3 = bitcast<f32>(info[info_offset + 3u]);
     let matrx = vec4(m0, m1, m2, m3);
-    let xlat = vec2(bitcast<f32>(ptcl[cmd_ix + 6u]), bitcast<f32>(ptcl[cmd_ix + 7u]));
-    let c1 = vec2(bitcast<f32>(ptcl[cmd_ix + 8u]), bitcast<f32>(ptcl[cmd_ix + 9u]));
-    let ra = bitcast<f32>(ptcl[cmd_ix + 10u]);
-    let roff = bitcast<f32>(ptcl[cmd_ix + 11u]);
+    let xlat = vec2(bitcast<f32>(info[info_offset + 4u]), bitcast<f32>(info[info_offset + 5u]));
+    let c1 = vec2(bitcast<f32>(info[info_offset + 6u]), bitcast<f32>(info[info_offset + 7u]));
+    let ra = bitcast<f32>(info[info_offset + 8u]);
+    let roff = bitcast<f32>(info[info_offset + 9u]);
     return CmdRadGrad(index, matrx, xlat, c1, ra, roff);
 }
 
@@ -208,7 +213,7 @@ fn main(
                     let fg_i = fg * area[i];
                     rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
                 }
-                cmd_ix += 2u;
+                cmd_ix += 3u;
             }
             // CMD_LIN_GRAD
             case 6u: {
@@ -221,7 +226,7 @@ fn main(
                     let fg_i = fg_rgba * area[i];
                     rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
                 }
-                cmd_ix += 5u;
+                cmd_ix += 3u;
             }
             // CMD_RAD_GRAD
             case 7u: {
@@ -238,7 +243,7 @@ fn main(
                     let fg_i = fg_rgba * area[i];
                     rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
                 }
-                cmd_ix += 12u;
+                cmd_ix += 3u;
             }
             // CMD_BEGIN_CLIP
             case 9u: {

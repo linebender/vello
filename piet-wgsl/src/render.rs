@@ -414,6 +414,7 @@ pub fn render_full(
             ResourceProxy::Image(out_image),
             ptcl_buf,
             gradient_image,
+            info_buf,
         ],
     );
     (recording, ResourceProxy::Image(out_image))
