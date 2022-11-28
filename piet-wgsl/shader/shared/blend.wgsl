@@ -318,10 +318,10 @@ fn blend_mix_compose(backdrop: vec4<f32>, src: vec4<f32>, mode: u32) -> vec4<f32
         // Both normal+src_over blend and clip case
         return backdrop * (1.0 - src.a) + src;
     }
-    // Un-premultiply colors for blending
-    let inv_src_a = 1.0 / (src.a + EPSILON);
+    // Un-premultiply colors for blending. Max with a small epsilon to avoid NaNs.
+    let inv_src_a = 1.0 / max(src.a, EPSILON);
     var cs = src.rgb * inv_src_a;
-    let inv_backdrop_a = 1.0 / (backdrop.a + EPSILON);
+    let inv_backdrop_a = 1.0 / max(backdrop.a, EPSILON);
     let cb = backdrop.rgb * inv_backdrop_a;
     let mix_mode = mode >> 8u;
     let mixed = blend_mix(cb, cs, mix_mode);
