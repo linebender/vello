@@ -282,8 +282,9 @@ fn main(
         let coords = xy_uint + vec2(i, 0u);
         if coords.x < config.target_width && coords.y < config.target_height {
             let fg = rgba[i];
-            let a_inv = 1.0 / (fg.a + 1e-6);
-            let rgba_sep = vec4(fg.r * a_inv, fg.g * a_inv, fg.b * a_inv, fg.a);            
+            // Max with a small epsilon to avoid NaNs
+            let a_inv = 1.0 / max(fg.a, 1e-6);
+            let rgba_sep = vec4(fg.rgb * a_inv, fg.a);            
             textureStore(output, vec2<i32>(coords), rgba_sep);
         }
     } 
