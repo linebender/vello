@@ -26,7 +26,7 @@ var<storage, read_write> draw_monoid: array<DrawMonoid>;
 var<storage, read_write> info: array<u32>;
 
 @group(0) @binding(6)
-var<storage, read_write> clip_inp: array<i32>;
+var<storage, read_write> clip_inp: array<ClipInp>;
 
 let WG_SIZE = 256u;
 
@@ -170,6 +170,15 @@ fn main(
                 info[di + 9u] = bitcast<u32>(ra);
                 info[di + 10u] = bitcast<u32>(roff);
             }
+            // DRAWTAG_BEGIN_CLIP
+            case 0x89u: {
+                // Store blend mode and alpha in info for two reasons: 1) we don't need
+                // to bind scene in clip_leaf which keeps us at 8 buffer bindings and 2)
+                // the logic in coarse to check clip state for tile inclusion is the
+                // same for BeginClip/EndClip.
+                info[di] = scene[dd];
+                info[di + 1u] = scene[dd + 1u];
+            }
             default: {}
         }
     }
@@ -178,6 +187,6 @@ fn main(
         if tag_word == DRAWTAG_BEGIN_CLIP {
             path_ix = m.path_ix;
         }
-        clip_inp[m.clip_ix] = i32(path_ix);
+        clip_inp[m.clip_ix] = ClipInp(ix, i32(path_ix));
     }
 }

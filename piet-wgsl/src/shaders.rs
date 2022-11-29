@@ -212,6 +212,7 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
             BindType::BufReadOnly,
             BindType::Buffer,
             BindType::Buffer,
+            BindType::Buffer,
         ],
     )?;
     let binning = engine.add_shader(

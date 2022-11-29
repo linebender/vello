@@ -9,7 +9,7 @@
 var<storage> config: Config;
 
 @group(0) @binding(1)
-var<storage> clip_inp: array<i32>;
+var<storage> clip_inp: array<ClipInp>;
 
 @group(0) @binding(2)
 var<storage> path_bboxes: array<PathBbox>;
@@ -25,6 +25,9 @@ var<storage, read_write> draw_monoids: array<DrawMonoid>;
 
 @group(0) @binding(6)
 var<storage, read_write> clip_bboxes: array<vec4<f32>>;
+
+@group(0) @binding(7)
+var<storage, read_write> info: array<u32>;
 
 let WG_SIZE = 256u;
 var<workgroup> sh_bic: array<Bic, 510 >;
@@ -68,7 +71,7 @@ fn search_link(bic: ptr<function, Bic>, ix: u32) -> i32 {
 
 fn load_clip_inp(ix: u32) -> i32 {
     if ix < config.n_clip {
-        return clip_inp[ix];
+        return clip_inp[ix].path_ix;
     } else {
         return -2147483648;
         // literal too large?
@@ -185,8 +188,16 @@ fn main(
 
     if !is_push && global_id.x < config.n_clip {
         // Fix up drawmonoid so path_ix of EndClip matches BeginClip
-        let path_ix = clip_inp[parent];
-        draw_monoids[~inp].path_ix = u32(path_ix);
+        let parent_clip = clip_inp[parent];
+        let path_ix = parent_clip.path_ix;
+        let parent_ix = parent_clip.ix;
+        let ix = ~inp;
+        draw_monoids[ix].path_ix = u32(path_ix);
+        // Copy blend mode and alpha from parent
+        let di = draw_monoids[ix].info_offset;
+        let parent_di = draw_monoids[parent_ix].info_offset;
+        info[di] = info[parent_di];
+        info[di + 1u] = info[parent_di + 1u];
 
         if grandparent >= 0 {
             bbox = sh_bbox[grandparent];

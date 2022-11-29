@@ -10,6 +10,11 @@ fn bic_combine(x: Bic, y: Bic) -> Bic {
     return Bic(x.a + y.a - m, x.b + y.b - m);
 }
 
+struct ClipInp {
+    ix: u32,
+    path_ix: i32,
+}
+
 struct ClipEl {
     parent_ix: u32,
     bbox: vec4<f32>,
