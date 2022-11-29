@@ -170,15 +170,6 @@ fn main(
                 info[di + 9u] = bitcast<u32>(ra);
                 info[di + 10u] = bitcast<u32>(roff);
             }
-            // DRAWTAG_BEGIN_CLIP
-            case 0x89u: {
-                // Store blend mode and alpha in info for two reasons: 1) we don't need
-                // to bind scene in clip_leaf which keeps us at 8 buffer bindings and 2)
-                // the logic in coarse to check clip state for tile inclusion is the
-                // same for BeginClip/EndClip.
-                info[di] = scene[dd];
-                info[di + 1u] = scene[dd + 1u];
-            }
             default: {}
         }
     }

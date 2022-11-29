@@ -277,12 +277,12 @@ fn encode_blend_mode(mode: BlendMode) -> u32 {
     (mode.mix as u32) << 8 | mode.compose as u32
 }
 
-// Tags for draw objects. See shader/drawtag.h for the authoritative source.
+// Tags for draw objects. See shader/shared/drawtag.wgsl for the authoritative source.
 const DRAWTAG_FILLCOLOR: u32 = 0x44;
 const DRAWTAG_FILLLINGRADIENT: u32 = 0x114;
 const DRAWTAG_FILLRADGRADIENT: u32 = 0x2dc;
-const DRAWTAG_BEGINCLIP: u32 = 0x89;
-const DRAWTAG_ENDCLIP: u32 = 0xa1;
+const DRAWTAG_BEGINCLIP: u32 = 0x9;
+const DRAWTAG_ENDCLIP: u32 = 0x21;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]

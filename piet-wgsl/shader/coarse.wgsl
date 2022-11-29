@@ -281,8 +281,9 @@ fn main(
             var is_blend = false;
             if is_clip {
                 let BLEND_CLIP = (128u << 8u) | 3u;
-                let di = draw_monoids[drawobj_ix].info_offset;
-                let blend = info[di];
+                let scene_offset = draw_monoids[drawobj_ix].scene_offset;
+                let dd = config.drawdata_base + scene_offset;
+                let blend = scene[dd];
                 is_blend = blend != BLEND_CLIP;
             }
             let include_tile = tile.segments != 0u || (tile.backdrop == 0) == is_clip || is_blend;
@@ -347,7 +348,7 @@ fn main(
                         write_grad(CMD_RAD_GRAD, index, info_offset);
                     }
                     // DRAWTAG_BEGIN_CLIP
-                    case 0x89u: {
+                    case 0x9u: {
                         if tile.segments == 0u && tile.backdrop == 0 {
                             clip_zero_depth = clip_depth + 1u;
                         } else {
@@ -358,11 +359,11 @@ fn main(
                         clip_depth += 1u;
                     }
                     // DRAWTAG_END_CLIP
-                    case 0xa1u: {
+                    case 0x21u: {
                         clip_depth -= 1u;
                         write_path(tile, -1.0);
-                        let blend = info[di];
-                        let alpha = bitcast<f32>(info[di + 1u]);
+                        let blend = scene[dd];
+                        let alpha = bitcast<f32>(scene[dd + 1u]);
                         write_end_clip(CmdEndClip(blend, alpha));
                         render_blend_depth -= 1u;
                     }
@@ -372,11 +373,11 @@ fn main(
                 // In "clip zero" state, suppress all drawing
                 switch drawtag {
                     // DRAWTAG_BEGIN_CLIP
-                    case 0x89u: {
+                    case 0x9u: {
                         clip_depth += 1u;
                     }
                     // DRAWTAG_END_CLIP
-                    case 0xa1u: {
+                    case 0x21u: {
                         if clip_depth == clip_zero_depth {
                             clip_zero_depth = 0u;
                         }

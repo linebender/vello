@@ -20,8 +20,8 @@ let DRAWTAG_FILL_COLOR = 0x44u;
 let DRAWTAG_FILL_LIN_GRADIENT = 0x114u;
 let DRAWTAG_FILL_RAD_GRADIENT = 0x2dcu;
 let DRAWTAG_FILL_IMAGE = 0x48u;
-let DRAWTAG_BEGIN_CLIP = 0x89u;
-let DRAWTAG_END_CLIP = 0xa1u;
+let DRAWTAG_BEGIN_CLIP = 0x9u;
+let DRAWTAG_END_CLIP = 0x21u;
 
 fn draw_monoid_identity() -> DrawMonoid {
     return DrawMonoid();

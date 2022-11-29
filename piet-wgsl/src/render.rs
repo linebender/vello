@@ -324,7 +324,6 @@ pub fn render_full(
                 clip_el_buf,
                 draw_monoid_buf,
                 clip_bbox_buf,
-                info_buf,
             ],
         );
     }

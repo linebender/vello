@@ -26,9 +26,6 @@ var<storage, read_write> draw_monoids: array<DrawMonoid>;
 @group(0) @binding(6)
 var<storage, read_write> clip_bboxes: array<vec4<f32>>;
 
-@group(0) @binding(7)
-var<storage, read_write> info: array<u32>;
-
 let WG_SIZE = 256u;
 var<workgroup> sh_bic: array<Bic, 510 >;
 var<workgroup> sh_stack: array<u32, WG_SIZE>;
@@ -69,7 +66,7 @@ fn search_link(bic: ptr<function, Bic>, ix: u32) -> i32 {
     }
 }
 
-fn load_clip_inp(ix: u32) -> i32 {
+fn load_clip_path(ix: u32) -> i32 {
     if ix < config.n_clip {
         return clip_inp[ix].path_ix;
     } else {
@@ -131,7 +128,7 @@ fn main(
     sh_stack_bbox[local_id.x] = bbox;
 
     // Read input and compute Bic binary tree
-    let inp = load_clip_inp(global_id.x);
+    let inp = load_clip_path(global_id.x);
     let is_push = inp >= 0;
     var bic = Bic(1u - u32(is_push), u32(is_push));
     sh_bic[local_id.x] = bic;
@@ -193,12 +190,8 @@ fn main(
         let parent_ix = parent_clip.ix;
         let ix = ~inp;
         draw_monoids[ix].path_ix = u32(path_ix);
-        // Copy blend mode and alpha from parent
-        let di = draw_monoids[ix].info_offset;
-        let parent_di = draw_monoids[parent_ix].info_offset;
-        info[di] = info[parent_di];
-        info[di + 1u] = info[parent_di + 1u];
-
+        // Make EndClip point to the same draw data as BeginClip
+        draw_monoids[ix].scene_offset = draw_monoids[parent_ix].scene_offset;
         if grandparent >= 0 {
             bbox = sh_bbox[grandparent];
         } else if grandparent + i32(stack_size) >= 0 {
