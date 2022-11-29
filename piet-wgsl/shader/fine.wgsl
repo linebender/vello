@@ -82,6 +82,12 @@ fn read_rad_grad(cmd_ix: u32) -> CmdRadGrad {
     return CmdRadGrad(index, matrx, xlat, c1, ra, roff);
 }
 
+fn read_end_clip(cmd_ix: u32) -> CmdEndClip {
+    let blend = ptcl[cmd_ix + 1u];
+    let alpha = bitcast<f32>(ptcl[cmd_ix + 2u]);
+    return CmdEndClip(blend, alpha);
+}
+
 #else
 
 @group(0) @binding(3)
@@ -260,7 +266,7 @@ fn main(
             }
             // CMD_END_CLIP
             case 10u: {
-                let blend = ptcl[cmd_ix + 1u];
+                let end_clip = read_end_clip(cmd_ix);
                 clip_depth -= 1u;
                 for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
                     var bg_rgba: u32;
@@ -270,10 +276,10 @@ fn main(
                         // load from memory
                     }
                     let bg = unpack4x8unorm(bg_rgba);
-                    let fg = rgba[i] * area[i];
-                    rgba[i] = blend_mix_compose(bg, fg, blend);
+                    let fg = rgba[i] * area[i] * end_clip.alpha;
+                    rgba[i] = blend_mix_compose(bg, fg, end_clip.blend);
                 }
-                cmd_ix += 2u;
+                cmd_ix += 3u;
             }
             // CMD_JUMP
             case 11u: {

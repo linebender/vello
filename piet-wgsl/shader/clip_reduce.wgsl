@@ -8,7 +8,7 @@
 var<storage> config: Config;
 
 @group(0) @binding(1)
-var<storage> clip_inp: array<i32>;
+var<storage> clip_inp: array<ClipInp>;
 
 @group(0) @binding(2)
 var<storage> path_bboxes: array<PathBbox>;
@@ -30,7 +30,7 @@ fn main(
     @builtin(local_invocation_id) local_id: vec3<u32>,
     @builtin(workgroup_id) wg_id: vec3<u32>,
 ) {
-    let inp = clip_inp[global_id.x];
+    let inp = clip_inp[global_id.x].path_ix;
     let is_push = inp >= 0;
     var bic = Bic(1u - u32(is_push), u32(is_push));
     // reverse scan of bicyclic semigroup

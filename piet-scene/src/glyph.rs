@@ -124,12 +124,14 @@ impl<'a> GlyphProvider<'a> {
                     if let Some(xform) = xform_stack.last() {
                         builder.push_layer(
                             Mix::Clip,
+                            1.0,
                             Affine::IDENTITY,
                             &convert_transformed_path(path.elements(), xform),
                         );
                     } else {
                         builder.push_layer(
                             Mix::Clip,
+                            1.0,
                             Affine::IDENTITY,
                             &convert_path(path.elements()),
                         );
@@ -144,7 +146,7 @@ impl<'a> GlyphProvider<'a> {
                         max = *xform * max;
                     }
                     let rect = Rect::from_points(min, max);
-                    builder.push_layer(Mix::Normal, Affine::IDENTITY, &rect);
+                    builder.push_layer(Mix::Normal, 1.0, Affine::IDENTITY, &rect);
                 }
                 Command::PopLayer => builder.pop_layer(),
                 Command::BeginBlend(bounds, mode) => {
@@ -155,7 +157,7 @@ impl<'a> GlyphProvider<'a> {
                         max = *xform * max;
                     }
                     let rect = Rect::from_points(min, max);
-                    builder.push_layer(convert_blend(*mode), Affine::IDENTITY, &rect);
+                    builder.push_layer(convert_blend(*mode), 1.0, Affine::IDENTITY, &rect);
                 }
                 Command::EndBlend => builder.pop_layer(),
                 Command::SimpleFill(path_index, brush, brush_xform) => {

@@ -26,7 +26,7 @@ var<storage, read_write> draw_monoid: array<DrawMonoid>;
 var<storage, read_write> info: array<u32>;
 
 @group(0) @binding(6)
-var<storage, read_write> clip_inp: array<i32>;
+var<storage, read_write> clip_inp: array<ClipInp>;
 
 let WG_SIZE = 256u;
 
@@ -178,6 +178,6 @@ fn main(
         if tag_word == DRAWTAG_BEGIN_CLIP {
             path_ix = m.path_ix;
         }
-        clip_inp[m.clip_ix] = i32(path_ix);
+        clip_inp[m.clip_ix] = ClipInp(ix, i32(path_ix));
     }
 }

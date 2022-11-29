@@ -9,7 +9,7 @@
 var<storage> config: Config;
 
 @group(0) @binding(1)
-var<storage> clip_inp: array<i32>;
+var<storage> clip_inp: array<ClipInp>;
 
 @group(0) @binding(2)
 var<storage> path_bboxes: array<PathBbox>;
@@ -66,9 +66,9 @@ fn search_link(bic: ptr<function, Bic>, ix: u32) -> i32 {
     }
 }
 
-fn load_clip_inp(ix: u32) -> i32 {
+fn load_clip_path(ix: u32) -> i32 {
     if ix < config.n_clip {
-        return clip_inp[ix];
+        return clip_inp[ix].path_ix;
     } else {
         return -2147483648;
         // literal too large?
@@ -128,7 +128,7 @@ fn main(
     sh_stack_bbox[local_id.x] = bbox;
 
     // Read input and compute Bic binary tree
-    let inp = load_clip_inp(global_id.x);
+    let inp = load_clip_path(global_id.x);
     let is_push = inp >= 0;
     var bic = Bic(1u - u32(is_push), u32(is_push));
     sh_bic[local_id.x] = bic;
@@ -185,9 +185,13 @@ fn main(
 
     if !is_push && global_id.x < config.n_clip {
         // Fix up drawmonoid so path_ix of EndClip matches BeginClip
-        let path_ix = clip_inp[parent];
-        draw_monoids[~inp].path_ix = u32(path_ix);
-
+        let parent_clip = clip_inp[parent];
+        let path_ix = parent_clip.path_ix;
+        let parent_ix = parent_clip.ix;
+        let ix = ~inp;
+        draw_monoids[ix].path_ix = u32(path_ix);
+        // Make EndClip point to the same draw data as BeginClip
+        draw_monoids[ix].scene_offset = draw_monoids[parent_ix].scene_offset;
         if grandparent >= 0 {
             bbox = sh_bbox[grandparent];
         } else if grandparent + i32(stack_size) >= 0 {

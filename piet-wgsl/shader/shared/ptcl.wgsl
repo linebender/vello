@@ -56,3 +56,8 @@ struct CmdRadGrad {
     ra: f32,
     roff: f32,
 }
+
+struct CmdEndClip {
+    blend: u32,
+    alpha: f32,
+}

@@ -24,7 +24,7 @@ use smallvec::SmallVec;
 /// Builder for constructing a scene or scene fragment.
 pub struct SceneBuilder<'a> {
     scene: &'a mut SceneData,
-    layers: SmallVec<[BlendMode; 8]>,
+    layer_depth: u32,
 }
 
 impl<'a> SceneBuilder<'a> {
@@ -45,7 +45,7 @@ impl<'a> SceneBuilder<'a> {
         scene.reset(is_fragment);
         Self {
             scene,
-            layers: Default::default(),
+            layer_depth: 0,
         }
     }
 
@@ -54,6 +54,7 @@ impl<'a> SceneBuilder<'a> {
     pub fn push_layer(
         &mut self,
         blend: impl Into<BlendMode>,
+        alpha: f32,
         transform: Affine,
         shape: &impl Shape,
     ) {
@@ -65,14 +66,15 @@ impl<'a> SceneBuilder<'a> {
             // all drawing until the layer is popped.
             self.encode_path(&Rect::new(0.0, 0.0, 0.0, 0.0), true);
         }
-        self.begin_clip(blend);
-        self.layers.push(blend);
+        self.begin_clip(blend, alpha.clamp(0.0, 1.0));
+        self.layer_depth += 1;
     }
 
     /// Pops the current layer.
     pub fn pop_layer(&mut self) {
-        if let Some(blend) = self.layers.pop() {
-            self.end_clip(blend);
+        if self.layer_depth > 0 {
+            self.end_clip();
+            self.layer_depth -= 1;
         }
     }
 
@@ -127,8 +129,8 @@ impl<'a> SceneBuilder<'a> {
 
     /// Completes construction and finalizes the underlying scene.
     pub fn finish(mut self) {
-        while !self.layers.is_empty() {
-            self.pop_layer();
+        for _ in 0..self.layer_depth {
+            self.end_clip();
         }
     }
 }
@@ -250,10 +252,11 @@ impl<'a> SceneBuilder<'a> {
     }
 
     /// Start a clip.
-    fn begin_clip(&mut self, blend: BlendMode) {
+    fn begin_clip(&mut self, blend: BlendMode, alpha: f32) {
         self.scene.drawtag_stream.push(DRAWTAG_BEGINCLIP);
         let element = Clip {
             blend: encode_blend_mode(blend),
+            alpha,
         };
         self.scene
             .drawdata_stream
@@ -261,14 +264,8 @@ impl<'a> SceneBuilder<'a> {
         self.scene.n_clip += 1;
     }
 
-    fn end_clip(&mut self, blend: BlendMode) {
+    fn end_clip(&mut self) {
         self.scene.drawtag_stream.push(DRAWTAG_ENDCLIP);
-        let element = Clip {
-            blend: encode_blend_mode(blend),
-        };
-        self.scene
-            .drawdata_stream
-            .extend(bytemuck::bytes_of(&element));
         // This is a dummy path, and will go away with the new clip impl.
         self.scene.tag_stream.push(0x10);
         self.scene.n_path += 1;
@@ -280,12 +277,12 @@ fn encode_blend_mode(mode: BlendMode) -> u32 {
     (mode.mix as u32) << 8 | mode.compose as u32
 }
 
-// Tags for draw objects. See shader/drawtag.h for the authoritative source.
+// Tags for draw objects. See shader/shared/drawtag.wgsl for the authoritative source.
 const DRAWTAG_FILLCOLOR: u32 = 0x44;
 const DRAWTAG_FILLLINGRADIENT: u32 = 0x114;
 const DRAWTAG_FILLRADGRADIENT: u32 = 0x2dc;
-const DRAWTAG_BEGINCLIP: u32 = 0x05;
-const DRAWTAG_ENDCLIP: u32 = 0x25;
+const DRAWTAG_BEGINCLIP: u32 = 0x9;
+const DRAWTAG_ENDCLIP: u32 = 0x21;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
@@ -324,6 +321,7 @@ pub struct FillImage {
 #[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
 pub struct Clip {
     blend: u32,
+    alpha: f32,
 }
 
 struct PathBuilder<'a> {

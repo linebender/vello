@@ -127,11 +127,12 @@ fn write_begin_clip() {
     cmd_offset += 1u;
 }
 
-fn write_end_clip(blend: u32) {
-    alloc_cmd(2u);
+fn write_end_clip(end_clip: CmdEndClip) {
+    alloc_cmd(3u);
     ptcl[cmd_offset] = CMD_END_CLIP;
-    ptcl[cmd_offset + 1u] = blend;
-    cmd_offset += 2u;
+    ptcl[cmd_offset + 1u] = end_clip.blend;
+    ptcl[cmd_offset + 2u] = bitcast<u32>(end_clip.alpha);
+    cmd_offset += 3u;            
 }
 
 @compute @workgroup_size(256)
@@ -270,7 +271,6 @@ fn main(
             }
             drawobj_ix = sh_drawobj_ix[el_ix];
             tag = scene[config.drawtag_base + drawobj_ix];
-            // TODO: clip logic
             let seq_ix = ix - select(0u, sh_tile_count[el_ix - 1u], el_ix > 0u);
             let width = sh_tile_width[el_ix];
             let x = sh_tile_x0[el_ix] + seq_ix % width;
@@ -348,7 +348,7 @@ fn main(
                         write_grad(CMD_RAD_GRAD, index, info_offset);
                     }
                     // DRAWTAG_BEGIN_CLIP
-                    case 0x05u: {
+                    case 0x9u: {
                         if tile.segments == 0u && tile.backdrop == 0 {
                             clip_zero_depth = clip_depth + 1u;
                         } else {
@@ -359,10 +359,12 @@ fn main(
                         clip_depth += 1u;
                     }
                     // DRAWTAG_END_CLIP
-                    case 0x25u: {
+                    case 0x21u: {
                         clip_depth -= 1u;
                         write_path(tile, -1.0);
-                        write_end_clip(scene[dd]);
+                        let blend = scene[dd];
+                        let alpha = bitcast<f32>(scene[dd + 1u]);
+                        write_end_clip(CmdEndClip(blend, alpha));
                         render_blend_depth -= 1u;
                     }
                     default: {}
@@ -371,11 +373,11 @@ fn main(
                 // In "clip zero" state, suppress all drawing
                 switch drawtag {
                     // DRAWTAG_BEGIN_CLIP
-                    case 0x05u: {
+                    case 0x9u: {
                         clip_depth += 1u;
                     }
                     // DRAWTAG_END_CLIP
-                    case 0x25u: {
+                    case 0x21u: {
                         if clip_depth == clip_zero_depth {
                             clip_zero_depth = 0u;
                         }

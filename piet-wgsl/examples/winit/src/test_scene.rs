@@ -146,7 +146,7 @@ fn render_clip_test(sb: &mut SceneBuilder) {
             PathEl::LineTo((X0, Y1).into()),
             PathEl::ClosePath,
         ];
-        sb.push_layer(Mix::Clip, Affine::IDENTITY, &path);
+        sb.push_layer(Mix::Clip, 1.0, Affine::IDENTITY, &path);
     }
     let rect = Rect::new(X0, Y0, X1, Y1);
     sb.fill(
@@ -178,7 +178,12 @@ fn render_alpha_test(sb: &mut SceneBuilder) {
         None,
         &make_diamond(1024.0, 125.0),
     );
-    sb.push_layer(Mix::Clip, Affine::IDENTITY, &make_diamond(1024.0, 150.0));
+    sb.push_layer(
+        Mix::Clip,
+        1.0,
+        Affine::IDENTITY,
+        &make_diamond(1024.0, 150.0),
+    );
     sb.fill(
         Fill::NonZero,
         Affine::IDENTITY,
@@ -240,10 +245,10 @@ fn render_blend_square(sb: &mut SceneBuilder, blend: BlendMode, transform: Affin
         Color::rgb8(0, 255, 0),
         Color::rgb8(0, 0, 255),
     ];
-    sb.push_layer(Mix::Normal, transform, &rect);
+    sb.push_layer(Mix::Normal, 1.0, transform, &rect);
     for (i, c) in COLORS.iter().enumerate() {
         let linear = LinearGradient::new((0.0, 0.0), (0.0, 200.0)).stops([Color::WHITE, *c]);
-        sb.push_layer(blend, transform, &rect);
+        sb.push_layer(blend, 1.0, transform, &rect);
         // squash the ellipse
         let a = transform
             * Affine::translate((100., 100.))
@@ -273,12 +278,13 @@ fn blend_square(blend: BlendMode) -> SceneFragment {
 
 #[allow(unused)]
 pub fn render_anim_frame(sb: &mut SceneBuilder, text: &mut SimpleText, i: usize) {
+    let rect = Rect::from_origin_size(Point::new(0.0, 0.0), (1000.0, 1000.0));
     sb.fill(
         Fill::NonZero,
         Affine::IDENTITY,
         &Brush::Solid(Color::rgb8(128, 128, 128)),
         None,
-        &Rect::from_origin_size(Point::new(0.0, 0.0), (1000.0, 1000.0)),
+        &rect,
     );
     let text_size = 60.0 + 40.0 * (0.01 * i as f32).sin();
     let s = "\u{1f600}hello piet-gpu text!";
@@ -308,8 +314,32 @@ pub fn render_anim_frame(sb: &mut SceneBuilder, text: &mut SimpleText, i: usize)
         Affine::IDENTITY,
         &Brush::Solid(Color::rgb8(128, 0, 0)),
         None,
-        &&[PathEl::MoveTo(center), PathEl::LineTo(p1)][..],
+        &[PathEl::MoveTo(center), PathEl::LineTo(p1)],
     );
+    sb.fill(
+        Fill::NonZero,
+        Affine::translate((150.0, 150.0)) * Affine::scale(0.2),
+        Color::RED,
+        None,
+        &rect,
+    );
+    let alpha = (i as f64 * 0.03).sin() as f32 * 0.5 + 0.5;
+    sb.push_layer(Mix::Normal, alpha, Affine::IDENTITY, &rect);
+    sb.fill(
+        Fill::NonZero,
+        Affine::translate((100.0, 100.0)) * Affine::scale(0.2),
+        Color::BLUE,
+        None,
+        &rect,
+    );
+    sb.fill(
+        Fill::NonZero,
+        Affine::translate((200.0, 200.0)) * Affine::scale(0.2),
+        Color::GREEN,
+        None,
+        &rect,
+    );
+    sb.pop_layer();
 }
 
 #[allow(unused)]
