@@ -12,7 +12,7 @@ var<storage> scene: array<u32>;
 @group(0) @binding(2)
 var<storage, read_write> reduced: array<DrawMonoid>;
 
-let WG_SIZE = 256u;
+const WG_SIZE = 256u;
 
 var<workgroup> sh_scratch: array<DrawMonoid, WG_SIZE>;
 

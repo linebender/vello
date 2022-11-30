@@ -45,9 +45,9 @@ var<storage, read_write> ptcl: array<u32>;
 
 // Much of this code assumes WG_SIZE == N_TILE. If these diverge, then
 // a fair amount of fixup is needed.
-let WG_SIZE = 256u;
-//let N_SLICE = WG_SIZE / 32u;
-let N_SLICE = 8u;
+const WG_SIZE = 256u;
+//const N_SLICE = WG_SIZE / 32u;
+const N_SLICE = 8u;
 
 var<workgroup> sh_bitmaps: array<array<atomic<u32>, N_TILE>, N_SLICE>;
 var<workgroup> sh_part_count: array<u32, WG_SIZE>;
@@ -55,8 +55,7 @@ var<workgroup> sh_part_offsets: array<u32, WG_SIZE>;
 var<workgroup> sh_drawobj_ix: array<u32, WG_SIZE>;
 var<workgroup> sh_tile_stride: array<u32, WG_SIZE>;
 var<workgroup> sh_tile_width: array<u32, WG_SIZE>;
-var<workgroup> sh_tile_x0: array<u32, WG_SIZE>;
-var<workgroup> sh_tile_y0: array<u32, WG_SIZE>;
+var<workgroup> sh_tile_x0y0: array<u32, WG_SIZE>;
 var<workgroup> sh_tile_count: array<u32, WG_SIZE>;
 var<workgroup> sh_tile_base: array<u32, WG_SIZE>;
 
@@ -235,8 +234,7 @@ fn main(
             let x1 = clamp(i32(path.bbox.z) - i32(bin_tile_x), 0, i32(N_TILE_X));
             let y1 = clamp(i32(path.bbox.w) - i32(bin_tile_y), 0, i32(N_TILE_Y));
             sh_tile_width[local_id.x] = u32(x1 - x0);
-            sh_tile_x0[local_id.x] = u32(x0);
-            sh_tile_y0[local_id.x] = u32(y0);
+            sh_tile_x0y0[local_id.x] = u32(x0) | u32(y0 << 16u);
             tile_count = u32(x1 - x0) * u32(y1 - y0);
             // base relative to bin
             let base = path.tiles - u32(dy * i32(stride) + dx);
@@ -270,8 +268,9 @@ fn main(
             tag = scene[config.drawtag_base + drawobj_ix];
             let seq_ix = ix - select(0u, sh_tile_count[el_ix - 1u], el_ix > 0u);
             let width = sh_tile_width[el_ix];
-            let x = sh_tile_x0[el_ix] + seq_ix % width;
-            let y = sh_tile_y0[el_ix] + seq_ix / width;
+            let x0y0 = sh_tile_x0y0[el_ix];
+            let x = (x0y0 & 0xffffu) + seq_ix % width;
+            let y = (x0y0 >> 16u) + seq_ix / width;
             let tile_ix = sh_tile_base[el_ix] + sh_tile_stride[el_ix] * y + x;
             let tile = tiles[tile_ix];
             let is_clip = (tag & 1u) != 0u;

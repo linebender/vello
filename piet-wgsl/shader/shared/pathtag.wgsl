@@ -11,15 +11,15 @@ struct TagMonoid {
 #endif
 }
 
-let PATH_TAG_SEG_TYPE = 3u;
-let PATH_TAG_LINETO = 1u;
-let PATH_TAG_QUADTO = 2u;
-let PATH_TAG_CUBICTO = 3u;
-let PATH_TAG_F32 = 8u;
-let PATH_TAG_TRANSFORM = 0x20u;
+const PATH_TAG_SEG_TYPE = 3u;
+const PATH_TAG_LINETO = 1u;
+const PATH_TAG_QUADTO = 2u;
+const PATH_TAG_CUBICTO = 3u;
+const PATH_TAG_F32 = 8u;
+const PATH_TAG_TRANSFORM = 0x20u;
 #ifdef full
-let PATH_TAG_PATH = 0x10u;
-let PATH_TAG_LINEWIDTH = 0x40u;
+const PATH_TAG_PATH = 0x10u;
+const PATH_TAG_LINEWIDTH = 0x40u;
 #endif
 
 fn tag_monoid_identity() -> TagMonoid {

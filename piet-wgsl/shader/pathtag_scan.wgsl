@@ -15,8 +15,8 @@ var<storage> reduced: array<TagMonoid>;
 @group(0) @binding(3)
 var<storage, read_write> tag_monoids: array<TagMonoid>;
 
-let LG_WG_SIZE = 8u;
-let WG_SIZE = 256u;
+const LG_WG_SIZE = 8u;
+const WG_SIZE = 256u;
 
 var<workgroup> sh_parent: array<TagMonoid, WG_SIZE>;
 // These could be combined?

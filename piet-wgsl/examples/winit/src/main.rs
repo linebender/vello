@@ -19,13 +19,12 @@ mod simple_text;
 mod test_scene;
 
 use piet_scene::{Scene, SceneBuilder};
-use piet_wgsl::{util::RenderContext, Renderer, Result};
+use piet_wgsl::{util::RenderContext, Renderer};
+use winit::{event_loop::EventLoop, window::Window};
 
-async fn run() -> Result<()> {
+async fn run() {
     use winit::{
         dpi::LogicalSize,
-        event::*,
-        event_loop::{ControlFlow, EventLoop},
         window::WindowBuilder,
     };
     let event_loop = EventLoop::new();
@@ -34,10 +33,18 @@ async fn run() -> Result<()> {
         .with_resizable(true)
         .build(&event_loop)
         .unwrap();
-    let render_cx = RenderContext::new().await?;
+    run_wasm(event_loop, window).await
+}
+
+async fn run_wasm(event_loop: EventLoop<()>, window: Window) {
+    use winit::{
+        event::*,
+        event_loop::ControlFlow,
+    };
+    let render_cx = RenderContext::new().await.unwrap();
     let size = window.inner_size();
     let mut surface = render_cx.create_surface(&window, size.width, size.height);
-    let mut renderer = Renderer::new(&render_cx.device)?;
+    let mut renderer = Renderer::new(&render_cx.device).unwrap();
     let mut simple_text = simple_text::SimpleText::new();
     let mut current_frame = 0usize;
     let mut scene_ix = 0usize;
@@ -103,5 +110,28 @@ async fn run() -> Result<()> {
 }
 
 fn main() {
-    pollster::block_on(run()).unwrap();
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        pollster::block_on(run()).unwrap();
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let event_loop = EventLoop::new();
+        let window = winit::window::Window::new(&event_loop).unwrap();
+
+        std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+        console_log::init().expect("could not initialize logger");
+        use winit::platform::web::WindowExtWebSys;
+
+        // On wasm, append the canvas to the document body
+        let canvas = window.canvas();
+        canvas.set_width(1024);
+        canvas.set_height(1024);
+        web_sys::window()
+            .and_then(|win| win.document())
+            .and_then(|doc| doc.body())
+            .and_then(|body| body.append_child(&web_sys::Element::from(canvas)).ok())
+            .expect("couldn't append canvas to document body");
+        wasm_bindgen_futures::spawn_local(run_wasm(event_loop, window));
+    }
 }

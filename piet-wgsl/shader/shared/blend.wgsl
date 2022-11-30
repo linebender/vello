@@ -2,23 +2,23 @@
 
 // Color mixing modes
 
-let MIX_NORMAL = 0u;
-let MIX_MULTIPLY = 1u;
-let MIX_SCREEN = 2u;
-let MIX_OVERLAY = 3u;
-let MIX_DARKEN = 4u;
-let MIX_LIGHTEN = 5u;
-let MIX_COLOR_DODGE = 6u;
-let MIX_COLOR_BURN = 7u;
-let MIX_HARD_LIGHT = 8u;
-let MIX_SOFT_LIGHT = 9u;
-let MIX_DIFFERENCE = 10u;
-let MIX_EXCLUSION = 11u;
-let MIX_HUE = 12u;
-let MIX_SATURATION = 13u;
-let MIX_COLOR = 14u;
-let MIX_LUMINOSITY = 15u;
-let MIX_CLIP = 128u;
+const MIX_NORMAL = 0u;
+const MIX_MULTIPLY = 1u;
+const MIX_SCREEN = 2u;
+const MIX_OVERLAY = 3u;
+const MIX_DARKEN = 4u;
+const MIX_LIGHTEN = 5u;
+const MIX_COLOR_DODGE = 6u;
+const MIX_COLOR_BURN = 7u;
+const MIX_HARD_LIGHT = 8u;
+const MIX_SOFT_LIGHT = 9u;
+const MIX_DIFFERENCE = 10u;
+const MIX_EXCLUSION = 11u;
+const MIX_HUE = 12u;
+const MIX_SATURATION = 13u;
+const MIX_COLOR = 14u;
+const MIX_LUMINOSITY = 15u;
+const MIX_CLIP = 128u;
 
 fn screen(cb: vec3<f32>, cs: vec3<f32>) -> vec3<f32> {
     return cb + cs - (cb * cs);
@@ -74,8 +74,8 @@ fn lum(c: vec3<f32>) -> f32 {
     return dot(c, f);
 }
 
-fn clip_color(c: vec3<f32>) -> vec3<f32> {
-    var c = c;
+fn clip_color(c_in: vec3<f32>) -> vec3<f32> {
+    var c = c_in;
     let l = lum(c);
     let n = min(c.x, min(c.y, c.z));
     let x = max(c.x, max(c.y, c.z));
@@ -210,20 +210,20 @@ fn blend_mix(cb: vec3<f32>, cs: vec3<f32>, mode: u32) -> vec3<f32> {
 
 // Composition modes
 
-let COMPOSE_CLEAR = 0u;
-let COMPOSE_COPY = 1u;
-let COMPOSE_DEST = 2u;
-let COMPOSE_SRC_OVER = 3u;
-let COMPOSE_DEST_OVER = 4u;
-let COMPOSE_SRC_IN = 5u;
-let COMPOSE_DEST_IN = 6u;
-let COMPOSE_SRC_OUT = 7u;
-let COMPOSE_DEST_OUT = 8u;
-let COMPOSE_SRC_ATOP = 9u;
-let COMPOSE_DEST_ATOP = 10u;
-let COMPOSE_XOR = 11u;
-let COMPOSE_PLUS = 12u;
-let COMPOSE_PLUS_LIGHTER = 13u;
+const COMPOSE_CLEAR = 0u;
+const COMPOSE_COPY = 1u;
+const COMPOSE_DEST = 2u;
+const COMPOSE_SRC_OVER = 3u;
+const COMPOSE_DEST_OVER = 4u;
+const COMPOSE_SRC_IN = 5u;
+const COMPOSE_DEST_IN = 6u;
+const COMPOSE_SRC_OUT = 7u;
+const COMPOSE_DEST_OUT = 8u;
+const COMPOSE_SRC_ATOP = 9u;
+const COMPOSE_DEST_ATOP = 10u;
+const COMPOSE_XOR = 11u;
+const COMPOSE_PLUS = 12u;
+const COMPOSE_PLUS_LIGHTER = 13u;
 
 // Apply general compositing operation.
 // Inputs are separated colors and alpha, output is premultiplied.

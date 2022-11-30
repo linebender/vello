@@ -29,10 +29,10 @@ struct Config {
 
 // Geometry of tiles and bins
 
-let TILE_WIDTH = 16u;
-let TILE_HEIGHT = 16u;
+const TILE_WIDTH = 16u;
+const TILE_HEIGHT = 16u;
 // Number of tiles per bin
-let N_TILE_X = 16u;
-let N_TILE_Y = 16u;
-//let N_TILE = N_TILE_X * N_TILE_Y;
-let N_TILE = 256u;
+const N_TILE_X = 16u;
+const N_TILE_Y = 16u;
+//const N_TILE = N_TILE_X * N_TILE_Y;
+const N_TILE = 256u;
