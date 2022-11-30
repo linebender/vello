@@ -13,7 +13,7 @@ struct Tile {
 #import config
 
 @group(0) @binding(0)
-var<storage> config: Config;
+var<uniform> config: Config;
 
 @group(0) @binding(1)
 var<storage> tiles: array<Tile>;

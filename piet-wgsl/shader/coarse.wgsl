@@ -9,7 +9,7 @@
 #import tile
 
 @group(0) @binding(0)
-var<storage> config: Config;
+var<uniform> config: Config;
 
 @group(0) @binding(1)
 var<storage> scene: array<u32>;
@@ -27,7 +27,7 @@ struct BinHeader {
 var<storage> bin_headers: array<BinHeader>;
 
 @group(0) @binding(4)
-var<storage> bin_data: array<u32>;
+var<storage> info_bin_data: array<u32>;
 
 @group(0) @binding(5)
 var<storage> paths: array<Path>;
@@ -36,12 +36,9 @@ var<storage> paths: array<Path>;
 var<storage> tiles: array<Tile>;
 
 @group(0) @binding(7)
-var<storage> info: array<u32>;
-
-@group(0) @binding(8)
 var<storage, read_write> bump: BumpAllocators;
 
-@group(0) @binding(9)
+@group(0) @binding(8)
 var<storage, read_write> ptcl: array<u32>;
 
 
@@ -208,8 +205,8 @@ fn main(
                     }
                 }
                 ix -= select(part_start_ix, sh_part_count[part_ix - 1u], part_ix > 0u);
-                let offset = sh_part_offsets[part_ix];
-                sh_drawobj_ix[local_id.x] = bin_data[offset + ix];
+                let offset = config.bin_data_start + sh_part_offsets[part_ix];
+                sh_drawobj_ix[local_id.x] = info_bin_data[offset + ix];
             }
             wr_ix = min(rd_ix + N_TILE, ready_ix);
             if wr_ix - rd_ix >= N_TILE || (wr_ix >= ready_ix && partition_ix >= n_partitions) {
@@ -326,14 +323,14 @@ fn main(
                 switch drawtag {
                     // DRAWTAG_FILL_COLOR
                     case 0x44u: {
-                        let linewidth = bitcast<f32>(info[di]);
+                        let linewidth = bitcast<f32>(info_bin_data[di]);
                         write_path(tile, linewidth);
                         let rgba_color = scene[dd];
                         write_color(CmdColor(rgba_color));
                     }
                     // DRAWTAG_FILL_LIN_GRADIENT
                     case 0x114u: {
-                        let linewidth = bitcast<f32>(info[di]);
+                        let linewidth = bitcast<f32>(info_bin_data[di]);
                         write_path(tile, linewidth);
                         let index = scene[dd];
                         let info_offset = di + 1u;
@@ -341,7 +338,7 @@ fn main(
                     }
                     // DRAWTAG_FILL_RAD_GRADIENT
                     case 0x2dcu: {
-                        let linewidth = bitcast<f32>(info[di]);
+                        let linewidth = bitcast<f32>(info_bin_data[di]);
                         write_path(tile, linewidth);
                         let index = scene[dd];
                         let info_offset = di + 1u;
