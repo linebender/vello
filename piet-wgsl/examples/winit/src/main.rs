@@ -112,7 +112,7 @@ async fn run_wasm(event_loop: EventLoop<()>, window: Window) {
 fn main() {
     #[cfg(not(target_arch = "wasm32"))]
     {
-        pollster::block_on(run()).unwrap();
+        pollster::block_on(run());
     }
     #[cfg(target_arch = "wasm32")]
     {
@@ -125,8 +125,8 @@ fn main() {
 
         // On wasm, append the canvas to the document body
         let canvas = window.canvas();
-        canvas.set_width(1024);
-        canvas.set_height(1024);
+        canvas.set_width(1044);
+        canvas.set_height(800);
         web_sys::window()
             .and_then(|win| win.document())
             .and_then(|doc| doc.body())
