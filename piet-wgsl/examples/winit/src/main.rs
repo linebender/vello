@@ -23,10 +23,7 @@ use piet_wgsl::{util::RenderContext, Renderer};
 use winit::{event_loop::EventLoop, window::Window};
 
 async fn run() {
-    use winit::{
-        dpi::LogicalSize,
-        window::WindowBuilder,
-    };
+    use winit::{dpi::LogicalSize, window::WindowBuilder};
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
         .with_inner_size(LogicalSize::new(1044, 800))
@@ -37,10 +34,7 @@ async fn run() {
 }
 
 async fn run_wasm(event_loop: EventLoop<()>, window: Window) {
-    use winit::{
-        event::*,
-        event_loop::ControlFlow,
-    };
+    use winit::{event::*, event_loop::ControlFlow};
     let render_cx = RenderContext::new().await.unwrap();
     let size = window.inner_size();
     let mut surface = render_cx.create_surface(&window, size.width, size.height);
