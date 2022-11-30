@@ -146,7 +146,7 @@ fn main(
                 let count_packed = sh_count[count_ix / 2u][bin_ix];
                 idx += (count_packed >> (16u * (count_ix & 1u))) & 0xffffu;
             }
-            let offset = sh_chunk_offset[bin_ix];
+            let offset = config.bin_data_start + sh_chunk_offset[bin_ix];
             bin_data[offset + idx] = element_ix;
         }
         x += 1;

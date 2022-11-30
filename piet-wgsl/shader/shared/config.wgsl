@@ -11,6 +11,10 @@ struct Config {
     n_path: u32,
     n_clip: u32,
 
+    // To reduce the number of bindings, info and bin data are combined
+    // into one buffer.
+    bin_data_start: u32,
+
     // offsets within scene buffer (in u32 units)
     // Note: this is a difference from piet-gpu, which is in bytes
     pathtag_base: u32,

@@ -329,7 +329,7 @@ impl Engine {
                 }
                 Command::Clear(proxy, offset, size) => {
                     let buffer = bind_map.get_or_create(*proxy, device)?;
-                    encoder.clear_buffer(buffer, *offset, *size)
+                    encoder.clear_buffer(buffer, *offset, *size);
                 }
             }
         }

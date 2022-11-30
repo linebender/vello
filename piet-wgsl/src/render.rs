@@ -33,6 +33,7 @@ struct Config {
     n_drawobj: u32,
     n_path: u32,
     n_clip: u32,
+    bin_data_start: u32,
     pathtag_base: u32,
     pathdata_base: u32,
     drawtag_base: u32,
@@ -209,6 +210,7 @@ pub fn render_full(
     // TODO: calculate for real when we do rectangles
     let n_drawobj = n_path;
     let n_clip = data.n_clip;
+    let bin_data_start = n_drawobj * MAX_DRAWINFO_SIZE as u32;
 
     let new_width = next_multiple_of(width, 16);
     let new_height = next_multiple_of(height, 16);
@@ -222,6 +224,7 @@ pub fn render_full(
         n_drawobj,
         n_path,
         n_clip,
+        bin_data_start,
         pathtag_base,
         pathdata_base,
         drawtag_base,
@@ -278,7 +281,7 @@ pub fn render_full(
         [config_buf, scene_buf, draw_reduced_buf],
     );
     let draw_monoid_buf = ResourceProxy::new_buf(n_drawobj as u64 * DRAWMONOID_SIZE);
-    let info_buf = ResourceProxy::new_buf(n_drawobj as u64 * MAX_DRAWINFO_SIZE);
+    let info_bin_data_buf = ResourceProxy::new_buf(1 << 20);
     let clip_inp_buf = ResourceProxy::new_buf(data.n_clip as u64 * CLIP_INP_SIZE);
     recording.dispatch(
         shaders.draw_leaf,
@@ -289,7 +292,7 @@ pub fn render_full(
             draw_reduced_buf,
             path_bbox_buf,
             draw_monoid_buf,
-            info_buf,
+            info_bin_data_buf,
             clip_inp_buf,
         ],
     );
@@ -329,7 +332,6 @@ pub fn render_full(
     }
     let draw_bbox_buf = ResourceProxy::new_buf(n_path as u64 * DRAW_BBOX_SIZE);
     let bump_buf = BufProxy::new(BUMP_SIZE);
-    let bin_data_buf = ResourceProxy::new_buf(1 << 20);
     let width_in_bins = (config.width_in_tiles + 15) / 16;
     let height_in_bins = (config.height_in_tiles + 15) / 16;
     let n_bins = width_in_bins * height_in_bins;
@@ -346,7 +348,7 @@ pub fn render_full(
             clip_bbox_buf,
             draw_bbox_buf,
             bump_buf,
-            bin_data_buf,
+            info_bin_data_buf,
             bin_header_buf,
         ],
     );
@@ -395,10 +397,9 @@ pub fn render_full(
             scene_buf,
             draw_monoid_buf,
             bin_header_buf,
-            bin_data_buf,
+            info_bin_data_buf,
             path_buf,
             tile_buf,
-            info_buf,
             bump_buf,
             ptcl_buf,
         ],
@@ -414,7 +415,7 @@ pub fn render_full(
             ResourceProxy::Image(out_image),
             ptcl_buf,
             gradient_image,
-            info_buf,
+            info_bin_data_buf,
         ],
     );
     (recording, ResourceProxy::Image(out_image))
