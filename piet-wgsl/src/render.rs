@@ -85,7 +85,7 @@ fn render(scene: &Scene, shaders: &Shaders) -> (Recording, BufProxy) {
         ..Default::default()
     };
     let scene_buf = recording.upload(scene);
-    let config_buf = recording.upload(bytemuck::bytes_of(&config).to_owned());
+    let config_buf = recording.upload_uniform(bytemuck::bytes_of(&config));
 
     let reduced_buf = BufProxy::new(pathtag_wgs as u64 * TAG_MONOID_SIZE);
     // TODO: really only need pathtag_wgs - 1
@@ -231,7 +231,7 @@ pub fn render_full(
     };
     // println!("{:?}", config);
     let scene_buf = ResourceProxy::Buf(recording.upload(scene));
-    let config_buf = ResourceProxy::Buf(recording.upload(bytemuck::bytes_of(&config).to_owned()));
+    let config_buf = ResourceProxy::Buf(recording.upload_uniform(bytemuck::bytes_of(&config)));
 
     let pathtag_wgs = pathtag_padded / (4 * shaders::PATHTAG_REDUCE_WG as usize);
     let reduced_buf = ResourceProxy::new_buf(pathtag_wgs as u64 * TAG_MONOID_FULL_SIZE);

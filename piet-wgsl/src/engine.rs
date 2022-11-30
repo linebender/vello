@@ -86,6 +86,7 @@ pub enum ExternalResource<'a> {
 
 pub enum Command {
     Upload(BufProxy, Vec<u8>),
+    UploadUniform(BufProxy, Vec<u8>),
     UploadImage(ImageProxy, Vec<u8>),
     // Discussion question: third argument is vec of resources?
     // Maybe use tricks to make more ergonomic?
@@ -107,6 +108,8 @@ pub enum BindType {
     Buffer,
     /// A storage buffer with read only access.
     BufReadOnly,
+    /// A small storage buffer to be used as uniforms.
+    Uniform,
     /// A storage image.
     Image(ImageFormat),
     /// A storage image with read only access.
@@ -153,6 +156,16 @@ impl Engine {
                         ty: wgpu::BufferBindingType::Storage {
                             read_only: *bind_type == BindType::BufReadOnly,
                         },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                BindType::Uniform => wgpu::BindGroupLayoutEntry {
+                    binding: i as u32,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
                         min_binding_size: None,
                     },
@@ -226,6 +239,14 @@ impl Engine {
                         usage: wgpu::BufferUsages::STORAGE
                             | wgpu::BufferUsages::COPY_DST
                             | wgpu::BufferUsages::COPY_SRC,
+                    });
+                    bind_map.insert_buf(buf_proxy.id, buf);
+                }
+                Command::UploadUniform(buf_proxy, bytes) => {
+                    let buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: None,
+                        contents: &bytes,
+                        usage: wgpu::BufferUsages::UNIFORM,
                     });
                     bind_map.insert_buf(buf_proxy.id, buf);
                 }
@@ -326,6 +347,13 @@ impl Recording {
         let data = data.into();
         let buf_proxy = BufProxy::new(data.len() as u64);
         self.push(Command::Upload(buf_proxy, data));
+        buf_proxy
+    }
+
+    pub fn upload_uniform(&mut self, data: impl Into<Vec<u8>>) -> BufProxy {
+        let data = data.into();
+        let buf_proxy = BufProxy::new(data.len() as u64);
+        self.push(Command::UploadUniform(buf_proxy, data));
         buf_proxy
     }
 

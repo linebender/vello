@@ -8,7 +8,7 @@
 #import bump
 
 @group(0) @binding(0)
-var<storage> config: Config;
+var<uniform> config: Config;
 
 @group(0) @binding(1)
 var<storage> draw_monoids: array<DrawMonoid>;
@@ -46,9 +46,11 @@ let SY = 0.00390625;
 let WG_SIZE = 256u;
 let N_SLICE = 8u;
 //let N_SLICE = WG_SIZE / 32u;
+let N_SUBSLICE = 4u;
 
 var<workgroup> sh_bitmaps: array<array<atomic<u32>, N_TILE>, N_SLICE>;
-var<workgroup> sh_count: array<array<u32, N_TILE>, N_SLICE>;
+// store count values packed two u16's to a u32
+var<workgroup> sh_count: array<array<u32, N_TILE>, N_SUBSLICE>;
 var<workgroup> sh_chunk_offset: array<u32, N_TILE>;
 
 @compute @workgroup_size(256)
@@ -115,9 +117,13 @@ fn main(
     workgroupBarrier();
     // Allocate output segments
     var element_count = 0u;
-    for (var i = 0u; i < N_SLICE; i += 1u) {
-        element_count += countOneBits(atomicLoad(&sh_bitmaps[i][local_id.x]));
-        sh_count[i][local_id.x] = element_count;
+    for (var i = 0u; i < N_SUBSLICE; i += 1u) {
+        element_count += countOneBits(atomicLoad(&sh_bitmaps[i * 2u][local_id.x]));
+        let element_count_lo = element_count;
+        element_count += countOneBits(atomicLoad(&sh_bitmaps[i * 2u + 1u][local_id.x]));
+        let element_count_hi = element_count;
+        let element_count_packed = element_count_lo | (element_count_hi << 16u);
+        sh_count[i][local_id.x] = element_count_packed;
     }
     // element_count is the number of draw objects covering this thread's bin
     let chunk_offset = atomicAdd(&bump.binning, element_count);
@@ -136,7 +142,9 @@ fn main(
         if (out_mask & my_mask) != 0u {
             var idx = countOneBits(out_mask & (my_mask - 1u));
             if my_slice > 0u {
-                idx += sh_count[my_slice - 1u][bin_ix];
+                let count_ix = my_slice - 1u;
+                let count_packed = sh_count[count_ix / 2u][bin_ix];
+                idx += (count_packed >> (16u * (count_ix & 1u))) & 0xffffu;
             }
             let offset = sh_chunk_offset[bin_ix];
             bin_data[offset + idx] = element_ix;

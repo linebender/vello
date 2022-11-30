@@ -3,7 +3,7 @@
 #import config
 
 @group(0) @binding(0)
-var<storage> config: Config;
+var<uniform> config: Config;
 
 struct PathBbox {
     x0: i32,
