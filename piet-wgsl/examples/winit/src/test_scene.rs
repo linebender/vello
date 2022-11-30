@@ -50,7 +50,7 @@ const N_CIRCLES: usize = 0;
 #[allow(unused)]
 pub fn render_svg(sb: &mut SceneBuilder, svg: &PicoSvg, print_stats: bool) {
     use crate::pico_svg::*;
-    let start = std::time::Instant::now();
+    //let start = std::time::Instant::now();
     for item in &svg.items {
         match item {
             Item::Fill(fill) => {
@@ -73,9 +73,6 @@ pub fn render_svg(sb: &mut SceneBuilder, svg: &PicoSvg, print_stats: bool) {
             }
         }
     }
-    if print_stats {
-        println!("flattening and encoding time: {:?}", start.elapsed());
-    }
 }
 
 #[allow(unused)]
@@ -83,11 +80,7 @@ pub fn render_tiger(sb: &mut SceneBuilder, print_stats: bool) {
     use super::pico_svg::*;
     let xml_str =
         std::str::from_utf8(include_bytes!("../../assets/Ghostscript_Tiger.svg")).unwrap();
-    let start = std::time::Instant::now();
     let svg = PicoSvg::load(xml_str, 6.0).unwrap();
-    if print_stats {
-        println!("parsing time: {:?}", start.elapsed());
-    }
     render_svg(sb, &svg, print_stats);
 }
 
