@@ -57,18 +57,7 @@ impl RenderContext {
     where
         W: HasRawWindowHandle + HasRawDisplayHandle,
     {
-        let surface = unsafe { self.instance.create_surface(window) };
-        let format = wgpu::TextureFormat::Bgra8Unorm;
-        let config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format,
-            width,
-            height,
-            present_mode: wgpu::PresentMode::Fifo,
-            alpha_mode: wgpu::CompositeAlphaMode::Auto,
-        };
-        surface.configure(&self.device, &config);
-        RenderSurface { surface, config }
+        self.create_surface_with_present_mode(window, width, height, PresentMode::Fifo)
     }
 
     /// Creates a new surface for the specified window and dimensions.
