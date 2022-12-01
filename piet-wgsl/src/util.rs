@@ -19,7 +19,7 @@
 use super::Result;
 
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
-use wgpu::{Device, Instance, Limits, Queue, Surface, SurfaceConfiguration};
+use wgpu::{Device, Instance, Limits, PresentMode, Queue, Surface, SurfaceConfiguration};
 
 /// Simple render context that maintains wgpu state for rendering the pipeline.
 pub struct RenderContext {
@@ -65,6 +65,31 @@ impl RenderContext {
             width,
             height,
             present_mode: wgpu::PresentMode::Fifo,
+            alpha_mode: wgpu::CompositeAlphaMode::Auto,
+        };
+        surface.configure(&self.device, &config);
+        RenderSurface { surface, config }
+    }
+
+    /// Creates a new surface for the specified window and dimensions.
+    pub fn create_surface_with_present_mode<W>(
+        &self,
+        window: &W,
+        width: u32,
+        height: u32,
+        present_mode: PresentMode,
+    ) -> RenderSurface
+    where
+        W: HasRawWindowHandle + HasRawDisplayHandle,
+    {
+        let surface = unsafe { self.instance.create_surface(window) };
+        let format = wgpu::TextureFormat::Bgra8Unorm;
+        let config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format,
+            width,
+            height,
+            present_mode,
             alpha_mode: wgpu::CompositeAlphaMode::Auto,
         };
         surface.configure(&self.device, &config);

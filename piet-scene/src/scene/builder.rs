@@ -19,7 +19,6 @@ use crate::ResourcePatch;
 use bytemuck::{Pod, Zeroable};
 use peniko::kurbo::{Affine, PathEl, Rect, Shape};
 use peniko::{BlendMode, BrushRef, ColorStop, Fill, Stroke};
-use smallvec::SmallVec;
 
 /// Builder for constructing a scene or scene fragment.
 pub struct SceneBuilder<'a> {
@@ -87,6 +86,10 @@ impl<'a> SceneBuilder<'a> {
         brush_transform: Option<Affine>,
         shape: &impl Shape,
     ) {
+        let brush = brush.into();
+        if !check_brush(&brush) {
+            return;
+        }
         self.maybe_encode_transform(transform);
         self.linewidth(-1.0);
         if self.encode_path(shape, true) {
@@ -109,6 +112,10 @@ impl<'a> SceneBuilder<'a> {
         brush_transform: Option<Affine>,
         shape: &impl Shape,
     ) {
+        let brush = brush.into();
+        if !check_brush(&brush) {
+            return;
+        }
         self.maybe_encode_transform(transform);
         self.linewidth(style.width);
         if self.encode_path(shape, false) {
@@ -202,8 +209,8 @@ impl<'a> SceneBuilder<'a> {
         }
     }
 
-    fn encode_brush<'b>(&mut self, brush: impl Into<BrushRef<'b>>) {
-        match brush.into() {
+    fn encode_brush<'b>(&mut self, brush: BrushRef<'b>) {
+        match brush {
             BrushRef::Solid(color) => {
                 self.scene.drawtag_stream.push(DRAWTAG_FILLCOLOR);
                 let rgba_color = color.to_premul_u32();
@@ -270,6 +277,16 @@ impl<'a> SceneBuilder<'a> {
         self.scene.tag_stream.push(0x10);
         self.scene.n_path += 1;
         self.scene.n_clip += 1;
+    }
+}
+
+/// Returns false if a brush would be guaranteed to render nothing.
+fn check_brush(brush: &BrushRef) -> bool {
+    match brush {
+        BrushRef::LinearGradient(gradient) => !gradient.stops.is_empty(),
+        BrushRef::RadialGradient(gradient) => !gradient.stops.is_empty(),
+        BrushRef::Solid(color) => color.a != 0,
+        _ => true,
     }
 }
 
