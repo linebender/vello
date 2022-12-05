@@ -334,8 +334,7 @@ pub fn render_full(
     let bump_buf = BufProxy::new(BUMP_SIZE);
     let width_in_bins = (config.width_in_tiles + 15) / 16;
     let height_in_bins = (config.height_in_tiles + 15) / 16;
-    let n_bins = width_in_bins * height_in_bins;
-    let bin_header_buf = ResourceProxy::new_buf((n_bins * drawobj_wgs) as u64 * BIN_HEADER_SIZE);
+    let bin_header_buf = ResourceProxy::new_buf((256 * drawobj_wgs) as u64 * BIN_HEADER_SIZE);
     recording.clear_all(bump_buf);
     let bump_buf = ResourceProxy::Buf(bump_buf);
     recording.dispatch(
@@ -352,7 +351,10 @@ pub fn render_full(
             bin_header_buf,
         ],
     );
-    let path_buf = ResourceProxy::new_buf(n_path as u64 * PATH_SIZE);
+    // Note: this only needs to be rounded up because of the workaround to store the tile_offset
+    // in storage rather than workgroup memory.
+    let n_path_aligned = align_up(n_path as usize, 256);
+    let path_buf = ResourceProxy::new_buf(n_path_aligned as u64 * PATH_SIZE);
     let tile_buf = ResourceProxy::new_buf(1 << 20);
     let path_wgs = (n_path + shaders::PATH_BBOX_WG - 1) / shaders::PATH_BBOX_WG;
     recording.dispatch(

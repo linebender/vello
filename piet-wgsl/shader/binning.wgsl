@@ -62,6 +62,7 @@ fn main(
     for (var i = 0u; i < N_SLICE; i += 1u) {
         atomicStore(&sh_bitmaps[i][local_id.x], 0u);
     }
+    workgroupBarrier();
 
     // Read inputs and determine coverage of bins
     let element_ix = global_id.x;
