@@ -1054,16 +1054,10 @@ name = "piet-wgsl"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
- "console_error_panic_hook",
- "console_log",
  "futures-intrusive",
- "js-sys",
  "parking_lot",
  "piet-scene",
  "raw-window-handle 0.5.0",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
  "wgpu",
 ]
 
@@ -2030,7 +2024,6 @@ dependencies = [
  "piet-wgsl",
  "pollster",
  "roxmltree",
- "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
  "wgpu",
