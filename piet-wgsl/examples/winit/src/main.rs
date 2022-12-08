@@ -65,7 +65,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
             match scene_ix % N_SCENES {
                 0 => test_scene::render_anim_frame(&mut builder, &mut simple_text, current_frame),
                 1 => test_scene::render_blend_grid(&mut builder),
-                2 => test_scene::render_tiger(&mut builder, false),
+                2 => test_scene::render_tiger(&mut builder),
                 3 => test_scene::render_brush_transform(&mut builder, current_frame),
                 4 => test_scene::render_funky_paths(&mut builder),
                 _ => test_scene::render_scene(&mut builder),

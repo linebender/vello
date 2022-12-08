@@ -48,9 +48,8 @@ pub fn render_funky_paths(sb: &mut SceneBuilder) {
 const N_CIRCLES: usize = 0;
 
 #[allow(unused)]
-pub fn render_svg(sb: &mut SceneBuilder, svg: &PicoSvg, print_stats: bool) {
+pub fn render_svg(sb: &mut SceneBuilder, svg: &PicoSvg) {
     use crate::pico_svg::*;
-    //let start = std::time::Instant::now();
     for item in &svg.items {
         match item {
             Item::Fill(fill) => {
@@ -76,12 +75,12 @@ pub fn render_svg(sb: &mut SceneBuilder, svg: &PicoSvg, print_stats: bool) {
 }
 
 #[allow(unused)]
-pub fn render_tiger(sb: &mut SceneBuilder, print_stats: bool) {
+pub fn render_tiger(sb: &mut SceneBuilder) {
     use super::pico_svg::*;
     let xml_str =
         std::str::from_utf8(include_bytes!("../../assets/Ghostscript_Tiger.svg")).unwrap();
     let svg = PicoSvg::load(xml_str, 6.0).unwrap();
-    render_svg(sb, &svg, print_stats);
+    render_svg(sb, &svg);
 }
 
 pub fn render_scene(sb: &mut SceneBuilder) {
