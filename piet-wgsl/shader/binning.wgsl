@@ -45,7 +45,7 @@ let SY = 0.00390625;
 
 let WG_SIZE = 256u;
 let N_SLICE = 8u;
-//const N_SLICE = WG_SIZE / 32u;
+//let N_SLICE = WG_SIZE / 32u;
 let N_SUBSLICE = 4u;
 
 var<workgroup> sh_bitmaps: array<array<atomic<u32>, N_TILE>, N_SLICE>;

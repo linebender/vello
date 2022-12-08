@@ -34,5 +34,5 @@ let TILE_HEIGHT = 16u;
 // Number of tiles per bin
 let N_TILE_X = 16u;
 let N_TILE_Y = 16u;
-//const N_TILE = N_TILE_X * N_TILE_Y;
+//let N_TILE = N_TILE_X * N_TILE_Y;
 let N_TILE = 256u;

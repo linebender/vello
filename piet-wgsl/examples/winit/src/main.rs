@@ -22,18 +22,7 @@ use piet_scene::{Scene, SceneBuilder};
 use piet_wgsl::{util::RenderContext, Renderer};
 use winit::{event_loop::EventLoop, window::Window};
 
-async fn run() {
-    use winit::{dpi::LogicalSize, window::WindowBuilder};
-    let event_loop = EventLoop::new();
-    let window = WindowBuilder::new()
-        .with_inner_size(LogicalSize::new(1044, 800))
-        .with_resizable(true)
-        .build(&event_loop)
-        .unwrap();
-    run_wasm(event_loop, window).await
-}
-
-async fn run_wasm(event_loop: EventLoop<()>, window: Window) {
+async fn run(event_loop: EventLoop<()>, window: Window) {
     use winit::{event::*, event_loop::ControlFlow};
     let render_cx = RenderContext::new().await.unwrap();
     let size = window.inner_size();
@@ -106,7 +95,14 @@ async fn run_wasm(event_loop: EventLoop<()>, window: Window) {
 fn main() {
     #[cfg(not(target_arch = "wasm32"))]
     {
-        pollster::block_on(run());
+        use winit::{dpi::LogicalSize, window::WindowBuilder};
+        let event_loop = EventLoop::new();
+        let window = WindowBuilder::new()
+            .with_inner_size(LogicalSize::new(1044, 800))
+            .with_resizable(true)
+            .build(&event_loop)
+            .unwrap();
+        pollster::block_on(run(event_loop, window));
     }
     #[cfg(target_arch = "wasm32")]
     {
@@ -126,6 +122,6 @@ fn main() {
             .and_then(|doc| doc.body())
             .and_then(|body| body.append_child(&web_sys::Element::from(canvas)).ok())
             .expect("couldn't append canvas to document body");
-        wasm_bindgen_futures::spawn_local(run_wasm(event_loop, window));
+        wasm_bindgen_futures::spawn_local(run(event_loop, window));
     }
 }
