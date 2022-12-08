@@ -1,7 +1,8 @@
 [package]
-name = "winit"
-version = "0.1.0"
-edition = "2021"
+name = "winit-demo"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
 publish = false
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -14,3 +15,9 @@ winit = "0.27.5"
 pollster = "0.2.5"
 # for picosvg
 roxmltree = "0.13"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+console_error_panic_hook = "0.1.7"
+console_log = "0.2"
+wasm-bindgen-futures = "0.4.33"
+web-sys = "0.3.60"

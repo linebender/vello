@@ -1,7 +1,12 @@
 [workspace]
 resolver = "2"
 
-members = ["piet-scene", "piet-wgsl", "piet-wgsl/examples/winit"]
+members = ["piet-scene", "piet-wgsl", "piet-wgsl/examples/winit", "run-wasm"]
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+authors = ["piet-gpu developers"]
 
 [patch.crates-io]
 # Required for metal support to work on wgpu
