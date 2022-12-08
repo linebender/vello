@@ -26,8 +26,8 @@ var<storage> segments: array<Segment>;
 #import blend
 #import ptcl
 
-const GRADIENT_WIDTH = 512;
-const BLEND_STACK_SPLIT = 4u;
+let GRADIENT_WIDTH = 512;
+let BLEND_STACK_SPLIT = 4u;
 
 @group(0) @binding(3)
 var output: texture_storage_2d<rgba8unorm, write>;
@@ -95,7 +95,7 @@ var output: texture_storage_2d<r8, write>;
 
 #endif
 
-const PIXELS_PER_THREAD = 4u;
+let PIXELS_PER_THREAD = 4u;
 
 fn fill_path(tile: Tile, xy: vec2<f32>) -> array<f32, PIXELS_PER_THREAD> {
     var area: array<f32, PIXELS_PER_THREAD>;

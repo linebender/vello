@@ -28,7 +28,7 @@ var<storage, read_write> info: array<u32>;
 @group(0) @binding(6)
 var<storage, read_write> clip_inp: array<ClipInp>;
 
-const WG_SIZE = 256u;
+let WG_SIZE = 256u;
 
 // Possibly dedup?
 struct Transform {

@@ -38,15 +38,15 @@ struct BinHeader {
 var<storage, read_write> bin_header: array<BinHeader>;
 
 // conversion factors from coordinates to bin
-const SX = 0.00390625;
-const SY = 0.00390625;
+let SX = 0.00390625;
+let SY = 0.00390625;
 //let SX = 1.0 / f32(N_TILE_X * TILE_WIDTH);
 //let SY = 1.0 / f32(N_TILE_Y * TILE_HEIGHT);
 
-const WG_SIZE = 256u;
-const N_SLICE = 8u;
+let WG_SIZE = 256u;
+let N_SLICE = 8u;
 //const N_SLICE = WG_SIZE / 32u;
-const N_SUBSLICE = 4u;
+let N_SUBSLICE = 4u;
 
 var<workgroup> sh_bitmaps: array<array<atomic<u32>, N_TILE>, N_SLICE>;
 // store count values packed two u16's to a u32
@@ -62,7 +62,8 @@ fn main(
     for (var i = 0u; i < N_SLICE; i += 1u) {
         atomicStore(&sh_bitmaps[i][local_id.x], 0u);
     }
-
+    workgroupBarrier();
+    
     // Read inputs and determine coverage of bins
     let element_ix = global_id.x;
     var x0 = 0;

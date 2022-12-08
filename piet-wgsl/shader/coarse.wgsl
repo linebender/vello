@@ -45,9 +45,9 @@ var<storage, read_write> ptcl: array<u32>;
 
 // Much of this code assumes WG_SIZE == N_TILE. If these diverge, then
 // a fair amount of fixup is needed.
-const WG_SIZE = 256u;
+let WG_SIZE = 256u;
 //const N_SLICE = WG_SIZE / 32u;
-const N_SLICE = 8u;
+let N_SLICE = 8u;
 
 var<workgroup> sh_bitmaps: array<array<atomic<u32>, N_TILE>, N_SLICE>;
 var<workgroup> sh_part_count: array<u32, WG_SIZE>;

@@ -15,13 +15,13 @@ struct DrawMonoid {
 
 // Each draw object has a 32-bit draw tag, which is a bit-packed
 // version of the draw monoid.
-const DRAWTAG_NOP = 0u;
-const DRAWTAG_FILL_COLOR = 0x44u;
-const DRAWTAG_FILL_LIN_GRADIENT = 0x114u;
-const DRAWTAG_FILL_RAD_GRADIENT = 0x2dcu;
-const DRAWTAG_FILL_IMAGE = 0x48u;
-const DRAWTAG_BEGIN_CLIP = 0x9u;
-const DRAWTAG_END_CLIP = 0x21u;
+let DRAWTAG_NOP = 0u;
+let DRAWTAG_FILL_COLOR = 0x44u;
+let DRAWTAG_FILL_LIN_GRADIENT = 0x114u;
+let DRAWTAG_FILL_RAD_GRADIENT = 0x2dcu;
+let DRAWTAG_FILL_IMAGE = 0x48u;
+let DRAWTAG_BEGIN_CLIP = 0x9u;
+let DRAWTAG_END_CLIP = 0x21u;
 
 fn draw_monoid_identity() -> DrawMonoid {
     return DrawMonoid();
