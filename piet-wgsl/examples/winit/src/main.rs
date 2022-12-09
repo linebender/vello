@@ -19,25 +19,15 @@ mod simple_text;
 mod test_scene;
 
 use piet_scene::{Scene, SceneBuilder};
-use piet_wgsl::{util::RenderContext, Renderer, Result};
+use piet_wgsl::{util::RenderContext, Renderer};
+use winit::{event_loop::EventLoop, window::Window};
 
-async fn run() -> Result<()> {
-    use winit::{
-        dpi::LogicalSize,
-        event::*,
-        event_loop::{ControlFlow, EventLoop},
-        window::WindowBuilder,
-    };
-    let event_loop = EventLoop::new();
-    let window = WindowBuilder::new()
-        .with_inner_size(LogicalSize::new(1044, 800))
-        .with_resizable(true)
-        .build(&event_loop)
-        .unwrap();
-    let render_cx = RenderContext::new().await?;
+async fn run(event_loop: EventLoop<()>, window: Window) {
+    use winit::{event::*, event_loop::ControlFlow};
+    let render_cx = RenderContext::new().await.unwrap();
     let size = window.inner_size();
     let mut surface = render_cx.create_surface(&window, size.width, size.height);
-    let mut renderer = Renderer::new(&render_cx.device)?;
+    let mut renderer = Renderer::new(&render_cx.device).unwrap();
     let mut simple_text = simple_text::SimpleText::new();
     let mut current_frame = 0usize;
     let mut scene_ix = 0usize;
@@ -75,7 +65,7 @@ async fn run() -> Result<()> {
             match scene_ix % N_SCENES {
                 0 => test_scene::render_anim_frame(&mut builder, &mut simple_text, current_frame),
                 1 => test_scene::render_blend_grid(&mut builder),
-                2 => test_scene::render_tiger(&mut builder, false),
+                2 => test_scene::render_tiger(&mut builder),
                 3 => test_scene::render_brush_transform(&mut builder, current_frame),
                 4 => test_scene::render_funky_paths(&mut builder),
                 _ => test_scene::render_scene(&mut builder),
@@ -103,5 +93,35 @@ async fn run() -> Result<()> {
 }
 
 fn main() {
-    pollster::block_on(run()).unwrap();
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        use winit::{dpi::LogicalSize, window::WindowBuilder};
+        let event_loop = EventLoop::new();
+        let window = WindowBuilder::new()
+            .with_inner_size(LogicalSize::new(1044, 800))
+            .with_resizable(true)
+            .build(&event_loop)
+            .unwrap();
+        pollster::block_on(run(event_loop, window));
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let event_loop = EventLoop::new();
+        let window = winit::window::Window::new(&event_loop).unwrap();
+
+        std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+        console_log::init().expect("could not initialize logger");
+        use winit::platform::web::WindowExtWebSys;
+
+        // On wasm, append the canvas to the document body
+        let canvas = window.canvas();
+        canvas.set_width(1044);
+        canvas.set_height(800);
+        web_sys::window()
+            .and_then(|win| win.document())
+            .and_then(|doc| doc.body())
+            .and_then(|body| body.append_child(&web_sys::Element::from(canvas)).ok())
+            .expect("couldn't append canvas to document body");
+        wasm_bindgen_futures::spawn_local(run(event_loop, window));
+    }
 }

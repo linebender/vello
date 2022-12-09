@@ -33,8 +33,8 @@ var<workgroup> sh_stack_bbox: array<vec4<f32>, WG_SIZE>;
 var<workgroup> sh_bbox: array<vec4<f32>, WG_SIZE>;
 var<workgroup> sh_link: array<i32, WG_SIZE>;
 
-fn search_link(bic: ptr<function, Bic>, ix: u32) -> i32 {
-    var ix = ix;
+fn search_link(bic: ptr<function, Bic>, ix_in: u32) -> i32 {
+    var ix = ix_in;
     var j = 0u;
     while j < firstTrailingBit(WG_SIZE) {
         let base = 2u * WG_SIZE - (2u << (firstTrailingBit(WG_SIZE) - j));
@@ -130,7 +130,7 @@ fn main(
     // Read input and compute Bic binary tree
     let inp = load_clip_path(global_id.x);
     let is_push = inp >= 0;
-    var bic = Bic(1u - u32(is_push), u32(is_push));
+    bic = Bic(1u - u32(is_push), u32(is_push));
     sh_bic[local_id.x] = bic;
     if is_push {
         let path_bbox = path_bboxes[inp];

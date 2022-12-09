@@ -74,8 +74,8 @@ fn lum(c: vec3<f32>) -> f32 {
     return dot(c, f);
 }
 
-fn clip_color(c: vec3<f32>) -> vec3<f32> {
-    var c = c;
+fn clip_color(c_in: vec3<f32>) -> vec3<f32> {
+    var c = c_in;
     let l = lum(c);
     let n = min(c.x, min(c.y, c.z));
     let x = max(c.x, max(c.y, c.z));
