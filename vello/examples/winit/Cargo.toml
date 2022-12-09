@@ -9,8 +9,7 @@ publish = false
 
 [dependencies]
 wgpu = "0.14"
-piet-wgsl = { path = "../../../piet-wgsl" }
-piet-scene = { path = "../../../piet-scene" }
+vello = { path = "../../../vello" }
 winit = "0.27.5"
 pollster = "0.2.5"
 # for picosvg

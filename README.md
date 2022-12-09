@@ -1,4 +1,4 @@
-# piet-gpu
+# vello (formerly piet-gpu)
 
 This repo contains the new prototype for a new compute-centric 2D GPU renderer.
 

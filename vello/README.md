@@ -1,4 +1,4 @@
-# piet-wgsl
+# vello
 
 This crate is currently a highly experimental proof-of-concept port of the piet-gpu renderer to the WGSL shader language, so it could be run on WebGPU. Depending on how well it works out, it may become the authoritative source for piet-gpu.
 

@@ -3,9 +3,10 @@
 use std::str::FromStr;
 
 use roxmltree::{Document, Node};
-
-use piet_scene::kurbo::{Affine, BezPath};
-use piet_scene::Color;
+use vello::{
+    kurbo::{Affine, BezPath},
+    peniko::Color,
+};
 
 pub struct PicoSvg {
     pub items: Vec<Item>,

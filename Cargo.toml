@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 
-members = ["piet-scene", "piet-wgsl", "piet-wgsl/examples/winit", "run-wasm"]
+members = ["vello", "vello/examples/winit", "run-wasm"]
 
 [workspace.package]
 edition = "2021"

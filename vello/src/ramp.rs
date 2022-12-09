@@ -1,4 +1,4 @@
-use piet_scene::{Color, ColorStop, ColorStops};
+use peniko::{Color, ColorStop, ColorStops};
 
 use std::collections::HashMap;
 
