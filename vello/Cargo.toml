@@ -1,11 +1,16 @@
 [package]
-name = "piet-scene"
+name = "vello"
 version = "0.1.0"
+authors = ["Raph Levien <raph@google.com>"]
 license = "MIT/Apache-2.0"
 edition = "2021"
 
 [dependencies]
-bytemuck = { version = "1.7.2", features = ["derive"] }
+wgpu = "0.14"
+raw-window-handle = "0.5"
+futures-intrusive = "0.5.0"
+parking_lot = "0.12"
+bytemuck = { version = "1.12.1", features = ["derive"] }
 smallvec = "1.8.0"
 moscato = { git = "https://github.com/dfrg/pinot" }
 peniko = { git = "https://github.com/linebender/peniko" }

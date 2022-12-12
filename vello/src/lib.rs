@@ -17,15 +17,23 @@
 mod engine;
 mod ramp;
 mod render;
+mod scene;
 mod shaders;
 
+/// Styling and composition primitives.
+pub use peniko;
+/// 2D geometry, with a focus on curves.
+pub use peniko::kurbo;
+
+pub mod glyph;
 pub mod util;
+
+pub use scene::{ResourceBundle, ResourcePatch, Scene, SceneBuilder, SceneData, SceneFragment};
 
 use engine::{Engine, ExternalResource};
 use shaders::FullShaders;
 
-use piet_scene::Scene;
-use wgpu::{Device, Queue, SurfaceTexture, Texture, TextureFormat, TextureView};
+use wgpu::{Device, Queue, SurfaceTexture, TextureFormat, TextureView};
 
 /// Catch-all error type.
 pub type Error = Box<dyn std::error::Error>;

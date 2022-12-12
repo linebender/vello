@@ -14,12 +14,163 @@
 //
 // Also licensed under MIT license, at your choice.
 
-use super::{conv, Scene, SceneData, SceneFragment};
-use crate::ResourcePatch;
-use bytemuck::{Pod, Zeroable};
-use peniko::kurbo::{Affine, PathEl, Rect, Shape};
+use peniko::kurbo::{Affine, PathEl, Point, Rect, Shape};
 use peniko::{BlendMode, BrushRef, ColorStop, Fill, Stroke};
-use smallvec::SmallVec;
+
+use bytemuck::{Pod, Zeroable};
+use std::ops::Range;
+
+/// Raw data streams describing an encoded scene.
+#[derive(Default)]
+pub struct SceneData {
+    pub transform_stream: Vec<[f32; 6]>,
+    pub tag_stream: Vec<u8>,
+    pub pathseg_stream: Vec<u8>,
+    pub linewidth_stream: Vec<f32>,
+    pub drawtag_stream: Vec<u32>,
+    pub drawdata_stream: Vec<u8>,
+    pub n_path: u32,
+    pub n_pathseg: u32,
+    pub n_clip: u32,
+    pub resources: ResourceBundle,
+}
+
+impl SceneData {
+    fn is_empty(&self) -> bool {
+        self.pathseg_stream.is_empty()
+    }
+
+    fn reset(&mut self, is_fragment: bool) {
+        self.transform_stream.clear();
+        self.tag_stream.clear();
+        self.pathseg_stream.clear();
+        self.linewidth_stream.clear();
+        self.drawtag_stream.clear();
+        self.drawdata_stream.clear();
+        self.n_path = 0;
+        self.n_pathseg = 0;
+        self.n_clip = 0;
+        self.resources.clear();
+        if !is_fragment {
+            self.transform_stream.push([1.0, 0.0, 0.0, 1.0, 0.0, 0.0]);
+            self.linewidth_stream.push(-1.0);
+        }
+    }
+
+    fn append(&mut self, other: &SceneData, transform: &Option<Affine>) {
+        let stops_base = self.resources.stops.len();
+        let drawdata_base = self.drawdata_stream.len();
+        if let Some(transform) = *transform {
+            self.transform_stream.extend(
+                other
+                    .transform_stream
+                    .iter()
+                    .map(|x| affine_to_f32(&(transform * affine_from_f32(x)))),
+            );
+        } else {
+            self.transform_stream
+                .extend_from_slice(&other.transform_stream);
+        }
+        self.tag_stream.extend_from_slice(&other.tag_stream);
+        self.pathseg_stream.extend_from_slice(&other.pathseg_stream);
+        self.linewidth_stream
+            .extend_from_slice(&other.linewidth_stream);
+        self.drawtag_stream.extend_from_slice(&other.drawtag_stream);
+        self.drawdata_stream
+            .extend_from_slice(&other.drawdata_stream);
+        self.n_path += other.n_path;
+        self.n_pathseg += other.n_pathseg;
+        self.n_clip += other.n_clip;
+        self.resources
+            .stops
+            .extend_from_slice(&other.resources.stops);
+        self.resources
+            .patches
+            .extend(other.resources.patches.iter().map(|patch| match patch {
+                ResourcePatch::Ramp { offset, stops } => {
+                    let stops = stops.start + stops_base..stops.end + stops_base;
+                    ResourcePatch::Ramp {
+                        offset: drawdata_base + offset,
+                        stops,
+                    }
+                }
+            }));
+    }
+}
+
+/// Encoded definition of a scene and associated resources.
+#[derive(Default)]
+pub struct Scene {
+    data: SceneData,
+}
+
+impl Scene {
+    /// Creates a new scene.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Returns the raw encoded scene data streams.
+    pub fn data(&self) -> &SceneData {
+        &self.data
+    }
+}
+
+/// Encoded definition of a scene fragment and associated resources.
+#[derive(Default)]
+pub struct SceneFragment {
+    data: SceneData,
+}
+
+impl SceneFragment {
+    /// Creates a new scene fragment.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Returns true if the fragment does not contain any paths.
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
+    }
+
+    /// Returns the the entire sequence of points in the scene fragment.
+    pub fn points(&self) -> &[[f32; 2]] {
+        if self.is_empty() {
+            &[]
+        } else {
+            bytemuck::cast_slice(&self.data.pathseg_stream)
+        }
+    }
+}
+
+#[derive(Default)]
+/// Collection of late bound resources for a scene or scene fragment.
+pub struct ResourceBundle {
+    /// Sequence of resource patches.
+    pub patches: Vec<ResourcePatch>,
+    /// Cache of color stops, referenced by range from the patches.
+    pub stops: Vec<ColorStop>,
+}
+
+impl ResourceBundle {
+    /// Clears the resource set.
+    pub(crate) fn clear(&mut self) {
+        self.patches.clear();
+        self.stops.clear();
+    }
+}
+
+#[derive(Clone)]
+/// Description of a late bound resource.
+pub enum ResourcePatch {
+    /// Gradient ramp resource.
+    Ramp {
+        /// Byte offset to the ramp id in the draw data stream.
+        offset: usize,
+        /// Range of the gradient stops in the resource set.
+        stops: Range<usize>,
+    },
+}
 
 /// Builder for constructing a scene or scene fragment.
 pub struct SceneBuilder<'a> {
@@ -175,16 +326,14 @@ impl<'a> SceneBuilder<'a> {
     }
 
     fn maybe_encode_transform(&mut self, transform: Affine) {
-        if self.scene.transform_stream.last() != Some(&conv::affine_to_f32(&transform)) {
+        if self.scene.transform_stream.last() != Some(&affine_to_f32(&transform)) {
             self.encode_transform(transform);
         }
     }
 
     fn encode_transform(&mut self, transform: Affine) {
         self.scene.tag_stream.push(0x20);
-        self.scene
-            .transform_stream
-            .push(conv::affine_to_f32(&transform));
+        self.scene.transform_stream.push(affine_to_f32(&transform));
     }
 
     // Swap the last two tags in the tag stream; used for transformed
@@ -218,8 +367,8 @@ impl<'a> SceneBuilder<'a> {
                     .drawdata_stream
                     .extend(bytemuck::bytes_of(&FillLinGradient {
                         index,
-                        p0: conv::point_to_f32(gradient.start),
-                        p1: conv::point_to_f32(gradient.end),
+                        p0: point_to_f32(gradient.start),
+                        p1: point_to_f32(gradient.end),
                     }));
             }
             BrushRef::RadialGradient(gradient) => {
@@ -229,8 +378,8 @@ impl<'a> SceneBuilder<'a> {
                     .drawdata_stream
                     .extend(bytemuck::bytes_of(&FillRadGradient {
                         index,
-                        p0: conv::point_to_f32(gradient.start_center),
-                        p1: conv::point_to_f32(gradient.end_center),
+                        p0: point_to_f32(gradient.start_center),
+                        p1: point_to_f32(gradient.end_center),
                         r0: gradient.start_radius,
                         r1: gradient.end_radius,
                     }));
@@ -468,4 +617,16 @@ impl<'a> PathBuilder<'a> {
             self.tag_stream.push(0x10);
         }
     }
+}
+
+fn affine_to_f32(affine: &Affine) -> [f32; 6] {
+    affine.as_coeffs().map(|value| value as f32)
+}
+
+fn affine_from_f32(coeffs: &[f32; 6]) -> Affine {
+    Affine::new(coeffs.map(|value| value as f64))
+}
+
+fn point_to_f32(point: Point) -> [f32; 2] {
+    [point.x as f32, point.y as f32]
 }

@@ -18,8 +18,7 @@ mod pico_svg;
 mod simple_text;
 mod test_scene;
 
-use piet_scene::{Scene, SceneBuilder};
-use piet_wgsl::{util::RenderContext, Renderer};
+use vello::{util::RenderContext, Renderer, Scene, SceneBuilder};
 use winit::{event_loop::EventLoop, window::Window};
 
 async fn run(event_loop: EventLoop<()>, window: Window) {
@@ -31,7 +30,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
     let mut simple_text = simple_text::SimpleText::new();
     let mut current_frame = 0usize;
     let mut scene_ix = 0usize;
-    let mut scene = Scene::default();
+    let mut scene = Scene::new();
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent {
             ref event,

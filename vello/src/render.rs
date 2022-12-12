@@ -1,11 +1,11 @@
 //! Take an encoded scene and create a graph to render it
 
 use bytemuck::{Pod, Zeroable};
-use piet_scene::Scene;
 
 use crate::{
     engine::{BufProxy, ImageFormat, ImageProxy, Recording, ResourceProxy},
     shaders::{self, FullShaders, Shaders},
+    ResourcePatch, Scene,
 };
 
 const TAG_MONOID_SIZE: u64 = 12;
@@ -150,7 +150,6 @@ pub fn render_full(
     let data = scene.data();
     let stop_data = &data.resources.stops;
     for patch in &data.resources.patches {
-        use piet_scene::ResourcePatch;
         match patch {
             ResourcePatch::Ramp { offset, stops } => {
                 let ramp_id = ramps.add(&stop_data[stops.clone()]);

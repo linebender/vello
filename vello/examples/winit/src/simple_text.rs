@@ -14,11 +14,16 @@
 //
 // Also licensed under MIT license, at your choice.
 
-use piet_scene::glyph::{pinot, pinot::TableProvider, GlyphContext};
-use piet_scene::kurbo::Affine;
-use piet_scene::{Brush, SceneBuilder};
-
-pub use pinot::FontRef;
+use vello::{
+    glyph::{
+        pinot,
+        pinot::{FontRef, TableProvider},
+        GlyphContext,
+    },
+    kurbo::Affine,
+    peniko::Brush,
+    SceneBuilder,
+};
 
 // This is very much a hack to get things working.
 // On Windows, can set this to "c:\\Windows\\Fonts\\seguiemj.ttf" to get color emoji
