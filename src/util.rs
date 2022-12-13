@@ -26,13 +26,13 @@ use wgpu::{
 /// Simple render context that maintains wgpu state for rendering the pipeline.
 pub struct RenderContext {
     pub instance: Instance,
-    devices: Vec<DeviceHandle>,
+    pub devices: Vec<DeviceHandle>,
 }
 
-struct DeviceHandle {
+pub struct DeviceHandle {
     adapter: Adapter,
-    device: Device,
-    queue: Queue,
+    pub device: Device,
+    pub queue: Queue,
 }
 
 impl RenderContext {
@@ -131,5 +131,5 @@ impl RenderContext {
 pub struct RenderSurface {
     pub surface: Surface,
     pub config: SurfaceConfiguration,
-    dev_id: usize,
+    pub dev_id: usize,
 }

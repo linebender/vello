@@ -23,10 +23,13 @@ use winit::{event_loop::EventLoop, window::Window};
 
 async fn run(event_loop: EventLoop<()>, window: Window) {
     use winit::{event::*, event_loop::ControlFlow};
-    let render_cx = RenderContext::new().await.unwrap();
+    let mut render_cx = RenderContext::new().unwrap();
     let size = window.inner_size();
-    let mut surface = render_cx.create_surface(&window, size.width, size.height);
-    let mut renderer = Renderer::new(&render_cx.device).unwrap();
+    let mut surface = render_cx
+        .create_surface(&window, size.width, size.height)
+        .await;
+    let device_handle = &render_cx.devices[surface.dev_id];
+    let mut renderer = Renderer::new(&device_handle.device).unwrap();
     let mut simple_text = simple_text::SimpleText::new();
     let mut current_frame = 0usize;
     let mut scene_ix = 0usize;
@@ -59,6 +62,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
             current_frame += 1;
             let width = surface.config.width;
             let height = surface.config.height;
+            let device_handle = &render_cx.devices[surface.dev_id];
             let mut builder = SceneBuilder::for_scene(&mut scene);
             const N_SCENES: usize = 6;
             match scene_ix % N_SCENES {
@@ -76,8 +80,8 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                 .expect("failed to get surface texture");
             renderer
                 .render_to_surface(
-                    &render_cx.device,
-                    &render_cx.queue,
+                    &device_handle.device,
+                    &device_handle.queue,
                     &scene,
                     &surface_texture,
                     width,
@@ -85,7 +89,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                 )
                 .expect("failed to render to surface");
             surface_texture.present();
-            render_cx.device.poll(wgpu::Maintain::Wait);
+            device_handle.device.poll(wgpu::Maintain::Wait);
         }
         _ => {}
     });
