@@ -19,41 +19,33 @@
 use super::Result;
 
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
-use wgpu::{Device, Instance, Limits, Queue, Surface, SurfaceConfiguration};
+use wgpu::{
+    Adapter, Device, Instance, Limits, Queue, RequestAdapterOptions, Surface, SurfaceConfiguration,
+};
 
 /// Simple render context that maintains wgpu state for rendering the pipeline.
 pub struct RenderContext {
     pub instance: Instance,
-    pub device: Device,
-    pub queue: Queue,
+    devices: Vec<DeviceHandle>,
+}
+
+struct DeviceHandle {
+    adapter: Adapter,
+    device: Device,
+    queue: Queue,
 }
 
 impl RenderContext {
-    pub async fn new() -> Result<Self> {
+    pub fn new() -> Result<Self> {
         let instance = Instance::new(wgpu::Backends::PRIMARY);
-        let adapter = instance.request_adapter(&Default::default()).await.unwrap();
-        let features = adapter.features();
-        let mut limits = Limits::default();
-        let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: None,
-                    features: features
-                        & (wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::CLEAR_TEXTURE),
-                    limits,
-                },
-                None,
-            )
-            .await?;
         Ok(Self {
             instance,
-            device,
-            queue,
+            devices: Vec::new(),
         })
     }
 
     /// Creates a new surface for the specified window and dimensions.
-    pub fn create_surface<W>(&self, window: &W, width: u32, height: u32) -> RenderSurface
+    pub async fn create_surface<W>(&mut self, window: &W, width: u32, height: u32) -> RenderSurface
     where
         W: HasRawWindowHandle + HasRawDisplayHandle,
     {
@@ -67,15 +59,71 @@ impl RenderContext {
             present_mode: wgpu::PresentMode::Fifo,
             alpha_mode: wgpu::CompositeAlphaMode::Auto,
         };
-        surface.configure(&self.device, &config);
-        RenderSurface { surface, config }
+        let dev_id = self.device(Some(&surface)).await.unwrap();
+        surface.configure(&self.devices[dev_id].device, &config);
+        RenderSurface {
+            surface,
+            config,
+            dev_id,
+        }
     }
 
     /// Resizes the surface to the new dimensions.
     pub fn resize_surface(&self, surface: &mut RenderSurface, width: u32, height: u32) {
         surface.config.width = width;
         surface.config.height = height;
-        surface.surface.configure(&self.device, &surface.config);
+        surface
+            .surface
+            .configure(&self.devices[surface.dev_id].device, &surface.config);
+    }
+
+    /// Finds or creates a compatible device handle id.
+    async fn device(&mut self, compatible_surface: Option<&Surface>) -> Option<usize> {
+        let compatible = match compatible_surface {
+            Some(s) => self
+                .devices
+                .iter()
+                .enumerate()
+                .find(|(_, d)| d.adapter.is_surface_supported(s))
+                .map(|(i, _)| i),
+            None => (!self.devices.is_empty()).then_some(0),
+        };
+        if compatible.is_none() {
+            return self.new_device(compatible_surface).await;
+        }
+        return compatible;
+    }
+
+    /// Creates a compatible device handle id.
+    async fn new_device(&mut self, compatible_surface: Option<&Surface>) -> Option<usize> {
+        let adapter = self
+            .instance
+            .request_adapter(&RequestAdapterOptions {
+                compatible_surface,
+                ..Default::default()
+            })
+            .await?;
+        let features = adapter.features();
+        let limits = Limits::default();
+        let (device, queue) = adapter
+            .request_device(
+                &wgpu::DeviceDescriptor {
+                    label: None,
+                    features: features
+                        & (wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::CLEAR_TEXTURE),
+                    limits,
+                },
+                None,
+            )
+            .await
+            .ok()?;
+        let device_handle = DeviceHandle {
+            adapter,
+            device,
+            queue,
+        };
+        self.devices.push(device_handle);
+        Some(self.devices.len() - 1)
     }
 }
 
@@ -83,4 +131,5 @@ impl RenderContext {
 pub struct RenderSurface {
     pub surface: Surface,
     pub config: SurfaceConfiguration,
+    dev_id: usize,
 }
