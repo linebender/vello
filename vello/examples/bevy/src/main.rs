@@ -1,6 +1,6 @@
 use vello::kurbo::{Affine, Point, Rect};
-use vello::Renderer;
-use vello::{Color, Scene};
+use vello::peniko::{Color, Fill, LinearGradient, Stroke};
+use vello::{Renderer, Scene, SceneBuilder, SceneFragment};
 
 use bevy::{
     prelude::*,
@@ -92,8 +92,8 @@ impl ExtractComponent for VelloScene {
     type Filter = ();
 
     fn extract_component((fragment, target): bevy::ecs::query::QueryItem<'_, Self::Query>) -> Self {
-        let mut scene = piet_scene::Scene::default();
-        let mut builder = piet_scene::SceneBuilder::for_scene(&mut scene);
+        let mut scene = Scene::default();
+        let mut builder = SceneBuilder::for_scene(&mut scene);
         builder.append(&fragment.0, None);
         builder.finish();
         Self(scene, target.0.clone())
