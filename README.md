@@ -36,7 +36,7 @@ A prior incarnation used a custom cross-API hal. An archive of this version can 
 
 The piet-gpu project is dual-licensed under both [Apache 2.0](LICENSE-APACHE) and [MIT](LICENSE_MIT) licenses.
 
-In addition, the shaders are provided under the terms of the [Unlicense](UNLICENSE). The intent is for this research to be used in as broad a context as possible.
+In addition, the shaders are provided under the terms of the [Unlicense](./shader/UNLICENSE). The intent is for this research to be used in as broad a context as possible.
 
 The dx12 backend was adapted from piet-dx12 by Brian Merchant.
 
