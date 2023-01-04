@@ -1,5 +1,5 @@
 [package]
-name = "winit-demo"
+name = "with_winit"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
