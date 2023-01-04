@@ -2,7 +2,7 @@
 
 This repo contains the new prototype for a new compute-centric 2D GPU renderer (formerly known as piet-gpu).
 
-> **Warning**
+> **Warning**  
 > This README is a work in progress. Previous versions are included below for reference
 
 It succeeds the previous prototype, [piet-metal].
