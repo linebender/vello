@@ -236,21 +236,49 @@ pub fn render_full(
     let config_buf = ResourceProxy::Buf(recording.upload_uniform(bytemuck::bytes_of(&config)));
 
     let pathtag_wgs = pathtag_padded / (4 * shaders::PATHTAG_REDUCE_WG as usize);
-    let reduced_buf = ResourceProxy::new_buf(pathtag_wgs as u64 * TAG_MONOID_FULL_SIZE);
+    let pathtag_large = pathtag_wgs > shaders::PATHTAG_REDUCE_WG as usize;
+    let reduced_size = if pathtag_large {
+        align_up(pathtag_wgs, shaders::PATHTAG_REDUCE_WG)
+    } else {
+        pathtag_wgs
+    };
+    let reduced_buf = ResourceProxy::new_buf(reduced_size as u64 * TAG_MONOID_FULL_SIZE);
     // TODO: really only need pathtag_wgs - 1
     recording.dispatch(
         shaders.pathtag_reduce,
         (pathtag_wgs as u32, 1, 1),
         [config_buf, scene_buf, reduced_buf],
     );
+    let mut pathtag_parent = reduced_buf;
+    if pathtag_large {
+        let reduced2_size = shaders::PATHTAG_REDUCE_WG as usize;
+        let reduced2_buf = ResourceProxy::new_buf(reduced2_size as u64 * TAG_MONOID_FULL_SIZE);
+        recording.dispatch(
+            shaders.pathtag_reduce2,
+            (reduced2_size as u32, 1, 1),
+            [reduced_buf, reduced2_buf],
+        );
+        let reduced_scan_buf = ResourceProxy::new_buf(pathtag_wgs as u64 * TAG_MONOID_FULL_SIZE);
+        recording.dispatch(
+            shaders.pathtag_scan1,
+            (reduced_size as u32 / shaders::PATHTAG_REDUCE_WG, 1, 1),
+            [reduced_buf, reduced2_buf, reduced_scan_buf],
+        );
+        pathtag_parent = reduced_scan_buf;
+    }
 
     let tagmonoid_buf = ResourceProxy::new_buf(
         pathtag_wgs as u64 * shaders::PATHTAG_REDUCE_WG as u64 * TAG_MONOID_FULL_SIZE,
     );
+    let pathtag_scan = if pathtag_large {
+        shaders.pathtag_scan_large
+    } else {
+        shaders.pathtag_scan
+    };
     recording.dispatch(
-        shaders.pathtag_scan,
+        pathtag_scan,
         (pathtag_wgs as u32, 1, 1),
-        [config_buf, scene_buf, reduced_buf, tagmonoid_buf],
+        [config_buf, scene_buf, pathtag_parent, tagmonoid_buf],
     );
     let drawobj_wgs = (n_drawobj + shaders::PATH_BBOX_WG - 1) / shaders::PATH_BBOX_WG;
     let path_bbox_buf = ResourceProxy::new_buf(n_path as u64 * PATH_BBOX_SIZE);

@@ -47,7 +47,10 @@ pub struct Shaders {
 // Shaders for the full pipeline
 pub struct FullShaders {
     pub pathtag_reduce: ShaderId,
+    pub pathtag_reduce2: ShaderId,
+    pub pathtag_scan1: ShaderId,
     pub pathtag_scan: ShaderId,
+    pub pathtag_scan_large: ShaderId,
     pub bbox_clear: ShaderId,
     pub pathseg: ShaderId,
     pub draw_reduce: ShaderId,
@@ -129,12 +132,39 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
     let empty = HashSet::new();
     let mut full_config = HashSet::new();
     full_config.insert("full".into());
+    let mut small_config = HashSet::new();
+    small_config.insert("full".into());
+    small_config.insert("small".into());
     let pathtag_reduce = engine.add_shader(
         device,
         preprocess::preprocess(shader!("pathtag_reduce"), &full_config, &imports).into(),
         &[BindType::Uniform, BindType::BufReadOnly, BindType::Buffer],
     )?;
+    let pathtag_reduce2 = engine.add_shader(
+        device,
+        preprocess::preprocess(shader!("pathtag_reduce2"), &full_config, &imports).into(),
+        &[BindType::BufReadOnly, BindType::Buffer],
+    )?;
+    let pathtag_scan1 = engine.add_shader(
+        device,
+        preprocess::preprocess(shader!("pathtag_scan1"), &full_config, &imports).into(),
+        &[
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::Buffer,
+        ],
+    )?;
     let pathtag_scan = engine.add_shader(
+        device,
+        preprocess::preprocess(shader!("pathtag_scan"), &small_config, &imports).into(),
+        &[
+            BindType::Uniform,
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::Buffer,
+        ],
+    )?;
+    let pathtag_scan_large = engine.add_shader(
         device,
         preprocess::preprocess(shader!("pathtag_scan"), &full_config, &imports).into(),
         &[
@@ -278,7 +308,10 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
     )?;
     Ok(FullShaders {
         pathtag_reduce,
+        pathtag_reduce2,
         pathtag_scan,
+        pathtag_scan1,
+        pathtag_scan_large,
         bbox_clear,
         pathseg,
         draw_reduce,
