@@ -4,7 +4,7 @@
 
 **An experimental GPU compute-centric 2D renderer**
 
-[![Xi Zulip](https://img.shields.io/badge/Zulip-Chat-blue?logo=Zulip)](https://xi.zulipchat.com/)
+[![Xi Zulip](https://img.shields.io/badge/Xi%20Zulip-%23gpu-blue?logo=Zulip)](https://xi.zulipchat.com/#narrow/stream/197075-gpu)
 [![dependency status](https://deps.rs/repo/github/linebender/vello/status.svg)](https://deps.rs/repo/github/linebender/vello)
 [![MIT/Apache 2.0](https://img.shields.io/badge/license-MIT%2FApache-blue.svg)](#License)
 <!-- [![Crates.io](https://img.shields.io/crates/v/vello.svg)](https://crates.io/crates/vello) -->
