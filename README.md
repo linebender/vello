@@ -13,8 +13,8 @@
 
 </div>
 
-Vello is a 2d graphics middleware for [`wgpu`]. 
-<!-- It allows effeciently drawing large numbers of 2d elements with interactive performance. TODO: Verify this claim -->
+Vello is a 2d graphics rendering engine, using [`wgpu`].
+It efficiently draws large 2d scenes with interactive or near-interactive performance.
 
 <!-- Impressive picture here -->
 
@@ -36,26 +36,42 @@ One of these scenes uses an incomplete svg parser/renderer to render the [GhostS
 cargo run -p with_winit
 ```
 
-### Web
-
-Because Vello relies heavily on compute shaders, we rely on the emerging WebGPU standard to run on the web. Until browser support becomes widespread, it will probably be necessary to use development versions (Chrome Canary) and explicitly enable WebGPU. The following command builds a web version of the demo.
-
-```shell
-cargo run -p run-wasm --package crate_name
-```
-
 ### Bevy
 
-The [Bevy] example within a [Bevy] application ([examples/with_bevy](examples/with_bevy)):
+The [Bevy] example ([examples/with_bevy](examples/with_bevy)) demonstrates using vello within a [Bevy] application.
+This currently draws to a [`wgpu`] `Texture` using `vello`, then uses that texture as the faces of a cube.
 
 ```shell
 cargo run -p with_bevy
 ```
 
+### Web
+
+Because Vello relies heavily on compute shaders, we rely on the emerging WebGPU standard to run on the web.
+Until browser support becomes widespread, it will probably be necessary to use development browser versions (e.g. Chrome Canary) and explicitly enable WebGPU.
+
+The following command builds and runs a web version of the [winit demo](#Winit).
+
+```shell
+cargo run --release -p run-wasm -- --package with_winit
+```
+
+Additionally, the web is not currently a primary target, so other issues are likely to arise.
+
 ## Shader templating
 
-As there is no.
+We implement a limited, simple preprocessor for our shaders, as wgsl has insufficient code-sharing for our needs.
 
+This implements only classes of statements.
+1. `import`, which imports from `shader/shared`.
+2. `ifdef`, `ifndef`, `else` and `endif`, as standard.
+  These must be at the start of their lines.  
+  Note that there is no support for creating definitions in-shader, these are only specified externally (in `src/shaders.rs`).
+  Note also that this definitions cannot currently be used in-code (`import`s may be used instead)
+
+This format is compatible with [`wgsl-analyzer`], and we recommend using.
+If you run into any issues, please report them on Zulip ([#gpu > wgsl-analyzer issues](https://xi.zulipchat.com/#narrow/stream/197075-gpu/topic/wgsl-analyzer.20issues)), and/or on the [`wgsl-analyzer`] issue tracker.  
+Note that new imports must currently be added to `.vscode/settings.json` for this support to work correctly.`wgsl-analyzer` only supports imports in very few syntactic locations, so we limit their use to these places.
 
 ## History
 
@@ -95,12 +111,11 @@ Unless you explicitly state otherwise, any contribution intentionally submitted
 for inclusion in the work by you, as defined in the Apache-2.0 license, shall be
 licensed as above, without any additional terms or conditions.
 
-# vello
+> **Warning**  
+> Previous versions of this README are included below for reference whilst we are still updating the README.
 
 This repo contains the new prototype for a new compute-centric 2D GPU renderer (formerly known as piet-gpu).
 
-> **Warning**  
-> This README is a work in progress. Previous versions are included below for reference
 
 <!-- TODO: Are we transitioning to more production? If so, should we rewrite the README a bit? -->
 
@@ -129,6 +144,7 @@ There is a much larger and detailed [vision](doc/vision.md) that explains the lo
 [`custom-hal-archive`]: https://github.com/linebender/piet-gpu/tree/custom-hal-archive
 [piet-dx12]: https://github.com/bzm3r/piet-dx12
 [GhostScript tiger]: https://commons.wikimedia.org/wiki/File:Ghostscript_Tiger.svg
+[`wgsl-analyzer`]: https://marketplace.visualstudio.com/items?itemName=wgsl-analyzer.wgsl-analyzer
 
 # vello
 
