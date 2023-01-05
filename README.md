@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🖌 vello
+# vello
 
 **An experimental GPU compute-centric 2D renderer**
 
