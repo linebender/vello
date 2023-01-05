@@ -393,14 +393,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bevy_example"
-version = "0.1.0"
-dependencies = [
- "bevy",
- "vello",
-]
-
-[[package]]
 name = "bevy_gilrs"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3962,21 +3954,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "winit-demo"
-version = "0.1.0"
-dependencies = [
- "console_error_panic_hook",
- "console_log",
- "pollster",
- "roxmltree",
- "vello",
- "wasm-bindgen-futures",
- "web-sys",
- "wgpu",
- "winit",
-]
-
-[[package]]
 name = "wio"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4047,6 +4024,29 @@ checksum = "c2ad01ba5e9cbcff799a0689e56a153776ea694cec777f605938cb9880d41a09"
 dependencies = [
  "leb128",
  "wit-schema-version",
+]
+
+[[package]]
+name = "with_bevy"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "vello",
+]
+
+[[package]]
+name = "with_winit"
+version = "0.1.0"
+dependencies = [
+ "console_error_panic_hook",
+ "console_log",
+ "pollster",
+ "roxmltree",
+ "vello",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "wgpu",
+ "winit",
 ]
 
 [[package]]

@@ -1,17 +1,19 @@
 {
   "wgsl-analyzer.customImports": {
-    "bbox": "${workspaceFolder}/vello/shader/shared/bbox.wgsl",
-    "blend": "${workspaceFolder}/vello/shader/shared/blend.wgsl",
-    "bump": "${workspaceFolder}/vello/shader/shared/bump.wgsl",
-    "clip": "${workspaceFolder}/vello/shader/shared/clip.wgsl",
-    "config": "${workspaceFolder}/vello/shader/shared/config.wgsl",
-    "cubic": "${workspaceFolder}/vello/shader/shared/cubic.wgsl",
-    "drawtag": "${workspaceFolder}/vello/shader/shared/drawtag.wgsl",
-    "pathtag": "${workspaceFolder}/vello/shader/shared/pathtag.wgsl",
-    "ptcl": "${workspaceFolder}/vello/shader/shared/ptcl.wgsl",
-    "segment": "${workspaceFolder}/vello/shader/shared/segment.wgsl",
-    "tile": "${workspaceFolder}/vello/shader/shared/tile.wgsl"
+    "bbox": "${workspaceFolder}/shader/shared/bbox.wgsl",
+    "blend": "${workspaceFolder}/shader/shared/blend.wgsl",
+    "bump": "${workspaceFolder}/shader/shared/bump.wgsl",
+    "clip": "${workspaceFolder}/shader/shared/clip.wgsl",
+    "config": "${workspaceFolder}/shader/shared/config.wgsl",
+    "cubic": "${workspaceFolder}/shader/shared/cubic.wgsl",
+    "drawtag": "${workspaceFolder}/shader/shared/drawtag.wgsl",
+    "pathtag": "${workspaceFolder}/shader/shared/pathtag.wgsl",
+    "ptcl": "${workspaceFolder}/shader/shared/ptcl.wgsl",
+    "segment": "${workspaceFolder}/shader/shared/segment.wgsl",
+    "tile": "${workspaceFolder}/shader/shared/tile.wgsl"
   },
   "wgsl-analyzer.diagnostics.nagaVersion": "main",
-  "wgsl-analyzer.preprocessor.shaderDefs": ["full"]
+  "wgsl-analyzer.preprocessor.shaderDefs": [
+    "full"
+  ]
 }
