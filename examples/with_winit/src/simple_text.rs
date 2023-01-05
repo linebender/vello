@@ -27,7 +27,7 @@ use vello::{
 
 // This is very much a hack to get things working.
 // On Windows, can set this to "c:\\Windows\\Fonts\\seguiemj.ttf" to get color emoji
-const FONT_DATA: &[u8] = include_bytes!("../../assets/third-party/Roboto-Regular.ttf");
+const FONT_DATA: &[u8] = include_bytes!("../../assets/roboto/Roboto-Regular.ttf");
 
 pub struct SimpleText {
     gcx: GlyphContext,
