@@ -1,1 +1,5 @@
-shader/*.wgsl linguist-language=wgsl
+# This is a lie. However, linguist does not support wgsl, so this is good-enough
+# Show the amount of the code which is shader
+shader/*.wgsl linguist-language=glsl
+# Potentially better syntax highlighting
+# shader/*.wgsl linguist-language=Rust
