@@ -1,3 +1,0 @@
-**/shader/* linguist-language=glsl
-**/shader/gen/* linguist-generated
-piet-wgpu/shader/* linguist-language=wgsl
