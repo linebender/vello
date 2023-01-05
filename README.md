@@ -38,7 +38,7 @@ cargo run -p with_winit
 
 ### Web
 
-Because we use compute shaders, we cannot run on the [`wgpu`] webgl2 backend. A simplified version of the pipeline ran 
+Because Vello relies heavily on compute shaders, we rely on the emerging WebGPU standard to run on the web. Until browser support becomes widespread, it will probably be necessary to use development versions (Chrome Canary) and explicitly enable WebGPU. The following command builds a web version of the demo.
 
 ```shell
 cargo run -p run-wasm --package crate_name
