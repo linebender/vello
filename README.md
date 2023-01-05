@@ -70,9 +70,10 @@ This implements only classes of statements.
   Note that there is no support for creating definitions in-shader, these are only specified externally (in `src/shaders.rs`).
   Note also that this definitions cannot currently be used in-code (`import`s may be used instead)
 
-This format is compatible with [`wgsl-analyzer`], and we recommend using.
+This format is compatible with [`wgsl-analyzer`], which we recommend using.
 If you run into any issues, please report them on Zulip ([#gpu > wgsl-analyzer issues](https://xi.zulipchat.com/#narrow/stream/197075-gpu/topic/wgsl-analyzer.20issues)), and/or on the [`wgsl-analyzer`] issue tracker.  
-Note that new imports must currently be added to `.vscode/settings.json` for this support to work correctly.`wgsl-analyzer` only supports imports in very few syntactic locations, so we limit their use to these places.
+Note that new imports must currently be added to `.vscode/settings.json` for this support to work correctly.
+`wgsl-analyzer` only supports imports in very few syntactic locations, so we limit their use to these places.
 
 ## GPU abstraction
 
