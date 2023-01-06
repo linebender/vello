@@ -16,7 +16,7 @@ Supporting images *well* is tricky, in large part because of limitations in GPU 
 
 Until then, we'll do a workaround of having a single atlas image containing all the images in the scene. That's extremely annoying and takes memory, but the cost of copying is itself not expected to be that bad. And in the common case where an image is reused across multiple frames, it should in most cases be possible to avoid those copies.
 
-One tricky part is changes to the scene encoding. At the moment, it's more or less self-contained, but will need to be extended so that scene fragments can contain references to image resources (which will be a reference counted pointer to either the image bytes or to an external image reference, which might be rendered by some other WebGPU task). Additionally, there needs to be an additional pass between encoding and submission to the GPU, where references to these resources are replaced by uv quads in the texture atlas. A similar
+One tricky part is changes to the scene encoding. At the moment, it's more or less self-contained, but will need to be extended so that scene fragments can contain references to image resources (which will be a reference counted pointer to either the image bytes or to an external image reference, which might be rendered by some other WebGPU task). Additionally, there needs to be an additional pass between encoding and submission to the GPU, where references to these resources are replaced by uv quads in the texture atlas. Similar logic is needed to resolve cached glyphs, about which more below.
 
 Direct support for rectangles is also included in the "basic imaging model" category even though it's technically just an optimization, because it's important to get right architecturally. Right now, every draw object has an associated Bézier path, but that is going to be a performance problem when draw objects are images (or basically anything other than a vector path). Also, rectangles are important in UI, so it makes sense for drawing to be fast.
 
@@ -96,6 +96,8 @@ Another potential reason to make the encoding part of the interface is so assets
 
 Thus, making the encoding part of the public, documented interface could open up some interesting possibilites. Obviously it's also too early to freeze the format, as we'll want to continue to iterate it to make it more efficient and add more capabilities, but likely a "semi-stable" approach, perhaps versioned stable releases, could work well.
 
+With [vello#239] we already expose a good chunk of the encoding, and encourage people to experiment with that as we decide what to stabilize and how.
+
 ## Maybe
 
 The subprojects in this section are things we've thought about, and for which we think the Vello architecture can be adapted, but will be driven primarily by need.
@@ -174,6 +176,7 @@ There's a fair amount of work to be done to make all of this real, but much of t
 [vello#176]: https://github.com/linebender/vello/issues/176
 [vello#187]: https://github.com/linebender/vello/issues/187
 [vello#204]: https://github.com/linebender/vello/issues/204
+[vello#239]: https://github.com/linebender/vello/pull/239
 [buffer device address]: https://community.arm.com/arm-community-blogs/b/graphics-gaming-and-vr-blog/posts/vulkan-buffer-device-address
 [descriptor buffer]: https://www.khronos.org/blog/vk-ext-descriptor-buffer
 [very thin strokes]: https://docs.google.com/document/d/1LILagXyJgYtlm6y83x1Mc2VoNfOcvW_ZiCldZbs4yO8/edit#heading=h.7uoy8r9zrjy5
