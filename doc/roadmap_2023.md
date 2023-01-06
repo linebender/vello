@@ -22,8 +22,8 @@ Direct support for rectangles is also included in the "basic imaging model" cate
 
 The last thing that belongs in "basic imaging model" is a proper API for glyph runs. At the moment, text is basically encoded as filled vector paths, but that doesn't scale to supporting glyph caching (about which more below). This is about getting the API right so clients won't be locked into fully dynamic vector text rendering.
 
-* [vello#176]: Image resources
-* [vello#187]: Rectangles
+* [vello#176]\: Image resources
+* [vello#187]\: Rectangles
 * TODO: no issue yet for the glyph run API
 
 ## CPU fallback implementation
@@ -72,7 +72,7 @@ In addition, on low-dpi displays there is a quality improvement to be gained by 
 
 Thus, we plan to implement glyph caching and a texture atlas for these rendered glyphs. See the linked issue below for more detail.
 
-* [vello#204]: Plan for glyph rendering
+* [vello#204]\: Plan for glyph rendering
 
 ## Blurs and filter effects
 
@@ -116,7 +116,7 @@ It remains an interesting question whether we can render without conflation arti
 
 This is a hard problem, but interesting, and might be motivated by needs of a specific client.
 
-* [vello#49]: Conflation artifacts
+* [vello#49]\: Conflation artifacts
 
 ### Subpixel RGB rendering
 
