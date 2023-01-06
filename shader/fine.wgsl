@@ -138,7 +138,7 @@ fn fill_path(tile: Tile, xy: vec2<f32>) -> array<f32, PIXELS_PER_THREAD> {
     }
     // nonzero winding rule
     for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
-        area[i] = abs(area[i]);
+        area[i] = min(abs(area[i]), 1.0);
     }
     return area;
 }
