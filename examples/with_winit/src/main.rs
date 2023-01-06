@@ -18,7 +18,11 @@ mod pico_svg;
 mod simple_text;
 mod test_scene;
 
-use vello::{util::RenderContext, Renderer, Scene, SceneBuilder};
+use vello::{
+    kurbo::{Affine, Vec2},
+    util::RenderContext,
+    Renderer, Scene, SceneBuilder,
+};
 use winit::{event_loop::EventLoop, window::Window};
 
 async fn run(event_loop: EventLoop<()>, window: Window) {
@@ -31,6 +35,11 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
     let mut current_frame = 0usize;
     let mut scene_ix = 0usize;
     let mut scene = Scene::new();
+    let mut paris_scene = None;
+    let mut drag = Vec2::default();
+    let mut scale = 1f64;
+    let mut mouse_down = false;
+    let mut prior_position = None;
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent {
             ref event,
@@ -42,6 +51,9 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                     match input.virtual_keycode {
                         Some(VirtualKeyCode::Left) => scene_ix = scene_ix.saturating_sub(1),
                         Some(VirtualKeyCode::Right) => scene_ix = scene_ix.saturating_add(1),
+                        Some(VirtualKeyCode::Escape) => {
+                            *control_flow = ControlFlow::Exit;
+                        }
                         _ => {}
                     }
                 }
@@ -49,6 +61,34 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
             WindowEvent::Resized(size) => {
                 render_cx.resize_surface(&mut surface, size.width, size.height);
                 window.request_redraw();
+            }
+            WindowEvent::MouseInput { state, button, .. } => {
+                if button == &MouseButton::Left {
+                    mouse_down = state == &ElementState::Pressed;
+                }
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                dbg!(&delta);
+                if let MouseScrollDelta::PixelDelta(delta) = delta {
+                    scale += delta.y * 0.1;
+                    scale = scale.clamp(0.1, 10.0);
+                }
+                if let MouseScrollDelta::LineDelta(_, y) = delta {
+                    scale += *y as f64 * 0.1;
+                    scale = scale.clamp(0.1, 10.0);
+                }
+            }
+            WindowEvent::CursorLeft { .. } => {
+                prior_position = None;
+            }
+            WindowEvent::CursorMoved { position, .. } => {
+                let position = Vec2::new(position.x, position.y);
+                if mouse_down {
+                    if let Some(prior) = prior_position {
+                        drag += (position - prior) * (1.0 / scale);
+                    }
+                }
+                prior_position = Some(position);
             }
             _ => {}
         },
@@ -60,13 +100,18 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
             let width = surface.config.width;
             let height = surface.config.height;
             let mut builder = SceneBuilder::for_scene(&mut scene);
-            const N_SCENES: usize = 6;
+
+            const N_SCENES: usize = 7;
             match scene_ix % N_SCENES {
                 0 => test_scene::render_anim_frame(&mut builder, &mut simple_text, current_frame),
                 1 => test_scene::render_blend_grid(&mut builder),
                 2 => test_scene::render_tiger(&mut builder),
-                3 => test_scene::render_brush_transform(&mut builder, current_frame),
-                4 => test_scene::render_funky_paths(&mut builder),
+                3 => {
+                    let transform = Affine::scale(scale) * Affine::translate(drag);
+                    test_scene::render_paris(&mut builder, &mut paris_scene, transform)
+                }
+                4 => test_scene::render_brush_transform(&mut builder, current_frame),
+                5 => test_scene::render_funky_paths(&mut builder),
                 _ => test_scene::render_scene(&mut builder),
             }
             builder.finish();
