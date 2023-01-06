@@ -89,7 +89,7 @@ The goal is to be more agile.
 Vello was previously known as `piet-gpu`. This prior incarnation used a custom cross-API hardware abstraction layer, called `piet-gpu-hal`, instead of [`wgpu`].
 <!-- Some discussion of this transition can be found in the blog post [A requiem to piet-gpu-hal]() TODO: Once the blog post is published -->
 
-There is a [vision](doc/vision.md) document which explained the longer-term goals of the project, and how we might get there.
+Our [roadmap for 2023](doc/roadmap.md) explains our goals and plans for the next few months of development. There is also a [vision](doc/vision.md) document which explained the longer-term goals of the project, and how we might get there.
 Many of these items are out-of-date or completed, but it still may provide some useful background.
 
 An archive of this version can be found in the branches [`custom-hal-archive-with-shaders`] and [`custom-hal-archive`].
