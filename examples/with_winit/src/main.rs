@@ -68,7 +68,6 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                dbg!(&delta);
                 if let MouseScrollDelta::PixelDelta(delta) = delta {
                     scale += delta.y * 0.1;
                     scale = scale.clamp(0.1, 10.0);
