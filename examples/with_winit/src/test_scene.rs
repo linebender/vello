@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use crate::pico_svg::PicoSvg;
 use crate::simple_text::SimpleText;
 use vello::kurbo::{Affine, BezPath, Ellipse, PathEl, Point, Rect};
@@ -82,6 +84,21 @@ pub fn render_tiger(sb: &mut SceneBuilder) {
         std::str::from_utf8(include_bytes!("../../assets/Ghostscript_Tiger.svg")).unwrap();
     let svg = PicoSvg::load(xml_str, 6.0).unwrap();
     render_svg(sb, &svg);
+}
+
+pub fn render_paris(sb: &mut SceneBuilder, scene: &mut Option<SceneFragment>, xform: Affine) {
+    if scene.is_none() {
+        use super::pico_svg::*;
+        let start = Instant::now();
+        let xml_str = std::str::from_utf8(include_bytes!("../../assets/paris-30k.svg")).unwrap();
+        let svg = PicoSvg::load(xml_str, 6.0).unwrap();
+        println!("{:?}", start.elapsed());
+        let mut new_scene = SceneFragment::new();
+        let mut builder = SceneBuilder::for_fragment(&mut new_scene);
+        render_svg(&mut builder, &svg);
+        *scene = Some(new_scene);
+    }
+    sb.append(&scene.as_ref().unwrap(), Some(xform));
 }
 
 pub fn render_scene(sb: &mut SceneBuilder) {
