@@ -6,7 +6,7 @@ members = ["examples/with_winit", "examples/with_bevy", "examples/run_wasm"]
 [workspace.package]
 edition = "2021"
 version = "0.1.0"
-authors = ["piet-gpu developers"]
+authors = ["vello developers"]
 
 [patch.crates-io]
 # Required for metal support to work on wgpu

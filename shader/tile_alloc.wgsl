@@ -94,7 +94,7 @@ fn main(
     let total_count = sh_tile_count[WG_SIZE - 1u];
     for (var i = local_id.x; i < total_count; i += WG_SIZE) {
         // Note: could format output buffer as u32 for even better load
-        // balancing, as does piet-gpu.
+        // balancing, as does vello.
         tiles[tile_offset + i] = Tile(0, 0u);
     }
 }

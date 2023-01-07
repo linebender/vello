@@ -90,7 +90,7 @@ pub enum Command {
     UploadImage(ImageProxy, Vec<u8>),
     // Discussion question: third argument is vec of resources?
     // Maybe use tricks to make more ergonomic?
-    // Alternative: provide bufs & images as separate sequences, like piet-gpu.
+    // Alternative: provide bufs & images as separate sequences, like vello.
     Dispatch(ShaderId, (u32, u32, u32), Vec<ResourceProxy>),
     Download(BufProxy),
     Clear(BufProxy, u64, Option<NonZeroU64>),

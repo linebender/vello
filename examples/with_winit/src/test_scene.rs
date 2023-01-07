@@ -280,7 +280,7 @@ pub fn render_anim_frame(sb: &mut SceneBuilder, text: &mut SimpleText, i: usize)
         &rect,
     );
     let text_size = 60.0 + 40.0 * (0.01 * i as f32).sin();
-    let s = "\u{1f600}hello piet-gpu text!";
+    let s = "\u{1f600}hello vello text!";
     text.add(
         sb,
         None,

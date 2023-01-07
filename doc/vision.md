@@ -2,6 +2,8 @@
 
 Raph Levien, 2020-12-10
 
+Note: `vello` was previously called `piet-gpu`.
+
 I’ve done several [blog posts](./blogs.md) about piet-gpu already, and more generally GPU compute, but this document is a little different in scope. Rather than showing off a prototype and presenting a research result, it will set forth a bold and ambitious plan for where this might go. I find this vision compelling, and it’s motivated me to spend a lot of energy mastering some difficult material. The grand vision is much more than one person can do, so I’ll do some of it myself and maybe inspire collaboration for the rest of it.
 
 The full vision for piet-gpu is a 2D rendering engine that is considerably faster, higher quality, and more flexible than the current state of the art, and runs on a wide variety of hardware. I’ll go into some detail about why I think this goal is possible and what kind of work is needed to get there.
