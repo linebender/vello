@@ -62,7 +62,7 @@ We often hear that the Vello design is intimidating, that it seems too much like
 
 Such work deserves a good writeup. The current plan is to write an approximately 20 to 30 page report that explains all important aspects of the design, how they fit together, and enough empirical performance measurement that people can make good decisions based on it. It's always tricky to know *when* to invest in a writeup, especially as we keep iterating on the design itself, but this seems like a good place in the roadmap.
 
-A central part of the writeup is a good visual diagram of the entire pipeline. The below hand-drawn diagram shows the main shader stages and buffers. With nice color coding and a more professional appearance, it could be a great tool to help explain the structure of the system. 
+A central part of the writeup is a good visual diagram of the entire pipeline. The below hand-drawn diagram shows the main shader stages and buffers. With nice color coding and a more professional appearance, it could be a great tool to help explain the structure of the system. (In this diagram, the shader stages are green, and the buffers are dark blue; it is obviously a rough draft)
 
 ![A hand-drawn diagram of the shader stages and buffers](./images/piet-gpu-diagram.jpg)
 
