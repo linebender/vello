@@ -16,7 +16,6 @@ struct Config {
     bin_data_start: u32,
 
     // offsets within scene buffer (in u32 units)
-    // Note: this is a difference from vello, which is in bytes
     pathtag_base: u32,
     pathdata_base: u32,
 
