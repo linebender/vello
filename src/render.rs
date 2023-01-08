@@ -3,9 +3,10 @@
 use bytemuck::{Pod, Zeroable};
 
 use crate::{
+    encoding::Encoding,
     engine::{BufProxy, ImageFormat, ImageProxy, Recording, ResourceProxy},
     shaders::{self, FullShaders, Shaders},
-    ResourcePatch, Scene,
+    Scene,
 };
 
 const TAG_MONOID_SIZE: u64 = 12;
@@ -42,15 +43,6 @@ struct Config {
     linewidth_base: u32,
 }
 
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Zeroable, Pod)]
-pub struct PathSegment {
-    origin: [f32; 2],
-    delta: [f32; 2],
-    y_edge: f32,
-    next: u32,
-}
-
 fn size_to_words(byte_size: usize) -> u32 {
     (byte_size / std::mem::size_of::<u32>()) as u32
 }
@@ -66,15 +58,15 @@ pub const fn next_multiple_of(val: u32, rhs: u32) -> u32 {
 fn render(scene: &Scene, shaders: &Shaders) -> (Recording, BufProxy) {
     let mut recording = Recording::default();
     let data = scene.data();
-    let n_pathtag = data.tag_stream.len();
+    let n_pathtag = data.path_tags.len();
     let pathtag_padded = align_up(n_pathtag, 4 * shaders::PATHTAG_REDUCE_WG);
     let pathtag_wgs = pathtag_padded / (4 * shaders::PATHTAG_REDUCE_WG as usize);
     let mut scene: Vec<u8> = Vec::with_capacity(pathtag_padded);
     let pathtag_base = size_to_words(scene.len());
-    scene.extend(&data.tag_stream);
+    scene.extend(bytemuck::cast_slice(&data.path_tags));
     scene.resize(pathtag_padded, 0);
     let pathdata_base = size_to_words(scene.len());
-    scene.extend(&data.pathseg_stream);
+    scene.extend(&data.path_data);
 
     let config = Config {
         width_in_tiles: 64,
@@ -144,95 +136,51 @@ pub fn render_full(
     width: u32,
     height: u32,
 ) -> (Recording, ResourceProxy) {
+    render_encoding_full(&scene.data(), shaders, width, height)
+}
+
+pub fn render_encoding_full(
+    encoding: &Encoding,
+    shaders: &FullShaders,
+    width: u32,
+    height: u32,
+) -> (Recording, ResourceProxy) {
+    use crate::encoding::{resource::ResourceCache, PackedEncoding};
     let mut recording = Recording::default();
-    let mut ramps = crate::ramp::RampCache::default();
-    let mut drawdata_patches: Vec<(usize, u32)> = vec![];
-    let data = scene.data();
-    let stop_data = &data.resources.stops;
-    for patch in &data.resources.patches {
-        match patch {
-            ResourcePatch::Ramp { offset, stops } => {
-                let ramp_id = ramps.add(&stop_data[stops.clone()]);
-                drawdata_patches.push((*offset, ramp_id));
-            }
-        }
-    }
-    let gradient_image = if drawdata_patches.is_empty() {
+    let mut resources = ResourceCache::new();
+    let mut packed = PackedEncoding::default();
+    packed.pack(&encoding, &mut resources);
+    let (ramp_data, ramps_width, ramps_height) = resources.ramps(packed.resources).unwrap();
+    let gradient_image = if encoding.patches.is_empty() {
         ResourceProxy::new_image(1, 1, ImageFormat::Rgba8)
     } else {
-        let data = ramps.data();
-        let width = ramps.width();
-        let height = ramps.height();
-        let data: &[u8] = bytemuck::cast_slice(data);
-        // println!(
-        //     "gradient image: {}x{} ({} bytes)",
-        //     width,
-        //     height,
-        //     data.len()
-        // );
-        ResourceProxy::Image(recording.upload_image(width, height, ImageFormat::Rgba8, data))
+        let data: &[u8] = bytemuck::cast_slice(ramp_data);
+        ResourceProxy::Image(recording.upload_image(
+            ramps_width,
+            ramps_height,
+            ImageFormat::Rgba8,
+            data,
+        ))
     };
-    let n_pathtag = data.tag_stream.len();
-    let pathtag_padded = align_up(n_pathtag, 4 * shaders::PATHTAG_REDUCE_WG);
-    // TODO: can compute size accurately, avoid reallocation
-    let mut scene: Vec<u8> = Vec::with_capacity(pathtag_padded);
-    let pathtag_base = size_to_words(scene.len());
-    scene.extend(&data.tag_stream);
-    scene.resize(pathtag_padded, 0);
-    let pathdata_base = size_to_words(scene.len());
-    scene.extend(&data.pathseg_stream);
-    let drawtag_base = size_to_words(scene.len());
-    scene.extend(bytemuck::cast_slice(&data.drawtag_stream));
-    let drawdata_base = size_to_words(scene.len());
-    if !drawdata_patches.is_empty() {
-        let mut pos = 0;
-        for patch in drawdata_patches {
-            let offset = patch.0;
-            let value = patch.1;
-            if pos < offset {
-                scene.extend_from_slice(&data.drawdata_stream[pos..offset]);
-            }
-            scene.extend_from_slice(bytemuck::bytes_of(&value));
-            pos = offset + 4;
-        }
-        if pos < data.drawdata_stream.len() {
-            scene.extend_from_slice(&data.drawdata_stream[pos..])
-        }
-    } else {
-        scene.extend(&data.drawdata_stream);
-    }
-    let transform_base = size_to_words(scene.len());
-    scene.extend(bytemuck::cast_slice(&data.transform_stream));
-    let linewidth_base = size_to_words(scene.len());
-    scene.extend(bytemuck::cast_slice(&data.linewidth_stream));
-    let n_path = data.n_path;
     // TODO: calculate for real when we do rectangles
-    let n_drawobj = n_path;
-    let n_clip = data.n_clip;
-    let bin_data_start = n_drawobj * MAX_DRAWINFO_SIZE as u32;
+    let n_pathtag = encoding.path_tags.len();
+    let pathtag_padded = align_up(encoding.path_tags.len(), 4 * shaders::PATHTAG_REDUCE_WG);
+    let n_paths = encoding.n_paths;
+    let n_drawobj = n_paths;
+    let n_clip = encoding.n_clips;
 
     let new_width = next_multiple_of(width, 16);
     let new_height = next_multiple_of(height, 16);
 
-    let config = Config {
-        // TODO: Replace with div_ceil once stable
+    let config = crate::encoding::Config {
         width_in_tiles: new_width / 16,
         height_in_tiles: new_height / 16,
         target_width: width,
         target_height: height,
-        n_drawobj,
-        n_path,
-        n_clip,
-        bin_data_start,
-        pathtag_base,
-        pathdata_base,
-        drawtag_base,
-        drawdata_base,
-        transform_base,
-        linewidth_base,
+        layout: packed.layout,
     };
     // println!("{:?}", config);
-    let scene_buf = ResourceProxy::Buf(recording.upload(scene));
+    let scene_buf = ResourceProxy::Buf(recording.upload(packed.data));
     let config_buf = ResourceProxy::Buf(recording.upload_uniform(bytemuck::bytes_of(&config)));
 
     let pathtag_wgs = pathtag_padded / (4 * shaders::PATHTAG_REDUCE_WG as usize);
@@ -253,7 +201,7 @@ pub fn render_full(
         [config_buf, scene_buf, reduced_buf, tagmonoid_buf],
     );
     let drawobj_wgs = (n_drawobj + shaders::PATH_BBOX_WG - 1) / shaders::PATH_BBOX_WG;
-    let path_bbox_buf = ResourceProxy::new_buf(n_path as u64 * PATH_BBOX_SIZE);
+    let path_bbox_buf = ResourceProxy::new_buf(n_paths as u64 * PATH_BBOX_SIZE);
     recording.dispatch(
         shaders.bbox_clear,
         (drawobj_wgs, 1, 1),
@@ -281,7 +229,7 @@ pub fn render_full(
     );
     let draw_monoid_buf = ResourceProxy::new_buf(n_drawobj as u64 * DRAWMONOID_SIZE);
     let info_bin_data_buf = ResourceProxy::new_buf(1 << 20);
-    let clip_inp_buf = ResourceProxy::new_buf(data.n_clip as u64 * CLIP_INP_SIZE);
+    let clip_inp_buf = ResourceProxy::new_buf(encoding.n_clips as u64 * CLIP_INP_SIZE);
     recording.dispatch(
         shaders.draw_leaf,
         (drawobj_wgs, 1, 1),
@@ -295,7 +243,7 @@ pub fn render_full(
             clip_inp_buf,
         ],
     );
-    let clip_el_buf = ResourceProxy::new_buf(data.n_clip as u64 * CLIP_EL_SIZE);
+    let clip_el_buf = ResourceProxy::new_buf(encoding.n_clips as u64 * CLIP_EL_SIZE);
     let clip_bic_buf =
         ResourceProxy::new_buf((n_clip / shaders::CLIP_REDUCE_WG) as u64 * CLIP_BIC_SIZE);
     let clip_wg_reduce = n_clip.saturating_sub(1) / shaders::CLIP_REDUCE_WG;
@@ -329,7 +277,7 @@ pub fn render_full(
             ],
         );
     }
-    let draw_bbox_buf = ResourceProxy::new_buf(n_path as u64 * DRAW_BBOX_SIZE);
+    let draw_bbox_buf = ResourceProxy::new_buf(n_paths as u64 * DRAW_BBOX_SIZE);
     let bump_buf = BufProxy::new(BUMP_SIZE);
     let width_in_bins = (config.width_in_tiles + 15) / 16;
     let height_in_bins = (config.height_in_tiles + 15) / 16;
@@ -352,10 +300,10 @@ pub fn render_full(
     );
     // Note: this only needs to be rounded up because of the workaround to store the tile_offset
     // in storage rather than workgroup memory.
-    let n_path_aligned = align_up(n_path as usize, 256);
+    let n_path_aligned = align_up(n_paths as usize, 256);
     let path_buf = ResourceProxy::new_buf(n_path_aligned as u64 * PATH_SIZE);
     let tile_buf = ResourceProxy::new_buf(1 << 20);
-    let path_wgs = (n_path + shaders::PATH_BBOX_WG - 1) / shaders::PATH_BBOX_WG;
+    let path_wgs = (n_paths + shaders::PATH_BBOX_WG - 1) / shaders::PATH_BBOX_WG;
     recording.dispatch(
         shaders.tile_alloc,
         (path_wgs, 1, 1),

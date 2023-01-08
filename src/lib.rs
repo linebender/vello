@@ -15,7 +15,6 @@
 // Also licensed under MIT license, at your choice.
 
 mod engine;
-mod ramp;
 mod render;
 mod scene;
 mod shaders;
@@ -25,10 +24,12 @@ pub use peniko;
 /// 2D geometry, with a focus on curves.
 pub use peniko::kurbo;
 
+pub mod encoding;
+
 pub mod glyph;
 pub mod util;
 
-pub use scene::{ResourceBundle, ResourcePatch, Scene, SceneBuilder, SceneData, SceneFragment};
+pub use scene::{Scene, SceneBuilder, SceneFragment};
 
 use engine::{Engine, ExternalResource};
 use shaders::FullShaders;
