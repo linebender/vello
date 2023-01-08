@@ -15,7 +15,6 @@ naga = { git = "https://github.com/gfx-rs/naga", rev = "ddcd5d3121150b2b1beee6e5
 [package]
 name = "vello"
 version = "0.1.0"
-authors = ["Raph Levien <raph@google.com>"]
 license = "MIT/Apache-2.0"
 edition = "2021"
 
