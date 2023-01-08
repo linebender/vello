@@ -138,7 +138,7 @@ fn fill_path(tile: Tile, xy: vec2<f32>) -> array<f32, PIXELS_PER_THREAD> {
     }
     // nonzero winding rule
     for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
-        area[i] = abs(area[i]);
+        area[i] = min(abs(area[i]), 1.0);
     }
     return area;
 }
@@ -169,6 +169,7 @@ fn stroke_path(seg: u32, half_width: f32, xy: vec2<f32>) -> array<f32, PIXELS_PE
     return df;
 }
 
+// The X size should be 16 / PIXELS_PER_THREAD
 @compute @workgroup_size(4, 16)
 fn main(
     @builtin(global_invocation_id) global_id: vec3<u32>,
@@ -179,7 +180,7 @@ fn main(
     let xy = vec2(f32(global_id.x * PIXELS_PER_THREAD), f32(global_id.y));
 #ifdef full
     var rgba: array<vec4<f32>, PIXELS_PER_THREAD>;
-    var blend_stack: array<array<u32, BLEND_STACK_SPLIT>, PIXELS_PER_THREAD>;
+    var blend_stack: array<array<u32, PIXELS_PER_THREAD>, BLEND_STACK_SPLIT>;
     var clip_depth = 0u;
     var area: array<f32, PIXELS_PER_THREAD>;
     var cmd_ix = tile_ix * PTCL_INITIAL_ALLOC;
