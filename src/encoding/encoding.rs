@@ -15,9 +15,11 @@
 // Also licensed under MIT license, at your choice.
 
 use super::resource::Patch;
-use super::{DrawTag, PathEncoder, PathTag, Transform};
+use super::{
+    DrawColor, DrawLinearGradient, DrawRadialGradient, DrawTag, PathEncoder, PathTag, Transform,
+};
 
-use peniko::{kurbo::Shape, BlendMode, BrushRef, Color, ColorStop};
+use peniko::{kurbo::Shape, BlendMode, BrushRef, Color, ColorStop, Extend};
 
 /// Encoded data streams for a scene.
 #[derive(Default)]
@@ -148,42 +150,77 @@ impl Encoding {
     /// Encodes a brush with an optional alpha modifier.
     pub fn encode_brush<'b>(&mut self, brush: impl Into<BrushRef<'b>>, alpha: f32) {
         use super::math::point_to_f32;
-        use super::{DrawColor, DrawLinearGradient, DrawRadialGradient};
         match brush.into() {
             BrushRef::Solid(color) => {
-                self.draw_tags.push(DrawTag::COLOR);
                 let color = if alpha != 1.0 {
                     color_with_alpha(color, alpha)
                 } else {
                     color
                 };
-                self.draw_data
-                    .extend_from_slice(bytemuck::bytes_of(&DrawColor::new(color)));
+                self.encode_color(DrawColor::new(color));
             }
             BrushRef::LinearGradient(gradient) => {
-                self.add_ramp(&gradient.stops, alpha);
-                self.draw_tags.push(DrawTag::LINEAR_GRADIENT);
-                self.draw_data
-                    .extend_from_slice(bytemuck::bytes_of(&DrawLinearGradient {
+                self.encode_linear_gradient(
+                    DrawLinearGradient {
                         index: 0,
                         p0: point_to_f32(gradient.start),
                         p1: point_to_f32(gradient.end),
-                    }));
+                    },
+                    gradient.stops.iter().copied(),
+                    alpha,
+                    gradient.extend,
+                );
             }
             BrushRef::RadialGradient(gradient) => {
-                self.add_ramp(&gradient.stops, alpha);
-                self.draw_tags.push(DrawTag::RADIAL_GRADIENT);
-                self.draw_data
-                    .extend_from_slice(bytemuck::bytes_of(&DrawRadialGradient {
+                self.encode_radial_gradient(
+                    DrawRadialGradient {
                         index: 0,
                         p0: point_to_f32(gradient.start_center),
                         p1: point_to_f32(gradient.end_center),
                         r0: gradient.start_radius,
                         r1: gradient.end_radius,
-                    }));
+                    },
+                    gradient.stops.iter().copied(),
+                    alpha,
+                    gradient.extend,
+                );
             }
             BrushRef::SweepGradient(_gradient) => todo!("sweep gradients aren't done yet!"),
         }
+    }
+
+    /// Encodes a solid color brush.
+    pub fn encode_color(&mut self, color: DrawColor) {
+        self.draw_tags.push(DrawTag::COLOR);
+        self.draw_data.extend_from_slice(bytemuck::bytes_of(&color));
+    }
+
+    /// Encodes a linear gradient brush.
+    pub fn encode_linear_gradient(
+        &mut self,
+        gradient: DrawLinearGradient,
+        color_stops: impl Iterator<Item = ColorStop>,
+        alpha: f32,
+        _extend: Extend,
+    ) {
+        self.add_ramp(color_stops, alpha);
+        self.draw_tags.push(DrawTag::LINEAR_GRADIENT);
+        self.draw_data
+            .extend_from_slice(bytemuck::bytes_of(&gradient));
+    }
+
+    /// Encodes a radial gradient brush.
+    pub fn encode_radial_gradient(
+        &mut self,
+        gradient: DrawRadialGradient,
+        color_stops: impl Iterator<Item = ColorStop>,
+        alpha: f32,
+        _extend: Extend,
+    ) {
+        self.add_ramp(color_stops, alpha);
+        self.draw_tags.push(DrawTag::RADIAL_GRADIENT);
+        self.draw_data
+            .extend_from_slice(bytemuck::bytes_of(&gradient));
     }
 
     /// Encodes a begin clip command.
@@ -211,16 +248,16 @@ impl Encoding {
         self.path_tags.swap(len - 1, len - 2);
     }
 
-    fn add_ramp(&mut self, stops: &[ColorStop], alpha: f32) {
+    fn add_ramp(&mut self, color_stops: impl Iterator<Item = ColorStop>, alpha: f32) {
         let offset = self.draw_data.len();
         let stops_start = self.color_stops.len();
         if alpha != 1.0 {
-            self.color_stops.extend(stops.iter().map(|s| ColorStop {
+            self.color_stops.extend(color_stops.map(|s| ColorStop {
                 offset: s.offset,
                 color: color_with_alpha(s.color, alpha),
             }));
         } else {
-            self.color_stops.extend_from_slice(stops);
+            self.color_stops.extend(color_stops);
         }
         self.patches.push(Patch::Ramp {
             offset,

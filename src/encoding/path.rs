@@ -30,6 +30,9 @@ pub struct PathSegment {
 }
 
 /// Path segment type.
+///
+/// The values of the segment types are equivalent to the number of associated
+/// points for each segment in the path data stream.
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Pod, Zeroable)]
 #[repr(C)]
 pub struct PathSegmentType(pub u8);
@@ -52,12 +55,18 @@ pub struct PathTag(pub u8);
 
 impl PathTag {
     /// 32-bit floating point line segment.
+    ///
+    /// This is equivalent to (PathSegmentType::LINE_TO | PathTag::F32_BIT).
     pub const LINE_TO_F32: Self = Self(0x9);
 
     /// 32-bit floating point quadratic segment.
+    ///
+    /// This is equivalent to (PathSegmentType::QUAD_TO | PathTag::F32_BIT).
     pub const QUAD_TO_F32: Self = Self(0xa);
 
     /// 32-bit floating point cubic segment.
+    ///
+    /// This is equivalent to (PathSegmentType::CUBIC_TO | PathTag::F32_BIT).
     pub const CUBIC_TO_F32: Self = Self(0xb);
 
     /// 16-bit integral line segment.
@@ -78,8 +87,14 @@ impl PathTag {
     /// Line width setting.
     pub const LINEWIDTH: Self = Self(0x40);
 
+    /// Bit for path segments that are represented as f32 values. If unset
+    /// they are represented as i16.
     const F32_BIT: u8 = 0x8;
+
+    /// Bit that marks a segment that is the end of a subpath.
     const SUBPATH_END_BIT: u8 = 0x4;
+
+    /// Mask for bottom 3 bits that contain the [PathSegmentType].
     const SEGMENT_MASK: u8 = 0x3;
 
     /// Returns true if the tag is a segment.
@@ -94,7 +109,7 @@ impl PathTag {
 
     /// Returns true if this segment ends a subpath.
     pub fn is_subpath_end(self) -> bool {
-        (self.0 & Self::SUBPATH_END_BIT) != 0
+        self.0 & Self::SUBPATH_END_BIT != 0
     }
 
     /// Sets the subpath end bit.
@@ -124,7 +139,9 @@ pub struct PathMonoid {
     pub path_ix: u32,
 }
 
-impl Monoid<u32> for PathMonoid {
+impl Monoid for PathMonoid {
+    type SourceValue = u32;
+
     /// Reduces a packed 32-bit word containing 4 tags.
     fn new(tag_word: u32) -> Self {
         let mut c = Self::default();

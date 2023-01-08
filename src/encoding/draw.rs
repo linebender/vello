@@ -48,8 +48,8 @@ impl DrawTag {
 }
 
 impl DrawTag {
-    /// Returns the size of the info buffer used by this tag.
-    pub fn info_size(self) -> u32 {
+    /// Returns the size of the info buffer (in u32s) used by this tag.
+    pub const fn info_size(self) -> u32 {
         (self.0 >> 6) & 0xf
     }
 }
@@ -58,7 +58,8 @@ impl DrawTag {
 #[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
 #[repr(C)]
 pub struct DrawColor {
-    /// Packed RGBA color.
+    /// Packed little endian RGBA premultiplied color with the alpha component
+    /// in the low byte.
     pub rgba: u32,
 }
 
@@ -143,7 +144,9 @@ pub struct DrawMonoid {
     pub info_offset: u32,
 }
 
-impl Monoid<DrawTag> for DrawMonoid {
+impl Monoid for DrawMonoid {
+    type SourceValue = DrawTag;
+
     fn new(tag: DrawTag) -> Self {
         Self {
             path_ix: (tag != DrawTag::NOP) as u32,

@@ -14,10 +14,15 @@
 //
 // Also licensed under MIT license, at your choice.
 
-/// Interface for a monoid.
-pub trait Monoid<T>: Default {
+/// Interface for a monoid. The default value must be the identity of
+/// the monoid.
+pub trait Monoid: Default {
+    /// The source value for constructing the monoid.
+    type SourceValue;
+
     /// Creates a monoid from a given value.
-    fn new(value: T) -> Self;
+    fn new(value: Self::SourceValue) -> Self;
+
     /// Combines two monoids. This operation must be associative.
     fn combine(&self, other: &Self) -> Self;
 }
