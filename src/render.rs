@@ -140,7 +140,7 @@ pub fn render_full(
 }
 
 pub fn render_encoding_full(
-    data: &Encoding,
+    encoding: &Encoding,
     shaders: &FullShaders,
     width: u32,
     height: u32,
@@ -148,10 +148,10 @@ pub fn render_encoding_full(
     use crate::encoding::{resource::ResourceCache, PackedEncoding};
     let mut recording = Recording::default();
     let mut resources = ResourceCache::new();
-    let mut packed_scene = PackedEncoding::default();
-    packed_scene.pack(&data, &mut resources);
-    let (ramp_data, ramps_width, ramps_height) = resources.ramps(packed_scene.resources).unwrap();
-    let gradient_image = if data.patches.is_empty() {
+    let mut packed = PackedEncoding::default();
+    packed.pack(&encoding, &mut resources);
+    let (ramp_data, ramps_width, ramps_height) = resources.ramps(packed.resources).unwrap();
+    let gradient_image = if encoding.patches.is_empty() {
         ResourceProxy::new_image(1, 1, ImageFormat::Rgba8)
     } else {
         let data: &[u8] = bytemuck::cast_slice(ramp_data);
@@ -163,11 +163,11 @@ pub fn render_encoding_full(
         ))
     };
     // TODO: calculate for real when we do rectangles
-    let n_pathtag = data.path_tags.len();
-    let pathtag_padded = align_up(data.path_tags.len(), 4 * shaders::PATHTAG_REDUCE_WG);
-    let n_paths = data.n_paths;
+    let n_pathtag = encoding.path_tags.len();
+    let pathtag_padded = align_up(encoding.path_tags.len(), 4 * shaders::PATHTAG_REDUCE_WG);
+    let n_paths = encoding.n_paths;
     let n_drawobj = n_paths;
-    let n_clip = data.n_clips;
+    let n_clip = encoding.n_clips;
 
     let new_width = next_multiple_of(width, 16);
     let new_height = next_multiple_of(height, 16);
@@ -177,10 +177,10 @@ pub fn render_encoding_full(
         height_in_tiles: new_height / 16,
         target_width: width,
         target_height: height,
-        layout: packed_scene.layout,
+        layout: packed.layout,
     };
     // println!("{:?}", config);
-    let scene_buf = ResourceProxy::Buf(recording.upload(packed_scene.data));
+    let scene_buf = ResourceProxy::Buf(recording.upload(packed.data));
     let config_buf = ResourceProxy::Buf(recording.upload_uniform(bytemuck::bytes_of(&config)));
 
     let pathtag_wgs = pathtag_padded / (4 * shaders::PATHTAG_REDUCE_WG as usize);
@@ -229,7 +229,7 @@ pub fn render_encoding_full(
     );
     let draw_monoid_buf = ResourceProxy::new_buf(n_drawobj as u64 * DRAWMONOID_SIZE);
     let info_bin_data_buf = ResourceProxy::new_buf(1 << 20);
-    let clip_inp_buf = ResourceProxy::new_buf(data.n_clips as u64 * CLIP_INP_SIZE);
+    let clip_inp_buf = ResourceProxy::new_buf(encoding.n_clips as u64 * CLIP_INP_SIZE);
     recording.dispatch(
         shaders.draw_leaf,
         (drawobj_wgs, 1, 1),
@@ -243,7 +243,7 @@ pub fn render_encoding_full(
             clip_inp_buf,
         ],
     );
-    let clip_el_buf = ResourceProxy::new_buf(data.n_clips as u64 * CLIP_EL_SIZE);
+    let clip_el_buf = ResourceProxy::new_buf(encoding.n_clips as u64 * CLIP_EL_SIZE);
     let clip_bic_buf =
         ResourceProxy::new_buf((n_clip / shaders::CLIP_REDUCE_WG) as u64 * CLIP_BIC_SIZE);
     let clip_wg_reduce = n_clip.saturating_sub(1) / shaders::CLIP_REDUCE_WG;
