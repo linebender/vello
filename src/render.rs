@@ -3,6 +3,7 @@
 use bytemuck::{Pod, Zeroable};
 
 use crate::{
+    encoding::Encoding,
     engine::{BufProxy, ImageFormat, ImageProxy, Recording, ResourceProxy},
     shaders::{self, FullShaders, Shaders},
     Scene,
@@ -135,11 +136,19 @@ pub fn render_full(
     width: u32,
     height: u32,
 ) -> (Recording, ResourceProxy) {
+    render_encoding_full(&scene.data(), shaders, width, height)
+}
+
+pub fn render_encoding_full(
+    data: &Encoding,
+    shaders: &FullShaders,
+    width: u32,
+    height: u32,
+) -> (Recording, ResourceProxy) {
     use crate::encoding::{resource::ResourceCache, PackedEncoding};
     let mut recording = Recording::default();
     let mut resources = ResourceCache::new();
     let mut packed_scene = PackedEncoding::default();
-    let data = scene.data();
     packed_scene.pack(&data, &mut resources);
     let (ramp_data, ramps_width, ramps_height) = resources.ramps(packed_scene.resources).unwrap();
     let gradient_image = if data.patches.is_empty() {
