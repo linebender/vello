@@ -271,7 +271,16 @@ fn blend_square(blend: BlendMode) -> SceneFragment {
 
 #[allow(unused)]
 pub fn render_anim_frame(sb: &mut SceneBuilder, text: &mut SimpleText, i: usize) {
+    use PathEl::*;
     let rect = Rect::from_origin_size(Point::new(0.0, 0.0), (1000.0, 1000.0));
+    let star = [
+        MoveTo((50.0, 0.0).into()),
+        LineTo((21.0, 90.0).into()),
+        LineTo((98.0, 35.0).into()),
+        LineTo((2.0, 35.0).into()),
+        LineTo((79.0, 90.0).into()),
+        ClosePath,
+    ];
     sb.fill(
         Fill::NonZero,
         Affine::IDENTITY,
@@ -333,6 +342,20 @@ pub fn render_anim_frame(sb: &mut SceneBuilder, text: &mut SimpleText, i: usize)
         &rect,
     );
     sb.pop_layer();
+    sb.fill(
+        Fill::NonZero,
+        Affine::translate((400.0, 100.0)),
+        Color::PURPLE,
+        None,
+        &star,
+    );
+    sb.fill(
+        Fill::EvenOdd,
+        Affine::translate((500.0, 100.0)),
+        Color::PURPLE,
+        None,
+        &star,
+    );
 }
 
 #[allow(unused)]

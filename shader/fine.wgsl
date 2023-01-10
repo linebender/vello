@@ -97,7 +97,7 @@ var output: texture_storage_2d<r8, write>;
 
 let PIXELS_PER_THREAD = 4u;
 
-fn fill_path(tile: Tile, xy: vec2<f32>) -> array<f32, PIXELS_PER_THREAD> {
+fn fill_path(tile: Tile, xy: vec2<f32>, even_odd: bool) -> array<f32, PIXELS_PER_THREAD> {
     var area: array<f32, PIXELS_PER_THREAD>;
     let backdrop_f = f32(tile.backdrop);
     for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
@@ -136,9 +136,17 @@ fn fill_path(tile: Tile, xy: vec2<f32>) -> array<f32, PIXELS_PER_THREAD> {
         }
         segment_ix = segment.next;
     }
-    // nonzero winding rule
-    for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
-        area[i] = min(abs(area[i]), 1.0);
+    if even_odd {
+        // even-odd winding rule
+        for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
+            let a = abs(area[i]);
+            area[i] = select(a, 2.0 - min(a, 2.0), a > 1.0);
+        }
+    } else {
+        // non-zero winding rule
+        for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
+            area[i] = min(abs(area[i]), 1.0);
+        }
     }
     return area;
 }
@@ -195,8 +203,10 @@ fn main(
             // CMD_FILL
             case 1u: {
                 let fill = read_fill(cmd_ix);
-                let tile = Tile(fill.backdrop, fill.tile);
-                area = fill_path(tile, xy);
+                let segments = fill.tile >> 1u;
+                let even_odd = (fill.tile & 1u) != 0u;
+                let tile = Tile(fill.backdrop, segments);
+                area = fill_path(tile, xy, even_odd);
                 cmd_ix += 3u;
             }
             // CMD_STROKE

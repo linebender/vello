@@ -79,17 +79,22 @@ fn alloc_cmd(size: u32) {
     }
 }
 
-fn write_path(tile: Tile, linewidth: f32) {
+fn write_path(tile: Tile, linewidth: f32) -> bool {
     // TODO: take flags
     alloc_cmd(3u);
     if linewidth < 0.0 {
+        let even_odd = linewidth < -1.0;
         if tile.segments != 0u {
             let fill = CmdFill(tile.segments, tile.backdrop);
             ptcl[cmd_offset] = CMD_FILL;
-            ptcl[cmd_offset + 1u] = fill.tile;
+            let segments_and_rule = select(fill.tile << 1u, (fill.tile << 1u) | 1u, even_odd);
+            ptcl[cmd_offset + 1u] = segments_and_rule;
             ptcl[cmd_offset + 2u] = u32(fill.backdrop);
             cmd_offset += 3u;
         } else {
+            if even_odd && (abs(tile.backdrop) & 1) == 0 {
+                return false;
+            }
             ptcl[cmd_offset] = CMD_SOLID;
             cmd_offset += 1u;
         }
@@ -100,6 +105,7 @@ fn write_path(tile: Tile, linewidth: f32) {
         ptcl[cmd_offset + 2u] = bitcast<u32>(stroke.half_width);
         cmd_offset += 3u;
     }
+    return true;
 }
 
 fn write_color(color: CmdColor) {
@@ -323,25 +329,28 @@ fn main(
                     // DRAWTAG_FILL_COLOR
                     case 0x44u: {
                         let linewidth = bitcast<f32>(info_bin_data[di]);
-                        write_path(tile, linewidth);
-                        let rgba_color = scene[dd];
-                        write_color(CmdColor(rgba_color));
+                        if write_path(tile, linewidth) {
+                            let rgba_color = scene[dd];
+                            write_color(CmdColor(rgba_color));
+                        }
                     }
                     // DRAWTAG_FILL_LIN_GRADIENT
                     case 0x114u: {
                         let linewidth = bitcast<f32>(info_bin_data[di]);
-                        write_path(tile, linewidth);
-                        let index = scene[dd];
-                        let info_offset = di + 1u;
-                        write_grad(CMD_LIN_GRAD, index, info_offset);
+                        if write_path(tile, linewidth) {
+                            let index = scene[dd];
+                            let info_offset = di + 1u;
+                            write_grad(CMD_LIN_GRAD, index, info_offset);
+                        }
                     }
                     // DRAWTAG_FILL_RAD_GRADIENT
                     case 0x2dcu: {
                         let linewidth = bitcast<f32>(info_bin_data[di]);
-                        write_path(tile, linewidth);
-                        let index = scene[dd];
-                        let info_offset = di + 1u;
-                        write_grad(CMD_RAD_GRAD, index, info_offset);
+                        if write_path(tile, linewidth) {
+                            let index = scene[dd];
+                            let info_offset = di + 1u;
+                            write_grad(CMD_RAD_GRAD, index, info_offset);
+                        }
                     }
                     // DRAWTAG_BEGIN_CLIP
                     case 0x9u: {
