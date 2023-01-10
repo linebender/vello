@@ -84,34 +84,39 @@ The only currently implemented `Engine` uses `wgpu`.
 The idea is that this can abstract easily over multiple GPU back-ends, without either the render logic needing to be polymorphic or having dynamic dispatch at the GPU abstraction.
 The goal is to be more agile.
 
+## Goals
+
+The major goal of Vello is to provide a high quality GPU accelerated renderer suitable for a range of 2D graphics applications, including rendering for GUI applications, creative tools, and scientific visualization. The [roadmap for 2023](doc/roadmap_2023.md) explains the goals and plans for the next few months of development
+
+Vello emerges from being a research project, which attempts to answer these hypotheses:
+
+- To what extent is a compute-centered approach better than rasterization ([Direct2D])?
+
+- To what extent do "advanced" GPU features (subgroups, descriptor arrays, device-scoped barriers) help?
+
+- Can we improve quality and extend the imaging model in useful ways?
+
+Another goal of the overall project is to explain how the renderer is built, and to advance the state of building applications on GPU compute shaders more generally. Much of the progress on piet-gpu is documented in blog entries. See [doc/blogs.md](doc/blogs.md) for pointers to those.
+
 ## History
 
-Vello was previously known as `piet-gpu`. This prior incarnation used a custom cross-API hardware abstraction layer, called `piet-gpu-hal`, instead of [`wgpu`].
-<!-- Some discussion of this transition can be found in the blog post [A requiem to piet-gpu-hal]() TODO: Once the blog post is published -->
+Vello was previously known as `piet-gpu`. This prior incarnation used a custom cross-API hardware abstraction layer, called `piet-gpu-hal`, instead of [`wgpu`]. The decision to lay down `piet-gpu-hal` in favor of WebGPU is discussed in detail in the blog post [Requiem for piet-gpu-hal].
 
-There is a [vision](doc/vision.md) document which explained the longer-term goals of the project, and how we might get there.
+A [vision](doc/vision.md) document dated December 2020 explained the longer-term goals of the project, and how we might get there.
 Many of these items are out-of-date or completed, but it still may provide some useful background.
 
 An archive of this version can be found in the branches [`custom-hal-archive-with-shaders`] and [`custom-hal-archive`].
 This succeeded the previous prototype, [piet-metal], and included work adapted from [piet-dx12] by Brian Merchant.
 
-## Goals
+## Related projects
 
-<!-- TODO: Are these goals still correct? Are there new goals? Are these useful to have in the readme specifically, now that we're actually "encouraging" users -->
+Vello takes inspiration from many other rendering projects, including:
 
-The main goal is to answer research questions about the future of 2D rendering:
-
-- Is a compute-centered approach better than rasterization ([Direct2D])? How much so?
-
-- To what extent do "advanced" GPU features (subgroups, descriptor arrays) help?
-
-- Can we improve quality and extend the imaging model in useful ways?
-
-## Blogs and other writing
-
-Much of the research progress on piet-gpu is documented in blog entries. See [doc/blogs.md](doc/blogs.md) for pointers to those.
-
-<!-- Some mention of `google/forma` here -->
+* [Pathfinder](https://github.com/servo/pathfinder)
+* [Spinel](https://fuchsia.googlesource.com/fuchsia/+/refs/heads/master/src/graphics/lib/compute/spinel/)
+* [Forma](https://github.com/google/forma)
+* [Massively Parallel Vector Graphics](https://w3.impa.br/~diego/projects/GanEtAl14/)
+* [Random-access rendering of general vector graphics](https://hhoppe.com/proj/ravg/)
 
 ## License
 
@@ -152,3 +157,4 @@ licensed as above, without any additional terms or conditions.
 [winit]: https://github.com/rust-windowing/winit
 [Bevy]: https://bevyengine.org/
 [`wgsl-analyzer`]: https://marketplace.visualstudio.com/items?itemName=wgsl-analyzer.wgsl-analyzer
+[Requiem for piet-gpu-hal]: https://raphlinus.github.io/rust/gpu/2023/01/07/requiem-piet-gpu-hal.html

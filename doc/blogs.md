@@ -2,6 +2,7 @@
 
 Much of the research progress on piet-gpu is documented in blog entries. Here are the most relevant:
 
+* [Requiem for piet-gpu-hal](https://raphlinus.github.io/rust/gpu/2023/01/07/requiem-piet-gpu-hal.html)
 * [piet-gpu progress: clipping](https://raphlinus.github.io/rust/graphics/gpu/2022/02/24/piet-gpu-clipping.html), Feb 24, 2022
 * [Fast 2D rendering on GPU](https://raphlinus.github.io/rust/graphics/gpu/2020/06/13/fast-2d-rendering.html), Jun 13, 2020
 * [A sort-middle architecture for 2D graphics](https://raphlinus.github.io/rust/graphics/gpu/2020/06/12/sort-middle.html), Jun 12, 2020
