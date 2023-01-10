@@ -1,12 +1,29 @@
 # Roadmap for 2023
 
-2022 was an interesting year for Vello. We made good progress on a number of fronts, solving some really tricky problems, and also did a rewrite into WGSL, but did not ship a usable renderer. Oh, and we renamed the project from piet-gpu as well.
+Vello is a GPU accelerated 2D rendering engine, with ambitious goals to deliver efficient and high quality rendering by using compute shaders effectively. Last year saw progress on many fronts, including implementations of gradients, moving the clip stack processing to GPU, blends with almost arbitrarily deep nesting, and advances in the efficiency of scene encoding both to generate CPU-side and to process GPU-side. We also did a rewrite into WGSL, which we expect will improve collaboration with the rest of the ecosystem. This work has been fruitful research. In 2023, we plan to build on that research and ship a renderer that can be used in a variety of applications including GUI rendering, creative applications, and potentially 2D games and scientific visualization.
 
-2023 promises to be even more interesting. With some focus we can ship a usable renderer. The core team (Raph Levien and Chad Brokaw, with help from Arman Uguray) will be able to do most of the tasks listed here. Help from the community could speed things up or add even more features. We also rely heavily on the wgpu community to build solid GPU infrastructure for our uses, and also expect a nontrivial amount of integration work as people adopt Vello for their projects.
+Late last year, we also renamed the project from piet-gpu, as it's no longer based on the Piet API (which had a number limitations including not supporting multi-threaded encoding). Vello, the new name, suggests both vellum (as used in illuminated manuscripts) and velocity.
+
+The core team – Raph Levien and Chad Brokaw, with help from Arman Uguray – will be able to do most of the tasks listed here. Help from the community could speed things up or add even more features. We also rely heavily on the wgpu community to build solid GPU infrastructure for our uses, and also expect a nontrivial amount of integration work as people adopt Vello for their projects.
 
 Large parts of the [piet-gpu vision] are still valid, but of course there are updates in the two years since it was written.
 
-This roadmap is in roughly chronological in order of when we expect to complete the work.
+This roadmap is in roughly chronological in order of when we expect to complete the work. For each bullet point in the outline
+
+* Completing the basic imaging model, to handle the needs of real applications.
+* CPU fallback implementation, for better compatibility, testing, and debuggability.
+* Stroke rework, to correctly and efficiently render the diversity of stroke styles.
+* A writeup, so people can better understand and evaluate the project.
+* Glyph caching, for higher performance for UI applications.
+* Blurs and filter effects, as they are an important imaging primitive.
+* A semi-stable encoding format, to offer more flexibility in getting scenes into the engine.
+
+In addition, there are a few optional aspects to the roadmap, which will be implemented if there is demand from users or motivation from contributors:
+
+* Native renderering back-ends, to reduce the overhead of WebGPU, especially runtime shader compilation.
+* A solution to conflation artifacts, to improve rendering quality for some classes of vector art.
+* Subpixel RGB rendering, to improve rendering quality on low-dpi LCD screens.
+* High Dynamic Range (HDR) rendering, to exploit capabilities of new displays.
 
 ## Completing a basic imaging model
 
@@ -100,7 +117,7 @@ With [vello#239] we already expose a good chunk of the encoding, and encourage p
 
 ## Maybe
 
-The subprojects in this section are things we've thought about, and for which we think the Vello architecture can be adapted, but will be driven primarily by need.
+The subprojects in this section are things we've thought about, and for which we think the Vello architecture can be adapted. If there is strong need for some use case, we should be able to accomplish these, otherwise we prefer to keep our focus
 
 ### Native renderers
 
