@@ -14,7 +14,7 @@ A 2D renderer needs to support at least a basic imaging model. The biggest singl
 
 Supporting images *well* is tricky, in large part because of limitations in GPU infrastructure. The number of images that may appear in a scene is not bounded, which is not a good fit for the basic descriptor binding model. Ideally a single shader (the fine rasterization stage) can sample from all the images in the scene directly, but that's not really possible in WebGPU 1.0. Perhaps a future extension will have version of this; in Vulkan it's descriptor indexing (and [buffer device address] and [descriptor buffer], as GPU approaches to this problem keep evolving, but it's less likely the latter will be standardized in WebGPU, as they're basically variants of raw pointers and thus extremely difficult to make safe).
 
-Until then, we'll do a workaround of having a single atlas image containing all the images in the scene. That's extremely annoying and takes memory, but the cost of copying is itself not expected to be that bad. And in the common case where an image is reused across multiple frames, it should in most cases be possible to avoid those copies.
+Until then, we'll do a workaround of having a single atlas image containing all the images in the scene. That has nontrivial cost in memory allocation and bandwidth for texture copying, and the logic is tricky to write robustly, but the impact of copying on total rendering time is not expected to be that bad. And in the common case where an image is reused across multiple frames, it should in most cases be possible to avoid those copies.
 
 One tricky part is changes to the scene encoding. At the moment, it's more or less self-contained, but will need to be extended so that scene fragments can contain references to image resources (which will be a reference counted pointer to either the image bytes or to an external image reference, which might be rendered by some other WebGPU task). Additionally, there needs to be an additional pass between encoding and submission to the GPU, where references to these resources are replaced by uv quads in the texture atlas. Similar logic is needed to resolve cached glyphs, about which more below.
 
@@ -30,11 +30,11 @@ The last thing that belongs in "basic imaging model" is a proper API for glyph r
 
 Vello primarily runs in GPU compute shader stages, but there are three motivations for also having a CPU fallback path.
 
-First, in some cases a competent GPU won't be available, or perhaps it is on a denylist because of known bugs. In that case, a CPU implementation is necessary in order to display anything.
+The most important reason is to improve testing and debuggability. At the moment, we have two or three cases where there are artifacts or missing objects, but only in certain configurations. The systematic approach to this problem is to have a CPU implementation of each compute stage, and then the CPU and GPU outputs can be compared. Other problems might be isolated by swapping out one implementation for another.
 
-Second, because of various overhead, GPU dispatch is only efficient when working with large datasets. When rendering an extremely simple scene, it might be more efficient just to do the compute work on CPU, and save the GPU dispatch. Generally you'll still want to do fine rasterization (production of actual pixels) on GPU, as even if the CPU could do that really quickly there would still be the cost of getting them uploaded.
+In addition, in some cases a competent GPU won't be available, or perhaps it is on a denylist because of known bugs. In that case, a CPU implementation is necessary in order to display anything.
 
-But perhaps the most important reason is to improve testing and debuggability. At the moment, we have two or three cases where there are artifacts or missing objects, but only in certain configurations. The systematic approach to this problem is to have a CPU implementation of each compute stage, and then the CPU and GPU outputs can be compared. Other problems might be isolated by swapping out one implementation for another.
+Lastly, because of various overhead, GPU dispatch is only efficient when working with large datasets. When rendering an extremely simple scene, it might be more efficient just to do the compute work on CPU, and save the GPU dispatch. Generally you'll still want to do fine rasterization (production of actual pixels) on GPU, as even if the CPU could do that really quickly there would still be the cost of getting them uploaded.
 
 Because of the emphasis on testing, at least the initial CPU implementations will be optimized for clarity and simplicity, not so much performance. It is possible to imagine doing SIMD optimization and running the work on multiple threads, but that is not planned (see non-goals below).
 
@@ -112,7 +112,7 @@ Another issue is the overhead of WebGPU compared to native, which we hope is not
 
 Vello now has a "recording" abstraction that includes lightweight proxies for resources such as buffers and textures, and a declarative approach to specifying the graph of compute shader dispatches. This abstraction is an appealing alternative to an object-oriented hardware abstraction layer (as was the case in the pre-WSGL version of piet-gpu). We also think this abstraction could support focused, lightweight back-ends for more native GPU APIs. The relative priority of building such back-ends is not clear, but we did want a design where we could gain back some of the performance that was given up in the move to WebGPU.
 
-* TODO: link to "requiem for piet-gpu-hal" when done
+* [Requiem for piet-gpu-hal](https://raphlinus.github.io/rust/gpu/2023/01/07/requiem-piet-gpu-hal.html)
 
 ### Conflation artifacts
 
