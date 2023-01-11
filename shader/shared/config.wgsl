@@ -10,6 +10,7 @@ struct Config {
     n_drawobj: u32,
     n_path: u32,
     n_clip: u32,
+    n_pathtag: u32,
 
     // To reduce the number of bindings, info and bin data are combined
     // into one buffer.

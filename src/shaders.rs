@@ -48,8 +48,8 @@ pub struct Shaders {
 pub struct FullShaders {
     pub pathtag_reduce: ShaderId,
     pub pathtag_scan: ShaderId,
-    pub bbox_clear: ShaderId,
     pub pathseg: ShaderId,
+    pub bbox_fixup: ShaderId,
     pub draw_reduce: ShaderId,
     pub draw_leaf: ShaderId,
     pub clip_reduce: ShaderId,
@@ -144,11 +144,6 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
             BindType::Buffer,
         ],
     )?;
-    let bbox_clear = engine.add_shader(
-        device,
-        preprocess::preprocess(shader!("bbox_clear"), &empty, &imports).into(),
-        &[BindType::Uniform, BindType::Buffer],
-    )?;
     let pathseg = engine.add_shader(
         device,
         preprocess::preprocess(shader!("pathseg"), &full_config, &imports).into(),
@@ -157,6 +152,17 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
             BindType::BufReadOnly,
             BindType::BufReadOnly,
             BindType::Buffer,
+            BindType::Buffer,
+            BindType::Buffer,
+        ],
+    )?;
+    let bbox_fixup = engine.add_shader(
+        device,
+        preprocess::preprocess(shader!("bbox_fixup"), &full_config, &imports).into(),
+        &[
+            BindType::Uniform,
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
             BindType::Buffer,
         ],
     )?;
@@ -279,8 +285,8 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
     Ok(FullShaders {
         pathtag_reduce,
         pathtag_scan,
-        bbox_clear,
         pathseg,
+        bbox_fixup,
         draw_reduce,
         draw_leaf,
         clip_reduce,
@@ -305,6 +311,7 @@ macro_rules! shared_shader {
 
 const SHARED_SHADERS: &[(&str, &str)] = &[
     shared_shader!("bbox"),
+    shared_shader!("bbox_monoid"),
     shared_shader!("blend"),
     shared_shader!("bump"),
     shared_shader!("clip"),

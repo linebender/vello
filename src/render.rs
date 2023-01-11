@@ -23,7 +23,10 @@ const PATH_SIZE: u64 = 32;
 const DRAW_BBOX_SIZE: u64 = 16;
 const BUMP_SIZE: u64 = 16;
 const BIN_HEADER_SIZE: u64 = 8;
+const BBOX_MONOID_SIZE: u64 = 32;
 
+// Note: this is defined here as it's still used by the reduced pipeline,
+// but for the full pipeline, use the version in `encoding`.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
 struct Config {
@@ -34,6 +37,7 @@ struct Config {
     n_drawobj: u32,
     n_path: u32,
     n_clip: u32,
+    n_pathtag: u32,
     bin_data_start: u32,
     pathtag_base: u32,
     pathdata_base: u32,
@@ -202,14 +206,10 @@ pub fn render_encoding_full(
     );
     let drawobj_wgs = (n_drawobj + shaders::PATH_BBOX_WG - 1) / shaders::PATH_BBOX_WG;
     let path_bbox_buf = ResourceProxy::new_buf(n_paths as u64 * PATH_BBOX_SIZE);
-    recording.dispatch(
-        shaders.bbox_clear,
-        (drawobj_wgs, 1, 1),
-        [config_buf, path_bbox_buf],
-    );
     let cubic_buf = ResourceProxy::new_buf(n_pathtag as u64 * CUBIC_SIZE);
     let path_coarse_wgs =
         (n_pathtag as u32 + shaders::PATH_COARSE_WG - 1) / shaders::PATH_COARSE_WG;
+    let bbox_reduced_buf = ResourceProxy::new_buf(path_coarse_wgs as u64 * BBOX_MONOID_SIZE);
     recording.dispatch(
         shaders.pathseg,
         (path_coarse_wgs, 1, 1),
@@ -219,7 +219,13 @@ pub fn render_encoding_full(
             tagmonoid_buf,
             path_bbox_buf,
             cubic_buf,
+            bbox_reduced_buf,
         ],
+    );
+    recording.dispatch(
+        shaders.bbox_fixup,
+        (1, 1, 1),
+        [config_buf, tagmonoid_buf, bbox_reduced_buf, path_bbox_buf],
     );
     let draw_reduced_buf = ResourceProxy::new_buf(drawobj_wgs as u64 * DRAWMONOID_SIZE);
     recording.dispatch(

@@ -1,6 +1,7 @@
 {
   "wgsl-analyzer.customImports": {
     "bbox": "${workspaceFolder}/shader/shared/bbox.wgsl",
+    "bbox_monoid": "${workspaceFolder}/shader/shared/bbox_monoid.wgsl",
     "blend": "${workspaceFolder}/shader/shared/blend.wgsl",
     "bump": "${workspaceFolder}/shader/shared/bump.wgsl",
     "clip": "${workspaceFolder}/shader/shared/clip.wgsl",

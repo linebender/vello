@@ -32,6 +32,8 @@ pub struct Layout {
     pub n_paths: u32,
     /// Number of clips.
     pub n_clips: u32,
+    /// Number of path tags.
+    pub n_pathtag: u32,
     /// Start of binning data.
     pub bin_data_start: u32,
     /// Start of path tag stream.
@@ -139,13 +141,14 @@ impl PackedEncoding {
         // Pack encoded data.
         let layout = &mut self.layout;
         *layout = Layout::default();
+        let n_path_tags = encoding.path_tags.len();
         layout.n_paths = encoding.n_paths;
         layout.n_draw_objects = encoding.n_paths;
         layout.n_clips = encoding.n_clips;
+        layout.n_pathtag = n_path_tags as u32;
         let data = &mut self.data;
         data.clear();
         // Path tag stream
-        let n_path_tags = encoding.path_tags.len();
         let path_tag_padded = align_up(n_path_tags, 4 * shaders::PATHTAG_REDUCE_WG);
         let capacity = path_tag_padded
             + slice_size_in_bytes(&encoding.path_data)

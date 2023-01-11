@@ -11,6 +11,8 @@
 // There's some duplication of the decoding code but we won't worry about
 // that just now. Perhaps it could be factored more nicely later.
 
+#import bbox
+#import bbox_monoid
 #import config
 #import pathtag
 #import cubic
@@ -24,51 +26,14 @@ var<storage> scene: array<u32>;
 @group(0) @binding(2)
 var<storage> tag_monoids: array<TagMonoid>;
 
-struct AtomicPathBbox {
-    x0: atomic<i32>,
-    y0: atomic<i32>,
-    x1: atomic<i32>,
-    y1: atomic<i32>,
-    linewidth: f32,
-    trans_ix: u32,
-}
-
 @group(0) @binding(3)
-var<storage, read_write> path_bboxes: array<AtomicPathBbox>;
-
+var<storage, read_write> path_bboxes: array<PathBbox>;
 
 @group(0) @binding(4)
 var<storage, read_write> cubics: array<Cubic>;
 
-// Monoid is yagni, for future optimization
-
-// struct BboxMonoid {
-//     bbox: vec4<f32>,
-//     flags: u32,
-// }
-
-// let FLAG_RESET_BBOX = 1u;
-// let FLAG_SET_BBOX = 2u;
-
-// fn combine_bbox_monoid(a: BboxMonoid, b: BboxMonoid) -> BboxMonoid {
-//     var c: BboxMonoid;
-//     c.bbox = b.bbox;
-//     // TODO: previous-me thought this should be gated on b & SET_BBOX == false also
-//     if (a.flags & FLAG_RESET_BBOX) == 0u && b.bbox.z <= b.bbox.x && b.bbox.w <= b.bbox.y {
-//         c.bbox = a.bbox;
-//     } else if (a.flags & FLAG_RESET_BBOX) == 0u && (b.flags & FLAG_SET_BBOX) == 0u ||
-//         (a.bbox.z > a.bbox.x || a.bbox.w > a.bbox.y)
-//     {
-//         c.bbox = vec4<f32>(min(a.bbox.xy, c.bbox.xy), max(a.bbox.xw, c.bbox.zw));
-//     }
-//     c.flags = (a.flags & FLAG_SET_BBOX) | b.flags;
-//     c.flags |= (a.flags & FLAG_RESET_BBOX) << 1u;
-//     return c;
-// }
-
-// fn bbox_monoid_identity() -> BboxMonoid {
-//     return BboxMonoid();
-// }
+@group(0) @binding(5)
+var<storage, read_write> bbox_reduced: array<BboxMonoid>;
 
 var<private> pathdata_base: u32;
 
@@ -115,10 +80,14 @@ fn round_up(x: f32) -> i32 {
     return i32(ceil(x));
 }
 
+let WG_SIZE = 256u;
+var<workgroup> sh_bbox: array<BboxMonoid, WG_SIZE>;
+
 @compute @workgroup_size(256)
 fn main(
     @builtin(global_invocation_id) global_id: vec3<u32>,
     @builtin(local_invocation_id) local_id: vec3<u32>,
+    @builtin(workgroup_id) wg_id: vec3<u32>,
 ) {
     let ix = global_id.x;
     let tag_word = scene[config.pathtag_base + (ix >> 2u)];
@@ -130,12 +99,10 @@ fn main(
 
     let out = &path_bboxes[tm.path_ix];
     let linewidth = bitcast<f32>(scene[config.linewidth_base + tm.linewidth_ix]);
-    if (tag_byte & PATH_TAG_PATH) != 0u {
-        (*out).linewidth = linewidth;
-        (*out).trans_ix = tm.trans_ix;
-    }
+    let bbox_flags = u32((tag_byte & PATH_TAG_PATH) != 0u);
     // Decode path data
     let seg_type = tag_byte & PATH_TAG_SEG_TYPE;
+    var bbox: vec4<f32>;
     if seg_type != 0u {
         var p0: vec2<f32>;
         var p1: vec2<f32>;
@@ -163,7 +130,7 @@ fn main(
         let transform = read_transform(config.transform_base, tm.trans_ix);
         p0 = transform_apply(transform, p0);
         p1 = transform_apply(transform, p1);
-        var bbox = vec4(min(p0, p1), max(p0, p1));
+        bbox = vec4(min(p0, p1), max(p0, p1));
         // Degree-raise
         if seg_type == PATH_TAG_LINETO {
             p3 = p1;
@@ -191,13 +158,29 @@ fn main(
         }
         let flags = u32(linewidth >= 0.0);
         cubics[global_id.x] = Cubic(p0, p1, p2, p3, stroke, tm.path_ix, flags);
-        // Update bounding box using atomics only. Computing a monoid is a
-        // potential future optimization.
-        if bbox.z > bbox.x || bbox.w > bbox.y {
-            atomicMin(&(*out).x0, round_down(bbox.x));
-            atomicMin(&(*out).y0, round_down(bbox.y));
-            atomicMax(&(*out).x1, round_up(bbox.z));
-            atomicMax(&(*out).y1, round_up(bbox.w));
+    }
+    var agg = BboxMonoid(bbox, bbox_flags);
+    sh_bbox[local_id.x] = agg;
+    for (var i = 0u; i < firstTrailingBit(WG_SIZE); i++) {
+        workgroupBarrier();
+        if local_id.x >= 1u << i {
+            let other = sh_bbox[local_id.x - (1u << i)];
+            agg = combine_bbox_monoid(other, agg);
         }
+        workgroupBarrier();
+        sh_bbox[local_id.x] = agg;
+    }
+    if local_id.x == WG_SIZE - 1u {
+        bbox_reduced[wg_id.x] = agg;
+    }
+    if bbox_flags != 0u {
+        let out = &path_bboxes[tm.path_ix];
+        // TODO: now that we're not atomic, don't need fixed-point
+        (*out).x0 = round_down(agg.bbox.x);
+        (*out).y0 = round_down(agg.bbox.y);
+        (*out).x1 = round_up(agg.bbox.z);
+        (*out).y1 = round_up(agg.bbox.w);
+        (*out).linewidth = linewidth;
+        (*out).trans_ix = tm.trans_ix;
     }
 }
