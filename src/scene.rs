@@ -126,7 +126,7 @@ impl<'a> SceneBuilder<'a> {
     /// Fills a shape using the specified style and brush.
     pub fn fill<'b>(
         &mut self,
-        _style: Fill,
+        style: Fill,
         transform: Affine,
         brush: impl Into<BrushRef<'b>>,
         brush_transform: Option<Affine>,
@@ -134,7 +134,10 @@ impl<'a> SceneBuilder<'a> {
     ) {
         self.scene
             .encode_transform(Transform::from_kurbo(&transform));
-        self.scene.encode_linewidth(-1.0);
+        self.scene.encode_linewidth(match style {
+            Fill::NonZero => -1.0,
+            Fill::EvenOdd => -2.0,
+        });
         if self.scene.encode_shape(shape, true) {
             if let Some(brush_transform) = brush_transform {
                 self.scene
