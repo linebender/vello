@@ -22,7 +22,7 @@ use super::{
 use peniko::{kurbo::Shape, BlendMode, BrushRef, Color, ColorStop, Extend};
 
 /// Encoded data streams for a scene.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Encoding {
     /// The path tag stream.
     pub path_tags: Vec<PathTag>,

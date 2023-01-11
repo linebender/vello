@@ -18,7 +18,7 @@
 
 pub use moscato::pinot;
 
-use crate::scene::{SceneBuilder, SceneFragment};
+use crate::scene::{FragmentBuilder, SceneFragment};
 use peniko::kurbo::{Affine, Rect};
 use peniko::{Brush, Color, Fill, Mix};
 
@@ -85,8 +85,7 @@ impl<'a> GlyphProvider<'a> {
     pub fn get(&mut self, gid: u16, brush: Option<&Brush>) -> Option<SceneFragment> {
         let glyph = self.scaler.glyph(gid)?;
         let path = glyph.path(0)?;
-        let mut fragment = SceneFragment::default();
-        let mut builder = SceneBuilder::for_fragment(&mut fragment);
+        let mut builder = FragmentBuilder::new();
         builder.fill(
             Fill::NonZero,
             Affine::IDENTITY,
@@ -94,8 +93,7 @@ impl<'a> GlyphProvider<'a> {
             None,
             &convert_path(path.elements()),
         );
-        builder.finish();
-        Some(fragment)
+        Some(builder.finish())
     }
 
     /// Returns a scene fragment containing the commands and resources to
@@ -103,8 +101,7 @@ impl<'a> GlyphProvider<'a> {
     pub fn get_color(&mut self, palette_index: u16, gid: u16) -> Option<SceneFragment> {
         use moscato::Command;
         let glyph = self.scaler.color_glyph(palette_index, gid)?;
-        let mut fragment = SceneFragment::default();
-        let mut builder = SceneBuilder::for_fragment(&mut fragment);
+        let mut builder = FragmentBuilder::new();
         let mut xform_stack: SmallVec<[Affine; 8]> = SmallVec::new();
         for command in glyph.commands() {
             match command {
@@ -188,8 +185,7 @@ impl<'a> GlyphProvider<'a> {
                 }
             }
         }
-        builder.finish();
-        Some(fragment)
+        Some(builder.finish())
     }
 }
 

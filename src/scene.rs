@@ -20,7 +20,7 @@ use peniko::{BlendMode, BrushRef, Fill, Stroke};
 use crate::encoding::{Encoding, Transform};
 
 /// Encoded definition of a scene and associated resources.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Scene {
     data: Encoding,
 }
@@ -28,17 +28,26 @@ pub struct Scene {
 impl Scene {
     /// Creates a new scene.
     pub fn new() -> Self {
-        Self::default()
+        let mut this = Self::default();
+        this.data.reset(false);
+        this
     }
 
     /// Returns the raw encoded scene data streams.
     pub fn data(&self) -> &Encoding {
         &self.data
     }
+    
+    pub fn append(&mut self, fragment: &SceneFragment, transform: Option<Affine>) {
+        self.data.append(
+            &fragment.data,
+            &transform.map(|a| Transform::from_kurbo(&a))
+        );
+    }
 }
 
 /// Encoded definition of a scene fragment and associated resources.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct SceneFragment {
     data: Encoding,
 }
@@ -65,29 +74,17 @@ impl SceneFragment {
 }
 
 /// Builder for constructing a scene or scene fragment.
-pub struct SceneBuilder<'a> {
-    scene: &'a mut Encoding,
+#[derive(Clone)]
+pub struct FragmentBuilder {
+    scene: Encoding,
     layer_depth: u32,
 }
 
-impl<'a> SceneBuilder<'a> {
-    /// Creates a new builder for filling a scene. Any current content in the scene
-    /// will be cleared.
-    pub fn for_scene(scene: &'a mut Scene) -> Self {
-        Self::new(&mut scene.data, false)
-    }
-
-    /// Creates a new builder for filling a scene fragment. Any current content in
-    /// the fragment will be cleared.    
-    pub fn for_fragment(fragment: &'a mut SceneFragment) -> Self {
-        Self::new(&mut fragment.data, true)
-    }
-
+impl FragmentBuilder {
     /// Creates a new builder for constructing a scene.
-    fn new(scene: &'a mut Encoding, is_fragment: bool) -> Self {
-        scene.reset(is_fragment);
+    pub fn new() -> Self {
         Self {
-            scene,
+            scene: Encoding::new(),
             layer_depth: 0,
         }
     }
@@ -180,9 +177,13 @@ impl<'a> SceneBuilder<'a> {
     }
 
     /// Completes construction and finalizes the underlying scene.
-    pub fn finish(self) {
+    pub fn finish(mut self) -> SceneFragment {
         for _ in 0..self.layer_depth {
             self.scene.encode_end_clip();
+        }
+        
+        SceneFragment {
+            data: self.scene,
         }
     }
 }

@@ -29,7 +29,7 @@ pub mod encoding;
 pub mod glyph;
 pub mod util;
 
-pub use scene::{Scene, SceneBuilder, SceneFragment};
+pub use scene::{Scene, FragmentBuilder, SceneFragment};
 
 use engine::{Engine, ExternalResource};
 use shaders::FullShaders;
