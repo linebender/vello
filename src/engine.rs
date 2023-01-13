@@ -24,9 +24,9 @@ use std::{
 use futures_intrusive::channel::shared::GenericOneshotReceiver;
 use parking_lot::RawMutex;
 use wgpu::{
-    util::DeviceExt, BindGroup, BindGroupLayout, Buffer, BufferAsyncError, BufferSlice, BufferView,
-    ComputePipeline, Device, Queue, Texture, TextureAspect, TextureFormat, TextureUsages,
-    TextureView, TextureViewDimension, BufferUsages,
+    util::DeviceExt, BindGroup, BindGroupLayout, Buffer, BufferAsyncError, BufferSlice,
+    BufferUsages, BufferView, ComputePipeline, Device, Queue, Texture, TextureAspect,
+    TextureFormat, TextureUsages, TextureView, TextureViewDimension,
 };
 
 pub type Error = Box<dyn std::error::Error>;
@@ -242,7 +242,8 @@ impl Engine {
         for command in &recording.commands {
             match command {
                 Command::Upload(buf_proxy, bytes) => {
-                    let usage = BufferUsages::COPY_SRC | BufferUsages::COPY_DST | BufferUsages::STORAGE;
+                    let usage =
+                        BufferUsages::COPY_SRC | BufferUsages::COPY_DST | BufferUsages::STORAGE;
                     let buf = self.pool.get_buf(bytes.len() as u64, usage, device);
                     // TODO: if buffer is newly created, might be better to make it mapped at creation
                     // and copy. However, we expect reuse will be most common.
@@ -528,7 +529,8 @@ impl BindMap {
                         continue;
                     }
                     if let Entry::Vacant(v) = self.buf_map.entry(proxy.id) {
-                        let usage = BufferUsages::COPY_SRC | BufferUsages::COPY_DST | BufferUsages::STORAGE;
+                        let usage =
+                            BufferUsages::COPY_SRC | BufferUsages::COPY_DST | BufferUsages::STORAGE;
                         let buf = pool.get_buf(proxy.size, usage, device);
                         v.insert(buf);
                     }
@@ -598,7 +600,12 @@ impl BindMap {
         Ok(bind_group)
     }
 
-    fn get_or_create(&mut self, proxy: BufProxy, device: &Device, pool: &mut ResourcePool) -> Result<&Buffer, Error> {
+    fn get_or_create(
+        &mut self,
+        proxy: BufProxy,
+        device: &Device,
+        pool: &mut ResourcePool,
+    ) -> Result<&Buffer, Error> {
         match self.buf_map.entry(proxy.id) {
             Entry::Occupied(occupied) => Ok(occupied.into_mut()),
             Entry::Vacant(vacant) => {
