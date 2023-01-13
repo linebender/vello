@@ -1,6 +1,6 @@
 //! A loader for a tiny fragment of SVG
 
-use std::str::FromStr;
+use std::{num::ParseFloatError, str::FromStr};
 
 use roxmltree::{Document, Node};
 use vello::{
@@ -39,11 +39,27 @@ impl PicoSvg {
         let root = doc.root_element();
         let mut items = Vec::new();
         let mut parser = Parser::new(&mut items, scale);
+        let transform = if scale >= 0.0 {
+            Affine::scale(scale)
+        } else {
+            Affine::new([-scale, 0.0, 0.0, scale, 0.0, 0.0])
+        };
+        let props = RecursiveProperties {
+            transform,
+            fill: None,
+        };
+        // The root element is the svg document element, which we don't care about
         for node in root.children() {
-            parser.rec_parse(node)?;
+            parser.rec_parse(node, &props)?;
         }
         Ok(PicoSvg { items })
     }
+}
+
+#[derive(Clone)]
+struct RecursiveProperties {
+    transform: Affine,
+    fill: Option<Color>,
 }
 
 impl<'a> Parser<'a> {
@@ -51,33 +67,42 @@ impl<'a> Parser<'a> {
         Parser { scale, items }
     }
 
-    fn rec_parse(&mut self, node: Node) -> Result<(), Box<dyn std::error::Error>> {
-        let transform = if self.scale >= 0.0 {
-            Affine::scale(self.scale)
-        } else {
-            Affine::new([-self.scale, 0.0, 0.0, self.scale, 0.0, 1536.0])
-        };
+    fn rec_parse(
+        &mut self,
+        node: Node,
+        properties: &RecursiveProperties,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         if node.is_element() {
+            let mut properties = properties.clone();
+            if let Some(fill_color) = node.attribute("fill") {
+                if fill_color == "none" {
+                    properties.fill = None;
+                } else {
+                    let color = parse_color(fill_color);
+                    let color = modify_opacity(color, "fill-opacity", node);
+                    properties.fill = Some(color);
+                }
+            }
+            if let Some(transform) = node.attribute("transform") {
+                let new_transform = parse_transform(transform);
+                properties.transform = new_transform * properties.transform;
+            }
             match node.tag_name().name() {
                 "g" => {
                     for child in node.children() {
-                        self.rec_parse(child)?;
+                        self.rec_parse(child, &properties)?;
                     }
                 }
                 "path" => {
                     let d = node.attribute("d").ok_or("missing 'd' attribute")?;
                     let bp = BezPath::from_svg(d)?;
-                    let path = transform * bp;
+                    let path = properties.transform * bp;
                     // TODO: default fill color is black, but this is overridden in tiger to this logic.
-                    if let Some(fill_color) = node.attribute("fill") {
-                        if fill_color != "none" {
-                            let color = parse_color(fill_color);
-                            let color = modify_opacity(color, "fill-opacity", node);
-                            self.items.push(Item::Fill(FillItem {
-                                color,
-                                path: path.clone(),
-                            }));
-                        }
+                    if let Some(color) = properties.fill {
+                        self.items.push(Item::Fill(FillItem {
+                            color,
+                            path: path.clone(),
+                        }));
                     }
                     if let Some(stroke_color) = node.attribute("stroke") {
                         if stroke_color != "none" {
@@ -99,7 +124,26 @@ impl<'a> Parser<'a> {
     }
 }
 
+fn parse_transform(transform: &str) -> Affine {
+    let transform = transform.trim();
+    if transform.starts_with("matrix(") {
+        let vals = transform["matrix(".len()..transform.len() - 1]
+            .split(|c| matches!(c, ',' | ' '))
+            .map(str::parse)
+            .collect::<Result<Vec<f64>, ParseFloatError>>()
+            .expect("Could parse all values of 'matrix' as floats");
+        Affine::new(
+            vals.try_into()
+                .expect("Should be six arguments to `matrix`"),
+        )
+    } else {
+        eprintln!("Did not understand transform attribute {transform:?}");
+        Affine::IDENTITY
+    }
+}
+
 fn parse_color(color: &str) -> Color {
+    let color = color.trim();
     if color.as_bytes()[0] == b'#' {
         let mut hex = u32::from_str_radix(&color[1..], 16).unwrap();
         if color.len() == 4 {
