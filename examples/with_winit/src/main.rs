@@ -35,6 +35,9 @@ struct Args {
     #[arg(long)]
     #[cfg(not(target_arch = "wasm32"))]
     svg: Option<PathBuf>,
+    /// When rendering an svg, what scale to use
+    #[arg(long)]
+    scale: Option<f64>,
     /// Which scene (index) to start on
     /// Switch between scenes with left and right arrow keys
     #[arg(long)]
@@ -55,12 +58,13 @@ async fn run(event_loop: EventLoop<()>, window: Window, args: Args) {
     let mut simple_text = simple_text::SimpleText::new();
     let mut current_frame = 0usize;
     let mut scene = Scene::new();
-    let mut paris_scene = None;
+    let mut cached_svg_scene = None;
     let mut drag = Vec2::default();
     let mut scale = 1f64;
     let mut mouse_down = false;
     let mut prior_position = None;
-    // We allow looping left and right through the scenes, so use a
+    let mut svg_static_scale = 1.0;
+    // We allow looping left and right through the scenes, so use a signed index
     let mut scene_ix: i32 = 0;
     #[cfg(not(target_arch = "wasm32"))]
     let svg_string: Cow<'static, str> = match args.svg {
@@ -75,12 +79,19 @@ async fn run(event_loop: EventLoop<()>, window: Window, args: Args) {
             eprintln!("Finished reading svg, took {:?}", start.elapsed());
             svg
         }
-        None => TIGER.into(),
+        None => {
+            svg_static_scale = 6.0;
+            TIGER.into()
+        }
     };
     #[cfg(target_arch = "wasm32")]
     let svg_string: Cow<'static, str> = TIGER.into();
+    // These are set after choosing the svg, as they overwrite the defaults specified there
     if let Some(set_scene) = args.scene {
         scene_ix = set_scene;
+    }
+    if let Some(set_scale) = args.scale {
+        svg_static_scale = set_scale;
     }
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent {
@@ -154,9 +165,10 @@ async fn run(event_loop: EventLoop<()>, window: Window, args: Args) {
                     let transform = Affine::scale(scale) * Affine::translate(drag);
                     test_scene::render_svg_scene(
                         &mut builder,
-                        &mut paris_scene,
+                        &mut cached_svg_scene,
                         transform,
                         &svg_string,
+                        svg_static_scale,
                     )
                 }
                 3 => test_scene::render_brush_transform(&mut builder, current_frame),

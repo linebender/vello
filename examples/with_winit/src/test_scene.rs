@@ -78,19 +78,20 @@ pub fn render_svg_scene(
     scene: &mut Option<SceneFragment>,
     xform: Affine,
     svg: &str,
+    scale: f64,
 ) {
-    if scene.is_none() {
+    let scene_frag = scene.get_or_insert_with(|| {
         use super::pico_svg::*;
         let start = Instant::now();
         eprintln!("Starting to parse svg");
-        let svg = PicoSvg::load(svg, 6.0).unwrap();
+        let svg = PicoSvg::load(svg, scale).unwrap();
         eprintln!("Parsing svg took {:?}", start.elapsed());
         let mut new_scene = SceneFragment::new();
         let mut builder = SceneBuilder::for_fragment(&mut new_scene);
         render_svg(&mut builder, &svg);
-        *scene = Some(new_scene);
-    }
-    sb.append(&scene.as_ref().unwrap(), Some(xform));
+        new_scene
+    });
+    sb.append(&scene_frag, Some(xform));
 }
 
 pub fn render_scene(sb: &mut SceneBuilder) {
