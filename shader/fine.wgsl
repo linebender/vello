@@ -139,8 +139,8 @@ fn fill_path(tile: Tile, xy: vec2<f32>, even_odd: bool) -> array<f32, PIXELS_PER
     if even_odd {
         // even-odd winding rule
         for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
-            let a = abs(area[i]);
-            area[i] = select(a, 2.0 - min(a, 2.0), a > 1.0);
+            let a = area[i];
+            area[i] = abs(a - 2.0 * round(0.5 * a));
         }
     } else {
         // non-zero winding rule
