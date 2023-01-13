@@ -46,7 +46,7 @@ impl PicoSvg {
         };
         let props = RecursiveProperties {
             transform,
-            fill: None,
+            fill: Some(Color::BLACK),
         };
         // The root element is the svg document element, which we don't care about
         for node in root.children() {
@@ -80,6 +80,8 @@ impl<'a> Parser<'a> {
                 } else {
                     let color = parse_color(fill_color);
                     let color = modify_opacity(color, "fill-opacity", node);
+                    // TODO: Handle recursive opacity properly
+                    let color = modify_opacity(color, "opacity", node);
                     properties.fill = Some(color);
                 }
             }
@@ -97,7 +99,6 @@ impl<'a> Parser<'a> {
                     let d = node.attribute("d").ok_or("missing 'd' attribute")?;
                     let bp = BezPath::from_svg(d)?;
                     let path = properties.transform * bp;
-                    // TODO: default fill color is black, but this is overridden in tiger to this logic.
                     if let Some(color) = properties.fill {
                         self.items.push(Item::Fill(FillItem {
                             color,
@@ -112,12 +113,14 @@ impl<'a> Parser<'a> {
                                 )?;
                             let color = parse_color(stroke_color);
                             let color = modify_opacity(color, "stroke-opacity", node);
+                            // TODO: Handle recursive opacity properly
+                            let color = modify_opacity(color, "opacity", node);
                             self.items
                                 .push(Item::Stroke(StrokeItem { width, color, path }));
                         }
                     }
                 }
-                _ => (),
+                other => eprintln!("Unhandled node type {other}"),
             }
         }
         Ok(())
