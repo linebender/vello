@@ -399,8 +399,8 @@ fn main(
         }
         workgroupBarrier();
     }
-    if bin_tile_x < config.width_in_tiles && bin_tile_y < config.height_in_tiles {
-        //ptcl[cmd_offset] = CMD_END;
+    if bin_tile_x + tile_x < config.width_in_tiles && bin_tile_y + tile_y < config.height_in_tiles {
+        ptcl[cmd_offset] = CMD_END;
         // TODO: blend stack allocation
     }
 }
