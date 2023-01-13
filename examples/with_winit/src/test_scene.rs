@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use crate::pico_svg::PicoSvg;
 use crate::simple_text::SimpleText;
 use vello::kurbo::{Affine, BezPath, Ellipse, PathEl, Point, Rect};
@@ -45,10 +47,6 @@ pub fn render_funky_paths(sb: &mut SceneBuilder) {
     );
 }
 
-#[allow(unused)]
-const N_CIRCLES: usize = 0;
-
-#[allow(unused)]
 pub fn render_svg(sb: &mut SceneBuilder, svg: &PicoSvg) {
     use crate::pico_svg::*;
     for item in &svg.items {
@@ -75,13 +73,25 @@ pub fn render_svg(sb: &mut SceneBuilder, svg: &PicoSvg) {
     }
 }
 
-#[allow(unused)]
-pub fn render_tiger(sb: &mut SceneBuilder) {
-    use super::pico_svg::*;
-    let xml_str =
-        std::str::from_utf8(include_bytes!("../../assets/Ghostscript_Tiger.svg")).unwrap();
-    let svg = PicoSvg::load(xml_str, 6.0).unwrap();
-    render_svg(sb, &svg);
+pub fn render_svg_scene(
+    sb: &mut SceneBuilder,
+    scene: &mut Option<SceneFragment>,
+    xform: Affine,
+    svg: &str,
+    scale: f64,
+) {
+    let scene_frag = scene.get_or_insert_with(|| {
+        use super::pico_svg::*;
+        let start = Instant::now();
+        eprintln!("Starting to parse svg");
+        let svg = PicoSvg::load(svg, scale).unwrap();
+        eprintln!("Parsing svg took {:?}", start.elapsed());
+        let mut new_scene = SceneFragment::new();
+        let mut builder = SceneBuilder::for_fragment(&mut new_scene);
+        render_svg(&mut builder, &svg);
+        new_scene
+    });
+    sb.append(&scene_frag, Some(xform));
 }
 
 pub fn render_scene(sb: &mut SceneBuilder) {
@@ -91,7 +101,6 @@ pub fn render_scene(sb: &mut SceneBuilder) {
     //render_tiger(sb, false);
 }
 
-#[allow(unused)]
 fn render_cardioid(sb: &mut SceneBuilder) {
     let n = 601;
     let dth = std::f64::consts::PI * 2.0 / (n as f64);
@@ -113,13 +122,12 @@ fn render_cardioid(sb: &mut SceneBuilder) {
     sb.stroke(
         &Stroke::new(2.0),
         Affine::IDENTITY,
-        Color::rgb8(0, 0, 0),
+        Color::rgb8(0, 0, 255),
         None,
         &path,
     );
 }
 
-#[allow(unused)]
 fn render_clip_test(sb: &mut SceneBuilder) {
     const N: usize = 16;
     const X0: f64 = 50.0;
@@ -145,7 +153,7 @@ fn render_clip_test(sb: &mut SceneBuilder) {
     sb.fill(
         Fill::NonZero,
         Affine::IDENTITY,
-        &Brush::Solid(Color::rgb8(0, 0, 0)),
+        &Brush::Solid(Color::rgb8(0, 255, 0)),
         None,
         &rect,
     );
@@ -154,7 +162,6 @@ fn render_clip_test(sb: &mut SceneBuilder) {
     }
 }
 
-#[allow(unused)]
 fn render_alpha_test(sb: &mut SceneBuilder) {
     // Alpha compositing tests.
     sb.fill(
@@ -187,7 +194,6 @@ fn render_alpha_test(sb: &mut SceneBuilder) {
     sb.pop_layer();
 }
 
-#[allow(unused)]
 pub fn render_blend_grid(sb: &mut SceneBuilder) {
     const BLEND_MODES: &[Mix] = &[
         Mix::Normal,
@@ -216,7 +222,6 @@ pub fn render_blend_grid(sb: &mut SceneBuilder) {
     }
 }
 
-#[allow(unused)]
 fn render_blend_square(sb: &mut SceneBuilder, blend: BlendMode, transform: Affine) {
     // Inspired by https://developer.mozilla.org/en-US/docs/Web/CSS/mix-blend-mode
     let rect = Rect::from_origin_size(Point::new(0., 0.), (200., 200.));
@@ -260,7 +265,6 @@ fn render_blend_square(sb: &mut SceneBuilder, blend: BlendMode, transform: Affin
     sb.pop_layer();
 }
 
-#[allow(unused)]
 fn blend_square(blend: BlendMode) -> SceneFragment {
     let mut fragment = SceneFragment::default();
     let mut sb = SceneBuilder::for_fragment(&mut fragment);
@@ -269,7 +273,6 @@ fn blend_square(blend: BlendMode) -> SceneFragment {
     fragment
 }
 
-#[allow(unused)]
 pub fn render_anim_frame(sb: &mut SceneBuilder, text: &mut SimpleText, i: usize) {
     use PathEl::*;
     let rect = Rect::from_origin_size(Point::new(0.0, 0.0), (1000.0, 1000.0));

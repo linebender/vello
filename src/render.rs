@@ -330,7 +330,7 @@ pub fn render_encoding_full(
     // in storage rather than workgroup memory.
     let n_path_aligned = align_up(n_paths as usize, 256);
     let path_buf = ResourceProxy::new_buf(n_path_aligned as u64 * PATH_SIZE);
-    let tile_buf = ResourceProxy::new_buf(1 << 20);
+    let tile_buf = ResourceProxy::new_buf(1 << 24);
     let path_wgs = (n_paths + shaders::PATH_BBOX_WG - 1) / shaders::PATH_BBOX_WG;
     recording.dispatch(
         shaders.tile_alloc,
