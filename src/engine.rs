@@ -26,7 +26,7 @@ use parking_lot::RawMutex;
 use wgpu::{
     util::DeviceExt, BindGroup, BindGroupLayout, Buffer, BufferAsyncError, BufferSlice, BufferView,
     ComputePipeline, Device, Queue, Texture, TextureAspect, TextureFormat, TextureUsages,
-    TextureView, TextureViewDimension,
+    TextureView, TextureViewDimension, BufferUsages,
 };
 
 pub type Error = Box<dyn std::error::Error>;
@@ -41,6 +41,7 @@ static ID_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 pub struct Engine {
     shaders: Vec<Shader>,
+    pool: ResourcePool,
 }
 
 struct Shader {
@@ -123,9 +124,17 @@ struct BindMap {
     image_map: HashMap<Id, (Texture, TextureView)>,
 }
 
+#[derive(Default)]
+struct ResourcePool {
+    bufs: HashMap<(u64, BufferUsages), Vec<Buffer>>,
+}
+
 impl Engine {
     pub fn new() -> Engine {
-        Engine { shaders: vec![] }
+        Engine {
+            shaders: vec![],
+            pool: Default::default(),
+        }
     }
 
     /// Add a shader.
@@ -233,21 +242,18 @@ impl Engine {
         for command in &recording.commands {
             match command {
                 Command::Upload(buf_proxy, bytes) => {
-                    let buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: None,
-                        contents: &bytes,
-                        usage: wgpu::BufferUsages::STORAGE
-                            | wgpu::BufferUsages::COPY_DST
-                            | wgpu::BufferUsages::COPY_SRC,
-                    });
+                    let usage = BufferUsages::COPY_SRC | BufferUsages::COPY_DST | BufferUsages::STORAGE;
+                    let buf = self.pool.get_buf(bytes.len() as u64, usage, device);
+                    // TODO: if buffer is newly created, might be better to make it mapped at creation
+                    // and copy. However, we expect reuse will be most common.
+                    queue.write_buffer(&buf, 0, bytes);
                     bind_map.insert_buf(buf_proxy.id, buf);
                 }
                 Command::UploadUniform(buf_proxy, bytes) => {
-                    let buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: None,
-                        contents: &bytes,
-                        usage: wgpu::BufferUsages::UNIFORM,
-                    });
+                    let usage = BufferUsages::UNIFORM | BufferUsages::COPY_DST;
+                    // Same consideration as above
+                    let buf = self.pool.get_buf(bytes.len() as u64, usage, device);
+                    queue.write_buffer(&buf, 0, bytes);
                     bind_map.insert_buf(buf_proxy.id, buf);
                 }
                 Command::UploadImage(image_proxy, bytes) => {
@@ -310,6 +316,7 @@ impl Engine {
                         &shader.bind_group_layout,
                         bindings,
                         external_resources,
+                        &mut self.pool,
                     )?;
                     let mut cpass = encoder.begin_compute_pass(&Default::default());
                     cpass.set_pipeline(&shader.pipeline);
@@ -328,12 +335,13 @@ impl Engine {
                     downloads.buf_map.insert(proxy.id, buf);
                 }
                 Command::Clear(proxy, offset, size) => {
-                    let buffer = bind_map.get_or_create(*proxy, device)?;
+                    let buffer = bind_map.get_or_create(*proxy, device, &mut self.pool)?;
                     encoder.clear_buffer(buffer, *offset, *size);
                 }
             }
         }
         queue.submit(Some(encoder.finish()));
+        self.pool.reap_bindmap(bind_map);
         Ok(downloads)
     }
 }
@@ -481,6 +489,7 @@ impl BindMap {
         layout: &BindGroupLayout,
         bindings: &[ResourceProxy],
         external_resources: &[ExternalResource],
+        pool: &mut ResourcePool,
     ) -> Result<BindGroup, Error> {
         // These functions are ugly and linear, but the remap array should generally be
         // small. Should find a better solution for this.
@@ -519,14 +528,8 @@ impl BindMap {
                         continue;
                     }
                     if let Entry::Vacant(v) = self.buf_map.entry(proxy.id) {
-                        let buf = device.create_buffer(&wgpu::BufferDescriptor {
-                            label: None,
-                            size: proxy.size,
-                            usage: wgpu::BufferUsages::STORAGE
-                                | wgpu::BufferUsages::COPY_DST
-                                | wgpu::BufferUsages::COPY_SRC,
-                            mapped_at_creation: false,
-                        });
+                        let usage = BufferUsages::COPY_SRC | BufferUsages::COPY_DST | BufferUsages::STORAGE;
+                        let buf = pool.get_buf(proxy.size, usage, device);
                         v.insert(buf);
                     }
                 }
@@ -595,18 +598,12 @@ impl BindMap {
         Ok(bind_group)
     }
 
-    fn get_or_create(&mut self, proxy: BufProxy, device: &Device) -> Result<&Buffer, Error> {
+    fn get_or_create(&mut self, proxy: BufProxy, device: &Device, pool: &mut ResourcePool) -> Result<&Buffer, Error> {
         match self.buf_map.entry(proxy.id) {
             Entry::Occupied(occupied) => Ok(occupied.into_mut()),
             Entry::Vacant(vacant) => {
-                let buf = device.create_buffer(&wgpu::BufferDescriptor {
-                    label: None,
-                    size: proxy.size,
-                    usage: wgpu::BufferUsages::STORAGE
-                        | wgpu::BufferUsages::COPY_DST
-                        | wgpu::BufferUsages::COPY_SRC,
-                    mapped_at_creation: false,
-                });
+                let usage = BufferUsages::COPY_SRC | BufferUsages::COPY_DST | BufferUsages::STORAGE;
+                let buf = pool.get_buf(proxy.size, usage, device);
                 Ok(vacant.insert(buf))
             }
         }
@@ -646,5 +643,44 @@ impl<'a> DownloadsMapped<'a> {
             return Err("channel was closed".into());
         }
         Ok(slice.get_mapped_range())
+    }
+}
+
+const SIZE_CLASS_BITS: u32 = 1;
+
+impl ResourcePool {
+    /// Get a buffer from the pool or create one.
+    fn get_buf(&mut self, size: u64, usage: BufferUsages, device: &Device) -> Buffer {
+        let rounded_size = Self::size_class(size, SIZE_CLASS_BITS);
+        if let Some(buf_vec) = self.bufs.get_mut(&(rounded_size, usage)) {
+            if let Some(buf) = buf_vec.pop() {
+                return buf;
+            }
+        }
+        device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: rounded_size,
+            usage,
+            mapped_at_creation: false,
+        })
+    }
+
+    fn reap_bindmap(&mut self, bind_map: BindMap) {
+        for (_id, buf) in bind_map.buf_map {
+            let size = buf.size();
+            let usage = buf.usage();
+            self.bufs.entry((size, usage)).or_default().push(buf);
+        }
+    }
+
+    /// Quantize a size up to the nearest size class.
+    fn size_class(x: u64, bits: u32) -> u64 {
+        if x > 1 << bits {
+            let a = (x - 1).leading_zeros();
+            let b = (x - 1) | (((u64::MAX / 2) >> bits) >> a);
+            b + 1
+        } else {
+            1 << bits
+        }
     }
 }
