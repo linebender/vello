@@ -362,7 +362,7 @@ pub fn render_encoding_full(
         ],
     );
 
-    let segments_buf = ResourceProxy::new_buf(1 << 24, "segments_buf");
+    let segments_buf = ResourceProxy::new_buf(1 << 25, "segments_buf");
     recording.dispatch(
         shaders.path_coarse,
         (path_coarse_wgs, 1, 1),
