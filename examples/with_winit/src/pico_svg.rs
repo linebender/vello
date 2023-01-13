@@ -87,7 +87,7 @@ impl<'a> Parser<'a> {
             }
             if let Some(transform) = node.attribute("transform") {
                 let new_transform = parse_transform(transform);
-                properties.transform = new_transform * properties.transform;
+                properties.transform = properties.transform * new_transform;
             }
             match node.tag_name().name() {
                 "g" => {
