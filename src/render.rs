@@ -136,7 +136,7 @@ pub fn render_full(
     width: u32,
     height: u32,
 ) -> (Recording, ResourceProxy) {
-    render_encoding_full(&scene.data(), shaders, width, height)
+    render_encoding_full(scene.data(), shaders, width, height)
 }
 
 pub fn render_encoding_full(
@@ -149,7 +149,7 @@ pub fn render_encoding_full(
     let mut recording = Recording::default();
     let mut resources = ResourceCache::new();
     let mut packed = PackedEncoding::default();
-    packed.pack(&encoding, &mut resources);
+    packed.pack(encoding, &mut resources);
     let (ramp_data, ramps_width, ramps_height) = resources.ramps(packed.resources).unwrap();
     let gradient_image = if encoding.patches.is_empty() {
         ResourceProxy::new_image(1, 1, ImageFormat::Rgba8)
@@ -399,5 +399,5 @@ pub fn render_encoding_full(
 }
 
 pub fn align_up(len: usize, alignment: u32) -> usize {
-    len + (len.wrapping_neg() & alignment as usize - 1)
+    len + (len.wrapping_neg() & (alignment as usize - 1))
 }

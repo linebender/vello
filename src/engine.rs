@@ -200,7 +200,6 @@ impl Engine {
                         count: None,
                     }
                 }
-                _ => todo!(),
             })
             .collect::<Vec<_>>();
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -260,7 +259,7 @@ impl Engine {
                 Command::UploadImage(image_proxy, bytes) => {
                     let buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                         label: None,
-                        contents: &bytes,
+                        contents: bytes,
                         usage: wgpu::BufferUsages::COPY_SRC,
                     });
                     let texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -442,14 +441,14 @@ impl ResourceProxy {
 
     pub fn as_buf(&self) -> Option<&BufProxy> {
         match self {
-            Self::Buf(proxy) => Some(&proxy),
+            Self::Buf(proxy) => Some(proxy),
             _ => None,
         }
     }
 
     pub fn as_image(&self) -> Option<&ImageProxy> {
         match self {
-            Self::Image(proxy) => Some(&proxy),
+            Self::Image(proxy) => Some(proxy),
             _ => None,
         }
     }

@@ -17,11 +17,10 @@ pub fn get_imports(shader_dir: &Path) -> HashMap<String, String> {
             let file_name = entry.file_name();
             if let Some(name) = file_name.to_str() {
                 let suffix = ".wgsl";
-                if name.ends_with(suffix) {
-                    let import_name = name[..(name.len() - suffix.len())].to_owned();
-                    let contents = fs::read_to_string(imports_dir.join(file_name))
+                if let Some(import_name) = name.strip_suffix(suffix) {
+                    let contents = fs::read_to_string(imports_dir.join(&file_name))
                         .expect("Could read shader {import_name} contents");
-                    imports.insert(import_name, contents);
+                    imports.insert(import_name.to_owned(), contents);
                 }
             }
         }
@@ -94,7 +93,7 @@ pub fn preprocess(input: &str, defines: &HashSet<String>, imports: &HashMap<&str
                     continue 'all_lines;
                 }
                 "endif" => {
-                    if let None = stack.pop() {
+                    if stack.pop().is_none() {
                         eprintln!("Mismatched endif (line {line_number})");
                     }
                     let remainder = directive_start[directive_len..].trim();

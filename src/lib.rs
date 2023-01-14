@@ -78,7 +78,7 @@ impl Renderer {
         width: u32,
         height: u32,
     ) -> Result<()> {
-        let (recording, target) = render::render_full(&scene, &self.shaders, width, height);
+        let (recording, target) = render::render_full(scene, &self.shaders, width, height);
         let external_resources = [ExternalResource::Image(
             *target.as_image().unwrap(),
             texture,

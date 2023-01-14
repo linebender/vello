@@ -140,7 +140,7 @@ impl RampCache {
     }
 }
 
-fn make_ramp<'a>(stops: &'a [ColorStop]) -> impl Iterator<Item = u32> + 'a {
+fn make_ramp(stops: &[ColorStop]) -> impl Iterator<Item = u32> + '_ {
     let mut last_u = 0.0;
     let mut last_c = ColorF64::from_color(stops[0].color);
     let mut this_u = last_u;
@@ -165,7 +165,7 @@ fn make_ramp<'a>(stops: &'a [ColorStop]) -> impl Iterator<Item = u32> + 'a {
         } else {
             last_c.lerp(&this_c, (u - last_u) / du)
         };
-        c.to_premul_u32()
+        c.as_premul_u32()
     })
 }
 
@@ -194,11 +194,11 @@ impl ColorF64 {
         ])
     }
 
-    fn to_premul_u32(&self) -> u32 {
-        let a = self.0[3].min(1.0).max(0.0);
-        let r = ((self.0[0] * a).min(1.0).max(0.0) * 255.0) as u32;
-        let g = ((self.0[1] * a).min(1.0).max(0.0) * 255.0) as u32;
-        let b = ((self.0[2] * a).min(1.0).max(0.0) * 255.0) as u32;
+    fn as_premul_u32(&self) -> u32 {
+        let a = self.0[3].clamp(0.0, 1.0);
+        let r = ((self.0[0] * a).clamp(0.0, 1.0) * 255.0) as u32;
+        let g = ((self.0[1] * a).clamp(0.0, 1.0) * 255.0) as u32;
+        let b = ((self.0[2] * a).clamp(0.0, 1.0) * 255.0) as u32;
         let a = (a * 255.0) as u32;
         r | (g << 8) | (b << 16) | (a << 24)
     }
