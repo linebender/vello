@@ -208,5 +208,5 @@ fn size_to_words(byte_size: usize) -> u32 {
 }
 
 fn align_up(len: usize, alignment: u32) -> usize {
-    len + (len.wrapping_neg() & alignment as usize - 1)
+    len + (len.wrapping_neg() & (alignment as usize - 1))
 }

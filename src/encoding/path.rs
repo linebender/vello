@@ -155,7 +155,7 @@ impl Monoid for PathMonoid {
         c.pathseg_offset = a & 0xff;
         c.path_ix = (tag_word & (PathTag::PATH.0 as u32 * 0x1010101)).count_ones();
         c.linewidth_ix = (tag_word & (PathTag::LINEWIDTH.0 as u32 * 0x1010101)).count_ones();
-        return c;
+        c
     }
 
     /// Monoid combination.
@@ -326,10 +326,8 @@ impl<'a> PathEncoder<'a> {
             tag.set_subpath_end();
             self.tags.push(tag);
             self.n_encoded_segments += 1;
-        } else {
-            if let Some(tag) = self.tags.last_mut() {
-                tag.set_subpath_end();
-            }
+        } else if let Some(tag) = self.tags.last_mut() {
+            tag.set_subpath_end();
         }
         self.state = PathState::Start;
     }
