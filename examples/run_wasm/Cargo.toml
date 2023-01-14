@@ -1,5 +1,5 @@
 [package]
-name = "run-wasm"
+name = "run_wasm"
 version.workspace = true
 edition.workspace = true
 publish = false
@@ -7,4 +7,4 @@ publish = false
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-cargo-run-wasm = "0.3.0"
+cargo-run-wasm = { git = "https://github.com/rukai/cargo-run-wasm", rev = "4913e01537ad103a057352bf7bbb1cd96a1bb4b5" }
