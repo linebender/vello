@@ -8,7 +8,6 @@ on:
 jobs:
   lint:
     runs-on: ubuntu-latest
-    name: cargo fmt
     steps:
       - uses: actions/checkout@v2
 
