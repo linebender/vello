@@ -6,22 +6,28 @@ on:
   pull_request:
 
 jobs:
-  rustfmt:
+  lint:
     runs-on: ubuntu-latest
     name: cargo fmt
     steps:
       - uses: actions/checkout@v2
 
-      - name: install stable toolchain
+      - name: Setup | Toolchain
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
           profile: minimal
-          components: rustfmt
+          components: rustfmt, clippy
           override: true
 
-      - name: cargo fmt
+      - name: Check | Fmt
         uses: actions-rs/cargo@v1
         with:
           command: fmt
           args: --all -- --check
+
+      - name: Check | Clippy
+        uses: actions-rs/clippy-check@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          args: --all-targets -- -D warnings
