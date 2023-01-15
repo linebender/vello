@@ -2453,6 +2453,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "notify-debouncer-mini"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e23e9fa24f094b143c1eb61f90ac6457de87be6987bc70746e0179f7dbc9007b"
+dependencies = [
+ "crossbeam-channel",
+ "notify",
+]
+
+[[package]]
 name = "nu-ansi-term"
 version = "0.46.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4186,6 +4196,7 @@ dependencies = [
  "clap",
  "console_error_panic_hook",
  "console_log",
+ "notify-debouncer-mini",
  "pollster",
  "roxmltree",
  "vello",

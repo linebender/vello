@@ -29,4 +29,5 @@ moscato = { git = "https://github.com/dfrg/pinot" }
 peniko = { git = "https://github.com/linebender/peniko" }
 
 [features]
+hot_reload = []
 buffer_labels = []
