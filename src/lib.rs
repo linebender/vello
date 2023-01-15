@@ -36,8 +36,6 @@ use shaders::FullShaders;
 
 use wgpu::{Device, Queue, SurfaceTexture, TextureFormat, TextureView};
 
-use crate::shaders::full_shaders;
-
 /// Catch-all error type.
 pub type Error = Box<dyn std::error::Error>;
 
@@ -157,7 +155,7 @@ impl Renderer {
     pub async fn reload_shaders(&mut self, device: &Device) -> Result<()> {
         device.push_error_scope(wgpu::ErrorFilter::Validation);
         let mut engine = Engine::new();
-        let shaders = full_shaders(device, &mut engine)?;
+        let shaders = shaders::full_shaders(device, &mut engine)?;
         let error = device.pop_error_scope().await;
         if let Some(error) = error {
             return Err(error.into());

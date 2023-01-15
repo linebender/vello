@@ -23,7 +23,6 @@ pub(crate) fn hot_reload(mut f: impl FnMut() -> Option<()> + Send + 'static) -> 
             // We currently don't support hot reloading the imports, so don't recurse inot there
             RecursiveMode::Recursive,
         )
-        .ok()
         .expect("Could watch shaders directory");
     debouncer
 }
