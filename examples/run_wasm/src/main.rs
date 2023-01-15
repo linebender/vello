@@ -2,11 +2,11 @@
 ///
 /// Usage:
 /// ```
-/// cargo run -p run_wasm -- --package [example_name]
+/// cargo run_wasm --package [example_name]
 /// ```
 /// Generally:
 /// ```
-/// cargo run -p run_wasm -- --package with_winit
+/// cargo run_wasm --package with_winit
 /// ```
 
 fn main() {

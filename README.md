@@ -51,14 +51,16 @@ cargo run -p with_bevy
 Because Vello relies heavily on compute shaders, we rely on the emerging WebGPU standard to run on the web.
 Until browser support becomes widespread, it will probably be necessary to use development browser versions (e.g. Chrome Canary) and explicitly enable WebGPU.
 
+Note: Other examples use the `-p` shorthand, but `cargo-run-wasm` requires the full `--package` to be specified
+
 The following command builds and runs a web version of the [winit demo](#winit). 
-This uses [`cargo-run-wasm`](https://github.com/rukai/cargo-run-wasm) to build and run the wasm example
+This uses [`cargo-run-wasm`](https://github.com/rukai/cargo-run-wasm) to build the example for web, and host a local server for it:
 
 ```shell
-cargo run --release -p run_wasm -- --package with_winit
+cargo run_wasm --package with_winit
 ```
 
-Additionally, the web is not currently a primary target, so other issues are likely to arise.
+The web is not currently a primary target for vello, and WebGPU implementations are incomplete, so you might run into issues running this example.
 
 ## Community
 
