@@ -7,4 +7,4 @@ publish = false
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-cargo-run-wasm = { git = "https://github.com/rukai/cargo-run-wasm", rev = "4913e01537ad103a057352bf7bbb1cd96a1bb4b5" }
+cargo-run-wasm = { git = "https://github.com/rukai/cargo-run-wasm", rev = "ad771ae1bc51d5e6f7a25e031fd3df00345f2362" }
