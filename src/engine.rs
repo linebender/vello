@@ -121,6 +121,7 @@ pub enum BindType {
 
 struct BindMapBuffer {
     buffer: Buffer,
+    #[cfg_attr(not(feature = "buffer_labels"), allow(unused))]
     label: &'static str,
 }
 
