@@ -20,8 +20,8 @@ pub(crate) fn hot_reload(mut f: impl FnMut() -> Option<()> + Send + 'static) -> 
                 .join("../../shader")
                 .canonicalize()
                 .unwrap()),
-            // We currently don't support hot reloading the imports, so don't recurse inot there
-            RecursiveMode::Recursive,
+            // We currently don't support hot reloading the imports, so don't recurse into there
+            RecursiveMode::NonRecursive,
         )
         .expect("Could watch shaders directory");
     debouncer
