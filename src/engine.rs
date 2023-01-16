@@ -496,7 +496,6 @@ impl BindMap {
             proxy.id,
             BindMapBuffer {
                 buffer,
-                #[cfg(feature = "buffer_labels")]
                 label: proxy.name,
             },
         );
