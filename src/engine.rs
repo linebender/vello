@@ -58,6 +58,7 @@ pub struct Recording {
 pub struct BufProxy {
     size: u64,
     id: Id,
+    name: &'static str,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq)]
@@ -118,15 +119,28 @@ pub enum BindType {
     // TODO: Uniform, Sampler, maybe others
 }
 
+struct BindMapBuffer {
+    buffer: Buffer,
+    label: &'static str,
+}
+
 #[derive(Default)]
 struct BindMap {
-    buf_map: HashMap<Id, Buffer>,
+    buf_map: HashMap<Id, BindMapBuffer>,
     image_map: HashMap<Id, (Texture, TextureView)>,
+}
+
+#[derive(Hash, PartialEq, Eq)]
+struct BufferProperties {
+    size: u64,
+    usages: BufferUsages,
+    #[cfg(feature = "buffer_labels")]
+    name: &'static str,
 }
 
 #[derive(Default)]
 struct ResourcePool {
-    bufs: HashMap<(u64, BufferUsages), Vec<Buffer>>,
+    bufs: HashMap<BufferProperties, Vec<Buffer>>,
 }
 
 impl Engine {
@@ -244,18 +258,18 @@ impl Engine {
                 Command::Upload(buf_proxy, bytes) => {
                     let usage =
                         BufferUsages::COPY_SRC | BufferUsages::COPY_DST | BufferUsages::STORAGE;
-                    let buf = self.pool.get_buf(bytes.len() as u64, usage, device);
+                    let buf = self.pool.get_buf(buf_proxy, usage, device);
                     // TODO: if buffer is newly created, might be better to make it mapped at creation
                     // and copy. However, we expect reuse will be most common.
                     queue.write_buffer(&buf, 0, bytes);
-                    bind_map.insert_buf(buf_proxy.id, buf);
+                    bind_map.insert_buf(buf_proxy, buf);
                 }
                 Command::UploadUniform(buf_proxy, bytes) => {
                     let usage = BufferUsages::UNIFORM | BufferUsages::COPY_DST;
                     // Same consideration as above
-                    let buf = self.pool.get_buf(bytes.len() as u64, usage, device);
+                    let buf = self.pool.get_buf(buf_proxy, usage, device);
                     queue.write_buffer(&buf, 0, bytes);
-                    bind_map.insert_buf(buf_proxy.id, buf);
+                    bind_map.insert_buf(buf_proxy, buf);
                 }
                 Command::UploadImage(image_proxy, bytes) => {
                     let buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -327,12 +341,12 @@ impl Engine {
                 Command::Download(proxy) => {
                     let src_buf = bind_map.buf_map.get(&proxy.id).ok_or("buffer not in map")?;
                     let buf = device.create_buffer(&wgpu::BufferDescriptor {
-                        label: None,
+                        label: Some(proxy.name),
                         size: proxy.size,
                         usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
                         mapped_at_creation: false,
                     });
-                    encoder.copy_buffer_to_buffer(src_buf, 0, &buf, 0, proxy.size);
+                    encoder.copy_buffer_to_buffer(&src_buf.buffer, 0, &buf, 0, proxy.size);
                     downloads.buf_map.insert(proxy.id, buf);
                 }
                 Command::Clear(proxy, offset, size) => {
@@ -352,16 +366,16 @@ impl Recording {
         self.commands.push(cmd);
     }
 
-    pub fn upload(&mut self, data: impl Into<Vec<u8>>) -> BufProxy {
+    pub fn upload(&mut self, name: &'static str, data: impl Into<Vec<u8>>) -> BufProxy {
         let data = data.into();
-        let buf_proxy = BufProxy::new(data.len() as u64);
+        let buf_proxy = BufProxy::new(data.len() as u64, name);
         self.push(Command::Upload(buf_proxy, data));
         buf_proxy
     }
 
-    pub fn upload_uniform(&mut self, data: impl Into<Vec<u8>>) -> BufProxy {
+    pub fn upload_uniform(&mut self, name: &'static str, data: impl Into<Vec<u8>>) -> BufProxy {
         let data = data.into();
-        let buf_proxy = BufProxy::new(data.len() as u64);
+        let buf_proxy = BufProxy::new(data.len() as u64, name);
         self.push(Command::UploadUniform(buf_proxy, data));
         buf_proxy
     }
@@ -401,11 +415,12 @@ impl Recording {
 }
 
 impl BufProxy {
-    pub fn new(size: u64) -> Self {
+    pub fn new(size: u64, name: &'static str) -> Self {
         let id = Id::next();
         BufProxy {
             id,
             size: size.max(16),
+            name,
         }
     }
 }
@@ -432,8 +447,8 @@ impl ImageProxy {
 }
 
 impl ResourceProxy {
-    pub fn new_buf(size: u64) -> Self {
-        Self::Buf(BufProxy::new(size))
+    pub fn new_buf(size: u64, name: &'static str) -> Self {
+        Self::Buf(BufProxy::new(size, name))
     }
 
     pub fn new_image(width: u32, height: u32, format: ImageFormat) -> Self {
@@ -476,8 +491,15 @@ impl Id {
 }
 
 impl BindMap {
-    fn insert_buf(&mut self, id: Id, buf: Buffer) {
-        self.buf_map.insert(id, buf);
+    fn insert_buf(&mut self, proxy: &BufProxy, buffer: Buffer) {
+        self.buf_map.insert(
+            proxy.id,
+            BindMapBuffer {
+                buffer,
+                #[cfg(feature = "buffer_labels")]
+                label: proxy.name,
+            },
+        );
     }
 
     fn insert_image(&mut self, id: Id, image: Texture, image_view: TextureView) {
@@ -531,8 +553,11 @@ impl BindMap {
                     if let Entry::Vacant(v) = self.buf_map.entry(proxy.id) {
                         let usage =
                             BufferUsages::COPY_SRC | BufferUsages::COPY_DST | BufferUsages::STORAGE;
-                        let buf = pool.get_buf(proxy.size, usage, device);
-                        v.insert(buf);
+                        let buf = pool.get_buf(&proxy, usage, device);
+                        v.insert(BindMapBuffer {
+                            buffer: buf,
+                            label: proxy.name,
+                        });
                     }
                 }
                 ResourceProxy::Image(proxy) => {
@@ -574,7 +599,7 @@ impl BindMap {
             .map(|(i, proxy)| match proxy {
                 ResourceProxy::Buf(proxy) => {
                     let buf = find_buf(external_resources, proxy)
-                        .or_else(|| self.buf_map.get(&proxy.id))
+                        .or_else(|| self.buf_map.get(&proxy.id).map(|buf| &buf.buffer))
                         .unwrap();
                     Ok(wgpu::BindGroupEntry {
                         binding: i as u32,
@@ -607,11 +632,16 @@ impl BindMap {
         pool: &mut ResourcePool,
     ) -> Result<&Buffer, Error> {
         match self.buf_map.entry(proxy.id) {
-            Entry::Occupied(occupied) => Ok(occupied.into_mut()),
+            Entry::Occupied(occupied) => Ok(&occupied.into_mut().buffer),
             Entry::Vacant(vacant) => {
                 let usage = BufferUsages::COPY_SRC | BufferUsages::COPY_DST | BufferUsages::STORAGE;
-                let buf = pool.get_buf(proxy.size, usage, device);
-                Ok(vacant.insert(buf))
+                let buf = pool.get_buf(&proxy, usage, device);
+                Ok(&vacant
+                    .insert(BindMapBuffer {
+                        buffer: buf,
+                        label: proxy.name,
+                    })
+                    .buffer)
             }
         }
     }
@@ -657,14 +687,23 @@ const SIZE_CLASS_BITS: u32 = 1;
 
 impl ResourcePool {
     /// Get a buffer from the pool or create one.
-    fn get_buf(&mut self, size: u64, usage: BufferUsages, device: &Device) -> Buffer {
-        let rounded_size = Self::size_class(size, SIZE_CLASS_BITS);
-        if let Some(buf_vec) = self.bufs.get_mut(&(rounded_size, usage)) {
+    fn get_buf(&mut self, proxy: &BufProxy, usage: BufferUsages, device: &Device) -> Buffer {
+        let rounded_size = Self::size_class(proxy.size, SIZE_CLASS_BITS);
+        let props = BufferProperties {
+            size: rounded_size,
+            usages: usage,
+            #[cfg(feature = "buffer_labels")]
+            name: proxy.name,
+        };
+        if let Some(buf_vec) = self.bufs.get_mut(&props) {
             if let Some(buf) = buf_vec.pop() {
                 return buf;
             }
         }
         device.create_buffer(&wgpu::BufferDescriptor {
+            #[cfg(feature = "buffer_labels")]
+            label: Some(proxy.name),
+            #[cfg(not(feature = "buffer_labels"))]
             label: None,
             size: rounded_size,
             usage,
@@ -674,9 +713,14 @@ impl ResourcePool {
 
     fn reap_bindmap(&mut self, bind_map: BindMap) {
         for (_id, buf) in bind_map.buf_map {
-            let size = buf.size();
-            let usage = buf.usage();
-            self.bufs.entry((size, usage)).or_default().push(buf);
+            let size = buf.buffer.size();
+            let props = BufferProperties {
+                size,
+                usages: buf.buffer.usage(),
+                #[cfg(feature = "buffer_labels")]
+                name: buf.label,
+            };
+            self.bufs.entry(props).or_default().push(buf.buffer);
         }
     }
 
