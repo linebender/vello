@@ -362,7 +362,7 @@ pub fn render_encoding_full(
         ],
     );
 
-    let segments_buf = ResourceProxy::new_buf(1 << 24, "segments_buf");
+    let segments_buf = ResourceProxy::new_buf(1 << 26, "segments_buf");
     recording.dispatch(
         shaders.path_coarse,
         (path_coarse_wgs, 1, 1),
@@ -382,7 +382,7 @@ pub fn render_encoding_full(
         (path_wgs, 1, 1),
         [config_buf, path_buf, tile_buf],
     );
-    let ptcl_buf = ResourceProxy::new_buf(1 << 24, "ptcl_buf");
+    let ptcl_buf = ResourceProxy::new_buf(1 << 25, "ptcl_buf");
     recording.dispatch(
         shaders.coarse,
         (width_in_bins, height_in_bins, 1),
