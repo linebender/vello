@@ -147,11 +147,12 @@ impl Engine {
     pub fn add_shader(
         &mut self,
         device: &Device,
+        label: &'static str,
         wgsl: Cow<'static, str>,
         layout: &[BindType],
     ) -> Result<ShaderId, Error> {
         let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: None,
+            label: Some(label),
             source: wgpu::ShaderSource::Wgsl(wgsl),
         });
         let entries = layout
