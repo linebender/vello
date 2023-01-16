@@ -9,7 +9,7 @@ publish = false
 
 [dependencies]
 wgpu = "0.14"
-vello = { path = "../../" }
+vello = { path = "../../", features = ["buffer_labels"] }
 winit = "0.27.5"
 pollster = "0.2.5"
 # for picosvg

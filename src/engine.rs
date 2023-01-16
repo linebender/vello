@@ -228,7 +228,7 @@ impl Engine {
                 push_constant_ranges: &[],
             });
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: None,
+            label: Some(label),
             layout: Some(&compute_pipeline_layout),
             module: &shader_module,
             entry_point: "main",

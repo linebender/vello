@@ -77,10 +77,10 @@ fn render(scene: &Scene, shaders: &Shaders) -> (Recording, BufProxy) {
         pathdata_base,
         ..Default::default()
     };
-    let scene_buf = recording.upload(scene);
-    let config_buf = recording.upload_uniform(bytemuck::bytes_of(&config));
+    let scene_buf = recording.upload("scene", scene);
+    let config_buf = recording.upload_uniform("config", bytemuck::bytes_of(&config));
 
-    let reduced_buf = BufProxy::new(pathtag_wgs as u64 * TAG_MONOID_SIZE);
+    let reduced_buf = BufProxy::new(pathtag_wgs as u64 * TAG_MONOID_SIZE, "reduced_buf");
     // TODO: really only need pathtag_wgs - 1
     recording.dispatch(
         shaders.pathtag_reduce,
@@ -88,8 +88,10 @@ fn render(scene: &Scene, shaders: &Shaders) -> (Recording, BufProxy) {
         [config_buf, scene_buf, reduced_buf],
     );
 
-    let tagmonoid_buf =
-        BufProxy::new(pathtag_wgs as u64 * shaders::PATHTAG_REDUCE_WG as u64 * TAG_MONOID_SIZE);
+    let tagmonoid_buf = BufProxy::new(
+        pathtag_wgs as u64 * shaders::PATHTAG_REDUCE_WG as u64 * TAG_MONOID_SIZE,
+        "tagmonoid_buf",
+    );
     recording.dispatch(
         shaders.pathtag_scan,
         (pathtag_wgs as u32, 1, 1),
@@ -99,8 +101,8 @@ fn render(scene: &Scene, shaders: &Shaders) -> (Recording, BufProxy) {
     let path_coarse_wgs =
         (n_pathtag as u32 + shaders::PATH_COARSE_WG - 1) / shaders::PATH_COARSE_WG;
     // TODO: more principled size calc
-    let tiles_buf = BufProxy::new(4097 * 8);
-    let segments_buf = BufProxy::new(256 * 24);
+    let tiles_buf = BufProxy::new(4097 * 8, "tiles_buf");
+    let segments_buf = BufProxy::new(256 * 24, "segments_buf");
     recording.clear_all(tiles_buf);
     recording.dispatch(
         shaders.path_coarse,
@@ -119,7 +121,7 @@ fn render(scene: &Scene, shaders: &Shaders) -> (Recording, BufProxy) {
         [config_buf, tiles_buf],
     );
     let out_buf_size = config.width_in_tiles * config.height_in_tiles * 256;
-    let out_buf = BufProxy::new(out_buf_size as u64);
+    let out_buf = BufProxy::new(out_buf_size as u64, "out_buf");
     recording.dispatch(
         shaders.fine,
         (config.width_in_tiles, config.height_in_tiles, 1),
@@ -180,8 +182,9 @@ pub fn render_encoding_full(
         layout: packed.layout,
     };
     // println!("{:?}", config);
-    let scene_buf = ResourceProxy::Buf(recording.upload(packed.data));
-    let config_buf = ResourceProxy::Buf(recording.upload_uniform(bytemuck::bytes_of(&config)));
+    let scene_buf = ResourceProxy::Buf(recording.upload("scene", packed.data));
+    let config_buf =
+        ResourceProxy::Buf(recording.upload_uniform("config", bytemuck::bytes_of(&config)));
 
     let pathtag_wgs = pathtag_padded / (4 * shaders::PATHTAG_REDUCE_WG as usize);
     let pathtag_large = pathtag_wgs > shaders::PATHTAG_REDUCE_WG as usize;
@@ -190,7 +193,8 @@ pub fn render_encoding_full(
     } else {
         pathtag_wgs
     };
-    let reduced_buf = ResourceProxy::new_buf(reduced_size as u64 * TAG_MONOID_FULL_SIZE);
+    let reduced_buf =
+        ResourceProxy::new_buf(reduced_size as u64 * TAG_MONOID_FULL_SIZE, "reduced_buf");
     // TODO: really only need pathtag_wgs - 1
     recording.dispatch(
         shaders.pathtag_reduce,
@@ -200,13 +204,17 @@ pub fn render_encoding_full(
     let mut pathtag_parent = reduced_buf;
     if pathtag_large {
         let reduced2_size = shaders::PATHTAG_REDUCE_WG as usize;
-        let reduced2_buf = ResourceProxy::new_buf(reduced2_size as u64 * TAG_MONOID_FULL_SIZE);
+        let reduced2_buf =
+            ResourceProxy::new_buf(reduced2_size as u64 * TAG_MONOID_FULL_SIZE, "reduced2_buf");
         recording.dispatch(
             shaders.pathtag_reduce2,
             (reduced2_size as u32, 1, 1),
             [reduced_buf, reduced2_buf],
         );
-        let reduced_scan_buf = ResourceProxy::new_buf(pathtag_wgs as u64 * TAG_MONOID_FULL_SIZE);
+        let reduced_scan_buf = ResourceProxy::new_buf(
+            pathtag_wgs as u64 * TAG_MONOID_FULL_SIZE,
+            "reduced_scan_buf",
+        );
         recording.dispatch(
             shaders.pathtag_scan1,
             (reduced_size as u32 / shaders::PATHTAG_REDUCE_WG, 1, 1),
@@ -217,6 +225,7 @@ pub fn render_encoding_full(
 
     let tagmonoid_buf = ResourceProxy::new_buf(
         pathtag_wgs as u64 * shaders::PATHTAG_REDUCE_WG as u64 * TAG_MONOID_FULL_SIZE,
+        "tagmonoid_buf",
     );
     let pathtag_scan = if pathtag_large {
         shaders.pathtag_scan_large
@@ -229,13 +238,13 @@ pub fn render_encoding_full(
         [config_buf, scene_buf, pathtag_parent, tagmonoid_buf],
     );
     let drawobj_wgs = (n_drawobj + shaders::PATH_BBOX_WG - 1) / shaders::PATH_BBOX_WG;
-    let path_bbox_buf = ResourceProxy::new_buf(n_paths as u64 * PATH_BBOX_SIZE);
+    let path_bbox_buf = ResourceProxy::new_buf(n_paths as u64 * PATH_BBOX_SIZE, "path_bbox_buf");
     recording.dispatch(
         shaders.bbox_clear,
         (drawobj_wgs, 1, 1),
         [config_buf, path_bbox_buf],
     );
-    let cubic_buf = ResourceProxy::new_buf(n_pathtag as u64 * CUBIC_SIZE);
+    let cubic_buf = ResourceProxy::new_buf(n_pathtag as u64 * CUBIC_SIZE, "cubic_buf");
     let path_coarse_wgs =
         (n_pathtag as u32 + shaders::PATH_COARSE_WG - 1) / shaders::PATH_COARSE_WG;
     recording.dispatch(
@@ -249,15 +258,18 @@ pub fn render_encoding_full(
             cubic_buf,
         ],
     );
-    let draw_reduced_buf = ResourceProxy::new_buf(drawobj_wgs as u64 * DRAWMONOID_SIZE);
+    let draw_reduced_buf =
+        ResourceProxy::new_buf(drawobj_wgs as u64 * DRAWMONOID_SIZE, "draw_reduced_buf");
     recording.dispatch(
         shaders.draw_reduce,
         (drawobj_wgs, 1, 1),
         [config_buf, scene_buf, draw_reduced_buf],
     );
-    let draw_monoid_buf = ResourceProxy::new_buf(n_drawobj as u64 * DRAWMONOID_SIZE);
-    let info_bin_data_buf = ResourceProxy::new_buf(1 << 20);
-    let clip_inp_buf = ResourceProxy::new_buf(encoding.n_clips as u64 * CLIP_INP_SIZE);
+    let draw_monoid_buf =
+        ResourceProxy::new_buf(n_drawobj as u64 * DRAWMONOID_SIZE, "draw_monoid_buf");
+    let info_bin_data_buf = ResourceProxy::new_buf(1 << 20, "info_bin_data_buf");
+    let clip_inp_buf =
+        ResourceProxy::new_buf(encoding.n_clips as u64 * CLIP_INP_SIZE, "clip_inp_buf");
     recording.dispatch(
         shaders.draw_leaf,
         (drawobj_wgs, 1, 1),
@@ -271,9 +283,11 @@ pub fn render_encoding_full(
             clip_inp_buf,
         ],
     );
-    let clip_el_buf = ResourceProxy::new_buf(encoding.n_clips as u64 * CLIP_EL_SIZE);
-    let clip_bic_buf =
-        ResourceProxy::new_buf((n_clip / shaders::CLIP_REDUCE_WG) as u64 * CLIP_BIC_SIZE);
+    let clip_el_buf = ResourceProxy::new_buf(encoding.n_clips as u64 * CLIP_EL_SIZE, "clip_el_buf");
+    let clip_bic_buf = ResourceProxy::new_buf(
+        (n_clip / shaders::CLIP_REDUCE_WG) as u64 * CLIP_BIC_SIZE,
+        "clip_bic_buf",
+    );
     let clip_wg_reduce = n_clip.saturating_sub(1) / shaders::CLIP_REDUCE_WG;
     if clip_wg_reduce > 0 {
         recording.dispatch(
@@ -289,7 +303,7 @@ pub fn render_encoding_full(
         );
     }
     let clip_wg = (n_clip + shaders::CLIP_REDUCE_WG - 1) / shaders::CLIP_REDUCE_WG;
-    let clip_bbox_buf = ResourceProxy::new_buf(n_clip as u64 * CLIP_BBOX_SIZE);
+    let clip_bbox_buf = ResourceProxy::new_buf(n_clip as u64 * CLIP_BBOX_SIZE, "clip_bbox_buf");
     if clip_wg > 0 {
         recording.dispatch(
             shaders.clip_leaf,
@@ -305,11 +319,14 @@ pub fn render_encoding_full(
             ],
         );
     }
-    let draw_bbox_buf = ResourceProxy::new_buf(n_paths as u64 * DRAW_BBOX_SIZE);
-    let bump_buf = BufProxy::new(BUMP_SIZE);
+    let draw_bbox_buf = ResourceProxy::new_buf(n_paths as u64 * DRAW_BBOX_SIZE, "draw_bbox_buf");
+    let bump_buf = BufProxy::new(BUMP_SIZE, "bump_buf");
     let width_in_bins = (config.width_in_tiles + 15) / 16;
     let height_in_bins = (config.height_in_tiles + 15) / 16;
-    let bin_header_buf = ResourceProxy::new_buf((256 * drawobj_wgs) as u64 * BIN_HEADER_SIZE);
+    let bin_header_buf = ResourceProxy::new_buf(
+        (256 * drawobj_wgs) as u64 * BIN_HEADER_SIZE,
+        "bin_header_buf",
+    );
     recording.clear_all(bump_buf);
     let bump_buf = ResourceProxy::Buf(bump_buf);
     recording.dispatch(
@@ -329,8 +346,8 @@ pub fn render_encoding_full(
     // Note: this only needs to be rounded up because of the workaround to store the tile_offset
     // in storage rather than workgroup memory.
     let n_path_aligned = align_up(n_paths as usize, 256);
-    let path_buf = ResourceProxy::new_buf(n_path_aligned as u64 * PATH_SIZE);
-    let tile_buf = ResourceProxy::new_buf(1 << 24);
+    let path_buf = ResourceProxy::new_buf(n_path_aligned as u64 * PATH_SIZE, "path_buf");
+    let tile_buf = ResourceProxy::new_buf(1 << 24, "tile_buf");
     let path_wgs = (n_paths + shaders::PATH_BBOX_WG - 1) / shaders::PATH_BBOX_WG;
     recording.dispatch(
         shaders.tile_alloc,
@@ -345,7 +362,7 @@ pub fn render_encoding_full(
         ],
     );
 
-    let segments_buf = ResourceProxy::new_buf(1 << 24);
+    let segments_buf = ResourceProxy::new_buf(1 << 24, "segments_buf");
     recording.dispatch(
         shaders.path_coarse,
         (path_coarse_wgs, 1, 1),
@@ -365,7 +382,7 @@ pub fn render_encoding_full(
         (path_wgs, 1, 1),
         [config_buf, path_buf, tile_buf],
     );
-    let ptcl_buf = ResourceProxy::new_buf(1 << 24);
+    let ptcl_buf = ResourceProxy::new_buf(1 << 24, "ptcl_buf");
     recording.dispatch(
         shaders.coarse,
         (width_in_bins, height_in_bins, 1),
