@@ -31,9 +31,29 @@ pub const PATH_DRAWOBJ_WG: u32 = 256;
 pub const CLIP_REDUCE_WG: u32 = 256;
 
 macro_rules! shader {
-    ($name:expr) => {
-        include_str!(concat!("../shader/", $name, ".wgsl"))
-    };
+    ($name:expr) => {&{
+        let shader = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/shader/",
+            $name,
+            ".wgsl"
+        ));
+        #[cfg(feature = "hot_reload")]
+        let shader = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/shader/",
+            $name,
+            ".wgsl"
+        ))
+        .unwrap_or_else(|e| {
+            eprintln!(
+                "Failed to read shader {name}, error falling back to version at compilation time. Error: {e:?}",
+                name = $name
+            );
+            shader.to_string()
+        });
+        shader
+    }};
 }
 
 pub struct Shaders {

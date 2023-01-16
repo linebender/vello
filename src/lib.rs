@@ -149,6 +149,21 @@ impl Renderer {
         self.target = Some(target);
         Ok(())
     }
+
+    /// Reload the shaders. This should only be used during `vello` development
+    #[cfg(feature = "hot_reload")]
+    pub async fn reload_shaders(&mut self, device: &Device) -> Result<()> {
+        device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let mut engine = Engine::new();
+        let shaders = shaders::full_shaders(device, &mut engine)?;
+        let error = device.pop_error_scope().await;
+        if let Some(error) = error {
+            return Err(error.into());
+        }
+        self.engine = engine;
+        self.shaders = shaders;
+        Ok(())
+    }
 }
 
 struct TargetTexture {
