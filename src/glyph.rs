@@ -266,7 +266,7 @@ fn convert_point(point: moscato::Point) -> peniko::kurbo::Point {
 }
 
 fn convert_brush(brush: &moscato::Brush) -> peniko::Brush {
-    use peniko::{LinearGradient, RadialGradient};
+    use peniko::Gradient;
     match brush {
         moscato::Brush::Solid(color) => Brush::Solid(Color {
             r: color.r,
@@ -274,20 +274,22 @@ fn convert_brush(brush: &moscato::Brush) -> peniko::Brush {
             b: color.b,
             a: color.a,
         }),
-        moscato::Brush::LinearGradient(grad) => Brush::LinearGradient(LinearGradient {
-            start: convert_point(grad.start),
-            end: convert_point(grad.end),
-            stops: convert_stops(&grad.stops),
-            extend: convert_extend(grad.extend),
-        }),
-        moscato::Brush::RadialGradient(grad) => Brush::RadialGradient(RadialGradient {
-            start_center: convert_point(grad.center0),
-            end_center: convert_point(grad.center1),
-            start_radius: grad.radius0,
-            end_radius: grad.radius1,
-            stops: convert_stops(&grad.stops),
-            extend: convert_extend(grad.extend),
-        }),
+        moscato::Brush::LinearGradient(grad) => Brush::Gradient(
+            Gradient::new_linear(convert_point(grad.start), convert_point(grad.end))
+                .with_stops(convert_stops(&grad.stops).as_slice())
+                .with_extend(convert_extend(grad.extend)),
+        ),
+
+        moscato::Brush::RadialGradient(grad) => Brush::Gradient(
+            Gradient::new_two_point_radial(
+                convert_point(grad.center0),
+                grad.radius0,
+                convert_point(grad.center1),
+                grad.radius1,
+            )
+            .with_stops(convert_stops(&grad.stops).as_slice())
+            .with_extend(convert_extend(grad.extend)),
+        ),
     }
 }
 

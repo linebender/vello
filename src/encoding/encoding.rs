@@ -19,7 +19,7 @@ use super::{
     DrawColor, DrawLinearGradient, DrawRadialGradient, DrawTag, PathEncoder, PathTag, Transform,
 };
 
-use peniko::{kurbo::Shape, BlendMode, BrushRef, Color, ColorStop, Extend};
+use peniko::{kurbo::Shape, BlendMode, BrushRef, Color, ColorStop, Extend, GradientKind};
 
 /// Encoded data streams for a scene.
 #[derive(Default)]
@@ -159,33 +159,45 @@ impl Encoding {
                 };
                 self.encode_color(DrawColor::new(color));
             }
-            BrushRef::LinearGradient(gradient) => {
-                self.encode_linear_gradient(
-                    DrawLinearGradient {
-                        index: 0,
-                        p0: point_to_f32(gradient.start),
-                        p1: point_to_f32(gradient.end),
-                    },
-                    gradient.stops.iter().copied(),
-                    alpha,
-                    gradient.extend,
-                );
+            BrushRef::Gradient(gradient) => match gradient.kind {
+                GradientKind::Linear { start, end } => {
+                    self.encode_linear_gradient(
+                        DrawLinearGradient {
+                            index: 0,
+                            p0: point_to_f32(start),
+                            p1: point_to_f32(end),
+                        },
+                        gradient.stops.iter().copied(),
+                        alpha,
+                        gradient.extend,
+                    );
+                }
+                GradientKind::Radial {
+                    start_center,
+                    start_radius,
+                    end_center,
+                    end_radius,
+                } => {
+                    self.encode_radial_gradient(
+                        DrawRadialGradient {
+                            index: 0,
+                            p0: point_to_f32(start_center),
+                            p1: point_to_f32(end_center),
+                            r0: start_radius,
+                            r1: end_radius,
+                        },
+                        gradient.stops.iter().copied(),
+                        alpha,
+                        gradient.extend,
+                    );
+                }
+                GradientKind::Sweep { .. } => {
+                    todo!("sweep gradients aren't supported yet!")
+                }
+            },
+            BrushRef::Image(_) => {
+                todo!("images aren't supported yet!")
             }
-            BrushRef::RadialGradient(gradient) => {
-                self.encode_radial_gradient(
-                    DrawRadialGradient {
-                        index: 0,
-                        p0: point_to_f32(gradient.start_center),
-                        p1: point_to_f32(gradient.end_center),
-                        r0: gradient.start_radius,
-                        r1: gradient.end_radius,
-                    },
-                    gradient.stops.iter().copied(),
-                    alpha,
-                    gradient.extend,
-                );
-            }
-            BrushRef::SweepGradient(_gradient) => todo!("sweep gradients aren't done yet!"),
         }
     }
 

@@ -225,7 +225,8 @@ pub fn render_blend_grid(sb: &mut SceneBuilder) {
 fn render_blend_square(sb: &mut SceneBuilder, blend: BlendMode, transform: Affine) {
     // Inspired by https://developer.mozilla.org/en-US/docs/Web/CSS/mix-blend-mode
     let rect = Rect::from_origin_size(Point::new(0., 0.), (200., 200.));
-    let linear = LinearGradient::new((0.0, 0.0), (200.0, 0.0)).stops([Color::BLACK, Color::WHITE]);
+    let linear =
+        Gradient::new_linear((0.0, 0.0), (200.0, 0.0)).with_stops([Color::BLACK, Color::WHITE]);
     sb.fill(Fill::NonZero, transform, &linear, None, &rect);
     const GRADIENTS: &[(f64, f64, Color)] = &[
         (150., 0., Color::rgb8(255, 240, 64)),
@@ -235,7 +236,7 @@ fn render_blend_square(sb: &mut SceneBuilder, blend: BlendMode, transform: Affin
     for (x, y, c) in GRADIENTS {
         let mut color2 = c.clone();
         color2.a = 0;
-        let radial = RadialGradient::new((*x, *y), 100.0).stops([*c, color2]);
+        let radial = Gradient::new_radial((*x, *y), 100.0).with_stops([*c, color2]);
         sb.fill(Fill::NonZero, transform, &radial, None, &rect);
     }
     const COLORS: &[Color] = &[
@@ -245,7 +246,7 @@ fn render_blend_square(sb: &mut SceneBuilder, blend: BlendMode, transform: Affin
     ];
     sb.push_layer(Mix::Normal, 1.0, transform, &rect);
     for (i, c) in COLORS.iter().enumerate() {
-        let linear = LinearGradient::new((0.0, 0.0), (0.0, 200.0)).stops([Color::WHITE, *c]);
+        let linear = Gradient::new_linear((0.0, 0.0), (0.0, 200.0)).with_stops([Color::WHITE, *c]);
         sb.push_layer(blend, 1.0, transform, &rect);
         // squash the ellipse
         let a = transform
@@ -364,7 +365,7 @@ pub fn render_anim_frame(sb: &mut SceneBuilder, text: &mut SimpleText, i: usize)
 #[allow(unused)]
 pub fn render_brush_transform(sb: &mut SceneBuilder, i: usize) {
     let th = (std::f64::consts::PI / 180.0) * (i as f64);
-    let linear = LinearGradient::new((0.0, 0.0), (0.0, 200.0)).stops([
+    let linear = Gradient::new_linear((0.0, 0.0), (0.0, 200.0)).with_stops([
         Color::RED,
         Color::GREEN,
         Color::BLUE,
