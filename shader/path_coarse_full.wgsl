@@ -93,7 +93,12 @@ fn eval_cubic(p0: vec2<f32>, p1: vec2<f32>, p2: vec2<f32>, p3: vec2<f32>, t: f32
 }
 
 fn alloc_segment() -> u32 {
-    return atomicAdd(&bump.segments, 1u) + 1u;
+    var offset = atomicAdd(&bump.segments, 1u) + 1u;
+    if offset > bump.segments_size {
+        offset = 0u;
+        atomicOr(&bump.failed, STAGE_PATH_COARSE);
+    }
+    return offset;
 }
 
 let MAX_QUADS = 16u;
@@ -102,6 +107,9 @@ let MAX_QUADS = 16u;
 fn main(
     @builtin(global_invocation_id) global_id: vec3<u32>,
 ) {
+    if (atomicLoad(&bump.failed) & (STAGE_BINNING | STAGE_TILE_ALLOC)) != 0u {
+        return;
+    }
     let ix = global_id.x;
     let tag_word = scene[config.pathtag_base + (ix >> 2u)];
     let shift = (ix & 3u) * 8u;

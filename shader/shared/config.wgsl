@@ -35,3 +35,5 @@ let N_TILE_X = 16u;
 let N_TILE_Y = 16u;
 //let N_TILE = N_TILE_X * N_TILE_Y;
 let N_TILE = 256u;
+
+let BLEND_STACK_SPLIT = 4u;

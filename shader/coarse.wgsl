@@ -70,8 +70,11 @@ fn alloc_cmd(size: u32) {
         // We might be able to save a little bit of computation here
         // by setting the initial value of the bump allocator.
         let ptcl_dyn_start = config.width_in_tiles * config.height_in_tiles * PTCL_INITIAL_ALLOC;
-        let new_cmd = ptcl_dyn_start + atomicAdd(&bump.ptcl, PTCL_INCREMENT);
-        // TODO: robust memory
+        var new_cmd = ptcl_dyn_start + atomicAdd(&bump.ptcl, PTCL_INCREMENT);
+        if new_cmd > bump.ptcl_size {
+            new_cmd = 0u;
+            atomicOr(&bump.failed, STAGE_COARSE);
+        }
         ptcl[cmd_offset] = CMD_JUMP;
         ptcl[cmd_offset + 1u] = new_cmd;
         cmd_offset = new_cmd;
@@ -142,6 +145,9 @@ fn main(
     @builtin(local_invocation_id) local_id: vec3<u32>,
     @builtin(workgroup_id) wg_id: vec3<u32>,
 ) {
+    if (atomicLoad(&bump.failed) & (STAGE_BINNING | STAGE_TILE_ALLOC | STAGE_PATH_COARSE)) != 0u {
+        return;
+    }     
     let width_in_bins = (config.width_in_tiles + N_TILE_X - 1u) / N_TILE_X;
     let bin_ix = width_in_bins * wg_id.y + wg_id.x;
     let n_partitions = (config.n_drawobj + N_TILE - 1u) / N_TILE;
@@ -169,6 +175,10 @@ fn main(
     // blend state
     var render_blend_depth = 0u;
     var max_blend_depth = 0u;
+
+    let blend_offset = cmd_offset;
+    cmd_offset += 1u;
+    cmd_limit -= 1u;
 
     while true {
         for (var i = 0u; i < N_SLICE; i += 1u) {
@@ -401,6 +411,9 @@ fn main(
     }
     if bin_tile_x + tile_x < config.width_in_tiles && bin_tile_y + tile_y < config.height_in_tiles {
         ptcl[cmd_offset] = CMD_END;
-        // TODO: blend stack allocation
+        if max_blend_depth > BLEND_STACK_SPLIT {
+            let scratch_size = max_blend_depth * TILE_WIDTH * TILE_HEIGHT * 4u;
+            ptcl[blend_offset] = atomicAdd(&bump.blend, scratch_size);
+        }
     }
 }
