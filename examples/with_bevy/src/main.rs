@@ -1,5 +1,5 @@
 use vello::kurbo::{Affine, Point, Rect};
-use vello::peniko::{Color, Fill, LinearGradient, Stroke};
+use vello::peniko::{Color, Fill, Gradient, Stroke};
 use vello::{Renderer, Scene, SceneBuilder, SceneFragment};
 
 use bevy::{
@@ -191,7 +191,7 @@ fn render_fragment(mut fragment: Query<&mut VelloFragment>, mut frame: Local<usi
 
 fn render_brush_transform(sb: &mut SceneBuilder, i: usize) {
     let th = (std::f64::consts::PI / 180.0) * (i as f64);
-    let linear = LinearGradient::new((0.0, 0.0), (0.0, 200.0)).stops([
+    let linear = Gradient::new_linear((0.0, 0.0), (0.0, 200.0)).with_stops([
         Color::RED,
         Color::GREEN,
         Color::BLUE,
