@@ -61,10 +61,13 @@ pub const fn next_multiple_of(val: u32, rhs: u32) -> u32 {
 #[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
 struct BumpAllocators {
     failed: u32,
+    // Sizes of the provided buffers
     binning_size: u32,
     ptcl_size: u32,
     tiles_size: u32,
     segments_size: u32,
+    // Final needed dynamic size of the buffers. If any of these are larger than the corresponding `_size` element
+    // reallocation needs to occur
     binning: u32,
     ptcl: u32,
     tile: u32,
