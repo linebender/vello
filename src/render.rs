@@ -56,7 +56,7 @@ pub const fn next_multiple_of(val: u32, rhs: u32) -> u32 {
     }
 }
 
-// This must be kept in sync with the struct in shaders/shared/bump.wgsl
+// This must be kept in sync with the struct in shader/shared/bump.wgsl
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
 struct BumpAllocators {
