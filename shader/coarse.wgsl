@@ -178,7 +178,6 @@ fn main(
 
     let blend_offset = cmd_offset;
     cmd_offset += 1u;
-    cmd_limit -= 1u;
 
     while true {
         for (var i = 0u; i < N_SLICE; i += 1u) {
