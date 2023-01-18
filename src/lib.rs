@@ -78,7 +78,7 @@ impl Renderer {
         width: u32,
         height: u32,
     ) -> Result<()> {
-        let (recording, target) = render::render_full(&scene, &self.shaders, width, height);
+        let (recording, target) = render::render_full(scene, &self.shaders, width, height);
         let external_resources = [ExternalResource::Image(
             *target.as_image().unwrap(),
             texture,
@@ -147,6 +147,21 @@ impl Renderer {
         }
         queue.submit(Some(encoder.finish()));
         self.target = Some(target);
+        Ok(())
+    }
+
+    /// Reload the shaders. This should only be used during `vello` development
+    #[cfg(feature = "hot_reload")]
+    pub async fn reload_shaders(&mut self, device: &Device) -> Result<()> {
+        device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let mut engine = Engine::new();
+        let shaders = shaders::full_shaders(device, &mut engine)?;
+        let error = device.pop_error_scope().await;
+        if let Some(error) = error {
+            return Err(error.into());
+        }
+        self.engine = engine;
+        self.shaders = shaders;
         Ok(())
     }
 }

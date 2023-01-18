@@ -18,7 +18,7 @@ mod pico_svg;
 mod simple_text;
 mod test_scene;
 
-use std::{borrow::Cow, path::PathBuf};
+use std::{borrow::Cow, path::PathBuf, time::Instant};
 
 use clap::Parser;
 use vello::{
@@ -26,7 +26,13 @@ use vello::{
     util::RenderContext,
     Renderer, Scene, SceneBuilder,
 };
-use winit::{event_loop::EventLoop, window::Window};
+use winit::{
+    event_loop::{EventLoop, EventLoopBuilder},
+    window::Window,
+};
+
+#[cfg(not(target_arch = "wasm32"))]
+mod hot_reload;
 
 #[derive(Parser, Debug)]
 #[command(about, long_about = None)]
@@ -46,7 +52,7 @@ struct Args {
 
 const TIGER: &'static str = include_str!("../../assets/Ghostscript_Tiger.svg");
 
-async fn run(event_loop: EventLoop<()>, window: Window, args: Args) {
+async fn run(event_loop: EventLoop<UserEvent>, window: Window, args: Args) {
     use winit::{event::*, event_loop::ControlFlow};
     let mut render_cx = RenderContext::new().unwrap();
     let size = window.inner_size();
@@ -194,8 +200,27 @@ async fn run(event_loop: EventLoop<()>, window: Window, args: Args) {
             surface_texture.present();
             device_handle.device.poll(wgpu::Maintain::Wait);
         }
+        Event::UserEvent(event) => match event {
+            #[cfg(not(target_arch = "wasm32"))]
+            UserEvent::HotReload => {
+                let device_handle = &render_cx.devices[surface.dev_id];
+                eprintln!("==============\nReloading shaders");
+                let start = Instant::now();
+                let result = renderer.reload_shaders(&device_handle.device);
+                // We know that the only async here is actually sync, so we just block
+                match pollster::block_on(result) {
+                    Ok(_) => eprintln!("Reloading took {:?}", start.elapsed()),
+                    Err(e) => eprintln!("Failed to reload shaders because of {e}"),
+                }
+            }
+        },
         _ => {}
     });
+}
+
+enum UserEvent {
+    #[cfg(not(target_arch = "wasm32"))]
+    HotReload,
 }
 
 fn main() {
@@ -203,7 +228,12 @@ fn main() {
     #[cfg(not(target_arch = "wasm32"))]
     {
         use winit::{dpi::LogicalSize, window::WindowBuilder};
-        let event_loop = EventLoop::new();
+        let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
+
+        let proxy = event_loop.create_proxy();
+        let _keep =
+            hot_reload::hot_reload(move || proxy.send_event(UserEvent::HotReload).ok().map(drop));
+
         let window = WindowBuilder::new()
             .with_inner_size(LogicalSize::new(1044, 800))
             .with_resizable(true)
@@ -214,7 +244,7 @@ fn main() {
     }
     #[cfg(target_arch = "wasm32")]
     {
-        let event_loop = EventLoop::new();
+        let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
         let window = winit::window::Window::new(&event_loop).unwrap();
 
         std::panic::set_hook(Box::new(console_error_panic_hook::hook));

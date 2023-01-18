@@ -31,9 +31,29 @@ pub const PATH_DRAWOBJ_WG: u32 = 256;
 pub const CLIP_REDUCE_WG: u32 = 256;
 
 macro_rules! shader {
-    ($name:expr) => {
-        include_str!(concat!("../shader/", $name, ".wgsl"))
-    };
+    ($name:expr) => {&{
+        let shader = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/shader/",
+            $name,
+            ".wgsl"
+        ));
+        #[cfg(feature = "hot_reload")]
+        let shader = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/shader/",
+            $name,
+            ".wgsl"
+        ))
+        .unwrap_or_else(|e| {
+            eprintln!(
+                "Failed to read shader {name}, error falling back to version at compilation time. Error: {e:?}",
+                name = $name
+            );
+            shader.to_string()
+        });
+        shader
+    }};
 }
 
 pub struct Shaders {
@@ -73,11 +93,13 @@ pub fn init_shaders(device: &Device, engine: &mut Engine) -> Result<Shaders, Err
     let empty = HashSet::new();
     let pathtag_reduce = engine.add_shader(
         device,
+        "pathtag_reduce",
         preprocess::preprocess(shader!("pathtag_reduce"), &empty, &imports).into(),
         &[BindType::Uniform, BindType::BufReadOnly, BindType::Buffer],
     )?;
     let pathtag_scan = engine.add_shader(
         device,
+        "pathtag_scan",
         preprocess::preprocess(shader!("pathtag_scan"), &empty, &imports).into(),
         &[
             BindType::Uniform,
@@ -91,6 +113,7 @@ pub fn init_shaders(device: &Device, engine: &mut Engine) -> Result<Shaders, Err
 
     let path_coarse = engine.add_shader(
         device,
+        "path_coarse",
         preprocess::preprocess(shader!("path_coarse"), &path_coarse_config, &imports).into(),
         &[
             BindType::Uniform,
@@ -102,11 +125,13 @@ pub fn init_shaders(device: &Device, engine: &mut Engine) -> Result<Shaders, Err
     )?;
     let backdrop = engine.add_shader(
         device,
+        "backdrop",
         preprocess::preprocess(shader!("backdrop"), &empty, &imports).into(),
         &[BindType::Uniform, BindType::Buffer],
     )?;
     let fine = engine.add_shader(
         device,
+        "fine",
         preprocess::preprocess(shader!("fine"), &empty, &imports).into(),
         &[
             BindType::Uniform,
@@ -137,16 +162,19 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
     small_config.insert("small".into());
     let pathtag_reduce = engine.add_shader(
         device,
+        "pathtag_reduce",
         preprocess::preprocess(shader!("pathtag_reduce"), &full_config, &imports).into(),
         &[BindType::Uniform, BindType::BufReadOnly, BindType::Buffer],
     )?;
     let pathtag_reduce2 = engine.add_shader(
         device,
+        "pathtag_reduce2",
         preprocess::preprocess(shader!("pathtag_reduce2"), &full_config, &imports).into(),
         &[BindType::BufReadOnly, BindType::Buffer],
     )?;
     let pathtag_scan1 = engine.add_shader(
         device,
+        "pathtag_scan1",
         preprocess::preprocess(shader!("pathtag_scan1"), &full_config, &imports).into(),
         &[
             BindType::BufReadOnly,
@@ -156,6 +184,7 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
     )?;
     let pathtag_scan = engine.add_shader(
         device,
+        "pathtag_scan",
         preprocess::preprocess(shader!("pathtag_scan"), &small_config, &imports).into(),
         &[
             BindType::Uniform,
@@ -166,6 +195,7 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
     )?;
     let pathtag_scan_large = engine.add_shader(
         device,
+        "pathtag_scan",
         preprocess::preprocess(shader!("pathtag_scan"), &full_config, &imports).into(),
         &[
             BindType::Uniform,
@@ -176,11 +206,13 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
     )?;
     let bbox_clear = engine.add_shader(
         device,
+        "bbox_clear",
         preprocess::preprocess(shader!("bbox_clear"), &empty, &imports).into(),
         &[BindType::Uniform, BindType::Buffer],
     )?;
     let pathseg = engine.add_shader(
         device,
+        "pathseg",
         preprocess::preprocess(shader!("pathseg"), &full_config, &imports).into(),
         &[
             BindType::Uniform,
@@ -192,11 +224,13 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
     )?;
     let draw_reduce = engine.add_shader(
         device,
+        "draw_reduce",
         preprocess::preprocess(shader!("draw_reduce"), &empty, &imports).into(),
         &[BindType::Uniform, BindType::BufReadOnly, BindType::Buffer],
     )?;
     let draw_leaf = engine.add_shader(
         device,
+        "draw_leaf",
         preprocess::preprocess(shader!("draw_leaf"), &empty, &imports).into(),
         &[
             BindType::Uniform,
@@ -210,6 +244,7 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
     )?;
     let clip_reduce = engine.add_shader(
         device,
+        "clip_reduce",
         preprocess::preprocess(shader!("clip_reduce"), &empty, &imports).into(),
         &[
             BindType::Uniform,
@@ -221,6 +256,7 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
     )?;
     let clip_leaf = engine.add_shader(
         device,
+        "clip_leaf",
         preprocess::preprocess(shader!("clip_leaf"), &empty, &imports).into(),
         &[
             BindType::Uniform,
@@ -234,6 +270,7 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
     )?;
     let binning = engine.add_shader(
         device,
+        "binning",
         preprocess::preprocess(shader!("binning"), &empty, &imports).into(),
         &[
             BindType::Uniform,
@@ -248,6 +285,7 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
     )?;
     let tile_alloc = engine.add_shader(
         device,
+        "tile_alloc",
         preprocess::preprocess(shader!("tile_alloc"), &empty, &imports).into(),
         &[
             BindType::Uniform,
@@ -261,6 +299,7 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
 
     let path_coarse = engine.add_shader(
         device,
+        "path_coarse_full",
         preprocess::preprocess(shader!("path_coarse_full"), &full_config, &imports).into(),
         &[
             BindType::Uniform,
@@ -275,11 +314,13 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
     )?;
     let backdrop = engine.add_shader(
         device,
+        "backdrop_dyn",
         preprocess::preprocess(shader!("backdrop_dyn"), &empty, &imports).into(),
         &[BindType::Uniform, BindType::BufReadOnly, BindType::Buffer],
     )?;
     let coarse = engine.add_shader(
         device,
+        "coarse",
         preprocess::preprocess(shader!("coarse"), &empty, &imports).into(),
         &[
             BindType::Uniform,
@@ -295,6 +336,7 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
     )?;
     let fine = engine.add_shader(
         device,
+        "fine",
         preprocess::preprocess(shader!("fine"), &full_config, &imports).into(),
         &[
             BindType::Uniform,

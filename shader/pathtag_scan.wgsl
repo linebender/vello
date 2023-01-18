@@ -60,6 +60,7 @@ fn main(
         workgroupBarrier();
         sh_monoid[local_id.x] = agg_part;
     }
+    workgroupBarrier();
     // prefix up to this workgroup
 #ifdef small
     var tm = sh_parent[0];

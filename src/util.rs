@@ -91,7 +91,7 @@ impl RenderContext {
         if compatible.is_none() {
             return self.new_device(compatible_surface).await;
         }
-        return compatible;
+        compatible
     }
 
     /// Creates a compatible device handle id.
