@@ -1,6 +1,6 @@
 <div align="center">
 
-# vello
+# Vello
 
 **An experimental GPU compute-centric 2D renderer**
 
@@ -39,7 +39,7 @@ cargo run -p with_winit
 
 ### Bevy
 
-The [Bevy] example ([examples/with_bevy](examples/with_bevy)) demonstrates using vello within a [Bevy] application.
+The [Bevy] example ([examples/with_bevy](examples/with_bevy)) demonstrates using Vello within a [Bevy] application.
 This currently draws to a [`wgpu`] `Texture` using `vello`, then uses that texture as the faces of a cube.
 
 ```shell
