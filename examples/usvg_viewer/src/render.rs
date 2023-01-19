@@ -80,6 +80,7 @@ fn render_tree(sb: &mut SceneBuilder, svg: usvg::Tree) {
     }
 }
 
+// Draw a red box over unsupported SVG features.
 fn unimplemented(sb: &mut SceneBuilder, node: &usvg::Node) {
     if let Some(bb) = node.calculate_bbox() {
         let rect = Rect {
