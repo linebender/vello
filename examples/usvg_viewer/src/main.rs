@@ -14,7 +14,11 @@ use vello::{
     util::RenderContext,
     Renderer, Scene, SceneBuilder,
 };
-use winit::{event_loop::EventLoop, window::Window};
+use winit::{
+    dpi::LogicalSize,
+    event_loop::EventLoop,
+    window::{Window, WindowBuilder},
+};
 
 #[derive(Parser, Debug)]
 #[command(about, long_about = None)]
@@ -197,14 +201,12 @@ fn main() -> Result<()> {
     } else {
         args.files
     };
-    use winit::{dpi::LogicalSize, window::WindowBuilder};
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
         .with_inner_size(LogicalSize::new(1044, 800))
         .with_resizable(true)
         .with_title("Vello usvg viewer")
-        .build(&event_loop)
-        .unwrap();
+        .build(&event_loop)?;
     pollster::block_on(run(event_loop, window, paths));
     Ok(())
 }
