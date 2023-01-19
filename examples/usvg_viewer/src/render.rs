@@ -19,7 +19,7 @@ pub fn render_svg(
         render_tree(&mut builder, svg);
         new_scene
     });
-    sb.append(&scene_frag, Some(xform));
+    sb.append(scene_frag, Some(xform));
 }
 
 fn render_tree(sb: &mut SceneBuilder, svg: usvg::Tree) {

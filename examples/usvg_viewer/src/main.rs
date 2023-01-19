@@ -51,12 +51,12 @@ fn fetch_missing_assets() -> Result<()> {
             .with_prompt("Do you want to continue?")
             .interact()?
         {
-            println!("Looks like you want to continue");
+            println!("Looks like you want to continue.");
             for missing in missing_assets {
                 missing.fetch()?
             }
         } else {
-            println!("nevermind then :(");
+            println!("Nevermind then.");
             std::process::exit(1)
         }
     }
@@ -78,7 +78,7 @@ async fn run(event_loop: EventLoop<()>, window: Window, svg_files: Vec<PathBuf>)
     cached_svg_scene.resize_with(svg_files.len(), || None);
     let mut transform = Affine::IDENTITY;
     let mut mouse_down = false;
-    let mut prior_position: Option<Vec2> = None;
+    let mut prior_position = Vec2::default();
     let mut last_title_update = Instant::now();
     // We allow looping left and right through the svgs, so use a signed index
     let mut svg_ix: i32 = 0;
@@ -125,22 +125,17 @@ async fn run(event_loop: EventLoop<()>, window: Window, svg_files: Vec<PathBuf>)
                 } else {
                     0.0
                 };
-                transform = Affine::translate(prior_position.unwrap_or_default())
+                transform = Affine::translate(prior_position)
                     * Affine::scale(1.0 + modifier)
-                    * Affine::translate(-prior_position.unwrap_or_default())
+                    * Affine::translate(-prior_position)
                     * transform;
-            }
-            WindowEvent::CursorLeft { .. } => {
-                prior_position = None;
             }
             WindowEvent::CursorMoved { position, .. } => {
                 let position = Vec2::new(position.x, position.y);
                 if mouse_down {
-                    if let Some(prior) = prior_position {
-                        transform = Affine::translate(position - prior) * transform;
-                    }
+                    transform = Affine::translate(position - prior_position) * transform;
                 }
-                prior_position = Some(position);
+                prior_position = position;
             }
             _ => {}
         },
