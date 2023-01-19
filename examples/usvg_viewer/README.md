@@ -20,7 +20,7 @@ The rendering is extremely simplistic and does not yet support:
 
 ## Usage
 
-Running the viewer without any arguments will render a set of default, public-domain SVG images:
+Running the viewer without any arguments will render a built-in set of public-domain SVG images:
 
 ```bash
 $ cargo run --release
