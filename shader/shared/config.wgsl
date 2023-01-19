@@ -24,6 +24,12 @@ struct Config {
 
     transform_base: u32,
     linewidth_base: u32,
+
+    // Sizes of bump allocated buffers (in element size units)
+    binning_size: u32,
+    tiles_size: u32,
+    segments_size: u32,    
+    ptcl_size: u32,
 }
 
 // Geometry of tiles and bins
@@ -35,3 +41,5 @@ let N_TILE_X = 16u;
 let N_TILE_Y = 16u;
 //let N_TILE = N_TILE_X * N_TILE_Y;
 let N_TILE = 256u;
+
+let BLEND_STACK_SPLIT = 4u;

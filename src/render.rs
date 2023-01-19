@@ -21,8 +21,10 @@ const CLIP_INP_SIZE: u64 = 8;
 const CLIP_BBOX_SIZE: u64 = 16;
 const PATH_SIZE: u64 = 32;
 const DRAW_BBOX_SIZE: u64 = 16;
-const BUMP_SIZE: u64 = 16;
+const BUMP_SIZE: u64 = std::mem::size_of::<BumpAllocators>() as u64;
 const BIN_HEADER_SIZE: u64 = 8;
+const TILE_SIZE: u64 = 8;
+const SEGMENT_SIZE: u64 = 24;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
@@ -52,6 +54,20 @@ pub const fn next_multiple_of(val: u32, rhs: u32) -> u32 {
         0 => val,
         r => val + (rhs - r),
     }
+}
+
+// This must be kept in sync with the struct in shader/shared/bump.wgsl
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
+struct BumpAllocators {
+    failed: u32,
+    // Final needed dynamic size of the buffers. If any of these are larger than the corresponding `_size` element
+    // reallocation needs to occur
+    binning: u32,
+    ptcl: u32,
+    tile: u32,
+    segments: u32,
+    blend: u32,
 }
 
 #[allow(unused)]
@@ -174,17 +190,30 @@ pub fn render_encoding_full(
     let new_width = next_multiple_of(width, 16);
     let new_height = next_multiple_of(height, 16);
 
+    let info_size = packed.layout.bin_data_start;
     let config = crate::encoding::Config {
         width_in_tiles: new_width / 16,
         height_in_tiles: new_height / 16,
         target_width: width,
         target_height: height,
+        binning_size: ((1 << 20) / 4) - info_size,
+        tiles_size: (1 << 24) / TILE_SIZE as u32,
+        segments_size: (1 << 26) / SEGMENT_SIZE as u32,
+        ptcl_size: (1 << 25) / 4,
         layout: packed.layout,
     };
     // println!("{:?}", config);
     let scene_buf = ResourceProxy::Buf(recording.upload("scene", packed.data));
     let config_buf =
         ResourceProxy::Buf(recording.upload_uniform("config", bytemuck::bytes_of(&config)));
+    let info_bin_data_buf = ResourceProxy::new_buf(
+        (info_size + config.binning_size) as u64 * 4,
+        "info_bin_data_buf",
+    );
+    let tile_buf = ResourceProxy::new_buf(config.tiles_size as u64 * TILE_SIZE, "tile_buf");
+    let segments_buf =
+        ResourceProxy::new_buf(config.segments_size as u64 * SEGMENT_SIZE, "segments_buf");
+    let ptcl_buf = ResourceProxy::new_buf(config.ptcl_size as u64 * 4, "ptcl_buf");
 
     let pathtag_wgs = pathtag_padded / (4 * shaders::PATHTAG_REDUCE_WG as usize);
     let pathtag_large = pathtag_wgs > shaders::PATHTAG_REDUCE_WG as usize;
@@ -267,7 +296,6 @@ pub fn render_encoding_full(
     );
     let draw_monoid_buf =
         ResourceProxy::new_buf(n_drawobj as u64 * DRAWMONOID_SIZE, "draw_monoid_buf");
-    let info_bin_data_buf = ResourceProxy::new_buf(1 << 20, "info_bin_data_buf");
     let clip_inp_buf =
         ResourceProxy::new_buf(encoding.n_clips as u64 * CLIP_INP_SIZE, "clip_inp_buf");
     recording.dispatch(
@@ -347,7 +375,6 @@ pub fn render_encoding_full(
     // in storage rather than workgroup memory.
     let n_path_aligned = align_up(n_paths as usize, 256);
     let path_buf = ResourceProxy::new_buf(n_path_aligned as u64 * PATH_SIZE, "path_buf");
-    let tile_buf = ResourceProxy::new_buf(1 << 24, "tile_buf");
     let path_wgs = (n_paths + shaders::PATH_BBOX_WG - 1) / shaders::PATH_BBOX_WG;
     recording.dispatch(
         shaders.tile_alloc,
@@ -361,8 +388,6 @@ pub fn render_encoding_full(
             tile_buf,
         ],
     );
-
-    let segments_buf = ResourceProxy::new_buf(1 << 26, "segments_buf");
     recording.dispatch(
         shaders.path_coarse,
         (path_coarse_wgs, 1, 1),
@@ -382,7 +407,6 @@ pub fn render_encoding_full(
         (path_wgs, 1, 1),
         [config_buf, path_buf, tile_buf],
     );
-    let ptcl_buf = ResourceProxy::new_buf(1 << 25, "ptcl_buf");
     recording.dispatch(
         shaders.coarse,
         (width_in_bins, height_in_bins, 1),

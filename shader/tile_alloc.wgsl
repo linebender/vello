@@ -35,6 +35,12 @@ fn main(
     @builtin(global_invocation_id) global_id: vec3<u32>,
     @builtin(local_invocation_id) local_id: vec3<u32>,
 ) {
+    // Exit early if prior stages failed, as we can't run this stage.
+    // We need to check only prior stages, as if this stage has failed in another workgroup, 
+    // we still want to know this workgroup's memory requirement.   
+    if (atomicLoad(&bump.failed) & STAGE_BINNING) != 0u {
+        return;
+    }    
     // scale factors useful for converting coordinates to tiles
     // TODO: make into constants
     let SX = 1.0 / f32(TILE_WIDTH);
@@ -72,8 +78,14 @@ fn main(
         sh_tile_count[local_id.x] = total_tile_count;
     }
     if local_id.x == WG_SIZE - 1u {
-        paths[drawobj_ix].tiles = atomicAdd(&bump.tile, sh_tile_count[WG_SIZE - 1u]);
-    }
+        let count = sh_tile_count[WG_SIZE - 1u];
+        var offset = atomicAdd(&bump.tile, count);
+        if offset + count > config.tiles_size {
+            offset = 0u;
+            atomicOr(&bump.failed, STAGE_TILE_ALLOC);
+        }
+        paths[drawobj_ix].tiles = offset;
+    }    
     // Using storage barriers is a workaround for what appears to be a miscompilation
     // when a normal workgroup-shared variable is used to broadcast the value.
     storageBarrier();
