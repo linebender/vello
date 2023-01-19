@@ -128,7 +128,7 @@ fn main(
     }
     // element_count is the number of draw objects covering this thread's bin
     var chunk_offset = atomicAdd(&bump.binning, element_count);
-    if chunk_offset > bump.binning_size {
+    if chunk_offset + element_count > config.binning_size {
         chunk_offset = 0u;
         atomicOr(&bump.failed, STAGE_BINNING);
     }    

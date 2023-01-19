@@ -71,7 +71,7 @@ fn alloc_cmd(size: u32) {
         // by setting the initial value of the bump allocator.
         let ptcl_dyn_start = config.width_in_tiles * config.height_in_tiles * PTCL_INITIAL_ALLOC;
         var new_cmd = ptcl_dyn_start + atomicAdd(&bump.ptcl, PTCL_INCREMENT);
-        if new_cmd > bump.ptcl_size {
+        if new_cmd + PTCL_INCREMENT > config.ptcl_size {
             new_cmd = 0u;
             atomicOr(&bump.failed, STAGE_COARSE);
         }
@@ -137,7 +137,7 @@ fn write_end_clip(end_clip: CmdEndClip) {
     ptcl[cmd_offset] = CMD_END_CLIP;
     ptcl[cmd_offset + 1u] = end_clip.blend;
     ptcl[cmd_offset + 2u] = bitcast<u32>(end_clip.alpha);
-    cmd_offset += 3u;            
+    cmd_offset += 3u;
 }
 
 @compute @workgroup_size(256)
@@ -145,9 +145,12 @@ fn main(
     @builtin(local_invocation_id) local_id: vec3<u32>,
     @builtin(workgroup_id) wg_id: vec3<u32>,
 ) {
+    // Exit early if prior stages failed, as we can't run this stage.
+    // We need to check only prior stages, as if this stage has failed in another workgroup, 
+    // we still want to know this workgroup's memory requirement.   
     if (atomicLoad(&bump.failed) & (STAGE_BINNING | STAGE_TILE_ALLOC | STAGE_PATH_COARSE)) != 0u {
         return;
-    }     
+    }
     let width_in_bins = (config.width_in_tiles + N_TILE_X - 1u) / N_TILE_X;
     let bin_ix = width_in_bins * wg_id.y + wg_id.x;
     let n_partitions = (config.n_drawobj + N_TILE - 1u) / N_TILE;
@@ -411,7 +414,7 @@ fn main(
     if bin_tile_x + tile_x < config.width_in_tiles && bin_tile_y + tile_y < config.height_in_tiles {
         ptcl[cmd_offset] = CMD_END;
         if max_blend_depth > BLEND_STACK_SPLIT {
-            let scratch_size = max_blend_depth * TILE_WIDTH * TILE_HEIGHT * 4u;
+            let scratch_size = max_blend_depth * TILE_WIDTH * TILE_HEIGHT;
             ptcl[blend_offset] = atomicAdd(&bump.blend, scratch_size);
         }
     }

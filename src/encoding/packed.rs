@@ -62,6 +62,14 @@ pub struct Config {
     pub target_height: u32,
     /// Layout of packed scene data.
     pub layout: Layout,
+    /// Size of binning buffer allocation (in u32s).
+    pub binning_size: u32,
+    /// Size of tile buffer allocation (in Tiles).
+    pub tiles_size: u32,
+    /// Size of segment buffer allocation (in PathSegments).
+    pub segments_size: u32,
+    /// Size of per-tile command list buffer allocation (in u32s).
+    pub ptcl_size: u32,
 }
 
 /// Packed encoding of scene data.

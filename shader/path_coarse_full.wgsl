@@ -94,7 +94,7 @@ fn eval_cubic(p0: vec2<f32>, p1: vec2<f32>, p2: vec2<f32>, p3: vec2<f32>, t: f32
 
 fn alloc_segment() -> u32 {
     var offset = atomicAdd(&bump.segments, 1u) + 1u;
-    if offset > bump.segments_size {
+    if offset + 1u > config.segments_size {
         offset = 0u;
         atomicOr(&bump.failed, STAGE_PATH_COARSE);
     }
@@ -107,6 +107,9 @@ let MAX_QUADS = 16u;
 fn main(
     @builtin(global_invocation_id) global_id: vec3<u32>,
 ) {
+    // Exit early if prior stages failed, as we can't run this stage.
+    // We need to check only prior stages, as if this stage has failed in another workgroup, 
+    // we still want to know this workgroup's memory requirement.   
     if (atomicLoad(&bump.failed) & (STAGE_BINNING | STAGE_TILE_ALLOC)) != 0u {
         return;
     }
