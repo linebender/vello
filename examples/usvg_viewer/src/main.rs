@@ -8,6 +8,7 @@ use clap::Parser;
 use dialoguer::Confirm;
 use render::render_svg;
 use std::path::PathBuf;
+use std::time::Instant;
 use vello::{
     kurbo::{Affine, Vec2},
     util::RenderContext,
@@ -78,7 +79,8 @@ async fn run(event_loop: EventLoop<()>, window: Window, svg_files: Vec<PathBuf>)
     let mut transform = Affine::IDENTITY;
     let mut mouse_down = false;
     let mut prior_position: Option<Vec2> = None;
-    // We allow looping left and right through the scenes, so use a signed index
+    let mut last_title_update = Instant::now();
+    // We allow looping left and right through the svgs, so use a signed index
     let mut svg_ix: i32 = 0;
     // These are set after choosing the svg, as they overwrite the defaults specified there
     event_loop.run(move |event, _, control_flow| match event {
@@ -178,6 +180,14 @@ async fn run(event_loop: EventLoop<()>, window: Window, svg_files: Vec<PathBuf>)
                 )
                 .expect("failed to render to surface");
             surface_texture.present();
+
+            if current_frame % 60 == 0 {
+                let now = Instant::now();
+                let duration = now.duration_since(last_title_update);
+                let fps = 60.0 / duration.as_secs_f64();
+                window.set_title(&format!("usvg viewer - fps: {:.1}", fps));
+                last_title_update = now;
+            }
             device_handle.device.poll(wgpu::Maintain::Wait);
         }
         _ => {}
