@@ -3,7 +3,7 @@ use generic_array::GenericArray;
 use hex_literal::hex;
 use sha2::{Digest, Sha256};
 use std::env::temp_dir;
-use std::io::{self, Cursor, Read};
+use std::io::Read;
 use std::path::PathBuf;
 
 pub struct SvgAsset {
@@ -63,6 +63,7 @@ pub const ASSETS: &[SvgAsset] = &[
         license: "Public Domain",
         size: 12771150,
     },
+    // This SVG doesn't render correctly
     // SvgAsset {
     //     url: "https://upload.wikimedia.org/wikipedia/commons/c/c2/Garter_King_of_Arms.svg",
     //     sha256sum: hex!("6718e2c7cb3831cdebce9c7e1151fc397e1b774d6391b773654b86b2699e64a1"),

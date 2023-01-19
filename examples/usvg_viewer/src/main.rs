@@ -2,7 +2,7 @@ mod asset;
 mod render;
 
 use anyhow::Result;
-use asset::{SvgAsset, ASSETS};
+use asset::ASSETS;
 use byte_unit::Byte;
 use clap::Parser;
 use dialoguer::Confirm;
