@@ -7,16 +7,16 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-generic-array = "0.14"
-usvg = "0.28"
-ureq = "2.6"
-byte-unit = "4.0"
-dialoguer = "0.10"
-hex-literal = "0.3"
-sha2 = "0.10"
 anyhow = "1.0"
+byte-unit = "4.0"
 clap = { version = "4.1.0", features = ["derive"] }
-wgpu = "0.14"
-vello = { path = "../../" }
-winit = "0.27.5"
+dialoguer = "0.10"
+generic-array = "0.14"
+hex-literal = "0.3"
 pollster = "0.2.5"
+sha2 = "0.10"
+ureq = "2.6"
+usvg = "0.28"
+vello = { path = "../../" }
+wgpu = "0.14"
+winit = "0.27.5"
