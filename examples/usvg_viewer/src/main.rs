@@ -123,15 +123,17 @@ async fn run(event_loop: EventLoop<()>, window: Window, svg_files: Vec<PathBuf>)
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                let modifier = if let MouseScrollDelta::PixelDelta(delta) = delta {
-                    delta.y * 0.001
+                const BASE: f64 = 1.05;
+                const PIXELS_PER_LINE: f64 = 20.0;
+                let exponent = if let MouseScrollDelta::PixelDelta(delta) = delta {
+                    delta.y / PIXELS_PER_LINE
                 } else if let MouseScrollDelta::LineDelta(_, y) = delta {
-                    *y as f64 * 0.1
+                    *y as f64
                 } else {
                     0.0
                 };
                 transform = Affine::translate(prior_position)
-                    * Affine::scale(1.0 + modifier)
+                    * Affine::scale(BASE.powf(exponent))
                     * Affine::translate(-prior_position)
                     * transform;
             }
