@@ -23,13 +23,13 @@ The rendering is extremely simplistic and does not yet support:
 Running the viewer without any arguments will render a built-in set of public-domain SVG images:
 
 ```bash
-$ cargo run --release
+$ cargo run -p usvg_viewer --release
 ```
 
 Optionally, you can pass in paths to SVG files that you want to render:
 
 ```bash
-$ cargo run --release -- [SVG FILES]
+$ cargo run -p usvg_viewer --release -- [SVG FILES]
 ```
 
 ## Controls
