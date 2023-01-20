@@ -7,6 +7,7 @@ use std::io::Read;
 use std::path::PathBuf;
 
 pub struct SvgAsset {
+    _source: &'static str,
     url: &'static str,
     sha256sum: [u8; 32],
     pub license: &'static str,
@@ -51,23 +52,53 @@ impl SvgAsset {
 }
 
 pub const ASSETS: &[SvgAsset] = &[
+    // DANGER: Zooming in on this image crashes my computer. @lemmih 2023-01-20.
+    // SvgAsset {
+    //     _source: "https://commons.wikimedia.org/wiki/File:American_Legion_Seal_SVG.svg",
+    //     url: "https://upload.wikimedia.org/wikipedia/commons/c/cf/American_Legion_Seal_SVG.svg",
+    //     sha256sum: hex!("b990f047a274b463a75433ddb9c917e90067615bba5ad8373a3f77753c6bb5e1"),
+    //     license: "Public Domain",
+    //     size: 10849279,
+    // },
+
     SvgAsset {
-        url: "https://upload.wikimedia.org/wikipedia/commons/d/d2/Grand_Arms_of_Francis_II%2C_Holy_Roman_Emperor-Personal_%281804-1806%29.svg",
-        sha256sum: hex!("240a7bb124cd4686f61fae132fdf762c07733c0be488aae845fde1845c76a41c"),
-        license: "Public Domain",
-        size: 9171285,
-    },
-    SvgAsset {
+        _source: "https://commons.wikimedia.org/wiki/File:CIA_WorldFactBook-Political_world.svg",
         url: "https://upload.wikimedia.org/wikipedia/commons/7/72/Political_Map_of_the_World_%28august_2013%29.svg",
         sha256sum: hex!("57956f10ed0ad3b1bea1e6c74cc7b386e42c99d87720a87c323d07f18c15d349"),
         license: "Public Domain",
         size: 12771150,
     },
-    // This SVG doesn't render correctly
+
+    SvgAsset {
+        _source: "https://commons.wikimedia.org/wiki/File:World_-_time_zones_map_(2014).svg",
+        url: "https://upload.wikimedia.org/wikipedia/commons/c/c6/World_-_time_zones_map_%282014%29.svg",
+        sha256sum: hex!("0cfecd5cdeadc51eb06f60c75207a769feb5b63abe20e4cd6c0d9fea30e07563"),
+        license: "Public Domain",
+        size: 5235172,
+    },
+
+    SvgAsset {
+        _source: "https://commons.wikimedia.org/wiki/File:Coat_of_arms_of_Poland-official.svg",
+        url: "https://upload.wikimedia.org/wikipedia/commons/3/3e/Coat_of_arms_of_Poland-official.svg",
+        sha256sum: hex!("59b4d0e29adcd7ec6a7ab50af5796f1d13afc0334a6d4bd4d4099a345b0e3066"),
+        license: "Public Domain",
+        size: 10747708,
+    },
+
+    SvgAsset {
+        _source: "https://commons.wikimedia.org/wiki/File:Coat_of_arms_of_the_Kingdom_of_Yugoslavia.svg",
+        url: "https://upload.wikimedia.org/wikipedia/commons/5/58/Coat_of_arms_of_the_Kingdom_of_Yugoslavia.svg",
+        sha256sum: hex!("2b1084dee535985eb241b14c9a5260129efe4c415c66dafa548b81117842d3e3"),
+        license: "Public Domain",
+        size: 12795806,
+    },
+
+    // This SVG renders poorly
     // SvgAsset {
-    //     url: "https://upload.wikimedia.org/wikipedia/commons/c/c2/Garter_King_of_Arms.svg",
-    //     sha256sum: hex!("6718e2c7cb3831cdebce9c7e1151fc397e1b774d6391b773654b86b2699e64a1"),
+    //     _source: "https://commons.wikimedia.org/wiki/File:Map_of_the_World_Oceans_-_January_2015.svg",
+    //     url: "https://upload.wikimedia.org/wikipedia/commons/d/db/Map_of_the_World_Oceans_-_January_2015.svg",
+    //     sha256sum: hex!("c8b0b13a577092bafa38b48b2fed28a1a26a91d237f4808444fa4bfee423c330"),
     //     license: "Public Domain",
-    //     size: 13535073,
+    //     size: 10804504,
     // },
 ];
