@@ -27,7 +27,6 @@ var<storage> segments: array<Segment>;
 #import ptcl
 
 let GRADIENT_WIDTH = 512;
-let BLEND_STACK_SPLIT = 4u;
 
 @group(0) @binding(3)
 var output: texture_storage_2d<rgba8unorm, write>;
@@ -192,7 +191,8 @@ fn main(
     var clip_depth = 0u;
     var area: array<f32, PIXELS_PER_THREAD>;
     var cmd_ix = tile_ix * PTCL_INITIAL_ALLOC;
-
+    let blend_offset = ptcl[cmd_ix];
+    cmd_ix += 1u;
     // main interpretation loop
     while true {
         let tag = ptcl[cmd_ix];

@@ -127,7 +127,11 @@ fn main(
         sh_count[i][local_id.x] = element_count_packed;
     }
     // element_count is the number of draw objects covering this thread's bin
-    let chunk_offset = atomicAdd(&bump.binning, element_count);
+    var chunk_offset = atomicAdd(&bump.binning, element_count);
+    if chunk_offset + element_count > config.binning_size {
+        chunk_offset = 0u;
+        atomicOr(&bump.failed, STAGE_BINNING);
+    }    
     sh_chunk_offset[local_id.x] = chunk_offset;
     bin_header[global_id.x].element_count = element_count;
     bin_header[global_id.x].chunk_offset = chunk_offset;

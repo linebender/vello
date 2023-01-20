@@ -55,6 +55,7 @@ fn main(
         workgroupBarrier();
         sh_monoid[local_id.x] = agg;
     }
+    workgroupBarrier();
     // prefix up to this workgroup
     var tm = sh_parent[0];
     if local_id.x > 0u {
