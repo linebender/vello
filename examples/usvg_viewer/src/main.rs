@@ -43,6 +43,7 @@ fn fetch_missing_assets() -> Result<()> {
         let total_size = Byte::from_bytes(missing_assets.iter().map(|asset| asset.size).sum())
             .get_appropriate_unit(true);
         let mut licenses: Vec<_> = missing_assets.iter().map(|asset| asset.license).collect();
+        licenses.sort();
         licenses.dedup();
 
         println!("Some SVG assets are missing. Let me download them for you.");
