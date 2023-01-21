@@ -225,6 +225,7 @@ enum UserEvent {
 
 fn main() {
     let args = Args::parse();
+    env_logger::init();
     #[cfg(not(target_arch = "wasm32"))]
     {
         use winit::{dpi::LogicalSize, window::WindowBuilder};
