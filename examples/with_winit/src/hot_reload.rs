@@ -16,10 +16,10 @@ pub(crate) fn hot_reload(mut f: impl FnMut() -> Option<()> + Send + 'static) -> 
     debouncer
         .watcher()
         .watch(
-            dbg!(&Path::new(env!("CARGO_MANIFEST_DIR"))
+            &Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("../../shader")
                 .canonicalize()
-                .unwrap()),
+                .unwrap(),
             // We currently don't support hot reloading the imports, so don't recurse into there
             RecursiveMode::NonRecursive,
         )

@@ -14,9 +14,7 @@
 //
 // Also licensed under MIT license, at your choice.
 
-mod pico_svg;
-mod simple_text;
-mod test_scene;
+use std::time::Instant;
 
 use std::{borrow::Cow, time::Instant};
 
@@ -27,6 +25,14 @@ use vello::{
     util::RenderContext,
     Renderer, Scene, SceneBuilder,
 };
+use anyhow::Result;
+use clap::{CommandFactory, Parser};
+use scenes::{SceneParams, SceneSet, SimpleText};
+use vello::{
+    kurbo::{Affine, Vec2},
+    util::RenderContext,
+    Renderer, Scene, SceneBuilder, SceneFragment,
+};
 use winit::{
     event_loop::{EventLoop, EventLoopBuilder},
     window::Window,
@@ -36,7 +42,7 @@ use winit::{
 mod hot_reload;
 
 #[derive(Parser, Debug)]
-#[command(about, long_about = None)]
+#[command(about, long_about = None, bin_name="cargo run -p with_winit --")]
 struct Args {
     /// Path to the svg file to render. If not set, the GhostScript Tiger will be rendered
     #[arg(long)]
@@ -49,11 +55,11 @@ struct Args {
     /// Switch between scenes with left and right arrow keys
     #[arg(long)]
     scene: Option<i32>,
+    #[command(flatten)]
+    args: scenes::Arguments,
 }
 
-const TIGER: &'static str = include_str!("../../assets/Ghostscript_Tiger.svg");
-
-async fn run(event_loop: EventLoop<UserEvent>, window: Window, args: Args) {
+async fn run(event_loop: EventLoop<UserEvent>, window: Window, args: Args, mut scenes: SceneSet) {
     use winit::{event::*, event_loop::ControlFlow};
     let mut render_cx = RenderContext::new().unwrap();
     let size = window.inner_size();
@@ -62,44 +68,20 @@ async fn run(event_loop: EventLoop<UserEvent>, window: Window, args: Args) {
         .await;
     let device_handle = &render_cx.devices[surface.dev_id];
     let mut renderer = Renderer::new(&device_handle.device).unwrap();
-    let mut simple_text = simple_text::SimpleText::new();
-    let mut current_frame = 0usize;
     let mut scene = Scene::new();
-    let mut cached_svg_scene = None;
-    let mut drag = Vec2::default();
-    let mut scale = 1f64;
+    let mut fragment = SceneFragment::new();
+    let mut simple_text = SimpleText::new();
+    let start = Instant::now();
+
+    let mut transform = Affine::IDENTITY;
     let mut mouse_down = false;
-    let mut prior_position = None;
-    let mut svg_static_scale = 1.0;
+    let mut prior_position: Option<Vec2> = None;
     // We allow looping left and right through the scenes, so use a signed index
     let mut scene_ix: i32 = 0;
-    #[cfg(not(target_arch = "wasm32"))]
-    let svg_string: Cow<'static, str> = match args.svg {
-        Some(path) => {
-            // If an svg file has been specified, show that by default
-            scene_ix = 2;
-            let start = std::time::Instant::now();
-            eprintln!("Reading svg from {path:?}");
-            let svg = std::fs::read_to_string(path)
-                .expect("Provided path did not point to a file which could be read")
-                .into();
-            eprintln!("Finished reading svg, took {:?}", start.elapsed());
-            svg
-        }
-        None => {
-            svg_static_scale = 6.0;
-            TIGER.into()
-        }
-    };
-    #[cfg(target_arch = "wasm32")]
-    let svg_string: Cow<'static, str> = TIGER.into();
-    // These are set after choosing the svg, as they overwrite the defaults specified there
     if let Some(set_scene) = args.scene {
         scene_ix = set_scene;
     }
-    if let Some(set_scale) = args.scale {
-        svg_static_scale = set_scale;
-    }
+    let mut prev_scene_ix = scene_ix - 1;
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent {
             ref event,
@@ -128,13 +110,23 @@ async fn run(event_loop: EventLoop<UserEvent>, window: Window, args: Args) {
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                if let MouseScrollDelta::PixelDelta(delta) = delta {
-                    scale += delta.y * 0.1;
-                    scale = scale.clamp(0.1, 10.0);
-                }
-                if let MouseScrollDelta::LineDelta(_, y) = delta {
-                    scale += *y as f64 * 0.1;
-                    scale = scale.clamp(0.1, 10.0);
+                const BASE: f64 = 1.05;
+                const PIXELS_PER_LINE: f64 = 20.0;
+
+                if let Some(prior_position) = prior_position {
+                    let exponent = if let MouseScrollDelta::PixelDelta(delta) = delta {
+                        delta.y / PIXELS_PER_LINE
+                    } else if let MouseScrollDelta::LineDelta(_, y) = delta {
+                        *y as f64
+                    } else {
+                        0.0
+                    };
+                    transform = Affine::translate(prior_position)
+                        * Affine::scale(BASE.powf(exponent))
+                        * Affine::translate(-prior_position)
+                        * transform;
+                } else {
+                    eprintln!("Scrolling without mouse in window; this shouldn't be possible");
                 }
             }
             WindowEvent::CursorLeft { .. } => {
@@ -144,7 +136,7 @@ async fn run(event_loop: EventLoop<UserEvent>, window: Window, args: Args) {
                 let position = Vec2::new(position.x, position.y);
                 if mouse_down {
                     if let Some(prior) = prior_position {
-                        drag += (position - prior) * (1.0 / scale);
+                        transform = Affine::translate(position - prior) * transform;
                     }
                 }
                 prior_position = Some(position);
@@ -155,34 +147,27 @@ async fn run(event_loop: EventLoop<UserEvent>, window: Window, args: Args) {
             window.request_redraw();
         }
         Event::RedrawRequested(_) => {
-            current_frame += 1;
             let width = surface.config.width;
             let height = surface.config.height;
             let device_handle = &render_cx.devices[surface.dev_id];
-            let mut builder = SceneBuilder::for_scene(&mut scene);
 
-            const N_SCENES: i32 = 6;
             // Allow looping forever
-            scene_ix = scene_ix.rem_euclid(N_SCENES);
-            // Remainder operation allows negative results, which isn't the right semantics
-            match scene_ix {
-                0 => test_scene::render_anim_frame(&mut builder, &mut simple_text, current_frame),
-                1 => test_scene::render_blend_grid(&mut builder),
-                2 => {
-                    let transform = Affine::scale(scale) * Affine::translate(drag);
-                    test_scene::render_svg_scene(
-                        &mut builder,
-                        &mut cached_svg_scene,
-                        transform,
-                        &svg_string,
-                        svg_static_scale,
-                    )
-                }
-                3 => test_scene::render_brush_transform(&mut builder, current_frame),
-                4 => test_scene::render_funky_paths(&mut builder),
-                5 => test_scene::render_scene(&mut builder),
-                _ => unreachable!("N_SCENES is too large"),
+            scene_ix = scene_ix.rem_euclid(scenes.scenes.len() as i32);
+            let example_scene = &mut scenes.scenes[scene_ix as usize];
+            if prev_scene_ix != scene_ix {
+                transform = Affine::IDENTITY;
+                prev_scene_ix = scene_ix;
+                window.set_title(&format!("Vello demo - {}", example_scene.config.name));
             }
+            let mut builder = SceneBuilder::for_fragment(&mut fragment);
+            let mut params = SceneParams {
+                time: start.elapsed().as_secs_f64(),
+                text: &mut simple_text,
+            };
+            (example_scene.function)(&mut builder, &mut params);
+            builder.finish();
+            let mut builder = SceneBuilder::for_scene(&mut scene);
+            builder.append(&fragment, Some(transform));
             builder.finish();
             let surface_texture = surface
                 .surface
@@ -242,8 +227,9 @@ enum UserEvent {
     HotReload,
 }
 
-fn main() {
+fn main() -> Result<()> {
     let args = Args::parse();
+    let scenes = args.args.select_scene_set(|| Args::command())?;
     // TODO: initializing both env_logger and console_logger fails on wasm.
     // Figure out a more principled approach.
     #[cfg(not(target_arch = "wasm32"))]
@@ -263,7 +249,7 @@ fn main() {
             .with_title("Vello demo")
             .build(&event_loop)
             .unwrap();
-        pollster::block_on(run(event_loop, window, args));
+        pollster::block_on(run(event_loop, window, args, scenes));
     }
     #[cfg(target_arch = "wasm32")]
     {
@@ -285,4 +271,5 @@ fn main() {
             .expect("couldn't append canvas to document body");
         wasm_bindgen_futures::spawn_local(run(event_loop, window, args));
     }
+    Ok(())
 }

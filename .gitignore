@@ -1,2 +1,4 @@
 /target
 Cargo.lock
+examples/assets/downloads/*
+!examples/assets/downloads/.tracked
