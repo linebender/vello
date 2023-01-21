@@ -96,13 +96,12 @@ impl RenderContext {
 
     /// Creates a compatible device handle id.
     async fn new_device(&mut self, compatible_surface: Option<&Surface>) -> Option<usize> {
-        let adapter = self
-            .instance
-            .request_adapter(&RequestAdapterOptions {
-                compatible_surface,
-                ..Default::default()
-            })
-            .await?;
+        let adapter = wgpu::util::initialize_adapter_from_env_or_default(
+            &self.instance,
+            wgpu::Backends::PRIMARY,
+            compatible_surface,
+        )
+        .await?;
         let features = adapter.features();
         let limits = Limits::default();
         let (device, queue) = adapter
