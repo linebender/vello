@@ -18,7 +18,7 @@ pub(crate) struct Download {
 
 fn default_directory() -> Result<PathBuf> {
     Ok(Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../assets/downloads")
+        .join("../assets/downloads")
         .canonicalize()?)
 }
 
@@ -40,7 +40,8 @@ impl Download {
                     println!(
                         "{} ({}) under license {} from {}",
                         download.name,
-                        byte_unit::Byte::from_bytes(builtin.expected_size.into()),
+                        byte_unit::Byte::from_bytes(builtin.expected_size.into())
+                            .get_appropriate_unit(false),
                         builtin.license,
                         builtin.info
                     );

@@ -163,10 +163,17 @@ async fn run(event_loop: EventLoop<UserEvent>, window: Window, args: Args, mut s
             let mut params = SceneParams {
                 time: start.elapsed().as_secs_f64(),
                 text: &mut simple_text,
+                resolution: None,
             };
             (example_scene.function)(&mut builder, &mut params);
             builder.finish();
             let mut builder = SceneBuilder::for_scene(&mut scene);
+            let mut transform = transform;
+            if let Some(resolution) = params.resolution {
+                let factor = Vec2::new(surface.config.width as f64, surface.config.height as f64);
+                let scale_factor = (factor.x / resolution.x).min(factor.y / resolution.y);
+                transform = transform * Affine::scale(scale_factor);
+            }
             builder.append(&fragment, Some(transform));
             builder.finish();
             let surface_texture = surface

@@ -11,11 +11,12 @@ pub use simple_text::SimpleText;
 pub use svg::{default_scene, scene_from_files};
 pub use test_scenes::test_scenes;
 
-use vello::SceneBuilder;
+use vello::{kurbo::Vec2, SceneBuilder};
 
 pub struct SceneParams<'a> {
     pub time: f64,
     pub text: &'a mut SimpleText,
+    pub resolution: Option<Vec2>,
 }
 
 pub struct SceneConfig {

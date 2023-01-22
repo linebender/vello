@@ -5,7 +5,7 @@ use std::{
 };
 
 use anyhow::{Ok, Result};
-use vello::{SceneBuilder, SceneFragment};
+use vello::{kurbo::Vec2, SceneBuilder, SceneFragment};
 use vello_svg::usvg;
 
 use crate::{ExampleScene, SceneSet};
@@ -16,7 +16,7 @@ pub fn scene_from_files(files: &[PathBuf]) -> Result<SceneSet> {
 
 pub fn default_scene(command: impl FnOnce() -> clap::Command) -> Result<SceneSet> {
     let assets_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../assets/")
+        .join("../assets/")
         .canonicalize()?;
     let mut has_empty_directory = false;
     let result = scene_from_files_inner(
@@ -28,10 +28,11 @@ pub fn default_scene(command: impl FnOnce() -> clap::Command) -> Result<SceneSet
     )?;
     if has_empty_directory {
         let mut command = command();
-        let subcmd = command.find_subcommand_mut("download").unwrap();
+        command.build();
         println!(
             "No test files have been downloaded. Consider downloading some using the subcommand:"
         );
+        let subcmd = command.find_subcommand_mut("download").unwrap();
         subcmd.print_help()?;
     }
     Ok(result)
@@ -46,10 +47,10 @@ fn scene_from_files_inner(
         if path.is_dir() {
             let mut count = 0;
             for file in read_dir(path)? {
-                count += 1;
                 let entry = file?;
                 if let Some(extension) = Path::new(&entry.file_name()).extension() {
                     if extension == "svg" {
+                        count += 1;
                         scenes.push(example_scene_of(entry.path()))
                     }
                 }
@@ -72,8 +73,8 @@ fn example_scene_of(file: PathBuf) -> ExampleScene {
     let name_stored = name.clone();
     let mut cached_scene = None;
     ExampleScene {
-        function: Box::new(move |builder, _| {
-            let scene_frag = cached_scene.get_or_insert_with(|| {
+        function: Box::new(move |builder, params| {
+            let (scene_frag, resolution) = cached_scene.get_or_insert_with(|| {
                 let start = Instant::now();
                 let contents = std::fs::read_to_string(&file).expect("failed to read svg file");
                 let svg = usvg::Tree::from_str(&contents, &usvg::Options::default())
@@ -85,9 +86,11 @@ fn example_scene_of(file: PathBuf) -> ExampleScene {
                 let mut new_scene = SceneFragment::new();
                 let mut builder = SceneBuilder::for_fragment(&mut new_scene);
                 vello_svg::render_tree(&mut builder, &svg);
-                new_scene
+                let resolution = Vec2::new(svg.size.width(), svg.size.height());
+                (new_scene, resolution)
             });
             builder.append(&scene_frag, None);
+            params.resolution = Some(*resolution);
         }),
         config: crate::SceneConfig {
             animated: false,
