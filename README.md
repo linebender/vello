@@ -114,7 +114,7 @@ Vello was previously known as `piet-gpu`.
 This prior incarnation used a custom cross-API hardware abstraction layer, called `piet-gpu-hal`, instead of [`wgpu`].
 
 An archive of this version can be found in the branches [`custom-hal-archive-with-shaders`] and [`custom-hal-archive`].
-This succeeded the previous prototype, [piet-metal], and included work adapted from [piet-dx12] by Brian Merchant.
+This succeeded the previous prototype, [piet-metal], and included work adapted from [piet-dx12].
 
 The decision to lay down `piet-gpu-hal` in favor of WebGPU is discussed in detail in the blog post [Requiem for piet-gpu-hal].
 
