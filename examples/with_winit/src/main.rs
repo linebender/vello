@@ -235,48 +235,51 @@ enum UserEvent {
 }
 
 fn main() -> Result<()> {
+    env_logger::init();
     let args = Args::parse();
     let scenes = args.args.select_scene_set(|| Args::command())?;
     // TODO: initializing both env_logger and console_logger fails on wasm.
     // Figure out a more principled approach.
     #[cfg(not(target_arch = "wasm32"))]
-    env_logger::init();
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        use winit::{dpi::LogicalSize, window::WindowBuilder};
-        let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
+    if let Some(scenes) = scenes {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            use winit::{dpi::LogicalSize, window::WindowBuilder};
+            let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
 
-        let proxy = event_loop.create_proxy();
-        let _keep =
-            hot_reload::hot_reload(move || proxy.send_event(UserEvent::HotReload).ok().map(drop));
+            let proxy = event_loop.create_proxy();
+            let _keep = hot_reload::hot_reload(move || {
+                proxy.send_event(UserEvent::HotReload).ok().map(drop)
+            });
 
-        let window = WindowBuilder::new()
-            .with_inner_size(LogicalSize::new(1044, 800))
-            .with_resizable(true)
-            .with_title("Vello demo")
-            .build(&event_loop)
-            .unwrap();
-        pollster::block_on(run(event_loop, window, args, scenes));
-    }
-    #[cfg(target_arch = "wasm32")]
-    {
-        let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
-        let window = winit::window::Window::new(&event_loop).unwrap();
+            let window = WindowBuilder::new()
+                .with_inner_size(LogicalSize::new(1044, 800))
+                .with_resizable(true)
+                .with_title("Vello demo")
+                .build(&event_loop)
+                .unwrap();
+            pollster::block_on(run(event_loop, window, args, scenes));
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
+            let window = winit::window::Window::new(&event_loop).unwrap();
 
-        std::panic::set_hook(Box::new(console_error_panic_hook::hook));
-        console_log::init().expect("could not initialize logger");
-        use winit::platform::web::WindowExtWebSys;
+            std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+            console_log::init().expect("could not initialize logger");
+            use winit::platform::web::WindowExtWebSys;
 
-        // On wasm, append the canvas to the document body
-        let canvas = window.canvas();
-        canvas.set_width(1044);
-        canvas.set_height(800);
-        web_sys::window()
-            .and_then(|win| win.document())
-            .and_then(|doc| doc.body())
-            .and_then(|body| body.append_child(&web_sys::Element::from(canvas)).ok())
-            .expect("couldn't append canvas to document body");
-        wasm_bindgen_futures::spawn_local(run(event_loop, window, args));
+            // On wasm, append the canvas to the document body
+            let canvas = window.canvas();
+            canvas.set_width(1044);
+            canvas.set_height(800);
+            web_sys::window()
+                .and_then(|win| win.document())
+                .and_then(|doc| doc.body())
+                .and_then(|body| body.append_child(&web_sys::Element::from(canvas)).ok())
+                .expect("couldn't append canvas to document body");
+            wasm_bindgen_futures::spawn_local(run(event_loop, window, args));
+        }
     }
     Ok(())
 }

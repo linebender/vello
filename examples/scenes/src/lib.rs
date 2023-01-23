@@ -49,16 +49,22 @@ enum Command {
 }
 
 impl Arguments {
-    pub fn select_scene_set(&self, command: impl FnOnce() -> clap::Command) -> Result<SceneSet> {
+    pub fn select_scene_set(
+        &self,
+        command: impl FnOnce() -> clap::Command,
+    ) -> Result<Option<SceneSet>> {
         if let Some(command) = &self.command {
-            command.action()?
-        }
-        if self.test_scenes {
-            Ok(test_scenes())
-        } else if let Some(svgs) = &self.svgs {
-            scene_from_files(&svgs)
+            command.action()?;
+            Ok(None)
         } else {
-            default_scene(command)
+            if self.test_scenes {
+                Ok(test_scenes())
+            } else if let Some(svgs) = &self.svgs {
+                scene_from_files(&svgs)
+            } else {
+                default_scene(command)
+            }
+            .map(Some)
         }
     }
 }
