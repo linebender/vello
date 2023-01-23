@@ -1,6 +1,10 @@
-use std::path::{Path, PathBuf};
+use std::{
+    io::Seek,
+    path::{Path, PathBuf},
+};
 
-use anyhow::Result;
+use anyhow::{bail, Context, Result};
+use byte_unit::Byte;
 use clap::Args;
 use std::io::Read;
 mod default_downloads;
@@ -8,18 +12,23 @@ mod default_downloads;
 #[derive(Args, Debug)]
 pub(crate) struct Download {
     #[clap(long)]
-    pub directory: Option<PathBuf>,
+    /// Directory to download the files into. Defaults to
+    #[clap(default_value_os_t = default_directory())]
+    pub directory: PathBuf,
     downloads: Option<Vec<String>>,
     #[clap(long)]
     auto: bool,
-    #[clap(long, default_value_t = 10_000_000)]
-    size_limit: u64,
+    #[clap(long, default_value_t =  Byte::from_bytes(10_000_000))]
+    size_limit: Byte,
 }
 
-fn default_directory() -> Result<PathBuf> {
-    Ok(Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../assets/downloads")
-        .canonicalize()?)
+fn default_directory() -> PathBuf {
+    let mut result = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("assets");
+    result.push("downloads");
+    result
 }
 
 impl Download {
@@ -32,40 +41,51 @@ impl Download {
                 .collect();
         } else {
             let mut accepted = self.auto;
-            let downloads = default_downloads::default_downloads();
+            let downloads = default_downloads::default_downloads()
+                .into_iter()
+                .filter(|it| {
+                    let file = it.file_path(&self.directory);
+                    !file.exists()
+                })
+                .collect::<Vec<_>>();
             if !accepted {
-                println!("Would you like to download a set of default svg files? These files are:");
-                for download in &downloads {
-                    let builtin = download.builtin.as_ref().unwrap();
+                if downloads.len() != 0 {
                     println!(
-                        "{} ({}) under license {} from {}",
-                        download.name,
-                        byte_unit::Byte::from_bytes(builtin.expected_size.into())
-                            .get_appropriate_unit(false),
-                        builtin.license,
-                        builtin.info
+                        "Would you like to download a set of default svg files? These files are:"
                     );
-                }
+                    for download in &downloads {
+                        let builtin = download.builtin.as_ref().unwrap();
+                        println!(
+                            "{} ({}) under license {} from {}",
+                            download.name,
+                            byte_unit::Byte::from_bytes(builtin.expected_size.into())
+                                .get_appropriate_unit(false),
+                            builtin.license,
+                            builtin.info
+                        );
+                    }
 
-                // For rustfmt, split prompt into its own line
-                const PROMPT: &str =
-                    "Would you like to download a set of default svg files, as explained above?";
-                accepted = dialoguer::Confirm::new()
-                    .with_prompt(PROMPT)
-                    .wait_for_newline(true)
-                    .interact()?;
+                    // For rustfmt, split prompt into its own line
+                    const PROMPT: &str =
+                "Would you like to download a set of default svg files, as explained above?";
+                    accepted = dialoguer::Confirm::new()
+                        .with_prompt(PROMPT)
+                        .wait_for_newline(true)
+                        .interact()?;
+                } else {
+                    println!("Nothing to download! All default downloads already created");
+                }
             }
             if accepted {
                 to_download = downloads;
             }
         }
-        let directory = &self.directory.clone().unwrap_or(default_directory()?);
         for (index, download) in to_download.iter().enumerate() {
             println!(
                 "{index}: Downloading {} from {}",
                 download.name, download.url
             );
-            download.fetch(&directory, self.size_limit)?
+            download.fetch(&self.directory, self.size_limit)?
         }
         println!("{} downloads complete", to_download.len());
         Ok(())
@@ -103,22 +123,41 @@ struct SVGDownload {
 }
 
 impl SVGDownload {
-    fn fetch(&self, directory: &Path, size_limit: u64) -> Result<()> {
-        // ureq::into_string() has a limit of 10MiB so let's use the reader directly:
-        let mut size_limit = size_limit;
-        let mut buf: Vec<u8> = Vec::new();
+    fn file_path(&self, directory: &Path) -> PathBuf {
+        directory.join(&self.name).with_extension("svg")
+    }
+
+    fn fetch(&self, directory: &Path, size_limit: Byte) -> Result<()> {
+        let mut size_limit = size_limit.get_bytes().try_into()?;
+        let mut limit_exact = false;
         if let Some(builtin) = &self.builtin {
             size_limit = builtin.expected_size;
-            buf.reserve(size_limit.try_into()?);
+            limit_exact = true;
         }
-        ureq::get(&self.url)
-            .call()?
-            .into_reader()
-            .take(size_limit)
-            .read_to_end(&mut buf)?;
-        let body: String = String::from_utf8_lossy(&buf).to_string();
+        let mut file = std::fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&self.file_path(directory))
+            .context("Creating file")?;
+        let mut reader = ureq::get(&self.url).call()?.into_reader();
 
-        std::fs::write(directory.join(&self.name).with_extension(".svg"), &body)?;
+        std::io::copy(
+            // ureq::into_string() has a limit of 10MiB so we must use the reader
+            &mut (&mut reader).take(size_limit),
+            &mut file,
+        )?;
+        if reader.read_exact(&mut [0]).is_ok() {
+            bail!("Size limit exceeded");
+        }
+        if limit_exact {
+            if file
+                .seek(std::io::SeekFrom::Current(0))
+                .context("Checking file limit")?
+                != size_limit
+            {
+                bail!("Builtin downloaded file was not as expected");
+            }
+        }
         Ok(())
     }
 }

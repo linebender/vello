@@ -35,9 +35,13 @@ pub struct SceneSet {
 }
 
 #[derive(Args, Debug)]
+/// Shared config for scene selection
 pub struct Arguments {
-    #[arg(short = 't', long)]
+    #[arg(help_heading = "Scene Selection")]
+    #[arg(short = 't', long, global(false))]
     test_scenes: bool,
+    #[arg(help_heading = "Scene Selection", global(false))]
+    /// The svg files to render
     svgs: Option<Vec<PathBuf>>,
     #[clap(subcommand)]
     command: Option<Command>,
@@ -45,6 +49,7 @@ pub struct Arguments {
 
 #[derive(Subcommand, Debug)]
 enum Command {
+    /// Download SVG files for testing. By default, downloads a set of files from wikipedia
     Download(Download),
 }
 
