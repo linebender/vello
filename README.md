@@ -1,12 +1,13 @@
 <div align="center">
 
-# vello
+# Vello
 
 **An experimental GPU compute-centric 2D renderer**
 
 [![Xi Zulip](https://img.shields.io/badge/Xi%20Zulip-%23gpu-blue?logo=Zulip)](https://xi.zulipchat.com/#narrow/stream/197075-gpu)
 [![dependency status](https://deps.rs/repo/github/linebender/vello/status.svg)](https://deps.rs/repo/github/linebender/vello)
 [![MIT/Apache 2.0](https://img.shields.io/badge/license-MIT%2FApache-blue.svg)](#license)
+[![wgpu version](https://img.shields.io/badge/wgpu-v0.14-orange.svg)](https://crates.io/crates/wgpu)
 <!-- [![Crates.io](https://img.shields.io/crates/v/vello.svg)](https://crates.io/crates/vello) -->
 <!-- [![Docs](https://docs.rs/vello/badge.svg)](https://docs.rs/vello) -->
 <!-- [![Build status](https://github.com/linebender/vello/workflows/CI/badge.svg)](https://github.com/linebender/vello/actions) -->
@@ -18,7 +19,7 @@ It efficiently draws large 2d scenes with interactive or near-interactive perfor
 
 <!-- Impressive picture here -->
 
-It is used as the rendering backend for [xilem], a UI toolkit.
+It is used as the rendering backend for [Xilem], a UI toolkit.
 
 ## Examples
 
@@ -29,8 +30,8 @@ Examples must be selected using the `--package` (or `-p`) Cargo flag.
 ### Winit
 
 Our [winit] example ([examples/with_winit](examples/with_winit)) demonstrates rendering to a [winit] window.
-It also includes a collection of test scenes showing the capabilities of vello.
-One of these scenes uses an incomplete svg parser/renderer to render the [GhostScript tiger].
+It also includes a collection of test scenes showing the capabilities of `vello`.
+One of these scenes uses a custom partial svg parser to render the [GhostScript tiger].
 
 ```shell
 cargo run -p with_winit
@@ -38,7 +39,7 @@ cargo run -p with_winit
 
 ### Bevy
 
-The [Bevy] example ([examples/with_bevy](examples/with_bevy)) demonstrates using vello within a [Bevy] application.
+The [Bevy] example ([examples/with_bevy](examples/with_bevy)) demonstrates using Vello within a [Bevy] application.
 This currently draws to a [`wgpu`] `Texture` using `vello`, then uses that texture as the faces of a cube.
 
 ```shell
@@ -57,6 +58,12 @@ cargo run --release -p run-wasm -- --package with_winit
 ```
 
 Additionally, the web is not currently a primary target, so other issues are likely to arise.
+
+## Community
+
+[![Xi Zulip](https://img.shields.io/badge/Xi%20Zulip-%23gpu-blue?logo=Zulip)](https://xi.zulipchat.com/#narrow/stream/197075-gpu)
+
+Discussion of Vello development happens in the [Xi Zulip](https://xi.zulipchat.com/#narrow/stream/197075-gpu/topic/WGSL.20port), specifically the [#gpu stream](https://xi.zulipchat.com/#narrow/stream/197075-gpu/topic/WGSL.20port).
 
 ## Shader templating
 
@@ -86,7 +93,8 @@ The goal is to be more agile.
 
 ## Goals
 
-The major goal of Vello is to provide a high quality GPU accelerated renderer suitable for a range of 2D graphics applications, including rendering for GUI applications, creative tools, and scientific visualization. The [roadmap for 2023](doc/roadmap_2023.md) explains the goals and plans for the next few months of development
+The major goal of Vello is to provide a high quality GPU accelerated renderer suitable for a range of 2D graphics applications, including rendering for GUI applications, creative tools, and scientific visualization.
+The [roadmap for 2023](doc/roadmap_2023.md) explains the goals and plans for the next few months of development
 
 Vello emerges from being a research project, which attempts to answer these hypotheses:
 
@@ -96,17 +104,22 @@ Vello emerges from being a research project, which attempts to answer these hypo
 
 - Can we improve quality and extend the imaging model in useful ways?
 
-Another goal of the overall project is to explain how the renderer is built, and to advance the state of building applications on GPU compute shaders more generally. Much of the progress on piet-gpu is documented in blog entries. See [doc/blogs.md](doc/blogs.md) for pointers to those.
+Another goal of the overall project is to explain how the renderer is built, and to advance the state of building applications on GPU compute shaders more generally. 
+Much of the progress on Vello is documented in blog entries.
+See [doc/blogs.md](doc/blogs.md) for pointers to those.
 
 ## History
 
-Vello was previously known as `piet-gpu`. This prior incarnation used a custom cross-API hardware abstraction layer, called `piet-gpu-hal`, instead of [`wgpu`]. The decision to lay down `piet-gpu-hal` in favor of WebGPU is discussed in detail in the blog post [Requiem for piet-gpu-hal].
+Vello was previously known as `piet-gpu`. 
+This prior incarnation used a custom cross-API hardware abstraction layer, called `piet-gpu-hal`, instead of [`wgpu`].
+
+An archive of this version can be found in the branches [`custom-hal-archive-with-shaders`] and [`custom-hal-archive`].
+This succeeded the previous prototype, [piet-metal], and included work adapted from [piet-dx12].
+
+The decision to lay down `piet-gpu-hal` in favor of WebGPU is discussed in detail in the blog post [Requiem for piet-gpu-hal].
 
 A [vision](doc/vision.md) document dated December 2020 explained the longer-term goals of the project, and how we might get there.
 Many of these items are out-of-date or completed, but it still may provide some useful background.
-
-An archive of this version can be found in the branches [`custom-hal-archive-with-shaders`] and [`custom-hal-archive`].
-This succeeded the previous prototype, [piet-metal], and included work adapted from [piet-dx12] by Brian Merchant.
 
 ## Related projects
 
@@ -148,7 +161,7 @@ licensed as above, without any additional terms or conditions.
 [piet-metal]: https://github.com/linebender/piet-metal
 [direct2d]: https://docs.microsoft.com/en-us/windows/win32/direct2d/direct2d-portal
 [`wgpu`]: https://wgpu.rs/
-[xilem]: https://github.com/linebender/xilem/
+[Xilem]: https://github.com/linebender/xilem/
 [rust code of conduct]: https://www.rust-lang.org/policies/code-of-conduct
 [`custom-hal-archive-with-shaders`]: https://github.com/linebender/piet-gpu/tree/custom-hal-archive-with-shaders
 [`custom-hal-archive`]: https://github.com/linebender/piet-gpu/tree/custom-hal-archive
