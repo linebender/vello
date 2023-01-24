@@ -10,7 +10,8 @@ version = "0.1.0"
 [patch.crates-io]
 # Required for metal support to work on wgpu
 # TODO: remove when wgpu is upgraded to 0.15
-naga = { git = "https://github.com/gfx-rs/naga", rev = "ddcd5d3121150b2b1beee6e54e9125ff31aaa9a2" }
+# naga = { git = "https://github.com/gfx-rs/naga", rev = "ddcd5d3121150b2b1beee6e54e9125ff31aaa9a2" }
+wgpu = {git = "https://github.com/gfx-rs/wgpu", rev = "5a999e624a2f86cac30db48e333458942f0e3660"}
 
 [package]
 name = "vello"
