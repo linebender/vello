@@ -139,10 +139,10 @@ pub fn preprocess(input: &str, defines: &HashSet<String>, imports: &HashMap<&str
             }
         }
         if stack.iter().all(|item| item.active) {
-            // Naga does not yet recognize `const` but web does not allow global `let`. We
+            // wgsl-analyzer does not yet recognize `const` but naga does not allow global `let`. We
             // use `let` in our canonical sources to satisfy wgsl-analyzer but replace with
-            // `const` when targeting web.
-            if cfg!(target_arch = "wasm32") && line.starts_with("let ") {
+            // `const` when using
+            if line.starts_with("let ") {
                 output.push_str("const");
                 output.push_str(&line[3..]);
             } else {
