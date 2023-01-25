@@ -717,6 +717,7 @@ impl ResourcePool {
         let props = BufferProperties {
             size: rounded_size,
             usages: usage,
+            #[cfg(feature = "buffer_labels")]
             name: name,
         };
         if let Some(buf_vec) = self.bufs.get_mut(&props) {
