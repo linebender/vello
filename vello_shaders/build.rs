@@ -13,7 +13,10 @@ use compile::ShaderInfo;
 fn main() {
     let out_dir = env::var_os("OUT_DIR").unwrap();
     let dest_path = Path::new(&out_dir).join("shaders.rs");
-    let shaders = compile::ShaderInfo::from_dir("../shader");
+    let mut shaders = compile::ShaderInfo::from_dir("../shader");
+    // Drop the HashMap and sort by name so that we get deterministic order.
+    let mut shaders = shaders.drain().collect::<Vec<_>>();
+    shaders.sort_by(|x, y| x.0.cmp(&y.0));
     let mut buf = String::default();
     write_types(&mut buf, &shaders).unwrap();
     if cfg!(feature = "wgsl") {
@@ -34,7 +37,7 @@ fn main() {
 
 fn write_types(
     buf: &mut String,
-    shaders: &HashMap<String, ShaderInfo>,
+    shaders: &[(String, ShaderInfo)],
 ) -> Result<(), std::fmt::Error> {
     writeln!(buf, "pub struct Shaders<'a> {{")?;
     for (name, _) in shaders {
@@ -64,7 +67,7 @@ fn write_types(
 fn write_shaders(
     buf: &mut String,
     mod_name: &str,
-    shaders: &HashMap<String, ShaderInfo>,
+    shaders: &[(String, ShaderInfo)],
     translate: impl Fn(&ShaderInfo) -> Vec<u8>,
 ) -> Result<(), std::fmt::Error> {
     writeln!(buf, "pub mod {mod_name} {{")?;
