@@ -1,0 +1,17 @@
+[package]
+name = "vello_shaders"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = ["compile", "wgsl", "msl"]
+compile = ["naga"]
+wgsl = []
+msl = []
+
+[dependencies]
+naga = { git = "https://github.com/gfx-rs/naga", features = ["wgsl-in", "msl-out", "validate"], optional = true }
+
+[build-dependencies]
+naga = { git = "https://github.com/gfx-rs/naga", features = ["wgsl-in", "msl-out", "validate"] }
+
