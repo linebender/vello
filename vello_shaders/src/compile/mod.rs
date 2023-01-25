@@ -65,8 +65,8 @@ impl ShaderInfo {
                 continue;
             }
             let Some(binding) = &var.binding else {
-            continue;
-        };
+                continue;
+            };
             let mut resource = BindingInfo {
                 name: var.name.clone(),
                 location: (binding.group, binding.binding),
