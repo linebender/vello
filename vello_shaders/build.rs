@@ -3,7 +3,6 @@ mod compile;
 #[path = "src/types.rs"]
 mod types;
 
-use std::collections::HashMap;
 use std::env;
 use std::fmt::Write;
 use std::path::Path;
@@ -35,10 +34,7 @@ fn main() {
     println!("cargo:rerun-if-changed=../shader");
 }
 
-fn write_types(
-    buf: &mut String,
-    shaders: &[(String, ShaderInfo)],
-) -> Result<(), std::fmt::Error> {
+fn write_types(buf: &mut String, shaders: &[(String, ShaderInfo)]) -> Result<(), std::fmt::Error> {
     writeln!(buf, "pub struct Shaders<'a> {{")?;
     for (name, _) in shaders {
         writeln!(buf, "    pub {name}: ComputeShader<'a>,")?;
