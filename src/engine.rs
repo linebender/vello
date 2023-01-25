@@ -16,7 +16,7 @@
 
 use std::{
     borrow::Cow,
-    collections::{hash_map::Entry, HashMap},
+    collections::{hash_map::Entry, HashMap, HashSet},
     num::{NonZeroU32, NonZeroU64},
     sync::atomic::{AtomicU64, Ordering},
 };
@@ -42,6 +42,7 @@ static ID_COUNTER: AtomicU64 = AtomicU64::new(0);
 pub struct Engine {
     shaders: Vec<Shader>,
     pool: ResourcePool,
+    bind_map: BindMap,
 }
 
 struct Shader {
@@ -96,6 +97,8 @@ pub enum Command {
     Dispatch(ShaderId, (u32, u32, u32), Vec<ResourceProxy>),
     Download(BufProxy),
     Clear(BufProxy, u64, Option<NonZeroU64>),
+    FreeBuf(BufProxy),
+    FreeImage(ImageProxy),
 }
 
 #[derive(Default)]
@@ -149,6 +152,7 @@ impl Engine {
         Engine {
             shaders: vec![],
             pool: Default::default(),
+            bind_map: Default::default(),
         }
     }
 
@@ -250,8 +254,9 @@ impl Engine {
         recording: &Recording,
         external_resources: &[ExternalResource],
     ) -> Result<Downloads, Error> {
-        let mut bind_map = BindMap::default();
         let mut downloads = Downloads::default();
+        let mut free_bufs: HashSet<Id> = Default::default();
+        let mut free_images: HashSet<Id> = Default::default();
 
         let mut encoder = device.create_command_encoder(&Default::default());
         for command in &recording.commands {
@@ -263,14 +268,14 @@ impl Engine {
                     // TODO: if buffer is newly created, might be better to make it mapped at creation
                     // and copy. However, we expect reuse will be most common.
                     queue.write_buffer(&buf, 0, bytes);
-                    bind_map.insert_buf(buf_proxy, buf);
+                    self.bind_map.insert_buf(buf_proxy, buf);
                 }
                 Command::UploadUniform(buf_proxy, bytes) => {
                     let usage = BufferUsages::UNIFORM | BufferUsages::COPY_DST;
                     // Same consideration as above
                     let buf = self.pool.get_buf(buf_proxy, usage, device);
                     queue.write_buffer(&buf, 0, bytes);
-                    bind_map.insert_buf(buf_proxy, buf);
+                    self.bind_map.insert_buf(buf_proxy, buf);
                 }
                 Command::UploadImage(image_proxy, bytes) => {
                     let buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -322,12 +327,13 @@ impl Engine {
                             depth_or_array_layers: 1,
                         },
                     );
-                    bind_map.insert_image(image_proxy.id, texture, texture_view)
+                    self.bind_map
+                        .insert_image(image_proxy.id, texture, texture_view)
                 }
                 Command::Dispatch(shader_id, wg_size, bindings) => {
                     // println!("dispatching {:?} with {} bindings", wg_size, bindings.len());
                     let shader = &self.shaders[shader_id.0];
-                    let bind_group = bind_map.create_bind_group(
+                    let bind_group = self.bind_map.create_bind_group(
                         device,
                         &shader.bind_group_layout,
                         bindings,
@@ -340,7 +346,11 @@ impl Engine {
                     cpass.dispatch_workgroups(wg_size.0, wg_size.1, wg_size.2);
                 }
                 Command::Download(proxy) => {
-                    let src_buf = bind_map.buf_map.get(&proxy.id).ok_or("buffer not in map")?;
+                    let src_buf = self
+                        .bind_map
+                        .buf_map
+                        .get(&proxy.id)
+                        .ok_or("buffer not in map")?;
                     let buf = device.create_buffer(&wgpu::BufferDescriptor {
                         label: Some(proxy.name),
                         size: proxy.size,
@@ -351,13 +361,38 @@ impl Engine {
                     downloads.buf_map.insert(proxy.id, buf);
                 }
                 Command::Clear(proxy, offset, size) => {
-                    let buffer = bind_map.get_or_create(*proxy, device, &mut self.pool)?;
+                    let buffer = self
+                        .bind_map
+                        .get_or_create(*proxy, device, &mut self.pool)?;
                     encoder.clear_buffer(buffer, *offset, *size);
+                }
+                Command::FreeBuf(proxy) => {
+                    free_bufs.insert(proxy.id);
+                }
+                Command::FreeImage(proxy) => {
+                    free_images.insert(proxy.id);
                 }
             }
         }
         queue.submit(Some(encoder.finish()));
-        self.pool.reap_bindmap(bind_map);
+        for id in free_bufs {
+            if let Some(buf) = self.bind_map.buf_map.remove(&id) {
+                let props = BufferProperties {
+                    size: buf.buffer.size(),
+                    usages: buf.buffer.usage(),
+                    #[cfg(feature = "buffer_labels")]
+                    name: buf.label,
+                };
+                self.pool.bufs.entry(props).or_default().push(buf.buffer);
+            }
+        }
+        for id in free_images {
+            if let Some((texture, view)) = self.bind_map.image_map.remove(&id) {
+                // TODO: have a pool to avoid needless re-allocation
+                drop(texture);
+                drop(view);
+            }
+        }
         Ok(downloads)
     }
 }
@@ -412,6 +447,21 @@ impl Recording {
 
     pub fn clear_all(&mut self, buf: BufProxy) {
         self.push(Command::Clear(buf, 0, None));
+    }
+
+    pub fn free_buf(&mut self, buf: BufProxy) {
+        self.push(Command::FreeBuf(buf));
+    }
+
+    pub fn free_image(&mut self, image: ImageProxy) {
+        self.push(Command::FreeImage(image));
+    }
+
+    pub fn free_resource(&mut self, resource: ResourceProxy) {
+        match resource {
+            ResourceProxy::Buf(buf) => self.free_buf(buf),
+            ResourceProxy::Image(image) => self.free_image(image),
+        }
     }
 }
 
@@ -692,7 +742,6 @@ impl ResourcePool {
         let props = BufferProperties {
             size: rounded_size,
             usages: usage,
-            #[cfg(feature = "buffer_labels")]
             name: proxy.name,
         };
         if let Some(buf_vec) = self.bufs.get_mut(&props) {
@@ -709,19 +758,6 @@ impl ResourcePool {
             usage,
             mapped_at_creation: false,
         })
-    }
-
-    fn reap_bindmap(&mut self, bind_map: BindMap) {
-        for (_id, buf) in bind_map.buf_map {
-            let size = buf.buffer.size();
-            let props = BufferProperties {
-                size,
-                usages: buf.buffer.usage(),
-                #[cfg(feature = "buffer_labels")]
-                name: buf.label,
-            };
-            self.bufs.entry(props).or_default().push(buf.buffer);
-        }
     }
 
     /// Quantize a size up to the nearest size class.

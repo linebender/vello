@@ -231,6 +231,7 @@ pub fn render_encoding_full(
         [config_buf, scene_buf, reduced_buf],
     );
     let mut pathtag_parent = reduced_buf;
+    let mut large_pathtag_bufs = None;
     if pathtag_large {
         let reduced2_size = shaders::PATHTAG_REDUCE_WG as usize;
         let reduced2_buf =
@@ -250,6 +251,7 @@ pub fn render_encoding_full(
             [reduced_buf, reduced2_buf, reduced_scan_buf],
         );
         pathtag_parent = reduced_scan_buf;
+        large_pathtag_bufs = Some((reduced2_buf, reduced_scan_buf));
     }
 
     let tagmonoid_buf = ResourceProxy::new_buf(
@@ -266,6 +268,11 @@ pub fn render_encoding_full(
         (pathtag_wgs as u32, 1, 1),
         [config_buf, scene_buf, pathtag_parent, tagmonoid_buf],
     );
+    recording.free_resource(reduced_buf);
+    if let Some((reduced2, reduced_scan)) = large_pathtag_bufs {
+        recording.free_resource(reduced2);
+        recording.free_resource(reduced_scan);
+    }
     let drawobj_wgs = (n_drawobj + shaders::PATH_BBOX_WG - 1) / shaders::PATH_BBOX_WG;
     let path_bbox_buf = ResourceProxy::new_buf(n_paths as u64 * PATH_BBOX_SIZE, "path_bbox_buf");
     recording.dispatch(
@@ -311,6 +318,7 @@ pub fn render_encoding_full(
             clip_inp_buf,
         ],
     );
+    recording.free_resource(draw_reduced_buf);
     let clip_el_buf = ResourceProxy::new_buf(encoding.n_clips as u64 * CLIP_EL_SIZE, "clip_el_buf");
     let clip_bic_buf = ResourceProxy::new_buf(
         (n_clip / shaders::CLIP_REDUCE_WG) as u64 * CLIP_BIC_SIZE,
@@ -347,6 +355,9 @@ pub fn render_encoding_full(
             ],
         );
     }
+    recording.free_resource(clip_inp_buf);
+    recording.free_resource(clip_bic_buf);
+    recording.free_resource(clip_el_buf);
     let draw_bbox_buf = ResourceProxy::new_buf(n_paths as u64 * DRAW_BBOX_SIZE, "draw_bbox_buf");
     let bump_buf = BufProxy::new(BUMP_SIZE, "bump_buf");
     let width_in_bins = (config.width_in_tiles + 15) / 16;
@@ -371,6 +382,9 @@ pub fn render_encoding_full(
             bin_header_buf,
         ],
     );
+    recording.free_resource(draw_monoid_buf);
+    recording.free_resource(path_bbox_buf);
+    recording.free_resource(clip_bbox_buf);
     // Note: this only needs to be rounded up because of the workaround to store the tile_offset
     // in storage rather than workgroup memory.
     let n_path_aligned = align_up(n_paths as usize, 256);
@@ -388,6 +402,7 @@ pub fn render_encoding_full(
             tile_buf,
         ],
     );
+    recording.free_resource(draw_bbox_buf);
     recording.dispatch(
         shaders.path_coarse,
         (path_coarse_wgs, 1, 1),
@@ -402,6 +417,8 @@ pub fn render_encoding_full(
             segments_buf,
         ],
     );
+    recording.free_resource(tagmonoid_buf);
+    recording.free_resource(cubic_buf);
     recording.dispatch(
         shaders.backdrop,
         (path_wgs, 1, 1),
@@ -422,6 +439,12 @@ pub fn render_encoding_full(
             ptcl_buf,
         ],
     );
+    recording.free_resource(scene_buf);
+    recording.free_resource(draw_monoid_buf);
+    recording.free_resource(bin_header_buf);
+    recording.free_resource(path_buf);
+    // TODO: bump_buf is special
+    recording.free_resource(bump_buf);
     let out_image = ImageProxy::new(width, height, ImageFormat::Rgba8);
     recording.dispatch(
         shaders.fine,
@@ -436,6 +459,12 @@ pub fn render_encoding_full(
             info_bin_data_buf,
         ],
     );
+    recording.free_resource(config_buf);
+    recording.free_resource(tile_buf);
+    recording.free_resource(segments_buf);
+    recording.free_resource(ptcl_buf);
+    recording.free_resource(gradient_image);
+    recording.free_resource(info_bin_data_buf);
     (recording, ResourceProxy::Image(out_image))
 }
 
