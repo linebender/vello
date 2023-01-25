@@ -29,7 +29,7 @@ fn main() {
         .unwrap();
     }
     std::fs::write(&dest_path, &buf).unwrap();
-    println!("cargo:rerun-if-changed=../shaders");
+    println!("cargo:rerun-if-changed=../shader");
 }
 
 fn write_types(
