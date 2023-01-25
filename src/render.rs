@@ -196,6 +196,8 @@ pub fn render_encoding_full(
     height: u32,
 ) -> (Recording, ResourceProxy) {
     let mut render = Render::new();
+    // TODO: leaks the download of the bump buf; a good way to fix would be to conditionalize
+    // that download.
     let mut recording = render.render_encoding_coarse(encoding, shaders, width, height);
     let out_image = render.out_image();
     render.record_fine(shaders, &mut recording);
@@ -524,13 +526,14 @@ impl Render {
             info_bin_data_buf,
             out_image,
         });
+        recording.download(*bump_buf.as_buf().unwrap());
+        recording.free_resource(bump_buf);
         recording
     }
 
     /// Run fine rasterization assuming the coarse phase succeeded.
     pub fn record_fine(&mut self, shaders: &FullShaders, recording: &mut Recording) {
         let fine = self.fine.take().unwrap();
-        recording.free_resource(fine.bump_buf);
         recording.dispatch(
             shaders.fine,
             (self.width_in_tiles, self.height_in_tiles, 1),
@@ -558,5 +561,9 @@ impl Render {
     /// map.
     pub fn out_image(&self) -> ImageProxy {
         self.fine.as_ref().unwrap().out_image
+    }
+
+    pub fn bump_buf(&self) -> BufProxy {
+        *self.fine.as_ref().unwrap().bump_buf.as_buf().unwrap()
     }
 }
