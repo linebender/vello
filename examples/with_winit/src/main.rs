@@ -225,6 +225,9 @@ enum UserEvent {
 
 fn main() {
     let args = Args::parse();
+    // TODO: initializing both env_logger and console_logger fails on wasm.
+    // Figure out a more principled approach.
+    #[cfg(not(target_arch = "wasm32"))]
     env_logger::init();
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -261,6 +264,6 @@ fn main() {
             .and_then(|doc| doc.body())
             .and_then(|body| body.append_child(&web_sys::Element::from(canvas)).ok())
             .expect("couldn't append canvas to document body");
-        wasm_bindgen_futures::spawn_local(run(event_loop, window));
+        wasm_bindgen_futures::spawn_local(run(event_loop, window, args));
     }
 }
