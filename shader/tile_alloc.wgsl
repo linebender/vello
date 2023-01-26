@@ -29,6 +29,7 @@ let WG_SIZE = 256u;
 
 var<workgroup> sh_tile_count: array<u32, WG_SIZE>;
 var<workgroup> sh_tile_offset: u32;
+var<workgroup> sh_atomic_failed: u32;
 
 @compute @workgroup_size(256)
 fn main(
@@ -37,8 +38,17 @@ fn main(
 ) {
     // Exit early if prior stages failed, as we can't run this stage.
     // We need to check only prior stages, as if this stage has failed in another workgroup, 
-    // we still want to know this workgroup's memory requirement.   
-    if (atomicLoad(&bump.failed) & STAGE_BINNING) != 0u {
+    // we still want to know this workgroup's memory requirement.
+    if local_id.x == 0u {
+        sh_atomic_failed = atomicLoad(&bump.failed);
+    }
+#ifdef have_uniform
+    let failed = workgroupUniformLoad(&sh_atomic_failed);
+#else
+    workgroupBarrier();
+    let failed = sh_atomic_failed;
+#endif
+    if (failed & STAGE_BINNING) != 0u {
         return;
     }    
     // scale factors useful for converting coordinates to tiles

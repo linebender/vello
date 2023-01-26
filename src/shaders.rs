@@ -160,6 +160,11 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
     let mut small_config = HashSet::new();
     small_config.insert("full".into());
     small_config.insert("small".into());
+    // TODO: remove this workaround when workgroupUniformLoad lands in naga
+    #[allow(unused_mut)]
+    let mut uniform = HashSet::new();
+    #[cfg(target_arch = "wasm32")]
+    uniform.insert("have_uniform".into());
     let pathtag_reduce = engine.add_shader(
         device,
         "pathtag_reduce",
@@ -286,7 +291,7 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
     let tile_alloc = engine.add_shader(
         device,
         "tile_alloc",
-        preprocess::preprocess(shader!("tile_alloc"), &empty, &imports).into(),
+        preprocess::preprocess(shader!("tile_alloc"), &uniform, &imports).into(),
         &[
             BindType::Uniform,
             BindType::BufReadOnly,
@@ -321,7 +326,7 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
     let coarse = engine.add_shader(
         device,
         "coarse",
-        preprocess::preprocess(shader!("coarse"), &empty, &imports).into(),
+        preprocess::preprocess(shader!("coarse"), &uniform, &imports).into(),
         &[
             BindType::Uniform,
             BindType::BufReadOnly,
