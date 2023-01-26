@@ -168,9 +168,7 @@ impl Encoding {
             linewidths: self.linewidths.len(),
         }
     }
-}
 
-impl Encoding {
     /// Encodes a linewidth.
     pub fn encode_linewidth(&mut self, linewidth: f32) {
         if self.linewidths.last() != Some(&linewidth) {

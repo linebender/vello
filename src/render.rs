@@ -7,9 +7,8 @@ use crate::{
 };
 use {
     bytemuck::{Pod, Zeroable},
-    vello_encoding::{Config, Encoding, Layout},
+    vello_encoding::{Encoding, GpuConfig, Layout},
 };
-
 
 /// State for a render in progress.
 pub struct Render {
@@ -95,7 +94,7 @@ fn render(scene: &Scene, shaders: &Shaders) -> (Recording, BufProxy) {
     let pathdata_base = size_to_words(scene.len());
     scene.extend(&data.path_data);
 
-    let config = Config {
+    let config = GpuConfig {
         width_in_tiles: 64,
         height_in_tiles: 64,
         target_width: 64 * 16,
@@ -219,7 +218,8 @@ impl Render {
         let mut recording = Recording::default();
         let mut resolver = Resolver::new();
         let mut packed = vec![];
-        let (layout, ramps, images) = resolver.resolve(encoding, &mut packed, shaders::PATHTAG_REDUCE_WG);
+        let (layout, ramps, images) =
+            resolver.resolve(encoding, &mut packed, shaders::PATHTAG_REDUCE_WG);
         let gradient_image = if ramps.height == 0 {
             ResourceProxy::new_image(1, 1, ImageFormat::Rgba8)
         } else {
@@ -247,7 +247,7 @@ impl Render {
         let new_height = next_multiple_of(params.height, 16);
 
         let info_size = layout.bin_data_start;
-        let config = vello_encoding::Config {
+        let config = GpuConfig {
             width_in_tiles: new_width / 16,
             height_in_tiles: new_height / 16,
             target_width: params.width,

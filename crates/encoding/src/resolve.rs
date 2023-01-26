@@ -107,35 +107,6 @@ impl Layout {
     }
 }
 
-/// Scene configuration.
-///
-/// This data structure must be kept in sync with the definition in
-/// shaders/shared/config.wgsl.
-#[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
-#[repr(C)]
-pub struct Config {
-    /// Width of the scene in tiles.
-    pub width_in_tiles: u32,
-    /// Height of the scene in tiles.
-    pub height_in_tiles: u32,
-    /// Width of the target in pixels.
-    pub target_width: u32,
-    /// Height of the target in pixels.
-    pub target_height: u32,
-    /// The base background color applied to the target before any blends.
-    pub base_color: u32,
-    /// Layout of packed scene data.
-    pub layout: Layout,
-    /// Size of binning buffer allocation (in u32s).
-    pub binning_size: u32,
-    /// Size of tile buffer allocation (in Tiles).
-    pub tiles_size: u32,
-    /// Size of segment buffer allocation (in PathSegments).
-    pub segments_size: u32,
-    /// Size of per-tile command list buffer allocation (in u32s).
-    pub ptcl_size: u32,
-}
-
 /// Resolver for late bound resources.
 #[derive(Default)]
 pub struct Resolver {

@@ -54,6 +54,13 @@ impl DrawTag {
     }
 }
 
+/// Draw object bounding box.
+#[derive(Copy, Clone, Pod, Zeroable, Debug, Default)]
+#[repr(C)]
+pub struct DrawBbox {
+    pub bbox: [f32; 4],
+}
+
 /// Draw data for a solid color.
 #[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
 #[repr(C)]
@@ -131,7 +138,7 @@ impl DrawBeginClip {
 }
 
 /// Monoid for the draw tag stream.
-#[derive(Copy, Clone, PartialEq, Eq, Pod, Zeroable, Default)]
+#[derive(Copy, Clone, PartialEq, Eq, Pod, Zeroable, Default, Debug)]
 #[repr(C)]
 pub struct DrawMonoid {
     // The number of paths preceding this draw object.

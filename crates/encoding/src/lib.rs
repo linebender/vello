@@ -16,6 +16,9 @@
 
 //! Raw scene encoding.
 
+mod binning;
+mod clip;
+mod config;
 mod draw;
 mod encoding;
 mod glyph;
@@ -27,14 +30,21 @@ mod path;
 mod ramp_cache;
 mod resolve;
 
+pub use binning::BinHeader;
+pub use clip::{Clip, ClipBbox, ClipBic, ClipElement};
+pub use config::{
+    BufferSize, BufferSizes, BumpAllocators, CpuConfig, GpuConfig, WorkgroupSize, WorkgroupSizes,
+};
 pub use draw::{
-    DrawBeginClip, DrawColor, DrawImage, DrawLinearGradient, DrawMonoid, DrawRadialGradient,
-    DrawTag,
+    DrawBbox, DrawBeginClip, DrawColor, DrawImage, DrawLinearGradient, DrawMonoid,
+    DrawRadialGradient, DrawTag,
 };
 pub use encoding::{Encoding, StreamOffsets};
 pub use glyph::{Glyph, GlyphRun};
 pub use math::Transform;
 pub use monoid::Monoid;
-pub use path::{PathBbox, PathEncoder, PathMonoid, PathSegment, PathSegmentType, PathTag};
+pub use path::{
+    Cubic, Path, PathBbox, PathEncoder, PathMonoid, PathSegment, PathSegmentType, PathTag, Tile,
+};
 pub use ramp_cache::Ramps;
-pub use resolve::{Config, Layout, Patch, Resolver};
+pub use resolve::{Layout, Patch, Resolver};

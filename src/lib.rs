@@ -27,8 +27,6 @@ pub use peniko::kurbo;
 #[doc(hidden)]
 pub use fello;
 
-pub mod encoding;
-
 pub mod glyph;
 pub mod util;
 
