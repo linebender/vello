@@ -20,7 +20,7 @@ use peniko::kurbo::Shape;
 use super::Monoid;
 
 /// Path segment.
-#[derive(Clone, Copy, Debug, Zeroable, Pod)]
+#[derive(Clone, Copy, Debug, Zeroable, Pod, Default)]
 #[repr(C)]
 pub struct PathSegment {
     pub origin: [f32; 2],
@@ -170,6 +170,19 @@ impl Monoid for PathMonoid {
     }
 }
 
+/// Cubic path segment.
+#[derive(Copy, Clone, Pod, Zeroable, Debug, Default)]
+#[repr(C)]
+pub struct Cubic {
+    pub p0: [f32; 2],
+    pub p1: [f32; 2],
+    pub p2: [f32; 2],
+    pub p3: [f32; 2],
+    pub stroke: [f32; 2],
+    pub path_ix: u32,
+    pub flags: u32,
+}
+
 /// Path bounding box.
 #[derive(Copy, Clone, Pod, Zeroable, Default, Debug)]
 #[repr(C)]
@@ -186,6 +199,26 @@ pub struct PathBbox {
     pub linewidth: f32,
     /// Index into the transform stream.
     pub trans_ix: u32,
+}
+
+/// Tiled path object.
+#[derive(Copy, Clone, Pod, Zeroable, Debug, Default)]
+#[repr(C)]
+pub struct Path {
+    /// Bounding box in tiles.
+    pub bbox: [f32; 4],
+    /// Offset (in u32s) to tile rectangle.
+    pub tiles: u32,
+}
+
+/// Tile object.
+#[derive(Copy, Clone, Pod, Zeroable, Debug, Default)]
+#[repr(C)]
+pub struct Tile {
+    /// Accumulated backdrop at the left edge of the tile.
+    pub backdrop: i32,
+    /// Index of first path segment.
+    pub segments: u32,
 }
 
 /// Encoder for path segments.

@@ -191,7 +191,7 @@ pub fn render_encoding_full(
     let new_height = next_multiple_of(height, 16);
 
     let info_size = packed.layout.bin_data_start;
-    let config = crate::encoding::Config {
+    let config = crate::encoding::GpuConfig {
         width_in_tiles: new_width / 16,
         height_in_tiles: new_height / 16,
         target_width: width,

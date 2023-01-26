@@ -16,6 +16,9 @@
 
 //! Raw scene encoding.
 
+mod binning;
+mod clip;
+mod config;
 mod draw;
 mod encoding;
 mod math;
@@ -25,12 +28,19 @@ mod path;
 
 pub mod resource;
 
+pub use binning::BinHeader;
+pub use clip::{ClipBbox, ClipBic, ClipElement, Clip};
+pub use config::{
+    BufferSize, BufferSizes, BumpAllocators, CpuConfig, GpuConfig, WorkgroupSize, WorkgroupSizes,
+};
 pub use draw::{
-    DrawBeginClip, DrawColor, DrawImage, DrawLinearGradient, DrawMonoid, DrawRadialGradient,
-    DrawTag,
+    DrawBbox, DrawBeginClip, DrawColor, DrawImage, DrawLinearGradient, DrawMonoid,
+    DrawRadialGradient, DrawTag,
 };
 pub use encoding::Encoding;
 pub use math::Transform;
 pub use monoid::Monoid;
-pub use packed::{Config, Layout, PackedEncoding};
-pub use path::{PathBbox, PathEncoder, PathMonoid, PathSegment, PathSegmentType, PathTag};
+pub use packed::{Layout, PackedEncoding};
+pub use path::{
+    Cubic, Path, PathBbox, PathEncoder, PathMonoid, PathSegment, PathSegmentType, PathTag, Tile,
+};

@@ -1,0 +1,20 @@
+[package]
+name = "vello_native"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+vello = { path = "../" }
+vello_shaders = { path = "../vello_shaders" }
+bytemuck = { version = "1.12.1", features = ["derive"] }
+
+[target.'cfg(target_os="macos")'.dependencies]
+metal = "0.24"
+objc = "0.2"
+block = "0.1"
+cocoa-foundation = "0.1"
+# Note: foreign-types is up to 0.5 but metal hasn't upgraded to it
+foreign-types = "0.3"
+core-graphics-types = "0.1"

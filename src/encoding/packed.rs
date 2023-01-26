@@ -48,30 +48,6 @@ pub struct Layout {
     pub linewidth_base: u32,
 }
 
-/// Scene configuration.
-#[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
-#[repr(C)]
-pub struct Config {
-    /// Width of the scene in tiles.
-    pub width_in_tiles: u32,
-    /// Height of the scene in tiles.
-    pub height_in_tiles: u32,
-    /// Width of the target in pixels.
-    pub target_width: u32,
-    /// Height of the target in pixels.
-    pub target_height: u32,
-    /// Layout of packed scene data.
-    pub layout: Layout,
-    /// Size of binning buffer allocation (in u32s).
-    pub binning_size: u32,
-    /// Size of tile buffer allocation (in Tiles).
-    pub tiles_size: u32,
-    /// Size of segment buffer allocation (in PathSegments).
-    pub segments_size: u32,
-    /// Size of per-tile command list buffer allocation (in u32s).
-    pub ptcl_size: u32,
-}
-
 /// Packed encoding of scene data.
 #[derive(Default)]
 pub struct PackedEncoding {
