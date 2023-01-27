@@ -357,7 +357,19 @@ impl Engine {
                     let buffer = self
                         .bind_map
                         .get_or_create(*proxy, device, &mut self.pool)?;
+                    #[cfg(not(target_arch = "wasm32"))]
                     encoder.clear_buffer(buffer, *offset, *size);
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        // TODO: remove this workaround when wgpu implements clear_buffer
+                        // Also note: semantics are wrong, it's queue order rather than encoder.
+                        let size = match size {
+                            Some(size) => size.get(),
+                            None => proxy.size,
+                        };
+                        let zeros = vec![0; size as usize];
+                        queue.write_buffer(buffer, *offset, &zeros);
+                    }
                 }
                 Command::FreeBuf(proxy) => {
                     free_bufs.insert(proxy.id);

@@ -148,7 +148,17 @@ fn main(
     // Exit early if prior stages failed, as we can't run this stage.
     // We need to check only prior stages, as if this stage has failed in another workgroup, 
     // we still want to know this workgroup's memory requirement.   
-    if (atomicLoad(&bump.failed) & (STAGE_BINNING | STAGE_TILE_ALLOC | STAGE_PATH_COARSE)) != 0u {
+    if local_id.x == 0u {
+        // Reuse sh_part_count to hold failed flag, shmem is tight
+        sh_part_count[0] = atomicLoad(&bump.failed);
+    }
+#ifdef have_uniform
+    let failed = workgroupUniformLoad(&sh_part_count[0]);
+#else
+    workgroupBarrier();
+    let failed = sh_part_count[0];
+#endif
+    if (failed & (STAGE_BINNING | STAGE_TILE_ALLOC | STAGE_PATH_COARSE)) != 0u {
         return;
     }
     let width_in_bins = (config.width_in_tiles + N_TILE_X - 1u) / N_TILE_X;
@@ -207,8 +217,12 @@ fn main(
                     workgroupBarrier();
                 }
                 sh_part_count[local_id.x] = part_start_ix + count;
+#ifdef have_uniform
+                ready_ix = workgroupUniformLoad(&sh_part_count[WG_SIZE - 1u]);
+#else
                 workgroupBarrier();
                 ready_ix = sh_part_count[WG_SIZE - 1u];
+#endif
                 partition_ix += WG_SIZE;
             }
             // use binary search to find draw object to read
