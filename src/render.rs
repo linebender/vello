@@ -196,9 +196,7 @@ pub fn render_encoding_full(
     height: u32,
 ) -> (Recording, ResourceProxy) {
     let mut render = Render::new();
-    // TODO: leaks the download of the bump buf; a good way to fix would be to conditionalize
-    // that download.
-    let mut recording = render.render_encoding_coarse(encoding, shaders, width, height);
+    let mut recording = render.render_encoding_coarse(encoding, shaders, width, height, false);
     let out_image = render.out_image();
     render.record_fine(shaders, &mut recording);
     (recording, out_image.into())
@@ -223,12 +221,16 @@ impl Render {
     }
 
     /// Prepare a recording for the coarse rasterization phase.
+    ///
+    /// The `robust` parameter controls whether we're preparing for readback
+    /// of the atomic bump buffer, for robust dynamic memory.
     pub fn render_encoding_coarse(
         &mut self,
         encoding: &Encoding,
         shaders: &FullShaders,
         width: u32,
         height: u32,
+        robust: bool,
     ) -> Recording {
         use crate::encoding::{resource::ResourceCache, PackedEncoding};
         let mut recording = Recording::default();
@@ -526,7 +528,9 @@ impl Render {
             info_bin_data_buf,
             out_image,
         });
-        recording.download(*bump_buf.as_buf().unwrap());
+        if robust {
+            recording.download(*bump_buf.as_buf().unwrap());
+        }
         recording.free_resource(bump_buf);
         recording
     }

@@ -182,7 +182,7 @@ impl Renderer {
     ) -> Result<()> {
         let mut render = Render::new();
         let encoding = scene.data();
-        let recording = render.render_encoding_coarse(encoding, &self.shaders, width, height);
+        let recording = render.render_encoding_coarse(encoding, &self.shaders, width, height, true);
         let target = render.out_image();
         let bump_buf = render.bump_buf();
         self.engine.run_recording(device, queue, &recording, &[])?;

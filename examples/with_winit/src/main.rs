@@ -188,24 +188,35 @@ async fn run(event_loop: EventLoop<UserEvent>, window: Window, args: Args) {
                 .surface
                 .get_current_texture()
                 .expect("failed to get surface texture");
-            let fut = async {
-                renderer
-                    .render_to_surface_async(
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                block_on_wgpu(
+                    &device_handle.device,
+                    renderer.render_to_surface_async(
                         &device_handle.device,
                         &device_handle.queue,
                         &scene,
                         &surface_texture,
                         width,
                         height,
-                    )
-                    .await
-                    .expect("failed to render to surface");
-                surface_texture.present();
-            };
-            #[cfg(not(target_arch = "wasm32"))]
-            block_on_wgpu(&device_handle.device, fut);
+                    ),
+                )
+                .expect("failed to render to surface");
+            }
+            // Note: in the wasm case, we're currently not running the robust
+            // pipeline, as it requires more async wiring for the readback.
             #[cfg(target_arch = "wasm32")]
-            wasm_bindgen_futures::spawn_local(fut);
+            renderer
+                .render_to_surface(
+                    &device_handle.device,
+                    &device_handle.queue,
+                    &scene,
+                    &surface_texture,
+                    width,
+                    height,
+                )
+                .expect("failed to render to surface");
+            surface_texture.present();
             device_handle.device.poll(wgpu::Maintain::Poll);
         }
         Event::UserEvent(event) => match event {
