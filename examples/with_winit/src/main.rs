@@ -22,6 +22,7 @@ use std::{borrow::Cow, path::PathBuf, time::Instant};
 
 use clap::Parser;
 use vello::{
+    block_on_wgpu,
     kurbo::{Affine, Vec2},
     util::RenderContext,
     Renderer, Scene, SceneBuilder,
@@ -187,6 +188,24 @@ async fn run(event_loop: EventLoop<UserEvent>, window: Window, args: Args) {
                 .surface
                 .get_current_texture()
                 .expect("failed to get surface texture");
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                block_on_wgpu(
+                    &device_handle.device,
+                    renderer.render_to_surface_async(
+                        &device_handle.device,
+                        &device_handle.queue,
+                        &scene,
+                        &surface_texture,
+                        width,
+                        height,
+                    ),
+                )
+                .expect("failed to render to surface");
+            }
+            // Note: in the wasm case, we're currently not running the robust
+            // pipeline, as it requires more async wiring for the readback.
+            #[cfg(target_arch = "wasm32")]
             renderer
                 .render_to_surface(
                     &device_handle.device,
@@ -198,7 +217,7 @@ async fn run(event_loop: EventLoop<UserEvent>, window: Window, args: Args) {
                 )
                 .expect("failed to render to surface");
             surface_texture.present();
-            device_handle.device.poll(wgpu::Maintain::Wait);
+            device_handle.device.poll(wgpu::Maintain::Poll);
         }
         Event::UserEvent(event) => match event {
             #[cfg(not(target_arch = "wasm32"))]

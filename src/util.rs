@@ -16,6 +16,8 @@
 
 //! Simple helpers for managing wgpu state and surfaces.
 
+use std::future::Future;
+
 use super::Result;
 
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
@@ -131,4 +133,28 @@ pub struct RenderSurface {
     pub surface: Surface,
     pub config: SurfaceConfiguration,
     pub dev_id: usize,
+}
+
+struct NullWake;
+
+impl std::task::Wake for NullWake {
+    fn wake(self: std::sync::Arc<Self>) {}
+}
+
+/// Block on a future, polling the device as needed.
+///
+/// This will deadlock if the future is awaiting anything other than GPU progress.
+pub fn block_on_wgpu<F: Future>(device: &Device, mut fut: F) -> F::Output {
+    let waker = std::task::Waker::from(std::sync::Arc::new(NullWake));
+    let mut context = std::task::Context::from_waker(&waker);
+    // Same logic as `pin_mut!` macro from `pin_utils`.
+    let mut fut = unsafe { std::pin::Pin::new_unchecked(&mut fut) };
+    loop {
+        match fut.as_mut().poll(&mut context) {
+            std::task::Poll::Pending => {
+                device.poll(wgpu::Maintain::Wait);
+            }
+            std::task::Poll::Ready(item) => break item,
+        }
+    }
 }

@@ -29,9 +29,11 @@ pub mod encoding;
 pub mod glyph;
 pub mod util;
 
+use render::Render;
 pub use scene::{Scene, SceneBuilder, SceneFragment};
+pub use util::block_on_wgpu;
 
-use engine::{Engine, ExternalResource};
+use engine::{Engine, ExternalResource, Recording};
 use shaders::FullShaders;
 
 use wgpu::{Device, Queue, SurfaceTexture, TextureFormat, TextureView};
@@ -83,8 +85,7 @@ impl Renderer {
             *target.as_image().unwrap(),
             texture,
         )];
-        let _ = self
-            .engine
+        self.engine
             .run_recording(device, queue, &recording, &external_resources)?;
         Ok(())
     }
@@ -162,6 +163,105 @@ impl Renderer {
         }
         self.engine = engine;
         self.shaders = shaders;
+        Ok(())
+    }
+
+    /// Renders a scene to the target texture.
+    ///
+    /// The texture is assumed to be of the specified dimensions and have been created with
+    /// the [wgpu::TextureFormat::Rgba8Unorm] format and the [wgpu::TextureUsages::STORAGE_BINDING]
+    /// flag set.
+    pub async fn render_to_texture_async(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        scene: &Scene,
+        texture: &TextureView,
+        width: u32,
+        height: u32,
+    ) -> Result<()> {
+        let mut render = Render::new();
+        let encoding = scene.data();
+        let recording = render.render_encoding_coarse(encoding, &self.shaders, width, height, true);
+        let target = render.out_image();
+        let bump_buf = render.bump_buf();
+        self.engine.run_recording(device, queue, &recording, &[])?;
+        if let Some(bump_buf) = self.engine.get_download(bump_buf) {
+            let buf_slice = bump_buf.slice(..);
+            let (sender, receiver) = futures_intrusive::channel::shared::oneshot_channel();
+            buf_slice.map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
+            if let Some(recv_result) = receiver.receive().await {
+                recv_result?;
+            } else {
+                return Err("channel was closed".into());
+            }
+            let mapped = buf_slice.get_mapped_range();
+            println!("{:?}", bytemuck::cast_slice::<_, u32>(&mapped));
+        }
+        // TODO: apply logic to determine whether we need to rerun coarse, and also
+        // allocate the blend stack as needed.
+        self.engine.free_download(bump_buf);
+        // Maybe clear to reuse allocation?
+        let mut recording = Recording::default();
+        render.record_fine(&self.shaders, &mut recording);
+        let external_resources = [ExternalResource::Image(target, texture)];
+        self.engine
+            .run_recording(device, queue, &recording, &external_resources)?;
+        Ok(())
+    }
+
+    pub async fn render_to_surface_async(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        scene: &Scene,
+        surface: &SurfaceTexture,
+        width: u32,
+        height: u32,
+    ) -> Result<()> {
+        let mut target = self
+            .target
+            .take()
+            .unwrap_or_else(|| TargetTexture::new(device, width, height));
+        // TODO: implement clever resizing semantics here to avoid thrashing the memory allocator
+        // during resize, specifically on metal.
+        if target.width != width || target.height != height {
+            target = TargetTexture::new(device, width, height);
+        }
+        self.render_to_texture_async(device, queue, scene, &target.view, width, height)
+            .await?;
+        let mut encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        {
+            let surface_view = surface
+                .texture
+                .create_view(&wgpu::TextureViewDescriptor::default());
+            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout: &self.blit.bind_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&target.view),
+                }],
+            });
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &surface_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::default()),
+                        store: true,
+                    },
+                })],
+                depth_stencil_attachment: None,
+            });
+            render_pass.set_pipeline(&self.blit.pipeline);
+            render_pass.set_bind_group(0, &bind_group, &[]);
+            render_pass.draw(0..6, 0..1);
+        }
+        queue.submit(Some(encoder.finish()));
+        self.target = Some(target);
         Ok(())
     }
 }
