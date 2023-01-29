@@ -148,15 +148,14 @@ fn main(
     // Exit early if prior stages failed, as we can't run this stage.
     // We need to check only prior stages, as if this stage has failed in another workgroup, 
     // we still want to know this workgroup's memory requirement.   
+#ifdef have_uniform
     if local_id.x == 0u {
         // Reuse sh_part_count to hold failed flag, shmem is tight
         sh_part_count[0] = atomicLoad(&bump.failed);
     }
-#ifdef have_uniform
     let failed = workgroupUniformLoad(&sh_part_count[0]);
 #else
-    workgroupBarrier();
-    let failed = sh_part_count[0];
+    let failed = atomicLoad(&bump.failed);
 #endif
     if (failed & (STAGE_BINNING | STAGE_TILE_ALLOC | STAGE_PATH_COARSE)) != 0u {
         return;
