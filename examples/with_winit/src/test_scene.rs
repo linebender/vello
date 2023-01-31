@@ -1,5 +1,3 @@
-use std::time::Instant;
-
 use crate::pico_svg::PicoSvg;
 use crate::simple_text::SimpleText;
 use vello::kurbo::{Affine, BezPath, Ellipse, PathEl, Point, Rect};
@@ -83,7 +81,7 @@ pub fn render_svg_scene(
     let scene_frag = scene.get_or_insert_with(|| {
         use super::pico_svg::*;
         #[cfg(not(target_arch = "wasm32"))]
-        let start = Instant::now();
+        let start = std::time::Instant::now();
         eprintln!("Starting to parse svg");
         let svg = PicoSvg::load(svg, scale).unwrap();
         #[cfg(not(target_arch = "wasm32"))]

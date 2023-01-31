@@ -18,7 +18,7 @@ mod pico_svg;
 mod simple_text;
 mod test_scene;
 
-use std::{borrow::Cow, path::PathBuf, time::Instant};
+use std::{borrow::Cow, time::Instant};
 
 use clap::Parser;
 use vello::{
@@ -41,7 +41,7 @@ struct Args {
     /// Path to the svg file to render. If not set, the GhostScript Tiger will be rendered
     #[arg(long)]
     #[cfg(not(target_arch = "wasm32"))]
-    svg: Option<PathBuf>,
+    svg: Option<std::path::PathBuf>,
     /// When rendering an svg, what scale to use
     #[arg(long)]
     scale: Option<f64>,

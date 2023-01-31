@@ -1,0 +1,5 @@
+[alias]
+run_wasm = "run --release --package run_wasm --"
+# Other crates use the alias run-wasm, even though crate names should use `_`s not `-`s
+# Allow this to be used
+run-wasm = "run_wasm"
