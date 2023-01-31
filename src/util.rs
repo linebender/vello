@@ -39,7 +39,10 @@ pub struct DeviceHandle {
 
 impl RenderContext {
     pub fn new() -> Result<Self> {
-        let instance = Instance::new(wgpu::Backends::PRIMARY);
+        let instance = Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::PRIMARY,
+            dx12_shader_compiler: wgpu::Dx12Compiler::Fxc,
+        });
         Ok(Self {
             instance,
             devices: Vec::new(),
@@ -51,7 +54,7 @@ impl RenderContext {
     where
         W: HasRawWindowHandle + HasRawDisplayHandle,
     {
-        let surface = unsafe { self.instance.create_surface(window) };
+        let surface = unsafe { self.instance.create_surface(window) }.unwrap();
         let format = wgpu::TextureFormat::Bgra8Unorm;
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -60,6 +63,7 @@ impl RenderContext {
             height,
             present_mode: wgpu::PresentMode::Fifo,
             alpha_mode: wgpu::CompositeAlphaMode::Auto,
+            view_formats: vec![],
         };
         let dev_id = self.device(Some(&surface)).await.unwrap();
         surface.configure(&self.devices[dev_id].device, &config);

@@ -18,5 +18,5 @@ sha2 = "0.10"
 ureq = "2.6"
 usvg = "0.28"
 vello = { path = "../../" }
-wgpu = "0.14"
+wgpu = { workspace = true }
 winit = "0.27.5"

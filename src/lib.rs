@@ -286,6 +286,7 @@ impl TargetTexture {
             dimension: wgpu::TextureDimension::D2,
             usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
             format: wgpu::TextureFormat::Rgba8Unorm,
+            view_formats: &[],
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         Self {

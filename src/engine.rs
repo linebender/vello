@@ -280,6 +280,7 @@ impl Engine {
                         contents: bytes,
                         usage: wgpu::BufferUsages::COPY_SRC,
                     });
+                    let format = image_proxy.format.to_wgpu();
                     let texture = device.create_texture(&wgpu::TextureDescriptor {
                         label: None,
                         size: wgpu::Extent3d {
@@ -291,7 +292,8 @@ impl Engine {
                         sample_count: 1,
                         dimension: wgpu::TextureDimension::D2,
                         usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-                        format: image_proxy.format.to_wgpu(),
+                        format,
+                        view_formats: &[],
                     });
                     let texture_view = texture.create_view(&wgpu::TextureViewDescriptor {
                         label: None,
@@ -632,6 +634,7 @@ impl BindMap {
                         continue;
                     }
                     if let Entry::Vacant(v) = self.image_map.entry(proxy.id) {
+                        let format = proxy.format.to_wgpu();
                         let texture = device.create_texture(&wgpu::TextureDescriptor {
                             label: None,
                             size: wgpu::Extent3d {
@@ -643,7 +646,8 @@ impl BindMap {
                             sample_count: 1,
                             dimension: wgpu::TextureDimension::D2,
                             usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-                            format: proxy.format.to_wgpu(),
+                            format,
+                            view_formats: &[],
                         });
                         let texture_view = texture.create_view(&wgpu::TextureViewDescriptor {
                             label: None,

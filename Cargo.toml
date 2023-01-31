@@ -1,16 +1,19 @@
 [workspace]
 resolver = "2"
 
-members = ["examples/with_winit", "examples/with_bevy", "examples/run_wasm", "examples/usvg_viewer"]
+members = [
+    "examples/with_winit",
+    "examples/with_bevy",
+    "examples/run_wasm",
+    "examples/usvg_viewer",
+]
 
 [workspace.package]
 edition = "2021"
 version = "0.1.0"
 
-[patch.crates-io]
-# Required for metal support to work on wgpu
-# TODO: remove when wgpu is upgraded to 0.15
-naga = { git = "https://github.com/gfx-rs/naga", rev = "ddcd5d3121150b2b1beee6e54e9125ff31aaa9a2" }
+[workspace.dependencies]
+wgpu = "0.15"
 
 [package]
 name = "vello"
@@ -19,7 +22,7 @@ license = "MIT/Apache-2.0"
 edition = "2021"
 
 [dependencies]
-wgpu = "0.14"
+wgpu = { workspace = true }
 raw-window-handle = "0.5"
 futures-intrusive = "0.5.0"
 parking_lot = "0.12"
