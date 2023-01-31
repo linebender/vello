@@ -91,12 +91,16 @@ impl ExtractComponent for VelloScene {
 
     type Filter = ();
 
-    fn extract_component((fragment, target): bevy::ecs::query::QueryItem<'_, Self::Query>) -> Self {
+    type Out = Self;
+
+    fn extract_component(
+        (fragment, target): bevy::ecs::query::QueryItem<'_, Self::Query>,
+    ) -> Option<Self> {
         let mut scene = Scene::default();
         let mut builder = SceneBuilder::for_scene(&mut scene);
         builder.append(&fragment.0, None);
         builder.finish();
-        Self(scene, target.0.clone())
+        Some(Self(scene, target.0.clone()))
     }
 }
 
@@ -124,6 +128,7 @@ fn setup(
             usage: TextureUsages::TEXTURE_BINDING
                 | TextureUsages::COPY_DST
                 | TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
         },
         ..default()
     };

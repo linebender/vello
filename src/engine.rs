@@ -293,7 +293,7 @@ impl Engine {
                         dimension: wgpu::TextureDimension::D2,
                         usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
                         format,
-                        view_formats: &[format],
+                        view_formats: &[],
                     });
                     let texture_view = texture.create_view(&wgpu::TextureViewDescriptor {
                         label: None,
@@ -647,7 +647,7 @@ impl BindMap {
                             dimension: wgpu::TextureDimension::D2,
                             usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
                             format,
-                            view_formats: &[format],
+                            view_formats: &[],
                         });
                         let texture_view = texture.create_view(&wgpu::TextureViewDescriptor {
                             label: None,

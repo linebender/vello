@@ -63,6 +63,7 @@ impl RenderContext {
             height,
             present_mode: wgpu::PresentMode::Fifo,
             alpha_mode: wgpu::CompositeAlphaMode::Auto,
+            view_formats: vec![],
         };
         let dev_id = self.device(Some(&surface)).await.unwrap();
         surface.configure(&self.devices[dev_id].device, &config);
