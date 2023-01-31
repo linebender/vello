@@ -18,7 +18,7 @@ mod pico_svg;
 mod simple_text;
 mod test_scene;
 
-use std::{borrow::Cow, path::PathBuf, time::Instant};
+use std::{borrow::Cow, time::Instant};
 
 use clap::Parser;
 use vello::{
