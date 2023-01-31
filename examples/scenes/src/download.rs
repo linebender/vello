@@ -12,13 +12,16 @@ mod default_downloads;
 #[derive(Args, Debug)]
 pub(crate) struct Download {
     #[clap(long)]
-    /// Directory to download the files into. Defaults to
+    /// Directory to download the files into
     #[clap(default_value_os_t = default_directory())]
     pub directory: PathBuf,
+    /// Set of files to download. Use `name@url` format to specify a file prefix
     downloads: Option<Vec<String>>,
+    /// Whether to automatically install the default set of files
     #[clap(long)]
     auto: bool,
-    #[clap(long, default_value_t =  Byte::from_bytes(10_000_000))]
+    /// The size limit for each individual file (ignored if the default files are downloaded)
+    #[clap(long, default_value = "10 MB")]
     size_limit: Byte,
 }
 

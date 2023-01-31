@@ -236,12 +236,12 @@ enum UserEvent {
 }
 
 fn main() -> Result<()> {
-    env_logger::init();
-    let args = Args::parse();
-    let scenes = args.args.select_scene_set(|| Args::command())?;
     // TODO: initializing both env_logger and console_logger fails on wasm.
     // Figure out a more principled approach.
     #[cfg(not(target_arch = "wasm32"))]
+    env_logger::init();
+    let args = Args::parse();
+    let scenes = args.args.select_scene_set(|| Args::command())?;
     if let Some(scenes) = scenes {
         #[cfg(not(target_arch = "wasm32"))]
         {

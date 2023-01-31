@@ -1,6 +1,6 @@
 [package]
 name = "scenes"
-description = "Scenes used in the other examples"
+description = "Vello scenes used in the other examples"
 version.workspace = true
 edition.workspace = true
 publish = false

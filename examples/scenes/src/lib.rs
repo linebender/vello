@@ -39,9 +39,10 @@ pub struct SceneSet {
 pub struct Arguments {
     #[arg(help_heading = "Scene Selection")]
     #[arg(short = 't', long, global(false))]
+    /// Whether to use the test scenes created by code
     test_scenes: bool,
     #[arg(help_heading = "Scene Selection", global(false))]
-    /// The svg files to render
+    /// The svg files paths to render
     svgs: Option<Vec<PathBuf>>,
     #[clap(subcommand)]
     command: Option<Command>,

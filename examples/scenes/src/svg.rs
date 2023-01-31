@@ -46,6 +46,7 @@ fn scene_from_files_inner(
     for path in files {
         if path.is_dir() {
             let mut count = 0;
+            let start_index = scenes.len();
             for file in read_dir(path)? {
                 let entry = file?;
                 if let Some(extension) = Path::new(&entry.file_name()).extension() {
@@ -55,6 +56,8 @@ fn scene_from_files_inner(
                     }
                 }
             }
+            // Ensure a consistent order within directories
+            scenes[start_index..].sort_by_key(|scene| scene.config.name.to_lowercase());
             if count == 0 {
                 empty_dir();
             }
