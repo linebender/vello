@@ -16,19 +16,20 @@
 
 use std::time::Instant;
 
-use std::{borrow::Cow, time::Instant};
+use std::{borrow::Cow, path::PathBuf, time::Instant};
 
+use anyhow::Result;
 use clap::Parser;
+use clap::{CommandFactory, Parser};
+use scenes::{SceneParams, SceneSet, SimpleText};
 use vello::{
     block_on_wgpu,
     kurbo::{Affine, Vec2},
     util::RenderContext,
     Renderer, Scene, SceneBuilder,
 };
-use anyhow::Result;
-use clap::{CommandFactory, Parser};
-use scenes::{SceneParams, SceneSet, SimpleText};
 use vello::{
+    block_on_wgpu,
     kurbo::{Affine, Vec2},
     util::RenderContext,
     Renderer, Scene, SceneBuilder, SceneFragment,
