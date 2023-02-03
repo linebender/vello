@@ -411,7 +411,7 @@ fn conflation_artifacts(sb: &mut SceneBuilder, _: &mut SceneParams) {
     const S: f64 = 4.0;
 
     let scale = Affine::scale(S);
-    let x = N + 0.5;  // Fraction pixel offset reveals the problem on axis-aligned edges.
+    let x = N + 0.5; // Fractional pixel offset reveals the problem on axis-aligned edges.
     let mut y = N;
 
     // Two adjacent triangles touching at diagonal edge with opposing winding numbers
