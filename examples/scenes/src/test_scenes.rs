@@ -414,11 +414,14 @@ fn conflation_artifacts(sb: &mut SceneBuilder, _: &mut SceneParams) {
     let x = N + 0.5; // Fractional pixel offset reveals the problem on axis-aligned edges.
     let mut y = N;
 
+    let bg_color = Color::rgb8(255, 194, 19);
+    let fg_color = Color::rgb8(12, 165, 255);
+
     // Two adjacent triangles touching at diagonal edge with opposing winding numbers
     sb.fill(
         Fill::NonZero,
         Affine::translate((x, y)) * scale,
-        Color::RED,
+        fg_color,
         None,
         &[
             // triangle 1
@@ -439,14 +442,14 @@ fn conflation_artifacts(sb: &mut SceneBuilder, _: &mut SceneParams) {
     sb.fill(
         Fill::EvenOdd,
         Affine::translate((x, y)) * scale,
-        Color::RED,
+        bg_color,
         None,
         &Rect::new(0.0, 0.0, N, N),
     );
     sb.fill(
         Fill::EvenOdd,
         Affine::translate((x, y)) * scale,
-        Color::GREEN,
+        fg_color,
         None,
         &[
             // left rect
@@ -467,14 +470,14 @@ fn conflation_artifacts(sb: &mut SceneBuilder, _: &mut SceneParams) {
     sb.fill(
         Fill::EvenOdd,
         Affine::translate((x, y)) * scale,
-        Color::RED,
+        bg_color,
         None,
         &Rect::new(0.0, 0.0, N, N),
     );
     sb.fill(
         Fill::EvenOdd,
         Affine::translate((x, y)) * scale,
-        Color::GREEN,
+        fg_color,
         None,
         &[
             // left rect
