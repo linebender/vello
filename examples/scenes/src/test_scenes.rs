@@ -1,10 +1,51 @@
-use crate::pico_svg::PicoSvg;
-use crate::simple_text::SimpleText;
+use crate::{ExampleScene, SceneConfig, SceneParams, SceneSet};
 use vello::kurbo::{Affine, BezPath, Ellipse, PathEl, Point, Rect};
 use vello::peniko::*;
 use vello::*;
 
-pub fn render_funky_paths(sb: &mut SceneBuilder) {
+macro_rules! scene {
+    ($name: ident) => {
+        scene!($name: false)
+    };
+    ($name: ident: animated) => {
+        scene!($name: true)
+    };
+    ($name: ident: $animated: literal) => {
+        ExampleScene {
+            config: SceneConfig {
+                animated: $animated,
+                name: stringify!($name).to_owned(),
+            },
+            function: Box::new($name),
+        }
+    };
+}
+
+pub fn test_scenes() -> SceneSet {
+    // For WASM below, must be mutable
+    #[allow(unused_mut)]
+    let mut scenes = vec![
+        scene!(funky_paths),
+        scene!(cardioid_and_friends),
+        scene!(animated_text: animated),
+        scene!(brush_transform: animated),
+        scene!(blend_grid),
+    ];
+    #[cfg(target_arch = "wasm32")]
+    scenes.push(ExampleScene {
+        config: SceneConfig {
+            animated: false,
+            name: "included_tiger".to_owned(),
+        },
+        function: Box::new(included_tiger()),
+    });
+
+    SceneSet { scenes }
+}
+
+// Scenes
+
+fn funky_paths(sb: &mut SceneBuilder, _: &mut SceneParams) {
     use PathEl::*;
     let missing_movetos = [
         LineTo((100.0, 100.0).into()),
@@ -45,61 +86,177 @@ pub fn render_funky_paths(sb: &mut SceneBuilder) {
     );
 }
 
-pub fn render_svg(sb: &mut SceneBuilder, svg: &PicoSvg) {
-    use crate::pico_svg::*;
-    for item in &svg.items {
-        match item {
-            Item::Fill(fill) => {
-                sb.fill(
-                    Fill::NonZero,
-                    Affine::IDENTITY,
-                    fill.color,
-                    None,
-                    &fill.path,
-                );
-            }
-            Item::Stroke(stroke) => {
-                sb.stroke(
-                    &Stroke::new(stroke.width as f32),
-                    Affine::IDENTITY,
-                    stroke.color,
-                    None,
-                    &stroke.path,
-                );
-            }
-        }
-    }
-}
-
-pub fn render_svg_scene(
-    sb: &mut SceneBuilder,
-    scene: &mut Option<SceneFragment>,
-    xform: Affine,
-    svg: &str,
-    scale: f64,
-) {
-    let scene_frag = scene.get_or_insert_with(|| {
-        use super::pico_svg::*;
-        #[cfg(not(target_arch = "wasm32"))]
-        let start = std::time::Instant::now();
-        eprintln!("Starting to parse svg");
-        let svg = PicoSvg::load(svg, scale).unwrap();
-        #[cfg(not(target_arch = "wasm32"))]
-        eprintln!("Parsing svg took {:?}", start.elapsed());
-        let mut new_scene = SceneFragment::new();
-        let mut builder = SceneBuilder::for_fragment(&mut new_scene);
-        render_svg(&mut builder, &svg);
-        new_scene
-    });
-    sb.append(&scene_frag, Some(xform));
-}
-
-pub fn render_scene(sb: &mut SceneBuilder) {
+fn cardioid_and_friends(sb: &mut SceneBuilder, _: &mut SceneParams) {
     render_cardioid(sb);
     render_clip_test(sb);
     render_alpha_test(sb);
     //render_tiger(sb, false);
 }
+
+fn animated_text(sb: &mut SceneBuilder, params: &mut SceneParams) {
+    use PathEl::*;
+    let rect = Rect::from_origin_size(Point::new(0.0, 0.0), (1000.0, 1000.0));
+    let star = [
+        MoveTo((50.0, 0.0).into()),
+        LineTo((21.0, 90.0).into()),
+        LineTo((98.0, 35.0).into()),
+        LineTo((2.0, 35.0).into()),
+        LineTo((79.0, 90.0).into()),
+        ClosePath,
+    ];
+    sb.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        &Brush::Solid(Color::rgb8(128, 128, 128)),
+        None,
+        &rect,
+    );
+    let text_size = 60.0 + 40.0 * (params.time as f32).sin();
+    let s = "\u{1f600}hello vello text!";
+    params.text.add(
+        sb,
+        None,
+        text_size,
+        None,
+        Affine::translate((110.0, 600.0)),
+        s,
+    );
+    params.text.add(
+        sb,
+        None,
+        text_size,
+        None,
+        Affine::translate((110.0, 700.0)),
+        s,
+    );
+    let th = params.time as f64;
+    let center = Point::new(500.0, 500.0);
+    let mut p1 = center;
+    p1.x += 400.0 * th.cos();
+    p1.y += 400.0 * th.sin();
+    sb.stroke(
+        &Stroke::new(5.0),
+        Affine::IDENTITY,
+        &Brush::Solid(Color::rgb8(128, 0, 0)),
+        None,
+        &[PathEl::MoveTo(center), PathEl::LineTo(p1)],
+    );
+    sb.fill(
+        Fill::NonZero,
+        Affine::translate((150.0, 150.0)) * Affine::scale(0.2),
+        Color::RED,
+        None,
+        &rect,
+    );
+    let alpha = (params.time as f64).sin() as f32 * 0.5 + 0.5;
+    sb.push_layer(Mix::Normal, alpha, Affine::IDENTITY, &rect);
+    sb.fill(
+        Fill::NonZero,
+        Affine::translate((100.0, 100.0)) * Affine::scale(0.2),
+        Color::BLUE,
+        None,
+        &rect,
+    );
+    sb.fill(
+        Fill::NonZero,
+        Affine::translate((200.0, 200.0)) * Affine::scale(0.2),
+        Color::GREEN,
+        None,
+        &rect,
+    );
+    sb.pop_layer();
+    sb.fill(
+        Fill::NonZero,
+        Affine::translate((400.0, 100.0)),
+        Color::PURPLE,
+        None,
+        &star,
+    );
+    sb.fill(
+        Fill::EvenOdd,
+        Affine::translate((500.0, 100.0)),
+        Color::PURPLE,
+        None,
+        &star,
+    );
+}
+
+fn brush_transform(sb: &mut SceneBuilder, params: &mut SceneParams) {
+    let th = params.time;
+    let linear = Gradient::new_linear((0.0, 0.0), (0.0, 200.0)).with_stops([
+        Color::RED,
+        Color::GREEN,
+        Color::BLUE,
+    ]);
+    sb.fill(
+        Fill::NonZero,
+        Affine::translate((200.0, 200.0)),
+        &linear,
+        Some(around_center(Affine::rotate(th), Point::new(200.0, 100.0))),
+        &Rect::from_origin_size(Point::default(), (400.0, 200.0)),
+    );
+    sb.stroke(
+        &Stroke::new(40.0),
+        Affine::translate((800.0, 200.0)),
+        &linear,
+        Some(around_center(Affine::rotate(th), Point::new(200.0, 100.0))),
+        &Rect::from_origin_size(Point::default(), (400.0, 200.0)),
+    );
+}
+
+fn blend_grid(sb: &mut SceneBuilder, _: &mut SceneParams) {
+    const BLEND_MODES: &[Mix] = &[
+        Mix::Normal,
+        Mix::Multiply,
+        Mix::Darken,
+        Mix::Screen,
+        Mix::Lighten,
+        Mix::Overlay,
+        Mix::ColorDodge,
+        Mix::ColorBurn,
+        Mix::HardLight,
+        Mix::SoftLight,
+        Mix::Difference,
+        Mix::Exclusion,
+        Mix::Hue,
+        Mix::Saturation,
+        Mix::Color,
+        Mix::Luminosity,
+    ];
+    for (ix, &blend) in BLEND_MODES.iter().enumerate() {
+        let i = ix % 4;
+        let j = ix / 4;
+        let transform = Affine::translate((i as f64 * 225., j as f64 * 225.));
+        let square = blend_square(blend.into());
+        sb.append(&square, Some(transform));
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn included_tiger() -> impl FnMut(&mut SceneBuilder, &mut SceneParams) {
+    use vello::kurbo::Vec2;
+    use vello_svg::usvg;
+    let mut cached_scene = None;
+    move |builder, params| {
+        let (scene_frag, resolution) = cached_scene.get_or_insert_with(|| {
+            let contents = include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "../../assets/Ghostscript_Tiger.svg"
+            ));
+            let svg = usvg::Tree::from_str(&contents, &usvg::Options::default())
+                .expect("failed to parse svg file");
+            let mut new_scene = SceneFragment::new();
+            let mut builder = SceneBuilder::for_fragment(&mut new_scene);
+            vello_svg::render_tree(&mut builder, &svg);
+            let resolution = Vec2::new(svg.size.width(), svg.size.height());
+            (new_scene, resolution)
+        });
+        builder.append(&scene_frag, None);
+        params.resolution = Some(*resolution);
+    }
+}
+
+// Support functions
 
 fn render_cardioid(sb: &mut SceneBuilder) {
     let n = 601;
@@ -194,34 +351,6 @@ fn render_alpha_test(sb: &mut SceneBuilder) {
     sb.pop_layer();
 }
 
-pub fn render_blend_grid(sb: &mut SceneBuilder) {
-    const BLEND_MODES: &[Mix] = &[
-        Mix::Normal,
-        Mix::Multiply,
-        Mix::Darken,
-        Mix::Screen,
-        Mix::Lighten,
-        Mix::Overlay,
-        Mix::ColorDodge,
-        Mix::ColorBurn,
-        Mix::HardLight,
-        Mix::SoftLight,
-        Mix::Difference,
-        Mix::Exclusion,
-        Mix::Hue,
-        Mix::Saturation,
-        Mix::Color,
-        Mix::Luminosity,
-    ];
-    for (ix, &blend) in BLEND_MODES.iter().enumerate() {
-        let i = ix % 4;
-        let j = ix / 4;
-        let transform = Affine::translate((i as f64 * 225., j as f64 * 225.));
-        let square = blend_square(blend.into());
-        sb.append(&square, Some(transform));
-    }
-}
-
 fn render_blend_square(sb: &mut SceneBuilder, blend: BlendMode, transform: Affine) {
     // Inspired by https://developer.mozilla.org/en-US/docs/Web/CSS/mix-blend-mode
     let rect = Rect::from_origin_size(Point::new(0., 0.), (200., 200.));
@@ -272,118 +401,6 @@ fn blend_square(blend: BlendMode) -> SceneFragment {
     render_blend_square(&mut sb, blend, Affine::IDENTITY);
     sb.finish();
     fragment
-}
-
-pub fn render_anim_frame(sb: &mut SceneBuilder, text: &mut SimpleText, i: usize) {
-    use PathEl::*;
-    let rect = Rect::from_origin_size(Point::new(0.0, 0.0), (1000.0, 1000.0));
-    let star = [
-        MoveTo((50.0, 0.0).into()),
-        LineTo((21.0, 90.0).into()),
-        LineTo((98.0, 35.0).into()),
-        LineTo((2.0, 35.0).into()),
-        LineTo((79.0, 90.0).into()),
-        ClosePath,
-    ];
-    sb.fill(
-        Fill::NonZero,
-        Affine::IDENTITY,
-        &Brush::Solid(Color::rgb8(128, 128, 128)),
-        None,
-        &rect,
-    );
-    let text_size = 60.0 + 40.0 * (0.01 * i as f32).sin();
-    let s = "\u{1f600}hello vello text!";
-    text.add(
-        sb,
-        None,
-        text_size,
-        None,
-        Affine::translate((110.0, 600.0)),
-        s,
-    );
-    text.add(
-        sb,
-        None,
-        text_size,
-        None,
-        Affine::translate((110.0, 700.0)),
-        s,
-    );
-    let th = (std::f64::consts::PI / 180.0) * (i as f64);
-    let center = Point::new(500.0, 500.0);
-    let mut p1 = center;
-    p1.x += 400.0 * th.cos();
-    p1.y += 400.0 * th.sin();
-    sb.stroke(
-        &Stroke::new(5.0),
-        Affine::IDENTITY,
-        &Brush::Solid(Color::rgb8(128, 0, 0)),
-        None,
-        &[PathEl::MoveTo(center), PathEl::LineTo(p1)],
-    );
-    sb.fill(
-        Fill::NonZero,
-        Affine::translate((150.0, 150.0)) * Affine::scale(0.2),
-        Color::RED,
-        None,
-        &rect,
-    );
-    let alpha = (i as f64 * 0.03).sin() as f32 * 0.5 + 0.5;
-    sb.push_layer(Mix::Normal, alpha, Affine::IDENTITY, &rect);
-    sb.fill(
-        Fill::NonZero,
-        Affine::translate((100.0, 100.0)) * Affine::scale(0.2),
-        Color::BLUE,
-        None,
-        &rect,
-    );
-    sb.fill(
-        Fill::NonZero,
-        Affine::translate((200.0, 200.0)) * Affine::scale(0.2),
-        Color::GREEN,
-        None,
-        &rect,
-    );
-    sb.pop_layer();
-    sb.fill(
-        Fill::NonZero,
-        Affine::translate((400.0, 100.0)),
-        Color::PURPLE,
-        None,
-        &star,
-    );
-    sb.fill(
-        Fill::EvenOdd,
-        Affine::translate((500.0, 100.0)),
-        Color::PURPLE,
-        None,
-        &star,
-    );
-}
-
-#[allow(unused)]
-pub fn render_brush_transform(sb: &mut SceneBuilder, i: usize) {
-    let th = (std::f64::consts::PI / 180.0) * (i as f64);
-    let linear = Gradient::new_linear((0.0, 0.0), (0.0, 200.0)).with_stops([
-        Color::RED,
-        Color::GREEN,
-        Color::BLUE,
-    ]);
-    sb.fill(
-        Fill::NonZero,
-        Affine::translate((200.0, 200.0)),
-        &linear,
-        Some(around_center(Affine::rotate(th), Point::new(200.0, 100.0))),
-        &Rect::from_origin_size(Point::default(), (400.0, 200.0)),
-    );
-    sb.stroke(
-        &Stroke::new(40.0),
-        Affine::translate((800.0, 200.0)),
-        &linear,
-        Some(around_center(Affine::rotate(th), Point::new(200.0, 100.0))),
-        &Rect::from_origin_size(Point::default(), (400.0, 200.0)),
-    );
 }
 
 fn around_center(xform: Affine, center: Point) -> Affine {

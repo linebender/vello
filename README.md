@@ -21,6 +21,22 @@ It efficiently draws large 2d scenes with interactive or near-interactive perfor
 
 It is used as the rendering backend for [Xilem], a UI toolkit.
 
+Quickstart to run an example program:
+```shell
+cargo run -p with_winit 
+```
+
+## Integrations
+
+### SVG
+
+This repository also includes [`vello_svg`](./integrations/vello_svg/), which supports converting 
+a [`usvg`](https://crates.io/crates/usvg) `Tree` into a Vello scene.
+
+This is currently incomplete; see its crate level documentation for more information.
+
+This is used in the [winit](#winit) example for the SVG rendering.
+
 ## Examples
 
 Our examples are provided in separate packages in the [`examples`](examples) folder.
@@ -30,12 +46,22 @@ Examples must be selected using the `--package` (or `-p`) Cargo flag.
 ### Winit
 
 Our [winit] example ([examples/with_winit](examples/with_winit)) demonstrates rendering to a [winit] window.
-It also includes a collection of test scenes showing the capabilities of `vello`.
-One of these scenes uses a custom partial svg parser to render the [GhostScript tiger].
+By default, this renders [GhostScript Tiger] all SVG files in [examples/assets/downloads](examples/assets/downloads) directory (using [`vello_svg`](#svg)).
+A custom list of SVG file paths (and directories to render all SVG files from) can be provided as arguments instead.
+It also includes a collection of test scenes showing the capabilities of `vello`, which can be shown with `--test-scenes`.
 
 ```shell
-cargo run -p with_winit
+cargo run -p with_winit 
 ```
+
+Some default test scenes can be downloaded from Wikimedia Commons using the `download` subcommand.
+This also supports downloading from user-provided URLS.
+
+```shell
+cargo run -p with_winit -- download
+```
+
+<!-- ### Headless -->
 
 ### Bevy
 
@@ -66,7 +92,7 @@ The web is not currently a primary target for vello, and WebGPU implementations 
 
 [![Xi Zulip](https://img.shields.io/badge/Xi%20Zulip-%23gpu-blue?logo=Zulip)](https://xi.zulipchat.com/#narrow/stream/197075-gpu)
 
-Discussion of Vello development happens in the [Xi Zulip](https://xi.zulipchat.com/#narrow/stream/197075-gpu/topic/WGSL.20port), specifically the [#gpu stream](https://xi.zulipchat.com/#narrow/stream/197075-gpu/topic/WGSL.20port).
+Discussion of Vello development happens in the [Xi Zulip](https://xi.zulipchat.com/), specifically the [#gpu stream](https://xi.zulipchat.com/#narrow/stream/197075-gpu). All public content can be read without logging in
 
 ## Shader templating
 

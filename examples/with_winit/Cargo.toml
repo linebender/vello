@@ -10,6 +10,8 @@ publish = false
 [dependencies]
 wgpu = { workspace = true }
 vello = { path = "../../", features = ["buffer_labels"] }
+scenes = { path = "../scenes" }
+anyhow = "1.0"
 winit = "0.27.5"
 pollster = "0.2.5"
 # for picosvg
