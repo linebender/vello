@@ -29,6 +29,14 @@ pub fn test_scenes() -> SceneSet {
         scene!(brush_transform: animated),
         scene!(blend_grid),
     ];
+    #[cfg(target_arch = "wasm32")]
+    scenes.push(ExampleScene {
+        config: SceneConfig {
+            animated: false,
+            name: "included_tiger".to_owned(),
+        },
+        function: Box::new(included_tiger()),
+    });
     SceneSet { scenes }
 }
 
@@ -218,6 +226,30 @@ fn blend_grid(sb: &mut SceneBuilder, _: &mut SceneParams) {
         let transform = Affine::translate((i as f64 * 225., j as f64 * 225.));
         let square = blend_square(blend.into());
         sb.append(&square, Some(transform));
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn included_tiger() -> impl FnMut(&mut SceneBuilder, &mut SceneParams) {
+    use vello::kurbo::Vec2;
+    use vello_svg::usvg;
+    let mut cached_scene = None;
+    move |builder, params| {
+        let (scene_frag, resolution) = cached_scene.get_or_insert_with(|| {
+            let contents = include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "../../assets/Ghostscript_Tiger.svg"
+            ));
+            let svg = usvg::Tree::from_str(&contents, &usvg::Options::default())
+                .expect("failed to parse svg file");
+            let mut new_scene = SceneFragment::new();
+            let mut builder = SceneBuilder::for_fragment(&mut new_scene);
+            vello_svg::render_tree(&mut builder, &svg);
+            let resolution = Vec2::new(svg.size.width(), svg.size.height());
+            (new_scene, resolution)
+        });
+        builder.append(&scene_frag, None);
+        params.resolution = Some(*resolution);
     }
 }
 
