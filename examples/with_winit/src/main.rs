@@ -272,7 +272,7 @@ fn main() -> Result<()> {
                 .and_then(|doc| doc.body())
                 .and_then(|body| body.append_child(&web_sys::Element::from(canvas)).ok())
                 .expect("couldn't append canvas to document body");
-            wasm_bindgen_futures::spawn_local(run(event_loop, window, args));
+            wasm_bindgen_futures::spawn_local(run(event_loop, window, args, scenes));
         }
     }
     Ok(())

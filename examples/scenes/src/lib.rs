@@ -67,7 +67,7 @@ impl Arguments {
         } else {
             // There is no file access on WASM
             #[cfg(target_arch = "wasm32")]
-            return Ok(test_scenes());
+            return Ok(Some(test_scenes()));
             #[cfg(not(target_arch = "wasm32"))]
             if self.test_scenes {
                 Ok(test_scenes())

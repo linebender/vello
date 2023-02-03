@@ -22,7 +22,9 @@ macro_rules! scene {
 }
 
 pub fn test_scenes() -> SceneSet {
-    let scenes = vec![
+    // For WASM below, must be mutable
+    #[allow(unused_mut)]
+    let mut scenes = vec![
         scene!(funky_paths),
         scene!(cardioid_and_friends),
         scene!(animated_text: animated),
@@ -37,6 +39,7 @@ pub fn test_scenes() -> SceneSet {
         },
         function: Box::new(included_tiger()),
     });
+
     SceneSet { scenes }
 }
 
