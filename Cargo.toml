@@ -12,16 +12,29 @@ members = [
 
 [workspace.package]
 edition = "2021"
-version = "0.1.0"
-
-[workspace.dependencies]
-wgpu = "0.15"
+version = "0.0.1"
+license = "MIT/Apache-2.0"
+# homepage = "https://vello.dev" - Domain owned by us, but unused at present
+# rust-version = 
+repository = "https://github.com/linebender/vello"
 
 [package]
 name = "vello"
-version = "0.1.0"
-license = "MIT/Apache-2.0"
-edition = "2021"
+description = "An experimental GPU compute-centric 2D renderer"
+categories = ["rendering", "graphics"]
+keywords = ["2d", "vector-graphics"]                            # , "xilem"?
+
+# This crate is intended for publishing, but not ready yet
+publish = false
+
+version.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+
+[features]
+hot_reload = []
+buffer_labels = []
 
 [dependencies]
 wgpu = { workspace = true }
@@ -33,6 +46,9 @@ smallvec = "1.8.0"
 moscato = { git = "https://github.com/dfrg/pinot", rev = "59db153" }
 peniko = { git = "https://github.com/linebender/peniko", rev = "8cb710f" }
 
-[features]
-hot_reload = []
-buffer_labels = []
+[workspace.dependencies]
+wgpu = "0.15"
+
+# Used for examples
+clap = "4.1.0"
+anyhow = "1.0"

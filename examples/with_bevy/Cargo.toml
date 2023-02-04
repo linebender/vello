@@ -1,8 +1,11 @@
 [package]
 name = "with_bevy"
-version = "0.1.0"
-edition = "2021"
 description = "Example of using Vello in a Bevy application"
+
+version.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

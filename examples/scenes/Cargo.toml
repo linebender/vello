@@ -1,17 +1,22 @@
 [package]
 name = "scenes"
 description = "Vello scenes used in the other examples"
-version.workspace = true
-edition.workspace = true
 publish = false
+
+version.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 vello = { path = "../../" }
 vello_svg = { path = "../../integrations/vello_svg" }
-anyhow = "1.0"
-clap = { version = "4.1.1", features = ["derive"] }
+anyhow = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+
+# Used for the `download` command
+byte-unit = "4.0"
 dialoguer = "0.10"
 ureq = "2.6"
-byte-unit = "4.0"
