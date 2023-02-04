@@ -249,24 +249,73 @@ fn blend_grid(sb: &mut SceneBuilder, _: &mut SceneParams) {
 #[cfg(any(target_arch = "wasm32", target_os = "android"))]
 fn included_tiger() -> impl FnMut(&mut SceneBuilder, &mut SceneParams) {
     use vello::kurbo::Vec2;
-    use vello_svg::usvg;
+
+    fn render_builtin_svg() -> (SceneFragment, Vec2) {
+        use vello_svg::usvg;
+        let start = std::time::Instant::now();
+        let contents = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../assets/Ghostscript_Tiger.svg"
+        ));
+        let svg = usvg::Tree::from_str(&contents, &usvg::Options::default())
+            .expect("failed to parse svg file");
+        let mut new_scene = SceneFragment::new();
+        let mut builder = SceneBuilder::for_fragment(&mut new_scene);
+        vello_svg::render_tree(&mut builder, &svg);
+        let resolution = Vec2::new(svg.size.width(), svg.size.height());
+        eprintln!("Rendered svg in {:?}", start.elapsed());
+        (new_scene, resolution)
+    }
     let mut cached_scene = None;
+    #[cfg(not(target_arch = "wasm32"))]
+    let (tx, rx) = std::sync::mpsc::channel();
+    #[cfg(not(target_arch = "wasm32"))]
+    let mut tx = Some(tx);
+    #[cfg(not(target_arch = "wasm32"))]
+    let mut has_started_parse = false;
     move |builder, params| {
-        let (scene_frag, resolution) = cached_scene.get_or_insert_with(|| {
-            let contents = include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../assets/Ghostscript_Tiger.svg"
-            ));
-            let svg = usvg::Tree::from_str(&contents, &usvg::Options::default())
-                .expect("failed to parse svg file");
-            let mut new_scene = SceneFragment::new();
-            let mut builder = SceneBuilder::for_fragment(&mut new_scene);
-            vello_svg::render_tree(&mut builder, &svg);
-            let resolution = Vec2::new(svg.size.width(), svg.size.height());
-            (new_scene, resolution)
-        });
-        builder.append(&scene_frag, None);
-        params.resolution = Some(*resolution);
+        if let Some((scene_frag, resolution)) = cached_scene.as_mut() {
+            builder.append(&scene_frag, None);
+            params.resolution = Some(*resolution);
+            return;
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let (scene_frag, resolution) = render_builtin_svg();
+            builder.append(&scene_frag, None);
+            params.resolution = Some(resolution);
+            cached_scene = Some((scene_frag, resolution))
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if !has_started_parse {
+                has_started_parse = true;
+                let tx = tx.take().unwrap();
+                std::thread::spawn(move || {
+                    tx.send(render_builtin_svg()).unwrap();
+                });
+            }
+            let recv = rx.recv_timeout(std::time::Duration::from_millis(500));
+            use std::sync::mpsc::RecvTimeoutError;
+            match recv {
+                Ok((scene_frag, resolution)) => {
+                    builder.append(&scene_frag, None);
+                    params.resolution = Some(resolution);
+                    cached_scene = Some((scene_frag, resolution))
+                }
+                Err(RecvTimeoutError::Timeout) => params.text.add(
+                    builder,
+                    None,
+                    48.,
+                    None,
+                    Affine::translate((110.0, 600.0)),
+                    "Loading SVG file",
+                ),
+                Err(RecvTimeoutError::Disconnected) => {
+                    panic!()
+                }
+            }
+        };
     }
 }
 
