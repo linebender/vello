@@ -21,7 +21,9 @@ use std::future::Future;
 use super::Result;
 
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
-use wgpu::{Adapter, Device, Instance, Limits, Queue, Surface, SurfaceConfiguration};
+use wgpu::{
+    Adapter, Device, Instance, Limits, Queue, Surface, SurfaceConfiguration, TextureFormat,
+};
 
 /// Simple render context that maintains wgpu state for rendering the pipeline.
 pub struct RenderContext {
@@ -53,8 +55,16 @@ impl RenderContext {
         W: HasRawWindowHandle + HasRawDisplayHandle,
     {
         let surface = unsafe { self.instance.create_surface(window) }.unwrap();
-        println!("Test");
-        let format = wgpu::TextureFormat::Rgba8Unorm;
+        let dev_id = self.device(Some(&surface)).await.unwrap();
+
+        let device_handle = &self.devices[dev_id];
+        let capabilities = surface.get_capabilities(&device_handle.adapter);
+        let format = capabilities
+            .formats
+            .into_iter()
+            .find(|it| matches!(it, TextureFormat::Rgba8Unorm | TextureFormat::Bgra8Unorm))
+            .expect("Could find format with");
+
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
@@ -64,12 +74,12 @@ impl RenderContext {
             alpha_mode: wgpu::CompositeAlphaMode::Auto,
             view_formats: vec![],
         };
-        let dev_id = self.device(Some(&surface)).await.unwrap();
         surface.configure(&self.devices[dev_id].device, &config);
         RenderSurface {
             surface,
             config,
             dev_id,
+            format,
         }
     }
 
@@ -137,6 +147,7 @@ pub struct RenderSurface {
     pub surface: Surface,
     pub config: SurfaceConfiguration,
     pub dev_id: usize,
+    pub format: TextureFormat,
 }
 
 struct NullWake;

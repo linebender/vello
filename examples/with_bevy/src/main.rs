@@ -22,7 +22,7 @@ struct VelloRenderer(Renderer);
 impl FromWorld for VelloRenderer {
     fn from_world(world: &mut World) -> Self {
         let device = world.get_resource::<RenderDevice>().unwrap();
-        VelloRenderer(Renderer::new(device.wgpu_device()).unwrap())
+        VelloRenderer(Renderer::new(device.wgpu_device(), TextureFormat::Rgba8Unorm).unwrap())
     }
 }
 

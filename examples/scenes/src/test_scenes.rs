@@ -34,7 +34,7 @@ pub fn test_scenes() -> SceneSet {
         scene!(labyrinth),
         scene!(base_color_test: animated),
     ];
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(any(target_arch = "wasm32", target_os = "android"))]
     scenes.push(ExampleScene {
         config: SceneConfig {
             animated: false,
@@ -246,7 +246,7 @@ fn blend_grid(sb: &mut SceneBuilder, _: &mut SceneParams) {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", target_os = "android"))]
 fn included_tiger() -> impl FnMut(&mut SceneBuilder, &mut SceneParams) {
     use vello::kurbo::Vec2;
     use vello_svg::usvg;

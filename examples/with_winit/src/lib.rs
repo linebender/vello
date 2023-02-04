@@ -110,8 +110,16 @@ fn run(
                             Some(VirtualKeyCode::Escape) => {
                                 *control_flow = ControlFlow::Exit;
                             }
+                            Some(VirtualKeyCode::NavigateBackward) => {
+                                scene_ix = scene_ix.saturating_sub(1);
+                            }
                             _ => {}
                         }
+                    }
+                }
+                WindowEvent::Touch(t) => {
+                    if t.phase == TouchPhase::Started {
+                        scene_ix = scene_ix.saturating_add(1)
                     }
                 }
                 WindowEvent::Resized(size) => {
@@ -264,7 +272,7 @@ fn run(
                 // We need to block here, in case a Suspended event appeared
                 let surface = pollster::block_on(surface_future);
                 let device_handle = &render_cx.devices[surface.dev_id];
-                let renderer = Renderer::new(&device_handle.device).unwrap();
+                let renderer = Renderer::new(&device_handle.device, surface.format).unwrap();
                 render_state = Some(RenderState {
                     renderer,
                     window,
