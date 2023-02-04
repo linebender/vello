@@ -22,7 +22,6 @@ use scenes::{SceneParams, SceneSet, SimpleText};
 use vello::util::RenderSurface;
 use vello::SceneFragment;
 use vello::{
-    block_on_wgpu,
     kurbo::{Affine, Vec2},
     util::RenderContext,
     Renderer, Scene, SceneBuilder,
@@ -60,11 +59,20 @@ struct RenderState {
     surface: RenderSurface,
 }
 
-fn run(event_loop: EventLoop<UserEvent>, args: Args, mut scenes: SceneSet) {
+fn run(
+    event_loop: EventLoop<UserEvent>,
+    args: Args,
+    mut scenes: SceneSet,
+    render_cx: RenderContext,
+    #[cfg(target_arch = "wasm32")] render_state: RenderState,
+) {
     use winit::{event::*, event_loop::ControlFlow};
-    let mut render_cx = RenderContext::new().unwrap();
+    #[cfg(not(target_arch = "wasm32"))]
+    let mut render_cx = render_cx;
+    #[cfg(not(target_arch = "wasm32"))]
     let mut render_state = None::<RenderState>;
-    let mut building_render_state = false;
+    #[cfg(target_arch = "wasm32")]
+    let mut render_state = Some(render_state);
 
     let mut scene = Scene::new();
     let mut fragment = SceneFragment::new();
@@ -82,7 +90,8 @@ fn run(event_loop: EventLoop<UserEvent>, args: Args, mut scenes: SceneSet) {
     let mut prev_scene_ix = scene_ix - 1;
     #[allow(unused)]
     let proxy = event_loop.create_proxy();
-    event_loop.run(move |event, event_loop, control_flow| match event {
+    // _event_loop is used on non-wasm platforms
+    event_loop.run(move |event, _event_loop, control_flow| match event {
         Event::WindowEvent {
             ref event,
             window_id,
@@ -194,7 +203,7 @@ fn run(event_loop: EventLoop<UserEvent>, args: Args, mut scenes: SceneSet) {
                 .expect("failed to get surface texture");
             #[cfg(not(target_arch = "wasm32"))]
             {
-                block_on_wgpu(
+                vello::block_on_wgpu(
                     &device_handle.device,
                     render_state.renderer.render_to_surface_async(
                         &device_handle.device,
@@ -238,62 +247,20 @@ fn run(event_loop: EventLoop<UserEvent>, args: Args, mut scenes: SceneSet) {
                     Err(e) => eprintln!("Failed to reload shaders because of {e}"),
                 }
             }
-            #[cfg(target_arch = "wasm32")]
-            UserEvent::SurfaceCreated(window, surface) => {
-                if !building_render_state {
-                    // We have probably been suspended
-                    return;
-                }
-                building_render_state = false;
-                let device_handle = &render_cx.devices[surface.dev_id];
-                let renderer = Renderer::new(&device_handle.device).unwrap();
-                render_state = Some(RenderState {
-                    renderer,
-                    window,
-                    surface,
-                });
-            }
         },
         Event::Suspended => {
             render_state = None;
-            building_render_state = false;
+            *control_flow = ControlFlow::Wait;
         }
         Event::Resumed => {
-            let None = render_state else { return };
-            if building_render_state {
-                return;
-            }
-            building_render_state = true;
-            use winit::{dpi::LogicalSize, window::WindowBuilder};
-            let window = WindowBuilder::new()
-                .with_inner_size(LogicalSize::new(1044, 800))
-                .with_resizable(true)
-                .with_title("Vello demo")
-                .build(&event_loop)
-                .unwrap();
-            let size = window.inner_size();
-            let surface_future = render_cx.create_surface(&window, size.width, size.height);
             #[cfg(target_arch = "wasm32")]
-            {
-                use winit::platform::web::WindowExtWebSys;
-                // On wasm, append the canvas to the document body
-                let canvas = window.canvas();
-                canvas.set_width(1044);
-                canvas.set_height(800);
-                web_sys::window()
-                    .and_then(|win| win.document())
-                    .and_then(|doc| doc.body())
-                    .and_then(|body| body.append_child(&web_sys::Element::from(canvas)).ok())
-                    .expect("couldn't append canvas to document body");
-                let proxy = proxy.clone();
-                wasm_bindgen_futures::spawn_local(async move {
-                    let surface = surface_future.await;
-                    // No error handling here; if the event loop has finished, we don't need to send them the surface
-                    let _ = proxy.send_event(UserEvent::SurfaceCreated(window, surface));
-                });
-            }
+            {}
             #[cfg(not(target_arch = "wasm32"))]
             {
+                let Option::None = render_state else { return };
+                let window = create_window(_event_loop);
+                let size = window.inner_size();
+                let surface_future = render_cx.create_surface(&window, size.width, size.height);
                 // We need to block here, in case a Suspended event appeared
                 let surface = pollster::block_on(surface_future);
                 let device_handle = &render_cx.devices[surface.dev_id];
@@ -303,23 +270,27 @@ fn run(event_loop: EventLoop<UserEvent>, args: Args, mut scenes: SceneSet) {
                     window,
                     surface,
                 });
-                // Ideally, we'd reuse the same code across all backends. However, we need to be ready to recieve a `Suspended`
-                // event at any point
-                // proxy
-                //     .send_event(UserEvent::SurfaceCreated(window, surface))
-                //     .expect("We're within the event loop");
+                *control_flow = ControlFlow::Poll;
             }
         }
         _ => {}
     });
 }
 
+fn create_window(event_loop: &winit::event_loop::EventLoopWindowTarget<UserEvent>) -> Window {
+    use winit::{dpi::LogicalSize, window::WindowBuilder};
+    WindowBuilder::new()
+        .with_inner_size(LogicalSize::new(1044, 800))
+        .with_resizable(true)
+        .with_title("Vello demo")
+        .build(&event_loop)
+        .unwrap()
+}
+
 #[derive(Debug)]
 enum UserEvent {
     #[cfg(not(target_arch = "wasm32"))]
     HotReload,
-    #[cfg(target_arch = "wasm32")]
-    SurfaceCreated(Window, RenderSurface),
 }
 
 pub fn main() -> Result<()> {
@@ -331,6 +302,8 @@ pub fn main() -> Result<()> {
     let scenes = args.args.select_scene_set(|| Args::command())?;
     if let Some(scenes) = scenes {
         let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
+        #[allow(unused_mut)]
+        let mut render_cx = RenderContext::new().unwrap();
         #[cfg(not(target_arch = "wasm32"))]
         {
             let proxy = event_loop.create_proxy();
@@ -338,13 +311,38 @@ pub fn main() -> Result<()> {
                 proxy.send_event(UserEvent::HotReload).ok().map(drop)
             });
 
-            run(event_loop, args, scenes);
+            run(event_loop, args, scenes, render_cx);
         }
         #[cfg(target_arch = "wasm32")]
         {
             std::panic::set_hook(Box::new(console_error_panic_hook::hook));
             console_log::init().expect("could not initialize logger");
-            run(event_loop, args, scenes);
+            use winit::platform::web::WindowExtWebSys;
+            let window = create_window(&event_loop);
+            // On wasm, append the canvas to the document body
+            let canvas = window.canvas();
+            canvas.set_width(1044);
+            canvas.set_height(800);
+            web_sys::window()
+                .and_then(|win| win.document())
+                .and_then(|doc| doc.body())
+                .and_then(|body| body.append_child(&web_sys::Element::from(canvas)).ok())
+                .expect("couldn't append canvas to document body");
+            wasm_bindgen_futures::spawn_local(async move {
+                let size = window.inner_size();
+                let surface = render_cx
+                    .create_surface(&window, size.width, size.height)
+                    .await;
+                let device_handle = &render_cx.devices[surface.dev_id];
+                let renderer = Renderer::new(&device_handle.device).unwrap();
+                let render_state = RenderState {
+                    renderer,
+                    window,
+                    surface,
+                };
+                // No error handling here; if the event loop has finished, we don't need to send them the surface
+                run(event_loop, args, scenes, render_cx, render_state);
+            });
         }
     }
     Ok(())
@@ -358,7 +356,9 @@ use winit::platform::android::activity::AndroidApp;
 fn android_main(app: AndroidApp) {
     use winit::platform::android::EventLoopBuilderExtAndroid;
 
-    android_logger::init_once(android_logger::Config::default().with_min_level(log::Level::Trace));
+    android_logger::init_once(
+        android_logger::Config::default().with_max_level(log::LevelFilter::Warn),
+    );
 
     let event_loop = EventLoopBuilder::with_user_event()
         .with_android_app(app)
@@ -369,5 +369,7 @@ fn android_main(app: AndroidApp) {
         .select_scene_set(|| Args::command())
         .unwrap()
         .unwrap();
-    run(event_loop, args, scenes);
+    let render_cx = RenderContext::new().unwrap();
+
+    run(event_loop, args, scenes, render_cx);
 }

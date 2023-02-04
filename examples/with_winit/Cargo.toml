@@ -14,6 +14,11 @@ repository.workspace = true
 name = "with_winit"
 crate-type = ["cdylib", "lib"]
 
+[[bin]]
+# Stop the PDB collision warning on windows
+name = "with_winit_bin"
+path = "src/main.rs"
+
 [dependencies]
 vello = { path = "../../", features = ["buffer_labels"] }
 scenes = { path = "../scenes" }

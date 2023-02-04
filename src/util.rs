@@ -21,9 +21,7 @@ use std::future::Future;
 use super::Result;
 
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
-use wgpu::{
-    Adapter, Device, Instance, Limits, Queue, RequestAdapterOptions, Surface, SurfaceConfiguration,
-};
+use wgpu::{Adapter, Device, Instance, Limits, Queue, Surface, SurfaceConfiguration};
 
 /// Simple render context that maintains wgpu state for rendering the pipeline.
 pub struct RenderContext {
@@ -55,7 +53,8 @@ impl RenderContext {
         W: HasRawWindowHandle + HasRawDisplayHandle,
     {
         let surface = unsafe { self.instance.create_surface(window) }.unwrap();
-        let format = wgpu::TextureFormat::Bgra8Unorm;
+        println!("Test");
+        let format = wgpu::TextureFormat::Rgba8Unorm;
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,

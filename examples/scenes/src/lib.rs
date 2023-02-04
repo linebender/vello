@@ -66,7 +66,7 @@ enum Command {
 impl Arguments {
     pub fn select_scene_set(
         &self,
-        command: impl FnOnce() -> clap::Command,
+        #[allow(unused)] command: impl FnOnce() -> clap::Command,
     ) -> Result<Option<SceneSet>> {
         if let Some(command) = &self.command {
             command.action()?;

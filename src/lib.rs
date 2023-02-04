@@ -68,7 +68,7 @@ impl Renderer {
     pub fn new(device: &Device) -> Result<Self> {
         let mut engine = Engine::new();
         let shaders = shaders::full_shaders(device, &mut engine)?;
-        let blit = BlitPipeline::new(device, TextureFormat::Bgra8Unorm);
+        let blit = BlitPipeline::new(device, TextureFormat::Rgba8Unorm);
         Ok(Self {
             engine,
             shaders,
