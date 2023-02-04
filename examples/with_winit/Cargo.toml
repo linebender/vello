@@ -10,6 +10,10 @@ repository.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[lib]
+name = "with_winit"
+crate-type = ["cdylib", "lib"]
+
 [dependencies]
 vello = { path = "../../", features = ["buffer_labels"] }
 scenes = { path = "../scenes" }
@@ -20,10 +24,16 @@ wgpu = { workspace = true }
 winit = "0.28.1"
 pollster = "0.2.5"
 env_logger = "0.10.0"
+log = "0.4.17"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 vello = { path = "../../", features = ["hot_reload"] }
 notify-debouncer-mini = "0.2.1"
+
+
+[target.'cfg(target_os = "android")'.dependencies]
+winit = { version = "0.28", features = ["android-native-activity"] }
+android_logger = "0.12.0"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = "0.1.7"

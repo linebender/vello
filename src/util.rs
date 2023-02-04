@@ -133,6 +133,7 @@ impl RenderContext {
 }
 
 /// Combination of surface and its configuration.
+#[derive(Debug)]
 pub struct RenderSurface {
     pub surface: Surface,
     pub config: SurfaceConfiguration,

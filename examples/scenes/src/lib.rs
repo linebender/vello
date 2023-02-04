@@ -73,9 +73,9 @@ impl Arguments {
             Ok(None)
         } else {
             // There is no file access on WASM
-            #[cfg(target_arch = "wasm32")]
+            #[cfg(any(target_arch = "wasm32", target_os = "android"))]
             return Ok(Some(test_scenes()));
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
             if self.test_scenes {
                 Ok(test_scenes())
             } else if let Some(svgs) = &self.svgs {
