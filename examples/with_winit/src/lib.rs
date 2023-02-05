@@ -40,13 +40,6 @@ mod multi_touch;
 #[derive(Parser, Debug)]
 #[command(about, long_about = None, bin_name="cargo run -p with_winit --")]
 struct Args {
-    /// Path to the svg file to render. If not set, the GhostScript Tiger will be rendered
-    #[arg(long)]
-    #[cfg(not(target_arch = "wasm32"))]
-    svg: Option<std::path::PathBuf>,
-    /// When rendering an svg, what scale to use
-    #[arg(long)]
-    scale: Option<f64>,
     /// Which scene (index) to start on
     /// Switch between scenes with left and right arrow keys
     #[arg(long)]

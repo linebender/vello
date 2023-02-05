@@ -288,14 +288,17 @@ fn included_tiger() -> impl FnMut(&mut SceneBuilder, &mut SceneParams) {
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
+            let mut timeout = std::time::Duration::from_millis(10);
             if !has_started_parse {
                 has_started_parse = true;
+                // Prefer jank over loading screen for first time
+                timeout = std::time::Duration::from_millis(400);
                 let tx = tx.take().unwrap();
                 std::thread::spawn(move || {
                     tx.send(render_builtin_svg()).unwrap();
                 });
             }
-            let recv = rx.recv_timeout(std::time::Duration::from_millis(500));
+            let recv = rx.recv_timeout(timeout);
             use std::sync::mpsc::RecvTimeoutError;
             match recv {
                 Ok((scene_frag, resolution)) => {
