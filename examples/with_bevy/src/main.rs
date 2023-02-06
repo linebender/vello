@@ -1,3 +1,4 @@
+use bevy::render::RenderSet;
 use vello::kurbo::{Affine, Point, Rect};
 use vello::peniko::{Color, Fill, Gradient, Stroke};
 use vello::{Renderer, Scene, SceneBuilder, SceneFragment};
@@ -11,7 +12,7 @@ use bevy::{
             Extent3d, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
         },
         renderer::{RenderDevice, RenderQueue},
-        RenderApp, RenderStage,
+        RenderApp,
     },
 };
 
@@ -32,7 +33,7 @@ impl Plugin for VelloPlugin {
         let Ok(render_app) = app.get_sub_app_mut(RenderApp) else { return };
         render_app.init_resource::<VelloRenderer>();
         // This should probably use the render graph, but working out the dependencies there is awkward
-        render_app.add_system_to_stage(RenderStage::Render, render_scenes);
+        render_app.add_system(render_scenes.in_set(RenderSet::Render));
     }
 }
 

@@ -7,5 +7,5 @@ description = "Example of using Vello in a Bevy application"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bevy = { git = "https://github.com/bevyengine/bevy", rev = "5d514fb24f2459700f68d8e57d4791bdf5b1b595" }
+bevy = { git = "https://github.com/bevyengine/bevy", rev = "4fd092fbec07416fa9b1e2306f61231ae20315ac" }
 vello = { path = "../../" }
