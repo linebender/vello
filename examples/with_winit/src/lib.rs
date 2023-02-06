@@ -49,8 +49,10 @@ struct Args {
 }
 
 struct RenderState {
-    window: Window,
+    // SAFETY: We MUST drop the surface before the `window`, so the fields
+    // must be in this order
     surface: RenderSurface,
+    window: Window,
 }
 
 fn run(
