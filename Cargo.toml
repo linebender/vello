@@ -22,7 +22,7 @@ repository = "https://github.com/linebender/vello"
 name = "vello"
 description = "An experimental GPU compute-centric 2D renderer"
 categories = ["rendering", "graphics"]
-keywords = ["2d", "vector-graphics"]                            # , "xilem"?
+keywords = ["2d", "vector-graphics"]
 
 # This crate is intended for publishing, but not ready yet
 publish = false
