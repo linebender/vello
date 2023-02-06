@@ -1,6 +1,5 @@
 pub mod download;
 mod simple_text;
-#[cfg(not(target_arch = "wasm32"))]
 mod svg;
 mod test_scenes;
 use std::path::PathBuf;
@@ -9,7 +8,6 @@ use anyhow::{anyhow, Result};
 use clap::{Args, Subcommand};
 use download::Download;
 pub use simple_text::SimpleText;
-#[cfg(not(target_arch = "wasm32"))]
 pub use svg::{default_scene, scene_from_files};
 pub use test_scenes::test_scenes;
 

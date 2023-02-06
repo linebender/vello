@@ -78,6 +78,9 @@ fn run(
         );
         Some(render_state)
     };
+    #[cfg(not(target_arch = "wasm32"))]
+    let mut cached_window = None;
+
     let mut scene = Scene::new();
     let mut fragment = SceneFragment::new();
     let mut simple_text = SimpleText::new();
@@ -85,7 +88,6 @@ fn run(
 
     let mut touch_state = multi_touch::TouchState::new();
     let mut navigation_fingers = HashSet::new();
-
     let mut transform = Affine::IDENTITY;
     let mut mouse_down = false;
     let mut prior_position: Option<Vec2> = None;
@@ -122,9 +124,9 @@ fn run(
                     }
                 }
                 WindowEvent::Touch(touch) => {
-                    if touch.location.y > render_state.surface.config.height as f64 - 400. {
-                        match touch.phase {
-                            TouchPhase::Started => {
+                    match touch.phase {
+                        TouchPhase::Started => {
+                            if touch.location.y > render_state.surface.config.height as f64 - 400. {
                                 navigation_fingers.insert(touch.id);
                                 if touch.location.x < render_state.surface.config.width as f64 / 3.
                                 {
@@ -135,11 +137,11 @@ fn run(
                                     scene_ix = scene_ix.saturating_add(1);
                                 }
                             }
-                            TouchPhase::Ended | TouchPhase::Cancelled => {
-                                navigation_fingers.remove(&touch.id);
-                            }
-                            TouchPhase::Moved => (),
                         }
+                        TouchPhase::Ended | TouchPhase::Cancelled => {
+                            navigation_fingers.remove(&touch.id);
+                        }
+                        TouchPhase::Moved => (),
                     }
                     if !navigation_fingers.contains(&touch.id) {
                         touch_state.add_event(touch);
@@ -299,7 +301,11 @@ fn run(
             }
         },
         Event::Suspended => {
-            render_state = None;
+            eprintln!("Suspending");
+            #[cfg(not(target_arch = "wasm32"))]
+            if let Some(render_state) = render_state.take() {
+                cached_window = Some(render_state.window);
+            }
             *control_flow = ControlFlow::Wait;
         }
         Event::Resumed => {
@@ -308,7 +314,9 @@ fn run(
             #[cfg(not(target_arch = "wasm32"))]
             {
                 let Option::None = render_state else { return };
-                let window = create_window(_event_loop);
+                let window = cached_window
+                    .take()
+                    .unwrap_or_else(|| create_window(_event_loop));
                 let size = window.inner_size();
                 let surface_future = render_cx.create_surface(&window, size.width, size.height);
                 // We need to block here, in case a Suspended event appeared

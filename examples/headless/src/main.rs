@@ -86,7 +86,8 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
     let device_handle = &mut context.devices[device_id];
     let device = &device_handle.device;
     let queue = &device_handle.queue;
-    let mut renderer = vello::Renderer::new(&device)
+    // TODO: This surface_format is unused in the headless version
+    let mut renderer = vello::Renderer::new(&device, TextureFormat::Rgba8Unorm)
         .or_else(|_| bail!("Got non-Send/Sync error from creating renderer"))?;
     let mut fragment = SceneFragment::new();
     let mut builder = SceneBuilder::for_fragment(&mut fragment);

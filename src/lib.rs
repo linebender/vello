@@ -205,7 +205,7 @@ impl Renderer {
             } else {
                 return Err("channel was closed".into());
             }
-            let mapped = buf_slice.get_mapped_range();
+            let _mapped = buf_slice.get_mapped_range();
             // println!("{:?}", bytemuck::cast_slice::<_, u32>(&mapped));
         }
         // TODO: apply logic to determine whether we need to rerun coarse, and also
