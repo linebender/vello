@@ -30,6 +30,8 @@ pub fn test_scenes() -> SceneSet {
         scene!(animated_text: animated),
         scene!(brush_transform: animated),
         scene!(blend_grid),
+        scene!(conflation_artifacts),
+        scene!(labyrinth),
     ];
     #[cfg(target_arch = "wasm32")]
     scenes.push(ExampleScene {
@@ -401,6 +403,172 @@ fn blend_square(blend: BlendMode) -> SceneFragment {
     render_blend_square(&mut sb, blend, Affine::IDENTITY);
     sb.finish();
     fragment
+}
+
+fn conflation_artifacts(sb: &mut SceneBuilder, _: &mut SceneParams) {
+    use PathEl::*;
+    const N: f64 = 50.0;
+    const S: f64 = 4.0;
+
+    let scale = Affine::scale(S);
+    let x = N + 0.5; // Fractional pixel offset reveals the problem on axis-aligned edges.
+    let mut y = N;
+
+    let bg_color = Color::rgb8(255, 194, 19);
+    let fg_color = Color::rgb8(12, 165, 255);
+
+    // Two adjacent triangles touching at diagonal edge with opposing winding numbers
+    sb.fill(
+        Fill::NonZero,
+        Affine::translate((x, y)) * scale,
+        fg_color,
+        None,
+        &[
+            // triangle 1
+            MoveTo((0.0, 0.0).into()),
+            LineTo((N, N).into()),
+            LineTo((0.0, N).into()),
+            LineTo((0.0, 0.0).into()),
+            // triangle 2
+            MoveTo((0.0, 0.0).into()),
+            LineTo((N, N).into()),
+            LineTo((N, 0.0).into()),
+            LineTo((0.0, 0.0).into()),
+        ],
+    );
+
+    // Adjacent rects, opposite winding
+    y += S * N + 10.0;
+    sb.fill(
+        Fill::EvenOdd,
+        Affine::translate((x, y)) * scale,
+        bg_color,
+        None,
+        &Rect::new(0.0, 0.0, N, N),
+    );
+    sb.fill(
+        Fill::EvenOdd,
+        Affine::translate((x, y)) * scale,
+        fg_color,
+        None,
+        &[
+            // left rect
+            MoveTo((0.0, 0.0).into()),
+            LineTo((0.0, N).into()),
+            LineTo((N * 0.5, N).into()),
+            LineTo((N * 0.5, 0.0).into()),
+            // right rect
+            MoveTo((N * 0.5, 0.0).into()),
+            LineTo((N, 0.0).into()),
+            LineTo((N, N).into()),
+            LineTo((N * 0.5, N).into()),
+        ],
+    );
+
+    // Adjacent rects, same winding
+    y += S * N + 10.0;
+    sb.fill(
+        Fill::EvenOdd,
+        Affine::translate((x, y)) * scale,
+        bg_color,
+        None,
+        &Rect::new(0.0, 0.0, N, N),
+    );
+    sb.fill(
+        Fill::EvenOdd,
+        Affine::translate((x, y)) * scale,
+        fg_color,
+        None,
+        &[
+            // left rect
+            MoveTo((0.0, 0.0).into()),
+            LineTo((0.0, N).into()),
+            LineTo((N * 0.5, N).into()),
+            LineTo((N * 0.5, 0.0).into()),
+            // right rect
+            MoveTo((N * 0.5, 0.0).into()),
+            LineTo((N * 0.5, N).into()),
+            LineTo((N, N).into()),
+            LineTo((N, 0.0).into()),
+        ],
+    );
+}
+
+fn labyrinth(sb: &mut SceneBuilder, _: &mut SceneParams) {
+    use PathEl::*;
+
+    let rows: &[[u8; 12]] = &[
+        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        [0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 1, 1],
+        [0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 1],
+        [1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0],
+        [0, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1],
+        [1, 0, 0, 1, 0, 0, 0, 0, 1, 1, 1, 0],
+        [0, 1, 0, 1, 1, 1, 0, 0, 1, 1, 1, 0],
+        [1, 0, 1, 0, 1, 1, 1, 1, 0, 1, 1, 1],
+        [0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1],
+        [0, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 0],
+        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    ];
+    let cols: &[[u8; 10]] = &[
+        [1, 1, 1, 1, 0, 1, 1, 1, 1, 1],
+        [0, 0, 1, 0, 0, 0, 1, 1, 1, 0],
+        [0, 1, 1, 0, 1, 1, 1, 0, 0, 1],
+        [1, 1, 0, 0, 0, 0, 1, 0, 1, 0],
+        [0, 0, 1, 0, 1, 0, 0, 0, 0, 1],
+        [0, 0, 1, 1, 1, 0, 0, 0, 1, 0],
+        [0, 1, 0, 1, 1, 1, 0, 0, 0, 0],
+        [1, 1, 1, 0, 1, 1, 1, 0, 1, 0],
+        [1, 1, 0, 1, 1, 0, 0, 0, 1, 0],
+        [0, 0, 1, 0, 0, 0, 0, 0, 0, 1],
+        [0, 0, 1, 1, 0, 0, 0, 0, 1, 0],
+        [0, 0, 0, 0, 0, 0, 1, 0, 0, 1],
+        [1, 1, 1, 1, 1, 1, 0, 1, 1, 1],
+    ];
+    let mut path = BezPath::new();
+    for (y, row) in rows.iter().enumerate() {
+        for (x, flag) in row.iter().enumerate() {
+            let x = x as f64;
+            let y = y as f64;
+            if *flag == 1 {
+                path.push(MoveTo((x - 0.1, y + 0.1).into()));
+                path.push(LineTo((x + 1.1, y + 0.1).into()));
+                path.push(LineTo((x + 1.1, y - 0.1).into()));
+                path.push(LineTo((x - 0.1, y - 0.1).into()));
+
+                // The above is equivalent to the following stroke with width 0.2 and square
+                // caps.
+                //path.push(MoveTo((x, y).into()));
+                //path.push(LineTo((x + 1.0, y).into()));
+            }
+        }
+    }
+    for (x, col) in cols.iter().enumerate() {
+        for (y, flag) in col.iter().enumerate() {
+            let x = x as f64;
+            let y = y as f64;
+            if *flag == 1 {
+                path.push(MoveTo((x - 0.1, y - 0.1).into()));
+                path.push(LineTo((x - 0.1, y + 1.1).into()));
+                path.push(LineTo((x + 0.1, y + 1.1).into()));
+                path.push(LineTo((x + 0.1, y - 0.1).into()));
+                // The above is equivalent to the following stroke with width 0.2 and square
+                // caps.
+                //path.push(MoveTo((x, y).into()));
+                //path.push(LineTo((x, y + 1.0).into()));
+            }
+        }
+    }
+
+    // Note the artifacts are clearly visible at a fractional pixel offset/translation. They
+    // disappear if the translation amount below is a whole number.
+    sb.fill(
+        Fill::NonZero,
+        Affine::translate((20.5, 20.5)) * Affine::scale(80.0),
+        Color::rgba8(0x70, 0x80, 0x80, 0xff),
+        None,
+        &path,
+    )
 }
 
 fn around_center(xform: Affine, center: Point) -> Affine {
