@@ -1,4 +1,7 @@
-use std::num::NonZeroU32;
+use std::{
+    num::NonZeroU32,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{anyhow, bail, Context, Result};
 use clap::{CommandFactory, Parser};
@@ -194,7 +197,12 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
     let mut writer = encoder.write_header()?;
     writer.write_image_data(&data)?;
     writer.finish()?;
-    std::fs::write("./test.png", result)?;
+    let out_path = args
+        .out_directory
+        .join(&example_scene.config.name)
+        .with_extension("png");
+    std::fs::write(&out_path, result)?;
+    println!("Wrote result to {out_path:?}");
     Ok(())
 }
 
@@ -212,9 +220,16 @@ struct Args {
     #[arg(long, short, global(false))]
     /// The time in seconds since the frame start, for animated scenes
     time: Option<f64>,
+    /// Directory to store the result into
+    #[arg(long, default_value_os_t = default_directory())]
+    pub out_directory: PathBuf,
     #[arg(long, short, global(false))]
     /// Display a list of all scene names
     print_scenes: bool,
     #[command(flatten)]
     args: scenes::Arguments,
+}
+
+fn default_directory() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("outputs")
 }
