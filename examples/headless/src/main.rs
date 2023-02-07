@@ -1,3 +1,220 @@
-fn main() {
-    println!("Hello, world!");
+use std::num::NonZeroU32;
+
+use anyhow::{anyhow, bail, Context, Result};
+use clap::{CommandFactory, Parser};
+use scenes::{SceneParams, SceneSet, SimpleText};
+use vello::{
+    kurbo::{Affine, Vec2},
+    Scene, SceneBuilder, SceneFragment,
+};
+use wgpu::{
+    util::initialize_adapter_from_env_or_default, Backends, BufferDescriptor, BufferUsages,
+    CommandEncoderDescriptor, DeviceDescriptor, Extent3d, ImageCopyBuffer, Instance, Limits,
+    TextureDescriptor, TextureFormat, TextureUsages,
+};
+
+fn main() -> Result<()> {
+    #[cfg(not(target_arch = "wasm32"))]
+    env_logger::init();
+    let args = Args::parse();
+    let scenes = args.args.select_scene_set(|| Args::command())?;
+    if let Some(scenes) = scenes {
+        let mut scene_idx = None;
+        for (idx, scene) in scenes.scenes.iter().enumerate() {
+            if scene.config.name.eq_ignore_ascii_case(&args.scene) {
+                if let Some(scene_idx) = scene_idx {
+                    eprintln!("Scene names conflict, skipping scene {idx} (instead rendering {scene_idx})");
+                } else {
+                    scene_idx = Some(idx);
+                }
+            }
+        }
+        let scene_idx = match scene_idx {
+            Some(idx) => idx,
+            None => {
+                let parsed = args.scene.parse::<usize>().context(format!(
+                    "'{}' didn't match any scene, trying to parse as index",
+                    args.scene
+                ))?;
+
+                if !(parsed < scenes.scenes.len()) {
+                    if scenes.scenes.len() == 0 {
+                        bail!("Cannot select a scene, as there are no scenes")
+                    }
+                    bail!(
+                        "{parsed} doesn't fit in scenes (len {})",
+                        scenes.scenes.len()
+                    );
+                }
+                parsed
+            }
+        };
+        if args.print_scenes {
+            println!("Available scenes:");
+
+            for (idx, scene) in scenes.scenes.iter().enumerate() {
+                println!(
+                    "{idx}: {}{}{}",
+                    scene.config.name,
+                    if scene.config.animated {
+                        " (animated)"
+                    } else {
+                        ""
+                    },
+                    if scene_idx == idx { " (selected)" } else { "" }
+                );
+            }
+            return Ok(());
+        }
+        pollster::block_on(render(scenes, scene_idx, &args))?;
+    }
+    Ok(())
+}
+
+async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
+    let instance = Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::PRIMARY,
+        dx12_shader_compiler: wgpu::Dx12Compiler::Fxc,
+    });
+    let adapter = initialize_adapter_from_env_or_default(&instance, Backends::PRIMARY, None)
+        .await
+        .ok_or_else(|| anyhow!("Failed to intiialise adapter"))?;
+    let (device, queue) = adapter
+        .request_device(
+            &DeviceDescriptor {
+                label: Some("Vello Headless"),
+                features: wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::CLEAR_TEXTURE,
+                limits: Limits::default(),
+            },
+            None,
+        )
+        .await?;
+    let mut renderer = vello::Renderer::new(&device)
+        .or_else(|_| bail!("Got non-Send/Sync error from creating renderer"))?;
+    let mut fragment = SceneFragment::new();
+    let mut builder = SceneBuilder::for_fragment(&mut fragment);
+    let example_scene = &mut scenes.scenes[index];
+    let mut text = SimpleText::new();
+    let mut params = SceneParams {
+        time: args.time.unwrap_or(0.),
+        text: &mut text,
+        resolution: None,
+    };
+    (example_scene.function)(&mut builder, &mut params);
+    builder.finish();
+    let mut transform = Affine::IDENTITY;
+    let (width, height) = if let Some(resolution) = params.resolution {
+        let ratio = resolution.x / resolution.y;
+        let (new_width, new_height) = match (args.x_resolution, args.y_resolution) {
+            (None, None) => (resolution.x.ceil() as u32, resolution.y.ceil() as u32),
+            (None, Some(y)) => ((ratio * (y as f64)).ceil() as u32, y),
+            (Some(x), None) => (x, ((x as f64) / ratio).ceil() as u32),
+            (Some(x), Some(y)) => (x, y),
+        };
+        let factor = Vec2::new(new_width as f64, new_height as f64);
+        let scale_factor = (factor.x / resolution.x).min(factor.y / resolution.y);
+        transform = transform * Affine::scale(scale_factor);
+        (new_width, new_height)
+    } else {
+        match (args.x_resolution, args.y_resolution) {
+            (None, None) => (1000, 1000),
+            (None, Some(y)) => {
+                let y = y.try_into()?;
+                (y, y)
+            }
+            (Some(x), None) => {
+                let x = x.try_into()?;
+                (x, x)
+            }
+            (Some(x), Some(y)) => (x.try_into()?, y.try_into()?),
+        }
+    };
+    let mut scene = Scene::new();
+    let mut builder = SceneBuilder::for_scene(&mut scene);
+    builder.append(&fragment, Some(transform));
+    builder.finish();
+    let size = Extent3d {
+        width,
+        height,
+        depth_or_array_layers: 1,
+    };
+    let target = device.create_texture(&TextureDescriptor {
+        label: Some("Target texture"),
+        size,
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: TextureFormat::Rgba8Unorm,
+        usage: TextureUsages::STORAGE_BINDING | TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let view = target.create_view(&wgpu::TextureViewDescriptor::default());
+    renderer
+        .render_to_texture(&device, &queue, &scene, &view, width, height)
+        .or_else(|_| bail!("Got non-Send/Sync error from rendering"))?;
+    // (width * 4).next_multiple_of(256)
+    let padded_width = {
+        let w = width as u32 * 4;
+        match w % 256 {
+            0 => w,
+            r => w + (256 - r),
+        }
+    };
+    let buffer_size = padded_width as u64 * height as u64;
+    let buffer = device.create_buffer(&BufferDescriptor {
+        label: Some("val"),
+        size: buffer_size,
+        usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+        label: Some("Copy out buffer"),
+    });
+    encoder.copy_texture_to_buffer(
+        target.as_image_copy(),
+        ImageCopyBuffer {
+            buffer: &buffer,
+            layout: wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: NonZeroU32::new(padded_width),
+                rows_per_image: None,
+            },
+        },
+        size,
+    );
+    queue.submit([encoder.finish()]);
+    let buf_slice = buffer.slice(..);
+    buf_slice.map_async(wgpu::MapMode::Read, |done| done.unwrap());
+    device.poll(wgpu::MaintainBase::Wait);
+    let data = buf_slice.get_mapped_range();
+    let mut result = Vec::<u8>::new();
+    let mut encoder = png::Encoder::new(&mut result, padded_width / 4, height);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    let mut writer = encoder.write_header()?;
+    writer.write_image_data(&data)?;
+    writer.finish()?;
+    std::fs::write("./test.png", result)?;
+    Ok(())
+}
+
+#[derive(Parser, Debug)]
+#[command(about, long_about = None, bin_name="cargo run -p with_winit --")]
+struct Args {
+    #[arg(long, short, global(false))]
+    x_resolution: Option<u32>,
+    #[arg(long, short, global(false))]
+    y_resolution: Option<u32>,
+    /// Which scene (name) to render
+    /// If no scenes have that name, an index can be specified instead
+    #[arg(long, short, default_value = "0", global(false))]
+    scene: String,
+    #[arg(long, short, global(false))]
+    /// The time in seconds since the frame start, for animated scenes
+    time: Option<f64>,
+    #[arg(long, short, global(false))]
+    /// Display a list of all scene names
+    print_scenes: bool,
+    #[command(flatten)]
+    args: scenes::Arguments,
 }
