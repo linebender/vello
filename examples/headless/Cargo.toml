@@ -15,3 +15,4 @@ wgpu = { workspace = true }
 pollster = "0.2.5"
 env_logger = "0.10.0"
 png = "0.17.7"
+futures-intrusive = "0.5.0"

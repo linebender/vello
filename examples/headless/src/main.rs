@@ -1,4 +1,5 @@
 use std::{
+    fs::File,
     num::NonZeroU32,
     path::{Path, PathBuf},
 };
@@ -7,6 +8,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use clap::{CommandFactory, Parser};
 use scenes::{SceneParams, SceneSet, SimpleText};
 use vello::{
+    block_on_wgpu,
     kurbo::{Affine, Vec2},
     Scene, SceneBuilder, SceneFragment,
 };
@@ -156,14 +158,14 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
         .render_to_texture(&device, &queue, &scene, &view, width, height)
         .or_else(|_| bail!("Got non-Send/Sync error from rendering"))?;
     // (width * 4).next_multiple_of(256)
-    let padded_width = {
+    let padded_byte_width = {
         let w = width as u32 * 4;
         match w % 256 {
             0 => w,
             r => w + (256 - r),
         }
     };
-    let buffer_size = padded_width as u64 * height as u64;
+    let buffer_size = padded_byte_width as u64 * height as u64;
     let buffer = device.create_buffer(&BufferDescriptor {
         label: Some("val"),
         size: buffer_size,
@@ -179,7 +181,7 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
             buffer: &buffer,
             layout: wgpu::ImageDataLayout {
                 offset: 0,
-                bytes_per_row: NonZeroU32::new(padded_width),
+                bytes_per_row: NonZeroU32::new(padded_byte_width),
                 rows_per_image: None,
             },
         },
@@ -187,22 +189,33 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
     );
     queue.submit([encoder.finish()]);
     let buf_slice = buffer.slice(..);
-    buf_slice.map_async(wgpu::MapMode::Read, |done| done.unwrap());
-    device.poll(wgpu::MaintainBase::Wait);
+
+    let (sender, receiver) = futures_intrusive::channel::shared::oneshot_channel();
+    buf_slice.map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
+    if let Some(recv_result) = block_on_wgpu(&device, receiver.receive()) {
+        recv_result?;
+    } else {
+        bail!("channel was closed");
+    }
+
     let data = buf_slice.get_mapped_range();
-    let mut result = Vec::<u8>::new();
-    let mut encoder = png::Encoder::new(&mut result, padded_width / 4, height);
-    encoder.set_color(png::ColorType::Rgba);
-    encoder.set_depth(png::BitDepth::Eight);
-    let mut writer = encoder.write_header()?;
-    writer.write_image_data(&data)?;
-    writer.finish()?;
+    let mut result_unpadded = Vec::<u8>::with_capacity((width * height * 4).try_into()?);
+    for row in 0..height {
+        let start = (row * padded_byte_width).try_into()?;
+        result_unpadded.extend(&data[start..start + (width * 4) as usize]);
+    }
     let out_path = args
         .out_directory
         .join(&example_scene.config.name)
         .with_extension("png");
-    std::fs::write(&out_path, result)?;
-    println!("Wrote result to {out_path:?}");
+    let mut file = File::create(&out_path)?;
+    let mut encoder = png::Encoder::new(&mut file, width, height);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    let mut writer = encoder.write_header()?;
+    writer.write_image_data(&result_unpadded)?;
+    writer.finish()?;
+    println!("Wrote result ({width}x{height}) to {out_path:?}");
     Ok(())
 }
 
