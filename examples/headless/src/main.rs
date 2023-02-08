@@ -220,7 +220,7 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
 }
 
 #[derive(Parser, Debug)]
-#[command(about, long_about = None, bin_name="cargo run -p with_winit --")]
+#[command(about, long_about = None, bin_name="cargo run -p headless --")]
 struct Args {
     #[arg(long, short, global(false))]
     x_resolution: Option<u32>,
