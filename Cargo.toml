@@ -4,6 +4,7 @@ resolver = "2"
 members = [
     "integrations/vello_svg",
 
+    "examples/headless",
     "examples/with_winit",
     "examples/with_bevy",
     "examples/run_wasm",

@@ -1,0 +1,23 @@
+[package]
+name = "headless"
+description = "An example showing how to use `vello` to create raster images"
+publish = false
+
+version.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+vello = { path = "../../" }
+scenes = { path = "../scenes" }
+
+wgpu = { workspace = true }
+pollster = "0.2.5"
+env_logger = "0.10.0"
+png = "0.17.7"
+futures-intrusive = "0.5.0"

@@ -84,7 +84,7 @@ impl RenderContext {
     }
 
     /// Finds or creates a compatible device handle id.
-    async fn device(&mut self, compatible_surface: Option<&Surface>) -> Option<usize> {
+    pub async fn device(&mut self, compatible_surface: Option<&Surface>) -> Option<usize> {
         let compatible = match compatible_surface {
             Some(s) => self
                 .devices

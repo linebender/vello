@@ -40,7 +40,7 @@ pub struct SceneSet {
 /// Shared config for scene selection
 pub struct Arguments {
     #[arg(help_heading = "Scene Selection")]
-    #[arg(short = 't', long, global(false))]
+    #[arg(long, global(false))]
     /// Whether to use the test scenes created by code
     test_scenes: bool,
     #[arg(help_heading = "Scene Selection", global(false))]
