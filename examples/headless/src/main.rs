@@ -10,11 +10,11 @@ use scenes::{SceneParams, SceneSet, SimpleText};
 use vello::{
     block_on_wgpu,
     kurbo::{Affine, Vec2},
+    util::RenderContext,
     Scene, SceneBuilder, SceneFragment,
 };
 use wgpu::{
-    util::initialize_adapter_from_env_or_default, Backends, BufferDescriptor, BufferUsages,
-    CommandEncoderDescriptor, DeviceDescriptor, Extent3d, ImageCopyBuffer, Instance, Limits,
+    BufferDescriptor, BufferUsages, CommandEncoderDescriptor, Extent3d, ImageCopyBuffer,
     TextureDescriptor, TextureFormat, TextureUsages,
 };
 
@@ -77,23 +77,15 @@ fn main() -> Result<()> {
 }
 
 async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
-    let instance = Instance::new(wgpu::InstanceDescriptor {
-        backends: wgpu::Backends::PRIMARY,
-        dx12_shader_compiler: wgpu::Dx12Compiler::Fxc,
-    });
-    let adapter = initialize_adapter_from_env_or_default(&instance, Backends::PRIMARY, None)
+    let mut context = RenderContext::new()
+        .or_else(|_| bail!("Got non-Send/Sync error from creating render context"))?;
+    let device_id = context
+        .device(None)
         .await
-        .ok_or_else(|| anyhow!("Failed to intiialise adapter"))?;
-    let (device, queue) = adapter
-        .request_device(
-            &DeviceDescriptor {
-                label: Some("Vello Headless"),
-                features: wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::CLEAR_TEXTURE,
-                limits: Limits::default(),
-            },
-            None,
-        )
-        .await?;
+        .ok_or_else(|| anyhow!("No compatible device found"))?;
+    let device_handle = &mut context.devices[device_id];
+    let device = &device_handle.device;
+    let queue = &device_handle.queue;
     let mut renderer = vello::Renderer::new(&device)
         .or_else(|_| bail!("Got non-Send/Sync error from creating renderer"))?;
     let mut fragment = SceneFragment::new();

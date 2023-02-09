@@ -90,6 +90,7 @@ fn example_scene_of(file: PathBuf) -> ExampleScene {
                 let mut builder = SceneBuilder::for_fragment(&mut new_scene);
                 vello_svg::render_tree(&mut builder, &svg);
                 let resolution = Vec2::new(svg.size.width(), svg.size.height());
+                // TODO: Handle svg.view_box
                 (new_scene, resolution)
             });
             builder.append(&scene_frag, None);
