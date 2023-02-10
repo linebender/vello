@@ -2,6 +2,8 @@
 resolver = "2"
 
 members = [
+    "velato",
+    
     "integrations/vello_svg",
 
     "examples/headless",
