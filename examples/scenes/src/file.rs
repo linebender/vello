@@ -5,7 +5,10 @@ use std::{
 };
 
 use anyhow::{Ok, Result};
-use vello::{kurbo::Vec2, SceneBuilder, SceneFragment};
+use vello::{
+    kurbo::{Affine, Vec2},
+    SceneBuilder, SceneFragment,
+};
 use vello_svg::usvg;
 
 use crate::{ExampleScene, SceneSet};
@@ -49,11 +52,9 @@ fn scene_from_files_inner(
             let start_index = scenes.len();
             for file in read_dir(path)? {
                 let entry = file?;
-                if let Some(extension) = Path::new(&entry.file_name()).extension() {
-                    if extension == "svg" {
-                        count += 1;
-                        scenes.push(example_scene_of(entry.path()))
-                    }
+                if let Some(scene) = example_scene_of(entry.path()) {
+                    count += 1;
+                    scenes.push(scene);
                 }
             }
             // Ensure a consistent order within directories
@@ -62,13 +63,26 @@ fn scene_from_files_inner(
                 empty_dir();
             }
         } else {
-            scenes.push(example_scene_of(path.to_owned()))
+            if let Some(scene) = example_scene_of(path.to_owned()) {
+                scenes.push(scene);
+            }
         }
     }
     Ok(SceneSet { scenes })
 }
 
-fn example_scene_of(file: PathBuf) -> ExampleScene {
+fn example_scene_of(file: PathBuf) -> Option<ExampleScene> {
+    let extension = file.extension()?;
+    if extension == "svg" {
+        Some(example_scene_of_svg(file))
+    } else if extension == "json" {
+        Some(example_scene_of_lottie(file))
+    } else {
+        None
+    }
+}
+
+fn example_scene_of_svg(file: PathBuf) -> ExampleScene {
     let name = file
         .file_stem()
         .map(|it| it.to_string_lossy().to_string())
@@ -98,6 +112,43 @@ fn example_scene_of(file: PathBuf) -> ExampleScene {
         }),
         config: crate::SceneConfig {
             animated: false,
+            name,
+        },
+    }
+}
+
+fn example_scene_of_lottie(file: PathBuf) -> ExampleScene {
+    let name = file
+        .file_stem()
+        .map(|it| it.to_string_lossy().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+    let name_stored = name.clone();
+    let mut cached_scene = None;
+    ExampleScene {
+        function: Box::new(move |builder, params| {
+            let (composition, renderer, resolution) = cached_scene.get_or_insert_with(|| {
+                let start = Instant::now();
+                let contents = std::fs::read(&file).expect("failed to read lottie file");
+                let composition = velato::Composition::from_bytes(&contents)
+                    .expect("failed to parse lottie file");
+                eprintln!(
+                    "Parsing Lottie {name_stored} took {:?} (file `{file:?}`",
+                    start.elapsed()
+                );
+                let resolution = Vec2::new(composition.width as f64, composition.height as f64);
+                (composition, velato::Renderer::new(), resolution)
+            });
+            renderer.render(
+                composition,
+                params.time as f32,
+                Affine::IDENTITY,
+                1.0,
+                builder,
+            );
+            params.resolution = Some(*resolution);
+        }),
+        config: crate::SceneConfig {
+            animated: true,
             name,
         },
     }

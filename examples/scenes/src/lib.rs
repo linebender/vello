@@ -1,16 +1,16 @@
 pub mod download;
-mod simple_text;
 #[cfg(not(target_arch = "wasm32"))]
-mod svg;
+mod file;
+mod simple_text;
 mod test_scenes;
 use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{Args, Subcommand};
 use download::Download;
-pub use simple_text::SimpleText;
 #[cfg(not(target_arch = "wasm32"))]
-pub use svg::{default_scene, scene_from_files};
+pub use file::{default_scene, scene_from_files};
+pub use simple_text::SimpleText;
 pub use test_scenes::test_scenes;
 
 use vello::{kurbo::Vec2, SceneBuilder};
@@ -44,8 +44,8 @@ pub struct Arguments {
     /// Whether to use the test scenes created by code
     test_scenes: bool,
     #[arg(help_heading = "Scene Selection", global(false))]
-    /// The svg files paths to render
-    svgs: Option<Vec<PathBuf>>,
+    /// The files paths to render (svg or lottie json)
+    files: Option<Vec<PathBuf>>,
     #[clap(subcommand)]
     command: Option<Command>,
 }
@@ -71,7 +71,7 @@ impl Arguments {
             #[cfg(not(target_arch = "wasm32"))]
             if self.test_scenes {
                 Ok(test_scenes())
-            } else if let Some(svgs) = &self.svgs {
+            } else if let Some(svgs) = &self.files {
                 scene_from_files(&svgs)
             } else {
                 default_scene(command)

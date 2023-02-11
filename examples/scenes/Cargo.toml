@@ -12,7 +12,8 @@ repository.workspace = true
 
 [dependencies]
 vello = { path = "../../" }
-vello_svg = { path = "../../integrations/vello_svg" }
+vello_svg = { path = "../../crates/vello_svg" }
+velato = { path = "../../crates/velato" }
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 

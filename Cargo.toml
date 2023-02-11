@@ -2,9 +2,8 @@
 resolver = "2"
 
 members = [
-    "velato",
-    
-    "integrations/vello_svg",
+    "crates/velato",
+    "crates/vello_svg",
 
     "examples/headless",
     "examples/with_winit",

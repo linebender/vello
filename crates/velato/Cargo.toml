@@ -1,15 +1,14 @@
 [package]
 name = "velato"
-version = "0.1.0"
-edition = "2021"
-license = "MIT/Apache-2.0"
-# homepage = "https://vello.dev" - Domain owned by us, but unused at present
-# rust-version = 
-repository = "https://github.com/linebender/vello"
+version = "0.0.1"
 description = "Lottie renderer built on vello."
 categories = ["rendering", "graphics"]
 keywords = ["2d", "vector-graphics", "animation", "lottie"]
 
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+
 [dependencies]
-vello = { path = "../" }
+vello = { path = "../../" }
 bodymovin = { git = "https://github.com/dfrg/bodymovin-rs", rev= "c156dda9" }
