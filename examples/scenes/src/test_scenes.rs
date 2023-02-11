@@ -243,7 +243,7 @@ fn included_tiger() -> impl FnMut(&mut SceneBuilder, &mut SceneParams) {
         let (scene_frag, resolution) = cached_scene.get_or_insert_with(|| {
             let contents = include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
-                "../../assets/Ghostscript_Tiger.svg"
+                "/../assets/Ghostscript_Tiger.svg"
             ));
             let svg = usvg::Tree::from_str(&contents, &usvg::Options::default())
                 .expect("failed to parse svg file");
