@@ -109,7 +109,8 @@ impl RenderContext {
         )
         .await?;
         let features = adapter.features();
-        let limits = Limits::default();
+        let mut limits = Limits::default();
+        limits.max_storage_buffers_per_shader_stage = 9;
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {

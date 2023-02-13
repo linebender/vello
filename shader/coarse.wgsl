@@ -7,6 +7,7 @@
 #import drawtag
 #import ptcl
 #import tile
+#import segment
 
 @group(0) @binding(0)
 var<uniform> config: Config;
@@ -41,7 +42,9 @@ var<storage, read_write> bump: BumpAllocators;
 @group(0) @binding(8)
 var<storage, read_write> ptcl: array<u32>;
 
-
+// This binding exceeds the limit of 8, but is not part of the final plan.
+@group(0) @binding(9)
+var<storage> segments: array<Segment>;
 
 // Much of this code assumes WG_SIZE == N_TILE. If these diverge, then
 // a fair amount of fixup is needed.
@@ -70,8 +73,9 @@ fn alloc_cmd(size: u32) {
         // We might be able to save a little bit of computation here
         // by setting the initial value of the bump allocator.
         let ptcl_dyn_start = config.width_in_tiles * config.height_in_tiles * PTCL_INITIAL_ALLOC;
-        var new_cmd = ptcl_dyn_start + atomicAdd(&bump.ptcl, PTCL_INCREMENT);
-        if new_cmd + PTCL_INCREMENT > config.ptcl_size {
+        let chunk_size = max(PTCL_INCREMENT, size + PTCL_HEADROOM);
+        var new_cmd = ptcl_dyn_start + atomicAdd(&bump.ptcl, chunk_size);
+        if new_cmd + chunk_size > config.ptcl_size {
             new_cmd = 0u;
             atomicOr(&bump.failed, STAGE_COARSE);
         }
@@ -83,25 +87,44 @@ fn alloc_cmd(size: u32) {
 }
 
 fn write_path(tile: Tile, linewidth: f32) -> bool {
-    // TODO: take flags
-    alloc_cmd(3u);
     if linewidth < 0.0 {
         let even_odd = linewidth < -1.0;
-        if tile.segments != 0u {
-            let fill = CmdFill(tile.segments, tile.backdrop);
+        let seg_head = tile.segments;
+        if seg_head != 0u {
+            var n_segs = 0u;
+            var seg_ix = seg_head;
+            while seg_ix != 0u {
+                n_segs++;
+                seg_ix = segments[seg_ix].next;
+            }
+            alloc_cmd(3u + 5u * n_segs);
+            let fill = CmdFill(seg_ix, tile.backdrop);
             ptcl[cmd_offset] = CMD_FILL;
-            let segments_and_rule = select(fill.tile << 1u, (fill.tile << 1u) | 1u, even_odd);
-            ptcl[cmd_offset + 1u] = segments_and_rule;
+            let size_and_rule = (n_segs << 1u) | u32(even_odd);
+            ptcl[cmd_offset + 1u] = size_and_rule;
             ptcl[cmd_offset + 2u] = u32(fill.backdrop);
             cmd_offset += 3u;
+            seg_ix = seg_head;
+            while seg_ix != 0u {
+                let seg = segments[seg_ix];
+                ptcl[cmd_offset] = bitcast<u32>(seg.origin.x);
+                ptcl[cmd_offset + 1u] = bitcast<u32>(seg.origin.y);
+                ptcl[cmd_offset + 2u] = bitcast<u32>(seg.delta.x);
+                ptcl[cmd_offset + 3u] = bitcast<u32>(seg.delta.y);
+                ptcl[cmd_offset + 4u] = bitcast<u32>(seg.y_edge);
+                cmd_offset += 5u;
+                seg_ix = seg.next;
+            }
         } else {
             if even_odd && (abs(tile.backdrop) & 1) == 0 {
                 return false;
             }
+            alloc_cmd(1u);
             ptcl[cmd_offset] = CMD_SOLID;
             cmd_offset += 1u;
         }
     } else {
+        alloc_cmd(3u);
         let stroke = CmdStroke(tile.segments, 0.5 * linewidth);
         ptcl[cmd_offset] = CMD_STROKE;
         ptcl[cmd_offset + 1u] = stroke.tile;

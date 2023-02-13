@@ -213,7 +213,7 @@ impl Render {
             binning_info_size: (1 << 20) / 4,
             tiles_size: (1 << 24) / TILE_SIZE as u32,
             segments_size: (1 << 26) / SEGMENT_SIZE as u32,
-            ptcl_size: (1 << 25) / 4 as u32,
+            ptcl_size: (1 << 26) / 4 as u32,
             width_in_tiles: 0,
             height_in_tiles: 0,
             fine: None,
@@ -509,6 +509,7 @@ impl Render {
                 tile_buf,
                 bump_buf,
                 ptcl_buf,
+                segments_buf,
             ],
         );
         recording.free_resource(scene_buf);
