@@ -257,6 +257,49 @@ fn main(
                                 y_edge = 1e9;
                             }
                         }
+                        // Somewhat brute force approach to clipping to tile. This will all get
+                        // replaced by new logic.
+                        var xy0 = min(tile_seg.origin, tile_seg.origin + tile_seg.delta);
+                        var xy1 = max(tile_seg.origin, tile_seg.origin + tile_seg.delta);
+                        if xy0.x < tile_x0 {
+                            // This probably won't happen because of the y_edge logic
+                            let yt = mix(lp0.y, lp1.y, (tile_x0 - lp0.x) * recip_dx);
+                            xy0.x = tile_x0;
+                            if dp.x * dp.y > 0.0 {
+                                xy0.y = yt;
+                            } else {
+                                xy1.y = yt;
+                            }
+                        }
+                        if xy1.x > tile_x0 + f32(TILE_WIDTH) {
+                            let yt = mix(lp0.y, lp1.y, (tile_x0 + f32(TILE_WIDTH) - lp0.x) * recip_dx);
+                            xy1.x = tile_x0 + f32(TILE_WIDTH);
+                            if dp.x * dp.y > 0.0 {
+                                xy1.y = yt;
+                            } else {
+                                xy0.y = yt;
+                            }
+                        }
+                        if xy0.y < tile_y0 {
+                            let xt = lp0.x + (tile_y0 - lp0.y) * invslope;
+                            xy0.y = tile_y0;
+                            if dp.x * dp.y > 0.0 {
+                                xy0.x = xt;
+                            } else {
+                                xy1.x = xt;
+                            }
+                        }
+                        if xy1.y > tile_y0 + f32(TILE_HEIGHT) {
+                            let xt = lp0.x + (tile_y0 + f32(TILE_HEIGHT) - lp0.y) * invslope;
+                            xy1.y = tile_y0 + f32(TILE_HEIGHT);
+                            if dp.x * dp.y > 0.0 {
+                                xy1.x = xt;
+                            } else {
+                                xy0.x = xt;
+                            }
+                        }
+                        tile_seg.origin = select(xy0, xy1, dp < vec2(0.0, 0.0));
+                        tile_seg.delta = select(xy0, xy1, dp > vec2(0.0, 0.0)) - tile_seg.origin;
                         tile_seg.y_edge = y_edge;
                         tile_seg.next = old;
                         segments[seg_ix] = tile_seg;
