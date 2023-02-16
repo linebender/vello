@@ -151,6 +151,106 @@ fn fill_path(seg_data: u32, limit: u32, backdrop: i32, xy: vec2<f32>, even_odd: 
     return area;
 }
 
+let WG_SIZE = 64u;
+var<workgroup> sh_count: array<u32, WG_SIZE>;
+// Parameters for line rasterization
+var<workgroup> sh_a: array<f32, WG_SIZE>;
+var<workgroup> sh_b: array<f32, WG_SIZE>;
+// These can be packed much tighter if need be
+var<workgroup> sh_sign: array<f32, WG_SIZE>;
+var<workgroup> sh_x0i: array<i32, WG_SIZE>;
+var<workgroup> sh_y0i: array<i32, WG_SIZE>;
+var<workgroup> sh_winding: array<atomic<i32>, 256>;
+
+// number of integer cells spanned by interval defined by a, b
+fn span(a: f32, b: f32) -> u32 {
+    return u32(max(ceil(max(a, b)) - floor(min(a, b)), 1.0));
+}
+
+// New multisampled algorithm.
+fn fill_path_ms(seg_data: u32, n_segs: u32, backdrop: i32, wg_id: vec2<u32>, local_id: vec2<u32>, even_odd: bool) -> array<f32, PIXELS_PER_THREAD> {
+    let tile_origin = vec2(f32(wg_id.x) * f32(TILE_HEIGHT), f32(wg_id.y) * f32(TILE_WIDTH));
+    let th_ix = local_id.y * (TILE_WIDTH / PIXELS_PER_THREAD) + local_id.x;
+    for (var i = 0u; i < PIXELS_PER_THREAD; i++) {
+        atomicStore(&sh_winding[th_ix * PIXELS_PER_THREAD + i], 0);
+    }
+    let n_batch = (n_segs + (WG_SIZE - 1u)) / WG_SIZE;
+    for (var batch = 0u; batch < n_batch; batch++) {
+        let seg_ix = batch * WG_SIZE + th_ix;
+        let seg_off = seg_data + seg_ix * 5u;
+        var count = 0u;
+        if seg_ix < n_segs {
+            var segment = Segment();
+            segment.origin = bitcast<vec2<f32>>(vec2(ptcl[seg_off], ptcl[seg_off + 1u]));
+            segment.delta = bitcast<vec2<f32>>(vec2(ptcl[seg_off + 2u], ptcl[seg_off + 3u]));
+            segment.y_edge = bitcast<f32>(ptcl[seg_off + 4u]);
+            // Note: coords releative to tile origin probably a good idea in coarse path,
+            // especially as f16 would work. But keeping existing scheme for compatibility.
+            let xy0_in = segment.origin - tile_origin;
+            let xy1_in = xy0_in + segment.delta;
+            let xy0 = select(xy0_in, xy1_in, xy0_in.y >= xy1_in.y);
+            let xy1 = select(xy1_in, xy0_in, xy0_in.y >= xy1_in.y);
+            count = span(xy0.x, xy1.x) + span(xy0.y, xy1.y) - 1u;
+            // set up data for line rasterization
+            let dx = abs(xy1.x - xy0.x);
+            let dy = xy1.y - xy0.y;
+            let idxdy = 1.0 / (dx + dy);
+            sh_a[th_ix] = dx * idxdy;
+            let sign = select(-1.0, 1.0, xy1.x >= xy0.x);
+            sh_sign[th_ix] = sign;
+            let xt0 = floor(xy0.x * sign);
+            let c = xy0.x * sign - xt0;
+            // This has a special case in the JS code, but we should just not render
+            let y0i = floor(xy0.y);
+            let ytop = select(y0i + 1.0, ceil(xy0.y), xy0.y == xy1.y);
+            sh_b[th_ix] = (dy * c + dx * (ytop - xy0.y)) * idxdy;
+            sh_x0i[th_ix] = i32(xt0 * sign + 0.5 * (sign - 1.0));
+            sh_y0i[th_ix] = i32(y0i);
+        }
+        // workgroup prefix sum of counts
+        sh_count[th_ix] = count;
+        for (var i = 0u; i < firstTrailingBit(WG_SIZE); i++) {
+            workgroupBarrier();
+            if th_ix >= 1u << i {
+                count += sh_count[th_ix - (1u << i)];
+            }
+            workgroupBarrier();
+            sh_count[th_ix] = count;
+        }
+        workgroupBarrier();
+        // TODO: workgroupUniformLoad
+        let total = sh_count[WG_SIZE - 1u];
+        for (var i = th_ix; i < total; i += WG_SIZE) {
+            // binary search to find pixel
+            var el_ix = 0u;
+            for (var j = 0u; j < firstTrailingBit(WG_SIZE); j++) {
+                let probe = el_ix + ((WG_SIZE / 2u) >> j);
+                if i >= sh_count[probe - 1u] {
+                    el_ix = probe;
+                }
+            }
+            let sub_ix = i - select(0u, sh_count[el_ix - 1u], el_ix > 0u);
+            // Use line equation to plot pixel coordinates
+            let a = sh_a[el_ix];
+            let b = sh_b[el_ix];
+            let z = floor(a * f32(sub_ix) + b);
+            let x = sh_x0i[el_ix] + i32(sh_sign[el_ix] * z);
+            let y = sh_y0i[el_ix] + i32(sub_ix) - i32(z);
+            // This predicate should always be true, but let's be careful
+            if u32(x) < TILE_WIDTH && u32(y) < TILE_HEIGHT {
+                let pix_ix = u32(y) * TILE_WIDTH + u32(x);
+                atomicStore(&sh_winding[pix_ix], 1);
+            }
+        }
+        workgroupBarrier();
+    }
+    var area: array<f32, PIXELS_PER_THREAD>;
+    for (var i = 0u; i < PIXELS_PER_THREAD; i++) {
+        area[i] = f32(atomicLoad(&sh_winding[th_ix * PIXELS_PER_THREAD + i]));
+    }
+    return area;
+}
+
 fn stroke_path(seg: u32, half_width: f32, xy: vec2<f32>) -> array<f32, PIXELS_PER_THREAD> {
     var df: array<f32, PIXELS_PER_THREAD>;
     for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
@@ -208,7 +308,8 @@ fn main(
                 let even_odd = (fill.tile & 1u) != 0u;
                 cmd_ix += 3u;
                 let limit = cmd_ix + 5u * n_segs;
-                area = fill_path(cmd_ix, limit, fill.backdrop, xy, even_odd);
+                //area = fill_path(cmd_ix, limit, fill.backdrop, xy, even_odd);
+                area = fill_path_ms(cmd_ix, n_segs, fill.backdrop, wg_id.xy, local_id.xy, even_odd);
                 cmd_ix = limit;
             }
             // CMD_STROKE
@@ -220,7 +321,7 @@ fn main(
             // CMD_SOLID
             case 3u: {
                 for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
-                    area[i] = 1.0;
+                    area[i] = 0.0;
                 }
                 cmd_ix += 1u;
             }
