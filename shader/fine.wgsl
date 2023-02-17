@@ -153,19 +153,14 @@ fn fill_path(seg_data: u32, limit: u32, backdrop: i32, xy: vec2<f32>, even_odd: 
 
 let WG_SIZE = 64u;
 var<workgroup> sh_count: array<u32, WG_SIZE>;
-// Parameters for line rasterization
-var<workgroup> sh_a: array<f32, WG_SIZE>;
-var<workgroup> sh_b: array<f32, WG_SIZE>;
-// These can be packed much tighter if need be
-var<workgroup> sh_sign: array<f32, WG_SIZE>;
-var<workgroup> sh_x0i: array<i32, WG_SIZE>;
-var<workgroup> sh_y0i: array<i32, WG_SIZE>;
 var<workgroup> sh_winding: array<atomic<i32>, 256>;
 
 // number of integer cells spanned by interval defined by a, b
 fn span(a: f32, b: f32) -> u32 {
     return u32(max(ceil(max(a, b)) - floor(min(a, b)), 1.0));
 }
+
+let SEG_SIZE = 5u;
 
 // New multisampled algorithm.
 fn fill_path_ms(seg_data: u32, n_segs: u32, backdrop: i32, wg_id: vec2<u32>, local_id: vec2<u32>, even_odd: bool) -> array<f32, PIXELS_PER_THREAD> {
@@ -177,35 +172,21 @@ fn fill_path_ms(seg_data: u32, n_segs: u32, backdrop: i32, wg_id: vec2<u32>, loc
     let n_batch = (n_segs + (WG_SIZE - 1u)) / WG_SIZE;
     for (var batch = 0u; batch < n_batch; batch++) {
         let seg_ix = batch * WG_SIZE + th_ix;
-        let seg_off = seg_data + seg_ix * 5u;
+        let seg_off = seg_data + seg_ix * SEG_SIZE;
         var count = 0u;
+        // TODO: might save a register rewriting this in terms of limit
         if seg_ix < n_segs {
             var segment = Segment();
             segment.origin = bitcast<vec2<f32>>(vec2(ptcl[seg_off], ptcl[seg_off + 1u]));
             segment.delta = bitcast<vec2<f32>>(vec2(ptcl[seg_off + 2u], ptcl[seg_off + 3u]));
             segment.y_edge = bitcast<f32>(ptcl[seg_off + 4u]);
-            // Note: coords releative to tile origin probably a good idea in coarse path,
+            // Note: coords relative to tile origin probably a good idea in coarse path,
             // especially as f16 would work. But keeping existing scheme for compatibility.
             let xy0_in = segment.origin - tile_origin;
             let xy1_in = xy0_in + segment.delta;
             let xy0 = select(xy0_in, xy1_in, xy0_in.y >= xy1_in.y);
             let xy1 = select(xy1_in, xy0_in, xy0_in.y >= xy1_in.y);
             count = span(xy0.x, xy1.x) + span(xy0.y, xy1.y) - 1u;
-            // set up data for line rasterization
-            let dx = abs(xy1.x - xy0.x);
-            let dy = xy1.y - xy0.y;
-            let idxdy = 1.0 / (dx + dy);
-            sh_a[th_ix] = dx * idxdy;
-            let sign = select(-1.0, 1.0, xy1.x >= xy0.x);
-            sh_sign[th_ix] = sign;
-            let xt0 = floor(xy0.x * sign);
-            let c = xy0.x * sign - xt0;
-            // This has a special case in the JS code, but we should just not render
-            let y0i = floor(xy0.y);
-            let ytop = select(y0i + 1.0, ceil(xy0.y), xy0.y == xy1.y);
-            sh_b[th_ix] = (dy * c + dx * (ytop - xy0.y)) * idxdy;
-            sh_x0i[th_ix] = i32(xt0 * sign + 0.5 * (sign - 1.0));
-            sh_y0i[th_ix] = i32(y0i);
         }
         // workgroup prefix sum of counts
         sh_count[th_ix] = count;
@@ -230,12 +211,36 @@ fn fill_path_ms(seg_data: u32, n_segs: u32, backdrop: i32, wg_id: vec2<u32>, loc
                 }
             }
             let sub_ix = i - select(0u, sh_count[el_ix - 1u], el_ix > 0u);
+            let seg_off = seg_data + ((batch * WG_SIZE) + el_ix) * SEG_SIZE;
+            var segment = Segment();
+            segment.origin = bitcast<vec2<f32>>(vec2(ptcl[seg_off], ptcl[seg_off + 1u]));
+            segment.delta = bitcast<vec2<f32>>(vec2(ptcl[seg_off + 2u], ptcl[seg_off + 3u]));
+            segment.y_edge = bitcast<f32>(ptcl[seg_off + 4u]);
+            let xy0_in = segment.origin - tile_origin;
+            let xy1_in = xy0_in + segment.delta;
+            let xy0 = select(xy0_in, xy1_in, xy0_in.y >= xy1_in.y);
+            let xy1 = select(xy1_in, xy0_in, xy0_in.y >= xy1_in.y);
+
+            // Set up data for line rasterization
+            // Note: this is duplicated work if total count exceeds a workgroup.
+            // One alternative is to compute it in a separate dispatch.
+            let dx = abs(xy1.x - xy0.x);
+            let dy = xy1.y - xy0.y;
+            let idxdy = 1.0 / (dx + dy);
+            let a = dx * idxdy;
+            let sign = select(-1.0, 1.0, xy1.x >= xy0.x);
+            let xt0 = floor(xy0.x * sign);
+            let c = xy0.x * sign - xt0;
+            // This has a special case in the JS code, but we should just not render
+            let y0i = floor(xy0.y);
+            let ytop = select(y0i + 1.0, ceil(xy0.y), xy0.y == xy1.y);
+            let b = (dy * c + dx * (ytop - xy0.y)) * idxdy;
+            let x0i = i32(xt0 * sign + 0.5 * (sign - 1.0));
             // Use line equation to plot pixel coordinates
-            let a = sh_a[el_ix];
-            let b = sh_b[el_ix];
+
             let z = floor(a * f32(sub_ix) + b);
-            let x = sh_x0i[el_ix] + i32(sh_sign[el_ix] * z);
-            let y = sh_y0i[el_ix] + i32(sub_ix) - i32(z);
+            let x = x0i + i32(sign * z);
+            let y = i32(y0i) + i32(sub_ix) - i32(z);
             // This predicate should always be true, but let's be careful
             if u32(x) < TILE_WIDTH && u32(y) < TILE_HEIGHT {
                 let pix_ix = u32(y) * TILE_WIDTH + u32(x);
