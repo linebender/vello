@@ -170,6 +170,7 @@ fn fill_path_ms(seg_data: u32, n_segs: u32, backdrop: i32, wg_id: vec2<u32>, loc
     for (var i = 0u; i < PIXELS_PER_THREAD; i++) {
         atomicStore(&sh_winding[th_ix * PIXELS_PER_THREAD + i], 0x88888888u);
     }
+    workgroupBarrier();
     let n_batch = (n_segs + (WG_SIZE - 1u)) / WG_SIZE;
     for (var batch = 0u; batch < n_batch; batch++) {
         let seg_ix = batch * WG_SIZE + th_ix;
@@ -185,9 +186,16 @@ fn fill_path_ms(seg_data: u32, n_segs: u32, backdrop: i32, wg_id: vec2<u32>, loc
             // especially as f16 would work. But keeping existing scheme for compatibility.
             let xy0_in = segment.origin - tile_origin;
             let xy1_in = xy0_in + segment.delta;
-            let xy0 = select(xy0_in, xy1_in, xy0_in.y >= xy1_in.y);
-            let xy1 = select(xy1_in, xy0_in, xy0_in.y >= xy1_in.y);
+            let is_down = xy1_in.y >= xy0_in.y;
+            let xy0 = select(xy1_in, xy0_in, is_down);
+            let xy1 = select(xy0_in, xy1_in, is_down);
             count = span(xy0.x, xy1.x) + span(xy0.y, xy1.y) - 1u;
+            let delta = select(-1, 1, xy1_in.x <= xy0_in.x);
+            // TODO: should be separate prefix sum rather than loop, but trying to
+            // get correctness right first.
+            for (var y = u32(ceil(segment.y_edge - tile_origin.y)); y < TILE_HEIGHT; y++) {
+                atomicAdd(&sh_winding[y * (TILE_WIDTH / 8u)], u32(delta));
+            }
         }
         // workgroup prefix sum of counts
         sh_count[th_ix] = count;
@@ -282,7 +290,7 @@ fn fill_path_ms(seg_data: u32, n_segs: u32, backdrop: i32, wg_id: vec2<u32>, loc
     }
     for (var i = 0u; i < PIXELS_PER_THREAD; i++) {
         let minor = (th_ix * PIXELS_PER_THREAD + i) & 7u;
-        let nonzero = ((packed_w >> (minor << 2u)) & 0xfu) != 0x8u;
+        let nonzero = ((packed_w >> (minor << 2u)) & 0xfu) != u32(8 + backdrop);
         area[i] = f32(nonzero);
     }
     return area;
@@ -358,7 +366,7 @@ fn main(
             // CMD_SOLID
             case 3u: {
                 for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
-                    area[i] = 0.0;
+                    area[i] = 1.0;
                 }
                 cmd_ix += 1u;
             }
