@@ -153,7 +153,8 @@ fn fill_path(seg_data: u32, limit: u32, backdrop: i32, xy: vec2<f32>, even_odd: 
 
 let WG_SIZE = 64u;
 var<workgroup> sh_count: array<u32, WG_SIZE>;
-var<workgroup> sh_winding: array<atomic<i32>, 256>;
+// This is 8 winding numbers packed to a u32, 4 bits per sample
+var<workgroup> sh_winding: array<atomic<u32>, 32>;
 
 // number of integer cells spanned by interval defined by a, b
 fn span(a: f32, b: f32) -> u32 {
@@ -167,7 +168,7 @@ fn fill_path_ms(seg_data: u32, n_segs: u32, backdrop: i32, wg_id: vec2<u32>, loc
     let tile_origin = vec2(f32(wg_id.x) * f32(TILE_HEIGHT), f32(wg_id.y) * f32(TILE_WIDTH));
     let th_ix = local_id.y * (TILE_WIDTH / PIXELS_PER_THREAD) + local_id.x;
     for (var i = 0u; i < PIXELS_PER_THREAD; i++) {
-        atomicStore(&sh_winding[th_ix * PIXELS_PER_THREAD + i], 0);
+        atomicStore(&sh_winding[th_ix * PIXELS_PER_THREAD + i], 0x88888888u);
     }
     let n_batch = (n_segs + (WG_SIZE - 1u)) / WG_SIZE;
     for (var batch = 0u; batch < n_batch; batch++) {
@@ -218,8 +219,9 @@ fn fill_path_ms(seg_data: u32, n_segs: u32, backdrop: i32, wg_id: vec2<u32>, loc
             segment.y_edge = bitcast<f32>(ptcl[seg_off + 4u]);
             let xy0_in = segment.origin - tile_origin;
             let xy1_in = xy0_in + segment.delta;
-            let xy0 = select(xy0_in, xy1_in, xy0_in.y >= xy1_in.y);
-            let xy1 = select(xy1_in, xy0_in, xy0_in.y >= xy1_in.y);
+            let is_down = xy1_in.y >= xy0_in.y;
+            let xy0 = select(xy1_in, xy0_in, is_down);
+            let xy1 = select(xy0_in, xy1_in, is_down);
 
             // Set up data for line rasterization
             // Note: this is duplicated work if total count exceeds a workgroup.
@@ -241,17 +243,47 @@ fn fill_path_ms(seg_data: u32, n_segs: u32, backdrop: i32, wg_id: vec2<u32>, loc
             let z = floor(a * f32(sub_ix) + b);
             let x = x0i + i32(sign * z);
             let y = i32(y0i) + i32(sub_ix) - i32(z);
+            var is_delta: bool;
+            let zp = floor(a * f32(sub_ix - 1u) + b);
+            if sub_ix == 0u {
+                is_delta = y0i == xy0.y;
+            } else {
+                is_delta = z == zp;
+            }
             // This predicate should always be true, but let's be careful
             if u32(x) < TILE_WIDTH && u32(y) < TILE_HEIGHT {
                 let pix_ix = u32(y) * TILE_WIDTH + u32(x);
-                atomicStore(&sh_winding[pix_ix], 1);
+                if is_delta {
+                    let delta = select(u32(-1), 1u, is_down) << ((pix_ix & 7u) << 2u);
+                    atomicAdd(&sh_winding[pix_ix >> 3u], delta);
+                }
             }
         }
         workgroupBarrier();
     }
     var area: array<f32, PIXELS_PER_THREAD>;
+    let major = (th_ix * PIXELS_PER_THREAD) >> 3u;
+    var packed_w = atomicLoad(&sh_winding[major]);
+    // Prefix sum of packed 4 bit values within u32
+    packed_w += (packed_w - 0x8888888u) << 4u;
+    packed_w += (packed_w - 0x888888u) << 8u;
+    packed_w += (packed_w - 0x8888u) << 16u;
+    // Note: could probably do bias in one go, but it would be inscrutable
+    if (major & 1u) != 0u {
+        // We could use shmem to communicate the value from another thread;
+        // if we had subgroups that would almost certainly be the most
+        // efficient way. But we just calculate again for simplicity.
+        var last_packed = atomicLoad(&sh_winding[major - 1u]);
+        last_packed += (last_packed - 0x8888888u) << 4u;
+        last_packed += (last_packed - 0x888888u) << 8u;
+        last_packed += (last_packed - 0x8888u) << 16u;
+        let bump = ((last_packed >> 28u) - 8u) * 0x11111111u;
+        packed_w += bump;
+    }
     for (var i = 0u; i < PIXELS_PER_THREAD; i++) {
-        area[i] = f32(atomicLoad(&sh_winding[th_ix * PIXELS_PER_THREAD + i]));
+        let minor = (th_ix * PIXELS_PER_THREAD + i) & 7u;
+        let nonzero = ((packed_w >> (minor << 2u)) & 0xfu) != 0x8u;
+        area[i] = f32(nonzero);
     }
     return area;
 }
