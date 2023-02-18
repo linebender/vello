@@ -23,7 +23,7 @@ It is used as the rendering backend for [Xilem], a UI toolkit.
 
 Quickstart to run an example program:
 ```shell
-cargo run -p with_winit 
+cargo run -p with_winit
 ```
 
 ## Integrations
@@ -72,21 +72,36 @@ This currently draws to a [`wgpu`] `Texture` using `vello`, then uses that textu
 cargo run -p with_bevy
 ```
 
+## Platforms
+
+We aim to target all environments which can support WebGPU with the [default limits](https://www.w3.org/TR/webgpu/#limits). 
+We defer to [`wgpu`] for this support.
+Other platforms are more tricky, and may require special building/running procedures.
+
 ### Web
 
 Because Vello relies heavily on compute shaders, we rely on the emerging WebGPU standard to run on the web.
 Until browser support becomes widespread, it will probably be necessary to use development browser versions (e.g. Chrome Canary) and explicitly enable WebGPU.
 
-Note: Other examples use the `-p` shorthand, but `cargo-run-wasm` requires the full `--package` to be specified
-
 The following command builds and runs a web version of the [winit demo](#winit). 
-This uses [`cargo-run-wasm`](https://github.com/rukai/cargo-run-wasm) to build the example for web, and host a local server for it:
+This uses [`cargo-run-wasm`](https://github.com/rukai/cargo-run-wasm) to build the example for web, and host a local server for it
+
+Other examples use the `-p` shorthand, but `cargo-run-wasm` requires the full `--package` to be specified
 
 ```shell
 cargo run_wasm --package with_winit
 ```
 
-The web is not currently a primary target for vello, and WebGPU implementations are incomplete, so you might run into issues running this example.
+> **Warning**  
+> The web is not currently a primary target for vello, and WebGPU implementations are incomplete, so you might run into issues running this example.
+
+### Android
+
+The [`with_winit`](#winit) example supports running on Android, using [cargo apk](https://crates.io/crates/cargo-apk).
+
+```
+cargo apk run -p with_winit
+```
 
 ## Community
 
