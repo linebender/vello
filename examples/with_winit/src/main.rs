@@ -87,6 +87,16 @@ async fn run(event_loop: EventLoop<UserEvent>, window: Window, args: Args, mut s
                     match input.virtual_keycode {
                         Some(VirtualKeyCode::Left) => scene_ix = scene_ix.saturating_sub(1),
                         Some(VirtualKeyCode::Right) => scene_ix = scene_ix.saturating_add(1),
+                        Some(key @ VirtualKeyCode::Q) | Some(key @ VirtualKeyCode::E) => {
+                            if let Some(prior_position) = prior_position {
+                                let is_clockwise = key == VirtualKeyCode::E;
+                                let angle = if is_clockwise { -0.05 } else { 0.05 };
+                                transform = Affine::translate(prior_position)
+                                    * Affine::rotate(angle)
+                                    * Affine::translate(-prior_position)
+                                    * transform;
+                            }
+                        }
                         Some(VirtualKeyCode::Escape) => {
                             *control_flow = ControlFlow::Exit;
                         }
