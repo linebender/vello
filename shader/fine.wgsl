@@ -40,6 +40,12 @@ var gradients: texture_2d<f32>;
 @group(0) @binding(6)
 var<storage> info: array<u32>;
 
+let MASK_WIDTH = 32u;
+let MASK_HEIGHT = 32u;
+// This might be better in uniform, but that has 16 byte alignment
+@group(0) @binding(7)
+var<storage> mask_lut: array<u32, 256u>;
+
 fn read_fill(cmd_ix: u32) -> CmdFill {
     let tile = ptcl[cmd_ix + 1u];
     let backdrop = i32(ptcl[cmd_ix + 2u]);
@@ -155,6 +161,8 @@ let WG_SIZE = 64u;
 var<workgroup> sh_count: array<u32, WG_SIZE>;
 // This is 8 winding numbers packed to a u32, 4 bits per sample
 var<workgroup> sh_winding: array<atomic<u32>, 32>;
+// Same packing, one group of 8 per pixel
+var<workgroup> sh_samples: array<atomic<u32>, 256>;
 
 // number of integer cells spanned by interval defined by a, b
 fn span(a: f32, b: f32) -> u32 {
@@ -167,8 +175,11 @@ let SEG_SIZE = 5u;
 fn fill_path_ms(seg_data: u32, n_segs: u32, backdrop: i32, wg_id: vec2<u32>, local_id: vec2<u32>, even_odd: bool) -> array<f32, PIXELS_PER_THREAD> {
     let tile_origin = vec2(f32(wg_id.x) * f32(TILE_HEIGHT), f32(wg_id.y) * f32(TILE_WIDTH));
     let th_ix = local_id.y * (TILE_WIDTH / PIXELS_PER_THREAD) + local_id.x;
+    if th_ix < 32u {
+        atomicStore(&sh_winding[th_ix], 0x88888888u);
+    }
     for (var i = 0u; i < PIXELS_PER_THREAD; i++) {
-        atomicStore(&sh_winding[th_ix * PIXELS_PER_THREAD + i], 0x88888888u);
+        atomicStore(&sh_samples[th_ix * PIXELS_PER_THREAD + i], 0x88888888u);
     }
     workgroupBarrier();
     let n_batch = (n_segs + (WG_SIZE - 1u)) / WG_SIZE;
@@ -219,6 +230,7 @@ fn fill_path_ms(seg_data: u32, n_segs: u32, backdrop: i32, wg_id: vec2<u32>, loc
                     el_ix = probe;
                 }
             }
+            let last_pixel = i + 1u == sh_count[el_ix];
             let sub_ix = i - select(0u, sh_count[el_ix - 1u], el_ix > 0u);
             let seg_off = seg_data + ((batch * WG_SIZE) + el_ix) * SEG_SIZE;
             var segment = Segment();
@@ -238,7 +250,8 @@ fn fill_path_ms(seg_data: u32, n_segs: u32, backdrop: i32, wg_id: vec2<u32>, loc
             let dy = xy1.y - xy0.y;
             let idxdy = 1.0 / (dx + dy);
             let a = dx * idxdy;
-            let sign = select(-1.0, 1.0, xy1.x >= xy0.x);
+            let is_positive_slope = xy1.x >= xy0.x;
+            let sign = select(-1.0, 1.0, is_positive_slope);
             let xt0 = floor(xy0.x * sign);
             let c = xy0.x * sign - xt0;
             // This has a special case in the JS code, but we should just not render
@@ -248,24 +261,53 @@ fn fill_path_ms(seg_data: u32, n_segs: u32, backdrop: i32, wg_id: vec2<u32>, loc
             let x0i = i32(xt0 * sign + 0.5 * (sign - 1.0));
             // Use line equation to plot pixel coordinates
 
-            let z = floor(a * f32(sub_ix) + b);
+            let zf = a * f32(sub_ix) + b;
+            let z = floor(zf);
             let x = x0i + i32(sign * z);
             let y = i32(y0i) + i32(sub_ix) - i32(z);
             var is_delta: bool;
+            // We need to adjust winding number if slope is positive and there
+            // is a crossing at the left edge of the pixel.
+            var is_bump = false;
             let zp = floor(a * f32(sub_ix - 1u) + b);
             if sub_ix == 0u {
                 is_delta = y0i == xy0.y;
+                is_bump = xy0.x == 0.0;
             } else {
                 is_delta = z == zp;
+                is_bump = is_positive_slope && !is_delta;
             }
-            // This predicate should always be true, but let's be careful
-            if u32(x) < TILE_WIDTH && u32(y) < TILE_HEIGHT {
-                let pix_ix = u32(y) * TILE_WIDTH + u32(x);
+            let pix_ix = u32(y) * TILE_WIDTH + u32(x);
+            if u32(x) < TILE_WIDTH - 1u && u32(y) < TILE_HEIGHT {
+                let delta_pix = pix_ix + 1u;
                 if is_delta {
-                    let delta = select(u32(-1), 1u, is_down) << ((pix_ix & 7u) << 2u);
-                    atomicAdd(&sh_winding[pix_ix >> 3u], delta);
+                    let delta = select(u32(-1), 1u, is_down) << ((delta_pix & 7u) << 2u);
+                    atomicAdd(&sh_winding[delta_pix >> 3u], delta);
                 }
             }
+            // Apply sample mask
+            let mask_block = u32(is_positive_slope) * (MASK_WIDTH * MASK_HEIGHT / 2u);
+            let mask_row = floor(a * f32(MASK_HEIGHT / 2u)) * f32(MASK_WIDTH);
+            let mask_col = floor((zf - z) * f32(MASK_WIDTH));
+            let mask_ix = mask_block + u32(mask_row + mask_col);
+            var mask = mask_lut[mask_ix / 4u] >> ((mask_ix % 4u) * 8u);
+            // Intersect with y half-plane masks
+            if sub_ix == 0u {
+                let mask_shift = u32(round(8.0 * (xy0.y - f32(y))));
+                mask &= 0xffu << mask_shift;
+            }
+            if last_pixel && !is_bump {
+                let mask_shift = u32(round(8.0 * (xy1.y - f32(y))));
+                mask &= ~(0xffu << mask_shift);
+            }
+            let mask_a = mask | (mask << 6u);
+            let mask_b = mask_a | (mask_a << 12u);
+            let mask_exp = (mask_b & 0x1010101u) | ((mask_b << 3u) & 0x10101010u);
+            var mask_signed = select(mask_exp, u32(-i32(mask_exp)), is_down);
+            if is_bump {
+                mask_signed += select(u32(-0x11111111), 0x1111111u, is_down);
+            }
+            atomicAdd(&sh_samples[pix_ix], mask_signed);
         }
         workgroupBarrier();
     }
@@ -289,9 +331,21 @@ fn fill_path_ms(seg_data: u32, n_segs: u32, backdrop: i32, wg_id: vec2<u32>, loc
         packed_w += bump;
     }
     for (var i = 0u; i < PIXELS_PER_THREAD; i++) {
-        let minor = (th_ix * PIXELS_PER_THREAD + i) & 7u;
-        let nonzero = ((packed_w >> (minor << 2u)) & 0xfu) != u32(8 + backdrop);
-        area[i] = f32(nonzero);
+        let pix_ix = th_ix * PIXELS_PER_THREAD + i;
+        let minor = pix_ix & 7u;
+        //let nonzero = ((packed_w >> (minor << 2u)) & 0xfu) != u32(8 + backdrop);
+        // TODO: math might be off here
+        let expected_zero = ((packed_w >> (minor * 4u)) & 0xfu) - u32(backdrop);
+        if expected_zero >= 16u {
+            area[i] = 1.0;
+        } else {
+            let samples = atomicLoad(&sh_samples[pix_ix]);
+            let xored = (expected_zero * 0x11111111u) ^ samples;
+            // Each 4-bit nibble in xored is 0 for winding = 0, nonzero otherwise
+            let xored2 = xored | (xored * 2u);
+            let xored4 = xored2 | (xored2 * 4u);
+            area[i] = f32(countOneBits(xored4 & 0x88888888u)) * 0.125;
+        }
     }
     return area;
 }

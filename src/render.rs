@@ -5,6 +5,7 @@ use bytemuck::{Pod, Zeroable};
 use crate::{
     encoding::Encoding,
     engine::{BufProxy, ImageFormat, ImageProxy, Recording, ResourceProxy},
+    mask::make_mask_lut,
     shaders::{self, FullShaders, Shaders},
     Scene,
 };
@@ -22,6 +23,7 @@ pub struct Render {
     width_in_tiles: u32,
     height_in_tiles: u32,
     fine: Option<FineResources>,
+    mask_buf: Option<ResourceProxy>,
 }
 
 /// Resources produced by pipeline, needed for fine rasterization.
@@ -217,6 +219,7 @@ impl Render {
             width_in_tiles: 0,
             height_in_tiles: 0,
             fine: None,
+            mask_buf: None,
         }
     }
 
@@ -539,6 +542,13 @@ impl Render {
     /// Run fine rasterization assuming the coarse phase succeeded.
     pub fn record_fine(&mut self, shaders: &FullShaders, recording: &mut Recording) {
         let fine = self.fine.take().unwrap();
+        if self.mask_buf.is_none() {
+            let mask_lut = make_mask_lut();
+            let buf = recording.upload("mask lut", mask_lut);
+            // TODO: the `Render` struct is not persistent, so this reuploads
+            // and leaks.
+            self.mask_buf = Some(buf.into());
+        }
         recording.dispatch(
             shaders.fine,
             (self.width_in_tiles, self.height_in_tiles, 1),
@@ -550,6 +560,7 @@ impl Render {
                 fine.ptcl_buf,
                 fine.gradient_image,
                 fine.info_bin_data_buf,
+                self.mask_buf.unwrap(),
             ],
         );
         recording.free_resource(fine.config_buf);

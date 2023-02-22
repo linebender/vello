@@ -15,6 +15,7 @@
 // Also licensed under MIT license, at your choice.
 
 mod engine;
+mod mask;
 mod render;
 mod scene;
 mod shaders;
