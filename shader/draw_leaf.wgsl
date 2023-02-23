@@ -151,11 +151,7 @@ fn main(
                 let r1 = bitcast<f32>(scene[dd + 6u]);
                 let inv_det = 1.0 / (matrx.x * matrx.w - matrx.y * matrx.z);
                 let inv_mat = inv_det * vec4(matrx.w, -matrx.y, -matrx.z, matrx.x);
-                var inv_tr = inv_det * vec2(
-                    matrx.z * translate.y - matrx.w * translate.x,
-                    matrx.y * translate.x - matrx.x * translate.y,
-                );
-                inv_tr -= p0;
+                let inv_tr = mat2x2(inv_mat.xy, inv_mat.zw) * -translate - p0;
                 let center1 = p1 - p0;
                 let rr = r1 / (r1 - r0);
                 let ra_inv = rr / (r1 * r1 - dot(center1, center1));
