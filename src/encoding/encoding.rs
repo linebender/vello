@@ -120,10 +120,16 @@ impl Encoding {
     }
 
     /// Encodes a transform.
-    pub fn encode_transform(&mut self, transform: Transform) {
+    ///
+    /// If the given transform is different from the current one, encodes it an
+    /// returns true. Otherwise, encodes nothing and returns false.
+    pub fn encode_transform(&mut self, transform: Transform) -> bool {
         if self.transforms.last() != Some(&transform) {
             self.path_tags.push(PathTag::TRANSFORM);
             self.transforms.push(transform);
+            true
+        } else {
+            false
         }
     }
 
