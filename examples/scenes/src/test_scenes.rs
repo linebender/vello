@@ -192,14 +192,25 @@ fn brush_transform(sb: &mut SceneBuilder, params: &mut SceneParams) {
     ]);
     sb.fill(
         Fill::NonZero,
-        Affine::translate((200.0, 200.0)),
+        Affine::rotate(25f64.to_radians()) * Affine::scale_non_uniform(2.0, 1.0),
+        &Gradient::new_radial((200.0, 200.0), 80.0).with_stops([
+            Color::RED,
+            Color::GREEN,
+            Color::BLUE,
+        ]),
+        None,
+        &Rect::from_origin_size((100.0, 100.0), (200.0, 200.0)),
+    );
+    sb.fill(
+        Fill::NonZero,
+        Affine::translate((200.0, 600.0)),
         &linear,
         Some(around_center(Affine::rotate(th), Point::new(200.0, 100.0))),
         &Rect::from_origin_size(Point::default(), (400.0, 200.0)),
     );
     sb.stroke(
         &Stroke::new(40.0),
-        Affine::translate((800.0, 200.0)),
+        Affine::translate((800.0, 600.0)),
         &linear,
         Some(around_center(Affine::rotate(th), Point::new(200.0, 100.0))),
         &Rect::from_origin_size(Point::default(), (400.0, 200.0)),
