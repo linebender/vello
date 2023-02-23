@@ -121,7 +121,7 @@ impl Encoding {
 
     /// Encodes a transform.
     ///
-    /// If the given transform is different from the current one, encodes it an
+    /// If the given transform is different from the current one, encodes it and
     /// returns true. Otherwise, encodes nothing and returns false.
     pub fn encode_transform(&mut self, transform: Transform) -> bool {
         if self.transforms.last() != Some(&transform) {
