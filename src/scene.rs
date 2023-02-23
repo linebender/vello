@@ -140,13 +140,14 @@ impl<'a> SceneBuilder<'a> {
         });
         if self.scene.encode_shape(shape, true) {
             if let Some(brush_transform) = brush_transform {
-                self.scene
-                    .encode_transform(Transform::from_kurbo(&(transform * brush_transform)));
-                self.scene.swap_last_path_tags();
-                self.scene.encode_brush(brush, 1.0);
-            } else {
-                self.scene.encode_brush(brush, 1.0);
+                if self
+                    .scene
+                    .encode_transform(Transform::from_kurbo(&(transform * brush_transform)))
+                {
+                    self.scene.swap_last_path_tags();
+                }
             }
+            self.scene.encode_brush(brush, 1.0);
         }
     }
 
@@ -164,13 +165,14 @@ impl<'a> SceneBuilder<'a> {
         self.scene.encode_linewidth(style.width);
         if self.scene.encode_shape(shape, false) {
             if let Some(brush_transform) = brush_transform {
-                self.scene
-                    .encode_transform(Transform::from_kurbo(&(transform * brush_transform)));
-                self.scene.swap_last_path_tags();
-                self.scene.encode_brush(brush, 1.0);
-            } else {
-                self.scene.encode_brush(brush, 1.0);
+                if self
+                    .scene
+                    .encode_transform(Transform::from_kurbo(&(transform * brush_transform)))
+                {
+                    self.scene.swap_last_path_tags();
+                }
             }
+            self.scene.encode_brush(brush, 1.0);
         }
     }
 

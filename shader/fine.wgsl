@@ -251,7 +251,7 @@ fn main(
                 for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
                     let my_xy = vec2(xy.x + f32(i), xy.y);
                     // TODO: can hoist y, but for now stick to the GLSL version
-                    let xy_xformed = rad.matrx.xz * my_xy.x + rad.matrx.yw * my_xy.y - rad.xlat;
+                    let xy_xformed = rad.matrx.xy * my_xy.x + rad.matrx.zw * my_xy.y + rad.xlat;
                     let ba = dot(xy_xformed, rad.c1);
                     let ca = rad.ra * dot(xy_xformed, xy_xformed);
                     let t = sqrt(ba * ba + ca) - ba - rad.roff;
