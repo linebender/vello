@@ -16,9 +16,9 @@
 
 use std::ops::Range;
 
-use peniko::Font;
+use peniko::{Font, Style};
 
-use super::{DrawStyle, StreamOffsets, Transform};
+use super::{StreamOffsets, Transform};
 
 /// Positioned glyph.
 #[derive(Copy, Clone, Default, Debug)]
@@ -47,7 +47,7 @@ pub struct GlyphRun {
     /// Range of normalized coordinates in the parent encoding.
     pub normalized_coords: Range<usize>,
     /// Fill or stroke style.
-    pub style: DrawStyle,
+    pub style: Style,
     /// Range of glyphs in the parent encoding.
     pub glyphs: Range<usize>,
     /// Stream offsets where this glyph run should be inserted.

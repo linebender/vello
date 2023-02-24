@@ -28,7 +28,7 @@ mod resolve;
 
 pub use draw::{
     DrawBeginClip, DrawColor, DrawImage, DrawLinearGradient, DrawMonoid, DrawRadialGradient,
-    DrawStyle, DrawTag,
+    DrawTag,
 };
 pub use encoding::{Encoding, StreamOffsets};
 pub use glyph::{Glyph, GlyphRun};

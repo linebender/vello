@@ -17,14 +17,14 @@
 use std::sync::Arc;
 
 use vello::{
-    encoding::{Glyph, Transform},
+    encoding::Glyph,
     glyph::{
         pinot,
         pinot::{FontRef, TableProvider},
         GlyphContext,
     },
     kurbo::Affine,
-    peniko::{Blob, Brush, BrushRef, Color, Fill, Font, Stroke},
+    peniko::{Blob, Brush, BrushRef, Font, StyleRef},
     SceneBuilder,
 };
 
@@ -45,12 +45,14 @@ impl SimpleText {
         }
     }
 
-    pub fn add_run<'b>(
+    pub fn add_run<'a>(
         &mut self,
         builder: &mut SceneBuilder,
         size: f32,
-        brush: impl Into<BrushRef<'b>>,
+        brush: impl Into<BrushRef<'a>>,
         transform: Affine,
+        glyph_transform: Option<Affine>,
+        style: impl Into<StyleRef<'a>>,
         text: &str,
     ) {
         let font = FontRef {
@@ -58,6 +60,7 @@ impl SimpleText {
             offset: 0,
         };
         let brush = brush.into();
+        let style = style.into();
         if let Some(cmap) = font.cmap() {
             if let Some(hmtx) = font.hmtx() {
                 let upem = font.head().map(|head| head.units_per_em()).unwrap_or(1000) as f64;
@@ -69,22 +72,13 @@ impl SimpleText {
                     .unwrap_or(0);
                 let mut pen_x = 0f64;
                 builder
-                    .draw_glyphs(&self)
+                    .draw_glyphs(&self.font)
                     .font_size(size)
                     .transform(transform)
-                    .glyph_transform(Some(Affine::new([
-                        1.,
-                        0.,
-                        20f64.to_radians().tan(),
-                        1.,
-                        0.,
-                        0.,
-                    ])))
+                    .glyph_transform(glyph_transform)
                     .brush(brush)
-                    .stroke(
-                        Stroke::new(1.),
-                        // .fill(
-                        //     Fill::NonZero,
+                    .draw(
+                        style,
                         text.chars().map(|ch| {
                             let gid = cmap.map(ch as u32).unwrap_or(0);
                             let advance = hmetrics

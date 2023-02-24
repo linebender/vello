@@ -15,9 +15,9 @@
 // Also licensed under MIT license, at your choice.
 
 use peniko::kurbo::{Affine, Rect, Shape};
-use peniko::{BlendMode, Brush, BrushRef, Color, Fill, Font, Stroke};
+use peniko::{BlendMode, BrushRef, Color, Fill, Font, Stroke, StyleRef};
 
-use crate::encoding::{DrawStyle, Encoding, Glyph, GlyphRun, Patch, Transform};
+use crate::encoding::{Encoding, Glyph, GlyphRun, Patch, Transform};
 
 /// Encoded definition of a scene and associated resources.
 #[derive(Default)]
@@ -206,7 +206,7 @@ impl<'a> DrawGlyphs<'a> {
                 font_size: 16.0,
                 hint: false,
                 normalized_coords: coords_start..coords_start,
-                style: DrawStyle::Fill(Fill::NonZero),
+                style: Fill::NonZero.into(),
                 glyphs: glyphs_start..glyphs_start,
                 stream_offsets,
             },
@@ -276,19 +276,12 @@ impl<'a> DrawGlyphs<'a> {
         self
     }
 
-    /// Encodes a fill for the given sequence of glyphs and consumes the builder.
-    pub fn fill(mut self, style: Fill, glyphs: impl Iterator<Item = Glyph>) {
-        self.run.style = DrawStyle::Fill(style);
-        self.finish(glyphs);
-    }
-
-    /// Encodes a stroke for the given sequence of glyphs and consumes the builder.
-    pub fn stroke(mut self, style: Stroke, glyphs: impl Iterator<Item = Glyph>) {
-        self.run.style = DrawStyle::Stroke(style);
-        self.finish(glyphs);
-    }
-
-    fn finish(mut self, glyphs: impl Iterator<Item = Glyph>) {
+    /// Encodes a fill or stroke for for the given sequence of glyphs and consumes
+    /// the builder.
+    ///
+    /// The `style` parameter accepts either `Fill` or `&Stroke` types.
+    pub fn draw(mut self, style: impl Into<StyleRef<'a>>, glyphs: impl Iterator<Item = Glyph>) {
+        self.run.style = style.into().to_owned();
         self.encoding.glyphs.extend(glyphs);
         self.run.glyphs.end = self.encoding.glyphs.len();
         if self.run.glyphs.is_empty() {

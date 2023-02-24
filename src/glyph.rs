@@ -18,10 +18,10 @@
 
 pub use moscato::pinot;
 
-use crate::encoding::{DrawStyle, Encoding};
+use crate::encoding::Encoding;
 use crate::scene::{SceneBuilder, SceneFragment};
 use peniko::kurbo::{Affine, Rect};
-use peniko::{Brush, Color, Fill, Mix};
+use peniko::{Brush, Color, Fill, Mix, Style};
 
 use moscato::{Context, Scaler};
 use pinot::{types::Tag, FontRef};
@@ -104,20 +104,15 @@ impl<'a> GlyphProvider<'a> {
         Some(fragment)
     }
 
-    pub fn encode_glyph(
-        &mut self,
-        gid: u16,
-        style: &DrawStyle,
-        encoding: &mut Encoding,
-    ) -> Option<()> {
+    pub fn encode_glyph(&mut self, gid: u16, style: &Style, encoding: &mut Encoding) -> Option<()> {
         let glyph = self.scaler.glyph(gid)?;
         let path = glyph.path(0)?;
         match style {
-            DrawStyle::Fill(Fill::NonZero) => encoding.encode_linewidth(-1.0),
-            DrawStyle::Fill(Fill::EvenOdd) => encoding.encode_linewidth(-2.0),
-            DrawStyle::Stroke(stroke) => encoding.encode_linewidth(stroke.width),
+            Style::Fill(Fill::NonZero) => encoding.encode_linewidth(-1.0),
+            Style::Fill(Fill::EvenOdd) => encoding.encode_linewidth(-2.0),
+            Style::Stroke(stroke) => encoding.encode_linewidth(stroke.width),
         }
-        let mut path_encoder = encoding.encode_path(matches!(style, DrawStyle::Fill(_)));
+        let mut path_encoder = encoding.encode_path(matches!(style, Style::Fill(_)));
         for el in path.elements() {
             use moscato::Element::*;
             match el {

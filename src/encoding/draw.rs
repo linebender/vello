@@ -19,13 +19,6 @@ use peniko::{BlendMode, Color, Fill, Stroke};
 
 use super::Monoid;
 
-/// Fill or stroke style.
-#[derive(Clone, Debug)]
-pub enum DrawStyle {
-    Fill(Fill),
-    Stroke(Stroke),
-}
-
 /// Draw tag representation.
 #[derive(Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]

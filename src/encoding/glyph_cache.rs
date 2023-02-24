@@ -16,8 +16,10 @@
 
 use std::collections::HashMap;
 
-use super::{DrawStyle, Encoding, StreamOffsets};
+use super::{Encoding, StreamOffsets};
 use crate::glyph::GlyphProvider;
+
+use peniko::{Fill, Style};
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Default, Debug)]
 pub struct GlyphKey {
@@ -43,17 +45,24 @@ impl GlyphCache {
     pub fn get_or_insert(
         &mut self,
         key: GlyphKey,
-        style: &DrawStyle,
+        style: &Style,
         scaler: &mut GlyphProvider,
     ) -> Option<CachedRange> {
-        if let Some(range) = self.glyphs.get(&key) {
-            return Some(*range);
+        // For now, only cache non-zero filled glyphs so we don't need to keep style
+        // as part of the key.
+        let is_nz_fill = matches!(style, Style::Fill(Fill::NonZero));
+        if is_nz_fill {
+            if let Some(range) = self.glyphs.get(&key) {
+                return Some(*range);
+            }
         }
         let start = self.encoding.stream_offsets();
         scaler.encode_glyph(key.glyph_id as u16, style, &mut self.encoding)?;
         let end = self.encoding.stream_offsets();
         let range = CachedRange { start, end };
-        self.glyphs.insert(key, range);
+        if is_nz_fill {
+            self.glyphs.insert(key, range);
+        }
         Some(range)
     }
 }
