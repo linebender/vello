@@ -14,15 +14,16 @@
 //
 // Also licensed under MIT license, at your choice.
 
-use super::resource::Patch;
 use super::{
-    DrawColor, DrawLinearGradient, DrawRadialGradient, DrawTag, PathEncoder, PathTag, Transform,
+    resolve::Patch, DrawColor, DrawLinearGradient, DrawRadialGradient, DrawTag, Glyph, GlyphRun,
+    PathEncoder, PathTag, Transform,
 };
 
-use peniko::{kurbo::Shape, BlendMode, BrushRef, Color, ColorStop, Extend, GradientKind};
+use bytemuck::{Pod, Zeroable};
+use peniko::{kurbo::Shape, BlendMode, BrushRef, ColorStop, Extend, GradientKind};
 
 /// Encoded data streams for a scene.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Encoding {
     /// The path tag stream.
     pub path_tags: Vec<PathTag>,
@@ -40,12 +41,20 @@ pub struct Encoding {
     pub transforms: Vec<Transform>,
     /// The line width stream.
     pub linewidths: Vec<f32>,
+    /// Positioned glyph buffer.
+    pub glyphs: Vec<Glyph>,
+    /// Sequences of glyphs.
+    pub glyph_runs: Vec<GlyphRun>,
+    /// Normalized coordinate buffer for variable fonts.
+    pub normalized_coords: Vec<i16>,
     /// Number of encoded paths.
     pub n_paths: u32,
     /// Number of encoded path segments.
     pub n_path_segments: u32,
     /// Number of encoded clips/layers.
     pub n_clips: u32,
+    /// Number of unclosed clips/layers.
+    pub n_open_clips: u32,
 }
 
 impl Encoding {
@@ -67,9 +76,13 @@ impl Encoding {
         self.linewidths.clear();
         self.draw_data.clear();
         self.draw_tags.clear();
+        self.glyphs.clear();
+        self.glyph_runs.clear();
+        self.normalized_coords.clear();
         self.n_paths = 0;
         self.n_path_segments = 0;
         self.n_clips = 0;
+        self.n_open_clips = 0;
         self.patches.clear();
         self.color_stops.clear();
         if !is_fragment {
@@ -81,32 +94,69 @@ impl Encoding {
     /// Appends another encoding to this one with an optional transform.
     pub fn append(&mut self, other: &Self, transform: &Option<Transform>) {
         let stops_base = self.color_stops.len();
-        let draw_data_base = self.draw_data.len();
+        let glyph_runs_base = self.glyph_runs.len();
+        let glyphs_base = self.glyphs.len();
+        let coords_base = self.normalized_coords.len();
+        let offsets = self.stream_offsets();
         self.path_tags.extend_from_slice(&other.path_tags);
         self.path_data.extend_from_slice(&other.path_data);
         self.draw_tags.extend_from_slice(&other.draw_tags);
         self.draw_data.extend_from_slice(&other.draw_data);
+        self.glyphs.extend_from_slice(&other.glyphs);
+        self.normalized_coords
+            .extend_from_slice(&other.normalized_coords);
+        self.glyph_runs
+            .extend(other.glyph_runs.iter().cloned().map(|mut run| {
+                run.glyphs.start += glyphs_base;
+                run.normalized_coords.start += coords_base;
+                run.stream_offsets.path_tags += offsets.path_tags;
+                run.stream_offsets.path_data += offsets.path_data;
+                run.stream_offsets.draw_tags += offsets.draw_tags;
+                run.stream_offsets.draw_data += offsets.draw_data;
+                run.stream_offsets.transforms += offsets.transforms;
+                run.stream_offsets.linewidths += offsets.linewidths;
+                run
+            }));
         self.n_paths += other.n_paths;
         self.n_path_segments += other.n_path_segments;
         self.n_clips += other.n_clips;
+        self.n_open_clips += other.n_open_clips;
         self.patches
             .extend(other.patches.iter().map(|patch| match patch {
                 Patch::Ramp { offset, stops } => {
                     let stops = stops.start + stops_base..stops.end + stops_base;
                     Patch::Ramp {
-                        offset: draw_data_base + offset,
+                        offset: offset + offsets.draw_data,
                         stops,
                     }
                 }
+                Patch::GlyphRun { index } => Patch::GlyphRun {
+                    index: index + glyph_runs_base,
+                },
             }));
         self.color_stops.extend_from_slice(&other.color_stops);
         if let Some(transform) = *transform {
             self.transforms
                 .extend(other.transforms.iter().map(|x| transform * *x));
+            for run in &mut self.glyph_runs[glyph_runs_base..] {
+                run.transform = transform * run.transform;
+            }
         } else {
             self.transforms.extend_from_slice(&other.transforms);
         }
         self.linewidths.extend_from_slice(&other.linewidths);
+    }
+
+    /// Returns a snapshot of the current stream offsets.
+    pub fn stream_offsets(&self) -> StreamOffsets {
+        StreamOffsets {
+            path_tags: self.path_tags.len(),
+            path_data: self.path_data.len(),
+            draw_tags: self.draw_tags.len(),
+            draw_data: self.draw_data.len(),
+            transforms: self.transforms.len(),
+            linewidths: self.linewidths.len(),
+        }
     }
 }
 
@@ -159,7 +209,7 @@ impl Encoding {
         match brush.into() {
             BrushRef::Solid(color) => {
                 let color = if alpha != 1.0 {
-                    color_with_alpha(color, alpha)
+                    color.with_alpha_factor(alpha)
                 } else {
                     color
                 };
@@ -248,15 +298,19 @@ impl Encoding {
         self.draw_data
             .extend_from_slice(bytemuck::bytes_of(&DrawBeginClip::new(blend_mode, alpha)));
         self.n_clips += 1;
+        self.n_open_clips += 1;
     }
 
     /// Encodes an end clip command.
     pub fn encode_end_clip(&mut self) {
-        self.draw_tags.push(DrawTag::END_CLIP);
-        // This is a dummy path, and will go away with the new clip impl.
-        self.path_tags.push(PathTag::PATH);
-        self.n_paths += 1;
-        self.n_clips += 1;
+        if self.n_open_clips > 0 {
+            self.draw_tags.push(DrawTag::END_CLIP);
+            // This is a dummy path, and will go away with the new clip impl.
+            self.path_tags.push(PathTag::PATH);
+            self.n_paths += 1;
+            self.n_clips += 1;
+            self.n_open_clips -= 1;
+        }
     }
 
     // Swap the last two tags in the path tag stream; used for transformed
@@ -270,10 +324,8 @@ impl Encoding {
         let offset = self.draw_data.len();
         let stops_start = self.color_stops.len();
         if alpha != 1.0 {
-            self.color_stops.extend(color_stops.map(|s| ColorStop {
-                offset: s.offset,
-                color: color_with_alpha(s.color, alpha),
-            }));
+            self.color_stops
+                .extend(color_stops.map(|stop| stop.with_alpha_factor(alpha)));
         } else {
             self.color_stops.extend(color_stops);
         }
@@ -284,7 +336,30 @@ impl Encoding {
     }
 }
 
-fn color_with_alpha(mut color: Color, alpha: f32) -> Color {
-    color.a = ((color.a as f32) * alpha) as u8;
-    color
+/// Snapshot of offsets for encoded streams.
+#[derive(Copy, Clone, Default, Debug)]
+pub struct StreamOffsets {
+    /// Current length of path tag stream.
+    pub path_tags: usize,
+    /// Current length of path data stream.
+    pub path_data: usize,
+    /// Current length of draw tag stream.
+    pub draw_tags: usize,
+    /// Current length of draw data stream.
+    pub draw_data: usize,
+    /// Current length of transform stream.
+    pub transforms: usize,
+    /// Current length of linewidth stream.
+    pub linewidths: usize,
+}
+
+impl StreamOffsets {
+    pub(crate) fn add(&mut self, other: &Self) {
+        self.path_tags += other.path_tags;
+        self.path_data += other.path_data;
+        self.draw_tags += other.draw_tags;
+        self.draw_data += other.draw_data;
+        self.transforms += other.transforms;
+        self.linewidths += other.linewidths;
+    }
 }

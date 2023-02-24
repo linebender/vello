@@ -170,7 +170,6 @@ async fn run(event_loop: EventLoop<UserEvent>, window: Window, args: Args, mut s
                 resolution: None,
             };
             (example_scene.function)(&mut builder, &mut params);
-            builder.finish();
             let mut builder = SceneBuilder::for_scene(&mut scene);
             let mut transform = transform;
             if let Some(resolution) = params.resolution {
@@ -179,7 +178,6 @@ async fn run(event_loop: EventLoop<UserEvent>, window: Window, args: Args, mut s
                 transform = transform * Affine::scale(scale_factor);
             }
             builder.append(&fragment, Some(transform));
-            builder.finish();
             let surface_texture = surface
                 .surface
                 .get_current_texture()

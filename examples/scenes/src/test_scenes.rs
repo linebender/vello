@@ -123,11 +123,10 @@ fn animated_text(sb: &mut SceneBuilder, params: &mut SceneParams) {
         Affine::translate((110.0, 600.0)),
         s,
     );
-    params.text.add(
+    params.text.add_run(
         sb,
-        None,
         text_size,
-        None,
+        Color::WHITE,
         Affine::translate((110.0, 700.0)),
         s,
     );
@@ -412,7 +411,6 @@ fn blend_square(blend: BlendMode) -> SceneFragment {
     let mut fragment = SceneFragment::default();
     let mut sb = SceneBuilder::for_fragment(&mut fragment);
     render_blend_square(&mut sb, blend, Affine::IDENTITY);
-    sb.finish();
     fragment
 }
 
