@@ -54,7 +54,7 @@ pub struct Layout {
 }
 
 impl Layout {
-    /// Creates a new packed encoding.
+    /// Creates a zeroed layout.
     pub fn new() -> Self {
         Self::default()
     }
