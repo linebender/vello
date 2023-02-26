@@ -291,12 +291,13 @@ fn fill_path_ms(seg_data: u32, n_segs: u32, backdrop: i32, wg_id: vec2<u32>, loc
             let mask_col = floor((zf - z) * f32(MASK_WIDTH));
             let mask_ix = mask_block + u32(mask_row + mask_col);
             var mask = mask_lut[mask_ix / 4u] >> ((mask_ix % 4u) * 8u);
+            mask &= 0xffu;
             // Intersect with y half-plane masks
-            if sub_ix == 0u {
+            if sub_ix == 0u && !is_bump {
                 let mask_shift = u32(round(8.0 * (xy0.y - f32(y))));
                 mask &= 0xffu << mask_shift;
             }
-            if last_pixel && !is_bump {
+            if last_pixel && xy1.x != 0.0 {
                 let mask_shift = u32(round(8.0 * (xy1.y - f32(y))));
                 mask &= ~(0xffu << mask_shift);
             }
