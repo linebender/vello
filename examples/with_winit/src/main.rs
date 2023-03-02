@@ -17,12 +17,16 @@
 use std::time::Instant;
 
 use anyhow::Result;
-use clap::{CommandFactory, Parser};
+use clap::{
+    builder::{PossibleValuesParser, TypedValueParser as _},
+    CommandFactory, Parser,
+};
 use scenes::{SceneParams, SceneSet, SimpleText};
 use vello::SceneFragment;
 use vello::{
     block_on_wgpu,
     kurbo::{Affine, Vec2},
+    peniko::Color,
     util::RenderContext,
     Renderer, Scene, SceneBuilder,
 };
@@ -49,8 +53,49 @@ struct Args {
     /// Switch between scenes with left and right arrow keys
     #[arg(long)]
     scene: Option<i32>,
+    #[arg(
+        long,
+        default_value_t = ClearColor::Black,
+        value_parser = PossibleValuesParser::new(["black", "white", "aquamarine", "crimson"])
+            .map(|s| s.parse::<ClearColor>().unwrap())
+    )]
+    clear_color: ClearColor,
     #[command(flatten)]
     args: scenes::Arguments,
+}
+
+#[derive(Debug, Clone)]
+enum ClearColor {
+    Black,
+    White,
+    Crimson,
+    Aquamarine,
+}
+
+impl std::fmt::Display for ClearColor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            Self::Black => "black",
+            Self::White => "white",
+            Self::Crimson => "crimson",
+            Self::Aquamarine => "aquamarine",
+        };
+        s.fmt(f)
+    }
+}
+
+impl std::str::FromStr for ClearColor {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "black" => Ok(Self::Black),
+            "white" => Ok(Self::White),
+            "crimson" => Ok(Self::Crimson),
+            "aquamarine" => Ok(Self::Aquamarine),
+            _ => Err(format!("invalid color: {s}")),
+        }
+    }
 }
 
 async fn run(event_loop: EventLoop<UserEvent>, window: Window, args: Args, mut scenes: SceneSet) {
@@ -75,6 +120,12 @@ async fn run(event_loop: EventLoop<UserEvent>, window: Window, args: Args, mut s
     if let Some(set_scene) = args.scene {
         scene_ix = set_scene;
     }
+    let clear_color = match args.clear_color {
+        ClearColor::Black => Color::BLACK,
+        ClearColor::White => Color::WHITE,
+        ClearColor::Crimson => Color::CRIMSON,
+        ClearColor::Aquamarine => Color::AQUAMARINE,
+    };
     let mut prev_scene_ix = scene_ix - 1;
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent {
@@ -155,6 +206,12 @@ async fn run(event_loop: EventLoop<UserEvent>, window: Window, args: Args, mut s
             let height = surface.config.height;
             let device_handle = &render_cx.devices[surface.dev_id];
 
+            let render_params = vello::RenderParams {
+                clear_color,
+                width,
+                height,
+            };
+
             // Allow looping forever
             scene_ix = scene_ix.rem_euclid(scenes.scenes.len() as i32);
             let example_scene = &mut scenes.scenes[scene_ix as usize];
@@ -164,16 +221,16 @@ async fn run(event_loop: EventLoop<UserEvent>, window: Window, args: Args, mut s
                 window.set_title(&format!("Vello demo - {}", example_scene.config.name));
             }
             let mut builder = SceneBuilder::for_fragment(&mut fragment);
-            let mut params = SceneParams {
+            let mut scene_params = SceneParams {
                 time: start.elapsed().as_secs_f64(),
                 text: &mut simple_text,
                 resolution: None,
             };
-            (example_scene.function)(&mut builder, &mut params);
+            (example_scene.function)(&mut builder, &mut scene_params);
             builder.finish();
             let mut builder = SceneBuilder::for_scene(&mut scene);
             let mut transform = transform;
-            if let Some(resolution) = params.resolution {
+            if let Some(resolution) = scene_params.resolution {
                 let factor = Vec2::new(surface.config.width as f64, surface.config.height as f64);
                 let scale_factor = (factor.x / resolution.x).min(factor.y / resolution.y);
                 transform = transform * Affine::scale(scale_factor);
@@ -193,8 +250,7 @@ async fn run(event_loop: EventLoop<UserEvent>, window: Window, args: Args, mut s
                         &device_handle.queue,
                         &scene,
                         &surface_texture,
-                        width,
-                        height,
+                        &render_params,
                     ),
                 )
                 .expect("failed to render to surface");
@@ -208,8 +264,7 @@ async fn run(event_loop: EventLoop<UserEvent>, window: Window, args: Args, mut s
                     &device_handle.queue,
                     &scene,
                     &surface_texture,
-                    width,
-                    height,
+                    &render_params,
                 )
                 .expect("failed to render to surface");
             surface_texture.present();

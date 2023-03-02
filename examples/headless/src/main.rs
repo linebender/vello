@@ -126,6 +126,11 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
             (Some(x), Some(y)) => (x.try_into()?, y.try_into()?),
         }
     };
+    let params = vello::RenderParams {
+        clear_color: vello::peniko::Color::BLACK,
+        width,
+        height,
+    };
     let mut scene = Scene::new();
     let mut builder = SceneBuilder::for_scene(&mut scene);
     builder.append(&fragment, Some(transform));
@@ -147,7 +152,7 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
     });
     let view = target.create_view(&wgpu::TextureViewDescriptor::default());
     renderer
-        .render_to_texture(&device, &queue, &scene, &view, width, height)
+        .render_to_texture(&device, &queue, &scene, &view, &params)
         .or_else(|_| bail!("Got non-Send/Sync error from rendering"))?;
     // (width * 4).next_multiple_of(256)
     let padded_byte_width = {

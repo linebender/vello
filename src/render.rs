@@ -7,7 +7,7 @@ use crate::{
     engine::{BufProxy, ImageFormat, ImageProxy, Recording, ResourceProxy},
     peniko::Color,
     shaders::{self, FullShaders, Shaders},
-    Scene,
+    RenderParams, Scene,
 };
 
 /// State for a render in progress.
@@ -22,8 +22,6 @@ pub struct Render {
     ptcl_size: u32,
     width_in_tiles: u32,
     height_in_tiles: u32,
-    /// The background color applied to the target
-    clear_color: Color,
     fine: Option<FineResources>,
 }
 
@@ -183,10 +181,9 @@ fn render(scene: &Scene, shaders: &Shaders) -> (Recording, BufProxy) {
 pub fn render_full(
     scene: &Scene,
     shaders: &FullShaders,
-    width: u32,
-    height: u32,
+    params: &RenderParams,
 ) -> (Recording, ResourceProxy) {
-    render_encoding_full(scene.data(), shaders, width, height)
+    render_encoding_full(scene.data(), shaders, params)
 }
 
 /// Create a single recording with both coarse and fine render stages.
@@ -196,11 +193,10 @@ pub fn render_full(
 pub fn render_encoding_full(
     encoding: &Encoding,
     shaders: &FullShaders,
-    width: u32,
-    height: u32,
+    params: &RenderParams,
 ) -> (Recording, ResourceProxy) {
     let mut render = Render::new();
-    let mut recording = render.render_encoding_coarse(encoding, shaders, width, height, false);
+    let mut recording = render.render_encoding_coarse(encoding, shaders, params, false);
     let out_image = render.out_image();
     render.record_fine(shaders, &mut recording);
     (recording, out_image.into())
@@ -220,7 +216,6 @@ impl Render {
             ptcl_size: (1 << 25) / 4 as u32,
             width_in_tiles: 0,
             height_in_tiles: 0,
-            clear_color: Color::BLACK,
             fine: None,
         }
     }
@@ -233,8 +228,7 @@ impl Render {
         &mut self,
         encoding: &Encoding,
         shaders: &FullShaders,
-        width: u32,
-        height: u32,
+        params: &RenderParams,
         robust: bool,
     ) -> Recording {
         use crate::encoding::{resource::ResourceCache, PackedEncoding};
@@ -261,16 +255,16 @@ impl Render {
         let n_drawobj = n_paths;
         let n_clip = encoding.n_clips;
 
-        let new_width = next_multiple_of(width, 16);
-        let new_height = next_multiple_of(height, 16);
+        let new_width = next_multiple_of(params.width, 16);
+        let new_height = next_multiple_of(params.height, 16);
 
         let info_size = packed.layout.bin_data_start;
         let config = crate::encoding::Config {
             width_in_tiles: new_width / 16,
             height_in_tiles: new_height / 16,
-            target_width: width,
-            target_height: height,
-            clear_color: self.clear_color.to_premul_u32(),
+            target_width: params.width,
+            target_height: params.height,
+            clear_color: params.clear_color.to_premul_u32(),
             binning_size: self.binning_info_size - info_size,
             tiles_size: self.tiles_size,
             segments_size: self.segments_size,
@@ -521,7 +515,7 @@ impl Render {
         recording.free_resource(draw_monoid_buf);
         recording.free_resource(bin_header_buf);
         recording.free_resource(path_buf);
-        let out_image = ImageProxy::new(width, height, ImageFormat::Rgba8);
+        let out_image = ImageProxy::new(params.width, params.height, ImageFormat::Rgba8);
         self.width_in_tiles = config.width_in_tiles;
         self.height_in_tiles = config.height_in_tiles;
         self.fine = Some(FineResources {
