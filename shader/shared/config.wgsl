@@ -7,6 +7,11 @@ struct Config {
     target_width: u32,
     target_height: u32,
 
+    // The initial color applied to the pixels in a tile during the fine stage.
+    // This is only used in the full pipeline. The format is packed RGBA8 in MSB
+    // order.
+    clear_color: u32,
+
     n_drawobj: u32,
     n_path: u32,
     n_clip: u32,

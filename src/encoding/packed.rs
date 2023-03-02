@@ -60,6 +60,8 @@ pub struct Config {
     pub target_width: u32,
     /// Height of the target in pixels.
     pub target_height: u32,
+    /// The initial background color applied to the target
+    pub clear_color: u32,
     /// Layout of packed scene data.
     pub layout: Layout,
     /// Size of binning buffer allocation (in u32s).
