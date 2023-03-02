@@ -55,6 +55,8 @@ const BIN_HEADER_SIZE: u64 = 8;
 const TILE_SIZE: u64 = 8;
 const SEGMENT_SIZE: u64 = 24;
 
+// This data structure must be kept in sync with encoding::Config and the definition in
+// shaders/shared/config.wgsl.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
 struct Config {
@@ -62,7 +64,7 @@ struct Config {
     height_in_tiles: u32,
     target_width: u32,
     target_height: u32,
-    clear_color: u32,
+    base_color: u32,
     n_drawobj: u32,
     n_path: u32,
     n_clip: u32,
@@ -264,7 +266,7 @@ impl Render {
             height_in_tiles: new_height / 16,
             target_width: params.width,
             target_height: params.height,
-            clear_color: params.clear_color.to_premul_u32(),
+            base_color: params.base_color.to_premul_u32(),
             binning_size: self.binning_info_size - info_size,
             tiles_size: self.tiles_size,
             segments_size: self.segments_size,

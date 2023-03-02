@@ -48,7 +48,8 @@ pub struct Layout {
     pub linewidth_base: u32,
 }
 
-/// Scene configuration.
+/// Scene configuration. This data structure must be kept in sync with the definition in
+/// shaders/shared/config.wgsl.
 #[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
 #[repr(C)]
 pub struct Config {
@@ -60,8 +61,8 @@ pub struct Config {
     pub target_width: u32,
     /// Height of the target in pixels.
     pub target_height: u32,
-    /// The initial background color applied to the target
-    pub clear_color: u32,
+    /// The base background color applied to the target before any blends.
+    pub base_color: u32,
     /// Layout of packed scene data.
     pub layout: Layout,
     /// Size of binning buffer allocation (in u32s).

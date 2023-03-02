@@ -5,7 +5,7 @@ mod svg;
 mod test_scenes;
 use std::path::PathBuf;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use clap::{Args, Subcommand};
 use download::Download;
 pub use simple_text::SimpleText;
@@ -13,7 +13,7 @@ pub use simple_text::SimpleText;
 pub use svg::{default_scene, scene_from_files};
 pub use test_scenes::test_scenes;
 
-use vello::{kurbo::Vec2, SceneBuilder};
+use vello::{kurbo::Vec2, peniko::Color, SceneBuilder};
 
 pub struct SceneParams<'a> {
     pub time: f64,
@@ -46,6 +46,12 @@ pub struct Arguments {
     #[arg(help_heading = "Scene Selection", global(false))]
     /// The svg files paths to render
     svgs: Option<Vec<PathBuf>>,
+    #[arg(help_heading = "Render Parameters")]
+    #[arg(long, global(false))]
+    /// The base color applied as the blend background to the rasterizer.
+    /// Format is CSS style hexidecimal (#RGB, #RGBA, #RRGGBB, #RRGGBBAA) or
+    /// an SVG color name such as "aliceblue"
+    base_color: Option<String>,
     #[clap(subcommand)]
     command: Option<Command>,
 }
@@ -78,6 +84,17 @@ impl Arguments {
             }
             .map(Some)
         }
+    }
+
+    pub fn get_base_color(&self) -> Result<Option<Color>> {
+        self.base_color.as_ref().map_or_else(
+            || Ok(None),
+            |s| {
+                Color::parse(&s)
+                    .ok_or_else(|| anyhow!("malformed color: {}", s))
+                    .map(Some)
+            },
+        )
     }
 }
 

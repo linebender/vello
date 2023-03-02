@@ -17,10 +17,7 @@
 use std::time::Instant;
 
 use anyhow::Result;
-use clap::{
-    builder::{PossibleValuesParser, TypedValueParser as _},
-    CommandFactory, Parser,
-};
+use clap::{CommandFactory, Parser};
 use scenes::{SceneParams, SceneSet, SimpleText};
 use vello::SceneFragment;
 use vello::{
@@ -53,52 +50,18 @@ struct Args {
     /// Switch between scenes with left and right arrow keys
     #[arg(long)]
     scene: Option<i32>,
-    #[arg(
-        long,
-        default_value_t = ClearColor::Black,
-        value_parser = PossibleValuesParser::new(["black", "white", "aquamarine", "crimson"])
-            .map(|s| s.parse::<ClearColor>().unwrap())
-    )]
-    clear_color: ClearColor,
+    /// The base color used as the
     #[command(flatten)]
     args: scenes::Arguments,
 }
 
-#[derive(Debug, Clone)]
-enum ClearColor {
-    Black,
-    White,
-    Crimson,
-    Aquamarine,
-}
-
-impl std::fmt::Display for ClearColor {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = match self {
-            Self::Black => "black",
-            Self::White => "white",
-            Self::Crimson => "crimson",
-            Self::Aquamarine => "aquamarine",
-        };
-        s.fmt(f)
-    }
-}
-
-impl std::str::FromStr for ClearColor {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "black" => Ok(Self::Black),
-            "white" => Ok(Self::White),
-            "crimson" => Ok(Self::Crimson),
-            "aquamarine" => Ok(Self::Aquamarine),
-            _ => Err(format!("invalid color: {s}")),
-        }
-    }
-}
-
-async fn run(event_loop: EventLoop<UserEvent>, window: Window, args: Args, mut scenes: SceneSet) {
+async fn run(
+    event_loop: EventLoop<UserEvent>,
+    window: Window,
+    args: Args,
+    base_color: Color,
+    mut scenes: SceneSet,
+) {
     use winit::{event::*, event_loop::ControlFlow};
     let mut render_cx = RenderContext::new().unwrap();
     let size = window.inner_size();
@@ -120,12 +83,6 @@ async fn run(event_loop: EventLoop<UserEvent>, window: Window, args: Args, mut s
     if let Some(set_scene) = args.scene {
         scene_ix = set_scene;
     }
-    let clear_color = match args.clear_color {
-        ClearColor::Black => Color::BLACK,
-        ClearColor::White => Color::WHITE,
-        ClearColor::Crimson => Color::CRIMSON,
-        ClearColor::Aquamarine => Color::AQUAMARINE,
-    };
     let mut prev_scene_ix = scene_ix - 1;
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent {
@@ -207,7 +164,7 @@ async fn run(event_loop: EventLoop<UserEvent>, window: Window, args: Args, mut s
             let device_handle = &render_cx.devices[surface.dev_id];
 
             let render_params = vello::RenderParams {
-                clear_color,
+                base_color,
                 width,
                 height,
             };
@@ -300,6 +257,7 @@ fn main() -> Result<()> {
     env_logger::init();
     let args = Args::parse();
     let scenes = args.args.select_scene_set(|| Args::command())?;
+    let base_color = args.args.get_base_color()?.unwrap_or(Color::BLACK);
     if let Some(scenes) = scenes {
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -317,7 +275,7 @@ fn main() -> Result<()> {
                 .with_title("Vello demo")
                 .build(&event_loop)
                 .unwrap();
-            pollster::block_on(run(event_loop, window, args, scenes));
+            pollster::block_on(run(event_loop, window, args, base_color, scenes));
         }
         #[cfg(target_arch = "wasm32")]
         {
@@ -337,7 +295,7 @@ fn main() -> Result<()> {
                 .and_then(|doc| doc.body())
                 .and_then(|body| body.append_child(&web_sys::Element::from(canvas)).ok())
                 .expect("couldn't append canvas to document body");
-            wasm_bindgen_futures::spawn_local(run(event_loop, window, args, scenes));
+            wasm_bindgen_futures::spawn_local(run(event_loop, window, args, base_color, scenes));
         }
     }
     Ok(())

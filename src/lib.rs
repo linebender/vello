@@ -56,7 +56,7 @@ pub struct Renderer {
 pub struct RenderParams {
     /// The background color applied to the target. This value is only applicable to the full
     /// pipeline.
-    pub clear_color: peniko::Color,
+    pub base_color: peniko::Color,
 
     /// Dimensions of the rasterization target
     pub width: u32,
@@ -64,7 +64,7 @@ pub struct RenderParams {
 }
 
 impl Renderer {
-    /// Creates a new renderer for the specified device with default options.
+    /// Creates a new renderer for the specified device.
     pub fn new(device: &Device) -> Result<Self> {
         let mut engine = Engine::new();
         let shaders = shaders::full_shaders(device, &mut engine)?;
