@@ -128,7 +128,7 @@ impl Renderer {
         if target.width != width || target.height != height {
             target = TargetTexture::new(device, width, height);
         }
-        self.render_to_texture(device, queue, scene, &target.view, &params);
+        self.render_to_texture(device, queue, scene, &target.view, &params)?;
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         {
