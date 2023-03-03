@@ -52,6 +52,17 @@ pub struct Renderer {
     target: Option<TargetTexture>,
 }
 
+/// Parameters used in a single render that are configurable by the client.
+pub struct RenderParams {
+    /// The background color applied to the target. This value is only applicable to the full
+    /// pipeline.
+    pub base_color: peniko::Color,
+
+    /// Dimensions of the rasterization target
+    pub width: u32,
+    pub height: u32,
+}
+
 impl Renderer {
     /// Creates a new renderer for the specified device.
     pub fn new(device: &Device) -> Result<Self> {
@@ -77,10 +88,9 @@ impl Renderer {
         queue: &Queue,
         scene: &Scene,
         texture: &TextureView,
-        width: u32,
-        height: u32,
+        params: &RenderParams,
     ) -> Result<()> {
-        let (recording, target) = render::render_full(scene, &self.shaders, width, height);
+        let (recording, target) = render::render_full(scene, &self.shaders, params);
         let external_resources = [ExternalResource::Image(
             *target.as_image().unwrap(),
             texture,
@@ -103,9 +113,10 @@ impl Renderer {
         queue: &Queue,
         scene: &Scene,
         surface: &SurfaceTexture,
-        width: u32,
-        height: u32,
+        params: &RenderParams,
     ) -> Result<()> {
+        let width = params.width;
+        let height = params.height;
         let mut target = self
             .target
             .take()
@@ -115,7 +126,7 @@ impl Renderer {
         if target.width != width || target.height != height {
             target = TargetTexture::new(device, width, height);
         }
-        self.render_to_texture(device, queue, scene, &target.view, width, height)?;
+        self.render_to_texture(device, queue, scene, &target.view, &params)?;
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         {
@@ -177,12 +188,11 @@ impl Renderer {
         queue: &Queue,
         scene: &Scene,
         texture: &TextureView,
-        width: u32,
-        height: u32,
+        params: &RenderParams,
     ) -> Result<()> {
         let mut render = Render::new();
         let encoding = scene.data();
-        let recording = render.render_encoding_coarse(encoding, &self.shaders, width, height, true);
+        let recording = render.render_encoding_coarse(encoding, &self.shaders, params, true);
         let target = render.out_image();
         let bump_buf = render.bump_buf();
         self.engine.run_recording(device, queue, &recording, &[])?;
@@ -216,9 +226,10 @@ impl Renderer {
         queue: &Queue,
         scene: &Scene,
         surface: &SurfaceTexture,
-        width: u32,
-        height: u32,
+        params: &RenderParams,
     ) -> Result<()> {
+        let width = params.width;
+        let height = params.height;
         let mut target = self
             .target
             .take()
@@ -228,7 +239,7 @@ impl Renderer {
         if target.width != width || target.height != height {
             target = TargetTexture::new(device, width, height);
         }
-        self.render_to_texture_async(device, queue, scene, &target.view, width, height)
+        self.render_to_texture_async(device, queue, scene, &target.view, params)
             .await?;
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });

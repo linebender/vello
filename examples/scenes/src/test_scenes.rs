@@ -32,6 +32,7 @@ pub fn test_scenes() -> SceneSet {
         scene!(blend_grid),
         scene!(conflation_artifacts),
         scene!(labyrinth),
+        scene!(base_color_test: animated),
     ];
     #[cfg(target_arch = "wasm32")]
     scenes.push(ExampleScene {
@@ -580,6 +581,21 @@ fn labyrinth(sb: &mut SceneBuilder, _: &mut SceneParams) {
         None,
         &path,
     )
+}
+
+fn base_color_test(sb: &mut SceneBuilder, params: &mut SceneParams) {
+    // Cycle through the hue value every 5 seconds (t % 5) * 360/5
+    let color = Color::hlc((params.time % 5.0) * 72.0, 80.0, 80.0);
+    params.base_color = Some(color);
+
+    // Blend a white square over it.
+    sb.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        Color::rgba8(255, 255, 255, 128),
+        None,
+        &Rect::new(50.0, 50.0, 500.0, 500.0),
+    );
 }
 
 fn around_center(xform: Affine, center: Point) -> Affine {
