@@ -59,7 +59,7 @@ async fn run(
     event_loop: EventLoop<UserEvent>,
     window: Window,
     args: Args,
-    base_color: Color,
+    base_color_arg: Option<Color>,
     mut scenes: SceneSet,
 ) {
     use winit::{event::*, event_loop::ControlFlow};
@@ -163,12 +163,6 @@ async fn run(
             let height = surface.config.height;
             let device_handle = &render_cx.devices[surface.dev_id];
 
-            let render_params = vello::RenderParams {
-                base_color,
-                width,
-                height,
-            };
-
             // Allow looping forever
             scene_ix = scene_ix.rem_euclid(scenes.scenes.len() as i32);
             let example_scene = &mut scenes.scenes[scene_ix as usize];
@@ -182,9 +176,20 @@ async fn run(
                 time: start.elapsed().as_secs_f64(),
                 text: &mut simple_text,
                 resolution: None,
+                base_color: None,
             };
             (example_scene.function)(&mut builder, &mut scene_params);
             builder.finish();
+
+            // If the user specifies a base color in the CLI we use that. Otherwise we use any
+            // color specified by the scene. The default is black.
+            let render_params = vello::RenderParams {
+                base_color: base_color_arg
+                    .or(scene_params.base_color)
+                    .unwrap_or(Color::BLACK),
+                width,
+                height,
+            };
             let mut builder = SceneBuilder::for_scene(&mut scene);
             let mut transform = transform;
             if let Some(resolution) = scene_params.resolution {
@@ -257,7 +262,7 @@ fn main() -> Result<()> {
     env_logger::init();
     let args = Args::parse();
     let scenes = args.args.select_scene_set(|| Args::command())?;
-    let base_color = args.args.get_base_color()?.unwrap_or(Color::BLACK);
+    let base_color = args.args.get_base_color()?;
     if let Some(scenes) = scenes {
         #[cfg(not(target_arch = "wasm32"))]
         {

@@ -19,6 +19,7 @@ pub struct SceneParams<'a> {
     pub time: f64,
     pub text: &'a mut SimpleText,
     pub resolution: Option<Vec2>,
+    pub base_color: Option<vello::peniko::Color>,
 }
 
 pub struct SceneConfig {

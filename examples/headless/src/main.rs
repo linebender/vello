@@ -96,6 +96,7 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
         time: args.time.unwrap_or(0.),
         text: &mut text,
         resolution: None,
+        base_color: None,
     };
     (example_scene.function)(&mut builder, &mut scene_params);
     builder.finish();
@@ -130,6 +131,7 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
         base_color: args
             .args
             .get_base_color()?
+            .or(scene_params.base_color)
             .unwrap_or(vello::peniko::Color::BLACK),
         width,
         height,
