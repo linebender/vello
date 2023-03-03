@@ -50,18 +50,11 @@ struct Args {
     /// Switch between scenes with left and right arrow keys
     #[arg(long)]
     scene: Option<i32>,
-    /// The base color used as the
     #[command(flatten)]
     args: scenes::Arguments,
 }
 
-async fn run(
-    event_loop: EventLoop<UserEvent>,
-    window: Window,
-    args: Args,
-    base_color_arg: Option<Color>,
-    mut scenes: SceneSet,
-) {
+async fn run(event_loop: EventLoop<UserEvent>, window: Window, args: Args, mut scenes: SceneSet) {
     use winit::{event::*, event_loop::ControlFlow};
     let mut render_cx = RenderContext::new().unwrap();
     let size = window.inner_size();
@@ -184,7 +177,9 @@ async fn run(
             // If the user specifies a base color in the CLI we use that. Otherwise we use any
             // color specified by the scene. The default is black.
             let render_params = vello::RenderParams {
-                base_color: base_color_arg
+                base_color: args
+                    .args
+                    .base_color
                     .or(scene_params.base_color)
                     .unwrap_or(Color::BLACK),
                 width,
@@ -262,7 +257,6 @@ fn main() -> Result<()> {
     env_logger::init();
     let args = Args::parse();
     let scenes = args.args.select_scene_set(|| Args::command())?;
-    let base_color = args.args.get_base_color()?;
     if let Some(scenes) = scenes {
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -280,7 +274,7 @@ fn main() -> Result<()> {
                 .with_title("Vello demo")
                 .build(&event_loop)
                 .unwrap();
-            pollster::block_on(run(event_loop, window, args, base_color, scenes));
+            pollster::block_on(run(event_loop, window, args, scenes));
         }
         #[cfg(target_arch = "wasm32")]
         {
@@ -300,7 +294,7 @@ fn main() -> Result<()> {
                 .and_then(|doc| doc.body())
                 .and_then(|body| body.append_child(&web_sys::Element::from(canvas)).ok())
                 .expect("couldn't append canvas to document body");
-            wasm_bindgen_futures::spawn_local(run(event_loop, window, args, base_color, scenes));
+            wasm_bindgen_futures::spawn_local(run(event_loop, window, args, scenes));
         }
     }
     Ok(())

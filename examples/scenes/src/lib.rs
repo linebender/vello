@@ -48,11 +48,11 @@ pub struct Arguments {
     /// The svg files paths to render
     svgs: Option<Vec<PathBuf>>,
     #[arg(help_heading = "Render Parameters")]
-    #[arg(long, global(false))]
+    #[arg(long, global(false), value_parser = parse_color)]
     /// The base color applied as the blend background to the rasterizer.
     /// Format is CSS style hexidecimal (#RGB, #RGBA, #RRGGBB, #RRGGBBAA) or
     /// an SVG color name such as "aliceblue"
-    base_color: Option<String>,
+    pub base_color: Option<Color>,
     #[clap(subcommand)]
     command: Option<Command>,
 }
@@ -86,17 +86,6 @@ impl Arguments {
             .map(Some)
         }
     }
-
-    pub fn get_base_color(&self) -> Result<Option<Color>> {
-        self.base_color.as_ref().map_or_else(
-            || Ok(None),
-            |s| {
-                Color::parse(&s)
-                    .ok_or_else(|| anyhow!("malformed color: {}", s))
-                    .map(Some)
-            },
-        )
-    }
 }
 
 impl Command {
@@ -105,4 +94,8 @@ impl Command {
             Command::Download(download) => download.action(),
         }
     }
+}
+
+fn parse_color(s: &str) -> Result<Color> {
+    Color::parse(s).ok_or(anyhow!("'{s}' is not a valid color"))
 }

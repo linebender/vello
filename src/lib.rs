@@ -114,8 +114,6 @@ impl Renderer {
         scene: &Scene,
         surface: &SurfaceTexture,
         params: &RenderParams,
-        width: u32,
-        height: u32,
     ) -> Result<()> {
         let width = params.width;
         let height = params.height;

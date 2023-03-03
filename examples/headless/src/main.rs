@@ -130,7 +130,7 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
     let render_params = vello::RenderParams {
         base_color: args
             .args
-            .get_base_color()?
+            .base_color
             .or(scene_params.base_color)
             .unwrap_or(vello::peniko::Color::BLACK),
         width,
