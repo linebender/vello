@@ -103,7 +103,6 @@ impl ExtractComponent for VelloScene {
         let mut scene = Scene::default();
         let mut builder = SceneBuilder::for_scene(&mut scene);
         builder.append(&fragment.0, None);
-        builder.finish();
         Some(Self(scene, target.0.clone()))
     }
 }

@@ -3,9 +3,8 @@
 use bytemuck::{Pod, Zeroable};
 
 use crate::{
-    encoding::Encoding,
+    encoding::{Config, Encoding, Layout},
     engine::{BufProxy, ImageFormat, ImageProxy, Recording, ResourceProxy},
-    peniko::Color,
     shaders::{self, FullShaders, Shaders},
     RenderParams, Scene,
 };
@@ -43,7 +42,6 @@ const TAG_MONOID_FULL_SIZE: u64 = 20;
 const PATH_BBOX_SIZE: u64 = 24;
 const CUBIC_SIZE: u64 = 48;
 const DRAWMONOID_SIZE: u64 = 16;
-const MAX_DRAWINFO_SIZE: u64 = 44;
 const CLIP_BIC_SIZE: u64 = 8;
 const CLIP_EL_SIZE: u64 = 32;
 const CLIP_INP_SIZE: u64 = 8;
@@ -54,28 +52,6 @@ const BUMP_SIZE: u64 = std::mem::size_of::<BumpAllocators>() as u64;
 const BIN_HEADER_SIZE: u64 = 8;
 const TILE_SIZE: u64 = 8;
 const SEGMENT_SIZE: u64 = 24;
-
-// This data structure must be kept in sync with encoding::Config and the definition in
-// shaders/shared/config.wgsl.
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
-struct Config {
-    width_in_tiles: u32,
-    height_in_tiles: u32,
-    target_width: u32,
-    target_height: u32,
-    base_color: u32,
-    n_drawobj: u32,
-    n_path: u32,
-    n_clip: u32,
-    bin_data_start: u32,
-    pathtag_base: u32,
-    pathdata_base: u32,
-    drawtag_base: u32,
-    drawdata_base: u32,
-    transform_base: u32,
-    linewidth_base: u32,
-}
 
 fn size_to_words(byte_size: usize) -> u32 {
     (byte_size / std::mem::size_of::<u32>()) as u32
@@ -121,8 +97,11 @@ fn render(scene: &Scene, shaders: &Shaders) -> (Recording, BufProxy) {
         height_in_tiles: 64,
         target_width: 64 * 16,
         target_height: 64 * 16,
-        pathtag_base,
-        pathdata_base,
+        layout: Layout {
+            path_tag_base: pathtag_base,
+            path_data_base: pathdata_base,
+            ..Default::default()
+        },
         ..Default::default()
     };
     let scene_buf = recording.upload("scene", scene);

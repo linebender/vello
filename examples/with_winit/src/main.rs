@@ -172,7 +172,6 @@ async fn run(event_loop: EventLoop<UserEvent>, window: Window, args: Args, mut s
                 base_color: None,
             };
             (example_scene.function)(&mut builder, &mut scene_params);
-            builder.finish();
 
             // If the user specifies a base color in the CLI we use that. Otherwise we use any
             // color specified by the scene. The default is black.
