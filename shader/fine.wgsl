@@ -187,6 +187,9 @@ fn main(
     let xy = vec2(f32(global_id.x * PIXELS_PER_THREAD), f32(global_id.y));
 #ifdef full
     var rgba: array<vec4<f32>, PIXELS_PER_THREAD>;
+    for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
+        rgba[i] = unpack4x8unorm(config.base_color).wzyx;
+    }
     var blend_stack: array<array<u32, PIXELS_PER_THREAD>, BLEND_STACK_SPLIT>;
     var clip_depth = 0u;
     var area: array<f32, PIXELS_PER_THREAD>;

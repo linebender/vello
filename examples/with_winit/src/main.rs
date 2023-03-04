@@ -23,6 +23,7 @@ use vello::SceneFragment;
 use vello::{
     block_on_wgpu,
     kurbo::{Affine, Vec2},
+    peniko::Color,
     util::RenderContext,
     Renderer, Scene, SceneBuilder,
 };
@@ -164,15 +165,29 @@ async fn run(event_loop: EventLoop<UserEvent>, window: Window, args: Args, mut s
                 window.set_title(&format!("Vello demo - {}", example_scene.config.name));
             }
             let mut builder = SceneBuilder::for_fragment(&mut fragment);
-            let mut params = SceneParams {
+            let mut scene_params = SceneParams {
                 time: start.elapsed().as_secs_f64(),
                 text: &mut simple_text,
                 resolution: None,
+                base_color: None,
             };
-            (example_scene.function)(&mut builder, &mut params);
+            (example_scene.function)(&mut builder, &mut scene_params);
+            builder.finish();
+
+            // If the user specifies a base color in the CLI we use that. Otherwise we use any
+            // color specified by the scene. The default is black.
+            let render_params = vello::RenderParams {
+                base_color: args
+                    .args
+                    .base_color
+                    .or(scene_params.base_color)
+                    .unwrap_or(Color::BLACK),
+                width,
+                height,
+            };
             let mut builder = SceneBuilder::for_scene(&mut scene);
             let mut transform = transform;
-            if let Some(resolution) = params.resolution {
+            if let Some(resolution) = scene_params.resolution {
                 let factor = Vec2::new(surface.config.width as f64, surface.config.height as f64);
                 let scale_factor = (factor.x / resolution.x).min(factor.y / resolution.y);
                 transform = transform * Affine::scale(scale_factor);
@@ -191,8 +206,7 @@ async fn run(event_loop: EventLoop<UserEvent>, window: Window, args: Args, mut s
                         &device_handle.queue,
                         &scene,
                         &surface_texture,
-                        width,
-                        height,
+                        &render_params,
                     ),
                 )
                 .expect("failed to render to surface");
@@ -206,8 +220,7 @@ async fn run(event_loop: EventLoop<UserEvent>, window: Window, args: Args, mut s
                     &device_handle.queue,
                     &scene,
                     &surface_texture,
-                    width,
-                    height,
+                    &render_params,
                 )
                 .expect("failed to render to surface");
             surface_texture.present();

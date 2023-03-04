@@ -46,7 +46,11 @@ fn render_scenes(
 ) {
     for scene in &mut scenes {
         let gpu_image = gpu_images.get(&scene.1).unwrap();
-
+        let params = vello::RenderParams {
+            base_color: vello::peniko::Color::AQUAMARINE,
+            width: gpu_image.size.x as u32,
+            height: gpu_image.size.y as u32,
+        };
         renderer
             .0
             .render_to_texture(
@@ -54,8 +58,7 @@ fn render_scenes(
                 &*queue,
                 &scene.0,
                 &gpu_image.texture_view,
-                gpu_image.size.x as u32,
-                gpu_image.size.y as u32,
+                &params,
             )
             .unwrap();
     }

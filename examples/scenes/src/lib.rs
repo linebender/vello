@@ -5,7 +5,7 @@ mod svg;
 mod test_scenes;
 use std::path::PathBuf;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use clap::{Args, Subcommand};
 use download::Download;
 pub use simple_text::SimpleText;
@@ -13,12 +13,13 @@ pub use simple_text::SimpleText;
 pub use svg::{default_scene, scene_from_files};
 pub use test_scenes::test_scenes;
 
-use vello::{kurbo::Vec2, SceneBuilder};
+use vello::{kurbo::Vec2, peniko::Color, SceneBuilder};
 
 pub struct SceneParams<'a> {
     pub time: f64,
     pub text: &'a mut SimpleText,
     pub resolution: Option<Vec2>,
+    pub base_color: Option<vello::peniko::Color>,
 }
 
 pub struct SceneConfig {
@@ -46,6 +47,12 @@ pub struct Arguments {
     #[arg(help_heading = "Scene Selection", global(false))]
     /// The svg files paths to render
     svgs: Option<Vec<PathBuf>>,
+    #[arg(help_heading = "Render Parameters")]
+    #[arg(long, global(false), value_parser = parse_color)]
+    /// The base color applied as the blend background to the rasterizer.
+    /// Format is CSS style hexidecimal (#RGB, #RGBA, #RRGGBB, #RRGGBBAA) or
+    /// an SVG color name such as "aliceblue"
+    pub base_color: Option<Color>,
     #[clap(subcommand)]
     command: Option<Command>,
 }
@@ -87,4 +94,8 @@ impl Command {
             Command::Download(download) => download.action(),
         }
     }
+}
+
+fn parse_color(s: &str) -> Result<Color> {
+    Color::parse(s).ok_or(anyhow!("'{s}' is not a valid color"))
 }
