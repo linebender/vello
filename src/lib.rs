@@ -113,8 +113,9 @@ impl Renderer {
     /// This renders to an intermediate texture and then runs a render pass to blit to the
     /// specified surface texture.
     ///
-    /// The surface is assumed to be of the specified dimensions and have been created with the
-    /// [wgpu::TextureFormat::Bgra8Unorm] format.
+    /// The surface is assumed to be of the specified dimensions and have been configured with
+    /// the same format passed in the constructing [`RendererOptions`]' `surface_format`.
+    /// Panics if `surface_format` was `None`
     pub fn render_to_surface(
         &mut self,
         device: &Device,
@@ -135,13 +136,13 @@ impl Renderer {
             target = TargetTexture::new(device, width, height);
         }
         self.render_to_texture(device, queue, scene, &target.view, &params)?;
+        let blit = self
+            .blit
+            .as_ref()
+            .expect("renderer should have configured surface_format to use on a surface");
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         {
-            let blit = self
-                .blit
-                .as_ref()
-                .expect("renderer should have configured surface_format to use on a surface");
             let surface_view = surface
                 .texture
                 .create_view(&wgpu::TextureViewDescriptor::default());
@@ -232,6 +233,7 @@ impl Renderer {
         Ok(())
     }
 
+    /// See [Self::render_to_surface]
     pub async fn render_to_surface_async(
         &mut self,
         device: &Device,
@@ -253,13 +255,13 @@ impl Renderer {
         }
         self.render_to_texture_async(device, queue, scene, &target.view, params)
             .await?;
+        let blit = self
+            .blit
+            .as_ref()
+            .expect("renderer should have configured surface_format to use on a surface");
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         {
-            let blit = self
-                .blit
-                .as_ref()
-                .expect("renderer should have configured surface_format to use on a surface");
             let surface_view = surface
                 .texture
                 .create_view(&wgpu::TextureViewDescriptor::default());
