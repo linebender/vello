@@ -70,7 +70,10 @@ impl Arguments {
             command.action()?;
             Ok(None)
         } else {
-            // There is no file access on WASM
+            // There is no file access on WASM, and on Android we haven't set up the assets
+            // directory.
+            // TODO: Upload the assets directory on Android
+            // Therefore, only render the `test_scenes` (including one SVG example)
             #[cfg(any(target_arch = "wasm32", target_os = "android"))]
             return Ok(Some(test_scenes()));
             #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
