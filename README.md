@@ -103,7 +103,7 @@ The [`with_winit`](#winit) example supports running on Android, using [cargo apk
 cargo apk run -p with_winit
 ```
 
-> **Info**  
+> **Note**  
 > cargo apk doesn't support running in release mode without configuration. 
 > See [their crates page docs](https://crates.io/crates/cargo-apk) (around `package.metadata.android.signing.<profile>`).
 > 
