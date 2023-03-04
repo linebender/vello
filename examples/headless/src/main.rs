@@ -11,7 +11,7 @@ use vello::{
     block_on_wgpu,
     kurbo::{Affine, Vec2},
     util::RenderContext,
-    Scene, SceneBuilder, SceneFragment,
+    RendererOptions, Scene, SceneBuilder, SceneFragment,
 };
 use wgpu::{
     BufferDescriptor, BufferUsages, CommandEncoderDescriptor, Extent3d, ImageCopyBuffer,
@@ -86,9 +86,13 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
     let device_handle = &mut context.devices[device_id];
     let device = &device_handle.device;
     let queue = &device_handle.queue;
-    // TODO: This surface_format is unused in the headless version
-    let mut renderer = vello::Renderer::new(&device, TextureFormat::Rgba8Unorm)
-        .or_else(|_| bail!("Got non-Send/Sync error from creating renderer"))?;
+    let mut renderer = vello::Renderer::new(
+        &device,
+        &RendererOptions {
+            surface_format: None,
+        },
+    )
+    .or_else(|_| bail!("Got non-Send/Sync error from creating renderer"))?;
     let mut fragment = SceneFragment::new();
     let mut builder = SceneBuilder::for_fragment(&mut fragment);
     let example_scene = &mut scenes.scenes[index];

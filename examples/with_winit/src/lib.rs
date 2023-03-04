@@ -22,12 +22,12 @@ use clap::{CommandFactory, Parser};
 use scenes::{SceneParams, SceneSet, SimpleText};
 use vello::peniko::Color;
 use vello::util::RenderSurface;
-use vello::SceneFragment;
 use vello::{
     kurbo::{Affine, Vec2},
     util::RenderContext,
     Renderer, Scene, SceneBuilder,
 };
+use vello::{RendererOptions, SceneFragment};
 
 use winit::{
     event_loop::{EventLoop, EventLoopBuilder},
@@ -372,8 +372,13 @@ fn run(
                     let id = render_state.surface.dev_id;
                     renderers[id].get_or_insert_with(|| {
                         eprintln!("Creating renderer {id}");
-                        Renderer::new(&render_cx.devices[id].device, render_state.surface.format)
-                            .expect("Could create renderer")
+                        Renderer::new(
+                            &render_cx.devices[id].device,
+                            &RendererOptions {
+                                surface_format: Some(render_state.surface.format),
+                            },
+                        )
+                        .expect("Could create renderer")
                     });
                     Some(render_state)
                 };

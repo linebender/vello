@@ -48,7 +48,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub struct Renderer {
     engine: Engine,
     shaders: FullShaders,
-    blit: BlitPipeline,
+    blit: Option<BlitPipeline>,
     target: Option<TargetTexture>,
 }
 
@@ -63,12 +63,20 @@ pub struct RenderParams {
     pub height: u32,
 }
 
+pub struct RendererOptions {
+    /// The format of the texture used for surfaces with this renderer/device
+    /// If None, the renderer cannot be used with surfaces
+    pub surface_format: Option<TextureFormat>,
+}
+
 impl Renderer {
     /// Creates a new renderer for the specified device.
-    pub fn new(device: &Device, surface_format: TextureFormat) -> Result<Self> {
+    pub fn new(device: &Device, render_options: &RendererOptions) -> Result<Self> {
         let mut engine = Engine::new();
         let shaders = shaders::full_shaders(device, &mut engine)?;
-        let blit = BlitPipeline::new(device, surface_format);
+        let blit = render_options
+            .surface_format
+            .map(|surface_format| BlitPipeline::new(device, surface_format));
         Ok(Self {
             engine,
             shaders,
@@ -130,12 +138,16 @@ impl Renderer {
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         {
+            let blit = self
+                .blit
+                .as_ref()
+                .expect("renderer should have configured surface_format to use on a surface");
             let surface_view = surface
                 .texture
                 .create_view(&wgpu::TextureViewDescriptor::default());
             let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: None,
-                layout: &self.blit.bind_layout,
+                layout: &blit.bind_layout,
                 entries: &[wgpu::BindGroupEntry {
                     binding: 0,
                     resource: wgpu::BindingResource::TextureView(&target.view),
@@ -153,7 +165,7 @@ impl Renderer {
                 })],
                 depth_stencil_attachment: None,
             });
-            render_pass.set_pipeline(&self.blit.pipeline);
+            render_pass.set_pipeline(&blit.pipeline);
             render_pass.set_bind_group(0, &bind_group, &[]);
             render_pass.draw(0..6, 0..1);
         }
@@ -244,12 +256,16 @@ impl Renderer {
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         {
+            let blit = self
+                .blit
+                .as_ref()
+                .expect("renderer should have configured surface_format to use on a surface");
             let surface_view = surface
                 .texture
                 .create_view(&wgpu::TextureViewDescriptor::default());
             let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: None,
-                layout: &self.blit.bind_layout,
+                layout: &blit.bind_layout,
                 entries: &[wgpu::BindGroupEntry {
                     binding: 0,
                     resource: wgpu::BindingResource::TextureView(&target.view),
@@ -267,7 +283,7 @@ impl Renderer {
                 })],
                 depth_stencil_attachment: None,
             });
-            render_pass.set_pipeline(&self.blit.pipeline);
+            render_pass.set_pipeline(&blit.pipeline);
             render_pass.set_bind_group(0, &bind_group, &[]);
             render_pass.draw(0..6, 0..1);
         }
