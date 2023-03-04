@@ -20,6 +20,7 @@ use std::time::Instant;
 use anyhow::Result;
 use clap::{CommandFactory, Parser};
 use scenes::{SceneParams, SceneSet, SimpleText};
+use vello::peniko::Color;
 use vello::util::RenderSurface;
 use vello::SceneFragment;
 use vello::{
@@ -68,6 +69,10 @@ fn run(
     let mut render_cx = render_cx;
     #[cfg(not(target_arch = "wasm32"))]
     let mut render_state = None::<RenderState>;
+    // The design of `RenderContext` forces delayed renderer initialisation to
+    // not work on wasm, as WASM futures effectively must be 'static.
+    // Otherwise, this could work by sending the result to event_loop.proxy
+    // instead of blocking
     #[cfg(target_arch = "wasm32")]
     let mut render_state = {
         renderers.resize_with(render_cx.devices.len(), || None);
@@ -78,6 +83,8 @@ fn run(
         );
         Some(render_state)
     };
+    // Whilst suspended, we drop `render_state`, but need to keep the same window.
+    // If render_state exists, we must store the window in it, to maintain drop order
     #[cfg(not(target_arch = "wasm32"))]
     let mut cached_window = None;
 
@@ -87,6 +94,8 @@ fn run(
     let start = Instant::now();
 
     let mut touch_state = multi_touch::TouchState::new();
+    // navigation_fingers are fingers which are used in the navigation 'zone' at the bottom
+    // of the screen. This ensures that one press on the screen doesn't have multiple actions
     let mut navigation_fingers = HashSet::new();
     let mut transform = Affine::IDENTITY;
     let mut mouse_down = false;
@@ -97,9 +106,7 @@ fn run(
         scene_ix = set_scene;
     }
     let mut prev_scene_ix = scene_ix - 1;
-    #[allow(unused)]
-    let proxy = event_loop.create_proxy();
-    // _event_loop is used on non-wasm platforms
+    // _event_loop is used on non-wasm platforms to create new windows
     event_loop.run(move |event, _event_loop, control_flow| match event {
         Event::WindowEvent {
             ref event,
@@ -116,6 +123,16 @@ fn run(
                         match input.virtual_keycode {
                             Some(VirtualKeyCode::Left) => scene_ix = scene_ix.saturating_sub(1),
                             Some(VirtualKeyCode::Right) => scene_ix = scene_ix.saturating_add(1),
+                            Some(key @ VirtualKeyCode::Q) | Some(key @ VirtualKeyCode::E) => {
+                                if let Some(prior_position) = prior_position {
+                                    let is_clockwise = key == VirtualKeyCode::E;
+                                    let angle = if is_clockwise { -0.05 } else { 0.05 };
+                                    transform = Affine::translate(prior_position)
+                                        * Affine::rotate(angle)
+                                        * Affine::translate(-prior_position)
+                                        * transform;
+                                }
+                            }
                             Some(VirtualKeyCode::Escape) => {
                                 *control_flow = ControlFlow::Exit;
                             }
@@ -126,8 +143,20 @@ fn run(
                 WindowEvent::Touch(touch) => {
                     match touch.phase {
                         TouchPhase::Started => {
-                            if touch.location.y > render_state.surface.config.height as f64 - 400. {
+                            // We reserve the bottom third of the screen for navigation
+                            // This also prevents strange effects whilst using the navigation gestures on Android
+                            // TODO: How do we know what the client area is? Winit seems to just give us the
+                            // full screen
+                            // TODO: Render a display of the navigation regions. We don't do
+                            // this currently because we haven't researched how to determine when we're
+                            // in a touch context (i.e. Windows/Linux/MacOS with a touch screen could
+                            // also be using mouse/keyboard controls)
+                            // Note that winit's rendering is y-down
+                            if touch.location.y
+                                > render_state.surface.config.height as f64 * 2. / 3.
+                            {
                                 navigation_fingers.insert(touch.id);
+                                // The left third of the navigation zone navigates backwards
                                 if touch.location.x < render_state.surface.config.width as f64 / 3.
                                 {
                                     scene_ix = scene_ix.saturating_sub(1);
@@ -139,10 +168,12 @@ fn run(
                             }
                         }
                         TouchPhase::Ended | TouchPhase::Cancelled => {
+                            // We intentionally ignore the result here
                             navigation_fingers.remove(&touch.id);
                         }
                         TouchPhase::Moved => (),
                     }
+                    // See documentation on navigation_fingers
                     if !navigation_fingers.contains(&touch.id) {
                         touch_state.add_event(touch);
                     }
@@ -225,16 +256,31 @@ fn run(
                     .set_title(&format!("Vello demo - {}", example_scene.config.name));
             }
             let mut builder = SceneBuilder::for_fragment(&mut fragment);
-            let mut params = SceneParams {
+            let mut scene_params = SceneParams {
                 time: start.elapsed().as_secs_f64(),
                 text: &mut simple_text,
                 resolution: None,
+                base_color: None,
             };
-            (example_scene.function)(&mut builder, &mut params);
+            (example_scene.function)(&mut builder, &mut scene_params);
             builder.finish();
+
+            // If the user specifies a base color in the CLI we use that. Otherwise we use any
+            // color specified by the scene. The default is black.
+            let render_params = vello::RenderParams {
+                base_color: args
+                    .args
+                    .base_color
+                    .or(scene_params.base_color)
+                    .unwrap_or(Color::BLACK),
+                width,
+                height,
+            };
             let mut builder = SceneBuilder::for_scene(&mut scene);
             let mut transform = transform;
-            if let Some(resolution) = params.resolution {
+            if let Some(resolution) = scene_params.resolution {
+                // Automatically scale the rendering to fill as much of the window as possible
+                // TODO: Apply svg view_box, somehow
                 let factor = Vec2::new(width as f64, height as f64);
                 let scale_factor = (factor.x / resolution.x).min(factor.y / resolution.y);
                 transform = transform * Affine::scale(scale_factor);
@@ -258,8 +304,7 @@ fn run(
                             &device_handle.queue,
                             &scene,
                             &surface_texture,
-                            width,
-                            height,
+                            &render_params,
                         ),
                 )
                 .expect("failed to render to surface");
@@ -275,8 +320,7 @@ fn run(
                     &device_handle.queue,
                     &scene,
                     &surface_texture,
-                    width,
-                    height,
+                    &render_params,
                 )
                 .expect("failed to render to surface");
             surface_texture.present();
@@ -293,7 +337,7 @@ fn run(
                     .as_mut()
                     .unwrap()
                     .reload_shaders(&device_handle.device);
-                // We know that the only async here is actually sync, so we just block
+                // We know that the only async here (`pop_error_scope`) is actually sync, so blocking is fine
                 match pollster::block_on(result) {
                     Ok(_) => eprintln!("Reloading took {:?}", start.elapsed()),
                     Err(e) => eprintln!("Failed to reload shaders because of {e}"),
@@ -303,6 +347,7 @@ fn run(
         Event::Suspended => {
             eprintln!("Suspending");
             #[cfg(not(target_arch = "wasm32"))]
+            // When we suspend, we need to remove the `wgpu` Surface
             if let Some(render_state) = render_state.take() {
                 cached_window = Some(render_state.window);
             }
