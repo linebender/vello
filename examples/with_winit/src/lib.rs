@@ -37,6 +37,7 @@ use winit::{
 #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
 mod hot_reload;
 mod multi_touch;
+mod stats;
 
 #[derive(Parser, Debug)]
 #[command(about, long_about = None, bin_name="cargo run -p with_winit --")]
@@ -97,6 +98,8 @@ fn run(
     let mut fragment = SceneFragment::new();
     let mut simple_text = SimpleText::new();
     let mut images = ImageCache::new();
+    let mut stats = stats::Stats::new();
+    let mut stats_toggle = false;
     let start = Instant::now();
 
     let mut touch_state = multi_touch::TouchState::new();
@@ -141,6 +144,9 @@ fn run(
                             }
                             Some(VirtualKeyCode::Space) => {
                                 transform = Affine::IDENTITY;
+                            }
+                            Some(VirtualKeyCode::S) => {
+                                stats_toggle = !stats_toggle;
                             }
                             Some(VirtualKeyCode::Escape) => {
                                 *control_flow = ControlFlow::Exit;
@@ -253,6 +259,8 @@ fn run(
             let width = render_state.surface.config.width;
             let height = render_state.surface.config.height;
             let device_handle = &render_cx.devices[render_state.surface.dev_id];
+            let snapshot = stats.snapshot();
+            let _stats_frame = stats.frame_scope();
 
             // Allow looping forever
             scene_ix = scene_ix.rem_euclid(scenes.scenes.len() as i32);
@@ -296,6 +304,9 @@ fn run(
                 transform = transform * Affine::scale(scale_factor);
             }
             builder.append(&fragment, Some(transform));
+            if stats_toggle {
+                snapshot.draw_layer(&mut builder, &mut scene_params.text, width as f64);
+            }
             let surface_texture = render_state
                 .surface
                 .surface
