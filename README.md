@@ -103,6 +103,19 @@ The [`with_winit`](#winit) example supports running on Android, using [cargo apk
 cargo apk run -p with_winit
 ```
 
+> **Info**  
+> cargo apk doesn't support running in release mode without configuration. 
+> See [their crates page docs](https://crates.io/crates/cargo-apk) (around `package.metadata.android.signing.<profile>`).
+> 
+> See also (cargo-apk#16)[https://github.com/rust-mobile/cargo-apk/issues/16].
+> To run in release mode, you must add the following to `examples/with_winit/Cargo.toml` (changing `$HOME` to your home directory):
+
+```
+[package.metadata.android.signing.release]
+path = "$HOME/.android/debug.keystore"
+keystore_password = "android"
+```
+
 ## Community
 
 [![Xi Zulip](https://img.shields.io/badge/Xi%20Zulip-%23gpu-blue?logo=Zulip)](https://xi.zulipchat.com/#narrow/stream/197075-gpu)
