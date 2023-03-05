@@ -1,6 +1,5 @@
 pub mod download;
 mod simple_text;
-#[cfg(not(target_arch = "wasm32"))]
 mod svg;
 mod test_scenes;
 use std::path::PathBuf;
@@ -9,7 +8,6 @@ use anyhow::{anyhow, Result};
 use clap::{Args, Subcommand};
 use download::Download;
 pub use simple_text::SimpleText;
-#[cfg(not(target_arch = "wasm32"))]
 pub use svg::{default_scene, scene_from_files};
 pub use test_scenes::test_scenes;
 
@@ -66,16 +64,19 @@ enum Command {
 impl Arguments {
     pub fn select_scene_set(
         &self,
-        command: impl FnOnce() -> clap::Command,
+        #[allow(unused)] command: impl FnOnce() -> clap::Command,
     ) -> Result<Option<SceneSet>> {
         if let Some(command) = &self.command {
             command.action()?;
             Ok(None)
         } else {
-            // There is no file access on WASM
-            #[cfg(target_arch = "wasm32")]
+            // There is no file access on WASM, and on Android we haven't set up the assets
+            // directory.
+            // TODO: Upload the assets directory on Android
+            // Therefore, only render the `test_scenes` (including one SVG example)
+            #[cfg(any(target_arch = "wasm32", target_os = "android"))]
             return Ok(Some(test_scenes()));
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
             if self.test_scenes {
                 Ok(test_scenes())
             } else if let Some(svgs) = &self.svgs {

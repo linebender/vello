@@ -1,7 +1,7 @@
 use bevy::render::RenderSet;
 use vello::kurbo::{Affine, Point, Rect};
 use vello::peniko::{Color, Fill, Gradient, Stroke};
-use vello::{Renderer, Scene, SceneBuilder, SceneFragment};
+use vello::{Renderer, RendererOptions, Scene, SceneBuilder, SceneFragment};
 
 use bevy::{
     prelude::*,
@@ -22,7 +22,15 @@ struct VelloRenderer(Renderer);
 impl FromWorld for VelloRenderer {
     fn from_world(world: &mut World) -> Self {
         let device = world.get_resource::<RenderDevice>().unwrap();
-        VelloRenderer(Renderer::new(device.wgpu_device()).unwrap())
+        VelloRenderer(
+            Renderer::new(
+                device.wgpu_device(),
+                &RendererOptions {
+                    surface_format: None,
+                },
+            )
+            .unwrap(),
+        )
     }
 }
 

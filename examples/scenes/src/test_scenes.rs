@@ -34,7 +34,7 @@ pub fn test_scenes() -> SceneSet {
         scene!(labyrinth),
         scene!(base_color_test: animated),
     ];
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(any(target_arch = "wasm32", target_os = "android"))]
     scenes.push(ExampleScene {
         config: SceneConfig {
             animated: false,
@@ -246,28 +246,13 @@ fn blend_grid(sb: &mut SceneBuilder, _: &mut SceneParams) {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", target_os = "android"))]
 fn included_tiger() -> impl FnMut(&mut SceneBuilder, &mut SceneParams) {
-    use vello::kurbo::Vec2;
-    use vello_svg::usvg;
-    let mut cached_scene = None;
-    move |builder, params| {
-        let (scene_frag, resolution) = cached_scene.get_or_insert_with(|| {
-            let contents = include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../assets/Ghostscript_Tiger.svg"
-            ));
-            let svg = usvg::Tree::from_str(&contents, &usvg::Options::default())
-                .expect("failed to parse svg file");
-            let mut new_scene = SceneFragment::new();
-            let mut builder = SceneBuilder::for_fragment(&mut new_scene);
-            vello_svg::render_tree(&mut builder, &svg);
-            let resolution = Vec2::new(svg.size.width(), svg.size.height());
-            (new_scene, resolution)
-        });
-        builder.append(&scene_frag, None);
-        params.resolution = Some(*resolution);
-    }
+    let contents = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../assets/Ghostscript_Tiger.svg"
+    ));
+    crate::svg::svg_function_of("Ghostscript Tiger".to_string(), move || contents)
 }
 
 // Support functions
