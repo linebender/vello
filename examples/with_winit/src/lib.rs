@@ -305,7 +305,12 @@ fn run(
             }
             builder.append(&fragment, Some(transform));
             if stats_toggle {
-                snapshot.draw_layer(&mut builder, &mut scene_params.text, width as f64);
+                snapshot.draw_layer(
+                    &mut builder,
+                    &mut scene_params.text,
+                    width as f64,
+                    height as f64,
+                );
             }
             let surface_texture = render_state
                 .surface

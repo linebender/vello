@@ -33,45 +33,58 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
-    pub fn draw_layer(&self, sb: &mut SceneBuilder, text: &mut SimpleText, width: f64) {
-        let x_offset = width - 450.;
+    pub fn draw_layer(
+        &self,
+        sb: &mut SceneBuilder,
+        text: &mut SimpleText,
+        viewport_width: f64,
+        viewport_height: f64,
+    ) {
+        let width = (viewport_width * 0.4).max(200.).min(400.);
+        let height = width * 0.3;
+        let x_offset = viewport_width - width;
+        let y_offset = viewport_height - height;
+        let offset = Affine::translate((x_offset, y_offset));
+        let text_height = height * 0.2;
+        let left_margin = width * 0.03;
+        let text_size = (text_height * 0.9) as f32;
         sb.fill(
             Fill::NonZero,
-            Affine::IDENTITY,
+            offset,
             &Brush::Solid(Color::rgba8(0, 0, 0, 200)),
             None,
-            &Rect::new(x_offset, 0., width, 115.),
+            &Rect::new(0., 0., width, height),
         );
         text.add(
             sb,
             None,
-            25.,
+            text_size,
             Some(&Brush::Solid(Color::WHITE)),
-            Affine::translate((x_offset + 15., 30.)),
+            offset * Affine::translate((left_margin, text_height)),
             &format!("Frame Time: {:.2} ms", self.frame_time_ms),
         );
         text.add(
             sb,
             None,
-            25.,
+            text_size,
             Some(&Brush::Solid(Color::WHITE)),
-            Affine::translate((x_offset + 15., 60.)),
+            offset * Affine::translate((left_margin, 2. * text_height)),
             &format!("Frame Time (min): {:.2} ms", self.frame_time_min_ms),
         );
         text.add(
             sb,
             None,
-            25.,
+            text_size,
             Some(&Brush::Solid(Color::WHITE)),
-            Affine::translate((x_offset + 15., 90.)),
+            offset * Affine::translate((left_margin, 3. * text_height)),
             &format!("Frame Time (max): {:.2} ms", self.frame_time_max_ms),
         );
         text.add(
             sb,
             None,
-            25.,
+            text_size,
             Some(&Brush::Solid(Color::WHITE)),
-            Affine::translate((x_offset + 300., 30.)),
+            offset * Affine::translate((width * 0.67, text_height)),
             &format!("FPS: {:.2}", self.fps),
         );
     }
