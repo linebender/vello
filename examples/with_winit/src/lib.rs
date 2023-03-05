@@ -99,7 +99,7 @@ fn run(
     let mut simple_text = SimpleText::new();
     let mut images = ImageCache::new();
     let mut stats = stats::Stats::new();
-    let mut stats_toggle = false;
+    let mut stats_toggle = true;
     let start = Instant::now();
 
     let mut touch_state = multi_touch::TouchState::new();

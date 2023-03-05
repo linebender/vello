@@ -84,6 +84,14 @@ impl Snapshot {
             None,
             text_size,
             Some(&Brush::Solid(Color::WHITE)),
+            offset * Affine::translate((left_margin, 4. * text_height)),
+            &format!("Resolution: {viewport_width}x{viewport_height}"),
+        );
+        text.add(
+            sb,
+            None,
+            text_size,
+            Some(&Brush::Solid(Color::WHITE)),
             offset * Affine::translate((width * 0.67, text_height)),
             &format!("FPS: {:.2}", self.fps),
         );
