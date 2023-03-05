@@ -5,7 +5,6 @@ use bytemuck::{Pod, Zeroable};
 use crate::{
     encoding::Encoding,
     engine::{BufProxy, ImageFormat, ImageProxy, Recording, ResourceProxy},
-    peniko::Color,
     shaders::{self, FullShaders, Shaders},
     RenderParams, Scene,
 };
