@@ -15,9 +15,9 @@
 // Also licensed under MIT license, at your choice.
 
 use peniko::kurbo::{Affine, Rect, Shape};
-use peniko::{BlendMode, BrushRef, Fill, Stroke};
+use peniko::{BlendMode, BrushRef, Color, Fill, Font, Stroke, StyleRef};
 
-use crate::encoding::{Encoding, Transform};
+use crate::encoding::{Encoding, Glyph, GlyphRun, Patch, Transform};
 
 /// Encoded definition of a scene and associated resources.
 #[derive(Default)]
@@ -67,7 +67,6 @@ impl SceneFragment {
 /// Builder for constructing a scene or scene fragment.
 pub struct SceneBuilder<'a> {
     scene: &'a mut Encoding,
-    layer_depth: u32,
 }
 
 impl<'a> SceneBuilder<'a> {
@@ -86,10 +85,7 @@ impl<'a> SceneBuilder<'a> {
     /// Creates a new builder for constructing a scene.
     fn new(scene: &'a mut Encoding, is_fragment: bool) -> Self {
         scene.reset(is_fragment);
-        Self {
-            scene,
-            layer_depth: 0,
-        }
+        Self { scene }
     }
 
     /// Pushes a new layer bound by the specifed shape and composed with
@@ -112,15 +108,11 @@ impl<'a> SceneBuilder<'a> {
                 .encode_shape(&Rect::new(0.0, 0.0, 0.0, 0.0), true);
         }
         self.scene.encode_begin_clip(blend, alpha.clamp(0.0, 1.0));
-        self.layer_depth += 1;
     }
 
     /// Pops the current layer.
     pub fn pop_layer(&mut self) {
-        if self.layer_depth > 0 {
-            self.scene.encode_end_clip();
-            self.layer_depth -= 1;
-        }
+        self.scene.encode_end_clip();
     }
 
     /// Fills a shape using the specified style and brush.
@@ -176,6 +168,11 @@ impl<'a> SceneBuilder<'a> {
         }
     }
 
+    /// Returns a builder for encoding a glyph run.
+    pub fn draw_glyphs(&mut self, font: &Font) -> DrawGlyphs {
+        DrawGlyphs::new(self.scene, font)
+    }
+
     /// Appends a fragment to the scene.
     pub fn append(&mut self, fragment: &SceneFragment, transform: Option<Affine>) {
         self.scene.append(
@@ -183,11 +180,119 @@ impl<'a> SceneBuilder<'a> {
             &transform.map(|xform| Transform::from_kurbo(&xform)),
         );
     }
+}
 
-    /// Completes construction and finalizes the underlying scene.
-    pub fn finish(self) {
-        for _ in 0..self.layer_depth {
-            self.scene.encode_end_clip();
+/// Builder for encoding a glyph run.
+pub struct DrawGlyphs<'a> {
+    encoding: &'a mut Encoding,
+    run: GlyphRun,
+    brush: BrushRef<'a>,
+    brush_alpha: f32,
+}
+
+impl<'a> DrawGlyphs<'a> {
+    /// Creates a new builder for encoding a glyph run for the specified
+    /// encoding with the given font.
+    pub fn new(encoding: &'a mut Encoding, font: &Font) -> Self {
+        let coords_start = encoding.normalized_coords.len();
+        let glyphs_start = encoding.glyphs.len();
+        let stream_offsets = encoding.stream_offsets();
+        Self {
+            encoding,
+            run: GlyphRun {
+                font: font.clone(),
+                transform: Transform::IDENTITY,
+                glyph_transform: None,
+                font_size: 16.0,
+                hint: false,
+                normalized_coords: coords_start..coords_start,
+                style: Fill::NonZero.into(),
+                glyphs: glyphs_start..glyphs_start,
+                stream_offsets,
+            },
+            brush: Color::BLACK.into(),
+            brush_alpha: 1.0,
         }
+    }
+
+    /// Sets the global transform. This is applied to all glyphs after the offset
+    /// translation.
+    ///
+    /// The default value is the identity matrix.
+    pub fn transform(mut self, transform: Affine) -> Self {
+        self.run.transform = Transform::from_kurbo(&transform);
+        self
+    }
+
+    /// Sets the per-glyph transform. This is applied to all glyphs prior to
+    /// offset translation. This is common used for applying a shear to simulate
+    /// an oblique font.
+    ///
+    /// The default value is `None`.
+    pub fn glyph_transform(mut self, transform: Option<Affine>) -> Self {
+        self.run.glyph_transform = transform.map(|xform| Transform::from_kurbo(&xform));
+        self
+    }
+
+    /// Sets the font size in pixels per em units.
+    ///
+    /// The default value is 16.0.
+    pub fn font_size(mut self, size: f32) -> Self {
+        self.run.font_size = size;
+        self
+    }
+
+    /// Sets whether to enable hinting.
+    ///
+    /// The default value is `false`.
+    pub fn hint(mut self, hint: bool) -> Self {
+        self.run.hint = hint;
+        self
+    }
+
+    /// Sets the normalized design space coordinates for a variable font instance.
+    pub fn normalized_coords(mut self, coords: &[i16]) -> Self {
+        self.encoding
+            .normalized_coords
+            .truncate(self.run.normalized_coords.start);
+        self.encoding.normalized_coords.extend_from_slice(coords);
+        self.run.normalized_coords.end = self.encoding.normalized_coords.len();
+        self
+    }
+
+    /// Sets the brush.
+    ///
+    /// The default value is solid black.
+    pub fn brush(mut self, brush: impl Into<BrushRef<'a>>) -> Self {
+        self.brush = brush.into();
+        self
+    }
+
+    /// Sets an additional alpha multiplier for the brush.
+    ///
+    /// The default value is 1.0.
+    pub fn brush_alpha(mut self, alpha: f32) -> Self {
+        self.brush_alpha = alpha;
+        self
+    }
+
+    /// Encodes a fill or stroke for for the given sequence of glyphs and consumes
+    /// the builder.
+    ///
+    /// The `style` parameter accepts either `Fill` or `&Stroke` types.
+    pub fn draw(mut self, style: impl Into<StyleRef<'a>>, glyphs: impl Iterator<Item = Glyph>) {
+        self.run.style = style.into().to_owned();
+        self.encoding.glyphs.extend(glyphs);
+        self.run.glyphs.end = self.encoding.glyphs.len();
+        if self.run.glyphs.is_empty() {
+            self.encoding
+                .normalized_coords
+                .truncate(self.run.normalized_coords.start);
+            return;
+        }
+        let index = self.encoding.glyph_runs.len();
+        self.encoding.glyph_runs.push(self.run);
+        self.encoding.patches.push(Patch::GlyphRun { index });
+        self.encoding.encode_brush(self.brush, self.brush_alpha);
     }
 }

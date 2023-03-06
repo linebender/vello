@@ -20,7 +20,7 @@ use bytemuck::{Pod, Zeroable};
 use peniko::kurbo;
 
 /// Affine transformation matrix.
-#[derive(Copy, Clone, PartialEq, Pod, Zeroable)]
+#[derive(Copy, Clone, Debug, PartialEq, Pod, Zeroable)]
 #[repr(C)]
 pub struct Transform {
     /// 2x2 matrix.

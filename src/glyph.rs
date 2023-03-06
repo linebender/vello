@@ -18,9 +18,10 @@
 
 pub use moscato::pinot;
 
+use crate::encoding::Encoding;
 use crate::scene::{SceneBuilder, SceneFragment};
 use peniko::kurbo::{Affine, Rect};
-use peniko::{Brush, Color, Fill, Mix};
+use peniko::{Brush, Color, Fill, Mix, Style};
 
 use moscato::{Context, Scaler};
 use pinot::{types::Tag, FontRef};
@@ -30,6 +31,12 @@ use smallvec::SmallVec;
 /// General context for creating scene fragments for glyph outlines.
 pub struct GlyphContext {
     ctx: Context,
+}
+
+impl Default for GlyphContext {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl GlyphContext {
@@ -94,8 +101,33 @@ impl<'a> GlyphProvider<'a> {
             None,
             &convert_path(path.elements()),
         );
-        builder.finish();
         Some(fragment)
+    }
+
+    pub fn encode_glyph(&mut self, gid: u16, style: &Style, encoding: &mut Encoding) -> Option<()> {
+        let glyph = self.scaler.glyph(gid)?;
+        let path = glyph.path(0)?;
+        match style {
+            Style::Fill(Fill::NonZero) => encoding.encode_linewidth(-1.0),
+            Style::Fill(Fill::EvenOdd) => encoding.encode_linewidth(-2.0),
+            Style::Stroke(stroke) => encoding.encode_linewidth(stroke.width),
+        }
+        let mut path_encoder = encoding.encode_path(matches!(style, Style::Fill(_)));
+        for el in path.elements() {
+            use moscato::Element::*;
+            match el {
+                MoveTo(p) => path_encoder.move_to(p.x, p.y),
+                LineTo(p) => path_encoder.line_to(p.x, p.y),
+                QuadTo(c, p) => path_encoder.quad_to(c.x, c.y, p.x, p.y),
+                CurveTo(c0, c1, p) => path_encoder.cubic_to(c0.x, c0.y, c1.x, c1.y, p.x, p.y),
+                Close => path_encoder.close(),
+            }
+        }
+        if path_encoder.finish(false) != 0 {
+            Some(())
+        } else {
+            None
+        }
     }
 
     /// Returns a scene fragment containing the commands and resources to
@@ -188,7 +220,6 @@ impl<'a> GlyphProvider<'a> {
                 }
             }
         }
-        builder.finish();
         Some(fragment)
     }
 }

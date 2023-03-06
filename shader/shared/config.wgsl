@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
 
+// This must be kept in sync with the struct in src/encoding/resolve.rs
 struct Config {
     width_in_tiles: u32,
     height_in_tiles: u32,

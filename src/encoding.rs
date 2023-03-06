@@ -18,19 +18,22 @@
 
 mod draw;
 mod encoding;
+mod glyph;
+mod glyph_cache;
 mod math;
 mod monoid;
-mod packed;
 mod path;
-
-pub mod resource;
+mod ramp_cache;
+mod resolve;
 
 pub use draw::{
     DrawBeginClip, DrawColor, DrawImage, DrawLinearGradient, DrawMonoid, DrawRadialGradient,
     DrawTag,
 };
-pub use encoding::Encoding;
+pub use encoding::{Encoding, StreamOffsets};
+pub use glyph::{Glyph, GlyphRun};
 pub use math::Transform;
 pub use monoid::Monoid;
-pub use packed::{Config, Layout, PackedEncoding};
 pub use path::{PathBbox, PathEncoder, PathMonoid, PathSegment, PathSegmentType, PathTag};
+pub use ramp_cache::Ramps;
+pub use resolve::{Config, Layout, Patch, Resolver};

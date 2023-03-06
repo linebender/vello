@@ -30,7 +30,7 @@ pub mod glyph;
 pub mod util;
 
 use render::Render;
-pub use scene::{Scene, SceneBuilder, SceneFragment};
+pub use scene::{DrawGlyphs, Scene, SceneBuilder, SceneFragment};
 pub use util::block_on_wgpu;
 
 use engine::{Engine, ExternalResource, Recording};

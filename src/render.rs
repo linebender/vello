@@ -3,7 +3,7 @@
 use bytemuck::{Pod, Zeroable};
 
 use crate::{
-    encoding::Encoding,
+    encoding::{Config, Encoding, Layout},
     engine::{BufProxy, ImageFormat, ImageProxy, Recording, ResourceProxy},
     shaders::{self, FullShaders, Shaders},
     RenderParams, Scene,
@@ -42,7 +42,6 @@ const TAG_MONOID_FULL_SIZE: u64 = 20;
 const PATH_BBOX_SIZE: u64 = 24;
 const CUBIC_SIZE: u64 = 48;
 const DRAWMONOID_SIZE: u64 = 16;
-const MAX_DRAWINFO_SIZE: u64 = 44;
 const CLIP_BIC_SIZE: u64 = 8;
 const CLIP_EL_SIZE: u64 = 32;
 const CLIP_INP_SIZE: u64 = 8;
@@ -53,28 +52,6 @@ const BUMP_SIZE: u64 = std::mem::size_of::<BumpAllocators>() as u64;
 const BIN_HEADER_SIZE: u64 = 8;
 const TILE_SIZE: u64 = 8;
 const SEGMENT_SIZE: u64 = 24;
-
-// This data structure must be kept in sync with encoding::Config and the definition in
-// shaders/shared/config.wgsl.
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
-struct Config {
-    width_in_tiles: u32,
-    height_in_tiles: u32,
-    target_width: u32,
-    target_height: u32,
-    base_color: u32,
-    n_drawobj: u32,
-    n_path: u32,
-    n_clip: u32,
-    bin_data_start: u32,
-    pathtag_base: u32,
-    pathdata_base: u32,
-    drawtag_base: u32,
-    drawdata_base: u32,
-    transform_base: u32,
-    linewidth_base: u32,
-}
 
 fn size_to_words(byte_size: usize) -> u32 {
     (byte_size / std::mem::size_of::<u32>()) as u32
@@ -120,8 +97,11 @@ fn render(scene: &Scene, shaders: &Shaders) -> (Recording, BufProxy) {
         height_in_tiles: 64,
         target_width: 64 * 16,
         target_height: 64 * 16,
-        pathtag_base,
-        pathdata_base,
+        layout: Layout {
+            path_tag_base: pathtag_base,
+            path_data_base: pathdata_base,
+            ..Default::default()
+        },
         ..Default::default()
     };
     let scene_buf = recording.upload("scene", scene);
@@ -232,34 +212,33 @@ impl Render {
         params: &RenderParams,
         robust: bool,
     ) -> Recording {
-        use crate::encoding::{resource::ResourceCache, PackedEncoding};
+        use crate::encoding::Resolver;
         let mut recording = Recording::default();
-        let mut resources = ResourceCache::new();
-        let mut packed = PackedEncoding::default();
-        packed.pack(encoding, &mut resources);
-        let (ramp_data, ramps_width, ramps_height) = resources.ramps(packed.resources).unwrap();
-        let gradient_image = if encoding.patches.is_empty() {
+        let mut resolver = Resolver::new();
+        let mut packed = vec![];
+        let (layout, ramps) = resolver.resolve(encoding, &mut packed);
+        let gradient_image = if ramps.height == 0 {
             ResourceProxy::new_image(1, 1, ImageFormat::Rgba8)
         } else {
-            let data: &[u8] = bytemuck::cast_slice(ramp_data);
+            let data: &[u8] = bytemuck::cast_slice(ramps.data);
             ResourceProxy::Image(recording.upload_image(
-                ramps_width,
-                ramps_height,
+                ramps.width,
+                ramps.height,
                 ImageFormat::Rgba8,
                 data,
             ))
         };
         // TODO: calculate for real when we do rectangles
-        let n_pathtag = encoding.path_tags.len();
-        let pathtag_padded = align_up(encoding.path_tags.len(), 4 * shaders::PATHTAG_REDUCE_WG);
-        let n_paths = encoding.n_paths;
-        let n_drawobj = n_paths;
-        let n_clip = encoding.n_clips;
+        let n_pathtag = layout.path_tags(&packed).len();
+        let pathtag_padded = align_up(n_pathtag, 4 * shaders::PATHTAG_REDUCE_WG);
+        let n_paths = layout.n_paths;
+        let n_drawobj = layout.n_paths;
+        let n_clip = layout.n_clips;
 
         let new_width = next_multiple_of(params.width, 16);
         let new_height = next_multiple_of(params.height, 16);
 
-        let info_size = packed.layout.bin_data_start;
+        let info_size = layout.bin_data_start;
         let config = crate::encoding::Config {
             width_in_tiles: new_width / 16,
             height_in_tiles: new_height / 16,
@@ -270,10 +249,10 @@ impl Render {
             tiles_size: self.tiles_size,
             segments_size: self.segments_size,
             ptcl_size: self.ptcl_size,
-            layout: packed.layout,
+            layout: layout,
         };
         // println!("{:?}", config);
-        let scene_buf = ResourceProxy::Buf(recording.upload("scene", packed.data));
+        let scene_buf = ResourceProxy::Buf(recording.upload("scene", packed));
         let config_buf =
             ResourceProxy::Buf(recording.upload_uniform("config", bytemuck::bytes_of(&config)));
         let info_bin_data_buf = ResourceProxy::new_buf(
@@ -374,8 +353,7 @@ impl Render {
         );
         let draw_monoid_buf =
             ResourceProxy::new_buf(n_drawobj as u64 * DRAWMONOID_SIZE, "draw_monoid_buf");
-        let clip_inp_buf =
-            ResourceProxy::new_buf(encoding.n_clips as u64 * CLIP_INP_SIZE, "clip_inp_buf");
+        let clip_inp_buf = ResourceProxy::new_buf(n_clip as u64 * CLIP_INP_SIZE, "clip_inp_buf");
         recording.dispatch(
             shaders.draw_leaf,
             (drawobj_wgs, 1, 1),
@@ -390,8 +368,7 @@ impl Render {
             ],
         );
         recording.free_resource(draw_reduced_buf);
-        let clip_el_buf =
-            ResourceProxy::new_buf(encoding.n_clips as u64 * CLIP_EL_SIZE, "clip_el_buf");
+        let clip_el_buf = ResourceProxy::new_buf(n_clip as u64 * CLIP_EL_SIZE, "clip_el_buf");
         let clip_bic_buf = ResourceProxy::new_buf(
             (n_clip / shaders::CLIP_REDUCE_WG) as u64 * CLIP_BIC_SIZE,
             "clip_bic_buf",

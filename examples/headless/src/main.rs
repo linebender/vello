@@ -104,7 +104,6 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
         base_color: None,
     };
     (example_scene.function)(&mut builder, &mut scene_params);
-    builder.finish();
     let mut transform = Affine::IDENTITY;
     let (width, height) = if let Some(resolution) = scene_params.resolution {
         let ratio = resolution.x / resolution.y;
@@ -144,7 +143,6 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
     let mut scene = Scene::new();
     let mut builder = SceneBuilder::for_scene(&mut scene);
     builder.append(&fragment, Some(transform));
-    builder.finish();
     let size = Extent3d {
         width,
         height,
