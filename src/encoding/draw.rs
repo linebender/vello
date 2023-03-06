@@ -15,7 +15,7 @@
 // Also licensed under MIT license, at your choice.
 
 use bytemuck::{Pod, Zeroable};
-use peniko::{BlendMode, Color, Fill, Stroke};
+use peniko::{BlendMode, Color};
 
 use super::Monoid;
 

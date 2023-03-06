@@ -268,7 +268,6 @@ fn run(
                 base_color: None,
             };
             (example_scene.function)(&mut builder, &mut scene_params);
-            builder.finish();
 
             // If the user specifies a base color in the CLI we use that. Otherwise we use any
             // color specified by the scene. The default is black.
@@ -291,7 +290,6 @@ fn run(
                 transform = transform * Affine::scale(scale_factor);
             }
             builder.append(&fragment, Some(transform));
-            builder.finish();
             let surface_texture = render_state
                 .surface
                 .surface

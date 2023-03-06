@@ -19,7 +19,6 @@ use super::{
     PathEncoder, PathTag, Transform,
 };
 
-use bytemuck::{Pod, Zeroable};
 use peniko::{kurbo::Shape, BlendMode, BrushRef, ColorStop, Extend, GradientKind};
 
 /// Encoded data streams for a scene.
