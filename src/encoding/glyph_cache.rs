@@ -48,21 +48,24 @@ impl GlyphCache {
         style: &Style,
         scaler: &mut GlyphProvider,
     ) -> Option<CachedRange> {
+        let encoding_cache = &mut self.encoding;
+        let mut encode_glyph = || {
+            let start = encoding_cache.stream_offsets();
+            scaler.encode_glyph(key.glyph_id as u16, style, encoding_cache)?;
+            let end = encoding_cache.stream_offsets();
+            Some(CachedRange { start, end })
+        };
         // For now, only cache non-zero filled glyphs so we don't need to keep style
         // as part of the key.
-        let is_nz_fill = matches!(style, Style::Fill(Fill::NonZero));
-        if is_nz_fill {
-            if let Some(range) = self.glyphs.get(&key) {
-                return Some(*range);
+        let range = if matches!(style, Style::Fill(Fill::NonZero)) {
+            use std::collections::hash_map::Entry;
+            match self.glyphs.entry(key) {
+                Entry::Occupied(entry) => *entry.get(),
+                Entry::Vacant(entry) => *entry.insert(encode_glyph()?),
             }
-        }
-        let start = self.encoding.stream_offsets();
-        scaler.encode_glyph(key.glyph_id as u16, style, &mut self.encoding)?;
-        let end = self.encoding.stream_offsets();
-        let range = CachedRange { start, end };
-        if is_nz_fill {
-            self.glyphs.insert(key, range);
-        }
+        } else {
+            encode_glyph()?
+        };
         Some(range)
     }
 }

@@ -245,8 +245,8 @@ impl<'a> DrawGlyphs<'a> {
     /// Sets whether to enable hinting.
     ///
     /// The default value is `false`.
-    pub fn hint(mut self, yes: bool) -> Self {
-        self.run.hint = yes;
+    pub fn hint(mut self, hint: bool) -> Self {
+        self.run.hint = hint;
         self
     }
 

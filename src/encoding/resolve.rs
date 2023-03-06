@@ -74,7 +74,7 @@ impl Layout {
     }
 
     /// Returns the path data stream.
-    pub fn path_data<'a>(&self, data: &'a [u8]) -> &'a [[f32; 2]] {
+    pub fn path_data<'a>(&self, data: &'a [u8]) -> &'a [u8] {
         let start = self.path_data_base as usize * 4;
         let end = self.draw_tag_base as usize * 4;
         bytemuck::cast_slice(&data[start..end])
