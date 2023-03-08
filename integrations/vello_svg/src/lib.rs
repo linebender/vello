@@ -65,6 +65,14 @@ pub fn render_tree_with<F: FnMut(&mut SceneBuilder, &usvg::Node) -> Result<(), E
 ) -> Result<(), E> {
     for elt in svg.root.descendants() {
         let transform = elt.abs_transform();
+        let transform = Affine::new([
+            transform.a,
+            transform.b,
+            transform.c,
+            transform.d,
+            transform.e,
+            transform.f,
+        ]);
         match &*elt.borrow() {
             usvg::NodeKind::Group(_) => {}
             usvg::NodeKind::Path(path) => {
@@ -72,7 +80,7 @@ pub fn render_tree_with<F: FnMut(&mut SceneBuilder, &usvg::Node) -> Result<(), E
                 // The semantics of SVG paths don't line up with `BezPath`; we must manually track initial points
                 let mut just_closed = false;
                 let mut most_recent_initial = (0., 0.);
-                for elt in usvg::TransformedPath::new(&path.data, transform) {
+                for elt in path.data.segments() {
                     match elt {
                         usvg::PathSegment::MoveTo { x, y } => {
                             if std::mem::take(&mut just_closed) {
@@ -112,7 +120,7 @@ pub fn render_tree_with<F: FnMut(&mut SceneBuilder, &usvg::Node) -> Result<(), E
                 if let Some(fill) = &path.fill {
                     if let Some(brush) = paint_to_brush(&fill.paint, fill.opacity) {
                         // FIXME: Set the fill rule
-                        sb.fill(Fill::NonZero, Affine::IDENTITY, &brush, None, &local_path);
+                        sb.fill(Fill::NonZero, transform, &brush, None, &local_path);
                     } else {
                         on_err(sb, &elt)?;
                     }
@@ -122,7 +130,7 @@ pub fn render_tree_with<F: FnMut(&mut SceneBuilder, &usvg::Node) -> Result<(), E
                         // FIXME: handle stroke options such as linecap, linejoin, etc.
                         sb.stroke(
                             &Stroke::new(stroke.width.get() as f32),
-                            Affine::IDENTITY,
+                            transform,
                             &brush,
                             None,
                             &local_path,
