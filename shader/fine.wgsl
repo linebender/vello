@@ -163,6 +163,8 @@ var<workgroup> sh_count: array<u32, WG_SIZE>;
 var<workgroup> sh_winding: array<atomic<u32>, 32>;
 // Same packing, one group of 8 per pixel
 var<workgroup> sh_samples: array<atomic<u32>, 256>;
+// Same packing, accumulating winding numbers for vertical edge crossings
+var<workgroup> sh_winding_y: array<atomic<u32>, 2>;
 
 // number of integer cells spanned by interval defined by a, b
 fn span(a: f32, b: f32) -> u32 {
@@ -176,6 +178,9 @@ fn fill_path_ms(seg_data: u32, n_segs: u32, backdrop: i32, wg_id: vec2<u32>, loc
     let tile_origin = vec2(f32(wg_id.x) * f32(TILE_HEIGHT), f32(wg_id.y) * f32(TILE_WIDTH));
     let th_ix = local_id.y * (TILE_WIDTH / PIXELS_PER_THREAD) + local_id.x;
     if th_ix < 32u {
+        if th_ix < 2u {
+            atomicStore(&sh_winding_y[th_ix], 0x88888888u);
+        }
         atomicStore(&sh_winding[th_ix], 0x88888888u);
     }
     for (var i = 0u; i < PIXELS_PER_THREAD; i++) {
@@ -204,8 +209,9 @@ fn fill_path_ms(seg_data: u32, n_segs: u32, backdrop: i32, wg_id: vec2<u32>, loc
             let delta = select(-1, 1, xy1_in.x <= xy0_in.x);
             // TODO: should be separate prefix sum rather than loop, but trying to
             // get correctness right first.
-            for (var y = u32(ceil(segment.y_edge - tile_origin.y)); y < TILE_HEIGHT; y++) {
-                atomicAdd(&sh_winding[y * (TILE_WIDTH / 8u)], u32(delta));
+            let y_edge = u32(ceil(segment.y_edge - tile_origin.y));
+            if y_edge < TILE_HEIGHT {
+                atomicAdd(&sh_winding_y[y_edge >> 3u], u32(delta) << ((y_edge & 7u) << 2u));
             }
         }
         // workgroup prefix sum of counts
@@ -331,12 +337,25 @@ fn fill_path_ms(seg_data: u32, n_segs: u32, backdrop: i32, wg_id: vec2<u32>, loc
         let bump = ((last_packed >> 28u) - 8u) * 0x11111111u;
         packed_w += bump;
     }
+    var packed_y = atomicLoad(&sh_winding_y[local_id.y >> 3u]);
+    packed_y += (packed_y - 0x8888888u) << 4u;
+    packed_y += (packed_y - 0x888888u) << 8u;
+    packed_y += (packed_y - 0x8888u) << 16u;
+    if th_ix == 0u {
+        atomicStore(&sh_winding_y[0], packed_y);        
+    }
+    workgroupBarrier();
+    var wind_y = (packed_y >> ((local_id.y & 7u) << 2u)) - 8u;
+    if local_id.y >= 8u {
+        wind_y += (atomicLoad(&sh_winding_y[0]) >> 28u) - 8u;
+    }
+
     for (var i = 0u; i < PIXELS_PER_THREAD; i++) {
         let pix_ix = th_ix * PIXELS_PER_THREAD + i;
         let minor = pix_ix & 7u;
         //let nonzero = ((packed_w >> (minor << 2u)) & 0xfu) != u32(8 + backdrop);
         // TODO: math might be off here
-        let expected_zero = ((packed_w >> (minor * 4u)) & 0xfu) - u32(backdrop);
+        let expected_zero = (((packed_w >> (minor * 4u)) + wind_y) & 0xfu) - u32(backdrop);
         if expected_zero >= 16u {
             area[i] = 1.0;
         } else {
