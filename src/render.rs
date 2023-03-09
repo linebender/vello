@@ -543,7 +543,7 @@ impl Render {
     pub fn record_fine(&mut self, shaders: &FullShaders, recording: &mut Recording) {
         let fine = self.fine.take().unwrap();
         if self.mask_buf.is_none() {
-            let mask_lut = make_mask_lut();
+            let mask_lut = crate::mask::make_mask_lut_16();
             let buf = recording.upload("mask lut", mask_lut);
             // TODO: the `Render` struct is not persistent, so this reuploads
             // and leaks.

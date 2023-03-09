@@ -157,6 +157,7 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
     let empty = HashSet::new();
     let mut full_config = HashSet::new();
     full_config.insert("full".into());
+    full_config.insert("msaa16".into());
     let mut small_config = HashSet::new();
     small_config.insert("full".into());
     small_config.insert("small".into());
