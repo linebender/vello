@@ -38,7 +38,7 @@ impl DrawTag {
     pub const RADIAL_GRADIENT: Self = Self(0x2dc);
 
     /// Image fill.
-    pub const IMAGE: Self = Self(0x48);
+    pub const IMAGE: Self = Self(0x1c8);
 
     /// Begin layer/clip.
     pub const BEGIN_CLIP: Self = Self(0x9);
@@ -104,10 +104,10 @@ pub struct DrawRadialGradient {
 #[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
 #[repr(C)]
 pub struct DrawImage {
-    /// Image index.
-    pub index: u32,
-    /// Packed image offset.
-    pub offset: u32,
+    /// Packed atlas coordinates.
+    pub xy: u32,
+    /// Packed image dimensions.
+    pub width_height: u32,
 }
 
 /// Draw data for a clip or layer.

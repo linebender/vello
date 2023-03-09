@@ -89,6 +89,7 @@ pub enum Command {
     Upload(BufProxy, Vec<u8>),
     UploadUniform(BufProxy, Vec<u8>),
     UploadImage(ImageProxy, Vec<u8>),
+    WriteImage(ImageProxy, [u32; 4], Vec<u8>),
     // Discussion question: third argument is vec of resources?
     // Maybe use tricks to make more ergonomic?
     // Alternative: provide bufs & images as separate sequences
@@ -275,11 +276,6 @@ impl Engine {
                     self.bind_map.insert_buf(buf_proxy, buf);
                 }
                 Command::UploadImage(image_proxy, bytes) => {
-                    let buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: None,
-                        contents: bytes,
-                        usage: wgpu::BufferUsages::COPY_SRC,
-                    });
                     let format = image_proxy.format.to_wgpu();
                     let texture = device.create_texture(&wgpu::TextureDescriptor {
                         label: None,
@@ -305,20 +301,18 @@ impl Engine {
                         array_layer_count: None,
                         format: Some(TextureFormat::Rgba8Unorm),
                     });
-                    encoder.copy_buffer_to_texture(
-                        wgpu::ImageCopyBuffer {
-                            buffer: &buf,
-                            layout: wgpu::ImageDataLayout {
-                                offset: 0,
-                                bytes_per_row: NonZeroU32::new(image_proxy.width * 4),
-                                rows_per_image: None,
-                            },
-                        },
+                    queue.write_texture(
                         wgpu::ImageCopyTexture {
                             texture: &texture,
                             mip_level: 0,
                             origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
                             aspect: TextureAspect::All,
+                        },
+                        bytes,
+                        wgpu::ImageDataLayout {
+                            offset: 0,
+                            bytes_per_row: NonZeroU32::new(image_proxy.width * 4),
+                            rows_per_image: None,
                         },
                         wgpu::Extent3d {
                             width: image_proxy.width,
@@ -328,6 +322,29 @@ impl Engine {
                     );
                     self.bind_map
                         .insert_image(image_proxy.id, texture, texture_view)
+                }
+                Command::WriteImage(proxy, [x, y, width, height], data) => {
+                    if let Ok((texture, _)) = self.bind_map.get_or_create_image(*proxy, device) {
+                        queue.write_texture(
+                            wgpu::ImageCopyTexture {
+                                texture: &texture,
+                                mip_level: 0,
+                                origin: wgpu::Origin3d { x: *x, y: *y, z: 0 },
+                                aspect: TextureAspect::All,
+                            },
+                            &data[..],
+                            wgpu::ImageDataLayout {
+                                offset: 0,
+                                bytes_per_row: NonZeroU32::new(*width * 4),
+                                rows_per_image: None,
+                            },
+                            wgpu::Extent3d {
+                                width: *width,
+                                height: *height,
+                                depth_or_array_layers: 1,
+                            },
+                        );
+                    }
                 }
                 Command::Dispatch(shader_id, wg_size, bindings) => {
                     // println!("dispatching {:?} with {} bindings", wg_size, bindings.len());
@@ -442,6 +459,19 @@ impl Recording {
         let image_proxy = ImageProxy::new(width, height, format);
         self.push(Command::UploadImage(image_proxy, data));
         image_proxy
+    }
+
+    pub fn write_image(
+        &mut self,
+        image: ImageProxy,
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+        data: impl Into<Vec<u8>>,
+    ) {
+        let data = data.into();
+        self.push(Command::WriteImage(image, [x, y, width, height], data));
     }
 
     pub fn dispatch<R>(&mut self, shader: ShaderId, wg_size: (u32, u32, u32), resources: R)
@@ -713,6 +743,44 @@ impl BindMap {
                         label: proxy.name,
                     })
                     .buffer)
+            }
+        }
+    }
+
+    fn get_or_create_image(
+        &mut self,
+        proxy: ImageProxy,
+        device: &Device,
+    ) -> Result<&(Texture, TextureView), Error> {
+        match self.image_map.entry(proxy.id) {
+            Entry::Occupied(occupied) => Ok(occupied.into_mut()),
+            Entry::Vacant(vacant) => {
+                let format = proxy.format.to_wgpu();
+                let texture = device.create_texture(&wgpu::TextureDescriptor {
+                    label: None,
+                    size: wgpu::Extent3d {
+                        width: proxy.width,
+                        height: proxy.height,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+                    format,
+                    view_formats: &[],
+                });
+                let texture_view = texture.create_view(&wgpu::TextureViewDescriptor {
+                    label: None,
+                    dimension: Some(TextureViewDimension::D2),
+                    aspect: TextureAspect::All,
+                    mip_level_count: None,
+                    base_mip_level: 0,
+                    base_array_layer: 0,
+                    array_layer_count: None,
+                    format: Some(TextureFormat::Rgba8Unorm),
+                });
+                Ok(vacant.insert((texture, texture_view)))
             }
         }
     }

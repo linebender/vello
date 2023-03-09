@@ -40,6 +40,9 @@ var gradients: texture_2d<f32>;
 @group(0) @binding(6)
 var<storage> info: array<u32>;
 
+@group(0) @binding(7)
+var image_atlas: texture_2d<f32>;
+
 fn read_fill(cmd_ix: u32) -> CmdFill {
     let tile = ptcl[cmd_ix + 1u];
     let backdrop = i32(ptcl[cmd_ix + 2u]);
@@ -79,6 +82,24 @@ fn read_rad_grad(cmd_ix: u32) -> CmdRadGrad {
     let ra = bitcast<f32>(info[info_offset + 8u]);
     let roff = bitcast<f32>(info[info_offset + 9u]);
     return CmdRadGrad(index, matrx, xlat, c1, ra, roff);
+}
+
+fn read_image(cmd_ix: u32) -> CmdImage {
+    let info_offset = ptcl[cmd_ix + 1u];
+    let xy = ptcl[cmd_ix + 2u];
+    let width_height = ptcl[cmd_ix + 3u];
+    let m0 = bitcast<f32>(info[info_offset]);
+    let m1 = bitcast<f32>(info[info_offset + 1u]);
+    let m2 = bitcast<f32>(info[info_offset + 2u]);
+    let m3 = bitcast<f32>(info[info_offset + 3u]);
+    let matrx = vec4(m0, m1, m2, m3);
+    let xlat = vec2(bitcast<f32>(info[info_offset + 4u]), bitcast<f32>(info[info_offset + 5u]));
+    // The following are not intended to be bitcasts
+    let x = f32(xy >> 16u);
+    let y = f32(xy & 0xffffu);
+    let width = f32(width_height >> 16u);
+    let height = f32(width_height & 0xffffu);
+    return CmdImage(matrx, xlat, vec2(x, y), vec2(width, height));
 }
 
 fn read_end_clip(cmd_ix: u32) -> CmdEndClip {
@@ -264,6 +285,29 @@ fn main(
                     rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
                 }
                 cmd_ix += 3u;
+            }
+            // CMD_IMAGE
+            case 8u: {
+                let image = read_image(cmd_ix);
+                let atlas_extents = image.atlas_offset + image.extents;
+                for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
+                    let my_xy = vec2(xy.x + f32(i), xy.y);
+                    let atlas_uv = image.matrx.xy * my_xy.x + image.matrx.zw * my_xy.y + image.xlat + image.atlas_offset;
+                    // This currently clips to the image bounds. TODO: extend modes
+                    if all(atlas_uv < atlas_extents) {
+                        let uv_quad = vec4(max(floor(atlas_uv), image.atlas_offset), min(ceil(atlas_uv), atlas_extents));
+                        let uv_frac = fract(atlas_uv);
+                        let a = textureLoad(image_atlas, vec2<i32>(uv_quad.xy), 0);
+                        let b = textureLoad(image_atlas, vec2<i32>(uv_quad.xw), 0);
+                        let c = textureLoad(image_atlas, vec2<i32>(uv_quad.zy), 0);
+                        let d = textureLoad(image_atlas, vec2<i32>(uv_quad.zw), 0);
+                        let color = mix(mix(a, b, uv_frac.y), mix(c, d, uv_frac.y), uv_frac.x);
+                        let fg_rgba = vec4(color.rgb * color.a, color.a);
+                        let fg_i = fg_rgba * area[i];
+                        rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
+                    }
+                }
+                cmd_ix += 4u;
             }
             // CMD_BEGIN_CLIP
             case 9u: {

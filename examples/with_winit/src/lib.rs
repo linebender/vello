@@ -19,7 +19,7 @@ use std::time::Instant;
 
 use anyhow::Result;
 use clap::{CommandFactory, Parser};
-use scenes::{SceneParams, SceneSet, SimpleText};
+use scenes::{ImageCache, SceneParams, SceneSet, SimpleText};
 use vello::peniko::Color;
 use vello::util::RenderSurface;
 use vello::{
@@ -96,6 +96,7 @@ fn run(
     let mut scene = Scene::new();
     let mut fragment = SceneFragment::new();
     let mut simple_text = SimpleText::new();
+    let mut images = ImageCache::new();
     let start = Instant::now();
 
     let mut touch_state = multi_touch::TouchState::new();
@@ -264,6 +265,7 @@ fn run(
             let mut scene_params = SceneParams {
                 time: start.elapsed().as_secs_f64(),
                 text: &mut simple_text,
+                images: &mut images,
                 resolution: None,
                 base_color: None,
             };

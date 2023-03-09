@@ -6,7 +6,7 @@ use std::{
 
 use anyhow::{anyhow, bail, Context, Result};
 use clap::{CommandFactory, Parser};
-use scenes::{SceneParams, SceneSet, SimpleText};
+use scenes::{ImageCache, SceneParams, SceneSet, SimpleText};
 use vello::{
     block_on_wgpu,
     kurbo::{Affine, Vec2},
@@ -97,9 +97,11 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
     let mut builder = SceneBuilder::for_fragment(&mut fragment);
     let example_scene = &mut scenes.scenes[index];
     let mut text = SimpleText::new();
+    let mut images = ImageCache::new();
     let mut scene_params = SceneParams {
         time: args.time.unwrap_or(0.),
         text: &mut text,
+        images: &mut images,
         resolution: None,
         base_color: None,
     };

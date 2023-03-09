@@ -1,7 +1,11 @@
+use std::sync::Arc;
+
 use crate::{ExampleScene, SceneConfig, SceneParams, SceneSet};
-use vello::kurbo::{Affine, BezPath, Ellipse, PathEl, Point, Rect};
+use vello::kurbo::{Affine, BezPath, Ellipse, PathEl, Point, Rect, Vec2};
 use vello::peniko::*;
 use vello::*;
+
+const PIET_LOGO_IMAGE: &[u8] = include_bytes!("../../assets/piet-logo.png");
 
 macro_rules! scene {
     ($name: ident) => {
@@ -97,6 +101,11 @@ fn cardioid_and_friends(sb: &mut SceneBuilder, _: &mut SceneParams) {
 }
 
 fn animated_text(sb: &mut SceneBuilder, params: &mut SceneParams) {
+    let piet_logo = params
+        .images
+        .from_bytes(PIET_LOGO_IMAGE.as_ptr() as usize, PIET_LOGO_IMAGE)
+        .unwrap();
+
     use PathEl::*;
     let rect = Rect::from_origin_size(Point::new(0.0, 0.0), (1000.0, 1000.0));
     let star = [
@@ -183,6 +192,10 @@ fn animated_text(sb: &mut SceneBuilder, params: &mut SceneParams) {
         Color::PURPLE,
         None,
         &star,
+    );
+    sb.draw_image(
+        &piet_logo,
+        Affine::translate((550.0, 250.0)) * Affine::skew(-20f64.to_radians().tan(), 0.0),
     );
 }
 
