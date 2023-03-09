@@ -64,15 +64,10 @@ pub fn render_tree_with<F: FnMut(&mut SceneBuilder, &usvg::Node) -> Result<(), E
     mut on_err: F,
 ) -> Result<(), E> {
     for elt in svg.root.descendants() {
-        let transform = elt.abs_transform();
-        let transform = Affine::new([
-            transform.a,
-            transform.b,
-            transform.c,
-            transform.d,
-            transform.e,
-            transform.f,
-        ]);
+        let transform = {
+            let usvg::Transform { a, b, c, d, e, f } = elt.abs_transform();
+            Affine::new([a, b, c, d, e, f])
+        };
         match &*elt.borrow() {
             usvg::NodeKind::Group(_) => {}
             usvg::NodeKind::Path(path) => {
