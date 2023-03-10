@@ -38,7 +38,7 @@ impl DrawTag {
     pub const RADIAL_GRADIENT: Self = Self(0x2dc);
 
     /// Image fill.
-    pub const IMAGE: Self = Self(0x1c8);
+    pub const IMAGE: Self = Self(0x248);
 
     /// Begin layer/clip.
     pub const BEGIN_CLIP: Self = Self(0x9);

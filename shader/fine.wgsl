@@ -86,14 +86,14 @@ fn read_rad_grad(cmd_ix: u32) -> CmdRadGrad {
 
 fn read_image(cmd_ix: u32) -> CmdImage {
     let info_offset = ptcl[cmd_ix + 1u];
-    let xy = ptcl[cmd_ix + 2u];
-    let width_height = ptcl[cmd_ix + 3u];
     let m0 = bitcast<f32>(info[info_offset]);
     let m1 = bitcast<f32>(info[info_offset + 1u]);
     let m2 = bitcast<f32>(info[info_offset + 2u]);
     let m3 = bitcast<f32>(info[info_offset + 3u]);
     let matrx = vec4(m0, m1, m2, m3);
     let xlat = vec2(bitcast<f32>(info[info_offset + 4u]), bitcast<f32>(info[info_offset + 5u]));
+    let xy = info[info_offset + 6u];
+    let width_height = info[info_offset + 7u];
     // The following are not intended to be bitcasts
     let x = f32(xy >> 16u);
     let y = f32(xy & 0xffffu);
@@ -307,7 +307,7 @@ fn main(
                         rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
                     }
                 }
-                cmd_ix += 4u;
+                cmd_ix += 2u;
             }
             // CMD_BEGIN_CLIP
             case 9u: {

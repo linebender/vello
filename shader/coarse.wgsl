@@ -126,13 +126,11 @@ fn write_grad(ty: u32, index: u32, info_offset: u32) {
     cmd_offset += 3u;
 }
 
-fn write_image(xy: u32, width_height: u32, info_offset: u32) {
-    alloc_cmd(4u);
+fn write_image(info_offset: u32) {
+    alloc_cmd(2u);
     ptcl[cmd_offset] = CMD_IMAGE;
     ptcl[cmd_offset + 1u] = info_offset;
-    ptcl[cmd_offset + 2u] = xy;
-    ptcl[cmd_offset + 3u] = width_height;
-    cmd_offset += 4u;
+    cmd_offset += 2u;
 }
 
 fn write_begin_clip() {
@@ -387,12 +385,10 @@ fn main(
                         }
                     }
                     // DRAWTAG_FILL_IMAGE
-                    case 0x1c8u: {
+                    case 0x248u: {
                         let linewidth = bitcast<f32>(info_bin_data[di]);
                         if write_path(tile, linewidth) {                            
-                            let xy = scene[dd];
-                            let width_height = scene[dd + 1u];
-                            write_image(xy, width_height, di + 1u);
+                            write_image(di + 1u);
                         }
                     }
                     // DRAWTAG_BEGIN_CLIP

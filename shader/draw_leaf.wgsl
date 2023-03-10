@@ -125,7 +125,7 @@ fn main(
             linewidth *= sqrt(abs(matrx.x * matrx.w - matrx.y * matrx.z));
         }
         switch tag_word {
-            // DRAWTAG_FILL_COLOR, DRAWTAG_FILL_IMAGE
+            // DRAWTAG_FILL_COLOR
             case 0x44u: {
                 info[di] = bitcast<u32>(linewidth);
             }
@@ -172,7 +172,7 @@ fn main(
                 info[di + 10u] = bitcast<u32>(roff);
             }
             // DRAWTAG_FILL_IMAGE
-            case 0x1c8u: {
+            case 0x248u: {
                 info[di] = bitcast<u32>(linewidth);
                 let inv_det = 1.0 / (matrx.x * matrx.w - matrx.y * matrx.z);
                 let inv_mat = inv_det * vec4(matrx.w, -matrx.y, -matrx.z, matrx.x);
@@ -183,6 +183,8 @@ fn main(
                 info[di + 4u] = bitcast<u32>(inv_mat.w);
                 info[di + 5u] = bitcast<u32>(inv_tr.x);
                 info[di + 6u] = bitcast<u32>(inv_tr.y);
+                info[di + 7u] = scene[dd];
+                info[di + 8u] = scene[dd + 1u];
             }
             default: {}
         }
