@@ -101,6 +101,8 @@ fn cardioid_and_friends(sb: &mut SceneBuilder, _: &mut SceneParams) {
 }
 
 fn animated_text(sb: &mut SceneBuilder, params: &mut SceneParams) {
+    // Uses the static array address as a cache key for expedience. Real code
+    // should use a better strategy.
     let piet_logo = params
         .images
         .from_bytes(PIET_LOGO_IMAGE.as_ptr() as usize, PIET_LOGO_IMAGE)

@@ -299,7 +299,7 @@ impl Engine {
                         base_mip_level: 0,
                         base_array_layer: 0,
                         array_layer_count: None,
-                        format: Some(TextureFormat::Rgba8Unorm),
+                        format: Some(format),
                     });
                     queue.write_texture(
                         wgpu::ImageCopyTexture {
@@ -311,7 +311,9 @@ impl Engine {
                         bytes,
                         wgpu::ImageDataLayout {
                             offset: 0,
-                            bytes_per_row: NonZeroU32::new(image_proxy.width * 4),
+                            bytes_per_row: NonZeroU32::new(
+                                image_proxy.width * format.describe().block_size as u32,
+                            ),
                             rows_per_image: None,
                         },
                         wgpu::Extent3d {
@@ -325,6 +327,7 @@ impl Engine {
                 }
                 Command::WriteImage(proxy, [x, y, width, height], data) => {
                     if let Ok((texture, _)) = self.bind_map.get_or_create_image(*proxy, device) {
+                        let format = proxy.format.to_wgpu();
                         queue.write_texture(
                             wgpu::ImageCopyTexture {
                                 texture: &texture,
@@ -335,7 +338,9 @@ impl Engine {
                             &data[..],
                             wgpu::ImageDataLayout {
                                 offset: 0,
-                                bytes_per_row: NonZeroU32::new(*width * 4),
+                                bytes_per_row: NonZeroU32::new(
+                                    *width * format.describe().block_size as u32,
+                                ),
                                 rows_per_image: None,
                             },
                             wgpu::Extent3d {
@@ -778,7 +783,7 @@ impl BindMap {
                     base_mip_level: 0,
                     base_array_layer: 0,
                     array_layer_count: None,
-                    format: Some(TextureFormat::Rgba8Unorm),
+                    format: Some(proxy.format.to_wgpu()),
                 });
                 Ok(vacant.insert((texture, texture_view)))
             }

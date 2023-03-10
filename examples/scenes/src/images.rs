@@ -16,38 +16,36 @@ impl ImageCache {
         Self::default()
     }
 
-    pub fn from_file(&mut self, path: impl AsRef<Path>) -> Option<Image> {
+    pub fn from_file(&mut self, path: impl AsRef<Path>) -> anyhow::Result<Image> {
         let path = path.as_ref();
         if let Some(image) = self.files.get(path) {
-            Some(image.clone())
+            Ok(image.clone())
         } else {
-            let data = std::fs::read(path).ok()?;
+            let data = std::fs::read(path)?;
             let image = decode_image(&data)?;
             self.files.insert(path.to_owned(), image.clone());
-            Some(image)
+            Ok(image)
         }
     }
 
-    pub fn from_bytes(&mut self, key: usize, bytes: &[u8]) -> Option<Image> {
+    pub fn from_bytes(&mut self, key: usize, bytes: &[u8]) -> anyhow::Result<Image> {
         if let Some(image) = self.bytes.get(&key) {
-            Some(image.clone())
+            Ok(image.clone())
         } else {
             let image = decode_image(bytes)?;
             self.bytes.insert(key, image.clone());
-            Some(image)
+            Ok(image)
         }
     }
 }
 
-fn decode_image(data: &[u8]) -> Option<Image> {
+fn decode_image(data: &[u8]) -> anyhow::Result<Image> {
     let image = image::io::Reader::new(std::io::Cursor::new(data))
-        .with_guessed_format()
-        .ok()?
-        .decode()
-        .ok()?;
+        .with_guessed_format()?
+        .decode()?;
     let width = image.width();
     let height = image.height();
     let data = Arc::new(image.into_rgba8().into_vec());
     let blob = Blob::new(data);
-    Some(Image::new(blob, Format::Rgba8, width, height))
+    Ok(Image::new(blob, Format::Rgba8, width, height))
 }
