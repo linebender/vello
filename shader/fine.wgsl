@@ -297,12 +297,11 @@ fn main(
                     if all(atlas_uv < atlas_extents) {
                         let uv_quad = vec4(max(floor(atlas_uv), image.atlas_offset), min(ceil(atlas_uv), atlas_extents));
                         let uv_frac = fract(atlas_uv);
-                        let a = textureLoad(image_atlas, vec2<i32>(uv_quad.xy), 0);
-                        let b = textureLoad(image_atlas, vec2<i32>(uv_quad.xw), 0);
-                        let c = textureLoad(image_atlas, vec2<i32>(uv_quad.zy), 0);
-                        let d = textureLoad(image_atlas, vec2<i32>(uv_quad.zw), 0);
-                        let color = mix(mix(a, b, uv_frac.y), mix(c, d, uv_frac.y), uv_frac.x);
-                        let fg_rgba = vec4(color.rgb * color.a, color.a);
+                        let a = premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.xy), 0));
+                        let b = premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.xw), 0));
+                        let c = premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.zy), 0));
+                        let d = premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.zw), 0));
+                        let fg_rgba = mix(mix(a, b, uv_frac.y), mix(c, d, uv_frac.y), uv_frac.x);
                         let fg_i = fg_rgba * area[i];
                         rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
                     }
@@ -369,4 +368,8 @@ fn main(
         }
     }
 #endif
+}
+
+fn premul_alpha(rgba: vec4<f32>) -> vec4<f32> {
+    return vec4(rgba.rgb * rgba.a, rgba.a);
 }
