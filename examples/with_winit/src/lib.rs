@@ -138,6 +138,9 @@ fn run(
                                         * transform;
                                 }
                             }
+                            Some(VirtualKeyCode::Space) => {
+                                transform = Affine::IDENTITY;
+                            }
                             Some(VirtualKeyCode::Escape) => {
                                 *control_flow = ControlFlow::Exit;
                             }
