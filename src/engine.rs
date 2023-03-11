@@ -22,8 +22,8 @@ use std::{
 };
 
 use wgpu::{
-    util::DeviceExt, BindGroup, BindGroupLayout, Buffer, BufferUsages, ComputePipeline, Device,
-    Queue, Texture, TextureAspect, TextureFormat, TextureUsages, TextureView, TextureViewDimension,
+    BindGroup, BindGroupLayout, Buffer, BufferUsages, ComputePipeline, Device, Queue, Texture,
+    TextureAspect, TextureUsages, TextureView, TextureViewDimension,
 };
 
 pub type Error = Box<dyn std::error::Error>;

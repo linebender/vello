@@ -1,7 +1,5 @@
-use std::sync::Arc;
-
 use crate::{ExampleScene, SceneConfig, SceneParams, SceneSet};
-use vello::kurbo::{Affine, BezPath, Ellipse, PathEl, Point, Rect, Vec2};
+use vello::kurbo::{Affine, BezPath, Ellipse, PathEl, Point, Rect};
 use vello::peniko::*;
 use vello::*;
 
