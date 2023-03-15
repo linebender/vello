@@ -294,7 +294,7 @@ fn main(
                     let my_xy = vec2(xy.x + f32(i), xy.y);
                     let atlas_uv = image.matrx.xy * my_xy.x + image.matrx.zw * my_xy.y + image.xlat + image.atlas_offset;
                     // This currently clips to the image bounds. TODO: extend modes
-                    if all(atlas_uv < atlas_extents) {
+                    if all(atlas_uv < atlas_extents) && area[i] != 0.0 {
                         let uv_quad = vec4(max(floor(atlas_uv), image.atlas_offset), min(ceil(atlas_uv), atlas_extents));
                         let uv_frac = fract(atlas_uv);
                         let a = premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.xy), 0));
