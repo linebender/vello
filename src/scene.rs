@@ -15,7 +15,7 @@
 // Also licensed under MIT license, at your choice.
 
 use peniko::kurbo::{Affine, Rect, Shape};
-use peniko::{BlendMode, BrushRef, Color, Fill, Font, Stroke, StyleRef};
+use peniko::{BlendMode, BrushRef, Color, Fill, Font, Image, Stroke, StyleRef};
 
 use crate::encoding::{Encoding, Glyph, GlyphRun, Patch, Transform};
 
@@ -166,6 +166,17 @@ impl<'a> SceneBuilder<'a> {
             }
             self.scene.encode_brush(brush, 1.0);
         }
+    }
+
+    /// Draws an image at its natural size with the given transform.
+    pub fn draw_image(&mut self, image: &Image, transform: Affine) {
+        self.fill(
+            Fill::NonZero,
+            transform,
+            image,
+            None,
+            &Rect::new(0.0, 0.0, image.width as f64, image.height as f64),
+        );
     }
 
     /// Returns a builder for encoding a glyph run.

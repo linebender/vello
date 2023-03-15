@@ -14,12 +14,14 @@
 //
 // Also licensed under MIT license, at your choice.
 
+use crate::encoding::DrawImage;
+
 use super::{
     resolve::Patch, DrawColor, DrawLinearGradient, DrawRadialGradient, DrawTag, Glyph, GlyphRun,
     PathEncoder, PathTag, Transform,
 };
 
-use peniko::{kurbo::Shape, BlendMode, BrushRef, ColorStop, Extend, GradientKind};
+use peniko::{kurbo::Shape, BlendMode, BrushRef, ColorStop, Extend, GradientKind, Image};
 
 /// Encoded data streams for a scene.
 #[derive(Clone, Default)]
@@ -122,15 +124,25 @@ impl Encoding {
         self.n_open_clips += other.n_open_clips;
         self.patches
             .extend(other.patches.iter().map(|patch| match patch {
-                Patch::Ramp { offset, stops } => {
+                Patch::Ramp {
+                    draw_data_offset: offset,
+                    stops,
+                } => {
                     let stops = stops.start + stops_base..stops.end + stops_base;
                     Patch::Ramp {
-                        offset: offset + offsets.draw_data,
+                        draw_data_offset: offset + offsets.draw_data,
                         stops,
                     }
                 }
                 Patch::GlyphRun { index } => Patch::GlyphRun {
                     index: index + glyph_runs_base,
+                },
+                Patch::Image {
+                    image,
+                    draw_data_offset,
+                } => Patch::Image {
+                    image: image.clone(),
+                    draw_data_offset: *draw_data_offset + offsets.draw_data,
                 },
             }));
         self.color_stops.extend_from_slice(&other.color_stops);
@@ -250,8 +262,8 @@ impl Encoding {
                     todo!("sweep gradients aren't supported yet!")
                 }
             },
-            BrushRef::Image(_) => {
-                todo!("images aren't supported yet!")
+            BrushRef::Image(image) => {
+                self.encode_image(image, alpha);
             }
         }
     }
@@ -288,6 +300,22 @@ impl Encoding {
         self.draw_tags.push(DrawTag::RADIAL_GRADIENT);
         self.draw_data
             .extend_from_slice(bytemuck::bytes_of(&gradient));
+    }
+
+    /// Encodes an image brush.
+    pub fn encode_image(&mut self, image: &Image, _alpha: f32) {
+        // TODO: feed the alpha multiplier through the full pipeline for consistency
+        // with other brushes?
+        self.patches.push(Patch::Image {
+            image: image.clone(),
+            draw_data_offset: self.draw_data.len(),
+        });
+        self.draw_tags.push(DrawTag::IMAGE);
+        self.draw_data
+            .extend_from_slice(bytemuck::bytes_of(&DrawImage {
+                xy: 0,
+                width_height: (image.width << 16) | (image.height & 0xFFFF),
+            }));
     }
 
     /// Encodes a begin clip command.
@@ -329,7 +357,7 @@ impl Encoding {
             self.color_stops.extend(color_stops);
         }
         self.patches.push(Patch::Ramp {
-            offset,
+            draw_data_offset: offset,
             stops: stops_start..self.color_stops.len(),
         });
     }

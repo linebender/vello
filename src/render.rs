@@ -33,6 +33,7 @@ struct FineResources {
     ptcl_buf: ResourceProxy,
     gradient_image: ResourceProxy,
     info_bin_data_buf: ResourceProxy,
+    image_atlas: ResourceProxy,
 
     out_image: ImageProxy,
 }
@@ -216,7 +217,7 @@ impl Render {
         let mut recording = Recording::default();
         let mut resolver = Resolver::new();
         let mut packed = vec![];
-        let (layout, ramps) = resolver.resolve(encoding, &mut packed);
+        let (layout, ramps, images) = resolver.resolve(encoding, &mut packed);
         let gradient_image = if ramps.height == 0 {
             ResourceProxy::new_image(1, 1, ImageFormat::Rgba8)
         } else {
@@ -227,6 +228,11 @@ impl Render {
                 ImageFormat::Rgba8,
                 data,
             ))
+        };
+        let image_atlas = if images.images.is_empty() {
+            ImageProxy::new(1, 1, ImageFormat::Rgba8)
+        } else {
+            ImageProxy::new(images.width, images.height, ImageFormat::Rgba8)
         };
         // TODO: calculate for real when we do rectangles
         let n_pathtag = layout.path_tags(&packed).len();
@@ -251,6 +257,16 @@ impl Render {
             ptcl_size: self.ptcl_size,
             layout: layout,
         };
+        for image in images.images {
+            recording.write_image(
+                image_atlas,
+                image.1,
+                image.2,
+                image.0.width,
+                image.0.height,
+                image.0.data.data(),
+            );
+        }
         // println!("{:?}", config);
         let scene_buf = ResourceProxy::Buf(recording.upload("scene", packed));
         let config_buf =
@@ -504,6 +520,7 @@ impl Render {
             ptcl_buf,
             gradient_image,
             info_bin_data_buf,
+            image_atlas: ResourceProxy::Image(image_atlas),
             out_image,
         });
         if robust {
@@ -527,6 +544,7 @@ impl Render {
                 fine.ptcl_buf,
                 fine.gradient_image,
                 fine.info_bin_data_buf,
+                fine.image_atlas,
             ],
         );
         recording.free_resource(fine.config_buf);
@@ -534,6 +552,7 @@ impl Render {
         recording.free_resource(fine.segments_buf);
         recording.free_resource(fine.ptcl_buf);
         recording.free_resource(fine.gradient_image);
+        recording.free_resource(fine.image_atlas);
         recording.free_resource(fine.info_bin_data_buf);
     }
 

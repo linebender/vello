@@ -1,4 +1,5 @@
 pub mod download;
+mod images;
 mod simple_text;
 mod svg;
 mod test_scenes;
@@ -7,6 +8,7 @@ use std::path::PathBuf;
 use anyhow::{anyhow, Result};
 use clap::{Args, Subcommand};
 use download::Download;
+pub use images::ImageCache;
 pub use simple_text::SimpleText;
 pub use svg::{default_scene, scene_from_files};
 pub use test_scenes::test_scenes;
@@ -16,6 +18,7 @@ use vello::{kurbo::Vec2, peniko::Color, SceneBuilder};
 pub struct SceneParams<'a> {
     pub time: f64,
     pub text: &'a mut SimpleText,
+    pub images: &'a mut ImageCache,
     pub resolution: Option<Vec2>,
     pub base_color: Option<vello::peniko::Color>,
 }

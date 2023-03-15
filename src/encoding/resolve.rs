@@ -18,9 +18,11 @@ use std::ops::Range;
 
 use bytemuck::{Pod, Zeroable};
 use moscato::pinot::FontRef;
+use peniko::Image;
 
 use super::{
     glyph_cache::{CachedRange, GlyphCache, GlyphKey},
+    image_cache::{ImageCache, Images},
     ramp_cache::{RampCache, Ramps},
     DrawTag, Encoding, PathTag, StreamOffsets, Transform,
 };
@@ -144,6 +146,8 @@ pub struct Resolver {
     glyph_ranges: Vec<CachedRange>,
     glyph_cx: GlyphContext,
     ramp_cache: RampCache,
+    image_cache: ImageCache,
+    pending_images: Vec<PendingImage>,
     patches: Vec<ResolvedPatch>,
 }
 
@@ -159,8 +163,9 @@ impl Resolver {
         &'a mut self,
         encoding: &Encoding,
         packed: &mut Vec<u8>,
-    ) -> (Layout, Ramps<'a>) {
+    ) -> (Layout, Ramps<'a>, Images<'a>) {
         let sizes = self.resolve_patches(encoding);
+        self.resolve_pending_images();
         let data = packed;
         data.clear();
         let mut layout = Layout::default();
@@ -261,6 +266,26 @@ impl Resolver {
                         pos = *draw_data_offset + 4;
                     }
                     ResolvedPatch::GlyphRun { .. } => {}
+                    ResolvedPatch::Image {
+                        index,
+                        draw_data_offset,
+                    } => {
+                        if pos < *draw_data_offset {
+                            data.extend_from_slice(&encoding.draw_data[pos..*draw_data_offset]);
+                        }
+                        if let Some((x, y)) = self.pending_images[*index].xy {
+                            let xy = (x << 16) | y;
+                            data.extend_from_slice(bytemuck::bytes_of(&xy));
+                            pos = *draw_data_offset + 4;
+                        } else {
+                            // If we get here, we failed to allocate a slot for this image in the atlas.
+                            // In this case, let's zero out the dimensions so we don't attempt to render
+                            // anything.
+                            // TODO: a better strategy: texture array? downsample large images?
+                            data.extend_from_slice(&[0u8; 8]);
+                            pos = *draw_data_offset + 8;
+                        }
+                    }
                 }
             }
             if pos < stream.len() {
@@ -336,21 +361,26 @@ impl Resolver {
         }
         layout.n_draw_objects = layout.n_paths;
         assert_eq!(capacity, data.len());
-        (layout, self.ramp_cache.ramps())
+        (layout, self.ramp_cache.ramps(), self.image_cache.images())
     }
 
     fn resolve_patches(&mut self, encoding: &Encoding) -> StreamOffsets {
         self.ramp_cache.advance();
         self.glyph_cache.clear();
         self.glyph_ranges.clear();
+        self.image_cache.clear();
+        self.pending_images.clear();
         self.patches.clear();
         let mut sizes = StreamOffsets::default();
         for patch in &encoding.patches {
             match patch {
-                Patch::Ramp { offset, stops } => {
+                Patch::Ramp {
+                    draw_data_offset,
+                    stops,
+                } => {
                     let ramp_id = self.ramp_cache.add(&encoding.color_stops[stops.clone()]);
                     self.patches.push(ResolvedPatch::Ramp {
-                        draw_data_offset: *offset + sizes.draw_data,
+                        draw_data_offset: *draw_data_offset + sizes.draw_data,
                         ramp_id,
                     });
                 }
@@ -414,9 +444,49 @@ impl Resolver {
                         transform,
                     });
                 }
+                Patch::Image {
+                    draw_data_offset,
+                    image,
+                } => {
+                    let index = self.pending_images.len();
+                    self.pending_images.push(PendingImage {
+                        image: image.clone(),
+                        xy: None,
+                    });
+                    self.patches.push(ResolvedPatch::Image {
+                        index,
+                        draw_data_offset: *draw_data_offset + sizes.draw_data,
+                    });
+                }
             }
         }
         sizes
+    }
+
+    fn resolve_pending_images(&mut self) {
+        self.image_cache.clear();
+        'outer: loop {
+            // Loop over the images, attempting to allocate them all into the atlas.
+            for pending_image in &mut self.pending_images {
+                if let Some(xy) = self.image_cache.get_or_insert(&pending_image.image) {
+                    pending_image.xy = Some(xy);
+                } else {
+                    // We failed to allocate. Try to bump the atlas size.
+                    if self.image_cache.bump_size() {
+                        // We were able to increase the atlas size. Restart the outer loop.
+                        continue 'outer;
+                    } else {
+                        // If the atlas is already maximum size, there's nothing we can do. Set
+                        // the xy field to None so this image isn't rendered and then carry on--
+                        // other images might still fit.
+                        pending_image.xy = None;
+                    }
+                }
+            }
+            // If we made it here, we've either successfully allocated all images or we reached
+            // the maximum atlas size.
+            break;
+        }
     }
 }
 
@@ -426,7 +496,7 @@ pub enum Patch {
     /// Gradient ramp resource.
     Ramp {
         /// Byte offset to the ramp id in the draw data stream.
-        offset: usize,
+        draw_data_offset: usize,
         /// Range of the gradient stops in the resource set.
         stops: Range<usize>,
     },
@@ -435,6 +505,20 @@ pub enum Patch {
         /// Index in the glyph run buffer.
         index: usize,
     },
+    /// Image resource.
+    Image {
+        /// Offset to the atlas coordinates in the draw data stream.
+        draw_data_offset: usize,
+        /// Underlying image data.
+        image: Image,
+    },
+}
+
+/// Image to be allocated in the atlas.
+#[derive(Clone, Debug)]
+struct PendingImage {
+    image: Image,
+    xy: Option<(u32, u32)>,
 }
 
 #[derive(Clone, Debug)]
@@ -452,6 +536,12 @@ enum ResolvedPatch {
         glyphs: Range<usize>,
         /// Global transform.
         transform: Transform,
+    },
+    Image {
+        /// Index of pending image element.
+        index: usize,
+        /// Offset to the atlas location in the draw data stream.
+        draw_data_offset: usize,
     },
 }
 

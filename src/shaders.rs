@@ -351,6 +351,7 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
             BindType::BufReadOnly,
             BindType::ImageRead(ImageFormat::Rgba8),
             BindType::BufReadOnly,
+            BindType::ImageRead(ImageFormat::Rgba8),
         ],
     )?;
     Ok(FullShaders {

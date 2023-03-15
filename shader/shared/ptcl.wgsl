@@ -16,6 +16,7 @@ let CMD_SOLID = 3u;
 let CMD_COLOR = 5u;
 let CMD_LIN_GRAD = 6u;
 let CMD_RAD_GRAD = 7u;
+let CMD_IMAGE = 8u;
 let CMD_BEGIN_CLIP = 9u;
 let CMD_END_CLIP = 10u;
 let CMD_JUMP = 11u;
@@ -55,6 +56,13 @@ struct CmdRadGrad {
     c1: vec2<f32>,
     ra: f32,
     roff: f32,
+}
+
+struct CmdImage {
+    matrx: vec4<f32>,
+    xlat: vec2<f32>,
+    atlas_offset: vec2<f32>,
+    extents: vec2<f32>,
 }
 
 struct CmdEndClip {
