@@ -368,10 +368,11 @@ fn run(
             surface_texture.present();
             device_handle.device.poll(wgpu::Maintain::Poll);
 
+            let new_time = Instant::now();
             stats.add_sample(stats::Sample {
-                frame_time_us: frame_start_time.elapsed().as_micros() as u64,
+                frame_time_us: (new_time - frame_start_time).as_micros() as u64,
             });
-            frame_start_time = Instant::now();
+            frame_start_time = new_time;
         }
         Event::UserEvent(event) => match event {
             #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
