@@ -104,6 +104,7 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
         images: &mut images,
         resolution: None,
         base_color: None,
+        interactive: false,
     };
     (example_scene.function)(&mut builder, &mut scene_params);
     let mut transform = Affine::IDENTITY;

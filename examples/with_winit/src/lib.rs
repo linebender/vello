@@ -271,6 +271,7 @@ fn run(
                 images: &mut images,
                 resolution: None,
                 base_color: None,
+                interactive: true,
             };
             (example_scene.function)(&mut builder, &mut scene_params);
 

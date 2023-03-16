@@ -114,14 +114,14 @@ pub fn svg_function_of<R: AsRef<str>>(
             params.resolution = Some(*resolution);
             return;
         }
-        #[cfg(target_arch = "wasm32")]
-        {
+        if cfg!(target_arch = "wasm32") || !params.interactive {
             let contents = contents.take().unwrap();
             let contents = contents();
             let (scene_frag, resolution) = render_svg_contents(&name, contents.as_ref());
             builder.append(&scene_frag, None);
             params.resolution = Some(resolution);
-            cached_scene = Some((scene_frag, resolution))
+            cached_scene = Some((scene_frag, resolution));
+            return;
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -129,7 +129,7 @@ pub fn svg_function_of<R: AsRef<str>>(
             if !has_started_parse {
                 has_started_parse = true;
                 // Prefer jank over loading screen for first time
-                timeout = std::time::Duration::from_millis(400);
+                timeout = std::time::Duration::from_millis(75);
                 let tx = tx.take().unwrap();
                 let contents = contents.take().unwrap();
                 let name = name.clone();

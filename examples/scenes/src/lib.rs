@@ -17,6 +17,10 @@ use vello::{kurbo::Vec2, peniko::Color, SceneBuilder};
 
 pub struct SceneParams<'a> {
     pub time: f64,
+    /// Whether blocking should be limited
+    /// Will not change between runs
+    // TODO: Just never block/handle this automatically?
+    pub interactive: bool,
     pub text: &'a mut SimpleText,
     pub images: &'a mut ImageCache,
     pub resolution: Option<Vec2>,
