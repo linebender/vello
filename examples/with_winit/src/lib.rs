@@ -100,6 +100,7 @@ fn run(
     let mut images = ImageCache::new();
     let mut stats = stats::Stats::new();
     let mut stats_shown = true;
+    let mut vsync_on = true;
     let start = Instant::now();
 
     let mut touch_state = multi_touch::TouchState::new();
@@ -150,6 +151,17 @@ fn run(
                             }
                             Some(VirtualKeyCode::C) => {
                                 stats.clear_min_and_max();
+                            }
+                            Some(VirtualKeyCode::V) => {
+                                vsync_on = !vsync_on;
+                                render_cx.set_present_mode(
+                                    &mut render_state.surface,
+                                    if vsync_on {
+                                        wgpu::PresentMode::Fifo
+                                    } else {
+                                        wgpu::PresentMode::Immediate
+                                    },
+                                );
                             }
                             Some(VirtualKeyCode::Escape) => {
                                 *control_flow = ControlFlow::Exit;
@@ -314,6 +326,7 @@ fn run(
                     width as f64,
                     height as f64,
                     stats.samples(),
+                    vsync_on,
                 );
             }
             let surface_texture = render_state

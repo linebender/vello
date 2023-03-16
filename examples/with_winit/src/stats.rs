@@ -40,17 +40,17 @@ impl Snapshot {
         viewport_width: f64,
         viewport_height: f64,
         samples: T,
+        vsync: bool,
     ) where
         T: Iterator<Item = &'a u64>,
     {
         let width = (viewport_width * 0.4).max(200.).min(600.);
-        let height = width * 0.6;
+        let height = width * 0.7;
         let x_offset = viewport_width - width;
         let y_offset = viewport_height - height;
         let offset = Affine::translate((x_offset, y_offset));
-        let text_height = height * 0.1;
-        let left_margin = width * 0.01;
-        let text_size = (text_height * 0.9) as f32;
+
+        // Draw the background
         sb.fill(
             Fill::NonZero,
             offset,
@@ -58,38 +58,29 @@ impl Snapshot {
             None,
             &Rect::new(0., 0., width, height),
         );
-        text.add(
-            sb,
-            None,
-            text_size,
-            Some(&Brush::Solid(Color::WHITE)),
-            offset * Affine::translate((left_margin, text_height)),
-            &format!("Frame Time: {:.2} ms", self.frame_time_ms),
-        );
-        text.add(
-            sb,
-            None,
-            text_size,
-            Some(&Brush::Solid(Color::WHITE)),
-            offset * Affine::translate((left_margin, 2. * text_height)),
-            &format!("Frame Time (min): {:.2} ms", self.frame_time_min_ms),
-        );
-        text.add(
-            sb,
-            None,
-            text_size,
-            Some(&Brush::Solid(Color::WHITE)),
-            offset * Affine::translate((left_margin, 3. * text_height)),
-            &format!("Frame Time (max): {:.2} ms", self.frame_time_max_ms),
-        );
-        text.add(
-            sb,
-            None,
-            text_size,
-            Some(&Brush::Solid(Color::WHITE)),
-            offset * Affine::translate((left_margin, 4. * text_height)),
-            &format!("Resolution: {viewport_width}x{viewport_height}"),
-        );
+
+        let labels = [
+            format!("Frame Time: {:.2} ms", self.frame_time_ms),
+            format!("Frame Time (min): {:.2} ms", self.frame_time_min_ms),
+            format!("Frame Time (max): {:.2} ms", self.frame_time_max_ms),
+            format!("VSync: {}", if vsync { "on" } else { "off" }),
+            format!("Resolution: {viewport_width}x{viewport_height}"),
+        ];
+
+        // height / 2 is dedicated to the text labels and the rest is filled by the bar graph.
+        let text_height = height * 0.5 / (1 + labels.len()) as f64;
+        let left_margin = width * 0.01;
+        let text_size = (text_height * 0.9) as f32;
+        for (i, label) in labels.iter().enumerate() {
+            text.add(
+                sb,
+                None,
+                text_size,
+                Some(&Brush::Solid(Color::WHITE)),
+                offset * Affine::translate((left_margin, (i + 1) as f64 * text_height)),
+                &label,
+            );
+        }
         text.add(
             sb,
             None,
@@ -112,7 +103,7 @@ impl Snapshot {
             LineTo((bar_width, graph_max_height).into()),
         ];
         for (i, sample) in samples.enumerate() {
-            let t = offset * Affine::translate(((i as f64) * bar_extent, graph_max_height));
+            let t = offset * Affine::translate((i as f64 * bar_extent, graph_max_height));
             // The height of each sample is based on its ratio to the maximum observed frame time.
             // Currently this maximum scale is sticky and a high temporary spike will permanently
             // shrink the draw size of the overall average sample, so scale the size non-linearly to
@@ -121,7 +112,7 @@ impl Snapshot {
             let s = Affine::scale_non_uniform(1., -h.sqrt());
             sb.fill(
                 Fill::NonZero,
-                t * Affine::translate((left_margin, 5. * text_height)) * s,
+                t * Affine::translate((left_margin, (1 + labels.len()) as f64 * text_height)) * s,
                 Color::rgb8(0, 240, 0),
                 None,
                 &bar,

@@ -92,6 +92,13 @@ impl RenderContext {
             .configure(&self.devices[surface.dev_id].device, &surface.config);
     }
 
+    pub fn set_present_mode(&self, surface: &mut RenderSurface, present_mode: wgpu::PresentMode) {
+        surface.config.present_mode = present_mode;
+        surface
+            .surface
+            .configure(&self.devices[surface.dev_id].device, &surface.config);
+    }
+
     /// Finds or creates a compatible device handle id.
     pub async fn device(&mut self, compatible_surface: Option<&Surface>) -> Option<usize> {
         let compatible = match compatible_surface {
