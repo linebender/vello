@@ -99,7 +99,7 @@ fn run(
     let mut simple_text = SimpleText::new();
     let mut images = ImageCache::new();
     let mut stats = stats::Stats::new();
-    let mut stats_toggle = true;
+    let mut stats_shown = true;
     let start = Instant::now();
 
     let mut touch_state = multi_touch::TouchState::new();
@@ -146,7 +146,10 @@ fn run(
                                 transform = Affine::IDENTITY;
                             }
                             Some(VirtualKeyCode::S) => {
-                                stats_toggle = !stats_toggle;
+                                stats_shown = !stats_shown;
+                            }
+                            Some(VirtualKeyCode::C) => {
+                                stats.clear_min_and_max();
                             }
                             Some(VirtualKeyCode::Escape) => {
                                 *control_flow = ControlFlow::Exit;
@@ -304,7 +307,7 @@ fn run(
                 transform = transform * Affine::scale(scale_factor);
             }
             builder.append(&fragment, Some(transform));
-            if stats_toggle {
+            if stats_shown {
                 snapshot.draw_layer(
                     &mut builder,
                     &mut scene_params.text,

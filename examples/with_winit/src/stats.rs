@@ -168,6 +168,11 @@ impl Stats {
         }
     }
 
+    pub fn clear_min_and_max(&mut self) {
+        self.min = u64::MAX;
+        self.max = u64::MIN;
+    }
+
     pub fn add_sample(&mut self, sample: Sample) {
         let oldest = if self.count < SLIDING_WINDOW_SIZE {
             self.count += 1;
@@ -181,11 +186,7 @@ impl Stats {
         if let Some(oldest) = oldest {
             self.sum -= oldest;
         }
-        if micros < self.min {
-            self.min = micros;
-        }
-        if micros > self.max {
-            self.max = micros;
-        }
+        self.min = self.min.min(micros);
+        self.max = self.max.max(micros);
     }
 }
