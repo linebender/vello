@@ -158,9 +158,9 @@ fn run(
                                 render_cx.set_present_mode(
                                     &mut render_state.surface,
                                     if vsync_on {
-                                        wgpu::PresentMode::Fifo
+                                        wgpu::PresentMode::AutoVsync
                                     } else {
-                                        wgpu::PresentMode::Immediate
+                                        wgpu::PresentMode::AutoNoVsync
                                     },
                                 );
                             }
