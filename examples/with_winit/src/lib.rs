@@ -260,7 +260,7 @@ fn run(
             let height = render_state.surface.config.height;
             let device_handle = &render_cx.devices[render_state.surface.dev_id];
             let snapshot = stats.snapshot();
-            let _stats_frame = stats.frame_scope();
+            let frame_start_time = Instant::now();
 
             // Allow looping forever
             scene_ix = scene_ix.rem_euclid(scenes.scenes.len() as i32);
@@ -310,6 +310,7 @@ fn run(
                     &mut scene_params.text,
                     width as f64,
                     height as f64,
+                    stats.samples(),
                 );
             }
             let surface_texture = render_state
@@ -350,6 +351,10 @@ fn run(
                 .expect("failed to render to surface");
             surface_texture.present();
             device_handle.device.poll(wgpu::Maintain::Poll);
+
+            stats.add_sample(stats::Sample {
+                frame_time_us: frame_start_time.elapsed().as_micros() as u64,
+            });
         }
         Event::UserEvent(event) => match event {
             #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]

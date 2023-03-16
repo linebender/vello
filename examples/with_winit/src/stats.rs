@@ -15,9 +15,9 @@
 // Also licensed under MIT license, at your choice.
 
 use scenes::SimpleText;
-use std::{collections::VecDeque, time::Instant};
+use std::collections::VecDeque;
 use vello::{
-    kurbo::{Affine, Rect},
+    kurbo::{Affine, PathEl, Rect},
     peniko::{Brush, Color, Fill},
     SceneBuilder,
 };
@@ -33,20 +33,23 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
-    pub fn draw_layer(
+    pub fn draw_layer<'a, T>(
         &self,
         sb: &mut SceneBuilder,
         text: &mut SimpleText,
         viewport_width: f64,
         viewport_height: f64,
-    ) {
-        let width = (viewport_width * 0.4).max(200.).min(400.);
-        let height = width * 0.3;
+        samples: T,
+    ) where
+        T: Iterator<Item = &'a u64>,
+    {
+        let width = (viewport_width * 0.4).max(200.).min(600.);
+        let height = width * 0.6;
         let x_offset = viewport_width - width;
         let y_offset = viewport_height - height;
         let offset = Affine::translate((x_offset, y_offset));
-        let text_height = height * 0.2;
-        let left_margin = width * 0.03;
+        let text_height = height * 0.1;
+        let left_margin = width * 0.01;
         let text_size = (text_height * 0.9) as f32;
         sb.fill(
             Fill::NonZero,
@@ -95,7 +98,40 @@ impl Snapshot {
             offset * Affine::translate((width * 0.67, text_height)),
             &format!("FPS: {:.2}", self.fps),
         );
+
+        // Plot the samples with a bar graph
+        use PathEl::*;
+        let graph_max_height = height * 0.5;
+        let graph_max_width = width - 2. * left_margin;
+        let bar_extent = graph_max_width / (SLIDING_WINDOW_SIZE as f64);
+        let bar_width = bar_extent * 0.3;
+        let bar = [
+            MoveTo((0., graph_max_height).into()),
+            LineTo((0., 0.).into()),
+            LineTo((bar_width, 0.).into()),
+            LineTo((bar_width, graph_max_height).into()),
+        ];
+        for (i, sample) in samples.enumerate() {
+            let t = offset * Affine::translate(((i as f64) * bar_extent, graph_max_height));
+            // The height of each sample is based on its ratio to the maximum observed frame time.
+            // Currently this maximum scale is sticky and a high temporary spike will permanently
+            // shrink the draw size of the overall average sample, so scale the size non-linearly to
+            // emphasize smaller samples.
+            let h = (*sample as f64) * 0.001 / self.frame_time_max_ms;
+            let s = Affine::scale_non_uniform(1., -h.sqrt());
+            sb.fill(
+                Fill::NonZero,
+                t * Affine::translate((left_margin, 5. * text_height)) * s,
+                Color::rgb8(0, 240, 0),
+                None,
+                &bar,
+            );
+        }
     }
+}
+
+pub struct Sample {
+    pub frame_time_us: u64,
 }
 
 pub struct Stats {
@@ -104,18 +140,6 @@ pub struct Stats {
     min: u64,
     max: u64,
     samples: VecDeque<u64>,
-}
-
-pub struct FrameScope<'a> {
-    stats: &'a mut Stats,
-    start: Instant,
-}
-
-impl<'a> Drop for FrameScope<'a> {
-    fn drop(&mut self) {
-        self.stats
-            .add_sample(self.start.elapsed().as_micros() as u64);
-    }
 }
 
 impl Stats {
@@ -129,6 +153,10 @@ impl Stats {
         }
     }
 
+    pub fn samples(&self) -> impl Iterator<Item = &u64> {
+        self.samples.iter()
+    }
+
     pub fn snapshot(&self) -> Snapshot {
         let frame_time_ms = (self.sum as f64 / self.count as f64) * 0.001;
         let fps = 1000. / frame_time_ms;
@@ -140,20 +168,14 @@ impl Stats {
         }
     }
 
-    pub fn frame_scope<'a>(&'a mut self) -> FrameScope<'a> {
-        FrameScope {
-            stats: self,
-            start: Instant::now(),
-        }
-    }
-
-    fn add_sample(&mut self, micros: u64) {
+    pub fn add_sample(&mut self, sample: Sample) {
         let oldest = if self.count < SLIDING_WINDOW_SIZE {
             self.count += 1;
             None
         } else {
             self.samples.pop_front()
         };
+        let micros = sample.frame_time_us;
         self.sum += micros;
         self.samples.push_back(micros);
         if let Some(oldest) = oldest {
