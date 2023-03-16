@@ -54,3 +54,4 @@ wgpu = "0.15"
 # Used for examples
 clap = "4.1.0"
 anyhow = "1.0"
+pollster = "0.3.0"

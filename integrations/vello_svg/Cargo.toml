@@ -13,4 +13,4 @@ repository.workspace = true
 
 [dependencies]
 vello = { path = "../../" }
-usvg = "0.28"
+usvg = "0.29"
