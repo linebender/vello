@@ -101,6 +101,7 @@ fn run(
     let mut stats = stats::Stats::new();
     let mut stats_shown = true;
     let mut vsync_on = true;
+    let mut frame_start_time = Instant::now();
     let start = Instant::now();
 
     let mut touch_state = multi_touch::TouchState::new();
@@ -275,7 +276,6 @@ fn run(
             let height = render_state.surface.config.height;
             let device_handle = &render_cx.devices[render_state.surface.dev_id];
             let snapshot = stats.snapshot();
-            let frame_start_time = Instant::now();
 
             // Allow looping forever
             scene_ix = scene_ix.rem_euclid(scenes.scenes.len() as i32);
@@ -371,6 +371,7 @@ fn run(
             stats.add_sample(stats::Sample {
                 frame_time_us: frame_start_time.elapsed().as_micros() as u64,
             });
+            frame_start_time = Instant::now();
         }
         Event::UserEvent(event) => match event {
             #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
