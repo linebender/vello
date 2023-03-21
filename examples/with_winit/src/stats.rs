@@ -18,7 +18,7 @@ use scenes::SimpleText;
 use std::collections::VecDeque;
 use vello::{
     kurbo::{Affine, PathEl, Rect},
-    peniko::{Brush, Color, Fill},
+    peniko::{Brush, Color, Fill, Stroke},
     SceneBuilder,
 };
 
@@ -92,10 +92,12 @@ impl Snapshot {
 
         // Plot the samples with a bar graph
         use PathEl::*;
+        let left_padding = width * 0.05; // Left padding for the frame time marker text.
         let graph_max_height = height * 0.5;
-        let graph_max_width = width - 2. * left_margin;
+        let graph_max_width = width - 2. * left_margin - left_padding;
+        let left_margin_padding = left_margin + left_padding;
         let bar_extent = graph_max_width / (SLIDING_WINDOW_SIZE as f64);
-        let bar_width = bar_extent * 0.3;
+        let bar_width = bar_extent * 0.4;
         let bar = [
             MoveTo((0., graph_max_height).into()),
             LineTo((0., 0.).into()),
@@ -109,10 +111,49 @@ impl Snapshot {
             let s = Affine::scale_non_uniform(1., -h);
             sb.fill(
                 Fill::NonZero,
-                t * Affine::translate((left_margin, (1 + labels.len()) as f64 * text_height)) * s,
-                Color::rgb8(0, 240, 0),
+                t * Affine::translate((
+                    left_margin_padding,
+                    (1 + labels.len()) as f64 * text_height,
+                )) * s,
+                if *sample < 16667 {
+                    Color::rgb8(100, 143, 255)
+                } else if *sample < 33334 {
+                    Color::rgb8(255, 176, 0)
+                } else {
+                    Color::rgb8(220, 38, 127)
+                },
                 None,
                 &bar,
+            );
+        }
+        // Draw horizontal lines to mark 8.33ms, 16.33ms, and 33.33ms
+        let marker = [
+            MoveTo((0., graph_max_height).into()),
+            LineTo((graph_max_width, graph_max_height).into()),
+        ];
+        let thresholds = [8.33, 16.66, 33.33];
+        let thres_text_height = graph_max_height * 0.05;
+        let thres_text_height_2 = thres_text_height * 0.5;
+        for t in thresholds.iter().filter(|&&t| t < self.frame_time_max_ms) {
+            let y = t / self.frame_time_max_ms;
+            text.add(
+                sb,
+                None,
+                thres_text_height as f32,
+                Some(&Brush::Solid(Color::WHITE)),
+                offset
+                    * Affine::translate((
+                        left_margin,
+                        (2. - y) * graph_max_height + thres_text_height_2,
+                    )),
+                &format!("{}", t),
+            );
+            sb.stroke(
+                &Stroke::new((graph_max_height * 0.01) as f32),
+                offset * Affine::translate((left_margin_padding, (1. - y) * graph_max_height)),
+                Color::WHITE,
+                None,
+                &marker,
             );
         }
     }
