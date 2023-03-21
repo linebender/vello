@@ -24,6 +24,9 @@ pub use peniko;
 /// 2D geometry, with a focus on curves.
 pub use peniko::kurbo;
 
+#[doc(hidden)]
+pub use fello;
+
 pub mod encoding;
 
 pub mod glyph;

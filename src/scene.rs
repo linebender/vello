@@ -14,6 +14,7 @@
 //
 // Also licensed under MIT license, at your choice.
 
+use fello::NormalizedCoord;
 use peniko::kurbo::{Affine, Rect, Shape};
 use peniko::{BlendMode, BrushRef, Color, Fill, Font, Image, Stroke, StyleRef};
 
@@ -262,7 +263,7 @@ impl<'a> DrawGlyphs<'a> {
     }
 
     /// Sets the normalized design space coordinates for a variable font instance.
-    pub fn normalized_coords(mut self, coords: &[i16]) -> Self {
+    pub fn normalized_coords(mut self, coords: &[NormalizedCoord]) -> Self {
         self.encoding
             .normalized_coords
             .truncate(self.run.normalized_coords.start);

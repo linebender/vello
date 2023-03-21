@@ -16,17 +16,19 @@
 
 //! Support for glyph rendering.
 
-pub use moscato::pinot;
+use fello::scale::Pen;
 
-use crate::encoding::Encoding;
+use crate::encoding::{Encoding, PathEncoder};
 use crate::scene::{SceneBuilder, SceneFragment};
-use peniko::kurbo::{Affine, Rect};
-use peniko::{Brush, Color, Fill, Mix, Style};
+use peniko::kurbo::Affine;
+use peniko::{Brush, Color, Fill, Style};
 
-use moscato::{Context, Scaler};
-use pinot::{types::Tag, FontRef};
-
-use smallvec::SmallVec;
+use fello::{
+    raw::types::GlyphId,
+    raw::FontRef,
+    scale::{Context, Scaler},
+    FontKey, Setting, Size,
+};
 
 /// General context for creating scene fragments for glyph outlines.
 pub struct GlyphContext {
@@ -52,30 +54,23 @@ impl GlyphContext {
     pub fn new_provider<'a, V>(
         &'a mut self,
         font: &FontRef<'a>,
-        font_id: Option<u64>,
+        font_id: Option<FontKey>,
         ppem: f32,
         hint: bool,
         variations: V,
     ) -> GlyphProvider<'a>
     where
         V: IntoIterator,
-        V::Item: Into<(Tag, f32)>,
+        V::Item: Into<Setting<f32>>,
     {
-        let scaler = if let Some(font_id) = font_id {
-            self.ctx
-                .new_scaler_with_id(font, font_id)
-                .size(ppem)
-                .hint(hint)
-                .variations(variations)
-                .build()
-        } else {
-            self.ctx
-                .new_scaler(font)
-                .size(ppem)
-                .hint(hint)
-                .variations(variations)
-                .build()
-        };
+        let scaler = self
+            .ctx
+            .new_scaler()
+            .size(Size::new(ppem))
+            .hint(hint.then_some(fello::scale::Hinting::VerticalSubpixel))
+            .key(font_id)
+            .variations(variations)
+            .build(font);
         GlyphProvider { scaler }
     }
 }
@@ -90,276 +85,86 @@ impl<'a> GlyphProvider<'a> {
     /// Returns a scene fragment containing the commands to render the
     /// specified glyph.
     pub fn get(&mut self, gid: u16, brush: Option<&Brush>) -> Option<SceneFragment> {
-        let glyph = self.scaler.glyph(gid)?;
-        let path = glyph.path(0)?;
         let mut fragment = SceneFragment::default();
         let mut builder = SceneBuilder::for_fragment(&mut fragment);
+        let mut path = BezPathPen::default();
+        self.scaler.outline(GlyphId::new(gid), &mut path).ok()?;
         builder.fill(
             Fill::NonZero,
             Affine::IDENTITY,
             brush.unwrap_or(&Brush::Solid(Color::rgb8(255, 255, 255))),
             None,
-            &convert_path(path.elements()),
+            &path.0,
         );
         Some(fragment)
     }
 
     pub fn encode_glyph(&mut self, gid: u16, style: &Style, encoding: &mut Encoding) -> Option<()> {
-        let glyph = self.scaler.glyph(gid)?;
-        let path = glyph.path(0)?;
         match style {
             Style::Fill(Fill::NonZero) => encoding.encode_linewidth(-1.0),
             Style::Fill(Fill::EvenOdd) => encoding.encode_linewidth(-2.0),
             Style::Stroke(stroke) => encoding.encode_linewidth(stroke.width),
         }
-        let mut path_encoder = encoding.encode_path(matches!(style, Style::Fill(_)));
-        for el in path.elements() {
-            use moscato::Element::*;
-            match el {
-                MoveTo(p) => path_encoder.move_to(p.x, p.y),
-                LineTo(p) => path_encoder.line_to(p.x, p.y),
-                QuadTo(c, p) => path_encoder.quad_to(c.x, c.y, p.x, p.y),
-                CurveTo(c0, c1, p) => path_encoder.cubic_to(c0.x, c0.y, c1.x, c1.y, p.x, p.y),
-                Close => path_encoder.close(),
-            }
-        }
-        if path_encoder.finish(false) != 0 {
+        let mut path = PathEncoderPen(encoding.encode_path(matches!(style, Style::Fill(_))));
+        self.scaler.outline(GlyphId::new(gid), &mut path).ok()?;
+        if path.0.finish(false) != 0 {
             Some(())
         } else {
             None
         }
     }
+}
 
-    /// Returns a scene fragment containing the commands and resources to
-    /// render the specified color glyph.
-    pub fn get_color(&mut self, palette_index: u16, gid: u16) -> Option<SceneFragment> {
-        use moscato::Command;
-        let glyph = self.scaler.color_glyph(palette_index, gid)?;
-        let mut fragment = SceneFragment::default();
-        let mut builder = SceneBuilder::for_fragment(&mut fragment);
-        let mut xform_stack: SmallVec<[Affine; 8]> = SmallVec::new();
-        for command in glyph.commands() {
-            match command {
-                Command::PushTransform(xform) => {
-                    let xform = if let Some(parent) = xform_stack.last() {
-                        convert_transform(xform) * *parent
-                    } else {
-                        convert_transform(xform)
-                    };
-                    xform_stack.push(xform);
-                }
-                Command::PopTransform => {
-                    xform_stack.pop();
-                }
-                Command::PushClip(path_index) => {
-                    let path = glyph.path(*path_index)?;
-                    if let Some(xform) = xform_stack.last() {
-                        builder.push_layer(
-                            Mix::Clip,
-                            1.0,
-                            Affine::IDENTITY,
-                            &convert_transformed_path(path.elements(), xform),
-                        );
-                    } else {
-                        builder.push_layer(
-                            Mix::Clip,
-                            1.0,
-                            Affine::IDENTITY,
-                            &convert_path(path.elements()),
-                        );
-                    }
-                }
-                Command::PopClip => builder.pop_layer(),
-                Command::PushLayer(bounds) => {
-                    let mut min = convert_point(bounds.min);
-                    let mut max = convert_point(bounds.max);
-                    if let Some(xform) = xform_stack.last() {
-                        min = *xform * min;
-                        max = *xform * max;
-                    }
-                    let rect = Rect::from_points(min, max);
-                    builder.push_layer(Mix::Normal, 1.0, Affine::IDENTITY, &rect);
-                }
-                Command::PopLayer => builder.pop_layer(),
-                Command::BeginBlend(bounds, mode) => {
-                    let mut min = convert_point(bounds.min);
-                    let mut max = convert_point(bounds.max);
-                    if let Some(xform) = xform_stack.last() {
-                        min = *xform * min;
-                        max = *xform * max;
-                    }
-                    let rect = Rect::from_points(min, max);
-                    builder.push_layer(convert_blend(*mode), 1.0, Affine::IDENTITY, &rect);
-                }
-                Command::EndBlend => builder.pop_layer(),
-                Command::SimpleFill(path_index, brush, brush_xform) => {
-                    let path = glyph.path(*path_index)?;
-                    let brush = convert_brush(brush);
-                    let brush_xform = brush_xform.map(|xform| convert_transform(&xform));
-                    if let Some(xform) = xform_stack.last() {
-                        builder.fill(
-                            Fill::NonZero,
-                            Affine::IDENTITY,
-                            &brush,
-                            brush_xform.map(|x| x * *xform),
-                            &convert_transformed_path(path.elements(), xform),
-                        );
-                    } else {
-                        builder.fill(
-                            Fill::NonZero,
-                            Affine::IDENTITY,
-                            &brush,
-                            brush_xform,
-                            &convert_path(path.elements()),
-                        );
-                    }
-                }
-                Command::Fill(_brush, _brush_xform) => {
-                    // TODO: this needs to compute a bounding box for
-                    // the parent clips
-                }
-            }
-        }
-        Some(fragment)
+#[derive(Default)]
+struct BezPathPen(peniko::kurbo::BezPath);
+
+impl Pen for BezPathPen {
+    fn move_to(&mut self, x: f32, y: f32) {
+        self.0.move_to((x as f64, y as f64))
+    }
+
+    fn line_to(&mut self, x: f32, y: f32) {
+        self.0.line_to((x as f64, y as f64))
+    }
+
+    fn quad_to(&mut self, cx0: f32, cy0: f32, x: f32, y: f32) {
+        self.0
+            .quad_to((cx0 as f64, cy0 as f64), (x as f64, y as f64))
+    }
+
+    fn curve_to(&mut self, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x: f32, y: f32) {
+        self.0.curve_to(
+            (cx0 as f64, cy0 as f64),
+            (cx1 as f64, cy1 as f64),
+            (x as f64, y as f64),
+        )
+    }
+
+    fn close(&mut self) {
+        self.0.close_path()
     }
 }
 
-fn convert_path(path: impl Iterator<Item = moscato::Element> + Clone) -> peniko::kurbo::BezPath {
-    let mut result = peniko::kurbo::BezPath::new();
-    for el in path {
-        result.push(convert_path_el(&el));
+pub(crate) struct PathEncoderPen<'a>(pub PathEncoder<'a>);
+
+impl Pen for PathEncoderPen<'_> {
+    fn move_to(&mut self, x: f32, y: f32) {
+        self.0.move_to(x, y)
     }
-    result
-}
 
-fn convert_transformed_path(
-    path: impl Iterator<Item = moscato::Element> + Clone,
-    xform: &Affine,
-) -> peniko::kurbo::BezPath {
-    let mut result = peniko::kurbo::BezPath::new();
-    for el in path {
-        result.push(*xform * convert_path_el(&el));
+    fn line_to(&mut self, x: f32, y: f32) {
+        self.0.line_to(x, y)
     }
-    result
-}
 
-fn convert_blend(mode: moscato::CompositeMode) -> peniko::BlendMode {
-    use moscato::CompositeMode;
-    use peniko::{BlendMode, Compose};
-    let mut mix = Mix::Normal;
-    let mut compose = Compose::SrcOver;
-    match mode {
-        CompositeMode::Clear => compose = Compose::Clear,
-        CompositeMode::Src => compose = Compose::Copy,
-        CompositeMode::Dest => compose = Compose::Dest,
-        CompositeMode::SrcOver => {}
-        CompositeMode::DestOver => compose = Compose::DestOver,
-        CompositeMode::SrcIn => compose = Compose::SrcIn,
-        CompositeMode::DestIn => compose = Compose::DestIn,
-        CompositeMode::SrcOut => compose = Compose::SrcOut,
-        CompositeMode::DestOut => compose = Compose::DestOut,
-        CompositeMode::SrcAtop => compose = Compose::SrcAtop,
-        CompositeMode::DestAtop => compose = Compose::DestAtop,
-        CompositeMode::Xor => compose = Compose::Xor,
-        CompositeMode::Plus => compose = Compose::Plus,
-        CompositeMode::Screen => mix = Mix::Screen,
-        CompositeMode::Overlay => mix = Mix::Overlay,
-        CompositeMode::Darken => mix = Mix::Darken,
-        CompositeMode::Lighten => mix = Mix::Lighten,
-        CompositeMode::ColorDodge => mix = Mix::ColorDodge,
-        CompositeMode::ColorBurn => mix = Mix::ColorBurn,
-        CompositeMode::HardLight => mix = Mix::HardLight,
-        CompositeMode::SoftLight => mix = Mix::SoftLight,
-        CompositeMode::Difference => mix = Mix::Difference,
-        CompositeMode::Exclusion => mix = Mix::Exclusion,
-        CompositeMode::Multiply => mix = Mix::Multiply,
-        CompositeMode::HslHue => mix = Mix::Hue,
-        CompositeMode::HslSaturation => mix = Mix::Saturation,
-        CompositeMode::HslColor => mix = Mix::Color,
-        CompositeMode::HslLuminosity => mix = Mix::Luminosity,
+    fn quad_to(&mut self, cx0: f32, cy0: f32, x: f32, y: f32) {
+        self.0.quad_to(cx0, cy0, x, y)
     }
-    BlendMode { mix, compose }
-}
 
-fn convert_transform(xform: &moscato::Transform) -> peniko::kurbo::Affine {
-    peniko::kurbo::Affine::new([
-        xform.xx as f64,
-        xform.yx as f64,
-        xform.xy as f64,
-        xform.yy as f64,
-        xform.dx as f64,
-        xform.dy as f64,
-    ])
-}
-
-fn convert_point(point: moscato::Point) -> peniko::kurbo::Point {
-    peniko::kurbo::Point::new(point.x as f64, point.y as f64)
-}
-
-fn convert_brush(brush: &moscato::Brush) -> peniko::Brush {
-    use peniko::Gradient;
-    match brush {
-        moscato::Brush::Solid(color) => Brush::Solid(Color {
-            r: color.r,
-            g: color.g,
-            b: color.b,
-            a: color.a,
-        }),
-        moscato::Brush::LinearGradient(grad) => Brush::Gradient(
-            Gradient::new_linear(convert_point(grad.start), convert_point(grad.end))
-                .with_stops(convert_stops(&grad.stops).as_slice())
-                .with_extend(convert_extend(grad.extend)),
-        ),
-
-        moscato::Brush::RadialGradient(grad) => Brush::Gradient(
-            Gradient::new_two_point_radial(
-                convert_point(grad.center0),
-                grad.radius0,
-                convert_point(grad.center1),
-                grad.radius1,
-            )
-            .with_stops(convert_stops(&grad.stops).as_slice())
-            .with_extend(convert_extend(grad.extend)),
-        ),
+    fn curve_to(&mut self, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x: f32, y: f32) {
+        self.0.cubic_to(cx0, cy0, cx1, cy1, x, y)
     }
-}
 
-fn convert_stops(stops: &[moscato::ColorStop]) -> peniko::ColorStops {
-    stops
-        .iter()
-        .map(|stop| {
-            (
-                stop.offset,
-                Color {
-                    r: stop.color.r,
-                    g: stop.color.g,
-                    b: stop.color.b,
-                    a: stop.color.a,
-                },
-            )
-                .into()
-        })
-        .collect()
-}
-
-fn convert_extend(extend: moscato::ExtendMode) -> peniko::Extend {
-    use peniko::Extend::*;
-    match extend {
-        moscato::ExtendMode::Pad => Pad,
-        moscato::ExtendMode::Repeat => Repeat,
-        moscato::ExtendMode::Reflect => Reflect,
-    }
-}
-
-fn convert_path_el(el: &moscato::Element) -> peniko::kurbo::PathEl {
-    use peniko::kurbo::PathEl::*;
-    match el {
-        moscato::Element::MoveTo(p0) => MoveTo(convert_point(*p0)),
-        moscato::Element::LineTo(p0) => LineTo(convert_point(*p0)),
-        moscato::Element::QuadTo(p0, p1) => QuadTo(convert_point(*p0), convert_point(*p1)),
-        moscato::Element::CurveTo(p0, p1, p2) => {
-            CurveTo(convert_point(*p0), convert_point(*p1), convert_point(*p2))
-        }
-        moscato::Element::Close => ClosePath,
+    fn close(&mut self) {
+        self.0.close()
     }
 }
