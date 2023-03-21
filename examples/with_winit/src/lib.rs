@@ -37,6 +37,7 @@ use winit::{
 #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
 mod hot_reload;
 mod multi_touch;
+mod stats;
 
 #[derive(Parser, Debug)]
 #[command(about, long_about = None, bin_name="cargo run -p with_winit --")]
@@ -97,6 +98,10 @@ fn run(
     let mut fragment = SceneFragment::new();
     let mut simple_text = SimpleText::new();
     let mut images = ImageCache::new();
+    let mut stats = stats::Stats::new();
+    let mut stats_shown = true;
+    let mut vsync_on = true;
+    let mut frame_start_time = Instant::now();
     let start = Instant::now();
 
     let mut touch_state = multi_touch::TouchState::new();
@@ -141,6 +146,23 @@ fn run(
                             }
                             Some(VirtualKeyCode::Space) => {
                                 transform = Affine::IDENTITY;
+                            }
+                            Some(VirtualKeyCode::S) => {
+                                stats_shown = !stats_shown;
+                            }
+                            Some(VirtualKeyCode::C) => {
+                                stats.clear_min_and_max();
+                            }
+                            Some(VirtualKeyCode::V) => {
+                                vsync_on = !vsync_on;
+                                render_cx.set_present_mode(
+                                    &mut render_state.surface,
+                                    if vsync_on {
+                                        wgpu::PresentMode::AutoVsync
+                                    } else {
+                                        wgpu::PresentMode::AutoNoVsync
+                                    },
+                                );
                             }
                             Some(VirtualKeyCode::Escape) => {
                                 *control_flow = ControlFlow::Exit;
@@ -253,6 +275,7 @@ fn run(
             let width = render_state.surface.config.width;
             let height = render_state.surface.config.height;
             let device_handle = &render_cx.devices[render_state.surface.dev_id];
+            let snapshot = stats.snapshot();
 
             // Allow looping forever
             scene_ix = scene_ix.rem_euclid(scenes.scenes.len() as i32);
@@ -296,6 +319,16 @@ fn run(
                 transform = transform * Affine::scale(scale_factor);
             }
             builder.append(&fragment, Some(transform));
+            if stats_shown {
+                snapshot.draw_layer(
+                    &mut builder,
+                    &mut scene_params.text,
+                    width as f64,
+                    height as f64,
+                    stats.samples(),
+                    vsync_on,
+                );
+            }
             let surface_texture = render_state
                 .surface
                 .surface
@@ -334,6 +367,12 @@ fn run(
                 .expect("failed to render to surface");
             surface_texture.present();
             device_handle.device.poll(wgpu::Maintain::Poll);
+
+            let new_time = Instant::now();
+            stats.add_sample(stats::Sample {
+                frame_time_us: (new_time - frame_start_time).as_micros() as u64,
+            });
+            frame_start_time = new_time;
         }
         Event::UserEvent(event) => match event {
             #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]

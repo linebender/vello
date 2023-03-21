@@ -70,7 +70,7 @@ impl RenderContext {
             format,
             width,
             height,
-            present_mode: wgpu::PresentMode::Fifo,
+            present_mode: wgpu::PresentMode::AutoVsync,
             alpha_mode: wgpu::CompositeAlphaMode::Auto,
             view_formats: vec![],
         };
@@ -87,6 +87,13 @@ impl RenderContext {
     pub fn resize_surface(&self, surface: &mut RenderSurface, width: u32, height: u32) {
         surface.config.width = width;
         surface.config.height = height;
+        surface
+            .surface
+            .configure(&self.devices[surface.dev_id].device, &surface.config);
+    }
+
+    pub fn set_present_mode(&self, surface: &mut RenderSurface, present_mode: wgpu::PresentMode) {
+        surface.config.present_mode = present_mode;
         surface
             .surface
             .configure(&self.devices[surface.dev_id].device, &surface.config);
