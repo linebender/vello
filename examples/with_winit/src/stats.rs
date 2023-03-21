@@ -104,10 +104,22 @@ impl Snapshot {
             LineTo((bar_width, 0.).into()),
             LineTo((bar_width, graph_max_height).into()),
         ];
+        // We determine the scale of the graph based on the maximum sampled frame time unless it's
+        // greater than 3x the current average. In that case we cap the max scale at 4/3 * the
+        // current average (rounded up to the nearest multiple of 5ms). This allows the scale to
+        // adapt to the most recent sample set as relying on the maximum alone can make the
+        // displayed samples to look too small in the presence of spikes/fluctuation without
+        // manually resetting the max sample.
+        let display_max = if self.frame_time_max_ms > 3. * self.frame_time_ms {
+            round_up((1.33334 * self.frame_time_ms) as usize, 5) as f64
+        } else {
+            self.frame_time_max_ms
+        };
         for (i, sample) in samples.enumerate() {
             let t = offset * Affine::translate((i as f64 * bar_extent, graph_max_height));
             // The height of each sample is based on its ratio to the maximum observed frame time.
-            let h = (*sample as f64) * 0.001 / self.frame_time_max_ms;
+            let sample_ms = ((*sample as f64) * 0.001).min(display_max);
+            let h = sample_ms / display_max;
             let s = Affine::scale_non_uniform(1., -h);
             sb.fill(
                 Fill::NonZero,
@@ -134,8 +146,8 @@ impl Snapshot {
         let thresholds = [8.33, 16.66, 33.33];
         let thres_text_height = graph_max_height * 0.05;
         let thres_text_height_2 = thres_text_height * 0.5;
-        for t in thresholds.iter().filter(|&&t| t < self.frame_time_max_ms) {
-            let y = t / self.frame_time_max_ms;
+        for t in thresholds.iter().filter(|&&t| t < display_max) {
+            let y = t / display_max;
             text.add(
                 sb,
                 None,
@@ -218,4 +230,8 @@ impl Stats {
         self.min = self.min.min(micros);
         self.max = self.max.max(micros);
     }
+}
+
+fn round_up(n: usize, f: usize) -> usize {
+    n - 1 - (n - 1) % f + f
 }
