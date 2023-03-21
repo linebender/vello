@@ -105,11 +105,8 @@ impl Snapshot {
         for (i, sample) in samples.enumerate() {
             let t = offset * Affine::translate((i as f64 * bar_extent, graph_max_height));
             // The height of each sample is based on its ratio to the maximum observed frame time.
-            // Currently this maximum scale is sticky and a high temporary spike will permanently
-            // shrink the draw size of the overall average sample, so scale the size non-linearly to
-            // emphasize smaller samples.
             let h = (*sample as f64) * 0.001 / self.frame_time_max_ms;
-            let s = Affine::scale_non_uniform(1., -h.sqrt());
+            let s = Affine::scale_non_uniform(1., -h);
             sb.fill(
                 Fill::NonZero,
                 t * Affine::translate((left_margin, (1 + labels.len()) as f64 * text_height)) * s,
