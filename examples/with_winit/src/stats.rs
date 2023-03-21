@@ -121,19 +121,18 @@ impl Snapshot {
             let sample_ms = ((*sample as f64) * 0.001).min(display_max);
             let h = sample_ms / display_max;
             let s = Affine::scale_non_uniform(1., -h);
+            let color = match *sample {
+                ..=16_667 => Color::rgb8(100, 143, 255),
+                ..=33_334 => Color::rgb8(255, 176, 0),
+                _ => Color::rgb8(220, 38, 127),
+            };
             sb.fill(
                 Fill::NonZero,
                 t * Affine::translate((
                     left_margin_padding,
                     (1 + labels.len()) as f64 * text_height,
                 )) * s,
-                if *sample < 16667 {
-                    Color::rgb8(100, 143, 255)
-                } else if *sample < 33334 {
-                    Color::rgb8(255, 176, 0)
-                } else {
-                    Color::rgb8(220, 38, 127)
-                },
+                color,
                 None,
                 &bar,
             );
