@@ -17,8 +17,9 @@
 use std::collections::HashMap;
 
 use super::{Encoding, StreamOffsets};
-use crate::glyph::GlyphProvider;
 
+use fello::scale::Scaler;
+use fello::GlyphId;
 use peniko::{Fill, Style};
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Default, Debug)]
@@ -46,18 +47,31 @@ impl GlyphCache {
         &mut self,
         key: GlyphKey,
         style: &Style,
-        scaler: &mut GlyphProvider,
+        scaler: &mut Scaler,
     ) -> Option<CachedRange> {
+        let is_fill = matches!(style, Style::Fill(_));
+        let is_var = !scaler.normalized_coords().is_empty();
         let encoding_cache = &mut self.encoding;
         let mut encode_glyph = || {
             let start = encoding_cache.stream_offsets();
-            scaler.encode_glyph(key.glyph_id as u16, style, encoding_cache)?;
+            match style {
+                Style::Fill(Fill::NonZero) => encoding_cache.encode_linewidth(-1.0),
+                Style::Fill(Fill::EvenOdd) => encoding_cache.encode_linewidth(-2.0),
+                Style::Stroke(stroke) => encoding_cache.encode_linewidth(stroke.width),
+            }
+            let mut path = crate::glyph::PathEncoderPen(encoding_cache.encode_path(is_fill));
+            scaler
+                .outline(GlyphId::new(key.glyph_id as u16), &mut path)
+                .ok()?;
+            if path.0.finish(false) == 0 {
+                return None;
+            }
             let end = encoding_cache.stream_offsets();
             Some(CachedRange { start, end })
         };
-        // For now, only cache non-zero filled glyphs so we don't need to keep style
+        // For now, only cache non-zero filled, non-variable glyphs so we don't need to keep style
         // as part of the key.
-        let range = if matches!(style, Style::Fill(Fill::NonZero)) {
+        let range = if matches!(style, Style::Fill(Fill::NonZero)) && !is_var {
             use std::collections::hash_map::Entry;
             match self.glyphs.entry(key) {
                 Entry::Occupied(entry) => *entry.get(),

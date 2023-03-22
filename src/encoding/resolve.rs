@@ -17,7 +17,6 @@
 use std::ops::Range;
 
 use bytemuck::{Pod, Zeroable};
-use moscato::pinot::FontRef;
 use peniko::Image;
 
 use super::{
@@ -26,7 +25,6 @@ use super::{
     ramp_cache::{RampCache, Ramps},
     DrawTag, Encoding, PathTag, StreamOffsets, Transform,
 };
-use crate::glyph::GlyphContext;
 use crate::shaders;
 
 /// Layout of a packed encoding.
@@ -144,7 +142,7 @@ pub struct Config {
 pub struct Resolver {
     glyph_cache: GlyphCache,
     glyph_ranges: Vec<CachedRange>,
-    glyph_cx: GlyphContext,
+    glyph_cx: fello::scale::Context,
     ramp_cache: RampCache,
     image_cache: ImageCache,
     pending_images: Vec<PendingImage>,
@@ -389,14 +387,19 @@ impl Resolver {
                     let run = &encoding.glyph_runs[*index];
                     let font_id = run.font.data.id();
                     let font_size_u32 = run.font_size.to_bits();
-                    let Some(font) = FontRef::from_index(run.font.data.as_ref(), run.font.index) else { continue };
+                    let Ok(font_file) = fello::raw::FileRef::new(run.font.data.as_ref()) else { continue };
+                    let font = match font_file {
+                        fello::raw::FileRef::Font(font) => Some(font),
+                        fello::raw::FileRef::Collection(collection) => {
+                            collection.get(run.font.index).ok()
+                        }
+                    };
+                    let Some(font) = font else { continue };
                     let glyphs = &encoding.glyphs[run.glyphs.clone()];
-                    let _coords = &encoding.normalized_coords[run.normalized_coords.clone()];
-                    let vars: [(moscato::pinot::types::Tag, f32); 0] = [];
-                    let hint_id = if run.font.index < 0xFF {
-                        Some(font_id << 8 | run.font.index as u64)
-                    } else {
-                        None
+                    let coords = &encoding.normalized_coords[run.normalized_coords.clone()];
+                    let key = fello::FontKey {
+                        data_id: font_id,
+                        index: run.font.index,
                     };
                     let mut hint = run.hint;
                     let mut font_size = run.font_size;
@@ -417,7 +420,12 @@ impl Resolver {
                     }
                     let mut scaler = self
                         .glyph_cx
-                        .new_provider(&font, hint_id, font_size, hint, vars);
+                        .new_scaler()
+                        .key(Some(key))
+                        .hint(hint.then_some(fello::scale::Hinting::VerticalSubpixel))
+                        .coords(coords)
+                        .size(fello::Size::new(font_size))
+                        .build(&font);
                     let glyph_start = self.glyph_ranges.len();
                     for glyph in glyphs {
                         let key = GlyphKey {

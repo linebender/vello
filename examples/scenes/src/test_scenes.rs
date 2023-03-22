@@ -135,6 +135,7 @@ fn animated_text(sb: &mut SceneBuilder, params: &mut SceneParams) {
     );
     params.text.add_run(
         sb,
+        None,
         text_size,
         Color::WHITE,
         Affine::translate((110.0, 700.0)),
@@ -142,6 +143,21 @@ fn animated_text(sb: &mut SceneBuilder, params: &mut SceneParams) {
         Some(Affine::skew(20f64.to_radians().tan(), 0.0)),
         &Stroke::new(1.0),
         s,
+    );
+    let t = ((params.time).sin() * 0.5 + 0.5) as f32;
+    let weight = t * 700.0 + 200.0;
+    let width = t * 150.0 + 50.0;
+    params.text.add_var_run(
+        sb,
+        None,
+        72.0,
+        &[("wght", weight), ("wdth", width)],
+        Color::WHITE,
+        Affine::translate((110.0, 800.0)),
+        // Add a skew to simulate an oblique font.
+        None,
+        Fill::NonZero,
+        "And some vello\ntext with a newline",
     );
     let th = params.time as f64;
     let center = Point::new(500.0, 500.0);

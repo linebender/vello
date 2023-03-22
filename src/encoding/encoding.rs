@@ -21,6 +21,7 @@ use super::{
     PathEncoder, PathTag, Transform,
 };
 
+use fello::NormalizedCoord;
 use peniko::{kurbo::Shape, BlendMode, BrushRef, ColorStop, Extend, GradientKind, Image};
 
 /// Encoded data streams for a scene.
@@ -47,7 +48,7 @@ pub struct Encoding {
     /// Sequences of glyphs.
     pub glyph_runs: Vec<GlyphRun>,
     /// Normalized coordinate buffer for variable fonts.
-    pub normalized_coords: Vec<i16>,
+    pub normalized_coords: Vec<NormalizedCoord>,
     /// Number of encoded paths.
     pub n_paths: u32,
     /// Number of encoded path segments.
