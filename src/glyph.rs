@@ -101,9 +101,9 @@ impl<'a> GlyphProvider<'a> {
 
     pub fn encode_glyph(&mut self, gid: u16, style: &Style, encoding: &mut Encoding) -> Option<()> {
         match style {
-            Style::Fill(Fill::NonZero) => encoding.encode_linewidth(-1.0),
-            Style::Fill(Fill::EvenOdd) => encoding.encode_linewidth(-2.0),
-            Style::Stroke(stroke) => encoding.encode_linewidth(stroke.width),
+            Style::Fill(Fill::NonZero) => encoding.encode_fill(false),
+            Style::Fill(Fill::EvenOdd) => encoding.encode_fill(true),
+            Style::Stroke(stroke) => encoding.encode_stroke(stroke.width, stroke.scale),
         }
         let mut path = PathEncoderPen(encoding.encode_path(matches!(style, Style::Fill(_))));
         self.scaler.outline(GlyphId::new(gid), &mut path).ok()?;

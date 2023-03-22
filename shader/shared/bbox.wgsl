@@ -9,7 +9,7 @@ struct PathBbox {
     y0: i32,
     x1: i32,
     y1: i32,
-    linewidth: f32,
+    linewidth: u32,
     trans_ix: u32,
 }
 

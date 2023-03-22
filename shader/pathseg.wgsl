@@ -29,7 +29,7 @@ struct AtomicPathBbox {
     y0: atomic<i32>,
     x1: atomic<i32>,
     y1: atomic<i32>,
-    linewidth: f32,
+    linewidth: u32,
     trans_ix: u32,
 }
 
@@ -115,6 +115,10 @@ fn round_up(x: f32) -> i32 {
     return i32(ceil(x));
 }
 
+fn is_stroke(linewidth: u32) -> bool {
+    return (linewidth & 0x7f800000u) != 0x7f800000u;
+}
+
 @compute @workgroup_size(256)
 fn main(
     @builtin(global_invocation_id) global_id: vec3<u32>,
@@ -129,7 +133,7 @@ fn main(
     var tag_byte = (tag_word >> shift) & 0xffu;
 
     let out = &path_bboxes[tm.path_ix];
-    let linewidth = bitcast<f32>(scene[config.linewidth_base + tm.linewidth_ix]);
+    let linewidth = scene[config.linewidth_base + tm.linewidth_ix];
     if (tag_byte & PATH_TAG_PATH) != 0u {
         (*out).linewidth = linewidth;
         (*out).trans_ix = tm.trans_ix;
@@ -182,14 +186,20 @@ fn main(
             }
         }
         var stroke = vec2(0.0, 0.0);
-        if linewidth >= 0.0 {
-            // See https://www.iquilezles.org/www/articles/ellipses/ellipses.htm
-            // This is the correct bounding box, but we're not handling rendering
-            // in the isotropic case, so it may mismatch.
-            stroke = 0.5 * linewidth * vec2(length(transform.matrx.xz), length(transform.matrx.yw));
+        var flags = 0u;
+        if is_stroke(linewidth) {
+            let linewidth_f32 = bitcast<f32>(linewidth);
+            if linewidth_f32 >= 0.0 {
+                // See https://www.iquilezles.org/www/articles/ellipses/ellipses.htm
+                // This is the correct bounding box, but we're not handling rendering
+                // in the isotropic case, so it may mismatch.
+                stroke = 0.5 * linewidth_f32 * vec2(length(transform.matrx.xz), length(transform.matrx.yw));
+            } else {
+                stroke = 0.5 * linewidth_f32 * vec2(-1.0);
+            }
             bbox += vec4(-stroke, stroke);
+            flags = 1u;
         }
-        let flags = u32(linewidth >= 0.0);
         cubics[global_id.x] = Cubic(p0, p1, p2, p3, stroke, tm.path_ix, flags);
         // Update bounding box using atomics only. Computing a monoid is a
         // potential future optimization.

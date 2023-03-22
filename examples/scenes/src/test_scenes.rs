@@ -82,9 +82,30 @@ fn funky_paths(sb: &mut SceneBuilder, _: &mut SceneParams) {
         None,
         &only_movetos,
     );
+    sb.fill(
+        Fill::NonZero,
+        Affine::translate((100.0, 100.0)),
+        Color::rgb8(0, 0, 255),
+        None,
+        &missing_movetos,
+    );
     sb.stroke(
         &Stroke::new(8.0),
         Affine::translate((100.0, 100.0)),
+        Color::rgb8(0, 255, 255),
+        None,
+        &missing_movetos,
+    );
+    sb.fill(
+        Fill::NonZero,
+        Affine::translate((300.0, 100.0)),
+        Color::rgb8(0, 0, 255),
+        None,
+        &missing_movetos,
+    );
+    sb.stroke(
+        &Stroke::new(8.0).with_scale(false),
+        Affine::translate((300.0, 100.0)),
         Color::rgb8(0, 255, 255),
         None,
         &missing_movetos,

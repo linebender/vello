@@ -89,7 +89,7 @@ impl Encoding {
         self.color_stops.clear();
         if !is_fragment {
             self.transforms.push(Transform::IDENTITY);
-            self.linewidths.push(-1.0);
+            self.linewidths.push(f32::INFINITY);
         }
     }
 
@@ -178,6 +178,22 @@ impl Encoding {
         if self.linewidths.last() != Some(&linewidth) {
             self.path_tags.push(PathTag::LINEWIDTH);
             self.linewidths.push(linewidth);
+        }
+    }
+
+    pub fn encode_fill(&mut self, even_odd: bool) {
+        if even_odd {
+            self.encode_linewidth(f32::from_bits(0x7f800000));
+        } else {
+            self.encode_linewidth(f32::from_bits(0x7fc00000));
+        }
+    }
+
+    pub fn encode_stroke(&mut self, width: f32, scaled: bool) {
+        if scaled {
+            self.encode_linewidth(width);
+        } else {
+            self.encode_linewidth(-width);
         }
     }
 

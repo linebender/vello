@@ -101,7 +101,7 @@ impl<'a> SceneBuilder<'a> {
         let blend = blend.into();
         self.scene
             .encode_transform(Transform::from_kurbo(&transform));
-        self.scene.encode_linewidth(-1.0);
+        self.scene.encode_fill(false);
         if !self.scene.encode_shape(shape, true) {
             // If the layer shape is invalid, encode a valid empty path. This suppresses
             // all drawing until the layer is popped.
@@ -127,10 +127,7 @@ impl<'a> SceneBuilder<'a> {
     ) {
         self.scene
             .encode_transform(Transform::from_kurbo(&transform));
-        self.scene.encode_linewidth(match style {
-            Fill::NonZero => -1.0,
-            Fill::EvenOdd => -2.0,
-        });
+        self.scene.encode_fill(style == Fill::EvenOdd);
         if self.scene.encode_shape(shape, true) {
             if let Some(brush_transform) = brush_transform {
                 if self
@@ -155,7 +152,7 @@ impl<'a> SceneBuilder<'a> {
     ) {
         self.scene
             .encode_transform(Transform::from_kurbo(&transform));
-        self.scene.encode_linewidth(style.width);
+        self.scene.encode_stroke(style.width, style.scale);
         if self.scene.encode_shape(shape, false) {
             if let Some(brush_transform) = brush_transform {
                 if self

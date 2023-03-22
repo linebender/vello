@@ -49,6 +49,10 @@ fn read_transform(transform_base: u32, ix: u32) -> Transform {
     return Transform(matrx, translate);
 }
 
+fn is_stroke(linewidth: u32) -> bool {
+    return (linewidth & 0x7f800000u) != 0x7f800000u;
+}
+
 var<workgroup> sh_scratch: array<DrawMonoid, WG_SIZE>;
 
 @compute @workgroup_size(256)
@@ -109,20 +113,26 @@ fn main(
         // let x1 = f32(bbox.x1);
         // let y1 = f32(bbox.y1);
         // let bbox_f = vec4(x0, y0, x1, y1);
-        let fill_mode = u32(bbox.linewidth >= 0.0);
+        // let fill_mode = u32(bbox.linewidth >= 0.0);
         var matrx: vec4<f32>;
         var translate: vec2<f32>;
-        var linewidth = bbox.linewidth;
-        if linewidth >= 0.0 || tag_word == DRAWTAG_FILL_LIN_GRADIENT || tag_word == DRAWTAG_FILL_RAD_GRADIENT ||
+        let linewidth_u32 = bbox.linewidth;
+        var linewidth = bitcast<f32>(linewidth_u32);
+        let stroked = is_stroke(linewidth_u32);
+        if stroked || tag_word == DRAWTAG_FILL_LIN_GRADIENT || tag_word == DRAWTAG_FILL_RAD_GRADIENT ||
             tag_word == DRAWTAG_FILL_IMAGE 
         {
             let transform = read_transform(config.transform_base, bbox.trans_ix);
             matrx = transform.matrx;
             translate = transform.translate;
-        }
-        if linewidth >= 0.0 {
-            // Note: doesn't deal with anisotropic case
-            linewidth *= sqrt(abs(matrx.x * matrx.w - matrx.y * matrx.z));
+            if stroked {
+                if linewidth >= 0.0 {
+                    // Note: doesn't deal with anisotropic case
+                    linewidth *= sqrt(abs(matrx.x * matrx.w - matrx.y * matrx.z));
+                } else {
+                    linewidth = -linewidth;
+                }
+            }
         }
         switch tag_word {
             // DRAWTAG_FILL_COLOR

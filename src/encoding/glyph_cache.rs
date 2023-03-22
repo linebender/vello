@@ -55,9 +55,9 @@ impl GlyphCache {
         let mut encode_glyph = || {
             let start = encoding_cache.stream_offsets();
             match style {
-                Style::Fill(Fill::NonZero) => encoding_cache.encode_linewidth(-1.0),
-                Style::Fill(Fill::EvenOdd) => encoding_cache.encode_linewidth(-2.0),
-                Style::Stroke(stroke) => encoding_cache.encode_linewidth(stroke.width),
+                Style::Fill(Fill::NonZero) => encoding_cache.encode_fill(false),
+                Style::Fill(Fill::EvenOdd) => encoding_cache.encode_fill(true),
+                Style::Stroke(stroke) => encoding_cache.encode_stroke(stroke.width, stroke.scale),
             }
             let mut path = crate::glyph::PathEncoderPen(encoding_cache.encode_path(is_fill));
             scaler
