@@ -3,7 +3,7 @@ use vello::kurbo::{Affine, BezPath, Ellipse, PathEl, Point, Rect};
 use vello::peniko::*;
 use vello::*;
 
-const PIET_LOGO_IMAGE: &[u8] = include_bytes!("../../assets/piet-logo.png");
+const FLOWER_IMAGE: &[u8] = include_bytes!("../../assets/splash-flower.jpg");
 
 macro_rules! scene {
     ($name: ident) => {
@@ -103,7 +103,7 @@ fn animated_text(sb: &mut SceneBuilder, params: &mut SceneParams) {
     // should use a better strategy.
     let piet_logo = params
         .images
-        .from_bytes(PIET_LOGO_IMAGE.as_ptr() as usize, PIET_LOGO_IMAGE)
+        .from_bytes(FLOWER_IMAGE.as_ptr() as usize, FLOWER_IMAGE)
         .unwrap();
 
     use PathEl::*;
@@ -211,7 +211,7 @@ fn animated_text(sb: &mut SceneBuilder, params: &mut SceneParams) {
     );
     sb.draw_image(
         &piet_logo,
-        Affine::translate((550.0, 250.0)) * Affine::skew(-20f64.to_radians().tan(), 0.0),
+        Affine::translate((800.0, 50.0)) * Affine::rotate(20f64.to_radians()),
     );
 }
 
