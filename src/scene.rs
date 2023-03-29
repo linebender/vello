@@ -39,7 +39,7 @@ impl Scene {
 }
 
 /// Encoded definition of a scene fragment and associated resources.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct SceneFragment {
     data: Encoding,
 }
