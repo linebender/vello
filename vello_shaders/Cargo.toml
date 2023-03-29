@@ -10,10 +10,10 @@ wgsl = []
 msl = []
 
 [dependencies]
-naga = { git = "https://github.com/gfx-rs/naga", features = ["wgsl-in", "msl-out", "validate"], optional = true }
+naga = { git = "https://github.com/gfx-rs/naga", rev = "53d62b9", features = ["wgsl-in", "msl-out", "validate"], optional = true }
 thiserror = { version = "1.0.40", optional = true }
 
 [build-dependencies]
-naga = { git = "https://github.com/gfx-rs/naga", features = ["wgsl-in", "msl-out", "validate"] }
+naga = { git = "https://github.com/gfx-rs/naga", rev = "53d62b9",  features = ["wgsl-in", "msl-out", "validate"] }
 thiserror = "1.0.40"
 
