@@ -2,6 +2,8 @@
 resolver = "2"
 
 members = [
+    "crates/shaders",
+
     "integrations/vello_svg",
 
     "examples/headless",
@@ -9,7 +11,6 @@ members = [
     "examples/with_bevy",
     "examples/run_wasm",
     "examples/scenes",
-    "vello_shaders",
 ]
 
 [workspace.package]

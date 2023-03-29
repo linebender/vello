@@ -15,7 +15,7 @@ use compile::ShaderInfo;
 fn main() {
     let out_dir = env::var_os("OUT_DIR").unwrap();
     let dest_path = Path::new(&out_dir).join("shaders.rs");
-    let mut shaders = compile::ShaderInfo::from_dir("../shader");
+    let mut shaders = compile::ShaderInfo::from_dir("../../shader");
     // Drop the HashMap and sort by name so that we get deterministic order.
     let mut shaders = shaders.drain().collect::<Vec<_>>();
     shaders.sort_by(|x, y| x.0.cmp(&y.0));
