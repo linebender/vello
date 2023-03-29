@@ -1,5 +1,5 @@
 The `vello_shaders` crate provides a utility library to integrate the Vello shader modules into any
-renderer project. The create provides the necessary metadata to construct the individual compute
+renderer project. The crate provides the necessary metadata to construct the individual compute
 pipelines on any GPU API while leaving the responsibility of all API interactions (such as
 resource management and command encoding) up to the client.
 
