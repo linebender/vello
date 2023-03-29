@@ -76,6 +76,7 @@ fn write_shaders(
             .iter()
             .map(|binding| binding.ty)
             .collect::<Vec<_>>();
+        let wg_bufs = &info.workgroup_buffers;
         let source = translate(info);
         writeln!(buf, "        {name}: ComputeShader {{")?;
         writeln!(buf, "            name: Cow::Borrowed({:?}),", name)?;
@@ -90,6 +91,11 @@ fn write_shaders(
             info.workgroup_size
         )?;
         writeln!(buf, "            bindings: Cow::Borrowed(&{:?}),", bind_tys)?;
+        writeln!(
+            buf,
+            "            workgroup_buffers: Cow::Borrowed(&{:?}),",
+            wg_bufs
+        )?;
         writeln!(buf, "        }},")?;
     }
     writeln!(buf, "    }};")?;

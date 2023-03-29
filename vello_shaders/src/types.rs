@@ -28,3 +28,10 @@ pub struct BindingInfo {
     pub location: (u32, u32),
     pub ty: BindType,
 }
+
+#[derive(Clone, Debug)]
+pub struct WorkgroupBufferInfo {
+    pub size_in_bytes: u32,
+    /// The order in which the workgroup variable is declared in the shader module.
+    pub index: u32,
+}

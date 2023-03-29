@@ -2,7 +2,8 @@ use {
     naga::{
         front::wgsl,
         valid::{Capabilities, ModuleInfo, ValidationError, ValidationFlags},
-        AddressSpace, ImageClass, Module, StorageAccess, WithSpan,
+        AddressSpace, ArraySize, ConstantInner, ImageClass, Module, ScalarValue, StorageAccess,
+        WithSpan,
     },
     std::{
         collections::{HashMap, HashSet},
@@ -16,7 +17,7 @@ pub mod preprocess;
 
 pub mod msl;
 
-use crate::types::{BindType, BindingInfo};
+use crate::types::{BindType, BindingInfo, WorkgroupBufferInfo};
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -37,6 +38,7 @@ pub struct ShaderInfo {
     pub module_info: ModuleInfo,
     pub workgroup_size: [u32; 3],
     pub bindings: Vec<BindingInfo>,
+    pub workgroup_buffers: Vec<WorkgroupBufferInfo>,
 }
 
 impl ShaderInfo {
@@ -54,22 +56,59 @@ impl ShaderInfo {
             .find(|(_, entry)| entry.name.as_str() == entry_point)
             .ok_or(Error::EntryPointNotFound)?;
         let mut bindings = vec![];
+        let mut workgroup_buffers = vec![];
+        let mut wg_buffer_idx = 0;
         let entry_info = module_info.get_entry_point(entry_index);
         for (var_handle, var) in module.global_variables.iter() {
             if entry_info[var_handle].is_empty() {
                 continue;
             }
+            let binding_ty = match module.types[var.ty].inner {
+                naga::TypeInner::BindingArray { base, .. } => &module.types[base].inner,
+                ref ty => ty,
+            };
             let Some(binding) = &var.binding else {
+                if var.space == AddressSpace::WorkGroup {
+                    let index = wg_buffer_idx;
+                    wg_buffer_idx += 1;
+                    let size_in_bytes = match binding_ty {
+                        naga::TypeInner::Array {
+                            size: ArraySize::Constant(const_handle),
+                            stride,
+                            ..
+                        } => {
+                            let size: u32 = match module.constants[*const_handle].inner {
+                                ConstantInner::Scalar { value, width: _ } => match value {
+                                    ScalarValue::Uint(value) => value.try_into().unwrap(),
+                                    ScalarValue::Sint(value) => value.try_into().unwrap(),
+                                    _ => continue,
+                                },
+                                ConstantInner::Composite { .. } => continue,
+                            };
+                            size * stride
+                        },
+                        naga::TypeInner::Struct { span, .. } => *span,
+                        naga::TypeInner::Scalar { width, ..} => *width as u32,
+                        naga::TypeInner::Vector { width, ..} => *width as u32,
+                        naga::TypeInner::Matrix { width, ..} => *width as u32,
+                        naga::TypeInner::Atomic { width, ..} => *width as u32,
+                        _ => {
+                            // Not a valid workgroup variable type. At least not one that is used
+                            // in our shaders.
+                            continue;
+                        }
+                    };
+                    workgroup_buffers.push(WorkgroupBufferInfo {
+                        size_in_bytes,
+                        index,
+                    });
+                }
                 continue;
             };
             let mut resource = BindingInfo {
                 name: var.name.clone(),
                 location: (binding.group, binding.binding),
                 ty: BindType::Buffer,
-            };
-            let binding_ty = match module.types[var.ty].inner {
-                naga::TypeInner::BindingArray { base, .. } => &module.types[base].inner,
-                ref ty => ty,
             };
             if let naga::TypeInner::Image { class, .. } = &binding_ty {
                 resource.ty = BindType::ImageRead;
@@ -102,6 +141,7 @@ impl ShaderInfo {
             module_info,
             workgroup_size,
             bindings,
+            workgroup_buffers,
         })
     }
 

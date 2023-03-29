@@ -3,7 +3,7 @@ mod types;
 #[cfg(feature = "compile")]
 pub mod compile;
 
-pub use types::{BindType, BindingInfo};
+pub use types::{BindType, BindingInfo, WorkgroupBufferInfo};
 
 use std::borrow::Cow;
 
@@ -13,6 +13,7 @@ pub struct ComputeShader<'a> {
     pub code: Cow<'a, [u8]>,
     pub workgroup_size: [u32; 3],
     pub bindings: Cow<'a, [BindType]>,
+    pub workgroup_buffers: Cow<'a, [WorkgroupBufferInfo]>,
 }
 
 pub trait PipelineHost {
