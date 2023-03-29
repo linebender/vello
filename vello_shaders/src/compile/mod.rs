@@ -1,12 +1,14 @@
-use naga::{
-    front::wgsl,
-    valid::{Capabilities, ModuleInfo, ValidationError, ValidationFlags},
-    AddressSpace, ImageClass, Module, StorageAccess, WithSpan,
-};
-
-use std::{
-    collections::{HashMap, HashSet},
-    path::Path,
+use {
+    naga::{
+        front::wgsl,
+        valid::{Capabilities, ModuleInfo, ValidationError, ValidationFlags},
+        AddressSpace, ImageClass, Module, StorageAccess, WithSpan,
+    },
+    std::{
+        collections::{HashMap, HashSet},
+        path::Path,
+    },
+    thiserror::Error,
 };
 
 pub mod permutations;
@@ -16,23 +18,16 @@ pub mod msl;
 
 use crate::types::{BindType, BindingInfo};
 
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum Error {
-    Parse(wgsl::ParseError),
-    Validate(WithSpan<ValidationError>),
+    #[error("failed to parse shader: {0}")]
+    Parse(#[from] wgsl::ParseError),
+
+    #[error("failed to validate shader: {0}")]
+    Validate(#[from] WithSpan<ValidationError>),
+
+    #[error("missing entry point function")]
     EntryPointNotFound,
-}
-
-impl From<wgsl::ParseError> for Error {
-    fn from(e: wgsl::ParseError) -> Self {
-        Self::Parse(e)
-    }
-}
-
-impl From<WithSpan<ValidationError>> for Error {
-    fn from(e: WithSpan<ValidationError>) -> Self {
-        Self::Validate(e)
-    }
 }
 
 #[derive(Debug)]
