@@ -1,3 +1,6 @@
+// Copyright 2023 The Vello authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 //! Types that are shared between the main crate and build.
 
 /// The type of resource that will be bound to a slot in a shader.

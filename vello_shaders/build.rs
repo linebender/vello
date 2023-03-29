@@ -1,3 +1,6 @@
+// Copyright 2023 The Vello authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 #[path = "src/compile/mod.rs"]
 mod compile;
 #[path = "src/types.rs"]
