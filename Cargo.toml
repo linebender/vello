@@ -2,6 +2,8 @@
 resolver = "2"
 
 members = [
+    "crates/shaders",
+
     "integrations/vello_svg",
 
     "examples/headless",
