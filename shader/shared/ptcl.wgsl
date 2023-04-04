@@ -26,6 +26,7 @@ let CMD_JUMP = 11u;
 
 struct CmdFill {
     tile: u32,
+    seg_data: u32,
     backdrop: i32,
 }
 

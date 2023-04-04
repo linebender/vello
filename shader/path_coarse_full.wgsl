@@ -37,7 +37,7 @@ var<storage, read_write> bump: BumpAllocators;
 var<storage, read_write> tiles: array<AtomicTile>;
 
 @group(0) @binding(7)
-var<storage, read_write> segments: array<Segment>;
+var<storage, read_write> segments: array<LinkedSegment>;
 
 struct SubdivResult {
     val: f32,
@@ -229,7 +229,7 @@ fn main(
                     var xx1 = max(i32(ceil(xc + c)), max_xray + 1);
                     xx0 = clamp(xx0, x0, x1);
                     xx1 = clamp(xx1, x0, x1);
-                    var tile_seg: Segment;
+                    var tile_seg: LinkedSegment;
                     for (var x = xx0; x < xx1; x += 1) {
                         let tile_x0 = f32(x) * f32(TILE_WIDTH);
                         let tile_ix = base + x;

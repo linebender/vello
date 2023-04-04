@@ -19,7 +19,7 @@ var<uniform> config: Config;
 var<storage> tiles: array<Tile>;
 
 @group(0) @binding(2)
-var<storage> segments: array<Segment>;
+var<storage> segments: array<LinkedSegment>;
 
 #ifdef full
 
@@ -59,10 +59,14 @@ let MASK_HEIGHT = 64u;
 var<storage> mask_lut: array<u32, 2048u>;
 #endif
 
+@group(0) @binding(9)
+var<storage> flat_segs: array<Segment>;
+
 fn read_fill(cmd_ix: u32) -> CmdFill {
     let tile = ptcl[cmd_ix + 1u];
-    let backdrop = i32(ptcl[cmd_ix + 2u]);
-    return CmdFill(tile, backdrop);
+    let seg_data = ptcl[cmd_ix + 2u];
+    let backdrop = i32(ptcl[cmd_ix + 3u]);
+    return CmdFill(tile, seg_data, backdrop);
 }
 
 fn read_stroke(cmd_ix: u32) -> CmdStroke {
@@ -233,15 +237,12 @@ fn fill_path_ms(seg_data: u32, n_segs: u32, backdrop: i32, wg_id: vec2<u32>, loc
     let n_batch = (n_segs + (WG_SIZE - 1u)) / WG_SIZE;
     for (var batch = 0u; batch < n_batch; batch++) {
         let seg_ix = batch * WG_SIZE + th_ix;
-        let seg_off = seg_data + seg_ix * SEG_SIZE;
+        let seg_off = seg_data + seg_ix;
         var count = 0u;
         let slice_size = min(n_segs - batch * WG_SIZE, WG_SIZE);
         // TODO: might save a register rewriting this in terms of limit
         if th_ix < slice_size {
-            var segment = Segment();
-            segment.origin = bitcast<vec2<f32>>(vec2(ptcl[seg_off], ptcl[seg_off + 1u]));
-            segment.delta = bitcast<vec2<f32>>(vec2(ptcl[seg_off + 2u], ptcl[seg_off + 3u]));
-            segment.y_edge = bitcast<f32>(ptcl[seg_off + 4u]);
+            let segment = flat_segs[seg_off];
             // Note: coords relative to tile origin probably a good idea in coarse path,
             // especially as f16 would work. But keeping existing scheme for compatibility.
             let xy0_in = segment.origin - tile_origin;
@@ -288,11 +289,8 @@ fn fill_path_ms(seg_data: u32, n_segs: u32, backdrop: i32, wg_id: vec2<u32>, loc
             let el_ix = lo;
             let last_pixel = i + 1u == sh_count[el_ix];
             let sub_ix = i - select(0u, sh_count[el_ix - 1u], el_ix > 0u);
-            let seg_off = seg_data + ((batch * WG_SIZE) + el_ix) * SEG_SIZE;
-            var segment = Segment();
-            segment.origin = bitcast<vec2<f32>>(vec2(ptcl[seg_off], ptcl[seg_off + 1u]));
-            segment.delta = bitcast<vec2<f32>>(vec2(ptcl[seg_off + 2u], ptcl[seg_off + 3u]));
-            segment.y_edge = bitcast<f32>(ptcl[seg_off + 4u]);
+            let seg_off = seg_data + batch * WG_SIZE + el_ix;
+            let segment = flat_segs[seg_off];
             let xy0_in = segment.origin - tile_origin;
             let xy1_in = xy0_in + segment.delta;
             let is_down = xy1_in.y >= xy0_in.y;
@@ -523,11 +521,9 @@ fn main(
                 let fill = read_fill(cmd_ix);
                 let n_segs = fill.tile >> 1u;
                 let even_odd = (fill.tile & 1u) != 0u;
-                cmd_ix += 3u;
-                let limit = cmd_ix + 5u * n_segs;
                 //area = fill_path(cmd_ix, limit, fill.backdrop, xy, even_odd);
-                area = fill_path_ms(cmd_ix, n_segs, fill.backdrop, wg_id.xy, local_id.xy, even_odd);
-                cmd_ix = limit;
+                area = fill_path_ms(fill.seg_data, n_segs, fill.backdrop, wg_id.xy, local_id.xy, even_odd);
+                cmd_ix += 4u;
             }
             // CMD_STROKE
             case 2u: {

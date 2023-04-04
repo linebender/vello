@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use super::{
-    BinHeader, Clip, ClipBbox, ClipBic, ClipElement, Cubic, DrawBbox, DrawMonoid, Layout, Path,
-    PathBbox, PathMonoid, PathSegment, Tile,
+    BinHeader, Clip, ClipBbox, ClipBic, ClipElement, Cubic, DrawBbox, DrawMonoid, FlatSegment,
+    Layout, Path, PathBbox, PathMonoid, PathSegment, Tile,
 };
 use bytemuck::{Pod, Zeroable};
 use std::mem;
@@ -31,6 +31,7 @@ pub struct BumpAllocators {
     pub tile: u32,
     pub segments: u32,
     pub blend: u32,
+    pub flat_segs: u32,
 }
 
 /// Uniform render configuration data used by all GPU stages.
@@ -249,6 +250,7 @@ pub struct BufferSizes {
     pub tiles: BufferSize<Tile>,
     pub segments: BufferSize<PathSegment>,
     pub ptcl: BufferSize<u32>,
+    pub flat_segments: BufferSize<FlatSegment>,
 }
 
 impl BufferSizes {
@@ -289,6 +291,7 @@ impl BufferSizes {
         let tiles = BufferSize::new(1 << 21);
         let segments = BufferSize::new(1 << 21);
         let ptcl = BufferSize::new(1 << 23);
+        let flat_segments = BufferSize::new(1 << 21);
         Self {
             path_reduced,
             path_reduced2,
@@ -311,6 +314,7 @@ impl BufferSizes {
             tiles,
             segments,
             ptcl,
+            flat_segments,
         }
     }
 }

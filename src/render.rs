@@ -24,6 +24,7 @@ struct FineResources {
     gradient_image: ResourceProxy,
     info_bin_data_buf: ResourceProxy,
     image_atlas: ResourceProxy,
+    flat_segs_buf: ResourceProxy,
 
     out_image: ImageProxy,
 }
@@ -337,6 +338,10 @@ impl Render {
             wg_counts.backdrop,
             [config_buf, path_buf, tile_buf],
         );
+        let flat_segs_buf = ResourceProxy::new_buf(
+            buffer_sizes.flat_segments.size_in_bytes().into(),
+            "flat_segs_buf",
+        );
         recording.dispatch(
             shaders.coarse,
             wg_counts.coarse,
@@ -351,6 +356,7 @@ impl Render {
                 bump_buf,
                 ptcl_buf,
                 segments_buf,
+                flat_segs_buf,
             ],
         );
         recording.free_resource(scene_buf);
@@ -369,6 +375,7 @@ impl Render {
             info_bin_data_buf,
             image_atlas: ResourceProxy::Image(image_atlas),
             out_image,
+            flat_segs_buf,
         });
         if robust {
             recording.download(*bump_buf.as_buf().unwrap());
@@ -401,6 +408,7 @@ impl Render {
                 fine.info_bin_data_buf,
                 fine.image_atlas,
                 self.mask_buf.unwrap(),
+                fine.flat_segs_buf,
             ],
         );
         recording.free_resource(fine.config_buf);
@@ -410,6 +418,7 @@ impl Render {
         recording.free_resource(fine.gradient_image);
         recording.free_resource(fine.image_atlas);
         recording.free_resource(fine.info_bin_data_buf);
+        recording.free_resource(fine.flat_segs_buf);
     }
 
     /// Get the output image.

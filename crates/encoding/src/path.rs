@@ -16,6 +16,15 @@ pub struct PathSegment {
     pub next: u32,
 }
 
+/// Path segment for storage in contiguous space (will be default).
+#[derive(Clone, Copy, Debug, Zeroable, Pod, Default)]
+#[repr(C)]
+pub struct FlatSegment {
+    pub origin: [f32; 2],
+    pub delta: [f32; 2],
+    pub y_edge: f32,
+}
+
 /// Path segment type.
 ///
 /// The values of the segment types are equivalent to the number of associated

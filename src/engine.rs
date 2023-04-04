@@ -94,6 +94,7 @@ pub enum Command {
     // Maybe use tricks to make more ergonomic?
     // Alternative: provide bufs & images as separate sequences
     Dispatch(ShaderId, (u32, u32, u32), Vec<ResourceProxy>),
+    DispatchIndirect(ShaderId, BufProxy, u64, Vec<ResourceProxy>),
     Download(BufProxy),
     Clear(BufProxy, u64, Option<NonZeroU64>),
     FreeBuf(BufProxy),
@@ -368,6 +369,25 @@ impl Engine {
                     cpass.set_bind_group(0, &bind_group, &[]);
                     cpass.dispatch_workgroups(wg_size.0, wg_size.1, wg_size.2);
                 }
+                Command::DispatchIndirect(shader_id, proxy, offset, bindings) => {
+                    let shader = &self.shaders[shader_id.0];
+                    let bind_group = self.bind_map.create_bind_group(
+                        device,
+                        &shader.bind_group_layout,
+                        bindings,
+                        external_resources,
+                        &mut self.pool,
+                    )?;
+                    let mut cpass = encoder.begin_compute_pass(&Default::default());
+                    cpass.set_pipeline(&shader.pipeline);
+                    cpass.set_bind_group(0, &bind_group, &[]);
+                    let buf = self
+                        .bind_map
+                        .buf_map
+                        .get(&proxy.id)
+                        .ok_or("buffer for indirect dispatch not in map")?;
+                    cpass.dispatch_workgroups_indirect(&buf.buffer, *offset);
+                }
                 Command::Download(proxy) => {
                     let src_buf = self
                         .bind_map
@@ -486,11 +506,22 @@ impl Recording {
         R: IntoIterator,
         R::Item: Into<ResourceProxy>,
     {
-        self.push(Command::Dispatch(
-            shader,
-            wg_size,
-            resources.into_iter().map(|r| r.into()).collect(),
-        ));
+        let r = resources.into_iter().map(|r| r.into()).collect();
+        self.push(Command::Dispatch(shader, wg_size, r));
+    }
+
+    pub fn dispatch_indirect<R>(
+        &mut self,
+        shader: ShaderId,
+        buf: BufProxy,
+        offset: u64,
+        resources: R,
+    ) where
+        R: IntoIterator,
+        R::Item: Into<ResourceProxy>,
+    {
+        let r = resources.into_iter().map(|r| r.into()).collect();
+        self.push(Command::DispatchIndirect(shader, buf, offset, r));
     }
 
     /// Prepare a buffer for downloading.
