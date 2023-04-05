@@ -6,7 +6,7 @@
 /// ```
 /// Generally:
 /// ```
-/// cargo run_wasm --package with_winit
+/// cargo run_wasm -p with_winit
 /// ```
 
 fn main() {

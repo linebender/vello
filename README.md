@@ -86,10 +86,8 @@ Until browser support becomes widespread, it will probably be necessary to use d
 The following command builds and runs a web version of the [winit demo](#winit). 
 This uses [`cargo-run-wasm`](https://github.com/rukai/cargo-run-wasm) to build the example for web, and host a local server for it
 
-Other examples use the `-p` shorthand, but `cargo-run-wasm` requires the full `--package` to be specified
-
 ```shell
-cargo run_wasm --package with_winit
+cargo run_wasm -p with_winit
 ```
 
 > **Warning**  
