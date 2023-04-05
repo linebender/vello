@@ -87,6 +87,8 @@ The following command builds and runs a web version of the [winit demo](#winit).
 This uses [`cargo-run-wasm`](https://github.com/rukai/cargo-run-wasm) to build the example for web, and host a local server for it
 
 ```shell
+# You must have the wasm32 target supported
+rustup target add wasm32-unknown-unknown
 cargo run_wasm -p with_winit
 ```
 
