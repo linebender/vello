@@ -40,6 +40,8 @@ use shaders::FullShaders;
 /// Temporary export, used in with_winit for stats
 pub use vello_encoding::BumpAllocators;
 use wgpu::{Device, Queue, SurfaceTexture, TextureFormat, TextureView};
+#[cfg(feature = "wgpu-profiler")]
+use wgpu_profiler::GpuProfiler;
 
 /// Catch-all error type.
 pub type Error = Box<dyn std::error::Error>;
@@ -53,6 +55,10 @@ pub struct Renderer {
     shaders: FullShaders,
     blit: Option<BlitPipeline>,
     target: Option<TargetTexture>,
+    #[cfg(feature = "wgpu-profiler")]
+    profiler: GpuProfiler,
+    #[cfg(feature = "wgpu-profiler")]
+    pub profile_result: Option<Vec<wgpu_profiler::GpuTimerScopeResult>>,
 }
 
 /// Parameters used in a single render that are configurable by the client.
@@ -70,6 +76,9 @@ pub struct RendererOptions {
     /// The format of the texture used for surfaces with this renderer/device
     /// If None, the renderer cannot be used with surfaces
     pub surface_format: Option<TextureFormat>,
+    /// The timestamp period from [`wgpu::Queue::get_timestamp_period`]
+    /// Used when the wgpu-profiler feature is enabled
+    pub timestamp_period: f32,
 }
 
 impl Renderer {
@@ -85,6 +94,10 @@ impl Renderer {
             shaders,
             blit,
             target: None,
+            #[cfg(feature = "wgpu-profiler")]
+            profiler: GpuProfiler::new(3, render_options.timestamp_period, device.features()),
+            #[cfg(feature = "wgpu-profiler")]
+            profile_result: None,
         })
     }
 
@@ -106,8 +119,15 @@ impl Renderer {
             *target.as_image().unwrap(),
             texture,
         )];
-        self.engine
-            .run_recording(device, queue, &recording, &external_resources)?;
+        self.engine.run_recording(
+            device,
+            queue,
+            &recording,
+            &external_resources,
+            "render_to_texture",
+            #[cfg(feature = "wgpu-profiler")]
+            &mut self.profiler,
+        )?;
         Ok(())
     }
 
@@ -217,7 +237,15 @@ impl Renderer {
         let recording = render.render_encoding_coarse(encoding, &self.shaders, params, true);
         let target = render.out_image();
         let bump_buf = render.bump_buf();
-        self.engine.run_recording(device, queue, &recording, &[])?;
+        self.engine.run_recording(
+            device,
+            queue,
+            &recording,
+            &[],
+            "render_to_texture_async_coarse",
+            #[cfg(feature = "wgpu-profiler")]
+            &mut self.profiler,
+        )?;
 
         let mut bump: Option<BumpAllocators> = None;
         if let Some(bump_buf) = self.engine.get_download(bump_buf) {
@@ -239,8 +267,15 @@ impl Renderer {
         let mut recording = Recording::default();
         render.record_fine(&self.shaders, &mut recording);
         let external_resources = [ExternalResource::Image(target, texture)];
-        self.engine
-            .run_recording(device, queue, &recording, &external_resources)?;
+        self.engine.run_recording(
+            device,
+            queue,
+            &recording,
+            &external_resources,
+            "render_to_texture_async_fine",
+            #[cfg(feature = "wgpu-profiler")]
+            &mut self.profiler,
+        )?;
         Ok(bump)
     }
 
@@ -301,8 +336,16 @@ impl Renderer {
             render_pass.set_bind_group(0, &bind_group, &[]);
             render_pass.draw(0..6, 0..1);
         }
+        #[cfg(feature = "wgpu-profiler")]
+        self.profiler.resolve_queries(&mut encoder);
         queue.submit(Some(encoder.finish()));
         self.target = Some(target);
+        #[cfg(feature = "wgpu-profiler")]
+        self.profiler.end_frame().unwrap();
+        #[cfg(feature = "wgpu-profiler")]
+        if let Some(result) = self.profiler.process_finished_frame() {
+            self.profile_result = Some(result);
+        }
         Ok(bump)
     }
 }

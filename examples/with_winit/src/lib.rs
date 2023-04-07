@@ -163,6 +163,22 @@ fn run(
                             Some(VirtualKeyCode::C) => {
                                 stats.clear_min_and_max();
                             }
+                            Some(VirtualKeyCode::P) => {
+                                if let Some(renderer) = &renderers[render_state.surface.dev_id] {
+                                    if let Some(profile_result) = &renderer.profile_result {
+                                        let path = std::path::Path::new("trace.json");
+                                        match wgpu_profiler::chrometrace::write_chrometrace(
+                                            &path,
+                                            &profile_result,
+                                        ) {
+                                            Ok(()) => {
+                                                println!("Wrote trace to path {path:?}")
+                                            }
+                                            Err(e) => eprintln!("Failed to write trace {e}"),
+                                        }
+                                    }
+                                }
+                            }
                             Some(VirtualKeyCode::V) => {
                                 vsync_on = !vsync_on;
                                 render_cx.set_present_mode(
@@ -438,6 +454,9 @@ fn run(
                             &render_cx.devices[id].device,
                             &RendererOptions {
                                 surface_format: Some(render_state.surface.format),
+                                timestamp_period: render_cx.devices[id]
+                                    .queue
+                                    .get_timestamp_period(),
                             },
                         )
                         .expect("Could create renderer")

@@ -22,8 +22,8 @@ use std::{
 };
 
 use wgpu::{
-    BindGroup, BindGroupLayout, Buffer, BufferUsages, ComputePipeline, Device, Queue, Texture,
-    TextureAspect, TextureUsages, TextureView, TextureViewDimension,
+    BindGroup, BindGroupLayout, Buffer, BufferUsages, CommandEncoderDescriptor, ComputePipeline,
+    Device, Queue, Texture, TextureAspect, TextureUsages, TextureView, TextureViewDimension,
 };
 
 pub type Error = Box<dyn std::error::Error>;
@@ -46,6 +46,7 @@ pub struct Engine {
 struct Shader {
     pipeline: ComputePipeline,
     bind_group_layout: BindGroupLayout,
+    label: &'static str,
 }
 
 #[derive(Default)]
@@ -238,6 +239,7 @@ impl Engine {
         let shader = Shader {
             pipeline,
             bind_group_layout,
+            label,
         };
         let id = self.shaders.len();
         self.shaders.push(shader);
@@ -250,11 +252,16 @@ impl Engine {
         queue: &Queue,
         recording: &Recording,
         external_resources: &[ExternalResource],
+        label: &'static str,
+        #[cfg(feature = "wgpu-profiler")] profiler: &mut wgpu_profiler::GpuProfiler,
     ) -> Result<(), Error> {
         let mut free_bufs: HashSet<Id> = Default::default();
         let mut free_images: HashSet<Id> = Default::default();
 
-        let mut encoder = device.create_command_encoder(&Default::default());
+        let mut encoder =
+            device.create_command_encoder(&CommandEncoderDescriptor { label: Some(label) });
+        #[cfg(feature = "wgpu-profiler")]
+        profiler.begin_scope(label, &mut encoder, device);
         for command in &recording.commands {
             match command {
                 Command::Upload(buf_proxy, bytes) => {
@@ -365,10 +372,13 @@ impl Engine {
                         external_resources,
                         &mut self.pool,
                     )?;
+                    #[cfg(feature = "wgpu-profiler")]
                     let mut cpass = encoder.begin_compute_pass(&Default::default());
+                    profiler.begin_scope(shader.label, &mut cpass, device);
                     cpass.set_pipeline(&shader.pipeline);
                     cpass.set_bind_group(0, &bind_group, &[]);
                     cpass.dispatch_workgroups(wg_size.0, wg_size.1, wg_size.2);
+                    profiler.end_scope(&mut cpass);
                 }
                 Command::Download(proxy) => {
                     let src_buf = self
@@ -407,6 +417,8 @@ impl Engine {
                 }
             }
         }
+        #[cfg(feature = "wgpu-profiler")]
+        profiler.end_scope(&mut encoder);
         queue.submit(Some(encoder.finish()));
         for id in free_bufs {
             if let Some(buf) = self.bind_map.buf_map.remove(&id) {
