@@ -372,12 +372,13 @@ impl Engine {
                         external_resources,
                         &mut self.pool,
                     )?;
-                    #[cfg(feature = "wgpu-profiler")]
                     let mut cpass = encoder.begin_compute_pass(&Default::default());
+                    #[cfg(feature = "wgpu-profiler")]
                     profiler.begin_scope(shader.label, &mut cpass, device);
                     cpass.set_pipeline(&shader.pipeline);
                     cpass.set_bind_group(0, &bind_group, &[]);
                     cpass.dispatch_workgroups(wg_size.0, wg_size.1, wg_size.2);
+                    #[cfg(feature = "wgpu-profiler")]
                     profiler.end_scope(&mut cpass);
                 }
                 Command::Download(proxy) => {
