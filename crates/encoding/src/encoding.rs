@@ -14,11 +14,9 @@
 //
 // Also licensed under MIT license, at your choice.
 
-use crate::encoding::DrawImage;
-
 use super::{
-    resolve::Patch, DrawColor, DrawLinearGradient, DrawRadialGradient, DrawTag, Glyph, GlyphRun,
-    PathEncoder, PathTag, Transform,
+    resolve::Patch, DrawColor, DrawImage, DrawLinearGradient, DrawRadialGradient, DrawTag, Glyph,
+    GlyphRun, PathEncoder, PathTag, Transform,
 };
 
 use fello::NormalizedCoord;

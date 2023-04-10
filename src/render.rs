@@ -1,13 +1,15 @@
 //! Take an encoded scene and create a graph to render it
 
-use bytemuck::{Pod, Zeroable};
-
 use crate::{
-    encoding::{Config, Encoding, Layout},
     engine::{BufProxy, ImageFormat, ImageProxy, Recording, ResourceProxy},
     shaders::{self, FullShaders, Shaders},
     RenderParams, Scene,
 };
+use {
+    bytemuck::{Pod, Zeroable},
+    vello_encoding::{Config, Encoding, Layout},
+};
+
 
 /// State for a render in progress.
 pub struct Render {
@@ -213,11 +215,11 @@ impl Render {
         params: &RenderParams,
         robust: bool,
     ) -> Recording {
-        use crate::encoding::Resolver;
+        use vello_encoding::Resolver;
         let mut recording = Recording::default();
         let mut resolver = Resolver::new();
         let mut packed = vec![];
-        let (layout, ramps, images) = resolver.resolve(encoding, &mut packed);
+        let (layout, ramps, images) = resolver.resolve(encoding, &mut packed, shaders::PATHTAG_REDUCE_WG);
         let gradient_image = if ramps.height == 0 {
             ResourceProxy::new_image(1, 1, ImageFormat::Rgba8)
         } else {
@@ -245,7 +247,7 @@ impl Render {
         let new_height = next_multiple_of(params.height, 16);
 
         let info_size = layout.bin_data_start;
-        let config = crate::encoding::Config {
+        let config = vello_encoding::Config {
             width_in_tiles: new_width / 16,
             height_in_tiles: new_height / 16,
             target_width: params.width,

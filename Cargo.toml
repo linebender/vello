@@ -2,6 +2,7 @@
 resolver = "2"
 
 members = [
+    "crates/encoding",
     "crates/shaders",
 
     "integrations/vello_svg",
@@ -40,17 +41,20 @@ hot_reload = []
 buffer_labels = []
 
 [dependencies]
+bytemuck = { workspace = true }
+fello = { workspace = true }
+peniko = { workspace = true }
 wgpu = { workspace = true }
 raw-window-handle = "0.5"
 futures-intrusive = "0.5.0"
 parking_lot = "0.12"
-bytemuck = { version = "1.12.1", features = ["derive"] }
 smallvec = "1.8.0"
-fello = { git = "https://github.com/dfrg/fount", rev = "58a284eaae67512fb61cf76177c5d33238d79cb1" }
-peniko = { git = "https://github.com/linebender/peniko", rev = "cafdac9a211a0fb2fec5656bd663d1ac770bcc81" }
-guillotiere = "0.6.2"
+vello_encoding = { path = "crates/encoding" }
 
 [workspace.dependencies]
+bytemuck = { version = "1.12.1", features = ["derive"] }
+fello = { git = "https://github.com/dfrg/fount", rev = "58a284eaae67512fb61cf76177c5d33238d79cb1" }
+peniko = { git = "https://github.com/linebender/peniko", rev = "cafdac9a211a0fb2fec5656bd663d1ac770bcc81" }
 wgpu = "0.15"
 
 # Used for examples

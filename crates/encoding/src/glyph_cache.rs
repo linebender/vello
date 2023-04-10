@@ -59,11 +59,11 @@ impl GlyphCache {
                 Style::Fill(Fill::EvenOdd) => encoding_cache.encode_linewidth(-2.0),
                 Style::Stroke(stroke) => encoding_cache.encode_linewidth(stroke.width),
             }
-            let mut path = crate::glyph::PathEncoderPen(encoding_cache.encode_path(is_fill));
+            let mut path = encoding_cache.encode_path(is_fill);
             scaler
                 .outline(GlyphId::new(key.glyph_id as u16), &mut path)
                 .ok()?;
-            if path.0.finish(false) == 0 {
+            if path.finish(false) == 0 {
                 return None;
             }
             let end = encoding_cache.stream_offsets();

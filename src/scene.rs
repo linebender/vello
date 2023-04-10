@@ -17,8 +17,7 @@
 use fello::NormalizedCoord;
 use peniko::kurbo::{Affine, Rect, Shape};
 use peniko::{BlendMode, BrushRef, Color, Fill, Font, Image, Stroke, StyleRef};
-
-use crate::encoding::{Encoding, Glyph, GlyphRun, Patch, Transform};
+use vello_encoding::{Encoding, Glyph, GlyphRun, Patch, Transform};
 
 /// Encoded definition of a scene and associated resources.
 #[derive(Default)]

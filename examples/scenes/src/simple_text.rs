@@ -17,7 +17,6 @@
 use std::sync::Arc;
 
 use vello::{
-    encoding::Glyph,
     fello::meta::MetadataProvider,
     fello::raw::FontRef,
     glyph::GlyphContext,
@@ -25,6 +24,7 @@ use vello::{
     peniko::{Blob, Brush, BrushRef, Font, StyleRef},
     SceneBuilder,
 };
+use vello_encoding::Glyph;
 
 // This is very much a hack to get things working.
 // On Windows, can set this to "c:\\Windows\\Fonts\\seguiemj.ttf" to get color emoji

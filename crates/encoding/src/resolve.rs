@@ -25,7 +25,6 @@ use super::{
     ramp_cache::{RampCache, Ramps},
     DrawTag, Encoding, PathTag, StreamOffsets, Transform,
 };
-use crate::shaders;
 
 /// Layout of a packed encoding.
 #[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
@@ -161,6 +160,7 @@ impl Resolver {
         &'a mut self,
         encoding: &Encoding,
         packed: &mut Vec<u8>,
+        workgroup_size: u32,
     ) -> (Layout, Ramps<'a>, Images<'a>) {
         let sizes = self.resolve_patches(encoding);
         self.resolve_pending_images();
@@ -172,7 +172,7 @@ impl Resolver {
         // Compute size of data buffer
         let n_path_tags =
             encoding.path_tags.len() + sizes.path_tags + encoding.n_open_clips as usize;
-        let path_tag_padded = align_up(n_path_tags, 4 * shaders::PATHTAG_REDUCE_WG);
+        let path_tag_padded = align_up(n_path_tags, 4 * workgroup_size);
         let capacity = path_tag_padded
             + slice_size_in_bytes(&encoding.path_data, sizes.path_data)
             + slice_size_in_bytes(

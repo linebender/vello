@@ -381,3 +381,25 @@ impl<'a> PathEncoder<'a> {
         self.n_encoded_segments
     }
 }
+
+impl fello::scale::Pen for PathEncoder<'_> {
+    fn move_to(&mut self, x: f32, y: f32) {
+        self.move_to(x, y)
+    }
+
+    fn line_to(&mut self, x: f32, y: f32) {
+        self.line_to(x, y)
+    }
+
+    fn quad_to(&mut self, cx0: f32, cy0: f32, x: f32, y: f32) {
+        self.quad_to(cx0, cy0, x, y)
+    }
+
+    fn curve_to(&mut self, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x: f32, y: f32) {
+        self.cubic_to(cx0, cy0, cx1, cy1, x, y)
+    }
+
+    fn close(&mut self) {
+        self.close()
+    }
+}
