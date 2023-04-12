@@ -15,7 +15,7 @@
 // Also licensed under MIT license, at your choice.
 
 use scenes::SimpleText;
-use std::{cell::Cell, collections::VecDeque, time::Duration};
+use std::{collections::VecDeque, time::Duration};
 use vello::{
     kurbo::{Affine, PathEl, Rect},
     peniko::{Brush, Color, Fill, Stroke},
@@ -267,7 +267,7 @@ pub fn draw_gpu_profiling(
     if profiles.is_empty() {
         return;
     }
-    let width = (viewport_width * 0.3).max(150.).min(450.);
+    let width = (viewport_width * 0.3).clamp(150., 450.);
     let height = width * 1.5;
     let y_offset = viewport_height - height;
     let offset = Affine::translate((0., y_offset));
@@ -287,11 +287,11 @@ pub fn draw_gpu_profiling(
     let mut depth = 0;
     let mut count = 0;
     traverse_profiling(&profiles, &mut |profile, stage| {
-        count += 1;
-        min = min.min(profile.time.start);
-        max = max.max(profile.time.end);
         match stage {
             TraversalStage::Enter => {
+                count += 1;
+                min = min.min(profile.time.start);
+                max = max.max(profile.time.end);
                 max_depth = max_depth.max(depth);
                 // Apply a higher depth to the children
                 depth += 1;
@@ -364,15 +364,17 @@ pub fn draw_gpu_profiling(
                 &Rect::new(x, start_normalised, x + depth_size, end_normalised),
             );
 
-            let mut text_start = start_normalised + text_height;
+            let mut text_start = start_normalised;
             if !profile.nested_scopes.is_empty() {
+                // If we have children, leave some more space for them
                 text_start -= text_height * 0.7;
             }
             let text_y = text_start
-                // Ensure that we don't overlap
+                // Ensure that we don't overlap the previous item
                 .max(cur_text_y)
                 // Ensure that all remaining items can fit
-                .min(timeline_range_end - (count - 1 - cur_index) as f64 * text_height);
+                .min(timeline_range_end - (count - cur_index) as f64 * text_height);
+            // Text is specified by the baseline, but the y positions all refer to the top of the text
             cur_text_y = text_y + text_height;
             let label = format!(
                 "{:.2?} - {:.30}",
@@ -386,9 +388,9 @@ pub fn draw_gpu_profiling(
                 None,
                 &Rect::new(
                     width * 0.31,
-                    text_y - text_size as f64,
+                    cur_text_y - text_size as f64 * 0.7,
                     width * 0.34,
-                    text_y,
+                    cur_text_y,
                 ),
             );
             text.add(
@@ -396,7 +398,7 @@ pub fn draw_gpu_profiling(
                 None,
                 text_size,
                 Some(&Brush::Solid(Color::WHITE)),
-                offset * Affine::translate((left_margin, text_y)),
+                offset * Affine::translate((left_margin, cur_text_y)),
                 &label,
             );
             cur_index += 1;

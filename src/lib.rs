@@ -94,6 +94,7 @@ impl Renderer {
             shaders,
             blit,
             target: None,
+            // Use 3 pending frames
             #[cfg(feature = "wgpu-profiler")]
             profiler: GpuProfiler::new(3, render_options.timestamp_period, device.features()),
             #[cfg(feature = "wgpu-profiler")]

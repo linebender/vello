@@ -14,7 +14,7 @@
 //
 // Also licensed under MIT license, at your choice.
 
-use instant::Instant;
+use instant::{Duration, Instant};
 use std::collections::HashSet;
 
 use anyhow::Result;
@@ -121,8 +121,8 @@ fn run(
     if let Some(set_scene) = args.scene {
         scene_ix = set_scene;
     }
-    let mut prev_scene_ix = scene_ix - 1;
     let mut profile_stored = None;
+    let mut prev_scene_ix = scene_ix - 1;
     let mut profile_taken = Instant::now();
     // _event_loop is used on non-wasm platforms to create new windows
     event_loop.run(move |event, _event_loop, control_flow| match event {
@@ -167,7 +167,11 @@ fn run(
                             }
                             Some(VirtualKeyCode::P) => {
                                 if let Some(renderer) = &renderers[render_state.surface.dev_id] {
-                                    if let Some(profile_result) = &renderer.profile_result {
+                                    if let Some(profile_result) = &renderer
+                                        .profile_result
+                                        .as_ref()
+                                        .or(profile_stored.as_ref())
+                                    {
                                         let path = std::path::Path::new("trace.json");
                                         match wgpu_profiler::chrometrace::write_chrometrace(
                                             &path,
