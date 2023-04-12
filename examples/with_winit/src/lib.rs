@@ -122,6 +122,8 @@ fn run(
         scene_ix = set_scene;
     }
     let mut prev_scene_ix = scene_ix - 1;
+    let mut profile_stored = None;
+    let mut profile_taken = Instant::now();
     // _event_loop is used on non-wasm platforms to create new windows
     event_loop.run(move |event, _event_loop, control_flow| match event {
         Event::WindowEvent {
@@ -358,6 +360,25 @@ fn run(
                     complexity_shown.then_some(scene_complexity).flatten(),
                     vsync_on,
                 );
+                if let Some(profiling_result) = renderers[render_state.surface.dev_id]
+                    .as_mut()
+                    .and_then(|it| it.profile_result.take())
+                {
+                    if profile_stored.is_none() || profile_taken.elapsed() > Duration::from_secs(1)
+                    {
+                        profile_stored = Some(profiling_result);
+                        profile_taken = Instant::now();
+                    }
+                }
+                if let Some(profiling_result) = profile_stored.as_ref() {
+                    stats::draw_gpu_profiling(
+                        &mut builder,
+                        &mut scene_params.text,
+                        width as f64,
+                        height as f64,
+                        profiling_result,
+                    )
+                }
             }
             let surface_texture = render_state
                 .surface
