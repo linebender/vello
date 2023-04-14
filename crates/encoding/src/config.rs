@@ -5,11 +5,19 @@ use super::{
 use bytemuck::{Pod, Zeroable};
 use std::mem;
 
+const TILE_WIDTH: u32 = 16;
+const TILE_HEIGHT: u32 = 16;
+
+const PATH_REDUCE_WG: u32 = 256;
+const PATH_BBOX_WG: u32 = 256;
+const PATH_COARSE_WG: u32 = 256;
+const CLIP_REDUCE_WG: u32 = 256;
+
 /// Counters for tracking dynamic allocation on the GPU.
 ///
 /// This must be kept in sync with the struct in shader/shared/bump.wgsl
-#[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
+#[repr(C)]
 pub struct BumpAllocators {
     pub failed: u32,
     // Final needed dynamic size of the buffers. If any of these are larger
@@ -21,13 +29,13 @@ pub struct BumpAllocators {
     pub blend: u32,
 }
 
-/// GPU side configuration.
+/// Uniform render configuration data used by all GPU stages.
 ///
 /// This data structure must be kept in sync with the definition in
 /// shaders/shared/config.wgsl.
 #[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
 #[repr(C)]
-pub struct GpuConfig {
+pub struct ConfigUniform {
     /// Width of the scene in tiles.
     pub width_in_tiles: u32,
     /// Height of the scene in tiles.
@@ -52,57 +60,50 @@ pub struct GpuConfig {
 
 /// CPU side setup and configuration.
 #[derive(Default)]
-pub struct CpuConfig {
+pub struct RenderConfig {
     /// GPU side configuration.
-    pub gpu: GpuConfig,
-    /// Workgroup sizes for all compute pipelines.
-    pub workgroup_sizes: WorkgroupSizes,
+    pub gpu: ConfigUniform,
+    /// Workgroup counts for all compute pipelines.
+    pub workgroup_counts: WorkgroupCounts,
     /// Sizes of all buffer resources.
     pub buffer_sizes: BufferSizes,
 }
 
-impl CpuConfig {
-    pub fn new(encoding: &Encoding, layout: &Layout, width: u32, height: u32) -> Self {
-        let new_width = next_multiple_of(width, 16);
-        let new_height = next_multiple_of(height, 16);
-        let mut config = GpuConfig {
-            width_in_tiles: new_width / 16,
-            height_in_tiles: new_height / 16,
-            target_width: width,
-            target_height: height,
-            base_color: 0,
-            binning_size: 0,
-            tiles_size: 0,
-            segments_size: 0,
-            ptcl_size: 0,
-            layout: *layout,
-        };
-        let n_path_tags = encoding.path_tags.len() as u32;
-        let workgroup_sizes = WorkgroupSizes::new(&config, n_path_tags);
-        let buffer_sizes = BufferSizes::new(&config, &workgroup_sizes, n_path_tags);
-        config.binning_size = buffer_sizes.bin_data.len();
-        config.tiles_size = buffer_sizes.tiles.len();
-        config.segments_size = buffer_sizes.tiles.len();
-        config.ptcl_size = buffer_sizes.tiles.len();
+impl RenderConfig {
+    pub fn new(layout: &Layout, width: u32, height: u32, base_color: &peniko::Color) -> Self {
+        let new_width = next_multiple_of(width, TILE_WIDTH);
+        let new_height = next_multiple_of(height, TILE_HEIGHT);
+        let width_in_tiles = new_width / TILE_WIDTH;
+        let height_in_tiles = new_height / TILE_HEIGHT;
+        let n_path_tags = layout.path_tags_size();
+        let workgroup_counts =
+            WorkgroupCounts::new(&layout, width_in_tiles, height_in_tiles, n_path_tags);
+        let buffer_sizes = BufferSizes::new(&layout, &workgroup_counts, n_path_tags);
         Self {
-            gpu: config,
-            workgroup_sizes,
+            gpu: ConfigUniform {
+                width_in_tiles,
+                height_in_tiles,
+                target_width: width,
+                target_height: height,
+                base_color: base_color.to_premul_u32(),
+                binning_size: buffer_sizes.bin_data.len() - layout.bin_data_start,
+                tiles_size: buffer_sizes.tiles.len(),
+                segments_size: buffer_sizes.segments.len(),
+                ptcl_size: buffer_sizes.ptcl.len(),
+                layout: *layout,
+            },
+            workgroup_counts,
             buffer_sizes,
         }
     }
 }
-
-const PATH_REDUCE_WG: u32 = 256;
-const PATH_BBOX_WG: u32 = 256;
-const PATH_COARSE_WG: u32 = 256;
-const CLIP_REDUCE_WG: u32 = 256;
 
 /// Type alias for a workgroup size.
 pub type WorkgroupSize = (u32, u32, u32);
 
 /// Computed sizes for all dispatches.
 #[derive(Copy, Clone, Debug, Default)]
-pub struct WorkgroupSizes {
+pub struct WorkgroupCounts {
     pub use_large_path_scan: bool,
     pub path_reduce: WorkgroupSize,
     pub path_reduce2: WorkgroupSize,
@@ -122,15 +123,20 @@ pub struct WorkgroupSizes {
     pub fine: WorkgroupSize,
 }
 
-impl WorkgroupSizes {
-    pub fn new(config: &GpuConfig, n_path_tags: u32) -> Self {
-        let n_paths = config.layout.n_paths;
-        let n_draw_objects = config.layout.n_draw_objects;
-        let n_clips = config.layout.n_clips;
+impl WorkgroupCounts {
+    pub fn new(
+        layout: &Layout,
+        width_in_tiles: u32,
+        height_in_tiles: u32,
+        n_path_tags: u32,
+    ) -> Self {
+        let n_paths = layout.n_paths;
+        let n_draw_objects = layout.n_draw_objects;
+        let n_clips = layout.n_clips;
         let path_tag_padded = align_up(n_path_tags, 4 * PATH_REDUCE_WG);
         let path_tag_wgs = path_tag_padded / (4 * PATH_REDUCE_WG);
         let use_large_path_scan = path_tag_wgs > PATH_REDUCE_WG;
-        let path_reduce_wgs = if use_large_path_scan {
+        let reduced_size = if use_large_path_scan {
             align_up(path_tag_wgs, PATH_REDUCE_WG)
         } else {
             path_tag_wgs
@@ -140,13 +146,13 @@ impl WorkgroupSizes {
         let clip_reduce_wgs = n_clips.saturating_sub(1) / CLIP_REDUCE_WG;
         let clip_wgs = (n_clips + CLIP_REDUCE_WG - 1) / CLIP_REDUCE_WG;
         let path_wgs = (n_paths + PATH_BBOX_WG - 1) / PATH_BBOX_WG;
-        let width_in_bins = (config.width_in_tiles + 15) / 16;
-        let height_in_bins = (config.height_in_tiles + 15) / 16;
+        let width_in_bins = (width_in_tiles + 15) / 16;
+        let height_in_bins = (height_in_tiles + 15) / 16;
         Self {
             use_large_path_scan,
-            path_reduce: (path_reduce_wgs, 1, 1),
+            path_reduce: (path_tag_wgs, 1, 1),
             path_reduce2: (PATH_REDUCE_WG, 1, 1),
-            path_scan1: (path_reduce_wgs / PATH_REDUCE_WG, 1, 1),
+            path_scan1: (reduced_size / PATH_REDUCE_WG, 1, 1),
             path_scan: (path_tag_wgs, 1, 1),
             bbox_clear: (draw_object_wgs, 1, 1),
             path_seg: (path_coarse_wgs, 1, 1),
@@ -159,7 +165,7 @@ impl WorkgroupSizes {
             path_coarse: (path_coarse_wgs, 1, 1),
             backdrop: (path_wgs, 1, 1),
             coarse: (width_in_bins, height_in_bins, 1),
-            fine: (config.width_in_tiles, config.height_in_tiles, 1),
+            fine: (width_in_tiles, height_in_tiles, 1),
         }
     }
 }
@@ -231,6 +237,7 @@ pub struct BufferSizes {
     pub clip_bics: BufferSize<ClipBic>,
     pub clip_bboxes: BufferSize<ClipBbox>,
     pub draw_bboxes: BufferSize<DrawBbox>,
+    pub bump_alloc: BufferSize<BumpAllocators>,
     pub bin_headers: BufferSize<BinHeader>,
     pub paths: BufferSize<Path>,
     // Bump allocated buffers
@@ -241,12 +248,17 @@ pub struct BufferSizes {
 }
 
 impl BufferSizes {
-    pub fn new(config: &GpuConfig, workgroups: &WorkgroupSizes, n_path_tags: u32) -> Self {
-        let n_paths = config.layout.n_paths;
-        let n_draw_objects = config.layout.n_draw_objects;
-        let n_clips = config.layout.n_clips;
+    pub fn new(layout: &Layout, workgroups: &WorkgroupCounts, n_path_tags: u32) -> Self {
+        let n_paths = layout.n_paths;
+        let n_draw_objects = layout.n_draw_objects;
+        let n_clips = layout.n_clips;
         let path_tag_wgs = workgroups.path_reduce.0;
-        let path_reduced = BufferSize::new(path_tag_wgs);
+        let reduced_size = if workgroups.use_large_path_scan {
+            align_up(path_tag_wgs, PATH_REDUCE_WG)
+        } else {
+            path_tag_wgs
+        };
+        let path_reduced = BufferSize::new(reduced_size);
         let path_reduced2 = BufferSize::new(PATH_REDUCE_WG);
         let path_reduced_scan = BufferSize::new(path_tag_wgs);
         let path_monoids = BufferSize::new(path_tag_wgs * PATH_REDUCE_WG);
@@ -255,21 +267,24 @@ impl BufferSizes {
         let draw_object_wgs = workgroups.draw_reduce.0;
         let draw_reduced = BufferSize::new(draw_object_wgs);
         let draw_monoids = BufferSize::new(n_draw_objects);
-        let info = BufferSize::new(config.layout.bin_data_start);
+        let info = BufferSize::new(layout.bin_data_start);
         let clip_inps = BufferSize::new(n_clips);
         let clip_els = BufferSize::new(n_clips);
         let clip_bics = BufferSize::new(n_clips / CLIP_REDUCE_WG);
         let clip_bboxes = BufferSize::new(n_clips);
         let draw_bboxes = BufferSize::new(n_paths);
+        let bump_alloc = BufferSize::new(1);
         let bin_headers = BufferSize::new(draw_object_wgs * 256);
         let n_paths_aligned = align_up(n_paths, 256);
         let paths = BufferSize::new(n_paths_aligned);
-        // TODO: better heuristics. Just use 128k for now
-        let initial_bump_size = 128 * 1024;
-        let bin_data = BufferSize::from_size_in_bytes(initial_bump_size);
-        let tiles = BufferSize::from_size_in_bytes(initial_bump_size);
-        let segments = BufferSize::from_size_in_bytes(initial_bump_size);
-        let ptcl = BufferSize::from_size_in_bytes(initial_bump_size);
+
+        // The following buffer sizes have been hand picked to accommodate the vello test scenes as
+        // well as paris-30k. These should instead get derived from the scene layout using
+        // reasonable heuristics.
+        let bin_data = BufferSize::from_size_in_bytes(1 << 20);
+        let tiles = BufferSize::from_size_in_bytes(1 << 24);
+        let segments = BufferSize::from_size_in_bytes(1 << 26);
+        let ptcl = BufferSize::from_size_in_bytes(1 << 25);
         Self {
             path_reduced,
             path_reduced2,
@@ -285,6 +300,7 @@ impl BufferSizes {
             clip_bics,
             clip_bboxes,
             draw_bboxes,
+            bump_alloc,
             bin_headers,
             paths,
             bin_data,

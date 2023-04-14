@@ -65,6 +65,12 @@ impl Layout {
         bytemuck::cast_slice(&data[start..end])
     }
 
+    pub fn path_tags_size(&self) -> u32 {
+        let start = self.path_tag_base * 4;
+        let end = self.path_data_base * 4;
+        end - start
+    }
+
     /// Returns the path tag stream in chunks of 4.
     pub fn path_tags_chunked<'a>(&self, data: &'a [u8]) -> &'a [u32] {
         let start = self.path_tag_base as usize * 4;

@@ -33,7 +33,8 @@ mod resolve;
 pub use binning::BinHeader;
 pub use clip::{Clip, ClipBbox, ClipBic, ClipElement};
 pub use config::{
-    BufferSize, BufferSizes, BumpAllocators, CpuConfig, GpuConfig, WorkgroupSize, WorkgroupSizes,
+    BufferSize, BufferSizes, BumpAllocators, ConfigUniform, RenderConfig, WorkgroupCounts,
+    WorkgroupSize,
 };
 pub use draw::{
     DrawBbox, DrawBeginClip, DrawColor, DrawImage, DrawLinearGradient, DrawMonoid,
