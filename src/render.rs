@@ -2,7 +2,7 @@
 
 use crate::{
     engine::{BufProxy, ImageFormat, ImageProxy, Recording, ResourceProxy},
-    shaders::{self, FullShaders, Shaders},
+    shaders::{self, FullShaders},
     RenderParams, Scene,
 };
 use {
@@ -78,87 +78,6 @@ struct BumpAllocators {
     tile: u32,
     segments: u32,
     blend: u32,
-}
-
-#[allow(unused)]
-fn render(scene: &Scene, shaders: &Shaders) -> (Recording, BufProxy) {
-    let mut recording = Recording::default();
-    let data = scene.data();
-    let n_pathtag = data.path_tags.len();
-    let pathtag_padded = align_up(n_pathtag, 4 * shaders::PATHTAG_REDUCE_WG);
-    let pathtag_wgs = pathtag_padded / (4 * shaders::PATHTAG_REDUCE_WG as usize);
-    let mut scene: Vec<u8> = Vec::with_capacity(pathtag_padded);
-    let pathtag_base = size_to_words(scene.len());
-    scene.extend(bytemuck::cast_slice(&data.path_tags));
-    scene.resize(pathtag_padded, 0);
-    let pathdata_base = size_to_words(scene.len());
-    scene.extend(&data.path_data);
-
-    let config = GpuConfig {
-        width_in_tiles: 64,
-        height_in_tiles: 64,
-        target_width: 64 * 16,
-        target_height: 64 * 16,
-        layout: Layout {
-            path_tag_base: pathtag_base,
-            path_data_base: pathdata_base,
-            ..Default::default()
-        },
-        ..Default::default()
-    };
-    let scene_buf = recording.upload("scene", scene);
-    let config_buf = recording.upload_uniform("config", bytemuck::bytes_of(&config));
-
-    let reduced_buf = BufProxy::new(pathtag_wgs as u64 * TAG_MONOID_SIZE, "reduced_buf");
-    // TODO: really only need pathtag_wgs - 1
-    recording.dispatch(
-        shaders.pathtag_reduce,
-        (pathtag_wgs as u32, 1, 1),
-        [config_buf, scene_buf, reduced_buf],
-    );
-
-    let tagmonoid_buf = BufProxy::new(
-        pathtag_wgs as u64 * shaders::PATHTAG_REDUCE_WG as u64 * TAG_MONOID_SIZE,
-        "tagmonoid_buf",
-    );
-    recording.dispatch(
-        shaders.pathtag_scan,
-        (pathtag_wgs as u32, 1, 1),
-        [config_buf, scene_buf, reduced_buf, tagmonoid_buf],
-    );
-
-    let path_coarse_wgs =
-        (n_pathtag as u32 + shaders::PATH_COARSE_WG - 1) / shaders::PATH_COARSE_WG;
-    // TODO: more principled size calc
-    let tiles_buf = BufProxy::new(4097 * 8, "tiles_buf");
-    let segments_buf = BufProxy::new(256 * 24, "segments_buf");
-    recording.clear_all(tiles_buf);
-    recording.dispatch(
-        shaders.path_coarse,
-        (path_coarse_wgs, 1, 1),
-        [
-            config_buf,
-            scene_buf,
-            tagmonoid_buf,
-            tiles_buf,
-            segments_buf,
-        ],
-    );
-    recording.dispatch(
-        shaders.backdrop,
-        (config.height_in_tiles, 1, 1),
-        [config_buf, tiles_buf],
-    );
-    let out_buf_size = config.width_in_tiles * config.height_in_tiles * 256;
-    let out_buf = BufProxy::new(out_buf_size as u64, "out_buf");
-    recording.dispatch(
-        shaders.fine,
-        (config.width_in_tiles, config.height_in_tiles, 1),
-        [config_buf, tiles_buf, segments_buf, out_buf],
-    );
-
-    recording.download(out_buf);
-    (recording, out_buf)
 }
 
 pub fn render_full(
