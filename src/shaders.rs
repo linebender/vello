@@ -24,12 +24,6 @@ use wgpu::Device;
 
 use crate::engine::{BindType, Engine, Error, ImageFormat, ShaderId};
 
-pub const PATHTAG_REDUCE_WG: u32 = 256;
-pub const PATH_BBOX_WG: u32 = 256;
-pub const PATH_COARSE_WG: u32 = 256;
-pub const PATH_DRAWOBJ_WG: u32 = 256;
-pub const CLIP_REDUCE_WG: u32 = 256;
-
 macro_rules! shader {
     ($name:expr) => {&{
         let shader = include_str!(concat!(

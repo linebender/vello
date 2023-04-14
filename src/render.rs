@@ -75,8 +75,7 @@ impl Render {
         let mut recording = Recording::default();
         let mut resolver = Resolver::new();
         let mut packed = vec![];
-        let (layout, ramps, images) =
-            resolver.resolve(encoding, &mut packed, shaders::PATHTAG_REDUCE_WG);
+        let (layout, ramps, images) = resolver.resolve(encoding, &mut packed);
         let gradient_image = if ramps.height == 0 {
             ResourceProxy::new_image(1, 1, ImageFormat::Rgba8)
         } else {

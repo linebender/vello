@@ -1,6 +1,6 @@
 use super::{
-    BinHeader, Clip, ClipBbox, ClipBic, ClipElement, Cubic, DrawBbox, DrawMonoid, Encoding, Layout,
-    Path, PathBbox, PathMonoid, PathSegment, Tile,
+    BinHeader, Clip, ClipBbox, ClipBic, ClipElement, Cubic, DrawBbox, DrawMonoid, Layout, Path,
+    PathBbox, PathMonoid, PathSegment, Tile,
 };
 use bytemuck::{Pod, Zeroable};
 use std::mem;
@@ -8,7 +8,8 @@ use std::mem;
 const TILE_WIDTH: u32 = 16;
 const TILE_HEIGHT: u32 = 16;
 
-const PATH_REDUCE_WG: u32 = 256;
+// TODO: Obtain these from the vello_shaders crate
+pub(crate) const PATH_REDUCE_WG: u32 = 256;
 const PATH_BBOX_WG: u32 = 256;
 const PATH_COARSE_WG: u32 = 256;
 const CLIP_REDUCE_WG: u32 = 256;
