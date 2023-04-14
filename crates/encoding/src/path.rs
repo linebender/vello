@@ -209,6 +209,7 @@ pub struct Path {
     pub bbox: [f32; 4],
     /// Offset (in u32s) to tile rectangle.
     pub tiles: u32,
+    _padding: [u32; 3],
 }
 
 /// Tile object.

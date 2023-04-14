@@ -16,6 +16,7 @@ pub struct ClipBic {
 #[repr(C)]
 pub struct ClipElement {
     pub parent_ix: u32,
+    _padding: [u8; 12],
     pub bbox: [f32; 4],
 }
 
