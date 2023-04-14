@@ -1,3 +1,6 @@
+// Copyright 2023 The Vello authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 use super::{
     BinHeader, Clip, ClipBbox, ClipBic, ClipElement, Cubic, DrawBbox, DrawMonoid, Layout, Path,
     PathBbox, PathMonoid, PathSegment, Tile,

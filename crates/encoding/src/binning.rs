@@ -1,4 +1,4 @@
-// Copyright 2022 Google LLC
+// Copyright 2023 The Vello authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use bytemuck::{Pod, Zeroable};
