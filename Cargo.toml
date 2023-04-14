@@ -46,7 +46,7 @@ futures-intrusive = "0.5.0"
 parking_lot = "0.12"
 bytemuck = { version = "1.12.1", features = ["derive"] }
 smallvec = "1.8.0"
-fello = { git = "https://github.com/dfrg/fount", rev = "8ee330bb9b59291edf2feaa6968ca834a58ae712" }
+fello = { git = "https://github.com/dfrg/fount", rev = "58a284eaae67512fb61cf76177c5d33238d79cb1" }
 peniko = { git = "https://github.com/linebender/peniko", rev = "cafdac9a211a0fb2fec5656bd663d1ac770bcc81" }
 guillotiere = "0.6.2"
 
