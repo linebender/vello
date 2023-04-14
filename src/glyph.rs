@@ -29,6 +29,8 @@ use {
     vello_encoding::Encoding,
 };
 
+pub use vello_encoding::Glyph;
+
 /// General context for creating scene fragments for glyph outlines.
 pub struct GlyphContext {
     ctx: Context,
