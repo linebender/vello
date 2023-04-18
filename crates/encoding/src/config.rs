@@ -285,10 +285,10 @@ impl BufferSizes {
         // The following buffer sizes have been hand picked to accommodate the vello test scenes as
         // well as paris-30k. These should instead get derived from the scene layout using
         // reasonable heuristics.
-        let bin_data = BufferSize::from_size_in_bytes(1 << 20);
-        let tiles = BufferSize::from_size_in_bytes(1 << 24);
-        let segments = BufferSize::from_size_in_bytes(1 << 26);
-        let ptcl = BufferSize::from_size_in_bytes(1 << 25);
+        let bin_data = BufferSize::new(1 << 18);
+        let tiles = BufferSize::new(1 << 21);
+        let segments = BufferSize::new(1 << 21);
+        let ptcl = BufferSize::new(1 << 23);
         Self {
             path_reduced,
             path_reduced2,
