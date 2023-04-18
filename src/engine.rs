@@ -330,7 +330,7 @@ impl Engine {
                         let format = proxy.format.to_wgpu();
                         queue.write_texture(
                             wgpu::ImageCopyTexture {
-                                texture: &texture,
+                                texture,
                                 mip_level: 0,
                                 origin: wgpu::Origin3d { x: *x, y: *y, z: 0 },
                                 aspect: TextureAspect::All,

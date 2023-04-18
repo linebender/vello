@@ -129,9 +129,11 @@ impl Resolver {
         self.resolve_pending_images();
         let data = packed;
         data.clear();
-        let mut layout = Layout::default();
-        layout.n_paths = encoding.n_paths;
-        layout.n_clips = encoding.n_clips;
+        let mut layout = Layout {
+            n_paths: encoding.n_paths,
+            n_clips: encoding.n_clips,
+            ..Layout::default()
+        };
         // Compute size of data buffer
         let n_path_tags =
             encoding.path_tags.len() + sizes.path_tags + encoding.n_open_clips as usize;

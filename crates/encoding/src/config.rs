@@ -81,8 +81,8 @@ impl RenderConfig {
         let height_in_tiles = new_height / TILE_HEIGHT;
         let n_path_tags = layout.path_tags_size();
         let workgroup_counts =
-            WorkgroupCounts::new(&layout, width_in_tiles, height_in_tiles, n_path_tags);
-        let buffer_sizes = BufferSizes::new(&layout, &workgroup_counts, n_path_tags);
+            WorkgroupCounts::new(layout, width_in_tiles, height_in_tiles, n_path_tags);
+        let buffer_sizes = BufferSizes::new(layout, &workgroup_counts, n_path_tags);
         Self {
             gpu: ConfigUniform {
                 width_in_tiles,
@@ -175,7 +175,7 @@ impl WorkgroupCounts {
 }
 
 /// Typed buffer size primitive.
-#[derive(Copy, Clone, Eq, Ord, Default, Debug)]
+#[derive(Copy, Clone, Eq, Default, Debug)]
 pub struct BufferSize<T: Sized> {
     len: u32,
     _phantom: std::marker::PhantomData<T>,
