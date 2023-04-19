@@ -1,18 +1,5 @@
-// Copyright 2022 Google LLC
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     https://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-//
-// Also licensed under MIT license, at your choice.
+// Copyright 2022 The Vello authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use bytemuck::{Pod, Zeroable};
 use peniko::kurbo::Shape;
@@ -20,7 +7,7 @@ use peniko::kurbo::Shape;
 use super::Monoid;
 
 /// Path segment.
-#[derive(Clone, Copy, Debug, Zeroable, Pod)]
+#[derive(Clone, Copy, Debug, Zeroable, Pod, Default)]
 #[repr(C)]
 pub struct PathSegment {
     pub origin: [f32; 2],
@@ -170,6 +157,19 @@ impl Monoid for PathMonoid {
     }
 }
 
+/// Cubic path segment.
+#[derive(Copy, Clone, Pod, Zeroable, Debug, Default)]
+#[repr(C)]
+pub struct Cubic {
+    pub p0: [f32; 2],
+    pub p1: [f32; 2],
+    pub p2: [f32; 2],
+    pub p3: [f32; 2],
+    pub stroke: [f32; 2],
+    pub path_ix: u32,
+    pub flags: u32,
+}
+
 /// Path bounding box.
 #[derive(Copy, Clone, Pod, Zeroable, Default, Debug)]
 #[repr(C)]
@@ -186,6 +186,27 @@ pub struct PathBbox {
     pub linewidth: f32,
     /// Index into the transform stream.
     pub trans_ix: u32,
+}
+
+/// Tiled path object.
+#[derive(Copy, Clone, Pod, Zeroable, Debug, Default)]
+#[repr(C)]
+pub struct Path {
+    /// Bounding box in tiles.
+    pub bbox: [f32; 4],
+    /// Offset (in u32s) to tile rectangle.
+    pub tiles: u32,
+    _padding: [u32; 3],
+}
+
+/// Tile object.
+#[derive(Copy, Clone, Pod, Zeroable, Debug, Default)]
+#[repr(C)]
+pub struct Tile {
+    /// Accumulated backdrop at the left edge of the tile.
+    pub backdrop: i32,
+    /// Index of first path segment.
+    pub segments: u32,
 }
 
 /// Encoder for path segments.
@@ -379,5 +400,27 @@ impl<'a> PathEncoder<'a> {
             }
         }
         self.n_encoded_segments
+    }
+}
+
+impl fello::scale::Pen for PathEncoder<'_> {
+    fn move_to(&mut self, x: f32, y: f32) {
+        self.move_to(x, y)
+    }
+
+    fn line_to(&mut self, x: f32, y: f32) {
+        self.line_to(x, y)
+    }
+
+    fn quad_to(&mut self, cx0: f32, cy0: f32, x: f32, y: f32) {
+        self.quad_to(cx0, cy0, x, y)
+    }
+
+    fn curve_to(&mut self, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x: f32, y: f32) {
+        self.cubic_to(cx0, cy0, cx1, cy1, x, y)
+    }
+
+    fn close(&mut self) {
+        self.close()
     }
 }

@@ -16,19 +16,20 @@
 
 //! Support for glyph rendering.
 
-use fello::scale::Pen;
-
-use crate::encoding::{Encoding, PathEncoder};
 use crate::scene::{SceneBuilder, SceneFragment};
-use peniko::kurbo::Affine;
-use peniko::{Brush, Color, Fill, Style};
-
-use fello::{
-    raw::types::GlyphId,
-    raw::FontRef,
-    scale::{Context, Scaler},
-    FontKey, Setting, Size,
+use {
+    fello::{
+        raw::types::GlyphId,
+        raw::FontRef,
+        scale::{Context, Pen, Scaler},
+        FontKey, Setting, Size,
+    },
+    peniko::kurbo::Affine,
+    peniko::{Brush, Color, Fill, Style},
+    vello_encoding::Encoding,
 };
+
+pub use vello_encoding::Glyph;
 
 /// General context for creating scene fragments for glyph outlines.
 pub struct GlyphContext {
@@ -105,9 +106,9 @@ impl<'a> GlyphProvider<'a> {
             Style::Fill(Fill::EvenOdd) => encoding.encode_linewidth(-2.0),
             Style::Stroke(stroke) => encoding.encode_linewidth(stroke.width),
         }
-        let mut path = PathEncoderPen(encoding.encode_path(matches!(style, Style::Fill(_))));
+        let mut path = encoding.encode_path(matches!(style, Style::Fill(_)));
         self.scaler.outline(GlyphId::new(gid), &mut path).ok()?;
-        if path.0.finish(false) != 0 {
+        if path.finish(false) != 0 {
             Some(())
         } else {
             None
@@ -142,29 +143,5 @@ impl Pen for BezPathPen {
 
     fn close(&mut self) {
         self.0.close_path()
-    }
-}
-
-pub(crate) struct PathEncoderPen<'a>(pub PathEncoder<'a>);
-
-impl Pen for PathEncoderPen<'_> {
-    fn move_to(&mut self, x: f32, y: f32) {
-        self.0.move_to(x, y)
-    }
-
-    fn line_to(&mut self, x: f32, y: f32) {
-        self.0.line_to(x, y)
-    }
-
-    fn quad_to(&mut self, cx0: f32, cy0: f32, x: f32, y: f32) {
-        self.0.quad_to(cx0, cy0, x, y)
-    }
-
-    fn curve_to(&mut self, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x: f32, y: f32) {
-        self.0.cubic_to(cx0, cy0, cx1, cy1, x, y)
-    }
-
-    fn close(&mut self) {
-        self.0.close()
     }
 }

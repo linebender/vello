@@ -1,18 +1,5 @@
-// Copyright 2022 Google LLC
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     https://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-//
-// Also licensed under MIT license, at your choice.
+// Copyright 2022 The Vello authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use std::ops::Range;
 
@@ -25,7 +12,6 @@ use super::{
     ramp_cache::{RampCache, Ramps},
     DrawTag, Encoding, PathTag, StreamOffsets, Transform,
 };
-use crate::shaders;
 
 /// Layout of a packed encoding.
 #[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
@@ -64,6 +50,12 @@ impl Layout {
         let start = self.path_tag_base as usize * 4;
         let end = self.path_data_base as usize * 4;
         bytemuck::cast_slice(&data[start..end])
+    }
+
+    pub fn path_tags_size(&self) -> u32 {
+        let start = self.path_tag_base * 4;
+        let end = self.path_data_base * 4;
+        end - start
     }
 
     /// Returns the path tag stream in chunks of 4.
@@ -108,35 +100,6 @@ impl Layout {
     }
 }
 
-/// Scene configuration.
-///
-/// This data structure must be kept in sync with the definition in
-/// shaders/shared/config.wgsl.
-#[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
-#[repr(C)]
-pub struct Config {
-    /// Width of the scene in tiles.
-    pub width_in_tiles: u32,
-    /// Height of the scene in tiles.
-    pub height_in_tiles: u32,
-    /// Width of the target in pixels.
-    pub target_width: u32,
-    /// Height of the target in pixels.
-    pub target_height: u32,
-    /// The base background color applied to the target before any blends.
-    pub base_color: u32,
-    /// Layout of packed scene data.
-    pub layout: Layout,
-    /// Size of binning buffer allocation (in u32s).
-    pub binning_size: u32,
-    /// Size of tile buffer allocation (in Tiles).
-    pub tiles_size: u32,
-    /// Size of segment buffer allocation (in PathSegments).
-    pub segments_size: u32,
-    /// Size of per-tile command list buffer allocation (in u32s).
-    pub ptcl_size: u32,
-}
-
 /// Resolver for late bound resources.
 #[derive(Default)]
 pub struct Resolver {
@@ -166,13 +129,15 @@ impl Resolver {
         self.resolve_pending_images();
         let data = packed;
         data.clear();
-        let mut layout = Layout::default();
-        layout.n_paths = encoding.n_paths;
-        layout.n_clips = encoding.n_clips;
+        let mut layout = Layout {
+            n_paths: encoding.n_paths,
+            n_clips: encoding.n_clips,
+            ..Layout::default()
+        };
         // Compute size of data buffer
         let n_path_tags =
             encoding.path_tags.len() + sizes.path_tags + encoding.n_open_clips as usize;
-        let path_tag_padded = align_up(n_path_tags, 4 * shaders::PATHTAG_REDUCE_WG);
+        let path_tag_padded = align_up(n_path_tags, 4 * crate::config::PATH_REDUCE_WG);
         let capacity = path_tag_padded
             + slice_size_in_bytes(&encoding.path_data, sizes.path_data)
             + slice_size_in_bytes(

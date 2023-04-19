@@ -1,24 +1,9 @@
-// Copyright 2022 Google LLC
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     https://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-//
-// Also licensed under MIT license, at your choice.
-
-use crate::encoding::DrawImage;
+// Copyright 2022 The Vello authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use super::{
-    resolve::Patch, DrawColor, DrawLinearGradient, DrawRadialGradient, DrawTag, Glyph, GlyphRun,
-    PathEncoder, PathTag, Transform,
+    resolve::Patch, DrawColor, DrawImage, DrawLinearGradient, DrawRadialGradient, DrawTag, Glyph,
+    GlyphRun, PathEncoder, PathTag, Transform,
 };
 
 use fello::NormalizedCoord;
@@ -170,9 +155,7 @@ impl Encoding {
             linewidths: self.linewidths.len(),
         }
     }
-}
 
-impl Encoding {
     /// Encodes a linewidth.
     pub fn encode_linewidth(&mut self, linewidth: f32) {
         if self.linewidths.last() != Some(&linewidth) {

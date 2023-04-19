@@ -17,10 +17,9 @@
 use std::sync::Arc;
 
 use vello::{
-    encoding::Glyph,
     fello::meta::MetadataProvider,
     fello::raw::FontRef,
-    glyph::GlyphContext,
+    glyph::{Glyph, GlyphContext},
     kurbo::Affine,
     peniko::{Blob, Brush, BrushRef, Font, StyleRef},
     SceneBuilder,

@@ -27,8 +27,6 @@ pub use peniko::kurbo;
 #[doc(hidden)]
 pub use fello;
 
-pub mod encoding;
-
 pub mod glyph;
 pub mod util;
 
@@ -138,7 +136,7 @@ impl Renderer {
         if target.width != width || target.height != height {
             target = TargetTexture::new(device, width, height);
         }
-        self.render_to_texture(device, queue, scene, &target.view, &params)?;
+        self.render_to_texture(device, queue, scene, &target.view, params)?;
         let blit = self
             .blit
             .as_ref()

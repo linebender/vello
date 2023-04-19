@@ -1,18 +1,5 @@
-// Copyright 2022 Google LLC
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     https://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-//
-// Also licensed under MIT license, at your choice.
+// Copyright 2022 The Vello authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use std::collections::HashMap;
 
@@ -59,11 +46,11 @@ impl GlyphCache {
                 Style::Fill(Fill::EvenOdd) => encoding_cache.encode_linewidth(-2.0),
                 Style::Stroke(stroke) => encoding_cache.encode_linewidth(stroke.width),
             }
-            let mut path = crate::glyph::PathEncoderPen(encoding_cache.encode_path(is_fill));
+            let mut path = encoding_cache.encode_path(is_fill);
             scaler
                 .outline(GlyphId::new(key.glyph_id as u16), &mut path)
                 .ok()?;
-            if path.0.finish(false) == 0 {
+            if path.finish(false) == 0 {
                 return None;
             }
             let end = encoding_cache.stream_offsets();
