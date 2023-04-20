@@ -214,8 +214,9 @@ fn fill_path_ms(seg_data: u32, n_segs: u32, backdrop: i32, wg_id: vec2<u32>, loc
         let seg_ix = batch * WG_SIZE + th_ix;
         let seg_off = seg_data + seg_ix * SEG_SIZE;
         var count = 0u;
+        let slice_size = min(n_segs - batch * WG_SIZE, WG_SIZE);
         // TODO: might save a register rewriting this in terms of limit
-        if seg_ix < n_segs {
+        if th_ix < slice_size {
             var segment = Segment();
             segment.origin = bitcast<vec2<f32>>(vec2(ptcl[seg_off], ptcl[seg_off + 1u]));
             segment.delta = bitcast<vec2<f32>>(vec2(ptcl[seg_off + 2u], ptcl[seg_off + 3u]));
@@ -238,7 +239,8 @@ fn fill_path_ms(seg_data: u32, n_segs: u32, backdrop: i32, wg_id: vec2<u32>, loc
         }
         // workgroup prefix sum of counts
         sh_count[th_ix] = count;
-        for (var i = 0u; i < firstTrailingBit(WG_SIZE); i++) {
+        let lg_n = firstLeadingBit(slice_size * 2u - 1u);
+        for (var i = 0u; i < lg_n; i++) {
             workgroupBarrier();
             if th_ix >= 1u << i {
                 count += sh_count[th_ix - (1u << i)];
@@ -248,16 +250,21 @@ fn fill_path_ms(seg_data: u32, n_segs: u32, backdrop: i32, wg_id: vec2<u32>, loc
         }
         workgroupBarrier();
         // TODO: workgroupUniformLoad
-        let total = sh_count[WG_SIZE - 1u];
+        let total = sh_count[slice_size - 1u];
         for (var i = th_ix; i < total; i += WG_SIZE) {
             // binary search to find pixel
-            var el_ix = 0u;
-            for (var j = 0u; j < firstTrailingBit(WG_SIZE); j++) {
-                let probe = el_ix + ((WG_SIZE / 2u) >> j);
-                if i >= sh_count[probe - 1u] {
-                    el_ix = probe;
+            var lo = 0u;
+            var hi = slice_size;
+            let goal = i;
+            while hi > lo + 1u {
+                let mid = (lo + hi) >> 1u;
+                if goal >= sh_count[mid - 1u] {
+                    lo = mid;
+                } else {
+                    hi = mid;
                 }
             }
+            let el_ix = lo;
             let last_pixel = i + 1u == sh_count[el_ix];
             let sub_ix = i - select(0u, sh_count[el_ix - 1u], el_ix > 0u);
             let seg_off = seg_data + ((batch * WG_SIZE) + el_ix) * SEG_SIZE;
