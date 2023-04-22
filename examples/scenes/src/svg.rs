@@ -93,11 +93,13 @@ pub fn svg_function_of<R: AsRef<str>>(
         let start = Instant::now();
         let svg = usvg::Tree::from_str(&contents, &usvg::Options::default())
             .expect("failed to parse svg file");
+        eprintln!("Parsed svg {name} in {:?}", start.elapsed());
+        let start = Instant::now();
         let mut new_scene = SceneFragment::new();
         let mut builder = SceneBuilder::for_fragment(&mut new_scene);
         vello_svg::render_tree(&mut builder, &svg);
         let resolution = Vec2::new(svg.size.width(), svg.size.height());
-        eprintln!("Rendered svg {name} in {:?}", start.elapsed());
+        eprintln!("Encoded svg {name} in {:?}", start.elapsed());
         (new_scene, resolution)
     }
     let mut cached_scene = None;
