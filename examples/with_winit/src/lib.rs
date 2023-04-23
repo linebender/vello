@@ -14,8 +14,8 @@
 //
 // Also licensed under MIT license, at your choice.
 
+use instant::Instant;
 use std::collections::HashSet;
-use std::time::Instant;
 
 use anyhow::Result;
 use clap::{CommandFactory, Parser};
