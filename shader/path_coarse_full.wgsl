@@ -60,7 +60,7 @@ fn estimate_subdiv(p0: vec2<f32>, p1: vec2<f32>, p2: vec2<f32>, sqrt_tol: f32) -
     let d12 = p2 - p1;
     let dd = d01 - d12;
     let cross = (p2.x - p0.x) * dd.y - (p2.y - p0.y) * dd.x;
-    let cross_inv = 1.0 / cross;
+    let cross_inv = select(1.0 / cross, 1.0e9, abs(cross) < 1.0e-9);
     let x0 = dot(d01, dd) * cross_inv;
     let x2 = dot(d12, dd) * cross_inv;
     let scale = abs(cross / (length(dd) * (x2 - x0)));
