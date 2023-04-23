@@ -15,6 +15,7 @@
   "wgsl-analyzer.diagnostics.nagaVersion": "main",
   "wgsl-analyzer.preprocessor.shaderDefs": [
     "full",
-    "msaa16"
+    "msaa16",
+    "load_balanced"
   ]
 }

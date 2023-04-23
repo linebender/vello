@@ -32,7 +32,7 @@ pub use glyph::{Glyph, GlyphRun};
 pub use math::Transform;
 pub use monoid::Monoid;
 pub use path::{
-    Cubic, FlatSegment, Path, PathBbox, PathEncoder, PathMonoid, PathSegment, PathSegmentType,
+    Cubic, LineSoup, Path, PathBbox, PathEncoder, PathMonoid, PathSegment, PathSegmentType,
     PathTag, Tile,
 };
 pub use ramp_cache::Ramps;

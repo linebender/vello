@@ -688,8 +688,11 @@ impl BindMap {
                         continue;
                     }
                     if let Entry::Vacant(v) = self.buf_map.entry(proxy.id) {
-                        let usage =
-                            BufferUsages::COPY_SRC | BufferUsages::COPY_DST | BufferUsages::STORAGE;
+                        // TODO: only some buffers will need indirect, but does it hurt?
+                        let usage = BufferUsages::COPY_SRC
+                            | BufferUsages::COPY_DST
+                            | BufferUsages::STORAGE
+                            | BufferUsages::INDIRECT;
                         let buf = pool.get_buf(proxy.size, proxy.name, usage, device);
                         v.insert(BindMapBuffer {
                             buffer: buf,

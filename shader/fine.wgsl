@@ -19,7 +19,7 @@ var<uniform> config: Config;
 var<storage> tiles: array<Tile>;
 
 @group(0) @binding(2)
-var<storage> segments: array<LinkedSegment>;
+var<storage> segments: array<Segment>;
 
 #ifdef full
 
@@ -59,20 +59,11 @@ let MASK_HEIGHT = 64u;
 var<storage> mask_lut: array<u32, 2048u>;
 #endif
 
-@group(0) @binding(9)
-var<storage> flat_segs: array<Segment>;
-
 fn read_fill(cmd_ix: u32) -> CmdFill {
-    let tile = ptcl[cmd_ix + 1u];
+    let size_and_rule = ptcl[cmd_ix + 1u];
     let seg_data = ptcl[cmd_ix + 2u];
     let backdrop = i32(ptcl[cmd_ix + 3u]);
-    return CmdFill(tile, seg_data, backdrop);
-}
-
-fn read_stroke(cmd_ix: u32) -> CmdStroke {
-    let tile = ptcl[cmd_ix + 1u];
-    let half_width = bitcast<f32>(ptcl[cmd_ix + 2u]);
-    return CmdStroke(tile, half_width);
+    return CmdFill(size_and_rule, seg_data, backdrop);
 }
 
 fn read_color(cmd_ix: u32) -> CmdColor {
@@ -242,7 +233,7 @@ fn fill_path_ms(seg_data: u32, n_segs: u32, backdrop: i32, wg_id: vec2<u32>, loc
         let slice_size = min(n_segs - batch * WG_SIZE, WG_SIZE);
         // TODO: might save a register rewriting this in terms of limit
         if th_ix < slice_size {
-            let segment = flat_segs[seg_off];
+            let segment = segments[seg_off];
             // Note: coords relative to tile origin probably a good idea in coarse path,
             // especially as f16 would work. But keeping existing scheme for compatibility.
             let xy0_in = segment.origin - tile_origin;
@@ -270,9 +261,12 @@ fn fill_path_ms(seg_data: u32, n_segs: u32, backdrop: i32, wg_id: vec2<u32>, loc
             workgroupBarrier();
             sh_count[th_ix] = count;
         }
+#ifdef have_uniform
+        let total = workgroupUniformLoad(&sh_count[slice_size - 1u]);
+#else
         workgroupBarrier();
-        // TODO: workgroupUniformLoad
         let total = sh_count[slice_size - 1u];
+#endif
         for (var i = th_ix; i < total; i += WG_SIZE) {
             // binary search to find pixel
             var lo = 0u;
@@ -290,7 +284,7 @@ fn fill_path_ms(seg_data: u32, n_segs: u32, backdrop: i32, wg_id: vec2<u32>, loc
             let last_pixel = i + 1u == sh_count[el_ix];
             let sub_ix = i - select(0u, sh_count[el_ix - 1u], el_ix > 0u);
             let seg_off = seg_data + batch * WG_SIZE + el_ix;
-            let segment = flat_segs[seg_off];
+            let segment = segments[seg_off];
             let xy0_in = segment.origin - tile_origin;
             let xy1_in = xy0_in + segment.delta;
             let is_down = xy1_in.y >= xy0_in.y;
@@ -463,32 +457,6 @@ fn fill_path_ms(seg_data: u32, n_segs: u32, backdrop: i32, wg_id: vec2<u32>, loc
     return area;
 }
 
-fn stroke_path(seg: u32, half_width: f32, xy: vec2<f32>) -> array<f32, PIXELS_PER_THREAD> {
-    var df: array<f32, PIXELS_PER_THREAD>;
-    for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
-        df[i] = 1e9;
-    }
-    var segment_ix = seg;
-    while segment_ix != 0u {
-        let segment = segments[segment_ix];
-        let delta = segment.delta;
-        let dpos0 = xy + vec2(0.5, 0.5) - segment.origin;
-        let scale = 1.0 / dot(delta, delta);
-        for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
-            let dpos = vec2(dpos0.x + f32(i), dpos0.y);
-            let t = clamp(dot(dpos, delta) * scale, 0.0, 1.0);
-            // performance idea: hoist sqrt out of loop
-            df[i] = min(df[i], length(delta * t - dpos));
-        }
-        segment_ix = segment.next;
-    }
-    for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
-        // reuse array; return alpha rather than distance
-        df[i] = clamp(half_width + 0.5 - df[i], 0.0, 1.0);
-    }
-    return df;
-}
-
 // The X size should be 16 / PIXELS_PER_THREAD
 @compute @workgroup_size(4, 16)
 fn main(
@@ -519,16 +487,20 @@ fn main(
             // CMD_FILL
             case 1u: {
                 let fill = read_fill(cmd_ix);
-                let n_segs = fill.tile >> 1u;
-                let even_odd = (fill.tile & 1u) != 0u;
+                let n_segs = fill.size_and_rule >> 1u;
+                let even_odd = (fill.size_and_rule & 1u) != 0u;
                 //area = fill_path(cmd_ix, limit, fill.backdrop, xy, even_odd);
                 area = fill_path_ms(fill.seg_data, n_segs, fill.backdrop, wg_id.xy, local_id.xy, even_odd);
                 cmd_ix += 4u;
             }
             // CMD_STROKE
             case 2u: {
-                let stroke = read_stroke(cmd_ix);
-                area = stroke_path(stroke.tile, stroke.half_width, xy);
+                // Stroking in fine rasterization is disabled, as strokes will be expanded
+                // to fills earlier in the pipeline. This implementation is a stub, just to
+                // keep the shader from crashing.
+                for (var i = 0u; i < PIXELS_PER_THREAD; i++) {
+                    area[i] = 0.0;
+                }
                 cmd_ix += 3u;
             }
             // CMD_SOLID

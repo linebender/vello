@@ -1,9 +1,11 @@
 // Copyright 2023 The Vello authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use crate::path::SegmentCount;
+
 use super::{
-    BinHeader, Clip, ClipBbox, ClipBic, ClipElement, Cubic, DrawBbox, DrawMonoid, FlatSegment,
-    Layout, Path, PathBbox, PathMonoid, PathSegment, Tile,
+    BinHeader, Clip, ClipBbox, ClipBic, ClipElement, Cubic, DrawBbox, DrawMonoid, Layout, LineSoup,
+    Path, PathBbox, PathMonoid, PathSegment, Tile,
 };
 use bytemuck::{Pod, Zeroable};
 use std::mem;
@@ -29,9 +31,23 @@ pub struct BumpAllocators {
     pub binning: u32,
     pub ptcl: u32,
     pub tile: u32,
+    pub seg_counts: u32,
     pub segments: u32,
     pub blend: u32,
-    pub flat_segs: u32,
+    pub lines: u32,
+}
+
+/// Storage of indirect dispatch size values.
+///
+/// The original plan was to reuse BumpAllocators, but the WebGPU compatible
+/// usage list rules forbid that being used as indirect counts while also
+/// bound as writable.
+#[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
+#[repr(C)]
+pub struct IndirectCount {
+    pub count_x: u32,
+    pub count_y: u32,
+    pub count_z: u32,
 }
 
 /// Uniform render configuration data used by all GPU stages.
@@ -115,7 +131,8 @@ pub struct WorkgroupCounts {
     pub path_scan1: WorkgroupSize,
     pub path_scan: WorkgroupSize,
     pub bbox_clear: WorkgroupSize,
-    pub path_seg: WorkgroupSize,
+    pub path_seg: WorkgroupSize, // going away
+    pub flatten: WorkgroupSize,
     pub draw_reduce: WorkgroupSize,
     pub draw_leaf: WorkgroupSize,
     pub clip_reduce: WorkgroupSize,
@@ -161,6 +178,7 @@ impl WorkgroupCounts {
             path_scan: (path_tag_wgs, 1, 1),
             bbox_clear: (draw_object_wgs, 1, 1),
             path_seg: (path_coarse_wgs, 1, 1),
+            flatten: (path_coarse_wgs, 1, 1),
             draw_reduce: (draw_object_wgs, 1, 1),
             draw_leaf: (draw_object_wgs, 1, 1),
             clip_reduce: (clip_reduce_wgs, 1, 1),
@@ -243,14 +261,16 @@ pub struct BufferSizes {
     pub clip_bboxes: BufferSize<ClipBbox>,
     pub draw_bboxes: BufferSize<DrawBbox>,
     pub bump_alloc: BufferSize<BumpAllocators>,
+    pub indirect_count: BufferSize<IndirectCount>,
     pub bin_headers: BufferSize<BinHeader>,
     pub paths: BufferSize<Path>,
     // Bump allocated buffers
+    pub lines: BufferSize<LineSoup>,
     pub bin_data: BufferSize<u32>,
     pub tiles: BufferSize<Tile>,
+    pub seg_counts: BufferSize<SegmentCount>,
     pub segments: BufferSize<PathSegment>,
     pub ptcl: BufferSize<u32>,
-    pub flat_segments: BufferSize<FlatSegment>,
 }
 
 impl BufferSizes {
@@ -280,6 +300,7 @@ impl BufferSizes {
         let clip_bboxes = BufferSize::new(n_clips);
         let draw_bboxes = BufferSize::new(n_paths);
         let bump_alloc = BufferSize::new(1);
+        let indirect_count = BufferSize::new(1);
         let bin_headers = BufferSize::new(draw_object_wgs * 256);
         let n_paths_aligned = align_up(n_paths, 256);
         let paths = BufferSize::new(n_paths_aligned);
@@ -289,9 +310,10 @@ impl BufferSizes {
         // reasonable heuristics.
         let bin_data = BufferSize::new(1 << 18);
         let tiles = BufferSize::new(1 << 21);
+        let lines = BufferSize::new(1 << 21);
+        let seg_counts = BufferSize::new(1 << 21);
         let segments = BufferSize::new(1 << 21);
         let ptcl = BufferSize::new(1 << 23);
-        let flat_segments = BufferSize::new(1 << 21);
         Self {
             path_reduced,
             path_reduced2,
@@ -308,13 +330,15 @@ impl BufferSizes {
             clip_bboxes,
             draw_bboxes,
             bump_alloc,
+            indirect_count,
+            lines,
             bin_headers,
             paths,
             bin_data,
             tiles,
+            seg_counts,
             segments,
             ptcl,
-            flat_segments,
         }
     }
 }

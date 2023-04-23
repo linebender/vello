@@ -48,4 +48,7 @@ let N_TILE_Y = 16u;
 //let N_TILE = N_TILE_X * N_TILE_Y;
 let N_TILE = 256u;
 
+// Not currently supporting non-square tiles
+let TILE_SCALE = 0.0625;
+
 let BLEND_STACK_SPLIT = 4u;

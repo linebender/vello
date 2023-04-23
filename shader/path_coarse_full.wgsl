@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
 
 // Path coarse rasterization for the full implementation.
+//
+// THIS SHADER IS NO LONGER BEING USED IN THE STROKE REWORK DESIGN
 
 #import config
 #import pathtag

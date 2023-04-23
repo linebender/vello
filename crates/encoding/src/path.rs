@@ -6,20 +6,31 @@ use peniko::kurbo::Shape;
 
 use super::Monoid;
 
-/// Path segment.
+/// Line segment (after flattening, before tiling).
+#[derive(Clone, Copy, Debug, Zeroable, Pod, Default)]
+#[repr(C)]
+pub struct LineSoup {
+    pub path_ix: u32,
+    pub p0: [f32; 2],
+    pub p1: [f32; 2],
+}
+
+/// Line segment (after flattening, before tiling).
+#[derive(Clone, Copy, Debug, Zeroable, Pod, Default)]
+#[repr(C)]
+pub struct SegmentCount {
+    pub line_ix: u32,
+    // This could more accurately be modeled as:
+    //     segment_within_line: u16,
+    //     segment_within_slice: u16,
+    // However, here we mirror the way it's written in WGSL
+    pub counts: u32,
+}
+
+/// Path segment for storage in contiguous space.
 #[derive(Clone, Copy, Debug, Zeroable, Pod, Default)]
 #[repr(C)]
 pub struct PathSegment {
-    pub origin: [f32; 2],
-    pub delta: [f32; 2],
-    pub y_edge: f32,
-    pub next: u32,
-}
-
-/// Path segment for storage in contiguous space (will be default).
-#[derive(Clone, Copy, Debug, Zeroable, Pod, Default)]
-#[repr(C)]
-pub struct FlatSegment {
     pub origin: [f32; 2],
     pub delta: [f32; 2],
     pub y_edge: f32,

@@ -34,20 +34,13 @@ var<storage> info_bin_data: array<u32>;
 var<storage> paths: array<Path>;
 
 @group(0) @binding(6)
-var<storage> tiles: array<Tile>;
+var<storage, read_write> tiles: array<Tile>;
 
 @group(0) @binding(7)
 var<storage, read_write> bump: BumpAllocators;
 
 @group(0) @binding(8)
 var<storage, read_write> ptcl: array<u32>;
-
-// This binding exceeds the limit of 8, but is not part of the final plan.
-@group(0) @binding(9)
-var<storage> segments: array<LinkedSegment>;
-
-@group(0) @binding(10)
-var<storage, read_write> flat_segs: array<Segment>;
 
 // Much of this code assumes WG_SIZE == N_TILE. If these diverge, then
 // a fair amount of fixup is needed.
@@ -89,33 +82,24 @@ fn alloc_cmd(size: u32) {
     }
 }
 
-fn write_path(tile: Tile, linewidth: f32) -> bool {
+fn write_path(tile: Tile, tile_ix: u32, linewidth: f32) -> bool {
     if linewidth < 0.0 {
         let even_odd = linewidth < -1.0;
-        let seg_head = tile.segments;
-        if seg_head != 0u {
-            var n_segs = 0u;
-            var seg_ix = seg_head;
-            while seg_ix != 0u {
-                n_segs++;
-                seg_ix = segments[seg_ix].next;
-            }
-            var seg_offset = atomicAdd(&bump.flat_segs, n_segs);
+        // We overload the "segments" field to store both count (written by
+        // path_count stage) and segment allocation (used by path_tiling and
+        // fine).
+        let n_segs = tile.segments;
+        if n_segs != 0u {
+            var seg_ix = atomicAdd(&bump.segments, n_segs);
+            tiles[tile_ix].segments = seg_ix;
             alloc_cmd(4u);
-            let fill = CmdFill(seg_ix, seg_offset, tile.backdrop);
             ptcl[cmd_offset] = CMD_FILL;
             let size_and_rule = (n_segs << 1u) | u32(even_odd);
-            ptcl[cmd_offset + 1u] = size_and_rule;
+            let fill = CmdFill(size_and_rule, seg_ix, tile.backdrop);
+            ptcl[cmd_offset + 1u] = fill.size_and_rule;
             ptcl[cmd_offset + 2u] = fill.seg_data;
             ptcl[cmd_offset + 3u] = u32(fill.backdrop);
             cmd_offset += 4u;
-            seg_ix = seg_head;
-            while seg_ix != 0u {
-                let seg = segments[seg_ix];
-                flat_segs[seg_offset] = Segment(seg.origin, seg.delta, seg.y_edge);
-                seg_offset++;
-                seg_ix = seg.next;
-            }
         } else {
             if even_odd && (abs(tile.backdrop) & 1) == 0 {
                 return false;
@@ -385,7 +369,7 @@ fn main(
                     // DRAWTAG_FILL_COLOR
                     case 0x44u: {
                         let linewidth = bitcast<f32>(info_bin_data[di]);
-                        if write_path(tile, linewidth) {
+                        if write_path(tile, tile_ix, linewidth) {
                             let rgba_color = scene[dd];
                             write_color(CmdColor(rgba_color));
                         }
@@ -393,7 +377,7 @@ fn main(
                     // DRAWTAG_FILL_LIN_GRADIENT
                     case 0x114u: {
                         let linewidth = bitcast<f32>(info_bin_data[di]);
-                        if write_path(tile, linewidth) {
+                        if write_path(tile, tile_ix, linewidth) {
                             let index = scene[dd];
                             let info_offset = di + 1u;
                             write_grad(CMD_LIN_GRAD, index, info_offset);
@@ -402,7 +386,7 @@ fn main(
                     // DRAWTAG_FILL_RAD_GRADIENT
                     case 0x2dcu: {
                         let linewidth = bitcast<f32>(info_bin_data[di]);
-                        if write_path(tile, linewidth) {
+                        if write_path(tile, tile_ix, linewidth) {
                             let index = scene[dd];
                             let info_offset = di + 1u;
                             write_grad(CMD_RAD_GRAD, index, info_offset);
@@ -411,7 +395,7 @@ fn main(
                     // DRAWTAG_FILL_IMAGE
                     case 0x248u: {
                         let linewidth = bitcast<f32>(info_bin_data[di]);
-                        if write_path(tile, linewidth) {                            
+                        if write_path(tile, tile_ix, linewidth) {
                             write_image(di + 1u);
                         }
                     }
@@ -429,7 +413,7 @@ fn main(
                     // DRAWTAG_END_CLIP
                     case 0x21u: {
                         clip_depth -= 1u;
-                        write_path(tile, -1.0);
+                        write_path(tile, tile_ix, -1.0);
                         let blend = scene[dd];
                         let alpha = bitcast<f32>(scene[dd + 1u]);
                         write_end_clip(CmdEndClip(blend, alpha));

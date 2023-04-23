@@ -5,7 +5,8 @@ use crate::{
     shaders::FullShaders,
     RenderParams, Scene,
 };
-use vello_encoding::{Encoding, WorkgroupSize};
+use bytemuck::offset_of;
+use vello_encoding::{BumpAllocators, Encoding, WorkgroupSize};
 
 /// State for a render in progress.
 pub struct Render {
@@ -24,7 +25,6 @@ struct FineResources {
     gradient_image: ResourceProxy,
     info_bin_data_buf: ResourceProxy,
     image_atlas: ResourceProxy,
-    flat_segs_buf: ResourceProxy,
 
     out_image: ImageProxy,
 }
@@ -200,6 +200,16 @@ impl Render {
                 cubic_buf,
             ],
         );
+        let bump_buf = BufProxy::new(buffer_sizes.bump_alloc.size_in_bytes().into(), "bump_buf");
+        recording.clear_all(bump_buf);
+        let bump_buf = ResourceProxy::Buf(bump_buf);
+        let lines_buf =
+            ResourceProxy::new_buf(buffer_sizes.lines.size_in_bytes().into(), "lines_buf");
+        recording.dispatch(
+            shaders.flatten,
+            wg_counts.flatten,
+            [config_buf, scene_buf, cubic_buf, bump_buf, lines_buf],
+        );
         let draw_reduced_buf = ResourceProxy::new_buf(
             buffer_sizes.draw_reduced.size_in_bytes().into(),
             "draw_reduced_buf",
@@ -276,13 +286,10 @@ impl Render {
             buffer_sizes.draw_bboxes.size_in_bytes().into(),
             "draw_bbox_buf",
         );
-        let bump_buf = BufProxy::new(buffer_sizes.bump_alloc.size_in_bytes().into(), "bump_buf");
         let bin_header_buf = ResourceProxy::new_buf(
             buffer_sizes.bin_headers.size_in_bytes().into(),
             "bin_header_buf",
         );
-        recording.clear_all(bump_buf);
-        let bump_buf = ResourceProxy::Buf(bump_buf);
         recording.dispatch(
             shaders.binning,
             wg_counts.binning,
@@ -317,30 +324,38 @@ impl Render {
             ],
         );
         recording.free_resource(draw_bbox_buf);
-        recording.dispatch(
-            shaders.path_coarse,
-            wg_counts.path_coarse,
-            [
-                config_buf,
-                scene_buf,
-                tagmonoid_buf,
-                cubic_buf,
-                path_buf,
-                bump_buf,
-                tile_buf,
-                segments_buf,
-            ],
-        );
         recording.free_resource(tagmonoid_buf);
         recording.free_resource(cubic_buf);
+        let indirect_count_buf = BufProxy::new(
+            buffer_sizes.indirect_count.size_in_bytes().into(),
+            "indirect_count",
+        );
+        recording.dispatch(
+            shaders.path_count_setup,
+            (1, 1, 1),
+            [bump_buf, indirect_count_buf.into()],
+        );
+        let seg_counts_buf = ResourceProxy::new_buf(
+            buffer_sizes.seg_counts.size_in_bytes().into(),
+            "seg_counts_buf",
+        );
+        recording.dispatch_indirect(
+            shaders.path_count,
+            indirect_count_buf,
+            0,
+            [
+                config_buf,
+                bump_buf,
+                lines_buf,
+                path_buf,
+                tile_buf,
+                seg_counts_buf,
+            ],
+        );
         recording.dispatch(
             shaders.backdrop,
             wg_counts.backdrop,
             [config_buf, path_buf, tile_buf],
-        );
-        let flat_segs_buf = ResourceProxy::new_buf(
-            buffer_sizes.flat_segments.size_in_bytes().into(),
-            "flat_segs_buf",
         );
         recording.dispatch(
             shaders.coarse,
@@ -355,10 +370,29 @@ impl Render {
                 tile_buf,
                 bump_buf,
                 ptcl_buf,
-                segments_buf,
-                flat_segs_buf,
             ],
         );
+        recording.dispatch(
+            shaders.path_tiling_setup,
+            (1, 1, 1),
+            [bump_buf, indirect_count_buf.into()],
+        );
+        recording.dispatch_indirect(
+            shaders.path_tiling,
+            indirect_count_buf,
+            0,
+            [
+                bump_buf,
+                seg_counts_buf,
+                lines_buf,
+                path_buf,
+                tile_buf,
+                segments_buf,
+            ],
+        );
+        recording.free_buf(indirect_count_buf);
+        recording.free_resource(seg_counts_buf);
+        recording.free_resource(lines_buf);
         recording.free_resource(scene_buf);
         recording.free_resource(draw_monoid_buf);
         recording.free_resource(bin_header_buf);
@@ -375,7 +409,6 @@ impl Render {
             info_bin_data_buf,
             image_atlas: ResourceProxy::Image(image_atlas),
             out_image,
-            flat_segs_buf,
         });
         if robust {
             recording.download(*bump_buf.as_buf().unwrap());
@@ -408,7 +441,6 @@ impl Render {
                 fine.info_bin_data_buf,
                 fine.image_atlas,
                 self.mask_buf.unwrap(),
-                fine.flat_segs_buf,
             ],
         );
         recording.free_resource(fine.config_buf);
@@ -418,7 +450,6 @@ impl Render {
         recording.free_resource(fine.gradient_image);
         recording.free_resource(fine.image_atlas);
         recording.free_resource(fine.info_bin_data_buf);
-        recording.free_resource(fine.flat_segs_buf);
     }
 
     /// Get the output image.
