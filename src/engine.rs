@@ -311,8 +311,8 @@ impl Engine {
                         bytes,
                         wgpu::ImageDataLayout {
                             offset: 0,
-                            bytes_per_row: NonZeroU32::new(
-                                image_proxy.width * format.describe().block_size as u32,
+                            bytes_per_row: Some(
+                                image_proxy.width * format.block_size(None).unwrap(),
                             ),
                             rows_per_image: None,
                         },
@@ -338,9 +338,7 @@ impl Engine {
                             &data[..],
                             wgpu::ImageDataLayout {
                                 offset: 0,
-                                bytes_per_row: NonZeroU32::new(
-                                    *width * format.describe().block_size as u32,
-                                ),
+                                bytes_per_row: Some(*width * format.block_size(None).unwrap()),
                                 rows_per_image: None,
                             },
                             wgpu::Extent3d {
