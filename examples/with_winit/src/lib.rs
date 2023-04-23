@@ -483,8 +483,9 @@ pub fn main() -> Result<()> {
             let window = create_window(&event_loop);
             // On wasm, append the canvas to the document body
             let canvas = window.canvas();
-            canvas.set_width(1044);
-            canvas.set_height(800);
+            let size = window.inner_size();
+            canvas.set_width(size.width);
+            canvas.set_height(size.height);
             web_sys::window()
                 .and_then(|win| win.document())
                 .and_then(|doc| doc.body())
