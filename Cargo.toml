@@ -60,4 +60,5 @@ wgpu = "0.16"
 # Used for examples
 clap = "4.1.0"
 anyhow = "1.0"
+instant = { version = "0.1.12", features = [ "wasm-bindgen" ] }
 pollster = "0.3.0"
