@@ -200,5 +200,7 @@ fn main(
             bbox = vec4(-1e9, -1e9, 1e9, 1e9);
         }
     }
-    clip_bboxes[global_id.x] = bbox;
+    if global_id.x < config.n_clip {
+        clip_bboxes[global_id.x] = bbox;
+    }
 }
