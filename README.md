@@ -89,7 +89,9 @@ This uses [`cargo-run-wasm`](https://github.com/rukai/cargo-run-wasm) to build t
 ```shell
 # Make sure the Rust toolchain supports the wasm32 target
 rustup target add wasm32-unknown-unknown
-cargo run_wasm -p with_winit
+
+# The binary name must also be explicitly provided as it differs from the package name
+cargo run_wasm -p with_winit --bin with_winit_bin
 ```
 
 > **Warning**  
