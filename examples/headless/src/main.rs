@@ -1,6 +1,5 @@
 use std::{
     fs::File,
-    num::NonZeroU32,
     path::{Path, PathBuf},
 };
 
@@ -189,7 +188,7 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
             buffer: &buffer,
             layout: wgpu::ImageDataLayout {
                 offset: 0,
-                bytes_per_row: NonZeroU32::new(padded_byte_width),
+                bytes_per_row: Some(padded_byte_width),
                 rows_per_image: None,
             },
         },
