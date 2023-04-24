@@ -65,6 +65,9 @@ cargo run -p with_winit -- download
 
 ### Bevy
 
+> **Warning**
+> This example currently does not compile. We expect to resolve this as soon as Bevy updates to wgpu 0.16
+
 The [Bevy] example ([examples/with_bevy](examples/with_bevy)) demonstrates using Vello within a [Bevy] application.
 This currently draws to a [`wgpu`] `Texture` using `vello`, then uses that texture as the faces of a cube.
 
