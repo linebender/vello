@@ -55,7 +55,7 @@ vello_encoding = { path = "crates/encoding" }
 bytemuck = { version = "1.12.1", features = ["derive"] }
 fello = { git = "https://github.com/dfrg/fount", rev = "58a284eaae67512fb61cf76177c5d33238d79cb1" }
 peniko = { git = "https://github.com/linebender/peniko", rev = "cafdac9a211a0fb2fec5656bd663d1ac770bcc81" }
-wgpu = "0.16"
+wgpu = "0.16" # NOTE: Make sure to keep this in sync with the version badge in README.md
 
 # Used for examples
 clap = "4.1.0"
