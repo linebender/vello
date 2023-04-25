@@ -1,18 +1,5 @@
-// Copyright 2022 Google LLC
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     https://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-//
-// Also licensed under MIT license, at your choice.
+// Copyright 2022 The Vello authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use bytemuck::{Pod, Zeroable};
 use peniko::{BlendMode, Color};
@@ -38,7 +25,7 @@ impl DrawTag {
     pub const RADIAL_GRADIENT: Self = Self(0x2dc);
 
     /// Image fill.
-    pub const IMAGE: Self = Self(0x48);
+    pub const IMAGE: Self = Self(0x248);
 
     /// Begin layer/clip.
     pub const BEGIN_CLIP: Self = Self(0x9);
@@ -52,6 +39,13 @@ impl DrawTag {
     pub const fn info_size(self) -> u32 {
         (self.0 >> 6) & 0xf
     }
+}
+
+/// Draw object bounding box.
+#[derive(Copy, Clone, Pod, Zeroable, Debug, Default)]
+#[repr(C)]
+pub struct DrawBbox {
+    pub bbox: [f32; 4],
 }
 
 /// Draw data for a solid color.
@@ -104,10 +98,10 @@ pub struct DrawRadialGradient {
 #[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
 #[repr(C)]
 pub struct DrawImage {
-    /// Image index.
-    pub index: u32,
-    /// Packed image offset.
-    pub offset: u32,
+    /// Packed atlas coordinates.
+    pub xy: u32,
+    /// Packed image dimensions.
+    pub width_height: u32,
 }
 
 /// Draw data for a clip or layer.
@@ -131,7 +125,7 @@ impl DrawBeginClip {
 }
 
 /// Monoid for the draw tag stream.
-#[derive(Copy, Clone, PartialEq, Eq, Pod, Zeroable, Default)]
+#[derive(Copy, Clone, PartialEq, Eq, Pod, Zeroable, Default, Debug)]
 #[repr(C)]
 pub struct DrawMonoid {
     // The number of paths preceding this draw object.

@@ -10,5 +10,4 @@ repository.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-# We use cargo-run-wasm main because of our workspace layout
-cargo-run-wasm = { git = "https://github.com/rukai/cargo-run-wasm", rev = "d14f73de77eaae44714b4817d660026a31f5f5a9" }
+cargo-run-wasm = "0.3.2"

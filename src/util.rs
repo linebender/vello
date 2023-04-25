@@ -22,7 +22,7 @@ use super::Result;
 
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use wgpu::{
-    Adapter, Device, Instance, Limits, Queue, RequestAdapterOptions, Surface, SurfaceConfiguration,
+    Adapter, Device, Instance, Limits, Queue, Surface, SurfaceConfiguration, TextureFormat,
 };
 
 /// Simple render context that maintains wgpu state for rendering the pipeline.
@@ -55,22 +55,31 @@ impl RenderContext {
         W: HasRawWindowHandle + HasRawDisplayHandle,
     {
         let surface = unsafe { self.instance.create_surface(window) }.unwrap();
-        let format = wgpu::TextureFormat::Bgra8Unorm;
+        let dev_id = self.device(Some(&surface)).await.unwrap();
+
+        let device_handle = &self.devices[dev_id];
+        let capabilities = surface.get_capabilities(&device_handle.adapter);
+        let format = capabilities
+            .formats
+            .into_iter()
+            .find(|it| matches!(it, TextureFormat::Rgba8Unorm | TextureFormat::Bgra8Unorm))
+            .expect("surface should support Rgba8Unorm or Bgra8Unorm");
+
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
             width,
             height,
-            present_mode: wgpu::PresentMode::Fifo,
+            present_mode: wgpu::PresentMode::AutoVsync,
             alpha_mode: wgpu::CompositeAlphaMode::Auto,
             view_formats: vec![],
         };
-        let dev_id = self.device(Some(&surface)).await.unwrap();
         surface.configure(&self.devices[dev_id].device, &config);
         RenderSurface {
             surface,
             config,
             dev_id,
+            format,
         }
     }
 
@@ -78,6 +87,13 @@ impl RenderContext {
     pub fn resize_surface(&self, surface: &mut RenderSurface, width: u32, height: u32) {
         surface.config.width = width;
         surface.config.height = height;
+        surface
+            .surface
+            .configure(&self.devices[surface.dev_id].device, &surface.config);
+    }
+
+    pub fn set_present_mode(&self, surface: &mut RenderSurface, present_mode: wgpu::PresentMode) {
+        surface.config.present_mode = present_mode;
         surface
             .surface
             .configure(&self.devices[surface.dev_id].device, &surface.config);
@@ -134,10 +150,12 @@ impl RenderContext {
 }
 
 /// Combination of surface and its configuration.
+#[derive(Debug)]
 pub struct RenderSurface {
     pub surface: Surface,
     pub config: SurfaceConfiguration,
     pub dev_id: usize,
+    pub format: TextureFormat,
 }
 
 struct NullWake;

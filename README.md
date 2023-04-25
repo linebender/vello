@@ -7,7 +7,7 @@
 [![Xi Zulip](https://img.shields.io/badge/Xi%20Zulip-%23gpu-blue?logo=Zulip)](https://xi.zulipchat.com/#narrow/stream/197075-gpu)
 [![dependency status](https://deps.rs/repo/github/linebender/vello/status.svg)](https://deps.rs/repo/github/linebender/vello)
 [![MIT/Apache 2.0](https://img.shields.io/badge/license-MIT%2FApache-blue.svg)](#license)
-[![wgpu version](https://img.shields.io/badge/wgpu-v0.15-orange.svg)](https://crates.io/crates/wgpu)
+[![wgpu version](https://img.shields.io/badge/wgpu-v0.16-orange.svg)](https://crates.io/crates/wgpu)
 <!-- [![Crates.io](https://img.shields.io/crates/v/vello.svg)](https://crates.io/crates/vello) -->
 <!-- [![Docs](https://docs.rs/vello/badge.svg)](https://docs.rs/vello) -->
 <!-- [![Build status](https://github.com/linebender/vello/workflows/CI/badge.svg)](https://github.com/linebender/vello/actions) -->
@@ -23,7 +23,7 @@ It is used as the rendering backend for [Xilem], a UI toolkit.
 
 Quickstart to run an example program:
 ```shell
-cargo run -p with_winit 
+cargo run -p with_winit
 ```
 
 ## Integrations
@@ -65,6 +65,9 @@ cargo run -p with_winit -- download
 
 ### Bevy
 
+> **Warning**  
+> This example currently does not compile. We expect to resolve this as soon as Bevy updates to wgpu 0.16
+
 The [Bevy] example ([examples/with_bevy](examples/with_bevy)) demonstrates using Vello within a [Bevy] application.
 This currently draws to a [`wgpu`] `Texture` using `vello`, then uses that texture as the faces of a cube.
 
@@ -72,21 +75,51 @@ This currently draws to a [`wgpu`] `Texture` using `vello`, then uses that textu
 cargo run -p with_bevy
 ```
 
+## Platforms
+
+We aim to target all environments which can support WebGPU with the [default limits](https://www.w3.org/TR/webgpu/#limits). 
+We defer to [`wgpu`] for this support.
+Other platforms are more tricky, and may require special building/running procedures.
+
 ### Web
 
 Because Vello relies heavily on compute shaders, we rely on the emerging WebGPU standard to run on the web.
 Until browser support becomes widespread, it will probably be necessary to use development browser versions (e.g. Chrome Canary) and explicitly enable WebGPU.
 
-Note: Other examples use the `-p` shorthand, but `cargo-run-wasm` requires the full `--package` to be specified
-
 The following command builds and runs a web version of the [winit demo](#winit). 
-This uses [`cargo-run-wasm`](https://github.com/rukai/cargo-run-wasm) to build the example for web, and host a local server for it:
+This uses [`cargo-run-wasm`](https://github.com/rukai/cargo-run-wasm) to build the example for web, and host a local server for it
 
 ```shell
-cargo run_wasm --package with_winit
+# Make sure the Rust toolchain supports the wasm32 target
+rustup target add wasm32-unknown-unknown
+
+# The binary name must also be explicitly provided as it differs from the package name
+cargo run_wasm -p with_winit --bin with_winit_bin
 ```
 
-The web is not currently a primary target for vello, and WebGPU implementations are incomplete, so you might run into issues running this example.
+> **Warning**  
+> The web is not currently a primary target for vello, and WebGPU implementations are incomplete, so you might run into issues running this example.
+
+### Android
+
+The [`with_winit`](#winit) example supports running on Android, using [cargo apk](https://crates.io/crates/cargo-apk).
+
+```
+cargo apk run -p with_winit
+```
+
+> **Note**  
+> cargo apk doesn't support running in release mode without configuration. 
+> See [their crates page docs](https://crates.io/crates/cargo-apk) (around `package.metadata.android.signing.<profile>`).
+> 
+> See also [cargo-apk#16](https://github.com/rust-mobile/cargo-apk/issues/16).
+> To run in release mode, you must add the following to `examples/with_winit/Cargo.toml` (changing `$HOME` to your home directory):
+
+```
+[package.metadata.android.signing.release]
+path = "$HOME/.android/debug.keystore"
+keystore_password = "android"
+```
 
 ## Community
 

@@ -113,7 +113,9 @@ fn main(
         var matrx: vec4<f32>;
         var translate: vec2<f32>;
         var linewidth = bbox.linewidth;
-        if linewidth >= 0.0 || tag_word == DRAWTAG_FILL_LIN_GRADIENT || tag_word == DRAWTAG_FILL_RAD_GRADIENT {
+        if linewidth >= 0.0 || tag_word == DRAWTAG_FILL_LIN_GRADIENT || tag_word == DRAWTAG_FILL_RAD_GRADIENT ||
+            tag_word == DRAWTAG_FILL_IMAGE 
+        {
             let transform = read_transform(config.transform_base, bbox.trans_ix);
             matrx = transform.matrx;
             translate = transform.translate;
@@ -123,8 +125,8 @@ fn main(
             linewidth *= sqrt(abs(matrx.x * matrx.w - matrx.y * matrx.z));
         }
         switch tag_word {
-            // DRAWTAG_FILL_COLOR, DRAWTAG_FILL_IMAGE
-            case 0x44u, 0x48u: {
+            // DRAWTAG_FILL_COLOR
+            case 0x44u: {
                 info[di] = bitcast<u32>(linewidth);
             }
             // DRAWTAG_FILL_LIN_GRADIENT
@@ -151,8 +153,7 @@ fn main(
                 let r1 = bitcast<f32>(scene[dd + 6u]);
                 let inv_det = 1.0 / (matrx.x * matrx.w - matrx.y * matrx.z);
                 let inv_mat = inv_det * vec4(matrx.w, -matrx.y, -matrx.z, matrx.x);
-                var inv_tr = inv_mat.xz * translate.x + inv_mat.yw * translate.y;
-                inv_tr += p0;
+                let inv_tr = mat2x2(inv_mat.xy, inv_mat.zw) * -translate - p0;
                 let center1 = p1 - p0;
                 let rr = r1 / (r1 - r0);
                 let ra_inv = rr / (r1 * r1 - dot(center1, center1));
@@ -169,6 +170,21 @@ fn main(
                 info[di + 8u] = bitcast<u32>(c1.y);
                 info[di + 9u] = bitcast<u32>(ra);
                 info[di + 10u] = bitcast<u32>(roff);
+            }
+            // DRAWTAG_FILL_IMAGE
+            case 0x248u: {
+                info[di] = bitcast<u32>(linewidth);
+                let inv_det = 1.0 / (matrx.x * matrx.w - matrx.y * matrx.z);
+                let inv_mat = inv_det * vec4(matrx.w, -matrx.y, -matrx.z, matrx.x);
+                let inv_tr = mat2x2(inv_mat.xy, inv_mat.zw) * -translate;
+                info[di + 1u] = bitcast<u32>(inv_mat.x);
+                info[di + 2u] = bitcast<u32>(inv_mat.y);
+                info[di + 3u] = bitcast<u32>(inv_mat.z);
+                info[di + 4u] = bitcast<u32>(inv_mat.w);
+                info[di + 5u] = bitcast<u32>(inv_tr.x);
+                info[di + 6u] = bitcast<u32>(inv_tr.y);
+                info[di + 7u] = scene[dd];
+                info[di + 8u] = scene[dd + 1u];
             }
             default: {}
         }

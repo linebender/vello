@@ -3,6 +3,8 @@ use vello::kurbo::{Affine, BezPath, Ellipse, PathEl, Point, Rect};
 use vello::peniko::*;
 use vello::*;
 
+const FLOWER_IMAGE: &[u8] = include_bytes!("../../assets/splash-flower.jpg");
+
 macro_rules! scene {
     ($name: ident) => {
         scene!($name: false)
@@ -32,8 +34,9 @@ pub fn test_scenes() -> SceneSet {
         scene!(blend_grid),
         scene!(conflation_artifacts),
         scene!(labyrinth),
+        scene!(base_color_test: animated),
     ];
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(any(target_arch = "wasm32", target_os = "android"))]
     scenes.push(ExampleScene {
         config: SceneConfig {
             animated: false,
@@ -96,6 +99,13 @@ fn cardioid_and_friends(sb: &mut SceneBuilder, _: &mut SceneParams) {
 }
 
 fn animated_text(sb: &mut SceneBuilder, params: &mut SceneParams) {
+    // Uses the static array address as a cache key for expedience. Real code
+    // should use a better strategy.
+    let piet_logo = params
+        .images
+        .from_bytes(FLOWER_IMAGE.as_ptr() as usize, FLOWER_IMAGE)
+        .unwrap();
+
     use PathEl::*;
     let rect = Rect::from_origin_size(Point::new(0.0, 0.0), (1000.0, 1000.0));
     let star = [
@@ -123,13 +133,31 @@ fn animated_text(sb: &mut SceneBuilder, params: &mut SceneParams) {
         Affine::translate((110.0, 600.0)),
         s,
     );
-    params.text.add(
+    params.text.add_run(
         sb,
         None,
         text_size,
-        None,
+        Color::WHITE,
         Affine::translate((110.0, 700.0)),
+        // Add a skew to simulate an oblique font.
+        Some(Affine::skew(20f64.to_radians().tan(), 0.0)),
+        &Stroke::new(1.0),
         s,
+    );
+    let t = ((params.time).sin() * 0.5 + 0.5) as f32;
+    let weight = t * 700.0 + 200.0;
+    let width = t * 150.0 + 50.0;
+    params.text.add_var_run(
+        sb,
+        None,
+        72.0,
+        &[("wght", weight), ("wdth", width)],
+        Color::WHITE,
+        Affine::translate((110.0, 800.0)),
+        // Add a skew to simulate an oblique font.
+        None,
+        Fill::NonZero,
+        "And some vello\ntext with a newline",
     );
     let th = params.time as f64;
     let center = Point::new(500.0, 500.0);
@@ -181,6 +209,10 @@ fn animated_text(sb: &mut SceneBuilder, params: &mut SceneParams) {
         None,
         &star,
     );
+    sb.draw_image(
+        &piet_logo,
+        Affine::translate((800.0, 50.0)) * Affine::rotate(20f64.to_radians()),
+    );
 }
 
 fn brush_transform(sb: &mut SceneBuilder, params: &mut SceneParams) {
@@ -192,14 +224,25 @@ fn brush_transform(sb: &mut SceneBuilder, params: &mut SceneParams) {
     ]);
     sb.fill(
         Fill::NonZero,
-        Affine::translate((200.0, 200.0)),
+        Affine::rotate(25f64.to_radians()) * Affine::scale_non_uniform(2.0, 1.0),
+        &Gradient::new_radial((200.0, 200.0), 80.0).with_stops([
+            Color::RED,
+            Color::GREEN,
+            Color::BLUE,
+        ]),
+        None,
+        &Rect::from_origin_size((100.0, 100.0), (200.0, 200.0)),
+    );
+    sb.fill(
+        Fill::NonZero,
+        Affine::translate((200.0, 600.0)),
         &linear,
         Some(around_center(Affine::rotate(th), Point::new(200.0, 100.0))),
         &Rect::from_origin_size(Point::default(), (400.0, 200.0)),
     );
     sb.stroke(
         &Stroke::new(40.0),
-        Affine::translate((800.0, 200.0)),
+        Affine::translate((800.0, 600.0)),
         &linear,
         Some(around_center(Affine::rotate(th), Point::new(200.0, 100.0))),
         &Rect::from_origin_size(Point::default(), (400.0, 200.0)),
@@ -234,28 +277,13 @@ fn blend_grid(sb: &mut SceneBuilder, _: &mut SceneParams) {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", target_os = "android"))]
 fn included_tiger() -> impl FnMut(&mut SceneBuilder, &mut SceneParams) {
-    use vello::kurbo::Vec2;
-    use vello_svg::usvg;
-    let mut cached_scene = None;
-    move |builder, params| {
-        let (scene_frag, resolution) = cached_scene.get_or_insert_with(|| {
-            let contents = include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../assets/Ghostscript_Tiger.svg"
-            ));
-            let svg = usvg::Tree::from_str(&contents, &usvg::Options::default())
-                .expect("failed to parse svg file");
-            let mut new_scene = SceneFragment::new();
-            let mut builder = SceneBuilder::for_fragment(&mut new_scene);
-            vello_svg::render_tree(&mut builder, &svg);
-            let resolution = Vec2::new(svg.size.width(), svg.size.height());
-            (new_scene, resolution)
-        });
-        builder.append(&scene_frag, None);
-        params.resolution = Some(*resolution);
-    }
+    let contents = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../assets/Ghostscript_Tiger.svg"
+    ));
+    crate::svg::svg_function_of("Ghostscript Tiger".to_string(), move || contents)
 }
 
 // Support functions
@@ -401,7 +429,6 @@ fn blend_square(blend: BlendMode) -> SceneFragment {
     let mut fragment = SceneFragment::default();
     let mut sb = SceneBuilder::for_fragment(&mut fragment);
     render_blend_square(&mut sb, blend, Affine::IDENTITY);
-    sb.finish();
     fragment
 }
 
@@ -569,6 +596,21 @@ fn labyrinth(sb: &mut SceneBuilder, _: &mut SceneParams) {
         None,
         &path,
     )
+}
+
+fn base_color_test(sb: &mut SceneBuilder, params: &mut SceneParams) {
+    // Cycle through the hue value every 5 seconds (t % 5) * 360/5
+    let color = Color::hlc((params.time % 5.0) * 72.0, 80.0, 80.0);
+    params.base_color = Some(color);
+
+    // Blend a white square over it.
+    sb.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        Color::rgba8(255, 255, 255, 128),
+        None,
+        &Rect::new(50.0, 50.0, 500.0, 500.0),
+    );
 }
 
 fn around_center(xform: Affine, center: Point) -> Affine {

@@ -24,12 +24,6 @@ use wgpu::Device;
 
 use crate::engine::{BindType, Engine, Error, ImageFormat, ShaderId};
 
-pub const PATHTAG_REDUCE_WG: u32 = 256;
-pub const PATH_BBOX_WG: u32 = 256;
-pub const PATH_COARSE_WG: u32 = 256;
-pub const PATH_DRAWOBJ_WG: u32 = 256;
-pub const CLIP_REDUCE_WG: u32 = 256;
-
 macro_rules! shader {
     ($name:expr) => {&{
         let shader = include_str!(concat!(
@@ -56,14 +50,6 @@ macro_rules! shader {
     }};
 }
 
-pub struct Shaders {
-    pub pathtag_reduce: ShaderId,
-    pub pathtag_scan: ShaderId,
-    pub path_coarse: ShaderId,
-    pub backdrop: ShaderId,
-    pub fine: ShaderId,
-}
-
 // Shaders for the full pipeline
 pub struct FullShaders {
     pub pathtag_reduce: ShaderId,
@@ -83,70 +69,6 @@ pub struct FullShaders {
     pub backdrop: ShaderId,
     pub coarse: ShaderId,
     pub fine: ShaderId,
-}
-
-pub fn init_shaders(device: &Device, engine: &mut Engine) -> Result<Shaders, Error> {
-    let imports = SHARED_SHADERS
-        .iter()
-        .copied()
-        .collect::<std::collections::HashMap<_, _>>();
-    let empty = HashSet::new();
-    let pathtag_reduce = engine.add_shader(
-        device,
-        "pathtag_reduce",
-        preprocess::preprocess(shader!("pathtag_reduce"), &empty, &imports).into(),
-        &[BindType::Uniform, BindType::BufReadOnly, BindType::Buffer],
-    )?;
-    let pathtag_scan = engine.add_shader(
-        device,
-        "pathtag_scan",
-        preprocess::preprocess(shader!("pathtag_scan"), &empty, &imports).into(),
-        &[
-            BindType::Uniform,
-            BindType::BufReadOnly,
-            BindType::BufReadOnly,
-            BindType::Buffer,
-        ],
-    )?;
-    let path_coarse_config = HashSet::new();
-    // path_coarse_config.add("cubics_out");
-
-    let path_coarse = engine.add_shader(
-        device,
-        "path_coarse",
-        preprocess::preprocess(shader!("path_coarse"), &path_coarse_config, &imports).into(),
-        &[
-            BindType::Uniform,
-            BindType::BufReadOnly,
-            BindType::BufReadOnly,
-            BindType::Buffer,
-            BindType::Buffer,
-        ],
-    )?;
-    let backdrop = engine.add_shader(
-        device,
-        "backdrop",
-        preprocess::preprocess(shader!("backdrop"), &empty, &imports).into(),
-        &[BindType::Uniform, BindType::Buffer],
-    )?;
-    let fine = engine.add_shader(
-        device,
-        "fine",
-        preprocess::preprocess(shader!("fine"), &empty, &imports).into(),
-        &[
-            BindType::Uniform,
-            BindType::BufReadOnly,
-            BindType::BufReadOnly,
-            BindType::Buffer,
-        ],
-    )?;
-    Ok(Shaders {
-        pathtag_reduce,
-        pathtag_scan,
-        path_coarse,
-        backdrop,
-        fine,
-    })
 }
 
 pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders, Error> {
@@ -353,6 +275,7 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
             BindType::BufReadOnly,
             BindType::ImageRead(ImageFormat::Rgba8),
             BindType::BufReadOnly,
+            BindType::ImageRead(ImageFormat::Rgba8),
             BindType::BufReadOnly,
         ],
     )?;

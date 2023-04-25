@@ -15,6 +15,8 @@ vello = { path = "../../" }
 vello_svg = { path = "../../integrations/vello_svg" }
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
+image = "0.24.5"
+instant = { workspace = true }
 
 # Used for the `download` command
 byte-unit = "4.0"

@@ -10,20 +10,36 @@ repository.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[lib]
+name = "with_winit"
+crate-type = ["cdylib", "lib"]
+
+[[bin]]
+# Stop the PDB collision warning on windows
+name = "with_winit_bin"
+path = "src/main.rs"
+
 [dependencies]
 vello = { path = "../../", features = ["buffer_labels"] }
 scenes = { path = "../scenes" }
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
+instant = { workspace = true }
+pollster = { workspace = true }
 
 wgpu = { workspace = true }
 winit = "0.28.1"
-pollster = "0.2.5"
 env_logger = "0.10.0"
+log = "0.4.17"
 
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+[target.'cfg(not(any(target_arch = "wasm32", target_os = "android")))'.dependencies]
 vello = { path = "../../", features = ["hot_reload"] }
 notify-debouncer-mini = "0.2.1"
+
+
+[target.'cfg(target_os = "android")'.dependencies]
+winit = { version = "0.28", features = ["android-native-activity"] }
+android_logger = "0.13.0"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = "0.1.7"

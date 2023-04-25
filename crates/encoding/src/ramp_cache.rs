@@ -1,80 +1,23 @@
-// Copyright 2022 Google LLC
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     https://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-//
-// Also licensed under MIT license, at your choice.
-
-//! Late bound resource management.
+// Copyright 2022 The Vello authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use std::collections::HashMap;
-use std::ops::Range;
 
 use peniko::{Color, ColorStop, ColorStops};
 
 const N_SAMPLES: usize = 512;
 const RETAINED_COUNT: usize = 64;
 
-/// Token for ensuring that an encoded scene matches the current state
-/// of a resource cache.
-#[derive(Copy, Clone, PartialEq, Eq, Default)]
-pub struct Token(u64);
-
-/// Cache for late bound resources.
-#[derive(Default)]
-pub struct ResourceCache {
-    ramps: RampCache,
-}
-
-impl ResourceCache {
-    /// Creates a new resource cache.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Returns the ramp data, width and height. Returns `None` if the
-    /// given token does not match the current state of the cache.
-    pub fn ramps(&self, token: Token) -> Option<(&[u32], u32, u32)> {
-        if token.0 == self.ramps.epoch {
-            Some((self.ramps.data(), self.ramps.width(), self.ramps.height()))
-        } else {
-            None
-        }
-    }
-
-    pub(crate) fn advance(&mut self) -> Token {
-        self.ramps.advance();
-        Token(self.ramps.epoch)
-    }
-
-    pub(crate) fn add_ramp(&mut self, stops: &[ColorStop]) -> u32 {
-        self.ramps.add(stops)
-    }
-}
-
-#[derive(Clone)]
-/// Patch for a late bound resource.
-pub enum Patch {
-    /// Gradient ramp resource.
-    Ramp {
-        /// Byte offset to the ramp id in the draw data stream.
-        offset: usize,
-        /// Range of the gradient stops in the resource set.
-        stops: Range<usize>,
-    },
+/// Data and dimensions for a set of resolved gradient ramps.
+#[derive(Copy, Clone, Debug, Default)]
+pub struct Ramps<'a> {
+    pub data: &'a [u32],
+    pub width: u32,
+    pub height: u32,
 }
 
 #[derive(Default)]
-struct RampCache {
+pub struct RampCache {
     epoch: u64,
     map: HashMap<ColorStops, (u32, u64)>,
     data: Vec<u32>,
@@ -127,16 +70,12 @@ impl RampCache {
         }
     }
 
-    pub fn data(&self) -> &[u32] {
-        &self.data
-    }
-
-    pub fn width(&self) -> u32 {
-        N_SAMPLES as u32
-    }
-
-    pub fn height(&self) -> u32 {
-        (self.data.len() / N_SAMPLES) as u32
+    pub fn ramps(&self) -> Ramps {
+        Ramps {
+            data: &self.data,
+            width: N_SAMPLES as u32,
+            height: (self.data.len() / N_SAMPLES) as u32,
+        }
     }
 }
 

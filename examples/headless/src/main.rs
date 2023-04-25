@@ -1,17 +1,16 @@
 use std::{
     fs::File,
-    num::NonZeroU32,
     path::{Path, PathBuf},
 };
 
 use anyhow::{anyhow, bail, Context, Result};
 use clap::{CommandFactory, Parser};
-use scenes::{SceneParams, SceneSet, SimpleText};
+use scenes::{ImageCache, SceneParams, SceneSet, SimpleText};
 use vello::{
     block_on_wgpu,
     kurbo::{Affine, Vec2},
     util::RenderContext,
-    Scene, SceneBuilder, SceneFragment,
+    RendererOptions, Scene, SceneBuilder, SceneFragment,
 };
 use wgpu::{
     BufferDescriptor, BufferUsages, CommandEncoderDescriptor, Extent3d, ImageCopyBuffer,
@@ -86,21 +85,29 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
     let device_handle = &mut context.devices[device_id];
     let device = &device_handle.device;
     let queue = &device_handle.queue;
-    let mut renderer = vello::Renderer::new(&device)
-        .or_else(|_| bail!("Got non-Send/Sync error from creating renderer"))?;
+    let mut renderer = vello::Renderer::new(
+        &device,
+        &RendererOptions {
+            surface_format: None,
+        },
+    )
+    .or_else(|_| bail!("Got non-Send/Sync error from creating renderer"))?;
     let mut fragment = SceneFragment::new();
     let mut builder = SceneBuilder::for_fragment(&mut fragment);
     let example_scene = &mut scenes.scenes[index];
     let mut text = SimpleText::new();
-    let mut params = SceneParams {
+    let mut images = ImageCache::new();
+    let mut scene_params = SceneParams {
         time: args.time.unwrap_or(0.),
         text: &mut text,
+        images: &mut images,
         resolution: None,
+        base_color: None,
+        interactive: false,
     };
-    (example_scene.function)(&mut builder, &mut params);
-    builder.finish();
+    (example_scene.function)(&mut builder, &mut scene_params);
     let mut transform = Affine::IDENTITY;
-    let (width, height) = if let Some(resolution) = params.resolution {
+    let (width, height) = if let Some(resolution) = scene_params.resolution {
         let ratio = resolution.x / resolution.y;
         let (new_width, new_height) = match (args.x_resolution, args.y_resolution) {
             (None, None) => (resolution.x.ceil() as u32, resolution.y.ceil() as u32),
@@ -126,10 +133,18 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
             (Some(x), Some(y)) => (x.try_into()?, y.try_into()?),
         }
     };
+    let render_params = vello::RenderParams {
+        base_color: args
+            .args
+            .base_color
+            .or(scene_params.base_color)
+            .unwrap_or(vello::peniko::Color::BLACK),
+        width,
+        height,
+    };
     let mut scene = Scene::new();
     let mut builder = SceneBuilder::for_scene(&mut scene);
     builder.append(&fragment, Some(transform));
-    builder.finish();
     let size = Extent3d {
         width,
         height,
@@ -147,7 +162,7 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
     });
     let view = target.create_view(&wgpu::TextureViewDescriptor::default());
     renderer
-        .render_to_texture(&device, &queue, &scene, &view, width, height)
+        .render_to_texture(&device, &queue, &scene, &view, &render_params)
         .or_else(|_| bail!("Got non-Send/Sync error from rendering"))?;
     // (width * 4).next_multiple_of(256)
     let padded_byte_width = {
@@ -173,7 +188,7 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
             buffer: &buffer,
             layout: wgpu::ImageDataLayout {
                 offset: 0,
-                bytes_per_row: NonZeroU32::new(padded_byte_width),
+                bytes_per_row: Some(padded_byte_width),
                 rows_per_image: None,
             },
         },

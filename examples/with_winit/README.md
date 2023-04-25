@@ -18,4 +18,7 @@ $ cargo run -p with_winit --release -- [SVG FILES]
 - Mouse scroll wheel will zoom.
 - Arrow keys switch between SVG images in the current set.
 - Space resets the position and zoom of the image.
+- S toggles the frame statistics layer
+- C resets the min/max frame time tracked by statistics
+- V toggles VSync on/off (default: on)
 - Escape exits the program.

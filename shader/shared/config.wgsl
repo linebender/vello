@@ -1,11 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
 
+// This must be kept in sync with the struct in src/encoding/resolve.rs
 struct Config {
     width_in_tiles: u32,
     height_in_tiles: u32,
 
     target_width: u32,
     target_height: u32,
+
+    // The initial color applied to the pixels in a tile during the fine stage.
+    // This is only used in the full pipeline. The format is packed RGBA8 in MSB
+    // order.
+    base_color: u32,
 
     n_drawobj: u32,
     n_path: u32,

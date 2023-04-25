@@ -25,13 +25,14 @@ pub use peniko;
 /// 2D geometry, with a focus on curves.
 pub use peniko::kurbo;
 
-pub mod encoding;
+#[doc(hidden)]
+pub use fello;
 
 pub mod glyph;
 pub mod util;
 
 use render::Render;
-pub use scene::{Scene, SceneBuilder, SceneFragment};
+pub use scene::{DrawGlyphs, Scene, SceneBuilder, SceneFragment};
 pub use util::block_on_wgpu;
 
 use engine::{Engine, ExternalResource, Recording};
@@ -49,16 +50,35 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub struct Renderer {
     engine: Engine,
     shaders: FullShaders,
-    blit: BlitPipeline,
+    blit: Option<BlitPipeline>,
     target: Option<TargetTexture>,
+}
+
+/// Parameters used in a single render that are configurable by the client.
+pub struct RenderParams {
+    /// The background color applied to the target. This value is only applicable to the full
+    /// pipeline.
+    pub base_color: peniko::Color,
+
+    /// Dimensions of the rasterization target
+    pub width: u32,
+    pub height: u32,
+}
+
+pub struct RendererOptions {
+    /// The format of the texture used for surfaces with this renderer/device
+    /// If None, the renderer cannot be used with surfaces
+    pub surface_format: Option<TextureFormat>,
 }
 
 impl Renderer {
     /// Creates a new renderer for the specified device.
-    pub fn new(device: &Device) -> Result<Self> {
+    pub fn new(device: &Device, render_options: &RendererOptions) -> Result<Self> {
         let mut engine = Engine::new();
         let shaders = shaders::full_shaders(device, &mut engine)?;
-        let blit = BlitPipeline::new(device, TextureFormat::Bgra8Unorm);
+        let blit = render_options
+            .surface_format
+            .map(|surface_format| BlitPipeline::new(device, surface_format));
         Ok(Self {
             engine,
             shaders,
@@ -78,10 +98,9 @@ impl Renderer {
         queue: &Queue,
         scene: &Scene,
         texture: &TextureView,
-        width: u32,
-        height: u32,
+        params: &RenderParams,
     ) -> Result<()> {
-        let (recording, target) = render::render_full(scene, &self.shaders, width, height);
+        let (recording, target) = render::render_full(scene, &self.shaders, params);
         let external_resources = [ExternalResource::Image(
             *target.as_image().unwrap(),
             texture,
@@ -96,17 +115,19 @@ impl Renderer {
     /// This renders to an intermediate texture and then runs a render pass to blit to the
     /// specified surface texture.
     ///
-    /// The surface is assumed to be of the specified dimensions and have been created with the
-    /// [wgpu::TextureFormat::Bgra8Unorm] format.
+    /// The surface is assumed to be of the specified dimensions and have been configured with
+    /// the same format passed in the constructing [`RendererOptions`]' `surface_format`.
+    /// Panics if `surface_format` was `None`
     pub fn render_to_surface(
         &mut self,
         device: &Device,
         queue: &Queue,
         scene: &Scene,
         surface: &SurfaceTexture,
-        width: u32,
-        height: u32,
+        params: &RenderParams,
     ) -> Result<()> {
+        let width = params.width;
+        let height = params.height;
         let mut target = self
             .target
             .take()
@@ -116,7 +137,11 @@ impl Renderer {
         if target.width != width || target.height != height {
             target = TargetTexture::new(device, width, height);
         }
-        self.render_to_texture(device, queue, scene, &target.view, width, height)?;
+        self.render_to_texture(device, queue, scene, &target.view, params)?;
+        let blit = self
+            .blit
+            .as_ref()
+            .expect("renderer should have configured surface_format to use on a surface");
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         {
@@ -125,7 +150,7 @@ impl Renderer {
                 .create_view(&wgpu::TextureViewDescriptor::default());
             let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: None,
-                layout: &self.blit.bind_layout,
+                layout: &blit.bind_layout,
                 entries: &[wgpu::BindGroupEntry {
                     binding: 0,
                     resource: wgpu::BindingResource::TextureView(&target.view),
@@ -143,7 +168,7 @@ impl Renderer {
                 })],
                 depth_stencil_attachment: None,
             });
-            render_pass.set_pipeline(&self.blit.pipeline);
+            render_pass.set_pipeline(&blit.pipeline);
             render_pass.set_bind_group(0, &bind_group, &[]);
             render_pass.draw(0..6, 0..1);
         }
@@ -178,12 +203,11 @@ impl Renderer {
         queue: &Queue,
         scene: &Scene,
         texture: &TextureView,
-        width: u32,
-        height: u32,
+        params: &RenderParams,
     ) -> Result<()> {
         let mut render = Render::new();
         let encoding = scene.data();
-        let recording = render.render_encoding_coarse(encoding, &self.shaders, width, height, true);
+        let recording = render.render_encoding_coarse(encoding, &self.shaders, params, true);
         let target = render.out_image();
         let bump_buf = render.bump_buf();
         self.engine.run_recording(device, queue, &recording, &[])?;
@@ -196,7 +220,7 @@ impl Renderer {
             } else {
                 return Err("channel was closed".into());
             }
-            let mapped = buf_slice.get_mapped_range();
+            let _mapped = buf_slice.get_mapped_range();
             // println!("{:?}", bytemuck::cast_slice::<_, u32>(&mapped));
         }
         // TODO: apply logic to determine whether we need to rerun coarse, and also
@@ -211,15 +235,17 @@ impl Renderer {
         Ok(())
     }
 
+    /// See [Self::render_to_surface]
     pub async fn render_to_surface_async(
         &mut self,
         device: &Device,
         queue: &Queue,
         scene: &Scene,
         surface: &SurfaceTexture,
-        width: u32,
-        height: u32,
+        params: &RenderParams,
     ) -> Result<()> {
+        let width = params.width;
+        let height = params.height;
         let mut target = self
             .target
             .take()
@@ -229,8 +255,12 @@ impl Renderer {
         if target.width != width || target.height != height {
             target = TargetTexture::new(device, width, height);
         }
-        self.render_to_texture_async(device, queue, scene, &target.view, width, height)
+        self.render_to_texture_async(device, queue, scene, &target.view, params)
             .await?;
+        let blit = self
+            .blit
+            .as_ref()
+            .expect("renderer should have configured surface_format to use on a surface");
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         {
@@ -239,7 +269,7 @@ impl Renderer {
                 .create_view(&wgpu::TextureViewDescriptor::default());
             let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: None,
-                layout: &self.blit.bind_layout,
+                layout: &blit.bind_layout,
                 entries: &[wgpu::BindGroupEntry {
                     binding: 0,
                     resource: wgpu::BindingResource::TextureView(&target.view),
@@ -257,7 +287,7 @@ impl Renderer {
                 })],
                 depth_stencil_attachment: None,
             });
-            render_pass.set_pipeline(&self.blit.pipeline);
+            render_pass.set_pipeline(&blit.pipeline);
             render_pass.set_bind_group(0, &bind_group, &[]);
             render_pass.draw(0..6, 0..1);
         }
