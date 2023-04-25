@@ -1,10 +1,10 @@
 use std::{
     fs::read_dir,
     path::{Path, PathBuf},
-    time::Instant,
 };
 
 use anyhow::{Ok, Result};
+use instant::Instant;
 use vello::{kurbo::Vec2, SceneBuilder, SceneFragment};
 use vello_svg::usvg;
 

@@ -14,8 +14,8 @@
 //
 // Also licensed under MIT license, at your choice.
 
+use instant::Instant;
 use std::collections::HashSet;
-use std::time::Instant;
 
 use anyhow::Result;
 use clap::{CommandFactory, Parser};
@@ -483,8 +483,9 @@ pub fn main() -> Result<()> {
             let window = create_window(&event_loop);
             // On wasm, append the canvas to the document body
             let canvas = window.canvas();
-            canvas.set_width(1044);
-            canvas.set_height(800);
+            let size = window.inner_size();
+            canvas.set_width(size.width);
+            canvas.set_height(size.height);
             web_sys::window()
                 .and_then(|win| win.document())
                 .and_then(|doc| doc.body())

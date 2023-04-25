@@ -17,7 +17,7 @@
 use std::{
     borrow::Cow,
     collections::{hash_map::Entry, HashMap, HashSet},
-    num::{NonZeroU32, NonZeroU64},
+    num::NonZeroU64,
     sync::atomic::{AtomicU64, Ordering},
 };
 
@@ -277,6 +277,9 @@ impl Engine {
                 }
                 Command::UploadImage(image_proxy, bytes) => {
                     let format = image_proxy.format.to_wgpu();
+                    let block_size = format
+                        .block_size(None)
+                        .expect("ImageFormat must have a valid block size");
                     let texture = device.create_texture(&wgpu::TextureDescriptor {
                         label: None,
                         size: wgpu::Extent3d {
@@ -311,9 +314,7 @@ impl Engine {
                         bytes,
                         wgpu::ImageDataLayout {
                             offset: 0,
-                            bytes_per_row: NonZeroU32::new(
-                                image_proxy.width * format.describe().block_size as u32,
-                            ),
+                            bytes_per_row: Some(image_proxy.width * block_size),
                             rows_per_image: None,
                         },
                         wgpu::Extent3d {
@@ -328,6 +329,9 @@ impl Engine {
                 Command::WriteImage(proxy, [x, y, width, height], data) => {
                     if let Ok((texture, _)) = self.bind_map.get_or_create_image(*proxy, device) {
                         let format = proxy.format.to_wgpu();
+                        let block_size = format
+                            .block_size(None)
+                            .expect("ImageFormat must have a valid block size");
                         queue.write_texture(
                             wgpu::ImageCopyTexture {
                                 texture,
@@ -338,9 +342,7 @@ impl Engine {
                             &data[..],
                             wgpu::ImageDataLayout {
                                 offset: 0,
-                                bytes_per_row: NonZeroU32::new(
-                                    *width * format.describe().block_size as u32,
-                                ),
+                                bytes_per_row: Some(*width * block_size),
                                 rows_per_image: None,
                             },
                             wgpu::Extent3d {

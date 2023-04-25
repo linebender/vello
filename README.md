@@ -7,7 +7,7 @@
 [![Xi Zulip](https://img.shields.io/badge/Xi%20Zulip-%23gpu-blue?logo=Zulip)](https://xi.zulipchat.com/#narrow/stream/197075-gpu)
 [![dependency status](https://deps.rs/repo/github/linebender/vello/status.svg)](https://deps.rs/repo/github/linebender/vello)
 [![MIT/Apache 2.0](https://img.shields.io/badge/license-MIT%2FApache-blue.svg)](#license)
-[![wgpu version](https://img.shields.io/badge/wgpu-v0.15-orange.svg)](https://crates.io/crates/wgpu)
+[![wgpu version](https://img.shields.io/badge/wgpu-v0.16-orange.svg)](https://crates.io/crates/wgpu)
 <!-- [![Crates.io](https://img.shields.io/crates/v/vello.svg)](https://crates.io/crates/vello) -->
 <!-- [![Docs](https://docs.rs/vello/badge.svg)](https://docs.rs/vello) -->
 <!-- [![Build status](https://github.com/linebender/vello/workflows/CI/badge.svg)](https://github.com/linebender/vello/actions) -->
@@ -65,6 +65,9 @@ cargo run -p with_winit -- download
 
 ### Bevy
 
+> **Warning**  
+> This example currently does not compile. We expect to resolve this as soon as Bevy updates to wgpu 0.16
+
 The [Bevy] example ([examples/with_bevy](examples/with_bevy)) demonstrates using Vello within a [Bevy] application.
 This currently draws to a [`wgpu`] `Texture` using `vello`, then uses that texture as the faces of a cube.
 
@@ -86,10 +89,12 @@ Until browser support becomes widespread, it will probably be necessary to use d
 The following command builds and runs a web version of the [winit demo](#winit). 
 This uses [`cargo-run-wasm`](https://github.com/rukai/cargo-run-wasm) to build the example for web, and host a local server for it
 
-Other examples use the `-p` shorthand, but `cargo-run-wasm` requires the full `--package` to be specified
-
 ```shell
-cargo run_wasm --package with_winit
+# Make sure the Rust toolchain supports the wasm32 target
+rustup target add wasm32-unknown-unknown
+
+# The binary name must also be explicitly provided as it differs from the package name
+cargo run_wasm -p with_winit --bin with_winit_bin
 ```
 
 > **Warning**  
