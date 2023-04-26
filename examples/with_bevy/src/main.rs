@@ -1,4 +1,4 @@
-use bevy::render::RenderSet;
+use bevy::render::{Render, RenderSet};
 use vello::kurbo::{Affine, Point, Rect};
 use vello::peniko::{Color, Fill, Gradient, Stroke};
 use vello::{Renderer, RendererOptions, Scene, SceneBuilder, SceneFragment};
@@ -41,7 +41,7 @@ impl Plugin for VelloPlugin {
         let Ok(render_app) = app.get_sub_app_mut(RenderApp) else { return };
         render_app.init_resource::<VelloRenderer>();
         // This should probably use the render graph, but working out the dependencies there is awkward
-        render_app.add_system(render_scenes.in_set(RenderSet::Render));
+        render_app.add_systems(Render, render_scenes.in_set(RenderSet::Render));
     }
 }
 
@@ -75,12 +75,12 @@ fn render_scenes(
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
-        .add_system(bevy::window::close_on_esc)
         .add_plugin(VelloPlugin)
-        .add_startup_system(setup)
-        .add_system(cube_rotator_system)
+        .add_systems(Startup, setup)
+        .add_systems(Update, bevy::window::close_on_esc)
+        .add_systems(Update, cube_rotator_system)
         .add_plugin(ExtractComponentPlugin::<VelloScene>::default())
-        .add_system(render_fragment)
+        .add_systems(Update, render_fragment)
         .run()
 }
 
