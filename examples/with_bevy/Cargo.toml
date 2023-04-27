@@ -10,5 +10,5 @@ repository.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bevy = "0.10"
+bevy = { git = "https://github.com/bevyengine/bevy", rev = "4d54ce14aaee8d7432380df37c41c03c28594b27" }
 vello = { path = "../../" }
