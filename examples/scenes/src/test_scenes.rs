@@ -27,6 +27,7 @@ pub fn test_scenes() -> SceneSet {
     // For WASM below, must be mutable
     #[allow(unused_mut)]
     let mut scenes = vec![
+        scene!(splash_screen),
         scene!(funky_paths),
         scene!(cardioid_and_friends),
         scene!(animated_text: animated),
@@ -626,4 +627,27 @@ fn make_diamond(cx: f64, cy: f64) -> [PathEl; 5] {
         PathEl::LineTo(Point::new(cx - SIZE, cy)),
         PathEl::ClosePath,
     ]
+}
+
+fn splash_screen(sb: &mut SceneBuilder, params: &mut SceneParams) {
+    let strings = [
+        "Vello test",
+        "key bindings:",
+        "  Arrow keys: switch scenes",
+        "  S: toggle stats",
+        "  V: toggle vsync",
+        "  Q, E: rotate",
+        "  Space: reset transform",
+    ];
+    for (i, s) in strings.iter().enumerate() {
+        let text_size = if i == 0 { 60.0 } else { 40.0 };
+        params.text.add(
+            sb,
+            None,
+            text_size,
+            None,
+            Affine::translate((100.0, 100.0 + 60.0 * i as f64)),
+            s,
+        );
+    }
 }
