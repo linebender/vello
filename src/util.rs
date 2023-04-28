@@ -50,12 +50,20 @@ impl RenderContext {
     }
 
     /// Creates a new surface for the specified window and dimensions.
-    pub async fn create_surface<W>(&mut self, window: &W, width: u32, height: u32) -> RenderSurface
+    pub async fn create_surface<W>(
+        &mut self,
+        window: &W,
+        width: u32,
+        height: u32,
+    ) -> Result<RenderSurface>
     where
         W: HasRawWindowHandle + HasRawDisplayHandle,
     {
-        let surface = unsafe { self.instance.create_surface(window) }.unwrap();
-        let dev_id = self.device(Some(&surface)).await.unwrap();
+        let surface = unsafe { self.instance.create_surface(window) }?;
+        let dev_id = self
+            .device(Some(&surface))
+            .await
+            .ok_or("Error creating device")?;
 
         let device_handle = &self.devices[dev_id];
         let capabilities = surface.get_capabilities(&device_handle.adapter);
@@ -75,12 +83,12 @@ impl RenderContext {
             view_formats: vec![],
         };
         surface.configure(&self.devices[dev_id].device, &config);
-        RenderSurface {
+        Ok(RenderSurface {
             surface,
             config,
             dev_id,
             format,
-        }
+        })
     }
 
     /// Resizes the surface to the new dimensions.

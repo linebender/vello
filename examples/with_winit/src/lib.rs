@@ -413,7 +413,7 @@ fn run(
                 let size = window.inner_size();
                 let surface_future = render_cx.create_surface(&window, size.width, size.height);
                 // We need to block here, in case a Suspended event appeared
-                let surface = pollster::block_on(surface_future);
+                let surface = pollster::block_on(surface_future).expect("Error creating surface");
                 render_state = {
                     let render_state = RenderState { window, surface };
                     renderers.resize_with(render_cx.devices.len(), || None);
@@ -451,6 +451,23 @@ fn create_window(event_loop: &winit::event_loop::EventLoopWindowTarget<UserEvent
 enum UserEvent {
     #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
     HotReload,
+}
+
+#[cfg(target_arch = "wasm32")]
+fn display_error_message() -> Option<()> {
+    let window = web_sys::window()?;
+    let document = window.document()?;
+    let elements = document.get_elements_by_tag_name("body");
+    let body = elements.item(0)?;
+    let canvas = body.first_child()?;
+    // TODO: style the notice at least a little, maybe link?
+    let text = document.create_text_node(
+        "WebGPU is not enabled. Make sure your browser is updated to
+        Chrome M113 or another browser compatible with WebGPU.",
+    );
+    let _ = body.insert_before(&text, Some(&canvas));
+    web_sys::console::log_1(&"got body".into());
+    Some(())
 }
 
 pub fn main() -> Result<()> {
@@ -496,9 +513,13 @@ pub fn main() -> Result<()> {
                 let surface = render_cx
                     .create_surface(&window, size.width, size.height)
                     .await;
-                let render_state = RenderState { window, surface };
-                // No error handling here; if the event loop has finished, we don't need to send them the surface
-                run(event_loop, args, scenes, render_cx, render_state);
+                if let Ok(surface) = surface {
+                    let render_state = RenderState { window, surface };
+                    // No error handling here; if the event loop has finished, we don't need to send them the surface
+                    run(event_loop, args, scenes, render_cx, render_state);
+                } else {
+                    _ = display_error_message();
+                }
             });
         }
     }
