@@ -459,14 +459,18 @@ fn display_error_message() -> Option<()> {
     let document = window.document()?;
     let elements = document.get_elements_by_tag_name("body");
     let body = elements.item(0)?;
-    let canvas = body.first_child()?;
-    // TODO: style the notice at least a little, maybe link?
-    let text = document.create_text_node(
-        "WebGPU is not enabled. Make sure your browser is updated to
-        Chrome M113 or another browser compatible with WebGPU.",
+    body.set_inner_html(
+        r#"<style>
+        p {
+            margin: 2em 10em;
+            font-family: sans-serif;
+        }
+        </style>
+        <p><a href="https://chromestatus.com/feature/6213121689518080">WebGPU</a>
+        is not enabled. Make sure your browser is updated to
+        <a href="https://chromiumdash.appspot.com/schedule">Chrome M113</a> or
+        another browser compatible with WebGPU.</p>"#,
     );
-    let _ = body.insert_before(&text, Some(&canvas));
-    web_sys::console::log_1(&"got body".into());
     Some(())
 }
 
