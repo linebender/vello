@@ -113,6 +113,7 @@ fn run(
     let mut prior_position: Option<Vec2> = None;
     // We allow looping left and right through the scenes, so use a signed index
     let mut scene_ix: i32 = 0;
+    let mut complexity: usize = 0;
     if let Some(set_scene) = args.scene {
         scene_ix = set_scene;
     }
@@ -134,6 +135,8 @@ fn run(
                         match input.virtual_keycode {
                             Some(VirtualKeyCode::Left) => scene_ix = scene_ix.saturating_sub(1),
                             Some(VirtualKeyCode::Right) => scene_ix = scene_ix.saturating_add(1),
+                            Some(VirtualKeyCode::Up) => complexity += 1,
+                            Some(VirtualKeyCode::Down) => complexity = complexity.saturating_sub(1),
                             Some(key @ VirtualKeyCode::Q) | Some(key @ VirtualKeyCode::E) => {
                                 if let Some(prior_position) = prior_position {
                                     let is_clockwise = key == VirtualKeyCode::E;
@@ -295,8 +298,9 @@ fn run(
                 resolution: None,
                 base_color: None,
                 interactive: true,
+                complexity,
             };
-            (example_scene.function)(&mut builder, &mut scene_params);
+            example_scene.function.render(&mut builder, &mut scene_params);
 
             // If the user specifies a base color in the CLI we use that. Otherwise we use any
             // color specified by the scene. The default is black.

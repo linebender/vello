@@ -31,8 +31,16 @@ pub fn test_scenes() -> SceneSet {
         },
         function: Box::new(splash_with_tiger()),
     };
+    let mmark_scene = ExampleScene {
+        config: SceneConfig {
+            animated: false,
+            name: "mmark".to_owned(),
+        },
+        function: Box::new(crate::mmark::MMark::new(80_000)),
+    };
     let scenes = vec![
         splash_scene,
+        mmark_scene,
         scene!(funky_paths),
         scene!(cardioid_and_friends),
         scene!(animated_text: animated),
