@@ -516,7 +516,10 @@ pub fn main() -> Result<()> {
             web_sys::window()
                 .and_then(|win| win.document())
                 .and_then(|doc| doc.body())
-                .and_then(|body| body.append_child(&web_sys::Element::from(canvas.clone())).ok())
+                .and_then(|body| {
+                    body.append_child(&web_sys::Element::from(canvas.clone()))
+                        .ok()
+                })
                 .expect("couldn't append canvas to document body");
             _ = web_sys::HtmlElement::from(canvas).focus();
             wasm_bindgen_futures::spawn_local(async move {
