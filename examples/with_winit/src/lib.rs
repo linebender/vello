@@ -300,7 +300,9 @@ fn run(
                 interactive: true,
                 complexity,
             };
-            example_scene.function.render(&mut builder, &mut scene_params);
+            example_scene
+                .function
+                .render(&mut builder, &mut scene_params);
 
             // If the user specifies a base color in the CLI we use that. Otherwise we use any
             // color specified by the scene. The default is black.
