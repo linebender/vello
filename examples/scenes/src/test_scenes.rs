@@ -30,6 +30,7 @@ pub fn test_scenes() -> SceneSet {
         scene!(funky_paths),
         scene!(cardioid_and_friends),
         scene!(animated_text: animated),
+        scene!(gradient_extend),
         scene!(brush_transform: animated),
         scene!(blend_grid),
         scene!(conflation_artifacts),
@@ -246,6 +247,72 @@ fn brush_transform(sb: &mut SceneBuilder, params: &mut SceneParams) {
         &linear,
         Some(around_center(Affine::rotate(th), Point::new(200.0, 100.0))),
         &Rect::from_origin_size(Point::default(), (400.0, 200.0)),
+    );
+}
+
+fn gradient_extend(sb: &mut SceneBuilder, params: &mut SceneParams) {
+    fn square(
+        sb: &mut SceneBuilder,
+        is_radial: bool,
+        transform: Affine,
+        brush_transform: Option<Affine>,
+        extend: Extend,
+    ) {
+        let colors = [Color::RED, Color::GREEN, Color::BLUE];
+        let width = 400f64;
+        let height = 400f64;
+        let gradient: Brush = if is_radial {
+            Gradient::new_radial((width * 0.5, height * 0.5), (width * 0.25) as f32)
+                .with_stops(colors)
+                .with_extend(extend)
+                .into()
+        } else {
+            Gradient::new_linear((width * 0.35, height * 0.5), (width * 0.65, height * 0.5))
+                .with_stops(colors)
+                .with_extend(extend)
+                .into()
+        };
+        sb.fill(
+            Fill::NonZero,
+            transform,
+            &gradient,
+            brush_transform,
+            &Rect::new(0.0, 0.0, width, height),
+        );
+    }
+    let extend_modes = [Extend::Pad, Extend::Repeat, Extend::Reflect];
+    for x in 0..3 {
+        let extend = extend_modes[x];
+        for y in 0..2 {
+            let is_radial = y & 1 != 0;
+            let transform = Affine::translate((x as f64 * 450.0 + 50.0, y as f64 * 450.0 + 100.0));
+            square(sb, is_radial, transform, None, extend);
+        }
+    }
+    let white = Color::WHITE.into();
+    params.text.add(
+        sb,
+        None,
+        32.0,
+        Some(&white),
+        Affine::translate((50.0, 70.0)),
+        "Pad",
+    );
+    params.text.add(
+        sb,
+        None,
+        32.0,
+        Some(&white),
+        Affine::translate((500.0, 70.0)),
+        "Repeat",
+    );
+    params.text.add(
+        sb,
+        None,
+        32.0,
+        Some(&white),
+        Affine::translate((950.0, 70.0)),
+        "Reflect",
     );
 }
 

@@ -61,16 +61,20 @@ fn read_color(cmd_ix: u32) -> CmdColor {
 }
 
 fn read_lin_grad(cmd_ix: u32) -> CmdLinGrad {
-    let index = ptcl[cmd_ix + 1u];
+    let index_mode = ptcl[cmd_ix + 1u];
+    let index = index_mode >> 2u;
+    let extend_mode = index_mode & 0x3u;
     let info_offset = ptcl[cmd_ix + 2u];
     let line_x = bitcast<f32>(info[info_offset]);
     let line_y = bitcast<f32>(info[info_offset + 1u]);
     let line_c = bitcast<f32>(info[info_offset + 2u]);
-    return CmdLinGrad(index, line_x, line_y, line_c);
+    return CmdLinGrad(index, extend_mode, line_x, line_y, line_c);
 }
 
 fn read_rad_grad(cmd_ix: u32) -> CmdRadGrad {
-    let index = ptcl[cmd_ix + 1u];
+    let index_mode = ptcl[cmd_ix + 1u];
+    let index = index_mode >> 2u;
+    let extend_mode = index_mode & 0x3u;
     let info_offset = ptcl[cmd_ix + 2u];
     let m0 = bitcast<f32>(info[info_offset]);
     let m1 = bitcast<f32>(info[info_offset + 1u]);
@@ -81,7 +85,7 @@ fn read_rad_grad(cmd_ix: u32) -> CmdRadGrad {
     let c1 = vec2(bitcast<f32>(info[info_offset + 6u]), bitcast<f32>(info[info_offset + 7u]));
     let ra = bitcast<f32>(info[info_offset + 8u]);
     let roff = bitcast<f32>(info[info_offset + 9u]);
-    return CmdRadGrad(index, matrx, xlat, c1, ra, roff);
+    return CmdRadGrad(index, extend_mode, matrx, xlat, c1, ra, roff);
 }
 
 fn read_image(cmd_ix: u32) -> CmdImage {
@@ -106,6 +110,25 @@ fn read_end_clip(cmd_ix: u32) -> CmdEndClip {
     let blend = ptcl[cmd_ix + 1u];
     let alpha = bitcast<f32>(ptcl[cmd_ix + 2u]);
     return CmdEndClip(blend, alpha);
+}
+
+fn extend_mode(t: f32, mode: u32) -> f32 {
+    // This can be replaced with two selects, exchanging the cost
+    // of a branch for additional ALU
+    switch mode {
+        // PAD
+        case 0u: {
+            return clamp(t, 0.0, 1.0);
+        }
+        // REPEAT
+        case 1u: {
+            return fract(t);
+        }
+        // REFLECT (2)
+        default: {
+            return abs(t - 2.0 * round(0.5 * t));
+        }
+    }
 }
 
 #else
@@ -262,7 +285,7 @@ fn main(
                 let d = lin.line_x * xy.x + lin.line_y * xy.y + lin.line_c;
                 for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
                     let my_d = d + lin.line_x * f32(i);
-                    let x = i32(round(clamp(my_d, 0.0, 1.0) * f32(GRADIENT_WIDTH - 1)));
+                    let x = i32(round(extend_mode(my_d, lin.extend_mode) * f32(GRADIENT_WIDTH - 1)));
                     let fg_rgba = textureLoad(gradients, vec2(x, i32(lin.index)), 0);
                     let fg_i = fg_rgba * area[i];
                     rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
@@ -278,11 +301,16 @@ fn main(
                     let xy_xformed = rad.matrx.xy * my_xy.x + rad.matrx.zw * my_xy.y + rad.xlat;
                     let ba = dot(xy_xformed, rad.c1);
                     let ca = rad.ra * dot(xy_xformed, xy_xformed);
-                    let t = sqrt(ba * ba + ca) - ba - rad.roff;
-                    let x = i32(round(clamp(t, 0.0, 1.0) * f32(GRADIENT_WIDTH - 1)));
-                    let fg_rgba = textureLoad(gradients, vec2(x, i32(rad.index)), 0);
-                    let fg_i = fg_rgba * area[i];
-                    rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
+                    let t0 = sqrt(ba * ba + ca) - ba;
+                    // For radial gradients that generate a cone, reject pixels outside
+                    // the region.
+                    if t0 >= 0.0 {
+                        let t = t0 - rad.roff;
+                        let x = i32(round(extend_mode(t, rad.extend_mode) * f32(GRADIENT_WIDTH - 1)));
+                        let fg_rgba = textureLoad(gradients, vec2(x, i32(rad.index)), 0);
+                        let fg_i = fg_rgba * area[i];
+                        rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
+                    }
                 }
                 cmd_ix += 3u;
             }
@@ -352,7 +380,7 @@ fn main(
             let fg = rgba[i];
             // Max with a small epsilon to avoid NaNs
             let a_inv = 1.0 / max(fg.a, 1e-6);
-            let rgba_sep = vec4(fg.rgb * a_inv, fg.a);            
+            let rgba_sep = vec4(fg.rgb * a_inv, fg.a);
             textureStore(output, vec2<i32>(coords), rgba_sep);
         }
     } 

@@ -113,11 +113,13 @@ impl Encoding {
                 Patch::Ramp {
                     draw_data_offset: offset,
                     stops,
+                    extend,
                 } => {
                     let stops = stops.start + stops_base..stops.end + stops_base;
                     Patch::Ramp {
                         draw_data_offset: offset + offsets.draw_data,
                         stops,
+                        extend: *extend,
                     }
                 }
                 Patch::GlyphRun { index } => Patch::GlyphRun {
@@ -264,9 +266,9 @@ impl Encoding {
         gradient: DrawLinearGradient,
         color_stops: impl Iterator<Item = ColorStop>,
         alpha: f32,
-        _extend: Extend,
+        extend: Extend,
     ) {
-        self.add_ramp(color_stops, alpha);
+        self.add_ramp(color_stops, alpha, extend);
         self.draw_tags.push(DrawTag::LINEAR_GRADIENT);
         self.draw_data
             .extend_from_slice(bytemuck::bytes_of(&gradient));
@@ -278,9 +280,9 @@ impl Encoding {
         gradient: DrawRadialGradient,
         color_stops: impl Iterator<Item = ColorStop>,
         alpha: f32,
-        _extend: Extend,
+        extend: Extend,
     ) {
-        self.add_ramp(color_stops, alpha);
+        self.add_ramp(color_stops, alpha, extend);
         self.draw_tags.push(DrawTag::RADIAL_GRADIENT);
         self.draw_data
             .extend_from_slice(bytemuck::bytes_of(&gradient));
@@ -331,7 +333,12 @@ impl Encoding {
         self.path_tags.swap(len - 1, len - 2);
     }
 
-    fn add_ramp(&mut self, color_stops: impl Iterator<Item = ColorStop>, alpha: f32) {
+    fn add_ramp(
+        &mut self,
+        color_stops: impl Iterator<Item = ColorStop>,
+        alpha: f32,
+        extend: Extend,
+    ) {
         let offset = self.draw_data.len();
         let stops_start = self.color_stops.len();
         if alpha != 1.0 {
@@ -343,6 +350,7 @@ impl Encoding {
         self.patches.push(Patch::Ramp {
             draw_data_offset: offset,
             stops: stops_start..self.color_stops.len(),
+            extend,
         });
     }
 }
