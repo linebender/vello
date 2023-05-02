@@ -35,4 +35,4 @@ pub use path::{
     Cubic, Path, PathBbox, PathEncoder, PathMonoid, PathSegment, PathSegmentType, PathTag, Tile,
 };
 pub use ramp_cache::Ramps;
-pub use resolve::{resolve_simple, Layout, Patch, Resolver};
+pub use resolve::{resolve_solid_paths_only, Layout, Patch, Resolver};

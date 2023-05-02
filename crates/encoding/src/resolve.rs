@@ -100,14 +100,16 @@ impl Layout {
     }
 }
 
-/// Resolves and packs an encoding that doesn't contain late bound resources
-/// (gradients, images and glyph runs).
-pub fn resolve_simple(encoding: &Encoding, packed: &mut Vec<u8>) -> Layout {
+/// Resolves and packs an encoding that contains only paths with solid color
+/// fills.
+///
+/// Panics if the encoding contains any late bound resources (gradients, images
+/// or glyph runs).
+pub fn resolve_solid_paths_only(encoding: &Encoding, packed: &mut Vec<u8>) -> Layout {
     assert!(
         encoding.patches.is_empty(),
         "this resolve function doesn't support late bound resources"
     );
-    let sizes = StreamOffsets::default();
     let data = packed;
     data.clear();
     let mut layout = Layout {
@@ -115,25 +117,18 @@ pub fn resolve_simple(encoding: &Encoding, packed: &mut Vec<u8>) -> Layout {
         n_clips: encoding.n_clips,
         ..Layout::default()
     };
-    // Compute size of data buffer
-    let n_path_tags = encoding.path_tags.len() + sizes.path_tags + encoding.n_open_clips as usize;
-    let path_tag_padded = align_up(n_path_tags, 4 * crate::config::PATH_REDUCE_WG);
-    let capacity = path_tag_padded
-        + slice_size_in_bytes(&encoding.path_data, sizes.path_data)
-        + slice_size_in_bytes(
-            &encoding.draw_tags,
-            sizes.draw_tags + encoding.n_open_clips as usize,
-        )
-        + slice_size_in_bytes(&encoding.draw_data, sizes.draw_data)
-        + slice_size_in_bytes(&encoding.transforms, sizes.transforms)
-        + slice_size_in_bytes(&encoding.linewidths, sizes.linewidths);
-    data.reserve(capacity);
+    let SceneBufferSizes {
+        buffer_size,
+        path_tag_padded,
+    } = SceneBufferSizes::new(encoding, &StreamOffsets::default());
+    data.reserve(buffer_size);
     // Path tag stream
     layout.path_tag_base = size_to_words(data.len());
     data.extend_from_slice(bytemuck::cast_slice(&encoding.path_tags));
     for _ in 0..encoding.n_open_clips {
         data.extend_from_slice(bytemuck::bytes_of(&PathTag::PATH));
     }
+    data.resize(path_tag_padded, 0);
     // Path data stream
     layout.path_data_base = size_to_words(data.len());
     data.extend_from_slice(bytemuck::cast_slice(&encoding.path_data));
@@ -155,7 +150,7 @@ pub fn resolve_simple(encoding: &Encoding, packed: &mut Vec<u8>) -> Layout {
     layout.linewidth_base = size_to_words(data.len());
     data.extend_from_slice(bytemuck::cast_slice(&encoding.linewidths));
     layout.n_draw_objects = layout.n_paths;
-    assert_eq!(capacity, data.len());
+    assert_eq!(buffer_size, data.len());
     layout
 }
 
@@ -184,7 +179,11 @@ impl Resolver {
         encoding: &Encoding,
         packed: &mut Vec<u8>,
     ) -> (Layout, Ramps<'a>, Images<'a>) {
-        let sizes = self.resolve_patches(encoding);
+        if encoding.patches.is_empty() {
+            let layout = resolve_solid_paths_only(encoding, packed);
+            return (layout, Ramps::default(), Images::default());
+        }
+        let patch_sizes = self.resolve_patches(encoding);
         self.resolve_pending_images();
         let data = packed;
         data.clear();
@@ -193,20 +192,11 @@ impl Resolver {
             n_clips: encoding.n_clips,
             ..Layout::default()
         };
-        // Compute size of data buffer
-        let n_path_tags =
-            encoding.path_tags.len() + sizes.path_tags + encoding.n_open_clips as usize;
-        let path_tag_padded = align_up(n_path_tags, 4 * crate::config::PATH_REDUCE_WG);
-        let capacity = path_tag_padded
-            + slice_size_in_bytes(&encoding.path_data, sizes.path_data)
-            + slice_size_in_bytes(
-                &encoding.draw_tags,
-                sizes.draw_tags + encoding.n_open_clips as usize,
-            )
-            + slice_size_in_bytes(&encoding.draw_data, sizes.draw_data)
-            + slice_size_in_bytes(&encoding.transforms, sizes.transforms)
-            + slice_size_in_bytes(&encoding.linewidths, sizes.linewidths);
-        data.reserve(capacity);
+        let SceneBufferSizes {
+            buffer_size,
+            path_tag_padded,
+        } = SceneBufferSizes::new(encoding, &patch_sizes);
+        data.reserve(buffer_size);
         // Path tag stream
         layout.path_tag_base = size_to_words(data.len());
         {
@@ -382,7 +372,7 @@ impl Resolver {
             }
         }
         layout.n_draw_objects = layout.n_paths;
-        assert_eq!(capacity, data.len());
+        assert_eq!(buffer_size, data.len());
         (layout, self.ramp_cache.ramps(), self.image_cache.images())
     }
 
@@ -575,6 +565,36 @@ enum ResolvedPatch {
         /// Offset to the atlas location in the draw data stream.
         draw_data_offset: usize,
     },
+}
+
+struct SceneBufferSizes {
+    /// Full size of the scene buffer in bytes.
+    buffer_size: usize,
+    /// Padded length of the path tag stream in bytes.
+    path_tag_padded: usize,
+}
+
+impl SceneBufferSizes {
+    /// Computes common scene buffer sizes for the given encoding and patch
+    /// stream sizes.
+    fn new(encoding: &Encoding, patch_sizes: &StreamOffsets) -> Self {
+        let n_path_tags =
+            encoding.path_tags.len() + patch_sizes.path_tags + encoding.n_open_clips as usize;
+        let path_tag_padded = align_up(n_path_tags, 4 * crate::config::PATH_REDUCE_WG);
+        let buffer_size = path_tag_padded
+            + slice_size_in_bytes(&encoding.path_data, patch_sizes.path_data)
+            + slice_size_in_bytes(
+                &encoding.draw_tags,
+                patch_sizes.draw_tags + encoding.n_open_clips as usize,
+            )
+            + slice_size_in_bytes(&encoding.draw_data, patch_sizes.draw_data)
+            + slice_size_in_bytes(&encoding.transforms, patch_sizes.transforms)
+            + slice_size_in_bytes(&encoding.linewidths, patch_sizes.linewidths);
+        Self {
+            buffer_size,
+            path_tag_padded,
+        }
+    }
 }
 
 fn slice_size_in_bytes<T: Sized>(slice: &[T], extra: usize) -> usize {
