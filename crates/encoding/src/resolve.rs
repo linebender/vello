@@ -100,6 +100,65 @@ impl Layout {
     }
 }
 
+/// Resolves and packs an encoding that doesn't contain late bound resources
+/// (gradients, images and glyph runs).
+pub fn resolve_simple(encoding: &Encoding, packed: &mut Vec<u8>) -> Layout {
+    assert!(
+        encoding.patches.is_empty(),
+        "this resolve function doesn't support late bound resources"
+    );
+    let sizes = StreamOffsets::default();
+    let data = packed;
+    data.clear();
+    let mut layout = Layout {
+        n_paths: encoding.n_paths,
+        n_clips: encoding.n_clips,
+        ..Layout::default()
+    };
+    // Compute size of data buffer
+    let n_path_tags = encoding.path_tags.len() + sizes.path_tags + encoding.n_open_clips as usize;
+    let path_tag_padded = align_up(n_path_tags, 4 * crate::config::PATH_REDUCE_WG);
+    let capacity = path_tag_padded
+        + slice_size_in_bytes(&encoding.path_data, sizes.path_data)
+        + slice_size_in_bytes(
+            &encoding.draw_tags,
+            sizes.draw_tags + encoding.n_open_clips as usize,
+        )
+        + slice_size_in_bytes(&encoding.draw_data, sizes.draw_data)
+        + slice_size_in_bytes(&encoding.transforms, sizes.transforms)
+        + slice_size_in_bytes(&encoding.linewidths, sizes.linewidths);
+    data.reserve(capacity);
+    // Path tag stream
+    layout.path_tag_base = size_to_words(data.len());
+    data.extend_from_slice(bytemuck::cast_slice(&encoding.path_tags));
+    for _ in 0..encoding.n_open_clips {
+        data.extend_from_slice(bytemuck::bytes_of(&PathTag::PATH));
+    }
+    // Path data stream
+    layout.path_data_base = size_to_words(data.len());
+    data.extend_from_slice(bytemuck::cast_slice(&encoding.path_data));
+    // Draw tag stream
+    layout.draw_tag_base = size_to_words(data.len());
+    // Bin data follows draw info
+    layout.bin_data_start = encoding.draw_tags.iter().map(|tag| tag.info_size()).sum();
+    data.extend_from_slice(bytemuck::cast_slice(&encoding.draw_tags));
+    for _ in 0..encoding.n_open_clips {
+        data.extend_from_slice(bytemuck::bytes_of(&DrawTag::END_CLIP));
+    }
+    // Draw data stream
+    layout.draw_data_base = size_to_words(data.len());
+    data.extend_from_slice(bytemuck::cast_slice(&encoding.draw_data));
+    // Transform stream
+    layout.transform_base = size_to_words(data.len());
+    data.extend_from_slice(bytemuck::cast_slice(&encoding.transforms));
+    // Linewidth stream
+    layout.linewidth_base = size_to_words(data.len());
+    data.extend_from_slice(bytemuck::cast_slice(&encoding.linewidths));
+    layout.n_draw_objects = layout.n_paths;
+    assert_eq!(capacity, data.len());
+    layout
+}
+
 /// Resolver for late bound resources.
 #[derive(Default)]
 pub struct Resolver {
