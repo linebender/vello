@@ -1,16 +1,19 @@
 // Copyright 2022 The Vello authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use std::ops::Range;
-
 use bytemuck::{Pod, Zeroable};
-use peniko::Image;
 
-use super::{
-    glyph_cache::{CachedRange, GlyphCache, GlyphKey},
-    image_cache::{ImageCache, Images},
-    ramp_cache::{RampCache, Ramps},
-    DrawTag, Encoding, PathTag, StreamOffsets, Transform,
+use super::{DrawTag, Encoding, PathTag, StreamOffsets, Transform};
+
+#[cfg(feature = "full")]
+use {
+    super::{
+        glyph_cache::{CachedRange, GlyphCache, GlyphKey},
+        image_cache::{ImageCache, Images},
+        ramp_cache::{RampCache, Ramps},
+    },
+    peniko::Image,
+    std::ops::Range,
 };
 
 /// Layout of a packed encoding.
@@ -106,8 +109,9 @@ impl Layout {
 /// Panics if the encoding contains any late bound resources (gradients, images
 /// or glyph runs).
 pub fn resolve_solid_paths_only(encoding: &Encoding, packed: &mut Vec<u8>) -> Layout {
+    #[cfg(feature = "full")]
     assert!(
-        encoding.patches.is_empty(),
+        encoding.resources.patches.is_empty(),
         "this resolve function doesn't support late bound resources"
     );
     let data = packed;
@@ -155,6 +159,7 @@ pub fn resolve_solid_paths_only(encoding: &Encoding, packed: &mut Vec<u8>) -> La
 }
 
 /// Resolver for late bound resources.
+#[cfg(feature = "full")]
 #[derive(Default)]
 pub struct Resolver {
     glyph_cache: GlyphCache,
@@ -166,6 +171,7 @@ pub struct Resolver {
     patches: Vec<ResolvedPatch>,
 }
 
+#[cfg(feature = "full")]
 impl Resolver {
     /// Creates a new resource cache.
     pub fn new() -> Self {
@@ -179,7 +185,8 @@ impl Resolver {
         encoding: &Encoding,
         packed: &mut Vec<u8>,
     ) -> (Layout, Ramps<'a>, Images<'a>) {
-        if encoding.patches.is_empty() {
+        let resources = &encoding.resources;
+        if resources.patches.is_empty() {
             let layout = resolve_solid_paths_only(encoding, packed);
             return (layout, Ramps::default(), Images::default());
         }
@@ -205,7 +212,7 @@ impl Resolver {
             for patch in &self.patches {
                 if let ResolvedPatch::GlyphRun { index, glyphs, .. } = patch {
                     layout.n_paths += 1;
-                    let stream_offset = encoding.glyph_runs[*index].stream_offsets.path_tags;
+                    let stream_offset = resources.glyph_runs[*index].stream_offsets.path_tags;
                     if pos < stream_offset {
                         data.extend_from_slice(bytemuck::cast_slice(&stream[pos..stream_offset]));
                         pos = stream_offset;
@@ -234,7 +241,9 @@ impl Resolver {
             let stream = &encoding.path_data;
             for patch in &self.patches {
                 if let ResolvedPatch::GlyphRun { index, glyphs, .. } = patch {
-                    let stream_offset = encoding.glyph_runs[*index].stream_offsets.path_data;
+                    let stream_offset = encoding.resources.glyph_runs[*index]
+                        .stream_offsets
+                        .path_data;
                     if pos < stream_offset {
                         data.extend_from_slice(bytemuck::cast_slice(&stream[pos..stream_offset]));
                         pos = stream_offset;
@@ -316,14 +325,14 @@ impl Resolver {
                     transform,
                 } = patch
                 {
-                    let run = &encoding.glyph_runs[*index];
-                    let stream_offset = encoding.glyph_runs[*index].stream_offsets.transforms;
+                    let run = &resources.glyph_runs[*index];
+                    let stream_offset = run.stream_offsets.transforms;
                     if pos < stream_offset {
                         data.extend_from_slice(bytemuck::cast_slice(&stream[pos..stream_offset]));
                         pos = stream_offset;
                     }
                     if let Some(glyph_transform) = run.glyph_transform {
-                        for glyph in &encoding.glyphs[run.glyphs.clone()] {
+                        for glyph in &resources.glyphs[run.glyphs.clone()] {
                             let xform = *transform
                                 * Transform {
                                     matrix: [1.0, 0.0, 0.0, -1.0],
@@ -333,7 +342,7 @@ impl Resolver {
                             data.extend_from_slice(bytemuck::bytes_of(&xform));
                         }
                     } else {
-                        for glyph in &encoding.glyphs[run.glyphs.clone()] {
+                        for glyph in &resources.glyphs[run.glyphs.clone()] {
                             let xform = *transform
                                 * Transform {
                                     matrix: [1.0, 0.0, 0.0, -1.0],
@@ -355,7 +364,7 @@ impl Resolver {
             let stream = &encoding.linewidths;
             for patch in &self.patches {
                 if let ResolvedPatch::GlyphRun { index, glyphs, .. } = patch {
-                    let stream_offset = encoding.glyph_runs[*index].stream_offsets.linewidths;
+                    let stream_offset = resources.glyph_runs[*index].stream_offsets.linewidths;
                     if pos < stream_offset {
                         data.extend_from_slice(bytemuck::cast_slice(&stream[pos..stream_offset]));
                         pos = stream_offset;
@@ -384,13 +393,14 @@ impl Resolver {
         self.pending_images.clear();
         self.patches.clear();
         let mut sizes = StreamOffsets::default();
-        for patch in &encoding.patches {
+        let resources = &encoding.resources;
+        for patch in &resources.patches {
             match patch {
                 Patch::Ramp {
                     draw_data_offset,
                     stops,
                 } => {
-                    let ramp_id = self.ramp_cache.add(&encoding.color_stops[stops.clone()]);
+                    let ramp_id = self.ramp_cache.add(&resources.color_stops[stops.clone()]);
                     self.patches.push(ResolvedPatch::Ramp {
                         draw_data_offset: *draw_data_offset + sizes.draw_data,
                         ramp_id,
@@ -398,7 +408,7 @@ impl Resolver {
                 }
                 Patch::GlyphRun { index } => {
                     let mut run_sizes = StreamOffsets::default();
-                    let run = &encoding.glyph_runs[*index];
+                    let run = &resources.glyph_runs[*index];
                     let font_id = run.font.data.id();
                     let font_size_u32 = run.font_size.to_bits();
                     let Ok(font_file) = fello::raw::FileRef::new(run.font.data.as_ref()) else { continue };
@@ -409,8 +419,8 @@ impl Resolver {
                         }
                     };
                     let Some(font) = font else { continue };
-                    let glyphs = &encoding.glyphs[run.glyphs.clone()];
-                    let coords = &encoding.normalized_coords[run.normalized_coords.clone()];
+                    let glyphs = &resources.glyphs[run.glyphs.clone()];
+                    let coords = &resources.normalized_coords[run.normalized_coords.clone()];
                     let key = fello::FontKey {
                         data_id: font_id,
                         index: run.font.index,
@@ -512,8 +522,9 @@ impl Resolver {
     }
 }
 
-#[derive(Clone)]
 /// Patch for a late bound resource.
+#[cfg(feature = "full")]
+#[derive(Clone)]
 pub enum Patch {
     /// Gradient ramp resource.
     Ramp {
@@ -537,12 +548,14 @@ pub enum Patch {
 }
 
 /// Image to be allocated in the atlas.
+#[cfg(feature = "full")]
 #[derive(Clone, Debug)]
 struct PendingImage {
     image: Image,
     xy: Option<(u32, u32)>,
 }
 
+#[cfg(feature = "full")]
 #[derive(Clone, Debug)]
 enum ResolvedPatch {
     Ramp {

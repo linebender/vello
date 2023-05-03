@@ -205,8 +205,8 @@ impl<'a> DrawGlyphs<'a> {
     /// Creates a new builder for encoding a glyph run for the specified
     /// encoding with the given font.
     pub fn new(encoding: &'a mut Encoding, font: &Font) -> Self {
-        let coords_start = encoding.normalized_coords.len();
-        let glyphs_start = encoding.glyphs.len();
+        let coords_start = encoding.resources.normalized_coords.len();
+        let glyphs_start = encoding.resources.glyphs.len();
         let stream_offsets = encoding.stream_offsets();
         Self {
             encoding,
@@ -264,10 +264,14 @@ impl<'a> DrawGlyphs<'a> {
     /// Sets the normalized design space coordinates for a variable font instance.
     pub fn normalized_coords(mut self, coords: &[NormalizedCoord]) -> Self {
         self.encoding
+            .resources
             .normalized_coords
             .truncate(self.run.normalized_coords.start);
-        self.encoding.normalized_coords.extend_from_slice(coords);
-        self.run.normalized_coords.end = self.encoding.normalized_coords.len();
+        self.encoding
+            .resources
+            .normalized_coords
+            .extend_from_slice(coords);
+        self.run.normalized_coords.end = self.encoding.resources.normalized_coords.len();
         self
     }
 
@@ -292,18 +296,19 @@ impl<'a> DrawGlyphs<'a> {
     ///
     /// The `style` parameter accepts either `Fill` or `&Stroke` types.
     pub fn draw(mut self, style: impl Into<StyleRef<'a>>, glyphs: impl Iterator<Item = Glyph>) {
+        let resources = &mut self.encoding.resources;
         self.run.style = style.into().to_owned();
-        self.encoding.glyphs.extend(glyphs);
-        self.run.glyphs.end = self.encoding.glyphs.len();
+        resources.glyphs.extend(glyphs);
+        self.run.glyphs.end = resources.glyphs.len();
         if self.run.glyphs.is_empty() {
-            self.encoding
+            resources
                 .normalized_coords
                 .truncate(self.run.normalized_coords.start);
             return;
         }
-        let index = self.encoding.glyph_runs.len();
-        self.encoding.glyph_runs.push(self.run);
-        self.encoding.patches.push(Patch::GlyphRun { index });
+        let index = resources.glyph_runs.len();
+        resources.glyph_runs.push(self.run);
+        resources.patches.push(Patch::GlyphRun { index });
         self.encoding.encode_brush(self.brush, self.brush_alpha);
     }
 }
