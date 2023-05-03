@@ -251,16 +251,10 @@ fn brush_transform(sb: &mut SceneBuilder, params: &mut SceneParams) {
 }
 
 fn gradient_extend(sb: &mut SceneBuilder, params: &mut SceneParams) {
-    fn square(
-        sb: &mut SceneBuilder,
-        is_radial: bool,
-        transform: Affine,
-        brush_transform: Option<Affine>,
-        extend: Extend,
-    ) {
+    fn square(sb: &mut SceneBuilder, is_radial: bool, transform: Affine, extend: Extend) {
         let colors = [Color::RED, Color::GREEN, Color::BLUE];
-        let width = 400f64;
-        let height = 400f64;
+        let width = 300f64;
+        let height = 300f64;
         let gradient: Brush = if is_radial {
             Gradient::new_radial((width * 0.5, height * 0.5), (width * 0.25) as f32)
                 .with_stops(colors)
@@ -276,7 +270,7 @@ fn gradient_extend(sb: &mut SceneBuilder, params: &mut SceneParams) {
             Fill::NonZero,
             transform,
             &gradient,
-            brush_transform,
+            None,
             &Rect::new(0.0, 0.0, width, height),
         );
     }
@@ -285,35 +279,21 @@ fn gradient_extend(sb: &mut SceneBuilder, params: &mut SceneParams) {
         let extend = extend_modes[x];
         for y in 0..2 {
             let is_radial = y & 1 != 0;
-            let transform = Affine::translate((x as f64 * 450.0 + 50.0, y as f64 * 450.0 + 100.0));
-            square(sb, is_radial, transform, None, extend);
+            let transform = Affine::translate((x as f64 * 350.0 + 50.0, y as f64 * 350.0 + 100.0));
+            square(sb, is_radial, transform, extend);
         }
     }
-    let white = Color::WHITE.into();
-    params.text.add(
-        sb,
-        None,
-        32.0,
-        Some(&white),
-        Affine::translate((50.0, 70.0)),
-        "Pad",
-    );
-    params.text.add(
-        sb,
-        None,
-        32.0,
-        Some(&white),
-        Affine::translate((500.0, 70.0)),
-        "Repeat",
-    );
-    params.text.add(
-        sb,
-        None,
-        32.0,
-        Some(&white),
-        Affine::translate((950.0, 70.0)),
-        "Reflect",
-    );
+    for (i, label) in ["Pad", "Repeat", "Reflect"].iter().enumerate() {
+        let x = i as f64 * 350.0 + 50.0;
+        params.text.add(
+            sb,
+            None,
+            32.0,
+            Some(&Color::WHITE.into()),
+            Affine::translate((x, 70.0)),
+            label,
+        );
+    }
 }
 
 fn blend_grid(sb: &mut SceneBuilder, _: &mut SceneParams) {
