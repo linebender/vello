@@ -105,11 +105,13 @@ impl Encoding {
                     Patch::Ramp {
                         draw_data_offset: offset,
                         stops,
+                        extend,
                     } => {
                         let stops = stops.start + stops_base..stops.end + stops_base;
                         Patch::Ramp {
                             draw_data_offset: offset + offsets.draw_data,
                             stops,
+                            extend: *extend,
                         }
                     }
                     Patch::GlyphRun { index } => Patch::GlyphRun {
@@ -347,7 +349,12 @@ impl Encoding {
     }
 
     #[cfg(feature = "full")]
-    fn add_ramp(&mut self, color_stops: impl Iterator<Item = ColorStop>, alpha: f32) {
+    fn add_ramp(
+        &mut self,
+        color_stops: impl Iterator<Item = ColorStop>,
+        alpha: f32,
+        extend: Extend,
+    ) {
         let offset = self.draw_data.len();
         let stops_start = self.resources.color_stops.len();
         if alpha != 1.0 {
@@ -360,6 +367,7 @@ impl Encoding {
         self.resources.patches.push(Patch::Ramp {
             draw_data_offset: offset,
             stops: stops_start..self.resources.color_stops.len(),
+            extend,
         });
     }
 }

@@ -12,7 +12,7 @@ use {
         image_cache::{ImageCache, Images},
         ramp_cache::{RampCache, Ramps},
     },
-    peniko::Image,
+    peniko::{Extend, Image},
     std::ops::Range,
 };
 
