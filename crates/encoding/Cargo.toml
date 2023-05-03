@@ -3,8 +3,14 @@ name = "vello_encoding"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = ["full"]
+# Enables support for the full pipeline including late-bound
+# resources (gradients, images and glyph runs)
+full = ["fello", "guillotiere"]
+
 [dependencies]
 bytemuck = { workspace = true }
-fello = { workspace = true }
+fello = { workspace = true, optional = true }
 peniko = { workspace = true }
-guillotiere = "0.6.2"
+guillotiere = { version = "0.6.2", optional = true }

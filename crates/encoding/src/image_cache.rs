@@ -8,6 +8,7 @@ use std::collections::{hash_map::Entry, HashMap};
 const DEFAULT_ATLAS_SIZE: i32 = 1024;
 const MAX_ATLAS_SIZE: i32 = 8192;
 
+#[derive(Default)]
 pub struct Images<'a> {
     pub width: u32,
     pub height: u32,
