@@ -196,6 +196,7 @@ impl<T: Sized> BufferSize<T> {
     }
 
     /// Returns the number of elements.
+    #[allow(clippy::len_without_is_empty)]
     pub const fn len(self) -> u32 {
         self.len
     }
