@@ -172,15 +172,18 @@ fn run(
                                         .as_ref()
                                         .or(profile_stored.as_ref())
                                     {
-                                        let path = std::path::Path::new("trace.json");
-                                        match wgpu_profiler::chrometrace::write_chrometrace(
-                                            &path,
-                                            &profile_result,
-                                        ) {
-                                            Ok(()) => {
-                                                println!("Wrote trace to path {path:?}")
+                                        // There can be empty results if the required features aren't supported
+                                        if !profile_result.is_empty() {
+                                            let path = std::path::Path::new("trace.json");
+                                            match wgpu_profiler::chrometrace::write_chrometrace(
+                                                &path,
+                                                &profile_result,
+                                            ) {
+                                                Ok(()) => {
+                                                    println!("Wrote trace to path {path:?}")
+                                                }
+                                                Err(e) => eprintln!("Failed to write trace {e}"),
                                             }
-                                            Err(e) => eprintln!("Failed to write trace {e}"),
                                         }
                                     }
                                 }
