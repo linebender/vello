@@ -243,7 +243,7 @@ impl Renderer {
             queue,
             &recording,
             &[],
-            "render_to_texture_async_coarse",
+            "t_async_coarse",
             #[cfg(feature = "wgpu-profiler")]
             &mut self.profiler,
         )?;
@@ -273,7 +273,7 @@ impl Renderer {
             queue,
             &recording,
             &external_resources,
-            "render_to_texture_async_fine",
+            "t_async_fine",
             #[cfg(feature = "wgpu-profiler")]
             &mut self.profiler,
         )?;
