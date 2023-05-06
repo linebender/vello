@@ -294,6 +294,19 @@ fn gradient_extend(sb: &mut SceneBuilder, params: &mut SceneParams) {
             label,
         );
     }
+    let t = (params.time * 0.5).sin() * 0.5 + 0.5;
+    let x_delta: f64 = t * 2000.0 - 1000.0;
+    let gradient =
+        Gradient::new_two_point_radial((400.0, 500.0), 100.0, (101.0 + x_delta, 500.0), 200.0)
+            .with_extend(Extend::Reflect)
+            .with_stops([Color::GREEN, Color::WHITE, Color::RED]);
+    sb.fill(
+        Fill::NonZero,
+        Affine::translate((400.0, 800.0)) * Affine::scale(0.2),
+        &gradient,
+        None,
+        &Rect::new(0.0, 0.0, 2000.0, 2000.0),
+    );
 }
 
 fn blend_grid(sb: &mut SceneBuilder, _: &mut SceneParams) {

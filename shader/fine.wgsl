@@ -295,18 +295,17 @@ fn main(
             // CMD_RAD_GRAD
             case 7u: {
                 let rad = read_rad_grad(cmd_ix);
+                let rr = rad.rr;
+                let roff = rr - 1.0;
                 for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
                     let my_xy = vec2(xy.x + f32(i), xy.y);
                     // TODO: can hoist y, but for now stick to the GLSL version
                     let xy_xformed = rad.matrx.xy * my_xy.x + rad.matrx.zw * my_xy.y + rad.xlat;
                     let ba = dot(xy_xformed, rad.c1);
                     let ca = rad.ra * dot(xy_xformed, xy_xformed);
-                    let t0 = sqrt(ba * ba + ca) - ba;
-                    // For radial gradients that generate a cone, reject pixels outside
-                    // the region.
-                    if t0 >= 0.0 {
-                        let t = t0 - rad.roff;
-                        let x = i32(round(extend_mode(t, rad.extend_mode) * f32(GRADIENT_WIDTH - 1)));
+                    let t = sqrt(ba * ba + ca) - ba;
+                    if t >= 0.0 {
+                        let x = i32(round(extend_mode(t * rr - roff, rad.extend_mode) * f32(GRADIENT_WIDTH - 1)));
                         let fg_rgba = textureLoad(gradients, vec2(x, i32(rad.index)), 0);
                         let fg_i = fg_rgba * area[i];
                         rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;

@@ -153,13 +153,17 @@ fn main(
                 let r1 = bitcast<f32>(scene[dd + 6u]);
                 let inv_det = 1.0 / (matrx.x * matrx.w - matrx.y * matrx.z);
                 let inv_mat = inv_det * vec4(matrx.w, -matrx.y, -matrx.z, matrx.x);
+                let rr = r1 / (r1 - r0);
+                var rr1 = rr;
+                if r0 > 0.0 {
+                    p0 = p0 + (p0 - p1) * rr * 0.5;
+                    rr1 = 1.0;
+                }
                 let inv_tr = mat2x2(inv_mat.xy, inv_mat.zw) * -translate - p0;
                 let center1 = p1 - p0;
-                let rr = r1 / (r1 - r0);
-                let ra_inv = rr / (r1 * r1 - dot(center1, center1));
+                let ra_inv = rr1 / (r1 * r1 - dot(center1, center1));
                 let c1 = center1 * ra_inv;
-                let ra = rr * ra_inv;
-                let roff = rr - 1.0;
+                let ra = rr1 * ra_inv;
                 info[di + 1u] = bitcast<u32>(inv_mat.x);
                 info[di + 2u] = bitcast<u32>(inv_mat.y);
                 info[di + 3u] = bitcast<u32>(inv_mat.z);
@@ -169,7 +173,7 @@ fn main(
                 info[di + 7u] = bitcast<u32>(c1.x);
                 info[di + 8u] = bitcast<u32>(c1.y);
                 info[di + 9u] = bitcast<u32>(ra);
-                info[di + 10u] = bitcast<u32>(roff);
+                info[di + 10u] = bitcast<u32>(rr);
             }
             // DRAWTAG_FILL_IMAGE
             case 0x248u: {

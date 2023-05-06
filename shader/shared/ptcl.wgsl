@@ -57,7 +57,7 @@ struct CmdRadGrad {
     xlat: vec2<f32>,
     c1: vec2<f32>,
     ra: f32,
-    roff: f32,
+    rr: f32,
 }
 
 struct CmdImage {
