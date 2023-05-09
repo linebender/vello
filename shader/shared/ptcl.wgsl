@@ -55,9 +55,10 @@ struct CmdRadGrad {
     extend_mode: u32,
     matrx: vec4<f32>,
     xlat: vec2<f32>,
-    c1: vec2<f32>,
-    ra: f32,
-    rr: f32,
+    focal_x: f32,
+    radius: f32,
+    kind: u32,
+    flags: u32,
 }
 
 struct CmdImage {

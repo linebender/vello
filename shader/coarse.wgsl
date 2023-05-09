@@ -376,7 +376,7 @@ fn main(
                         }
                     }
                     // DRAWTAG_FILL_RAD_GRADIENT
-                    case 0x2dcu: {
+                    case 0x29cu: {
                         let linewidth = bitcast<f32>(info_bin_data[di]);
                         if write_path(tile, linewidth) {
                             let index = scene[dd];

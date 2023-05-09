@@ -31,6 +31,7 @@ pub fn test_scenes() -> SceneSet {
         scene!(cardioid_and_friends),
         scene!(animated_text: animated),
         scene!(gradient_extend),
+        scene!(two_point_radial),
         scene!(brush_transform: animated),
         scene!(blend_grid),
         scene!(conflation_artifacts),
@@ -252,11 +253,13 @@ fn brush_transform(sb: &mut SceneBuilder, params: &mut SceneParams) {
 
 fn gradient_extend(sb: &mut SceneBuilder, params: &mut SceneParams) {
     fn square(sb: &mut SceneBuilder, is_radial: bool, transform: Affine, extend: Extend) {
-        let colors = [Color::RED, Color::GREEN, Color::BLUE];
+        let colors = [Color::RED, Color::rgb8(0, 255, 0), Color::BLUE];
         let width = 300f64;
         let height = 300f64;
         let gradient: Brush = if is_radial {
-            Gradient::new_radial((width * 0.5, height * 0.5), (width * 0.25) as f32)
+            let center = (width * 0.5, height * 0.5);
+            let radius = (width * 0.25) as f32;
+            Gradient::new_two_point_radial(center, radius * 0.25, center, radius)
                 .with_stops(colors)
                 .with_extend(extend)
                 .into()
@@ -294,10 +297,45 @@ fn gradient_extend(sb: &mut SceneBuilder, params: &mut SceneParams) {
             label,
         );
     }
+}
+
+fn two_point_radial(sb: &mut SceneBuilder, params: &mut SceneParams) {
+    let colors = [Color::RED, Color::rgb8(0, 255, 0), Color::BLUE];
+    let extend = Extend::Reflect;
+    let gradient1 = Gradient::new_two_point_radial((150.0, 150.0), 50.0, (200.0, 150.0), 100.0)
+        .with_extend(extend)
+        .with_stops(colors);
+    let gradient2 = Gradient::new_two_point_radial((300.0, 150.0), 100.0, (150.0, 150.0), 50.0)
+        .with_extend(extend)
+        .with_stops(colors);
+    let gradient3 = Gradient::new_two_point_radial((300.0, 150.0), 50.0, (150.0, 150.0), 50.0)
+        .with_extend(extend)
+        .with_stops(colors);
+    sb.fill(
+        Fill::NonZero,
+        Affine::scale(1.5) * Affine::translate((50.0, 0.0)),
+        &gradient1,
+        None,
+        &Rect::new(0.0, 0.0, 400.0, 400.0),
+    );
+    sb.fill(
+        Fill::NonZero,
+        Affine::scale(1.5) * Affine::translate((50.0, 300.0)),
+        &gradient2,
+        None,
+        &Rect::new(0.0, 0.0, 400.0, 400.0),
+    );
+    sb.fill(
+        Fill::NonZero,
+        Affine::scale(1.5) * Affine::translate((50.0, 600.0)),
+        &gradient3,
+        None,
+        &Rect::new(0.0, 0.0, 400.0, 400.0),
+    );
     let t = (params.time * 0.5).sin() * 0.5 + 0.5;
     let x_delta: f64 = t * 2000.0 - 1000.0;
     let gradient =
-        Gradient::new_two_point_radial((400.0, 500.0), 100.0, (101.0 + x_delta, 500.0), 200.0)
+        Gradient::new_two_point_radial((400.0, 500.0), 100.0, (101.0 + x_delta, 500.0), 0.0)
             .with_extend(Extend::Reflect)
             .with_stops([Color::GREEN, Color::WHITE, Color::RED]);
     sb.fill(

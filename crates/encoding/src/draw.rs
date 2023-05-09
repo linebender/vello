@@ -22,7 +22,7 @@ impl DrawTag {
     pub const LINEAR_GRADIENT: Self = Self(0x114);
 
     /// Radial gradient fill.
-    pub const RADIAL_GRADIENT: Self = Self(0x2dc);
+    pub const RADIAL_GRADIENT: Self = Self(0x29c);
 
     /// Image fill.
     pub const IMAGE: Self = Self(0x248);

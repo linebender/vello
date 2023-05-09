@@ -49,3 +49,12 @@ let N_TILE_Y = 16u;
 let N_TILE = 256u;
 
 let BLEND_STACK_SPLIT = 4u;
+
+// Radial gradient kinds
+let RAD_GRAD_KIND_CIRCULAR = 1u;
+let RAD_GRAD_KIND_STRIP = 2u;
+let RAD_GRAD_KIND_FOCAL_ON_CIRCLE = 3u;
+let RAD_GRAD_KIND_CONE = 4u;
+
+// Radial gradient flags
+let RAD_GRAD_SWAPPED = 1u;
