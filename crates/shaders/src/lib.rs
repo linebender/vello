@@ -13,10 +13,15 @@ use std::borrow::Cow;
 #[derive(Clone, Debug)]
 pub struct ComputeShader<'a> {
     pub name: Cow<'a, str>,
-    pub code: Cow<'a, [u8]>,
     pub workgroup_size: [u32; 3],
     pub bindings: Cow<'a, [BindType]>,
     pub workgroup_buffers: Cow<'a, [WorkgroupBufferInfo]>,
+
+    #[cfg(feature = "wgsl")]
+    pub wgsl: Cow<'a, str>,
+
+    #[cfg(feature = "msl")]
+    pub msl: Cow<'a, str>,
 }
 
 pub trait PipelineHost {
@@ -32,3 +37,5 @@ pub trait PipelineHost {
 }
 
 include!(concat!(env!("OUT_DIR"), "/shaders.rs"));
+
+pub use gen::SHADERS;

@@ -21,18 +21,7 @@ fn main() {
     shaders.sort_by(|x, y| x.0.cmp(&y.0));
     let mut buf = String::default();
     write_types(&mut buf, &shaders).unwrap();
-    if cfg!(feature = "wgsl") {
-        write_shaders(&mut buf, "wgsl", &shaders, |info| {
-            info.source.as_bytes().to_owned()
-        })
-        .unwrap();
-    }
-    if cfg!(feature = "msl") {
-        write_shaders(&mut buf, "msl", &shaders, |info| {
-            compile::msl::translate(info).unwrap().as_bytes().to_owned()
-        })
-        .unwrap();
-    }
+    write_shaders(&mut buf, &shaders).unwrap();
     std::fs::write(&dest_path, &buf).unwrap();
     println!("cargo:rerun-if-changed=../shader");
 }
@@ -65,11 +54,9 @@ fn write_types(buf: &mut String, shaders: &[(String, ShaderInfo)]) -> Result<(),
 
 fn write_shaders(
     buf: &mut String,
-    mod_name: &str,
     shaders: &[(String, ShaderInfo)],
-    translate: impl Fn(&ShaderInfo) -> Vec<u8>,
 ) -> Result<(), std::fmt::Error> {
-    writeln!(buf, "pub mod {mod_name} {{")?;
+    writeln!(buf, "mod gen {{")?;
     writeln!(buf, "    use super::*;")?;
     writeln!(buf, "    use BindType::*;")?;
     writeln!(buf, "    pub const SHADERS: Shaders<'static> = Shaders {{")?;
@@ -80,14 +67,8 @@ fn write_shaders(
             .map(|binding| binding.ty)
             .collect::<Vec<_>>();
         let wg_bufs = &info.workgroup_buffers;
-        let source = translate(info);
         writeln!(buf, "        {name}: ComputeShader {{")?;
         writeln!(buf, "            name: Cow::Borrowed({:?}),", name)?;
-        writeln!(
-            buf,
-            "            code: Cow::Borrowed(&{:?}),",
-            source.as_slice()
-        )?;
         writeln!(
             buf,
             "            workgroup_size: {:?},",
@@ -99,6 +80,16 @@ fn write_shaders(
             "            workgroup_buffers: Cow::Borrowed(&{:?}),",
             wg_bufs
         )?;
+        if cfg!(feature = "wgsl") {
+            writeln!(buf, "            wgsl: Cow::Borrowed(&{:?}),", info.source)?;
+        }
+        if cfg!(feature = "msl") {
+            writeln!(
+                buf,
+                "            msl: Cow::Borrowed(&{:?}),",
+                compile::msl::translate(info).unwrap()
+            )?;
+        }
         writeln!(buf, "        }},")?;
     }
     writeln!(buf, "    }};")?;
