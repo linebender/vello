@@ -29,6 +29,7 @@ use {
     vello_encoding::Encoding,
 };
 
+pub use fello;
 pub use vello_encoding::Glyph;
 
 /// General context for creating scene fragments for glyph outlines.
