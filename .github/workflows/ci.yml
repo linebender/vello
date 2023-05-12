@@ -24,14 +24,21 @@ jobs:
       # --exclude with_bevy # for when bevy has an outdated wgpu version
       # -Dwarnings # for when we have fixed unused code warnings
   
-  # cargo-run-wasm does not provide a way to determine that it failed easily, so ignore it for now
-  # wasm:
-  #   runs-on: ubuntu-latest
-  #   name: Ensure with_winit compiles on WASM
-  #   steps:
-  #     - uses: actions/checkout@v2
-  #     - uses: dtolnay/rust-toolchain@stable
-  #     - with:
-  #       targets: wasm32-unknown-unknown
-  #     - run: cargo run_wasm -- -p with_winit --bin with_winit_bin --build-only
+  wasm:
+    runs-on: ubuntu-latest
+    name: Ensure with_winit compiles on WASM
+    steps:
+      - uses: actions/checkout@v2
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      # cargo-run-wasm does not provide a way to determine that it failed programmatically.
+      # Ideally, fix this and use:
+      # - run: cargo run_wasm -- -p with_winit --bin with_winit_bin --build-only
+      - name: Allow using WebGPU in web_sys
+        run: |
+          echo "RUSTFLAGS=--cfg=web_sys_unstable_apis" >> "$GITHUB_ENV"
+      - run: cargo check -p with_winit --target wasm32-unknown-unknown
+
+
 
