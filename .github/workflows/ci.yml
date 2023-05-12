@@ -21,11 +21,15 @@ jobs:
       - run: cargo check --workspace 
       # --exclude with_bevy # for when bevy has an outdated wgpu version
       # -Dwarnings # for when we have fixed unused code warnings
-  wasm:
-    runs-on: ubuntu-latest
-    name: Ensure with_winit compiles on WASM
-    steps:
-      - uses: actions/checkout@v2
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo run_wasm -- -p with_winit --bin with_winit_bin --build-only
+  
+  # cargo-run-wasm does not provide a way to determine that it failed easily, so ignore it for now
+  # wasm:
+  #   runs-on: ubuntu-latest
+  #   name: Ensure with_winit compiles on WASM
+  #   steps:
+  #     - uses: actions/checkout@v2
+  #     - uses: dtolnay/rust-toolchain@stable
+  #     - with:
+  #       targets: wasm32-unknown-unknown
+  #     - run: cargo run_wasm -- -p with_winit --bin with_winit_bin --build-only
 
