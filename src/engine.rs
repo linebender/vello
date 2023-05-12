@@ -64,9 +64,6 @@ pub struct BufProxy {
 pub enum ImageFormat {
     Rgba8,
     Bgra8,
-
-
-    
 }
 
 #[derive(Clone, Copy)]
