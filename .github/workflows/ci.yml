@@ -2,7 +2,6 @@ on:
   push:
     branches:
       - main
-      - dev
   pull_request:
 
 jobs:
@@ -11,17 +10,22 @@ jobs:
     name: cargo fmt
     steps:
       - uses: actions/checkout@v2
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo fmt --all --check
+  compiles:
+    runs-on: ubuntu-latest
+    name: Check workspace compile
+    steps:
+      - uses: actions/checkout@v2
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo check --workspace 
+      # --exclude with_bevy # for when bevy has an outdated wgpu version
+      # -Dwarnings # for when we have fixed unused code warnings
+  wasm:
+    runs-on: ubuntu-latest
+    name: Ensure with_winit compiles on WASM
+    steps:
+      - uses: actions/checkout@v2
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo run_wasm -- -p with_winit --bin with_winit_bin --build-only
 
-      - name: install stable toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          profile: minimal
-          components: rustfmt
-          override: true
-
-      - name: cargo fmt
-        uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all -- --check
