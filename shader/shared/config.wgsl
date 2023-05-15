@@ -50,6 +50,10 @@ let N_TILE = 256u;
 
 let BLEND_STACK_SPLIT = 4u;
 
+// The following are computed in draw_leaf from the generic gradient parameters
+// encoded in the scene, and stored in the gradient's info struct, for
+// consumption during fine rasterization.
+
 // Radial gradient kinds
 let RAD_GRAD_KIND_CIRCULAR = 1u;
 let RAD_GRAD_KIND_STRIP = 2u;

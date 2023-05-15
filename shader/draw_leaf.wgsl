@@ -184,9 +184,7 @@ fn main(
                         r1 = tmp_r;
                     }
                     focal_x = r0 / (r0 - r1);
-                    let one_minus_focal_x = 1.0 - focal_x;
-                    let cf = one_minus_focal_x * p0 + focal_x * p1;
-                    let abs_one_minus_focal_x = abs(one_minus_focal_x);
+                    let cf = (1.0 - focal_x) * p0 + focal_x * p1;
                     radius = r1 / (distance(cf, p1));
                     let user_to_unit_line = transform_mul(
                         two_point_to_unit_line(cf, p1),
@@ -196,15 +194,16 @@ fn main(
                     // When r == 1.0, focal point is on circle
                     if abs(radius - 1.0) <= GRADIENT_EPSILON { 
                         kind = RAD_GRAD_KIND_FOCAL_ON_CIRCLE;
-                        let scale = 0.5 * abs_one_minus_focal_x;
+                        let scale = 0.5 * abs(1.0 - focal_x);
                         user_to_scaled = transform_mul(
                             Transform(vec4(scale, 0.0, 0.0, scale), vec2(0.0)),
                             user_to_unit_line
                         );
                     } else {
                         let a = radius * radius - 1.0;
-                        let scale_x = radius / a * abs_one_minus_focal_x;
-                        let scale_y = sqrt(abs(a)) / a * abs_one_minus_focal_x;
+                        let a_recip = 1.0 / a;
+                        let scale_x = radius * a_recip * abs(1.0 - focal_x);
+                        let scale_y = sqrt(abs(a)) * a_recip * abs(1.0 - focal_x);
                         user_to_scaled = transform_mul(
                             Transform(vec4(scale_x, 0.0, 0.0, scale_y), vec2(0.0)),
                             user_to_unit_line
