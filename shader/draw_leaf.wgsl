@@ -201,9 +201,9 @@ fn main(
                         );
                     } else {
                         let a = radius * radius - 1.0;
-                        let a_recip = 1.0 / a;
-                        let scale_x = radius * a_recip * abs(1.0 - focal_x);
-                        let scale_y = sqrt(abs(a)) * a_recip * abs(1.0 - focal_x);
+                        let scale_ratio = abs(1.0 - focal_x) / a;
+                        let scale_x = radius * scale_ratio;
+                        let scale_y = sqrt(abs(a)) * scale_ratio;
                         user_to_scaled = transform_mul(
                             Transform(vec4(scale_x, 0.0, 0.0, scale_y), vec2(0.0)),
                             user_to_unit_line
