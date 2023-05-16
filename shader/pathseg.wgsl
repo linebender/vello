@@ -14,6 +14,7 @@
 #import config
 #import pathtag
 #import cubic
+#import transform
 
 @group(0) @binding(0)
 var<uniform> config: Config;
@@ -35,7 +36,6 @@ struct AtomicPathBbox {
 
 @group(0) @binding(3)
 var<storage, read_write> path_bboxes: array<AtomicPathBbox>;
-
 
 @group(0) @binding(4)
 var<storage, read_write> cubics: array<Cubic>;
@@ -85,11 +85,6 @@ fn read_i16_point(ix: u32) -> vec2<f32> {
     return vec2(x, y);
 }
 
-struct Transform {
-    matrx: vec4<f32>,
-    translate: vec2<f32>,
-}
-
 fn read_transform(transform_base: u32, ix: u32) -> Transform {
     let base = transform_base + ix * 6u;
     let c0 = bitcast<f32>(scene[base]);
@@ -101,10 +96,6 @@ fn read_transform(transform_base: u32, ix: u32) -> Transform {
     let matrx = vec4(c0, c1, c2, c3);
     let translate = vec2(c4, c5);
     return Transform(matrx, translate);
-}
-
-fn transform_apply(transform: Transform, p: vec2<f32>) -> vec2<f32> {
-    return transform.matrx.xy * p.x + transform.matrx.zw * p.y + transform.translate;
 }
 
 fn round_down(x: f32) -> i32 {

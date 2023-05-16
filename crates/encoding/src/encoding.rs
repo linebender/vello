@@ -3,7 +3,7 @@
 
 use super::{DrawColor, DrawTag, PathEncoder, PathTag, Transform};
 
-use peniko::{kurbo::Shape, BlendMode, BrushRef};
+use peniko::{kurbo::Shape, BlendMode, BrushRef, Color};
 
 #[cfg(feature = "full")]
 use {
@@ -105,11 +105,13 @@ impl Encoding {
                     Patch::Ramp {
                         draw_data_offset: offset,
                         stops,
+                        extend,
                     } => {
                         let stops = stops.start + stops_base..stops.end + stops_base;
                         Patch::Ramp {
                             draw_data_offset: offset + offsets.draw_data,
                             stops,
+                            extend: *extend,
                         }
                     }
                     Patch::GlyphRun { index } => Patch::GlyphRun {
@@ -277,12 +279,17 @@ impl Encoding {
         gradient: DrawLinearGradient,
         color_stops: impl Iterator<Item = ColorStop>,
         alpha: f32,
-        _extend: Extend,
+        extend: Extend,
     ) {
-        self.add_ramp(color_stops, alpha);
-        self.draw_tags.push(DrawTag::LINEAR_GRADIENT);
-        self.draw_data
-            .extend_from_slice(bytemuck::bytes_of(&gradient));
+        match self.add_ramp(color_stops, alpha, extend) {
+            RampStops::Empty => self.encode_color(DrawColor::new(Color::TRANSPARENT)),
+            RampStops::One(color) => self.encode_color(DrawColor::new(color)),
+            _ => {
+                self.draw_tags.push(DrawTag::LINEAR_GRADIENT);
+                self.draw_data
+                    .extend_from_slice(bytemuck::bytes_of(&gradient));
+            }
+        }
     }
 
     /// Encodes a radial gradient brush.
@@ -292,12 +299,22 @@ impl Encoding {
         gradient: DrawRadialGradient,
         color_stops: impl Iterator<Item = ColorStop>,
         alpha: f32,
-        _extend: Extend,
+        extend: Extend,
     ) {
-        self.add_ramp(color_stops, alpha);
-        self.draw_tags.push(DrawTag::RADIAL_GRADIENT);
-        self.draw_data
-            .extend_from_slice(bytemuck::bytes_of(&gradient));
+        // Match Skia's epsilon for radii comparison
+        const SKIA_EPSILON: f32 = 1.0 / (1 << 12) as f32;
+        if gradient.p0 == gradient.p1 && (gradient.r0 - gradient.r1).abs() < SKIA_EPSILON {
+            self.encode_color(DrawColor::new(Color::TRANSPARENT));
+        }
+        match self.add_ramp(color_stops, alpha, extend) {
+            RampStops::Empty => self.encode_color(DrawColor::new(Color::TRANSPARENT)),
+            RampStops::One(color) => self.encode_color(DrawColor::new(color)),
+            _ => {
+                self.draw_tags.push(DrawTag::RADIAL_GRADIENT);
+                self.draw_data
+                    .extend_from_slice(bytemuck::bytes_of(&gradient));
+            }
+        }
     }
 
     /// Encodes an image brush.
@@ -347,7 +364,12 @@ impl Encoding {
     }
 
     #[cfg(feature = "full")]
-    fn add_ramp(&mut self, color_stops: impl Iterator<Item = ColorStop>, alpha: f32) {
+    fn add_ramp(
+        &mut self,
+        color_stops: impl Iterator<Item = ColorStop>,
+        alpha: f32,
+        extend: Extend,
+    ) -> RampStops {
         let offset = self.draw_data.len();
         let stops_start = self.resources.color_stops.len();
         if alpha != 1.0 {
@@ -357,11 +379,30 @@ impl Encoding {
         } else {
             self.resources.color_stops.extend(color_stops);
         }
-        self.resources.patches.push(Patch::Ramp {
-            draw_data_offset: offset,
-            stops: stops_start..self.resources.color_stops.len(),
-        });
+        let stops_end = self.resources.color_stops.len();
+        match stops_end - stops_start {
+            0 => RampStops::Empty,
+            1 => RampStops::One(self.resources.color_stops.pop().unwrap().color),
+            _ => {
+                self.resources.patches.push(Patch::Ramp {
+                    draw_data_offset: offset,
+                    stops: stops_start..stops_end,
+                    extend,
+                });
+                RampStops::Many
+            }
+        }
     }
+}
+
+/// Result for adding a sequence of color stops.
+enum RampStops {
+    /// Color stop sequence was empty.
+    Empty,
+    /// Contained a single color stop.
+    One(Color),
+    /// More than one color stop.
+    Many,
 }
 
 /// Encoded data for late bound resources.
