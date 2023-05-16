@@ -166,28 +166,29 @@ impl ShaderInfo {
         for entry in shader_dir
             .read_dir()
             .expect("Can read shader import directory")
+            .filter_map(move |e| {
+                e.ok()
+                    .filter(|e| e.path().extension().map(|e| e == "wgsl").unwrap_or(false))
+            })
         {
-            let entry = entry.expect("Can continue reading shader import directory");
-            if entry.file_type().unwrap().is_file() {
-                let file_name = entry.file_name();
-                if let Some(name) = file_name.to_str() {
-                    let suffix = ".wgsl";
-                    if let Some(shader_name) = name.strip_suffix(suffix) {
-                        let contents = fs::read_to_string(shader_dir.join(&file_name))
-                            .expect("Could read shader {shader_name} contents");
-                        if let Some(permutations) = permutation_map.get(shader_name) {
-                            for permutation in permutations {
-                                let mut defines = defines.clone();
-                                defines.extend(permutation.defines.iter().cloned());
-                                let source = preprocess::preprocess(&contents, &defines, &imports);
-                                let shader_info = Self::new(source.clone(), "main").unwrap();
-                                info.insert(permutation.name.clone(), shader_info);
-                            }
-                        } else {
+            let file_name = entry.file_name();
+            if let Some(name) = file_name.to_str() {
+                let suffix = ".wgsl";
+                if let Some(shader_name) = name.strip_suffix(suffix) {
+                    let contents = fs::read_to_string(shader_dir.join(&file_name))
+                        .expect("Could read shader {shader_name} contents");
+                    if let Some(permutations) = permutation_map.get(shader_name) {
+                        for permutation in permutations {
+                            let mut defines = defines.clone();
+                            defines.extend(permutation.defines.iter().cloned());
                             let source = preprocess::preprocess(&contents, &defines, &imports);
                             let shader_info = Self::new(source.clone(), "main").unwrap();
-                            info.insert(shader_name.to_string(), shader_info);
+                            info.insert(permutation.name.clone(), shader_info);
                         }
+                    } else {
+                        let source = preprocess::preprocess(&contents, &defines, &imports);
+                        let shader_info = Self::new(source.clone(), "main").unwrap();
+                        info.insert(shader_name.to_string(), shader_info);
                     }
                 }
             }
