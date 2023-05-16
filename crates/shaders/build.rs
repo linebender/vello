@@ -8,14 +8,26 @@ mod types;
 
 use std::env;
 use std::fmt::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use compile::ShaderInfo;
 
 fn main() {
     let out_dir = env::var_os("OUT_DIR").unwrap();
     let dest_path = Path::new(&out_dir).join("shaders.rs");
-    let mut shaders = compile::ShaderInfo::from_dir("../../shader");
+
+    // The shaders are defined under the workspace root and not in this crate so we need to locate
+    // them somehow. Cargo doesn't define an environment variable that points at the root workspace
+    // directory. In hermetic build environments that don't support relative paths (such as Bazel)
+    // we support supplying a `WORKSPACE_MANIFEST_FILE` that is expected to be an absolute path to
+    // the Cargo.toml file at the workspace root. If that's not present, we use a relative path.
+    let workspace_dir = env::var("WORKSPACE_MANIFEST_FILE")
+        .ok()
+        .and_then(|p| Path::new(&p).parent().map(|p| p.to_owned()))
+        .unwrap_or(PathBuf::from("../../"));
+    let shader_dir = Path::new(&workspace_dir).join("shader");
+    let mut shaders = compile::ShaderInfo::from_dir(&shader_dir);
+
     // Drop the HashMap and sort by name so that we get deterministic order.
     let mut shaders = shaders.drain().collect::<Vec<_>>();
     shaders.sort_by(|x, y| x.0.cmp(&y.0));

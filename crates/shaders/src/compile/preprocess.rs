@@ -14,17 +14,18 @@ pub fn get_imports(shader_dir: &Path) -> HashMap<String, String> {
     for entry in imports_dir
         .read_dir()
         .expect("Can read shader import directory")
+        .filter_map(move |e| {
+            e.ok()
+                .filter(|e| e.path().extension().map(|e| e == "wgsl").unwrap_or(false))
+        })
     {
-        let entry = entry.expect("Can continue reading shader import directory");
-        if entry.file_type().unwrap().is_file() {
-            let file_name = entry.file_name();
-            if let Some(name) = file_name.to_str() {
-                let suffix = ".wgsl";
-                if let Some(import_name) = name.strip_suffix(suffix) {
-                    let contents = fs::read_to_string(imports_dir.join(&file_name))
-                        .expect("Could read shader {import_name} contents");
-                    imports.insert(import_name.to_owned(), contents);
-                }
+        let file_name = entry.file_name();
+        if let Some(name) = file_name.to_str() {
+            let suffix = ".wgsl";
+            if let Some(import_name) = name.strip_suffix(suffix) {
+                let contents = fs::read_to_string(imports_dir.join(&file_name))
+                    .expect("Could read shader {import_name} contents");
+                imports.insert(import_name.to_owned(), contents);
             }
         }
     }
