@@ -152,6 +152,7 @@ impl<'a> SceneBuilder<'a> {
         brush_transform: Option<Affine>,
         shape: &impl Shape,
     ) {
+        /*
         self.scene
             .encode_transform(Transform::from_kurbo(&transform));
         self.scene.encode_linewidth(style.width);
@@ -166,6 +167,7 @@ impl<'a> SceneBuilder<'a> {
             }
             self.scene.encode_brush(brush, 1.0);
         }
+        */
     }
 
     /// Draws an image at its natural size with the given transform.
