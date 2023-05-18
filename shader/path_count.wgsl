@@ -159,11 +159,6 @@ fn main(
                 let last_z = floor(a * (f32(subix) - 1.0) + b);
 #endif
                 let top_edge = select(last_z == z, y0i == s0.y, subix == 0u);
-#ifndef load_balanced
-                // Note: since we're iterating, we have a reliable value for
-                // last_z.
-                last_z = z;
-#endif
                 if top_edge && bbox.x < bbox.z && x + 1 < bbox.z {
                     let x_bump = max(x + 1, bbox.x);
                     let delta = select(1, -1, is_down);
@@ -176,6 +171,11 @@ fn main(
                     seg_count = SegmentCount(global_id.x, counts);
                 }
             }
+#ifndef load_balanced
+            // Note: since we're iterating, we have a reliable value for
+            // last_z.
+            last_z = z;
+#endif
             seg_counts[seg_base + i] = seg_count;
         }
     }
