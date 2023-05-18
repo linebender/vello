@@ -100,6 +100,8 @@ fn run(
     let mut images = ImageCache::new();
     let mut stats = stats::Stats::new();
     let mut stats_shown = true;
+    // Currently not updated in wasm builds
+    #[allow(unused_mut)]
     let mut scene_complexity: Option<BumpAllocators> = None;
     let mut complexity_shown = false;
     let mut vsync_on = true;
