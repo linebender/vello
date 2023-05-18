@@ -19,7 +19,7 @@ use std::collections::VecDeque;
 use vello::{
     kurbo::{Affine, PathEl, Rect},
     peniko::{Brush, Color, Fill, Stroke},
-    SceneBuilder,
+    BumpAllocators, SceneBuilder,
 };
 
 const SLIDING_WINDOW_SIZE: usize = 100;
@@ -40,6 +40,7 @@ impl Snapshot {
         viewport_width: f64,
         viewport_height: f64,
         samples: T,
+        bump: Option<BumpAllocators>,
         vsync: bool,
     ) where
         T: Iterator<Item = &'a u64>,
@@ -59,13 +60,23 @@ impl Snapshot {
             &Rect::new(0., 0., width, height),
         );
 
-        let labels = [
+        let mut labels = vec![
             format!("Frame Time: {:.2} ms", self.frame_time_ms),
             format!("Frame Time (min): {:.2} ms", self.frame_time_min_ms),
             format!("Frame Time (max): {:.2} ms", self.frame_time_max_ms),
             format!("VSync: {}", if vsync { "on" } else { "off" }),
             format!("Resolution: {viewport_width}x{viewport_height}"),
         ];
+        if let Some(bump) = &bump {
+            if bump.failed >= 1 {
+                labels.push(format!("Allocation Failed!"));
+            }
+            labels.push(format!("binning: {}", bump.binning));
+            labels.push(format!("ptcl: {}", bump.ptcl));
+            labels.push(format!("tile: {}", bump.tile));
+            labels.push(format!("segments: {}", bump.segments));
+            labels.push(format!("blend: {}", bump.blend));
+        }
 
         // height / 2 is dedicated to the text labels and the rest is filled by the bar graph.
         let text_height = height * 0.5 / (1 + labels.len()) as f64;

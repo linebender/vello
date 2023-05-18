@@ -8,31 +8,32 @@ mod types;
 
 use std::env;
 use std::fmt::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use compile::ShaderInfo;
 
 fn main() {
     let out_dir = env::var_os("OUT_DIR").unwrap();
     let dest_path = Path::new(&out_dir).join("shaders.rs");
-    let mut shaders = compile::ShaderInfo::from_dir("../../shader");
+
+    // The shaders are defined under the workspace root and not in this crate so we need to locate
+    // them somehow. Cargo doesn't define an environment variable that points at the root workspace
+    // directory. In hermetic build environments that don't support relative paths (such as Bazel)
+    // we support supplying a `WORKSPACE_MANIFEST_FILE` that is expected to be an absolute path to
+    // the Cargo.toml file at the workspace root. If that's not present, we use a relative path.
+    let workspace_dir = env::var("WORKSPACE_MANIFEST_FILE")
+        .ok()
+        .and_then(|p| Path::new(&p).parent().map(|p| p.to_owned()))
+        .unwrap_or(PathBuf::from("../../"));
+    let shader_dir = Path::new(&workspace_dir).join("shader");
+    let mut shaders = compile::ShaderInfo::from_dir(&shader_dir);
+
     // Drop the HashMap and sort by name so that we get deterministic order.
     let mut shaders = shaders.drain().collect::<Vec<_>>();
     shaders.sort_by(|x, y| x.0.cmp(&y.0));
     let mut buf = String::default();
     write_types(&mut buf, &shaders).unwrap();
-    if cfg!(feature = "wgsl") {
-        write_shaders(&mut buf, "wgsl", &shaders, |info| {
-            info.source.as_bytes().to_owned()
-        })
-        .unwrap();
-    }
-    if cfg!(feature = "msl") {
-        write_shaders(&mut buf, "msl", &shaders, |info| {
-            compile::msl::translate(info).unwrap().as_bytes().to_owned()
-        })
-        .unwrap();
-    }
+    write_shaders(&mut buf, &shaders).unwrap();
     std::fs::write(&dest_path, &buf).unwrap();
     println!("cargo:rerun-if-changed=../shader");
 }
@@ -65,11 +66,9 @@ fn write_types(buf: &mut String, shaders: &[(String, ShaderInfo)]) -> Result<(),
 
 fn write_shaders(
     buf: &mut String,
-    mod_name: &str,
     shaders: &[(String, ShaderInfo)],
-    translate: impl Fn(&ShaderInfo) -> Vec<u8>,
 ) -> Result<(), std::fmt::Error> {
-    writeln!(buf, "pub mod {mod_name} {{")?;
+    writeln!(buf, "mod gen {{")?;
     writeln!(buf, "    use super::*;")?;
     writeln!(buf, "    use BindType::*;")?;
     writeln!(buf, "    pub const SHADERS: Shaders<'static> = Shaders {{")?;
@@ -80,14 +79,8 @@ fn write_shaders(
             .map(|binding| binding.ty)
             .collect::<Vec<_>>();
         let wg_bufs = &info.workgroup_buffers;
-        let source = translate(info);
         writeln!(buf, "        {name}: ComputeShader {{")?;
         writeln!(buf, "            name: Cow::Borrowed({:?}),", name)?;
-        writeln!(
-            buf,
-            "            code: Cow::Borrowed(&{:?}),",
-            source.as_slice()
-        )?;
         writeln!(
             buf,
             "            workgroup_size: {:?},",
@@ -99,6 +92,16 @@ fn write_shaders(
             "            workgroup_buffers: Cow::Borrowed(&{:?}),",
             wg_bufs
         )?;
+        if cfg!(feature = "wgsl") {
+            writeln!(buf, "            wgsl: Cow::Borrowed(&{:?}),", info.source)?;
+        }
+        if cfg!(feature = "msl") {
+            writeln!(
+                buf,
+                "            msl: Cow::Borrowed(&{:?}),",
+                compile::msl::translate(info).unwrap()
+            )?;
+        }
         writeln!(buf, "        }},")?;
     }
     writeln!(buf, "    }};")?;

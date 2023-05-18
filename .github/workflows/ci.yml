@@ -2,7 +2,6 @@ on:
   push:
     branches:
       - main
-      - dev
   pull_request:
 
 jobs:
@@ -11,17 +10,35 @@ jobs:
     name: cargo fmt
     steps:
       - uses: actions/checkout@v2
-
-      - name: install stable toolchain
-        uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo fmt --all --check
+  compiles:
+    runs-on: ubuntu-latest
+    name: Check workspace compile
+    steps:
+      - uses: actions/checkout@v2
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install native dependencies
+        run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev
+      - run: cargo check --workspace 
+      # --exclude with_bevy # for when bevy has an outdated wgpu version
+      # -Dwarnings # for when we have fixed unused code warnings
+  
+  wasm:
+    runs-on: ubuntu-latest
+    name: Ensure with_winit compiles on WASM
+    steps:
+      - uses: actions/checkout@v2
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          profile: minimal
-          components: rustfmt
-          override: true
+          targets: wasm32-unknown-unknown
+      # cargo-run-wasm does not provide a way to determine that it failed programmatically.
+      # Ideally, fix this and use:
+      # - run: cargo run_wasm -- -p with_winit --bin with_winit_bin --build-only
+      - name: Allow using WebGPU in web_sys
+        run: |
+          echo "RUSTFLAGS=--cfg=web_sys_unstable_apis" >> "$GITHUB_ENV"
+      - run: cargo check -p with_winit --target wasm32-unknown-unknown
 
-      - name: cargo fmt
-        uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all -- --check
+
+

@@ -1,13 +1,16 @@
 // Copyright 2022 The Vello authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use super::{
-    resolve::Patch, DrawColor, DrawImage, DrawLinearGradient, DrawRadialGradient, DrawTag, Glyph,
-    GlyphRun, PathEncoder, PathTag, Transform,
-};
+use super::{DrawColor, DrawTag, PathEncoder, PathTag, Transform};
 
-use fello::NormalizedCoord;
-use peniko::{kurbo::Shape, BlendMode, BrushRef, ColorStop, Extend, GradientKind, Image};
+use peniko::{kurbo::Shape, BlendMode, BrushRef, Color};
+
+#[cfg(feature = "full")]
+use {
+    super::{DrawImage, DrawLinearGradient, DrawRadialGradient, Glyph, GlyphRun, Patch},
+    fello::NormalizedCoord,
+    peniko::{ColorStop, Extend, GradientKind, Image},
+};
 
 /// Encoded data streams for a scene.
 #[derive(Clone, Default)]
@@ -20,20 +23,13 @@ pub struct Encoding {
     pub draw_tags: Vec<DrawTag>,
     /// The draw data stream.
     pub draw_data: Vec<u8>,
-    /// Draw data patches for late bound resources.
-    pub patches: Vec<Patch>,
-    /// Color stop collection for gradients.
-    pub color_stops: Vec<ColorStop>,
     /// The transform stream.
     pub transforms: Vec<Transform>,
     /// The line width stream.
     pub linewidths: Vec<f32>,
-    /// Positioned glyph buffer.
-    pub glyphs: Vec<Glyph>,
-    /// Sequences of glyphs.
-    pub glyph_runs: Vec<GlyphRun>,
-    /// Normalized coordinate buffer for variable fonts.
-    pub normalized_coords: Vec<NormalizedCoord>,
+    /// Late bound resource data.
+    #[cfg(feature = "full")]
+    pub resources: Resources,
     /// Number of encoded paths.
     pub n_paths: u32,
     /// Number of encoded path segments.
@@ -63,15 +59,12 @@ impl Encoding {
         self.linewidths.clear();
         self.draw_data.clear();
         self.draw_tags.clear();
-        self.glyphs.clear();
-        self.glyph_runs.clear();
-        self.normalized_coords.clear();
         self.n_paths = 0;
         self.n_path_segments = 0;
         self.n_clips = 0;
         self.n_open_clips = 0;
-        self.patches.clear();
-        self.color_stops.clear();
+        #[cfg(feature = "full")]
+        self.resources.reset();
         if !is_fragment {
             self.transforms.push(Transform::IDENTITY);
             self.linewidths.push(-1.0);
@@ -80,62 +73,76 @@ impl Encoding {
 
     /// Appends another encoding to this one with an optional transform.
     pub fn append(&mut self, other: &Self, transform: &Option<Transform>) {
-        let stops_base = self.color_stops.len();
-        let glyph_runs_base = self.glyph_runs.len();
-        let glyphs_base = self.glyphs.len();
-        let coords_base = self.normalized_coords.len();
-        let offsets = self.stream_offsets();
+        #[cfg(feature = "full")]
+        let glyph_runs_base = {
+            let offsets = self.stream_offsets();
+            let stops_base = self.resources.color_stops.len();
+            let glyph_runs_base = self.resources.glyph_runs.len();
+            let glyphs_base = self.resources.glyphs.len();
+            let coords_base = self.resources.normalized_coords.len();
+            self.resources
+                .glyphs
+                .extend_from_slice(&other.resources.glyphs);
+            self.resources
+                .normalized_coords
+                .extend_from_slice(&other.resources.normalized_coords);
+            self.resources
+                .glyph_runs
+                .extend(other.resources.glyph_runs.iter().cloned().map(|mut run| {
+                    run.glyphs.start += glyphs_base;
+                    run.normalized_coords.start += coords_base;
+                    run.stream_offsets.path_tags += offsets.path_tags;
+                    run.stream_offsets.path_data += offsets.path_data;
+                    run.stream_offsets.draw_tags += offsets.draw_tags;
+                    run.stream_offsets.draw_data += offsets.draw_data;
+                    run.stream_offsets.transforms += offsets.transforms;
+                    run.stream_offsets.linewidths += offsets.linewidths;
+                    run
+                }));
+            self.resources
+                .patches
+                .extend(other.resources.patches.iter().map(|patch| match patch {
+                    Patch::Ramp {
+                        draw_data_offset: offset,
+                        stops,
+                        extend,
+                    } => {
+                        let stops = stops.start + stops_base..stops.end + stops_base;
+                        Patch::Ramp {
+                            draw_data_offset: offset + offsets.draw_data,
+                            stops,
+                            extend: *extend,
+                        }
+                    }
+                    Patch::GlyphRun { index } => Patch::GlyphRun {
+                        index: index + glyph_runs_base,
+                    },
+                    Patch::Image {
+                        image,
+                        draw_data_offset,
+                    } => Patch::Image {
+                        image: image.clone(),
+                        draw_data_offset: *draw_data_offset + offsets.draw_data,
+                    },
+                }));
+            self.resources
+                .color_stops
+                .extend_from_slice(&other.resources.color_stops);
+            glyph_runs_base
+        };
         self.path_tags.extend_from_slice(&other.path_tags);
         self.path_data.extend_from_slice(&other.path_data);
         self.draw_tags.extend_from_slice(&other.draw_tags);
         self.draw_data.extend_from_slice(&other.draw_data);
-        self.glyphs.extend_from_slice(&other.glyphs);
-        self.normalized_coords
-            .extend_from_slice(&other.normalized_coords);
-        self.glyph_runs
-            .extend(other.glyph_runs.iter().cloned().map(|mut run| {
-                run.glyphs.start += glyphs_base;
-                run.normalized_coords.start += coords_base;
-                run.stream_offsets.path_tags += offsets.path_tags;
-                run.stream_offsets.path_data += offsets.path_data;
-                run.stream_offsets.draw_tags += offsets.draw_tags;
-                run.stream_offsets.draw_data += offsets.draw_data;
-                run.stream_offsets.transforms += offsets.transforms;
-                run.stream_offsets.linewidths += offsets.linewidths;
-                run
-            }));
         self.n_paths += other.n_paths;
         self.n_path_segments += other.n_path_segments;
         self.n_clips += other.n_clips;
         self.n_open_clips += other.n_open_clips;
-        self.patches
-            .extend(other.patches.iter().map(|patch| match patch {
-                Patch::Ramp {
-                    draw_data_offset: offset,
-                    stops,
-                } => {
-                    let stops = stops.start + stops_base..stops.end + stops_base;
-                    Patch::Ramp {
-                        draw_data_offset: offset + offsets.draw_data,
-                        stops,
-                    }
-                }
-                Patch::GlyphRun { index } => Patch::GlyphRun {
-                    index: index + glyph_runs_base,
-                },
-                Patch::Image {
-                    image,
-                    draw_data_offset,
-                } => Patch::Image {
-                    image: image.clone(),
-                    draw_data_offset: *draw_data_offset + offsets.draw_data,
-                },
-            }));
-        self.color_stops.extend_from_slice(&other.color_stops);
         if let Some(transform) = *transform {
             self.transforms
                 .extend(other.transforms.iter().map(|x| transform * *x));
-            for run in &mut self.glyph_runs[glyph_runs_base..] {
+            #[cfg(feature = "full")]
+            for run in &mut self.resources.glyph_runs[glyph_runs_base..] {
                 run.transform = transform * run.transform;
             }
         } else {
@@ -199,7 +206,9 @@ impl Encoding {
     }
 
     /// Encodes a brush with an optional alpha modifier.
+    #[allow(unused_variables)]
     pub fn encode_brush<'b>(&mut self, brush: impl Into<BrushRef<'b>>, alpha: f32) {
+        #[cfg(feature = "full")]
         use super::math::point_to_f32;
         match brush.into() {
             BrushRef::Solid(color) => {
@@ -210,6 +219,7 @@ impl Encoding {
                 };
                 self.encode_color(DrawColor::new(color));
             }
+            #[cfg(feature = "full")]
             BrushRef::Gradient(gradient) => match gradient.kind {
                 GradientKind::Linear { start, end } => {
                     self.encode_linear_gradient(
@@ -246,9 +256,13 @@ impl Encoding {
                     todo!("sweep gradients aren't supported yet!")
                 }
             },
+            #[cfg(feature = "full")]
             BrushRef::Image(image) => {
+                #[cfg(feature = "full")]
                 self.encode_image(image, alpha);
             }
+            #[cfg(not(feature = "full"))]
+            _ => panic!("brushes other than solid require the 'full' feature to be enabled"),
         }
     }
 
@@ -259,38 +273,56 @@ impl Encoding {
     }
 
     /// Encodes a linear gradient brush.
+    #[cfg(feature = "full")]
     pub fn encode_linear_gradient(
         &mut self,
         gradient: DrawLinearGradient,
         color_stops: impl Iterator<Item = ColorStop>,
         alpha: f32,
-        _extend: Extend,
+        extend: Extend,
     ) {
-        self.add_ramp(color_stops, alpha);
-        self.draw_tags.push(DrawTag::LINEAR_GRADIENT);
-        self.draw_data
-            .extend_from_slice(bytemuck::bytes_of(&gradient));
+        match self.add_ramp(color_stops, alpha, extend) {
+            RampStops::Empty => self.encode_color(DrawColor::new(Color::TRANSPARENT)),
+            RampStops::One(color) => self.encode_color(DrawColor::new(color)),
+            _ => {
+                self.draw_tags.push(DrawTag::LINEAR_GRADIENT);
+                self.draw_data
+                    .extend_from_slice(bytemuck::bytes_of(&gradient));
+            }
+        }
     }
 
     /// Encodes a radial gradient brush.
+    #[cfg(feature = "full")]
     pub fn encode_radial_gradient(
         &mut self,
         gradient: DrawRadialGradient,
         color_stops: impl Iterator<Item = ColorStop>,
         alpha: f32,
-        _extend: Extend,
+        extend: Extend,
     ) {
-        self.add_ramp(color_stops, alpha);
-        self.draw_tags.push(DrawTag::RADIAL_GRADIENT);
-        self.draw_data
-            .extend_from_slice(bytemuck::bytes_of(&gradient));
+        // Match Skia's epsilon for radii comparison
+        const SKIA_EPSILON: f32 = 1.0 / (1 << 12) as f32;
+        if gradient.p0 == gradient.p1 && (gradient.r0 - gradient.r1).abs() < SKIA_EPSILON {
+            self.encode_color(DrawColor::new(Color::TRANSPARENT));
+        }
+        match self.add_ramp(color_stops, alpha, extend) {
+            RampStops::Empty => self.encode_color(DrawColor::new(Color::TRANSPARENT)),
+            RampStops::One(color) => self.encode_color(DrawColor::new(color)),
+            _ => {
+                self.draw_tags.push(DrawTag::RADIAL_GRADIENT);
+                self.draw_data
+                    .extend_from_slice(bytemuck::bytes_of(&gradient));
+            }
+        }
     }
 
     /// Encodes an image brush.
+    #[cfg(feature = "full")]
     pub fn encode_image(&mut self, image: &Image, _alpha: f32) {
         // TODO: feed the alpha multiplier through the full pipeline for consistency
         // with other brushes?
-        self.patches.push(Patch::Image {
+        self.resources.patches.push(Patch::Image {
             image: image.clone(),
             draw_data_offset: self.draw_data.len(),
         });
@@ -331,19 +363,72 @@ impl Encoding {
         self.path_tags.swap(len - 1, len - 2);
     }
 
-    fn add_ramp(&mut self, color_stops: impl Iterator<Item = ColorStop>, alpha: f32) {
+    #[cfg(feature = "full")]
+    fn add_ramp(
+        &mut self,
+        color_stops: impl Iterator<Item = ColorStop>,
+        alpha: f32,
+        extend: Extend,
+    ) -> RampStops {
         let offset = self.draw_data.len();
-        let stops_start = self.color_stops.len();
+        let stops_start = self.resources.color_stops.len();
         if alpha != 1.0 {
-            self.color_stops
+            self.resources
+                .color_stops
                 .extend(color_stops.map(|stop| stop.with_alpha_factor(alpha)));
         } else {
-            self.color_stops.extend(color_stops);
+            self.resources.color_stops.extend(color_stops);
         }
-        self.patches.push(Patch::Ramp {
-            draw_data_offset: offset,
-            stops: stops_start..self.color_stops.len(),
-        });
+        let stops_end = self.resources.color_stops.len();
+        match stops_end - stops_start {
+            0 => RampStops::Empty,
+            1 => RampStops::One(self.resources.color_stops.pop().unwrap().color),
+            _ => {
+                self.resources.patches.push(Patch::Ramp {
+                    draw_data_offset: offset,
+                    stops: stops_start..stops_end,
+                    extend,
+                });
+                RampStops::Many
+            }
+        }
+    }
+}
+
+/// Result for adding a sequence of color stops.
+enum RampStops {
+    /// Color stop sequence was empty.
+    Empty,
+    /// Contained a single color stop.
+    One(Color),
+    /// More than one color stop.
+    Many,
+}
+
+/// Encoded data for late bound resources.
+#[cfg(feature = "full")]
+#[derive(Clone, Default)]
+pub struct Resources {
+    /// Draw data patches for late bound resources.
+    pub patches: Vec<Patch>,
+    /// Color stop collection for gradients.
+    pub color_stops: Vec<ColorStop>,
+    /// Positioned glyph buffer.
+    pub glyphs: Vec<Glyph>,
+    /// Sequences of glyphs.
+    pub glyph_runs: Vec<GlyphRun>,
+    /// Normalized coordinate buffer for variable fonts.
+    pub normalized_coords: Vec<NormalizedCoord>,
+}
+
+#[cfg(feature = "full")]
+impl Resources {
+    fn reset(&mut self) {
+        self.patches.clear();
+        self.color_stops.clear();
+        self.glyphs.clear();
+        self.glyph_runs.clear();
+        self.normalized_coords.clear();
     }
 }
 
@@ -365,6 +450,7 @@ pub struct StreamOffsets {
 }
 
 impl StreamOffsets {
+    #[cfg(feature = "full")]
     pub(crate) fn add(&mut self, other: &Self) {
         self.path_tags += other.path_tags;
         self.path_data += other.path_data;

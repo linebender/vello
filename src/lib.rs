@@ -37,6 +37,8 @@ pub use util::block_on_wgpu;
 use engine::{Engine, ExternalResource, Recording};
 use shaders::FullShaders;
 
+/// Temporary export, used in with_winit for stats
+pub use vello_encoding::BumpAllocators;
 use wgpu::{Device, Queue, SurfaceTexture, TextureFormat, TextureView};
 
 /// Catch-all error type.
@@ -196,6 +198,12 @@ impl Renderer {
     /// The texture is assumed to be of the specified dimensions and have been created with
     /// the [wgpu::TextureFormat::Rgba8Unorm] format and the [wgpu::TextureUsages::STORAGE_BINDING]
     /// flag set.
+    ///
+    /// The return value is the value of the `BumpAllocators` in this rendering, which is currently used
+    /// for debug output.
+    ///
+    /// This return type is not stable, and will likely be changed when a more principled way to access
+    /// relevant statistics is implemented
     pub async fn render_to_texture_async(
         &mut self,
         device: &Device,
@@ -203,13 +211,15 @@ impl Renderer {
         scene: &Scene,
         texture: &TextureView,
         params: &RenderParams,
-    ) -> Result<()> {
+    ) -> Result<Option<BumpAllocators>> {
         let mut render = Render::new();
         let encoding = scene.data();
         let recording = render.render_encoding_coarse(encoding, &self.shaders, params, true);
         let target = render.out_image();
         let bump_buf = render.bump_buf();
         self.engine.run_recording(device, queue, &recording, &[])?;
+
+        let mut bump: Option<BumpAllocators> = None;
         if let Some(bump_buf) = self.engine.get_download(bump_buf) {
             let buf_slice = bump_buf.slice(..);
             let (sender, receiver) = futures_intrusive::channel::shared::oneshot_channel();
@@ -219,8 +229,8 @@ impl Renderer {
             } else {
                 return Err("channel was closed".into());
             }
-            let _mapped = buf_slice.get_mapped_range();
-            // println!("{:?}", bytemuck::cast_slice::<_, u32>(&mapped));
+            let mapped = buf_slice.get_mapped_range();
+            bump = Some(bytemuck::pod_read_unaligned(&*mapped));
         }
         // TODO: apply logic to determine whether we need to rerun coarse, and also
         // allocate the blend stack as needed.
@@ -231,7 +241,7 @@ impl Renderer {
         let external_resources = [ExternalResource::Image(target, texture)];
         self.engine
             .run_recording(device, queue, &recording, &external_resources)?;
-        Ok(())
+        Ok(bump)
     }
 
     /// See [Self::render_to_surface]
@@ -242,7 +252,7 @@ impl Renderer {
         scene: &Scene,
         surface: &SurfaceTexture,
         params: &RenderParams,
-    ) -> Result<()> {
+    ) -> Result<Option<BumpAllocators>> {
         let width = params.width;
         let height = params.height;
         let mut target = self
@@ -254,7 +264,8 @@ impl Renderer {
         if target.width != width || target.height != height {
             target = TargetTexture::new(device, width, height);
         }
-        self.render_to_texture_async(device, queue, scene, &target.view, params)
+        let bump = self
+            .render_to_texture_async(device, queue, scene, &target.view, params)
             .await?;
         let blit = self
             .blit
@@ -292,7 +303,7 @@ impl Renderer {
         }
         queue.submit(Some(encoder.finish()));
         self.target = Some(target);
-        Ok(())
+        Ok(bump)
     }
 }
 

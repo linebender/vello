@@ -72,6 +72,7 @@ impl Mul for Transform {
     }
 }
 
+#[allow(dead_code)]
 pub fn point_to_f32(point: kurbo::Point) -> [f32; 2] {
     [point.x as f32, point.y as f32]
 }

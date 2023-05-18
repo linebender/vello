@@ -44,6 +44,8 @@ pub fn test_scenes() -> SceneSet {
         scene!(funky_paths),
         scene!(cardioid_and_friends),
         scene!(animated_text: animated),
+        scene!(gradient_extend),
+        scene!(two_point_radial),
         scene!(brush_transform: animated),
         scene!(blend_grid),
         scene!(conflation_artifacts),
@@ -253,6 +255,218 @@ fn brush_transform(sb: &mut SceneBuilder, params: &mut SceneParams) {
         Some(around_center(Affine::rotate(th), Point::new(200.0, 100.0))),
         &Rect::from_origin_size(Point::default(), (400.0, 200.0)),
     );
+}
+
+fn gradient_extend(sb: &mut SceneBuilder, params: &mut SceneParams) {
+    fn square(sb: &mut SceneBuilder, is_radial: bool, transform: Affine, extend: Extend) {
+        let colors = [Color::RED, Color::rgb8(0, 255, 0), Color::BLUE];
+        let width = 300f64;
+        let height = 300f64;
+        let gradient: Brush = if is_radial {
+            let center = (width * 0.5, height * 0.5);
+            let radius = (width * 0.25) as f32;
+            Gradient::new_two_point_radial(center, radius * 0.25, center, radius)
+                .with_stops(colors)
+                .with_extend(extend)
+                .into()
+        } else {
+            Gradient::new_linear((width * 0.35, height * 0.5), (width * 0.65, height * 0.5))
+                .with_stops(colors)
+                .with_extend(extend)
+                .into()
+        };
+        sb.fill(
+            Fill::NonZero,
+            transform,
+            &gradient,
+            None,
+            &Rect::new(0.0, 0.0, width, height),
+        );
+    }
+    let extend_modes = [Extend::Pad, Extend::Repeat, Extend::Reflect];
+    for x in 0..3 {
+        let extend = extend_modes[x];
+        for y in 0..2 {
+            let is_radial = y & 1 != 0;
+            let transform = Affine::translate((x as f64 * 350.0 + 50.0, y as f64 * 350.0 + 100.0));
+            square(sb, is_radial, transform, extend);
+        }
+    }
+    for (i, label) in ["Pad", "Repeat", "Reflect"].iter().enumerate() {
+        let x = i as f64 * 350.0 + 50.0;
+        params.text.add(
+            sb,
+            None,
+            32.0,
+            Some(&Color::WHITE.into()),
+            Affine::translate((x, 70.0)),
+            label,
+        );
+    }
+}
+
+fn two_point_radial(sb: &mut SceneBuilder, _params: &mut SceneParams) {
+    fn make(
+        sb: &mut SceneBuilder,
+        x0: f64,
+        y0: f64,
+        r0: f32,
+        x1: f64,
+        y1: f64,
+        r1: f32,
+        transform: Affine,
+        extend: Extend,
+    ) {
+        let colors = [Color::RED, Color::YELLOW, Color::rgb8(6, 85, 186)];
+        let width = 400f64;
+        let height = 200f64;
+        let rect = Rect::new(0.0, 0.0, width, height);
+        sb.fill(Fill::NonZero, transform, Color::WHITE, None, &rect);
+        sb.fill(
+            Fill::NonZero,
+            transform,
+            &Gradient::new_two_point_radial((x0, y0), r0, (x1, y1), r1)
+                .with_stops(colors)
+                .with_extend(extend),
+            None,
+            &Rect::new(0.0, 0.0, width, height),
+        );
+        let r0 = r0 as f64 - 1.0;
+        let r1 = r1 as f64 - 1.0;
+        let stroke_width = 1.0;
+        sb.stroke(
+            &Stroke::new(stroke_width),
+            transform,
+            Color::BLACK,
+            None,
+            &Ellipse::new((x0, y0), (r0, r0), 0.0),
+        );
+        sb.stroke(
+            &Stroke::new(stroke_width),
+            transform,
+            Color::BLACK,
+            None,
+            &Ellipse::new((x1, y1), (r1, r1), 0.0),
+        );
+    }
+
+    // These demonstrate radial gradient patterns similar to the examples shown
+    // at <https://learn.microsoft.com/en-us/typography/opentype/spec/colr#radial-gradients>
+
+    for (i, mode) in [Extend::Pad, Extend::Repeat, Extend::Reflect]
+        .iter()
+        .enumerate()
+    {
+        let y = 100.0;
+        let x0 = 140.0;
+        let x1 = x0 + 140.0;
+        let r0 = 20.0;
+        let r1 = 50.0;
+        make(
+            sb,
+            x0,
+            y,
+            r0,
+            x1,
+            y,
+            r1,
+            Affine::translate((i as f64 * 420.0 + 20.0, 20.0)),
+            *mode,
+        );
+    }
+
+    for (i, mode) in [Extend::Pad, Extend::Repeat, Extend::Reflect]
+        .iter()
+        .enumerate()
+    {
+        let y = 100.0;
+        let x0 = 140.0;
+        let x1 = x0 + 140.0;
+        let r0 = 20.0;
+        let r1 = 50.0;
+        make(
+            sb,
+            x1,
+            y,
+            r1,
+            x0,
+            y,
+            r0,
+            Affine::translate((i as f64 * 420.0 + 20.0, 240.0)),
+            *mode,
+        );
+    }
+
+    for (i, mode) in [Extend::Pad, Extend::Repeat, Extend::Reflect]
+        .iter()
+        .enumerate()
+    {
+        let y = 100.0;
+        let x0 = 140.0;
+        let x1 = x0 + 140.0;
+        let r0 = 50.0;
+        let r1 = 50.0;
+        make(
+            sb,
+            x0,
+            y,
+            r0,
+            x1,
+            y,
+            r1,
+            Affine::translate((i as f64 * 420.0 + 20.0, 460.0)),
+            *mode,
+        );
+    }
+
+    for (i, mode) in [Extend::Pad, Extend::Repeat, Extend::Reflect]
+        .iter()
+        .enumerate()
+    {
+        let x0 = 140.0;
+        let y0 = 125.0;
+        let r0 = 20.0;
+        let x1 = 190.0;
+        let y1 = 100.0;
+        let r1 = 95.0;
+        make(
+            sb,
+            x0,
+            y0,
+            r0,
+            x1,
+            y1,
+            r1,
+            Affine::translate((i as f64 * 420.0 + 20.0, 680.0)),
+            *mode,
+        );
+    }
+
+    for (i, mode) in [Extend::Pad, Extend::Repeat, Extend::Reflect]
+        .iter()
+        .enumerate()
+    {
+        let x0 = 140.0;
+        let y0 = 125.0;
+        let r0 = 20.0;
+        let x1 = 190.0;
+        let y1 = 100.0;
+        let r1 = 96.0;
+        // Shift p0 so the outer edges of both circles touch
+        let p0 = Point::new(x1, y1)
+            + ((Point::new(x0, y0) - Point::new(x1, y1)).normalize() * (r1 - r0));
+        make(
+            sb,
+            p0.x,
+            p0.y,
+            r0 as f32,
+            x1,
+            y1,
+            r1 as f32,
+            Affine::translate((i as f64 * 420.0 + 20.0, 900.0)),
+            *mode,
+        );
+    }
 }
 
 fn blend_grid(sb: &mut SceneBuilder, _: &mut SceneParams) {
