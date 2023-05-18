@@ -27,7 +27,7 @@ use vello::{
     util::RenderContext,
     Renderer, Scene, SceneBuilder,
 };
-use vello::{RendererOptions, SceneFragment};
+use vello::{BumpAllocators, RendererOptions, SceneFragment};
 
 use winit::{
     event_loop::{EventLoop, EventLoopBuilder},
@@ -100,6 +100,8 @@ fn run(
     let mut images = ImageCache::new();
     let mut stats = stats::Stats::new();
     let mut stats_shown = true;
+    let mut scene_complexity: Option<BumpAllocators> = None;
+    let mut complexity_shown = false;
     let mut vsync_on = true;
     let mut frame_start_time = Instant::now();
     let start = Instant::now();
@@ -149,6 +151,9 @@ fn run(
                             }
                             Some(VirtualKeyCode::S) => {
                                 stats_shown = !stats_shown;
+                            }
+                            Some(VirtualKeyCode::D) => {
+                                complexity_shown = !complexity_shown;
                             }
                             Some(VirtualKeyCode::C) => {
                                 stats.clear_min_and_max();
@@ -326,6 +331,7 @@ fn run(
                     width as f64,
                     height as f64,
                     stats.samples(),
+                    complexity_shown.then_some(scene_complexity).flatten(),
                     vsync_on,
                 );
             }
@@ -336,7 +342,7 @@ fn run(
                 .expect("failed to get surface texture");
             #[cfg(not(target_arch = "wasm32"))]
             {
-                vello::block_on_wgpu(
+                scene_complexity = vello::block_on_wgpu(
                     &device_handle.device,
                     renderers[render_state.surface.dev_id]
                         .as_mut()
