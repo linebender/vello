@@ -24,6 +24,14 @@ jobs:
       - run: cargo check --features=hot_reload,buffer_labels
       # --exclude with_bevy # for when bevy has an outdated wgpu version
       # -Dwarnings # for when we have fixed unused code warnings
+
+  clippy:
+    runs-on: ubuntu-latest
+    name: Enforce clippy lints
+    steps:
+      - uses: actions/checkout@v2
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo clippy --all-targets --workspace -- -D warnings
   
   wasm:
     runs-on: ubuntu-latest

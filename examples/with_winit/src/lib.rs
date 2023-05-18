@@ -323,13 +323,13 @@ fn run(
                 // TODO: Apply svg view_box, somehow
                 let factor = Vec2::new(width as f64, height as f64);
                 let scale_factor = (factor.x / resolution.x).min(factor.y / resolution.y);
-                transform = transform * Affine::scale(scale_factor);
+                transform *= Affine::scale(scale_factor);
             }
             builder.append(&fragment, Some(transform));
             if stats_shown {
                 snapshot.draw_layer(
                     &mut builder,
-                    &mut scene_params.text,
+                    scene_params.text,
                     width as f64,
                     height as f64,
                     stats.samples(),
@@ -451,7 +451,7 @@ fn create_window(event_loop: &winit::event_loop::EventLoopWindowTarget<UserEvent
         .with_inner_size(LogicalSize::new(1044, 800))
         .with_resizable(true)
         .with_title("Vello demo")
-        .build(&event_loop)
+        .build(event_loop)
         .unwrap()
 }
 
@@ -467,7 +467,7 @@ pub fn main() -> Result<()> {
     #[cfg(not(target_arch = "wasm32"))]
     env_logger::init();
     let args = Args::parse();
-    let scenes = args.args.select_scene_set(|| Args::command())?;
+    let scenes = args.args.select_scene_set(Args::command)?;
     if let Some(scenes) = scenes {
         let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
         #[allow(unused_mut)]

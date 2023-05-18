@@ -811,7 +811,7 @@ impl ResourcePool {
             size: rounded_size,
             usages: usage,
             #[cfg(feature = "buffer_labels")]
-            name: name,
+            name,
         };
         if let Some(buf_vec) = self.bufs.get_mut(&props) {
             if let Some(buf) = buf_vec.pop() {
