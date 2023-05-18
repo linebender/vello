@@ -199,8 +199,11 @@ impl Renderer {
     /// the [wgpu::TextureFormat::Rgba8Unorm] format and the [wgpu::TextureUsages::STORAGE_BINDING]
     /// flag set.
     ///
-    /// The return value is the value of the BumpAllocators in this rendering, which is currently used
+    /// The return value is the value of the `BumpAllocators` in this rendering, which is currently used
     /// for debug output.
+    ///
+    /// This return type is not stable, and will likely be changed when a more principled way to access
+    /// relevant statistics is implemented
     pub async fn render_to_texture_async(
         &mut self,
         device: &Device,
