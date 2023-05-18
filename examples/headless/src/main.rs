@@ -106,7 +106,9 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
         interactive: false,
         complexity: 0,
     };
-    example_scene.function.render(&mut builder, &mut scene_params);
+    example_scene
+        .function
+        .render(&mut builder, &mut scene_params);
     let mut transform = Affine::IDENTITY;
     let (width, height) = if let Some(resolution) = scene_params.resolution {
         let ratio = resolution.x / resolution.y;
