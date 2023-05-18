@@ -164,6 +164,7 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
             BindType::BufReadOnly,
             BindType::Buffer,
             BindType::Buffer,
+            BindType::Buffer,
         ],
     )?;
     let draw_reduce = engine.add_shader(

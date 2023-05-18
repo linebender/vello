@@ -187,19 +187,6 @@ impl Render {
             wg_counts.bbox_clear,
             [config_buf, path_bbox_buf],
         );
-        let cubic_buf =
-            ResourceProxy::new_buf(buffer_sizes.cubics.size_in_bytes().into(), "cubic_buf");
-        recording.dispatch(
-            shaders.pathseg,
-            wg_counts.path_seg,
-            [
-                config_buf,
-                scene_buf,
-                tagmonoid_buf,
-                path_bbox_buf,
-                cubic_buf,
-            ],
-        );
         let bump_buf = BufProxy::new(buffer_sizes.bump_alloc.size_in_bytes().into(), "bump_buf");
         recording.clear_all(bump_buf);
         let bump_buf = ResourceProxy::Buf(bump_buf);
@@ -208,7 +195,14 @@ impl Render {
         recording.dispatch(
             shaders.flatten,
             wg_counts.flatten,
-            [config_buf, scene_buf, cubic_buf, bump_buf, lines_buf],
+            [
+                config_buf,
+                scene_buf,
+                tagmonoid_buf,
+                path_bbox_buf,
+                bump_buf,
+                lines_buf,
+            ],
         );
         let draw_reduced_buf = ResourceProxy::new_buf(
             buffer_sizes.draw_reduced.size_in_bytes().into(),
@@ -325,7 +319,6 @@ impl Render {
         );
         recording.free_resource(draw_bbox_buf);
         recording.free_resource(tagmonoid_buf);
-        recording.free_resource(cubic_buf);
         let indirect_count_buf = BufProxy::new(
             buffer_sizes.indirect_count.size_in_bytes().into(),
             "indirect_count",
