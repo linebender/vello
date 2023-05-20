@@ -21,7 +21,8 @@ jobs:
       - name: Install native dependencies
         run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev
       - run: cargo check --workspace
-      - run: cargo check --features=hot_reload,buffer_labels
+      # Check vello (the default crate) without the features used by `with_winit` for debugging
+      - run: cargo check 
       # --exclude with_bevy # for when bevy has an outdated wgpu version
       # -Dwarnings # for when we have fixed unused code warnings
 
