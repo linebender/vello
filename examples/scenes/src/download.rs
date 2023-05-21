@@ -40,7 +40,7 @@ impl Download {
         if let Some(downloads) = &self.downloads {
             to_download = downloads
                 .iter()
-                .map(|it| Self::parse_download(&it))
+                .map(|it| Self::parse_download(it))
                 .collect();
         } else {
             let mut accepted = self.auto;
@@ -52,7 +52,7 @@ impl Download {
                 })
                 .collect::<Vec<_>>();
             if !accepted {
-                if downloads.len() != 0 {
+                if !downloads.is_empty() {
                     println!(
                         "Would you like to download a set of default svg files? These files are:"
                     );
@@ -140,7 +140,7 @@ impl SVGDownload {
         let mut file = std::fs::OpenOptions::new()
             .create_new(true)
             .write(true)
-            .open(&self.file_path(directory))
+            .open(self.file_path(directory))
             .context("Creating file")?;
         let mut reader = ureq::get(&self.url).call()?.into_reader();
 
@@ -152,14 +152,8 @@ impl SVGDownload {
         if reader.read_exact(&mut [0]).is_ok() {
             bail!("Size limit exceeded");
         }
-        if limit_exact {
-            if file
-                .seek(std::io::SeekFrom::Current(0))
-                .context("Checking file limit")?
-                != size_limit
-            {
-                bail!("Builtin downloaded file was not as expected");
-            }
+        if limit_exact && file.stream_position().context("Checking file limit")? != size_limit {
+            bail!("Builtin downloaded file was not as expected");
         }
         Ok(())
     }

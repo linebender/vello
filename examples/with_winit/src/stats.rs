@@ -33,6 +33,7 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
+    #[allow(clippy::too_many_arguments)]
     pub fn draw_layer<'a, T>(
         &self,
         sb: &mut SceneBuilder,
@@ -69,7 +70,7 @@ impl Snapshot {
         ];
         if let Some(bump) = &bump {
             if bump.failed >= 1 {
-                labels.push(format!("Allocation Failed!"));
+                labels.push("Allocation Failed!".into());
             }
             labels.push(format!("binning: {}", bump.binning));
             labels.push(format!("ptcl: {}", bump.ptcl));
@@ -89,7 +90,7 @@ impl Snapshot {
                 text_size,
                 Some(&Brush::Solid(Color::WHITE)),
                 offset * Affine::translate((left_margin, (i + 1) as f64 * text_height)),
-                &label,
+                label,
             );
         }
         text.add(
@@ -132,6 +133,7 @@ impl Snapshot {
             let sample_ms = ((*sample as f64) * 0.001).min(display_max);
             let h = sample_ms / display_max;
             let s = Affine::scale_non_uniform(1., -h);
+            #[allow(clippy::match_overlapping_arm)]
             let color = match *sample {
                 ..=16_667 => Color::rgb8(100, 143, 255),
                 ..=33_334 => Color::rgb8(255, 176, 0),

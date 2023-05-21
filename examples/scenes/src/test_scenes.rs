@@ -161,7 +161,7 @@ fn animated_text(sb: &mut SceneBuilder, params: &mut SceneParams) {
         Fill::NonZero,
         "And some vello\ntext with a newline",
     );
-    let th = params.time as f64;
+    let th = params.time;
     let center = Point::new(500.0, 500.0);
     let mut p1 = center;
     p1.x += 400.0 * th.cos();
@@ -180,7 +180,7 @@ fn animated_text(sb: &mut SceneBuilder, params: &mut SceneParams) {
         None,
         &rect,
     );
-    let alpha = (params.time as f64).sin() as f32 * 0.5 + 0.5;
+    let alpha = params.time.sin() as f32 * 0.5 + 0.5;
     sb.push_layer(Mix::Normal, alpha, Affine::IDENTITY, &rect);
     sb.fill(
         Fill::NonZero,
@@ -278,12 +278,11 @@ fn gradient_extend(sb: &mut SceneBuilder, params: &mut SceneParams) {
         );
     }
     let extend_modes = [Extend::Pad, Extend::Repeat, Extend::Reflect];
-    for x in 0..3 {
-        let extend = extend_modes[x];
+    for (x, extend) in extend_modes.iter().enumerate() {
         for y in 0..2 {
             let is_radial = y & 1 != 0;
             let transform = Affine::translate((x as f64 * 350.0 + 50.0, y as f64 * 350.0 + 100.0));
-            square(sb, is_radial, transform, extend);
+            square(sb, is_radial, transform, *extend);
         }
     }
     for (i, label) in ["Pad", "Repeat", "Reflect"].iter().enumerate() {
@@ -299,6 +298,7 @@ fn gradient_extend(sb: &mut SceneBuilder, params: &mut SceneParams) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn two_point_radial(sb: &mut SceneBuilder, _params: &mut SceneParams) {
     fn make(
         sb: &mut SceneBuilder,
@@ -607,7 +607,7 @@ fn render_blend_square(sb: &mut SceneBuilder, blend: BlendMode, transform: Affin
         (125., 200., Color::rgb8(64, 192, 255)),
     ];
     for (x, y, c) in GRADIENTS {
-        let mut color2 = c.clone();
+        let mut color2 = *c;
         color2.a = 0;
         let radial = Gradient::new_radial((*x, *y), 100.0).with_stops([*c, color2]);
         sb.fill(Fill::NonZero, transform, &radial, None, &rect);

@@ -63,6 +63,7 @@ pub struct BufProxy {
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub enum ImageFormat {
     Rgba8,
+    #[allow(unused)]
     Bgra8,
 }
 
@@ -81,6 +82,7 @@ pub enum ResourceProxy {
 }
 
 pub enum ExternalResource<'a> {
+    #[allow(unused)]
     Buf(BufProxy, &'a Buffer),
     Image(ImageProxy, &'a TextureView),
 }
@@ -800,7 +802,7 @@ impl ResourcePool {
     fn get_buf(
         &mut self,
         size: u64,
-        name: &'static str,
+        #[allow(unused)] name: &'static str,
         usage: BufferUsages,
         device: &Device,
     ) -> Buffer {
@@ -809,7 +811,7 @@ impl ResourcePool {
             size: rounded_size,
             usages: usage,
             #[cfg(feature = "buffer_labels")]
-            name: name,
+            name,
         };
         if let Some(buf_vec) = self.bufs.get_mut(&props) {
             if let Some(buf) = buf_vec.pop() {

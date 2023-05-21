@@ -26,7 +26,7 @@ fn main() {
         .and_then(|p| Path::new(&p).parent().map(|p| p.to_owned()))
         .unwrap_or(PathBuf::from("../../"));
     let shader_dir = Path::new(&workspace_dir).join("shader");
-    let mut shaders = compile::ShaderInfo::from_dir(&shader_dir);
+    let mut shaders = compile::ShaderInfo::from_dir(shader_dir);
 
     // Drop the HashMap and sort by name so that we get deterministic order.
     let mut shaders = shaders.drain().collect::<Vec<_>>();
@@ -34,7 +34,7 @@ fn main() {
     let mut buf = String::default();
     write_types(&mut buf, &shaders).unwrap();
     write_shaders(&mut buf, &shaders).unwrap();
-    std::fs::write(&dest_path, &buf).unwrap();
+    std::fs::write(dest_path, &buf).unwrap();
     println!("cargo:rerun-if-changed=../shader");
 }
 
@@ -93,12 +93,12 @@ fn write_shaders(
             wg_bufs
         )?;
         if cfg!(feature = "wgsl") {
-            writeln!(buf, "            wgsl: Cow::Borrowed(&{:?}),", info.source)?;
+            writeln!(buf, "            wgsl: Cow::Borrowed({:?}),", info.source)?;
         }
         if cfg!(feature = "msl") {
             writeln!(
                 buf,
-                "            msl: Cow::Borrowed(&{:?}),",
+                "            msl: Cow::Borrowed({:?}),",
                 compile::msl::translate(info).unwrap()
             )?;
         }
