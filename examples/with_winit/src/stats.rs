@@ -289,7 +289,7 @@ pub fn draw_gpu_profiling(
     let mut max_depth = 0;
     let mut depth = 0;
     let mut count = 0;
-    traverse_profiling(&profiles, &mut |profile, stage| {
+    traverse_profiling(profiles, &mut |profile, stage| {
         match stage {
             TraversalStage::Enter => {
                 count += 1;
@@ -306,7 +306,7 @@ pub fn draw_gpu_profiling(
     {
         let labels = [
             format!("GPU Time: {:.2?}", Duration::from_secs_f64(total_time)),
-            format!("Press P to save a trace"),
+            "Press P to save a trace".to_string(),
         ];
 
         // height / 5 is dedicated to the text labels and the rest is filled by the frame time.
@@ -320,7 +320,7 @@ pub fn draw_gpu_profiling(
                 text_size,
                 Some(&Brush::Solid(Color::WHITE)),
                 offset * Affine::translate((left_margin, (i + 1) as f64 * text_height)),
-                &label,
+                label,
             );
         }
 
@@ -332,7 +332,7 @@ pub fn draw_gpu_profiling(
                 text_size,
                 Some(&Brush::Solid(Color::WHITE)),
                 offset * Affine::translate((left_margin, (i + 1) as f64 * text_height)),
-                &label,
+                label,
             );
         }
     }

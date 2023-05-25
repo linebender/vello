@@ -83,6 +83,7 @@ fn run(
                 &render_cx.devices[id].device,
                 &RendererOptions {
                     surface_format: Some(render_state.surface.format),
+                    timestamp_period: render_cx.devices[id].queue.get_timestamp_period(),
                 },
             )
             .expect("Could create renderer"),
@@ -176,8 +177,8 @@ fn run(
                                         if !profile_result.is_empty() {
                                             let path = std::path::Path::new("trace.json");
                                             match wgpu_profiler::chrometrace::write_chrometrace(
-                                                &path,
-                                                &profile_result,
+                                                path,
+                                                profile_result,
                                             ) {
                                                 Ok(()) => {
                                                     println!("Wrote trace to path {path:?}")
@@ -380,7 +381,7 @@ fn run(
                 if let Some(profiling_result) = profile_stored.as_ref() {
                     stats::draw_gpu_profiling(
                         &mut builder,
-                        &mut scene_params.text,
+                        scene_params.text,
                         width as f64,
                         height as f64,
                         profiling_result,
