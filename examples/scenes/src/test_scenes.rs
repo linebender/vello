@@ -24,9 +24,23 @@ macro_rules! scene {
 }
 
 pub fn test_scenes() -> SceneSet {
-    // For WASM below, must be mutable
-    #[allow(unused_mut)]
-    let mut scenes = vec![
+    let splash_scene = ExampleScene {
+        config: SceneConfig {
+            animated: false,
+            name: "splash_with_tiger".to_owned(),
+        },
+        function: Box::new(splash_with_tiger()),
+    };
+    let mmark_scene = ExampleScene {
+        config: SceneConfig {
+            animated: false,
+            name: "mmark".to_owned(),
+        },
+        function: Box::new(crate::mmark::MMark::new(80_000)),
+    };
+    let scenes = vec![
+        splash_scene,
+        mmark_scene,
         scene!(funky_paths),
         scene!(cardioid_and_friends),
         scene!(animated_text: animated),
@@ -38,14 +52,6 @@ pub fn test_scenes() -> SceneSet {
         scene!(labyrinth),
         scene!(base_color_test: animated),
     ];
-    #[cfg(any(target_arch = "wasm32", target_os = "android"))]
-    scenes.push(ExampleScene {
-        config: SceneConfig {
-            animated: false,
-            name: "included_tiger".to_owned(),
-        },
-        function: Box::new(included_tiger()),
-    });
 
     SceneSet { scenes }
 }
@@ -491,15 +497,6 @@ fn blend_grid(sb: &mut SceneBuilder, _: &mut SceneParams) {
     }
 }
 
-#[cfg(any(target_arch = "wasm32", target_os = "android"))]
-fn included_tiger() -> impl FnMut(&mut SceneBuilder, &mut SceneParams) {
-    let contents = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../assets/Ghostscript_Tiger.svg"
-    ));
-    crate::svg::svg_function_of("Ghostscript Tiger".to_string(), move || contents)
-}
-
 // Support functions
 
 fn render_cardioid(sb: &mut SceneBuilder) {
@@ -840,4 +837,40 @@ fn make_diamond(cx: f64, cy: f64) -> [PathEl; 5] {
         PathEl::LineTo(Point::new(cx - SIZE, cy)),
         PathEl::ClosePath,
     ]
+}
+
+fn splash_screen(sb: &mut SceneBuilder, params: &mut SceneParams) {
+    let strings = [
+        "Vello test",
+        "  Arrow keys: switch scenes",
+        "  Space: reset transform",
+        "  S: toggle stats",
+        "  V: toggle vsync",
+        "  Q, E: rotate",
+    ];
+    // Tweak to make it fit with tiger
+    let a = Affine::scale(0.12) * Affine::translate((-90.0, -50.0));
+    for (i, s) in strings.iter().enumerate() {
+        let text_size = if i == 0 { 60.0 } else { 40.0 };
+        params.text.add(
+            sb,
+            None,
+            text_size,
+            None,
+            a * Affine::translate((100.0, 100.0 + 60.0 * i as f64)),
+            s,
+        );
+    }
+}
+
+fn splash_with_tiger() -> impl FnMut(&mut SceneBuilder, &mut SceneParams) {
+    let contents = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../assets/Ghostscript_Tiger.svg"
+    ));
+    let mut tiger = crate::svg::svg_function_of("Ghostscript Tiger".to_string(), move || contents);
+    move |sb, params| {
+        tiger(sb, params);
+        splash_screen(sb, params);
+    }
 }

@@ -45,4 +45,4 @@ android_logger = "0.13.0"
 console_error_panic_hook = "0.1.7"
 console_log = "0.2"
 wasm-bindgen-futures = "0.4.33"
-web-sys = "0.3.60"
+web-sys = { version = "0.3.60", features = [ "HtmlCollection", "Text" ] }

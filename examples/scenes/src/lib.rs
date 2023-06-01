@@ -1,5 +1,6 @@
 pub mod download;
 mod images;
+mod mmark;
 mod simple_text;
 mod svg;
 mod test_scenes;
@@ -25,6 +26,7 @@ pub struct SceneParams<'a> {
     pub images: &'a mut ImageCache,
     pub resolution: Option<Vec2>,
     pub base_color: Option<vello::peniko::Color>,
+    pub complexity: usize,
 }
 
 pub struct SceneConfig {
@@ -34,9 +36,18 @@ pub struct SceneConfig {
 }
 
 pub struct ExampleScene {
-    #[allow(clippy::type_complexity)]
-    pub function: Box<dyn FnMut(&mut SceneBuilder, &mut SceneParams)>,
+    pub function: Box<dyn TestScene>,
     pub config: SceneConfig,
+}
+
+pub trait TestScene {
+    fn render(&mut self, sb: &mut SceneBuilder, params: &mut SceneParams);
+}
+
+impl<F: FnMut(&mut SceneBuilder, &mut SceneParams)> TestScene for F {
+    fn render(&mut self, sb: &mut SceneBuilder, params: &mut SceneParams) {
+        self(sb, params);
+    }
 }
 
 pub struct SceneSet {

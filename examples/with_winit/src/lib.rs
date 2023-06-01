@@ -117,6 +117,7 @@ fn run(
     let mut prior_position: Option<Vec2> = None;
     // We allow looping left and right through the scenes, so use a signed index
     let mut scene_ix: i32 = 0;
+    let mut complexity: usize = 0;
     if let Some(set_scene) = args.scene {
         scene_ix = set_scene;
     }
@@ -138,6 +139,8 @@ fn run(
                         match input.virtual_keycode {
                             Some(VirtualKeyCode::Left) => scene_ix = scene_ix.saturating_sub(1),
                             Some(VirtualKeyCode::Right) => scene_ix = scene_ix.saturating_add(1),
+                            Some(VirtualKeyCode::Up) => complexity += 1,
+                            Some(VirtualKeyCode::Down) => complexity = complexity.saturating_sub(1),
                             Some(key @ VirtualKeyCode::Q) | Some(key @ VirtualKeyCode::E) => {
                                 if let Some(prior_position) = prior_position {
                                     let is_clockwise = key == VirtualKeyCode::E;
@@ -302,8 +305,11 @@ fn run(
                 resolution: None,
                 base_color: None,
                 interactive: true,
+                complexity,
             };
-            (example_scene.function)(&mut builder, &mut scene_params);
+            example_scene
+                .function
+                .render(&mut builder, &mut scene_params);
 
             // If the user specifies a base color in the CLI we use that. Otherwise we use any
             // color specified by the scene. The default is black.
@@ -421,7 +427,7 @@ fn run(
                 let size = window.inner_size();
                 let surface_future = render_cx.create_surface(&window, size.width, size.height);
                 // We need to block here, in case a Suspended event appeared
-                let surface = pollster::block_on(surface_future);
+                let surface = pollster::block_on(surface_future).expect("Error creating surface");
                 render_state = {
                     let render_state = RenderState { window, surface };
                     renderers.resize_with(render_cx.devices.len(), || None);
@@ -461,6 +467,27 @@ enum UserEvent {
     HotReload,
 }
 
+#[cfg(target_arch = "wasm32")]
+fn display_error_message() -> Option<()> {
+    let window = web_sys::window()?;
+    let document = window.document()?;
+    let elements = document.get_elements_by_tag_name("body");
+    let body = elements.item(0)?;
+    body.set_inner_html(
+        r#"<style>
+        p {
+            margin: 2em 10em;
+            font-family: sans-serif;
+        }
+        </style>
+        <p><a href="https://caniuse.com/webgpu">WebGPU</a>
+        is not enabled. Make sure your browser is updated to
+        <a href="https://chromiumdash.appspot.com/schedule">Chrome M113</a> or
+        another browser compatible with WebGPU.</p>"#,
+    );
+    Some(())
+}
+
 pub fn main() -> Result<()> {
     // TODO: initializing both env_logger and console_logger fails on wasm.
     // Figure out a more principled approach.
@@ -497,16 +524,21 @@ pub fn main() -> Result<()> {
             web_sys::window()
                 .and_then(|win| win.document())
                 .and_then(|doc| doc.body())
-                .and_then(|body| body.append_child(&web_sys::Element::from(canvas)).ok())
+                .and_then(|body| body.append_child(canvas.as_ref()).ok())
                 .expect("couldn't append canvas to document body");
+            _ = web_sys::HtmlElement::from(canvas).focus();
             wasm_bindgen_futures::spawn_local(async move {
                 let size = window.inner_size();
                 let surface = render_cx
                     .create_surface(&window, size.width, size.height)
                     .await;
-                let render_state = RenderState { window, surface };
-                // No error handling here; if the event loop has finished, we don't need to send them the surface
-                run(event_loop, args, scenes, render_cx, render_state);
+                if let Ok(surface) = surface {
+                    let render_state = RenderState { window, surface };
+                    // No error handling here; if the event loop has finished, we don't need to send them the surface
+                    run(event_loop, args, scenes, render_cx, render_state);
+                } else {
+                    _ = display_error_message();
+                }
             });
         }
     }
