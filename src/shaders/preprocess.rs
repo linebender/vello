@@ -5,6 +5,7 @@ use std::{
     vec,
 };
 
+#[allow(unused)]
 pub fn get_imports(shader_dir: &Path) -> HashMap<String, String> {
     let mut imports = HashMap::new();
     let imports_dir = shader_dir.join("shared");

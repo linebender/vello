@@ -99,7 +99,7 @@ impl Arguments {
             if self.test_scenes {
                 Ok(test_scenes())
             } else if let Some(svgs) = &self.svgs {
-                scene_from_files(&svgs)
+                scene_from_files(svgs)
             } else {
                 default_scene(command)
             }

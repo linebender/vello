@@ -1,5 +1,7 @@
 //! A benchmark based on MotionMark 1.2's path benchmark.
 
+use std::cmp::Ordering;
+
 use rand::{seq::SliceRandom, Rng};
 use vello::peniko::Color;
 use vello::{
@@ -40,19 +42,21 @@ impl MMark {
 
     fn resize(&mut self, n: usize) {
         let old_n = self.elements.len();
-        if n < old_n {
-            self.elements.truncate(n)
-        } else if n > old_n {
-            let mut last = self
-                .elements
-                .last()
-                .map(|e| e.grid_point)
-                .unwrap_or(GridPoint((GRID_WIDTH / 2, GRID_HEIGHT / 2)));
-            self.elements.extend((old_n..n).map(|_| {
-                let element = Element::new_rand(last);
-                last = element.grid_point;
-                element
-            }));
+        match n.cmp(&old_n) {
+            Ordering::Less => self.elements.truncate(n),
+            Ordering::Greater => {
+                let mut last = self
+                    .elements
+                    .last()
+                    .map(|e| e.grid_point)
+                    .unwrap_or(GridPoint((GRID_WIDTH / 2, GRID_HEIGHT / 2)));
+                self.elements.extend((old_n..n).map(|_| {
+                    let element = Element::new_rand(last);
+                    last = element.grid_point;
+                    element
+                }));
+            }
+            _ => (),
         }
     }
 }
@@ -149,7 +153,7 @@ impl Element {
                 )),
             )
         };
-        let color = COLORS.choose(&mut rng).unwrap().clone();
+        let color = *COLORS.choose(&mut rng).unwrap();
         let width = rng.gen::<f64>().powi(5) * 20.0 + 1.0;
         let is_split = rng.gen();
         Element {
@@ -170,11 +174,11 @@ impl GridPoint {
 
         let offset = OFFSETS.choose(&mut rng).unwrap();
         let mut x = last.0 .0 + offset.0;
-        if x < 0 || x > GRID_WIDTH {
+        if !(0..=GRID_WIDTH).contains(&x) {
             x -= offset.0 * 2;
         }
         let mut y = last.0 .1 + offset.1;
-        if y < 0 || y > GRID_HEIGHT {
+        if !(0..=GRID_HEIGHT).contains(&y) {
             y -= offset.1 * 2;
         }
         GridPoint((x, y))

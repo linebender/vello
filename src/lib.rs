@@ -230,7 +230,7 @@ impl Renderer {
                 return Err("channel was closed".into());
             }
             let mapped = buf_slice.get_mapped_range();
-            bump = Some(bytemuck::pod_read_unaligned(&*mapped));
+            bump = Some(bytemuck::pod_read_unaligned(&mapped));
         }
         // TODO: apply logic to determine whether we need to rerun coarse, and also
         // allocate the blend stack as needed.

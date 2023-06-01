@@ -2,7 +2,7 @@
 
 use crate::{
     engine::{BufProxy, ImageFormat, ImageProxy, Recording, ResourceProxy},
-    shaders::{self, FullShaders},
+    shaders::FullShaders,
     RenderParams, Scene,
 };
 use vello_encoding::{Encoding, WorkgroupSize};

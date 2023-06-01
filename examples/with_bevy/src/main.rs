@@ -63,7 +63,7 @@ fn render_scenes(
             .0
             .render_to_texture(
                 device.wgpu_device(),
-                &*queue,
+                &queue,
                 &scene.0,
                 &gpu_image.texture_view,
                 &params,
