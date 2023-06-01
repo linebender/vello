@@ -20,12 +20,13 @@ name = "with_winit_bin"
 path = "src/main.rs"
 
 [dependencies]
-vello = { path = "../../", features = ["buffer_labels"] }
+vello = { path = "../../", features = ["buffer_labels", "wgpu-profiler"] }
 scenes = { path = "../scenes" }
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 instant = { workspace = true }
 pollster = { workspace = true }
+wgpu-profiler = { workspace = true }
 
 wgpu = { workspace = true }
 winit = "0.28.1"

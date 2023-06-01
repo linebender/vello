@@ -15,12 +15,13 @@
 // Also licensed under MIT license, at your choice.
 
 use scenes::SimpleText;
-use std::collections::VecDeque;
+use std::{collections::VecDeque, time::Duration};
 use vello::{
-    kurbo::{Affine, PathEl, Rect},
+    kurbo::{Affine, Line, PathEl, Rect},
     peniko::{Brush, Color, Fill, Stroke},
     BumpAllocators, SceneBuilder,
 };
+use wgpu_profiler::GpuTimerScopeResult;
 
 const SLIDING_WINDOW_SIZE: usize = 100;
 
@@ -246,4 +247,205 @@ impl Stats {
 
 fn round_up(n: usize, f: usize) -> usize {
     n - 1 - (n - 1) % f + f
+}
+
+const COLORS: &[Color] = &[
+    Color::AQUA,
+    Color::RED,
+    Color::ALICE_BLUE,
+    Color::YELLOW,
+    Color::GREEN,
+    Color::BLUE,
+    Color::ORANGE,
+    Color::WHITE,
+];
+
+pub fn draw_gpu_profiling(
+    sb: &mut SceneBuilder,
+    text: &mut SimpleText,
+    viewport_width: f64,
+    viewport_height: f64,
+    profiles: &[GpuTimerScopeResult],
+) {
+    if profiles.is_empty() {
+        return;
+    }
+    let width = (viewport_width * 0.3).clamp(150., 450.);
+    let height = width * 1.5;
+    let y_offset = viewport_height - height;
+    let offset = Affine::translate((0., y_offset));
+
+    // Draw the background
+    sb.fill(
+        Fill::NonZero,
+        offset,
+        &Brush::Solid(Color::rgba8(0, 0, 0, 200)),
+        None,
+        &Rect::new(0., 0., width, height),
+    );
+    // Find the range of the samples, so we can normalise them
+    let mut min = f64::MAX;
+    let mut max = f64::MIN;
+    let mut max_depth = 0;
+    let mut depth = 0;
+    let mut count = 0;
+    traverse_profiling(profiles, &mut |profile, stage| {
+        match stage {
+            TraversalStage::Enter => {
+                count += 1;
+                min = min.min(profile.time.start);
+                max = max.max(profile.time.end);
+                max_depth = max_depth.max(depth);
+                // Apply a higher depth to the children
+                depth += 1;
+            }
+            TraversalStage::Leave => depth -= 1,
+        }
+    });
+    let total_time = max - min;
+    {
+        let labels = [
+            format!("GPU Time: {:.2?}", Duration::from_secs_f64(total_time)),
+            "Press P to save a trace".to_string(),
+        ];
+
+        // height / 5 is dedicated to the text labels and the rest is filled by the frame time.
+        let text_height = height * 0.2 / (1 + labels.len()) as f64;
+        let left_margin = width * 0.01;
+        let text_size = (text_height * 0.9) as f32;
+        for (i, label) in labels.iter().enumerate() {
+            text.add(
+                sb,
+                None,
+                text_size,
+                Some(&Brush::Solid(Color::WHITE)),
+                offset * Affine::translate((left_margin, (i + 1) as f64 * text_height)),
+                label,
+            );
+        }
+
+        let text_size = (text_height * 0.9) as f32;
+        for (i, label) in labels.iter().enumerate() {
+            text.add(
+                sb,
+                None,
+                text_size,
+                Some(&Brush::Solid(Color::WHITE)),
+                offset * Affine::translate((left_margin, (i + 1) as f64 * text_height)),
+                label,
+            );
+        }
+    }
+    let timeline_start_y = height * 0.21;
+    let timeline_range_y = height * 0.78;
+    let timeline_range_end = timeline_start_y + timeline_range_y;
+
+    // Add 6 items worth of margin
+    let text_height = timeline_range_y / (6 + count) as f64;
+    let left_margin = width * 0.35;
+    let mut cur_text_y = timeline_start_y;
+    let mut cur_index = 0;
+    let mut depth = 0;
+    // Leave 1 bar's worth of margin
+    let depth_width = width * 0.28 / (max_depth + 1) as f64;
+    let depth_size = depth_width * 0.8;
+    traverse_profiling(profiles, &mut |profile, stage| {
+        if let TraversalStage::Enter = stage {
+            let start_normalised =
+                ((profile.time.start - min) / total_time) * timeline_range_y + timeline_start_y;
+            let end_normalised =
+                ((profile.time.end - min) / total_time) * timeline_range_y + timeline_start_y;
+
+            let color = COLORS[cur_index % COLORS.len()];
+            let x = width * 0.01 + (depth as f64 * depth_width);
+            sb.fill(
+                Fill::NonZero,
+                offset,
+                &Brush::Solid(color),
+                None,
+                &Rect::new(x, start_normalised, x + depth_size, end_normalised),
+            );
+
+            let mut text_start = start_normalised;
+            let nested = !profile.nested_scopes.is_empty();
+            if nested {
+                // If we have children, leave some more space for them
+                text_start -= text_height * 0.7;
+            }
+            let this_time = profile.time.end - profile.time.start;
+            // Highlight as important if more than 10% of the total time, or more than 1ms
+            let slow = this_time * 20. >= total_time || this_time >= 0.001;
+            let text_y = text_start
+                // Ensure that we don't overlap the previous item
+                .max(cur_text_y)
+                // Ensure that all remaining items can fit
+                .min(timeline_range_end - (count - cur_index) as f64 * text_height);
+            let (text_height, text_color) = if slow {
+                (text_height, Color::WHITE)
+            } else {
+                (text_height * 0.6, Color::LIGHT_GRAY)
+            };
+            let text_size = (text_height * 0.9) as f32;
+            // Text is specified by the baseline, but the y positions all refer to the top of the text
+            cur_text_y = text_y + text_height;
+            let label = format!(
+                "{:.2?} - {:.30}",
+                Duration::from_secs_f64(this_time),
+                profile.label
+            );
+            sb.fill(
+                Fill::NonZero,
+                offset,
+                &Brush::Solid(color),
+                None,
+                &Rect::new(
+                    width * 0.31,
+                    cur_text_y - text_size as f64 * 0.7,
+                    width * 0.34,
+                    cur_text_y,
+                ),
+            );
+            text.add(
+                sb,
+                None,
+                text_size,
+                Some(&Brush::Solid(text_color)),
+                offset * Affine::translate((left_margin, cur_text_y)),
+                &label,
+            );
+            if !nested && slow {
+                sb.stroke(
+                    &Stroke::new(2.),
+                    offset,
+                    &Brush::Solid(color),
+                    None,
+                    &Line::new(
+                        (x + depth_size, (end_normalised + start_normalised) / 2.),
+                        (width * 0.31, cur_text_y - text_size as f64 * 0.35),
+                    ),
+                );
+            }
+            cur_index += 1;
+            // Higher depth applies only to the children
+            depth += 1;
+        } else {
+            depth -= 1;
+        }
+    });
+}
+
+enum TraversalStage {
+    Enter,
+    Leave,
+}
+
+fn traverse_profiling(
+    profiles: &[GpuTimerScopeResult],
+    callback: &mut impl FnMut(&GpuTimerScopeResult, TraversalStage),
+) {
+    for profile in profiles {
+        callback(profile, TraversalStage::Enter);
+        traverse_profiling(&profile.nested_scopes, &mut *callback);
+        callback(profile, TraversalStage::Leave);
+    }
 }
