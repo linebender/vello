@@ -480,7 +480,7 @@ fn display_error_message() -> Option<()> {
             font-family: sans-serif;
         }
         </style>
-        <p><a href="https://chromestatus.com/feature/6213121689518080">WebGPU</a>
+        <p><a href="https://caniuse.com/webgpu">WebGPU</a>
         is not enabled. Make sure your browser is updated to
         <a href="https://chromiumdash.appspot.com/schedule">Chrome M113</a> or
         another browser compatible with WebGPU.</p>"#,
