@@ -1,4 +1,10 @@
 //! A benchmark based on MotionMark 1.2's path benchmark.
+//! This is roughly comparable to:
+//!
+//! https://browserbench.org/MotionMark1.2/developer.html?warmup-length=2000&warmup-frame-count=30&first-frame-minimum-length=0&test-interval=15&display=minimal&tiles=big&controller=adaptive&frame-rate=50&time-measurement=performance&suite-name=MotionMark&test-name=Paths&complexity=1
+//!
+//! However, at this point it cannot be directly compared, as we don't accurately
+//! implement the stroke style parameters, and it has not been carefully validated.
 
 use std::cmp::Ordering;
 
@@ -31,7 +37,7 @@ struct Element {
 }
 
 #[derive(Clone, Copy)]
-struct GridPoint((i64, i64));
+struct GridPoint(i64, i64);
 
 impl MMark {
     pub fn new(n: usize) -> MMark {
@@ -49,7 +55,7 @@ impl MMark {
                     .elements
                     .last()
                     .map(|e| e.grid_point)
-                    .unwrap_or(GridPoint((GRID_WIDTH / 2, GRID_HEIGHT / 2)));
+                    .unwrap_or(GridPoint(GRID_WIDTH / 2, GRID_HEIGHT / 2));
                 self.elements.extend((old_n..n).map(|_| {
                     let element = Element::new_rand(last);
                     last = element.grid_point;
@@ -173,23 +179,23 @@ impl GridPoint {
         let mut rng = rand::thread_rng();
 
         let offset = OFFSETS.choose(&mut rng).unwrap();
-        let mut x = last.0 .0 + offset.0;
+        let mut x = last.0 + offset.0;
         if !(0..=GRID_WIDTH).contains(&x) {
             x -= offset.0 * 2;
         }
-        let mut y = last.0 .1 + offset.1;
+        let mut y = last.1 + offset.1;
         if !(0..=GRID_HEIGHT).contains(&y) {
             y -= offset.1 * 2;
         }
-        GridPoint((x, y))
+        GridPoint(x, y)
     }
 
     fn coordinate(&self) -> Point {
         let scale_x = WIDTH as f64 / ((GRID_WIDTH + 1) as f64);
         let scale_y = HEIGHT as f64 / ((GRID_HEIGHT + 1) as f64);
         Point::new(
-            (self.0 .0 as f64 + 0.5) * scale_x,
-            100.0 + (self.0 .1 as f64 + 0.5) * scale_y,
+            (self.0 as f64 + 0.5) * scale_x,
+            100.0 + (self.1 as f64 + 0.5) * scale_y,
         )
     }
 }
