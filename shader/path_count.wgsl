@@ -91,12 +91,15 @@ fn main(
 #else
     let total = sh_count[WG_SIZE - 1u];
 #endif
-    let seg_base = sh_seg_base;
     for (var i = local_id.x; i < total; i += WG_SIZE) {
+        // Following line is inside the loop because of a suspected Metal
+        // miscompilation, similar to #199. If GPUs actually worked, then
+        // this line would be above the for loop.
+        let seg_base = sh_seg_base;
         // binary search to find tile
         var el_ix = 0u;
         for (var j = 0u; j < firstTrailingBit(WG_SIZE); j++) {
-            let probe = el_ix + ((WG_SIZE / 2u) >> i);
+            let probe = el_ix + ((WG_SIZE / 2u) >> j);
             if i >= sh_count[probe - 1u] {
                 el_ix = probe;
             }
@@ -104,13 +107,15 @@ fn main(
         let subix = i - select(0u, sh_count[el_ix - 1u], el_ix > 0u);
 
         // load line again
-        let line = lines[(global_id.x & (0u - WG_SIZE)) + el_ix];
+        let line_ix = (global_id.x & (0u - WG_SIZE)) + el_ix;
+        let line = lines[line_ix];
         let is_down = line.p1.y >= line.p0.y;
         let xy0 = select(line.p1, line.p0, is_down);
         let xy1 = select(line.p0, line.p1, is_down);
         let s0 = xy0 * TILE_SCALE;
         let s1 = xy1 * TILE_SCALE;
 #else
+        let line_ix = global_id.x;
         let seg_base = atomicAdd(&bump.seg_counts, count);
 #endif
 
@@ -168,7 +173,7 @@ fn main(
                     let seg_within_slice = atomicAdd(&tile[base + x].count, 1u);
                     // Pack two count values into a single u32
                     let counts = (seg_within_slice << 16u) | subix;
-                    seg_count = SegmentCount(global_id.x, counts);
+                    seg_count = SegmentCount(line_ix, counts);
                 }
             }
 #ifndef load_balanced

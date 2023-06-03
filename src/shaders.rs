@@ -84,6 +84,7 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
     let mut full_config = HashSet::new();
     full_config.insert("full".into());
     full_config.insert("msaa16".into());
+    full_config.insert("load_balanced".into());
     let mut small_config = HashSet::new();
     small_config.insert("full".into());
     small_config.insert("small".into());
@@ -250,7 +251,7 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
     let path_count = engine.add_shader(
         device,
         "path_count",
-        preprocess::preprocess(shader!("path_count"), &empty, &imports).into(),
+        preprocess::preprocess(shader!("path_count"), &full_config, &imports).into(),
         &[
             BindType::Uniform,
             BindType::Buffer,
