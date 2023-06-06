@@ -60,63 +60,130 @@ fn main(
         let s1 = xy1 * TILE_SCALE;
         // TODO: clip line to bounding box
         count = span(s0.x, s1.x) + span(s0.y, s1.y) - 1u;
-        // two possibilities: just loop (which may cause load balancing issues),
-        // or do partition wide prefix sum + binary search.
         let line_ix = global_id.x;
-        let seg_base = atomicAdd(&bump.seg_counts, count);
 
         // A good case can be made that this setup should be in shared
         // memory in the load-balanced case, as we'll be taking multiple
         // iterations.
         let dx = abs(s1.x - s0.x);
         let dy = s1.y - s0.y;
+        if dx + dy == 0.0 {
+            // Zero-length segment, drop it. Note, this should be culled earlier.
+            return;
+        }
         let idxdy = 1.0 / (dx + dy);
         let a = dx * idxdy;
         let is_positive_slope = s1.x >= s0.x;
         let sign = select(-1.0, 1.0, is_positive_slope);
         let xt0 = floor(s0.x * sign);
         let c = s0.x * sign - xt0;
-        let y0i = floor(s0.y);
-        let ytop = select(y0i + 1.0, ceil(s0.y), s0.y == s1.y);
+        let y0 = floor(s0.y);
+        let ytop = select(y0 + 1.0, ceil(s0.y), s0.y == s1.y);
         let b = (dy * c + dx * (ytop - s0.y)) * idxdy;
-        let x0i = i32(xt0 * sign + 0.5 * (sign - 1.0));
+        let x0 = xt0 * sign + select(-1.0, 0.0, is_positive_slope);
 
         let path = paths[line.path_ix];
         let bbox = vec4<i32>(path.bbox);
+        let xmin = min(s0.x, s1.x);
+        // If line is to left of bbox, we may still need to do backdrop
         let stride = bbox.z - bbox.x;
-        var last_z = 0.0;
-        for (var i = 0u; i < count; i++) {
+        if s0.y >= f32(bbox.w) || s1.y <= f32(bbox.y) || xmin >= f32(bbox.z) || stride == 0 {
+            return;
+        }
+        // Clip line to bounding box. Clipping is done in "i" space.
+        var imin = 0u;
+        if s0.y < f32(bbox.y) {
+            var iminf = round((f32(bbox.y) - y0 + b - a) / (1.0 - a)) - 1.0;
+            // Numerical robustness: goal is to find the first i value for which
+            // the following predicate is false. Above formula is designed to
+            // undershoot by 0.5.
+            if y0 + iminf - floor(a * iminf + b) < f32(bbox.y) {
+                iminf += 1.0;
+            }
+            imin = u32(iminf);
+        }
+        var imax = count;
+        if s1.y > f32(bbox.w) {
+            var imaxf = round((f32(bbox.w) - y0 + b - a) / (1.0 - a)) - 1.0;
+            if y0 + imaxf - floor(a * imaxf + b) < f32(bbox.w) {
+                imaxf += 1.0;
+            }
+            imax = u32(imaxf);
+        }
+        let delta = select(1, -1, is_down);
+        var ymin = 0;
+        var ymax = 0;
+        if max(s0.x, s1.x) <= f32(bbox.x) {
+            ymin = i32(ceil(s0.y));
+            ymax = i32(ceil(s1.y));
+            imax = imin;
+        } else {
+            let fudge = select(1.0, 0.0, is_positive_slope);
+            if xmin < f32(bbox.x) {
+                var f = round((sign * (f32(bbox.x) - x0) - b + fudge) / a);
+                if (x0 + sign * floor(a * f + b) < f32(bbox.x)) == is_positive_slope {
+                    f += 1.0;
+                }
+                let ynext = i32(y0 + f - floor(a * f + b) + 1.0);
+                if is_positive_slope {
+                    if u32(f) > imin {
+                        ymin = i32(y0 + select(1.0, 0.0, y0 == s0.y));
+                        ymax = ynext;
+                        imin = u32(f);
+                    }
+                } else {
+                    if u32(f) < imax {
+                        ymin = ynext;
+                        ymax = i32(ceil(s1.y));
+                        imax = u32(f);
+                    }
+                }
+            }
+            if max(s0.x, s1.x) > f32(bbox.z) {
+                var f = round((sign * (f32(bbox.z) - x0) - b + fudge) / a);
+                if (x0 + sign * floor(a * f + b) < f32(bbox.z)) == is_positive_slope {
+                    f += 1.0;
+                }
+                if is_positive_slope {
+                    imax = min(imax, u32(f));
+                } else {
+                    imin = max(imin, u32(f));
+                }
+            }
+        }
+        imax = max(imin, imax);
+        // Apply backdrop for part of line left of bbox
+        ymin = max(ymin, bbox.y);
+        ymax = min(ymax, bbox.w);
+        for (var y = ymin; y < ymax; y++) {
+            let base = i32(path.tiles) + (y - bbox.y) * stride;
+            atomicAdd(&tile[base].backdrop, delta);
+        }
+        var last_z = floor(a * (f32(imin) - 1.0) + b);
+        let seg_base = atomicAdd(&bump.seg_counts, imax - imin);
+        for (var i = imin; i < imax; i++) {
             let subix = i;
             // coarse rasterization logic
             // Note: we hope fast-math doesn't strength reduce this.
             let zf = a * f32(subix) + b;
             let z = floor(zf);
             // x, y are tile coordinates relative to render target
-            let y = i32(y0i + f32(subix) - z);
-            // TODO: should be clipped above, not here
-            // Dummy output; when we clip properly, we won't have to do this,
-            // all outputs will be valid.
-            var seg_count = SegmentCount(~0u, 0u);
-            if (y >= bbox.y && y < bbox.w) {
-                let x = x0i + i32(sign * z);
-                let base = i32(path.tiles) + (y - bbox.y) * stride - bbox.x;
-                let top_edge = select(last_z == z, y0i == s0.y, subix == 0u);
-                if top_edge && bbox.x < bbox.z && x + 1 < bbox.z {
-                    let x_bump = max(x + 1, bbox.x);
-                    let delta = select(1, -1, is_down);
-                    atomicAdd(&tile[base + x_bump].backdrop, delta);
-                }
-                if (x >= bbox.x && x < bbox.z) {
-                    let seg_within_slice = atomicAdd(&tile[base + x].count, 1u);
-                    // Pack two count values into a single u32
-                    let counts = (seg_within_slice << 16u) | subix;
-                    seg_count = SegmentCount(line_ix, counts);
-                }
+            let y = i32(y0 + f32(subix) - z);
+            let x = i32(x0 + sign * z);
+            let base = i32(path.tiles) + (y - bbox.y) * stride - bbox.x;
+            let top_edge = select(last_z == z, y0 == s0.y, subix == 0u);
+            if top_edge && x + 1 < bbox.z {
+                let x_bump = max(x + 1, bbox.x);
+                atomicAdd(&tile[base + x_bump].backdrop, delta);
             }
+            let seg_within_slice = atomicAdd(&tile[base + x].count, 1u);
+            // Pack two count values into a single u32
+            let counts = (seg_within_slice << 16u) | subix;
+            let seg_count = SegmentCount(line_ix, counts);
+            seg_counts[seg_base + i - imin] = seg_count;
             // Note: since we're iterating, we have a reliable value for
             // last_z.
             last_z = z;
-            seg_counts[seg_base + i] = seg_count;
         }
     }
 }

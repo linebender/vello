@@ -34,11 +34,6 @@ fn main(
     let n_segments = atomicLoad(&bump.seg_counts);
     if global_id.x < n_segments {
         let seg_count = seg_counts[global_id.x];
-        if seg_count.line_ix == ~0u {
-            // Tile was out of bounding box. When we do proper clipping
-            // in path_count, then we won't need this check.
-            return;
-        }
         let line = lines[seg_count.line_ix];
         let counts = seg_count.counts;
         let seg_within_slice = counts >> 16u;
