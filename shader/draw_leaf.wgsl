@@ -90,7 +90,9 @@ fn main(
         m = combine_draw_monoid(m, sh_scratch[local_id.x - 1u]);
     }
     // m now contains exclusive prefix sum of draw monoid
-    draw_monoid[ix] = m;
+    if ix < config.n_drawobj {
+        draw_monoid[ix] = m;
+    }
     let dd = config.drawdata_base + m.scene_offset;
     let di = m.info_offset;
     if tag_word == DRAWTAG_FILL_COLOR || tag_word == DRAWTAG_FILL_LIN_GRADIENT ||
