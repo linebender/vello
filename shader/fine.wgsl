@@ -243,8 +243,6 @@ fn fill_path_ms(seg_data: u32, n_segs: u32, backdrop: i32, wg_id: vec2<u32>, loc
             let xy1 = select(xy0_in, xy1_in, is_down);
             count = span(xy0.x, xy1.x) + span(xy0.y, xy1.y) - 1u;
             let delta = select(-1, 1, xy1_in.x <= xy0_in.x);
-            // TODO: should be separate prefix sum rather than loop, but trying to
-            // get correctness right first.
             let y_edge = u32(ceil(segment.y_edge - tile_origin.y));
             if y_edge < TILE_HEIGHT {
                 atomicAdd(&sh_winding_y[y_edge >> 3u], u32(delta) << ((y_edge & 7u) << 2u));
@@ -319,7 +317,7 @@ fn fill_path_ms(seg_data: u32, n_segs: u32, backdrop: i32, wg_id: vec2<u32>, loc
             var is_bump = false;
             let zp = floor(a * f32(sub_ix - 1u) + b);
             if sub_ix == 0u {
-                is_delta = y0i == xy0.y;
+                is_delta = y0i == xy0.y && y0i != xy1.y;
                 is_bump = xy0.x == 0.0;
             } else {
                 is_delta = z == zp;

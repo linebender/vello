@@ -78,16 +78,16 @@ fn main(
         // Do y first so we get valid y_edge, but we will redo this based on
         // rounded line equation.
         if xy0.y < tile_xy.y {
-            let xt = mix(xy0.x, xy1.x, (tile_xy.y - xy0.y) / (xy1.y - xy0.y));
+            let xt = xy0.x + (xy1.x - xy0.x) * (tile_xy.y - xy0.y) / (xy1.y - xy0.y);
             xy0 = vec2(xt, tile_xy.y);
         }
 
         if xy1.y > tile_xy1.y {
-            let xt = mix(xy0.x, xy1.x, (tile_xy1.y - xy0.y) / (xy1.y - xy0.y));
+            let xt = xy0.x + (xy1.x - xy0.x) * (tile_xy1.y - xy0.y) / (xy1.y - xy0.y);
             xy1 = vec2(xt, tile_xy1.y);
         }
         if min(xy0.x, xy1.x) < tile_xy.x {
-            let yt = mix(xy0.y, xy1.y, (tile_xy.x - xy0.x) / (xy1.x - xy0.x));
+            let yt = xy0.y + (xy1.y - xy0.y) * (tile_xy.x - xy0.x) / (xy1.x - xy0.x);
             if is_positive_slope {
                 xy0 = vec2(tile_xy.x, yt);
             } else {
@@ -97,7 +97,7 @@ fn main(
             y_edge = yt;
         }
         if max(xy0.x, xy1.x) > tile_xy1.x {
-            let yt = mix(xy0.y, xy1.y, (tile_xy1.x - xy0.x) / (xy1.x - xy0.x));
+            let yt = xy0.y + (xy1.y - xy0.y) * (tile_xy1.x - xy0.x) / (xy1.x - xy0.x);
             if is_positive_slope {
                 xy1 = vec2(tile_xy1.x, yt);
             } else {
