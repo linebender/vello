@@ -25,6 +25,10 @@ var<storage> tiles: array<Tile>;
 @group(0) @binding(5)
 var<storage, read_write> segments: array<Segment>;
 
+fn span(a: f32, b: f32) -> u32 {
+    return u32(max(ceil(max(a, b)) - floor(min(a, b)), 1.0));
+}
+
 // One invocation for each tile that is to be written.
 // Total number of invocations = bump.seg_counts
 @compute @workgroup_size(256)
@@ -45,6 +49,7 @@ fn main(
         var xy1 = select(line.p0, line.p1, is_down);
         let s0 = xy0 * TILE_SCALE;
         let s1 = xy1 * TILE_SCALE;
+        let count = span(s0.x, s1.x) + span(s0.y, s1.y) - 1u;
         let dx = abs(s1.x - s0.x);
         let dy = s1.y - s0.y;
         let idxdy = 1.0 / (dx + dy);
@@ -68,40 +73,43 @@ fn main(
         let tile = tiles[tile_ix];
         let tile_xy = vec2(f32(x) * f32(TILE_WIDTH), f32(y) * f32(TILE_HEIGHT));
         let tile_xy1 = tile_xy + vec2(f32(TILE_WIDTH), f32(TILE_HEIGHT));
-        // TODO: clipping logic needs to be rethought a bit for numerical
-        // robustness.
-        // zp = floor(a * (subix - 1) + b)
-        // zn = floor(a * (subix + 1) + b)
-        // if z == zp, top edge is clipped, else pos?left:right edge
-        // if z == zn, bottom edge is clipped, else pos?right:left edge
         var y_edge = 1e9;
-        // Do y first so we get valid y_edge, but we will redo this based on
-        // rounded line equation.
-        if xy0.y < tile_xy.y {
-            let xt = xy0.x + (xy1.x - xy0.x) * (tile_xy.y - xy0.y) / (xy1.y - xy0.y);
-            xy0 = vec2(xt, tile_xy.y);
-        }
 
-        if xy1.y > tile_xy1.y {
-            let xt = xy0.x + (xy1.x - xy0.x) * (tile_xy1.y - xy0.y) / (xy1.y - xy0.y);
-            xy1 = vec2(xt, tile_xy1.y);
-        }
-        if min(xy0.x, xy1.x) < tile_xy.x {
-            let yt = xy0.y + (xy1.y - xy0.y) * (tile_xy.x - xy0.x) / (xy1.x - xy0.x);
-            if is_positive_slope {
-                xy0 = vec2(tile_xy.x, yt);
+        if seg_within_line > 0u {
+            let z_prev = floor(a * (f32(seg_within_line) - 1.0) + b);
+            if z == z_prev {
+                // Top edge is clipped
+                var xt = xy0.x + (xy1.x - xy0.x) * (tile_xy.y - xy0.y) / (xy1.y - xy0.y);
+                // TODO: we want to switch to tile-relative coordinates
+                xt = clamp(xt, tile_xy.x + 1e-3, tile_xy1.x);
+                xy0 = vec2(xt, tile_xy.y);
             } else {
-                xy1 = vec2(tile_xy.x, yt);
+                // If is_positive_slope, left edge is clipped, otherwise right
+                let x_clip = select(tile_xy1.x, tile_xy.x, is_positive_slope);
+                var yt = xy0.y + (xy1.y - xy0.y) * (x_clip - xy0.x) / (xy1.x - xy0.x);
+                yt = clamp(yt, tile_xy.y + 1e-3, tile_xy1.y);
+                xy0 = vec2(x_clip, yt);
+                if is_positive_slope {
+                    y_edge = yt;
+                }
             }
-            // TODO: numerical robustness work
-            y_edge = yt;
         }
-        if max(xy0.x, xy1.x) > tile_xy1.x {
-            let yt = xy0.y + (xy1.y - xy0.y) * (tile_xy1.x - xy0.x) / (xy1.x - xy0.x);
-            if is_positive_slope {
-                xy1 = vec2(tile_xy1.x, yt);
+        if seg_within_line < count - 1u {
+            let z_next = floor(a * (f32(seg_within_line) + 1.0) + b);
+            if z == z_next {
+                // Bottom edge is clipped
+                var xt = xy0.x + (xy1.x - xy0.x) * (tile_xy1.y - xy0.y) / (xy1.y - xy0.y);
+                xt = clamp(xt, tile_xy.x + 1e-3, tile_xy1.x);
+                xy1 = vec2(xt, tile_xy1.y);
             } else {
-                xy0 = vec2(tile_xy1.x, yt);
+                // If is_positive_slope, right edge is clipped, otherwise left
+                let x_clip = select(tile_xy.x, tile_xy1.x, is_positive_slope);
+                var yt = xy0.y + (xy1.y - xy0.y) * (x_clip - xy0.x) / (xy1.x - xy0.x);
+                yt = clamp(yt, tile_xy.y + 1e-3, tile_xy1.y);
+                xy1 = vec2(x_clip, yt);
+                if !is_positive_slope {
+                    y_edge = yt;
+                }
             }
         }
         if !is_down {
