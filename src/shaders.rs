@@ -319,4 +319,5 @@ const SHARED_SHADERS: &[(&str, &str)] = &[
     shared_shader!("segment"),
     shared_shader!("tile"),
     shared_shader!("transform"),
+    shared_shader!("util"),
 ];

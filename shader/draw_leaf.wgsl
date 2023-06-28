@@ -29,6 +29,8 @@ var<storage, read_write> info: array<u32>;
 @group(0) @binding(6)
 var<storage, read_write> clip_inp: array<ClipInp>;
 
+#import util
+
 let WG_SIZE = 256u;
 
 fn read_transform(transform_base: u32, ix: u32) -> Transform {
@@ -73,7 +75,7 @@ fn main(
     workgroupBarrier();
     var m = sh_scratch[0];
     workgroupBarrier();
-    let tag_word = scene[config.drawtag_base + ix];
+    let tag_word = read_draw_tag_from_scene(ix);
     agg = map_draw_tag(tag_word);
     sh_scratch[local_id.x] = agg;
     for (var i = 0u; i < firstTrailingBit(WG_SIZE); i += 1u) {

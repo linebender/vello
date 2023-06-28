@@ -74,7 +74,10 @@ fn main(
         let draw_monoid = draw_monoids[element_ix];
         var clip_bbox = vec4(-1e9, -1e9, 1e9, 1e9);
         if draw_monoid.clip_ix > 0u {
-            clip_bbox = clip_bbox_buf[draw_monoid.clip_ix - 1u];
+            // TODO: `clip_ix` should always be valid as long as the monoids are correct. Leaving
+            // the bounds check in here for correctness but we should assert this condition instead
+            // once there is a debug-assertion mechanism.
+            clip_bbox = clip_bbox_buf[min(draw_monoid.clip_ix - 1u, config.n_clip - 1u)];
         }
         // For clip elements, clip_box is the bbox of the clip path,
         // intersected with enclosing clips.
