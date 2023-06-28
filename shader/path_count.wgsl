@@ -62,9 +62,6 @@ fn main(
         count = span(s0.x, s1.x) + span(s0.y, s1.y) - 1u;
         let line_ix = global_id.x;
 
-        // A good case can be made that this setup should be in shared
-        // memory in the load-balanced case, as we'll be taking multiple
-        // iterations.
         let dx = abs(s1.x - s0.x);
         let dy = s1.y - s0.y;
         if dx + dy == 0.0 {

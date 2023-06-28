@@ -20,8 +20,8 @@ mod resolve;
 pub use binning::BinHeader;
 pub use clip::{Clip, ClipBbox, ClipBic, ClipElement};
 pub use config::{
-    BufferSize, BufferSizes, BumpAllocators, ConfigUniform, RenderConfig, WorkgroupCounts,
-    WorkgroupSize,
+    BufferSize, BufferSizes, BumpAllocators, ConfigUniform, IndirectCount, RenderConfig,
+    WorkgroupCounts, WorkgroupSize,
 };
 pub use draw::{
     DrawBbox, DrawBeginClip, DrawColor, DrawImage, DrawLinearGradient, DrawMonoid,
@@ -33,7 +33,7 @@ pub use math::Transform;
 pub use monoid::Monoid;
 pub use path::{
     Cubic, LineSoup, Path, PathBbox, PathEncoder, PathMonoid, PathSegment, PathSegmentType,
-    PathTag, Tile,
+    PathTag, SegmentCount, Tile,
 };
 pub use ramp_cache::Ramps;
 pub use resolve::{Layout, Patch, Resolver};
