@@ -51,6 +51,7 @@ pub fn test_scenes() -> SceneSet {
         scene!(conflation_artifacts),
         scene!(labyrinth),
         scene!(base_color_test: animated),
+        scene!(clip_test: animated),
     ];
 
     SceneSet { scenes }
@@ -822,6 +823,96 @@ fn base_color_test(sb: &mut SceneBuilder, params: &mut SceneParams) {
         None,
         &Rect::new(50.0, 50.0, 500.0, 500.0),
     );
+}
+
+fn clip_test(sb: &mut SceneBuilder, params: &mut SceneParams) {
+    let clip = {
+        const X0: f64 = 50.0;
+        const Y0: f64 = 0.0;
+        const X1: f64 = 200.0;
+        const Y1: f64 = 500.0;
+        [
+            PathEl::MoveTo((X0, Y0).into()),
+            PathEl::LineTo((X1, Y0).into()),
+            PathEl::LineTo((X1, Y0 + (Y1 - Y0)).into()),
+            PathEl::LineTo((X1 + (X0 - X1), Y1).into()),
+            PathEl::LineTo((X0, Y1).into()),
+            PathEl::ClosePath,
+        ]
+    };
+    sb.push_layer(Mix::Clip, 1.0, Affine::IDENTITY, &clip);
+    {
+        let text_size = 60.0 + 40.0 * (params.time as f32).sin();
+        let s = "Some clipped text!";
+        params.text.add(
+            sb,
+            None,
+            text_size,
+            None,
+            Affine::translate((110.0, 100.0)),
+            s,
+        );
+    }
+    sb.pop_layer();
+
+    let large_background_rect = kurbo::Rect::new(-1000.0, -1000.0, 2000.0, 2000.0);
+    let inside_clip_rect = kurbo::Rect::new(11.0, 13.399999999999999, 59.0, 56.6);
+    let outside_clip_rect = kurbo::Rect::new(
+        12.599999999999998,
+        12.599999999999998,
+        57.400000000000006,
+        57.400000000000006,
+    );
+    let clip_rect = kurbo::Rect::new(0.0, 0.0, 74.4, 339.20000000000005);
+    let scale = 2.0;
+
+    sb.push_layer(
+        BlendMode {
+            mix: peniko::Mix::Normal,
+            compose: peniko::Compose::SrcOver,
+        },
+        1.0,
+        Affine::new([scale, 0.0, 0.0, scale, 27.07470703125, 176.40660533027858]),
+        &clip_rect,
+    );
+
+    sb.fill(
+        peniko::Fill::NonZero,
+        kurbo::Affine::new([scale, 0.0, 0.0, scale, 27.07470703125, 176.40660533027858]),
+        peniko::Color::rgb8(0, 0, 255),
+        None,
+        &large_background_rect,
+    );
+    sb.fill(
+        peniko::Fill::NonZero,
+        kurbo::Affine::new([
+            scale,
+            0.0,
+            0.0,
+            scale,
+            29.027636718750003,
+            182.9755506427786,
+        ]),
+        peniko::Color::rgb8(0, 255, 0),
+        None,
+        &inside_clip_rect,
+    );
+    sb.fill(
+        peniko::Fill::NonZero,
+        kurbo::Affine::new([
+            scale,
+            0.0,
+            0.0,
+            scale,
+            29.027636718750003,
+            scale * 559.3583631427786,
+        ]),
+        peniko::Color::rgb8(255, 0, 0),
+        None,
+        &outside_clip_rect,
+    );
+
+    sb.pop_layer();
 }
 
 fn around_center(xform: Affine, center: Point) -> Affine {
