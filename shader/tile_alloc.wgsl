@@ -68,10 +68,15 @@ fn main(
     var y1 = 0;
     if drawtag != DRAWTAG_NOP && drawtag != DRAWTAG_END_CLIP {
         let bbox = draw_bboxes[drawobj_ix];
-        x0 = i32(floor(bbox.x * SX));
-        y0 = i32(floor(bbox.y * SY));
-        x1 = i32(ceil(bbox.z * SX));
-        y1 = i32(ceil(bbox.w * SY));
+
+        // Don't round up the bottom-right corner of the bbox if the area is zero and leave the
+        // coordinates at 0. This will make `tile_count` zero as the shape is clipped out.
+        if bbox.x < bbox.z && bbox.y < bbox.w {
+            x0 = i32(floor(bbox.x * SX));
+            y0 = i32(floor(bbox.y * SY));
+            x1 = i32(ceil(bbox.z * SX));
+            y1 = i32(ceil(bbox.w * SY));
+        }
     }
     let ux0 = u32(clamp(x0, 0, i32(config.width_in_tiles)));
     let uy0 = u32(clamp(y0, 0, i32(config.height_in_tiles)));
