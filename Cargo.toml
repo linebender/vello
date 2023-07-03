@@ -47,8 +47,6 @@ peniko = { workspace = true }
 wgpu = { workspace = true }
 raw-window-handle = "0.5"
 futures-intrusive = "0.5.0"
-parking_lot = "0.12"
-smallvec = "1.8.0"
 vello_encoding = { path = "crates/encoding" }
 wgpu-profiler = { workspace = true, optional = true }
 
