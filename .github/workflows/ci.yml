@@ -9,14 +9,14 @@ jobs:
     runs-on: ubuntu-latest
     name: cargo fmt
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo fmt --all --check
   compiles:
     runs-on: ubuntu-latest
     name: Check workspace compile
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: dtolnay/rust-toolchain@stable
       - name: Install native dependencies
         run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev
@@ -30,7 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     name: Enforce clippy lints
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: dtolnay/rust-toolchain@stable
       - name: Install native dependencies
         run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev
@@ -40,7 +40,7 @@ jobs:
     runs-on: ubuntu-latest
     name: Ensure with_winit compiles on WASM
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
@@ -51,6 +51,3 @@ jobs:
         run: |
           echo "RUSTFLAGS=--cfg=web_sys_unstable_apis" >> "$GITHUB_ENV"
       - run: cargo check -p with_winit --target wasm32-unknown-unknown
-
-
-
