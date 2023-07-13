@@ -5,7 +5,7 @@ use vello_encoding::{BumpAllocators, IndirectCount};
 
 const WG_SIZE: usize = 256;
 
-pub fn path_count_setup(bump: &BumpAllocators, indirect: &mut IndirectCount) {
+fn path_count_setup_main(bump: &BumpAllocators, indirect: &mut IndirectCount) {
     let lines = bump.lines;
     indirect.count_x = (lines + (WG_SIZE as u32 - 1)) / WG_SIZE as u32;
     indirect.count_y = 1;

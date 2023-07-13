@@ -1,7 +1,9 @@
 // Copyright 2023 The Vello authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use vello_encoding::{BumpAllocators, LineSoup, Path, RenderConfig, SegmentCount, Tile};
+use vello_encoding::{
+    BumpAllocators, ConfigUniform, LineSoup, Path, RenderConfig, SegmentCount, Tile,
+};
 
 use super::util::{span, Vec2};
 
@@ -9,8 +11,8 @@ const WG_SIZE: usize = 256;
 
 const TILE_SCALE: f32 = 1.0 / 16.0;
 
-pub fn path_count(
-    config: &RenderConfig,
+fn path_count_main(
+    config: &ConfigUniform,
     bump: &mut BumpAllocators,
     lines: &[LineSoup],
     paths: &[Path],

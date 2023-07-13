@@ -1,9 +1,11 @@
 // Copyright 2023 The Vello authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use vello_encoding::{BinHeader, BumpAllocators, DrawMonoid, DrawTag, Path, RenderConfig, Tile};
+use vello_encoding::{
+    BinHeader, BumpAllocators, ConfigUniform, DrawMonoid, DrawTag, Path, RenderConfig, Tile,
+};
 
-use super::{CMD_FILL, CMD_SOLID, CMD_END, CMD_JUMP, CMD_COLOR, PTCL_INITIAL_ALLOC};
+use super::{CMD_COLOR, CMD_END, CMD_FILL, CMD_JUMP, CMD_SOLID, PTCL_INITIAL_ALLOC};
 
 const N_TILE_X: usize = 16;
 const N_TILE_Y: usize = 16;
@@ -11,7 +13,6 @@ const N_TILE: usize = N_TILE_X * N_TILE_Y;
 
 const PTCL_INCREMENT: u32 = 256;
 const PTCL_HEADROOM: u32 = 2;
-
 
 // Modeled in the WGSL as private-scoped variables
 struct TileState {
@@ -32,13 +33,13 @@ impl TileState {
     fn alloc_cmd(
         &mut self,
         size: u32,
-        config: &RenderConfig,
+        config: &ConfigUniform,
         bump: &mut BumpAllocators,
         ptcl: &mut [u32],
     ) {
         if self.cmd_offset + size >= self.cmd_limit {
             let ptcl_dyn_start =
-                config.gpu.width_in_tiles * config.gpu.height_in_tiles * PTCL_INITIAL_ALLOC;
+                config.width_in_tiles * config.height_in_tiles * PTCL_INITIAL_ALLOC;
             let chunk_size = PTCL_INCREMENT.max(size + PTCL_HEADROOM);
             let new_cmd = ptcl_dyn_start + bump.ptcl;
             bump.ptcl += chunk_size;
@@ -55,7 +56,7 @@ impl TileState {
 
     fn write_color(
         &mut self,
-        config: &RenderConfig,
+        config: &ConfigUniform,
         bump: &mut BumpAllocators,
         ptcl: &mut [u32],
         rgba_color: u32,
@@ -66,8 +67,8 @@ impl TileState {
     }
 }
 
-pub fn coarse(
-    config: &RenderConfig,
+fn coarse_main(
+    config: &ConfigUniform,
     scene: &[u32],
     draw_monoids: &[DrawMonoid],
     bin_headers: &[BinHeader],
@@ -77,15 +78,15 @@ pub fn coarse(
     bump: &mut BumpAllocators,
     ptcl: &mut [u32],
 ) {
-    let width_in_tiles = config.gpu.width_in_tiles;
-    let height_in_tiles = config.gpu.height_in_tiles;
+    let width_in_tiles = config.width_in_tiles;
+    let height_in_tiles = config.height_in_tiles;
     let width_in_bins = (width_in_tiles + N_TILE_X as u32 - 1) / N_TILE_X as u32;
     let height_in_bins = (height_in_tiles + N_TILE_Y as u32 - 1) / N_TILE_Y as u32;
     let n_bins = width_in_bins * height_in_bins;
-    let bin_data_start = config.gpu.layout.bin_data_start;
-    let drawtag_base = config.gpu.layout.draw_tag_base;
+    let bin_data_start = config.layout.bin_data_start;
+    let drawtag_base = config.layout.draw_tag_base;
     let mut compacted = vec![vec![]; N_TILE];
-    let n_partitions = (config.gpu.layout.n_draw_objects + N_TILE as u32 - 1) / N_TILE as u32;
+    let n_partitions = (config.layout.n_draw_objects + N_TILE as u32 - 1) / N_TILE as u32;
     for bin in 0..n_bins {
         for v in &mut compacted {
             v.clear();
@@ -143,7 +144,7 @@ pub fn coarse(
                 let n_segs = tile.segments;
                 let include_tile = n_segs != 0 || tile.backdrop != 0;
                 if include_tile {
-                    let dd = config.gpu.layout.draw_data_base + draw_monoid.scene_offset;
+                    let dd = config.layout.draw_data_base + draw_monoid.scene_offset;
                     // TODO: get drawinfo (linewidth for fills)
                     match DrawTag(drawtag) {
                         DrawTag::COLOR => {

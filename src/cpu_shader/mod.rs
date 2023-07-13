@@ -18,7 +18,9 @@ mod path_tiling_setup;
 mod pathtag_reduce;
 mod pathtag_scan;
 mod tile_alloc;
-pub(crate) mod util;
+mod util;
+
+pub use pathtag_reduce::pathtag_reduce;
 
 // Common definitions
 
@@ -36,11 +38,3 @@ const CMD_IMAGE: u32 = 8;
 const CMD_BEGIN_CLIP: u32 = 9;
 const CMD_END_CLIP: u32 = 10;
 const CMD_JUMP: u32 = 11;
-
-/// Structure used for binding textures to CPU shaders.
-pub struct CpuTexture {
-    width: usize,
-    height: usize,
-    // In RGBA format. May expand in the future.
-    pixels: Vec<u32>,
-}

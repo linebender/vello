@@ -1,10 +1,10 @@
 // Copyright 2023 The Vello authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use vello_encoding::{Path, RenderConfig, Tile};
+use vello_encoding::{ConfigUniform, Path, Tile};
 
-pub fn backdrop(config: &RenderConfig, paths: &[Path], tiles: &mut [Tile]) {
-    for drawobj_ix in 0..config.gpu.layout.n_draw_objects {
+fn backdrop_main(config: &ConfigUniform, paths: &[Path], tiles: &mut [Tile]) {
+    for drawobj_ix in 0..config.layout.n_draw_objects {
         let path = paths[drawobj_ix as usize];
         let width = path.bbox[2] - path.bbox[0];
         let height = path.bbox[3] - path.bbox[1];

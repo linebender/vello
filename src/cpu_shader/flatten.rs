@@ -3,7 +3,7 @@
 
 use super::util::{Transform, Vec2};
 use vello_encoding::{
-    BumpAllocators, LineSoup, Monoid, PathBbox, PathMonoid, PathTag, RenderConfig,
+    BumpAllocators, ConfigUniform, LineSoup, Monoid, PathBbox, PathMonoid, PathTag, RenderConfig,
 };
 
 fn to_minus_one_quarter(x: f32) -> f32 {
@@ -193,8 +193,9 @@ const PATH_TAG_QUADTO: u8 = 2;
 const PATH_TAG_CUBICTO: u8 = 3;
 const PATH_TAG_F32: u8 = 8;
 
-pub fn flatten(
-    config: &RenderConfig,
+fn flatten_main(
+    n_wg: u32,
+    config: &ConfigUniform,
     scene: &[u32],
     tag_monoids: &[PathMonoid],
     path_bboxes: &mut [PathBbox],
@@ -203,21 +204,21 @@ pub fn flatten(
 ) {
     let mut line_ix = 0;
     let mut bbox = IntBbox::default();
-    for ix in 0..config.workgroup_counts.flatten.0 as usize * WG_SIZE {
-        let tag_word = scene[config.gpu.layout.path_tag_base as usize + (ix >> 2)];
+    for ix in 0..n_wg as usize * WG_SIZE {
+        let tag_word = scene[config.layout.path_tag_base as usize + (ix >> 2)];
         let shift = (ix & 3) * 8;
         let mut tm = PathMonoid::new(tag_word & ((1 << shift) - 1));
         tm = tag_monoids[ix >> 2].combine(&tm);
         let tag_byte = (tag_word >> shift) as u8;
         let linewidth =
-            f32::from_bits(scene[(config.gpu.layout.linewidth_base + tm.linewidth_ix) as usize]);
+            f32::from_bits(scene[(config.layout.linewidth_base + tm.linewidth_ix) as usize]);
         let out = &mut path_bboxes[tm.path_ix as usize];
         if (tag_byte & PATH_TAG_PATH) != 0 {
             out.linewidth = linewidth;
             out.trans_ix = tm.trans_ix;
         }
         let seg_type = tag_byte & PATH_TAG_SEG_TYPE;
-        let pathdata = &scene[config.gpu.layout.path_data_base as usize..];
+        let pathdata = &scene[config.layout.path_data_base as usize..];
         if seg_type != 0 {
             let mut p0 = Vec2::default();
             let mut p1 = Vec2::default();
@@ -235,7 +236,7 @@ pub fn flatten(
             } else {
                 todo!("i16 path data not supported yet");
             }
-            let transform = Transform::read(config.gpu.layout.transform_base, tm.trans_ix, scene);
+            let transform = Transform::read(config.layout.transform_base, tm.trans_ix, scene);
             p0 = transform.apply(p0);
             bbox.add_pt(p0);
             p1 = transform.apply(p1);

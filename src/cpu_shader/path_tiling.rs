@@ -3,7 +3,7 @@
 
 use vello_encoding::{BumpAllocators, LineSoup, Path, PathSegment, SegmentCount, Tile};
 
-use super::util::{Vec2, span};
+use super::util::{span, Vec2};
 
 const TILE_WIDTH: u32 = 16;
 const TILE_HEIGHT: u32 = 16;
@@ -60,8 +60,15 @@ pub fn path_tiling(
         let stride = bbox[2] - bbox[0];
         let tile_ix = path.tiles as i32 + (y - bbox[1]) * stride + x - bbox[0];
         let tile = tiles[tile_ix as usize];
-        let tile_xy = Vec2 { x: x as f32 * TILE_WIDTH as f32, y: y as f32 * TILE_HEIGHT as f32 };
-        let tile_xy1 = tile_xy + Vec2 { x: TILE_WIDTH as f32, y: TILE_HEIGHT as f32};
+        let tile_xy = Vec2 {
+            x: x as f32 * TILE_WIDTH as f32,
+            y: y as f32 * TILE_HEIGHT as f32,
+        };
+        let tile_xy1 = tile_xy
+            + Vec2 {
+                x: TILE_WIDTH as f32,
+                y: TILE_HEIGHT as f32,
+            };
         let mut y_edge = 1e9;
 
         if seg_within_line > 0 {
@@ -70,13 +77,23 @@ pub fn path_tiling(
                 // Top edge is clipped
                 let mut xt = xy0.x + (xy1.x - xy0.x) * (tile_xy.y - xy0.y) / (xy1.y - xy0.y);
                 xt = xt.clamp(tile_xy.x + 1e-3, tile_xy1.x);
-                xy0 = Vec2 { x: xt, y: tile_xy.y };
+                xy0 = Vec2 {
+                    x: xt,
+                    y: tile_xy.y,
+                };
             } else {
                 // If is_positive_slope, left edge is clipped, otherwise right
-                let x_clip = if is_positive_slope { tile_xy.x } else {tile_xy1.x };
+                let x_clip = if is_positive_slope {
+                    tile_xy.x
+                } else {
+                    tile_xy1.x
+                };
                 let mut yt = xy0.y + (xy1.y - xy0.y) * (x_clip - xy0.x) / (xy1.x - xy0.x);
                 yt = yt.clamp(tile_xy.y + 1e-3, tile_xy1.y);
-                xy1 = Vec2 { x: tile_xy.y + 1e-3, y: yt };
+                xy1 = Vec2 {
+                    x: tile_xy.y + 1e-3,
+                    y: yt,
+                };
                 if is_positive_slope {
                     y_edge = yt;
                 }
@@ -88,13 +105,23 @@ pub fn path_tiling(
                 // Bottom edge is clipped
                 let mut xt = xy0.x + (xy1.x - xy0.x) * (tile_xy1.y - xy0.y) / (xy1.y - xy0.y);
                 xt = xt.clamp(tile_xy.x + 1e-3, tile_xy1.x);
-                xy1 = Vec2 { x: xt, y: tile_xy1.y };
-            } else { 
+                xy1 = Vec2 {
+                    x: xt,
+                    y: tile_xy1.y,
+                };
+            } else {
                 // If is_positive_slope, right edge is clipped, otherwise left
-                let x_clip = if is_positive_slope { tile_xy1.x } else {tile_xy.x };
+                let x_clip = if is_positive_slope {
+                    tile_xy1.x
+                } else {
+                    tile_xy.x
+                };
                 let mut yt = xy0.y + (xy1.y - xy0.y) * (x_clip - xy0.x) / (xy1.x - xy0.x);
                 yt = yt.clamp(tile_xy.y + 1e-3, tile_xy1.y);
-                xy1 = Vec2 { x: tile_xy.y + 1e-3, y: yt };
+                xy1 = Vec2 {
+                    x: tile_xy.y + 1e-3,
+                    y: yt,
+                };
                 if !is_positive_slope {
                     y_edge = yt;
                 }

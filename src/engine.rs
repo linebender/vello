@@ -26,6 +26,8 @@ use wgpu::{
     TextureAspect, TextureUsages, TextureView, TextureViewDimension,
 };
 
+use crate::cpu_dispatch::CpuResourceRef;
+
 pub type Error = Box<dyn std::error::Error>;
 
 #[derive(Clone, Copy)]
@@ -46,6 +48,12 @@ pub struct Engine {
 struct Shader {
     pipeline: ComputePipeline,
     bind_group_layout: BindGroupLayout,
+    cpu_shader: Option<fn(u32, Vec<CpuResourceRef>)>,
+    cpu_resources: HashMap<Id, CpuResource>,
+}
+
+enum CpuResource {
+    Buffer(Vec<u8>),
 }
 
 #[derive(Default)]
@@ -234,13 +242,21 @@ impl Engine {
             module: &shader_module,
             entry_point: "main",
         });
+        let cpu_shader = None;
+        let cpu_resources = Default::default();
         let shader = Shader {
             pipeline,
             bind_group_layout,
+            cpu_shader,
+            cpu_resources,
         };
         let id = self.shaders.len();
         self.shaders.push(shader);
         Ok(ShaderId(id))
+    }
+
+    pub fn set_cpu_shader(&mut self, id: ShaderId, f: fn(u32, Vec<CpuResourceRef>)) {
+        self.shaders[id.0].cpu_shader = Some(f);
     }
 
     pub fn run_recording(
@@ -357,17 +373,20 @@ impl Engine {
                 Command::Dispatch(shader_id, wg_size, bindings) => {
                     // println!("dispatching {:?} with {} bindings", wg_size, bindings.len());
                     let shader = &self.shaders[shader_id.0];
-                    let bind_group = self.bind_map.create_bind_group(
-                        device,
-                        &shader.bind_group_layout,
-                        bindings,
-                        external_resources,
-                        &mut self.pool,
-                    )?;
-                    let mut cpass = encoder.begin_compute_pass(&Default::default());
-                    cpass.set_pipeline(&shader.pipeline);
-                    cpass.set_bind_group(0, &bind_group, &[]);
-                    cpass.dispatch_workgroups(wg_size.0, wg_size.1, wg_size.2);
+                    if let Some(cpu_shader) = shader.cpu_shader {
+                    } else {
+                        let bind_group = self.bind_map.create_bind_group(
+                            device,
+                            &shader.bind_group_layout,
+                            bindings,
+                            external_resources,
+                            &mut self.pool,
+                        )?;
+                        let mut cpass = encoder.begin_compute_pass(&Default::default());
+                        cpass.set_pipeline(&shader.pipeline);
+                        cpass.set_bind_group(0, &bind_group, &[]);
+                        cpass.dispatch_workgroups(wg_size.0, wg_size.1, wg_size.2);
+                    }
                 }
                 Command::DispatchIndirect(shader_id, proxy, offset, bindings) => {
                     let shader = &self.shaders[shader_id.0];

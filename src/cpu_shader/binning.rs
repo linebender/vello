@@ -1,7 +1,7 @@
 // Copyright 2023 The Vello authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use vello_encoding::{BinHeader, BumpAllocators, DrawMonoid, PathBbox, RenderConfig};
+use vello_encoding::{BinHeader, BumpAllocators, ConfigUniform, DrawMonoid, PathBbox};
 
 const WG_SIZE: usize = 256;
 const TILE_WIDTH: usize = 16;
@@ -21,7 +21,8 @@ fn bbox_intersect(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
 }
 
 pub fn binning(
-    config: &RenderConfig,
+    n_wg: u32,
+    config: &ConfigUniform,
     draw_monoids: &[DrawMonoid],
     path_bbox_buf: &[PathBbox],
     clip_bbox_buf: &[[f32; 4]],
@@ -31,20 +32,20 @@ pub fn binning(
     bin_data: &mut [u32],
     bin_header: &mut [BinHeader],
 ) {
-    for wg in 0..config.workgroup_counts.binning.0 as usize {
+    for wg in 0..n_wg as usize {
         let mut counts = [0; WG_SIZE];
         let mut bboxes = [[0, 0, 0, 0]; WG_SIZE];
         let width_in_bins =
-            ((config.gpu.width_in_tiles + N_TILE_X as u32 - 1) / N_TILE_X as u32) as i32;
+            ((config.width_in_tiles + N_TILE_X as u32 - 1) / N_TILE_X as u32) as i32;
         let height_in_bins =
-            ((config.gpu.height_in_tiles + N_TILE_Y as u32 - 1) / N_TILE_Y as u32) as i32;
+            ((config.height_in_tiles + N_TILE_Y as u32 - 1) / N_TILE_Y as u32) as i32;
         for local_ix in 0..WG_SIZE {
             let element_ix = wg * WG_SIZE + local_ix;
             let mut x0 = 0;
             let mut y0 = 0;
             let mut x1 = 0;
             let mut y1 = 0;
-            if element_ix < config.gpu.layout.n_draw_objects as usize {
+            if element_ix < config.layout.n_draw_objects as usize {
                 let draw_monoid = draw_monoids[element_ix];
                 let mut clip_bbox = [-1e9, -1e9, 1e9, 1e9];
                 if draw_monoid.clip_ix > 0 {
@@ -97,7 +98,7 @@ pub fn binning(
             for y in bbox[2]..bbox[3] {
                 for x in bbox[0]..bbox[1] {
                     let bin_ix = (y * width_in_bins + x) as usize;
-                    let ix = config.gpu.layout.bin_data_start + chunk_offset[bin_ix];
+                    let ix = config.layout.bin_data_start + chunk_offset[bin_ix];
                     bin_data[ix as usize] = element_ix as u32;
                     chunk_offset[bin_ix] += 1;
                 }

@@ -14,6 +14,7 @@
 //
 // Also licensed under MIT license, at your choice.
 
+mod cpu_dispatch;
 mod cpu_shader;
 mod engine;
 mod mask;

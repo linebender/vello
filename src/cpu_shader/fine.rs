@@ -1,9 +1,11 @@
 // Copyright 2023 The Vello authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use vello_encoding::{RenderConfig, Tile, PathSegment};
+use vello_encoding::{ConfigUniform, PathSegment, Tile};
 
-use super::{PTCL_INITIAL_ALLOC, CMD_END, CMD_JUMP, CpuTexture, CMD_FILL};
+use crate::cpu_dispatch::CpuTexture;
+
+use super::{CMD_END, CMD_FILL, CMD_JUMP, PTCL_INITIAL_ALLOC, CMD_SOLID, CMD_COLOR};
 
 // These should also move into a common area
 const TILE_WIDTH: usize = 16;
@@ -23,8 +25,12 @@ struct CmdFill {
 fn read_fill(ptcl: &[u32], offset: u32) -> CmdFill {
     let size_and_rule = ptcl[(offset + 1) as usize];
     let seg_data = ptcl[(offset + 2) as usize];
-    let backdrop = ptcl[(offset +3) as usize] as i32;
-    CmdFill {size_and_rule, seg_data, backdrop }
+    let backdrop = ptcl[(offset + 3) as usize] as i32;
+    CmdFill {
+        size_and_rule,
+        seg_data,
+        backdrop,
+    }
 }
 
 fn unpack4x8unorm(x: u32) -> [f32; 4] {
@@ -51,13 +57,14 @@ fn fill_path(area: &mut [f32], segments: &[PathSegment], fill: &CmdFill, x_tile:
     for a in area.iter_mut() {
         *a = backdrop_f;
     }
-    for segment in &segments[fill.seg_data as usize..][.. n_segs as usize] {
+    for segment in &segments[fill.seg_data as usize..][..n_segs as usize] {
         for yi in 0..TILE_HEIGHT {
             let y = segment.origin[1] - (y_tile + yi as f32);
             let y0 = y.clamp(0.0, 1.0);
             let y1 = (y + segment.delta[1]).clamp(0.0, 1.0);
             let dy = y0 - y1;
-            let y_edge = segment.delta[0].signum() * (y_tile + yi as f32 - segment.y_edge + 1.0).clamp(0.0, 1.0);
+            let y_edge = segment.delta[0].signum()
+                * (y_tile + yi as f32 - segment.y_edge + 1.0).clamp(0.0, 1.0);
             if dy != 0.0 {
                 let vec_y_recip = segment.delta[1].recip();
                 let t0 = (y0 - y) * vec_y_recip;
@@ -85,18 +92,22 @@ fn fill_path(area: &mut [f32], segments: &[PathSegment], fill: &CmdFill, x_tile:
         }
     }
     if even_odd {
-        for a in area.iter_mut() {{
-            *a = (*a - 2.0 * (0.5 * *a).round()).abs();
-        }}
+        for a in area.iter_mut() {
+            {
+                *a = (*a - 2.0 * (0.5 * *a).round()).abs();
+            }
+        }
     } else {
-        for a in area.iter_mut() {{
-            *a = a.abs().min(1.0);
-        }}
+        for a in area.iter_mut() {
+            {
+                *a = a.abs().min(1.0);
+            }
+        }
     }
 }
 
-pub fn fine(
-    config: &RenderConfig,
+fn fine_main(
+    config: &ConfigUniform,
     tiles: &[Tile],
     segments: &[PathSegment],
     output: &mut CpuTexture,
@@ -105,8 +116,8 @@ pub fn fine(
     // TODO: image texture resources
     // TODO: masks?
 ) {
-    let width_in_tiles = config.gpu.width_in_tiles;
-    let height_in_tiles = config.gpu.height_in_tiles;
+    let width_in_tiles = config.width_in_tiles;
+    let height_in_tiles = config.height_in_tiles;
     let n_tiles = width_in_tiles * height_in_tiles;
     let mut area = vec![0.0f32; TILE_SIZE];
     let mut rgba = vec![[0.0f32; 4]; TILE_SIZE];
@@ -163,7 +174,8 @@ pub fn fine(
         }
         // Write tile (in rgba)
         for y in 0..TILE_HEIGHT {
-            let base = output.width * (tile_y as usize * TILE_HEIGHT + y) + tile_x as usize * TILE_WIDTH;
+            let base =
+                output.width * (tile_y as usize * TILE_HEIGHT + y) + tile_x as usize * TILE_WIDTH;
             for x in 0..TILE_WIDTH {
                 let rgba32 = pack4x8unorm(rgba[y * TILE_WIDTH + x]);
                 output.pixels[base + x] = rgba32;

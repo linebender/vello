@@ -1,25 +1,25 @@
 // Copyright 2023 The Vello authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use vello_encoding::{BumpAllocators, DrawTag, Path, RenderConfig, Tile};
+use vello_encoding::{BumpAllocators, ConfigUniform, DrawTag, Path, Tile};
 
 const TILE_WIDTH: usize = 16;
 const TILE_HEIGHT: usize = 16;
 const SX: f32 = 1.0 / (TILE_WIDTH as f32);
 const SY: f32 = 1.0 / (TILE_HEIGHT as f32);
 
-pub fn tile_alloc(
-    config: &RenderConfig,
+fn tile_alloc_main(
+    config: &ConfigUniform,
     scene: &[u32],
     draw_bboxes: &[[f32; 4]],
     bump: &mut BumpAllocators,
     paths: &mut [Path],
     tiles: &mut [Tile],
 ) {
-    let drawtag_base = config.gpu.layout.draw_tag_base;
-    let width_in_tiles = config.gpu.width_in_tiles as i32;
-    let height_in_tiles = config.gpu.height_in_tiles as i32;
-    for drawobj_ix in 0..config.gpu.layout.n_draw_objects {
+    let drawtag_base = config.layout.draw_tag_base;
+    let width_in_tiles = config.width_in_tiles as i32;
+    let height_in_tiles = config.height_in_tiles as i32;
+    for drawobj_ix in 0..config.layout.n_draw_objects {
         let drawtag = DrawTag(scene[(drawtag_base + drawobj_ix) as usize]);
         let mut x0 = 0;
         let mut y0 = 0;

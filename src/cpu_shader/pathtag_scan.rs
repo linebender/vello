@@ -1,20 +1,20 @@
 // Copyright 2023 The Vello authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use vello_encoding::{Monoid, PathMonoid, RenderConfig};
+use vello_encoding::{ConfigUniform, Monoid, PathMonoid};
 
 const WG_SIZE: usize = 256;
 
-pub fn pathtag_scan(
-    config: &RenderConfig,
+fn pathtag_scan_main(
+    n_wg: u32,
+    config: &ConfigUniform,
     scene: &[u32],
     reduced: &[PathMonoid],
     tag_monoids: &mut [PathMonoid],
 ) {
-    let n = config.workgroup_counts.path_scan.0;
-    let pathtag_base = config.gpu.layout.path_tag_base;
+    let pathtag_base = config.layout.path_tag_base;
     let mut prefix = PathMonoid::default();
-    for i in 0..n {
+    for i in 0..n_wg {
         let mut m = prefix;
         for j in 0..WG_SIZE {
             let ix = (i * WG_SIZE as u32) as usize + j;
