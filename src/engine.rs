@@ -16,6 +16,7 @@
 
 use std::{
     borrow::Cow,
+    cell::RefCell,
     collections::{hash_map::Entry, HashMap, HashSet},
     num::NonZeroU64,
     sync::atomic::{AtomicU64, Ordering},
@@ -26,7 +27,7 @@ use wgpu::{
     TextureAspect, TextureUsages, TextureView, TextureViewDimension,
 };
 
-use crate::cpu_dispatch::CpuResourceRef;
+use crate::cpu_dispatch::CpuBinding;
 
 pub type Error = Box<dyn std::error::Error>;
 
@@ -48,12 +49,7 @@ pub struct Engine {
 struct Shader {
     pipeline: ComputePipeline,
     bind_group_layout: BindGroupLayout,
-    cpu_shader: Option<fn(u32, Vec<CpuResourceRef>)>,
-}
-
-enum CpuResource<'a> {
-    Buffer(Vec<u8>),
-    BufRef(&'a [u8]),
+    cpu_shader: Option<fn(u32, &[CpuBinding])>,
 }
 
 #[derive(Default)]
@@ -128,7 +124,7 @@ pub enum BindType {
 /// A buffer can exist either on the GPU or on CPU.
 enum MaterializedBuffer {
     Gpu(Buffer),
-    Cpu(Vec<u8>),
+    Cpu(RefCell<Vec<u8>>),
 }
 
 struct BindMapBuffer {
@@ -154,6 +150,23 @@ struct BufferProperties {
 #[derive(Default)]
 struct ResourcePool {
     bufs: HashMap<BufferProperties, Vec<Buffer>>,
+}
+
+/// The transient bind map contains short-lifetime resources.
+///
+/// In particular, it has resources scoped to a single call of
+/// `run_recording()`, including external resources and also buffer
+/// uploads.
+#[derive(Default)]
+struct TransientBindMap<'a> {
+    bufs: HashMap<Id, TransientBuf<'a>>,
+    // TODO: create transient image type
+    images: HashMap<Id, &'a TextureView>,
+}
+
+enum TransientBuf<'a> {
+    Cpu(&'a [u8]),
+    Gpu(&'a Buffer),
 }
 
 impl Engine {
@@ -259,7 +272,7 @@ impl Engine {
         Ok(ShaderId(id))
     }
 
-    pub fn set_cpu_shader(&mut self, id: ShaderId, f: fn(u32, Vec<CpuResourceRef>)) {
+    pub fn set_cpu_shader(&mut self, id: ShaderId, f: fn(u32, &[CpuBinding])) {
         self.shaders[id.0].cpu_shader = Some(f);
     }
 
@@ -272,13 +285,15 @@ impl Engine {
     ) -> Result<(), Error> {
         let mut free_bufs: HashSet<Id> = Default::default();
         let mut free_images: HashSet<Id> = Default::default();
-        let mut cpu_resources: HashMap<Id, CpuResource> = Default::default();
+        let mut transient_map = TransientBindMap::new(external_resources);
 
         let mut encoder = device.create_command_encoder(&Default::default());
         for command in &recording.commands {
             match command {
                 Command::Upload(buf_proxy, bytes) => {
-                    cpu_resources.insert(buf_proxy.id, CpuResource::BufRef(bytes));
+                    transient_map
+                        .bufs
+                        .insert(buf_proxy.id, TransientBuf::Cpu(bytes));
                     let usage =
                         BufferUsages::COPY_SRC | BufferUsages::COPY_DST | BufferUsages::STORAGE;
                     let buf = self
@@ -290,6 +305,9 @@ impl Engine {
                     self.bind_map.insert_buf(buf_proxy, buf);
                 }
                 Command::UploadUniform(buf_proxy, bytes) => {
+                    transient_map
+                        .bufs
+                        .insert(buf_proxy.id, TransientBuf::Cpu(bytes));
                     let usage = BufferUsages::UNIFORM | BufferUsages::COPY_DST;
                     // Same consideration as above
                     let buf = self
@@ -380,13 +398,16 @@ impl Engine {
                     // println!("dispatching {:?} with {} bindings", wg_size, bindings.len());
                     let shader = &self.shaders[shader_id.0];
                     if let Some(cpu_shader) = shader.cpu_shader {
+                        let resources =
+                            transient_map.create_cpu_resources(&mut self.bind_map, bindings);
+                        cpu_shader(wg_size.0, &resources);
                     } else {
-                        let bind_group = self.bind_map.create_bind_group(
+                        let bind_group = transient_map.create_bind_group(
+                            &mut self.bind_map,
+                            &mut self.pool,
                             device,
                             &shader.bind_group_layout,
                             bindings,
-                            external_resources,
-                            &mut self.pool,
                         )?;
                         let mut cpass = encoder.begin_compute_pass(&Default::default());
                         cpass.set_pipeline(&shader.pipeline);
@@ -396,12 +417,12 @@ impl Engine {
                 }
                 Command::DispatchIndirect(shader_id, proxy, offset, bindings) => {
                     let shader = &self.shaders[shader_id.0];
-                    let bind_group = self.bind_map.create_bind_group(
+                    let bind_group = transient_map.create_bind_group(
+                        &mut self.bind_map,
+                        &mut self.pool,
                         device,
                         &shader.bind_group_layout,
                         bindings,
-                        external_resources,
-                        &mut self.pool,
                     )?;
                     let mut cpass = encoder.begin_compute_pass(&Default::default());
                     cpass.set_pipeline(&shader.pipeline);
@@ -429,7 +450,7 @@ impl Engine {
                     match buffer {
                         MaterializedBuffer::Gpu(b) => encoder.clear_buffer(&b, *offset, *size),
                         MaterializedBuffer::Cpu(b) => {
-                            for x in &mut *b {
+                            for x in &mut *b.borrow_mut() {
                                 *x = 0;
                             }
                         }
@@ -659,7 +680,7 @@ impl BindMap {
         );
     }
 
-    // Get a buffer, only if it's on GPU.
+    /// Get a buffer, only if it's on GPU.
     fn get_gpu_buf(&self, id: Id) -> Option<&Buffer> {
         self.buf_map.get(&id).and_then(|b| match &b.buffer {
             MaterializedBuffer::Gpu(b) => Some(b),
@@ -667,132 +688,29 @@ impl BindMap {
         })
     }
 
-    fn insert_image(&mut self, id: Id, image: Texture, image_view: TextureView) {
-        self.image_map.insert(id, (image, image_view));
+    /// Get a CPU buffer.
+    ///
+    /// Panics if buffer is not present or is on GPU.
+    fn get_cpu_buf(&self, id: Id) -> CpuBinding {
+        match &self.buf_map[&id].buffer {
+            MaterializedBuffer::Cpu(b) => CpuBinding::BufferRW(b),
+            _ => panic!("getting cpu buffer, but it's on gpu"),
+        }
     }
 
-    fn create_bind_group(
-        &mut self,
-        device: &Device,
-        layout: &BindGroupLayout,
-        bindings: &[ResourceProxy],
-        external_resources: &[ExternalResource],
-        pool: &mut ResourcePool,
-    ) -> Result<BindGroup, Error> {
-        // These functions are ugly and linear, but the remap array should generally be
-        // small. Should find a better solution for this.
-        fn find_buf<'a>(
-            resources: &[ExternalResource<'a>],
-            proxy: &BufProxy,
-        ) -> Option<&'a Buffer> {
-            for resource in resources {
-                match resource {
-                    ExternalResource::Buf(p, buf) if p.id == proxy.id => {
-                        return Some(buf);
-                    }
-                    _ => {}
-                }
+    fn materialize_cpu_buf(&mut self, buf: &BufProxy) {
+        self.buf_map.entry(buf.id).or_insert_with(|| {
+            let buffer = MaterializedBuffer::Cpu(RefCell::new(vec![0; buf.size as usize]));
+            BindMapBuffer {
+                buffer,
+                // TODO: do we need to cfg this?
+                label: buf.name,
             }
-            None
-        }
-        fn find_image<'a>(
-            resources: &[ExternalResource<'a>],
-            proxy: &ImageProxy,
-        ) -> Option<&'a TextureView> {
-            for resource in resources {
-                match resource {
-                    ExternalResource::Image(p, view) if p.id == proxy.id => {
-                        return Some(view);
-                    }
-                    _ => {}
-                }
-            }
-            None
-        }
-        for proxy in bindings {
-            match proxy {
-                ResourceProxy::Buf(proxy) => {
-                    if find_buf(external_resources, proxy).is_some() {
-                        continue;
-                    }
-                    if let Entry::Vacant(v) = self.buf_map.entry(proxy.id) {
-                        // TODO: only some buffers will need indirect, but does it hurt?
-                        let usage = BufferUsages::COPY_SRC
-                            | BufferUsages::COPY_DST
-                            | BufferUsages::STORAGE
-                            | BufferUsages::INDIRECT;
-                        let buf = pool.get_buf(proxy.size, proxy.name, usage, device);
-                        v.insert(BindMapBuffer {
-                            buffer: MaterializedBuffer::Gpu(buf),
-                            label: proxy.name,
-                        });
-                    }
-                }
-                ResourceProxy::Image(proxy) => {
-                    if find_image(external_resources, proxy).is_some() {
-                        continue;
-                    }
-                    if let Entry::Vacant(v) = self.image_map.entry(proxy.id) {
-                        let format = proxy.format.to_wgpu();
-                        let texture = device.create_texture(&wgpu::TextureDescriptor {
-                            label: None,
-                            size: wgpu::Extent3d {
-                                width: proxy.width,
-                                height: proxy.height,
-                                depth_or_array_layers: 1,
-                            },
-                            mip_level_count: 1,
-                            sample_count: 1,
-                            dimension: wgpu::TextureDimension::D2,
-                            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-                            format,
-                            view_formats: &[],
-                        });
-                        let texture_view = texture.create_view(&wgpu::TextureViewDescriptor {
-                            label: None,
-                            dimension: Some(TextureViewDimension::D2),
-                            aspect: TextureAspect::All,
-                            mip_level_count: None,
-                            base_mip_level: 0,
-                            base_array_layer: 0,
-                            array_layer_count: None,
-                            format: Some(proxy.format.to_wgpu()),
-                        });
-                        v.insert((texture, texture_view));
-                    }
-                }
-            }
-        }
-        let entries = bindings
-            .iter()
-            .enumerate()
-            .map(|(i, proxy)| match proxy {
-                ResourceProxy::Buf(proxy) => {
-                    let buf = find_buf(external_resources, proxy)
-                        .or_else(|| self.get_gpu_buf(proxy.id))
-                        .unwrap();
-                    Ok(wgpu::BindGroupEntry {
-                        binding: i as u32,
-                        resource: buf.as_entire_binding(),
-                    })
-                }
-                ResourceProxy::Image(proxy) => {
-                    let view = find_image(external_resources, proxy)
-                        .or_else(|| self.image_map.get(&proxy.id).map(|v| &v.1))
-                        .unwrap();
-                    Ok(wgpu::BindGroupEntry {
-                        binding: i as u32,
-                        resource: wgpu::BindingResource::TextureView(view),
-                    })
-                }
-            })
-            .collect::<Result<Vec<_>, Error>>()?;
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
-            layout,
-            entries: &entries,
         });
-        Ok(bind_group)
+    }
+
+    fn insert_image(&mut self, id: Id, image: Texture, image_view: TextureView) {
+        self.image_map.insert(id, (image, image_view));
     }
 
     /// Get a buffer (CPU or GPU), create on GPU if not present.
@@ -872,7 +790,7 @@ impl ResourcePool {
             size: rounded_size,
             usages: usage,
             #[cfg(feature = "buffer_labels")]
-            name: name,
+            name,
         };
         if let Some(buf_vec) = self.bufs.get_mut(&props) {
             if let Some(buf) = buf_vec.pop() {
@@ -899,5 +817,150 @@ impl ResourcePool {
         } else {
             1 << bits
         }
+    }
+}
+
+impl<'a> TransientBindMap<'a> {
+    /// Create new transient bind map, seeded from external resources
+    fn new(external_resources: &'a [ExternalResource]) -> Self {
+        let mut bufs = HashMap::default();
+        let mut images = HashMap::default();
+        for resource in external_resources {
+            match resource {
+                ExternalResource::Buf(proxy, gpu_buf) => {
+                    bufs.insert(proxy.id, TransientBuf::Gpu(gpu_buf));
+                }
+                ExternalResource::Image(proxy, gpu_image) => {
+                    images.insert(proxy.id, *gpu_image);
+                }
+            }
+        }
+        TransientBindMap { bufs, images }
+    }
+
+    fn create_bind_group(
+        &mut self,
+        bind_map: &mut BindMap,
+        pool: &mut ResourcePool,
+        device: &Device,
+        layout: &BindGroupLayout,
+        bindings: &[ResourceProxy],
+    ) -> Result<BindGroup, Error> {
+        for proxy in bindings {
+            match proxy {
+                ResourceProxy::Buf(proxy) => {
+                    if self.bufs.contains_key(&proxy.id) {
+                        continue;
+                    }
+                    if let Entry::Vacant(v) = bind_map.buf_map.entry(proxy.id) {
+                        // TODO: only some buffers will need indirect, but does it hurt?
+                        let usage = BufferUsages::COPY_SRC
+                            | BufferUsages::COPY_DST
+                            | BufferUsages::STORAGE
+                            | BufferUsages::INDIRECT;
+                        let buf = pool.get_buf(proxy.size, proxy.name, usage, device);
+                        v.insert(BindMapBuffer {
+                            buffer: MaterializedBuffer::Gpu(buf),
+                            label: proxy.name,
+                        });
+                    }
+                }
+                ResourceProxy::Image(proxy) => {
+                    if self.images.contains_key(&proxy.id) {
+                        continue;
+                    }
+                    if let Entry::Vacant(v) = bind_map.image_map.entry(proxy.id) {
+                        let format = proxy.format.to_wgpu();
+                        let texture = device.create_texture(&wgpu::TextureDescriptor {
+                            label: None,
+                            size: wgpu::Extent3d {
+                                width: proxy.width,
+                                height: proxy.height,
+                                depth_or_array_layers: 1,
+                            },
+                            mip_level_count: 1,
+                            sample_count: 1,
+                            dimension: wgpu::TextureDimension::D2,
+                            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+                            format,
+                            view_formats: &[],
+                        });
+                        let texture_view = texture.create_view(&wgpu::TextureViewDescriptor {
+                            label: None,
+                            dimension: Some(TextureViewDimension::D2),
+                            aspect: TextureAspect::All,
+                            mip_level_count: None,
+                            base_mip_level: 0,
+                            base_array_layer: 0,
+                            array_layer_count: None,
+                            format: Some(proxy.format.to_wgpu()),
+                        });
+                        v.insert((texture, texture_view));
+                    }
+                }
+            }
+        }
+        let entries = bindings
+            .iter()
+            .enumerate()
+            .map(|(i, proxy)| match proxy {
+                ResourceProxy::Buf(proxy) => {
+                    let buf = match self.bufs.get(&proxy.id) {
+                        Some(TransientBuf::Gpu(b)) => b,
+                        _ => bind_map.get_gpu_buf(proxy.id).unwrap(),
+                    };
+                    Ok(wgpu::BindGroupEntry {
+                        binding: i as u32,
+                        resource: buf.as_entire_binding(),
+                    })
+                }
+                ResourceProxy::Image(proxy) => {
+                    let view = self
+                        .images
+                        .get(&proxy.id)
+                        .copied()
+                        .or_else(|| bind_map.image_map.get(&proxy.id).map(|v| &v.1))
+                        .unwrap();
+                    Ok(wgpu::BindGroupEntry {
+                        binding: i as u32,
+                        resource: wgpu::BindingResource::TextureView(view),
+                    })
+                }
+            })
+            .collect::<Result<Vec<_>, Error>>()?;
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout,
+            entries: &entries,
+        });
+        Ok(bind_group)
+    }
+
+    fn create_cpu_resources(
+        &self,
+        bind_map: &'a mut BindMap,
+        bindings: &[ResourceProxy],
+    ) -> Vec<CpuBinding> {
+        // First pass is mutable; create buffers as needed
+        for resource in bindings {
+            match resource {
+                ResourceProxy::Buf(buf) => match self.bufs.get(&buf.id) {
+                    Some(TransientBuf::Cpu(_)) => (),
+                    _ => bind_map.materialize_cpu_buf(buf),
+                },
+                ResourceProxy::Image(_) => todo!(),
+            };
+        }
+        // Second pass takes immutable references
+        bindings
+            .iter()
+            .map(|resource| match resource {
+                ResourceProxy::Buf(buf) => match self.bufs.get(&buf.id) {
+                    Some(TransientBuf::Cpu(b)) => CpuBinding::Buffer(b),
+                    _ => bind_map.get_cpu_buf(buf.id),
+                },
+                ResourceProxy::Image(_) => todo!(),
+            })
+            .collect()
     }
 }
