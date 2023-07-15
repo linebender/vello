@@ -49,11 +49,11 @@ struct Shader {
     pipeline: ComputePipeline,
     bind_group_layout: BindGroupLayout,
     cpu_shader: Option<fn(u32, Vec<CpuResourceRef>)>,
-    cpu_resources: HashMap<Id, CpuResource>,
 }
 
-enum CpuResource {
+enum CpuResource<'a> {
     Buffer(Vec<u8>),
+    BufRef(&'a [u8]),
 }
 
 #[derive(Default)]
@@ -125,8 +125,14 @@ pub enum BindType {
     // TODO: Uniform, Sampler, maybe others
 }
 
+/// A buffer can exist either on the GPU or on CPU.
+enum MaterializedBuffer {
+    Gpu(Buffer),
+    Cpu(Vec<u8>),
+}
+
 struct BindMapBuffer {
-    buffer: Buffer,
+    buffer: MaterializedBuffer,
     #[cfg_attr(not(feature = "buffer_labels"), allow(unused))]
     label: &'static str,
 }
@@ -243,12 +249,10 @@ impl Engine {
             entry_point: "main",
         });
         let cpu_shader = None;
-        let cpu_resources = Default::default();
         let shader = Shader {
             pipeline,
             bind_group_layout,
             cpu_shader,
-            cpu_resources,
         };
         let id = self.shaders.len();
         self.shaders.push(shader);
@@ -268,11 +272,13 @@ impl Engine {
     ) -> Result<(), Error> {
         let mut free_bufs: HashSet<Id> = Default::default();
         let mut free_images: HashSet<Id> = Default::default();
+        let mut cpu_resources: HashMap<Id, CpuResource> = Default::default();
 
         let mut encoder = device.create_command_encoder(&Default::default());
         for command in &recording.commands {
             match command {
                 Command::Upload(buf_proxy, bytes) => {
+                    cpu_resources.insert(buf_proxy.id, CpuResource::BufRef(bytes));
                     let usage =
                         BufferUsages::COPY_SRC | BufferUsages::COPY_DST | BufferUsages::STORAGE;
                     let buf = self
@@ -402,38 +408,31 @@ impl Engine {
                     cpass.set_bind_group(0, &bind_group, &[]);
                     let buf = self
                         .bind_map
-                        .buf_map
-                        .get(&proxy.id)
+                        .get_gpu_buf(proxy.id)
                         .ok_or("buffer for indirect dispatch not in map")?;
-                    cpass.dispatch_workgroups_indirect(&buf.buffer, *offset);
+                    cpass.dispatch_workgroups_indirect(&buf, *offset);
                 }
                 Command::Download(proxy) => {
                     let src_buf = self
                         .bind_map
-                        .buf_map
-                        .get(&proxy.id)
+                        .get_gpu_buf(proxy.id)
                         .ok_or("buffer not in map")?;
                     let usage = BufferUsages::MAP_READ | BufferUsages::COPY_DST;
                     let buf = self.pool.get_buf(proxy.size, "download", usage, device);
-                    encoder.copy_buffer_to_buffer(&src_buf.buffer, 0, &buf, 0, proxy.size);
+                    encoder.copy_buffer_to_buffer(&src_buf, 0, &buf, 0, proxy.size);
                     self.downloads.insert(proxy.id, buf);
                 }
                 Command::Clear(proxy, offset, size) => {
                     let buffer = self
                         .bind_map
                         .get_or_create(*proxy, device, &mut self.pool)?;
-                    #[cfg(not(target_arch = "wasm32"))]
-                    encoder.clear_buffer(buffer, *offset, *size);
-                    #[cfg(target_arch = "wasm32")]
-                    {
-                        // TODO: remove this workaround when wgpu implements clear_buffer
-                        // Also note: semantics are wrong, it's queue order rather than encoder.
-                        let size = match size {
-                            Some(size) => size.get(),
-                            None => proxy.size,
-                        };
-                        let zeros = vec![0; size as usize];
-                        queue.write_buffer(buffer, *offset, &zeros);
+                    match buffer {
+                        MaterializedBuffer::Gpu(b) => encoder.clear_buffer(&b, *offset, *size),
+                        MaterializedBuffer::Cpu(b) => {
+                            for x in &mut *b {
+                                *x = 0;
+                            }
+                        }
                     }
                 }
                 Command::FreeBuf(proxy) => {
@@ -447,13 +446,15 @@ impl Engine {
         queue.submit(Some(encoder.finish()));
         for id in free_bufs {
             if let Some(buf) = self.bind_map.buf_map.remove(&id) {
-                let props = BufferProperties {
-                    size: buf.buffer.size(),
-                    usages: buf.buffer.usage(),
-                    #[cfg(feature = "buffer_labels")]
-                    name: buf.label,
-                };
-                self.pool.bufs.entry(props).or_default().push(buf.buffer);
+                if let MaterializedBuffer::Gpu(gpu_buf) = buf.buffer {
+                    let props = BufferProperties {
+                        size: gpu_buf.size(),
+                        usages: gpu_buf.usage(),
+                        #[cfg(feature = "buffer_labels")]
+                        name: buf.label,
+                    };
+                    self.pool.bufs.entry(props).or_default().push(gpu_buf);
+                }
             }
         }
         for id in free_images {
@@ -652,10 +653,18 @@ impl BindMap {
         self.buf_map.insert(
             proxy.id,
             BindMapBuffer {
-                buffer,
+                buffer: MaterializedBuffer::Gpu(buffer),
                 label: proxy.name,
             },
         );
+    }
+
+    // Get a buffer, only if it's on GPU.
+    fn get_gpu_buf(&self, id: Id) -> Option<&Buffer> {
+        self.buf_map.get(&id).and_then(|b| match &b.buffer {
+            MaterializedBuffer::Gpu(b) => Some(b),
+            _ => None,
+        })
     }
 
     fn insert_image(&mut self, id: Id, image: Texture, image_view: TextureView) {
@@ -714,7 +723,7 @@ impl BindMap {
                             | BufferUsages::INDIRECT;
                         let buf = pool.get_buf(proxy.size, proxy.name, usage, device);
                         v.insert(BindMapBuffer {
-                            buffer: buf,
+                            buffer: MaterializedBuffer::Gpu(buf),
                             label: proxy.name,
                         });
                     }
@@ -760,7 +769,7 @@ impl BindMap {
             .map(|(i, proxy)| match proxy {
                 ResourceProxy::Buf(proxy) => {
                     let buf = find_buf(external_resources, proxy)
-                        .or_else(|| self.buf_map.get(&proxy.id).map(|buf| &buf.buffer))
+                        .or_else(|| self.get_gpu_buf(proxy.id))
                         .unwrap();
                     Ok(wgpu::BindGroupEntry {
                         binding: i as u32,
@@ -786,20 +795,21 @@ impl BindMap {
         Ok(bind_group)
     }
 
+    /// Get a buffer (CPU or GPU), create on GPU if not present.
     fn get_or_create(
         &mut self,
         proxy: BufProxy,
         device: &Device,
         pool: &mut ResourcePool,
-    ) -> Result<&Buffer, Error> {
+    ) -> Result<&mut MaterializedBuffer, Error> {
         match self.buf_map.entry(proxy.id) {
-            Entry::Occupied(occupied) => Ok(&occupied.into_mut().buffer),
+            Entry::Occupied(occupied) => Ok(&mut occupied.into_mut().buffer),
             Entry::Vacant(vacant) => {
                 let usage = BufferUsages::COPY_SRC | BufferUsages::COPY_DST | BufferUsages::STORAGE;
                 let buf = pool.get_buf(proxy.size, proxy.name, usage, device);
-                Ok(&vacant
+                Ok(&mut vacant
                     .insert(BindMapBuffer {
-                        buffer: buf,
+                        buffer: MaterializedBuffer::Gpu(buf),
                         label: proxy.name,
                     })
                     .buffer)

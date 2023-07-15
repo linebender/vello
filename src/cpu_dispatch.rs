@@ -6,7 +6,14 @@ pub enum CpuResourceRef<'a> {
 }
 
 impl<'a> CpuResourceRef<'a> {
-    pub fn as_buf(&mut self) -> &mut [u8] {
+    pub fn as_buf(&self) -> &[u8] {
+        match self {
+            CpuResourceRef::Buffer(b) => b,
+            _ => panic!("resource type mismatch"),
+        }
+    }
+
+    pub fn as_buf_mut(&mut self) -> &mut [u8] {
         match self {
             CpuResourceRef::Buffer(b) => b,
             _ => panic!("resource type mismatch"),

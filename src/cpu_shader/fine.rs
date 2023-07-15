@@ -5,7 +5,7 @@ use vello_encoding::{ConfigUniform, PathSegment, Tile};
 
 use crate::cpu_dispatch::CpuTexture;
 
-use super::{CMD_END, CMD_FILL, CMD_JUMP, PTCL_INITIAL_ALLOC, CMD_SOLID, CMD_COLOR};
+use super::{CMD_COLOR, CMD_END, CMD_FILL, CMD_JUMP, CMD_SOLID, PTCL_INITIAL_ALLOC};
 
 // These should also move into a common area
 const TILE_WIDTH: usize = 16;
