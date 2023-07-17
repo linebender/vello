@@ -3,6 +3,8 @@
 
 use vello_encoding::{BinHeader, BumpAllocators, ConfigUniform, DrawMonoid, PathBbox};
 
+use crate::cpu_dispatch::CpuBinding;
+
 const WG_SIZE: usize = 256;
 const TILE_WIDTH: usize = 16;
 const TILE_HEIGHT: usize = 16;
@@ -20,14 +22,13 @@ fn bbox_intersect(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
     ]
 }
 
-pub fn binning(
+fn binning_main(
     n_wg: u32,
     config: &ConfigUniform,
     draw_monoids: &[DrawMonoid],
     path_bbox_buf: &[PathBbox],
     clip_bbox_buf: &[[f32; 4]],
     intersected_bbox: &mut [[f32; 4]],
-    info: &mut [u32],
     bump: &mut BumpAllocators,
     bin_data: &mut [u32],
     bin_header: &mut [BinHeader],
@@ -105,4 +106,34 @@ pub fn binning(
             }
         }
     }
+}
+
+pub fn binning(n_wg: u32, resources: &[CpuBinding]) {
+    let r0 = resources[0].as_buf();
+    let r1 = resources[1].as_buf();
+    let r2 = resources[2].as_buf();
+    let r3 = resources[3].as_buf();
+    let mut r4 = resources[4].as_buf();
+    let mut r5 = resources[5].as_buf();
+    let mut r6 = resources[6].as_buf();
+    let mut r7 = resources[7].as_buf();
+    let config = bytemuck::from_bytes(&r0);
+    let draw_monoids = bytemuck::cast_slice(&r1);
+    let path_bbox_buf = bytemuck::cast_slice(&r2);
+    let clip_bbox_buf = bytemuck::cast_slice(&r3);
+    let intersected_bbox = bytemuck::cast_slice_mut(r4.as_mut());
+    let bump = bytemuck::from_bytes_mut(r5.as_mut());
+    let bin_data = bytemuck::cast_slice_mut(r6.as_mut());
+    let bin_header = bytemuck::cast_slice_mut(r7.as_mut());
+    binning_main(
+        n_wg,
+        config,
+        draw_monoids,
+        path_bbox_buf,
+        clip_bbox_buf,
+        intersected_bbox,
+        bump,
+        bin_data,
+        bin_header,
+    );
 }

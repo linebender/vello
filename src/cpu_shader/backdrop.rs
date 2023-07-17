@@ -3,6 +3,8 @@
 
 use vello_encoding::{ConfigUniform, Path, Tile};
 
+use crate::cpu_dispatch::CpuBinding;
+
 fn backdrop_main(config: &ConfigUniform, paths: &[Path], tiles: &mut [Tile]) {
     for drawobj_ix in 0..config.layout.n_draw_objects {
         let path = paths[drawobj_ix as usize];
@@ -18,4 +20,14 @@ fn backdrop_main(config: &ConfigUniform, paths: &[Path], tiles: &mut [Tile]) {
             }
         }
     }
+}
+
+pub fn backdrop(_n_wg: u32, resources: &[CpuBinding]) {
+    let r0 = resources[0].as_buf();
+    let r1 = resources[1].as_buf();
+    let mut r2 = resources[2].as_buf();
+    let config = bytemuck::from_bytes(&r0);
+    let paths = bytemuck::cast_slice(&r1);
+    let tiles = bytemuck::cast_slice_mut(r2.as_mut());
+    backdrop_main(config, paths, tiles);
 }

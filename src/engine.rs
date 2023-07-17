@@ -694,6 +694,7 @@ impl BindMap {
     ///
     /// Panics if buffer is not present or is on GPU.
     fn get_cpu_buf(&self, id: Id) -> CpuBinding {
+        println!("{}", self.buf_map[&id].label);
         match &self.buf_map[&id].buffer {
             MaterializedBuffer::Cpu(b) => CpuBinding::BufferRW(b),
             _ => panic!("getting cpu buffer, but it's on gpu"),

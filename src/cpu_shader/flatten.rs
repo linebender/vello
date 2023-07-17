@@ -1,9 +1,11 @@
 // Copyright 2023 The Vello authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use crate::cpu_dispatch::CpuBinding;
+
 use super::util::{Transform, Vec2};
 use vello_encoding::{
-    BumpAllocators, ConfigUniform, LineSoup, Monoid, PathBbox, PathMonoid, PathTag, RenderConfig,
+    BumpAllocators, ConfigUniform, LineSoup, Monoid, PathBbox, PathMonoid, PathTag,
 };
 
 fn to_minus_one_quarter(x: f32) -> f32 {
@@ -281,4 +283,20 @@ fn flatten_main(
         }
     }
     bump.lines = line_ix as u32;
+}
+
+pub fn flatten(n_wg: u32, resources: &[CpuBinding]) {
+    let r0 = resources[0].as_buf();
+    let r1 = resources[1].as_buf();
+    let r2 = resources[2].as_buf();
+    let mut r3 = resources[3].as_buf();
+    let mut r4 = resources[4].as_buf();
+    let mut r5 = resources[5].as_buf();
+    let config = bytemuck::from_bytes(&r0);
+    let scene = bytemuck::cast_slice(&r1);
+    let tag_monoids = bytemuck::cast_slice(&r2);
+    let path_bboxes = bytemuck::cast_slice_mut(r3.as_mut());
+    let bump = bytemuck::from_bytes_mut(r4.as_mut());
+    let lines = bytemuck::cast_slice_mut(r5.as_mut());
+    flatten_main(n_wg, config, scene, tag_monoids, path_bboxes, bump, lines);
 }

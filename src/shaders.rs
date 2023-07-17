@@ -22,7 +22,10 @@ use std::collections::HashSet;
 
 use wgpu::Device;
 
-use crate::{engine::{BindType, Engine, Error, ImageFormat, ShaderId}, cpu_shader};
+use crate::{
+    cpu_shader,
+    engine::{BindType, Engine, Error, ImageFormat, ShaderId},
+};
 
 macro_rules! shader {
     ($name:expr) => {&{
@@ -126,6 +129,7 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
             BindType::Buffer,
         ],
     )?;
+    engine.set_cpu_shader(pathtag_scan, cpu_shader::pathtag_scan);
     let pathtag_scan_large = engine.add_shader(
         device,
         "pathtag_scan",
@@ -143,6 +147,7 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
         preprocess::preprocess(shader!("bbox_clear"), &empty, &imports).into(),
         &[BindType::Uniform, BindType::Buffer],
     )?;
+    engine.set_cpu_shader(bbox_clear, cpu_shader::bbox_clear);
     let pathseg = engine.add_shader(
         device,
         "pathseg",
@@ -168,6 +173,7 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
             BindType::Buffer,
         ],
     )?;
+    engine.set_cpu_shader(flatten, cpu_shader::flatten);
     let draw_reduce = engine.add_shader(
         device,
         "draw_reduce",

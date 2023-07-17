@@ -5,6 +5,8 @@ use vello_encoding::{
     BinHeader, BumpAllocators, ConfigUniform, DrawMonoid, DrawTag, Path, RenderConfig, Tile,
 };
 
+use crate::cpu_dispatch::CpuBinding;
+
 use super::{CMD_COLOR, CMD_END, CMD_FILL, CMD_JUMP, CMD_SOLID, PTCL_INITIAL_ALLOC};
 
 const N_TILE_X: usize = 16;
@@ -178,4 +180,36 @@ fn coarse_main(
             }
         }
     }
+}
+
+pub fn coarse(n_wg: u32, resources: &[CpuBinding]) {
+    let r0 = resources[0].as_buf();
+    let r1 = resources[1].as_buf();
+    let r2 = resources[2].as_buf();
+    let r3 = resources[3].as_buf();
+    let r4 = resources[4].as_buf();
+    let r5 = resources[5].as_buf();
+    let r6 = resources[6].as_buf();
+    let mut r7 = resources[7].as_buf();
+    let mut r8 = resources[8].as_buf();
+    let config = bytemuck::from_bytes(&r0);
+    let scene = bytemuck::cast_slice(&r1);
+    let draw_monoids = bytemuck::cast_slice(&r2);
+    let bin_headers = bytemuck::cast_slice(&r3);
+    let info_bin_data = bytemuck::cast_slice(&r4);
+    let paths = bytemuck::cast_slice(&r5);
+    let tiles = bytemuck::cast_slice(&r6);
+    let bump = bytemuck::from_bytes_mut(r7.as_mut());
+    let ptcl = bytemuck::cast_slice_mut(r8.as_mut());
+    coarse_main(
+        config,
+        scene,
+        draw_monoids,
+        bin_headers,
+        info_bin_data,
+        paths,
+        tiles,
+        bump,
+        ptcl,
+    );
 }

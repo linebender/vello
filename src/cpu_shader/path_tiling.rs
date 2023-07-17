@@ -3,13 +3,15 @@
 
 use vello_encoding::{BumpAllocators, LineSoup, Path, PathSegment, SegmentCount, Tile};
 
+use crate::cpu_dispatch::CpuBinding;
+
 use super::util::{span, Vec2};
 
 const TILE_WIDTH: u32 = 16;
 const TILE_HEIGHT: u32 = 16;
 const TILE_SCALE: f32 = 1.0 / 16.0;
 
-pub fn path_tiling(
+fn path_tiling_main(
     bump: &mut BumpAllocators,
     seg_counts: &[SegmentCount],
     lines: &[LineSoup],
@@ -137,4 +139,20 @@ pub fn path_tiling(
         };
         segments[(tile.segments + seg_within_slice) as usize] = segment;
     }
+}
+
+pub fn path_tiling(n_wg: u32, resources: &[CpuBinding]) {
+    let mut r0 = resources[0].as_buf();
+    let r1 = resources[1].as_buf();
+    let r2 = resources[2].as_buf();
+    let r3 = resources[3].as_buf();
+    let r4 = resources[4].as_buf();
+    let mut r5 = resources[5].as_buf();
+    let bump = bytemuck::from_bytes_mut(r0.as_mut());
+    let seg_counts = bytemuck::cast_slice(&r1);
+    let lines = bytemuck::cast_slice(&r2);
+    let paths = bytemuck::cast_slice(&r3);
+    let tiles = bytemuck::cast_slice(&r4);
+    let segments = bytemuck::cast_slice_mut(r5.as_mut());
+    path_tiling_main(bump, seg_counts, lines, paths, tiles, segments);
 }
