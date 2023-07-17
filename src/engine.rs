@@ -406,6 +406,7 @@ impl Engine {
                             &mut self.bind_map,
                             &mut self.pool,
                             device,
+                            queue,
                             &shader.bind_group_layout,
                             bindings,
                         )?;
@@ -421,6 +422,7 @@ impl Engine {
                         &mut self.bind_map,
                         &mut self.pool,
                         device,
+                        queue,
                         &shader.bind_group_layout,
                         bindings,
                     )?;
@@ -719,13 +721,13 @@ impl BindMap {
         proxy: BufProxy,
         device: &Device,
         pool: &mut ResourcePool,
-    ) -> Result<&mut MaterializedBuffer, Error> {
+    ) -> Result<&MaterializedBuffer, Error> {
         match self.buf_map.entry(proxy.id) {
-            Entry::Occupied(occupied) => Ok(&mut occupied.into_mut().buffer),
+            Entry::Occupied(occupied) => Ok(&occupied.into_mut().buffer),
             Entry::Vacant(vacant) => {
                 let usage = BufferUsages::COPY_SRC | BufferUsages::COPY_DST | BufferUsages::STORAGE;
                 let buf = pool.get_buf(proxy.size, proxy.name, usage, device);
-                Ok(&mut vacant
+                Ok(&vacant
                     .insert(BindMapBuffer {
                         buffer: MaterializedBuffer::Gpu(buf),
                         label: proxy.name,
@@ -820,6 +822,24 @@ impl ResourcePool {
     }
 }
 
+impl BindMapBuffer {
+    fn upload_if_needed(
+        &mut self,
+        proxy: &BufProxy,
+        device: &Device,
+        queue: &Queue,
+        pool: &mut ResourcePool,
+    ) {
+        if let MaterializedBuffer::Cpu(cpu_buf) = &self.buffer {
+            // Maybe we need indirect sometimes? (CPU setup stage feeds GPU indirect dispatch)
+            let usage = BufferUsages::COPY_SRC | BufferUsages::COPY_DST | BufferUsages::STORAGE;
+            let buf = pool.get_buf(proxy.size, proxy.name, usage, device);
+            queue.write_buffer(&buf, 0, &cpu_buf.borrow());
+            self.buffer = MaterializedBuffer::Gpu(buf);
+        }
+    }
+}
+
 impl<'a> TransientBindMap<'a> {
     /// Create new transient bind map, seeded from external resources
     fn new(external_resources: &'a [ExternalResource]) -> Self {
@@ -843,6 +863,7 @@ impl<'a> TransientBindMap<'a> {
         bind_map: &mut BindMap,
         pool: &mut ResourcePool,
         device: &Device,
+        queue: &Queue,
         layout: &BindGroupLayout,
         bindings: &[ResourceProxy],
     ) -> Result<BindGroup, Error> {
@@ -852,17 +873,22 @@ impl<'a> TransientBindMap<'a> {
                     if self.bufs.contains_key(&proxy.id) {
                         continue;
                     }
-                    if let Entry::Vacant(v) = bind_map.buf_map.entry(proxy.id) {
-                        // TODO: only some buffers will need indirect, but does it hurt?
-                        let usage = BufferUsages::COPY_SRC
-                            | BufferUsages::COPY_DST
-                            | BufferUsages::STORAGE
-                            | BufferUsages::INDIRECT;
-                        let buf = pool.get_buf(proxy.size, proxy.name, usage, device);
-                        v.insert(BindMapBuffer {
-                            buffer: MaterializedBuffer::Gpu(buf),
-                            label: proxy.name,
-                        });
+                    match bind_map.buf_map.entry(proxy.id) {
+                        Entry::Vacant(v) => {
+                            // TODO: only some buffers will need indirect, but does it hurt?
+                            let usage = BufferUsages::COPY_SRC
+                                | BufferUsages::COPY_DST
+                                | BufferUsages::STORAGE
+                                | BufferUsages::INDIRECT;
+                            let buf = pool.get_buf(proxy.size, proxy.name, usage, device);
+                            v.insert(BindMapBuffer {
+                                buffer: MaterializedBuffer::Gpu(buf),
+                                label: proxy.name,
+                            });
+                        }
+                        Entry::Occupied(mut o) => {
+                            o.get_mut().upload_if_needed(proxy, device, queue, pool)
+                        }
                     }
                 }
                 ResourceProxy::Image(proxy) => {

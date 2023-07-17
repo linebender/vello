@@ -22,7 +22,7 @@ use std::collections::HashSet;
 
 use wgpu::Device;
 
-use crate::engine::{BindType, Engine, Error, ImageFormat, ShaderId};
+use crate::{engine::{BindType, Engine, Error, ImageFormat, ShaderId}, cpu_shader};
 
 macro_rules! shader {
     ($name:expr) => {&{
@@ -98,6 +98,7 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
         preprocess::preprocess(shader!("pathtag_reduce"), &full_config, &imports).into(),
         &[BindType::Uniform, BindType::BufReadOnly, BindType::Buffer],
     )?;
+    engine.set_cpu_shader(pathtag_reduce, cpu_shader::pathtag_reduce);
     let pathtag_reduce2 = engine.add_shader(
         device,
         "pathtag_reduce2",
