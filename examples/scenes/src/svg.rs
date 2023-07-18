@@ -7,6 +7,7 @@ use anyhow::{Ok, Result};
 use instant::Instant;
 use vello::{kurbo::Vec2, SceneBuilder, SceneFragment};
 use vello_svg::usvg;
+use vello_svg::usvg::TreeParsing;
 
 use crate::{ExampleScene, SceneParams, SceneSet};
 
