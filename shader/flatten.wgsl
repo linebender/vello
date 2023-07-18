@@ -213,6 +213,7 @@ fn main(
     pathdata_base = config.pathdata_base;
     let shift = (ix & 3u) * 8u;
     var tm = reduce_tag(tag_word & ((1u << shift) - 1u));
+    // TODO: this can be a read buf overflow. Conditionalize by tag byte?
     tm = combine_tag_monoid(tag_monoids[ix >> 2u], tm);
     var tag_byte = (tag_word >> shift) & 0xffu;
 

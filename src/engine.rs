@@ -23,8 +23,8 @@ use std::{
 };
 
 use wgpu::{
-    BindGroup, BindGroupLayout, Buffer, BufferUsages, ComputePipeline, Device, Queue, Texture,
-    TextureAspect, TextureUsages, TextureView, TextureViewDimension,
+    BindGroup, BindGroupLayout, Buffer, BufferUsages, CommandEncoder, ComputePipeline, Device,
+    Queue, Texture, TextureAspect, TextureUsages, TextureView, TextureViewDimension,
 };
 
 use crate::cpu_dispatch::CpuBinding;
@@ -137,6 +137,7 @@ struct BindMapBuffer {
 struct BindMap {
     buf_map: HashMap<Id, BindMapBuffer>,
     image_map: HashMap<Id, (Texture, TextureView)>,
+    pending_clears: HashSet<Id>,
 }
 
 #[derive(Hash, PartialEq, Eq)]
@@ -407,6 +408,7 @@ impl Engine {
                             &mut self.pool,
                             device,
                             queue,
+                            &mut encoder,
                             &shader.bind_group_layout,
                             bindings,
                         )?;
@@ -423,6 +425,7 @@ impl Engine {
                         &mut self.pool,
                         device,
                         queue,
+                        &mut encoder,
                         &shader.bind_group_layout,
                         bindings,
                     )?;
@@ -446,16 +449,21 @@ impl Engine {
                     self.downloads.insert(proxy.id, buf);
                 }
                 Command::Clear(proxy, offset, size) => {
-                    let buffer = self
-                        .bind_map
-                        .get_or_create(*proxy, device, &mut self.pool)?;
-                    match buffer {
-                        MaterializedBuffer::Gpu(b) => encoder.clear_buffer(&b, *offset, *size),
-                        MaterializedBuffer::Cpu(b) => {
-                            for x in &mut *b.borrow_mut() {
-                                *x = 0;
+                    if let Some(buf) = self.bind_map.get_buf(*proxy) {
+                        match &buf.buffer {
+                            MaterializedBuffer::Gpu(b) => encoder.clear_buffer(&b, *offset, *size),
+                            MaterializedBuffer::Cpu(b) => {
+                                let mut slice = &mut b.borrow_mut()[*offset as usize..];
+                                if let Some(size) = size {
+                                    slice = &mut slice[..size.get() as usize];
+                                }
+                                for x in slice {
+                                    *x = 0;
+                                }
                             }
                         }
+                    } else {
+                        self.bind_map.pending_clears.insert(proxy.id);
                     }
                 }
                 Command::FreeBuf(proxy) => {
@@ -694,7 +702,6 @@ impl BindMap {
     ///
     /// Panics if buffer is not present or is on GPU.
     fn get_cpu_buf(&self, id: Id) -> CpuBinding {
-        println!("{}", self.buf_map[&id].label);
         match &self.buf_map[&id].buffer {
             MaterializedBuffer::Cpu(b) => CpuBinding::BufferRW(b),
             _ => panic!("getting cpu buffer, but it's on gpu"),
@@ -736,6 +743,10 @@ impl BindMap {
                     .buffer)
             }
         }
+    }
+
+    fn get_buf(&mut self, proxy: BufProxy) -> Option<&BindMapBuffer> {
+        self.buf_map.get(&proxy.id)
     }
 
     fn get_or_create_image(
@@ -865,6 +876,7 @@ impl<'a> TransientBindMap<'a> {
         pool: &mut ResourcePool,
         device: &Device,
         queue: &Queue,
+        encoder: &mut CommandEncoder,
         layout: &BindGroupLayout,
         bindings: &[ResourceProxy],
     ) -> Result<BindGroup, Error> {
@@ -882,6 +894,9 @@ impl<'a> TransientBindMap<'a> {
                                 | BufferUsages::STORAGE
                                 | BufferUsages::INDIRECT;
                             let buf = pool.get_buf(proxy.size, proxy.name, usage, device);
+                            if bind_map.pending_clears.remove(&proxy.id) {
+                                encoder.clear_buffer(&buf, 0, None);
+                            }
                             v.insert(BindMapBuffer {
                                 buffer: MaterializedBuffer::Gpu(buf),
                                 label: proxy.name,

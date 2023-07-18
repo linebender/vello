@@ -42,7 +42,7 @@ fn estimate_subdiv(p0: Vec2, p1: Vec2, p2: Vec2, sqrt_tol: f32) -> SubdivResult 
     };
     let x0 = d01.dot(dd) * cross_inv;
     let x2 = d12.dot(dd) * cross_inv;
-    let scale = (cross / dd.length() * (x2 - x0)).abs();
+    let scale = (cross / (dd.length() * (x2 - x0))).abs();
     let a0 = approx_parabola_integral(x0);
     let a2 = approx_parabola_integral(x2);
     let mut val = 0.0;
@@ -137,6 +137,7 @@ fn flatten_cubic(cubic: Cubic, line_ix: &mut usize, lines: &mut [LineSoup]) {
             };
             let ls = LineSoup {
                 path_ix: cubic.path_ix,
+                pad0: 0,
                 p0: lp0.to_array(),
                 p1: lp1.to_array(),
             };
@@ -210,20 +211,22 @@ fn flatten_main(
         let tag_word = scene[config.layout.path_tag_base as usize + (ix >> 2)];
         let shift = (ix & 3) * 8;
         let mut tm = PathMonoid::new(tag_word & ((1 << shift) - 1));
-        tm = tag_monoids[ix >> 2].combine(&tm);
         let tag_byte = (tag_word >> shift) as u8;
+        if tag_byte != 0 {
+            tm = tag_monoids[ix >> 2].combine(&tm);
+        }
         let linewidth =
             f32::from_bits(scene[(config.layout.linewidth_base + tm.linewidth_ix) as usize]);
-        let out = &mut path_bboxes[tm.path_ix as usize];
         if (tag_byte & PATH_TAG_PATH) != 0 {
+            let out = &mut path_bboxes[tm.path_ix as usize];
             out.linewidth = linewidth;
             out.trans_ix = tm.trans_ix;
         }
         let seg_type = tag_byte & PATH_TAG_SEG_TYPE;
         let pathdata = &scene[config.layout.path_data_base as usize..];
         if seg_type != 0 {
-            let mut p0 = Vec2::default();
-            let mut p1 = Vec2::default();
+            let mut p0;
+            let mut p1;
             let mut p2 = Vec2::default();
             let mut p3 = Vec2::default();
             if (tag_byte & PATH_TAG_F32) != 0 {
@@ -273,13 +276,14 @@ fn flatten_main(
                 flags,
             };
             flatten_cubic(cubic, &mut line_ix, lines);
-            if (tag_byte & PATH_TAG_PATH) != 0 {
-                out.x0 = bbox.x0;
-                out.y0 = bbox.y0;
-                out.x1 = bbox.x1;
-                out.y1 = bbox.y1;
-                bbox = IntBbox::default();
-            }
+        }
+        if (tag_byte & PATH_TAG_PATH) != 0 {
+            let out = &mut path_bboxes[tm.path_ix as usize];
+            out.x0 = bbox.x0;
+            out.y0 = bbox.y0;
+            out.x1 = bbox.x1;
+            out.y1 = bbox.y1;
+            bbox = IntBbox::default();
         }
     }
     bump.lines = line_ix as u32;

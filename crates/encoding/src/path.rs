@@ -11,6 +11,7 @@ use super::Monoid;
 #[repr(C)]
 pub struct LineSoup {
     pub path_ix: u32,
+    pub pad0: u32,
     pub p0: [f32; 2],
     pub p1: [f32; 2],
 }

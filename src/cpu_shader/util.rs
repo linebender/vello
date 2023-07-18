@@ -3,7 +3,7 @@
 
 //! Utility types
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, Debug)]
 #[repr(C)]
 pub struct Vec2 {
     pub x: f32,
