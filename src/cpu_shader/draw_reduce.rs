@@ -17,7 +17,12 @@ pub fn draw_reduce_main(
     for i in 0..n_wg {
         let mut m = DrawMonoid::default();
         for j in 0..WG_SIZE {
-            let tag = scene[(drawtag_base + i * WG_SIZE as u32) as usize + j];
+            let ix = i * WG_SIZE as u32 + j as u32;
+            let tag = if ix < config.layout.n_draw_objects {
+                scene[(drawtag_base + ix) as usize]
+            } else {
+                0
+            };
             m = m.combine(&DrawMonoid::new(DrawTag(tag)));
         }
         reduced[i as usize] = m;

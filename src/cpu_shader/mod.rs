@@ -20,6 +20,7 @@ mod pathtag_scan;
 mod tile_alloc;
 mod util;
 
+pub use backdrop::backdrop;
 pub use bbox_clear::bbox_clear;
 pub use binning::binning;
 pub use coarse::coarse;

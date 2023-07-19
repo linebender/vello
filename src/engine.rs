@@ -420,23 +420,38 @@ impl Engine {
                 }
                 Command::DispatchIndirect(shader_id, proxy, offset, bindings) => {
                     let shader = &self.shaders[shader_id.0];
-                    let bind_group = transient_map.create_bind_group(
-                        &mut self.bind_map,
-                        &mut self.pool,
-                        device,
-                        queue,
-                        &mut encoder,
-                        &shader.bind_group_layout,
-                        bindings,
-                    )?;
-                    let mut cpass = encoder.begin_compute_pass(&Default::default());
-                    cpass.set_pipeline(&shader.pipeline);
-                    cpass.set_bind_group(0, &bind_group, &[]);
-                    let buf = self
-                        .bind_map
-                        .get_gpu_buf(proxy.id)
-                        .ok_or("buffer for indirect dispatch not in map")?;
-                    cpass.dispatch_workgroups_indirect(&buf, *offset);
+                    if let Some(cpu_shader) = shader.cpu_shader {
+                        let n_wg;
+                        if let CpuBinding::BufferRW(b) = self.bind_map.get_cpu_buf(proxy.id) {
+                            let slice = b.borrow();
+                            let indirect: &[u32] = bytemuck::cast_slice(&slice);
+                            n_wg = indirect[0];
+                        } else {
+                            panic!("indirect buffer missing from bind map");
+                        }
+                        let resources =
+                            transient_map.create_cpu_resources(&mut self.bind_map, bindings);
+                        cpu_shader(n_wg, &resources);
+                    } else {
+                        let bind_group = transient_map.create_bind_group(
+                            &mut self.bind_map,
+                            &mut self.pool,
+                            device,
+                            queue,
+                            &mut encoder,
+                            &shader.bind_group_layout,
+                            bindings,
+                        )?;
+                        transient_map.materialize_gpu_buf_for_indirect(&mut self.bind_map, &mut self.pool, device, queue, proxy);
+                        let mut cpass = encoder.begin_compute_pass(&Default::default());
+                        cpass.set_pipeline(&shader.pipeline);
+                        cpass.set_bind_group(0, &bind_group, &[]);
+                        let buf = self
+                            .bind_map
+                            .get_gpu_buf(proxy.id)
+                            .ok_or("buffer for indirect dispatch not in map")?;
+                        cpass.dispatch_workgroups_indirect(&buf, *offset);
+                    }
                 }
                 Command::Download(proxy) => {
                     let src_buf = self
@@ -843,8 +858,10 @@ impl BindMapBuffer {
         pool: &mut ResourcePool,
     ) {
         if let MaterializedBuffer::Cpu(cpu_buf) = &self.buffer {
-            // Maybe we need indirect sometimes? (CPU setup stage feeds GPU indirect dispatch)
-            let usage = BufferUsages::COPY_SRC | BufferUsages::COPY_DST | BufferUsages::STORAGE;
+            let usage = BufferUsages::COPY_SRC
+                | BufferUsages::COPY_DST
+                | BufferUsages::STORAGE
+                | BufferUsages::INDIRECT;
             let buf = pool.get_buf(proxy.size, proxy.name, usage, device);
             queue.write_buffer(&buf, 0, &cpu_buf.borrow());
             self.buffer = MaterializedBuffer::Gpu(buf);
@@ -868,6 +885,21 @@ impl<'a> TransientBindMap<'a> {
             }
         }
         TransientBindMap { bufs, images }
+    }
+
+    fn materialize_gpu_buf_for_indirect(
+        &mut self,
+        bind_map: &mut BindMap,
+        pool: &mut ResourcePool,
+        device: &Device,
+        queue: &Queue,
+        buf: &BufProxy,
+    ) {
+        if !self.bufs.contains_key(&buf.id) {
+            if let Some(b) = bind_map.buf_map.get_mut(&buf.id) {
+                b.upload_if_needed(&buf, device, queue, pool);
+            }
+        }
     }
 
     fn create_bind_group(

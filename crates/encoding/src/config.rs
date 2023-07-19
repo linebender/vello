@@ -48,6 +48,7 @@ pub struct IndirectCount {
     pub count_x: u32,
     pub count_y: u32,
     pub count_z: u32,
+    pub pad0: u32,
 }
 
 /// Uniform render configuration data used by all GPU stages.

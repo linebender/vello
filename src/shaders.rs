@@ -180,6 +180,7 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
         preprocess::preprocess(shader!("draw_reduce"), &empty, &imports).into(),
         &[BindType::Uniform, BindType::BufReadOnly, BindType::Buffer],
     )?;
+    engine.set_cpu_shader(draw_reduce, cpu_shader::draw_reduce);
     let draw_leaf = engine.add_shader(
         device,
         "draw_leaf",
@@ -194,6 +195,7 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
             BindType::Buffer,
         ],
     )?;
+    engine.set_cpu_shader(draw_leaf, cpu_shader::draw_leaf);
     let clip_reduce = engine.add_shader(
         device,
         "clip_reduce",
@@ -235,6 +237,7 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
             BindType::Buffer,
         ],
     )?;
+    engine.set_cpu_shader(binning, cpu_shader::binning);
     let tile_alloc = engine.add_shader(
         device,
         "tile_alloc",
@@ -248,12 +251,14 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
             BindType::Buffer,
         ],
     )?;
+    engine.set_cpu_shader(tile_alloc, cpu_shader::tile_alloc);
     let path_count_setup = engine.add_shader(
         device,
         "path_count_setup",
         preprocess::preprocess(shader!("path_count_setup"), &empty, &imports).into(),
         &[BindType::BufReadOnly, BindType::Buffer],
     )?;
+    engine.set_cpu_shader(path_count_setup, cpu_shader::path_count_setup);
     let path_count = engine.add_shader(
         device,
         "path_count",
@@ -267,12 +272,14 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
             BindType::Buffer,
         ],
     )?;
+    engine.set_cpu_shader(path_count, cpu_shader::path_count);
     let backdrop = engine.add_shader(
         device,
         "backdrop_dyn",
         preprocess::preprocess(shader!("backdrop_dyn"), &empty, &imports).into(),
         &[BindType::Uniform, BindType::BufReadOnly, BindType::Buffer],
     )?;
+    engine.set_cpu_shader(backdrop, cpu_shader::backdrop);
     let coarse = engine.add_shader(
         device,
         "coarse",
@@ -289,12 +296,14 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
             BindType::Buffer,
         ],
     )?;
+    engine.set_cpu_shader(coarse, cpu_shader::coarse);
     let path_tiling_setup = engine.add_shader(
         device,
         "path_tiling_setup",
         preprocess::preprocess(shader!("path_tiling_setup"), &empty, &imports).into(),
         &[BindType::BufReadOnly, BindType::Buffer],
     )?;
+    engine.set_cpu_shader(path_tiling_setup, cpu_shader::path_tiling_setup);
     let path_tiling = engine.add_shader(
         device,
         "path_tiling",

@@ -99,7 +99,7 @@ fn run(
     let mut simple_text = SimpleText::new();
     let mut images = ImageCache::new();
     let mut stats = stats::Stats::new();
-    let mut stats_shown = true;
+    let mut stats_shown = false;
     let mut vsync_on = true;
     let mut frame_start_time = Instant::now();
     let start = Instant::now();

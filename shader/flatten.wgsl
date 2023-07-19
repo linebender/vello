@@ -99,7 +99,7 @@ fn flatten_cubic(cubic: Cubic) {
     let err = dot(err_v, err_v);
     let ACCURACY = 0.25;
     let Q_ACCURACY = ACCURACY * 0.1;
-    let REM_ACCURACY = (ACCURACY - Q_ACCURACY);
+    let REM_ACCURACY = ACCURACY - Q_ACCURACY;
     let MAX_HYPOT2 = 432.0 * Q_ACCURACY * Q_ACCURACY;
     var n_quads = max(u32(ceil(pow(err * (1.0 / MAX_HYPOT2), 1.0 / 6.0))), 1u);
     n_quads = min(n_quads, MAX_QUADS);

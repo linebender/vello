@@ -68,8 +68,8 @@ fn binning_main(
                 ];
                 intersected_bbox[element_ix] = bbox;
                 x0 = (bbox[0] * SX).floor() as i32;
-                x1 = (bbox[1] * SY).floor() as i32;
-                y0 = (bbox[2] * SX).ceil() as i32;
+                y0 = (bbox[1] * SY).floor() as i32;
+                x1 = (bbox[2] * SX).ceil() as i32;
                 y1 = (bbox[3] * SY).ceil() as i32;
             }
             x0 = x0.clamp(0, width_in_bins);
@@ -96,8 +96,8 @@ fn binning_main(
         for local_ix in 0..WG_SIZE {
             let element_ix = wg * WG_SIZE + local_ix;
             let bbox = bboxes[local_ix];
-            for y in bbox[2]..bbox[3] {
-                for x in bbox[0]..bbox[1] {
+            for y in bbox[1]..bbox[3] {
+                for x in bbox[0]..bbox[2] {
                     let bin_ix = (y * width_in_bins + x) as usize;
                     let ix = config.layout.bin_data_start + chunk_offset[bin_ix];
                     bin_data[ix as usize] = element_ix as u32;

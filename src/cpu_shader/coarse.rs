@@ -66,6 +66,7 @@ impl TileState {
         self.alloc_cmd(2, config, bump, ptcl);
         self.write(ptcl, 0, CMD_COLOR);
         self.write(ptcl, 1, rgba_color);
+        self.cmd_offset += 2;
     }
 }
 
@@ -76,7 +77,7 @@ fn coarse_main(
     bin_headers: &[BinHeader],
     info_bin_data: &[u32],
     paths: &[Path],
-    tiles: &[Tile],
+    tiles: &mut [Tile],
     bump: &mut BumpAllocators,
     ptcl: &mut [u32],
 ) {
@@ -141,7 +142,7 @@ fn coarse_main(
                 let stride = bbox[2] - bbox[0];
                 let x = bin_tile_x + tile_x - bbox[0];
                 let y = bin_tile_y + tile_y - bbox[1];
-                let tile = tiles[(path.tiles + y * stride + x) as usize];
+                let tile = &mut tiles[(path.tiles + y * stride + x) as usize];
                 // TODO: clip-related logic
                 let n_segs = tile.segments;
                 let include_tile = n_segs != 0 || tile.backdrop != 0;
@@ -152,6 +153,7 @@ fn coarse_main(
                         DrawTag::COLOR => {
                             if n_segs != 0 {
                                 let seg_ix = bump.segments;
+                                tile.segments = seg_ix;
                                 bump.segments += n_segs;
                                 tile_state.alloc_cmd(4, config, bump, ptcl);
                                 tile_state.write(ptcl, 0, CMD_FILL);
@@ -160,9 +162,11 @@ fn coarse_main(
                                 tile_state.write(ptcl, 1, size_and_rule);
                                 tile_state.write(ptcl, 2, seg_ix);
                                 tile_state.write(ptcl, 3, tile.backdrop as u32);
+                                tile_state.cmd_offset += 4;
                             } else {
                                 tile_state.alloc_cmd(1, config, bump, ptcl);
                                 tile_state.write(ptcl, 0, CMD_SOLID);
+                                tile_state.cmd_offset += 1;
                             }
                             let rgba_color = scene[dd as usize];
                             tile_state.write_color(config, bump, ptcl, rgba_color);
@@ -182,14 +186,14 @@ fn coarse_main(
     }
 }
 
-pub fn coarse(n_wg: u32, resources: &[CpuBinding]) {
+pub fn coarse(_n_wg: u32, resources: &[CpuBinding]) {
     let r0 = resources[0].as_buf();
     let r1 = resources[1].as_buf();
     let r2 = resources[2].as_buf();
     let r3 = resources[3].as_buf();
     let r4 = resources[4].as_buf();
     let r5 = resources[5].as_buf();
-    let r6 = resources[6].as_buf();
+    let mut r6 = resources[6].as_buf();
     let mut r7 = resources[7].as_buf();
     let mut r8 = resources[8].as_buf();
     let config = bytemuck::from_bytes(&r0);
@@ -198,7 +202,7 @@ pub fn coarse(n_wg: u32, resources: &[CpuBinding]) {
     let bin_headers = bytemuck::cast_slice(&r3);
     let info_bin_data = bytemuck::cast_slice(&r4);
     let paths = bytemuck::cast_slice(&r5);
-    let tiles = bytemuck::cast_slice(&r6);
+    let tiles = bytemuck::cast_slice_mut(r6.as_mut());
     let bump = bytemuck::from_bytes_mut(r7.as_mut());
     let ptcl = bytemuck::cast_slice_mut(r8.as_mut());
     coarse_main(

@@ -22,6 +22,9 @@ fn main(
     @builtin(local_invocation_id) local_id: vec3<u32>,
 ) {
     let ix = global_id.x;
+    // TODO: this can go out of bounds. There are two ways to fix it.
+    // We could guard it, or we could trim the size of the reduce dispatch
+    // so it only takes in full partitions.
     let tag_word = scene[config.drawtag_base + ix];
     var agg = map_draw_tag(tag_word);
     sh_scratch[local_id.x] = agg;

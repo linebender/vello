@@ -22,10 +22,17 @@ fn draw_leaf_main(
     for i in 0..n_wg {
         let mut m = prefix;
         for j in 0..WG_SIZE {
-            let ix = (i * WG_SIZE as u32) as usize + j;
-            let tag_word = DrawTag(scene[(drawtag_base + i * WG_SIZE as u32) as usize + j]);
+            let ix = i * WG_SIZE as u32 + j as u32;
+            let tag_raw = if ix < config.layout.n_draw_objects {
+                scene[(drawtag_base + ix) as usize]
+            } else {
+                0
+            };
+            let tag_word = DrawTag(tag_raw);
             // store exclusive prefix sum
-            draw_monoid[ix] = m;
+            if ix < config.layout.n_draw_objects {
+                draw_monoid[ix as usize] = m;
+            }
             let dd = config.layout.draw_data_base + m.scene_offset;
             let di = m.info_offset as usize;
             if tag_word == DrawTag::COLOR
