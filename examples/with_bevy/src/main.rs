@@ -21,8 +21,8 @@ struct VelloRenderer(Renderer);
 
 impl FromWorld for VelloRenderer {
     fn from_world(world: &mut World) -> Self {
-        let device = world.get_resource::<RenderDevice>().unwrap();
-        let queue = world.get_resource::<RenderQueue>().unwrap();
+        let device = world.resource::<RenderDevice>();
+        let queue = world.resource::<RenderQueue>();
 
         VelloRenderer(
             Renderer::new(
@@ -42,9 +42,13 @@ struct VelloPlugin;
 impl Plugin for VelloPlugin {
     fn build(&self, app: &mut App) {
         let Ok(render_app) = app.get_sub_app_mut(RenderApp) else { return };
-        render_app.init_resource::<VelloRenderer>();
         // This should probably use the render graph, but working out the dependencies there is awkward
         render_app.add_systems(Render, render_scenes.in_set(RenderSet::Render));
+    }
+
+    fn finish(&self, app: &mut App) {
+        let Ok(render_app) = app.get_sub_app_mut(RenderApp) else { return };
+        render_app.init_resource::<VelloRenderer>();
     }
 }
 
@@ -78,11 +82,11 @@ fn render_scenes(
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
-        .add_plugin(VelloPlugin)
+        .add_plugins(VelloPlugin)
         .add_systems(Startup, setup)
         .add_systems(Update, bevy::window::close_on_esc)
         .add_systems(Update, cube_rotator_system)
-        .add_plugin(ExtractComponentPlugin::<VelloScene>::default())
+        .add_plugins(ExtractComponentPlugin::<VelloScene>::default())
         .add_systems(Update, render_fragment)
         .run()
 }
