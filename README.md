@@ -37,6 +37,10 @@ This is currently incomplete; see its crate level documentation for more informa
 
 This is used in the [winit](#winit) example for the SVG rendering.
 
+### bevy_vello
+
+A separate integration for rendering lottie and SVG files in Bevy is available through the [`bevy_vello`]([https://github.com/linebender/velato](https://github.com/vectorgameexperts/bevy_vello) crate.
+
 ## Examples
 
 Our examples are provided in separate packages in the [`examples`](examples) folder.
