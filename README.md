@@ -76,6 +76,8 @@ This currently draws to a [`wgpu`] `Texture` using `vello`, then uses that textu
 cargo run -p with_bevy
 ```
 
+There is also a separate community integration for rendering lottie and SVG files through [`bevy_vello`]([https://github.com/linebender/velato](https://github.com/vectorgameexperts/bevy_vello).
+
 ## Platforms
 
 We aim to target all environments which can support WebGPU with the [default limits](https://www.w3.org/TR/webgpu/#limits). 
