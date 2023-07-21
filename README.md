@@ -37,6 +37,10 @@ This is currently incomplete; see its crate level documentation for more informa
 
 This is used in the [winit](#winit) example for the SVG rendering.
 
+### Lottie
+
+A separate integration for playing Lottie animations is available through the [`velato`](https://github.com/linebender/velato) crate.
+
 ## Examples
 
 Our examples are provided in separate packages in the [`examples`](examples) folder.
