@@ -41,10 +41,6 @@ This is used in the [winit](#winit) example for the SVG rendering.
 
 A separate integration for playing Lottie animations is available through the [`velato`](https://github.com/linebender/velato) crate.
 
-### Bevy
-
-This repository contains a minimal example [with_bevy](./examples/with_bevy/). There is also a separate community integration for rendering lottie and SVG files through [`bevy_vello`]([https://github.com/linebender/velato](https://github.com/vectorgameexperts/bevy_vello).
-
 ## Examples
 
 Our examples are provided in separate packages in the [`examples`](examples) folder.
@@ -79,6 +75,8 @@ This currently draws to a [`wgpu`] `Texture` using `vello`, then uses that textu
 ```shell
 cargo run -p with_bevy
 ```
+
+There is also a separate community integration for rendering lottie and SVG files through [`bevy_vello`]([https://github.com/linebender/velato](https://github.com/vectorgameexperts/bevy_vello).
 
 ## Platforms
 
