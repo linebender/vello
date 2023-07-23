@@ -17,7 +17,7 @@ members = [
 [workspace.package]
 edition = "2021"
 version = "0.0.1"
-license = "MIT/Apache-2.0"
+license = "MIT OR Apache-2.0"
 # homepage = "https://vello.dev" - Domain owned by us, but unused at present
 # rust-version = 
 repository = "https://github.com/linebender/vello"
