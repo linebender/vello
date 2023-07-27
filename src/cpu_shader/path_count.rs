@@ -92,7 +92,7 @@ fn path_count_main(
                 if (x0 + sign * (a * f + b).floor() < bbox[0] as f32) == is_positive_slope {
                     f += 1.0;
                 }
-                let ynext = (y0 + f - (a * f + b).floor()) as i32;
+                let ynext = (y0 + f - (a * f + b).floor() + 1.0) as i32;
                 if is_positive_slope {
                     if f as u32 > imin {
                         ymin = (y0 + if y0 == s0.y { 0.0 } else { 1.0 }) as i32;
@@ -115,7 +115,7 @@ fn path_count_main(
                 if is_positive_slope {
                     imax = imax.min(f as u32);
                 } else {
-                    imin = imin.min(f as u32);
+                    imin = imin.max(f as u32);
                 }
             }
         }
