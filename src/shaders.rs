@@ -317,6 +317,7 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
             BindType::Buffer,
         ],
     )?;
+    engine.set_cpu_shader(path_tiling, cpu_shader::path_tiling);
     let fine = engine.add_shader(
         device,
         "fine",

@@ -137,7 +137,7 @@ fn flatten_cubic(cubic: Cubic, line_ix: &mut usize, lines: &mut [LineSoup]) {
             };
             let ls = LineSoup {
                 path_ix: cubic.path_ix,
-                pad0: 0,
+                pad0: Default::default(),
                 p0: lp0.to_array(),
                 p1: lp1.to_array(),
             };

@@ -44,6 +44,10 @@ impl std::ops::Mul<f32> for Vec2 {
 }
 
 impl Vec2 {
+    pub fn new(x: f32, y: f32) -> Self {
+        Vec2 { x, y }
+    }
+
     pub fn dot(self, other: Vec2) -> f32 {
         self.x * other.x + self.y + other.y
     }

@@ -442,7 +442,13 @@ impl Engine {
                             &shader.bind_group_layout,
                             bindings,
                         )?;
-                        transient_map.materialize_gpu_buf_for_indirect(&mut self.bind_map, &mut self.pool, device, queue, proxy);
+                        transient_map.materialize_gpu_buf_for_indirect(
+                            &mut self.bind_map,
+                            &mut self.pool,
+                            device,
+                            queue,
+                            proxy,
+                        );
                         let mut cpass = encoder.begin_compute_pass(&Default::default());
                         cpass.set_pipeline(&shader.pipeline);
                         cpass.set_bind_group(0, &bind_group, &[]);

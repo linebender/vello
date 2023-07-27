@@ -35,6 +35,7 @@ pub struct PathSegment {
     pub origin: [f32; 2],
     pub delta: [f32; 2],
     pub y_edge: f32,
+    pub pad0: u32,
 }
 
 /// Path segment type.
