@@ -29,9 +29,7 @@ let WG_SIZE = 256u;
 
 var<workgroup> sh_tile_count: array<u32, WG_SIZE>;
 var<workgroup> sh_tile_offset: u32;
-#ifdef have_uniform
 var<workgroup> sh_atomic_failed: u32;
-#endif
 
 @compute @workgroup_size(256)
 fn main(
@@ -41,14 +39,10 @@ fn main(
     // Exit early if prior stages failed, as we can't run this stage.
     // We need to check only prior stages, as if this stage has failed in another workgroup, 
     // we still want to know this workgroup's memory requirement.
-#ifdef have_uniform
     if local_id.x == 0u {
         sh_atomic_failed = atomicLoad(&bump.failed);
     }
     let failed = workgroupUniformLoad(&sh_atomic_failed);
-#else
-    let failed = atomicLoad(&bump.failed);
-#endif
     if (failed & STAGE_BINNING) != 0u {
         return;
     }    

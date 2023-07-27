@@ -5,8 +5,7 @@ use {
     naga::{
         front::wgsl,
         valid::{Capabilities, ModuleInfo, ValidationError, ValidationFlags},
-        AddressSpace, ArraySize, ConstantInner, ImageClass, Module, ScalarValue, StorageAccess,
-        WithSpan,
+        AddressSpace, ArraySize, ImageClass, Module, StorageAccess, WithSpan,
     },
     std::{
         collections::{HashMap, HashSet},
@@ -76,19 +75,11 @@ impl ShaderInfo {
                     wg_buffer_idx += 1;
                     let size_in_bytes = match binding_ty {
                         naga::TypeInner::Array {
-                            size: ArraySize::Constant(const_handle),
+                            size: ArraySize::Constant(size),
                             stride,
                             ..
                         } => {
-                            let size: u32 = match module.constants[*const_handle].inner {
-                                ConstantInner::Scalar { value, width: _ } => match value {
-                                    ScalarValue::Uint(value) => value.try_into().unwrap(),
-                                    ScalarValue::Sint(value) => value.try_into().unwrap(),
-                                    _ => continue,
-                                },
-                                ConstantInner::Composite { .. } => continue,
-                            };
-                            size * stride
+                            u32::from(*size) * stride
                         },
                         naga::TypeInner::Struct { span, .. } => *span,
                         naga::TypeInner::Scalar { width, ..} => *width as u32,
