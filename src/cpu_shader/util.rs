@@ -71,7 +71,7 @@ impl Vec2 {
     }
 }
 
-pub struct Transform([f32; 6]);
+pub struct Transform(pub [f32; 6]);
 
 impl Transform {
     pub fn apply(&self, p: Vec2) -> Vec2 {

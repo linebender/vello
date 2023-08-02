@@ -5,6 +5,8 @@ use vello_encoding::{Clip, ConfigUniform, DrawMonoid, DrawTag, Monoid, PathBbox,
 
 use crate::cpu_dispatch::CpuBinding;
 
+use super::util::Transform;
+
 const WG_SIZE: usize = 256;
 
 fn draw_leaf_main(
@@ -42,11 +44,35 @@ fn draw_leaf_main(
                 || tag_word == DrawTag::BEGIN_CLIP
             {
                 let bbox = path_bbox[m.path_ix as usize];
+                let transform = Transform::read(config.layout.transform_base, bbox.trans_ix, scene);
                 let fill_mode = (bbox.linewidth >= 0.0) as u32;
                 let mut linewidth = bbox.linewidth;
                 match tag_word {
                     DrawTag::COLOR => {
                         info[di] = f32::to_bits(linewidth);
+                    }
+                    DrawTag::IMAGE => {
+                        let z = transform.0;
+                        info[di] = f32::to_bits(linewidth);
+                        let inv_det = (z[0] * z[3] - z[1] * z[2]).recip();
+                        let inv_mat = [
+                            z[3] * inv_det,
+                            -z[1] * inv_det,
+                            -z[2] * inv_det,
+                            z[0] * inv_det,
+                        ];
+                        let inv_tr = [
+                            -(inv_mat[0] * z[4] + inv_mat[2] * z[5]),
+                            -(inv_mat[1] * z[4] + inv_mat[3] * z[5]),
+                        ];
+                        info[di + 1] = f32::to_bits(inv_mat[0]);
+                        info[di + 2] = f32::to_bits(inv_mat[1]);
+                        info[di + 3] = f32::to_bits(inv_mat[2]);
+                        info[di + 4] = f32::to_bits(inv_mat[3]);
+                        info[di + 5] = f32::to_bits(inv_tr[0]);
+                        info[di + 6] = f32::to_bits(inv_tr[1]);
+                        info[di + 7] = scene[dd as usize];
+                        info[di + 8] = scene[dd as usize + 1];
                     }
                     DrawTag::BEGIN_CLIP => (),
                     _ => todo!("unhandled draw tag {:x}", tag_word.0),

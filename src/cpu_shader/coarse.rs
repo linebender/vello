@@ -8,7 +8,8 @@ use vello_encoding::{
 use crate::cpu_dispatch::CpuBinding;
 
 use super::{
-    CMD_BEGIN_CLIP, CMD_COLOR, CMD_END, CMD_FILL, CMD_JUMP, CMD_SOLID, PTCL_INITIAL_ALLOC, CMD_END_CLIP,
+    CMD_BEGIN_CLIP, CMD_COLOR, CMD_END, CMD_END_CLIP, CMD_FILL, CMD_IMAGE, CMD_JUMP, CMD_SOLID,
+    PTCL_INITIAL_ALLOC,
 };
 
 const N_TILE_X: usize = 16;
@@ -58,6 +59,7 @@ impl TileState {
         ptcl[(self.cmd_offset + offset) as usize] = value;
     }
 
+    // TODO: handle even/odd winding rule
     fn write_path(
         &mut self,
         config: &ConfigUniform,
@@ -83,7 +85,6 @@ impl TileState {
             self.write(ptcl, 0, CMD_SOLID);
             self.cmd_offset += 1;
         }
-
     }
 
     fn write_color(
@@ -96,6 +97,19 @@ impl TileState {
         self.alloc_cmd(2, config, bump, ptcl);
         self.write(ptcl, 0, CMD_COLOR);
         self.write(ptcl, 1, rgba_color);
+        self.cmd_offset += 2;
+    }
+
+    fn write_image(
+        &mut self,
+        config: &ConfigUniform,
+        bump: &mut BumpAllocators,
+        ptcl: &mut [u32],
+        info_offset: u32,
+    ) {
+        self.alloc_cmd(2, config, bump, ptcl);
+        self.write(ptcl, 0, CMD_IMAGE);
+        self.write(ptcl, 1, info_offset);
         self.cmd_offset += 2;
     }
 
@@ -206,6 +220,7 @@ fn coarse_main(
                     let is_clip = (drawtag & 1) != 0;
                     let mut is_blend = false;
                     let dd = config.layout.draw_data_base + draw_monoid.scene_offset;
+                    let di = draw_monoid.info_offset;
                     if is_clip {
                         const BLEND_CLIP: u32 = (128 << 8) | 3;
                         let blend = scene[dd as usize];
@@ -220,6 +235,10 @@ fn coarse_main(
                                 tile_state.write_path(config, bump, ptcl, tile);
                                 let rgba_color = scene[dd as usize];
                                 tile_state.write_color(config, bump, ptcl, rgba_color);
+                            }
+                            DrawTag::IMAGE => {
+                                tile_state.write_path(config, bump, ptcl, tile);
+                                tile_state.write_image(config, bump, ptcl, di + 1);
                             }
                             DrawTag::BEGIN_CLIP => {
                                 if tile.segments == 0 && tile.backdrop == 0 {
