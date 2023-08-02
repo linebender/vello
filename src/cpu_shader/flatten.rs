@@ -4,9 +4,7 @@
 use crate::cpu_dispatch::CpuBinding;
 
 use super::util::{Transform, Vec2};
-use vello_encoding::{
-    BumpAllocators, ConfigUniform, LineSoup, Monoid, PathBbox, PathMonoid, PathTag,
-};
+use vello_encoding::{BumpAllocators, ConfigUniform, LineSoup, Monoid, PathBbox, PathMonoid};
 
 fn to_minus_one_quarter(x: f32) -> f32 {
     // could also be written x.powf(-0.25)

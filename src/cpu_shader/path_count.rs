@@ -1,20 +1,15 @@
 // Copyright 2023 The Vello authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use vello_encoding::{
-    BumpAllocators, ConfigUniform, LineSoup, Path, RenderConfig, SegmentCount, Tile,
-};
+use vello_encoding::{BumpAllocators, LineSoup, Path, SegmentCount, Tile};
 
 use crate::cpu_dispatch::CpuBinding;
 
 use super::util::{span, Vec2};
 
-const WG_SIZE: usize = 256;
-
 const TILE_SCALE: f32 = 1.0 / 16.0;
 
 fn path_count_main(
-    config: &ConfigUniform,
     bump: &mut BumpAllocators,
     lines: &[LineSoup],
     paths: &[Path],
@@ -152,17 +147,15 @@ fn path_count_main(
 }
 
 pub fn path_count(_n_wg: u32, resources: &[CpuBinding]) {
-    let r0 = resources[0].as_buf();
     let mut r1 = resources[1].as_buf();
     let r2 = resources[2].as_buf();
     let r3 = resources[3].as_buf();
     let mut r4 = resources[4].as_buf();
     let mut r5 = resources[5].as_buf();
-    let config = bytemuck::from_bytes(&r0);
     let bump = bytemuck::from_bytes_mut(r1.as_mut());
     let lines = bytemuck::cast_slice(&r2);
     let paths = bytemuck::cast_slice(&r3);
     let tile = bytemuck::cast_slice_mut(r4.as_mut());
     let seg_counts = bytemuck::cast_slice_mut(r5.as_mut());
-    path_count_main(config, bump, lines, paths, tile, seg_counts);
+    path_count_main(bump, lines, paths, tile, seg_counts);
 }

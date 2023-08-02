@@ -1,7 +1,7 @@
 // Copyright 2023 The Vello authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use vello_encoding::{Clip, ClipBic, ClipElement, ConfigUniform, DrawMonoid, PathBbox};
+use vello_encoding::{Clip, ConfigUniform, DrawMonoid, PathBbox};
 
 use crate::cpu_dispatch::CpuBinding;
 

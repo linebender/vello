@@ -1,15 +1,13 @@
 // Copyright 2023 The Vello authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use vello_encoding::{
-    BinHeader, BumpAllocators, ConfigUniform, DrawMonoid, DrawTag, Path, RenderConfig, Tile,
-};
+use vello_encoding::{BinHeader, BumpAllocators, ConfigUniform, DrawMonoid, DrawTag, Path, Tile};
 
 use crate::cpu_dispatch::CpuBinding;
 
 use super::{
-    CMD_BEGIN_CLIP, CMD_COLOR, CMD_END, CMD_END_CLIP, CMD_FILL, CMD_IMAGE, CMD_JUMP, CMD_SOLID,
-    PTCL_INITIAL_ALLOC,
+    CMD_BEGIN_CLIP, CMD_COLOR, CMD_END, CMD_END_CLIP, CMD_FILL, CMD_IMAGE, CMD_JUMP, CMD_LIN_GRAD,
+    CMD_RAD_GRAD, CMD_SOLID, PTCL_INITIAL_ALLOC,
 };
 
 const N_TILE_X: usize = 16;
@@ -111,6 +109,22 @@ impl TileState {
         self.write(ptcl, 0, CMD_IMAGE);
         self.write(ptcl, 1, info_offset);
         self.cmd_offset += 2;
+    }
+
+    fn write_grad(
+        &mut self,
+        config: &ConfigUniform,
+        bump: &mut BumpAllocators,
+        ptcl: &mut [u32],
+        ty: u32,
+        index: u32,
+        info_offset: u32,
+    ) {
+        self.alloc_cmd(3, config, bump, ptcl);
+        self.write(ptcl, 0, ty);
+        self.write(ptcl, 1, index);
+        self.write(ptcl, 2, info_offset);
+        self.cmd_offset += 3;
     }
 
     fn write_begin_clip(
@@ -239,6 +253,30 @@ fn coarse_main(
                             DrawTag::IMAGE => {
                                 tile_state.write_path(config, bump, ptcl, tile);
                                 tile_state.write_image(config, bump, ptcl, di + 1);
+                            }
+                            DrawTag::LINEAR_GRADIENT => {
+                                tile_state.write_path(config, bump, ptcl, tile);
+                                let index = scene[dd as usize];
+                                tile_state.write_grad(
+                                    config,
+                                    bump,
+                                    ptcl,
+                                    CMD_LIN_GRAD,
+                                    index,
+                                    di + 1,
+                                );
+                            }
+                            DrawTag::RADIAL_GRADIENT => {
+                                tile_state.write_path(config, bump, ptcl, tile);
+                                let index = scene[dd as usize];
+                                tile_state.write_grad(
+                                    config,
+                                    bump,
+                                    ptcl,
+                                    CMD_RAD_GRAD,
+                                    index,
+                                    di + 1,
+                                );
                             }
                             DrawTag::BEGIN_CLIP => {
                                 if tile.segments == 0 && tile.backdrop == 0 {

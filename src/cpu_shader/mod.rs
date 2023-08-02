@@ -46,7 +46,7 @@ const PTCL_INITIAL_ALLOC: u32 = 64;
 // Tags for PTCL commands
 const CMD_END: u32 = 0;
 const CMD_FILL: u32 = 1;
-const CMD_STROKE: u32 = 2;
+//const CMD_STROKE: u32 = 2;
 const CMD_SOLID: u32 = 3;
 const CMD_COLOR: u32 = 5;
 const CMD_LIN_GRAD: u32 = 6;

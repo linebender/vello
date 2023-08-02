@@ -1,11 +1,11 @@
 // Copyright 2023 The Vello authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use vello_encoding::{Clip, ConfigUniform, DrawMonoid, DrawTag, Monoid, PathBbox, RenderConfig};
+use vello_encoding::{Clip, ConfigUniform, DrawMonoid, DrawTag, Monoid, PathBbox};
 
 use crate::cpu_dispatch::CpuBinding;
 
-use super::util::Transform;
+use super::util::{Transform, Vec2};
 
 const WG_SIZE: usize = 256;
 
@@ -51,9 +51,70 @@ fn draw_leaf_main(
                     DrawTag::COLOR => {
                         info[di] = f32::to_bits(linewidth);
                     }
-                    DrawTag::IMAGE => {
-                        let z = transform.0;
+                    DrawTag::LINEAR_GRADIENT => {
                         info[di] = f32::to_bits(linewidth);
+                        let p0 = Vec2::new(
+                            f32::from_bits(scene[dd as usize + 1]),
+                            f32::from_bits(scene[dd as usize + 2]),
+                        );
+                        let p1 = Vec2::new(
+                            f32::from_bits(scene[dd as usize + 3]),
+                            f32::from_bits(scene[dd as usize + 4]),
+                        );
+                        let p0 = transform.apply(p0);
+                        let p1 = transform.apply(p1);
+                        let dxy = p1 - p0;
+                        let scale = 1.0 / dxy.dot(dxy);
+                        let line_xy = dxy * scale;
+                        let line_c = -p0.dot(line_xy);
+                        info[di + 1] = f32::to_bits(line_xy.x);
+                        info[di + 2] = f32::to_bits(line_xy.y);
+                        info[di + 3] = f32::to_bits(line_c);
+                    }
+                    DrawTag::RADIAL_GRADIENT => {
+                        info[di] = f32::to_bits(linewidth);
+                        let p0 = Vec2::new(
+                            f32::from_bits(scene[dd as usize + 1]),
+                            f32::from_bits(scene[dd as usize + 2]),
+                        );
+                        let p1 = Vec2::new(
+                            f32::from_bits(scene[dd as usize + 3]),
+                            f32::from_bits(scene[dd as usize + 4]),
+                        );
+                        let r0 = f32::from_bits(scene[dd as usize + 5]);
+                        let r1 = f32::from_bits(scene[dd as usize + 6]);
+                        let z = transform.0;
+                        let inv_det = (z[0] * z[3] - z[1] * z[2]).recip();
+                        let inv_mat = [
+                            z[3] * inv_det,
+                            -z[1] * inv_det,
+                            -z[2] * inv_det,
+                            z[0] * inv_det,
+                        ];
+                        let inv_tr = [
+                            -(inv_mat[0] * z[4] + inv_mat[2] * z[5]) - p0.x,
+                            -(inv_mat[1] * z[4] + inv_mat[3] * z[5]) - p0.y,
+                        ];
+                        let center1 = p1 - p0;
+                        let rr = r1 / (r1 - r0);
+                        let ra_inv = rr / (r1 * r1 - center1.dot(center1));
+                        let c1 = center1 * ra_inv;
+                        let ra = rr * ra_inv;
+                        let roff = rr - 1.0;
+                        info[di + 1] = f32::to_bits(inv_mat[0]);
+                        info[di + 2] = f32::to_bits(inv_mat[1]);
+                        info[di + 3] = f32::to_bits(inv_mat[2]);
+                        info[di + 4] = f32::to_bits(inv_mat[3]);
+                        info[di + 5] = f32::to_bits(inv_tr[0]);
+                        info[di + 6] = f32::to_bits(inv_tr[1]);
+                        info[di + 7] = f32::to_bits(c1.x);
+                        info[di + 8] = f32::to_bits(c1.y);
+                        info[di + 9] = f32::to_bits(ra);
+                        info[di + 19] = f32::to_bits(roff);
+                    }
+                    DrawTag::IMAGE => {
+                        info[di] = f32::to_bits(linewidth);
+                        let z = transform.0;
                         let inv_det = (z[0] * z[3] - z[1] * z[2]).recip();
                         let inv_mat = [
                             z[3] * inv_det,
