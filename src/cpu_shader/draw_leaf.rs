@@ -48,10 +48,17 @@ fn draw_leaf_main(
                     DrawTag::COLOR => {
                         info[di] = f32::to_bits(linewidth);
                     }
-                    _ => todo!(),
+                    DrawTag::BEGIN_CLIP => (),
+                    _ => todo!("unhandled draw tag {:x}", tag_word.0),
                 }
             }
-            // TODO: clips
+            if tag_word == DrawTag::BEGIN_CLIP {
+                let path_ix = m.path_ix as i32;
+                clip_inp[m.clip_ix as usize] = Clip { ix, path_ix };
+            } else if tag_word == DrawTag::END_CLIP {
+                let path_ix = !ix as i32;
+                clip_inp[m.clip_ix as usize] = Clip { ix, path_ix };
+            }
             m = m.combine(&DrawMonoid::new(tag_word));
         }
         prefix = prefix.combine(&reduced[i as usize]);

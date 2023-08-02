@@ -7,7 +7,9 @@ use vello_encoding::{
 
 use crate::cpu_dispatch::CpuBinding;
 
-use super::{CMD_COLOR, CMD_END, CMD_FILL, CMD_JUMP, CMD_SOLID, PTCL_INITIAL_ALLOC};
+use super::{
+    CMD_BEGIN_CLIP, CMD_COLOR, CMD_END, CMD_FILL, CMD_JUMP, CMD_SOLID, PTCL_INITIAL_ALLOC, CMD_END_CLIP,
+};
 
 const N_TILE_X: usize = 16;
 const N_TILE_Y: usize = 16;
@@ -56,6 +58,34 @@ impl TileState {
         ptcl[(self.cmd_offset + offset) as usize] = value;
     }
 
+    fn write_path(
+        &mut self,
+        config: &ConfigUniform,
+        bump: &mut BumpAllocators,
+        ptcl: &mut [u32],
+        tile: &mut Tile,
+    ) {
+        let n_segs = tile.segments;
+        if n_segs != 0 {
+            let seg_ix = bump.segments;
+            tile.segments = seg_ix;
+            bump.segments += n_segs;
+            self.alloc_cmd(4, config, bump, ptcl);
+            self.write(ptcl, 0, CMD_FILL);
+            let even_odd = false; // TODO
+            let size_and_rule = (n_segs << 1) | (even_odd as u32);
+            self.write(ptcl, 1, size_and_rule);
+            self.write(ptcl, 2, seg_ix);
+            self.write(ptcl, 3, tile.backdrop as u32);
+            self.cmd_offset += 4;
+        } else {
+            self.alloc_cmd(1, config, bump, ptcl);
+            self.write(ptcl, 0, CMD_SOLID);
+            self.cmd_offset += 1;
+        }
+
+    }
+
     fn write_color(
         &mut self,
         config: &ConfigUniform,
@@ -67,6 +97,32 @@ impl TileState {
         self.write(ptcl, 0, CMD_COLOR);
         self.write(ptcl, 1, rgba_color);
         self.cmd_offset += 2;
+    }
+
+    fn write_begin_clip(
+        &mut self,
+        config: &ConfigUniform,
+        bump: &mut BumpAllocators,
+        ptcl: &mut [u32],
+    ) {
+        self.alloc_cmd(1, config, bump, ptcl);
+        self.write(ptcl, 0, CMD_BEGIN_CLIP);
+        self.cmd_offset += 1;
+    }
+
+    fn write_end_clip(
+        &mut self,
+        config: &ConfigUniform,
+        bump: &mut BumpAllocators,
+        ptcl: &mut [u32],
+        blend: u32,
+        alpha: f32,
+    ) {
+        self.alloc_cmd(3, config, bump, ptcl);
+        self.write(ptcl, 0, CMD_END_CLIP);
+        self.write(ptcl, 1, blend);
+        self.write(ptcl, 2, f32::to_bits(alpha));
+        self.cmd_offset += 3;
     }
 }
 
@@ -133,45 +189,68 @@ fn coarse_main(
             let mut tile_state = TileState::new(this_tile_ix);
             let blend_offset = tile_state.cmd_offset;
             tile_state.cmd_offset += 1;
+            // Discussion question: do these belong in tile state?
+            let mut clip_depth = 0;
+            let mut clip_zero_depth = 0;
             for drawobj_ix in &compacted[tile_ix] {
                 let drawtag = scene[(drawtag_base + drawobj_ix) as usize];
-                let draw_monoid = draw_monoids[*drawobj_ix as usize];
-                let path_ix = draw_monoid.path_ix;
-                let path = paths[path_ix as usize];
-                let bbox = path.bbox;
-                let stride = bbox[2] - bbox[0];
-                let x = bin_tile_x + tile_x - bbox[0];
-                let y = bin_tile_y + tile_y - bbox[1];
-                let tile = &mut tiles[(path.tiles + y * stride + x) as usize];
-                // TODO: clip-related logic
-                let n_segs = tile.segments;
-                let include_tile = n_segs != 0 || tile.backdrop != 0;
-                if include_tile {
+                if clip_zero_depth == 0 {
+                    let draw_monoid = draw_monoids[*drawobj_ix as usize];
+                    let path_ix = draw_monoid.path_ix;
+                    let path = paths[path_ix as usize];
+                    let bbox = path.bbox;
+                    let stride = bbox[2] - bbox[0];
+                    let x = bin_tile_x + tile_x - bbox[0];
+                    let y = bin_tile_y + tile_y - bbox[1];
+                    let tile = &mut tiles[(path.tiles + y * stride + x) as usize];
+                    let is_clip = (drawtag & 1) != 0;
+                    let mut is_blend = false;
                     let dd = config.layout.draw_data_base + draw_monoid.scene_offset;
-                    // TODO: get drawinfo (linewidth for fills)
-                    match DrawTag(drawtag) {
-                        DrawTag::COLOR => {
-                            if n_segs != 0 {
-                                let seg_ix = bump.segments;
-                                tile.segments = seg_ix;
-                                bump.segments += n_segs;
-                                tile_state.alloc_cmd(4, config, bump, ptcl);
-                                tile_state.write(ptcl, 0, CMD_FILL);
-                                let even_odd = false; // TODO
-                                let size_and_rule = (n_segs << 1) | (even_odd as u32);
-                                tile_state.write(ptcl, 1, size_and_rule);
-                                tile_state.write(ptcl, 2, seg_ix);
-                                tile_state.write(ptcl, 3, tile.backdrop as u32);
-                                tile_state.cmd_offset += 4;
-                            } else {
-                                tile_state.alloc_cmd(1, config, bump, ptcl);
-                                tile_state.write(ptcl, 0, CMD_SOLID);
-                                tile_state.cmd_offset += 1;
+                    if is_clip {
+                        const BLEND_CLIP: u32 = (128 << 8) | 3;
+                        let blend = scene[dd as usize];
+                        is_blend = blend != BLEND_CLIP;
+                    }
+                    let n_segs = tile.segments;
+                    let include_tile = n_segs != 0 || (tile.backdrop == 0) == is_clip || is_blend;
+                    if include_tile {
+                        // TODO: get drawinfo (linewidth for fills)
+                        match DrawTag(drawtag) {
+                            DrawTag::COLOR => {
+                                tile_state.write_path(config, bump, ptcl, tile);
+                                let rgba_color = scene[dd as usize];
+                                tile_state.write_color(config, bump, ptcl, rgba_color);
                             }
-                            let rgba_color = scene[dd as usize];
-                            tile_state.write_color(config, bump, ptcl, rgba_color);
+                            DrawTag::BEGIN_CLIP => {
+                                if tile.segments == 0 && tile.backdrop == 0 {
+                                    clip_zero_depth = clip_depth + 1;
+                                } else {
+                                    tile_state.write_begin_clip(config, bump, ptcl);
+                                    // TODO: update blend depth
+                                }
+                                clip_depth += 1;
+                            }
+                            DrawTag::END_CLIP => {
+                                clip_depth -= 1;
+                                tile_state.write_path(config, bump, ptcl, tile);
+                                let blend = scene[dd as usize];
+                                let alpha = f32::from_bits(scene[dd as usize + 1]);
+                                tile_state.write_end_clip(config, bump, ptcl, blend, alpha);
+                            }
+                            _ => todo!(),
                         }
-                        _ => todo!(),
+                    }
+                } else {
+                    // In "clip zero" state, suppress all drawing
+                    match DrawTag(drawtag) {
+                        DrawTag::BEGIN_CLIP => clip_depth += 1,
+                        DrawTag::END_CLIP => {
+                            if clip_depth == clip_zero_depth {
+                                clip_zero_depth = 0;
+                            }
+                            clip_depth -= 1;
+                        }
+                        _ => (),
                     }
                 }
             }

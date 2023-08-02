@@ -6,6 +6,8 @@
 mod backdrop;
 mod bbox_clear;
 mod binning;
+mod clip_leaf;
+mod clip_reduce;
 mod coarse;
 mod draw_leaf;
 mod draw_reduce;
@@ -23,6 +25,8 @@ mod util;
 pub use backdrop::backdrop;
 pub use bbox_clear::bbox_clear;
 pub use binning::binning;
+pub use clip_leaf::clip_leaf;
+pub use clip_reduce::clip_reduce;
 pub use coarse::coarse;
 pub use draw_leaf::draw_leaf;
 pub use draw_reduce::draw_reduce;

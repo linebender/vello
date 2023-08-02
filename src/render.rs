@@ -5,8 +5,7 @@ use crate::{
     shaders::FullShaders,
     RenderParams, Scene,
 };
-use bytemuck::offset_of;
-use vello_encoding::{BumpAllocators, Encoding, WorkgroupSize};
+use vello_encoding::{Encoding, WorkgroupSize};
 
 /// State for a render in progress.
 pub struct Render {

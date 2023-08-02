@@ -208,6 +208,7 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
             BindType::Buffer,
         ],
     )?;
+    engine.set_cpu_shader(clip_reduce, cpu_shader::clip_reduce);
     let clip_leaf = engine.add_shader(
         device,
         "clip_leaf",
@@ -222,6 +223,7 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
             BindType::Buffer,
         ],
     )?;
+    engine.set_cpu_shader(clip_leaf, cpu_shader::clip_leaf);
     let binning = engine.add_shader(
         device,
         "binning",

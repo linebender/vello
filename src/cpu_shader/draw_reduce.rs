@@ -7,12 +7,7 @@ use crate::cpu_dispatch::CpuBinding;
 
 const WG_SIZE: usize = 256;
 
-pub fn draw_reduce_main(
-    n_wg: u32,
-    config: &ConfigUniform,
-    scene: &[u32],
-    reduced: &mut [DrawMonoid],
-) {
+fn draw_reduce_main(n_wg: u32, config: &ConfigUniform, scene: &[u32], reduced: &mut [DrawMonoid]) {
     let drawtag_base = config.layout.draw_tag_base;
     for i in 0..n_wg {
         let mut m = DrawMonoid::default();
