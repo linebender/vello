@@ -64,7 +64,6 @@ fn path_tiling_main(
         let tile = tiles[tile_ix as usize];
         let tile_xy = Vec2::new(x as f32 * TILE_WIDTH as f32, y as f32 * TILE_HEIGHT as f32);
         let tile_xy1 = tile_xy + Vec2::new(TILE_WIDTH as f32, TILE_HEIGHT as f32);
-        let mut y_edge = 1e9;
 
         if seg_within_line > 0 {
             let z_prev = (a * (seg_within_line as f32 - 1.0) + b).floor();
@@ -83,9 +82,6 @@ fn path_tiling_main(
                 let mut yt = xy0.y + (xy1.y - xy0.y) * (x_clip - xy0.x) / (xy1.x - xy0.x);
                 yt = yt.clamp(tile_xy.y + 1e-3, tile_xy1.y);
                 xy0 = Vec2::new(x_clip, yt);
-                if is_positive_slope {
-                    y_edge = yt;
-                }
             }
         }
         if seg_within_line < count - 1 {
@@ -105,14 +101,21 @@ fn path_tiling_main(
                 let mut yt = xy0.y + (xy1.y - xy0.y) * (x_clip - xy0.x) / (xy1.x - xy0.x);
                 yt = yt.clamp(tile_xy.y + 1e-3, tile_xy1.y);
                 xy1 = Vec2::new(x_clip, yt);
-                if !is_positive_slope {
-                    y_edge = yt;
-                }
             }
         }
         if !is_down {
             (xy0, xy1) = (xy1, xy0);
         }
+        // TODO: figure out what to if both xy0 and xy1 are at left edge
+        // Also TODO (part of move to 8 byte encoding for segments): don't store y_edge at all,
+        // resolve this in fine.
+        let y_edge = if xy0.x == tile_xy.x {
+            xy0.y
+        } else if xy1.x == tile_xy.x {
+            xy1.y
+        } else {
+            1e9
+        };
         let segment = PathSegment {
             origin: xy0.to_array(),
             delta: (xy1 - xy0).to_array(),

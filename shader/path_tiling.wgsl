@@ -73,7 +73,6 @@ fn main(
         let tile = tiles[tile_ix];
         let tile_xy = vec2(f32(x) * f32(TILE_WIDTH), f32(y) * f32(TILE_HEIGHT));
         let tile_xy1 = tile_xy + vec2(f32(TILE_WIDTH), f32(TILE_HEIGHT));
-        var y_edge = 1e9;
 
         if seg_within_line > 0u {
             let z_prev = floor(a * (f32(seg_within_line) - 1.0) + b);
@@ -89,9 +88,6 @@ fn main(
                 var yt = xy0.y + (xy1.y - xy0.y) * (x_clip - xy0.x) / (xy1.x - xy0.x);
                 yt = clamp(yt, tile_xy.y + 1e-3, tile_xy1.y);
                 xy0 = vec2(x_clip, yt);
-                if is_positive_slope {
-                    y_edge = yt;
-                }
             }
         }
         if seg_within_line < count - 1u {
@@ -107,10 +103,14 @@ fn main(
                 var yt = xy0.y + (xy1.y - xy0.y) * (x_clip - xy0.x) / (xy1.x - xy0.x);
                 yt = clamp(yt, tile_xy.y + 1e-3, tile_xy1.y);
                 xy1 = vec2(x_clip, yt);
-                if !is_positive_slope {
-                    y_edge = yt;
-                }
             }
+        }
+        // See comments in CPU version of shader
+        var y_edge = 1e9;
+        if xy0.x == tile_xy.x {
+            y_edge = xy0.y;
+        } else if xy1.x == tile_xy.x {
+            y_edge = xy1.y;
         }
         if !is_down {
             let tmp = xy0;
