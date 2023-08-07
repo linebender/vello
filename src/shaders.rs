@@ -305,7 +305,7 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
         preprocess::preprocess(shader!("path_tiling_setup"), &empty, &imports).into(),
         &[BindType::BufReadOnly, BindType::Buffer],
     )?;
-    engine.set_cpu_shader(path_tiling_setup, cpu_shader::path_tiling_setup);
+    //engine.set_cpu_shader(path_tiling_setup, cpu_shader::path_tiling_setup);
     let path_tiling = engine.add_shader(
         device,
         "path_tiling",
@@ -319,7 +319,7 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
             BindType::Buffer,
         ],
     )?;
-    engine.set_cpu_shader(path_tiling, cpu_shader::path_tiling);
+    //engine.set_cpu_shader(path_tiling, cpu_shader::path_tiling);
     let fine = engine.add_shader(
         device,
         "fine",

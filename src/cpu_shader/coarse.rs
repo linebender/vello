@@ -246,15 +246,20 @@ fn coarse_main(
                         // TODO: get drawinfo (linewidth for fills)
                         match DrawTag(drawtag) {
                             DrawTag::COLOR => {
+                                let linewidth = f32::from_bits(info_bin_data[di as usize]);
                                 tile_state.write_path(config, bump, ptcl, tile);
                                 let rgba_color = scene[dd as usize];
                                 tile_state.write_color(config, bump, ptcl, rgba_color);
                             }
                             DrawTag::IMAGE => {
+                                let linewidth = f32::from_bits(info_bin_data[di as usize]);
+                                assert!(linewidth < 0.0);
                                 tile_state.write_path(config, bump, ptcl, tile);
                                 tile_state.write_image(config, bump, ptcl, di + 1);
                             }
                             DrawTag::LINEAR_GRADIENT => {
+                                let linewidth = f32::from_bits(info_bin_data[di as usize]);
+                                assert!(linewidth < 0.0);
                                 tile_state.write_path(config, bump, ptcl, tile);
                                 let index = scene[dd as usize];
                                 tile_state.write_grad(
@@ -267,6 +272,8 @@ fn coarse_main(
                                 );
                             }
                             DrawTag::RADIAL_GRADIENT => {
+                                let linewidth = f32::from_bits(info_bin_data[di as usize]);
+                                assert!(linewidth < 0.0);
                                 tile_state.write_path(config, bump, ptcl, tile);
                                 let index = scene[dd as usize];
                                 tile_state.write_grad(

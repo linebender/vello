@@ -44,7 +44,8 @@ impl GlyphCache {
             match style {
                 Style::Fill(Fill::NonZero) => encoding_cache.encode_linewidth(-1.0),
                 Style::Fill(Fill::EvenOdd) => encoding_cache.encode_linewidth(-2.0),
-                Style::Stroke(stroke) => encoding_cache.encode_linewidth(stroke.width),
+                // TODO: don't commit to main, this is a hack
+                Style::Stroke(_stroke) => encoding_cache.encode_linewidth(-1.0),
             }
             let mut path = encoding_cache.encode_path(is_fill);
             scaler
