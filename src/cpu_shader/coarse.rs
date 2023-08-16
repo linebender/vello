@@ -68,7 +68,7 @@ impl TileState {
         let n_segs = tile.segments;
         if n_segs != 0 {
             let seg_ix = bump.segments;
-            tile.segments = seg_ix;
+            tile.segments = !seg_ix;
             bump.segments += n_segs;
             self.alloc_cmd(4, config, bump, ptcl);
             self.write(ptcl, 0, CMD_FILL);

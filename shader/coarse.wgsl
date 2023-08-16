@@ -91,7 +91,7 @@ fn write_path(tile: Tile, tile_ix: u32, linewidth: f32) -> bool {
         let n_segs = tile.segments;
         if n_segs != 0u {
             var seg_ix = atomicAdd(&bump.segments, n_segs);
-            tiles[tile_ix].segments = seg_ix;
+            tiles[tile_ix].segments = ~seg_ix;
             alloc_cmd(4u);
             ptcl[cmd_offset] = CMD_FILL;
             let size_and_rule = (n_segs << 1u) | u32(even_odd);

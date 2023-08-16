@@ -62,6 +62,10 @@ fn path_tiling_main(
         let stride = bbox[2] - bbox[0];
         let tile_ix = path.tiles as i32 + (y - bbox[1]) * stride + x - bbox[0];
         let tile = tiles[tile_ix as usize];
+        let seg_start = !tile.segments;
+        if (seg_start as i32) < 0 {
+            continue;
+        }
         let tile_xy = Vec2::new(x as f32 * TILE_WIDTH as f32, y as f32 * TILE_HEIGHT as f32);
         let tile_xy1 = tile_xy + Vec2::new(TILE_WIDTH as f32, TILE_HEIGHT as f32);
 
@@ -126,7 +130,7 @@ fn path_tiling_main(
         assert!(xy0.y >= tile_xy.y && xy0.y <= tile_xy1.y);
         assert!(xy1.x >= tile_xy.x && xy1.x <= tile_xy1.x);
         assert!(xy1.y >= tile_xy.y && xy1.y <= tile_xy1.y);
-        segments[(tile.segments + seg_within_slice) as usize] = segment;
+        segments[(seg_start + seg_within_slice) as usize] = segment;
     }
 }
 

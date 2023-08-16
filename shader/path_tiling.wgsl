@@ -71,6 +71,10 @@ fn main(
         let stride = bbox.z - bbox.x;
         let tile_ix = i32(path.tiles) + (y - bbox.y) * stride + x - bbox.x;
         let tile = tiles[tile_ix];
+        let seg_start = ~tile.segments;
+        if i32(seg_start) < 0 {
+            return;
+        }
         let tile_xy = vec2(f32(x) * f32(TILE_WIDTH), f32(y) * f32(TILE_HEIGHT));
         let tile_xy1 = tile_xy + vec2(f32(TILE_WIDTH), f32(TILE_HEIGHT));
 
@@ -118,6 +122,6 @@ fn main(
             xy1 = tmp;
         }
         let segment = Segment(xy0, xy1 - xy0, y_edge);
-        segments[tile.segments + seg_within_slice] = segment;
+        segments[seg_start + seg_within_slice] = segment;
     }
 }
