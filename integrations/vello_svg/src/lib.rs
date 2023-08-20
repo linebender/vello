@@ -21,7 +21,6 @@
 //! Missing features include:
 //! - embedded images
 //! - text
-//! - gradients
 //! - group opacity
 //! - mix-blend-modes
 //! - clipping
@@ -175,8 +174,47 @@ fn paint_to_brush(paint: &usvg::Paint, opacity: usvg::Opacity) -> Option<Brush> 
             color.blue,
             opacity.to_u8(),
         ))),
-        usvg::Paint::LinearGradient(_) => None,
-        usvg::Paint::RadialGradient(_) => None,
+        usvg::Paint::LinearGradient(gr) => {
+            let stops: Vec<Color> = gr
+                .stops
+                .iter()
+                .map(|stop| {
+                    vello::peniko::Color::rgba8(
+                        stop.color.red,
+                        stop.color.green,
+                        stop.color.blue,
+                        stop.opacity.to_u8(),
+                    )
+                })
+                .collect();
+            let start: vello::kurbo::Point = gr.transform.apply(gr.x1, gr.y1).into();
+            let end: vello::kurbo::Point = gr.transform.apply(gr.x2, gr.y2).into();
+            let gradient =
+                vello::peniko::Gradient::new_linear(start, end).with_stops(stops.as_slice());
+            Some(Brush::Gradient(gradient))
+        }
+        usvg::Paint::RadialGradient(gr) => {
+            let stops: Vec<Color> = gr
+                .stops
+                .iter()
+                .map(|stop| {
+                    vello::peniko::Color::rgba8(
+                        stop.color.red,
+                        stop.color.green,
+                        stop.color.blue,
+                        stop.opacity.to_u8(),
+                    )
+                })
+                .collect();
+            let center: vello::kurbo::Point = gr.transform.apply(gr.cx, gr.cy).into();
+            // TODO: SVG has a scaleX and scaleY - But peniko::Gradient::new_radial only takes a radius.
+            let (sx, sy) = gr.transform.get_scale();
+            let radius = sx.min(sy) as f32; // compromise: take the smaller scale axis I guess?
+            let gradient =
+                vello::peniko::Gradient::new_radial(center, radius).with_stops(stops.as_slice());
+
+            Some(Brush::Gradient(gradient))
+        }
         usvg::Paint::Pattern(_) => None,
     }
 }
