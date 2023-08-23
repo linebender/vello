@@ -31,6 +31,9 @@ fn path_count_main(
         if dx + dy == 0.0 {
             continue;
         }
+        if dy == 0.0 && s0.y.floor() == s0.y {
+            continue;
+        }
         let dy_dxdy = dy / (dx + dy);
         let a = 1.0 - dy_dxdy;
         let is_positive_slope = s1.x >= s0.x;
@@ -52,7 +55,7 @@ fn path_count_main(
         ];
         let xmin = s0.x.min(s1.x);
         let stride = bbox[2] - bbox[0];
-        if s0.y >= bbox[3] as f32 || s1.y <= bbox[1] as f32 || xmin >= bbox[2] as f32 || stride == 0
+        if s0.y >= bbox[3] as f32 || s1.y < bbox[1] as f32 || xmin >= bbox[2] as f32 || stride == 0
         {
             continue;
         }
@@ -76,7 +79,7 @@ fn path_count_main(
         let delta = if is_down { -1 } else { 1 };
         let mut ymin = 0;
         let mut ymax = 0;
-        if s0.x.max(s1.x) <= bbox[0] as f32 {
+        if s0.x.max(s1.x) < bbox[0] as f32 {
             ymin = s0.y.ceil() as i32;
             ymax = s1.y.ceil() as i32;
             imax = imin;

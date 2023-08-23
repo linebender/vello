@@ -68,6 +68,9 @@ fn main(
             // Zero-length segment, drop it. Note, this should be culled earlier.
             return;
         }
+        if dy == 0.0 && floor(s0.y) == s0.y {
+            return;
+        }
         let idxdy = 1.0 / (dx + dy);
         let a = dx * idxdy;
         let is_positive_slope = s1.x >= s0.x;

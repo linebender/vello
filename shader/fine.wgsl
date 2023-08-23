@@ -234,14 +234,31 @@ fn fill_path_ms(seg_data: u32, n_segs: u32, backdrop: i32, wg_id: vec2<u32>, loc
             let segment = segments[seg_off];
             // Note: coords relative to tile origin probably a good idea in coarse path,
             // especially as f16 would work. But keeping existing scheme for compatibility.
-            let xy0_in = segment.origin - tile_origin;
-            let xy1_in = xy0_in + segment.delta;
-            let is_down = xy1_in.y >= xy0_in.y;
-            let xy0 = select(xy1_in, xy0_in, is_down);
-            let xy1 = select(xy0_in, xy1_in, is_down);
-            count = span(xy0.x, xy1.x) + span(xy0.y, xy1.y) - 1u;
-            let delta = select(-1, 1, xy1_in.x <= xy0_in.x);
-            let y_edge = u32(ceil(segment.y_edge - tile_origin.y));
+            let xy0 = segment.origin - tile_origin;
+            let xy1 = xy0 + segment.delta;
+            var y_edge_f = f32(TILE_HEIGHT);
+            var delta = select(-1, 1, xy1.x <= xy0.x);
+            if xy0.x == 0.0 && xy1.x == 0.0 {
+                if xy0.y == 0.0 {
+                    y_edge_f = 0.0;
+                } else if xy1.y == 0.0 {
+                    y_edge_f = 0.0;
+                    delta = -delta;
+                }
+            } else {
+                if xy0.x == 0.0 {
+                    if xy0.y != 0.0 {
+                        y_edge_f = xy0.y;
+                    }
+                } else if xy1.x == 0.0 && xy1.y != 0.0 {
+                    y_edge_f = xy1.y;
+                }
+                // discard horizontal lines aligned to pixel grid
+                if !(xy0.y == xy1.y && xy0.y == floor(xy0.y)) {
+                    count = span(xy0.x, xy1.x) + span(xy0.y, xy1.y) - 1u;
+                }
+            }
+            let y_edge = u32(ceil(y_edge_f));
             if y_edge < TILE_HEIGHT {
                 atomicAdd(&sh_winding_y[y_edge >> 3u], u32(delta) << ((y_edge & 7u) << 2u));
             }
@@ -292,8 +309,8 @@ fn fill_path_ms(seg_data: u32, n_segs: u32, backdrop: i32, wg_id: vec2<u32>, loc
             // One alternative is to compute it in a separate dispatch.
             let dx = abs(xy1.x - xy0.x);
             let dy = xy1.y - xy0.y;
-            let idxdy = 1.0 / (dx + dy);
-            let a = dx * idxdy;
+            let dy_dxdy = dy / (dx + dy);
+            let a = dx / (dx + dy);
             let is_positive_slope = xy1.x >= xy0.x;
             let sign = select(-1.0, 1.0, is_positive_slope);
             let xt0 = floor(xy0.x * sign);
@@ -301,7 +318,7 @@ fn fill_path_ms(seg_data: u32, n_segs: u32, backdrop: i32, wg_id: vec2<u32>, loc
             // This has a special case in the JS code, but we should just not render
             let y0i = floor(xy0.y);
             let ytop = select(y0i + 1.0, ceil(xy0.y), xy0.y == xy1.y);
-            let b = (dy * c + dx * (ytop - xy0.y)) * idxdy;
+            let b = dy_dxdy * c + a * (ytop - xy0.y);
             let x0i = i32(xt0 * sign + 0.5 * (sign - 1.0));
             // Use line equation to plot pixel coordinates
 
@@ -331,7 +348,8 @@ fn fill_path_ms(seg_data: u32, n_segs: u32, backdrop: i32, wg_id: vec2<u32>, loc
             }
             // Apply sample mask
             let mask_block = u32(is_positive_slope) * (MASK_WIDTH * MASK_HEIGHT / 2u);
-            let mask_row = floor(a * f32(MASK_HEIGHT / 2u)) * f32(MASK_WIDTH);
+            let half_height = f32(MASK_HEIGHT / 2u);
+            let mask_row = floor(min(a * half_height, half_height - 1.0)) * f32(MASK_WIDTH);
             let mask_col = floor((zf - z) * f32(MASK_WIDTH));
             let mask_ix = mask_block + u32(mask_row + mask_col);
 #ifdef msaa8
@@ -485,8 +503,8 @@ fn main(
                 let fill = read_fill(cmd_ix);
                 let n_segs = fill.size_and_rule >> 1u;
                 let even_odd = (fill.size_and_rule & 1u) != 0u;
-                area = fill_path(fill.seg_data, n_segs, fill.backdrop, xy, even_odd);
-                //area = fill_path_ms(fill.seg_data, n_segs, fill.backdrop, wg_id.xy, local_id.xy, even_odd);
+                //area = fill_path(fill.seg_data, n_segs, fill.backdrop, xy, even_odd);
+                area = fill_path_ms(fill.seg_data, n_segs, fill.backdrop, wg_id.xy, local_id.xy, even_odd);
                 cmd_ix += 4u;
             }
             // CMD_STROKE
