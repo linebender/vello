@@ -78,14 +78,12 @@ impl ShaderInfo {
                             size: ArraySize::Constant(size),
                             stride,
                             ..
-                        } => {
-                            u32::from(*size) * stride
-                        },
+                        } => u32::from(*size) * stride,
                         naga::TypeInner::Struct { span, .. } => *span,
-                        naga::TypeInner::Scalar { width, ..} => *width as u32,
-                        naga::TypeInner::Vector { width, ..} => *width as u32,
-                        naga::TypeInner::Matrix { width, ..} => *width as u32,
-                        naga::TypeInner::Atomic { width, ..} => *width as u32,
+                        naga::TypeInner::Scalar { width, .. } => *width as u32,
+                        naga::TypeInner::Vector { width, .. } => *width as u32,
+                        naga::TypeInner::Matrix { width, .. } => *width as u32,
+                        naga::TypeInner::Atomic { width, .. } => *width as u32,
                         _ => {
                             // Not a valid workgroup variable type. At least not one that is used
                             // in our shaders.
