@@ -131,7 +131,9 @@ fn run(
             ref event,
             window_id,
         } => {
-            let Some(render_state) = &mut render_state else { return };
+            let Some(render_state) = &mut render_state else {
+                return;
+            };
             if render_state.window.id() != window_id {
                 return;
             }
@@ -307,7 +309,9 @@ fn run(
             }
         }
         Event::RedrawRequested(_) => {
-            let Some(render_state) = &mut render_state else { return };
+            let Some(render_state) = &mut render_state else {
+                return;
+            };
             let width = render_state.surface.config.width;
             let height = render_state.surface.config.height;
             let device_handle = &render_cx.devices[render_state.surface.dev_id];
@@ -436,7 +440,9 @@ fn run(
         Event::UserEvent(event) => match event {
             #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
             UserEvent::HotReload => {
-                let Some(render_state) = &mut render_state else { return };
+                let Some(render_state) = &mut render_state else {
+                    return;
+                };
                 let device_handle = &render_cx.devices[render_state.surface.dev_id];
                 eprintln!("==============\nReloading shaders");
                 let start = Instant::now();

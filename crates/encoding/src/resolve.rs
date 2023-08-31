@@ -415,7 +415,9 @@ impl Resolver {
                     let run = &resources.glyph_runs[*index];
                     let font_id = run.font.data.id();
                     let font_size_u32 = run.font_size.to_bits();
-                    let Ok(font_file) = fello::raw::FileRef::new(run.font.data.as_ref()) else { continue };
+                    let Ok(font_file) = fello::raw::FileRef::new(run.font.data.as_ref()) else {
+                        continue;
+                    };
                     let font = match font_file {
                         fello::raw::FileRef::Font(font) => Some(font),
                         fello::raw::FileRef::Collection(collection) => {
