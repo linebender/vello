@@ -182,7 +182,7 @@ fn paint_to_brush(paint: &usvg::Paint, opacity: usvg::Opacity) -> Option<(Brush,
                 color.blue,
                 opacity.to_u8(),
             )),
-            Affine::default(),
+            Affine::IDENTITY,
         )),
         usvg::Paint::LinearGradient(gr) => {
             let stops: Vec<vello::peniko::ColorStop> = gr
