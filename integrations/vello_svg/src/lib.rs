@@ -112,21 +112,28 @@ pub fn render_tree_with<F: FnMut(&mut SceneBuilder, &usvg::Node) -> Result<(), E
                 // FIXME: let path.paint_order determine the fill/stroke order.
 
                 if let Some(fill) = &path.fill {
-                    if let Some(brush) = paint_to_brush(&fill.paint, fill.opacity) {
+                    if let Some((brush, transform)) = paint_to_brush(&fill.paint, fill.opacity) {
                         // FIXME: Set the fill rule
-                        sb.fill(Fill::NonZero, transform, &brush, None, &local_path);
+                        sb.fill(
+                            Fill::NonZero,
+                            transform,
+                            &brush,
+                            Some(transform),
+                            &local_path,
+                        );
                     } else {
                         on_err(sb, &elt)?;
                     }
                 }
                 if let Some(stroke) = &path.stroke {
-                    if let Some(brush) = paint_to_brush(&stroke.paint, stroke.opacity) {
+                    if let Some((brush, transform)) = paint_to_brush(&stroke.paint, stroke.opacity)
+                    {
                         // FIXME: handle stroke options such as linecap, linejoin, etc.
                         sb.stroke(
                             &Stroke::new(stroke.width.get() as f32),
                             transform,
                             &brush,
-                            None,
+                            Some(transform),
                             &local_path,
                         );
                     } else {
@@ -166,54 +173,76 @@ pub fn default_error_handler(sb: &mut SceneBuilder, node: &usvg::Node) -> Result
     Ok(())
 }
 
-fn paint_to_brush(paint: &usvg::Paint, opacity: usvg::Opacity) -> Option<Brush> {
+fn paint_to_brush(paint: &usvg::Paint, opacity: usvg::Opacity) -> Option<(Brush, Affine)> {
     match paint {
-        usvg::Paint::Color(color) => Some(Brush::Solid(Color::rgba8(
-            color.red,
-            color.green,
-            color.blue,
-            opacity.to_u8(),
-        ))),
+        usvg::Paint::Color(color) => Some((
+            Brush::Solid(Color::rgba8(
+                color.red,
+                color.green,
+                color.blue,
+                opacity.to_u8(),
+            )),
+            Affine::default(),
+        )),
         usvg::Paint::LinearGradient(gr) => {
-            let stops: Vec<Color> = gr
+            let stops: Vec<vello::peniko::ColorStop> = gr
                 .stops
                 .iter()
                 .map(|stop| {
-                    vello::peniko::Color::rgba8(
-                        stop.color.red,
-                        stop.color.green,
-                        stop.color.blue,
-                        stop.opacity.to_u8(),
-                    )
+                    let mut cstop = vello::peniko::ColorStop::default();
+                    cstop.color.r = stop.color.red;
+                    cstop.color.g = stop.color.green;
+                    cstop.color.b = stop.color.blue;
+                    cstop.color.a = stop.opacity.to_u8();
+                    cstop.offset = stop.offset.get() as f32;
+                    cstop
                 })
                 .collect();
-            let start: vello::kurbo::Point = gr.transform.apply(gr.x1, gr.y1).into();
-            let end: vello::kurbo::Point = gr.transform.apply(gr.x2, gr.y2).into();
-            let gradient =
-                vello::peniko::Gradient::new_linear(start, end).with_stops(stops.as_slice());
-            Some(Brush::Gradient(gradient))
+            let gradient = vello::peniko::Gradient::new_linear((gr.x1, gr.y1), (gr.x2, gr.y2))
+                .with_stops(stops.as_slice());
+            let transform = Affine::new([
+                gr.transform.a,
+                gr.transform.b,
+                gr.transform.c,
+                gr.transform.d,
+                gr.transform.e,
+                gr.transform.f,
+            ]);
+            Some((Brush::Gradient(gradient), transform))
         }
         usvg::Paint::RadialGradient(gr) => {
-            let stops: Vec<Color> = gr
+            let stops: Vec<vello::peniko::ColorStop> = gr
                 .stops
                 .iter()
                 .map(|stop| {
-                    vello::peniko::Color::rgba8(
-                        stop.color.red,
-                        stop.color.green,
-                        stop.color.blue,
-                        stop.opacity.to_u8(),
-                    )
+                    let mut cstop = vello::peniko::ColorStop::default();
+                    cstop.color.r = stop.color.red;
+                    cstop.color.g = stop.color.green;
+                    cstop.color.b = stop.color.blue;
+                    cstop.color.a = stop.opacity.to_u8();
+                    cstop.offset = stop.offset.get() as f32;
+                    cstop
                 })
                 .collect();
-            let center: vello::kurbo::Point = gr.transform.apply(gr.cx, gr.cy).into();
-            // TODO: SVG has a scaleX and scaleY - But peniko::Gradient::new_radial only takes a radius.
-            let (sx, sy) = gr.transform.get_scale();
-            let radius = sx.min(sy) as f32; // compromise: take the smaller scale axis I guess?
-            let gradient =
-                vello::peniko::Gradient::new_radial(center, radius).with_stops(stops.as_slice());
-
-            Some(Brush::Gradient(gradient))
+            // It doesn't look like usvg exposes the fr attribute (the focal point, or start circle radius) so we just pass the r attribute for both.
+            let start_radius = gr.r.get() as f32;
+            let end_radius = gr.r.get() as f32;
+            let gradient = vello::peniko::Gradient::new_two_point_radial(
+                (gr.fx, gr.fy),
+                start_radius,
+                (gr.cx, gr.cy),
+                end_radius,
+            )
+            .with_stops(stops.as_slice());
+            let transform = Affine::new([
+                gr.transform.a,
+                gr.transform.b,
+                gr.transform.c,
+                gr.transform.d,
+                gr.transform.e,
+                gr.transform.f,
+            ]);
+            Some((Brush::Gradient(gradient), transform))
         }
         usvg::Paint::Pattern(_) => None,
     }
