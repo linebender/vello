@@ -120,7 +120,7 @@ pub fn render_tree_with<F: FnMut(&mut SceneBuilder, &usvg::Node) -> Result<(), E
                             Fill::NonZero,
                             transform,
                             &brush,
-                            brush_transform,
+                            Some(brush_transform),
                             &local_path,
                         );
                     } else {
@@ -136,7 +136,7 @@ pub fn render_tree_with<F: FnMut(&mut SceneBuilder, &usvg::Node) -> Result<(), E
                             &Stroke::new(stroke.width.get() as f32),
                             transform,
                             &brush,
-                            brush_transform,
+                            Some(brush_transform),
                             &local_path,
                         );
                     } else {
@@ -176,7 +176,7 @@ pub fn default_error_handler(sb: &mut SceneBuilder, node: &usvg::Node) -> Result
     Ok(())
 }
 
-fn paint_to_brush(paint: &usvg::Paint, opacity: usvg::Opacity) -> Option<(Brush, Option<Affine>)> {
+fn paint_to_brush(paint: &usvg::Paint, opacity: usvg::Opacity) -> Option<(Brush, Affine)> {
     match paint {
         usvg::Paint::Color(color) => Some((
             Brush::Solid(Color::rgba8(
@@ -185,7 +185,7 @@ fn paint_to_brush(paint: &usvg::Paint, opacity: usvg::Opacity) -> Option<(Brush,
                 color.blue,
                 opacity.to_u8(),
             )),
-            None,
+            Affine::IDENTITY,
         )),
         usvg::Paint::LinearGradient(gr) => {
             let stops: Vec<vello::peniko::ColorStop> = gr
@@ -213,7 +213,7 @@ fn paint_to_brush(paint: &usvg::Paint, opacity: usvg::Opacity) -> Option<(Brush,
             ]);
             let gradient =
                 vello::peniko::Gradient::new_linear(start, end).with_stops(stops.as_slice());
-            Some((Brush::Gradient(gradient), Some(transform)))
+            Some((Brush::Gradient(gradient), transform))
         }
         usvg::Paint::RadialGradient(gr) => {
             let stops: Vec<vello::peniko::ColorStop> = gr
@@ -249,7 +249,7 @@ fn paint_to_brush(paint: &usvg::Paint, opacity: usvg::Opacity) -> Option<(Brush,
                 end_radius,
             )
             .with_stops(stops.as_slice());
-            Some((Brush::Gradient(gradient), Some(transform)))
+            Some((Brush::Gradient(gradient), transform))
         }
         usvg::Paint::Pattern(_) => None,
     }
