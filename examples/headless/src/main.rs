@@ -90,6 +90,7 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
         &RendererOptions {
             surface_format: None,
             timestamp_period: queue.get_timestamp_period(),
+            use_cpu: false,
         },
     )
     .or_else(|_| bail!("Got non-Send/Sync error from creating renderer"))?;

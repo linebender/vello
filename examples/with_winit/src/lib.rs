@@ -48,6 +48,9 @@ struct Args {
     scene: Option<i32>,
     #[command(flatten)]
     args: scenes::Arguments,
+    #[arg(long)]
+    /// Whether to use CPU shaders
+    use_cpu: bool,
 }
 
 struct RenderState {
@@ -84,6 +87,7 @@ fn run(
                 &RendererOptions {
                     surface_format: Some(render_state.surface.format),
                     timestamp_period: render_cx.devices[id].queue.get_timestamp_period(),
+                    use_cpu: false,
                 },
             )
             .expect("Could create renderer"),
@@ -125,6 +129,7 @@ fn run(
     let mut profile_stored = None;
     let mut prev_scene_ix = scene_ix - 1;
     let mut profile_taken = Instant::now();
+    let use_cpu = args.use_cpu;
     // _event_loop is used on non-wasm platforms to create new windows
     event_loop.run(move |event, _event_loop, control_flow| match event {
         Event::WindowEvent {
@@ -492,6 +497,7 @@ fn run(
                                 timestamp_period: render_cx.devices[id]
                                     .queue
                                     .get_timestamp_period(),
+                                use_cpu,
                             },
                         )
                         .expect("Could create renderer")
