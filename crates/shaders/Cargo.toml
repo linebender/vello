@@ -1,8 +1,9 @@
 [package]
 name = "vello_shaders"
 version = "0.1.0"
-edition = "2021"
+edition.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [features]
 default = ["compile", "wgsl", "msl"]
@@ -11,10 +12,10 @@ wgsl = []
 msl = []
 
 [dependencies]
-naga = { version = "0.12", features = ["wgsl-in", "msl-out", "validate"], optional = true }
+naga = { version = "0.13", features = ["wgsl-in", "msl-out", "validate"], optional = true }
 thiserror = { version = "1.0.40", optional = true }
 
 [build-dependencies]
-naga = { version = "0.12",  features = ["wgsl-in", "msl-out", "validate"] }
+naga = { version = "0.13",  features = ["wgsl-in", "msl-out", "validate"] }
 thiserror = "1.0.40"
 
