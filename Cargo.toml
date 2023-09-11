@@ -37,6 +37,7 @@ edition.workspace = true
 repository.workspace = true
 
 [features]
+default = ["wgpu"]
 hot_reload = []
 buffer_labels = []
 
@@ -44,7 +45,7 @@ buffer_labels = []
 bytemuck = { workspace = true }
 fello = { workspace = true }
 peniko = { workspace = true }
-wgpu = { workspace = true }
+wgpu = { workspace = true, optional = true }
 raw-window-handle = "0.5"
 futures-intrusive = "0.5.0"
 vello_encoding = { path = "crates/encoding" }
@@ -54,7 +55,9 @@ wgpu-profiler = { workspace = true, optional = true }
 bytemuck = { version = "1.12.1", features = ["derive"] }
 fello = { git = "https://github.com/dfrg/fount", rev = "dadbcf75695f035ca46766bfd60555d05bd421b1" }
 peniko = { git = "https://github.com/linebender/peniko", rev = "cafdac9a211a0fb2fec5656bd663d1ac770bcc81" }
-wgpu = "0.17"                                                                                               # NOTE: Make sure to keep this in sync with the version badge in README.md
+
+# NOTE: Make sure to keep this in sync with the version badge in README.md
+wgpu = { version = "0.17" }                                              
 
 
 # Used for examples

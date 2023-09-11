@@ -21,6 +21,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
+#[cfg(feature = "wgpu")]
 use wgpu::{
     BindGroup, BindGroupLayout, Buffer, BufferUsages, CommandEncoderDescriptor, ComputePipeline,
     Device, Queue, Texture, TextureAspect, TextureUsages, TextureView, TextureViewDimension,
@@ -28,14 +29,15 @@ use wgpu::{
 
 pub type Error = Box<dyn std::error::Error>;
 
-#[derive(Clone, Copy)]
-pub struct ShaderId(usize);
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ShaderId(pub usize);
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Id(NonZeroU64);
+pub struct Id(pub NonZeroU64);
 
 static ID_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+#[cfg(feature = "wgpu")]
 pub struct Engine {
     shaders: Vec<Shader>,
     pool: ResourcePool,
@@ -43,6 +45,7 @@ pub struct Engine {
     downloads: HashMap<Id, Buffer>,
 }
 
+#[cfg(feature = "wgpu")]
 struct Shader {
     pipeline: ComputePipeline,
     bind_group_layout: BindGroupLayout,
@@ -56,9 +59,9 @@ pub struct Recording {
 
 #[derive(Clone, Copy)]
 pub struct BufProxy {
-    size: u64,
-    id: Id,
-    name: &'static str,
+    pub size: u64,
+    pub id: Id,
+    pub name: &'static str,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq)]
@@ -70,10 +73,10 @@ pub enum ImageFormat {
 
 #[derive(Clone, Copy)]
 pub struct ImageProxy {
-    width: u32,
-    height: u32,
-    format: ImageFormat,
-    id: Id,
+    pub width: u32,
+    pub height: u32,
+    pub format: ImageFormat,
+    pub id: Id,
 }
 
 #[derive(Clone, Copy)]
@@ -82,6 +85,7 @@ pub enum ResourceProxy {
     Image(ImageProxy),
 }
 
+#[cfg(feature = "wgpu")]
 pub enum ExternalResource<'a> {
     #[allow(unused)]
     Buf(BufProxy, &'a Buffer),
@@ -119,6 +123,7 @@ pub enum BindType {
     // TODO: Uniform, Sampler, maybe others
 }
 
+#[cfg(feature = "wgpu")]
 struct BindMapBuffer {
     buffer: Buffer,
     #[cfg_attr(not(feature = "buffer_labels"), allow(unused))]
@@ -126,12 +131,14 @@ struct BindMapBuffer {
 }
 
 #[derive(Default)]
+#[cfg(feature = "wgpu")]
 struct BindMap {
     buf_map: HashMap<Id, BindMapBuffer>,
     image_map: HashMap<Id, (Texture, TextureView)>,
 }
 
 #[derive(Hash, PartialEq, Eq)]
+#[cfg(feature = "wgpu")]
 struct BufferProperties {
     size: u64,
     usages: BufferUsages,
@@ -140,10 +147,12 @@ struct BufferProperties {
 }
 
 #[derive(Default)]
+#[cfg(feature = "wgpu")]
 struct ResourcePool {
     bufs: HashMap<BufferProperties, Vec<Buffer>>,
 }
 
+#[cfg(feature = "wgpu")]
 impl Engine {
     pub fn new() -> Engine {
         Engine {
@@ -534,6 +543,10 @@ impl Recording {
             ResourceProxy::Image(image) => self.free_image(image),
         }
     }
+
+    pub fn into_commands(self) -> Vec<Command> {
+        self.commands
+    }
 }
 
 impl BufProxy {
@@ -548,6 +561,7 @@ impl BufProxy {
 }
 
 impl ImageFormat {
+    #[cfg(feature = "wgpu")]
     pub fn to_wgpu(self) -> wgpu::TextureFormat {
         match self {
             Self::Rgba8 => wgpu::TextureFormat::Rgba8Unorm,
@@ -612,6 +626,7 @@ impl Id {
     }
 }
 
+#[cfg(feature = "wgpu")]
 impl BindMap {
     fn insert_buf(&mut self, proxy: &BufProxy, buffer: Buffer) {
         self.buf_map.insert(
@@ -810,6 +825,7 @@ impl BindMap {
 
 const SIZE_CLASS_BITS: u32 = 1;
 
+#[cfg(feature = "wgpu")]
 impl ResourcePool {
     /// Get a buffer from the pool or create one.
     fn get_buf(

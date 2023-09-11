@@ -51,6 +51,12 @@ pub fn render_encoding_full(
     (recording, out_image.into())
 }
 
+impl Default for Render {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Render {
     pub fn new() -> Self {
         Render {
