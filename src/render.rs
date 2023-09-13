@@ -238,13 +238,7 @@ impl Render {
             recording.dispatch(
                 shaders.clip_reduce,
                 wg_counts.clip_reduce,
-                [
-                    config_buf,
-                    clip_inp_buf,
-                    path_bbox_buf,
-                    clip_bic_buf,
-                    clip_el_buf,
-                ],
+                [clip_inp_buf, path_bbox_buf, clip_bic_buf, clip_el_buf],
             );
         }
         let clip_bbox_buf = ResourceProxy::new_buf(
@@ -320,7 +314,6 @@ impl Render {
             [
                 config_buf,
                 scene_buf,
-                tagmonoid_buf,
                 cubic_buf,
                 path_buf,
                 bump_buf,
@@ -383,12 +376,11 @@ impl Render {
             fine_wg_count,
             [
                 fine.config_buf,
-                fine.tile_buf,
                 fine.segments_buf,
-                ResourceProxy::Image(fine.out_image),
                 fine.ptcl_buf,
-                fine.gradient_image,
                 fine.info_bin_data_buf,
+                ResourceProxy::Image(fine.out_image),
+                fine.gradient_image,
                 fine.image_atlas,
             ],
         );
