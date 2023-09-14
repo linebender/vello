@@ -17,6 +17,7 @@ use {
 pub mod permutations;
 pub mod preprocess;
 
+#[cfg(feature = "msl")]
 pub mod msl;
 
 use crate::types::{BindType, BindingInfo, WorkgroupBufferInfo};
