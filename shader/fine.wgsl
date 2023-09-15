@@ -16,9 +16,6 @@ struct Tile {
 var<uniform> config: Config;
 
 @group(0) @binding(1)
-var<storage> tiles: array<Tile>;
-
-@group(0) @binding(2)
 var<storage> segments: array<Segment>;
 
 #ifdef full
@@ -28,19 +25,19 @@ var<storage> segments: array<Segment>;
 
 let GRADIENT_WIDTH = 512;
 
+@group(0) @binding(2)
+var<storage> ptcl: array<u32>;
+
 @group(0) @binding(3)
-var output: texture_storage_2d<rgba8unorm, write>;
+var<storage> info: array<u32>;
 
 @group(0) @binding(4)
-var<storage> ptcl: array<u32>;
+var output: texture_storage_2d<rgba8unorm, write>;
 
 @group(0) @binding(5)
 var gradients: texture_2d<f32>;
 
 @group(0) @binding(6)
-var<storage> info: array<u32>;
-
-@group(0) @binding(7)
 var image_atlas: texture_2d<f32>;
 
 fn read_fill(cmd_ix: u32) -> CmdFill {
