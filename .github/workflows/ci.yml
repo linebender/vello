@@ -23,6 +23,8 @@ jobs:
       - run: cargo check --workspace
       # Check vello (the default crate) without the features used by `with_winit` for debugging
       - run: cargo check 
+      # Check vello (the default crate) without wgpu
+      - run: cargo check --no-default-features
       # --exclude with_bevy # for when bevy has an outdated wgpu version
       # -Dwarnings # for when we have fixed unused code warnings
 

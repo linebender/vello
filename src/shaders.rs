@@ -20,9 +20,13 @@ mod preprocess;
 
 use std::collections::HashSet;
 
+#[cfg(feature = "wgpu")]
 use wgpu::Device;
 
-use crate::engine::{BindType, Engine, Error, ImageFormat, ShaderId};
+#[cfg(feature = "wgpu")]
+use crate::engine::{BindType, Engine, Error, ImageFormat};
+
+use crate::engine::ShaderId;
 
 macro_rules! shader {
     ($name:expr) => {&{
@@ -71,6 +75,7 @@ pub struct FullShaders {
     pub fine: ShaderId,
 }
 
+#[cfg(feature = "wgpu")]
 pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders, Error> {
     let imports = SHARED_SHADERS
         .iter()
