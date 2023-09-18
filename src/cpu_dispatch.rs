@@ -1,3 +1,6 @@
+// Copyright 2023 The Vello authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 //! Support for CPU implementations of compute shaders.
 
 use std::{

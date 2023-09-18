@@ -409,6 +409,14 @@ impl Engine {
                     // println!("dispatching {:?} with {} bindings", wg_size, bindings.len());
                     let shader = &self.shaders[shader_id.0];
                     if let Some(cpu_shader) = shader.cpu_shader {
+                        // The current strategy is to run the CPU shader synchronously. This
+                        // works because there is currently the added constraint that data
+                        // can only flow from CPU to GPU, not the other way around. If and
+                        // when we implement that, we will need to defer the execution. Of
+                        // course, we will also need to wire up more async sychronization
+                        // mechanisms, as the CPU dispatch can't run until the preceding
+                        // command buffer submission completes (and, in WebGPU, the async
+                        // mapping operations on the buffers completes).
                         let resources =
                             transient_map.create_cpu_resources(&mut self.bind_map, bindings);
                         cpu_shader(wg_size.0, &resources);
@@ -435,6 +443,7 @@ impl Engine {
                 Command::DispatchIndirect(shader_id, proxy, offset, bindings) => {
                     let shader = &self.shaders[shader_id.0];
                     if let Some(cpu_shader) = shader.cpu_shader {
+                        // Same consideration as above about running the CPU shader synchronously.
                         let n_wg;
                         if let CpuBinding::BufferRW(b) = self.bind_map.get_cpu_buf(proxy.id) {
                             let slice = b.borrow();
@@ -496,9 +505,7 @@ impl Engine {
                                 if let Some(size) = size {
                                     slice = &mut slice[..size.get() as usize];
                                 }
-                                for x in slice {
-                                    *x = 0;
-                                }
+                                slice.fill(0);
                             }
                         }
                     } else {
@@ -860,6 +867,11 @@ impl ResourcePool {
 }
 
 impl BindMapBuffer {
+    // Upload a buffer from CPU to GPU if needed.
+    //
+    // Note data flow is one way only, from CPU to GPU. Once this method is
+    // called, the buffer is no longer materialized on CPU, and cannot be
+    // accessed from a CPU shader.
     fn upload_if_needed(
         &mut self,
         proxy: &BufProxy,
@@ -1031,6 +1043,7 @@ impl<'a> TransientBindMap<'a> {
             match resource {
                 ResourceProxy::Buf(buf) => match self.bufs.get(&buf.id) {
                     Some(TransientBuf::Cpu(_)) => (),
+                    Some(TransientBuf::Gpu(_)) => panic!("buffer was already materialized on GPU"),
                     _ => bind_map.materialize_cpu_buf(buf),
                 },
                 ResourceProxy::Image(_) => todo!(),
