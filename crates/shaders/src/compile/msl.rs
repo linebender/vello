@@ -1,29 +1,28 @@
 // Copyright 2023 The Vello authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use naga::back::msl;
+use naga::back::msl as naga_msl;
+use {
+    super::{BindType, ShaderInfo},
+    crate::types::msl::BindingIndex,
+};
 
-use super::{BindType, ShaderInfo};
-
-pub fn translate(shader: &ShaderInfo) -> Result<String, msl::Error> {
-    let mut map = msl::EntryPointResourceMap::default();
-    let mut buffer_index = 0u8;
-    let mut image_index = 0u8;
-    let mut binding_map = msl::BindingMap::default();
+pub fn translate(shader: &ShaderInfo) -> Result<String, naga_msl::Error> {
+    let mut map = naga_msl::EntryPointResourceMap::default();
+    let mut idx_iter = BindingIndexIterator::default();
+    let mut binding_map = naga_msl::BindingMap::default();
     for resource in &shader.bindings {
         let binding = naga::ResourceBinding {
             group: resource.location.0,
             binding: resource.location.1,
         };
-        let mut target = msl::BindTarget::default();
-        match resource.ty {
-            BindType::Buffer | BindType::BufReadOnly | BindType::Uniform => {
-                target.buffer = Some(buffer_index);
-                buffer_index += 1;
+        let mut target = naga_msl::BindTarget::default();
+        match idx_iter.next(resource.ty) {
+            BindingIndex::Buffer(idx) => {
+                target.buffer = Some(idx);
             }
-            BindType::Image | BindType::ImageRead => {
-                target.texture = Some(image_index);
-                image_index += 1;
+            BindingIndex::Texture(idx) => {
+                target.texture = Some(idx);
             }
         }
         target.mutable = resource.ty.is_mutable();
@@ -31,13 +30,13 @@ pub fn translate(shader: &ShaderInfo) -> Result<String, msl::Error> {
     }
     map.insert(
         "main".to_string(),
-        msl::EntryPointResources {
+        naga_msl::EntryPointResources {
             resources: binding_map,
             push_constant_buffer: None,
             sizes_buffer: Some(30),
         },
     );
-    let options = msl::Options {
+    let options = naga_msl::Options {
         lang_version: (2, 0),
         per_entry_point_map: map,
         inline_samplers: vec![],
@@ -46,11 +45,36 @@ pub fn translate(shader: &ShaderInfo) -> Result<String, msl::Error> {
         bounds_check_policies: naga::proc::BoundsCheckPolicies::default(),
         zero_initialize_workgroup_memory: false,
     };
-    let (source, _) = msl::write_string(
+    let (source, _) = naga_msl::write_string(
         &shader.module,
         &shader.module_info,
         &options,
-        &msl::PipelineOptions::default(),
+        &naga_msl::PipelineOptions::default(),
     )?;
     Ok(source)
+}
+
+#[derive(Default)]
+pub struct BindingIndexIterator {
+    buffer_idx: u8,
+    tex_idx: u8,
+}
+
+impl BindingIndexIterator {
+    pub fn next(&mut self, ty: BindType) -> BindingIndex {
+        match ty {
+            BindType::Buffer | BindType::BufReadOnly | BindType::Uniform => {
+                let idx = self.buffer_idx;
+                self.buffer_idx += 1;
+                assert!(self.buffer_idx > 0);
+                BindingIndex::Buffer(idx)
+            }
+            BindType::Image | BindType::ImageRead => {
+                let idx = self.tex_idx;
+                self.tex_idx += 1;
+                assert!(self.tex_idx > 0);
+                BindingIndex::Texture(idx)
+            }
+        }
+    }
 }

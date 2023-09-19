@@ -20,12 +20,16 @@ mod preprocess;
 
 use std::collections::HashSet;
 
+#[cfg(feature = "wgpu")]
 use wgpu::Device;
 
+#[cfg(feature = "wgpu")]
 use crate::{
     cpu_shader,
-    engine::{BindType, Engine, Error, ImageFormat, ShaderId},
+    engine::{BindType, Engine, Error, ImageFormat},
 };
+
+use crate::engine::ShaderId;
 
 macro_rules! shader {
     ($name:expr) => {&{
@@ -74,6 +78,7 @@ pub struct FullShaders {
     pub fine: ShaderId,
 }
 
+#[cfg(feature = "wgpu")]
 pub fn full_shaders(
     device: &Device,
     engine: &mut Engine,
@@ -179,7 +184,6 @@ pub fn full_shaders(
         "clip_reduce",
         preprocess::preprocess(shader!("clip_reduce"), &empty, &imports).into(),
         &[
-            BindType::Uniform,
             BindType::BufReadOnly,
             BindType::BufReadOnly,
             BindType::Buffer,
@@ -238,7 +242,6 @@ pub fn full_shaders(
             BindType::BufReadOnly,
             BindType::BufReadOnly,
             BindType::BufReadOnly,
-            BindType::BufReadOnly,
             BindType::Buffer,
             BindType::Buffer,
             BindType::Buffer,
@@ -274,10 +277,9 @@ pub fn full_shaders(
             BindType::Uniform,
             BindType::BufReadOnly,
             BindType::BufReadOnly,
+            BindType::BufReadOnly,
             BindType::Image(ImageFormat::Rgba8),
-            BindType::BufReadOnly,
             BindType::ImageRead(ImageFormat::Rgba8),
-            BindType::BufReadOnly,
             BindType::ImageRead(ImageFormat::Rgba8),
         ],
     )?;
