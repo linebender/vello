@@ -25,11 +25,8 @@ fn pathtag_reduce_main(
 }
 
 pub fn pathtag_reduce(n_wg: u32, resources: &[CpuBinding]) {
-    let r0 = resources[0].as_buf();
-    let r1 = resources[1].as_buf();
-    let mut r2 = resources[2].as_buf();
-    let config = bytemuck::from_bytes(&r0);
-    let scene = bytemuck::cast_slice(&r1);
-    let reduced = bytemuck::cast_slice_mut(r2.as_mut());
-    pathtag_reduce_main(n_wg, config, scene, reduced);
+    let config = resources[0].as_typed();
+    let scene = resources[1].as_slice();
+    let mut reduced = resources[2].as_slice_mut();
+    pathtag_reduce_main(n_wg, &config, &scene, &mut reduced);
 }
