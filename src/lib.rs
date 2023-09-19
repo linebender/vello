@@ -14,6 +14,8 @@
 //
 // Also licensed under MIT license, at your choice.
 
+mod cpu_dispatch;
+mod cpu_shader;
 mod engine;
 mod render;
 mod scene;
@@ -89,6 +91,7 @@ pub struct RendererOptions {
     /// The timestamp period from [`wgpu::Queue::get_timestamp_period`]
     /// Used when the wgpu-profiler feature is enabled
     pub timestamp_period: f32,
+    pub use_cpu: bool,
 }
 
 #[cfg(feature = "wgpu")]
@@ -96,7 +99,7 @@ impl Renderer {
     /// Creates a new renderer for the specified device.
     pub fn new(device: &Device, render_options: &RendererOptions) -> Result<Self> {
         let mut engine = Engine::new();
-        let shaders = shaders::full_shaders(device, &mut engine)?;
+        let shaders = shaders::full_shaders(device, &mut engine, render_options.use_cpu)?;
         let blit = render_options
             .surface_format
             .map(|surface_format| BlitPipeline::new(device, surface_format));
@@ -215,7 +218,7 @@ impl Renderer {
     pub async fn reload_shaders(&mut self, device: &Device) -> Result<()> {
         device.push_error_scope(wgpu::ErrorFilter::Validation);
         let mut engine = Engine::new();
-        let shaders = shaders::full_shaders(device, &mut engine)?;
+        let shaders = shaders::full_shaders(device, &mut engine, false)?;
         let error = device.pop_error_scope().await;
         if let Some(error) = error {
             return Err(error.into());

@@ -48,6 +48,9 @@ struct Args {
     scene: Option<i32>,
     #[command(flatten)]
     args: scenes::Arguments,
+    #[arg(long)]
+    /// Whether to use CPU shaders
+    use_cpu: bool,
 }
 
 struct RenderState {
@@ -70,6 +73,7 @@ fn run(
     let mut render_cx = render_cx;
     #[cfg(not(target_arch = "wasm32"))]
     let mut render_state = None::<RenderState>;
+    let use_cpu = args.use_cpu;
     // The design of `RenderContext` forces delayed renderer initialisation to
     // not work on wasm, as WASM futures effectively must be 'static.
     // Otherwise, this could work by sending the result to event_loop.proxy
@@ -84,6 +88,7 @@ fn run(
                 &RendererOptions {
                     surface_format: Some(render_state.surface.format),
                     timestamp_period: render_cx.devices[id].queue.get_timestamp_period(),
+                    use_cpu: use_cpu,
                 },
             )
             .expect("Could create renderer"),
@@ -492,6 +497,7 @@ fn run(
                                 timestamp_period: render_cx.devices[id]
                                     .queue
                                     .get_timestamp_period(),
+                                use_cpu,
                             },
                         )
                         .expect("Could create renderer")

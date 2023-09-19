@@ -24,7 +24,10 @@ use std::collections::HashSet;
 use wgpu::Device;
 
 #[cfg(feature = "wgpu")]
-use crate::engine::{BindType, Engine, Error, ImageFormat};
+use crate::{
+    cpu_shader,
+    engine::{BindType, Engine, Error, ImageFormat},
+};
 
 use crate::engine::ShaderId;
 
@@ -76,7 +79,11 @@ pub struct FullShaders {
 }
 
 #[cfg(feature = "wgpu")]
-pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders, Error> {
+pub fn full_shaders(
+    device: &Device,
+    engine: &mut Engine,
+    use_cpu: bool,
+) -> Result<FullShaders, Error> {
     let imports = SHARED_SHADERS
         .iter()
         .copied()
@@ -93,6 +100,9 @@ pub fn full_shaders(device: &Device, engine: &mut Engine) -> Result<FullShaders,
         preprocess::preprocess(shader!("pathtag_reduce"), &full_config, &imports).into(),
         &[BindType::Uniform, BindType::BufReadOnly, BindType::Buffer],
     )?;
+    if use_cpu {
+        engine.set_cpu_shader(pathtag_reduce, cpu_shader::pathtag_reduce);
+    }
     let pathtag_reduce2 = engine.add_shader(
         device,
         "pathtag_reduce2",
