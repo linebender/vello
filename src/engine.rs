@@ -676,11 +676,8 @@ impl Recording {
 impl BufProxy {
     pub fn new(size: u64, name: &'static str) -> Self {
         let id = Id::next();
-        BufProxy {
-            id,
-            size: size.max(16),
-            name,
-        }
+        debug_assert!(size > 0);
+        BufProxy { id, size, name }
     }
 }
 

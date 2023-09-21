@@ -185,7 +185,12 @@ impl<T: Sized> BufferSize<T> {
     /// Creates a new buffer size from number of elements.
     pub const fn new(len: u32) -> Self {
         Self {
-            len,
+            // Each buffer binding must be large enough to hold at least one element to avoid
+            // triggering validation errors.
+            //
+            // Note: not using `Ord::max` here because it doesn't support const eval yet (except
+            // in nightly)
+            len: if len > 0 { len } else { 1 },
             _phantom: std::marker::PhantomData,
         }
     }
