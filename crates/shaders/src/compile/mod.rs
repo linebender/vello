@@ -47,11 +47,8 @@ pub struct ShaderInfo {
 impl ShaderInfo {
     pub fn new(source: String, entry_point: &str) -> Result<ShaderInfo, Error> {
         let module = wgsl::parse_str(&source)?;
-        let module_info = naga::valid::Validator::new(
-            ValidationFlags::all() & !ValidationFlags::CONTROL_FLOW_UNIFORMITY,
-            Capabilities::all(),
-        )
-        .validate(&module)?;
+        let module_info = naga::valid::Validator::new(ValidationFlags::all(), Capabilities::all())
+            .validate(&module)?;
         let (entry_index, entry) = module
             .entry_points
             .iter()
