@@ -152,20 +152,28 @@ impl<'a> SceneBuilder<'a> {
         brush_transform: Option<Affine>,
         shape: &impl Shape,
     ) {
-        self.scene
-            .encode_transform(Transform::from_kurbo(&transform));
-        self.scene.encode_linewidth(style.width);
-        if self.scene.encode_shape(shape, false) {
-            if let Some(brush_transform) = brush_transform {
-                if self
-                    .scene
-                    .encode_transform(Transform::from_kurbo(&(transform * brush_transform)))
-                {
-                    self.scene.swap_last_path_tags();
-                }
-            }
-            self.scene.encode_brush(brush, 1.0);
-        }
+        let style = stroke_to_kurbo(style);
+        let stroked =
+            peniko::kurbo::stroke(shape.path_elements(0.1), &style, &Default::default(), 0.01);
+        self.fill(Fill::NonZero, transform, brush, brush_transform, &stroked);
+
+        // let zeno = stroke_zeno(shape, style);
+        // self.fill(Fill::NonZero, transform, brush, brush_transform, &zeno);
+
+        // self.scene
+        //     .encode_transform(Transform::from_kurbo(&transform));
+        // self.scene.encode_linewidth(style.width);
+        // if self.scene.encode_shape(shape, false) {
+        //     if let Some(brush_transform) = brush_transform {
+        //         if self
+        //             .scene
+        //             .encode_transform(Transform::from_kurbo(&(transform * brush_transform)))
+        //         {
+        //             self.scene.swap_last_path_tags();
+        //         }
+        //     }
+        //     self.scene.encode_brush(brush, 1.0);
+        // }
     }
 
     /// Draws an image at its natural size with the given transform.
@@ -310,5 +318,139 @@ impl<'a> DrawGlyphs<'a> {
         resources.glyph_runs.push(self.run);
         resources.patches.push(Patch::GlyphRun { index });
         self.encoding.encode_brush(self.brush, self.brush_alpha);
+    }
+}
+
+fn stroke_to_kurbo(stroke: &Stroke) -> peniko::kurbo::Stroke {
+    peniko::kurbo::Stroke {
+        start_cap: cap_to_kurbo_cap(stroke.start_cap),
+        end_cap: cap_to_kurbo_cap(stroke.end_cap),
+        join: match stroke.join {
+            peniko::Join::Bevel => peniko::kurbo::Join::Bevel,
+            peniko::Join::Round => peniko::kurbo::Join::Round,
+            peniko::Join::Miter => peniko::kurbo::Join::Miter,
+        },
+        miter_limit: stroke.miter_limit as f64,
+        width: stroke.width as f64,
+        dash_offset: stroke.dash_offset as f64,
+        dash_pattern: stroke
+            .dash_pattern
+            .iter()
+            .copied()
+            .map(|x| x as f64)
+            .collect(),
+        scale: stroke.scale,
+    }
+}
+
+fn cap_to_kurbo_cap(cap: peniko::Cap) -> peniko::kurbo::Cap {
+    match cap {
+        peniko::Cap::Butt => peniko::kurbo::Cap::Butt,
+        peniko::Cap::Round => peniko::kurbo::Cap::Round,
+        peniko::Cap::Square => peniko::kurbo::Cap::Square,
+    }
+}
+
+fn stroke_zeno(shape: &impl Shape, stroke: &Stroke) -> peniko::kurbo::BezPath {
+    #[derive(Default)]
+    struct Wrap(peniko::kurbo::BezPath);
+
+    impl zeno::PathBuilder for Wrap {
+        fn current_point(&self) -> zeno::Point {
+            Default::default()
+        }
+
+        fn move_to(&mut self, to: impl Into<zeno::Point>) -> &mut Self {
+            let to = to.into();
+            self.0.move_to((to.x as f64, to.y as f64));
+            self
+        }
+
+        fn line_to(&mut self, to: impl Into<zeno::Point>) -> &mut Self {
+            let to = to.into();
+            self.0.line_to((to.x as f64, to.y as f64));
+            self
+        }
+
+        fn quad_to(
+            &mut self,
+            control1: impl Into<zeno::Point>,
+            to: impl Into<zeno::Point>,
+        ) -> &mut Self {
+            let c0 = control1.into();
+            let to = to.into();
+            self.0
+                .quad_to((c0.x as f64, c0.y as f64), (to.x as f64, to.y as f64));
+            self
+        }
+
+        fn curve_to(
+            &mut self,
+            control1: impl Into<zeno::Point>,
+            control2: impl Into<zeno::Point>,
+            to: impl Into<zeno::Point>,
+        ) -> &mut Self {
+            let c0 = control1.into();
+            let c1 = control2.into();
+            let to = to.into();
+            self.0.curve_to(
+                (c0.x as f64, c0.y as f64),
+                (c1.x as f64, c1.y as f64),
+                (to.x as f64, to.y as f64),
+            );
+            self
+        }
+
+        fn close(&mut self) -> &mut Self {
+            self.0.close_path();
+            self
+        }
+    }
+
+    let mut path = Wrap::default();
+
+    let style = zeno::Stroke {
+        width: stroke.width,
+        start_cap: cap_to_zeno_cap(stroke.start_cap),
+        end_cap: cap_to_zeno_cap(stroke.end_cap),
+        join: match stroke.join {
+            peniko::Join::Bevel => zeno::Join::Bevel,
+            peniko::Join::Round => zeno::Join::Round,
+            peniko::Join::Miter => zeno::Join::Miter,
+        },
+        miter_limit: stroke.miter_limit,
+        dashes: &stroke.dash_pattern,
+        offset: stroke.dash_offset,
+        scale: false,
+    };
+
+    let els = shape.path_elements(0.1).map(|el| {
+        use peniko::kurbo::PathEl::*;
+        match el {
+            MoveTo(p) => zeno::Command::MoveTo((p.x as f32, p.y as f32).into()),
+            LineTo(p) => zeno::Command::LineTo((p.x as f32, p.y as f32).into()),
+            QuadTo(c0, p) => zeno::Command::QuadTo(
+                (c0.x as f32, c0.y as f32).into(),
+                (p.x as f32, p.y as f32).into(),
+            ),
+            CurveTo(c0, c1, p) => zeno::Command::CurveTo(
+                (c0.x as f32, c0.y as f32).into(),
+                (c1.x as f32, c1.y as f32).into(),
+                (p.x as f32, p.y as f32).into(),
+            ),
+            ClosePath => zeno::Command::Close,
+        }
+    }).collect::<Vec<_>>();
+
+    zeno::apply(&els, style, None, &mut path);
+
+    path.0
+}
+
+fn cap_to_zeno_cap(cap: peniko::Cap) -> zeno::Cap {
+    match cap {
+        peniko::Cap::Butt => zeno::Cap::Butt,
+        peniko::Cap::Round => zeno::Cap::Round,
+        peniko::Cap::Square => zeno::Cap::Square,
     }
 }

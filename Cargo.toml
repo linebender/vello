@@ -51,6 +51,7 @@ parking_lot = "0.12"
 smallvec = "1.8.0"
 vello_encoding = { path = "crates/encoding" }
 wgpu-profiler = { workspace = true, optional = true }
+zeno = "0.2.3"
 
 [workspace.dependencies]
 bytemuck = { version = "1.12.1", features = ["derive"] }
@@ -65,3 +66,7 @@ anyhow = "1.0"
 instant = { version = "0.1.12", features = ["wasm-bindgen"] }
 pollster = "0.3.0"
 wgpu-profiler = "0.12.1"
+
+[patch.crates-io]
+#kurbo = { path = "../kurbo" }
+kurbo = { git = "https://github.com/linebender/kurbo", branch = "robust_stroke" }

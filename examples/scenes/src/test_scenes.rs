@@ -61,9 +61,11 @@ pub fn test_scenes() -> SceneSet {
 fn funky_paths(sb: &mut SceneBuilder, _: &mut SceneParams) {
     use PathEl::*;
     let missing_movetos = [
-        LineTo((100.0, 100.0).into()),
+        MoveTo((100.0, 100.0).into()),
         LineTo((100.0, 200.0).into()),
+        LineTo((200.0, 200.0).into()),
         ClosePath,
+        MoveTo((100.0, 100.0).into()),
         LineTo((0.0, 400.0).into()),
         LineTo((100.0, 400.0).into()),
     ];

@@ -1,0 +1,270 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'vello_encoding'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=vello_encoding"
+                ],
+                "filter": {
+                    "name": "vello_encoding",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'vello_shaders'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=vello_shaders"
+                ],
+                "filter": {
+                    "name": "vello_shaders",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'vello_svg'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=vello_svg"
+                ],
+                "filter": {
+                    "name": "vello_svg",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'vello'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=vello"
+                ],
+                "filter": {
+                    "name": "vello",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'headless'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=headless",
+                    "--package=headless"
+                ],
+                "filter": {
+                    "name": "headless",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'headless'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=headless",
+                    "--package=headless"
+                ],
+                "filter": {
+                    "name": "headless",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'scenes'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=scenes"
+                ],
+                "filter": {
+                    "name": "scenes",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'with_winit'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=with_winit"
+                ],
+                "filter": {
+                    "name": "with_winit",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'with_winit_bin'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=with_winit_bin",
+                    "--package=with_winit",
+                ],
+                "filter": {
+                    "name": "with_winit_bin",
+                    "kind": "bin"
+                }
+            },
+            "args": ["--test-scenes"],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'with_winit_bin'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=with_winit_bin",
+                    "--package=with_winit"
+                ],
+                "filter": {
+                    "name": "with_winit_bin",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'with_bevy'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=with_bevy",
+                    "--package=with_bevy"
+                ],
+                "filter": {
+                    "name": "with_bevy",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'with_bevy'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=with_bevy",
+                    "--package=with_bevy"
+                ],
+                "filter": {
+                    "name": "with_bevy",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'run_wasm'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=run_wasm",
+                    "--package=run_wasm"
+                ],
+                "filter": {
+                    "name": "run_wasm",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'run_wasm'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=run_wasm",
+                    "--package=run_wasm"
+                ],
+                "filter": {
+                    "name": "run_wasm",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}
