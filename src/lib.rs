@@ -20,6 +20,8 @@ mod engine;
 mod render;
 mod scene;
 mod shaders;
+#[cfg(feature = "wgpu")]
+mod wgpu_engine;
 
 /// Styling and composition primitives.
 pub use peniko;
@@ -42,9 +44,9 @@ pub use util::block_on_wgpu;
 pub use engine::{
     BufProxy, Command, Id, ImageFormat, ImageProxy, Recording, ResourceProxy, ShaderId,
 };
-#[cfg(feature = "wgpu")]
-use engine::{Engine, ExternalResource};
 pub use shaders::FullShaders;
+#[cfg(feature = "wgpu")]
+use wgpu_engine::{ExternalResource, WgpuEngine};
 
 /// Temporary export, used in with_winit for stats
 pub use vello_encoding::BumpAllocators;
@@ -62,7 +64,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// Renders a scene into a texture or surface.
 #[cfg(feature = "wgpu")]
 pub struct Renderer {
-    engine: Engine,
+    engine: WgpuEngine,
     shaders: FullShaders,
     blit: Option<BlitPipeline>,
     target: Option<TargetTexture>,
@@ -98,7 +100,7 @@ pub struct RendererOptions {
 impl Renderer {
     /// Creates a new renderer for the specified device.
     pub fn new(device: &Device, render_options: &RendererOptions) -> Result<Self> {
-        let mut engine = Engine::new();
+        let mut engine = WgpuEngine::new();
         let shaders = shaders::full_shaders(device, &mut engine, render_options.use_cpu)?;
         let blit = render_options
             .surface_format
@@ -217,7 +219,7 @@ impl Renderer {
     #[cfg(feature = "hot_reload")]
     pub async fn reload_shaders(&mut self, device: &Device) -> Result<()> {
         device.push_error_scope(wgpu::ErrorFilter::Validation);
-        let mut engine = Engine::new();
+        let mut engine = WgpuEngine::new();
         let shaders = shaders::full_shaders(device, &mut engine, false)?;
         let error = device.pop_error_scope().await;
         if let Some(error) = error {
