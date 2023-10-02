@@ -23,12 +23,13 @@ use std::collections::HashSet;
 #[cfg(feature = "wgpu")]
 use wgpu::Device;
 
-#[cfg(feature = "wgpu")]
 use crate::{
     cpu_shader,
     engine::{BindType, Error, ImageFormat, ShaderId},
-    wgpu_engine::WgpuEngine,
 };
+
+#[cfg(feature = "wgpu")]
+use crate::wgpu_engine::WgpuEngine;
 
 macro_rules! shader {
     ($name:expr) => {&{

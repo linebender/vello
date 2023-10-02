@@ -94,8 +94,6 @@ pub enum BindType {
     // TODO: Uniform, Sampler, maybe others
 }
 
-#[cfg(feature = "wgpu")]
-
 impl Recording {
     pub fn push(&mut self, cmd: Command) {
         self.commands.push(cmd);
