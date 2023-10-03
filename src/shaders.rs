@@ -23,13 +23,13 @@ use std::collections::HashSet;
 #[cfg(feature = "wgpu")]
 use wgpu::Device;
 
-#[cfg(feature = "wgpu")]
 use crate::{
     cpu_shader,
-    engine::{BindType, Engine, Error, ImageFormat},
+    engine::{BindType, Error, ImageFormat, ShaderId},
 };
 
-use crate::engine::ShaderId;
+#[cfg(feature = "wgpu")]
+use crate::wgpu_engine::WgpuEngine;
 
 macro_rules! shader {
     ($name:expr) => {&{
@@ -81,7 +81,7 @@ pub struct FullShaders {
 #[cfg(feature = "wgpu")]
 pub fn full_shaders(
     device: &Device,
-    engine: &mut Engine,
+    engine: &mut WgpuEngine,
     use_cpu: bool,
 ) -> Result<FullShaders, Error> {
     let imports = SHARED_SHADERS
