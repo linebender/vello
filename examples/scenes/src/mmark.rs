@@ -11,8 +11,7 @@ use std::cmp::Ordering;
 use rand::{seq::SliceRandom, Rng};
 use vello::peniko::Color;
 use vello::{
-    kurbo::{Affine, BezPath, CubicBez, Line, ParamCurve, PathSeg, Point, QuadBez},
-    peniko::Stroke,
+    kurbo::{Affine, BezPath, CubicBez, Line, ParamCurve, PathSeg, Point, QuadBez, Stroke},
     SceneBuilder,
 };
 
@@ -92,7 +91,7 @@ impl TestScene for MMark {
                 // This gets color and width from the last element, original
                 // gets it from the first, but this should not matter.
                 sb.stroke(
-                    &Stroke::new(element.width as f32),
+                    &Stroke::new(element.width),
                     Affine::IDENTITY,
                     element.color,
                     None,

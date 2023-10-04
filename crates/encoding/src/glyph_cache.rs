@@ -5,9 +5,12 @@ use std::collections::HashMap;
 
 use super::{Encoding, StreamOffsets};
 
-use fello::scale::Scaler;
+use fello::scale::{Pen, Scaler};
 use fello::GlyphId;
-use peniko::{Fill, Style};
+use peniko::{
+    kurbo::{BezPath, Shape},
+    Fill, Style,
+};
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Default, Debug)]
 pub struct GlyphKey {
@@ -36,20 +39,37 @@ impl GlyphCache {
         style: &Style,
         scaler: &mut Scaler,
     ) -> Option<CachedRange> {
-        let is_fill = matches!(style, Style::Fill(_));
         let is_var = !scaler.normalized_coords().is_empty();
         let encoding_cache = &mut self.encoding;
         let mut encode_glyph = || {
             let start = encoding_cache.stream_offsets();
+            let fill = match style {
+                Style::Fill(fill) => *fill,
+                Style::Stroke(_) => Fill::NonZero,
+            };
+            encoding_cache.encode_fill_style(fill);
+            let mut path = encoding_cache.encode_path(true);
             match style {
-                Style::Fill(Fill::NonZero) => encoding_cache.encode_linewidth(-1.0),
-                Style::Fill(Fill::EvenOdd) => encoding_cache.encode_linewidth(-2.0),
-                Style::Stroke(stroke) => encoding_cache.encode_linewidth(stroke.width),
+                Style::Fill(_) => {
+                    scaler
+                        .outline(GlyphId::new(key.glyph_id as u16), &mut path)
+                        .ok()?;
+                }
+                Style::Stroke(stroke) => {
+                    const STROKE_TOLERANCE: f64 = 0.01;
+                    let mut pen = BezPathPen::default();
+                    scaler
+                        .outline(GlyphId::new(key.glyph_id as u16), &mut pen)
+                        .ok()?;
+                    let stroked = peniko::kurbo::stroke(
+                        pen.0.path_elements(STROKE_TOLERANCE),
+                        stroke,
+                        &Default::default(),
+                        STROKE_TOLERANCE,
+                    );
+                    path.shape(&stroked);
+                }
             }
-            let mut path = encoding_cache.encode_path(is_fill);
-            scaler
-                .outline(GlyphId::new(key.glyph_id as u16), &mut path)
-                .ok()?;
             if path.finish(false) == 0 {
                 return None;
             }
@@ -87,5 +107,37 @@ impl CachedRange {
             transforms: self.end.transforms - self.start.transforms,
             linewidths: self.end.linewidths - self.start.linewidths,
         }
+    }
+}
+
+// A wrapper newtype so we can implement the `Pen` trait. Arguably, this could
+// be in the fello crate, but will go away when we do GPU-side stroking.
+#[derive(Default)]
+struct BezPathPen(BezPath);
+
+impl Pen for BezPathPen {
+    fn move_to(&mut self, x: f32, y: f32) {
+        self.0.move_to((x as f64, y as f64));
+    }
+
+    fn line_to(&mut self, x: f32, y: f32) {
+        self.0.line_to((x as f64, y as f64));
+    }
+
+    fn quad_to(&mut self, cx0: f32, cy0: f32, x: f32, y: f32) {
+        self.0
+            .quad_to((cx0 as f64, cy0 as f64), (x as f64, y as f64));
+    }
+
+    fn curve_to(&mut self, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x: f32, y: f32) {
+        self.0.curve_to(
+            (cx0 as f64, cy0 as f64),
+            (cx1 as f64, cy1 as f64),
+            (x as f64, y as f64),
+        );
+    }
+
+    fn close(&mut self) {
+        self.0.close_path();
     }
 }

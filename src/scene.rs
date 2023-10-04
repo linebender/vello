@@ -15,8 +15,8 @@
 // Also licensed under MIT license, at your choice.
 
 use fello::NormalizedCoord;
-use peniko::kurbo::{Affine, Rect, Shape};
-use peniko::{BlendMode, BrushRef, Color, Fill, Font, Image, Stroke, StyleRef};
+use peniko::kurbo::{Affine, Rect, Shape, Stroke};
+use peniko::{BlendMode, BrushRef, Color, Fill, Font, Image, StyleRef};
 use vello_encoding::{Encoding, Glyph, GlyphRun, Patch, Transform};
 
 /// Encoded definition of a scene and associated resources.
@@ -100,7 +100,7 @@ impl<'a> SceneBuilder<'a> {
         let blend = blend.into();
         self.scene
             .encode_transform(Transform::from_kurbo(&transform));
-        self.scene.encode_linewidth(-1.0);
+        self.scene.encode_fill_style(Fill::NonZero);
         if !self.scene.encode_shape(shape, true) {
             // If the layer shape is invalid, encode a valid empty path. This suppresses
             // all drawing until the layer is popped.
@@ -126,10 +126,7 @@ impl<'a> SceneBuilder<'a> {
     ) {
         self.scene
             .encode_transform(Transform::from_kurbo(&transform));
-        self.scene.encode_linewidth(match style {
-            Fill::NonZero => -1.0,
-            Fill::EvenOdd => -2.0,
-        });
+        self.scene.encode_fill_style(style);
         if self.scene.encode_shape(shape, true) {
             if let Some(brush_transform) = brush_transform {
                 if self
@@ -152,20 +149,26 @@ impl<'a> SceneBuilder<'a> {
         brush_transform: Option<Affine>,
         shape: &impl Shape,
     ) {
-        self.scene
-            .encode_transform(Transform::from_kurbo(&transform));
-        self.scene.encode_linewidth(style.width);
-        if self.scene.encode_shape(shape, false) {
-            if let Some(brush_transform) = brush_transform {
-                if self
-                    .scene
-                    .encode_transform(Transform::from_kurbo(&(transform * brush_transform)))
-                {
-                    self.scene.swap_last_path_tags();
-                }
-            }
-            self.scene.encode_brush(brush, 1.0);
-        }
+        // The setting for tolerance are a compromise. For most applications,
+        // shape tolerance doesn't matter, as the input is likely Bézier paths,
+        // which is exact. Note that shape tolerance is hard-coded as 0.1 in
+        // the encoding crate.
+        //
+        // Stroke tolerance is a different matter. Generally, the cost scales
+        // with inverse O(n^6), so there is moderate rendering cost to setting
+        // too fine a value. On the other hand, error scales with the transform
+        // applied post-stroking, so may exceed visible threshold. When we do
+        // GPU-side stroking, the transform will be known. In the meantime,
+        // this is a compromise.
+        const SHAPE_TOLERANCE: f64 = 0.01;
+        const STROKE_TOLERANCE: f64 = SHAPE_TOLERANCE;
+        let stroked = peniko::kurbo::stroke(
+            shape.path_elements(SHAPE_TOLERANCE),
+            style,
+            &Default::default(),
+            STROKE_TOLERANCE,
+        );
+        self.fill(Fill::NonZero, transform, brush, brush_transform, &stroked);
     }
 
     /// Draws an image at its natural size with the given transform.

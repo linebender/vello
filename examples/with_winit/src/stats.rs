@@ -17,8 +17,8 @@
 use scenes::SimpleText;
 use std::{collections::VecDeque, time::Duration};
 use vello::{
-    kurbo::{Affine, Line, PathEl, Rect},
-    peniko::{Brush, Color, Fill, Stroke},
+    kurbo::{Affine, Line, PathEl, Rect, Stroke},
+    peniko::{Brush, Color, Fill},
     BumpAllocators, SceneBuilder,
 };
 use wgpu_profiler::GpuTimerScopeResult;
@@ -174,7 +174,7 @@ impl Snapshot {
                 &format!("{}", t),
             );
             sb.stroke(
-                &Stroke::new((graph_max_height * 0.01) as f32),
+                &Stroke::new(graph_max_height * 0.01),
                 offset * Affine::translate((left_margin_padding, (1. - y) * graph_max_height)),
                 Color::WHITE,
                 None,

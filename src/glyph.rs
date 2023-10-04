@@ -30,6 +30,7 @@ use {
 };
 
 pub use fello;
+use peniko::kurbo::Shape;
 pub use vello_encoding::Glyph;
 
 /// General context for creating scene fragments for glyph outlines.
@@ -102,13 +103,29 @@ impl<'a> GlyphProvider<'a> {
     }
 
     pub fn encode_glyph(&mut self, gid: u16, style: &Style, encoding: &mut Encoding) -> Option<()> {
+        let fill = match style {
+            Style::Fill(fill) => *fill,
+            Style::Stroke(_) => Fill::NonZero,
+        };
+        encoding.encode_fill_style(fill);
+        let mut path = encoding.encode_path(true);
         match style {
-            Style::Fill(Fill::NonZero) => encoding.encode_linewidth(-1.0),
-            Style::Fill(Fill::EvenOdd) => encoding.encode_linewidth(-2.0),
-            Style::Stroke(stroke) => encoding.encode_linewidth(stroke.width),
+            Style::Fill(_) => {
+                self.scaler.outline(GlyphId::new(gid), &mut path).ok()?;
+            }
+            Style::Stroke(stroke) => {
+                const STROKE_TOLERANCE: f64 = 0.01;
+                let mut pen = BezPathPen::default();
+                self.scaler.outline(GlyphId::new(gid), &mut pen).ok()?;
+                let stroked = peniko::kurbo::stroke(
+                    pen.0.path_elements(STROKE_TOLERANCE),
+                    stroke,
+                    &Default::default(),
+                    STROKE_TOLERANCE,
+                );
+                path.shape(&stroked);
+            }
         }
-        let mut path = encoding.encode_path(matches!(style, Style::Fill(_)));
-        self.scaler.outline(GlyphId::new(gid), &mut path).ok()?;
         if path.finish(false) != 0 {
             Some(())
         } else {

@@ -1,5 +1,5 @@
 use crate::{ExampleScene, SceneConfig, SceneParams, SceneSet};
-use vello::kurbo::{Affine, BezPath, Ellipse, PathEl, Point, Rect};
+use vello::kurbo::{Affine, BezPath, Ellipse, PathEl, Point, Rect, Stroke};
 use vello::peniko::*;
 use vello::*;
 
