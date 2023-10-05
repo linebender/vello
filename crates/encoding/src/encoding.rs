@@ -3,7 +3,7 @@
 
 use super::{DrawColor, DrawTag, PathEncoder, PathTag, Transform};
 
-use peniko::{kurbo::Shape, BlendMode, BrushRef, Color};
+use peniko::{kurbo::Shape, BlendMode, BrushRef, Color, Fill};
 
 #[cfg(feature = "full")]
 use {
@@ -163,8 +163,12 @@ impl Encoding {
         }
     }
 
-    /// Encodes a linewidth.
-    pub fn encode_linewidth(&mut self, linewidth: f32) {
+    /// Encodes a fill style.
+    pub fn encode_fill_style(&mut self, fill: Fill) {
+        let linewidth = match fill {
+            Fill::NonZero => -1.0,
+            Fill::EvenOdd => -2.0,
+        };
         if self.linewidths.last() != Some(&linewidth) {
             self.path_tags.push(PathTag::LINEWIDTH);
             self.linewidths.push(linewidth);

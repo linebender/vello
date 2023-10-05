@@ -35,8 +35,8 @@
 use std::convert::Infallible;
 
 use usvg::NodeExt;
-use vello::kurbo::{Affine, BezPath, Rect};
-use vello::peniko::{Brush, Color, Fill, Stroke};
+use vello::kurbo::{Affine, BezPath, Rect, Stroke};
+use vello::peniko::{Brush, Color, Fill};
 use vello::SceneBuilder;
 
 pub use usvg;
@@ -133,7 +133,7 @@ pub fn render_tree_with<F: FnMut(&mut SceneBuilder, &usvg::Node) -> Result<(), E
                     {
                         // FIXME: handle stroke options such as linecap, linejoin, etc.
                         sb.stroke(
-                            &Stroke::new(stroke.width.get() as f32),
+                            &Stroke::new(stroke.width.get()),
                             transform,
                             &brush,
                             Some(brush_transform),
