@@ -41,3 +41,14 @@ pub struct Clip {
 pub struct ClipBbox {
     pub bbox: [f32; 4],
 }
+
+impl ClipBic {
+    pub fn new(a: u32, b: u32) -> Self {
+        ClipBic { a, b }
+    }
+
+    pub fn combine(self, other: ClipBic) -> Self {
+        let m = self.b.min(other.a);
+        ClipBic::new(self.a + other.a - m, self.b + other.b - m)
+    }
+}

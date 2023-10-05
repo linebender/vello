@@ -24,8 +24,8 @@ mod resolve;
 pub use binning::BinHeader;
 pub use clip::{Clip, ClipBbox, ClipBic, ClipElement};
 pub use config::{
-    BufferSize, BufferSizes, BumpAllocators, ConfigUniform, RenderConfig, WorkgroupCounts,
-    WorkgroupSize,
+    BufferSize, BufferSizes, BumpAllocators, ConfigUniform, IndirectCount, RenderConfig,
+    WorkgroupCounts, WorkgroupSize,
 };
 pub use draw::{
     DrawBbox, DrawBeginClip, DrawColor, DrawImage, DrawLinearGradient, DrawMonoid,
@@ -35,7 +35,8 @@ pub use encoding::{Encoding, StreamOffsets};
 pub use math::Transform;
 pub use monoid::Monoid;
 pub use path::{
-    Cubic, Path, PathBbox, PathEncoder, PathMonoid, PathSegment, PathSegmentType, PathTag, Tile,
+    Cubic, LineSoup, Path, PathBbox, PathEncoder, PathMonoid, PathSegment, PathSegmentType,
+    PathTag, SegmentCount, Tile,
 };
 pub use resolve::{resolve_solid_paths_only, Layout};
 

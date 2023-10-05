@@ -65,16 +65,19 @@ pub struct FullShaders {
     pub pathtag_scan: ShaderId,
     pub pathtag_scan_large: ShaderId,
     pub bbox_clear: ShaderId,
-    pub pathseg: ShaderId,
+    pub flatten: ShaderId,
     pub draw_reduce: ShaderId,
     pub draw_leaf: ShaderId,
     pub clip_reduce: ShaderId,
     pub clip_leaf: ShaderId,
     pub binning: ShaderId,
     pub tile_alloc: ShaderId,
-    pub path_coarse: ShaderId,
     pub backdrop: ShaderId,
+    pub path_count_setup: ShaderId,
+    pub path_count: ShaderId,
     pub coarse: ShaderId,
+    pub path_tiling_setup: ShaderId,
+    pub path_tiling: ShaderId,
     pub fine: ShaderId,
 }
 
@@ -147,14 +150,15 @@ pub fn full_shaders(
         preprocess::preprocess(shader!("bbox_clear"), &empty, &imports).into(),
         &[BindType::Uniform, BindType::Buffer],
     )?;
-    let pathseg = engine.add_shader(
+    let flatten = engine.add_shader(
         device,
-        "pathseg",
-        preprocess::preprocess(shader!("pathseg"), &full_config, &imports).into(),
+        "flatten",
+        preprocess::preprocess(shader!("flatten"), &full_config, &imports).into(),
         &[
             BindType::Uniform,
             BindType::BufReadOnly,
             BindType::BufReadOnly,
+            BindType::Buffer,
             BindType::Buffer,
             BindType::Buffer,
         ],
@@ -232,17 +236,21 @@ pub fn full_shaders(
             BindType::Buffer,
         ],
     )?;
-
-    let path_coarse = engine.add_shader(
+    let path_count_setup = engine.add_shader(
         device,
-        "path_coarse_full",
-        preprocess::preprocess(shader!("path_coarse_full"), &full_config, &imports).into(),
+        "path_count_setup",
+        preprocess::preprocess(shader!("path_count_setup"), &empty, &imports).into(),
+        &[BindType::BufReadOnly, BindType::Buffer],
+    )?;
+    let path_count = engine.add_shader(
+        device,
+        "path_count",
+        preprocess::preprocess(shader!("path_count"), &full_config, &imports).into(),
         &[
             BindType::Uniform,
-            BindType::BufReadOnly,
-            BindType::BufReadOnly,
-            BindType::BufReadOnly,
             BindType::Buffer,
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
             BindType::Buffer,
             BindType::Buffer,
         ],
@@ -264,8 +272,27 @@ pub fn full_shaders(
             BindType::BufReadOnly,
             BindType::BufReadOnly,
             BindType::BufReadOnly,
-            BindType::BufReadOnly,
             BindType::Buffer,
+            BindType::Buffer,
+            BindType::Buffer,
+        ],
+    )?;
+    let path_tiling_setup = engine.add_shader(
+        device,
+        "path_tiling_setup",
+        preprocess::preprocess(shader!("path_tiling_setup"), &empty, &imports).into(),
+        &[BindType::BufReadOnly, BindType::Buffer],
+    )?;
+    let path_tiling = engine.add_shader(
+        device,
+        "path_tiling",
+        preprocess::preprocess(shader!("path_tiling"), &empty, &imports).into(),
+        &[
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
+            BindType::BufReadOnly,
             BindType::Buffer,
         ],
     )?;
@@ -290,16 +317,19 @@ pub fn full_shaders(
         pathtag_scan1,
         pathtag_scan_large,
         bbox_clear,
-        pathseg,
+        flatten,
         draw_reduce,
         draw_leaf,
         clip_reduce,
         clip_leaf,
         binning,
         tile_alloc,
-        path_coarse,
+        path_count_setup,
+        path_count,
         backdrop,
         coarse,
+        path_tiling_setup,
+        path_tiling,
         fine,
     })
 }

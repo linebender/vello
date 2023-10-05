@@ -25,7 +25,8 @@ let CMD_JUMP = 11u;
 // hand in the relevant shaders
 
 struct CmdFill {
-    tile: u32,
+    size_and_rule: u32,
+    seg_data: u32,
     backdrop: i32,
 }
 
