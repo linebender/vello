@@ -54,7 +54,7 @@ wgpu-profiler = { workspace = true, optional = true }
 [workspace.dependencies]
 bytemuck = { version = "1.12.1", features = ["derive"] }
 fello = { git = "https://github.com/dfrg/fount", rev = "dadbcf75695f035ca46766bfd60555d05bd421b1" }
-peniko = { git = "https://github.com/linebender/peniko", rev = "639f18b25048abcf8130397737c24e02bf49cef2" }
+peniko = { git = "https://github.com/linebender/peniko", rev = "629fc3325b016a8c98b1cd6204cb4ddf1c6b3daa" }
 
 # NOTE: Make sure to keep this in sync with the version badge in README.md
 wgpu = { version = "0.17" }                                              
