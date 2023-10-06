@@ -135,14 +135,16 @@ var output: texture_storage_2d<r8, write>;
 
 let PIXELS_PER_THREAD = 4u;
 
-fn fill_path(seg_data: u32, n_segs: u32, backdrop: i32, xy: vec2<f32>, even_odd: bool) -> array<f32, PIXELS_PER_THREAD> {
+fn fill_path(fill: CmdFill, xy: vec2<f32>) -> array<f32, PIXELS_PER_THREAD> {
+    let n_segs = fill.size_and_rule >> 1u;
+    let even_odd = (fill.size_and_rule & 1u) != 0u;
     var area: array<f32, PIXELS_PER_THREAD>;
-    let backdrop_f = f32(backdrop);
+    let backdrop_f = f32(fill.backdrop);
     for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
         area[i] = backdrop_f;
     }
     for (var i = 0u; i < n_segs; i++) {
-        let seg_off = seg_data + i;
+        let seg_off = fill.seg_data + i;
         let segment = segments[seg_off];
         let y = segment.origin.y - xy.y;
         let y0 = clamp(y, 0.0, 1.0);
@@ -218,9 +220,7 @@ fn main(
             // CMD_FILL
             case 1u: {
                 let fill = read_fill(cmd_ix);
-                let n_segs = fill.size_and_rule >> 1u;
-                let even_odd = (fill.size_and_rule & 1u) != 0u;
-                area = fill_path(fill.seg_data, n_segs, fill.backdrop, xy, even_odd);
+                area = fill_path(fill, xy);
                 cmd_ix += 4u;
             }
             // CMD_STROKE

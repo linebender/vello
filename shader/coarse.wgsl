@@ -87,10 +87,10 @@ fn write_path(tile: Tile, tile_ix: u32, linewidth: f32) -> bool {
     // We overload the "segments" field to store both count (written by
     // path_count stage) and segment allocation (used by path_tiling and
     // fine).
-    let n_segs = tile.segments;
+    let n_segs = tile.segment_count_or_ix;
     if n_segs != 0u {
         var seg_ix = atomicAdd(&bump.segments, n_segs);
-        tiles[tile_ix].segments = ~seg_ix;
+        tiles[tile_ix].segment_count_or_ix = ~seg_ix;
         alloc_cmd(4u);
         ptcl[cmd_offset] = CMD_FILL;
         let size_and_rule = (n_segs << 1u) | u32(even_odd);
@@ -310,7 +310,7 @@ fn main(
                 let blend = scene[dd];
                 is_blend = blend != BLEND_CLIP;
             }
-            let include_tile = tile.segments != 0u || (tile.backdrop == 0) == is_clip || is_blend;
+            let include_tile = tile.segment_count_or_ix != 0u || (tile.backdrop == 0) == is_clip || is_blend;
             if include_tile {
                 let el_slice = el_ix / 32u;
                 let el_mask = 1u << (el_ix & 31u);
@@ -383,7 +383,7 @@ fn main(
                     }
                     // DRAWTAG_BEGIN_CLIP
                     case 0x9u: {
-                        if tile.segments == 0u && tile.backdrop == 0 {
+                        if tile.segment_count_or_ix == 0u && tile.backdrop == 0 {
                             clip_zero_depth = clip_depth + 1u;
                         } else {
                             write_begin_clip();

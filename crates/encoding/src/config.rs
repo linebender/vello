@@ -16,7 +16,7 @@ const TILE_HEIGHT: u32 = 16;
 // TODO: Obtain these from the vello_shaders crate
 pub(crate) const PATH_REDUCE_WG: u32 = 256;
 const PATH_BBOX_WG: u32 = 256;
-const PATH_COARSE_WG: u32 = 256;
+const FLATTEN_WG: u32 = 256;
 const CLIP_REDUCE_WG: u32 = 256;
 
 /// Counters for tracking dynamic allocation on the GPU.
@@ -164,7 +164,7 @@ impl WorkgroupCounts {
             path_tag_wgs
         };
         let draw_object_wgs = (n_draw_objects + PATH_BBOX_WG - 1) / PATH_BBOX_WG;
-        let path_coarse_wgs = (n_path_tags + PATH_COARSE_WG - 1) / PATH_COARSE_WG;
+        let flatten_wgs = (n_path_tags + FLATTEN_WG - 1) / FLATTEN_WG;
         let clip_reduce_wgs = n_clips.saturating_sub(1) / CLIP_REDUCE_WG;
         let clip_wgs = (n_clips + CLIP_REDUCE_WG - 1) / CLIP_REDUCE_WG;
         let path_wgs = (n_paths + PATH_BBOX_WG - 1) / PATH_BBOX_WG;
@@ -177,14 +177,14 @@ impl WorkgroupCounts {
             path_scan1: (reduced_size / PATH_REDUCE_WG, 1, 1),
             path_scan: (path_tag_wgs, 1, 1),
             bbox_clear: (draw_object_wgs, 1, 1),
-            flatten: (path_coarse_wgs, 1, 1),
+            flatten: (flatten_wgs, 1, 1),
             draw_reduce: (draw_object_wgs, 1, 1),
             draw_leaf: (draw_object_wgs, 1, 1),
             clip_reduce: (clip_reduce_wgs, 1, 1),
             clip_leaf: (clip_wgs, 1, 1),
             binning: (draw_object_wgs, 1, 1),
             tile_alloc: (path_wgs, 1, 1),
-            path_coarse: (path_coarse_wgs, 1, 1),
+            path_coarse: (flatten_wgs, 1, 1),
             backdrop: (path_wgs, 1, 1),
             coarse: (width_in_bins, height_in_bins, 1),
             fine: (width_in_tiles, height_in_tiles, 1),

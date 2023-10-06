@@ -13,8 +13,7 @@ var<uniform> config: Config;
 // TODO: this is cut'n'pasted from path_coarse.
 struct AtomicTile {
     backdrop: atomic<i32>,
-    // This is "segments" but we're renaming
-    count: atomic<u32>,
+    segment_count_or_ix: atomic<u32>,
 }
 
 @group(0) @binding(1)
@@ -58,14 +57,15 @@ fn main(
         let xy1 = select(line.p0, line.p1, is_down);
         let s0 = xy0 * TILE_SCALE;
         let s1 = xy1 * TILE_SCALE;
-        // TODO: clip line to bounding box
         count = span(s0.x, s1.x) + span(s0.y, s1.y) - 1u;
         let line_ix = global_id.x;
 
         let dx = abs(s1.x - s0.x);
         let dy = s1.y - s0.y;
         if dx + dy == 0.0 {
-            // Zero-length segment, drop it. Note, this should be culled earlier.
+            // Zero-length segment, drop it. Note, this could be culled in the
+            // flattening stage, but eliding the test here would be fragile, as
+            // it would be pretty bad to let it slip through.
             return;
         }
         if dy == 0.0 && floor(s0.y) == s0.y {
@@ -176,7 +176,7 @@ fn main(
                 let x_bump = max(x + 1, bbox.x);
                 atomicAdd(&tile[base + x_bump].backdrop, delta);
             }
-            let seg_within_slice = atomicAdd(&tile[base + x].count, 1u);
+            let seg_within_slice = atomicAdd(&tile[base + x].segment_count_or_ix, 1u);
             // Pack two count values into a single u32
             let counts = (seg_within_slice << 16u) | subix;
             let seg_count = SegmentCount(line_ix, counts);

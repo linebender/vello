@@ -174,7 +174,7 @@ fn read_i16_point(ix: u32) -> vec2<f32> {
 }
 
 struct Transform {
-    matrx: vec4<f32>,
+    mat: vec4<f32>,
     translate: vec2<f32>,
 }
 
@@ -186,13 +186,13 @@ fn read_transform(transform_base: u32, ix: u32) -> Transform {
     let c3 = bitcast<f32>(scene[base + 3u]);
     let c4 = bitcast<f32>(scene[base + 4u]);
     let c5 = bitcast<f32>(scene[base + 5u]);
-    let matrx = vec4(c0, c1, c2, c3);
+    let mat = vec4(c0, c1, c2, c3);
     let translate = vec2(c4, c5);
-    return Transform(matrx, translate);
+    return Transform(mat, translate);
 }
 
 fn transform_apply(transform: Transform, p: vec2<f32>) -> vec2<f32> {
-    return transform.matrx.xy * p.x + transform.matrx.zw * p.y + transform.translate;
+    return transform.mat.xy * p.x + transform.mat.zw * p.y + transform.translate;
 }
 
 fn round_down(x: f32) -> i32 {
@@ -275,7 +275,7 @@ fn main(
             // See https://www.iquilezles.org/www/articles/ellipses/ellipses.htm
             // This is the correct bounding box, but we're not handling rendering
             // in the isotropic case, so it may mismatch.
-            stroke = 0.5 * linewidth * vec2(length(transform.matrx.xz), length(transform.matrx.yw));
+            stroke = 0.5 * linewidth * vec2(length(transform.mat.xz), length(transform.mat.yw));
             bbox += vec4(-stroke, stroke);
         }
         let flags = u32(linewidth >= 0.0);

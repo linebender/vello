@@ -52,6 +52,8 @@ fn main(
         let count = span(s0.x, s1.x) + span(s0.y, s1.y) - 1u;
         let dx = abs(s1.x - s0.x);
         let dy = s1.y - s0.y;
+        // Division by zero can't happen because zero-length lines
+        // have already been discarded in the path_count stage.
         let idxdy = 1.0 / (dx + dy);
         let a = dx * idxdy;
         let is_positive_slope = s1.x >= s0.x;
@@ -71,7 +73,7 @@ fn main(
         let stride = bbox.z - bbox.x;
         let tile_ix = i32(path.tiles) + (y - bbox.y) * stride + x - bbox.x;
         let tile = tiles[tile_ix];
-        let seg_start = ~tile.segments;
+        let seg_start = ~tile.segment_count_or_ix;
         if i32(seg_start) < 0 {
             return;
         }
