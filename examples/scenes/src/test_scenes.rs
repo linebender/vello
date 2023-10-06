@@ -43,6 +43,7 @@ pub fn test_scenes() -> SceneSet {
         mmark_scene,
         scene!(funky_paths),
         scene!(cardioid_and_friends),
+        scene!(longpathdash),
         scene!(animated_text: animated),
         scene!(gradient_extend),
         scene!(two_point_radial),
@@ -105,6 +106,46 @@ fn cardioid_and_friends(sb: &mut SceneBuilder, _: &mut SceneParams) {
     render_clip_test(sb);
     render_alpha_test(sb);
     //render_tiger(sb, false);
+}
+
+fn longpathdash(sb: &mut SceneBuilder, _: &mut SceneParams) {
+    use std::f64::consts::PI;
+    use PathEl::*;
+    let mut path = BezPath::new();
+    let mut x = 32;
+    while x < 256 {
+        let mut a: f64 = 0.0;
+        while a < PI * 2.0 {
+            let pts = [
+                (256.0 + a.sin() * x as f64, 256.0 + a.cos() * x as f64),
+                (
+                    256.0 + (a + PI / 3.0).sin() * (x + 64) as f64,
+                    256.0 + (a + PI / 3.0).cos() * (x + 64) as f64,
+                ),
+            ];
+            path.push(MoveTo(pts[0].into()));
+            let mut i: f64 = 0.0;
+            while i < 1.0 {
+                path.push(LineTo(
+                    (
+                        pts[0].0 * (1.0 - i) + pts[1].0 * i,
+                        pts[0].1 * (1.0 - i) + pts[1].1 * i,
+                    )
+                        .into(),
+                ));
+                i += 0.05;
+            }
+            a += PI * 0.01;
+        }
+        x += 16;
+    }
+    sb.stroke(
+        &Stroke::new(1.0).with_dashes(0.0, [1.0, 1.0]),
+        Affine::translate((50.0, 50.0)),
+        Color::rgb8(255, 255, 0),
+        None,
+        &path,
+    );
 }
 
 fn animated_text(sb: &mut SceneBuilder, params: &mut SceneParams) {
