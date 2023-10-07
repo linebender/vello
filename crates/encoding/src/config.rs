@@ -1,9 +1,11 @@
 // Copyright 2023 The Vello authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use crate::SegmentCount;
+
 use super::{
-    BinHeader, Clip, ClipBbox, ClipBic, ClipElement, Cubic, DrawBbox, DrawMonoid, Layout, Path,
-    PathBbox, PathMonoid, PathSegment, Tile,
+    BinHeader, Clip, ClipBbox, ClipBic, ClipElement, Cubic, DrawBbox, DrawMonoid, Layout, LineSoup,
+    Path, PathBbox, PathMonoid, PathSegment, Tile,
 };
 use bytemuck::{Pod, Zeroable};
 use std::mem;
@@ -14,7 +16,7 @@ const TILE_HEIGHT: u32 = 16;
 // TODO: Obtain these from the vello_shaders crate
 pub(crate) const PATH_REDUCE_WG: u32 = 256;
 const PATH_BBOX_WG: u32 = 256;
-const PATH_COARSE_WG: u32 = 256;
+const FLATTEN_WG: u32 = 256;
 const CLIP_REDUCE_WG: u32 = 256;
 
 /// Counters for tracking dynamic allocation on the GPU.
@@ -29,8 +31,24 @@ pub struct BumpAllocators {
     pub binning: u32,
     pub ptcl: u32,
     pub tile: u32,
+    pub seg_counts: u32,
     pub segments: u32,
     pub blend: u32,
+    pub lines: u32,
+}
+
+/// Storage of indirect dispatch size values.
+///
+/// The original plan was to reuse BumpAllocators, but the WebGPU compatible
+/// usage list rules forbid that being used as indirect counts while also
+/// bound as writable.
+#[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
+#[repr(C)]
+pub struct IndirectCount {
+    pub count_x: u32,
+    pub count_y: u32,
+    pub count_z: u32,
+    pub pad0: u32,
 }
 
 /// Uniform render configuration data used by all GPU stages.
@@ -114,7 +132,7 @@ pub struct WorkgroupCounts {
     pub path_scan1: WorkgroupSize,
     pub path_scan: WorkgroupSize,
     pub bbox_clear: WorkgroupSize,
-    pub path_seg: WorkgroupSize,
+    pub flatten: WorkgroupSize,
     pub draw_reduce: WorkgroupSize,
     pub draw_leaf: WorkgroupSize,
     pub clip_reduce: WorkgroupSize,
@@ -146,7 +164,7 @@ impl WorkgroupCounts {
             path_tag_wgs
         };
         let draw_object_wgs = (n_draw_objects + PATH_BBOX_WG - 1) / PATH_BBOX_WG;
-        let path_coarse_wgs = (n_path_tags + PATH_COARSE_WG - 1) / PATH_COARSE_WG;
+        let flatten_wgs = (n_path_tags + FLATTEN_WG - 1) / FLATTEN_WG;
         let clip_reduce_wgs = n_clips.saturating_sub(1) / CLIP_REDUCE_WG;
         let clip_wgs = (n_clips + CLIP_REDUCE_WG - 1) / CLIP_REDUCE_WG;
         let path_wgs = (n_paths + PATH_BBOX_WG - 1) / PATH_BBOX_WG;
@@ -159,14 +177,14 @@ impl WorkgroupCounts {
             path_scan1: (reduced_size / PATH_REDUCE_WG, 1, 1),
             path_scan: (path_tag_wgs, 1, 1),
             bbox_clear: (draw_object_wgs, 1, 1),
-            path_seg: (path_coarse_wgs, 1, 1),
+            flatten: (flatten_wgs, 1, 1),
             draw_reduce: (draw_object_wgs, 1, 1),
             draw_leaf: (draw_object_wgs, 1, 1),
             clip_reduce: (clip_reduce_wgs, 1, 1),
             clip_leaf: (clip_wgs, 1, 1),
             binning: (draw_object_wgs, 1, 1),
             tile_alloc: (path_wgs, 1, 1),
-            path_coarse: (path_coarse_wgs, 1, 1),
+            path_coarse: (flatten_wgs, 1, 1),
             backdrop: (path_wgs, 1, 1),
             coarse: (width_in_bins, height_in_bins, 1),
             fine: (width_in_tiles, height_in_tiles, 1),
@@ -248,11 +266,14 @@ pub struct BufferSizes {
     pub clip_bboxes: BufferSize<ClipBbox>,
     pub draw_bboxes: BufferSize<DrawBbox>,
     pub bump_alloc: BufferSize<BumpAllocators>,
+    pub indirect_count: BufferSize<IndirectCount>,
     pub bin_headers: BufferSize<BinHeader>,
     pub paths: BufferSize<Path>,
     // Bump allocated buffers
+    pub lines: BufferSize<LineSoup>,
     pub bin_data: BufferSize<u32>,
     pub tiles: BufferSize<Tile>,
+    pub seg_counts: BufferSize<SegmentCount>,
     pub segments: BufferSize<PathSegment>,
     pub ptcl: BufferSize<u32>,
 }
@@ -284,6 +305,7 @@ impl BufferSizes {
         let clip_bboxes = BufferSize::new(n_clips);
         let draw_bboxes = BufferSize::new(n_paths);
         let bump_alloc = BufferSize::new(1);
+        let indirect_count = BufferSize::new(1);
         let bin_headers = BufferSize::new(draw_object_wgs * 256);
         let n_paths_aligned = align_up(n_paths, 256);
         let paths = BufferSize::new(n_paths_aligned);
@@ -293,6 +315,8 @@ impl BufferSizes {
         // reasonable heuristics.
         let bin_data = BufferSize::new(1 << 18);
         let tiles = BufferSize::new(1 << 21);
+        let lines = BufferSize::new(1 << 21);
+        let seg_counts = BufferSize::new(1 << 21);
         let segments = BufferSize::new(1 << 21);
         let ptcl = BufferSize::new(1 << 23);
         Self {
@@ -311,10 +335,13 @@ impl BufferSizes {
             clip_bboxes,
             draw_bboxes,
             bump_alloc,
+            indirect_count,
+            lines,
             bin_headers,
             paths,
             bin_data,
             tiles,
+            seg_counts,
             segments,
             ptcl,
         }

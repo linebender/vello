@@ -41,15 +41,10 @@ var gradients: texture_2d<f32>;
 var image_atlas: texture_2d<f32>;
 
 fn read_fill(cmd_ix: u32) -> CmdFill {
-    let tile = ptcl[cmd_ix + 1u];
-    let backdrop = i32(ptcl[cmd_ix + 2u]);
-    return CmdFill(tile, backdrop);
-}
-
-fn read_stroke(cmd_ix: u32) -> CmdStroke {
-    let tile = ptcl[cmd_ix + 1u];
-    let half_width = bitcast<f32>(ptcl[cmd_ix + 2u]);
-    return CmdStroke(tile, half_width);
+    let size_and_rule = ptcl[cmd_ix + 1u];
+    let seg_data = ptcl[cmd_ix + 2u];
+    let backdrop = i32(ptcl[cmd_ix + 3u]);
+    return CmdFill(size_and_rule, seg_data, backdrop);
 }
 
 fn read_color(cmd_ix: u32) -> CmdColor {
@@ -140,15 +135,17 @@ var output: texture_storage_2d<r8, write>;
 
 let PIXELS_PER_THREAD = 4u;
 
-fn fill_path(tile: Tile, xy: vec2<f32>, even_odd: bool) -> array<f32, PIXELS_PER_THREAD> {
+fn fill_path(fill: CmdFill, xy: vec2<f32>) -> array<f32, PIXELS_PER_THREAD> {
+    let n_segs = fill.size_and_rule >> 1u;
+    let even_odd = (fill.size_and_rule & 1u) != 0u;
     var area: array<f32, PIXELS_PER_THREAD>;
-    let backdrop_f = f32(tile.backdrop);
+    let backdrop_f = f32(fill.backdrop);
     for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
         area[i] = backdrop_f;
     }
-    var segment_ix = tile.segments;
-    while segment_ix != 0u {
-        let segment = segments[segment_ix];
+    for (var i = 0u; i < n_segs; i++) {
+        let seg_off = fill.seg_data + i;
+        let segment = segments[seg_off];
         let y = segment.origin.y - xy.y;
         let y0 = clamp(y, 0.0, 1.0);
         let y1 = clamp(y + segment.delta.y, 0.0, 1.0);
@@ -177,7 +174,6 @@ fn fill_path(tile: Tile, xy: vec2<f32>, even_odd: bool) -> array<f32, PIXELS_PER
         for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
             area[i] += y_edge;
         }
-        segment_ix = segment.next;
     }
     if even_odd {
         // even-odd winding rule
@@ -192,32 +188,6 @@ fn fill_path(tile: Tile, xy: vec2<f32>, even_odd: bool) -> array<f32, PIXELS_PER
         }
     }
     return area;
-}
-
-fn stroke_path(seg: u32, half_width: f32, xy: vec2<f32>) -> array<f32, PIXELS_PER_THREAD> {
-    var df: array<f32, PIXELS_PER_THREAD>;
-    for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
-        df[i] = 1e9;
-    }
-    var segment_ix = seg;
-    while segment_ix != 0u {
-        let segment = segments[segment_ix];
-        let delta = segment.delta;
-        let dpos0 = xy + vec2(0.5, 0.5) - segment.origin;
-        let scale = 1.0 / dot(delta, delta);
-        for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
-            let dpos = vec2(dpos0.x + f32(i), dpos0.y);
-            let t = clamp(dot(dpos, delta) * scale, 0.0, 1.0);
-            // performance idea: hoist sqrt out of loop
-            df[i] = min(df[i], length(delta * t - dpos));
-        }
-        segment_ix = segment.next;
-    }
-    for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
-        // reuse array; return alpha rather than distance
-        df[i] = clamp(half_width + 0.5 - df[i], 0.0, 1.0);
-    }
-    return df;
 }
 
 // The X size should be 16 / PIXELS_PER_THREAD
@@ -250,16 +220,17 @@ fn main(
             // CMD_FILL
             case 1u: {
                 let fill = read_fill(cmd_ix);
-                let segments = fill.tile >> 1u;
-                let even_odd = (fill.tile & 1u) != 0u;
-                let tile = Tile(fill.backdrop, segments);
-                area = fill_path(tile, xy, even_odd);
-                cmd_ix += 3u;
+                area = fill_path(fill, xy);
+                cmd_ix += 4u;
             }
             // CMD_STROKE
             case 2u: {
-                let stroke = read_stroke(cmd_ix);
-                area = stroke_path(stroke.tile, stroke.half_width, xy);
+                // Stroking in fine rasterization is disabled, as strokes will be expanded
+                // to fills earlier in the pipeline. This implementation is a stub, just to
+                // keep the shader from crashing.
+                for (var i = 0u; i < PIXELS_PER_THREAD; i++) {
+                    area[i] = 0.0;
+                }
                 cmd_ix += 3u;
             }
             // CMD_SOLID

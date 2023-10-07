@@ -11,5 +11,10 @@ struct Path {
 
 struct Tile {
     backdrop: i32,
-    segments: u32,
+    // This is used for the count of the number of segments in the
+    // tile up to coarse rasterization, and the index afterwards.
+    // In the latter variant, the bits are inverted so that tiling
+    // can detect whether the tile was allocated; it's best to
+    // consider this an enum packed into a u32.
+    segment_count_or_ix: u32,
 }

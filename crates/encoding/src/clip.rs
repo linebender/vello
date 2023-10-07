@@ -4,10 +4,18 @@
 use bytemuck::{Pod, Zeroable};
 
 /// Clip stack element.
+///
+/// This is the bicyclic semigroup, a monoid useful for representing
+/// stack depth. There is considerably more detail in the draft paper
+///  [Fast GPU bounding boxes on tree-structured scenes].
+///
+/// [Fast GPU bounding boxes on tree-structured scenes]: https://arxiv.org/abs/2205.11659
 #[derive(Copy, Clone, Pod, Zeroable, Debug, Default)]
 #[repr(C)]
 pub struct ClipBic {
+    /// When interpreted as a stack operation, the number of pop operations.
     pub a: u32,
+    /// When interpreted as a stack operation, the number of push operations.
     pub b: u32,
 }
 
@@ -40,4 +48,21 @@ pub struct Clip {
 #[repr(C)]
 pub struct ClipBbox {
     pub bbox: [f32; 4],
+}
+
+impl ClipBic {
+    pub fn new(a: u32, b: u32) -> Self {
+        ClipBic { a, b }
+    }
+
+    /// The bicyclic semigroup operation.
+    ///
+    /// This operation is associative. When interpreted as a stack
+    /// operation, it represents doing the pops of `self`, the pushes of
+    /// `self`, the pops of `other`, and the pushes of `other`. The middle
+    /// two can cancel each other out.
+    pub fn combine(self, other: ClipBic) -> Self {
+        let m = self.b.min(other.a);
+        ClipBic::new(self.a + other.a - m, self.b + other.b - m)
+    }
 }
