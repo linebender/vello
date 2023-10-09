@@ -82,29 +82,35 @@ impl RenderContext {
             alpha_mode: wgpu::CompositeAlphaMode::Auto,
             view_formats: vec![],
         };
-        surface.configure(&self.devices[dev_id].device, &config);
-        Ok(RenderSurface {
+        let surface = RenderSurface {
             surface,
             config,
             dev_id,
             format,
-        })
+        };
+        self.configure_surface(&surface);
+        Ok(surface)
     }
 
     /// Resizes the surface to the new dimensions.
     pub fn resize_surface(&self, surface: &mut RenderSurface, width: u32, height: u32) {
         surface.config.width = width;
         surface.config.height = height;
-        surface
-            .surface
-            .configure(&self.devices[surface.dev_id].device, &surface.config);
+        self.configure_surface(surface);
     }
 
     pub fn set_present_mode(&self, surface: &mut RenderSurface, present_mode: wgpu::PresentMode) {
         surface.config.present_mode = present_mode;
-        surface
-            .surface
-            .configure(&self.devices[surface.dev_id].device, &surface.config);
+        self.configure_surface(surface);
+    }
+
+    fn configure_surface(&self, surface: &RenderSurface) {
+        let device = &self.devices[surface.dev_id].device;
+        // Temporary workaround for https://github.com/gfx-rs/wgpu/issues/4214
+        // It's still possible for this to panic if the device is being used on another thread
+        // but this unbreaks most current users
+        device.poll(wgpu::MaintainBase::Wait);
+        surface.surface.configure(device, &surface.config);
     }
 
     /// Finds or creates a compatible device handle id.
