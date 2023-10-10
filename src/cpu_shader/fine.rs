@@ -1,5 +1,5 @@
 // Copyright 2023 The Vello authors
-// SPDX-License-Identifier: Apache-2.0 OR MIT
+// SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
 
 use vello_encoding::{ConfigUniform, PathSegment, Tile};
 

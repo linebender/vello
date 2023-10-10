@@ -227,9 +227,10 @@ pub struct Path {
 pub struct Tile {
     /// Accumulated backdrop at the left edge of the tile.
     pub backdrop: i32,
-    /// An enum that can hold either a count or an index to the
-    /// beginning of an allocated slice. In the latter case, the
-    /// bits are inverted.
+    /// An enum that holds either the count of the number of path
+    /// segments in this tile, or an index to the beginning of an
+    /// allocated slice of `PathSegment` objects. In the latter case,
+    /// the bits are inverted.
     pub segment_count_or_ix: u32,
 }
 

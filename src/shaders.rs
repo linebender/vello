@@ -79,6 +79,9 @@ pub struct FullShaders {
     pub path_tiling_setup: ShaderId,
     pub path_tiling: ShaderId,
     pub fine: ShaderId,
+    // 2-level dispatch works for CPU pathtag scan even for large
+    // inputs, 3-level is not yet implemented.
+    pub pathtag_is_cpu: bool,
 }
 
 #[cfg(feature = "wgpu")]
@@ -324,6 +327,7 @@ pub fn full_shaders(device: &Device, engine: &mut WgpuEngine) -> Result<FullShad
         path_tiling_setup,
         path_tiling,
         fine,
+        pathtag_is_cpu: false,
     })
 }
 
@@ -355,6 +359,7 @@ impl FullShaders {
         engine.set_cpu_shader(self.coarse, cpu_shader::coarse);
         engine.set_cpu_shader(self.path_tiling_setup, cpu_shader::path_tiling_setup);
         engine.set_cpu_shader(self.path_tiling, cpu_shader::path_tiling);
+        self.pathtag_is_cpu = true;
     }
 }
 
