@@ -137,6 +137,7 @@ impl RenderContext {
                 .await?;
         let features = adapter.features();
         let limits = Limits::default();
+        #[allow(unused_mut)]
         let mut maybe_features = wgpu::Features::CLEAR_TEXTURE;
         #[cfg(feature = "wgpu-profiler")]
         {

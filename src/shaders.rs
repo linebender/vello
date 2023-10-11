@@ -86,7 +86,9 @@ pub struct FullShaders {
 
 #[cfg(feature = "wgpu")]
 pub fn full_shaders(device: &Device, engine: &mut WgpuEngine) -> Result<FullShaders, Error> {
+    use crate::wgpu_engine::CpuShaderType;
     use crate::ANTIALIASING;
+    use BindType::*;
 
     let imports = SHARED_SHADERS
         .iter()
@@ -109,234 +111,194 @@ pub fn full_shaders(device: &Device, engine: &mut WgpuEngine) -> Result<FullShad
     let mut small_config = HashSet::new();
     small_config.insert("full".into());
     small_config.insert("small".into());
-    let pathtag_reduce = engine.add_shader(
-        device,
-        "pathtag_reduce",
-        preprocess::preprocess(shader!("pathtag_reduce"), &full_config, &imports).into(),
-        &[BindType::Uniform, BindType::BufReadOnly, BindType::Buffer],
-    )?;
-    let pathtag_reduce2 = engine.add_shader(
-        device,
-        "pathtag_reduce2",
-        preprocess::preprocess(shader!("pathtag_reduce2"), &full_config, &imports).into(),
-        &[BindType::BufReadOnly, BindType::Buffer],
-    )?;
-    let pathtag_scan1 = engine.add_shader(
-        device,
-        "pathtag_scan1",
-        preprocess::preprocess(shader!("pathtag_scan1"), &full_config, &imports).into(),
-        &[
-            BindType::BufReadOnly,
-            BindType::BufReadOnly,
-            BindType::Buffer,
-        ],
-    )?;
-    let pathtag_scan = engine.add_shader(
-        device,
-        "pathtag_scan",
-        preprocess::preprocess(shader!("pathtag_scan"), &small_config, &imports).into(),
-        &[
-            BindType::Uniform,
-            BindType::BufReadOnly,
-            BindType::BufReadOnly,
-            BindType::Buffer,
-        ],
-    )?;
-    let pathtag_scan_large = engine.add_shader(
-        device,
-        "pathtag_scan",
-        preprocess::preprocess(shader!("pathtag_scan"), &full_config, &imports).into(),
-        &[
-            BindType::Uniform,
-            BindType::BufReadOnly,
-            BindType::BufReadOnly,
-            BindType::Buffer,
-        ],
-    )?;
-    let bbox_clear = engine.add_shader(
-        device,
-        "bbox_clear",
-        preprocess::preprocess(shader!("bbox_clear"), &empty, &imports).into(),
-        &[BindType::Uniform, BindType::Buffer],
-    )?;
-    let flatten = engine.add_shader(
-        device,
-        "flatten",
-        preprocess::preprocess(shader!("flatten"), &full_config, &imports).into(),
-        &[
-            BindType::Uniform,
-            BindType::BufReadOnly,
-            BindType::BufReadOnly,
-            BindType::Buffer,
-            BindType::Buffer,
-            BindType::Buffer,
-        ],
-    )?;
-    let draw_reduce = engine.add_shader(
-        device,
-        "draw_reduce",
-        preprocess::preprocess(shader!("draw_reduce"), &empty, &imports).into(),
-        &[BindType::Uniform, BindType::BufReadOnly, BindType::Buffer],
-    )?;
-    let draw_leaf = engine.add_shader(
-        device,
-        "draw_leaf",
-        preprocess::preprocess(shader!("draw_leaf"), &empty, &imports).into(),
-        &[
-            BindType::Uniform,
-            BindType::BufReadOnly,
-            BindType::BufReadOnly,
-            BindType::BufReadOnly,
-            BindType::Buffer,
-            BindType::Buffer,
-            BindType::Buffer,
-        ],
-    )?;
-    let clip_reduce = engine.add_shader(
-        device,
-        "clip_reduce",
-        preprocess::preprocess(shader!("clip_reduce"), &empty, &imports).into(),
-        &[
-            BindType::BufReadOnly,
-            BindType::BufReadOnly,
-            BindType::Buffer,
-            BindType::Buffer,
-        ],
-    )?;
-    let clip_leaf = engine.add_shader(
-        device,
-        "clip_leaf",
-        preprocess::preprocess(shader!("clip_leaf"), &empty, &imports).into(),
-        &[
-            BindType::Uniform,
-            BindType::BufReadOnly,
-            BindType::BufReadOnly,
-            BindType::BufReadOnly,
-            BindType::BufReadOnly,
-            BindType::Buffer,
-            BindType::Buffer,
-        ],
-    )?;
-    let binning = engine.add_shader(
-        device,
-        "binning",
-        preprocess::preprocess(shader!("binning"), &empty, &imports).into(),
-        &[
-            BindType::Uniform,
-            BindType::BufReadOnly,
-            BindType::BufReadOnly,
-            BindType::BufReadOnly,
-            BindType::Buffer,
-            BindType::Buffer,
-            BindType::Buffer,
-            BindType::Buffer,
-        ],
-    )?;
-    let tile_alloc = engine.add_shader(
-        device,
-        "tile_alloc",
-        preprocess::preprocess(shader!("tile_alloc"), &empty, &imports).into(),
-        &[
-            BindType::Uniform,
-            BindType::BufReadOnly,
-            BindType::BufReadOnly,
-            BindType::Buffer,
-            BindType::Buffer,
-            BindType::Buffer,
-        ],
-    )?;
-    let path_count_setup = engine.add_shader(
-        device,
-        "path_count_setup",
-        preprocess::preprocess(shader!("path_count_setup"), &empty, &imports).into(),
-        &[BindType::Buffer, BindType::Buffer],
-    )?;
-    let path_count = engine.add_shader(
-        device,
-        "path_count",
-        preprocess::preprocess(shader!("path_count"), &full_config, &imports).into(),
-        &[
-            BindType::Uniform,
-            BindType::Buffer,
-            BindType::BufReadOnly,
-            BindType::BufReadOnly,
-            BindType::Buffer,
-            BindType::Buffer,
-        ],
-    )?;
-    let backdrop = engine.add_shader(
-        device,
-        "backdrop_dyn",
-        preprocess::preprocess(shader!("backdrop_dyn"), &empty, &imports).into(),
-        &[BindType::Uniform, BindType::BufReadOnly, BindType::Buffer],
-    )?;
-    let coarse = engine.add_shader(
-        device,
-        "coarse",
-        preprocess::preprocess(shader!("coarse"), &empty, &imports).into(),
-        &[
-            BindType::Uniform,
-            BindType::BufReadOnly,
-            BindType::BufReadOnly,
-            BindType::BufReadOnly,
-            BindType::BufReadOnly,
-            BindType::BufReadOnly,
-            BindType::Buffer,
-            BindType::Buffer,
-            BindType::Buffer,
-        ],
-    )?;
-    let path_tiling_setup = engine.add_shader(
-        device,
-        "path_tiling_setup",
-        preprocess::preprocess(shader!("path_tiling_setup"), &empty, &imports).into(),
-        &[BindType::Buffer, BindType::Buffer],
-    )?;
-    let path_tiling = engine.add_shader(
-        device,
-        "path_tiling",
-        preprocess::preprocess(shader!("path_tiling"), &empty, &imports).into(),
-        &[
-            BindType::Buffer,
-            BindType::BufReadOnly,
-            BindType::BufReadOnly,
-            BindType::BufReadOnly,
-            BindType::BufReadOnly,
-            BindType::Buffer,
-        ],
-    )?;
-    let fine = match ANTIALIASING {
-        crate::AaConfig::Area => engine.add_shader(
-            device,
-            "fine",
-            preprocess::preprocess(shader!("fine"), &full_config, &imports).into(),
-            &[
-                BindType::Uniform,
-                BindType::BufReadOnly,
-                BindType::BufReadOnly,
-                BindType::BufReadOnly,
-                BindType::Image(ImageFormat::Rgba8),
-                BindType::ImageRead(ImageFormat::Rgba8),
-                BindType::ImageRead(ImageFormat::Rgba8),
-            ],
-        )?,
-        _ => {
+
+    let mut force_gpu = false;
+
+    let force_gpu_from: Option<&str> = None;
+
+    // Uncomment this to force use of GPU shaders from the specified shader and later even
+    // if `engine.use_cpu` is specified.
+    //let force_gpu_from = Some("binning");
+
+    macro_rules! add_shader {
+        ($name:ident, $bindings:expr, $defines:expr, $cpu:expr) => {{
+            if force_gpu_from == Some(stringify!($name)) {
+                force_gpu = true;
+            }
             engine.add_shader(
                 device,
-                "fine",
-                preprocess::preprocess(shader!("fine"), &full_config, &imports).into(),
-                &[
-                    BindType::Uniform,
-                    BindType::BufReadOnly,
-                    BindType::BufReadOnly,
-                    BindType::BufReadOnly,
-                    BindType::Image(ImageFormat::Rgba8),
-                    BindType::ImageRead(ImageFormat::Rgba8),
-                    BindType::ImageRead(ImageFormat::Rgba8),
-                    BindType::BufReadOnly, // mask buffer
-                ],
+                stringify!($name),
+                preprocess::preprocess(shader!(stringify!($name)), &$defines, &imports).into(),
+                &$bindings,
+                if force_gpu {
+                    CpuShaderType::Missing
+                } else {
+                    $cpu
+                },
             )?
-        }
+        }};
+        ($name:ident, $bindings:expr, $defines:expr) => {
+            add_shader!(
+                $name,
+                $bindings,
+                &$defines,
+                CpuShaderType::Present(cpu_shader::$name)
+            )
+        };
+        ($name:ident, $bindings:expr) => {
+            add_shader!($name, $bindings, &full_config)
+        };
+    }
+
+    let pathtag_reduce = add_shader!(pathtag_reduce, [Uniform, BufReadOnly, Buffer]);
+    let pathtag_reduce2 = add_shader!(
+        pathtag_reduce2,
+        [BufReadOnly, Buffer],
+        &full_config,
+        CpuShaderType::Skipped
+    );
+    let pathtag_scan1 = add_shader!(
+        pathtag_scan1,
+        [BufReadOnly, BufReadOnly, Buffer],
+        &full_config,
+        CpuShaderType::Skipped
+    );
+    let pathtag_scan = add_shader!(
+        pathtag_scan,
+        [Uniform, BufReadOnly, BufReadOnly, Buffer],
+        &small_config
+    );
+    let pathtag_scan_large = add_shader!(
+        pathtag_scan,
+        [Uniform, BufReadOnly, BufReadOnly, Buffer],
+        &full_config,
+        CpuShaderType::Skipped
+    );
+    let bbox_clear = add_shader!(bbox_clear, [Uniform, Buffer], &empty);
+    let flatten = add_shader!(
+        flatten,
+        [Uniform, BufReadOnly, BufReadOnly, Buffer, Buffer, Buffer]
+    );
+    let draw_reduce = add_shader!(draw_reduce, [Uniform, BufReadOnly, Buffer], &empty);
+    let draw_leaf = add_shader!(
+        draw_leaf,
+        [
+            Uniform,
+            BufReadOnly,
+            BufReadOnly,
+            BufReadOnly,
+            Buffer,
+            Buffer,
+            Buffer,
+        ],
+        &empty
+    );
+    let clip_reduce = add_shader!(
+        clip_reduce,
+        [BufReadOnly, BufReadOnly, Buffer, Buffer],
+        &empty
+    );
+    let clip_leaf = add_shader!(
+        clip_leaf,
+        [
+            Uniform,
+            BufReadOnly,
+            BufReadOnly,
+            BufReadOnly,
+            BufReadOnly,
+            Buffer,
+            Buffer,
+        ],
+        &empty
+    );
+    let binning = add_shader!(
+        binning,
+        [
+            Uniform,
+            BufReadOnly,
+            BufReadOnly,
+            BufReadOnly,
+            Buffer,
+            Buffer,
+            Buffer,
+            Buffer,
+        ],
+        &empty
+    );
+    let tile_alloc = add_shader!(
+        tile_alloc,
+        [Uniform, BufReadOnly, BufReadOnly, Buffer, Buffer, Buffer],
+        &empty
+    );
+    let path_count_setup = add_shader!(path_count_setup, [Buffer, Buffer], &empty);
+    let path_count = add_shader!(
+        path_count,
+        [Uniform, Buffer, BufReadOnly, BufReadOnly, Buffer, Buffer]
+    );
+    let backdrop = add_shader!(
+        backdrop_dyn,
+        [Uniform, BufReadOnly, Buffer],
+        &empty,
+        CpuShaderType::Present(cpu_shader::backdrop)
+    );
+    let coarse = add_shader!(
+        coarse,
+        [
+            Uniform,
+            BufReadOnly,
+            BufReadOnly,
+            BufReadOnly,
+            BufReadOnly,
+            BufReadOnly,
+            Buffer,
+            Buffer,
+            Buffer,
+        ],
+        &empty
+    );
+    let path_tiling_setup = add_shader!(path_tiling_setup, [Buffer, Buffer], &empty);
+    let path_tiling = add_shader!(
+        path_tiling,
+        [
+            Buffer,
+            BufReadOnly,
+            BufReadOnly,
+            BufReadOnly,
+            BufReadOnly,
+            Buffer,
+        ],
+        &empty
+    );
+    let fine = match ANTIALIASING {
+        crate::AaConfig::Area => add_shader!(
+            fine,
+            [
+                Uniform,
+                BufReadOnly,
+                BufReadOnly,
+                BufReadOnly,
+                Image(ImageFormat::Rgba8),
+                ImageRead(ImageFormat::Rgba8),
+                ImageRead(ImageFormat::Rgba8),
+            ],
+            &full_config,
+            CpuShaderType::Missing
+        ),
+        _ => add_shader!(
+            fine,
+            [
+                Uniform,
+                BufReadOnly,
+                BufReadOnly,
+                BufReadOnly,
+                Image(ImageFormat::Rgba8),
+                ImageRead(ImageFormat::Rgba8),
+                ImageRead(ImageFormat::Rgba8),
+                BufReadOnly, // mask buffer
+            ],
+            &full_config,
+            CpuShaderType::Missing
+        ),
     };
     Ok(FullShaders {
         pathtag_reduce,
@@ -359,40 +321,8 @@ pub fn full_shaders(device: &Device, engine: &mut WgpuEngine) -> Result<FullShad
         path_tiling_setup,
         path_tiling,
         fine,
-        pathtag_is_cpu: false,
+        pathtag_is_cpu: engine.use_cpu,
     })
-}
-
-#[cfg(feature = "wgpu")]
-impl FullShaders {
-    /// Install the CPU shaders.
-    ///
-    /// There are a couple things to note here. The granularity provided by
-    /// this method is coarse; it installs all the shaders. There are many
-    /// use cases (including debugging), where a mix is desired, or the
-    /// choice between GPU and CPU dispatch might be dynamic.
-    ///
-    /// Second, the actual mapping to CPU shaders is not really specific to
-    /// the engine, and should be split out into a back-end agnostic struct.
-    pub fn install_cpu_shaders(&mut self, engine: &mut WgpuEngine) {
-        engine.set_cpu_shader(self.pathtag_reduce, cpu_shader::pathtag_reduce);
-        engine.set_cpu_shader(self.pathtag_scan, cpu_shader::pathtag_scan);
-        engine.set_cpu_shader(self.bbox_clear, cpu_shader::bbox_clear);
-        engine.set_cpu_shader(self.flatten, cpu_shader::flatten);
-        engine.set_cpu_shader(self.draw_reduce, cpu_shader::draw_reduce);
-        engine.set_cpu_shader(self.draw_leaf, cpu_shader::draw_leaf);
-        engine.set_cpu_shader(self.clip_reduce, cpu_shader::clip_reduce);
-        engine.set_cpu_shader(self.clip_leaf, cpu_shader::clip_leaf);
-        engine.set_cpu_shader(self.binning, cpu_shader::binning);
-        engine.set_cpu_shader(self.tile_alloc, cpu_shader::tile_alloc);
-        engine.set_cpu_shader(self.path_count_setup, cpu_shader::path_count_setup);
-        engine.set_cpu_shader(self.path_count, cpu_shader::path_count);
-        engine.set_cpu_shader(self.backdrop, cpu_shader::backdrop);
-        engine.set_cpu_shader(self.coarse, cpu_shader::coarse);
-        engine.set_cpu_shader(self.path_tiling_setup, cpu_shader::path_tiling_setup);
-        engine.set_cpu_shader(self.path_tiling, cpu_shader::path_tiling);
-        self.pathtag_is_cpu = true;
-    }
 }
 
 macro_rules! shared_shader {
