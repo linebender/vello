@@ -4,9 +4,11 @@
 //! Support for CPU implementations of compute shaders.
 
 use std::{
-    cell::{RefCell, RefMut},
-    ops::Deref,
+    cell::{Ref, RefCell, RefMut},
+    ops::{Deref, DerefMut},
 };
+
+use bytemuck::Pod;
 
 #[derive(Clone, Copy)]
 pub enum CpuBinding<'a> {
@@ -16,39 +18,88 @@ pub enum CpuBinding<'a> {
     Texture(&'a CpuTexture),
 }
 
-pub enum CpuBufGuard<'a> {
-    Slice(&'a [u8]),
-    Interior(RefMut<'a, Vec<u8>>),
+pub enum TypedBufGuard<'a, T: ?Sized> {
+    Slice(&'a T),
+    Interior(Ref<'a, T>),
 }
 
-impl<'a> Deref for CpuBufGuard<'a> {
-    type Target = [u8];
+pub enum TypedBufGuardMut<'a, T: ?Sized> {
+    Slice(&'a mut T),
+    Interior(RefMut<'a, T>),
+}
+
+impl<'a, T: ?Sized> Deref for TypedBufGuard<'a, T> {
+    type Target = T;
 
     fn deref(&self) -> &Self::Target {
         match self {
-            CpuBufGuard::Slice(s) => s,
-            CpuBufGuard::Interior(r) => r,
+            TypedBufGuard::Slice(s) => s,
+            TypedBufGuard::Interior(r) => r,
         }
     }
 }
 
-impl<'a> CpuBufGuard<'a> {
-    /// Get a mutable reference to the buffer.
-    ///
-    /// Panics if the underlying resource is read-only.
-    pub fn as_mut(&mut self) -> &mut [u8] {
+impl<'a, T: ?Sized> Deref for TypedBufGuardMut<'a, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
         match self {
-            CpuBufGuard::Interior(r) => &mut *r,
-            _ => panic!("tried to borrow immutable buffer as mutable"),
+            TypedBufGuardMut::Slice(s) => s,
+            TypedBufGuardMut::Interior(r) => r,
+        }
+    }
+}
+
+impl<'a, T: ?Sized> DerefMut for TypedBufGuardMut<'a, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        match self {
+            TypedBufGuardMut::Slice(s) => s,
+            TypedBufGuardMut::Interior(r) => r,
         }
     }
 }
 
 impl<'a> CpuBinding<'a> {
-    pub fn as_buf(&self) -> CpuBufGuard {
+    pub fn as_typed<T: Pod>(&self) -> TypedBufGuard<T> {
         match self {
-            CpuBinding::Buffer(b) => CpuBufGuard::Slice(b),
-            CpuBinding::BufferRW(b) => CpuBufGuard::Interior(b.borrow_mut()),
+            CpuBinding::Buffer(b) => TypedBufGuard::Slice(bytemuck::from_bytes(b)),
+            CpuBinding::BufferRW(b) => {
+                TypedBufGuard::Interior(Ref::map(b.borrow(), |buf| bytemuck::from_bytes(buf)))
+            }
+            _ => panic!("resource type mismatch"),
+        }
+    }
+
+    pub fn as_typed_mut<T: Pod>(&self) -> TypedBufGuardMut<T> {
+        match self {
+            CpuBinding::Buffer(_) => panic!("can't borrow external buffer mutably"),
+            CpuBinding::BufferRW(b) => {
+                TypedBufGuardMut::Interior(RefMut::map(b.borrow_mut(), |buf| {
+                    bytemuck::from_bytes_mut(buf)
+                }))
+            }
+            _ => panic!("resource type mismatch"),
+        }
+    }
+
+    pub fn as_slice<T: Pod>(&self) -> TypedBufGuard<[T]> {
+        match self {
+            CpuBinding::Buffer(b) => TypedBufGuard::Slice(bytemuck::cast_slice(b)),
+            CpuBinding::BufferRW(b) => {
+                TypedBufGuard::Interior(Ref::map(b.borrow(), |buf| bytemuck::cast_slice(buf)))
+            }
+            _ => panic!("resource type mismatch"),
+        }
+    }
+
+    pub fn as_slice_mut<T: Pod>(&self) -> TypedBufGuardMut<[T]> {
+        match self {
+            CpuBinding::Buffer(_) => panic!("can't borrow external buffer mutably"),
+            CpuBinding::BufferRW(b) => {
+                TypedBufGuardMut::Interior(RefMut::map(b.borrow_mut(), |buf| {
+                    bytemuck::cast_slice_mut(buf)
+                }))
+            }
             _ => panic!("resource type mismatch"),
         }
     }

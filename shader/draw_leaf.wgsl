@@ -108,7 +108,6 @@ fn main(
         // let x1 = f32(bbox.x1);
         // let y1 = f32(bbox.y1);
         // let bbox_f = vec4(x0, y0, x1, y1);
-        let fill_mode = u32(bbox.linewidth >= 0.0);
         var transform = Transform();
         var linewidth = bbox.linewidth;
         if linewidth >= 0.0 || tag_word == DRAWTAG_FILL_LIN_GRADIENT || tag_word == DRAWTAG_FILL_RAD_GRADIENT ||

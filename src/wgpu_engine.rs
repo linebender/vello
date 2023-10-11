@@ -19,6 +19,7 @@ use crate::{
     BufProxy, Command, Id, ImageProxy, Recording, ResourceProxy, ShaderId,
 };
 
+#[derive(Default)]
 pub struct WgpuEngine {
     shaders: Vec<Shader>,
     pool: ResourcePool,
@@ -90,12 +91,7 @@ enum TransientBuf<'a> {
 
 impl WgpuEngine {
     pub fn new() -> WgpuEngine {
-        WgpuEngine {
-            shaders: vec![],
-            pool: Default::default(),
-            bind_map: Default::default(),
-            downloads: Default::default(),
-        }
+        Default::default()
     }
 
     /// Add a shader.

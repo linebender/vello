@@ -139,7 +139,8 @@ impl Render {
         );
         let mut pathtag_parent = reduced_buf;
         let mut large_pathtag_bufs = None;
-        if wg_counts.use_large_path_scan {
+        let use_large_path_scan = wg_counts.use_large_path_scan && !shaders.pathtag_is_cpu;
+        if use_large_path_scan {
             let reduced2_buf = ResourceProxy::new_buf(
                 buffer_sizes.path_reduced2.size_in_bytes().into(),
                 "reduced2_buf",
@@ -166,7 +167,7 @@ impl Render {
             buffer_sizes.path_monoids.size_in_bytes().into(),
             "tagmonoid_buf",
         );
-        let pathtag_scan = if wg_counts.use_large_path_scan {
+        let pathtag_scan = if use_large_path_scan {
             shaders.pathtag_scan_large
         } else {
             shaders.pathtag_scan

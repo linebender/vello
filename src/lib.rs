@@ -72,6 +72,8 @@ pub struct Renderer {
     profiler: GpuProfiler,
     #[cfg(feature = "wgpu-profiler")]
     pub profile_result: Option<Vec<wgpu_profiler::GpuTimerScopeResult>>,
+    #[cfg(feature = "hot_reload")]
+    use_cpu: bool,
 }
 
 /// Parameters used in a single render that are configurable by the client.
@@ -101,7 +103,10 @@ impl Renderer {
     /// Creates a new renderer for the specified device.
     pub fn new(device: &Device, render_options: &RendererOptions) -> Result<Self> {
         let mut engine = WgpuEngine::new();
-        let shaders = shaders::full_shaders(device, &mut engine, render_options.use_cpu)?;
+        let mut shaders = shaders::full_shaders(device, &mut engine)?;
+        if render_options.use_cpu {
+            shaders.install_cpu_shaders(&mut engine);
+        }
         let blit = render_options
             .surface_format
             .map(|surface_format| BlitPipeline::new(device, surface_format));
@@ -115,6 +120,8 @@ impl Renderer {
             profiler: GpuProfiler::new(3, render_options.timestamp_period, device.features()),
             #[cfg(feature = "wgpu-profiler")]
             profile_result: None,
+            #[cfg(feature = "hot_reload")]
+            use_cpu: render_options.use_cpu,
         })
     }
 
@@ -220,7 +227,10 @@ impl Renderer {
     pub async fn reload_shaders(&mut self, device: &Device) -> Result<()> {
         device.push_error_scope(wgpu::ErrorFilter::Validation);
         let mut engine = WgpuEngine::new();
-        let shaders = shaders::full_shaders(device, &mut engine, false)?;
+        let mut shaders = shaders::full_shaders(device, &mut engine)?;
+        if self.use_cpu {
+            shaders.install_cpu_shaders(&mut engine);
+        }
         let error = device.pop_error_scope().await;
         if let Some(error) = error {
             return Err(error.into());
