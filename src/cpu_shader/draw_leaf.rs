@@ -5,7 +5,7 @@ use vello_encoding::{Clip, ConfigUniform, DrawMonoid, DrawTag, Monoid, PathBbox}
 
 use crate::cpu_dispatch::CpuBinding;
 
-use super::util::{Transform, Vec2};
+use super::util::{read_draw_tag_from_scene, Transform, Vec2};
 
 const WG_SIZE: usize = 256;
 
@@ -19,22 +19,18 @@ fn draw_leaf_main(
     info: &mut [u32],
     clip_inp: &mut [Clip],
 ) {
-    let drawtag_base = config.layout.draw_tag_base;
     let mut prefix = DrawMonoid::default();
     for i in 0..n_wg {
         let mut m = prefix;
         for j in 0..WG_SIZE {
             let ix = i * WG_SIZE as u32 + j as u32;
-            let tag_raw = if ix < config.layout.n_draw_objects {
-                scene[(drawtag_base + ix) as usize]
-            } else {
-                0
-            };
+            let tag_raw = read_draw_tag_from_scene(config, scene, ix);
             let tag_word = DrawTag(tag_raw);
             // store exclusive prefix sum
             if ix < config.layout.n_draw_objects {
                 draw_monoid[ix as usize] = m;
             }
+            let m_next = m.combine(&DrawMonoid::new(tag_word));
             let dd = config.layout.draw_data_base + m.scene_offset;
             let di = m.info_offset as usize;
             if tag_word == DrawTag::COLOR
@@ -145,7 +141,7 @@ fn draw_leaf_main(
                 let path_ix = !ix as i32;
                 clip_inp[m.clip_ix as usize] = Clip { ix, path_ix };
             }
-            m = m.combine(&DrawMonoid::new(tag_word));
+            m = m_next;
         }
         prefix = prefix.combine(&reduced[i as usize]);
     }

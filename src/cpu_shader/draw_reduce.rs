@@ -5,19 +5,16 @@ use vello_encoding::{ConfigUniform, DrawMonoid, DrawTag, Monoid};
 
 use crate::cpu_dispatch::CpuBinding;
 
+use super::util::read_draw_tag_from_scene;
+
 const WG_SIZE: usize = 256;
 
 fn draw_reduce_main(n_wg: u32, config: &ConfigUniform, scene: &[u32], reduced: &mut [DrawMonoid]) {
-    let drawtag_base = config.layout.draw_tag_base;
     for i in 0..n_wg {
         let mut m = DrawMonoid::default();
         for j in 0..WG_SIZE {
             let ix = i * WG_SIZE as u32 + j as u32;
-            let tag = if ix < config.layout.n_draw_objects {
-                scene[(drawtag_base + ix) as usize]
-            } else {
-                0
-            };
+            let tag = read_draw_tag_from_scene(config, scene, ix);
             m = m.combine(&DrawMonoid::new(DrawTag(tag)));
         }
         reduced[i as usize] = m;

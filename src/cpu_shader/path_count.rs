@@ -34,15 +34,15 @@ fn path_count_main(
         if dy == 0.0 && s0.y.floor() == s0.y {
             continue;
         }
-        let dy_dxdy = dy / (dx + dy);
-        let a = 1.0 - dy_dxdy;
+        let idxdy = 1.0 / (dx + dy);
+        let a = dx * idxdy;
         let is_positive_slope = s1.x >= s0.x;
         let sign = if is_positive_slope { 1.0 } else { -1.0 };
         let xt0 = (s0.x * sign).floor();
         let c = s0.x * sign - xt0;
         let y0 = s0.y.floor();
         let ytop = if s0.y == s1.y { s0.y.ceil() } else { y0 + 1.0 };
-        let b = dy_dxdy * c + a * (ytop - s0.y);
+        let b = (dy * c + dx * (ytop - s0.y)) * idxdy;
         let x0 = xt0 * sign + if is_positive_slope { 0.0 } else { -1.0 };
 
         let path = paths[line.path_ix as usize];

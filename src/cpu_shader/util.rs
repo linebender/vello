@@ -3,6 +3,8 @@
 
 //! Utility types
 
+use vello_encoding::ConfigUniform;
+
 #[derive(Clone, Copy, Default, Debug)]
 #[repr(C)]
 pub struct Vec2 {
@@ -93,4 +95,19 @@ impl Transform {
 
 pub fn span(a: f32, b: f32) -> u32 {
     (a.max(b).ceil() - a.min(b).floor()).max(1.0) as u32
+}
+
+const DRAWTAG_NOP: u32 = 0;
+
+/// Read draw tag, guarded by number of draw objects.
+///
+/// The `ix` argument is allowed to exceed the number of draw objects,
+/// in which case a NOP is returned.
+pub fn read_draw_tag_from_scene(config: &ConfigUniform, scene: &[u32], ix: u32) -> u32 {
+    if ix < config.layout.n_draw_objects {
+        let tag_ix = config.layout.draw_tag_base + ix;
+        scene[tag_ix as usize]
+    } else {
+        DRAWTAG_NOP
+    }
 }

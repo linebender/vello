@@ -50,6 +50,7 @@ fn binning_main(
                 let draw_monoid = draw_monoids[element_ix];
                 let mut clip_bbox = [-1e9, -1e9, 1e9, 1e9];
                 if draw_monoid.clip_ix > 0 {
+                    assert!(draw_monoid.clip_ix - 1 < config.layout.n_clips);
                     clip_bbox = clip_bbox_buf[draw_monoid.clip_ix as usize - 1];
                 }
                 let path_bbox = path_bbox_buf[draw_monoid.path_ix as usize];

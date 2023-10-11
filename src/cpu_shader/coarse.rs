@@ -57,7 +57,6 @@ impl TileState {
         ptcl[(self.cmd_offset + offset) as usize] = value;
     }
 
-    // TODO: handle even/odd winding rule
     fn write_path(
         &mut self,
         config: &ConfigUniform,
@@ -217,7 +216,6 @@ fn coarse_main(
             let mut tile_state = TileState::new(this_tile_ix);
             let blend_offset = tile_state.cmd_offset;
             tile_state.cmd_offset += 1;
-            // Discussion question: do these belong in tile state?
             let mut clip_depth = 0;
             let mut clip_zero_depth = 0;
             for drawobj_ix in &compacted[tile_ix] {
@@ -314,7 +312,7 @@ fn coarse_main(
 
             if bin_tile_x + tile_x < width_in_tiles && bin_tile_y + tile_y < height_in_tiles {
                 ptcl[tile_state.cmd_offset as usize] = CMD_END;
-                let scratch_size = 0; // TODO: actually compute
+                let scratch_size = 0; // TODO: actually compute blend depth
                 ptcl[blend_offset as usize] = bump.blend;
                 bump.blend += scratch_size;
             }
