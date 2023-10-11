@@ -1,9 +1,9 @@
 // Copyright 2023 The Vello authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
 
-use vello_encoding::{ConfigUniform, PathSegment, Tile};
+use vello_encoding::{ConfigUniform, PathSegment};
 
-use crate::cpu_dispatch::CpuTexture;
+use crate::cpu_dispatch::{CpuBinding, CpuTexture};
 
 use super::{CMD_COLOR, CMD_END, CMD_FILL, CMD_JUMP, CMD_SOLID, PTCL_INITIAL_ALLOC};
 
@@ -111,7 +111,6 @@ fn fill_path(area: &mut [f32], segments: &[PathSegment], fill: &CmdFill, x_tile:
 #[allow(unused)]
 fn fine_main(
     config: &ConfigUniform,
-    tiles: &[Tile],
     segments: &[PathSegment],
     output: &mut CpuTexture,
     ptcl: &[u32],
@@ -154,7 +153,7 @@ fn fine_main(
                     for a in &mut area {
                         *a = 1.0;
                     }
-                    cmd_ix += 2;
+                    cmd_ix += 1;
                 }
                 CMD_COLOR => {
                     let color = read_color(ptcl, cmd_ix);
@@ -177,12 +176,28 @@ fn fine_main(
         }
         // Write tile (in rgba)
         for y in 0..TILE_HEIGHT {
-            let base =
-                output.width * (tile_y as usize * TILE_HEIGHT + y) + tile_x as usize * TILE_WIDTH;
+            let base = config.target_width as usize * (tile_y as usize * TILE_HEIGHT + y)
+                + tile_x as usize * TILE_WIDTH;
             for x in 0..TILE_WIDTH {
                 let rgba32 = pack4x8unorm(rgba[y * TILE_WIDTH + x]);
-                output.pixels[base + x] = rgba32;
+                // TODO: Fix out of bounds
+                //output.pixels[base + x] = rgba32;
+                if let Some(p) = output.pixels.get_mut(base + x) {
+                    *p = rgba32;
+                }
             }
         }
     }
+}
+
+pub fn fine(_n_wg: u32, resources: &[CpuBinding]) {
+    let config = resources[0].as_typed();
+    let segments = resources[1].as_slice();
+    let ptcl = resources[2].as_slice();
+    let info = resources[3].as_slice();
+    let mut output = resources[4].as_tex_mut();
+    //let gradients = resources[4].as_tex();
+    //let image_atlas = resources[5].as_tex();
+
+    fine_main(&config, &segments, &mut output, &ptcl, &info);
 }

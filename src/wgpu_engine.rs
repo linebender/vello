@@ -14,8 +14,8 @@ use wgpu::{
 };
 
 use crate::{
-    cpu_dispatch::CpuBinding,
-    engine::{BindType, Error},
+    cpu_dispatch::{CpuBinding, CpuTexture},
+    engine::{BindType, Error, ImageAccess},
     BufProxy, Command, Id, ImageProxy, Recording, ResourceProxy, ShaderId,
 };
 
@@ -85,10 +85,16 @@ struct BindMapBuffer {
     label: &'static str,
 }
 
+/// A texture can exist either on the GPU or on CPU.
+enum MaterializedImage {
+    Gpu((Texture, TextureView)),
+    Cpu(RefCell<CpuTexture>),
+}
+
 #[derive(Default)]
 struct BindMap {
     buf_map: HashMap<Id, BindMapBuffer>,
-    image_map: HashMap<Id, (Texture, TextureView)>,
+    image_map: HashMap<Id, MaterializedImage>,
     pending_clears: HashSet<Id>,
 }
 
@@ -111,15 +117,23 @@ struct ResourcePool {
 /// `run_recording()`, including external resources and also buffer
 /// uploads.
 #[derive(Default)]
-struct TransientBindMap<'a> {
+pub struct TransientBindMap<'a> {
     bufs: HashMap<Id, TransientBuf<'a>>,
-    // TODO: create transient image type
-    images: HashMap<Id, &'a TextureView>,
+    images: HashMap<Id, TransientImage<'a>>,
 }
 
 enum TransientBuf<'a> {
     Cpu(&'a [u8]),
     Gpu(&'a Buffer),
+}
+
+enum TransientImage<'a> {
+    Cpu(&'a [u8]),
+    CpuOwned {
+        data: RefCell<CpuTexture>,
+        view: &'a TextureView,
+    },
+    Gpu(&'a TextureView),
 }
 
 impl WgpuEngine {
@@ -251,18 +265,17 @@ impl WgpuEngine {
         })
     }
 
-    pub fn run_recording(
+    pub fn run_recording<'a>(
         &mut self,
         device: &Device,
         queue: &Queue,
-        recording: &Recording,
-        external_resources: &[ExternalResource],
+        recording: &'a Recording,
         label: &'static str,
+        transient_map: &mut TransientBindMap<'a>,
         #[cfg(feature = "wgpu-profiler")] profiler: &mut wgpu_profiler::GpuProfiler,
     ) -> Result<(), Error> {
         let mut free_bufs: HashSet<Id> = Default::default();
         let mut free_images: HashSet<Id> = Default::default();
-        let mut transient_map = TransientBindMap::new(external_resources);
 
         let mut encoder =
             device.create_command_encoder(&CommandEncoderDescriptor { label: Some(label) });
@@ -297,6 +310,9 @@ impl WgpuEngine {
                     self.bind_map.insert_buf(buf_proxy, buf);
                 }
                 Command::UploadImage(image_proxy, bytes) => {
+                    transient_map
+                        .images
+                        .insert(image_proxy.id, TransientImage::Cpu(bytes));
                     let format = image_proxy.format.to_wgpu();
                     let block_size = format
                         .block_size(None)
@@ -347,31 +363,95 @@ impl WgpuEngine {
                     self.bind_map
                         .insert_image(image_proxy.id, texture, texture_view)
                 }
+                Command::Writeback {
+                    image,
+                    shader,
+                    config,
+                } => {
+                    transient_map.prepare_proxy(
+                        &mut self.bind_map,
+                        &mut self.pool,
+                        device,
+                        queue,
+                        &mut encoder,
+                        config,
+                    );
+
+                    if let Some(TransientImage::CpuOwned { data, view }) =
+                        transient_map.images.get(&image.id)
+                    {
+                        let data = &*data.borrow();
+
+                        let wgpu_shader =
+                            if let ShaderKind::Wgpu(shader) = self.shaders[shader.0].select() {
+                                shader
+                            } else {
+                                panic!("expected GPU shader")
+                            };
+                        let buf = device.create_buffer(&wgpu::BufferDescriptor {
+                            label: None,
+                            size: data.pixels.len() as u64 * 4,
+                            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                            mapped_at_creation: false,
+                        });
+                        queue.write_buffer(&buf, 0, bytemuck::cast_slice(&data.pixels));
+
+                        let entries = [
+                            transient_map.create_bind_entry(&self.bind_map, 0, config),
+                            wgpu::BindGroupEntry {
+                                binding: 1,
+                                resource: buf.as_entire_binding(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 2,
+                                resource: wgpu::BindingResource::TextureView(view),
+                            },
+                        ];
+                        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                            label: None,
+                            layout: &wgpu_shader.bind_group_layout,
+                            entries: &entries,
+                        });
+                        let mut cpass = encoder.begin_compute_pass(&Default::default());
+                        #[cfg(feature = "wgpu-profiler")]
+                        profiler.begin_scope("writeback", &mut cpass, device);
+                        cpass.set_pipeline(&wgpu_shader.pipeline);
+                        cpass.set_bind_group(0, &bind_group, &[]);
+                        cpass.dispatch_workgroups(data.width as u32, data.height as u32, 1);
+                        #[cfg(feature = "wgpu-profiler")]
+                        profiler.end_scope(&mut cpass);
+                    }
+                }
                 Command::WriteImage(proxy, [x, y, width, height], data) => {
-                    if let Ok((texture, _)) = self.bind_map.get_or_create_image(*proxy, device) {
-                        let format = proxy.format.to_wgpu();
-                        let block_size = format
-                            .block_size(None)
-                            .expect("ImageFormat must have a valid block size");
-                        queue.write_texture(
-                            wgpu::ImageCopyTexture {
-                                texture,
-                                mip_level: 0,
-                                origin: wgpu::Origin3d { x: *x, y: *y, z: 0 },
-                                aspect: TextureAspect::All,
-                            },
-                            &data[..],
-                            wgpu::ImageDataLayout {
-                                offset: 0,
-                                bytes_per_row: Some(*width * block_size),
-                                rows_per_image: None,
-                            },
-                            wgpu::Extent3d {
-                                width: *width,
-                                height: *height,
-                                depth_or_array_layers: 1,
-                            },
-                        );
+                    if let Ok(image) = self.bind_map.get_or_create_image(*proxy, device) {
+                        match image {
+                            MaterializedImage::Gpu((texture, _)) => {
+                                let format = proxy.format.to_wgpu();
+                                let block_size = format
+                                    .block_size(None)
+                                    .expect("ImageFormat must have a valid block size");
+                                queue.write_texture(
+                                    wgpu::ImageCopyTexture {
+                                        texture,
+                                        mip_level: 0,
+                                        origin: wgpu::Origin3d { x: *x, y: *y, z: 0 },
+                                        aspect: TextureAspect::All,
+                                    },
+                                    &data[..],
+                                    wgpu::ImageDataLayout {
+                                        offset: 0,
+                                        bytes_per_row: Some(*width * block_size),
+                                        rows_per_image: None,
+                                    },
+                                    wgpu::Extent3d {
+                                        width: *width,
+                                        height: *height,
+                                        depth_or_array_layers: 1,
+                                    },
+                                );
+                            }
+                            MaterializedImage::Cpu(..) => todo!(),
+                        }
                     }
                 }
                 Command::Dispatch(shader_id, wg_size, bindings) => {
@@ -512,10 +592,9 @@ impl WgpuEngine {
             }
         }
         for id in free_images {
-            if let Some((texture, view)) = self.bind_map.image_map.remove(&id) {
+            if let Some(image) = self.bind_map.image_map.remove(&id) {
                 // TODO: have a pool to avoid needless re-allocation
-                drop(texture);
-                drop(view);
+                drop(image);
             }
         }
         Ok(())
@@ -549,6 +628,14 @@ impl BindMap {
         })
     }
 
+    /// Get a image, only if it's on GPU.
+    fn get_gpu_image(&self, id: Id) -> Option<&(Texture, TextureView)> {
+        self.image_map.get(&id).and_then(|b| match &b {
+            MaterializedImage::Gpu(b) => Some(b),
+            _ => None,
+        })
+    }
+
     /// Get a CPU buffer.
     ///
     /// Panics if buffer is not present or is on GPU.
@@ -556,6 +643,16 @@ impl BindMap {
         match &self.buf_map[&id].buffer {
             MaterializedBuffer::Cpu(b) => CpuBinding::BufferRW(b),
             _ => panic!("getting cpu buffer, but it's on gpu"),
+        }
+    }
+
+    /// Get a CPU image.
+    ///
+    /// Panics if image is not present or is on GPU.
+    fn get_cpu_image(&self, id: Id) -> CpuBinding {
+        match &self.image_map[&id] {
+            MaterializedImage::Cpu(b) => CpuBinding::TextureRW(b),
+            _ => panic!("getting cpu image, but it's on gpu"),
         }
     }
 
@@ -570,8 +667,15 @@ impl BindMap {
         });
     }
 
+    fn materialize_cpu_image(&mut self, img: &ImageProxy) {
+        self.image_map
+            .entry(img.id)
+            .or_insert_with(|| MaterializedImage::Cpu(RefCell::new(CpuTexture::new(img))));
+    }
+
     fn insert_image(&mut self, id: Id, image: Texture, image_view: TextureView) {
-        self.image_map.insert(id, (image, image_view));
+        self.image_map
+            .insert(id, MaterializedImage::Gpu((image, image_view)));
     }
 
     fn get_buf(&mut self, proxy: BufProxy) -> Option<&BindMapBuffer> {
@@ -582,7 +686,7 @@ impl BindMap {
         &mut self,
         proxy: ImageProxy,
         device: &Device,
-    ) -> Result<&(Texture, TextureView), Error> {
+    ) -> Result<&MaterializedImage, Error> {
         match self.image_map.entry(proxy.id) {
             Entry::Occupied(occupied) => Ok(occupied.into_mut()),
             Entry::Vacant(vacant) => {
@@ -611,7 +715,7 @@ impl BindMap {
                     array_layer_count: None,
                     format: Some(proxy.format.to_wgpu()),
                 });
-                Ok(vacant.insert((texture, texture_view)))
+                Ok(vacant.insert(MaterializedImage::Gpu((texture, texture_view))))
             }
         }
     }
@@ -688,9 +792,28 @@ impl BindMapBuffer {
     }
 }
 
+impl MaterializedImage {
+    // Upload a image from CPU to GPU if needed.
+    //
+    // Note data flow is one way only, from CPU to GPU. Once this method is
+    // called, the image is no longer materialized on CPU, and cannot be
+    // accessed from a CPU shader.
+    fn upload_if_needed(
+        &mut self,
+        _proxy: &ImageProxy,
+        _device: &Device,
+        _queue: &Queue,
+        _pool: &mut ResourcePool,
+    ) {
+        if let MaterializedImage::Cpu(_cpu_buf) = &self {
+            todo!()
+        }
+    }
+}
+
 impl<'a> TransientBindMap<'a> {
     /// Create new transient bind map, seeded from external resources
-    fn new(external_resources: &'a [ExternalResource]) -> Self {
+    pub fn new(external_resources: &'a [ExternalResource]) -> Self {
         let mut bufs = HashMap::default();
         let mut images = HashMap::default();
         for resource in external_resources {
@@ -698,8 +821,8 @@ impl<'a> TransientBindMap<'a> {
                 ExternalResource::Buf(proxy, gpu_buf) => {
                     bufs.insert(proxy.id, TransientBuf::Gpu(gpu_buf));
                 }
-                ExternalResource::Image(proxy, gpu_image) => {
-                    images.insert(proxy.id, *gpu_image);
+                ExternalResource::Image(proxy, view) => {
+                    images.insert(proxy.id, TransientImage::Gpu(view));
                 }
             }
         }
@@ -721,49 +844,47 @@ impl<'a> TransientBindMap<'a> {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn create_bind_group(
+    fn prepare_proxy(
         &mut self,
         bind_map: &mut BindMap,
         pool: &mut ResourcePool,
         device: &Device,
         queue: &Queue,
         encoder: &mut CommandEncoder,
-        layout: &BindGroupLayout,
-        bindings: &[ResourceProxy],
-    ) -> Result<BindGroup, Error> {
-        for proxy in bindings {
-            match proxy {
-                ResourceProxy::Buf(proxy) => {
-                    if self.bufs.contains_key(&proxy.id) {
-                        continue;
+        proxy: &ResourceProxy,
+    ) {
+        match proxy {
+            ResourceProxy::Buf(proxy) => {
+                if self.bufs.contains_key(&proxy.id) {
+                    return;
+                }
+                match bind_map.buf_map.entry(proxy.id) {
+                    Entry::Vacant(v) => {
+                        // TODO: only some buffers will need indirect, but does it hurt?
+                        let usage = BufferUsages::COPY_SRC
+                            | BufferUsages::COPY_DST
+                            | BufferUsages::STORAGE
+                            | BufferUsages::INDIRECT;
+                        let buf = pool.get_buf(proxy.size, proxy.name, usage, device);
+                        if bind_map.pending_clears.remove(&proxy.id) {
+                            encoder.clear_buffer(&buf, 0, None);
+                        }
+                        v.insert(BindMapBuffer {
+                            buffer: MaterializedBuffer::Gpu(buf),
+                            label: proxy.name,
+                        });
                     }
-                    match bind_map.buf_map.entry(proxy.id) {
-                        Entry::Vacant(v) => {
-                            // TODO: only some buffers will need indirect, but does it hurt?
-                            let usage = BufferUsages::COPY_SRC
-                                | BufferUsages::COPY_DST
-                                | BufferUsages::STORAGE
-                                | BufferUsages::INDIRECT;
-                            let buf = pool.get_buf(proxy.size, proxy.name, usage, device);
-                            if bind_map.pending_clears.remove(&proxy.id) {
-                                encoder.clear_buffer(&buf, 0, None);
-                            }
-                            v.insert(BindMapBuffer {
-                                buffer: MaterializedBuffer::Gpu(buf),
-                                label: proxy.name,
-                            });
-                        }
-                        Entry::Occupied(mut o) => {
-                            o.get_mut().upload_if_needed(proxy, device, queue, pool)
-                        }
+                    Entry::Occupied(mut o) => {
+                        o.get_mut().upload_if_needed(proxy, device, queue, pool)
                     }
                 }
-                ResourceProxy::Image(proxy) => {
-                    if self.images.contains_key(&proxy.id) {
-                        continue;
-                    }
-                    if let Entry::Vacant(v) = bind_map.image_map.entry(proxy.id) {
+            }
+            ResourceProxy::Image(proxy) => {
+                if self.images.contains_key(&proxy.id) {
+                    return;
+                }
+                match bind_map.image_map.entry(proxy.id) {
+                    Entry::Vacant(v) => {
                         let format = proxy.format.to_wgpu();
                         let texture = device.create_texture(&wgpu::TextureDescriptor {
                             label: None,
@@ -789,39 +910,67 @@ impl<'a> TransientBindMap<'a> {
                             array_layer_count: None,
                             format: Some(proxy.format.to_wgpu()),
                         });
-                        v.insert((texture, texture_view));
+                        v.insert(MaterializedImage::Gpu((texture, texture_view)));
+                    }
+                    Entry::Occupied(mut o) => {
+                        o.get_mut().upload_if_needed(proxy, device, queue, pool)
                     }
                 }
             }
         }
-        let entries = bindings
+    }
+
+    fn create_bind_entry<'b>(
+        &'b self,
+        bind_map: &'b BindMap,
+        binding: u32,
+        proxy: &ResourceProxy,
+    ) -> wgpu::BindGroupEntry<'b> {
+        match proxy {
+            ResourceProxy::Buf(proxy) => {
+                let buf = match self.bufs.get(&proxy.id) {
+                    Some(TransientBuf::Gpu(b)) => b,
+                    _ => bind_map.get_gpu_buf(proxy.id).unwrap(),
+                };
+                wgpu::BindGroupEntry {
+                    binding,
+                    resource: buf.as_entire_binding(),
+                }
+            }
+            ResourceProxy::Image(proxy) => {
+                let view = match self.images.get(&proxy.id) {
+                    Some(TransientImage::Gpu(view)) => *view,
+                    _ => &bind_map.get_gpu_image(proxy.id).unwrap().1,
+                };
+                wgpu::BindGroupEntry {
+                    binding,
+                    resource: wgpu::BindingResource::TextureView(view),
+                }
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn create_bind_group(
+        &mut self,
+        bind_map: &mut BindMap,
+        pool: &mut ResourcePool,
+        device: &Device,
+        queue: &Queue,
+        encoder: &mut CommandEncoder,
+        layout: &BindGroupLayout,
+        bindings: &[ResourceProxy],
+    ) -> Result<BindGroup, Error> {
+        for proxy in bindings {
+            self.prepare_proxy(bind_map, pool, device, queue, encoder, proxy);
+        }
+
+        let bind_map = &mut *bind_map;
+        let entries: Vec<_> = bindings
             .iter()
             .enumerate()
-            .map(|(i, proxy)| match proxy {
-                ResourceProxy::Buf(proxy) => {
-                    let buf = match self.bufs.get(&proxy.id) {
-                        Some(TransientBuf::Gpu(b)) => b,
-                        _ => bind_map.get_gpu_buf(proxy.id).unwrap(),
-                    };
-                    Ok(wgpu::BindGroupEntry {
-                        binding: i as u32,
-                        resource: buf.as_entire_binding(),
-                    })
-                }
-                ResourceProxy::Image(proxy) => {
-                    let view = self
-                        .images
-                        .get(&proxy.id)
-                        .copied()
-                        .or_else(|| bind_map.image_map.get(&proxy.id).map(|v| &v.1))
-                        .unwrap();
-                    Ok(wgpu::BindGroupEntry {
-                        binding: i as u32,
-                        resource: wgpu::BindingResource::TextureView(view),
-                    })
-                }
-            })
-            .collect::<Result<Vec<_>, Error>>()?;
+            .map(|(i, proxy)| self.create_bind_entry(bind_map, i as u32, proxy))
+            .collect();
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout,
@@ -830,11 +979,11 @@ impl<'a> TransientBindMap<'a> {
         Ok(bind_group)
     }
 
-    fn create_cpu_resources(
-        &self,
-        bind_map: &'a mut BindMap,
+    fn create_cpu_resources<'b>(
+        &'b mut self,
+        bind_map: &'b mut BindMap,
         bindings: &[ResourceProxy],
-    ) -> Vec<CpuBinding> {
+    ) -> Vec<CpuBinding<'b>> {
         // First pass is mutable; create buffers as needed
         for resource in bindings {
             match resource {
@@ -843,7 +992,22 @@ impl<'a> TransientBindMap<'a> {
                     Some(TransientBuf::Gpu(_)) => panic!("buffer was already materialized on GPU"),
                     _ => bind_map.materialize_cpu_buf(buf),
                 },
-                ResourceProxy::Image(_) => todo!(),
+                ResourceProxy::Image(img) => match self.images.get(&img.id) {
+                    Some(TransientImage::Cpu(..) | TransientImage::CpuOwned { .. }) => (),
+                    Some(TransientImage::Gpu(view)) => {
+                        if img.access == ImageAccess::WriteOnce {
+                            let id = img.id;
+                            let image = TransientImage::CpuOwned {
+                                data: RefCell::new(CpuTexture::new(img)),
+                                view,
+                            };
+                            self.images.insert(id, image);
+                        } else {
+                            panic!("image was already materialized on GPU")
+                        }
+                    }
+                    _ => bind_map.materialize_cpu_image(img),
+                },
             };
         }
         // Second pass takes immutable references
@@ -854,7 +1018,11 @@ impl<'a> TransientBindMap<'a> {
                     Some(TransientBuf::Cpu(b)) => CpuBinding::Buffer(b),
                     _ => bind_map.get_cpu_buf(buf.id),
                 },
-                ResourceProxy::Image(_) => todo!(),
+                ResourceProxy::Image(img) => match self.images.get(&img.id) {
+                    Some(TransientImage::Cpu(b)) => CpuBinding::Texture(b),
+                    Some(TransientImage::CpuOwned { data, .. }) => CpuBinding::TextureRW(data),
+                    _ => bind_map.get_cpu_image(img.id),
+                },
             })
             .collect()
     }

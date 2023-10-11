@@ -48,12 +48,20 @@ pub enum ImageFormat {
     Bgra8,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+pub enum ImageAccess {
+    Read,
+    Full,
+    WriteOnce,
+}
+
 #[derive(Clone, Copy)]
 pub struct ImageProxy {
     pub width: u32,
     pub height: u32,
     pub format: ImageFormat,
     pub id: Id,
+    pub access: ImageAccess,
 }
 
 #[derive(Clone, Copy)]
@@ -73,6 +81,11 @@ pub enum Command {
     Dispatch(ShaderId, (u32, u32, u32), Vec<ResourceProxy>),
     DispatchIndirect(ShaderId, BufProxy, u64, Vec<ResourceProxy>),
     Download(BufProxy),
+    Writeback {
+        image: ImageProxy,
+        shader: ShaderId,
+        config: ResourceProxy,
+    },
     Clear(BufProxy, u64, Option<NonZeroU64>),
     FreeBuf(BufProxy),
     FreeImage(ImageProxy),
@@ -121,7 +134,7 @@ impl Recording {
         data: impl Into<Vec<u8>>,
     ) -> ImageProxy {
         let data = data.into();
-        let image_proxy = ImageProxy::new(width, height, format);
+        let image_proxy = ImageProxy::new(width, height, format, ImageAccess::Read);
         self.push(Command::UploadImage(image_proxy, data));
         image_proxy
     }
@@ -219,13 +232,14 @@ impl ImageFormat {
 }
 
 impl ImageProxy {
-    pub fn new(width: u32, height: u32, format: ImageFormat) -> Self {
+    pub fn new(width: u32, height: u32, format: ImageFormat, access: ImageAccess) -> Self {
         let id = Id::next();
         ImageProxy {
             width,
             height,
             format,
             id,
+            access,
         }
     }
 }
@@ -235,8 +249,8 @@ impl ResourceProxy {
         Self::Buf(BufProxy::new(size, name))
     }
 
-    pub fn new_image(width: u32, height: u32, format: ImageFormat) -> Self {
-        Self::Image(ImageProxy::new(width, height, format))
+    pub fn new_image(width: u32, height: u32, format: ImageFormat, access: ImageAccess) -> Self {
+        Self::Image(ImageProxy::new(width, height, format, access))
     }
 
     pub fn as_buf(&self) -> Option<&BufProxy> {

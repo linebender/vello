@@ -18,18 +18,17 @@
 
 mod preprocess;
 
-use std::collections::HashSet;
-
+use crate::engine::ShaderId;
 #[cfg(feature = "wgpu")]
-use wgpu::Device;
-
-use crate::{
-    cpu_shader,
-    engine::{BindType, Error, ImageFormat, ShaderId},
+use {
+    crate::wgpu_engine::WgpuEngine,
+    crate::{
+        cpu_shader,
+        engine::{BindType, Error, ImageFormat},
+    },
+    std::collections::HashSet,
+    wgpu::Device,
 };
-
-#[cfg(feature = "wgpu")]
-use crate::wgpu_engine::WgpuEngine;
 
 macro_rules! shader {
     ($name:expr) => {&{
@@ -79,6 +78,7 @@ pub struct FullShaders {
     pub path_tiling_setup: ShaderId,
     pub path_tiling: ShaderId,
     pub fine: ShaderId,
+    pub writeback: ShaderId,
     // 2-level dispatch works for CPU pathtag scan even for large
     // inputs, 3-level is not yet implemented.
     pub pathtag_is_cpu: bool,
@@ -114,11 +114,15 @@ pub fn full_shaders(device: &Device, engine: &mut WgpuEngine) -> Result<FullShad
 
     let mut force_gpu = false;
 
+    #[allow(unused_variables)]
     let force_gpu_from: Option<&str> = None;
 
     // Uncomment this to force use of GPU shaders from the specified shader and later even
     // if `engine.use_cpu` is specified.
     //let force_gpu_from = Some("binning");
+
+    // Use the GPU for the fine shader for now as the CPU shader is incomplete.
+    let force_gpu_from = Some("fine");
 
     macro_rules! add_shader {
         ($name:ident, $bindings:expr, $defines:expr, $cpu:expr) => {{
@@ -282,7 +286,7 @@ pub fn full_shaders(device: &Device, engine: &mut WgpuEngine) -> Result<FullShad
                 ImageRead(ImageFormat::Rgba8),
             ],
             &full_config,
-            CpuShaderType::Missing
+            CpuShaderType::Present(cpu_shader::fine)
         ),
         _ => add_shader!(
             fine,
@@ -300,6 +304,12 @@ pub fn full_shaders(device: &Device, engine: &mut WgpuEngine) -> Result<FullShad
             CpuShaderType::Missing
         ),
     };
+    let writeback = add_shader!(
+        writeback,
+        [Uniform, BufReadOnly, Image(ImageFormat::Rgba8)],
+        &empty,
+        CpuShaderType::Missing
+    );
     Ok(FullShaders {
         pathtag_reduce,
         pathtag_reduce2,
@@ -321,6 +331,7 @@ pub fn full_shaders(device: &Device, engine: &mut WgpuEngine) -> Result<FullShad
         path_tiling_setup,
         path_tiling,
         fine,
+        writeback,
         pathtag_is_cpu: engine.use_cpu,
     })
 }

@@ -10,12 +10,14 @@ use std::{
 
 use bytemuck::Pod;
 
+use crate::ImageProxy;
+
 #[derive(Clone, Copy)]
 pub enum CpuBinding<'a> {
     Buffer(&'a [u8]),
     BufferRW(&'a RefCell<Vec<u8>>),
-    #[allow(unused)]
-    Texture(&'a CpuTexture),
+    Texture(&'a [u8]),
+    TextureRW(&'a RefCell<CpuTexture>),
 }
 
 pub enum TypedBufGuard<'a, T: ?Sized> {
@@ -109,7 +111,14 @@ impl<'a> CpuBinding<'a> {
     #[allow(unused)]
     pub fn as_tex(&self) -> &CpuTexture {
         match self {
-            CpuBinding::Texture(t) => t,
+            CpuBinding::Texture(t) => todo!(),
+            _ => panic!("resource type mismatch"),
+        }
+    }
+
+    pub fn as_tex_mut(&self) -> RefMut<CpuTexture> {
+        match self {
+            CpuBinding::TextureRW(t) => t.borrow_mut(),
             _ => panic!("resource type mismatch"),
         }
     }
@@ -121,4 +130,14 @@ pub struct CpuTexture {
     pub height: usize,
     // In RGBA format. May expand in the future.
     pub pixels: Vec<u32>,
+}
+
+impl CpuTexture {
+    pub fn new(img: &ImageProxy) -> Self {
+        CpuTexture {
+            width: img.width as usize,
+            height: img.height as usize,
+            pixels: vec![0; img.width as usize * img.height as usize],
+        }
+    }
 }

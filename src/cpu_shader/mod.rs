@@ -34,6 +34,7 @@ pub use clip_reduce::clip_reduce;
 pub use coarse::coarse;
 pub use draw_leaf::draw_leaf;
 pub use draw_reduce::draw_reduce;
+pub use fine::fine;
 pub use flatten::flatten;
 pub use path_count::path_count;
 pub use path_count_setup::path_count_setup;
