@@ -21,7 +21,7 @@ use std::{
 
 pub type Error = Box<dyn std::error::Error>;
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct ShaderId(pub usize);
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]

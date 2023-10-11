@@ -24,6 +24,7 @@ pub enum TypedBufGuard<'a, T: ?Sized> {
 }
 
 pub enum TypedBufGuardMut<'a, T: ?Sized> {
+    #[allow(dead_code)]
     Slice(&'a mut T),
     Interior(RefMut<'a, T>),
 }

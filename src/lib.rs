@@ -116,11 +116,8 @@ pub struct RendererOptions {
 impl Renderer {
     /// Creates a new renderer for the specified device.
     pub fn new(device: &Device, render_options: &RendererOptions) -> Result<Self> {
-        let mut engine = WgpuEngine::new();
-        let mut shaders = shaders::full_shaders(device, &mut engine)?;
-        if render_options.use_cpu {
-            shaders.install_cpu_shaders(&mut engine);
-        }
+        let mut engine = WgpuEngine::new(render_options.use_cpu);
+        let shaders = shaders::full_shaders(device, &mut engine)?;
         let blit = render_options
             .surface_format
             .map(|surface_format| BlitPipeline::new(device, surface_format));
@@ -240,11 +237,8 @@ impl Renderer {
     #[cfg(feature = "hot_reload")]
     pub async fn reload_shaders(&mut self, device: &Device) -> Result<()> {
         device.push_error_scope(wgpu::ErrorFilter::Validation);
-        let mut engine = WgpuEngine::new();
-        let mut shaders = shaders::full_shaders(device, &mut engine)?;
-        if self.use_cpu {
-            shaders.install_cpu_shaders(&mut engine);
-        }
+        let mut engine = WgpuEngine::new(self.use_cpu);
+        let shaders = shaders::full_shaders(device, &mut engine)?;
         let error = device.pop_error_scope().await;
         if let Some(error) = error {
             return Err(error.into());

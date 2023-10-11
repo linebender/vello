@@ -25,13 +25,46 @@ pub struct WgpuEngine {
     pool: ResourcePool,
     bind_map: BindMap,
     downloads: HashMap<Id, Buffer>,
+    pub(crate) use_cpu: bool,
+}
+
+struct WgpuShader {
+    pipeline: ComputePipeline,
+    bind_group_layout: BindGroupLayout,
+}
+
+pub enum CpuShaderType {
+    Present(fn(u32, &[CpuBinding])),
+    Missing,
+    Skipped,
+}
+
+struct CpuShader {
+    shader: fn(u32, &[CpuBinding]),
+}
+
+enum ShaderKind<'a> {
+    Wgpu(&'a WgpuShader),
+    Cpu(&'a CpuShader),
 }
 
 struct Shader {
-    pipeline: ComputePipeline,
-    bind_group_layout: BindGroupLayout,
+    #[allow(dead_code)]
     label: &'static str,
-    cpu_shader: Option<fn(u32, &[CpuBinding])>,
+    wgpu: Option<WgpuShader>,
+    cpu: Option<CpuShader>,
+}
+
+impl Shader {
+    fn select(&self) -> ShaderKind {
+        if let Some(cpu) = self.cpu.as_ref() {
+            ShaderKind::Cpu(cpu)
+        } else if let Some(wgpu) = self.wgpu.as_ref() {
+            ShaderKind::Wgpu(wgpu)
+        } else {
+            panic!("no available shader")
+        }
+    }
 }
 
 pub enum ExternalResource<'a> {
@@ -90,8 +123,11 @@ enum TransientBuf<'a> {
 }
 
 impl WgpuEngine {
-    pub fn new() -> WgpuEngine {
-        Default::default()
+    pub fn new(use_cpu: bool) -> WgpuEngine {
+        Self {
+            use_cpu,
+            ..Default::default()
+        }
     }
 
     /// Add a shader.
@@ -107,7 +143,36 @@ impl WgpuEngine {
         label: &'static str,
         wgsl: Cow<'static, str>,
         layout: &[BindType],
+        cpu_shader: CpuShaderType,
     ) -> Result<ShaderId, Error> {
+        let mut add = |shader| {
+            let id = self.shaders.len();
+            self.shaders.push(shader);
+            Ok(ShaderId(id))
+        };
+
+        if self.use_cpu {
+            match cpu_shader {
+                CpuShaderType::Present(shader) => {
+                    return add(Shader {
+                        wgpu: None,
+                        cpu: Some(CpuShader { shader }),
+                        label,
+                    });
+                }
+                // This shader is unused in CPU mode, create a dummy shader
+                CpuShaderType::Skipped => {
+                    return add(Shader {
+                        wgpu: None,
+                        cpu: None,
+                        label,
+                    });
+                }
+                // Create a GPU shader as we don't have a CPU shader
+                CpuShaderType::Missing => {}
+            }
+        }
+
         let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some(label),
             source: wgpu::ShaderSource::Wgsl(wgsl),
@@ -176,20 +241,14 @@ impl WgpuEngine {
             module: &shader_module,
             entry_point: "main",
         });
-        let cpu_shader = None;
-        let shader = Shader {
-            pipeline,
-            bind_group_layout,
+        add(Shader {
+            wgpu: Some(WgpuShader {
+                pipeline,
+                bind_group_layout,
+            }),
+            cpu: None,
             label,
-            cpu_shader,
-        };
-        let id = self.shaders.len();
-        self.shaders.push(shader);
-        Ok(ShaderId(id))
-    }
-
-    pub fn set_cpu_shader(&mut self, id: ShaderId, f: fn(u32, &[CpuBinding])) {
-        self.shaders[id.0].cpu_shader = Some(f);
+        })
     }
 
     pub fn run_recording(
@@ -318,82 +377,88 @@ impl WgpuEngine {
                 Command::Dispatch(shader_id, wg_size, bindings) => {
                     // println!("dispatching {:?} with {} bindings", wg_size, bindings.len());
                     let shader = &self.shaders[shader_id.0];
-                    if let Some(cpu_shader) = shader.cpu_shader {
-                        // The current strategy is to run the CPU shader synchronously. This
-                        // works because there is currently the added constraint that data
-                        // can only flow from CPU to GPU, not the other way around. If and
-                        // when we implement that, we will need to defer the execution. Of
-                        // course, we will also need to wire up more async sychronization
-                        // mechanisms, as the CPU dispatch can't run until the preceding
-                        // command buffer submission completes (and, in WebGPU, the async
-                        // mapping operations on the buffers completes).
-                        let resources =
-                            transient_map.create_cpu_resources(&mut self.bind_map, bindings);
-                        cpu_shader(wg_size.0, &resources);
-                    } else {
-                        let bind_group = transient_map.create_bind_group(
-                            &mut self.bind_map,
-                            &mut self.pool,
-                            device,
-                            queue,
-                            &mut encoder,
-                            &shader.bind_group_layout,
-                            bindings,
-                        )?;
-                        let mut cpass = encoder.begin_compute_pass(&Default::default());
-                        #[cfg(feature = "wgpu-profiler")]
-                        profiler.begin_scope(shader.label, &mut cpass, device);
-                        cpass.set_pipeline(&shader.pipeline);
-                        cpass.set_bind_group(0, &bind_group, &[]);
-                        cpass.dispatch_workgroups(wg_size.0, wg_size.1, wg_size.2);
-                        #[cfg(feature = "wgpu-profiler")]
-                        profiler.end_scope(&mut cpass);
+                    match shader.select() {
+                        ShaderKind::Cpu(cpu_shader) => {
+                            // The current strategy is to run the CPU shader synchronously. This
+                            // works because there is currently the added constraint that data
+                            // can only flow from CPU to GPU, not the other way around. If and
+                            // when we implement that, we will need to defer the execution. Of
+                            // course, we will also need to wire up more async sychronization
+                            // mechanisms, as the CPU dispatch can't run until the preceding
+                            // command buffer submission completes (and, in WebGPU, the async
+                            // mapping operations on the buffers completes).
+                            let resources =
+                                transient_map.create_cpu_resources(&mut self.bind_map, bindings);
+                            (cpu_shader.shader)(wg_size.0, &resources);
+                        }
+                        ShaderKind::Wgpu(wgpu_shader) => {
+                            let bind_group = transient_map.create_bind_group(
+                                &mut self.bind_map,
+                                &mut self.pool,
+                                device,
+                                queue,
+                                &mut encoder,
+                                &wgpu_shader.bind_group_layout,
+                                bindings,
+                            )?;
+                            let mut cpass = encoder.begin_compute_pass(&Default::default());
+                            #[cfg(feature = "wgpu-profiler")]
+                            profiler.begin_scope(shader.label, &mut cpass, device);
+                            cpass.set_pipeline(&wgpu_shader.pipeline);
+                            cpass.set_bind_group(0, &bind_group, &[]);
+                            cpass.dispatch_workgroups(wg_size.0, wg_size.1, wg_size.2);
+                            #[cfg(feature = "wgpu-profiler")]
+                            profiler.end_scope(&mut cpass);
+                        }
                     }
                 }
                 Command::DispatchIndirect(shader_id, proxy, offset, bindings) => {
                     let shader = &self.shaders[shader_id.0];
-                    if let Some(cpu_shader) = shader.cpu_shader {
-                        // Same consideration as above about running the CPU shader synchronously.
-                        let n_wg;
-                        if let CpuBinding::BufferRW(b) = self.bind_map.get_cpu_buf(proxy.id) {
-                            let slice = b.borrow();
-                            let indirect: &[u32] = bytemuck::cast_slice(&slice);
-                            n_wg = indirect[0];
-                        } else {
-                            panic!("indirect buffer missing from bind map");
+                    match shader.select() {
+                        ShaderKind::Cpu(cpu_shader) => {
+                            // Same consideration as above about running the CPU shader synchronously.
+                            let n_wg;
+                            if let CpuBinding::BufferRW(b) = self.bind_map.get_cpu_buf(proxy.id) {
+                                let slice = b.borrow();
+                                let indirect: &[u32] = bytemuck::cast_slice(&slice);
+                                n_wg = indirect[0];
+                            } else {
+                                panic!("indirect buffer missing from bind map");
+                            }
+                            let resources =
+                                transient_map.create_cpu_resources(&mut self.bind_map, bindings);
+                            (cpu_shader.shader)(n_wg, &resources);
                         }
-                        let resources =
-                            transient_map.create_cpu_resources(&mut self.bind_map, bindings);
-                        cpu_shader(n_wg, &resources);
-                    } else {
-                        let bind_group = transient_map.create_bind_group(
-                            &mut self.bind_map,
-                            &mut self.pool,
-                            device,
-                            queue,
-                            &mut encoder,
-                            &shader.bind_group_layout,
-                            bindings,
-                        )?;
-                        transient_map.materialize_gpu_buf_for_indirect(
-                            &mut self.bind_map,
-                            &mut self.pool,
-                            device,
-                            queue,
-                            proxy,
-                        );
-                        let mut cpass = encoder.begin_compute_pass(&Default::default());
-                        #[cfg(feature = "wgpu-profiler")]
-                        profiler.begin_scope(shader.label, &mut cpass, device);
-                        cpass.set_pipeline(&shader.pipeline);
-                        cpass.set_bind_group(0, &bind_group, &[]);
-                        let buf = self
-                            .bind_map
-                            .get_gpu_buf(proxy.id)
-                            .ok_or("buffer for indirect dispatch not in map")?;
-                        cpass.dispatch_workgroups_indirect(buf, *offset);
-                        #[cfg(feature = "wgpu-profiler")]
-                        profiler.end_scope(&mut cpass);
+                        ShaderKind::Wgpu(wgpu_shader) => {
+                            let bind_group = transient_map.create_bind_group(
+                                &mut self.bind_map,
+                                &mut self.pool,
+                                device,
+                                queue,
+                                &mut encoder,
+                                &wgpu_shader.bind_group_layout,
+                                bindings,
+                            )?;
+                            transient_map.materialize_gpu_buf_for_indirect(
+                                &mut self.bind_map,
+                                &mut self.pool,
+                                device,
+                                queue,
+                                proxy,
+                            );
+                            let mut cpass = encoder.begin_compute_pass(&Default::default());
+                            #[cfg(feature = "wgpu-profiler")]
+                            profiler.begin_scope(shader.label, &mut cpass, device);
+                            cpass.set_pipeline(&wgpu_shader.pipeline);
+                            cpass.set_bind_group(0, &bind_group, &[]);
+                            let buf = self
+                                .bind_map
+                                .get_gpu_buf(proxy.id)
+                                .ok_or("buffer for indirect dispatch not in map")?;
+                            cpass.dispatch_workgroups_indirect(buf, *offset);
+                            #[cfg(feature = "wgpu-profiler")]
+                            profiler.end_scope(&mut cpass);
+                        }
                     }
                 }
                 Command::Download(proxy) => {
