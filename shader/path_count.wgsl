@@ -36,6 +36,10 @@ fn span(a: f32, b: f32) -> u32 {
     return u32(max(ceil(max(a, b)) - floor(min(a, b)), 1.0));
 }
 
+// See cpu_shaders/util.rs for explanation of these.
+let ONE_MINUS_ULP: f32 = 0.99999994;
+let ROBUST_EPSILON: f32 = 2e-7;
+
 // Note regarding clipping to bounding box:
 //
 // We have to do the backdrop bumps for all tiles to the left of the bbox.
@@ -57,7 +61,8 @@ fn main(
         let xy1 = select(line.p0, line.p1, is_down);
         let s0 = xy0 * TILE_SCALE;
         let s1 = xy1 * TILE_SCALE;
-        count = span(s0.x, s1.x) + span(s0.y, s1.y) - 1u;
+        let count_x = span(s0.x, s1.x) - 1u;
+        count = count_x + span(s0.y, s1.y);
         let line_ix = global_id.x;
 
         let dx = abs(s1.x - s0.x);
@@ -72,14 +77,18 @@ fn main(
             return;
         }
         let idxdy = 1.0 / (dx + dy);
-        let a = dx * idxdy;
+        var a = dx * idxdy;
         let is_positive_slope = s1.x >= s0.x;
         let sign = select(-1.0, 1.0, is_positive_slope);
         let xt0 = floor(s0.x * sign);
         let c = s0.x * sign - xt0;
         let y0 = floor(s0.y);
         let ytop = select(y0 + 1.0, ceil(s0.y), s0.y == s1.y);
-        let b = (dy * c + dx * (ytop - s0.y)) * idxdy;
+        let b = min((dy * c + dx * (ytop - s0.y)) * idxdy, ONE_MINUS_ULP);
+        let robust_err = floor(a * (f32(count) - 1.0) + b) - f32(count_x);
+        if robust_err != 0.0 {
+            a -= ROBUST_EPSILON * sign(robust_err);
+        }
         let x0 = xt0 * sign + select(-1.0, 0.0, is_positive_slope);
 
         let path = paths[line.path_ix];

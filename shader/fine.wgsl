@@ -77,6 +77,10 @@ fn span(a: f32, b: f32) -> u32 {
 
 let SEG_SIZE = 5u;
 
+// See cpu_shaders/util.rs for explanation of these.
+let ONE_MINUS_ULP: f32 = 0.99999994;
+let ROBUST_EPSILON: f32 = 2e-7;
+
 // New multisampled algorithm.
 fn fill_path_ms(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>) -> array<f32, PIXELS_PER_THREAD> {
     let n_segs = fill.size_and_rule >> 1u;
@@ -175,16 +179,21 @@ fn fill_path_ms(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>) -> array<f
             // One alternative is to compute it in a separate dispatch.
             let dx = abs(xy1.x - xy0.x);
             let dy = xy1.y - xy0.y;
-            // TODO: apply numerical robustness and optimization
-            let dy_dxdy = dy / (dx + dy);
-            let a = dx / (dx + dy);
+            let idxdy = 1.0 / (dx + dy);
+            var a = dx * idxdy;
             let is_positive_slope = xy1.x >= xy0.x;
             let sign = select(-1.0, 1.0, is_positive_slope);
             let xt0 = floor(xy0.x * sign);
             let c = xy0.x * sign - xt0;
             let y0i = floor(xy0.y);
             let ytop = y0i + 1.0;
-            let b = dy_dxdy * c + a * (ytop - xy0.y);
+            let b = min((dy * c + dx * (ytop - xy0.y)) * idxdy, ONE_MINUS_ULP);
+            let count_x = span(xy0.x, xy1.x) - 1u;
+            let count = count_x + span(xy0.y, xy1.y);
+            let robust_err = floor(a * (f32(count) - 1.0) + b) - f32(count_x);
+            if robust_err != 0.0 {
+                a -= ROBUST_EPSILON * sign(robust_err);
+            }
             let x0i = i32(xt0 * sign + 0.5 * (sign - 1.0));
             // Use line equation to plot pixel coordinates
 
