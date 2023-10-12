@@ -3,7 +3,10 @@
 
 use vello_encoding::{BumpAllocators, LineSoup, Path, PathSegment, SegmentCount, Tile};
 
-use crate::cpu_dispatch::CpuBinding;
+use crate::{
+    cpu_dispatch::CpuBinding,
+    cpu_shader::util::{ONE_MINUS_ULP, ROBUST_EPSILON},
+};
 
 use super::util::{span, Vec2};
 
@@ -33,19 +36,24 @@ fn path_tiling_main(
         let (mut xy0, mut xy1) = if is_down { (p0, p1) } else { (p1, p0) };
         let s0 = xy0 * TILE_SCALE;
         let s1 = xy1 * TILE_SCALE;
-        let count = span(s0.x, s1.x) + span(s0.y, s1.y) - 1;
+        let count_x = span(s0.x, s1.x) - 1;
+        let count = count_x + span(s0.y, s1.y);
 
         let dx = (s1.x - s0.x).abs();
         let dy = s1.y - s0.y;
         let idxdy = 1.0 / (dx + dy);
-        let a = dx * idxdy;
+        let mut a = dx * idxdy;
         let is_positive_slope = s1.x >= s0.x;
         let sign = if is_positive_slope { 1.0 } else { -1.0 };
         let xt0 = (s0.x * sign).floor();
         let c = s0.x * sign - xt0;
         let y0 = s0.y.floor();
         let ytop = if s0.y == s1.y { s0.y.ceil() } else { y0 + 1.0 };
-        let b = (dy * c + dx * (ytop - s0.y)) * idxdy;
+        let b = ((dy * c + dx * (ytop - s0.y)) * idxdy).min(ONE_MINUS_ULP);
+        let robust_err = (a * (count as f32 - 1.0) + b).floor() - count_x as f32;
+        if robust_err != 0.0 {
+            a -= ROBUST_EPSILON.copysign(robust_err);
+        }
         let x0 = xt0 * sign + if is_positive_slope { 0.0 } else { -1.0 };
         let z = (a * seg_within_line as f32 + b).floor();
         let x = x0 as i32 + (sign * z) as i32;

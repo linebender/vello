@@ -111,3 +111,18 @@ pub fn read_draw_tag_from_scene(config: &ConfigUniform, scene: &[u32], ix: u32) 
         DRAWTAG_NOP
     }
 }
+
+/// The largest floating point value strictly less than 1.
+///
+/// This value is used to limit the value of b so that its floor is strictly less
+/// than 1. That guarantees that floor(a * i + b) == 0 for i == 0, which lands on
+/// the correct first tile.
+pub const ONE_MINUS_ULP: f32 = 0.99999994;
+
+/// An epsilon to be applied in path numerical robustness.
+///
+/// When floor(a * (n - 1) + b) does not match the expected value (the width in
+/// grid cells minus one), this delta is applied to a to push it in the correct
+/// direction. The theory is that a is not off by more than a few ulp, and it's
+/// always in the range of 0..1.
+pub const ROBUST_EPSILON: f32 = 2e-7;
