@@ -86,6 +86,8 @@ pub struct FullShaders {
 
 #[cfg(feature = "wgpu")]
 pub fn full_shaders(device: &Device, engine: &mut WgpuEngine) -> Result<FullShaders, Error> {
+    use crate::ANTIALIASING;
+
     let imports = SHARED_SHADERS
         .iter()
         .copied()
@@ -93,6 +95,17 @@ pub fn full_shaders(device: &Device, engine: &mut WgpuEngine) -> Result<FullShad
     let empty = HashSet::new();
     let mut full_config = HashSet::new();
     full_config.insert("full".into());
+    match crate::ANTIALIASING {
+        crate::AaConfig::Msaa16 => {
+            full_config.insert("msaa".into());
+            full_config.insert("msaa16".into());
+        }
+        crate::AaConfig::Msaa8 => {
+            full_config.insert("msaa".into());
+            full_config.insert("msaa8".into());
+        }
+        crate::AaConfig::Area => (),
+    }
     let mut small_config = HashSet::new();
     small_config.insert("full".into());
     small_config.insert("small".into());
@@ -292,20 +305,39 @@ pub fn full_shaders(device: &Device, engine: &mut WgpuEngine) -> Result<FullShad
             BindType::Buffer,
         ],
     )?;
-    let fine = engine.add_shader(
-        device,
-        "fine",
-        preprocess::preprocess(shader!("fine"), &full_config, &imports).into(),
-        &[
-            BindType::Uniform,
-            BindType::BufReadOnly,
-            BindType::BufReadOnly,
-            BindType::BufReadOnly,
-            BindType::Image(ImageFormat::Rgba8),
-            BindType::ImageRead(ImageFormat::Rgba8),
-            BindType::ImageRead(ImageFormat::Rgba8),
-        ],
-    )?;
+    let fine = match ANTIALIASING {
+        crate::AaConfig::Area => engine.add_shader(
+            device,
+            "fine",
+            preprocess::preprocess(shader!("fine"), &full_config, &imports).into(),
+            &[
+                BindType::Uniform,
+                BindType::BufReadOnly,
+                BindType::BufReadOnly,
+                BindType::BufReadOnly,
+                BindType::Image(ImageFormat::Rgba8),
+                BindType::ImageRead(ImageFormat::Rgba8),
+                BindType::ImageRead(ImageFormat::Rgba8),
+            ],
+        )?,
+        _ => {
+            engine.add_shader(
+                device,
+                "fine",
+                preprocess::preprocess(shader!("fine"), &full_config, &imports).into(),
+                &[
+                    BindType::Uniform,
+                    BindType::BufReadOnly,
+                    BindType::BufReadOnly,
+                    BindType::BufReadOnly,
+                    BindType::Image(ImageFormat::Rgba8),
+                    BindType::ImageRead(ImageFormat::Rgba8),
+                    BindType::ImageRead(ImageFormat::Rgba8),
+                    BindType::BufReadOnly, // mask buffer
+                ],
+            )?
+        }
+    };
     Ok(FullShaders {
         pathtag_reduce,
         pathtag_reduce2,

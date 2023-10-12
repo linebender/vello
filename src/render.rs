@@ -3,7 +3,7 @@
 use crate::{
     engine::{BufProxy, ImageFormat, ImageProxy, Recording, ResourceProxy},
     shaders::FullShaders,
-    RenderParams, Scene,
+    AaConfig, RenderParams, Scene, ANTIALIASING,
 };
 use vello_encoding::{Encoding, WorkgroupSize};
 
@@ -11,6 +11,7 @@ use vello_encoding::{Encoding, WorkgroupSize};
 pub struct Render {
     fine_wg_count: Option<WorkgroupSize>,
     fine_resources: Option<FineResources>,
+    mask_buf: Option<ResourceProxy>,
 }
 
 /// Resources produced by pipeline, needed for fine rasterization.
@@ -62,6 +63,7 @@ impl Render {
         Render {
             fine_wg_count: None,
             fine_resources: None,
+            mask_buf: None,
         }
     }
 
@@ -412,19 +414,48 @@ impl Render {
     pub fn record_fine(&mut self, shaders: &FullShaders, recording: &mut Recording) {
         let fine_wg_count = self.fine_wg_count.take().unwrap();
         let fine = self.fine_resources.take().unwrap();
-        recording.dispatch(
-            shaders.fine,
-            fine_wg_count,
-            [
-                fine.config_buf,
-                fine.segments_buf,
-                fine.ptcl_buf,
-                fine.info_bin_data_buf,
-                ResourceProxy::Image(fine.out_image),
-                fine.gradient_image,
-                fine.image_atlas,
-            ],
-        );
+        match ANTIALIASING {
+            AaConfig::Area => {
+                recording.dispatch(
+                    shaders.fine,
+                    fine_wg_count,
+                    [
+                        fine.config_buf,
+                        fine.segments_buf,
+                        fine.ptcl_buf,
+                        fine.info_bin_data_buf,
+                        ResourceProxy::Image(fine.out_image),
+                        fine.gradient_image,
+                        fine.image_atlas,
+                    ],
+                );
+            }
+            _ => {
+                if self.mask_buf.is_none() {
+                    let mask_lut = match ANTIALIASING {
+                        AaConfig::Msaa16 => crate::mask::make_mask_lut_16(),
+                        AaConfig::Msaa8 => crate::mask::make_mask_lut(),
+                        _ => unreachable!(),
+                    };
+                    let buf = recording.upload("mask lut", mask_lut);
+                    self.mask_buf = Some(buf.into());
+                }
+                recording.dispatch(
+                    shaders.fine,
+                    fine_wg_count,
+                    [
+                        fine.config_buf,
+                        fine.segments_buf,
+                        fine.ptcl_buf,
+                        fine.info_bin_data_buf,
+                        ResourceProxy::Image(fine.out_image),
+                        fine.gradient_image,
+                        fine.image_atlas,
+                        self.mask_buf.unwrap(),
+                    ],
+                );
+            }
+        }
         recording.free_resource(fine.config_buf);
         recording.free_resource(fine.tile_buf);
         recording.free_resource(fine.segments_buf);
@@ -432,6 +463,10 @@ impl Render {
         recording.free_resource(fine.gradient_image);
         recording.free_resource(fine.image_atlas);
         recording.free_resource(fine.info_bin_data_buf);
+        // TODO: make mask buf persistent
+        if let Some(mask_buf) = self.mask_buf.take() {
+            recording.free_resource(mask_buf);
+        }
     }
 
     /// Get the output image.

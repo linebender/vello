@@ -17,6 +17,7 @@
 mod cpu_dispatch;
 mod cpu_shader;
 mod engine;
+mod mask;
 mod render;
 mod scene;
 mod shaders;
@@ -60,6 +61,19 @@ pub type Error = Box<dyn std::error::Error>;
 
 /// Specialization of `Result` for our catch-all error type.
 pub type Result<T> = std::result::Result<T, Error>;
+
+/// Possible configurations for antialiasing.
+#[derive(PartialEq, Eq)]
+#[allow(unused)]
+enum AaConfig {
+    Area,
+    Msaa8,
+    Msaa16,
+}
+
+/// Configuration of antialiasing. Currently this is static, but could be switched to
+/// a launch option or even finer-grained.
+const ANTIALIASING: AaConfig = AaConfig::Area;
 
 /// Renders a scene into a texture or surface.
 #[cfg(feature = "wgpu")]
