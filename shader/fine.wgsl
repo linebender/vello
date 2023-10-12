@@ -145,12 +145,7 @@ fn fill_path_ms(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>) -> array<f
             workgroupBarrier();
             sh_count[th_ix] = count;
         }
-#ifdef have_uniform
         let total = workgroupUniformLoad(&sh_count[slice_size - 1u]);
-#else
-        workgroupBarrier();
-        let total = sh_count[slice_size - 1u];
-#endif
         for (var i = th_ix; i < total; i += WG_SIZE) {
             // binary search to find pixel
             var lo = 0u;
@@ -180,15 +175,15 @@ fn fill_path_ms(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>) -> array<f
             // One alternative is to compute it in a separate dispatch.
             let dx = abs(xy1.x - xy0.x);
             let dy = xy1.y - xy0.y;
+            // TODO: apply numerical robustness and optimization
             let dy_dxdy = dy / (dx + dy);
             let a = dx / (dx + dy);
             let is_positive_slope = xy1.x >= xy0.x;
             let sign = select(-1.0, 1.0, is_positive_slope);
             let xt0 = floor(xy0.x * sign);
             let c = xy0.x * sign - xt0;
-            // This has a special case in the JS code, but we should just not render
             let y0i = floor(xy0.y);
-            let ytop = select(y0i + 1.0, ceil(xy0.y), xy0.y == xy1.y);
+            let ytop = y0i + 1.0;
             let b = dy_dxdy * c + a * (ytop - xy0.y);
             let x0i = i32(xt0 * sign + 0.5 * (sign - 1.0));
             // Use line equation to plot pixel coordinates
