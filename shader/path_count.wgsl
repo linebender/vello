@@ -79,9 +79,9 @@ fn main(
         let idxdy = 1.0 / (dx + dy);
         var a = dx * idxdy;
         let is_positive_slope = s1.x >= s0.x;
-        let sign = select(-1.0, 1.0, is_positive_slope);
-        let xt0 = floor(s0.x * sign);
-        let c = s0.x * sign - xt0;
+        let x_sign = select(-1.0, 1.0, is_positive_slope);
+        let xt0 = floor(s0.x * x_sign);
+        let c = s0.x * x_sign - xt0;
         let y0 = floor(s0.y);
         let ytop = select(y0 + 1.0, ceil(s0.y), s0.y == s1.y);
         let b = min((dy * c + dx * (ytop - s0.y)) * idxdy, ONE_MINUS_ULP);
@@ -89,7 +89,7 @@ fn main(
         if robust_err != 0.0 {
             a -= ROBUST_EPSILON * sign(robust_err);
         }
-        let x0 = xt0 * sign + select(-1.0, 0.0, is_positive_slope);
+        let x0 = xt0 * x_sign + select(-1.0, 0.0, is_positive_slope);
 
         let path = paths[line.path_ix];
         let bbox = vec4<i32>(path.bbox);
@@ -129,8 +129,8 @@ fn main(
         } else {
             let fudge = select(1.0, 0.0, is_positive_slope);
             if xmin < f32(bbox.x) {
-                var f = round((sign * (f32(bbox.x) - x0) - b + fudge) / a);
-                if (x0 + sign * floor(a * f + b) < f32(bbox.x)) == is_positive_slope {
+                var f = round((x_sign * (f32(bbox.x) - x0) - b + fudge) / a);
+                if (x0 + x_sign * floor(a * f + b) < f32(bbox.x)) == is_positive_slope {
                     f += 1.0;
                 }
                 let ynext = i32(y0 + f - floor(a * f + b) + 1.0);
@@ -149,8 +149,8 @@ fn main(
                 }
             }
             if max(s0.x, s1.x) > f32(bbox.z) {
-                var f = round((sign * (f32(bbox.z) - x0) - b + fudge) / a);
-                if (x0 + sign * floor(a * f + b) < f32(bbox.z)) == is_positive_slope {
+                var f = round((x_sign * (f32(bbox.z) - x0) - b + fudge) / a);
+                if (x0 + x_sign * floor(a * f + b) < f32(bbox.z)) == is_positive_slope {
                     f += 1.0;
                 }
                 if is_positive_slope {
@@ -178,7 +178,7 @@ fn main(
             let z = floor(zf);
             // x, y are tile coordinates relative to render target
             let y = i32(y0 + f32(subix) - z);
-            let x = i32(x0 + sign * z);
+            let x = i32(x0 + x_sign * z);
             let base = i32(path.tiles) + (y - bbox.y) * stride - bbox.x;
             let top_edge = select(last_z == z, y0 == s0.y, subix == 0u);
             if top_edge && x + 1 < bbox.z {
