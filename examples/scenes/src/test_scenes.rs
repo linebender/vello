@@ -1,5 +1,8 @@
+// Copyright 2022 The Vello authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 use crate::{ExampleScene, SceneConfig, SceneParams, SceneSet};
-use vello::kurbo::{Affine, BezPath, Cap, Ellipse, PathEl, Point, Rect, Stroke};
+use vello::kurbo::{Affine, BezPath, Cap, Ellipse, Join, PathEl, Point, Rect, Stroke};
 use vello::peniko::*;
 use vello::*;
 
@@ -31,6 +34,8 @@ pub fn test_scenes() -> SceneSet {
         scene!(splash_with_tiger(), "splash_with_tiger", false),
         scene!(crate::mmark::MMark::new(80_000), "mmark", false),
         scene!(funky_paths),
+        scene!(stroke_styles),
+        scene!(tricky_strokes),
         scene!(cardioid_and_friends),
         scene!(animated_text: animated),
         scene!(gradient_extend),
@@ -89,6 +94,169 @@ fn funky_paths(sb: &mut SceneBuilder, _: &mut SceneParams) {
         None,
         &missing_movetos,
     );
+}
+
+fn stroke_styles(sb: &mut SceneBuilder, params: &mut SceneParams) {
+    use PathEl::*;
+    let colors = [
+        Color::rgb8(140, 181, 236),
+        Color::rgb8(246, 236, 202),
+        Color::rgb8(201, 147, 206),
+        Color::rgb8(150, 195, 160),
+    ];
+    let simple_stroke = [LineTo((100., 0.).into())];
+    let join_stroke = [
+        CurveTo((20., 0.).into(), (42.5, 5.).into(), (50., 25.).into()),
+        CurveTo((57.5, 5.).into(), (80., 0.).into(), (100., 0.).into()),
+    ];
+    let cap_styles = [Cap::Butt, Cap::Square, Cap::Round];
+    let join_styles = [Join::Bevel, Join::Miter, Join::Round];
+
+    // Simple strokes with cap combinations
+    let t = Affine::translate((60., 40.)) * Affine::scale(2.);
+    let mut y = 0.;
+    let mut color_idx = 0;
+    for start in cap_styles {
+        for end in cap_styles {
+            params.text.add(
+                sb,
+                None,
+                12.,
+                None,
+                Affine::translate((0., y)) * t,
+                &format!("Start cap: {:?}, End cap: {:?}", start, end),
+            );
+            sb.stroke(
+                &Stroke::new(20.).with_start_cap(start).with_end_cap(end),
+                Affine::translate((0., y + 30.)) * t,
+                colors[color_idx],
+                None,
+                &simple_stroke,
+            );
+            y += 180.;
+            color_idx = (color_idx + 1) % colors.len();
+        }
+    }
+
+    // Cap and join combinations
+    let t = Affine::translate((500., 0.)) * t;
+    y = 0.;
+    for cap in cap_styles {
+        for join in join_styles {
+            params.text.add(
+                sb,
+                None,
+                12.,
+                None,
+                Affine::translate((0., y)) * t,
+                &format!("Caps: {:?}, Joins: {:?}", cap, join),
+            );
+            sb.stroke(
+                &Stroke::new(20.).with_caps(cap).with_join(join),
+                Affine::translate((0., y + 30.)) * t,
+                colors[color_idx],
+                None,
+                &join_stroke,
+            );
+            y += 185.;
+            color_idx = (color_idx + 1) % colors.len();
+        }
+    }
+}
+
+// This test has been adapted from Skia's "trickycubicstrokes" GM slide which can be found at
+// `github.com/google/skia/blob/0d4d11451c4f4e184305cbdbd67f6b3edfa4b0e3/gm/trickycubicstrokes.cpp`
+fn tricky_strokes(sb: &mut SceneBuilder, _: &mut SceneParams) {
+    use PathEl::*;
+    let colors = [
+        Color::rgb8(140, 181, 236),
+        Color::rgb8(246, 236, 202),
+        Color::rgb8(201, 147, 206),
+        Color::rgb8(150, 195, 160),
+    ];
+
+    const CELL_SIZE: f64 = 200.;
+    const STROKE_WIDTH: f64 = 30.;
+    const NUM_COLS: usize = 5;
+
+    fn stroke_bounds(pts: &[(f64, f64); 4]) -> Rect {
+        use kurbo::{CubicBez, Shape};
+        CubicBez::new(pts[0], pts[1], pts[2], pts[3])
+            .bounding_box()
+            .inflate(STROKE_WIDTH, STROKE_WIDTH)
+    }
+
+    fn map_rect_to_rect(src: &Rect, dst: &Rect) -> (Affine, f64) {
+        let (scale, x_larger) = {
+            let sx = dst.width() / src.width();
+            let sy = dst.height() / src.height();
+            (sx.min(sy), sx > sy)
+        };
+        let tx = dst.x0 - src.x0 * scale;
+        let ty = dst.y0 - src.y0 * scale;
+        let (tx, ty) = if x_larger {
+            (tx + 0.5 * (dst.width() - src.width() * scale), ty)
+        } else {
+            (tx, ty + 0.5 * (dst.height() - src.height() * scale))
+        };
+        (Affine::new([scale, 0.0, 0.0, scale, tx, ty]), scale)
+    }
+
+    let tricky_cubics = [
+        [(122., 737.), (348., 553.), (403., 761.), (400., 760.)],
+        [(244., 520.), (244., 518.), (1141., 634.), (394., 688.)],
+        [(550., 194.), (138., 130.), (1035., 246.), (288., 300.)],
+        [(226., 733.), (556., 779.), (-43., 471.), (348., 683.)],
+        [(268., 204.), (492., 304.), (352., 23.), (433., 412.)],
+        [(172., 480.), (396., 580.), (256., 299.), (338., 677.)],
+        [(731., 340.), (318., 252.), (1026., -64.), (367., 265.)],
+        [(475., 708.), (62., 620.), (770., 304.), (220., 659.)],
+        [(0., 0.), (128., 128.), (128., 0.), (0., 128.)], // Perfect cusp
+        [(0., 0.01), (128., 127.999), (128., 0.01), (0., 127.99)], // Near-cusp
+    ];
+
+    // FIXME: The following curves all cause a crash due to a stack overflow following an
+    // infinite recursion in `kurbo::fit::fit_to_bezpath_rec` which gets called by
+    // `SceneBuilder::stroke` below. Disabling these tests until kurbo handles these
+    // gracefully. Move these into `tricky_cubics` above once they are fixed.
+    let _broken_cubics = [
+        [(0., -0.01), (128., 128.001), (128., -0.01), (0., 128.001)], // Near-cusp
+        [(0., 0.), (0., -10.), (0., -10.), (0., 10.)],                // Flat line with 180
+        [(10., 0.), (0., 0.), (20., 0.), (10., 0.)],                  // Flat line with 2 180s
+        [(39., -39.), (40., -40.), (40., -40.), (0., 0.)],            // Flat diagonal with 180
+        [(40., 40.), (0., 0.), (200., 200.), (0., 0.)],               // Diag w/ an internal 180
+        [(0., 0.), (1e-2, 0.), (-1e-2, 0.), (0., 0.)],                // Circle
+        // Flat line with no turns:
+        [
+            (400.75, 100.05),
+            (400.75, 100.05),
+            (100.05, 300.95),
+            (100.05, 300.95),
+        ],
+        [(0.5, 0.), (0., 0.), (20., 0.), (10., 0.)], // Flat line with 2 180s
+        [(10., 0.), (0., 0.), (10., 0.), (10., 0.)], // Flat line with a 180
+    ];
+    let mut color_idx = 0;
+    for (i, cubic) in tricky_cubics.into_iter().enumerate() {
+        let x = (i % NUM_COLS) as f64 * CELL_SIZE;
+        let y = (i / NUM_COLS) as f64 * CELL_SIZE;
+        let cell = Rect::new(x, y, x + CELL_SIZE, y + CELL_SIZE);
+        let bounds = stroke_bounds(&cubic);
+        let (t, s) = map_rect_to_rect(&bounds, &cell);
+        sb.stroke(
+            &Stroke::new(STROKE_WIDTH / s)
+                .with_caps(Cap::Butt)
+                .with_join(Join::Miter),
+            t,
+            colors[color_idx],
+            None,
+            &[
+                MoveTo(cubic[0].into()),
+                CurveTo(cubic[1].into(), cubic[2].into(), cubic[3].into()),
+            ],
+        );
+        color_idx = (color_idx + 1) % colors.len();
+    }
 }
 
 fn cardioid_and_friends(sb: &mut SceneBuilder, _: &mut SceneParams) {
