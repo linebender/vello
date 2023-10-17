@@ -43,8 +43,8 @@ var image_atlas: texture_2d<f32>;
 #ifdef msaa8
 let MASK_WIDTH = 32u;
 let MASK_HEIGHT = 32u;
-let SH_SAMPLES_SIZE = 256u;
-let SAMPLE_WORDS_PER_PIXEL = 1u;
+let SH_SAMPLES_SIZE = 512u;
+let SAMPLE_WORDS_PER_PIXEL = 2u;
 // This might be better in uniform, but that has 16 byte alignment
 @group(0) @binding(7)
 var<storage> mask_lut: array<u32, 256u>;
@@ -63,12 +63,13 @@ var<storage> mask_lut: array<u32, 2048u>;
 let WG_SIZE = 64u;
 var<workgroup> sh_count: array<u32, WG_SIZE>;
 
-// This is 8 winding numbers packed to a u32, 4 bits per sample
-var<workgroup> sh_winding: array<atomic<u32>, 32u>;
+// This is 4 winding numbers packed to a u32, 8 bits per sample
+var<workgroup> sh_winding: array<atomic<u32>, 64u>;
 // Same packing, one group of 8 per pixel
 var<workgroup> sh_samples: array<atomic<u32>, SH_SAMPLES_SIZE>;
 // Same packing, accumulating winding numbers for vertical edge crossings
-var<workgroup> sh_winding_y: array<atomic<u32>, 2u>;
+var<workgroup> sh_winding_y: array<atomic<u32>, 4u>;
+var<workgroup> sh_winding_y_prefix: array<atomic<u32>, 4u>;
 
 // number of integer cells spanned by interval defined by a, b
 fn span(a: f32, b: f32) -> u32 {
@@ -87,15 +88,15 @@ fn fill_path_ms(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>) -> array<f
     let even_odd = (fill.size_and_rule & 1u) != 0u;
     let tile_origin = vec2(f32(wg_id.x) * f32(TILE_HEIGHT), f32(wg_id.y) * f32(TILE_WIDTH));
     let th_ix = local_id.y * (TILE_WIDTH / PIXELS_PER_THREAD) + local_id.x;
-    if th_ix < 32u {
-        if th_ix < 2u {
-            atomicStore(&sh_winding_y[th_ix], 0x88888888u);
+    if th_ix < 64u {
+        if th_ix < 4u {
+            atomicStore(&sh_winding_y[th_ix], 0x80808080u);
         }
-        atomicStore(&sh_winding[th_ix], 0x88888888u);
+        atomicStore(&sh_winding[th_ix], 0x80808080u);
     }
     let sample_count = PIXELS_PER_THREAD * SAMPLE_WORDS_PER_PIXEL;
     for (var i = 0u; i < sample_count; i++) {
-        atomicStore(&sh_samples[th_ix * sample_count + i], 0x88888888u);
+        atomicStore(&sh_samples[th_ix * sample_count + i], 0x80808080u);
     }
     workgroupBarrier();
     let n_batch = (n_segs + (WG_SIZE - 1u)) / WG_SIZE;
@@ -135,7 +136,7 @@ fn fill_path_ms(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>) -> array<f
             }
             let y_edge = u32(ceil(y_edge_f));
             if y_edge < TILE_HEIGHT {
-                atomicAdd(&sh_winding_y[y_edge >> 3u], u32(delta) << ((y_edge & 7u) << 2u));
+                atomicAdd(&sh_winding_y[y_edge >> 2u], u32(delta) << ((y_edge & 3u) << 3u));
             }
         }
         // workgroup prefix sum of counts
@@ -217,8 +218,8 @@ fn fill_path_ms(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>) -> array<f
             if u32(x) < TILE_WIDTH - 1u && u32(y) < TILE_HEIGHT {
                 let delta_pix = pix_ix + 1u;
                 if is_delta {
-                    let delta = select(u32(-1), 1u, is_down) << ((delta_pix & 7u) << 2u);
-                    atomicAdd(&sh_winding[delta_pix >> 3u], delta);
+                    let delta = select(u32(-1), 1u, is_down) << ((delta_pix & 3u) << 3u);
+                    atomicAdd(&sh_winding[delta_pix >> 2u], delta);
                 }
             }
             // Apply sample mask
@@ -239,14 +240,19 @@ fn fill_path_ms(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>) -> array<f
                 let mask_shift = u32(round(8.0 * (xy1.y - f32(y))));
                 mask &= ~(0xffu << mask_shift);
             }
-            let mask_a = mask | (mask << 6u);
-            let mask_b = mask_a | (mask_a << 12u);
-            let mask_exp = (mask_b & 0x1010101u) | ((mask_b << 3u) & 0x10101010u);
-            var mask_signed = select(mask_exp, u32(-i32(mask_exp)), is_down);
+            let mask_a = mask | (mask << 7u);
+            let mask_b = mask_a | (mask_a << 14u);
+            let mask0_exp = mask_b & 0x1010101u;
+            var mask0_signed = select(mask0_exp, u32(-i32(mask0_exp)), is_down);
+            let mask1_exp = (mask_b >> 4u) & 0x1010101u;
+            var mask1_signed = select(mask1_exp, u32(-i32(mask1_exp)), is_down);
             if is_bump {
-                mask_signed += select(u32(-0x11111111), 0x1111111u, is_down);
+                let bump_delta = select(u32(-0x1010101), 0x1010101u, is_down);
+                mask0_signed += bump_delta;
+                mask1_signed += bump_delta;
             }
-            atomicAdd(&sh_samples[pix_ix], mask_signed);
+            atomicAdd(&sh_samples[pix_ix * 2u], mask0_signed);
+            atomicAdd(&sh_samples[pix_ix * 2u + 1u], mask1_signed);
 #endif
 #ifdef msaa16
             var mask = mask_lut[mask_ix / 2u] >> ((mask_ix % 2u) * 16u);
@@ -282,53 +288,48 @@ fn fill_path_ms(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>) -> array<f
         workgroupBarrier();
     }
     var area: array<f32, PIXELS_PER_THREAD>;
-    let major = (th_ix * PIXELS_PER_THREAD) >> 3u;
+    let major = (th_ix * PIXELS_PER_THREAD) >> 2u;
     var packed_w = atomicLoad(&sh_winding[major]);
-    // Prefix sum of packed 4 bit values within u32
-    packed_w += (packed_w - 0x8888888u) << 4u;
-    packed_w += (packed_w - 0x888888u) << 8u;
-    packed_w += (packed_w - 0x8888u) << 16u;
-    // Note: could probably do bias in one go, but it would be inscrutable
-    if (major & 1u) != 0u {
-        // We could use shmem to communicate the value from another thread;
-        // if we had subgroups that would almost certainly be the most
-        // efficient way. But we just calculate again for simplicity.
-        var last_packed = atomicLoad(&sh_winding[major - 1u]);
-        last_packed += (last_packed - 0x8888888u) << 4u;
-        last_packed += (last_packed - 0x888888u) << 8u;
-        last_packed += (last_packed - 0x8888u) << 16u;
-        let bump = ((last_packed >> 28u) - 8u) * 0x11111111u;
-        packed_w += bump;
+    // Prefix sum of packed 8 bit values within u32
+    packed_w += (packed_w - 0x808080u) << 8u;
+    packed_w += (packed_w - 0x8080u) << 16u;
+    var packed_y = atomicLoad(&sh_winding_y[local_id.y >> 2u]);
+    packed_y += (packed_y - 0x808080u) << 8u;
+    packed_y += (packed_y - 0x8080u) << 16u;
+    var wind_y = (packed_y >> ((local_id.y & 3u) << 3u)) - 0x80u;
+    if (local_id.y & 3u) == 3u && local_id.x == 0u {
+        let prefix_y = wind_y;
+        atomicStore(&sh_winding_y_prefix[local_id.y >> 2u], prefix_y);
     }
-    var packed_y = atomicLoad(&sh_winding_y[local_id.y >> 3u]);
-    packed_y += (packed_y - 0x8888888u) << 4u;
-    packed_y += (packed_y - 0x888888u) << 8u;
-    packed_y += (packed_y - 0x8888u) << 16u;
-    if th_ix == 0u {
-        atomicStore(&sh_winding_y[0], packed_y);        
-    }
+    let prefix_x = ((packed_w >> 24u) - 0x80u) * 0x1010101u;
+    // reuse sh_winding to store prefix as well
+    atomicStore(&sh_winding[major], prefix_x);
     workgroupBarrier();
-    var wind_y = (packed_y >> ((local_id.y & 7u) << 2u)) - 8u;
-    if local_id.y >= 8u {
-        wind_y += (atomicLoad(&sh_winding_y[0]) >> 28u) - 8u;
+    for (var i = (major & ~3u); i < major; i++) {
+        packed_w += atomicLoad(&sh_winding[i]);
+    }
+    for (var i = 0u; i < local_id.y >> 2u; i++) {
+        wind_y += atomicLoad(&sh_winding_y_prefix[i]);
     }
 
     for (var i = 0u; i < PIXELS_PER_THREAD; i++) {
         let pix_ix = th_ix * PIXELS_PER_THREAD + i;
-        let minor = pix_ix & 7u;
-        //let nonzero = ((packed_w >> (minor << 2u)) & 0xfu) != u32(8 + backdrop);
-        // TODO: math might be off here
-        let expected_zero = (((packed_w >> (minor * 4u)) + wind_y) & 0xfu) - u32(fill.backdrop);
-        if expected_zero >= 16u {
+        let minor = i; // assumes PIXELS_PER_THREAD == 4
+        let expected_zero = (((packed_w >> (minor * 8u)) + wind_y) & 0xffu) - u32(fill.backdrop);
+        if expected_zero >= 256u {
             area[i] = 1.0;
         } else {
 #ifdef msaa8
-            let samples = atomicLoad(&sh_samples[pix_ix]);
-            let xored = (expected_zero * 0x11111111u) ^ samples;
-            // Each 4-bit nibble in xored is 0 for winding = 0, nonzero otherwise
-            let xored2 = xored | (xored * 2u);
+            let samples0 = atomicLoad(&sh_samples[pix_ix * 2u]);
+            let samples1 = atomicLoad(&sh_samples[pix_ix * 2u + 1u]);
+            let xored0 = (expected_zero * 0x1010101u) ^ samples0;
+            let xored0_2 = xored0 | (xored0 * 2u);
+            let xored1 = (expected_zero * 0x1010101u) ^ samples1;
+            let xored1_2 = xored1 | (xored1 >> 1u);
+            let xored2 = (xored0_2 & 0xAAAAAAAAu) | (xored1_2 & 0x55555555u);
             let xored4 = xored2 | (xored2 * 4u);
-            area[i] = f32(countOneBits(xored4 & 0x88888888u)) * 0.125;
+            let xored16 = xored4 | (xored4 * 16u);
+            area[i] = f32(countOneBits(xored16 & 0xC0C0C0C0u)) * 0.125;
 #endif
 #ifdef msaa16
             let samples0 = atomicLoad(&sh_samples[pix_ix * 2u]);
