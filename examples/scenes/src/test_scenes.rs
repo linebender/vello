@@ -1,5 +1,5 @@
 use crate::{ExampleScene, SceneConfig, SceneParams, SceneSet};
-use vello::kurbo::{Affine, BezPath, Ellipse, PathEl, Point, Rect, Stroke};
+use vello::kurbo::{Affine, BezPath, Cap, Ellipse, PathEl, Point, Rect, Stroke};
 use vello::peniko::*;
 use vello::*;
 
@@ -13,34 +13,23 @@ macro_rules! scene {
         scene!($name: true)
     };
     ($name: ident: $animated: literal) => {
+        scene!($name, stringify!($name), $animated)
+    };
+    ($func:expr, $name: expr, $animated: literal) => {
         ExampleScene {
             config: SceneConfig {
                 animated: $animated,
-                name: stringify!($name).to_owned(),
+                name: $name.to_owned(),
             },
-            function: Box::new($name),
+            function: Box::new($func),
         }
     };
 }
 
 pub fn test_scenes() -> SceneSet {
-    let splash_scene = ExampleScene {
-        config: SceneConfig {
-            animated: false,
-            name: "splash_with_tiger".to_owned(),
-        },
-        function: Box::new(splash_with_tiger()),
-    };
-    let mmark_scene = ExampleScene {
-        config: SceneConfig {
-            animated: false,
-            name: "mmark".to_owned(),
-        },
-        function: Box::new(crate::mmark::MMark::new(80_000)),
-    };
     let scenes = vec![
-        splash_scene,
-        mmark_scene,
+        scene!(splash_with_tiger(), "splash_with_tiger", false),
+        scene!(crate::mmark::MMark::new(80_000), "mmark", false),
         scene!(funky_paths),
         scene!(cardioid_and_friends),
         scene!(animated_text: animated),
@@ -52,6 +41,8 @@ pub fn test_scenes() -> SceneSet {
         scene!(labyrinth),
         scene!(base_color_test: animated),
         scene!(clip_test: animated),
+        scene!(longpathdash(Cap::Butt), "longpathdash (butt caps)", false),
+        scene!(longpathdash(Cap::Round), "longpathdash (round caps)", false),
     ];
 
     SceneSet { scenes }
@@ -105,6 +96,48 @@ fn cardioid_and_friends(sb: &mut SceneBuilder, _: &mut SceneParams) {
     render_clip_test(sb);
     render_alpha_test(sb);
     //render_tiger(sb, false);
+}
+
+fn longpathdash(cap: Cap) -> impl FnMut(&mut SceneBuilder, &mut SceneParams) {
+    use std::f64::consts::PI;
+    use PathEl::*;
+    move |sb, _| {
+        let mut path = BezPath::new();
+        let mut x = 32;
+        while x < 256 {
+            let mut a: f64 = 0.0;
+            while a < PI * 2.0 {
+                let pts = [
+                    (256.0 + a.sin() * x as f64, 256.0 + a.cos() * x as f64),
+                    (
+                        256.0 + (a + PI / 3.0).sin() * (x + 64) as f64,
+                        256.0 + (a + PI / 3.0).cos() * (x + 64) as f64,
+                    ),
+                ];
+                path.push(MoveTo(pts[0].into()));
+                let mut i: f64 = 0.0;
+                while i < 1.0 {
+                    path.push(LineTo(
+                        (
+                            pts[0].0 * (1.0 - i) + pts[1].0 * i,
+                            pts[0].1 * (1.0 - i) + pts[1].1 * i,
+                        )
+                            .into(),
+                    ));
+                    i += 0.05;
+                }
+                a += PI * 0.01;
+            }
+            x += 16;
+        }
+        sb.stroke(
+            &Stroke::new(1.0).with_caps(cap).with_dashes(0.0, [1.0, 1.0]),
+            Affine::translate((50.0, 50.0)),
+            Color::rgb8(255, 255, 0),
+            None,
+            &path,
+        );
+    }
 }
 
 fn animated_text(sb: &mut SceneBuilder, params: &mut SceneParams) {
