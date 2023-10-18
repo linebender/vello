@@ -109,8 +109,10 @@ fn stroke_styles(sb: &mut SceneBuilder, params: &mut SceneParams) {
         CurveTo((20., 0.).into(), (42.5, 5.).into(), (50., 25.).into()),
         CurveTo((57.5, 5.).into(), (80., 0.).into(), (100., 0.).into()),
     ];
+    let miter_stroke = [LineTo((90., 21.).into()), LineTo((0., 42.).into())];
     let cap_styles = [Cap::Butt, Cap::Square, Cap::Round];
     let join_styles = [Join::Bevel, Join::Miter, Join::Round];
+    let miter_limits = [4., 5., 0.1, 10.];
 
     // Simple strokes with cap combinations
     let t = Affine::translate((60., 40.)) * Affine::scale(2.);
@@ -161,6 +163,32 @@ fn stroke_styles(sb: &mut SceneBuilder, params: &mut SceneParams) {
             y += 185.;
             color_idx = (color_idx + 1) % colors.len();
         }
+    }
+
+    // Miter limit
+    let t = Affine::translate((500., 0.)) * t;
+    y = 0.;
+    for ml in miter_limits {
+        params.text.add(
+            sb,
+            None,
+            12.,
+            None,
+            Affine::translate((0., y)) * t,
+            &format!("Miter limit: {}", ml),
+        );
+        sb.stroke(
+            &Stroke::new(10.)
+                .with_caps(Cap::Butt)
+                .with_join(Join::Miter)
+                .with_miter_limit(ml),
+            Affine::translate((0., y + 30.)) * t,
+            colors[color_idx],
+            None,
+            &miter_stroke,
+        );
+        y += 180.;
+        color_idx = (color_idx + 1) % colors.len();
     }
 }
 
