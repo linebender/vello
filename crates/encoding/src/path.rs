@@ -2,9 +2,183 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use bytemuck::{Pod, Zeroable};
-use peniko::kurbo::Shape;
+use peniko::{
+    kurbo::{Cap, Join, Shape, Stroke},
+    Fill,
+};
 
 use super::Monoid;
+
+/// Data structure encoding stroke or fill style.
+#[derive(Clone, Copy, Debug, Zeroable, Pod, Default, PartialEq)]
+#[repr(C)]
+pub struct Style {
+    /// Encodes the stroke and fill style parameters. This field is split into two 16-bit
+    /// parts:
+    ///
+    /// - flags: u16 - encodes fill vs stroke, even-odd vs non-zero fill mode for fills and cap
+    ///                and join style for strokes. See the FLAGS_* constants below for more
+    ///                information.
+    /// ```text
+    /// flags: |style|fill|join|start cap|end cap|reserved|
+    ///  bits:  0     1    2-3  4-5       6-7     8-15
+    /// ```
+    ///
+    /// - miter_limit: u16 - The miter limit for a stroke, encoded in binary16 (half) floating
+    ///                      point representation. This field is on meaningful for the `Join::Miter`
+    ///                      join style. It's ignored for other stroke styles and fills.
+    pub flags_and_miter_limit: u32,
+
+    /// Encodes the stroke width. This field is ignored for fills.
+    pub line_width: f32,
+}
+
+impl Style {
+    /// 0 for a fill, 1 for a stroke
+    pub const FLAGS_STYLE_BIT: u32 = 0x8000_0000;
+
+    /// 0 for non-zero, 1 for even-odd
+    pub const FLAGS_FILL_BIT: u32 = 0x4000_0000;
+
+    /// Encodings for join style:
+    ///    - 0b00 -> bevel
+    ///    - 0b01 -> miter
+    ///    - 0b10 -> round
+    pub const FLAGS_JOIN_BITS_BEVEL: u32 = 0;
+    pub const FLAGS_JOIN_BITS_MITER: u32 = 0x1000_0000;
+    pub const FLAGS_JOIN_BITS_ROUND: u32 = 0x2000_0000;
+
+    #[cfg(test)]
+    pub const FLAGS_JOIN_MASK: u32 = 0x3000_0000;
+
+    /// Encodings for cap style:
+    ///    - 0b00 -> butt
+    ///    - 0b01 -> square
+    ///    - 0b10 -> round
+    pub const FLAGS_START_CAP_BITS_BUTT: u32 = 0;
+    pub const FLAGS_START_CAP_BITS_SQUARE: u32 = 0x0400_0000;
+    pub const FLAGS_START_CAP_BITS_ROUND: u32 = 0x0800_0000;
+    pub const FLAGS_END_CAP_BITS_BUTT: u32 = 0;
+    pub const FLAGS_END_CAP_BITS_SQUARE: u32 = 0x0100_0000;
+    pub const FLAGS_END_CAP_BITS_ROUND: u32 = 0x0200_0000;
+
+    pub const FLAGS_START_CAP_MASK: u32 = 0x0C00_0000;
+    pub const FLAGS_END_CAP_MASK: u32 = 0x0300_0000;
+    pub const MITER_LIMIT_MASK: u32 = 0xFFFF;
+
+    pub fn from_fill(fill: &Fill) -> Self {
+        let fill_bit = match fill {
+            Fill::NonZero => 0,
+            Fill::EvenOdd => Self::FLAGS_FILL_BIT,
+        };
+        Self {
+            flags_and_miter_limit: fill_bit,
+            line_width: 0.,
+        }
+    }
+
+    pub fn from_stroke(stroke: &Stroke) -> Self {
+        let style = Self::FLAGS_STYLE_BIT;
+        let join = match stroke.join {
+            Join::Bevel => Self::FLAGS_JOIN_BITS_BEVEL,
+            Join::Miter => Self::FLAGS_JOIN_BITS_MITER,
+            Join::Round => Self::FLAGS_JOIN_BITS_ROUND,
+        };
+        let start_cap = match stroke.start_cap {
+            Cap::Butt => Self::FLAGS_START_CAP_BITS_BUTT,
+            Cap::Square => Self::FLAGS_START_CAP_BITS_SQUARE,
+            Cap::Round => Self::FLAGS_START_CAP_BITS_ROUND,
+        };
+        let end_cap = match stroke.end_cap {
+            Cap::Butt => Self::FLAGS_END_CAP_BITS_BUTT,
+            Cap::Square => Self::FLAGS_END_CAP_BITS_SQUARE,
+            Cap::Round => Self::FLAGS_END_CAP_BITS_ROUND,
+        };
+        let miter_limit = crate::math::f32_to_f16(stroke.miter_limit as f32) as u32;
+        Self {
+            flags_and_miter_limit: style | join | start_cap | end_cap | miter_limit,
+            line_width: stroke.width as f32,
+        }
+    }
+
+    #[cfg(test)]
+    fn get_fill(&self) -> Option<Fill> {
+        if self.is_fill() {
+            Some(
+                if (self.flags_and_miter_limit & Self::FLAGS_FILL_BIT) == 0 {
+                    Fill::NonZero
+                } else {
+                    Fill::EvenOdd
+                },
+            )
+        } else {
+            None
+        }
+    }
+
+    #[cfg(test)]
+    fn get_stroke_width(&self) -> Option<f64> {
+        if self.is_fill() {
+            return None;
+        }
+        Some(self.line_width.into())
+    }
+
+    #[cfg(test)]
+    fn get_stroke_join(&self) -> Option<Join> {
+        if self.is_fill() {
+            return None;
+        }
+        let join = self.flags_and_miter_limit & Self::FLAGS_JOIN_MASK;
+        Some(match join {
+            Self::FLAGS_JOIN_BITS_BEVEL => Join::Bevel,
+            Self::FLAGS_JOIN_BITS_MITER => Join::Miter,
+            Self::FLAGS_JOIN_BITS_ROUND => Join::Round,
+            _ => unreachable!("unsupported join encoding"),
+        })
+    }
+
+    #[cfg(test)]
+    fn get_stroke_start_cap(&self) -> Option<Cap> {
+        if self.is_fill() {
+            return None;
+        }
+        let cap = self.flags_and_miter_limit & Self::FLAGS_START_CAP_MASK;
+        Some(match cap {
+            Self::FLAGS_START_CAP_BITS_BUTT => Cap::Butt,
+            Self::FLAGS_START_CAP_BITS_SQUARE => Cap::Square,
+            Self::FLAGS_START_CAP_BITS_ROUND => Cap::Round,
+            _ => unreachable!("unsupported start cap encoding"),
+        })
+    }
+
+    #[cfg(test)]
+    fn get_stroke_end_cap(&self) -> Option<Cap> {
+        if self.is_fill() {
+            return None;
+        }
+        let cap = self.flags_and_miter_limit & Self::FLAGS_END_CAP_MASK;
+        Some(match cap {
+            Self::FLAGS_END_CAP_BITS_BUTT => Cap::Butt,
+            Self::FLAGS_END_CAP_BITS_SQUARE => Cap::Square,
+            Self::FLAGS_END_CAP_BITS_ROUND => Cap::Round,
+            _ => unreachable!("unsupported end cap encoding"),
+        })
+    }
+
+    #[cfg(test)]
+    fn get_stroke_miter_limit(&self) -> Option<u16> {
+        if self.is_fill() {
+            return None;
+        }
+        Some((self.flags_and_miter_limit & Self::MITER_LIMIT_MASK) as u16)
+    }
+
+    #[cfg(test)]
+    fn is_fill(&self) -> bool {
+        (self.flags_and_miter_limit & Self::FLAGS_STYLE_BIT) == 0
+    }
+}
 
 /// Line segment (after flattening, before tiling).
 #[derive(Clone, Copy, Debug, Zeroable, Pod, Default)]
@@ -448,5 +622,48 @@ impl fello::scale::Pen for PathEncoder<'_> {
 
     fn close(&mut self) {
         self.close()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_fill_style() {
+        assert_eq!(
+            Some(Fill::NonZero),
+            Style::from_fill(&Fill::NonZero).get_fill()
+        );
+        assert_eq!(
+            Some(Fill::EvenOdd),
+            Style::from_fill(&Fill::EvenOdd).get_fill()
+        );
+        assert_eq!(None, Style::from_stroke(&Stroke::default()).get_fill());
+    }
+
+    #[test]
+    fn test_stroke_style() {
+        assert_eq!(None, Style::from_fill(&Fill::NonZero).get_stroke_width());
+        assert_eq!(None, Style::from_fill(&Fill::EvenOdd).get_stroke_width());
+        let caps = [Cap::Butt, Cap::Square, Cap::Round];
+        let joins = [Join::Bevel, Join::Miter, Join::Round];
+        for start in caps {
+            for end in caps {
+                for join in joins {
+                    let stroke = Stroke::new(1.0)
+                        .with_start_cap(start)
+                        .with_end_cap(end)
+                        .with_join(join)
+                        .with_miter_limit(0.);
+                    let encoded = Style::from_stroke(&stroke);
+                    assert_eq!(Some(stroke.width), encoded.get_stroke_width());
+                    assert_eq!(Some(stroke.join), encoded.get_stroke_join());
+                    assert_eq!(Some(stroke.start_cap), encoded.get_stroke_start_cap());
+                    assert_eq!(Some(stroke.end_cap), encoded.get_stroke_end_cap());
+                    assert_eq!(Some(0), encoded.get_stroke_miter_limit());
+                }
+            }
+        }
     }
 }
