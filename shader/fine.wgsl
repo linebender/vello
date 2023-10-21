@@ -53,8 +53,8 @@ var<storage> mask_lut: array<u32, 256u>;
 #ifdef msaa16
 let MASK_WIDTH = 64u;
 let MASK_HEIGHT = 64u;
-let SH_SAMPLES_SIZE = 512u;
-let SAMPLE_WORDS_PER_PIXEL = 2u;
+let SH_SAMPLES_SIZE = 1024u;
+let SAMPLE_WORDS_PER_PIXEL = 4u;
 @group(0) @binding(7)
 var<storage> mask_lut: array<u32, 2048u>;
 #endif
@@ -266,23 +266,39 @@ fn fill_path_ms(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>) -> array<f
                 let mask_shift = u32(round(16.0 * (xy1.y - f32(y))));
                 mask &= ~(0xffffu << mask_shift);
             }
+            // Mask is 0bABCD_EFGH_IJKL_MNOP. Expand to 4 32 bit words
+            // mask0_exp will be 0b0000_000M_0000_000N_0000_000O_0000_000P
+            // mask3_exp will be 0b0000_000A_0000_000B_0000_000C_0000_000D
             let mask0 = mask & 0xffu;
-            let mask0_a = mask0 | (mask0 << 6u);
-            let mask0_b = mask0_a | (mask0_a << 12u);
-            let mask0_exp = (mask0_b & 0x1010101u) | ((mask0_b << 3u) & 0x10101010u);
+            // mask0_a = 0b0IJK_LMNO_*JKL_MNOP
+            let mask0_a = mask0 | (mask0 << 7u);
+            // mask0_b = 0b000I_JKLM_NO*J_KLMN_O*K_LMNO_*JKL_MNOP
+            //                ^    ^    ^    ^   ^    ^    ^    ^
+            let mask0_b = mask0_a | (mask0_a << 14u);
+            let mask0_exp = mask0_b & 0x1010101u;
             var mask0_signed = select(mask0_exp, u32(-i32(mask0_exp)), is_down);
-            let mask1 = (mask >> 8u) & 0xffu;
-            let mask1_a = mask1 | (mask1 << 6u);
-            let mask1_b = mask1_a | (mask1_a << 12u);
-            let mask1_exp = (mask1_b & 0x1010101u) | ((mask1_b << 3u) & 0x10101010u);
+            let mask1_exp = (mask0_b >> 4u) & 0x1010101u;
             var mask1_signed = select(mask1_exp, u32(-i32(mask1_exp)), is_down);
+            let mask1 = (mask >> 8u) & 0xffu;
+            let mask1_a = mask1 | (mask1 << 7u);
+            // mask1_a = 0b0ABC_DEFG_*BCD_EFGH
+            let mask1_b = mask1_a | (mask1_a << 14u);
+            // mask1_b = 0b000A_BCDE_FG*B_CDEF_G*C_DEFG_*BCD_EFGH
+            let mask2_exp = mask1_b & 0x1010101u;
+            var mask2_signed = select(mask2_exp, u32(-i32(mask2_exp)), is_down);
+            let mask3_exp = (mask1_b >> 4u) & 0x1010101u;
+            var mask3_signed = select(mask3_exp, u32(-i32(mask3_exp)), is_down);
             if is_bump {
-                let bump_delta = select(u32(-0x11111111), 0x1111111u, is_down);
+                let bump_delta = select(u32(-0x1010101), 0x1010101u, is_down);
                 mask0_signed += bump_delta;
                 mask1_signed += bump_delta;
+                mask2_signed += bump_delta;
+                mask3_signed += bump_delta;
             }
-            atomicAdd(&sh_samples[pix_ix * 2u], mask0_signed);
-            atomicAdd(&sh_samples[pix_ix * 2u + 1u], mask1_signed);
+            atomicAdd(&sh_samples[pix_ix * 4u], mask0_signed);
+            atomicAdd(&sh_samples[pix_ix * 4u + 1u], mask1_signed);
+            atomicAdd(&sh_samples[pix_ix * 4u + 2u], mask2_signed);
+            atomicAdd(&sh_samples[pix_ix * 4u + 3u], mask3_signed);
 #endif
         }
         workgroupBarrier();
@@ -332,15 +348,25 @@ fn fill_path_ms(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>) -> array<f
             area[i] = f32(countOneBits(xored16 & 0xC0C0C0C0u)) * 0.125;
 #endif
 #ifdef msaa16
-            let samples0 = atomicLoad(&sh_samples[pix_ix * 2u]);
-            let samples1 = atomicLoad(&sh_samples[pix_ix * 2u + 1u]);
-            let xored0 = (expected_zero * 0x11111111u) ^ samples0;
+            let samples0 = atomicLoad(&sh_samples[pix_ix * 4u]);
+            let samples1 = atomicLoad(&sh_samples[pix_ix * 4u + 1u]);
+            let samples2 = atomicLoad(&sh_samples[pix_ix * 4u + 2u]);
+            let samples3 = atomicLoad(&sh_samples[pix_ix * 4u + 3u]);
+            let xored0 = (expected_zero * 0x1010101u) ^ samples0;
             let xored0_2 = xored0 | (xored0 * 2u);
-            let xored1 = (expected_zero * 0x11111111u) ^ samples1;
+            let xored1 = (expected_zero * 0x1010101u) ^ samples1;
             let xored1_2 = xored1 | (xored1 >> 1u);
-            let xored2 = (xored0_2 & 0xAAAAAAAAu) | (xored1_2 & 0x55555555u);
-            let xored4 = xored2 | (xored2 * 4u);
-            area[i] = f32(countOneBits(xored4 & 0xCCCCCCCCu)) * 0.0625;
+            let xored01 = (xored0_2 & 0xAAAAAAAAu) | (xored1_2 & 0x55555555u);
+            let xored01_4 = xored01 | (xored01 * 4u);
+            let xored2 = (expected_zero * 0x1010101u) ^ samples2;
+            let xored2_2 = xored0 | (xored0 * 2u);
+            let xored3 = (expected_zero * 0x1010101u) ^ samples3;
+            let xored3_2 = xored3 | (xored3 >> 1u);
+            let xored23 = (xored2_2 & 0xAAAAAAAAu) | (xored3_2 & 0x55555555u);
+            let xored23_4 = xored23 | (xored23 >> 2u);
+            let xored0123 = (xored01_4 & 0xCCCCCCCCu) | (xored23_4 & 0x33333333u);
+            let xored16 = xored0123 | (xored0123 * 16u);
+            area[i] = f32(countOneBits(xored16 & 0xF0F0F0F0u)) * 0.0625;
 #endif
         }
     }

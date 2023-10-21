@@ -73,7 +73,7 @@ enum AaConfig {
 
 /// Configuration of antialiasing. Currently this is static, but could be switched to
 /// a launch option or even finer-grained.
-const ANTIALIASING: AaConfig = AaConfig::Msaa8;
+const ANTIALIASING: AaConfig = AaConfig::Msaa16;
 
 /// Renders a scene into a texture or surface.
 #[cfg(feature = "wgpu")]
