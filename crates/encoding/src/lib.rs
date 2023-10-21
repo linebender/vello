@@ -36,7 +36,7 @@ pub use math::Transform;
 pub use monoid::Monoid;
 pub use path::{
     Cubic, LineSoup, Path, PathBbox, PathEncoder, PathMonoid, PathSegment, PathSegmentType,
-    PathTag, SegmentCount, Tile,
+    PathTag, SegmentCount, Style, Tile,
 };
 pub use resolve::{resolve_solid_paths_only, Layout};
 

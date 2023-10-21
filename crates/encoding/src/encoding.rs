@@ -1,7 +1,7 @@
 // Copyright 2022 The Vello authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use super::{DrawColor, DrawTag, PathEncoder, PathTag, Transform};
+use super::{DrawColor, DrawTag, PathEncoder, PathTag, Style, Transform};
 
 use peniko::{kurbo::Shape, BlendMode, BrushRef, Color, Fill};
 
@@ -25,8 +25,8 @@ pub struct Encoding {
     pub draw_data: Vec<u8>,
     /// The transform stream.
     pub transforms: Vec<Transform>,
-    /// The line width stream.
-    pub linewidths: Vec<f32>,
+    /// The style stream
+    pub styles: Vec<Style>,
     /// Late bound resource data.
     #[cfg(feature = "full")]
     pub resources: Resources,
@@ -56,7 +56,7 @@ impl Encoding {
         self.transforms.clear();
         self.path_tags.clear();
         self.path_data.clear();
-        self.linewidths.clear();
+        self.styles.clear();
         self.draw_data.clear();
         self.draw_tags.clear();
         self.n_paths = 0;
@@ -67,7 +67,7 @@ impl Encoding {
         self.resources.reset();
         if !is_fragment {
             self.transforms.push(Transform::IDENTITY);
-            self.linewidths.push(-1.0);
+            self.styles.push(Style::from_fill(&Fill::NonZero));
         }
     }
 
@@ -96,7 +96,7 @@ impl Encoding {
                     run.stream_offsets.draw_tags += offsets.draw_tags;
                     run.stream_offsets.draw_data += offsets.draw_data;
                     run.stream_offsets.transforms += offsets.transforms;
-                    run.stream_offsets.linewidths += offsets.linewidths;
+                    run.stream_offsets.styles += offsets.styles;
                     run
                 }));
             self.resources
@@ -148,7 +148,7 @@ impl Encoding {
         } else {
             self.transforms.extend_from_slice(&other.transforms);
         }
-        self.linewidths.extend_from_slice(&other.linewidths);
+        self.styles.extend_from_slice(&other.styles);
     }
 
     /// Returns a snapshot of the current stream offsets.
@@ -159,19 +159,16 @@ impl Encoding {
             draw_tags: self.draw_tags.len(),
             draw_data: self.draw_data.len(),
             transforms: self.transforms.len(),
-            linewidths: self.linewidths.len(),
+            styles: self.styles.len(),
         }
     }
 
     /// Encodes a fill style.
     pub fn encode_fill_style(&mut self, fill: Fill) {
-        let linewidth = match fill {
-            Fill::NonZero => -1.0,
-            Fill::EvenOdd => -2.0,
-        };
-        if self.linewidths.last() != Some(&linewidth) {
-            self.path_tags.push(PathTag::LINEWIDTH);
-            self.linewidths.push(linewidth);
+        let style = Style::from_fill(&fill);
+        if self.styles.last() != Some(&style) {
+            self.path_tags.push(PathTag::STYLE);
+            self.styles.push(style);
         }
     }
 
@@ -449,8 +446,8 @@ pub struct StreamOffsets {
     pub draw_data: usize,
     /// Current length of transform stream.
     pub transforms: usize,
-    /// Current length of linewidth stream.
-    pub linewidths: usize,
+    /// Current length of style stream.
+    pub styles: usize,
 }
 
 impl StreamOffsets {
@@ -461,6 +458,6 @@ impl StreamOffsets {
         self.draw_tags += other.draw_tags;
         self.draw_data += other.draw_data;
         self.transforms += other.transforms;
-        self.linewidths += other.linewidths;
+        self.styles += other.styles;
     }
 }

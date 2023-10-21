@@ -267,8 +267,8 @@ impl PathTag {
     /// Path marker.
     pub const PATH: Self = Self(0x10);
 
-    /// Line width setting.
-    pub const LINEWIDTH: Self = Self(0x40);
+    /// Style setting.
+    pub const STYLE: Self = Self(0x40);
 
     /// Bit for path segments that are represented as f32 values. If unset
     /// they are represented as i16.
@@ -316,8 +316,8 @@ pub struct PathMonoid {
     pub pathseg_ix: u32,
     /// Offset into path segment stream.
     pub pathseg_offset: u32,
-    /// Index into linewidth stream.
-    pub linewidth_ix: u32,
+    /// Index into style stream.
+    pub style_ix: u32,
     /// Index of containing path.
     pub path_ix: u32,
 }
@@ -337,7 +337,8 @@ impl Monoid for PathMonoid {
         a += a >> 16;
         c.pathseg_offset = a & 0xff;
         c.path_ix = (tag_word & (PathTag::PATH.0 as u32 * 0x1010101)).count_ones();
-        c.linewidth_ix = (tag_word & (PathTag::LINEWIDTH.0 as u32 * 0x1010101)).count_ones();
+        let style_size = (std::mem::size_of::<Style>() / std::mem::size_of::<u32>()) as u32;
+        c.style_ix = (tag_word & (PathTag::STYLE.0 as u32 * 0x1010101)).count_ones() * style_size;
         c
     }
 
@@ -347,7 +348,7 @@ impl Monoid for PathMonoid {
             trans_ix: self.trans_ix + other.trans_ix,
             pathseg_ix: self.pathseg_ix + other.pathseg_ix,
             pathseg_offset: self.pathseg_offset + other.pathseg_offset,
-            linewidth_ix: self.linewidth_ix + other.linewidth_ix,
+            style_ix: self.style_ix + other.style_ix,
             path_ix: self.path_ix + other.path_ix,
         }
     }
