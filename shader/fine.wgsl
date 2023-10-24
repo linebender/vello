@@ -186,9 +186,9 @@ fn fill_path_ms(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>) -> array<f
             let idxdy = 1.0 / (dx + dy);
             var a = dx * idxdy;
             let is_positive_slope = xy1.x >= xy0.x;
-            let sign = select(-1.0, 1.0, is_positive_slope);
-            let xt0 = floor(xy0.x * sign);
-            let c = xy0.x * sign - xt0;
+            let x_sign = select(-1.0, 1.0, is_positive_slope);
+            let xt0 = floor(xy0.x * x_sign);
+            let c = xy0.x * x_sign - xt0;
             let y0i = floor(xy0.y);
             let ytop = y0i + 1.0;
             let b = min((dy * c + dx * (ytop - xy0.y)) * idxdy, ONE_MINUS_ULP);
@@ -198,12 +198,12 @@ fn fill_path_ms(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>) -> array<f
             if robust_err != 0.0 {
                 a -= ROBUST_EPSILON * sign(robust_err);
             }
-            let x0i = i32(xt0 * sign + 0.5 * (sign - 1.0));
+            let x0i = i32(xt0 * x_sign + 0.5 * (x_sign - 1.0));
             // Use line equation to plot pixel coordinates
 
             let zf = a * f32(sub_ix) + b;
             let z = floor(zf);
-            let x = x0i + i32(sign * z);
+            let x = x0i + i32(x_sign * z);
             let y = i32(y0i) + i32(sub_ix) - i32(z);
             var is_delta: bool;
             // We need to adjust winding number if slope is positive and there
@@ -473,9 +473,9 @@ fn fill_path_ms_evenodd(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>) ->
             let idxdy = 1.0 / (dx + dy);
             var a = dx * idxdy;
             let is_positive_slope = xy1.x >= xy0.x;
-            let sign = select(-1.0, 1.0, is_positive_slope);
-            let xt0 = floor(xy0.x * sign);
-            let c = xy0.x * sign - xt0;
+            let x_sign = select(-1.0, 1.0, is_positive_slope);
+            let xt0 = floor(xy0.x * x_sign);
+            let c = xy0.x * x_sign - xt0;
             let y0i = floor(xy0.y);
             let ytop = y0i + 1.0;
             let b = min((dy * c + dx * (ytop - xy0.y)) * idxdy, ONE_MINUS_ULP);
@@ -485,12 +485,12 @@ fn fill_path_ms_evenodd(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>) ->
             if robust_err != 0.0 {
                 a -= ROBUST_EPSILON * sign(robust_err);
             }
-            let x0i = i32(xt0 * sign + 0.5 * (sign - 1.0));
+            let x0i = i32(xt0 * x_sign + 0.5 * (x_sign - 1.0));
             // Use line equation to plot pixel coordinates
 
             let zf = a * f32(sub_ix) + b;
             let z = floor(zf);
-            let x = x0i + i32(sign * z);
+            let x = x0i + i32(x_sign * z);
             let y = i32(y0i) + i32(sub_ix) - i32(z);
             var is_delta: bool;
             // We need to adjust winding number if slope is positive and there
