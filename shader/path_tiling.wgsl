@@ -8,7 +8,7 @@
 #import tile
 
 @group(0) @binding(0)
-var<storage> bump: BumpAllocators;
+var<storage, read_write> bump: BumpAllocators;
 
 @group(0) @binding(1)
 var<storage> seg_counts: array<SegmentCount>;
@@ -62,9 +62,9 @@ fn main(
         let idxdy = 1.0 / (dx + dy);
         var a = dx * idxdy;
         let is_positive_slope = s1.x >= s0.x;
-        let sign = select(-1.0, 1.0, is_positive_slope);
-        let xt0 = floor(s0.x * sign);
-        let c = s0.x * sign - xt0;
+        let x_sign = select(-1.0, 1.0, is_positive_slope);
+        let xt0 = floor(s0.x * x_sign);
+        let c = s0.x * x_sign - xt0;
         let y0i = floor(s0.y);
         let ytop = select(y0i + 1.0, ceil(s0.y), s0.y == s1.y);
         let b = min((dy * c + dx * (ytop - s0.y)) * idxdy, ONE_MINUS_ULP);
@@ -72,9 +72,9 @@ fn main(
         if robust_err != 0.0 {
             a -= ROBUST_EPSILON * sign(robust_err);
         }
-        let x0i = i32(xt0 * sign + 0.5 * (sign - 1.0));
+        let x0i = i32(xt0 * x_sign + 0.5 * (x_sign - 1.0));
         let z = floor(a * f32(seg_within_line) + b);
-        let x = x0i + i32(sign * z);
+        let x = x0i + i32(x_sign * z);
         let y = i32(y0i + f32(seg_within_line) - z);
 
         let path = paths[line.path_ix];

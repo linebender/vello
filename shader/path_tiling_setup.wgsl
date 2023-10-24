@@ -5,7 +5,7 @@
 #import bump
 
 @group(0) @binding(0)
-var<storage> bump: BumpAllocators;
+var<storage, read_write> bump: BumpAllocators;
 
 @group(0) @binding(1)
 var<storage, read_write> indirect: IndirectCount;

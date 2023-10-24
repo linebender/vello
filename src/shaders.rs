@@ -249,7 +249,7 @@ pub fn full_shaders(device: &Device, engine: &mut WgpuEngine) -> Result<FullShad
         device,
         "path_count_setup",
         preprocess::preprocess(shader!("path_count_setup"), &empty, &imports).into(),
-        &[BindType::BufReadOnly, BindType::Buffer],
+        &[BindType::Buffer, BindType::Buffer],
     )?;
     let path_count = engine.add_shader(
         device,
@@ -290,14 +290,14 @@ pub fn full_shaders(device: &Device, engine: &mut WgpuEngine) -> Result<FullShad
         device,
         "path_tiling_setup",
         preprocess::preprocess(shader!("path_tiling_setup"), &empty, &imports).into(),
-        &[BindType::BufReadOnly, BindType::Buffer],
+        &[BindType::Buffer, BindType::Buffer],
     )?;
     let path_tiling = engine.add_shader(
         device,
         "path_tiling",
         preprocess::preprocess(shader!("path_tiling"), &empty, &imports).into(),
         &[
-            BindType::BufReadOnly,
+            BindType::Buffer,
             BindType::BufReadOnly,
             BindType::BufReadOnly,
             BindType::BufReadOnly,
