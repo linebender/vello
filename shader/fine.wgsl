@@ -84,8 +84,11 @@ let ROBUST_EPSILON: f32 = 2e-7;
 
 // New multisampled algorithm.
 fn fill_path_ms(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>) -> array<f32, PIXELS_PER_THREAD> {
-    let n_segs = fill.size_and_rule >> 1u;
     let even_odd = (fill.size_and_rule & 1u) != 0u;
+    if even_odd {
+        return fill_path_ms_evenodd(fill, wg_id, local_id);
+    }
+    let n_segs = fill.size_and_rule >> 1u;
     let tile_origin = vec2(f32(wg_id.x) * f32(TILE_HEIGHT), f32(wg_id.y) * f32(TILE_WIDTH));
     let th_ix = local_id.y * (TILE_WIDTH / PIXELS_PER_THREAD) + local_id.x;
     if th_ix < 64u {
@@ -369,6 +372,212 @@ fn fill_path_ms(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>) -> array<f
             area[i] = f32(countOneBits(xored16 & 0xF0F0F0F0u)) * 0.0625;
 #endif
         }
+    }
+    return area;
+}
+
+fn fill_path_ms_evenodd(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>) -> array<f32, PIXELS_PER_THREAD> {
+    let n_segs = fill.size_and_rule >> 1u;
+    let tile_origin = vec2(f32(wg_id.x) * f32(TILE_HEIGHT), f32(wg_id.y) * f32(TILE_WIDTH));
+    let th_ix = local_id.y * (TILE_WIDTH / PIXELS_PER_THREAD) + local_id.x;
+    if th_ix < TILE_HEIGHT {
+        if th_ix == 0u {
+            atomicStore(&sh_winding_y[th_ix], 0u);
+        }
+        atomicStore(&sh_winding[th_ix], 0u);
+    }
+    let sample_count = PIXELS_PER_THREAD;
+    for (var i = 0u; i < sample_count; i++) {
+        atomicStore(&sh_samples[th_ix * sample_count + i], 0u);
+    }
+    workgroupBarrier();
+    let n_batch = (n_segs + (WG_SIZE - 1u)) / WG_SIZE;
+    for (var batch = 0u; batch < n_batch; batch++) {
+        let seg_ix = batch * WG_SIZE + th_ix;
+        let seg_off = fill.seg_data + seg_ix;
+        var count = 0u;
+        let slice_size = min(n_segs - batch * WG_SIZE, WG_SIZE);
+        // TODO: might save a register rewriting this in terms of limit
+        if th_ix < slice_size {
+            let segment = segments[seg_off];
+            // Note: coords relative to tile origin probably a good idea in coarse path,
+            // especially as f16 would work. But keeping existing scheme for compatibility.
+            let xy0 = segment.origin - tile_origin;
+            let xy1 = xy0 + segment.delta;
+            var y_edge_f = f32(TILE_HEIGHT);
+            if xy0.x == 0.0 && xy1.x == 0.0 {
+                if xy0.y == 0.0 {
+                    y_edge_f = 0.0;
+                } else if xy1.y == 0.0 {
+                    y_edge_f = 0.0;
+                }
+            } else {
+                if xy0.x == 0.0 {
+                    if xy0.y != 0.0 {
+                        y_edge_f = xy0.y;
+                    }
+                } else if xy1.x == 0.0 && xy1.y != 0.0 {
+                    y_edge_f = xy1.y;
+                }
+                // discard horizontal lines aligned to pixel grid
+                if !(xy0.y == xy1.y && xy0.y == floor(xy0.y)) {
+                    count = span(xy0.x, xy1.x) + span(xy0.y, xy1.y) - 1u;
+                }
+            }
+            let y_edge = u32(ceil(y_edge_f));
+            if y_edge < TILE_HEIGHT {
+                atomicXor(&sh_winding_y[0], 1u << y_edge);
+            }
+        }
+        // workgroup prefix sum of counts
+        sh_count[th_ix] = count;
+        let lg_n = firstLeadingBit(slice_size * 2u - 1u);
+        for (var i = 0u; i < lg_n; i++) {
+            workgroupBarrier();
+            if th_ix >= 1u << i {
+                count += sh_count[th_ix - (1u << i)];
+            }
+            workgroupBarrier();
+            sh_count[th_ix] = count;
+        }
+        let total = workgroupUniformLoad(&sh_count[slice_size - 1u]);
+        for (var i = th_ix; i < total; i += WG_SIZE) {
+            // binary search to find pixel
+            var lo = 0u;
+            var hi = slice_size;
+            let goal = i;
+            while hi > lo + 1u {
+                let mid = (lo + hi) >> 1u;
+                if goal >= sh_count[mid - 1u] {
+                    lo = mid;
+                } else {
+                    hi = mid;
+                }
+            }
+            let el_ix = lo;
+            let last_pixel = i + 1u == sh_count[el_ix];
+            let sub_ix = i - select(0u, sh_count[el_ix - 1u], el_ix > 0u);
+            let seg_off = fill.seg_data + batch * WG_SIZE + el_ix;
+            let segment = segments[seg_off];
+            let xy0_in = segment.origin - tile_origin;
+            let xy1_in = xy0_in + segment.delta;
+            let is_down = xy1_in.y >= xy0_in.y;
+            let xy0 = select(xy1_in, xy0_in, is_down);
+            let xy1 = select(xy0_in, xy1_in, is_down);
+
+            // Set up data for line rasterization
+            // Note: this is duplicated work if total count exceeds a workgroup.
+            // One alternative is to compute it in a separate dispatch.
+            let dx = abs(xy1.x - xy0.x);
+            let dy = xy1.y - xy0.y;
+            let idxdy = 1.0 / (dx + dy);
+            var a = dx * idxdy;
+            let is_positive_slope = xy1.x >= xy0.x;
+            let sign = select(-1.0, 1.0, is_positive_slope);
+            let xt0 = floor(xy0.x * sign);
+            let c = xy0.x * sign - xt0;
+            let y0i = floor(xy0.y);
+            let ytop = y0i + 1.0;
+            let b = min((dy * c + dx * (ytop - xy0.y)) * idxdy, ONE_MINUS_ULP);
+            let count_x = span(xy0.x, xy1.x) - 1u;
+            let count = count_x + span(xy0.y, xy1.y);
+            let robust_err = floor(a * (f32(count) - 1.0) + b) - f32(count_x);
+            if robust_err != 0.0 {
+                a -= ROBUST_EPSILON * sign(robust_err);
+            }
+            let x0i = i32(xt0 * sign + 0.5 * (sign - 1.0));
+            // Use line equation to plot pixel coordinates
+
+            let zf = a * f32(sub_ix) + b;
+            let z = floor(zf);
+            let x = x0i + i32(sign * z);
+            let y = i32(y0i) + i32(sub_ix) - i32(z);
+            var is_delta: bool;
+            // We need to adjust winding number if slope is positive and there
+            // is a crossing at the left edge of the pixel.
+            var is_bump = false;
+            let zp = floor(a * f32(sub_ix - 1u) + b);
+            if sub_ix == 0u {
+                is_delta = y0i == xy0.y && y0i != xy1.y;
+                is_bump = xy0.x == 0.0;
+            } else {
+                is_delta = z == zp;
+                is_bump = is_positive_slope && !is_delta;
+            }
+            if u32(x) < TILE_WIDTH - 1u && u32(y) < TILE_HEIGHT {
+                if is_delta {
+                    atomicXor(&sh_winding[y], 2u << u32(x));
+                }
+            }
+            // Apply sample mask
+            let mask_block = u32(is_positive_slope) * (MASK_WIDTH * MASK_HEIGHT / 2u);
+            let half_height = f32(MASK_HEIGHT / 2u);
+            let mask_row = floor(min(a * half_height, half_height - 1.0)) * f32(MASK_WIDTH);
+            let mask_col = floor((zf - z) * f32(MASK_WIDTH));
+            let mask_ix = mask_block + u32(mask_row + mask_col);
+            let pix_ix = u32(y) * TILE_WIDTH + u32(x);
+#ifdef msaa8
+            var mask = mask_lut[mask_ix / 4u] >> ((mask_ix % 4u) * 8u);
+            mask &= 0xffu;
+            // Intersect with y half-plane masks
+            if sub_ix == 0u && !is_bump {
+                let mask_shift = u32(round(8.0 * (xy0.y - f32(y))));
+                mask &= 0xffu << mask_shift;
+            }
+            if last_pixel && xy1.x != 0.0 {
+                let mask_shift = u32(round(8.0 * (xy1.y - f32(y))));
+                mask &= ~(0xffu << mask_shift);
+            }
+            if is_bump {
+                mask ^= 0xffu;
+            }
+            atomicXor(&sh_samples[pix_ix], mask);
+#endif
+#ifdef msaa16
+            var mask = mask_lut[mask_ix / 2u] >> ((mask_ix % 2u) * 16u);
+            mask &= 0xffffu;
+            // Intersect with y half-plane masks
+            if sub_ix == 0u && !is_bump {
+                let mask_shift = u32(round(16.0 * (xy0.y - f32(y))));
+                mask &= 0xffffu << mask_shift;
+            }
+            if last_pixel && xy1.x != 0.0 {
+                let mask_shift = u32(round(16.0 * (xy1.y - f32(y))));
+                mask &= ~(0xffffu << mask_shift);
+            }
+            if is_bump {
+                mask ^= 0xffffu;
+            }
+            atomicXor(&sh_samples[pix_ix], mask);
+#endif
+        }
+        workgroupBarrier();
+    }
+    var area: array<f32, PIXELS_PER_THREAD>;
+    var scan_x = atomicLoad(&sh_winding[local_id.y]);
+    scan_x ^= scan_x << 1u;
+    scan_x ^= scan_x << 2u;
+    scan_x ^= scan_x << 4u;
+    scan_x ^= scan_x << 8u;
+    var scan_y = atomicLoad(&sh_winding_y[0]);
+    scan_y ^= scan_y << 1u;
+    scan_y ^= scan_y << 2u;
+    scan_y ^= scan_y << 4u;
+    scan_y ^= scan_y << 8u;
+    // winding number parity for the row of pixels is in the LSB
+    let row_parity = (scan_y >> local_id.y) ^ u32(fill.backdrop);
+
+    for (var i = 0u; i < PIXELS_PER_THREAD; i++) {
+        let pix_ix = th_ix * PIXELS_PER_THREAD + i;
+        let samples = atomicLoad(&sh_samples[pix_ix]);
+        let pix_parity = row_parity ^ (scan_x >> (pix_ix % TILE_WIDTH));
+        let pix_mask = u32(-i32(pix_parity & 1u));
+#ifdef msaa8
+        area[i] = f32(countOneBits((samples ^ pix_mask) & 0xffu)) * 0.125;
+#endif
+#ifdef msaa16
+        area[i] = f32(countOneBits((samples ^ pix_mask) & 0xffffu)) * 0.0625;
+#endif
     }
     return area;
 }
