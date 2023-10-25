@@ -241,13 +241,7 @@ fn tricky_strokes(sb: &mut SceneBuilder, _: &mut SceneParams) {
         [(475., 708.), (62., 620.), (770., 304.), (220., 659.)],
         [(0., 0.), (128., 128.), (128., 0.), (0., 128.)], // Perfect cusp
         [(0., 0.01), (128., 127.999), (128., 0.01), (0., 127.99)], // Near-cusp
-    ];
-
-    // FIXME: The following curves all cause a crash due to a stack overflow following an
-    // infinite recursion in `kurbo::fit::fit_to_bezpath_rec` which gets called by
-    // `SceneBuilder::stroke` below. Disabling these tests until kurbo handles these
-    // gracefully. Move these into `tricky_cubics` above once they are fixed.
-    let _broken_cubics = [
+        // The following cases used to be `_broken_cubics` but now work.
         [(0., -0.01), (128., 128.001), (128., -0.01), (0., 128.001)], // Near-cusp
         [(0., 0.), (0., -10.), (0., -10.), (0., 10.)],                // Flat line with 180
         [(10., 0.), (0., 0.), (20., 0.), (10., 0.)],                  // Flat line with 2 180s
@@ -264,6 +258,7 @@ fn tricky_strokes(sb: &mut SceneBuilder, _: &mut SceneParams) {
         [(0.5, 0.), (0., 0.), (20., 0.), (10., 0.)], // Flat line with 2 180s
         [(10., 0.), (0., 0.), (10., 0.), (10., 0.)], // Flat line with a 180
     ];
+
     let mut color_idx = 0;
     for (i, cubic) in tricky_cubics.into_iter().enumerate() {
         let x = (i % NUM_COLS) as f64 * CELL_SIZE;

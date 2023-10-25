@@ -50,6 +50,10 @@ raw-window-handle = "0.5"
 futures-intrusive = "0.5.0"
 vello_encoding = { path = "crates/encoding" }
 wgpu-profiler = { workspace = true, optional = true }
+# Note: we pick up a kurbo dependency transitively through peniko.
+# However, we need at least version 0.10.4 for proper stroking.
+# Next time we bump peniko, this can be removed.
+kurbo = "0.10.4"
 
 [workspace.dependencies]
 bytemuck = { version = "1.12.1", features = ["derive"] }
