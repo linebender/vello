@@ -1,3 +1,4 @@
+#[cfg(not(target_arch = "wasm32"))]
 pub mod download;
 mod images;
 mod mmark;
@@ -8,6 +9,7 @@ use std::path::PathBuf;
 
 use anyhow::{anyhow, Result};
 use clap::{Args, Subcommand};
+#[cfg(not(target_arch = "wasm32"))]
 use download::Download;
 pub use images::ImageCache;
 pub use simple_text::SimpleText;
@@ -77,6 +79,7 @@ pub struct Arguments {
 #[derive(Subcommand, Debug)]
 enum Command {
     /// Download SVG files for testing. By default, downloads a set of files from wikipedia
+    #[cfg(not(target_arch = "wasm32"))]
     Download(Download),
 }
 
@@ -111,7 +114,10 @@ impl Arguments {
 impl Command {
     fn action(&self) -> Result<()> {
         match self {
+            #[cfg(not(target_arch = "wasm32"))]
             Command::Download(download) => download.action(),
+            #[cfg(target_arch = "wasm32")]
+            _ => unreachable!("downloads not supported on wasm"),
         }
     }
 }
