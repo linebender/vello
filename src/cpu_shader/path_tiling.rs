@@ -118,12 +118,11 @@ fn path_tiling_main(
         if !is_down {
             (xy0, xy1) = (xy1, xy0);
         }
-        // TODO: figure out what to if both xy0 and xy1 are at left edge
-        // Also TODO (part of move to 8 byte encoding for segments): don't store y_edge at all,
+        // TODO (part of move to 8 byte encoding for segments): don't store y_edge at all,
         // resolve this in fine.
-        let y_edge = if xy0.x == tile_xy.x {
+        let y_edge = if xy0.x == tile_xy.x && xy1.x != tile_xy.x && xy0.y != tile_xy.y {
             xy0.y
-        } else if xy1.x == tile_xy.x {
+        } else if xy1.x == tile_xy.x && xy1.y != tile_xy.y {
             xy1.y
         } else {
             1e9
