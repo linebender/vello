@@ -122,9 +122,9 @@ fn main(
         }
         // See comments in CPU version of shader
         var y_edge = 1e9;
-        if xy0.x == tile_xy.x {
+        if xy0.x == tile_xy.x && xy1.x != tile_xy.x && xy0.y != tile_xy.y {
             y_edge = xy0.y;
-        } else if xy1.x == tile_xy.x {
+        } else if xy1.x == tile_xy.x && xy1.y != tile_xy.y {
             y_edge = xy1.y;
         }
         if !is_down {
