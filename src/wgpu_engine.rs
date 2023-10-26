@@ -408,7 +408,7 @@ impl WgpuEngine {
                             cpass.set_bind_group(0, &bind_group, &[]);
                             cpass.dispatch_workgroups(wg_size.0, wg_size.1, wg_size.2);
                             #[cfg(feature = "wgpu-profiler")]
-                            profiler.end_scope(&mut cpass);
+                            profiler.end_scope(&mut cpass).expect("We opened a scope");
                         }
                     }
                 }
@@ -457,7 +457,7 @@ impl WgpuEngine {
                                 .ok_or("buffer for indirect dispatch not in map")?;
                             cpass.dispatch_workgroups_indirect(buf, *offset);
                             #[cfg(feature = "wgpu-profiler")]
-                            profiler.end_scope(&mut cpass);
+                            profiler.end_scope(&mut cpass).expect("We opened a scope");
                         }
                     }
                 }
@@ -496,7 +496,7 @@ impl WgpuEngine {
             }
         }
         #[cfg(feature = "wgpu-profiler")]
-        profiler.end_scope(&mut encoder);
+        profiler.end_scope(&mut encoder).expect("We opened a scope");
         queue.submit(Some(encoder.finish()));
         for id in free_bufs {
             if let Some(buf) = self.bind_map.buf_map.remove(&id) {
