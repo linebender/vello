@@ -29,7 +29,7 @@ struct Config {
     drawdata_base: u32,
 
     transform_base: u32,
-    linewidth_base: u32,
+    style_base: u32,
 
     // Sizes of bump allocated buffers (in element size units)
     binning_size: u32,

@@ -32,10 +32,10 @@ macro_rules! scene {
 pub fn test_scenes() -> SceneSet {
     let scenes = vec![
         scene!(splash_with_tiger(), "splash_with_tiger", false),
-        scene!(crate::mmark::MMark::new(80_000), "mmark", false),
         scene!(funky_paths),
         scene!(stroke_styles),
         scene!(tricky_strokes),
+        scene!(fill_types),
         scene!(cardioid_and_friends),
         scene!(animated_text: animated),
         scene!(gradient_extend),
@@ -48,6 +48,7 @@ pub fn test_scenes() -> SceneSet {
         scene!(clip_test: animated),
         scene!(longpathdash(Cap::Butt), "longpathdash (butt caps)", false),
         scene!(longpathdash(Cap::Round), "longpathdash (round caps)", false),
+        scene!(crate::mmark::MMark::new(80_000), "mmark", false),
     ];
 
     SceneSet { scenes }
@@ -241,13 +242,7 @@ fn tricky_strokes(sb: &mut SceneBuilder, _: &mut SceneParams) {
         [(475., 708.), (62., 620.), (770., 304.), (220., 659.)],
         [(0., 0.), (128., 128.), (128., 0.), (0., 128.)], // Perfect cusp
         [(0., 0.01), (128., 127.999), (128., 0.01), (0., 127.99)], // Near-cusp
-    ];
-
-    // FIXME: The following curves all cause a crash due to a stack overflow following an
-    // infinite recursion in `kurbo::fit::fit_to_bezpath_rec` which gets called by
-    // `SceneBuilder::stroke` below. Disabling these tests until kurbo handles these
-    // gracefully. Move these into `tricky_cubics` above once they are fixed.
-    let _broken_cubics = [
+        // The following cases used to be `_broken_cubics` but now work.
         [(0., -0.01), (128., 128.001), (128., -0.01), (0., 128.001)], // Near-cusp
         [(0., 0.), (0., -10.), (0., -10.), (0., 10.)],                // Flat line with 180
         [(10., 0.), (0., 0.), (20., 0.), (10., 0.)],                  // Flat line with 2 180s
@@ -264,6 +259,7 @@ fn tricky_strokes(sb: &mut SceneBuilder, _: &mut SceneParams) {
         [(0.5, 0.), (0., 0.), (20., 0.), (10., 0.)], // Flat line with 2 180s
         [(10., 0.), (0., 0.), (10., 0.), (10., 0.)], // Flat line with a 180
     ];
+
     let mut color_idx = 0;
     for (i, cubic) in tricky_cubics.into_iter().enumerate() {
         let x = (i % NUM_COLS) as f64 * CELL_SIZE;
@@ -284,6 +280,54 @@ fn tricky_strokes(sb: &mut SceneBuilder, _: &mut SceneParams) {
             ],
         );
         color_idx = (color_idx + 1) % colors.len();
+    }
+}
+
+fn fill_types(sb: &mut SceneBuilder, params: &mut SceneParams) {
+    use PathEl::*;
+    let rect = Rect::from_origin_size(Point::new(0., 0.), (500., 500.));
+    let star = [
+        MoveTo((250., 0.).into()),
+        LineTo((105., 450.).into()),
+        LineTo((490., 175.).into()),
+        LineTo((10., 175.).into()),
+        LineTo((395., 450.).into()),
+        ClosePath,
+    ];
+    let arcs = [
+        MoveTo((0., 480.).into()),
+        CurveTo((500., 480.).into(), (500., -10.).into(), (0., -10.).into()),
+        ClosePath,
+        MoveTo((500., -10.).into()),
+        CurveTo((0., -10.).into(), (0., 480.).into(), (500., 480.).into()),
+        ClosePath,
+    ];
+    let scale = Affine::scale(0.6);
+    let t = Affine::translate((10., 25.));
+    let rules = [
+        (Fill::NonZero, "Non-Zero", star.as_slice()),
+        (Fill::EvenOdd, "Even-Odd", &star),
+        (Fill::NonZero, "Non-Zero", &arcs),
+        (Fill::EvenOdd, "Even-Odd", &arcs),
+    ];
+    for (i, rule) in rules.iter().enumerate() {
+        let t = Affine::translate(((i % 2) as f64 * 306., (i / 2) as f64 * 340.)) * t;
+        params.text.add(sb, None, 24., None, t, rule.1);
+        let t = Affine::translate((0., 5.)) * t * scale;
+        sb.fill(
+            Fill::NonZero,
+            t,
+            &Brush::Solid(Color::rgb8(128, 128, 128)),
+            None,
+            &rect,
+        );
+        sb.fill(
+            rule.0,
+            Affine::translate((0., 10.)) * t,
+            Color::BLACK,
+            None,
+            &rule.2,
+        );
     }
 }
 

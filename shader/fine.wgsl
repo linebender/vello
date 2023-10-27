@@ -83,10 +83,13 @@ let ONE_MINUS_ULP: f32 = 0.99999994;
 let ROBUST_EPSILON: f32 = 2e-7;
 
 // New multisampled algorithm.
-fn fill_path_ms(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>) -> array<f32, PIXELS_PER_THREAD> {
+//
+// FIXME: This should return an array when https://github.com/gfx-rs/naga/issues/1930 is fixed.
+fn fill_path_ms(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>, result: ptr<function, array<f32, PIXELS_PER_THREAD>>) {
     let even_odd = (fill.size_and_rule & 1u) != 0u;
     if even_odd {
-        return fill_path_ms_evenodd(fill, wg_id, local_id);
+        fill_path_ms_evenodd(fill, wg_id, local_id, result);
+        return;
     }
     let n_segs = fill.size_and_rule >> 1u;
     let tile_origin = vec2(f32(wg_id.x) * f32(TILE_HEIGHT), f32(wg_id.y) * f32(TILE_WIDTH));
@@ -373,10 +376,10 @@ fn fill_path_ms(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>) -> array<f
 #endif
         }
     }
-    return area;
+    *result = area;
 }
 
-fn fill_path_ms_evenodd(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>) -> array<f32, PIXELS_PER_THREAD> {
+fn fill_path_ms_evenodd(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>, result: ptr<function, array<f32, PIXELS_PER_THREAD>>) {
     let n_segs = fill.size_and_rule >> 1u;
     let tile_origin = vec2(f32(wg_id.x) * f32(TILE_HEIGHT), f32(wg_id.y) * f32(TILE_WIDTH));
     let th_ix = local_id.y * (TILE_WIDTH / PIXELS_PER_THREAD) + local_id.x;
@@ -579,7 +582,7 @@ fn fill_path_ms_evenodd(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>) ->
         area[i] = f32(countOneBits((samples ^ pix_mask) & 0xffffu)) * 0.0625;
 #endif
     }
-    return area;
+    *result = area;
 }
 #endif
 
@@ -675,7 +678,9 @@ let PIXELS_PER_THREAD = 4u;
 //
 // This is currently dead code if msaa is enabled, but it would be fairly straightforward
 // to wire this so it's a dynamic choice (even per-path).
-fn fill_path(fill: CmdFill, xy: vec2<f32>) -> array<f32, PIXELS_PER_THREAD> {
+//
+// FIXME: This should return an array when https://github.com/gfx-rs/naga/issues/1930 is fixed.
+fn fill_path(fill: CmdFill, xy: vec2<f32>, result: ptr<function, array<f32, PIXELS_PER_THREAD>>) {
     let n_segs = fill.size_and_rule >> 1u;
     let even_odd = (fill.size_and_rule & 1u) != 0u;
     var area: array<f32, PIXELS_PER_THREAD>;
@@ -727,7 +732,7 @@ fn fill_path(fill: CmdFill, xy: vec2<f32>) -> array<f32, PIXELS_PER_THREAD> {
             area[i] = min(abs(area[i]), 1.0);
         }
     }
-    return area;
+    *result = area;
 }
 
 // The X size should be 16 / PIXELS_PER_THREAD
@@ -761,9 +766,9 @@ fn main(
             case 1u: {
                 let fill = read_fill(cmd_ix);
 #ifdef msaa
-                area = fill_path_ms(fill, wg_id.xy, local_id.xy);
+                fill_path_ms(fill, wg_id.xy, local_id.xy, &area);
 #else
-                area = fill_path(fill, xy);
+                fill_path(fill, xy, &area);
 #endif
                 cmd_ix += 4u;
             }
@@ -925,7 +930,8 @@ fn main(
     } 
 #else
     let tile = tiles[tile_ix];
-    let area = fill_path(tile, xy);
+    var area: array<f32, PIXELS_PER_THREAD>;
+    fill_path(tile, xy, &area);
 
     let xy_uint = vec2<u32>(xy);
     for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {

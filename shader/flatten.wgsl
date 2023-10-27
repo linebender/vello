@@ -218,7 +218,13 @@ fn main(
     var tag_byte = (tag_word >> shift) & 0xffu;
 
     let out = &path_bboxes[tm.path_ix];
-    let linewidth = bitcast<f32>(scene[config.linewidth_base + tm.linewidth_ix]);
+    let style_flags = scene[config.style_base + tm.style_ix];
+    // TODO: We assume all paths are fills at the moment. This is where we will extract the stroke
+    // vs fill state using STYLE_FLAGS_STYLE_BIT.
+    // TODO: The downstream pipelines still use the old floating-point linewidth/fill encoding scheme
+    // This will change to represent the fill rule as a single bit inside the bounding box and draw
+    // info data structures.
+    let linewidth = select(-2.0, -1.0, (style_flags & STYLE_FLAGS_FILL_BIT) == 0u);
     if (tag_byte & PATH_TAG_PATH) != 0u {
         (*out).linewidth = linewidth;
         (*out).trans_ix = tm.trans_ix;
