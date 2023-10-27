@@ -1,7 +1,10 @@
 // Copyright 2023 The Vello authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
 
-use vello_encoding::{BinHeader, BumpAllocators, ConfigUniform, DrawMonoid, DrawTag, Path, Tile};
+use vello_encoding::{
+    BinHeader, BumpAllocators, ConfigUniform, DrawMonoid, DrawTag, Path, Tile,
+    DRAW_INFO_FLAGS_FILL_RULE_BIT,
+};
 
 use crate::cpu_dispatch::CpuBinding;
 
@@ -63,6 +66,7 @@ impl TileState {
         bump: &mut BumpAllocators,
         ptcl: &mut [u32],
         tile: &mut Tile,
+        draw_flags: u32,
     ) {
         let n_segs = tile.segment_count_or_ix;
         if n_segs != 0 {
@@ -71,7 +75,7 @@ impl TileState {
             bump.segments += n_segs;
             self.alloc_cmd(4, config, bump, ptcl);
             self.write(ptcl, 0, CMD_FILL);
-            let even_odd = false; // TODO
+            let even_odd = (draw_flags & DRAW_INFO_FLAGS_FILL_RULE_BIT) != 0;
             let size_and_rule = (n_segs << 1) | (even_odd as u32);
             self.write(ptcl, 1, size_and_rule);
             self.write(ptcl, 2, seg_ix);
@@ -241,22 +245,21 @@ fn coarse_main(
                     let n_segs = tile.segment_count_or_ix;
                     let include_tile = n_segs != 0 || (tile.backdrop == 0) == is_clip || is_blend;
                     if include_tile {
-                        // TODO: The first word of the info buffer (`info[di]`) contains flags that
-                        // indicate the even-odd vs non-zero fill rule. Read that here and pass it
-                        // to `write_path` so it gets propagated to the PTCL (see
-                        // `PathBbox::FLAGS_FILL_STYLE_BIT` for its interpretation).
                         match DrawTag(drawtag) {
                             DrawTag::COLOR => {
-                                tile_state.write_path(config, bump, ptcl, tile);
+                                let draw_flags = info_bin_data[di as usize];
+                                tile_state.write_path(config, bump, ptcl, tile, draw_flags);
                                 let rgba_color = scene[dd as usize];
                                 tile_state.write_color(config, bump, ptcl, rgba_color);
                             }
                             DrawTag::IMAGE => {
-                                tile_state.write_path(config, bump, ptcl, tile);
+                                let draw_flags = info_bin_data[di as usize];
+                                tile_state.write_path(config, bump, ptcl, tile, draw_flags);
                                 tile_state.write_image(config, bump, ptcl, di + 1);
                             }
                             DrawTag::LINEAR_GRADIENT => {
-                                tile_state.write_path(config, bump, ptcl, tile);
+                                let draw_flags = info_bin_data[di as usize];
+                                tile_state.write_path(config, bump, ptcl, tile, draw_flags);
                                 let index = scene[dd as usize];
                                 tile_state.write_grad(
                                     config,
@@ -268,7 +271,8 @@ fn coarse_main(
                                 );
                             }
                             DrawTag::RADIAL_GRADIENT => {
-                                tile_state.write_path(config, bump, ptcl, tile);
+                                let draw_flags = info_bin_data[di as usize];
+                                tile_state.write_path(config, bump, ptcl, tile, draw_flags);
                                 let index = scene[dd as usize];
                                 tile_state.write_grad(
                                     config,
@@ -290,7 +294,7 @@ fn coarse_main(
                             }
                             DrawTag::END_CLIP => {
                                 clip_depth -= 1;
-                                tile_state.write_path(config, bump, ptcl, tile);
+                                tile_state.write_path(config, bump, ptcl, tile, 0);
                                 let blend = scene[dd as usize];
                                 let alpha = f32::from_bits(scene[dd as usize + 1]);
                                 tile_state.write_end_clip(config, bump, ptcl, blend, alpha);
