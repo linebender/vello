@@ -93,7 +93,7 @@ var<workgroup> sh_winding_y_prefix: array<atomic<u32>, 4u>;
 var<workgroup> sh_winding: array<atomic<u32>, 64u>;
 // This array contains winding numbers of multiple sample points within
 // a pixel, relative to the winding number of the top left corner of the
-// pixels. The encoding and packing is the same as `sh_winding_y`.
+// pixel. The encoding and packing is the same as `sh_winding_y`.
 var<workgroup> sh_samples: array<atomic<u32>, SH_SAMPLES_SIZE>;
 
 // number of integer cells spanned by interval defined by a, b
