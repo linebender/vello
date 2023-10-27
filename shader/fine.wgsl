@@ -63,13 +63,38 @@ var<storage> mask_lut: array<u32, 2048u>;
 let WG_SIZE = 64u;
 var<workgroup> sh_count: array<u32, WG_SIZE>;
 
-// This is 4 winding numbers packed to a u32, 8 bits per sample
-var<workgroup> sh_winding: array<atomic<u32>, 64u>;
-// Same packing, one group of 8 per pixel
-var<workgroup> sh_samples: array<atomic<u32>, SH_SAMPLES_SIZE>;
-// Same packing, accumulating winding numbers for vertical edge crossings
+// This array contains the winding number of the top left corner of each
+// 16 pixel wide row of pixels, relative to the top left corner of the row
+// immediately above.
+//
+// The values are stored packed, as 4 8-bit subwords in a 32 bit word.
+// The values are biased signed integers, with 0x80 representing a winding
+// number of 0, so that the range of -128 to 127 (inclusive) can be stored
+// without carry.
+//
+// For the even-odd case, the same storage is repurposed, so that a single
+// word contains 16 one-bit winding parity values packed to the word.
 var<workgroup> sh_winding_y: array<atomic<u32>, 4u>;
+// This array contains the winding number of the top left corner of each
+// 16 pixel wide row of pixels, relative to the top left corner of the tile.
+// It is expanded from sh_winding_y by inclusive prefix sum.
 var<workgroup> sh_winding_y_prefix: array<atomic<u32>, 4u>;
+// This array contains winding numbers of the top left corner of each
+// pixel, relative to the top left corner of the enclosing 16 pixel
+// wide row.
+//
+// During winding number accumulation, it stores a delta (winding number
+// relative to the pixel immediately to the left), then expanded using
+// prefix sum and reusing the same storage.
+//
+// The encoding and packing is the same as `sh_winding_y`. For the even-odd
+// case, only the first 16 values are used, and each word stores packed
+// parity values for one row of pixels.
+var<workgroup> sh_winding: array<atomic<u32>, 64u>;
+// This array contains winding numbers of multiple sample points within
+// a pixel, relative to the winding number of the top left corner of the
+// pixels. The encoding and packing is the same as `sh_winding_y`.
+var<workgroup> sh_samples: array<atomic<u32>, SH_SAMPLES_SIZE>;
 
 // number of integer cells spanned by interval defined by a, b
 fn span(a: f32, b: f32) -> u32 {
@@ -82,11 +107,33 @@ let SEG_SIZE = 5u;
 let ONE_MINUS_ULP: f32 = 0.99999994;
 let ROBUST_EPSILON: f32 = 2e-7;
 
-// New multisampled algorithm.
+// Multisampled path rendering algorithm.
 //
-// FIXME: This should return an array when https://github.com/gfx-rs/naga/issues/1930 is fixed.
+// FIXME: This could return an array when https://github.com/gfx-rs/naga/issues/1930 is fixed.
+//
+// Generally, this algorithm works in an accumulation phase followed by a
+// resolving phase, with arrays in workgroup shared memory accumulating
+// winding number deltas as the results of edge crossings detected in the
+// path segments. Accumulation is in two stages: first a counting stage
+// which computes the number of pixels touched by each line segment (with
+// each thread processing one line segment), then a stage in which the
+// deltas are bumped. Separating these two is a partition-wide prefix sum
+// and a binary search to assign the work to threads in a load-balanced
+// manner.
+//
+// The resolving phase is also two stages: prefix sums in both x and y
+// directions, then counting nonzero winding numbers for all samples within
+// all pixels in the tile.
+//
+// A great deal of SIMD within a register (SWAR) logic is used, as there
+// are a great many winding numbers to be computed. The interested reader
+// is invited to study the even-odd case first, as there only one bit is
+// needed to represent a winding number parity, thus there is a lot less
+// bit shifting, and less shuffling altogether.
 fn fill_path_ms(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>, result: ptr<function, array<f32, PIXELS_PER_THREAD>>) {
     let even_odd = (fill.size_and_rule & 1u) != 0u;
+    // This isn't a divergent branch because the fill parameters are workgroup uniform,
+    // provably so because the ptcl buffer is bound read-only.
     if even_odd {
         fill_path_ms_evenodd(fill, wg_id, local_id, result);
         return;
@@ -94,6 +141,8 @@ fn fill_path_ms(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>, result: pt
     let n_segs = fill.size_and_rule >> 1u;
     let tile_origin = vec2(f32(wg_id.x) * f32(TILE_HEIGHT), f32(wg_id.y) * f32(TILE_WIDTH));
     let th_ix = local_id.y * (TILE_WIDTH / PIXELS_PER_THREAD) + local_id.x;
+    // Initialize winding number arrays to a winding number of 0, which is 0x80 in an
+    // 8 bit biased signed integer encoding.
     if th_ix < 64u {
         if th_ix < 4u {
             atomicStore(&sh_winding_y[th_ix], 0x80808080u);
@@ -246,8 +295,14 @@ fn fill_path_ms(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>, result: pt
                 let mask_shift = u32(round(8.0 * (xy1.y - f32(y))));
                 mask &= ~(0xffu << mask_shift);
             }
-            let mask_a = mask | (mask << 7u);
-            let mask_b = mask_a | (mask_a << 14u);
+            // Expand an 8 bit mask value to 8 1-bit values, packed 4 to a subword,
+            // so that two words are used to represent the result. An efficient
+            // technique is carry-less multiplication by 0b10_0000_0100_0000_1000_0001
+            // followed by and-masking to extract bit in position 4 * k.
+            //
+            // See https://en.wikipedia.org/wiki/Carry-less_product
+            let mask_a = mask ^ (mask << 7u);
+            let mask_b = mask_a ^ (mask_a << 14u);
             let mask0_exp = mask_b & 0x1010101u;
             var mask0_signed = select(mask0_exp, u32(-i32(mask0_exp)), is_down);
             let mask1_exp = (mask_b >> 4u) & 0x1010101u;
@@ -272,23 +327,25 @@ fn fill_path_ms(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>, result: pt
                 let mask_shift = u32(round(16.0 * (xy1.y - f32(y))));
                 mask &= ~(0xffffu << mask_shift);
             }
+            // Similar logic as above, only a 16 bit mask is divided into
+            // two 8 bit halves first, then each is expanded as above.
             // Mask is 0bABCD_EFGH_IJKL_MNOP. Expand to 4 32 bit words
             // mask0_exp will be 0b0000_000M_0000_000N_0000_000O_0000_000P
             // mask3_exp will be 0b0000_000A_0000_000B_0000_000C_0000_000D
             let mask0 = mask & 0xffu;
             // mask0_a = 0b0IJK_LMNO_*JKL_MNOP
-            let mask0_a = mask0 | (mask0 << 7u);
+            let mask0_a = mask0 ^ (mask0 << 7u);
             // mask0_b = 0b000I_JKLM_NO*J_KLMN_O*K_LMNO_*JKL_MNOP
             //                ^    ^    ^    ^   ^    ^    ^    ^
-            let mask0_b = mask0_a | (mask0_a << 14u);
+            let mask0_b = mask0_a ^ (mask0_a << 14u);
             let mask0_exp = mask0_b & 0x1010101u;
             var mask0_signed = select(mask0_exp, u32(-i32(mask0_exp)), is_down);
             let mask1_exp = (mask0_b >> 4u) & 0x1010101u;
             var mask1_signed = select(mask1_exp, u32(-i32(mask1_exp)), is_down);
             let mask1 = (mask >> 8u) & 0xffu;
-            let mask1_a = mask1 | (mask1 << 7u);
+            let mask1_a = mask1 ^ (mask1 << 7u);
             // mask1_a = 0b0ABC_DEFG_*BCD_EFGH
-            let mask1_b = mask1_a | (mask1_a << 14u);
+            let mask1_b = mask1_a ^ (mask1_a << 14u);
             // mask1_b = 0b000A_BCDE_FG*B_CDEF_G*C_DEFG_*BCD_EFGH
             let mask2_exp = mask1_b & 0x1010101u;
             var mask2_signed = select(mask2_exp, u32(-i32(mask2_exp)), is_down);
@@ -312,7 +369,15 @@ fn fill_path_ms(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>, result: pt
     var area: array<f32, PIXELS_PER_THREAD>;
     let major = (th_ix * PIXELS_PER_THREAD) >> 2u;
     var packed_w = atomicLoad(&sh_winding[major]);
-    // Prefix sum of packed 8 bit values within u32
+    // Compute prefix sums of both `sh_winding` and `sh_winding_y`. Both
+    // use the same technique. First, a per-word prefix sum is computed
+    // of the 4 subwords within each word. The last subword is the sum
+    // (reduction) of that group of 4 values, and is stored to shared
+    // memory for broadcast to other threads. Then each thread computes
+    // the prefix by adding the preceding reduced values.
+    //
+    // Addition of 2 biased signed values is accomplished by adding the
+    // values, then subtracting the bias.
     packed_w += (packed_w - 0x808080u) << 8u;
     packed_w += (packed_w - 0x8080u) << 16u;
     var packed_y = atomicLoad(&sh_winding_y[local_id.y >> 2u]);
@@ -330,14 +395,44 @@ fn fill_path_ms(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>, result: pt
     for (var i = (major & ~3u); i < major; i++) {
         packed_w += atomicLoad(&sh_winding[i]);
     }
+    // packed_w now contains the winding numbers for a slice of 4 pixels,
+    // each relative to the top left of the row.
     for (var i = 0u; i < local_id.y >> 2u; i++) {
         wind_y += atomicLoad(&sh_winding_y_prefix[i]);
     }
+    // wind_y now contains the winding number of the top left of the row of
+    // pixels relative to the top left of the tile. Note that this is actually
+    // a signed quantity stored without bias.
+
+    // The winding number of a sample point is the sum of four levels of
+    // hierarchy:
+    // * The winding number of the top left of the tile (backdrop)
+    // * The winding number of the pixel row relative to tile (wind_y)
+    // * The winding number of the pixel relative to row (packed_w)
+    // * The winding number of the sample relative to pixel (sh_samples)
+    //
+    // Conceptually, we want to compute each of these total winding numbers
+    // for each sample within a pixel, then count the number that are non-zero.
+    // However, we apply a shortcut, partly to make the computation more
+    // efficient, and partly to avoid overflow of intermediate results.
+    //
+    // Here's the technique that's used. The `expected_zero` value contains
+    // the *negation* of the sum of the first three levels of the hierarchy.
+    // Thus, `sample - expected` is zero when the sum of all levels in the
+    // hierarchy is zero, and this is true when `sample = expected`. We
+    // compute this using SWAR techniques as follows: we compute the xor of
+    // all bits of `expected` (repeated to all subwords) against the packed
+    // samples, then the or-reduction of the bits within each subword. This
+    // value is 1 when the values are unequal, thus the sum is nonzero, and
+    // 0 when the sum is zero. These bits are then masked and counted.
 
     for (var i = 0u; i < PIXELS_PER_THREAD; i++) {
         let pix_ix = th_ix * PIXELS_PER_THREAD + i;
         let minor = i; // assumes PIXELS_PER_THREAD == 4
         let expected_zero = (((packed_w >> (minor * 8u)) + wind_y) & 0xffu) - u32(fill.backdrop);
+        // When the expected_zero value exceeds the range of what can be stored
+        // in a (biased) signed integer, then there is no sample value that can
+        // be equal to the expected value, thus all resulting bits are 1.
         if expected_zero >= 256u {
             area[i] = 1.0;
         } else {
@@ -348,10 +443,13 @@ fn fill_path_ms(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>, result: pt
             let xored0_2 = xored0 | (xored0 * 2u);
             let xored1 = (expected_zero * 0x1010101u) ^ samples1;
             let xored1_2 = xored1 | (xored1 >> 1u);
+            // xored2 contains 2-reductions from each word, interleaved
             let xored2 = (xored0_2 & 0xAAAAAAAAu) | (xored1_2 & 0x55555555u);
+            // bits 4 * k + 2 and 4 * k + 3 contain 4-reductions
             let xored4 = xored2 | (xored2 * 4u);
-            let xored16 = xored4 | (xored4 * 16u);
-            area[i] = f32(countOneBits(xored16 & 0xC0C0C0C0u)) * 0.125;
+            // bits 8 * k + 6 and 8 * k + 7 contain 8-reductions
+            let xored8 = xored4 | (xored4 * 16u);
+            area[i] = f32(countOneBits(xored8 & 0xC0C0C0C0u)) * 0.125;
 #endif
 #ifdef msaa16
             let samples0 = atomicLoad(&sh_samples[pix_ix * 4u]);
@@ -362,23 +460,38 @@ fn fill_path_ms(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>, result: pt
             let xored0_2 = xored0 | (xored0 * 2u);
             let xored1 = (expected_zero * 0x1010101u) ^ samples1;
             let xored1_2 = xored1 | (xored1 >> 1u);
+            // xored01 contains 2-reductions from words 0 and 1, interleaved
             let xored01 = (xored0_2 & 0xAAAAAAAAu) | (xored1_2 & 0x55555555u);
+            // bits 4 * k + 2 and 4 * k + 3 contain 4-reductions
             let xored01_4 = xored01 | (xored01 * 4u);
             let xored2 = (expected_zero * 0x1010101u) ^ samples2;
             let xored2_2 = xored0 | (xored0 * 2u);
             let xored3 = (expected_zero * 0x1010101u) ^ samples3;
             let xored3_2 = xored3 | (xored3 >> 1u);
+            // xored23 contains 2-reductions from words 2 and 3, interleaved
             let xored23 = (xored2_2 & 0xAAAAAAAAu) | (xored3_2 & 0x55555555u);
+            // bits 4 * k and 4 * k + 1 contain 4-reductions
             let xored23_4 = xored23 | (xored23 >> 2u);
-            let xored0123 = (xored01_4 & 0xCCCCCCCCu) | (xored23_4 & 0x33333333u);
-            let xored16 = xored0123 | (xored0123 * 16u);
-            area[i] = f32(countOneBits(xored16 & 0xF0F0F0F0u)) * 0.0625;
+            // each bit is a 4-reduction, with values from all 4 words
+            let xored4 = (xored01_4 & 0xCCCCCCCCu) | (xored23_4 & 0x33333333u);
+            // bits 8 * k + {4, 5, 6, 7} contain 8-reductions
+            let xored8 = xored4 | (xored4 * 16u);
+            area[i] = f32(countOneBits(xored8 & 0xF0F0F0F0u)) * 0.0625;
 #endif
         }
     }
     *result = area;
 }
 
+// Path rendering specialized to the even-odd rule.
+//
+// This proceeds very much the same as `fill_path_ms`, but is simpler because
+// all winding numbers can be represented in one bit. Formally, addition is
+// modulo 2, or, equivalently, winding numbers are elements of GF(2). One
+// simplification is that we don't need to track the direction of crossings,
+// as both have the same effect on winding number.
+//
+// TODO: factor some logic out to reduce code duplication.
 fn fill_path_ms_evenodd(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>, result: ptr<function, array<f32, PIXELS_PER_THREAD>>) {
     let n_segs = fill.size_and_rule >> 1u;
     let tile_origin = vec2(f32(wg_id.x) * f32(TILE_HEIGHT), f32(wg_id.y) * f32(TILE_WIDTH));
@@ -558,23 +671,30 @@ fn fill_path_ms_evenodd(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>, re
     }
     var area: array<f32, PIXELS_PER_THREAD>;
     var scan_x = atomicLoad(&sh_winding[local_id.y]);
+    // prefix sum over GF(2) is equivalent to carry-less multiplication
+    // by 0xFFFF
     scan_x ^= scan_x << 1u;
     scan_x ^= scan_x << 2u;
     scan_x ^= scan_x << 4u;
     scan_x ^= scan_x << 8u;
+    // scan_x contains the winding number parity for all pixels in the row
     var scan_y = atomicLoad(&sh_winding_y[0]);
     scan_y ^= scan_y << 1u;
     scan_y ^= scan_y << 2u;
     scan_y ^= scan_y << 4u;
     scan_y ^= scan_y << 8u;
-    // winding number parity for the row of pixels is in the LSB
+    // winding number parity for the row of pixels is in the LSB of row_parity
     let row_parity = (scan_y >> local_id.y) ^ u32(fill.backdrop);
 
     for (var i = 0u; i < PIXELS_PER_THREAD; i++) {
         let pix_ix = th_ix * PIXELS_PER_THREAD + i;
         let samples = atomicLoad(&sh_samples[pix_ix]);
         let pix_parity = row_parity ^ (scan_x >> (pix_ix % TILE_WIDTH));
+        // The LSB of pix_parity contains the sum of the first three levels
+        // of the hierarchy, thus the absolute winding number of the top left
+        // of the pixel.
         let pix_mask = u32(-i32(pix_parity & 1u));
+        // pix_mask is pix_party broadcast to all bits in the word.
 #ifdef msaa8
         area[i] = f32(countOneBits((samples ^ pix_mask) & 0xffu)) * 0.125;
 #endif
