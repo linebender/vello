@@ -241,7 +241,10 @@ fn coarse_main(
                     let n_segs = tile.segment_count_or_ix;
                     let include_tile = n_segs != 0 || (tile.backdrop == 0) == is_clip || is_blend;
                     if include_tile {
-                        // TODO: get drawinfo (linewidth for fills)
+                        // TODO: The first word of the info buffer (`info[di]`) contains flags that
+                        // indicate the even-odd vs non-zero fill rule. Read that here and pass it
+                        // to `write_path` so it gets propagated to the PTCL (see
+                        // `PathBbox::FLAGS_FILL_STYLE_BIT` for its interpretation).
                         match DrawTag(drawtag) {
                             DrawTag::COLOR => {
                                 tile_state.write_path(config, bump, ptcl, tile);
