@@ -67,7 +67,7 @@ impl Encoding {
         self.resources.reset();
         if !is_fragment {
             self.transforms.push(Transform::IDENTITY);
-            self.styles.push(Style::from_fill(&Fill::NonZero));
+            self.styles.push(Style::from_fill(Fill::NonZero));
         }
     }
 
@@ -165,7 +165,7 @@ impl Encoding {
 
     /// Encodes a fill style.
     pub fn encode_fill_style(&mut self, fill: Fill) {
-        let style = Style::from_fill(&fill);
+        let style = Style::from_fill(fill);
         if self.styles.last() != Some(&style) {
             self.path_tags.push(PathTag::STYLE);
             self.styles.push(style);

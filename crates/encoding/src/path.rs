@@ -25,8 +25,9 @@ pub struct Style {
     /// ```
     ///
     /// - miter_limit: u16 - The miter limit for a stroke, encoded in binary16 (half) floating
-    ///                      point representation. This field is on meaningful for the `Join::Miter`
-    ///                      join style. It's ignored for other stroke styles and fills.
+    ///                      point representation. This field is only meaningful for the
+    ///                      `Join::Miter` join style. It's ignored for other stroke styles and
+    ///                      fills.
     pub flags_and_miter_limit: u32,
 
     /// Encodes the stroke width. This field is ignored for fills.
@@ -66,7 +67,7 @@ impl Style {
     pub const FLAGS_END_CAP_MASK: u32 = 0x0300_0000;
     pub const MITER_LIMIT_MASK: u32 = 0xFFFF;
 
-    pub fn from_fill(fill: &Fill) -> Self {
+    pub fn from_fill(fill: Fill) -> Self {
         let fill_bit = match fill {
             Fill::NonZero => 0,
             Fill::EvenOdd => Self::FLAGS_FILL_BIT,
@@ -102,7 +103,7 @@ impl Style {
     }
 
     #[cfg(test)]
-    fn get_fill(&self) -> Option<Fill> {
+    fn fill(&self) -> Option<Fill> {
         if self.is_fill() {
             Some(
                 if (self.flags_and_miter_limit & Self::FLAGS_FILL_BIT) == 0 {
@@ -117,7 +118,7 @@ impl Style {
     }
 
     #[cfg(test)]
-    fn get_stroke_width(&self) -> Option<f64> {
+    fn stroke_width(&self) -> Option<f64> {
         if self.is_fill() {
             return None;
         }
@@ -125,7 +126,7 @@ impl Style {
     }
 
     #[cfg(test)]
-    fn get_stroke_join(&self) -> Option<Join> {
+    fn stroke_join(&self) -> Option<Join> {
         if self.is_fill() {
             return None;
         }
@@ -139,7 +140,7 @@ impl Style {
     }
 
     #[cfg(test)]
-    fn get_stroke_start_cap(&self) -> Option<Cap> {
+    fn stroke_start_cap(&self) -> Option<Cap> {
         if self.is_fill() {
             return None;
         }
@@ -153,7 +154,7 @@ impl Style {
     }
 
     #[cfg(test)]
-    fn get_stroke_end_cap(&self) -> Option<Cap> {
+    fn stroke_end_cap(&self) -> Option<Cap> {
         if self.is_fill() {
             return None;
         }
@@ -167,7 +168,7 @@ impl Style {
     }
 
     #[cfg(test)]
-    fn get_stroke_miter_limit(&self) -> Option<u16> {
+    fn stroke_miter_limit(&self) -> Option<u16> {
         if self.is_fill() {
             return None;
         }
@@ -632,21 +633,15 @@ mod tests {
 
     #[test]
     fn test_fill_style() {
-        assert_eq!(
-            Some(Fill::NonZero),
-            Style::from_fill(&Fill::NonZero).get_fill()
-        );
-        assert_eq!(
-            Some(Fill::EvenOdd),
-            Style::from_fill(&Fill::EvenOdd).get_fill()
-        );
-        assert_eq!(None, Style::from_stroke(&Stroke::default()).get_fill());
+        assert_eq!(Some(Fill::NonZero), Style::from_fill(Fill::NonZero).fill());
+        assert_eq!(Some(Fill::EvenOdd), Style::from_fill(Fill::EvenOdd).fill());
+        assert_eq!(None, Style::from_stroke(&Stroke::default()).fill());
     }
 
     #[test]
     fn test_stroke_style() {
-        assert_eq!(None, Style::from_fill(&Fill::NonZero).get_stroke_width());
-        assert_eq!(None, Style::from_fill(&Fill::EvenOdd).get_stroke_width());
+        assert_eq!(None, Style::from_fill(Fill::NonZero).stroke_width());
+        assert_eq!(None, Style::from_fill(Fill::EvenOdd).stroke_width());
         let caps = [Cap::Butt, Cap::Square, Cap::Round];
         let joins = [Join::Bevel, Join::Miter, Join::Round];
         for start in caps {
@@ -658,11 +653,11 @@ mod tests {
                         .with_join(join)
                         .with_miter_limit(0.);
                     let encoded = Style::from_stroke(&stroke);
-                    assert_eq!(Some(stroke.width), encoded.get_stroke_width());
-                    assert_eq!(Some(stroke.join), encoded.get_stroke_join());
-                    assert_eq!(Some(stroke.start_cap), encoded.get_stroke_start_cap());
-                    assert_eq!(Some(stroke.end_cap), encoded.get_stroke_end_cap());
-                    assert_eq!(Some(0), encoded.get_stroke_miter_limit());
+                    assert_eq!(Some(stroke.width), encoded.stroke_width());
+                    assert_eq!(Some(stroke.join), encoded.stroke_join());
+                    assert_eq!(Some(stroke.start_cap), encoded.stroke_start_cap());
+                    assert_eq!(Some(stroke.end_cap), encoded.stroke_end_cap());
+                    assert_eq!(Some(0), encoded.stroke_miter_limit());
                 }
             }
         }
