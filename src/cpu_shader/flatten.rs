@@ -4,7 +4,9 @@
 use crate::cpu_dispatch::CpuBinding;
 
 use super::util::{Transform, Vec2};
-use vello_encoding::{BumpAllocators, ConfigUniform, LineSoup, Monoid, PathBbox, PathMonoid};
+use vello_encoding::{
+    BumpAllocators, ConfigUniform, LineSoup, Monoid, PathBbox, PathMonoid, Style,
+};
 
 fn to_minus_one_quarter(x: f32) -> f32 {
     // could also be written x.powf(-0.25)
@@ -211,11 +213,19 @@ fn flatten_main(
         if tag_byte != 0 {
             tm = tag_monoids[ix >> 2].combine(&tm);
         }
-        let linewidth =
-            f32::from_bits(scene[(config.layout.linewidth_base + tm.linewidth_ix) as usize]);
+        let style_flags = scene[(config.layout.style_base + tm.style_ix) as usize];
         if (tag_byte & PATH_TAG_PATH) != 0 {
             let out = &mut path_bboxes[tm.path_ix as usize];
-            out.linewidth = linewidth;
+            // TODO: We assume all paths are fills at the moment. This is where we will extract the
+            // stroke vs fill state using STYLE_FLAGS_STYLE_BIT.
+            // TODO: The downstream pipelines still use the old floating-point linewidth/fill
+            // encoding scheme. This will change to represent the fill rule as a single bit inside
+            // the bounding box and draw info data structures.
+            out.linewidth = if (style_flags & Style::FLAGS_FILL_BIT) == 0 {
+                -1.0
+            } else {
+                -2.0
+            };
             out.trans_ix = tm.trans_ix;
         }
         let seg_type = tag_byte & PATH_TAG_SEG_TYPE;

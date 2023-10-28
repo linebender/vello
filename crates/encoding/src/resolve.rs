@@ -3,7 +3,7 @@
 
 use bytemuck::{Pod, Zeroable};
 
-use super::{DrawTag, Encoding, PathTag, StreamOffsets, Transform};
+use super::{DrawTag, Encoding, PathTag, StreamOffsets, Style, Transform};
 
 #[cfg(feature = "full")]
 use {
@@ -38,8 +38,8 @@ pub struct Layout {
     pub draw_data_base: u32,
     /// Start of transform stream.
     pub transform_base: u32,
-    /// Start of linewidth stream.
-    pub linewidth_base: u32,
+    /// Start of style stream.
+    pub style_base: u32,
 }
 
 impl Layout {
@@ -92,13 +92,13 @@ impl Layout {
     /// Returns the transform stream.
     pub fn transforms<'a>(&self, data: &'a [u8]) -> &'a [Transform] {
         let start = self.transform_base as usize * 4;
-        let end = self.linewidth_base as usize * 4;
+        let end = self.style_base as usize * 4;
         bytemuck::cast_slice(&data[start..end])
     }
 
-    /// Returns the linewidth stream.
-    pub fn linewidths<'a>(&self, data: &'a [u8]) -> &'a [f32] {
-        let start = self.linewidth_base as usize * 4;
+    /// Returns the style stream.
+    pub fn styles<'a>(&self, data: &'a [u8]) -> &'a [Style] {
+        let start = self.style_base as usize * 4;
         bytemuck::cast_slice(&data[start..])
     }
 }
@@ -150,9 +150,9 @@ pub fn resolve_solid_paths_only(encoding: &Encoding, packed: &mut Vec<u8>) -> La
     // Transform stream
     layout.transform_base = size_to_words(data.len());
     data.extend_from_slice(bytemuck::cast_slice(&encoding.transforms));
-    // Linewidth stream
-    layout.linewidth_base = size_to_words(data.len());
-    data.extend_from_slice(bytemuck::cast_slice(&encoding.linewidths));
+    // Style stream
+    layout.style_base = size_to_words(data.len());
+    data.extend_from_slice(bytemuck::cast_slice(&encoding.styles));
     layout.n_draw_objects = layout.n_paths;
     assert_eq!(buffer_size, data.len());
     layout
@@ -359,21 +359,21 @@ impl Resolver {
                 data.extend_from_slice(bytemuck::cast_slice(&stream[pos..]));
             }
         }
-        // Linewidth stream
-        layout.linewidth_base = size_to_words(data.len());
+        // Style stream
+        layout.style_base = size_to_words(data.len());
         {
             let mut pos = 0;
-            let stream = &encoding.linewidths;
+            let stream = &encoding.styles;
             for patch in &self.patches {
                 if let ResolvedPatch::GlyphRun { index, glyphs, .. } = patch {
-                    let stream_offset = resources.glyph_runs[*index].stream_offsets.linewidths;
+                    let stream_offset = resources.glyph_runs[*index].stream_offsets.styles;
                     if pos < stream_offset {
                         data.extend_from_slice(bytemuck::cast_slice(&stream[pos..stream_offset]));
                         pos = stream_offset;
                     }
                     for glyph in &self.glyph_ranges[glyphs.clone()] {
-                        let glyph_data = &self.glyph_cache.encoding.linewidths
-                            [glyph.start.linewidths..glyph.end.linewidths];
+                        let glyph_data =
+                            &self.glyph_cache.encoding.styles[glyph.start.styles..glyph.end.styles];
                         data.extend_from_slice(bytemuck::cast_slice(glyph_data));
                     }
                 }
@@ -612,7 +612,7 @@ impl SceneBufferSizes {
             )
             + slice_size_in_bytes(&encoding.draw_data, patch_sizes.draw_data)
             + slice_size_in_bytes(&encoding.transforms, patch_sizes.transforms)
-            + slice_size_in_bytes(&encoding.linewidths, patch_sizes.linewidths);
+            + slice_size_in_bytes(&encoding.styles, patch_sizes.styles);
         Self {
             buffer_size,
             path_tag_padded,
