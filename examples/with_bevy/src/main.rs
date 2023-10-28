@@ -1,6 +1,7 @@
 use bevy::render::{Render, RenderSet};
-use vello::kurbo::{Affine, BezPath, PathEl, Point, Rect};
-use vello::peniko::{Color, Fill, Gradient, Stroke};
+use vello::fello::raw::tables::glyf::ToPathError;
+use vello::kurbo::{Affine, BezPath, PathEl, Point, Rect, Shape};
+use vello::peniko::{Color, Fill, Gradient, Join, Stroke};
 use vello::{Renderer, RendererOptions, Scene, SceneBuilder, SceneFragment};
 
 use bevy::{
@@ -277,10 +278,54 @@ fn render_brush_transform(sb: &mut SceneBuilder, time: f64) {
         //     Point::new(176.5, 176.5),
         // )),
         // &Rect::from_origin_size(Point::new(53.0, 53.0), (406.0, 406.0)),
-        &path,
+        &path.elements(),
     );
 }
 
 fn around_center(xform: Affine, center: Point) -> Affine {
     Affine::translate(center.to_vec2()) * xform * Affine::translate(-center.to_vec2())
+}
+
+// TODO
+pub fn interpolate_bezpath(path: BezPath, t: f64) {}
+
+pub fn interpolate_pathel(path0: PathEl, path1: PathEl, t: f64) -> Option<PathEl> {
+    let a: Point;
+    match path0 {
+        PathEl::MoveTo(p) => a = p,
+        PathEl::LineTo(p) => a = p,
+        PathEl::QuadTo(_, p) => a = p,
+        PathEl::CurveTo(_, _, p) => a = p,
+        PathEl::ClosePath => return None,
+    }
+
+    let path: PathEl;
+
+    match path1 {
+        PathEl::MoveTo(_) => return None,
+        PathEl::LineTo(b) => path = PathEl::LineTo(Point::lerp(a, b, t)),
+        PathEl::QuadTo(b, c) => {
+            let ab: Point = Point::lerp(a, b, t);
+            let bc: Point = Point::lerp(b, c, t);
+
+            let abc: Point = Point::lerp(ab, bc, t);
+
+            path = PathEl::QuadTo(ab, abc);
+        }
+        PathEl::CurveTo(b, c, d) => {
+            let ab = Point::lerp(a, b, t);
+            let bc = Point::lerp(b, c, t);
+            let cd = Point::lerp(c, d, t);
+
+            let abc = Point::lerp(ab, bc, t);
+            let bcd = Point::lerp(bc, cd, t);
+
+            let abcd = Point::lerp(abc, bcd, t);
+
+            path = PathEl::CurveTo(ab, abc, abcd);
+        }
+        PathEl::ClosePath => return None,
+    }
+
+    Some(path)
 }
