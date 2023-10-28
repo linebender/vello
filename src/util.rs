@@ -50,12 +50,20 @@ impl RenderContext {
     }
 
     /// Creates a new surface for the specified window and dimensions.
-    pub async fn create_surface<W>(&mut self, window: &W, width: u32, height: u32) -> RenderSurface
+    pub async fn create_surface<W>(
+        &mut self,
+        window: &W,
+        width: u32,
+        height: u32,
+    ) -> Result<RenderSurface>
     where
         W: HasRawWindowHandle + HasRawDisplayHandle,
     {
-        let surface = unsafe { self.instance.create_surface(window) }.unwrap();
-        let dev_id = self.device(Some(&surface)).await.unwrap();
+        let surface = unsafe { self.instance.create_surface(window) }?;
+        let dev_id = self
+            .device(Some(&surface))
+            .await
+            .ok_or("Error creating device")?;
 
         let device_handle = &self.devices[dev_id];
         let capabilities = surface.get_capabilities(&device_handle.adapter);
@@ -74,29 +82,35 @@ impl RenderContext {
             alpha_mode: wgpu::CompositeAlphaMode::Auto,
             view_formats: vec![],
         };
-        surface.configure(&self.devices[dev_id].device, &config);
-        RenderSurface {
+        let surface = RenderSurface {
             surface,
             config,
             dev_id,
             format,
-        }
+        };
+        self.configure_surface(&surface);
+        Ok(surface)
     }
 
     /// Resizes the surface to the new dimensions.
     pub fn resize_surface(&self, surface: &mut RenderSurface, width: u32, height: u32) {
         surface.config.width = width;
         surface.config.height = height;
-        surface
-            .surface
-            .configure(&self.devices[surface.dev_id].device, &surface.config);
+        self.configure_surface(surface);
     }
 
     pub fn set_present_mode(&self, surface: &mut RenderSurface, present_mode: wgpu::PresentMode) {
         surface.config.present_mode = present_mode;
-        surface
-            .surface
-            .configure(&self.devices[surface.dev_id].device, &surface.config);
+        self.configure_surface(surface);
+    }
+
+    fn configure_surface(&self, surface: &RenderSurface) {
+        let device = &self.devices[surface.dev_id].device;
+        // Temporary workaround for https://github.com/gfx-rs/wgpu/issues/4214
+        // It's still possible for this to panic if the device is being used on another thread
+        // but this unbreaks most current users
+        device.poll(wgpu::MaintainBase::Wait);
+        surface.surface.configure(device, &surface.config);
     }
 
     /// Finds or creates a compatible device handle id.
@@ -118,20 +132,21 @@ impl RenderContext {
 
     /// Creates a compatible device handle id.
     async fn new_device(&mut self, compatible_surface: Option<&Surface>) -> Option<usize> {
-        let adapter = wgpu::util::initialize_adapter_from_env_or_default(
-            &self.instance,
-            wgpu::Backends::PRIMARY,
-            compatible_surface,
-        )
-        .await?;
+        let adapter =
+            wgpu::util::initialize_adapter_from_env_or_default(&self.instance, compatible_surface)
+                .await?;
         let features = adapter.features();
         let limits = Limits::default();
+        let mut maybe_features = wgpu::Features::CLEAR_TEXTURE;
+        #[cfg(feature = "wgpu-profiler")]
+        {
+            maybe_features |= wgpu_profiler::GpuProfiler::ALL_WGPU_TIMER_FEATURES;
+        };
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: None,
-                    features: features
-                        & (wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::CLEAR_TEXTURE),
+                    features: features & maybe_features,
                     limits,
                 },
                 None,

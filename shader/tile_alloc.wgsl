@@ -29,9 +29,7 @@ let WG_SIZE = 256u;
 
 var<workgroup> sh_tile_count: array<u32, WG_SIZE>;
 var<workgroup> sh_tile_offset: u32;
-#ifdef have_uniform
 var<workgroup> sh_atomic_failed: u32;
-#endif
 
 @compute @workgroup_size(256)
 fn main(
@@ -41,14 +39,10 @@ fn main(
     // Exit early if prior stages failed, as we can't run this stage.
     // We need to check only prior stages, as if this stage has failed in another workgroup, 
     // we still want to know this workgroup's memory requirement.
-#ifdef have_uniform
     if local_id.x == 0u {
         sh_atomic_failed = atomicLoad(&bump.failed);
     }
     let failed = workgroupUniformLoad(&sh_atomic_failed);
-#else
-    let failed = atomicLoad(&bump.failed);
-#endif
     if (failed & STAGE_BINNING) != 0u {
         return;
     }    
@@ -68,10 +62,15 @@ fn main(
     var y1 = 0;
     if drawtag != DRAWTAG_NOP && drawtag != DRAWTAG_END_CLIP {
         let bbox = draw_bboxes[drawobj_ix];
-        x0 = i32(floor(bbox.x * SX));
-        y0 = i32(floor(bbox.y * SY));
-        x1 = i32(ceil(bbox.z * SX));
-        y1 = i32(ceil(bbox.w * SY));
+
+        // Don't round up the bottom-right corner of the bbox if the area is zero and leave the
+        // coordinates at 0. This will make `tile_count` zero as the shape is clipped out.
+        if bbox.x < bbox.z && bbox.y < bbox.w {
+            x0 = i32(floor(bbox.x * SX));
+            y0 = i32(floor(bbox.y * SY));
+            x1 = i32(ceil(bbox.z * SX));
+            y1 = i32(ceil(bbox.w * SY));
+        }
     }
     let ux0 = u32(clamp(x0, 0, i32(config.width_in_tiles)));
     let uy0 = u32(clamp(y0, 0, i32(config.height_in_tiles)));

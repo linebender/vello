@@ -37,6 +37,7 @@ pub struct SimpleText {
 }
 
 impl SimpleText {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
             gcx: GlyphContext::new(),
@@ -45,6 +46,7 @@ impl SimpleText {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn add_run<'a>(
         &mut self,
         builder: &mut SceneBuilder,
@@ -69,6 +71,7 @@ impl SimpleText {
         );
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn add_var_run<'a>(
         &mut self,
         builder: &mut SceneBuilder,
@@ -118,7 +121,7 @@ impl SimpleText {
                     }
                     let gid = charmap.map(ch).unwrap_or_default();
                     let advance = glyph_metrics.advance_width(gid).unwrap_or_default();
-                    let x = pen_x as f32;
+                    let x = pen_x;
                     pen_x += advance;
                     Some(Glyph {
                         id: gid.to_u16() as u32,
@@ -139,10 +142,7 @@ impl SimpleText {
         text: &str,
     ) {
         let default_font = FontRef::new(ROBOTO_FONT).unwrap();
-        let font = font
-            .map(|font| to_font_ref(font))
-            .flatten()
-            .unwrap_or(default_font);
+        let font = font.and_then(to_font_ref).unwrap_or(default_font);
         let fello_size = vello::fello::Size::new(size);
         let charmap = font.charmap();
         let metrics = font.metrics(fello_size, Default::default());
@@ -171,7 +171,7 @@ impl SimpleText {
     }
 }
 
-fn to_font_ref<'a>(font: &'a Font) -> Option<FontRef<'a>> {
+fn to_font_ref(font: &Font) -> Option<FontRef<'_>> {
     use vello::fello::raw::FileRef;
     let file_ref = FileRef::new(font.data.as_ref()).ok()?;
     match file_ref {

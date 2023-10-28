@@ -2,7 +2,6 @@ on:
   push:
     branches:
       - main
-      - dev
   pull_request:
 
 jobs:
@@ -10,18 +9,47 @@ jobs:
     runs-on: ubuntu-latest
     name: cargo fmt
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo fmt --all --check
+  compiles:
+    runs-on: ubuntu-latest
+    name: Check workspace compile
+    steps:
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install native dependencies
+        run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev
+      - run: cargo check --workspace
+      # Check vello (the default crate) without the features used by `with_winit` for debugging
+      - run: cargo check 
+      # Check vello (the default crate) without wgpu
+      - run: cargo check --no-default-features
+      # --exclude with_bevy # for when bevy has an outdated wgpu version
+      # -Dwarnings # for when we have fixed unused code warnings
 
-      - name: install stable toolchain
-        uses: actions-rs/toolchain@v1
+  clippy:
+    runs-on: ubuntu-latest
+    name: Enforce clippy lints
+    steps:
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install native dependencies
+        run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev
+      - run: cargo clippy --all-targets --workspace -- -D warnings
+  
+  wasm:
+    runs-on: ubuntu-latest
+    name: Ensure with_winit compiles on WASM
+    steps:
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          profile: minimal
-          components: rustfmt
-          override: true
-
-      - name: cargo fmt
-        uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all -- --check
+          targets: wasm32-unknown-unknown
+      # cargo-run-wasm does not provide a way to determine that it failed programmatically.
+      # Ideally, fix this and use:
+      # - run: cargo run_wasm -- -p with_winit --bin with_winit_bin --build-only
+      - name: Allow using WebGPU in web_sys
+        run: |
+          echo "RUSTFLAGS=--cfg=web_sys_unstable_apis" >> "$GITHUB_ENV"
+      - run: cargo check -p with_winit --target wasm32-unknown-unknown

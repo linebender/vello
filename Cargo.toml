@@ -9,7 +9,7 @@ members = [
 
     "examples/headless",
     "examples/with_winit",
-    "examples/with_bevy",
+    # "examples/with_bevy", # Disable for now until bevy is using wgpu 0.17
     "examples/run_wasm",
     "examples/scenes",
 ]
@@ -17,7 +17,7 @@ members = [
 [workspace.package]
 edition = "2021"
 version = "0.0.1"
-license = "MIT/Apache-2.0"
+license = "MIT OR Apache-2.0"
 # homepage = "https://vello.dev" - Domain owned by us, but unused at present
 # rust-version = 
 repository = "https://github.com/linebender/vello"
@@ -37,6 +37,7 @@ edition.workspace = true
 repository.workspace = true
 
 [features]
+default = ["wgpu"]
 hot_reload = []
 buffer_labels = []
 
@@ -44,21 +45,28 @@ buffer_labels = []
 bytemuck = { workspace = true }
 fello = { workspace = true }
 peniko = { workspace = true }
-wgpu = { workspace = true }
+wgpu = { workspace = true, optional = true }
 raw-window-handle = "0.5"
 futures-intrusive = "0.5.0"
-parking_lot = "0.12"
-smallvec = "1.8.0"
 vello_encoding = { path = "crates/encoding" }
+wgpu-profiler = { workspace = true, optional = true }
+# Note: we pick up a kurbo dependency transitively through peniko.
+# However, we need at least version 0.10.4 for proper stroking.
+# Next time we bump peniko, this can be removed.
+kurbo = "0.10.4"
 
 [workspace.dependencies]
 bytemuck = { version = "1.12.1", features = ["derive"] }
-fello = { git = "https://github.com/dfrg/fount", rev = "58a284eaae67512fb61cf76177c5d33238d79cb1" }
-peniko = { git = "https://github.com/linebender/peniko", rev = "cafdac9a211a0fb2fec5656bd663d1ac770bcc81" }
-wgpu = "0.16" # NOTE: Make sure to keep this in sync with the version badge in README.md
+fello = { git = "https://github.com/dfrg/fount", rev = "dadbcf75695f035ca46766bfd60555d05bd421b1" }
+peniko = { git = "https://github.com/linebender/peniko", rev = "629fc3325b016a8c98b1cd6204cb4ddf1c6b3daa" }
+
+# NOTE: Make sure to keep this in sync with the version badge in README.md
+wgpu = { version = "0.17" }                                              
+
 
 # Used for examples
 clap = "4.1.0"
 anyhow = "1.0"
-instant = { version = "0.1.12", features = [ "wasm-bindgen" ] }
+instant = { version = "0.1.12", features = ["wasm-bindgen"] }
 pollster = "0.3.0"
+wgpu-profiler = "0.13"

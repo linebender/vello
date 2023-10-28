@@ -38,3 +38,23 @@ pub struct WorkgroupBufferInfo {
     /// The order in which the workgroup variable is declared in the shader module.
     pub index: u32,
 }
+
+#[cfg(feature = "msl")]
+pub mod msl {
+    use std::fmt;
+
+    #[derive(Clone)]
+    pub enum BindingIndex {
+        Buffer(u8),
+        Texture(u8),
+    }
+
+    impl fmt::Debug for BindingIndex {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            match *self {
+                Self::Buffer(i) => write!(f, "msl::BindingIndex::Buffer({})", i),
+                Self::Texture(i) => write!(f, "msl::BindingIndex::Texture({})", i),
+            }
+        }
+    }
+}

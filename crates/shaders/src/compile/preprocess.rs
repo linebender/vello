@@ -14,17 +14,18 @@ pub fn get_imports(shader_dir: &Path) -> HashMap<String, String> {
     for entry in imports_dir
         .read_dir()
         .expect("Can read shader import directory")
+        .filter_map(move |e| {
+            e.ok()
+                .filter(|e| e.path().extension().map(|e| e == "wgsl").unwrap_or(false))
+        })
     {
-        let entry = entry.expect("Can continue reading shader import directory");
-        if entry.file_type().unwrap().is_file() {
-            let file_name = entry.file_name();
-            if let Some(name) = file_name.to_str() {
-                let suffix = ".wgsl";
-                if let Some(import_name) = name.strip_suffix(suffix) {
-                    let contents = fs::read_to_string(imports_dir.join(&file_name))
-                        .expect("Could read shader {import_name} contents");
-                    imports.insert(import_name.to_owned(), contents);
-                }
+        let file_name = entry.file_name();
+        if let Some(name) = file_name.to_str() {
+            let suffix = ".wgsl";
+            if let Some(import_name) = name.strip_suffix(suffix) {
+                let contents = fs::read_to_string(imports_dir.join(&file_name))
+                    .expect("Could read shader {import_name} contents");
+                imports.insert(import_name.to_owned(), contents);
             }
         }
     }
@@ -68,7 +69,10 @@ pub fn preprocess(
 
             match directive {
                 if_item @ ("ifdef" | "ifndef" | "else" | "endif") if !directive_is_at_start => {
-                    eprintln!("#{if_item} directives must be the first non_whitespace items on their line, ignoring (line {line_number})");
+                    eprintln!(
+                        "#{if_item} directives must be the first non_whitespace items on \
+                               their line, ignoring (line {line_number})"
+                    );
                     break;
                 }
                 def_test @ ("ifdef" | "ifndef") => {
@@ -86,7 +90,10 @@ pub fn preprocess(
                     let item = stack.last_mut();
                     if let Some(item) = item {
                         if item.else_passed {
-                            eprintln!("Second else for same ifdef/ifndef (line {line_number}); ignoring second else")
+                            eprintln!(
+                                "Second else for same ifdef/ifndef (line {line_number}); \
+                                       ignoring second else"
+                            )
                         } else {
                             item.else_passed = true;
                             item.active = !item.active;
@@ -94,7 +101,10 @@ pub fn preprocess(
                     }
                     let remainder = directive_start[directive_len..].trim();
                     if !remainder.is_empty() {
-                        eprintln!("#else directives don't take an argument. `{remainder}` will not be in output (line {line_number})");
+                        eprintln!(
+                            "#else directives don't take an argument. `{remainder}` will not \
+                                   be in output (line {line_number})"
+                        );
                     }
                     // Don't add this line to the output; it should be empty (see warning above)
                     continue 'all_lines;
@@ -105,7 +115,10 @@ pub fn preprocess(
                     }
                     let remainder = directive_start[directive_len..].trim();
                     if !remainder.is_empty() {
-                        eprintln!("#endif directives don't take an argument. `{remainder}` will not be in output (line {line_number})");
+                        eprintln!(
+                            "#endif directives don't take an argument. `{remainder}` will \
+                                   not be in output (line {line_number})"
+                        );
                     }
                     // Don't add this line to the output; it should be empty (see warning above)
                     continue 'all_lines;
@@ -131,7 +144,8 @@ pub fn preprocess(
                     let import = imports.get(import_name);
                     if let Some(import) = import {
                         // In theory, we can cache this until the top item of the stack changes
-                        // However, in practise there will only ever be at most 2 stack items, so it's reasonable to just recompute it every time
+                        // However, in practise there will only ever be at most 2 stack items, so
+                        // it's reasonable to just recompute it every time
                         if stack.iter().all(|item| item.active) {
                             output.push_str(&preprocess(import, defines, imports));
                         }
@@ -152,6 +166,14 @@ pub fn preprocess(
             if line.starts_with("let ") {
                 output.push_str("const");
                 output.push_str(&line[3..]);
+            } else if let Some(idx) = line.find("var<storage>") {
+                if cfg!(feature = "force_rw_storage") {
+                    let mut line = line.to_string();
+                    line.replace_range(idx..(idx + 12), "var<storage, read_write>");
+                    output.push_str(&line);
+                } else {
+                    output.push_str(line);
+                }
             } else {
                 output.push_str(line);
             }

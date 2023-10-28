@@ -15,74 +15,51 @@
 // Also licensed under MIT license, at your choice.
 
 use std::{
-    borrow::Cow,
-    collections::{hash_map::Entry, HashMap, HashSet},
     num::NonZeroU64,
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use wgpu::{
-    BindGroup, BindGroupLayout, Buffer, BufferUsages, ComputePipeline, Device, Queue, Texture,
-    TextureAspect, TextureUsages, TextureView, TextureViewDimension,
-};
-
 pub type Error = Box<dyn std::error::Error>;
 
-#[derive(Clone, Copy)]
-pub struct ShaderId(usize);
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ShaderId(pub usize);
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Id(NonZeroU64);
+pub struct Id(pub NonZeroU64);
 
 static ID_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-pub struct Engine {
-    shaders: Vec<Shader>,
-    pool: ResourcePool,
-    bind_map: BindMap,
-    downloads: HashMap<Id, Buffer>,
-}
-
-struct Shader {
-    pipeline: ComputePipeline,
-    bind_group_layout: BindGroupLayout,
-}
-
 #[derive(Default)]
 pub struct Recording {
-    commands: Vec<Command>,
+    pub commands: Vec<Command>,
 }
 
 #[derive(Clone, Copy)]
 pub struct BufProxy {
-    size: u64,
-    id: Id,
-    name: &'static str,
+    pub size: u64,
+    pub id: Id,
+    pub name: &'static str,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub enum ImageFormat {
     Rgba8,
+    #[allow(unused)]
     Bgra8,
 }
 
 #[derive(Clone, Copy)]
 pub struct ImageProxy {
-    width: u32,
-    height: u32,
-    format: ImageFormat,
-    id: Id,
+    pub width: u32,
+    pub height: u32,
+    pub format: ImageFormat,
+    pub id: Id,
 }
 
 #[derive(Clone, Copy)]
 pub enum ResourceProxy {
     Buf(BufProxy),
     Image(ImageProxy),
-}
-
-pub enum ExternalResource<'a> {
-    Buf(BufProxy, &'a Buffer),
-    Image(ImageProxy, &'a TextureView),
 }
 
 pub enum Command {
@@ -94,6 +71,7 @@ pub enum Command {
     // Maybe use tricks to make more ergonomic?
     // Alternative: provide bufs & images as separate sequences
     Dispatch(ShaderId, (u32, u32, u32), Vec<ResourceProxy>),
+    DispatchIndirect(ShaderId, BufProxy, u64, Vec<ResourceProxy>),
     Download(BufProxy),
     Clear(BufProxy, u64, Option<NonZeroU64>),
     FreeBuf(BufProxy),
@@ -114,326 +92,6 @@ pub enum BindType {
     /// A storage image with read only access.
     ImageRead(ImageFormat),
     // TODO: Uniform, Sampler, maybe others
-}
-
-struct BindMapBuffer {
-    buffer: Buffer,
-    #[cfg_attr(not(feature = "buffer_labels"), allow(unused))]
-    label: &'static str,
-}
-
-#[derive(Default)]
-struct BindMap {
-    buf_map: HashMap<Id, BindMapBuffer>,
-    image_map: HashMap<Id, (Texture, TextureView)>,
-}
-
-#[derive(Hash, PartialEq, Eq)]
-struct BufferProperties {
-    size: u64,
-    usages: BufferUsages,
-    #[cfg(feature = "buffer_labels")]
-    name: &'static str,
-}
-
-#[derive(Default)]
-struct ResourcePool {
-    bufs: HashMap<BufferProperties, Vec<Buffer>>,
-}
-
-impl Engine {
-    pub fn new() -> Engine {
-        Engine {
-            shaders: vec![],
-            pool: Default::default(),
-            bind_map: Default::default(),
-            downloads: Default::default(),
-        }
-    }
-
-    /// Add a shader.
-    ///
-    /// This function is somewhat limited, it doesn't apply a label, only allows one bind group,
-    /// doesn't support push constants, and entry point is hardcoded as "main".
-    ///
-    /// Maybe should do template instantiation here? But shader compilation pipeline feels maybe
-    /// a bit separate.
-    pub fn add_shader(
-        &mut self,
-        device: &Device,
-        label: &'static str,
-        wgsl: Cow<'static, str>,
-        layout: &[BindType],
-    ) -> Result<ShaderId, Error> {
-        let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some(label),
-            source: wgpu::ShaderSource::Wgsl(wgsl),
-        });
-        let entries = layout
-            .iter()
-            .enumerate()
-            .map(|(i, bind_type)| match bind_type {
-                BindType::Buffer | BindType::BufReadOnly => wgpu::BindGroupLayoutEntry {
-                    binding: i as u32,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage {
-                            read_only: *bind_type == BindType::BufReadOnly,
-                        },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                BindType::Uniform => wgpu::BindGroupLayoutEntry {
-                    binding: i as u32,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                BindType::Image(format) | BindType::ImageRead(format) => {
-                    wgpu::BindGroupLayoutEntry {
-                        binding: i as u32,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: if *bind_type == BindType::ImageRead(*format) {
-                            wgpu::BindingType::Texture {
-                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                                view_dimension: wgpu::TextureViewDimension::D2,
-                                multisampled: false,
-                            }
-                        } else {
-                            wgpu::BindingType::StorageTexture {
-                                access: wgpu::StorageTextureAccess::WriteOnly,
-                                format: format.to_wgpu(),
-                                view_dimension: wgpu::TextureViewDimension::D2,
-                            }
-                        },
-                        count: None,
-                    }
-                }
-            })
-            .collect::<Vec<_>>();
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: None,
-            entries: &entries,
-        });
-        let compute_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: None,
-                bind_group_layouts: &[&bind_group_layout],
-                push_constant_ranges: &[],
-            });
-        let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some(label),
-            layout: Some(&compute_pipeline_layout),
-            module: &shader_module,
-            entry_point: "main",
-        });
-        let shader = Shader {
-            pipeline,
-            bind_group_layout,
-        };
-        let id = self.shaders.len();
-        self.shaders.push(shader);
-        Ok(ShaderId(id))
-    }
-
-    pub fn run_recording(
-        &mut self,
-        device: &Device,
-        queue: &Queue,
-        recording: &Recording,
-        external_resources: &[ExternalResource],
-    ) -> Result<(), Error> {
-        let mut free_bufs: HashSet<Id> = Default::default();
-        let mut free_images: HashSet<Id> = Default::default();
-
-        let mut encoder = device.create_command_encoder(&Default::default());
-        for command in &recording.commands {
-            match command {
-                Command::Upload(buf_proxy, bytes) => {
-                    let usage =
-                        BufferUsages::COPY_SRC | BufferUsages::COPY_DST | BufferUsages::STORAGE;
-                    let buf = self
-                        .pool
-                        .get_buf(buf_proxy.size, buf_proxy.name, usage, device);
-                    // TODO: if buffer is newly created, might be better to make it mapped at creation
-                    // and copy. However, we expect reuse will be most common.
-                    queue.write_buffer(&buf, 0, bytes);
-                    self.bind_map.insert_buf(buf_proxy, buf);
-                }
-                Command::UploadUniform(buf_proxy, bytes) => {
-                    let usage = BufferUsages::UNIFORM | BufferUsages::COPY_DST;
-                    // Same consideration as above
-                    let buf = self
-                        .pool
-                        .get_buf(buf_proxy.size, buf_proxy.name, usage, device);
-                    queue.write_buffer(&buf, 0, bytes);
-                    self.bind_map.insert_buf(buf_proxy, buf);
-                }
-                Command::UploadImage(image_proxy, bytes) => {
-                    let format = image_proxy.format.to_wgpu();
-                    let block_size = format
-                        .block_size(None)
-                        .expect("ImageFormat must have a valid block size");
-                    let texture = device.create_texture(&wgpu::TextureDescriptor {
-                        label: None,
-                        size: wgpu::Extent3d {
-                            width: image_proxy.width,
-                            height: image_proxy.height,
-                            depth_or_array_layers: 1,
-                        },
-                        mip_level_count: 1,
-                        sample_count: 1,
-                        dimension: wgpu::TextureDimension::D2,
-                        usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-                        format,
-                        view_formats: &[],
-                    });
-                    let texture_view = texture.create_view(&wgpu::TextureViewDescriptor {
-                        label: None,
-                        dimension: Some(TextureViewDimension::D2),
-                        aspect: TextureAspect::All,
-                        mip_level_count: None,
-                        base_mip_level: 0,
-                        base_array_layer: 0,
-                        array_layer_count: None,
-                        format: Some(format),
-                    });
-                    queue.write_texture(
-                        wgpu::ImageCopyTexture {
-                            texture: &texture,
-                            mip_level: 0,
-                            origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
-                            aspect: TextureAspect::All,
-                        },
-                        bytes,
-                        wgpu::ImageDataLayout {
-                            offset: 0,
-                            bytes_per_row: Some(image_proxy.width * block_size),
-                            rows_per_image: None,
-                        },
-                        wgpu::Extent3d {
-                            width: image_proxy.width,
-                            height: image_proxy.height,
-                            depth_or_array_layers: 1,
-                        },
-                    );
-                    self.bind_map
-                        .insert_image(image_proxy.id, texture, texture_view)
-                }
-                Command::WriteImage(proxy, [x, y, width, height], data) => {
-                    if let Ok((texture, _)) = self.bind_map.get_or_create_image(*proxy, device) {
-                        let format = proxy.format.to_wgpu();
-                        let block_size = format
-                            .block_size(None)
-                            .expect("ImageFormat must have a valid block size");
-                        queue.write_texture(
-                            wgpu::ImageCopyTexture {
-                                texture,
-                                mip_level: 0,
-                                origin: wgpu::Origin3d { x: *x, y: *y, z: 0 },
-                                aspect: TextureAspect::All,
-                            },
-                            &data[..],
-                            wgpu::ImageDataLayout {
-                                offset: 0,
-                                bytes_per_row: Some(*width * block_size),
-                                rows_per_image: None,
-                            },
-                            wgpu::Extent3d {
-                                width: *width,
-                                height: *height,
-                                depth_or_array_layers: 1,
-                            },
-                        );
-                    }
-                }
-                Command::Dispatch(shader_id, wg_size, bindings) => {
-                    // println!("dispatching {:?} with {} bindings", wg_size, bindings.len());
-                    let shader = &self.shaders[shader_id.0];
-                    let bind_group = self.bind_map.create_bind_group(
-                        device,
-                        &shader.bind_group_layout,
-                        bindings,
-                        external_resources,
-                        &mut self.pool,
-                    )?;
-                    let mut cpass = encoder.begin_compute_pass(&Default::default());
-                    cpass.set_pipeline(&shader.pipeline);
-                    cpass.set_bind_group(0, &bind_group, &[]);
-                    cpass.dispatch_workgroups(wg_size.0, wg_size.1, wg_size.2);
-                }
-                Command::Download(proxy) => {
-                    let src_buf = self
-                        .bind_map
-                        .buf_map
-                        .get(&proxy.id)
-                        .ok_or("buffer not in map")?;
-                    let usage = BufferUsages::MAP_READ | BufferUsages::COPY_DST;
-                    let buf = self.pool.get_buf(proxy.size, "download", usage, device);
-                    encoder.copy_buffer_to_buffer(&src_buf.buffer, 0, &buf, 0, proxy.size);
-                    self.downloads.insert(proxy.id, buf);
-                }
-                Command::Clear(proxy, offset, size) => {
-                    let buffer = self
-                        .bind_map
-                        .get_or_create(*proxy, device, &mut self.pool)?;
-                    #[cfg(not(target_arch = "wasm32"))]
-                    encoder.clear_buffer(buffer, *offset, *size);
-                    #[cfg(target_arch = "wasm32")]
-                    {
-                        // TODO: remove this workaround when wgpu implements clear_buffer
-                        // Also note: semantics are wrong, it's queue order rather than encoder.
-                        let size = match size {
-                            Some(size) => size.get(),
-                            None => proxy.size,
-                        };
-                        let zeros = vec![0; size as usize];
-                        queue.write_buffer(buffer, *offset, &zeros);
-                    }
-                }
-                Command::FreeBuf(proxy) => {
-                    free_bufs.insert(proxy.id);
-                }
-                Command::FreeImage(proxy) => {
-                    free_images.insert(proxy.id);
-                }
-            }
-        }
-        queue.submit(Some(encoder.finish()));
-        for id in free_bufs {
-            if let Some(buf) = self.bind_map.buf_map.remove(&id) {
-                let props = BufferProperties {
-                    size: buf.buffer.size(),
-                    usages: buf.buffer.usage(),
-                    #[cfg(feature = "buffer_labels")]
-                    name: buf.label,
-                };
-                self.pool.bufs.entry(props).or_default().push(buf.buffer);
-            }
-        }
-        for id in free_images {
-            if let Some((texture, view)) = self.bind_map.image_map.remove(&id) {
-                // TODO: have a pool to avoid needless re-allocation
-                drop(texture);
-                drop(view);
-            }
-        }
-        Ok(())
-    }
-
-    pub fn get_download(&self, buf: BufProxy) -> Option<&Buffer> {
-        self.downloads.get(&buf.id)
-    }
-
-    pub fn free_download(&mut self, buf: BufProxy) {
-        self.downloads.remove(&buf.id);
-    }
 }
 
 impl Recording {
@@ -486,11 +144,28 @@ impl Recording {
         R: IntoIterator,
         R::Item: Into<ResourceProxy>,
     {
-        self.push(Command::Dispatch(
-            shader,
-            wg_size,
-            resources.into_iter().map(|r| r.into()).collect(),
-        ));
+        let r = resources.into_iter().map(|r| r.into()).collect();
+        self.push(Command::Dispatch(shader, wg_size, r));
+    }
+
+    /// Do an indirect dispatch.
+    ///
+    /// Dispatch a compute shader where the size is determined dynamically.
+    /// The `buf` argument contains the dispatch size, 3 u32 values beginning
+    /// at the given byte `offset`.
+    #[allow(unused)]
+    pub fn dispatch_indirect<R>(
+        &mut self,
+        shader: ShaderId,
+        buf: BufProxy,
+        offset: u64,
+        resources: R,
+    ) where
+        R: IntoIterator,
+        R::Item: Into<ResourceProxy>,
+    {
+        let r = resources.into_iter().map(|r| r.into()).collect();
+        self.push(Command::DispatchIndirect(shader, buf, offset, r));
     }
 
     /// Prepare a buffer for downloading.
@@ -519,20 +194,22 @@ impl Recording {
             ResourceProxy::Image(image) => self.free_image(image),
         }
     }
+
+    pub fn into_commands(self) -> Vec<Command> {
+        self.commands
+    }
 }
 
 impl BufProxy {
     pub fn new(size: u64, name: &'static str) -> Self {
         let id = Id::next();
-        BufProxy {
-            id,
-            size: size.max(16),
-            name,
-        }
+        debug_assert!(size > 0);
+        BufProxy { id, size, name }
     }
 }
 
 impl ImageFormat {
+    #[cfg(feature = "wgpu")]
     pub fn to_wgpu(self) -> wgpu::TextureFormat {
         match self {
             Self::Rgba8 => wgpu::TextureFormat::Rgba8Unorm,
@@ -594,247 +271,5 @@ impl Id {
         let val = ID_COUNTER.fetch_add(1, Ordering::Relaxed);
         // could use new_unchecked
         Id(NonZeroU64::new(val + 1).unwrap())
-    }
-}
-
-impl BindMap {
-    fn insert_buf(&mut self, proxy: &BufProxy, buffer: Buffer) {
-        self.buf_map.insert(
-            proxy.id,
-            BindMapBuffer {
-                buffer,
-                label: proxy.name,
-            },
-        );
-    }
-
-    fn insert_image(&mut self, id: Id, image: Texture, image_view: TextureView) {
-        self.image_map.insert(id, (image, image_view));
-    }
-
-    fn create_bind_group(
-        &mut self,
-        device: &Device,
-        layout: &BindGroupLayout,
-        bindings: &[ResourceProxy],
-        external_resources: &[ExternalResource],
-        pool: &mut ResourcePool,
-    ) -> Result<BindGroup, Error> {
-        // These functions are ugly and linear, but the remap array should generally be
-        // small. Should find a better solution for this.
-        fn find_buf<'a>(
-            resources: &[ExternalResource<'a>],
-            proxy: &BufProxy,
-        ) -> Option<&'a Buffer> {
-            for resource in resources {
-                match resource {
-                    ExternalResource::Buf(p, buf) if p.id == proxy.id => {
-                        return Some(buf);
-                    }
-                    _ => {}
-                }
-            }
-            None
-        }
-        fn find_image<'a>(
-            resources: &[ExternalResource<'a>],
-            proxy: &ImageProxy,
-        ) -> Option<&'a TextureView> {
-            for resource in resources {
-                match resource {
-                    ExternalResource::Image(p, view) if p.id == proxy.id => {
-                        return Some(view);
-                    }
-                    _ => {}
-                }
-            }
-            None
-        }
-        for proxy in bindings {
-            match proxy {
-                ResourceProxy::Buf(proxy) => {
-                    if find_buf(external_resources, proxy).is_some() {
-                        continue;
-                    }
-                    if let Entry::Vacant(v) = self.buf_map.entry(proxy.id) {
-                        let usage =
-                            BufferUsages::COPY_SRC | BufferUsages::COPY_DST | BufferUsages::STORAGE;
-                        let buf = pool.get_buf(proxy.size, proxy.name, usage, device);
-                        v.insert(BindMapBuffer {
-                            buffer: buf,
-                            label: proxy.name,
-                        });
-                    }
-                }
-                ResourceProxy::Image(proxy) => {
-                    if find_image(external_resources, proxy).is_some() {
-                        continue;
-                    }
-                    if let Entry::Vacant(v) = self.image_map.entry(proxy.id) {
-                        let format = proxy.format.to_wgpu();
-                        let texture = device.create_texture(&wgpu::TextureDescriptor {
-                            label: None,
-                            size: wgpu::Extent3d {
-                                width: proxy.width,
-                                height: proxy.height,
-                                depth_or_array_layers: 1,
-                            },
-                            mip_level_count: 1,
-                            sample_count: 1,
-                            dimension: wgpu::TextureDimension::D2,
-                            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-                            format,
-                            view_formats: &[],
-                        });
-                        let texture_view = texture.create_view(&wgpu::TextureViewDescriptor {
-                            label: None,
-                            dimension: Some(TextureViewDimension::D2),
-                            aspect: TextureAspect::All,
-                            mip_level_count: None,
-                            base_mip_level: 0,
-                            base_array_layer: 0,
-                            array_layer_count: None,
-                            format: Some(proxy.format.to_wgpu()),
-                        });
-                        v.insert((texture, texture_view));
-                    }
-                }
-            }
-        }
-        let entries = bindings
-            .iter()
-            .enumerate()
-            .map(|(i, proxy)| match proxy {
-                ResourceProxy::Buf(proxy) => {
-                    let buf = find_buf(external_resources, proxy)
-                        .or_else(|| self.buf_map.get(&proxy.id).map(|buf| &buf.buffer))
-                        .unwrap();
-                    Ok(wgpu::BindGroupEntry {
-                        binding: i as u32,
-                        resource: buf.as_entire_binding(),
-                    })
-                }
-                ResourceProxy::Image(proxy) => {
-                    let view = find_image(external_resources, proxy)
-                        .or_else(|| self.image_map.get(&proxy.id).map(|v| &v.1))
-                        .unwrap();
-                    Ok(wgpu::BindGroupEntry {
-                        binding: i as u32,
-                        resource: wgpu::BindingResource::TextureView(view),
-                    })
-                }
-            })
-            .collect::<Result<Vec<_>, Error>>()?;
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
-            layout,
-            entries: &entries,
-        });
-        Ok(bind_group)
-    }
-
-    fn get_or_create(
-        &mut self,
-        proxy: BufProxy,
-        device: &Device,
-        pool: &mut ResourcePool,
-    ) -> Result<&Buffer, Error> {
-        match self.buf_map.entry(proxy.id) {
-            Entry::Occupied(occupied) => Ok(&occupied.into_mut().buffer),
-            Entry::Vacant(vacant) => {
-                let usage = BufferUsages::COPY_SRC | BufferUsages::COPY_DST | BufferUsages::STORAGE;
-                let buf = pool.get_buf(proxy.size, proxy.name, usage, device);
-                Ok(&vacant
-                    .insert(BindMapBuffer {
-                        buffer: buf,
-                        label: proxy.name,
-                    })
-                    .buffer)
-            }
-        }
-    }
-
-    fn get_or_create_image(
-        &mut self,
-        proxy: ImageProxy,
-        device: &Device,
-    ) -> Result<&(Texture, TextureView), Error> {
-        match self.image_map.entry(proxy.id) {
-            Entry::Occupied(occupied) => Ok(occupied.into_mut()),
-            Entry::Vacant(vacant) => {
-                let format = proxy.format.to_wgpu();
-                let texture = device.create_texture(&wgpu::TextureDescriptor {
-                    label: None,
-                    size: wgpu::Extent3d {
-                        width: proxy.width,
-                        height: proxy.height,
-                        depth_or_array_layers: 1,
-                    },
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-                    format,
-                    view_formats: &[],
-                });
-                let texture_view = texture.create_view(&wgpu::TextureViewDescriptor {
-                    label: None,
-                    dimension: Some(TextureViewDimension::D2),
-                    aspect: TextureAspect::All,
-                    mip_level_count: None,
-                    base_mip_level: 0,
-                    base_array_layer: 0,
-                    array_layer_count: None,
-                    format: Some(proxy.format.to_wgpu()),
-                });
-                Ok(vacant.insert((texture, texture_view)))
-            }
-        }
-    }
-}
-
-const SIZE_CLASS_BITS: u32 = 1;
-
-impl ResourcePool {
-    /// Get a buffer from the pool or create one.
-    fn get_buf(
-        &mut self,
-        size: u64,
-        name: &'static str,
-        usage: BufferUsages,
-        device: &Device,
-    ) -> Buffer {
-        let rounded_size = Self::size_class(size, SIZE_CLASS_BITS);
-        let props = BufferProperties {
-            size: rounded_size,
-            usages: usage,
-            #[cfg(feature = "buffer_labels")]
-            name: name,
-        };
-        if let Some(buf_vec) = self.bufs.get_mut(&props) {
-            if let Some(buf) = buf_vec.pop() {
-                return buf;
-            }
-        }
-        device.create_buffer(&wgpu::BufferDescriptor {
-            #[cfg(feature = "buffer_labels")]
-            label: Some(name),
-            #[cfg(not(feature = "buffer_labels"))]
-            label: None,
-            size: rounded_size,
-            usage,
-            mapped_at_creation: false,
-        })
-    }
-
-    /// Quantize a size up to the nearest size class.
-    fn size_class(x: u64, bits: u32) -> u64 {
-        if x > 1 << bits {
-            let a = (x - 1).leading_zeros();
-            let b = (x - 1) | (((u64::MAX / 2) >> bits) >> a);
-            b + 1
-        } else {
-            1 << bits
-        }
     }
 }

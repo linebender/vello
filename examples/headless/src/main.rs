@@ -21,7 +21,7 @@ fn main() -> Result<()> {
     #[cfg(not(target_arch = "wasm32"))]
     env_logger::init();
     let args = Args::parse();
-    let scenes = args.args.select_scene_set(|| Args::command())?;
+    let scenes = args.args.select_scene_set(Args::command)?;
     if let Some(scenes) = scenes {
         let mut scene_idx = None;
         for (idx, scene) in scenes.scenes.iter().enumerate() {
@@ -41,8 +41,8 @@ fn main() -> Result<()> {
                     args.scene
                 ))?;
 
-                if !(parsed < scenes.scenes.len()) {
-                    if scenes.scenes.len() == 0 {
+                if parsed >= scenes.scenes.len() {
+                    if scenes.scenes.is_empty() {
                         bail!("Cannot select a scene, as there are no scenes")
                     }
                     bail!(
@@ -86,9 +86,11 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
     let device = &device_handle.device;
     let queue = &device_handle.queue;
     let mut renderer = vello::Renderer::new(
-        &device,
+        device,
         &RendererOptions {
             surface_format: None,
+            timestamp_period: queue.get_timestamp_period(),
+            use_cpu: false,
         },
     )
     .or_else(|_| bail!("Got non-Send/Sync error from creating renderer"))?;
@@ -104,8 +106,11 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
         resolution: None,
         base_color: None,
         interactive: false,
+        complexity: 0,
     };
-    (example_scene.function)(&mut builder, &mut scene_params);
+    example_scene
+        .function
+        .render(&mut builder, &mut scene_params);
     let mut transform = Affine::IDENTITY;
     let (width, height) = if let Some(resolution) = scene_params.resolution {
         let ratio = resolution.x / resolution.y;
@@ -117,20 +122,14 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
         };
         let factor = Vec2::new(new_width as f64, new_height as f64);
         let scale_factor = (factor.x / resolution.x).min(factor.y / resolution.y);
-        transform = transform * Affine::scale(scale_factor);
+        transform *= Affine::scale(scale_factor);
         (new_width, new_height)
     } else {
         match (args.x_resolution, args.y_resolution) {
             (None, None) => (1000, 1000),
-            (None, Some(y)) => {
-                let y = y.try_into()?;
-                (y, y)
-            }
-            (Some(x), None) => {
-                let x = x.try_into()?;
-                (x, x)
-            }
-            (Some(x), Some(y)) => (x.try_into()?, y.try_into()?),
+            (None, Some(y)) => (y, y),
+            (Some(x), None) => (x, x),
+            (Some(x), Some(y)) => (x, y),
         }
     };
     let render_params = vello::RenderParams {
@@ -162,11 +161,11 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
     });
     let view = target.create_view(&wgpu::TextureViewDescriptor::default());
     renderer
-        .render_to_texture(&device, &queue, &scene, &view, &render_params)
+        .render_to_texture(device, queue, &scene, &view, &render_params)
         .or_else(|_| bail!("Got non-Send/Sync error from rendering"))?;
     // (width * 4).next_multiple_of(256)
     let padded_byte_width = {
-        let w = width as u32 * 4;
+        let w = width * 4;
         match w % 256 {
             0 => w,
             r => w + (256 - r),
@@ -199,7 +198,7 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
 
     let (sender, receiver) = futures_intrusive::channel::shared::oneshot_channel();
     buf_slice.map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
-    if let Some(recv_result) = block_on_wgpu(&device, receiver.receive()) {
+    if let Some(recv_result) = block_on_wgpu(device, receiver.receive()) {
         recv_result?;
     } else {
         bail!("channel was closed");

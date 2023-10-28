@@ -74,7 +74,10 @@ fn main(
         let draw_monoid = draw_monoids[element_ix];
         var clip_bbox = vec4(-1e9, -1e9, 1e9, 1e9);
         if draw_monoid.clip_ix > 0u {
-            clip_bbox = clip_bbox_buf[draw_monoid.clip_ix - 1u];
+            // TODO: `clip_ix` should always be valid as long as the monoids are correct. Leaving
+            // the bounds check in here for correctness but we should assert this condition instead
+            // once there is a debug-assertion mechanism.
+            clip_bbox = clip_bbox_buf[min(draw_monoid.clip_ix - 1u, config.n_clip - 1u)];
         }
         // For clip elements, clip_box is the bbox of the clip path,
         // intersected with enclosing clips.
@@ -83,15 +86,20 @@ fn main(
 
         let path_bbox = path_bbox_buf[draw_monoid.path_ix];
         let pb = vec4<f32>(vec4(path_bbox.x0, path_bbox.y0, path_bbox.x1, path_bbox.y1));
-        let bbox_raw = bbox_intersect(clip_bbox, pb);
-        // TODO(naga): clunky expression a workaround for broken lhs swizzle
-        let bbox = vec4(bbox_raw.xy, max(bbox_raw.xy, bbox_raw.zw));
+        let bbox = bbox_intersect(clip_bbox, pb);
 
         intersected_bbox[element_ix] = bbox;
-        x0 = i32(floor(bbox.x * SX));
-        y0 = i32(floor(bbox.y * SY));
-        x1 = i32(ceil(bbox.z * SX));
-        y1 = i32(ceil(bbox.w * SY));
+
+        // `bbox_intersect` can result in a zero or negative area intersection if the path bbox lies
+        // outside the clip bbox. If that is the case, Don't round up the bottom-right corner of the
+        // and leave the coordinates at 0. This way the path will get clipped out and won't get
+        // assigned to a bin.
+        if bbox.x < bbox.z && bbox.y < bbox.w {
+            x0 = i32(floor(bbox.x * SX));
+            y0 = i32(floor(bbox.y * SY));
+            x1 = i32(ceil(bbox.z * SX));
+            y1 = i32(ceil(bbox.w * SY));
+        }
     }
     let width_in_bins = i32((config.width_in_tiles + N_TILE_X - 1u) / N_TILE_X);
     let height_in_bins = i32((config.height_in_tiles + N_TILE_Y - 1u) / N_TILE_Y);

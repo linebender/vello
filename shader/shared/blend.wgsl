@@ -306,7 +306,8 @@ fn blend_compose(
     let as_fa = as_ * fa;
     let ab_fb = ab * fb;
     let co = as_fa * cs + ab_fb * cb;
-    return vec4(co, as_fa + ab_fb);
+    // Modes like COMPOSE_PLUS can generate alpha > 1.0, so clamp.
+    return vec4(co, min(as_fa + ab_fb, 1.0));
 }
 
 // Apply color mixing and composition. Both input and output colors are

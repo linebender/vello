@@ -10,10 +10,12 @@
     "pathtag": "${workspaceFolder}/shader/shared/pathtag.wgsl",
     "ptcl": "${workspaceFolder}/shader/shared/ptcl.wgsl",
     "segment": "${workspaceFolder}/shader/shared/segment.wgsl",
-    "tile": "${workspaceFolder}/shader/shared/tile.wgsl"
+    "tile": "${workspaceFolder}/shader/shared/tile.wgsl",
+    "transform": "${workspaceFolder}/shader/shared/transform.wgsl",
+    "util": "${workspaceFolder}/shader/shared/util.wgsl"
   },
   "wgsl-analyzer.diagnostics.nagaVersion": "main",
   "wgsl-analyzer.preprocessor.shaderDefs": [
-    "full"
+    "full", "msaa16", "msaa"
   ]
 }

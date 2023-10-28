@@ -16,9 +16,11 @@ vello_svg = { path = "../../integrations/vello_svg" }
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 image = "0.24.5"
+rand = "0.8.5"
 instant = { workspace = true }
 
 # Used for the `download` command
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 byte-unit = "4.0"
 dialoguer = "0.10"
 ureq = "2.6"

@@ -1,19 +1,32 @@
 [package]
 name = "vello_shaders"
 version = "0.1.0"
-edition = "2021"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [features]
 default = ["compile", "wgsl", "msl"]
 compile = ["naga", "thiserror"]
+
+# Enabling this feature applies a transformation that converts all storage bindings
+# to have the `read_write` access mode. For WGSL shaders, this affects the bind group
+# layout of all pipelines and changes the usage scope of storage buffers. For MSL shaders,
+# this removes the `const` qualifier from entry-point parameters in the `device` address
+# space.
+#
+# Enabling this feature may have a performance impact and is not recommended.
+force_rw_storage = []
+
+# Target shading language variants of the vello shaders to link into the library.
 wgsl = []
 msl = []
 
 [dependencies]
-naga = { git = "https://github.com/gfx-rs/naga", rev = "53d62b9", features = ["wgsl-in", "msl-out", "validate"], optional = true }
+naga = { version = "0.13", features = ["wgsl-in", "msl-out", "validate"], optional = true }
 thiserror = { version = "1.0.40", optional = true }
 
 [build-dependencies]
-naga = { git = "https://github.com/gfx-rs/naga", rev = "53d62b9",  features = ["wgsl-in", "msl-out", "validate"] }
+naga = { version = "0.13",  features = ["wgsl-in", "msl-out", "validate"] }
 thiserror = "1.0.40"
 

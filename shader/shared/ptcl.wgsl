@@ -25,7 +25,8 @@ let CMD_JUMP = 11u;
 // hand in the relevant shaders
 
 struct CmdFill {
-    tile: u32,
+    size_and_rule: u32,
+    seg_data: u32,
     backdrop: i32,
 }
 
@@ -44,6 +45,7 @@ struct CmdColor {
 
 struct CmdLinGrad {
     index: u32,
+    extend_mode: u32,
     line_x: f32,
     line_y: f32,
     line_c: f32,
@@ -51,11 +53,13 @@ struct CmdLinGrad {
 
 struct CmdRadGrad {
     index: u32,
+    extend_mode: u32,
     matrx: vec4<f32>,
     xlat: vec2<f32>,
-    c1: vec2<f32>,
-    ra: f32,
-    roff: f32,
+    focal_x: f32,
+    radius: f32,
+    kind: u32,
+    flags: u32,
 }
 
 struct CmdImage {

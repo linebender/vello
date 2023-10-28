@@ -14,7 +14,7 @@
 //
 // Also licensed under MIT license, at your choice.
 
-use instant::Instant;
+use instant::{Duration, Instant};
 use std::collections::HashSet;
 
 use anyhow::Result;
@@ -27,7 +27,7 @@ use vello::{
     util::RenderContext,
     Renderer, Scene, SceneBuilder,
 };
-use vello::{RendererOptions, SceneFragment};
+use vello::{BumpAllocators, RendererOptions, SceneFragment};
 
 use winit::{
     event_loop::{EventLoop, EventLoopBuilder},
@@ -48,6 +48,9 @@ struct Args {
     scene: Option<i32>,
     #[command(flatten)]
     args: scenes::Arguments,
+    #[arg(long)]
+    /// Whether to use CPU shaders
+    use_cpu: bool,
 }
 
 struct RenderState {
@@ -70,6 +73,7 @@ fn run(
     let mut render_cx = render_cx;
     #[cfg(not(target_arch = "wasm32"))]
     let mut render_state = None::<RenderState>;
+    let use_cpu = args.use_cpu;
     // The design of `RenderContext` forces delayed renderer initialisation to
     // not work on wasm, as WASM futures effectively must be 'static.
     // Otherwise, this could work by sending the result to event_loop.proxy
@@ -83,6 +87,8 @@ fn run(
                 &render_cx.devices[id].device,
                 &RendererOptions {
                     surface_format: Some(render_state.surface.format),
+                    timestamp_period: render_cx.devices[id].queue.get_timestamp_period(),
+                    use_cpu: use_cpu,
                 },
             )
             .expect("Could create renderer"),
@@ -100,6 +106,10 @@ fn run(
     let mut images = ImageCache::new();
     let mut stats = stats::Stats::new();
     let mut stats_shown = true;
+    // Currently not updated in wasm builds
+    #[allow(unused_mut)]
+    let mut scene_complexity: Option<BumpAllocators> = None;
+    let mut complexity_shown = false;
     let mut vsync_on = true;
     let mut frame_start_time = Instant::now();
     let start = Instant::now();
@@ -113,17 +123,22 @@ fn run(
     let mut prior_position: Option<Vec2> = None;
     // We allow looping left and right through the scenes, so use a signed index
     let mut scene_ix: i32 = 0;
+    let mut complexity: usize = 0;
     if let Some(set_scene) = args.scene {
         scene_ix = set_scene;
     }
+    let mut profile_stored = None;
     let mut prev_scene_ix = scene_ix - 1;
+    let mut profile_taken = Instant::now();
     // _event_loop is used on non-wasm platforms to create new windows
     event_loop.run(move |event, _event_loop, control_flow| match event {
         Event::WindowEvent {
             ref event,
             window_id,
         } => {
-            let Some(render_state) = &mut render_state else { return };
+            let Some(render_state) = &mut render_state else {
+                return;
+            };
             if render_state.window.id() != window_id {
                 return;
             }
@@ -134,6 +149,8 @@ fn run(
                         match input.virtual_keycode {
                             Some(VirtualKeyCode::Left) => scene_ix = scene_ix.saturating_sub(1),
                             Some(VirtualKeyCode::Right) => scene_ix = scene_ix.saturating_add(1),
+                            Some(VirtualKeyCode::Up) => complexity += 1,
+                            Some(VirtualKeyCode::Down) => complexity = complexity.saturating_sub(1),
                             Some(key @ VirtualKeyCode::Q) | Some(key @ VirtualKeyCode::E) => {
                                 if let Some(prior_position) = prior_position {
                                     let is_clockwise = key == VirtualKeyCode::E;
@@ -150,8 +167,34 @@ fn run(
                             Some(VirtualKeyCode::S) => {
                                 stats_shown = !stats_shown;
                             }
+                            Some(VirtualKeyCode::D) => {
+                                complexity_shown = !complexity_shown;
+                            }
                             Some(VirtualKeyCode::C) => {
                                 stats.clear_min_and_max();
+                            }
+                            Some(VirtualKeyCode::P) => {
+                                if let Some(renderer) = &renderers[render_state.surface.dev_id] {
+                                    if let Some(profile_result) = &renderer
+                                        .profile_result
+                                        .as_ref()
+                                        .or(profile_stored.as_ref())
+                                    {
+                                        // There can be empty results if the required features aren't supported
+                                        if !profile_result.is_empty() {
+                                            let path = std::path::Path::new("trace.json");
+                                            match wgpu_profiler::chrometrace::write_chrometrace(
+                                                path,
+                                                profile_result,
+                                            ) {
+                                                Ok(()) => {
+                                                    println!("Wrote trace to path {path:?}")
+                                                }
+                                                Err(e) => eprintln!("Failed to write trace {e}"),
+                                            }
+                                        }
+                                    }
+                                }
                             }
                             Some(VirtualKeyCode::V) => {
                                 vsync_on = !vsync_on;
@@ -271,7 +314,9 @@ fn run(
             }
         }
         Event::RedrawRequested(_) => {
-            let Some(render_state) = &mut render_state else { return };
+            let Some(render_state) = &mut render_state else {
+                return;
+            };
             let width = render_state.surface.config.width;
             let height = render_state.surface.config.height;
             let device_handle = &render_cx.devices[render_state.surface.dev_id];
@@ -295,8 +340,11 @@ fn run(
                 resolution: None,
                 base_color: None,
                 interactive: true,
+                complexity,
             };
-            (example_scene.function)(&mut builder, &mut scene_params);
+            example_scene
+                .function
+                .render(&mut builder, &mut scene_params);
 
             // If the user specifies a base color in the CLI we use that. Otherwise we use any
             // color specified by the scene. The default is black.
@@ -316,18 +364,38 @@ fn run(
                 // TODO: Apply svg view_box, somehow
                 let factor = Vec2::new(width as f64, height as f64);
                 let scale_factor = (factor.x / resolution.x).min(factor.y / resolution.y);
-                transform = transform * Affine::scale(scale_factor);
+                transform *= Affine::scale(scale_factor);
             }
             builder.append(&fragment, Some(transform));
             if stats_shown {
                 snapshot.draw_layer(
                     &mut builder,
-                    &mut scene_params.text,
+                    scene_params.text,
                     width as f64,
                     height as f64,
                     stats.samples(),
+                    complexity_shown.then_some(scene_complexity).flatten(),
                     vsync_on,
                 );
+                if let Some(profiling_result) = renderers[render_state.surface.dev_id]
+                    .as_mut()
+                    .and_then(|it| it.profile_result.take())
+                {
+                    if profile_stored.is_none() || profile_taken.elapsed() > Duration::from_secs(1)
+                    {
+                        profile_stored = Some(profiling_result);
+                        profile_taken = Instant::now();
+                    }
+                }
+                if let Some(profiling_result) = profile_stored.as_ref() {
+                    stats::draw_gpu_profiling(
+                        &mut builder,
+                        scene_params.text,
+                        width as f64,
+                        height as f64,
+                        profiling_result,
+                    )
+                }
             }
             let surface_texture = render_state
                 .surface
@@ -336,7 +404,7 @@ fn run(
                 .expect("failed to get surface texture");
             #[cfg(not(target_arch = "wasm32"))]
             {
-                vello::block_on_wgpu(
+                scene_complexity = vello::block_on_wgpu(
                     &device_handle.device,
                     renderers[render_state.surface.dev_id]
                         .as_mut()
@@ -377,7 +445,9 @@ fn run(
         Event::UserEvent(event) => match event {
             #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
             UserEvent::HotReload => {
-                let Some(render_state) = &mut render_state else { return };
+                let Some(render_state) = &mut render_state else {
+                    return;
+                };
                 let device_handle = &render_cx.devices[render_state.surface.dev_id];
                 eprintln!("==============\nReloading shaders");
                 let start = Instant::now();
@@ -413,7 +483,7 @@ fn run(
                 let size = window.inner_size();
                 let surface_future = render_cx.create_surface(&window, size.width, size.height);
                 // We need to block here, in case a Suspended event appeared
-                let surface = pollster::block_on(surface_future);
+                let surface = pollster::block_on(surface_future).expect("Error creating surface");
                 render_state = {
                     let render_state = RenderState { window, surface };
                     renderers.resize_with(render_cx.devices.len(), || None);
@@ -424,6 +494,10 @@ fn run(
                             &render_cx.devices[id].device,
                             &RendererOptions {
                                 surface_format: Some(render_state.surface.format),
+                                timestamp_period: render_cx.devices[id]
+                                    .queue
+                                    .get_timestamp_period(),
+                                use_cpu,
                             },
                         )
                         .expect("Could create renderer")
@@ -443,7 +517,7 @@ fn create_window(event_loop: &winit::event_loop::EventLoopWindowTarget<UserEvent
         .with_inner_size(LogicalSize::new(1044, 800))
         .with_resizable(true)
         .with_title("Vello demo")
-        .build(&event_loop)
+        .build(event_loop)
         .unwrap()
 }
 
@@ -453,13 +527,34 @@ enum UserEvent {
     HotReload,
 }
 
+#[cfg(target_arch = "wasm32")]
+fn display_error_message() -> Option<()> {
+    let window = web_sys::window()?;
+    let document = window.document()?;
+    let elements = document.get_elements_by_tag_name("body");
+    let body = elements.item(0)?;
+    body.set_inner_html(
+        r#"<style>
+        p {
+            margin: 2em 10em;
+            font-family: sans-serif;
+        }
+        </style>
+        <p><a href="https://caniuse.com/webgpu">WebGPU</a>
+        is not enabled. Make sure your browser is updated to
+        <a href="https://chromiumdash.appspot.com/schedule">Chrome M113</a> or
+        another browser compatible with WebGPU.</p>"#,
+    );
+    Some(())
+}
+
 pub fn main() -> Result<()> {
     // TODO: initializing both env_logger and console_logger fails on wasm.
     // Figure out a more principled approach.
     #[cfg(not(target_arch = "wasm32"))]
     env_logger::init();
     let args = Args::parse();
-    let scenes = args.args.select_scene_set(|| Args::command())?;
+    let scenes = args.args.select_scene_set(Args::command)?;
     if let Some(scenes) = scenes {
         let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
         #[allow(unused_mut)]
@@ -489,16 +584,21 @@ pub fn main() -> Result<()> {
             web_sys::window()
                 .and_then(|win| win.document())
                 .and_then(|doc| doc.body())
-                .and_then(|body| body.append_child(&web_sys::Element::from(canvas)).ok())
+                .and_then(|body| body.append_child(canvas.as_ref()).ok())
                 .expect("couldn't append canvas to document body");
+            _ = web_sys::HtmlElement::from(canvas).focus();
             wasm_bindgen_futures::spawn_local(async move {
                 let size = window.inner_size();
                 let surface = render_cx
                     .create_surface(&window, size.width, size.height)
                     .await;
-                let render_state = RenderState { window, surface };
-                // No error handling here; if the event loop has finished, we don't need to send them the surface
-                run(event_loop, args, scenes, render_cx, render_state);
+                if let Ok(surface) = surface {
+                    let render_state = RenderState { window, surface };
+                    // No error handling here; if the event loop has finished, we don't need to send them the surface
+                    run(event_loop, args, scenes, render_cx, render_state);
+                } else {
+                    _ = display_error_message();
+                }
             });
         }
     }

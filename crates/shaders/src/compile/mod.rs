@@ -5,8 +5,7 @@ use {
     naga::{
         front::wgsl,
         valid::{Capabilities, ModuleInfo, ValidationError, ValidationFlags},
-        AddressSpace, ArraySize, ConstantInner, ImageClass, Module, ScalarValue, StorageAccess,
-        WithSpan,
+        AddressSpace, ArraySize, ImageClass, Module, StorageAccess, WithSpan,
     },
     std::{
         collections::{HashMap, HashSet},
@@ -18,6 +17,7 @@ use {
 pub mod permutations;
 pub mod preprocess;
 
+#[cfg(feature = "msl")]
 pub mod msl;
 
 use crate::types::{BindType, BindingInfo, WorkgroupBufferInfo};
@@ -47,11 +47,8 @@ pub struct ShaderInfo {
 impl ShaderInfo {
     pub fn new(source: String, entry_point: &str) -> Result<ShaderInfo, Error> {
         let module = wgsl::parse_str(&source)?;
-        let module_info = naga::valid::Validator::new(
-            ValidationFlags::all() & !ValidationFlags::CONTROL_FLOW_UNIFORMITY,
-            Capabilities::all(),
-        )
-        .validate(&module)?;
+        let module_info = naga::valid::Validator::new(ValidationFlags::all(), Capabilities::all())
+            .validate(&module)?;
         let (entry_index, entry) = module
             .entry_points
             .iter()
@@ -76,25 +73,15 @@ impl ShaderInfo {
                     wg_buffer_idx += 1;
                     let size_in_bytes = match binding_ty {
                         naga::TypeInner::Array {
-                            size: ArraySize::Constant(const_handle),
+                            size: ArraySize::Constant(size),
                             stride,
                             ..
-                        } => {
-                            let size: u32 = match module.constants[*const_handle].inner {
-                                ConstantInner::Scalar { value, width: _ } => match value {
-                                    ScalarValue::Uint(value) => value.try_into().unwrap(),
-                                    ScalarValue::Sint(value) => value.try_into().unwrap(),
-                                    _ => continue,
-                                },
-                                ConstantInner::Composite { .. } => continue,
-                            };
-                            size * stride
-                        },
+                        } => u32::from(*size) * stride,
                         naga::TypeInner::Struct { span, .. } => *span,
-                        naga::TypeInner::Scalar { width, ..} => *width as u32,
-                        naga::TypeInner::Vector { width, ..} => *width as u32,
-                        naga::TypeInner::Matrix { width, ..} => *width as u32,
-                        naga::TypeInner::Atomic { width, ..} => *width as u32,
+                        naga::TypeInner::Scalar { width, .. } => *width as u32,
+                        naga::TypeInner::Vector { width, .. } => *width as u32,
+                        naga::TypeInner::Matrix { width, .. } => *width as u32,
+                        naga::TypeInner::Atomic { width, .. } => *width as u32,
                         _ => {
                             // Not a valid workgroup variable type. At least not one that is used
                             // in our shaders.
@@ -166,28 +153,29 @@ impl ShaderInfo {
         for entry in shader_dir
             .read_dir()
             .expect("Can read shader import directory")
+            .filter_map(move |e| {
+                e.ok()
+                    .filter(|e| e.path().extension().map(|e| e == "wgsl").unwrap_or(false))
+            })
         {
-            let entry = entry.expect("Can continue reading shader import directory");
-            if entry.file_type().unwrap().is_file() {
-                let file_name = entry.file_name();
-                if let Some(name) = file_name.to_str() {
-                    let suffix = ".wgsl";
-                    if let Some(shader_name) = name.strip_suffix(suffix) {
-                        let contents = fs::read_to_string(shader_dir.join(&file_name))
-                            .expect("Could read shader {shader_name} contents");
-                        if let Some(permutations) = permutation_map.get(shader_name) {
-                            for permutation in permutations {
-                                let mut defines = defines.clone();
-                                defines.extend(permutation.defines.iter().cloned());
-                                let source = preprocess::preprocess(&contents, &defines, &imports);
-                                let shader_info = Self::new(source.clone(), "main").unwrap();
-                                info.insert(permutation.name.clone(), shader_info);
-                            }
-                        } else {
+            let file_name = entry.file_name();
+            if let Some(name) = file_name.to_str() {
+                let suffix = ".wgsl";
+                if let Some(shader_name) = name.strip_suffix(suffix) {
+                    let contents = fs::read_to_string(shader_dir.join(&file_name))
+                        .expect("Could read shader {shader_name} contents");
+                    if let Some(permutations) = permutation_map.get(shader_name) {
+                        for permutation in permutations {
+                            let mut defines = defines.clone();
+                            defines.extend(permutation.defines.iter().cloned());
                             let source = preprocess::preprocess(&contents, &defines, &imports);
                             let shader_info = Self::new(source.clone(), "main").unwrap();
-                            info.insert(shader_name.to_string(), shader_info);
+                            info.insert(permutation.name.clone(), shader_info);
                         }
+                    } else {
+                        let source = preprocess::preprocess(&contents, &defines, &imports);
+                        let shader_info = Self::new(source.clone(), "main").unwrap();
+                        info.insert(shader_name.to_string(), shader_info);
                     }
                 }
             }

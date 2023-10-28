@@ -6,6 +6,7 @@
 #import clip
 #import drawtag
 #import bbox
+#import transform
 
 @group(0) @binding(0)
 var<uniform> config: Config;
@@ -28,13 +29,9 @@ var<storage, read_write> info: array<u32>;
 @group(0) @binding(6)
 var<storage, read_write> clip_inp: array<ClipInp>;
 
-let WG_SIZE = 256u;
+#import util
 
-// Possibly dedup?
-struct Transform {
-    matrx: vec4<f32>,
-    translate: vec2<f32>,
-}
+let WG_SIZE = 256u;
 
 fn read_transform(transform_base: u32, ix: u32) -> Transform {
     let base = transform_base + ix * 6u;
@@ -78,7 +75,7 @@ fn main(
     workgroupBarrier();
     var m = sh_scratch[0];
     workgroupBarrier();
-    let tag_word = scene[config.drawtag_base + ix];
+    let tag_word = read_draw_tag_from_scene(ix);
     agg = map_draw_tag(tag_word);
     sh_scratch[local_id.x] = agg;
     for (var i = 0u; i < firstTrailingBit(WG_SIZE); i += 1u) {
@@ -95,7 +92,9 @@ fn main(
         m = combine_draw_monoid(m, sh_scratch[local_id.x - 1u]);
     }
     // m now contains exclusive prefix sum of draw monoid
-    draw_monoid[ix] = m;
+    if ix < config.n_drawobj {
+        draw_monoid[ix] = m;
+    }
     let dd = config.drawdata_base + m.scene_offset;
     let di = m.info_offset;
     if tag_word == DRAWTAG_FILL_COLOR || tag_word == DRAWTAG_FILL_LIN_GRADIENT ||
@@ -109,19 +108,16 @@ fn main(
         // let x1 = f32(bbox.x1);
         // let y1 = f32(bbox.y1);
         // let bbox_f = vec4(x0, y0, x1, y1);
-        let fill_mode = u32(bbox.linewidth >= 0.0);
-        var matrx: vec4<f32>;
-        var translate: vec2<f32>;
+        var transform = Transform();
         var linewidth = bbox.linewidth;
         if linewidth >= 0.0 || tag_word == DRAWTAG_FILL_LIN_GRADIENT || tag_word == DRAWTAG_FILL_RAD_GRADIENT ||
             tag_word == DRAWTAG_FILL_IMAGE 
         {
-            let transform = read_transform(config.transform_base, bbox.trans_ix);
-            matrx = transform.matrx;
-            translate = transform.translate;
+            transform = read_transform(config.transform_base, bbox.trans_ix);
         }
         if linewidth >= 0.0 {
             // Note: doesn't deal with anisotropic case
+            let matrx = transform.matrx;
             linewidth *= sqrt(abs(matrx.x * matrx.w - matrx.y * matrx.z));
         }
         switch tag_word {
@@ -134,8 +130,8 @@ fn main(
                 info[di] = bitcast<u32>(linewidth);
                 var p0 = bitcast<vec2<f32>>(vec2(scene[dd + 1u], scene[dd + 2u]));
                 var p1 = bitcast<vec2<f32>>(vec2(scene[dd + 3u], scene[dd + 4u]));
-                p0 = matrx.xy * p0.x + matrx.zw * p0.y + translate;
-                p1 = matrx.xy * p1.x + matrx.zw * p1.y + translate;
+                p0 = transform_apply(transform, p0);
+                p1 = transform_apply(transform, p1);
                 let dxy = p1 - p0;
                 let scale = 1.0 / dot(dxy, dxy);
                 let line_xy = dxy * scale;
@@ -145,44 +141,99 @@ fn main(
                 info[di + 3u] = bitcast<u32>(line_c);
             }
             // DRAWTAG_FILL_RAD_GRADIENT
-            case 0x2dcu: {
+            case 0x29cu: {
+                // Two-point conical gradient implementation based
+                // on the algorithm at <https://skia.org/docs/dev/design/conical/>
+                // This epsilon matches what Skia uses
+                let GRADIENT_EPSILON = 1.0 / f32(1 << 12u);
                 info[di] = bitcast<u32>(linewidth);
                 var p0 = bitcast<vec2<f32>>(vec2(scene[dd + 1u], scene[dd + 2u]));
                 var p1 = bitcast<vec2<f32>>(vec2(scene[dd + 3u], scene[dd + 4u]));
-                let r0 = bitcast<f32>(scene[dd + 5u]);
-                let r1 = bitcast<f32>(scene[dd + 6u]);
-                let inv_det = 1.0 / (matrx.x * matrx.w - matrx.y * matrx.z);
-                let inv_mat = inv_det * vec4(matrx.w, -matrx.y, -matrx.z, matrx.x);
-                let inv_tr = mat2x2(inv_mat.xy, inv_mat.zw) * -translate - p0;
-                let center1 = p1 - p0;
-                let rr = r1 / (r1 - r0);
-                let ra_inv = rr / (r1 * r1 - dot(center1, center1));
-                let c1 = center1 * ra_inv;
-                let ra = rr * ra_inv;
-                let roff = rr - 1.0;
-                info[di + 1u] = bitcast<u32>(inv_mat.x);
-                info[di + 2u] = bitcast<u32>(inv_mat.y);
-                info[di + 3u] = bitcast<u32>(inv_mat.z);
-                info[di + 4u] = bitcast<u32>(inv_mat.w);
-                info[di + 5u] = bitcast<u32>(inv_tr.x);
-                info[di + 6u] = bitcast<u32>(inv_tr.y);
-                info[di + 7u] = bitcast<u32>(c1.x);
-                info[di + 8u] = bitcast<u32>(c1.y);
-                info[di + 9u] = bitcast<u32>(ra);
-                info[di + 10u] = bitcast<u32>(roff);
+                var r0 = bitcast<f32>(scene[dd + 5u]);
+                var r1 = bitcast<f32>(scene[dd + 6u]);
+                let user_to_gradient = transform_inverse(transform);
+                // Output variables
+                var xform = Transform();
+                var focal_x = 0.0;
+                var radius = 0.0;
+                var kind = 0u;
+                var flags = 0u;
+                if abs(r0 - r1) <= GRADIENT_EPSILON {
+                    // When the radii are the same, emit a strip gradient
+                    kind = RAD_GRAD_KIND_STRIP;
+                    let scaled = r0 / distance(p0, p1);
+                    xform = transform_mul(
+                        two_point_to_unit_line(p0, p1),
+                        user_to_gradient
+                    );
+                    radius = scaled * scaled;
+                } else {
+                    // Assume a two point conical gradient unless the centers
+                    // are equal.
+                    kind = RAD_GRAD_KIND_CONE;
+                    if all(p0 == p1) {
+                        kind = RAD_GRAD_KIND_CIRCULAR;
+                        // Nudge p0 a bit to avoid denormals.
+                        p0 += GRADIENT_EPSILON;
+                    }
+                    if r1 == 0.0 {
+                        // If r1 == 0.0, swap the points and radii
+                        flags |= RAD_GRAD_SWAPPED;
+                        let tmp_p = p0;
+                        p0 = p1;
+                        p1 = tmp_p;
+                        let tmp_r = r0;
+                        r0 = r1;
+                        r1 = tmp_r;
+                    }
+                    focal_x = r0 / (r0 - r1);
+                    let cf = (1.0 - focal_x) * p0 + focal_x * p1;
+                    radius = r1 / (distance(cf, p1));
+                    let user_to_unit_line = transform_mul(
+                        two_point_to_unit_line(cf, p1),
+                        user_to_gradient
+                    );
+                    var user_to_scaled = user_to_unit_line;
+                    // When r == 1.0, focal point is on circle
+                    if abs(radius - 1.0) <= GRADIENT_EPSILON { 
+                        kind = RAD_GRAD_KIND_FOCAL_ON_CIRCLE;
+                        let scale = 0.5 * abs(1.0 - focal_x);
+                        user_to_scaled = transform_mul(
+                            Transform(vec4(scale, 0.0, 0.0, scale), vec2(0.0)),
+                            user_to_unit_line
+                        );
+                    } else {
+                        let a = radius * radius - 1.0;
+                        let scale_ratio = abs(1.0 - focal_x) / a;
+                        let scale_x = radius * scale_ratio;
+                        let scale_y = sqrt(abs(a)) * scale_ratio;
+                        user_to_scaled = transform_mul(
+                            Transform(vec4(scale_x, 0.0, 0.0, scale_y), vec2(0.0)),
+                            user_to_unit_line
+                        );
+                    }
+                    xform = user_to_scaled;
+                }
+                info[di + 1u] = bitcast<u32>(xform.matrx.x);
+                info[di + 2u] = bitcast<u32>(xform.matrx.y);
+                info[di + 3u] = bitcast<u32>(xform.matrx.z);
+                info[di + 4u] = bitcast<u32>(xform.matrx.w);
+                info[di + 5u] = bitcast<u32>(xform.translate.x);
+                info[di + 6u] = bitcast<u32>(xform.translate.y);
+                info[di + 7u] = bitcast<u32>(focal_x);
+                info[di + 8u] = bitcast<u32>(radius);
+                info[di + 9u] = bitcast<u32>((flags << 3u) | kind);
             }
             // DRAWTAG_FILL_IMAGE
             case 0x248u: {
                 info[di] = bitcast<u32>(linewidth);
-                let inv_det = 1.0 / (matrx.x * matrx.w - matrx.y * matrx.z);
-                let inv_mat = inv_det * vec4(matrx.w, -matrx.y, -matrx.z, matrx.x);
-                let inv_tr = mat2x2(inv_mat.xy, inv_mat.zw) * -translate;
-                info[di + 1u] = bitcast<u32>(inv_mat.x);
-                info[di + 2u] = bitcast<u32>(inv_mat.y);
-                info[di + 3u] = bitcast<u32>(inv_mat.z);
-                info[di + 4u] = bitcast<u32>(inv_mat.w);
-                info[di + 5u] = bitcast<u32>(inv_tr.x);
-                info[di + 6u] = bitcast<u32>(inv_tr.y);
+                let inv = transform_inverse(transform);
+                info[di + 1u] = bitcast<u32>(inv.matrx.x);
+                info[di + 2u] = bitcast<u32>(inv.matrx.y);
+                info[di + 3u] = bitcast<u32>(inv.matrx.z);
+                info[di + 4u] = bitcast<u32>(inv.matrx.w);
+                info[di + 5u] = bitcast<u32>(inv.translate.x);
+                info[di + 6u] = bitcast<u32>(inv.translate.y);
                 info[di + 7u] = scene[dd];
                 info[di + 8u] = scene[dd + 1u];
             }
@@ -196,4 +247,18 @@ fn main(
         }
         clip_inp[m.clip_ix] = ClipInp(ix, i32(path_ix));
     }
+}
+
+fn two_point_to_unit_line(p0: vec2<f32>, p1: vec2<f32>) -> Transform {
+    let tmp1 = from_poly2(p0, p1);
+    let inv = transform_inverse(tmp1);
+    let tmp2 = from_poly2(vec2(0.0), vec2(1.0, 0.0));
+    return transform_mul(tmp2, inv);
+}
+
+fn from_poly2(p0: vec2<f32>, p1: vec2<f32>) -> Transform {
+    return Transform(
+        vec4(p1.y - p0.y, p0.x - p1.x, p1.x - p0.x, p1.y - p0.y),
+        vec2(p0.x, p0.y)
+    );
 }

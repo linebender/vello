@@ -12,7 +12,7 @@ use {
         image_cache::{ImageCache, Images},
         ramp_cache::{RampCache, Ramps},
     },
-    peniko::Image,
+    peniko::{Extend, Image},
     std::ops::Range,
 };
 
@@ -279,11 +279,13 @@ impl Resolver {
                     ResolvedPatch::Ramp {
                         draw_data_offset,
                         ramp_id,
+                        extend,
                     } => {
                         if pos < *draw_data_offset {
                             data.extend_from_slice(&encoding.draw_data[pos..*draw_data_offset]);
                         }
-                        data.extend_from_slice(bytemuck::bytes_of(ramp_id));
+                        let index_mode = (ramp_id << 2) | *extend as u32;
+                        data.extend_from_slice(bytemuck::bytes_of(&index_mode));
                         pos = *draw_data_offset + 4;
                     }
                     ResolvedPatch::GlyphRun { .. } => {}
@@ -399,11 +401,13 @@ impl Resolver {
                 Patch::Ramp {
                     draw_data_offset,
                     stops,
+                    extend,
                 } => {
                     let ramp_id = self.ramp_cache.add(&resources.color_stops[stops.clone()]);
                     self.patches.push(ResolvedPatch::Ramp {
                         draw_data_offset: *draw_data_offset + sizes.draw_data,
                         ramp_id,
+                        extend: *extend,
                     });
                 }
                 Patch::GlyphRun { index } => {
@@ -411,7 +415,9 @@ impl Resolver {
                     let run = &resources.glyph_runs[*index];
                     let font_id = run.font.data.id();
                     let font_size_u32 = run.font_size.to_bits();
-                    let Ok(font_file) = fello::raw::FileRef::new(run.font.data.as_ref()) else { continue };
+                    let Ok(font_file) = fello::raw::FileRef::new(run.font.data.as_ref()) else {
+                        continue;
+                    };
                     let font = match font_file {
                         fello::raw::FileRef::Font(font) => Some(font),
                         fello::raw::FileRef::Collection(collection) => {
@@ -532,6 +538,8 @@ pub enum Patch {
         draw_data_offset: usize,
         /// Range of the gradient stops in the resource set.
         stops: Range<usize>,
+        /// Extend mode for the gradient.
+        extend: Extend,
     },
     /// Glyph run resource.
     GlyphRun {
@@ -563,6 +571,8 @@ enum ResolvedPatch {
         draw_data_offset: usize,
         /// Resolved ramp index.
         ramp_id: u32,
+        /// Extend mode for the gradient.
+        extend: Extend,
     },
     GlyphRun {
         /// Index of the original glyph run in the encoding.

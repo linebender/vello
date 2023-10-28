@@ -21,7 +21,6 @@
 //! Missing features include:
 //! - embedded images
 //! - text
-//! - gradients
 //! - group opacity
 //! - mix-blend-modes
 //! - clipping
@@ -36,8 +35,8 @@
 use std::convert::Infallible;
 
 use usvg::NodeExt;
-use vello::kurbo::{Affine, BezPath, Rect};
-use vello::peniko::{Brush, Color, Fill, Stroke};
+use vello::kurbo::{Affine, BezPath, Rect, Stroke};
+use vello::peniko::{Brush, Color, Fill};
 use vello::SceneBuilder;
 
 pub use usvg;
@@ -113,21 +112,31 @@ pub fn render_tree_with<F: FnMut(&mut SceneBuilder, &usvg::Node) -> Result<(), E
                 // FIXME: let path.paint_order determine the fill/stroke order.
 
                 if let Some(fill) = &path.fill {
-                    if let Some(brush) = paint_to_brush(&fill.paint, fill.opacity) {
+                    if let Some((brush, brush_transform)) =
+                        paint_to_brush(&fill.paint, fill.opacity)
+                    {
                         // FIXME: Set the fill rule
-                        sb.fill(Fill::NonZero, transform, &brush, None, &local_path);
+                        sb.fill(
+                            Fill::NonZero,
+                            transform,
+                            &brush,
+                            Some(brush_transform),
+                            &local_path,
+                        );
                     } else {
                         on_err(sb, &elt)?;
                     }
                 }
                 if let Some(stroke) = &path.stroke {
-                    if let Some(brush) = paint_to_brush(&stroke.paint, stroke.opacity) {
+                    if let Some((brush, brush_transform)) =
+                        paint_to_brush(&stroke.paint, stroke.opacity)
+                    {
                         // FIXME: handle stroke options such as linecap, linejoin, etc.
                         sb.stroke(
-                            &Stroke::new(stroke.width.get() as f32),
+                            &Stroke::new(stroke.width.get()),
                             transform,
                             &brush,
-                            None,
+                            Some(brush_transform),
                             &local_path,
                         );
                     } else {
@@ -225,16 +234,81 @@ pub fn default_error_handler(sb: &mut SceneBuilder, node: &usvg::Node) -> Result
     Ok(())
 }
 
-fn paint_to_brush(paint: &usvg::Paint, opacity: usvg::Opacity) -> Option<Brush> {
+fn paint_to_brush(paint: &usvg::Paint, opacity: usvg::Opacity) -> Option<(Brush, Affine)> {
     match paint {
-        usvg::Paint::Color(color) => Some(Brush::Solid(Color::rgba8(
-            color.red,
-            color.green,
-            color.blue,
-            opacity.to_u8(),
-        ))),
-        usvg::Paint::LinearGradient(_) => None,
-        usvg::Paint::RadialGradient(_) => None,
+        usvg::Paint::Color(color) => Some((
+            Brush::Solid(Color::rgba8(
+                color.red,
+                color.green,
+                color.blue,
+                opacity.to_u8(),
+            )),
+            Affine::IDENTITY,
+        )),
+        usvg::Paint::LinearGradient(gr) => {
+            let stops: Vec<vello::peniko::ColorStop> = gr
+                .stops
+                .iter()
+                .map(|stop| {
+                    let mut cstop = vello::peniko::ColorStop::default();
+                    cstop.color.r = stop.color.red;
+                    cstop.color.g = stop.color.green;
+                    cstop.color.b = stop.color.blue;
+                    cstop.color.a = (stop.opacity * opacity).to_u8();
+                    cstop.offset = stop.offset.get() as f32;
+                    cstop
+                })
+                .collect();
+            let start: vello::kurbo::Point = (gr.x1, gr.y1).into();
+            let end: vello::kurbo::Point = (gr.x2, gr.y2).into();
+            let transform = Affine::new([
+                gr.transform.a,
+                gr.transform.b,
+                gr.transform.c,
+                gr.transform.d,
+                gr.transform.e,
+                gr.transform.f,
+            ]);
+            let gradient =
+                vello::peniko::Gradient::new_linear(start, end).with_stops(stops.as_slice());
+            Some((Brush::Gradient(gradient), transform))
+        }
+        usvg::Paint::RadialGradient(gr) => {
+            let stops: Vec<vello::peniko::ColorStop> = gr
+                .stops
+                .iter()
+                .map(|stop| {
+                    let mut cstop = vello::peniko::ColorStop::default();
+                    cstop.color.r = stop.color.red;
+                    cstop.color.g = stop.color.green;
+                    cstop.color.b = stop.color.blue;
+                    cstop.color.a = (stop.opacity * opacity).to_u8();
+                    cstop.offset = stop.offset.get() as f32;
+                    cstop
+                })
+                .collect();
+
+            let start_center: vello::kurbo::Point = (gr.fx, gr.fy).into();
+            let end_center: vello::kurbo::Point = (gr.cx, gr.cy).into();
+            let start_radius = 0_f32;
+            let end_radius = gr.r.get() as f32;
+            let transform = Affine::new([
+                gr.transform.a,
+                gr.transform.b,
+                gr.transform.c,
+                gr.transform.d,
+                gr.transform.e,
+                gr.transform.f,
+            ]);
+            let gradient = vello::peniko::Gradient::new_two_point_radial(
+                start_center,
+                start_radius,
+                end_center,
+                end_radius,
+            )
+            .with_stops(stops.as_slice());
+            Some((Brush::Gradient(gradient), transform))
+        }
         usvg::Paint::Pattern(_) => None,
     }
 }

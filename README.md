@@ -7,7 +7,7 @@
 [![Xi Zulip](https://img.shields.io/badge/Xi%20Zulip-%23gpu-blue?logo=Zulip)](https://xi.zulipchat.com/#narrow/stream/197075-gpu)
 [![dependency status](https://deps.rs/repo/github/linebender/vello/status.svg)](https://deps.rs/repo/github/linebender/vello)
 [![MIT/Apache 2.0](https://img.shields.io/badge/license-MIT%2FApache-blue.svg)](#license)
-[![wgpu version](https://img.shields.io/badge/wgpu-v0.16-orange.svg)](https://crates.io/crates/wgpu)
+[![wgpu version](https://img.shields.io/badge/wgpu-v0.17-orange.svg)](https://crates.io/crates/wgpu)
 <!-- [![Crates.io](https://img.shields.io/crates/v/vello.svg)](https://crates.io/crates/vello) -->
 <!-- [![Docs](https://docs.rs/vello/badge.svg)](https://docs.rs/vello) -->
 <!-- [![Build status](https://github.com/linebender/vello/workflows/CI/badge.svg)](https://github.com/linebender/vello/actions) -->
@@ -36,6 +36,10 @@ a [`usvg`](https://crates.io/crates/usvg) `Tree` into a Vello scene.
 This is currently incomplete; see its crate level documentation for more information.
 
 This is used in the [winit](#winit) example for the SVG rendering.
+
+### Lottie
+
+A separate integration for playing Lottie animations is available through the [`velato`](https://github.com/linebender/velato) crate.
 
 ## Examples
 
@@ -71,6 +75,8 @@ This currently draws to a [`wgpu`] `Texture` using `vello`, then uses that textu
 ```shell
 cargo run -p with_bevy
 ```
+
+There is also a separate community integration for rendering lottie and SVG files through [`bevy_vello`](https://github.com/vectorgameexperts/bevy_vello).
 
 ## Platforms
 

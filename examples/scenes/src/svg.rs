@@ -7,6 +7,7 @@ use anyhow::{Ok, Result};
 use instant::Instant;
 use vello::{kurbo::Vec2, SceneBuilder, SceneFragment};
 use vello_svg::usvg;
+use vello_svg::usvg::TreeParsing;
 
 use crate::{ExampleScene, SceneParams, SceneSet};
 
@@ -75,8 +76,7 @@ fn example_scene_of(file: PathBuf) -> ExampleScene {
         .unwrap_or_else(|| "unknown".to_string());
     ExampleScene {
         function: Box::new(svg_function_of(name.clone(), move || {
-            let contents = std::fs::read_to_string(&file).expect("failed to read svg file");
-            contents
+            std::fs::read_to_string(file).expect("failed to read svg file")
         })),
         config: crate::SceneConfig {
             animated: false,
@@ -91,7 +91,7 @@ pub fn svg_function_of<R: AsRef<str>>(
 ) -> impl FnMut(&mut SceneBuilder, &mut SceneParams) {
     fn render_svg_contents(name: &str, contents: &str) -> (SceneFragment, Vec2) {
         let start = Instant::now();
-        let svg = usvg::Tree::from_str(&contents, &usvg::Options::default())
+        let svg = usvg::Tree::from_str(contents, &usvg::Options::default())
             .expect("failed to parse svg file");
         eprintln!("Parsed svg {name} in {:?}", start.elapsed());
         let start = Instant::now();
@@ -112,7 +112,7 @@ pub fn svg_function_of<R: AsRef<str>>(
     let mut contents = Some(contents);
     move |builder, params| {
         if let Some((scene_frag, resolution)) = cached_scene.as_mut() {
-            builder.append(&scene_frag, None);
+            builder.append(scene_frag, None);
             params.resolution = Some(*resolution);
             return;
         }

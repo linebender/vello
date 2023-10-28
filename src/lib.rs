@@ -14,10 +14,15 @@
 //
 // Also licensed under MIT license, at your choice.
 
+mod cpu_dispatch;
+mod cpu_shader;
 mod engine;
+mod mask;
 mod render;
 mod scene;
 mod shaders;
+#[cfg(feature = "wgpu")]
+mod wgpu_engine;
 
 /// Styling and composition primitives.
 pub use peniko;
@@ -28,16 +33,28 @@ pub use peniko::kurbo;
 pub use fello;
 
 pub mod glyph;
+
+#[cfg(feature = "wgpu")]
 pub mod util;
 
-use render::Render;
+pub use render::Render;
 pub use scene::{DrawGlyphs, Scene, SceneBuilder, SceneFragment};
+#[cfg(feature = "wgpu")]
 pub use util::block_on_wgpu;
 
-use engine::{Engine, ExternalResource, Recording};
-use shaders::FullShaders;
+pub use engine::{
+    BufProxy, Command, Id, ImageFormat, ImageProxy, Recording, ResourceProxy, ShaderId,
+};
+pub use shaders::FullShaders;
+#[cfg(feature = "wgpu")]
+use wgpu_engine::{ExternalResource, WgpuEngine};
 
+/// Temporary export, used in with_winit for stats
+pub use vello_encoding::BumpAllocators;
+#[cfg(feature = "wgpu")]
 use wgpu::{Device, Queue, SurfaceTexture, TextureFormat, TextureView};
+#[cfg(feature = "wgpu-profiler")]
+use wgpu_profiler::GpuProfiler;
 
 /// Catch-all error type.
 pub type Error = Box<dyn std::error::Error>;
@@ -45,12 +62,32 @@ pub type Error = Box<dyn std::error::Error>;
 /// Specialization of `Result` for our catch-all error type.
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// Possible configurations for antialiasing.
+#[derive(PartialEq, Eq)]
+#[allow(unused)]
+enum AaConfig {
+    Area,
+    Msaa8,
+    Msaa16,
+}
+
+/// Configuration of antialiasing. Currently this is static, but could be switched to
+/// a launch option or even finer-grained.
+const ANTIALIASING: AaConfig = AaConfig::Area;
+
 /// Renders a scene into a texture or surface.
+#[cfg(feature = "wgpu")]
 pub struct Renderer {
-    engine: Engine,
+    engine: WgpuEngine,
     shaders: FullShaders,
     blit: Option<BlitPipeline>,
     target: Option<TargetTexture>,
+    #[cfg(feature = "wgpu-profiler")]
+    profiler: GpuProfiler,
+    #[cfg(feature = "wgpu-profiler")]
+    pub profile_result: Option<Vec<wgpu_profiler::GpuTimerScopeResult>>,
+    #[cfg(feature = "hot_reload")]
+    use_cpu: bool,
 }
 
 /// Parameters used in a single render that are configurable by the client.
@@ -64,17 +101,26 @@ pub struct RenderParams {
     pub height: u32,
 }
 
+#[cfg(feature = "wgpu")]
 pub struct RendererOptions {
     /// The format of the texture used for surfaces with this renderer/device
     /// If None, the renderer cannot be used with surfaces
     pub surface_format: Option<TextureFormat>,
+    /// The timestamp period from [`wgpu::Queue::get_timestamp_period`]
+    /// Used when the wgpu-profiler feature is enabled
+    pub timestamp_period: f32,
+    pub use_cpu: bool,
 }
 
+#[cfg(feature = "wgpu")]
 impl Renderer {
     /// Creates a new renderer for the specified device.
     pub fn new(device: &Device, render_options: &RendererOptions) -> Result<Self> {
-        let mut engine = Engine::new();
-        let shaders = shaders::full_shaders(device, &mut engine)?;
+        let mut engine = WgpuEngine::new();
+        let mut shaders = shaders::full_shaders(device, &mut engine)?;
+        if render_options.use_cpu {
+            shaders.install_cpu_shaders(&mut engine);
+        }
         let blit = render_options
             .surface_format
             .map(|surface_format| BlitPipeline::new(device, surface_format));
@@ -83,6 +129,13 @@ impl Renderer {
             shaders,
             blit,
             target: None,
+            // Use 3 pending frames
+            #[cfg(feature = "wgpu-profiler")]
+            profiler: GpuProfiler::new(3, render_options.timestamp_period, device.features()),
+            #[cfg(feature = "wgpu-profiler")]
+            profile_result: None,
+            #[cfg(feature = "hot_reload")]
+            use_cpu: render_options.use_cpu,
         })
     }
 
@@ -104,8 +157,15 @@ impl Renderer {
             *target.as_image().unwrap(),
             texture,
         )];
-        self.engine
-            .run_recording(device, queue, &recording, &external_resources)?;
+        self.engine.run_recording(
+            device,
+            queue,
+            &recording,
+            &external_resources,
+            "render_to_texture",
+            #[cfg(feature = "wgpu-profiler")]
+            &mut self.profiler,
+        )?;
         Ok(())
     }
 
@@ -180,8 +240,11 @@ impl Renderer {
     #[cfg(feature = "hot_reload")]
     pub async fn reload_shaders(&mut self, device: &Device) -> Result<()> {
         device.push_error_scope(wgpu::ErrorFilter::Validation);
-        let mut engine = Engine::new();
-        let shaders = shaders::full_shaders(device, &mut engine)?;
+        let mut engine = WgpuEngine::new();
+        let mut shaders = shaders::full_shaders(device, &mut engine)?;
+        if self.use_cpu {
+            shaders.install_cpu_shaders(&mut engine);
+        }
         let error = device.pop_error_scope().await;
         if let Some(error) = error {
             return Err(error.into());
@@ -196,6 +259,12 @@ impl Renderer {
     /// The texture is assumed to be of the specified dimensions and have been created with
     /// the [wgpu::TextureFormat::Rgba8Unorm] format and the [wgpu::TextureUsages::STORAGE_BINDING]
     /// flag set.
+    ///
+    /// The return value is the value of the `BumpAllocators` in this rendering, which is currently used
+    /// for debug output.
+    ///
+    /// This return type is not stable, and will likely be changed when a more principled way to access
+    /// relevant statistics is implemented
     pub async fn render_to_texture_async(
         &mut self,
         device: &Device,
@@ -203,13 +272,25 @@ impl Renderer {
         scene: &Scene,
         texture: &TextureView,
         params: &RenderParams,
-    ) -> Result<()> {
+    ) -> Result<Option<BumpAllocators>> {
         let mut render = Render::new();
         let encoding = scene.data();
-        let recording = render.render_encoding_coarse(encoding, &self.shaders, params, true);
+        // TODO: turn this on; the download feature interacts with CPU dispatch
+        let robust = false;
+        let recording = render.render_encoding_coarse(encoding, &self.shaders, params, robust);
         let target = render.out_image();
         let bump_buf = render.bump_buf();
-        self.engine.run_recording(device, queue, &recording, &[])?;
+        self.engine.run_recording(
+            device,
+            queue,
+            &recording,
+            &[],
+            "t_async_coarse",
+            #[cfg(feature = "wgpu-profiler")]
+            &mut self.profiler,
+        )?;
+
+        let mut bump: Option<BumpAllocators> = None;
         if let Some(bump_buf) = self.engine.get_download(bump_buf) {
             let buf_slice = bump_buf.slice(..);
             let (sender, receiver) = futures_intrusive::channel::shared::oneshot_channel();
@@ -219,8 +300,8 @@ impl Renderer {
             } else {
                 return Err("channel was closed".into());
             }
-            let _mapped = buf_slice.get_mapped_range();
-            // println!("{:?}", bytemuck::cast_slice::<_, u32>(&mapped));
+            let mapped = buf_slice.get_mapped_range();
+            bump = Some(bytemuck::pod_read_unaligned(&mapped));
         }
         // TODO: apply logic to determine whether we need to rerun coarse, and also
         // allocate the blend stack as needed.
@@ -229,9 +310,16 @@ impl Renderer {
         let mut recording = Recording::default();
         render.record_fine(&self.shaders, &mut recording);
         let external_resources = [ExternalResource::Image(target, texture)];
-        self.engine
-            .run_recording(device, queue, &recording, &external_resources)?;
-        Ok(())
+        self.engine.run_recording(
+            device,
+            queue,
+            &recording,
+            &external_resources,
+            "t_async_fine",
+            #[cfg(feature = "wgpu-profiler")]
+            &mut self.profiler,
+        )?;
+        Ok(bump)
     }
 
     /// See [Self::render_to_surface]
@@ -242,7 +330,7 @@ impl Renderer {
         scene: &Scene,
         surface: &SurfaceTexture,
         params: &RenderParams,
-    ) -> Result<()> {
+    ) -> Result<Option<BumpAllocators>> {
         let width = params.width;
         let height = params.height;
         let mut target = self
@@ -254,7 +342,8 @@ impl Renderer {
         if target.width != width || target.height != height {
             target = TargetTexture::new(device, width, height);
         }
-        self.render_to_texture_async(device, queue, scene, &target.view, params)
+        let bump = self
+            .render_to_texture_async(device, queue, scene, &target.view, params)
             .await?;
         let blit = self
             .blit
@@ -290,18 +379,28 @@ impl Renderer {
             render_pass.set_bind_group(0, &bind_group, &[]);
             render_pass.draw(0..6, 0..1);
         }
+        #[cfg(feature = "wgpu-profiler")]
+        self.profiler.resolve_queries(&mut encoder);
         queue.submit(Some(encoder.finish()));
         self.target = Some(target);
-        Ok(())
+        #[cfg(feature = "wgpu-profiler")]
+        self.profiler.end_frame().unwrap();
+        #[cfg(feature = "wgpu-profiler")]
+        if let Some(result) = self.profiler.process_finished_frame() {
+            self.profile_result = Some(result);
+        }
+        Ok(bump)
     }
 }
 
+#[cfg(feature = "wgpu")]
 struct TargetTexture {
     view: TextureView,
     width: u32,
     height: u32,
 }
 
+#[cfg(feature = "wgpu")]
 impl TargetTexture {
     pub fn new(device: &Device, width: u32, height: u32) -> Self {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -327,11 +426,13 @@ impl TargetTexture {
     }
 }
 
+#[cfg(feature = "wgpu")]
 struct BlitPipeline {
     bind_layout: wgpu::BindGroupLayout,
     pipeline: wgpu::RenderPipeline,
 }
 
+#[cfg(feature = "wgpu")]
 impl BlitPipeline {
     fn new(device: &Device, format: TextureFormat) -> Self {
         const SHADERS: &str = r#"

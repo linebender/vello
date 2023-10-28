@@ -1,5 +1,7 @@
+#[cfg(not(target_arch = "wasm32"))]
 pub mod download;
 mod images;
+mod mmark;
 mod simple_text;
 mod svg;
 mod test_scenes;
@@ -7,6 +9,7 @@ use std::path::PathBuf;
 
 use anyhow::{anyhow, Result};
 use clap::{Args, Subcommand};
+#[cfg(not(target_arch = "wasm32"))]
 use download::Download;
 pub use images::ImageCache;
 pub use simple_text::SimpleText;
@@ -25,6 +28,7 @@ pub struct SceneParams<'a> {
     pub images: &'a mut ImageCache,
     pub resolution: Option<Vec2>,
     pub base_color: Option<vello::peniko::Color>,
+    pub complexity: usize,
 }
 
 pub struct SceneConfig {
@@ -34,8 +38,18 @@ pub struct SceneConfig {
 }
 
 pub struct ExampleScene {
-    pub function: Box<dyn FnMut(&mut SceneBuilder, &mut SceneParams)>,
+    pub function: Box<dyn TestScene>,
     pub config: SceneConfig,
+}
+
+pub trait TestScene {
+    fn render(&mut self, sb: &mut SceneBuilder, params: &mut SceneParams);
+}
+
+impl<F: FnMut(&mut SceneBuilder, &mut SceneParams)> TestScene for F {
+    fn render(&mut self, sb: &mut SceneBuilder, params: &mut SceneParams) {
+        self(sb, params);
+    }
 }
 
 pub struct SceneSet {
@@ -65,6 +79,7 @@ pub struct Arguments {
 #[derive(Subcommand, Debug)]
 enum Command {
     /// Download SVG files for testing. By default, downloads a set of files from wikipedia
+    #[cfg(not(target_arch = "wasm32"))]
     Download(Download),
 }
 
@@ -87,7 +102,7 @@ impl Arguments {
             if self.test_scenes {
                 Ok(test_scenes())
             } else if let Some(svgs) = &self.svgs {
-                scene_from_files(&svgs)
+                scene_from_files(svgs)
             } else {
                 default_scene(command)
             }
@@ -99,7 +114,10 @@ impl Arguments {
 impl Command {
     fn action(&self) -> Result<()> {
         match self {
+            #[cfg(not(target_arch = "wasm32"))]
             Command::Download(download) => download.action(),
+            #[cfg(target_arch = "wasm32")]
+            _ => unreachable!("downloads not supported on wasm"),
         }
     }
 }
