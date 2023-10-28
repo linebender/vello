@@ -52,6 +52,8 @@ struct BindMapBuffer {
     label: &'static str,
 }
 
+unsafe impl Sync for BindMapBuffer {}
+
 #[derive(Default)]
 struct BindMap {
     buf_map: HashMap<Id, BindMapBuffer>,

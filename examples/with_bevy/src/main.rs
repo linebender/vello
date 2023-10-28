@@ -1,6 +1,6 @@
 use bevy::render::{Render, RenderSet};
-use vello::kurbo::{Affine, Point, Rect};
-use vello::peniko::{Color, Fill, Gradient, Stroke};
+use vello::kurbo::{Affine, Point, Rect, Stroke};
+use vello::peniko::{Color, Fill, Gradient};
 use vello::{Renderer, RendererOptions, Scene, SceneBuilder, SceneFragment};
 
 use bevy::{
@@ -30,6 +30,7 @@ impl FromWorld for VelloRenderer {
                 &RendererOptions {
                     surface_format: None,
                     timestamp_period: queue.0.get_timestamp_period(),
+                    use_cpu: false,
                 },
             )
             .unwrap(),
@@ -41,13 +42,17 @@ struct VelloPlugin;
 
 impl Plugin for VelloPlugin {
     fn build(&self, app: &mut App) {
-        let Ok(render_app) = app.get_sub_app_mut(RenderApp) else { return };
+        let Ok(render_app) = app.get_sub_app_mut(RenderApp) else {
+            return;
+        };
         // This should probably use the render graph, but working out the dependencies there is awkward
         render_app.add_systems(Render, render_scenes.in_set(RenderSet::Render));
     }
 
     fn finish(&self, app: &mut App) {
-        let Ok(render_app) = app.get_sub_app_mut(RenderApp) else { return };
+        let Ok(render_app) = app.get_sub_app_mut(RenderApp) else {
+            return;
+        };
         render_app.init_resource::<VelloRenderer>();
     }
 }

@@ -9,7 +9,7 @@ members = [
 
     "examples/headless",
     "examples/with_winit",
-    # "examples/with_bevy", # Disable for now until bevy is using wgpu 0.17
+    "examples/with_bevy", # Disable for now until bevy is using wgpu 0.17
     "examples/run_wasm",
     "examples/scenes",
 ]
