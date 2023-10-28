@@ -52,6 +52,7 @@ struct BindMapBuffer {
     label: &'static str,
 }
 
+// Prevent Bevy from complaining when used as a resource
 unsafe impl Sync for BindMapBuffer {}
 
 #[derive(Default)]
