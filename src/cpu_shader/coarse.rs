@@ -60,6 +60,7 @@ impl TileState {
         ptcl[(self.cmd_offset + offset) as usize] = value;
     }
 
+    // Returns true if this path should paint the tile.
     fn write_path(
         &mut self,
         config: &ConfigUniform,
@@ -67,7 +68,8 @@ impl TileState {
         ptcl: &mut [u32],
         tile: &mut Tile,
         draw_flags: u32,
-    ) {
+    ) -> bool {
+        let even_odd = (draw_flags & DRAW_INFO_FLAGS_FILL_RULE_BIT) != 0;
         let n_segs = tile.segment_count_or_ix;
         if n_segs != 0 {
             let seg_ix = bump.segments;
@@ -75,17 +77,29 @@ impl TileState {
             bump.segments += n_segs;
             self.alloc_cmd(4, config, bump, ptcl);
             self.write(ptcl, 0, CMD_FILL);
-            let even_odd = (draw_flags & DRAW_INFO_FLAGS_FILL_RULE_BIT) != 0;
             let size_and_rule = (n_segs << 1) | (even_odd as u32);
             self.write(ptcl, 1, size_and_rule);
             self.write(ptcl, 2, seg_ix);
             self.write(ptcl, 3, tile.backdrop as u32);
             self.cmd_offset += 4;
         } else {
+            // If no line segments cross this tile then the tile is completely inside a
+            // subregion of the path. If the rule is non-zero, the tile should get completely
+            // painted based on the draw tag (either a solid fill, gradient fill, or an image fill;
+            // writing CMD_SOLID below ensures that the pixel area coverage is 100%).
+            //
+            // If the rule is even-odd then this path shouldn't paint the tile at all if its
+            // winding number is even. We check this by simply looking at the backdrop, which
+            // contains the winding number of the top-left corner of the tile (and in this case, it
+            // applies to the whole tile).
+            if even_odd && (tile.backdrop.abs() & 1) == 0 {
+                return false;
+            }
             self.alloc_cmd(1, config, bump, ptcl);
             self.write(ptcl, 0, CMD_SOLID);
             self.cmd_offset += 1;
         }
+        true
     }
 
     fn write_color(
@@ -248,40 +262,44 @@ fn coarse_main(
                         match DrawTag(drawtag) {
                             DrawTag::COLOR => {
                                 let draw_flags = info_bin_data[di as usize];
-                                tile_state.write_path(config, bump, ptcl, tile, draw_flags);
-                                let rgba_color = scene[dd as usize];
-                                tile_state.write_color(config, bump, ptcl, rgba_color);
+                                if tile_state.write_path(config, bump, ptcl, tile, draw_flags) {
+                                    let rgba_color = scene[dd as usize];
+                                    tile_state.write_color(config, bump, ptcl, rgba_color);
+                                }
                             }
                             DrawTag::IMAGE => {
                                 let draw_flags = info_bin_data[di as usize];
-                                tile_state.write_path(config, bump, ptcl, tile, draw_flags);
-                                tile_state.write_image(config, bump, ptcl, di + 1);
+                                if tile_state.write_path(config, bump, ptcl, tile, draw_flags) {
+                                    tile_state.write_image(config, bump, ptcl, di + 1);
+                                }
                             }
                             DrawTag::LINEAR_GRADIENT => {
                                 let draw_flags = info_bin_data[di as usize];
-                                tile_state.write_path(config, bump, ptcl, tile, draw_flags);
-                                let index = scene[dd as usize];
-                                tile_state.write_grad(
-                                    config,
-                                    bump,
-                                    ptcl,
-                                    CMD_LIN_GRAD,
-                                    index,
-                                    di + 1,
-                                );
+                                if tile_state.write_path(config, bump, ptcl, tile, draw_flags) {
+                                    let index = scene[dd as usize];
+                                    tile_state.write_grad(
+                                        config,
+                                        bump,
+                                        ptcl,
+                                        CMD_LIN_GRAD,
+                                        index,
+                                        di + 1,
+                                    );
+                                }
                             }
                             DrawTag::RADIAL_GRADIENT => {
                                 let draw_flags = info_bin_data[di as usize];
-                                tile_state.write_path(config, bump, ptcl, tile, draw_flags);
-                                let index = scene[dd as usize];
-                                tile_state.write_grad(
-                                    config,
-                                    bump,
-                                    ptcl,
-                                    CMD_RAD_GRAD,
-                                    index,
-                                    di + 1,
-                                );
+                                if tile_state.write_path(config, bump, ptcl, tile, draw_flags) {
+                                    let index = scene[dd as usize];
+                                    tile_state.write_grad(
+                                        config,
+                                        bump,
+                                        ptcl,
+                                        CMD_RAD_GRAD,
+                                        index,
+                                        di + 1,
+                                    );
+                                }
                             }
                             DrawTag::BEGIN_CLIP => {
                                 if tile.segment_count_or_ix == 0 && tile.backdrop == 0 {
@@ -294,6 +312,7 @@ fn coarse_main(
                             }
                             DrawTag::END_CLIP => {
                                 clip_depth -= 1;
+                                // A clip shape is always a non-zero fill (draw_flags=0).
                                 tile_state.write_path(config, bump, ptcl, tile, 0);
                                 let blend = scene[dd as usize];
                                 let alpha = f32::from_bits(scene[dd as usize + 1]);

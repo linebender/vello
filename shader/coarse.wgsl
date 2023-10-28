@@ -82,6 +82,7 @@ fn alloc_cmd(size: u32) {
     }
 }
 
+// Returns true if this path should paint the tile.
 fn write_path(tile: Tile, tile_ix: u32, draw_flags: u32) -> bool {
     let even_odd = (draw_flags & DRAW_INFO_FLAGS_FILL_RULE_BIT) != 0u;
     // We overload the "segments" field to store both count (written by
@@ -100,6 +101,15 @@ fn write_path(tile: Tile, tile_ix: u32, draw_flags: u32) -> bool {
         ptcl[cmd_offset + 3u] = u32(fill.backdrop);
         cmd_offset += 4u;
     } else {
+        // If no line segments cross this tile then the tile is completely inside a
+        // subregion of the path. If the rule is non-zero, the tile should get completely
+        // painted based on the draw tag (either a solid fill, gradient fill, or an image fill;
+        // writing CMD_SOLID below ensures that the pixel area coverage is 100%).
+        //
+        // If the rule is even-odd then this path shouldn't paint the tile at all if its
+        // winding number is even. We check this by simply looking at the backdrop, which
+        // contains the winding number of the top-left corner of the tile (and in this case, it
+        // applies to the whole tile).
         if even_odd && (abs(tile.backdrop) & 1) == 0 {
             return false;
         }
@@ -395,7 +405,8 @@ fn main(
                     // DRAWTAG_END_CLIP
                     case 0x21u: {
                         clip_depth -= 1u;
-                        write_path(tile, tile_ix, 0u);
+                        // A clip shape is always a non-zero fill (draw_flags=0).
+                        write_path(tile, tile_ix, /*draw_flags=*/0u);
                         let blend = scene[dd];
                         let alpha = bitcast<f32>(scene[dd + 1u]);
                         write_end_clip(CmdEndClip(blend, alpha));
