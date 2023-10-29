@@ -155,64 +155,6 @@ pub fn render_tree_with<F: FnMut(&mut SceneBuilder, &usvg::Node) -> Result<(), E
     Ok(())
 }
 
-pub fn tree_to_bezpath(svg: &usvg::Tree) {
-    for elt in svg.root.descendants() {
-        let transform = {
-            let usvg::Transform { a, b, c, d, e, f } = elt.abs_transform();
-            Affine::new([a, b, c, d, e, f])
-        };
-        match &*elt.borrow() {
-            usvg::NodeKind::Group(_) => {}
-            usvg::NodeKind::Path(path) => {
-                let mut local_path = BezPath::new();
-                // The semantics of SVG paths don't line up with `BezPath`; we must manually track initial points
-                let mut just_closed = false;
-                let mut most_recent_initial = (0., 0.);
-                for elt in path.data.segments() {
-                    match elt {
-                        usvg::PathSegment::MoveTo { x, y } => {
-                            if std::mem::take(&mut just_closed) {
-                                local_path.move_to(most_recent_initial);
-                            }
-                            most_recent_initial = (x, y);
-                            local_path.move_to(most_recent_initial)
-                        }
-                        usvg::PathSegment::LineTo { x, y } => {
-                            if std::mem::take(&mut just_closed) {
-                                local_path.move_to(most_recent_initial);
-                            }
-                            local_path.line_to((x, y))
-                        }
-                        usvg::PathSegment::CurveTo {
-                            x1,
-                            y1,
-                            x2,
-                            y2,
-                            x,
-                            y,
-                        } => {
-                            if std::mem::take(&mut just_closed) {
-                                local_path.move_to(most_recent_initial);
-                            }
-                            local_path.curve_to((x1, y1), (x2, y2), (x, y))
-                        }
-                        usvg::PathSegment::ClosePath => {
-                            just_closed = true;
-                            local_path.close_path()
-                        }
-                    }
-                }
-            }
-            usvg::NodeKind::Image(_) => {
-                // on_err(sb, &elt)?;
-            }
-            usvg::NodeKind::Text(_) => {
-                // on_err(sb, &elt)?;
-            }
-        }
-    }
-}
-
 /// Error handler function for [`render_tree_with`] which draws a transparent red box
 /// instead of unsupported SVG features
 pub fn default_error_handler(sb: &mut SceneBuilder, node: &usvg::Node) -> Result<(), Infallible> {
