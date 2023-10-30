@@ -130,16 +130,15 @@ let ROBUST_EPSILON: f32 = 2e-7;
 // is invited to study the even-odd case first, as there only one bit is
 // needed to represent a winding number parity, thus there is a lot less
 // bit shifting, and less shuffling altogether.
-fn fill_path_ms(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>, result: ptr<function, array<f32, PIXELS_PER_THREAD>>) {
+fn fill_path_ms(fill: CmdFill, local_id: vec2<u32>, result: ptr<function, array<f32, PIXELS_PER_THREAD>>) {
     let even_odd = (fill.size_and_rule & 1u) != 0u;
     // This isn't a divergent branch because the fill parameters are workgroup uniform,
     // provably so because the ptcl buffer is bound read-only.
     if even_odd {
-        fill_path_ms_evenodd(fill, wg_id, local_id, result);
+        fill_path_ms_evenodd(fill, local_id, result);
         return;
     }
     let n_segs = fill.size_and_rule >> 1u;
-    let tile_origin = vec2(f32(wg_id.x) * f32(TILE_HEIGHT), f32(wg_id.y) * f32(TILE_WIDTH));
     let th_ix = local_id.y * (TILE_WIDTH / PIXELS_PER_THREAD) + local_id.x;
     // Initialize winding number arrays to a winding number of 0, which is 0x80 in an
     // 8 bit biased signed integer encoding.
@@ -163,9 +162,7 @@ fn fill_path_ms(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>, result: pt
         // TODO: might save a register rewriting this in terms of limit
         if th_ix < slice_size {
             let segment = segments[seg_off];
-            // Note: coords relative to tile origin probably a good idea in coarse path,
-            // especially as f16 would work. But keeping existing scheme for compatibility.
-            let xy0 = segment.origin - tile_origin;
+            let xy0 = segment.origin;
             let xy1 = xy0 + segment.delta;
             var y_edge_f = f32(TILE_HEIGHT);
             var delta = select(-1, 1, xy1.x <= xy0.x);
@@ -224,7 +221,8 @@ fn fill_path_ms(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>, result: pt
             let sub_ix = i - select(0u, sh_count[el_ix - 1u], el_ix > 0u);
             let seg_off = fill.seg_data + batch * WG_SIZE + el_ix;
             let segment = segments[seg_off];
-            let xy0_in = segment.origin - tile_origin;
+            // Coordinates are relative to tile origin
+            let xy0_in = segment.origin;
             let xy1_in = xy0_in + segment.delta;
             let is_down = xy1_in.y >= xy0_in.y;
             let xy0 = select(xy1_in, xy0_in, is_down);
@@ -492,9 +490,8 @@ fn fill_path_ms(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>, result: pt
 // as both have the same effect on winding number.
 //
 // TODO: factor some logic out to reduce code duplication.
-fn fill_path_ms_evenodd(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>, result: ptr<function, array<f32, PIXELS_PER_THREAD>>) {
+fn fill_path_ms_evenodd(fill: CmdFill, local_id: vec2<u32>, result: ptr<function, array<f32, PIXELS_PER_THREAD>>) {
     let n_segs = fill.size_and_rule >> 1u;
-    let tile_origin = vec2(f32(wg_id.x) * f32(TILE_HEIGHT), f32(wg_id.y) * f32(TILE_WIDTH));
     let th_ix = local_id.y * (TILE_WIDTH / PIXELS_PER_THREAD) + local_id.x;
     if th_ix < TILE_HEIGHT {
         if th_ix == 0u {
@@ -516,9 +513,8 @@ fn fill_path_ms_evenodd(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>, re
         // TODO: might save a register rewriting this in terms of limit
         if th_ix < slice_size {
             let segment = segments[seg_off];
-            // Note: coords relative to tile origin probably a good idea in coarse path,
-            // especially as f16 would work. But keeping existing scheme for compatibility.
-            let xy0 = segment.origin - tile_origin;
+            // Coordinates are relative to tile origin
+            let xy0 = segment.origin;
             let xy1 = xy0 + segment.delta;
             var y_edge_f = f32(TILE_HEIGHT);
             if xy0.x == 0.0 && xy1.x == 0.0 {
@@ -575,7 +571,7 @@ fn fill_path_ms_evenodd(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>, re
             let sub_ix = i - select(0u, sh_count[el_ix - 1u], el_ix > 0u);
             let seg_off = fill.seg_data + batch * WG_SIZE + el_ix;
             let segment = segments[seg_off];
-            let xy0_in = segment.origin - tile_origin;
+            let xy0_in = segment.origin;
             let xy1_in = xy0_in + segment.delta;
             let is_down = xy1_in.y >= xy0_in.y;
             let xy0 = select(xy1_in, xy0_in, is_down);
@@ -864,6 +860,7 @@ fn main(
 ) {
     let tile_ix = wg_id.y * config.width_in_tiles + wg_id.x;
     let xy = vec2(f32(global_id.x * PIXELS_PER_THREAD), f32(global_id.y));
+    let local_xy = vec2(f32(local_id.x * PIXELS_PER_THREAD), f32(local_id.y));
 #ifdef full
     var rgba: array<vec4<f32>, PIXELS_PER_THREAD>;
     for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
@@ -886,9 +883,9 @@ fn main(
             case 1u: {
                 let fill = read_fill(cmd_ix);
 #ifdef msaa
-                fill_path_ms(fill, wg_id.xy, local_id.xy, &area);
+                fill_path_ms(fill, local_id.xy, &area);
 #else
-                fill_path(fill, xy, &area);
+                fill_path(fill, local_xy, &area);
 #endif
                 cmd_ix += 4u;
             }

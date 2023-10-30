@@ -128,9 +128,9 @@ fn path_tiling_main(
             1e9
         };
         let segment = PathSegment {
-            origin: xy0.to_array(),
+            origin: (xy0 - tile_xy).to_array(),
             delta: (xy1 - xy0).to_array(),
-            y_edge,
+            y_edge: y_edge - tile_xy.y,
             _padding: Default::default(),
         };
         assert!(xy0.x >= tile_xy.x && xy0.x <= tile_xy1.x);

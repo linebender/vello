@@ -132,7 +132,7 @@ fn main(
             xy0 = xy1;
             xy1 = tmp;
         }
-        let segment = Segment(xy0, xy1 - xy0, y_edge);
+        let segment = Segment(xy0 - tile_xy, xy1 - xy0, y_edge - tile_xy.y);
         segments[seg_start + seg_within_slice] = segment;
     }
 }
