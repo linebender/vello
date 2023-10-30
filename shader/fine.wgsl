@@ -162,29 +162,18 @@ fn fill_path_ms(fill: CmdFill, local_id: vec2<u32>, result: ptr<function, array<
         // TODO: might save a register rewriting this in terms of limit
         if th_ix < slice_size {
             let segment = segments[seg_off];
-            let xy0 = segment.origin;
-            let xy1 = xy0 + segment.delta;
+            let xy0 = segment.point0;
+            let xy1 = segment.point1;
             var y_edge_f = f32(TILE_HEIGHT);
             var delta = select(-1, 1, xy1.x <= xy0.x);
-            if xy0.x == 0.0 && xy1.x == 0.0 {
-                if xy0.y == 0.0 {
-                    y_edge_f = 0.0;
-                } else if xy1.y == 0.0 {
-                    y_edge_f = 0.0;
-                    delta = -delta;
-                }
-            } else {
-                if xy0.x == 0.0 {
-                    if xy0.y != 0.0 {
-                        y_edge_f = xy0.y;
-                    }
-                } else if xy1.x == 0.0 && xy1.y != 0.0 {
-                    y_edge_f = xy1.y;
-                }
-                // discard horizontal lines aligned to pixel grid
-                if !(xy0.y == xy1.y && xy0.y == floor(xy0.y)) {
-                    count = span(xy0.x, xy1.x) + span(xy0.y, xy1.y) - 1u;
-                }
+            if xy0.x == 0.0 {
+                y_edge_f = xy0.y;
+            } else if xy1.x == 0.0 {
+                y_edge_f = xy1.y;
+            }
+            // discard horizontal lines aligned to pixel grid
+            if !(xy0.y == xy1.y && xy0.y == floor(xy0.y)) {
+                count = span(xy0.x, xy1.x) + span(xy0.y, xy1.y) - 1u;
             }
             let y_edge = u32(ceil(y_edge_f));
             if y_edge < TILE_HEIGHT {
@@ -222,8 +211,8 @@ fn fill_path_ms(fill: CmdFill, local_id: vec2<u32>, result: ptr<function, array<
             let seg_off = fill.seg_data + batch * WG_SIZE + el_ix;
             let segment = segments[seg_off];
             // Coordinates are relative to tile origin
-            let xy0_in = segment.origin;
-            let xy1_in = xy0_in + segment.delta;
+            let xy0_in = segment.point0;
+            let xy1_in = segment.point1;
             let is_down = xy1_in.y >= xy0_in.y;
             let xy0 = select(xy1_in, xy0_in, is_down);
             let xy1 = select(xy0_in, xy1_in, is_down);
@@ -514,27 +503,17 @@ fn fill_path_ms_evenodd(fill: CmdFill, local_id: vec2<u32>, result: ptr<function
         if th_ix < slice_size {
             let segment = segments[seg_off];
             // Coordinates are relative to tile origin
-            let xy0 = segment.origin;
-            let xy1 = xy0 + segment.delta;
+            let xy0 = segment.point0;
+            let xy1 = segment.point1;
             var y_edge_f = f32(TILE_HEIGHT);
-            if xy0.x == 0.0 && xy1.x == 0.0 {
-                if xy0.y == 0.0 {
-                    y_edge_f = 0.0;
-                } else if xy1.y == 0.0 {
-                    y_edge_f = 0.0;
-                }
-            } else {
-                if xy0.x == 0.0 {
-                    if xy0.y != 0.0 {
-                        y_edge_f = xy0.y;
-                    }
-                } else if xy1.x == 0.0 && xy1.y != 0.0 {
-                    y_edge_f = xy1.y;
-                }
-                // discard horizontal lines aligned to pixel grid
-                if !(xy0.y == xy1.y && xy0.y == floor(xy0.y)) {
-                    count = span(xy0.x, xy1.x) + span(xy0.y, xy1.y) - 1u;
-                }
+            if xy0.x == 0.0 {
+                y_edge_f = xy0.y;
+            } else if xy1.x == 0.0 {
+                y_edge_f = xy1.y;
+            }
+            // discard horizontal lines aligned to pixel grid
+            if !(xy0.y == xy1.y && xy0.y == floor(xy0.y)) {
+                count = span(xy0.x, xy1.x) + span(xy0.y, xy1.y) - 1u;
             }
             let y_edge = u32(ceil(y_edge_f));
             if y_edge < TILE_HEIGHT {
@@ -571,8 +550,8 @@ fn fill_path_ms_evenodd(fill: CmdFill, local_id: vec2<u32>, result: ptr<function
             let sub_ix = i - select(0u, sh_count[el_ix - 1u], el_ix > 0u);
             let seg_off = fill.seg_data + batch * WG_SIZE + el_ix;
             let segment = segments[seg_off];
-            let xy0_in = segment.origin;
-            let xy1_in = xy0_in + segment.delta;
+            let xy0_in = segment.point0;
+            let xy1_in = segment.point1;
             let is_down = xy1_in.y >= xy0_in.y;
             let xy0 = select(xy1_in, xy0_in, is_down);
             let xy1 = select(xy0_in, xy1_in, is_down);
@@ -807,17 +786,18 @@ fn fill_path(fill: CmdFill, xy: vec2<f32>, result: ptr<function, array<f32, PIXE
     for (var i = 0u; i < n_segs; i++) {
         let seg_off = fill.seg_data + i;
         let segment = segments[seg_off];
-        let y = segment.origin.y - xy.y;
+        let y = segment.point0.y - xy.y;
+        let delta = segment.point1 - segment.point0;
         let y0 = clamp(y, 0.0, 1.0);
-        let y1 = clamp(y + segment.delta.y, 0.0, 1.0);
+        let y1 = clamp(y + delta.y, 0.0, 1.0);
         let dy = y0 - y1;
         if dy != 0.0 {
-            let vec_y_recip = 1.0 / segment.delta.y;
+            let vec_y_recip = 1.0 / delta.y;
             let t0 = (y0 - y) * vec_y_recip;
             let t1 = (y1 - y) * vec_y_recip;
-            let startx = segment.origin.x - xy.x;
-            let x0 = startx + t0 * segment.delta.x;
-            let x1 = startx + t1 * segment.delta.x;
+            let startx = segment.point0.x - xy.x;
+            let x0 = startx + t0 * delta.x;
+            let x1 = startx + t1 * delta.x;
             let xmin0 = min(x0, x1);
             let xmax0 = max(x0, x1);
             for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
@@ -831,7 +811,7 @@ fn fill_path(fill: CmdFill, xy: vec2<f32>, result: ptr<function, array<f32, PIXE
                 area[i] += a * dy;
             }
         }
-        let y_edge = sign(segment.delta.x) * clamp(xy.y - segment.y_edge + 1.0, 0.0, 1.0);
+        let y_edge = sign(delta.x) * clamp(xy.y - segment.y_edge + 1.0, 0.0, 1.0);
         for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
             area[i] += y_edge;
         }

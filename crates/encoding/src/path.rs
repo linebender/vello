@@ -207,8 +207,8 @@ pub struct SegmentCount {
 #[derive(Clone, Copy, Debug, Zeroable, Pod, Default)]
 #[repr(C)]
 pub struct PathSegment {
-    pub origin: [f32; 2],
-    pub delta: [f32; 2],
+    pub point0: [f32; 2],
+    pub point1: [f32; 2],
     pub y_edge: f32,
     pub _padding: u32,
 }
