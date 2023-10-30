@@ -89,6 +89,55 @@ fn eval_cubic(p0: vec2<f32>, p1: vec2<f32>, p2: vec2<f32>, p3: vec2<f32>, t: f32
     return p0 * (mt * mt * mt) + (p1 * (mt * mt * 3.0) + (p2 * (mt * 3.0) + p3 * t) * t) * t;
 }
 
+fn eval_cubic_tangent(p0: vec2<f32>, p1: vec2<f32>, p2: vec2<f32>, p3: vec2<f32>, t: f32) -> vec2<f32> {
+    let dp0 = 3. * (p1 - p0);
+    let dp1 = 3. * (p2 - p1);
+    let dp2 = 3. * (p3 - p2);
+    return eval_quad(dp0, dp1, dp2, t);
+}
+
+fn eval_cubic_normal(p0: vec2<f32>, p1: vec2<f32>, p2: vec2<f32>, p3: vec2<f32>, t: f32) -> vec2<f32> {
+    let tangent = eval_cubic_tangent(p0, p1, p2, p3, t);
+    return vec2(-tangent.y, tangent.x);
+}
+
+fn eval_quad_tangent(p0: vec2<f32>, p1: vec2<f32>, p2: vec2<f32>, t: f32) -> vec2<f32> {
+    let dp0 = 2. * (p1 - p0);
+    let dp1 = 2. * (p2 - p1);
+    return mix(dp0, dp1, t);
+}
+
+fn eval_quad_normal(p0: vec2<f32>, p1: vec2<f32>, p2: vec2<f32>, t: f32) -> vec2<f32> {
+    let tangent = eval_quad_tangent(p0, p1, p2, t);
+    return vec2(-tangent.y, tangent.x);
+}
+
+fn cubic_start_tangent(p0: vec2<f32>, p1: vec2<f32>, p2: vec2<f32>, p3: vec2<f32>) -> vec2<f32> {
+    let EPS = 1e-12;
+    let d01 = p1 - p0;
+    let d02 = p2 - p0;
+    let d03 = p3 - p0;
+    return select(select(d03, d02, dot(d02, d02) > EPS), d01, dot(d01, d01) > EPS);
+}
+
+fn cubic_end_tangent(p0: vec2<f32>, p1: vec2<f32>, p2: vec2<f32>, p3: vec2<f32>) -> vec2<f32> {
+    let EPS = 1e-12;
+    let d23 = p3 - p2;
+    let d13 = p3 - p1;
+    let d03 = p3 - p0;
+    return select(select(d03, d13, dot(d13, d13) > EPS), d23, dot(d23, d23) > EPS);
+}
+
+fn cubic_start_normal(p0: vec2<f32>, p1: vec2<f32>, p2: vec2<f32>, p3: vec2<f32>) -> vec2<f32> {
+    let tangent = cubic_start_tangent(p0, p1, p2, p3);
+    return vec2(-tangent.y, tangent.x);
+}
+
+fn cubic_end_normal(p0: vec2<f32>, p1: vec2<f32>, p2: vec2<f32>, p3: vec2<f32>) -> vec2<f32> {
+    let tangent = cubic_end_tangent(p0, p1, p2, p3);
+    return vec2(-tangent.y, tangent.x);
+}
+
 let MAX_QUADS = 16u;
 
 fn flatten_cubic(cubic: Cubic) {
@@ -113,11 +162,22 @@ fn flatten_cubic(cubic: Cubic) {
         let qp2 = eval_cubic(p0, p1, p2, p3, t);
         var qp1 = eval_cubic(p0, p1, p2, p3, t - 0.5 * step);
         qp1 = 2.0 * qp1 - 0.5 * (qp0 + qp2);
-        let params = estimate_subdiv(qp0, qp1, qp2, sqrt(REM_ACCURACY));
+
+        // HACK: this increase subdivision count as function of the stroke width for shitty strokes.
+        var tol = sqrt(REM_ACCURACY);
+        if cubic.flags == 1u {
+            tol *= min(1000., dot(cubic.stroke, cubic.stroke));
+        }
+        let params = estimate_subdiv(qp0, qp1, qp2, tol);
         keep_params[i] = params;
         val += params.val;
         qp0 = qp2;
     }
+
+    // HACK: normal vector used to offset line segments for shitty stroke handling.
+    var n0 = cubic_start_normal(p0, p1, p2, p3);
+    n0 = normalize(n0) * cubic.stroke;
+
     let n = max(u32(ceil(val * (0.5 / sqrt(REM_ACCURACY)))), 1u);
     var lp0 = p0;
     qp0 = p0;
@@ -129,6 +189,7 @@ fn flatten_cubic(cubic: Cubic) {
         let qp2 = eval_cubic(p0, p1, p2, p3, t);
         var qp1 = eval_cubic(p0, p1, p2, p3, t - 0.5 * step);
         qp1 = 2.0 * qp1 - 0.5 * (qp0 + qp2);
+        let qp0_normal = eval_quad_normal(qp0, qp1, qp2, 0.);
         let params = keep_params[i];
         let u0 = approx_parabola_inv_integral(params.a0);
         let u2 = approx_parabola_inv_integral(params.a2);
@@ -136,20 +197,37 @@ fn flatten_cubic(cubic: Cubic) {
         var val_target = f32(n_out) * v_step;
         while n_out == n || val_target < val_sum + params.val {
             var lp1: vec2<f32>;
+            var t1: f32;
             if n_out == n {
                 lp1 = p3;
+                t1 = 1.;
             } else {
                 let u = (val_target - val_sum) / params.val;
                 let a = mix(params.a0, params.a2, u);
                 let au = approx_parabola_inv_integral(a);
                 let t = (au - u0) * uscale;
+                t1 = t;
                 lp1 = eval_quad(qp0, qp1, qp2, t);
             }
 
-            // Output line segment lp0..lp1
-            let line_ix = atomicAdd(&bump.lines, 1u);
-            // TODO: check failure
-            lines[line_ix] = LineSoup(cubic.path_ix, lp0, lp1);
+            if cubic.flags == 1u {
+                var n1: vec2f;
+                if all(lp1 == p3) {
+                    n1 = cubic_end_normal(p0, p1, p2, p3);
+                } else {
+                    n1 = eval_quad_normal(qp0, qp1, qp2, t1);
+                }
+                n1 = normalize(n1) * cubic.stroke;
+                let line_ix = atomicAdd(&bump.lines, 2u);
+                lines[line_ix]      = LineSoup(cubic.path_ix, lp0 + n0, lp1 + n1);
+                lines[line_ix + 1u] = LineSoup(cubic.path_ix, lp1 - n1, lp0 - n0);
+                n0 = n1;
+            } else {
+                // Output line segment lp0..lp1
+                let line_ix = atomicAdd(&bump.lines, 1u);
+                // TODO: check failure
+                lines[line_ix] = LineSoup(cubic.path_ix, lp0, lp1);
+            }
             n_out += 1u;
             val_target += v_step;
             lp0 = lp1;
@@ -220,8 +298,7 @@ fn main(
 
     let out = &path_bboxes[tm.path_ix];
     let style_flags = scene[config.style_base + tm.style_ix];
-    // TODO: We assume all paths are fills at the moment. This is where we will extract the stroke
-    // vs fill state using STYLE_FLAGS_STYLE_BIT.
+    // The fill bit is always set to 0 for strokes which represents a non-zero fill.
     let draw_flags = select(DRAW_INFO_FLAGS_FILL_RULE_BIT, 0u, (style_flags & STYLE_FLAGS_FILL_BIT) == 0u);
     if (tag_byte & PATH_TAG_PATH) != 0u {
         (*out).draw_flags = draw_flags;
@@ -276,17 +353,27 @@ fn main(
         }
         var stroke = vec2(0.0, 0.0);
         let is_stroke = (style_flags & STYLE_FLAGS_STYLE_BIT) != 0u;
-        /*
-        // TODO: the stroke handling here is dead code for now
         if is_stroke {
+            // TODO: WIP
+            let linewidth = bitcast<f32>(scene[config.style_base + tm.style_ix + 1u]);
             // See https://www.iquilezles.org/www/articles/ellipses/ellipses.htm
             // This is the correct bounding box, but we're not handling rendering
             // in the isotropic case, so it may mismatch.
             stroke = 0.5 * linewidth * vec2(length(transform.mat.xz), length(transform.mat.yw));
             bbox += vec4(-stroke, stroke);
+
+            flatten_cubic(Cubic(p0, p1, p2, p3, stroke, tm.path_ix, u32(is_stroke)));
+
+            // TODO: proper caps
+            let n0 = normalize(cubic_start_normal(p0, p1, p2, p3)) * stroke;
+            let n1 = normalize(cubic_end_normal(p0, p1, p2, p3)) * stroke;
+
+            let line_ix = atomicAdd(&bump.lines, 2u);
+            lines[line_ix]      = LineSoup(tm.path_ix, p0 - n0, p0 + n0);
+            lines[line_ix + 1u] = LineSoup(tm.path_ix, p3 + n1, p3 - n1);
+        } else {
+            flatten_cubic(Cubic(p0, p1, p2, p3, stroke, tm.path_ix, u32(is_stroke)));
         }
-        */
-        flatten_cubic(Cubic(p0, p1, p2, p3, stroke, tm.path_ix, u32(is_stroke)));
         // Update bounding box using atomics only. Computing a monoid is a
         // potential future optimization.
         if bbox.z > bbox.x || bbox.w > bbox.y {

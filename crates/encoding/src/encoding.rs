@@ -3,7 +3,10 @@
 
 use super::{DrawColor, DrawTag, PathEncoder, PathTag, Style, Transform};
 
-use peniko::{kurbo::Shape, BlendMode, BrushRef, Color, Fill};
+use peniko::{
+    kurbo::{Shape, Stroke},
+    BlendMode, BrushRef, Color, Fill,
+};
 
 #[cfg(feature = "full")]
 use {
@@ -166,6 +169,15 @@ impl Encoding {
     /// Encodes a fill style.
     pub fn encode_fill_style(&mut self, fill: Fill) {
         let style = Style::from_fill(fill);
+        if self.styles.last() != Some(&style) {
+            self.path_tags.push(PathTag::STYLE);
+            self.styles.push(style);
+        }
+    }
+
+    /// Encodes a stroke style.
+    pub fn encode_stroke_style(&mut self, stroke: &Stroke) {
+        let style = Style::from_stroke(stroke);
         if self.styles.last() != Some(&style) {
             self.path_tags.push(PathTag::STYLE);
             self.styles.push(style);

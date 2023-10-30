@@ -106,12 +106,13 @@ fn stroke_styles(sb: &mut SceneBuilder, params: &mut SceneParams) {
         Color::rgb8(201, 147, 206),
         Color::rgb8(150, 195, 160),
     ];
-    let simple_stroke = [LineTo((100., 0.).into())];
+    let simple_stroke = [MoveTo((0., 0.).into()), LineTo((100., 0.).into())];
     let join_stroke = [
+        MoveTo((0., 0.).into()),
         CurveTo((20., 0.).into(), (42.5, 5.).into(), (50., 25.).into()),
         CurveTo((57.5, 5.).into(), (80., 0.).into(), (100., 0.).into()),
     ];
-    let miter_stroke = [LineTo((90., 21.).into()), LineTo((0., 42.).into())];
+    let miter_stroke = [MoveTo((0., 0.).into()), LineTo((90., 21.).into()), LineTo((0., 42.).into())];
     let cap_styles = [Cap::Butt, Cap::Square, Cap::Round];
     let join_styles = [Join::Bevel, Join::Miter, Join::Round];
     let miter_limits = [4., 5., 0.1, 10.];
