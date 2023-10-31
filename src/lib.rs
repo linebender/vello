@@ -110,8 +110,8 @@ pub struct RendererOptions {
     pub timestamp_period: f32,
 
     /// If true, run all stages up to fine rasterization on the CPU.
-    /// TODO: Consider evolving this so that the CPU stages can be configured dynamically via
-    /// `RenderParams`.
+    // TODO: Consider evolving this so that the CPU stages can be configured dynamically via
+    // `RenderParams`.
     pub use_cpu: bool,
 
     /// The anti-aliasing specialization that should be used when creating the pipelines. `None`

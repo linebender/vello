@@ -114,7 +114,8 @@ fn run(
     let mut vsync_on = true;
 
     const AA_CONFIGS: [AaConfig; 3] = [AaConfig::Area, AaConfig::Msaa8, AaConfig::Msaa16];
-    let mut aa_config_ix = 0;
+    // We allow cycling through AA configs in either direction, so use a signed index
+    let mut aa_config_ix: i32 = 0;
 
     let mut frame_start_time = Instant::now();
     let start = Instant::now();
@@ -134,8 +135,8 @@ fn run(
     }
     let mut profile_stored = None;
     let mut prev_scene_ix = scene_ix - 1;
-    let mut prev_aa_config_ix = aa_config_ix;
     let mut profile_taken = Instant::now();
+    let mut modifiers = ModifiersState::default();
     // _event_loop is used on non-wasm platforms to create new windows
     event_loop.run(move |event, _event_loop, control_flow| match event {
         Event::WindowEvent {
@@ -150,6 +151,7 @@ fn run(
             }
             match event {
                 WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
+                WindowEvent::ModifiersChanged(m) => modifiers = *m,
                 WindowEvent::KeyboardInput { input, .. } => {
                     if input.state == ElementState::Pressed {
                         match input.virtual_keycode {
@@ -180,7 +182,11 @@ fn run(
                                 stats.clear_min_and_max();
                             }
                             Some(VirtualKeyCode::M) => {
-                                aa_config_ix = (aa_config_ix + 1) % AA_CONFIGS.len();
+                                aa_config_ix = if modifiers.shift() {
+                                    aa_config_ix.saturating_sub(1)
+                                } else {
+                                    aa_config_ix.saturating_add(1)
+                                };
                             }
                             Some(VirtualKeyCode::P) => {
                                 if let Some(renderer) = &renderers[render_state.surface.dev_id] {
@@ -333,27 +339,15 @@ fn run(
 
             // Allow looping forever
             scene_ix = scene_ix.rem_euclid(scenes.scenes.len() as i32);
+            aa_config_ix = aa_config_ix.rem_euclid(AA_CONFIGS.len() as i32);
+
             let example_scene = &mut scenes.scenes[scene_ix as usize];
-            let mut reset_title = false;
             if prev_scene_ix != scene_ix {
                 transform = Affine::IDENTITY;
                 prev_scene_ix = scene_ix;
-                reset_title = true;
-            }
-            if prev_aa_config_ix != aa_config_ix {
-                prev_aa_config_ix = aa_config_ix;
-                reset_title = true;
-            }
-            if reset_title {
-                let aa_str = match AA_CONFIGS[aa_config_ix] {
-                    AaConfig::Area => "Analytic Area",
-                    AaConfig::Msaa16 => "16xMSAA",
-                    AaConfig::Msaa8 => "8xMSAA",
-                };
-                render_state.window.set_title(&format!(
-                    "Vello demo - {} - AA method: {}",
-                    example_scene.config.name, aa_str
-                ));
+                render_state
+                    .window
+                    .set_title(&format!("Vello demo - {}", example_scene.config.name));
             }
             let mut builder = SceneBuilder::for_fragment(&mut fragment);
             let mut scene_params = SceneParams {
@@ -371,6 +365,7 @@ fn run(
 
             // If the user specifies a base color in the CLI we use that. Otherwise we use any
             // color specified by the scene. The default is black.
+            let aa_config = AA_CONFIGS[aa_config_ix as usize];
             let render_params = vello::RenderParams {
                 base_color: args
                     .args
@@ -379,7 +374,7 @@ fn run(
                     .unwrap_or(Color::BLACK),
                 width,
                 height,
-                antialiasing_method: AA_CONFIGS[aa_config_ix],
+                antialiasing_method: aa_config,
             };
             let mut builder = SceneBuilder::for_scene(&mut scene);
             let mut transform = transform;
@@ -400,6 +395,7 @@ fn run(
                     stats.samples(),
                     complexity_shown.then_some(scene_complexity).flatten(),
                     vsync_on,
+                    aa_config,
                 );
                 if let Some(profiling_result) = renderers[render_state.surface.dev_id]
                     .as_mut()

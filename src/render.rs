@@ -420,7 +420,9 @@ impl Render {
         match fine.aa_config {
             AaConfig::Area => {
                 recording.dispatch(
-                    shaders.fine_area.expect("unsupported AA mode: area"),
+                    shaders
+                        .fine_area
+                        .expect("shaders not configured to support AA mode: area"),
                     fine_wg_count,
                     [
                         fine.config_buf,
@@ -443,13 +445,17 @@ impl Render {
                     let buf = recording.upload("mask lut", mask_lut);
                     self.mask_buf = Some(buf.into());
                 }
-                let shader = match fine.aa_config {
-                    AaConfig::Msaa16 => shaders.fine_msaa16.expect("unsupported AA mode: msaa16"),
-                    AaConfig::Msaa8 => shaders.fine_msaa8.expect("unsupported AA mode: msaa8"),
+                let fine_shader = match fine.aa_config {
+                    AaConfig::Msaa16 => shaders
+                        .fine_msaa16
+                        .expect("shaders not configured to support AA mode: msaa16"),
+                    AaConfig::Msaa8 => shaders
+                        .fine_msaa8
+                        .expect("shaders not configured to support AA mode: msaa8"),
                     _ => unreachable!(),
                 };
                 recording.dispatch(
-                    shader,
+                    fine_shader,
                     fine_wg_count,
                     [
                         fine.config_buf,

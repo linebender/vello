@@ -283,23 +283,21 @@ pub fn full_shaders(
         // Mask LUT buffer, used only when MSAA is enabled.
         BindType::BufReadOnly,
     ];
-    let fine_variants = {
-        const AA_MODES: [AaConfig; 3] = [AaConfig::Area, AaConfig::Msaa8, AaConfig::Msaa16];
-        const MSAA_INFO: [Option<(&str, &str)>; 3] = [
-            None,
-            Some(("fine_msaa8", "msaa8")),
-            Some(("fine_msaa16", "msaa16")),
+    let [fine_area, fine_msaa8, fine_msaa16] = {
+        const AA_MODES: [(AaConfig, Option<(&str, &str)>); 3] = [
+            (AaConfig::Area, None),
+            (AaConfig::Msaa8, Some(("fine_msaa8", "msaa8"))),
+            (AaConfig::Msaa16, Some(("fine_msaa16", "msaa16"))),
         ];
         let mut pipelines = [None, None, None];
-        for (i, aa_mode) in AA_MODES.iter().enumerate() {
+        for (i, (aa_mode, msaa_info)) in AA_MODES.iter().enumerate() {
             if options
                 .preferred_antialiasing_method
-                .as_ref()
-                .map_or(false, |m| m != aa_mode)
+                .map_or(false, |m| m != *aa_mode)
             {
                 continue;
             }
-            let (range_end_offset, label, aa_config) = match MSAA_INFO[i] {
+            let (range_end_offset, label, aa_config) = match *msaa_info {
                 Some((label, config)) => (0, label, Some(config)),
                 None => (1, "fine_area", None),
             };
@@ -338,9 +336,9 @@ pub fn full_shaders(
         coarse,
         path_tiling_setup,
         path_tiling,
-        fine_area: fine_variants[0],
-        fine_msaa8: fine_variants[1],
-        fine_msaa16: fine_variants[2],
+        fine_area,
+        fine_msaa8,
+        fine_msaa16,
         pathtag_is_cpu: options.use_cpu,
     })
 }
