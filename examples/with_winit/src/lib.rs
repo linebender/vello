@@ -25,7 +25,7 @@ use vello::util::RenderSurface;
 use vello::{
     kurbo::{Affine, Vec2},
     util::RenderContext,
-    Renderer, Scene, SceneBuilder,
+    AaConfig, Renderer, Scene, SceneBuilder,
 };
 use vello::{BumpAllocators, RendererOptions, SceneFragment};
 
@@ -85,10 +85,11 @@ fn run(
         renderers[id] = Some(
             Renderer::new(
                 &render_cx.devices[id].device,
-                &RendererOptions {
+                RendererOptions {
                     surface_format: Some(render_state.surface.format),
                     timestamp_period: render_cx.devices[id].queue.get_timestamp_period(),
                     use_cpu: use_cpu,
+                    preferred_antialiasing_method: None,
                 },
             )
             .expect("Could create renderer"),
@@ -111,6 +112,10 @@ fn run(
     let mut scene_complexity: Option<BumpAllocators> = None;
     let mut complexity_shown = false;
     let mut vsync_on = true;
+
+    const AA_CONFIGS: [AaConfig; 3] = [AaConfig::Area, AaConfig::Msaa8, AaConfig::Msaa16];
+    let mut aa_config_ix = 0;
+
     let mut frame_start_time = Instant::now();
     let start = Instant::now();
 
@@ -129,6 +134,7 @@ fn run(
     }
     let mut profile_stored = None;
     let mut prev_scene_ix = scene_ix - 1;
+    let mut prev_aa_config_ix = aa_config_ix;
     let mut profile_taken = Instant::now();
     // _event_loop is used on non-wasm platforms to create new windows
     event_loop.run(move |event, _event_loop, control_flow| match event {
@@ -172,6 +178,9 @@ fn run(
                             }
                             Some(VirtualKeyCode::C) => {
                                 stats.clear_min_and_max();
+                            }
+                            Some(VirtualKeyCode::M) => {
+                                aa_config_ix = (aa_config_ix + 1) % AA_CONFIGS.len();
                             }
                             Some(VirtualKeyCode::P) => {
                                 if let Some(renderer) = &renderers[render_state.surface.dev_id] {
@@ -325,12 +334,26 @@ fn run(
             // Allow looping forever
             scene_ix = scene_ix.rem_euclid(scenes.scenes.len() as i32);
             let example_scene = &mut scenes.scenes[scene_ix as usize];
+            let mut reset_title = false;
             if prev_scene_ix != scene_ix {
                 transform = Affine::IDENTITY;
                 prev_scene_ix = scene_ix;
-                render_state
-                    .window
-                    .set_title(&format!("Vello demo - {}", example_scene.config.name));
+                reset_title = true;
+            }
+            if prev_aa_config_ix != aa_config_ix {
+                prev_aa_config_ix = aa_config_ix;
+                reset_title = true;
+            }
+            if reset_title {
+                let aa_str = match AA_CONFIGS[aa_config_ix] {
+                    AaConfig::Area => "Analytic Area",
+                    AaConfig::Msaa16 => "16xMSAA",
+                    AaConfig::Msaa8 => "8xMSAA",
+                };
+                render_state.window.set_title(&format!(
+                    "Vello demo - {} - AA method: {}",
+                    example_scene.config.name, aa_str
+                ));
             }
             let mut builder = SceneBuilder::for_fragment(&mut fragment);
             let mut scene_params = SceneParams {
@@ -356,6 +379,7 @@ fn run(
                     .unwrap_or(Color::BLACK),
                 width,
                 height,
+                antialiasing_method: AA_CONFIGS[aa_config_ix],
             };
             let mut builder = SceneBuilder::for_scene(&mut scene);
             let mut transform = transform;
@@ -492,12 +516,13 @@ fn run(
                         eprintln!("Creating renderer {id}");
                         Renderer::new(
                             &render_cx.devices[id].device,
-                            &RendererOptions {
+                            RendererOptions {
                                 surface_format: Some(render_state.surface.format),
                                 timestamp_period: render_cx.devices[id]
                                     .queue
                                     .get_timestamp_period(),
                                 use_cpu,
+                                preferred_antialiasing_method: None,
                             },
                         )
                         .expect("Could create renderer")

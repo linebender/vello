@@ -26,10 +26,11 @@ use wgpu::Device;
 use crate::{
     cpu_shader,
     engine::{BindType, Error, ImageFormat, ShaderId},
+    AaConfig,
 };
 
 #[cfg(feature = "wgpu")]
-use crate::wgpu_engine::WgpuEngine;
+use crate::{wgpu_engine::WgpuEngine, RendererOptions};
 
 macro_rules! shader {
     ($name:expr) => {&{
@@ -78,18 +79,22 @@ pub struct FullShaders {
     pub coarse: ShaderId,
     pub path_tiling_setup: ShaderId,
     pub path_tiling: ShaderId,
-    pub fine: ShaderId,
+    pub fine_area: Option<ShaderId>,
+    pub fine_msaa8: Option<ShaderId>,
+    pub fine_msaa16: Option<ShaderId>,
     // 2-level dispatch works for CPU pathtag scan even for large
     // inputs, 3-level is not yet implemented.
     pub pathtag_is_cpu: bool,
 }
 
 #[cfg(feature = "wgpu")]
-pub fn full_shaders(device: &Device, engine: &mut WgpuEngine) -> Result<FullShaders, Error> {
+pub fn full_shaders(
+    device: &Device,
+    engine: &mut WgpuEngine,
+    options: &RendererOptions,
+) -> Result<FullShaders, Error> {
     use crate::wgpu_engine::CpuShaderType;
-    use crate::ANTIALIASING;
     use BindType::*;
-
     let imports = SHARED_SHADERS
         .iter()
         .copied()
@@ -97,17 +102,6 @@ pub fn full_shaders(device: &Device, engine: &mut WgpuEngine) -> Result<FullShad
     let empty = HashSet::new();
     let mut full_config = HashSet::new();
     full_config.insert("full".into());
-    match crate::ANTIALIASING {
-        crate::AaConfig::Msaa16 => {
-            full_config.insert("msaa".into());
-            full_config.insert("msaa16".into());
-        }
-        crate::AaConfig::Msaa8 => {
-            full_config.insert("msaa".into());
-            full_config.insert("msaa8".into());
-        }
-        crate::AaConfig::Area => (),
-    }
     let mut small_config = HashSet::new();
     small_config.insert("full".into());
     small_config.insert("small".into());
@@ -121,13 +115,13 @@ pub fn full_shaders(device: &Device, engine: &mut WgpuEngine) -> Result<FullShad
     //let force_gpu_from = Some("binning");
 
     macro_rules! add_shader {
-        ($name:ident, $bindings:expr, $defines:expr, $cpu:expr) => {{
+        ($name:ident, $label:expr, $bindings:expr, $defines:expr, $cpu:expr) => {{
             if force_gpu_from == Some(stringify!($name)) {
                 force_gpu = true;
             }
             engine.add_shader(
                 device,
-                stringify!($name),
+                $label,
                 preprocess::preprocess(shader!(stringify!($name)), &$defines, &imports).into(),
                 &$bindings,
                 if force_gpu {
@@ -136,6 +130,15 @@ pub fn full_shaders(device: &Device, engine: &mut WgpuEngine) -> Result<FullShad
                     $cpu
                 },
             )?
+        }};
+        ($name:ident, $bindings:expr, $defines:expr, $cpu:expr) => {{
+            add_shader!(
+                $name,
+                stringify!($name),
+                $bindings,
+                &$defines,
+                $cpu
+            )
         }};
         ($name:ident, $bindings:expr, $defines:expr) => {
             add_shader!(
@@ -269,36 +272,51 @@ pub fn full_shaders(device: &Device, engine: &mut WgpuEngine) -> Result<FullShad
         ],
         &empty
     );
-    let fine = match ANTIALIASING {
-        crate::AaConfig::Area => add_shader!(
-            fine,
-            [
-                Uniform,
-                BufReadOnly,
-                BufReadOnly,
-                BufReadOnly,
-                Image(ImageFormat::Rgba8),
-                ImageRead(ImageFormat::Rgba8),
-                ImageRead(ImageFormat::Rgba8),
-            ],
-            &full_config,
-            CpuShaderType::Missing
-        ),
-        _ => add_shader!(
-            fine,
-            [
-                Uniform,
-                BufReadOnly,
-                BufReadOnly,
-                BufReadOnly,
-                Image(ImageFormat::Rgba8),
-                ImageRead(ImageFormat::Rgba8),
-                ImageRead(ImageFormat::Rgba8),
-                BufReadOnly, // mask buffer
-            ],
-            &full_config,
-            CpuShaderType::Missing
-        ),
+    let fine_resources = [
+        BindType::Uniform,
+        BindType::BufReadOnly,
+        BindType::BufReadOnly,
+        BindType::BufReadOnly,
+        BindType::Image(ImageFormat::Rgba8),
+        BindType::ImageRead(ImageFormat::Rgba8),
+        BindType::ImageRead(ImageFormat::Rgba8),
+        // Mask LUT buffer, used only when MSAA is enabled.
+        BindType::BufReadOnly,
+    ];
+    let fine_variants = {
+        const AA_MODES: [AaConfig; 3] = [AaConfig::Area, AaConfig::Msaa8, AaConfig::Msaa16];
+        const MSAA_INFO: [Option<(&str, &str)>; 3] = [
+            None,
+            Some(("fine_msaa8", "msaa8")),
+            Some(("fine_msaa16", "msaa16")),
+        ];
+        let mut pipelines = [None, None, None];
+        for (i, aa_mode) in AA_MODES.iter().enumerate() {
+            if options
+                .preferred_antialiasing_method
+                .as_ref()
+                .map_or(false, |m| m != aa_mode)
+            {
+                continue;
+            }
+            let (range_end_offset, label, aa_config) = match MSAA_INFO[i] {
+                Some((label, config)) => (0, label, Some(config)),
+                None => (1, "fine_area", None),
+            };
+            let mut config = full_config.clone();
+            if let Some(aa_config) = aa_config {
+                config.insert("msaa".into());
+                config.insert(aa_config.into());
+            }
+            pipelines[i] = Some(add_shader!(
+                fine,
+                label,
+                fine_resources[..fine_resources.len() - range_end_offset],
+                config,
+                CpuShaderType::Missing
+            ));
+        }
+        pipelines
     };
     Ok(FullShaders {
         pathtag_reduce,
@@ -320,8 +338,10 @@ pub fn full_shaders(device: &Device, engine: &mut WgpuEngine) -> Result<FullShad
         coarse,
         path_tiling_setup,
         path_tiling,
-        fine,
-        pathtag_is_cpu: engine.use_cpu,
+        fine_area: fine_variants[0],
+        fine_msaa8: fine_variants[1],
+        fine_msaa16: fine_variants[2],
+        pathtag_is_cpu: options.use_cpu,
     })
 }
 

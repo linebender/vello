@@ -1246,10 +1246,11 @@ fn splash_screen(sb: &mut SceneBuilder, params: &mut SceneParams) {
         "  Space: reset transform",
         "  S: toggle stats",
         "  V: toggle vsync",
+        "  M: cycle AA method",
         "  Q, E: rotate",
     ];
     // Tweak to make it fit with tiger
-    let a = Affine::scale(0.12) * Affine::translate((-90.0, -50.0));
+    let a = Affine::scale(0.11) * Affine::translate((-90.0, -50.0));
     for (i, s) in strings.iter().enumerate() {
         let text_size = if i == 0 { 60.0 } else { 40.0 };
         params.text.add(
