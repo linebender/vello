@@ -380,8 +380,8 @@ pub struct PathBbox {
     pub x1: i32,
     /// Maximum y value.
     pub y1: i32,
-    /// Line width.
-    pub linewidth: f32,
+    /// Style flags
+    pub draw_flags: u32,
     /// Index into the transform stream.
     pub trans_ix: u32,
 }

@@ -23,6 +23,11 @@ let DRAWTAG_FILL_IMAGE = 0x248u;
 let DRAWTAG_BEGIN_CLIP = 0x9u;
 let DRAWTAG_END_CLIP = 0x21u;
 
+/// The first word of each draw info stream entry contains the flags. This is not a part of the
+/// draw object stream but get used after the draw objects have been reduced on the GPU.
+/// 0 represents a non-zero fill. 1 represents an even-odd fill.
+let DRAW_INFO_FLAGS_FILL_RULE_BIT = 1u;
+
 fn draw_monoid_identity() -> DrawMonoid {
     return DrawMonoid();
 }

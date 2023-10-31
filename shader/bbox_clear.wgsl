@@ -1,18 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
 
 #import config
+#import bbox
 
 @group(0) @binding(0)
 var<uniform> config: Config;
-
-struct PathBbox {
-    x0: i32,
-    y0: i32,
-    x1: i32,
-    y1: i32,
-    linewidth: f32,
-    trans_ix: u32,
-}
 
 @group(0) @binding(1)
 var<storage, read_write> path_bboxes: array<PathBbox>;

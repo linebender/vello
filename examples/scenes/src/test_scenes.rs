@@ -324,7 +324,43 @@ fn fill_types(sb: &mut SceneBuilder, params: &mut SceneParams) {
         sb.fill(
             rule.0,
             Affine::translate((0., 10.)) * t,
-            Color::BLACK,
+            Color::YELLOW,
+            None,
+            &rule.2,
+        );
+    }
+
+    // Draw blends
+    let t = Affine::translate((700., 0.)) * t;
+    for (i, rule) in rules.iter().enumerate() {
+        let t = Affine::translate(((i % 2) as f64 * 306., (i / 2) as f64 * 340.)) * t;
+        params.text.add(sb, None, 24., None, t, rule.1);
+        let t = Affine::translate((0., 5.)) * t * scale;
+        sb.fill(
+            Fill::NonZero,
+            t,
+            &Brush::Solid(Color::rgb8(128, 128, 128)),
+            None,
+            &rect,
+        );
+        sb.fill(
+            rule.0,
+            Affine::translate((0., 10.)) * t,
+            Color::YELLOW,
+            None,
+            &rule.2,
+        );
+        sb.fill(
+            rule.0,
+            Affine::translate((0., 10.)) * t * Affine::rotate(0.06),
+            Color::rgba(0., 1., 0.7, 0.6),
+            None,
+            &rule.2,
+        );
+        sb.fill(
+            rule.0,
+            Affine::translate((0., 10.)) * t * Affine::rotate(-0.06),
+            Color::rgba(0.9, 0.7, 0.5, 0.6),
             None,
             &rule.2,
         );
@@ -373,7 +409,7 @@ fn longpathdash(cap: Cap) -> impl FnMut(&mut SceneBuilder, &mut SceneParams) {
         sb.stroke(
             &Stroke::new(1.0).with_caps(cap).with_dashes(0.0, [1.0, 1.0]),
             Affine::translate((50.0, 50.0)),
-            Color::rgb8(255, 255, 0),
+            Color::YELLOW,
             None,
             &path,
         );

@@ -4,12 +4,16 @@
 // but contains a link to the active transform, mostly for gradients.
 // Coordinates are integer pixels (for the convenience of atomic update)
 // but will probably become fixed-point fractions for rectangles.
+//
+// TODO: This also carries a `draw_flags` field that contains information that gets propagated to
+// the draw info stream. This is currently only used for the fill rule. If the other bits remain
+// unused we could possibly pack this into some other field, such as the the MSB of `trans_ix`.
 struct PathBbox {
     x0: i32,
     y0: i32,
     x1: i32,
     y1: i32,
-    linewidth: f32,
+    draw_flags: u32,
     trans_ix: u32,
 }
 

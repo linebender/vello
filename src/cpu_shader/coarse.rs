@@ -1,7 +1,10 @@
 // Copyright 2023 The Vello authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
 
-use vello_encoding::{BinHeader, BumpAllocators, ConfigUniform, DrawMonoid, DrawTag, Path, Tile};
+use vello_encoding::{
+    BinHeader, BumpAllocators, ConfigUniform, DrawMonoid, DrawTag, Path, Tile,
+    DRAW_INFO_FLAGS_FILL_RULE_BIT,
+};
 
 use crate::cpu_dispatch::CpuBinding;
 
@@ -63,6 +66,7 @@ impl TileState {
         bump: &mut BumpAllocators,
         ptcl: &mut [u32],
         tile: &mut Tile,
+        draw_flags: u32,
     ) {
         let n_segs = tile.segment_count_or_ix;
         if n_segs != 0 {
@@ -71,7 +75,7 @@ impl TileState {
             bump.segments += n_segs;
             self.alloc_cmd(4, config, bump, ptcl);
             self.write(ptcl, 0, CMD_FILL);
-            let even_odd = false; // TODO
+            let even_odd = (draw_flags & DRAW_INFO_FLAGS_FILL_RULE_BIT) != 0;
             let size_and_rule = (n_segs << 1) | (even_odd as u32);
             self.write(ptcl, 1, size_and_rule);
             self.write(ptcl, 2, seg_ix);
@@ -238,22 +242,33 @@ fn coarse_main(
                         let blend = scene[dd as usize];
                         is_blend = blend != BLEND_CLIP;
                     }
+
+                    let draw_flags = info_bin_data[di as usize];
+                    let even_odd = (draw_flags & DRAW_INFO_FLAGS_FILL_RULE_BIT) != 0;
                     let n_segs = tile.segment_count_or_ix;
-                    let include_tile = n_segs != 0 || (tile.backdrop == 0) == is_clip || is_blend;
+
+                    // If this draw object represents an even-odd fill and we know that no line segment
+                    // crosses this tile and then this draw object should not contribute to the tile if its
+                    // backdrop (i.e. the winding number of its top-left corner) is even.
+                    let backdrop_clear = if even_odd {
+                        tile.backdrop.abs() & 1
+                    } else {
+                        tile.backdrop
+                    } == 0;
+                    let include_tile = n_segs != 0 || (backdrop_clear == is_clip) || is_blend;
                     if include_tile {
-                        // TODO: get drawinfo (linewidth for fills)
                         match DrawTag(drawtag) {
                             DrawTag::COLOR => {
-                                tile_state.write_path(config, bump, ptcl, tile);
+                                tile_state.write_path(config, bump, ptcl, tile, draw_flags);
                                 let rgba_color = scene[dd as usize];
                                 tile_state.write_color(config, bump, ptcl, rgba_color);
                             }
                             DrawTag::IMAGE => {
-                                tile_state.write_path(config, bump, ptcl, tile);
+                                tile_state.write_path(config, bump, ptcl, tile, draw_flags);
                                 tile_state.write_image(config, bump, ptcl, di + 1);
                             }
                             DrawTag::LINEAR_GRADIENT => {
-                                tile_state.write_path(config, bump, ptcl, tile);
+                                tile_state.write_path(config, bump, ptcl, tile, draw_flags);
                                 let index = scene[dd as usize];
                                 tile_state.write_grad(
                                     config,
@@ -265,7 +280,7 @@ fn coarse_main(
                                 );
                             }
                             DrawTag::RADIAL_GRADIENT => {
-                                tile_state.write_path(config, bump, ptcl, tile);
+                                tile_state.write_path(config, bump, ptcl, tile, draw_flags);
                                 let index = scene[dd as usize];
                                 tile_state.write_grad(
                                     config,
@@ -287,7 +302,8 @@ fn coarse_main(
                             }
                             DrawTag::END_CLIP => {
                                 clip_depth -= 1;
-                                tile_state.write_path(config, bump, ptcl, tile);
+                                // A clip shape is always a non-zero fill (draw_flags=0).
+                                tile_state.write_path(config, bump, ptcl, tile, 0);
                                 let blend = scene[dd as usize];
                                 let alpha = f32::from_bits(scene[dd as usize + 1]);
                                 tile_state.write_end_clip(config, bump, ptcl, blend, alpha);
