@@ -250,13 +250,12 @@ fn coarse_main(
                     // If this draw object represents an even-odd fill and we know that no line segment
                     // crosses this tile and then this draw object should not contribute to the tile if its
                     // backdrop (i.e. the winding number of its top-left corner) is even.
-                    //
-                    // NOTE: A clip should never get encoded with an even-odd fill.
-                    assert!(!even_odd || !is_clip);
-                    let even_odd_discard =
-                        n_segs == 0 && even_odd && (tile.backdrop.abs() & 1) == 0;
-                    let include_tile = !even_odd_discard
-                        && (n_segs != 0 || (tile.backdrop == 0) == is_clip || is_blend);
+                    let backdrop_clear = if even_odd {
+                        tile.backdrop.abs() & 1
+                    } else {
+                        tile.backdrop
+                    } == 0;
+                    let include_tile = n_segs != 0 || (backdrop_clear == is_clip) || is_blend;
                     if include_tile {
                         match DrawTag(drawtag) {
                             DrawTag::COLOR => {
