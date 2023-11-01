@@ -224,6 +224,8 @@ fn fill_path_ms(fill: CmdFill, local_id: vec2<u32>, result: ptr<function, array<
             let dy = xy1.y - xy0.y;
             let idxdy = 1.0 / (dx + dy);
             var a = dx * idxdy;
+            // is_positive_slope is true for \ and | slopes, false for /. For
+            // horizontal lines, it follows the original data.
             let is_positive_slope = xy1.x >= xy0.x;
             let x_sign = select(-1.0, 1.0, is_positive_slope);
             let xt0 = floor(xy0.x * x_sign);
@@ -244,15 +246,29 @@ fn fill_path_ms(fill: CmdFill, local_id: vec2<u32>, result: ptr<function, array<
             let z = floor(zf);
             let x = x0i + i32(x_sign * z);
             let y = i32(y0i) + i32(sub_ix) - i32(z);
+            // is_delta captures whether the line crosses the top edge of this
+            // pixel. If so, then a delta is added to `sh_winding`, followed by
+            // a prefix sum, so that a winding number delta is applied to all
+            // pixels to the right of this one.
             var is_delta: bool;
-            // We need to adjust winding number if slope is positive and there
-            // is a crossing at the left edge of the pixel.
+            // is_bump captures whether x0 crosses the left edge of this pixel.
             var is_bump = false;
             let zp = floor(a * f32(sub_ix - 1u) + b);
             if sub_ix == 0u {
-                is_delta = y0i == xy0.y && y0i != xy1.y;
+                // The first (top-most) pixel in the line. It is considered to be
+                // a line crossing when it touches the top of the pixel.
+                //
+                // Note: horizontal lines aligned to the pixel grid have already
+                // been discarded.
+                is_delta = y0i == xy0.y;
+                // The pixel is counted as a left edge crossing only at the left
+                // edge of the tile (and when it is not the top left corner,
+                // using logic analogous to tiling).
                 is_bump = xy0.x == 0.0 && y0i != xy0.y;
             } else {
+                // Pixels other than the first are a crossing at the top or on
+                // the side, based on the conservative line rasterization. When
+                // positive slope, the crossing is on the left.
                 is_delta = z == zp;
                 is_bump = is_positive_slope && !is_delta;
             }
@@ -584,12 +600,11 @@ fn fill_path_ms_evenodd(fill: CmdFill, local_id: vec2<u32>, result: ptr<function
             let x = x0i + i32(x_sign * z);
             let y = i32(y0i) + i32(sub_ix) - i32(z);
             var is_delta: bool;
-            // We need to adjust winding number if slope is positive and there
-            // is a crossing at the left edge of the pixel.
+            // See comments in nonzero case.
             var is_bump = false;
             let zp = floor(a * f32(sub_ix - 1u) + b);
             if sub_ix == 0u {
-                is_delta = y0i == xy0.y && y0i != xy1.y;
+                is_delta = y0i == xy0.y;
                 is_bump = xy0.x == 0.0;
             } else {
                 is_delta = z == zp;
