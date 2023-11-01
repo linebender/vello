@@ -44,6 +44,7 @@ pub fn test_scenes() -> SceneSet {
         scene!(blend_grid),
         scene!(conflation_artifacts),
         scene!(labyrinth),
+        scene!(robust_paths),
         scene!(base_color_test: animated),
         scene!(clip_test: animated),
         scene!(longpathdash(Cap::Butt), "longpathdash (butt caps)", false),
@@ -1117,6 +1118,58 @@ fn labyrinth(sb: &mut SceneBuilder, _: &mut SceneParams) {
         None,
         &path,
     )
+}
+
+fn robust_paths(sb: &mut SceneBuilder, _: &mut SceneParams) {
+    let mut path = BezPath::new();
+    path.move_to((16.0, 16.0));
+    path.line_to((32.0, 16.0));
+    path.line_to((32.0, 32.0));
+    path.line_to((16.0, 32.0));
+    path.close_path();
+    path.move_to((48.0, 18.0));
+    path.line_to((64.0, 23.0));
+    path.line_to((64.0, 33.0));
+    path.line_to((48.0, 38.0));
+    path.close_path();
+    path.move_to((80.0, 18.0));
+    path.line_to((82.0, 16.0));
+    path.line_to((94.0, 16.0));
+    path.line_to((96.0, 18.0));
+    path.line_to((96.0, 30.0));
+    path.line_to((94.0, 32.0));
+    path.line_to((82.0, 32.0));
+    path.line_to((80.0, 30.0));
+    path.close_path();
+    path.move_to((112.0, 16.0));
+    path.line_to((128.0, 16.0));
+    path.line_to((128.0, 32.0));
+    path.close_path();
+    path.move_to((144.0, 16.0));
+    path.line_to((160.0, 32.0));
+    path.line_to((144.0, 32.0));
+    path.close_path();
+    path.move_to((168.0, 8.0));
+    path.line_to((184.0, 8.0));
+    path.line_to((184.0, 24.0));
+    path.close_path();
+    path.move_to((200.0, 8.0));
+    path.line_to((216.0, 24.0));
+    path.line_to((200.0, 24.0));
+    path.close_path();
+    sb.fill(Fill::NonZero, Affine::IDENTITY, Color::YELLOW, None, &path);
+    path.move_to((8.0, 4.0));
+    path.line_to((8.0, 40.0));
+    path.line_to((220.0, 40.0));
+    path.line_to((220.0, 4.0));
+    path.close_path();
+    sb.fill(
+        Fill::NonZero,
+        Affine::translate((0.0, 100.0)),
+        Color::YELLOW,
+        None,
+        &path,
+    );
 }
 
 fn base_color_test(sb: &mut SceneBuilder, params: &mut SceneParams) {
