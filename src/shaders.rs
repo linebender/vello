@@ -26,7 +26,6 @@ use wgpu::Device;
 use crate::{
     cpu_shader,
     engine::{BindType, Error, ImageFormat, ShaderId},
-    AaConfig,
 };
 
 #[cfg(feature = "wgpu")]
@@ -284,17 +283,15 @@ pub fn full_shaders(
         BindType::BufReadOnly,
     ];
     let [fine_area, fine_msaa8, fine_msaa16] = {
-        const AA_MODES: [(AaConfig, Option<(&str, &str)>); 3] = [
-            (AaConfig::Area, None),
-            (AaConfig::Msaa8, Some(("fine_msaa8", "msaa8"))),
-            (AaConfig::Msaa16, Some(("fine_msaa16", "msaa16"))),
+        let aa_support = &options.antialiasing_support;
+        let aa_modes = [
+            (aa_support.area, None),
+            (aa_support.msaa8, Some(("fine_msaa8", "msaa8"))),
+            (aa_support.msaa16, Some(("fine_msaa16", "msaa16"))),
         ];
         let mut pipelines = [None, None, None];
-        for (i, (aa_mode, msaa_info)) in AA_MODES.iter().enumerate() {
-            if options
-                .preferred_antialiasing_method
-                .map_or(false, |m| m != *aa_mode)
-            {
+        for (i, (enabled, msaa_info)) in aa_modes.iter().enumerate() {
+            if !enabled {
                 continue;
             }
             let (range_end_offset, label, aa_config) = match *msaa_info {

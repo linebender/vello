@@ -30,7 +30,7 @@ impl FromWorld for VelloRenderer {
                 &RendererOptions {
                     surface_format: None,
                     timestamp_period: queue.0.get_timestamp_period(),
-                    preferred_antialiasing_method: Some(vello::AaConfig::Area),
+                    antialiasing_support: vello::AaSupport::area_only(),
                 },
             )
             .unwrap(),

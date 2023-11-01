@@ -89,7 +89,7 @@ fn run(
                     surface_format: Some(render_state.surface.format),
                     timestamp_period: render_cx.devices[id].queue.get_timestamp_period(),
                     use_cpu: use_cpu,
-                    preferred_antialiasing_method: None,
+                    antialiasing_support: vello::AaSupport::all(),
                 },
             )
             .expect("Could create renderer"),
@@ -518,7 +518,7 @@ fn run(
                                     .queue
                                     .get_timestamp_period(),
                                 use_cpu,
-                                preferred_antialiasing_method: None,
+                                antialiasing_support: vello::AaSupport::all(),
                             },
                         )
                         .expect("Could create renderer")

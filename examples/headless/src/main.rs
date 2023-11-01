@@ -91,7 +91,7 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
             surface_format: None,
             timestamp_period: queue.get_timestamp_period(),
             use_cpu: false,
-            preferred_antialiasing_method: Some(vello::AaConfig::Area),
+            antialiasing_support: vello::AaSupport::area_only(),
         },
     )
     .or_else(|_| bail!("Got non-Send/Sync error from creating renderer"))?;

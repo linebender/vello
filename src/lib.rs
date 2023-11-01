@@ -62,12 +62,37 @@ pub type Error = Box<dyn std::error::Error>;
 /// Specialization of `Result` for our catch-all error type.
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// Possible configurations for antialiasing.
+/// Represents the antialiasing method to use during a render pass.
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub enum AaConfig {
     Area,
     Msaa8,
     Msaa16,
+}
+
+/// Represents the set of antialiasing configurations to enable during pipeline creation.
+pub struct AaSupport {
+    pub area: bool,
+    pub msaa8: bool,
+    pub msaa16: bool,
+}
+
+impl AaSupport {
+    pub fn all() -> Self {
+        Self {
+            area: true,
+            msaa8: true,
+            msaa16: true,
+        }
+    }
+
+    pub fn area_only() -> Self {
+        Self {
+            area: true,
+            msaa8: false,
+            msaa16: false,
+        }
+    }
 }
 
 /// Renders a scene into a texture or surface.
@@ -114,9 +139,9 @@ pub struct RendererOptions {
     // `RenderParams`.
     pub use_cpu: bool,
 
-    /// The anti-aliasing specialization that should be used when creating the pipelines. `None`
-    /// initializes all variants.
-    pub preferred_antialiasing_method: Option<AaConfig>,
+    /// Represents the enabled set of AA configurations. This will be used to determine which
+    /// pipeline permutations should be compiled at startup.
+    pub antialiasing_support: AaSupport,
 }
 
 #[cfg(feature = "wgpu")]
