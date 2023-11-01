@@ -452,7 +452,7 @@ fn fill_path_ms(fill: CmdFill, local_id: vec2<u32>, result: ptr<function, array<
             // bits 4 * k + 2 and 4 * k + 3 contain 4-reductions
             let xored01_4 = xored01 | (xored01 * 4u);
             let xored2 = (expected_zero * 0x1010101u) ^ samples2;
-            let xored2_2 = xored0 | (xored0 * 2u);
+            let xored2_2 = xored2 | (xored2 * 2u);
             let xored3 = (expected_zero * 0x1010101u) ^ samples3;
             let xored3_2 = xored3 | (xored3 >> 1u);
             // xored23 contains 2-reductions from words 2 and 3, interleaved
@@ -590,7 +590,7 @@ fn fill_path_ms_evenodd(fill: CmdFill, local_id: vec2<u32>, result: ptr<function
             let zp = floor(a * f32(sub_ix - 1u) + b);
             if sub_ix == 0u {
                 is_delta = y0i == xy0.y && y0i != xy1.y;
-                is_bump = xy0.x == 0.0;
+                is_bump = xy0.x == 0.0 && y0i != xy0.y;
             } else {
                 is_delta = z == zp;
                 is_bump = is_positive_slope && !is_delta;
