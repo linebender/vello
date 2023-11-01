@@ -25,7 +25,7 @@ use vello::util::RenderSurface;
 use vello::{
     kurbo::{Affine, Vec2},
     util::RenderContext,
-    Renderer, Scene, SceneBuilder,
+    AaConfig, Renderer, Scene, SceneBuilder,
 };
 use vello::{BumpAllocators, RendererOptions, SceneFragment};
 
@@ -85,10 +85,11 @@ fn run(
         renderers[id] = Some(
             Renderer::new(
                 &render_cx.devices[id].device,
-                &RendererOptions {
+                RendererOptions {
                     surface_format: Some(render_state.surface.format),
                     timestamp_period: render_cx.devices[id].queue.get_timestamp_period(),
                     use_cpu: use_cpu,
+                    antialiasing_support: vello::AaSupport::all(),
                 },
             )
             .expect("Could create renderer"),
@@ -111,6 +112,11 @@ fn run(
     let mut scene_complexity: Option<BumpAllocators> = None;
     let mut complexity_shown = false;
     let mut vsync_on = true;
+
+    const AA_CONFIGS: [AaConfig; 3] = [AaConfig::Area, AaConfig::Msaa8, AaConfig::Msaa16];
+    // We allow cycling through AA configs in either direction, so use a signed index
+    let mut aa_config_ix: i32 = 0;
+
     let mut frame_start_time = Instant::now();
     let start = Instant::now();
 
@@ -130,6 +136,7 @@ fn run(
     let mut profile_stored = None;
     let mut prev_scene_ix = scene_ix - 1;
     let mut profile_taken = Instant::now();
+    let mut modifiers = ModifiersState::default();
     // _event_loop is used on non-wasm platforms to create new windows
     event_loop.run(move |event, _event_loop, control_flow| match event {
         Event::WindowEvent {
@@ -144,6 +151,7 @@ fn run(
             }
             match event {
                 WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
+                WindowEvent::ModifiersChanged(m) => modifiers = *m,
                 WindowEvent::KeyboardInput { input, .. } => {
                     if input.state == ElementState::Pressed {
                         match input.virtual_keycode {
@@ -172,6 +180,13 @@ fn run(
                             }
                             Some(VirtualKeyCode::C) => {
                                 stats.clear_min_and_max();
+                            }
+                            Some(VirtualKeyCode::M) => {
+                                aa_config_ix = if modifiers.shift() {
+                                    aa_config_ix.saturating_sub(1)
+                                } else {
+                                    aa_config_ix.saturating_add(1)
+                                };
                             }
                             Some(VirtualKeyCode::P) => {
                                 if let Some(renderer) = &renderers[render_state.surface.dev_id] {
@@ -324,6 +339,8 @@ fn run(
 
             // Allow looping forever
             scene_ix = scene_ix.rem_euclid(scenes.scenes.len() as i32);
+            aa_config_ix = aa_config_ix.rem_euclid(AA_CONFIGS.len() as i32);
+
             let example_scene = &mut scenes.scenes[scene_ix as usize];
             if prev_scene_ix != scene_ix {
                 transform = Affine::IDENTITY;
@@ -348,14 +365,17 @@ fn run(
 
             // If the user specifies a base color in the CLI we use that. Otherwise we use any
             // color specified by the scene. The default is black.
+            let base_color = args
+                .args
+                .base_color
+                .or(scene_params.base_color)
+                .unwrap_or(Color::BLACK);
+            let antialiasing_method = AA_CONFIGS[aa_config_ix as usize];
             let render_params = vello::RenderParams {
-                base_color: args
-                    .args
-                    .base_color
-                    .or(scene_params.base_color)
-                    .unwrap_or(Color::BLACK),
+                base_color,
                 width,
                 height,
+                antialiasing_method,
             };
             let mut builder = SceneBuilder::for_scene(&mut scene);
             let mut transform = transform;
@@ -376,6 +396,7 @@ fn run(
                     stats.samples(),
                     complexity_shown.then_some(scene_complexity).flatten(),
                     vsync_on,
+                    antialiasing_method,
                 );
                 if let Some(profiling_result) = renderers[render_state.surface.dev_id]
                     .as_mut()
@@ -492,12 +513,13 @@ fn run(
                         eprintln!("Creating renderer {id}");
                         Renderer::new(
                             &render_cx.devices[id].device,
-                            &RendererOptions {
+                            RendererOptions {
                                 surface_format: Some(render_state.surface.format),
                                 timestamp_period: render_cx.devices[id]
                                     .queue
                                     .get_timestamp_period(),
                                 use_cpu,
+                                antialiasing_support: vello::AaSupport::all(),
                             },
                         )
                         .expect("Could create renderer")

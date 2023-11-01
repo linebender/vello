@@ -30,6 +30,7 @@ impl FromWorld for VelloRenderer {
                 &RendererOptions {
                     surface_format: None,
                     timestamp_period: queue.0.get_timestamp_period(),
+                    antialiasing_support: vello::AaSupport::area_only(),
                 },
             )
             .unwrap(),
@@ -65,6 +66,7 @@ fn render_scenes(
             base_color: vello::peniko::Color::AQUAMARINE,
             width: gpu_image.size.x as u32,
             height: gpu_image.size.y as u32,
+            antialiasing_method: vello::AaConfig::Area,
         };
         renderer
             .0

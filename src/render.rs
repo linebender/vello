@@ -3,7 +3,7 @@
 use crate::{
     engine::{BufProxy, ImageFormat, ImageProxy, Recording, ResourceProxy},
     shaders::FullShaders,
-    AaConfig, RenderParams, Scene, ANTIALIASING,
+    AaConfig, RenderParams, Scene,
 };
 use vello_encoding::{Encoding, WorkgroupSize};
 
@@ -16,6 +16,8 @@ pub struct Render {
 
 /// Resources produced by pipeline, needed for fine rasterization.
 struct FineResources {
+    aa_config: AaConfig,
+
     config_buf: ResourceProxy,
     bump_buf: ResourceProxy,
     tile_buf: ResourceProxy,
@@ -393,6 +395,7 @@ impl Render {
         let out_image = ImageProxy::new(params.width, params.height, ImageFormat::Rgba8);
         self.fine_wg_count = Some(wg_counts.fine);
         self.fine_resources = Some(FineResources {
+            aa_config: params.antialiasing_method,
             config_buf,
             bump_buf,
             tile_buf,
@@ -414,10 +417,12 @@ impl Render {
     pub fn record_fine(&mut self, shaders: &FullShaders, recording: &mut Recording) {
         let fine_wg_count = self.fine_wg_count.take().unwrap();
         let fine = self.fine_resources.take().unwrap();
-        match ANTIALIASING {
+        match fine.aa_config {
             AaConfig::Area => {
                 recording.dispatch(
-                    shaders.fine,
+                    shaders
+                        .fine_area
+                        .expect("shaders not configured to support AA mode: area"),
                     fine_wg_count,
                     [
                         fine.config_buf,
@@ -432,7 +437,7 @@ impl Render {
             }
             _ => {
                 if self.mask_buf.is_none() {
-                    let mask_lut = match ANTIALIASING {
+                    let mask_lut = match fine.aa_config {
                         AaConfig::Msaa16 => crate::mask::make_mask_lut_16(),
                         AaConfig::Msaa8 => crate::mask::make_mask_lut(),
                         _ => unreachable!(),
@@ -440,8 +445,17 @@ impl Render {
                     let buf = recording.upload("mask lut", mask_lut);
                     self.mask_buf = Some(buf.into());
                 }
+                let fine_shader = match fine.aa_config {
+                    AaConfig::Msaa16 => shaders
+                        .fine_msaa16
+                        .expect("shaders not configured to support AA mode: msaa16"),
+                    AaConfig::Msaa8 => shaders
+                        .fine_msaa8
+                        .expect("shaders not configured to support AA mode: msaa8"),
+                    _ => unreachable!(),
+                };
                 recording.dispatch(
-                    shaders.fine,
+                    fine_shader,
                     fine_wg_count,
                     [
                         fine.config_buf,

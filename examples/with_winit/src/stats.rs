@@ -19,7 +19,7 @@ use std::{collections::VecDeque, time::Duration};
 use vello::{
     kurbo::{Affine, Line, PathEl, Rect, Stroke},
     peniko::{Brush, Color, Fill},
-    BumpAllocators, SceneBuilder,
+    AaConfig, BumpAllocators, SceneBuilder,
 };
 use wgpu_profiler::GpuTimerScopeResult;
 
@@ -44,6 +44,7 @@ impl Snapshot {
         samples: T,
         bump: Option<BumpAllocators>,
         vsync: bool,
+        aa_config: AaConfig,
     ) where
         T: Iterator<Item = &'a u64>,
     {
@@ -67,6 +68,14 @@ impl Snapshot {
             format!("Frame Time (min): {:.2} ms", self.frame_time_min_ms),
             format!("Frame Time (max): {:.2} ms", self.frame_time_max_ms),
             format!("VSync: {}", if vsync { "on" } else { "off" }),
+            format!(
+                "AA method: {}",
+                match aa_config {
+                    AaConfig::Area => "Analytic Area",
+                    AaConfig::Msaa16 => "16xMSAA",
+                    AaConfig::Msaa8 => "8xMSAA",
+                }
+            ),
             format!("Resolution: {viewport_width}x{viewport_height}"),
         ];
         if let Some(bump) = &bump {

@@ -62,22 +62,43 @@ pub type Error = Box<dyn std::error::Error>;
 /// Specialization of `Result` for our catch-all error type.
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// Possible configurations for antialiasing.
-#[derive(PartialEq, Eq)]
-#[allow(unused)]
-enum AaConfig {
+/// Represents the antialiasing method to use during a render pass.
+#[derive(Copy, Clone, PartialEq, Eq)]
+pub enum AaConfig {
     Area,
     Msaa8,
     Msaa16,
 }
 
-/// Configuration of antialiasing. Currently this is static, but could be switched to
-/// a launch option or even finer-grained.
-const ANTIALIASING: AaConfig = AaConfig::Msaa16;
+/// Represents the set of antialiasing configurations to enable during pipeline creation.
+pub struct AaSupport {
+    pub area: bool,
+    pub msaa8: bool,
+    pub msaa16: bool,
+}
+
+impl AaSupport {
+    pub fn all() -> Self {
+        Self {
+            area: true,
+            msaa8: true,
+            msaa16: true,
+        }
+    }
+
+    pub fn area_only() -> Self {
+        Self {
+            area: true,
+            msaa8: false,
+            msaa16: false,
+        }
+    }
+}
 
 /// Renders a scene into a texture or surface.
 #[cfg(feature = "wgpu")]
 pub struct Renderer {
+    options: RendererOptions,
     engine: WgpuEngine,
     shaders: FullShaders,
     blit: Option<BlitPipeline>,
@@ -86,8 +107,6 @@ pub struct Renderer {
     profiler: GpuProfiler,
     #[cfg(feature = "wgpu-profiler")]
     pub profile_result: Option<Vec<wgpu_profiler::GpuTimerScopeResult>>,
-    #[cfg(feature = "hot_reload")]
-    use_cpu: bool,
 }
 
 /// Parameters used in a single render that are configurable by the client.
@@ -99,6 +118,10 @@ pub struct RenderParams {
     /// Dimensions of the rasterization target
     pub width: u32,
     pub height: u32,
+
+    /// The anti-aliasing algorithm. The selected algorithm must have been initialized while
+    /// constructing the `Renderer`.
+    pub antialiasing_method: AaConfig,
 }
 
 #[cfg(feature = "wgpu")]
@@ -106,33 +129,43 @@ pub struct RendererOptions {
     /// The format of the texture used for surfaces with this renderer/device
     /// If None, the renderer cannot be used with surfaces
     pub surface_format: Option<TextureFormat>,
+
     /// The timestamp period from [`wgpu::Queue::get_timestamp_period`]
     /// Used when the wgpu-profiler feature is enabled
     pub timestamp_period: f32,
+
+    /// If true, run all stages up to fine rasterization on the CPU.
+    // TODO: Consider evolving this so that the CPU stages can be configured dynamically via
+    // `RenderParams`.
     pub use_cpu: bool,
+
+    /// Represents the enabled set of AA configurations. This will be used to determine which
+    /// pipeline permutations should be compiled at startup.
+    pub antialiasing_support: AaSupport,
 }
 
 #[cfg(feature = "wgpu")]
 impl Renderer {
     /// Creates a new renderer for the specified device.
-    pub fn new(device: &Device, render_options: &RendererOptions) -> Result<Self> {
-        let mut engine = WgpuEngine::new(render_options.use_cpu);
-        let shaders = shaders::full_shaders(device, &mut engine)?;
-        let blit = render_options
+    pub fn new(device: &Device, options: RendererOptions) -> Result<Self> {
+        let mut engine = WgpuEngine::new(options.use_cpu);
+        let shaders = shaders::full_shaders(device, &mut engine, &options)?;
+        let blit = options
             .surface_format
             .map(|surface_format| BlitPipeline::new(device, surface_format));
+        #[cfg(feature = "wgpu-profiler")]
+        let timestamp_period = options.timestamp_period;
         Ok(Self {
+            options,
             engine,
             shaders,
             blit,
             target: None,
             // Use 3 pending frames
             #[cfg(feature = "wgpu-profiler")]
-            profiler: GpuProfiler::new(3, render_options.timestamp_period, device.features()),
+            profiler: GpuProfiler::new(3, timestamp_period, device.features()),
             #[cfg(feature = "wgpu-profiler")]
             profile_result: None,
-            #[cfg(feature = "hot_reload")]
-            use_cpu: render_options.use_cpu,
         })
     }
 
@@ -237,8 +270,8 @@ impl Renderer {
     #[cfg(feature = "hot_reload")]
     pub async fn reload_shaders(&mut self, device: &Device) -> Result<()> {
         device.push_error_scope(wgpu::ErrorFilter::Validation);
-        let mut engine = WgpuEngine::new(self.use_cpu);
-        let shaders = shaders::full_shaders(device, &mut engine)?;
+        let mut engine = WgpuEngine::new(self.options.use_cpu);
+        let shaders = shaders::full_shaders(device, &mut engine, &self.options)?;
         let error = device.pop_error_scope().await;
         if let Some(error) = error {
             return Err(error.into());
