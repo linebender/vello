@@ -153,6 +153,7 @@ impl Renderer {
         let blit = options
             .surface_format
             .map(|surface_format| BlitPipeline::new(device, surface_format));
+        #[cfg(feature = "wgpu-profiler")]
         let timestamp_period = options.timestamp_period;
         Ok(Self {
             options,
