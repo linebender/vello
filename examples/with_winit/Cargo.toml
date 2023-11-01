@@ -46,5 +46,7 @@ android_logger = "0.13.0"
 console_error_panic_hook = "0.1.7"
 console_log = "1"
 wasm-bindgen-futures = "0.4.33"
-web-sys = { version = "0.3.60", features = [ "HtmlCollection", "Text" ] }
+# Note: pinning the exact dep here because 0.3.65 broke semver. Update this
+# when revving wgpu.
+web-sys = { version = "=0.3.64", features = [ "HtmlCollection", "Text" ] }
 getrandom = { version = "0.2.10", features = ["js"] }
