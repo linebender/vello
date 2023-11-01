@@ -251,7 +251,7 @@ fn fill_path_ms(fill: CmdFill, local_id: vec2<u32>, result: ptr<function, array<
             let zp = floor(a * f32(sub_ix - 1u) + b);
             if sub_ix == 0u {
                 is_delta = y0i == xy0.y && y0i != xy1.y;
-                is_bump = xy0.x == 0.0;
+                is_bump = xy0.x == 0.0 && y0i != xy0.y;
             } else {
                 is_delta = z == zp;
                 is_bump = is_positive_slope && !is_delta;
@@ -590,7 +590,7 @@ fn fill_path_ms_evenodd(fill: CmdFill, local_id: vec2<u32>, result: ptr<function
             let zp = floor(a * f32(sub_ix - 1u) + b);
             if sub_ix == 0u {
                 is_delta = y0i == xy0.y && y0i != xy1.y;
-                is_bump = xy0.x == 0.0 && y0i != xy0.y;
+                is_bump = xy0.x == 0.0;
             } else {
                 is_delta = z == zp;
                 is_bump = is_positive_slope && !is_delta;

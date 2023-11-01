@@ -1157,16 +1157,41 @@ fn robust_paths(sb: &mut SceneBuilder, _: &mut SceneParams) {
     path.line_to((216.0, 24.0));
     path.line_to((200.0, 24.0));
     path.close_path();
+    path.move_to((241.0, 17.5));
+    path.line_to((255.0, 17.5));
+    path.line_to((255.0, 19.5));
+    path.line_to((241.0, 19.5));
+    path.close_path();
+    path.move_to((241.0, 22.5));
+    path.line_to((256.0, 22.5));
+    path.line_to((256.0, 24.5));
+    path.line_to((241.0, 24.5));
+    path.close_path();
     sb.fill(Fill::NonZero, Affine::IDENTITY, Color::YELLOW, None, &path);
+    sb.fill(
+        Fill::EvenOdd,
+        Affine::translate((300.0, 0.0)),
+        Color::LIME,
+        None,
+        &path,
+    );
+
     path.move_to((8.0, 4.0));
     path.line_to((8.0, 40.0));
-    path.line_to((220.0, 40.0));
-    path.line_to((220.0, 4.0));
+    path.line_to((260.0, 40.0));
+    path.line_to((260.0, 4.0));
     path.close_path();
     sb.fill(
         Fill::NonZero,
         Affine::translate((0.0, 100.0)),
         Color::YELLOW,
+        None,
+        &path,
+    );
+    sb.fill(
+        Fill::EvenOdd,
+        Affine::translate((300.0, 100.0)),
+        Color::LIME,
         None,
         &path,
     );

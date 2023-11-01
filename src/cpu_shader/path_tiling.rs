@@ -144,6 +144,12 @@ fn path_tiling_main(
                 y_edge = p1.y;
             }
         }
+        if p0.x == p0.x.floor() && p0.x != 0.0 {
+            p0.x -= EPSILON;
+        }
+        if p1.x == p1.x.floor() && p1.x != 0.0 {
+            p1.x -= EPSILON;
+        }
         if !is_down {
             (p0, p1) = (p1, p0);
         }

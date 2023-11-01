@@ -150,6 +150,17 @@ fn main(
                 y_edge = p1.y;
             }
         }
+        // Hacky approach to numerical robustness in fine.
+        // This just makes sure there are no vertical lines aligned to
+        // the pixel grid internal to the tile. It's faster to do this
+        // logic here rather than in fine, but at some point we might
+        // rework it.
+        if p0.x == floor(p0.x) && p0.x != 0.0 {
+            p0.x -= EPSILON;
+        }
+        if p1.x == floor(p1.x) && p1.x != 0.0 {
+            p1.x -= EPSILON;
+        }
         if !is_down {
             let tmp = p0;
             p0 = p1;
