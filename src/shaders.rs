@@ -131,13 +131,7 @@ pub fn full_shaders(
             )?
         }};
         ($name:ident, $bindings:expr, $defines:expr, $cpu:expr) => {{
-            add_shader!(
-                $name,
-                stringify!($name),
-                $bindings,
-                &$defines,
-                $cpu
-            )
+            add_shader!($name, stringify!($name), $bindings, &$defines, $cpu)
         }};
         ($name:ident, $bindings:expr, $defines:expr) => {
             add_shader!(
@@ -285,28 +279,24 @@ pub fn full_shaders(
     let [fine_area, fine_msaa8, fine_msaa16] = {
         let aa_support = &options.antialiasing_support;
         let aa_modes = [
-            (aa_support.area, None),
-            (aa_support.msaa8, Some(("fine_msaa8", "msaa8"))),
-            (aa_support.msaa16, Some(("fine_msaa16", "msaa16"))),
+            (aa_support.area, 1, "fine_area", None),
+            (aa_support.msaa8, 0, "fine_msaa8", Some("msaa8")),
+            (aa_support.msaa16, 0, "fine_msaa16", Some("msaa16")),
         ];
         let mut pipelines = [None, None, None];
-        for (i, (enabled, msaa_info)) in aa_modes.iter().enumerate() {
+        for (i, (enabled, offset, label, aa_config)) in aa_modes.iter().enumerate() {
             if !enabled {
                 continue;
             }
-            let (range_end_offset, label, aa_config) = match *msaa_info {
-                Some((label, config)) => (0, label, Some(config)),
-                None => (1, "fine_area", None),
-            };
             let mut config = full_config.clone();
-            if let Some(aa_config) = aa_config {
+            if let Some(aa_config) = *aa_config {
                 config.insert("msaa".into());
                 config.insert(aa_config.into());
             }
             pipelines[i] = Some(add_shader!(
                 fine,
                 label,
-                fine_resources[..fine_resources.len() - range_end_offset],
+                fine_resources[..fine_resources.len() - offset],
                 config,
                 CpuShaderType::Missing
             ));

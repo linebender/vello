@@ -365,16 +365,17 @@ fn run(
 
             // If the user specifies a base color in the CLI we use that. Otherwise we use any
             // color specified by the scene. The default is black.
-            let aa_config = AA_CONFIGS[aa_config_ix as usize];
+            let base_color = args
+                .args
+                .base_color
+                .or(scene_params.base_color)
+                .unwrap_or(Color::BLACK);
+            let antialiasing_method = AA_CONFIGS[aa_config_ix as usize];
             let render_params = vello::RenderParams {
-                base_color: args
-                    .args
-                    .base_color
-                    .or(scene_params.base_color)
-                    .unwrap_or(Color::BLACK),
+                base_color,
                 width,
                 height,
-                antialiasing_method: aa_config,
+                antialiasing_method,
             };
             let mut builder = SceneBuilder::for_scene(&mut scene);
             let mut transform = transform;
@@ -395,7 +396,7 @@ fn run(
                     stats.samples(),
                     complexity_shown.then_some(scene_complexity).flatten(),
                     vsync_on,
-                    aa_config,
+                    antialiasing_method,
                 );
                 if let Some(profiling_result) = renderers[render_state.surface.dev_id]
                     .as_mut()
