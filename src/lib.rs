@@ -47,7 +47,7 @@ pub use engine::{
 };
 pub use shaders::FullShaders;
 #[cfg(feature = "wgpu")]
-use wgpu_engine::{ExternalResource, WgpuEngine};
+use wgpu_engine::{ExternalResource, TransientBindMap, WgpuEngine};
 
 /// Temporary export, used in with_winit for stats
 pub use vello_encoding::BumpAllocators;
@@ -73,7 +73,7 @@ enum AaConfig {
 
 /// Configuration of antialiasing. Currently this is static, but could be switched to
 /// a launch option or even finer-grained.
-const ANTIALIASING: AaConfig = AaConfig::Msaa16;
+const ANTIALIASING: AaConfig = AaConfig::Area;
 
 /// Renders a scene into a texture or surface.
 #[cfg(feature = "wgpu")]
@@ -154,12 +154,13 @@ impl Renderer {
             *target.as_image().unwrap(),
             texture,
         )];
+        let mut transient_map = TransientBindMap::new(&external_resources);
         self.engine.run_recording(
             device,
             queue,
             &recording,
-            &external_resources,
             "render_to_texture",
+            &mut transient_map,
             #[cfg(feature = "wgpu-profiler")]
             &mut self.profiler,
         )?;
@@ -274,12 +275,14 @@ impl Renderer {
         let recording = render.render_encoding_coarse(encoding, &self.shaders, params, robust);
         let target = render.out_image();
         let bump_buf = render.bump_buf();
+        let external_resources = [ExternalResource::Image(target, texture)];
+        let mut transient_map = TransientBindMap::new(&external_resources);
         self.engine.run_recording(
             device,
             queue,
             &recording,
-            &[],
             "t_async_coarse",
+            &mut transient_map,
             #[cfg(feature = "wgpu-profiler")]
             &mut self.profiler,
         )?;
@@ -303,13 +306,12 @@ impl Renderer {
         // Maybe clear to reuse allocation?
         let mut recording = Recording::default();
         render.record_fine(&self.shaders, &mut recording);
-        let external_resources = [ExternalResource::Image(target, texture)];
         self.engine.run_recording(
             device,
             queue,
             &recording,
-            &external_resources,
             "t_async_fine",
+            &mut transient_map,
             #[cfg(feature = "wgpu-profiler")]
             &mut self.profiler,
         )?;

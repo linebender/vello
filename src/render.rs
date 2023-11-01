@@ -1,7 +1,7 @@
 //! Take an encoded scene and create a graph to render it
 
 use crate::{
-    engine::{BufProxy, ImageFormat, ImageProxy, Recording, ResourceProxy},
+    engine::{BufProxy, ImageAccess, ImageFormat, ImageProxy, Recording, ResourceProxy},
     shaders::FullShaders,
     AaConfig, RenderParams, Scene, ANTIALIASING,
 };
@@ -85,7 +85,7 @@ impl Render {
         let mut packed = vec![];
         let (layout, ramps, images) = resolver.resolve(encoding, &mut packed);
         let gradient_image = if ramps.height == 0 {
-            ResourceProxy::new_image(1, 1, ImageFormat::Rgba8)
+            ResourceProxy::new_image(1, 1, ImageFormat::Rgba8, ImageAccess::Full)
         } else {
             let data: &[u8] = bytemuck::cast_slice(ramps.data);
             ResourceProxy::Image(recording.upload_image(
@@ -96,9 +96,14 @@ impl Render {
             ))
         };
         let image_atlas = if images.images.is_empty() {
-            ImageProxy::new(1, 1, ImageFormat::Rgba8)
+            ImageProxy::new(1, 1, ImageFormat::Rgba8, ImageAccess::Full)
         } else {
-            ImageProxy::new(images.width, images.height, ImageFormat::Rgba8)
+            ImageProxy::new(
+                images.width,
+                images.height,
+                ImageFormat::Rgba8,
+                ImageAccess::Full,
+            )
         };
         for image in images.images {
             recording.write_image(
@@ -390,7 +395,12 @@ impl Render {
         recording.free_resource(draw_monoid_buf);
         recording.free_resource(bin_header_buf);
         recording.free_resource(path_buf);
-        let out_image = ImageProxy::new(params.width, params.height, ImageFormat::Rgba8);
+        let out_image = ImageProxy::new(
+            params.width,
+            params.height,
+            ImageFormat::Rgba8,
+            ImageAccess::WriteOnce,
+        );
         self.fine_wg_count = Some(wg_counts.fine);
         self.fine_resources = Some(FineResources {
             config_buf,
@@ -456,6 +466,11 @@ impl Render {
                 );
             }
         }
+        recording.push(crate::Command::Writeback {
+            image: fine.out_image,
+            config: fine.config_buf,
+            shader: shaders.writeback,
+        });
         recording.free_resource(fine.config_buf);
         recording.free_resource(fine.tile_buf);
         recording.free_resource(fine.segments_buf);
