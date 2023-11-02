@@ -14,7 +14,7 @@
 //
 // Also licensed under MIT license, at your choice.
 
-#![warn(clippy::doc_markdown)]
+#![warn(clippy::doc_markdown, clippy::semicolon_if_nothing_returned)]
 
 mod cpu_dispatch;
 mod cpu_shader;

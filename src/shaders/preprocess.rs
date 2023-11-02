@@ -80,7 +80,7 @@ pub fn preprocess(input: &str, defines: &HashSet<String>, imports: &HashMap<&str
                     let item = stack.last_mut();
                     if let Some(item) = item {
                         if item.else_passed {
-                            eprintln!("Second else for same ifdef/ifndef (line {line_number}); ignoring second else")
+                            eprintln!("Second else for same ifdef/ifndef (line {line_number}); ignoring second else");
                         } else {
                             item.else_passed = true;
                             item.active = !item.active;

@@ -139,16 +139,16 @@ struct BezPathPen(peniko::kurbo::BezPath);
 
 impl Pen for BezPathPen {
     fn move_to(&mut self, x: f32, y: f32) {
-        self.0.move_to((x as f64, y as f64))
+        self.0.move_to((x as f64, y as f64));
     }
 
     fn line_to(&mut self, x: f32, y: f32) {
-        self.0.line_to((x as f64, y as f64))
+        self.0.line_to((x as f64, y as f64));
     }
 
     fn quad_to(&mut self, cx0: f32, cy0: f32, x: f32, y: f32) {
         self.0
-            .quad_to((cx0 as f64, cy0 as f64), (x as f64, y as f64))
+            .quad_to((cx0 as f64, cy0 as f64), (x as f64, y as f64));
     }
 
     fn curve_to(&mut self, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x: f32, y: f32) {
@@ -156,10 +156,10 @@ impl Pen for BezPathPen {
             (cx0 as f64, cy0 as f64),
             (cx1 as f64, cy1 as f64),
             (x as f64, y as f64),
-        )
+        );
     }
 
     fn close(&mut self) {
-        self.0.close_path()
+        self.0.close_path();
     }
 }

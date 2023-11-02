@@ -131,7 +131,7 @@ mod tests {
     fn test_f32_to_f16_simple() {
         let input: f32 = std::f32::consts::PI;
         let output: u16 = f32_to_f16(input);
-        assert_eq!(0x4248u16, output) // 3.141
+        assert_eq!(0x4248u16, output); // 3.141
     }
 
     #[test]

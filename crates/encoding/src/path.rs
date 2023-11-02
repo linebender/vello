@@ -563,7 +563,7 @@ impl<'a> PathEncoder<'a> {
                 PathEl::MoveTo(p0) => self.move_to(p0.x as f32, p0.y as f32),
                 PathEl::LineTo(p0) => self.line_to(p0.x as f32, p0.y as f32),
                 PathEl::QuadTo(p0, p1) => {
-                    self.quad_to(p0.x as f32, p0.y as f32, p1.x as f32, p1.y as f32)
+                    self.quad_to(p0.x as f32, p0.y as f32, p1.x as f32, p1.y as f32);
                 }
                 PathEl::CurveTo(p0, p1, p2) => self.cubic_to(
                     p0.x as f32,
@@ -608,23 +608,23 @@ impl<'a> PathEncoder<'a> {
 #[cfg(feature = "full")]
 impl fello::scale::Pen for PathEncoder<'_> {
     fn move_to(&mut self, x: f32, y: f32) {
-        self.move_to(x, y)
+        self.move_to(x, y);
     }
 
     fn line_to(&mut self, x: f32, y: f32) {
-        self.line_to(x, y)
+        self.line_to(x, y);
     }
 
     fn quad_to(&mut self, cx0: f32, cy0: f32, x: f32, y: f32) {
-        self.quad_to(cx0, cy0, x, y)
+        self.quad_to(cx0, cy0, x, y);
     }
 
     fn curve_to(&mut self, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x: f32, y: f32) {
-        self.cubic_to(cx0, cy0, cx1, cy1, x, y)
+        self.cubic_to(cx0, cy0, cx1, cy1, x, y);
     }
 
     fn close(&mut self) {
-        self.close()
+        self.close();
     }
 }
 

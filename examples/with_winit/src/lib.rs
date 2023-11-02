@@ -203,7 +203,7 @@ fn run(
                                                 profile_result,
                                             ) {
                                                 Ok(()) => {
-                                                    println!("Wrote trace to path {path:?}")
+                                                    println!("Wrote trace to path {path:?}");
                                                 }
                                                 Err(e) => eprintln!("Failed to write trace {e}"),
                                             }
@@ -415,7 +415,7 @@ fn run(
                         width as f64,
                         height as f64,
                         profiling_result,
-                    )
+                    );
                 }
             }
             let surface_texture = render_state

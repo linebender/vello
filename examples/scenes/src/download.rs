@@ -88,7 +88,7 @@ impl Download {
                 "{index}: Downloading {} from {}",
                 download.name, download.url
             );
-            download.fetch(&self.directory, self.size_limit)?
+            download.fetch(&self.directory, self.size_limit)?;
         }
         println!("{} downloads complete", to_download.len());
         Ok(())
