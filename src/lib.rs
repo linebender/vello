@@ -14,6 +14,8 @@
 //
 // Also licensed under MIT license, at your choice.
 
+#![warn(clippy::doc_markdown)]
+
 mod cpu_dispatch;
 mod cpu_shader;
 mod engine;
@@ -49,7 +51,7 @@ pub use shaders::FullShaders;
 #[cfg(feature = "wgpu")]
 use wgpu_engine::{ExternalResource, WgpuEngine};
 
-/// Temporary export, used in with_winit for stats
+/// Temporary export, used in `with_winit` for stats
 pub use vello_encoding::BumpAllocators;
 #[cfg(feature = "wgpu")]
 use wgpu::{Device, Queue, SurfaceTexture, TextureFormat, TextureView};
@@ -172,7 +174,7 @@ impl Renderer {
     /// Renders a scene to the target texture.
     ///
     /// The texture is assumed to be of the specified dimensions and have been created with
-    /// the [wgpu::TextureFormat::Rgba8Unorm] format and the [wgpu::TextureUsages::STORAGE_BINDING]
+    /// the [`wgpu::TextureFormat::Rgba8Unorm`] format and the [`wgpu::TextureUsages::STORAGE_BINDING`]
     /// flag set.
     pub fn render_to_texture(
         &mut self,
@@ -284,7 +286,7 @@ impl Renderer {
     /// Renders a scene to the target texture.
     ///
     /// The texture is assumed to be of the specified dimensions and have been created with
-    /// the [wgpu::TextureFormat::Rgba8Unorm] format and the [wgpu::TextureUsages::STORAGE_BINDING]
+    /// the [`wgpu::TextureFormat::Rgba8Unorm`] format and the [`wgpu::TextureUsages::STORAGE_BINDING`]
     /// flag set.
     ///
     /// The return value is the value of the `BumpAllocators` in this rendering, which is currently used
@@ -349,7 +351,7 @@ impl Renderer {
         Ok(bump)
     }
 
-    /// See [Self::render_to_surface]
+    /// See [`Self::render_to_surface`]
     pub async fn render_to_surface_async(
         &mut self,
         device: &Device,

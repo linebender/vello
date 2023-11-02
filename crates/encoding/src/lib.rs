@@ -3,6 +3,8 @@
 
 //! Raw scene encoding.
 
+#![warn(clippy::doc_markdown)]
+
 mod binning;
 mod clip;
 mod config;

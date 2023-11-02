@@ -241,17 +241,17 @@ pub struct PathTag(pub u8);
 impl PathTag {
     /// 32-bit floating point line segment.
     ///
-    /// This is equivalent to (PathSegmentType::LINE_TO | PathTag::F32_BIT).
+    /// This is equivalent to `(PathSegmentType::LINE_TO | PathTag::F32_BIT)`.
     pub const LINE_TO_F32: Self = Self(0x9);
 
     /// 32-bit floating point quadratic segment.
     ///
-    /// This is equivalent to (PathSegmentType::QUAD_TO | PathTag::F32_BIT).
+    /// This is equivalent to `(PathSegmentType::QUAD_TO | PathTag::F32_BIT)`.
     pub const QUAD_TO_F32: Self = Self(0xa);
 
     /// 32-bit floating point cubic segment.
     ///
-    /// This is equivalent to (PathSegmentType::CUBIC_TO | PathTag::F32_BIT).
+    /// This is equivalent to `(PathSegmentType::CUBIC_TO | PathTag::F32_BIT)`.
     pub const CUBIC_TO_F32: Self = Self(0xb);
 
     /// 16-bit integral line segment.
@@ -279,7 +279,7 @@ impl PathTag {
     /// Bit that marks a segment that is the end of a subpath.
     const SUBPATH_END_BIT: u8 = 0x4;
 
-    /// Mask for bottom 3 bits that contain the [PathSegmentType].
+    /// Mask for bottom 3 bits that contain the [`PathSegmentType`].
     const SEGMENT_MASK: u8 = 0x3;
 
     /// Returns true if the tag is a segment.
@@ -580,7 +580,7 @@ impl<'a> PathEncoder<'a> {
 
     /// Completes path encoding and returns the actual number of encoded segments.
     ///
-    /// If `insert_path_marker` is true, encodes the [PathTag::PATH] tag to signify
+    /// If `insert_path_marker` is true, encodes the [`PathTag::PATH`] tag to signify
     /// the end of a complete path object. Setting this to false allows encoding
     /// multiple paths with differing transforms for a single draw object.
     pub fn finish(mut self, insert_path_marker: bool) -> u32 {
