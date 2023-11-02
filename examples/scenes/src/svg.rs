@@ -53,7 +53,7 @@ fn scene_from_files_inner(
                 if let Some(extension) = Path::new(&entry.file_name()).extension() {
                     if extension == "svg" {
                         count += 1;
-                        scenes.push(example_scene_of(entry.path()))
+                        scenes.push(example_scene_of(entry.path()));
                     }
                 }
             }
@@ -63,7 +63,7 @@ fn scene_from_files_inner(
                 empty_dir();
             }
         } else {
-            scenes.push(example_scene_of(path.to_owned()))
+            scenes.push(example_scene_of(path.to_owned()));
         }
     }
     Ok(SceneSet { scenes })
@@ -147,7 +147,7 @@ pub fn svg_function_of<R: AsRef<str>>(
                 Result::Ok((scene_frag, resolution)) => {
                     builder.append(&scene_frag, None);
                     params.resolution = Some(resolution);
-                    cached_scene = Some((scene_frag, resolution))
+                    cached_scene = Some((scene_frag, resolution));
                 }
                 Err(RecvTimeoutError::Timeout) => params.text.add(
                     builder,

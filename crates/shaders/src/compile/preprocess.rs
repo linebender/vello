@@ -93,7 +93,7 @@ pub fn preprocess(
                             eprintln!(
                                 "Second else for same ifdef/ifndef (line {line_number}); \
                                        ignoring second else"
-                            )
+                            );
                         } else {
                             item.else_passed = true;
                             item.active = !item.active;

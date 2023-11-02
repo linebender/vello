@@ -1117,7 +1117,7 @@ fn labyrinth(sb: &mut SceneBuilder, _: &mut SceneParams) {
         Color::rgba8(0x70, 0x80, 0x80, 0xff),
         None,
         &path,
-    )
+    );
 }
 
 fn robust_paths(sb: &mut SceneBuilder, _: &mut SceneParams) {

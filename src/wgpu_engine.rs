@@ -345,7 +345,7 @@ impl WgpuEngine {
                         },
                     );
                     self.bind_map
-                        .insert_image(image_proxy.id, texture, texture_view)
+                        .insert_image(image_proxy.id, texture, texture_view);
                 }
                 Command::WriteImage(proxy, [x, y, width, height], data) => {
                     if let Ok((texture, _)) = self.bind_map.get_or_create_image(*proxy, device) {
@@ -755,7 +755,7 @@ impl<'a> TransientBindMap<'a> {
                             });
                         }
                         Entry::Occupied(mut o) => {
-                            o.get_mut().upload_if_needed(proxy, device, queue, pool)
+                            o.get_mut().upload_if_needed(proxy, device, queue, pool);
                         }
                     }
                 }

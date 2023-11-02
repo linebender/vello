@@ -48,7 +48,7 @@ pub use usvg;
 ///
 /// See the [module level documentation](crate#unsupported-features) for a list of some unsupported svg features
 pub fn render_tree(sb: &mut SceneBuilder, svg: &usvg::Tree) {
-    render_tree_with(sb, svg, default_error_handler).unwrap_or_else(|e| match e {})
+    render_tree_with(sb, svg, default_error_handler).unwrap_or_else(|e| match e {});
 }
 
 /// Append a [`usvg::Tree`] into a Vello [`SceneBuilder`].
@@ -81,13 +81,13 @@ pub fn render_tree_with<F: FnMut(&mut SceneBuilder, &usvg::Node) -> Result<(), E
                                 local_path.move_to(most_recent_initial);
                             }
                             most_recent_initial = (x, y);
-                            local_path.move_to(most_recent_initial)
+                            local_path.move_to(most_recent_initial);
                         }
                         usvg::PathSegment::LineTo { x, y } => {
                             if std::mem::take(&mut just_closed) {
                                 local_path.move_to(most_recent_initial);
                             }
-                            local_path.line_to((x, y))
+                            local_path.line_to((x, y));
                         }
                         usvg::PathSegment::CurveTo {
                             x1,
@@ -100,11 +100,11 @@ pub fn render_tree_with<F: FnMut(&mut SceneBuilder, &usvg::Node) -> Result<(), E
                             if std::mem::take(&mut just_closed) {
                                 local_path.move_to(most_recent_initial);
                             }
-                            local_path.curve_to((x1, y1), (x2, y2), (x, y))
+                            local_path.curve_to((x1, y1), (x2, y2), (x, y));
                         }
                         usvg::PathSegment::ClosePath => {
                             just_closed = true;
-                            local_path.close_path()
+                            local_path.close_path();
                         }
                     }
                 }

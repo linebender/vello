@@ -3,7 +3,7 @@
 
 //! Raw scene encoding.
 
-#![warn(clippy::doc_markdown)]
+#![warn(clippy::doc_markdown, clippy::semicolon_if_nothing_returned)]
 
 mod binning;
 mod clip;
