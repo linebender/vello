@@ -130,16 +130,15 @@ let ROBUST_EPSILON: f32 = 2e-7;
 // is invited to study the even-odd case first, as there only one bit is
 // needed to represent a winding number parity, thus there is a lot less
 // bit shifting, and less shuffling altogether.
-fn fill_path_ms(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>, result: ptr<function, array<f32, PIXELS_PER_THREAD>>) {
+fn fill_path_ms(fill: CmdFill, local_id: vec2<u32>, result: ptr<function, array<f32, PIXELS_PER_THREAD>>) {
     let even_odd = (fill.size_and_rule & 1u) != 0u;
     // This isn't a divergent branch because the fill parameters are workgroup uniform,
     // provably so because the ptcl buffer is bound read-only.
     if even_odd {
-        fill_path_ms_evenodd(fill, wg_id, local_id, result);
+        fill_path_ms_evenodd(fill, local_id, result);
         return;
     }
     let n_segs = fill.size_and_rule >> 1u;
-    let tile_origin = vec2(f32(wg_id.x) * f32(TILE_HEIGHT), f32(wg_id.y) * f32(TILE_WIDTH));
     let th_ix = local_id.y * (TILE_WIDTH / PIXELS_PER_THREAD) + local_id.x;
     // Initialize winding number arrays to a winding number of 0, which is 0x80 in an
     // 8 bit biased signed integer encoding.
@@ -163,31 +162,18 @@ fn fill_path_ms(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>, result: pt
         // TODO: might save a register rewriting this in terms of limit
         if th_ix < slice_size {
             let segment = segments[seg_off];
-            // Note: coords relative to tile origin probably a good idea in coarse path,
-            // especially as f16 would work. But keeping existing scheme for compatibility.
-            let xy0 = segment.origin - tile_origin;
-            let xy1 = xy0 + segment.delta;
+            let xy0 = segment.point0;
+            let xy1 = segment.point1;
             var y_edge_f = f32(TILE_HEIGHT);
             var delta = select(-1, 1, xy1.x <= xy0.x);
-            if xy0.x == 0.0 && xy1.x == 0.0 {
-                if xy0.y == 0.0 {
-                    y_edge_f = 0.0;
-                } else if xy1.y == 0.0 {
-                    y_edge_f = 0.0;
-                    delta = -delta;
-                }
-            } else {
-                if xy0.x == 0.0 {
-                    if xy0.y != 0.0 {
-                        y_edge_f = xy0.y;
-                    }
-                } else if xy1.x == 0.0 && xy1.y != 0.0 {
-                    y_edge_f = xy1.y;
-                }
-                // discard horizontal lines aligned to pixel grid
-                if !(xy0.y == xy1.y && xy0.y == floor(xy0.y)) {
-                    count = span(xy0.x, xy1.x) + span(xy0.y, xy1.y) - 1u;
-                }
+            if xy0.x == 0.0 {
+                y_edge_f = xy0.y;
+            } else if xy1.x == 0.0 {
+                y_edge_f = xy1.y;
+            }
+            // discard horizontal lines aligned to pixel grid
+            if !(xy0.y == xy1.y && xy0.y == floor(xy0.y)) {
+                count = span(xy0.x, xy1.x) + span(xy0.y, xy1.y) - 1u;
             }
             let y_edge = u32(ceil(y_edge_f));
             if y_edge < TILE_HEIGHT {
@@ -224,8 +210,9 @@ fn fill_path_ms(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>, result: pt
             let sub_ix = i - select(0u, sh_count[el_ix - 1u], el_ix > 0u);
             let seg_off = fill.seg_data + batch * WG_SIZE + el_ix;
             let segment = segments[seg_off];
-            let xy0_in = segment.origin - tile_origin;
-            let xy1_in = xy0_in + segment.delta;
+            // Coordinates are relative to tile origin
+            let xy0_in = segment.point0;
+            let xy1_in = segment.point1;
             let is_down = xy1_in.y >= xy0_in.y;
             let xy0 = select(xy1_in, xy0_in, is_down);
             let xy1 = select(xy0_in, xy1_in, is_down);
@@ -237,6 +224,8 @@ fn fill_path_ms(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>, result: pt
             let dy = xy1.y - xy0.y;
             let idxdy = 1.0 / (dx + dy);
             var a = dx * idxdy;
+            // is_positive_slope is true for \ and | slopes, false for /. For
+            // horizontal lines, it follows the original data.
             let is_positive_slope = xy1.x >= xy0.x;
             let x_sign = select(-1.0, 1.0, is_positive_slope);
             let xt0 = floor(xy0.x * x_sign);
@@ -257,15 +246,29 @@ fn fill_path_ms(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>, result: pt
             let z = floor(zf);
             let x = x0i + i32(x_sign * z);
             let y = i32(y0i) + i32(sub_ix) - i32(z);
+            // is_delta captures whether the line crosses the top edge of this
+            // pixel. If so, then a delta is added to `sh_winding`, followed by
+            // a prefix sum, so that a winding number delta is applied to all
+            // pixels to the right of this one.
             var is_delta: bool;
-            // We need to adjust winding number if slope is positive and there
-            // is a crossing at the left edge of the pixel.
+            // is_bump captures whether x0 crosses the left edge of this pixel.
             var is_bump = false;
             let zp = floor(a * f32(sub_ix - 1u) + b);
             if sub_ix == 0u {
-                is_delta = y0i == xy0.y && y0i != xy1.y;
-                is_bump = xy0.x == 0.0;
+                // The first (top-most) pixel in the line. It is considered to be
+                // a line crossing when it touches the top of the pixel.
+                //
+                // Note: horizontal lines aligned to the pixel grid have already
+                // been discarded.
+                is_delta = y0i == xy0.y;
+                // The pixel is counted as a left edge crossing only at the left
+                // edge of the tile (and when it is not the top left corner,
+                // using logic analogous to tiling).
+                is_bump = xy0.x == 0.0 && y0i != xy0.y;
             } else {
+                // Pixels other than the first are a crossing at the top or on
+                // the side, based on the conservative line rasterization. When
+                // positive slope, the crossing is on the left.
                 is_delta = z == zp;
                 is_bump = is_positive_slope && !is_delta;
             }
@@ -465,7 +468,7 @@ fn fill_path_ms(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>, result: pt
             // bits 4 * k + 2 and 4 * k + 3 contain 4-reductions
             let xored01_4 = xored01 | (xored01 * 4u);
             let xored2 = (expected_zero * 0x1010101u) ^ samples2;
-            let xored2_2 = xored0 | (xored0 * 2u);
+            let xored2_2 = xored2 | (xored2 * 2u);
             let xored3 = (expected_zero * 0x1010101u) ^ samples3;
             let xored3_2 = xored3 | (xored3 >> 1u);
             // xored23 contains 2-reductions from words 2 and 3, interleaved
@@ -492,9 +495,8 @@ fn fill_path_ms(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>, result: pt
 // as both have the same effect on winding number.
 //
 // TODO: factor some logic out to reduce code duplication.
-fn fill_path_ms_evenodd(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>, result: ptr<function, array<f32, PIXELS_PER_THREAD>>) {
+fn fill_path_ms_evenodd(fill: CmdFill, local_id: vec2<u32>, result: ptr<function, array<f32, PIXELS_PER_THREAD>>) {
     let n_segs = fill.size_and_rule >> 1u;
-    let tile_origin = vec2(f32(wg_id.x) * f32(TILE_HEIGHT), f32(wg_id.y) * f32(TILE_WIDTH));
     let th_ix = local_id.y * (TILE_WIDTH / PIXELS_PER_THREAD) + local_id.x;
     if th_ix < TILE_HEIGHT {
         if th_ix == 0u {
@@ -516,29 +518,18 @@ fn fill_path_ms_evenodd(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>, re
         // TODO: might save a register rewriting this in terms of limit
         if th_ix < slice_size {
             let segment = segments[seg_off];
-            // Note: coords relative to tile origin probably a good idea in coarse path,
-            // especially as f16 would work. But keeping existing scheme for compatibility.
-            let xy0 = segment.origin - tile_origin;
-            let xy1 = xy0 + segment.delta;
+            // Coordinates are relative to tile origin
+            let xy0 = segment.point0;
+            let xy1 = segment.point1;
             var y_edge_f = f32(TILE_HEIGHT);
-            if xy0.x == 0.0 && xy1.x == 0.0 {
-                if xy0.y == 0.0 {
-                    y_edge_f = 0.0;
-                } else if xy1.y == 0.0 {
-                    y_edge_f = 0.0;
-                }
-            } else {
-                if xy0.x == 0.0 {
-                    if xy0.y != 0.0 {
-                        y_edge_f = xy0.y;
-                    }
-                } else if xy1.x == 0.0 && xy1.y != 0.0 {
-                    y_edge_f = xy1.y;
-                }
-                // discard horizontal lines aligned to pixel grid
-                if !(xy0.y == xy1.y && xy0.y == floor(xy0.y)) {
-                    count = span(xy0.x, xy1.x) + span(xy0.y, xy1.y) - 1u;
-                }
+            if xy0.x == 0.0 {
+                y_edge_f = xy0.y;
+            } else if xy1.x == 0.0 {
+                y_edge_f = xy1.y;
+            }
+            // discard horizontal lines aligned to pixel grid
+            if !(xy0.y == xy1.y && xy0.y == floor(xy0.y)) {
+                count = span(xy0.x, xy1.x) + span(xy0.y, xy1.y) - 1u;
             }
             let y_edge = u32(ceil(y_edge_f));
             if y_edge < TILE_HEIGHT {
@@ -575,8 +566,8 @@ fn fill_path_ms_evenodd(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>, re
             let sub_ix = i - select(0u, sh_count[el_ix - 1u], el_ix > 0u);
             let seg_off = fill.seg_data + batch * WG_SIZE + el_ix;
             let segment = segments[seg_off];
-            let xy0_in = segment.origin - tile_origin;
-            let xy1_in = xy0_in + segment.delta;
+            let xy0_in = segment.point0;
+            let xy1_in = segment.point1;
             let is_down = xy1_in.y >= xy0_in.y;
             let xy0 = select(xy1_in, xy0_in, is_down);
             let xy1 = select(xy0_in, xy1_in, is_down);
@@ -609,12 +600,11 @@ fn fill_path_ms_evenodd(fill: CmdFill, wg_id: vec2<u32>, local_id: vec2<u32>, re
             let x = x0i + i32(x_sign * z);
             let y = i32(y0i) + i32(sub_ix) - i32(z);
             var is_delta: bool;
-            // We need to adjust winding number if slope is positive and there
-            // is a crossing at the left edge of the pixel.
+            // See comments in nonzero case.
             var is_bump = false;
             let zp = floor(a * f32(sub_ix - 1u) + b);
             if sub_ix == 0u {
-                is_delta = y0i == xy0.y && y0i != xy1.y;
+                is_delta = y0i == xy0.y;
                 is_bump = xy0.x == 0.0;
             } else {
                 is_delta = z == zp;
@@ -811,17 +801,18 @@ fn fill_path(fill: CmdFill, xy: vec2<f32>, result: ptr<function, array<f32, PIXE
     for (var i = 0u; i < n_segs; i++) {
         let seg_off = fill.seg_data + i;
         let segment = segments[seg_off];
-        let y = segment.origin.y - xy.y;
+        let y = segment.point0.y - xy.y;
+        let delta = segment.point1 - segment.point0;
         let y0 = clamp(y, 0.0, 1.0);
-        let y1 = clamp(y + segment.delta.y, 0.0, 1.0);
+        let y1 = clamp(y + delta.y, 0.0, 1.0);
         let dy = y0 - y1;
         if dy != 0.0 {
-            let vec_y_recip = 1.0 / segment.delta.y;
+            let vec_y_recip = 1.0 / delta.y;
             let t0 = (y0 - y) * vec_y_recip;
             let t1 = (y1 - y) * vec_y_recip;
-            let startx = segment.origin.x - xy.x;
-            let x0 = startx + t0 * segment.delta.x;
-            let x1 = startx + t1 * segment.delta.x;
+            let startx = segment.point0.x - xy.x;
+            let x0 = startx + t0 * delta.x;
+            let x1 = startx + t1 * delta.x;
             let xmin0 = min(x0, x1);
             let xmax0 = max(x0, x1);
             for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
@@ -835,7 +826,7 @@ fn fill_path(fill: CmdFill, xy: vec2<f32>, result: ptr<function, array<f32, PIXE
                 area[i] += a * dy;
             }
         }
-        let y_edge = sign(segment.delta.x) * clamp(xy.y - segment.y_edge + 1.0, 0.0, 1.0);
+        let y_edge = sign(delta.x) * clamp(xy.y - segment.y_edge + 1.0, 0.0, 1.0);
         for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
             area[i] += y_edge;
         }
@@ -864,6 +855,7 @@ fn main(
 ) {
     let tile_ix = wg_id.y * config.width_in_tiles + wg_id.x;
     let xy = vec2(f32(global_id.x * PIXELS_PER_THREAD), f32(global_id.y));
+    let local_xy = vec2(f32(local_id.x * PIXELS_PER_THREAD), f32(local_id.y));
 #ifdef full
     var rgba: array<vec4<f32>, PIXELS_PER_THREAD>;
     for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
@@ -886,9 +878,9 @@ fn main(
             case 1u: {
                 let fill = read_fill(cmd_ix);
 #ifdef msaa
-                fill_path_ms(fill, wg_id.xy, local_id.xy, &area);
+                fill_path_ms(fill, local_id.xy, &area);
 #else
-                fill_path(fill, xy, &area);
+                fill_path(fill, local_xy, &area);
 #endif
                 cmd_ix += 4u;
             }

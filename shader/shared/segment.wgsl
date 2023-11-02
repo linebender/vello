@@ -2,8 +2,9 @@
 
 // Segments laid out for contiguous storage
 struct Segment {
-    origin: vec2<f32>,
-    delta: vec2<f32>,
+    // Points are relative to tile origin
+    point0: vec2<f32>,
+    point1: vec2<f32>,
     y_edge: f32,
 }
 
