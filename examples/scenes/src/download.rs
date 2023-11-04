@@ -83,14 +83,46 @@ impl Download {
                 to_download = downloads;
             }
         }
+        let mut completed_count = 0;
+        let mut failed_count = 0;
         for (index, download) in to_download.iter().enumerate() {
             println!(
                 "{index}: Downloading {} from {}",
                 download.name, download.url
             );
-            download.fetch(&self.directory, self.size_limit)?;
+            match download.fetch(&self.directory, self.size_limit) {
+                Ok(()) => completed_count += 1,
+                Err(e) => {
+                    failed_count += 1;
+                    eprintln!("Download failed with error: {e}");
+                    let cont = if self.auto {
+                        false
+                    } else {
+                        dialoguer::Confirm::new()
+                            .with_prompt("Would you like to try other downloads?")
+                            .wait_for_newline(true)
+                            .default(false)
+                            .interact()?
+                    };
+                    if !cont {
+                        println!("{} downloads complete", completed_count);
+                        if failed_count > 0 {
+                            println!("{} downloads failed", failed_count);
+                        }
+                        let remaining = to_download.len() - (completed_count + failed_count);
+                        if remaining > 0 {
+                            println!("{} downloads skipped", remaining);
+                        }
+                        return Err(e);
+                    }
+                }
+            }
         }
-        println!("{} downloads complete", to_download.len());
+        println!("{} downloads complete", completed_count);
+        if failed_count > 0 {
+            println!("{} downloads failed", failed_count);
+        }
+        debug_assert!(completed_count + failed_count == to_download.len());
         Ok(())
     }
 
@@ -136,6 +168,21 @@ impl SVGDownload {
         if let Some(builtin) = &self.builtin {
             size_limit = builtin.expected_size;
             limit_exact = true;
+        }
+        // If we're expecting an exact version of the file, it's worth not fetching
+        // the file if we know it will fail
+        if limit_exact {
+            let head_response = ureq::head(&self.url).call()?;
+            let content_length = head_response.header("content-length");
+            if let Some(Ok(content_length)) = content_length.map(|it| it.parse::<u64>()) {
+                if content_length != size_limit {
+                    bail!(
+                        "Size is not as expected for download. Expected {}, server reported {}",
+                        Byte::from_bytes(size_limit.into()).get_appropriate_unit(true),
+                        Byte::from_bytes(content_length.into()).get_appropriate_unit(true)
+                    )
+                }
+            }
         }
         let mut file = std::fs::OpenOptions::new()
             .create_new(true)
