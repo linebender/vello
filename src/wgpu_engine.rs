@@ -383,7 +383,7 @@ impl WgpuEngine {
                             // works because there is currently the added constraint that data
                             // can only flow from CPU to GPU, not the other way around. If and
                             // when we implement that, we will need to defer the execution. Of
-                            // course, we will also need to wire up more async sychronization
+                            // course, we will also need to wire up more async synchronization
                             // mechanisms, as the CPU dispatch can't run until the preceding
                             // command buffer submission completes (and, in WebGPU, the async
                             // mapping operations on the buffers completes).
