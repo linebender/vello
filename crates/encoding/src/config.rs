@@ -21,7 +21,7 @@ const CLIP_REDUCE_WG: u32 = 256;
 
 /// Counters for tracking dynamic allocation on the GPU.
 ///
-/// This must be kept in sync with the struct in shader/shared/bump.wgsl
+/// This must be kept in sync with the struct in `shader/shared/bump.wgsl`
 #[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
 #[repr(C)]
 pub struct BumpAllocators {
@@ -39,7 +39,7 @@ pub struct BumpAllocators {
 
 /// Storage of indirect dispatch size values.
 ///
-/// The original plan was to reuse BumpAllocators, but the WebGPU compatible
+/// The original plan was to reuse [`BumpAllocators`], but the WebGPU compatible
 /// usage list rules forbid that being used as indirect counts while also
 /// bound as writable.
 #[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
@@ -54,7 +54,7 @@ pub struct IndirectCount {
 /// Uniform render configuration data used by all GPU stages.
 ///
 /// This data structure must be kept in sync with the definition in
-/// shaders/shared/config.wgsl.
+/// `shaders/shared/config.wgsl`.
 #[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
 #[repr(C)]
 pub struct ConfigUniform {
@@ -70,13 +70,13 @@ pub struct ConfigUniform {
     pub base_color: u32,
     /// Layout of packed scene data.
     pub layout: Layout,
-    /// Size of binning buffer allocation (in u32s).
+    /// Size of binning buffer allocation (in `u32`s).
     pub binning_size: u32,
-    /// Size of tile buffer allocation (in Tiles).
+    /// Size of tile buffer allocation (in [`Tile`]s).
     pub tiles_size: u32,
-    /// Size of segment buffer allocation (in PathSegments).
+    /// Size of segment buffer allocation (in [`PathSegment`]s).
     pub segments_size: u32,
-    /// Size of per-tile command list buffer allocation (in u32s).
+    /// Size of per-tile command list buffer allocation (in `u32`s).
     pub ptcl_size: u32,
 }
 

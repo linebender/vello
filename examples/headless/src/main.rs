@@ -87,10 +87,11 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
     let queue = &device_handle.queue;
     let mut renderer = vello::Renderer::new(
         device,
-        &RendererOptions {
+        RendererOptions {
             surface_format: None,
             timestamp_period: queue.get_timestamp_period(),
             use_cpu: false,
+            antialiasing_support: vello::AaSupport::area_only(),
         },
     )
     .or_else(|_| bail!("Got non-Send/Sync error from creating renderer"))?;
@@ -140,6 +141,7 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
             .unwrap_or(vello::peniko::Color::BLACK),
         width,
         height,
+        antialiasing_method: vello::AaConfig::Area,
     };
     let mut scene = Scene::new();
     let mut builder = SceneBuilder::for_scene(&mut scene);

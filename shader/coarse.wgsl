@@ -82,8 +82,7 @@ fn alloc_cmd(size: u32) {
     }
 }
 
-fn write_path(tile: Tile, tile_ix: u32, linewidth: f32) -> bool {
-    let even_odd = linewidth < -1.0;
+fn write_path(tile: Tile, tile_ix: u32, draw_flags: u32) {
     // We overload the "segments" field to store both count (written by
     // path_count stage) and segment allocation (used by path_tiling and
     // fine).
@@ -93,6 +92,7 @@ fn write_path(tile: Tile, tile_ix: u32, linewidth: f32) -> bool {
         tiles[tile_ix].segment_count_or_ix = ~seg_ix;
         alloc_cmd(4u);
         ptcl[cmd_offset] = CMD_FILL;
+        let even_odd = (draw_flags & DRAW_INFO_FLAGS_FILL_RULE_BIT) != 0u;
         let size_and_rule = (n_segs << 1u) | u32(even_odd);
         let fill = CmdFill(size_and_rule, seg_ix, tile.backdrop);
         ptcl[cmd_offset + 1u] = fill.size_and_rule;
@@ -100,14 +100,10 @@ fn write_path(tile: Tile, tile_ix: u32, linewidth: f32) -> bool {
         ptcl[cmd_offset + 3u] = u32(fill.backdrop);
         cmd_offset += 4u;
     } else {
-        if even_odd && (abs(tile.backdrop) & 1) == 0 {
-            return false;
-        }
         alloc_cmd(1u);
         ptcl[cmd_offset] = CMD_SOLID;
         cmd_offset += 1u;
     }
-    return true;
 }
 
 fn write_color(color: CmdColor) {
@@ -310,7 +306,17 @@ fn main(
                 let blend = scene[dd];
                 is_blend = blend != BLEND_CLIP;
             }
-            let include_tile = tile.segment_count_or_ix != 0u || (tile.backdrop == 0) == is_clip || is_blend;
+
+            let di = draw_monoids[drawobj_ix].info_offset;
+            let draw_flags = info_bin_data[di];
+            let even_odd = (draw_flags & DRAW_INFO_FLAGS_FILL_RULE_BIT) != 0u;
+            let n_segs = tile.segment_count_or_ix;
+
+            // If this draw object represents an even-odd fill and we know that no line segment
+            // crosses this tile and then this draw object should not contribute to the tile if its
+            // backdrop (i.e. the winding number of its top-left corner) is even.
+            let backdrop_clear = select(tile.backdrop, abs(tile.backdrop) & 1, even_odd) == 0;
+            let include_tile = n_segs != 0u || (backdrop_clear == is_clip) || is_blend;
             if include_tile {
                 let el_slice = el_ix / 32u;
                 let el_mask = 1u << (el_ix & 31u);
@@ -336,6 +342,7 @@ fn main(
                     continue;
                 }
             }
+
             let el_ix = slice_ix * 32u + firstTrailingBit(bitmap);
             drawobj_ix = sh_drawobj_ix[el_ix];
             // clear LSB of bitmap, using bit magic
@@ -344,42 +351,35 @@ fn main(
             let dm = draw_monoids[drawobj_ix];
             let dd = config.drawdata_base + dm.scene_offset;
             let di = dm.info_offset;
+            let draw_flags = info_bin_data[di];
             if clip_zero_depth == 0u {
                 let tile_ix = sh_tile_base[el_ix] + sh_tile_stride[el_ix] * tile_y + tile_x;
                 let tile = tiles[tile_ix];
                 switch drawtag {
                     // DRAWTAG_FILL_COLOR
                     case 0x44u: {
-                        let linewidth = bitcast<f32>(info_bin_data[di]);
-                        if write_path(tile, tile_ix, linewidth) {
-                            let rgba_color = scene[dd];
-                            write_color(CmdColor(rgba_color));
-                        }
+                        write_path(tile, tile_ix, draw_flags);
+                        let rgba_color = scene[dd];
+                        write_color(CmdColor(rgba_color));
                     }
                     // DRAWTAG_FILL_LIN_GRADIENT
                     case 0x114u: {
-                        let linewidth = bitcast<f32>(info_bin_data[di]);
-                        if write_path(tile, tile_ix, linewidth) {
-                            let index = scene[dd];
-                            let info_offset = di + 1u;
-                            write_grad(CMD_LIN_GRAD, index, info_offset);
-                        }
+                        write_path(tile, tile_ix, draw_flags);
+                        let index = scene[dd];
+                        let info_offset = di + 1u;
+                        write_grad(CMD_LIN_GRAD, index, info_offset);
                     }
                     // DRAWTAG_FILL_RAD_GRADIENT
                     case 0x29cu: {
-                        let linewidth = bitcast<f32>(info_bin_data[di]);
-                        if write_path(tile, tile_ix, linewidth) {
-                            let index = scene[dd];
-                            let info_offset = di + 1u;
-                            write_grad(CMD_RAD_GRAD, index, info_offset);
-                        }
+                        write_path(tile, tile_ix, draw_flags);
+                        let index = scene[dd];
+                        let info_offset = di + 1u;
+                        write_grad(CMD_RAD_GRAD, index, info_offset);
                     }
                     // DRAWTAG_FILL_IMAGE
                     case 0x248u: {
-                        let linewidth = bitcast<f32>(info_bin_data[di]);
-                        if write_path(tile, tile_ix, linewidth) {
-                            write_image(di + 1u);
-                        }
+                        write_path(tile, tile_ix, draw_flags);
+                        write_image(di + 1u);
                     }
                     // DRAWTAG_BEGIN_CLIP
                     case 0x9u: {
@@ -395,7 +395,8 @@ fn main(
                     // DRAWTAG_END_CLIP
                     case 0x21u: {
                         clip_depth -= 1u;
-                        write_path(tile, tile_ix, -1.0);
+                        // A clip shape is always a non-zero fill (draw_flags=0).
+                        write_path(tile, tile_ix, /*draw_flags=*/0u);
                         let blend = scene[dd];
                         let alpha = bitcast<f32>(scene[dd + 1u]);
                         write_end_clip(CmdEndClip(blend, alpha));

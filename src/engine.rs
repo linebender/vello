@@ -21,7 +21,7 @@ use std::{
 
 pub type Error = Box<dyn std::error::Error>;
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct ShaderId(pub usize);
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -151,7 +151,7 @@ impl Recording {
     /// Do an indirect dispatch.
     ///
     /// Dispatch a compute shader where the size is determined dynamically.
-    /// The `buf` argument contains the dispatch size, 3 u32 values beginning
+    /// The `buf` argument contains the dispatch size, 3 `u32` values beginning
     /// at the given byte `offset`.
     #[allow(unused)]
     pub fn dispatch_indirect<R>(

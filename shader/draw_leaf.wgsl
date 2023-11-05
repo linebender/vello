@@ -109,25 +109,20 @@ fn main(
         // let y1 = f32(bbox.y1);
         // let bbox_f = vec4(x0, y0, x1, y1);
         var transform = Transform();
-        var linewidth = bbox.linewidth;
-        if linewidth >= 0.0 || tag_word == DRAWTAG_FILL_LIN_GRADIENT || tag_word == DRAWTAG_FILL_RAD_GRADIENT ||
+        let draw_flags = bbox.draw_flags;
+        if tag_word == DRAWTAG_FILL_LIN_GRADIENT || tag_word == DRAWTAG_FILL_RAD_GRADIENT ||
             tag_word == DRAWTAG_FILL_IMAGE 
         {
             transform = read_transform(config.transform_base, bbox.trans_ix);
         }
-        if linewidth >= 0.0 {
-            // Note: doesn't deal with anisotropic case
-            let matrx = transform.matrx;
-            linewidth *= sqrt(abs(matrx.x * matrx.w - matrx.y * matrx.z));
-        }
         switch tag_word {
             // DRAWTAG_FILL_COLOR
             case 0x44u: {
-                info[di] = bitcast<u32>(linewidth);
+                info[di] = draw_flags;
             }
             // DRAWTAG_FILL_LIN_GRADIENT
             case 0x114u: {
-                info[di] = bitcast<u32>(linewidth);
+                info[di] = draw_flags;
                 var p0 = bitcast<vec2<f32>>(vec2(scene[dd + 1u], scene[dd + 2u]));
                 var p1 = bitcast<vec2<f32>>(vec2(scene[dd + 3u], scene[dd + 4u]));
                 p0 = transform_apply(transform, p0);
@@ -146,7 +141,7 @@ fn main(
                 // on the algorithm at <https://skia.org/docs/dev/design/conical/>
                 // This epsilon matches what Skia uses
                 let GRADIENT_EPSILON = 1.0 / f32(1 << 12u);
-                info[di] = bitcast<u32>(linewidth);
+                info[di] = draw_flags;
                 var p0 = bitcast<vec2<f32>>(vec2(scene[dd + 1u], scene[dd + 2u]));
                 var p1 = bitcast<vec2<f32>>(vec2(scene[dd + 3u], scene[dd + 4u]));
                 var r0 = bitcast<f32>(scene[dd + 5u]);
@@ -226,7 +221,7 @@ fn main(
             }
             // DRAWTAG_FILL_IMAGE
             case 0x248u: {
-                info[di] = bitcast<u32>(linewidth);
+                info[di] = draw_flags;
                 let inv = transform_inverse(transform);
                 info[di + 1u] = bitcast<u32>(inv.matrx.x);
                 info[di + 2u] = bitcast<u32>(inv.matrx.y);

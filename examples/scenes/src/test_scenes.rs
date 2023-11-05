@@ -44,6 +44,7 @@ pub fn test_scenes() -> SceneSet {
         scene!(blend_grid),
         scene!(conflation_artifacts),
         scene!(labyrinth),
+        scene!(robust_paths),
         scene!(base_color_test: animated),
         scene!(clip_test: animated),
         scene!(longpathdash(Cap::Butt), "longpathdash (butt caps)", false),
@@ -324,7 +325,43 @@ fn fill_types(sb: &mut SceneBuilder, params: &mut SceneParams) {
         sb.fill(
             rule.0,
             Affine::translate((0., 10.)) * t,
-            Color::BLACK,
+            Color::YELLOW,
+            None,
+            &rule.2,
+        );
+    }
+
+    // Draw blends
+    let t = Affine::translate((700., 0.)) * t;
+    for (i, rule) in rules.iter().enumerate() {
+        let t = Affine::translate(((i % 2) as f64 * 306., (i / 2) as f64 * 340.)) * t;
+        params.text.add(sb, None, 24., None, t, rule.1);
+        let t = Affine::translate((0., 5.)) * t * scale;
+        sb.fill(
+            Fill::NonZero,
+            t,
+            &Brush::Solid(Color::rgb8(128, 128, 128)),
+            None,
+            &rect,
+        );
+        sb.fill(
+            rule.0,
+            Affine::translate((0., 10.)) * t,
+            Color::YELLOW,
+            None,
+            &rule.2,
+        );
+        sb.fill(
+            rule.0,
+            Affine::translate((0., 10.)) * t * Affine::rotate(0.06),
+            Color::rgba(0., 1., 0.7, 0.6),
+            None,
+            &rule.2,
+        );
+        sb.fill(
+            rule.0,
+            Affine::translate((0., 10.)) * t * Affine::rotate(-0.06),
+            Color::rgba(0.9, 0.7, 0.5, 0.6),
             None,
             &rule.2,
         );
@@ -373,7 +410,7 @@ fn longpathdash(cap: Cap) -> impl FnMut(&mut SceneBuilder, &mut SceneParams) {
         sb.stroke(
             &Stroke::new(1.0).with_caps(cap).with_dashes(0.0, [1.0, 1.0]),
             Affine::translate((50.0, 50.0)),
-            Color::rgb8(255, 255, 0),
+            Color::YELLOW,
             None,
             &path,
         );
@@ -1083,6 +1120,83 @@ fn labyrinth(sb: &mut SceneBuilder, _: &mut SceneParams) {
     )
 }
 
+fn robust_paths(sb: &mut SceneBuilder, _: &mut SceneParams) {
+    let mut path = BezPath::new();
+    path.move_to((16.0, 16.0));
+    path.line_to((32.0, 16.0));
+    path.line_to((32.0, 32.0));
+    path.line_to((16.0, 32.0));
+    path.close_path();
+    path.move_to((48.0, 18.0));
+    path.line_to((64.0, 23.0));
+    path.line_to((64.0, 33.0));
+    path.line_to((48.0, 38.0));
+    path.close_path();
+    path.move_to((80.0, 18.0));
+    path.line_to((82.0, 16.0));
+    path.line_to((94.0, 16.0));
+    path.line_to((96.0, 18.0));
+    path.line_to((96.0, 30.0));
+    path.line_to((94.0, 32.0));
+    path.line_to((82.0, 32.0));
+    path.line_to((80.0, 30.0));
+    path.close_path();
+    path.move_to((112.0, 16.0));
+    path.line_to((128.0, 16.0));
+    path.line_to((128.0, 32.0));
+    path.close_path();
+    path.move_to((144.0, 16.0));
+    path.line_to((160.0, 32.0));
+    path.line_to((144.0, 32.0));
+    path.close_path();
+    path.move_to((168.0, 8.0));
+    path.line_to((184.0, 8.0));
+    path.line_to((184.0, 24.0));
+    path.close_path();
+    path.move_to((200.0, 8.0));
+    path.line_to((216.0, 24.0));
+    path.line_to((200.0, 24.0));
+    path.close_path();
+    path.move_to((241.0, 17.5));
+    path.line_to((255.0, 17.5));
+    path.line_to((255.0, 19.5));
+    path.line_to((241.0, 19.5));
+    path.close_path();
+    path.move_to((241.0, 22.5));
+    path.line_to((256.0, 22.5));
+    path.line_to((256.0, 24.5));
+    path.line_to((241.0, 24.5));
+    path.close_path();
+    sb.fill(Fill::NonZero, Affine::IDENTITY, Color::YELLOW, None, &path);
+    sb.fill(
+        Fill::EvenOdd,
+        Affine::translate((300.0, 0.0)),
+        Color::LIME,
+        None,
+        &path,
+    );
+
+    path.move_to((8.0, 4.0));
+    path.line_to((8.0, 40.0));
+    path.line_to((260.0, 40.0));
+    path.line_to((260.0, 4.0));
+    path.close_path();
+    sb.fill(
+        Fill::NonZero,
+        Affine::translate((0.0, 100.0)),
+        Color::YELLOW,
+        None,
+        &path,
+    );
+    sb.fill(
+        Fill::EvenOdd,
+        Affine::translate((300.0, 100.0)),
+        Color::LIME,
+        None,
+        &path,
+    );
+}
+
 fn base_color_test(sb: &mut SceneBuilder, params: &mut SceneParams) {
     // Cycle through the hue value every 5 seconds (t % 5) * 360/5
     let color = Color::hlc((params.time % 5.0) * 72.0, 80.0, 80.0);
@@ -1210,10 +1324,11 @@ fn splash_screen(sb: &mut SceneBuilder, params: &mut SceneParams) {
         "  Space: reset transform",
         "  S: toggle stats",
         "  V: toggle vsync",
+        "  M: cycle AA method",
         "  Q, E: rotate",
     ];
     // Tweak to make it fit with tiger
-    let a = Affine::scale(0.12) * Affine::translate((-90.0, -50.0));
+    let a = Affine::scale(0.11) * Affine::translate((-90.0, -50.0));
     for (i, s) in strings.iter().enumerate() {
         let text_size = if i == 0 { 60.0 } else { 40.0 };
         params.text.add(

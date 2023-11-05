@@ -41,13 +41,13 @@ fn draw_leaf_main(
             {
                 let bbox = path_bbox[m.path_ix as usize];
                 let transform = Transform::read(config.layout.transform_base, bbox.trans_ix, scene);
-                let linewidth = bbox.linewidth;
+                let draw_flags = bbox.draw_flags;
                 match tag_word {
                     DrawTag::COLOR => {
-                        info[di] = f32::to_bits(linewidth);
+                        info[di] = draw_flags;
                     }
                     DrawTag::LINEAR_GRADIENT => {
-                        info[di] = f32::to_bits(linewidth);
+                        info[di] = draw_flags;
                         let p0 = Vec2::new(
                             f32::from_bits(scene[dd as usize + 1]),
                             f32::from_bits(scene[dd as usize + 2]),
@@ -67,7 +67,7 @@ fn draw_leaf_main(
                         info[di + 3] = f32::to_bits(line_c);
                     }
                     DrawTag::RADIAL_GRADIENT => {
-                        info[di] = f32::to_bits(linewidth);
+                        info[di] = draw_flags;
                         let p0 = Vec2::new(
                             f32::from_bits(scene[dd as usize + 1]),
                             f32::from_bits(scene[dd as usize + 2]),
@@ -108,7 +108,7 @@ fn draw_leaf_main(
                         info[di + 19] = f32::to_bits(roff);
                     }
                     DrawTag::IMAGE => {
-                        info[di] = f32::to_bits(linewidth);
+                        info[di] = draw_flags;
                         let z = transform.0;
                         let inv_det = (z[0] * z[3] - z[1] * z[2]).recip();
                         let inv_mat = [

@@ -120,19 +120,53 @@ fn main(
                 xy1 = vec2(x_clip, yt);
             }
         }
-        // See comments in CPU version of shader
         var y_edge = 1e9;
-        if xy0.x == tile_xy.x && xy1.x != tile_xy.x && xy0.y != tile_xy.y {
-            y_edge = xy0.y;
-        } else if xy1.x == tile_xy.x && xy1.y != tile_xy.y {
-            y_edge = xy1.y;
+        // Apply numerical robustness logic
+        var p0 = xy0 - tile_xy;
+        var p1 = xy1 - tile_xy;
+        // When we move to f16, this will be f16::MIN_POSITIVE
+        let EPSILON = 1e-6;
+        if p0.x == 0.0 {
+            if p1.x == 0.0 {
+                p0.x = EPSILON;
+                if p0.y == 0.0 {
+                    // Entire tile
+                    p1.x = EPSILON;
+                    p1.y = f32(TILE_HEIGHT);
+                } else {
+                    // Make segment disappear
+                    p1.x = 2.0 * EPSILON;
+                    p1.y = p0.y;
+                }
+            } else if p0.y == 0.0 {
+                p0.x = EPSILON;
+            } else {
+                y_edge = p0.y;
+            }
+        } else if p1.x == 0.0 {
+            if p1.y == 0.0 {
+                p1.x = EPSILON;
+            } else {
+                y_edge = p1.y;
+            }
+        }
+        // Hacky approach to numerical robustness in fine.
+        // This just makes sure there are no vertical lines aligned to
+        // the pixel grid internal to the tile. It's faster to do this
+        // logic here rather than in fine, but at some point we might
+        // rework it.
+        if p0.x == floor(p0.x) && p0.x != 0.0 {
+            p0.x -= EPSILON;
+        }
+        if p1.x == floor(p1.x) && p1.x != 0.0 {
+            p1.x -= EPSILON;
         }
         if !is_down {
-            let tmp = xy0;
-            xy0 = xy1;
-            xy1 = tmp;
+            let tmp = p0;
+            p0 = p1;
+            p1 = tmp;
         }
-        let segment = Segment(xy0, xy1 - xy0, y_edge);
+        let segment = Segment(p0, p1, y_edge);
         segments[seg_start + seg_within_slice] = segment;
     }
 }

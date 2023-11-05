@@ -58,20 +58,24 @@ fn fill_path(area: &mut [f32], segments: &[PathSegment], fill: &CmdFill, x_tile:
         *a = backdrop_f;
     }
     for segment in &segments[fill.seg_data as usize..][..n_segs as usize] {
+        let delta = [
+            segment.point1[0] - segment.point0[0],
+            segment.point1[1] - segment.point0[1],
+        ];
         for yi in 0..TILE_HEIGHT {
-            let y = segment.origin[1] - (y_tile + yi as f32);
+            let y = segment.point0[1] - (y_tile + yi as f32);
             let y0 = y.clamp(0.0, 1.0);
-            let y1 = (y + segment.delta[1]).clamp(0.0, 1.0);
+            let y1 = (y + delta[1]).clamp(0.0, 1.0);
             let dy = y0 - y1;
-            let y_edge = segment.delta[0].signum()
-                * (y_tile + yi as f32 - segment.y_edge + 1.0).clamp(0.0, 1.0);
+            let y_edge =
+                delta[0].signum() * (y_tile + yi as f32 - segment.y_edge + 1.0).clamp(0.0, 1.0);
             if dy != 0.0 {
-                let vec_y_recip = segment.delta[1].recip();
+                let vec_y_recip = delta[1].recip();
                 let t0 = (y0 - y) * vec_y_recip;
                 let t1 = (y1 - y) * vec_y_recip;
-                let startx = segment.origin[0] - x_tile;
-                let x0 = startx + t0 * segment.delta[0];
-                let x1 = startx + t1 * segment.delta[0];
+                let startx = segment.point0[0] - x_tile;
+                let x0 = startx + t0 * delta[0];
+                let x1 = startx + t1 * delta[0];
                 let xmin0 = x0.min(x1);
                 let xmax0 = x0.max(x1);
                 for i in 0..TILE_WIDTH {

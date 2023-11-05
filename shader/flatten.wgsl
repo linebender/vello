@@ -3,6 +3,7 @@
 // Flatten curves to lines
 
 #import config
+#import drawtag
 #import pathtag
 #import segment
 #import cubic
@@ -22,7 +23,7 @@ struct AtomicPathBbox {
     y0: atomic<i32>,
     x1: atomic<i32>,
     y1: atomic<i32>,
-    linewidth: f32,
+    draw_flags: u32,
     trans_ix: u32,
 }
 
@@ -221,12 +222,9 @@ fn main(
     let style_flags = scene[config.style_base + tm.style_ix];
     // TODO: We assume all paths are fills at the moment. This is where we will extract the stroke
     // vs fill state using STYLE_FLAGS_STYLE_BIT.
-    // TODO: The downstream pipelines still use the old floating-point linewidth/fill encoding scheme
-    // This will change to represent the fill rule as a single bit inside the bounding box and draw
-    // info data structures.
-    let linewidth = select(-2.0, -1.0, (style_flags & STYLE_FLAGS_FILL_BIT) == 0u);
+    let draw_flags = select(DRAW_INFO_FLAGS_FILL_RULE_BIT, 0u, (style_flags & STYLE_FLAGS_FILL_BIT) == 0u);
     if (tag_byte & PATH_TAG_PATH) != 0u {
-        (*out).linewidth = linewidth;
+        (*out).draw_flags = draw_flags;
         (*out).trans_ix = tm.trans_ix;
     }
     // Decode path data
@@ -277,15 +275,18 @@ fn main(
             }
         }
         var stroke = vec2(0.0, 0.0);
-        if linewidth >= 0.0 {
+        let is_stroke = (style_flags & STYLE_FLAGS_STYLE_BIT) != 0u;
+        /*
+        // TODO: the stroke handling here is dead code for now
+        if is_stroke {
             // See https://www.iquilezles.org/www/articles/ellipses/ellipses.htm
             // This is the correct bounding box, but we're not handling rendering
             // in the isotropic case, so it may mismatch.
             stroke = 0.5 * linewidth * vec2(length(transform.mat.xz), length(transform.mat.yw));
             bbox += vec4(-stroke, stroke);
         }
-        let flags = u32(linewidth >= 0.0);
-        flatten_cubic(Cubic(p0, p1, p2, p3, stroke, tm.path_ix, flags));
+        */
+        flatten_cubic(Cubic(p0, p1, p2, p3, stroke, tm.path_ix, u32(is_stroke)));
         // Update bounding box using atomics only. Computing a monoid is a
         // potential future optimization.
         if bbox.z > bbox.x || bbox.w > bbox.y {

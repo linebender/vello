@@ -115,28 +115,54 @@ fn path_tiling_main(
                 xy1 = Vec2::new(x_clip, yt);
             }
         }
-        if !is_down {
-            (xy0, xy1) = (xy1, xy0);
+        let mut y_edge = 1e9;
+        // Apply numerical robustness logic
+        let mut p0 = xy0 - tile_xy;
+        let mut p1 = xy1 - tile_xy;
+        const EPSILON: f32 = 1e-6;
+        if p0.x == 0.0 {
+            if p1.x == 0.0 {
+                p0.x = EPSILON;
+                if p0.y == 0.0 {
+                    // Entire tile
+                    p1.x = EPSILON;
+                    p1.y = TILE_HEIGHT as f32;
+                } else {
+                    // Make segment disappear
+                    p1.x = 2.0 * EPSILON;
+                    p1.y = p0.y;
+                }
+            } else if p0.y == 0.0 {
+                p0.x = EPSILON;
+            } else {
+                y_edge = p0.y;
+            }
+        } else if p1.x == 0.0 {
+            if p1.y == 0.0 {
+                p1.x = EPSILON;
+            } else {
+                y_edge = p1.y;
+            }
         }
-        // TODO (part of move to 8 byte encoding for segments): don't store y_edge at all,
-        // resolve this in fine.
-        let y_edge = if xy0.x == tile_xy.x && xy1.x != tile_xy.x && xy0.y != tile_xy.y {
-            xy0.y
-        } else if xy1.x == tile_xy.x && xy1.y != tile_xy.y {
-            xy1.y
-        } else {
-            1e9
-        };
+        if p0.x == p0.x.floor() && p0.x != 0.0 {
+            p0.x -= EPSILON;
+        }
+        if p1.x == p1.x.floor() && p1.x != 0.0 {
+            p1.x -= EPSILON;
+        }
+        if !is_down {
+            (p0, p1) = (p1, p0);
+        }
         let segment = PathSegment {
-            origin: xy0.to_array(),
-            delta: (xy1 - xy0).to_array(),
+            point0: p0.to_array(),
+            point1: p1.to_array(),
             y_edge,
             _padding: Default::default(),
         };
-        assert!(xy0.x >= tile_xy.x && xy0.x <= tile_xy1.x);
-        assert!(xy0.y >= tile_xy.y && xy0.y <= tile_xy1.y);
-        assert!(xy1.x >= tile_xy.x && xy1.x <= tile_xy1.x);
-        assert!(xy1.y >= tile_xy.y && xy1.y <= tile_xy1.y);
+        assert!(p0.x >= 0.0 && p0.x <= TILE_WIDTH as f32);
+        assert!(p0.y >= 0.0 && p0.y <= TILE_HEIGHT as f32);
+        assert!(p1.x >= 0.0 && p1.x <= TILE_WIDTH as f32);
+        assert!(p1.y >= 0.0 && p1.y <= TILE_HEIGHT as f32);
         segments[(seg_start + seg_within_slice) as usize] = segment;
     }
 }
