@@ -10,5 +10,14 @@ repository.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bevy = "0.11"
+bevy = { version = "0.12", features = [
+    "bevy_winit",
+    "bevy_core_pipeline",
+    "bevy_pbr",
+    "bevy_render",
+    "multi-threaded",
+    "x11",
+    "tonemapping_luts",
+  ], default-features = false }
+
 vello = { path = "../../" }
