@@ -1,4 +1,5 @@
 use bevy::render::{Render, RenderSet};
+use bevy::utils::synccell::SyncCell;
 use vello::kurbo::{Affine, Point, Rect, Stroke};
 use vello::peniko::{Color, Fill, Gradient};
 use vello::{Renderer, RendererOptions, Scene, SceneBuilder, SceneFragment};
@@ -17,16 +18,14 @@ use bevy::{
 };
 
 #[derive(Resource)]
-struct VelloRenderer(Renderer);
-
-unsafe impl Sync for VelloRenderer {}
+struct VelloRenderer(SyncCell<Renderer>);
 
 impl FromWorld for VelloRenderer {
     fn from_world(world: &mut World) -> Self {
         let device = world.resource::<RenderDevice>();
         let queue = world.resource::<RenderQueue>();
 
-        VelloRenderer(
+        VelloRenderer(SyncCell::new(
             Renderer::new(
                 device.wgpu_device(),
                 RendererOptions {
@@ -37,7 +36,7 @@ impl FromWorld for VelloRenderer {
                 },
             )
             .unwrap(),
-        )
+        ))
     }
 }
 
@@ -77,6 +76,7 @@ fn render_scenes(
         };
         renderer
             .0
+            .get()
             .render_to_texture(
                 device.wgpu_device(),
                 &queue,
