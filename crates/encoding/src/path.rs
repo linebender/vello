@@ -418,6 +418,7 @@ pub struct PathEncoder<'a> {
     n_segments: &'a mut u32,
     n_paths: &'a mut u32,
     first_point: [f32; 2],
+    first_start_tangent_end: [f32; 2],
     state: PathState,
     n_encoded_segments: u32,
     is_fill: bool,
@@ -431,8 +432,42 @@ enum PathState {
 }
 
 impl<'a> PathEncoder<'a> {
-    /// Creates a new path encoder for the specified path tags and data. If `is_fill` is true,
-    /// ensures that all subpaths are closed.
+    /// Creates a new path encoder for the specified path tags and data.
+    ///
+    /// If `is_fill` is true, ensures that all subpaths are closed. Otherwise, the path is treated
+    /// as a stroke and an additional "stroke cap marker" segment is inserted at the end of every
+    /// subpath.
+    ///
+    /// Stroke Encoding
+    /// ---------------
+    /// Every subpath within a stroked path is terminated with a "stroke cap marker" segment. This
+    /// segment tells the GPU stroker whether to draw a cap or a join based on the topology of the
+    /// path:
+    ///
+    /// 1. This marker segment is encoded as a `quad-to` for an open path and a `line-to` for a
+    ///    closed path. An open path gets drawn with a start and end cap. A closed path gets drawn
+    ///    with a single join in place of the caps where the subpath's start and end control points
+    ///    meet.
+    ///
+    /// 2. The marker segment tells the GPU flattening stage how to render caps and joins while
+    ///    processing each path segment in parallel. All subpaths end with the marker segment which
+    ///    is the only segment that has the `SUBPATH_END_BIT` set to 1.
+    ///
+    ///    The algorithm is as follows:
+    ///
+    ///    a) If a GPU thread is processing a regular segment (i.e. `SUBPATH_END_BIT` is 0), it
+    ///       outputs the offset curves for the segment. If the segment is immediately followed by
+    ///       the marker segment, then the same thread draws an end cap if the subpath is open
+    ///       (i.e. the marker is a quad-to) or a join if the subpath is closed (i.e. the marker is
+    ///       a line-to) using the tangent encoded in the marker segment.
+    ///
+    ///       If the segment is immediately followed by another regular segment, then the thread
+    ///       draws a join using the start tangent of the neighboring segment.
+    ///
+    ///    b) If a GPU thread is processing the marker segment (i.e. `SUBPATH_END_BIT` is 1), then
+    ///       it draws a start cap using the information encoded in the segment IF the subpath is
+    ///       open (i.e. the marker is a quad-to). If the subpath is closed (i.e. the marker is a
+    ///       line-to), the thread draws nothing.
     pub fn new(
         tags: &'a mut Vec<PathTag>,
         data: &'a mut Vec<u8>,
@@ -446,6 +481,7 @@ impl<'a> PathEncoder<'a> {
             n_segments,
             n_paths,
             first_point: [0.0, 0.0],
+            first_start_tangent_end: [0.0, 0.0],
             state: PathState::Start,
             n_encoded_segments: 0,
             is_fill,
@@ -459,15 +495,18 @@ impl<'a> PathEncoder<'a> {
         }
         let buf = [x, y];
         let bytes = bytemuck::bytes_of(&buf);
-        self.first_point = buf;
         if self.state == PathState::MoveTo {
             let new_len = self.data.len() - 8;
             self.data.truncate(new_len);
         } else if self.state == PathState::NonemptySubpath {
+            if !self.is_fill {
+                self.insert_stroke_cap_marker_segment(false);
+            }
             if let Some(tag) = self.tags.last_mut() {
                 tag.set_subpath_end();
             }
         }
+        self.first_point = buf;
         self.data.extend_from_slice(bytes);
         self.state = PathState::MoveTo;
     }
@@ -482,6 +521,10 @@ impl<'a> PathEncoder<'a> {
                 return;
             }
             self.move_to(self.first_point[0], self.first_point[1]);
+        }
+        if self.state == PathState::MoveTo {
+            // TODO: Drop the segment if its length is zero
+            self.first_start_tangent_end = [x, y];
         }
         let buf = [x, y];
         let bytes = bytemuck::bytes_of(&buf);
@@ -500,6 +543,11 @@ impl<'a> PathEncoder<'a> {
             }
             self.move_to(self.first_point[0], self.first_point[1]);
         }
+        if self.state == PathState::MoveTo {
+            // TODO: Drop the segment if its length is zero
+            // TODO: Pick (x2, y2) if [(x0, y0), (x1, y1)] has a length of zero
+            self.first_start_tangent_end = [x1, y1];
+        }
         let buf = [x1, y1, x2, y2];
         let bytes = bytemuck::bytes_of(&buf);
         self.data.extend_from_slice(bytes);
@@ -516,6 +564,12 @@ impl<'a> PathEncoder<'a> {
                 return;
             }
             self.move_to(self.first_point[0], self.first_point[1]);
+        }
+        if self.state == PathState::MoveTo {
+            // TODO: Drop the segment if its length is zero
+            // TODO: Pick (x2, y2) if [(x0, y0), (x1, y1)] has a length of zero
+            //       Pick (x3, y3) if [(x0, y0), (x2, y2)] has a length of zero
+            self.first_start_tangent_end = [x1, y1];
         }
         let buf = [x1, y1, x2, y2, x3, y3];
         let bytes = bytemuck::bytes_of(&buf);
@@ -545,11 +599,13 @@ impl<'a> PathEncoder<'a> {
         let first_bytes = bytemuck::bytes_of(&self.first_point);
         if &self.data[len - 8..len] != first_bytes {
             self.data.extend_from_slice(first_bytes);
-            let mut tag = PathTag::LINE_TO_F32;
-            tag.set_subpath_end();
-            self.tags.push(tag);
+            self.tags.push(PathTag::LINE_TO_F32);
             self.n_encoded_segments += 1;
-        } else if let Some(tag) = self.tags.last_mut() {
+        }
+        if !self.is_fill {
+            self.insert_stroke_cap_marker_segment(true);
+        }
+        if let Some(tag) = self.tags.last_mut() {
             tag.set_subpath_end();
         }
         self.state = PathState::Start;
@@ -592,6 +648,9 @@ impl<'a> PathEncoder<'a> {
             self.data.truncate(new_len);
         }
         if self.n_encoded_segments != 0 {
+            if !self.is_fill && self.state == PathState::NonemptySubpath {
+                self.insert_stroke_cap_marker_segment(false);
+            }
             if let Some(tag) = self.tags.last_mut() {
                 tag.set_subpath_end();
             }
@@ -602,6 +661,27 @@ impl<'a> PathEncoder<'a> {
             }
         }
         self.n_encoded_segments
+    }
+
+    fn insert_stroke_cap_marker_segment(&mut self, is_closed: bool) {
+        assert!(!self.is_fill);
+        assert!(self.state == PathState::NonemptySubpath);
+        if is_closed {
+            // We expect that the most recently encoded pair of coordinates in the path data stream
+            // contain the first control point in the path segment (see `PathEncoder::close`).
+            // Hence a line-to encoded here should embed the subpath's start tangent.
+            self.line_to(
+                self.first_start_tangent_end[0],
+                self.first_start_tangent_end[1],
+            );
+        } else {
+            self.quad_to(
+                self.first_point[0],
+                self.first_point[1],
+                self.first_start_tangent_end[0],
+                self.first_start_tangent_end[1],
+            );
+        }
     }
 }
 

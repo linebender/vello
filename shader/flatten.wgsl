@@ -354,23 +354,26 @@ fn main(
         var stroke = vec2(0.0, 0.0);
         let is_stroke = (style_flags & STYLE_FLAGS_STYLE_BIT) != 0u;
         if is_stroke {
-            // TODO: WIP
-            let linewidth = bitcast<f32>(scene[config.style_base + tm.style_ix + 1u]);
-            // See https://www.iquilezles.org/www/articles/ellipses/ellipses.htm
-            // This is the correct bounding box, but we're not handling rendering
-            // in the isotropic case, so it may mismatch.
-            stroke = 0.5 * linewidth * vec2(length(transform.mat.xz), length(transform.mat.yw));
-            bbox += vec4(-stroke, stroke);
+            // TODO: FIX
+            if (tag_byte & PATH_TAG_SUBPATH_END_BIT) == 0u {
+                // TODO: WIP
+                let linewidth = bitcast<f32>(scene[config.style_base + tm.style_ix + 1u]);
+                // See https://www.iquilezles.org/www/articles/ellipses/ellipses.htm
+                // This is the correct bounding box, but we're not handling rendering
+                // in the isotropic case, so it may mismatch.
+                stroke = 0.5 * linewidth * vec2(length(transform.mat.xz), length(transform.mat.yw));
+                bbox += vec4(-stroke, stroke);
 
-            flatten_cubic(Cubic(p0, p1, p2, p3, stroke, tm.path_ix, u32(is_stroke)));
+                flatten_cubic(Cubic(p0, p1, p2, p3, stroke, tm.path_ix, u32(is_stroke)));
 
-            // TODO: proper caps
-            let n0 = normalize(cubic_start_normal(p0, p1, p2, p3)) * stroke;
-            let n1 = normalize(cubic_end_normal(p0, p1, p2, p3)) * stroke;
+                // TODO: proper caps
+                let n0 = normalize(cubic_start_normal(p0, p1, p2, p3)) * stroke;
+                let n1 = normalize(cubic_end_normal(p0, p1, p2, p3)) * stroke;
 
-            let line_ix = atomicAdd(&bump.lines, 2u);
-            lines[line_ix]      = LineSoup(tm.path_ix, p0 - n0, p0 + n0);
-            lines[line_ix + 1u] = LineSoup(tm.path_ix, p3 + n1, p3 - n1);
+                let line_ix = atomicAdd(&bump.lines, 2u);
+                lines[line_ix]      = LineSoup(tm.path_ix, p0 - n0, p0 + n0);
+                lines[line_ix + 1u] = LineSoup(tm.path_ix, p3 + n1, p3 - n1);
+            }
         } else {
             flatten_cubic(Cubic(p0, p1, p2, p3, stroke, tm.path_ix, u32(is_stroke)));
         }
