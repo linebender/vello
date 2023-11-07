@@ -282,100 +282,183 @@ fn round_up(x: f32) -> i32 {
     return i32(ceil(x));
 }
 
+struct PathTagData {
+    tag_byte: u32,
+    monoid: TagMonoid,
+}
+
+fn compute_tag_monoid(ix: u32) -> PathTagData {
+    let tag_word = scene[config.pathtag_base + (ix >> 2u)];
+    let shift = (ix & 3u) * 8u;
+    var tm = reduce_tag(tag_word & ((1u << shift) - 1u));
+    // TODO: this can be a read buf overflow. Conditionalize by tag byte?
+    tm = combine_tag_monoid(tag_monoids[ix >> 2u], tm);
+    var tag_byte = (tag_word >> shift) & 0xffu;
+    return PathTagData(tag_byte, tm);
+}
+
+struct CubicPoints {
+    p0: vec2f,
+    p1: vec2f,
+    p2: vec2f,
+    p3: vec2f,
+}
+
+fn read_path_segment(tag: PathTagData, transform: Transform, is_stroke: bool) -> CubicPoints {
+    var p0: vec2<f32>;
+    var p1: vec2<f32>;
+    var p2: vec2<f32>;
+    var p3: vec2<f32>;
+
+    var seg_type = tag.tag_byte & PATH_TAG_SEG_TYPE;
+    let pathseg_offset = tag.monoid.pathseg_offset;
+    let is_stroke_cap_marker = is_stroke && (tag.tag_byte & PATH_TAG_SUBPATH_END_BIT) != 0u;
+    let is_open = seg_type == PATH_TAG_QUADTO;
+
+    if (tag.tag_byte & PATH_TAG_F32) != 0u {
+        p0 = read_f32_point(pathseg_offset);
+        p1 = read_f32_point(pathseg_offset + 2u);
+        if seg_type >= PATH_TAG_QUADTO {
+            p2 = read_f32_point(pathseg_offset + 4u);
+            if seg_type == PATH_TAG_CUBICTO {
+                p3 = read_f32_point(pathseg_offset + 6u);
+            }
+        }
+    } else {
+        p0 = read_i16_point(pathseg_offset);
+        p1 = read_i16_point(pathseg_offset + 1u);
+        if seg_type >= PATH_TAG_QUADTO {
+            p2 = read_i16_point(pathseg_offset + 2u);
+            if seg_type == PATH_TAG_CUBICTO {
+                p3 = read_i16_point(pathseg_offset + 3u);
+            }
+        }
+    }
+
+    if is_stroke_cap_marker && is_open {
+        // TODO: document
+        p0 = transform_apply(transform, p1);
+        p1 = transform_apply(transform, p2);
+        seg_type = PATH_TAG_LINETO;
+    } else {
+        p0 = transform_apply(transform, p0);
+        p1 = transform_apply(transform, p1);
+    }
+
+    // Degree-raise
+    if seg_type == PATH_TAG_LINETO {
+        p3 = p1;
+        p2 = mix(p3, p0, 1.0 / 3.0);
+        p1 = mix(p0, p3, 1.0 / 3.0);
+    } else if seg_type >= PATH_TAG_QUADTO {
+        p2 = transform_apply(transform, p2);
+        if seg_type == PATH_TAG_CUBICTO {
+            p3 = transform_apply(transform, p3);
+        } else {
+            p3 = p2;
+            p2 = mix(p1, p2, 1.0 / 3.0);
+            p1 = mix(p1, p0, 1.0 / 3.0);
+        }
+    }
+
+    return CubicPoints(p0, p1, p2, p3);
+}
+
+struct NeighboringSegment {
+    do_join: bool,
+    p0: vec2f,
+
+    // Normalized device-space start tangent vector
+    tangent: vec2f,
+}
+
+fn read_neighboring_segment(ix: u32) -> NeighboringSegment {
+    let tag = compute_tag_monoid(ix);
+    let transform = read_transform(config.transform_base, tag.monoid.trans_ix);
+    let pts = read_path_segment(tag, transform, true);
+
+    let is_closed = (tag.tag_byte & PATH_TAG_SEG_TYPE) == PATH_TAG_LINETO;
+    let is_stroke_cap_marker = (tag.tag_byte & PATH_TAG_SUBPATH_END_BIT) != 0u;
+    let do_join = !is_stroke_cap_marker || is_closed;
+    let p0 = pts.p0;
+    let tangent = cubic_start_tangent(pts.p0, pts.p1, pts.p2, pts.p3);
+    return NeighboringSegment(do_join, p0, normalize(tangent));
+}
+
 @compute @workgroup_size(256)
 fn main(
     @builtin(global_invocation_id) global_id: vec3<u32>,
     @builtin(local_invocation_id) local_id: vec3<u32>,
 ) {
     let ix = global_id.x;
-    let tag_word = scene[config.pathtag_base + (ix >> 2u)];
     pathdata_base = config.pathdata_base;
-    let shift = (ix & 3u) * 8u;
-    var tm = reduce_tag(tag_word & ((1u << shift) - 1u));
-    // TODO: this can be a read buf overflow. Conditionalize by tag byte?
-    tm = combine_tag_monoid(tag_monoids[ix >> 2u], tm);
-    var tag_byte = (tag_word >> shift) & 0xffu;
 
-    let out = &path_bboxes[tm.path_ix];
-    let style_flags = scene[config.style_base + tm.style_ix];
+    let tag = compute_tag_monoid(ix);
+    let path_ix = tag.monoid.path_ix;
+    let style_ix = tag.monoid.style_ix;
+    let trans_ix = tag.monoid.trans_ix;
+
+    let out = &path_bboxes[path_ix];
+    let style_flags = scene[config.style_base + style_ix];
     // The fill bit is always set to 0 for strokes which represents a non-zero fill.
     let draw_flags = select(DRAW_INFO_FLAGS_FILL_RULE_BIT, 0u, (style_flags & STYLE_FLAGS_FILL_BIT) == 0u);
-    if (tag_byte & PATH_TAG_PATH) != 0u {
+    if (tag.tag_byte & PATH_TAG_PATH) != 0u {
         (*out).draw_flags = draw_flags;
-        (*out).trans_ix = tm.trans_ix;
+        (*out).trans_ix = trans_ix;
     }
     // Decode path data
-    let seg_type = tag_byte & PATH_TAG_SEG_TYPE;
+    let seg_type = tag.tag_byte & PATH_TAG_SEG_TYPE;
     if seg_type != 0u {
-        var p0: vec2<f32>;
-        var p1: vec2<f32>;
-        var p2: vec2<f32>;
-        var p3: vec2<f32>;
-        if (tag_byte & PATH_TAG_F32) != 0u {
-            p0 = read_f32_point(tm.pathseg_offset);
-            p1 = read_f32_point(tm.pathseg_offset + 2u);
-            if seg_type >= PATH_TAG_QUADTO {
-                p2 = read_f32_point(tm.pathseg_offset + 4u);
-                if seg_type == PATH_TAG_CUBICTO {
-                    p3 = read_f32_point(tm.pathseg_offset + 6u);
-                }
-            }
-        } else {
-            p0 = read_i16_point(tm.pathseg_offset);
-            p1 = read_i16_point(tm.pathseg_offset + 1u);
-            if seg_type >= PATH_TAG_QUADTO {
-                p2 = read_i16_point(tm.pathseg_offset + 2u);
-                if seg_type == PATH_TAG_CUBICTO {
-                    p3 = read_i16_point(tm.pathseg_offset + 3u);
-                }
-            }
-        }
-        let transform = read_transform(config.transform_base, tm.trans_ix);
-        p0 = transform_apply(transform, p0);
-        p1 = transform_apply(transform, p1);
-        var bbox = vec4(min(p0, p1), max(p0, p1));
-        // Degree-raise
-        if seg_type == PATH_TAG_LINETO {
-            p3 = p1;
-            p2 = mix(p3, p0, 1.0 / 3.0);
-            p1 = mix(p0, p3, 1.0 / 3.0);
-        } else if seg_type >= PATH_TAG_QUADTO {
-            p2 = transform_apply(transform, p2);
-            bbox = vec4(min(bbox.xy, p2), max(bbox.zw, p2));
-            if seg_type == PATH_TAG_CUBICTO {
-                p3 = transform_apply(transform, p3);
-                bbox = vec4(min(bbox.xy, p3), max(bbox.zw, p3));
-            } else {
-                p3 = p2;
-                p2 = mix(p1, p2, 1.0 / 3.0);
-                p1 = mix(p1, p0, 1.0 / 3.0);
-            }
-        }
-        var stroke = vec2(0.0, 0.0);
         let is_stroke = (style_flags & STYLE_FLAGS_STYLE_BIT) != 0u;
+        let transform = read_transform(config.transform_base, trans_ix);
+        let pts = read_path_segment(tag, transform, is_stroke);
+        var bbox = vec4(min(pts.p0, pts.p1), max(pts.p0, pts.p1));
+        bbox = vec4(min(bbox.xy, pts.p2), max(bbox.zw, pts.p2));
+        bbox = vec4(min(bbox.xy, pts.p3), max(bbox.zw, pts.p3));
+
+        var stroke = vec2(0.0, 0.0);
         if is_stroke {
-            // TODO: FIX
-            if (tag_byte & PATH_TAG_SUBPATH_END_BIT) == 0u {
-                // TODO: WIP
-                let linewidth = bitcast<f32>(scene[config.style_base + tm.style_ix + 1u]);
-                // See https://www.iquilezles.org/www/articles/ellipses/ellipses.htm
-                // This is the correct bounding box, but we're not handling rendering
-                // in the isotropic case, so it may mismatch.
-                stroke = 0.5 * linewidth * vec2(length(transform.mat.xz), length(transform.mat.yw));
-                bbox += vec4(-stroke, stroke);
+            let linewidth = bitcast<f32>(scene[config.style_base + style_ix + 1u]);
+            // See https://www.iquilezles.org/www/articles/ellipses/ellipses.htm
+            // This is the correct bounding box, but we're not handling rendering
+            // in the isotropic case, so it may mismatch.
+            stroke = 0.5 * linewidth * vec2(length(transform.mat.xz), length(transform.mat.yw));
+            bbox += vec4(-stroke, stroke);
+            let is_open = (tag.tag_byte & PATH_TAG_SEG_TYPE) != PATH_TAG_LINETO;
+            let is_stroke_cap_marker = (tag.tag_byte & PATH_TAG_SUBPATH_END_BIT) != 0u;
+            if is_stroke_cap_marker {
+                if is_open {
+                    let tangent = normalize(pts.p1 - pts.p0);
+                    let n = vec2f(-tangent.y, tangent.x) * stroke;
 
-                flatten_cubic(Cubic(p0, p1, p2, p3, stroke, tm.path_ix, u32(is_stroke)));
+                    // Draw start cap
+                    let line_ix = atomicAdd(&bump.lines, 1u);
+                    lines[line_ix] = LineSoup(path_ix, pts.p0 - n, pts.p0 + n);
+                } else {
+                    // Don't draw anything if the path is closed.
+                }
+                bbox = vec4(1., 1., -1., -1.);
+            } else {
+                // Render offset curves
+                flatten_cubic(Cubic(pts.p0, pts.p1, pts.p2, pts.p3, stroke, path_ix, u32(is_stroke)));
 
-                // TODO: proper caps
-                let n0 = normalize(cubic_start_normal(p0, p1, p2, p3)) * stroke;
-                let n1 = normalize(cubic_end_normal(p0, p1, p2, p3)) * stroke;
-
-                let line_ix = atomicAdd(&bump.lines, 2u);
-                lines[line_ix]      = LineSoup(tm.path_ix, p0 - n0, p0 + n0);
-                lines[line_ix + 1u] = LineSoup(tm.path_ix, p3 + n1, p3 - n1);
+                // Read the neighboring segment.
+                let neighbor = read_neighboring_segment(ix + 1u);
+                let n = normalize(cubic_end_normal(pts.p0, pts.p1, pts.p2, pts.p3)) * stroke;
+                if neighbor.do_join {
+                    // Draw join.
+                    let nn = vec2(-neighbor.tangent.y, neighbor.tangent.x) * stroke;
+                    let line_ix = atomicAdd(&bump.lines, 2u);
+                    lines[line_ix]      = LineSoup(path_ix, pts.p3 + n, neighbor.p0 + nn);
+                    lines[line_ix + 1u] = LineSoup(path_ix, neighbor.p0 - nn, pts.p3 - n);
+                } else {
+                    // Draw end cap.
+                    let line_ix = atomicAdd(&bump.lines, 1u);
+                    lines[line_ix] = LineSoup(path_ix, pts.p3 + n, pts.p3 - n);
+                }
             }
         } else {
-            flatten_cubic(Cubic(p0, p1, p2, p3, stroke, tm.path_ix, u32(is_stroke)));
+            flatten_cubic(Cubic(pts.p0, pts.p1, pts.p2, pts.p3, stroke, path_ix, u32(is_stroke)));
         }
         // Update bounding box using atomics only. Computing a monoid is a
         // potential future optimization.
