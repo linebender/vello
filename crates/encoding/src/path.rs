@@ -523,7 +523,13 @@ impl<'a> PathEncoder<'a> {
             self.move_to(self.first_point[0], self.first_point[1]);
         }
         if self.state == PathState::MoveTo {
-            // TODO: Drop the segment if its length is zero
+            let x0 = self.first_point[0];
+            let y0 = self.first_point[1];
+            // TODO: should this be an exact match?
+            if (x - x0).abs() < 1e-12 && (y - y0).abs() < 1e-12 {
+                // Drop the segment if its length is zero
+                return;
+            }
             self.first_start_tangent_end = [x, y];
         }
         let buf = [x, y];
@@ -544,9 +550,18 @@ impl<'a> PathEncoder<'a> {
             self.move_to(self.first_point[0], self.first_point[1]);
         }
         if self.state == PathState::MoveTo {
-            // TODO: Drop the segment if its length is zero
-            // TODO: Pick (x2, y2) if [(x0, y0), (x1, y1)] has a length of zero
-            self.first_start_tangent_end = [x1, y1];
+            let x0 = self.first_point[0];
+            let y0 = self.first_point[1];
+            // TODO clean this up
+            let (x, y) = if (x1 - x0).abs() > 1e-12 || (y1 - y0).abs() > 1e-12 {
+                (x1, y1)
+            } else if (x2 - x0).abs() > 1e-12 || (y2 - y0).abs() > 1e-12 {
+                (x2, y2)
+            } else {
+                // Drop the segment if its length is zero
+                return;
+            };
+            self.first_start_tangent_end = [x, y];
         }
         let buf = [x1, y1, x2, y2];
         let bytes = bytemuck::bytes_of(&buf);
@@ -566,10 +581,20 @@ impl<'a> PathEncoder<'a> {
             self.move_to(self.first_point[0], self.first_point[1]);
         }
         if self.state == PathState::MoveTo {
-            // TODO: Drop the segment if its length is zero
-            // TODO: Pick (x2, y2) if [(x0, y0), (x1, y1)] has a length of zero
-            //       Pick (x3, y3) if [(x0, y0), (x2, y2)] has a length of zero
-            self.first_start_tangent_end = [x1, y1];
+            let x0 = self.first_point[0];
+            let y0 = self.first_point[1];
+            // TODO clean this up
+            let (x, y) = if (x1 - x0).abs() > 1e-12 || (y1 - y0).abs() > 1e-12 {
+                (x1, y1)
+            } else if (x2 - x0).abs() > 1e-12 || (y2 - y0).abs() > 1e-12 {
+                (x2, y2)
+            } else if (x3 - x0).abs() > 1e-12 || (y3 - y0).abs() > 1e-12 {
+                (x3, y3)
+            } else {
+                // Drop the segment if its length is zero
+                return;
+            };
+            self.first_start_tangent_end = [x, y];
         }
         let buf = [x1, y1, x2, y2, x3, y3];
         let bytes = bytemuck::bytes_of(&buf);
