@@ -125,6 +125,9 @@ fn stroke_styles(sb: &mut SceneBuilder, params: &mut SceneParams) {
         MoveTo((200., 0.).into()),
         CurveTo((100., 42.).into(), (300., 42.).into(), (200., 0.).into()),
         ClosePath,
+        MoveTo((290., 0.).into()),
+        CurveTo((200., 42.).into(), (400., 42.).into(), (310., 0.).into()),
+        ClosePath,
     ];
     let cap_styles = [Cap::Butt, Cap::Square, Cap::Round];
     let join_styles = [Join::Bevel, Join::Miter, Join::Round];
@@ -208,8 +211,6 @@ fn stroke_styles(sb: &mut SceneBuilder, params: &mut SceneParams) {
     }
 
     // Closed paths
-    let t = Affine::translate((500., 0.)) * t;
-    y = 0.;
     for (i, join) in join_styles.iter().enumerate() {
         params.text.add(
             sb,
@@ -221,7 +222,10 @@ fn stroke_styles(sb: &mut SceneBuilder, params: &mut SceneParams) {
         );
         // The cap style is not important since a closed path shouldn't have any caps.
         sb.stroke(
-            &Stroke::new(10.).with_caps(cap_styles[i]).with_join(*join),
+            &Stroke::new(10.)
+                .with_caps(cap_styles[i])
+                .with_join(*join)
+                .with_miter_limit(5.),
             Affine::translate((0., y + 30.)) * t,
             colors[color_idx],
             None,
