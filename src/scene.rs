@@ -149,7 +149,7 @@ impl<'a> SceneBuilder<'a> {
         brush_transform: Option<Affine>,
         shape: &impl Shape,
     ) {
-        const GPU_STROKES: bool = true;
+        const GPU_STROKES: bool = false;
         if GPU_STROKES {
             // TODO: handle dashing by using a DashIterator
             self.scene
