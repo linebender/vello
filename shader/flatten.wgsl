@@ -328,7 +328,13 @@ fn read_path_segment(tag: PathTagData, transform: Transform, is_stroke: bool) ->
     }
 
     if is_stroke_cap_marker && is_open {
-        // TODO: document
+        // The stroke cap marker for an open path is encoded as a quadto where the p1 and p2 store
+        // the start control point of the subpath and together with p2 forms the start tangent. p0
+        // is ignored.
+        //
+        // This is encoded this way because encoding this as a lineto would require adding a moveto,
+        // which would terminate the subpath too early (by setting the SUBPATH_END_BIT on the
+        // segment preceding the cap marker). This scheme is only used for strokes.
         p0 = transform_apply(transform, p1);
         p1 = transform_apply(transform, p2);
         seg_type = PATH_TAG_LINETO;

@@ -525,9 +525,11 @@ impl<'a> PathEncoder<'a> {
         if self.state == PathState::MoveTo {
             let x0 = self.first_point[0];
             let y0 = self.first_point[1];
-            // TODO: should this be an exact match?
-            if (x - x0).abs() < 1e-12 && (y - y0).abs() < 1e-12 {
+            // Ensure that we don't end up with a zero-length start tangent.
+            const EPS: f32 = 1e-12;
+            if (x - x0).abs() < EPS && (y - y0).abs() < EPS {
                 // Drop the segment if its length is zero
+                // TODO: do this for all not segments, not just start?
                 return;
             }
             self.first_start_tangent_end = [x, y];
@@ -552,13 +554,15 @@ impl<'a> PathEncoder<'a> {
         if self.state == PathState::MoveTo {
             let x0 = self.first_point[0];
             let y0 = self.first_point[1];
-            // TODO clean this up
-            let (x, y) = if (x1 - x0).abs() > 1e-12 || (y1 - y0).abs() > 1e-12 {
+            // Ensure that we don't end up with a zero-length start tangent.
+            const EPS: f32 = 1e-12;
+            let (x, y) = if (x1 - x0).abs() > EPS || (y1 - y0).abs() > EPS {
                 (x1, y1)
-            } else if (x2 - x0).abs() > 1e-12 || (y2 - y0).abs() > 1e-12 {
+            } else if (x2 - x0).abs() > EPS || (y2 - y0).abs() > EPS {
                 (x2, y2)
             } else {
                 // Drop the segment if its length is zero
+                // TODO: do this for all not segments, not just start?
                 return;
             };
             self.first_start_tangent_end = [x, y];
@@ -583,15 +587,17 @@ impl<'a> PathEncoder<'a> {
         if self.state == PathState::MoveTo {
             let x0 = self.first_point[0];
             let y0 = self.first_point[1];
-            // TODO clean this up
-            let (x, y) = if (x1 - x0).abs() > 1e-12 || (y1 - y0).abs() > 1e-12 {
+            // Ensure that we don't end up with a zero-length start tangent.
+            const EPS: f32 = 1e-12;
+            let (x, y) = if (x1 - x0).abs() > EPS || (y1 - y0).abs() > EPS {
                 (x1, y1)
-            } else if (x2 - x0).abs() > 1e-12 || (y2 - y0).abs() > 1e-12 {
+            } else if (x2 - x0).abs() > EPS || (y2 - y0).abs() > EPS {
                 (x2, y2)
-            } else if (x3 - x0).abs() > 1e-12 || (y3 - y0).abs() > 1e-12 {
+            } else if (x3 - x0).abs() > EPS || (y3 - y0).abs() > EPS {
                 (x3, y3)
             } else {
                 // Drop the segment if its length is zero
+                // TODO: do this for all not segments, not just start?
                 return;
             };
             self.first_start_tangent_end = [x, y];
