@@ -89,18 +89,6 @@ fn eval_cubic(p0: vec2<f32>, p1: vec2<f32>, p2: vec2<f32>, p3: vec2<f32>, t: f32
     return p0 * (mt * mt * mt) + (p1 * (mt * mt * 3.0) + (p2 * (mt * 3.0) + p3 * t) * t) * t;
 }
 
-fn eval_cubic_tangent(p0: vec2<f32>, p1: vec2<f32>, p2: vec2<f32>, p3: vec2<f32>, t: f32) -> vec2<f32> {
-    let dp0 = 3. * (p1 - p0);
-    let dp1 = 3. * (p2 - p1);
-    let dp2 = 3. * (p3 - p2);
-    return eval_quad(dp0, dp1, dp2, t);
-}
-
-fn eval_cubic_normal(p0: vec2<f32>, p1: vec2<f32>, p2: vec2<f32>, p3: vec2<f32>, t: f32) -> vec2<f32> {
-    let tangent = eval_cubic_tangent(p0, p1, p2, p3, t);
-    return vec2(-tangent.y, tangent.x);
-}
-
 fn eval_quad_tangent(p0: vec2<f32>, p1: vec2<f32>, p2: vec2<f32>, t: f32) -> vec2<f32> {
     let dp0 = 2. * (p1 - p0);
     let dp1 = 2. * (p2 - p1);
@@ -210,6 +198,10 @@ fn flatten_cubic(cubic: Cubic) {
                 lp1 = eval_quad(qp0, qp1, qp2, t);
             }
 
+            // TODO: Instead of outputting two offset segments here, restructure this function as
+            // "flatten_cubic_at_offset" such that it outputs one cubic at an offset. That should
+            // more closely resemble the end state of this shader which will work like a state
+            // machine.
             if cubic.flags == 1u {
                 var n1: vec2f;
                 if all(lp1 == p3) {
@@ -437,6 +429,8 @@ fn main(
                 } else {
                     // Don't draw anything if the path is closed.
                 }
+                // The stroke cap marker does not contribute to the path's bounding box. The stroke
+                // width is accounted for when computing the bbox for regular segments.
                 bbox = vec4(1., 1., -1., -1.);
             } else {
                 // Render offset curves
