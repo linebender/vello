@@ -228,6 +228,63 @@ fn flatten_cubic(cubic: Cubic) {
     }
 }
 
+fn draw_join(
+    stroke: vec2f, path_ix: u32, style_flags: u32, p0: vec2f,
+    tan_prev: vec2f, tan_next: vec2f,
+    n_prev: vec2f, n_next: vec2f
+) -> vec4f {
+    var miter_pt_bbox = vec4(1e31, 1e31, -1e31, -1e31);
+    switch style_flags & STYLE_FLAGS_JOIN_MASK {
+        case /*STYLE_FLAGS_JOIN_BEVEL*/0u: {
+            let line_ix = atomicAdd(&bump.lines, 2u);
+            lines[line_ix]      = LineSoup(path_ix, p0 + n_prev, p0 + n_next);
+            lines[line_ix + 1u] = LineSoup(path_ix, p0 - n_next, p0 - n_prev);
+        }
+        case /*STYLE_FLAGS_JOIN_MITER*/0x10000000u: {
+            let c = tan_prev.x * tan_next.y - tan_prev.y * tan_next.x;
+            let d = dot(tan_prev, tan_next);
+            let hypot = length(vec2f(c, d));
+            let miter_limit = unpack2x16float(style_flags & STYLE_MITER_LIMIT_MASK).x;
+
+            var front0 = p0 + n_prev;
+            let front1 = p0 + n_next;
+            var back0 = p0 - n_next;
+            let back1 = p0 - n_prev;
+
+            if 2. * hypot < (hypot + d) * miter_limit * miter_limit && c != 0. {
+                let is_backside = c > 0.;
+                let fp_last = select(front0, back1, is_backside);
+                let fp_this = select(front1, back0, is_backside);
+                let p = select(front0, back0, is_backside);
+
+                let v = fp_this - fp_last;
+                let h = (tan_prev.x * v.y - tan_prev.y * v.x) / c;
+                let miter_pt = fp_this - tan_next * h;
+
+                let line_ix = atomicAdd(&bump.lines, 1u);
+                lines[line_ix] = LineSoup(path_ix, p, miter_pt);
+                if is_backside {
+                    back0 = miter_pt;
+                } else {
+                    front0 = miter_pt;
+                }
+                miter_pt_bbox = vec4(miter_pt, miter_pt);
+            }
+            let line_ix = atomicAdd(&bump.lines, 2u);
+            lines[line_ix]      = LineSoup(path_ix, front0, front1);
+            lines[line_ix + 1u] = LineSoup(path_ix, back0, back1);
+        }
+        case /*STYLE_FLAGS_JOIN_ROUND*/0x20000000u: {
+            // TODO: round join
+            let line_ix = atomicAdd(&bump.lines, 2u);
+            lines[line_ix]      = LineSoup(path_ix, p0 + n_prev, p0 + n_next);
+            lines[line_ix + 1u] = LineSoup(path_ix, p0 - n_next, p0 - n_prev);
+        }
+        default: {}
+    }
+    return miter_pt_bbox;
+}
+
 var<private> pathdata_base: u32;
 
 fn read_f32_point(ix: u32) -> vec2f {
@@ -442,17 +499,18 @@ fn main(
 
                 // Read the neighboring segment.
                 let neighbor = read_neighboring_segment(ix + 1u);
-                let n = normalize(cubic_end_normal(pts.p0, pts.p1, pts.p2, pts.p3)) * stroke;
+                let tan_prev = cubic_end_tangent(pts.p0, pts.p1, pts.p2, pts.p3);
+                let tan_next = neighbor.tangent;
+                let n_prev = normalize(tan_prev).yx * vec2f(-1., 1.) * stroke;
+                let n_next = normalize(tan_next).yx * vec2f(-1., 1.) * stroke;
                 if neighbor.do_join {
-                    // Draw join.
-                    let nn = normalize(vec2(-neighbor.tangent.y, neighbor.tangent.x)) * stroke;
-                    let line_ix = atomicAdd(&bump.lines, 2u);
-                    lines[line_ix]      = LineSoup(path_ix, pts.p3 + n, neighbor.p0 + nn);
-                    lines[line_ix + 1u] = LineSoup(path_ix, neighbor.p0 - nn, pts.p3 - n);
+                    let miter_pt = draw_join(stroke, path_ix, style_flags, pts.p3,
+                                             tan_prev, tan_next, n_prev, n_next);
+                    bbox = vec4(min(miter_pt.xy, bbox.xy), max(miter_pt.zw, bbox.zw));
                 } else {
                     // Draw end cap.
                     let line_ix = atomicAdd(&bump.lines, 1u);
-                    lines[line_ix] = LineSoup(path_ix, pts.p3 + n, pts.p3 - n);
+                    lines[line_ix] = LineSoup(path_ix, pts.p3 + n_prev, pts.p3 - n_prev);
                 }
             }
         } else {

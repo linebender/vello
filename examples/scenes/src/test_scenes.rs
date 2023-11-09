@@ -114,8 +114,9 @@ fn stroke_styles(sb: &mut SceneBuilder, params: &mut SceneParams) {
     ];
     let miter_stroke = [
         MoveTo((0., 0.).into()),
-        LineTo((90., 21.).into()),
-        LineTo((0., 42.).into()),
+        LineTo((90., 16.).into()),
+        LineTo((0., 31.).into()),
+        LineTo((90., 46.).into()),
     ];
     let closed_strokes = [
         MoveTo((0., 0.).into()),
@@ -131,7 +132,7 @@ fn stroke_styles(sb: &mut SceneBuilder, params: &mut SceneParams) {
     ];
     let cap_styles = [Cap::Butt, Cap::Square, Cap::Round];
     let join_styles = [Join::Bevel, Join::Miter, Join::Round];
-    let miter_limits = [4., 5., 0.1, 10.];
+    let miter_limits = [4., 6., 0.1, 10.];
 
     // Simple strokes with cap combinations
     let t = Affine::translate((60., 40.)) * Affine::scale(2.);
