@@ -96,7 +96,7 @@ fn eval_quad_tangent(p0: vec2<f32>, p1: vec2<f32>, p2: vec2<f32>, t: f32) -> vec
 }
 
 fn eval_quad_normal(p0: vec2<f32>, p1: vec2<f32>, p2: vec2<f32>, t: f32) -> vec2<f32> {
-    let tangent = eval_quad_tangent(p0, p1, p2, t);
+    let tangent = normalize(eval_quad_tangent(p0, p1, p2, t));
     return vec2(-tangent.y, tangent.x);
 }
 
@@ -117,12 +117,12 @@ fn cubic_end_tangent(p0: vec2<f32>, p1: vec2<f32>, p2: vec2<f32>, p3: vec2<f32>)
 }
 
 fn cubic_start_normal(p0: vec2<f32>, p1: vec2<f32>, p2: vec2<f32>, p3: vec2<f32>) -> vec2<f32> {
-    let tangent = cubic_start_tangent(p0, p1, p2, p3);
+    let tangent = normalize(cubic_start_tangent(p0, p1, p2, p3));
     return vec2(-tangent.y, tangent.x);
 }
 
 fn cubic_end_normal(p0: vec2<f32>, p1: vec2<f32>, p2: vec2<f32>, p3: vec2<f32>) -> vec2<f32> {
-    let tangent = cubic_end_tangent(p0, p1, p2, p3);
+    let tangent = normalize(cubic_end_tangent(p0, p1, p2, p3));
     return vec2(-tangent.y, tangent.x);
 }
 
@@ -163,8 +163,7 @@ fn flatten_cubic(cubic: Cubic) {
     }
 
     // HACK: normal vector used to offset line segments for shitty stroke handling.
-    var n0 = cubic_start_normal(p0, p1, p2, p3);
-    n0 = normalize(n0) * cubic.stroke;
+    var n0 = cubic_start_normal(p0, p1, p2, p3) * cubic.stroke;
 
     let n = max(u32(ceil(val * (0.5 / sqrt(REM_ACCURACY)))), 1u);
     var lp0 = p0;
@@ -177,7 +176,6 @@ fn flatten_cubic(cubic: Cubic) {
         let qp2 = eval_cubic(p0, p1, p2, p3, t);
         var qp1 = eval_cubic(p0, p1, p2, p3, t - 0.5 * step);
         qp1 = 2.0 * qp1 - 0.5 * (qp0 + qp2);
-        let qp0_normal = eval_quad_normal(qp0, qp1, qp2, 0.);
         let params = keep_params[i];
         let u0 = approx_parabola_inv_integral(params.a0);
         let u2 = approx_parabola_inv_integral(params.a2);
@@ -209,7 +207,7 @@ fn flatten_cubic(cubic: Cubic) {
                 } else {
                     n1 = eval_quad_normal(qp0, qp1, qp2, t1);
                 }
-                n1 = normalize(n1) * cubic.stroke;
+                n1 *= cubic.stroke;
                 let line_ix = atomicAdd(&bump.lines, 2u);
                 lines[line_ix]      = LineSoup(cubic.path_ix, lp0 + n0, lp1 + n1);
                 lines[line_ix + 1u] = LineSoup(cubic.path_ix, lp1 - n1, lp0 - n0);
@@ -366,7 +364,7 @@ struct NeighboringSegment {
     do_join: bool,
     p0: vec2f,
 
-    // Normalized device-space start tangent vector
+    // Device-space start tangent vector
     tangent: vec2f,
 }
 
@@ -380,7 +378,7 @@ fn read_neighboring_segment(ix: u32) -> NeighboringSegment {
     let do_join = !is_stroke_cap_marker || is_closed;
     let p0 = pts.p0;
     let tangent = cubic_start_tangent(pts.p0, pts.p1, pts.p2, pts.p3);
-    return NeighboringSegment(do_join, p0, normalize(tangent));
+    return NeighboringSegment(do_join, p0, tangent);
 }
 
 @compute @workgroup_size(256)
@@ -426,8 +424,7 @@ fn main(
             let is_stroke_cap_marker = (tag.tag_byte & PATH_TAG_SUBPATH_END_BIT) != 0u;
             if is_stroke_cap_marker {
                 if is_open {
-                    let tangent = normalize(pts.p1 - pts.p0);
-                    let n = vec2f(-tangent.y, tangent.x) * stroke;
+                    let n = cubic_start_normal(pts.p0, pts.p1, pts.p2, pts.p3) * stroke;
 
                     // Draw start cap
                     let line_ix = atomicAdd(&bump.lines, 1u);
@@ -447,7 +444,7 @@ fn main(
                 let n = normalize(cubic_end_normal(pts.p0, pts.p1, pts.p2, pts.p3)) * stroke;
                 if neighbor.do_join {
                     // Draw join.
-                    let nn = vec2(-neighbor.tangent.y, neighbor.tangent.x) * stroke;
+                    let nn = normalize(vec2(-neighbor.tangent.y, neighbor.tangent.x)) * stroke;
                     let line_ix = atomicAdd(&bump.lines, 2u);
                     lines[line_ix]      = LineSoup(path_ix, pts.p3 + n, neighbor.p0 + nn);
                     lines[line_ix + 1u] = LineSoup(path_ix, neighbor.p0 - nn, pts.p3 - n);
