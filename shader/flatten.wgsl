@@ -52,7 +52,7 @@ fn approx_parabola_inv_integral(x: f32) -> f32 {
     return x * sqrt(1.0 - B + (B * B + 0.5 * x * x));
 }
 
-fn estimate_subdiv(p0: vec2<f32>, p1: vec2<f32>, p2: vec2<f32>, sqrt_tol: f32) -> SubdivResult {
+fn estimate_subdiv(p0: vec2f, p1: vec2f, p2: vec2f, sqrt_tol: f32) -> SubdivResult {
     let d01 = p1 - p0;
     let d12 = p2 - p1;
     let dd = d01 - d12;
@@ -79,28 +79,28 @@ fn estimate_subdiv(p0: vec2<f32>, p1: vec2<f32>, p2: vec2<f32>, sqrt_tol: f32) -
     return SubdivResult(val, a0, a2);
 }
 
-fn eval_quad(p0: vec2<f32>, p1: vec2<f32>, p2: vec2<f32>, t: f32) -> vec2<f32> {
+fn eval_quad(p0: vec2f, p1: vec2f, p2: vec2f, t: f32) -> vec2f {
     let mt = 1.0 - t;
     return p0 * (mt * mt) + (p1 * (mt * 2.0) + p2 * t) * t;
 }
 
-fn eval_cubic(p0: vec2<f32>, p1: vec2<f32>, p2: vec2<f32>, p3: vec2<f32>, t: f32) -> vec2<f32> {
+fn eval_cubic(p0: vec2f, p1: vec2f, p2: vec2f, p3: vec2f, t: f32) -> vec2f {
     let mt = 1.0 - t;
     return p0 * (mt * mt * mt) + (p1 * (mt * mt * 3.0) + (p2 * (mt * 3.0) + p3 * t) * t) * t;
 }
 
-fn eval_quad_tangent(p0: vec2<f32>, p1: vec2<f32>, p2: vec2<f32>, t: f32) -> vec2<f32> {
+fn eval_quad_tangent(p0: vec2f, p1: vec2f, p2: vec2f, t: f32) -> vec2f {
     let dp0 = 2. * (p1 - p0);
     let dp1 = 2. * (p2 - p1);
     return mix(dp0, dp1, t);
 }
 
-fn eval_quad_normal(p0: vec2<f32>, p1: vec2<f32>, p2: vec2<f32>, t: f32) -> vec2<f32> {
+fn eval_quad_normal(p0: vec2f, p1: vec2f, p2: vec2f, t: f32) -> vec2f {
     let tangent = normalize(eval_quad_tangent(p0, p1, p2, t));
     return vec2(-tangent.y, tangent.x);
 }
 
-fn cubic_start_tangent(p0: vec2<f32>, p1: vec2<f32>, p2: vec2<f32>, p3: vec2<f32>) -> vec2<f32> {
+fn cubic_start_tangent(p0: vec2f, p1: vec2f, p2: vec2f, p3: vec2f) -> vec2f {
     let EPS = 1e-12;
     let d01 = p1 - p0;
     let d02 = p2 - p0;
@@ -108,7 +108,7 @@ fn cubic_start_tangent(p0: vec2<f32>, p1: vec2<f32>, p2: vec2<f32>, p3: vec2<f32
     return select(select(d03, d02, dot(d02, d02) > EPS), d01, dot(d01, d01) > EPS);
 }
 
-fn cubic_end_tangent(p0: vec2<f32>, p1: vec2<f32>, p2: vec2<f32>, p3: vec2<f32>) -> vec2<f32> {
+fn cubic_end_tangent(p0: vec2f, p1: vec2f, p2: vec2f, p3: vec2f) -> vec2f {
     let EPS = 1e-12;
     let d23 = p3 - p2;
     let d13 = p3 - p1;
@@ -116,12 +116,12 @@ fn cubic_end_tangent(p0: vec2<f32>, p1: vec2<f32>, p2: vec2<f32>, p3: vec2<f32>)
     return select(select(d03, d13, dot(d13, d13) > EPS), d23, dot(d23, d23) > EPS);
 }
 
-fn cubic_start_normal(p0: vec2<f32>, p1: vec2<f32>, p2: vec2<f32>, p3: vec2<f32>) -> vec2<f32> {
+fn cubic_start_normal(p0: vec2f, p1: vec2f, p2: vec2f, p3: vec2f) -> vec2f {
     let tangent = normalize(cubic_start_tangent(p0, p1, p2, p3));
     return vec2(-tangent.y, tangent.x);
 }
 
-fn cubic_end_normal(p0: vec2<f32>, p1: vec2<f32>, p2: vec2<f32>, p3: vec2<f32>) -> vec2<f32> {
+fn cubic_end_normal(p0: vec2f, p1: vec2f, p2: vec2f, p3: vec2f) -> vec2f {
     let tangent = normalize(cubic_end_tangent(p0, p1, p2, p3));
     return vec2(-tangent.y, tangent.x);
 }
@@ -151,7 +151,8 @@ fn flatten_cubic(cubic: Cubic) {
         var qp1 = eval_cubic(p0, p1, p2, p3, t - 0.5 * step);
         qp1 = 2.0 * qp1 - 0.5 * (qp0 + qp2);
 
-        // HACK: this increase subdivision count as function of the stroke width for shitty strokes.
+        // HACK: this increases subdivision count as a function of the stroke width for shitty
+        // strokes. This isn't systematic or correct and shouldn't be relied on in the long term.
         var tol = sqrt(REM_ACCURACY);
         if cubic.flags == CUBIC_IS_STROKE {
             tol *= min(1000., dot(cubic.stroke, cubic.stroke));
@@ -182,7 +183,7 @@ fn flatten_cubic(cubic: Cubic) {
         let uscale = 1.0 / (u2 - u0);
         var val_target = f32(n_out) * v_step;
         while n_out == n || val_target < val_sum + params.val {
-            var lp1: vec2<f32>;
+            var lp1: vec2f;
             var t1: f32;
             if n_out == n {
                 lp1 = p3;
@@ -229,13 +230,13 @@ fn flatten_cubic(cubic: Cubic) {
 
 var<private> pathdata_base: u32;
 
-fn read_f32_point(ix: u32) -> vec2<f32> {
+fn read_f32_point(ix: u32) -> vec2f {
     let x = bitcast<f32>(scene[pathdata_base + ix]);
     let y = bitcast<f32>(scene[pathdata_base + ix + 1u]);
     return vec2(x, y);
 }
 
-fn read_i16_point(ix: u32) -> vec2<f32> {
+fn read_i16_point(ix: u32) -> vec2f {
     let raw = scene[pathdata_base + ix];
     let x = f32(i32(raw << 16u) >> 16u);
     let y = f32(i32(raw) >> 16u);
@@ -243,8 +244,8 @@ fn read_i16_point(ix: u32) -> vec2<f32> {
 }
 
 struct Transform {
-    mat: vec4<f32>,
-    translate: vec2<f32>,
+    mat: vec4f,
+    translate: vec2f,
 }
 
 fn read_transform(transform_base: u32, ix: u32) -> Transform {
@@ -260,7 +261,7 @@ fn read_transform(transform_base: u32, ix: u32) -> Transform {
     return Transform(mat, translate);
 }
 
-fn transform_apply(transform: Transform, p: vec2<f32>) -> vec2<f32> {
+fn transform_apply(transform: Transform, p: vec2f) -> vec2f {
     return transform.mat.xy * p.x + transform.mat.zw * p.y + transform.translate;
 }
 
@@ -295,10 +296,10 @@ struct CubicPoints {
 }
 
 fn read_path_segment(tag: PathTagData, transform: Transform, is_stroke: bool) -> CubicPoints {
-    var p0: vec2<f32>;
-    var p1: vec2<f32>;
-    var p2: vec2<f32>;
-    var p3: vec2<f32>;
+    var p0: vec2f;
+    var p1: vec2f;
+    var p2: vec2f;
+    var p3: vec2f;
 
     var seg_type = tag.tag_byte & PATH_TAG_SEG_TYPE;
     let pathseg_offset = tag.monoid.pathseg_offset;
