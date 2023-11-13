@@ -153,7 +153,7 @@ fn flatten_cubic(cubic: Cubic) {
 
         // HACK: this increase subdivision count as function of the stroke width for shitty strokes.
         var tol = sqrt(REM_ACCURACY);
-        if cubic.flags == 1u {
+        if cubic.flags == CUBIC_IS_STROKE {
             tol *= min(1000., dot(cubic.stroke, cubic.stroke));
         }
         let params = estimate_subdiv(qp0, qp1, qp2, tol);
@@ -302,7 +302,7 @@ fn read_path_segment(tag: PathTagData, transform: Transform, is_stroke: bool) ->
 
     var seg_type = tag.tag_byte & PATH_TAG_SEG_TYPE;
     let pathseg_offset = tag.monoid.pathseg_offset;
-    let is_stroke_cap_marker = is_stroke && (tag.tag_byte & PATH_TAG_SUBPATH_END_BIT) != 0u;
+    let is_stroke_cap_marker = is_stroke && (tag.tag_byte & PATH_TAG_SUBPATH_END) != 0u;
     let is_open = seg_type == PATH_TAG_QUADTO;
 
     if (tag.tag_byte & PATH_TAG_F32) != 0u {
@@ -331,7 +331,7 @@ fn read_path_segment(tag: PathTagData, transform: Transform, is_stroke: bool) ->
         // is ignored.
         //
         // This is encoded this way because encoding this as a lineto would require adding a moveto,
-        // which would terminate the subpath too early (by setting the SUBPATH_END_BIT on the
+        // which would terminate the subpath too early (by setting the SUBPATH_END on the
         // segment preceding the cap marker). This scheme is only used for strokes.
         p0 = transform_apply(transform, p1);
         p1 = transform_apply(transform, p2);
@@ -374,7 +374,7 @@ fn read_neighboring_segment(ix: u32) -> NeighboringSegment {
     let pts = read_path_segment(tag, transform, true);
 
     let is_closed = (tag.tag_byte & PATH_TAG_SEG_TYPE) == PATH_TAG_LINETO;
-    let is_stroke_cap_marker = (tag.tag_byte & PATH_TAG_SUBPATH_END_BIT) != 0u;
+    let is_stroke_cap_marker = (tag.tag_byte & PATH_TAG_SUBPATH_END) != 0u;
     let do_join = !is_stroke_cap_marker || is_closed;
     let p0 = pts.p0;
     let tangent = cubic_start_tangent(pts.p0, pts.p1, pts.p2, pts.p3);
@@ -397,7 +397,7 @@ fn main(
     let out = &path_bboxes[path_ix];
     let style_flags = scene[config.style_base + style_ix];
     // The fill bit is always set to 0 for strokes which represents a non-zero fill.
-    let draw_flags = select(DRAW_INFO_FLAGS_FILL_RULE_BIT, 0u, (style_flags & STYLE_FLAGS_FILL_BIT) == 0u);
+    let draw_flags = select(DRAW_INFO_FLAGS_FILL_RULE_BIT, 0u, (style_flags & STYLE_FLAGS_FILL) == 0u);
     if (tag.tag_byte & PATH_TAG_PATH) != 0u {
         (*out).draw_flags = draw_flags;
         (*out).trans_ix = trans_ix;
@@ -405,7 +405,7 @@ fn main(
     // Decode path data
     let seg_type = tag.tag_byte & PATH_TAG_SEG_TYPE;
     if seg_type != 0u {
-        let is_stroke = (style_flags & STYLE_FLAGS_STYLE_BIT) != 0u;
+        let is_stroke = (style_flags & STYLE_FLAGS_STYLE) != 0u;
         let transform = read_transform(config.transform_base, trans_ix);
         let pts = read_path_segment(tag, transform, is_stroke);
         var bbox = vec4(min(pts.p0, pts.p1), max(pts.p0, pts.p1));
@@ -421,7 +421,7 @@ fn main(
             stroke = 0.5 * linewidth * vec2(length(transform.mat.xz), length(transform.mat.yw));
             bbox += vec4(-stroke, stroke);
             let is_open = (tag.tag_byte & PATH_TAG_SEG_TYPE) != PATH_TAG_LINETO;
-            let is_stroke_cap_marker = (tag.tag_byte & PATH_TAG_SUBPATH_END_BIT) != 0u;
+            let is_stroke_cap_marker = (tag.tag_byte & PATH_TAG_SUBPATH_END) != 0u;
             if is_stroke_cap_marker {
                 if is_open {
                     let n = cubic_start_normal(pts.p0, pts.p1, pts.p2, pts.p3) * stroke;

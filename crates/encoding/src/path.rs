@@ -444,10 +444,10 @@ impl<'a> PathEncoder<'a> {
     /// segment tells the GPU stroker whether to draw a cap or a join based on the topology of the
     /// path:
     ///
-    /// 1. This marker segment is encoded as a `quad-to` for an open path and a `line-to` for a
-    ///    closed path. An open path gets drawn with a start and end cap. A closed path gets drawn
-    ///    with a single join in place of the caps where the subpath's start and end control points
-    ///    meet.
+    /// 1. This marker segment is encoded as a `quad-to` (2 additional points) for an open path and
+    ///    a `line-to` (1 additional point) for a closed path. An open path gets drawn with a start
+    ///    and end cap. A closed path gets drawn with a single join in place of the caps where the
+    ///    subpath's start and end control points meet.
     ///
     /// 2. The marker segment tells the GPU flattening stage how to render caps and joins while
     ///    processing each path segment in parallel. All subpaths end with the marker segment which
@@ -523,15 +523,13 @@ impl<'a> PathEncoder<'a> {
             self.move_to(self.first_point[0], self.first_point[1]);
         }
         if self.state == PathState::MoveTo {
-            let x0 = self.first_point[0];
-            let y0 = self.first_point[1];
+            let p0 = (self.first_point[0], self.first_point[1]);
             // Ensure that we don't end up with a zero-length start tangent.
-            const EPS: f32 = 1e-12;
-            if (x - x0).abs() < EPS && (y - y0).abs() < EPS {
+            let Some((x, y)) = start_tangent_for_curve(p0, (x, y), p0, p0) else {
                 // Drop the segment if its length is zero
-                // TODO: do this for all not segments, not just start?
+                // TODO: do this for all not segments, not just start.
                 return;
-            }
+            };
             self.first_start_tangent_end = [x, y];
         }
         let buf = [x, y];
@@ -552,17 +550,11 @@ impl<'a> PathEncoder<'a> {
             self.move_to(self.first_point[0], self.first_point[1]);
         }
         if self.state == PathState::MoveTo {
-            let x0 = self.first_point[0];
-            let y0 = self.first_point[1];
+            let p0 = (self.first_point[0], self.first_point[1]);
             // Ensure that we don't end up with a zero-length start tangent.
-            const EPS: f32 = 1e-12;
-            let (x, y) = if (x1 - x0).abs() > EPS || (y1 - y0).abs() > EPS {
-                (x1, y1)
-            } else if (x2 - x0).abs() > EPS || (y2 - y0).abs() > EPS {
-                (x2, y2)
-            } else {
+            let Some((x, y)) = start_tangent_for_curve(p0, (x1, y1), (x2, y2), p0) else {
                 // Drop the segment if its length is zero
-                // TODO: do this for all not segments, not just start?
+                // TODO: do this for all not segments, not just start.
                 return;
             };
             self.first_start_tangent_end = [x, y];
@@ -585,19 +577,11 @@ impl<'a> PathEncoder<'a> {
             self.move_to(self.first_point[0], self.first_point[1]);
         }
         if self.state == PathState::MoveTo {
-            let x0 = self.first_point[0];
-            let y0 = self.first_point[1];
+            let p0 = (self.first_point[0], self.first_point[1]);
             // Ensure that we don't end up with a zero-length start tangent.
-            const EPS: f32 = 1e-12;
-            let (x, y) = if (x1 - x0).abs() > EPS || (y1 - y0).abs() > EPS {
-                (x1, y1)
-            } else if (x2 - x0).abs() > EPS || (y2 - y0).abs() > EPS {
-                (x2, y2)
-            } else if (x3 - x0).abs() > EPS || (y3 - y0).abs() > EPS {
-                (x3, y3)
-            } else {
+            let Some((x, y)) = start_tangent_for_curve(p0, (x1, y1), (x2, y2), (x3, y3)) else {
                 // Drop the segment if its length is zero
-                // TODO: do this for all not segments, not just start?
+                // TODO: do this for all not segments, not just start.
                 return;
             };
             self.first_start_tangent_end = [x, y];
@@ -737,6 +721,38 @@ impl fello::scale::Pen for PathEncoder<'_> {
     fn close(&mut self) {
         self.close();
     }
+}
+
+// Returns the end point of the start tangent of a curve starting at `(x0, y0)`, or `None` if the
+// curve is degenerate / has zero-length. The inputs are a sequence of control points that can
+// represent a line, a quadratic Bezier, or a cubic Bezier. Lines and quadratic Beziers can be
+// passed to this function by simply setting the invalid control point degrees equal to `(x0, y0)`.
+fn start_tangent_for_curve(
+    p0: (f32, f32),
+    p1: (f32, f32),
+    p2: (f32, f32),
+    p3: (f32, f32),
+) -> Option<(f32, f32)> {
+    debug_assert!(!p0.0.is_nan());
+    debug_assert!(!p0.1.is_nan());
+    debug_assert!(!p1.0.is_nan());
+    debug_assert!(!p1.1.is_nan());
+    debug_assert!(!p2.0.is_nan());
+    debug_assert!(!p2.1.is_nan());
+    debug_assert!(!p3.0.is_nan());
+    debug_assert!(!p3.1.is_nan());
+
+    const EPS: f32 = 1e-12;
+    let pt = if (p1.0 - p0.0).abs() > EPS || (p1.1 - p0.1).abs() > EPS {
+        p1
+    } else if (p2.0 - p0.0).abs() > EPS || (p2.1 - p0.1).abs() > EPS {
+        p2
+    } else if (p3.0 - p0.0).abs() > EPS || (p3.1 - p0.1).abs() > EPS {
+        p3
+    } else {
+        return None;
+    };
+    Some(pt)
 }
 
 #[cfg(test)]
