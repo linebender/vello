@@ -21,11 +21,12 @@ let PATH_TAG_TRANSFORM = 0x20u;
 let PATH_TAG_PATH = 0x10u;
 let PATH_TAG_STYLE = 0x40u;
 #endif
+let PATH_TAG_SUBPATH_END = 4u;
 
 // Size of the `Style` data structure in words
 let STYLE_SIZE_IN_WORDS: u32 = 2u;
-let STYLE_FLAGS_STYLE_BIT: u32 = 0x80000000u;
-let STYLE_FLAGS_FILL_BIT: u32 = 0x40000000u;
+let STYLE_FLAGS_STYLE: u32 = 0x80000000u;
+let STYLE_FLAGS_FILL: u32 = 0x40000000u;
 
 // TODO: Declare the remaining STYLE flags here.
 

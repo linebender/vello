@@ -149,26 +149,45 @@ impl<'a> SceneBuilder<'a> {
         brush_transform: Option<Affine>,
         shape: &impl Shape,
     ) {
-        // The setting for tolerance are a compromise. For most applications,
-        // shape tolerance doesn't matter, as the input is likely Bézier paths,
-        // which is exact. Note that shape tolerance is hard-coded as 0.1 in
-        // the encoding crate.
-        //
-        // Stroke tolerance is a different matter. Generally, the cost scales
-        // with inverse O(n^6), so there is moderate rendering cost to setting
-        // too fine a value. On the other hand, error scales with the transform
-        // applied post-stroking, so may exceed visible threshold. When we do
-        // GPU-side stroking, the transform will be known. In the meantime,
-        // this is a compromise.
-        const SHAPE_TOLERANCE: f64 = 0.01;
-        const STROKE_TOLERANCE: f64 = SHAPE_TOLERANCE;
-        let stroked = peniko::kurbo::stroke(
-            shape.path_elements(SHAPE_TOLERANCE),
-            style,
-            &Default::default(),
-            STROKE_TOLERANCE,
-        );
-        self.fill(Fill::NonZero, transform, brush, brush_transform, &stroked);
+        const GPU_STROKES: bool = false;
+        if GPU_STROKES {
+            // TODO: handle dashing by using a DashIterator
+            self.scene
+                .encode_transform(Transform::from_kurbo(&transform));
+            self.scene.encode_stroke_style(style);
+            if self.scene.encode_shape(shape, false) {
+                if let Some(brush_transform) = brush_transform {
+                    if self
+                        .scene
+                        .encode_transform(Transform::from_kurbo(&(transform * brush_transform)))
+                    {
+                        self.scene.swap_last_path_tags();
+                    }
+                }
+                self.scene.encode_brush(brush, 1.0);
+            }
+        } else {
+            // The setting for tolerance are a compromise. For most applications,
+            // shape tolerance doesn't matter, as the input is likely Bézier paths,
+            // which is exact. Note that shape tolerance is hard-coded as 0.1 in
+            // the encoding crate.
+            //
+            // Stroke tolerance is a different matter. Generally, the cost scales
+            // with inverse O(n^6), so there is moderate rendering cost to setting
+            // too fine a value. On the other hand, error scales with the transform
+            // applied post-stroking, so may exceed visible threshold. When we do
+            // GPU-side stroking, the transform will be known. In the meantime,
+            // this is a compromise.
+            const SHAPE_TOLERANCE: f64 = 0.01;
+            const STROKE_TOLERANCE: f64 = SHAPE_TOLERANCE;
+            let stroked = peniko::kurbo::stroke(
+                shape.path_elements(SHAPE_TOLERANCE),
+                style,
+                &Default::default(),
+                STROKE_TOLERANCE,
+            );
+            self.fill(Fill::NonZero, transform, brush, brush_transform, &stroked);
+        }
     }
 
     /// Draws an image at its natural size with the given transform.
