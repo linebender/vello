@@ -52,7 +52,24 @@ fn approx_parabola_inv_integral(x: f32) -> f32 {
     return x * sqrt(1.0 - B + (B * B + 0.5 * x * x));
 }
 
-fn estimate_subdiv(p0: vec2f, p1: vec2f, p2: vec2f, sqrt_tol: f32, transform_scale: f32) -> SubdivResult {
+// Notes on fractional subdivision:
+// --------------------------------
+// The core of the existing flattening algorithm (see `flatten_cubic` below) is to approximate the
+// original cubic Bézier into a simpler curve (quadratic Bézier), subdivided to meet the error
+// bound, then apply flattening to that. Doing this the simplest way would put a subdivision point
+// in the output at each subdivision point here. That in general does not match where the
+// subdivision points would go in an optimal flattening. Fractional subdivision addresses that
+// problem.
+//
+// The return value of this function (`val`) represents this fractional subdivision count and has
+// the following meaning: an optimal subdivision of the quadratic into `val / 2` subdivisions
+// will have an error `sqrt_tol^2` (i.e. the desired tolerance).
+//
+// In the non-cusp case, the error scales as the inverse square of `val` (doubling `val` causes the
+// error to be one fourth), so the tolerance is actually not needed for the calculation (and gets
+// applied in the caller). In the cusp case, this scaling breaks down and the tolerance parameter
+// is needed to compute the correct result.
+fn estimate_subdiv(p0: vec2f, p1: vec2f, p2: vec2f, sqrt_tol: f32) -> SubdivResult {
     let d01 = p1 - p0;
     let d12 = p2 - p1;
     let dd = d01 - d12;
@@ -60,7 +77,7 @@ fn estimate_subdiv(p0: vec2f, p1: vec2f, p2: vec2f, sqrt_tol: f32, transform_sca
     let cross_inv = select(1.0 / cross, 1.0e9, abs(cross) < 1.0e-9);
     let x0 = dot(d01, dd) * cross_inv;
     let x2 = dot(d12, dd) * cross_inv;
-    let scale = abs(transform_scale * cross / (length(dd) * (x2 - x0)));
+    let scale = abs(cross / (length(dd) * (x2 - x0)));
 
     let a0 = approx_parabola_integral(x0);
     let a2 = approx_parabola_integral(x2);
@@ -128,21 +145,60 @@ fn cubic_end_normal(p0: vec2f, p1: vec2f, p2: vec2f, p3: vec2f) -> vec2f {
 
 let MAX_QUADS = 16u;
 
-fn flatten_cubic(cubic: Cubic, transform: Transform, offset: f32) {
-    let p0 = cubic.p0;
-    let p1 = cubic.p1;
-    let p2 = cubic.p2;
-    let p3 = cubic.p3;
+// This function flattens a cubic Bézier by first converting it into quadratics and
+// approximates the optimal flattening of those using a variation of the method described in
+// https://raphlinus.github.io/graphics/curves/2019/12/23/flatten-quadbez.html.
+//
+// When the `offset` parameter is zero (i.e. the path is a "fill"), the flattening is performed
+// directly on the transformed (device-space) control points as this produces near-optimal
+// flattening even in the presence of a non-angle-preserving transform.
+//
+// When the `offset` is non-zero, the flattening is performed in the curve's local coordinate space
+// and the offset curve gets transformed to device-space post-flattening. This handles
+// non-angle-preserving transforms well while keeping the logic simple.
+//
+// When subdividing the cubic in its local coordinate space, the scale factor gets decomposed out of
+// the local-to-device transform and gets factored into the tolerance threshold when estimating
+// subdivisions.
+fn flatten_cubic(cubic: Cubic, local_to_device: Transform, offset: f32) {
+    var p0: vec2f;
+    var p1: vec2f;
+    var p2: vec2f;
+    var p3: vec2f;
+    var scale: f32;
+    var transform: Transform;
+    if offset == 0. {
+        let t = local_to_device;
+        p0 = transform_apply(t, cubic.p0);
+        p1 = transform_apply(t, cubic.p1);
+        p2 = transform_apply(t, cubic.p2);
+        p3 = transform_apply(t, cubic.p3);
+        scale = 1.;
+        transform = transform_identity();
+    } else {
+        p0 = cubic.p0;
+        p1 = cubic.p1;
+        p2 = cubic.p2;
+        p3 = cubic.p3;
+
+        transform = local_to_device;
+        let mat = transform.mat;
+        scale = 0.5 * length(vec2(mat.x + mat.w, mat.y - mat.z)) +
+                length(vec2(mat.x - mat.w, mat.y + mat.z));
+    }
+
     let err_v = 3.0 * (p2 - p1) + p0 - p3;
     let err = dot(err_v, err_v);
     let ACCURACY = 0.25;
     let Q_ACCURACY = ACCURACY * 0.1;
     let REM_ACCURACY = ACCURACY - Q_ACCURACY;
     let MAX_HYPOT2 = 432.0 * Q_ACCURACY * Q_ACCURACY;
-    let scale = vec2(length(transform.mat.xz), length(transform.mat.yw));
-    let scale_factor = max(scale.x, scale.y);
-    var n_quads = max(u32(ceil(pow(err * (1.0 / MAX_HYPOT2), 1.0 / 6.0)) * scale_factor), 1u);
+    let scaled_sqrt_tol = sqrt(REM_ACCURACY / scale);
+    // Fudge the subdivision count metric to account for `scale` when the subdivision is done in local
+    // coordinates.
+    var n_quads = max(u32(ceil(pow(err * (1.0 / MAX_HYPOT2), 1.0 / 6.0)) * scale), 1u);
     n_quads = min(n_quads, MAX_QUADS);
+
     var keep_params: array<SubdivResult, MAX_QUADS>;
     var val = 0.0;
     var qp0 = p0;
@@ -154,8 +210,7 @@ fn flatten_cubic(cubic: Cubic, transform: Transform, offset: f32) {
         qp1 = 2.0 * qp1 - 0.5 * (qp0 + qp2);
 
         // TODO: Estimate an accurate subdivision count for strokes, handling cusps.
-        let tol = sqrt(REM_ACCURACY);
-        let params = estimate_subdiv(qp0, qp1, qp2, tol, scale_factor);
+        let params = estimate_subdiv(qp0, qp1, qp2, scaled_sqrt_tol);
         keep_params[i] = params;
         val += params.val;
         qp0 = qp2;
@@ -164,7 +219,7 @@ fn flatten_cubic(cubic: Cubic, transform: Transform, offset: f32) {
     // Normal vector to calculate the start point of the offset curve.
     var n0 = offset * cubic_start_normal(p0, p1, p2, p3);
 
-    let n = max(u32(ceil(val * (0.5 / sqrt(REM_ACCURACY)))), 1u);
+    let n = max(u32(ceil(val * (0.5 / scaled_sqrt_tol))), 1u);
     var lp0 = p0;
     qp0 = p0;
     let v_step = val / f32(n);
@@ -199,7 +254,7 @@ fn flatten_cubic(cubic: Cubic, transform: Transform, offset: f32) {
             // "flatten_cubic_at_offset" such that it outputs one cubic at an offset. That should
             // more closely resemble the end state of this shader which will work like a state
             // machine.
-            if cubic.flags == 1u {
+            if offset > 0. {
                 var n1: vec2f;
                 if all(lp1 == p3) {
                     n1 = cubic_end_normal(p0, p1, p2, p3);
@@ -248,6 +303,7 @@ fn draw_join(
             let front1 = p0 + n_next;
             var back0 = p0 - n_next;
             let back1 = p0 - n_prev;
+            var line_ix: u32;
 
             if 2. * hypot < (hypot + d) * miter_limit * miter_limit && c != 0. {
                 let is_backside = c > 0.;
@@ -258,15 +314,21 @@ fn draw_join(
                 let v = fp_this - fp_last;
                 let h = (tan_prev.x * v.y - tan_prev.y * v.x) / c;
                 let miter_pt = fp_this - tan_next * h;
-                output_line_with_transform(path_ix, p, miter_pt, transform);
+
+                line_ix = atomicAdd(&bump.lines, 3u);
+                write_line_with_transform(line_ix, path_ix, p, miter_pt, transform);
+                line_ix += 1u;
 
                 if is_backside {
                     back0 = miter_pt;
                 } else {
                     front0 = miter_pt;
                 }
+            } else {
+                line_ix = atomicAdd(&bump.lines, 2u);
             }
-            output_two_lines_with_transform(path_ix, front0, front1, back0, back1, transform);
+            write_line_with_transform(line_ix, path_ix, front0, front1, transform);
+            write_line_with_transform(line_ix + 1u, path_ix, back0, back1, transform);
         }
         case /*STYLE_FLAGS_JOIN_ROUND*/0x20000000u: {
             // TODO: round join
@@ -295,6 +357,10 @@ fn read_i16_point(ix: u32) -> vec2f {
 struct Transform {
     mat: vec4f,
     translate: vec2f,
+}
+
+fn transform_identity() -> Transform {
+    return Transform(vec4(1., 0., 0., 1.), vec2(0.));
 }
 
 fn read_transform(transform_base: u32, ix: u32) -> Transform {
@@ -402,18 +468,26 @@ fn read_path_segment(tag: PathTagData, is_stroke: bool) -> CubicPoints {
     return CubicPoints(p0, p1, p2, p3);
 }
 
-fn output_line(path_ix: u32, p0: vec2f, p1: vec2f) {
-    let line_ix = atomicAdd(&bump.lines, 1u);
+// Writes a line into a the `lines` buffer at a pre-allocated location designated by `line_ix`.
+fn write_line(line_ix: u32, path_ix: u32, p0: vec2f, p1: vec2f) {
     bbox = vec4(min(bbox.xy, min(p0, p1)), max(bbox.zw, max(p0, p1)));
     lines[line_ix] = LineSoup(path_ix, p0, p1);
 }
 
+fn write_line_with_transform(line_ix: u32, path_ix: u32, p0: vec2f, p1: vec2f, t: Transform) {
+    let tp0 = transform_apply(t, p0);
+    let tp1 = transform_apply(t, p1);
+    write_line(line_ix, path_ix, tp0, tp1);
+}
+
+fn output_line(path_ix: u32, p0: vec2f, p1: vec2f) {
+    let line_ix = atomicAdd(&bump.lines, 1u);
+    write_line(line_ix, path_ix, p0, p1);
+}
+
 fn output_line_with_transform(path_ix: u32, p0: vec2f, p1: vec2f, transform: Transform) {
     let line_ix = atomicAdd(&bump.lines, 1u);
-    let tp0 = transform_apply(transform, p0);
-    let tp1 = transform_apply(transform, p1);
-    bbox = vec4(min(bbox.xy, min(tp0, tp1)), max(bbox.zw, max(tp0, tp1)));
-    lines[line_ix] = LineSoup(path_ix, tp0, tp1);
+    write_line_with_transform(line_ix, path_ix, p0, p1, transform);
 }
 
 fn output_two_lines_with_transform(
@@ -423,15 +497,8 @@ fn output_two_lines_with_transform(
     transform: Transform
 ) {
     let line_ix = atomicAdd(&bump.lines, 2u);
-    let tp00 = transform_apply(transform, p00);
-    let tp01 = transform_apply(transform, p01);
-    let tp10 = transform_apply(transform, p10);
-    let tp11 = transform_apply(transform, p11);
-
-    bbox = vec4(min(bbox.xy, min(tp00, tp01)), max(bbox.zw, max(tp00, tp01)));
-    bbox = vec4(min(bbox.xy, min(tp10, tp11)), max(bbox.zw, max(tp10, tp11)));
-    lines[line_ix]      = LineSoup(path_ix, tp00, tp01);
-    lines[line_ix + 1u] = LineSoup(path_ix, tp10, tp11);
+    write_line_with_transform(line_ix, path_ix, p00, p01, transform);
+    write_line_with_transform(line_ix + 1u, path_ix, p10, p11, transform);
 }
 
 struct NeighboringSegment {
