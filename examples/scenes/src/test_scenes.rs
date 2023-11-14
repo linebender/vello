@@ -40,7 +40,7 @@ pub fn test_scenes() -> SceneSet {
             false
         ),
         scene!(
-            stroke_styles(Affine::skew(0.5, 0.)),
+            stroke_styles(Affine::skew(1., 0.)),
             "stroke_styles (skew)",
             false
         ),
