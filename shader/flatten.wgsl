@@ -280,39 +280,69 @@ fn flatten_cubic(cubic: CubicPoints, path_ix: u32, local_to_device: Transform, o
     }
 }
 
+// Flattens the circular arc that subtends the angle begin-center-end. It is assumed that
+// ||begin - center|| == ||end - center||. `begin`, `end`, and `center` are defined in the path's
+// local coordinate space.
+fn flatten_arc(
+    path_ix: u32, begin: vec2f, end: vec2f, center: vec2f, angle: f32, transform: Transform
+) {
+    var p0 = transform_apply(transform, begin);
+    var r = begin - center;
+
+    let EPS = 1e-9;
+    let tol = 0.1;
+    let radius = max(tol, length(p0 - transform_apply(transform, center)));
+    let x = 1. - tol / radius;
+    let theta = acos(clamp(2. * x * x - 1., -1., 1.));
+    let n_lines = select(u32(ceil(6.2831854 / theta)), 1u, theta <= EPS);
+
+    let th = angle / f32(n_lines);
+    let c = cos(th);
+    let s = sin(th);
+    let rot = mat2x2(c, -s, s, c);
+
+    let line_ix = atomicAdd(&bump.lines, n_lines);
+    for (var i = 0u; i < n_lines - 1u; i += 1u) {
+        r = rot * r;
+        let p1 = transform_apply(transform, center + r);
+        write_line(line_ix + i, path_ix, p0, p1);
+        p0 = p1;
+    }
+    let p1 = transform_apply(transform, end);
+    write_line(line_ix + n_lines - 1u, path_ix, p0, p1);
+}
+
 fn draw_join(
     path_ix: u32, style_flags: u32, p0: vec2f,
     tan_prev: vec2f, tan_next: vec2f,
     n_prev: vec2f, n_next: vec2f,
     transform: Transform,
 ) {
+    var front0 = p0 + n_prev;
+    let front1 = p0 + n_next;
+    var back0 = p0 - n_next;
+    let back1 = p0 - n_prev;
+
+    let cr = tan_prev.x * tan_next.y - tan_prev.y * tan_next.x;
+    let d = dot(tan_prev, tan_next);
+
     switch style_flags & STYLE_FLAGS_JOIN_MASK {
         case /*STYLE_FLAGS_JOIN_BEVEL*/0u: {
-            output_two_lines_with_transform(path_ix,
-                                            p0 + n_prev, p0 + n_next,
-                                            p0 - n_next, p0 - n_prev,
-                                            transform);
+            output_two_lines_with_transform(path_ix, front0, front1, back0, back1, transform);
         }
         case /*STYLE_FLAGS_JOIN_MITER*/0x10000000u: {
-            let c = tan_prev.x * tan_next.y - tan_prev.y * tan_next.x;
-            let d = dot(tan_prev, tan_next);
-            let hypot = length(vec2f(c, d));
+            let hypot = length(vec2f(cr, d));
             let miter_limit = unpack2x16float(style_flags & STYLE_MITER_LIMIT_MASK)[0];
 
-            var front0 = p0 + n_prev;
-            let front1 = p0 + n_next;
-            var back0 = p0 - n_next;
-            let back1 = p0 - n_prev;
             var line_ix: u32;
-
-            if 2. * hypot < (hypot + d) * miter_limit * miter_limit && c != 0. {
-                let is_backside = c > 0.;
+            if 2. * hypot < (hypot + d) * miter_limit * miter_limit && cr != 0. {
+                let is_backside = cr > 0.;
                 let fp_last = select(front0, back1, is_backside);
                 let fp_this = select(front1, back0, is_backside);
                 let p = select(front0, back0, is_backside);
 
                 let v = fp_this - fp_last;
-                let h = (tan_prev.x * v.y - tan_prev.y * v.x) / c;
+                let h = (tan_prev.x * v.y - tan_prev.y * v.x) / cr;
                 let miter_pt = fp_this - tan_next * h;
 
                 line_ix = atomicAdd(&bump.lines, 3u);
@@ -331,11 +361,23 @@ fn draw_join(
             write_line_with_transform(line_ix + 1u, path_ix, back0, back1, transform);
         }
         case /*STYLE_FLAGS_JOIN_ROUND*/0x20000000u: {
-            // TODO: round join
-            output_two_lines_with_transform(path_ix,
-                                            p0 + n_prev, p0 + n_next,
-                                            p0 - n_next, p0 - n_prev,
-                                            transform);
+            var arc0: vec2f;
+            var arc1: vec2f;
+            var other0: vec2f;
+            var other1: vec2f;
+            if cr > 0. {
+                arc0 = back0;
+                arc1 = back1;
+                other0 = front0;
+                other1 = front1;
+            } else {
+                arc0 = front0;
+                arc1 = front1;
+                other0 = back0;
+                other1 = back1;
+            }
+            flatten_arc(path_ix, arc0, arc1, p0, abs(atan2(cr, d)), transform);
+            output_line_with_transform(path_ix, other0, other1, transform);
         }
         default: {}
     }
@@ -524,8 +566,8 @@ fn read_neighboring_segment(ix: u32) -> NeighboringSegment {
 // `pathdata_base` is decoded once and reused by helpers above.
 var<private> pathdata_base: u32;
 
-// This is the bounding box of the shape flattened by a single shader invocation. This is adjusted
-// as lines are generated.
+// This is the bounding box of the shape flattened by a single shader invocation. It gets modified
+// during LineSoup generation.
 var<private> bbox: vec4f;
 
 @compute @workgroup_size(256)
