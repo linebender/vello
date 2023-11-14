@@ -628,8 +628,13 @@ impl<'a> PathEncoder<'a> {
 
     /// Encodes a shape.
     pub fn shape(&mut self, shape: &impl Shape) {
+        self.path_elements(shape.path_elements(0.1));
+    }
+
+    /// Encodes a path iterator
+    pub fn path_elements(&mut self, path: impl Iterator<Item = peniko::kurbo::PathEl>) {
         use peniko::kurbo::PathEl;
-        for el in shape.path_elements(0.1) {
+        for el in path {
             match el {
                 PathEl::MoveTo(p0) => self.move_to(p0.x as f32, p0.y as f32),
                 PathEl::LineTo(p0) => self.line_to(p0.x as f32, p0.y as f32),

@@ -149,13 +149,40 @@ impl<'a> SceneBuilder<'a> {
         brush_transform: Option<Affine>,
         shape: &impl Shape,
     ) {
-        const GPU_STROKES: bool = false;
+        // The setting for tolerance are a compromise. For most applications,
+        // shape tolerance doesn't matter, as the input is likely Bézier paths,
+        // which is exact. Note that shape tolerance is hard-coded as 0.1 in
+        // the encoding crate.
+        //
+        // Stroke tolerance is a different matter. Generally, the cost scales
+        // with inverse O(n^6), so there is moderate rendering cost to setting
+        // too fine a value. On the other hand, error scales with the transform
+        // applied post-stroking, so may exceed visible threshold. When we do
+        // GPU-side stroking, the transform will be known. In the meantime,
+        // this is a compromise.
+        const SHAPE_TOLERANCE: f64 = 0.01;
+        const STROKE_TOLERANCE: f64 = SHAPE_TOLERANCE;
+
+        const GPU_STROKES: bool = false; // Set this to `true` to enable GPU-side stroking
         if GPU_STROKES {
-            // TODO: handle dashing by using a DashIterator
             self.scene
                 .encode_transform(Transform::from_kurbo(&transform));
             self.scene.encode_stroke_style(style);
-            if self.scene.encode_shape(shape, false) {
+
+            // We currently don't support dashing on the GPU. If the style has a dash pattern, then
+            // we convert it into stroked paths on the CPU and encode those as individual draw
+            // objects.
+            let encode_result = if style.dash_pattern.is_empty() {
+                self.scene.encode_shape(shape, false)
+            } else {
+                let dashed = peniko::kurbo::dash(
+                    shape.path_elements(SHAPE_TOLERANCE),
+                    style.dash_offset,
+                    &style.dash_pattern,
+                );
+                self.scene.encode_path_elements(dashed, false)
+            };
+            if encode_result {
                 if let Some(brush_transform) = brush_transform {
                     if self
                         .scene
@@ -167,19 +194,6 @@ impl<'a> SceneBuilder<'a> {
                 self.scene.encode_brush(brush, 1.0);
             }
         } else {
-            // The setting for tolerance are a compromise. For most applications,
-            // shape tolerance doesn't matter, as the input is likely Bézier paths,
-            // which is exact. Note that shape tolerance is hard-coded as 0.1 in
-            // the encoding crate.
-            //
-            // Stroke tolerance is a different matter. Generally, the cost scales
-            // with inverse O(n^6), so there is moderate rendering cost to setting
-            // too fine a value. On the other hand, error scales with the transform
-            // applied post-stroking, so may exceed visible threshold. When we do
-            // GPU-side stroking, the transform will be known. In the meantime,
-            // this is a compromise.
-            const SHAPE_TOLERANCE: f64 = 0.01;
-            const STROKE_TOLERANCE: f64 = SHAPE_TOLERANCE;
             let stroked = peniko::kurbo::stroke(
                 shape.path_elements(SHAPE_TOLERANCE),
                 style,
