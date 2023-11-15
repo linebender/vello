@@ -297,7 +297,7 @@ fn draw_join(
             let c = tan_prev.x * tan_next.y - tan_prev.y * tan_next.x;
             let d = dot(tan_prev, tan_next);
             let hypot = length(vec2f(c, d));
-            let miter_limit = unpack2x16float(style_flags & STYLE_MITER_LIMIT_MASK).x;
+            let miter_limit = unpack2x16float(style_flags & STYLE_MITER_LIMIT_MASK)[0];
 
             var front0 = p0 + n_prev;
             let front1 = p0 + n_next;
