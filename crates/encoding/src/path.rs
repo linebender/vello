@@ -525,12 +525,14 @@ impl<'a> PathEncoder<'a> {
         if self.state == PathState::MoveTo {
             let p0 = (self.first_point[0], self.first_point[1]);
             // Ensure that we don't end up with a zero-length start tangent.
-            let Some((x, y)) = start_tangent_for_curve(p0, (x, y), p0, p0) else {
-                // Drop the segment if its length is zero
-                // TODO: do this for all not segments, not just start.
+            let Some((x, y)) = start_tangent_for_curve(p0, (x, y), None, None) else {
                 return;
             };
             self.first_start_tangent_end = [x, y];
+        }
+        // Drop the segment if its length is zero
+        if self.is_zero_length_segment((x, y), None, None) {
+            return;
         }
         let buf = [x, y];
         let bytes = bytemuck::bytes_of(&buf);
@@ -552,12 +554,14 @@ impl<'a> PathEncoder<'a> {
         if self.state == PathState::MoveTo {
             let p0 = (self.first_point[0], self.first_point[1]);
             // Ensure that we don't end up with a zero-length start tangent.
-            let Some((x, y)) = start_tangent_for_curve(p0, (x1, y1), (x2, y2), p0) else {
-                // Drop the segment if its length is zero
-                // TODO: do this for all not segments, not just start.
+            let Some((x, y)) = start_tangent_for_curve(p0, (x1, y1), Some((x2, y2)), None) else {
                 return;
             };
             self.first_start_tangent_end = [x, y];
+        }
+        // Drop the segment if its length is zero
+        if self.is_zero_length_segment((x1, y1), Some((x2, y2)), None) {
+            return;
         }
         let buf = [x1, y1, x2, y2];
         let bytes = bytemuck::bytes_of(&buf);
@@ -579,12 +583,16 @@ impl<'a> PathEncoder<'a> {
         if self.state == PathState::MoveTo {
             let p0 = (self.first_point[0], self.first_point[1]);
             // Ensure that we don't end up with a zero-length start tangent.
-            let Some((x, y)) = start_tangent_for_curve(p0, (x1, y1), (x2, y2), (x3, y3)) else {
-                // Drop the segment if its length is zero
-                // TODO: do this for all not segments, not just start.
+            let Some((x, y)) =
+                start_tangent_for_curve(p0, (x1, y1), Some((x2, y2)), Some((x3, y3)))
+            else {
                 return;
             };
             self.first_start_tangent_end = [x, y];
+        }
+        // Drop the segment if its length is zero
+        if self.is_zero_length_segment((x1, y1), Some((x2, y2)), Some((x3, y3))) {
+            return;
         }
         let buf = [x1, y1, x2, y2, x3, y3];
         let bytes = bytemuck::bytes_of(&buf);
@@ -703,6 +711,33 @@ impl<'a> PathEncoder<'a> {
             );
         }
     }
+
+    fn last_point(&self) -> Option<(f32, f32)> {
+        let len = self.data.len();
+        if len < 8 {
+            return None;
+        }
+        let pts: &[f32; 2] = bytemuck::from_bytes(&self.data[len - 8..len]);
+        Some((pts[0], pts[1]))
+    }
+
+    fn is_zero_length_segment(
+        &self,
+        p1: (f32, f32),
+        p2: Option<(f32, f32)>,
+        p3: Option<(f32, f32)>,
+    ) -> bool {
+        let p0 = self.last_point().unwrap();
+        let p2 = p2.unwrap_or(p1);
+        let p3 = p3.unwrap_or(p1);
+
+        let x_min = p0.0.min(p1.0.min(p2.0.min(p3.0)));
+        let x_max = p0.0.max(p1.0.max(p2.0.max(p3.0)));
+        let y_min = p0.1.min(p1.1.min(p2.1.min(p3.1)));
+        let y_max = p0.1.max(p1.1.max(p2.1.max(p3.1)));
+
+        !(x_max - x_min > EPSILON || y_max - y_min > EPSILON)
+    }
 }
 
 #[cfg(feature = "full")]
@@ -728,6 +763,8 @@ impl fello::scale::Pen for PathEncoder<'_> {
     }
 }
 
+const EPSILON: f32 = 1e-12;
+
 // Returns the end point of the start tangent of a curve starting at `(x0, y0)`, or `None` if the
 // curve is degenerate / has zero-length. The inputs are a sequence of control points that can
 // represent a line, a quadratic Bezier, or a cubic Bezier. Lines and quadratic Beziers can be
@@ -735,24 +772,16 @@ impl fello::scale::Pen for PathEncoder<'_> {
 fn start_tangent_for_curve(
     p0: (f32, f32),
     p1: (f32, f32),
-    p2: (f32, f32),
-    p3: (f32, f32),
+    p2: Option<(f32, f32)>,
+    p3: Option<(f32, f32)>,
 ) -> Option<(f32, f32)> {
-    debug_assert!(!p0.0.is_nan());
-    debug_assert!(!p0.1.is_nan());
-    debug_assert!(!p1.0.is_nan());
-    debug_assert!(!p1.1.is_nan());
-    debug_assert!(!p2.0.is_nan());
-    debug_assert!(!p2.1.is_nan());
-    debug_assert!(!p3.0.is_nan());
-    debug_assert!(!p3.1.is_nan());
-
-    const EPS: f32 = 1e-12;
-    let pt = if (p1.0 - p0.0).abs() > EPS || (p1.1 - p0.1).abs() > EPS {
+    let p2 = p2.unwrap_or(p0);
+    let p3 = p3.unwrap_or(p0);
+    let pt = if (p1.0 - p0.0).abs() > EPSILON || (p1.1 - p0.1).abs() > EPSILON {
         p1
-    } else if (p2.0 - p0.0).abs() > EPS || (p2.1 - p0.1).abs() > EPS {
+    } else if (p2.0 - p0.0).abs() > EPSILON || (p2.1 - p0.1).abs() > EPSILON {
         p2
-    } else if (p3.0 - p0.0).abs() > EPS || (p3.1 - p0.1).abs() > EPS {
+    } else if (p3.0 - p0.0).abs() > EPSILON || (p3.1 - p0.1).abs() > EPSILON {
         p3
     } else {
         return None;
