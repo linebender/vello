@@ -290,11 +290,11 @@ fn flatten_arc(
     var r = begin - center;
 
     let EPS = 1e-9;
-    let tol = 0.1;
+    let tol = 0.5;
     let radius = max(tol, length(p0 - transform_apply(transform, center)));
     let x = 1. - tol / radius;
     let theta = acos(clamp(2. * x * x - 1., -1., 1.));
-    let n_lines = select(u32(ceil(6.2831854 / theta)), 1u, theta <= EPS);
+    let n_lines = select(u32(ceil(6.2831853 / theta)), 1u, theta <= EPS);
 
     let th = angle / f32(n_lines);
     let c = cos(th);
@@ -310,6 +310,32 @@ fn flatten_arc(
     }
     let p1 = transform_apply(transform, end);
     write_line(line_ix + n_lines - 1u, path_ix, p0, p1);
+}
+
+fn draw_cap(
+    path_ix: u32, cap_style: u32, point: vec2f,
+    cap0: vec2f, cap1: vec2f, offset_tangent: vec2f,
+    transform: Transform,
+) {
+    if cap_style == STYLE_FLAGS_CAP_ROUND {
+        flatten_arc(path_ix, cap0, cap1, point, 3.1415927, transform);
+        return;
+    }
+
+    var start = cap0;
+    var end = cap1;
+    let is_square = (cap_style == STYLE_FLAGS_CAP_SQUARE);
+    let line_ix = atomicAdd(&bump.lines, select(1u, 3u, is_square));
+    if is_square {
+        let v = offset_tangent;
+        let p0 = start + v;
+        let p1 = end + v;
+        write_line_with_transform(line_ix + 1u, path_ix, start, p0, transform);
+        write_line_with_transform(line_ix + 2u, path_ix, p1, end, transform);
+        start = p0;
+        end = p1;
+    }
+    write_line_with_transform(line_ix, path_ix, start, end, transform);
 }
 
 fn draw_join(
@@ -607,9 +633,12 @@ fn main(
             let is_stroke_cap_marker = (tag.tag_byte & PATH_TAG_SUBPATH_END) != 0u;
             if is_stroke_cap_marker {
                 if is_open {
-                    // Draw start cap (butt)
-                    let n = offset * cubic_start_normal(pts.p0, pts.p1, pts.p2, pts.p3);
-                    output_line_with_transform(path_ix, pts.p0 - n, pts.p0 + n, transform);
+                    // Draw start cap
+                    let tangent = cubic_start_tangent(pts.p0, pts.p1, pts.p2, pts.p3);
+                    let offset_tangent = offset * normalize(tangent);
+                    let n = offset_tangent.yx * vec2f(-1., 1.);
+                    draw_cap(path_ix, (style_flags & STYLE_FLAGS_START_CAP_MASK) >> 2u,
+                             pts.p0, pts.p0 - n, pts.p0 + n, -offset_tangent, transform);
                 } else {
                     // Don't draw anything if the path is closed.
                 }
@@ -621,14 +650,16 @@ fn main(
                 let neighbor = read_neighboring_segment(ix + 1u);
                 let tan_prev = cubic_end_tangent(pts.p0, pts.p1, pts.p2, pts.p3);
                 let tan_next = neighbor.tangent;
-                let n_prev = offset * (normalize(tan_prev).yx * vec2f(-1., 1.));
-                let n_next = offset * (normalize(tan_next).yx * vec2f(-1., 1.));
+                let offset_tangent = offset * normalize(tan_prev);
+                let n_prev = offset_tangent.yx * vec2f(-1., 1.);
+                let n_next = offset * normalize(tan_next).yx * vec2f(-1., 1.);
                 if neighbor.do_join {
                     draw_join(path_ix, style_flags, pts.p3, tan_prev, tan_next,
                               n_prev, n_next, transform);
                 } else {
                     // Draw end cap.
-                    output_line_with_transform(path_ix, pts.p3 + n_prev, pts.p3 - n_prev, transform);
+                    draw_cap(path_ix, (style_flags & STYLE_FLAGS_END_CAP_MASK),
+                             pts.p3, pts.p3 + n_prev, pts.p3 - n_prev, offset_tangent, transform);
                 }
             }
         } else {
