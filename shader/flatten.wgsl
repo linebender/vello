@@ -160,7 +160,7 @@ let MAX_QUADS = 16u;
 // When subdividing the cubic in its local coordinate space, the scale factor gets decomposed out of
 // the local-to-device transform and gets factored into the tolerance threshold when estimating
 // subdivisions.
-fn flatten_cubic(cubic: Cubic, local_to_device: Transform, offset: f32) {
+fn flatten_cubic(cubic: CubicPoints, path_ix: u32, local_to_device: Transform, offset: f32) {
     var p0: vec2f;
     var p1: vec2f;
     var p2: vec2f;
@@ -209,7 +209,7 @@ fn flatten_cubic(cubic: Cubic, local_to_device: Transform, offset: f32) {
         var qp1 = eval_cubic(p0, p1, p2, p3, t - 0.5 * step);
         qp1 = 2.0 * qp1 - 0.5 * (qp0 + qp2);
 
-        // TODO: Estimate an accurate subdivision count for strokes, handling cusps.
+        // TODO: Estimate an accurate subdivision count for strokes
         let params = estimate_subdiv(qp0, qp1, qp2, scaled_sqrt_tol);
         keep_params[i] = params;
         val += params.val;
@@ -262,14 +262,14 @@ fn flatten_cubic(cubic: Cubic, local_to_device: Transform, offset: f32) {
                     n1 = eval_quad_normal(qp0, qp1, qp2, t1);
                 }
                 n1 *= offset;
-                output_two_lines_with_transform(cubic.path_ix,
+                output_two_lines_with_transform(path_ix,
                                                 lp0 + n0, lp1 + n1,
                                                 lp1 - n1, lp0 - n0,
                                                 transform);
                 n0 = n1;
             } else {
                 // Output line segment lp0..lp1
-                output_line_with_transform(cubic.path_ix, lp0, lp1, transform);
+                output_line_with_transform(path_ix, lp0, lp1, transform);
             }
             n_out += 1u;
             val_target += v_step;
@@ -281,7 +281,7 @@ fn flatten_cubic(cubic: Cubic, local_to_device: Transform, offset: f32) {
 }
 
 fn draw_join(
-    stroke: vec2f, path_ix: u32, style_flags: u32, p0: vec2f,
+    path_ix: u32, style_flags: u32, p0: vec2f,
     tan_prev: vec2f, tan_next: vec2f,
     n_prev: vec2f, n_next: vec2f,
     transform: Transform,
@@ -557,15 +557,9 @@ fn main(
         let transform = read_transform(config.transform_base, trans_ix);
         let pts = read_path_segment(tag, is_stroke);
 
-        var stroke = vec2(0.0, 0.0);
         if is_stroke {
             let linewidth = bitcast<f32>(scene[config.style_base + style_ix + 1u]);
             let offset = 0.5 * linewidth;
-
-            // See https://www.iquilezles.org/www/articles/ellipses/ellipses.htm
-            // This is the correct bounding box, but we're not handling rendering
-            // in the isotropic case, so it may mismatch.
-            stroke = offset * vec2(length(transform.mat.xz), length(transform.mat.yw));
 
             let is_open = (tag.tag_byte & PATH_TAG_SEG_TYPE) != PATH_TAG_LINETO;
             let is_stroke_cap_marker = (tag.tag_byte & PATH_TAG_SUBPATH_END) != 0u;
@@ -579,7 +573,7 @@ fn main(
                 }
             } else {
                 // Render offset curves
-                flatten_cubic(Cubic(pts.p0, pts.p1, pts.p2, pts.p3, stroke, path_ix, u32(is_stroke)), transform, offset);
+                flatten_cubic(pts, path_ix, transform, offset);
 
                 // Read the neighboring segment.
                 let neighbor = read_neighboring_segment(ix + 1u);
@@ -588,15 +582,15 @@ fn main(
                 let n_prev = offset * (normalize(tan_prev).yx * vec2f(-1., 1.));
                 let n_next = offset * (normalize(tan_next).yx * vec2f(-1., 1.));
                 if neighbor.do_join {
-                    draw_join(stroke, path_ix, style_flags, pts.p3,
-                              tan_prev, tan_next, n_prev, n_next, transform);
+                    draw_join(path_ix, style_flags, pts.p3, tan_prev, tan_next,
+                              n_prev, n_next, transform);
                 } else {
                     // Draw end cap.
                     output_line_with_transform(path_ix, pts.p3 + n_prev, pts.p3 - n_prev, transform);
                 }
             }
         } else {
-            flatten_cubic(Cubic(pts.p0, pts.p1, pts.p2, pts.p3, stroke, path_ix, u32(is_stroke)), transform, 0.);
+            flatten_cubic(pts, path_ix, transform, /*offset*/ 0.);
         }
         // Update bounding box using atomics only. Computing a monoid is a
         // potential future optimization.
