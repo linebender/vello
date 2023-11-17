@@ -294,7 +294,8 @@ fn flatten_arc(
     let radius = max(tol, length(p0 - transform_apply(transform, center)));
     let x = 1. - tol / radius;
     let theta = acos(clamp(2. * x * x - 1., -1., 1.));
-    let n_lines = select(u32(ceil(6.2831853 / theta)), 1u, theta <= EPS);
+    let MAX_LINES = 1000u;
+    let n_lines = select(min(MAX_LINES, u32(ceil(6.2831853 / theta))), MAX_LINES, theta <= EPS);
 
     let th = angle / f32(n_lines);
     let c = cos(th);
