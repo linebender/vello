@@ -34,7 +34,7 @@ pub(super) fn default_downloads() -> Vec<SVGDownload> {
             builtin:Some(BuiltinSvgProps {
                 info: "https://commons.wikimedia.org/wiki/File:Coat_of_arms_of_the_Kingdom_of_Yugoslavia.svg",
                 license: "Public Domain",
-                expected_size: 12795806,
+                expected_size: 15413803,
             }),
             url: "https://upload.wikimedia.org/wikipedia/commons/5/58/Coat_of_arms_of_the_Kingdom_of_Yugoslavia.svg".to_string(),
             name: "Coat of Arms of the Kingdom of Yugoslavia".to_string()
