@@ -100,6 +100,7 @@ impl AaSupport {
 /// Renders a scene into a texture or surface.
 #[cfg(feature = "wgpu")]
 pub struct Renderer {
+    #[cfg(feature = "hot_reload")]
     options: RendererOptions,
     engine: WgpuEngine,
     shaders: FullShaders,
@@ -158,6 +159,7 @@ impl Renderer {
         #[cfg(feature = "wgpu-profiler")]
         let timestamp_period = options.timestamp_period;
         Ok(Self {
+            #[cfg(feature = "hot_reload")]
             options,
             engine,
             shaders,

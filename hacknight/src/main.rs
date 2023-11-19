@@ -14,21 +14,20 @@
 //
 // Also licensed under MIT license, at your choice.
 
-use instant::{Duration, Instant};
+use instant::Instant;
 use vello::kurbo::Circle;
 
 use anyhow::Result;
-use vello::peniko::{Brush, Color};
+use vello::peniko::{Brush, Color, Style};
 use vello::util::RenderSurface;
+use vello::RendererOptions;
 use vello::{kurbo::Affine, util::RenderContext, AaConfig, Renderer, Scene, SceneBuilder};
-use vello::{BumpAllocators, RendererOptions};
 
 use winit::{event_loop::EventLoop, window::Window};
 
 use crate::simple_text::SimpleText;
 
 pub mod simple_text;
-mod stats;
 
 struct RenderState {
     // SAFETY: We MUST drop the surface before the `window`, so the fields
@@ -49,21 +48,11 @@ fn run(event_loop: EventLoop<()>) {
 
     let mut scene = Scene::new();
     let mut simple_text = SimpleText::new();
-    let mut stats = stats::Stats::new();
-    let mut stats_shown = false;
-    let mut scene_complexity: Option<BumpAllocators> = None;
-    let mut complexity_shown = false;
     let mut vsync_on = true;
-
-    let mut frame_start_time = Instant::now();
 
     #[allow(unused)]
     let start = Instant::now();
 
-    let mut profile_stored = None;
-    let mut profile_taken = Instant::now();
-
-    let mut modifiers = ModifiersState::default();
     // _event_loop is used on non-wasm platforms to create new windows
     event_loop.run(move |event, _event_loop, control_flow| match event {
         Event::WindowEvent {
@@ -78,21 +67,10 @@ fn run(event_loop: EventLoop<()>) {
             }
             match event {
                 WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
-                WindowEvent::ModifiersChanged(m) => modifiers = *m,
+                // WindowEvent::ModifiersChanged(m) => modifiers = *m,
                 WindowEvent::KeyboardInput { input, .. } => {
                     if input.state == ElementState::Pressed {
                         match input.virtual_keycode {
-                            Some(VirtualKeyCode::S) => {
-                                // Toggle showing the stats screen
-                                stats_shown = !stats_shown;
-                            }
-                            Some(VirtualKeyCode::D) => {
-                                // Toggle showing the complexity menu
-                                complexity_shown = !complexity_shown;
-                            }
-                            Some(VirtualKeyCode::C) => {
-                                stats.clear_min_and_max();
-                            }
                             Some(VirtualKeyCode::V) => {
                                 // Toggle vsync
                                 vsync_on = !vsync_on;
@@ -131,7 +109,6 @@ fn run(event_loop: EventLoop<()>) {
             let width = render_state.surface.config.width;
             let height = render_state.surface.config.height;
             let device_handle = &render_cx.devices[render_state.surface.dev_id];
-            let snapshot = stats.snapshot();
 
             let mut builder = SceneBuilder::for_scene(&mut scene);
             {
@@ -142,6 +119,16 @@ fn run(event_loop: EventLoop<()>) {
                     &Brush::Solid(Color::rgb(255., 100., 0.)),
                     None,
                     &Circle::new((300., 300.), 200.),
+                );
+                simple_text.add_run(
+                    &mut builder,
+                    None,
+                    24.,
+                    &Brush::Solid(Color::WHITE),
+                    Affine::translate((100., 200.)),
+                    None,
+                    &Style::Fill(vello::peniko::Fill::EvenOdd),
+                    "Hello Rustlab 2023 Hacknight!",
                 )
             }
 
@@ -153,45 +140,13 @@ fn run(event_loop: EventLoop<()>) {
                 height,
                 antialiasing_method: AaConfig::Area,
             };
-
-            if stats_shown {
-                snapshot.draw_layer(
-                    &mut builder,
-                    &mut simple_text,
-                    width as f64,
-                    height as f64,
-                    stats.samples(),
-                    complexity_shown.then_some(scene_complexity).flatten(),
-                    vsync_on,
-                    AaConfig::Area,
-                );
-                if let Some(profiling_result) = renderers[render_state.surface.dev_id]
-                    .as_mut()
-                    .and_then(|it| it.profile_result.take())
-                {
-                    if profile_stored.is_none() || profile_taken.elapsed() > Duration::from_secs(1)
-                    {
-                        profile_stored = Some(profiling_result);
-                        profile_taken = Instant::now();
-                    }
-                }
-                if let Some(profiling_result) = profile_stored.as_ref() {
-                    stats::draw_gpu_profiling(
-                        &mut builder,
-                        &mut simple_text,
-                        width as f64,
-                        height as f64,
-                        profiling_result,
-                    );
-                }
-            }
             let surface_texture = render_state
                 .surface
                 .surface
                 .get_current_texture()
                 .expect("failed to get surface texture");
 
-            scene_complexity = vello::block_on_wgpu(
+            vello::block_on_wgpu(
                 &device_handle.device,
                 renderers[render_state.surface.dev_id]
                     .as_mut()
@@ -208,12 +163,6 @@ fn run(event_loop: EventLoop<()>) {
 
             surface_texture.present();
             device_handle.device.poll(wgpu::Maintain::Poll);
-
-            let new_time = Instant::now();
-            stats.add_sample(stats::Sample {
-                frame_time_us: (new_time - frame_start_time).as_micros() as u64,
-            });
-            frame_start_time = new_time;
         }
         Event::Suspended => {
             // When we suspend, we need to remove the `wgpu` Surface
