@@ -1,0 +1,21 @@
+[package]
+name = "hacknight"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+vello = { path = "../", features = ["buffer_labels", "wgpu-profiler"] }
+anyhow = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+instant = { workspace = true }
+pollster = { workspace = true }
+wgpu-profiler = { workspace = true }
+
+wgpu = { workspace = true }
+winit = "0.28.1"
+env_logger = "0.10.0"
+log = "0.4.17"
