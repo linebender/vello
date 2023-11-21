@@ -52,6 +52,23 @@ fn approx_parabola_inv_integral(x: f32) -> f32 {
     return x * sqrt(1.0 - B + (B * B + 0.5 * x * x));
 }
 
+// Notes on fractional subdivision:
+// --------------------------------
+// The core of the existing flattening algorithm (see `flatten_cubic` below) is to approximate the
+// original cubic Bézier into a simpler curve (quadratic Bézier), subdivided to meet the error
+// bound, then apply flattening to that. Doing this the simplest way would put a subdivision point
+// in the output at each subdivision point here. That in general does not match where the
+// subdivision points would go in an optimal flattening. Fractional subdivision addresses that
+// problem.
+//
+// The return value of this function (`val`) represents this fractional subdivision count and has
+// the following meaning: an optimal subdivision of the quadratic into `val / 2` subdivisions
+// will have an error `sqrt_tol^2` (i.e. the desired tolerance).
+//
+// In the non-cusp case, the error scales as the inverse square of `val` (doubling `val` causes the
+// error to be one fourth), so the tolerance is actually not needed for the calculation (and gets
+// applied in the caller). In the cusp case, this scaling breaks down and the tolerance parameter
+// is needed to compute the correct result.
 fn estimate_subdiv(p0: vec2f, p1: vec2f, p2: vec2f, sqrt_tol: f32) -> SubdivResult {
     let d01 = p1 - p0;
     let d12 = p2 - p1;
@@ -128,19 +145,60 @@ fn cubic_end_normal(p0: vec2f, p1: vec2f, p2: vec2f, p3: vec2f) -> vec2f {
 
 let MAX_QUADS = 16u;
 
-fn flatten_cubic(cubic: Cubic) {
-    let p0 = cubic.p0;
-    let p1 = cubic.p1;
-    let p2 = cubic.p2;
-    let p3 = cubic.p3;
+// This function flattens a cubic Bézier by first converting it into quadratics and
+// approximates the optimal flattening of those using a variation of the method described in
+// https://raphlinus.github.io/graphics/curves/2019/12/23/flatten-quadbez.html.
+//
+// When the `offset` parameter is zero (i.e. the path is a "fill"), the flattening is performed
+// directly on the transformed (device-space) control points as this produces near-optimal
+// flattening even in the presence of a non-angle-preserving transform.
+//
+// When the `offset` is non-zero, the flattening is performed in the curve's local coordinate space
+// and the offset curve gets transformed to device-space post-flattening. This handles
+// non-angle-preserving transforms well while keeping the logic simple.
+//
+// When subdividing the cubic in its local coordinate space, the scale factor gets decomposed out of
+// the local-to-device transform and gets factored into the tolerance threshold when estimating
+// subdivisions.
+fn flatten_cubic(cubic: Cubic, local_to_device: Transform, offset: f32) {
+    var p0: vec2f;
+    var p1: vec2f;
+    var p2: vec2f;
+    var p3: vec2f;
+    var scale: f32;
+    var transform: Transform;
+    if offset == 0. {
+        let t = local_to_device;
+        p0 = transform_apply(t, cubic.p0);
+        p1 = transform_apply(t, cubic.p1);
+        p2 = transform_apply(t, cubic.p2);
+        p3 = transform_apply(t, cubic.p3);
+        scale = 1.;
+        transform = transform_identity();
+    } else {
+        p0 = cubic.p0;
+        p1 = cubic.p1;
+        p2 = cubic.p2;
+        p3 = cubic.p3;
+
+        transform = local_to_device;
+        let mat = transform.mat;
+        scale = 0.5 * length(vec2(mat.x + mat.w, mat.y - mat.z)) +
+                length(vec2(mat.x - mat.w, mat.y + mat.z));
+    }
+
     let err_v = 3.0 * (p2 - p1) + p0 - p3;
     let err = dot(err_v, err_v);
     let ACCURACY = 0.25;
     let Q_ACCURACY = ACCURACY * 0.1;
     let REM_ACCURACY = ACCURACY - Q_ACCURACY;
     let MAX_HYPOT2 = 432.0 * Q_ACCURACY * Q_ACCURACY;
-    var n_quads = max(u32(ceil(pow(err * (1.0 / MAX_HYPOT2), 1.0 / 6.0))), 1u);
+    let scaled_sqrt_tol = sqrt(REM_ACCURACY / scale);
+    // Fudge the subdivision count metric to account for `scale` when the subdivision is done in local
+    // coordinates.
+    var n_quads = max(u32(ceil(pow(err * (1.0 / MAX_HYPOT2), 1.0 / 6.0)) * scale), 1u);
     n_quads = min(n_quads, MAX_QUADS);
+
     var keep_params: array<SubdivResult, MAX_QUADS>;
     var val = 0.0;
     var qp0 = p0;
@@ -151,22 +209,17 @@ fn flatten_cubic(cubic: Cubic) {
         var qp1 = eval_cubic(p0, p1, p2, p3, t - 0.5 * step);
         qp1 = 2.0 * qp1 - 0.5 * (qp0 + qp2);
 
-        // HACK: this increases subdivision count as a function of the stroke width for shitty
-        // strokes. This isn't systematic or correct and shouldn't be relied on in the long term.
-        var tol = sqrt(REM_ACCURACY);
-        if cubic.flags == CUBIC_IS_STROKE {
-            tol *= min(1000., dot(cubic.stroke, cubic.stroke));
-        }
-        let params = estimate_subdiv(qp0, qp1, qp2, tol);
+        // TODO: Estimate an accurate subdivision count for strokes, handling cusps.
+        let params = estimate_subdiv(qp0, qp1, qp2, scaled_sqrt_tol);
         keep_params[i] = params;
         val += params.val;
         qp0 = qp2;
     }
 
-    // HACK: normal vector used to offset line segments for shitty stroke handling.
-    var n0 = cubic_start_normal(p0, p1, p2, p3) * cubic.stroke;
+    // Normal vector to calculate the start point of the offset curve.
+    var n0 = offset * cubic_start_normal(p0, p1, p2, p3);
 
-    let n = max(u32(ceil(val * (0.5 / sqrt(REM_ACCURACY)))), 1u);
+    let n = max(u32(ceil(val * (0.5 / scaled_sqrt_tol))), 1u);
     var lp0 = p0;
     qp0 = p0;
     let v_step = val / f32(n);
@@ -201,23 +254,22 @@ fn flatten_cubic(cubic: Cubic) {
             // "flatten_cubic_at_offset" such that it outputs one cubic at an offset. That should
             // more closely resemble the end state of this shader which will work like a state
             // machine.
-            if cubic.flags == 1u {
+            if offset > 0. {
                 var n1: vec2f;
                 if all(lp1 == p3) {
                     n1 = cubic_end_normal(p0, p1, p2, p3);
                 } else {
                     n1 = eval_quad_normal(qp0, qp1, qp2, t1);
                 }
-                n1 *= cubic.stroke;
-                let line_ix = atomicAdd(&bump.lines, 2u);
-                lines[line_ix]      = LineSoup(cubic.path_ix, lp0 + n0, lp1 + n1);
-                lines[line_ix + 1u] = LineSoup(cubic.path_ix, lp1 - n1, lp0 - n0);
+                n1 *= offset;
+                output_two_lines_with_transform(cubic.path_ix,
+                                                lp0 + n0, lp1 + n1,
+                                                lp1 - n1, lp0 - n0,
+                                                transform);
                 n0 = n1;
             } else {
                 // Output line segment lp0..lp1
-                let line_ix = atomicAdd(&bump.lines, 1u);
-                // TODO: check failure
-                lines[line_ix] = LineSoup(cubic.path_ix, lp0, lp1);
+                output_line_with_transform(cubic.path_ix, lp0, lp1, transform);
             }
             n_out += 1u;
             val_target += v_step;
@@ -228,7 +280,66 @@ fn flatten_cubic(cubic: Cubic) {
     }
 }
 
-var<private> pathdata_base: u32;
+fn draw_join(
+    stroke: vec2f, path_ix: u32, style_flags: u32, p0: vec2f,
+    tan_prev: vec2f, tan_next: vec2f,
+    n_prev: vec2f, n_next: vec2f,
+    transform: Transform,
+) {
+    switch style_flags & STYLE_FLAGS_JOIN_MASK {
+        case /*STYLE_FLAGS_JOIN_BEVEL*/0u: {
+            output_two_lines_with_transform(path_ix,
+                                            p0 + n_prev, p0 + n_next,
+                                            p0 - n_next, p0 - n_prev,
+                                            transform);
+        }
+        case /*STYLE_FLAGS_JOIN_MITER*/0x10000000u: {
+            let c = tan_prev.x * tan_next.y - tan_prev.y * tan_next.x;
+            let d = dot(tan_prev, tan_next);
+            let hypot = length(vec2f(c, d));
+            let miter_limit = unpack2x16float(style_flags & STYLE_MITER_LIMIT_MASK)[0];
+
+            var front0 = p0 + n_prev;
+            let front1 = p0 + n_next;
+            var back0 = p0 - n_next;
+            let back1 = p0 - n_prev;
+            var line_ix: u32;
+
+            if 2. * hypot < (hypot + d) * miter_limit * miter_limit && c != 0. {
+                let is_backside = c > 0.;
+                let fp_last = select(front0, back1, is_backside);
+                let fp_this = select(front1, back0, is_backside);
+                let p = select(front0, back0, is_backside);
+
+                let v = fp_this - fp_last;
+                let h = (tan_prev.x * v.y - tan_prev.y * v.x) / c;
+                let miter_pt = fp_this - tan_next * h;
+
+                line_ix = atomicAdd(&bump.lines, 3u);
+                write_line_with_transform(line_ix, path_ix, p, miter_pt, transform);
+                line_ix += 1u;
+
+                if is_backside {
+                    back0 = miter_pt;
+                } else {
+                    front0 = miter_pt;
+                }
+            } else {
+                line_ix = atomicAdd(&bump.lines, 2u);
+            }
+            write_line_with_transform(line_ix, path_ix, front0, front1, transform);
+            write_line_with_transform(line_ix + 1u, path_ix, back0, back1, transform);
+        }
+        case /*STYLE_FLAGS_JOIN_ROUND*/0x20000000u: {
+            // TODO: round join
+            output_two_lines_with_transform(path_ix,
+                                            p0 + n_prev, p0 + n_next,
+                                            p0 - n_next, p0 - n_prev,
+                                            transform);
+        }
+        default: {}
+    }
+}
 
 fn read_f32_point(ix: u32) -> vec2f {
     let x = bitcast<f32>(scene[pathdata_base + ix]);
@@ -246,6 +357,10 @@ fn read_i16_point(ix: u32) -> vec2f {
 struct Transform {
     mat: vec4f,
     translate: vec2f,
+}
+
+fn transform_identity() -> Transform {
+    return Transform(vec4(1., 0., 0., 1.), vec2(0.));
 }
 
 fn read_transform(transform_base: u32, ix: u32) -> Transform {
@@ -295,7 +410,7 @@ struct CubicPoints {
     p3: vec2f,
 }
 
-fn read_path_segment(tag: PathTagData, transform: Transform, is_stroke: bool) -> CubicPoints {
+fn read_path_segment(tag: PathTagData, is_stroke: bool) -> CubicPoints {
     var p0: vec2f;
     var p1: vec2f;
     var p2: vec2f;
@@ -334,12 +449,9 @@ fn read_path_segment(tag: PathTagData, transform: Transform, is_stroke: bool) ->
         // This is encoded this way because encoding this as a lineto would require adding a moveto,
         // which would terminate the subpath too early (by setting the SUBPATH_END on the
         // segment preceding the cap marker). This scheme is only used for strokes.
-        p0 = transform_apply(transform, p1);
-        p1 = transform_apply(transform, p2);
+        p0 = p1;
+        p1 = p2;
         seg_type = PATH_TAG_LINETO;
-    } else {
-        p0 = transform_apply(transform, p0);
-        p1 = transform_apply(transform, p1);
     }
 
     // Degree-raise
@@ -347,18 +459,46 @@ fn read_path_segment(tag: PathTagData, transform: Transform, is_stroke: bool) ->
         p3 = p1;
         p2 = mix(p3, p0, 1.0 / 3.0);
         p1 = mix(p0, p3, 1.0 / 3.0);
-    } else if seg_type >= PATH_TAG_QUADTO {
-        p2 = transform_apply(transform, p2);
-        if seg_type == PATH_TAG_CUBICTO {
-            p3 = transform_apply(transform, p3);
-        } else {
-            p3 = p2;
-            p2 = mix(p1, p2, 1.0 / 3.0);
-            p1 = mix(p1, p0, 1.0 / 3.0);
-        }
+    } else if seg_type == PATH_TAG_QUADTO {
+        p3 = p2;
+        p2 = mix(p1, p2, 1.0 / 3.0);
+        p1 = mix(p1, p0, 1.0 / 3.0);
     }
 
     return CubicPoints(p0, p1, p2, p3);
+}
+
+// Writes a line into a the `lines` buffer at a pre-allocated location designated by `line_ix`.
+fn write_line(line_ix: u32, path_ix: u32, p0: vec2f, p1: vec2f) {
+    bbox = vec4(min(bbox.xy, min(p0, p1)), max(bbox.zw, max(p0, p1)));
+    lines[line_ix] = LineSoup(path_ix, p0, p1);
+}
+
+fn write_line_with_transform(line_ix: u32, path_ix: u32, p0: vec2f, p1: vec2f, t: Transform) {
+    let tp0 = transform_apply(t, p0);
+    let tp1 = transform_apply(t, p1);
+    write_line(line_ix, path_ix, tp0, tp1);
+}
+
+fn output_line(path_ix: u32, p0: vec2f, p1: vec2f) {
+    let line_ix = atomicAdd(&bump.lines, 1u);
+    write_line(line_ix, path_ix, p0, p1);
+}
+
+fn output_line_with_transform(path_ix: u32, p0: vec2f, p1: vec2f, transform: Transform) {
+    let line_ix = atomicAdd(&bump.lines, 1u);
+    write_line_with_transform(line_ix, path_ix, p0, p1, transform);
+}
+
+fn output_two_lines_with_transform(
+    path_ix: u32,
+    p00: vec2f, p01: vec2f,
+    p10: vec2f, p11: vec2f,
+    transform: Transform
+) {
+    let line_ix = atomicAdd(&bump.lines, 2u);
+    write_line_with_transform(line_ix, path_ix, p00, p01, transform);
+    write_line_with_transform(line_ix + 1u, path_ix, p10, p11, transform);
 }
 
 struct NeighboringSegment {
@@ -371,8 +511,7 @@ struct NeighboringSegment {
 
 fn read_neighboring_segment(ix: u32) -> NeighboringSegment {
     let tag = compute_tag_monoid(ix);
-    let transform = read_transform(config.transform_base, tag.monoid.trans_ix);
-    let pts = read_path_segment(tag, transform, true);
+    let pts = read_path_segment(tag, true);
 
     let is_closed = (tag.tag_byte & PATH_TAG_SEG_TYPE) == PATH_TAG_LINETO;
     let is_stroke_cap_marker = (tag.tag_byte & PATH_TAG_SUBPATH_END) != 0u;
@@ -382,6 +521,13 @@ fn read_neighboring_segment(ix: u32) -> NeighboringSegment {
     return NeighboringSegment(do_join, p0, tangent);
 }
 
+// `pathdata_base` is decoded once and reused by helpers above.
+var<private> pathdata_base: u32;
+
+// This is the bounding box of the shape flattened by a single shader invocation. This is adjusted
+// as lines are generated.
+var<private> bbox: vec4f;
+
 @compute @workgroup_size(256)
 fn main(
     @builtin(global_invocation_id) global_id: vec3<u32>,
@@ -389,6 +535,7 @@ fn main(
 ) {
     let ix = global_id.x;
     pathdata_base = config.pathdata_base;
+    bbox = vec4(1e31, 1e31, -1e31, -1e31);
 
     let tag = compute_tag_monoid(ix);
     let path_ix = tag.monoid.path_ix;
@@ -408,55 +555,48 @@ fn main(
     if seg_type != 0u {
         let is_stroke = (style_flags & STYLE_FLAGS_STYLE) != 0u;
         let transform = read_transform(config.transform_base, trans_ix);
-        let pts = read_path_segment(tag, transform, is_stroke);
-        var bbox = vec4(min(pts.p0, pts.p1), max(pts.p0, pts.p1));
-        bbox = vec4(min(bbox.xy, pts.p2), max(bbox.zw, pts.p2));
-        bbox = vec4(min(bbox.xy, pts.p3), max(bbox.zw, pts.p3));
+        let pts = read_path_segment(tag, is_stroke);
 
         var stroke = vec2(0.0, 0.0);
         if is_stroke {
             let linewidth = bitcast<f32>(scene[config.style_base + style_ix + 1u]);
+            let offset = 0.5 * linewidth;
+
             // See https://www.iquilezles.org/www/articles/ellipses/ellipses.htm
             // This is the correct bounding box, but we're not handling rendering
             // in the isotropic case, so it may mismatch.
-            stroke = 0.5 * linewidth * vec2(length(transform.mat.xz), length(transform.mat.yw));
-            bbox += vec4(-stroke, stroke);
+            stroke = offset * vec2(length(transform.mat.xz), length(transform.mat.yw));
+
             let is_open = (tag.tag_byte & PATH_TAG_SEG_TYPE) != PATH_TAG_LINETO;
             let is_stroke_cap_marker = (tag.tag_byte & PATH_TAG_SUBPATH_END) != 0u;
             if is_stroke_cap_marker {
                 if is_open {
-                    let n = cubic_start_normal(pts.p0, pts.p1, pts.p2, pts.p3) * stroke;
-
-                    // Draw start cap
-                    let line_ix = atomicAdd(&bump.lines, 1u);
-                    lines[line_ix] = LineSoup(path_ix, pts.p0 - n, pts.p0 + n);
+                    // Draw start cap (butt)
+                    let n = offset * cubic_start_normal(pts.p0, pts.p1, pts.p2, pts.p3);
+                    output_line_with_transform(path_ix, pts.p0 - n, pts.p0 + n, transform);
                 } else {
                     // Don't draw anything if the path is closed.
                 }
-                // The stroke cap marker does not contribute to the path's bounding box. The stroke
-                // width is accounted for when computing the bbox for regular segments.
-                bbox = vec4(1., 1., -1., -1.);
             } else {
                 // Render offset curves
-                flatten_cubic(Cubic(pts.p0, pts.p1, pts.p2, pts.p3, stroke, path_ix, u32(is_stroke)));
+                flatten_cubic(Cubic(pts.p0, pts.p1, pts.p2, pts.p3, stroke, path_ix, u32(is_stroke)), transform, offset);
 
                 // Read the neighboring segment.
                 let neighbor = read_neighboring_segment(ix + 1u);
-                let n = normalize(cubic_end_normal(pts.p0, pts.p1, pts.p2, pts.p3)) * stroke;
+                let tan_prev = cubic_end_tangent(pts.p0, pts.p1, pts.p2, pts.p3);
+                let tan_next = neighbor.tangent;
+                let n_prev = offset * (normalize(tan_prev).yx * vec2f(-1., 1.));
+                let n_next = offset * (normalize(tan_next).yx * vec2f(-1., 1.));
                 if neighbor.do_join {
-                    // Draw join.
-                    let nn = normalize(vec2(-neighbor.tangent.y, neighbor.tangent.x)) * stroke;
-                    let line_ix = atomicAdd(&bump.lines, 2u);
-                    lines[line_ix]      = LineSoup(path_ix, pts.p3 + n, neighbor.p0 + nn);
-                    lines[line_ix + 1u] = LineSoup(path_ix, neighbor.p0 - nn, pts.p3 - n);
+                    draw_join(stroke, path_ix, style_flags, pts.p3,
+                              tan_prev, tan_next, n_prev, n_next, transform);
                 } else {
                     // Draw end cap.
-                    let line_ix = atomicAdd(&bump.lines, 1u);
-                    lines[line_ix] = LineSoup(path_ix, pts.p3 + n, pts.p3 - n);
+                    output_line_with_transform(path_ix, pts.p3 + n_prev, pts.p3 - n_prev, transform);
                 }
             }
         } else {
-            flatten_cubic(Cubic(pts.p0, pts.p1, pts.p2, pts.p3, stroke, path_ix, u32(is_stroke)));
+            flatten_cubic(Cubic(pts.p0, pts.p1, pts.p2, pts.p3, stroke, path_ix, u32(is_stroke)), transform, 0.);
         }
         // Update bounding box using atomics only. Computing a monoid is a
         // potential future optimization.
