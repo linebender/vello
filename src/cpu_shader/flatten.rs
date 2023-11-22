@@ -5,9 +5,8 @@ use crate::cpu_dispatch::CpuBinding;
 
 use super::util::{Transform, Vec2, ROBUST_EPSILON};
 use vello_encoding::{
-    BumpAllocators, ConfigUniform, LineSoup, Monoid, PathBbox, PathMonoid, PathTag, Style,
-    DRAW_INFO_FLAGS_FILL_RULE_BIT,
-    math::f16_to_f32,
+    math::f16_to_f32, BumpAllocators, ConfigUniform, LineSoup, Monoid, PathBbox, PathMonoid,
+    PathTag, Style, DRAW_INFO_FLAGS_FILL_RULE_BIT,
 };
 
 fn to_minus_one_quarter(x: f32) -> f32 {
@@ -120,8 +119,12 @@ fn cubic_end_normal(p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2) -> Vec2 {
 }
 
 fn write_line(
-    line_ix: usize, path_ix: u32, p0: Vec2, p1: Vec2,
-    bbox: &mut IntBbox, lines: &mut [LineSoup],
+    line_ix: usize,
+    path_ix: u32,
+    p0: Vec2,
+    p1: Vec2,
+    bbox: &mut IntBbox,
+    lines: &mut [LineSoup],
 ) {
     bbox.add_pt(p0);
     bbox.add_pt(p1);
@@ -134,31 +137,59 @@ fn write_line(
 }
 
 fn write_line_with_transform(
-    line_ix: usize, path_ix: u32, p0: Vec2, p1: Vec2, transform: &Transform,
-    bbox: &mut IntBbox, lines: &mut [LineSoup],
+    line_ix: usize,
+    path_ix: u32,
+    p0: Vec2,
+    p1: Vec2,
+    transform: &Transform,
+    bbox: &mut IntBbox,
+    lines: &mut [LineSoup],
 ) {
-    write_line(line_ix, path_ix, transform.apply(p0), transform.apply(p1), bbox, lines);
+    write_line(
+        line_ix,
+        path_ix,
+        transform.apply(p0),
+        transform.apply(p1),
+        bbox,
+        lines,
+    );
 }
 
 fn output_line(
-    path_ix: u32, p0: Vec2, p1: Vec2,
-    line_ix: &mut usize, bbox: &mut IntBbox, lines: &mut [LineSoup],
+    path_ix: u32,
+    p0: Vec2,
+    p1: Vec2,
+    line_ix: &mut usize,
+    bbox: &mut IntBbox,
+    lines: &mut [LineSoup],
 ) {
     write_line(*line_ix, path_ix, p0, p1, bbox, lines);
     *line_ix += 1;
 }
 
 fn output_line_with_transform(
-    path_ix: u32, p0: Vec2, p1: Vec2, transform: &Transform,
-    line_ix: &mut usize, lines: &mut [LineSoup], bbox: &mut IntBbox,
+    path_ix: u32,
+    p0: Vec2,
+    p1: Vec2,
+    transform: &Transform,
+    line_ix: &mut usize,
+    lines: &mut [LineSoup],
+    bbox: &mut IntBbox,
 ) {
     write_line_with_transform(*line_ix, path_ix, p0, p1, transform, bbox, lines);
     *line_ix += 1;
 }
 
 fn output_two_lines_with_transform(
-    path_ix: u32, p00: Vec2, p01: Vec2, p10: Vec2, p11: Vec2, transform: &Transform,
-    line_ix: &mut usize, lines: &mut [LineSoup], bbox: &mut IntBbox, 
+    path_ix: u32,
+    p00: Vec2,
+    p01: Vec2,
+    p10: Vec2,
+    p11: Vec2,
+    transform: &Transform,
+    line_ix: &mut usize,
+    lines: &mut [LineSoup],
+    bbox: &mut IntBbox,
 ) {
     write_line_with_transform(*line_ix, path_ix, p00, p01, transform, bbox, lines);
     write_line_with_transform(*line_ix + 1, path_ix, p10, p11, transform, bbox, lines);
@@ -168,8 +199,13 @@ fn output_two_lines_with_transform(
 const MAX_QUADS: u32 = 16;
 
 fn flatten_cubic(
-    cubic: &CubicPoints, path_ix: u32, local_to_device: &Transform, offset: f32,
-    line_ix: &mut usize, lines: &mut [LineSoup], bbox: &mut IntBbox,
+    cubic: &CubicPoints,
+    path_ix: u32,
+    local_to_device: &Transform,
+    offset: f32,
+    line_ix: &mut usize,
+    lines: &mut [LineSoup],
+    bbox: &mut IntBbox,
 ) {
     let (p0, p1, p2, p3, scale, transform) = if offset == 0. {
         (
@@ -178,19 +214,19 @@ fn flatten_cubic(
             local_to_device.apply(cubic.p2),
             local_to_device.apply(cubic.p3),
             1.,
-            Transform::identity()
+            Transform::identity(),
         )
     } else {
         let t = local_to_device.0;
-        let scale = 0.5 * Vec2::new(t[0] + t[3], t[1] - t[2]).length() +
-                    Vec2::new(t[0] - t[3], t[1] + t[2]).length();
+        let scale = 0.5 * Vec2::new(t[0] + t[3], t[1] - t[2]).length()
+            + Vec2::new(t[0] - t[3], t[1] + t[2]).length();
         (
             cubic.p0,
             cubic.p1,
             cubic.p2,
             cubic.p3,
             scale,
-            local_to_device.clone()
+            local_to_device.clone(),
         )
     };
     let err_v = (p2 - p1) * 3.0 + p0 - p3;
@@ -253,10 +289,14 @@ fn flatten_cubic(
                 } * offset;
                 output_two_lines_with_transform(
                     path_ix,
-                    lp0 + n0, lp1 + n1,
-                    lp1 - n1, lp0 - n0,
+                    lp0 + n0,
+                    lp1 + n1,
+                    lp1 - n1,
+                    lp0 - n0,
                     &transform,
-                    line_ix, lines, bbox,
+                    line_ix,
+                    lines,
+                    bbox,
                 );
                 n0 = n1;
             } else {
@@ -272,8 +312,15 @@ fn flatten_cubic(
 }
 
 fn flatten_arc(
-    path_ix: u32, begin: Vec2, end: Vec2, center: Vec2, angle: f32, transform: &Transform,
-    line_ix: &mut usize, lines: &mut [LineSoup], bbox: &mut IntBbox,
+    path_ix: u32,
+    begin: Vec2,
+    end: Vec2,
+    center: Vec2,
+    angle: f32,
+    transform: &Transform,
+    line_ix: &mut usize,
+    lines: &mut [LineSoup],
+    bbox: &mut IntBbox,
 ) {
     let mut p0 = transform.apply(begin);
     let mut r = begin - center;
@@ -285,7 +332,7 @@ fn flatten_arc(
     let n_lines = if theta <= ROBUST_EPSILON {
         MAX_LINES
     } else {
-        MAX_LINES.min((6.2831853 / theta).ceil() as u32)
+        MAX_LINES.min((std::f32::consts::TAU / theta).ceil() as u32)
     };
 
     let th = angle / (n_lines as f32);
@@ -304,13 +351,29 @@ fn flatten_arc(
 }
 
 fn draw_cap(
-    path_ix: u32, cap_style: u32, point: Vec2,
-    cap0: Vec2, cap1: Vec2, offset_tangent: Vec2,
+    path_ix: u32,
+    cap_style: u32,
+    point: Vec2,
+    cap0: Vec2,
+    cap1: Vec2,
+    offset_tangent: Vec2,
     transform: &Transform,
-    line_ix: &mut usize, lines: &mut [LineSoup], bbox: &mut IntBbox,
+    line_ix: &mut usize,
+    lines: &mut [LineSoup],
+    bbox: &mut IntBbox,
 ) {
     if cap_style == Style::FLAGS_CAP_BITS_ROUND {
-        flatten_arc(path_ix, cap0, cap1, point, 3.1415927, transform, line_ix, lines, bbox);
+        flatten_arc(
+            path_ix,
+            cap0,
+            cap1,
+            point,
+            std::f32::consts::PI,
+            transform,
+            line_ix,
+            lines,
+            bbox,
+        );
         return;
     }
 
@@ -329,11 +392,17 @@ fn draw_cap(
 }
 
 fn draw_join(
-    path_ix: u32, style_flags: u32, p0: Vec2,
-    tan_prev: Vec2, tan_next: Vec2,
-    n_prev: Vec2, n_next: Vec2,
+    path_ix: u32,
+    style_flags: u32,
+    p0: Vec2,
+    tan_prev: Vec2,
+    tan_next: Vec2,
+    n_prev: Vec2,
+    n_next: Vec2,
     transform: &Transform,
-    line_ix: &mut usize, lines: &mut [LineSoup], bbox: &mut IntBbox,
+    line_ix: &mut usize,
+    lines: &mut [LineSoup],
+    bbox: &mut IntBbox,
 ) {
     let mut front0 = p0 + n_prev;
     let front1 = p0 + n_next;
@@ -345,7 +414,9 @@ fn draw_join(
 
     match style_flags & Style::FLAGS_JOIN_MASK {
         Style::FLAGS_JOIN_BITS_BEVEL => {
-            output_two_lines_with_transform(path_ix, front0, front1, back0, back1, transform, line_ix, lines, bbox);
+            output_two_lines_with_transform(
+                path_ix, front0, front1, back0, back1, transform, line_ix, lines, bbox,
+            );
         }
         Style::FLAGS_JOIN_BITS_MITER => {
             let hypot = cr.hypot(d);
@@ -369,7 +440,9 @@ fn draw_join(
                     front0 = miter_pt;
                 }
             }
-            output_two_lines_with_transform(path_ix, front0, front1, back0, back1, transform, line_ix, lines, bbox);
+            output_two_lines_with_transform(
+                path_ix, front0, front1, back0, back1, transform, line_ix, lines, bbox,
+            );
         }
         Style::FLAGS_JOIN_BITS_ROUND => {
             let (arc0, arc1, other0, other1) = if cr > 0. {
@@ -377,10 +450,20 @@ fn draw_join(
             } else {
                 (front0, front1, back0, back1)
             };
-            flatten_arc(path_ix, arc0, arc1, p0, cr.atan2(d).abs(), transform, line_ix, lines, bbox);
+            flatten_arc(
+                path_ix,
+                arc0,
+                arc1,
+                p0,
+                cr.atan2(d).abs(),
+                transform,
+                line_ix,
+                lines,
+                bbox,
+            );
             output_line_with_transform(path_ix, other0, other1, transform, line_ix, lines, bbox);
         }
-        _ => unreachable!()
+        _ => unreachable!(),
     }
 }
 
@@ -394,7 +477,7 @@ fn read_i16_point(ix: u32, pathdata: &[u32]) -> Vec2 {
     let raw = pathdata[ix as usize];
     let x = (((raw << 16) as i32) >> 16) as f32;
     let y = ((raw as i32) >> 16) as f32;
-    return Vec2::new(x, y);
+    Vec2 { x, y }
 }
 
 #[derive(Debug)]
@@ -438,7 +521,10 @@ fn compute_tag_monoid(ix: usize, pathtags: &[u32], tag_monoids: &[PathMonoid]) -
     if tag_byte != 0 {
         tm = tag_monoids[ix >> 2].combine(&tm);
     }
-    PathTagData { tag_byte, monoid: tm }
+    PathTagData {
+        tag_byte,
+        monoid: tm,
+    }
 }
 
 struct CubicPoints {
@@ -504,7 +590,12 @@ struct NeighboringSegment {
     tangent: Vec2,
 }
 
-fn read_neighboring_segment(ix: usize, pathtags: &[u32], pathdata: &[u32], tag_monoids: &[PathMonoid]) -> NeighboringSegment {
+fn read_neighboring_segment(
+    ix: usize,
+    pathtags: &[u32],
+    pathdata: &[u32],
+    tag_monoids: &[PathMonoid],
+) -> NeighboringSegment {
     let tag = compute_tag_monoid(ix, pathtags, tag_monoids);
     let pts = read_path_segment(&tag, true, pathdata);
 
@@ -561,7 +652,8 @@ fn flatten_main(
             let pts = read_path_segment(&tag, is_stroke, pathdata);
 
             if is_stroke {
-                let linewidth = f32::from_bits(scene[(config.layout.style_base + style_ix + 1) as usize]);
+                let linewidth =
+                    f32::from_bits(scene[(config.layout.style_base + style_ix + 1) as usize]);
                 let offset = 0.5 * linewidth;
 
                 let is_open = seg_type != PATH_TAG_LINETO;
@@ -572,18 +664,36 @@ fn flatten_main(
                         let tangent = cubic_start_tangent(pts.p0, pts.p1, pts.p2, pts.p3);
                         let offset_tangent = offset * tangent.normalize();
                         let n = Vec2::new(-offset_tangent.y, offset_tangent.x);
-                        draw_cap(path_ix, (style_flags & Style::FLAGS_START_CAP_MASK) >> 2,
-                                 pts.p0, pts.p0 - n, pts.p0 + n, -offset_tangent, &transform,
-                                 &mut line_ix, lines, &mut bbox);
+                        draw_cap(
+                            path_ix,
+                            (style_flags & Style::FLAGS_START_CAP_MASK) >> 2,
+                            pts.p0,
+                            pts.p0 - n,
+                            pts.p0 + n,
+                            -offset_tangent,
+                            &transform,
+                            &mut line_ix,
+                            lines,
+                            &mut bbox,
+                        );
                     } else {
                         // Don't draw anything if the path is closed.
                     }
                 } else {
                     // Render offset curves
-                    flatten_cubic(&pts, path_ix, &transform, offset, &mut line_ix, lines, &mut bbox);
+                    flatten_cubic(
+                        &pts,
+                        path_ix,
+                        &transform,
+                        offset,
+                        &mut line_ix,
+                        lines,
+                        &mut bbox,
+                    );
 
                     // Read the neighboring segment.
-                    let neighbor = read_neighboring_segment(ix + 1, pathtags, pathdata, tag_monoids);
+                    let neighbor =
+                        read_neighboring_segment(ix + 1, pathtags, pathdata, tag_monoids);
                     let tan_prev = cubic_end_tangent(pts.p0, pts.p1, pts.p2, pts.p3);
                     let tan_next = neighbor.tangent;
                     let offset_tangent = offset * tan_prev.normalize();
@@ -591,18 +701,45 @@ fn flatten_main(
                     let tan_next_norm = tan_next.normalize();
                     let n_next = offset * Vec2::new(-tan_next_norm.y, tan_next_norm.x);
                     if neighbor.do_join {
-                        draw_join(path_ix, style_flags, pts.p3, tan_prev, tan_next,
-                                  n_prev, n_next, &transform,
-                                  &mut line_ix, lines, &mut bbox);
+                        draw_join(
+                            path_ix,
+                            style_flags,
+                            pts.p3,
+                            tan_prev,
+                            tan_next,
+                            n_prev,
+                            n_next,
+                            &transform,
+                            &mut line_ix,
+                            lines,
+                            &mut bbox,
+                        );
                     } else {
                         // Draw end cap.
-                        draw_cap(path_ix, style_flags & Style::FLAGS_END_CAP_MASK,
-                                 pts.p3, pts.p3 + n_prev, pts.p3 - n_prev, offset_tangent, &transform,
-                                 &mut line_ix, lines, &mut bbox);
+                        draw_cap(
+                            path_ix,
+                            style_flags & Style::FLAGS_END_CAP_MASK,
+                            pts.p3,
+                            pts.p3 + n_prev,
+                            pts.p3 - n_prev,
+                            offset_tangent,
+                            &transform,
+                            &mut line_ix,
+                            lines,
+                            &mut bbox,
+                        );
                     }
                 }
             } else {
-                flatten_cubic(&pts, path_ix, &transform, /*offset*/ 0., &mut line_ix, lines, &mut bbox);
+                flatten_cubic(
+                    &pts,
+                    path_ix,
+                    &transform,
+                    /*offset*/ 0.,
+                    &mut line_ix,
+                    lines,
+                    &mut bbox,
+                );
             }
         }
 
