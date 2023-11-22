@@ -16,7 +16,7 @@ mod glyph;
 mod glyph_cache;
 #[cfg(feature = "full")]
 mod image_cache;
-mod math;
+pub mod math;
 mod monoid;
 mod path;
 #[cfg(feature = "full")]

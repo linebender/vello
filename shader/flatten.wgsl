@@ -580,7 +580,6 @@ fn output_two_lines_with_transform(
 
 struct NeighboringSegment {
     do_join: bool,
-    p0: vec2f,
 
     // Device-space start tangent vector
     tangent: vec2f,
@@ -593,9 +592,8 @@ fn read_neighboring_segment(ix: u32) -> NeighboringSegment {
     let is_closed = (tag.tag_byte & PATH_TAG_SEG_TYPE) == PATH_TAG_LINETO;
     let is_stroke_cap_marker = (tag.tag_byte & PATH_TAG_SUBPATH_END) != 0u;
     let do_join = !is_stroke_cap_marker || is_closed;
-    let p0 = pts.p0;
     let tangent = cubic_start_tangent(pts.p0, pts.p1, pts.p2, pts.p3);
-    return NeighboringSegment(do_join, p0, tangent);
+    return NeighboringSegment(do_join, tangent);
 }
 
 // `pathdata_base` is decoded once and reused by helpers above.
