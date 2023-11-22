@@ -83,7 +83,6 @@ pub fn point_to_f32(point: kurbo::Point) -> [f32; 2] {
 ///
 /// TODO: We should consider adopting <https://crates.io/crates/half> as a dependency since it nicely
 /// wraps native ARM and x86 instructions for floating-point conversion.
-#[allow(unused)] // for now
 pub(crate) fn f32_to_f16(val: f32) -> u16 {
     const INF_32: u32 = 255 << 23;
     const INF_16: u32 = 31 << 23;
@@ -123,9 +122,34 @@ pub(crate) fn f32_to_f16(val: f32) -> u16 {
     output | (sign >> 16) as u16
 }
 
+/// Convertes a 16-bit precision IEEE-754 binary16 float to a f32.
+/// This implementation was adapted from Fabian Giesen's `half_to_float`()
+/// function which can be found at <https://gist.github.com/rygorous/2156668#file-gistfile1-cpp-L574>
+pub fn f16_to_f32(bits: u16) -> f32 {
+    let bits = bits as u32;
+    const MAGIC: u32 = 113 << 23;
+    const SHIFTED_EXP: u32 = 0x7c00 << 13; // exponent mask after shift
+
+    let mut o = (bits & 0x7fff) << 13; // exponent/mantissa bits
+    let exp = SHIFTED_EXP & o; // just the exponent
+    o += (127 - 15) << 23; // exponent adjust
+
+    // handle exponent special cases
+    if exp == SHIFTED_EXP {
+        // Inf/NaN?
+        o += (128 - 16) << 23; // extra exp adjust
+    } else if exp == 0 {
+        // Zero/Denormal?
+        o += 1 << 23; // extra exp adjust
+        o = (f32::from_bits(o) - f32::from_bits(MAGIC)).to_bits(); // normalize
+    }
+
+    f32::from_bits(o | ((bits & 0x8000) << 16)) // sign bit
+}
+
 #[cfg(test)]
 mod tests {
-    use super::f32_to_f16;
+    use super::{f16_to_f32, f32_to_f16};
 
     #[test]
     fn test_f32_to_f16_simple() {
@@ -171,5 +195,12 @@ mod tests {
         let input: f32 = -1.701412e38;
         let output: u16 = f32_to_f16(input);
         assert_eq!(0xFC00, output); // -inf
+    }
+
+    #[test]
+    fn test_f16_to_f32() {
+        const EPS: f32 = 0.001;
+        let input: f32 = std::f32::consts::PI;
+        assert!((input - f16_to_f32(f32_to_f16(input))).abs() < EPS);
     }
 }
