@@ -283,6 +283,14 @@ fn flatten_cubic(cubic: CubicPoints, path_ix: u32, local_to_device: Transform, o
 // Flattens the circular arc that subtends the angle begin-center-end. It is assumed that
 // ||begin - center|| == ||end - center||. `begin`, `end`, and `center` are defined in the path's
 // local coordinate space.
+//
+// The direction of the arc is always a counter-clockwise (Y-down) rotation starting from `begin`,
+// towards `end`, centered at `center`, and will be subtended by `angle` (which is assumed to be
+// positive). A line segment will always be drawn from the arc's terminus to `end`, regardless of
+// `angle`.
+//
+// `begin`, `end`, center`, and `angle` should be chosen carefully to ensure a smooth arc with the
+// correct winding.
 fn flatten_arc(
     path_ix: u32, begin: vec2f, end: vec2f, center: vec2f, angle: f32, transform: Transform
 ) {
