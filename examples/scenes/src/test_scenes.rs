@@ -70,6 +70,7 @@ pub fn test_scenes() -> SceneSet {
 fn funky_paths(sb: &mut SceneBuilder, _: &mut SceneParams) {
     use PathEl::*;
     let missing_movetos = [
+        MoveTo((0., 0.).into()),
         LineTo((100.0, 100.0).into()),
         LineTo((100.0, 200.0).into()),
         ClosePath,
@@ -171,8 +172,36 @@ fn stroke_styles(transform: Affine) -> impl FnMut(&mut SceneBuilder, &mut SceneP
             }
         }
 
+        // Dashed strokes with cap combinations
+        let t = Affine::translate((450., 0.)) * t;
+        y = 0.;
+        for start in cap_styles {
+            for end in cap_styles {
+                params.text.add(
+                    sb,
+                    None,
+                    12.,
+                    None,
+                    Affine::translate((0., y)) * t,
+                    &format!("Dashing - Start cap: {:?}, End cap: {:?}", start, end),
+                );
+                sb.stroke(
+                    &Stroke::new(20.)
+                        .with_start_cap(start)
+                        .with_end_cap(end)
+                        .with_dashes(0., [10.0, 21.0]),
+                    Affine::translate((0., y + 30.)) * t * transform,
+                    colors[color_idx],
+                    None,
+                    &simple_stroke,
+                );
+                y += 180.;
+                color_idx = (color_idx + 1) % colors.len();
+            }
+        }
+
         // Cap and join combinations
-        let t = Affine::translate((500., 0.)) * t;
+        let t = Affine::translate((550., 0.)) * t;
         y = 0.;
         for cap in cap_styles {
             for join in join_styles {
@@ -463,7 +492,10 @@ fn longpathdash(cap: Cap) -> impl FnMut(&mut SceneBuilder, &mut SceneParams) {
             x += 16;
         }
         sb.stroke(
-            &Stroke::new(1.0).with_caps(cap).with_dashes(0.0, [1.0, 1.0]),
+            &Stroke::new(1.0)
+                .with_caps(cap)
+                .with_join(Join::Bevel)
+                .with_dashes(0.0, [1.0, 1.0]),
             Affine::translate((50.0, 50.0)),
             Color::YELLOW,
             None,

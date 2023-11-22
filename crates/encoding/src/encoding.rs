@@ -218,6 +218,18 @@ impl Encoding {
         encoder.finish(true) != 0
     }
 
+    /// Encodes a path element iterator. If `is_fill` is true, all subpaths will be automatically
+    /// closed. Returns true if a non-zero number of segments were encoded.
+    pub fn encode_path_elements(
+        &mut self,
+        path: impl Iterator<Item = peniko::kurbo::PathEl>,
+        is_fill: bool,
+    ) -> bool {
+        let mut encoder = self.encode_path(is_fill);
+        encoder.path_elements(path);
+        encoder.finish(true) != 0
+    }
+
     /// Encodes a brush with an optional alpha modifier.
     #[allow(unused_variables)]
     pub fn encode_brush<'b>(&mut self, brush: impl Into<BrushRef<'b>>, alpha: f32) {
