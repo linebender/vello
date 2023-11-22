@@ -160,7 +160,7 @@ let MAX_QUADS = 16u;
 // When subdividing the cubic in its local coordinate space, the scale factor gets decomposed out of
 // the local-to-device transform and gets factored into the tolerance threshold when estimating
 // subdivisions.
-fn flatten_cubic(cubic: Cubic, local_to_device: Transform, offset: f32) {
+fn flatten_cubic(cubic: CubicPoints, path_ix: u32, local_to_device: Transform, offset: f32) {
     var p0: vec2f;
     var p1: vec2f;
     var p2: vec2f;
@@ -209,7 +209,7 @@ fn flatten_cubic(cubic: Cubic, local_to_device: Transform, offset: f32) {
         var qp1 = eval_cubic(p0, p1, p2, p3, t - 0.5 * step);
         qp1 = 2.0 * qp1 - 0.5 * (qp0 + qp2);
 
-        // TODO: Estimate an accurate subdivision count for strokes, handling cusps.
+        // TODO: Estimate an accurate subdivision count for strokes
         let params = estimate_subdiv(qp0, qp1, qp2, scaled_sqrt_tol);
         keep_params[i] = params;
         val += params.val;
@@ -262,14 +262,14 @@ fn flatten_cubic(cubic: Cubic, local_to_device: Transform, offset: f32) {
                     n1 = eval_quad_normal(qp0, qp1, qp2, t1);
                 }
                 n1 *= offset;
-                output_two_lines_with_transform(cubic.path_ix,
+                output_two_lines_with_transform(path_ix,
                                                 lp0 + n0, lp1 + n1,
                                                 lp1 - n1, lp0 - n0,
                                                 transform);
                 n0 = n1;
             } else {
                 // Output line segment lp0..lp1
-                output_line_with_transform(cubic.path_ix, lp0, lp1, transform);
+                output_line_with_transform(path_ix, lp0, lp1, transform);
             }
             n_out += 1u;
             val_target += v_step;
@@ -280,39 +280,104 @@ fn flatten_cubic(cubic: Cubic, local_to_device: Transform, offset: f32) {
     }
 }
 
+// Flattens the circular arc that subtends the angle begin-center-end. It is assumed that
+// ||begin - center|| == ||end - center||. `begin`, `end`, and `center` are defined in the path's
+// local coordinate space.
+//
+// The direction of the arc is always a counter-clockwise (Y-down) rotation starting from `begin`,
+// towards `end`, centered at `center`, and will be subtended by `angle` (which is assumed to be
+// positive). A line segment will always be drawn from the arc's terminus to `end`, regardless of
+// `angle`.
+//
+// `begin`, `end`, center`, and `angle` should be chosen carefully to ensure a smooth arc with the
+// correct winding.
+fn flatten_arc(
+    path_ix: u32, begin: vec2f, end: vec2f, center: vec2f, angle: f32, transform: Transform
+) {
+    var p0 = transform_apply(transform, begin);
+    var r = begin - center;
+
+    let EPS = 1e-9;
+    let tol = 0.5;
+    let radius = max(tol, length(p0 - transform_apply(transform, center)));
+    let x = 1. - tol / radius;
+    let theta = acos(clamp(2. * x * x - 1., -1., 1.));
+    let MAX_LINES = 1000u;
+    let n_lines = select(min(MAX_LINES, u32(ceil(6.2831853 / theta))), MAX_LINES, theta <= EPS);
+
+    let th = angle / f32(n_lines);
+    let c = cos(th);
+    let s = sin(th);
+    let rot = mat2x2(c, -s, s, c);
+
+    let line_ix = atomicAdd(&bump.lines, n_lines);
+    for (var i = 0u; i < n_lines - 1u; i += 1u) {
+        r = rot * r;
+        let p1 = transform_apply(transform, center + r);
+        write_line(line_ix + i, path_ix, p0, p1);
+        p0 = p1;
+    }
+    let p1 = transform_apply(transform, end);
+    write_line(line_ix + n_lines - 1u, path_ix, p0, p1);
+}
+
+fn draw_cap(
+    path_ix: u32, cap_style: u32, point: vec2f,
+    cap0: vec2f, cap1: vec2f, offset_tangent: vec2f,
+    transform: Transform,
+) {
+    if cap_style == STYLE_FLAGS_CAP_ROUND {
+        flatten_arc(path_ix, cap0, cap1, point, 3.1415927, transform);
+        return;
+    }
+
+    var start = cap0;
+    var end = cap1;
+    let is_square = (cap_style == STYLE_FLAGS_CAP_SQUARE);
+    let line_ix = atomicAdd(&bump.lines, select(1u, 3u, is_square));
+    if is_square {
+        let v = offset_tangent;
+        let p0 = start + v;
+        let p1 = end + v;
+        write_line_with_transform(line_ix + 1u, path_ix, start, p0, transform);
+        write_line_with_transform(line_ix + 2u, path_ix, p1, end, transform);
+        start = p0;
+        end = p1;
+    }
+    write_line_with_transform(line_ix, path_ix, start, end, transform);
+}
+
 fn draw_join(
-    stroke: vec2f, path_ix: u32, style_flags: u32, p0: vec2f,
+    path_ix: u32, style_flags: u32, p0: vec2f,
     tan_prev: vec2f, tan_next: vec2f,
     n_prev: vec2f, n_next: vec2f,
     transform: Transform,
 ) {
+    var front0 = p0 + n_prev;
+    let front1 = p0 + n_next;
+    var back0 = p0 - n_next;
+    let back1 = p0 - n_prev;
+
+    let cr = tan_prev.x * tan_next.y - tan_prev.y * tan_next.x;
+    let d = dot(tan_prev, tan_next);
+
     switch style_flags & STYLE_FLAGS_JOIN_MASK {
         case /*STYLE_FLAGS_JOIN_BEVEL*/0u: {
-            output_two_lines_with_transform(path_ix,
-                                            p0 + n_prev, p0 + n_next,
-                                            p0 - n_next, p0 - n_prev,
-                                            transform);
+            output_two_lines_with_transform(path_ix, front0, front1, back0, back1, transform);
         }
         case /*STYLE_FLAGS_JOIN_MITER*/0x10000000u: {
-            let c = tan_prev.x * tan_next.y - tan_prev.y * tan_next.x;
-            let d = dot(tan_prev, tan_next);
-            let hypot = length(vec2f(c, d));
+            let hypot = length(vec2f(cr, d));
             let miter_limit = unpack2x16float(style_flags & STYLE_MITER_LIMIT_MASK)[0];
 
-            var front0 = p0 + n_prev;
-            let front1 = p0 + n_next;
-            var back0 = p0 - n_next;
-            let back1 = p0 - n_prev;
             var line_ix: u32;
-
-            if 2. * hypot < (hypot + d) * miter_limit * miter_limit && c != 0. {
-                let is_backside = c > 0.;
+            if 2. * hypot < (hypot + d) * miter_limit * miter_limit && cr != 0. {
+                let is_backside = cr > 0.;
                 let fp_last = select(front0, back1, is_backside);
                 let fp_this = select(front1, back0, is_backside);
                 let p = select(front0, back0, is_backside);
 
                 let v = fp_this - fp_last;
-                let h = (tan_prev.x * v.y - tan_prev.y * v.x) / c;
+                let h = (tan_prev.x * v.y - tan_prev.y * v.x) / cr;
                 let miter_pt = fp_this - tan_next * h;
 
                 line_ix = atomicAdd(&bump.lines, 3u);
@@ -331,11 +396,23 @@ fn draw_join(
             write_line_with_transform(line_ix + 1u, path_ix, back0, back1, transform);
         }
         case /*STYLE_FLAGS_JOIN_ROUND*/0x20000000u: {
-            // TODO: round join
-            output_two_lines_with_transform(path_ix,
-                                            p0 + n_prev, p0 + n_next,
-                                            p0 - n_next, p0 - n_prev,
-                                            transform);
+            var arc0: vec2f;
+            var arc1: vec2f;
+            var other0: vec2f;
+            var other1: vec2f;
+            if cr > 0. {
+                arc0 = back0;
+                arc1 = back1;
+                other0 = front0;
+                other1 = front1;
+            } else {
+                arc0 = front0;
+                arc1 = front1;
+                other0 = back0;
+                other1 = back1;
+            }
+            flatten_arc(path_ix, arc0, arc1, p0, abs(atan2(cr, d)), transform);
+            output_line_with_transform(path_ix, other0, other1, transform);
         }
         default: {}
     }
@@ -524,8 +601,8 @@ fn read_neighboring_segment(ix: u32) -> NeighboringSegment {
 // `pathdata_base` is decoded once and reused by helpers above.
 var<private> pathdata_base: u32;
 
-// This is the bounding box of the shape flattened by a single shader invocation. This is adjusted
-// as lines are generated.
+// This is the bounding box of the shape flattened by a single shader invocation. It gets modified
+// during LineSoup generation.
 var<private> bbox: vec4f;
 
 @compute @workgroup_size(256)
@@ -557,46 +634,45 @@ fn main(
         let transform = read_transform(config.transform_base, trans_ix);
         let pts = read_path_segment(tag, is_stroke);
 
-        var stroke = vec2(0.0, 0.0);
         if is_stroke {
             let linewidth = bitcast<f32>(scene[config.style_base + style_ix + 1u]);
             let offset = 0.5 * linewidth;
-
-            // See https://www.iquilezles.org/www/articles/ellipses/ellipses.htm
-            // This is the correct bounding box, but we're not handling rendering
-            // in the isotropic case, so it may mismatch.
-            stroke = offset * vec2(length(transform.mat.xz), length(transform.mat.yw));
 
             let is_open = (tag.tag_byte & PATH_TAG_SEG_TYPE) != PATH_TAG_LINETO;
             let is_stroke_cap_marker = (tag.tag_byte & PATH_TAG_SUBPATH_END) != 0u;
             if is_stroke_cap_marker {
                 if is_open {
-                    // Draw start cap (butt)
-                    let n = offset * cubic_start_normal(pts.p0, pts.p1, pts.p2, pts.p3);
-                    output_line_with_transform(path_ix, pts.p0 - n, pts.p0 + n, transform);
+                    // Draw start cap
+                    let tangent = cubic_start_tangent(pts.p0, pts.p1, pts.p2, pts.p3);
+                    let offset_tangent = offset * normalize(tangent);
+                    let n = offset_tangent.yx * vec2f(-1., 1.);
+                    draw_cap(path_ix, (style_flags & STYLE_FLAGS_START_CAP_MASK) >> 2u,
+                             pts.p0, pts.p0 - n, pts.p0 + n, -offset_tangent, transform);
                 } else {
                     // Don't draw anything if the path is closed.
                 }
             } else {
                 // Render offset curves
-                flatten_cubic(Cubic(pts.p0, pts.p1, pts.p2, pts.p3, stroke, path_ix, u32(is_stroke)), transform, offset);
+                flatten_cubic(pts, path_ix, transform, offset);
 
                 // Read the neighboring segment.
                 let neighbor = read_neighboring_segment(ix + 1u);
                 let tan_prev = cubic_end_tangent(pts.p0, pts.p1, pts.p2, pts.p3);
                 let tan_next = neighbor.tangent;
-                let n_prev = offset * (normalize(tan_prev).yx * vec2f(-1., 1.));
-                let n_next = offset * (normalize(tan_next).yx * vec2f(-1., 1.));
+                let offset_tangent = offset * normalize(tan_prev);
+                let n_prev = offset_tangent.yx * vec2f(-1., 1.);
+                let n_next = offset * normalize(tan_next).yx * vec2f(-1., 1.);
                 if neighbor.do_join {
-                    draw_join(stroke, path_ix, style_flags, pts.p3,
-                              tan_prev, tan_next, n_prev, n_next, transform);
+                    draw_join(path_ix, style_flags, pts.p3, tan_prev, tan_next,
+                              n_prev, n_next, transform);
                 } else {
                     // Draw end cap.
-                    output_line_with_transform(path_ix, pts.p3 + n_prev, pts.p3 - n_prev, transform);
+                    draw_cap(path_ix, (style_flags & STYLE_FLAGS_END_CAP_MASK),
+                             pts.p3, pts.p3 + n_prev, pts.p3 - n_prev, offset_tangent, transform);
                 }
             }
         } else {
-            flatten_cubic(Cubic(pts.p0, pts.p1, pts.p2, pts.p3, stroke, path_ix, u32(is_stroke)), transform, 0.);
+            flatten_cubic(pts, path_ix, transform, /*offset*/ 0.);
         }
         // Update bounding box using atomics only. Computing a monoid is a
         // potential future optimization.
