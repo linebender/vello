@@ -85,6 +85,10 @@ impl Vec2 {
         self.x.hypot(self.y)
     }
 
+    pub fn length_squared(self) -> f32 {
+        self.dot(self)
+    }
+
     pub fn to_array(self) -> [f32; 2] {
         [self.x, self.y]
     }
@@ -101,6 +105,10 @@ impl Vec2 {
 
     pub fn normalize(self) -> Vec2 {
         self / self.length()
+    }
+
+    pub fn atan2(self) -> f32 {
+        self.y.atan2(self.x)
     }
 }
 

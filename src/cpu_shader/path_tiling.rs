@@ -159,10 +159,10 @@ fn path_tiling_main(
             y_edge,
             _padding: Default::default(),
         };
-        assert!(p0.x >= 0.0 && p0.x <= TILE_WIDTH as f32);
-        assert!(p0.y >= 0.0 && p0.y <= TILE_HEIGHT as f32);
-        assert!(p1.x >= 0.0 && p1.x <= TILE_WIDTH as f32);
-        assert!(p1.y >= 0.0 && p1.y <= TILE_HEIGHT as f32);
+        assert!(p0.x >= 0.0 && p0.x <= TILE_WIDTH as f32, "p0: {:?}", p0);
+        assert!(p0.y >= 0.0 && p0.y <= TILE_HEIGHT as f32, "p0: {:?}", p0);
+        assert!(p1.x >= 0.0 && p1.x <= TILE_WIDTH as f32, "p1: {:?}", p1);
+        assert!(p1.y >= 0.0 && p1.y <= TILE_HEIGHT as f32, "p1: {:?}", p1);
         segments[(seg_start + seg_within_slice) as usize] = segment;
     }
 }
