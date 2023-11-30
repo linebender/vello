@@ -4,7 +4,7 @@
 //! Utility functions for Euler-Spiral-based  
 
 use std::f32::consts::FRAC_PI_4;
-use super::util::Vec2;
+use super::util::{ROBUST_EPSILON, Vec2};
 
 #[derive(Debug)]
 pub struct CubicParams {
@@ -34,7 +34,19 @@ impl CubicParams {
     pub fn from_cubic(p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2) -> Self {
         let chord = p3 - p0;
         // TODO: if chord is 0, we have a problem
+        //assert!(chord.length() > 1e-9);//ROBUST_EPSILON);
         let d01 = p1 - p0;
+        // TODO: This handles coincident control points. Clean this up
+        let d01 = if d01.length() < 1e-9 {
+            let d02 = p2 - p1;
+            if d02.length() < 1e-9 {
+                chord
+            } else {
+                d02
+            }
+        } else {
+            d01
+        };
         let h0 = Vec2::new(
             d01.x * chord.x + d01.y * chord.y,
             d01.y * chord.x - d01.x * chord.y,
@@ -42,6 +54,17 @@ impl CubicParams {
         let th0 = h0.atan2();
         let d0 = h0.length() / chord.length_squared();
         let d23 = p3 - p2;
+        // TODO: This handles coincident control points. Clean this up
+        let d23 = if d23.length() < 1e-9 {
+            let d13 = p3 - p1;
+            if d13.length() < 1e-9 {
+                chord
+            } else {
+                d13
+            }
+        } else {
+            d23
+        };
         let h1 = Vec2::new(
             d23.x * chord.x + d23.y * chord.y,
             d23.x * chord.y - d23.y * chord.x,
@@ -57,8 +80,9 @@ impl CubicParams {
     // by chord.
     pub fn est_euler_err(&self) -> f32 {
         // Potential optimization: work with unit vector rather than angle
-        let e0 = (2. / 3.) / (1.0 + self.th0.cos());
-        let e1 = (2. / 3.) / (1.0 + self.th1.cos());
+        // TODO: preventing division by zero here but may need to work around this in a better way.
+        let e0 = (2. / 3.) / (1.0 + self.th0.cos()).max(1e-9);
+        let e1 = (2. / 3.) / (1.0 + self.th1.cos()).max(1e-9);
         let s0 = self.th0.sin();
         let s1 = self.th1.sin();
         let s01 = (s0 + s1).sin();
@@ -71,6 +95,22 @@ impl CubicParams {
         let ctr = 3.7e-6 * symm.powi(5) + 6e-3 * asymm * symm.powi(2);
         let halo_symm = 5e-3 * symm * dist;
         let halo_asymm = 7e-2 * asymm * dist;
+        /*
+        println!("    e0: {e0}");
+        println!("    e1: {e1}");
+        println!("    s0: {s0}");
+        println!("    s1: {s1}");
+        println!("    s01: {s01}");
+        println!("    amin: {amin}");
+        println!("    a: {a}");
+        println!("    aerr: {aerr}");
+        println!("    symm: {symm}");
+        println!("    asymm: {asymm}");
+        println!("    dist: {dist}");
+        println!("    ctr: {ctr}");
+        println!("    halo_symm: {halo_symm}");
+        println!("    halo_asymm: {halo_asymm}");
+        */
         1.25 * ctr + 1.55 * aerr + halo_symm + halo_asymm
     }
 }
