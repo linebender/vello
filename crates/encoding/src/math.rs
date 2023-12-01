@@ -222,14 +222,14 @@ mod tests {
     fn test_f16_to_f32_inf_roundtrip() {
         let input: u16 = 0x7C00;
         let output = f32_to_f16(f16_to_f32(input));
-        assert_eq!(input, output)
+        assert_eq!(input, output);
     }
 
     #[test]
     fn test_f16_to_f32_neg_inf_roundtrip() {
         let input: u16 = 0xFC00;
         let output = f32_to_f16(f16_to_f32(input));
-        assert_eq!(input, output)
+        assert_eq!(input, output);
     }
 
     #[test]
