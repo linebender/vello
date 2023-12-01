@@ -169,7 +169,7 @@ mod tests {
     }
 
     #[test]
-    fn test_f32_to_16_inf() {
+    fn test_f32_to_f16_inf() {
         let input: f32 = f32::from_bits(0x7F800000u32);
         assert!(input.is_infinite());
         let output: u16 = f32_to_f16(input);
@@ -177,28 +177,106 @@ mod tests {
     }
 
     #[test]
-    fn test_f32_to_16_exponent_rebias() {
+    fn test_f32_to_f16_exponent_rebias() {
         let input: f32 = 0.00003051758;
         let output: u16 = f32_to_f16(input);
         assert_eq!(0x0200, output); // 0.00003052
     }
 
     #[test]
-    fn test_f32_to_16_exponent_overflow() {
+    fn test_f32_to_f16_exponent_overflow() {
         let input: f32 = 1.701412e38;
         let output: u16 = f32_to_f16(input);
         assert_eq!(0x7C00, output); // +inf
     }
 
     #[test]
-    fn test_f32_to_16_exponent_overflow_neg_inf() {
+    fn test_f32_to_f16_exponent_overflow_neg_inf() {
         let input: f32 = -1.701412e38;
         let output: u16 = f32_to_f16(input);
         assert_eq!(0xFC00, output); // -inf
     }
 
     #[test]
-    fn test_f16_to_f32() {
+    fn test_f16_to_f32_simple() {
+        let input: u16 = 0x4248u16;
+        let output: f32 = f16_to_f32(input);
+        assert_eq!(3.140625, output);
+    }
+
+    #[test]
+    fn test_f16_to_f32_inf() {
+        let input: u16 = 0x7C00;
+        let output = f16_to_f32(input);
+        assert!(output.is_infinite());
+    }
+
+    #[test]
+    fn test_f16_to_f32_neg_inf() {
+        let input: u16 = 0xFC00;
+        let output = f16_to_f32(input);
+        assert!(output.is_infinite());
+    }
+
+    #[test]
+    fn test_f16_to_f32_inf_roundtrip() {
+        let input: u16 = 0x7C00;
+        let output = f32_to_f16(f16_to_f32(input));
+        assert_eq!(input, output)
+    }
+
+    #[test]
+    fn test_f16_to_f32_neg_inf_roundtrip() {
+        let input: u16 = 0xFC00;
+        let output = f32_to_f16(f16_to_f32(input));
+        assert_eq!(input, output)
+    }
+
+    #[test]
+    fn test_f16_to_f32_nan() {
+        let input: u16 = 0x7C01;
+        let output = f16_to_f32(input);
+        assert!(output.is_nan());
+    }
+
+    #[test]
+    fn test_f16_to_f32_nan_roundtrip() {
+        let input: u16 = 0x7C01;
+        // Roundtrip 3 times and land on a f32 to check that NaN'ness is preserved.
+        let output = f16_to_f32(f32_to_f16(f16_to_f32(input)));
+        assert!(output.is_nan());
+    }
+
+    #[test]
+    fn test_f16_to_f32_large_pos_roundtrip() {
+        let input: u16 = 0x7BFF; // 65504.0
+        let output = f32_to_f16(f16_to_f32(input));
+        assert_eq!(input, output);
+    }
+
+    #[test]
+    fn test_f16_to_f32_large_neg_roundtrip() {
+        let input: u16 = 0xFBFF; // -65504.0
+        let output = f32_to_f16(f16_to_f32(input));
+        assert_eq!(input, output);
+    }
+
+    #[test]
+    fn test_f16_to_f32_small_pos_roundtrip() {
+        let input: u16 = 0x0001; // 5.97e-8
+        let output = f32_to_f16(f16_to_f32(input));
+        assert_eq!(input, output);
+    }
+
+    #[test]
+    fn test_f16_to_f32_small_neg_roundtrip() {
+        let input: u16 = 0x8001; // -5.97e-8
+        let output = f32_to_f16(f16_to_f32(input));
+        assert_eq!(input, output);
+    }
+
+    #[test]
+    fn test_f16_to_f32_roundtrip() {
         const EPS: f32 = 0.001;
         let input: f32 = std::f32::consts::PI;
         assert!((input - f16_to_f32(f32_to_f16(input))).abs() < EPS);
