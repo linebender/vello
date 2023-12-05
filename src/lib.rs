@@ -56,7 +56,7 @@ pub use vello_encoding::BumpAllocators;
 #[cfg(feature = "wgpu")]
 use wgpu::{Device, Queue, SurfaceTexture, TextureFormat, TextureView};
 #[cfg(feature = "wgpu-profiler")]
-use wgpu_profiler::GpuProfiler;
+use wgpu_profiler::{GpuProfiler, GpuProfilerSettings};
 
 /// Catch-all error type.
 pub type Error = Box<dyn std::error::Error>;
@@ -132,10 +132,6 @@ pub struct RendererOptions {
     /// If None, the renderer cannot be used with surfaces
     pub surface_format: Option<TextureFormat>,
 
-    /// The timestamp period from [`wgpu::Queue::get_timestamp_period`]
-    /// Used when the wgpu-profiler feature is enabled
-    pub timestamp_period: f32,
-
     /// If true, run all stages up to fine rasterization on the CPU.
     // TODO: Consider evolving this so that the CPU stages can be configured dynamically via
     // `RenderParams`.
@@ -155,8 +151,7 @@ impl Renderer {
         let blit = options
             .surface_format
             .map(|surface_format| BlitPipeline::new(device, surface_format));
-        #[cfg(feature = "wgpu-profiler")]
-        let timestamp_period = options.timestamp_period;
+
         Ok(Self {
             options,
             engine,
@@ -165,7 +160,9 @@ impl Renderer {
             target: None,
             // Use 3 pending frames
             #[cfg(feature = "wgpu-profiler")]
-            profiler: GpuProfiler::new(3, timestamp_period, device.features()),
+            profiler: GpuProfiler::new(GpuProfilerSettings {
+                ..Default::default()
+            })?,
             #[cfg(feature = "wgpu-profiler")]
             profile_result: None,
         })
@@ -254,10 +251,12 @@ impl Renderer {
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::default()),
-                        store: true,
+                        store: wgpu::StoreOp::Store,
                     },
                 })],
                 depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
             });
             render_pass.set_pipeline(&blit.pipeline);
             render_pass.set_bind_group(0, &bind_group, &[]);
@@ -399,10 +398,12 @@ impl Renderer {
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::default()),
-                        store: true,
+                        store: wgpu::StoreOp::Store,
                     },
                 })],
                 depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
             });
             render_pass.set_pipeline(&blit.pipeline);
             render_pass.set_bind_group(0, &bind_group, &[]);
@@ -415,7 +416,10 @@ impl Renderer {
         #[cfg(feature = "wgpu-profiler")]
         self.profiler.end_frame().unwrap();
         #[cfg(feature = "wgpu-profiler")]
-        if let Some(result) = self.profiler.process_finished_frame() {
+        if let Some(result) = self
+            .profiler
+            .process_finished_frame(queue.get_timestamp_period())
+        {
             self.profile_result = Some(result);
         }
         Ok(bump)

@@ -42,6 +42,7 @@ impl RenderContext {
         let instance = Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::PRIMARY,
             dx12_shader_compiler: wgpu::Dx12Compiler::Fxc,
+            ..Default::default()
         });
         Ok(Self {
             instance,

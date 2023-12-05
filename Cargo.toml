@@ -9,7 +9,7 @@ members = [
 
     "examples/headless",
     "examples/with_winit",
-    "examples/with_bevy",
+    # "examples/with_bevy", # Disable for now until bevy is using wpgu 0.18
     "examples/run_wasm",
     "examples/scenes",
 ]
@@ -61,7 +61,7 @@ fello = { git = "https://github.com/dfrg/fount", rev = "dadbcf75695f035ca46766bf
 peniko = { git = "https://github.com/linebender/peniko", rev = "629fc3325b016a8c98b1cd6204cb4ddf1c6b3daa" }
 
 # NOTE: Make sure to keep this in sync with the version badge in README.md
-wgpu = { version = "0.17" }                                              
+wgpu = { version = "0.18" }
 
 
 # Used for examples
@@ -69,4 +69,4 @@ clap = "4.1.0"
 anyhow = "1.0"
 instant = { version = "0.1.12", features = ["wasm-bindgen"] }
 pollster = "0.3.0"
-wgpu-profiler = "0.13"
+wgpu-profiler = "0.15"

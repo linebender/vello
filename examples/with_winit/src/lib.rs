@@ -87,7 +87,6 @@ fn run(
                 &render_cx.devices[id].device,
                 RendererOptions {
                     surface_format: Some(render_state.surface.format),
-                    timestamp_period: render_cx.devices[id].queue.get_timestamp_period(),
                     use_cpu: use_cpu,
                     antialiasing_support: vello::AaSupport::all(),
                 },
@@ -515,9 +514,6 @@ fn run(
                             &render_cx.devices[id].device,
                             RendererOptions {
                                 surface_format: Some(render_state.surface.format),
-                                timestamp_period: render_cx.devices[id]
-                                    .queue
-                                    .get_timestamp_period(),
                                 use_cpu,
                                 antialiasing_support: vello::AaSupport::all(),
                             },

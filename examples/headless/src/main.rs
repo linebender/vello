@@ -89,7 +89,6 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
         device,
         RendererOptions {
             surface_format: None,
-            timestamp_period: queue.get_timestamp_period(),
             use_cpu: false,
             antialiasing_support: vello::AaSupport::area_only(),
         },
