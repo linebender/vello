@@ -30,7 +30,6 @@ impl FromWorld for VelloRenderer {
                 device.wgpu_device(),
                 RendererOptions {
                     surface_format: None,
-                    timestamp_period: queue.0.get_timestamp_period(),
                     antialiasing_support: vello::AaSupport::area_only(),
                     use_cpu: false,
                 },

@@ -9,7 +9,7 @@ members = [
 
     "examples/headless",
     "examples/with_winit",
-    "examples/with_bevy",
+    # "examples/with_bevy", # Disable for now until bevy is using wpgu 0.18
     "examples/run_wasm",
     "examples/scenes",
 ]
