@@ -48,20 +48,22 @@ impl Style {
     pub const FLAGS_JOIN_BITS_BEVEL: u32 = 0;
     pub const FLAGS_JOIN_BITS_MITER: u32 = 0x1000_0000;
     pub const FLAGS_JOIN_BITS_ROUND: u32 = 0x2000_0000;
-
-    #[cfg(test)]
     pub const FLAGS_JOIN_MASK: u32 = 0x3000_0000;
 
     /// Encodings for cap style:
     ///    - 0b00 -> butt
     ///    - 0b01 -> square
     ///    - 0b10 -> round
-    pub const FLAGS_START_CAP_BITS_BUTT: u32 = 0;
-    pub const FLAGS_START_CAP_BITS_SQUARE: u32 = 0x0400_0000;
-    pub const FLAGS_START_CAP_BITS_ROUND: u32 = 0x0800_0000;
-    pub const FLAGS_END_CAP_BITS_BUTT: u32 = 0;
-    pub const FLAGS_END_CAP_BITS_SQUARE: u32 = 0x0100_0000;
-    pub const FLAGS_END_CAP_BITS_ROUND: u32 = 0x0200_0000;
+    pub const FLAGS_CAP_BITS_BUTT: u32 = 0;
+    pub const FLAGS_CAP_BITS_SQUARE: u32 = 0x0100_0000;
+    pub const FLAGS_CAP_BITS_ROUND: u32 = 0x0200_0000;
+
+    pub const FLAGS_START_CAP_BITS_BUTT: u32 = Self::FLAGS_CAP_BITS_BUTT << 2;
+    pub const FLAGS_START_CAP_BITS_SQUARE: u32 = Self::FLAGS_CAP_BITS_SQUARE << 2;
+    pub const FLAGS_START_CAP_BITS_ROUND: u32 = Self::FLAGS_CAP_BITS_ROUND << 2;
+    pub const FLAGS_END_CAP_BITS_BUTT: u32 = Self::FLAGS_CAP_BITS_BUTT;
+    pub const FLAGS_END_CAP_BITS_SQUARE: u32 = Self::FLAGS_CAP_BITS_SQUARE;
+    pub const FLAGS_END_CAP_BITS_ROUND: u32 = Self::FLAGS_CAP_BITS_ROUND;
 
     pub const FLAGS_START_CAP_MASK: u32 = 0x0C00_0000;
     pub const FLAGS_END_CAP_MASK: u32 = 0x0300_0000;
@@ -272,12 +274,12 @@ impl PathTag {
     /// Style setting.
     pub const STYLE: Self = Self(0x40);
 
+    /// Bit that marks a segment that is the end of a subpath.
+    pub const SUBPATH_END_BIT: u8 = 0x4;
+
     /// Bit for path segments that are represented as f32 values. If unset
     /// they are represented as i16.
     const F32_BIT: u8 = 0x8;
-
-    /// Bit that marks a segment that is the end of a subpath.
-    const SUBPATH_END_BIT: u8 = 0x4;
 
     /// Mask for bottom 3 bits that contain the [`PathSegmentType`].
     const SEGMENT_MASK: u8 = 0x3;

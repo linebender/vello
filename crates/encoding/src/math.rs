@@ -83,7 +83,6 @@ pub fn point_to_f32(point: kurbo::Point) -> [f32; 2] {
 ///
 /// TODO: We should consider adopting <https://crates.io/crates/half> as a dependency since it nicely
 /// wraps native ARM and x86 instructions for floating-point conversion.
-#[allow(unused)] // for now
 pub(crate) fn f32_to_f16(val: f32) -> u16 {
     const INF_32: u32 = 255 << 23;
     const INF_16: u32 = 31 << 23;
@@ -123,9 +122,34 @@ pub(crate) fn f32_to_f16(val: f32) -> u16 {
     output | (sign >> 16) as u16
 }
 
+/// Convertes a 16-bit precision IEEE-754 binary16 float to a f32.
+/// This implementation was adapted from Fabian Giesen's `half_to_float()`
+/// function which can be found at <https://gist.github.com/rygorous/2156668#file-gistfile1-cpp-L574>
+pub fn f16_to_f32(bits: u16) -> f32 {
+    let bits = bits as u32;
+    const MAGIC: u32 = 113 << 23;
+    const SHIFTED_EXP: u32 = 0x7c00 << 13; // exponent mask after shift
+
+    let mut o = (bits & 0x7fff) << 13; // exponent/mantissa bits
+    let exp = SHIFTED_EXP & o; // just the exponent
+    o += (127 - 15) << 23; // exponent adjust
+
+    // handle exponent special cases
+    if exp == SHIFTED_EXP {
+        // Inf/NaN?
+        o += (128 - 16) << 23; // extra exp adjust
+    } else if exp == 0 {
+        // Zero/Denormal?
+        o += 1 << 23; // extra exp adjust
+        o = (f32::from_bits(o) - f32::from_bits(MAGIC)).to_bits(); // normalize
+    }
+
+    f32::from_bits(o | ((bits & 0x8000) << 16)) // sign bit
+}
+
 #[cfg(test)]
 mod tests {
-    use super::f32_to_f16;
+    use super::{f16_to_f32, f32_to_f16};
 
     #[test]
     fn test_f32_to_f16_simple() {
@@ -145,7 +169,7 @@ mod tests {
     }
 
     #[test]
-    fn test_f32_to_16_inf() {
+    fn test_f32_to_f16_inf() {
         let input: f32 = f32::from_bits(0x7F800000u32);
         assert!(input.is_infinite());
         let output: u16 = f32_to_f16(input);
@@ -153,23 +177,108 @@ mod tests {
     }
 
     #[test]
-    fn test_f32_to_16_exponent_rebias() {
+    fn test_f32_to_f16_exponent_rebias() {
         let input: f32 = 0.00003051758;
         let output: u16 = f32_to_f16(input);
         assert_eq!(0x0200, output); // 0.00003052
     }
 
     #[test]
-    fn test_f32_to_16_exponent_overflow() {
+    fn test_f32_to_f16_exponent_overflow() {
         let input: f32 = 1.701412e38;
         let output: u16 = f32_to_f16(input);
         assert_eq!(0x7C00, output); // +inf
     }
 
     #[test]
-    fn test_f32_to_16_exponent_overflow_neg_inf() {
+    fn test_f32_to_f16_exponent_overflow_neg_inf() {
         let input: f32 = -1.701412e38;
         let output: u16 = f32_to_f16(input);
         assert_eq!(0xFC00, output); // -inf
+    }
+
+    #[test]
+    fn test_f16_to_f32_simple() {
+        let input: u16 = 0x4248u16;
+        let output: f32 = f16_to_f32(input);
+        assert_eq!(3.140625, output);
+    }
+
+    #[test]
+    fn test_f16_to_f32_inf() {
+        let input: u16 = 0x7C00;
+        let output = f16_to_f32(input);
+        assert!(output.is_infinite());
+    }
+
+    #[test]
+    fn test_f16_to_f32_neg_inf() {
+        let input: u16 = 0xFC00;
+        let output = f16_to_f32(input);
+        assert!(output.is_infinite());
+    }
+
+    #[test]
+    fn test_f16_to_f32_inf_roundtrip() {
+        let input: u16 = 0x7C00;
+        let output = f32_to_f16(f16_to_f32(input));
+        assert_eq!(input, output);
+    }
+
+    #[test]
+    fn test_f16_to_f32_neg_inf_roundtrip() {
+        let input: u16 = 0xFC00;
+        let output = f32_to_f16(f16_to_f32(input));
+        assert_eq!(input, output);
+    }
+
+    #[test]
+    fn test_f16_to_f32_nan() {
+        let input: u16 = 0x7C01;
+        let output = f16_to_f32(input);
+        assert!(output.is_nan());
+    }
+
+    #[test]
+    fn test_f16_to_f32_nan_roundtrip() {
+        let input: u16 = 0x7C01;
+        // Roundtrip 3 times and land on a f32 to check that NaN'ness is preserved.
+        let output = f16_to_f32(f32_to_f16(f16_to_f32(input)));
+        assert!(output.is_nan());
+    }
+
+    #[test]
+    fn test_f16_to_f32_large_pos_roundtrip() {
+        let input: u16 = 0x7BFF; // 65504.0
+        let output = f32_to_f16(f16_to_f32(input));
+        assert_eq!(input, output);
+    }
+
+    #[test]
+    fn test_f16_to_f32_large_neg_roundtrip() {
+        let input: u16 = 0xFBFF; // -65504.0
+        let output = f32_to_f16(f16_to_f32(input));
+        assert_eq!(input, output);
+    }
+
+    #[test]
+    fn test_f16_to_f32_small_pos_roundtrip() {
+        let input: u16 = 0x0001; // 5.97e-8
+        let output = f32_to_f16(f16_to_f32(input));
+        assert_eq!(input, output);
+    }
+
+    #[test]
+    fn test_f16_to_f32_small_neg_roundtrip() {
+        let input: u16 = 0x8001; // -5.97e-8
+        let output = f32_to_f16(f16_to_f32(input));
+        assert_eq!(input, output);
+    }
+
+    #[test]
+    fn test_f16_to_f32_roundtrip() {
+        const EPS: f32 = 0.001;
+        let input: f32 = std::f32::consts::PI;
+        assert!((input - f16_to_f32(f32_to_f16(input))).abs() < EPS);
     }
 }

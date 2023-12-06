@@ -5,7 +5,7 @@
 
 use vello_encoding::ConfigUniform;
 
-#[derive(Clone, Copy, Default, Debug)]
+#[derive(Clone, Copy, Default, Debug, PartialEq)]
 #[repr(C)]
 pub struct Vec2 {
     pub x: f32,
@@ -45,6 +45,33 @@ impl std::ops::Mul<f32> for Vec2 {
     }
 }
 
+impl std::ops::Div<f32> for Vec2 {
+    type Output = Vec2;
+
+    fn div(self, rhs: f32) -> Self {
+        Vec2 {
+            x: self.x / rhs,
+            y: self.y / rhs,
+        }
+    }
+}
+
+impl std::ops::Mul<Vec2> for f32 {
+    type Output = Vec2;
+
+    fn mul(self, rhs: Vec2) -> Self::Output {
+        rhs * self
+    }
+}
+
+impl std::ops::Neg for Vec2 {
+    type Output = Vec2;
+
+    fn neg(self) -> Self::Output {
+        Vec2::new(-self.x, -self.y)
+    }
+}
+
 impl Vec2 {
     pub fn new(x: f32, y: f32) -> Self {
         Vec2 { x, y }
@@ -71,11 +98,24 @@ impl Vec2 {
         let y = self.y + (other.y - self.y) * t;
         Vec2 { x, y }
     }
+
+    pub fn normalize(self) -> Vec2 {
+        self / self.length()
+    }
+
+    pub fn is_nan(&self) -> bool {
+        self.x.is_nan() || self.y.is_nan()
+    }
 }
 
+#[derive(Clone)]
 pub struct Transform(pub [f32; 6]);
 
 impl Transform {
+    pub fn identity() -> Self {
+        Self([1., 0., 0., 1., 0., 0.])
+    }
+
     pub fn apply(&self, p: Vec2) -> Vec2 {
         let z = self.0;
         let x = z[0] * p.x + z[2] * p.y + z[4];
