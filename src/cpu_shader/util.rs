@@ -102,6 +102,10 @@ impl Vec2 {
     pub fn normalize(self) -> Vec2 {
         self / self.length()
     }
+
+    pub fn is_nan(&self) -> bool {
+        self.x.is_nan() || self.y.is_nan()
+    }
 }
 
 #[derive(Clone)]

@@ -123,7 +123,7 @@ pub(crate) fn f32_to_f16(val: f32) -> u16 {
 }
 
 /// Convertes a 16-bit precision IEEE-754 binary16 float to a f32.
-/// This implementation was adapted from Fabian Giesen's `half_to_float`()
+/// This implementation was adapted from Fabian Giesen's `half_to_float()`
 /// function which can be found at <https://gist.github.com/rygorous/2156668#file-gistfile1-cpp-L574>
 pub fn f16_to_f32(bits: u16) -> f32 {
     let bits = bits as u32;

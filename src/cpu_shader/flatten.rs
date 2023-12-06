@@ -126,6 +126,12 @@ fn write_line(
     bbox: &mut IntBbox,
     lines: &mut [LineSoup],
 ) {
+    assert!(
+        !p0.is_nan() && !p1.is_nan(),
+        "wrote line segment with NaN: p0: {:?}, p1: {:?}",
+        p0,
+        p1
+    );
     bbox.add_pt(p0);
     bbox.add_pt(p1);
     lines[line_ix] = LineSoup {
@@ -322,22 +328,19 @@ fn flatten_arc(
     lines: &mut [LineSoup],
     bbox: &mut IntBbox,
 ) {
+    const MIN_THETA: f32 = 0.0001;
+
     let mut p0 = transform.apply(begin);
     let mut r = begin - center;
-    let tol: f32 = 0.5;
+    let tol: f32 = 0.1;
     let radius = tol.max((p0 - transform.apply(center)).length());
-    let x = 1. - tol / radius;
-    let theta = (2. * x * x - 1.).clamp(-1., 1.).acos();
-    const MAX_LINES: u32 = 1000;
-    let n_lines = if theta <= ROBUST_EPSILON {
-        MAX_LINES
-    } else {
-        MAX_LINES.min((std::f32::consts::TAU / theta).ceil() as u32)
-    };
+    let theta = (2. * (1. - tol / radius).acos()).max(MIN_THETA);
 
-    let th = angle / (n_lines as f32);
-    let c = th.cos();
-    let s = th.sin();
+    // Always output at least one line so that we always draw the chord.
+    let n_lines = ((angle / theta).ceil() as u32).max(1);
+
+    let c = theta.cos();
+    let s = theta.sin();
     let rot = Transform([c, -s, s, c, 0., 0.]);
 
     for _ in 0..(n_lines - 1) {

@@ -297,17 +297,16 @@ fn flatten_arc(
     var p0 = transform_apply(transform, begin);
     var r = begin - center;
 
-    let EPS = 1e-9;
-    let tol = 0.5;
+    let MIN_THETA = 0.0001;
+    let tol = 0.1;
     let radius = max(tol, length(p0 - transform_apply(transform, center)));
-    let x = 1. - tol / radius;
-    let theta = acos(clamp(2. * x * x - 1., -1., 1.));
-    let MAX_LINES = 1000u;
-    let n_lines = select(min(MAX_LINES, u32(ceil(6.2831853 / theta))), MAX_LINES, theta <= EPS);
+    let theta = max(MIN_THETA, 2. * acos(1. - tol / radius));
 
-    let th = angle / f32(n_lines);
-    let c = cos(th);
-    let s = sin(th);
+    // Always output at least one line so that we always draw the chord.
+    let n_lines = max(1u, u32(ceil(angle / theta)));
+
+    let c = cos(theta);
+    let s = sin(theta);
     let rot = mat2x2(c, -s, s, c);
 
     let line_ix = atomicAdd(&bump.lines, n_lines);
