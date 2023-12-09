@@ -67,12 +67,6 @@ pub enum Command {
     /// Commands the data to be uploaded to the given image.
     UploadImage(ImageProxy, Vec<u8>),
     WriteImage(ImageProxy, [u32; 4], Vec<u8>),
-    // Discussion question: third argument is vec of resources?
-    // Maybe use tricks to make more ergonomic?
-    // Alternative: provide bufs & images as separate sequences
-    Dispatch(ShaderId, (u32, u32, u32), Vec<ResourceProxy>),
-    DispatchIndirect(ShaderId, BufferProxy, u64, Vec<ResourceProxy>),
-    Draw(DrawParams),
     Download(BufferProxy),
     /// Commands to clear the buffer from an offset on for a length of the given size.
     /// If the size is [None], it clears until the end.
@@ -81,6 +75,13 @@ pub enum Command {
     FreeBuffer(BufferProxy),
     /// Commands to free the image.
     FreeImage(ImageProxy),
+
+    // Discussion question: third argument is vec of resources?
+    // Maybe use tricks to make more ergonomic?
+    // Alternative: provide bufs & images as separate sequences
+    Dispatch(ShaderId, (u32, u32, u32), Vec<ResourceProxy>),
+    DispatchIndirect(ShaderId, BufferProxy, u64, Vec<ResourceProxy>),
+    Draw(DrawParams),
 }
 
 #[cfg(feature = "wgpu")]
@@ -192,7 +193,7 @@ impl Recording {
     }
 
     /// Issue a draw call
-    pub fn draw<R>(&mut self, params: DrawParams) {
+    pub fn draw(&mut self, params: DrawParams) {
         self.push(Command::Draw(params));
     }
 
