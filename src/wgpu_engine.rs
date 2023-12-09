@@ -9,8 +9,8 @@ use std::{
 
 use wgpu::{
     BindGroup, BindGroupLayout, Buffer, BufferUsages, CommandEncoder, CommandEncoderDescriptor,
-    ComputePipeline, Device, Queue, Texture, TextureAspect, TextureUsages, TextureView,
-    TextureViewDimension,
+    ComputePipeline, Device, Queue, RenderPipeline, Texture, TextureAspect, TextureUsages,
+    TextureView, TextureViewDimension,
 };
 
 use crate::{
@@ -28,8 +28,13 @@ pub struct WgpuEngine {
     pub(crate) use_cpu: bool,
 }
 
+enum PipelineState {
+    Compute(ComputePipeline),
+    Render(RenderPipeline),
+}
+
 struct WgpuShader {
-    pipeline: ComputePipeline,
+    pipeline: PipelineState,
     bind_group_layout: BindGroupLayout,
 }
 
@@ -137,7 +142,7 @@ impl WgpuEngine {
     ///
     /// Maybe should do template instantiation here? But shader compilation pipeline feels maybe
     /// a bit separate.
-    pub fn add_shader(
+    pub fn add_compute_shader(
         &mut self,
         device: &Device,
         label: &'static str,
@@ -177,58 +182,10 @@ impl WgpuEngine {
             label: Some(label),
             source: wgpu::ShaderSource::Wgsl(wgsl),
         });
-        let entries = layout
-            .iter()
-            .enumerate()
-            .map(|(i, bind_type)| match bind_type {
-                BindType::Buffer | BindType::BufReadOnly => wgpu::BindGroupLayoutEntry {
-                    binding: i as u32,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage {
-                            read_only: *bind_type == BindType::BufReadOnly,
-                        },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                BindType::Uniform => wgpu::BindGroupLayoutEntry {
-                    binding: i as u32,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                BindType::Image(format) | BindType::ImageRead(format) => {
-                    wgpu::BindGroupLayoutEntry {
-                        binding: i as u32,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: if *bind_type == BindType::ImageRead(*format) {
-                            wgpu::BindingType::Texture {
-                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                                view_dimension: wgpu::TextureViewDimension::D2,
-                                multisampled: false,
-                            }
-                        } else {
-                            wgpu::BindingType::StorageTexture {
-                                access: wgpu::StorageTextureAccess::WriteOnly,
-                                format: format.to_wgpu(),
-                                view_dimension: wgpu::TextureViewDimension::D2,
-                            }
-                        },
-                        count: None,
-                    }
-                }
-            })
-            .collect::<Vec<_>>();
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: None,
-            entries: &entries,
-        });
+        let bind_group_layout = Self::create_bind_group_layout(
+            device,
+            layout.iter().map(|b| (*b, wgpu::ShaderStages::COMPUTE)),
+        );
         let compute_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: None,
@@ -243,12 +200,73 @@ impl WgpuEngine {
         });
         add(Shader {
             wgpu: Some(WgpuShader {
-                pipeline,
+                pipeline: PipelineState::Compute(pipeline),
                 bind_group_layout,
             }),
             cpu: None,
             label,
         })
+    }
+
+    // TODO: document limitations
+    pub fn add_render_shader(
+        &mut self,
+        device: &Device,
+        label: &'static str,
+        module: &wgpu::ShaderModule,
+        vertex_main: &'static str,
+        fragment_main: &'static str,
+        topology: wgpu::PrimitiveTopology,
+        color_attachment: wgpu::ColorTargetState,
+        vertex_buffer: Option<wgpu::VertexBufferLayout>,
+        bind_layout: &[(BindType, wgpu::ShaderStages)],
+    ) -> ShaderId {
+        let bind_group_layout =
+            Self::create_bind_group_layout(device, bind_layout.iter().map(|e| *e));
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[&bind_group_layout],
+            push_constant_ranges: &[],
+        });
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some(label),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module,
+                entry_point: vertex_main,
+                buffers: vertex_buffer
+                    .as_ref()
+                    .map(core::slice::from_ref)
+                    .unwrap_or_default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module,
+                entry_point: fragment_main,
+                targets: &[Some(color_attachment)],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+        });
+        let id = self.shaders.len();
+        self.shaders.push(Shader {
+            wgpu: Some(WgpuShader {
+                pipeline: PipelineState::Render(pipeline),
+                bind_group_layout,
+            }),
+            cpu: None,
+            label,
+        });
+        ShaderId(id)
     }
 
     pub fn run_recording(
@@ -404,7 +422,10 @@ impl WgpuEngine {
                             let mut cpass = encoder.begin_compute_pass(&Default::default());
                             #[cfg(feature = "wgpu-profiler")]
                             profiler.begin_scope(shader.label, &mut cpass, device);
-                            cpass.set_pipeline(&wgpu_shader.pipeline);
+                            let PipelineState::Compute(pipeline) = &wgpu_shader.pipeline else {
+                                panic!("cannot issue a dispatch with a render pipeline");
+                            };
+                            cpass.set_pipeline(pipeline);
                             cpass.set_bind_group(0, &bind_group, &[]);
                             cpass.dispatch_workgroups(wg_size.0, wg_size.1, wg_size.2);
                             #[cfg(feature = "wgpu-profiler")]
@@ -449,7 +470,10 @@ impl WgpuEngine {
                             let mut cpass = encoder.begin_compute_pass(&Default::default());
                             #[cfg(feature = "wgpu-profiler")]
                             profiler.begin_scope(shader.label, &mut cpass, device);
-                            cpass.set_pipeline(&wgpu_shader.pipeline);
+                            let PipelineState::Compute(pipeline) = &wgpu_shader.pipeline else {
+                                panic!("cannot issue a dispatch with a render pipeline");
+                            };
+                            cpass.set_pipeline(pipeline);
                             cpass.set_bind_group(0, &bind_group, &[]);
                             let buf = self
                                 .bind_map
@@ -460,6 +484,68 @@ impl WgpuEngine {
                             profiler.end_scope(&mut cpass).expect("We opened a scope");
                         }
                     }
+                }
+                Command::Draw {
+                    shader_id,
+                    instance_count,
+                    vertex_count,
+                    vertex_buffer,
+                    resources,
+                    target,
+                    clear_color,
+                } => {
+                    let shader = &self.shaders[shader_id.0];
+                    let ShaderKind::Wgpu(shader) = shader.select() else {
+                        panic!("a render pass does not have a CPU equivalent");
+                    };
+                    let bind_group = transient_map.create_bind_group(
+                        &mut self.bind_map,
+                        &mut self.pool,
+                        device,
+                        queue,
+                        &mut encoder,
+                        &shader.bind_group_layout,
+                        resources,
+                    )?;
+                    let render_target =
+                        transient_map.materialize_external_image_for_render_pass(target);
+                    let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: None,
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &render_target,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: match clear_color {
+                                    Some(c) => wgpu::LoadOp::Clear(wgpu::Color {
+                                        r: c[0] as f64,
+                                        g: c[1] as f64,
+                                        b: c[2] as f64,
+                                        a: c[3] as f64,
+                                    }),
+                                    None => wgpu::LoadOp::Load,
+                                },
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                        occlusion_query_set: None,
+                        timestamp_writes: None,
+                    });
+                    let PipelineState::Render(pipeline) = &shader.pipeline else {
+                        panic!("cannot issue a draw with a compute pipeline");
+                    };
+                    rpass.set_pipeline(&pipeline);
+                    if let Some(proxy) = vertex_buffer {
+                        // TODO: need a way to materialize a CPU initialized buffer. For now assume
+                        // buffer exists? Also, need to materialize this buffer with vertex usage
+                        let buf = self
+                            .bind_map
+                            .get_gpu_buf(proxy.id)
+                            .ok_or("vertex buffer not in map")?;
+                        rpass.set_vertex_buffer(0, buf.slice(..));
+                    }
+                    rpass.set_bind_group(0, &bind_group, &[]);
+                    rpass.draw(0..*vertex_count, 0..*instance_count);
                 }
                 Command::Download(proxy) => {
                     let src_buf = self
@@ -527,6 +613,63 @@ impl WgpuEngine {
 
     pub fn free_download(&mut self, buf: BufProxy) {
         self.downloads.remove(&buf.id);
+    }
+
+    fn create_bind_group_layout(
+        device: &Device,
+        layout: impl Iterator<Item = (BindType, wgpu::ShaderStages)>,
+    ) -> wgpu::BindGroupLayout {
+        let entries = layout
+            .enumerate()
+            .map(|(i, (bind_type, visibility))| match bind_type {
+                BindType::Buffer | BindType::BufReadOnly => wgpu::BindGroupLayoutEntry {
+                    binding: i as u32,
+                    visibility,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage {
+                            read_only: bind_type == BindType::BufReadOnly,
+                        },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                BindType::Uniform => wgpu::BindGroupLayoutEntry {
+                    binding: i as u32,
+                    visibility,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                BindType::Image(format) | BindType::ImageRead(format) => {
+                    wgpu::BindGroupLayoutEntry {
+                        binding: i as u32,
+                        visibility,
+                        ty: if bind_type == BindType::ImageRead(format) {
+                            wgpu::BindingType::Texture {
+                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                                view_dimension: wgpu::TextureViewDimension::D2,
+                                multisampled: false,
+                            }
+                        } else {
+                            wgpu::BindingType::StorageTexture {
+                                access: wgpu::StorageTextureAccess::WriteOnly,
+                                format: format.to_wgpu(),
+                                view_dimension: wgpu::TextureViewDimension::D2,
+                            }
+                        },
+                        count: None,
+                    }
+                }
+            })
+            .collect::<Vec<_>>();
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: None,
+            entries: &entries,
+        })
     }
 }
 
@@ -721,6 +864,14 @@ impl<'a> TransientBindMap<'a> {
         }
     }
 
+    fn materialize_external_image_for_render_pass(&mut self, proxy: &ImageProxy) -> &TextureView {
+        // TODO: Maybe this should support instantiating a transient texture. Right now all render
+        // passes target a `SurfaceTexture`, so supporting external textures is sufficient.
+        self.images
+            .get(&proxy.id)
+            .expect("texture not materialized")
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn create_bind_group(
         &mut self,
@@ -740,11 +891,13 @@ impl<'a> TransientBindMap<'a> {
                     }
                     match bind_map.buf_map.entry(proxy.id) {
                         Entry::Vacant(v) => {
-                            // TODO: only some buffers will need indirect, but does it hurt?
+                            // TODO: only some buffers will need indirect and vertex,
+                            //       but does it hurt?
                             let usage = BufferUsages::COPY_SRC
                                 | BufferUsages::COPY_DST
                                 | BufferUsages::STORAGE
-                                | BufferUsages::INDIRECT;
+                                | BufferUsages::INDIRECT
+                                | BufferUsages::VERTEX;
                             let buf = pool.get_buf(proxy.size, proxy.name, usage, device);
                             if bind_map.pending_clears.remove(&proxy.id) {
                                 encoder.clear_buffer(&buf, 0, None);

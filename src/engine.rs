@@ -67,11 +67,22 @@ pub enum Command {
     UploadUniform(BufProxy, Vec<u8>),
     UploadImage(ImageProxy, Vec<u8>),
     WriteImage(ImageProxy, [u32; 4], Vec<u8>),
+
     // Discussion question: third argument is vec of resources?
     // Maybe use tricks to make more ergonomic?
     // Alternative: provide bufs & images as separate sequences
     Dispatch(ShaderId, (u32, u32, u32), Vec<ResourceProxy>),
     DispatchIndirect(ShaderId, BufProxy, u64, Vec<ResourceProxy>),
+    Draw {
+        shader_id: ShaderId,
+        instance_count: u32,
+        vertex_count: u32,
+        vertex_buffer: Option<BufProxy>,
+        resources: Vec<ResourceProxy>,
+        target: ImageProxy,
+        clear_color: Option<[f32; 4]>,
+    },
+
     Download(BufProxy),
     Clear(BufProxy, u64, Option<NonZeroU64>),
     FreeBuf(BufProxy),
@@ -168,6 +179,31 @@ impl Recording {
         self.push(Command::DispatchIndirect(shader, buf, offset, r));
     }
 
+    pub fn draw<R>(
+        &mut self,
+        shader_id: ShaderId,
+        instance_count: u32,
+        vertex_count: u32,
+        vertex_buffer: Option<BufProxy>,
+        resources: R,
+        target: ImageProxy,
+        clear_color: Option<[f32; 4]>,
+    ) where
+        R: IntoIterator,
+        R::Item: Into<ResourceProxy>,
+    {
+        let r = resources.into_iter().map(|r| r.into()).collect();
+        self.push(Command::Draw {
+            shader_id,
+            instance_count,
+            vertex_count,
+            vertex_buffer,
+            resources: r,
+            target,
+            clear_color,
+        });
+    }
+
     /// Prepare a buffer for downloading.
     ///
     /// Currently this copies to a download buffer. The original buffer can be freed
@@ -214,6 +250,15 @@ impl ImageFormat {
         match self {
             Self::Rgba8 => wgpu::TextureFormat::Rgba8Unorm,
             Self::Bgra8 => wgpu::TextureFormat::Bgra8Unorm,
+        }
+    }
+
+    #[cfg(feature = "wgpu")]
+    pub fn from_wgpu(format: wgpu::TextureFormat) -> Self {
+        match format {
+            wgpu::TextureFormat::Rgba8Unorm => Self::Rgba8,
+            wgpu::TextureFormat::Bgra8Unorm => Self::Bgra8,
+            _ => unimplemented!(),
         }
     }
 }
