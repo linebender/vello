@@ -335,13 +335,13 @@ impl WgpuEngine {
                     .as_ref()
                     .map(core::slice::from_ref)
                     .unwrap_or_default(),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                compilation_options: PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module,
                 entry_point: fragment_main,
                 targets: &[Some(color_attachment)],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                compilation_options: PipelineCompilationOptions::default(),
             }),
             primitive: wgpu::PrimitiveState {
                 topology,
@@ -618,6 +618,7 @@ impl WgpuEngine {
                 }
                 Command::Draw(draw_params) => {
                     let shader = &self.shaders[draw_params.shader_id.0];
+                    let label = shader.label;
                     let ShaderKind::Wgpu(shader) = shader.select() else {
                         panic!("a render pass does not have a CPU equivalent");
                     };
@@ -654,6 +655,10 @@ impl WgpuEngine {
                         occlusion_query_set: None,
                         timestamp_writes: None,
                     });
+                    #[cfg(feature = "wgpu-profiler")]
+                    let query = profiler
+                        .begin_query(label, &mut rpass, device)
+                        .with_parent(Some(&query));
                     let PipelineState::Render(pipeline) = &shader.pipeline else {
                         panic!("cannot issue a draw with a compute pipeline");
                     };
@@ -668,6 +673,8 @@ impl WgpuEngine {
                     }
                     rpass.set_bind_group(0, &bind_group, &[]);
                     rpass.draw(0..draw_params.vertex_count, 0..draw_params.instance_count);
+                    #[cfg(feature = "wgpu-profiler")]
+                    profiler.end_query(&mut rpass, query);
                 }
                 Command::Download(proxy) => {
                     let src_buf = self

@@ -127,7 +127,7 @@ use wgpu_engine::{ExternalResource, WgpuEngine};
 /// Temporary export, used in `with_winit` for stats
 pub use vello_encoding::BumpAllocators;
 #[cfg(feature = "wgpu")]
-use wgpu::{Device, PipelineCompilationOptions, Queue, SurfaceTexture, TextureFormat, TextureView};
+use wgpu::{Device, Queue, SurfaceTexture, TextureFormat, TextureView};
 #[cfg(all(feature = "wgpu", feature = "wgpu-profiler"))]
 use wgpu_profiler::{GpuProfiler, GpuProfilerSettings};
 
@@ -311,7 +311,7 @@ impl Renderer {
         engine.build_shaders_if_needed(device, options.num_init_threads);
         let blit = options
             .surface_format
-            .map(|surface_format| BlitPipeline::new(device, surface_format));
+            .map(|surface_format| BlitPipeline::new(device, surface_format, &mut engine));
 
         Ok(Self {
             options,
@@ -407,45 +407,39 @@ impl Renderer {
             .blit
             .as_ref()
             .expect("renderer should have configured surface_format to use on a surface");
-        let mut encoder =
-            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-        {
-            let surface_view = surface
-                .texture
-                .create_view(&wgpu::TextureViewDescriptor::default());
-            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: None,
-                layout: &blit.bind_layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&target.view),
-                }],
-            });
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: None,
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &surface_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::default()),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                occlusion_query_set: None,
-                timestamp_writes: None,
-            });
+        let mut recording = Recording::default();
+        let target_proxy = ImageProxy::new(width, height, ImageFormat::from_wgpu(target.format));
+        let surface_proxy = ImageProxy::new(
+            width,
+            height,
+            ImageFormat::from_wgpu(surface.texture.format()),
+        );
+        recording.draw(recording::DrawParams {
+            shader_id: blit.0,
+            instance_count: 1,
+            vertex_count: 6,
+            vertex_buffer: None,
+            resources: vec![ResourceProxy::Image(target_proxy)],
+            target: surface_proxy,
+            clear_color: Some([0., 0., 0., 0.]),
+        });
+
+        let surface_view = surface
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let external_resources = [
+            ExternalResource::Image(target_proxy, &target.view),
+            ExternalResource::Image(surface_proxy, &surface_view),
+        ];
+        self.engine.run_recording(
+            device,
+            queue,
+            &recording,
+            &external_resources,
+            "blit (render_to_surface_async)",
             #[cfg(feature = "wgpu-profiler")]
-            let mut render_pass = self
-                .profiler
-                .scope("blit to surface", &mut render_pass, device);
-            render_pass.set_pipeline(&blit.pipeline);
-            render_pass.set_bind_group(0, &bind_group, &[]);
-            render_pass.draw(0..6, 0..1);
-        }
-        #[cfg(feature = "wgpu-profiler")]
-        self.profiler.resolve_queries(&mut encoder);
-        queue.submit(Some(encoder.finish()));
+            &mut self.profiler,
+        )?;
         self.target = Some(target);
         #[cfg(feature = "wgpu-profiler")]
         {
@@ -573,45 +567,40 @@ impl Renderer {
             .blit
             .as_ref()
             .expect("renderer should have configured surface_format to use on a surface");
-        let mut encoder =
-            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-        {
-            let surface_view = surface
-                .texture
-                .create_view(&wgpu::TextureViewDescriptor::default());
-            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: None,
-                layout: &blit.bind_layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&target.view),
-                }],
-            });
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: None,
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &surface_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::default()),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
+        let mut recording = Recording::default();
+        let target_proxy = ImageProxy::new(width, height, ImageFormat::from_wgpu(target.format));
+        let surface_proxy = ImageProxy::new(
+            width,
+            height,
+            ImageFormat::from_wgpu(surface.texture.format()),
+        );
+        recording.draw(recording::DrawParams {
+            shader_id: blit.0,
+            instance_count: 1,
+            vertex_count: 6,
+            vertex_buffer: None,
+            resources: vec![ResourceProxy::Image(target_proxy)],
+            target: surface_proxy,
+            clear_color: Some([0., 0., 0., 0.]),
+        });
+
+        let surface_view = surface
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let external_resources = [
+            ExternalResource::Image(target_proxy, &target.view),
+            ExternalResource::Image(surface_proxy, &surface_view),
+        ];
+        self.engine.run_recording(
+            device,
+            queue,
+            &recording,
+            &external_resources,
+            "blit (render_to_surface_async)",
             #[cfg(feature = "wgpu-profiler")]
-            let mut render_pass = self
-                .profiler
-                .scope("blit to surface", &mut render_pass, device);
-            render_pass.set_pipeline(&blit.pipeline);
-            render_pass.set_bind_group(0, &bind_group, &[]);
-            render_pass.draw(0..6, 0..1);
-        }
-        #[cfg(feature = "wgpu-profiler")]
-        self.profiler.resolve_queries(&mut encoder);
-        queue.submit(Some(encoder.finish()));
+            &mut self.profiler,
+        )?;
+
         self.target = Some(target);
         #[cfg(feature = "wgpu-profiler")]
         {
@@ -632,11 +621,13 @@ struct TargetTexture {
     view: TextureView,
     width: u32,
     height: u32,
+    format: wgpu::TextureFormat,
 }
 
 #[cfg(feature = "wgpu")]
 impl TargetTexture {
     fn new(device: &Device, width: u32, height: u32) -> Self {
+        let format = wgpu::TextureFormat::Rgba8Unorm;
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: None,
             size: wgpu::Extent3d {
@@ -648,7 +639,7 @@ impl TargetTexture {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
-            format: wgpu::TextureFormat::Rgba8Unorm,
+            format,
             view_formats: &[],
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -656,19 +647,17 @@ impl TargetTexture {
             view,
             width,
             height,
+            format,
         }
     }
 }
 
 #[cfg(feature = "wgpu")]
-struct BlitPipeline {
-    bind_layout: wgpu::BindGroupLayout,
-    pipeline: wgpu::RenderPipeline,
-}
+struct BlitPipeline(ShaderId);
 
 #[cfg(feature = "wgpu")]
 impl BlitPipeline {
-    fn new(device: &Device, format: TextureFormat) -> Self {
+    fn new(device: &Device, format: TextureFormat, engine: &mut WgpuEngine) -> Self {
         const SHADERS: &str = r#"
             @vertex
             fn vs_main(@builtin(vertex_index) ix: u32) -> @builtin(position) vec4<f32> {
@@ -698,69 +687,28 @@ impl BlitPipeline {
                 return vec4(rgba_sep.rgb * rgba_sep.a, rgba_sep.a);
             }
         "#;
-
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("blit shaders"),
             source: wgpu::ShaderSource::Wgsl(SHADERS.into()),
         });
-        let bind_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: None,
-            entries: &[wgpu::BindGroupLayoutEntry {
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                binding: 0,
-                ty: wgpu::BindingType::Texture {
-                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                    view_dimension: wgpu::TextureViewDimension::D2,
-                    multisampled: false,
-                },
-                count: None,
-            }],
-        });
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: None,
-            bind_group_layouts: &[&bind_layout],
-            push_constant_ranges: &[],
-        });
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: None,
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: "vs_main",
-                compilation_options: PipelineCompilationOptions::default(),
-                buffers: &[],
+        let shader_id = engine.add_render_shader(
+            device,
+            "blit",
+            &module,
+            "vs_main",
+            "fs_main",
+            wgpu::PrimitiveTopology::TriangleList,
+            wgpu::ColorTargetState {
+                format,
+                blend: None,
+                write_mask: wgpu::ColorWrites::ALL,
             },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: "fs_main",
-                compilation_options: PipelineCompilationOptions::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: None,
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            multiview: None,
-            cache: None,
-        });
-        Self {
-            bind_layout,
-            pipeline,
-        }
+            None,
+            &[(
+                BindType::ImageRead(ImageFormat::from_wgpu(format)),
+                wgpu::ShaderStages::FRAGMENT,
+            )],
+        );
+        Self(shader_id)
     }
 }
