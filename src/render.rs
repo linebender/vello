@@ -12,6 +12,9 @@ pub struct Render {
     fine_wg_count: Option<WorkgroupSize>,
     fine_resources: Option<FineResources>,
     mask_buf: Option<ResourceProxy>,
+
+    #[cfg(feature = "debug_layers")]
+    captured_buffers: Option<CapturedBuffers>,
 }
 
 /// Resources produced by pipeline, needed for fine rasterization.
@@ -28,6 +31,31 @@ struct FineResources {
     image_atlas: ResourceProxy,
 
     out_image: ImageProxy,
+}
+
+/// A collection of internal buffers that are used for debug visualization when the
+/// `debug_layers` feature is enabled. The contents of these buffers remain GPU resident
+/// and must be freed directly by the caller.
+///
+/// Some of these buffers are also scheduled for a download to allow their contents to be
+/// processed for CPU-side validation. These buffers are documented as such.
+#[cfg(feature = "debug_layers")]
+pub struct CapturedBuffers {
+    pub sizes: vello_encoding::BufferSizes,
+
+    /// Buffers that remain GPU-only
+    pub path_bboxes: BufProxy,
+
+    /// Downloaded buffers for validation
+    pub lines: BufProxy,
+}
+
+#[cfg(feature = "debug_layers")]
+impl CapturedBuffers {
+    pub fn release_buffers(self, recording: &mut Recording) {
+        recording.free_buf(self.path_bboxes);
+        recording.free_buf(self.lines);
+    }
 }
 
 pub fn render_full(
@@ -66,6 +94,8 @@ impl Render {
             fine_wg_count: None,
             fine_resources: None,
             mask_buf: None,
+            #[cfg(feature = "debug_layers")]
+            captured_buffers: None,
         }
     }
 
@@ -85,6 +115,15 @@ impl Render {
         let mut recording = Recording::default();
         let mut resolver = Resolver::new();
         let mut packed = vec![];
+
+        #[cfg(feature = "debug_layers")]
+        {
+            let captured = self.captured_buffers.take();
+            if let Some(buffers) = captured {
+                buffers.release_buffers(&mut recording);
+            }
+        }
+
         let (layout, ramps, images) = resolver.resolve(encoding, &mut packed);
         let gradient_image = if ramps.height == 0 {
             ResourceProxy::new_image(1, 1, ImageFormat::Rgba8)
@@ -301,7 +340,6 @@ impl Render {
             ],
         );
         recording.free_resource(draw_monoid_buf);
-        recording.free_resource(path_bbox_buf);
         recording.free_resource(clip_bbox_buf);
         // Note: this only needs to be rounded up because of the workaround to store the tile_offset
         // in storage rather than workgroup memory.
@@ -380,7 +418,6 @@ impl Render {
         );
         recording.free_buf(indirect_count_buf);
         recording.free_resource(seg_counts_buf);
-        recording.free_resource(lines_buf);
         recording.free_resource(scene_buf);
         recording.free_resource(draw_monoid_buf);
         recording.free_resource(bin_header_buf);
@@ -403,6 +440,25 @@ impl Render {
             recording.download(*bump_buf.as_buf().unwrap());
         }
         recording.free_resource(bump_buf);
+
+        #[cfg(feature = "debug_layers")]
+        {
+            let path_bboxes = *path_bbox_buf.as_buf().unwrap();
+            let lines = *lines_buf.as_buf().unwrap();
+            // TODO: recording.download(lines);
+
+            self.captured_buffers = Some(CapturedBuffers {
+                sizes: cpu_config.buffer_sizes,
+                path_bboxes,
+                lines,
+            });
+        }
+        #[cfg(not(feature = "debug_layers"))]
+        {
+            recording.free_resource(path_bbox_buf);
+            recording.free_resource(lines_buf);
+        }
+
         recording
     }
 
@@ -492,5 +548,10 @@ impl Render {
             .bump_buf
             .as_buf()
             .unwrap()
+    }
+
+    #[cfg(feature = "debug_layers")]
+    pub fn take_captured_buffers(&mut self) -> Option<CapturedBuffers> {
+        self.captured_buffers.take()
     }
 }

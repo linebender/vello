@@ -18,6 +18,8 @@
 
 mod cpu_dispatch;
 mod cpu_shader;
+#[cfg(all(feature = "debug_layers", feature = "wgpu"))]
+mod debug;
 mod engine;
 mod render;
 mod scene;
@@ -103,6 +105,8 @@ pub struct Renderer {
     engine: WgpuEngine,
     shaders: FullShaders,
     blit: Option<BlitPipeline>,
+    #[cfg(feature = "debug_layers")]
+    debug: Option<debug::DebugLayers>,
     target: Option<TargetTexture>,
     #[cfg(feature = "wgpu-profiler")]
     profiler: GpuProfiler,
@@ -141,6 +145,12 @@ pub struct RendererOptions {
     pub antialiasing_support: AaSupport,
 }
 
+struct RenderResult {
+    bump: Option<BumpAllocators>,
+    #[cfg(feature = "debug_layers")]
+    captured: Option<render::CapturedBuffers>,
+}
+
 #[cfg(feature = "wgpu")]
 impl Renderer {
     /// Creates a new renderer for the specified device.
@@ -150,12 +160,18 @@ impl Renderer {
         let blit = options
             .surface_format
             .map(|surface_format| BlitPipeline::new(device, surface_format, &mut engine));
+        #[cfg(feature = "debug_layers")]
+        let debug = options
+            .surface_format
+            .map(|surface_format| debug::DebugLayers::new(device, surface_format, &mut engine));
 
         Ok(Self {
             options,
             engine,
             shaders,
             blit,
+            #[cfg(feature = "debug_layers")]
+            debug,
             target: None,
             // Use 3 pending frames
             #[cfg(feature = "wgpu-profiler")]
@@ -316,13 +332,50 @@ impl Renderer {
         texture: &TextureView,
         params: &RenderParams,
     ) -> Result<Option<BumpAllocators>> {
+        let result = self
+            .render_to_texture_async_internal(device, queue, scene, texture, params)
+            .await?;
+        #[cfg(feature = "debug_layers")]
+        {
+            // TODO: it would be much better to have a way to safely destroy a buffer.
+            if let Some(captured) = result.captured {
+                let mut recording = Recording::default();
+                // TODO: this sucks. better to release everything in a helper
+                self.engine.free_download(captured.lines);
+                captured.release_buffers(&mut recording);
+                self.engine.run_recording(
+                    device,
+                    queue,
+                    &recording,
+                    &[],
+                    "free memory",
+                    #[cfg(feature = "wgpu-profiler")]
+                    &mut self.profiler,
+                )?;
+            }
+        }
+        Ok(result.bump)
+    }
+
+    async fn render_to_texture_async_internal(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        scene: &Scene,
+        texture: &TextureView,
+        params: &RenderParams,
+    ) -> Result<RenderResult> {
         let mut render = Render::new();
         let encoding = scene.encoding();
-        // TODO: turn this on; the download feature interacts with CPU dispatch
-        let robust = false;
+        // TODO: turn this on; the download feature interacts with CPU dispatch.
+        // Currently this is always enabled when the `debug_layers` setting is enabled as the bump
+        // counts are used for debug visualiation.
+        let robust = cfg!(feature = "debug_layers");
         let recording = render.render_encoding_coarse(encoding, &self.shaders, params, robust);
         let target = render.out_image();
         let bump_buf = render.bump_buf();
+        #[cfg(feature = "debug_layers")]
+        let captured = render.take_captured_buffers();
         self.engine.run_recording(
             device,
             queue,
@@ -362,7 +415,11 @@ impl Renderer {
             #[cfg(feature = "wgpu-profiler")]
             &mut self.profiler,
         )?;
-        Ok(bump)
+        Ok(RenderResult {
+            bump,
+            #[cfg(feature = "debug_layers")]
+            captured,
+        })
     }
 
     /// See [`Self::render_to_surface`]
@@ -385,8 +442,8 @@ impl Renderer {
         if target.width != width || target.height != height {
             target = TargetTexture::new(device, width, height);
         }
-        let bump = self
-            .render_to_texture_async(device, queue, scene, &target.view, params)
+        let result = self
+            .render_to_texture_async_internal(device, queue, scene, &target.view, params)
             .await?;
         let blit = self
             .blit
@@ -409,7 +466,27 @@ impl Renderer {
             Some([0., 0., 0., 0.]),
         );
 
-        {}
+        #[cfg(feature = "debug_layers")]
+        {
+            if let Some(captured) = result.captured {
+                let debug = self
+                    .debug
+                    .as_ref()
+                    .expect("renderer should have configured surface_format to use on a surface");
+                debug.render(
+                    &mut recording,
+                    surface_proxy,
+                    &captured,
+                    result.bump.as_ref(),
+                    &params,
+                );
+
+                // TODO: this sucks. better to release everything in a helper
+                // TODO: it would be much better to have a way to safely destroy a buffer.
+                self.engine.free_download(captured.lines);
+                captured.release_buffers(&mut recording);
+            }
+        }
 
         let surface_view = surface
             .texture
@@ -444,7 +521,7 @@ impl Renderer {
         }
 
         self.target = Some(target);
-        Ok(bump)
+        Ok(result.bump)
     }
 }
 

@@ -19,6 +19,9 @@ crate-type = ["cdylib", "lib"]
 name = "with_winit_bin"
 path = "src/main.rs"
 
+[features]
+debug_layers = ["vello/debug_layers"]
+
 [dependencies]
 vello = { path = "../../", features = ["buffer_labels", "wgpu-profiler"] }
 scenes = { path = "../scenes" }
