@@ -136,6 +136,10 @@ fn run(
     let mut prev_scene_ix = scene_ix - 1;
     let mut profile_taken = Instant::now();
     let mut modifiers = ModifiersState::default();
+
+    #[cfg(feature = "debug_layers")]
+    let mut debug = vello::DebugLayers::none();
+
     // _event_loop is used on non-wasm platforms to create new windows
     event_loop.run(move |event, _event_loop, control_flow| match event {
         Event::WindowEvent {
@@ -220,6 +224,22 @@ fn run(
                                         wgpu::PresentMode::AutoNoVsync
                                     },
                                 );
+                            }
+                            #[cfg(feature = "debug_layers")]
+                            Some(VirtualKeyCode::Key1) => {
+                                debug.toggle(vello::DebugLayers::BOUNDING_BOXES);
+                            }
+                            #[cfg(feature = "debug_layers")]
+                            Some(VirtualKeyCode::Key2) => {
+                                debug.toggle(vello::DebugLayers::LINESOUP_SEGMENTS);
+                            }
+                            #[cfg(feature = "debug_layers")]
+                            Some(VirtualKeyCode::Key3) => {
+                                debug.toggle(vello::DebugLayers::LINESOUP_POINTS);
+                            }
+                            #[cfg(feature = "debug_layers")]
+                            Some(VirtualKeyCode::Key4) => {
+                                debug.toggle(vello::DebugLayers::VALIDATION);
                             }
                             Some(VirtualKeyCode::Escape) => {
                                 *control_flow = ControlFlow::Exit;
@@ -375,6 +395,8 @@ fn run(
                 width,
                 height,
                 antialiasing_method,
+                #[cfg(feature = "debug_layers")]
+                debug,
             };
             scene.reset();
             let mut transform = transform;

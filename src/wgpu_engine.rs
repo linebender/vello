@@ -292,8 +292,11 @@ impl WgpuEngine {
                     transient_map
                         .bufs
                         .insert(buf_proxy.id, TransientBuf::Cpu(bytes));
-                    let usage =
-                        BufferUsages::COPY_SRC | BufferUsages::COPY_DST | BufferUsages::STORAGE;
+                    // TODO: restrict VERTEX usage to "debug_layers" feature?
+                    let usage = BufferUsages::COPY_SRC
+                        | BufferUsages::COPY_DST
+                        | BufferUsages::STORAGE
+                        | BufferUsages::VERTEX;
                     let buf = self
                         .pool
                         .get_buf(buf_proxy.size, buf_proxy.name, usage, device);
