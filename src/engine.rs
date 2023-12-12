@@ -184,6 +184,7 @@ impl Recording {
         self.push(Command::DispatchIndirect(shader, buf, offset, r));
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn draw<R>(
         &mut self,
         shader_id: ShaderId,

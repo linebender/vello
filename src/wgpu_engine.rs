@@ -208,7 +208,7 @@ impl WgpuEngine {
         })
     }
 
-    // TODO: document limitations
+    #[allow(clippy::too_many_arguments)]
     pub fn add_render_shader(
         &mut self,
         device: &Device,
@@ -221,8 +221,7 @@ impl WgpuEngine {
         vertex_buffer: Option<wgpu::VertexBufferLayout>,
         bind_layout: &[(BindType, wgpu::ShaderStages)],
     ) -> ShaderId {
-        let bind_group_layout =
-            Self::create_bind_group_layout(device, bind_layout.iter().map(|e| *e));
+        let bind_group_layout = Self::create_bind_group_layout(device, bind_layout.iter().copied());
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
             bind_group_layouts: &[&bind_group_layout],
@@ -515,7 +514,7 @@ impl WgpuEngine {
                     let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: None,
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &render_target,
+                            view: render_target,
                             resolve_target: None,
                             ops: wgpu::Operations {
                                 load: match clear_color {
@@ -537,7 +536,7 @@ impl WgpuEngine {
                     let PipelineState::Render(pipeline) = &shader.pipeline else {
                         panic!("cannot issue a draw with a compute pipeline");
                     };
-                    rpass.set_pipeline(&pipeline);
+                    rpass.set_pipeline(pipeline);
                     if let Some(proxy) = vertex_buffer {
                         // TODO: need a way to materialize a CPU initialized buffer. For now assume
                         // buffer exists? Also, need to materialize this buffer with vertex usage
