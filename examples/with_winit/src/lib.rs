@@ -162,6 +162,9 @@ struct VelloApp<'s> {
 
     prev_scene_ix: i32,
     modifiers: ModifiersState,
+
+    #[cfg(feature = "debug_layers")]
+    debug: vello::DebugLayers,
 }
 
 impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
@@ -329,6 +332,22 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
                                         },
                                     );
                                 }
+                                #[cfg(feature = "debug_layers")]
+                                "1" => {
+                                    self.debug.toggle(vello::DebugLayers::BOUNDING_BOXES);
+                                }
+                                #[cfg(feature = "debug_layers")]
+                                "2" => {
+                                    self.debug.toggle(vello::DebugLayers::LINESOUP_SEGMENTS);
+                                }
+                                #[cfg(feature = "debug_layers")]
+                                "3" => {
+                                    self.debug.toggle(vello::DebugLayers::LINESOUP_POINTS);
+                                }
+                                #[cfg(feature = "debug_layers")]
+                                "4" => {
+                                    self.debug.toggle(vello::DebugLayers::VALIDATION);
+                                }
                                 _ => {}
                             }
                         }
@@ -464,6 +483,8 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
                     width,
                     height,
                     antialiasing_method,
+                    #[cfg(feature = "debug_layers")]
+                    debug: self.debug,
                 };
                 self.scene.reset();
                 let mut transform = self.transform;
@@ -674,6 +695,9 @@ fn run(
         Some(render_state)
     };
 
+    #[cfg(feature = "debug_layers")]
+    let debug = vello::DebugLayers::none();
+
     let mut app = VelloApp {
         context: render_cx,
         renderers,
@@ -718,6 +742,8 @@ fn run(
         complexity: 0,
         prev_scene_ix: 0,
         modifiers: ModifiersState::default(),
+        #[cfg(feature = "debug_layers")]
+        debug,
     };
 
     event_loop.run_app(&mut app).expect("run to completion");
