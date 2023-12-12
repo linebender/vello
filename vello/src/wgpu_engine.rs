@@ -1111,24 +1111,6 @@ impl<'a> TransientBindMap<'a> {
                         }),
                     }
                 }
-                ResourceProxy::BufRange {
-                    proxy,
-                    offset,
-                    size,
-                } => {
-                    let buf = match self.bufs.get(&proxy.id) {
-                        Some(TransientBuf::Gpu(b)) => b,
-                        _ => bind_map.get_gpu_buf(proxy.id).unwrap(),
-                    };
-                    Ok(wgpu::BindGroupEntry {
-                        binding: i as u32,
-                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                            buffer: buf,
-                            offset: *offset,
-                            size: core::num::NonZeroU64::new(*size),
-                        }),
-                    })
-                }
                 ResourceProxy::Image(proxy) => {
                     let view = self
                         .images

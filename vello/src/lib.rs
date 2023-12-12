@@ -125,6 +125,8 @@ use vello_encoding::Resolver;
 #[cfg(feature = "wgpu")]
 use wgpu_engine::{ExternalResource, WgpuEngine};
 
+#[cfg(all(feature = "debug_layers", feature = "wgpu"))]
+pub use debug::DebugLayers;
 /// Temporary export, used in `with_winit` for stats
 pub use vello_encoding::BumpAllocators;
 #[cfg(feature = "wgpu")]
@@ -213,6 +215,11 @@ pub enum Error {
     #[cfg(feature = "wgpu")]
     #[error("Failed to async map a buffer")]
     BufferAsyncError(#[from] wgpu::BufferAsyncError),
+    /// Failed to download an internal buffer for debug visualization.
+    #[cfg(feature = "wgpu")]
+    #[cfg(feature = "debug_layers")]
+    #[error("Failed to download internal buffer for visualization")]
+    DownloadError(&'static str), 
 
     #[cfg(feature = "wgpu")]
     #[error("wgpu Error from scope")]
@@ -243,7 +250,7 @@ pub struct Renderer {
     shaders: FullShaders,
     blit: Option<BlitPipeline>,
     #[cfg(feature = "debug_layers")]
-    debug: Option<debug::DebugLayers>,
+    debug: Option<debug::DebugRenderer>,
     target: Option<TargetTexture>,
     #[cfg(feature = "wgpu-profiler")]
     pub profiler: GpuProfiler,
@@ -271,6 +278,10 @@ pub struct RenderParams {
     /// The anti-aliasing algorithm. The selected algorithm must have been initialized while
     /// constructing the `Renderer`.
     pub antialiasing_method: AaConfig,
+
+    #[cfg(feature = "debug_layers")]
+    /// Options for debug layer rendering.
+    pub debug: DebugLayers,
 }
 
 #[cfg(feature = "wgpu")]
@@ -324,7 +335,7 @@ impl Renderer {
         #[cfg(feature = "debug_layers")]
         let debug = options
             .surface_format
-            .map(|surface_format| debug::DebugLayers::new(device, surface_format, &mut engine));
+            .map(|surface_format| debug::DebugRenderer::new(device, surface_format, &mut engine));
 
         Ok(Self {
             options,
@@ -470,7 +481,7 @@ impl Renderer {
         let debug = self
             .options
             .surface_format
-            .map(|format| debug::DebugLayers::new(device, format, &mut engine));
+            .map(|format| debug::DebugRenderer::new(device, format, &mut engine));
         let error = device.pop_error_scope().await;
         if let Some(error) = error {
             return Err(error.into());
@@ -509,7 +520,8 @@ impl Renderer {
             .await?;
         #[cfg(feature = "debug_layers")]
         {
-            // TODO: it would be much better to have a way to safely destroy a buffer.
+            // TODO: it would be better to improve buffer ownership tracking so that it's not
+            // necessary to submit a whole new Recording to free the captured buffers.
             if let Some(captured) = result.captured {
                 let mut recording = Recording::default();
                 // TODO: this sucks. better to release everything in a helper
@@ -647,12 +659,16 @@ impl Renderer {
                     .debug
                     .as_ref()
                     .expect("renderer should have configured surface_format to use on a surface");
+                let bump = result.bump.as_ref().unwrap();
+                // TODO: We could avoid this download if `DebugLayers::VALIDATION` is unset.
+                let downloads = DebugDownloads::map(&mut self.engine, &captured, bump).await?;
                 debug.render(
                     &mut recording,
                     surface_proxy,
                     &captured,
-                    result.bump.as_ref(),
+                    bump,
                     &params,
+                    &downloads,
                 );
 
                 // TODO: this sucks. better to release everything in a helper
@@ -789,5 +805,31 @@ impl BlitPipeline {
             )],
         );
         Self(shader_id)
+    }
+}
+
+#[cfg(all(feature = "debug_layers", feature = "wgpu"))]
+pub(crate) struct DebugDownloads<'a> {
+    pub lines: wgpu::BufferSlice<'a>,
+}
+
+#[cfg(all(feature = "debug_layers", feature = "wgpu"))]
+impl<'a> DebugDownloads<'a> {
+    pub async fn map(
+        engine: &'a WgpuEngine,
+        captured: &render::CapturedBuffers,
+        bump: &BumpAllocators,
+    ) -> Result<DebugDownloads<'a>> {
+        use vello_encoding::LineSoup;
+
+        let Some(lines_buf) = engine.get_download(captured.lines) else {
+            return Err(Error::DownloadError("could not download LineSoup buffer"));
+        };
+
+        let lines = lines_buf.slice(..bump.lines as u64 * std::mem::size_of::<LineSoup>() as u64);
+        let (sender, receiver) = futures_intrusive::channel::shared::oneshot_channel();
+        lines.map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
+        receiver.receive().await.expect("channel was closed")?;
+        Ok(Self { lines })
     }
 }

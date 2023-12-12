@@ -51,7 +51,7 @@ pub struct CapturedBuffers {
     /// Buffers that remain GPU-only
     pub path_bboxes: BufferProxy,
 
-    /// Downloaded buffers for validation
+    /// Buffers scheduled for download
     pub lines: BufferProxy,
 }
 
@@ -460,7 +460,7 @@ impl Render {
         {
             let path_bboxes = *path_bbox_buf.as_buf().unwrap();
             let lines = *lines_buf.as_buf().unwrap();
-            // TODO: recording.download(lines);
+            recording.download(lines);
 
             self.captured_buffers = Some(CapturedBuffers {
                 sizes: cpu_config.buffer_sizes,
