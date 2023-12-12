@@ -477,12 +477,26 @@ impl Renderer {
         let mut engine = WgpuEngine::new(self.options.use_cpu);
         // We choose not to initialise these shaders in parallel, to ensure the error scope works correctly
         let shaders = shaders::full_shaders(device, &mut engine, &self.options)?;
+        let blit = self
+            .options
+            .surface_format
+            .map(|surface_format| BlitPipeline::new(device, surface_format, &mut engine));
+        #[cfg(feature = "debug_layers")]
+        let debug = self
+            .options
+            .surface_format
+            .map(|format| debug::DebugLayers::new(device, format, &mut engine));
         let error = device.pop_error_scope().await;
         if let Some(error) = error {
             return Err(error.into());
         }
         self.engine = engine;
         self.shaders = shaders;
+        self.blit = blit;
+        #[cfg(feature = "debug_layers")]
+        {
+            self.debug = debug;
+        }
         Ok(())
     }
 
