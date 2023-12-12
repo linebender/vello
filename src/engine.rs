@@ -59,6 +59,11 @@ pub struct ImageProxy {
 #[derive(Clone, Copy)]
 pub enum ResourceProxy {
     Buf(BufProxy),
+    BufRange {
+        proxy: BufProxy,
+        offset: u64,
+        size: u64,
+    },
     Image(ImageProxy),
 }
 
@@ -227,6 +232,11 @@ impl Recording {
     pub fn free_resource(&mut self, resource: ResourceProxy) {
         match resource {
             ResourceProxy::Buf(buf) => self.free_buf(buf),
+            ResourceProxy::BufRange {
+                proxy,
+                offset: _,
+                size: _,
+            } => self.free_buf(proxy),
             ResourceProxy::Image(image) => self.free_image(image),
         }
     }

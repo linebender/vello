@@ -885,7 +885,12 @@ impl<'a> TransientBindMap<'a> {
     ) -> Result<BindGroup, Error> {
         for proxy in bindings {
             match proxy {
-                ResourceProxy::Buf(proxy) => {
+                ResourceProxy::Buf(proxy)
+                | ResourceProxy::BufRange {
+                    proxy,
+                    offset: _,
+                    size: _,
+                } => {
                     if self.bufs.contains_key(&proxy.id) {
                         continue;
                     }
@@ -961,6 +966,24 @@ impl<'a> TransientBindMap<'a> {
                         resource: buf.as_entire_binding(),
                     })
                 }
+                ResourceProxy::BufRange {
+                    proxy,
+                    offset,
+                    size,
+                } => {
+                    let buf = match self.bufs.get(&proxy.id) {
+                        Some(TransientBuf::Gpu(b)) => b,
+                        _ => bind_map.get_gpu_buf(proxy.id).unwrap(),
+                    };
+                    Ok(wgpu::BindGroupEntry {
+                        binding: i as u32,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: buf,
+                            offset: *offset,
+                            size: core::num::NonZeroU64::new(*size),
+                        }),
+                    })
+                }
                 ResourceProxy::Image(proxy) => {
                     let view = self
                         .images
@@ -991,10 +1014,15 @@ impl<'a> TransientBindMap<'a> {
         // First pass is mutable; create buffers as needed
         for resource in bindings {
             match resource {
-                ResourceProxy::Buf(buf) => match self.bufs.get(&buf.id) {
+                ResourceProxy::Buf(proxy)
+                | ResourceProxy::BufRange {
+                    proxy,
+                    offset: _,
+                    size: _,
+                } => match self.bufs.get(&proxy.id) {
                     Some(TransientBuf::Cpu(_)) => (),
                     Some(TransientBuf::Gpu(_)) => panic!("buffer was already materialized on GPU"),
-                    _ => bind_map.materialize_cpu_buf(buf),
+                    _ => bind_map.materialize_cpu_buf(proxy),
                 },
                 ResourceProxy::Image(_) => todo!(),
             };
@@ -1007,6 +1035,11 @@ impl<'a> TransientBindMap<'a> {
                     Some(TransientBuf::Cpu(b)) => CpuBinding::Buffer(b),
                     _ => bind_map.get_cpu_buf(buf.id),
                 },
+                ResourceProxy::BufRange {
+                    proxy: _,
+                    offset: _,
+                    size: _,
+                } => todo!(),
                 ResourceProxy::Image(_) => todo!(),
             })
             .collect()
