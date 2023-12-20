@@ -276,7 +276,7 @@ fn fill_path_ms(fill: CmdFill, local_id: vec2<u32>, result: ptr<function, array<
             if u32(x) < TILE_WIDTH - 1u && u32(y) < TILE_HEIGHT {
                 let delta_pix = pix_ix + 1u;
                 if is_delta {
-                    let delta = select(u32(-1), 1u, is_down) << ((delta_pix & 3u) << 3u);
+                    let delta = select(u32(-1i), 1u, is_down) << ((delta_pix & 3u) << 3u);
                     atomicAdd(&sh_winding[delta_pix >> 2u], delta);
                 }
             }
@@ -311,7 +311,7 @@ fn fill_path_ms(fill: CmdFill, local_id: vec2<u32>, result: ptr<function, array<
             let mask1_exp = (mask_b >> 4u) & 0x1010101u;
             var mask1_signed = select(mask1_exp, u32(-i32(mask1_exp)), is_down);
             if is_bump {
-                let bump_delta = select(u32(-0x1010101), 0x1010101u, is_down);
+                let bump_delta = select(u32(-0x1010101i), 0x1010101u, is_down);
                 mask0_signed += bump_delta;
                 mask1_signed += bump_delta;
             }
@@ -355,7 +355,7 @@ fn fill_path_ms(fill: CmdFill, local_id: vec2<u32>, result: ptr<function, array<
             let mask3_exp = (mask1_b >> 4u) & 0x1010101u;
             var mask3_signed = select(mask3_exp, u32(-i32(mask3_exp)), is_down);
             if is_bump {
-                let bump_delta = select(u32(-0x1010101), 0x1010101u, is_down);
+                let bump_delta = select(u32(-0x1010101i), 0x1010101u, is_down);
                 mask0_signed += bump_delta;
                 mask1_signed += bump_delta;
                 mask2_signed += bump_delta;
@@ -400,7 +400,7 @@ fn fill_path_ms(fill: CmdFill, local_id: vec2<u32>, result: ptr<function, array<
     }
     // packed_w now contains the winding numbers for a slice of 4 pixels,
     // each relative to the top left of the row.
-    for (var i = 0u; i < local_id.y >> 2u; i++) {
+    for (var i = 0u; i < (local_id.y >> 2u); i++) {
         wind_y += atomicLoad(&sh_winding_y_prefix[i]);
     }
     // wind_y now contains the winding number of the top left of the row of
