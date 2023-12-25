@@ -42,6 +42,12 @@ build gen/prefix_vkmm.spv: glsl prefix.comp
   flags = -DATOMIC -DVKMM
 # Vulkan memory model doesn't translate
 
+build gen/prefix_nobar.spv: glsl prefix_nobar.comp
+build gen/prefix_nobar.hlsl: hlsl gen/prefix_nobar.spv
+build gen/prefix_nobar.dxil: dxil gen/prefix_nobar.hlsl
+build gen/prefix_nobar.msl: msl gen/prefix_nobar.spv
+
+
 build gen/prefix_reduce.spv: glsl prefix_reduce.comp
 build gen/prefix_reduce.hlsl: hlsl gen/prefix_reduce.spv
 build gen/prefix_reduce.dxil: dxil gen/prefix_reduce.hlsl

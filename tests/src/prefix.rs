@@ -53,6 +53,7 @@ pub enum Variant {
     Compatibility,
     Atomic,
     Vkmm,
+    Nobar,
 }
 
 pub unsafe fn run_prefix_test(
@@ -108,6 +109,7 @@ impl PrefixCode {
             Variant::Compatibility => include_shader!(&runner.session, "../shader/gen/prefix"),
             Variant::Atomic => include_shader!(&runner.session, "../shader/gen/prefix_atomic"),
             Variant::Vkmm => ShaderCode::Spv(include_bytes!("../shader/gen/prefix_vkmm.spv")),
+            Variant::Nobar => include_shader!(&runner.session, "../shader/gen/prefix_nobar"),
         };
         let pipeline = runner
             .session
@@ -125,7 +127,7 @@ impl PrefixCode {
 impl PrefixStage {
     unsafe fn new(runner: &mut Runner, n_elements: u64) -> PrefixStage {
         let n_workgroups = (n_elements + ELEMENTS_PER_WG - 1) / ELEMENTS_PER_WG;
-        let state_buf_size = 4 + 12 * n_workgroups;
+        let state_buf_size = 4 + 16 * n_workgroups;
         let state_buf = runner
             .session
             .create_buffer(

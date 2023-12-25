@@ -116,6 +116,11 @@ fn main() {
                     prefix::Variant::Vkmm,
                 ));
             }
+            report(&prefix::run_prefix_test(
+                &mut runner,
+                &config,
+                prefix::Variant::Nobar,
+            ));
             report(&prefix_tree::run_prefix_test(&mut runner, &config));
         }
         if config.groups.matches("atomic") {

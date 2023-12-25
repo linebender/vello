@@ -1,0 +1,195 @@
+// SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
+
+// Single pass prefix sum without barriers.
+
+#version 450
+
+//#extension GL_KHR_memory_scope_semantics : enable
+
+#define N_ROWS 16
+#define LG_WG_SIZE 9
+#define WG_SIZE (1 << LG_WG_SIZE)
+#define PARTITION_SIZE (WG_SIZE * N_ROWS)
+
+layout(local_size_x = WG_SIZE, local_size_y = 1) in;
+
+struct Monoid {
+    uint element;
+};
+
+layout(set = 0, binding = 0) readonly buffer InBuf {
+    Monoid[] inbuf;
+};
+
+layout(set = 0, binding = 1) buffer OutBuf {
+    Monoid[] outbuf;
+};
+
+struct State {
+    uint local_0;
+    uint local_1;
+    uint global_0;
+    uint global_1;
+};
+
+// All operations in this buffer are atomic
+layout(set = 0, binding = 2) coherent buffer StateBuf {
+    uint part_counter;
+    State[] state;
+};
+
+shared Monoid sh_scratch[WG_SIZE];
+
+Monoid combine_monoid(Monoid a, Monoid b) {
+    return Monoid(a.element + b.element);
+}
+
+// Split monoid into pieces of no more than 31 bits each
+uvec2 split_monoid(Monoid m) {
+    return uvec2(m.element & 0xffff, m.element >> 16);
+}
+
+// Join status counter pieces. Note: strips flag bits
+Monoid join_monoid(uvec2 pieces) {
+    return Monoid((pieces.x & 0xffff) + (pieces.y << 16));
+}
+
+#define FLAG (1u << 31)
+
+shared uint sh_part_ix;
+shared Monoid sh_prefix;
+shared uvec2 sh_local_split;
+shared uvec2 sh_global_split;
+
+void main() {
+    Monoid local[N_ROWS];
+    // Determine partition to process by atomic counter (described in Section
+    // 4.4 of prefix sum paper).
+    if (gl_LocalInvocationID.x == 0) {
+        sh_part_ix = atomicAdd(part_counter, 1);
+    }
+    barrier();
+    uint part_ix = sh_part_ix;
+
+    uint ix = part_ix * PARTITION_SIZE + gl_LocalInvocationID.x * N_ROWS;
+
+    // TODO: gate buffer read? (evaluate whether shader check or
+    // CPU-side padding is better)
+    local[0] = inbuf[ix];
+    for (uint i = 1; i < N_ROWS; i++) {
+        local[i] = combine_monoid(local[i - 1], inbuf[ix + i]);
+    }
+    Monoid agg = local[N_ROWS - 1];
+    sh_scratch[gl_LocalInvocationID.x] = agg;
+    for (uint i = 0; i < LG_WG_SIZE; i++) {
+        barrier();
+        if (gl_LocalInvocationID.x >= (1u << i)) {
+            Monoid other = sh_scratch[gl_LocalInvocationID.x - (1u << i)];
+            agg = combine_monoid(other, agg);
+        }
+        barrier();
+        sh_scratch[gl_LocalInvocationID.x] = agg;
+    }
+
+    // Publish aggregate for this partition
+    if (gl_LocalInvocationID.x == WG_SIZE - 1) {
+        uvec2 split_agg = split_monoid(agg);
+        atomicExchange(state[part_ix].local_0, split_agg.x | FLAG);
+        atomicExchange(state[part_ix].local_1, split_agg.y | FLAG);
+        //atomicStore(state[part_ix].local_0, split_agg.x | FLAG, 0, 0);
+        //atomicStore(state[part_ix].local_1, split_agg.y | FLAG, 0, 0);
+    }
+
+    Monoid exclusive = Monoid(0);
+    if (part_ix != 0) {
+        // step 4 of paper: decoupled lookback
+        uint look_back_ix = part_ix - 1;
+
+        Monoid their_agg;
+        uint their_ix = 0;
+        while (true) {
+            // Read local status counters
+            if (gl_LocalInvocationID.x == WG_SIZE - 1) {
+                uint sc_0 = atomicOr(state[look_back_ix].local_0, 0);
+                uint sc_1 = atomicOr(state[look_back_ix].local_1, 0);
+                sh_local_split = uvec2(sc_0, sc_1);
+            }
+            barrier();
+            uvec2 split = sh_local_split;
+            if ((split.x & split.y & FLAG) != 0) {
+                their_agg = join_monoid(split);
+                if (look_back_ix != 0) {
+                    // Read global status counters
+                    if (gl_LocalInvocationID.x == WG_SIZE - 1) {
+                        uint sc_0 = atomicOr(state[look_back_ix].global_0, 0);
+                        uint sc_1 = atomicOr(state[look_back_ix].global_1, 0);
+                        sh_global_split = uvec2(sc_0, sc_1);
+                    }
+                    barrier(); // broadcast global split & protect local from WAR
+                    split = sh_global_split;
+                    if ((split.x & split.y & FLAG) != 0) {
+                        their_agg = join_monoid(split);
+                    }
+                }
+                exclusive = combine_monoid(their_agg, exclusive);
+                // either at first partition or we got a global value
+                if ((split.x & split.y & FLAG) != 0) {
+                    break;
+                } else {
+                    look_back_ix--;
+                    their_ix = 0;
+                    continue;
+                }
+            }
+
+            // else spin
+
+            if (gl_LocalInvocationID.x == WG_SIZE - 1) {
+                // Unfortunately there's no guarantee of forward progress of other
+                // workgroups, so compute a bit of the aggregate before trying again.
+                // In the worst case, spinning stops when the aggregate is complete.
+                Monoid m = inbuf[look_back_ix * PARTITION_SIZE + their_ix];
+                if (their_ix == 0) {
+                    their_agg = m;
+                } else {
+                    their_agg = combine_monoid(their_agg, m);
+                }
+                if (their_ix == PARTITION_SIZE - 1) {
+                    exclusive = combine_monoid(their_agg, exclusive);
+                }
+            }
+            their_ix++;
+            if (their_ix == PARTITION_SIZE) {
+                if (look_back_ix == 0) {
+                    break;
+                }
+                look_back_ix--;
+                their_ix = 0;
+            }
+            barrier(); // protect sh_local_split from WAR hazard
+        }
+        // step 5 of paper: compute inclusive prefix
+        if (gl_LocalInvocationID.x == WG_SIZE - 1) {
+            Monoid inclusive_prefix = combine_monoid(exclusive, agg);
+            sh_prefix = exclusive;
+            uvec2 split_inclusive = split_monoid(inclusive_prefix);
+            atomicExchange(state[part_ix].global_0, split_inclusive.x | FLAG);
+            atomicExchange(state[part_ix].global_1, split_inclusive.y | FLAG);
+        }
+    }
+    barrier(); // broadcast sh_prefix and protect sh_scratch from RAW
+    if (part_ix != 0) {
+        exclusive = sh_prefix;
+    }
+
+    Monoid row = exclusive;
+    if (gl_LocalInvocationID.x > 0) {
+        Monoid other = sh_scratch[gl_LocalInvocationID.x - 1];
+        row = combine_monoid(row, other);
+    }
+    for (uint i = 0; i < N_ROWS; i++) {
+        Monoid m = combine_monoid(row, local[i]);
+        // Make sure buffer allocation is padded appropriately.
+        outbuf[ix + i] = m;
+    }
+}
