@@ -4,7 +4,7 @@
 
 #version 450
 
-//#extension GL_KHR_memory_scope_semantics : enable
+#extension GL_KHR_memory_scope_semantics : enable
 
 #define N_ROWS 16
 #define LG_WG_SIZE 9
@@ -94,10 +94,8 @@ void main() {
     // Publish aggregate for this partition
     if (gl_LocalInvocationID.x == WG_SIZE - 1) {
         uvec2 split_agg = split_monoid(agg);
-        atomicExchange(state[part_ix].local_0, split_agg.x | FLAG);
-        atomicExchange(state[part_ix].local_1, split_agg.y | FLAG);
-        //atomicStore(state[part_ix].local_0, split_agg.x | FLAG, 0, 0);
-        //atomicStore(state[part_ix].local_1, split_agg.y | FLAG, 0, 0);
+        atomicStore(state[part_ix].local_0, split_agg.x | FLAG, gl_ScopeDevice, 0, 0);
+        atomicStore(state[part_ix].local_1, split_agg.y | FLAG, gl_ScopeDevice, 0, 0);
     }
 
     Monoid exclusive = Monoid(0);
@@ -110,8 +108,8 @@ void main() {
         while (true) {
             // Read local status counters
             if (gl_LocalInvocationID.x == WG_SIZE - 1) {
-                uint sc_0 = atomicOr(state[look_back_ix].local_0, 0);
-                uint sc_1 = atomicOr(state[look_back_ix].local_1, 0);
+                uint sc_0 = atomicLoad(state[look_back_ix].local_0, gl_ScopeDevice, 0, 0);
+                uint sc_1 = atomicLoad(state[look_back_ix].local_1, gl_ScopeDevice, 0, 0);
                 sh_local_split = uvec2(sc_0, sc_1);
             }
             barrier();
@@ -121,8 +119,8 @@ void main() {
                 if (look_back_ix != 0) {
                     // Read global status counters
                     if (gl_LocalInvocationID.x == WG_SIZE - 1) {
-                        uint sc_0 = atomicOr(state[look_back_ix].global_0, 0);
-                        uint sc_1 = atomicOr(state[look_back_ix].global_1, 0);
+                        uint sc_0 = atomicLoad(state[look_back_ix].global_0, gl_ScopeDevice, 0, 0);
+                        uint sc_1 = atomicLoad(state[look_back_ix].global_1, gl_ScopeDevice, 0, 0);
                         sh_global_split = uvec2(sc_0, sc_1);
                     }
                     barrier(); // broadcast global split & protect local from WAR
@@ -173,8 +171,8 @@ void main() {
             Monoid inclusive_prefix = combine_monoid(exclusive, agg);
             sh_prefix = exclusive;
             uvec2 split_inclusive = split_monoid(inclusive_prefix);
-            atomicExchange(state[part_ix].global_0, split_inclusive.x | FLAG);
-            atomicExchange(state[part_ix].global_1, split_inclusive.y | FLAG);
+            atomicStore(state[part_ix].global_0, split_inclusive.x | FLAG, gl_ScopeDevice, 0, 0);
+            atomicStore(state[part_ix].global_1, split_inclusive.y | FLAG, gl_ScopeDevice, 0, 0);
         }
     }
     barrier(); // broadcast sh_prefix and protect sh_scratch from RAW
