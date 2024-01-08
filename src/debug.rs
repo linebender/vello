@@ -382,11 +382,11 @@ impl DebugRenderer {
                 target,
                 None,
             );
-            recording.free_resource(ResourceProxy::Buf(unpaired_pts_buf));
+            recording.free_buf(unpaired_pts_buf);
         }
 
         recording.free_resource(uniforms_buf);
-        recording.free_resource(ResourceProxy::Buf(linepoints_uniforms_buf));
+        recording.free_buf(linepoints_uniforms_buf);
     }
 }
 
