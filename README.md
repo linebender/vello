@@ -100,7 +100,7 @@ rustup target add wasm32-unknown-unknown
 cargo run_wasm -p with_winit --bin with_winit_bin
 ```
 
-> **Warning**  
+> [!WARNING]  
 > The web is not currently a primary target for vello, and WebGPU implementations are incomplete, so you might run into issues running this example.
 
 ### Android
@@ -111,7 +111,7 @@ The [`with_winit`](#winit) example supports running on Android, using [cargo apk
 cargo apk run -p with_winit
 ```
 
-> **Note**  
+> [!TIP]  
 > cargo apk doesn't support running in release mode without configuration. 
 > See [their crates page docs](https://crates.io/crates/cargo-apk) (around `package.metadata.android.signing.<profile>`).
 > 
