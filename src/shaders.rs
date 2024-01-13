@@ -229,7 +229,7 @@ pub fn full_shaders(
     let path_count_setup = add_shader!(path_count_setup, [Buffer, Buffer], &empty);
     let path_count = add_shader!(
         path_count,
-        [Uniform, Buffer, BufReadOnly, BufReadOnly, Buffer, Buffer]
+        [Buffer, BufReadOnly, BufReadOnly, Buffer, Buffer]
     );
     let backdrop = add_shader!(
         backdrop_dyn,

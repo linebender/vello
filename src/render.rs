@@ -338,14 +338,7 @@ impl Render {
             shaders.path_count,
             indirect_count_buf,
             0,
-            [
-                config_buf,
-                bump_buf,
-                lines_buf,
-                path_buf,
-                tile_buf,
-                seg_counts_buf,
-            ],
+            [bump_buf, lines_buf, path_buf, tile_buf, seg_counts_buf],
         );
         recording.dispatch(
             shaders.backdrop,
