@@ -327,7 +327,7 @@ impl Render {
         );
         recording.dispatch(
             shaders.path_count_setup,
-            (1, 1, 1),
+            wg_counts.path_count_setup,
             [bump_buf, indirect_count_buf.into()],
         );
         let seg_counts_buf = ResourceProxy::new_buf(
@@ -362,7 +362,7 @@ impl Render {
         );
         recording.dispatch(
             shaders.path_tiling_setup,
-            (1, 1, 1),
+            wg_counts.path_tiling_setup,
             [bump_buf, indirect_count_buf.into()],
         );
         recording.dispatch_indirect(

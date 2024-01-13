@@ -4,8 +4,8 @@
 use crate::SegmentCount;
 
 use super::{
-    BinHeader, Clip, ClipBbox, ClipBic, ClipElement, Cubic, DrawBbox, DrawMonoid, Layout, LineSoup,
-    Path, PathBbox, PathMonoid, PathSegment, Tile,
+    BinHeader, Clip, ClipBbox, ClipBic, ClipElement, DrawBbox, DrawMonoid, Layout, LineSoup, Path,
+    PathBbox, PathMonoid, PathSegment, Tile,
 };
 use bytemuck::{Pod, Zeroable};
 use std::mem;
@@ -100,7 +100,7 @@ impl RenderConfig {
         let n_path_tags = layout.path_tags_size();
         let workgroup_counts =
             WorkgroupCounts::new(layout, width_in_tiles, height_in_tiles, n_path_tags);
-        let buffer_sizes = BufferSizes::new(layout, &workgroup_counts, n_path_tags);
+        let buffer_sizes = BufferSizes::new(layout, &workgroup_counts);
         Self {
             gpu: ConfigUniform {
                 width_in_tiles,
@@ -139,9 +139,12 @@ pub struct WorkgroupCounts {
     pub clip_leaf: WorkgroupSize,
     pub binning: WorkgroupSize,
     pub tile_alloc: WorkgroupSize,
-    pub path_coarse: WorkgroupSize,
+    pub path_count_setup: WorkgroupSize,
+    // Note: `path_count` must use an indirect dispatch
     pub backdrop: WorkgroupSize,
     pub coarse: WorkgroupSize,
+    pub path_tiling_setup: WorkgroupSize,
+    // Note: `path_tiling` must use an indirect dispatch
     pub fine: WorkgroupSize,
 }
 
@@ -184,9 +187,10 @@ impl WorkgroupCounts {
             clip_leaf: (clip_wgs, 1, 1),
             binning: (draw_object_wgs, 1, 1),
             tile_alloc: (path_wgs, 1, 1),
-            path_coarse: (flatten_wgs, 1, 1),
+            path_count_setup: (1, 1, 1),
             backdrop: (path_wgs, 1, 1),
             coarse: (width_in_bins, height_in_bins, 1),
+            path_tiling_setup: (1, 1, 1),
             fine: (width_in_tiles, height_in_tiles, 1),
         }
     }
@@ -256,7 +260,6 @@ pub struct BufferSizes {
     pub path_reduced_scan: BufferSize<PathMonoid>,
     pub path_monoids: BufferSize<PathMonoid>,
     pub path_bboxes: BufferSize<PathBbox>,
-    pub cubics: BufferSize<Cubic>,
     pub draw_reduced: BufferSize<DrawMonoid>,
     pub draw_monoids: BufferSize<DrawMonoid>,
     pub info: BufferSize<u32>,
@@ -279,7 +282,7 @@ pub struct BufferSizes {
 }
 
 impl BufferSizes {
-    pub fn new(layout: &Layout, workgroups: &WorkgroupCounts, n_path_tags: u32) -> Self {
+    pub fn new(layout: &Layout, workgroups: &WorkgroupCounts) -> Self {
         let n_paths = layout.n_paths;
         let n_draw_objects = layout.n_draw_objects;
         let n_clips = layout.n_clips;
@@ -294,7 +297,6 @@ impl BufferSizes {
         let path_reduced_scan = BufferSize::new(path_tag_wgs);
         let path_monoids = BufferSize::new(path_tag_wgs * PATH_REDUCE_WG);
         let path_bboxes = BufferSize::new(n_paths);
-        let cubics = BufferSize::new(n_path_tags);
         let draw_object_wgs = workgroups.draw_reduce.0;
         let draw_reduced = BufferSize::new(draw_object_wgs);
         let draw_monoids = BufferSize::new(n_draw_objects);
@@ -325,7 +327,6 @@ impl BufferSizes {
             path_reduced_scan,
             path_monoids,
             path_bboxes,
-            cubics,
             draw_reduced,
             draw_monoids,
             info,
