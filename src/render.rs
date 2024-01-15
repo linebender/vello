@@ -212,6 +212,7 @@ impl Render {
                 lines_buf,
             ],
         );
+        recording.dispatch(shaders.scanline, (1, 1, 1), [bump_buf, lines_buf]);
         let draw_reduced_buf = ResourceProxy::new_buf(
             buffer_sizes.draw_reduced.size_in_bytes().into(),
             "draw_reduced_buf",

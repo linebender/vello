@@ -140,6 +140,7 @@ fn write_line(
         p0: p0.to_array(),
         p1: p1.to_array(),
     };
+    //println!("line {:?}", lines[line_ix]);
 }
 
 fn write_line_with_transform(

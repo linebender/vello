@@ -84,6 +84,7 @@ pub struct FullShaders {
     // 2-level dispatch works for CPU pathtag scan even for large
     // inputs, 3-level is not yet implemented.
     pub pathtag_is_cpu: bool,
+    pub scanline: ShaderId,
 }
 
 #[cfg(feature = "wgpu")]
@@ -303,6 +304,12 @@ pub fn full_shaders(
         }
         pipelines
     };
+    let scanline = add_shader!(
+        scanline,
+        [Buffer, BufReadOnly],
+        &empty,
+        CpuShaderType::Present(cpu_shader::scanline)
+    );
     Ok(FullShaders {
         pathtag_reduce,
         pathtag_reduce2,
@@ -327,6 +334,7 @@ pub fn full_shaders(
         fine_msaa8,
         fine_msaa16,
         pathtag_is_cpu: options.use_cpu,
+        scanline,
     })
 }
 

@@ -7,10 +7,8 @@ use anyhow::{anyhow, bail, Context, Result};
 use clap::{CommandFactory, Parser};
 use scenes::{ImageCache, SceneParams, SceneSet, SimpleText};
 use vello::{
-    block_on_wgpu,
-    kurbo::{Affine, Vec2},
-    util::RenderContext,
-    RendererOptions, Scene, SceneBuilder, SceneFragment,
+    block_on_wgpu, kurbo::Affine, util::RenderContext, RendererOptions, Scene, SceneBuilder,
+    SceneFragment,
 };
 use wgpu::{
     BufferDescriptor, BufferUsages, CommandEncoderDescriptor, Extent3d, ImageCopyBuffer,
@@ -89,7 +87,7 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
         device,
         RendererOptions {
             surface_format: None,
-            use_cpu: false,
+            use_cpu: true,
             antialiasing_support: vello::AaSupport::area_only(),
         },
     )
@@ -112,26 +110,29 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
         .function
         .render(&mut builder, &mut scene_params);
     let mut transform = Affine::IDENTITY;
-    let (width, height) = if let Some(resolution) = scene_params.resolution {
-        let ratio = resolution.x / resolution.y;
-        let (new_width, new_height) = match (args.x_resolution, args.y_resolution) {
-            (None, None) => (resolution.x.ceil() as u32, resolution.y.ceil() as u32),
-            (None, Some(y)) => ((ratio * (y as f64)).ceil() as u32, y),
-            (Some(x), None) => (x, ((x as f64) / ratio).ceil() as u32),
-            (Some(x), Some(y)) => (x, y),
-        };
-        let factor = Vec2::new(new_width as f64, new_height as f64);
-        let scale_factor = (factor.x / resolution.x).min(factor.y / resolution.y);
-        transform *= Affine::scale(scale_factor);
-        (new_width, new_height)
-    } else {
-        match (args.x_resolution, args.y_resolution) {
-            (None, None) => (1000, 1000),
-            (None, Some(y)) => (y, y),
-            (Some(x), None) => (x, x),
-            (Some(x), Some(y)) => (x, y),
-        }
-    };
+    // let (width, height) = if let Some(resolution) = scene_params.resolution {
+    //     let ratio = resolution.x / resolution.y;
+    //     let (new_width, new_height) = match (args.x_resolution, args.y_resolution) {
+    //         (None, None) => (resolution.x.ceil() as u32, resolution.y.ceil() as u32),
+    //         (None, Some(y)) => ((ratio * (y as f64)).ceil() as u32, y),
+    //         (Some(x), None) => (x, ((x as f64) / ratio).ceil() as u32),
+    //         (Some(x), Some(y)) => (x, y),
+    //     };
+    //     let factor = Vec2::new(new_width as f64, new_height as f64);
+    //     let scale_factor = (factor.x / resolution.x).min(factor.y / resolution.y);
+    //     let scale_factor = 2.8;
+    //     transform *= Affine::scale(scale_factor);
+    //     (new_width, new_height)
+    // } else {
+    //     match (args.x_resolution, args.y_resolution) {
+    //         (None, None) => (1000, 1000),
+    //         (None, Some(y)) => (y, y),
+    //         (Some(x), None) => (x, x),
+    //         (Some(x), Some(y)) => (x, y),
+    //     }
+    // };
+    let (width, height) = (args.x_resolution.unwrap(), args.y_resolution.unwrap());
+    transform *= Affine::scale(2.0);
     let render_params = vello::RenderParams {
         base_color: args
             .args
