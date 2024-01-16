@@ -175,12 +175,14 @@ impl ShaderInfo {
                         for permutation in permutations {
                             let mut defines = defines.clone();
                             defines.extend(permutation.defines.iter().cloned());
-                            let source = preprocess::preprocess(&contents, &options, &defines, &imports);
+                            let source =
+                                preprocess::preprocess(&contents, &options, &defines, &imports);
                             let shader_info = Self::new(source.clone(), "main").unwrap();
                             info.insert(permutation.name.clone(), shader_info);
                         }
                     } else {
-                        let source = preprocess::preprocess(&contents, &options, &defines, &imports);
+                        let source =
+                            preprocess::preprocess(&contents, &options, &defines, &imports);
                         let shader_info = Self::new(source.clone(), "main").unwrap();
                         info.insert(shader_name.to_string(), shader_info);
                     }
