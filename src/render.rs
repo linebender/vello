@@ -5,7 +5,7 @@ use crate::{
     shaders::FullShaders,
     AaConfig, RenderParams, Scene,
 };
-use vello_encoding::{Encoding, WorkgroupSize};
+use vello_encoding::{make_mask_lut, make_mask_lut_16, Encoding, WorkgroupSize};
 
 /// State for a render in progress.
 pub struct Render {
@@ -327,7 +327,7 @@ impl Render {
         );
         recording.dispatch(
             shaders.path_count_setup,
-            (1, 1, 1),
+            wg_counts.path_count_setup,
             [bump_buf, indirect_count_buf.into()],
         );
         let seg_counts_buf = ResourceProxy::new_buf(
@@ -338,14 +338,7 @@ impl Render {
             shaders.path_count,
             indirect_count_buf,
             0,
-            [
-                config_buf,
-                bump_buf,
-                lines_buf,
-                path_buf,
-                tile_buf,
-                seg_counts_buf,
-            ],
+            [bump_buf, lines_buf, path_buf, tile_buf, seg_counts_buf],
         );
         recording.dispatch(
             shaders.backdrop,
@@ -369,7 +362,7 @@ impl Render {
         );
         recording.dispatch(
             shaders.path_tiling_setup,
-            (1, 1, 1),
+            wg_counts.path_tiling_setup,
             [bump_buf, indirect_count_buf.into()],
         );
         recording.dispatch_indirect(
@@ -438,8 +431,8 @@ impl Render {
             _ => {
                 if self.mask_buf.is_none() {
                     let mask_lut = match fine.aa_config {
-                        AaConfig::Msaa16 => crate::mask::make_mask_lut_16(),
-                        AaConfig::Msaa8 => crate::mask::make_mask_lut(),
+                        AaConfig::Msaa16 => make_mask_lut_16(),
+                        AaConfig::Msaa8 => make_mask_lut(),
                         _ => unreachable!(),
                     };
                     let buf = recording.upload("mask lut", mask_lut);

@@ -16,6 +16,7 @@ mod glyph;
 mod glyph_cache;
 #[cfg(feature = "full")]
 mod image_cache;
+mod mask;
 pub mod math;
 mod monoid;
 mod path;
@@ -34,6 +35,7 @@ pub use draw::{
     DrawRadialGradient, DrawTag, DRAW_INFO_FLAGS_FILL_RULE_BIT,
 };
 pub use encoding::{Encoding, StreamOffsets};
+pub use mask::{make_mask_lut, make_mask_lut_16};
 pub use math::Transform;
 pub use monoid::Monoid;
 pub use path::{

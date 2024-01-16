@@ -19,7 +19,6 @@
 mod cpu_dispatch;
 mod cpu_shader;
 mod engine;
-mod mask;
 mod render;
 mod scene;
 mod shaders;

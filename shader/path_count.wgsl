@@ -7,28 +7,25 @@
 #import segment
 #import tile
 
-@group(0) @binding(0)
-var<uniform> config: Config;
-
 // TODO: this is cut'n'pasted from path_coarse.
 struct AtomicTile {
     backdrop: atomic<i32>,
     segment_count_or_ix: atomic<u32>,
 }
 
-@group(0) @binding(1)
+@group(0) @binding(0)
 var<storage, read_write> bump: BumpAllocators;
 
-@group(0) @binding(2)
+@group(0) @binding(1)
 var<storage> lines: array<LineSoup>;
 
-@group(0) @binding(3)
+@group(0) @binding(2)
 var<storage> paths: array<Path>;
 
-@group(0) @binding(4)
+@group(0) @binding(3)
 var<storage, read_write> tile: array<AtomicTile>;
 
-@group(0) @binding(5)
+@group(0) @binding(4)
 var<storage, read_write> seg_counts: array<SegmentCount>;
 
 // number of integer cells spanned by interval defined by a, b
