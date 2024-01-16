@@ -13,7 +13,11 @@ compile = ["naga", "thiserror"]
 # to have the `read_write` access mode. For WGSL shaders, this affects the bind group
 # layout of all pipelines and changes the usage scope of storage buffers. For MSL shaders,
 # this removes the `const` qualifier from entry-point parameters in the `device` address
-# space.
+# space. This allows bindings with mixed access modes to be backed by suballocations from
+# the same the buffer object.
+#
+# This feature doesn't apply to the fine stage where all storage bindings are readonly and
+# the same access mode restrictions do not apply.
 #
 # Enabling this feature may have a performance impact and is not recommended.
 force_rw_storage = []

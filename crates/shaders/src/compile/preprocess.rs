@@ -37,8 +37,14 @@ pub struct StackItem {
     else_passed: bool,
 }
 
+#[derive(Default)]
+pub struct Options {
+    pub force_rw_storage: bool,
+}
+
 pub fn preprocess(
     input: &str,
+    options: &Options,
     defines: &HashSet<String>,
     imports: &HashMap<String, String>,
 ) -> String {
@@ -147,7 +153,7 @@ pub fn preprocess(
                         // However, in practise there will only ever be at most 2 stack items, so
                         // it's reasonable to just recompute it every time
                         if stack.iter().all(|item| item.active) {
-                            output.push_str(&preprocess(import, defines, imports));
+                            output.push_str(&preprocess(import, options, defines, imports));
                         }
                     } else {
                         eprintln!("Unknown import `{import_name}` (line {line_number})");
@@ -167,7 +173,7 @@ pub fn preprocess(
                 output.push_str("const");
                 output.push_str(&line[3..]);
             } else if let Some(idx) = line.find("var<storage>") {
-                if cfg!(feature = "force_rw_storage") {
+                if options.force_rw_storage {
                     let mut line = line.to_string();
                     line.replace_range(idx..(idx + 12), "var<storage, read_write>");
                     output.push_str(&line);
