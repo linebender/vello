@@ -5,7 +5,7 @@ use crate::{
     shaders::FullShaders,
     AaConfig, RenderParams, Scene,
 };
-use vello_encoding::{Encoding, WorkgroupSize};
+use vello_encoding::{make_mask_lut, make_mask_lut_16, Encoding, WorkgroupSize};
 
 /// State for a render in progress.
 pub struct Render {
@@ -431,8 +431,8 @@ impl Render {
             _ => {
                 if self.mask_buf.is_none() {
                     let mask_lut = match fine.aa_config {
-                        AaConfig::Msaa16 => crate::mask::make_mask_lut_16(),
-                        AaConfig::Msaa8 => crate::mask::make_mask_lut(),
+                        AaConfig::Msaa16 => make_mask_lut_16(),
+                        AaConfig::Msaa8 => make_mask_lut(),
                         _ => unreachable!(),
                     };
                     let buf = recording.upload("mask lut", mask_lut);
