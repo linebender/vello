@@ -30,8 +30,7 @@ cargo run -p with_winit
 
 ### SVG
 
-This repository also includes [`vello_svg`](./integrations/vello_svg/), which supports converting 
-a [`usvg`](https://crates.io/crates/usvg) `Tree` into a Vello scene.
+This repository also includes [`vello_svg`](./integrations/vello_svg/), which supports converting a [`usvg`](https://crates.io/crates/usvg) `Tree` into a Vello scene.
 
 This is currently incomplete; see its crate level documentation for more information.
 
@@ -40,6 +39,11 @@ This is used in the [winit](#winit) example for the SVG rendering.
 ### Lottie
 
 A separate integration for playing Lottie animations is available through the [`velato`](https://github.com/linebender/velato) crate.
+
+### Community
+
+- [bevy-vello](https://github.com/vectorgameexperts/bevy-vello): A bevy integration to render lottie or svg files
+- [vellottie](https://github.com/vectorgameexperts/vellottie): A non-serde lottie stepthrough parser and runtime for lottie files, with a mirror'ed runtime of velato
 
 ## Examples
 
