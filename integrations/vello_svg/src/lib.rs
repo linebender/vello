@@ -33,22 +33,28 @@
 //! - patterns
 
 use std::convert::Infallible;
-
 use usvg::NodeExt;
-use vello::kurbo::{Affine, BezPath, Rect, Stroke};
-use vello::peniko::{Brush, Color, Fill};
-use vello::SceneBuilder;
+use vello::{
+    kurbo::{Affine, BezPath, Point, Rect, Stroke},
+    peniko::{Brush, Color, Fill},
+    SceneBuilder,
+};
 
+/// Re-export vello.
+pub use vello;
+
+/// Re-export usvg.
 pub use usvg;
 
-/// Append a [`usvg::Tree`] into a Vello [`SceneBuilder`], with default error handling
-/// This will draw a red box over (some) unsupported elements
+/// Append a [`usvg::Tree`] into a Vello [`SceneBuilder`], with default error
+/// handling This will draw a red box over (some) unsupported elements
 ///
 /// Calls [`render_tree_with`] with an error handler implementing the above.
 ///
-/// See the [module level documentation](crate#unsupported-features) for a list of some unsupported svg features
-pub fn render_tree(sb: &mut SceneBuilder, svg: &usvg::Tree) {
-    render_tree_with(sb, svg, default_error_handler).unwrap_or_else(|e| match e {});
+/// See the [module level documentation](crate#unsupported-features) for a list
+/// of some unsupported svg features
+pub fn render_tree(sb: &mut SceneBuilder, svg: &usvg::Tree, transform: Option<Affine>) {
+    render_tree_with(sb, svg, transform, default_error_handler).unwrap_or_else(|e| match e {})
 }
 
 /// Append a [`usvg::Tree`] into a Vello [`SceneBuilder`].
@@ -56,55 +62,78 @@ pub fn render_tree(sb: &mut SceneBuilder, svg: &usvg::Tree) {
 /// Calls [`render_tree_with`] with [`default_error_handler`].
 /// This will draw a red box over unsupported element types.
 ///
-/// See the [module level documentation](crate#unsupported-features) for a list of some unsupported svg features
+/// See the [module level documentation](crate#unsupported-features) for a list
+/// of some unsupported svg features
 pub fn render_tree_with<F: FnMut(&mut SceneBuilder, &usvg::Node) -> Result<(), E>, E>(
     sb: &mut SceneBuilder,
     svg: &usvg::Tree,
+    transform2: Option<Affine>,
     mut on_err: F,
 ) -> Result<(), E> {
     for elt in svg.root.descendants() {
         let transform = {
-            let usvg::Transform { a, b, c, d, e, f } = elt.abs_transform();
-            Affine::new([a, b, c, d, e, f])
+            let usvg::Transform {
+                sx,
+                kx,
+                ky,
+                sy,
+                tx,
+                ty,
+            } = elt.abs_transform();
+            let (a, b, c, d, e, f) = (
+                sx as f64, ky as f64, kx as f64, sy as f64, tx as f64, ty as f64,
+            );
+            if let Some(t2) = transform2 {
+                t2 * Affine::new([a, b, c, d, e, f])
+            } else {
+                Affine::new([a, b, c, d, e, f])
+            }
         };
         match &*elt.borrow() {
             usvg::NodeKind::Group(_) => {}
             usvg::NodeKind::Path(path) => {
                 let mut local_path = BezPath::new();
-                // The semantics of SVG paths don't line up with `BezPath`; we must manually track initial points
+                // The semantics of SVG paths don't line up with `BezPath`; we
+                // must manually track initial points
                 let mut just_closed = false;
                 let mut most_recent_initial = (0., 0.);
                 for elt in path.data.segments() {
                     match elt {
-                        usvg::PathSegment::MoveTo { x, y } => {
+                        usvg::tiny_skia_path::PathSegment::MoveTo(p) => {
                             if std::mem::take(&mut just_closed) {
                                 local_path.move_to(most_recent_initial);
                             }
-                            most_recent_initial = (x, y);
-                            local_path.move_to(most_recent_initial);
+                            most_recent_initial = (p.x.into(), p.y.into());
+                            local_path.move_to(most_recent_initial)
                         }
-                        usvg::PathSegment::LineTo { x, y } => {
+                        usvg::tiny_skia_path::PathSegment::LineTo(p) => {
                             if std::mem::take(&mut just_closed) {
                                 local_path.move_to(most_recent_initial);
                             }
-                            local_path.line_to((x, y));
+                            local_path.line_to::<Point>((p.x as f64, p.y as f64).into())
                         }
-                        usvg::PathSegment::CurveTo {
-                            x1,
-                            y1,
-                            x2,
-                            y2,
-                            x,
-                            y,
-                        } => {
+                        usvg::tiny_skia_path::PathSegment::QuadTo(p1, p2) => {
                             if std::mem::take(&mut just_closed) {
                                 local_path.move_to(most_recent_initial);
                             }
-                            local_path.curve_to((x1, y1), (x2, y2), (x, y));
+                            local_path.quad_to(
+                                Point::new(p1.x as f64, p1.y as f64),
+                                Point::new(p2.x as f64, p2.y as f64),
+                            )
                         }
-                        usvg::PathSegment::ClosePath => {
+                        usvg::tiny_skia_path::PathSegment::CubicTo(p1, p2, p3) => {
+                            if std::mem::take(&mut just_closed) {
+                                local_path.move_to(most_recent_initial);
+                            }
+                            local_path.curve_to(
+                                Point::new(p1.x as f64, p1.y as f64),
+                                Point::new(p2.x as f64, p2.y as f64),
+                                Point::new(p3.x as f64, p3.y as f64),
+                            )
+                        }
+                        usvg::tiny_skia_path::PathSegment::Close => {
                             just_closed = true;
-                            local_path.close_path();
+                            local_path.close_path()
                         }
                     }
                 }
@@ -115,9 +144,11 @@ pub fn render_tree_with<F: FnMut(&mut SceneBuilder, &usvg::Node) -> Result<(), E
                     if let Some((brush, brush_transform)) =
                         paint_to_brush(&fill.paint, fill.opacity)
                     {
-                        // FIXME: Set the fill rule
                         sb.fill(
-                            Fill::NonZero,
+                            match fill.rule {
+                                usvg::FillRule::NonZero => Fill::NonZero,
+                                usvg::FillRule::EvenOdd => Fill::EvenOdd,
+                            },
                             transform,
                             &brush,
                             Some(brush_transform),
@@ -131,9 +162,10 @@ pub fn render_tree_with<F: FnMut(&mut SceneBuilder, &usvg::Node) -> Result<(), E
                     if let Some((brush, brush_transform)) =
                         paint_to_brush(&stroke.paint, stroke.opacity)
                     {
-                        // FIXME: handle stroke options such as linecap, linejoin, etc.
+                        // FIXME: handle stroke options such as linecap,
+                        // linejoin, etc.
                         sb.stroke(
-                            &Stroke::new(stroke.width.get()),
+                            &Stroke::new(stroke.width.get() as f64),
                             transform,
                             &brush,
                             Some(brush_transform),
@@ -155,15 +187,15 @@ pub fn render_tree_with<F: FnMut(&mut SceneBuilder, &usvg::Node) -> Result<(), E
     Ok(())
 }
 
-/// Error handler function for [`render_tree_with`] which draws a transparent red box
-/// instead of unsupported SVG features
+/// Error handler function for [`render_tree_with`] which draws a transparent
+/// red box instead of unsupported SVG features
 pub fn default_error_handler(sb: &mut SceneBuilder, node: &usvg::Node) -> Result<(), Infallible> {
     if let Some(bb) = node.calculate_bbox() {
         let rect = Rect {
-            x0: bb.left(),
-            y0: bb.top(),
-            x1: bb.right(),
-            y1: bb.bottom(),
+            x0: bb.left() as f64,
+            y0: bb.top() as f64,
+            x1: bb.right() as f64,
+            y1: bb.bottom() as f64,
         };
         sb.fill(
             Fill::NonZero,
@@ -197,20 +229,21 @@ fn paint_to_brush(paint: &usvg::Paint, opacity: usvg::Opacity) -> Option<(Brush,
                     cstop.color.g = stop.color.green;
                     cstop.color.b = stop.color.blue;
                     cstop.color.a = (stop.opacity * opacity).to_u8();
-                    cstop.offset = stop.offset.get() as f32;
+                    cstop.offset = stop.offset.get();
                     cstop
                 })
                 .collect();
-            let start: vello::kurbo::Point = (gr.x1, gr.y1).into();
-            let end: vello::kurbo::Point = (gr.x2, gr.y2).into();
-            let transform = Affine::new([
-                gr.transform.a,
-                gr.transform.b,
-                gr.transform.c,
-                gr.transform.d,
-                gr.transform.e,
-                gr.transform.f,
-            ]);
+            let start: vello::kurbo::Point = (gr.x1 as f64, gr.y1 as f64).into();
+            let end: vello::kurbo::Point = (gr.x2 as f64, gr.y2 as f64).into();
+            let (a, b, c, d, e, f) = (
+                gr.transform.sx as f64,
+                gr.transform.ky as f64,
+                gr.transform.kx as f64,
+                gr.transform.sy as f64,
+                gr.transform.tx as f64,
+                gr.transform.ty as f64,
+            );
+            let transform = Affine::new([a, b, c, d, e, f]);
             let gradient =
                 vello::peniko::Gradient::new_linear(start, end).with_stops(stops.as_slice());
             Some((Brush::Gradient(gradient), transform))
@@ -225,23 +258,24 @@ fn paint_to_brush(paint: &usvg::Paint, opacity: usvg::Opacity) -> Option<(Brush,
                     cstop.color.g = stop.color.green;
                     cstop.color.b = stop.color.blue;
                     cstop.color.a = (stop.opacity * opacity).to_u8();
-                    cstop.offset = stop.offset.get() as f32;
+                    cstop.offset = stop.offset.get();
                     cstop
                 })
                 .collect();
 
-            let start_center: vello::kurbo::Point = (gr.fx, gr.fy).into();
-            let end_center: vello::kurbo::Point = (gr.cx, gr.cy).into();
+            let start_center: vello::kurbo::Point = Point::new(gr.cx as f64, gr.cy as f64);
+            let end_center: vello::kurbo::Point = Point::new(gr.fx as f64, gr.fy as f64);
             let start_radius = 0_f32;
-            let end_radius = gr.r.get() as f32;
-            let transform = Affine::new([
-                gr.transform.a,
-                gr.transform.b,
-                gr.transform.c,
-                gr.transform.d,
-                gr.transform.e,
-                gr.transform.f,
-            ]);
+            let end_radius = gr.r.get();
+            let (a, b, c, d, e, f) = (
+                gr.transform.sx as f64,
+                gr.transform.ky as f64,
+                gr.transform.kx as f64,
+                gr.transform.sy as f64,
+                gr.transform.tx as f64,
+                gr.transform.ty as f64,
+            );
+            let transform = Affine::new([a, b, c, d, e, f]);
             let gradient = vello::peniko::Gradient::new_two_point_radial(
                 start_center,
                 start_radius,
