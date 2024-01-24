@@ -5,19 +5,18 @@ use std::collections::HashMap;
 
 use super::{Encoding, StreamOffsets};
 
-use fello::scale::{Pen, Scaler};
-use fello::GlyphId;
 use peniko::{
     kurbo::{BezPath, Shape},
     Fill, Style,
 };
+use skrifa::{instance::NormalizedCoord, outline::OutlinePen, GlyphId, OutlineGlyphCollection};
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Default, Debug)]
 pub struct GlyphKey {
     pub font_id: u64,
     pub font_index: u32,
     pub glyph_id: u32,
-    pub font_size: u32,
+    pub font_size_bits: u32,
     pub hint: bool,
 }
 
@@ -35,11 +34,14 @@ impl GlyphCache {
 
     pub fn get_or_insert(
         &mut self,
+        outlines: &OutlineGlyphCollection,
         key: GlyphKey,
         style: &Style,
-        scaler: &mut Scaler,
+        font_size: f32,
+        coords: &[NormalizedCoord],
     ) -> Option<CachedRange> {
-        let is_var = !scaler.normalized_coords().is_empty();
+        let size = skrifa::instance::Size::new(font_size);
+        let is_var = !coords.is_empty();
         let encoding_cache = &mut self.encoding;
         let mut encode_glyph = || {
             let start = encoding_cache.stream_offsets();
@@ -49,18 +51,16 @@ impl GlyphCache {
             };
             encoding_cache.encode_fill_style(fill);
             let mut path = encoding_cache.encode_path(true);
+            let outline = outlines.get(GlyphId::new(key.glyph_id as u16))?;
+            let draw_settings = skrifa::outline::DrawSettings::unhinted(size, coords);
             match style {
                 Style::Fill(_) => {
-                    scaler
-                        .outline(GlyphId::new(key.glyph_id as u16), &mut path)
-                        .ok()?;
+                    outline.draw(draw_settings, &mut path).ok()?;
                 }
                 Style::Stroke(stroke) => {
                     const STROKE_TOLERANCE: f64 = 0.01;
                     let mut pen = BezPathPen::default();
-                    scaler
-                        .outline(GlyphId::new(key.glyph_id as u16), &mut pen)
-                        .ok()?;
+                    outline.draw(draw_settings, &mut pen).ok()?;
                     let stroked = peniko::kurbo::stroke(
                         pen.0.path_elements(STROKE_TOLERANCE),
                         stroke,
@@ -110,12 +110,11 @@ impl CachedRange {
     }
 }
 
-// A wrapper newtype so we can implement the `Pen` trait. Arguably, this could
-// be in the fello crate, but will go away when we do GPU-side stroking.
+// A wrapper newtype so we can implement the `OutlinePen` trait.
 #[derive(Default)]
 struct BezPathPen(BezPath);
 
-impl Pen for BezPathPen {
+impl OutlinePen for BezPathPen {
     fn move_to(&mut self, x: f32, y: f32) {
         self.0.move_to((x as f64, y as f64));
     }
