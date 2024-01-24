@@ -19,7 +19,7 @@ use std::sync::Arc;
 use vello::{
     glyph::{Glyph, GlyphContext},
     kurbo::Affine,
-    peniko::{Blob, Brush, BrushRef, Color, Fill, Font, StyleRef},
+    peniko::{Blob, Brush, BrushRef, Font, StyleRef},
     skrifa::{raw::FontRef, MetadataProvider},
     SceneBuilder,
 };
