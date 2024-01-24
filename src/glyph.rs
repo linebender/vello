@@ -36,14 +36,9 @@ use skrifa::{outline::DrawSettings, MetadataProvider};
 pub use vello_encoding::Glyph;
 
 /// General context for creating scene fragments for glyph outlines.
+#[derive(Default)]
 pub struct GlyphContext {
     coords: Vec<NormalizedCoord>,
-}
-
-impl Default for GlyphContext {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl GlyphContext {
