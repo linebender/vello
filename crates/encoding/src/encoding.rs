@@ -104,6 +104,7 @@ impl Encoding {
                 .glyph_runs
                 .extend(other.resources.glyph_runs.iter().cloned().map(|mut run| {
                     run.glyphs.start += glyphs_base;
+                    run.glyphs.end += glyphs_base;
                     run.normalized_coords.start += coords_base;
                     run.stream_offsets.path_tags += offsets.path_tags;
                     run.stream_offsets.path_data += offsets.path_data;
