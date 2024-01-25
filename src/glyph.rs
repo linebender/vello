@@ -18,38 +18,33 @@
 
 use crate::scene::{SceneBuilder, SceneFragment};
 use {
-    fello::{
-        raw::types::GlyphId,
-        raw::FontRef,
-        scale::{Context, Pen, Scaler},
-        FontKey, Setting, Size,
-    },
     peniko::kurbo::Affine,
     peniko::{Brush, Color, Fill, Style},
+    skrifa::{
+        instance::{NormalizedCoord, Size},
+        outline::OutlinePen,
+        raw::FontRef,
+        setting::Setting,
+        GlyphId, OutlineGlyphCollection,
+    },
     vello_encoding::Encoding,
 };
 
-pub use fello;
 use peniko::kurbo::Shape;
+pub use skrifa;
+use skrifa::{outline::DrawSettings, MetadataProvider};
 pub use vello_encoding::Glyph;
 
 /// General context for creating scene fragments for glyph outlines.
+#[derive(Default)]
 pub struct GlyphContext {
-    ctx: Context,
-}
-
-impl Default for GlyphContext {
-    fn default() -> Self {
-        Self::new()
-    }
+    coords: Vec<NormalizedCoord>,
 }
 
 impl GlyphContext {
     /// Creates a new context.
     pub fn new() -> Self {
-        Self {
-            ctx: Context::new(),
-        }
+        Self::default()
     }
 
     /// Creates a new provider for generating scene fragments for glyphs from
@@ -57,31 +52,38 @@ impl GlyphContext {
     pub fn new_provider<'a, V>(
         &'a mut self,
         font: &FontRef<'a>,
-        font_id: Option<FontKey>,
         ppem: f32,
-        hint: bool,
+        _hint: bool,
         variations: V,
     ) -> GlyphProvider<'a>
     where
         V: IntoIterator,
         V::Item: Into<Setting<f32>>,
     {
-        let scaler = self
-            .ctx
-            .new_scaler()
-            .size(Size::new(ppem))
-            .hint(hint.then_some(fello::scale::Hinting::VerticalSubpixel))
-            .key(font_id)
-            .variations(variations)
-            .build(font);
-        GlyphProvider { scaler }
+        let outlines = font.outline_glyphs();
+        let size = Size::new(ppem);
+        let axes = font.axes();
+        let axis_count = axes.len();
+        self.coords.clear();
+        self.coords.resize(axis_count, Default::default());
+        axes.location_to_slice(variations, &mut self.coords);
+        if self.coords.iter().all(|x| *x == NormalizedCoord::default()) {
+            self.coords.clear();
+        }
+        GlyphProvider {
+            outlines,
+            size,
+            coords: &self.coords,
+        }
     }
 }
 
 /// Generator for scene fragments containing glyph outlines for a specific
 /// font.
 pub struct GlyphProvider<'a> {
-    scaler: Scaler<'a>,
+    outlines: OutlineGlyphCollection<'a>,
+    size: Size,
+    coords: &'a [NormalizedCoord],
 }
 
 impl<'a> GlyphProvider<'a> {
@@ -91,7 +93,9 @@ impl<'a> GlyphProvider<'a> {
         let mut fragment = SceneFragment::default();
         let mut builder = SceneBuilder::for_fragment(&mut fragment);
         let mut path = BezPathPen::default();
-        self.scaler.outline(GlyphId::new(gid), &mut path).ok()?;
+        let outline = self.outlines.get(GlyphId::new(gid))?;
+        let draw_settings = DrawSettings::unhinted(self.size, self.coords);
+        outline.draw(draw_settings, &mut path).ok()?;
         builder.fill(
             Fill::NonZero,
             Affine::IDENTITY,
@@ -109,14 +113,16 @@ impl<'a> GlyphProvider<'a> {
         };
         encoding.encode_fill_style(fill);
         let mut path = encoding.encode_path(true);
+        let outline = self.outlines.get(GlyphId::new(gid))?;
+        let draw_settings = DrawSettings::unhinted(self.size, self.coords);
         match style {
             Style::Fill(_) => {
-                self.scaler.outline(GlyphId::new(gid), &mut path).ok()?;
+                outline.draw(draw_settings, &mut path).ok()?;
             }
             Style::Stroke(stroke) => {
                 const STROKE_TOLERANCE: f64 = 0.01;
                 let mut pen = BezPathPen::default();
-                self.scaler.outline(GlyphId::new(gid), &mut pen).ok()?;
+                outline.draw(draw_settings, &mut pen).ok()?;
                 let stroked = peniko::kurbo::stroke(
                     pen.0.path_elements(STROKE_TOLERANCE),
                     stroke,
@@ -137,7 +143,7 @@ impl<'a> GlyphProvider<'a> {
 #[derive(Default)]
 struct BezPathPen(peniko::kurbo::BezPath);
 
-impl Pen for BezPathPen {
+impl OutlinePen for BezPathPen {
     fn move_to(&mut self, x: f32, y: f32) {
         self.0.move_to((x as f64, y as f64));
     }

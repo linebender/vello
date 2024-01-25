@@ -14,9 +14,9 @@
 //
 // Also licensed under MIT license, at your choice.
 
-use fello::NormalizedCoord;
 use peniko::kurbo::{Affine, Rect, Shape, Stroke};
 use peniko::{BlendMode, BrushRef, Color, Fill, Font, Image, StyleRef};
+use skrifa::instance::NormalizedCoord;
 use vello_encoding::{Encoding, Glyph, GlyphRun, Patch, Transform};
 
 /// Encoded definition of a scene and associated resources.

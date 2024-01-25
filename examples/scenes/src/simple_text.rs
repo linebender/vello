@@ -17,11 +17,10 @@
 use std::sync::Arc;
 
 use vello::{
-    fello::meta::MetadataProvider,
-    fello::raw::FontRef,
     glyph::{Glyph, GlyphContext},
     kurbo::Affine,
     peniko::{Blob, Brush, BrushRef, Font, StyleRef},
+    skrifa::{raw::FontRef, MetadataProvider},
     SceneBuilder,
 };
 
@@ -31,7 +30,6 @@ const ROBOTO_FONT: &[u8] = include_bytes!("../../assets/roboto/Roboto-Regular.tt
 const INCONSOLATA_FONT: &[u8] = include_bytes!("../../assets/inconsolata/Inconsolata.ttf");
 
 pub struct SimpleText {
-    gcx: GlyphContext,
     roboto: Font,
     inconsolata: Font,
 }
@@ -40,7 +38,6 @@ impl SimpleText {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
-            gcx: GlyphContext::new(),
             roboto: Font::new(Blob::new(Arc::new(ROBOTO_FONT)), 0),
             inconsolata: Font::new(Blob::new(Arc::new(INCONSOLATA_FONT)), 0),
         }
@@ -94,14 +91,12 @@ impl SimpleText {
         let brush = brush.into();
         let style = style.into();
         let axes = font_ref.axes();
-        let fello_size = vello::fello::Size::new(size);
-        let coords = axes
-            .normalize(variations.iter().copied())
-            .collect::<Vec<_>>();
+        let font_size = vello::skrifa::instance::Size::new(size);
+        let var_loc = axes.location(variations.iter().copied());
         let charmap = font_ref.charmap();
-        let metrics = font_ref.metrics(fello_size, coords.as_slice().into());
+        let metrics = font_ref.metrics(font_size, &var_loc);
         let line_height = metrics.ascent - metrics.descent + metrics.leading;
-        let glyph_metrics = font_ref.glyph_metrics(fello_size, coords.as_slice().into());
+        let glyph_metrics = font_ref.glyph_metrics(font_size, &var_loc);
         let mut pen_x = 0f32;
         let mut pen_y = 0f32;
         builder
@@ -109,7 +104,7 @@ impl SimpleText {
             .font_size(size)
             .transform(transform)
             .glyph_transform(glyph_transform)
-            .normalized_coords(&coords)
+            .normalized_coords(var_loc.coords())
             .brush(brush)
             .draw(
                 style,
@@ -143,15 +138,17 @@ impl SimpleText {
     ) {
         let default_font = FontRef::new(ROBOTO_FONT).unwrap();
         let font = font.and_then(to_font_ref).unwrap_or(default_font);
-        let fello_size = vello::fello::Size::new(size);
+        let font_size = vello::skrifa::instance::Size::new(size);
+        let var_loc = vello::skrifa::instance::LocationRef::default();
         let charmap = font.charmap();
-        let metrics = font.metrics(fello_size, Default::default());
+        let metrics = font.metrics(font_size, var_loc);
         let line_height = metrics.ascent - metrics.descent + metrics.leading;
-        let glyph_metrics = font.glyph_metrics(fello_size, Default::default());
+        let glyph_metrics = font.glyph_metrics(font_size, var_loc);
         let mut pen_x = 0f64;
         let mut pen_y = 0f64;
         let vars: [(&str, f32); 0] = [];
-        let mut provider = self.gcx.new_provider(&font, None, size, false, vars);
+        let mut gcx = GlyphContext::new();
+        let mut provider = gcx.new_provider(&font, size, false, &vars);
         for ch in text.chars() {
             if ch == '\n' {
                 pen_y += line_height as f64;
@@ -172,7 +169,7 @@ impl SimpleText {
 }
 
 fn to_font_ref(font: &Font) -> Option<FontRef<'_>> {
-    use vello::fello::raw::FileRef;
+    use vello::skrifa::raw::FileRef;
     let file_ref = FileRef::new(font.data.as_ref()).ok()?;
     match file_ref {
         FileRef::Font(font) => Some(font),

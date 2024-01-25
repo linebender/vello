@@ -767,7 +767,7 @@ impl<'a> PathEncoder<'a> {
 }
 
 #[cfg(feature = "full")]
-impl fello::scale::Pen for PathEncoder<'_> {
+impl skrifa::outline::OutlinePen for PathEncoder<'_> {
     fn move_to(&mut self, x: f32, y: f32) {
         self.move_to(x, y);
     }

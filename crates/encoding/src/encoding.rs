@@ -11,8 +11,8 @@ use peniko::{
 #[cfg(feature = "full")]
 use {
     super::{DrawImage, DrawLinearGradient, DrawRadialGradient, Glyph, GlyphRun, Patch},
-    fello::NormalizedCoord,
     peniko::{ColorStop, Extend, GradientKind, Image},
+    skrifa::instance::NormalizedCoord,
 };
 
 /// Encoded data streams for a scene.

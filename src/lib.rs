@@ -31,7 +31,7 @@ pub use peniko;
 pub use peniko::kurbo;
 
 #[doc(hidden)]
-pub use fello;
+pub use skrifa;
 
 pub mod glyph;
 

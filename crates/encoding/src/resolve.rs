@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use bytemuck::{Pod, Zeroable};
+use skrifa::MetadataProvider;
 
 use super::{DrawTag, Encoding, PathTag, StreamOffsets, Style, Transform};
 
@@ -164,7 +165,6 @@ pub fn resolve_solid_paths_only(encoding: &Encoding, packed: &mut Vec<u8>) -> La
 pub struct Resolver {
     glyph_cache: GlyphCache,
     glyph_ranges: Vec<CachedRange>,
-    glyph_cx: fello::scale::Context,
     ramp_cache: RampCache,
     image_cache: ImageCache,
     pending_images: Vec<PendingImage>,
@@ -414,23 +414,18 @@ impl Resolver {
                     let mut run_sizes = StreamOffsets::default();
                     let run = &resources.glyph_runs[*index];
                     let font_id = run.font.data.id();
-                    let font_size_u32 = run.font_size.to_bits();
-                    let Ok(font_file) = fello::raw::FileRef::new(run.font.data.as_ref()) else {
+                    let Ok(font_file) = skrifa::raw::FileRef::new(run.font.data.as_ref()) else {
                         continue;
                     };
                     let font = match font_file {
-                        fello::raw::FileRef::Font(font) => Some(font),
-                        fello::raw::FileRef::Collection(collection) => {
+                        skrifa::raw::FileRef::Font(font) => Some(font),
+                        skrifa::raw::FileRef::Collection(collection) => {
                             collection.get(run.font.index).ok()
                         }
                     };
                     let Some(font) = font else { continue };
                     let glyphs = &resources.glyphs[run.glyphs.clone()];
                     let coords = &resources.normalized_coords[run.normalized_coords.clone()];
-                    let key = fello::FontKey {
-                        data_id: font_id,
-                        index: run.font.index,
-                    };
                     let mut hint = run.hint;
                     let mut font_size = run.font_size;
                     let mut transform = run.transform;
@@ -448,26 +443,19 @@ impl Resolver {
                             hint = false;
                         }
                     }
-                    let mut scaler = self
-                        .glyph_cx
-                        .new_scaler()
-                        .key(Some(key))
-                        .hint(hint.then_some(fello::scale::Hinting::VerticalSubpixel))
-                        .coords(coords)
-                        .size(fello::Size::new(font_size))
-                        .build(&font);
+                    let outlines = font.outline_glyphs();
                     let glyph_start = self.glyph_ranges.len();
                     for glyph in glyphs {
                         let key = GlyphKey {
                             font_id,
                             font_index: run.font.index,
-                            font_size: font_size_u32,
+                            font_size_bits: font_size.to_bits(),
                             glyph_id: glyph.id,
-                            hint: run.hint,
+                            hint,
                         };
                         let encoding_range = self
                             .glyph_cache
-                            .get_or_insert(key, &run.style, &mut scaler)
+                            .get_or_insert(&outlines, key, &run.style, font_size, coords)
                             .unwrap_or_default();
                         run_sizes.add(&encoding_range.len());
                         self.glyph_ranges.push(encoding_range);

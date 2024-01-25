@@ -9,10 +9,10 @@ repository.workspace = true
 default = ["full"]
 # Enables support for the full pipeline including late-bound
 # resources (gradients, images and glyph runs)
-full = ["fello", "guillotiere"]
+full = ["skrifa", "guillotiere"]
 
 [dependencies]
 bytemuck = { workspace = true }
-fello = { workspace = true, optional = true }
+skrifa = { workspace = true, optional = true }
 peniko = { workspace = true }
 guillotiere = { version = "0.6.2", optional = true }
