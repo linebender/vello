@@ -346,5 +346,9 @@ impl<'a> DrawGlyphs<'a> {
         resources.glyph_runs.push(self.run);
         resources.patches.push(Patch::GlyphRun { index });
         self.encoding.encode_brush(self.brush, self.brush_alpha);
+        // Glyph run resolve step affects transform and style state in a way
+        // that is opaque to the current encoding.
+        // See <https://github.com/linebender/vello/issues/424>
+        self.encoding.force_next_transform_and_style();
     }
 }

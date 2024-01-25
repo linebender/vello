@@ -17,7 +17,7 @@
 use std::sync::Arc;
 
 use vello::{
-    glyph::{Glyph, GlyphContext},
+    glyph::Glyph,
     kurbo::Affine,
     peniko::{Blob, Brush, BrushRef, Font, StyleRef},
     skrifa::{raw::FontRef, MetadataProvider},
@@ -136,35 +136,18 @@ impl SimpleText {
         transform: Affine,
         text: &str,
     ) {
-        let default_font = FontRef::new(ROBOTO_FONT).unwrap();
-        let font = font.and_then(to_font_ref).unwrap_or(default_font);
-        let font_size = vello::skrifa::instance::Size::new(size);
-        let var_loc = vello::skrifa::instance::LocationRef::default();
-        let charmap = font.charmap();
-        let metrics = font.metrics(font_size, var_loc);
-        let line_height = metrics.ascent - metrics.descent + metrics.leading;
-        let glyph_metrics = font.glyph_metrics(font_size, var_loc);
-        let mut pen_x = 0f64;
-        let mut pen_y = 0f64;
-        let vars: [(&str, f32); 0] = [];
-        let mut gcx = GlyphContext::new();
-        let mut provider = gcx.new_provider(&font, size, false, &vars);
-        for ch in text.chars() {
-            if ch == '\n' {
-                pen_y += line_height as f64;
-                pen_x = 0.0;
-                continue;
-            }
-            let gid = charmap.map(ch).unwrap_or_default();
-            let advance = glyph_metrics.advance_width(gid).unwrap_or_default() as f64;
-            if let Some(glyph) = provider.get(gid.to_u16(), brush) {
-                let xform = transform
-                    * Affine::translate((pen_x, pen_y))
-                    * Affine::scale_non_uniform(1.0, -1.0);
-                builder.append(&glyph, Some(xform));
-            }
-            pen_x += advance;
-        }
+        use vello::peniko::{Color, Fill};
+        let brush = brush.unwrap_or(&Brush::Solid(Color::WHITE));
+        self.add_run(
+            builder,
+            font,
+            size,
+            brush,
+            transform,
+            None,
+            Fill::NonZero,
+            text,
+        );
     }
 }
 
