@@ -52,6 +52,8 @@ impl GlyphCache {
             encoding_cache.encode_fill_style(fill);
             let mut path = encoding_cache.encode_path(true);
             let outline = outlines.get(GlyphId::new(key.glyph_id as u16))?;
+            // FIXME: Re-add hinting when skrifa supports it
+            // Tracking issue <https://github.com/googlefonts/fontations/issues/620>
             let draw_settings = skrifa::outline::DrawSettings::unhinted(size, coords);
             match style {
                 Style::Fill(_) => {
