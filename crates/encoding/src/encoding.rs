@@ -41,9 +41,19 @@ pub struct Encoding {
     pub n_clips: u32,
     /// Number of unclosed clips/layers.
     pub n_open_clips: u32,
+    /// Flags that capture the current state of the encoding.
+    pub flags: u32,
 }
 
 impl Encoding {
+    /// Forces encoding of the next transform even if it matches
+    /// the current transform in the stream.
+    pub const FORCE_NEXT_TRANSFORM: u32 = 1;
+
+    /// Forces encoding of the next style even if it matches
+    /// the current style in the stream.
+    pub const FORCE_NEXT_STYLE: u32 = 2;
+
     /// Creates a new encoding.
     pub fn new() -> Self {
         Self::default()
@@ -66,6 +76,7 @@ impl Encoding {
         self.n_path_segments = 0;
         self.n_clips = 0;
         self.n_open_clips = 0;
+        self.flags = 0;
         #[cfg(feature = "full")]
         self.resources.reset();
         if !is_fragment {
@@ -93,6 +104,7 @@ impl Encoding {
                 .glyph_runs
                 .extend(other.resources.glyph_runs.iter().cloned().map(|mut run| {
                     run.glyphs.start += glyphs_base;
+                    run.glyphs.end += glyphs_base;
                     run.normalized_coords.start += coords_base;
                     run.stream_offsets.path_tags += offsets.path_tags;
                     run.stream_offsets.path_data += offsets.path_data;
@@ -141,6 +153,7 @@ impl Encoding {
         self.n_path_segments += other.n_path_segments;
         self.n_clips += other.n_clips;
         self.n_open_clips += other.n_open_clips;
+        self.flags = other.flags;
         if let Some(transform) = *transform {
             self.transforms
                 .extend(other.transforms.iter().map(|x| transform * *x));
@@ -168,19 +181,19 @@ impl Encoding {
 
     /// Encodes a fill style.
     pub fn encode_fill_style(&mut self, fill: Fill) {
-        let style = Style::from_fill(fill);
-        if self.styles.last() != Some(&style) {
-            self.path_tags.push(PathTag::STYLE);
-            self.styles.push(style);
-        }
+        self.encode_style(Style::from_fill(fill));
     }
 
     /// Encodes a stroke style.
     pub fn encode_stroke_style(&mut self, stroke: &Stroke) {
-        let style = Style::from_stroke(stroke);
-        if self.styles.last() != Some(&style) {
+        self.encode_style(Style::from_stroke(stroke));
+    }
+
+    fn encode_style(&mut self, style: Style) {
+        if self.flags & Self::FORCE_NEXT_STYLE != 0 || self.styles.last() != Some(&style) {
             self.path_tags.push(PathTag::STYLE);
             self.styles.push(style);
+            self.flags &= !Self::FORCE_NEXT_STYLE;
         }
     }
 
@@ -189,9 +202,12 @@ impl Encoding {
     /// If the given transform is different from the current one, encodes it and
     /// returns true. Otherwise, encodes nothing and returns false.
     pub fn encode_transform(&mut self, transform: Transform) -> bool {
-        if self.transforms.last() != Some(&transform) {
+        if self.flags & Self::FORCE_NEXT_TRANSFORM != 0
+            || self.transforms.last() != Some(&transform)
+        {
             self.path_tags.push(PathTag::TRANSFORM);
             self.transforms.push(transform);
+            self.flags &= !Self::FORCE_NEXT_TRANSFORM;
             true
         } else {
             false
@@ -379,6 +395,12 @@ impl Encoding {
             self.n_clips += 1;
             self.n_open_clips -= 1;
         }
+    }
+
+    /// Forces the next transform and style to be encoded even if they match
+    /// the current state.
+    pub fn force_next_transform_and_style(&mut self) {
+        self.flags |= Self::FORCE_NEXT_TRANSFORM | Self::FORCE_NEXT_STYLE;
     }
 
     // Swap the last two tags in the path tag stream; used for transformed

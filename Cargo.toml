@@ -58,7 +58,7 @@ kurbo = "0.10.4"
 [workspace.dependencies]
 bytemuck = { version = "1.12.1", features = ["derive"] }
 skrifa = "0.15.4"
-peniko = { git = "https://github.com/linebender/peniko", rev = "629fc3325b016a8c98b1cd6204cb4ddf1c6b3daa" }
+peniko = { git = "https://github.com/linebender/peniko", rev = "8717635681dedfab3e9f3741fcbc7f3318a82ff0" }
 
 # NOTE: Make sure to keep this in sync with the version badge in README.md
 wgpu = { version = "0.18" }
