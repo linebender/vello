@@ -524,6 +524,10 @@ fn compute_tag_monoid(ix: usize, pathtags: &[u32], tag_monoids: &[PathMonoid]) -
     if tag_byte != 0 {
         tm = tag_monoids[ix >> 2].combine(&tm);
     }
+    // We no longer encode an initial transform and style so these
+    // are off by one.
+    tm.trans_ix -= 1;
+    tm.style_ix -= core::mem::size_of::<Style>() as u32 / 4;
     PathTagData {
         tag_byte,
         monoid: tm,

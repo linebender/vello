@@ -65,7 +65,7 @@ impl Encoding {
     }
 
     /// Clears the encoding.
-    pub fn reset(&mut self, is_fragment: bool) {
+    pub fn reset(&mut self) {
         self.transforms.clear();
         self.path_tags.clear();
         self.path_data.clear();
@@ -79,10 +79,6 @@ impl Encoding {
         self.flags = 0;
         #[cfg(feature = "full")]
         self.resources.reset();
-        if !is_fragment {
-            self.transforms.push(Transform::IDENTITY);
-            self.styles.push(Style::from_fill(Fill::NonZero));
-        }
     }
 
     /// Appends another encoding to this one with an optional transform.

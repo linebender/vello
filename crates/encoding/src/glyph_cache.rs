@@ -28,7 +28,7 @@ pub struct GlyphCache {
 
 impl GlyphCache {
     pub fn clear(&mut self) {
-        self.encoding.reset(true);
+        self.encoding.reset();
         self.glyphs.clear();
     }
 
