@@ -408,7 +408,7 @@ impl WgpuEngine {
                             cpass.set_bind_group(0, &bind_group, &[]);
                             cpass.dispatch_workgroups(wg_size.0, wg_size.1, wg_size.2);
                             #[cfg(feature = "wgpu-profiler")]
-                            let _ = profiler.end_query(&mut cpass, query);
+                            profiler.end_query(&mut cpass, query);
                         }
                     }
                 }
