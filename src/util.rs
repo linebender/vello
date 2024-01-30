@@ -51,16 +51,19 @@ impl RenderContext {
     }
 
     /// Creates a new surface for the specified window and dimensions.
-    pub async fn create_surface<'w, W>(
-        &'w mut self,
-        window: &'w W,
+    pub async fn create_surface<W>(
+        &mut self,
+        window: &W,
         width: u32,
         height: u32,
     ) -> Result<RenderSurface>
     where
-        W: HasWindowHandle + HasDisplayHandle + wgpu::WasmNotSendSync,
+        W: HasWindowHandle + HasDisplayHandle,
     {
-        let surface = self.instance.create_surface(window)?;
+        let surface = unsafe {
+            self.instance
+                .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::from_window(window)?)
+        }?;
         let dev_id = self
             .device(Some(&surface))
             .await
