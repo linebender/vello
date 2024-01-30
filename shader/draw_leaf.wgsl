@@ -111,7 +111,7 @@ fn main(
         var transform = Transform();
         let draw_flags = bbox.draw_flags;
         if tag_word == DRAWTAG_FILL_LIN_GRADIENT || tag_word == DRAWTAG_FILL_RAD_GRADIENT ||
-            tag_word == DRAWTAG_FILL_IMAGE 
+            tag_word == DRAWTAG_FILL_IMAGE
         {
             transform = read_transform(config.transform_base, bbox.trans_ix);
         }
@@ -140,7 +140,7 @@ fn main(
                 // Two-point conical gradient implementation based
                 // on the algorithm at <https://skia.org/docs/dev/design/conical/>
                 // This epsilon matches what Skia uses
-                let GRADIENT_EPSILON = 1.0 / f32(1 << 12u);
+                let GRADIENT_EPSILON = 1.0 / f32(1u << 12u);
                 info[di] = draw_flags;
                 var p0 = bitcast<vec2<f32>>(vec2(scene[dd + 1u], scene[dd + 2u]));
                 var p1 = bitcast<vec2<f32>>(vec2(scene[dd + 3u], scene[dd + 4u]));
@@ -190,7 +190,7 @@ fn main(
                     );
                     var user_to_scaled = user_to_unit_line;
                     // When r == 1.0, focal point is on circle
-                    if abs(radius - 1.0) <= GRADIENT_EPSILON { 
+                    if abs(radius - 1.0) <= GRADIENT_EPSILON {
                         kind = RAD_GRAD_KIND_FOCAL_ON_CIRCLE;
                         let scale = 0.5 * abs(1.0 - focal_x);
                         user_to_scaled = transform_mul(
