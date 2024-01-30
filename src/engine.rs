@@ -73,7 +73,7 @@ pub enum Command {
     Dispatch(ShaderId, (u32, u32, u32), Vec<ResourceProxy>),
     DispatchIndirect(ShaderId, BufProxy, u64, Vec<ResourceProxy>),
     Download(BufProxy),
-    Clear(BufProxy, u64, Option<NonZeroU64>),
+    Clear(BufProxy, u64, Option<u64>),
     FreeBuf(BufProxy),
     FreeImage(ImageProxy),
 }

@@ -48,5 +48,5 @@ console_log = "1"
 wasm-bindgen-futures = "0.4.33"
 # Note: pinning the exact dep here because 0.3.65 broke semver. Update this
 # when revving wgpu.
-web-sys = { version = "=0.3.64", features = [ "HtmlCollection", "Text" ] }
+web-sys = { version = "=0.3.67", features = [ "HtmlCollection", "Text" ] }
 getrandom = { version = "0.2.10", features = ["js"] }
