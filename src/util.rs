@@ -51,12 +51,12 @@ impl RenderContext {
     }
 
     /// Creates a new surface for the specified window and dimensions.
-    pub async fn create_surface<W>(
+    pub async fn create_surface<'w, W>(
         &mut self,
         window: &W,
         width: u32,
         height: u32,
-    ) -> Result<RenderSurface>
+    ) -> Result<RenderSurface<'w>>
     where
         W: HasWindowHandle + HasDisplayHandle,
     {
