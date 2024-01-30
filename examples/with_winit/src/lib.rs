@@ -164,71 +164,77 @@ fn run(
                                 Key::Named(NamedKey::ArrowDown) => {
                                     complexity = complexity.saturating_sub(1)
                                 }
-                                Key::Character(key @ "q") | Key::Character(key @ "e") => {
-                                    if let Some(prior_position) = prior_position {
-                                        let is_clockwise = key == "e";
-                                        let angle = if is_clockwise { -0.05 } else { 0.05 };
-                                        transform = Affine::translate(prior_position)
-                                            * Affine::rotate(angle)
-                                            * Affine::translate(-prior_position)
-                                            * transform;
-                                    }
-                                }
                                 Key::Named(NamedKey::Space) => {
                                     transform = Affine::IDENTITY;
                                 }
-                                Key::Character("s") => {
-                                    stats_shown = !stats_shown;
-                                }
-                                Key::Character("d") => {
-                                    complexity_shown = !complexity_shown;
-                                }
-                                Key::Character("c") => {
-                                    stats.clear_min_and_max();
-                                }
-                                Key::Character("m") => {
-                                    aa_config_ix = if modifiers.shift_key() {
-                                        aa_config_ix.saturating_sub(1)
-                                    } else {
-                                        aa_config_ix.saturating_add(1)
-                                    };
-                                }
-                                Key::Character("p") => {
-                                    if let Some(renderer) = &renderers[render_state.surface.dev_id]
-                                    {
-                                        if let Some(profile_result) = &renderer
-                                            .profile_result
-                                            .as_ref()
-                                            .or(profile_stored.as_ref())
-                                        {
-                                            // There can be empty results if the required features aren't supported
-                                            if !profile_result.is_empty() {
-                                                let path = std::path::Path::new("trace.json");
-                                                match wgpu_profiler::chrometrace::write_chrometrace(
-                                                    path,
-                                                    profile_result,
-                                                ) {
-                                                    Ok(()) => {
-                                                        println!("Wrote trace to path {path:?}");
-                                                    }
-                                                    Err(e) => {
-                                                        eprintln!("Failed to write trace {e}")
+                                Key::Character(char) => {
+                                    let char = char.to_lowercase();
+                                    match char.as_str() {
+                                        "q" | "e" => {
+                                            if let Some(prior_position) = prior_position {
+                                                let is_clockwise = char == "e";
+                                                let angle = if is_clockwise { -0.05 } else { 0.05 };
+                                                transform = Affine::translate(prior_position)
+                                                    * Affine::rotate(angle)
+                                                    * Affine::translate(-prior_position)
+                                                    * transform;
+                                            }
+                                        }
+                                        "s" => {
+                                            stats_shown = !stats_shown;
+                                        }
+                                        "d" => {
+                                            complexity_shown = !complexity_shown;
+                                        }
+                                        "c" => {
+                                            stats.clear_min_and_max();
+                                        }
+                                        "m" => {
+                                            aa_config_ix = if modifiers.shift_key() {
+                                                aa_config_ix.saturating_sub(1)
+                                            } else {
+                                                aa_config_ix.saturating_add(1)
+                                            };
+                                        }
+                                        "p" => {
+                                            if let Some(renderer) = &renderers[render_state.surface.dev_id]
+                                            {
+                                                if let Some(profile_result) = &renderer
+                                                  .profile_result
+                                                  .as_ref()
+                                                  .or(profile_stored.as_ref())
+                                                {
+                                                    // There can be empty results if the required features aren't supported
+                                                    if !profile_result.is_empty() {
+                                                        let path = std::path::Path::new("trace.json");
+                                                        match wgpu_profiler::chrometrace::write_chrometrace(
+                                                            path,
+                                                            profile_result,
+                                                        ) {
+                                                            Ok(()) => {
+                                                                println!("Wrote trace to path {path:?}");
+                                                            }
+                                                            Err(e) => {
+                                                                eprintln!("Failed to write trace {e}")
+                                                            }
+                                                        }
                                                     }
                                                 }
                                             }
                                         }
+                                        "v" => {
+                                            vsync_on = !vsync_on;
+                                            render_cx.set_present_mode(
+                                                &mut render_state.surface,
+                                                if vsync_on {
+                                                    wgpu::PresentMode::AutoVsync
+                                                } else {
+                                                    wgpu::PresentMode::AutoNoVsync
+                                                },
+                                            );
+                                        }
+                                        _ => {}
                                     }
-                                }
-                                Key::Character("v") => {
-                                    vsync_on = !vsync_on;
-                                    render_cx.set_present_mode(
-                                        &mut render_state.surface,
-                                        if vsync_on {
-                                            wgpu::PresentMode::AutoVsync
-                                        } else {
-                                            wgpu::PresentMode::AutoNoVsync
-                                        },
-                                    );
                                 }
                                 Key::Named(NamedKey::Escape) => event_loop.exit(),
                                 _ => {}
