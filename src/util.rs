@@ -21,7 +21,9 @@ use std::future::Future;
 use super::Result;
 
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
-use wgpu::{Adapter, Device, Instance, Limits, Queue, Surface, SurfaceConfiguration, TextureFormat};
+use wgpu::{
+    Adapter, Device, Instance, Limits, Queue, Surface, SurfaceConfiguration, TextureFormat,
+};
 
 /// Simple render context that maintains wgpu state for rendering the pipeline.
 pub struct RenderContext {
