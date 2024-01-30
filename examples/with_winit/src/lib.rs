@@ -164,7 +164,7 @@ fn run(
                                 Key::Named(NamedKey::ArrowDown) => {
                                     complexity = complexity.saturating_sub(1)
                                 }
-                                Key::Character(key @ "a") | Key::Character(key @ "e") => {
+                                Key::Character(key @ "q") | Key::Character(key @ "e") => {
                                     if let Some(prior_position) = prior_position {
                                         let is_clockwise = key == "e";
                                         let angle = if is_clockwise { -0.05 } else { 0.05 };
