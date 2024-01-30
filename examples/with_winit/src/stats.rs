@@ -21,7 +21,7 @@ use vello::{
     peniko::{Brush, Color, Fill},
     AaConfig, BumpAllocators, SceneBuilder,
 };
-use wgpu_profiler::GpuTimerScopeResult;
+use wgpu_profiler::GpuTimerQueryResult;
 
 const SLIDING_WINDOW_SIZE: usize = 100;
 
@@ -274,7 +274,7 @@ pub fn draw_gpu_profiling(
     text: &mut SimpleText,
     viewport_width: f64,
     viewport_height: f64,
-    profiles: &[GpuTimerScopeResult],
+    profiles: &[GpuTimerQueryResult],
 ) {
     if profiles.is_empty() {
         return;
@@ -376,7 +376,7 @@ pub fn draw_gpu_profiling(
             );
 
             let mut text_start = start_normalised;
-            let nested = !profile.nested_scopes.is_empty();
+            let nested = !profile.nested_queries.is_empty();
             if nested {
                 // If we have children, leave some more space for them
                 text_start -= text_height * 0.7;
@@ -449,12 +449,12 @@ enum TraversalStage {
 }
 
 fn traverse_profiling(
-    profiles: &[GpuTimerScopeResult],
-    callback: &mut impl FnMut(&GpuTimerScopeResult, TraversalStage),
+    profiles: &[GpuTimerQueryResult],
+    callback: &mut impl FnMut(&GpuTimerQueryResult, TraversalStage),
 ) {
     for profile in profiles {
         callback(profile, TraversalStage::Enter);
-        traverse_profiling(&profile.nested_scopes, &mut *callback);
+        traverse_profiling(&profile.nested_queries, &mut *callback);
         callback(profile, TraversalStage::Leave);
     }
 }
