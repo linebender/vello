@@ -34,7 +34,7 @@ struct Config {
     // Sizes of bump allocated buffers (in element size units)
     binning_size: u32,
     tiles_size: u32,
-    segments_size: u32,    
+    segments_size: u32,
     ptcl_size: u32,
 }
 
