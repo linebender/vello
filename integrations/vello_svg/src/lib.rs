@@ -53,8 +53,8 @@ pub use usvg;
 ///
 /// See the [module level documentation](crate#unsupported-features) for a list
 /// of some unsupported svg features
-pub fn render_tree(sb: &mut SceneBuilder, svg: &usvg::Tree, transform: Option<Affine>) {
-    render_tree_with(sb, svg, transform, default_error_handler).unwrap_or_else(|e| match e {})
+pub fn render_tree(sb: &mut SceneBuilder, svg: &usvg::Tree) {
+    render_tree_with(sb, svg, default_error_handler).unwrap_or_else(|e| match e {})
 }
 
 /// Append a [`usvg::Tree`] into a Vello [`SceneBuilder`].
@@ -67,7 +67,6 @@ pub fn render_tree(sb: &mut SceneBuilder, svg: &usvg::Tree, transform: Option<Af
 pub fn render_tree_with<F: FnMut(&mut SceneBuilder, &usvg::Node) -> Result<(), E>, E>(
     sb: &mut SceneBuilder,
     svg: &usvg::Tree,
-    transform2: Option<Affine>,
     mut on_err: F,
 ) -> Result<(), E> {
     for elt in svg.root.descendants() {
@@ -80,14 +79,7 @@ pub fn render_tree_with<F: FnMut(&mut SceneBuilder, &usvg::Node) -> Result<(), E
                 tx,
                 ty,
             } = elt.abs_transform();
-            let (a, b, c, d, e, f) = (
-                sx as f64, ky as f64, kx as f64, sy as f64, tx as f64, ty as f64,
-            );
-            if let Some(t2) = transform2 {
-                t2 * Affine::new([a, b, c, d, e, f])
-            } else {
-                Affine::new([a, b, c, d, e, f])
-            }
+            Affine::new([sx, kx, ky, sy, tx, ty].map(f64::from))
         };
         match &*elt.borrow() {
             usvg::NodeKind::Group(_) => {}
@@ -110,7 +102,7 @@ pub fn render_tree_with<F: FnMut(&mut SceneBuilder, &usvg::Node) -> Result<(), E
                             if std::mem::take(&mut just_closed) {
                                 local_path.move_to(most_recent_initial);
                             }
-                            local_path.line_to::<Point>((p.x as f64, p.y as f64).into())
+                            local_path.line_to(Point::new(p.x as f64, p.y as f64))
                         }
                         usvg::tiny_skia_path::PathSegment::QuadTo(p1, p2) => {
                             if std::mem::take(&mut just_closed) {
@@ -233,17 +225,18 @@ fn paint_to_brush(paint: &usvg::Paint, opacity: usvg::Opacity) -> Option<(Brush,
                     cstop
                 })
                 .collect();
-            let start: vello::kurbo::Point = (gr.x1 as f64, gr.y1 as f64).into();
-            let end: vello::kurbo::Point = (gr.x2 as f64, gr.y2 as f64).into();
-            let (a, b, c, d, e, f) = (
-                gr.transform.sx as f64,
-                gr.transform.ky as f64,
-                gr.transform.kx as f64,
-                gr.transform.sy as f64,
-                gr.transform.tx as f64,
-                gr.transform.ty as f64,
-            );
-            let transform = Affine::new([a, b, c, d, e, f]);
+            let start = Point::new(gr.x1 as f64, gr.y1 as f64);
+            let end = Point::new(gr.x2 as f64, gr.y2 as f64);
+            let arr = [
+                gr.transform.sx,
+                gr.transform.ky,
+                gr.transform.kx,
+                gr.transform.sy,
+                gr.transform.tx,
+                gr.transform.ty,
+            ]
+            .map(f64::from);
+            let transform = Affine::new(arr);
             let gradient =
                 vello::peniko::Gradient::new_linear(start, end).with_stops(stops.as_slice());
             Some((Brush::Gradient(gradient), transform))
@@ -263,19 +256,20 @@ fn paint_to_brush(paint: &usvg::Paint, opacity: usvg::Opacity) -> Option<(Brush,
                 })
                 .collect();
 
-            let start_center: vello::kurbo::Point = Point::new(gr.cx as f64, gr.cy as f64);
-            let end_center: vello::kurbo::Point = Point::new(gr.fx as f64, gr.fy as f64);
+            let start_center = Point::new(gr.cx as f64, gr.cy as f64);
+            let end_center = Point::new(gr.fx as f64, gr.fy as f64);
             let start_radius = 0_f32;
             let end_radius = gr.r.get();
-            let (a, b, c, d, e, f) = (
-                gr.transform.sx as f64,
-                gr.transform.ky as f64,
-                gr.transform.kx as f64,
-                gr.transform.sy as f64,
-                gr.transform.tx as f64,
-                gr.transform.ty as f64,
-            );
-            let transform = Affine::new([a, b, c, d, e, f]);
+            let arr = [
+                gr.transform.sx,
+                gr.transform.ky,
+                gr.transform.kx,
+                gr.transform.sy,
+                gr.transform.tx,
+                gr.transform.ty,
+            ]
+            .map(f64::from);
+            let transform = Affine::new(arr);
             let gradient = vello::peniko::Gradient::new_two_point_radial(
                 start_center,
                 start_radius,
