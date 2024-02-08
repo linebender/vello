@@ -47,7 +47,7 @@ pub use vello;
 pub use usvg;
 
 /// Append a [`usvg::Tree`] into a Vello [`SceneBuilder`], with default error
-/// handling This will draw a red box over (some) unsupported elements
+/// handling. This will draw a red box over (some) unsupported elements
 ///
 /// Calls [`render_tree_with`] with an error handler implementing the above.
 ///
