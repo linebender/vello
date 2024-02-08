@@ -40,11 +40,6 @@ This is used in the [winit](#winit) example for the SVG rendering.
 
 A separate integration for playing Lottie animations is available through the [`velato`](https://github.com/linebender/velato) crate.
 
-### Community
-
-- [bevy-vello](https://github.com/vectorgameexperts/bevy-vello): A bevy integration to render lottie or svg files
-- [vellottie](https://github.com/vectorgameexperts/vellottie): A non-serde lottie stepthrough parser and runtime for lottie files, with a mirror'ed runtime of velato
-
 ## Examples
 
 Our examples are provided in separate packages in the [`examples`](examples) folder.
