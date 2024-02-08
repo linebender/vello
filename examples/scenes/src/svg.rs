@@ -97,7 +97,7 @@ pub fn svg_function_of<R: AsRef<str>>(
         let start = Instant::now();
         let mut new_scene = SceneFragment::new();
         let mut builder = SceneBuilder::for_fragment(&mut new_scene);
-        vello_svg::render_tree(&mut builder, &svg, None);
+        vello_svg::render_tree(&mut builder, &svg);
         let resolution = Vec2::new(svg.size.width() as f64, svg.size.height() as f64);
         eprintln!("Encoded svg {name} in {:?}", start.elapsed());
         (new_scene, resolution)
