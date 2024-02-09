@@ -69,7 +69,7 @@ pub struct Arguments {
     #[arg(help_heading = "Render Parameters")]
     #[arg(long, global(false), value_parser = parse_color)]
     /// The base color applied as the blend background to the rasterizer.
-    /// Format is CSS style hexidecimal (#RGB, #RGBA, #RRGGBB, #RRGGBBAA) or
+    /// Format is CSS style hexadecimal (#RGB, #RGBA, #RRGGBB, #RRGGBBAA) or
     /// an SVG color name such as "aliceblue"
     pub base_color: Option<Color>,
     #[clap(subcommand)]

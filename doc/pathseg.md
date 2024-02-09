@@ -42,7 +42,7 @@ In the previous encoding, every path segment was encoded independently; the segm
 
 This encoding fixes that. Bit 2 of the tag byte indicates whether the segment is the last one in the subpath. If it is set, then the size encompasses all the points in the segment. If not, then it is short one, which leaves the offset for the next segment pointing at the last point in this one.
 
-There is a relatively straightforward state maching to convert the usual moveto/lineto representation to this one. In short, the point for the moveto is encoded, a moveto or closepath sets the end bit for the previously encoded segment (if any), and the end bit is also set for the last segment in the path. Certain cases, such as a lone moveto, must be avoided.
+There is a relatively straightforward state machine to convert the usual moveto/lineto representation to this one. In short, the point for the moveto is encoded, a moveto or closepath sets the end bit for the previously encoded segment (if any), and the end bit is also set for the last segment in the path. Certain cases, such as a lone moveto, must be avoided.
 
 ### Bit magic
 
