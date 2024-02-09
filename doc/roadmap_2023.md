@@ -20,7 +20,7 @@ This roadmap is in roughly chronological in order of when we expect to complete 
 
 In addition, there are a few optional aspects to the roadmap, which will be implemented if there is demand from users or motivation from contributors:
 
-* Native renderering back-ends, to reduce the overhead of WebGPU, especially runtime shader compilation.
+* Native rendering back-ends, to reduce the overhead of WebGPU, especially runtime shader compilation.
 * A solution to conflation artifacts, to improve rendering quality for some classes of vector art.
 * Subpixel RGB rendering, to improve rendering quality on low-dpi LCD screens.
 * High Dynamic Range (HDR) rendering, to exploit capabilities of new displays.
@@ -111,7 +111,7 @@ Taking that idea to the next step, we can make the scene encoding format part of
 
 Another potential reason to make the encoding part of the interface is so assets can be stored in encoded form, saving the cost of re-encoding. Our vector path encoding is *good,* as it's been carefully designed to minimize both the cost of generating it CPU-side, and consuming it GPU-side. One data point to support that is that our encoding of the 14MB paris-30k SVG file (as included in [Forma]) is about 12MB. And that's with 32 bit coordinates. For pre-encoded assets (or other special cases like font glyphs), it makes sense to use 16 bit coordinates instead, for about a 2x additional saving.
 
-Thus, making the encoding part of the public, documented interface could open up some interesting possibilites. Obviously it's also too early to freeze the format, as we'll want to continue to iterate it to make it more efficient and add more capabilities, but likely a "semi-stable" approach, perhaps versioned stable releases, could work well.
+Thus, making the encoding part of the public, documented interface could open up some interesting possibilities. Obviously it's also too early to freeze the format, as we'll want to continue to iterate it to make it more efficient and add more capabilities, but likely a "semi-stable" approach, perhaps versioned stable releases, could work well.
 
 With [vello#239] we already expose a good chunk of the encoding, and encourage people to experiment with that as we decide what to stabilize and how.
 

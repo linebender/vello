@@ -107,7 +107,7 @@ struct MainPassCube;
 pub struct VelloTarget(Handle<Image>);
 
 #[derive(Component)]
-// In the future, this will probably connect to the bevy heirarchy with an Affine component
+// In the future, this will probably connect to the bevy hierarchy with an Affine component
 pub struct VelloFragment(SceneFragment);
 
 #[derive(Component)]
