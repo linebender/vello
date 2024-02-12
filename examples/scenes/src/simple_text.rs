@@ -21,7 +21,7 @@ use vello::{
     kurbo::Affine,
     peniko::{Blob, Brush, BrushRef, Font, StyleRef},
     skrifa::{raw::FontRef, MetadataProvider},
-    SceneBuilder,
+    Scene,
 };
 
 // This is very much a hack to get things working.
@@ -46,7 +46,7 @@ impl SimpleText {
     #[allow(clippy::too_many_arguments)]
     pub fn add_run<'a>(
         &mut self,
-        builder: &mut SceneBuilder,
+        builder: &mut Scene,
         font: Option<&Font>,
         size: f32,
         brush: impl Into<BrushRef<'a>>,
@@ -71,7 +71,7 @@ impl SimpleText {
     #[allow(clippy::too_many_arguments)]
     pub fn add_var_run<'a>(
         &mut self,
-        builder: &mut SceneBuilder,
+        builder: &mut Scene,
         font: Option<&Font>,
         size: f32,
         variations: &[(&str, f32)],
@@ -129,7 +129,7 @@ impl SimpleText {
 
     pub fn add(
         &mut self,
-        builder: &mut SceneBuilder,
+        builder: &mut Scene,
         font: Option<&Font>,
         size: f32,
         brush: Option<&Brush>,

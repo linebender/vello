@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::{Ok, Result};
 use instant::Instant;
-use vello::{kurbo::Vec2, SceneBuilder, SceneFragment};
+use vello::{kurbo::Vec2, Scene};
 use vello_svg::usvg;
 use vello_svg::usvg::TreeParsing;
 
@@ -88,16 +88,15 @@ fn example_scene_of(file: PathBuf) -> ExampleScene {
 pub fn svg_function_of<R: AsRef<str>>(
     name: String,
     contents: impl FnOnce() -> R + Send + 'static,
-) -> impl FnMut(&mut SceneBuilder, &mut SceneParams) {
-    fn render_svg_contents(name: &str, contents: &str) -> (SceneFragment, Vec2) {
+) -> impl FnMut(&mut Scene, &mut SceneParams) {
+    fn render_svg_contents(name: &str, contents: &str) -> (Scene, Vec2) {
         let start = Instant::now();
         let svg = usvg::Tree::from_str(contents, &usvg::Options::default())
             .expect("failed to parse svg file");
         eprintln!("Parsed svg {name} in {:?}", start.elapsed());
         let start = Instant::now();
-        let mut new_scene = SceneFragment::new();
-        let mut builder = SceneBuilder::for_fragment(&mut new_scene);
-        vello_svg::render_tree(&mut builder, &svg);
+        let mut new_scene = Scene::new();
+        vello_svg::render_tree(&mut new_scene, &svg);
         let resolution = Vec2::new(svg.size.width(), svg.size.height());
         eprintln!("Encoded svg {name} in {:?}", start.elapsed());
         (new_scene, resolution)

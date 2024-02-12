@@ -1,4 +1,4 @@
-//! Append a [`usvg::Tree`] to a Vello [`SceneBuilder`]
+//! Append a [`usvg::Tree`] to a Vello [`Scene`]
 //!
 //! This currently lacks support for a [number of important](crate#unsupported-features) SVG features.
 //! This is because this integration was developed for examples, which only need to support enough SVG
@@ -37,28 +37,28 @@ use std::convert::Infallible;
 use usvg::NodeExt;
 use vello::kurbo::{Affine, BezPath, Rect, Stroke};
 use vello::peniko::{Brush, Color, Fill};
-use vello::SceneBuilder;
+use vello::Scene;
 
 pub use usvg;
 
-/// Append a [`usvg::Tree`] into a Vello [`SceneBuilder`], with default error handling
+/// Append a [`usvg::Tree`] into a Vello [`Scene`], with default error handling
 /// This will draw a red box over (some) unsupported elements
 ///
 /// Calls [`render_tree_with`] with an error handler implementing the above.
 ///
 /// See the [module level documentation](crate#unsupported-features) for a list of some unsupported svg features
-pub fn render_tree(sb: &mut SceneBuilder, svg: &usvg::Tree) {
+pub fn render_tree(sb: &mut Scene, svg: &usvg::Tree) {
     render_tree_with(sb, svg, default_error_handler).unwrap_or_else(|e| match e {});
 }
 
-/// Append a [`usvg::Tree`] into a Vello [`SceneBuilder`].
+/// Append a [`usvg::Tree`] into a Vello [`Scene`].
 ///
 /// Calls [`render_tree_with`] with [`default_error_handler`].
 /// This will draw a red box over unsupported element types.
 ///
 /// See the [module level documentation](crate#unsupported-features) for a list of some unsupported svg features
-pub fn render_tree_with<F: FnMut(&mut SceneBuilder, &usvg::Node) -> Result<(), E>, E>(
-    sb: &mut SceneBuilder,
+pub fn render_tree_with<F: FnMut(&mut Scene, &usvg::Node) -> Result<(), E>, E>(
+    sb: &mut Scene,
     svg: &usvg::Tree,
     mut on_err: F,
 ) -> Result<(), E> {
@@ -157,7 +157,7 @@ pub fn render_tree_with<F: FnMut(&mut SceneBuilder, &usvg::Node) -> Result<(), E
 
 /// Error handler function for [`render_tree_with`] which draws a transparent red box
 /// instead of unsupported SVG features
-pub fn default_error_handler(sb: &mut SceneBuilder, node: &usvg::Node) -> Result<(), Infallible> {
+pub fn default_error_handler(sb: &mut Scene, node: &usvg::Node) -> Result<(), Infallible> {
     if let Some(bb) = node.calculate_bbox() {
         let rect = Rect {
             x0: bb.left(),

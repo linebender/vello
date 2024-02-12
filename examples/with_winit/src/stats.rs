@@ -19,7 +19,7 @@ use std::{collections::VecDeque, time::Duration};
 use vello::{
     kurbo::{Affine, Line, PathEl, Rect, Stroke},
     peniko::{Brush, Color, Fill},
-    AaConfig, BumpAllocators, SceneBuilder,
+    AaConfig, BumpAllocators, Scene,
 };
 use wgpu_profiler::GpuTimerScopeResult;
 
@@ -37,7 +37,7 @@ impl Snapshot {
     #[allow(clippy::too_many_arguments)]
     pub fn draw_layer<'a, T>(
         &self,
-        sb: &mut SceneBuilder,
+        sb: &mut Scene,
         text: &mut SimpleText,
         viewport_width: f64,
         viewport_height: f64,
@@ -270,7 +270,7 @@ const COLORS: &[Color] = &[
 ];
 
 pub fn draw_gpu_profiling(
-    sb: &mut SceneBuilder,
+    sb: &mut Scene,
     text: &mut SimpleText,
     viewport_width: f64,
     viewport_height: f64,

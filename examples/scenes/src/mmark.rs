@@ -12,7 +12,7 @@ use rand::{seq::SliceRandom, Rng};
 use vello::peniko::Color;
 use vello::{
     kurbo::{Affine, BezPath, CubicBez, Line, ParamCurve, PathSeg, Point, QuadBez, Stroke},
-    SceneBuilder,
+    Scene,
 };
 
 use crate::{SceneParams, TestScene};
@@ -67,7 +67,7 @@ impl MMark {
 }
 
 impl TestScene for MMark {
-    fn render(&mut self, sb: &mut SceneBuilder, params: &mut SceneParams) {
+    fn render(&mut self, sb: &mut Scene, params: &mut SceneParams) {
         let c = params.complexity;
         let n = if c < 10 {
             (c + 1) * 1000

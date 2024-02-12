@@ -16,7 +16,7 @@ pub use simple_text::SimpleText;
 pub use svg::{default_scene, scene_from_files};
 pub use test_scenes::test_scenes;
 
-use vello::{kurbo::Vec2, peniko::Color, SceneBuilder};
+use vello::{kurbo::Vec2, peniko::Color, Scene};
 
 pub struct SceneParams<'a> {
     pub time: f64,
@@ -43,11 +43,11 @@ pub struct ExampleScene {
 }
 
 pub trait TestScene {
-    fn render(&mut self, sb: &mut SceneBuilder, params: &mut SceneParams);
+    fn render(&mut self, sb: &mut Scene, params: &mut SceneParams);
 }
 
-impl<F: FnMut(&mut SceneBuilder, &mut SceneParams)> TestScene for F {
-    fn render(&mut self, sb: &mut SceneBuilder, params: &mut SceneParams) {
+impl<F: FnMut(&mut Scene, &mut SceneParams)> TestScene for F {
+    fn render(&mut self, sb: &mut Scene, params: &mut SceneParams) {
         self(sb, params);
     }
 }

@@ -16,7 +16,7 @@
 
 //! Support for glyph rendering.
 
-use crate::scene::{SceneBuilder, SceneFragment};
+use crate::scene::Scene;
 use {
     peniko::kurbo::Affine,
     peniko::{Brush, Color, Fill, Style},
@@ -89,21 +89,20 @@ pub struct GlyphProvider<'a> {
 impl<'a> GlyphProvider<'a> {
     /// Returns a scene fragment containing the commands to render the
     /// specified glyph.
-    pub fn get(&mut self, gid: u16, brush: Option<&Brush>) -> Option<SceneFragment> {
-        let mut fragment = SceneFragment::default();
-        let mut builder = SceneBuilder::for_fragment(&mut fragment);
+    pub fn get(&mut self, gid: u16, brush: Option<&Brush>) -> Option<Scene> {
+        let mut scene = Scene::new();
         let mut path = BezPathPen::default();
         let outline = self.outlines.get(GlyphId::new(gid))?;
         let draw_settings = DrawSettings::unhinted(self.size, self.coords);
         outline.draw(draw_settings, &mut path).ok()?;
-        builder.fill(
+        scene.fill(
             Fill::NonZero,
             Affine::IDENTITY,
             brush.unwrap_or(&Brush::Solid(Color::rgb8(255, 255, 255))),
             None,
             &path.0,
         );
-        Some(fragment)
+        Some(scene)
     }
 
     pub fn encode_glyph(&mut self, gid: u16, style: &Style, encoding: &mut Encoding) -> Option<()> {
