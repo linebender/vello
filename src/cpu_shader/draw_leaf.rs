@@ -114,8 +114,7 @@ fn draw_leaf_main(
                             f32::from_bits(scene[dd as usize + 1]),
                             f32::from_bits(scene[dd as usize + 2]),
                         );
-                        let xform =
-                            transform * Transform([1.0, 0.0, 0.0, 1.0, p0.x as f32, p0.y as f32]);
+                        let xform = transform * Transform([1.0, 0.0, 0.0, 1.0, p0.x, p0.y]);
                         let z = xform.0;
                         let inv_det = (z[0] * z[3] - z[1] * z[2]).recip();
                         let inv_mat = [
