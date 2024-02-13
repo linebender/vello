@@ -476,6 +476,12 @@ fn compute_tag_monoid(ix: u32) -> PathTagData {
     // TODO: this can be a read buf overflow. Conditionalize by tag byte?
     tm = combine_tag_monoid(tag_monoids[ix >> 2u], tm);
     var tag_byte = (tag_word >> shift) & 0xffu;
+    // We no longer encode an initial transform and style so these
+    // are off by one.
+    // Note: an alternative would be to adjust config.transform_base and
+    // config.style_base.
+    tm.trans_ix -= 1u;
+    tm.style_ix -= STYLE_SIZE_IN_WORDS;
     return PathTagData(tag_byte, tm);
 }
 

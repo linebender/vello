@@ -73,18 +73,18 @@ impl<'a> SceneBuilder<'a> {
     /// Creates a new builder for filling a scene. Any current content in the scene
     /// will be cleared.
     pub fn for_scene(scene: &'a mut Scene) -> Self {
-        Self::new(&mut scene.data, false)
+        Self::new(&mut scene.data)
     }
 
     /// Creates a new builder for filling a scene fragment. Any current content in
     /// the fragment will be cleared.    
     pub fn for_fragment(fragment: &'a mut SceneFragment) -> Self {
-        Self::new(&mut fragment.data, true)
+        Self::new(&mut fragment.data)
     }
 
     /// Creates a new builder for constructing a scene.
-    fn new(scene: &'a mut Encoding, is_fragment: bool) -> Self {
-        scene.reset(is_fragment);
+    fn new(scene: &'a mut Encoding) -> Self {
+        scene.reset();
         Self { scene }
     }
 

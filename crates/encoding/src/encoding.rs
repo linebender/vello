@@ -16,6 +16,11 @@ use {
 };
 
 /// Encoded data streams for a scene.
+///
+/// # Invariants
+///
+/// * At least one transform and style must be encoded before any path data
+/// or draw object.
 #[derive(Clone, Default)]
 pub struct Encoding {
     /// The path tag stream.
@@ -65,7 +70,7 @@ impl Encoding {
     }
 
     /// Clears the encoding.
-    pub fn reset(&mut self, is_fragment: bool) {
+    pub fn reset(&mut self) {
         self.transforms.clear();
         self.path_tags.clear();
         self.path_data.clear();
@@ -79,10 +84,6 @@ impl Encoding {
         self.flags = 0;
         #[cfg(feature = "full")]
         self.resources.reset();
-        if !is_fragment {
-            self.transforms.push(Transform::IDENTITY);
-            self.styles.push(Style::from_fill(Fill::NonZero));
-        }
     }
 
     /// Appends another encoding to this one with an optional transform.
