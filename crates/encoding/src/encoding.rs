@@ -107,6 +107,7 @@ impl Encoding {
                     run.glyphs.start += glyphs_base;
                     run.glyphs.end += glyphs_base;
                     run.normalized_coords.start += coords_base;
+                    run.normalized_coords.end += coords_base;
                     run.stream_offsets.path_tags += offsets.path_tags;
                     run.stream_offsets.path_data += offsets.path_data;
                     run.stream_offsets.draw_tags += offsets.draw_tags;
