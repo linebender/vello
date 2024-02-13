@@ -67,7 +67,7 @@ pub fn test_scenes() -> SceneSet {
 
 // Scenes
 
-fn funky_paths(sb: &mut Scene, _: &mut SceneParams) {
+fn funky_paths(scene: &mut Scene, _: &mut SceneParams) {
     use PathEl::*;
     let missing_movetos = [
         MoveTo((0., 0.).into()),
@@ -79,28 +79,28 @@ fn funky_paths(sb: &mut Scene, _: &mut SceneParams) {
     ];
     let only_movetos = [MoveTo((0.0, 0.0).into()), MoveTo((100.0, 100.0).into())];
     let empty: [PathEl; 0] = [];
-    sb.fill(
+    scene.fill(
         Fill::NonZero,
         Affine::translate((100.0, 100.0)),
         Color::rgb8(0, 0, 255),
         None,
         &missing_movetos,
     );
-    sb.fill(
+    scene.fill(
         Fill::NonZero,
         Affine::IDENTITY,
         Color::rgb8(0, 0, 255),
         None,
         &empty,
     );
-    sb.fill(
+    scene.fill(
         Fill::NonZero,
         Affine::IDENTITY,
         Color::rgb8(0, 0, 255),
         None,
         &only_movetos,
     );
-    sb.stroke(
+    scene.stroke(
         &Stroke::new(8.0),
         Affine::translate((100.0, 100.0)),
         Color::rgb8(0, 255, 255),
@@ -111,7 +111,7 @@ fn funky_paths(sb: &mut Scene, _: &mut SceneParams) {
 
 fn stroke_styles(transform: Affine) -> impl FnMut(&mut Scene, &mut SceneParams) {
     use PathEl::*;
-    move |sb, params| {
+    move |scene, params| {
         let colors = [
             Color::rgb8(140, 181, 236),
             Color::rgb8(246, 236, 202),
@@ -153,14 +153,14 @@ fn stroke_styles(transform: Affine) -> impl FnMut(&mut Scene, &mut SceneParams) 
         for start in cap_styles {
             for end in cap_styles {
                 params.text.add(
-                    sb,
+                    scene,
                     None,
                     12.,
                     None,
                     Affine::translate((0., y)) * t,
                     &format!("Start cap: {:?}, End cap: {:?}", start, end),
                 );
-                sb.stroke(
+                scene.stroke(
                     &Stroke::new(20.).with_start_cap(start).with_end_cap(end),
                     Affine::translate((0., y + 30.)) * t * transform,
                     colors[color_idx],
@@ -178,14 +178,14 @@ fn stroke_styles(transform: Affine) -> impl FnMut(&mut Scene, &mut SceneParams) 
         for start in cap_styles {
             for end in cap_styles {
                 params.text.add(
-                    sb,
+                    scene,
                     None,
                     12.,
                     None,
                     Affine::translate((0., y)) * t,
                     &format!("Dashing - Start cap: {:?}, End cap: {:?}", start, end),
                 );
-                sb.stroke(
+                scene.stroke(
                     &Stroke::new(20.)
                         .with_start_cap(start)
                         .with_end_cap(end)
@@ -206,14 +206,14 @@ fn stroke_styles(transform: Affine) -> impl FnMut(&mut Scene, &mut SceneParams) 
         for cap in cap_styles {
             for join in join_styles {
                 params.text.add(
-                    sb,
+                    scene,
                     None,
                     12.,
                     None,
                     Affine::translate((0., y)) * t,
                     &format!("Caps: {:?}, Joins: {:?}", cap, join),
                 );
-                sb.stroke(
+                scene.stroke(
                     &Stroke::new(20.).with_caps(cap).with_join(join),
                     Affine::translate((0., y + 30.)) * t * transform,
                     colors[color_idx],
@@ -230,14 +230,14 @@ fn stroke_styles(transform: Affine) -> impl FnMut(&mut Scene, &mut SceneParams) 
         y = 0.;
         for ml in miter_limits {
             params.text.add(
-                sb,
+                scene,
                 None,
                 12.,
                 None,
                 Affine::translate((0., y)) * t,
                 &format!("Miter limit: {}", ml),
             );
-            sb.stroke(
+            scene.stroke(
                 &Stroke::new(10.)
                     .with_caps(Cap::Butt)
                     .with_join(Join::Miter)
@@ -254,7 +254,7 @@ fn stroke_styles(transform: Affine) -> impl FnMut(&mut Scene, &mut SceneParams) 
         // Closed paths
         for (i, join) in join_styles.iter().enumerate() {
             params.text.add(
-                sb,
+                scene,
                 None,
                 12.,
                 None,
@@ -262,7 +262,7 @@ fn stroke_styles(transform: Affine) -> impl FnMut(&mut Scene, &mut SceneParams) 
                 &format!("Closed path with join: {:?}", join),
             );
             // The cap style is not important since a closed path shouldn't have any caps.
-            sb.stroke(
+            scene.stroke(
                 &Stroke::new(10.)
                     .with_caps(cap_styles[i])
                     .with_join(*join)
@@ -280,7 +280,7 @@ fn stroke_styles(transform: Affine) -> impl FnMut(&mut Scene, &mut SceneParams) 
 
 // This test has been adapted from Skia's "trickycubicstrokes" GM slide which can be found at
 // `github.com/google/skia/blob/0d4d11451c4f4e184305cbdbd67f6b3edfa4b0e3/gm/trickycubicstrokes.cpp`
-fn tricky_strokes(sb: &mut Scene, _: &mut SceneParams) {
+fn tricky_strokes(scene: &mut Scene, _: &mut SceneParams) {
     use PathEl::*;
     let colors = [
         Color::rgb8(140, 181, 236),
@@ -352,7 +352,7 @@ fn tricky_strokes(sb: &mut Scene, _: &mut SceneParams) {
         let cell = Rect::new(x, y, x + CELL_SIZE, y + CELL_SIZE);
         let bounds = stroke_bounds(&cubic);
         let (t, s) = map_rect_to_rect(&bounds, &cell);
-        sb.stroke(
+        scene.stroke(
             &Stroke::new(STROKE_WIDTH / s)
                 .with_caps(Cap::Butt)
                 .with_join(Join::Miter),
@@ -368,7 +368,7 @@ fn tricky_strokes(sb: &mut Scene, _: &mut SceneParams) {
     }
 }
 
-fn fill_types(sb: &mut Scene, params: &mut SceneParams) {
+fn fill_types(scene: &mut Scene, params: &mut SceneParams) {
     use PathEl::*;
     let rect = Rect::from_origin_size(Point::new(0., 0.), (500., 500.));
     let star = [
@@ -397,16 +397,16 @@ fn fill_types(sb: &mut Scene, params: &mut SceneParams) {
     ];
     for (i, rule) in rules.iter().enumerate() {
         let t = Affine::translate(((i % 2) as f64 * 306., (i / 2) as f64 * 340.)) * t;
-        params.text.add(sb, None, 24., None, t, rule.1);
+        params.text.add(scene, None, 24., None, t, rule.1);
         let t = Affine::translate((0., 5.)) * t * scale;
-        sb.fill(
+        scene.fill(
             Fill::NonZero,
             t,
             &Brush::Solid(Color::rgb8(128, 128, 128)),
             None,
             &rect,
         );
-        sb.fill(
+        scene.fill(
             rule.0,
             Affine::translate((0., 10.)) * t,
             Color::YELLOW,
@@ -419,30 +419,30 @@ fn fill_types(sb: &mut Scene, params: &mut SceneParams) {
     let t = Affine::translate((700., 0.)) * t;
     for (i, rule) in rules.iter().enumerate() {
         let t = Affine::translate(((i % 2) as f64 * 306., (i / 2) as f64 * 340.)) * t;
-        params.text.add(sb, None, 24., None, t, rule.1);
+        params.text.add(scene, None, 24., None, t, rule.1);
         let t = Affine::translate((0., 5.)) * t * scale;
-        sb.fill(
+        scene.fill(
             Fill::NonZero,
             t,
             &Brush::Solid(Color::rgb8(128, 128, 128)),
             None,
             &rect,
         );
-        sb.fill(
+        scene.fill(
             rule.0,
             Affine::translate((0., 10.)) * t,
             Color::YELLOW,
             None,
             &rule.2,
         );
-        sb.fill(
+        scene.fill(
             rule.0,
             Affine::translate((0., 10.)) * t * Affine::rotate(0.06),
             Color::rgba(0., 1., 0.7, 0.6),
             None,
             &rule.2,
         );
-        sb.fill(
+        scene.fill(
             rule.0,
             Affine::translate((0., 10.)) * t * Affine::rotate(-0.06),
             Color::rgba(0.9, 0.7, 0.5, 0.6),
@@ -452,17 +452,17 @@ fn fill_types(sb: &mut Scene, params: &mut SceneParams) {
     }
 }
 
-fn cardioid_and_friends(sb: &mut Scene, _: &mut SceneParams) {
-    render_cardioid(sb);
-    render_clip_test(sb);
-    render_alpha_test(sb);
-    //render_tiger(sb, false);
+fn cardioid_and_friends(scene: &mut Scene, _: &mut SceneParams) {
+    render_cardioid(scene);
+    render_clip_test(scene);
+    render_alpha_test(scene);
+    //render_tiger(scene, false);
 }
 
 fn longpathdash(cap: Cap) -> impl FnMut(&mut Scene, &mut SceneParams) {
     use std::f64::consts::PI;
     use PathEl::*;
-    move |sb, _| {
+    move |scene, _| {
         let mut path = BezPath::new();
         let mut x = 32;
         while x < 256 {
@@ -491,7 +491,7 @@ fn longpathdash(cap: Cap) -> impl FnMut(&mut Scene, &mut SceneParams) {
             }
             x += 16;
         }
-        sb.stroke(
+        scene.stroke(
             &Stroke::new(1.0)
                 .with_caps(cap)
                 .with_join(Join::Bevel)
@@ -504,7 +504,7 @@ fn longpathdash(cap: Cap) -> impl FnMut(&mut Scene, &mut SceneParams) {
     }
 }
 
-fn animated_text(sb: &mut Scene, params: &mut SceneParams) {
+fn animated_text(scene: &mut Scene, params: &mut SceneParams) {
     // Uses the static array address as a cache key for expedience. Real code
     // should use a better strategy.
     let piet_logo = params
@@ -522,7 +522,7 @@ fn animated_text(sb: &mut Scene, params: &mut SceneParams) {
         LineTo((79.0, 90.0).into()),
         ClosePath,
     ];
-    sb.fill(
+    scene.fill(
         Fill::NonZero,
         Affine::IDENTITY,
         &Brush::Solid(Color::rgb8(128, 128, 128)),
@@ -532,7 +532,7 @@ fn animated_text(sb: &mut Scene, params: &mut SceneParams) {
     let text_size = 60.0 + 40.0 * (params.time as f32).sin();
     let s = "\u{1f600}hello vello text!";
     params.text.add(
-        sb,
+        scene,
         None,
         text_size,
         None,
@@ -540,7 +540,7 @@ fn animated_text(sb: &mut Scene, params: &mut SceneParams) {
         s,
     );
     params.text.add_run(
-        sb,
+        scene,
         None,
         text_size,
         Color::WHITE,
@@ -554,7 +554,7 @@ fn animated_text(sb: &mut Scene, params: &mut SceneParams) {
     let weight = t * 700.0 + 200.0;
     let width = t * 150.0 + 50.0;
     params.text.add_var_run(
-        sb,
+        scene,
         None,
         72.0,
         &[("wght", weight), ("wdth", width)],
@@ -570,14 +570,14 @@ fn animated_text(sb: &mut Scene, params: &mut SceneParams) {
     let mut p1 = center;
     p1.x += 400.0 * th.cos();
     p1.y += 400.0 * th.sin();
-    sb.stroke(
+    scene.stroke(
         &Stroke::new(5.0),
         Affine::IDENTITY,
         &Brush::Solid(Color::rgb8(128, 0, 0)),
         None,
         &[PathEl::MoveTo(center), PathEl::LineTo(p1)],
     );
-    sb.fill(
+    scene.fill(
         Fill::NonZero,
         Affine::translate((150.0, 150.0)) * Affine::scale(0.2),
         Color::RED,
@@ -585,50 +585,50 @@ fn animated_text(sb: &mut Scene, params: &mut SceneParams) {
         &rect,
     );
     let alpha = params.time.sin() as f32 * 0.5 + 0.5;
-    sb.push_layer(Mix::Normal, alpha, Affine::IDENTITY, &rect);
-    sb.fill(
+    scene.push_layer(Mix::Normal, alpha, Affine::IDENTITY, &rect);
+    scene.fill(
         Fill::NonZero,
         Affine::translate((100.0, 100.0)) * Affine::scale(0.2),
         Color::BLUE,
         None,
         &rect,
     );
-    sb.fill(
+    scene.fill(
         Fill::NonZero,
         Affine::translate((200.0, 200.0)) * Affine::scale(0.2),
         Color::GREEN,
         None,
         &rect,
     );
-    sb.pop_layer();
-    sb.fill(
+    scene.pop_layer();
+    scene.fill(
         Fill::NonZero,
         Affine::translate((400.0, 100.0)),
         Color::PURPLE,
         None,
         &star,
     );
-    sb.fill(
+    scene.fill(
         Fill::EvenOdd,
         Affine::translate((500.0, 100.0)),
         Color::PURPLE,
         None,
         &star,
     );
-    sb.draw_image(
+    scene.draw_image(
         &piet_logo,
         Affine::translate((800.0, 50.0)) * Affine::rotate(20f64.to_radians()),
     );
 }
 
-fn brush_transform(sb: &mut Scene, params: &mut SceneParams) {
+fn brush_transform(scene: &mut Scene, params: &mut SceneParams) {
     let th = params.time;
     let linear = Gradient::new_linear((0.0, 0.0), (0.0, 200.0)).with_stops([
         Color::RED,
         Color::GREEN,
         Color::BLUE,
     ]);
-    sb.fill(
+    scene.fill(
         Fill::NonZero,
         Affine::rotate(25f64.to_radians()) * Affine::scale_non_uniform(2.0, 1.0),
         &Gradient::new_radial((200.0, 200.0), 80.0).with_stops([
@@ -639,14 +639,14 @@ fn brush_transform(sb: &mut Scene, params: &mut SceneParams) {
         None,
         &Rect::from_origin_size((100.0, 100.0), (200.0, 200.0)),
     );
-    sb.fill(
+    scene.fill(
         Fill::NonZero,
         Affine::translate((200.0, 600.0)),
         &linear,
         Some(around_center(Affine::rotate(th), Point::new(200.0, 100.0))),
         &Rect::from_origin_size(Point::default(), (400.0, 200.0)),
     );
-    sb.stroke(
+    scene.stroke(
         &Stroke::new(40.0),
         Affine::translate((800.0, 600.0)),
         &linear,
@@ -655,8 +655,8 @@ fn brush_transform(sb: &mut Scene, params: &mut SceneParams) {
     );
 }
 
-fn gradient_extend(sb: &mut Scene, params: &mut SceneParams) {
-    fn square(sb: &mut Scene, is_radial: bool, transform: Affine, extend: Extend) {
+fn gradient_extend(scene: &mut Scene, params: &mut SceneParams) {
+    fn square(scene: &mut Scene, is_radial: bool, transform: Affine, extend: Extend) {
         let colors = [Color::RED, Color::rgb8(0, 255, 0), Color::BLUE];
         let width = 300f64;
         let height = 300f64;
@@ -673,7 +673,7 @@ fn gradient_extend(sb: &mut Scene, params: &mut SceneParams) {
                 .with_extend(extend)
                 .into()
         };
-        sb.fill(
+        scene.fill(
             Fill::NonZero,
             transform,
             &gradient,
@@ -686,13 +686,13 @@ fn gradient_extend(sb: &mut Scene, params: &mut SceneParams) {
         for y in 0..2 {
             let is_radial = y & 1 != 0;
             let transform = Affine::translate((x as f64 * 350.0 + 50.0, y as f64 * 350.0 + 100.0));
-            square(sb, is_radial, transform, *extend);
+            square(scene, is_radial, transform, *extend);
         }
     }
     for (i, label) in ["Pad", "Repeat", "Reflect"].iter().enumerate() {
         let x = i as f64 * 350.0 + 50.0;
         params.text.add(
-            sb,
+            scene,
             None,
             32.0,
             Some(&Color::WHITE.into()),
@@ -703,9 +703,9 @@ fn gradient_extend(sb: &mut Scene, params: &mut SceneParams) {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn two_point_radial(sb: &mut Scene, _params: &mut SceneParams) {
+fn two_point_radial(scene: &mut Scene, _params: &mut SceneParams) {
     fn make(
-        sb: &mut Scene,
+        scene: &mut Scene,
         x0: f64,
         y0: f64,
         r0: f32,
@@ -719,8 +719,8 @@ fn two_point_radial(sb: &mut Scene, _params: &mut SceneParams) {
         let width = 400f64;
         let height = 200f64;
         let rect = Rect::new(0.0, 0.0, width, height);
-        sb.fill(Fill::NonZero, transform, Color::WHITE, None, &rect);
-        sb.fill(
+        scene.fill(Fill::NonZero, transform, Color::WHITE, None, &rect);
+        scene.fill(
             Fill::NonZero,
             transform,
             &Gradient::new_two_point_radial((x0, y0), r0, (x1, y1), r1)
@@ -732,14 +732,14 @@ fn two_point_radial(sb: &mut Scene, _params: &mut SceneParams) {
         let r0 = r0 as f64 - 1.0;
         let r1 = r1 as f64 - 1.0;
         let stroke_width = 1.0;
-        sb.stroke(
+        scene.stroke(
             &Stroke::new(stroke_width),
             transform,
             Color::BLACK,
             None,
             &Ellipse::new((x0, y0), (r0, r0), 0.0),
         );
-        sb.stroke(
+        scene.stroke(
             &Stroke::new(stroke_width),
             transform,
             Color::BLACK,
@@ -761,7 +761,7 @@ fn two_point_radial(sb: &mut Scene, _params: &mut SceneParams) {
         let r0 = 20.0;
         let r1 = 50.0;
         make(
-            sb,
+            scene,
             x0,
             y,
             r0,
@@ -783,7 +783,7 @@ fn two_point_radial(sb: &mut Scene, _params: &mut SceneParams) {
         let r0 = 20.0;
         let r1 = 50.0;
         make(
-            sb,
+            scene,
             x1,
             y,
             r1,
@@ -805,7 +805,7 @@ fn two_point_radial(sb: &mut Scene, _params: &mut SceneParams) {
         let r0 = 50.0;
         let r1 = 50.0;
         make(
-            sb,
+            scene,
             x0,
             y,
             r0,
@@ -828,7 +828,7 @@ fn two_point_radial(sb: &mut Scene, _params: &mut SceneParams) {
         let y1 = 100.0;
         let r1 = 95.0;
         make(
-            sb,
+            scene,
             x0,
             y0,
             r0,
@@ -854,7 +854,7 @@ fn two_point_radial(sb: &mut Scene, _params: &mut SceneParams) {
         let p0 = Point::new(x1, y1)
             + ((Point::new(x0, y0) - Point::new(x1, y1)).normalize() * (r1 - r0));
         make(
-            sb,
+            scene,
             p0.x,
             p0.y,
             r0 as f32,
@@ -867,7 +867,7 @@ fn two_point_radial(sb: &mut Scene, _params: &mut SceneParams) {
     }
 }
 
-fn blend_grid(sb: &mut Scene, _: &mut SceneParams) {
+fn blend_grid(scene: &mut Scene, _: &mut SceneParams) {
     const BLEND_MODES: &[Mix] = &[
         Mix::Normal,
         Mix::Multiply,
@@ -891,13 +891,13 @@ fn blend_grid(sb: &mut Scene, _: &mut SceneParams) {
         let j = ix / 4;
         let transform = Affine::translate((i as f64 * 225., j as f64 * 225.));
         let square = blend_square(blend.into());
-        sb.append(&square, Some(transform));
+        scene.append(&square, Some(transform));
     }
 }
 
 // Support functions
 
-fn render_cardioid(sb: &mut Scene) {
+fn render_cardioid(scene: &mut Scene) {
     let n = 601;
     let dth = std::f64::consts::PI * 2.0 / (n as f64);
     let center = Point::new(1024.0, 768.0);
@@ -915,7 +915,7 @@ fn render_cardioid(sb: &mut Scene) {
         path.push(PathEl::MoveTo(p0));
         path.push(PathEl::LineTo(p1));
     }
-    sb.stroke(
+    scene.stroke(
         &Stroke::new(2.0),
         Affine::IDENTITY,
         Color::rgb8(0, 0, 255),
@@ -924,7 +924,7 @@ fn render_cardioid(sb: &mut Scene) {
     );
 }
 
-fn render_clip_test(sb: &mut Scene) {
+fn render_clip_test(scene: &mut Scene) {
     const N: usize = 16;
     const X0: f64 = 50.0;
     const Y0: f64 = 450.0;
@@ -943,10 +943,10 @@ fn render_clip_test(sb: &mut Scene) {
             PathEl::LineTo((X0, Y1).into()),
             PathEl::ClosePath,
         ];
-        sb.push_layer(Mix::Clip, 1.0, Affine::IDENTITY, &path);
+        scene.push_layer(Mix::Clip, 1.0, Affine::IDENTITY, &path);
     }
     let rect = Rect::new(X0, Y0, X1, Y1);
-    sb.fill(
+    scene.fill(
         Fill::NonZero,
         Affine::IDENTITY,
         &Brush::Solid(Color::rgb8(0, 255, 0)),
@@ -954,48 +954,48 @@ fn render_clip_test(sb: &mut Scene) {
         &rect,
     );
     for _ in 0..N {
-        sb.pop_layer();
+        scene.pop_layer();
     }
 }
 
-fn render_alpha_test(sb: &mut Scene) {
+fn render_alpha_test(scene: &mut Scene) {
     // Alpha compositing tests.
-    sb.fill(
+    scene.fill(
         Fill::NonZero,
         Affine::IDENTITY,
         Color::rgb8(255, 0, 0),
         None,
         &make_diamond(1024.0, 100.0),
     );
-    sb.fill(
+    scene.fill(
         Fill::NonZero,
         Affine::IDENTITY,
         Color::rgba8(0, 255, 0, 0x80),
         None,
         &make_diamond(1024.0, 125.0),
     );
-    sb.push_layer(
+    scene.push_layer(
         Mix::Clip,
         1.0,
         Affine::IDENTITY,
         &make_diamond(1024.0, 150.0),
     );
-    sb.fill(
+    scene.fill(
         Fill::NonZero,
         Affine::IDENTITY,
         Color::rgba8(0, 0, 255, 0x80),
         None,
         &make_diamond(1024.0, 175.0),
     );
-    sb.pop_layer();
+    scene.pop_layer();
 }
 
-fn render_blend_square(sb: &mut Scene, blend: BlendMode, transform: Affine) {
+fn render_blend_square(scene: &mut Scene, blend: BlendMode, transform: Affine) {
     // Inspired by https://developer.mozilla.org/en-US/docs/Web/CSS/mix-blend-mode
     let rect = Rect::from_origin_size(Point::new(0., 0.), (200., 200.));
     let linear =
         Gradient::new_linear((0.0, 0.0), (200.0, 0.0)).with_stops([Color::BLACK, Color::WHITE]);
-    sb.fill(Fill::NonZero, transform, &linear, None, &rect);
+    scene.fill(Fill::NonZero, transform, &linear, None, &rect);
     const GRADIENTS: &[(f64, f64, Color)] = &[
         (150., 0., Color::rgb8(255, 240, 64)),
         (175., 100., Color::rgb8(255, 96, 240)),
@@ -1005,33 +1005,33 @@ fn render_blend_square(sb: &mut Scene, blend: BlendMode, transform: Affine) {
         let mut color2 = *c;
         color2.a = 0;
         let radial = Gradient::new_radial((*x, *y), 100.0).with_stops([*c, color2]);
-        sb.fill(Fill::NonZero, transform, &radial, None, &rect);
+        scene.fill(Fill::NonZero, transform, &radial, None, &rect);
     }
     const COLORS: &[Color] = &[
         Color::rgb8(255, 0, 0),
         Color::rgb8(0, 255, 0),
         Color::rgb8(0, 0, 255),
     ];
-    sb.push_layer(Mix::Normal, 1.0, transform, &rect);
+    scene.push_layer(Mix::Normal, 1.0, transform, &rect);
     for (i, c) in COLORS.iter().enumerate() {
         let linear = Gradient::new_linear((0.0, 0.0), (0.0, 200.0)).with_stops([Color::WHITE, *c]);
-        sb.push_layer(blend, 1.0, transform, &rect);
+        scene.push_layer(blend, 1.0, transform, &rect);
         // squash the ellipse
         let a = transform
             * Affine::translate((100., 100.))
             * Affine::rotate(std::f64::consts::FRAC_PI_3 * (i * 2 + 1) as f64)
             * Affine::scale_non_uniform(1.0, 0.357)
             * Affine::translate((-100., -100.));
-        sb.fill(
+        scene.fill(
             Fill::NonZero,
             a,
             &linear,
             None,
             &Ellipse::new((100., 100.), (90., 90.), 0.),
         );
-        sb.pop_layer();
+        scene.pop_layer();
     }
-    sb.pop_layer();
+    scene.pop_layer();
 }
 
 fn blend_square(blend: BlendMode) -> Scene {
@@ -1040,7 +1040,7 @@ fn blend_square(blend: BlendMode) -> Scene {
     fragment
 }
 
-fn conflation_artifacts(sb: &mut Scene, _: &mut SceneParams) {
+fn conflation_artifacts(scene: &mut Scene, _: &mut SceneParams) {
     use PathEl::*;
     const N: f64 = 50.0;
     const S: f64 = 4.0;
@@ -1053,7 +1053,7 @@ fn conflation_artifacts(sb: &mut Scene, _: &mut SceneParams) {
     let fg_color = Color::rgb8(12, 165, 255);
 
     // Two adjacent triangles touching at diagonal edge with opposing winding numbers
-    sb.fill(
+    scene.fill(
         Fill::NonZero,
         Affine::translate((x, y)) * scale,
         fg_color,
@@ -1074,14 +1074,14 @@ fn conflation_artifacts(sb: &mut Scene, _: &mut SceneParams) {
 
     // Adjacent rects, opposite winding
     y += S * N + 10.0;
-    sb.fill(
+    scene.fill(
         Fill::EvenOdd,
         Affine::translate((x, y)) * scale,
         bg_color,
         None,
         &Rect::new(0.0, 0.0, N, N),
     );
-    sb.fill(
+    scene.fill(
         Fill::EvenOdd,
         Affine::translate((x, y)) * scale,
         fg_color,
@@ -1102,14 +1102,14 @@ fn conflation_artifacts(sb: &mut Scene, _: &mut SceneParams) {
 
     // Adjacent rects, same winding
     y += S * N + 10.0;
-    sb.fill(
+    scene.fill(
         Fill::EvenOdd,
         Affine::translate((x, y)) * scale,
         bg_color,
         None,
         &Rect::new(0.0, 0.0, N, N),
     );
-    sb.fill(
+    scene.fill(
         Fill::EvenOdd,
         Affine::translate((x, y)) * scale,
         fg_color,
@@ -1129,7 +1129,7 @@ fn conflation_artifacts(sb: &mut Scene, _: &mut SceneParams) {
     );
 }
 
-fn labyrinth(sb: &mut Scene, _: &mut SceneParams) {
+fn labyrinth(scene: &mut Scene, _: &mut SceneParams) {
     use PathEl::*;
 
     let rows: &[[u8; 12]] = &[
@@ -1197,7 +1197,7 @@ fn labyrinth(sb: &mut Scene, _: &mut SceneParams) {
 
     // Note the artifacts are clearly visible at a fractional pixel offset/translation. They
     // disappear if the translation amount below is a whole number.
-    sb.fill(
+    scene.fill(
         Fill::NonZero,
         Affine::translate((20.5, 20.5)) * Affine::scale(80.0),
         Color::rgba8(0x70, 0x80, 0x80, 0xff),
@@ -1206,7 +1206,7 @@ fn labyrinth(sb: &mut Scene, _: &mut SceneParams) {
     );
 }
 
-fn robust_paths(sb: &mut Scene, _: &mut SceneParams) {
+fn robust_paths(scene: &mut Scene, _: &mut SceneParams) {
     let mut path = BezPath::new();
     path.move_to((16.0, 16.0));
     path.line_to((32.0, 16.0));
@@ -1253,8 +1253,8 @@ fn robust_paths(sb: &mut Scene, _: &mut SceneParams) {
     path.line_to((256.0, 24.5));
     path.line_to((241.0, 24.5));
     path.close_path();
-    sb.fill(Fill::NonZero, Affine::IDENTITY, Color::YELLOW, None, &path);
-    sb.fill(
+    scene.fill(Fill::NonZero, Affine::IDENTITY, Color::YELLOW, None, &path);
+    scene.fill(
         Fill::EvenOdd,
         Affine::translate((300.0, 0.0)),
         Color::LIME,
@@ -1267,14 +1267,14 @@ fn robust_paths(sb: &mut Scene, _: &mut SceneParams) {
     path.line_to((260.0, 40.0));
     path.line_to((260.0, 4.0));
     path.close_path();
-    sb.fill(
+    scene.fill(
         Fill::NonZero,
         Affine::translate((0.0, 100.0)),
         Color::YELLOW,
         None,
         &path,
     );
-    sb.fill(
+    scene.fill(
         Fill::EvenOdd,
         Affine::translate((300.0, 100.0)),
         Color::LIME,
@@ -1283,13 +1283,13 @@ fn robust_paths(sb: &mut Scene, _: &mut SceneParams) {
     );
 }
 
-fn base_color_test(sb: &mut Scene, params: &mut SceneParams) {
+fn base_color_test(scene: &mut Scene, params: &mut SceneParams) {
     // Cycle through the hue value every 5 seconds (t % 5) * 360/5
     let color = Color::hlc((params.time % 5.0) * 72.0, 80.0, 80.0);
     params.base_color = Some(color);
 
     // Blend a white square over it.
-    sb.fill(
+    scene.fill(
         Fill::NonZero,
         Affine::IDENTITY,
         Color::rgba8(255, 255, 255, 128),
@@ -1298,7 +1298,7 @@ fn base_color_test(sb: &mut Scene, params: &mut SceneParams) {
     );
 }
 
-fn clip_test(sb: &mut Scene, params: &mut SceneParams) {
+fn clip_test(scene: &mut Scene, params: &mut SceneParams) {
     let clip = {
         const X0: f64 = 50.0;
         const Y0: f64 = 0.0;
@@ -1313,12 +1313,12 @@ fn clip_test(sb: &mut Scene, params: &mut SceneParams) {
             PathEl::ClosePath,
         ]
     };
-    sb.push_layer(Mix::Clip, 1.0, Affine::IDENTITY, &clip);
+    scene.push_layer(Mix::Clip, 1.0, Affine::IDENTITY, &clip);
     {
         let text_size = 60.0 + 40.0 * (params.time as f32).sin();
         let s = "Some clipped text!";
         params.text.add(
-            sb,
+            scene,
             None,
             text_size,
             None,
@@ -1326,7 +1326,7 @@ fn clip_test(sb: &mut Scene, params: &mut SceneParams) {
             s,
         );
     }
-    sb.pop_layer();
+    scene.pop_layer();
 
     let large_background_rect = kurbo::Rect::new(-1000.0, -1000.0, 2000.0, 2000.0);
     let inside_clip_rect = kurbo::Rect::new(11.0, 13.399999999999999, 59.0, 56.6);
@@ -1339,7 +1339,7 @@ fn clip_test(sb: &mut Scene, params: &mut SceneParams) {
     let clip_rect = kurbo::Rect::new(0.0, 0.0, 74.4, 339.20000000000005);
     let scale = 2.0;
 
-    sb.push_layer(
+    scene.push_layer(
         BlendMode {
             mix: peniko::Mix::Normal,
             compose: peniko::Compose::SrcOver,
@@ -1349,14 +1349,14 @@ fn clip_test(sb: &mut Scene, params: &mut SceneParams) {
         &clip_rect,
     );
 
-    sb.fill(
+    scene.fill(
         peniko::Fill::NonZero,
         kurbo::Affine::new([scale, 0.0, 0.0, scale, 27.07470703125, 176.40660533027858]),
         peniko::Color::rgb8(0, 0, 255),
         None,
         &large_background_rect,
     );
-    sb.fill(
+    scene.fill(
         peniko::Fill::NonZero,
         kurbo::Affine::new([
             scale,
@@ -1370,7 +1370,7 @@ fn clip_test(sb: &mut Scene, params: &mut SceneParams) {
         None,
         &inside_clip_rect,
     );
-    sb.fill(
+    scene.fill(
         peniko::Fill::NonZero,
         kurbo::Affine::new([
             scale,
@@ -1385,7 +1385,7 @@ fn clip_test(sb: &mut Scene, params: &mut SceneParams) {
         &outside_clip_rect,
     );
 
-    sb.pop_layer();
+    scene.pop_layer();
 }
 
 fn around_center(xform: Affine, center: Point) -> Affine {
@@ -1403,7 +1403,7 @@ fn make_diamond(cx: f64, cy: f64) -> [PathEl; 5] {
     ]
 }
 
-fn splash_screen(sb: &mut Scene, params: &mut SceneParams) {
+fn splash_screen(scene: &mut Scene, params: &mut SceneParams) {
     let strings = [
         "Vello test",
         "  Arrow keys: switch scenes",
@@ -1418,7 +1418,7 @@ fn splash_screen(sb: &mut Scene, params: &mut SceneParams) {
     for (i, s) in strings.iter().enumerate() {
         let text_size = if i == 0 { 60.0 } else { 40.0 };
         params.text.add(
-            sb,
+            scene,
             None,
             text_size,
             None,
@@ -1434,8 +1434,8 @@ fn splash_with_tiger() -> impl FnMut(&mut Scene, &mut SceneParams) {
         "/../assets/Ghostscript_Tiger.svg"
     ));
     let mut tiger = crate::svg::svg_function_of("Ghostscript Tiger".to_string(), move || contents);
-    move |sb, params| {
-        tiger(sb, params);
-        splash_screen(sb, params);
+    move |scene, params| {
+        tiger(scene, params);
+        splash_screen(scene, params);
     }
 }

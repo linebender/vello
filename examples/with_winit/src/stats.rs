@@ -37,7 +37,7 @@ impl Snapshot {
     #[allow(clippy::too_many_arguments)]
     pub fn draw_layer<'a, T>(
         &self,
-        sb: &mut Scene,
+        scene: &mut Scene,
         text: &mut SimpleText,
         viewport_width: f64,
         viewport_height: f64,
@@ -55,7 +55,7 @@ impl Snapshot {
         let offset = Affine::translate((x_offset, y_offset));
 
         // Draw the background
-        sb.fill(
+        scene.fill(
             Fill::NonZero,
             offset,
             &Brush::Solid(Color::rgba8(0, 0, 0, 200)),
@@ -95,7 +95,7 @@ impl Snapshot {
         let text_size = (text_height * 0.9) as f32;
         for (i, label) in labels.iter().enumerate() {
             text.add(
-                sb,
+                scene,
                 None,
                 text_size,
                 Some(&Brush::Solid(Color::WHITE)),
@@ -104,7 +104,7 @@ impl Snapshot {
             );
         }
         text.add(
-            sb,
+            scene,
             None,
             text_size,
             Some(&Brush::Solid(Color::WHITE)),
@@ -149,7 +149,7 @@ impl Snapshot {
                 ..=33_334 => Color::rgb8(255, 176, 0),
                 _ => Color::rgb8(220, 38, 127),
             };
-            sb.fill(
+            scene.fill(
                 Fill::NonZero,
                 t * Affine::translate((
                     left_margin_padding,
@@ -171,7 +171,7 @@ impl Snapshot {
         for t in thresholds.iter().filter(|&&t| t < display_max) {
             let y = t / display_max;
             text.add(
-                sb,
+                scene,
                 None,
                 thres_text_height as f32,
                 Some(&Brush::Solid(Color::WHITE)),
@@ -182,7 +182,7 @@ impl Snapshot {
                     )),
                 &format!("{}", t),
             );
-            sb.stroke(
+            scene.stroke(
                 &Stroke::new(graph_max_height * 0.01),
                 offset * Affine::translate((left_margin_padding, (1. - y) * graph_max_height)),
                 Color::WHITE,
@@ -270,7 +270,7 @@ const COLORS: &[Color] = &[
 ];
 
 pub fn draw_gpu_profiling(
-    sb: &mut Scene,
+    scene: &mut Scene,
     text: &mut SimpleText,
     viewport_width: f64,
     viewport_height: f64,
@@ -285,7 +285,7 @@ pub fn draw_gpu_profiling(
     let offset = Affine::translate((0., y_offset));
 
     // Draw the background
-    sb.fill(
+    scene.fill(
         Fill::NonZero,
         offset,
         &Brush::Solid(Color::rgba8(0, 0, 0, 200)),
@@ -324,7 +324,7 @@ pub fn draw_gpu_profiling(
         let text_size = (text_height * 0.9) as f32;
         for (i, label) in labels.iter().enumerate() {
             text.add(
-                sb,
+                scene,
                 None,
                 text_size,
                 Some(&Brush::Solid(Color::WHITE)),
@@ -336,7 +336,7 @@ pub fn draw_gpu_profiling(
         let text_size = (text_height * 0.9) as f32;
         for (i, label) in labels.iter().enumerate() {
             text.add(
-                sb,
+                scene,
                 None,
                 text_size,
                 Some(&Brush::Solid(Color::WHITE)),
@@ -367,7 +367,7 @@ pub fn draw_gpu_profiling(
 
             let color = COLORS[cur_index % COLORS.len()];
             let x = width * 0.01 + (depth as f64 * depth_width);
-            sb.fill(
+            scene.fill(
                 Fill::NonZero,
                 offset,
                 &Brush::Solid(color),
@@ -402,7 +402,7 @@ pub fn draw_gpu_profiling(
                 Duration::from_secs_f64(this_time),
                 profile.label
             );
-            sb.fill(
+            scene.fill(
                 Fill::NonZero,
                 offset,
                 &Brush::Solid(color),
@@ -415,7 +415,7 @@ pub fn draw_gpu_profiling(
                 ),
             );
             text.add(
-                sb,
+                scene,
                 None,
                 text_size,
                 Some(&Brush::Solid(text_color)),
@@ -423,7 +423,7 @@ pub fn draw_gpu_profiling(
                 &label,
             );
             if !nested && slow {
-                sb.stroke(
+                scene.stroke(
                     &Stroke::new(2.),
                     offset,
                     &Brush::Solid(color),

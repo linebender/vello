@@ -43,12 +43,12 @@ pub struct ExampleScene {
 }
 
 pub trait TestScene {
-    fn render(&mut self, sb: &mut Scene, params: &mut SceneParams);
+    fn render(&mut self, scene: &mut Scene, params: &mut SceneParams);
 }
 
 impl<F: FnMut(&mut Scene, &mut SceneParams)> TestScene for F {
-    fn render(&mut self, sb: &mut Scene, params: &mut SceneParams) {
-        self(sb, params);
+    fn render(&mut self, scene: &mut Scene, params: &mut SceneParams) {
+        self(scene, params);
     }
 }
 

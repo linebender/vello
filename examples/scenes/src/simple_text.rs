@@ -46,7 +46,7 @@ impl SimpleText {
     #[allow(clippy::too_many_arguments)]
     pub fn add_run<'a>(
         &mut self,
-        builder: &mut Scene,
+        scene: &mut Scene,
         font: Option<&Font>,
         size: f32,
         brush: impl Into<BrushRef<'a>>,
@@ -56,7 +56,7 @@ impl SimpleText {
         text: &str,
     ) {
         self.add_var_run(
-            builder,
+            scene,
             font,
             size,
             &[],
@@ -71,7 +71,7 @@ impl SimpleText {
     #[allow(clippy::too_many_arguments)]
     pub fn add_var_run<'a>(
         &mut self,
-        builder: &mut Scene,
+        scene: &mut Scene,
         font: Option<&Font>,
         size: f32,
         variations: &[(&str, f32)],
@@ -99,7 +99,7 @@ impl SimpleText {
         let glyph_metrics = font_ref.glyph_metrics(font_size, &var_loc);
         let mut pen_x = 0f32;
         let mut pen_y = 0f32;
-        builder
+        scene
             .draw_glyphs(font)
             .font_size(size)
             .transform(transform)
@@ -129,7 +129,7 @@ impl SimpleText {
 
     pub fn add(
         &mut self,
-        builder: &mut Scene,
+        scene: &mut Scene,
         font: Option<&Font>,
         size: f32,
         brush: Option<&Brush>,
@@ -139,7 +139,7 @@ impl SimpleText {
         use vello::peniko::{Color, Fill};
         let brush = brush.unwrap_or(&Brush::Solid(Color::WHITE));
         self.add_run(
-            builder,
+            scene,
             font,
             size,
             brush,

@@ -97,7 +97,7 @@ pub fn svg_function_of<R: AsRef<str>>(
         let start = Instant::now();
         let mut new_scene = Scene::new();
         vello_svg::render_tree(&mut new_scene, &svg);
-        let resolution = Vec2::new(svg.size.width(), svg.size.height());
+        let resolution = Vec2::new(svg.size.width() as f64, svg.size.height() as f64);
         eprintln!("Encoded svg {name} in {:?}", start.elapsed());
         (new_scene, resolution)
     }
@@ -109,9 +109,9 @@ pub fn svg_function_of<R: AsRef<str>>(
     #[cfg(not(target_arch = "wasm32"))]
     let mut has_started_parse = false;
     let mut contents = Some(contents);
-    move |builder, params| {
+    move |scene, params| {
         if let Some((scene_frag, resolution)) = cached_scene.as_mut() {
-            builder.append(scene_frag, None);
+            scene.append(scene_frag, None);
             params.resolution = Some(*resolution);
             return;
         }
@@ -119,7 +119,7 @@ pub fn svg_function_of<R: AsRef<str>>(
             let contents = contents.take().unwrap();
             let contents = contents();
             let (scene_frag, resolution) = render_svg_contents(&name, contents.as_ref());
-            builder.append(&scene_frag, None);
+            scene.append(&scene_frag, None);
             params.resolution = Some(resolution);
             cached_scene = Some((scene_frag, resolution));
             return;
@@ -144,12 +144,12 @@ pub fn svg_function_of<R: AsRef<str>>(
             use std::sync::mpsc::RecvTimeoutError;
             match recv {
                 Result::Ok((scene_frag, resolution)) => {
-                    builder.append(&scene_frag, None);
+                    scene.append(&scene_frag, None);
                     params.resolution = Some(resolution);
                     cached_scene = Some((scene_frag, resolution));
                 }
                 Err(RecvTimeoutError::Timeout) => params.text.add(
-                    builder,
+                    scene,
                     None,
                     48.,
                     None,
