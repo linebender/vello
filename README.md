@@ -30,8 +30,7 @@ cargo run -p with_winit
 
 ### SVG
 
-This repository also includes [`vello_svg`](./integrations/vello_svg/), which supports converting 
-a [`usvg`](https://crates.io/crates/usvg) `Tree` into a Vello scene.
+This repository also includes [`vello_svg`](./integrations/vello_svg/), which supports converting a [`usvg`](https://crates.io/crates/usvg) `Tree` into a Vello scene.
 
 This is currently incomplete; see its crate level documentation for more information.
 
