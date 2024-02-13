@@ -92,7 +92,7 @@ impl TestScene for MMark {
                 // gets it from the first, but this should not matter.
                 scene.stroke(
                     &Stroke::new(element.width),
-                    Affine::IDENTITY,
+                    params.transform.map(|t| *t).unwrap_or(Affine::IDENTITY),
                     element.color,
                     None,
                     &path,
@@ -103,6 +103,7 @@ impl TestScene for MMark {
                 element.is_split ^= true;
             }
         }
+        /*
         let label = format!("mmark test: {} path elements (up/down to adjust)", n);
         params.text.add(
             scene,
@@ -111,7 +112,7 @@ impl TestScene for MMark {
             None,
             Affine::translate((100.0, 1100.0)),
             &label,
-        );
+        );*/
     }
 }
 

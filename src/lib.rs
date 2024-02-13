@@ -496,15 +496,17 @@ impl Renderer {
                     .expect("renderer should have configured surface_format to use on a surface");
                 let bump = result.bump.as_ref().unwrap();
                 // TODO: We could avoid this download if `DebugLayers::VALIDATION` is unset.
-                let downloads = DebugDownloads::map(&mut self.engine, &captured, bump).await?;
-                debug.render(
-                    &mut recording,
-                    surface_proxy,
-                    &captured,
-                    bump,
-                    &params,
-                    &downloads,
-                );
+                if let Ok(downloads) = DebugDownloads::map(&mut self.engine, &captured, bump).await
+                {
+                    debug.render(
+                        &mut recording,
+                        surface_proxy,
+                        &captured,
+                        bump,
+                        &params,
+                        &downloads,
+                    );
+                }
 
                 // TODO: this sucks. better to release everything in a helper
                 // TODO: it would be much better to have a way to safely destroy a buffer.
@@ -664,6 +666,10 @@ impl<'a> DebugDownloads<'a> {
         let Some(lines_buf) = engine.get_download(captured.lines) else {
             return Err("could not download LineSoup buffer".into());
         };
+
+        if bump.lines == 0 {
+            return Err("bump indicates 0 LineSoup".into());
+        }
 
         let lines = lines_buf.slice(..bump.lines as u64 * std::mem::size_of::<LineSoup>() as u64);
         let (sender, receiver) = futures_intrusive::channel::shared::oneshot_channel();

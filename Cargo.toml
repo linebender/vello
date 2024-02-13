@@ -44,7 +44,7 @@ default = ["wgpu"]
 bump_estimate = ["vello_encoding/bump_estimate"]
 hot_reload = []
 buffer_labels = []
-debug_layers = []
+debug_layers = ["bump_estimate"]
 
 [dependencies]
 bytemuck = { workspace = true }

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::{ExampleScene, SceneConfig, SceneParams, SceneSet};
-use vello::kurbo::{Affine, BezPath, Cap, Ellipse, Join, PathEl, Point, Rect, Stroke};
+use vello::kurbo::{Affine, BezPath, Cap, Ellipse, Join, PathEl, Point, Rect, RoundedRect, Stroke};
 use vello::peniko::*;
 use vello::*;
 
@@ -31,7 +31,14 @@ macro_rules! scene {
 
 pub fn test_scenes() -> SceneSet {
     let scenes = vec![
+        scene!(single_curve(None, false), "single fill", false),
+        scene!(single_curve(Some(Cap::Butt), false), "stroke butt", false),
+        scene!(single_curve(Some(Cap::Round), false), "stroke round", false),
+        scene!(single_curve(None, true), "single fill", false),
+        scene!(single_curve(Some(Cap::Butt), true), "stroke butt", false),
+        scene!(single_curve(Some(Cap::Round), true), "stroke round", false),
         scene!(splash_with_tiger(), "splash_with_tiger", false),
+        scene!(zulip_hang),
         scene!(funky_paths),
         scene!(stroke_styles(Affine::IDENTITY), "stroke_styles", false),
         scene!(
@@ -67,7 +74,7 @@ pub fn test_scenes() -> SceneSet {
 
 // Scenes
 
-fn funky_paths(scene: &mut Scene, _: &mut SceneParams) {
+fn funky_paths(scene: &mut Scene, params: &mut SceneParams) {
     use PathEl::*;
     let missing_movetos = [
         MoveTo((0., 0.).into()),
@@ -79,30 +86,31 @@ fn funky_paths(scene: &mut Scene, _: &mut SceneParams) {
     ];
     let only_movetos = [MoveTo((0.0, 0.0).into()), MoveTo((100.0, 100.0).into())];
     let empty: [PathEl; 0] = [];
+    let t = params.transform.map(|t| *t).unwrap_or(Affine::IDENTITY);
     scene.fill(
         Fill::NonZero,
-        Affine::translate((100.0, 100.0)),
+        t * Affine::translate((100.0, 100.0)),
         Color::rgb8(0, 0, 255),
         None,
         &missing_movetos,
     );
     scene.fill(
         Fill::NonZero,
-        Affine::IDENTITY,
+        t,
         Color::rgb8(0, 0, 255),
         None,
         &empty,
     );
     scene.fill(
         Fill::NonZero,
-        Affine::IDENTITY,
+        t,
         Color::rgb8(0, 0, 255),
         None,
         &only_movetos,
     );
     scene.stroke(
         &Stroke::new(8.0),
-        Affine::translate((100.0, 100.0)),
+        t * Affine::translate((100.0, 100.0)),
         Color::rgb8(0, 255, 255),
         None,
         &missing_movetos,
@@ -280,7 +288,7 @@ fn stroke_styles(transform: Affine) -> impl FnMut(&mut Scene, &mut SceneParams) 
 
 // This test has been adapted from Skia's "trickycubicstrokes" GM slide which can be found at
 // `github.com/google/skia/blob/0d4d11451c4f4e184305cbdbd67f6b3edfa4b0e3/gm/trickycubicstrokes.cpp`
-fn tricky_strokes(scene: &mut Scene, _: &mut SceneParams) {
+fn tricky_strokes(scene: &mut Scene, params: &mut SceneParams) {
     use PathEl::*;
     let colors = [
         Color::rgb8(140, 181, 236),
@@ -352,6 +360,7 @@ fn tricky_strokes(scene: &mut Scene, _: &mut SceneParams) {
         let cell = Rect::new(x, y, x + CELL_SIZE, y + CELL_SIZE);
         let bounds = stroke_bounds(&cubic);
         let (t, s) = map_rect_to_rect(&bounds, &cell);
+        let t = params.transform.map(|t| *t).unwrap_or(Affine::IDENTITY) * t;
         scene.stroke(
             &Stroke::new(STROKE_WIDTH / s)
                 .with_caps(Cap::Butt)
@@ -462,7 +471,7 @@ fn cardioid_and_friends(scene: &mut Scene, _: &mut SceneParams) {
 fn longpathdash(cap: Cap) -> impl FnMut(&mut Scene, &mut SceneParams) {
     use std::f64::consts::PI;
     use PathEl::*;
-    move |scene, _| {
+    move |scene, params| {
         let mut path = BezPath::new();
         let mut x = 32;
         while x < 256 {
@@ -496,7 +505,7 @@ fn longpathdash(cap: Cap) -> impl FnMut(&mut Scene, &mut SceneParams) {
                 .with_caps(cap)
                 .with_join(Join::Bevel)
                 .with_dashes(0.0, [1.0, 1.0]),
-            Affine::translate((50.0, 50.0)),
+            params.transform.map(|t| *t).unwrap_or(Affine::IDENTITY) * Affine::translate((50.0, 50.0)),
             Color::YELLOW,
             None,
             &path,
@@ -1437,5 +1446,474 @@ fn splash_with_tiger() -> impl FnMut(&mut Scene, &mut SceneParams) {
     move |scene, params| {
         tiger(scene, params);
         splash_screen(scene, params);
+    }
+}
+
+fn zulip_hang(scene: &mut Scene, params: &mut SceneParams) {
+    use PathEl::*;
+    let clip_alpha = 0.1;
+
+    {
+        let clip_rect = Rect::from_origin_size(Point::new(0., 0.), (800., 600.));
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+
+        let shape = [
+        	MoveTo(
+				(15.0, 27.0).into(),
+			),
+			CurveTo(
+				(14.999999999999998, 20.37258300203048).into(),
+				(20.372583002030478, 15.000000000000002).into(),
+				(26.999999999999996, 15.0).into(),
+			),
+			LineTo(
+				(773.0, 15.0).into(),
+			),
+			CurveTo(
+				(779.6274169979695, 14.999999999999998).into(),
+				(785.0, 20.372583002030478).into(),
+				(785.0, 26.999999999999996).into(),
+			),
+			LineTo(
+				(785.0, 573.0).into(),
+			),
+			CurveTo(
+				(785.0, 579.6274169979695).into(),
+				(779.6274169979695, 585.0).into(),
+				(773.0, 585.0).into(),
+			),
+			LineTo(
+				(27.0, 585.0).into(),
+			),
+			CurveTo(
+				(20.37258300203048, 585.0).into(),
+				(15.000000000000002, 579.6274169979695).into(),
+				(15.0, 573.0).into(),
+			),
+			ClosePath,
+        ];
+		scene.fill(Fill::NonZero, Affine::IDENTITY, &Brush::Solid(Color::WHITE), None, &shape);
+        scene.pop_layer();
+    }
+    {
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(0., 0.), (800., 600.)),
+			(0., 0., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(15., 15.), (770., 32.)),
+			(12., 12., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+
+        scene.pop_layer();
+        scene.pop_layer();
+    }
+    {
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(0., 0.), (800., 600.)),
+			(0., 0., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(15., 15.), (770., 32.)),
+			(12., 12., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(0., 0.), (770., 32.)),
+			(0., 0., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+
+        scene.pop_layer();
+        scene.pop_layer();
+        scene.pop_layer();
+    }
+    {
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(0., 0.), (800., 600.)),
+			(0., 0., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(15., 15.), (770., 32.)),
+			(12., 12., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(0., 0.), (770., 32.)),
+			(0., 0., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(369.6399984359741, 5.), (30.720003128051758, 22.)),
+			(0., 0., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+
+        params.text.add(scene, None, 10., None, Affine::IDENTITY, "hello");
+
+        scene.pop_layer();
+        scene.pop_layer();
+        scene.pop_layer();
+        scene.pop_layer();
+    }
+    {
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(0., 0.), (800., 600.)),
+			(0., 0., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(15., 47.), (770., 538.)),
+			(0., 0., 12., 12.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(0., 0.), (770., 538.)),
+			(0., 0., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+
+        scene.pop_layer();
+        scene.pop_layer();
+        scene.pop_layer();
+    }
+    {
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(0., 0.), (800., 600.)),
+			(0., 0., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(15., 47.), (770., 538.)),
+			(0., 0., 12., 12.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(0., 0.), (770., 538.)),
+			(0., 0., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(0., 0.), (770., 179.33333333333334)),
+			(0., 0., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+
+        scene.pop_layer();
+        scene.pop_layer();
+        scene.pop_layer();
+        scene.pop_layer();
+    }
+    {
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(0., 0.), (800., 600.)),
+			(0., 0., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(15., 47.), (770., 538.)),
+			(0., 0., 12., 12.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(0., 0.), (770., 538.)),
+			(0., 0., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(0., 0.), (770., 179.33333333333334)),
+			(0., 0., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(0., 0.), (104.56001281738281, 44.)),
+			(0., 0., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+
+        params.text.add(scene, None, 10., None, Affine::IDENTITY, "hello");
+
+        scene.pop_layer();
+        scene.pop_layer();
+        scene.pop_layer();
+        scene.pop_layer();
+        scene.pop_layer();
+    }
+    {
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(0., 0.), (800., 600.)),
+			(0., 0., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(15., 47.), (770., 538.)),
+			(0., 0., 12., 12.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(0., 0.), (770., 538.)),
+			(0., 0., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(0., 0.), (770., 179.33333333333334)),
+			(0., 0., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(110., 0.), (104.56001281738281, 44.)),
+			(0., 0., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+
+        params.text.add(scene, None, 10., None, Affine::IDENTITY, "hello");
+
+        scene.pop_layer();
+        scene.pop_layer();
+        scene.pop_layer();
+        scene.pop_layer();
+        scene.pop_layer();
+    }
+    {
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(0., 0.), (800., 600.)),
+			(0., 0., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(15., 47.), (770., 538.)),
+			(0., 0., 12., 12.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(0., 0.), (770., 538.)),
+			(0., 0., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(0., 0.), (770., 179.33333333333334)),
+			(0., 0., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(220., 0.), (104.56001281738281, 44.)),
+			(0., 0., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+
+        params.text.add(scene, None, 10., None, Affine::IDENTITY, "hello");
+
+        scene.pop_layer();
+        scene.pop_layer();
+        scene.pop_layer();
+        scene.pop_layer();
+        scene.pop_layer();
+    }
+    {
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(0., 0.), (800., 600.)),
+			(0., 0., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(15., 47.), (770., 538.)),
+			(0., 0., 12., 12.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(0., 0.), (770., 538.)),
+			(0., 0., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(0., 0.), (770., 179.33333333333334)),
+			(0., 0., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(330., 0.), (104.56001281738281, 44.)),
+			(0., 0., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+
+        params.text.add(scene, None, 10., None, Affine::IDENTITY, "hello");
+
+        scene.pop_layer();
+        scene.pop_layer();
+        scene.pop_layer();
+        scene.pop_layer();
+        scene.pop_layer();
+    }
+    {
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(0., 0.), (800., 600.)),
+			(0., 0., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(15., 47.), (770., 538.)),
+			(0., 0., 12., 12.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(0., 0.), (770., 538.)),
+			(0., 0., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(0., 0.), (770., 179.33333333333334)),
+			(0., 0., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(440., 0.), (104.56001281738281, 44.)),
+			(0., 0., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+
+        params.text.add(scene, None, 10., None, Affine::IDENTITY, "hello");
+
+        scene.pop_layer();
+        scene.pop_layer();
+        scene.pop_layer();
+        scene.pop_layer();
+        scene.pop_layer();
+    }
+    {
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(0., 0.), (800., 600.)),
+			(0., 0., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(15., 47.), (770., 538.)),
+			(0., 0., 12., 12.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(0., 0.), (770., 538.)),
+			(0., 0., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(0., 0.), (770., 179.33333333333334)),
+			(0., 0., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(550., 0.), (104.56001281738281, 44.)),
+			(0., 0., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+
+        params.text.add(scene, None, 10., None, Affine::IDENTITY, "hello");
+
+        scene.pop_layer();
+        scene.pop_layer();
+        scene.pop_layer();
+        scene.pop_layer();
+        scene.pop_layer();
+    }
+    {
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(0., 0.), (800., 600.)),
+			(0., 0., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(15., 47.), (770., 538.)),
+			(0., 0., 12., 12.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(0., 0.), (770., 538.)),
+			(0., 0., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(0., 0.), (770., 179.33333333333334)),
+			(0., 0., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(660., 0.), (104.56001281738281, 44.)),
+			(0., 0., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+
+        params.text.add(scene, None, 10., None, Affine::IDENTITY, "hello");
+
+        scene.pop_layer();
+        scene.pop_layer();
+        scene.pop_layer();
+        scene.pop_layer();
+        scene.pop_layer();
+    }
+    {
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(0., 0.), (800., 600.)),
+			(0., 0., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(15., 47.), (770., 538.)),
+			(0., 0., 12., 12.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(0., 0.), (770., 538.)),
+			(0., 0., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+        let clip_rect = RoundedRect::from_rect(
+			Rect::from_origin_size(Point::new(0., 0.), (770., 179.33333333333334)),
+			(0., 0., 0., 0.),
+        );
+        scene.push_layer(Mix::Clip, clip_alpha, Affine::IDENTITY, &clip_rect);
+
+        scene.pop_layer();
+        scene.pop_layer();
+        scene.pop_layer();
+        scene.pop_layer();
+    }
+}
+
+fn single_curve(cap: Option<Cap>, curvy: bool) -> impl FnMut(&mut Scene, &mut SceneParams) {
+    move |scene, params| {
+        use PathEl::*;
+        let path = if curvy {
+            [
+                MoveTo((140., 220.).into()),
+                CurveTo((454., 350.).into(), (54., 102.).into(), (386.,  242.).into()),
+            ]
+        } else {
+            [
+                MoveTo((50., 50.).into()),
+                CurveTo((200., 100.).into(), (280., 100.).into(), (300.,  50.).into()),
+            ]
+        };
+        match cap {
+            Some(c) => scene.stroke(
+                &Stroke::new(10.)
+                    .with_caps(c)
+                    .with_join(Join::Bevel),
+                    //.with_dashes(0.0, [1.0, 1.0]),
+                params.transform.map(|t| *t).unwrap_or(Affine::IDENTITY),
+                Color::YELLOW,
+                None,
+                &path,
+            ),
+            None => scene.fill(
+                Fill::NonZero,
+                params.transform.map(|t| *t).unwrap_or(Affine::IDENTITY),
+                Color::YELLOW,
+                None,
+                &path,
+            ),
+        }
     }
 }

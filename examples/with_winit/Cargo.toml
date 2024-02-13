@@ -37,7 +37,7 @@ env_logger = "0.10.0"
 log = "0.4.17"
 
 [target.'cfg(not(any(target_arch = "wasm32", target_os = "android")))'.dependencies]
-vello = { path = "../../", features = ["hot_reload"] }
+vello = { path = "../../", features = ["hot_reload", "bump_estimate"] }
 notify-debouncer-mini = "0.3"
 
 

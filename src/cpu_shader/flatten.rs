@@ -326,7 +326,7 @@ fn flatten_arc(
     lines: &mut [LineSoup],
     bbox: &mut IntBbox,
 ) {
-    const MIN_THETA: f32 = 0.0001;
+    const MIN_THETA: f32 = 0.001;
 
     let mut p0 = transform.apply(begin);
     let mut r = begin - center;
@@ -774,4 +774,8 @@ pub fn flatten(n_wg: u32, resources: &[CpuBinding]) {
         &mut bump,
         &mut lines,
     );
+
+    // TODO: this shouldn't happen here
+    //    #[cfg(feature = "debug_layers")]
+    //   crate::debug::validate::validate_line_soup(&lines[..bump.lines as usize]);
 }

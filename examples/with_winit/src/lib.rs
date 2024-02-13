@@ -139,6 +139,8 @@ fn run(
 
     #[cfg(feature = "debug_layers")]
     let mut debug = vello::DebugLayers::none();
+    //    #[cfg(feature = "debug_layers")]
+    let mut debug_dump_time = Instant::now();
 
     // _event_loop is used on non-wasm platforms to create new windows
     event_loop.run(move |event, _event_loop, control_flow| match event {
@@ -377,6 +379,7 @@ fn run(
                 base_color: None,
                 interactive: true,
                 complexity,
+                transform: None, //Some(&transform),
             };
             example_scene
                 .function
@@ -439,6 +442,7 @@ fn run(
                     );
                 }
             }
+            let new_time = Instant::now();
             let surface_texture = render_state
                 .surface
                 .surface
@@ -460,6 +464,27 @@ fn run(
                         ),
                 )
                 .expect("failed to render to surface");
+                if (new_time - debug_dump_time).as_secs() > 2 {
+                    let bump_estimate = scene.bump_estimate(None);
+                    println!(
+                        "Last frame estimated bump buffer counts:{}\n",
+                        bump_estimate
+                    );
+                    debug_dump_time = new_time;
+                    #[cfg(feature = "debug_layers")]
+                    {
+                        let bump = scene_complexity.as_ref().unwrap();
+                        println!(
+                            "Last frame actual bump buffer counts:{}\n \
+                                 \tBlend:\t\t\t{}\n\
+                                 \tError Bits:\t\t0x{:#08x}\n\
+                                 --------\n",
+                            bump.memory(),
+                            bump.blend,
+                            bump.failed
+                        );
+                    }
+                }
             }
             // Note: in the wasm case, we're currently not running the robust
             // pipeline, as it requires more async wiring for the readback.
@@ -475,10 +500,10 @@ fn run(
                     &render_params,
                 )
                 .expect("failed to render to surface");
+
             surface_texture.present();
             device_handle.device.poll(wgpu::Maintain::Poll);
 
-            let new_time = Instant::now();
             stats.add_sample(stats::Sample {
                 frame_time_us: (new_time - frame_start_time).as_micros() as u64,
             });

@@ -16,7 +16,11 @@ pub use simple_text::SimpleText;
 pub use svg::{default_scene, scene_from_files};
 pub use test_scenes::test_scenes;
 
-use vello::{kurbo::Vec2, peniko::Color, Scene};
+use vello::{
+    kurbo::{Affine, Vec2},
+    peniko::Color,
+    Scene,
+};
 
 pub struct SceneParams<'a> {
     pub time: f64,
@@ -29,6 +33,7 @@ pub struct SceneParams<'a> {
     pub resolution: Option<Vec2>,
     pub base_color: Option<vello::peniko::Color>,
     pub complexity: usize,
+    pub transform: Option<&'a Affine>,
 }
 
 pub struct SceneConfig {
