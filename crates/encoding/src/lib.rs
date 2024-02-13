@@ -10,6 +10,8 @@ mod clip;
 mod config;
 mod draw;
 mod encoding;
+#[cfg(feature = "bump_estimate")]
+mod estimate;
 #[cfg(feature = "full")]
 mod glyph;
 #[cfg(feature = "full")]
@@ -27,8 +29,8 @@ mod resolve;
 pub use binning::BinHeader;
 pub use clip::{Clip, ClipBbox, ClipBic, ClipElement};
 pub use config::{
-    BufferSize, BufferSizes, BumpAllocators, ConfigUniform, IndirectCount, RenderConfig,
-    WorkgroupCounts, WorkgroupSize,
+    BufferSize, BufferSizes, BumpAllocatorMemory, BumpAllocators, ConfigUniform, IndirectCount,
+    RenderConfig, WorkgroupCounts, WorkgroupSize,
 };
 pub use draw::{
     DrawBbox, DrawBeginClip, DrawColor, DrawImage, DrawLinearGradient, DrawMonoid,
@@ -51,3 +53,6 @@ pub use {
     ramp_cache::Ramps,
     resolve::{Patch, Resolver},
 };
+
+#[cfg(feature = "bump_estimate")]
+pub use estimate::BumpEstimator;

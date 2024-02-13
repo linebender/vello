@@ -7,9 +7,15 @@ repository.workspace = true
 
 [features]
 default = ["full"]
+
 # Enables support for the full pipeline including late-bound
 # resources (gradients, images and glyph runs)
 full = ["skrifa", "guillotiere"]
+
+# Enables an optional GPU memory usage estimation utility. This can be used to
+# perform additional computations in order to estimate the minimum required allocations
+# for buffers backing bump-allocated GPU memory.
+bump_estimate = []
 
 [dependencies]
 bytemuck = { workspace = true }
