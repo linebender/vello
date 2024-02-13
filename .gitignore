@@ -1,6 +1,7 @@
 /target
 Cargo.lock
 /trace.json
+.DS_Store
 
 examples/assets/downloads/*
 !examples/assets/downloads/.tracked
