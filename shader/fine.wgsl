@@ -738,6 +738,22 @@ fn read_rad_grad(cmd_ix: u32) -> CmdRadGrad {
     return CmdRadGrad(index, extend_mode, matrx, xlat, focal_x, radius, kind, flags);
 }
 
+fn read_sweep_grad(cmd_ix: u32) -> CmdSweepGrad {
+    let index_mode = ptcl[cmd_ix + 1u];
+    let index = index_mode >> 2u;
+    let extend_mode = index_mode & 0x3u;
+    let info_offset = ptcl[cmd_ix + 2u];
+    let m0 = bitcast<f32>(info[info_offset]);
+    let m1 = bitcast<f32>(info[info_offset + 1u]);
+    let m2 = bitcast<f32>(info[info_offset + 2u]);
+    let m3 = bitcast<f32>(info[info_offset + 3u]);
+    let matrx = vec4(m0, m1, m2, m3);
+    let xlat = vec2(bitcast<f32>(info[info_offset + 4u]), bitcast<f32>(info[info_offset + 5u]));
+    let t0 = bitcast<f32>(info[info_offset + 6u]);
+    let t1 = bitcast<f32>(info[info_offset + 7u]);
+    return CmdSweepGrad(index, extend_mode, matrx, xlat, t0, t1);
+}
+
 fn read_image(cmd_ix: u32) -> CmdImage {
     let info_offset = ptcl[cmd_ix + 1u];
     let m0 = bitcast<f32>(info[info_offset]);
@@ -970,8 +986,42 @@ fn main(
                 }
                 cmd_ix += 3u;
             }
-            // CMD_IMAGE
+            // CMD_SWEEP_GRAD
             case 8u: {
+                let sweep = read_sweep_grad(cmd_ix);
+                let scale = 1.0 / (sweep.t1 - sweep.t0);
+                for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
+                    let my_xy = vec2(xy.x + f32(i), xy.y);
+                    let local_xy = sweep.matrx.xy * my_xy.x + sweep.matrx.zw * my_xy.y + sweep.xlat;
+                    let x = local_xy.x;
+                    let y = local_xy.y;
+                    // xy_to_unit_angle from Skia:
+                    // See <https://github.com/google/skia/blob/30bba741989865c157c7a997a0caebe94921276b/src/opts/SkRasterPipeline_opts.h#L5859>
+                    let xabs = abs(x);
+                    let yabs = abs(y);
+                    let slope = min(xabs, yabs) / max(xabs, yabs);
+                    let s = slope * slope;
+                    // again, from Skia:
+                    // Use a 7th degree polynomial to approximate atan.
+                    // This was generated using sollya.gforge.inria.fr.
+                    // A float optimized polynomial was generated using the following command.
+                    // P1 = fpminimax((1/(2*Pi))*atan(x),[|1,3,5,7|],[|24...|],[2^(-40),1],relative);
+                    var phi = slope * (0.15912117063999176025390625f + s * (-5.185396969318389892578125e-2f + s * (2.476101927459239959716796875e-2f + s * (-7.0547382347285747528076171875e-3f))));
+                    phi = select(phi, 1.0 / 4.0 - phi, xabs < yabs);
+                    phi = select(phi, 1.0 / 2.0 - phi, x < 0.0);
+                    phi = select(phi, 1.0 - phi, y < 0.0);
+                    phi = select(phi, 0.0, phi != phi); // check for NaN
+                    phi = (phi - sweep.t0) * scale;
+                    let t = extend_mode(phi, sweep.extend_mode);
+                    let ramp_x = i32(round(t * f32(GRADIENT_WIDTH - 1)));
+                    let fg_rgba = textureLoad(gradients, vec2(ramp_x, i32(sweep.index)), 0);
+                    let fg_i = fg_rgba * area[i];
+                    rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
+                }
+                cmd_ix += 3u;
+            }
+            // CMD_IMAGE
+            case 9u: {
                 let image = read_image(cmd_ix);
                 let atlas_extents = image.atlas_offset + image.extents;
                 for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
@@ -993,7 +1043,7 @@ fn main(
                 cmd_ix += 2u;
             }
             // CMD_BEGIN_CLIP
-            case 9u: {
+            case 10u: {
                 if clip_depth < BLEND_STACK_SPLIT {
                     for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
                         blend_stack[clip_depth][i] = pack4x8unorm(rgba[i]);
@@ -1006,7 +1056,7 @@ fn main(
                 cmd_ix += 1u;
             }
             // CMD_END_CLIP
-            case 10u: {
+            case 11u: {
                 let end_clip = read_end_clip(cmd_ix);
                 clip_depth -= 1u;
                 for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
@@ -1023,7 +1073,7 @@ fn main(
                 cmd_ix += 3u;
             }
             // CMD_JUMP
-            case 11u: {
+            case 12u: {
                 cmd_ix = ptcl[cmd_ix + 1u];
             }
             default: {}

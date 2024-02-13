@@ -10,7 +10,7 @@ use crate::cpu_dispatch::CpuBinding;
 
 use super::{
     CMD_BEGIN_CLIP, CMD_COLOR, CMD_END, CMD_END_CLIP, CMD_FILL, CMD_IMAGE, CMD_JUMP, CMD_LIN_GRAD,
-    CMD_RAD_GRAD, CMD_SOLID, PTCL_INITIAL_ALLOC,
+    CMD_RAD_GRAD, CMD_SOLID, CMD_SWEEP_GRAD, PTCL_INITIAL_ALLOC,
 };
 
 const N_TILE_X: usize = 16;
@@ -287,6 +287,18 @@ fn coarse_main(
                                     bump,
                                     ptcl,
                                     CMD_RAD_GRAD,
+                                    index,
+                                    di + 1,
+                                );
+                            }
+                            DrawTag::SWEEP_GRADIENT => {
+                                tile_state.write_path(config, bump, ptcl, tile, draw_flags);
+                                let index = scene[dd as usize];
+                                tile_state.write_grad(
+                                    config,
+                                    bump,
+                                    ptcl,
+                                    CMD_SWEEP_GRAD,
                                     index,
                                     di + 1,
                                 );

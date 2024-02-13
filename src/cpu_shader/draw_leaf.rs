@@ -36,6 +36,7 @@ fn draw_leaf_main(
             if tag_word == DrawTag::COLOR
                 || tag_word == DrawTag::LINEAR_GRADIENT
                 || tag_word == DrawTag::RADIAL_GRADIENT
+                || tag_word == DrawTag::SWEEP_GRADIENT
                 || tag_word == DrawTag::IMAGE
                 || tag_word == DrawTag::BEGIN_CLIP
             {
@@ -106,6 +107,35 @@ fn draw_leaf_main(
                         info[di + 8] = f32::to_bits(c1.y);
                         info[di + 9] = f32::to_bits(ra);
                         info[di + 19] = f32::to_bits(roff);
+                    }
+                    DrawTag::SWEEP_GRADIENT => {
+                        info[di] = draw_flags;
+                        let p0 = Vec2::new(
+                            f32::from_bits(scene[dd as usize + 1]),
+                            f32::from_bits(scene[dd as usize + 2]),
+                        );
+                        let xform =
+                            transform * Transform([1.0, 0.0, 0.0, 1.0, p0.x as f32, p0.y as f32]);
+                        let z = xform.0;
+                        let inv_det = (z[0] * z[3] - z[1] * z[2]).recip();
+                        let inv_mat = [
+                            z[3] * inv_det,
+                            -z[1] * inv_det,
+                            -z[2] * inv_det,
+                            z[0] * inv_det,
+                        ];
+                        let inv_tr = [
+                            -(inv_mat[0] * z[4] + inv_mat[2] * z[5]),
+                            -(inv_mat[1] * z[4] + inv_mat[3] * z[5]),
+                        ];
+                        info[di + 1] = f32::to_bits(inv_mat[0]);
+                        info[di + 2] = f32::to_bits(inv_mat[1]);
+                        info[di + 3] = f32::to_bits(inv_mat[2]);
+                        info[di + 4] = f32::to_bits(inv_mat[3]);
+                        info[di + 5] = f32::to_bits(inv_tr[0]);
+                        info[di + 6] = f32::to_bits(inv_tr[1]);
+                        info[di + 7] = scene[dd as usize + 3];
+                        info[di + 8] = scene[dd as usize + 4];
                     }
                     DrawTag::IMAGE => {
                         info[di] = draw_flags;

@@ -16,10 +16,11 @@ let CMD_SOLID = 3u;
 let CMD_COLOR = 5u;
 let CMD_LIN_GRAD = 6u;
 let CMD_RAD_GRAD = 7u;
-let CMD_IMAGE = 8u;
-let CMD_BEGIN_CLIP = 9u;
-let CMD_END_CLIP = 10u;
-let CMD_JUMP = 11u;
+let CMD_SWEEP_GRAD = 8u;
+let CMD_IMAGE = 9u;
+let CMD_BEGIN_CLIP = 10u;
+let CMD_END_CLIP = 11u;
+let CMD_JUMP = 12u;
 
 // The individual PTCL structs are written here, but read/write is by
 // hand in the relevant shaders
@@ -60,6 +61,15 @@ struct CmdRadGrad {
     radius: f32,
     kind: u32,
     flags: u32,
+}
+
+struct CmdSweepGrad {
+    index: u32,
+    extend_mode: u32,
+    matrx: vec4<f32>,
+    xlat: vec2<f32>,
+    t0: f32,
+    t1: f32,
 }
 
 struct CmdImage {

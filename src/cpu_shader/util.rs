@@ -3,6 +3,7 @@
 
 //! Utility types
 
+use std::ops::Mul;
 use vello_encoding::ConfigUniform;
 
 #[derive(Clone, Copy, Default, Debug, PartialEq)]
@@ -130,6 +131,22 @@ impl Transform {
             z[i] = f32::from_bits(data[base + i]);
         }
         Transform(z)
+    }
+}
+
+impl Mul for Transform {
+    type Output = Self;
+
+    #[inline]
+    fn mul(self, other: Self) -> Self {
+        Self([
+            self.0[0] * other.0[0] + self.0[2] * other.0[1],
+            self.0[1] * other.0[0] + self.0[3] * other.0[1],
+            self.0[0] * other.0[2] + self.0[2] * other.0[3],
+            self.0[1] * other.0[2] + self.0[3] * other.0[3],
+            self.0[0] * other.0[4] + self.0[2] * other.0[5] + self.0[4],
+            self.0[1] * other.0[4] + self.0[3] * other.0[5] + self.0[5],
+        ])
     }
 }
 

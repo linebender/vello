@@ -656,22 +656,38 @@ fn brush_transform(scene: &mut Scene, params: &mut SceneParams) {
 }
 
 fn gradient_extend(scene: &mut Scene, params: &mut SceneParams) {
-    fn square(scene: &mut Scene, is_radial: bool, transform: Affine, extend: Extend) {
+    enum Kind {
+        Linear,
+        Radial,
+        Sweep,
+    }
+    fn square(scene: &mut Scene, kind: Kind, transform: Affine, extend: Extend) {
         let colors = [Color::RED, Color::rgb8(0, 255, 0), Color::BLUE];
         let width = 300f64;
         let height = 300f64;
-        let gradient: Brush = if is_radial {
-            let center = (width * 0.5, height * 0.5);
-            let radius = (width * 0.25) as f32;
-            Gradient::new_two_point_radial(center, radius * 0.25, center, radius)
-                .with_stops(colors)
-                .with_extend(extend)
-                .into()
-        } else {
-            Gradient::new_linear((width * 0.35, height * 0.5), (width * 0.65, height * 0.5))
-                .with_stops(colors)
-                .with_extend(extend)
-                .into()
+        let gradient: Brush = match kind {
+            Kind::Linear => {
+                Gradient::new_linear((width * 0.35, height * 0.5), (width * 0.65, height * 0.5))
+                    .with_stops(colors)
+                    .with_extend(extend)
+                    .into()
+            }
+            Kind::Radial => {
+                let center = (width * 0.5, height * 0.5);
+                let radius = (width * 0.25) as f32;
+                Gradient::new_two_point_radial(center, radius * 0.25, center, radius)
+                    .with_stops(colors)
+                    .with_extend(extend)
+                    .into()
+            }
+            Kind::Sweep => Gradient::new_sweep(
+                (width * 0.5, height * 0.5),
+                30f32.to_radians(),
+                150f32.to_radians(),
+            )
+            .with_stops(colors)
+            .with_extend(extend)
+            .into(),
         };
         scene.fill(
             Fill::NonZero,
@@ -683,10 +699,12 @@ fn gradient_extend(scene: &mut Scene, params: &mut SceneParams) {
     }
     let extend_modes = [Extend::Pad, Extend::Repeat, Extend::Reflect];
     for (x, extend) in extend_modes.iter().enumerate() {
-        for y in 0..2 {
-            let is_radial = y & 1 != 0;
+        for (y, kind) in [Kind::Linear, Kind::Radial, Kind::Sweep]
+            .into_iter()
+            .enumerate()
+        {
             let transform = Affine::translate((x as f64 * 350.0 + 50.0, y as f64 * 350.0 + 100.0));
-            square(scene, is_radial, transform, *extend);
+            square(scene, kind, transform, *extend);
         }
     }
     for (i, label) in ["Pad", "Repeat", "Reflect"].iter().enumerate() {

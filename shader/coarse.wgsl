@@ -376,6 +376,13 @@ fn main(
                         let info_offset = di + 1u;
                         write_grad(CMD_RAD_GRAD, index, info_offset);
                     }
+                    // DRAWTAG_FILL_SWEEP_GRADIENT
+                    case 0x254u: {
+                        write_path(tile, tile_ix, draw_flags);
+                        let index = scene[dd];
+                        let info_offset = di + 1u;
+                        write_grad(CMD_SWEEP_GRAD, index, info_offset);
+                    }                    
                     // DRAWTAG_FILL_IMAGE
                     case 0x248u: {
                         write_path(tile, tile_ix, draw_flags);
