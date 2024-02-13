@@ -41,7 +41,7 @@ impl Scene {
         &self.encoding
     }
 
-    /// Pushes a new layer bound by the specifed shape and composed with
+    /// Pushes a new layer bound by the specified shape and composed with
     /// previous layers using the specified blend mode.
     pub fn push_layer(
         &mut self,
