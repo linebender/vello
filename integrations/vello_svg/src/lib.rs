@@ -34,7 +34,7 @@
 
 use std::convert::Infallible;
 use usvg::NodeExt;
-use vello::kurbo::{Affine, BezPath, Rect, Stroke};
+use vello::kurbo::{Affine, BezPath, Point, Rect, Stroke};
 use vello::peniko::{Brush, Color, Fill};
 use vello::Scene;
 
