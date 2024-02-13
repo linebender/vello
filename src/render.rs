@@ -35,7 +35,7 @@ pub fn render_full(
     shaders: &FullShaders,
     params: &RenderParams,
 ) -> (Recording, ResourceProxy) {
-    render_encoding_full(scene.data(), shaders, params)
+    render_encoding_full(scene.encoding(), shaders, params)
 }
 
 /// Create a single recording with both coarse and fine render stages.

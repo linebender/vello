@@ -1,4 +1,4 @@
-//! Append a [`usvg::Tree`] to a Vello [`SceneBuilder`]
+//! Append a [`usvg::Tree`] to a Vello [`Scene`]
 //!
 //! This currently lacks support for a [number of important](crate#unsupported-features) SVG features.
 //! This is because this integration was developed for examples, which only need to support enough SVG
@@ -34,11 +34,9 @@
 
 use std::convert::Infallible;
 use usvg::NodeExt;
-use vello::{
-    kurbo::{Affine, BezPath, Point, Rect, Stroke},
-    peniko::{Brush, Color, Fill},
-    SceneBuilder,
-};
+use vello::kurbo::{Affine, BezPath, Point, Rect, Stroke};
+use vello::peniko::{Brush, Color, Fill};
+use vello::Scene;
 
 /// Re-export vello.
 pub use vello;
@@ -46,26 +44,24 @@ pub use vello;
 /// Re-export usvg.
 pub use usvg;
 
-/// Append a [`usvg::Tree`] into a Vello [`SceneBuilder`], with default error
-/// handling. This will draw a red box over (some) unsupported elements
+/// Append a [`usvg::Tree`] into a Vello [`Scene`], with default error handling
+/// This will draw a red box over (some) unsupported elements
 ///
 /// Calls [`render_tree_with`] with an error handler implementing the above.
 ///
-/// See the [module level documentation](crate#unsupported-features) for a list
-/// of some unsupported svg features
-pub fn render_tree(sb: &mut SceneBuilder, svg: &usvg::Tree) {
-    render_tree_with(sb, svg, default_error_handler).unwrap_or_else(|e| match e {})
+/// See the [module level documentation](crate#unsupported-features) for a list of some unsupported svg features
+pub fn render_tree(scene: &mut Scene, svg: &usvg::Tree) {
+    render_tree_with(scene, svg, default_error_handler).unwrap_or_else(|e| match e {});
 }
 
-/// Append a [`usvg::Tree`] into a Vello [`SceneBuilder`].
+/// Append a [`usvg::Tree`] into a Vello [`Scene`].
 ///
 /// Calls [`render_tree_with`] with [`default_error_handler`].
 /// This will draw a red box over unsupported element types.
 ///
-/// See the [module level documentation](crate#unsupported-features) for a list
-/// of some unsupported svg features
-pub fn render_tree_with<F: FnMut(&mut SceneBuilder, &usvg::Node) -> Result<(), E>, E>(
-    sb: &mut SceneBuilder,
+/// See the [module level documentation](crate#unsupported-features) for a list of some unsupported svg features
+pub fn render_tree_with<F: FnMut(&mut Scene, &usvg::Node) -> Result<(), E>, E>(
+    scene: &mut Scene,
     svg: &usvg::Tree,
     mut on_err: F,
 ) -> Result<(), E> {
@@ -136,7 +132,7 @@ pub fn render_tree_with<F: FnMut(&mut SceneBuilder, &usvg::Node) -> Result<(), E
                     if let Some((brush, brush_transform)) =
                         paint_to_brush(&fill.paint, fill.opacity)
                     {
-                        sb.fill(
+                        scene.fill(
                             match fill.rule {
                                 usvg::FillRule::NonZero => Fill::NonZero,
                                 usvg::FillRule::EvenOdd => Fill::EvenOdd,
@@ -147,7 +143,7 @@ pub fn render_tree_with<F: FnMut(&mut SceneBuilder, &usvg::Node) -> Result<(), E
                             &local_path,
                         );
                     } else {
-                        on_err(sb, &elt)?;
+                        on_err(scene, &elt)?;
                     }
                 }
                 if let Some(stroke) = &path.stroke {
@@ -156,7 +152,7 @@ pub fn render_tree_with<F: FnMut(&mut SceneBuilder, &usvg::Node) -> Result<(), E
                     {
                         // FIXME: handle stroke options such as linecap,
                         // linejoin, etc.
-                        sb.stroke(
+                        scene.stroke(
                             &Stroke::new(stroke.width.get() as f64),
                             transform,
                             &brush,
@@ -164,24 +160,24 @@ pub fn render_tree_with<F: FnMut(&mut SceneBuilder, &usvg::Node) -> Result<(), E
                             &local_path,
                         );
                     } else {
-                        on_err(sb, &elt)?;
+                        on_err(scene, &elt)?;
                     }
                 }
             }
             usvg::NodeKind::Image(_) => {
-                on_err(sb, &elt)?;
+                on_err(scene, &elt)?;
             }
             usvg::NodeKind::Text(_) => {
-                on_err(sb, &elt)?;
+                on_err(scene, &elt)?;
             }
         }
     }
     Ok(())
 }
 
-/// Error handler function for [`render_tree_with`] which draws a transparent
-/// red box instead of unsupported SVG features
-pub fn default_error_handler(sb: &mut SceneBuilder, node: &usvg::Node) -> Result<(), Infallible> {
+/// Error handler function for [`render_tree_with`] which draws a transparent red box
+/// instead of unsupported SVG features
+pub fn default_error_handler(scene: &mut Scene, node: &usvg::Node) -> Result<(), Infallible> {
     if let Some(bb) = node.calculate_bbox() {
         let rect = Rect {
             x0: bb.left() as f64,
@@ -189,7 +185,7 @@ pub fn default_error_handler(sb: &mut SceneBuilder, node: &usvg::Node) -> Result
             x1: bb.right() as f64,
             y1: bb.bottom() as f64,
         };
-        sb.fill(
+        scene.fill(
             Fill::NonZero,
             Affine::IDENTITY,
             Color::RED.with_alpha_factor(0.5),

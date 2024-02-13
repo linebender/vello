@@ -12,7 +12,7 @@ use rand::{seq::SliceRandom, Rng};
 use vello::peniko::Color;
 use vello::{
     kurbo::{Affine, BezPath, CubicBez, Line, ParamCurve, PathSeg, Point, QuadBez, Stroke},
-    SceneBuilder,
+    Scene,
 };
 
 use crate::{SceneParams, TestScene};
@@ -67,7 +67,7 @@ impl MMark {
 }
 
 impl TestScene for MMark {
-    fn render(&mut self, sb: &mut SceneBuilder, params: &mut SceneParams) {
+    fn render(&mut self, scene: &mut Scene, params: &mut SceneParams) {
         let c = params.complexity;
         let n = if c < 10 {
             (c + 1) * 1000
@@ -90,7 +90,7 @@ impl TestScene for MMark {
             if element.is_split || i == len {
                 // This gets color and width from the last element, original
                 // gets it from the first, but this should not matter.
-                sb.stroke(
+                scene.stroke(
                     &Stroke::new(element.width),
                     Affine::IDENTITY,
                     element.color,
@@ -105,7 +105,7 @@ impl TestScene for MMark {
         }
         let label = format!("mmark test: {} path elements (up/down to adjust)", n);
         params.text.add(
-            sb,
+            scene,
             None,
             40.0,
             None,

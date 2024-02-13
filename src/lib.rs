@@ -39,7 +39,7 @@ pub mod glyph;
 pub mod util;
 
 pub use render::Render;
-pub use scene::{DrawGlyphs, Scene, SceneBuilder, SceneFragment};
+pub use scene::{DrawGlyphs, Scene};
 #[cfg(feature = "wgpu")]
 pub use util::block_on_wgpu;
 
@@ -301,7 +301,7 @@ impl Renderer {
         params: &RenderParams,
     ) -> Result<Option<BumpAllocators>> {
         let mut render = Render::new();
-        let encoding = scene.data();
+        let encoding = scene.encoding();
         // TODO: turn this on; the download feature interacts with CPU dispatch
         let robust = false;
         let recording = render.render_encoding_coarse(encoding, &self.shaders, params, robust);

@@ -20,9 +20,9 @@ use skrifa::instance::NormalizedCoord;
 use vello_encoding::{Encoding, Glyph, GlyphRun, Patch, Transform};
 
 /// Encoded definition of a scene and associated resources.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Scene {
-    data: Encoding,
+    encoding: Encoding,
 }
 
 impl Scene {
@@ -31,61 +31,14 @@ impl Scene {
         Self::default()
     }
 
-    /// Returns the raw encoded scene data streams.
-    pub fn data(&self) -> &Encoding {
-        &self.data
-    }
-}
-
-/// Encoded definition of a scene fragment and associated resources.
-#[derive(Default)]
-pub struct SceneFragment {
-    data: Encoding,
-}
-
-impl SceneFragment {
-    /// Creates a new scene fragment.
-    pub fn new() -> Self {
-        Self::default()
+    /// Removes all content from the scene.
+    pub fn reset(&mut self) {
+        self.encoding.reset();
     }
 
-    /// Returns true if the fragment does not contain any paths.
-    pub fn is_empty(&self) -> bool {
-        self.data.is_empty()
-    }
-
-    /// Returns the the entire sequence of points in the scene fragment.
-    pub fn points(&self) -> &[[f32; 2]] {
-        if self.is_empty() {
-            &[]
-        } else {
-            bytemuck::cast_slice(&self.data.path_data)
-        }
-    }
-}
-
-/// Builder for constructing a scene or scene fragment.
-pub struct SceneBuilder<'a> {
-    scene: &'a mut Encoding,
-}
-
-impl<'a> SceneBuilder<'a> {
-    /// Creates a new builder for filling a scene. Any current content in the scene
-    /// will be cleared.
-    pub fn for_scene(scene: &'a mut Scene) -> Self {
-        Self::new(&mut scene.data)
-    }
-
-    /// Creates a new builder for filling a scene fragment. Any current content in
-    /// the fragment will be cleared.    
-    pub fn for_fragment(fragment: &'a mut SceneFragment) -> Self {
-        Self::new(&mut fragment.data)
-    }
-
-    /// Creates a new builder for constructing a scene.
-    fn new(scene: &'a mut Encoding) -> Self {
-        scene.reset();
-        Self { scene }
+    /// Returns the underlying raw encoding.
+    pub fn encoding(&self) -> &Encoding {
+        &self.encoding
     }
 
     /// Pushes a new layer bound by the specified shape and composed with
@@ -98,21 +51,22 @@ impl<'a> SceneBuilder<'a> {
         shape: &impl Shape,
     ) {
         let blend = blend.into();
-        self.scene
+        self.encoding
             .encode_transform(Transform::from_kurbo(&transform));
-        self.scene.encode_fill_style(Fill::NonZero);
-        if !self.scene.encode_shape(shape, true) {
+        self.encoding.encode_fill_style(Fill::NonZero);
+        if !self.encoding.encode_shape(shape, true) {
             // If the layer shape is invalid, encode a valid empty path. This suppresses
             // all drawing until the layer is popped.
-            self.scene
+            self.encoding
                 .encode_shape(&Rect::new(0.0, 0.0, 0.0, 0.0), true);
         }
-        self.scene.encode_begin_clip(blend, alpha.clamp(0.0, 1.0));
+        self.encoding
+            .encode_begin_clip(blend, alpha.clamp(0.0, 1.0));
     }
 
     /// Pops the current layer.
     pub fn pop_layer(&mut self) {
-        self.scene.encode_end_clip();
+        self.encoding.encode_end_clip();
     }
 
     /// Fills a shape using the specified style and brush.
@@ -124,19 +78,19 @@ impl<'a> SceneBuilder<'a> {
         brush_transform: Option<Affine>,
         shape: &impl Shape,
     ) {
-        self.scene
+        self.encoding
             .encode_transform(Transform::from_kurbo(&transform));
-        self.scene.encode_fill_style(style);
-        if self.scene.encode_shape(shape, true) {
+        self.encoding.encode_fill_style(style);
+        if self.encoding.encode_shape(shape, true) {
             if let Some(brush_transform) = brush_transform {
                 if self
-                    .scene
+                    .encoding
                     .encode_transform(Transform::from_kurbo(&(transform * brush_transform)))
                 {
-                    self.scene.swap_last_path_tags();
+                    self.encoding.swap_last_path_tags();
                 }
             }
-            self.scene.encode_brush(brush, 1.0);
+            self.encoding.encode_brush(brush, 1.0);
         }
     }
 
@@ -165,33 +119,33 @@ impl<'a> SceneBuilder<'a> {
 
         const GPU_STROKES: bool = false; // Set this to `true` to enable GPU-side stroking
         if GPU_STROKES {
-            self.scene
+            self.encoding
                 .encode_transform(Transform::from_kurbo(&transform));
-            self.scene.encode_stroke_style(style);
+            self.encoding.encode_stroke_style(style);
 
             // We currently don't support dashing on the GPU. If the style has a dash pattern, then
             // we convert it into stroked paths on the CPU and encode those as individual draw
             // objects.
             let encode_result = if style.dash_pattern.is_empty() {
-                self.scene.encode_shape(shape, false)
+                self.encoding.encode_shape(shape, false)
             } else {
                 let dashed = peniko::kurbo::dash(
                     shape.path_elements(SHAPE_TOLERANCE),
                     style.dash_offset,
                     &style.dash_pattern,
                 );
-                self.scene.encode_path_elements(dashed, false)
+                self.encoding.encode_path_elements(dashed, false)
             };
             if encode_result {
                 if let Some(brush_transform) = brush_transform {
                     if self
-                        .scene
+                        .encoding
                         .encode_transform(Transform::from_kurbo(&(transform * brush_transform)))
                     {
-                        self.scene.swap_last_path_tags();
+                        self.encoding.swap_last_path_tags();
                     }
                 }
-                self.scene.encode_brush(brush, 1.0);
+                self.encoding.encode_brush(brush, 1.0);
             }
         } else {
             let stroked = peniko::kurbo::stroke(
@@ -217,13 +171,13 @@ impl<'a> SceneBuilder<'a> {
 
     /// Returns a builder for encoding a glyph run.
     pub fn draw_glyphs(&mut self, font: &Font) -> DrawGlyphs {
-        DrawGlyphs::new(self.scene, font)
+        DrawGlyphs::new(&mut self.encoding, font)
     }
 
     /// Appends a fragment to the scene.
-    pub fn append(&mut self, fragment: &SceneFragment, transform: Option<Affine>) {
-        self.scene.append(
-            &fragment.data,
+    pub fn append(&mut self, other: &Scene, transform: Option<Affine>) {
+        self.encoding.append(
+            &other.encoding,
             &transform.map(|xform| Transform::from_kurbo(&xform)),
         );
     }

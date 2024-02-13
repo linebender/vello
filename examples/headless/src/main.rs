@@ -10,7 +10,7 @@ use vello::{
     block_on_wgpu,
     kurbo::{Affine, Vec2},
     util::RenderContext,
-    RendererOptions, Scene, SceneBuilder, SceneFragment,
+    RendererOptions, Scene,
 };
 use wgpu::{
     BufferDescriptor, BufferUsages, CommandEncoderDescriptor, Extent3d, ImageCopyBuffer,
@@ -94,8 +94,7 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
         },
     )
     .or_else(|_| bail!("Got non-Send/Sync error from creating renderer"))?;
-    let mut fragment = SceneFragment::new();
-    let mut builder = SceneBuilder::for_fragment(&mut fragment);
+    let mut fragment = Scene::new();
     let example_scene = &mut scenes.scenes[index];
     let mut text = SimpleText::new();
     let mut images = ImageCache::new();
@@ -110,7 +109,7 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
     };
     example_scene
         .function
-        .render(&mut builder, &mut scene_params);
+        .render(&mut fragment, &mut scene_params);
     let mut transform = Affine::IDENTITY;
     let (width, height) = if let Some(resolution) = scene_params.resolution {
         let ratio = resolution.x / resolution.y;
@@ -143,8 +142,7 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
         antialiasing_method: vello::AaConfig::Area,
     };
     let mut scene = Scene::new();
-    let mut builder = SceneBuilder::for_scene(&mut scene);
-    builder.append(&fragment, Some(transform));
+    scene.append(&fragment, Some(transform));
     let size = Extent3d {
         width,
         height,

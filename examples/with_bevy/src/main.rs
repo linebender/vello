@@ -2,7 +2,7 @@ use bevy::render::{Render, RenderSet};
 use bevy::utils::synccell::SyncCell;
 use vello::kurbo::{Affine, Point, Rect, Stroke};
 use vello::peniko::{Color, Fill, Gradient};
-use vello::{Renderer, RendererOptions, Scene, SceneBuilder, SceneFragment};
+use vello::{Renderer, RendererOptions, Scene};
 
 use bevy::{
     prelude::*,
@@ -108,7 +108,7 @@ pub struct VelloTarget(Handle<Image>);
 
 #[derive(Component)]
 // In the future, this will probably connect to the bevy hierarchy with an Affine component
-pub struct VelloFragment(SceneFragment);
+pub struct VelloFragment(Scene);
 
 #[derive(Component)]
 struct VelloScene(Scene, Handle<Image>);
@@ -123,10 +123,7 @@ impl ExtractComponent for VelloScene {
     fn extract_component(
         (fragment, target): bevy::ecs::query::QueryItem<'_, Self::Query>,
     ) -> Option<Self> {
-        let mut scene = Scene::default();
-        let mut builder = SceneBuilder::for_scene(&mut scene);
-        builder.append(&fragment.0, None);
-        Some(Self(scene, target.0.clone()))
+        Some(Self(fragment.0.clone(), target.0.clone()))
     }
 }
 
@@ -200,7 +197,7 @@ fn setup(
         ..default()
     });
     commands.spawn((
-        VelloFragment(SceneFragment::default()),
+        VelloFragment(Scene::default()),
         VelloTarget(image_handle),
     ));
 }
@@ -215,26 +212,26 @@ fn cube_rotator_system(time: Res<Time>, mut query: Query<&mut Transform, With<Ma
 
 fn render_fragment(mut fragment: Query<&mut VelloFragment>, mut frame: Local<usize>) {
     let mut fragment = fragment.single_mut();
-    let mut builder = SceneBuilder::for_fragment(&mut fragment.0);
-    render_brush_transform(&mut builder, *frame);
+    fragment.0.reset();
+    render_brush_transform(&mut fragment.0, *frame);
     *frame += 1;
 }
 
-fn render_brush_transform(sb: &mut SceneBuilder, i: usize) {
+fn render_brush_transform(scene: &mut Scene, i: usize) {
     let th = (std::f64::consts::PI / 180.0) * (i as f64);
     let linear = Gradient::new_linear((0.0, 0.0), (0.0, 200.0)).with_stops([
         Color::RED,
         Color::GREEN,
         Color::BLUE,
     ]);
-    sb.fill(
+    scene.fill(
         Fill::NonZero,
         Affine::translate((106.0, 106.0)),
         &linear,
         Some(around_center(Affine::rotate(th), Point::new(150.0, 150.0))),
         &Rect::from_origin_size(Point::default(), (300.0, 300.0)),
     );
-    sb.stroke(
+    scene.stroke(
         &Stroke::new(106.0),
         Affine::IDENTITY,
         &linear,
