@@ -20,6 +20,10 @@ pub enum BindType {
 }
 
 impl BindType {
+    // TODO: This is a public method, which means it definitely is not
+    // "dead code". However, rustc seems insitent that it is, and so to not
+    // block forward progress, I shall humour it
+    #[allow(dead_code)]
     pub fn is_mutable(self) -> bool {
         matches!(self, Self::Buffer | Self::Image)
     }

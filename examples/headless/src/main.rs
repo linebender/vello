@@ -89,7 +89,7 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
         device,
         RendererOptions {
             surface_format: None,
-            use_cpu: false,
+            use_cpu: args.use_cpu,
             antialiasing_support: vello::AaSupport::area_only(),
         },
     )
@@ -244,6 +244,9 @@ struct Args {
     #[arg(long, short, global(false))]
     /// Display a list of all scene names
     print_scenes: bool,
+    #[arg(long)]
+    /// Whether to use CPU shaders
+    use_cpu: bool,
     #[command(flatten)]
     args: scenes::Arguments,
 }

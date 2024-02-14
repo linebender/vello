@@ -43,23 +43,23 @@ pub struct WgslSource<'a> {
     ///
     /// Example:
     /// --------
+    /// ```wgsl
+    /// // An unused binding (i.e. declaration is not reachable from the entry-point)
+    /// @group(0) @binding(0) var<uniform> foo: Foo;
     ///
-    ///   // An unused binding (i.e. declaration is not reachable from the entry-point)
-    ///   @group(0) @binding(0) var<uniform> foo: Foo;
-    ///
-    ///   // Used bindings:
-    ///   @group(0) @binding(1) var<storage> buffer: Buffer;
-    ///   @group(0) @binding(2) var tex: texture_2d<f32>;
-    ///   ...
-    ///
+    /// // Used bindings:
+    /// @group(0) @binding(1) var<storage> buffer: Buffer;
+    /// @group(0) @binding(2) var tex: texture_2d<f32>;
+    /// ```
     /// This results in the following bindings:
-    ///
+    /// ```rust,ignore
     ///   bindings: [BindType::Buffer, BindType::ImageRead],
-    ///   ...
+    ///   // ...
     ///   wgsl: WgslSource {
-    ///       code: ...,
+    ///       code: /* ... */,
     ///       binding_indices: [1, 2],
     ///   },
+    /// ```
     pub binding_indices: Cow<'a, [u8]>,
 }
 
@@ -68,31 +68,31 @@ pub struct WgslSource<'a> {
 pub struct MslSource<'a> {
     pub code: Cow<'a, str>,
 
-    /// Contains the binding index of each resource listed in `ComputeShader::bindings`.
+    /// Contains the binding index of each resource listed in [`ComputeShader::bindings`].
     /// This is guaranteed to have the same element count as `ComputeShader::bindings`.
     ///
     /// In MSL, each index is scoped to the index range of the corresponding resource type.
     ///
     /// Example:
     /// --------
+    /// ```wgsl
+    /// // An unused binding (i.e. declaration is not reachable from the entry-point)
+    /// @group(0) @binding(0) var<uniform> foo: Foo;
     ///
-    ///   // An unused binding (i.e. declaration is not reachable from the entry-point)
-    ///   @group(0) @binding(0) var<uniform> foo: Foo;
-    ///
-    ///   // Used bindings:
-    ///   @group(0) @binding(1) var<storage> buffer: Buffer;
-    ///   @group(0) @binding(2) var tex: texture_2d<f32>;
-    ///   ...
-    ///
+    /// // Used bindings:
+    /// @group(0) @binding(1) var<storage> buffer: Buffer;
+    /// @group(0) @binding(2) var tex: texture_2d<f32>;
+    /// ```
     /// This results in the following bindings:
-    ///
+    /// ```rust,ignore
     ///   bindings: [BindType::Buffer, BindType::ImageRead],
-    ///   ...
+    ///   // ...
     ///   msl: MslSource {
-    ///       code: ...,
+    ///       code: /* ... */,
     ///       // In MSL these would be declared as `[[buffer(0)]]` and `[[texture(0)]]`.
     ///       binding_indices: [msl::BindingIndex::Buffer(0), msl::BindingIndex::Texture(0)],
     ///   },
+    /// ```
     pub binding_indices: Cow<'a, [msl::BindingIndex]>,
 }
 
