@@ -99,6 +99,7 @@ impl AaSupport {
 /// Renders a scene into a texture or surface.
 #[cfg(feature = "wgpu")]
 pub struct Renderer {
+    #[cfg_attr(not(feature = "hot_reload"), allow(dead_code))]
     options: RendererOptions,
     engine: WgpuEngine,
     shaders: FullShaders,
