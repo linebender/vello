@@ -42,11 +42,11 @@ jobs:
         os: [windows-latest, macos-latest, ubuntu-latest]
         include:
           - os: ubuntu-latest
-            has_gpu: yes
+            has_gpu: 'yes'
           - os: macos-latest
-            has_gpu: yes
+            has_gpu: 'yes'
           - os: windows-latest
-            has_gpu: no
+            has_gpu: 'no'
     name: cargo clippy + test
     steps:
       - uses: actions/checkout@v4
