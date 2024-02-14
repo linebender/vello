@@ -40,6 +40,13 @@ jobs:
     strategy:
       matrix:
         os: [windows-latest, macos-latest, ubuntu-latest]
+        include:
+          - os: ubuntu-latest
+            has_gpu: yes
+          - os: macos-latest
+            has_gpu: yes
+          - os: windows-latest
+            has_gpu: no
     name: cargo clippy + test
     steps:
       - uses: actions/checkout@v4
@@ -88,6 +95,8 @@ jobs:
       # At the time of writing, we don't have any tests. Nevertheless, it's better to still run this
       - name: cargo test
         run: cargo test --workspace --all-features
+        env:
+          VELLO_CI_GPU_SUPPORT: ${{ matrix.has_gpu }}
   
   clippy-stable-wasm:
     runs-on: ubuntu-latest

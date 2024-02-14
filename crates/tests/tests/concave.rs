@@ -12,6 +12,9 @@ fn simple_square_gpu() {
 }
 
 #[test]
+// The fine shader still requires a GPU, and so we still get a wgpu device
+// skip this for now
+#[cfg_attr(skip_gpu_tests, ignore)]
 fn simple_square_cpu() {
     simple_square(true)
 }
