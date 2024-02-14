@@ -148,7 +148,7 @@ pub fn debug_png(image: &Image, name: &str, params: &TestParams) -> Result<()> {
     encoder.set_color(png::ColorType::Rgba);
     encoder.set_depth(png::BitDepth::Eight);
     let mut writer = encoder.write_header()?;
-    writer.write_image_data(&image.data.data())?;
+    writer.write_image_data(image.data.data())?;
     writer.finish()?;
     println!("Wrote result ({width}x{height}) to {out_path:?}");
     Ok(())
