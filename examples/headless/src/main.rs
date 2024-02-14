@@ -162,14 +162,7 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
     renderer
         .render_to_texture(device, queue, &scene, &view, &render_params)
         .or_else(|_| bail!("Got non-Send/Sync error from rendering"))?;
-    // (width * 4).next_multiple_of(256)
-    let padded_byte_width = {
-        let w = width * 4;
-        match w % 256 {
-            0 => w,
-            r => w + (256 - r),
-        }
-    };
+    let padded_byte_width = (width * 4).next_multiple_of(256);
     let buffer_size = padded_byte_width as u64 * height as u64;
     let buffer = device.create_buffer(&BufferDescriptor {
         label: Some("val"),
