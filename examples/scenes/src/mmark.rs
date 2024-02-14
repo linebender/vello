@@ -1,7 +1,7 @@
 //! A benchmark based on MotionMark 1.2's path benchmark.
 //! This is roughly comparable to:
 //!
-//! https://browserbench.org/MotionMark1.2/developer.html?warmup-length=2000&warmup-frame-count=30&first-frame-minimum-length=0&test-interval=15&display=minimal&tiles=big&controller=adaptive&frame-rate=50&time-measurement=performance&suite-name=MotionMark&test-name=Paths&complexity=1
+//! <https://browserbench.org/MotionMark1.2/developer.html?warmup-length=2000&warmup-frame-count=30&first-frame-minimum-length=0&test-interval=15&display=minimal&tiles=big&controller=adaptive&frame-rate=50&time-measurement=performance&suite-name=MotionMark&test-name=Paths&complexity=1>
 //!
 //! However, at this point it cannot be directly compared, as we don't accurately
 //! implement the stroke style parameters, and it has not been carefully validated.
