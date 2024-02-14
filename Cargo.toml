@@ -4,6 +4,7 @@ resolver = "2"
 members = [
     "crates/encoding",
     "crates/shaders",
+    "crates/tests",
 
     "integrations/vello_svg",
 
