@@ -1,6 +1,6 @@
 [package]
 name = "vello_svg"
-description = "Render a usvg document to a vello scene"
+description = "Render a usvg document to a Vello scene"
 categories = ["rendering", "graphics"]
 keywords = ["2d", "vector-graphics", "vello"]
 

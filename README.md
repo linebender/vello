@@ -100,7 +100,7 @@ cargo run_wasm -p with_winit --bin with_winit_bin
 ```
 
 > [!WARNING]  
-> The web is not currently a primary target for vello, and WebGPU implementations are incomplete, so you might run into issues running this example.
+> The web is not currently a primary target for Vello, and WebGPU implementations are incomplete, so you might run into issues running this example.
 
 ### Android
 
