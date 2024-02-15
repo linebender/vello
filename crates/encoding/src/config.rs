@@ -93,8 +93,8 @@ pub struct RenderConfig {
 
 impl RenderConfig {
     pub fn new(layout: &Layout, width: u32, height: u32, base_color: &peniko::Color) -> Self {
-        let new_width = next_multiple_of(width, TILE_WIDTH);
-        let new_height = next_multiple_of(height, TILE_HEIGHT);
+        let new_width = width.next_multiple_of(TILE_WIDTH);
+        let new_height = height.next_multiple_of(TILE_HEIGHT);
         let width_in_tiles = new_width / TILE_WIDTH;
         let height_in_tiles = new_height / TILE_HEIGHT;
         let n_path_tags = layout.path_tags_size();
@@ -351,11 +351,4 @@ impl BufferSizes {
 
 const fn align_up(len: u32, alignment: u32) -> u32 {
     len + (len.wrapping_neg() & (alignment - 1))
-}
-
-const fn next_multiple_of(val: u32, rhs: u32) -> u32 {
-    match val % rhs {
-        0 => val,
-        r => val + (rhs - r),
-    }
 }

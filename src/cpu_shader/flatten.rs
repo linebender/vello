@@ -526,8 +526,12 @@ fn compute_tag_monoid(ix: usize, pathtags: &[u32], tag_monoids: &[PathMonoid]) -
     }
     // We no longer encode an initial transform and style so these
     // are off by one.
-    tm.trans_ix -= 1;
-    tm.style_ix -= core::mem::size_of::<Style>() as u32 / 4;
+    // We wrap here because these values will return to positive values later
+    // (when we add style_base)
+    tm.trans_ix = tm.trans_ix.wrapping_sub(1);
+    tm.style_ix = tm
+        .style_ix
+        .wrapping_sub(core::mem::size_of::<Style>() as u32 / 4);
     PathTagData {
         tag_byte,
         monoid: tm,
@@ -641,7 +645,7 @@ fn flatten_main(
         let path_ix = tag.monoid.path_ix;
         let style_ix = tag.monoid.style_ix;
         let trans_ix = tag.monoid.trans_ix;
-        let style_flags = scene[(config.layout.style_base + style_ix) as usize];
+        let style_flags = scene[(config.layout.style_base.wrapping_add(style_ix)) as usize];
         if (tag.tag_byte & PATH_TAG_PATH) != 0 {
             let out = &mut path_bboxes[path_ix as usize];
             out.draw_flags = if (style_flags & Style::FLAGS_FILL_BIT) == 0 {

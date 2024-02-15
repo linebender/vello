@@ -40,6 +40,15 @@ jobs:
     strategy:
       matrix:
         os: [windows-latest, macos-latest, ubuntu-latest]
+        include:
+          - os: ubuntu-latest
+            gpu: 'yes'
+          - os: macos-latest
+            gpu: 'no'
+          - os: windows-latest
+            # TODO: The windows runners theoretically have CPU fallback for GPUs, but
+            # this failed in initial testing
+            gpu: 'no'
     name: cargo clippy + test
     steps:
       - uses: actions/checkout@v4
@@ -56,6 +65,16 @@ jobs:
       - name: Install native dependencies
         if: matrix.os == 'ubuntu-latest'
         run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev
+
+      # Adapted from https://github.com/bevyengine/bevy/blob/b446374392adc70aceb92621b080d1a6cf7a7392/.github/workflows/validation-jobs.yml#L74-L79
+      - name: install xvfb, llvmpipe and lavapipe
+        if: matrix.os == 'ubuntu-latest'
+        # https://launchpad.net/~kisak/+archive/ubuntu/turtle
+        run: |
+          sudo apt-get update -y -qq
+          sudo add-apt-repository ppa:kisak/turtle -y
+          sudo apt-get update
+          sudo apt install -y xvfb libegl1-mesa libgl1-mesa-dri libxcb-xfixes0-dev mesa-vulkan-drivers
 
       - name: cargo clippy (no default features)
         run: cargo clippy --workspace --lib --bins --no-default-features -- -D warnings
@@ -78,6 +97,8 @@ jobs:
       # At the time of writing, we don't have any tests. Nevertheless, it's better to still run this
       - name: cargo test
         run: cargo test --workspace --all-features
+        env:
+          VELLO_CI_GPU_SUPPORT: ${{ matrix.gpu }}
   
   clippy-stable-wasm:
     runs-on: ubuntu-latest
