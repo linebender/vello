@@ -44,8 +44,10 @@ jobs:
           - os: ubuntu-latest
             gpu: 'yes'
           - os: macos-latest
-            gpu: 'yes'
+            gpu: 'no'
           - os: windows-latest
+            # TODO: The windows runners theoretically have CPU fallback for GPUs, but
+            # this failed in initial testing
             gpu: 'no'
     name: cargo clippy + test
     steps:
