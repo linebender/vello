@@ -171,14 +171,14 @@ pub fn should_debug_png(name: &str, use_cpu: bool) -> bool {
         {
             return true;
         }
-        for test in val.split(",") {
+        for test in val.split(',') {
             if use_cpu {
-                let test_name = test.trim_start_matches("cpu_");
+                let test_name = test.trim_end_matches("_cpu");
                 if test_name.eq_ignore_ascii_case(name) {
                     return true;
                 }
             } else {
-                let test_name = test.trim_start_matches("gpu_");
+                let test_name = test.trim_end_matches("_gpu");
                 if test_name.eq_ignore_ascii_case(name) {
                     return true;
                 }
