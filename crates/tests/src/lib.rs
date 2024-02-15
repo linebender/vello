@@ -1,4 +1,4 @@
-use std::{fs::File, path::Path, sync::Arc};
+use std::{env, fs::File, path::Path, sync::Arc};
 
 use anyhow::{anyhow, bail, Result};
 use vello::{
@@ -28,15 +28,17 @@ pub struct TestParams {
     pub height: u32,
     pub base_colour: Color,
     pub use_cpu: bool,
+    pub name: String,
 }
 
 impl TestParams {
-    pub fn new(width: u32, height: u32) -> Self {
+    pub fn new(name: impl Into<String>, width: u32, height: u32) -> Self {
         TestParams {
             width,
             height,
             base_colour: Color::BLACK,
             use_cpu: false,
+            name: name.into(),
         }
     }
 }
@@ -133,7 +135,13 @@ pub async fn render(scene: Scene, params: &TestParams) -> Result<Image> {
         result_unpadded.extend(&data[start..start + (width * 4) as usize]);
     }
     let data = Blob::new(Arc::new(result_unpadded));
-    Ok(Image::new(data, Format::Rgba8, width, height))
+    let image = Image::new(data, Format::Rgba8, width, height);
+    if should_debug_png(&params.name, params.use_cpu) {
+        let suffix = if params.use_cpu { "cpu" } else { "gpu" };
+        let name = format!("{}_{suffix}", &params.name);
+        debug_png(&image, &name, params)?;
+    }
+    Ok(image)
 }
 
 pub fn debug_png(image: &Image, name: &str, params: &TestParams) -> Result<()> {
@@ -151,5 +159,31 @@ pub fn debug_png(image: &Image, name: &str, params: &TestParams) -> Result<()> {
     writer.write_image_data(image.data.data())?;
     writer.finish()?;
     println!("Wrote result ({width}x{height}) to {out_path:?}");
+
     Ok(())
+}
+
+pub fn should_debug_png(name: &str, use_cpu: bool) -> bool {
+    if let Ok(val) = env::var("VELLO_DEBUG_TEST") {
+        if val.eq_ignore_ascii_case("all")
+            || val.eq_ignore_ascii_case("cpu") && use_cpu
+            || val.eq_ignore_ascii_case("gpu") && !use_cpu
+        {
+            return true;
+        }
+        for test in val.split(",") {
+            if use_cpu {
+                let test_name = test.trim_start_matches("cpu_");
+                if test_name.eq_ignore_ascii_case(name) {
+                    return true;
+                }
+            } else {
+                let test_name = test.trim_start_matches("gpu_");
+                if test_name.eq_ignore_ascii_case(name) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }

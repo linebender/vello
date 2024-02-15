@@ -3,7 +3,7 @@ use vello::{
     peniko::{Brush, Color, Format},
     Scene,
 };
-use vello_tests::{debug_png, TestParams};
+use vello_tests::TestParams;
 
 #[test]
 #[cfg_attr(skip_gpu_tests, ignore)]
@@ -30,10 +30,9 @@ fn simple_square(use_cpu: bool) {
     );
     let params = TestParams {
         use_cpu,
-        ..TestParams::new(150, 150)
+        ..TestParams::new("simple_square", 150, 150)
     };
     let image = vello_tests::render_sync(scene, &params).unwrap();
-    debug_png(&image, "simple_square", &params).unwrap();
     assert_eq!(image.format, Format::Rgba8);
     let mut red_count = 0;
     let mut black_count = 0;
