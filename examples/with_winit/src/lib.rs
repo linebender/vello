@@ -6,7 +6,6 @@ use std::num::NonZeroUsize;
 use std::{collections::HashSet, sync::Arc};
 use wgpu_profiler::GpuProfilerSettings;
 
-use anyhow::Result;
 use clap::{CommandFactory, Parser};
 use scenes::{ImageCache, SceneParams, SceneSet, SimpleText};
 use vello::peniko::Color;
@@ -88,6 +87,15 @@ fn run(
     #[cfg(not(target_arch = "wasm32"))]
     let mut render_state = None::<RenderState>;
     let use_cpu = args.use_cpu;
+    // The available kinds of anti-aliasing
+    #[cfg(not(target_os = "android"))]
+    // TODO: Make this set configurable through the command line
+    // Alternatively, load anti-aliasing shaders on demand/asynchronously
+    let aa_configs = [AaConfig::Area, AaConfig::Msaa8, AaConfig::Msaa16];
+    #[cfg(target_os = "android")]
+    // Hard code to only one on Android whilst we are working on startup speed
+    let aa_configs = [AaConfig::Area];
+
     // The design of `RenderContext` forces delayed renderer initialisation to
     // not work on wasm, as WASM futures effectively must be 'static.
     // Otherwise, this could work by sending the result to event_loop.proxy
@@ -101,7 +109,7 @@ fn run(
             RendererOptions {
                 surface_format: Some(render_state.surface.format),
                 use_cpu,
-                antialiasing_support: vello::AaSupport::all(),
+                antialiasing_support: aa_configs.iter().copied().collect(),
                 // We currently initialise on one thread on WASM, but mark this here
                 // anyway
                 num_init_threads: NonZeroUsize::new(1),
@@ -137,7 +145,6 @@ fn run(
     let mut vsync_on = !args.startup_vsync_off;
     let mut gpu_profiling_on = args.startup_gpu_profiling_on;
 
-    const AA_CONFIGS: [AaConfig; 3] = [AaConfig::Area, AaConfig::Msaa8, AaConfig::Msaa16];
     // We allow cycling through AA configs in either direction, so use a signed index
     let mut aa_config_ix: i32 = 0;
 
@@ -242,7 +249,7 @@ fn run(
                                                                 println!("Wrote trace to path {path:?}");
                                                             }
                                                             Err(e) => {
-                                                                eprintln!("Failed to write trace {e}")
+                                                                log::warn!("Failed to write trace {e}")
                                                             }
                                                         }
                                                     }
@@ -350,7 +357,7 @@ fn run(
                                 * Affine::translate(-prior_position)
                                 * transform;
                         } else {
-                            eprintln!(
+                            log::warn!(
                                 "Scrolling without mouse in window; this shouldn't be possible"
                             );
                         }
@@ -375,7 +382,7 @@ fn run(
 
                         // Allow looping forever
                         scene_ix = scene_ix.rem_euclid(scenes.scenes.len() as i32);
-                        aa_config_ix = aa_config_ix.rem_euclid(AA_CONFIGS.len() as i32);
+                        aa_config_ix = aa_config_ix.rem_euclid(aa_configs.len() as i32);
 
                         let example_scene = &mut scenes.scenes[scene_ix as usize];
                         if prev_scene_ix != scene_ix {
@@ -406,7 +413,7 @@ fn run(
                             .base_color
                             .or(scene_params.base_color)
                             .unwrap_or(Color::BLACK);
-                        let antialiasing_method = AA_CONFIGS[aa_config_ix as usize];
+                        let antialiasing_method = aa_configs[aa_config_ix as usize];
                         let render_params = vello::RenderParams {
                             base_color,
                             width,
@@ -528,7 +535,7 @@ fn run(
                         return;
                     };
                     let device_handle = &render_cx.devices[render_state.surface.dev_id];
-                    eprintln!("==============\nReloading shaders");
+                    log::info!("==============\nReloading shaders");
                     let start = Instant::now();
                     let result = renderers[render_state.surface.dev_id]
                         .as_mut()
@@ -536,13 +543,13 @@ fn run(
                         .reload_shaders(&device_handle.device);
                     // We know that the only async here (`pop_error_scope`) is actually sync, so blocking is fine
                     match pollster::block_on(result) {
-                        Ok(_) => eprintln!("Reloading took {:?}", start.elapsed()),
-                        Err(e) => eprintln!("Failed to reload shaders because of {e}"),
+                        Ok(_) => log::info!("Reloading took {:?}", start.elapsed()),
+                        Err(e) => log::warn!("Failed to reload shaders because of {e}"),
                     }
                 }
             },
             Event::Suspended => {
-                eprintln!("Suspending");
+                log::info!("Suspending");
                 #[cfg(not(target_arch = "wasm32"))]
                 // When we suspend, we need to remove the `wgpu` Surface
                 if let Some(render_state) = render_state.take() {
@@ -576,12 +583,12 @@ fn run(
                                 RendererOptions {
                                     surface_format: Some(render_state.surface.format),
                                     use_cpu,
-                                    antialiasing_support: vello::AaSupport::all(),
+                                    antialiasing_support: aa_configs.iter().copied().collect(),
                                     num_init_threads: NonZeroUsize::new(args.num_init_threads)
                                 },
                             )
                             .expect("Could create renderer");
-                            eprintln!("Creating renderer {id} took {:?}", start.elapsed());
+                            log::info!("Creating renderer {id} took {:?}", start.elapsed());
                             renderer.profiler.change_settings(GpuProfilerSettings{
                                 enable_timer_queries: gpu_profiling_on,
                                 enable_debug_groups: gpu_profiling_on,
@@ -638,11 +645,14 @@ fn display_error_message() -> Option<()> {
     Some(())
 }
 
-pub fn main() -> Result<()> {
+#[cfg(not(target_os = "android"))]
+pub fn main() -> anyhow::Result<()> {
     // TODO: initializing both env_logger and console_logger fails on wasm.
     // Figure out a more principled approach.
     #[cfg(not(target_arch = "wasm32"))]
-    env_logger::init();
+    env_logger::builder()
+        .format_timestamp(Some(env_logger::TimestampPrecision::Millis))
+        .init();
     let args = Args::parse();
     let scenes = args.args.select_scene_set(Args::command)?;
     if let Some(scenes) = scenes {
@@ -651,9 +661,7 @@ pub fn main() -> Result<()> {
         let mut render_cx = RenderContext::new().unwrap();
         #[cfg(not(target_arch = "wasm32"))]
         {
-            #[cfg(not(target_os = "android"))]
             let proxy = event_loop.create_proxy();
-            #[cfg(not(target_os = "android"))]
             let _keep = hot_reload::hot_reload(move || {
                 proxy.send_event(UserEvent::HotReload).ok().map(drop)
             });
@@ -716,16 +724,36 @@ use winit::platform::android::activity::AndroidApp;
 #[no_mangle]
 fn android_main(app: AndroidApp) {
     use winit::platform::android::EventLoopBuilderExtAndroid;
-
-    android_logger::init_once(
-        android_logger::Config::default().with_max_level(log::LevelFilter::Warn),
-    );
-
+    let config = android_logger::Config::default();
+    // We allow configuring the Android logging with an environment variable at build time
+    let config = if let Some(logging_config) = option_env!("VELLO_STATIC_LOG") {
+        let mut filter = env_logger::filter::Builder::new();
+        filter.filter_level(log::LevelFilter::Warn);
+        filter.parse(logging_config);
+        let filter = filter.build();
+        // This shouldn't be needed in theory, but without this the max
+        // level is set to 0 (i.e. Off)
+        let config = config.with_max_level(filter.filter());
+        config.with_filter(filter)
+    } else {
+        config.with_max_level(log::LevelFilter::Warn)
+    };
+    android_logger::init_once(config);
+    let cache_dir = get_cache_directory(&app)
+        .inspect(|path| log::info!("Got cache directory {path:?}"))
+        .inspect_err(|e| log::warn!("Failed to get cache directory: {e}"))
+        .ok();
+    let _ = cache_dir;
     let event_loop = EventLoopBuilder::with_user_event()
         .with_android_app(app)
         .build()
         .expect("Required to continue");
-    let args = Args::parse();
+    let args = if let Some(args) = option_env!("VELLO_STATIC_ARGS") {
+        // We split by whitespace here to allow
+        Args::parse_from(args.split_ascii_whitespace())
+    } else {
+        Args::parse()
+    };
     let scenes = args
         .args
         .select_scene_set(|| Args::command())
@@ -734,4 +762,30 @@ fn android_main(app: AndroidApp) {
     let render_cx = RenderContext::new().unwrap();
 
     run(event_loop, args, scenes, render_cx);
+}
+
+#[cfg(target_os = "android")]
+fn get_cache_directory(app: &AndroidApp) -> anyhow::Result<std::path::PathBuf> {
+    use std::path::PathBuf;
+
+    use anyhow::Context;
+
+    let app_jobject = unsafe { jni::objects::JObject::from_raw(app.activity_as_ptr().cast()) };
+    // If we got a null VM, we can't pass up
+    let jvm = unsafe { jni::JavaVM::from_raw(app.vm_as_ptr().cast()).context("Making VM")? };
+    let mut env = jvm.attach_current_thread().context("Attaching to thread")?;
+    let res = env
+        .call_method(app_jobject, "getCacheDir", "()Ljava/io/File;", &[])
+        .context("Calling GetCacheDir")?;
+    let file = res.l().context("Converting to JObject")?;
+    let directory_path = env
+        .call_method(file, "getAbsolutePath", "()Ljava/lang/String;", &[])
+        .context("Calling `getAbsolutePath`")?;
+    let string = directory_path.l().context("Converting to a string")?.into();
+    let string = env
+        .get_string(&string)
+        .context("Converting into a Rust string")?;
+    let string: String = string.into();
+    // TODO: Also get the quota. This appears to be more involved, requiring a worker thread and being asynchronous
+    Ok(PathBuf::from(string).join("vello"))
 }

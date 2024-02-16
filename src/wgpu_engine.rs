@@ -5,6 +5,7 @@ use std::{
     borrow::Cow,
     cell::RefCell,
     collections::{hash_map::Entry, HashMap, HashSet},
+    time::Instant,
 };
 
 use wgpu::{
@@ -263,7 +264,10 @@ impl WgpuEngine {
                 CpuShaderType::Missing => {}
             }
         }
-
+        let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some(label),
+            source: wgpu::ShaderSource::Wgsl(wgsl),
+        });
         let entries = layout
             .iter()
             .enumerate()

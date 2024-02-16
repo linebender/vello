@@ -165,6 +165,24 @@ impl AaSupport {
     }
 }
 
+impl FromIterator<AaConfig> for AaSupport {
+    fn from_iter<T: IntoIterator<Item = AaConfig>>(iter: T) -> Self {
+        let mut result = Self {
+            area: false,
+            msaa8: false,
+            msaa16: false,
+        };
+        for config in iter {
+            match config {
+                AaConfig::Area => result.area = true,
+                AaConfig::Msaa8 => result.msaa8 = true,
+                AaConfig::Msaa16 => result.msaa16 = true,
+            }
+        }
+        result
+    }
+}
+
 /// Renders a scene into a texture or surface.
 #[cfg(feature = "wgpu")]
 pub struct Renderer {
