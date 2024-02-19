@@ -403,7 +403,9 @@ impl WgpuEngine {
                             )?;
                             let mut cpass = encoder.begin_compute_pass(&Default::default());
                             #[cfg(feature = "wgpu-profiler")]
-                            let query = profiler.begin_query(shader.label, &mut cpass, device);
+                            let query = profiler
+                                .begin_query(shader.label, &mut cpass, device)
+                                .with_parent(Some(&query));
                             cpass.set_pipeline(&wgpu_shader.pipeline);
                             cpass.set_bind_group(0, &bind_group, &[]);
                             cpass.dispatch_workgroups(wg_size.0, wg_size.1, wg_size.2);
@@ -448,7 +450,9 @@ impl WgpuEngine {
                             );
                             let mut cpass = encoder.begin_compute_pass(&Default::default());
                             #[cfg(feature = "wgpu-profiler")]
-                            let query = profiler.begin_query(shader.label, &mut cpass, device);
+                            let query = profiler
+                                .begin_query(shader.label, &mut cpass, device)
+                                .with_parent(Some(&query));
                             cpass.set_pipeline(&wgpu_shader.pipeline);
                             cpass.set_bind_group(0, &bind_group, &[]);
                             let buf = self
