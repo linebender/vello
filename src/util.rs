@@ -20,9 +20,9 @@ use std::future::Future;
 
 use super::Result;
 
-use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use wgpu::{
-    Adapter, Device, Instance, Limits, Queue, Surface, SurfaceConfiguration, TextureFormat,
+    Adapter, Device, Instance, Limits, Queue, Surface, SurfaceConfiguration, SurfaceTarget,
+    TextureFormat,
 };
 
 /// Simple render context that maintains wgpu state for rendering the pipeline.
@@ -51,19 +51,13 @@ impl RenderContext {
     }
 
     /// Creates a new surface for the specified window and dimensions.
-    pub async fn create_surface<'w, W>(
+    pub async fn create_surface<'w>(
         &mut self,
-        window: &W,
+        window: impl Into<SurfaceTarget<'w>>,
         width: u32,
         height: u32,
-    ) -> Result<RenderSurface<'w>>
-    where
-        W: HasWindowHandle + HasDisplayHandle,
-    {
-        let surface = unsafe {
-            self.instance
-                .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::from_window(window)?)
-        }?;
+    ) -> Result<RenderSurface<'w>> {
+        let surface = self.instance.create_surface(window.into())?;
         let dev_id = self
             .device(Some(&surface))
             .await
