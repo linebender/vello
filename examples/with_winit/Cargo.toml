@@ -46,7 +46,8 @@ android_logger = "0.13.0"
 console_error_panic_hook = "0.1.7"
 console_log = "1"
 wasm-bindgen-futures = "0.4.33"
-# Note: pinning the exact dep here because 0.3.65 broke semver. Update this
-# when revving wgpu.
+# Note: pin web-sys to 0.3.67 because wgpu 0.19 depends on that exact version.
+# Update this when revving wgpu. Remove pin when wgpu no longer demands it.
+# See https://github.com/gfx-rs/wgpu/pull/5224 for more info.
 web-sys = { version = "=0.3.67", features = [ "HtmlCollection", "Text" ] }
 getrandom = { version = "0.2.10", features = ["js"] }
