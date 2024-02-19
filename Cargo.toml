@@ -10,7 +10,7 @@ members = [
 
     "examples/headless",
     "examples/with_winit",
-    # "examples/with_bevy", # Disable for now until bevy is using wpgu 0.18
+    "examples/with_bevy",  # Disable for now until bevy is using wpgu 0.19
     "examples/run_wasm",
     "examples/scenes",
 ]
@@ -45,7 +45,7 @@ bytemuck = { workspace = true }
 skrifa = { workspace = true }
 peniko = { workspace = true }
 wgpu = { workspace = true, optional = true }
-raw-window-handle = "0.5"
+raw-window-handle = "0.6"
 futures-intrusive = "0.5.0"
 vello_encoding = { path = "crates/encoding" }
 wgpu-profiler = { workspace = true, optional = true }
@@ -56,7 +56,7 @@ skrifa = "0.15.4"
 peniko = "0.1.0"
 
 # NOTE: Make sure to keep this in sync with the version badge in README.md
-wgpu = { version = "0.18" }
+wgpu = { version = "0.19" }
 
 
 # Used for examples
@@ -64,4 +64,4 @@ clap = "4.1.0"
 anyhow = "1.0"
 instant = { version = "0.1.12", features = ["wasm-bindgen"] }
 pollster = "0.3.0"
-wgpu-profiler = "0.15"
+wgpu-profiler = "0.16"
