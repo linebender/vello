@@ -168,6 +168,8 @@ fn run(
                                     transform = Affine::IDENTITY;
                                 }
                                 Key::Character(char) => {
+                                    // TODO: Have a more principled way of handling modifiers on keypress
+                                    // see e.g. https://xi.zulipchat.com/#narrow/stream/351333-glazier/topic/Keyboard.20shortcuts
                                     let char = char.to_lowercase();
                                     match char.as_str() {
                                         "q" | "e" => {
