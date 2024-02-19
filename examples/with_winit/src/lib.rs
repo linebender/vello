@@ -658,7 +658,8 @@ fn android_main(app: AndroidApp) {
 
     let event_loop = EventLoopBuilder::with_user_event()
         .with_android_app(app)
-        .build();
+        .build()
+        .expect("Required to continue");
     let args = Args::parse();
     let scenes = args
         .args
