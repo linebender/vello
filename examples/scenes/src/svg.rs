@@ -92,7 +92,7 @@ pub fn svg_function_of<R: AsRef<str>>(
     fn render_svg_contents(name: &str, contents: &str) -> (Scene, Vec2) {
         let start = Instant::now();
         let svg = usvg::Tree::from_str(contents, &usvg::Options::default())
-            .expect("failed to parse svg file");
+            .unwrap_or_else(|e| panic!("failed to parse svg file {name}: {e}"));
         eprintln!("Parsed svg {name} in {:?}", start.elapsed());
         let start = Instant::now();
         let mut new_scene = Scene::new();
