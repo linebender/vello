@@ -15,7 +15,7 @@
 // Also licensed under MIT license, at your choice.
 
 use instant::{Duration, Instant};
-use std::collections::HashSet;
+use std::{collections::HashSet, sync::Arc};
 
 use anyhow::Result;
 use clap::{CommandFactory, Parser};
@@ -57,7 +57,7 @@ struct RenderState<'s> {
     // SAFETY: We MUST drop the surface before the `window`, so the fields
     // must be in this order
     surface: RenderSurface<'s>,
-    window: Window,
+    window: Arc<Window>,
 }
 
 fn run(
@@ -522,7 +522,7 @@ fn run(
                         .take()
                         .unwrap_or_else(|| create_window(event_loop));
                     let size = window.inner_size();
-                    let surface_future = render_cx.create_surface(&window, size.width, size.height);
+                    let surface_future = render_cx.create_surface(window.clone(), size.width, size.height);
                     // We need to block here, in case a Suspended event appeared
                     let surface =
                         pollster::block_on(surface_future).expect("Error creating surface");
@@ -552,14 +552,16 @@ fn run(
         .expect("run to completion");
 }
 
-fn create_window(event_loop: &winit::event_loop::EventLoopWindowTarget<UserEvent>) -> Window {
+fn create_window(event_loop: &winit::event_loop::EventLoopWindowTarget<UserEvent>) -> Arc<Window> {
     use winit::{dpi::LogicalSize, window::WindowBuilder};
-    WindowBuilder::new()
-        .with_inner_size(LogicalSize::new(1044, 800))
-        .with_resizable(true)
-        .with_title("Vello demo")
-        .build(event_loop)
-        .unwrap()
+    Arc::new(
+        WindowBuilder::new()
+            .with_inner_size(LogicalSize::new(1044, 800))
+            .with_resizable(true)
+            .with_title("Vello demo")
+            .build(event_loop)
+            .unwrap(),
+    )
 }
 
 #[derive(Debug)]
@@ -631,7 +633,7 @@ pub fn main() -> Result<()> {
             wasm_bindgen_futures::spawn_local(async move {
                 let size = window.inner_size();
                 let surface = render_cx
-                    .create_surface(&window, size.width, size.height)
+                    .create_surface(window.clone(), size.width, size.height)
                     .await;
                 if let Ok(surface) = surface {
                     let render_state = RenderState { window, surface };
