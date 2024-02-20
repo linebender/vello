@@ -136,6 +136,10 @@ fn run(
     let mut prev_scene_ix = scene_ix - 1;
     let mut profile_taken = Instant::now();
     let mut modifiers = ModifiersState::default();
+
+    #[cfg(feature = "debug_layers")]
+    let mut debug = vello::DebugLayers::none();
+
     event_loop
         .run(move |event, event_loop| match event {
             Event::WindowEvent {
@@ -234,6 +238,22 @@ fn run(
                                                     wgpu::PresentMode::AutoNoVsync
                                                 },
                                             );
+                                        }
+                                        #[cfg(feature = "debug_layers")]
+                                        "1" => {
+                                            debug.toggle(vello::DebugLayers::BOUNDING_BOXES);
+                                        }
+                                        #[cfg(feature = "debug_layers")]
+                                        "2" => {
+                                            debug.toggle(vello::DebugLayers::LINESOUP_SEGMENTS);
+                                        }
+                                        #[cfg(feature = "debug_layers")]
+                                        "3" => {
+                                            debug.toggle(vello::DebugLayers::LINESOUP_POINTS);
+                                        }
+                                        #[cfg(feature = "debug_layers")]
+                                        "4" => {
+                                            debug.toggle(vello::DebugLayers::VALIDATION);
                                         }
                                         _ => {}
                                     }
@@ -374,6 +394,8 @@ fn run(
                             width,
                             height,
                             antialiasing_method,
+                            #[cfg(feature = "debug_layers")]
+                            debug,
                         };
                         scene.reset();
                         let mut transform = transform;

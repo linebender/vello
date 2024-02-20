@@ -39,6 +39,7 @@ repository.workspace = true
 default = ["wgpu"]
 hot_reload = []
 buffer_labels = []
+debug_layers = []
 
 [dependencies]
 bytemuck = { workspace = true }

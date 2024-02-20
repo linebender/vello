@@ -118,7 +118,7 @@ pub fn full_shaders(
             if force_gpu_from == Some(stringify!($name)) {
                 force_gpu = true;
             }
-            engine.add_shader(
+            engine.add_compute_shader(
                 device,
                 $label,
                 preprocess::preprocess(shader!(stringify!($name)), &$defines, &imports).into(),

@@ -128,9 +128,7 @@ fn write_line(
 ) {
     assert!(
         !p0.is_nan() && !p1.is_nan(),
-        "wrote line segment with NaN: p0: {:?}, p1: {:?}",
-        p0,
-        p1
+        "wrote line segment with NaN: p0: {p0:?}, p1: {p1:?}"
     );
     bbox.add_pt(p0);
     bbox.add_pt(p1);
@@ -339,8 +337,7 @@ fn flatten_arc(
     // Always output at least one line so that we always draw the chord.
     let n_lines = ((angle / theta).ceil() as u32).max(1);
 
-    let c = theta.cos();
-    let s = theta.sin();
+    let (s, c) = theta.sin_cos();
     let rot = Transform([c, -s, s, c, 0., 0.]);
 
     for _ in 0..(n_lines - 1) {
