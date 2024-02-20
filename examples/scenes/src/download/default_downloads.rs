@@ -41,7 +41,7 @@ pub(super) fn default_downloads() -> Vec<SVGDownload> {
         },
         SVGDownload {
             builtin:Some(BuiltinSvgProps {
-                info: "resvg",
+                info: "https://github.com/RazrFalcon/resvg-test-suite",
                 license: "MIT",
                 expected_size: 383,
             }),
@@ -50,7 +50,7 @@ pub(super) fn default_downloads() -> Vec<SVGDownload> {
         },
         SVGDownload {
             builtin:Some(BuiltinSvgProps {
-                info: "resvg",
+                info: "https://github.com/RazrFalcon/resvg-test-suite",
                 license: "MIT",
                 expected_size: 342,
             }),
@@ -59,7 +59,7 @@ pub(super) fn default_downloads() -> Vec<SVGDownload> {
         },
         SVGDownload {
             builtin:Some(BuiltinSvgProps {
-                info: "resvg",
+                info: "https://github.com/RazrFalcon/resvg-test-suite",
                 license: "MIT",
                 expected_size: 344,
             }),
@@ -68,7 +68,7 @@ pub(super) fn default_downloads() -> Vec<SVGDownload> {
         },
         SVGDownload {
             builtin:Some(BuiltinSvgProps {
-                info: "resvg",
+                info: "https://github.com/RazrFalcon/resvg-test-suite",
                 license: "MIT",
                 expected_size: 346,
             }),
@@ -76,7 +76,7 @@ pub(super) fn default_downloads() -> Vec<SVGDownload> {
             name: "SVG Stroke Linecap Square Test".to_string()
         },  SVGDownload {
             builtin:Some(BuiltinSvgProps {
-                info: "resvg",
+                info: "https://github.com/RazrFalcon/resvg-test-suite",
                 license: "MIT",
                 expected_size: 381,
             }),
@@ -84,7 +84,7 @@ pub(super) fn default_downloads() -> Vec<SVGDownload> {
             name: "SVG Stroke Linejoin Bevel Test".to_string()
         }, SVGDownload {
             builtin:Some(BuiltinSvgProps {
-                info: "resvg",
+                info: "https://github.com/RazrFalcon/resvg-test-suite",
                 license: "MIT",
                 expected_size: 381,
             }),
@@ -92,7 +92,7 @@ pub(super) fn default_downloads() -> Vec<SVGDownload> {
             name: "SVG Stroke Linejoin Round Test".to_string()
         },SVGDownload {
             builtin:Some(BuiltinSvgProps {
-                info: "resvg",
+                info: "https://github.com/RazrFalcon/resvg-test-suite",
                 license: "MIT",
                 expected_size: 351,
             }),
