@@ -80,8 +80,6 @@ pub fn full_shaders(
     engine: &mut WgpuEngine,
     options: &RendererOptions,
 ) -> Result<FullShaders, Error> {
-    use std::time::Instant;
-
     use crate::wgpu_engine::CpuShaderType;
     use BindType::*;
     let imports = SHARED_SHADERS
@@ -98,7 +96,6 @@ pub fn full_shaders(
     let mut force_gpu = false;
 
     let force_gpu_from: Option<&str> = None;
-    let mut previous_done = Instant::now();
 
     // Uncomment this to force use of GPU shaders from the specified shader and later even
     // if `engine.use_cpu` is specified.
@@ -111,13 +108,7 @@ pub fn full_shaders(
             }
             let processed =
                 preprocess::preprocess(shader!(stringify!($name)), &$defines, &imports).into();
-            // Preprocessing is very quick, so we don't need to take this time into account
-            // log::debug!(
-            //     "Pre-processing {} took {:?}",
-            //     $label,
-            //     previous_done.elapsed()
-            // );
-            let shader = engine.add_shader(
+            engine.add_shader(
                 device,
                 $label,
                 processed,
@@ -127,15 +118,7 @@ pub fn full_shaders(
                 } else {
                     $cpu
                 },
-            )?;
-            let now = Instant::now();
-            log::trace!(
-                "Processing and compiling {} took {:?}",
-                $label,
-                now - previous_done
-            );
-            previous_done = now;
-            shader
+            )?
         }};
         ($name:ident, $bindings:expr, $defines:expr, $cpu:expr) => {{
             add_shader!($name, stringify!($name), $bindings, &$defines, $cpu)

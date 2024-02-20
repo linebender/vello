@@ -739,17 +739,15 @@ fn android_main(app: AndroidApp) {
         config.with_max_level(log::LevelFilter::Warn)
     };
     android_logger::init_once(config);
-    let cache_dir = get_cache_directory(&app)
-        .inspect(|path| log::info!("Got cache directory {path:?}"))
-        .inspect_err(|e| log::warn!("Failed to get cache directory: {e}"))
-        .ok();
-    let _ = cache_dir;
+
     let event_loop = EventLoopBuilder::with_user_event()
         .with_android_app(app)
         .build()
         .expect("Required to continue");
     let args = if let Some(args) = option_env!("VELLO_STATIC_ARGS") {
-        // We split by whitespace here to allow
+        // We split by whitespace here to allow passing multiple arguments
+        // In theory, we could do more advanced parsing/splitting (e.g. using quotes),
+        // but that would require a lot more effort
         Args::parse_from(args.split_ascii_whitespace())
     } else {
         Args::parse()
@@ -762,30 +760,4 @@ fn android_main(app: AndroidApp) {
     let render_cx = RenderContext::new().unwrap();
 
     run(event_loop, args, scenes, render_cx);
-}
-
-#[cfg(target_os = "android")]
-fn get_cache_directory(app: &AndroidApp) -> anyhow::Result<std::path::PathBuf> {
-    use std::path::PathBuf;
-
-    use anyhow::Context;
-
-    let app_jobject = unsafe { jni::objects::JObject::from_raw(app.activity_as_ptr().cast()) };
-    // If we got a null VM, we can't pass up
-    let jvm = unsafe { jni::JavaVM::from_raw(app.vm_as_ptr().cast()).context("Making VM")? };
-    let mut env = jvm.attach_current_thread().context("Attaching to thread")?;
-    let res = env
-        .call_method(app_jobject, "getCacheDir", "()Ljava/io/File;", &[])
-        .context("Calling GetCacheDir")?;
-    let file = res.l().context("Converting to JObject")?;
-    let directory_path = env
-        .call_method(file, "getAbsolutePath", "()Ljava/lang/String;", &[])
-        .context("Calling `getAbsolutePath`")?;
-    let string = directory_path.l().context("Converting to a string")?.into();
-    let string = env
-        .get_string(&string)
-        .context("Converting into a Rust string")?;
-    let string: String = string.into();
-    // TODO: Also get the quota. This appears to be more involved, requiring a worker thread and being asynchronous
-    Ok(PathBuf::from(string).join("vello"))
 }
