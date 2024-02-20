@@ -200,7 +200,10 @@ impl SVGDownload {
             bail!("Size limit exceeded");
         }
         if limit_exact && file.stream_position().context("Checking file limit")? != size_limit {
-            bail!("Builtin downloaded file was not as expected");
+            bail!(
+                "Builtin downloaded file was not as expected. Expected {size_limit}, received {}.",
+                file.stream_position().context("Checking file limit")?
+            );
         }
         Ok(())
     }
