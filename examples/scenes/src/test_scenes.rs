@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::{ExampleScene, SceneConfig, SceneParams, SceneSet};
-use vello::kurbo::{Affine, BezPath, Cap, Ellipse, Join, PathEl, Point, Rect, Stroke};
+use vello::kurbo::{Affine, BezPath, Cap, Ellipse, Join, PathEl, Point, Rect, Shape, Stroke};
 use vello::peniko::*;
 use vello::*;
 
@@ -294,7 +294,7 @@ fn tricky_strokes(scene: &mut Scene, _: &mut SceneParams) {
     const NUM_COLS: usize = 5;
 
     fn stroke_bounds(pts: &[(f64, f64); 4]) -> Rect {
-        use kurbo::{CubicBez, Shape};
+        use kurbo::CubicBez;
         CubicBez::new(pts[0], pts[1], pts[2], pts[3])
             .bounding_box()
             .inflate(STROKE_WIDTH, STROKE_WIDTH)
@@ -327,13 +327,12 @@ fn tricky_strokes(scene: &mut Scene, _: &mut SceneParams) {
         [(475., 708.), (62., 620.), (770., 304.), (220., 659.)],
         [(0., 0.), (128., 128.), (128., 0.), (0., 128.)], // Perfect cusp
         [(0., 0.01), (128., 127.999), (128., 0.01), (0., 127.99)], // Near-cusp
-        // The following cases used to be `_broken_cubics` but now work.
         [(0., -0.01), (128., 128.001), (128., -0.01), (0., 128.001)], // Near-cusp
-        [(0., 0.), (0., -10.), (0., -10.), (0., 10.)],                // Flat line with 180
-        [(10., 0.), (0., 0.), (20., 0.), (10., 0.)],                  // Flat line with 2 180s
-        [(39., -39.), (40., -40.), (40., -40.), (0., 0.)],            // Flat diagonal with 180
-        [(40., 40.), (0., 0.), (200., 200.), (0., 0.)],               // Diag w/ an internal 180
-        [(0., 0.), (1e-2, 0.), (-1e-2, 0.), (0., 0.)],                // Circle
+        [(0., 0.), (0., -10.), (0., -10.), (0., 10.)],    // Flat line with 180
+        [(10., 0.), (0., 0.), (20., 0.), (10., 0.)],      // Flat line with 2 180s
+        [(39., -39.), (40., -40.), (40., -40.), (0., 0.)], // Flat diagonal with 180
+        [(40., 40.), (0., 0.), (200., 200.), (0., 0.)],   // Diag w/ an internal 180
+        [(0., 0.), (1e-2, 0.), (-1e-2, 0.), (0., 0.)],    // Circle
         // Flat line with no turns:
         [
             (400.75, 100.05),
@@ -345,8 +344,72 @@ fn tricky_strokes(scene: &mut Scene, _: &mut SceneParams) {
         [(10., 0.), (0., 0.), (10., 0.), (10., 0.)], // Flat line with a 180
     ];
 
+    // Flat conic with a cusp: (1,1) (2,1) (1,1), weight: 1
+    let flat_quad = [
+        // moveTo(1., 1.),
+        [(2., 1.), (1., 1.)],
+    ];
+    // Flat conic with a cusp: (1,1) (100,1) (25,1), weight: 0.3
+    let flat_conic_as_quads = [
+        // moveTo(1., 1.),
+        [(2.232486, 1.000000), (3.471740, 1.000000)],
+        [(4.710995, 1.000000), (5.949262, 1.000000)],
+        [(7.187530, 1.000000), (8.417061, 1.000000)],
+        [(9.646591, 1.000000), (10.859690, 1.000000)],
+        [(12.072789, 1.000000), (13.261865, 1.000000)],
+        [(14.450940, 1.000000), (15.608549, 1.000000)],
+        [(16.766161, 1.000000), (17.885059, 1.000000)],
+        [(19.003958, 1.000000), (20.077141, 1.000000)],
+        [(21.150328, 1.000000), (22.171083, 1.000000)],
+        [(23.191839, 1.000000), (24.153776, 1.000000)],
+        [(25.115715, 1.000000), (26.012812, 1.000000)],
+        [(26.909912, 1.000000), (27.736557, 1.000000)],
+        [(28.563202, 1.000000), (29.314220, 1.000000)],
+        [(30.065239, 1.000000), (30.735928, 1.000000)],
+        [(31.406620, 1.000000), (31.992788, 1.000000)],
+        [(32.578957, 1.000000), (33.076927, 1.000000)],
+        [(33.574905, 1.000000), (33.981567, 1.000000)],
+        [(34.388233, 1.000000), (34.701038, 1.000000)],
+        [(35.013851, 1.000000), (35.230850, 1.000000)],
+        [(35.447845, 1.000000), (35.567669, 1.000000)],
+        [(35.687500, 1.000000), (35.709404, 1.000000)],
+        [(35.731312, 1.000000), (35.655155, 1.000000)],
+        [(35.579006, 1.000000), (35.405273, 1.000000)],
+        [(35.231541, 1.000000), (34.961311, 1.000000)],
+        [(34.691086, 1.000000), (34.326057, 1.000000)],
+        [(33.961029, 1.000000), (33.503479, 1.000000)],
+        [(33.045937, 1.000000), (32.498734, 1.000000)],
+        [(31.951530, 1.000000), (31.318098, 1.000000)],
+        [(30.684669, 1.000000), (29.968971, 1.000000)],
+        [(29.253277, 1.000000), (28.459791, 1.000000)],
+        [(27.666309, 1.000000), (26.800005, 1.000000)],
+        [(25.933704, 1.000000), (25.000000, 1.000000)],
+    ];
+    // Flat conic with a cusp: (1,1) (100,1) (25,1), weight: 1.5
+    let bigger_flat_conic_as_quads = [
+        // moveTo(1., 1.),
+        [(8.979845, 1.000000), (15.795975, 1.000000)],
+        [(22.612104, 1.000000), (28.363287, 1.000000)],
+        [(34.114471, 1.000000), (38.884045, 1.000000)],
+        [(43.653618, 1.000000), (47.510696, 1.000000)],
+        [(51.367767, 1.000000), (54.368233, 1.000000)],
+        [(57.368698, 1.000000), (59.556030, 1.000000)],
+        [(61.743366, 1.000000), (63.149269, 1.000000)],
+        [(64.555168, 1.000000), (65.200005, 1.000000)],
+        [(65.844841, 1.000000), (65.737961, 1.000000)],
+        [(65.631073, 1.000000), (64.770912, 1.000000)],
+        [(63.910763, 1.000000), (62.284878, 1.000000)],
+        [(60.658997, 1.000000), (58.243816, 1.000000)],
+        [(55.828640, 1.000000), (52.589172, 1.000000)],
+        [(49.349705, 1.000000), (45.239006, 1.000000)],
+        [(41.128315, 1.000000), (36.086826, 1.000000)],
+        [(31.045338, 1.000000), (25.000000, 1.000000)],
+    ];
+
+    let mut idx = 0;
     let mut color_idx = 0;
     for (i, cubic) in tricky_cubics.into_iter().enumerate() {
+        idx += 1;
         let x = (i % NUM_COLS) as f64 * CELL_SIZE;
         let y = (i / NUM_COLS) as f64 * CELL_SIZE;
         let cell = Rect::new(x, y, x + CELL_SIZE, y + CELL_SIZE);
@@ -365,6 +428,35 @@ fn tricky_strokes(scene: &mut Scene, _: &mut SceneParams) {
             ],
         );
         color_idx = (color_idx + 1) % colors.len();
+    }
+
+    let flat_curves = [
+        flat_quad.as_slice(),
+        flat_conic_as_quads.as_slice(),
+        bigger_flat_conic_as_quads.as_slice(),
+    ];
+    for quads in flat_curves.iter() {
+        let mut path = BezPath::new();
+        path.push(MoveTo((1., 1.).into()));
+        for quad in quads.iter() {
+            path.push(QuadTo(quad[0].into(), quad[1].into()));
+        }
+        let x = (idx % NUM_COLS) as f64 * CELL_SIZE;
+        let y = (idx / NUM_COLS) as f64 * CELL_SIZE;
+        let cell = Rect::new(x, y, x + CELL_SIZE, y + CELL_SIZE);
+        let bounds = path.bounding_box().inflate(STROKE_WIDTH, STROKE_WIDTH);
+        let (t, s) = map_rect_to_rect(&bounds, &cell);
+        scene.stroke(
+            &Stroke::new(STROKE_WIDTH / s)
+                .with_caps(Cap::Butt)
+                .with_join(Join::Miter),
+            t,
+            colors[color_idx],
+            None,
+            &path,
+        );
+        color_idx = (color_idx + 1) % colors.len();
+        idx += 1;
     }
 }
 
