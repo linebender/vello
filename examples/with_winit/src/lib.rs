@@ -15,6 +15,7 @@
 // Also licensed under MIT license, at your choice.
 
 use instant::{Duration, Instant};
+use std::num::NonZeroUsize;
 use std::{collections::HashSet, sync::Arc};
 
 use anyhow::Result;
@@ -52,9 +53,20 @@ struct Args {
     /// Whether to use CPU shaders
     use_cpu: bool,
     /// Whether to force initialising the shaders serially (rather than spawning threads)
-    /// This has no effect on wasm, and on macOS for performance reasons
-    #[arg(long)]
-    serial_initialisation: bool,
+    /// This has no effect on wasm, and defaults to 1 on macOS for performance reasons
+    ///
+    /// Use `0` for an automatic choice
+    #[arg(long, default_value_t=default_threads())]
+    num_init_threads: usize,
+}
+
+fn default_threads() -> usize {
+    #![allow(unreachable_code)]
+    #[cfg(target_os = "mac")]
+    {
+        return 1;
+    }
+    0
 }
 
 struct RenderState<'s> {
@@ -542,11 +554,7 @@ fn run(
                                     surface_format: Some(render_state.surface.format),
                                     use_cpu,
                                     antialiasing_support: vello::AaSupport::all(),
-                                    // We exclude macOS because it (supposedly) makes pipeline compilation slower
-                                    // see https://github.com/bevyengine/bevy/pull/10812#discussion_r1496138004
-                                    // In theory, we should only exclude metal adapters, but the difference is very minor
-                                    // wasm isn't supported
-                                    initialise_in_parallel: !args.serial_initialisation && cfg!(not(target_os="mac"))
+                                    num_init_threads: NonZeroUsize::new(args.num_init_threads)
                                 },
                             )
                             .expect("Could create renderer")

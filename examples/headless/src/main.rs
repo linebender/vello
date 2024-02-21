@@ -1,5 +1,6 @@
 use std::{
     fs::File,
+    num::NonZeroUsize,
     path::{Path, PathBuf},
 };
 
@@ -90,7 +91,7 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
         RendererOptions {
             surface_format: None,
             use_cpu: args.use_cpu,
-            initialise_in_parallel: false,
+            num_init_threads: NonZeroUsize::new(1),
             antialiasing_support: vello::AaSupport::area_only(),
         },
     )
