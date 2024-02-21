@@ -545,7 +545,8 @@ fn run(
                                     // We exclude macOS because it (supposedly) makes pipeline compilation slower
                                     // see https://github.com/bevyengine/bevy/pull/10812#discussion_r1496138004
                                     // In theory, we should only exclude metal adapters, but the difference is very minor
-                                    initialise_in_parallel: args.serial_initialisation && cfg!(all(not(target_arch="wasm32"), not(target_os="mac")))
+                                    // wasm isn't supported
+                                    initialise_in_parallel: args.serial_initialisation && cfg!(not(target_os="mac"))
                                 },
                             )
                             .expect("Could create renderer")

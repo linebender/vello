@@ -5,8 +5,6 @@ use std::{
     borrow::Cow,
     cell::RefCell,
     collections::{hash_map::Entry, HashMap, HashSet},
-    sync::Mutex,
-    thread::available_parallelism,
 };
 
 use wgpu::{
@@ -21,6 +19,7 @@ use crate::{
     BufProxy, Command, Id, ImageProxy, Recording, ResourceProxy, ShaderId,
 };
 
+#[cfg(not(target_arch = "wasm32"))]
 struct UninitialisedShader {
     wgsl: Cow<'static, str>,
     label: &'static str,
@@ -34,6 +33,7 @@ pub struct WgpuEngine {
     pool: ResourcePool,
     bind_map: BindMap,
     downloads: HashMap<Id, Buffer>,
+    #[cfg(not(target_arch = "wasm32"))]
     shaders_to_initialise: Option<Vec<UninitialisedShader>>,
     pub(crate) use_cpu: bool,
 }
@@ -141,6 +141,7 @@ impl WgpuEngine {
     }
 
     /// Enable creating any remaining shaders in parallel
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn use_parallel_initialisation(&mut self) {
         if self.shaders_to_initialise.is_some() {
             return;
@@ -148,19 +149,21 @@ impl WgpuEngine {
         self.shaders_to_initialise = Some(Vec::new());
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     /// Initialise (in parallel) any shaders which are yet to be created
     pub fn build_shaders_if_needed(&mut self, device: &Device) {
         if let Some(mut new_shaders) = self.shaders_to_initialise.take() {
             // Try and not to use all threads
             // (This choice is arbitrary, and could be tuned, although a 'proper' work stealing system should be used instead)
-            let threads_to_use = available_parallelism().map_or(2, |it| it.get().max(4) - 2);
+            let threads_to_use =
+                std::thread::available_parallelism().map_or(2, |it| it.get().max(4) - 2);
             eprintln!("Initialising in parallel using {threads_to_use} threads");
             let remainder =
                 new_shaders.split_off(new_shaders.len().max(threads_to_use) - threads_to_use);
             let (tx, rx) = std::sync::mpsc::channel::<(ShaderId, WgpuShader)>();
 
             // We expect each initialisation to take much longer than acquiring a lock, so we just use a mutex for our work queue
-            let work_queue = Mutex::new(remainder.into_iter());
+            let work_queue = std::sync::Mutex::new(remainder.into_iter());
             let work_queue = &work_queue;
             std::thread::scope(|scope| {
                 let tx = tx;
@@ -298,6 +301,7 @@ impl WgpuEngine {
                 }
             })
             .collect::<Vec<_>>();
+        #[cfg(not(target_arch = "wasm32"))]
         if let Some(uninit) = self.shaders_to_initialise.as_mut() {
             let id = add(Shader {
                 label,

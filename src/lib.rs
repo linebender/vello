@@ -144,6 +144,8 @@ pub struct RendererOptions {
     pub antialiasing_support: AaSupport,
 
     /// Whether to initialise shaders in parallel
+    ///
+    /// Has no effect on WebAssembly
     pub initialise_in_parallel: bool,
 }
 
@@ -153,10 +155,12 @@ impl Renderer {
     pub fn new(device: &Device, options: RendererOptions) -> Result<Self> {
         let mut engine = WgpuEngine::new(options.use_cpu);
         if options.initialise_in_parallel {
+            #[cfg(not(target_arch = "wasm32"))]
             engine.use_parallel_initialisation();
         }
         let start = Instant::now();
         let shaders = shaders::full_shaders(device, &mut engine, &options)?;
+        #[cfg(not(target_arch = "wasm32"))]
         engine.build_shaders_if_needed(device);
         eprintln!("Building shaders took {:?}", start.elapsed());
         let blit = options
