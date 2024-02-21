@@ -53,7 +53,7 @@ struct Args {
     use_cpu: bool,
     /// Whether to force initialising the shaders serially (rather than spawning threads)
     /// This has no effect on wasm, and on macOS for performance reasons
-    #[arg(long, action = clap::ArgAction::SetFalse)]
+    #[arg(long)]
     serial_initialisation: bool,
 }
 
@@ -546,7 +546,7 @@ fn run(
                                     // see https://github.com/bevyengine/bevy/pull/10812#discussion_r1496138004
                                     // In theory, we should only exclude metal adapters, but the difference is very minor
                                     // wasm isn't supported
-                                    initialise_in_parallel: args.serial_initialisation && cfg!(not(target_os="mac"))
+                                    initialise_in_parallel: !args.serial_initialisation && cfg!(not(target_os="mac"))
                                 },
                             )
                             .expect("Could create renderer")
