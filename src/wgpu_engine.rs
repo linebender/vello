@@ -5,6 +5,8 @@ use std::{
     borrow::Cow,
     cell::RefCell,
     collections::{hash_map::Entry, HashMap, HashSet},
+    sync::{mpsc::RecvError, Mutex},
+    thread::available_parallelism,
 };
 
 use wgpu::{
@@ -19,12 +21,20 @@ use crate::{
     BufProxy, Command, Id, ImageProxy, Recording, ResourceProxy, ShaderId,
 };
 
+struct UninitialisedShader {
+    wgsl: Cow<'static, str>,
+    label: &'static str,
+    entries: Vec<wgpu::BindGroupLayoutEntry>,
+    shader_id: ShaderId,
+}
+
 #[derive(Default)]
 pub struct WgpuEngine {
     shaders: Vec<Shader>,
     pool: ResourcePool,
     bind_map: BindMap,
     downloads: HashMap<Id, Buffer>,
+    shaders_to_initialise: Option<Vec<UninitialisedShader>>,
     pub(crate) use_cpu: bool,
 }
 
@@ -62,7 +72,7 @@ impl Shader {
         } else if let Some(wgpu) = self.wgpu.as_ref() {
             ShaderKind::Wgpu(wgpu)
         } else {
-            panic!("no available shader")
+            panic!("no available shader for {}", self.label)
         }
     }
 }
@@ -130,6 +140,77 @@ impl WgpuEngine {
         }
     }
 
+    /// Enable creating any remaining shaders in parallel
+    pub fn use_parallel_initialisation(&mut self) {
+        if self.shaders_to_initialise.is_some() {
+            return;
+        }
+        self.shaders_to_initialise = Some(Vec::new());
+    }
+
+    /// Initialise (in parallel) any shaders which are yet to be created
+    pub fn build_shaders_if_needed(&mut self, device: &Device) {
+        if let Some(mut new_shaders) = self.shaders_to_initialise.take() {
+            // Use half of available threads if available, or three otherwise
+            // (This choice is arbitrary, and could be tuned, although a proper work stealing system should be used instead)
+            let threads_to_use = available_parallelism().map_or(3, |it| it.get() / 2);
+            let remainder =
+                new_shaders.split_off(new_shaders.len().max(threads_to_use) - threads_to_use);
+            let (tx, rx) = std::sync::mpsc::channel::<(ShaderId, WgpuShader)>();
+
+            let work_queue = Mutex::new(remainder.into_iter());
+            let work_queue = &work_queue;
+            std::thread::scope(|scope| {
+                let tx = tx;
+                new_shaders
+                    .into_iter()
+                    .map(|it| {
+                        let tx = tx.clone();
+                        scope.spawn(move || {
+                            let shader = Self::create_compute_pipeline(
+                                device, it.label, it.wgsl, it.entries,
+                            );
+                            // We know the rx can only be closed if all the tx references are dropped
+                            tx.send((it.shader_id, shader)).unwrap();
+                            loop {
+                                if let Ok(mut guard) = work_queue.lock() {
+                                    if let Some(value) = guard.next() {
+                                        drop(guard);
+                                        let shader = Self::create_compute_pipeline(
+                                            device,
+                                            value.label,
+                                            value.wgsl,
+                                            value.entries,
+                                        );
+                                        tx.send((value.shader_id, shader)).unwrap();
+                                    } else {
+                                        break;
+                                    }
+                                } else {
+                                    // Another thread panicked, we ignore that here and finish our processing
+                                    break;
+                                }
+                            }
+                            drop(tx);
+                        });
+                    })
+                    .for_each(drop);
+                // Drop the initial sender, to mean that there will be no more senders if and only if all other threads have finished
+                drop(tx);
+                loop {
+                    match rx.recv() {
+                        Ok((id, value)) => {
+                            self.shaders[id.0].wgpu = Some(value);
+                        }
+                        // The channel has finished, we can finish this work
+                        // If any worker paniced, the `scope` will panic
+                        Err(RecvError) => break,
+                    }
+                }
+            });
+        }
+    }
+
     /// Add a shader.
     ///
     /// This function is somewhat limited, it doesn't apply a label, only allows one bind group,
@@ -173,10 +254,6 @@ impl WgpuEngine {
             }
         }
 
-        let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some(label),
-            source: wgpu::ShaderSource::Wgsl(wgsl),
-        });
         let entries = layout
             .iter()
             .enumerate()
@@ -225,27 +302,23 @@ impl WgpuEngine {
                 }
             })
             .collect::<Vec<_>>();
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: None,
-            entries: &entries,
-        });
-        let compute_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: None,
-                bind_group_layouts: &[&bind_group_layout],
-                push_constant_ranges: &[],
+        if let Some(uninit) = self.shaders_to_initialise.as_mut() {
+            let id = add(Shader {
+                label,
+                wgpu: None,
+                cpu: None,
+            })?;
+            uninit.push(UninitialisedShader {
+                wgsl,
+                label,
+                entries,
+                shader_id: id,
             });
-        let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some(label),
-            layout: Some(&compute_pipeline_layout),
-            module: &shader_module,
-            entry_point: "main",
-        });
+            return Ok(id);
+        }
+        let wgpu = Self::create_compute_pipeline(device, label, wgsl, entries);
         add(Shader {
-            wgpu: Some(WgpuShader {
-                pipeline,
-                bind_group_layout,
-            }),
+            wgpu: Some(wgpu),
             cpu: None,
             label,
         })
@@ -531,6 +604,38 @@ impl WgpuEngine {
 
     pub fn free_download(&mut self, buf: BufProxy) {
         self.downloads.remove(&buf.id);
+    }
+
+    fn create_compute_pipeline(
+        device: &Device,
+        label: &str,
+        wgsl: Cow<'_, str>,
+        entries: Vec<wgpu::BindGroupLayoutEntry>,
+    ) -> WgpuShader {
+        let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some(label),
+            source: wgpu::ShaderSource::Wgsl(wgsl),
+        });
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: None,
+            entries: &entries,
+        });
+        let compute_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: None,
+                bind_group_layouts: &[&bind_group_layout],
+                push_constant_ranges: &[],
+            });
+        let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some(label),
+            layout: Some(&compute_pipeline_layout),
+            module: &shader_module,
+            entry_point: "main",
+        });
+        WgpuShader {
+            pipeline,
+            bind_group_layout,
+        }
     }
 }
 

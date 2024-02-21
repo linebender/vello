@@ -29,6 +29,7 @@ impl FromWorld for VelloRenderer {
                 device.wgpu_device(),
                 RendererOptions {
                     surface_format: None,
+                    initialise_in_parallel: false,
                     antialiasing_support: vello::AaSupport::area_only(),
                     use_cpu: false,
                 },

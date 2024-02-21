@@ -538,6 +538,7 @@ fn run(
                                     surface_format: Some(render_state.surface.format),
                                     use_cpu,
                                     antialiasing_support: vello::AaSupport::all(),
+                                    initialise_in_parallel: cfg!(all(not(target_arch="wasm32"), not(target_os="mac")))
                                 },
                             )
                             .expect("Could create renderer")

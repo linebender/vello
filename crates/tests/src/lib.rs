@@ -62,6 +62,7 @@ pub async fn render(scene: Scene, params: &TestParams) -> Result<Image> {
         RendererOptions {
             surface_format: None,
             use_cpu: params.use_cpu,
+            initialise_in_parallel: false,
             antialiasing_support: vello::AaSupport::area_only(),
         },
     )
