@@ -542,8 +542,9 @@ fn run(
                                     surface_format: Some(render_state.surface.format),
                                     use_cpu,
                                     antialiasing_support: vello::AaSupport::all(),
-                                    // We exclude macOS because it (supposedly) makes compilation slower
+                                    // We exclude macOS because it (supposedly) makes pipeline compilation slower
                                     // see https://github.com/bevyengine/bevy/pull/10812#discussion_r1496138004
+                                    // In theory, we should only exclude metal adapters, but the difference is very minor
                                     initialise_in_parallel: args.serial_initialisation && cfg!(all(not(target_arch="wasm32"), not(target_os="mac")))
                                 },
                             )
