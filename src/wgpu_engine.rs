@@ -159,16 +159,19 @@ impl WgpuEngine {
         use std::num::NonZeroUsize;
 
         if let Some(mut new_shaders) = self.shaders_to_initialise.take() {
-            let num_threads = num_threads.map(NonZeroUsize::get).unwrap_or_else(|| {
-                // Fallback onto a heuristic. This tries to not to use all threads.
-                // We keep the main thread blocked and not doing much whilst this is running,
-                // so we broadly leave two cores unused at the point of maximum parallelism
-                // (This choice is arbitrary, and could be tuned, although a 'proper' threadpool
-                // should probably be used instead)
-                std::thread::available_parallelism().map_or(2, |it| it.get().max(4) - 2)
-            });
+            let num_threads = num_threads
+                .map(NonZeroUsize::get)
+                .unwrap_or_else(|| {
+                    // Fallback onto a heuristic. This tries to not to use all threads.
+                    // We keep the main thread blocked and not doing much whilst this is running,
+                    // so we broadly leave two cores unused at the point of maximum parallelism
+                    // (This choice is arbitrary, and could be tuned, although a 'proper' threadpool
+                    // should probably be used instead)
+                    std::thread::available_parallelism().map_or(2, |it| it.get().max(4) - 2)
+                })
+                .min(new_shaders.len());
             eprintln!("Initialising in parallel using {num_threads} threads");
-            let remainder = new_shaders.split_off(new_shaders.len().max(num_threads) - num_threads);
+            let remainder = new_shaders.split_off(num_threads);
             let (tx, rx) = std::sync::mpsc::channel::<(ShaderId, WgpuShader)>();
 
             // We expect each initialisation to take much longer than acquiring a lock, so we just use a mutex for our work queue
