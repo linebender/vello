@@ -51,6 +51,10 @@ struct Args {
     #[arg(long)]
     /// Whether to use CPU shaders
     use_cpu: bool,
+    /// Whether to force initialising the shaders serially (rather than spawning threads)
+    /// This has no effect on wasm, and on macOS for performance reasons
+    #[arg(long, action = clap::ArgAction::SetFalse)]
+    serial_initialisation: bool,
 }
 
 struct RenderState<'s> {
@@ -538,7 +542,9 @@ fn run(
                                     surface_format: Some(render_state.surface.format),
                                     use_cpu,
                                     antialiasing_support: vello::AaSupport::all(),
-                                    initialise_in_parallel: cfg!(all(not(target_arch="wasm32"), not(target_os="mac")))
+                                    // We exclude macOS because it (supposedly) makes compilation slower
+                                    // see https://github.com/bevyengine/bevy/pull/10812#discussion_r1496138004
+                                    initialise_in_parallel: args.serial_initialisation && cfg!(all(not(target_arch="wasm32"), not(target_os="mac")))
                                 },
                             )
                             .expect("Could create renderer")

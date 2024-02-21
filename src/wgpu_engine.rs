@@ -5,7 +5,7 @@ use std::{
     borrow::Cow,
     cell::RefCell,
     collections::{hash_map::Entry, HashMap, HashSet},
-    sync::{mpsc::RecvError, Mutex},
+    sync::Mutex,
     thread::available_parallelism,
 };
 
@@ -151,13 +151,15 @@ impl WgpuEngine {
     /// Initialise (in parallel) any shaders which are yet to be created
     pub fn build_shaders_if_needed(&mut self, device: &Device) {
         if let Some(mut new_shaders) = self.shaders_to_initialise.take() {
-            // Use half of available threads if available, or three otherwise
-            // (This choice is arbitrary, and could be tuned, although a proper work stealing system should be used instead)
-            let threads_to_use = available_parallelism().map_or(3, |it| it.get() / 2);
+            // Try and not to use all threads
+            // (This choice is arbitrary, and could be tuned, although a 'proper' work stealing system should be used instead)
+            let threads_to_use = available_parallelism().map_or(2, |it| it.get().max(4) - 2);
+            eprintln!("Initialising in parallel using {threads_to_use} threads");
             let remainder =
                 new_shaders.split_off(new_shaders.len().max(threads_to_use) - threads_to_use);
             let (tx, rx) = std::sync::mpsc::channel::<(ShaderId, WgpuShader)>();
 
+            // We expect each initialisation to take much longer than acquiring a lock, so we just use a mutex for our work queue
             let work_queue = Mutex::new(remainder.into_iter());
             let work_queue = &work_queue;
             std::thread::scope(|scope| {
@@ -166,14 +168,15 @@ impl WgpuEngine {
                     .into_iter()
                     .map(|it| {
                         let tx = tx.clone();
-                        scope.spawn(move || {
-                            let shader = Self::create_compute_pipeline(
-                                device, it.label, it.wgsl, it.entries,
-                            );
-                            // We know the rx can only be closed if all the tx references are dropped
-                            tx.send((it.shader_id, shader)).unwrap();
-                            loop {
-                                if let Ok(mut guard) = work_queue.lock() {
+                        std::thread::Builder::new()
+                            .name("Vello shader initialisation worker thread".into())
+                            .spawn_scoped(scope, move || {
+                                let shader = Self::create_compute_pipeline(
+                                    device, it.label, it.wgsl, it.entries,
+                                );
+                                // We know the rx can only be closed if all the tx references are dropped
+                                tx.send((it.shader_id, shader)).unwrap();
+                                while let Ok(mut guard) = work_queue.lock() {
                                     if let Some(value) = guard.next() {
                                         drop(guard);
                                         let shader = Self::create_compute_pipeline(
@@ -186,26 +189,19 @@ impl WgpuEngine {
                                     } else {
                                         break;
                                     }
-                                } else {
-                                    // Another thread panicked, we ignore that here and finish our processing
-                                    break;
                                 }
-                            }
-                            drop(tx);
-                        });
+                                // Another thread panicked or we finished.
+                                // If another thread panicked, we ignore that here and finish our processing
+                                drop(tx);
+                            })
+                            .expect("failed to spawn thread");
                     })
                     .for_each(drop);
                 // Drop the initial sender, to mean that there will be no more senders if and only if all other threads have finished
                 drop(tx);
-                loop {
-                    match rx.recv() {
-                        Ok((id, value)) => {
-                            self.shaders[id.0].wgpu = Some(value);
-                        }
-                        // The channel has finished, we can finish this work
-                        // If any worker paniced, the `scope` will panic
-                        Err(RecvError) => break,
-                    }
+
+                while let Ok((id, value)) = rx.recv() {
+                    self.shaders[id.0].wgpu = Some(value);
                 }
             });
         }
