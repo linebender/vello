@@ -1,4 +1,4 @@
-// Copyright 2022 The Vello authors
+// Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 /// Interface for a monoid. The default value must be the identity of

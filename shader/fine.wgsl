@@ -1,3 +1,4 @@
+// Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
 
 // Fine rasterizer. This can run in simple (just path rendering) and full

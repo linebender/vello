@@ -1,3 +1,6 @@
+// Copyright 2023 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 //! A benchmark based on MotionMark 1.2's path benchmark.
 //! This is roughly comparable to:
 //!
