@@ -206,8 +206,9 @@ Licensed under either of
 
 at your option.
 
-In addition, all files in the [`shader`](shader) directory and subdirectories thereof are alternatively
-licensed under the Unlicense ([shader/UNLICENSE](shader/UNLICENSE) or <http://unlicense.org/>).
+In addition, all files in the [`shader`](shader) and [`src/cpu_shader`](src/cpu_shader)
+directories and subdirectories thereof are alternatively licensed under
+the Unlicense ([shader/UNLICENSE](shader/UNLICENSE) or <http://unlicense.org/>).
 For clarity, these files are also licensed under either of the above licenses.
 The intent is for this research to be used in as broad a context as possible.
 

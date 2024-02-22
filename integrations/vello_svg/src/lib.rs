@@ -1,3 +1,6 @@
+// Copyright 2023 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 //! Append a [`usvg::Tree`] to a Vello [`Scene`]
 //!
 //! This currently lacks support for a [number of important](crate#unsupported-features) SVG features.

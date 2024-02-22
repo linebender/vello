@@ -1,3 +1,6 @@
+// Copyright 2022 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 // This content cannot be formatted by rustfmt because of the long strings, so it's in its own file
 use super::{BuiltinSvgProps, SVGDownload};
 

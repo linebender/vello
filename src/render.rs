@@ -1,3 +1,6 @@
+// Copyright 2022 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 //! Take an encoded scene and create a graph to render it
 
 use crate::{
