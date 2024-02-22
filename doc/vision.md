@@ -1,3 +1,9 @@
+# Notice
+
+> This document represented the vision as of the end of 2020. 
+> Since then a number of things have changed (for example we are now using `wgpu`).
+> For a more up-to-date document, see [the roadmap 2023](./roadmap_2023.md).
+
 ## The piet-gpu vision
 
 Raph Levien, 2020-12-10
