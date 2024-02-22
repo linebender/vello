@@ -25,6 +25,8 @@ mod shaders;
 #[cfg(feature = "wgpu")]
 mod wgpu_engine;
 
+use std::{num::NonZeroUsize, time::Instant};
+
 /// Styling and composition primitives.
 pub use peniko;
 /// 2D geometry, with a focus on curves.
@@ -140,6 +142,16 @@ pub struct RendererOptions {
     /// Represents the enabled set of AA configurations. This will be used to determine which
     /// pipeline permutations should be compiled at startup.
     pub antialiasing_support: AaSupport,
+
+    /// How many threads to use for initialisation of shaders.
+    ///
+    /// Use `Some(1)` to use a single thread. This is recommended when on macOS
+    /// (see https://github.com/bevyengine/bevy/pull/10812#discussion_r1496138004)
+    ///
+    /// Set to `None` to use a heuristic which will use many but not all threads
+    ///
+    /// Has no effect on WebAssembly
+    pub num_init_threads: Option<NonZeroUsize>,
 }
 
 #[cfg(feature = "wgpu")]
@@ -147,7 +159,16 @@ impl Renderer {
     /// Creates a new renderer for the specified device.
     pub fn new(device: &Device, options: RendererOptions) -> Result<Self> {
         let mut engine = WgpuEngine::new(options.use_cpu);
+        // If we are running in parallel (i.e. the number of threads is not 1)
+        if options.num_init_threads != NonZeroUsize::new(1) {
+            #[cfg(not(target_arch = "wasm32"))]
+            engine.use_parallel_initialisation();
+        }
+        let start = Instant::now();
         let shaders = shaders::full_shaders(device, &mut engine, &options)?;
+        #[cfg(not(target_arch = "wasm32"))]
+        engine.build_shaders_if_needed(device, options.num_init_threads);
+        eprintln!("Building shaders took {:?}", start.elapsed());
         let blit = options
             .surface_format
             .map(|surface_format| BlitPipeline::new(device, surface_format));
@@ -272,6 +293,7 @@ impl Renderer {
     pub async fn reload_shaders(&mut self, device: &Device) -> Result<()> {
         device.push_error_scope(wgpu::ErrorFilter::Validation);
         let mut engine = WgpuEngine::new(self.options.use_cpu);
+        // We choose not to initialise these shaders in parallel, to ensure the error scope works correctly
         let shaders = shaders::full_shaders(device, &mut engine, &self.options)?;
         let error = device.pop_error_scope().await;
         if let Some(error) = error {

@@ -76,7 +76,8 @@ fn example_scene_of(file: PathBuf) -> ExampleScene {
         .unwrap_or_else(|| "unknown".to_string());
     ExampleScene {
         function: Box::new(svg_function_of(name.clone(), move || {
-            std::fs::read_to_string(file).expect("failed to read svg file")
+            std::fs::read_to_string(&file)
+                .unwrap_or_else(|e| panic!("failed to read svg file {file:?}: {e}"))
         })),
         config: crate::SceneConfig {
             animated: false,

@@ -1,3 +1,5 @@
+use std::num::NonZeroUsize;
+
 use bevy::render::{Render, RenderSet};
 use bevy::utils::synccell::SyncCell;
 use vello::kurbo::{Affine, Point, Rect, Stroke};
@@ -29,6 +31,8 @@ impl FromWorld for VelloRenderer {
                 device.wgpu_device(),
                 RendererOptions {
                     surface_format: None,
+                    // TODO: We should ideally use the Bevy threadpool here
+                    num_init_threads: NonZeroUsize::new(1),
                     antialiasing_support: vello::AaSupport::area_only(),
                     use_cpu: false,
                 },

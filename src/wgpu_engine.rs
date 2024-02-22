@@ -19,12 +19,22 @@ use crate::{
     BufProxy, Command, Id, ImageProxy, Recording, ResourceProxy, ShaderId,
 };
 
+#[cfg(not(target_arch = "wasm32"))]
+struct UninitialisedShader {
+    wgsl: Cow<'static, str>,
+    label: &'static str,
+    entries: Vec<wgpu::BindGroupLayoutEntry>,
+    shader_id: ShaderId,
+}
+
 #[derive(Default)]
 pub struct WgpuEngine {
     shaders: Vec<Shader>,
     pool: ResourcePool,
     bind_map: BindMap,
     downloads: HashMap<Id, Buffer>,
+    #[cfg(not(target_arch = "wasm32"))]
+    shaders_to_initialise: Option<Vec<UninitialisedShader>>,
     pub(crate) use_cpu: bool,
 }
 
@@ -62,7 +72,7 @@ impl Shader {
         } else if let Some(wgpu) = self.wgpu.as_ref() {
             ShaderKind::Wgpu(wgpu)
         } else {
-            panic!("no available shader")
+            panic!("no available shader for {}", self.label)
         }
     }
 }
@@ -130,6 +140,88 @@ impl WgpuEngine {
         }
     }
 
+    /// Enable creating any remaining shaders in parallel
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn use_parallel_initialisation(&mut self) {
+        if self.shaders_to_initialise.is_some() {
+            return;
+        }
+        self.shaders_to_initialise = Some(Vec::new());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    /// Initialise (in parallel) any shaders which are yet to be created
+    pub fn build_shaders_if_needed(
+        &mut self,
+        device: &Device,
+        num_threads: Option<std::num::NonZeroUsize>,
+    ) {
+        use std::num::NonZeroUsize;
+
+        if let Some(mut new_shaders) = self.shaders_to_initialise.take() {
+            let num_threads = num_threads
+                .map(NonZeroUsize::get)
+                .unwrap_or_else(|| {
+                    // Fallback onto a heuristic. This tries to not to use all threads.
+                    // We keep the main thread blocked and not doing much whilst this is running,
+                    // so we broadly leave two cores unused at the point of maximum parallelism
+                    // (This choice is arbitrary, and could be tuned, although a 'proper' threadpool
+                    // should probably be used instead)
+                    std::thread::available_parallelism().map_or(2, |it| it.get().max(4) - 2)
+                })
+                .min(new_shaders.len());
+            eprintln!("Initialising in parallel using {num_threads} threads");
+            let remainder = new_shaders.split_off(num_threads);
+            let (tx, rx) = std::sync::mpsc::channel::<(ShaderId, WgpuShader)>();
+
+            // We expect each initialisation to take much longer than acquiring a lock, so we just use a mutex for our work queue
+            let work_queue = std::sync::Mutex::new(remainder.into_iter());
+            let work_queue = &work_queue;
+            std::thread::scope(|scope| {
+                let tx = tx;
+                new_shaders
+                    .into_iter()
+                    .map(|it| {
+                        let tx = tx.clone();
+                        std::thread::Builder::new()
+                            .name("Vello shader initialisation worker thread".into())
+                            .spawn_scoped(scope, move || {
+                                let shader = Self::create_compute_pipeline(
+                                    device, it.label, it.wgsl, it.entries,
+                                );
+                                // We know the rx can only be closed if all the tx references are dropped
+                                tx.send((it.shader_id, shader)).unwrap();
+                                while let Ok(mut guard) = work_queue.lock() {
+                                    if let Some(value) = guard.next() {
+                                        drop(guard);
+                                        let shader = Self::create_compute_pipeline(
+                                            device,
+                                            value.label,
+                                            value.wgsl,
+                                            value.entries,
+                                        );
+                                        tx.send((value.shader_id, shader)).unwrap();
+                                    } else {
+                                        break;
+                                    }
+                                }
+                                // Another thread panicked or we finished.
+                                // If another thread panicked, we ignore that here and finish our processing
+                                drop(tx);
+                            })
+                            .expect("failed to spawn thread");
+                    })
+                    .for_each(drop);
+                // Drop the initial sender, to mean that there will be no more senders if and only if all other threads have finished
+                drop(tx);
+
+                while let Ok((id, value)) = rx.recv() {
+                    self.shaders[id.0].wgpu = Some(value);
+                }
+            });
+        }
+    }
+
     /// Add a shader.
     ///
     /// This function is somewhat limited, it doesn't apply a label, only allows one bind group,
@@ -173,10 +265,6 @@ impl WgpuEngine {
             }
         }
 
-        let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some(label),
-            source: wgpu::ShaderSource::Wgsl(wgsl),
-        });
         let entries = layout
             .iter()
             .enumerate()
@@ -225,27 +313,24 @@ impl WgpuEngine {
                 }
             })
             .collect::<Vec<_>>();
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: None,
-            entries: &entries,
-        });
-        let compute_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: None,
-                bind_group_layouts: &[&bind_group_layout],
-                push_constant_ranges: &[],
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(uninit) = self.shaders_to_initialise.as_mut() {
+            let id = add(Shader {
+                label,
+                wgpu: None,
+                cpu: None,
+            })?;
+            uninit.push(UninitialisedShader {
+                wgsl,
+                label,
+                entries,
+                shader_id: id,
             });
-        let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some(label),
-            layout: Some(&compute_pipeline_layout),
-            module: &shader_module,
-            entry_point: "main",
-        });
+            return Ok(id);
+        }
+        let wgpu = Self::create_compute_pipeline(device, label, wgsl, entries);
         add(Shader {
-            wgpu: Some(WgpuShader {
-                pipeline,
-                bind_group_layout,
-            }),
+            wgpu: Some(wgpu),
             cpu: None,
             label,
         })
@@ -531,6 +616,38 @@ impl WgpuEngine {
 
     pub fn free_download(&mut self, buf: BufProxy) {
         self.downloads.remove(&buf.id);
+    }
+
+    fn create_compute_pipeline(
+        device: &Device,
+        label: &str,
+        wgsl: Cow<'_, str>,
+        entries: Vec<wgpu::BindGroupLayoutEntry>,
+    ) -> WgpuShader {
+        let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some(label),
+            source: wgpu::ShaderSource::Wgsl(wgsl),
+        });
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: None,
+            entries: &entries,
+        });
+        let compute_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: None,
+                bind_group_layouts: &[&bind_group_layout],
+                push_constant_ranges: &[],
+            });
+        let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some(label),
+            layout: Some(&compute_pipeline_layout),
+            module: &shader_module,
+            entry_point: "main",
+        });
+        WgpuShader {
+            pipeline,
+            bind_group_layout,
+        }
     }
 }
 
