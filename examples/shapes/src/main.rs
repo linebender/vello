@@ -1,7 +1,7 @@
 use anyhow::Result;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use vello::kurbo::{Circle, RoundedRect, Stroke};
+use vello::kurbo::{Circle, Ellipse, Line, RoundedRect, Stroke};
 use vello::peniko::Color;
 use vello::util::RenderSurface;
 use vello::RendererOptions;
@@ -87,21 +87,22 @@ fn run(event_loop: EventLoop<()>, mut render_cx: RenderContext) {
                         };
 
                         // Create some shapes!
+                        let stroke = Stroke::new(6.0);
+
                         let rect = RoundedRect::new(10.0, 10.0, 240.0, 240.0, 20.0);
-                        let rect_stroke = Stroke::new(6.0);
                         let rect_stroke_color = Color::rgb(0.9804, 0.702, 0.5294);
 
                         let circle = Circle::new((420.0, 200.0), 120.0);
                         let circle_fill_color = Color::rgb(0.9529, 0.5451, 0.6588);
 
+                        let ellipse = Ellipse::new((250.0, 420.0), (100.0, 160.0), -90.0);
+                        let ellipse_fill_color = Color::rgb(0.7961, 0.651, 0.9686);
+
+                        let line = Line::new((260.0, 20.0), (620.0, 100.0));
+                        let line_stroke_color = Color::rgb(0.5373, 0.7059, 0.9804);
+
                         // Draw the shapes!
-                        scene.stroke(
-                            &rect_stroke,
-                            Affine::IDENTITY,
-                            rect_stroke_color,
-                            None,
-                            &rect,
-                        );
+                        scene.stroke(&stroke, Affine::IDENTITY, rect_stroke_color, None, &rect);
                         scene.fill(
                             vello::peniko::Fill::NonZero,
                             Affine::IDENTITY,
@@ -109,6 +110,14 @@ fn run(event_loop: EventLoop<()>, mut render_cx: RenderContext) {
                             None,
                             &circle,
                         );
+                        scene.fill(
+                            vello::peniko::Fill::NonZero,
+                            Affine::IDENTITY,
+                            ellipse_fill_color,
+                            None,
+                            &ellipse,
+                        );
+                        scene.stroke(&stroke, Affine::IDENTITY, line_stroke_color, None, &line);
 
                         // Render to the surface
                         vello::block_on_wgpu(
