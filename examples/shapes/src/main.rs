@@ -29,8 +29,9 @@ fn create_window(event_loop: &winit::event_loop::EventLoopWindowTarget<()>) -> A
     )
 }
 
-// Runs the Winit event loop and renders the shapes
-fn run(event_loop: EventLoop<()>, mut render_cx: RenderContext) {
+fn main() -> Result<()> {
+    let event_loop = EventLoop::new()?;
+    let mut render_cx = RenderContext::new().unwrap();
     let mut renderers: Vec<Option<Renderer>> = vec![];
     let mut render_state = None::<RenderState>;
     // Cache a window so that it can be reused when the app is resumed after being suspended
@@ -178,10 +179,5 @@ fn run(event_loop: EventLoop<()>, mut render_cx: RenderContext) {
             _ => {}
         })
         .expect("Couldn't run event loop");
-}
-
-fn main() -> Result<()> {
-    run(EventLoop::new()?, RenderContext::new().unwrap());
-
     Ok(())
 }
