@@ -65,3 +65,6 @@ anyhow = "1.0"
 instant = { version = "0.1.12", features = ["wasm-bindgen"] }
 pollster = "0.3.0"
 wgpu-profiler = "0.16"
+
+[patch.crates-io]
+wgpu = { git = "https://github.com/DJMcNab/wgpu", rev = "617567604e8b7f792cec995cd2365b91a78e3da2" }

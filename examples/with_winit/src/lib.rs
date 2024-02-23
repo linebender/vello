@@ -152,6 +152,7 @@ fn run(
     let mut prev_scene_ix = scene_ix - 1;
     let mut profile_taken = Instant::now();
     let mut modifiers = ModifiersState::default();
+    let mut frame_number = 0;
     event_loop
         .run(move |event, event_loop| match event {
             Event::WindowEvent {
@@ -451,7 +452,7 @@ fn run(
                                         &device_handle.queue,
                                         &scene,
                                         &surface_texture,
-                                        &render_params,
+                                        &render_params,  
                                     ),
                             )
                             .expect("failed to render to surface");
@@ -477,6 +478,13 @@ fn run(
                         stats.add_sample(stats::Sample {
                             frame_time_us: (new_time - frame_start_time).as_micros() as u64,
                         });
+                        frame_number += 1;
+                        dbg!(frame_number);
+                        if frame_number==50 {
+                            dbg!(unsafe {
+                                device_handle.device.as_hal::<wgpu::hal::vulkan::Api, _, _>(|device| device.unwrap().write_pipeline_cache())
+                            });
+                        }
                         frame_start_time = new_time;
                     }
                     _ => {}
@@ -677,6 +685,10 @@ fn android_main(app: AndroidApp) {
         android_logger::Config::default().with_max_level(log::LevelFilter::Warn),
     );
 
+    std::env::set_var(
+        "WGPU_VK_PIPELINE_UNSAFE_CACHE_PATH",
+        get_cache_directory(&app).unwrap(),
+    );
     let event_loop = EventLoopBuilder::with_user_event()
         .with_android_app(app)
         .build()
@@ -690,4 +702,30 @@ fn android_main(app: AndroidApp) {
     let render_cx = RenderContext::new().unwrap();
 
     run(event_loop, args, scenes, render_cx);
+}
+
+#[cfg(target_os = "android")]
+fn get_cache_directory(app: &AndroidApp) -> anyhow::Result<std::path::PathBuf> {
+    use std::path::PathBuf;
+
+    use anyhow::Context;
+
+    let app_jobject = unsafe { jni::objects::JObject::from_raw(app.activity_as_ptr().cast()) };
+    // If we got a null VM, we can't pass up
+    let jvm = unsafe { jni::JavaVM::from_raw(app.vm_as_ptr().cast()).context("Making VM")? };
+    let mut env = jvm.attach_current_thread().context("Attaching to thread")?;
+    let res = env
+        .call_method(app_jobject, "getCacheDir", "()Ljava/io/File;", &[])
+        .context("Calling GetCacheDir")?;
+    let file = res.l().context("Converting to JObject")?;
+    let directory_path = env
+        .call_method(file, "getAbsolutePath", "()Ljava/lang/String;", &[])
+        .context("Calling `getAbsolutePath`")?;
+    let string = directory_path.l().context("Converting to a string")?.into();
+    let string = env
+        .get_string(&string)
+        .context("Converting into a Rust string")?;
+    let string: String = string.into();
+    // TODO: Also get the quota. This appears to be more involved, requiring a worker thread and being asynchronous
+    Ok(PathBuf::from(string).join("vello"))
 }

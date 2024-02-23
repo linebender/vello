@@ -182,6 +182,7 @@ impl Renderer {
             // Use 3 pending frames
             #[cfg(feature = "wgpu-profiler")]
             profiler: GpuProfiler::new(GpuProfilerSettings {
+                enable_timer_queries: false,
                 ..Default::default()
             })?,
             #[cfg(feature = "wgpu-profiler")]
