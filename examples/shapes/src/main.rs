@@ -31,13 +31,9 @@ fn create_window(event_loop: &winit::event_loop::EventLoopWindowTarget<()>) -> A
 
 // Runs the Winit event loop and renders the shapes
 fn run(event_loop: EventLoop<()>, mut render_cx: RenderContext) {
-    // Create an empty vec of `Renderer`s.
     let mut renderers: Vec<Option<Renderer>> = vec![];
-    // Create a RenderState wrapped in an Option.
     let mut render_state = None::<RenderState>;
-    // Cache a window so that it can be reused when the app is resumed after being suspended
     let mut cached_window = None;
-    // Create a new scene
     let mut scene = Scene::new();
 
     // Run the event loop
@@ -100,6 +96,8 @@ fn run(event_loop: EventLoop<()>, mut render_cx: RenderContext) {
 
                         let line = Line::new((260.0, 20.0), (620.0, 100.0));
                         let line_stroke_color = Color::rgb(0.5373, 0.7059, 0.9804);
+
+                        scene.reset();
 
                         // Draw the shapes!
                         scene.stroke(&stroke, Affine::IDENTITY, rect_stroke_color, None, &rect);
@@ -179,16 +177,11 @@ fn run(event_loop: EventLoop<()>, mut render_cx: RenderContext) {
             }
             _ => {}
         })
-        .expect("Couldnt run event loop");
+        .expect("Couldn't run event loop");
 }
 
 fn main() -> Result<()> {
-    // Create the event loop and the rendex context
-    let event_loop = EventLoop::new()?;
-    let render_cx = RenderContext::new().unwrap();
-
-    // Run the event loop
-    run(event_loop, render_cx);
+    run(EventLoop::new()?, RenderContext::new().unwrap());
 
     Ok(())
 }
