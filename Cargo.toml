@@ -12,7 +12,8 @@ members = [
     "examples/with_winit",
     "examples/with_bevy",
     "examples/run_wasm",
-    "examples/scenes", "examples/shapes",
+    "examples/scenes",
+    "examples/shapes",
 ]
 
 [workspace.package]
