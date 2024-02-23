@@ -33,10 +33,10 @@ fn create_window(event_loop: &winit::event_loop::EventLoopWindowTarget<()>) -> A
 fn run(event_loop: EventLoop<()>, mut render_cx: RenderContext) {
     let mut renderers: Vec<Option<Renderer>> = vec![];
     let mut render_state = None::<RenderState>;
+    // Cache a window so that it can be reused when the app is resumed after being suspended
     let mut cached_window = None;
     let mut scene = Scene::new();
 
-    // Run the event loop
     event_loop
         .run(move |event, event_loop| match event {
             Event::WindowEvent {
