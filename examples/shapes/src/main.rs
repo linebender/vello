@@ -1,3 +1,6 @@
+// Copyright 2024 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 use anyhow::Result;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
