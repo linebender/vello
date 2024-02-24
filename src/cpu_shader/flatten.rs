@@ -1,6 +1,8 @@
 // Copyright 2023 The Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
 
+use std::f32::consts::FRAC_1_SQRT_2;
+
 use crate::cpu_dispatch::CpuBinding;
 
 use super::{
@@ -41,6 +43,11 @@ struct SubdivResult {
     a2: f32,
 }
 
+/// Threshold below which a derivative is considered too small.
+const DERIV_THRESH: f32 = 1e-6;
+/// Amount to nudge t when derivative is near-zero.
+const DERIV_EPS: f32 = 1e-6;
+
 fn estimate_subdiv(p0: Vec2, p1: Vec2, p2: Vec2, sqrt_tol: f32) -> SubdivResult {
     let d01 = p1 - p0;
     let d12 = p2 - p1;
@@ -79,6 +86,17 @@ fn eval_quad(p0: Vec2, p1: Vec2, p2: Vec2, t: f32) -> Vec2 {
 fn eval_cubic(p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2, t: f32) -> Vec2 {
     let mt = 1.0 - t;
     p0 * (mt * mt * mt) + (p1 * (mt * mt * 3.0) + (p2 * (mt * 3.0) + p3 * t) * t) * t
+}
+
+/// Evaluate both the point and derivative of a cubic bezier.
+fn eval_cubic_and_deriv(p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2, t: f32) -> (Vec2, Vec2) {
+    let m = 1.0 - t;
+    let mm = m * m;
+    let mt = m * t;
+    let tt = t * t;
+    let p = p0 * (mm * m) + (p1 * (3.0 * mm) + p2 * (3.0 * mt) + p3 * tt) * t;
+    let q = (p1 - p0) * mm + (p2 - p1) * (2.0 * mt) + (p3 - p2) * tt;
+    (p, q)
 }
 
 fn eval_quad_tangent(p0: Vec2, p1: Vec2, p2: Vec2, t: f32) -> Vec2 {
@@ -126,24 +144,6 @@ fn cubic_start_normal(p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2) -> Vec2 {
 fn cubic_end_normal(p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2) -> Vec2 {
     let tangent = cubic_end_tangent(p0, p1, p2, p3).normalize();
     Vec2::new(-tangent.y, tangent.x)
-}
-
-fn cubic_subsegment(p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2, t0: f32, t1: f32) -> CubicPoints {
-    let scp0 = eval_cubic(p0, p1, p2, p3, t0);
-    let scp3 = eval_cubic(p0, p1, p2, p3, t1);
-    // Compute the derivate curve
-    let qp0 = 3. * (p1 - p0);
-    let qp1 = 3. * (p2 - p1);
-    let qp2 = 3. * (p3 - p2);
-    let scale = (t1 - t0) * (1.0 / 3.0);
-    let scp1 = scp0 + scale * eval_quad(qp0, qp1, qp2, t0);
-    let scp2 = scp3 - scale * eval_quad(qp0, qp1, qp2, t1);
-    CubicPoints {
-        p0: scp0,
-        p1: scp1,
-        p2: scp2,
-        p3: scp3,
-    }
 }
 
 fn check_colinear(p0: Vec2, p1: Vec2, p2: Vec2) -> bool {
@@ -388,6 +388,16 @@ fn flatten_arc(
     output_line(path_ix, p0, p1, line_ix, bbox, lines);
 }
 
+/// A robustness strategy for the ESPC integral
+enum EspcRobust {
+    /// Both k1 and dist are large enough to divide by robustly.
+    Normal,
+    /// k1 is low, so model curve as a circular arc.
+    LowK1,
+    /// dist is low, so model curve as just an Euler spiral.
+    LowDist,
+}
+
 fn flatten_euler(
     cubic: &CubicPoints,
     path_ix: u32,
@@ -485,10 +495,15 @@ fn flatten_euler(
         return;
     }
 
-    let tol: f32 = 0.01;
-    let scaled_sqrt_tol = (tol / scale).sqrt();
+    let tol: f32 = 0.25;
     let mut t0_u: u32 = 0;
     let mut dt: f32 = 1.;
+    let mut last_p = p0;
+    let mut last_q = p1 - p0;
+    if last_q.length_squared() < DERIV_THRESH.powi(2) {
+        last_q = eval_cubic_and_deriv(p0, p1, p2, p3, DERIV_EPS).1;
+    }
+    let mut last_t = 0.;
 
     loop {
         if dt < ROBUST_EPSILON {
@@ -500,38 +515,76 @@ fn flatten_euler(
         }
         log!("@@@ loop1: t0: {t0}, dt: {dt}");
         loop {
-            let t1 = t0 + dt;
-            // Subdivide into cubics
-            let subcubic = cubic_subsegment(p0, p1, p2, p3, t0, t1);
+            let mut t1 = t0 + dt;
+            let this_p0 = last_p;
+            let this_q0 = last_q;
+            let (mut this_p1, mut this_q1) = eval_cubic_and_deriv(p0, p1, p2, p3, t1);
+            if this_q1.length_squared() < DERIV_THRESH.powi(2) {
+                let (new_p1, new_q1) = eval_cubic_and_deriv(p0, p1, p2, p3, t1 - DERIV_EPS);
+                this_q1 = new_q1;
+                if t1 < 1. {
+                    this_p1 = new_p1;
+                    t1 = t1 - DERIV_EPS;
+                }
+            }
+            let actual_dt = t1 - last_t;
             let cubic_params =
-                CubicParams::from_cubic(subcubic.p0, subcubic.p1, subcubic.p2, subcubic.p3);
+                CubicParams::from_points_derivs(this_p0, this_p1, this_q0, this_q1, actual_dt);
             let est_err = cubic_params.est_euler_err();
-            let err = est_err * (subcubic.p0 - subcubic.p3).length();
+            let chord_len = (this_p1 - this_p0).length();
+            let err = est_err * chord_len;
             log!("@@@   loop2: sub:{:?}, {:?} t0: {t0}, t1: {t1}, dt: {dt}, est_err: {est_err}, err: {err}", subcubic, cubic_params);
-            if err <= scaled_sqrt_tol {
+            if err * scale <= tol {
                 log!("@@@   error within tolerance");
                 t0_u += 1;
                 let shift = t0_u.trailing_zeros();
                 t0_u >>= shift;
                 dt *= (1 << shift) as f32;
                 let euler_params = EulerParams::from_angles(cubic_params.th0, cubic_params.th1);
-                let es = EulerSeg::from_params(subcubic.p0, subcubic.p3, euler_params);
+                let es = EulerSeg::from_params(this_p0, this_p1, euler_params);
 
-                let es_scale = (es.p0 - es.p1).length();
                 let (k0, k1) = (es.params.k0 - 0.5 * es.params.k1, es.params.k1);
 
+                // TODO (raph, important): figure out how scale applies.
                 // compute forward integral to determine number of subdivisions
-                let dist_scaled = offset * scale / es_scale;
-                let a = -2.0 * dist_scaled * k1;
-                let b = -1.0 - 2.0 * dist_scaled * k0;
-                let int0 = espc_int_approx(b);
-                let int1 = espc_int_approx(a + b);
-                let integral = int1 - int0;
-                let k_peak = k0 - k1 * b / a;
-                let integrand_peak = (k_peak * (k_peak * dist_scaled + 1.0)).abs().sqrt();
-                let scaled_int = integral * integrand_peak / a;
-                let n_frac = 0.5 * (es_scale / scaled_sqrt_tol).sqrt() * scaled_int;
-                let n = n_frac.ceil();
+                let dist_scaled = offset * es.params.ch / chord_len;
+                // The number of subdivisions for curvature = 1
+                let scale_multiplier =
+                    0.5 * FRAC_1_SQRT_2 * (scale * chord_len / (es.params.ch * tol)).sqrt();
+                // TODO: tune these thresholds
+                const K1_THRESH: f32 = 1e-3;
+                const DIST_THRESH: f32 = 1e-3;
+                let mut a = 0.0;
+                let mut b = 0.0;
+                let mut integral = 0.0;
+                let mut int0 = 0.0;
+                let (n_frac, robust) = if k1.abs() < K1_THRESH {
+                    let k = k0 + 0.5 * k1;
+                    let n_frac = (k * (k * dist_scaled + 1.0)).abs().sqrt();
+                    (n_frac, EspcRobust::LowK1)
+                } else if dist_scaled.abs() < DIST_THRESH {
+                    let f = |x: f32| x * x.abs().sqrt();
+                    a = k1;
+                    b = k0;
+                    int0 = f(b);
+                    let int1 = f(a + b);
+                    integral = int1 - int0;
+                    //println!("int0={int0}, int1={int1} a={a} b={b}");
+                    let n_frac = (2. / 3.) * integral / a;
+                    (n_frac, EspcRobust::LowDist)
+                } else {
+                    a = -2.0 * dist_scaled * k1;
+                    b = -1.0 - 2.0 * dist_scaled * k0;
+                    int0 = espc_int_approx(b);
+                    let int1 = espc_int_approx(a + b);
+                    integral = int1 - int0;
+                    let k_peak = k0 - k1 * b / a;
+                    let integrand_peak = (k_peak * (k_peak * dist_scaled + 1.0)).abs().sqrt();
+                    let scaled_int = integral * integrand_peak / a;
+                    let n_frac = scaled_int;
+                    (n_frac, EspcRobust::Normal)
+                };
+                let n = (n_frac * scale_multiplier).ceil().max(1.0);
 
                 // Flatten line segments
                 log!("@@@   loop2: lines: {n}");
@@ -544,8 +597,19 @@ fn flatten_euler(
                     let mut lp0 = es.eval_with_offset(0., offset);
                     for i in 0..n as usize {
                         let t = (i + 1) as f32 / n;
-                        let inv = espc_int_inv_approx(integral * t + int0);
-                        let s = (inv - b) / a;
+                        let s = match robust {
+                            EspcRobust::LowK1 => t,
+                            // Note opportunities to minimize divergence
+                            EspcRobust::LowDist => {
+                                let c = (integral * t + int0).cbrt();
+                                let inv = c * c.abs();
+                                (inv - b) / a
+                            }
+                            EspcRobust::Normal => {
+                                let inv = espc_int_inv_approx(integral * t + int0);
+                                (inv - b) / a
+                            }
+                        };
                         let lp1 = es.eval_with_offset(s, offset);
                         let l0 = if offset > 0. { lp0 } else { lp1 };
                         let l1 = if offset > 0. { lp1 } else { lp0 };
@@ -555,6 +619,9 @@ fn flatten_euler(
                         lp0 = lp1;
                     }
                 }
+                last_p = this_p1;
+                last_q = this_q1;
+                last_t = t1;
                 break;
             }
             t0_u = t0_u.saturating_mul(2);

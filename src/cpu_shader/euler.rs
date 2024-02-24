@@ -31,46 +31,26 @@ pub struct EulerSeg {
 }
 
 impl CubicParams {
-    pub fn from_cubic(p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2) -> Self {
-        let chord = p3 - p0;
-        // TODO: if chord is 0, we have a problem
-        //assert!(chord.length() > 1e-9);//ROBUST_EPSILON);
-        let d01 = p1 - p0;
-        // TODO: This handles coincident control points. Clean this up
-        let d01 = if d01.length() < 1e-9 {
-            let d02 = p2 - p1;
-            if d02.length() < 1e-9 {
-                chord
-            } else {
-                d02
-            }
-        } else {
-            d01
-        };
+    /// Compute parameters from endpoints and derivatives.
+    pub fn from_points_derivs(p0: Vec2, p1: Vec2, q0: Vec2, q1: Vec2, dt: f32) -> Self {
+        let chord = p1 - p0;
+        // Robustness note: we must protect this function from being called when the
+        // chord length is (near-)zero.
+        let scale = dt / chord.length_squared();
         let h0 = Vec2::new(
-            d01.x * chord.x + d01.y * chord.y,
-            d01.y * chord.x - d01.x * chord.y,
+            q0.x * chord.x + q0.y * chord.y,
+            q0.y * chord.x - q0.x * chord.y,
         );
         let th0 = h0.atan2();
-        let d0 = h0.length() / chord.length_squared();
-        let d23 = p3 - p2;
-        // TODO: This handles coincident control points. Clean this up
-        let d23 = if d23.length() < 1e-9 {
-            let d13 = p3 - p1;
-            if d13.length() < 1e-9 {
-                chord
-            } else {
-                d13
-            }
-        } else {
-            d23
-        };
+        let d0 = h0.length() * scale;
         let h1 = Vec2::new(
-            d23.x * chord.x + d23.y * chord.y,
-            d23.x * chord.y - d23.y * chord.x,
+            q1.x * chord.x + q1.y * chord.y,
+            q1.x * chord.y - q1.y * chord.x,
         );
         let th1 = h1.atan2();
-        let d1 = h1.length() / chord.length_squared();
+        let d1 = h1.length() * scale;
+        // Robustness note: we may want to clamp the magnitude of the angles to
+        // a bit less than pi. Perhaps here, perhaps downstream.
         CubicParams { th0, th1, d0, d1 }
     }
 
@@ -80,19 +60,28 @@ impl CubicParams {
     // by chord.
     pub fn est_euler_err(&self) -> f32 {
         // Potential optimization: work with unit vector rather than angle
-        // TODO: preventing division by zero here but may need to work around this in a better way.
-        let e0 = (2. / 3.) / (1.0 + self.th0.cos()).max(1e-9);
-        let e1 = (2. / 3.) / (1.0 + self.th1.cos()).max(1e-9);
+        let cth0 = self.th0.cos();
+        let cth1 = self.th1.cos();
+        if cth0 * cth1 < 0.0 {
+            // Rationale: this happens when fitting a cusp or near-cusp with
+            // a near 180 degree u-turn. The actual ES is bounded in that case.
+            // Further subdivision won't reduce the angles if actually a cusp.
+            return 2.0;
+        }
+        let e0 = (2. / 3.) / (1.0 + cth0);
+        let e1 = (2. / 3.) / (1.0 + cth1);
         let s0 = self.th0.sin();
         let s1 = self.th1.sin();
-        let s01 = (s0 + s1).sin();
+        // Note: some other versions take sin of s0 + s1 instead. Those are incorrect.
+        // Strangely, calibration is the same, but more work could be done.
+        let s01 = cth0 * s1 + cth1 * s0;
         let amin = 0.15 * (2. * e0 * s0 + 2. * e1 * s1 - e0 * e1 * s01);
         let a = 0.15 * (2. * self.d0 * s0 + 2. * self.d1 * s1 - self.d0 * self.d1 * s01);
         let aerr = (a - amin).abs();
         let symm = (self.th0 + self.th1).abs();
         let asymm = (self.th0 - self.th1).abs();
         let dist = (self.d0 - e0).hypot(self.d1 - e1);
-        let ctr = 3.7e-6 * symm.powi(5) + 6e-3 * asymm * symm.powi(2);
+        let ctr = 4.625e-6 * symm.powi(5) + 7.5e-3 * asymm * symm.powi(2);
         let halo_symm = 5e-3 * symm * dist;
         let halo_asymm = 7e-2 * asymm * dist;
         /*
@@ -111,7 +100,7 @@ impl CubicParams {
         println!("    halo_symm: {halo_symm}");
         println!("    halo_asymm: {halo_asymm}");
         */
-        1.25 * ctr + 1.55 * aerr + halo_symm + halo_asymm
+        ctr + 1.55 * aerr + halo_symm + halo_asymm
     }
 }
 
