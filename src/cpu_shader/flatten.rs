@@ -1,13 +1,23 @@
-// Copyright 2023 the Vello Authors
+// Copyright 2023 The Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
 
 use crate::cpu_dispatch::CpuBinding;
 
-use super::util::{Transform, Vec2, ROBUST_EPSILON};
+use super::{
+    euler::{espc_int_approx, espc_int_inv_approx, CubicParams, EulerParams, EulerSeg},
+    util::{Transform, Vec2, ROBUST_EPSILON},
+};
 use vello_encoding::{
     math::f16_to_f32, BumpAllocators, ConfigUniform, LineSoup, Monoid, PathBbox, PathMonoid,
     PathTag, Style, DRAW_INFO_FLAGS_FILL_RULE_BIT,
 };
+
+// TODO: remove this
+macro_rules! log {
+    ($($arg:tt)*) => {{
+        //println!($($arg)*);
+    }};
+}
 
 fn to_minus_one_quarter(x: f32) -> f32 {
     // could also be written x.powf(-0.25)
@@ -118,6 +128,28 @@ fn cubic_end_normal(p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2) -> Vec2 {
     Vec2::new(-tangent.y, tangent.x)
 }
 
+fn cubic_subsegment(p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2, t0: f32, t1: f32) -> CubicPoints {
+    let scp0 = eval_cubic(p0, p1, p2, p3, t0);
+    let scp3 = eval_cubic(p0, p1, p2, p3, t1);
+    // Compute the derivate curve
+    let qp0 = 3. * (p1 - p0);
+    let qp1 = 3. * (p2 - p1);
+    let qp2 = 3. * (p3 - p2);
+    let scale = (t1 - t0) * (1.0 / 3.0);
+    let scp1 = scp0 + scale * eval_quad(qp0, qp1, qp2, t0);
+    let scp2 = scp3 - scale * eval_quad(qp0, qp1, qp2, t1);
+    CubicPoints {
+        p0: scp0,
+        p1: scp1,
+        p2: scp2,
+        p3: scp3,
+    }
+}
+
+fn check_colinear(p0: Vec2, p1: Vec2, p2: Vec2) -> bool {
+    (p1 - p0).cross(p2 - p0).abs() < 1e-9
+}
+
 fn write_line(
     line_ix: usize,
     path_ix: u32,
@@ -128,7 +160,7 @@ fn write_line(
 ) {
     assert!(
         !p0.is_nan() && !p1.is_nan(),
-        "wrote line segment with NaN: p0: {:?}, p1: {:?}",
+        "wrote NaNs: p0: {:?}, p1: {:?}",
         p0,
         p1
     );
@@ -328,19 +360,22 @@ fn flatten_arc(
     lines: &mut [LineSoup],
     bbox: &mut IntBbox,
 ) {
-    const MIN_THETA: f32 = 0.0001;
-
     let mut p0 = transform.apply(begin);
     let mut r = begin - center;
-    let tol: f32 = 0.1;
+    let tol: f32 = 0.5;
     let radius = tol.max((p0 - transform.apply(center)).length());
-    let theta = (2. * (1. - tol / radius).acos()).max(MIN_THETA);
+    let x = 1. - tol / radius;
+    let theta = (2. * x * x - 1.).clamp(-1., 1.).acos();
+    const MAX_LINES: u32 = 1000;
+    let n_lines = if theta <= ROBUST_EPSILON {
+        MAX_LINES
+    } else {
+        MAX_LINES.min((std::f32::consts::TAU / theta).ceil() as u32)
+    };
 
-    // Always output at least one line so that we always draw the chord.
-    let n_lines = ((angle / theta).ceil() as u32).max(1);
-
-    let c = theta.cos();
-    let s = theta.sin();
+    let th = angle / (n_lines as f32);
+    let c = th.cos();
+    let s = th.sin();
     let rot = Transform([c, -s, s, c, 0., 0.]);
 
     for _ in 0..(n_lines - 1) {
@@ -351,6 +386,181 @@ fn flatten_arc(
     }
     let p1 = transform.apply(end);
     output_line(path_ix, p0, p1, line_ix, bbox, lines);
+}
+
+fn flatten_euler(
+    cubic: &CubicPoints,
+    path_ix: u32,
+    local_to_device: &Transform,
+    offset: f32,
+    is_line: bool,
+    line_ix: &mut usize,
+    lines: &mut [LineSoup],
+    bbox: &mut IntBbox,
+) {
+    log!("@@@ flatten_euler: {:#?}", cubic);
+    // Flatten in local coordinates if this is a stroke. Flatten in device space otherwise.
+    let (p0, p1, p2, p3, scale, transform) = if offset == 0. {
+        (
+            local_to_device.apply(cubic.p0),
+            local_to_device.apply(cubic.p1),
+            local_to_device.apply(cubic.p2),
+            local_to_device.apply(cubic.p3),
+            1.,
+            Transform::identity(),
+        )
+    } else {
+        let t = local_to_device.0;
+        let scale = 0.5 * Vec2::new(t[0] + t[3], t[1] - t[2]).length()
+            + Vec2::new(t[0] - t[3], t[1] + t[2]).length();
+        (
+            cubic.p0,
+            cubic.p1,
+            cubic.p2,
+            cubic.p3,
+            scale,
+            local_to_device.clone(),
+        )
+    };
+
+    // Special-case lines.
+    // We still have to handle colinear cubic parameters. We are special casing the line-to
+    // encoding because floating point errors in the degree raise can cause some line-tos to slip
+    // through the epsilon threshold in check_colinear.
+    //if check_colinear(p0, p1, p3) && check_colinear(p0, p2, p3) {
+    if is_line {
+        let tan = p3 - p0;
+        if tan.length() > ROBUST_EPSILON {
+            let tan_norm = tan.normalize();
+            let n = Vec2::new(-tan_norm.y, tan_norm.x);
+            let lp0 = p0 + n * offset;
+            let lp1 = p3 + n * offset;
+            let l0 = if offset > 0. { lp0 } else { lp1 };
+            let l1 = if offset > 0. { lp1 } else { lp0 };
+            log!("@@@ output line: {:?}, {:?}, tan: {:?}", l0, l1, tan);
+            output_line_with_transform(path_ix, l0, l1, &transform, line_ix, lines, bbox);
+        } else {
+            log!("@@@ drop line: {:?}, {:?}, tan: {:?}", p0, p3, tan);
+        }
+        return;
+    }
+
+    // Special-case colinear cubic segments
+    // TODO: clean this up
+    if check_colinear(p0, p1, p3)
+        && check_colinear(p0, p2, p3)
+        && check_colinear(p0, p1, p2)
+        && check_colinear(p1, p2, p3)
+    {
+        let (start, end) = {
+            let distances = [
+                ((p1 - p0).length(), p1, p0),
+                ((p2 - p0).length(), p2, p0),
+                ((p3 - p0).length(), p3, p0),
+                ((p2 - p1).length(), p2, p1),
+                ((p3 - p1).length(), p3, p1),
+                ((p3 - p2).length(), p3, p2),
+            ];
+            let mut longest = distances[0];
+            for d in &distances[1..] {
+                if d.0 > longest.0 {
+                    longest = *d;
+                }
+            }
+            (longest.1, longest.2)
+        };
+        let tan = end - start;
+        if tan.length() > ROBUST_EPSILON {
+            let tan_norm = tan.normalize();
+            let n = Vec2::new(-tan_norm.y, tan_norm.x);
+            let lp0 = start + n * offset;
+            let lp1 = end + n * offset;
+            let l0 = if offset > 0. { lp0 } else { lp1 };
+            let l1 = if offset > 0. { lp1 } else { lp0 };
+            log!("@@@ output line: {:?}, {:?}, tan: {:?}", l0, l1, tan);
+            output_line_with_transform(path_ix, l0, l1, &transform, line_ix, lines, bbox);
+        } else {
+            log!("@@@ drop line: {:?}, {:?}, tan: {:?}", start, end, tan);
+        }
+        return;
+    }
+
+    let tol: f32 = 0.01;
+    let scaled_sqrt_tol = (tol / scale).sqrt();
+    let mut t0_u: u32 = 0;
+    let mut dt: f32 = 1.;
+
+    loop {
+        if dt < ROBUST_EPSILON {
+            break;
+        }
+        let t0 = (t0_u as f32) * dt;
+        if t0 == 1. {
+            break;
+        }
+        log!("@@@ loop1: t0: {t0}, dt: {dt}");
+        loop {
+            let t1 = t0 + dt;
+            // Subdivide into cubics
+            let subcubic = cubic_subsegment(p0, p1, p2, p3, t0, t1);
+            let cubic_params =
+                CubicParams::from_cubic(subcubic.p0, subcubic.p1, subcubic.p2, subcubic.p3);
+            let est_err = cubic_params.est_euler_err();
+            let err = est_err * (subcubic.p0 - subcubic.p3).length();
+            log!("@@@   loop2: sub:{:?}, {:?} t0: {t0}, t1: {t1}, dt: {dt}, est_err: {est_err}, err: {err}", subcubic, cubic_params);
+            if err <= scaled_sqrt_tol {
+                log!("@@@   error within tolerance");
+                t0_u += 1;
+                let shift = t0_u.trailing_zeros();
+                t0_u >>= shift;
+                dt *= (1 << shift) as f32;
+                let euler_params = EulerParams::from_angles(cubic_params.th0, cubic_params.th1);
+                let es = EulerSeg::from_params(subcubic.p0, subcubic.p3, euler_params);
+
+                let es_scale = (es.p0 - es.p1).length();
+                let (k0, k1) = (es.params.k0 - 0.5 * es.params.k1, es.params.k1);
+
+                // compute forward integral to determine number of subdivisions
+                let dist_scaled = offset * scale / es_scale;
+                let a = -2.0 * dist_scaled * k1;
+                let b = -1.0 - 2.0 * dist_scaled * k0;
+                let int0 = espc_int_approx(b);
+                let int1 = espc_int_approx(a + b);
+                let integral = int1 - int0;
+                let k_peak = k0 - k1 * b / a;
+                let integrand_peak = (k_peak * (k_peak * dist_scaled + 1.0)).abs().sqrt();
+                let scaled_int = integral * integrand_peak / a;
+                let n_frac = 0.5 * (es_scale / scaled_sqrt_tol).sqrt() * scaled_int;
+                let n = n_frac.ceil();
+
+                // Flatten line segments
+                log!("@@@   loop2: lines: {n}");
+                // TODO: make all computation above robust and uncomment this assertion
+                //assert!(!n.is_nan());
+                if n.is_nan() {
+                    // Skip the segment if `n` is NaN. This is for debugging purposes only
+                    log!("@@@   NaN: parameters:\n  es: {:#?}\n  k0: {k0}, k1: {k1}\n  dist_scaled: {dist_scaled}\n  es_scale: {es_scale}\n  a: {a}\n  b: {b}\n  int0: {int0}, int1: {int1}, integral: {integral}\n  k_peak: {k_peak}\n  integrand_peak: {integrand_peak}\n  scaled_int: {scaled_int}\n  n_frac:  {n_frac}", es);
+                } else {
+                    let mut lp0 = es.eval_with_offset(0., offset);
+                    for i in 0..n as usize {
+                        let t = (i + 1) as f32 / n;
+                        let inv = espc_int_inv_approx(integral * t + int0);
+                        let s = (inv - b) / a;
+                        let lp1 = es.eval_with_offset(s, offset);
+                        let l0 = if offset > 0. { lp0 } else { lp1 };
+                        let l1 = if offset > 0. { lp1 } else { lp0 };
+                        output_line_with_transform(
+                            path_ix, l0, l1, &transform, line_ix, lines, bbox,
+                        );
+                        lp0 = lp1;
+                    }
+                }
+                break;
+            }
+            t0_u = t0_u.saturating_mul(2);
+            dt *= 0.5;
+        }
+    }
 }
 
 fn draw_cap(
@@ -538,6 +748,7 @@ fn compute_tag_monoid(ix: usize, pathtags: &[u32], tag_monoids: &[PathMonoid]) -
     }
 }
 
+#[derive(Debug)]
 struct CubicPoints {
     p0: Vec2,
     p1: Vec2,
@@ -691,12 +902,24 @@ fn flatten_main(
                         // Don't draw anything if the path is closed.
                     }
                 } else {
+                    let is_line = seg_type == PATH_TAG_LINETO;
                     // Render offset curves
-                    flatten_cubic(
+                    flatten_euler(
                         &pts,
                         path_ix,
                         &transform,
                         offset,
+                        is_line,
+                        &mut line_ix,
+                        lines,
+                        &mut bbox,
+                    );
+                    flatten_euler(
+                        &pts,
+                        path_ix,
+                        &transform,
+                        -offset,
+                        is_line,
                         &mut line_ix,
                         lines,
                         &mut bbox,
@@ -707,10 +930,28 @@ fn flatten_main(
                         read_neighboring_segment(ix + 1, pathtags, pathdata, tag_monoids);
                     let tan_prev = cubic_end_tangent(pts.p0, pts.p1, pts.p2, pts.p3);
                     let tan_next = neighbor.tangent;
+
+                    // TODO: add NaN assertions to CPU shaders PR (when writing lines)
+                    // TODO: not all zero-length segments are getting filtered out
+                    // TODO: this is a hack. How to handle caps on degenerate stroke?
+                    // TODO: debug tricky stroke by isolation
+                    let tan_prev = if tan_prev.length_squared() < ROBUST_EPSILON {
+                        Vec2::new(0.01, 0.)
+                    } else {
+                        tan_prev
+                    };
+                    let tan_next = if tan_next.length_squared() < ROBUST_EPSILON {
+                        Vec2::new(0.01, 0.)
+                    } else {
+                        tan_next
+                    };
+
                     let offset_tangent = offset * tan_prev.normalize();
                     let n_prev = Vec2::new(-offset_tangent.y, offset_tangent.x);
                     let tan_next_norm = tan_next.normalize();
                     let n_next = offset * Vec2::new(-tan_next_norm.y, tan_next_norm.x);
+                    log!("@ tan_prev: {:#?}", tan_prev);
+                    log!("@ tan_next: {:#?}", tan_next);
                     if neighbor.do_join {
                         draw_join(
                             path_ix,
