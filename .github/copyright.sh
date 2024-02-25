@@ -1,5 +1,12 @@
 #!/bin/bash
 
+# Debugging CI quirk
+echo "First run, should be empty:"
+rg "^// Copyright (19|20)[\d]{2} the Vello Authors( and .+)?$\n^// SPDX-License-Identifier: Apache-2.0 OR MIT$\n\n" --files-without-match --multiline -g "*.rs" -g "!{shader,src/cpu_shader}"
+echo "Second run, should fail:"
+rg "^// Copyrightz (19|20)[\d]{2} the Vello Authors( and .+)?$\n^// SPDX-License-Identifier: Apache-2.0 OR MIT$\n\n" --files-without-match --multiline -g "*.rs" -g "!{shader,src/cpu_shader}"
+echo "... and now as usual:"
+
 # If there are new files with headers that can't match the conditions here,
 # then the files can be ignored by an additional glob argument via the -g flag.
 # For example:
