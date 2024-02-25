@@ -1,5 +1,5 @@
 // Copyright 2022 the Vello Authors
-// SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
+// SPDX-License-Identifier: Apache-2.0 OR MIT
 
 // Note: this is the non-atomic version
 struct Tile {
