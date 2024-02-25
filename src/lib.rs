@@ -1,4 +1,4 @@
-// Copyright 2022 The Vello Authors
+// Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 #![warn(clippy::doc_markdown, clippy::semicolon_if_nothing_returned)]
