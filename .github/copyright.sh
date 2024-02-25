@@ -2,9 +2,9 @@
 
 # Debugging CI quirk
 echo "First run, should be empty:"
-rg "^// Copyright (19|20)[\d]{2} the Vello Authors( and .+)?$\n^// SPDX-License-Identifier: Apache-2.0 OR MIT$\n\n" --files-without-match --multiline -g "*.rs" -g "!{shader,src/cpu_shader}"
+rg "^// Copyright (19|20)[\d]{2} the Vello Authors( and .+)?$\n^// SPDX-License-Identifier: Apache-2.0 OR MIT$\n\n" --files-without-match --multiline -g "*.rs" -g "!{shader,src/cpu_shader}" .
 echo "Second run, should fail:"
-rg "^// Copyrightz (19|20)[\d]{2} the Vello Authors( and .+)?$\n^// SPDX-License-Identifier: Apache-2.0 OR MIT$\n\n" --files-without-match --multiline -g "*.rs" -g "!{shader,src/cpu_shader}"
+rg "^// Copyrightz (19|20)[\d]{2} the Vello Authors( and .+)?$\n^// SPDX-License-Identifier: Apache-2.0 OR MIT$\n\n" --files-without-match --multiline -g "*.rs" -g "!{shader,src/cpu_shader}" .
 echo "... and now as usual:"
 
 # If there are new files with headers that can't match the conditions here,
@@ -14,7 +14,7 @@ echo "... and now as usual:"
 #   -g "!src/special_directory"
 
 # Check all the standard Rust source files
-output=$(rg "^// Copyright (19|20)[\d]{2} the Vello Authors( and .+)?$\n^// SPDX-License-Identifier: Apache-2.0 OR MIT$\n\n" --files-without-match --multiline -g "*.rs" -g "!{shader,src/cpu_shader}")
+output=$(rg "^// Copyright (19|20)[\d]{2} the Vello Authors( and .+)?$\n^// SPDX-License-Identifier: Apache-2.0 OR MIT$\n\n" --files-without-match --multiline -g "*.rs" -g "!{shader,src/cpu_shader}" .)
 
 if [ -n "$output" ]; then
 	echo -e "The following files lack the correct copyright header:\n"
@@ -27,7 +27,7 @@ if [ -n "$output" ]; then
 fi
 
 # Check all the shaders, both WGSL and CPU shaders in Rust, as they also have Unlicense
-output=$(rg "^// Copyright (19|20)[\d]{2} the Vello Authors( and .+)?$\n^// SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense$\n\n" --files-without-match --multiline -g "{shader,src/cpu_shader}/**/*.{rs,wgsl}")
+output=$(rg "^// Copyright (19|20)[\d]{2} the Vello Authors( and .+)?$\n^// SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense$\n\n" --files-without-match --multiline -g "{shader,src/cpu_shader}/**/*.{rs,wgsl}" .)
 
 if [ -n "$output" ]; then
         echo -e "The following shader files lack the correct copyright header:\n"
