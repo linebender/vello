@@ -404,6 +404,8 @@ fn flatten_euler(
     local_to_device: &Transform,
     offset: f32,
     is_line: bool,
+    start_p: Vec2,
+    end_p: Vec2,
     line_ix: &mut usize,
     lines: &mut [LineSoup],
     bbox: &mut IntBbox,
@@ -432,6 +434,11 @@ fn flatten_euler(
             local_to_device.clone(),
         )
     };
+    let (t_start, t_end) = if offset == 0.0 {
+        (p0, p3)
+    } else {
+        (start_p, end_p)
+    };
 
     // Special-case lines.
     // We still have to handle colinear cubic parameters. We are special casing the line-to
@@ -441,56 +448,14 @@ fn flatten_euler(
     if is_line {
         let tan = p3 - p0;
         if tan.length() > ROBUST_EPSILON {
-            let tan_norm = tan.normalize();
-            let n = Vec2::new(-tan_norm.y, tan_norm.x);
-            let lp0 = p0 + n * offset;
-            let lp1 = p3 + n * offset;
-            let l0 = if offset > 0. { lp0 } else { lp1 };
-            let l1 = if offset > 0. { lp1 } else { lp0 };
+            let lp0 = t_start;
+            let lp1 = t_end;
+            let l0 = if offset >= 0. { lp0 } else { lp1 };
+            let l1 = if offset >= 0. { lp1 } else { lp0 };
             log!("@@@ output line: {:?}, {:?}, tan: {:?}", l0, l1, tan);
             output_line_with_transform(path_ix, l0, l1, &transform, line_ix, lines, bbox);
         } else {
             log!("@@@ drop line: {:?}, {:?}, tan: {:?}", p0, p3, tan);
-        }
-        return;
-    }
-
-    // Special-case colinear cubic segments
-    // TODO: clean this up
-    if check_colinear(p0, p1, p3)
-        && check_colinear(p0, p2, p3)
-        && check_colinear(p0, p1, p2)
-        && check_colinear(p1, p2, p3)
-    {
-        let (start, end) = {
-            let distances = [
-                ((p1 - p0).length(), p1, p0),
-                ((p2 - p0).length(), p2, p0),
-                ((p3 - p0).length(), p3, p0),
-                ((p2 - p1).length(), p2, p1),
-                ((p3 - p1).length(), p3, p1),
-                ((p3 - p2).length(), p3, p2),
-            ];
-            let mut longest = distances[0];
-            for d in &distances[1..] {
-                if d.0 > longest.0 {
-                    longest = *d;
-                }
-            }
-            (longest.1, longest.2)
-        };
-        let tan = end - start;
-        if tan.length() > ROBUST_EPSILON {
-            let tan_norm = tan.normalize();
-            let n = Vec2::new(-tan_norm.y, tan_norm.x);
-            let lp0 = start + n * offset;
-            let lp1 = end + n * offset;
-            let l0 = if offset > 0. { lp0 } else { lp1 };
-            let l1 = if offset > 0. { lp1 } else { lp0 };
-            log!("@@@ output line: {:?}, {:?}, tan: {:?}", l0, l1, tan);
-            output_line_with_transform(path_ix, l0, l1, &transform, line_ix, lines, bbox);
-        } else {
-            log!("@@@ drop line: {:?}, {:?}, tan: {:?}", start, end, tan);
         }
         return;
     }
@@ -506,6 +471,7 @@ fn flatten_euler(
     let mut last_t = 0.;
 
     loop {
+        // TODO: this isn't right, it drops nasty lines; we should just limit subdivision
         if dt < ROBUST_EPSILON {
             break;
         }
@@ -594,25 +560,34 @@ fn flatten_euler(
                     // Skip the segment if `n` is NaN. This is for debugging purposes only
                     log!("@@@   NaN: parameters:\n  es: {:#?}\n  k0: {k0}, k1: {k1}\n  dist_scaled: {dist_scaled}\n  es_scale: {es_scale}\n  a: {a}\n  b: {b}\n  int0: {int0}, int1: {int1}, integral: {integral}\n  k_peak: {k_peak}\n  integrand_peak: {integrand_peak}\n  scaled_int: {scaled_int}\n  n_frac:  {n_frac}", es);
                 } else {
-                    let mut lp0 = es.eval_with_offset(0., offset);
+                    let mut lp0 = if t0 == 0.0 {
+                        t_start
+                    } else {
+                        es.eval_with_offset(0.0, offset)
+                    };
                     for i in 0..n as usize {
-                        let t = (i + 1) as f32 / n;
-                        let s = match robust {
-                            EspcRobust::LowK1 => t,
-                            // Note opportunities to minimize divergence
-                            EspcRobust::LowDist => {
-                                let c = (integral * t + int0).cbrt();
-                                let inv = c * c.abs();
-                                (inv - b) / a
-                            }
-                            EspcRobust::Normal => {
-                                let inv = espc_int_inv_approx(integral * t + int0);
-                                (inv - b) / a
-                            }
-                        };
-                        let lp1 = es.eval_with_offset(s, offset);
-                        let l0 = if offset > 0. { lp0 } else { lp1 };
-                        let l1 = if offset > 0. { lp1 } else { lp0 };
+                        let lp1;
+                        if i == n as usize - 1 && t1 == 1.0 {
+                            lp1 = t_end;
+                        } else {
+                            let t = (i + 1) as f32 / n;
+                            let s = match robust {
+                                EspcRobust::LowK1 => t,
+                                // Note opportunities to minimize divergence
+                                EspcRobust::LowDist => {
+                                    let c = (integral * t + int0).cbrt();
+                                    let inv = c * c.abs();
+                                    (inv - b) / a
+                                }
+                                EspcRobust::Normal => {
+                                    let inv = espc_int_inv_approx(integral * t + int0);
+                                    (inv - b) / a
+                                }
+                            };
+                            lp1 = es.eval_with_offset(s, offset);
+                        }
+                        let l0 = if offset >= 0. { lp0 } else { lp1 };
+                        let l1 = if offset >= 0. { lp1 } else { lp0 };
                         output_line_with_transform(
                             path_ix, l0, l1, &transform, line_ix, lines, bbox,
                         );
@@ -970,27 +945,6 @@ fn flatten_main(
                     }
                 } else {
                     let is_line = seg_type == PATH_TAG_LINETO;
-                    // Render offset curves
-                    flatten_euler(
-                        &pts,
-                        path_ix,
-                        &transform,
-                        offset,
-                        is_line,
-                        &mut line_ix,
-                        lines,
-                        &mut bbox,
-                    );
-                    flatten_euler(
-                        &pts,
-                        path_ix,
-                        &transform,
-                        -offset,
-                        is_line,
-                        &mut line_ix,
-                        lines,
-                        &mut bbox,
-                    );
 
                     // Read the neighboring segment.
                     let neighbor =
@@ -1019,6 +973,33 @@ fn flatten_main(
                     let n_next = offset * Vec2::new(-tan_next_norm.y, tan_next_norm.x);
                     log!("@ tan_prev: {:#?}", tan_prev);
                     log!("@ tan_next: {:#?}", tan_next);
+
+                    // Render offset curves
+                    flatten_euler(
+                        &pts,
+                        path_ix,
+                        &transform,
+                        offset,
+                        is_line,
+                        pts.p0 + n_prev,
+                        pts.p3 + n_prev,
+                        &mut line_ix,
+                        lines,
+                        &mut bbox,
+                    );
+                    flatten_euler(
+                        &pts,
+                        path_ix,
+                        &transform,
+                        -offset,
+                        is_line,
+                        pts.p0 - n_prev,
+                        pts.p3 - n_prev,
+                        &mut line_ix,
+                        lines,
+                        &mut bbox,
+                    );
+
                     if neighbor.do_join {
                         draw_join(
                             path_ix,
@@ -1050,11 +1031,16 @@ fn flatten_main(
                     }
                 }
             } else {
-                flatten_cubic(
+                // TODO: determine if we still need this; we shouldn't for correctness
+                let is_line = seg_type == PATH_TAG_LINETO;
+                flatten_euler(
                     &pts,
                     path_ix,
                     &transform,
                     /*offset*/ 0.,
+                    is_line,
+                    pts.p0,
+                    pts.p3,
                     &mut line_ix,
                     lines,
                     &mut bbox,
