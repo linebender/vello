@@ -534,8 +534,8 @@ fn run(
                         renderers.resize_with(render_cx.devices.len(), || None);
                         let id = render_state.surface.dev_id;
                         renderers[id].get_or_insert_with(|| {
-                            eprintln!("Creating renderer {id}");
-                            Renderer::new(
+                            let start = Instant::now();
+                            let renderer = Renderer::new(
                                 &render_cx.devices[id].device,
                                 RendererOptions {
                                     surface_format: Some(render_state.surface.format),
@@ -544,7 +544,9 @@ fn run(
                                     num_init_threads: NonZeroUsize::new(args.num_init_threads)
                                 },
                             )
-                            .expect("Could create renderer")
+                            .expect("Could create renderer");
+                            eprintln!("Creating renderer {id} took {:?}", start.elapsed());
+                            renderer
                         });
                         Some(render_state)
                     };
