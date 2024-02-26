@@ -1,3 +1,8 @@
+// Copyright 2022 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+use std::num::NonZeroUsize;
+
 use bevy::render::{Render, RenderSet};
 use bevy::utils::synccell::SyncCell;
 use vello::kurbo::{Affine, Point, Rect, Stroke};
@@ -23,13 +28,14 @@ struct VelloRenderer(SyncCell<Renderer>);
 impl FromWorld for VelloRenderer {
     fn from_world(world: &mut World) -> Self {
         let device = world.resource::<RenderDevice>();
-        let queue = world.resource::<RenderQueue>();
 
         VelloRenderer(SyncCell::new(
             Renderer::new(
                 device.wgpu_device(),
                 RendererOptions {
                     surface_format: None,
+                    // TODO: We should ideally use the Bevy threadpool here
+                    num_init_threads: NonZeroUsize::new(1),
                     antialiasing_support: vello::AaSupport::area_only(),
                     use_cpu: false,
                 },
@@ -114,14 +120,14 @@ pub struct VelloFragment(Scene);
 struct VelloScene(Scene, Handle<Image>);
 
 impl ExtractComponent for VelloScene {
-    type Query = (&'static VelloFragment, &'static VelloTarget);
+    type QueryData = (&'static VelloFragment, &'static VelloTarget);
 
-    type Filter = ();
+    type QueryFilter = ();
 
     type Out = Self;
 
     fn extract_component(
-        (fragment, target): bevy::ecs::query::QueryItem<'_, Self::Query>,
+        (fragment, target): bevy::ecs::query::QueryItem<'_, Self::QueryData>,
     ) -> Option<Self> {
         Some(Self(fragment.0.clone(), target.0.clone()))
     }
@@ -169,7 +175,7 @@ fn setup(
     });
 
     let cube_size = 4.0;
-    let cube_handle = meshes.add(Mesh::from(shape::Box::new(cube_size, cube_size, cube_size)));
+    let cube_handle = meshes.add(Cuboid::new(cube_size, cube_size, cube_size));
 
     // This material has the texture that has been rendered.
     let material_handle = materials.add(StandardMaterial {
@@ -196,10 +202,7 @@ fn setup(
         transform: Transform::from_xyz(0.0, 0.0, 15.0).looking_at(Vec3::ZERO, Vec3::Y),
         ..default()
     });
-    commands.spawn((
-        VelloFragment(Scene::default()),
-        VelloTarget(image_handle),
-    ));
+    commands.spawn((VelloFragment(Scene::default()), VelloTarget(image_handle)));
 }
 
 /// Rotates the outer cube (main pass)

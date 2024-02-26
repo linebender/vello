@@ -1,5 +1,9 @@
+// Copyright 2023 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 use std::{
     fs::File,
+    num::NonZeroUsize,
     path::{Path, PathBuf},
 };
 
@@ -89,7 +93,8 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
         device,
         RendererOptions {
             surface_format: None,
-            use_cpu: false,
+            use_cpu: args.use_cpu,
+            num_init_threads: NonZeroUsize::new(1),
             antialiasing_support: vello::AaSupport::area_only(),
         },
     )
@@ -162,14 +167,7 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
     renderer
         .render_to_texture(device, queue, &scene, &view, &render_params)
         .or_else(|_| bail!("Got non-Send/Sync error from rendering"))?;
-    // (width * 4).next_multiple_of(256)
-    let padded_byte_width = {
-        let w = width * 4;
-        match w % 256 {
-            0 => w,
-            r => w + (256 - r),
-        }
-    };
+    let padded_byte_width = (width * 4).next_multiple_of(256);
     let buffer_size = padded_byte_width as u64 * height as u64;
     let buffer = device.create_buffer(&BufferDescriptor {
         label: Some("val"),
@@ -244,6 +242,9 @@ struct Args {
     #[arg(long, short, global(false))]
     /// Display a list of all scene names
     print_scenes: bool,
+    #[arg(long)]
+    /// Whether to use CPU shaders
+    use_cpu: bool,
     #[command(flatten)]
     args: scenes::Arguments,
 }

@@ -1,18 +1,5 @@
-// Copyright 2023 Google LLC
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     https://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-//
-// Also licensed under MIT license, at your choice.
+// Copyright 2023 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use scenes::SimpleText;
 use std::{collections::VecDeque, time::Duration};
@@ -21,7 +8,7 @@ use vello::{
     peniko::{Brush, Color, Fill},
     AaConfig, BumpAllocators, Scene,
 };
-use wgpu_profiler::GpuTimerScopeResult;
+use wgpu_profiler::GpuTimerQueryResult;
 
 const SLIDING_WINDOW_SIZE: usize = 100;
 
@@ -274,7 +261,7 @@ pub fn draw_gpu_profiling(
     text: &mut SimpleText,
     viewport_width: f64,
     viewport_height: f64,
-    profiles: &[GpuTimerScopeResult],
+    profiles: &[GpuTimerQueryResult],
 ) {
     if profiles.is_empty() {
         return;
@@ -376,7 +363,7 @@ pub fn draw_gpu_profiling(
             );
 
             let mut text_start = start_normalised;
-            let nested = !profile.nested_scopes.is_empty();
+            let nested = !profile.nested_queries.is_empty();
             if nested {
                 // If we have children, leave some more space for them
                 text_start -= text_height * 0.7;
@@ -449,12 +436,12 @@ enum TraversalStage {
 }
 
 fn traverse_profiling(
-    profiles: &[GpuTimerScopeResult],
-    callback: &mut impl FnMut(&GpuTimerScopeResult, TraversalStage),
+    profiles: &[GpuTimerQueryResult],
+    callback: &mut impl FnMut(&GpuTimerQueryResult, TraversalStage),
 ) {
     for profile in profiles {
         callback(profile, TraversalStage::Enter);
-        traverse_profiling(&profile.nested_scopes, &mut *callback);
+        traverse_profiling(&profile.nested_queries, &mut *callback);
         callback(profile, TraversalStage::Leave);
     }
 }

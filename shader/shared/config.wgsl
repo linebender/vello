@@ -1,3 +1,4 @@
+// Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
 
 // This must be kept in sync with the struct in src/encoding/resolve.rs
@@ -34,7 +35,7 @@ struct Config {
     // Sizes of bump allocated buffers (in element size units)
     binning_size: u32,
     tiles_size: u32,
-    segments_size: u32,    
+    segments_size: u32,
     ptcl_size: u32,
 }
 

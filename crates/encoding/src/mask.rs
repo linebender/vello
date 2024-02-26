@@ -1,4 +1,4 @@
-// Copyright 2022 The Vello authors
+// Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 //! Create a lookup table of half-plane sample masks.

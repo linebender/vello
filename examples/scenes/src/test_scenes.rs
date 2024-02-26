@@ -1,4 +1,4 @@
-// Copyright 2022 The Vello authors
+// Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::{ExampleScene, SceneConfig, SceneParams, SceneSet};
@@ -530,7 +530,7 @@ fn animated_text(scene: &mut Scene, params: &mut SceneParams) {
         &rect,
     );
     let text_size = 60.0 + 40.0 * (params.time as f32).sin();
-    let s = "\u{1f600}hello vello text!";
+    let s = "\u{1f600}hello Vello text!";
     params.text.add(
         scene,
         None,
@@ -563,7 +563,7 @@ fn animated_text(scene: &mut Scene, params: &mut SceneParams) {
         // Add a skew to simulate an oblique font.
         None,
         Fill::NonZero,
-        "And some vello\ntext with a newline",
+        "And some Vello\ntext with a newline",
     );
     let th = params.time;
     let center = Point::new(500.0, 500.0);

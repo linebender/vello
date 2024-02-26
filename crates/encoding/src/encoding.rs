@@ -1,4 +1,4 @@
-// Copyright 2022 The Vello authors
+// Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use super::{DrawColor, DrawTag, PathEncoder, PathTag, Style, Transform};
@@ -110,6 +110,7 @@ impl Encoding {
                     run.glyphs.start += glyphs_base;
                     run.glyphs.end += glyphs_base;
                     run.normalized_coords.start += coords_base;
+                    run.normalized_coords.end += coords_base;
                     run.stream_offsets.path_tags += offsets.path_tags;
                     run.stream_offsets.path_data += offsets.path_data;
                     run.stream_offsets.draw_tags += offsets.draw_tags;

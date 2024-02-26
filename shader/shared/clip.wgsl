@@ -1,5 +1,6 @@
+// Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
- 
+
 struct Bic {
     a: u32,
     b: u32,

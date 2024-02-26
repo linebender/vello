@@ -1,18 +1,5 @@
-// Copyright 2022 Google LLC
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     https://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-//
-// Also licensed under MIT license, at your choice.
+// Copyright 2022 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
 
 #![warn(clippy::doc_markdown, clippy::semicolon_if_nothing_returned)]
 
@@ -24,6 +11,8 @@ mod scene;
 mod shaders;
 #[cfg(feature = "wgpu")]
 mod wgpu_engine;
+
+use std::num::NonZeroUsize;
 
 /// Styling and composition primitives.
 pub use peniko;
@@ -99,6 +88,7 @@ impl AaSupport {
 /// Renders a scene into a texture or surface.
 #[cfg(feature = "wgpu")]
 pub struct Renderer {
+    #[cfg_attr(not(feature = "hot_reload"), allow(dead_code))]
     options: RendererOptions,
     engine: WgpuEngine,
     shaders: FullShaders,
@@ -107,7 +97,7 @@ pub struct Renderer {
     #[cfg(feature = "wgpu-profiler")]
     profiler: GpuProfiler,
     #[cfg(feature = "wgpu-profiler")]
-    pub profile_result: Option<Vec<wgpu_profiler::GpuTimerScopeResult>>,
+    pub profile_result: Option<Vec<wgpu_profiler::GpuTimerQueryResult>>,
 }
 
 /// Parameters used in a single render that are configurable by the client.
@@ -139,6 +129,16 @@ pub struct RendererOptions {
     /// Represents the enabled set of AA configurations. This will be used to determine which
     /// pipeline permutations should be compiled at startup.
     pub antialiasing_support: AaSupport,
+
+    /// How many threads to use for initialisation of shaders.
+    ///
+    /// Use `Some(1)` to use a single thread. This is recommended when on macOS
+    /// (see https://github.com/bevyengine/bevy/pull/10812#discussion_r1496138004)
+    ///
+    /// Set to `None` to use a heuristic which will use many but not all threads
+    ///
+    /// Has no effect on WebAssembly
+    pub num_init_threads: Option<NonZeroUsize>,
 }
 
 #[cfg(feature = "wgpu")]
@@ -146,7 +146,14 @@ impl Renderer {
     /// Creates a new renderer for the specified device.
     pub fn new(device: &Device, options: RendererOptions) -> Result<Self> {
         let mut engine = WgpuEngine::new(options.use_cpu);
+        // If we are running in parallel (i.e. the number of threads is not 1)
+        if options.num_init_threads != NonZeroUsize::new(1) {
+            #[cfg(not(target_arch = "wasm32"))]
+            engine.use_parallel_initialisation();
+        }
         let shaders = shaders::full_shaders(device, &mut engine, &options)?;
+        #[cfg(not(target_arch = "wasm32"))]
+        engine.build_shaders_if_needed(device, options.num_init_threads);
         let blit = options
             .surface_format
             .map(|surface_format| BlitPipeline::new(device, surface_format));
@@ -271,6 +278,7 @@ impl Renderer {
     pub async fn reload_shaders(&mut self, device: &Device) -> Result<()> {
         device.push_error_scope(wgpu::ErrorFilter::Validation);
         let mut engine = WgpuEngine::new(self.options.use_cpu);
+        // We choose not to initialise these shaders in parallel, to ensure the error scope works correctly
         let shaders = shaders::full_shaders(device, &mut engine, &self.options)?;
         let error = device.pop_error_scope().await;
         if let Some(error) = error {
@@ -486,10 +494,10 @@ impl BlitPipeline {
                 }
                 return vec4(vertex, 0.0, 1.0);
             }
-            
+
             @group(0) @binding(0)
             var fine_output: texture_2d<f32>;
-            
+
             @fragment
             fn fs_main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
                 let rgba_sep = textureLoad(fine_output, vec2<i32>(pos.xy), 0);

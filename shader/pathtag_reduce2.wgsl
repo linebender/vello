@@ -1,3 +1,4 @@
+// Copyright 2023 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
 
 // This shader is the second stage of reduction for the pathtag

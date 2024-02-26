@@ -1,8 +1,23 @@
+env:
+  # We aim to always test with the latest stable Rust toolchain, however we pin to a specific
+  # version like 1.70. Note that we only specify MAJOR.MINOR and not PATCH so that bugfixes still
+  # come automatically. If the version specified here is no longer the latest stable version,
+  # then please feel free to submit a PR that adjusts it along with the potential clippy fixes.
+  RUST_STABLE_VER: "1.76" # In quotes because otherwise (e.g.) 1.70 would be interpreted as 1.7
+
+
+# Rationale
+#
+# We don't run clippy with --all-targets because then even --lib and --bins are compiled with
+# dev dependencies enabled, which does not match how they would be compiled by users.
+# A dev dependency might enable a feature of a regular dependency that we need, but testing
+# with --all-targets would not catch that. Thus we split --lib & --bins into a separate step.
+
+name: CI
+
 on:
-  push:
-    branches:
-      - main
   pull_request:
+  merge_group:
 
 jobs:
   rustfmt:
@@ -10,46 +25,151 @@ jobs:
     name: cargo fmt
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo fmt --all --check
-  compiles:
-    runs-on: ubuntu-latest
-    name: Check workspace compile
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Install native dependencies
-        run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev
-      - run: cargo check --workspace
-      # Check vello (the default crate) without the features used by `with_winit` for debugging
-      - run: cargo check 
-      # Check vello (the default crate) without wgpu
-      - run: cargo check --no-default-features
-      # --exclude with_bevy # for when bevy has an outdated wgpu version
-      # -Dwarnings # for when we have fixed unused code warnings
 
-  clippy:
-    runs-on: ubuntu-latest
-    name: Enforce clippy lints
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Install native dependencies
-        run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev
-      - run: cargo clippy --all-targets --workspace -- -D warnings
-  
-  wasm:
-    runs-on: ubuntu-latest
-    name: Ensure with_winit compiles on WASM
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - name: install stable toolchain
+        uses: dtolnay/rust-toolchain@master
         with:
-          targets: wasm32-unknown-unknown
-      # cargo-run-wasm does not provide a way to determine that it failed programmatically.
-      # Ideally, fix this and use:
-      # - run: cargo run_wasm -- -p with_winit --bin with_winit_bin --build-only
-      - name: Allow using WebGPU in web_sys
+          toolchain: ${{ env.RUST_STABLE_VER }}
+          components: rustfmt
+
+      - name: cargo fmt
+        run: cargo fmt --all --check
+
+      - name: install ripgrep
         run: |
-          echo "RUSTFLAGS=--cfg=web_sys_unstable_apis" >> "$GITHUB_ENV"
-      - run: cargo check -p with_winit --target wasm32-unknown-unknown
+          sudo apt update
+          sudo apt install ripgrep
+
+      - name: check copyright headers
+        run: bash .github/copyright.sh
+
+  test-stable:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        # We use macos-14 as that is an arm runner. These have the virtgpu support we need
+        os: [windows-latest, macos-14, ubuntu-latest]
+        include:
+          - os: ubuntu-latest
+            gpu: 'yes'
+          - os: macos-14
+            gpu: 'yes'
+          - os: windows-latest
+            # TODO: The windows runners theoretically have CPU fallback for GPUs, but
+            # this failed in initial testing
+            gpu: 'no'
+    name: cargo clippy + test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install stable toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_STABLE_VER }}
+          components: clippy
+
+      - name: restore cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install native dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev
+
+      # Adapted from https://github.com/bevyengine/bevy/blob/b446374392adc70aceb92621b080d1a6cf7a7392/.github/workflows/validation-jobs.yml#L74-L79
+      - name: install xvfb, llvmpipe and lavapipe
+        if: matrix.os == 'ubuntu-latest'
+        # https://launchpad.net/~kisak/+archive/ubuntu/turtle
+        run: |
+          sudo apt-get update -y -qq
+          sudo add-apt-repository ppa:kisak/turtle -y
+          sudo apt-get update
+          sudo apt install -y xvfb libegl1-mesa libgl1-mesa-dri libxcb-xfixes0-dev mesa-vulkan-drivers
+
+      - name: cargo clippy (no default features)
+        run: cargo clippy --workspace --lib --bins --no-default-features -- -D warnings
+
+      - name: cargo clippy (no default features) (auxiliary)
+        run: cargo clippy --workspace --tests --benches --examples --no-default-features -- -D warnings
+
+      - name: cargo clippy (default features)
+        run: cargo clippy --workspace --lib --bins -- -D warnings
+
+      - name: cargo clippy (default features) (auxiliary)
+        run: cargo clippy --workspace --tests --benches --examples -- -D warnings
+
+      - name: cargo clippy (all features)
+        run: cargo clippy --workspace --lib --bins --all-features -- -D warnings
+
+      - name: cargo clippy (all features) (auxiliary)
+        run: cargo clippy --workspace --tests --benches --examples --all-features -- -D warnings
+
+      # At the time of writing, we don't have any tests. Nevertheless, it's better to still run this
+      - name: cargo test
+        run: cargo test --workspace --all-features
+        env:
+          VELLO_CI_GPU_SUPPORT: ${{ matrix.gpu }}
+  
+  clippy-stable-wasm:
+    runs-on: ubuntu-latest
+    name: cargo test (wasm32)
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: restore cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: install stable toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_STABLE_VER }}
+          targets: wasm32-unknown-unknown
+          components: clippy
+
+      - name: cargo clippy (wasm)
+        run: cargo clippy --all-targets --target wasm32-unknown-unknown --workspace -- -D warnings
+        env:
+          RUSTFLAGS: '--cfg=web_sys_unstable_apis'
+
+  android-stable-check:
+    runs-on: ubuntu-latest
+    name: cargo check (aarch64-android)
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: restore cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: install stable toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_STABLE_VER }}
+          targets: aarch64-linux-android
+
+      - name: install cargo apk
+        run: cargo install cargo-apk
+
+      - name: cargo apk check (android)
+        run: cargo apk check -p with_winit --lib
+        env:
+          # This is a bit of a hack, but cargo apk doesn't seem to allow customising this
+          RUSTFLAGS: '-D warnings'
+      
+
+  docs:
+    name: cargo doc
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install nightly toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: restore cache
+        uses: Swatinem/rust-cache@v2
+
+      # We test documentation using nightly to match docs.rs. This prevents potential breakages
+      - name: cargo doc
+        run: cargo doc --workspace --all-features --no-deps --document-private-items -Zunstable-options -Zrustdoc-scrape-examples
