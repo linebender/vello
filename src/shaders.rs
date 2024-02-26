@@ -12,7 +12,8 @@ use wgpu::Device;
 
 use crate::{
     cpu_shader,
-    engine::{BindType, Error, ImageFormat, ShaderId},
+    recording::{BindType, ImageFormat, ShaderId},
+    Error,
 };
 
 #[cfg(feature = "wgpu")]

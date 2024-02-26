@@ -6,62 +6,78 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-pub type Error = Box<dyn std::error::Error>;
-
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct ShaderId(pub usize);
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Id(pub NonZeroU64);
+pub struct ResourceId(pub NonZeroU64);
 
-static ID_COUNTER: AtomicU64 = AtomicU64::new(0);
+impl ResourceId {
+    pub fn next() -> ResourceId {
+        static ID_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+        let val = ID_COUNTER.fetch_add(1, Ordering::Relaxed);
+        // SAFETY: Smallest value is 1 because we just incremented.
+        ResourceId(unsafe { NonZeroU64::new_unchecked(val + 1) })
+    }
+}
+
+/// List of [`Command`]s for an engine to execute in order.
 #[derive(Default)]
 pub struct Recording {
     pub commands: Vec<Command>,
 }
 
+/// Proxy used as a handle to a buffer.
 #[derive(Clone, Copy)]
-pub struct BufProxy {
+pub struct BufferProxy {
     pub size: u64,
-    pub id: Id,
+    pub id: ResourceId,
     pub name: &'static str,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub enum ImageFormat {
     Rgba8,
-    #[allow(unused)]
     Bgra8,
 }
 
+/// Proxy used as a handle to an image.
 #[derive(Clone, Copy)]
 pub struct ImageProxy {
     pub width: u32,
     pub height: u32,
     pub format: ImageFormat,
-    pub id: Id,
+    pub id: ResourceId,
 }
 
 #[derive(Clone, Copy)]
 pub enum ResourceProxy {
-    Buf(BufProxy),
+    Buffer(BufferProxy),
     Image(ImageProxy),
 }
 
+/// Single command inside a [`Recording`] to get executed by an engine.
 pub enum Command {
-    Upload(BufProxy, Vec<u8>),
-    UploadUniform(BufProxy, Vec<u8>),
+    /// Commands the data to be uploaded to the given buffer.
+    Upload(BufferProxy, Vec<u8>),
+    /// Commands the data to be uploaded to the given buffer as a uniform.
+    UploadUniform(BufferProxy, Vec<u8>),
+    /// Commands the data to be uploaded to the given image.
     UploadImage(ImageProxy, Vec<u8>),
     WriteImage(ImageProxy, [u32; 4], Vec<u8>),
     // Discussion question: third argument is vec of resources?
     // Maybe use tricks to make more ergonomic?
     // Alternative: provide bufs & images as separate sequences
     Dispatch(ShaderId, (u32, u32, u32), Vec<ResourceProxy>),
-    DispatchIndirect(ShaderId, BufProxy, u64, Vec<ResourceProxy>),
-    Download(BufProxy),
-    Clear(BufProxy, u64, Option<u64>),
-    FreeBuf(BufProxy),
+    DispatchIndirect(ShaderId, BufferProxy, u64, Vec<ResourceProxy>),
+    Download(BufferProxy),
+    /// Commands to clear the buffer from an offset on for a length of the given size.
+    /// If the size is [None], it clears until the end.
+    Clear(BufferProxy, u64, Option<u64>),
+    /// Commands to free the buffer.
+    FreeBuffer(BufferProxy),
+    /// Commands to free the image.
     FreeImage(ImageProxy),
 }
 
@@ -82,24 +98,31 @@ pub enum BindType {
 }
 
 impl Recording {
+    /// Appends a [`Command`] to the back of the [`Recording`].
     pub fn push(&mut self, cmd: Command) {
         self.commands.push(cmd);
     }
 
-    pub fn upload(&mut self, name: &'static str, data: impl Into<Vec<u8>>) -> BufProxy {
+    /// Commands to upload the given data to a new buffer with the given name.
+    /// Returns a [`BufferProxy`] to the buffer.
+    pub fn upload(&mut self, name: &'static str, data: impl Into<Vec<u8>>) -> BufferProxy {
         let data = data.into();
-        let buf_proxy = BufProxy::new(data.len() as u64, name);
+        let buf_proxy = BufferProxy::new(data.len() as u64, name);
         self.push(Command::Upload(buf_proxy, data));
         buf_proxy
     }
 
-    pub fn upload_uniform(&mut self, name: &'static str, data: impl Into<Vec<u8>>) -> BufProxy {
+    /// Commands to upload the given data to a new buffer as a uniform with the given name.
+    /// Returns a [`BufferProxy`] to the buffer.
+    pub fn upload_uniform(&mut self, name: &'static str, data: impl Into<Vec<u8>>) -> BufferProxy {
         let data = data.into();
-        let buf_proxy = BufProxy::new(data.len() as u64, name);
+        let buf_proxy = BufferProxy::new(data.len() as u64, name);
         self.push(Command::UploadUniform(buf_proxy, data));
         buf_proxy
     }
 
+    /// Commands to upload the given data to a new image with the given dimensions and format.
+    /// Returns an [`ImageProxy`] to the buffer.
     pub fn upload_image(
         &mut self,
         width: u32,
@@ -144,7 +167,7 @@ impl Recording {
     pub fn dispatch_indirect<R>(
         &mut self,
         shader: ShaderId,
-        buf: BufProxy,
+        buf: BufferProxy,
         offset: u64,
         resources: R,
     ) where
@@ -159,39 +182,44 @@ impl Recording {
     ///
     /// Currently this copies to a download buffer. The original buffer can be freed
     /// immediately after.
-    pub fn download(&mut self, buf: BufProxy) {
+    pub fn download(&mut self, buf: BufferProxy) {
         self.push(Command::Download(buf));
     }
 
-    pub fn clear_all(&mut self, buf: BufProxy) {
+    /// Commands to clear the whole buffer.
+    pub fn clear_all(&mut self, buf: BufferProxy) {
         self.push(Command::Clear(buf, 0, None));
     }
 
-    pub fn free_buf(&mut self, buf: BufProxy) {
-        self.push(Command::FreeBuf(buf));
+    /// Commands to free the given buffer.
+    pub fn free_buffer(&mut self, buf: BufferProxy) {
+        self.push(Command::FreeBuffer(buf));
     }
 
+    /// Commands to free the given image.
     pub fn free_image(&mut self, image: ImageProxy) {
         self.push(Command::FreeImage(image));
     }
 
+    /// Commands to free the given resource.
     pub fn free_resource(&mut self, resource: ResourceProxy) {
         match resource {
-            ResourceProxy::Buf(buf) => self.free_buf(buf),
+            ResourceProxy::Buffer(buf) => self.free_buffer(buf),
             ResourceProxy::Image(image) => self.free_image(image),
         }
     }
 
+    /// Returns a [`Vec`] containing all the [`Command`]s in order.
     pub fn into_commands(self) -> Vec<Command> {
         self.commands
     }
 }
 
-impl BufProxy {
+impl BufferProxy {
     pub fn new(size: u64, name: &'static str) -> Self {
-        let id = Id::next();
+        let id = ResourceId::next();
         debug_assert!(size > 0);
-        BufProxy { id, size, name }
+        BufferProxy { id, size, name }
     }
 }
 
@@ -207,7 +235,7 @@ impl ImageFormat {
 
 impl ImageProxy {
     pub fn new(width: u32, height: u32, format: ImageFormat) -> Self {
-        let id = Id::next();
+        let id = ResourceId::next();
         ImageProxy {
             width,
             height,
@@ -219,16 +247,16 @@ impl ImageProxy {
 
 impl ResourceProxy {
     pub fn new_buf(size: u64, name: &'static str) -> Self {
-        Self::Buf(BufProxy::new(size, name))
+        Self::Buffer(BufferProxy::new(size, name))
     }
 
     pub fn new_image(width: u32, height: u32, format: ImageFormat) -> Self {
         Self::Image(ImageProxy::new(width, height, format))
     }
 
-    pub fn as_buf(&self) -> Option<&BufProxy> {
+    pub fn as_buf(&self) -> Option<&BufferProxy> {
         match self {
-            Self::Buf(proxy) => Some(proxy),
+            Self::Buffer(proxy) => Some(proxy),
             _ => None,
         }
     }
@@ -241,22 +269,14 @@ impl ResourceProxy {
     }
 }
 
-impl From<BufProxy> for ResourceProxy {
-    fn from(value: BufProxy) -> Self {
-        Self::Buf(value)
+impl From<BufferProxy> for ResourceProxy {
+    fn from(value: BufferProxy) -> Self {
+        Self::Buffer(value)
     }
 }
 
 impl From<ImageProxy> for ResourceProxy {
     fn from(value: ImageProxy) -> Self {
         Self::Image(value)
-    }
-}
-
-impl Id {
-    pub fn next() -> Id {
-        let val = ID_COUNTER.fetch_add(1, Ordering::Relaxed);
-        // could use new_unchecked
-        Id(NonZeroU64::new(val + 1).unwrap())
     }
 }

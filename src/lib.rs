@@ -5,7 +5,7 @@
 
 mod cpu_dispatch;
 mod cpu_shader;
-mod engine;
+mod recording;
 mod render;
 mod scene;
 mod shaders;
@@ -32,8 +32,8 @@ pub use scene::{DrawGlyphs, Scene};
 #[cfg(feature = "wgpu")]
 pub use util::block_on_wgpu;
 
-pub use engine::{
-    BufProxy, Command, Id, ImageFormat, ImageProxy, Recording, ResourceProxy, ShaderId,
+pub use recording::{
+    BufferProxy, Command, ImageFormat, ImageProxy, Recording, ResourceId, ResourceProxy, ShaderId,
 };
 pub use shaders::FullShaders;
 #[cfg(feature = "wgpu")]
