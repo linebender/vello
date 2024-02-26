@@ -478,6 +478,7 @@ fn flatten_euler(
         last_q = eval_cubic_and_deriv(p0, p1, p2, p3, DERIV_EPS).1;
     }
     let mut last_t = 0.;
+    let mut lp0 = t_start;
 
     loop {
         // TODO: this isn't right, it drops nasty lines; we should just limit subdivision
@@ -569,11 +570,6 @@ fn flatten_euler(
                     // Skip the segment if `n` is NaN. This is for debugging purposes only
                     log!("@@@   NaN: parameters:\n  es: {:#?}\n  k0: {k0}, k1: {k1}\n  dist_scaled: {dist_scaled}\n  es_scale: {es_scale}\n  a: {a}\n  b: {b}\n  int0: {int0}, int1: {int1}, integral: {integral}\n  k_peak: {k_peak}\n  integrand_peak: {integrand_peak}\n  scaled_int: {scaled_int}\n  n_frac:  {n_frac}", es);
                 } else {
-                    let mut lp0 = if t0 == 0.0 {
-                        t_start
-                    } else {
-                        es.eval_with_offset(0.0, offset)
-                    };
                     for i in 0..n as usize {
                         let lp1;
                         if i == n as usize - 1 && t1 == 1.0 {
