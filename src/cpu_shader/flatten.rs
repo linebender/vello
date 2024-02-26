@@ -674,9 +674,11 @@ fn draw_join(
 
     match style_flags & Style::FLAGS_JOIN_MASK {
         Style::FLAGS_JOIN_BITS_BEVEL => {
-            output_two_lines_with_transform(
-                path_ix, front0, front1, back0, back1, transform, line_ix, lines, bbox,
-            );
+            if front0 != front1 && back0 != back1 {
+                output_two_lines_with_transform(
+                    path_ix, front0, front1, back0, back1, transform, line_ix, lines, bbox,
+                );
+            }
         }
         Style::FLAGS_JOIN_BITS_MITER => {
             let hypot = cr.hypot(d);
@@ -956,6 +958,8 @@ fn flatten_main(
                         read_neighboring_segment(ix + 1, pathtags, pathdata, tag_monoids);
                     let tan_prev = cubic_end_tangent(pts.p0, pts.p1, pts.p2, pts.p3);
                     let tan_next = neighbor.tangent;
+                    let tan_start = cubic_start_tangent(pts.p0, pts.p1, pts.p2, pts.p3);
+                    // TODO: be consistent w/ robustness here
 
                     // TODO: add NaN assertions to CPU shaders PR (when writing lines)
                     // TODO: not all zero-length segments are getting filtered out
@@ -972,6 +976,7 @@ fn flatten_main(
                         tan_next
                     };
 
+                    let n_start = offset * Vec2::new(-tan_start.y, tan_start.x).normalize();
                     let offset_tangent = offset * tan_prev.normalize();
                     let n_prev = Vec2::new(-offset_tangent.y, offset_tangent.x);
                     let tan_next_norm = tan_next.normalize();
@@ -986,7 +991,7 @@ fn flatten_main(
                         &transform,
                         offset,
                         is_line,
-                        pts.p0 + n_prev,
+                        pts.p0 + n_start,
                         pts.p3 + n_prev,
                         &mut line_ix,
                         lines,
@@ -998,7 +1003,7 @@ fn flatten_main(
                         &transform,
                         -offset,
                         is_line,
-                        pts.p0 - n_prev,
+                        pts.p0 - n_start,
                         pts.p3 - n_prev,
                         &mut line_ix,
                         lines,
