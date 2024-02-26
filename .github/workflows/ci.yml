@@ -107,6 +107,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: restore cache
+        uses: Swatinem/rust-cache@v2
+
       - name: install stable toolchain
         uses: dtolnay/rust-toolchain@master
         with:
@@ -118,6 +121,31 @@ jobs:
         run: cargo clippy --all-targets --target wasm32-unknown-unknown -- -D warnings
         env:
           RUSTFLAGS: '--cfg=web_sys_unstable_apis'
+
+  android-stable-check:
+    runs-on: ubuntu-latest
+    name: cargo check (aarch64-android)
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: restore cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: install stable toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_STABLE_VER }}
+          targets: aarch64-linux-android
+
+      - name: install cargo apk
+        run: cargo install cargo-apk
+
+      - name: cargo apk check (android)
+        run: cargo apk check -p with_winit --lib
+        env:
+          # This is a bit of a hack, but cargo apk doesn't seem to allow customising this
+          RUSTFLAGS: '-D warnings'
+      
 
   docs:
     name: cargo doc
