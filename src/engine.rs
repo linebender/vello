@@ -1,18 +1,5 @@
-// Copyright 2022 Google LLC
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     https://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-//
-// Also licensed under MIT license, at your choice.
+// Copyright 2022 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use std::{
     num::NonZeroU64,
@@ -73,7 +60,7 @@ pub enum Command {
     Dispatch(ShaderId, (u32, u32, u32), Vec<ResourceProxy>),
     DispatchIndirect(ShaderId, BufProxy, u64, Vec<ResourceProxy>),
     Download(BufProxy),
-    Clear(BufProxy, u64, Option<NonZeroU64>),
+    Clear(BufProxy, u64, Option<u64>),
     FreeBuf(BufProxy),
     FreeImage(ImageProxy),
 }

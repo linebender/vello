@@ -1,3 +1,6 @@
+// Copyright 2022 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 use std::{
     fs::read_dir,
     path::{Path, PathBuf},
@@ -76,7 +79,8 @@ fn example_scene_of(file: PathBuf) -> ExampleScene {
         .unwrap_or_else(|| "unknown".to_string());
     ExampleScene {
         function: Box::new(svg_function_of(name.clone(), move || {
-            std::fs::read_to_string(file).expect("failed to read svg file")
+            std::fs::read_to_string(&file)
+                .unwrap_or_else(|e| panic!("failed to read svg file {file:?}: {e}"))
         })),
         config: crate::SceneConfig {
             animated: false,
@@ -92,7 +96,7 @@ pub fn svg_function_of<R: AsRef<str>>(
     fn render_svg_contents(name: &str, contents: &str) -> (Scene, Vec2) {
         let start = Instant::now();
         let svg = usvg::Tree::from_str(contents, &usvg::Options::default())
-            .expect("failed to parse svg file");
+            .unwrap_or_else(|e| panic!("failed to parse svg file {name}: {e}"));
         eprintln!("Parsed svg {name} in {:?}", start.elapsed());
         let start = Instant::now();
         let mut new_scene = Scene::new();

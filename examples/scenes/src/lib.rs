@@ -1,3 +1,6 @@
+// Copyright 2022 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 #[cfg(not(target_arch = "wasm32"))]
 pub mod download;
 mod images;

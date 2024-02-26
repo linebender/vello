@@ -1,5 +1,9 @@
+// Copyright 2023 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 use std::{
     fs::File,
+    num::NonZeroUsize,
     path::{Path, PathBuf},
 };
 
@@ -90,6 +94,7 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
         RendererOptions {
             surface_format: None,
             use_cpu: args.use_cpu,
+            num_init_threads: NonZeroUsize::new(1),
             antialiasing_support: vello::AaSupport::area_only(),
         },
     )

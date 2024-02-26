@@ -7,7 +7,7 @@
 [![Xi Zulip](https://img.shields.io/badge/Xi%20Zulip-%23gpu-blue?logo=Zulip)](https://xi.zulipchat.com/#narrow/stream/197075-gpu)
 [![dependency status](https://deps.rs/repo/github/linebender/vello/status.svg)](https://deps.rs/repo/github/linebender/vello)
 [![MIT/Apache 2.0](https://img.shields.io/badge/license-MIT%2FApache-blue.svg)](#license)
-[![wgpu version](https://img.shields.io/badge/wgpu-v0.18-orange.svg)](https://crates.io/crates/wgpu)
+[![wgpu version](https://img.shields.io/badge/wgpu-v0.19-orange.svg)](https://crates.io/crates/wgpu)
 <!-- [![Crates.io](https://img.shields.io/crates/v/vello.svg)](https://crates.io/crates/vello) -->
 <!-- [![Docs](https://docs.rs/vello/badge.svg)](https://docs.rs/vello) -->
 <!-- [![Build status](https://github.com/linebender/vello/workflows/CI/badge.svg)](https://github.com/linebender/vello/actions) -->
@@ -206,8 +206,9 @@ Licensed under either of
 
 at your option.
 
-In addition, all files in the [`shader`](shader) directory and subdirectories thereof are alternatively
-licensed under the Unlicense ([shader/UNLICENSE](shader/UNLICENSE) or <http://unlicense.org/>).
+In addition, all files in the [`shader`](shader) and [`src/cpu_shader`](src/cpu_shader)
+directories and subdirectories thereof are alternatively licensed under
+the Unlicense ([shader/UNLICENSE](shader/UNLICENSE) or <http://unlicense.org/>).
 For clarity, these files are also licensed under either of the above licenses.
 The intent is for this research to be used in as broad a context as possible.
 

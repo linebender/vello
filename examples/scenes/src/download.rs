@@ -1,3 +1,6 @@
+// Copyright 2022 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 use std::{
     io::Seek,
     path::{Path, PathBuf},
@@ -199,8 +202,13 @@ impl SVGDownload {
         if reader.read_exact(&mut [0]).is_ok() {
             bail!("Size limit exceeded");
         }
-        if limit_exact && file.stream_position().context("Checking file limit")? != size_limit {
-            bail!("Builtin downloaded file was not as expected");
+        if limit_exact {
+            let bytes_downloaded = file.stream_position().context("Checking file limit")?;
+            if bytes_downloaded != size_limit {
+                bail!(
+                    "Builtin downloaded file was not as expected. Expected {size_limit}, received {bytes_downloaded}.",
+                );
+            }
         }
         Ok(())
     }

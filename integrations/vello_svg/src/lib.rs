@@ -1,3 +1,6 @@
+// Copyright 2023 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 //! Append a [`usvg::Tree`] to a Vello [`Scene`]
 //!
 //! This currently lacks support for a [number of important](crate#unsupported-features) SVG features.
@@ -150,10 +153,28 @@ pub fn render_tree_with<F: FnMut(&mut Scene, &usvg::Node) -> Result<(), E>, E>(
                     if let Some((brush, brush_transform)) =
                         paint_to_brush(&stroke.paint, stroke.opacity)
                     {
-                        // FIXME: handle stroke options such as linecap,
-                        // linejoin, etc.
+                        let mut conv_stroke = Stroke::new(stroke.width.get() as f64)
+                            .with_caps(match stroke.linecap {
+                                usvg::LineCap::Butt => vello::kurbo::Cap::Butt,
+                                usvg::LineCap::Round => vello::kurbo::Cap::Round,
+                                usvg::LineCap::Square => vello::kurbo::Cap::Square,
+                            })
+                            .with_join(match stroke.linejoin {
+                                usvg::LineJoin::Miter | usvg::LineJoin::MiterClip => {
+                                    vello::kurbo::Join::Miter
+                                }
+                                usvg::LineJoin::Round => vello::kurbo::Join::Round,
+                                usvg::LineJoin::Bevel => vello::kurbo::Join::Bevel,
+                            })
+                            .with_miter_limit(stroke.miterlimit.get() as f64);
+                        if let Some(dash_array) = stroke.dasharray.as_ref() {
+                            conv_stroke = conv_stroke.with_dashes(
+                                stroke.dashoffset as f64,
+                                dash_array.iter().map(|x| *x as f64),
+                            );
+                        }
                         scene.stroke(
-                            &Stroke::new(stroke.width.get() as f64),
+                            &conv_stroke,
                             transform,
                             &brush,
                             Some(brush_transform),

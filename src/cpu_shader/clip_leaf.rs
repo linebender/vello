@@ -1,4 +1,4 @@
-// Copyright 2023 The Vello authors
+// Copyright 2023 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
 
 use vello_encoding::{Clip, ConfigUniform, DrawMonoid, PathBbox};

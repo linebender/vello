@@ -1,4 +1,7 @@
-use std::{env, fs::File, path::Path, sync::Arc};
+// Copyright 2024 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+use std::{env, fs::File, num::NonZeroUsize, path::Path, sync::Arc};
 
 use anyhow::{anyhow, bail, Result};
 use vello::{
@@ -62,6 +65,7 @@ pub async fn render(scene: Scene, params: &TestParams) -> Result<Image> {
         RendererOptions {
             surface_format: None,
             use_cpu: params.use_cpu,
+            num_init_threads: NonZeroUsize::new(1),
             antialiasing_support: vello::AaSupport::area_only(),
         },
     )

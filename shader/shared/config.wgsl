@@ -1,3 +1,4 @@
+// Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
 
 // This must be kept in sync with the struct in src/encoding/resolve.rs

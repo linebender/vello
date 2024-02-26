@@ -1,3 +1,4 @@
+// Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
 
 // The DrawMonoid is computed as a prefix sum to aid in decoding
