@@ -13,9 +13,9 @@
 //    * `scene`: array<u32>
 //    * `config`: Config (see config.wgsl)
 fn read_draw_tag_from_scene(ix: u32) -> u32 {
-    let tag_ix = config.drawtag_base + ix;
     var tag_word: u32;
-    if tag_ix < config.drawtag_base + config.n_drawobj {
+    if ix < config.n_drawobj {
+        let tag_ix = config.drawtag_base + ix;
         tag_word = scene[tag_ix];
     } else {
         tag_word = DRAWTAG_NOP;

@@ -12,7 +12,7 @@ mod shaders;
 #[cfg(feature = "wgpu")]
 mod wgpu_engine;
 
-use std::{num::NonZeroUsize, time::Instant};
+use std::num::NonZeroUsize;
 
 /// Styling and composition primitives.
 pub use peniko;
@@ -151,11 +151,9 @@ impl Renderer {
             #[cfg(not(target_arch = "wasm32"))]
             engine.use_parallel_initialisation();
         }
-        let start = Instant::now();
         let shaders = shaders::full_shaders(device, &mut engine, &options)?;
         #[cfg(not(target_arch = "wasm32"))]
         engine.build_shaders_if_needed(device, options.num_init_threads);
-        eprintln!("Building shaders took {:?}", start.elapsed());
         let blit = options
             .surface_format
             .map(|surface_format| BlitPipeline::new(device, surface_format));
