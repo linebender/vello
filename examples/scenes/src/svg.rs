@@ -126,6 +126,7 @@ pub fn svg_function_of<R: AsRef<str>>(
             scene.append(&scene_frag, None);
             params.resolution = Some(resolution);
             cached_scene = Some((scene_frag, resolution));
+            #[cfg_attr(target_arch = "wasm32", allow(clippy::needless_return))]
             return;
         }
         #[cfg(not(target_arch = "wasm32"))]

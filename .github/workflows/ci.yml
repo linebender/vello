@@ -118,7 +118,7 @@ jobs:
           components: clippy
 
       - name: cargo clippy (wasm)
-        run: cargo clippy --all-targets --target wasm32-unknown-unknown -- -D warnings
+        run: cargo clippy --all-targets --target wasm32-unknown-unknown --workspace -- -D warnings
         env:
           RUSTFLAGS: '--cfg=web_sys_unstable_apis'
 
