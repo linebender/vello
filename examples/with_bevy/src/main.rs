@@ -215,7 +215,7 @@ fn cube_rotator_system(time: Res<Time>, mut query: Query<&mut Transform, With<Ma
 
 fn render_fragment(mut fragment: Query<&mut VelloFragment>, mut frame: Local<usize>) {
     let mut fragment = fragment.single_mut();
-    fragment.0.reset();
+    fragment.0.clear();
     render_brush_transform(&mut fragment.0, *frame);
     *frame += 1;
 }

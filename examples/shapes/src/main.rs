@@ -101,7 +101,7 @@ fn main() -> Result<()> {
                         let line = Line::new((260.0, 20.0), (620.0, 100.0));
                         let line_stroke_color = Color::rgb(0.5373, 0.7059, 0.9804);
 
-                        scene.reset();
+                        scene.clear();
 
                         // Draw the shapes!
                         scene.stroke(&stroke, Affine::IDENTITY, rect_stroke_color, None, &rect);

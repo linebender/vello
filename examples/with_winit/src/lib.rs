@@ -353,7 +353,7 @@ fn run(
                                 .window
                                 .set_title(&format!("Vello demo - {}", example_scene.config.name));
                         }
-                        fragment.reset();
+                        fragment.clear();
                         let mut scene_params = SceneParams {
                             time: start.elapsed().as_secs_f64(),
                             text: &mut simple_text,
@@ -381,7 +381,7 @@ fn run(
                             height,
                             antialiasing_method,
                         };
-                        scene.reset();
+                        scene.clear();
                         let mut transform = transform;
                         if let Some(resolution) = scene_params.resolution {
                             // Automatically scale the rendering to fill as much of the window as possible

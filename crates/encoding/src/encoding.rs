@@ -70,7 +70,7 @@ impl Encoding {
     }
 
     /// Clears the encoding.
-    pub fn reset(&mut self) {
+    pub fn clear(&mut self) {
         self.transforms.clear();
         self.path_tags.clear();
         self.path_data.clear();

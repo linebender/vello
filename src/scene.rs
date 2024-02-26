@@ -18,9 +18,9 @@ impl Scene {
         Self::default()
     }
 
-    /// Removes all content from the scene.
-    pub fn reset(&mut self) {
-        self.encoding.reset();
+    /// Clears the scene.
+    pub fn clear(&mut self) {
+        self.encoding.clear();
     }
 
     /// Returns the underlying raw encoding.
