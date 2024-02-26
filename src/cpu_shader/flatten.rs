@@ -440,6 +440,14 @@ fn flatten_euler(
         (start_p, end_p)
     };
 
+    // Drop zero length lines.
+    // TODO: in some stroke cases we should keep these. Should it be handled while
+    // encoding or here?
+    if p0 == p1 && p0 == p2 && p0 == p3 {
+        return;
+    }
+
+    /*
     // Special-case lines.
     // We still have to handle colinear cubic parameters. We are special casing the line-to
     // encoding because floating point errors in the degree raise can cause some line-tos to slip
@@ -459,6 +467,7 @@ fn flatten_euler(
         }
         return;
     }
+    */
 
     let tol: f32 = 0.25;
     let mut t0_u: u32 = 0;
