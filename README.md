@@ -14,17 +14,94 @@
 
 </div>
 
-Vello is a 2d graphics rendering engine, using [`wgpu`].
+Vello is an experimental 2d graphics rendering engine written in Rust, using [`wgpu`].
 It efficiently draws large 2d scenes with interactive or near-interactive performance.
-
-<!-- Impressive picture here -->
-
-It is used as the rendering backend for [Xilem], a UI toolkit.
 
 Quickstart to run an example program:
 ```shell
 cargo run -p with_winit
 ```
+
+![image](https://github.com/linebender/vello/assets/8573618/cc2b742e-2135-4b70-8051-c49aeddb5d19)
+
+It is used as the rendering backend for [Xilem], a native Rust GUI toolkit.
+
+
+## Motivation
+
+Vello is meant to fill the same place in the graphics stack as other vector graphics renderers like [Skia](https://skia.org/), [Cairo](https://www.cairographics.org/), and its predecessor project [Piet](https://www.cairographics.org/).
+On a basic level, that means it provides tools to render shapes, images, gradients, texts, etc, using a PostScript-inspired API, the same that powers SVG files and [the browser `<canvas>` element](https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D).
+
+Vello's selling point is that it gets better performance than other renderers by better leveraging the GPU.
+In traditional PostScript renderers, some steps of the render process like sorting and clipping either need to be handled in the CPU or done through the use of intermediary textures.
+Vello avoids this by using prefix-scan algorithms to parallelize work that usually needs to happen in sequence, so that work can be offloaded to the GPU with minimal use of temporary buffers.
+
+
+## Getting started
+
+Vello is meant to be integrated deep in UI render stacks.
+While drawing in a Vello scene is easy, actually rendering that scene to a surface setting up a wgpu context, which is a non-trivial task.
+
+To use Vello as the renderer for your PDF reader / GUI toolkit / etc, your code will have to look roughly like this:
+
+```rust
+// Initialize wgpu and get handles
+let device: wgpu::Device = ...;
+let queue: wgpu::Queue = ...;
+let render_surface: wpg::RenderSurface<'_> = ...;
+let texture_format: wgpu::TextureFormat = ...;
+let mut renderer = Renderer::new(
+      &device,
+      RendererOptions {
+         surface_format: Some(texture_format),
+         use_cpu: false,
+         antialiasing_support: vello::AaSupport::all(),
+         num_init_threads: NonZeroUsize::new(1),
+      },
+).expect("Failed to create renderer");
+
+// Create scene and draw stuff in it
+let mut scene = vello::Scene::new();
+
+let circle = vello::Circle::new((420.0, 200.0), 120.0);
+let circle_fill_color = vello::Color::rgb(0.9529, 0.5451, 0.6588);
+scene.fill(
+   vello::peniko::Fill::NonZero,
+   vello::Affine::IDENTITY,
+   circle_fill_color,
+   None,
+   &circle,
+);
+
+scene.push_layer(...);
+scene.fill(...);
+scene.stroke(...);
+scene.pop_layer(...);
+
+// Render to your window/buffer/etc.
+let surface_texture = render_state.surface.get_current_texture()
+   .expect("failed to get surface texture");
+vello::block_on_wgpu(
+      &device,
+      renderer
+         .render_to_surface_async(
+            &device,
+            &queue,
+            &scene,
+            &surface_texture,
+            &render_params,
+         ),
+).expect("Failed to render to surface");
+surface_texture.present();
+```
+
+See the [`examples/`](examples) folder to see how that code integrates with frameworks like winit and bevy.
+
+
+## Performance
+
+Benchmarks are on their way.
+
 
 ## Integrations
 
@@ -49,7 +126,7 @@ Examples must be selected using the `--package` (or `-p`) Cargo flag.
 ### Winit
 
 Our [winit] example ([examples/with_winit](examples/with_winit)) demonstrates rendering to a [winit] window.
-By default, this renders [GhostScript Tiger] all SVG files in [examples/assets/downloads](examples/assets/downloads) directory (using [`vello_svg`](#svg)).
+By default, this renders the [GhostScript Tiger] as well as all SVG files you add in the [examples/assets/downloads/](examples/assets/downloads) directory using [`vello_svg`](#svg).
 A custom list of SVG file paths (and directories to render all SVG files from) can be provided as arguments instead.
 It also includes a collection of test scenes showing the capabilities of `vello`, which can be shown with `--test-scenes`.
 
@@ -99,7 +176,7 @@ rustup target add wasm32-unknown-unknown
 cargo run_wasm -p with_winit --bin with_winit_bin
 ```
 
-> [!WARNING]  
+> [!WARNING]
 > The web is not currently a primary target for Vello, and WebGPU implementations are incomplete, so you might run into issues running this example.
 
 ### Android
@@ -125,52 +202,13 @@ keystore_password = "android"
 
 ## Community
 
-[![Xi Zulip](https://img.shields.io/badge/Xi%20Zulip-%23gpu-blue?logo=Zulip)](https://xi.zulipchat.com/#narrow/stream/197075-gpu)
+Discussion of Vello development happens in the [Xi Zulip](https://xi.zulipchat.com/), specifically the [#gpu stream](https://xi.zulipchat.com/#narrow/stream/197075-gpu). All public content can be read without logging in.
 
-Discussion of Vello development happens in the [Xi Zulip](https://xi.zulipchat.com/), specifically the [#gpu stream](https://xi.zulipchat.com/#narrow/stream/197075-gpu). All public content can be read without logging in
+Contributions are welcome by pull request. The [Rust code of conduct] applies.
 
-## Shader templating
-
-We implement a limited, simple preprocessor for our shaders, as wgsl has insufficient code-sharing for our needs.
-
-This implements only classes of statements.
-
-1. `import`, which imports from `shader/shared`
-2. `ifdef`, `ifndef`, `else` and `endif`, as standard.
-  These must be at the start of their lines.  
-  Note that there is no support for creating definitions in-shader, these are only specified externally (in `src/shaders.rs`).
-  Note also that this definitions cannot currently be used in-code (`import`s may be used instead)
-
-This format is compatible with [`wgsl-analyzer`], which we recommend using.
-If you run into any issues, please report them on Zulip ([#gpu > wgsl-analyzer issues](https://xi.zulipchat.com/#narrow/stream/197075-gpu/topic/wgsl-analyzer.20issues)), and/or on the [`wgsl-analyzer`] issue tracker.  
-Note that new imports must currently be added to `.vscode/settings.json` for this support to work correctly.
-`wgsl-analyzer` only supports imports in very few syntactic locations, so we limit their use to these places.
-
-## GPU abstraction
-
-Our rendering code does not directly interact with `wgpu`.
-Instead, we generate a `Recording`, a simple value type, then an `Engine` plays that recording to the actual GPU.
-The only currently implemented `Engine` uses `wgpu`.
-
-The idea is that this can abstract easily over multiple GPU back-ends, without either the render logic needing to be polymorphic or having dynamic dispatch at the GPU abstraction.
-The goal is to be more agile.
-
-## Goals
-
-The major goal of Vello is to provide a high quality GPU accelerated renderer suitable for a range of 2D graphics applications, including rendering for GUI applications, creative tools, and scientific visualization.
-The [roadmap for 2023](doc/roadmap_2023.md) explains the goals and plans for the next few months of development
-
-Vello emerges from being a research project, which attempts to answer these hypotheses:
-
-- To what extent is a compute-centered approach better than rasterization ([Direct2D])?
-
-- To what extent do "advanced" GPU features (subgroups, descriptor arrays, device-scoped barriers) help?
-
-- Can we improve quality and extend the imaging model in useful ways?
-
-Another goal of the overall project is to explain how the renderer is built, and to advance the state of building applications on GPU compute shaders more generally. 
-Much of the progress on Vello is documented in blog entries.
-See [doc/blogs.md](doc/blogs.md) for pointers to those.
+Unless you explicitly state otherwise, any contribution intentionally submitted
+for inclusion in the work by you, as defined in the Apache-2.0 license, shall be
+licensed as above, without any additional terms or conditions.
 
 ## History
 
@@ -215,16 +253,7 @@ The intent is for this research to be used in as broad a context as possible.
 The files in subdirectories of the [`examples/assets`](examples/assets) directory are licensed solely under
 their respective licenses, available in the `LICENSE` file in their directories.
 
-## Contribution
-
-Contributions are welcome by pull request. The [Rust code of conduct] applies.
-
-Unless you explicitly state otherwise, any contribution intentionally submitted
-for inclusion in the work by you, as defined in the Apache-2.0 license, shall be
-licensed as above, without any additional terms or conditions.
-
 [piet-metal]: https://github.com/linebender/piet-metal
-[direct2d]: https://docs.microsoft.com/en-us/windows/win32/direct2d/direct2d-portal
 [`wgpu`]: https://wgpu.rs/
 [Xilem]: https://github.com/linebender/xilem/
 [rust code of conduct]: https://www.rust-lang.org/policies/code-of-conduct
@@ -234,5 +263,4 @@ licensed as above, without any additional terms or conditions.
 [GhostScript tiger]: https://commons.wikimedia.org/wiki/File:Ghostscript_Tiger.svg
 [winit]: https://github.com/rust-windowing/winit
 [Bevy]: https://bevyengine.org/
-[`wgsl-analyzer`]: https://marketplace.visualstudio.com/items?itemName=wgsl-analyzer.wgsl-analyzer
 [Requiem for piet-gpu-hal]: https://raphlinus.github.io/rust/gpu/2023/01/07/requiem-piet-gpu-hal.html
