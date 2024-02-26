@@ -22,7 +22,7 @@ impl ResourceId {
     }
 }
 
-/// List of [Command]s for an engine to execute in order.
+/// List of [`Command`]s for an engine to execute in order.
 #[derive(Default)]
 pub struct Recording {
     pub commands: Vec<Command>,
@@ -57,7 +57,7 @@ pub enum ResourceProxy {
     Image(ImageProxy),
 }
 
-/// Single command inside a [Recording] to get executed by an engine.
+/// Single command inside a [`Recording`] to get executed by an engine.
 pub enum Command {
     /// Commands the data to be uploaded to the given buffer.
     Upload(BufferProxy, Vec<u8>),
@@ -98,13 +98,13 @@ pub enum BindType {
 }
 
 impl Recording {
-    /// Appends a [Command] to the back of the [Recording].
+    /// Appends a [`Command`] to the back of the [`Recording`].
     pub fn push(&mut self, cmd: Command) {
         self.commands.push(cmd);
     }
 
     /// Commands to upload the given data to a new buffer with the given name.
-    /// Returns a [BufProxy] to the buffer.
+    /// Returns a [`BufferProxy`] to the buffer.
     pub fn upload(&mut self, name: &'static str, data: impl Into<Vec<u8>>) -> BufferProxy {
         let data = data.into();
         let buf_proxy = BufferProxy::new(data.len() as u64, name);
@@ -113,7 +113,7 @@ impl Recording {
     }
 
     /// Commands to upload the given data to a new buffer as a uniform with the given name.
-    /// Returns a [BufProxy] to the buffer.
+    /// Returns a [`BufferProxy`] to the buffer.
     pub fn upload_uniform(&mut self, name: &'static str, data: impl Into<Vec<u8>>) -> BufferProxy {
         let data = data.into();
         let buf_proxy = BufferProxy::new(data.len() as u64, name);
@@ -122,7 +122,7 @@ impl Recording {
     }
 
     /// Commands to upload the given data to a new image with the given dimensions and format.
-    /// Returns an [ImageProxy] to the buffer.
+    /// Returns an [`ImageProxy`] to the buffer.
     pub fn upload_image(
         &mut self,
         width: u32,
@@ -209,7 +209,7 @@ impl Recording {
         }
     }
 
-    /// Returns a [Vec] containing all the [Command]s in order.
+    /// Returns a [`Vec`] containing all the [`Command`]s in order.
     pub fn into_commands(self) -> Vec<Command> {
         self.commands
     }
