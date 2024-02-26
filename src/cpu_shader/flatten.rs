@@ -114,9 +114,9 @@ fn cubic_start_tangent(p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2) -> Vec2 {
     let d01 = p1 - p0;
     let d02 = p2 - p0;
     let d03 = p3 - p0;
-    if d01.dot(d01) > ROBUST_EPSILON {
+    if d01.length_squared() > ROBUST_EPSILON {
         d01
-    } else if d02.dot(d02) > ROBUST_EPSILON {
+    } else if d02.length_squared() > ROBUST_EPSILON {
         d02
     } else {
         d03
@@ -127,9 +127,9 @@ fn cubic_end_tangent(p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2) -> Vec2 {
     let d23 = p3 - p2;
     let d13 = p3 - p1;
     let d03 = p3 - p0;
-    if d23.dot(d23) > ROBUST_EPSILON {
+    if d23.length_squared() > ROBUST_EPSILON {
         d23
-    } else if d13.dot(d13) > ROBUST_EPSILON {
+    } else if d13.length_squared() > ROBUST_EPSILON {
         d13
     } else {
         d03
