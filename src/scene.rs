@@ -6,7 +6,14 @@ use peniko::{BlendMode, BrushRef, Color, Fill, Font, Image, StyleRef};
 use skrifa::instance::NormalizedCoord;
 use vello_encoding::{Encoding, Glyph, GlyphRun, Patch, Transform};
 
-/// Encoded definition of a scene and associated resources.
+// TODO - Document invariants and edge cases (#470)
+// - What happens when we pass a transform matrix with NaN values to the Scene?
+// - What happens if a push_layer isn't matched by a pop_layer?
+
+/// The main datatype for rendering graphics.
+///
+/// A Scene stores a sequence of drawing commands, their context, and the
+/// associated resources, which can later be rendered.
 #[derive(Clone, Default)]
 pub struct Scene {
     encoding: Encoding,
@@ -18,6 +25,7 @@ impl Scene {
         Self::default()
     }
 
+    // TODO - Rename to "clear()" (see #469)
     /// Removes all content from the scene.
     pub fn reset(&mut self) {
         self.encoding.reset();
@@ -28,14 +36,19 @@ impl Scene {
         &self.encoding
     }
 
-    /// Pushes a new layer bound by the specified shape and composed with
+    /// Pushes a new layer clipped by the specified shape and composed with
     /// previous layers using the specified blend mode.
+    ///
+    /// Every drawing command after this call will be clipped by the shape
+    /// until the layer is popped.
+    ///
+    /// **However, the transforms are *not* saved or modified by the layer stack.**
     pub fn push_layer(
         &mut self,
         blend: impl Into<BlendMode>,
         alpha: f32,
         transform: Affine,
-        shape: &impl Shape,
+        clip: &impl Shape,
     ) {
         let blend = blend.into();
         self.encoding
@@ -161,7 +174,10 @@ impl Scene {
         DrawGlyphs::new(&mut self.encoding, font)
     }
 
-    /// Appends a fragment to the scene.
+    /// Appends a child scene.
+    ///
+    /// The given transform is applied to every transform in the child.
+    /// This is an O(N) operation.
     pub fn append(&mut self, other: &Scene, transform: Option<Affine>) {
         self.encoding.append(
             &other.encoding,

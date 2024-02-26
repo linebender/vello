@@ -100,7 +100,9 @@ See the [`examples/`](examples) folder to see how that code integrates with fram
 
 ## Performance
 
-Benchmarks are on their way.
+We've observed 177 fps for the paris-30k test scene on an M1 Max, at a resolution of 1600 pixels square, which is excellent performance and represents something of a best case for the engine.
+
+More formal benchmarks are on their way.
 
 
 ## Integrations
