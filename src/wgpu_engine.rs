@@ -335,7 +335,7 @@ impl WgpuEngine {
         })
     }
 
-    pub fn run_recording(
+    pub fn run_workflow(
         &mut self,
         device: &Device,
         queue: &Queue,
