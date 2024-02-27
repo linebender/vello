@@ -57,7 +57,7 @@ pub enum ResourceProxy {
     Image(ImageProxy),
 }
 
-/// Single command inside a [`Recording`] to get executed by an engine.
+/// Single command inside a [`Workflow`] to get executed by an engine.
 pub enum Command {
     /// Commands the data to be uploaded to the given buffer.
     Upload(BufferProxy, Vec<u8>),
@@ -98,7 +98,7 @@ pub enum BindType {
 }
 
 impl Workflow {
-    /// Appends a [`Command`] to the back of the [`Recording`].
+    /// Appends a [`Command`] to the back of the [`Workflow`].
     pub fn push(&mut self, cmd: Command) {
         self.commands.push(cmd);
     }

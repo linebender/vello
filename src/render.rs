@@ -41,7 +41,7 @@ pub fn render_full(
     render_encoding_full(scene.encoding(), shaders, params)
 }
 
-/// Create a single recording with both coarse and fine render stages.
+/// Create a single workflow with both coarse and fine render stages.
 ///
 /// This function is not recommended when the scene can be complex, as it does not
 /// implement robust dynamic memory.
@@ -51,10 +51,10 @@ pub fn render_encoding_full(
     params: &RenderParams,
 ) -> (Workflow, ResourceProxy) {
     let mut render = Render::new();
-    let mut recording = render.render_encoding_coarse(encoding, shaders, params, false);
+    let mut workflow = render.render_encoding_coarse(encoding, shaders, params, false);
     let out_image = render.out_image();
-    render.record_fine(shaders, &mut recording);
-    (recording, out_image.into())
+    render.record_fine(shaders, &mut workflow);
+    (workflow, out_image.into())
 }
 
 impl Default for Render {
@@ -72,7 +72,7 @@ impl Render {
         }
     }
 
-    /// Prepare a recording for the coarse rasterization phase.
+    /// Prepare a workflow for the coarse rasterization phase.
     ///
     /// The `robust` parameter controls whether we're preparing for readback
     /// of the atomic bump buffer, for robust dynamic memory.
@@ -85,7 +85,7 @@ impl Render {
     ) -> Workflow {
         use vello_encoding::{RenderConfig, Resolver};
 
-        let mut recording = Workflow::default();
+        let mut workflow = Workflow::default();
         let mut resolver = Resolver::new();
         let mut packed = vec![];
         let (layout, ramps, images) = resolver.resolve(encoding, &mut packed);
@@ -93,7 +93,7 @@ impl Render {
             ResourceProxy::new_image(1, 1, ImageFormat::Rgba8)
         } else {
             let data: &[u8] = bytemuck::cast_slice(ramps.data);
-            ResourceProxy::Image(recording.upload_image(
+            ResourceProxy::Image(workflow.upload_image(
                 ramps.width,
                 ramps.height,
                 ImageFormat::Rgba8,
@@ -106,7 +106,7 @@ impl Render {
             ImageProxy::new(images.width, images.height, ImageFormat::Rgba8)
         };
         for image in images.images {
-            recording.write_image(
+            workflow.write_image(
                 image_atlas,
                 image.1,
                 image.2,
@@ -121,9 +121,9 @@ impl Render {
         let buffer_sizes = &cpu_config.buffer_sizes;
         let wg_counts = &cpu_config.workgroup_counts;
 
-        let scene_buf = ResourceProxy::Buffer(recording.upload("scene", packed));
+        let scene_buf = ResourceProxy::Buffer(workflow.upload("scene", packed));
         let config_buf = ResourceProxy::Buffer(
-            recording.upload_uniform("config", bytemuck::bytes_of(&cpu_config.gpu)),
+            workflow.upload_uniform("config", bytemuck::bytes_of(&cpu_config.gpu)),
         );
         let info_bin_data_buf = ResourceProxy::new_buf(
             buffer_sizes.bin_data.size_in_bytes() as u64,
@@ -139,7 +139,7 @@ impl Render {
             "reduced_buf",
         );
         // TODO: really only need pathtag_wgs - 1
-        recording.dispatch(
+        workflow.dispatch(
             shaders.pathtag_reduce,
             wg_counts.path_reduce,
             [config_buf, scene_buf, reduced_buf],
@@ -152,7 +152,7 @@ impl Render {
                 buffer_sizes.path_reduced2.size_in_bytes().into(),
                 "reduced2_buf",
             );
-            recording.dispatch(
+            workflow.dispatch(
                 shaders.pathtag_reduce2,
                 wg_counts.path_reduce2,
                 [reduced_buf, reduced2_buf],
@@ -161,7 +161,7 @@ impl Render {
                 buffer_sizes.path_reduced_scan.size_in_bytes().into(),
                 "reduced_scan_buf",
             );
-            recording.dispatch(
+            workflow.dispatch(
                 shaders.pathtag_scan1,
                 wg_counts.path_scan1,
                 [reduced_buf, reduced2_buf, reduced_scan_buf],
@@ -179,31 +179,31 @@ impl Render {
         } else {
             shaders.pathtag_scan
         };
-        recording.dispatch(
+        workflow.dispatch(
             pathtag_scan,
             wg_counts.path_scan,
             [config_buf, scene_buf, pathtag_parent, tagmonoid_buf],
         );
-        recording.free_resource(reduced_buf);
+        workflow.free_resource(reduced_buf);
         if let Some((reduced2, reduced_scan)) = large_pathtag_bufs {
-            recording.free_resource(reduced2);
-            recording.free_resource(reduced_scan);
+            workflow.free_resource(reduced2);
+            workflow.free_resource(reduced_scan);
         }
         let path_bbox_buf = ResourceProxy::new_buf(
             buffer_sizes.path_bboxes.size_in_bytes().into(),
             "path_bbox_buf",
         );
-        recording.dispatch(
+        workflow.dispatch(
             shaders.bbox_clear,
             wg_counts.bbox_clear,
             [config_buf, path_bbox_buf],
         );
         let bump_buf = BufferProxy::new(buffer_sizes.bump_alloc.size_in_bytes().into(), "bump_buf");
-        recording.clear_all(bump_buf);
+        workflow.clear_all(bump_buf);
         let bump_buf = ResourceProxy::Buffer(bump_buf);
         let lines_buf =
             ResourceProxy::new_buf(buffer_sizes.lines.size_in_bytes().into(), "lines_buf");
-        recording.dispatch(
+        workflow.dispatch(
             shaders.flatten,
             wg_counts.flatten,
             [
@@ -219,7 +219,7 @@ impl Render {
             buffer_sizes.draw_reduced.size_in_bytes().into(),
             "draw_reduced_buf",
         );
-        recording.dispatch(
+        workflow.dispatch(
             shaders.draw_reduce,
             wg_counts.draw_reduce,
             [config_buf, scene_buf, draw_reduced_buf],
@@ -232,7 +232,7 @@ impl Render {
             buffer_sizes.clip_inps.size_in_bytes().into(),
             "clip_inp_buf",
         );
-        recording.dispatch(
+        workflow.dispatch(
             shaders.draw_leaf,
             wg_counts.draw_leaf,
             [
@@ -245,7 +245,7 @@ impl Render {
                 clip_inp_buf,
             ],
         );
-        recording.free_resource(draw_reduced_buf);
+        workflow.free_resource(draw_reduced_buf);
         let clip_el_buf =
             ResourceProxy::new_buf(buffer_sizes.clip_els.size_in_bytes().into(), "clip_el_buf");
         let clip_bic_buf = ResourceProxy::new_buf(
@@ -253,7 +253,7 @@ impl Render {
             "clip_bic_buf",
         );
         if wg_counts.clip_reduce.0 > 0 {
-            recording.dispatch(
+            workflow.dispatch(
                 shaders.clip_reduce,
                 wg_counts.clip_reduce,
                 [clip_inp_buf, path_bbox_buf, clip_bic_buf, clip_el_buf],
@@ -264,7 +264,7 @@ impl Render {
             "clip_bbox_buf",
         );
         if wg_counts.clip_leaf.0 > 0 {
-            recording.dispatch(
+            workflow.dispatch(
                 shaders.clip_leaf,
                 wg_counts.clip_leaf,
                 [
@@ -278,9 +278,9 @@ impl Render {
                 ],
             );
         }
-        recording.free_resource(clip_inp_buf);
-        recording.free_resource(clip_bic_buf);
-        recording.free_resource(clip_el_buf);
+        workflow.free_resource(clip_inp_buf);
+        workflow.free_resource(clip_bic_buf);
+        workflow.free_resource(clip_el_buf);
         let draw_bbox_buf = ResourceProxy::new_buf(
             buffer_sizes.draw_bboxes.size_in_bytes().into(),
             "draw_bbox_buf",
@@ -289,7 +289,7 @@ impl Render {
             buffer_sizes.bin_headers.size_in_bytes().into(),
             "bin_header_buf",
         );
-        recording.dispatch(
+        workflow.dispatch(
             shaders.binning,
             wg_counts.binning,
             [
@@ -303,14 +303,14 @@ impl Render {
                 bin_header_buf,
             ],
         );
-        recording.free_resource(draw_monoid_buf);
-        recording.free_resource(path_bbox_buf);
-        recording.free_resource(clip_bbox_buf);
+        workflow.free_resource(draw_monoid_buf);
+        workflow.free_resource(path_bbox_buf);
+        workflow.free_resource(clip_bbox_buf);
         // Note: this only needs to be rounded up because of the workaround to store the tile_offset
         // in storage rather than workgroup memory.
         let path_buf =
             ResourceProxy::new_buf(buffer_sizes.paths.size_in_bytes().into(), "path_buf");
-        recording.dispatch(
+        workflow.dispatch(
             shaders.tile_alloc,
             wg_counts.tile_alloc,
             [
@@ -322,13 +322,13 @@ impl Render {
                 tile_buf,
             ],
         );
-        recording.free_resource(draw_bbox_buf);
-        recording.free_resource(tagmonoid_buf);
+        workflow.free_resource(draw_bbox_buf);
+        workflow.free_resource(tagmonoid_buf);
         let indirect_count_buf = BufferProxy::new(
             buffer_sizes.indirect_count.size_in_bytes().into(),
             "indirect_count",
         );
-        recording.dispatch(
+        workflow.dispatch(
             shaders.path_count_setup,
             wg_counts.path_count_setup,
             [bump_buf, indirect_count_buf.into()],
@@ -337,18 +337,18 @@ impl Render {
             buffer_sizes.seg_counts.size_in_bytes().into(),
             "seg_counts_buf",
         );
-        recording.dispatch_indirect(
+        workflow.dispatch_indirect(
             shaders.path_count,
             indirect_count_buf,
             0,
             [bump_buf, lines_buf, path_buf, tile_buf, seg_counts_buf],
         );
-        recording.dispatch(
+        workflow.dispatch(
             shaders.backdrop,
             wg_counts.backdrop,
             [config_buf, path_buf, tile_buf],
         );
-        recording.dispatch(
+        workflow.dispatch(
             shaders.coarse,
             wg_counts.coarse,
             [
@@ -363,12 +363,12 @@ impl Render {
                 ptcl_buf,
             ],
         );
-        recording.dispatch(
+        workflow.dispatch(
             shaders.path_tiling_setup,
             wg_counts.path_tiling_setup,
             [bump_buf, indirect_count_buf.into()],
         );
-        recording.dispatch_indirect(
+        workflow.dispatch_indirect(
             shaders.path_tiling,
             indirect_count_buf,
             0,
@@ -381,13 +381,13 @@ impl Render {
                 segments_buf,
             ],
         );
-        recording.free_buffer(indirect_count_buf);
-        recording.free_resource(seg_counts_buf);
-        recording.free_resource(lines_buf);
-        recording.free_resource(scene_buf);
-        recording.free_resource(draw_monoid_buf);
-        recording.free_resource(bin_header_buf);
-        recording.free_resource(path_buf);
+        workflow.free_buffer(indirect_count_buf);
+        workflow.free_resource(seg_counts_buf);
+        workflow.free_resource(lines_buf);
+        workflow.free_resource(scene_buf);
+        workflow.free_resource(draw_monoid_buf);
+        workflow.free_resource(bin_header_buf);
+        workflow.free_resource(path_buf);
         let out_image = ImageProxy::new(params.width, params.height, ImageFormat::Rgba8);
         self.fine_wg_count = Some(wg_counts.fine);
         self.fine_resources = Some(FineResources {
@@ -403,19 +403,19 @@ impl Render {
             out_image,
         });
         if robust {
-            recording.download(*bump_buf.as_buf().unwrap());
+            workflow.download(*bump_buf.as_buf().unwrap());
         }
-        recording.free_resource(bump_buf);
-        recording
+        workflow.free_resource(bump_buf);
+        workflow
     }
 
     /// Run fine rasterization assuming the coarse phase succeeded.
-    pub fn record_fine(&mut self, shaders: &FullShaders, recording: &mut Workflow) {
+    pub fn record_fine(&mut self, shaders: &FullShaders, workflow: &mut Workflow) {
         let fine_wg_count = self.fine_wg_count.take().unwrap();
         let fine = self.fine_resources.take().unwrap();
         match fine.aa_config {
             AaConfig::Area => {
-                recording.dispatch(
+                workflow.dispatch(
                     shaders
                         .fine_area
                         .expect("shaders not configured to support AA mode: area"),
@@ -438,7 +438,7 @@ impl Render {
                         AaConfig::Msaa8 => make_mask_lut(),
                         _ => unreachable!(),
                     };
-                    let buf = recording.upload("mask lut", mask_lut);
+                    let buf = workflow.upload("mask lut", mask_lut);
                     self.mask_buf = Some(buf.into());
                 }
                 let fine_shader = match fine.aa_config {
@@ -450,7 +450,7 @@ impl Render {
                         .expect("shaders not configured to support AA mode: msaa8"),
                     _ => unreachable!(),
                 };
-                recording.dispatch(
+                workflow.dispatch(
                     fine_shader,
                     fine_wg_count,
                     [
@@ -466,16 +466,16 @@ impl Render {
                 );
             }
         }
-        recording.free_resource(fine.config_buf);
-        recording.free_resource(fine.tile_buf);
-        recording.free_resource(fine.segments_buf);
-        recording.free_resource(fine.ptcl_buf);
-        recording.free_resource(fine.gradient_image);
-        recording.free_resource(fine.image_atlas);
-        recording.free_resource(fine.info_bin_data_buf);
+        workflow.free_resource(fine.config_buf);
+        workflow.free_resource(fine.tile_buf);
+        workflow.free_resource(fine.segments_buf);
+        workflow.free_resource(fine.ptcl_buf);
+        workflow.free_resource(fine.gradient_image);
+        workflow.free_resource(fine.image_atlas);
+        workflow.free_resource(fine.info_bin_data_buf);
         // TODO: make mask buf persistent
         if let Some(mask_buf) = self.mask_buf.take() {
-            recording.free_resource(mask_buf);
+            workflow.free_resource(mask_buf);
         }
     }
 

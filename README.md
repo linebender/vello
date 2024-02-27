@@ -149,7 +149,7 @@ Note that new imports must currently be added to `.vscode/settings.json` for thi
 ## GPU abstraction
 
 Our rendering code does not directly interact with `wgpu`.
-Instead, we generate a `Recording`, a simple value type, then an `Engine` plays that recording to the actual GPU.
+Instead, we generate a `Workflow`, a simple value type, then an `Engine` plays that worflow to the actual GPU.
 The only currently implemented `Engine` uses `wgpu`.
 
 The idea is that this can abstract easily over multiple GPU back-ends, without either the render logic needing to be polymorphic or having dynamic dispatch at the GPU abstraction.

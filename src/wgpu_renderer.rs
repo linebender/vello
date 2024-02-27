@@ -97,7 +97,7 @@ impl Renderer {
         texture: &TextureView,
         params: &RenderParams,
     ) -> Result<()> {
-        let (recording, target) = render::render_full(scene, &self.shaders, params);
+        let (workflow, target) = render::render_full(scene, &self.shaders, params);
         let external_resources = [ExternalResource::Image(
             *target.as_image().unwrap(),
             texture,
@@ -105,7 +105,7 @@ impl Renderer {
         self.engine.run_workflow(
             device,
             queue,
-            &recording,
+            &workflow,
             &external_resources,
             "render_to_texture",
             #[cfg(feature = "wgpu-profiler")]
@@ -222,13 +222,13 @@ impl Renderer {
         let encoding = scene.encoding();
         // TODO: turn this on; the download feature interacts with CPU dispatch
         let robust = false;
-        let recording = render.render_encoding_coarse(encoding, &self.shaders, params, robust);
+        let workflow = render.render_encoding_coarse(encoding, &self.shaders, params, robust);
         let target = render.out_image();
         let bump_buf = render.bump_buf();
         self.engine.run_workflow(
             device,
             queue,
-            &recording,
+            &workflow,
             &[],
             "t_async_coarse",
             #[cfg(feature = "wgpu-profiler")]

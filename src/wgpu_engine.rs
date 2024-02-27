@@ -117,7 +117,7 @@ struct ResourcePool {
 /// The transient bind map contains short-lifetime resources.
 ///
 /// In particular, it has resources scoped to a single call of
-/// `run_recording()`, including external resources and also buffer
+/// [`WgpuEngine::run_workflow`], including external resources and also buffer
 /// uploads.
 #[derive(Default)]
 struct TransientBindMap<'a> {
@@ -339,7 +339,7 @@ impl WgpuEngine {
         &mut self,
         device: &Device,
         queue: &Queue,
-        recording: &Workflow,
+        workflow: &Workflow,
         external_resources: &[ExternalResource],
         label: &'static str,
         #[cfg(feature = "wgpu-profiler")] profiler: &mut wgpu_profiler::GpuProfiler,
@@ -352,7 +352,7 @@ impl WgpuEngine {
             device.create_command_encoder(&CommandEncoderDescriptor { label: Some(label) });
         #[cfg(feature = "wgpu-profiler")]
         let query = profiler.begin_query(label, &mut encoder, device);
-        for command in recording.commands() {
+        for command in workflow.commands() {
             match command {
                 Command::Upload(buf_proxy, bytes) => {
                     transient_map
