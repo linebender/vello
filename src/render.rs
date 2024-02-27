@@ -4,8 +4,8 @@
 //! Take an encoded scene and create a graph to render it
 
 use crate::{
-    recording::{BufferProxy, ImageFormat, ImageProxy, Recording, ResourceProxy},
     shaders::FullShaders,
+    workflow::{BufferProxy, ImageFormat, ImageProxy, ResourceProxy, Workflow},
     AaConfig, RenderParams, Scene,
 };
 use vello_encoding::{make_mask_lut, make_mask_lut_16, Encoding, WorkgroupSize};
@@ -37,7 +37,7 @@ pub fn render_full(
     scene: &Scene,
     shaders: &FullShaders,
     params: &RenderParams,
-) -> (Recording, ResourceProxy) {
+) -> (Workflow, ResourceProxy) {
     render_encoding_full(scene.encoding(), shaders, params)
 }
 
@@ -49,7 +49,7 @@ pub fn render_encoding_full(
     encoding: &Encoding,
     shaders: &FullShaders,
     params: &RenderParams,
-) -> (Recording, ResourceProxy) {
+) -> (Workflow, ResourceProxy) {
     let mut render = Render::new();
     let mut recording = render.render_encoding_coarse(encoding, shaders, params, false);
     let out_image = render.out_image();
@@ -82,10 +82,10 @@ impl Render {
         shaders: &FullShaders,
         params: &RenderParams,
         robust: bool,
-    ) -> Recording {
+    ) -> Workflow {
         use vello_encoding::{RenderConfig, Resolver};
 
-        let mut recording = Recording::default();
+        let mut recording = Workflow::default();
         let mut resolver = Resolver::new();
         let mut packed = vec![];
         let (layout, ramps, images) = resolver.resolve(encoding, &mut packed);
@@ -410,7 +410,7 @@ impl Render {
     }
 
     /// Run fine rasterization assuming the coarse phase succeeded.
-    pub fn record_fine(&mut self, shaders: &FullShaders, recording: &mut Recording) {
+    pub fn record_fine(&mut self, shaders: &FullShaders, recording: &mut Workflow) {
         let fine_wg_count = self.fine_wg_count.take().unwrap();
         let fine = self.fine_resources.take().unwrap();
         match fine.aa_config {

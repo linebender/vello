@@ -14,8 +14,8 @@ use wgpu::{
 };
 
 use crate::{
-    cpu_dispatch::CpuBinding, recording::BindType, BufferProxy, Command, Error, ImageProxy,
-    Recording, ResourceId, ResourceProxy, ShaderId,
+    cpu_dispatch::CpuBinding, workflow::BindType, BufferProxy, Command, Error, ImageProxy,
+    ResourceId, ResourceProxy, ShaderId, Workflow,
 };
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -339,7 +339,7 @@ impl WgpuEngine {
         &mut self,
         device: &Device,
         queue: &Queue,
-        recording: &Recording,
+        recording: &Workflow,
         external_resources: &[ExternalResource],
         label: &'static str,
         #[cfg(feature = "wgpu-profiler")] profiler: &mut wgpu_profiler::GpuProfiler,
@@ -352,7 +352,7 @@ impl WgpuEngine {
             device.create_command_encoder(&CommandEncoderDescriptor { label: Some(label) });
         #[cfg(feature = "wgpu-profiler")]
         let query = profiler.begin_query(label, &mut encoder, device);
-        for command in &recording.commands {
+        for command in recording.commands() {
             match command {
                 Command::Upload(buf_proxy, bytes) => {
                     transient_map

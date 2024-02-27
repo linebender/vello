@@ -24,8 +24,8 @@ impl ResourceId {
 
 /// List of [`Command`]s for an engine to execute in order.
 #[derive(Default)]
-pub struct Recording {
-    pub commands: Vec<Command>,
+pub struct Workflow {
+    commands: Vec<Command>,
 }
 
 /// Proxy used as a handle to a buffer.
@@ -97,7 +97,7 @@ pub enum BindType {
     // TODO: Uniform, Sampler, maybe others
 }
 
-impl Recording {
+impl Workflow {
     /// Appends a [`Command`] to the back of the [`Recording`].
     pub fn push(&mut self, cmd: Command) {
         self.commands.push(cmd);
@@ -209,9 +209,9 @@ impl Recording {
         }
     }
 
-    /// Returns a [`Vec`] containing all the [`Command`]s in order.
-    pub fn into_commands(self) -> Vec<Command> {
-        self.commands
+    /// Returns a slice over all the [`Command`]s in order.
+    pub fn commands(&self) -> &[Command] {
+        &self.commands
     }
 }
 

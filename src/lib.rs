@@ -5,12 +5,12 @@
 
 mod cpu_dispatch;
 mod cpu_shader;
-mod recording;
 mod render;
 mod scene;
 mod shaders;
 #[cfg(feature = "wgpu")]
 mod wgpu_engine;
+mod workflow;
 
 use std::num::NonZeroUsize;
 
@@ -32,12 +32,12 @@ pub use scene::{DrawGlyphs, Scene};
 #[cfg(feature = "wgpu")]
 pub use util::block_on_wgpu;
 
-pub use recording::{
-    BufferProxy, Command, ImageFormat, ImageProxy, Recording, ResourceId, ResourceProxy, ShaderId,
-};
 pub use shaders::FullShaders;
 #[cfg(feature = "wgpu")]
 use wgpu_engine::{ExternalResource, WgpuEngine};
+pub use workflow::{
+    BufferProxy, Command, ImageFormat, ImageProxy, ResourceId, ResourceProxy, ShaderId, Workflow,
+};
 
 /// Temporary export, used in `with_winit` for stats
 pub use vello_encoding::BumpAllocators;
@@ -342,7 +342,7 @@ impl Renderer {
         // allocate the blend stack as needed.
         self.engine.free_download(bump_buf);
         // Maybe clear to reuse allocation?
-        let mut recording = Recording::default();
+        let mut recording = Workflow::default();
         render.record_fine(&self.shaders, &mut recording);
         let external_resources = [ExternalResource::Image(target, texture)];
         self.engine.run_recording(
