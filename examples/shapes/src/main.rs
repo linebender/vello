@@ -57,7 +57,8 @@ fn main() -> Result<()> {
                     WindowEvent::CloseRequested => event_loop.exit(),
                     WindowEvent::Resized(size) => {
                         // Resize the surface when the window is resized
-                        render_cx.resize_surface(&mut render_state.surface, size.width, size.height)
+                        render_cx.resize_surface(&mut render_state.surface, size.width, size.height);
+                        render_state.window.request_redraw();
                     }
                     WindowEvent::RedrawRequested => {
                         // This is where all the rendering happens
