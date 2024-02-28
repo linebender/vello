@@ -104,52 +104,12 @@ fn main() -> Result<()> {
                             .get_current_texture()
                             .expect("failed to get surface texture");
 
-                        // Define the render parameters.
-                        let render_params = vello::RenderParams {
-                            // Background color
-                            base_color: Color::BLACK,
-                            // Width
-                            width,
-                            // Height
-                            height,
-                            // Antialiasing method to use. Other methods: AaConfig::Area, AaConfig::Msaa8
-                            antialiasing_method: AaConfig::Msaa16,
-                        };
-
-                        // Create some shapes!
-                        let stroke = Stroke::new(6.0);
-
-                        let rect = RoundedRect::new(10.0, 10.0, 240.0, 240.0, 20.0);
-                        let rect_stroke_color = Color::rgb(0.9804, 0.702, 0.5294);
-
-                        let circle = Circle::new((420.0, 200.0), 120.0);
-                        let circle_fill_color = Color::rgb(0.9529, 0.5451, 0.6588);
-
-                        let ellipse = Ellipse::new((250.0, 420.0), (100.0, 160.0), -90.0);
-                        let ellipse_fill_color = Color::rgb(0.7961, 0.651, 0.9686);
-
-                        let line = Line::new((260.0, 20.0), (620.0, 100.0));
-                        let line_stroke_color = Color::rgb(0.5373, 0.7059, 0.9804);
-
+                        // Empty the scene of objects to draw. You could create a new Scene each time, but in this case
+                        // the same Scene is reused so that the underlying memory allocation can also be reused.
                         scene.reset();
 
-                        // Draw the shapes!
-                        scene.stroke(&stroke, Affine::IDENTITY, rect_stroke_color, None, &rect);
-                        scene.fill(
-                            vello::peniko::Fill::NonZero,
-                            Affine::IDENTITY,
-                            circle_fill_color,
-                            None,
-                            &circle,
-                        );
-                        scene.fill(
-                            vello::peniko::Fill::NonZero,
-                            Affine::IDENTITY,
-                            ellipse_fill_color,
-                            None,
-                            &ellipse,
-                        );
-                        scene.stroke(&stroke, Affine::IDENTITY, line_stroke_color, None, &line);
+                        // Re-add the objects to draw to the scene.
+                        add_shapes_to_scene(&mut scene);
 
                         // Render to the surface
                         renderers[render_state.surface.dev_id]
@@ -160,7 +120,17 @@ fn main() -> Result<()> {
                                 &device_handle.queue,
                                 &scene,
                                 &surface_texture,
-                                &render_params,
+                                // Define the render parameters.
+                                &vello::RenderParams {
+                                    // Background color
+                                    base_color: Color::BLACK,
+                                    // Width
+                                    width,
+                                    // Height
+                                    height,
+                                    // Antialiasing method to use. Other methods: AaConfig::Area, AaConfig::Msaa8
+                                    antialiasing_method: AaConfig::Msaa16,
+                                },
                             )
                             .expect("failed to render to surface");
                         surface_texture.present();
@@ -199,4 +169,41 @@ fn create_vello_renderer(render_cx: &RenderContext, surface: &RenderSurface) -> 
         },
     )
     .expect("Could create renderer")
+}
+
+/// Add shapes to a vello scene. This does not actually render the shapes, but adds them
+/// to the Scene data structure which represents a set of objects to draw.
+fn add_shapes_to_scene(scene: &mut Scene) {
+    // Draw an outlined rectangle
+    let stroke = Stroke::new(6.0);
+    let rect = RoundedRect::new(10.0, 10.0, 240.0, 240.0, 20.0);
+    let rect_stroke_color = Color::rgb(0.9804, 0.702, 0.5294);
+    scene.stroke(&stroke, Affine::IDENTITY, rect_stroke_color, None, &rect);
+
+    // Draw a filled circle
+    let circle = Circle::new((420.0, 200.0), 120.0);
+    let circle_fill_color = Color::rgb(0.9529, 0.5451, 0.6588);
+    scene.fill(
+        vello::peniko::Fill::NonZero,
+        Affine::IDENTITY,
+        circle_fill_color,
+        None,
+        &circle,
+    );
+
+    // Draw a filled ellipse
+    let ellipse = Ellipse::new((250.0, 420.0), (100.0, 160.0), -90.0);
+    let ellipse_fill_color = Color::rgb(0.7961, 0.651, 0.9686);
+    scene.fill(
+        vello::peniko::Fill::NonZero,
+        Affine::IDENTITY,
+        ellipse_fill_color,
+        None,
+        &ellipse,
+    );
+
+    // Draw a straight line
+    let line = Line::new((260.0, 20.0), (620.0, 100.0));
+    let line_stroke_color = Color::rgb(0.5373, 0.7059, 0.9804);
+    scene.stroke(&stroke, Affine::IDENTITY, line_stroke_color, None, &line);
 }
