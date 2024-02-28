@@ -92,18 +92,6 @@ fn main() -> Result<()> {
                     WindowEvent::RedrawRequested => {
                         // This is where all the rendering happens
 
-                        // Get the window size
-                        let width = render_state.surface.config.width;
-                        let height = render_state.surface.config.height;
-                        // Get a handle to the device
-                        let device_handle = &render_cx.devices[render_state.surface.dev_id];
-                        // Use the render_state to retrieve the surface to draw to
-                        let surface_texture = render_state
-                            .surface
-                            .surface
-                            .get_current_texture()
-                            .expect("failed to get surface texture");
-
                         // Empty the scene of objects to draw. You could create a new Scene each time, but in this case
                         // the same Scene is reused so that the underlying memory allocation can also be reused.
                         scene.reset();
@@ -111,8 +99,24 @@ fn main() -> Result<()> {
                         // Re-add the objects to draw to the scene.
                         add_shapes_to_scene(&mut scene);
 
-                        // Render to the surface
-                        renderers[render_state.surface.dev_id]
+                        // Get the RenderSurface (surface + config)
+                        let surface = &render_state.surface;
+
+                        // Get the window size
+                        let width = surface.config.width;
+                        let height = surface.config.height;
+
+                        // Get a handle to the device
+                        let device_handle = &render_cx.devices[surface.dev_id];
+
+                        // Get the surface's texture
+                        let surface_texture = surface
+                            .surface
+                            .get_current_texture()
+                            .expect("failed to get surface texture");
+
+                        // Render to the surface's texture
+                        renderers[surface.dev_id]
                             .as_mut()
                             .unwrap()
                             .render_to_surface(
@@ -120,20 +124,18 @@ fn main() -> Result<()> {
                                 &device_handle.queue,
                                 &scene,
                                 &surface_texture,
-                                // Define the render parameters.
                                 &vello::RenderParams {
-                                    // Background color
-                                    base_color: Color::BLACK,
-                                    // Width
+                                    base_color: Color::BLACK, // Background color
                                     width,
-                                    // Height
                                     height,
-                                    // Antialiasing method to use. Other methods: AaConfig::Area, AaConfig::Msaa8
                                     antialiasing_method: AaConfig::Msaa16,
                                 },
                             )
                             .expect("failed to render to surface");
+
+                        // Queue the texture to be presented on the surface
                         surface_texture.present();
+
                         device_handle.device.poll(wgpu::Maintain::Poll);
                     }
                     _ => {}
