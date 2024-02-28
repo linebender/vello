@@ -27,10 +27,19 @@ enum RenderState<'s> {
 }
 
 fn main() -> Result<()> {
-    // Setup a bunch of application state
+    // Setup a bunch of state:
+
+    // The vello RenderContext which is a global context which lasts for the lifetime of the application
     let mut render_cx = RenderContext::new().unwrap();
+
+    // An array of renderers, one per wgpu device
     let mut renderers: Vec<Option<Renderer>> = vec![];
+
+    // State for our example where we store the winit Window and the wgpu Surface
     let mut render_state = RenderState::Suspended(None);
+
+    // A vello Scene which is a data structure which allows one to build up a description a scene to be drawn
+    // (with paths, fills, images, text, etc) which is then passed to a renderer for rednering
     let mut scene = Scene::new();
 
     // Create and run a winit event loop
