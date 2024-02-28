@@ -33,16 +33,66 @@ fn create_window(event_loop: &winit::event_loop::EventLoopWindowTarget<()>) -> A
 }
 
 fn main() -> Result<()> {
-    let event_loop = EventLoop::new()?;
+
+    // Setup a bunch of application state
     let mut render_cx = RenderContext::new().unwrap();
     let mut renderers: Vec<Option<Renderer>> = vec![];
-    let mut render_state = None::<RenderState>;
+    let mut render_state : Option<RenderState> = None;
     // Cache a window so that it can be reused when the app is resumed after being suspended
     let mut cached_window = None;
     let mut scene = Scene::new();
 
+    // Create and run a winit event loop
+    let event_loop = EventLoop::new()?;
     event_loop
         .run(move |event, event_loop| match event {
+
+            // Setup renderer. In winit apps it is recommended to do setup in Event::Resumed
+            // for best cross-platform compatibility
+            Event::Resumed => {
+                let Option::None = render_state else { return };
+
+                // Get the winit window cached in a previous Suspended event or else create a new window
+                let window = cached_window
+                    .take()
+                    .unwrap_or_else(|| create_window(event_loop));
+
+                // Create a vello Surface
+                let size = window.inner_size();
+                let surface_future =
+                    render_cx.create_surface(window.clone(), size.width, size.height);
+                let surface = pollster::block_on(surface_future).expect("Error creating surface");
+
+                // Create a vello Renderer for the surface (using it's device id)
+                let device_id = surface.dev_id;
+                renderers.resize_with(render_cx.devices.len(), || None);
+                renderers[device_id].get_or_insert_with(|| {
+                    Renderer::new(
+                        &render_cx.devices[device_id].device,
+                        RendererOptions {
+                            surface_format: Some(surface.format),
+                            use_cpu: false,
+                            antialiasing_support: vello::AaSupport::all(),
+                            num_init_threads: NonZeroUsize::new(1),
+                        },
+                    )
+                    .expect("Could create renderer")
+                });
+                
+                // Save the Window and Surface to a state variable
+                render_state = Some(RenderState { window, surface });
+
+                event_loop.set_control_flow(ControlFlow::Poll);
+            }
+
+            // Save window state on suspend
+            Event::Suspended => {
+                if let Some(render_state) = render_state.take() {
+                    cached_window = Some(render_state.window);
+                }
+                event_loop.set_control_flow(ControlFlow::Wait);
+            }
+
             Event::WindowEvent {
                 ref event,
                 window_id,
@@ -143,43 +193,6 @@ fn main() -> Result<()> {
                     }
                     _ => {}
                 }
-            }
-            Event::Suspended => {
-                if let Some(render_state) = render_state.take() {
-                    cached_window = Some(render_state.window);
-                }
-                event_loop.set_control_flow(ControlFlow::Wait);
-            }
-            Event::Resumed => {
-                let Option::None = render_state else { return };
-                // Get the window
-                let window = cached_window
-                    .take()
-                    .unwrap_or_else(|| create_window(event_loop));
-                let size = window.inner_size();
-                let surface_future =
-                    render_cx.create_surface(window.clone(), size.width, size.height);
-                // Create a surface
-                let surface = pollster::block_on(surface_future).expect("Error creating surface");
-                render_state = {
-                    let render_state = RenderState { window, surface };
-                    renderers.resize_with(render_cx.devices.len(), || None);
-                    let id = render_state.surface.dev_id;
-                    renderers[id].get_or_insert_with(|| {
-                        Renderer::new(
-                            &render_cx.devices[id].device,
-                            RendererOptions {
-                                surface_format: Some(render_state.surface.format),
-                                use_cpu: false,
-                                antialiasing_support: vello::AaSupport::all(),
-                                num_init_threads: NonZeroUsize::new(1),
-                            },
-                        )
-                        .expect("Could create renderer")
-                    });
-                    Some(render_state)
-                };
-                event_loop.set_control_flow(ControlFlow::Poll);
             }
             _ => {}
         })
