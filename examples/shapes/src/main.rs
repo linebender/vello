@@ -20,18 +20,6 @@ pub struct RenderState<'s> {
     window: Arc<Window>,
 }
 
-// Helper function that creates a Winit window and returns it (wrapped in an Arc for thread safety)
-fn create_window(event_loop: &winit::event_loop::EventLoopWindowTarget<()>) -> Arc<Window> {
-    Arc::new(
-        WindowBuilder::new()
-            .with_inner_size(LogicalSize::new(1044, 800))
-            .with_resizable(true)
-            .with_title("Vello Shapes")
-            .build(event_loop)
-            .unwrap(),
-    )
-}
-
 fn main() -> Result<()> {
 
     // Setup a bunch of application state
@@ -55,7 +43,7 @@ fn main() -> Result<()> {
                 // Get the winit window cached in a previous Suspended event or else create a new window
                 let window = cached_window
                     .take()
-                    .unwrap_or_else(|| create_window(event_loop));
+                    .unwrap_or_else(|| create_winit_window(event_loop));
 
                 // Create a vello Surface
                 let size = window.inner_size();
@@ -198,4 +186,16 @@ fn main() -> Result<()> {
         })
         .expect("Couldn't run event loop");
     Ok(())
+}
+
+/// Helper function that creates a Winit window and returns it (wrapped in an Arc for thread safety)
+fn create_winit_window(event_loop: &winit::event_loop::EventLoopWindowTarget<()>) -> Arc<Window> {
+    Arc::new(
+        WindowBuilder::new()
+            .with_inner_size(LogicalSize::new(1044, 800))
+            .with_resizable(true)
+            .with_title("Vello Shapes")
+            .build(event_loop)
+            .unwrap(),
+    )
 }
