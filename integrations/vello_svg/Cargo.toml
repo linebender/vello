@@ -10,4 +10,4 @@ publish = false
 
 [dependencies]
 vello = { path = "../../" }
-usvg = "0.37.0"
+usvg = { version = "0.40", default-features = false }

@@ -36,9 +36,8 @@
 //! - patterns
 
 use std::convert::Infallible;
-use usvg::NodeExt;
 use vello::kurbo::{Affine, BezPath, Point, Rect, Stroke};
-use vello::peniko::{Brush, Color, Fill};
+use vello::peniko::{BlendMode, Brush, Color, Fill};
 use vello::Scene;
 
 /// Re-export vello.
@@ -54,7 +53,7 @@ pub use usvg;
 ///
 /// See the [module level documentation](crate#unsupported-features) for a list of some unsupported svg features
 pub fn render_tree(scene: &mut Scene, svg: &usvg::Tree) {
-    render_tree_with(scene, svg, default_error_handler).unwrap_or_else(|e| match e {});
+    render_tree_with(scene, svg.root(), &svg.root().transform()).unwrap();
 }
 
 /// Append a [`usvg::Tree`] into a Vello [`Scene`].
@@ -63,12 +62,12 @@ pub fn render_tree(scene: &mut Scene, svg: &usvg::Tree) {
 /// This will draw a red box over unsupported element types.
 ///
 /// See the [module level documentation](crate#unsupported-features) for a list of some unsupported svg features
-pub fn render_tree_with<F: FnMut(&mut Scene, &usvg::Node) -> Result<(), E>, E>(
+pub fn render_tree_with(
     scene: &mut Scene,
-    svg: &usvg::Tree,
-    mut on_err: F,
-) -> Result<(), E> {
-    for elt in svg.root.descendants() {
+    svg: &usvg::Group,
+    ts: &usvg::Transform,
+) -> Result<(), Infallible> {
+    for node in svg.children() {
         let transform = {
             let usvg::Transform {
                 sx,
@@ -77,66 +76,47 @@ pub fn render_tree_with<F: FnMut(&mut Scene, &usvg::Node) -> Result<(), E>, E>(
                 sy,
                 tx,
                 ty,
-            } = elt.abs_transform();
+            } = ts.pre_concat(node.abs_transform());
             Affine::new([sx, kx, ky, sy, tx, ty].map(f64::from))
         };
-        match &*elt.borrow() {
-            usvg::NodeKind::Group(_) => {}
-            usvg::NodeKind::Path(path) => {
-                let mut local_path = BezPath::new();
-                // The semantics of SVG paths don't line up with `BezPath`; we
-                // must manually track initial points
-                let mut just_closed = false;
-                let mut most_recent_initial = (0., 0.);
-                for elt in path.data.segments() {
-                    match elt {
-                        usvg::tiny_skia_path::PathSegment::MoveTo(p) => {
-                            if std::mem::take(&mut just_closed) {
-                                local_path.move_to(most_recent_initial);
-                            }
-                            most_recent_initial = (p.x.into(), p.y.into());
-                            local_path.move_to(most_recent_initial)
-                        }
-                        usvg::tiny_skia_path::PathSegment::LineTo(p) => {
-                            if std::mem::take(&mut just_closed) {
-                                local_path.move_to(most_recent_initial);
-                            }
-                            local_path.line_to(Point::new(p.x as f64, p.y as f64))
-                        }
-                        usvg::tiny_skia_path::PathSegment::QuadTo(p1, p2) => {
-                            if std::mem::take(&mut just_closed) {
-                                local_path.move_to(most_recent_initial);
-                            }
-                            local_path.quad_to(
-                                Point::new(p1.x as f64, p1.y as f64),
-                                Point::new(p2.x as f64, p2.y as f64),
-                            )
-                        }
-                        usvg::tiny_skia_path::PathSegment::CubicTo(p1, p2, p3) => {
-                            if std::mem::take(&mut just_closed) {
-                                local_path.move_to(most_recent_initial);
-                            }
-                            local_path.curve_to(
-                                Point::new(p1.x as f64, p1.y as f64),
-                                Point::new(p2.x as f64, p2.y as f64),
-                                Point::new(p3.x as f64, p3.y as f64),
-                            )
-                        }
-                        usvg::tiny_skia_path::PathSegment::Close => {
-                            just_closed = true;
-                            local_path.close_path()
-                        }
+        match node {
+            usvg::Node::Group(g) => {
+                let mut pushed_clip = false;
+                if let Some(clip_path) = g.clip_path() {
+                    if let Some(usvg::Node::Path(clip_path)) = clip_path.root().children().first() {
+                        // support clip-path with a single path
+                        let local_path = to_bez_path(clip_path);
+                        scene.push_layer(
+                            BlendMode {
+                                mix: vello::peniko::Mix::Clip,
+                                compose: vello::peniko::Compose::SrcIn,
+                            },
+                            1.0,
+                            transform,
+                            &local_path,
+                        );
+                        pushed_clip = true;
                     }
                 }
 
+                render_tree_with(scene, g, &g.transform())?;
+
+                if pushed_clip {
+                    scene.pop_layer();
+                }
+            }
+            usvg::Node::Path(path) => {
+                path.abs_transform();
+                let local_path = to_bez_path(path);
+
                 // FIXME: let path.paint_order determine the fill/stroke order.
 
-                if let Some(fill) = &path.fill {
+                if let Some(fill) = &path.fill() {
                     if let Some((brush, brush_transform)) =
-                        paint_to_brush(&fill.paint, fill.opacity)
+                        paint_to_brush(fill.paint(), fill.opacity())
                     {
                         scene.fill(
-                            match fill.rule {
+                            match fill.rule() {
                                 usvg::FillRule::NonZero => Fill::NonZero,
                                 usvg::FillRule::EvenOdd => Fill::EvenOdd,
                             },
@@ -146,30 +126,30 @@ pub fn render_tree_with<F: FnMut(&mut Scene, &usvg::Node) -> Result<(), E>, E>(
                             &local_path,
                         );
                     } else {
-                        on_err(scene, &elt)?;
+                        default_error_handler(scene, node)?;
                     }
                 }
-                if let Some(stroke) = &path.stroke {
+                if let Some(stroke) = &path.stroke() {
                     if let Some((brush, brush_transform)) =
-                        paint_to_brush(&stroke.paint, stroke.opacity)
+                        paint_to_brush(stroke.paint(), stroke.opacity())
                     {
-                        let mut conv_stroke = Stroke::new(stroke.width.get() as f64)
-                            .with_caps(match stroke.linecap {
+                        let mut conv_stroke = Stroke::new(stroke.width().get() as f64)
+                            .with_caps(match stroke.linecap() {
                                 usvg::LineCap::Butt => vello::kurbo::Cap::Butt,
                                 usvg::LineCap::Round => vello::kurbo::Cap::Round,
                                 usvg::LineCap::Square => vello::kurbo::Cap::Square,
                             })
-                            .with_join(match stroke.linejoin {
+                            .with_join(match stroke.linejoin() {
                                 usvg::LineJoin::Miter | usvg::LineJoin::MiterClip => {
                                     vello::kurbo::Join::Miter
                                 }
                                 usvg::LineJoin::Round => vello::kurbo::Join::Round,
                                 usvg::LineJoin::Bevel => vello::kurbo::Join::Bevel,
                             })
-                            .with_miter_limit(stroke.miterlimit.get() as f64);
-                        if let Some(dash_array) = stroke.dasharray.as_ref() {
+                            .with_miter_limit(stroke.miterlimit().get() as f64);
+                        if let Some(dash_array) = stroke.dasharray().as_ref() {
                             conv_stroke = conv_stroke.with_dashes(
-                                stroke.dashoffset as f64,
+                                stroke.dashoffset() as f64,
                                 dash_array.iter().map(|x| *x as f64),
                             );
                         }
@@ -181,39 +161,87 @@ pub fn render_tree_with<F: FnMut(&mut Scene, &usvg::Node) -> Result<(), E>, E>(
                             &local_path,
                         );
                     } else {
-                        on_err(scene, &elt)?;
+                        default_error_handler(scene, node)?;
                     }
                 }
             }
-            usvg::NodeKind::Image(_) => {
-                on_err(scene, &elt)?;
-            }
-            usvg::NodeKind::Text(_) => {
-                on_err(scene, &elt)?;
+            usvg::Node::Image(_) | usvg::Node::Text(_) => {
+                default_error_handler(scene, node)?;
             }
         }
     }
+
     Ok(())
+}
+
+fn to_bez_path(path: &usvg::Path) -> BezPath {
+    let mut local_path = BezPath::new();
+    // The semantics of SVG paths don't line up with `BezPath`; we
+    // must manually track initial points
+    let mut just_closed = false;
+    let mut most_recent_initial = (0., 0.);
+    for elt in path.data().segments() {
+        match elt {
+            usvg::tiny_skia_path::PathSegment::MoveTo(p) => {
+                if std::mem::take(&mut just_closed) {
+                    local_path.move_to(most_recent_initial);
+                }
+                most_recent_initial = (p.x.into(), p.y.into());
+                local_path.move_to(most_recent_initial)
+            }
+            usvg::tiny_skia_path::PathSegment::LineTo(p) => {
+                if std::mem::take(&mut just_closed) {
+                    local_path.move_to(most_recent_initial);
+                }
+                local_path.line_to(Point::new(p.x as f64, p.y as f64))
+            }
+            usvg::tiny_skia_path::PathSegment::QuadTo(p1, p2) => {
+                if std::mem::take(&mut just_closed) {
+                    local_path.move_to(most_recent_initial);
+                }
+                local_path.quad_to(
+                    Point::new(p1.x as f64, p1.y as f64),
+                    Point::new(p2.x as f64, p2.y as f64),
+                )
+            }
+            usvg::tiny_skia_path::PathSegment::CubicTo(p1, p2, p3) => {
+                if std::mem::take(&mut just_closed) {
+                    local_path.move_to(most_recent_initial);
+                }
+                local_path.curve_to(
+                    Point::new(p1.x as f64, p1.y as f64),
+                    Point::new(p2.x as f64, p2.y as f64),
+                    Point::new(p3.x as f64, p3.y as f64),
+                )
+            }
+            usvg::tiny_skia_path::PathSegment::Close => {
+                just_closed = true;
+                local_path.close_path()
+            }
+        }
+    }
+
+    local_path
 }
 
 /// Error handler function for [`render_tree_with`] which draws a transparent red box
 /// instead of unsupported SVG features
 pub fn default_error_handler(scene: &mut Scene, node: &usvg::Node) -> Result<(), Infallible> {
-    if let Some(bb) = node.calculate_bbox() {
-        let rect = Rect {
-            x0: bb.left() as f64,
-            y0: bb.top() as f64,
-            x1: bb.right() as f64,
-            y1: bb.bottom() as f64,
-        };
-        scene.fill(
-            Fill::NonZero,
-            Affine::IDENTITY,
-            Color::RED.with_alpha_factor(0.5),
-            None,
-            &rect,
-        );
-    }
+    let bb = node.bounding_box();
+    let rect = Rect {
+        x0: bb.left() as f64,
+        y0: bb.top() as f64,
+        x1: bb.right() as f64,
+        y1: bb.bottom() as f64,
+    };
+    scene.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        Color::RED.with_alpha_factor(0.5),
+        None,
+        &rect,
+    );
+
     Ok(())
 }
 
@@ -230,27 +258,27 @@ fn paint_to_brush(paint: &usvg::Paint, opacity: usvg::Opacity) -> Option<(Brush,
         )),
         usvg::Paint::LinearGradient(gr) => {
             let stops: Vec<vello::peniko::ColorStop> = gr
-                .stops
+                .stops()
                 .iter()
                 .map(|stop| {
                     let mut cstop = vello::peniko::ColorStop::default();
-                    cstop.color.r = stop.color.red;
-                    cstop.color.g = stop.color.green;
-                    cstop.color.b = stop.color.blue;
-                    cstop.color.a = (stop.opacity * opacity).to_u8();
-                    cstop.offset = stop.offset.get();
+                    cstop.color.r = stop.color().red;
+                    cstop.color.g = stop.color().green;
+                    cstop.color.b = stop.color().blue;
+                    cstop.color.a = (stop.opacity() * opacity).to_u8();
+                    cstop.offset = stop.offset().get();
                     cstop
                 })
                 .collect();
-            let start = Point::new(gr.x1 as f64, gr.y1 as f64);
-            let end = Point::new(gr.x2 as f64, gr.y2 as f64);
+            let start = Point::new(gr.x1() as f64, gr.y1() as f64);
+            let end = Point::new(gr.x2() as f64, gr.y2() as f64);
             let arr = [
-                gr.transform.sx,
-                gr.transform.ky,
-                gr.transform.kx,
-                gr.transform.sy,
-                gr.transform.tx,
-                gr.transform.ty,
+                gr.transform().sx,
+                gr.transform().ky,
+                gr.transform().kx,
+                gr.transform().sy,
+                gr.transform().tx,
+                gr.transform().ty,
             ]
             .map(f64::from);
             let transform = Affine::new(arr);
@@ -260,30 +288,30 @@ fn paint_to_brush(paint: &usvg::Paint, opacity: usvg::Opacity) -> Option<(Brush,
         }
         usvg::Paint::RadialGradient(gr) => {
             let stops: Vec<vello::peniko::ColorStop> = gr
-                .stops
+                .stops()
                 .iter()
                 .map(|stop| {
                     let mut cstop = vello::peniko::ColorStop::default();
-                    cstop.color.r = stop.color.red;
-                    cstop.color.g = stop.color.green;
-                    cstop.color.b = stop.color.blue;
-                    cstop.color.a = (stop.opacity * opacity).to_u8();
-                    cstop.offset = stop.offset.get();
+                    cstop.color.r = stop.color().red;
+                    cstop.color.g = stop.color().green;
+                    cstop.color.b = stop.color().blue;
+                    cstop.color.a = (stop.opacity() * opacity).to_u8();
+                    cstop.offset = stop.offset().get();
                     cstop
                 })
                 .collect();
 
-            let start_center = Point::new(gr.cx as f64, gr.cy as f64);
-            let end_center = Point::new(gr.fx as f64, gr.fy as f64);
+            let start_center = Point::new(gr.cx() as f64, gr.cy() as f64);
+            let end_center = Point::new(gr.fx() as f64, gr.fy() as f64);
             let start_radius = 0_f32;
-            let end_radius = gr.r.get();
+            let end_radius = gr.r().get();
             let arr = [
-                gr.transform.sx,
-                gr.transform.ky,
-                gr.transform.kx,
-                gr.transform.sy,
-                gr.transform.tx,
-                gr.transform.ty,
+                gr.transform().sx,
+                gr.transform().ky,
+                gr.transform().kx,
+                gr.transform().sy,
+                gr.transform().tx,
+                gr.transform().ty,
             ]
             .map(f64::from);
             let transform = Affine::new(arr);

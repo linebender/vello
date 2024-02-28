@@ -10,7 +10,6 @@ use anyhow::{Ok, Result};
 use instant::Instant;
 use vello::{kurbo::Vec2, Scene};
 use vello_svg::usvg;
-use vello_svg::usvg::TreeParsing;
 
 use crate::{ExampleScene, SceneParams, SceneSet};
 
@@ -101,7 +100,7 @@ pub fn svg_function_of<R: AsRef<str>>(
         let start = Instant::now();
         let mut new_scene = Scene::new();
         vello_svg::render_tree(&mut new_scene, &svg);
-        let resolution = Vec2::new(svg.size.width() as f64, svg.size.height() as f64);
+        let resolution = Vec2::new(svg.size().width() as f64, svg.size().height() as f64);
         eprintln!("Encoded svg {name} in {:?}", start.elapsed());
         (new_scene, resolution)
     }
