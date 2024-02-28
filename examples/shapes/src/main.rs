@@ -14,19 +14,23 @@ use winit::{event::*, event_loop::ControlFlow};
 use winit::{event_loop::EventLoop, window::Window};
 
 // Simple struct to hold the state of the renderer
-pub struct RenderState<'s> {
+pub struct ActiveRenderState<'s> {
     // The fields MUST be in this order, so that the surface is dropped before the window
     surface: RenderSurface<'s>,
     window: Arc<Window>,
+}
+
+enum RenderState<'s> {
+    Active(ActiveRenderState<'s>),
+    // Cache a window so that it can be reused when the app is resumed after being suspended
+    Suspended(Option<Arc<Window>>),
 }
 
 fn main() -> Result<()> {
     // Setup a bunch of application state
     let mut render_cx = RenderContext::new().unwrap();
     let mut renderers: Vec<Option<Renderer>> = vec![];
-    let mut render_state: Option<RenderState> = None;
-    // Cache a window so that it can be reused when the app is resumed after being suspended
-    let mut cached_window = None;
+    let mut render_state = RenderState::Suspended(None);
     let mut scene = Scene::new();
 
     // Create and run a winit event loop
@@ -36,7 +40,9 @@ fn main() -> Result<()> {
             // Setup renderer. In winit apps it is recommended to do setup in Event::Resumed
             // for best cross-platform compatibility
             Event::Resumed => {
-                let Option::None = render_state else { return };
+                let RenderState::Suspended(cached_window) = &mut render_state else {
+                    return;
+                };
 
                 // Get the winit window cached in a previous Suspended event or else create a new window
                 let window = cached_window
@@ -55,15 +61,15 @@ fn main() -> Result<()> {
                     .get_or_insert_with(|| create_vello_renderer(&render_cx, &surface));
 
                 // Save the Window and Surface to a state variable
-                render_state = Some(RenderState { window, surface });
+                render_state = RenderState::Active(ActiveRenderState { window, surface });
 
                 event_loop.set_control_flow(ControlFlow::Poll);
             }
 
             // Save window state on suspend
             Event::Suspended => {
-                if let Some(render_state) = render_state.take() {
-                    cached_window = Some(render_state.window);
+                if let RenderState::Active(state) = &render_state {
+                    render_state = RenderState::Suspended(Some(state.window.clone()));
                 }
                 event_loop.set_control_flow(ControlFlow::Wait);
             }
@@ -72,16 +78,22 @@ fn main() -> Result<()> {
                 ref event,
                 window_id,
             } => {
-                let Some(render_state) = &mut render_state else {
-                    return;
+                // Ignore the event (return from the function) if
+                //   - we have no render_state
+                //   - OR the window id of the event doesn't match the window id of our render_state
+                //
+                // Else extract a mutable reference to the render state from it's containing option for use below
+                let render_state = match &mut render_state {
+                    RenderState::Active(state) if state.window.id() == window_id => state,
+                    _ => return,
                 };
-                if render_state.window.id() != window_id {
-                    return;
-                }
+
                 match event {
+                    // Exit the event loop when a close is requested (e.g. window's close button is pressed)
                     WindowEvent::CloseRequested => event_loop.exit(),
+
+                    // Resize the surface when the window is resized
                     WindowEvent::Resized(size) => {
-                        // Resize the surface when the window is resized
                         render_cx.resize_surface(
                             &mut render_state.surface,
                             size.width,
@@ -89,9 +101,9 @@ fn main() -> Result<()> {
                         );
                         render_state.window.request_redraw();
                     }
-                    WindowEvent::RedrawRequested => {
-                        // This is where all the rendering happens
 
+                    // This is where all the rendering happens
+                    WindowEvent::RedrawRequested => {
                         // Empty the scene of objects to draw. You could create a new Scene each time, but in this case
                         // the same Scene is reused so that the underlying memory allocation can also be reused.
                         scene.reset();
