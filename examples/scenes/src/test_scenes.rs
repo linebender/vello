@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::{ExampleScene, SceneConfig, SceneParams, SceneSet};
-use vello::kurbo::{Affine, BezPath, Cap, Ellipse, Join, PathEl, Point, Rect, Shape, Stroke};
+use vello::kurbo::{Affine, BezPath, Cap, Ellipse, Join, PathEl, Point, Rect, Shape, Stroke, Vec2};
 use vello::peniko::*;
 use vello::*;
 
@@ -280,7 +280,7 @@ fn stroke_styles(transform: Affine) -> impl FnMut(&mut Scene, &mut SceneParams) 
 
 // This test has been adapted from Skia's "trickycubicstrokes" GM slide which can be found at
 // `github.com/google/skia/blob/0d4d11451c4f4e184305cbdbd67f6b3edfa4b0e3/gm/trickycubicstrokes.cpp`
-fn tricky_strokes(scene: &mut Scene, _: &mut SceneParams) {
+fn tricky_strokes(scene: &mut Scene, params: &mut SceneParams) {
     use PathEl::*;
     let colors = [
         Color::rgb8(140, 181, 236),
@@ -458,6 +458,12 @@ fn tricky_strokes(scene: &mut Scene, _: &mut SceneParams) {
         color_idx = (color_idx + 1) % colors.len();
         idx += 1;
     }
+
+    let curve_count = tricky_cubics.len() + flat_curves.len();
+    params.resolution = Some(Vec2::new(
+        CELL_SIZE * NUM_COLS as f64,
+        CELL_SIZE * (1 + curve_count / NUM_COLS) as f64,
+    ));
 }
 
 fn fill_types(scene: &mut Scene, params: &mut SceneParams) {
