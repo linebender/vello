@@ -21,11 +21,10 @@ pub struct RenderState<'s> {
 }
 
 fn main() -> Result<()> {
-
     // Setup a bunch of application state
     let mut render_cx = RenderContext::new().unwrap();
     let mut renderers: Vec<Option<Renderer>> = vec![];
-    let mut render_state : Option<RenderState> = None;
+    let mut render_state: Option<RenderState> = None;
     // Cache a window so that it can be reused when the app is resumed after being suspended
     let mut cached_window = None;
     let mut scene = Scene::new();
@@ -34,7 +33,6 @@ fn main() -> Result<()> {
     let event_loop = EventLoop::new()?;
     event_loop
         .run(move |event, event_loop| match event {
-
             // Setup renderer. In winit apps it is recommended to do setup in Event::Resumed
             // for best cross-platform compatibility
             Event::Resumed => {
@@ -51,22 +49,11 @@ fn main() -> Result<()> {
                     render_cx.create_surface(window.clone(), size.width, size.height);
                 let surface = pollster::block_on(surface_future).expect("Error creating surface");
 
-                // Create a vello Renderer for the surface (using it's device id)
-                let device_id = surface.dev_id;
+                // Create a vello Renderer for the surface (using its device id)
                 renderers.resize_with(render_cx.devices.len(), || None);
-                renderers[device_id].get_or_insert_with(|| {
-                    Renderer::new(
-                        &render_cx.devices[device_id].device,
-                        RendererOptions {
-                            surface_format: Some(surface.format),
-                            use_cpu: false,
-                            antialiasing_support: vello::AaSupport::all(),
-                            num_init_threads: NonZeroUsize::new(1),
-                        },
-                    )
-                    .expect("Could create renderer")
-                });
-                
+                renderers[surface.dev_id]
+                    .get_or_insert_with(|| create_vello_renderer(&render_cx, &surface));
+
                 // Save the Window and Surface to a state variable
                 render_state = Some(RenderState { window, surface });
 
@@ -198,4 +185,18 @@ fn create_winit_window(event_loop: &winit::event_loop::EventLoopWindowTarget<()>
             .build(event_loop)
             .unwrap(),
     )
+}
+
+/// Helper function that creates a vello Renderer for a given RenderContext and Surface
+fn create_vello_renderer(render_cx: &RenderContext, surface: &RenderSurface) -> Renderer {
+    Renderer::new(
+        &render_cx.devices[surface.dev_id].device,
+        RendererOptions {
+            surface_format: Some(surface.format),
+            use_cpu: false,
+            antialiasing_support: vello::AaSupport::all(),
+            num_init_threads: NonZeroUsize::new(1),
+        },
+    )
+    .expect("Could create renderer")
 }
