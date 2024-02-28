@@ -57,7 +57,11 @@ fn main() -> Result<()> {
                     WindowEvent::CloseRequested => event_loop.exit(),
                     WindowEvent::Resized(size) => {
                         // Resize the surface when the window is resized
-                        render_cx.resize_surface(&mut render_state.surface, size.width, size.height);
+                        render_cx.resize_surface(
+                            &mut render_state.surface,
+                            size.width,
+                            size.height,
+                        );
                         render_state.window.request_redraw();
                     }
                     WindowEvent::RedrawRequested => {
@@ -123,20 +127,17 @@ fn main() -> Result<()> {
                         scene.stroke(&stroke, Affine::IDENTITY, line_stroke_color, None, &line);
 
                         // Render to the surface
-                        vello::block_on_wgpu(
-                            &device_handle.device,
-                            renderers[render_state.surface.dev_id]
-                                .as_mut()
-                                .unwrap()
-                                .render_to_surface_async(
-                                    &device_handle.device,
-                                    &device_handle.queue,
-                                    &scene,
-                                    &surface_texture,
-                                    &render_params,
-                                ),
-                        )
-                        .expect("failed to render to surface");
+                        renderers[render_state.surface.dev_id]
+                            .as_mut()
+                            .unwrap()
+                            .render_to_surface(
+                                &device_handle.device,
+                                &device_handle.queue,
+                                &scene,
+                                &surface_texture,
+                                &render_params,
+                            )
+                            .expect("failed to render to surface");
                         surface_texture.present();
                         device_handle.device.poll(wgpu::Maintain::Poll);
                     }
