@@ -52,8 +52,8 @@ vello_encoding = { path = "crates/encoding" }
 wgpu-profiler = { workspace = true, optional = true }
 
 [workspace.dependencies]
-bytemuck = { version = "1.12.1", features = ["derive"] }
-skrifa = "0.15.4"
+bytemuck = { version = "1.14.3", features = ["derive"] }
+skrifa = "0.15.5"
 peniko = "0.1.0"
 
 # NOTE: Make sure to keep this in sync with the version badge in README.md
@@ -61,7 +61,7 @@ wgpu = { version = "0.19" }
 
 
 # Used for examples
-clap = "4.1.0"
+clap = "4.5.1"
 anyhow = "1.0"
 instant = { version = "0.1.12", features = ["wasm-bindgen"] }
 pollster = "0.3.0"
