@@ -89,7 +89,7 @@ pub fn render_tree_with(
                         scene.push_layer(
                             BlendMode {
                                 mix: vello::peniko::Mix::Clip,
-                                compose: vello::peniko::Compose::SrcIn,
+                                compose: vello::peniko::Compose::SrcOver,
                             },
                             1.0,
                             transform,
@@ -106,7 +106,6 @@ pub fn render_tree_with(
                 }
             }
             usvg::Node::Path(path) => {
-                path.abs_transform();
                 let local_path = to_bez_path(path);
 
                 // FIXME: let path.paint_order determine the fill/stroke order.
