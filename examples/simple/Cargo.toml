@@ -1,17 +1,16 @@
 [package]
 name = "simple"
 edition.workspace = true
-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = false
 
 # The dependencies here are independent from the workspace versions
 [dependencies]
+vello = { path = "../../" }
+# When using, replace the above line with this:
+#vello = { git = "https://github.com/linebender/vello" }
 anyhow = "1.0.80"
 pollster = "0.3.0"
 wgpu = "0.19.1"
 winit = "0.29.11"
-vello = { path = "../../" }
-# When using, replace the above line with this:
-#vello = { git = "https://github.com/linebender/vello" }

@@ -1,14 +1,10 @@
 [package]
 name = "scenes"
-description = "Vello scenes used in the other examples"
-publish = false
-
-version.workspace = true
-license.workspace = true
+description = "Vello scenes used in the other examples."
 edition.workspace = true
+license.workspace = true
 repository.workspace = true
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+publish = false
 
 [dependencies]
 vello = { path = "../../" }

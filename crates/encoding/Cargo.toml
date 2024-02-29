@@ -1,7 +1,9 @@
 [package]
 name = "vello_encoding"
 version = "0.1.0"
+description = "Vello types that represent the data that needs to be rendered."
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 

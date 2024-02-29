@@ -1,9 +1,13 @@
 [package]
 name = "vello_shaders"
 version = "0.1.0"
+description = "Vello infrastructure to compile pipelines and shaders."
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+
+publish = false # Remove this when the package is ready for publishing
 
 [features]
 default = ["compile", "wgsl", "msl"]
