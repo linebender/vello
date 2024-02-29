@@ -386,7 +386,7 @@ pub fn draw_gpu_profiling(
             cur_text_y = text_y + text_height;
             let label = format!(
                 "{:.2?} - {:.30}",
-                Duration::from_secs_f64(this_time),
+                Duration::from_secs_f64(this_time.max(0.0)),
                 profile.label
             );
             scene.fill(
