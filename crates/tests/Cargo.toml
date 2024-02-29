@@ -10,10 +10,10 @@ publish = false
 
 [dependencies]
 vello = { path = "../.." }
-image = "0.24.5"
+image = "0.24.9"
 anyhow = { workspace = true }
 
 wgpu = { workspace = true }
 pollster = { workspace = true }
-png = "0.17.7"
+png = "0.17.13"
 futures-intrusive = "0.5.0"

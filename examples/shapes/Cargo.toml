@@ -11,7 +11,7 @@ publish = false
 anyhow = "1.0.80"
 pollster = "0.3.0"
 wgpu = "0.19.1"
-winit = "0.29.10"
+winit = "0.29.11"
 vello = { path = "../../" }
 # When using, replace the above line with this:
 #vello = { git = "https://github.com/linebender/vello" }

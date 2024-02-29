@@ -28,9 +28,9 @@ msl = []
 
 [dependencies]
 naga = { version = "0.13", features = ["wgsl-in", "msl-out", "validate"], optional = true }
-thiserror = { version = "1.0.40", optional = true }
+thiserror = { version = "1.0.57", optional = true }
 
 [build-dependencies]
 naga = { version = "0.13",  features = ["wgsl-in", "msl-out", "validate"] }
-thiserror = "1.0.40"
+thiserror = "1.0.57"
 
