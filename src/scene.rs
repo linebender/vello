@@ -54,7 +54,7 @@ impl Scene {
         self.encoding
             .encode_transform(Transform::from_kurbo(&transform));
         self.encoding.encode_fill_style(Fill::NonZero);
-        if !self.encoding.encode_shape(shape, true) {
+        if !self.encoding.encode_shape(clip, true) {
             // If the layer shape is invalid, encode a valid empty path. This suppresses
             // all drawing until the layer is popped.
             self.encoding

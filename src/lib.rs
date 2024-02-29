@@ -26,11 +26,11 @@
 //!
 //! To use Vello as the renderer for your PDF reader / GUI toolkit / etc, your code will have to look roughly like this:
 //!
-//! ```rust
+//! ```ignore
 //! // Initialize wgpu and get handles
 //! let device: wgpu::Device = ...;
 //! let queue: wgpu::Queue = ...;
-//! let render_surface: wpg::RenderSurface<'_> = ...;
+//! let surface: wpgu::Surface<'_> = ...;
 //! let texture_format: wgpu::TextureFormat = ...;
 //! let mut renderer = Renderer::new(
 //!       &device,
@@ -44,24 +44,22 @@
 //!
 //! // Create scene and draw stuff in it
 //! let mut scene = vello::Scene::new();
-//!
-//! let circle = vello::Circle::new((420.0, 200.0), 120.0);
-//! let circle_fill_color = vello::Color::rgb(0.9529, 0.5451, 0.6588);
 //! scene.fill(
 //!    vello::peniko::Fill::NonZero,
 //!    vello::Affine::IDENTITY,
-//!    circle_fill_color,
+//!    vello::Color::rgb8(242, 140, 168),
 //!    None,
-//!    &circle,
+//!    &vello::Circle::new((420.0, 200.0), 120.0),
 //! );
 //!
+//! // Draw more stuff
 //! scene.push_layer(...);
 //! scene.fill(...);
 //! scene.stroke(...);
 //! scene.pop_layer(...);
 //!
 //! // Render to your window/buffer/etc.
-//! let surface_texture = render_state.surface.get_current_texture()
+//! let surface_texture = surface.get_current_texture()
 //!    .expect("failed to get surface texture");
 //! vello::block_on_wgpu(
 //!       &device,

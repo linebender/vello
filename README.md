@@ -14,8 +14,8 @@
 
 </div>
 
-Vello is an experimental 2d graphics rendering engine written in Rust, using [`wgpu`].
-It efficiently draws large 2d scenes with interactive or near-interactive performance.
+Vello is an experimental 2D graphics rendering engine written in Rust, with a focus on GPU compute.
+It can draw large 2D scenes with interactive or near-interactive performance, using [`wgpu`] for GPU access.
 
 Quickstart to run an example program:
 ```shell
@@ -24,23 +24,31 @@ cargo run -p with_winit
 
 ![image](https://github.com/linebender/vello/assets/8573618/cc2b742e-2135-4b70-8051-c49aeddb5d19)
 
-It is used as the rendering backend for [Xilem], a native Rust GUI toolkit.
+It is used as the rendering backend for [Xilem], a Rust GUI toolkit.
 
+> [!WARNING]
+> Vello can currently be considered in an alpha state. In particular, we're still working on the following:
+>
+> - [Major rendering artifacts when drawing more than 64k objects](https://github.com/linebender/vello/issues/334).
+> - [Implementing blur and filter effects](https://github.com/linebender/vello/issues/476).
+> - [Properly implenting strokes](https://github.com/linebender/vello/issues/303) and [supporting all SVG stroke caps](https://github.com/linebender/vello/issues/280).
+> - [Conflations artifacts](https://github.com/linebender/vello/issues/49).
+> - [GPU memory allocation strategy](https://github.com/linebender/vello/issues/366)
 
 ## Motivation
 
-Vello is meant to fill the same place in the graphics stack as other vector graphics renderers like [Skia](https://skia.org/), [Cairo](https://www.cairographics.org/), and its predecessor project [Piet](https://www.cairographics.org/).
-On a basic level, that means it provides tools to render shapes, images, gradients, texts, etc, using a PostScript-inspired API, the same that powers SVG files and [the browser `<canvas>` element](https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D).
+Vello is meant to fill the same place in the graphics stack as other vector graphics renderers like [Skia](https://skia.org/), [Cairo](https://www.cairographics.org/), and its predecessor project [Piet](https://github.com/linebender/piet).
+On a basic level, that means it provides tools to render shapes, images, gradients, text, etc, using a PostScript-inspired API, the same that powers SVG files and [the browser `<canvas>` element](https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D).
 
 Vello's selling point is that it gets better performance than other renderers by better leveraging the GPU.
 In traditional PostScript renderers, some steps of the render process like sorting and clipping either need to be handled in the CPU or done through the use of intermediary textures.
-Vello avoids this by using prefix-scan algorithms to parallelize work that usually needs to happen in sequence, so that work can be offloaded to the GPU with minimal use of temporary buffers.
+Vello avoids this by using prefix-sum algorithms to parallelize work that usually needs to happen in sequence, so that work can be offloaded to the GPU with minimal use of temporary buffers.
 
 
 ## Getting started
 
 Vello is meant to be integrated deep in UI render stacks.
-While drawing in a Vello scene is easy, actually rendering that scene to a surface setting up a wgpu context, which is a non-trivial task.
+While drawing in a Vello scene is easy, actually rendering that scene to a surface requires setting up a wgpu context, which is a non-trivial task.
 
 To use Vello as the renderer for your PDF reader / GUI toolkit / etc, your code will have to look roughly like this:
 
@@ -48,7 +56,7 @@ To use Vello as the renderer for your PDF reader / GUI toolkit / etc, your code 
 // Initialize wgpu and get handles
 let device: wgpu::Device = ...;
 let queue: wgpu::Queue = ...;
-let render_surface: wpg::RenderSurface<'_> = ...;
+let surface: wpgu::Surface<'_> = ...;
 let texture_format: wgpu::TextureFormat = ...;
 let mut renderer = Renderer::new(
       &device,
@@ -62,24 +70,22 @@ let mut renderer = Renderer::new(
 
 // Create scene and draw stuff in it
 let mut scene = vello::Scene::new();
-
-let circle = vello::Circle::new((420.0, 200.0), 120.0);
-let circle_fill_color = vello::Color::rgb(0.9529, 0.5451, 0.6588);
 scene.fill(
    vello::peniko::Fill::NonZero,
    vello::Affine::IDENTITY,
-   circle_fill_color,
+   vello::Color::rgb8(242, 140, 168),
    None,
-   &circle,
+   &vello::Circle::new((420.0, 200.0), 120.0),
 );
 
+// Draw more stuff
 scene.push_layer(...);
 scene.fill(...);
 scene.stroke(...);
 scene.pop_layer(...);
 
 // Render to your window/buffer/etc.
-let surface_texture = render_state.surface.get_current_texture()
+let surface_texture = surface.get_current_texture()
    .expect("failed to get surface texture");
 vello::block_on_wgpu(
       &device,
@@ -210,7 +216,7 @@ Contributions are welcome by pull request. The [Rust code of conduct] applies.
 
 Unless you explicitly state otherwise, any contribution intentionally submitted
 for inclusion in the work by you, as defined in the Apache-2.0 license, shall be
-licensed as above, without any additional terms or conditions.
+licensed as noted in the "License" section, without any additional terms or conditions.
 
 ## History
 

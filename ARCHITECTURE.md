@@ -1,12 +1,11 @@
 
 # Architecture
 
-This document should be update semi-regularly. Feel free to open an issue if it hasn't been updated in a few years.
+This document should be updated semi-regularly. Feel free to open an issue if it hasn't been updated in more than a year.
 
 ## Goals
 
 The major goal of Vello is to provide a high quality GPU accelerated renderer suitable for a range of 2D graphics applications, including rendering for GUI applications, creative tools, and scientific visualization.
-The [roadmap for 2023](doc/roadmap_2023.md) explains the goals and plans for the next few months of development
 
 Vello emerges from being a research project, which attempts to answer these hypotheses:
 
@@ -14,9 +13,17 @@ Vello emerges from being a research project, which attempts to answer these hypo
 - To what extent do "advanced" GPU features (subgroups, descriptor arrays, device-scoped barriers) help?
 - Can we improve quality and extend the imaging model in useful ways?
 
-Another goal of the overall project is to explain how the renderer is built, and to advance the state of building applications on GPU compute shaders more generally. 
+Another goal of the overall project is to explain how the renderer is built, and to advance the state of building applications on GPU compute shaders more generally.
 Much of the progress on Vello is documented in blog entries.
 See [doc/blogs.md](doc/blogs.md) for pointers to those.
+
+
+## Roadmap
+
+The [roadmap for 2023](doc/roadmap_2023.md) is still largely applicable.
+The "Semi-stable encoding format" section and most of the "CPU fallback" section can be considered implemented.
+
+Our current priority is to fill in missing features and to fix rendering artifacts, so that Vello can reach feature parity with other 2D graphics engines.
 
 
 ## File structure
@@ -25,23 +32,24 @@ The repository is structured as such:
 
 - `crates/`
   - `encoding/` - Types that represent the data that needs to be rendered.
-  - `shaders/` - Infrastructure to compile pipelines and shaders; see "Shader templating".
+  - `shaders/` - Infrastructure to compile pipelines and shaders; see "Shader templating". Note that the `vello` crate doesn't currently import this crate (see #467).
   - `tests/` - Helper code for writing tests; current has a single smoke test and not much else.
 - `doc/` - Various documents detailing the vision for Vello as it was developed. This directory should probably be refactored away; adding to it not recommended.
 - `examples/` - Example projects using Vello. Each example is its own crate, with its own dependencies. The simplest example is the `shapes` one.
-- `integrations/vello_svg` - An SVG rendered based on vello and usvg. Used in examples. May be moved to `crates/` in the future.
-- `shader/` - This is where the magic happens. WGSL shaders that define the compute operations (mostly variations of prefix scan) that vello does to render a scene.
+- `integrations/vello_svg` - An SVG rendered based on Vello and usvg. Used in examples. May be moved to `crates/` in the future.
+- `shader/` - This is where the magic happens. WGSL shaders that define the compute operations (often variations of prefix sum) that Vello does to render a scene.
   - `shared/` - Shared types, functions and constants included in other shaders through non-standard `#import` preprocessor directives (see "Shader templating").
-- `src/` - Code for the main Vello crate.
+- `src/` - Code for the main `vello` crate.
   - `shaders/` - Same as `crates/shaders/` above. The duplication should eventually be removed (see #467).
-  - `cpu_shader/` - Function that perform the same work as their equivalently-named WGSL shaders for the CPU fallbacks. The name is a bit loose, they're not "shaders" in any real sense.
+  - `cpu_shader/` - Functions that perform the same work as their equivalently-named WGSL shaders for the CPU fallbacks. The name is a bit loose; they're "shaders" in the sense that they work on resource bindings with the exact same layout as actual GPU shaders.
 
 
 ## Shader templating
 
-We implement a limited, simple preprocessor for our shaders, as wgsl has insufficient code-sharing for our needs.
+WGSL has no meta-programming support, which limits code-sharing.
+We use a strategy common to many projects (eg Bevy) which is to implement a limited, simple preprocessor for our shaders.
 
-This implements only classes of statements.
+This preprocessor implements the following directives:
 
 1. `import`, which imports from `shader/shared`
 2. `ifdef`, `ifndef`, `else` and `endif`, as standard.
@@ -53,6 +61,11 @@ This format is compatible with [`wgsl-analyzer`], which we recommend using.
 If you run into any issues, please report them on Zulip ([#gpu > wgsl-analyzer issues](https://xi.zulipchat.com/#narrow/stream/197075-gpu/topic/wgsl-analyzer.20issues)), and/or on the [`wgsl-analyzer`] issue tracker.  
 Note that new imports must currently be added to `.vscode/settings.json` for this support to work correctly.
 `wgsl-analyzer` only supports imports in very few syntactic locations, so we limit their use to these places.
+
+
+## Path encoding
+
+See [Path segment encoding](./doc/pathseg.md) document.
 
 
 ## Intermediary layers
@@ -73,7 +86,7 @@ The code in `cpu_shader/*.rs` and `cpu_dispatch.rs` provides *some* support for 
 
 - It's called through WgpuEngine, so the dependency on wgpu is still there.
 - Fine rasterization (the part at the end that puts pixels on screen) doesn't work in CPU yet (see #386).
-- Every single wgsl shader needs a CPU equivalent, which is pretty cumbersome.
+- Every single WGSL shader needs a CPU equivalent, which is pretty cumbersome.
 
 Still, it's useful for testing and debugging.
 
