@@ -30,7 +30,7 @@
 //! // Initialize wgpu and get handles
 //! let device: wgpu::Device = ...;
 //! let queue: wgpu::Queue = ...;
-//! let surface: wpgu::Surface<'_> = ...;
+//! let surface: wgpu::Surface<'_> = ...;
 //! let texture_format: wgpu::TextureFormat = ...;
 //! let mut renderer = Renderer::new(
 //!       &device,

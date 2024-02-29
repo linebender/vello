@@ -31,7 +31,7 @@ It is used as the rendering backend for [Xilem], a Rust GUI toolkit.
 >
 > - [Major rendering artifacts when drawing more than 64k objects](https://github.com/linebender/vello/issues/334).
 > - [Implementing blur and filter effects](https://github.com/linebender/vello/issues/476).
-> - [Properly implenting strokes](https://github.com/linebender/vello/issues/303) and [supporting all SVG stroke caps](https://github.com/linebender/vello/issues/280).
+> - [Properly implementing strokes](https://github.com/linebender/vello/issues/303) and [supporting all SVG stroke caps](https://github.com/linebender/vello/issues/280).
 > - [Conflations artifacts](https://github.com/linebender/vello/issues/49).
 > - [GPU memory allocation strategy](https://github.com/linebender/vello/issues/366)
 
@@ -56,7 +56,7 @@ To use Vello as the renderer for your PDF reader / GUI toolkit / etc, your code 
 // Initialize wgpu and get handles
 let device: wgpu::Device = ...;
 let queue: wgpu::Queue = ...;
-let surface: wpgu::Surface<'_> = ...;
+let surface: wgpu::Surface<'_> = ...;
 let texture_format: wgpu::TextureFormat = ...;
 let mut renderer = Renderer::new(
       &device,
@@ -101,7 +101,7 @@ vello::block_on_wgpu(
 surface_texture.present();
 ```
 
-See the [`examples/`](examples) folder to see how that code integrates with frameworks like winit and bevy.
+See the [`examples/`](https://github.com/linebender/vello/tree/main/examples) folder to see how that code integrates with frameworks like winit and bevy.
 
 
 ## Performance
@@ -127,14 +127,14 @@ A separate integration for playing Lottie animations is available through the [`
 
 ## Examples
 
-Our examples are provided in separate packages in the [`examples`](examples) folder.
+Our examples are provided in separate packages in the [`examples`](https://github.com/linebender/vello/tree/main/examples) folder.
 This allows them to have independent dependencies and faster builds.
 Examples must be selected using the `--package` (or `-p`) Cargo flag.
 
 ### Winit
 
-Our [winit] example ([examples/with_winit](examples/with_winit)) demonstrates rendering to a [winit] window.
-By default, this renders the [GhostScript Tiger] as well as all SVG files you add in the [examples/assets/downloads/](examples/assets/downloads) directory using [`vello_svg`](#svg).
+Our [winit] example ([examples/with_winit](https://github.com/linebender/vello/tree/main/examples/with_winit)) demonstrates rendering to a [winit] window.
+By default, this renders the [GhostScript Tiger] as well as all SVG files you add in the [examples/assets/downloads/](https://github.com/linebender/vello/tree/main/examples/assets/downloads) directory using [`vello_svg`](#svg).
 A custom list of SVG file paths (and directories to render all SVG files from) can be provided as arguments instead.
 It also includes a collection of test scenes showing the capabilities of `vello`, which can be shown with `--test-scenes`.
 
@@ -153,7 +153,7 @@ cargo run -p with_winit -- download
 
 ### Bevy
 
-The [Bevy] example ([examples/with_bevy](examples/with_bevy)) demonstrates using Vello within a [Bevy] application.
+The [Bevy] example ([examples/with_bevy](https://github.com/linebender/vello/tree/main/examples/with_bevy)) demonstrates using Vello within a [Bevy] application.
 This currently draws to a [`wgpu`] `Texture` using `vello`, then uses that texture as the faces of a cube.
 
 ```shell
@@ -228,7 +228,7 @@ This succeeded the previous prototype, [piet-metal], and included work adapted f
 
 The decision to lay down `piet-gpu-hal` in favor of WebGPU is discussed in detail in the blog post [Requiem for piet-gpu-hal].
 
-A [vision](doc/vision.md) document dated December 2020 explained the longer-term goals of the project, and how we might get there.
+A [vision](https://github.com/linebender/vello/tree/main/doc/vision.md) document dated December 2020 explained the longer-term goals of the project, and how we might get there.
 Many of these items are out-of-date or completed, but it still may provide some useful background.
 
 ## Related projects
@@ -252,13 +252,13 @@ Licensed under either of
 
 at your option.
 
-In addition, all files in the [`shader`](shader) and [`src/cpu_shader`](src/cpu_shader)
+In addition, all files in the [`shader`](https://github.com/linebender/vello/tree/main/shader) and [`src/cpu_shader`](https://github.com/linebender/vello/tree/main/src/cpu_shader)
 directories and subdirectories thereof are alternatively licensed under
-the Unlicense ([shader/UNLICENSE](shader/UNLICENSE) or <http://unlicense.org/>).
+the Unlicense ([shader/UNLICENSE](https://github.com/linebender/vello/tree/main/shader/UNLICENSE) or <http://unlicense.org/>).
 For clarity, these files are also licensed under either of the above licenses.
 The intent is for this research to be used in as broad a context as possible.
 
-The files in subdirectories of the [`examples/assets`](examples/assets) directory are licensed solely under
+The files in subdirectories of the [`examples/assets`](https://github.com/linebender/vello/tree/main/examples/assets) directory are licensed solely under
 their respective licenses, available in the `LICENSE` file in their directories.
 
 [piet-metal]: https://github.com/linebender/piet-metal

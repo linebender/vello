@@ -10,7 +10,7 @@ The major goal of Vello is to provide a high quality GPU accelerated renderer su
 Vello emerges from being a research project, which attempts to answer these hypotheses:
 
 - To what extent is a compute-centered approach better than rasterization ([Direct2D])?
-- To what extent do "advanced" GPU features (subgroups, descriptor arrays, device-scoped barriers) help?
+- To what extent do advanced GPU features (subgroups, descriptor arrays, device-scoped barriers) help?
 - Can we improve quality and extend the imaging model in useful ways?
 
 Another goal of the overall project is to explain how the renderer is built, and to advance the state of building applications on GPU compute shaders more generally.
@@ -32,7 +32,7 @@ The repository is structured as such:
 
 - `crates/`
   - `encoding/` - Types that represent the data that needs to be rendered.
-  - `shaders/` - Infrastructure to compile pipelines and shaders; see "Shader templating". Note that the `vello` crate doesn't currently import this crate (see #467).
+  - `shaders/` - Infrastructure to compile pipelines and shaders; see "Shader templating". Note that the `vello` crate doesn't currently import this crate (see issue #467).
   - `tests/` - Helper code for writing tests; current has a single smoke test and not much else.
 - `doc/` - Various documents detailing the vision for Vello as it was developed. This directory should probably be refactored away; adding to it not recommended.
 - `examples/` - Example projects using Vello. Each example is its own crate, with its own dependencies. The simplest example is the `shapes` one.
@@ -40,7 +40,7 @@ The repository is structured as such:
 - `shader/` - This is where the magic happens. WGSL shaders that define the compute operations (often variations of prefix sum) that Vello does to render a scene.
   - `shared/` - Shared types, functions and constants included in other shaders through non-standard `#import` preprocessor directives (see "Shader templating").
 - `src/` - Code for the main `vello` crate.
-  - `shaders/` - Same as `crates/shaders/` above. The duplication should eventually be removed (see #467).
+  - `shaders/` - Same as `crates/shaders/` above. The duplication should eventually be removed (see issue #467).
   - `cpu_shader/` - Functions that perform the same work as their equivalently-named WGSL shaders for the CPU fallbacks. The name is a bit loose; they're "shaders" in the sense that they work on resource bindings with the exact same layout as actual GPU shaders.
 
 
@@ -85,7 +85,7 @@ In principle, other backends could consume a `Recording`, but for now the only i
 The code in `cpu_shader/*.rs` and `cpu_dispatch.rs` provides *some* support for CPU-side rendering. It's in an awkward place right now:
 
 - It's called through WgpuEngine, so the dependency on wgpu is still there.
-- Fine rasterization (the part at the end that puts pixels on screen) doesn't work in CPU yet (see #386).
+- Fine rasterization (the part at the end that puts pixels on screen) doesn't work in CPU yet (see issue #386).
 - Every single WGSL shader needs a CPU equivalent, which is pretty cumbersome.
 
 Still, it's useful for testing and debugging.
