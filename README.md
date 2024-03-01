@@ -48,6 +48,8 @@ Examples must be selected using the `--package` (or `-p`) Cargo flag.
 
 ### Winit
 
+This example has a demo [available here](https://linebender.github.io/vello) on supporting web browsers.
+
 Our [winit] example ([examples/with_winit](examples/with_winit)) demonstrates rendering to a [winit] window.
 By default, this renders [GhostScript Tiger] all SVG files in [examples/assets/downloads](examples/assets/downloads) directory (using [`vello_svg`](#svg)).
 A custom list of SVG file paths (and directories to render all SVG files from) can be provided as arguments instead.
