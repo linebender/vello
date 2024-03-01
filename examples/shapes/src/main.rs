@@ -29,7 +29,7 @@ enum RenderState<'s> {
 fn main() -> Result<()> {
     // Setup a bunch of state:
 
-    // The vello RenderContext which is a global context which lasts for the lifetime of the application
+    // The vello RenderContext which is a global context that lasts for the lifetime of the application
     let mut render_cx = RenderContext::new().unwrap();
 
     // An array of renderers, one per wgpu device
@@ -39,7 +39,7 @@ fn main() -> Result<()> {
     let mut render_state = RenderState::Suspended(None);
 
     // A vello Scene which is a data structure which allows one to build up a description a scene to be drawn
-    // (with paths, fills, images, text, etc) which is then passed to a renderer for rednering
+    // (with paths, fills, images, text, etc) which is then passed to a renderer for rendering
     let mut scene = Scene::new();
 
     // Create and run a winit event loop
@@ -91,7 +91,7 @@ fn main() -> Result<()> {
                 //   - we have no render_state
                 //   - OR the window id of the event doesn't match the window id of our render_state
                 //
-                // Else extract a mutable reference to the render state from it's containing option for use below
+                // Else extract a mutable reference to the render state from its containing option for use below
                 let render_state = match &mut render_state {
                     RenderState::Active(state) if state.window.id() == window_id => state,
                     _ => return,
@@ -168,7 +168,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-/// Helper function that creates a Winit window and returns it (wrapped in an Arc for thread safety)
+/// Helper function that creates a Winit window and returns it (wrapped in an Arc for sharing between threads)
 fn create_winit_window(event_loop: &winit::event_loop::EventLoopWindowTarget<()>) -> Arc<Window> {
     Arc::new(
         WindowBuilder::new()
