@@ -4,6 +4,7 @@
 use instant::{Duration, Instant};
 use std::num::NonZeroUsize;
 use std::{collections::HashSet, sync::Arc};
+use wgpu_profiler::GpuProfilerSettings;
 
 use anyhow::Result;
 use clap::{CommandFactory, Parser};
@@ -39,6 +40,16 @@ struct Args {
     #[arg(long)]
     /// Whether to use CPU shaders
     use_cpu: bool,
+    /// Used to disable vsync at startup. Can be toggled with the "V" key.
+    ///
+    /// This setting is useful for Android, where it might be harder to press this key
+    #[arg(long)]
+    startup_vsync_off: bool,
+    /// Used to enable gpu profiling at startup. Can be toggled with the "G" key
+    ///
+    /// It is off by default because it has adverse performance characteristics
+    #[arg(long)]
+    startup_gpu_profiling_on: bool,
     /// Whether to force initialising the shaders serially (rather than spawning threads)
     /// This has no effect on wasm, and defaults to 1 on macOS for performance reasons
     ///
@@ -116,7 +127,8 @@ fn run(
     #[allow(unused_mut)]
     let mut scene_complexity: Option<BumpAllocators> = None;
     let mut complexity_shown = false;
-    let mut vsync_on = true;
+    let mut vsync_on = !args.startup_vsync_off;
+    let mut gpu_profiling_on = args.startup_gpu_profiling_on;
 
     const AA_CONFIGS: [AaConfig; 3] = [AaConfig::Area, AaConfig::Msaa8, AaConfig::Msaa16];
     // We allow cycling through AA configs in either direction, so use a signed index
@@ -240,6 +252,19 @@ fn run(
                                                     wgpu::PresentMode::AutoNoVsync
                                                 },
                                             );
+                                        }
+                                        "g"=> {
+                                            gpu_profiling_on = !gpu_profiling_on;
+                                            if let Some(renderer) = &mut renderers[render_state.surface.dev_id] {
+                                                renderer
+                                                    .profiler
+                                                    .change_settings(GpuProfilerSettings {
+                                                        enable_timer_queries: gpu_profiling_on,
+                                                        enable_debug_groups: gpu_profiling_on,
+                                                        ..Default::default()
+                                                    })
+                                                    .expect("Not setting max_num_pending_frames");
+                                            }
                                         }
                                         _ => {}
                                     }
@@ -528,7 +553,8 @@ fn run(
                         .take()
                         .unwrap_or_else(|| create_window(event_loop));
                     let size = window.inner_size();
-                    let surface_future = render_cx.create_surface(window.clone(), size.width, size.height);
+                    let present_mode = if vsync_on { wgpu::PresentMode::AutoVsync } else { wgpu::PresentMode::AutoNoVsync };
+                    let surface_future = render_cx.create_surface(window.clone(), size.width, size.height, present_mode);
                     // We need to block here, in case a Suspended event appeared
                     let surface =
                         pollster::block_on(surface_future).expect("Error creating surface");
@@ -538,7 +564,7 @@ fn run(
                         let id = render_state.surface.dev_id;
                         renderers[id].get_or_insert_with(|| {
                             let start = Instant::now();
-                            let renderer = Renderer::new(
+                            let mut renderer = Renderer::new(
                                 &render_cx.devices[id].device,
                                 RendererOptions {
                                     surface_format: Some(render_state.surface.format),
@@ -549,6 +575,11 @@ fn run(
                             )
                             .expect("Could create renderer");
                             eprintln!("Creating renderer {id} took {:?}", start.elapsed());
+                            renderer.profiler.change_settings(GpuProfilerSettings{
+                                enable_timer_queries: gpu_profiling_on,
+                                enable_debug_groups: gpu_profiling_on,
+                                ..Default::default()
+                            }).expect("Not setting max_num_pending_frames");
                             renderer
                         });
                         Some(render_state)

@@ -60,8 +60,12 @@ fn main() -> Result<()> {
 
                 // Create a vello Surface
                 let size = window.inner_size();
-                let surface_future =
-                    render_cx.create_surface(window.clone(), size.width, size.height);
+                let surface_future = render_cx.create_surface(
+                    window.clone(),
+                    size.width,
+                    size.height,
+                    wgpu::PresentMode::AutoVsync,
+                );
                 let surface = pollster::block_on(surface_future).expect("Error creating surface");
 
                 // Create a vello Renderer for the surface (using its device id)

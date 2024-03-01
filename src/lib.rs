@@ -95,7 +95,7 @@ pub struct Renderer {
     blit: Option<BlitPipeline>,
     target: Option<TargetTexture>,
     #[cfg(feature = "wgpu-profiler")]
-    profiler: GpuProfiler,
+    pub profiler: GpuProfiler,
     #[cfg(feature = "wgpu-profiler")]
     pub profile_result: Option<Vec<wgpu_profiler::GpuTimerQueryResult>>,
 }

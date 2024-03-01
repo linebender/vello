@@ -43,6 +43,7 @@ impl RenderContext {
         window: impl Into<SurfaceTarget<'w>>,
         width: u32,
         height: u32,
+        present_mode: wgpu::PresentMode,
     ) -> Result<RenderSurface<'w>> {
         let surface = self.instance.create_surface(window.into())?;
         let dev_id = self
@@ -63,7 +64,7 @@ impl RenderContext {
             format,
             width,
             height,
-            present_mode: wgpu::PresentMode::AutoVsync,
+            present_mode,
             desired_maximum_frame_latency: 2,
             alpha_mode: wgpu::CompositeAlphaMode::Auto,
             view_formats: vec![],
