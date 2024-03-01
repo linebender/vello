@@ -133,7 +133,7 @@ pub struct RendererOptions {
     /// How many threads to use for initialisation of shaders.
     ///
     /// Use `Some(1)` to use a single thread. This is recommended when on macOS
-    /// (see https://github.com/bevyengine/bevy/pull/10812#discussion_r1496138004)
+    /// (see <https://github.com/bevyengine/bevy/pull/10812#discussion_r1496138004>)
     ///
     /// Set to `None` to use a heuristic which will use many but not all threads
     ///
