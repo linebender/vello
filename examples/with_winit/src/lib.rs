@@ -682,7 +682,12 @@ pub fn main() -> Result<()> {
                     winit::dpi::PhysicalSize::from_logical::<_, f64>((width, height), scale_factor);
                 _ = window.request_inner_size(size);
                 let surface = render_cx
-                    .create_surface(window.clone(), size.width, size.height)
+                    .create_surface(
+                        window.clone(),
+                        size.width,
+                        size.height,
+                        wgpu::PresentMode::AutoVsync,
+                    )
                     .await;
                 if let Ok(surface) = surface {
                     let render_state = RenderState { window, surface };
