@@ -1,5 +1,5 @@
 [package]
-name = "shapes"
+name = "simple"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
