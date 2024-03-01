@@ -16,6 +16,13 @@ members = [
 ]
 
 [workspace.package]
+# Vello version, also used by other packages which want to mimic Vello's version.
+# Right now those packages include vello_encoding and vello_shaders.
+#
+# NOTE: When bumping this, remember to also bump the aforementioned other package's
+#       version in the dependencies section at the bottom of this file.
+version = "0.1.0"
+
 edition = "2021"
 rust-version = "1.75"
 license = "Apache-2.0 OR MIT"
@@ -23,7 +30,7 @@ repository = "https://github.com/linebender/vello"
 
 [package]
 name = "vello"
-version = "0.1.0"
+version.workspace = true
 description = "An experimental GPU compute-centric 2D renderer."
 categories = ["rendering", "graphics"]
 keywords = ["2d", "vector-graphics"]

@@ -1,6 +1,6 @@
 [package]
 name = "vello_shaders"
-version = "0.1.0"
+version.workspace = true # We mimic Vello's version
 description = "Vello infrastructure to compile pipelines and shaders."
 edition.workspace = true
 rust-version.workspace = true
