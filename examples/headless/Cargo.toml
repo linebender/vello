@@ -1,6 +1,6 @@
 [package]
 name = "headless"
-description = "An example showing how to use `vello` to create raster images."
+description = "An example showing how to use Vello to create raster images."
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
