@@ -76,8 +76,8 @@ pub fn render_tree_with(
                 sy,
                 tx,
                 ty,
-            } = ts.pre_concat(node.abs_transform());
-            Affine::new([sx, kx, ky, sy, tx, ty].map(f64::from))
+            } = ts;
+            Affine::new([sx, kx, ky, sy, tx, ty].map(|&x| f64::from(x)))
         };
         match node {
             usvg::Node::Group(g) => {
@@ -99,7 +99,7 @@ pub fn render_tree_with(
                     }
                 }
 
-                render_tree_with(scene, g, &g.transform())?;
+                render_tree_with(scene, g, &ts.pre_concat(g.transform()))?;
 
                 if pushed_clip {
                     scene.pop_layer();
