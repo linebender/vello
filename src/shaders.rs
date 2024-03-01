@@ -12,7 +12,7 @@ use wgpu::Device;
 
 use crate::{
     cpu_shader,
-    recording::{BindType, ImageFormat, ShaderId},
+    workflow::{BindType, ImageFormat, ShaderId},
     Error,
 };
 

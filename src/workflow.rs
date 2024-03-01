@@ -24,8 +24,8 @@ impl ResourceId {
 
 /// List of [`Command`]s for an engine to execute in order.
 #[derive(Default)]
-pub struct Recording {
-    pub commands: Vec<Command>,
+pub struct Workflow {
+    commands: Vec<Command>,
 }
 
 /// Proxy used as a handle to a buffer.
@@ -57,7 +57,7 @@ pub enum ResourceProxy {
     Image(ImageProxy),
 }
 
-/// Single command inside a [`Recording`] to get executed by an engine.
+/// Single command inside a [`Workflow`] to get executed by an engine.
 pub enum Command {
     /// Commands the data to be uploaded to the given buffer.
     Upload(BufferProxy, Vec<u8>),
@@ -97,8 +97,8 @@ pub enum BindType {
     // TODO: Uniform, Sampler, maybe others
 }
 
-impl Recording {
-    /// Appends a [`Command`] to the back of the [`Recording`].
+impl Workflow {
+    /// Appends a [`Command`] to the back of the [`Workflow`].
     pub fn push(&mut self, cmd: Command) {
         self.commands.push(cmd);
     }
@@ -209,9 +209,9 @@ impl Recording {
         }
     }
 
-    /// Returns a [`Vec`] containing all the [`Command`]s in order.
-    pub fn into_commands(self) -> Vec<Command> {
-        self.commands
+    /// Returns a slice over all the [`Command`]s in order.
+    pub fn commands(&self) -> &[Command] {
+        &self.commands
     }
 }
 
