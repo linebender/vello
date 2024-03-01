@@ -1,5 +1,6 @@
 [package]
 name = "with_winit"
+version = "0.0.0"
 description = "An example using vello to render to a winit window"
 edition.workspace = true
 license.workspace = true
