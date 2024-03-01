@@ -1,6 +1,6 @@
 [package]
 name = "vello_tests"
-description = "Helper code for writing Vello tests."
+description = "Integration tests for Vello."
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
