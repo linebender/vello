@@ -624,7 +624,8 @@ pub fn main() -> Result<()> {
                 .and_then(|doc| doc.body())
                 .and_then(|body| body.append_child(canvas.as_ref()).ok())
                 .expect("couldn't append canvas to document body");
-
+            // Best effort to start with the canvas focused, taking input
+            _ = web_sys::HtmlElement::from(canvas).focus();
             wasm_bindgen_futures::spawn_local(async move {
                 let (width, height, scale_factor) = web_sys::window()
                     .map(|w| {
