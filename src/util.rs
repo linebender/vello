@@ -92,10 +92,6 @@ impl RenderContext {
 
     fn configure_surface(&self, surface: &RenderSurface) {
         let device = &self.devices[surface.dev_id].device;
-        // Temporary workaround for https://github.com/gfx-rs/wgpu/issues/4214
-        // It's still possible for this to panic if the device is being used on another thread
-        // but this unbreaks most current users
-        device.poll(wgpu::MaintainBase::Wait);
         surface.surface.configure(device, &surface.config);
     }
 
