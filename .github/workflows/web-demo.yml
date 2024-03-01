@@ -51,6 +51,7 @@ jobs:
             </html>
           EOF
 
+      # TODO: Once actions/upload-pages-artifact is stable, we can switch to actions/deploy-pages
       - name: deploy
         uses: peaceiris/actions-gh-pages@v3
         with:
