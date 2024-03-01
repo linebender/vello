@@ -5,7 +5,7 @@ env:
   # then please feel free to submit a PR that adjusts it along with the potential clippy fixes.
   RUST_STABLE_VER: "1.76" # In quotes because otherwise (e.g.) 1.70 would be interpreted as 1.7
 
-name: Web Demo Release
+name: Web Demo Update
 
 on:
   push:
