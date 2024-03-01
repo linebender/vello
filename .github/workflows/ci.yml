@@ -127,8 +127,6 @@ jobs:
 
       - name: cargo clippy (wasm)
         run: cargo clippy --all-targets --target wasm32-unknown-unknown --workspace -- -D warnings
-        env:
-          RUSTFLAGS: '--cfg=web_sys_unstable_apis'
 
   android-stable-check:
     runs-on: ubuntu-latest
