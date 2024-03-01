@@ -1,7 +1,7 @@
 [package]
 name = "vello_shaders"
 version.workspace = true # We mimic Vello's version
-description = "Vello infrastructure to compile pipelines and shaders."
+description = "Vello infrastructure to preprocess and cross-compile shaders at compile time."
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

@@ -21,6 +21,7 @@ members = [
 #
 # NOTE: When bumping this, remember to also bump the aforementioned other packages'
 #       version in the dependencies section at the bottom of this file.
+#       Additionally, bump the Vello dependency version in the 'simple' example.
 version = "0.1.0"
 
 edition = "2021"

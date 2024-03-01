@@ -7,9 +7,9 @@ publish = false
 
 # The dependencies here are independent from the workspace versions
 [dependencies]
-vello = { path = "../../" }
-# When using, replace the above line with this:
-#vello = { git = "https://github.com/linebender/vello" }
+# When using this example outside of the original Vello workspace,
+# remove the path property of the following Vello dependency requirement.
+vello = { version = "0.1.0", path = "../../" }
 anyhow = "1.0.80"
 pollster = "0.3.0"
 wgpu = "0.19.1"
