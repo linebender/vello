@@ -48,8 +48,6 @@ Examples must be selected using the `--package` (or `-p`) Cargo flag.
 
 ### Winit
 
-This example has a demo [available here](https://linebender.github.io/vello) on supporting web browsers.
-
 Our [winit] example ([examples/with_winit](examples/with_winit)) demonstrates rendering to a [winit] window.
 By default, this renders [GhostScript Tiger] all SVG files in [examples/assets/downloads](examples/assets/downloads) directory (using [`vello_svg`](#svg)).
 A custom list of SVG file paths (and directories to render all SVG files from) can be provided as arguments instead.
@@ -90,7 +88,7 @@ Other platforms are more tricky, and may require special building/running proced
 Because Vello relies heavily on compute shaders, we rely on the emerging WebGPU standard to run on the web.
 Until browser support becomes widespread, it will probably be necessary to use development browser versions (e.g. Chrome Canary) and explicitly enable WebGPU.
 
-The following command builds and runs a web version of the [winit demo](#winit). 
+The following command builds and runs a web version of the [winit demo](#winit).
 This uses [`cargo-run-wasm`](https://github.com/rukai/cargo-run-wasm) to build the example for web, and host a local server for it
 
 ```shell
@@ -101,7 +99,9 @@ rustup target add wasm32-unknown-unknown
 cargo run_wasm -p with_winit --bin with_winit_bin
 ```
 
-> [!WARNING]  
+There is also a web demo [available here](https://linebender.github.io/vello) on supporting web browsers.
+
+> [!WARNING]
 > The web is not currently a primary target for Vello, and WebGPU implementations are incomplete, so you might run into issues running this example.
 
 ### Android
