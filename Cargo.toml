@@ -19,7 +19,7 @@ members = [
 # Vello version, also used by other packages which want to mimic Vello's version.
 # Right now those packages include vello_encoding and vello_shaders.
 #
-# NOTE: When bumping this, remember to also bump the aforementioned other package's
+# NOTE: When bumping this, remember to also bump the aforementioned other packages'
 #       version in the dependencies section at the bottom of this file.
 version = "0.1.0"
 
