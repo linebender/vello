@@ -10,4 +10,4 @@ publish = false
 
 [dependencies]
 vello = { path = "../../" }
-usvg = "0.37"
+usvg = "0.37.0"
