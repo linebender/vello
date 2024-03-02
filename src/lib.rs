@@ -15,8 +15,10 @@
 //! On a basic level, that means it provides tools to render shapes, images, gradients, texts, etc, using a PostScript-inspired API, the same that powers SVG files and [the browser `<canvas>` element](https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D).
 //!
 //! Vello's selling point is that it gets better performance than other renderers by better leveraging the GPU.
-//! In traditional PostScript renderers, some steps of the render process like sorting and clipping either need to be handled in the CPU or done through the use of intermediary textures.
+//! In traditional PostScript-style renderers, some steps of the render process like sorting and clipping either need to be handled in the CPU or done through the use of intermediary textures.
 //! Vello avoids this by using prefix-scan algorithms to parallelize work that usually needs to happen in sequence, so that work can be offloaded to the GPU with minimal use of temporary buffers.
+//!
+//! This means that Vello needs a GPU with support for compute shaders to run.
 //!
 //!
 //! ## Getting started
@@ -28,18 +30,19 @@
 //!
 //! ```ignore
 //! // Initialize wgpu and get handles
+//! let (width, height) = ...;
 //! let device: wgpu::Device = ...;
 //! let queue: wgpu::Queue = ...;
 //! let surface: wgpu::Surface<'_> = ...;
 //! let texture_format: wgpu::TextureFormat = ...;
 //! let mut renderer = Renderer::new(
-//!       &device,
-//!       RendererOptions {
-//!          surface_format: Some(texture_format),
-//!          use_cpu: false,
-//!          antialiasing_support: vello::AaSupport::all(),
-//!          num_init_threads: NonZeroUsize::new(1),
-//!       },
+//!    &device,
+//!    RendererOptions {
+//!       surface_format: Some(texture_format),
+//!       use_cpu: false,
+//!       antialiasing_support: vello::AaSupport::all(),
+//!       num_init_threads: NonZeroUsize::new(1),
+//!    },
 //! ).expect("Failed to create renderer");
 //!
 //! // Create scene and draw stuff in it
@@ -61,17 +64,20 @@
 //! // Render to your window/buffer/etc.
 //! let surface_texture = surface.get_current_texture()
 //!    .expect("failed to get surface texture");
-//! vello::block_on_wgpu(
+//! renderer
+//!    .render_to_surface(
 //!       &device,
-//!       renderer
-//!          .render_to_surface_async(
-//!             &device,
-//!             &queue,
-//!             &scene,
-//!             &surface_texture,
-//!             &render_params,
-//!          ),
-//! ).expect("Failed to render to surface");
+//!       &queue,
+//!       &scene,
+//!       &surface_texture,
+//!       &vello::RenderParams {
+//!          base_color: Color::BLACK, // Background color
+//!          width,
+//!          height,
+//!          antialiasing_method: AaConfig::Msaa16,
+//!       },
+//!    )
+//!    .expect("Failed to render to surface");
 //! surface_texture.present();
 //! ```
 //!
