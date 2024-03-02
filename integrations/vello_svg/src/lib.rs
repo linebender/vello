@@ -22,7 +22,7 @@
 //! # Unsupported features
 //!
 //! Missing features include:
-//! - embedded images
+//! - embedded bitmap images
 //! - text
 //! - group opacity
 //! - mix-blend-modes
@@ -30,8 +30,6 @@
 //! - masking
 //! - filter effects
 //! - group background
-//! - path visibility
-//! - path paint order
 //! - path shape-rendering
 //! - patterns
 
@@ -113,59 +111,73 @@ pub fn render_tree_with(
                 }
                 let local_path = to_bez_path(path);
 
-                // FIXME: let path.paint_order determine the fill/stroke order.
-
-                if let Some(fill) = &path.fill() {
-                    if let Some((brush, brush_transform)) =
-                        paint_to_brush(fill.paint(), fill.opacity())
-                    {
-                        scene.fill(
-                            match fill.rule() {
-                                usvg::FillRule::NonZero => Fill::NonZero,
-                                usvg::FillRule::EvenOdd => Fill::EvenOdd,
-                            },
-                            transform,
-                            &brush,
-                            Some(brush_transform),
-                            &local_path,
-                        );
-                    } else {
-                        default_error_handler(scene, node)?;
-                    }
-                }
-                if let Some(stroke) = &path.stroke() {
-                    if let Some((brush, brush_transform)) =
-                        paint_to_brush(stroke.paint(), stroke.opacity())
-                    {
-                        let mut conv_stroke = Stroke::new(stroke.width().get() as f64)
-                            .with_caps(match stroke.linecap() {
-                                usvg::LineCap::Butt => vello::kurbo::Cap::Butt,
-                                usvg::LineCap::Round => vello::kurbo::Cap::Round,
-                                usvg::LineCap::Square => vello::kurbo::Cap::Square,
-                            })
-                            .with_join(match stroke.linejoin() {
-                                usvg::LineJoin::Miter | usvg::LineJoin::MiterClip => {
-                                    vello::kurbo::Join::Miter
-                                }
-                                usvg::LineJoin::Round => vello::kurbo::Join::Round,
-                                usvg::LineJoin::Bevel => vello::kurbo::Join::Bevel,
-                            })
-                            .with_miter_limit(stroke.miterlimit().get() as f64);
-                        if let Some(dash_array) = stroke.dasharray().as_ref() {
-                            conv_stroke = conv_stroke.with_dashes(
-                                stroke.dashoffset() as f64,
-                                dash_array.iter().map(|x| *x as f64),
+                let do_fill = |scene: &mut Scene| {
+                    if let Some(fill) = &path.fill() {
+                        if let Some((brush, brush_transform)) =
+                            paint_to_brush(fill.paint(), fill.opacity())
+                        {
+                            scene.fill(
+                                match fill.rule() {
+                                    usvg::FillRule::NonZero => Fill::NonZero,
+                                    usvg::FillRule::EvenOdd => Fill::EvenOdd,
+                                },
+                                transform,
+                                &brush,
+                                Some(brush_transform),
+                                &local_path,
                             );
+                        } else {
+                            return default_error_handler(scene, node);
                         }
-                        scene.stroke(
-                            &conv_stroke,
-                            transform,
-                            &brush,
-                            Some(brush_transform),
-                            &local_path,
-                        );
-                    } else {
-                        default_error_handler(scene, node)?;
+                    }
+                    Ok(())
+                };
+                let do_stroke = |scene: &mut Scene| {
+                    if let Some(stroke) = &path.stroke() {
+                        if let Some((brush, brush_transform)) =
+                            paint_to_brush(stroke.paint(), stroke.opacity())
+                        {
+                            let mut conv_stroke = Stroke::new(stroke.width().get() as f64)
+                                .with_caps(match stroke.linecap() {
+                                    usvg::LineCap::Butt => vello::kurbo::Cap::Butt,
+                                    usvg::LineCap::Round => vello::kurbo::Cap::Round,
+                                    usvg::LineCap::Square => vello::kurbo::Cap::Square,
+                                })
+                                .with_join(match stroke.linejoin() {
+                                    usvg::LineJoin::Miter | usvg::LineJoin::MiterClip => {
+                                        vello::kurbo::Join::Miter
+                                    }
+                                    usvg::LineJoin::Round => vello::kurbo::Join::Round,
+                                    usvg::LineJoin::Bevel => vello::kurbo::Join::Bevel,
+                                })
+                                .with_miter_limit(stroke.miterlimit().get() as f64);
+                            if let Some(dash_array) = stroke.dasharray().as_ref() {
+                                conv_stroke = conv_stroke.with_dashes(
+                                    stroke.dashoffset() as f64,
+                                    dash_array.iter().map(|x| *x as f64),
+                                );
+                            }
+                            scene.stroke(
+                                &conv_stroke,
+                                transform,
+                                &brush,
+                                Some(brush_transform),
+                                &local_path,
+                            );
+                        } else {
+                            return default_error_handler(scene, node);
+                        }
+                    }
+                    Ok(())
+                };
+                match path.paint_order() {
+                    usvg::PaintOrder::FillAndStroke => {
+                        do_fill(scene)?;
+                        do_stroke(scene)?;
+                    }
+                    usvg::PaintOrder::StrokeAndFill => {
+                        do_stroke(scene)?;
+                        do_fill(scene)?;
                     }
                 }
             }
