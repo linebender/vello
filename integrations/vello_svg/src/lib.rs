@@ -22,7 +22,6 @@
 //! # Unsupported features
 //!
 //! Missing features include:
-//! - embedded bitmap images
 //! - text
 //! - group opacity
 //! - mix-blend-modes
@@ -36,8 +35,9 @@
 mod geom;
 
 use std::convert::Infallible;
+use std::sync::Arc;
 use vello::kurbo::{Affine, BezPath, Point, Rect, Stroke};
-use vello::peniko::{BlendMode, Brush, Color, Fill};
+use vello::peniko::{BlendMode, Blob, Brush, Color, Fill, Image};
 use vello::Scene;
 
 /// Re-export vello.
@@ -68,17 +68,7 @@ pub fn render_tree_with(
     ts: &usvg::Transform,
 ) -> Result<(), Infallible> {
     for node in svg.children() {
-        let transform = {
-            let usvg::Transform {
-                sx,
-                kx,
-                ky,
-                sy,
-                tx,
-                ty,
-            } = ts;
-            Affine::new([sx, kx, ky, sy, tx, ty].map(|&x| f64::from(x)))
-        };
+        let transform = to_affine(ts);
         match node {
             usvg::Node::Group(g) => {
                 let mut pushed_clip = false;
@@ -188,7 +178,49 @@ pub fn render_tree_with(
                 match img.kind() {
                     usvg::ImageKind::JPEG(_)
                     | usvg::ImageKind::PNG(_)
-                    | usvg::ImageKind::GIF(_) => default_error_handler(scene, node)?,
+                    | usvg::ImageKind::GIF(_) => {
+                        let decoded_image =
+                            decode_raw_raster_image(img.kind()).map_err(|_| ()).unwrap();
+                        let size = usvg::tiny_skia_path::IntSize::from_wh(
+                            decoded_image.width(),
+                            decoded_image.height(),
+                        )
+                        .unwrap();
+                        let (view_box_transform, clip) =
+                            geom::view_box_to_transform_with_clip(&img.view_box(), size);
+                        if let Some(clip) = clip {
+                            scene.push_layer(
+                                BlendMode {
+                                    mix: vello::peniko::Mix::Clip,
+                                    compose: vello::peniko::Compose::SrcOver,
+                                },
+                                1.0,
+                                transform,
+                                &vello::kurbo::Rect::new(
+                                    clip.left().into(),
+                                    clip.top().into(),
+                                    clip.right().into(),
+                                    clip.bottom().into(),
+                                ),
+                            );
+                        }
+
+                        let image_ts = to_affine(&ts.pre_concat(view_box_transform));
+                        let image_data: Arc<Vec<u8>> = decoded_image.into_vec().into();
+                        scene.draw_image(
+                            &Image::new(
+                                Blob::new(image_data),
+                                vello::peniko::Format::Rgba8,
+                                size.width(),
+                                size.height(),
+                            ),
+                            image_ts,
+                        );
+
+                        if clip.is_some() {
+                            scene.pop_layer();
+                        }
+                    }
                     usvg::ImageKind::SVG(svg) => {
                         let size = svg.size().to_int_size();
                         let (view_box_transform, clip) =
@@ -228,6 +260,35 @@ pub fn render_tree_with(
     }
 
     Ok(())
+}
+
+fn decode_raw_raster_image(img: &usvg::ImageKind) -> Result<image::RgbaImage, ()> {
+    let res = match img {
+        usvg::ImageKind::JPEG(data) => {
+            image::load_from_memory_with_format(&data, image::ImageFormat::Jpeg).map_err(|_| ())
+        }
+        usvg::ImageKind::PNG(data) => {
+            image::load_from_memory_with_format(&data, image::ImageFormat::Png).map_err(|_| ())
+        }
+        usvg::ImageKind::GIF(data) => {
+            image::load_from_memory_with_format(&data, image::ImageFormat::Gif).map_err(|_| ())
+        }
+        usvg::ImageKind::SVG(_) => unreachable!(),
+    }?
+    .into_rgba8();
+    Ok(res)
+}
+
+fn to_affine(ts: &usvg::Transform) -> Affine {
+    let usvg::Transform {
+        sx,
+        kx,
+        ky,
+        sy,
+        tx,
+        ty,
+    } = ts;
+    Affine::new([sx, kx, ky, sy, tx, ty].map(|&x| f64::from(x)))
 }
 
 fn to_bez_path(path: &usvg::Path) -> BezPath {

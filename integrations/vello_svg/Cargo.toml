@@ -11,3 +11,4 @@ publish = false
 [dependencies]
 vello = { path = "../../" }
 usvg = { version = "0.40", default-features = false }
+image = { version = "0.24", default-features = false, features = ["png", "jpeg", "gif"] }
