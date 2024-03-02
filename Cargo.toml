@@ -62,10 +62,10 @@ bytemuck = { version = "1.14.3", features = ["derive"] }
 skrifa = "0.15.5"
 peniko = "0.1.0"
 futures-intrusive = "0.5.0"
-raw-window-handle = "0.6"
+raw-window-handle = "0.6.0"
 
 # NOTE: Make sure to keep this in sync with the version badge in README.md
-wgpu = { version = "0.19" }
+wgpu = { version = "0.19.3" }
 
 
 # Used for examples
@@ -73,4 +73,4 @@ clap = "4.5.1"
 anyhow = "1.0"
 instant = { version = "0.1.12", features = ["wasm-bindgen"] }
 pollster = "0.3.0"
-wgpu-profiler = "0.16"
+wgpu-profiler = "0.16.1"

@@ -17,6 +17,6 @@ instant = { workspace = true }
 
 # Used for the `download` command
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-byte-unit = "4.0"
-dialoguer = "0.10"
-ureq = "2.9"
+byte-unit = "4.0.19"
+dialoguer = "0.10.4"
+ureq = "2.9.6"
