@@ -25,7 +25,6 @@ impl Scene {
         Self::default()
     }
 
-    // TODO - Rename to "clear()" (see #469)
     /// Removes all content from the scene.
     pub fn reset(&mut self) {
         self.encoding.reset();
