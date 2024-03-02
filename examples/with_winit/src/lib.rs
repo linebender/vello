@@ -630,17 +630,26 @@ pub fn main() -> Result<()> {
             let window = create_window(&event_loop);
             // On wasm, append the canvas to the document body
             let canvas = window.canvas().unwrap();
-            let size = window.inner_size();
-            canvas.set_width(size.width);
-            canvas.set_height(size.height);
             web_sys::window()
                 .and_then(|win| win.document())
                 .and_then(|doc| doc.body())
                 .and_then(|body| body.append_child(canvas.as_ref()).ok())
                 .expect("couldn't append canvas to document body");
+            // Best effort to start with the canvas focused, taking input
             _ = web_sys::HtmlElement::from(canvas).focus();
             wasm_bindgen_futures::spawn_local(async move {
-                let size = window.inner_size();
+                let (width, height, scale_factor) = web_sys::window()
+                    .map(|w| {
+                        (
+                            w.inner_width().unwrap().as_f64().unwrap(),
+                            w.inner_height().unwrap().as_f64().unwrap(),
+                            w.device_pixel_ratio(),
+                        )
+                    })
+                    .unwrap();
+                let size =
+                    winit::dpi::PhysicalSize::from_logical::<_, f64>((width, height), scale_factor);
+                _ = window.request_inner_size(size);
                 let surface = render_cx
                     .create_surface(window.clone(), size.width, size.height)
                     .await;
