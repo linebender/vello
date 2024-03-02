@@ -35,6 +35,8 @@
 //! - path shape-rendering
 //! - patterns
 
+mod geom;
+
 use std::convert::Infallible;
 use vello::kurbo::{Affine, BezPath, Point, Rect, Stroke};
 use vello::peniko::{BlendMode, Brush, Color, Fill};
@@ -106,6 +108,9 @@ pub fn render_tree_with(
                 }
             }
             usvg::Node::Path(path) => {
+                if path.visibility() != usvg::Visibility::Visible {
+                    continue;
+                }
                 let local_path = to_bez_path(path);
 
                 // FIXME: let path.paint_order determine the fill/stroke order.
@@ -164,7 +169,47 @@ pub fn render_tree_with(
                     }
                 }
             }
-            usvg::Node::Image(_) | usvg::Node::Text(_) => {
+            usvg::Node::Image(img) => {
+                if img.visibility() != usvg::Visibility::Visible {
+                    continue;
+                }
+                match img.kind() {
+                    usvg::ImageKind::JPEG(_)
+                    | usvg::ImageKind::PNG(_)
+                    | usvg::ImageKind::GIF(_) => default_error_handler(scene, node)?,
+                    usvg::ImageKind::SVG(svg) => {
+                        let size = svg.size().to_int_size();
+                        let (view_box_transform, clip) =
+                            geom::view_box_to_transform_with_clip(&img.view_box(), size);
+                        if let Some(clip) = clip {
+                            scene.push_layer(
+                                BlendMode {
+                                    mix: vello::peniko::Mix::Clip,
+                                    compose: vello::peniko::Compose::SrcOver,
+                                },
+                                1.0,
+                                transform,
+                                &vello::kurbo::Rect::new(
+                                    clip.left().into(),
+                                    clip.top().into(),
+                                    clip.right().into(),
+                                    clip.bottom().into(),
+                                ),
+                            );
+                        }
+                        render_tree_with(
+                            scene,
+                            svg.root(),
+                            &ts.pre_concat(view_box_transform)
+                                .pre_concat(svg.root().transform()),
+                        )?;
+                        if clip.is_some() {
+                            scene.pop_layer();
+                        }
+                    }
+                }
+            }
+            usvg::Node::Text(_) => {
                 default_error_handler(scene, node)?;
             }
         }
