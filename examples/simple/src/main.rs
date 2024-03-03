@@ -4,14 +4,16 @@
 use anyhow::Result;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use vello::kurbo::{Circle, Ellipse, Line, RoundedRect, Stroke};
+use vello::kurbo::{Affine, Circle, Ellipse, Line, RoundedRect, Stroke};
 use vello::peniko::Color;
-use vello::util::RenderSurface;
-use vello::RendererOptions;
-use vello::{kurbo::Affine, util::RenderContext, AaConfig, Renderer, Scene};
-use winit::{dpi::LogicalSize, window::WindowBuilder};
-use winit::{event::*, event_loop::ControlFlow};
-use winit::{event_loop::EventLoop, window::Window};
+use vello::util::{RenderContext, RenderSurface};
+use vello::{AaConfig, Renderer, RendererOptions, Scene};
+use winit::{
+    dpi::LogicalSize,
+    event::*,
+    event_loop::{ControlFlow, EventLoop},
+    window::{Window, WindowBuilder},
+};
 
 // Simple struct to hold the state of the renderer
 pub struct ActiveRenderState<'s> {
