@@ -558,7 +558,7 @@ impl BlitPipeline {
         const SHADERS: &str = r#"
             @vertex
             fn vs_main(@builtin(vertex_index) ix: u32) -> @builtin(position) vec4<f32> {
-                // Generate a full screen quad in NDCs
+                // Generate a full screen quad in normalized device coordinates
                 var vertex = vec2(-1.0, 1.0);
                 switch ix {
                     case 1u: {
