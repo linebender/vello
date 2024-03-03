@@ -171,3 +171,11 @@ jobs:
       # We test documentation using nightly to match docs.rs. This prevents potential breakages
       - name: cargo doc
         run: cargo doc --workspace --all-features --no-deps --document-private-items -Zunstable-options -Zrustdoc-scrape-examples
+
+  typos:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: check spelling
+      uses: crate-ci/typos@master
