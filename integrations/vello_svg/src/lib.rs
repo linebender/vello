@@ -53,7 +53,8 @@ pub use usvg;
 ///
 /// See the [module level documentation](crate#unsupported-features) for a list of some unsupported svg features
 pub fn render_tree(scene: &mut Scene, svg: &usvg::Tree) {
-    render_tree_with(scene, svg.root(), &svg.root().transform()).unwrap();
+    render_tree_with::<_, Infallible>(scene, svg, &mut default_error_handler)
+        .unwrap_or_else(|e| match e {});
 }
 
 /// Append a [`usvg::Tree`] into a Vello [`Scene`].
@@ -62,12 +63,67 @@ pub fn render_tree(scene: &mut Scene, svg: &usvg::Tree) {
 /// This will draw a red box over unsupported element types.
 ///
 /// See the [module level documentation](crate#unsupported-features) for a list of some unsupported svg features
-pub fn render_tree_with(
+pub fn render_tree_with<F: FnMut(&mut Scene, &usvg::Node) -> Result<(), E>, E>(
     scene: &mut Scene,
-    svg: &usvg::Group,
+    svg: &usvg::Tree,
+    error_handler: &mut F,
+) -> Result<(), E> {
+    render_tree_impl(
+        scene,
+        svg,
+        &svg.view_box(),
+        &usvg::Transform::identity(),
+        error_handler,
+    )
+}
+
+fn render_tree_impl<F: FnMut(&mut Scene, &usvg::Node) -> Result<(), E>, E>(
+    scene: &mut Scene,
+    svg: &usvg::Tree,
+    view_box: &usvg::ViewBox,
     ts: &usvg::Transform,
-) -> Result<(), Infallible> {
-    for node in svg.children() {
+    error_handler: &mut F,
+) -> Result<(), E> {
+    let transform = to_affine(ts);
+    let size = svg.size().to_int_size();
+    let (view_box_transform, clip) = geom::view_box_to_transform_with_clip(view_box, size);
+    if let Some(clip) = clip {
+        scene.push_layer(
+            BlendMode {
+                mix: vello::peniko::Mix::Clip,
+                compose: vello::peniko::Compose::SrcOver,
+            },
+            1.0,
+            transform,
+            &vello::kurbo::Rect::new(
+                clip.left().into(),
+                clip.top().into(),
+                clip.right().into(),
+                clip.bottom().into(),
+            ),
+        );
+    }
+    render_group(
+        scene,
+        svg.root(),
+        &ts.pre_concat(view_box_transform)
+            .pre_concat(svg.root().transform()),
+        error_handler,
+    )?;
+    if clip.is_some() {
+        scene.pop_layer();
+    }
+
+    Ok(())
+}
+
+fn render_group<F: FnMut(&mut Scene, &usvg::Node) -> Result<(), E>, E>(
+    scene: &mut Scene,
+    group: &usvg::Group,
+    ts: &usvg::Transform,
+    error_handler: &mut F,
+) -> Result<(), E> {
+    for node in group.children() {
         let transform = to_affine(ts);
         match node {
             usvg::Node::Group(g) => {
@@ -89,7 +145,7 @@ pub fn render_tree_with(
                     }
                 }
 
-                render_tree_with(scene, g, &ts.pre_concat(g.transform()))?;
+                render_group(scene, g, &ts.pre_concat(g.transform()), error_handler)?;
 
                 if pushed_clip {
                     scene.pop_layer();
@@ -101,7 +157,7 @@ pub fn render_tree_with(
                 }
                 let local_path = to_bez_path(path);
 
-                let do_fill = |scene: &mut Scene| {
+                let do_fill = |scene: &mut Scene, error_handler: &mut F| {
                     if let Some(fill) = &path.fill() {
                         if let Some((brush, brush_transform)) =
                             paint_to_brush(fill.paint(), fill.opacity())
@@ -117,12 +173,12 @@ pub fn render_tree_with(
                                 &local_path,
                             );
                         } else {
-                            return default_error_handler(scene, node);
+                            return error_handler(scene, node);
                         }
                     }
                     Ok(())
                 };
-                let do_stroke = |scene: &mut Scene| {
+                let do_stroke = |scene: &mut Scene, error_handler: &mut F| {
                     if let Some(stroke) = &path.stroke() {
                         if let Some((brush, brush_transform)) =
                             paint_to_brush(stroke.paint(), stroke.opacity())
@@ -155,19 +211,19 @@ pub fn render_tree_with(
                                 &local_path,
                             );
                         } else {
-                            return default_error_handler(scene, node);
+                            return error_handler(scene, node);
                         }
                     }
                     Ok(())
                 };
                 match path.paint_order() {
                     usvg::PaintOrder::FillAndStroke => {
-                        do_fill(scene)?;
-                        do_stroke(scene)?;
+                        do_fill(scene, error_handler)?;
+                        do_stroke(scene, error_handler)?;
                     }
                     usvg::PaintOrder::StrokeAndFill => {
-                        do_stroke(scene)?;
-                        do_fill(scene)?;
+                        do_stroke(scene, error_handler)?;
+                        do_fill(scene, error_handler)?;
                     }
                 }
             }
@@ -179,13 +235,17 @@ pub fn render_tree_with(
                     usvg::ImageKind::JPEG(_)
                     | usvg::ImageKind::PNG(_)
                     | usvg::ImageKind::GIF(_) => {
-                        let decoded_image =
-                            decode_raw_raster_image(img.kind()).map_err(|_| ()).unwrap();
-                        let size = usvg::tiny_skia_path::IntSize::from_wh(
+                        let Ok(decoded_image) = decode_raw_raster_image(img.kind()) else {
+                            error_handler(scene, node)?;
+                            continue;
+                        };
+                        let Some(size) = usvg::tiny_skia_path::IntSize::from_wh(
                             decoded_image.width(),
                             decoded_image.height(),
-                        )
-                        .unwrap();
+                        ) else {
+                            error_handler(scene, node)?;
+                            continue;
+                        };
                         let (view_box_transform, clip) =
                             geom::view_box_to_transform_with_clip(&img.view_box(), size);
                         if let Some(clip) = clip {
@@ -222,39 +282,12 @@ pub fn render_tree_with(
                         }
                     }
                     usvg::ImageKind::SVG(svg) => {
-                        let size = svg.size().to_int_size();
-                        let (view_box_transform, clip) =
-                            geom::view_box_to_transform_with_clip(&img.view_box(), size);
-                        if let Some(clip) = clip {
-                            scene.push_layer(
-                                BlendMode {
-                                    mix: vello::peniko::Mix::Clip,
-                                    compose: vello::peniko::Compose::SrcOver,
-                                },
-                                1.0,
-                                transform,
-                                &vello::kurbo::Rect::new(
-                                    clip.left().into(),
-                                    clip.top().into(),
-                                    clip.right().into(),
-                                    clip.bottom().into(),
-                                ),
-                            );
-                        }
-                        render_tree_with(
-                            scene,
-                            svg.root(),
-                            &ts.pre_concat(view_box_transform)
-                                .pre_concat(svg.root().transform()),
-                        )?;
-                        if clip.is_some() {
-                            scene.pop_layer();
-                        }
+                        render_tree_impl(scene, svg, &img.view_box(), ts, error_handler)?;
                     }
                 }
             }
             usvg::Node::Text(_) => {
-                default_error_handler(scene, node)?;
+                error_handler(scene, node)?;
             }
         }
     }
@@ -262,16 +295,16 @@ pub fn render_tree_with(
     Ok(())
 }
 
-fn decode_raw_raster_image(img: &usvg::ImageKind) -> Result<image::RgbaImage, ()> {
+fn decode_raw_raster_image(img: &usvg::ImageKind) -> Result<image::RgbaImage, image::ImageError> {
     let res = match img {
         usvg::ImageKind::JPEG(data) => {
-            image::load_from_memory_with_format(&data, image::ImageFormat::Jpeg).map_err(|_| ())
+            image::load_from_memory_with_format(data, image::ImageFormat::Jpeg)
         }
         usvg::ImageKind::PNG(data) => {
-            image::load_from_memory_with_format(&data, image::ImageFormat::Png).map_err(|_| ())
+            image::load_from_memory_with_format(data, image::ImageFormat::Png)
         }
         usvg::ImageKind::GIF(data) => {
-            image::load_from_memory_with_format(&data, image::ImageFormat::Gif).map_err(|_| ())
+            image::load_from_memory_with_format(data, image::ImageFormat::Gif)
         }
         usvg::ImageKind::SVG(_) => unreachable!(),
     }?
