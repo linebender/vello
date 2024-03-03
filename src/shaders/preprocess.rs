@@ -1,6 +1,9 @@
 // Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+// TODO (#467) - Remove this file and use vello_shaders crate instead,
+// then update ARCHITECTURE.md.
+
 use std::{
     collections::{HashMap, HashSet},
     fs,

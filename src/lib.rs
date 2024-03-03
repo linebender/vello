@@ -3,6 +3,86 @@
 
 #![warn(clippy::doc_markdown, clippy::semicolon_if_nothing_returned)]
 
+//! Vello is an experimental 2d graphics rendering engine written in Rust, using [`wgpu`].
+//! It efficiently draws large 2d scenes with interactive or near-interactive performance.
+//!
+//! ![image](https://github.com/linebender/vello/assets/8573618/cc2b742e-2135-4b70-8051-c49aeddb5d19)
+//!
+//!
+//! ## Motivation
+//!
+//! Vello is meant to fill the same place in the graphics stack as other vector graphics renderers like [Skia](https://skia.org/), [Cairo](https://www.cairographics.org/), and its predecessor project [Piet](https://www.cairographics.org/).
+//! On a basic level, that means it provides tools to render shapes, images, gradients, texts, etc, using a PostScript-inspired API, the same that powers SVG files and [the browser `<canvas>` element](https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D).
+//!
+//! Vello's selling point is that it gets better performance than other renderers by better leveraging the GPU.
+//! In traditional PostScript-style renderers, some steps of the render process like sorting and clipping either need to be handled in the CPU or done through the use of intermediary textures.
+//! Vello avoids this by using prefix-scan algorithms to parallelize work that usually needs to happen in sequence, so that work can be offloaded to the GPU with minimal use of temporary buffers.
+//!
+//! This means that Vello needs a GPU with support for compute shaders to run.
+//!
+//!
+//! ## Getting started
+//!
+//! Vello is meant to be integrated deep in UI render stacks.
+//! While drawing in a Vello scene is easy, actually rendering that scene to a surface setting up a wgpu context, which is a non-trivial task.
+//!
+//! To use Vello as the renderer for your PDF reader / GUI toolkit / etc, your code will have to look roughly like this:
+//!
+//! ```ignore
+//! // Initialize wgpu and get handles
+//! let (width, height) = ...;
+//! let device: wgpu::Device = ...;
+//! let queue: wgpu::Queue = ...;
+//! let surface: wgpu::Surface<'_> = ...;
+//! let texture_format: wgpu::TextureFormat = ...;
+//! let mut renderer = Renderer::new(
+//!    &device,
+//!    RendererOptions {
+//!       surface_format: Some(texture_format),
+//!       use_cpu: false,
+//!       antialiasing_support: vello::AaSupport::all(),
+//!       num_init_threads: NonZeroUsize::new(1),
+//!    },
+//! ).expect("Failed to create renderer");
+//!
+//! // Create scene and draw stuff in it
+//! let mut scene = vello::Scene::new();
+//! scene.fill(
+//!    vello::peniko::Fill::NonZero,
+//!    vello::Affine::IDENTITY,
+//!    vello::Color::rgb8(242, 140, 168),
+//!    None,
+//!    &vello::Circle::new((420.0, 200.0), 120.0),
+//! );
+//!
+//! // Draw more stuff
+//! scene.push_layer(...);
+//! scene.fill(...);
+//! scene.stroke(...);
+//! scene.pop_layer(...);
+//!
+//! // Render to your window/buffer/etc.
+//! let surface_texture = surface.get_current_texture()
+//!    .expect("failed to get surface texture");
+//! renderer
+//!    .render_to_surface(
+//!       &device,
+//!       &queue,
+//!       &scene,
+//!       &surface_texture,
+//!       &vello::RenderParams {
+//!          base_color: Color::BLACK, // Background color
+//!          width,
+//!          height,
+//!          antialiasing_method: AaConfig::Msaa16,
+//!       },
+//!    )
+//!    .expect("Failed to render to surface");
+//! surface_texture.present();
+//! ```
+//!
+//! See the [`examples/`](https://github.com/linebender/vello/tree/main/examples) folder to see how that code integrates with frameworks like winit and bevy.
+
 mod cpu_dispatch;
 mod cpu_shader;
 mod recording;

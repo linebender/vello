@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 //! Support for CPU implementations of compute shaders.
+//!
+//! Note that while this CPU implementation is useful for testing and debugging,
+//! a full CPU fallback for targets without wgpu hasn't been implemented yet.
 
 use std::{
     cell::{Ref, RefCell, RefMut},
