@@ -121,7 +121,7 @@ The subprojects in this section are things we've thought about, and for which we
 
 ### Native renderers
 
-We're now doing all the shader implementation work in WGSL and using wgpu as the runtime. This is giving us *much* lower friction for dealing with the gratuitous incompatibilites of the various shader languages, the prospect of deploying to Web (once WebGPU ships), and collaboration with the wider wgpu and WebGPU ecosystems. Bevy is especially promising. But there are also downsides.
+We're now doing all the shader implementation work in WGSL and using wgpu as the runtime. This is giving us *much* lower friction for dealing with the gratuitous incompatibilities of the various shader languages, the prospect of deploying to Web (once WebGPU ships), and collaboration with the wider wgpu and WebGPU ecosystems. Bevy is especially promising. But there are also downsides.
 
 One issue is that Vello becomes a fairly heavy dependency, as it drags along an entire WebGPU implementation, especially runtime shader compilation. For some applications, that may not be an issue (and not at all if they're already using wgpu), but for others it might be.
 
