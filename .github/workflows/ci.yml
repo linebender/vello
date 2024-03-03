@@ -290,3 +290,12 @@ jobs:
       # We test documentation using nightly to match docs.rs. This prevents potential breakages
       - name: cargo doc
         run: cargo doc --workspace --locked --all-features --no-deps --document-private-items -Zunstable-options -Zrustdoc-scrape-examples
+
+  # If this fails, consider changing your text or adding something to `.typos.toml`
+  typos:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: check typos
+        uses: crate-ci/typos@v1.21.0
