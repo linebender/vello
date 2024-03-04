@@ -384,11 +384,24 @@ pub fn draw_gpu_profiling(
             let text_size = (text_height * 0.9) as f32;
             // Text is specified by the baseline, but the y positions all refer to the top of the text
             cur_text_y = text_y + text_height;
-            let label = format!(
-                "{:.2?} - {:.30}",
-                Duration::from_secs_f64(this_time),
-                profile.label
-            );
+            let label = {
+                // Sometimes, the duration turns out to be negative
+                // We have not yet debugged this, but display the absolute value in that case
+                // see https://github.com/linebender/vello/pull/475 for more
+                if this_time < 0.0 {
+                    format!(
+                        "-{:.2?}(!!) - {:.30}",
+                        Duration::from_secs_f64(this_time.abs()),
+                        profile.label
+                    )
+                } else {
+                    format!(
+                        "{:.2?} - {:.30}",
+                        Duration::from_secs_f64(this_time),
+                        profile.label
+                    )
+                }
+            };
             scene.fill(
                 Fill::NonZero,
                 offset,
