@@ -385,6 +385,9 @@ pub fn draw_gpu_profiling(
             // Text is specified by the baseline, but the y positions all refer to the top of the text
             cur_text_y = text_y + text_height;
             let label = {
+                // Sometimes, the duration turns out to be negative
+                // We have not yet debugged this, but display the absolute value in that case
+                // see https://github.com/linebender/vello/pull/475 for more
                 if this_time < 0.0 {
                     format!(
                         "-{:.2?}(!!) - {:.30}",
