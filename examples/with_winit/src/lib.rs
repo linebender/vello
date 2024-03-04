@@ -653,7 +653,7 @@ pub fn main() -> anyhow::Result<()> {
     env_logger::builder()
         .format_timestamp(Some(env_logger::TimestampPrecision::Millis))
         .init();
-    let args = Args::parse();
+    let args = parse_arguments();
     let scenes = args.args.select_scene_set(Args::command)?;
     if let Some(scenes) = scenes {
         let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build()?;
@@ -717,6 +717,25 @@ pub fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+fn parse_arguments() -> Args {
+    // We allow baking in arguments at compile time. This is especially useful for
+    // Android and WASM.
+    // This is used on desktop platforms to allow debugging the same settings
+    let args = if let Some(args) = option_env!("VELLO_STATIC_ARGS") {
+        // We split by whitespace here to allow passing multiple arguments
+        // In theory, we could do more advanced parsing/splitting (e.g. using quotes),
+        // but that would require a lot more effort
+
+        // We `chain` in a fake binary name, because clap ignores the first argument otherwise
+        // Ideally, we'd use the `no_binary_name` argument, but setting that at runtime would
+        // require globals or some worse hacks
+        Args::parse_from(std::iter::once("with_winit").chain(args.split_ascii_whitespace()))
+    } else {
+        Args::parse()
+    };
+    args
+}
+
 #[cfg(target_os = "android")]
 use winit::platform::android::activity::AndroidApp;
 
@@ -744,14 +763,7 @@ fn android_main(app: AndroidApp) {
         .with_android_app(app)
         .build()
         .expect("Required to continue");
-    let args = if let Some(args) = option_env!("VELLO_STATIC_ARGS") {
-        // We split by whitespace here to allow passing multiple arguments
-        // In theory, we could do more advanced parsing/splitting (e.g. using quotes),
-        // but that would require a lot more effort
-        Args::parse_from(args.split_ascii_whitespace())
-    } else {
-        Args::parse()
-    };
+    let args = parse_arguments();
     let scenes = args
         .args
         .select_scene_set(|| Args::command())
