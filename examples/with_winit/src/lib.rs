@@ -727,7 +727,7 @@ fn android_main(app: AndroidApp) {
     let config = android_logger::Config::default();
     // We allow configuring the Android logging with an environment variable at build time
     let config = if let Some(logging_config) = option_env!("VELLO_STATIC_LOG") {
-        let mut filter = env_logger::filter::Builder::new();
+        let mut filter = android_logger::FilterBuilder::new();
         filter.filter_level(log::LevelFilter::Warn);
         filter.parse(logging_config);
         let filter = filter.build();

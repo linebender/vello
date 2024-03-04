@@ -27,8 +27,11 @@ wgpu-profiler = { workspace = true }
 
 wgpu = { workspace = true }
 winit = "0.29.12"
-env_logger = "0.11.2"
 log = { workspace = true }
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+# We use android_logger on Android
+env_logger = "0.11.2"
 
 [target.'cfg(not(any(target_arch = "wasm32", target_os = "android")))'.dependencies]
 vello = { path = "../../", features = ["hot_reload"] }
