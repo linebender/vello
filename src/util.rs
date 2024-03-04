@@ -43,6 +43,7 @@ impl RenderContext {
         window: impl Into<SurfaceTarget<'w>>,
         width: u32,
         height: u32,
+        present_mode: wgpu::PresentMode,
     ) -> Result<RenderSurface<'w>> {
         let surface = self.instance.create_surface(window.into())?;
         let dev_id = self
@@ -63,7 +64,7 @@ impl RenderContext {
             format,
             width,
             height,
-            present_mode: wgpu::PresentMode::AutoVsync,
+            present_mode,
             desired_maximum_frame_latency: 2,
             alpha_mode: wgpu::CompositeAlphaMode::Auto,
             view_formats: vec![],
@@ -92,10 +93,6 @@ impl RenderContext {
 
     fn configure_surface(&self, surface: &RenderSurface) {
         let device = &self.devices[surface.dev_id].device;
-        // Temporary workaround for https://github.com/gfx-rs/wgpu/issues/4214
-        // It's still possible for this to panic if the device is being used on another thread
-        // but this unbreaks most current users
-        device.poll(wgpu::MaintainBase::Wait);
         surface.surface.configure(device, &surface.config);
     }
 
