@@ -96,20 +96,27 @@ fn run(
     let mut render_state = {
         renderers.resize_with(render_cx.devices.len(), || None);
         let id = render_state.surface.dev_id;
-        renderers[id] = Some(
-            Renderer::new(
-                &render_cx.devices[id].device,
-                RendererOptions {
-                    surface_format: Some(render_state.surface.format),
-                    use_cpu,
-                    antialiasing_support: vello::AaSupport::all(),
-                    // We currently initialise on one thread on WASM, but mark this here
-                    // anyway
-                    num_init_threads: NonZeroUsize::new(1),
-                },
-            )
-            .expect("Could create renderer"),
-        );
+        let mut renderer = Renderer::new(
+            &render_cx.devices[id].device,
+            RendererOptions {
+                surface_format: Some(render_state.surface.format),
+                use_cpu,
+                antialiasing_support: vello::AaSupport::all(),
+                // We currently initialise on one thread on WASM, but mark this here
+                // anyway
+                num_init_threads: NonZeroUsize::new(1),
+            },
+        )
+        .expect("Could create renderer");
+        renderer
+            .profiler
+            .change_settings(GpuProfilerSettings {
+                enable_timer_queries: args.startup_gpu_profiling_on,
+                enable_debug_groups: args.startup_gpu_profiling_on,
+                ..Default::default()
+            })
+            .expect("Not setting max_num_pending_frames");
+        renderers[id] = Some(renderer);
         Some(render_state)
     };
     // Whilst suspended, we drop `render_state`, but need to keep the same window.
