@@ -366,8 +366,19 @@ impl Renderer {
             render_pass.set_bind_group(0, &bind_group, &[]);
             render_pass.draw(0..6, 0..1);
         }
+        #[cfg(feature = "wgpu-profiler")]
+        self.profiler.resolve_queries(&mut encoder);
         queue.submit(Some(encoder.finish()));
         self.target = Some(target);
+        #[cfg(feature = "wgpu-profiler")]
+        self.profiler.end_frame().unwrap();
+        #[cfg(feature = "wgpu-profiler")]
+        if let Some(result) = self
+            .profiler
+            .process_finished_frame(queue.get_timestamp_period())
+        {
+            self.profile_result = Some(result);
+        }
         Ok(())
     }
 
