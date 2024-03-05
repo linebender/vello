@@ -362,6 +362,9 @@ impl Renderer {
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });
+            let mut render_pass = self
+                .profiler
+                .scope("blit to surface", &mut render_pass, device);
             render_pass.set_pipeline(&blit.pipeline);
             render_pass.set_bind_group(0, &bind_group, &[]);
             render_pass.draw(0..6, 0..1);
@@ -521,6 +524,9 @@ impl Renderer {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
+            let mut render_pass = self
+                .profiler
+                .scope("blit to surface", &mut render_pass, device);
             render_pass.set_pipeline(&blit.pipeline);
             render_pass.set_bind_group(0, &bind_group, &[]);
             render_pass.draw(0..6, 0..1);
