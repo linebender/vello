@@ -55,6 +55,16 @@ struct Args {
     /// Use `0` for an automatic choice
     #[arg(long, default_value_t=default_threads())]
     num_init_threads: usize,
+    /// Use the asynchronous pipeline (if available) for rendering
+    ///
+    /// The asynchronous pipeline is one approach for robust memory - see
+    /// <https://github.com/linebender/vello/issues/366>
+    ///
+    /// However, it also has potential latency issues, especially for
+    /// accessibility technology, as it (currently) blocks the main thread for
+    /// extended periods
+    #[arg(long)]
+    async_pipeline: bool,
 }
 
 fn default_threads() -> usize {
@@ -451,8 +461,9 @@ fn run(
                             .surface
                             .get_current_texture()
                             .expect("failed to get surface texture");
-                        #[cfg(not(target_arch = "wasm32"))]
-                        {
+                        // Note: we don't run the async/"robust" pipeline, as
+                        // it requires more async wiring for the readback.
+                        if args.async_pipeline && cfg!(not(target_arch = "wasm32")) {
                             scene_complexity = vello::block_on_wgpu(
                                 &device_handle.device,
                                 renderers[render_state.surface.dev_id]
@@ -467,21 +478,19 @@ fn run(
                                     ),
                             )
                             .expect("failed to render to surface");
+                        } else {
+                            renderers[render_state.surface.dev_id]
+                                .as_mut()
+                                .unwrap()
+                                .render_to_surface(
+                                    &device_handle.device,
+                                    &device_handle.queue,
+                                    &scene,
+                                    &surface_texture,
+                                    &render_params,
+                                )
+                                .expect("failed to render to surface");
                         }
-                        // Note: in the wasm case, we're currently not running the robust
-                        // pipeline, as it requires more async wiring for the readback.
-                        #[cfg(target_arch = "wasm32")]
-                        renderers[render_state.surface.dev_id]
-                            .as_mut()
-                            .unwrap()
-                            .render_to_surface(
-                                &device_handle.device,
-                                &device_handle.queue,
-                                &scene,
-                                &surface_texture,
-                                &render_params,
-                            )
-                            .expect("failed to render to surface");
                         surface_texture.present();
                         device_handle.device.poll(wgpu::Maintain::Poll);
 
