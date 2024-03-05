@@ -166,10 +166,13 @@ impl std::task::Wake for NullWake {
 ///
 /// This will deadlock if the future is awaiting anything other than GPU progress.
 pub fn block_on_wgpu<F: Future>(device: &Device, mut fut: F) -> F::Output {
+    if cfg!(target_arch = "wasm32") {
+        panic!("Blocking can't work on WASM, so");
+    }
     let waker = std::task::Waker::from(std::sync::Arc::new(NullWake));
     let mut context = std::task::Context::from_waker(&waker);
     // Same logic as `pin_mut!` macro from `pin_utils`.
-    let mut fut = unsafe { std::pin::Pin::new_unchecked(&mut fut) };
+    let mut fut = std::pin::pin!(fut);
     loop {
         match fut.as_mut().poll(&mut context) {
             std::task::Poll::Pending => {
