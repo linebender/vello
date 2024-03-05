@@ -16,6 +16,22 @@
   },
   "wgsl-analyzer.diagnostics.nagaVersion": "main",
   "wgsl-analyzer.preprocessor.shaderDefs": [
-    "full", "msaa16", "msaa"
-  ]
+    "full",
+    "msaa16",
+    "msaa"
+  ],
+  // These settings can be set to get Rust-analyzer working for Android compilation
+  // (unfortunately you need to do the variable expansion manually, because 
+  // rust-analyzer doesn't do this for us)
+  // "rust-analyzer.cargo.target": "aarch64-linux-android",
+  // "rust-analyzer.cargo.extraEnv": {
+  //   "CC_aarch64-linux-android": "${env:ANDROID_SDK_ROOT}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android23-clang",
+  //   "CFLAGS_aarch64-linux-android": "--target=aarch64-linux-android23",
+  //   "CXX_aarch64-linux-android": "${env:ANDROID_SDK_ROOT}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android23-clang",
+  //   "CXXFLAGS_aarch64-linux-android": "--target=aarch64-linux-android23",
+  //   "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER": "${env:ANDROID_SDK_ROOT}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android23-clang",
+  //   "RUSTFLAGS": "-Clink-arg=${env:ANDROID_SDK_ROOT}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android23-clang -L --target=${workspaceFolder}/target/cargo-apk-temp-extra-link-libraries",
+  //   "AR_aarch64-linux-android": "${env:ANDROID_SDK_ROOT}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar",
+  //   "CARGO_TARGET_AARCH64_LINUX_ANDROID_AR": "${env:ANDROID_SDK_ROOT}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar",
+  // }
 }

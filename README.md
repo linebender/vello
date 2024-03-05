@@ -217,6 +217,18 @@ path = "$HOME/.android/debug.keystore"
 keystore_password = "android"
 ```
 
+> [!NOTE]  
+> As `cargo apk` does not allow passing command line arguments or environment variables to the app when ran, these can be embedded into the 
+> program at compile time (currently for Android only)
+> `with_winit` currently supports the environment variables:
+>  - `VELLO_STATIC_LOG`, which is equivalent to `RUST_LOG`
+>  - `VELLO_STATIC_ARGS`, which is equivalent to passing in command line arguments
+
+For example (with unix shell environment variable syntax):
+```sh
+VELLO_STATIC_LOG="vello=trace" VELLO_STATIC_ARGS="--test-scenes" cargo apk run -p with_winit --lib
+```
+
 ## Community
 
 Discussion of Vello development happens in the [Xi Zulip](https://xi.zulipchat.com/), specifically the [#gpu stream](https://xi.zulipchat.com/#narrow/stream/197075-gpu). All public content can be read without logging in.

@@ -106,10 +106,12 @@ pub fn full_shaders(
             if force_gpu_from == Some(stringify!($name)) {
                 force_gpu = true;
             }
+            let processed =
+                preprocess::preprocess(shader!(stringify!($name)), &$defines, &imports).into();
             engine.add_shader(
                 device,
                 $label,
-                preprocess::preprocess(shader!(stringify!($name)), &$defines, &imports).into(),
+                processed,
                 &$bindings,
                 if force_gpu {
                     CpuShaderType::Missing

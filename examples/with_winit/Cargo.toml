@@ -27,8 +27,11 @@ wgpu-profiler = { workspace = true }
 
 wgpu = { workspace = true }
 winit = "0.29.12"
+log = { workspace = true }
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+# We use android_logger on Android
 env_logger = "0.11.2"
-log = "0.4.21"
 
 [target.'cfg(not(any(target_arch = "wasm32", target_os = "android")))'.dependencies]
 vello = { path = "../../", features = ["hot_reload"] }
@@ -43,5 +46,5 @@ android_logger = "0.13.3"
 console_error_panic_hook = "0.1.7"
 console_log = "1.0.0"
 wasm-bindgen-futures = "0.4.41"
-web-sys = { version = "0.3.67", features = [ "HtmlCollection", "Text" ] }
+web-sys = { version = "0.3.67", features = ["HtmlCollection", "Text"] }
 getrandom = { version = "0.2.12", features = ["js"] }
