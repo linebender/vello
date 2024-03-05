@@ -231,29 +231,10 @@ fn run(
                                             };
                                         }
                                         "p" => {
-                                            if let Some(renderer) = &renderers[render_state.surface.dev_id]
+                                            if let Some(renderer) =
+                                                &renderers[render_state.surface.dev_id]
                                             {
-                                                if let Some(profile_result) = &renderer
-                                                  .profile_result
-                                                  .as_ref()
-                                                  .or(profile_stored.as_ref())
-                                                {
-                                                    // There can be empty results if the required features aren't supported
-                                                    if !profile_result.is_empty() {
-                                                        let path = std::path::Path::new("trace.json");
-                                                        match wgpu_profiler::chrometrace::write_chrometrace(
-                                                            path,
-                                                            profile_result,
-                                                        ) {
-                                                            Ok(()) => {
-                                                                println!("Wrote trace to path {path:?}");
-                                                            }
-                                                            Err(e) => {
-                                                                log::warn!("Failed to write trace {e}")
-                                                            }
-                                                        }
-                                                    }
-                                                }
+                                                store_profiling(renderer, &profile_stored);
                                             }
                                         }
                                         "v" => {
@@ -267,9 +248,11 @@ fn run(
                                                 },
                                             );
                                         }
-                                        "g"=> {
+                                        "g" => {
                                             gpu_profiling_on = !gpu_profiling_on;
-                                            if let Some(renderer) = &mut renderers[render_state.surface.dev_id] {
+                                            if let Some(renderer) =
+                                                &mut renderers[render_state.surface.dev_id]
+                                            {
                                                 renderer
                                                     .profiler
                                                     .change_settings(GpuProfilerSettings {
@@ -567,8 +550,17 @@ fn run(
                         .take()
                         .unwrap_or_else(|| create_window(event_loop));
                     let size = window.inner_size();
-                    let present_mode = if vsync_on { wgpu::PresentMode::AutoVsync } else { wgpu::PresentMode::AutoNoVsync };
-                    let surface_future = render_cx.create_surface(window.clone(), size.width, size.height, present_mode);
+                    let present_mode = if vsync_on {
+                        wgpu::PresentMode::AutoVsync
+                    } else {
+                        wgpu::PresentMode::AutoNoVsync
+                    };
+                    let surface_future = render_cx.create_surface(
+                        window.clone(),
+                        size.width,
+                        size.height,
+                        present_mode,
+                    );
                     // We need to block here, in case a Suspended event appeared
                     let surface =
                         pollster::block_on(surface_future).expect("Error creating surface");
@@ -584,16 +576,19 @@ fn run(
                                     surface_format: Some(render_state.surface.format),
                                     use_cpu,
                                     antialiasing_support: aa_configs.iter().copied().collect(),
-                                    num_init_threads: NonZeroUsize::new(args.num_init_threads)
+                                    num_init_threads: NonZeroUsize::new(args.num_init_threads),
                                 },
                             )
                             .expect("Could create renderer");
                             log::info!("Creating renderer {id} took {:?}", start.elapsed());
-                            renderer.profiler.change_settings(GpuProfilerSettings{
-                                enable_timer_queries: gpu_profiling_on,
-                                enable_debug_groups: gpu_profiling_on,
-                                ..Default::default()
-                            }).expect("Not setting max_num_pending_frames");
+                            renderer
+                                .profiler
+                                .change_settings(GpuProfilerSettings {
+                                    enable_timer_queries: gpu_profiling_on,
+                                    enable_debug_groups: gpu_profiling_on,
+                                    ..Default::default()
+                                })
+                                .expect("Not setting max_num_pending_frames");
                             renderer
                         });
                         Some(render_state)
@@ -604,6 +599,27 @@ fn run(
             _ => {}
         })
         .expect("run to completion");
+}
+
+/// A function extracted to fix rustfmt
+fn store_profiling(
+    renderer: &Renderer,
+    profile_stored: &Option<Vec<wgpu_profiler::GpuTimerQueryResult>>,
+) {
+    if let Some(profile_result) = &renderer.profile_result.as_ref().or(profile_stored.as_ref()) {
+        // There can be empty results if the required features aren't supported
+        if !profile_result.is_empty() {
+            let path = std::path::Path::new("trace.json");
+            match wgpu_profiler::chrometrace::write_chrometrace(path, profile_result) {
+                Ok(()) => {
+                    println!("Wrote trace to path {path:?}");
+                }
+                Err(e) => {
+                    log::warn!("Failed to write trace {e}")
+                }
+            }
+        }
+    }
 }
 
 fn create_window(event_loop: &winit::event_loop::EventLoopWindowTarget<UserEvent>) -> Arc<Window> {
