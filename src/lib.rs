@@ -374,13 +374,14 @@ impl Renderer {
         queue.submit(Some(encoder.finish()));
         self.target = Some(target);
         #[cfg(feature = "wgpu-profiler")]
-        self.profiler.end_frame().unwrap();
-        #[cfg(feature = "wgpu-profiler")]
-        if let Some(result) = self
-            .profiler
-            .process_finished_frame(queue.get_timestamp_period())
         {
-            self.profile_result = Some(result);
+            self.profiler.end_frame().unwrap();
+            if let Some(result) = self
+                .profiler
+                .process_finished_frame(queue.get_timestamp_period())
+            {
+                self.profile_result = Some(result);
+            }
         }
         Ok(())
     }
@@ -536,13 +537,14 @@ impl Renderer {
         queue.submit(Some(encoder.finish()));
         self.target = Some(target);
         #[cfg(feature = "wgpu-profiler")]
-        self.profiler.end_frame().unwrap();
-        #[cfg(feature = "wgpu-profiler")]
-        if let Some(result) = self
-            .profiler
-            .process_finished_frame(queue.get_timestamp_period())
         {
-            self.profile_result = Some(result);
+            self.profiler.end_frame().unwrap();
+            if let Some(result) = self
+                .profiler
+                .process_finished_frame(queue.get_timestamp_period())
+            {
+                self.profile_result = Some(result);
+            }
         }
         Ok(bump)
     }

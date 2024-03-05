@@ -462,7 +462,8 @@ fn run(
                             .get_current_texture()
                             .expect("failed to get surface texture");
                         // Note: we don't run the async/"robust" pipeline, as
-                        // it requires more async wiring for the readback.
+                        // it requires more async wiring for the readback. See
+                        // [#gpu > async on wasm](https://xi.zulipchat.com/#narrow/stream/197075-gpu/topic/async.20on.20wasm)
                         if args.async_pipeline && cfg!(not(target_arch = "wasm32")) {
                             scene_complexity = vello::block_on_wgpu(
                                 &device_handle.device,
