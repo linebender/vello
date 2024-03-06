@@ -86,6 +86,10 @@ impl Vec2 {
         self.x.hypot(self.y)
     }
 
+    pub fn distance(self, other: Vec2) -> f32 {
+        (self - other).length()
+    }
+
     pub fn to_array(self) -> [f32; 2] {
         [self.x, self.y]
     }
@@ -122,6 +126,25 @@ impl Transform {
         let x = z[0] * p.x + z[2] * p.y + z[4];
         let y = z[1] * p.x + z[3] * p.y + z[5];
         Vec2 { x, y }
+    }
+
+    pub fn inverse(&self) -> Transform {
+        let z = self.0;
+        let inv_det = (z[0] * z[3] - z[1] * z[2]).recip();
+        let inv_mat = [
+            z[3] * inv_det,
+            -z[1] * inv_det,
+            -z[2] * inv_det,
+            z[0] * inv_det,
+        ];
+        Self([
+            inv_mat[0],
+            inv_mat[1],
+            inv_mat[2],
+            inv_mat[3],
+            -(inv_mat[0] * z[4] + inv_mat[2] * z[5]),
+            -(inv_mat[1] * z[4] + inv_mat[3] * z[5]),
+        ])
     }
 
     pub fn read(transform_base: u32, ix: u32, data: &[u32]) -> Transform {

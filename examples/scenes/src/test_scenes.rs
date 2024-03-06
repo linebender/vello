@@ -816,6 +816,7 @@ fn gradient_extend(scene: &mut Scene, params: &mut SceneParams) {
             label,
         );
     }
+    params.resolution = Some((1200.0, 1200.0).into());
 }
 
 #[allow(clippy::too_many_arguments)]
