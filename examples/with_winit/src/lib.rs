@@ -1,10 +1,9 @@
 // Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use instant::{Duration, Instant};
+use instant::Instant;
 use std::num::NonZeroUsize;
 use std::{collections::HashSet, sync::Arc};
-use wgpu_profiler::GpuProfilerSettings;
 
 use clap::{CommandFactory, Parser};
 use scenes::{ImageCache, SceneParams, SceneSet, SimpleText};
@@ -48,6 +47,7 @@ struct Args {
     ///
     /// It is off by default because it has adverse performance characteristics
     #[arg(long)]
+    #[cfg(feature = "wgpu-profiler")]
     startup_gpu_profiling_on: bool,
     /// Whether to force initialising the shaders serially (rather than spawning threads)
     /// This has no effect on wasm, and defaults to 1 on macOS for performance reasons
@@ -128,7 +128,7 @@ fn run(
         .expect("Could create renderer");
         renderer
             .profiler
-            .change_settings(GpuProfilerSettings {
+            .change_settings(wgpu_profiler::GpuProfilerSettings {
                 enable_timer_queries: args.startup_gpu_profiling_on,
                 enable_debug_groups: args.startup_gpu_profiling_on,
                 ..Default::default()
@@ -153,7 +153,13 @@ fn run(
     let mut scene_complexity: Option<BumpAllocators> = None;
     let mut complexity_shown = false;
     let mut vsync_on = !args.startup_vsync_off;
+
+    #[cfg(feature = "wgpu-profiler")]
     let mut gpu_profiling_on = args.startup_gpu_profiling_on;
+    #[cfg(feature = "wgpu-profiler")]
+    let mut profile_stored = None;
+    #[cfg(feature = "wgpu-profiler")]
+    let mut profile_taken = Instant::now();
 
     // We allow cycling through AA configs in either direction, so use a signed index
     let mut aa_config_ix: i32 = 0;
@@ -174,9 +180,7 @@ fn run(
     if let Some(set_scene) = args.scene {
         scene_ix = set_scene;
     }
-    let mut profile_stored = None;
     let mut prev_scene_ix = scene_ix - 1;
-    let mut profile_taken = Instant::now();
     let mut modifiers = ModifiersState::default();
     event_loop
         .run(move |event, event_loop| match event {
@@ -240,11 +244,30 @@ fn run(
                                                 aa_config_ix.saturating_add(1)
                                             };
                                         }
+                                        #[cfg(feature = "wgpu-profiler")]
                                         "p" => {
                                             if let Some(renderer) =
                                                 &renderers[render_state.surface.dev_id]
                                             {
                                                 store_profiling(renderer, &profile_stored);
+                                            }
+                                        }
+                                        #[cfg(feature = "wgpu-profiler")]
+                                        "g" => {
+                                            gpu_profiling_on = !gpu_profiling_on;
+                                            if let Some(renderer) =
+                                                &mut renderers[render_state.surface.dev_id]
+                                            {
+                                                renderer
+                                                    .profiler
+                                                    .change_settings(
+                                                        wgpu_profiler::GpuProfilerSettings {
+                                                            enable_timer_queries: gpu_profiling_on,
+                                                            enable_debug_groups: gpu_profiling_on,
+                                                            ..Default::default()
+                                                        },
+                                                    )
+                                                    .expect("Not setting max_num_pending_frames");
                                             }
                                         }
                                         "v" => {
@@ -257,21 +280,6 @@ fn run(
                                                     wgpu::PresentMode::AutoNoVsync
                                                 },
                                             );
-                                        }
-                                        "g" => {
-                                            gpu_profiling_on = !gpu_profiling_on;
-                                            if let Some(renderer) =
-                                                &mut renderers[render_state.surface.dev_id]
-                                            {
-                                                renderer
-                                                    .profiler
-                                                    .change_settings(GpuProfilerSettings {
-                                                        enable_timer_queries: gpu_profiling_on,
-                                                        enable_debug_groups: gpu_profiling_on,
-                                                        ..Default::default()
-                                                    })
-                                                    .expect("Not setting max_num_pending_frames");
-                                            }
                                         }
                                         _ => {}
                                     }
@@ -435,17 +443,19 @@ fn run(
                                 vsync_on,
                                 antialiasing_method,
                             );
+                            #[cfg(feature = "wgpu-profiler")]
                             if let Some(profiling_result) = renderers[render_state.surface.dev_id]
                                 .as_mut()
                                 .and_then(|it| it.profile_result.take())
                             {
                                 if profile_stored.is_none()
-                                    || profile_taken.elapsed() > Duration::from_secs(1)
+                                    || profile_taken.elapsed() > instant::Duration::from_secs(1)
                                 {
                                     profile_stored = Some(profiling_result);
                                     profile_taken = Instant::now();
                                 }
                             }
+                            #[cfg(feature = "wgpu-profiler")]
                             if let Some(profiling_result) = profile_stored.as_ref() {
                                 stats::draw_gpu_profiling(
                                     &mut scene,
@@ -580,6 +590,7 @@ fn run(
                         let id = render_state.surface.dev_id;
                         renderers[id].get_or_insert_with(|| {
                             let start = Instant::now();
+                            #[allow(unused_mut)]
                             let mut renderer = Renderer::new(
                                 &render_cx.devices[id].device,
                                 RendererOptions {
@@ -591,9 +602,10 @@ fn run(
                             )
                             .expect("Could create renderer");
                             log::info!("Creating renderer {id} took {:?}", start.elapsed());
+                            #[cfg(feature = "wgpu-profiler")]
                             renderer
                                 .profiler
-                                .change_settings(GpuProfilerSettings {
+                                .change_settings(wgpu_profiler::GpuProfilerSettings {
                                     enable_timer_queries: gpu_profiling_on,
                                     enable_debug_groups: gpu_profiling_on,
                                     ..Default::default()
@@ -611,6 +623,7 @@ fn run(
         .expect("run to completion");
 }
 
+#[cfg(feature = "wgpu-profiler")]
 /// A function extracted to fix rustfmt
 fn store_profiling(
     renderer: &Renderer,

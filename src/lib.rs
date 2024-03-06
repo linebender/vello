@@ -362,6 +362,7 @@ impl Renderer {
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });
+            #[cfg(feature = "wgpu-profiler")]
             let mut render_pass = self
                 .profiler
                 .scope("blit to surface", &mut render_pass, device);
@@ -525,6 +526,7 @@ impl Renderer {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
+            #[cfg(feature = "wgpu-profiler")]
             let mut render_pass = self
                 .profiler
                 .scope("blit to surface", &mut render_pass, device);
