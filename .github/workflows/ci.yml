@@ -12,6 +12,8 @@ env:
 # dev dependencies enabled, which does not match how they would be compiled by users.
 # A dev dependency might enable a feature of a regular dependency that we need, but checking
 # with --all-targets would not catch that. Thus we split --lib & --bins into a separate step.
+# Also, we can't give --lib --bins explicitly because then cargo will error on binary-only packages.
+# Luckily the default behavior of cargo with no explicit targets is the same but without the error.
 #
 # We use cargo-hack for a similar reason. Cargo's --workspace will do feature unification across
 # the whole workspace. While cargo-hack will instead check each workspace package separately.
@@ -97,7 +99,7 @@ jobs:
           sudo apt install -y xvfb libegl1-mesa libgl1-mesa-dri libxcb-xfixes0-dev mesa-vulkan-drivers
 
       - name: cargo clippy
-        run: cargo hack clippy --workspace --each-feature --optional-deps --lib --bins -- -D warnings
+        run: cargo hack clippy --workspace --each-feature --optional-deps -- -D warnings
   
       - name: cargo clippy (auxiliary)
         run: cargo hack clippy --workspace --each-feature --optional-deps --tests --benches --examples -- -D warnings
@@ -130,7 +132,7 @@ jobs:
           tool: cargo-hack
           
       - name: cargo clippy
-        run: cargo hack clippy --workspace --target wasm32-unknown-unknown --each-feature --optional-deps --lib --bins -- -D warnings
+        run: cargo hack clippy --workspace --target wasm32-unknown-unknown --each-feature --optional-deps -- -D warnings
   
       - name: cargo clippy (auxiliary)
         run: cargo hack clippy --workspace --target wasm32-unknown-unknown --each-feature --optional-deps --tests --benches --examples -- -D warnings
