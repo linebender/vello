@@ -800,13 +800,12 @@ mod atrace {
         _private: (),
     }
 
-    #[cfg(target_os = "android")]
-    use std::ffi::c_char;
     // See https://developer.android.com/topic/performance/tracing/custom-events-native
     #[link(name = "android", kind = "dylib")]
+    #[cfg(target_os = "android")]
     extern "C" {
         #[link_name = "ATrace_beginSection"]
-        fn atrace_begin_section(text: *const c_char);
+        fn atrace_begin_section(text: *const std::ffi::c_char);
         #[link_name = "ATrace_endSection"]
         fn atrace_end_section();
     }
@@ -816,7 +815,8 @@ mod atrace {
     }
 
     impl ATraceSpan {
-        fn new(name: &str) -> Self {
+        #[allow(unused_variables)] // Keep correct name even when trace does nothing
+        pub(crate) fn new(name: &str) -> Self {
             #[cfg(target_os = "android")]
             {
                 let name = std::ffi::CString::new(name).unwrap();
