@@ -6,8 +6,12 @@
 use crate::{
     recording::{BufferProxy, ImageFormat, ImageProxy, Recording, ResourceProxy},
     shaders::FullShaders,
-    AaConfig, RenderParams, Scene,
+    AaConfig, RenderParams,
 };
+
+#[cfg(feature = "wgpu")]
+use crate::Scene;
+
 use vello_encoding::{make_mask_lut, make_mask_lut_16, Encoding, WorkgroupSize};
 
 /// State for a render in progress.
@@ -33,6 +37,7 @@ struct FineResources {
     out_image: ImageProxy,
 }
 
+#[cfg(feature = "wgpu")]
 pub fn render_full(
     scene: &Scene,
     shaders: &FullShaders,
@@ -41,6 +46,7 @@ pub fn render_full(
     render_encoding_full(scene.encoding(), shaders, params)
 }
 
+#[cfg(feature = "wgpu")]
 /// Create a single recording with both coarse and fine render stages.
 ///
 /// This function is not recommended when the scene can be complex, as it does not
