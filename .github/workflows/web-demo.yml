@@ -1,0 +1,68 @@
+name: Web Demo Update
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  release-web:
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: install wasm-bindgen
+        uses: jetli/wasm-bindgen-action@v0.2.0
+        with:
+          version: 'latest'
+
+      - name: build (wasm)
+        run: cargo build -p with_winit --bin with_winit_bin --release --target wasm32-unknown-unknown
+
+      - name: package wasm
+        run: |
+          mkdir public
+          wasm-bindgen --target web --out-dir public target/wasm32-unknown-unknown/release/with_winit_bin.wasm --no-typescript
+          cat << EOF > public/index.html
+            <html>
+              <title>Vello Web Demo</title>
+              <meta content=no-cache http-equiv=Cache-control>
+              <meta content=-1 http-equiv=Expires>
+              <script type=module>import initSync from"/vello/with_winit_bin.js";initSync(`/vello/with_winit_bin_bg.wasm`);</script>
+              <link as=fetch crossorigin href=/vello/with_winit_bin_bg.wasm rel=preload type=application/wasm>
+              <link crossorigin href=/vello/with_winit_bin.js rel=modulepreload>
+              </head>
+              <body>
+                <style>
+                  body {
+                    margin: 0;
+                    padding: 0;
+                  }
+                </style>
+              </body>
+            </html>
+          EOF
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './public'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

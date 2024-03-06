@@ -14,9 +14,8 @@ use wgpu::{
 };
 
 use crate::{
-    cpu_dispatch::CpuBinding,
-    engine::{BindType, Error},
-    BufProxy, Command, Id, ImageProxy, Recording, ResourceProxy, ShaderId,
+    cpu_dispatch::CpuBinding, recording::BindType, BufferProxy, Command, Error, ImageProxy,
+    Recording, ResourceId, ResourceProxy, ShaderId,
 };
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -32,7 +31,7 @@ pub struct WgpuEngine {
     shaders: Vec<Shader>,
     pool: ResourcePool,
     bind_map: BindMap,
-    downloads: HashMap<Id, Buffer>,
+    downloads: HashMap<ResourceId, Buffer>,
     #[cfg(not(target_arch = "wasm32"))]
     shaders_to_initialise: Option<Vec<UninitialisedShader>>,
     pub(crate) use_cpu: bool,
@@ -79,7 +78,7 @@ impl Shader {
 
 pub enum ExternalResource<'a> {
     #[allow(unused)]
-    Buf(BufProxy, &'a Buffer),
+    Buffer(BufferProxy, &'a Buffer),
     Image(ImageProxy, &'a TextureView),
 }
 
@@ -97,9 +96,9 @@ struct BindMapBuffer {
 
 #[derive(Default)]
 struct BindMap {
-    buf_map: HashMap<Id, BindMapBuffer>,
-    image_map: HashMap<Id, (Texture, TextureView)>,
-    pending_clears: HashSet<Id>,
+    buf_map: HashMap<ResourceId, BindMapBuffer>,
+    image_map: HashMap<ResourceId, (Texture, TextureView)>,
+    pending_clears: HashSet<ResourceId>,
 }
 
 #[derive(Hash, PartialEq, Eq)]
@@ -122,9 +121,9 @@ struct ResourcePool {
 /// uploads.
 #[derive(Default)]
 struct TransientBindMap<'a> {
-    bufs: HashMap<Id, TransientBuf<'a>>,
+    bufs: HashMap<ResourceId, TransientBuf<'a>>,
     // TODO: create transient image type
-    images: HashMap<Id, &'a TextureView>,
+    images: HashMap<ResourceId, &'a TextureView>,
 }
 
 enum TransientBuf<'a> {
@@ -345,8 +344,8 @@ impl WgpuEngine {
         label: &'static str,
         #[cfg(feature = "wgpu-profiler")] profiler: &mut wgpu_profiler::GpuProfiler,
     ) -> Result<(), Error> {
-        let mut free_bufs: HashSet<Id> = Default::default();
-        let mut free_images: HashSet<Id> = Default::default();
+        let mut free_bufs: HashSet<ResourceId> = Default::default();
+        let mut free_images: HashSet<ResourceId> = Default::default();
         let mut transient_map = TransientBindMap::new(external_resources);
 
         let mut encoder =
@@ -576,7 +575,7 @@ impl WgpuEngine {
                         self.bind_map.pending_clears.insert(proxy.id);
                     }
                 }
-                Command::FreeBuf(proxy) => {
+                Command::FreeBuffer(proxy) => {
                     free_bufs.insert(proxy.id);
                 }
                 Command::FreeImage(proxy) => {
@@ -610,11 +609,11 @@ impl WgpuEngine {
         Ok(())
     }
 
-    pub fn get_download(&self, buf: BufProxy) -> Option<&Buffer> {
+    pub fn get_download(&self, buf: BufferProxy) -> Option<&Buffer> {
         self.downloads.get(&buf.id)
     }
 
-    pub fn free_download(&mut self, buf: BufProxy) {
+    pub fn free_download(&mut self, buf: BufferProxy) {
         self.downloads.remove(&buf.id);
     }
 
@@ -652,7 +651,7 @@ impl WgpuEngine {
 }
 
 impl BindMap {
-    fn insert_buf(&mut self, proxy: &BufProxy, buffer: Buffer) {
+    fn insert_buf(&mut self, proxy: &BufferProxy, buffer: Buffer) {
         self.buf_map.insert(
             proxy.id,
             BindMapBuffer {
@@ -663,7 +662,7 @@ impl BindMap {
     }
 
     /// Get a buffer, only if it's on GPU.
-    fn get_gpu_buf(&self, id: Id) -> Option<&Buffer> {
+    fn get_gpu_buf(&self, id: ResourceId) -> Option<&Buffer> {
         self.buf_map.get(&id).and_then(|b| match &b.buffer {
             MaterializedBuffer::Gpu(b) => Some(b),
             _ => None,
@@ -673,14 +672,14 @@ impl BindMap {
     /// Get a CPU buffer.
     ///
     /// Panics if buffer is not present or is on GPU.
-    fn get_cpu_buf(&self, id: Id) -> CpuBinding {
+    fn get_cpu_buf(&self, id: ResourceId) -> CpuBinding {
         match &self.buf_map[&id].buffer {
             MaterializedBuffer::Cpu(b) => CpuBinding::BufferRW(b),
             _ => panic!("getting cpu buffer, but it's on gpu"),
         }
     }
 
-    fn materialize_cpu_buf(&mut self, buf: &BufProxy) {
+    fn materialize_cpu_buf(&mut self, buf: &BufferProxy) {
         self.buf_map.entry(buf.id).or_insert_with(|| {
             let buffer = MaterializedBuffer::Cpu(RefCell::new(vec![0; buf.size as usize]));
             BindMapBuffer {
@@ -691,11 +690,11 @@ impl BindMap {
         });
     }
 
-    fn insert_image(&mut self, id: Id, image: Texture, image_view: TextureView) {
+    fn insert_image(&mut self, id: ResourceId, image: Texture, image_view: TextureView) {
         self.image_map.insert(id, (image, image_view));
     }
 
-    fn get_buf(&mut self, proxy: BufProxy) -> Option<&BindMapBuffer> {
+    fn get_buf(&mut self, proxy: BufferProxy) -> Option<&BindMapBuffer> {
         self.buf_map.get(&proxy.id)
     }
 
@@ -792,7 +791,7 @@ impl BindMapBuffer {
     // accessed from a CPU shader.
     fn upload_if_needed(
         &mut self,
-        proxy: &BufProxy,
+        proxy: &BufferProxy,
         device: &Device,
         queue: &Queue,
         pool: &mut ResourcePool,
@@ -816,7 +815,7 @@ impl<'a> TransientBindMap<'a> {
         let mut images = HashMap::default();
         for resource in external_resources {
             match resource {
-                ExternalResource::Buf(proxy, gpu_buf) => {
+                ExternalResource::Buffer(proxy, gpu_buf) => {
                     bufs.insert(proxy.id, TransientBuf::Gpu(gpu_buf));
                 }
                 ExternalResource::Image(proxy, gpu_image) => {
@@ -833,7 +832,7 @@ impl<'a> TransientBindMap<'a> {
         pool: &mut ResourcePool,
         device: &Device,
         queue: &Queue,
-        buf: &BufProxy,
+        buf: &BufferProxy,
     ) {
         if !self.bufs.contains_key(&buf.id) {
             if let Some(b) = bind_map.buf_map.get_mut(&buf.id) {
@@ -855,7 +854,7 @@ impl<'a> TransientBindMap<'a> {
     ) -> Result<BindGroup, Error> {
         for proxy in bindings {
             match proxy {
-                ResourceProxy::Buf(proxy) => {
+                ResourceProxy::Buffer(proxy) => {
                     if self.bufs.contains_key(&proxy.id) {
                         continue;
                     }
@@ -919,7 +918,7 @@ impl<'a> TransientBindMap<'a> {
             .iter()
             .enumerate()
             .map(|(i, proxy)| match proxy {
-                ResourceProxy::Buf(proxy) => {
+                ResourceProxy::Buffer(proxy) => {
                     let buf = match self.bufs.get(&proxy.id) {
                         Some(TransientBuf::Gpu(b)) => b,
                         _ => bind_map.get_gpu_buf(proxy.id).unwrap(),
@@ -959,7 +958,7 @@ impl<'a> TransientBindMap<'a> {
         // First pass is mutable; create buffers as needed
         for resource in bindings {
             match resource {
-                ResourceProxy::Buf(buf) => match self.bufs.get(&buf.id) {
+                ResourceProxy::Buffer(buf) => match self.bufs.get(&buf.id) {
                     Some(TransientBuf::Cpu(_)) => (),
                     Some(TransientBuf::Gpu(_)) => panic!("buffer was already materialized on GPU"),
                     _ => bind_map.materialize_cpu_buf(buf),
@@ -971,7 +970,7 @@ impl<'a> TransientBindMap<'a> {
         bindings
             .iter()
             .map(|resource| match resource {
-                ResourceProxy::Buf(buf) => match self.bufs.get(&buf.id) {
+                ResourceProxy::Buffer(buf) => match self.bufs.get(&buf.id) {
                     Some(TransientBuf::Cpu(b)) => CpuBinding::Buffer(b),
                     _ => bind_map.get_cpu_buf(buf.id),
                 },

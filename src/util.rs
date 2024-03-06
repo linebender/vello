@@ -43,6 +43,7 @@ impl RenderContext {
         window: impl Into<SurfaceTarget<'w>>,
         width: u32,
         height: u32,
+        present_mode: wgpu::PresentMode,
     ) -> Result<RenderSurface<'w>> {
         let surface = self.instance.create_surface(window.into())?;
         let dev_id = self
@@ -63,7 +64,7 @@ impl RenderContext {
             format,
             width,
             height,
-            present_mode: wgpu::PresentMode::AutoVsync,
+            present_mode,
             desired_maximum_frame_latency: 2,
             alpha_mode: wgpu::CompositeAlphaMode::Auto,
             view_formats: vec![],
@@ -92,10 +93,6 @@ impl RenderContext {
 
     fn configure_surface(&self, surface: &RenderSurface) {
         let device = &self.devices[surface.dev_id].device;
-        // Temporary workaround for https://github.com/gfx-rs/wgpu/issues/4214
-        // It's still possible for this to panic if the device is being used on another thread
-        // but this unbreaks most current users
-        device.poll(wgpu::MaintainBase::Wait);
         surface.surface.configure(device, &surface.config);
     }
 
@@ -169,10 +166,13 @@ impl std::task::Wake for NullWake {
 ///
 /// This will deadlock if the future is awaiting anything other than GPU progress.
 pub fn block_on_wgpu<F: Future>(device: &Device, mut fut: F) -> F::Output {
+    if cfg!(target_arch = "wasm32") {
+        panic!("Blocking can't work on WASM, so");
+    }
     let waker = std::task::Waker::from(std::sync::Arc::new(NullWake));
     let mut context = std::task::Context::from_waker(&waker);
     // Same logic as `pin_mut!` macro from `pin_utils`.
-    let mut fut = unsafe { std::pin::Pin::new_unchecked(&mut fut) };
+    let mut fut = std::pin::pin!(fut);
     loop {
         match fut.as_mut().poll(&mut context) {
             std::task::Poll::Pending => {

@@ -3,14 +3,11 @@ name = "vello_svg"
 description = "Render a usvg document to a Vello scene"
 categories = ["rendering", "graphics"]
 keywords = ["2d", "vector-graphics", "vello"]
-
-version.workspace = true
-license.workspace = true
 edition.workspace = true
+license.workspace = true
 repository.workspace = true
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+publish = false
 
 [dependencies]
 vello = { path = "../../" }
-usvg = "0.37"
+usvg = "0.37.0"

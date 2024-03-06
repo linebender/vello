@@ -72,6 +72,9 @@ impl Encoding {
         self.path_tags.is_empty()
     }
 
+    #[doc(alias = "clear")]
+    // This is not called "clear" because "clear" has other implications
+    // in graphics contexts.
     /// Clears the encoding.
     pub fn reset(&mut self) {
         self.transforms.clear();
@@ -516,6 +519,9 @@ pub struct Resources {
 
 #[cfg(feature = "full")]
 impl Resources {
+    #[doc(alias = "clear")]
+    // This is not called "clear" because "clear" has other implications
+    // in graphics contexts.
     fn reset(&mut self) {
         self.patches.clear();
         self.color_stops.clear();

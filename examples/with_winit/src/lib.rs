@@ -1,11 +1,10 @@
 // Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use instant::{Duration, Instant};
+use instant::Instant;
 use std::num::NonZeroUsize;
 use std::{collections::HashSet, sync::Arc};
 
-use anyhow::Result;
 use clap::{CommandFactory, Parser};
 use scenes::{ImageCache, SceneParams, SceneSet, SimpleText};
 use vello::peniko::Color;
@@ -39,12 +38,33 @@ struct Args {
     #[arg(long)]
     /// Whether to use CPU shaders
     use_cpu: bool,
+    /// Used to disable vsync at startup. Can be toggled with the "V" key.
+    ///
+    /// This setting is useful for Android, where it might be harder to press this key
+    #[arg(long)]
+    startup_vsync_off: bool,
+    /// Used to enable gpu profiling at startup. Can be toggled with the "G" key
+    ///
+    /// It is off by default because it has adverse performance characteristics
+    #[arg(long)]
+    #[cfg(feature = "wgpu-profiler")]
+    startup_gpu_profiling_on: bool,
     /// Whether to force initialising the shaders serially (rather than spawning threads)
     /// This has no effect on wasm, and defaults to 1 on macOS for performance reasons
     ///
     /// Use `0` for an automatic choice
     #[arg(long, default_value_t=default_threads())]
     num_init_threads: usize,
+    /// Use the asynchronous pipeline (if available) for rendering
+    ///
+    /// The asynchronous pipeline is one approach for robust memory - see
+    /// <https://github.com/linebender/vello/issues/366>
+    ///
+    /// However, it also has potential latency issues, especially for
+    /// accessibility technology, as it (currently) blocks the main thread for
+    /// extended periods
+    #[arg(long)]
+    async_pipeline: bool,
 }
 
 fn default_threads() -> usize {
@@ -77,6 +97,15 @@ fn run(
     #[cfg(not(target_arch = "wasm32"))]
     let mut render_state = None::<RenderState>;
     let use_cpu = args.use_cpu;
+    // The available kinds of anti-aliasing
+    #[cfg(not(target_os = "android"))]
+    // TODO: Make this set configurable through the command line
+    // Alternatively, load anti-aliasing shaders on demand/asynchronously
+    let aa_configs = [AaConfig::Area, AaConfig::Msaa8, AaConfig::Msaa16];
+    #[cfg(target_os = "android")]
+    // Hard code to only one on Android whilst we are working on startup speed
+    let aa_configs = [AaConfig::Area];
+
     // The design of `RenderContext` forces delayed renderer initialisation to
     // not work on wasm, as WASM futures effectively must be 'static.
     // Otherwise, this could work by sending the result to event_loop.proxy
@@ -85,20 +114,27 @@ fn run(
     let mut render_state = {
         renderers.resize_with(render_cx.devices.len(), || None);
         let id = render_state.surface.dev_id;
-        renderers[id] = Some(
-            Renderer::new(
-                &render_cx.devices[id].device,
-                RendererOptions {
-                    surface_format: Some(render_state.surface.format),
-                    use_cpu,
-                    antialiasing_support: vello::AaSupport::all(),
-                    // We currently initialise on one thread on WASM, but mark this here
-                    // anyway
-                    num_init_threads: NonZeroUsize::new(1),
-                },
-            )
-            .expect("Could create renderer"),
-        );
+        let mut renderer = Renderer::new(
+            &render_cx.devices[id].device,
+            RendererOptions {
+                surface_format: Some(render_state.surface.format),
+                use_cpu,
+                antialiasing_support: aa_configs.iter().copied().collect(),
+                // We currently initialise on one thread on WASM, but mark this here
+                // anyway
+                num_init_threads: NonZeroUsize::new(1),
+            },
+        )
+        .expect("Could create renderer");
+        renderer
+            .profiler
+            .change_settings(wgpu_profiler::GpuProfilerSettings {
+                enable_timer_queries: args.startup_gpu_profiling_on,
+                enable_debug_groups: args.startup_gpu_profiling_on,
+                ..Default::default()
+            })
+            .expect("Not setting max_num_pending_frames");
+        renderers[id] = Some(renderer);
         Some(render_state)
     };
     // Whilst suspended, we drop `render_state`, but need to keep the same window.
@@ -116,9 +152,15 @@ fn run(
     #[allow(unused_mut)]
     let mut scene_complexity: Option<BumpAllocators> = None;
     let mut complexity_shown = false;
-    let mut vsync_on = true;
+    let mut vsync_on = !args.startup_vsync_off;
 
-    const AA_CONFIGS: [AaConfig; 3] = [AaConfig::Area, AaConfig::Msaa8, AaConfig::Msaa16];
+    #[cfg(feature = "wgpu-profiler")]
+    let mut gpu_profiling_on = args.startup_gpu_profiling_on;
+    #[cfg(feature = "wgpu-profiler")]
+    let mut profile_stored = None;
+    #[cfg(feature = "wgpu-profiler")]
+    let mut profile_taken = Instant::now();
+
     // We allow cycling through AA configs in either direction, so use a signed index
     let mut aa_config_ix: i32 = 0;
 
@@ -138,9 +180,7 @@ fn run(
     if let Some(set_scene) = args.scene {
         scene_ix = set_scene;
     }
-    let mut profile_stored = None;
     let mut prev_scene_ix = scene_ix - 1;
-    let mut profile_taken = Instant::now();
     let mut modifiers = ModifiersState::default();
     event_loop
         .run(move |event, event_loop| match event {
@@ -204,30 +244,30 @@ fn run(
                                                 aa_config_ix.saturating_add(1)
                                             };
                                         }
+                                        #[cfg(feature = "wgpu-profiler")]
                                         "p" => {
-                                            if let Some(renderer) = &renderers[render_state.surface.dev_id]
+                                            if let Some(renderer) =
+                                                &renderers[render_state.surface.dev_id]
                                             {
-                                                if let Some(profile_result) = &renderer
-                                                  .profile_result
-                                                  .as_ref()
-                                                  .or(profile_stored.as_ref())
-                                                {
-                                                    // There can be empty results if the required features aren't supported
-                                                    if !profile_result.is_empty() {
-                                                        let path = std::path::Path::new("trace.json");
-                                                        match wgpu_profiler::chrometrace::write_chrometrace(
-                                                            path,
-                                                            profile_result,
-                                                        ) {
-                                                            Ok(()) => {
-                                                                println!("Wrote trace to path {path:?}");
-                                                            }
-                                                            Err(e) => {
-                                                                eprintln!("Failed to write trace {e}")
-                                                            }
-                                                        }
-                                                    }
-                                                }
+                                                store_profiling(renderer, &profile_stored);
+                                            }
+                                        }
+                                        #[cfg(feature = "wgpu-profiler")]
+                                        "g" => {
+                                            gpu_profiling_on = !gpu_profiling_on;
+                                            if let Some(renderer) =
+                                                &mut renderers[render_state.surface.dev_id]
+                                            {
+                                                renderer
+                                                    .profiler
+                                                    .change_settings(
+                                                        wgpu_profiler::GpuProfilerSettings {
+                                                            enable_timer_queries: gpu_profiling_on,
+                                                            enable_debug_groups: gpu_profiling_on,
+                                                            ..Default::default()
+                                                        },
+                                                    )
+                                                    .expect("Not setting max_num_pending_frames");
                                             }
                                         }
                                         "v" => {
@@ -318,7 +358,7 @@ fn run(
                                 * Affine::translate(-prior_position)
                                 * transform;
                         } else {
-                            eprintln!(
+                            log::warn!(
                                 "Scrolling without mouse in window; this shouldn't be possible"
                             );
                         }
@@ -343,7 +383,7 @@ fn run(
 
                         // Allow looping forever
                         scene_ix = scene_ix.rem_euclid(scenes.scenes.len() as i32);
-                        aa_config_ix = aa_config_ix.rem_euclid(AA_CONFIGS.len() as i32);
+                        aa_config_ix = aa_config_ix.rem_euclid(aa_configs.len() as i32);
 
                         let example_scene = &mut scenes.scenes[scene_ix as usize];
                         if prev_scene_ix != scene_ix {
@@ -374,7 +414,7 @@ fn run(
                             .base_color
                             .or(scene_params.base_color)
                             .unwrap_or(Color::BLACK);
-                        let antialiasing_method = AA_CONFIGS[aa_config_ix as usize];
+                        let antialiasing_method = aa_configs[aa_config_ix as usize];
                         let render_params = vello::RenderParams {
                             base_color,
                             width,
@@ -403,17 +443,19 @@ fn run(
                                 vsync_on,
                                 antialiasing_method,
                             );
+                            #[cfg(feature = "wgpu-profiler")]
                             if let Some(profiling_result) = renderers[render_state.surface.dev_id]
                                 .as_mut()
                                 .and_then(|it| it.profile_result.take())
                             {
                                 if profile_stored.is_none()
-                                    || profile_taken.elapsed() > Duration::from_secs(1)
+                                    || profile_taken.elapsed() > instant::Duration::from_secs(1)
                                 {
                                     profile_stored = Some(profiling_result);
                                     profile_taken = Instant::now();
                                 }
                             }
+                            #[cfg(feature = "wgpu-profiler")]
                             if let Some(profiling_result) = profile_stored.as_ref() {
                                 stats::draw_gpu_profiling(
                                     &mut scene,
@@ -429,8 +471,10 @@ fn run(
                             .surface
                             .get_current_texture()
                             .expect("failed to get surface texture");
-                        #[cfg(not(target_arch = "wasm32"))]
-                        {
+                        // Note: we don't run the async/"robust" pipeline, as
+                        // it requires more async wiring for the readback. See
+                        // [#gpu > async on wasm](https://xi.zulipchat.com/#narrow/stream/197075-gpu/topic/async.20on.20wasm)
+                        if args.async_pipeline && cfg!(not(target_arch = "wasm32")) {
                             scene_complexity = vello::block_on_wgpu(
                                 &device_handle.device,
                                 renderers[render_state.surface.dev_id]
@@ -445,21 +489,19 @@ fn run(
                                     ),
                             )
                             .expect("failed to render to surface");
+                        } else {
+                            renderers[render_state.surface.dev_id]
+                                .as_mut()
+                                .unwrap()
+                                .render_to_surface(
+                                    &device_handle.device,
+                                    &device_handle.queue,
+                                    &scene,
+                                    &surface_texture,
+                                    &render_params,
+                                )
+                                .expect("failed to render to surface");
                         }
-                        // Note: in the wasm case, we're currently not running the robust
-                        // pipeline, as it requires more async wiring for the readback.
-                        #[cfg(target_arch = "wasm32")]
-                        renderers[render_state.surface.dev_id]
-                            .as_mut()
-                            .unwrap()
-                            .render_to_surface(
-                                &device_handle.device,
-                                &device_handle.queue,
-                                &scene,
-                                &surface_texture,
-                                &render_params,
-                            )
-                            .expect("failed to render to surface");
                         surface_texture.present();
                         device_handle.device.poll(wgpu::Maintain::Poll);
 
@@ -496,7 +538,7 @@ fn run(
                         return;
                     };
                     let device_handle = &render_cx.devices[render_state.surface.dev_id];
-                    eprintln!("==============\nReloading shaders");
+                    log::info!("==============\nReloading shaders");
                     let start = Instant::now();
                     let result = renderers[render_state.surface.dev_id]
                         .as_mut()
@@ -504,13 +546,13 @@ fn run(
                         .reload_shaders(&device_handle.device);
                     // We know that the only async here (`pop_error_scope`) is actually sync, so blocking is fine
                     match pollster::block_on(result) {
-                        Ok(_) => eprintln!("Reloading took {:?}", start.elapsed()),
-                        Err(e) => eprintln!("Failed to reload shaders because of {e}"),
+                        Ok(_) => log::info!("Reloading took {:?}", start.elapsed()),
+                        Err(e) => log::warn!("Failed to reload shaders because of {e}"),
                     }
                 }
             },
             Event::Suspended => {
-                eprintln!("Suspending");
+                log::info!("Suspending");
                 #[cfg(not(target_arch = "wasm32"))]
                 // When we suspend, we need to remove the `wgpu` Surface
                 if let Some(render_state) = render_state.take() {
@@ -528,7 +570,17 @@ fn run(
                         .take()
                         .unwrap_or_else(|| create_window(event_loop));
                     let size = window.inner_size();
-                    let surface_future = render_cx.create_surface(window.clone(), size.width, size.height);
+                    let present_mode = if vsync_on {
+                        wgpu::PresentMode::AutoVsync
+                    } else {
+                        wgpu::PresentMode::AutoNoVsync
+                    };
+                    let surface_future = render_cx.create_surface(
+                        window.clone(),
+                        size.width,
+                        size.height,
+                        present_mode,
+                    );
                     // We need to block here, in case a Suspended event appeared
                     let surface =
                         pollster::block_on(surface_future).expect("Error creating surface");
@@ -538,17 +590,27 @@ fn run(
                         let id = render_state.surface.dev_id;
                         renderers[id].get_or_insert_with(|| {
                             let start = Instant::now();
-                            let renderer = Renderer::new(
+                            #[allow(unused_mut)]
+                            let mut renderer = Renderer::new(
                                 &render_cx.devices[id].device,
                                 RendererOptions {
                                     surface_format: Some(render_state.surface.format),
                                     use_cpu,
-                                    antialiasing_support: vello::AaSupport::all(),
-                                    num_init_threads: NonZeroUsize::new(args.num_init_threads)
+                                    antialiasing_support: aa_configs.iter().copied().collect(),
+                                    num_init_threads: NonZeroUsize::new(args.num_init_threads),
                                 },
                             )
                             .expect("Could create renderer");
-                            eprintln!("Creating renderer {id} took {:?}", start.elapsed());
+                            log::info!("Creating renderer {id} took {:?}", start.elapsed());
+                            #[cfg(feature = "wgpu-profiler")]
+                            renderer
+                                .profiler
+                                .change_settings(wgpu_profiler::GpuProfilerSettings {
+                                    enable_timer_queries: gpu_profiling_on,
+                                    enable_debug_groups: gpu_profiling_on,
+                                    ..Default::default()
+                                })
+                                .expect("Not setting max_num_pending_frames");
                             renderer
                         });
                         Some(render_state)
@@ -559,6 +621,28 @@ fn run(
             _ => {}
         })
         .expect("run to completion");
+}
+
+#[cfg(feature = "wgpu-profiler")]
+/// A function extracted to fix rustfmt
+fn store_profiling(
+    renderer: &Renderer,
+    profile_stored: &Option<Vec<wgpu_profiler::GpuTimerQueryResult>>,
+) {
+    if let Some(profile_result) = &renderer.profile_result.as_ref().or(profile_stored.as_ref()) {
+        // There can be empty results if the required features aren't supported
+        if !profile_result.is_empty() {
+            let path = std::path::Path::new("trace.json");
+            match wgpu_profiler::chrometrace::write_chrometrace(path, profile_result) {
+                Ok(()) => {
+                    println!("Wrote trace to path {path:?}");
+                }
+                Err(e) => {
+                    log::warn!("Failed to write trace {e}")
+                }
+            }
+        }
+    }
 }
 
 fn create_window(event_loop: &winit::event_loop::EventLoopWindowTarget<UserEvent>) -> Arc<Window> {
@@ -600,12 +684,15 @@ fn display_error_message() -> Option<()> {
     Some(())
 }
 
-pub fn main() -> Result<()> {
+#[cfg(not(target_os = "android"))]
+pub fn main() -> anyhow::Result<()> {
     // TODO: initializing both env_logger and console_logger fails on wasm.
     // Figure out a more principled approach.
     #[cfg(not(target_arch = "wasm32"))]
-    env_logger::init();
-    let args = Args::parse();
+    env_logger::builder()
+        .format_timestamp(Some(env_logger::TimestampPrecision::Millis))
+        .init();
+    let args = parse_arguments();
     let scenes = args.args.select_scene_set(Args::command)?;
     if let Some(scenes) = scenes {
         let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build()?;
@@ -613,9 +700,7 @@ pub fn main() -> Result<()> {
         let mut render_cx = RenderContext::new().unwrap();
         #[cfg(not(target_arch = "wasm32"))]
         {
-            #[cfg(not(target_os = "android"))]
             let proxy = event_loop.create_proxy();
-            #[cfg(not(target_os = "android"))]
             let _keep = hot_reload::hot_reload(move || {
                 proxy.send_event(UserEvent::HotReload).ok().map(drop)
             });
@@ -630,19 +715,33 @@ pub fn main() -> Result<()> {
             let window = create_window(&event_loop);
             // On wasm, append the canvas to the document body
             let canvas = window.canvas().unwrap();
-            let size = window.inner_size();
-            canvas.set_width(size.width);
-            canvas.set_height(size.height);
             web_sys::window()
                 .and_then(|win| win.document())
                 .and_then(|doc| doc.body())
                 .and_then(|body| body.append_child(canvas.as_ref()).ok())
                 .expect("couldn't append canvas to document body");
+            // Best effort to start with the canvas focused, taking input
             _ = web_sys::HtmlElement::from(canvas).focus();
             wasm_bindgen_futures::spawn_local(async move {
-                let size = window.inner_size();
+                let (width, height, scale_factor) = web_sys::window()
+                    .map(|w| {
+                        (
+                            w.inner_width().unwrap().as_f64().unwrap(),
+                            w.inner_height().unwrap().as_f64().unwrap(),
+                            w.device_pixel_ratio(),
+                        )
+                    })
+                    .unwrap();
+                let size =
+                    winit::dpi::PhysicalSize::from_logical::<_, f64>((width, height), scale_factor);
+                _ = window.request_inner_size(size);
                 let surface = render_cx
-                    .create_surface(window.clone(), size.width, size.height)
+                    .create_surface(
+                        window.clone(),
+                        size.width,
+                        size.height,
+                        wgpu::PresentMode::AutoVsync,
+                    )
                     .await;
                 if let Ok(surface) = surface {
                     let render_state = RenderState { window, surface };
@@ -657,6 +756,25 @@ pub fn main() -> Result<()> {
     Ok(())
 }
 
+fn parse_arguments() -> Args {
+    // We allow baking in arguments at compile time. This is especially useful for
+    // Android and WASM.
+    // This is used on desktop platforms to allow debugging the same settings
+    let args = if let Some(args) = option_env!("VELLO_STATIC_ARGS") {
+        // We split by whitespace here to allow passing multiple arguments
+        // In theory, we could do more advanced parsing/splitting (e.g. using quotes),
+        // but that would require a lot more effort
+
+        // We `chain` in a fake binary name, because clap ignores the first argument otherwise
+        // Ideally, we'd use the `no_binary_name` argument, but setting that at runtime would
+        // require globals or some worse hacks
+        Args::parse_from(std::iter::once("with_winit").chain(args.split_ascii_whitespace()))
+    } else {
+        Args::parse()
+    };
+    args
+}
+
 #[cfg(target_os = "android")]
 use winit::platform::android::activity::AndroidApp;
 
@@ -664,16 +782,27 @@ use winit::platform::android::activity::AndroidApp;
 #[no_mangle]
 fn android_main(app: AndroidApp) {
     use winit::platform::android::EventLoopBuilderExtAndroid;
-
-    android_logger::init_once(
-        android_logger::Config::default().with_max_level(log::LevelFilter::Warn),
-    );
+    let config = android_logger::Config::default();
+    // We allow configuring the Android logging with an environment variable at build time
+    let config = if let Some(logging_config) = option_env!("VELLO_STATIC_LOG") {
+        let mut filter = android_logger::FilterBuilder::new();
+        filter.filter_level(log::LevelFilter::Warn);
+        filter.parse(logging_config);
+        let filter = filter.build();
+        // This shouldn't be needed in theory, but without this the max
+        // level is set to 0 (i.e. Off)
+        let config = config.with_max_level(filter.filter());
+        config.with_filter(filter)
+    } else {
+        config.with_max_level(log::LevelFilter::Warn)
+    };
+    android_logger::init_once(config);
 
     let event_loop = EventLoopBuilder::with_user_event()
         .with_android_app(app)
         .build()
         .expect("Required to continue");
-    let args = Args::parse();
+    let args = parse_arguments();
     let scenes = args
         .args
         .select_scene_set(|| Args::command())

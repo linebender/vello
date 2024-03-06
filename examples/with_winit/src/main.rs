@@ -4,5 +4,10 @@
 use anyhow::Result;
 
 fn main() -> Result<()> {
-    with_winit::main()
+    #[cfg(not(target_os = "android"))]
+    {
+        with_winit::main()
+    }
+    #[cfg(target_os = "android")]
+    unreachable!()
 }
