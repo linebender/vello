@@ -128,7 +128,7 @@ fn run(
         .expect("Could create renderer");
         renderer
             .profiler
-            .change_settings(GpuProfilerSettings {
+            .change_settings(wgpu_profiler::GpuProfilerSettings {
                 enable_timer_queries: args.startup_gpu_profiling_on,
                 enable_debug_groups: args.startup_gpu_profiling_on,
                 ..Default::default()
