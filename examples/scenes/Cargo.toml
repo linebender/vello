@@ -20,3 +20,6 @@ instant = { workspace = true }
 byte-unit = "4.0.19"
 dialoguer = "0.10.4"
 ureq = "2.9.6"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2.12", features = ["js"] }
