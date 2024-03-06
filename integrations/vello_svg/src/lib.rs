@@ -53,8 +53,13 @@ pub use usvg;
 ///
 /// See the [module level documentation](crate#unsupported-features) for a list of some unsupported svg features
 pub fn render_tree(scene: &mut Scene, svg: &usvg::Tree) {
-    render_tree_with::<_, Infallible>(scene, svg, &mut default_error_handler)
-        .unwrap_or_else(|e| match e {});
+    render_tree_with::<_, Infallible>(
+        scene,
+        svg,
+        &usvg::Transform::identity(),
+        &mut default_error_handler,
+    )
+    .unwrap_or_else(|e| match e {});
 }
 
 /// Append a [`usvg::Tree`] into a Vello [`Scene`].
@@ -66,15 +71,10 @@ pub fn render_tree(scene: &mut Scene, svg: &usvg::Tree) {
 pub fn render_tree_with<F: FnMut(&mut Scene, &usvg::Node) -> Result<(), E>, E>(
     scene: &mut Scene,
     svg: &usvg::Tree,
+    ts: &usvg::Transform,
     error_handler: &mut F,
 ) -> Result<(), E> {
-    render_tree_impl(
-        scene,
-        svg,
-        &svg.view_box(),
-        &usvg::Transform::identity(),
-        error_handler,
-    )
+    render_tree_impl(scene, svg, &svg.view_box(), ts, error_handler)
 }
 
 fn render_tree_impl<F: FnMut(&mut Scene, &usvg::Node) -> Result<(), E>, E>(
@@ -85,8 +85,22 @@ fn render_tree_impl<F: FnMut(&mut Scene, &usvg::Node) -> Result<(), E>, E>(
     error_handler: &mut F,
 ) -> Result<(), E> {
     let transform = to_affine(ts);
-    let size = svg.size().to_int_size();
-    let (view_box_transform, clip) = geom::view_box_to_transform_with_clip(view_box, size);
+    scene.push_layer(
+        BlendMode {
+            mix: vello::peniko::Mix::Clip,
+            compose: vello::peniko::Compose::SrcOver,
+        },
+        1.0,
+        transform,
+        &vello::kurbo::Rect::new(
+            view_box.rect.left().into(),
+            view_box.rect.top().into(),
+            view_box.rect.right().into(),
+            view_box.rect.bottom().into(),
+        ),
+    );
+    let (view_box_transform, clip) =
+        geom::view_box_to_transform_with_clip(view_box, svg.size().to_int_size());
     if let Some(clip) = clip {
         scene.push_layer(
             BlendMode {
@@ -113,6 +127,7 @@ fn render_tree_impl<F: FnMut(&mut Scene, &usvg::Node) -> Result<(), E>, E>(
     if clip.is_some() {
         scene.pop_layer();
     }
+    scene.pop_layer();
 
     Ok(())
 }
@@ -239,31 +254,43 @@ fn render_group<F: FnMut(&mut Scene, &usvg::Node) -> Result<(), E>, E>(
                             error_handler(scene, node)?;
                             continue;
                         };
-                        let Some(size) = usvg::tiny_skia_path::IntSize::from_wh(
-                            decoded_image.width(),
-                            decoded_image.height(),
+                        let Some(size) = usvg::Size::from_wh(
+                            decoded_image.width() as f32,
+                            decoded_image.height() as f32,
                         ) else {
                             error_handler(scene, node)?;
                             continue;
                         };
-                        let (view_box_transform, clip) =
-                            geom::view_box_to_transform_with_clip(&img.view_box(), size);
-                        if let Some(clip) = clip {
-                            scene.push_layer(
-                                BlendMode {
-                                    mix: vello::peniko::Mix::Clip,
-                                    compose: vello::peniko::Compose::SrcOver,
-                                },
-                                1.0,
-                                transform,
-                                &vello::kurbo::Rect::new(
-                                    clip.left().into(),
-                                    clip.top().into(),
-                                    clip.right().into(),
-                                    clip.bottom().into(),
-                                ),
-                            );
-                        }
+                        let view_box = img.view_box();
+                        let new_size = geom::fit_view_box(size, &view_box);
+                        let (tx, ty) = usvg::utils::aligned_pos(
+                            view_box.aspect.align,
+                            view_box.rect.x(),
+                            view_box.rect.y(),
+                            view_box.rect.width() - new_size.width(),
+                            view_box.rect.height() - new_size.height(),
+                        );
+                        let (sx, sy) = (
+                            new_size.width() / size.width(),
+                            new_size.height() / size.height(),
+                        );
+                        let view_box_transform =
+                            usvg::Transform::from_row(sx, 0.0, 0.0, sy, tx, ty);
+                        let (width, height) = (decoded_image.width(), decoded_image.height());
+                        scene.push_layer(
+                            BlendMode {
+                                mix: vello::peniko::Mix::Clip,
+                                compose: vello::peniko::Compose::SrcOver,
+                            },
+                            1.0,
+                            transform,
+                            &vello::kurbo::Rect::new(
+                                view_box.rect.left().into(),
+                                view_box.rect.top().into(),
+                                view_box.rect.right().into(),
+                                view_box.rect.bottom().into(),
+                            ),
+                        );
 
                         let image_ts = to_affine(&ts.pre_concat(view_box_transform));
                         let image_data: Arc<Vec<u8>> = decoded_image.into_vec().into();
@@ -271,15 +298,13 @@ fn render_group<F: FnMut(&mut Scene, &usvg::Node) -> Result<(), E>, E>(
                             &Image::new(
                                 Blob::new(image_data),
                                 vello::peniko::Format::Rgba8,
-                                size.width(),
-                                size.height(),
+                                width,
+                                height,
                             ),
                             image_ts,
                         );
 
-                        if clip.is_some() {
-                            scene.pop_layer();
-                        }
+                        scene.pop_layer();
                     }
                     usvg::ImageKind::SVG(svg) => {
                         render_tree_impl(scene, svg, &img.view_box(), ts, error_handler)?;
