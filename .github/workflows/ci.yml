@@ -10,8 +10,14 @@ env:
 #
 # We don't run clippy with --all-targets because then even --lib and --bins are compiled with
 # dev dependencies enabled, which does not match how they would be compiled by users.
-# A dev dependency might enable a feature of a regular dependency that we need, but testing
+# A dev dependency might enable a feature of a regular dependency that we need, but checking
 # with --all-targets would not catch that. Thus we split --lib & --bins into a separate step.
+#
+# We use cargo-hack for a similar reason. Cargo's --workspace will do feature unification across
+# the whole workspace. While cargo-hack will instead check each workspace package separately.
+#
+# Using cargo-hack also allows us to more easily test the feature matrix of our packages.
+# We use --each-feature & --optional-deps which will run a separate check for every feature.
 
 name: CI
 
@@ -62,16 +68,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: restore cache
+        uses: Swatinem/rust-cache@v2
+
       - name: install stable toolchain
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.RUST_STABLE_VER }}
           components: clippy
 
-      - name: restore cache
-        uses: Swatinem/rust-cache@v2
+      - name: install cargo-hack
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-hack
 
-      - name: Install native dependencies
+      - name: install native dependencies
         if: matrix.os == 'ubuntu-latest'
         run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev
 
@@ -85,33 +96,21 @@ jobs:
           sudo apt-get update
           sudo apt install -y xvfb libegl1-mesa libgl1-mesa-dri libxcb-xfixes0-dev mesa-vulkan-drivers
 
-      - name: cargo clippy (no default features)
-        run: cargo clippy --workspace --lib --bins --no-default-features -- -D warnings
-
-      - name: cargo clippy (no default features) (auxiliary)
-        run: cargo clippy --workspace --tests --benches --examples --no-default-features -- -D warnings
-
-      - name: cargo clippy (default features)
-        run: cargo clippy --workspace --lib --bins -- -D warnings
-
-      - name: cargo clippy (default features) (auxiliary)
-        run: cargo clippy --workspace --tests --benches --examples -- -D warnings
-
-      - name: cargo clippy (all features)
-        run: cargo clippy --workspace --lib --bins --all-features -- -D warnings
-
-      - name: cargo clippy (all features) (auxiliary)
-        run: cargo clippy --workspace --tests --benches --examples --all-features -- -D warnings
+      - name: cargo clippy
+        run: cargo hack clippy --workspace --each-feature --optional-deps --lib --bins -- -D warnings
+  
+      - name: cargo clippy (auxiliary)
+        run: cargo hack clippy --workspace --each-feature --optional-deps --tests --benches --examples -- -D warnings
 
       # At the time of writing, we don't have any tests. Nevertheless, it's better to still run this
       - name: cargo test
         run: cargo test --workspace --all-features
         env:
           VELLO_CI_GPU_SUPPORT: ${{ matrix.gpu }}
-  
+
   clippy-stable-wasm:
     runs-on: ubuntu-latest
-    name: cargo test (wasm32)
+    name: cargo clippy + test (wasm32)
     steps:
       - uses: actions/checkout@v4
 
@@ -125,8 +124,20 @@ jobs:
           targets: wasm32-unknown-unknown
           components: clippy
 
-      - name: cargo clippy (wasm)
-        run: cargo clippy --all-targets --target wasm32-unknown-unknown --workspace -- -D warnings
+      - name: install cargo-hack
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-hack
+          
+      - name: cargo clippy
+        run: cargo hack clippy --workspace --target wasm32-unknown-unknown --each-feature --optional-deps --lib --bins -- -D warnings
+  
+      - name: cargo clippy (auxiliary)
+        run: cargo hack clippy --workspace --target wasm32-unknown-unknown --each-feature --optional-deps --tests --benches --examples -- -D warnings
+
+      # TODO: Find a way to make tests work. Until then the tests are merely compiled.
+      - name: cargo test compile
+        run: cargo test --workspace --target wasm32-unknown-unknown --all-features --no-run
 
   android-stable-check:
     runs-on: ubuntu-latest
@@ -151,7 +162,6 @@ jobs:
         env:
           # This is a bit of a hack, but cargo apk doesn't seem to allow customising this
           RUSTFLAGS: '-D warnings'
-      
 
   docs:
     name: cargo doc
@@ -162,11 +172,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: install nightly toolchain
-        uses: dtolnay/rust-toolchain@nightly
-
       - name: restore cache
         uses: Swatinem/rust-cache@v2
+
+      - name: install nightly toolchain
+        uses: dtolnay/rust-toolchain@nightly
 
       # We test documentation using nightly to match docs.rs. This prevents potential breakages
       - name: cargo doc
