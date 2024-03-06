@@ -53,6 +53,211 @@ fn approx_parabola_inv_integral(x: f32) -> f32 {
     return x * sqrt(1.0 - B + (B * B + 0.5 * x * x));
 }
 
+// Functions for Euler spirals
+
+struct CubicParams {
+    th0: f32,
+    th1: f32,
+    d0: f32,
+    d1: f32,
+}
+
+struct EulerParams {
+    th0: f32,
+    th1: f32,
+    k0: f32,
+    k1: f32,
+    ch: f32,
+}
+
+struct EulerSeg {
+    p0: vec2f,
+    p1: vec2f,
+    params: EulerParams,
+}
+
+/// Compute cubic parameters from endpoints and derivatives.
+fn cubic_from_points_derivs(p0: vec2f, p1: vec2f, q0: vec2f, q1: vec2f, dt: f32) -> CubicParams {
+    let chord = p1 - p0;
+    let scale = dt / dot(chord, chord);
+    let h0 = vec2(q0.x * chord.x + q0.y * chord.y, q0.y * chord.x - q0.x * chord.y);
+    let th0 = atan2(h0.y, h0.x);
+    let d0 = length(h0) * scale;
+    let h1 = vec2(q1.x * chord.x + q1.y * chord.y, q1.x * chord.y - q1.y * chord.x);
+    let th1 = atan2(h1.y, h1.x);
+    let d1 = length(h1) * scale;
+    return CubicParams(th0, th1, d0, d1);
+}
+
+// Estimate error of geometric Hermite interpolation to Euler spiral.
+fn est_euler_err(cparams: CubicParams) -> f32 {
+    let cth0 = cos(cparams.th0);
+    let cth1 = cos(cparams.th1);
+    if cth0 * cth1 < 0.0 {
+        return 2.0;
+    }
+    let e0 = (2. / 3.) / (1.0 + cth0);
+    let e1 = (2. / 3.) / (1.0 + cth1);
+    let s0 = sin(cparams.th0);
+    let s1 = sin(cparams.th1);
+    let s01 = cth0 * s1 + cth1 * s0;
+    let amin = 0.15 * (2. * e0 * s0 + 2. * e1 * s1 - e0 * e1 * s01);
+    let a = 0.15 * (2. * cparams.d0 * s0 + 2. * cparams.d1 * s1 - cparams.d0 * cparams.d1 * s01);
+    let aerr = abs(a - amin);
+    let symm = abs(cparams.th0 + cparams.th1);
+    let asymm = abs(cparams.th0 - cparams.th1);
+    let dist = length(vec2(cparams.d0 - e0, cparams.d1 - e1));
+    let symm2 = symm * symm;
+    let ctr = (4.625e-6 * symm * symm2 + 7.5e-3 * asymm) * symm2;
+    let halo = (5e-3 * symm + 7e-2 * asymm) * dist;
+    return ctr + 1.55 * aerr + halo;
+}
+
+fn es_params_from_angles(th0: f32, th1: f32) -> EulerParams {
+    let k0 = th0 + th1;
+    let dth = th1 - th0;
+    let d2 = dth * dth;
+    let k2 = k0 * k0;
+    var a = 6.0;
+    a -= d2 * (1. / 70.);
+    a -= (d2 * d2) * (1. / 10780.);
+    a += (d2 * d2 * d2) * 2.769178184818219e-07;
+    let b = -0.1 + d2 * (1. / 4200.) + d2 * d2 * 1.6959677820260655e-05;
+    let c = -1. / 1400. + d2 * 6.84915970574303e-05 - k2 * 7.936475029053326e-06;
+    a += (b + c * k2) * k2;
+    let k1 = dth * a;
+
+    // calculation of chord
+    var ch = 1.0;
+    ch -= d2 * (1. / 40.);
+    ch += (d2 * d2) * 0.00034226190482569864;
+    ch -= (d2 * d2 * d2) * 1.9349474568904524e-06;
+    let b_ = -1. / 24. + d2 * 0.0024702380951963226 - d2 * d2 * 3.7297408997537985e-05;
+    let c_ = 1. / 1920. - d2 * 4.87350869747975e-05 - k2 * 3.1001936068463107e-06;
+    ch += (b_ + c_ * k2) * k2;
+    return EulerParams(th0, th1, k0, k1, ch);
+}
+
+fn es_params_eval_th(params: EulerParams, t: f32) -> f32 {
+    return (params.k0 + 0.5 * params.k1 * (t - 1.0)) * t - params.th0;
+}
+
+// Integrate Euler spiral.
+fn integ_euler_10(k0: f32, k1: f32) -> vec2f {
+    let t1_1 = k0;
+    let t1_2 = 0.5 * k1;
+    let t2_2 = t1_1 * t1_1;
+    let t2_3 = 2. * (t1_1 * t1_2);
+    let t2_4 = t1_2 * t1_2;
+    let t3_4 = t2_2 * t1_2 + t2_3 * t1_1;
+    let t3_6 = t2_4 * t1_2;
+    let t4_4 = t2_2 * t2_2;
+    let t4_5 = 2. * (t2_2 * t2_3);
+    let t4_6 = 2. * (t2_2 * t2_4) + t2_3 * t2_3;
+    let t4_7 = 2. * (t2_3 * t2_4);
+    let t4_8 = t2_4 * t2_4;
+    let t5_6 = t4_4 * t1_2 + t4_5 * t1_1;
+    let t5_8 = t4_6 * t1_2 + t4_7 * t1_1;
+    let t6_6 = t4_4 * t2_2;
+    let t6_7 = t4_4 * t2_3 + t4_5 * t2_2;
+    let t6_8 = t4_4 * t2_4 + t4_5 * t2_3 + t4_6 * t2_2;
+    let t7_8 = t6_6 * t1_2 + t6_7 * t1_1;
+    let t8_8 = t6_6 * t2_2;
+    var u = 1.;
+    u -= (1. / 24.) * t2_2 + (1. / 160.) * t2_4;
+    u += (1. / 1920.) * t4_4 + (1. / 10752.) * t4_6 + (1. / 55296.) * t4_8;
+    u -= (1. / 322560.) * t6_6 + (1. / 1658880.) * t6_8;
+    u += (1. / 92897280.) * t8_8;
+    var v = (1. / 12.) * t1_2;
+    v -= (1. / 480.) * t3_4 + (1. / 2688.) * t3_6;
+    v += (1. / 53760.) * t5_6 + (1. / 276480.) * t5_8;
+    v -= (1. / 11612160.) * t7_8;
+    return vec2(u, v);
+}
+
+fn es_params_eval(params: EulerParams, t: f32) -> vec2f {
+    let thm = es_params_eval_th(params, t * 0.5);
+    let k0 = params.k0;
+    let k1 = params.k1;
+    let uv = integ_euler_10((k0 + k1 * (0.5 * t - 0.5)) * t, k1 * t * t);
+    let scale = t / params.ch;
+    let s = scale * sin(thm);
+    let c = scale * cos(thm);
+    let x = uv.x * c - uv.y * s;
+    let y = -uv.y * c - uv.x * s;
+    return vec2(x, y);
+}
+
+fn es_params_eval_with_offset(params: EulerParams, t: f32, offset: f32) -> vec2f {
+    let th = es_params_eval_th(params, t);
+    let v = offset * vec2f(sin(th), cos(th));
+    return es_params_eval(params, t) + v;
+}
+
+fn es_seg_from_params(p0: vec2f, p1: vec2f, params: EulerParams) -> EulerSeg {
+    return EulerSeg(p0, p1, params);
+}
+
+fn es_seg_eval_with_offset(es: EulerSeg, t: f32, offset: f32) -> vec2f {
+    let chord = es.p1 - es.p0;
+    let scaled = offset / length(chord);
+    let xy = es_params_eval_with_offset(es.params, t, scaled);
+    return es.p0 + vec2f(chord.x * xy.x - chord.y * xy.y, chord.x * xy.y + chord.y * xy.x);
+}
+
+fn pow_1_5_signed(x: f32) -> f32 {
+    return x * sqrt(abs(x));
+}
+
+const BREAK1: f32 = 0.8;
+const BREAK2: f32 = 1.25;
+const BREAK3: f32 = 2.1;
+const SIN_SCALE: f32 = 1.0976991822760038;
+const QUAD_A1: f32 = 0.6406;
+const QUAD_B1: f32 = -0.81;
+const QUAD_C1: f32 = 0.9148117935952064;
+const QUAD_A2: f32 = 0.5;
+const QUAD_B2: f32 = -0.156;
+const QUAD_C2: f32 = 0.16145779359520596;
+const QUAD_W1: f32 = 0.5 * QUAD_B1 / QUAD_A1;
+const QUAD_V1: f32 = 1.0 / QUAD_A1;
+const QUAD_U1: f32 = QUAD_W1 * QUAD_W1 - QUAD_C1 / QUAD_A1;
+const QUAD_W2: f32 = 0.5 * QUAD_B2 / QUAD_A2;
+const QUAD_V2: f32 = 1.0 / QUAD_A2;
+const QUAD_U2: f32 = QUAD_W2 * QUAD_W2 - QUAD_C2 / QUAD_A2;
+const FRAC_PI_4: f32 = 0.7853981633974483;
+const CBRT_9_8: f32 = 1.040041911525952;
+
+fn espc_int_approx(x: f32) -> f32 {
+    let y = abs(x);
+    var a: f32;
+    if y < BREAK1 {
+        a = sin(SIN_SCALE * y) * (1.0 / SIN_SCALE);
+    } else if y < BREAK2 {
+        a = (sqrt(8.0) / 3.0) * pow_1_5_signed(y - 1.0) + FRAC_PI_4;
+    } else {
+        let abc = select(vec3(QUAD_A2, QUAD_B2, QUAD_C2), vec3(QUAD_A1, QUAD_B1, QUAD_C1), y < BREAK3);
+        a = (abc.x * y + abc.y) * y + abc.z;
+    };
+    return a * sign(x);
+}
+
+fn espc_int_inv_approx(x: f32) -> f32 {
+    let y = abs(x);
+    var a: f32;
+    if y < 0.7010707591262915 {
+        a = asin(x * SIN_SCALE) * (1.0 / SIN_SCALE);
+    } else if y < 0.903249293595206 {
+        let b = y - FRAC_PI_4;
+        let u = pow(abs(b), 2. / 3.) * sign(b);
+        a = u * CBRT_9_8 + 1.0;
+    } else {
+        let uvw = select(vec3(QUAD_U2, QUAD_V2, QUAD_W2), vec3(QUAD_U1, QUAD_V1, QUAD_W1), y < 2.038857793595206);
+        a = sqrt(uvw.x + uvw.y * y) - uvw.z;
+    }
+    return a * sign(x);
+}
+
 // Notes on fractional subdivision:
 // --------------------------------
 // The core of the existing flattening algorithm (see `flatten_cubic` below) is to approximate the
@@ -107,6 +312,21 @@ fn eval_cubic(p0: vec2f, p1: vec2f, p2: vec2f, p3: vec2f, t: f32) -> vec2f {
     return p0 * (mt * mt * mt) + (p1 * (mt * mt * 3.0) + (p2 * (mt * 3.0) + p3 * t) * t) * t;
 }
 
+struct PointDeriv {
+    point: vec2f,
+    deriv: vec2f,
+}
+
+fn eval_cubic_and_deriv(p0: vec2f, p1: vec2f, p2: vec2f, p3: vec2f, t: f32) -> PointDeriv {
+    let m = 1.0 - t;
+    let mm = m * m;
+    let mt = m * t;
+    let tt = t * t;
+    let p = p0 * (mm * m) + (p1 * (3.0 * mm) + p2 * (3.0 * mt) + p3 * tt) * t;
+    let q = (p1 - p0) * mm + (p2 - p1) * (2.0 * mt) + (p3 - p2) * tt;
+    return PointDeriv(p, q);
+}
+
 fn eval_quad_tangent(p0: vec2f, p1: vec2f, p2: vec2f, t: f32) -> vec2f {
     let dp0 = 2. * (p1 - p0);
     let dp1 = 2. * (p2 - p1);
@@ -142,6 +362,177 @@ fn cubic_start_normal(p0: vec2f, p1: vec2f, p2: vec2f, p3: vec2f) -> vec2f {
 fn cubic_end_normal(p0: vec2f, p1: vec2f, p2: vec2f, p3: vec2f) -> vec2f {
     let tangent = normalize(cubic_end_tangent(p0, p1, p2, p3));
     return vec2(-tangent.y, tangent.x);
+}
+
+const ESPC_ROBUST_NORMAL = 0;
+const ESPC_ROBUST_LOW_K1 = 1;
+const ESPC_ROBUST_LOW_DIST = 2;
+
+// Threshold below which a derivative is considered too small.
+const DERIV_THRESH: f32 = 1e-6;
+// Amount to nudge t when derivative is near-zero.
+const DERIV_EPS: f32 = 1e-6;
+// Limit for subdivision of cubic Béziers.
+const SUBDIV_LIMIT: f32 = 1.0 / 65536.0;
+// Robust ESPC computation: below this value, treat curve as circular arc
+const K1_THRESH: f32 = 1e-3;
+// Robust ESPC: below this value, evaluate ES rather than parallel curve
+const DIST_THRESH: f32 = 1e-3;
+
+// This function flattens a cubic Bézier by first converting it into Euler spiral
+// segments, and then computes a near-optimal flattening of the parallel curves of
+// the Euler spiral segments.
+fn flatten_euler(
+    cubic: CubicPoints,
+    path_ix: u32,
+    local_to_device: Transform,
+    offset: f32,
+    start_p: vec2f,
+    end_p: vec2f,
+) {
+    var p0: vec2f;
+    var p1: vec2f;
+    var p2: vec2f;
+    var p3: vec2f;
+    var scale: f32;
+    var transform: Transform;
+    var t_start = start_p;
+    var t_end = end_p;
+    if offset == 0. {
+        let t = local_to_device;
+        p0 = transform_apply(t, cubic.p0);
+        p1 = transform_apply(t, cubic.p1);
+        p2 = transform_apply(t, cubic.p2);
+        p3 = transform_apply(t, cubic.p3);
+        scale = 1.;
+        transform = transform_identity();
+        t_start = p0;
+        t_end = p3;
+    } else {
+        p0 = cubic.p0;
+        p1 = cubic.p1;
+        p2 = cubic.p2;
+        p3 = cubic.p3;
+
+        transform = local_to_device;
+        let mat = transform.mat;
+        scale = 0.5 * length(vec2(mat.x + mat.w, mat.y - mat.z)) +
+                length(vec2(mat.x - mat.w, mat.y + mat.z));
+    }
+
+    // Drop zero length lines.
+    if all(p0 == p1) && all(p0 == p2) && all(p0 == p3) {
+        return;
+    }
+    //output_line_with_transform(path_ix, t_start, t_end, transform);
+    //if true { return; }
+
+    let tol = 0.25;
+    var t0_u = 0u;
+    var dt = 1.0;
+    var last_p = p0;
+    var last_q = p1 - p0;
+    if dot(last_q, last_q) < DERIV_THRESH * DERIV_THRESH {
+        last_q = eval_cubic_and_deriv(p0, p1, p2, p3, DERIV_EPS).deriv;
+    }
+    var last_t = 0.0;
+    var lp0 = t_start;
+    loop {
+        let t0 = f32(t0_u) * dt;
+        if t0 == 1.0 {
+            break;
+        }
+        loop {
+            var t1 = t0 + dt;
+            let this_p0 = last_p;
+            let this_q0 = last_q;
+            var this_pq1 = eval_cubic_and_deriv(p0, p1, p2, p3, t1);
+            if dot(this_pq1.deriv, this_pq1.deriv) < DERIV_THRESH * DERIV_THRESH {
+                let new_pq1 = eval_cubic_and_deriv(p0, p1, p2, p3, t1 - DERIV_EPS);
+                this_pq1.deriv = new_pq1.deriv;
+                if t1 < 1.0 {
+                    this_pq1.point = new_pq1.point;
+                    t1 = t1 - DERIV_EPS;
+                }
+            }
+            let actual_dt = t1 - last_t;
+            let cubic_params = cubic_from_points_derivs(this_p0, this_pq1.point, this_q0, this_pq1.deriv, actual_dt);
+            let est_err = est_euler_err(cubic_params);
+            let chord_len = length(this_pq1.point - this_p0);
+            let err = est_err * chord_len;
+            if true || err * scale <= tol || dt <= SUBDIV_LIMIT {
+                t0_u += 1u;
+                let shift = countTrailingZeros(t0_u);
+                t0_u >>= shift;
+                dt = f32(1u << shift);
+                let euler_params = es_params_from_angles(cubic_params.th0, cubic_params.th1);
+                let es = es_seg_from_params(this_p0, this_pq1.point, euler_params);
+                let k0 = es.params.k0 - 0.5 * es.params.k1;
+                let k1 = es.params.k1;
+                let dist_scaled = offset * es.params.ch / chord_len;
+                let scale_multiplier = sqrt(0.125 * scale * chord_len / (es.params.ch * tol));
+                var a = 0.0;
+                var b = 0.0;
+                var integral = 0.0;
+                var int0 = 0.0;
+                var n_frac: f32;
+                var robust = ESPC_ROBUST_NORMAL;
+                if abs(k1) < K1_THRESH {
+                    let k = es.params.k0;
+                    n_frac = sqrt(abs(k * (k * dist_scaled + 1.0)));
+                    robust = ESPC_ROBUST_LOW_K1;
+                } else if abs(dist_scaled) < DIST_THRESH {
+                    a = k1;
+                    b = k0;
+                    int0 = pow_1_5_signed(b);
+                    let int1 = pow_1_5_signed(a + b);
+                    integral = int1 - int0;
+                    n_frac = (2. / 3.) * integral / a;
+                    robust = ESPC_ROBUST_LOW_DIST;
+                } else {
+                    a = -2.0 * dist_scaled * k1;
+                    b = -1.0 - 2.0 * dist_scaled * k0;
+                    int0 = espc_int_approx(b);
+                    let int1 = espc_int_approx(a + b);
+                    integral = int1 - int0;
+                    let k_peak = k0 - k1 * b / a;
+                    let integrand_peak = sqrt(abs(k_peak * (k_peak * dist_scaled + 1.0)));
+                    n_frac = integral * integrand_peak / a;
+                }
+                let n = max(ceil(n_frac * scale_multiplier), 1.0);
+                for (var i = 0u; i < u32(n); i++) {
+                    var lp1: vec2f;
+                    if i + 1u == u32(n) && t1 == 1.0 {
+                        lp1 = t_end;
+                    } else {
+                        let t = f32(i + 1u) / n;
+                        var s = t;
+                        if robust != ESPC_ROBUST_LOW_K1 {
+                            let u = integral * t + int0;
+                            var inv: f32;
+                            if robust == ESPC_ROBUST_LOW_DIST {
+                                inv = pow(abs(u), 2. / 3.) * sign(u);
+                            } else {
+                                inv = espc_int_inv_approx(u);
+                            }
+                            s = (inv - b) / a;
+                        }
+                        lp1 = es_seg_eval_with_offset(es, s, offset);
+                    }
+                    let l0 = select(lp1, lp0, offset >= 0.);
+                    let l1 = select(lp0, lp1, offset >= 0.);
+                    output_line_with_transform(path_ix, lp0, lp1, transform);
+                    lp0 = lp1;
+                }
+                last_p = this_pq1.point;
+                last_q = this_pq1.deriv;
+                last_t = t1;
+                break;
+            }
+            t0_u = t0_u * 2u;
+            dt *= 0.5;
+        }
+    }
 }
 
 let MAX_QUADS = 16u;
@@ -362,10 +753,10 @@ fn draw_join(
     let d = dot(tan_prev, tan_next);
 
     switch style_flags & STYLE_FLAGS_JOIN_MASK {
-        case /*STYLE_FLAGS_JOIN_BEVEL*/0u: {
+        case STYLE_FLAGS_JOIN_BEVEL: {
             output_two_lines_with_transform(path_ix, front0, front1, back0, back1, transform);
         }
-        case /*STYLE_FLAGS_JOIN_MITER*/0x10000000u: {
+        case STYLE_FLAGS_JOIN_MITER: {
             let hypot = length(vec2f(cr, d));
             let miter_limit = unpack2x16float(style_flags & STYLE_MITER_LIMIT_MASK)[0];
 
@@ -395,7 +786,7 @@ fn draw_join(
             write_line_with_transform(line_ix, path_ix, front0, front1, transform);
             write_line_with_transform(line_ix + 1u, path_ix, back0, back1, transform);
         }
-        case /*STYLE_FLAGS_JOIN_ROUND*/0x20000000u: {
+        case STYLE_FLAGS_JOIN_ROUND: {
             var arc0: vec2f;
             var arc1: vec2f;
             var other0: vec2f;
@@ -656,16 +1047,21 @@ fn main(
                     // Don't draw anything if the path is closed.
                 }
             } else {
-                // Render offset curves
-                flatten_cubic(pts, path_ix, transform, offset);
-
                 // Read the neighboring segment.
                 let neighbor = read_neighboring_segment(ix + 1u);
                 let tan_prev = cubic_end_tangent(pts.p0, pts.p1, pts.p2, pts.p3);
                 let tan_next = neighbor.tangent;
+                let tan_start = cubic_start_tangent(pts.p0, pts.p1, pts.p3, pts.p3);
+                // TODO: probably have special casing of zero tangents here
+                let n_start = offset * normalize(vec2(-tan_start.y, tan_start.x));
                 let offset_tangent = offset * normalize(tan_prev);
                 let n_prev = offset_tangent.yx * vec2f(-1., 1.);
                 let n_next = offset * normalize(tan_next).yx * vec2f(-1., 1.);
+
+                // Render offset curves
+                flatten_euler(pts, path_ix, transform, offset, pts.p0 + n_start, pts.p3 + n_prev);
+                flatten_euler(pts, path_ix, transform, -offset, pts.p0 - n_start, pts.p3 - n_prev);
+
                 if neighbor.do_join {
                     draw_join(path_ix, style_flags, pts.p3, tan_prev, tan_next,
                               n_prev, n_next, transform);
@@ -676,7 +1072,8 @@ fn main(
                 }
             }
         } else {
-            flatten_cubic(pts, path_ix, transform, /*offset*/ 0.);
+            let offset = 0.;
+            flatten_euler(pts, path_ix, transform, offset, pts.p0, pts.p3);
         }
         // Update bounding box using atomics only. Computing a monoid is a
         // potential future optimization.
