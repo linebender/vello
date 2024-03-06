@@ -802,6 +802,7 @@ mod atrace {
 
     #[cfg(target_os = "android")]
     use std::ffi::c_char;
+    // See https://developer.android.com/topic/performance/tracing/custom-events-native
     #[link(name = "android", kind = "dylib")]
     extern "C" {
         #[link_name = "ATrace_beginSection"]
@@ -819,6 +820,7 @@ mod atrace {
             #[cfg(target_os = "android")]
             {
                 let name = std::ffi::CString::new(name).unwrap();
+                // SAFETY: `name` is a valid C string
                 unsafe { atrace_begin_section(name.as_ptr()) };
                 drop(name);
             }
@@ -832,6 +834,7 @@ mod atrace {
         fn drop(&mut self) {
             #[cfg(target_os = "android")]
             unsafe {
+                // SAFETY: No preconditions
                 atrace_end_section()
             }
         }
