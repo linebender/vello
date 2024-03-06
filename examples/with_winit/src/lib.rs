@@ -193,6 +193,11 @@ fn run(
                 if render_state.window.id() != window_id {
                     return;
                 }
+                let _span = if !matches!(event, WindowEvent::RedrawRequested) {
+                    Some(atrace::span(&format!("Handling {event:?}")))
+                } else {
+                    None
+                };
                 match event {
                     WindowEvent::CloseRequested => event_loop.exit(),
                     WindowEvent::ModifiersChanged(m) => modifiers = m.state(),
@@ -375,6 +380,9 @@ fn run(
                         prior_position = Some(position);
                     }
                     WindowEvent::RedrawRequested => {
+                        let _rendering_aspan = atrace::span("Actioning Requested Redraw");
+                        let encoding_aspan = atrace::span("Encoding_scene");
+
                         let width = render_state.surface.config.width;
                         let height = render_state.surface.config.height;
                         let device_handle = &render_cx.devices[render_state.surface.dev_id];
@@ -465,11 +473,15 @@ fn run(
                                 );
                             }
                         }
+                        encoding_aspan.finish();
+                        let texture_aspan = atrace::span("Getting texture");
                         let surface_texture = render_state
                             .surface
                             .surface
                             .get_current_texture()
                             .expect("failed to get surface texture");
+                        texture_aspan.finish();
+                        let render_aspan = atrace::span("Dispatching render");
                         // Note: we don't run the async/"robust" pipeline, as
                         // it requires more async wiring for the readback. See
                         // [#gpu > async on wasm](https://xi.zulipchat.com/#narrow/stream/197075-gpu/topic/async.20on.20wasm)
@@ -502,8 +514,11 @@ fn run(
                                 .expect("failed to render to surface");
                         }
                         surface_texture.present();
-                        device_handle.device.poll(wgpu::Maintain::Poll);
-
+                        render_aspan.finish();
+                        {
+                            let _poll_aspan = atrace::span("Polling wgpu");
+                            device_handle.device.poll(wgpu::Maintain::Poll);
+                        }
                         let new_time = Instant::now();
                         stats.add_sample(stats::Sample {
                             frame_time_us: (new_time - frame_start_time).as_micros() as u64,
@@ -777,6 +792,51 @@ fn parse_arguments() -> Args {
 
 #[cfg(target_os = "android")]
 use winit::platform::android::activity::AndroidApp;
+
+mod atrace {
+
+    #[non_exhaustive]
+    pub struct ATraceSpan {
+        _private: (),
+    }
+
+    #[cfg(target_os = "android")]
+    use std::ffi::c_char;
+    #[link(name = "android", kind = "dylib")]
+    extern "C" {
+        #[link_name = "ATrace_beginSection"]
+        fn atrace_begin_section(text: *const c_char);
+        #[link_name = "ATrace_endSection"]
+        fn atrace_end_section();
+    }
+
+    pub(crate) fn span(name: &str) -> ATraceSpan {
+        ATraceSpan::new(name)
+    }
+
+    impl ATraceSpan {
+        fn new(name: &str) -> Self {
+            #[cfg(target_os = "android")]
+            {
+                let name = std::ffi::CString::new(name).unwrap();
+                unsafe { atrace_begin_section(name.as_ptr()) };
+                drop(name);
+            }
+            ATraceSpan { _private: () }
+        }
+        pub(crate) fn finish(self) {
+            drop(self)
+        }
+    }
+    impl Drop for ATraceSpan {
+        fn drop(&mut self) {
+            #[cfg(target_os = "android")]
+            unsafe {
+                atrace_end_section()
+            }
+        }
+    }
+}
 
 #[cfg(target_os = "android")]
 #[no_mangle]
