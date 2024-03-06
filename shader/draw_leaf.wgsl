@@ -99,8 +99,8 @@ fn main(
     let dd = config.drawdata_base + m.scene_offset;
     let di = m.info_offset;
     if tag_word == DRAWTAG_FILL_COLOR || tag_word == DRAWTAG_FILL_LIN_GRADIENT ||
-        tag_word == DRAWTAG_FILL_RAD_GRADIENT || tag_word == DRAWTAG_FILL_IMAGE ||
-        tag_word == DRAWTAG_BEGIN_CLIP
+        tag_word == DRAWTAG_FILL_RAD_GRADIENT || tag_word == DRAWTAG_FILL_SWEEP_GRADIENT ||
+        tag_word == DRAWTAG_FILL_IMAGE || tag_word == DRAWTAG_BEGIN_CLIP
     {
         let bbox = path_bbox[m.path_ix];
         // TODO: bbox is mostly yagni here, sort that out. Maybe clips?
@@ -112,7 +112,7 @@ fn main(
         var transform = Transform();
         let draw_flags = bbox.draw_flags;
         if tag_word == DRAWTAG_FILL_LIN_GRADIENT || tag_word == DRAWTAG_FILL_RAD_GRADIENT ||
-            tag_word == DRAWTAG_FILL_IMAGE
+            tag_word == DRAWTAG_FILL_SWEEP_GRADIENT || tag_word == DRAWTAG_FILL_IMAGE
         {
             transform = read_transform(config.transform_base, bbox.trans_ix);
         }
@@ -219,6 +219,21 @@ fn main(
                 info[di + 7u] = bitcast<u32>(focal_x);
                 info[di + 8u] = bitcast<u32>(radius);
                 info[di + 9u] = bitcast<u32>((flags << 3u) | kind);
+            }
+            // DRAWTAG_FILL_SWEEP_GRADIENT
+            case 0x254u: {
+                info[di] = draw_flags;
+                let p0 = bitcast<vec2<f32>>(vec2(scene[dd + 1u], scene[dd + 2u]));
+                let xform = transform_mul(transform, Transform(vec4(1.0, 0.0, 0.0, 1.0), p0));
+                let inv = transform_inverse(xform);
+                info[di + 1u] = bitcast<u32>(inv.matrx.x);
+                info[di + 2u] = bitcast<u32>(inv.matrx.y);
+                info[di + 3u] = bitcast<u32>(inv.matrx.z);
+                info[di + 4u] = bitcast<u32>(inv.matrx.w);
+                info[di + 5u] = bitcast<u32>(inv.translate.x);
+                info[di + 6u] = bitcast<u32>(inv.translate.y);
+                info[di + 7u] = scene[dd + 3u];
+                info[di + 8u] = scene[dd + 4u];
             }
             // DRAWTAG_FILL_IMAGE
             case 0x248u: {

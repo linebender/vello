@@ -55,7 +55,21 @@ const CMD_SOLID: u32 = 3;
 const CMD_COLOR: u32 = 5;
 const CMD_LIN_GRAD: u32 = 6;
 const CMD_RAD_GRAD: u32 = 7;
-const CMD_IMAGE: u32 = 8;
-const CMD_BEGIN_CLIP: u32 = 9;
-const CMD_END_CLIP: u32 = 10;
-const CMD_JUMP: u32 = 11;
+const CMD_SWEEP_GRAD: u32 = 8;
+const CMD_IMAGE: u32 = 9;
+const CMD_BEGIN_CLIP: u32 = 10;
+const CMD_END_CLIP: u32 = 11;
+const CMD_JUMP: u32 = 12;
+
+// The following are computed in draw_leaf from the generic gradient parameters
+// encoded in the scene, and stored in the gradient's info struct, for
+// consumption during fine rasterization.
+
+// Radial gradient kinds
+const RAD_GRAD_KIND_CIRCULAR: u32 = 1;
+const RAD_GRAD_KIND_STRIP: u32 = 2;
+const RAD_GRAD_KIND_FOCAL_ON_CIRCLE: u32 = 3;
+const RAD_GRAD_KIND_CONE: u32 = 4;
+
+// Radial gradient flags
+const RAD_GRAD_SWAPPED: u32 = 1;

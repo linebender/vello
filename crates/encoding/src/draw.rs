@@ -24,6 +24,9 @@ impl DrawTag {
     /// Radial gradient fill.
     pub const RADIAL_GRADIENT: Self = Self(0x29c);
 
+    /// Sweep gradient fill.
+    pub const SWEEP_GRADIENT: Self = Self(0x254);
+
     /// Image fill.
     pub const IMAGE: Self = Self(0x248);
 
@@ -97,6 +100,20 @@ pub struct DrawRadialGradient {
     pub r0: f32,
     /// End radius.
     pub r1: f32,
+}
+
+/// Draw data for a sweep gradient.
+#[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
+#[repr(C)]
+pub struct DrawSweepGradient {
+    /// Ramp index.
+    pub index: u32,
+    /// Center point.
+    pub p0: [f32; 2],
+    /// Normalized start angle.
+    pub t0: f32,
+    /// Normalized end angle.
+    pub t1: f32,
 }
 
 /// Draw data for an image.
