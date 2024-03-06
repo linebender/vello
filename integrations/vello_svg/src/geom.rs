@@ -1,6 +1,5 @@
-// This Source Code Form is subject to the terms of the Mozilla Public
-// License, v. 2.0. If a copy of the MPL was not distributed with this
-// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+// Copyright 2018 Yevhenii Reizner
+// SPDX-License-Identifier: MPL-2.0
 
 // copied from https://github.com/RazrFalcon/resvg/blob/4d27b8c3be3ecfff3256c9be1b8362eb22533659/crates/resvg/src/geom.rs
 
