@@ -85,10 +85,10 @@ fn draw_leaf_main(
                         let mut r0 = f32::from_bits(scene[dd as usize + 5]);
                         let mut r1 = f32::from_bits(scene[dd as usize + 6]);
                         let user_to_gradient = transform.inverse();
-                        let mut xform = Transform::identity();
+                        let xform;
                         let mut focal_x = 0.0;
-                        let mut radius = 0.0;
-                        let mut kind = 0;
+                        let radius;
+                        let mut kind;
                         let mut flags = 0;
                         if (r0 - r1).abs() < GRADIENT_EPSILON {
                             // When the radii are the same, emit a strip gradient
@@ -108,12 +108,8 @@ fn draw_leaf_main(
                             if r1 == 0.0 {
                                 // If r1 == 0.0, swap the points and radii
                                 flags |= RAD_GRAD_SWAPPED;
-                                let tmp_p = p0;
-                                p0 = p1;
-                                p1 = tmp_p;
-                                let tmp_r = r0;
-                                r0 = r1;
-                                r1 = tmp_r;
+                                core::mem::swap(&mut p0, &mut p1);
+                                core::mem::swap(&mut r0, &mut r1);
                             }
                             focal_x = r0 / (r0 - r1);
                             let cf = (1.0 - focal_x) * p0 + focal_x * p1;
