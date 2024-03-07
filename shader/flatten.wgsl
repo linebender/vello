@@ -246,7 +246,7 @@ fn espc_int_inv_approx(x: f32) -> f32 {
     let y = abs(x);
     var a: f32;
     if y < 0.7010707591262915 {
-        a = asin(x * SIN_SCALE) * (1.0 / SIN_SCALE);
+        a = asin(y * SIN_SCALE) * (1.0 / SIN_SCALE);
     } else if y < 0.903249293595206 {
         let b = y - FRAC_PI_4;
         let u = pow(abs(b), 2. / 3.) * sign(b);
@@ -460,11 +460,11 @@ fn flatten_euler(
             let est_err = est_euler_err(cubic_params);
             let chord_len = length(this_pq1.point - this_p0);
             let err = est_err * chord_len;
-            if true || err * scale <= tol || dt <= SUBDIV_LIMIT {
+            if err * scale <= tol || dt <= SUBDIV_LIMIT {
                 t0_u += 1u;
                 let shift = countTrailingZeros(t0_u);
                 t0_u >>= shift;
-                dt = f32(1u << shift);
+                dt *= f32(1u << shift);
                 let euler_params = es_params_from_angles(cubic_params.th0, cubic_params.th1);
                 let es = es_seg_from_params(this_p0, this_pq1.point, euler_params);
                 let k0 = es.params.k0 - 0.5 * es.params.k1;
@@ -521,7 +521,7 @@ fn flatten_euler(
                     }
                     let l0 = select(lp1, lp0, offset >= 0.);
                     let l1 = select(lp0, lp1, offset >= 0.);
-                    output_line_with_transform(path_ix, lp0, lp1, transform);
+                    output_line_with_transform(path_ix, l0, l1, transform);
                     lp0 = lp1;
                 }
                 last_p = this_pq1.point;
@@ -1051,7 +1051,7 @@ fn main(
                 let neighbor = read_neighboring_segment(ix + 1u);
                 let tan_prev = cubic_end_tangent(pts.p0, pts.p1, pts.p2, pts.p3);
                 let tan_next = neighbor.tangent;
-                let tan_start = cubic_start_tangent(pts.p0, pts.p1, pts.p3, pts.p3);
+                let tan_start = cubic_start_tangent(pts.p0, pts.p1, pts.p2, pts.p3);
                 // TODO: probably have special casing of zero tangents here
                 let n_start = offset * normalize(vec2(-tan_start.y, tan_start.x));
                 let offset_tangent = offset * normalize(tan_prev);
