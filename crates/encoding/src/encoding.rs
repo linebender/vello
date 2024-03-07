@@ -5,7 +5,7 @@ use super::{DrawColor, DrawTag, PathEncoder, PathTag, Style, Transform};
 
 use peniko::{
     kurbo::{Shape, Stroke},
-    BlendMode, BrushRef, Color, Fill,
+    BlendMode, BrushRef, Fill,
 };
 
 #[cfg(feature = "full")]
@@ -14,7 +14,7 @@ use {
         DrawImage, DrawLinearGradient, DrawRadialGradient, DrawSweepGradient, Glyph, GlyphRun,
         Patch,
     },
-    peniko::{ColorStop, Extend, GradientKind, Image},
+    peniko::{Color, ColorStop, Extend, GradientKind, Image},
     skrifa::instance::NormalizedCoord,
 };
 
@@ -491,6 +491,7 @@ impl Encoding {
     }
 }
 
+#[cfg(feature = "full")]
 /// Result for adding a sequence of color stops.
 enum RampStops {
     /// Color stop sequence was empty.

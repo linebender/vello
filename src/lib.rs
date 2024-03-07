@@ -83,7 +83,9 @@
 //!
 //! See the [`examples/`](https://github.com/linebender/vello/tree/main/examples) folder to see how that code integrates with frameworks like winit and bevy.
 
+#[cfg(feature = "wgpu")]
 mod cpu_dispatch;
+#[cfg(feature = "wgpu")]
 mod cpu_shader;
 mod recording;
 mod render;
@@ -92,6 +94,7 @@ mod shaders;
 #[cfg(feature = "wgpu")]
 mod wgpu_engine;
 
+#[cfg(feature = "wgpu")]
 use std::num::NonZeroUsize;
 
 /// Styling and composition primitives.
@@ -123,7 +126,7 @@ use wgpu_engine::{ExternalResource, WgpuEngine};
 pub use vello_encoding::BumpAllocators;
 #[cfg(feature = "wgpu")]
 use wgpu::{Device, Queue, SurfaceTexture, TextureFormat, TextureView};
-#[cfg(feature = "wgpu-profiler")]
+#[cfg(all(feature = "wgpu", feature = "wgpu-profiler"))]
 use wgpu_profiler::{GpuProfiler, GpuProfilerSettings};
 
 /// Catch-all error type.

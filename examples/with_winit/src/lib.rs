@@ -114,6 +114,7 @@ fn run(
     let mut render_state = {
         renderers.resize_with(render_cx.devices.len(), || None);
         let id = render_state.surface.dev_id;
+        #[allow(unused_mut)]
         let mut renderer = Renderer::new(
             &render_cx.devices[id].device,
             RendererOptions {
@@ -126,6 +127,7 @@ fn run(
             },
         )
         .expect("Could create renderer");
+        #[cfg(feature = "wgpu-profiler")]
         renderer
             .profiler
             .change_settings(wgpu_profiler::GpuProfilerSettings {
