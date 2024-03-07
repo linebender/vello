@@ -107,7 +107,6 @@ jobs:
       - name: cargo clippy (auxiliary)
         run: cargo hack clippy --workspace --each-feature --optional-deps --tests --benches --examples -- -D warnings
 
-      # At the time of writing, we don't have any tests. Nevertheless, it's better to still run this
       - name: cargo test
         run: cargo test --workspace --all-features
         env:
