@@ -6,10 +6,12 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Ok, Result};
 use instant::Instant;
-use vello::kurbo::Vec2;
-use vello::Scene;
-use vello_svg::usvg;
-use vello_svg::usvg::TreeParsing;
+
+use vello::{
+    kurbo::{Affine, Stroke, Vec2},
+    peniko::Fill,
+    Scene,
+};
 
 use crate::{ExampleScene, SceneParams, SceneSet};
 
@@ -93,14 +95,35 @@ pub fn svg_function_of<R: AsRef<str>>(
     contents: impl FnOnce() -> R + Send + 'static,
 ) -> impl FnMut(&mut Scene, &mut SceneParams) {
     fn render_svg_contents(name: &str, contents: &str) -> (Scene, Vec2) {
+        use crate::pico_svg::*;
         let start = Instant::now();
-        let svg = usvg::Tree::from_str(contents, &usvg::Options::default())
-            .unwrap_or_else(|e| panic!("failed to parse svg file {name}: {e}"));
         eprintln!("Parsed svg {name} in {:?}", start.elapsed());
+        let svg = PicoSvg::load(contents, 1.0).unwrap();
         let start = Instant::now();
         let mut new_scene = Scene::new();
-        vello_svg::render_tree(&mut new_scene, &svg);
-        let resolution = Vec2::new(svg.size.width() as f64, svg.size.height() as f64);
+        for item in &svg.items {
+            match item {
+                Item::Fill(fill) => {
+                    new_scene.fill(
+                        Fill::NonZero,
+                        Affine::IDENTITY,
+                        fill.color,
+                        None,
+                        &fill.path,
+                    );
+                }
+                Item::Stroke(stroke) => {
+                    new_scene.stroke(
+                        &Stroke::new(stroke.width),
+                        Affine::IDENTITY,
+                        stroke.color,
+                        None,
+                        &stroke.path,
+                    );
+                }
+            }
+        }
+        let resolution = Vec2::new(420 as f64, 420 as f64);
         eprintln!("Encoded svg {name} in {:?}", start.elapsed());
         (new_scene, resolution)
     }
