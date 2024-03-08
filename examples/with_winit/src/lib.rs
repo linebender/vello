@@ -194,7 +194,7 @@ fn run(
                     return;
                 }
                 let _span = if !matches!(event, WindowEvent::RedrawRequested) {
-                    Some(atrace::span(&format!("Handling {event:?}")))
+                    Some(tracing::trace_span!("Handling window event", ?event).entered())
                 } else {
                     None
                 };
@@ -380,8 +380,9 @@ fn run(
                         prior_position = Some(position);
                     }
                     WindowEvent::RedrawRequested => {
-                        let _rendering_aspan = atrace::span("Actioning Requested Redraw");
-                        let encoding_aspan = atrace::span("Encoding_scene");
+                        let _rendering_span =
+                            tracing::trace_span!("Actioning Requested Redraw").entered();
+                        let encoding_span = tracing::trace_span!("Encoding scene").entered();
 
                         let width = render_state.surface.config.width;
                         let height = render_state.surface.config.height;
@@ -473,15 +474,15 @@ fn run(
                                 );
                             }
                         }
-                        encoding_aspan.finish();
-                        let texture_aspan = atrace::span("Getting texture");
+                        drop(encoding_span);
+                        let texture_span = tracing::trace_span!("Getting texture").entered();
                         let surface_texture = render_state
                             .surface
                             .surface
                             .get_current_texture()
                             .expect("failed to get surface texture");
-                        texture_aspan.finish();
-                        let render_aspan = atrace::span("Dispatching render");
+                        drop(texture_span);
+                        let render_span = tracing::trace_span!("Dispatching render").entered();
                         // Note: we don't run the async/"robust" pipeline, as
                         // it requires more async wiring for the readback. See
                         // [#gpu > async on wasm](https://xi.zulipchat.com/#narrow/stream/197075-gpu/topic/async.20on.20wasm)
@@ -514,9 +515,9 @@ fn run(
                                 .expect("failed to render to surface");
                         }
                         surface_texture.present();
-                        render_aspan.finish();
+                        drop(render_span);
                         {
-                            let _poll_aspan = atrace::span("Polling wgpu");
+                            let _poll_aspan = tracing::trace_span!("Polling wgpu device").entered();
                             device_handle.device.poll(wgpu::Maintain::Poll);
                         }
                         let new_time = Instant::now();
@@ -793,54 +794,6 @@ fn parse_arguments() -> Args {
 #[cfg(target_os = "android")]
 use winit::platform::android::activity::AndroidApp;
 
-mod atrace {
-
-    #[non_exhaustive]
-    pub struct ATraceSpan {
-        _private: (),
-    }
-
-    // See https://developer.android.com/topic/performance/tracing/custom-events-native
-    #[link(name = "android", kind = "dylib")]
-    #[cfg(target_os = "android")]
-    extern "C" {
-        #[link_name = "ATrace_beginSection"]
-        fn atrace_begin_section(text: *const std::ffi::c_char);
-        #[link_name = "ATrace_endSection"]
-        fn atrace_end_section();
-    }
-
-    pub(crate) fn span(name: &str) -> ATraceSpan {
-        ATraceSpan::new(name)
-    }
-
-    impl ATraceSpan {
-        #[allow(unused_variables)] // Keep correct name even when trace does nothing
-        pub(crate) fn new(name: &str) -> Self {
-            #[cfg(target_os = "android")]
-            {
-                let name = std::ffi::CString::new(name).unwrap();
-                // SAFETY: `name` is a valid C string
-                unsafe { atrace_begin_section(name.as_ptr()) };
-                drop(name);
-            }
-            ATraceSpan { _private: () }
-        }
-        pub(crate) fn finish(self) {
-            drop(self)
-        }
-    }
-    impl Drop for ATraceSpan {
-        fn drop(&mut self) {
-            #[cfg(target_os = "android")]
-            unsafe {
-                // SAFETY: No preconditions
-                atrace_end_section()
-            }
-        }
-    }
-}
-
 #[cfg(target_os = "android")]
 #[no_mangle]
 fn android_main(app: AndroidApp) {
@@ -860,6 +813,18 @@ fn android_main(app: AndroidApp) {
         config.with_max_level(log::LevelFilter::Warn)
     };
     android_logger::init_once(config);
+
+    // Send tracing events to Android Trace
+    use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+    tracing_subscriber::registry()
+        .with(tracing_android_trace::ATraceLayer::new())
+        .try_init()
+        .unwrap();
+    log::info!(
+        "Max level: {}",
+        tracing::level_filters::LevelFilter::current()
+    );
 
     let event_loop = EventLoopBuilder::with_user_event()
         .with_android_app(app)
