@@ -112,6 +112,7 @@ pub mod util;
 
 pub use render::Render;
 pub use scene::{DrawGlyphs, Scene};
+#[cfg(feature = "wgpu")]
 use thiserror::Error;
 #[cfg(feature = "wgpu")]
 pub use util::block_on_wgpu;
@@ -120,9 +121,8 @@ pub use recording::{
     BufferProxy, Command, ImageFormat, ImageProxy, Recording, ResourceId, ResourceProxy, ShaderId,
 };
 pub use shaders::FullShaders;
-use wgpu_engine::WgpuRecordingError;
 #[cfg(feature = "wgpu")]
-use wgpu_engine::{ExternalResource, WgpuEngine};
+use wgpu_engine::{ExternalResource, WgpuEngine, WgpuRecordingError};
 
 /// Temporary export, used in `with_winit` for stats
 pub use vello_encoding::BumpAllocators;
