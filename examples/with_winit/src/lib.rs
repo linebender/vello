@@ -810,7 +810,7 @@ fn android_main(app: AndroidApp) {
         .select_scene_set(|| Args::command())
         .unwrap()
         .unwrap();
-    let render_cx = RenderContext::new().unwrap();
+    let render_cx = RenderContext::new();
 
     run(event_loop, args, scenes, render_cx);
 }
