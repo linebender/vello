@@ -428,7 +428,7 @@ impl Renderer {
         let shaders = shaders::full_shaders(device, &mut engine, &self.options);
         let error = device.pop_error_scope().await;
         if let Some(error) = error {
-            return Err(error.into());
+            return Err(error);
         }
         self.engine = engine;
         self.shaders = shaders;
