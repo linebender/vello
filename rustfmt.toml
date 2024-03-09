@@ -1,3 +1,4 @@
 max_width = 100
 use_field_init_shorthand = true
 newline_style = "Unix"
+# TODO: imports_granularity = "Module" - Wait for this to be stable.
