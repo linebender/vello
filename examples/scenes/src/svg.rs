@@ -9,8 +9,7 @@ use std::{
 use anyhow::{Ok, Result};
 use instant::Instant;
 use vello::{kurbo::Vec2, Scene};
-use vello_svg::usvg;
-use vello_svg::usvg::TreeParsing;
+use vello_svg::usvg::{self, fontdb};
 
 use crate::{ExampleScene, SceneParams, SceneSet};
 
@@ -77,11 +76,16 @@ fn example_scene_of(file: PathBuf) -> ExampleScene {
         .file_stem()
         .map(|it| it.to_string_lossy().to_string())
         .unwrap_or_else(|| "unknown".to_string());
+    let fontdb = usvg::fontdb::Database::new();
     ExampleScene {
-        function: Box::new(svg_function_of(name.clone(), move || {
-            std::fs::read_to_string(&file)
-                .unwrap_or_else(|e| panic!("failed to read svg file {file:?}: {e}"))
-        })),
+        function: Box::new(svg_function_of(
+            name.clone(),
+            move || {
+                std::fs::read_to_string(&file)
+                    .unwrap_or_else(|e| panic!("failed to read svg file {file:?}: {e}"))
+            },
+            fontdb.into(),
+        )),
         config: crate::SceneConfig {
             animated: false,
             name,
@@ -92,16 +96,21 @@ fn example_scene_of(file: PathBuf) -> ExampleScene {
 pub fn svg_function_of<R: AsRef<str>>(
     name: String,
     contents: impl FnOnce() -> R + Send + 'static,
+    fontdb: std::sync::Arc<fontdb::Database>,
 ) -> impl FnMut(&mut Scene, &mut SceneParams) {
-    fn render_svg_contents(name: &str, contents: &str) -> (Scene, Vec2) {
+    fn render_svg_contents(
+        name: &str,
+        contents: &str,
+        fontdb: std::sync::Arc<fontdb::Database>,
+    ) -> (Scene, Vec2) {
         let start = Instant::now();
-        let svg = usvg::Tree::from_str(contents, &usvg::Options::default())
+        let svg = usvg::Tree::from_str(contents, &usvg::Options::default(), &fontdb)
             .unwrap_or_else(|e| panic!("failed to parse svg file {name}: {e}"));
         eprintln!("Parsed svg {name} in {:?}", start.elapsed());
         let start = Instant::now();
         let mut new_scene = Scene::new();
         vello_svg::render_tree(&mut new_scene, &svg);
-        let resolution = Vec2::new(svg.size.width() as f64, svg.size.height() as f64);
+        let resolution = Vec2::new(svg.size().width() as f64, svg.size().height() as f64);
         eprintln!("Encoded svg {name} in {:?}", start.elapsed());
         (new_scene, resolution)
     }
@@ -122,7 +131,8 @@ pub fn svg_function_of<R: AsRef<str>>(
         if cfg!(target_arch = "wasm32") || !params.interactive {
             let contents = contents.take().unwrap();
             let contents = contents();
-            let (scene_frag, resolution) = render_svg_contents(&name, contents.as_ref());
+            let (scene_frag, resolution) =
+                render_svg_contents(&name, contents.as_ref(), fontdb.clone());
             scene.append(&scene_frag, None);
             params.resolution = Some(resolution);
             cached_scene = Some((scene_frag, resolution));
@@ -139,9 +149,10 @@ pub fn svg_function_of<R: AsRef<str>>(
                 let tx = tx.take().unwrap();
                 let contents = contents.take().unwrap();
                 let name = name.clone();
+                let fontdb = fontdb.clone();
                 std::thread::spawn(move || {
                     let contents = contents();
-                    tx.send(render_svg_contents(&name, contents.as_ref()))
+                    tx.send(render_svg_contents(&name, contents.as_ref(), fontdb))
                         .unwrap();
                 });
             }

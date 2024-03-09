@@ -5,6 +5,7 @@ use crate::{ExampleScene, SceneConfig, SceneParams, SceneSet};
 use vello::kurbo::{Affine, BezPath, Cap, Ellipse, Join, PathEl, Point, Rect, Shape, Stroke, Vec2};
 use vello::peniko::*;
 use vello::*;
+use vello_svg::usvg::fontdb;
 
 const FLOWER_IMAGE: &[u8] = include_bytes!("../../assets/splash-flower.jpg");
 
@@ -1550,7 +1551,12 @@ fn splash_with_tiger() -> impl FnMut(&mut Scene, &mut SceneParams) {
         env!("CARGO_MANIFEST_DIR"),
         "/../assets/Ghostscript_Tiger.svg"
     ));
-    let mut tiger = crate::svg::svg_function_of("Ghostscript Tiger".to_string(), move || contents);
+    let fontdb = fontdb::Database::new();
+    let mut tiger = crate::svg::svg_function_of(
+        "Ghostscript Tiger".to_string(),
+        move || contents,
+        fontdb.into(),
+    );
     move |scene, params| {
         tiger(scene, params);
         splash_screen(scene, params);
