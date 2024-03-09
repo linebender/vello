@@ -46,6 +46,9 @@ default = ["wgpu"]
 hot_reload = []
 buffer_labels = []
 
+[lints]
+workspace = true
+
 [dependencies]
 vello_encoding = { workspace = true }
 bytemuck = { workspace = true }
@@ -56,6 +59,10 @@ log = { workspace = true }
 raw-window-handle = { workspace = true }
 futures-intrusive = { workspace = true }
 wgpu-profiler = { workspace = true, optional = true }
+
+[workspace.lints]
+clippy.doc_markdown = "warn"
+clippy.semicolon_if_nothing_returned = "warn"
 
 [workspace.dependencies]
 vello_encoding = { version = "0.1.0", path = "crates/encoding" }

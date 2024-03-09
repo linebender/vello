@@ -30,6 +30,9 @@ force_rw_storage = []
 wgsl = []
 msl = []
 
+[lints]
+workspace = true
+
 [dependencies]
 naga = { version = "0.13", features = ["wgsl-in", "msl-out", "validate"], optional = true }
 thiserror = { version = "1.0.57", optional = true }

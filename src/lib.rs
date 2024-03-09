@@ -1,8 +1,6 @@
 // Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-#![warn(clippy::doc_markdown, clippy::semicolon_if_nothing_returned)]
-
 //! Vello is an experimental 2d graphics rendering engine written in Rust, using [`wgpu`].
 //! It efficiently draws large 2d scenes with interactive or near-interactive performance.
 //!
