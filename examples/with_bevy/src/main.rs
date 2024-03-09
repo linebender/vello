@@ -102,7 +102,7 @@ fn main() {
         .add_systems(Update, cube_rotator_system)
         .add_plugins(ExtractComponentPlugin::<VelloScene>::default())
         .add_systems(Update, render_fragment)
-        .run()
+        .run();
 }
 
 // Marks the main pass cube, to which the texture is applied.
