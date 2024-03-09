@@ -31,6 +31,12 @@ pub enum SurfaceCreationError {
     WgpuSurface(#[from] wgpu::CreateSurfaceError),
 }
 
+impl Default for RenderContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RenderContext {
     pub fn new() -> Self {
         let instance = Instance::new(wgpu::InstanceDescriptor {
