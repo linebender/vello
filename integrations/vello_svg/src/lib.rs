@@ -136,7 +136,7 @@ pub fn render_tree_with<F: FnMut(&mut Scene, &usvg::Node) -> Result<(), E>, E>(
 
                     if let Some(fill) = &path.fill() {
                         if let Some((brush, brush_transform)) =
-                            paint_to_brush(&fill.paint(), fill.opacity())
+                            paint_to_brush(fill.paint(), fill.opacity())
                         {
                             scene.fill(
                                 match fill.rule() {
@@ -149,12 +149,12 @@ pub fn render_tree_with<F: FnMut(&mut Scene, &usvg::Node) -> Result<(), E>, E>(
                                 &local_path,
                             );
                         } else {
-                            on_err(scene, &elt)?;
+                            on_err(scene, elt)?;
                         }
                     }
                     if let Some(stroke) = &path.stroke() {
                         if let Some((brush, brush_transform)) =
-                            paint_to_brush(&stroke.paint(), stroke.opacity())
+                            paint_to_brush(stroke.paint(), stroke.opacity())
                         {
                             let mut conv_stroke = Stroke::new(stroke.width().get() as f64)
                                 .with_caps(match stroke.linecap() {
@@ -184,15 +184,15 @@ pub fn render_tree_with<F: FnMut(&mut Scene, &usvg::Node) -> Result<(), E>, E>(
                                 &local_path,
                             );
                         } else {
-                            on_err(scene, &elt)?;
+                            on_err(scene, elt)?;
                         }
                     }
                 }
                 usvg::Node::Image(_) => {
-                    on_err(scene, &elt)?;
+                    on_err(scene, elt)?;
                 }
                 usvg::Node::Text(_) => {
-                    on_err(scene, &elt)?;
+                    on_err(scene, elt)?;
                 }
             }
         }

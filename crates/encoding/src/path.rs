@@ -24,7 +24,7 @@ pub struct Style {
     ///  bits:  0     1    2-3  4-5       6-7     8-15
     /// ```
     ///
-    /// - miter_limit: u16 - The miter limit for a stroke, encoded in binary16 (half) floating
+    /// - `miter_limit`: u16 - The miter limit for a stroke, encoded in binary16 (half) floating
     ///                      point representation. This field is only meaningful for the
     ///                      `Join::Miter` join style. It's ignored for other stroke styles and
     ///                      fills.
