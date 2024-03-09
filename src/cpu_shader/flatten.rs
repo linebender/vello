@@ -4,9 +4,10 @@
 use crate::cpu_dispatch::CpuBinding;
 
 use super::util::{Transform, Vec2, ROBUST_EPSILON};
+use vello_encoding::math::f16_to_f32;
 use vello_encoding::{
-    math::f16_to_f32, BumpAllocators, ConfigUniform, LineSoup, Monoid, PathBbox, PathMonoid,
-    PathTag, Style, DRAW_INFO_FLAGS_FILL_RULE_BIT,
+    BumpAllocators, ConfigUniform, LineSoup, Monoid, PathBbox, PathMonoid, PathTag, Style,
+    DRAW_INFO_FLAGS_FILL_RULE_BIT,
 };
 
 fn to_minus_one_quarter(x: f32) -> f32 {

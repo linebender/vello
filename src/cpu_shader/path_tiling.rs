@@ -3,10 +3,8 @@
 
 use vello_encoding::{BumpAllocators, LineSoup, Path, PathSegment, SegmentCount, Tile};
 
-use crate::{
-    cpu_dispatch::CpuBinding,
-    cpu_shader::util::{ONE_MINUS_ULP, ROBUST_EPSILON},
-};
+use crate::cpu_dispatch::CpuBinding;
+use crate::cpu_shader::util::{ONE_MINUS_ULP, ROBUST_EPSILON};
 
 use super::util::{span, Vec2};
 

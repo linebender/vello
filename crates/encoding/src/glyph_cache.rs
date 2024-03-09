@@ -5,11 +5,11 @@ use std::collections::HashMap;
 
 use super::{Encoding, StreamOffsets};
 
-use peniko::{
-    kurbo::{BezPath, Shape},
-    Fill, Style,
-};
-use skrifa::{instance::NormalizedCoord, outline::OutlinePen, GlyphId, OutlineGlyphCollection};
+use peniko::kurbo::{BezPath, Shape};
+use peniko::{Fill, Style};
+use skrifa::instance::NormalizedCoord;
+use skrifa::outline::OutlinePen;
+use skrifa::{GlyphId, OutlineGlyphCollection};
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Default, Debug)]
 pub struct GlyphKey {

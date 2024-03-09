@@ -3,7 +3,8 @@
 
 use guillotiere::{size2, AtlasAllocator};
 use peniko::Image;
-use std::collections::{hash_map::Entry, HashMap};
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 
 const DEFAULT_ATLAS_SIZE: i32 = 1024;
 const MAX_ATLAS_SIZE: i32 = 8192;

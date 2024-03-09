@@ -1,15 +1,16 @@
 // Copyright 2024 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use std::{env, fs::File, num::NonZeroUsize, path::Path, sync::Arc};
+use std::env;
+use std::fs::File;
+use std::num::NonZeroUsize;
+use std::path::Path;
+use std::sync::Arc;
 
 use anyhow::{anyhow, bail, Result};
-use vello::{
-    block_on_wgpu,
-    peniko::{Blob, Color, Format, Image},
-    util::RenderContext,
-    RendererOptions, Scene,
-};
+use vello::peniko::{Blob, Color, Format, Image};
+use vello::util::RenderContext;
+use vello::{block_on_wgpu, RendererOptions, Scene};
 use wgpu::{
     BufferDescriptor, BufferUsages, CommandEncoderDescriptor, Extent3d, ImageCopyBuffer,
     TextureDescriptor, TextureFormat, TextureUsages,
