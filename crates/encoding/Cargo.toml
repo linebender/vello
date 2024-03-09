@@ -13,6 +13,9 @@ default = ["full"]
 # resources (gradients, images and glyph runs)
 full = ["skrifa", "guillotiere"]
 
+[lints]
+workspace = true
+
 [dependencies]
 bytemuck = { workspace = true }
 skrifa = { workspace = true, optional = true }
