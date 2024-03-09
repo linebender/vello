@@ -5,8 +5,7 @@
 
 use std::future::Future;
 
-use super::Result;
-
+use thiserror::Error;
 use wgpu::{
     Adapter, Device, Instance, Limits, Queue, Surface, SurfaceConfiguration, SurfaceTarget,
     TextureFormat,
@@ -24,17 +23,25 @@ pub struct DeviceHandle {
     pub queue: Queue,
 }
 
+#[derive(Error, Debug)]
+pub enum SurfaceCreationError {
+    #[error("Error creating device")]
+    CantCreateDevice,
+    #[error(transparent)]
+    WgpuSurface(#[from] wgpu::CreateSurfaceError),
+}
+
 impl RenderContext {
-    pub fn new() -> Result<Self> {
+    pub fn new() -> Self {
         let instance = Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::util::backend_bits_from_env().unwrap_or(wgpu::Backends::PRIMARY),
             dx12_shader_compiler: wgpu::Dx12Compiler::Fxc,
             ..Default::default()
         });
-        Ok(Self {
+        Self {
             instance,
             devices: Vec::new(),
-        })
+        }
     }
 
     /// Creates a new surface for the specified window and dimensions.
@@ -44,12 +51,12 @@ impl RenderContext {
         width: u32,
         height: u32,
         present_mode: wgpu::PresentMode,
-    ) -> Result<RenderSurface<'w>> {
+    ) -> Result<RenderSurface<'w>, SurfaceCreationError> {
         let surface = self.instance.create_surface(window.into())?;
         let dev_id = self
             .device(Some(&surface))
             .await
-            .ok_or("Error creating device")?;
+            .ok_or(SurfaceCreationError::CantCreateDevice)?;
 
         let device_handle = &self.devices[dev_id];
         let capabilities = surface.get_capabilities(&device_handle.adapter);

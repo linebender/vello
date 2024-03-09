@@ -18,7 +18,7 @@ use crate::{
     cpu_shader,
     recording::{BindType, ImageFormat},
     wgpu_engine::WgpuEngine,
-    Error, RendererOptions,
+    RendererOptions,
 };
 
 #[cfg(feature = "wgpu")]
@@ -82,7 +82,7 @@ pub fn full_shaders(
     device: &Device,
     engine: &mut WgpuEngine,
     options: &RendererOptions,
-) -> Result<FullShaders, Error> {
+) -> FullShaders {
     use crate::wgpu_engine::CpuShaderType;
     use BindType::*;
     let imports = SHARED_SHADERS
@@ -121,7 +121,7 @@ pub fn full_shaders(
                 } else {
                     $cpu
                 },
-            )?
+            )
         }};
         ($name:ident, $bindings:expr, $defines:expr, $cpu:expr) => {{
             add_shader!($name, stringify!($name), $bindings, &$defines, $cpu)
@@ -296,7 +296,8 @@ pub fn full_shaders(
         }
         pipelines
     };
-    Ok(FullShaders {
+
+    FullShaders {
         pathtag_reduce,
         pathtag_reduce2,
         pathtag_scan,
@@ -320,7 +321,7 @@ pub fn full_shaders(
         fine_msaa8,
         fine_msaa16,
         pathtag_is_cpu: options.use_cpu,
-    })
+    }
 }
 
 #[cfg(feature = "wgpu")]
