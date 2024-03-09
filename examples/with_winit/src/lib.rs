@@ -203,14 +203,14 @@ fn run(
                         if event.state == ElementState::Pressed {
                             match event.logical_key.as_ref() {
                                 Key::Named(NamedKey::ArrowLeft) => {
-                                    scene_ix = scene_ix.saturating_sub(1)
+                                    scene_ix = scene_ix.saturating_sub(1);
                                 }
                                 Key::Named(NamedKey::ArrowRight) => {
-                                    scene_ix = scene_ix.saturating_add(1)
+                                    scene_ix = scene_ix.saturating_add(1);
                                 }
                                 Key::Named(NamedKey::ArrowUp) => complexity += 1,
                                 Key::Named(NamedKey::ArrowDown) => {
-                                    complexity = complexity.saturating_sub(1)
+                                    complexity = complexity.saturating_sub(1);
                                 }
                                 Key::Named(NamedKey::Space) => {
                                     transform = Affine::IDENTITY;
@@ -640,7 +640,7 @@ fn store_profiling(
                     println!("Wrote trace to path {path:?}");
                 }
                 Err(e) => {
-                    log::warn!("Failed to write trace {e}")
+                    log::warn!("Failed to write trace {e}");
                 }
             }
         }
