@@ -1,7 +1,7 @@
 // Copyright 2021 the egui Authors and the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-/// Adapted from https://github.com/emilk/egui/blob/212656f3fc6b931b21eaad401e5cec2b0da93baa/crates/egui/src/input_state/touch_state.rs
+/// Adapted from <https://github.com/emilk/egui/blob/212656f3fc6b931b21eaad401e5cec2b0da93baa/crates/egui/src/input_state/touch_state.rs>
 use std::{collections::BTreeMap, fmt::Debug};
 
 use vello::kurbo::{Point, Vec2};
