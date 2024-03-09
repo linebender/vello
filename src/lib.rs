@@ -106,6 +106,7 @@ pub mod util;
 
 pub use render::Render;
 pub use scene::{DrawGlyphs, Scene};
+#[cfg(feature = "wgpu")]
 use thiserror::Error;
 #[cfg(feature = "wgpu")]
 pub use util::block_on_wgpu;
