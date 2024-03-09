@@ -8,6 +8,7 @@ use std::collections::{HashMap, HashSet};
 
 use vello_shaders::cpu::CpuBinding;
 
+use thiserror::Error;
 use wgpu::{
     BindGroup, BindGroupLayout, Buffer, BufferUsages, CommandEncoder, CommandEncoderDescriptor,
     ComputePipeline, Device, PipelineCompilationOptions, Queue, Texture, TextureAspect,
@@ -16,7 +17,8 @@ use wgpu::{
 
 use crate::recording::BindType;
 use crate::{
-    BufferProxy, Command, Error, ImageProxy, Recording, ResourceId, ResourceProxy, ShaderId,
+    cpu_dispatch::CpuBinding, recording::BindType, BufferProxy, Command, Error, ImageProxy, 
+    Recording, ResourceId, ResourceProxy, ShaderId,
 };
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -130,6 +132,14 @@ struct TransientBindMap<'a> {
 enum TransientBuf<'a> {
     Cpu(&'a [u8]),
     Gpu(&'a Buffer),
+}
+
+#[derive(Error, Debug)]
+pub enum WgpuRecordingError {
+    #[error("buffer for indirect dispatch not in map")]
+    IndirectDispatchBufferNotInMap,
+    #[error("buffer for download not in map")]
+    DownloadBufferNotInMap,
 }
 
 impl WgpuEngine {
@@ -345,7 +355,7 @@ impl WgpuEngine {
         external_resources: &[ExternalResource],
         label: &'static str,
         #[cfg(feature = "wgpu-profiler")] profiler: &mut wgpu_profiler::GpuProfiler,
-    ) -> Result<(), Error> {
+    ) -> Result<(), WgpuRecordingError> {
         let mut free_bufs: HashSet<ResourceId> = Default::default();
         let mut free_images: HashSet<ResourceId> = Default::default();
         let mut transient_map = TransientBindMap::new(external_resources);
@@ -434,31 +444,30 @@ impl WgpuEngine {
                         .insert_image(image_proxy.id, texture, texture_view);
                 }
                 Command::WriteImage(proxy, [x, y, width, height], data) => {
-                    if let Ok((texture, _)) = self.bind_map.get_or_create_image(*proxy, device) {
-                        let format = proxy.format.to_wgpu();
-                        let block_size = format
-                            .block_copy_size(None)
-                            .expect("ImageFormat must have a valid block size");
-                        queue.write_texture(
-                            wgpu::ImageCopyTexture {
-                                texture,
-                                mip_level: 0,
-                                origin: wgpu::Origin3d { x: *x, y: *y, z: 0 },
-                                aspect: TextureAspect::All,
-                            },
-                            &data[..],
-                            wgpu::ImageDataLayout {
-                                offset: 0,
-                                bytes_per_row: Some(*width * block_size),
-                                rows_per_image: None,
-                            },
-                            wgpu::Extent3d {
-                                width: *width,
-                                height: *height,
-                                depth_or_array_layers: 1,
-                            },
-                        );
-                    }
+                    let (texture, _) = self.bind_map.get_or_create_image(*proxy, device);
+                    let format = proxy.format.to_wgpu();
+                    let block_size = format
+                        .block_copy_size(None)
+                        .expect("ImageFormat must have a valid block size");
+                    queue.write_texture(
+                        wgpu::ImageCopyTexture {
+                            texture,
+                            mip_level: 0,
+                            origin: wgpu::Origin3d { x: *x, y: *y, z: 0 },
+                            aspect: TextureAspect::All,
+                        },
+                        &data[..],
+                        wgpu::ImageDataLayout {
+                            offset: 0,
+                            bytes_per_row: Some(*width * block_size),
+                            rows_per_image: None,
+                        },
+                        wgpu::Extent3d {
+                            width: *width,
+                            height: *height,
+                            depth_or_array_layers: 1,
+                        },
+                    );
                 }
                 Command::Dispatch(shader_id, wg_size, bindings) => {
                     // println!("dispatching {:?} with {} bindings", wg_size, bindings.len());
@@ -486,7 +495,7 @@ impl WgpuEngine {
                                 &mut encoder,
                                 &wgpu_shader.bind_group_layout,
                                 bindings,
-                            )?;
+                            );
                             let mut cpass = encoder.begin_compute_pass(&Default::default());
                             #[cfg(feature = "wgpu-profiler")]
                             let query = profiler
@@ -526,7 +535,7 @@ impl WgpuEngine {
                                 &mut encoder,
                                 &wgpu_shader.bind_group_layout,
                                 bindings,
-                            )?;
+                            );
                             transient_map.materialize_gpu_buf_for_indirect(
                                 &mut self.bind_map,
                                 &mut self.pool,
@@ -544,7 +553,7 @@ impl WgpuEngine {
                             let buf = self
                                 .bind_map
                                 .get_gpu_buf(proxy.id)
-                                .ok_or("buffer for indirect dispatch not in map")?;
+                                .ok_or(WgpuRecordingError::IndirectDispatchBufferNotInMap)?;
                             cpass.dispatch_workgroups_indirect(buf, *offset);
                             #[cfg(feature = "wgpu-profiler")]
                             profiler.end_query(&mut cpass, query);
@@ -555,7 +564,7 @@ impl WgpuEngine {
                     let src_buf = self
                         .bind_map
                         .get_gpu_buf(proxy.id)
-                        .ok_or("buffer not in map")?;
+                        .ok_or(WgpuRecordingError::DownloadBufferNotInMap)?;
                     let usage = BufferUsages::MAP_READ | BufferUsages::COPY_DST;
                     let buf = self.pool.get_buf(proxy.size, "download", usage, device);
                     encoder.copy_buffer_to_buffer(src_buf, 0, &buf, 0, proxy.size);
@@ -708,9 +717,9 @@ impl BindMap {
         &mut self,
         proxy: ImageProxy,
         device: &Device,
-    ) -> Result<&(Texture, TextureView), Error> {
+    ) -> &(Texture, TextureView) {
         match self.image_map.entry(proxy.id) {
-            Entry::Occupied(occupied) => Ok(occupied.into_mut()),
+            Entry::Occupied(occupied) => occupied.into_mut(),
             Entry::Vacant(vacant) => {
                 let format = proxy.format.to_wgpu();
                 let texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -737,7 +746,7 @@ impl BindMap {
                     array_layer_count: None,
                     format: Some(proxy.format.to_wgpu()),
                 });
-                Ok(vacant.insert((texture, texture_view)))
+                vacant.insert((texture, texture_view))
             }
         }
     }
@@ -857,7 +866,7 @@ impl<'a> TransientBindMap<'a> {
         encoder: &mut CommandEncoder,
         layout: &BindGroupLayout,
         bindings: &[ResourceProxy],
-    ) -> Result<BindGroup, Error> {
+    ) -> BindGroup {
         for proxy in bindings {
             match proxy {
                 ResourceProxy::Buffer(proxy) => {
@@ -929,10 +938,10 @@ impl<'a> TransientBindMap<'a> {
                         Some(TransientBuf::Gpu(b)) => b,
                         _ => bind_map.get_gpu_buf(proxy.id).unwrap(),
                     };
-                    Ok(wgpu::BindGroupEntry {
+                    wgpu::BindGroupEntry {
                         binding: i as u32,
                         resource: buf.as_entire_binding(),
-                    })
+                    }
                 }
                 ResourceProxy::Image(proxy) => {
                     let view = self
@@ -941,19 +950,18 @@ impl<'a> TransientBindMap<'a> {
                         .copied()
                         .or_else(|| bind_map.image_map.get(&proxy.id).map(|v| &v.1))
                         .unwrap();
-                    Ok(wgpu::BindGroupEntry {
+                    wgpu::BindGroupEntry {
                         binding: i as u32,
                         resource: wgpu::BindingResource::TextureView(view),
-                    })
+                    }
                 }
             })
-            .collect::<Result<Vec<_>, Error>>()?;
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            .collect::<Vec<_>>();
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout,
             entries: &entries,
-        });
-        Ok(bind_group)
+        })
     }
 
     fn create_cpu_resources(

@@ -106,6 +106,7 @@ pub mod util;
 
 pub use render::Render;
 pub use scene::{DrawGlyphs, Scene};
+use thiserror::Error;
 #[cfg(feature = "wgpu")]
 pub use util::block_on_wgpu;
 
@@ -117,7 +118,7 @@ pub use shaders::FullShaders;
 #[cfg(feature = "wgpu")]
 use vello_encoding::Resolver;
 #[cfg(feature = "wgpu")]
-use wgpu_engine::{ExternalResource, WgpuEngine};
+use wgpu_engine::{ExternalResource, WgpuEngine, WgpuRecordingError};
 
 /// Temporary export, used in `with_winit` for stats
 pub use vello_encoding::BumpAllocators;
@@ -125,12 +126,6 @@ pub use vello_encoding::BumpAllocators;
 use wgpu::{Device, PipelineCompilationOptions, Queue, SurfaceTexture, TextureFormat, TextureView};
 #[cfg(all(feature = "wgpu", feature = "wgpu-profiler"))]
 use wgpu_profiler::{GpuProfiler, GpuProfilerSettings};
-
-/// Catch-all error type.
-pub type Error = Box<dyn std::error::Error>;
-
-/// Specialization of `Result` for our catch-all error type.
-pub type Result<T> = std::result::Result<T, Error>;
 
 /// Represents the antialiasing method to use during a render pass.
 #[derive(Copy, Clone, PartialEq, Eq)]
@@ -181,6 +176,32 @@ impl FromIterator<AaConfig> for AaSupport {
         }
         result
     }
+}
+
+#[cfg(feature = "wgpu")]
+#[derive(Error, Debug)]
+pub enum RendererError {
+    #[cfg(feature = "wgpu-profiler")]
+    #[error("couldn't create wgpu profiler")]
+    ProfilerCreationError(#[from] wgpu_profiler::CreationError),
+}
+
+#[cfg(feature = "wgpu")]
+#[derive(Error, Debug)]
+pub enum RenderError {
+    #[error("error while run recording")]
+    WgpuRecordingError(#[from] WgpuRecordingError),
+}
+
+#[cfg(feature = "wgpu")]
+#[derive(Error, Debug)]
+pub enum AsyncRenderError {
+    #[error("error while run recording")]
+    WgpuRecordingError(#[from] WgpuRecordingError),
+    #[error(transparent)]
+    BufferAsyncError(#[from] wgpu::BufferAsyncError),
+    #[error("channel was closed")]
+    ChannelWasClosed,
 }
 
 /// Renders a scene into a texture or surface.
@@ -250,14 +271,14 @@ pub struct RendererOptions {
 #[cfg(feature = "wgpu")]
 impl Renderer {
     /// Creates a new renderer for the specified device.
-    pub fn new(device: &Device, options: RendererOptions) -> Result<Self> {
+    pub fn new(device: &Device, options: RendererOptions) -> Result<Self, RendererError> {
         let mut engine = WgpuEngine::new(options.use_cpu);
         // If we are running in parallel (i.e. the number of threads is not 1)
         if options.num_init_threads != NonZeroUsize::new(1) {
             #[cfg(not(target_arch = "wasm32"))]
             engine.use_parallel_initialisation();
         }
-        let shaders = shaders::full_shaders(device, &mut engine, &options)?;
+        let shaders = shaders::full_shaders(device, &mut engine, &options);
         #[cfg(not(target_arch = "wasm32"))]
         engine.build_shaders_if_needed(device, options.num_init_threads);
         let blit = options
@@ -293,7 +314,7 @@ impl Renderer {
         scene: &Scene,
         texture: &TextureView,
         params: &RenderParams,
-    ) -> Result<()> {
+    ) -> Result<(), RenderError> {
         let (recording, target) =
             render::render_full(scene, &mut self.resolver, &self.shaders, params);
         let external_resources = [ExternalResource::Image(
@@ -327,7 +348,7 @@ impl Renderer {
         scene: &Scene,
         surface: &SurfaceTexture,
         params: &RenderParams,
-    ) -> Result<()> {
+    ) -> Result<(), RenderError> {
         let width = params.width;
         let height = params.height;
         let mut target = self
@@ -399,11 +420,11 @@ impl Renderer {
 
     /// Reload the shaders. This should only be used during `vello` development
     #[cfg(feature = "hot_reload")]
-    pub async fn reload_shaders(&mut self, device: &Device) -> Result<()> {
+    pub async fn reload_shaders(&mut self, device: &Device) -> Result<(), wgpu::Error> {
         device.push_error_scope(wgpu::ErrorFilter::Validation);
         let mut engine = WgpuEngine::new(self.options.use_cpu);
         // We choose not to initialise these shaders in parallel, to ensure the error scope works correctly
-        let shaders = shaders::full_shaders(device, &mut engine, &self.options)?;
+        let shaders = shaders::full_shaders(device, &mut engine, &self.options);
         let error = device.pop_error_scope().await;
         if let Some(error) = error {
             return Err(error.into());
@@ -431,7 +452,7 @@ impl Renderer {
         scene: &Scene,
         texture: &TextureView,
         params: &RenderParams,
-    ) -> Result<Option<BumpAllocators>> {
+    ) -> Result<Option<BumpAllocators>, AsyncRenderError> {
         let mut render = Render::new();
         let encoding = scene.encoding();
         // TODO: turn this on; the download feature interacts with CPU dispatch
@@ -463,7 +484,7 @@ impl Renderer {
             if let Some(recv_result) = receiver.receive().await {
                 recv_result?;
             } else {
-                return Err("channel was closed".into());
+                return Err(AsyncRenderError::ChannelWasClosed);
             }
             let mapped = buf_slice.get_mapped_range();
             bump = Some(bytemuck::pod_read_unaligned(&mapped));
@@ -495,7 +516,7 @@ impl Renderer {
         scene: &Scene,
         surface: &SurfaceTexture,
         params: &RenderParams,
-    ) -> Result<Option<BumpAllocators>> {
+    ) -> Result<Option<BumpAllocators>, AsyncRenderError> {
         let width = params.width;
         let height = params.height;
         let mut target = self

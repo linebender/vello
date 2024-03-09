@@ -5,8 +5,7 @@
 
 use std::future::Future;
 
-use super::Result;
-
+use thiserror::Error;
 use wgpu::{
     Adapter, Device, Instance, Limits, Queue, Surface, SurfaceConfiguration, SurfaceTarget,
     TextureFormat,
@@ -22,6 +21,14 @@ pub struct DeviceHandle {
     adapter: Adapter,
     pub device: Device,
     pub queue: Queue,
+}
+
+#[derive(Error, Debug)]
+pub enum SurfaceCreationError {
+    #[error("Error creating device")]
+    CantCreateDevice,
+    #[error(transparent)]
+    WgpuSurface(#[from] wgpu::CreateSurfaceError),
 }
 
 impl RenderContext {
@@ -45,12 +52,12 @@ impl RenderContext {
         width: u32,
         height: u32,
         present_mode: wgpu::PresentMode,
-    ) -> Result<RenderSurface<'w>> {
+    ) -> Result<RenderSurface<'w>, SurfaceCreationError> {
         let surface = self.instance.create_surface(window.into())?;
         let dev_id = self
             .device(Some(&surface))
             .await
-            .ok_or("Error creating device")?;
+            .ok_or(SurfaceCreationError::CantCreateDevice)?;
 
         let device_handle = &self.devices[dev_id];
         let capabilities = surface.get_capabilities(&device_handle.adapter);
