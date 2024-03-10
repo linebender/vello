@@ -8,7 +8,6 @@ use std::collections::{HashMap, HashSet};
 
 use vello_shaders::cpu::CpuBinding;
 
-use thiserror::Error;
 use wgpu::{
     BindGroup, BindGroupLayout, Buffer, BufferUsages, CommandEncoder, CommandEncoderDescriptor,
     ComputePipeline, Device, PipelineCompilationOptions, Queue, Texture, TextureAspect,
@@ -17,8 +16,8 @@ use wgpu::{
 
 use crate::recording::BindType;
 use crate::{
-    cpu_dispatch::CpuBinding, recording::BindType, BufferProxy, Command, Error, ImageProxy, 
-    Recording, ResourceId, ResourceProxy, ShaderId,
+    recording::BindType, BufferProxy, Command, ImageProxy, 
+    Recording, ResourceId, ResourceProxy, ShaderId, VResult, VelloError,
 };
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -132,14 +131,6 @@ struct TransientBindMap<'a> {
 enum TransientBuf<'a> {
     Cpu(&'a [u8]),
     Gpu(&'a Buffer),
-}
-
-#[derive(Error, Debug)]
-pub enum WgpuRecordingError {
-    #[error("buffer for indirect dispatch not in map")]
-    IndirectDispatchBufferNotInMap,
-    #[error("buffer for download not in map")]
-    DownloadBufferNotInMap,
 }
 
 impl WgpuEngine {
@@ -355,7 +346,7 @@ impl WgpuEngine {
         external_resources: &[ExternalResource],
         label: &'static str,
         #[cfg(feature = "wgpu-profiler")] profiler: &mut wgpu_profiler::GpuProfiler,
-    ) -> Result<(), WgpuRecordingError> {
+    ) -> VResult<()> {
         let mut free_bufs: HashSet<ResourceId> = Default::default();
         let mut free_images: HashSet<ResourceId> = Default::default();
         let mut transient_map = TransientBindMap::new(external_resources);
@@ -550,10 +541,9 @@ impl WgpuEngine {
                                 .with_parent(Some(&query));
                             cpass.set_pipeline(&wgpu_shader.pipeline);
                             cpass.set_bind_group(0, &bind_group, &[]);
-                            let buf = self
-                                .bind_map
-                                .get_gpu_buf(proxy.id)
-                                .ok_or(WgpuRecordingError::IndirectDispatchBufferNotInMap)?;
+                            let buf = self.bind_map.get_gpu_buf(proxy.id).ok_or(
+                                VelloError::UnavailableBufferUsed(proxy.name, "indirect dispatch"),
+                            )?;
                             cpass.dispatch_workgroups_indirect(buf, *offset);
                             #[cfg(feature = "wgpu-profiler")]
                             profiler.end_query(&mut cpass, query);
@@ -564,7 +554,7 @@ impl WgpuEngine {
                     let src_buf = self
                         .bind_map
                         .get_gpu_buf(proxy.id)
-                        .ok_or(WgpuRecordingError::DownloadBufferNotInMap)?;
+                        .ok_or(VelloError::UnavailableBufferUsed(proxy.name, "download"))?;
                     let usage = BufferUsages::MAP_READ | BufferUsages::COPY_DST;
                     let buf = self.pool.get_buf(proxy.size, "download", usage, device);
                     encoder.copy_buffer_to_buffer(src_buf, 0, &buf, 0, proxy.size);

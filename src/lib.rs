@@ -119,7 +119,7 @@ pub use shaders::FullShaders;
 #[cfg(feature = "wgpu")]
 use vello_encoding::Resolver;
 #[cfg(feature = "wgpu")]
-use wgpu_engine::{ExternalResource, WgpuEngine, WgpuRecordingError};
+use wgpu_engine::{ExternalResource, WgpuEngine};
 
 /// Temporary export, used in `with_winit` for stats
 pub use vello_encoding::BumpAllocators;
@@ -179,31 +179,43 @@ impl FromIterator<AaConfig> for AaSupport {
     }
 }
 
-#[cfg(feature = "wgpu")]
+/// Errors that can occur in vello.
 #[derive(Error, Debug)]
-pub enum RendererError {
+pub enum VelloError {
+    /// Error when vello couldn't find a wgpu device with suitable features.
+    #[cfg(feature = "wgpu")]
+    #[error("Couldn't find suitable device")]
+    CouldntFindSuitableDevice,
+    /// Error when wgpu failed to create a surface.
+    /// See [`wgpu::CreateSurfaceError`] for more information.
+    #[cfg(feature = "wgpu")]
+    #[error("Couldn't create wgpu surface")]
+    WgpuCreateSurfaceError(#[from] wgpu::CreateSurfaceError),
+    /// Error when vello couldn't find [`TextureFormat::Rgba8Unorm`] or [`TextureFormat::Bgra8Unorm`] for your surface.
+    /// Make sure that you have a surface which provides one of those texture formats.
+    #[cfg(feature = "wgpu")]
+    #[error("Couldn't find `Rgba8Unorm` or `Bgra8Unorm` texture formats for surface")]
+    UnsupportedSurfaceFormat,
+
+    /// Error when using a buffer inside a recording while it's not available.
+    /// Check if you have created it and not freed before its last usage.
+    #[cfg(feature = "wgpu")]
+    #[error("Buffer '{0}' is not available but used for {1}")]
+    UnavailableBufferUsed(&'static str, &'static str),
+    /// Error when trying to async map a buffer.
+    /// See [`wgpu::BufferAsyncError`] for more information.
+    #[cfg(feature = "wgpu")]
+    #[error(transparent)]
+    BufferAsyncError(#[from] wgpu::BufferAsyncError),
+
+    /// Error when creating [`GpuProfiler`].
+    /// See [`wgpu_profiler::CreationError`] for more information.
     #[cfg(feature = "wgpu-profiler")]
-    #[error("couldn't create wgpu profiler")]
+    #[error("Couldn't create wgpu profiler")]
     ProfilerCreationError(#[from] wgpu_profiler::CreationError),
 }
 
-#[cfg(feature = "wgpu")]
-#[derive(Error, Debug)]
-pub enum RenderError {
-    #[error("error while run recording")]
-    WgpuRecordingError(#[from] WgpuRecordingError),
-}
-
-#[cfg(feature = "wgpu")]
-#[derive(Error, Debug)]
-pub enum AsyncRenderError {
-    #[error("error while run recording")]
-    WgpuRecordingError(#[from] WgpuRecordingError),
-    #[error(transparent)]
-    BufferAsyncError(#[from] wgpu::BufferAsyncError),
-    #[error("channel was closed")]
-    ChannelWasClosed,
-}
+pub(crate) type VResult<T> = Result<T, VelloError>;
 
 /// Renders a scene into a texture or surface.
 #[cfg(feature = "wgpu")]
@@ -272,7 +284,7 @@ pub struct RendererOptions {
 #[cfg(feature = "wgpu")]
 impl Renderer {
     /// Creates a new renderer for the specified device.
-    pub fn new(device: &Device, options: RendererOptions) -> Result<Self, RendererError> {
+    pub fn new(device: &Device, options: RendererOptions) -> VResult<Self> {
         let mut engine = WgpuEngine::new(options.use_cpu);
         // If we are running in parallel (i.e. the number of threads is not 1)
         if options.num_init_threads != NonZeroUsize::new(1) {
@@ -315,7 +327,7 @@ impl Renderer {
         scene: &Scene,
         texture: &TextureView,
         params: &RenderParams,
-    ) -> Result<(), RenderError> {
+    ) -> VResult<()> {
         let (recording, target) =
             render::render_full(scene, &mut self.resolver, &self.shaders, params);
         let external_resources = [ExternalResource::Image(
@@ -349,7 +361,7 @@ impl Renderer {
         scene: &Scene,
         surface: &SurfaceTexture,
         params: &RenderParams,
-    ) -> Result<(), RenderError> {
+    ) -> VResult<()> {
         let width = params.width;
         let height = params.height;
         let mut target = self
@@ -453,7 +465,7 @@ impl Renderer {
         scene: &Scene,
         texture: &TextureView,
         params: &RenderParams,
-    ) -> Result<Option<BumpAllocators>, AsyncRenderError> {
+    ) -> VResult<Option<BumpAllocators>> {
         let mut render = Render::new();
         let encoding = scene.encoding();
         // TODO: turn this on; the download feature interacts with CPU dispatch
@@ -482,11 +494,7 @@ impl Renderer {
             let buf_slice = bump_buf.slice(..);
             let (sender, receiver) = futures_intrusive::channel::shared::oneshot_channel();
             buf_slice.map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
-            if let Some(recv_result) = receiver.receive().await {
-                recv_result?;
-            } else {
-                return Err(AsyncRenderError::ChannelWasClosed);
-            }
+            receiver.receive().await.expect("channel was closed")?;
             let mapped = buf_slice.get_mapped_range();
             bump = Some(bytemuck::pod_read_unaligned(&mapped));
         }
@@ -517,7 +525,7 @@ impl Renderer {
         scene: &Scene,
         surface: &SurfaceTexture,
         params: &RenderParams,
-    ) -> Result<Option<BumpAllocators>, AsyncRenderError> {
+    ) -> VResult<Option<BumpAllocators>> {
         let width = params.width;
         let height = params.height;
         let mut target = self
