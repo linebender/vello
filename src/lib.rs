@@ -214,6 +214,7 @@ pub enum VelloError {
     ProfilerCreationError(#[from] wgpu_profiler::CreationError),
 }
 
+#[allow(dead_code)]
 pub(crate) type VResult<T> = Result<T, VelloError>;
 
 /// Renders a scene into a texture or surface.
