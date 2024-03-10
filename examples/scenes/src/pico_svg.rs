@@ -4,12 +4,14 @@ use std::{num::ParseFloatError, str::FromStr};
 
 use roxmltree::{Document, Node};
 use vello::{
-    kurbo::{Affine, BezPath},
+    kurbo::{Affine, BezPath, Point, Size},
     peniko::Color,
 };
 
 pub struct PicoSvg {
     pub items: Vec<Item>,
+    pub origin: Point,
+    pub size: Size,
 }
 
 pub enum Item {
@@ -48,11 +50,51 @@ impl PicoSvg {
             transform,
             fill: Some(Color::BLACK),
         };
+        let (origin, size) = if let Some(vb_attr) = root.attribute("viewBox") {
+            let vs: Vec<f64> = vb_attr
+                .split(' ')
+                .map(|s| f64::from_str(s).unwrap())
+                .collect();
+            match vs.as_slice() {
+                &[x, y, width, height] => (Point { x, y }, Size { width, height }),
+                _ => (
+                    Point::ZERO,
+                    Size {
+                        width: 300.0,
+                        height: 150.0,
+                    },
+                ),
+            }
+        } else {
+            let maybe_width = root.attribute("width");
+            let maybe_height = root.attribute("height");
+            if maybe_width.is_some() && maybe_height.is_some() {
+                (
+                    Point::ZERO,
+                    Size {
+                        width: f64::from_str(maybe_width.unwrap()).unwrap(),
+                        height: f64::from_str(maybe_height.unwrap()).unwrap(),
+                    },
+                )
+            } else {
+                (
+                    Point::ZERO,
+                    Size {
+                        width: 300.0,
+                        height: 150.0,
+                    },
+                )
+            }
+        };
         // The root element is the svg document element, which we don't care about
         for node in root.children() {
             parser.rec_parse(node, &props)?;
         }
-        Ok(PicoSvg { items })
+        Ok(PicoSvg {
+            items,
+            origin,
+            size,
+        })
     }
 }
 

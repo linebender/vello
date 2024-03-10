@@ -96,34 +96,41 @@ pub fn svg_function_of<R: AsRef<str>>(
 ) -> impl FnMut(&mut Scene, &mut SceneParams) {
     fn render_svg_contents(name: &str, contents: &str) -> (Scene, Vec2) {
         use crate::pico_svg::*;
-        let start = Instant::now();
-        eprintln!("Parsed svg {name} in {:?}", start.elapsed());
-        let svg = PicoSvg::load(contents, 1.0).unwrap();
-        let start = Instant::now();
+        let mut start = Instant::now();
         let mut new_scene = Scene::new();
-        for item in &svg.items {
-            match item {
-                Item::Fill(fill) => {
-                    new_scene.fill(
-                        Fill::NonZero,
-                        Affine::IDENTITY,
-                        fill.color,
-                        None,
-                        &fill.path,
-                    );
-                }
-                Item::Stroke(stroke) => {
-                    new_scene.stroke(
-                        &Stroke::new(stroke.width),
-                        Affine::IDENTITY,
-                        stroke.color,
-                        None,
-                        &stroke.path,
-                    );
+        let mut resolution = Vec2::new(420 as f64, 420 as f64);
+        match PicoSvg::load(contents, 1.0) {
+            std::result::Result::Ok(PicoSvg {
+                items,
+                origin,
+                size,
+            }) => {
+                eprintln!("Parsed svg {name} in {:?}", start.elapsed());
+                start = Instant::now();
+                resolution = size.to_vec2();
+                let transform = Affine::translate(origin.to_vec2() * -1.0);
+                for item in items {
+                    match item {
+                        Item::Fill(fill) => {
+                            new_scene.fill(Fill::NonZero, transform, fill.color, None, &fill.path);
+                        }
+                        Item::Stroke(stroke) => {
+                            new_scene.stroke(
+                                &Stroke::new(stroke.width),
+                                transform,
+                                stroke.color,
+                                None,
+                                &stroke.path,
+                            );
+                        }
+                    }
                 }
             }
+            std::result::Result::Err(e) => {
+                eprintln!("{:?}", e);
+            }
         }
-        let resolution = Vec2::new(420 as f64, 420 as f64);
+
         eprintln!("Encoded svg {name} in {:?}", start.elapsed());
         (new_scene, resolution)
     }
