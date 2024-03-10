@@ -100,24 +100,25 @@ pub fn svg_function_of<R: AsRef<str>>(
         let mut new_scene = Scene::new();
         let mut resolution = Vec2::new(420 as f64, 420 as f64);
         match PicoSvg::load(contents, 1.0) {
-            std::result::Result::Ok(PicoSvg {
-                items,
-                origin,
-                size,
-            }) => {
+            std::result::Result::Ok(PicoSvg { items, size }) => {
                 eprintln!("Parsed svg {name} in {:?}", start.elapsed());
                 start = Instant::now();
                 resolution = size.to_vec2();
-                let transform = Affine::translate(origin.to_vec2() * -1.0);
                 for item in items {
                     match item {
                         Item::Fill(fill) => {
-                            new_scene.fill(Fill::NonZero, transform, fill.color, None, &fill.path);
+                            new_scene.fill(
+                                Fill::NonZero,
+                                Affine::IDENTITY,
+                                fill.color,
+                                None,
+                                &fill.path,
+                            );
                         }
                         Item::Stroke(stroke) => {
                             new_scene.stroke(
                                 &Stroke::new(stroke.width),
-                                transform,
+                                Affine::IDENTITY,
                                 stroke.color,
                                 None,
                                 &stroke.path,

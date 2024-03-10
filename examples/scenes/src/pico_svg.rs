@@ -4,13 +4,12 @@ use std::{num::ParseFloatError, str::FromStr};
 
 use roxmltree::{Document, Node};
 use vello::{
-    kurbo::{Affine, BezPath, Point, Size},
+    kurbo::{Affine, BezPath, Point, Size, Vec2},
     peniko::Color,
 };
 
 pub struct PicoSvg {
     pub items: Vec<Item>,
-    pub origin: Point,
     pub size: Size,
 }
 
@@ -41,15 +40,6 @@ impl PicoSvg {
         let root = doc.root_element();
         let mut items = Vec::new();
         let mut parser = Parser::new(&mut items, scale);
-        let transform = if scale >= 0.0 {
-            Affine::scale(scale)
-        } else {
-            Affine::new([-scale, 0.0, 0.0, scale, 0.0, 0.0])
-        };
-        let props = RecursiveProperties {
-            transform,
-            fill: Some(Color::BLACK),
-        };
         let (origin, size) = if let Some(vb_attr) = root.attribute("viewBox") {
             let vs: Vec<f64> = vb_attr
                 .split(' ')
@@ -86,15 +76,21 @@ impl PicoSvg {
                 )
             }
         };
+        let transform = Affine::translate(origin.to_vec2() * -1.0)
+            * if scale >= 0.0 {
+                Affine::scale(scale)
+            } else {
+                Affine::new([-scale, 0.0, 0.0, scale, 0.0, 0.0])
+            };
+        let props = RecursiveProperties {
+            transform,
+            fill: Some(Color::BLACK),
+        };
         // The root element is the svg document element, which we don't care about
         for node in root.children() {
             parser.rec_parse(node, &props)?;
         }
-        Ok(PicoSvg {
-            items,
-            origin,
-            size,
-        })
+        Ok(PicoSvg { items, size })
     }
 }
 
@@ -182,6 +178,34 @@ fn parse_transform(transform: &str) -> Affine {
             vals.try_into()
                 .expect("Should be six arguments to `matrix`"),
         )
+    } else if transform.starts_with("translate(") {
+        if let Ok(vals) = transform["translate(".len()..transform.len() - 1]
+            .split(' ')
+            .map(str::trim)
+            .map(str::parse)
+            .collect::<Result<Vec<f64>, ParseFloatError>>()
+        {
+            match vals.as_slice() {
+                &[x, y] => Affine::translate(Vec2 { x, y }),
+                _ => Affine::IDENTITY,
+            }
+        } else {
+            Affine::IDENTITY
+        }
+    } else if transform.starts_with("scale(") {
+        if let Ok(vals) = transform["scale(".len()..transform.len() - 1]
+            .split(' ')
+            .map(str::trim)
+            .map(str::parse)
+            .collect::<Result<Vec<f64>, ParseFloatError>>()
+        {
+            match vals.as_slice() {
+                &[x, y] => Affine::scale_non_uniform(x, y),
+                _ => Affine::IDENTITY,
+            }
+        } else {
+            Affine::IDENTITY
+        }
     } else {
         eprintln!("Did not understand transform attribute {transform:?}");
         Affine::IDENTITY
