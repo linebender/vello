@@ -207,6 +207,18 @@ fn parse_transform(transform: &str) -> Affine {
             } else {
                 Affine::IDENTITY
             }
+        } else if let Some(s) = ts.strip_prefix("scaleX(") {
+            s.trim()
+                .parse()
+                .ok()
+                .map(|x| Affine::scale_non_uniform(x, 1.0))
+                .unwrap_or(Affine::IDENTITY)
+        } else if let Some(s) = ts.strip_prefix("scaleY(") {
+            s.trim()
+                .parse()
+                .ok()
+                .map(|y| Affine::scale_non_uniform(1.0, y))
+                .unwrap_or(Affine::IDENTITY)
         } else {
             if !ts.is_empty() {
                 eprintln!("Did not understand transform attribute {ts:?}");
