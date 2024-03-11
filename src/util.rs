@@ -10,7 +10,7 @@ use wgpu::{
     TextureFormat,
 };
 
-use crate::{VResult, VelloError};
+use crate::{Result, VelloError};
 
 /// Simple render context that maintains wgpu state for rendering the pipeline.
 pub struct RenderContext {
@@ -51,7 +51,7 @@ impl RenderContext {
         width: u32,
         height: u32,
         present_mode: wgpu::PresentMode,
-    ) -> VResult<RenderSurface<'w>> {
+    ) -> Result<RenderSurface<'w>> {
         let surface = self.instance.create_surface(window.into())?;
         let dev_id = self
             .device(Some(&surface))

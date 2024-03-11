@@ -215,7 +215,7 @@ pub enum VelloError {
 }
 
 #[allow(dead_code)]
-pub(crate) type VResult<T> = Result<T, VelloError>;
+pub(crate) type Result<T, E = VelloError> = std::result::Result<T, E>;
 
 /// Renders a scene into a texture or surface.
 #[cfg(feature = "wgpu")]
@@ -284,7 +284,7 @@ pub struct RendererOptions {
 #[cfg(feature = "wgpu")]
 impl Renderer {
     /// Creates a new renderer for the specified device.
-    pub fn new(device: &Device, options: RendererOptions) -> VResult<Self> {
+    pub fn new(device: &Device, options: RendererOptions) -> Result<Self> {
         let mut engine = WgpuEngine::new(options.use_cpu);
         // If we are running in parallel (i.e. the number of threads is not 1)
         if options.num_init_threads != NonZeroUsize::new(1) {
@@ -327,7 +327,7 @@ impl Renderer {
         scene: &Scene,
         texture: &TextureView,
         params: &RenderParams,
-    ) -> VResult<()> {
+    ) -> Result<()> {
         let (recording, target) =
             render::render_full(scene, &mut self.resolver, &self.shaders, params);
         let external_resources = [ExternalResource::Image(
@@ -361,7 +361,7 @@ impl Renderer {
         scene: &Scene,
         surface: &SurfaceTexture,
         params: &RenderParams,
-    ) -> VResult<()> {
+    ) -> Result<()> {
         let width = params.width;
         let height = params.height;
         let mut target = self
@@ -465,7 +465,7 @@ impl Renderer {
         scene: &Scene,
         texture: &TextureView,
         params: &RenderParams,
-    ) -> VResult<Option<BumpAllocators>> {
+    ) -> Result<Option<BumpAllocators>> {
         let mut render = Render::new();
         let encoding = scene.encoding();
         // TODO: turn this on; the download feature interacts with CPU dispatch
@@ -525,7 +525,7 @@ impl Renderer {
         scene: &Scene,
         surface: &SurfaceTexture,
         params: &RenderParams,
-    ) -> VResult<Option<BumpAllocators>> {
+    ) -> Result<Option<BumpAllocators>> {
         let width = params.width;
         let height = params.height;
         let mut target = self
