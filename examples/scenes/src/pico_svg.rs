@@ -58,26 +58,23 @@ impl PicoSvg {
                     },
                 ),
             }
+        } else if let Some((width, height)) = root.attribute("width").zip(root.attribute("height"))
+        {
+            (
+                Point::ZERO,
+                Size {
+                    width: f64::from_str(width).unwrap(),
+                    height: f64::from_str(height).unwrap(),
+                },
+            )
         } else {
-            let maybe_width = root.attribute("width");
-            let maybe_height = root.attribute("height");
-            if maybe_width.is_some() && maybe_height.is_some() {
-                (
-                    Point::ZERO,
-                    Size {
-                        width: f64::from_str(maybe_width.unwrap()).unwrap(),
-                        height: f64::from_str(maybe_height.unwrap()).unwrap(),
-                    },
-                )
-            } else {
-                (
-                    Point::ZERO,
-                    Size {
-                        width: 300.0,
-                        height: 150.0,
-                    },
-                )
-            }
+            (
+                Point::ZERO,
+                Size {
+                    width: 300.0,
+                    height: 150.0,
+                },
+            )
         };
         let transform = Affine::translate(origin.to_vec2() * -1.0)
             * if scale >= 0.0 {
@@ -127,8 +124,7 @@ impl<'a> Parser<'a> {
                 }
             }
             if let Some(transform) = node.attribute("transform") {
-                let new_transform = parse_transform(transform);
-                properties.transform = properties.transform * new_transform;
+                properties.transform *= parse_transform(transform);
             }
             match node.tag_name().name() {
                 "g" => {
@@ -243,12 +239,12 @@ fn parse_color(color: &str) -> Color {
 
 fn modify_opacity(mut color: Color, attr_name: &str, node: Node) -> Color {
     if let Some(opacity) = node.attribute(attr_name) {
-        let alpha = if opacity.ends_with("%") {
-            let pctg = opacity[..opacity.len() - 1].parse().unwrap_or(100.0);
+        let alpha: f64 = if let Some(o) = opacity.strip_suffix('%') {
+            let pctg = o.parse().unwrap_or(100.0);
             pctg * 0.01
         } else {
             opacity.parse().unwrap_or(1.0)
-        } as f64;
+        };
         color.a = (alpha.min(1.0).max(0.0) * 255.0).round() as u8;
         color
     } else {

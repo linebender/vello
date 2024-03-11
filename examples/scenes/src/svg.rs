@@ -96,14 +96,12 @@ pub fn svg_function_of<R: AsRef<str>>(
 ) -> impl FnMut(&mut Scene, &mut SceneParams) {
     fn render_svg_contents(name: &str, contents: &str) -> (Scene, Vec2) {
         use crate::pico_svg::*;
-        let mut start = Instant::now();
-        let mut new_scene = Scene::new();
-        let mut resolution = Vec2::new(420 as f64, 420 as f64);
+        let start = Instant::now();
         match PicoSvg::load(contents, 1.0) {
             std::result::Result::Ok(PicoSvg { items, size }) => {
                 eprintln!("Parsed svg {name} in {:?}", start.elapsed());
-                start = Instant::now();
-                resolution = size.to_vec2();
+                let start = Instant::now();
+                let mut new_scene = Scene::new();
                 for item in items {
                     match item {
                         Item::Fill(fill) => {
@@ -126,14 +124,14 @@ pub fn svg_function_of<R: AsRef<str>>(
                         }
                     }
                 }
+                eprintln!("Encoded svg {name} in {:?}", start.elapsed());
+                (new_scene, size.to_vec2())
             }
             std::result::Result::Err(e) => {
                 eprintln!("{:?}", e);
+                (Scene::new(), Vec2::ZERO)
             }
         }
-
-        eprintln!("Encoded svg {name} in {:?}", start.elapsed());
-        (new_scene, resolution)
     }
     let mut cached_scene = None;
     #[cfg(not(target_arch = "wasm32"))]
