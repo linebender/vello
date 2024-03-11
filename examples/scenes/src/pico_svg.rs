@@ -166,55 +166,61 @@ impl<'a> Parser<'a> {
 }
 
 fn parse_transform(transform: &str) -> Affine {
-    let transform = transform.trim();
-    if transform.starts_with("matrix(") {
-        let vals = transform["matrix(".len()..transform.len() - 1]
-            .split(|c| matches!(c, ',' | ' '))
-            .map(str::parse)
-            .collect::<Result<Vec<f64>, ParseFloatError>>()
-            .expect("Could parse all values of 'matrix' as floats");
-        Affine::new(
-            vals.try_into()
-                .expect("Should be six arguments to `matrix`"),
-        )
-    } else if transform.starts_with("translate(") {
-        if let Ok(vals) = transform["translate(".len()..transform.len() - 1]
-            .split(' ')
-            .map(str::trim)
-            .map(str::parse)
-            .collect::<Result<Vec<f64>, ParseFloatError>>()
-        {
-            match vals.as_slice() {
-                &[x, y] => Affine::translate(Vec2 { x, y }),
-                _ => Affine::IDENTITY,
+    let mut nt = Affine::IDENTITY;
+    for ts in transform.split(')').map(str::trim) {
+        nt *= if let Some(s) = ts.strip_prefix("matrix(") {
+            let vals = s
+                .split(|c| matches!(c, ',' | ' '))
+                .map(str::parse)
+                .collect::<Result<Vec<f64>, ParseFloatError>>()
+                .expect("Could parse all values of 'matrix' as floats");
+            Affine::new(
+                vals.try_into()
+                    .expect("Should be six arguments to `matrix`"),
+            )
+        } else if let Some(s) = ts.strip_prefix("translate(") {
+            if let Ok(vals) = s
+                .split(|c| matches!(c, ',' | ' '))
+                .map(str::trim)
+                .map(str::parse)
+                .collect::<Result<Vec<f64>, ParseFloatError>>()
+            {
+                match vals.as_slice() {
+                    &[x, y] => Affine::translate(Vec2 { x, y }),
+                    _ => Affine::IDENTITY,
+                }
+            } else {
+                Affine::IDENTITY
+            }
+        } else if let Some(s) = ts.strip_prefix("scale(") {
+            if let Ok(vals) = s
+                .split(|c| matches!(c, ',' | ' '))
+                .map(str::trim)
+                .map(str::parse)
+                .collect::<Result<Vec<f64>, ParseFloatError>>()
+            {
+                match vals.as_slice() {
+                    &[x, y] => Affine::scale_non_uniform(x, y),
+                    &[x] => Affine::scale(x),
+                    _ => Affine::IDENTITY,
+                }
+            } else {
+                Affine::IDENTITY
             }
         } else {
-            Affine::IDENTITY
-        }
-    } else if transform.starts_with("scale(") {
-        if let Ok(vals) = transform["scale(".len()..transform.len() - 1]
-            .split(' ')
-            .map(str::trim)
-            .map(str::parse)
-            .collect::<Result<Vec<f64>, ParseFloatError>>()
-        {
-            match vals.as_slice() {
-                &[x, y] => Affine::scale_non_uniform(x, y),
-                _ => Affine::IDENTITY,
+            if !ts.is_empty() {
+                eprintln!("Did not understand transform attribute {ts:?}");
             }
-        } else {
             Affine::IDENTITY
-        }
-    } else {
-        eprintln!("Did not understand transform attribute {transform:?}");
-        Affine::IDENTITY
+        };
     }
+    nt
 }
 
 fn parse_color(color: &str) -> Color {
     let color = color.trim();
-    if color.as_bytes()[0] == b'#' {
-        let mut hex = u32::from_str_radix(&color[1..], 16).unwrap();
+    if let Some(s) = color.strip_prefix('#') {
+        let mut hex = u32::from_str_radix(s, 16).unwrap();
         if color.len() == 4 {
             hex = (hex >> 8) * 0x110000 + ((hex >> 4) & 0xf) * 0x1100 + (hex & 0xf) * 0x11;
         }
@@ -226,8 +232,8 @@ fn parse_color(color: &str) -> Color {
             (rgba & 255) as u8,
         );
         Color::rgba8(r, g, b, a)
-    } else if color.starts_with("rgb(") {
-        let mut iter = color[4..color.len() - 1].split(',');
+    } else if let Some(s) = color.strip_prefix("rgb(").and_then(|s| s.strip_suffix(')')) {
+        let mut iter = s.split(',');
         let r = u8::from_str(iter.next().unwrap()).unwrap();
         let g = u8::from_str(iter.next().unwrap()).unwrap();
         let b = u8::from_str(iter.next().unwrap()).unwrap();
