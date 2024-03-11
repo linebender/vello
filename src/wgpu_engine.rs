@@ -15,7 +15,7 @@ use wgpu::{
 
 use crate::{
     cpu_dispatch::CpuBinding, recording::BindType, BufferProxy, Command, ImageProxy, Recording,
-    ResourceId, ResourceProxy, ShaderId, VResult, VelloError,
+    ResourceId, ResourceProxy, Result, ShaderId, VelloError,
 };
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -343,7 +343,7 @@ impl WgpuEngine {
         external_resources: &[ExternalResource],
         label: &'static str,
         #[cfg(feature = "wgpu-profiler")] profiler: &mut wgpu_profiler::GpuProfiler,
-    ) -> VResult<()> {
+    ) -> Result<()> {
         let mut free_bufs: HashSet<ResourceId> = Default::default();
         let mut free_images: HashSet<ResourceId> = Default::default();
         let mut transient_map = TransientBindMap::new(external_resources);
