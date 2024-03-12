@@ -295,7 +295,7 @@ fn flatten_euler(
                 this_q1 = new_q1;
                 if t1 < 1. {
                     this_p1 = new_p1;
-                    t1 = t1 - DERIV_EPS;
+                    t1 -= DERIV_EPS;
                 }
             }
             let actual_dt = t1 - last_t;
@@ -365,9 +365,8 @@ fn flatten_euler(
                     log!("@@@   NaN: parameters:\n  es: {:#?}\n  k0: {k0}, k1: {k1}\n  dist_scaled: {dist_scaled}\n  es_scale: {es_scale}\n  a: {a}\n  b: {b}\n  int0: {int0}, int1: {int1}, integral: {integral}\n  k_peak: {k_peak}\n  integrand_peak: {integrand_peak}\n  scaled_int: {scaled_int}\n  n_frac:  {n_frac}", es);
                 } else {
                     for i in 0..n as usize {
-                        let lp1;
-                        if i == n as usize - 1 && t1 == 1.0 {
-                            lp1 = t_end;
+                        let lp1 = if i == n as usize - 1 && t1 == 1.0 {
+                            t_end
                         } else {
                             let t = (i + 1) as f32 / n;
                             let s = match robust {
@@ -383,8 +382,8 @@ fn flatten_euler(
                                     (inv - b) / a
                                 }
                             };
-                            lp1 = es.eval_with_offset(s, offset);
-                        }
+                            es.eval_with_offset(s, offset)
+                        };
                         let l0 = if offset >= 0. { lp0 } else { lp1 };
                         let l1 = if offset >= 0. { lp1 } else { lp0 };
                         output_line_with_transform(

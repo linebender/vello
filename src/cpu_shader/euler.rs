@@ -3,6 +3,9 @@
 
 //! Utility functions for Euler Spiral based stroke expansion.
 
+// Use the same constants as the f64 version.
+#![allow(clippy::excessive_precision)]
+
 use super::util::Vec2;
 use std::f32::consts::FRAC_PI_4;
 
