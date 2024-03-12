@@ -43,45 +43,61 @@ impl PicoSvg {
         let root = doc.root_element();
         let mut items = Vec::new();
         let mut parser = Parser::new(&mut items, scale);
-        let (origin, size) = if let Some(vb_attr) = root.attribute("viewBox") {
-            let vs: Vec<f64> = vb_attr
-                .split(' ')
-                .map(|s| f64::from_str(s).unwrap())
-                .collect();
-            match vs.as_slice() {
-                &[x, y, width, height] => (Point { x, y }, Size { width, height }),
-                _ => (
-                    Point::ZERO,
-                    Size {
-                        width: 300.0,
-                        height: 150.0,
-                    },
-                ),
-            }
-        } else if let Some((width, height)) = root.attribute("width").zip(root.attribute("height"))
-        {
-            (
-                Point::ZERO,
-                Size {
-                    width: f64::from_str(width).unwrap(),
-                    height: f64::from_str(height).unwrap(),
-                },
-            )
+        let width = root.attribute("width").and_then(|s| f64::from_str(s).ok());
+        let height = root.attribute("height").and_then(|s| f64::from_str(s).ok());
+        let (origin, viewbox_size) = root
+            .attribute("viewBox")
+            .and_then(|vb_attr| {
+                let vs: Vec<f64> = vb_attr
+                    .split(' ')
+                    .map(|s| f64::from_str(s).unwrap())
+                    .collect();
+                if let &[x, y, width, height] = vs.as_slice() {
+                    Some((Point { x, y }, Size { width, height }))
+                } else {
+                    None
+                }
+            })
+            .unzip();
+
+        let mut transform = if let Some(origin) = origin {
+            Affine::translate(origin.to_vec2() * -1.0)
         } else {
-            (
-                Point::ZERO,
-                Size {
-                    width: 300.0,
-                    height: 150.0,
-                },
-            )
+            Affine::IDENTITY
         };
-        let transform = Affine::translate(origin.to_vec2() * -1.0)
-            * if scale >= 0.0 {
-                Affine::scale(scale)
-            } else {
-                Affine::new([-scale, 0.0, 0.0, scale, 0.0, 0.0])
-            };
+
+        transform *= match (width, height, viewbox_size) {
+            (None, None, Some(_)) => Affine::IDENTITY,
+            (Some(w), Some(h), Some(s)) => {
+                Affine::scale_non_uniform(1.0 / s.width * w, 1.0 / s.height * h)
+            }
+            (Some(w), None, Some(s)) => Affine::scale(1.0 / s.width * w),
+            (None, Some(h), Some(s)) => Affine::scale(1.0 / s.height * h),
+            _ => Affine::IDENTITY,
+        };
+
+        let size = match (width, height, viewbox_size) {
+            (None, None, Some(s)) => s,
+            (mw, mh, None) => Size {
+                width: mw.unwrap_or(300_f64),
+                height: mh.unwrap_or(150_f64),
+            },
+            (Some(w), None, Some(s)) => Size {
+                width: w,
+                height: 1.0 / w * s.width * s.height,
+            },
+            (None, Some(h), Some(s)) => Size {
+                width: 1.0 / h * s.height * s.width,
+                height: h,
+            },
+            (Some(width), Some(height), Some(_)) => Size { width, height },
+        };
+
+        transform *= if scale >= 0.0 {
+            Affine::scale(scale)
+        } else {
+            Affine::new([-scale, 0.0, 0.0, scale, 0.0, 0.0])
+        };
         let props = RecursiveProperties {
             transform,
             fill: Some(Color::BLACK),
@@ -221,7 +237,7 @@ fn parse_transform(transform: &str) -> Affine {
                 .unwrap_or(Affine::IDENTITY)
         } else {
             if !ts.is_empty() {
-                eprintln!("Did not understand transform attribute {ts:?}");
+                eprintln!("Did not understand transform attribute {ts:?})");
             }
             Affine::IDENTITY
         };
