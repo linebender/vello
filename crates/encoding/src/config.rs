@@ -37,6 +37,73 @@ pub struct BumpAllocators {
     pub lines: u32,
 }
 
+#[derive(Default)]
+pub struct BumpAllocatorMemory {
+    pub total: u32,
+    pub binning: BufferSize<u32>,
+    pub ptcl: BufferSize<u32>,
+    pub tile: BufferSize<Tile>,
+    pub seg_counts: BufferSize<SegmentCount>,
+    pub segments: BufferSize<PathSegment>,
+    pub lines: BufferSize<LineSoup>,
+}
+
+impl BumpAllocators {
+    pub fn memory(&self) -> BumpAllocatorMemory {
+        let binning = BufferSize::new(self.binning);
+        let ptcl = BufferSize::new(self.ptcl);
+        let tile = BufferSize::new(self.tile);
+        let seg_counts = BufferSize::new(self.seg_counts);
+        let segments = BufferSize::new(self.segments);
+        let lines = BufferSize::new(self.lines);
+        BumpAllocatorMemory {
+            total: binning.size_in_bytes()
+                + ptcl.size_in_bytes()
+                + tile.size_in_bytes()
+                + seg_counts.size_in_bytes()
+                + segments.size_in_bytes()
+                + lines.size_in_bytes(),
+            binning,
+            ptcl,
+            tile,
+            seg_counts,
+            segments,
+            lines,
+        }
+    }
+}
+
+impl std::fmt::Display for BumpAllocatorMemory {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "\n \
+                 \tTotal:\t\t\t{} bytes ({:.2} KB | {:.2} MB)\n\
+                 \tBinning\t\t\t{} elements ({} bytes)\n\
+                 \tPTCL\t\t\t{} elements ({} bytes)\n\
+                 \tTile:\t\t\t{} elements ({} bytes)\n\
+                 \tSegment Counts:\t\t{} elements ({} bytes)\n\
+                 \tSegments:\t\t{} elements ({} bytes)\n\
+                 \tLines:\t\t\t{} elements ({} bytes)",
+            self.total,
+            self.total as f32 / (1 << 10) as f32,
+            self.total as f32 / (1 << 20) as f32,
+            self.binning.len(),
+            self.binning.size_in_bytes(),
+            self.ptcl.len(),
+            self.ptcl.size_in_bytes(),
+            self.tile.len(),
+            self.tile.size_in_bytes(),
+            self.seg_counts.len(),
+            self.seg_counts.size_in_bytes(),
+            self.segments.len(),
+            self.segments.size_in_bytes(),
+            self.lines.len(),
+            self.lines.size_in_bytes()
+        )
+    }
+}
+
 /// Storage of indirect dispatch size values.
 ///
 /// The original plan was to reuse [`BumpAllocators`], but the WebGPU compatible
