@@ -4,7 +4,7 @@
 use std::fs::read_dir;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Ok, Result};
+use anyhow::Result;
 use instant::Instant;
 
 use vello::{
@@ -98,7 +98,7 @@ pub fn svg_function_of<R: AsRef<str>>(
         use crate::pico_svg::*;
         let start = Instant::now();
         match PicoSvg::load(contents, 1.0) {
-            std::result::Result::Ok(PicoSvg { items, size }) => {
+            Ok(PicoSvg { items, size }) => {
                 eprintln!("Parsed svg {name} in {:?}", start.elapsed());
                 let start = Instant::now();
                 let mut new_scene = Scene::new();
@@ -127,7 +127,7 @@ pub fn svg_function_of<R: AsRef<str>>(
                 eprintln!("Encoded svg {name} in {:?}", start.elapsed());
                 (new_scene, size.to_vec2())
             }
-            std::result::Result::Err(e) => {
+            Err(e) => {
                 eprintln!("Failed to load svg, with Err({e})");
                 let mut error_scene = Scene::new();
                 error_scene.fill(
