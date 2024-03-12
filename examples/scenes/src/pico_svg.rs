@@ -215,9 +215,9 @@ fn parse_transform(transform: &str) -> Affine {
                 .map(str::parse)
                 .collect::<Result<Vec<f64>, ParseFloatError>>()
             {
-                match vals.as_slice() {
-                    &[x, y] => Affine::scale_non_uniform(x, y),
-                    &[x] => Affine::scale(x),
+                match *vals.as_slice() {
+                    [x, y] => Affine::scale_non_uniform(x, y),
+                    [x] => Affine::scale(x),
                     _ => Affine::IDENTITY,
                 }
             } else {
