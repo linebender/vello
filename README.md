@@ -120,6 +120,12 @@ More formal benchmarks are on their way.
 
 ## Integrations
 
+### SVG
+
+[`vello_svg`](https://github.com/linebender/vello_svg/), supports converting a [`usvg`](https://crates.io/crates/usvg) `Tree` into a Vello scene.
+
+It is currently incomplete; see its documentation for more information.
+
 ### Lottie
 
 A separate integration for playing Lottie animations is available through the [`velato`](https://github.com/linebender/velato) crate.
