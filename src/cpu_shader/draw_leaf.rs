@@ -5,7 +5,11 @@ use vello_encoding::{Clip, ConfigUniform, DrawMonoid, DrawTag, Monoid, PathBbox}
 
 use crate::cpu_dispatch::CpuBinding;
 
-use super::util::{read_draw_tag_from_scene, Transform, Vec2};
+use super::{
+    util::{read_draw_tag_from_scene, Transform, Vec2},
+    RAD_GRAD_KIND_CIRCULAR, RAD_GRAD_KIND_CONE, RAD_GRAD_KIND_FOCAL_ON_CIRCLE, RAD_GRAD_KIND_STRIP,
+    RAD_GRAD_SWAPPED,
+};
 
 const WG_SIZE: usize = 256;
 
@@ -36,6 +40,7 @@ fn draw_leaf_main(
             if tag_word == DrawTag::COLOR
                 || tag_word == DrawTag::LINEAR_GRADIENT
                 || tag_word == DrawTag::RADIAL_GRADIENT
+                || tag_word == DrawTag::SWEEP_GRADIENT
                 || tag_word == DrawTag::IMAGE
                 || tag_word == DrawTag::BEGIN_CLIP
             {
@@ -67,66 +72,103 @@ fn draw_leaf_main(
                         info[di + 3] = f32::to_bits(line_c);
                     }
                     DrawTag::RADIAL_GRADIENT => {
+                        const GRADIENT_EPSILON: f32 = 1.0f32 / (1 << 12) as f32;
+                        info[di] = draw_flags;
+                        let mut p0 = Vec2::new(
+                            f32::from_bits(scene[dd as usize + 1]),
+                            f32::from_bits(scene[dd as usize + 2]),
+                        );
+                        let mut p1 = Vec2::new(
+                            f32::from_bits(scene[dd as usize + 3]),
+                            f32::from_bits(scene[dd as usize + 4]),
+                        );
+                        let mut r0 = f32::from_bits(scene[dd as usize + 5]);
+                        let mut r1 = f32::from_bits(scene[dd as usize + 6]);
+                        let user_to_gradient = transform.inverse();
+                        let xform;
+                        let mut focal_x = 0.0;
+                        let radius;
+                        let mut kind;
+                        let mut flags = 0;
+                        if (r0 - r1).abs() < GRADIENT_EPSILON {
+                            // When the radii are the same, emit a strip gradient
+                            kind = RAD_GRAD_KIND_STRIP;
+                            let scaled = r0 / p0.distance(p1);
+                            xform = two_point_to_unit_line(p0, p1) * user_to_gradient;
+                            radius = scaled * scaled;
+                        } else {
+                            // Assume a two point conical gradient unless the centers
+                            // are equal.
+                            kind = RAD_GRAD_KIND_CONE;
+                            if p0 == p1 {
+                                kind = RAD_GRAD_KIND_CIRCULAR;
+                                // Nudge p0 a bit to avoid denormals.
+                                p0.x += GRADIENT_EPSILON;
+                            }
+                            if r1 == 0.0 {
+                                // If r1 == 0.0, swap the points and radii
+                                flags |= RAD_GRAD_SWAPPED;
+                                core::mem::swap(&mut p0, &mut p1);
+                                core::mem::swap(&mut r0, &mut r1);
+                            }
+                            focal_x = r0 / (r0 - r1);
+                            let cf = (1.0 - focal_x) * p0 + focal_x * p1;
+                            radius = r1 / cf.distance(p1);
+                            let user_to_unit_line =
+                                two_point_to_unit_line(cf, p1) * user_to_gradient;
+                            let user_to_scaled;
+                            // When r == 1.0, focal point is on circle
+                            if (radius - 1.0).abs() <= GRADIENT_EPSILON {
+                                kind = RAD_GRAD_KIND_FOCAL_ON_CIRCLE;
+                                let scale = 0.5 * (1.0 - focal_x).abs();
+                                user_to_scaled = Transform([scale, 0.0, 0.0, scale, 0.0, 0.0])
+                                    * user_to_unit_line;
+                            } else {
+                                let a = radius * radius - 1.0;
+                                let scale_ratio = (1.0 - focal_x).abs() / a;
+                                let scale_x = radius * scale_ratio;
+                                let scale_y = a.abs().sqrt() * scale_ratio;
+                                user_to_scaled = Transform([scale_x, 0.0, 0.0, scale_y, 0.0, 0.0])
+                                    * user_to_unit_line;
+                            }
+                            xform = user_to_scaled;
+                        }
+                        info[di + 1] = f32::to_bits(xform.0[0]);
+                        info[di + 2] = f32::to_bits(xform.0[1]);
+                        info[di + 3] = f32::to_bits(xform.0[2]);
+                        info[di + 4] = f32::to_bits(xform.0[3]);
+                        info[di + 5] = f32::to_bits(xform.0[4]);
+                        info[di + 6] = f32::to_bits(xform.0[5]);
+                        info[di + 7] = f32::to_bits(focal_x);
+                        info[di + 8] = f32::to_bits(radius);
+                        info[di + 9] = (flags << 3) | kind;
+                    }
+                    DrawTag::SWEEP_GRADIENT => {
                         info[di] = draw_flags;
                         let p0 = Vec2::new(
                             f32::from_bits(scene[dd as usize + 1]),
                             f32::from_bits(scene[dd as usize + 2]),
                         );
-                        let p1 = Vec2::new(
-                            f32::from_bits(scene[dd as usize + 3]),
-                            f32::from_bits(scene[dd as usize + 4]),
-                        );
-                        let r0 = f32::from_bits(scene[dd as usize + 5]);
-                        let r1 = f32::from_bits(scene[dd as usize + 6]);
-                        let z = transform.0;
-                        let inv_det = (z[0] * z[3] - z[1] * z[2]).recip();
-                        let inv_mat = [
-                            z[3] * inv_det,
-                            -z[1] * inv_det,
-                            -z[2] * inv_det,
-                            z[0] * inv_det,
-                        ];
-                        let inv_tr = [
-                            -(inv_mat[0] * z[4] + inv_mat[2] * z[5]) - p0.x,
-                            -(inv_mat[1] * z[4] + inv_mat[3] * z[5]) - p0.y,
-                        ];
-                        let center1 = p1 - p0;
-                        let rr = r1 / (r1 - r0);
-                        let ra_inv = rr / (r1 * r1 - center1.dot(center1));
-                        let c1 = center1 * ra_inv;
-                        let ra = rr * ra_inv;
-                        let roff = rr - 1.0;
-                        info[di + 1] = f32::to_bits(inv_mat[0]);
-                        info[di + 2] = f32::to_bits(inv_mat[1]);
-                        info[di + 3] = f32::to_bits(inv_mat[2]);
-                        info[di + 4] = f32::to_bits(inv_mat[3]);
-                        info[di + 5] = f32::to_bits(inv_tr[0]);
-                        info[di + 6] = f32::to_bits(inv_tr[1]);
-                        info[di + 7] = f32::to_bits(c1.x);
-                        info[di + 8] = f32::to_bits(c1.y);
-                        info[di + 9] = f32::to_bits(ra);
-                        info[di + 19] = f32::to_bits(roff);
+                        let xform =
+                            (transform * Transform([1.0, 0.0, 0.0, 1.0, p0.x, p0.y])).inverse();
+                        info[di + 1] = f32::to_bits(xform.0[0]);
+                        info[di + 2] = f32::to_bits(xform.0[1]);
+                        info[di + 3] = f32::to_bits(xform.0[2]);
+                        info[di + 4] = f32::to_bits(xform.0[3]);
+                        info[di + 5] = f32::to_bits(xform.0[4]);
+                        info[di + 6] = f32::to_bits(xform.0[5]);
+                        info[di + 7] = scene[dd as usize + 3];
+                        info[di + 8] = scene[dd as usize + 4];
                     }
                     DrawTag::IMAGE => {
                         info[di] = draw_flags;
-                        let z = transform.0;
-                        let inv_det = (z[0] * z[3] - z[1] * z[2]).recip();
-                        let inv_mat = [
-                            z[3] * inv_det,
-                            -z[1] * inv_det,
-                            -z[2] * inv_det,
-                            z[0] * inv_det,
-                        ];
-                        let inv_tr = [
-                            -(inv_mat[0] * z[4] + inv_mat[2] * z[5]),
-                            -(inv_mat[1] * z[4] + inv_mat[3] * z[5]),
-                        ];
-                        info[di + 1] = f32::to_bits(inv_mat[0]);
-                        info[di + 2] = f32::to_bits(inv_mat[1]);
-                        info[di + 3] = f32::to_bits(inv_mat[2]);
-                        info[di + 4] = f32::to_bits(inv_mat[3]);
-                        info[di + 5] = f32::to_bits(inv_tr[0]);
-                        info[di + 6] = f32::to_bits(inv_tr[1]);
+                        let xform = transform.inverse();
+                        info[di + 1] = f32::to_bits(xform.0[0]);
+                        info[di + 2] = f32::to_bits(xform.0[1]);
+                        info[di + 3] = f32::to_bits(xform.0[2]);
+                        info[di + 4] = f32::to_bits(xform.0[3]);
+                        info[di + 5] = f32::to_bits(xform.0[4]);
+                        info[di + 6] = f32::to_bits(xform.0[5]);
                         info[di + 7] = scene[dd as usize];
                         info[di + 8] = scene[dd as usize + 1];
                     }
@@ -165,4 +207,22 @@ pub fn draw_leaf(n_wg: u32, resources: &[CpuBinding]) {
         &mut info,
         &mut clip_inp,
     );
+}
+
+fn two_point_to_unit_line(p0: Vec2, p1: Vec2) -> Transform {
+    let tmp1 = from_poly2(p0, p1);
+    let inv = tmp1.inverse();
+    let tmp2 = from_poly2(Vec2::default(), Vec2::new(1.0, 0.0));
+    tmp2 * inv
+}
+
+fn from_poly2(p0: Vec2, p1: Vec2) -> Transform {
+    Transform([
+        p1.y - p0.y,
+        p0.x - p1.x,
+        p1.x - p0.x,
+        p1.y - p0.y,
+        p0.x,
+        p0.y,
+    ])
 }

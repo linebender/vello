@@ -3,8 +3,6 @@
 
 //! Raw scene encoding.
 
-#![warn(clippy::doc_markdown, clippy::semicolon_if_nothing_returned)]
-
 mod binning;
 mod clip;
 mod config;
@@ -32,7 +30,7 @@ pub use config::{
 };
 pub use draw::{
     DrawBbox, DrawBeginClip, DrawColor, DrawImage, DrawLinearGradient, DrawMonoid,
-    DrawRadialGradient, DrawTag, DRAW_INFO_FLAGS_FILL_RULE_BIT,
+    DrawRadialGradient, DrawSweepGradient, DrawTag, DRAW_INFO_FLAGS_FILL_RULE_BIT,
 };
 pub use encoding::{Encoding, StreamOffsets};
 pub use mask::{make_mask_lut, make_mask_lut_16};

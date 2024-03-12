@@ -1,7 +1,9 @@
 [package]
 name = "vello_encoding"
-version = "0.1.0"
+version.workspace = true # We mimic Vello's version
+description = "Vello types that represent the data that needs to be rendered."
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
@@ -10,6 +12,9 @@ default = ["full"]
 # Enables support for the full pipeline including late-bound
 # resources (gradients, images and glyph runs)
 full = ["skrifa", "guillotiere"]
+
+[lints]
+workspace = true
 
 [dependencies]
 bytemuck = { workspace = true }

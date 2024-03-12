@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use bytemuck::{Pod, Zeroable};
-use skrifa::MetadataProvider;
 
 use super::{DrawTag, Encoding, PathTag, StreamOffsets, Style, Transform};
 
@@ -14,6 +13,7 @@ use {
         ramp_cache::{RampCache, Ramps},
     },
     peniko::{Extend, Image},
+    skrifa::MetadataProvider,
     std::ops::Range,
 };
 

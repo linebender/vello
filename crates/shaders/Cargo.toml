@@ -1,9 +1,13 @@
 [package]
 name = "vello_shaders"
-version = "0.1.0"
+version.workspace = true # We mimic Vello's version
+description = "Vello infrastructure to preprocess and cross-compile shaders at compile time."
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+
+publish = false # Remove this when the package is ready for publishing
 
 [features]
 default = ["compile", "wgsl", "msl"]
@@ -26,11 +30,14 @@ force_rw_storage = []
 wgsl = []
 msl = []
 
+[lints]
+workspace = true
+
 [dependencies]
-naga = { version = "0.13", features = ["wgsl-in", "msl-out", "validate"], optional = true }
-thiserror = { version = "1.0.40", optional = true }
+naga = { version = "0.19", features = ["wgsl-in", "msl-out",], optional = true }
+thiserror = { version = "1.0.57", optional = true }
 
 [build-dependencies]
-naga = { version = "0.13",  features = ["wgsl-in", "msl-out", "validate"] }
-thiserror = "1.0.40"
+naga = { version = "0.19",  features = ["wgsl-in", "msl-out",] }
+thiserror = "1.0.57"
 

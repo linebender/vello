@@ -1,15 +1,16 @@
 [package]
 name = "with_bevy"
-description = "Example of using Vello in a Bevy application"
-
-version.workspace = true
-license.workspace = true
+description = "Example of using Vello in a Bevy application."
 edition.workspace = true
+license.workspace = true
 repository.workspace = true
+publish = false
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lints]
+workspace = true
 
 [dependencies]
+vello = { path = "../../" }
 bevy = { version = "0.13", features = [
   "bevy_winit",
   "bevy_core_pipeline",
@@ -19,5 +20,3 @@ bevy = { version = "0.13", features = [
   "x11",
   "tonemapping_luts",
 ], default-features = false }
-
-vello = { path = "../../" }

@@ -1,18 +1,24 @@
 [package]
 name = "with_winit"
+version = "0.0.0"
 description = "An example using vello to render to a winit window"
-publish = false
-
-version.workspace = true
-license.workspace = true
 edition.workspace = true
+license.workspace = true
 repository.workspace = true
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+publish = false
 
 [lib]
 name = "with_winit"
 crate-type = ["cdylib", "lib"]
+
+[features]
+default = ["wgpu-profiler"]
+# Enable the use of wgpu-profiler. This is an optional feature for times when we use a git dependency on
+# wgpu (which means the dependency used in wgpu-profiler would be incompatible)
+wgpu-profiler = ["dep:wgpu-profiler", "vello/wgpu-profiler"]
+
+[lints]
+workspace = true
 
 [[bin]]
 # Stop the PDB collision warning on windows
@@ -20,18 +26,21 @@ name = "with_winit_bin"
 path = "src/main.rs"
 
 [dependencies]
-vello = { path = "../../", features = ["buffer_labels", "wgpu-profiler"] }
+vello = { path = "../../", features = ["buffer_labels"] }
 scenes = { path = "../scenes" }
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 instant = { workspace = true }
 pollster = { workspace = true }
-wgpu-profiler = { workspace = true }
+wgpu-profiler = { workspace = true, optional = true }
 
 wgpu = { workspace = true }
-winit = "0.29.10"
-env_logger = "0.10.0"
-log = "0.4.17"
+winit = "0.29.12"
+log = { workspace = true }
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+# We use android_logger on Android
+env_logger = "0.11.2"
 
 [target.'cfg(not(any(target_arch = "wasm32", target_os = "android")))'.dependencies]
 vello = { path = "../../", features = ["hot_reload"] }
@@ -39,15 +48,12 @@ notify-debouncer-mini = "0.3"
 
 
 [target.'cfg(target_os = "android")'.dependencies]
-winit = { version = "0.29.10", features = ["android-native-activity"] }
-android_logger = "0.13.0"
+winit = { version = "0.29.12", features = ["android-native-activity"] }
+android_logger = "0.13.3"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = "0.1.7"
-console_log = "1"
-wasm-bindgen-futures = "0.4.33"
-# Note: pin web-sys to 0.3.67 because wgpu 0.19 depends on that exact version.
-# Update this when revving wgpu. Remove pin when wgpu no longer demands it.
-# See https://github.com/gfx-rs/wgpu/pull/5224 for more info.
-web-sys = { version = "=0.3.67", features = [ "HtmlCollection", "Text" ] }
-getrandom = { version = "0.2.10", features = ["js"] }
+console_log = "1.0.0"
+wasm-bindgen-futures = "0.4.41"
+web-sys = { version = "0.3.67", features = ["HtmlCollection", "Text"] }
+getrandom = { version = "0.2.12", features = ["js"] }

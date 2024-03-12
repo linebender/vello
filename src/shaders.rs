@@ -5,19 +5,23 @@
 
 mod preprocess;
 
+#[cfg(feature = "wgpu")]
 use std::collections::HashSet;
 
 #[cfg(feature = "wgpu")]
 use wgpu::Device;
 
+use crate::ShaderId;
+
+#[cfg(feature = "wgpu")]
 use crate::{
     cpu_shader,
-    engine::{BindType, Error, ImageFormat, ShaderId},
+    recording::{BindType, ImageFormat},
+    wgpu_engine::WgpuEngine,
+    Error, RendererOptions,
 };
 
 #[cfg(feature = "wgpu")]
-use crate::{wgpu_engine::WgpuEngine, RendererOptions};
-
 macro_rules! shader {
     ($name:expr) => {&{
         let shader = include_str!(concat!(
@@ -105,10 +109,12 @@ pub fn full_shaders(
             if force_gpu_from == Some(stringify!($name)) {
                 force_gpu = true;
             }
+            let processed =
+                preprocess::preprocess(shader!(stringify!($name)), &$defines, &imports).into();
             engine.add_shader(
                 device,
                 $label,
-                preprocess::preprocess(shader!(stringify!($name)), &$defines, &imports).into(),
+                processed,
                 &$bindings,
                 if force_gpu {
                     CpuShaderType::Missing
@@ -317,6 +323,7 @@ pub fn full_shaders(
     })
 }
 
+#[cfg(feature = "wgpu")]
 macro_rules! shared_shader {
     ($name:expr) => {
         (
@@ -326,6 +333,7 @@ macro_rules! shared_shader {
     };
 }
 
+#[cfg(feature = "wgpu")]
 const SHARED_SHADERS: &[(&str, &str)] = &[
     shared_shader!("bbox"),
     shared_shader!("blend"),

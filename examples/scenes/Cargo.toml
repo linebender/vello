@@ -1,26 +1,28 @@
 [package]
 name = "scenes"
-description = "Vello scenes used in the other examples"
+description = "Vello scenes used in the other examples."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
 publish = false
 
-version.workspace = true
-license.workspace = true
-edition.workspace = true
-repository.workspace = true
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lints]
+workspace = true
 
 [dependencies]
 vello = { path = "../../" }
 vello_svg = { path = "../../integrations/vello_svg" }
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
-image = "0.24.5"
+image = "0.24.9"
 rand = "0.8.5"
 instant = { workspace = true }
 
 # Used for the `download` command
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-byte-unit = "4.0"
-dialoguer = "0.10"
-ureq = "2.6"
+byte-unit = "4.0.19"
+inquire = "0.7.0"
+ureq = "2.9.6"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2.12", features = ["js"] }

@@ -1,18 +1,99 @@
 // Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-#![warn(clippy::doc_markdown, clippy::semicolon_if_nothing_returned)]
+//! Vello is an experimental 2d graphics rendering engine written in Rust, using [`wgpu`].
+//! It efficiently draws large 2d scenes with interactive or near-interactive performance.
+//!
+//! ![image](https://github.com/linebender/vello/assets/8573618/cc2b742e-2135-4b70-8051-c49aeddb5d19)
+//!
+//!
+//! ## Motivation
+//!
+//! Vello is meant to fill the same place in the graphics stack as other vector graphics renderers like [Skia](https://skia.org/), [Cairo](https://www.cairographics.org/), and its predecessor project [Piet](https://www.cairographics.org/).
+//! On a basic level, that means it provides tools to render shapes, images, gradients, texts, etc, using a PostScript-inspired API, the same that powers SVG files and [the browser `<canvas>` element](https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D).
+//!
+//! Vello's selling point is that it gets better performance than other renderers by better leveraging the GPU.
+//! In traditional PostScript-style renderers, some steps of the render process like sorting and clipping either need to be handled in the CPU or done through the use of intermediary textures.
+//! Vello avoids this by using prefix-scan algorithms to parallelize work that usually needs to happen in sequence, so that work can be offloaded to the GPU with minimal use of temporary buffers.
+//!
+//! This means that Vello needs a GPU with support for compute shaders to run.
+//!
+//!
+//! ## Getting started
+//!
+//! Vello is meant to be integrated deep in UI render stacks.
+//! While drawing in a Vello scene is easy, actually rendering that scene to a surface setting up a wgpu context, which is a non-trivial task.
+//!
+//! To use Vello as the renderer for your PDF reader / GUI toolkit / etc, your code will have to look roughly like this:
+//!
+//! ```ignore
+//! // Initialize wgpu and get handles
+//! let (width, height) = ...;
+//! let device: wgpu::Device = ...;
+//! let queue: wgpu::Queue = ...;
+//! let surface: wgpu::Surface<'_> = ...;
+//! let texture_format: wgpu::TextureFormat = ...;
+//! let mut renderer = Renderer::new(
+//!    &device,
+//!    RendererOptions {
+//!       surface_format: Some(texture_format),
+//!       use_cpu: false,
+//!       antialiasing_support: vello::AaSupport::all(),
+//!       num_init_threads: NonZeroUsize::new(1),
+//!    },
+//! ).expect("Failed to create renderer");
+//!
+//! // Create scene and draw stuff in it
+//! let mut scene = vello::Scene::new();
+//! scene.fill(
+//!    vello::peniko::Fill::NonZero,
+//!    vello::Affine::IDENTITY,
+//!    vello::Color::rgb8(242, 140, 168),
+//!    None,
+//!    &vello::Circle::new((420.0, 200.0), 120.0),
+//! );
+//!
+//! // Draw more stuff
+//! scene.push_layer(...);
+//! scene.fill(...);
+//! scene.stroke(...);
+//! scene.pop_layer(...);
+//!
+//! // Render to your window/buffer/etc.
+//! let surface_texture = surface.get_current_texture()
+//!    .expect("failed to get surface texture");
+//! renderer
+//!    .render_to_surface(
+//!       &device,
+//!       &queue,
+//!       &scene,
+//!       &surface_texture,
+//!       &vello::RenderParams {
+//!          base_color: Color::BLACK, // Background color
+//!          width,
+//!          height,
+//!          antialiasing_method: AaConfig::Msaa16,
+//!       },
+//!    )
+//!    .expect("Failed to render to surface");
+//! surface_texture.present();
+//! ```
+//!
+//! See the [`examples/`](https://github.com/linebender/vello/tree/main/examples) folder to see how that code integrates with frameworks like winit and bevy.
 
+#[cfg(feature = "wgpu")]
 mod cpu_dispatch;
+#[cfg(feature = "wgpu")]
 mod cpu_shader;
-mod engine;
+mod recording;
 mod render;
 mod scene;
 mod shaders;
 #[cfg(feature = "wgpu")]
 mod wgpu_engine;
 
-use std::{num::NonZeroUsize, time::Instant};
+#[cfg(feature = "wgpu")]
+use std::num::NonZeroUsize;
 
 /// Styling and composition primitives.
 pub use peniko;
@@ -32,8 +113,8 @@ pub use scene::{DrawGlyphs, Scene};
 #[cfg(feature = "wgpu")]
 pub use util::block_on_wgpu;
 
-pub use engine::{
-    BufProxy, Command, Id, ImageFormat, ImageProxy, Recording, ResourceProxy, ShaderId,
+pub use recording::{
+    BufferProxy, Command, ImageFormat, ImageProxy, Recording, ResourceId, ResourceProxy, ShaderId,
 };
 pub use shaders::FullShaders;
 #[cfg(feature = "wgpu")]
@@ -43,7 +124,7 @@ use wgpu_engine::{ExternalResource, WgpuEngine};
 pub use vello_encoding::BumpAllocators;
 #[cfg(feature = "wgpu")]
 use wgpu::{Device, Queue, SurfaceTexture, TextureFormat, TextureView};
-#[cfg(feature = "wgpu-profiler")]
+#[cfg(all(feature = "wgpu", feature = "wgpu-profiler"))]
 use wgpu_profiler::{GpuProfiler, GpuProfilerSettings};
 
 /// Catch-all error type.
@@ -85,6 +166,24 @@ impl AaSupport {
     }
 }
 
+impl FromIterator<AaConfig> for AaSupport {
+    fn from_iter<T: IntoIterator<Item = AaConfig>>(iter: T) -> Self {
+        let mut result = Self {
+            area: false,
+            msaa8: false,
+            msaa16: false,
+        };
+        for config in iter {
+            match config {
+                AaConfig::Area => result.area = true,
+                AaConfig::Msaa8 => result.msaa8 = true,
+                AaConfig::Msaa16 => result.msaa16 = true,
+            }
+        }
+        result
+    }
+}
+
 /// Renders a scene into a texture or surface.
 #[cfg(feature = "wgpu")]
 pub struct Renderer {
@@ -95,7 +194,7 @@ pub struct Renderer {
     blit: Option<BlitPipeline>,
     target: Option<TargetTexture>,
     #[cfg(feature = "wgpu-profiler")]
-    profiler: GpuProfiler,
+    pub profiler: GpuProfiler,
     #[cfg(feature = "wgpu-profiler")]
     pub profile_result: Option<Vec<wgpu_profiler::GpuTimerQueryResult>>,
 }
@@ -133,7 +232,7 @@ pub struct RendererOptions {
     /// How many threads to use for initialisation of shaders.
     ///
     /// Use `Some(1)` to use a single thread. This is recommended when on macOS
-    /// (see https://github.com/bevyengine/bevy/pull/10812#discussion_r1496138004)
+    /// (see <https://github.com/bevyengine/bevy/pull/10812#discussion_r1496138004>)
     ///
     /// Set to `None` to use a heuristic which will use many but not all threads
     ///
@@ -151,11 +250,9 @@ impl Renderer {
             #[cfg(not(target_arch = "wasm32"))]
             engine.use_parallel_initialisation();
         }
-        let start = Instant::now();
         let shaders = shaders::full_shaders(device, &mut engine, &options)?;
         #[cfg(not(target_arch = "wasm32"))]
         engine.build_shaders_if_needed(device, options.num_init_threads);
-        eprintln!("Building shaders took {:?}", start.elapsed());
         let blit = options
             .surface_format
             .map(|surface_format| BlitPipeline::new(device, surface_format));
@@ -266,12 +363,28 @@ impl Renderer {
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });
+            #[cfg(feature = "wgpu-profiler")]
+            let mut render_pass = self
+                .profiler
+                .scope("blit to surface", &mut render_pass, device);
             render_pass.set_pipeline(&blit.pipeline);
             render_pass.set_bind_group(0, &bind_group, &[]);
             render_pass.draw(0..6, 0..1);
         }
+        #[cfg(feature = "wgpu-profiler")]
+        self.profiler.resolve_queries(&mut encoder);
         queue.submit(Some(encoder.finish()));
         self.target = Some(target);
+        #[cfg(feature = "wgpu-profiler")]
+        {
+            self.profiler.end_frame().unwrap();
+            if let Some(result) = self
+                .profiler
+                .process_finished_frame(queue.get_timestamp_period())
+            {
+                self.profile_result = Some(result);
+            }
+        }
         Ok(())
     }
 
@@ -414,6 +527,10 @@ impl Renderer {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
+            #[cfg(feature = "wgpu-profiler")]
+            let mut render_pass = self
+                .profiler
+                .scope("blit to surface", &mut render_pass, device);
             render_pass.set_pipeline(&blit.pipeline);
             render_pass.set_bind_group(0, &bind_group, &[]);
             render_pass.draw(0..6, 0..1);
@@ -423,13 +540,14 @@ impl Renderer {
         queue.submit(Some(encoder.finish()));
         self.target = Some(target);
         #[cfg(feature = "wgpu-profiler")]
-        self.profiler.end_frame().unwrap();
-        #[cfg(feature = "wgpu-profiler")]
-        if let Some(result) = self
-            .profiler
-            .process_finished_frame(queue.get_timestamp_period())
         {
-            self.profile_result = Some(result);
+            self.profiler.end_frame().unwrap();
+            if let Some(result) = self
+                .profiler
+                .process_finished_frame(queue.get_timestamp_period())
+            {
+                self.profile_result = Some(result);
+            }
         }
         Ok(bump)
     }
@@ -480,7 +598,7 @@ impl BlitPipeline {
         const SHADERS: &str = r#"
             @vertex
             fn vs_main(@builtin(vertex_index) ix: u32) -> @builtin(position) vec4<f32> {
-                // Generate a full screen quad in NDCs
+                // Generate a full screen quad in normalized device coordinates
                 var vertex = vec2(-1.0, 1.0);
                 switch ix {
                     case 1u: {

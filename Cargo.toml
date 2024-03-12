@@ -1,6 +1,5 @@
 [workspace]
 resolver = "2"
-
 members = [
     "crates/encoding",
     "crates/shaders",
@@ -13,26 +12,33 @@ members = [
     "examples/with_bevy",
     "examples/run_wasm",
     "examples/scenes",
+    "examples/simple",
 ]
 
 [workspace.package]
+# Vello version, also used by other packages which want to mimic Vello's version.
+# Right now those packages include vello_encoding and vello_shaders.
+#
+# NOTE: When bumping this, remember to also bump the aforementioned other packages'
+#       version in the dependencies section at the bottom of this file.
+#       Additionally, bump the Vello dependency version in the 'simple' example.
+version = "0.1.0"
+
 edition = "2021"
-version = "0.0.1"
-license = "MIT OR Apache-2.0"
+rust-version = "1.75"
+license = "Apache-2.0 OR MIT"
 repository = "https://github.com/linebender/vello"
 
 [package]
 name = "vello"
-description = "An experimental GPU compute-centric 2D renderer"
+version.workspace = true
+description = "An experimental GPU compute-centric 2D renderer."
 categories = ["rendering", "graphics"]
 keywords = ["2d", "vector-graphics"]
-
-# This crate is intended for publishing, but not ready yet
-publish = false
-
-version.workspace = true
-license.workspace = true
+exclude = ["/.github/", "/doc/", "/examples/", ".gitignore"]
 edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
 repository.workspace = true
 
 [features]
@@ -40,28 +46,39 @@ default = ["wgpu"]
 hot_reload = []
 buffer_labels = []
 
+[lints]
+workspace = true
+
 [dependencies]
+vello_encoding = { workspace = true }
 bytemuck = { workspace = true }
 skrifa = { workspace = true }
 peniko = { workspace = true }
 wgpu = { workspace = true, optional = true }
-raw-window-handle = "0.6"
-futures-intrusive = "0.5.0"
-vello_encoding = { path = "crates/encoding" }
+log = { workspace = true }
+raw-window-handle = { workspace = true }
+futures-intrusive = { workspace = true }
 wgpu-profiler = { workspace = true, optional = true }
 
+[workspace.lints]
+clippy.doc_markdown = "warn"
+clippy.semicolon_if_nothing_returned = "warn"
+
 [workspace.dependencies]
-bytemuck = { version = "1.12.1", features = ["derive"] }
-skrifa = "0.15.4"
+vello_encoding = { version = "0.1.0", path = "crates/encoding" }
+bytemuck = { version = "1.14.3", features = ["derive"] }
+skrifa = "0.16.0"
 peniko = "0.1.0"
+futures-intrusive = "0.5.0"
+raw-window-handle = "0.6.0"
 
 # NOTE: Make sure to keep this in sync with the version badge in README.md
-wgpu = { version = "0.19" }
-
+wgpu = { version = "0.19.3" }
+log = "0.4.20"
 
 # Used for examples
-clap = "4.1.0"
+clap = "4.5.1"
 anyhow = "1.0"
 instant = { version = "0.1.12", features = ["wasm-bindgen"] }
 pollster = "0.3.0"
-wgpu-profiler = "0.16"
+wgpu-profiler = "0.16.1"

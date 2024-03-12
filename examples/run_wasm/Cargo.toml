@@ -1,13 +1,12 @@
 [package]
 name = "run_wasm"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
 publish = false
 
-version.workspace = true
-license.workspace = true
-edition.workspace = true
-repository.workspace = true
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lints]
+workspace = true
 
 [dependencies]
 cargo-run-wasm = "0.3.2"

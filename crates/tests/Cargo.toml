@@ -1,19 +1,20 @@
 [package]
 name = "vello_tests"
+description = "Integration tests for Vello."
 edition.workspace = true
-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = false
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lints]
+workspace = true
 
 [dependencies]
 vello = { path = "../.." }
-image = "0.24.5"
+image = "0.24.9"
 anyhow = { workspace = true }
 
 wgpu = { workspace = true }
 pollster = { workspace = true }
-png = "0.17.7"
-futures-intrusive = "0.5.0"
+png = "0.17.13"
+futures-intrusive = { workspace = true }

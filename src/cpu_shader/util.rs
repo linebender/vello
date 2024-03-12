@@ -3,6 +3,7 @@
 
 //! Utility types
 
+use std::ops::Mul;
 use vello_encoding::ConfigUniform;
 
 #[derive(Clone, Copy, Default, Debug, PartialEq)]
@@ -93,6 +94,10 @@ impl Vec2 {
         self.dot(self)
     }
 
+    pub fn distance(self, other: Vec2) -> f32 {
+        (self - other).length()
+    }
+
     pub fn to_array(self) -> [f32; 2] {
         [self.x, self.y]
     }
@@ -143,6 +148,25 @@ impl Transform {
         Vec2 { x, y }
     }
 
+    pub fn inverse(&self) -> Transform {
+        let z = self.0;
+        let inv_det = (z[0] * z[3] - z[1] * z[2]).recip();
+        let inv_mat = [
+            z[3] * inv_det,
+            -z[1] * inv_det,
+            -z[2] * inv_det,
+            z[0] * inv_det,
+        ];
+        Self([
+            inv_mat[0],
+            inv_mat[1],
+            inv_mat[2],
+            inv_mat[3],
+            -(inv_mat[0] * z[4] + inv_mat[2] * z[5]),
+            -(inv_mat[1] * z[4] + inv_mat[3] * z[5]),
+        ])
+    }
+
     pub fn read(transform_base: u32, ix: u32, data: &[u32]) -> Transform {
         let mut z = [0.0; 6];
         let base = (transform_base + ix * 6) as usize;
@@ -150,6 +174,22 @@ impl Transform {
             z[i] = f32::from_bits(data[base + i]);
         }
         Transform(z)
+    }
+}
+
+impl Mul for Transform {
+    type Output = Self;
+
+    #[inline]
+    fn mul(self, other: Self) -> Self {
+        Self([
+            self.0[0] * other.0[0] + self.0[2] * other.0[1],
+            self.0[1] * other.0[0] + self.0[3] * other.0[1],
+            self.0[0] * other.0[2] + self.0[2] * other.0[3],
+            self.0[1] * other.0[2] + self.0[3] * other.0[3],
+            self.0[0] * other.0[4] + self.0[2] * other.0[5] + self.0[4],
+            self.0[1] * other.0[4] + self.0[3] * other.0[5] + self.0[5],
+        ])
     }
 }
 

@@ -1,12 +1,13 @@
 // Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use std::{
-    collections::{HashMap, HashSet},
-    fs,
-    path::Path,
-    vec,
-};
+// TODO (#467) - Remove this file and use vello_shaders crate instead,
+// then update ARCHITECTURE.md.
+
+use std::{collections::HashMap, fs, path::Path};
+
+#[cfg(feature = "wgpu")]
+use std::{collections::HashSet, vec};
 
 #[allow(unused)]
 pub fn get_imports(shader_dir: &Path) -> HashMap<String, String> {
@@ -32,11 +33,13 @@ pub fn get_imports(shader_dir: &Path) -> HashMap<String, String> {
     imports
 }
 
+#[cfg(feature = "wgpu")]
 pub struct StackItem {
     active: bool,
     else_passed: bool,
 }
 
+#[cfg(feature = "wgpu")]
 pub fn preprocess(input: &str, defines: &HashSet<String>, imports: &HashMap<&str, &str>) -> String {
     let mut output = String::with_capacity(input.len());
     let mut stack = vec![];

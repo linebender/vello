@@ -4,10 +4,14 @@
 //! Take an encoded scene and create a graph to render it
 
 use crate::{
-    engine::{BufProxy, ImageFormat, ImageProxy, Recording, ResourceProxy},
+    recording::{BufferProxy, ImageFormat, ImageProxy, Recording, ResourceProxy},
     shaders::FullShaders,
-    AaConfig, RenderParams, Scene,
+    AaConfig, RenderParams,
 };
+
+#[cfg(feature = "wgpu")]
+use crate::Scene;
+
 use vello_encoding::{make_mask_lut, make_mask_lut_16, Encoding, WorkgroupSize};
 
 /// State for a render in progress.
@@ -33,6 +37,7 @@ struct FineResources {
     out_image: ImageProxy,
 }
 
+#[cfg(feature = "wgpu")]
 pub fn render_full(
     scene: &Scene,
     shaders: &FullShaders,
@@ -41,6 +46,7 @@ pub fn render_full(
     render_encoding_full(scene.encoding(), shaders, params)
 }
 
+#[cfg(feature = "wgpu")]
 /// Create a single recording with both coarse and fine render stages.
 ///
 /// This function is not recommended when the scene can be complex, as it does not
@@ -121,8 +127,8 @@ impl Render {
         let buffer_sizes = &cpu_config.buffer_sizes;
         let wg_counts = &cpu_config.workgroup_counts;
 
-        let scene_buf = ResourceProxy::Buf(recording.upload("scene", packed));
-        let config_buf = ResourceProxy::Buf(
+        let scene_buf = ResourceProxy::Buffer(recording.upload("scene", packed));
+        let config_buf = ResourceProxy::Buffer(
             recording.upload_uniform("config", bytemuck::bytes_of(&cpu_config.gpu)),
         );
         let info_bin_data_buf = ResourceProxy::new_buf(
@@ -198,9 +204,9 @@ impl Render {
             wg_counts.bbox_clear,
             [config_buf, path_bbox_buf],
         );
-        let bump_buf = BufProxy::new(buffer_sizes.bump_alloc.size_in_bytes().into(), "bump_buf");
+        let bump_buf = BufferProxy::new(buffer_sizes.bump_alloc.size_in_bytes().into(), "bump_buf");
         recording.clear_all(bump_buf);
-        let bump_buf = ResourceProxy::Buf(bump_buf);
+        let bump_buf = ResourceProxy::Buffer(bump_buf);
         let lines_buf =
             ResourceProxy::new_buf(buffer_sizes.lines.size_in_bytes().into(), "lines_buf");
         recording.dispatch(
@@ -324,7 +330,7 @@ impl Render {
         );
         recording.free_resource(draw_bbox_buf);
         recording.free_resource(tagmonoid_buf);
-        let indirect_count_buf = BufProxy::new(
+        let indirect_count_buf = BufferProxy::new(
             buffer_sizes.indirect_count.size_in_bytes().into(),
             "indirect_count",
         );
@@ -381,7 +387,7 @@ impl Render {
                 segments_buf,
             ],
         );
-        recording.free_buf(indirect_count_buf);
+        recording.free_buffer(indirect_count_buf);
         recording.free_resource(seg_counts_buf);
         recording.free_resource(lines_buf);
         recording.free_resource(scene_buf);
@@ -487,7 +493,7 @@ impl Render {
         self.fine_resources.as_ref().unwrap().out_image
     }
 
-    pub fn bump_buf(&self) -> BufProxy {
+    pub fn bump_buf(&self) -> BufferProxy {
         *self
             .fine_resources
             .as_ref()

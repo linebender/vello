@@ -1,1 +1,1 @@
-doc-valid-idents = ["WebGPU", ".."]
+doc-valid-idents = ["MotionMark", "WebGPU", "PostScript", ".."]
