@@ -1,4 +1,4 @@
-// Copyright 2023 The Vello Authors
+// Copyright 2023 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
 
 //! Utility functions for Euler Spiral based stroke expansion.
