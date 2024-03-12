@@ -258,60 +258,6 @@ fn espc_int_inv_approx(x: f32) -> f32 {
     return a * sign(x);
 }
 
-// Notes on fractional subdivision:
-// --------------------------------
-// The core of the existing flattening algorithm (see `flatten_cubic` below) is to approximate the
-// original cubic Bézier into a simpler curve (quadratic Bézier), subdivided to meet the error
-// bound, then apply flattening to that. Doing this the simplest way would put a subdivision point
-// in the output at each subdivision point here. That in general does not match where the
-// subdivision points would go in an optimal flattening. Fractional subdivision addresses that
-// problem.
-//
-// The return value of this function (`val`) represents this fractional subdivision count and has
-// the following meaning: an optimal subdivision of the quadratic into `val / 2` subdivisions
-// will have an error `sqrt_tol^2` (i.e. the desired tolerance).
-//
-// In the non-cusp case, the error scales as the inverse square of `val` (doubling `val` causes the
-// error to be one fourth), so the tolerance is actually not needed for the calculation (and gets
-// applied in the caller). In the cusp case, this scaling breaks down and the tolerance parameter
-// is needed to compute the correct result.
-fn estimate_subdiv(p0: vec2f, p1: vec2f, p2: vec2f, sqrt_tol: f32) -> SubdivResult {
-    let d01 = p1 - p0;
-    let d12 = p2 - p1;
-    let dd = d01 - d12;
-    let cross = (p2.x - p0.x) * dd.y - (p2.y - p0.y) * dd.x;
-    let cross_inv = select(1.0 / cross, 1.0e9, abs(cross) < 1.0e-9);
-    let x0 = dot(d01, dd) * cross_inv;
-    let x2 = dot(d12, dd) * cross_inv;
-    let scale = abs(cross / (length(dd) * (x2 - x0)));
-
-    let a0 = approx_parabola_integral(x0);
-    let a2 = approx_parabola_integral(x2);
-    var val = 0.0;
-    if scale < 1e9 {
-        let da = abs(a2 - a0);
-        let sqrt_scale = sqrt(scale);
-        if sign(x0) == sign(x2) {
-            val = sqrt_scale;
-        } else {
-            let xmin = sqrt_tol / sqrt_scale;
-            val = sqrt_tol / approx_parabola_integral(xmin);
-        }
-        val *= da;
-    }
-    return SubdivResult(val, a0, a2);
-}
-
-fn eval_quad(p0: vec2f, p1: vec2f, p2: vec2f, t: f32) -> vec2f {
-    let mt = 1.0 - t;
-    return p0 * (mt * mt) + (p1 * (mt * 2.0) + p2 * t) * t;
-}
-
-fn eval_cubic(p0: vec2f, p1: vec2f, p2: vec2f, p3: vec2f, t: f32) -> vec2f {
-    let mt = 1.0 - t;
-    return p0 * (mt * mt * mt) + (p1 * (mt * mt * 3.0) + (p2 * (mt * 3.0) + p3 * t) * t) * t;
-}
-
 struct PointDeriv {
     point: vec2f,
     deriv: vec2f,
@@ -325,17 +271,6 @@ fn eval_cubic_and_deriv(p0: vec2f, p1: vec2f, p2: vec2f, p3: vec2f, t: f32) -> P
     let p = p0 * (mm * m) + (p1 * (3.0 * mm) + p2 * (3.0 * mt) + p3 * tt) * t;
     let q = (p1 - p0) * mm + (p2 - p1) * (2.0 * mt) + (p3 - p2) * tt;
     return PointDeriv(p, q);
-}
-
-fn eval_quad_tangent(p0: vec2f, p1: vec2f, p2: vec2f, t: f32) -> vec2f {
-    let dp0 = 2. * (p1 - p0);
-    let dp1 = 2. * (p2 - p1);
-    return mix(dp0, dp1, t);
-}
-
-fn eval_quad_normal(p0: vec2f, p1: vec2f, p2: vec2f, t: f32) -> vec2f {
-    let tangent = normalize(eval_quad_tangent(p0, p1, p2, t));
-    return vec2(-tangent.y, tangent.x);
 }
 
 fn cubic_start_tangent(p0: vec2f, p1: vec2f, p2: vec2f, p3: vec2f) -> vec2f {
@@ -378,6 +313,8 @@ const SUBDIV_LIMIT: f32 = 1.0 / 65536.0;
 const K1_THRESH: f32 = 1e-3;
 // Robust ESPC: below this value, evaluate ES rather than parallel curve
 const DIST_THRESH: f32 = 1e-3;
+// Threshold for tangents to be considered near zero length
+const TANGENT_THRESH: f32 = 1e-6;
 
 // This function flattens a cubic Bézier by first converting it into Euler spiral
 // segments, and then computes a near-optimal flattening of the parallel curves of
@@ -532,143 +469,6 @@ fn flatten_euler(
             t0_u = t0_u * 2u;
             dt *= 0.5;
         }
-    }
-}
-
-let MAX_QUADS = 16u;
-
-// This function flattens a cubic Bézier by first converting it into quadratics and
-// approximates the optimal flattening of those using a variation of the method described in
-// https://raphlinus.github.io/graphics/curves/2019/12/23/flatten-quadbez.html.
-//
-// When the `offset` parameter is zero (i.e. the path is a "fill"), the flattening is performed
-// directly on the transformed (device-space) control points as this produces near-optimal
-// flattening even in the presence of a non-angle-preserving transform.
-//
-// When the `offset` is non-zero, the flattening is performed in the curve's local coordinate space
-// and the offset curve gets transformed to device-space post-flattening. This handles
-// non-angle-preserving transforms well while keeping the logic simple.
-//
-// When subdividing the cubic in its local coordinate space, the scale factor gets decomposed out of
-// the local-to-device transform and gets factored into the tolerance threshold when estimating
-// subdivisions.
-fn flatten_cubic(cubic: CubicPoints, path_ix: u32, local_to_device: Transform, offset: f32) {
-    var p0: vec2f;
-    var p1: vec2f;
-    var p2: vec2f;
-    var p3: vec2f;
-    var scale: f32;
-    var transform: Transform;
-    if offset == 0. {
-        let t = local_to_device;
-        p0 = transform_apply(t, cubic.p0);
-        p1 = transform_apply(t, cubic.p1);
-        p2 = transform_apply(t, cubic.p2);
-        p3 = transform_apply(t, cubic.p3);
-        scale = 1.;
-        transform = transform_identity();
-    } else {
-        p0 = cubic.p0;
-        p1 = cubic.p1;
-        p2 = cubic.p2;
-        p3 = cubic.p3;
-
-        transform = local_to_device;
-        let mat = transform.mat;
-        scale = 0.5 * length(vec2(mat.x + mat.w, mat.y - mat.z)) +
-                length(vec2(mat.x - mat.w, mat.y + mat.z));
-    }
-
-    let err_v = 3.0 * (p2 - p1) + p0 - p3;
-    let err = dot(err_v, err_v);
-    let ACCURACY = 0.25;
-    let Q_ACCURACY = ACCURACY * 0.1;
-    let REM_ACCURACY = ACCURACY - Q_ACCURACY;
-    let MAX_HYPOT2 = 432.0 * Q_ACCURACY * Q_ACCURACY;
-    let scaled_sqrt_tol = sqrt(REM_ACCURACY / scale);
-    // Fudge the subdivision count metric to account for `scale` when the subdivision is done in local
-    // coordinates.
-    var n_quads = max(u32(ceil(pow(err * (1.0 / MAX_HYPOT2), 1.0 / 6.0)) * scale), 1u);
-    n_quads = min(n_quads, MAX_QUADS);
-
-    var keep_params: array<SubdivResult, MAX_QUADS>;
-    var val = 0.0;
-    var qp0 = p0;
-    let step = 1.0 / f32(n_quads);
-    for (var i = 0u; i < n_quads; i += 1u) {
-        let t = f32(i + 1u) * step;
-        let qp2 = eval_cubic(p0, p1, p2, p3, t);
-        var qp1 = eval_cubic(p0, p1, p2, p3, t - 0.5 * step);
-        qp1 = 2.0 * qp1 - 0.5 * (qp0 + qp2);
-
-        // TODO: Estimate an accurate subdivision count for strokes
-        let params = estimate_subdiv(qp0, qp1, qp2, scaled_sqrt_tol);
-        keep_params[i] = params;
-        val += params.val;
-        qp0 = qp2;
-    }
-
-    // Normal vector to calculate the start point of the offset curve.
-    var n0 = offset * cubic_start_normal(p0, p1, p2, p3);
-
-    let n = max(u32(ceil(val * (0.5 / scaled_sqrt_tol))), 1u);
-    var lp0 = p0;
-    qp0 = p0;
-    let v_step = val / f32(n);
-    var n_out = 1u;
-    var val_sum = 0.0;
-    for (var i = 0u; i < n_quads; i += 1u) {
-        let t = f32(i + 1u) * step;
-        let qp2 = eval_cubic(p0, p1, p2, p3, t);
-        var qp1 = eval_cubic(p0, p1, p2, p3, t - 0.5 * step);
-        qp1 = 2.0 * qp1 - 0.5 * (qp0 + qp2);
-        let params = keep_params[i];
-        let u0 = approx_parabola_inv_integral(params.a0);
-        let u2 = approx_parabola_inv_integral(params.a2);
-        let uscale = 1.0 / (u2 - u0);
-        var val_target = f32(n_out) * v_step;
-        while n_out == n || val_target < val_sum + params.val {
-            var lp1: vec2f;
-            var t1: f32;
-            if n_out == n {
-                lp1 = p3;
-                t1 = 1.;
-            } else {
-                let u = (val_target - val_sum) / params.val;
-                let a = mix(params.a0, params.a2, u);
-                let au = approx_parabola_inv_integral(a);
-                let t = (au - u0) * uscale;
-                t1 = t;
-                lp1 = eval_quad(qp0, qp1, qp2, t);
-            }
-
-            // TODO: Instead of outputting two offset segments here, restructure this function as
-            // "flatten_cubic_at_offset" such that it outputs one cubic at an offset. That should
-            // more closely resemble the end state of this shader which will work like a state
-            // machine.
-            if offset > 0. {
-                var n1: vec2f;
-                if all(lp1 == p3) {
-                    n1 = cubic_end_normal(p0, p1, p2, p3);
-                } else {
-                    n1 = eval_quad_normal(qp0, qp1, qp2, t1);
-                }
-                n1 *= offset;
-                output_two_lines_with_transform(path_ix,
-                                                lp0 + n0, lp1 + n1,
-                                                lp1 - n1, lp0 - n0,
-                                                transform);
-                n0 = n1;
-            } else {
-                // Output line segment lp0..lp1
-                output_line_with_transform(path_ix, lp0, lp1, transform);
-            }
-            n_out += 1u;
-            val_target += v_step;
-            lp0 = lp1;
-        }
-        val_sum += params.val;
-        qp0 = qp2;
     }
 }
 
@@ -1049,10 +849,18 @@ fn main(
             } else {
                 // Read the neighboring segment.
                 let neighbor = read_neighboring_segment(ix + 1u);
-                let tan_prev = cubic_end_tangent(pts.p0, pts.p1, pts.p2, pts.p3);
-                let tan_next = neighbor.tangent;
-                let tan_start = cubic_start_tangent(pts.p0, pts.p1, pts.p2, pts.p3);
-                // TODO: probably have special casing of zero tangents here
+                var tan_start = cubic_start_tangent(pts.p0, pts.p1, pts.p2, pts.p3);
+                if dot(tan_start, tan_start) < TANGENT_THRESH * TANGENT_THRESH {
+                    tan_start = vec2(TANGENT_THRESH, 0.);
+                }
+                var tan_prev = cubic_end_tangent(pts.p0, pts.p1, pts.p2, pts.p3);
+                if dot(tan_prev, tan_prev) < TANGENT_THRESH * TANGENT_THRESH {
+                    tan_prev = vec2(TANGENT_THRESH, 0.);
+                }
+                var tan_next = neighbor.tangent;
+                if dot(tan_next, tan_next) < TANGENT_THRESH * TANGENT_THRESH {
+                    tan_next = vec2(TANGENT_THRESH, 0.);
+                }
                 let n_start = offset * normalize(vec2(-tan_start.y, tan_start.x));
                 let offset_tangent = offset * normalize(tan_prev);
                 let n_prev = offset_tangent.yx * vec2f(-1., 1.);
