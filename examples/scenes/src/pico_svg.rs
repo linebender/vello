@@ -247,24 +247,17 @@ fn parse_transform(transform: &str) -> Affine {
 
 fn parse_color(color: &str) -> Color {
     let color = color.trim();
-    if let Some(s) = color.strip_prefix('#') {
-        let mut hex = u32::from_str_radix(s, 16).unwrap();
-        if color.len() == 4 {
-            hex = (hex >> 8) * 0x110000 + ((hex >> 4) & 0xf) * 0x1100 + (hex & 0xf) * 0x11;
-        }
-        let rgba = (hex << 8) + 0xff;
-        let (r, g, b, a) = (
-            (rgba >> 24 & 255) as u8,
-            ((rgba >> 16) & 255) as u8,
-            ((rgba >> 8) & 255) as u8,
-            (rgba & 255) as u8,
-        );
-        Color::rgba8(r, g, b, a)
+    if let Some(c) = Color::parse(color) {
+        c
     } else if let Some(s) = color.strip_prefix("rgb(").and_then(|s| s.strip_suffix(')')) {
-        let mut iter = s.split(',');
-        let r = u8::from_str(iter.next().unwrap()).unwrap();
-        let g = u8::from_str(iter.next().unwrap()).unwrap();
-        let b = u8::from_str(iter.next().unwrap()).unwrap();
+        let mut iter = s
+            .split(|c| matches!(c, ',' | ' '))
+            .map(str::trim)
+            .map(u8::from_str);
+
+        let r = iter.next().unwrap().unwrap();
+        let g = iter.next().unwrap().unwrap();
+        let b = iter.next().unwrap().unwrap();
         Color::rgb8(r, g, b)
     } else {
         Color::rgba8(255, 0, 255, 0x80)
