@@ -8,8 +8,8 @@ use anyhow::{Ok, Result};
 use instant::Instant;
 
 use vello::{
-    kurbo::{Affine, Stroke, Vec2},
-    peniko::Fill,
+    kurbo::{Affine, Rect, Stroke, Vec2},
+    peniko::{Color, Fill},
     Scene,
 };
 
@@ -128,8 +128,16 @@ pub fn svg_function_of<R: AsRef<str>>(
                 (new_scene, size.to_vec2())
             }
             std::result::Result::Err(e) => {
-                eprintln!("{:?}", e);
-                (Scene::new(), Vec2::ZERO)
+                eprintln!("Failed to load svg, with Err({e:?})");
+                let mut error_scene = Scene::new();
+                error_scene.fill(
+                    Fill::NonZero,
+                    Affine::IDENTITY,
+                    Color::FUCHSIA,
+                    None,
+                    &Rect::new(0.0, 0.0, 1.0, 1.0),
+                );
+                (error_scene, Vec2::new(1.0, 1.0))
             }
         }
     }
