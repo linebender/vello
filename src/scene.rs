@@ -136,7 +136,7 @@ impl Scene {
         const SHAPE_TOLERANCE: f64 = 0.01;
         const STROKE_TOLERANCE: f64 = SHAPE_TOLERANCE;
 
-        const GPU_STROKES: bool = false; // Set this to `true` to enable GPU-side stroking
+        const GPU_STROKES: bool = true; // Set this to `true` to enable GPU-side stroking
         if GPU_STROKES {
             let t = Transform::from_kurbo(&transform);
             self.encoding.encode_transform(t);
