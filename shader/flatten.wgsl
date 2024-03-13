@@ -305,6 +305,7 @@ const ESPC_ROBUST_LOW_DIST = 2;
 
 // Threshold below which a derivative is considered too small.
 const DERIV_THRESH: f32 = 1e-6;
+const DERIV_THRESH_SQUARED: f32 = DERIV_THRESH * DERIV_THRESH;
 // Amount to nudge t when derivative is near-zero.
 const DERIV_EPS: f32 = 1e-6;
 // Limit for subdivision of cubic Béziers.
@@ -357,19 +358,18 @@ fn flatten_euler(
                 length(vec2(mat.x - mat.w, mat.y + mat.z));
     }
 
-    // Drop zero length lines.
+    // Drop zero length lines. This is an exact equality test because dropping very short
+    // line segments may result in loss of watertightness.
     if all(p0 == p1) && all(p0 == p2) && all(p0 == p3) {
         return;
     }
-    //output_line_with_transform(path_ix, t_start, t_end, transform);
-    //if true { return; }
 
     let tol = 0.25;
     var t0_u = 0u;
     var dt = 1.0;
     var last_p = p0;
     var last_q = p1 - p0;
-    if dot(last_q, last_q) < DERIV_THRESH * DERIV_THRESH {
+    if dot(last_q, last_q) < DERIV_THRESH_SQUARED {
         last_q = eval_cubic_and_deriv(p0, p1, p2, p3, DERIV_EPS).deriv;
     }
     var last_t = 0.0;
@@ -384,7 +384,7 @@ fn flatten_euler(
             let this_p0 = last_p;
             let this_q0 = last_q;
             var this_pq1 = eval_cubic_and_deriv(p0, p1, p2, p3, t1);
-            if dot(this_pq1.deriv, this_pq1.deriv) < DERIV_THRESH * DERIV_THRESH {
+            if dot(this_pq1.deriv, this_pq1.deriv) < DERIV_THRESH_SQUARED {
                 let new_pq1 = eval_cubic_and_deriv(p0, p1, p2, p3, t1 - DERIV_EPS);
                 this_pq1.deriv = new_pq1.deriv;
                 if t1 < 1.0 {
@@ -393,78 +393,85 @@ fn flatten_euler(
                 }
             }
             let actual_dt = t1 - last_t;
-            let cubic_params = cubic_from_points_derivs(this_p0, this_pq1.point, this_q0, this_pq1.deriv, actual_dt);
-            let est_err = est_euler_err(cubic_params);
             let chord_len = length(this_pq1.point - this_p0);
-            let err = est_err * chord_len;
-            if err * scale <= tol || dt <= SUBDIV_LIMIT {
-                t0_u += 1u;
-                let shift = countTrailingZeros(t0_u);
-                t0_u >>= shift;
-                dt *= f32(1u << shift);
-                let euler_params = es_params_from_angles(cubic_params.th0, cubic_params.th1);
-                let es = es_seg_from_params(this_p0, this_pq1.point, euler_params);
-                let k0 = es.params.k0 - 0.5 * es.params.k1;
-                let k1 = es.params.k1;
-                let dist_scaled = offset * es.params.ch / chord_len;
-                let scale_multiplier = sqrt(0.125 * scale * chord_len / (es.params.ch * tol));
-                var a = 0.0;
-                var b = 0.0;
-                var integral = 0.0;
-                var int0 = 0.0;
-                var n_frac: f32;
-                var robust = ESPC_ROBUST_NORMAL;
-                if abs(k1) < K1_THRESH {
-                    let k = es.params.k0;
-                    n_frac = sqrt(abs(k * (k * dist_scaled + 1.0)));
-                    robust = ESPC_ROBUST_LOW_K1;
-                } else if abs(dist_scaled) < DIST_THRESH {
-                    a = k1;
-                    b = k0;
-                    int0 = pow_1_5_signed(b);
-                    let int1 = pow_1_5_signed(a + b);
-                    integral = int1 - int0;
-                    n_frac = (2. / 3.) * integral / a;
-                    robust = ESPC_ROBUST_LOW_DIST;
-                } else {
-                    a = -2.0 * dist_scaled * k1;
-                    b = -1.0 - 2.0 * dist_scaled * k0;
-                    int0 = espc_int_approx(b);
-                    let int1 = espc_int_approx(a + b);
-                    integral = int1 - int0;
-                    let k_peak = k0 - k1 * b / a;
-                    let integrand_peak = sqrt(abs(k_peak * (k_peak * dist_scaled + 1.0)));
-                    n_frac = integral * integrand_peak / a;
-                }
-                let n = max(ceil(n_frac * scale_multiplier), 1.0);
-                for (var i = 0u; i < u32(n); i++) {
-                    var lp1: vec2f;
-                    if i + 1u == u32(n) && t1 == 1.0 {
-                        lp1 = t_end;
+            // Subdivide the loop case when the chord is short, but don't subdivide when it is
+            // simply a very short segment.
+            if chord_len >= TANGENT_THRESH
+                || (dot(this_q0, this_q0) * actual_dt * actual_dt < DERIV_THRESH_SQUARED
+                    && dot(this_pq1.deriv, this_pq1.deriv) * actual_dt * actual_dt < DERIV_THRESH_SQUARED)
+            {
+                let cubic_params = cubic_from_points_derivs(this_p0, this_pq1.point, this_q0, this_pq1.deriv, actual_dt);
+                let est_err = est_euler_err(cubic_params);
+                let err = est_err * chord_len;
+                if err * scale <= tol || dt <= SUBDIV_LIMIT {
+                    t0_u += 1u;
+                    let shift = countTrailingZeros(t0_u);
+                    t0_u >>= shift;
+                    dt *= f32(1u << shift);
+                    let euler_params = es_params_from_angles(cubic_params.th0, cubic_params.th1);
+                    let es = es_seg_from_params(this_p0, this_pq1.point, euler_params);
+                    let k0 = es.params.k0 - 0.5 * es.params.k1;
+                    let k1 = es.params.k1;
+                    let dist_scaled = offset * es.params.ch / chord_len;
+                    let scale_multiplier = sqrt(0.125 * scale * chord_len / (es.params.ch * tol));
+                    var a = 0.0;
+                    var b = 0.0;
+                    var integral = 0.0;
+                    var int0 = 0.0;
+                    var n_frac: f32;
+                    var robust = ESPC_ROBUST_NORMAL;
+                    if abs(k1) < K1_THRESH {
+                        let k = es.params.k0;
+                        n_frac = sqrt(abs(k * (k * dist_scaled + 1.0)));
+                        robust = ESPC_ROBUST_LOW_K1;
+                    } else if abs(dist_scaled) < DIST_THRESH {
+                        a = k1;
+                        b = k0;
+                        int0 = pow_1_5_signed(b);
+                        let int1 = pow_1_5_signed(a + b);
+                        integral = int1 - int0;
+                        n_frac = (2. / 3.) * integral / a;
+                        robust = ESPC_ROBUST_LOW_DIST;
                     } else {
-                        let t = f32(i + 1u) / n;
-                        var s = t;
-                        if robust != ESPC_ROBUST_LOW_K1 {
-                            let u = integral * t + int0;
-                            var inv: f32;
-                            if robust == ESPC_ROBUST_LOW_DIST {
-                                inv = pow(abs(u), 2. / 3.) * sign(u);
-                            } else {
-                                inv = espc_int_inv_approx(u);
-                            }
-                            s = (inv - b) / a;
-                        }
-                        lp1 = es_seg_eval_with_offset(es, s, offset);
+                        a = -2.0 * dist_scaled * k1;
+                        b = -1.0 - 2.0 * dist_scaled * k0;
+                        int0 = espc_int_approx(b);
+                        let int1 = espc_int_approx(a + b);
+                        integral = int1 - int0;
+                        let k_peak = k0 - k1 * b / a;
+                        let integrand_peak = sqrt(abs(k_peak * (k_peak * dist_scaled + 1.0)));
+                        n_frac = integral * integrand_peak / a;
                     }
-                    let l0 = select(lp1, lp0, offset >= 0.);
-                    let l1 = select(lp0, lp1, offset >= 0.);
-                    output_line_with_transform(path_ix, l0, l1, transform);
-                    lp0 = lp1;
+                    let n = max(ceil(n_frac * scale_multiplier), 1.0);
+                    for (var i = 0u; i < u32(n); i++) {
+                        var lp1: vec2f;
+                        if i + 1u == u32(n) && t1 == 1.0 {
+                            lp1 = t_end;
+                        } else {
+                            let t = f32(i + 1u) / n;
+                            var s = t;
+                            if robust != ESPC_ROBUST_LOW_K1 {
+                                let u = integral * t + int0;
+                                var inv: f32;
+                                if robust == ESPC_ROBUST_LOW_DIST {
+                                    inv = pow(abs(u), 2. / 3.) * sign(u);
+                                } else {
+                                    inv = espc_int_inv_approx(u);
+                                }
+                                s = (inv - b) / a;
+                            }
+                            lp1 = es_seg_eval_with_offset(es, s, offset);
+                        }
+                        let l0 = select(lp1, lp0, offset >= 0.);
+                        let l1 = select(lp0, lp1, offset >= 0.);
+                        output_line_with_transform(path_ix, l0, l1, transform);
+                        lp0 = lp1;
+                    }
+                    last_p = this_pq1.point;
+                    last_q = this_pq1.deriv;
+                    last_t = t1;
+                    break;
                 }
-                last_p = this_pq1.point;
-                last_q = this_pq1.deriv;
-                last_t = t1;
-                break;
             }
             t0_u = t0_u * 2u;
             dt *= 0.5;

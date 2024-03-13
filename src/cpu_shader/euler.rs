@@ -9,11 +9,24 @@
 use super::util::Vec2;
 use std::f32::consts::FRAC_PI_4;
 
+/// This struct contains parameters derived from a cubic Bézier for the
+/// purpose of fitting a G1 continuous Euler spiral segment and estimating
+/// the Fréchet distance.
+///
+/// The tangent angles represent deviation from the chord, so that when they
+/// are equal, the corresponding Euler spiral is a circular arc.
+///
+/// Similar, the control point distances are normalized to a chord, so that
+/// for small angles values near 1/3 represent a smooth curve.
 #[derive(Debug)]
 pub struct CubicParams {
+    /// Tangent angle relative to chord at start.
     pub th0: f32,
+    /// Tangent angle relative to chord at end.
     pub th1: f32,
+    /// Distance of first control point.
     pub d0: f32,
+    /// Distance of second control point.
     pub d1: f32,
 }
 
@@ -35,11 +48,14 @@ pub struct EulerSeg {
 
 impl CubicParams {
     /// Compute parameters from endpoints and derivatives.
+    ///
+    /// Robustness note: this function must be protected from being called when the
+    /// chord is near zero.
     pub fn from_points_derivs(p0: Vec2, p1: Vec2, q0: Vec2, q1: Vec2, dt: f32) -> Self {
         let chord = p1 - p0;
-        // Robustness note: we must protect this function from being called when the
-        // chord length is (near-)zero.
-        let scale = dt / chord.length_squared();
+        let length_squared = chord.length_squared();
+        assert_ne!(length_squared, 0.0);
+        let scale = dt / length_squared;
         let h0 = Vec2::new(
             q0.x * chord.x + q0.y * chord.y,
             q0.y * chord.x - q0.x * chord.y,
@@ -193,8 +209,18 @@ impl EulerSeg {
 
 /// Integrate Euler spiral.
 ///
-/// TODO: investigate needed accuracy. We might be able to get away
-/// with 8th order.
+/// This is a 10th order polynomial. The evaluation method is explained in
+/// Raph's thesis in section 8.1.2.
+///
+/// This choice of polynomial is fairly conservative, as it will produce
+/// very good accuracy for angles up to about 1 radian, and those angles
+/// should almost never happen (the exception being cusps). One possibility
+/// to explore is using a lower degree polynomial here, but changing the
+/// tuning parameters for subdivision so the additional error here is also
+/// factored into the error threshold. However, two cautions against that:
+/// First, it doesn't really address the cusp case, where angles will remain
+/// large even after further subdivision, and second, the cost of even this
+/// more conservative choice is modest; it's just some multiply-adds.
 fn integ_euler_10(k0: f32, k1: f32) -> (f32, f32) {
     let t1_1 = k0;
     let t1_2 = 0.5 * k1;

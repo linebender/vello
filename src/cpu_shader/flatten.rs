@@ -160,22 +160,18 @@ fn flatten_arc(
     lines: &mut [LineSoup],
     bbox: &mut IntBbox,
 ) {
+    const MIN_THETA: f32 = 0.0001;
+
     let mut p0 = transform.apply(begin);
     let mut r = begin - center;
-    let tol: f32 = 0.5;
+    let tol: f32 = 0.1;
     let radius = tol.max((p0 - transform.apply(center)).length());
-    let x = 1. - tol / radius;
-    let theta = (2. * x * x - 1.).clamp(-1., 1.).acos();
-    const MAX_LINES: u32 = 1000;
-    let n_lines = if theta <= ROBUST_EPSILON {
-        MAX_LINES
-    } else {
-        MAX_LINES.min((std::f32::consts::TAU / theta).ceil() as u32)
-    };
+    let theta = (2. * (1. - tol / radius).acos()).max(MIN_THETA);
 
-    let th = angle / (n_lines as f32);
-    let c = th.cos();
-    let s = th.sin();
+    // Always output at least one line so that we always draw the chord.
+    let n_lines = ((angle / theta).ceil() as u32).max(1);
+
+    let (s, c) = theta.sin_cos();
     let rot = Transform([c, -s, s, c, 0., 0.]);
 
     for _ in 0..(n_lines - 1) {
@@ -209,7 +205,6 @@ fn flatten_euler(
     lines: &mut [LineSoup],
     bbox: &mut IntBbox,
 ) {
-    log!("@@@ flatten_euler: {:#?}", cubic);
     // Flatten in local coordinates if this is a stroke. Flatten in device space otherwise.
     let (p0, p1, p2, p3, scale, transform) = if offset == 0. {
         (
@@ -239,40 +234,20 @@ fn flatten_euler(
         (start_p, end_p)
     };
 
-    // Drop zero length lines.
-    // TODO: in some stroke cases we should keep these. Should it be handled while
-    // encoding or here?
+    // Drop zero length lines. This is an exact equality test because dropping very short
+    // line segments may result in loss of watertightness. The parallel curves of zero
+    // length lines add nothing to stroke outlines, but we still may need to draw caps.
     if p0 == p1 && p0 == p2 && p0 == p3 {
         return;
     }
-
-    /*
-    // Special-case lines.
-    // We still have to handle colinear cubic parameters. We are special casing the line-to
-    // encoding because floating point errors in the degree raise can cause some line-tos to slip
-    // through the epsilon threshold in check_colinear.
-    //if check_colinear(p0, p1, p3) && check_colinear(p0, p2, p3) {
-    if is_line {
-        let tan = p3 - p0;
-        if tan.length() > ROBUST_EPSILON {
-            let lp0 = t_start;
-            let lp1 = t_end;
-            let l0 = if offset >= 0. { lp0 } else { lp1 };
-            let l1 = if offset >= 0. { lp1 } else { lp0 };
-            log!("@@@ output line: {:?}, {:?}, tan: {:?}", l0, l1, tan);
-            output_line_with_transform(path_ix, l0, l1, &transform, line_ix, lines, bbox);
-        } else {
-            log!("@@@ drop line: {:?}, {:?}, tan: {:?}", p0, p3, tan);
-        }
-        return;
-    }
-    */
 
     let tol: f32 = 0.25;
     let mut t0_u: u32 = 0;
     let mut dt: f32 = 1.;
     let mut last_p = p0;
     let mut last_q = p1 - p0;
+    // We want to avoid near zero derivatives, so the general technique is to
+    // detect, then sample a nearby t value if it fails to meet the threshold.
     if last_q.length_squared() < DERIV_THRESH.powi(2) {
         last_q = eval_cubic_and_deriv(p0, p1, p2, p3, DERIV_EPS).1;
     }
@@ -293,109 +268,118 @@ fn flatten_euler(
             if this_q1.length_squared() < DERIV_THRESH.powi(2) {
                 let (new_p1, new_q1) = eval_cubic_and_deriv(p0, p1, p2, p3, t1 - DERIV_EPS);
                 this_q1 = new_q1;
+                // Change just the derivative at the endpoint, but also move the point so it
+                // matches the derivative exactly if in the interior.
                 if t1 < 1. {
                     this_p1 = new_p1;
                     t1 -= DERIV_EPS;
                 }
             }
             let actual_dt = t1 - last_t;
-            let cubic_params =
-                CubicParams::from_points_derivs(this_p0, this_p1, this_q0, this_q1, actual_dt);
-            let est_err = cubic_params.est_euler_err();
             let chord_len = (this_p1 - this_p0).length();
-            let err = est_err * chord_len;
-            log!("@@@   loop2: sub:{:?}, {:?} t0: {t0}, t1: {t1}, dt: {dt}, est_err: {est_err}, err: {err}", subcubic, cubic_params);
-            if err * scale <= tol || dt <= SUBDIV_LIMIT {
-                log!("@@@   error within tolerance");
-                t0_u += 1;
-                let shift = t0_u.trailing_zeros();
-                t0_u >>= shift;
-                dt *= (1 << shift) as f32;
-                let euler_params = EulerParams::from_angles(cubic_params.th0, cubic_params.th1);
-                let es = EulerSeg::from_params(this_p0, this_p1, euler_params);
+            // Subdivide the loop case when the chord is short, but don't subdivide when it is
+            // simply a very short segment.
+            if chord_len >= TANGENT_THRESH
+                || (this_q0.length_squared() * actual_dt * actual_dt < DERIV_THRESH.powi(2)
+                    && this_q1.length_squared() * actual_dt * actual_dt < DERIV_THRESH.powi(2))
+            {
+                let cubic_params =
+                    CubicParams::from_points_derivs(this_p0, this_p1, this_q0, this_q1, actual_dt);
+                let est_err = cubic_params.est_euler_err();
+                let err = est_err * chord_len;
+                log!("@@@   loop2: sub:{:?}, {:?} t0: {t0}, t1: {t1}, dt: {dt}, est_err: {est_err}, err: {err}", subcubic, cubic_params);
+                if err * scale <= tol || dt <= SUBDIV_LIMIT {
+                    log!("@@@   error within tolerance");
+                    t0_u += 1;
+                    let shift = t0_u.trailing_zeros();
+                    t0_u >>= shift;
+                    dt *= (1 << shift) as f32;
+                    let euler_params = EulerParams::from_angles(cubic_params.th0, cubic_params.th1);
+                    let es = EulerSeg::from_params(this_p0, this_p1, euler_params);
 
-                let (k0, k1) = (es.params.k0 - 0.5 * es.params.k1, es.params.k1);
+                    let (k0, k1) = (es.params.k0 - 0.5 * es.params.k1, es.params.k1);
 
-                // compute forward integral to determine number of subdivisions
-                let dist_scaled = offset * es.params.ch / chord_len;
-                // The number of subdivisions for curvature = 1
-                let scale_multiplier =
-                    0.5 * FRAC_1_SQRT_2 * (scale * chord_len / (es.params.ch * tol)).sqrt();
-                // TODO: tune these thresholds
-                const K1_THRESH: f32 = 1e-3;
-                const DIST_THRESH: f32 = 1e-3;
-                let mut a = 0.0;
-                let mut b = 0.0;
-                let mut integral = 0.0;
-                let mut int0 = 0.0;
-                let (n_frac, robust) = if k1.abs() < K1_THRESH {
-                    let k = k0 + 0.5 * k1;
-                    let n_frac = (k * (k * dist_scaled + 1.0)).abs().sqrt();
-                    (n_frac, EspcRobust::LowK1)
-                } else if dist_scaled.abs() < DIST_THRESH {
-                    let f = |x: f32| x * x.abs().sqrt();
-                    a = k1;
-                    b = k0;
-                    int0 = f(b);
-                    let int1 = f(a + b);
-                    integral = int1 - int0;
-                    //println!("int0={int0}, int1={int1} a={a} b={b}");
-                    let n_frac = (2. / 3.) * integral / a;
-                    (n_frac, EspcRobust::LowDist)
-                } else {
-                    a = -2.0 * dist_scaled * k1;
-                    b = -1.0 - 2.0 * dist_scaled * k0;
-                    int0 = espc_int_approx(b);
-                    let int1 = espc_int_approx(a + b);
-                    integral = int1 - int0;
-                    let k_peak = k0 - k1 * b / a;
-                    let integrand_peak = (k_peak * (k_peak * dist_scaled + 1.0)).abs().sqrt();
-                    let scaled_int = integral * integrand_peak / a;
-                    let n_frac = scaled_int;
-                    (n_frac, EspcRobust::Normal)
-                };
-                let n = (n_frac * scale_multiplier).ceil().max(1.0);
+                    // compute forward integral to determine number of subdivisions
+                    let dist_scaled = offset * es.params.ch / chord_len;
+                    // The number of subdivisions for curvature = 1
+                    let scale_multiplier =
+                        0.5 * FRAC_1_SQRT_2 * (scale * chord_len / (es.params.ch * tol)).sqrt();
+                    // TODO: tune these thresholds
+                    const K1_THRESH: f32 = 1e-3;
+                    const DIST_THRESH: f32 = 1e-3;
+                    let mut a = 0.0;
+                    let mut b = 0.0;
+                    let mut integral = 0.0;
+                    let mut int0 = 0.0;
+                    let (n_frac, robust) = if k1.abs() < K1_THRESH {
+                        let k = k0 + 0.5 * k1;
+                        let n_frac = (k * (k * dist_scaled + 1.0)).abs().sqrt();
+                        (n_frac, EspcRobust::LowK1)
+                    } else if dist_scaled.abs() < DIST_THRESH {
+                        let f = |x: f32| x * x.abs().sqrt();
+                        a = k1;
+                        b = k0;
+                        int0 = f(b);
+                        let int1 = f(a + b);
+                        integral = int1 - int0;
+                        //println!("int0={int0}, int1={int1} a={a} b={b}");
+                        let n_frac = (2. / 3.) * integral / a;
+                        (n_frac, EspcRobust::LowDist)
+                    } else {
+                        a = -2.0 * dist_scaled * k1;
+                        b = -1.0 - 2.0 * dist_scaled * k0;
+                        int0 = espc_int_approx(b);
+                        let int1 = espc_int_approx(a + b);
+                        integral = int1 - int0;
+                        let k_peak = k0 - k1 * b / a;
+                        let integrand_peak = (k_peak * (k_peak * dist_scaled + 1.0)).abs().sqrt();
+                        let scaled_int = integral * integrand_peak / a;
+                        let n_frac = scaled_int;
+                        (n_frac, EspcRobust::Normal)
+                    };
+                    let n = (n_frac * scale_multiplier).ceil().max(1.0);
 
-                // Flatten line segments
-                log!("@@@   loop2: lines: {n}");
-                // TODO: make all computation above robust and uncomment this assertion
-                //assert!(!n.is_nan());
-                if n.is_nan() {
-                    // Skip the segment if `n` is NaN. This is for debugging purposes only
-                    log!("@@@   NaN: parameters:\n  es: {:#?}\n  k0: {k0}, k1: {k1}\n  dist_scaled: {dist_scaled}\n  es_scale: {es_scale}\n  a: {a}\n  b: {b}\n  int0: {int0}, int1: {int1}, integral: {integral}\n  k_peak: {k_peak}\n  integrand_peak: {integrand_peak}\n  scaled_int: {scaled_int}\n  n_frac:  {n_frac}", es);
-                } else {
-                    for i in 0..n as usize {
-                        let lp1 = if i == n as usize - 1 && t1 == 1.0 {
-                            t_end
-                        } else {
-                            let t = (i + 1) as f32 / n;
-                            let s = match robust {
-                                EspcRobust::LowK1 => t,
-                                // Note opportunities to minimize divergence
-                                EspcRobust::LowDist => {
-                                    let c = (integral * t + int0).cbrt();
-                                    let inv = c * c.abs();
-                                    (inv - b) / a
-                                }
-                                EspcRobust::Normal => {
-                                    let inv = espc_int_inv_approx(integral * t + int0);
-                                    (inv - b) / a
-                                }
+                    // Flatten line segments
+                    log!("@@@   loop2: lines: {n}");
+                    // TODO: make all computation above robust and uncomment this assertion
+                    //assert!(!n.is_nan());
+                    if n.is_nan() {
+                        // Skip the segment if `n` is NaN. This is for debugging purposes only
+                        log!("@@@   NaN: parameters:\n  es: {:#?}\n  k0: {k0}, k1: {k1}\n  dist_scaled: {dist_scaled}\n  es_scale: {es_scale}\n  a: {a}\n  b: {b}\n  int0: {int0}, int1: {int1}, integral: {integral}\n  k_peak: {k_peak}\n  integrand_peak: {integrand_peak}\n  scaled_int: {scaled_int}\n  n_frac:  {n_frac}", es);
+                    } else {
+                        for i in 0..n as usize {
+                            let lp1 = if i == n as usize - 1 && t1 == 1.0 {
+                                t_end
+                            } else {
+                                let t = (i + 1) as f32 / n;
+                                let s = match robust {
+                                    EspcRobust::LowK1 => t,
+                                    // Note opportunities to minimize divergence
+                                    EspcRobust::LowDist => {
+                                        let c = (integral * t + int0).cbrt();
+                                        let inv = c * c.abs();
+                                        (inv - b) / a
+                                    }
+                                    EspcRobust::Normal => {
+                                        let inv = espc_int_inv_approx(integral * t + int0);
+                                        (inv - b) / a
+                                    }
+                                };
+                                es.eval_with_offset(s, offset)
                             };
-                            es.eval_with_offset(s, offset)
-                        };
-                        let l0 = if offset >= 0. { lp0 } else { lp1 };
-                        let l1 = if offset >= 0. { lp1 } else { lp0 };
-                        output_line_with_transform(
-                            path_ix, l0, l1, &transform, line_ix, lines, bbox,
-                        );
-                        lp0 = lp1;
+                            let l0 = if offset >= 0. { lp0 } else { lp1 };
+                            let l1 = if offset >= 0. { lp1 } else { lp0 };
+                            output_line_with_transform(
+                                path_ix, l0, l1, &transform, line_ix, lines, bbox,
+                            );
+                            lp0 = lp1;
+                        }
                     }
+                    last_p = this_p1;
+                    last_q = this_q1;
+                    last_t = t1;
+                    break;
                 }
-                last_p = this_p1;
-                last_q = this_q1;
-                last_t = t1;
-                break;
             }
             t0_u = t0_u.saturating_mul(2);
             dt *= 0.5;
