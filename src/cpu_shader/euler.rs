@@ -85,10 +85,18 @@ impl CubicParams {
             // Rationale: this happens when fitting a cusp or near-cusp with
             // a near 180 degree u-turn. The actual ES is bounded in that case.
             // Further subdivision won't reduce the angles if actually a cusp.
+            //
+            // A value of 2.0 represents the approximate worst case distance
+            // from an Euler spiral with 0 and pi tangents to the chord. It
+            // is not very critical; doubling the value would result in one more
+            // subdivision in effectively a binary search for the cusp, while too
+            // small a value may result in the actual error exceeding the bound.
             return 2.0;
         }
-        let e0 = (2. / 3.) / (1.0 + cth0);
-        let e1 = (2. / 3.) / (1.0 + cth1);
+        // Protect against divide-by-zero. This happens with a double cusp, so
+        // should in the general case cause subdivisions.
+        let e0 = (2. / 3.) / (1.0 + cth0).max(1e-9);
+        let e1 = (2. / 3.) / (1.0 + cth1).max(1e-9);
         let s0 = self.th0.sin();
         let s1 = self.th1.sin();
         // Note: some other versions take sin of s0 + s1 instead. Those are incorrect.

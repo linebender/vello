@@ -96,8 +96,8 @@ fn est_euler_err(cparams: CubicParams) -> f32 {
     if cth0 * cth1 < 0.0 {
         return 2.0;
     }
-    let e0 = (2. / 3.) / (1.0 + cth0);
-    let e1 = (2. / 3.) / (1.0 + cth1);
+    let e0 = (2. / 3.) / max(1.0 + cth0, 1e-9);
+    let e1 = (2. / 3.) / max(1.0 + cth1, 1e-9);
     let s0 = sin(cparams.th0);
     let s1 = sin(cparams.th1);
     let s01 = cth0 * s1 + cth1 * s0;
