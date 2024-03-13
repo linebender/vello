@@ -497,7 +497,7 @@ fn flatten_arc(
     var r = begin - center;
 
     let MIN_THETA = 0.0001;
-    let tol = 0.1;
+    let tol = 0.25;
     let radius = max(tol, length(p0 - transform_apply(transform, center)));
     let theta = max(MIN_THETA, 2. * acos(1. - tol / radius));
 
