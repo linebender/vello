@@ -164,7 +164,7 @@ fn flatten_arc(
 
     let mut p0 = transform.apply(begin);
     let mut r = begin - center;
-    let tol: f32 = 0.1;
+    let tol: f32 = 0.25;
     let radius = tol.max((p0 - transform.apply(center)).length());
     let theta = (2. * (1. - tol / radius).acos()).max(MIN_THETA);
 
