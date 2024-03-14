@@ -76,16 +76,33 @@ struct EulerSeg {
     params: EulerParams,
 }
 
+// Threshold below which a derivative is considered too small.
+const DERIV_THRESH: f32 = 1e-6;
+const DERIV_THRESH_SQUARED: f32 = DERIV_THRESH * DERIV_THRESH;
+// Amount to nudge t when derivative is near-zero.
+
 /// Compute cubic parameters from endpoints and derivatives.
 fn cubic_from_points_derivs(p0: vec2f, p1: vec2f, q0: vec2f, q1: vec2f, dt: f32) -> CubicParams {
     let chord = p1 - p0;
     let scale = dt / dot(chord, chord);
     let h0 = vec2(q0.x * chord.x + q0.y * chord.y, q0.y * chord.x - q0.x * chord.y);
-    let th0 = atan2(h0.y, h0.x);
-    let d0 = length(h0) * scale;
+    var th0 = 0.0;
+    var d0 = length(h0);
+    if d0 > DERIV_THRESH {
+        th0 = atan2(h0.y, h0.x);
+        d0 *= scale;
+    } else {
+        d0 = 1. / 3.;
+    }
     let h1 = vec2(q1.x * chord.x + q1.y * chord.y, q1.x * chord.y - q1.y * chord.x);
-    let th1 = atan2(h1.y, h1.x);
-    let d1 = length(h1) * scale;
+    var th1 = 0.0;
+    var d1 = length(h1);
+    if d1 > DERIV_THRESH {
+        th1 = atan2(h1.y, h1.x);
+        d1 *= scale;
+    } else {
+        d1 = 1. / 3.;
+    }
     return CubicParams(th0, th1, d0, d1);
 }
 
@@ -303,10 +320,6 @@ const ESPC_ROBUST_NORMAL = 0;
 const ESPC_ROBUST_LOW_K1 = 1;
 const ESPC_ROBUST_LOW_DIST = 2;
 
-// Threshold below which a derivative is considered too small.
-const DERIV_THRESH: f32 = 1e-6;
-const DERIV_THRESH_SQUARED: f32 = DERIV_THRESH * DERIV_THRESH;
-// Amount to nudge t when derivative is near-zero.
 const DERIV_EPS: f32 = 1e-6;
 // Limit for subdivision of cubic Béziers.
 const SUBDIV_LIMIT: f32 = 1.0 / 65536.0;
