@@ -1,11 +1,10 @@
 // Copyright 2023 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use std::{
-    borrow::Cow,
-    cell::RefCell,
-    collections::{hash_map::Entry, HashMap, HashSet},
-};
+use std::borrow::Cow;
+use std::cell::RefCell;
+use std::collections::hash_map::Entry;
+use std::collections::{HashMap, HashSet};
 
 use wgpu::{
     BindGroup, BindGroupLayout, Buffer, BufferUsages, CommandEncoder, CommandEncoderDescriptor,
@@ -13,9 +12,10 @@ use wgpu::{
     TextureViewDimension,
 };
 
+use crate::cpu_dispatch::CpuBinding;
+use crate::recording::BindType;
 use crate::{
-    cpu_dispatch::CpuBinding, recording::BindType, BufferProxy, Command, Error, ImageProxy,
-    Recording, ResourceId, ResourceProxy, ShaderId,
+    BufferProxy, Command, Error, ImageProxy, Recording, ResourceId, ResourceProxy, ShaderId,
 };
 
 #[cfg(not(target_arch = "wasm32"))]

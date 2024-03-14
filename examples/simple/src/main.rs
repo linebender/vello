@@ -8,12 +8,10 @@ use vello::kurbo::{Affine, Circle, Ellipse, Line, RoundedRect, Stroke};
 use vello::peniko::Color;
 use vello::util::{RenderContext, RenderSurface};
 use vello::{AaConfig, Renderer, RendererOptions, Scene};
-use winit::{
-    dpi::LogicalSize,
-    event::*,
-    event_loop::{ControlFlow, EventLoop},
-    window::{Window, WindowBuilder},
-};
+use winit::dpi::LogicalSize;
+use winit::event::*;
+use winit::event_loop::{ControlFlow, EventLoop};
+use winit::window::{Window, WindowBuilder};
 
 // Simple struct to hold the state of the renderer
 pub struct ActiveRenderState<'s> {

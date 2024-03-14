@@ -1,18 +1,12 @@
 // Copyright 2023 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use {
-    naga::{
-        front::wgsl,
-        valid::{Capabilities, ModuleInfo, ValidationError, ValidationFlags},
-        AddressSpace, ArraySize, ImageClass, Module, StorageAccess, WithSpan,
-    },
-    std::{
-        collections::{HashMap, HashSet},
-        path::Path,
-    },
-    thiserror::Error,
-};
+use naga::front::wgsl;
+use naga::valid::{Capabilities, ModuleInfo, ValidationError, ValidationFlags};
+use naga::{AddressSpace, ArraySize, ImageClass, Module, StorageAccess, WithSpan};
+use std::collections::{HashMap, HashSet};
+use std::path::Path;
+use thiserror::Error;
 
 pub mod permutations;
 pub mod preprocess;

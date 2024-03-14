@@ -3,11 +3,9 @@
 
 //! Take an encoded scene and create a graph to render it
 
-use crate::{
-    recording::{BufferProxy, ImageFormat, ImageProxy, Recording, ResourceProxy},
-    shaders::FullShaders,
-    AaConfig, RenderParams,
-};
+use crate::recording::{BufferProxy, ImageFormat, ImageProxy, Recording, ResourceProxy};
+use crate::shaders::FullShaders;
+use crate::{AaConfig, RenderParams};
 
 #[cfg(feature = "wgpu")]
 use crate::Scene;

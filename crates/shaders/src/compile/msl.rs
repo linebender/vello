@@ -1,11 +1,9 @@
 // Copyright 2023 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use super::{BindType, ShaderInfo};
+use crate::types::msl::BindingIndex;
 use naga::back::msl as naga_msl;
-use {
-    super::{BindType, ShaderInfo},
-    crate::types::msl::BindingIndex,
-};
 
 pub fn translate(shader: &ShaderInfo) -> Result<String, naga_msl::Error> {
     let mut map = naga_msl::EntryPointResourceMap::default();

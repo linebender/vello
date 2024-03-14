@@ -4,7 +4,9 @@
 // TODO (#467) - Remove this file and use vello_shaders crate instead,
 // then update ARCHITECTURE.md.
 
-use std::{collections::HashMap, fs, path::Path};
+use std::collections::HashMap;
+use std::fs;
+use std::path::Path;
 
 #[cfg(feature = "wgpu")]
 use std::{collections::HashSet, vec};

@@ -1,21 +1,16 @@
 // Copyright 2023 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use std::{
-    fs::File,
-    num::NonZeroUsize,
-    path::{Path, PathBuf},
-};
+use std::fs::File;
+use std::num::NonZeroUsize;
+use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, bail, Context, Result};
 use clap::{CommandFactory, Parser};
 use scenes::{ImageCache, SceneParams, SceneSet, SimpleText};
-use vello::{
-    block_on_wgpu,
-    kurbo::{Affine, Vec2},
-    util::RenderContext,
-    RendererOptions, Scene,
-};
+use vello::kurbo::{Affine, Vec2};
+use vello::util::RenderContext;
+use vello::{block_on_wgpu, RendererOptions, Scene};
 use wgpu::{
     BufferDescriptor, BufferUsages, CommandEncoderDescriptor, Extent3d, ImageCopyBuffer,
     TextureDescriptor, TextureFormat, TextureUsages,

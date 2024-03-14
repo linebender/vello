@@ -1,10 +1,8 @@
 // Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use std::{
-    io::Seek,
-    path::{Path, PathBuf},
-};
+use std::io::Seek;
+use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 use byte_unit::Byte;

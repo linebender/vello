@@ -3,15 +3,13 @@
 
 use std::f32::consts::FRAC_1_SQRT_2;
 
+use super::euler::{espc_int_approx, espc_int_inv_approx, CubicParams, EulerParams, EulerSeg};
+use super::util::{Transform, Vec2, ROBUST_EPSILON};
 use crate::cpu_dispatch::CpuBinding;
-
-use super::{
-    euler::{espc_int_approx, espc_int_inv_approx, CubicParams, EulerParams, EulerSeg},
-    util::{Transform, Vec2, ROBUST_EPSILON},
-};
+use vello_encoding::math::f16_to_f32;
 use vello_encoding::{
-    math::f16_to_f32, BumpAllocators, ConfigUniform, LineSoup, Monoid, PathBbox, PathMonoid,
-    PathTag, Style, DRAW_INFO_FLAGS_FILL_RULE_BIT,
+    BumpAllocators, ConfigUniform, LineSoup, Monoid, PathBbox, PathMonoid, PathTag, Style,
+    DRAW_INFO_FLAGS_FILL_RULE_BIT,
 };
 
 // TODO: remove this

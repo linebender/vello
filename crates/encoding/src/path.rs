@@ -2,10 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use bytemuck::{Pod, Zeroable};
-use peniko::{
-    kurbo::{Cap, Join, Shape, Stroke},
-    Fill,
-};
+use peniko::kurbo::{Cap, Join, Shape, Stroke};
+use peniko::Fill;
 
 use super::Monoid;
 
