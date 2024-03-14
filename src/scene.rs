@@ -4,6 +4,8 @@
 use peniko::kurbo::{Affine, Rect, Shape, Stroke};
 use peniko::{BlendMode, BrushRef, Color, Fill, Font, Image, StyleRef};
 use skrifa::instance::NormalizedCoord;
+#[cfg(feature = "bump_estimate")]
+use vello_encoding::BumpAllocatorMemory;
 use vello_encoding::{Encoding, Glyph, GlyphRun, Patch, Transform};
 
 // TODO - Document invariants and edge cases (#470)
@@ -17,6 +19,8 @@ use vello_encoding::{Encoding, Glyph, GlyphRun, Patch, Transform};
 #[derive(Clone, Default)]
 pub struct Scene {
     encoding: Encoding,
+    #[cfg(feature = "bump_estimate")]
+    estimator: vello_encoding::BumpEstimator,
 }
 
 impl Scene {
@@ -28,6 +32,16 @@ impl Scene {
     /// Removes all content from the scene.
     pub fn reset(&mut self) {
         self.encoding.reset();
+        #[cfg(feature = "bump_estimate")]
+        self.estimator.reset();
+    }
+
+    /// Tally up the bump allocator estimate for the current state of the encoding,
+    /// taking into account an optional `transform` applied to the entire scene.
+    #[cfg(feature = "bump_estimate")]
+    pub fn bump_estimate(&self, transform: Option<Affine>) -> BumpAllocatorMemory {
+        self.estimator
+            .tally(transform.as_ref().map(Transform::from_kurbo).as_ref())
     }
 
     /// Returns the underlying raw encoding.
@@ -50,14 +64,17 @@ impl Scene {
         clip: &impl Shape,
     ) {
         let blend = blend.into();
-        self.encoding
-            .encode_transform(Transform::from_kurbo(&transform));
+        let t = Transform::from_kurbo(&transform);
+        self.encoding.encode_transform(t);
         self.encoding.encode_fill_style(Fill::NonZero);
         if !self.encoding.encode_shape(clip, true) {
             // If the layer shape is invalid, encode a valid empty path. This suppresses
             // all drawing until the layer is popped.
             self.encoding
                 .encode_shape(&Rect::new(0.0, 0.0, 0.0, 0.0), true);
+        } else {
+            #[cfg(feature = "bump_estimate")]
+            self.estimator.count_path(clip.path_elements(0.1), &t, None);
         }
         self.encoding
             .encode_begin_clip(blend, alpha.clamp(0.0, 1.0));
@@ -77,8 +94,8 @@ impl Scene {
         brush_transform: Option<Affine>,
         shape: &impl Shape,
     ) {
-        self.encoding
-            .encode_transform(Transform::from_kurbo(&transform));
+        let t = Transform::from_kurbo(&transform);
+        self.encoding.encode_transform(t);
         self.encoding.encode_fill_style(style);
         if self.encoding.encode_shape(shape, true) {
             if let Some(brush_transform) = brush_transform {
@@ -90,6 +107,9 @@ impl Scene {
                 }
             }
             self.encoding.encode_brush(brush, 1.0);
+            #[cfg(feature = "bump_estimate")]
+            self.estimator
+                .count_path(shape.path_elements(0.1), &t, None);
         }
     }
 
@@ -116,24 +136,37 @@ impl Scene {
         const SHAPE_TOLERANCE: f64 = 0.01;
         const STROKE_TOLERANCE: f64 = SHAPE_TOLERANCE;
 
-        const GPU_STROKES: bool = false; // Set this to `true` to enable GPU-side stroking
+        const GPU_STROKES: bool = true; // Set this to `true` to enable GPU-side stroking
         if GPU_STROKES {
-            self.encoding
-                .encode_transform(Transform::from_kurbo(&transform));
+            let t = Transform::from_kurbo(&transform);
+            self.encoding.encode_transform(t);
             self.encoding.encode_stroke_style(style);
 
             // We currently don't support dashing on the GPU. If the style has a dash pattern, then
             // we convert it into stroked paths on the CPU and encode those as individual draw
             // objects.
             let encode_result = if style.dash_pattern.is_empty() {
+                #[cfg(feature = "bump_estimate")]
+                self.estimator
+                    .count_path(shape.path_elements(SHAPE_TOLERANCE), &t, Some(style));
                 self.encoding.encode_shape(shape, false)
             } else {
+                // TODO: We currently collect the output of the dash iterator because
+                // `encode_path_elements` wants to consume the iterator. We want to avoid calling
+                // `dash` twice when `bump_estimate` is enabled because it internally allocates.
+                // Bump estimation will move to resolve time rather than scene construction time,
+                // so we can revert this back to not collecting when that happens.
                 let dashed = peniko::kurbo::dash(
                     shape.path_elements(SHAPE_TOLERANCE),
                     style.dash_offset,
                     &style.dash_pattern,
-                );
-                self.encoding.encode_path_elements(dashed, false)
+                )
+                .collect::<Vec<_>>();
+                #[cfg(feature = "bump_estimate")]
+                self.estimator
+                    .count_path(dashed.iter().copied(), &t, Some(style));
+                self.encoding
+                    .encode_path_elements(dashed.into_iter(), false)
             };
             if encode_result {
                 if let Some(brush_transform) = brush_transform {
@@ -170,6 +203,7 @@ impl Scene {
 
     /// Returns a builder for encoding a glyph run.
     pub fn draw_glyphs(&mut self, font: &Font) -> DrawGlyphs {
+        // TODO: Integrate `BumpEstimator` with the glyph cache.
         DrawGlyphs::new(&mut self.encoding, font)
     }
 
@@ -178,10 +212,10 @@ impl Scene {
     /// The given transform is applied to every transform in the child.
     /// This is an O(N) operation.
     pub fn append(&mut self, other: &Scene, transform: Option<Affine>) {
-        self.encoding.append(
-            &other.encoding,
-            &transform.map(|xform| Transform::from_kurbo(&xform)),
-        );
+        let t = transform.as_ref().map(Transform::from_kurbo);
+        self.encoding.append(&other.encoding, &t);
+        #[cfg(feature = "bump_estimate")]
+        self.estimator.append(&other.estimator, t.as_ref());
     }
 }
 
@@ -283,8 +317,7 @@ impl<'a> DrawGlyphs<'a> {
         self
     }
 
-    /// Encodes a fill or stroke for for the given sequence of glyphs and consumes
-    /// the builder.
+    /// Encodes a fill or stroke for the given sequence of glyphs and consumes the builder.
     ///
     /// The `style` parameter accepts either `Fill` or `&Stroke` types.
     pub fn draw(mut self, style: impl Into<StyleRef<'a>>, glyphs: impl Iterator<Item = Glyph>) {

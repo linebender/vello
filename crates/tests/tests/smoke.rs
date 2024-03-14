@@ -9,7 +9,7 @@ use vello_tests::TestParams;
 #[test]
 #[cfg_attr(skip_gpu_tests, ignore)]
 fn simple_square_gpu() {
-    simple_square(false)
+    simple_square(false);
 }
 
 #[test]
@@ -17,7 +17,7 @@ fn simple_square_gpu() {
 // skip this for now
 #[cfg_attr(skip_gpu_tests, ignore)]
 fn simple_square_cpu() {
-    simple_square(true)
+    simple_square(true);
 }
 
 fn simple_square(use_cpu: bool) {

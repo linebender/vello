@@ -43,8 +43,16 @@ repository.workspace = true
 
 [features]
 default = ["wgpu"]
+# Enables GPU memory usage estimation. This performs additional computations
+# in order to estimate the minimum required allocations for buffers backing
+# bump-allocated GPU memory.
+# TODO: Turn this into a runtime option used at resolve time and remove the feature.
+bump_estimate = ["vello_encoding/bump_estimate"]
 hot_reload = []
 buffer_labels = []
+
+[lints]
+workspace = true
 
 [dependencies]
 vello_encoding = { workspace = true }
@@ -57,10 +65,14 @@ raw-window-handle = { workspace = true }
 futures-intrusive = { workspace = true }
 wgpu-profiler = { workspace = true, optional = true }
 
+[workspace.lints]
+clippy.doc_markdown = "warn"
+clippy.semicolon_if_nothing_returned = "warn"
+
 [workspace.dependencies]
 vello_encoding = { version = "0.1.0", path = "crates/encoding" }
 bytemuck = { version = "1.14.3", features = ["derive"] }
-skrifa = "0.15.5"
+skrifa = "0.16.0"
 peniko = "0.1.0"
 futures-intrusive = "0.5.0"
 raw-window-handle = "0.6.0"

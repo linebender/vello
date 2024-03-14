@@ -184,7 +184,7 @@ fn create_winit_window(event_loop: &winit::event_loop::EventLoopWindowTarget<()>
     )
 }
 
-/// Helper function that creates a vello Renderer for a given RenderContext and Surface
+/// Helper function that creates a vello `Renderer` for a given `RenderContext` and `RenderSurface`
 fn create_vello_renderer(render_cx: &RenderContext, surface: &RenderSurface) -> Renderer {
     Renderer::new(
         &render_cx.devices[surface.dev_id].device,

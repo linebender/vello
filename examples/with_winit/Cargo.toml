@@ -17,6 +17,9 @@ default = ["wgpu-profiler"]
 # wgpu (which means the dependency used in wgpu-profiler would be incompatible)
 wgpu-profiler = ["dep:wgpu-profiler", "vello/wgpu-profiler"]
 
+[lints]
+workspace = true
+
 [[bin]]
 # Stop the PDB collision warning on windows
 name = "with_winit_bin"
