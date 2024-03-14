@@ -1,8 +1,6 @@
 // Copyright 2023 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-#![warn(clippy::doc_markdown, clippy::semicolon_if_nothing_returned)]
-
 mod types;
 
 #[cfg(feature = "compile")]

@@ -1,18 +1,12 @@
 // Copyright 2023 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use {
-    naga::{
-        front::wgsl,
-        valid::{Capabilities, ModuleInfo, ValidationError, ValidationFlags},
-        AddressSpace, ArraySize, ImageClass, Module, StorageAccess, WithSpan,
-    },
-    std::{
-        collections::{HashMap, HashSet},
-        path::Path,
-    },
-    thiserror::Error,
-};
+use naga::front::wgsl;
+use naga::valid::{Capabilities, ModuleInfo, ValidationError, ValidationFlags};
+use naga::{AddressSpace, ArraySize, ImageClass, Module, StorageAccess, WithSpan};
+use std::collections::{HashMap, HashSet};
+use std::path::Path;
+use thiserror::Error;
 
 pub mod permutations;
 pub mod preprocess;
@@ -78,10 +72,10 @@ impl ShaderInfo {
                             ..
                         } => u32::from(*size) * stride,
                         naga::TypeInner::Struct { span, .. } => *span,
-                        naga::TypeInner::Scalar { width, .. } => *width as u32,
-                        naga::TypeInner::Vector { width, .. } => *width as u32,
-                        naga::TypeInner::Matrix { width, .. } => *width as u32,
-                        naga::TypeInner::Atomic { width, .. } => *width as u32,
+                        naga::TypeInner::Scalar(scalar) => scalar.width as u32,
+                        naga::TypeInner::Vector { scalar, .. } => scalar.width as u32,
+                        naga::TypeInner::Matrix { scalar, .. } => scalar.width as u32,
+                        naga::TypeInner::Atomic(scalar) => scalar.width as u32,
                         _ => {
                             // Not a valid workgroup variable type. At least not one that is used
                             // in our shaders.

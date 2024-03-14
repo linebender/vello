@@ -1,11 +1,9 @@
 // Copyright 2024 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use vello::{
-    kurbo::{Affine, Rect},
-    peniko::{Brush, Color, Format},
-    Scene,
-};
+use vello::kurbo::{Affine, Rect};
+use vello::peniko::{Brush, Color, Format};
+use vello::Scene;
 use vello_tests::TestParams;
 
 #[test]

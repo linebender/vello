@@ -1,12 +1,9 @@
 // Copyright 2023 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use std::{
-    collections::{HashMap, HashSet},
-    fs,
-    path::Path,
-    vec,
-};
+use std::collections::{HashMap, HashSet};
+use std::path::Path;
+use std::{fs, vec};
 
 pub fn get_imports(shader_dir: &Path) -> HashMap<String, String> {
     let mut imports = HashMap::new();

@@ -9,18 +9,14 @@ use vello::kurbo::{Affine, Point, Rect, Stroke};
 use vello::peniko::{Color, Fill, Gradient};
 use vello::{Renderer, RendererOptions, Scene};
 
-use bevy::{
-    prelude::*,
-    render::{
-        extract_component::{ExtractComponent, ExtractComponentPlugin},
-        render_asset::RenderAssets,
-        render_resource::{
-            Extent3d, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
-        },
-        renderer::{RenderDevice, RenderQueue},
-        RenderApp,
-    },
+use bevy::prelude::*;
+use bevy::render::extract_component::{ExtractComponent, ExtractComponentPlugin};
+use bevy::render::render_asset::RenderAssets;
+use bevy::render::render_resource::{
+    Extent3d, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
 };
+use bevy::render::renderer::{RenderDevice, RenderQueue};
+use bevy::render::RenderApp;
 
 #[derive(Resource)]
 struct VelloRenderer(SyncCell<Renderer>);

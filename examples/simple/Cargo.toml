@@ -5,6 +5,9 @@ license.workspace = true
 repository.workspace = true
 publish = false
 
+[lints]
+workspace = true
+
 # The dependencies here are independent from the workspace versions
 [dependencies]
 # When using this example outside of the original Vello workspace,

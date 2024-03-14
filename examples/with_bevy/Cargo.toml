@@ -6,6 +6,9 @@ license.workspace = true
 repository.workspace = true
 publish = false
 
+[lints]
+workspace = true
+
 [dependencies]
 vello = { path = "../../" }
 bevy = { version = "0.13", features = [

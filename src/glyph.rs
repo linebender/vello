@@ -4,22 +4,19 @@
 //! Support for glyph rendering.
 
 use crate::scene::Scene;
-use {
-    peniko::kurbo::Affine,
-    peniko::{Brush, Color, Fill, Style},
-    skrifa::{
-        instance::{NormalizedCoord, Size},
-        outline::OutlinePen,
-        raw::FontRef,
-        setting::Setting,
-        GlyphId, OutlineGlyphCollection,
-    },
-    vello_encoding::Encoding,
-};
+use peniko::kurbo::Affine;
+use peniko::{Brush, Color, Fill, Style};
+use skrifa::instance::{NormalizedCoord, Size};
+use skrifa::outline::OutlinePen;
+use skrifa::raw::FontRef;
+use skrifa::setting::Setting;
+use skrifa::{GlyphId, OutlineGlyphCollection};
+use vello_encoding::Encoding;
 
 use peniko::kurbo::Shape;
 pub use skrifa;
-use skrifa::{outline::DrawSettings, MetadataProvider};
+use skrifa::outline::DrawSettings;
+use skrifa::MetadataProvider;
 pub use vello_encoding::Glyph;
 
 /// General context for creating scene fragments for glyph outlines.

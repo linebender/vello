@@ -5,5 +5,8 @@ license.workspace = true
 repository.workspace = true
 publish = false
 
+[lints]
+workspace = true
+
 [dependencies]
 cargo-run-wasm = "0.3.2"

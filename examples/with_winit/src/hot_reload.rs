@@ -1,10 +1,12 @@
 // Copyright 2023 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use std::{path::Path, time::Duration};
+use std::path::Path;
+use std::time::Duration;
 
 use anyhow::Result;
-use notify_debouncer_mini::{new_debouncer, notify::*, DebounceEventResult};
+use notify_debouncer_mini::notify::*;
+use notify_debouncer_mini::{new_debouncer, DebounceEventResult};
 
 pub(crate) fn hot_reload(mut f: impl FnMut() -> Option<()> + Send + 'static) -> Result<impl Sized> {
     let mut debouncer = new_debouncer(

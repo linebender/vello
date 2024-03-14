@@ -23,6 +23,14 @@ env:
 #
 # Using cargo-hack also allows us to more easily test the feature matrix of our packages.
 # We use --each-feature & --optional-deps which will run a separate check for every feature.
+#
+# We use macos-14 explictly instead of macos-latest because:
+#   * macos-latest currently points to macos-12
+#   * macos-14 provides us with the GPU support we want for testing
+#   * macos-14 comes with the M1 CPU which compiles our code much faster than the older runners
+# This explicit dependency can be switched back to macos-latest once it points to macos-14,
+# which is expected to happen sometime in Q2 FY24 (April – June 2024).
+# https://github.blog/changelog/2024-01-30-github-actions-macos-14-sonoma-is-now-available/
 
 name: CI
 
@@ -31,9 +39,9 @@ on:
   merge_group:
 
 jobs:
-  rustfmt:
-    runs-on: ubuntu-latest
+  fmt:
     name: cargo fmt
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -54,22 +62,12 @@ jobs:
       - name: check copyright headers
         run: bash .github/copyright.sh
 
-  test-stable:
+  clippy-stable:
+    name: cargo clippy
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        # We use macos-14 as that is an arm runner. These have the virtgpu support we need
         os: [windows-latest, macos-14, ubuntu-latest]
-        include:
-          - os: ubuntu-latest
-            gpu: 'yes'
-          - os: macos-14
-            gpu: 'yes'
-          - os: windows-latest
-            # TODO: The windows runners theoretically have CPU fallback for GPUs, but
-            # this failed in initial testing
-            gpu: 'no'
-    name: cargo clippy + test
     steps:
       - uses: actions/checkout@v4
 
@@ -91,30 +89,15 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev
 
-      # Adapted from https://github.com/bevyengine/bevy/blob/b446374392adc70aceb92621b080d1a6cf7a7392/.github/workflows/validation-jobs.yml#L74-L79
-      - name: install xvfb, llvmpipe and lavapipe
-        if: matrix.os == 'ubuntu-latest'
-        # https://launchpad.net/~kisak/+archive/ubuntu/turtle
-        run: |
-          sudo apt-get update -y -qq
-          sudo add-apt-repository ppa:kisak/turtle -y
-          sudo apt-get update
-          sudo apt install -y xvfb libegl1-mesa libgl1-mesa-dri libxcb-xfixes0-dev mesa-vulkan-drivers
-
       - name: cargo clippy
         run: cargo hack clippy --workspace --each-feature --optional-deps -- -D warnings
-  
+
       - name: cargo clippy (auxiliary)
         run: cargo hack clippy --workspace --each-feature --optional-deps --tests --benches --examples -- -D warnings
 
-      - name: cargo test
-        run: cargo test --workspace --all-features
-        env:
-          VELLO_CI_GPU_SUPPORT: ${{ matrix.gpu }}
-
   clippy-stable-wasm:
+    name: cargo clippy (wasm32)
     runs-on: ubuntu-latest
-    name: cargo clippy + test (wasm32)
     steps:
       - uses: actions/checkout@v4
 
@@ -132,20 +115,82 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-hack
-          
+
       - name: cargo clippy
         run: cargo hack clippy --workspace --target wasm32-unknown-unknown --each-feature --optional-deps -- -D warnings
-  
+
       - name: cargo clippy (auxiliary)
         run: cargo hack clippy --workspace --target wasm32-unknown-unknown --each-feature --optional-deps --tests --benches --examples -- -D warnings
+
+  test-stable:
+    name: cargo test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, macos-14, ubuntu-latest]
+        include:
+          - os: ubuntu-latest
+            gpu: 'yes'
+          - os: macos-14
+            gpu: 'yes'
+          - os: windows-latest
+            # TODO: The windows runners theoretically have CPU fallback for GPUs, but
+            # this failed in initial testing
+            gpu: 'no'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: restore cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: install stable toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_STABLE_VER }}
+          components: clippy
+
+      - name: install native dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev
+
+      # Adapted from https://github.com/bevyengine/bevy/blob/b446374392adc70aceb92621b080d1a6cf7a7392/.github/workflows/validation-jobs.yml#L74-L79
+      - name: install xvfb, llvmpipe and lavapipe
+        if: matrix.os == 'ubuntu-latest'
+        # https://launchpad.net/~kisak/+archive/ubuntu/turtle
+        run: |
+          sudo apt-get update -y -qq
+          sudo add-apt-repository ppa:kisak/turtle -y
+          sudo apt-get update
+          sudo apt install -y xvfb libegl1-mesa libgl1-mesa-dri libxcb-xfixes0-dev mesa-vulkan-drivers
+
+      - name: cargo test
+        run: cargo test --workspace --all-features
+        env:
+          VELLO_CI_GPU_SUPPORT: ${{ matrix.gpu }}
+
+  test-stable-wasm:
+    name: cargo test (wasm32)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: restore cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: install stable toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_STABLE_VER }}
+          targets: wasm32-unknown-unknown
+          components: clippy
 
       # TODO: Find a way to make tests work. Until then the tests are merely compiled.
       - name: cargo test compile
         run: cargo test --workspace --target wasm32-unknown-unknown --all-features --no-run
 
-  android-stable-check:
-    runs-on: ubuntu-latest
+  check-stable-android:
     name: cargo check (aarch64-android)
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -167,12 +212,11 @@ jobs:
           # This is a bit of a hack, but cargo apk doesn't seem to allow customising this
           RUSTFLAGS: '-D warnings'
 
-  docs:
+  doc:
     name: cargo doc
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
+    # NOTE: We don't have any platform specific docs in this workspace, so we only run on Ubuntu.
+    #       If we get per-platform docs (win/macos/linux/wasm32/..) then doc jobs should match that.
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 

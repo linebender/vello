@@ -82,8 +82,16 @@ impl Vec2 {
         self.x * other.x + self.y * other.y
     }
 
+    pub fn cross(self, other: Vec2) -> f32 {
+        (self.x * other.y) - (self.y * other.x)
+    }
+
     pub fn length(self) -> f32 {
         self.x.hypot(self.y)
+    }
+
+    pub fn length_squared(self) -> f32 {
+        self.dot(self)
     }
 
     pub fn distance(self, other: Vec2) -> f32 {
@@ -108,8 +116,20 @@ impl Vec2 {
         self / self.length()
     }
 
+    pub fn atan2(self) -> f32 {
+        self.y.atan2(self.x)
+    }
+
     pub fn is_nan(&self) -> bool {
         self.x.is_nan() || self.y.is_nan()
+    }
+
+    pub fn min(&self, other: Vec2) -> Vec2 {
+        Vec2::new(self.x.min(other.x), self.y.min(other.y))
+    }
+
+    pub fn max(&self, other: Vec2) -> Vec2 {
+        Vec2::new(self.x.max(other.x), self.y.max(other.y))
     }
 }
 

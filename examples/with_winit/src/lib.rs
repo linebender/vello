@@ -2,24 +2,19 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use instant::Instant;
+use std::collections::HashSet;
 use std::num::NonZeroUsize;
-use std::{collections::HashSet, sync::Arc};
+use std::sync::Arc;
 
 use clap::{CommandFactory, Parser};
 use scenes::{ImageCache, SceneParams, SceneSet, SimpleText};
+use vello::kurbo::{Affine, Vec2};
 use vello::peniko::Color;
-use vello::util::RenderSurface;
-use vello::{
-    kurbo::{Affine, Vec2},
-    util::RenderContext,
-    AaConfig, Renderer, Scene,
-};
-use vello::{BumpAllocators, RendererOptions};
+use vello::util::{RenderContext, RenderSurface};
+use vello::{AaConfig, BumpAllocators, Renderer, RendererOptions, Scene};
 
-use winit::{
-    event_loop::{EventLoop, EventLoopBuilder},
-    window::Window,
-};
+use winit::event_loop::{EventLoop, EventLoopBuilder};
+use winit::window::Window;
 
 #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
 mod hot_reload;
@@ -90,7 +85,9 @@ fn run(
     render_cx: RenderContext,
     #[cfg(target_arch = "wasm32")] render_state: RenderState,
 ) {
-    use winit::{event::*, event_loop::ControlFlow, keyboard::*};
+    use winit::event::*;
+    use winit::event_loop::ControlFlow;
+    use winit::keyboard::*;
     let mut renderers: Vec<Option<Renderer>> = vec![];
     #[cfg(not(target_arch = "wasm32"))]
     let mut render_cx = render_cx;
@@ -648,7 +645,8 @@ fn store_profiling(
 }
 
 fn create_window(event_loop: &winit::event_loop::EventLoopWindowTarget<UserEvent>) -> Arc<Window> {
-    use winit::{dpi::LogicalSize, window::WindowBuilder};
+    use winit::dpi::LogicalSize;
+    use winit::window::WindowBuilder;
     Arc::new(
         WindowBuilder::new()
             .with_inner_size(LogicalSize::new(1044, 800))

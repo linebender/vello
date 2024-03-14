@@ -15,6 +15,7 @@ mod clip_reduce;
 mod coarse;
 mod draw_leaf;
 mod draw_reduce;
+mod euler;
 mod fine;
 mod flatten;
 mod path_count;

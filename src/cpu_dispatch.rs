@@ -6,10 +6,8 @@
 //! Note that while this CPU implementation is useful for testing and debugging,
 //! a full CPU fallback for targets without wgpu hasn't been implemented yet.
 
-use std::{
-    cell::{Ref, RefCell, RefMut},
-    ops::{Deref, DerefMut},
-};
+use std::cell::{Ref, RefCell, RefMut};
+use std::ops::{Deref, DerefMut};
 
 use bytemuck::Pod;
 

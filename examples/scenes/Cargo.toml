@@ -6,6 +6,9 @@ license.workspace = true
 repository.workspace = true
 publish = false
 
+[lints]
+workspace = true
+
 [dependencies]
 vello = { path = "../../" }
 vello_svg = { path = "../../integrations/vello_svg" }
@@ -18,7 +21,7 @@ instant = { workspace = true }
 # Used for the `download` command
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 byte-unit = "4.0.19"
-dialoguer = "0.10.4"
+inquire = "0.7.0"
 ureq = "2.9.6"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

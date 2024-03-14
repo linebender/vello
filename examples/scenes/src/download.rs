@@ -1,10 +1,8 @@
 // Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use std::{
-    io::Seek,
-    path::{Path, PathBuf},
-};
+use std::io::Seek;
+use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 use byte_unit::Byte;
@@ -74,10 +72,7 @@ impl Download {
                     // For rustfmt, split prompt into its own line
                     const PROMPT: &str =
                 "Would you like to download a set of default svg files, as explained above?";
-                    accepted = dialoguer::Confirm::new()
-                        .with_prompt(PROMPT)
-                        .wait_for_newline(true)
-                        .interact()?;
+                    accepted = inquire::Confirm::new(PROMPT).with_default(false).prompt()?;
                 } else {
                     println!("Nothing to download! All default downloads already created");
                 }
@@ -101,11 +96,9 @@ impl Download {
                     let cont = if self.auto {
                         false
                     } else {
-                        dialoguer::Confirm::new()
-                            .with_prompt("Would you like to try other downloads?")
-                            .wait_for_newline(true)
-                            .default(false)
-                            .interact()?
+                        inquire::Confirm::new("Would you like to try other downloads?")
+                            .with_default(false)
+                            .prompt()?
                     };
                     if !cont {
                         println!("{} downloads complete", completed_count);

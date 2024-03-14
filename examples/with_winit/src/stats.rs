@@ -3,11 +3,9 @@
 
 use scenes::SimpleText;
 use std::collections::VecDeque;
-use vello::{
-    kurbo::{Affine, PathEl, Rect, Stroke},
-    peniko::{Brush, Color, Fill},
-    AaConfig, BumpAllocators, Scene,
-};
+use vello::kurbo::{Affine, PathEl, Rect, Stroke};
+use vello::peniko::{Brush, Color, Fill};
+use vello::{AaConfig, BumpAllocators, Scene};
 
 const SLIDING_WINDOW_SIZE: usize = 100;
 

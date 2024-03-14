@@ -3,10 +3,8 @@
 
 use super::{DrawColor, DrawTag, PathEncoder, PathTag, Style, Transform};
 
-use peniko::{
-    kurbo::{Shape, Stroke},
-    BlendMode, BrushRef, Fill,
-};
+use peniko::kurbo::{Shape, Stroke};
+use peniko::{BlendMode, BrushRef, Fill};
 
 #[cfg(feature = "full")]
 use {

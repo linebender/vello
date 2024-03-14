@@ -1,14 +1,13 @@
 // Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use std::{
-    fs::read_dir,
-    path::{Path, PathBuf},
-};
+use std::fs::read_dir;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Ok, Result};
 use instant::Instant;
-use vello::{kurbo::Vec2, Scene};
+use vello::kurbo::Vec2;
+use vello::Scene;
 use vello_svg::usvg;
 use vello_svg::usvg::TreeParsing;
 

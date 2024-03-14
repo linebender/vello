@@ -5,11 +5,11 @@ use std::collections::HashMap;
 
 use super::{Encoding, StreamOffsets};
 
-use peniko::{
-    kurbo::{BezPath, Shape},
-    Fill, Style,
-};
-use skrifa::{instance::NormalizedCoord, outline::OutlinePen, GlyphId, OutlineGlyphCollection};
+use peniko::kurbo::{BezPath, Shape};
+use peniko::{Fill, Style};
+use skrifa::instance::NormalizedCoord;
+use skrifa::outline::OutlinePen;
+use skrifa::{GlyphId, OutlineGlyphCollection};
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Default, Debug)]
 pub struct GlyphKey {
@@ -49,6 +49,9 @@ impl GlyphCache {
                 Style::Fill(fill) => *fill,
                 Style::Stroke(_) => Fill::NonZero,
             };
+            // Make sure each glyph gets encoded with a style.
+            // TODO: can probably optimize by setting style per run
+            encoding_cache.force_next_transform_and_style();
             encoding_cache.encode_fill_style(fill);
             let mut path = encoding_cache.encode_path(true);
             let outline = outlines.get(GlyphId::new(key.glyph_id as u16))?;
