@@ -214,10 +214,9 @@ jobs:
 
   doc:
     name: cargo doc
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [windows-latest, macos-14, ubuntu-latest]
+    # NOTE: We don't have any platform specific docs in this workspace, so we only run on Ubuntu.
+    #       If we get per-platform docs (win/macos/linux/wasm32/..) then doc jobs should match that.
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
