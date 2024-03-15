@@ -84,7 +84,7 @@ const DERIV_THRESH_SQUARED: f32 = DERIV_THRESH * DERIV_THRESH;
 /// Compute cubic parameters from endpoints and derivatives.
 fn cubic_from_points_derivs(p0: vec2f, p1: vec2f, q0: vec2f, q1: vec2f, dt: f32) -> CubicParams {
     let chord = p1 - p0;
-    let scale = dt / dot(chord, chord);
+    let scale = dt / max(dot(chord, chord), TANGENT_THRESH);
     let h0 = vec2(q0.x * chord.x + q0.y * chord.y, q0.y * chord.x - q0.x * chord.y);
     var th0 = 0.0;
     var d0 = length(h0);
@@ -217,7 +217,7 @@ fn es_seg_from_params(p0: vec2f, p1: vec2f, params: EulerParams) -> EulerSeg {
 
 fn es_seg_eval_with_offset(es: EulerSeg, t: f32, offset: f32) -> vec2f {
     let chord = es.p1 - es.p0;
-    let scaled = offset / length(chord);
+    let scaled = offset / max(length(chord), TANGENT_THRESH);
     let xy = es_params_eval_with_offset(es.params, t, scaled);
     return es.p0 + vec2f(chord.x * xy.x - chord.y * xy.y, chord.x * xy.y + chord.y * xy.x);
 }
