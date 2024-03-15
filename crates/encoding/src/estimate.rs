@@ -4,8 +4,8 @@
 //! This utility provides conservative size estimation for buffer allocations backing
 //! GPU bump memory. This estimate relies on heuristics and naturally overestimates.
 
-use super::{BufferSize, BumpAllocatorMemory, Transform};
-use peniko::kurbo::{Cap, Join, PathEl, Stroke, Vec2};
+use super::{BumpAllocatorMemory, BumpAllocators, Transform};
+use peniko::kurbo::{Cap, Join, PathEl, Point, Stroke, Vec2};
 
 const RSQRT_OF_TOL: f64 = 2.2360679775; // tol = 0.2
 
@@ -14,8 +14,24 @@ pub struct BumpEstimator {
     // TODO: support binning
     // TODO: support ptcl
     // TODO: support tile
-    // TODO: support segment counts
-    // TODO: support segments
+
+    // NOTE: The segment count estimation could use further refinement, particularly to handle
+    // viewport clipping and rotation applied to fragments during append. We can produce a more
+    // optimal result under scale and rotation if we track more data for each shape during insertion
+    // and defer the final tally to resolve-time (in which we could evaluate the estimates using
+    // precisely transformed coordinates). For now we apply a fudge factor of sqrt(2) and inflate
+    // the number of tile crossing (a near~diagonal line orientation would result in worst case for
+    // the number of intersected tiles) to account for this.
+    //
+    // Accounting for viewport clipping (for the right and bottom edges of the viewport) is simply
+    // impossible at insertion time as the render target dimensions are unknown. We could
+    // potentially account for clipping (including clip shapes/layers) by tracking bounding boxes
+    // during insertion and resolving all clips at tally time (e.g. one could come up with a
+    // heuristic for scaling the counts based on the proportions of a clipped bbox area).
+    //
+    // Since we currently don't account for clipping, this will always overshoot when clips are
+    // present and when the bounding box of a shape is partially or wholly outside the viewport.
+    segments: u32,
     lines: LineSoup,
 }
 
@@ -30,7 +46,9 @@ impl BumpEstimator {
 
     /// Combine the counts of this estimator with `other` after applying an optional `transform`.
     pub fn append(&mut self, other: &Self, transform: Option<&Transform>) {
-        self.lines.add(&other.lines, transform_scale(transform));
+        let scale = transform_scale(transform);
+        self.segments += (other.segments as f32 * scale).ceil() as u32;
+        self.lines.add(&other.lines, scale);
     }
 
     pub fn count_path(
@@ -45,6 +63,7 @@ impl BumpEstimator {
         let mut fill_close_lines = 1;
         let mut curve_lines = 0;
         let mut curve_count = 0;
+        let mut segments = 0;
 
         // Track the path state to correctly count empty paths and close joins.
         let mut first_pt = None;
@@ -58,13 +77,15 @@ impl BumpEstimator {
                     }
                     caps += 1;
                     joins = joins.saturating_sub(1);
-                    last_pt = None;
                     fill_close_lines += 1;
+                    segments += count_segments_for_line(first_pt.unwrap(), last_pt.unwrap(), t);
+                    last_pt = None;
                 }
                 PathEl::ClosePath => {
                     if last_pt.is_some() {
                         joins += 1;
                         lineto_lines += 1;
+                        segments += count_segments_for_line(first_pt.unwrap(), last_pt.unwrap(), t);
                     }
                     last_pt = first_pt;
                 }
@@ -72,39 +93,54 @@ impl BumpEstimator {
                     last_pt = Some(p0);
                     joins += 1;
                     lineto_lines += 1;
+                    segments += count_segments_for_line(first_pt.unwrap(), last_pt.unwrap(), t);
                 }
                 PathEl::QuadTo(p1, p2) => {
                     let Some(p0) = last_pt.or(first_pt) else {
                         continue;
                     };
-                    curve_count += 1;
-                    curve_lines +=
-                        wang::quadratic(RSQRT_OF_TOL, p0.to_vec2(), p1.to_vec2(), p2.to_vec2(), t);
                     last_pt = Some(p2);
+
+                    let p0 = p0.to_vec2();
+                    let p1 = p1.to_vec2();
+                    let p2 = p2.to_vec2();
+                    let lines = wang::quadratic(RSQRT_OF_TOL, p0, p1, p2, t);
+
+                    curve_lines += lines;
+                    curve_count += 1;
                     joins += 1;
+                    segments += count_segments_for_quadratic(p0, p1, p2, t).max(lines);
                 }
                 PathEl::CurveTo(p1, p2, p3) => {
                     let Some(p0) = last_pt.or(first_pt) else {
                         continue;
                     };
-                    curve_count += 1;
-                    curve_lines += wang::cubic(
-                        RSQRT_OF_TOL,
-                        p0.to_vec2(),
-                        p1.to_vec2(),
-                        p2.to_vec2(),
-                        p3.to_vec2(),
-                        t,
-                    );
                     last_pt = Some(p3);
+
+                    let p0 = p0.to_vec2();
+                    let p1 = p1.to_vec2();
+                    let p2 = p2.to_vec2();
+                    let p3 = p3.to_vec2();
+                    let lines = wang::cubic(RSQRT_OF_TOL, p0, p1, p2, p3, t);
+
+                    curve_lines += lines;
+                    curve_count += 1;
                     joins += 1;
+                    segments += count_segments_for_cubic(p0, p1, p2, p3, t).max(lines);
                 }
             }
         }
+
         let Some(style) = stroke else {
             self.lines.linetos += lineto_lines + fill_close_lines;
             self.lines.curves += curve_lines;
             self.lines.curve_count += curve_count;
+            self.segments += segments;
+
+            // Account for the implicit close
+            if let (Some(first_pt), Some(last_pt)) = (first_pt, last_pt) {
+                self.segments += count_segments_for_line(first_pt, last_pt, t);
+            }
             return;
         };
 
@@ -112,69 +148,90 @@ impl BumpEstimator {
         self.lines.linetos += 2 * lineto_lines;
         self.lines.curves += 2 * curve_lines;
         self.lines.curve_count += 2 * curve_count;
+        self.segments += 2 * segments;
 
-        let round_scale = transform_scale(Some(t));
-        let width = style.width as f32;
-        self.count_stroke_caps(style.start_cap, width, caps, round_scale);
-        self.count_stroke_caps(style.end_cap, width, caps, round_scale);
-        self.count_stroke_joins(style.join, width, joins, round_scale);
+        let scale = transform_scale(Some(t));
+        let scaled_width = style.width as f32 * scale;
+        self.count_stroke_caps(style.start_cap, scaled_width, caps);
+        self.count_stroke_caps(style.end_cap, scaled_width, caps);
+        self.count_stroke_joins(style.join, scaled_width, style.miter_limit as f32, joins);
     }
 
     /// Produce the final total, applying an optional transform to all content.
     pub fn tally(&self, transform: Option<&Transform>) -> BumpAllocatorMemory {
         let scale = transform_scale(transform);
-        let binning = BufferSize::new(0);
-        let ptcl = BufferSize::new(0);
-        let tile = BufferSize::new(0);
-        let seg_counts = BufferSize::new(0);
-        let segments = BufferSize::new(0);
-        let lines = BufferSize::new(self.lines.tally(scale));
-        BumpAllocatorMemory {
-            total: binning.size_in_bytes()
-                + ptcl.size_in_bytes()
-                + tile.size_in_bytes()
-                + seg_counts.size_in_bytes()
-                + lines.size_in_bytes(),
-            binning,
-            ptcl,
-            tile,
-            seg_counts,
-            segments,
+
+        // The post-flatten line estimate.
+        let lines = self.lines.tally(scale);
+
+        // The estimate for tile crossings for lines. Here we ensure that there are at least as many
+        // segments as there are lines, in case `segments` was underestimated at small scales.
+        let n_segments = ((self.segments as f32 * scale).ceil() as u32).max(lines);
+
+        let bump = BumpAllocators {
+            failed: 0,
+            // TODO: we can provide a tighter bound here but for now we
+            // assume that binning must be bounded by the segment count.
+            binning: n_segments,
+            ptcl: 0,
+            tile: 0,
+            blend: 0,
+            seg_counts: n_segments,
+            segments: n_segments,
             lines,
-        }
+        };
+        bump.memory()
     }
 
-    fn count_stroke_caps(&mut self, style: Cap, width: f32, count: u32, scale: f32) {
+    fn count_stroke_caps(&mut self, style: Cap, scaled_width: f32, count: u32) {
         match style {
-            Cap::Butt => self.lines.linetos += count,
-            Cap::Square => self.lines.linetos += 3 * count,
+            Cap::Butt => {
+                self.lines.linetos += count;
+                self.segments += count_segments_for_line_length(scaled_width) * count;
+            }
+            Cap::Square => {
+                self.lines.linetos += 3 * count;
+                self.segments += count_segments_for_line_length(scaled_width) * count;
+                self.segments += 2 * count_segments_for_line_length(0.5 * scaled_width) * count;
+            }
             Cap::Round => {
-                self.lines.curves += count * estimate_arc_lines(width, scale);
+                let (arc_lines, line_len) = estimate_arc_lines(scaled_width);
+                self.lines.curves += count * arc_lines;
                 self.lines.curve_count += 1;
+                self.segments += count * arc_lines * count_segments_for_line_length(line_len);
             }
         }
     }
 
-    fn count_stroke_joins(&mut self, style: Join, width: f32, count: u32, scale: f32) {
+    fn count_stroke_joins(&mut self, style: Join, scaled_width: f32, miter_limit: f32, count: u32) {
         match style {
-            Join::Bevel => self.lines.linetos += count,
-            Join::Miter => self.lines.linetos += 2 * count,
+            Join::Bevel => {
+                self.lines.linetos += count;
+                self.segments += count_segments_for_line_length(scaled_width) * count;
+            }
+            Join::Miter => {
+                let max_miter_len = scaled_width * miter_limit;
+                self.lines.linetos += 2 * count_segments_for_line_length(max_miter_len) * count;
+            }
             Join::Round => {
-                self.lines.curves += count * estimate_arc_lines(width, scale);
+                let (arc_lines, line_len) = estimate_arc_lines(scaled_width);
+                self.lines.curves += count * arc_lines;
                 self.lines.curve_count += 1;
+                self.segments += count * arc_lines * count_segments_for_line_length(line_len);
             }
         }
     }
 }
 
-fn estimate_arc_lines(stroke_width: f32, scale: f32) -> u32 {
+fn estimate_arc_lines(scaled_stroke_width: f32) -> (u32, f32) {
     // These constants need to be kept consistent with the definitions in `flatten_arc` in
     // flatten.wgsl.
     const MIN_THETA: f32 = 1e-4;
     const TOL: f32 = 0.1;
-    let radius = TOL.max(scale * stroke_width * 0.5);
+    let radius = TOL.max(scaled_stroke_width * 0.5);
     let theta = (2. * (1. - TOL / radius).acos()).max(MIN_THETA);
-    ((std::f32::consts::FRAC_PI_2 / theta).ceil() as u32).max(1)
+    let arc_lines = ((std::f32::consts::FRAC_PI_2 / theta).ceil() as u32).max(2);
+    (arc_lines, 2. * theta.sin() * radius)
 }
 
 #[derive(Clone, Default)]
@@ -185,7 +242,7 @@ struct LineSoup {
     curves: u32,
 
     // Curve count is simply used to ensure a minimum number of lines get counted for each curve
-    // at very small scales to reduce the chance of under-allocating.
+    // at very small scales to reduce the chances of an under-estimate.
     curve_count: u32,
 }
 
@@ -229,6 +286,40 @@ fn transform_scale(t: Option<&Transform>) -> f32 {
         }
         None => 1.,
     }
+}
+
+fn approx_arc_length_cubic(p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2) -> f64 {
+    let chord_len = (p3 - p0).length();
+    // Length of the control polygon
+    let poly_len = (p1 - p0).length() + (p2 - p1).length() + (p3 - p2).length();
+    0.5 * (chord_len + poly_len)
+}
+
+fn count_segments_for_cubic(p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2, t: &Transform) -> u32 {
+    let p0 = transform(t, p0);
+    let p1 = transform(t, p1);
+    let p2 = transform(t, p2);
+    let p3 = transform(t, p3);
+    (approx_arc_length_cubic(p0, p1, p2, p3) * 0.0625 * std::f64::consts::SQRT_2).ceil() as u32
+}
+
+fn count_segments_for_quadratic(p0: Vec2, p1: Vec2, p2: Vec2, t: &Transform) -> u32 {
+    count_segments_for_cubic(p0, p1.lerp(p0, 0.333333), p1.lerp(p2, 0.333333), p2, t)
+}
+
+// Estimate tile crossings for a line with known endpoints.
+fn count_segments_for_line(p0: Point, p1: Point, t: &Transform) -> u32 {
+    let dxdy = p0 - p1;
+    let dxdy = transform(t, dxdy);
+    let segments = (dxdy.x.abs().ceil() * 0.0625).ceil() + (dxdy.y.abs().ceil() * 0.0625).ceil();
+    (segments as u32).max(1)
+}
+
+// Estimate tile crossings for a line with a known length.
+fn count_segments_for_line_length(scaled_width: f32) -> u32 {
+    // scale the tile count by sqrt(2) to allow some slack for diagonal lines.
+    // TODO: Would "2" be a better factor?
+    ((scaled_width * 0.0625 * std::f32::consts::SQRT_2).ceil() as u32).max(1)
 }
 
 /// Wang's Formula (as described in Pyramid Algorithms by Ron Goldman, 2003, Chapter 5, Section
