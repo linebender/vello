@@ -9,25 +9,25 @@
 use super::util::Vec2;
 use std::f32::consts::FRAC_PI_4;
 
+// Threshold for tangents to be considered near zero length
+pub const TANGENT_THRESH: f32 = 1e-6;
+
 /// This struct contains parameters derived from a cubic Bézier for the
 /// purpose of fitting a G1 continuous Euler spiral segment and estimating
 /// the Fréchet distance.
 ///
 /// The tangent angles represent deviation from the chord, so that when they
 /// are equal, the corresponding Euler spiral is a circular arc.
-///
-/// Similar, the control point distances are normalized to a chord, so that
-/// for small angles values near 1/3 represent a smooth curve.
 #[derive(Debug)]
 pub struct CubicParams {
     /// Tangent angle relative to chord at start.
     pub th0: f32,
     /// Tangent angle relative to chord at end.
     pub th1: f32,
-    /// Distance of first control point.
-    pub d0: f32,
-    /// Distance of second control point.
-    pub d1: f32,
+    /// The effective chord length, always a robustly nonzero value.
+    pub chord_len: f32,
+    /// The estimated error between the source cubic and the proposed Euler spiral.
+    pub err: f32,
 }
 
 #[derive(Debug)]
@@ -49,13 +49,39 @@ pub struct EulerSeg {
 impl CubicParams {
     /// Compute parameters from endpoints and derivatives.
     ///
-    /// Robustness note: this function must be protected from being called when the
-    /// chord is near zero.
+    /// This function is designed to be robust across a wide range of inputs. In
+    /// particular, it splits between near-zero chord length and the happy path.
+    /// In the former case, the parameters for the Euler spiral would not be valid,
+    /// so it proposes a straight line and computes a pretty good (conservative)
+    /// estimate of the Fréchet distance between that line and the source cubic.
+    ///
+    /// Computing an accurate estimate here fixes two tricky cases: very short
+    /// lines, in which the error will be below threshold and the flatten logic will
+    /// output a single line segment without subdividing, and loop cases with a
+    /// short chord, in which case the error will exceed the threshold, and the
+    /// chords of the subdivided pieces will be longer.
+    ///
+    /// An additional case is the near-cusp where the proposed Euler spiral has
+    /// a 180 degree U-turn (or, more generally, one angle exceeds 90 degrees and
+    /// the other does not). In that case, the resulting Euler spiral is quite
+    /// well defined (with finite curvature, so that its offset will generate a
+    /// near-semicircle, preserving G1 continuity), but the analytic error
+    /// calculation would be a huge overestimate. In that case, we just return
+    /// a rough estimate of the distance between the chord and the spiral segment.
     pub fn from_points_derivs(p0: Vec2, p1: Vec2, q0: Vec2, q1: Vec2, dt: f32) -> Self {
         let chord = p1 - p0;
-        let length_squared = chord.length_squared();
-        assert_ne!(length_squared, 0.0);
-        let scale = dt / length_squared;
+        let chord_squared = chord.length_squared();
+        let chord_len = chord_squared.sqrt();
+        if chord_squared < TANGENT_THRESH.powi(2) {
+            let chord_err = ((9. / 32.0) * (q0.length_squared() + q1.length_squared())).sqrt() * dt;
+            return CubicParams {
+                th0: 0.0,
+                th1: 0.0,
+                chord_len: TANGENT_THRESH,
+                err: chord_err,
+            };
+        }
+        let scale = dt / chord_squared;
         let h0 = Vec2::new(
             q0.x * chord.x + q0.y * chord.y,
             q0.y * chord.x - q0.x * chord.y,
@@ -70,64 +96,61 @@ impl CubicParams {
         let d1 = h1.length() * scale;
         // Robustness note: we may want to clamp the magnitude of the angles to
         // a bit less than pi. Perhaps here, perhaps downstream.
-        CubicParams { th0, th1, d0, d1 }
-    }
 
-    // Estimated error of GH to Euler spiral
-    //
-    // Return value is normalized to chord - to get actual error, multiply
-    // by chord.
-    pub fn est_euler_err(&self) -> f32 {
-        // Potential optimization: work with unit vector rather than angle
-        let cth0 = self.th0.cos();
-        let cth1 = self.th1.cos();
-        if cth0 * cth1 < 0.0 {
-            // Rationale: this happens when fitting a cusp or near-cusp with
-            // a near 180 degree u-turn. The actual ES is bounded in that case.
-            // Further subdivision won't reduce the angles if actually a cusp.
-            //
+        // Estimate error of geometric Hermite interpolation to Euler spiral.
+        let cth0 = th0.cos();
+        let cth1 = th1.cos();
+        let mut err = if cth0 * cth1 < 0.0 {
             // A value of 2.0 represents the approximate worst case distance
             // from an Euler spiral with 0 and pi tangents to the chord. It
             // is not very critical; doubling the value would result in one more
             // subdivision in effectively a binary search for the cusp, while too
             // small a value may result in the actual error exceeding the bound.
-            return 2.0;
+            2.0
+        } else {
+            // Protect against divide-by-zero. This happens with a double cusp, so
+            // should in the general case cause subdivisions.
+            let e0 = (2. / 3.) / (1.0 + cth0).max(1e-9);
+            let e1 = (2. / 3.) / (1.0 + cth1).max(1e-9);
+            let s0 = th0.sin();
+            let s1 = th1.sin();
+            // Note: some other versions take sin of s0 + s1 instead. Those are incorrect.
+            // Strangely, calibration is the same, but more work could be done.
+            let s01 = cth0 * s1 + cth1 * s0;
+            let amin = 0.15 * (2. * e0 * s0 + 2. * e1 * s1 - e0 * e1 * s01);
+            let a = 0.15 * (2. * d0 * s0 + 2. * d1 * s1 - d0 * d1 * s01);
+            let aerr = (a - amin).abs();
+            let symm = (th0 + th1).abs();
+            let asymm = (th0 - th1).abs();
+            let dist = (d0 - e0).hypot(d1 - e1);
+            let ctr = 4.625e-6 * symm.powi(5) + 7.5e-3 * asymm * symm.powi(2);
+            let halo_symm = 5e-3 * symm * dist;
+            let halo_asymm = 7e-2 * asymm * dist;
+            /*
+            println!("    e0: {e0}");
+            println!("    e1: {e1}");
+            println!("    s0: {s0}");
+            println!("    s1: {s1}");
+            println!("    s01: {s01}");
+            println!("    amin: {amin}");
+            println!("    a: {a}");
+            println!("    aerr: {aerr}");
+            println!("    symm: {symm}");
+            println!("    asymm: {asymm}");
+            println!("    dist: {dist}");
+            println!("    ctr: {ctr}");
+            println!("    halo_symm: {halo_symm}");
+            println!("    halo_asymm: {halo_asymm}");
+            */
+            ctr + 1.55 * aerr + halo_symm + halo_asymm
+        };
+        err *= chord_len;
+        CubicParams {
+            th0,
+            th1,
+            chord_len,
+            err,
         }
-        // Protect against divide-by-zero. This happens with a double cusp, so
-        // should in the general case cause subdivisions.
-        let e0 = (2. / 3.) / (1.0 + cth0).max(1e-9);
-        let e1 = (2. / 3.) / (1.0 + cth1).max(1e-9);
-        let s0 = self.th0.sin();
-        let s1 = self.th1.sin();
-        // Note: some other versions take sin of s0 + s1 instead. Those are incorrect.
-        // Strangely, calibration is the same, but more work could be done.
-        let s01 = cth0 * s1 + cth1 * s0;
-        let amin = 0.15 * (2. * e0 * s0 + 2. * e1 * s1 - e0 * e1 * s01);
-        let a = 0.15 * (2. * self.d0 * s0 + 2. * self.d1 * s1 - self.d0 * self.d1 * s01);
-        let aerr = (a - amin).abs();
-        let symm = (self.th0 + self.th1).abs();
-        let asymm = (self.th0 - self.th1).abs();
-        let dist = (self.d0 - e0).hypot(self.d1 - e1);
-        let ctr = 4.625e-6 * symm.powi(5) + 7.5e-3 * asymm * symm.powi(2);
-        let halo_symm = 5e-3 * symm * dist;
-        let halo_asymm = 7e-2 * asymm * dist;
-        /*
-        println!("    e0: {e0}");
-        println!("    e1: {e1}");
-        println!("    s0: {s0}");
-        println!("    s1: {s1}");
-        println!("    s01: {s01}");
-        println!("    amin: {amin}");
-        println!("    a: {a}");
-        println!("    aerr: {aerr}");
-        println!("    symm: {symm}");
-        println!("    asymm: {asymm}");
-        println!("    dist: {dist}");
-        println!("    ctr: {ctr}");
-        println!("    halo_symm: {halo_symm}");
-        println!("    halo_asymm: {halo_asymm}");
-        */
-        ctr + 1.55 * aerr + halo_symm + halo_asymm
     }
 }
 
@@ -204,10 +227,10 @@ impl EulerSeg {
         )
     }
 
+    // Note: offset provided is scaled so that 1 = chord length
     pub fn eval_with_offset(&self, t: f32, offset: f32) -> Vec2 {
         let chord = self.p1 - self.p0;
-        let scaled = offset / chord.length();
-        let Vec2 { x, y } = self.params.eval_with_offset(t, scaled);
+        let Vec2 { x, y } = self.params.eval_with_offset(t, offset);
         Vec2::new(
             self.p0.x + chord.x * x - chord.y * y,
             self.p0.y + chord.x * y + chord.y * x,
