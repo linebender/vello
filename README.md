@@ -229,7 +229,7 @@ For example (with unix shell environment variable syntax):
 VELLO_STATIC_LOG="vello=trace" VELLO_STATIC_ARGS="--test-scenes" cargo apk run -p with_winit --lib
 ```
 
-## Minimum supported Rust Version
+## Minimum supported Rust Version (MSRV)
 
 This version of Vello has been verified to compile with Rust 1.75 and later.
 

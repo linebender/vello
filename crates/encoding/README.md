@@ -2,7 +2,7 @@
 
 This package contains types that represent data that [Vello] can render.
 
-## Minimum supported Rust Version
+## Minimum supported Rust Version (MSRV)
 
 This version of Vello Encoding has been verified to compile with Rust 1.75 and later.
 

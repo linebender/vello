@@ -6,7 +6,7 @@ It provides the necessary metadata to construct the individual compute pipelines
 The shaders can be pre-compiled to any target shading language at build time based on feature flags.
 Currently only WGSL and Metal Shading Language are supported.
 
-## Minimum supported Rust Version
+## Minimum supported Rust Version (MSRV)
 
 This version of Vello Shaders has been verified to compile with Rust 1.75 and later.
 
