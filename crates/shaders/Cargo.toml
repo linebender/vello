@@ -34,10 +34,9 @@ msl = []
 workspace = true
 
 [dependencies]
-naga = { version = "0.19", features = ["wgsl-in", "msl-out",], optional = true }
-thiserror = { version = "1.0.57", optional = true }
+naga = { version = "0.19.2", features = ["wgsl-in", "msl-out",], optional = true }
+thiserror = { version = "1.0.58", optional = true }
 
 [build-dependencies]
-naga = { version = "0.19",  features = ["wgsl-in", "msl-out",] }
-thiserror = "1.0.57"
-
+naga = { version = "0.19.2",  features = ["wgsl-in", "msl-out",] }
+thiserror = "1.0.58"
