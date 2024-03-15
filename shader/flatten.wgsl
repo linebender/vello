@@ -78,13 +78,25 @@ struct EulerSeg {
 
 // Threshold below which a derivative is considered too small.
 const DERIV_THRESH: f32 = 1e-6;
-const DERIV_THRESH_SQUARED: f32 = DERIV_THRESH * DERIV_THRESH;
 // Amount to nudge t when derivative is near-zero.
+const DERIV_EPS: f32 = 1e-6;
+// Limit for subdivision of cubic Béziers.
+const SUBDIV_LIMIT: f32 = 1.0 / 65536.0;
+// Robust ESPC computation: below this value, treat curve as circular arc
+const K1_THRESH: f32 = 1e-3;
+// Robust ESPC: below this value, evaluate ES rather than parallel curve
+const DIST_THRESH: f32 = 1e-3;
+// Threshold for tangents to be considered near zero length
+const TANGENT_THRESH: f32 = 1e-6;
+
+const DERIV_THRESH_SQUARED: f32 = DERIV_THRESH * DERIV_THRESH;
+const TANGENT_THRESH_SQUARED: f32 = TANGENT_THRESH * TANGENT_THRESH;
+
 
 /// Compute cubic parameters from endpoints and derivatives.
 fn cubic_from_points_derivs(p0: vec2f, p1: vec2f, q0: vec2f, q1: vec2f, dt: f32) -> CubicParams {
     let chord = p1 - p0;
-    let scale = dt / max(dot(chord, chord), TANGENT_THRESH * TANGENT_THRESH);
+    let scale = dt / max(dot(chord, chord), TANGENT_THRESH_SQUARED);
     let h0 = vec2(q0.x * chord.x + q0.y * chord.y, q0.y * chord.x - q0.x * chord.y);
     var th0 = 0.0;
     var d0 = length(h0);
@@ -319,16 +331,6 @@ fn cubic_end_normal(p0: vec2f, p1: vec2f, p2: vec2f, p3: vec2f) -> vec2f {
 const ESPC_ROBUST_NORMAL = 0;
 const ESPC_ROBUST_LOW_K1 = 1;
 const ESPC_ROBUST_LOW_DIST = 2;
-
-const DERIV_EPS: f32 = 1e-6;
-// Limit for subdivision of cubic Béziers.
-const SUBDIV_LIMIT: f32 = 1.0 / 65536.0;
-// Robust ESPC computation: below this value, treat curve as circular arc
-const K1_THRESH: f32 = 1e-3;
-// Robust ESPC: below this value, evaluate ES rather than parallel curve
-const DIST_THRESH: f32 = 1e-3;
-// Threshold for tangents to be considered near zero length
-const TANGENT_THRESH: f32 = 1e-6;
 
 // This function flattens a cubic Bézier by first converting it into Euler spiral
 // segments, and then computes a near-optimal flattening of the parallel curves of
@@ -870,15 +872,15 @@ fn main(
                 // Read the neighboring segment.
                 let neighbor = read_neighboring_segment(ix + 1u);
                 var tan_start = cubic_start_tangent(pts.p0, pts.p1, pts.p2, pts.p3);
-                if dot(tan_start, tan_start) < TANGENT_THRESH * TANGENT_THRESH {
+                if dot(tan_start, tan_start) < TANGENT_THRESH_SQUARED {
                     tan_start = vec2(TANGENT_THRESH, 0.);
                 }
                 var tan_prev = cubic_end_tangent(pts.p0, pts.p1, pts.p2, pts.p3);
-                if dot(tan_prev, tan_prev) < TANGENT_THRESH * TANGENT_THRESH {
+                if dot(tan_prev, tan_prev) < TANGENT_THRESH_SQUARED {
                     tan_prev = vec2(TANGENT_THRESH, 0.);
                 }
                 var tan_next = neighbor.tangent;
-                if dot(tan_next, tan_next) < TANGENT_THRESH * TANGENT_THRESH {
+                if dot(tan_next, tan_next) < TANGENT_THRESH_SQUARED {
                     tan_next = vec2(TANGENT_THRESH, 0.);
                 }
                 let n_start = offset * normalize(vec2(-tan_start.y, tan_start.x));
