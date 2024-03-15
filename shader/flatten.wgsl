@@ -58,8 +58,8 @@ fn approx_parabola_inv_integral(x: f32) -> f32 {
 struct CubicParams {
     th0: f32,
     th1: f32,
-    d0: f32,
-    d1: f32,
+    chord_len: f32,
+    err: f32,
 }
 
 struct EulerParams {
@@ -76,41 +76,60 @@ struct EulerSeg {
     params: EulerParams,
 }
 
+// Threshold below which a derivative is considered too small.
+const DERIV_THRESH: f32 = 1e-6;
+const DERIV_THRESH_SQUARED: f32 = DERIV_THRESH * DERIV_THRESH;
+// Amount to nudge t when derivative is near-zero.
+const DERIV_EPS: f32 = 1e-6;
+// Limit for subdivision of cubic Béziers.
+const SUBDIV_LIMIT: f32 = 1.0 / 65536.0;
+// Robust ESPC computation: below this value, treat curve as circular arc
+const K1_THRESH: f32 = 1e-3;
+// Robust ESPC: below this value, evaluate ES rather than parallel curve
+const DIST_THRESH: f32 = 1e-3;
+// Threshold for tangents to be considered near zero length
+const TANGENT_THRESH: f32 = 1e-6;
+
 /// Compute cubic parameters from endpoints and derivatives.
 fn cubic_from_points_derivs(p0: vec2f, p1: vec2f, q0: vec2f, q1: vec2f, dt: f32) -> CubicParams {
     let chord = p1 - p0;
-    let scale = dt / dot(chord, chord);
+    let chord_squared = dot(chord, chord);
+    let chord_len = sqrt(chord_squared);
+    if chord_squared < DERIV_THRESH_SQUARED {
+        let chord_err = sqrt((9. / 32.0) * (dot(q0, q0) + dot(q1, q1))) * dt;
+        return CubicParams(0.0, 0.0, DERIV_THRESH, chord_err);
+    }
+    let scale = dt / chord_squared;
     let h0 = vec2(q0.x * chord.x + q0.y * chord.y, q0.y * chord.x - q0.x * chord.y);
     let th0 = atan2(h0.y, h0.x);
     let d0 = length(h0) * scale;
     let h1 = vec2(q1.x * chord.x + q1.y * chord.y, q1.x * chord.y - q1.y * chord.x);
     let th1 = atan2(h1.y, h1.x);
     let d1 = length(h1) * scale;
-    return CubicParams(th0, th1, d0, d1);
-}
 
-// Estimate error of geometric Hermite interpolation to Euler spiral.
-fn est_euler_err(cparams: CubicParams) -> f32 {
-    let cth0 = cos(cparams.th0);
-    let cth1 = cos(cparams.th1);
-    if cth0 * cth1 < 0.0 {
-        return 2.0;
+    // Estimate error of geometric Hermite interpolation to Euler spiral.
+    let cth0 = cos(th0);
+    let cth1 = cos(th1);
+    var err = 2.0;
+    if cth0 * cth1 >= 0.0 {
+        let e0 = (2. / 3.) / max(1.0 + cth0, 1e-9);
+        let e1 = (2. / 3.) / max(1.0 + cth1, 1e-9);
+        let s0 = sin(th0);
+        let s1 = sin(th1);
+        let s01 = cth0 * s1 + cth1 * s0;
+        let amin = 0.15 * (2. * e0 * s0 + 2. * e1 * s1 - e0 * e1 * s01);
+        let a = 0.15 * (2. * d0 * s0 + 2. * d1 * s1 - d0 * d1 * s01);
+        let aerr = abs(a - amin);
+        let symm = abs(th0 + th1);
+        let asymm = abs(th0 - th1);
+        let dist = length(vec2(d0 - e0, d1 - e1));
+        let symm2 = symm * symm;
+        let ctr = (4.625e-6 * symm * symm2 + 7.5e-3 * asymm) * symm2;
+        let halo = (5e-3 * symm + 7e-2 * asymm) * dist;
+        err = ctr + 1.55 * aerr + halo;
     }
-    let e0 = (2. / 3.) / max(1.0 + cth0, 1e-9);
-    let e1 = (2. / 3.) / max(1.0 + cth1, 1e-9);
-    let s0 = sin(cparams.th0);
-    let s1 = sin(cparams.th1);
-    let s01 = cth0 * s1 + cth1 * s0;
-    let amin = 0.15 * (2. * e0 * s0 + 2. * e1 * s1 - e0 * e1 * s01);
-    let a = 0.15 * (2. * cparams.d0 * s0 + 2. * cparams.d1 * s1 - cparams.d0 * cparams.d1 * s01);
-    let aerr = abs(a - amin);
-    let symm = abs(cparams.th0 + cparams.th1);
-    let asymm = abs(cparams.th0 - cparams.th1);
-    let dist = length(vec2(cparams.d0 - e0, cparams.d1 - e1));
-    let symm2 = symm * symm;
-    let ctr = (4.625e-6 * symm * symm2 + 7.5e-3 * asymm) * symm2;
-    let halo = (5e-3 * symm + 7e-2 * asymm) * dist;
-    return ctr + 1.55 * aerr + halo;
+    err *= chord_len;
+    return CubicParams(th0, th1, chord_len, err);
 }
 
 fn es_params_from_angles(th0: f32, th1: f32) -> EulerParams {
@@ -198,10 +217,10 @@ fn es_seg_from_params(p0: vec2f, p1: vec2f, params: EulerParams) -> EulerSeg {
     return EulerSeg(p0, p1, params);
 }
 
-fn es_seg_eval_with_offset(es: EulerSeg, t: f32, offset: f32) -> vec2f {
+// Note: offset provided is scaled so that 1 = chord length
+fn es_seg_eval_with_offset(es: EulerSeg, t: f32, normalized_offset: f32) -> vec2f {
     let chord = es.p1 - es.p0;
-    let scaled = offset / length(chord);
-    let xy = es_params_eval_with_offset(es.params, t, scaled);
+    let xy = es_params_eval_with_offset(es.params, t, normalized_offset);
     return es.p0 + vec2f(chord.x * xy.x - chord.y * xy.y, chord.x * xy.y + chord.y * xy.x);
 }
 
@@ -303,20 +322,6 @@ const ESPC_ROBUST_NORMAL = 0;
 const ESPC_ROBUST_LOW_K1 = 1;
 const ESPC_ROBUST_LOW_DIST = 2;
 
-// Threshold below which a derivative is considered too small.
-const DERIV_THRESH: f32 = 1e-6;
-const DERIV_THRESH_SQUARED: f32 = DERIV_THRESH * DERIV_THRESH;
-// Amount to nudge t when derivative is near-zero.
-const DERIV_EPS: f32 = 1e-6;
-// Limit for subdivision of cubic Béziers.
-const SUBDIV_LIMIT: f32 = 1.0 / 65536.0;
-// Robust ESPC computation: below this value, treat curve as circular arc
-const K1_THRESH: f32 = 1e-3;
-// Robust ESPC: below this value, evaluate ES rather than parallel curve
-const DIST_THRESH: f32 = 1e-3;
-// Threshold for tangents to be considered near zero length
-const TANGENT_THRESH: f32 = 1e-6;
-
 // This function flattens a cubic Bézier by first converting it into Euler spiral
 // segments, and then computes a near-optimal flattening of the parallel curves of
 // the Euler spiral segments.
@@ -379,100 +384,89 @@ fn flatten_euler(
         if t0 == 1.0 {
             break;
         }
-        loop {
-            var t1 = t0 + dt;
-            let this_p0 = last_p;
-            let this_q0 = last_q;
-            var this_pq1 = eval_cubic_and_deriv(p0, p1, p2, p3, t1);
-            if dot(this_pq1.deriv, this_pq1.deriv) < DERIV_THRESH_SQUARED {
-                let new_pq1 = eval_cubic_and_deriv(p0, p1, p2, p3, t1 - DERIV_EPS);
-                this_pq1.deriv = new_pq1.deriv;
-                if t1 < 1.0 {
-                    this_pq1.point = new_pq1.point;
-                    t1 = t1 - DERIV_EPS;
-                }
+        var t1 = t0 + dt;
+        let this_p0 = last_p;
+        let this_q0 = last_q;
+        var this_pq1 = eval_cubic_and_deriv(p0, p1, p2, p3, t1);
+        if dot(this_pq1.deriv, this_pq1.deriv) < DERIV_THRESH_SQUARED {
+            let new_pq1 = eval_cubic_and_deriv(p0, p1, p2, p3, t1 - DERIV_EPS);
+            this_pq1.deriv = new_pq1.deriv;
+            if t1 < 1.0 {
+                this_pq1.point = new_pq1.point;
+                t1 = t1 - DERIV_EPS;
             }
-            let actual_dt = t1 - last_t;
-            let chord_len = length(this_pq1.point - this_p0);
-            // Subdivide the loop case when the chord is short, but don't subdivide when it is
-            // simply a very short segment.
-            if chord_len >= TANGENT_THRESH
-                || (dot(this_q0, this_q0) * actual_dt * actual_dt < DERIV_THRESH_SQUARED
-                    && dot(this_pq1.deriv, this_pq1.deriv) * actual_dt * actual_dt < DERIV_THRESH_SQUARED)
-            {
-                let cubic_params = cubic_from_points_derivs(this_p0, this_pq1.point, this_q0, this_pq1.deriv, actual_dt);
-                let est_err = est_euler_err(cubic_params);
-                let err = est_err * chord_len;
-                if err * scale <= tol || dt <= SUBDIV_LIMIT {
-                    t0_u += 1u;
-                    let shift = countTrailingZeros(t0_u);
-                    t0_u >>= shift;
-                    dt *= f32(1u << shift);
-                    let euler_params = es_params_from_angles(cubic_params.th0, cubic_params.th1);
-                    let es = es_seg_from_params(this_p0, this_pq1.point, euler_params);
-                    let k0 = es.params.k0 - 0.5 * es.params.k1;
-                    let k1 = es.params.k1;
-                    let dist_scaled = offset * es.params.ch / chord_len;
-                    let scale_multiplier = sqrt(0.125 * scale * chord_len / (es.params.ch * tol));
-                    var a = 0.0;
-                    var b = 0.0;
-                    var integral = 0.0;
-                    var int0 = 0.0;
-                    var n_frac: f32;
-                    var robust = ESPC_ROBUST_NORMAL;
-                    if abs(k1) < K1_THRESH {
-                        let k = es.params.k0;
-                        n_frac = sqrt(abs(k * (k * dist_scaled + 1.0)));
-                        robust = ESPC_ROBUST_LOW_K1;
-                    } else if abs(dist_scaled) < DIST_THRESH {
-                        a = k1;
-                        b = k0;
-                        int0 = pow_1_5_signed(b);
-                        let int1 = pow_1_5_signed(a + b);
-                        integral = int1 - int0;
-                        n_frac = (2. / 3.) * integral / a;
-                        robust = ESPC_ROBUST_LOW_DIST;
-                    } else {
-                        a = -2.0 * dist_scaled * k1;
-                        b = -1.0 - 2.0 * dist_scaled * k0;
-                        int0 = espc_int_approx(b);
-                        let int1 = espc_int_approx(a + b);
-                        integral = int1 - int0;
-                        let k_peak = k0 - k1 * b / a;
-                        let integrand_peak = sqrt(abs(k_peak * (k_peak * dist_scaled + 1.0)));
-                        n_frac = integral * integrand_peak / a;
-                    }
-                    let n = max(ceil(n_frac * scale_multiplier), 1.0);
-                    for (var i = 0u; i < u32(n); i++) {
-                        var lp1: vec2f;
-                        if i + 1u == u32(n) && t1 == 1.0 {
-                            lp1 = t_end;
+        }
+        let actual_dt = t1 - last_t;
+        let cubic_params = cubic_from_points_derivs(this_p0, this_pq1.point, this_q0, this_pq1.deriv, actual_dt);
+        if cubic_params.err * scale <= tol || dt <= SUBDIV_LIMIT {
+            let euler_params = es_params_from_angles(cubic_params.th0, cubic_params.th1);
+            let es = es_seg_from_params(this_p0, this_pq1.point, euler_params);
+            let k0 = es.params.k0 - 0.5 * es.params.k1;
+            let k1 = es.params.k1;
+            let normalized_offset = offset / cubic_params.chord_len;
+            let dist_scaled = normalized_offset * es.params.ch;
+            let scale_multiplier = sqrt(0.125 * scale * cubic_params.chord_len / (es.params.ch * tol));
+            var a = 0.0;
+            var b = 0.0;
+            var integral = 0.0;
+            var int0 = 0.0;
+            var n_frac: f32;
+            var robust = ESPC_ROBUST_NORMAL;
+            if abs(k1) < K1_THRESH {
+                let k = es.params.k0;
+                n_frac = sqrt(abs(k * (k * dist_scaled + 1.0)));
+                robust = ESPC_ROBUST_LOW_K1;
+            } else if abs(dist_scaled) < DIST_THRESH {
+                a = k1;
+                b = k0;
+                int0 = pow_1_5_signed(b);
+                let int1 = pow_1_5_signed(a + b);
+                integral = int1 - int0;
+                n_frac = (2. / 3.) * integral / a;
+                robust = ESPC_ROBUST_LOW_DIST;
+            } else {
+                a = -2.0 * dist_scaled * k1;
+                b = -1.0 - 2.0 * dist_scaled * k0;
+                int0 = espc_int_approx(b);
+                let int1 = espc_int_approx(a + b);
+                integral = int1 - int0;
+                let k_peak = k0 - k1 * b / a;
+                let integrand_peak = sqrt(abs(k_peak * (k_peak * dist_scaled + 1.0)));
+                n_frac = integral * integrand_peak / a;
+            }
+            let n = max(ceil(n_frac * scale_multiplier), 1.0);
+            for (var i = 0u; i < u32(n); i++) {
+                var lp1: vec2f;
+                if i + 1u == u32(n) && t1 == 1.0 {
+                    lp1 = t_end;
+                } else {
+                    let t = f32(i + 1u) / n;
+                    var s = t;
+                    if robust != ESPC_ROBUST_LOW_K1 {
+                        let u = integral * t + int0;
+                        var inv: f32;
+                        if robust == ESPC_ROBUST_LOW_DIST {
+                            inv = pow(abs(u), 2. / 3.) * sign(u);
                         } else {
-                            let t = f32(i + 1u) / n;
-                            var s = t;
-                            if robust != ESPC_ROBUST_LOW_K1 {
-                                let u = integral * t + int0;
-                                var inv: f32;
-                                if robust == ESPC_ROBUST_LOW_DIST {
-                                    inv = pow(abs(u), 2. / 3.) * sign(u);
-                                } else {
-                                    inv = espc_int_inv_approx(u);
-                                }
-                                s = (inv - b) / a;
-                            }
-                            lp1 = es_seg_eval_with_offset(es, s, offset);
+                            inv = espc_int_inv_approx(u);
                         }
-                        let l0 = select(lp1, lp0, offset >= 0.);
-                        let l1 = select(lp0, lp1, offset >= 0.);
-                        output_line_with_transform(path_ix, l0, l1, transform);
-                        lp0 = lp1;
+                        s = (inv - b) / a;
                     }
-                    last_p = this_pq1.point;
-                    last_q = this_pq1.deriv;
-                    last_t = t1;
-                    break;
+                    lp1 = es_seg_eval_with_offset(es, s, normalized_offset);
                 }
+                let l0 = select(lp1, lp0, offset >= 0.);
+                let l1 = select(lp0, lp1, offset >= 0.);
+                output_line_with_transform(path_ix, l0, l1, transform);
+                lp0 = lp1;
             }
+            last_p = this_pq1.point;
+            last_q = this_pq1.deriv;
+            last_t = t1;
+            t0_u += 1u;
+            let shift = countTrailingZeros(t0_u);
+            t0_u >>= shift;
+            dt *= f32(1u << shift);
+        } else {
             t0_u = t0_u * 2u;
             dt *= 0.5;
         }
