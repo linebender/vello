@@ -68,6 +68,9 @@ impl BumpEstimator {
         // Track the path state to correctly count empty paths and close joins.
         let mut first_pt = None;
         let mut last_pt = None;
+        let scale = transform_scale(Some(t));
+        let scaled_width = stroke.map(|s| s.width as f32 * scale).unwrap_or(0.);
+        let offset_fudge = scaled_width.sqrt().max(1.);
         for el in path {
             match el {
                 PathEl::MoveTo(p0) => {
@@ -104,12 +107,14 @@ impl BumpEstimator {
                     let p0 = p0.to_vec2();
                     let p1 = p1.to_vec2();
                     let p2 = p2.to_vec2();
-                    let lines = wang::quadratic(RSQRT_OF_TOL, p0, p1, p2, t);
+                    let lines = offset_fudge * wang::quadratic(RSQRT_OF_TOL, p0, p1, p2, t);
 
-                    curve_lines += lines;
+                    curve_lines += lines.ceil() as u32;
                     curve_count += 1;
                     joins += 1;
-                    segments += count_segments_for_quadratic(p0, p1, p2, t).max(lines);
+
+                    let segs = offset_fudge * count_segments_for_quadratic(p0, p1, p2, t);
+                    segments += segs.ceil().max(lines.ceil()) as u32;
                 }
                 PathEl::CurveTo(p1, p2, p3) => {
                     let Some(p0) = last_pt.or(first_pt) else {
@@ -121,12 +126,13 @@ impl BumpEstimator {
                     let p1 = p1.to_vec2();
                     let p2 = p2.to_vec2();
                     let p3 = p3.to_vec2();
-                    let lines = wang::cubic(RSQRT_OF_TOL, p0, p1, p2, p3, t);
+                    let lines = offset_fudge * wang::cubic(RSQRT_OF_TOL, p0, p1, p2, p3, t);
 
-                    curve_lines += lines;
+                    curve_lines += lines.ceil() as u32;
                     curve_count += 1;
                     joins += 1;
-                    segments += count_segments_for_cubic(p0, p1, p2, p3, t).max(lines);
+                    let segs = count_segments_for_cubic(p0, p1, p2, p3, t);
+                    segments += segs.ceil().max(lines.ceil()) as u32;
                 }
             }
         }
@@ -150,8 +156,6 @@ impl BumpEstimator {
         self.lines.curve_count += 2 * curve_count;
         self.segments += 2 * segments;
 
-        let scale = transform_scale(Some(t));
-        let scaled_width = style.width as f32 * scale;
         self.count_stroke_caps(style.start_cap, scaled_width, caps);
         self.count_stroke_caps(style.end_cap, scaled_width, caps);
         self.count_stroke_joins(style.join, scaled_width, style.miter_limit as f32, joins);
@@ -211,7 +215,8 @@ impl BumpEstimator {
             }
             Join::Miter => {
                 let max_miter_len = scaled_width * miter_limit;
-                self.lines.linetos += 2 * count_segments_for_line_length(max_miter_len) * count;
+                self.lines.linetos += 2 * count;
+                self.segments += 2 * count * count_segments_for_line_length(max_miter_len);
             }
             Join::Round => {
                 let (arc_lines, line_len) = estimate_arc_lines(scaled_width);
@@ -226,8 +231,8 @@ impl BumpEstimator {
 fn estimate_arc_lines(scaled_stroke_width: f32) -> (u32, f32) {
     // These constants need to be kept consistent with the definitions in `flatten_arc` in
     // flatten.wgsl.
-    const MIN_THETA: f32 = 1e-4;
-    const TOL: f32 = 0.1;
+    const MIN_THETA: f32 = 1e-6;
+    const TOL: f32 = 0.25;
     let radius = TOL.max(scaled_stroke_width * 0.5);
     let theta = (2. * (1. - TOL / radius).acos()).max(MIN_THETA);
     let arc_lines = ((std::f32::consts::FRAC_PI_2 / theta).ceil() as u32).max(2);
@@ -288,22 +293,22 @@ fn transform_scale(t: Option<&Transform>) -> f32 {
     }
 }
 
-fn approx_arc_length_cubic(p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2) -> f64 {
+fn approx_arc_length_cubic(p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2) -> f32 {
     let chord_len = (p3 - p0).length();
     // Length of the control polygon
     let poly_len = (p1 - p0).length() + (p2 - p1).length() + (p3 - p2).length();
-    0.5 * (chord_len + poly_len)
+    0.5 * (chord_len + poly_len) as f32
 }
 
-fn count_segments_for_cubic(p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2, t: &Transform) -> u32 {
+fn count_segments_for_cubic(p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2, t: &Transform) -> f32 {
     let p0 = transform(t, p0);
     let p1 = transform(t, p1);
     let p2 = transform(t, p2);
     let p3 = transform(t, p3);
-    (approx_arc_length_cubic(p0, p1, p2, p3) * 0.0625 * std::f64::consts::SQRT_2).ceil() as u32
+    (approx_arc_length_cubic(p0, p1, p2, p3) * 0.0625 * std::f32::consts::SQRT_2).ceil()
 }
 
-fn count_segments_for_quadratic(p0: Vec2, p1: Vec2, p2: Vec2, t: &Transform) -> u32 {
+fn count_segments_for_quadratic(p0: Vec2, p1: Vec2, p2: Vec2, t: &Transform) -> f32 {
     count_segments_for_cubic(p0, p1.lerp(p0, 0.333333), p1.lerp(p2, 0.333333), p2, t)
 }
 
@@ -364,19 +369,19 @@ mod wang {
     //
     const SQRT_OF_DEGREE_TERM_QUAD: f64 = 0.5;
 
-    pub fn quadratic(rsqrt_of_tol: f64, p0: Vec2, p1: Vec2, p2: Vec2, t: &Transform) -> u32 {
+    pub fn quadratic(rsqrt_of_tol: f64, p0: Vec2, p1: Vec2, p2: Vec2, t: &Transform) -> f32 {
         let v = -2. * p1 + p0 + p2;
         let v = transform(t, v); // transform is distributive
         let m = v.length();
-        (SQRT_OF_DEGREE_TERM_QUAD * m.sqrt() * rsqrt_of_tol).ceil() as u32
+        (SQRT_OF_DEGREE_TERM_QUAD * m.sqrt() * rsqrt_of_tol).ceil() as f32
     }
 
-    pub fn cubic(rsqrt_of_tol: f64, p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2, t: &Transform) -> u32 {
+    pub fn cubic(rsqrt_of_tol: f64, p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2, t: &Transform) -> f32 {
         let v1 = -2. * p1 + p0 + p2;
         let v2 = -2. * p2 + p1 + p3;
         let v1 = transform(t, v1);
         let v2 = transform(t, v2);
         let m = v1.length().max(v2.length()) as f64;
-        (SQRT_OF_DEGREE_TERM_CUBIC * m.sqrt() * rsqrt_of_tol).ceil() as u32
+        (SQRT_OF_DEGREE_TERM_CUBIC * m.sqrt() * rsqrt_of_tol).ceil() as f32
     }
 }
