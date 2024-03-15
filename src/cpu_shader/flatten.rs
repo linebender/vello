@@ -3,7 +3,10 @@
 
 use std::f32::consts::FRAC_1_SQRT_2;
 
-use super::euler::{espc_int_approx, espc_int_inv_approx, CubicParams, EulerParams, EulerSeg};
+use super::euler::{
+    espc_int_approx, espc_int_inv_approx, CubicParams, EulerParams, EulerSeg, DERIV_THRESH,
+    TANGENT_THRESH,
+};
 use super::util::{Transform, Vec2, ROBUST_EPSILON};
 use crate::cpu_dispatch::CpuBinding;
 use vello_encoding::math::f16_to_f32;
@@ -19,8 +22,6 @@ macro_rules! log {
     }};
 }
 
-/// Threshold below which a derivative is considered too small.
-const DERIV_THRESH: f32 = 1e-6;
 /// Amount to nudge t when derivative is near-zero.
 const DERIV_EPS: f32 = 1e-6;
 // Limit for subdivision of cubic Béziers.
@@ -660,9 +661,6 @@ const PATH_TAG_LINETO: u8 = 1;
 const PATH_TAG_QUADTO: u8 = 2;
 const PATH_TAG_CUBICTO: u8 = 3;
 const PATH_TAG_F32: u8 = 8;
-
-// Threshold for tangents to be considered near zero length
-const TANGENT_THRESH: f32 = 1e-6;
 
 fn flatten_main(
     n_wg: u32,

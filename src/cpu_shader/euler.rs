@@ -9,6 +9,12 @@
 use super::util::Vec2;
 use std::f32::consts::FRAC_PI_4;
 
+/// Threshold below which a derivative is considered too small.
+pub const DERIV_THRESH: f32 = 1e-6;
+
+/// Threshold for tangents to be considered near zero length
+pub const TANGENT_THRESH: f32 = 1e-6;
+
 /// This struct contains parameters derived from a cubic Bézier for the
 /// purpose of fitting a G1 continuous Euler spiral segment and estimating
 /// the Fréchet distance.
@@ -55,19 +61,30 @@ impl CubicParams {
         let chord = p1 - p0;
         let length_squared = chord.length_squared();
         assert_ne!(length_squared, 0.0);
-        let scale = dt / length_squared;
+        let scale = dt / length_squared.max(TANGENT_THRESH * TANGENT_THRESH);
+
         let h0 = Vec2::new(
             q0.x * chord.x + q0.y * chord.y,
             q0.y * chord.x - q0.x * chord.y,
         );
-        let th0 = h0.atan2();
-        let d0 = h0.length() * scale;
+        let d0 = h0.length();
+        let (th0, d0) = if d0 > DERIV_THRESH {
+            (h0.atan2(), d0 * scale)
+        } else {
+            (0., 1. / 3.)
+        };
+
         let h1 = Vec2::new(
             q1.x * chord.x + q1.y * chord.y,
             q1.x * chord.y - q1.y * chord.x,
         );
-        let th1 = h1.atan2();
-        let d1 = h1.length() * scale;
+        let d1 = h1.length();
+        let (th1, d1) = if d1 > DERIV_THRESH {
+            (h1.atan2(), d1 * scale)
+        } else {
+            (0., 1. / 3.)
+        };
+
         // Robustness note: we may want to clamp the magnitude of the angles to
         // a bit less than pi. Perhaps here, perhaps downstream.
         CubicParams { th0, th1, d0, d1 }
@@ -206,7 +223,7 @@ impl EulerSeg {
 
     pub fn eval_with_offset(&self, t: f32, offset: f32) -> Vec2 {
         let chord = self.p1 - self.p0;
-        let scaled = offset / chord.length();
+        let scaled = offset / chord.length().max(TANGENT_THRESH);
         let Vec2 { x, y } = self.params.eval_with_offset(t, scaled);
         Vec2::new(
             self.p0.x + chord.x * x - chord.y * y,

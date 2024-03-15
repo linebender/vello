@@ -84,7 +84,7 @@ const DERIV_THRESH_SQUARED: f32 = DERIV_THRESH * DERIV_THRESH;
 /// Compute cubic parameters from endpoints and derivatives.
 fn cubic_from_points_derivs(p0: vec2f, p1: vec2f, q0: vec2f, q1: vec2f, dt: f32) -> CubicParams {
     let chord = p1 - p0;
-    let scale = dt / max(dot(chord, chord), TANGENT_THRESH);
+    let scale = dt / max(dot(chord, chord), TANGENT_THRESH * TANGENT_THRESH);
     let h0 = vec2(q0.x * chord.x + q0.y * chord.y, q0.y * chord.x - q0.x * chord.y);
     var th0 = 0.0;
     var d0 = length(h0);
