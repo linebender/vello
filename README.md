@@ -229,6 +229,16 @@ For example (with unix shell environment variable syntax):
 VELLO_STATIC_LOG="vello=trace" VELLO_STATIC_ARGS="--test-scenes" cargo apk run -p with_winit --lib
 ```
 
+## Minimum supported Rust Version
+
+This version of Vello has been verified to compile with Rust 1.75 and later.
+
+Note that since then, one of Vello's dependencies might have released a new version with a higher requirement.
+Thus if you encounter a compilation issue due to a dependency, you should downgrade it via `cargo update -p package_name --precise 0.1.1` (with a real name and version).
+
+Future versions of Vello might increase the Rust version requirement.
+It will not be treated as a breaking change and as such can even happen with small patch releases.
+
 ## Community
 
 Discussion of Vello development happens in the [Linebender Zulip](https://xi.zulipchat.com/), specifically the [#gpu stream](https://xi.zulipchat.com/#narrow/stream/197075-gpu). All public content can be read without logging in.
