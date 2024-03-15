@@ -72,7 +72,10 @@ impl CubicParams {
         let chord = p1 - p0;
         let chord_squared = chord.length_squared();
         let chord_len = chord_squared.sqrt();
+        // Chord is near-zero; straight line case.
         if chord_squared < TANGENT_THRESH.powi(2) {
+            // This error estimate was determined empirically through randomized
+            // testing, though it is likely it can be derived analytically.
             let chord_err = ((9. / 32.0) * (q0.length_squared() + q1.length_squared())).sqrt() * dt;
             return CubicParams {
                 th0: 0.0,
@@ -205,6 +208,7 @@ impl EulerParams {
         Vec2::new(x, y)
     }
 
+    // Offset provided is in same units as curve; chord is normalized to (1, 0).
     fn eval_with_offset(&self, t: f32, offset: f32) -> Vec2 {
         let th = self.eval_th(t);
         let v = Vec2::new(offset * th.sin(), offset * th.cos());
@@ -227,10 +231,11 @@ impl EulerSeg {
         )
     }
 
-    // Note: offset provided is scaled so that 1 = chord length
-    pub fn eval_with_offset(&self, t: f32, offset: f32) -> Vec2 {
+    // Note: offset provided is normalized so that 1 = chord length, while
+    // the return value is in the same coordinate space as the endpoints.
+    pub fn eval_with_offset(&self, t: f32, normalized_offset: f32) -> Vec2 {
         let chord = self.p1 - self.p0;
-        let Vec2 { x, y } = self.params.eval_with_offset(t, offset);
+        let Vec2 { x, y } = self.params.eval_with_offset(t, normalized_offset);
         Vec2::new(
             self.p0.x + chord.x * x - chord.y * y,
             self.p0.y + chord.x * y + chord.y * x,

@@ -21,6 +21,12 @@ macro_rules! log {
     }};
 }
 
+// Note to readers: this file contains sophisticated techniques for expanding stroke
+// outlines to flattened filled outlines, based on Euler spirals as an intermediate
+// curve representation. In some cases, there are explanatory comments in the
+// corresponding `cpu_shaders/` files (`flatten.rs` and the supporting `euler.rs`).
+// A paper is in the works explaining the techniques in more detail.
+
 /// Threshold below which a derivative is considered too small.
 const DERIV_THRESH: f32 = 1e-6;
 /// Amount to nudge t when derivative is near-zero.
@@ -259,7 +265,7 @@ fn flatten_euler(
         if t0 == 1. {
             break;
         }
-        log!("@@@ loop1: t0: {t0}, dt: {dt}");
+        log!("@@@ loop start: t0: {t0}, dt: {dt}");
         let mut t1 = t0 + dt;
         let this_p0 = last_p;
         let this_q0 = last_q;
@@ -277,7 +283,7 @@ fn flatten_euler(
         let actual_dt = t1 - last_t;
         let cubic_params =
             CubicParams::from_points_derivs(this_p0, this_p1, this_q0, this_q1, actual_dt);
-        log!("@@@   loop2: sub:{:?}, {:?} t0: {t0}, t1: {t1}, dt: {dt}, est_err: {est_err}, err: {err}", subcubic, cubic_params);
+        log!("@@@   loop: p0={this_p0:?} p1={this_p1:?} q0={this_q0:?} q1={this_q1:?} {cubic_params:?} t0: {t0}, t1: {t1}, dt: {dt}");
         if cubic_params.err * scale <= tol || dt <= SUBDIV_LIMIT {
             log!("@@@   error within tolerance");
             let euler_params = EulerParams::from_angles(cubic_params.th0, cubic_params.th1);
@@ -286,8 +292,8 @@ fn flatten_euler(
             let (k0, k1) = (es.params.k0 - 0.5 * es.params.k1, es.params.k1);
 
             // compute forward integral to determine number of subdivisions
-            let offset_chord_normalized = offset / cubic_params.chord_len;
-            let dist_scaled = offset_chord_normalized * es.params.ch;
+            let normalized_offset = offset / cubic_params.chord_len;
+            let dist_scaled = normalized_offset * es.params.ch;
             // The number of subdivisions for curvature = 1
             let scale_multiplier = 0.5
                 * FRAC_1_SQRT_2
@@ -328,7 +334,7 @@ fn flatten_euler(
             let n = (n_frac * scale_multiplier).ceil().max(1.0);
 
             // Flatten line segments
-            log!("@@@   loop2: lines: {n}");
+            log!("@@@   loop: lines: {n}");
             assert!(!n.is_nan());
             for i in 0..n as usize {
                 let lp1 = if i == n as usize - 1 && t1 == 1.0 {
@@ -348,7 +354,7 @@ fn flatten_euler(
                             (inv - b) / a
                         }
                     };
-                    es.eval_with_offset(s, offset_chord_normalized)
+                    es.eval_with_offset(s, normalized_offset)
                 };
                 let l0 = if offset >= 0. { lp0 } else { lp1 };
                 let l1 = if offset >= 0. { lp1 } else { lp0 };
@@ -358,11 +364,16 @@ fn flatten_euler(
             last_p = this_p1;
             last_q = this_q1;
             last_t = t1;
+            // Advance segment to next range. Beginning of segment is the end of
+            // this one. The number of trailing zeros represents the number of stack
+            // frames to pop in the recursive version of adaptive subdivision, and
+            // each stack pop represents doubling of the size of the range.
             t0_u += 1;
             let shift = t0_u.trailing_zeros();
             t0_u >>= shift;
             dt *= (1 << shift) as f32;
         } else {
+            // Subdivide; halve the size of the range while retaining its start.
             t0_u = t0_u.saturating_mul(2);
             dt *= 0.5;
         }

@@ -218,9 +218,9 @@ fn es_seg_from_params(p0: vec2f, p1: vec2f, params: EulerParams) -> EulerSeg {
 }
 
 // Note: offset provided is scaled so that 1 = chord length
-fn es_seg_eval_with_offset(es: EulerSeg, t: f32, offset: f32) -> vec2f {
+fn es_seg_eval_with_offset(es: EulerSeg, t: f32, normalized_offset: f32) -> vec2f {
     let chord = es.p1 - es.p0;
-    let xy = es_params_eval_with_offset(es.params, t, offset);
+    let xy = es_params_eval_with_offset(es.params, t, normalized_offset);
     return es.p0 + vec2f(chord.x * xy.x - chord.y * xy.y, chord.x * xy.y + chord.y * xy.x);
 }
 
@@ -403,8 +403,8 @@ fn flatten_euler(
             let es = es_seg_from_params(this_p0, this_pq1.point, euler_params);
             let k0 = es.params.k0 - 0.5 * es.params.k1;
             let k1 = es.params.k1;
-            let offset_chord_normalized = offset / cubic_params.chord_len;
-            let dist_scaled = offset_chord_normalized * es.params.ch;
+            let normalized_offset = offset / cubic_params.chord_len;
+            let dist_scaled = normalized_offset * es.params.ch;
             let scale_multiplier = sqrt(0.125 * scale * cubic_params.chord_len / (es.params.ch * tol));
             var a = 0.0;
             var b = 0.0;
@@ -452,7 +452,7 @@ fn flatten_euler(
                         }
                         s = (inv - b) / a;
                     }
-                    lp1 = es_seg_eval_with_offset(es, s, offset_chord_normalized);
+                    lp1 = es_seg_eval_with_offset(es, s, normalized_offset);
                 }
                 let l0 = select(lp1, lp0, offset >= 0.);
                 let l1 = select(lp0, lp1, offset >= 0.);
