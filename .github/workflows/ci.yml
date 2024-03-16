@@ -98,10 +98,10 @@ jobs:
         run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev
 
       - name: cargo clippy
-        run: cargo hack clippy --workspace --each-feature --optional-deps -- -D warnings
+        run: cargo hack clippy --workspace --locked --each-feature --optional-deps -- -D warnings
 
       - name: cargo clippy (auxiliary)
-        run: cargo hack clippy --workspace --each-feature --optional-deps --tests --benches --examples -- -D warnings
+        run: cargo hack clippy --workspace --locked --each-feature --optional-deps --tests --benches --examples -- -D warnings
 
   clippy-stable-wasm:
     name: cargo clippy (wasm32)
@@ -125,10 +125,10 @@ jobs:
           tool: cargo-hack
 
       - name: cargo clippy
-        run: cargo hack clippy --workspace --target wasm32-unknown-unknown --each-feature --optional-deps -- -D warnings
+        run: cargo hack clippy --workspace --locked --target wasm32-unknown-unknown --each-feature --optional-deps -- -D warnings
 
       - name: cargo clippy (auxiliary)
-        run: cargo hack clippy --workspace --target wasm32-unknown-unknown --each-feature --optional-deps --tests --benches --examples -- -D warnings
+        run: cargo hack clippy --workspace --locked --target wasm32-unknown-unknown --each-feature --optional-deps --tests --benches --examples -- -D warnings
 
   test-stable:
     name: cargo test
@@ -172,7 +172,7 @@ jobs:
           sudo apt install -y xvfb libegl1-mesa libgl1-mesa-dri libxcb-xfixes0-dev mesa-vulkan-drivers
 
       - name: cargo test
-        run: cargo test --workspace --all-features
+        run: cargo test --workspace --locked --all-features
         env:
           VELLO_CI_GPU_SUPPORT: ${{ matrix.gpu }}
 
@@ -194,7 +194,7 @@ jobs:
 
       # TODO: Find a way to make tests work. Until then the tests are merely compiled.
       - name: cargo test compile
-        run: cargo test --workspace --target wasm32-unknown-unknown --all-features --no-run
+        run: cargo test --workspace --locked --target wasm32-unknown-unknown --all-features --no-run
 
   check-stable-android:
     name: cargo check (aarch64-android)
@@ -247,7 +247,7 @@ jobs:
         run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev
 
       - name: cargo check
-        run: cargo hack check ${{ env.RUST_MIN_VER_PKGS }} --each-feature --optional-deps
+        run: cargo hack check ${{ env.RUST_MIN_VER_PKGS }} --locked --each-feature --optional-deps
 
   check-msrv-wasm:
     name: cargo check (msrv) (wasm32)
@@ -270,7 +270,7 @@ jobs:
           tool: cargo-hack
 
       - name: cargo check
-        run: cargo hack check ${{ env.RUST_MIN_VER_PKGS }} --target wasm32-unknown-unknown --each-feature --optional-deps
+        run: cargo hack check ${{ env.RUST_MIN_VER_PKGS }} --locked --target wasm32-unknown-unknown --each-feature --optional-deps
 
   doc:
     name: cargo doc
@@ -288,4 +288,4 @@ jobs:
 
       # We test documentation using nightly to match docs.rs. This prevents potential breakages
       - name: cargo doc
-        run: cargo doc --workspace --all-features --no-deps --document-private-items -Zunstable-options -Zrustdoc-scrape-examples
+        run: cargo doc --workspace --locked --all-features --no-deps --document-private-items -Zunstable-options -Zrustdoc-scrape-examples
