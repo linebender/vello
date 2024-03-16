@@ -158,7 +158,7 @@ impl BumpEstimator {
 
         self.count_stroke_caps(style.start_cap, scaled_width, caps);
         self.count_stroke_caps(style.end_cap, scaled_width, caps);
-        self.count_stroke_joins(style.join, scaled_width, style.miter_limit as f64, joins);
+        self.count_stroke_joins(style.join, scaled_width, style.miter_limit, joins);
     }
 
     /// Produce the final total, applying an optional transform to all content.
@@ -301,7 +301,7 @@ fn approx_arc_length_cubic(p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2) -> f64 {
     let chord_len = (p3 - p0).length();
     // Length of the control polygon
     let poly_len = (p1 - p0).length() + (p2 - p1).length() + (p3 - p2).length();
-    0.5 * (chord_len + poly_len) as f64
+    0.5 * (chord_len + poly_len)
 }
 
 fn count_segments_for_cubic(p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2, t: &Transform) -> f64 {
