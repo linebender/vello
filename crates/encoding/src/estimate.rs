@@ -47,7 +47,7 @@ impl BumpEstimator {
     /// Combine the counts of this estimator with `other` after applying an optional `transform`.
     pub fn append(&mut self, other: &Self, transform: Option<&Transform>) {
         let scale = transform_scale(transform);
-        self.segments += (other.segments as f32 * scale).ceil() as u32;
+        self.segments += (other.segments as f64 * scale).ceil() as u32;
         self.lines.add(&other.lines, scale);
     }
 
@@ -69,7 +69,7 @@ impl BumpEstimator {
         let mut first_pt = None;
         let mut last_pt = None;
         let scale = transform_scale(Some(t));
-        let scaled_width = stroke.map(|s| s.width as f32 * scale).unwrap_or(0.);
+        let scaled_width = stroke.map(|s| s.width * scale).unwrap_or(0.);
         let offset_fudge = scaled_width.sqrt().max(1.);
         for el in path {
             match el {
@@ -158,7 +158,7 @@ impl BumpEstimator {
 
         self.count_stroke_caps(style.start_cap, scaled_width, caps);
         self.count_stroke_caps(style.end_cap, scaled_width, caps);
-        self.count_stroke_joins(style.join, scaled_width, style.miter_limit as f32, joins);
+        self.count_stroke_joins(style.join, scaled_width, style.miter_limit as f64, joins);
     }
 
     /// Produce the final total, applying an optional transform to all content.
@@ -170,7 +170,7 @@ impl BumpEstimator {
 
         // The estimate for tile crossings for lines. Here we ensure that there are at least as many
         // segments as there are lines, in case `segments` was underestimated at small scales.
-        let n_segments = ((self.segments as f32 * scale).ceil() as u32).max(lines);
+        let n_segments = ((self.segments as f64 * scale).ceil() as u32).max(lines);
 
         let bump = BumpAllocators {
             failed: 0,
@@ -187,7 +187,7 @@ impl BumpEstimator {
         bump.memory()
     }
 
-    fn count_stroke_caps(&mut self, style: Cap, scaled_width: f32, count: u32) {
+    fn count_stroke_caps(&mut self, style: Cap, scaled_width: f64, count: u32) {
         match style {
             Cap::Butt => {
                 self.lines.linetos += count;
@@ -207,7 +207,7 @@ impl BumpEstimator {
         }
     }
 
-    fn count_stroke_joins(&mut self, style: Join, scaled_width: f32, miter_limit: f32, count: u32) {
+    fn count_stroke_joins(&mut self, style: Join, scaled_width: f64, miter_limit: f64, count: u32) {
         match style {
             Join::Bevel => {
                 self.lines.linetos += count;
@@ -228,14 +228,18 @@ impl BumpEstimator {
     }
 }
 
-fn estimate_arc_lines(scaled_stroke_width: f32) -> (u32, f32) {
+fn estimate_arc_lines(scaled_stroke_width: f64) -> (u32, f64) {
     // These constants need to be kept consistent with the definitions in `flatten_arc` in
     // flatten.wgsl.
-    const MIN_THETA: f32 = 1e-6;
-    const TOL: f32 = 0.25;
+    // TODO: It would be better if these definitions were shared/configurable. For example an
+    // option is for all tolerances to be parameters to the estimator as well as the GPU pipelines
+    // (the latter could be in the form of a config uniform) which would help to keep them in
+    // sync.
+    const MIN_THETA: f64 = 1e-6;
+    const TOL: f64 = 0.25;
     let radius = TOL.max(scaled_stroke_width * 0.5);
     let theta = (2. * (1. - TOL / radius).acos()).max(MIN_THETA);
-    let arc_lines = ((std::f32::consts::FRAC_PI_2 / theta).ceil() as u32).max(2);
+    let arc_lines = ((std::f64::consts::FRAC_PI_2 / theta).ceil() as u32).max(2);
     (arc_lines, 2. * theta.sin() * radius)
 }
 
@@ -252,7 +256,7 @@ struct LineSoup {
 }
 
 impl LineSoup {
-    fn tally(&self, scale: f32) -> u32 {
+    fn tally(&self, scale: f64) -> u32 {
         let curves = self
             .scaled_curve_line_count(scale)
             .max(5 * self.curve_count);
@@ -260,11 +264,11 @@ impl LineSoup {
         self.linetos + curves
     }
 
-    fn scaled_curve_line_count(&self, scale: f32) -> u32 {
-        (self.curves as f32 * scale.sqrt()).ceil() as u32
+    fn scaled_curve_line_count(&self, scale: f64) -> u32 {
+        (self.curves as f64 * scale.sqrt()).ceil() as u32
     }
 
-    fn add(&mut self, other: &LineSoup, scale: f32) {
+    fn add(&mut self, other: &LineSoup, scale: f64) {
         self.linetos += other.linetos;
         self.curves += other.scaled_curve_line_count(scale);
         self.curve_count += other.curve_count;
@@ -279,36 +283,36 @@ fn transform(t: &Transform, v: Vec2) -> Vec2 {
     )
 }
 
-fn transform_scale(t: Option<&Transform>) -> f32 {
+fn transform_scale(t: Option<&Transform>) -> f64 {
     match t {
         Some(t) => {
             let m = t.matrix;
-            let v1x = m[0] + m[3];
-            let v2x = m[0] - m[3];
-            let v1y = m[1] - m[2];
-            let v2y = m[1] + m[2];
+            let v1x = m[0] as f64 + m[3] as f64;
+            let v2x = m[0] as f64 - m[3] as f64;
+            let v1y = m[1] as f64 - m[2] as f64;
+            let v2y = m[1] as f64 + m[2] as f64;
             (v1x * v1x + v1y * v1y).sqrt() + (v2x * v2x + v2y * v2y).sqrt()
         }
         None => 1.,
     }
 }
 
-fn approx_arc_length_cubic(p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2) -> f32 {
+fn approx_arc_length_cubic(p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2) -> f64 {
     let chord_len = (p3 - p0).length();
     // Length of the control polygon
     let poly_len = (p1 - p0).length() + (p2 - p1).length() + (p3 - p2).length();
-    0.5 * (chord_len + poly_len) as f32
+    0.5 * (chord_len + poly_len) as f64
 }
 
-fn count_segments_for_cubic(p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2, t: &Transform) -> f32 {
+fn count_segments_for_cubic(p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2, t: &Transform) -> f64 {
     let p0 = transform(t, p0);
     let p1 = transform(t, p1);
     let p2 = transform(t, p2);
     let p3 = transform(t, p3);
-    (approx_arc_length_cubic(p0, p1, p2, p3) * 0.0625 * std::f32::consts::SQRT_2).ceil()
+    (approx_arc_length_cubic(p0, p1, p2, p3) * 0.0625 * std::f64::consts::SQRT_2).ceil()
 }
 
-fn count_segments_for_quadratic(p0: Vec2, p1: Vec2, p2: Vec2, t: &Transform) -> f32 {
+fn count_segments_for_quadratic(p0: Vec2, p1: Vec2, p2: Vec2, t: &Transform) -> f64 {
     count_segments_for_cubic(p0, p1.lerp(p0, 0.333333), p1.lerp(p2, 0.333333), p2, t)
 }
 
@@ -321,10 +325,10 @@ fn count_segments_for_line(p0: Point, p1: Point, t: &Transform) -> u32 {
 }
 
 // Estimate tile crossings for a line with a known length.
-fn count_segments_for_line_length(scaled_width: f32) -> u32 {
+fn count_segments_for_line_length(scaled_width: f64) -> u32 {
     // scale the tile count by sqrt(2) to allow some slack for diagonal lines.
     // TODO: Would "2" be a better factor?
-    ((scaled_width * 0.0625 * std::f32::consts::SQRT_2).ceil() as u32).max(1)
+    ((scaled_width * 0.0625 * std::f64::consts::SQRT_2).ceil() as u32).max(1)
 }
 
 /// Wang's Formula (as described in Pyramid Algorithms by Ron Goldman, 2003, Chapter 5, Section
@@ -369,19 +373,19 @@ mod wang {
     //
     const SQRT_OF_DEGREE_TERM_QUAD: f64 = 0.5;
 
-    pub fn quadratic(rsqrt_of_tol: f64, p0: Vec2, p1: Vec2, p2: Vec2, t: &Transform) -> f32 {
+    pub fn quadratic(rsqrt_of_tol: f64, p0: Vec2, p1: Vec2, p2: Vec2, t: &Transform) -> f64 {
         let v = -2. * p1 + p0 + p2;
         let v = transform(t, v); // transform is distributive
         let m = v.length();
-        (SQRT_OF_DEGREE_TERM_QUAD * m.sqrt() * rsqrt_of_tol).ceil() as f32
+        (SQRT_OF_DEGREE_TERM_QUAD * m.sqrt() * rsqrt_of_tol).ceil() as f64
     }
 
-    pub fn cubic(rsqrt_of_tol: f64, p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2, t: &Transform) -> f32 {
+    pub fn cubic(rsqrt_of_tol: f64, p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2, t: &Transform) -> f64 {
         let v1 = -2. * p1 + p0 + p2;
         let v2 = -2. * p2 + p1 + p3;
         let v1 = transform(t, v1);
         let v2 = transform(t, v2);
         let m = v1.length().max(v2.length()) as f64;
-        (SQRT_OF_DEGREE_TERM_CUBIC * m.sqrt() * rsqrt_of_tol).ceil() as f32
+        (SQRT_OF_DEGREE_TERM_CUBIC * m.sqrt() * rsqrt_of_tol).ceil() as f64
     }
 }
