@@ -25,7 +25,8 @@ members = [
 version = "0.1.0"
 
 edition = "2021"
-rust-version = "1.75" # Keep in sync with CI and the relevant README.md files.
+# Keep in sync with RUST_MIN_VER in .github/workflows/ci.yml and with the relevant README.md files.
+rust-version = "1.75"
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/linebender/vello"
 
