@@ -117,12 +117,10 @@ fn main(
             transform = read_transform(config.transform_base, bbox.trans_ix);
         }
         switch tag_word {
-            // DRAWTAG_FILL_COLOR
-            case 0x44u: {
+            case DRAWTAG_FILL_COLOR: {
                 info[di] = draw_flags;
             }
-            // DRAWTAG_FILL_LIN_GRADIENT
-            case 0x114u: {
+            case DRAWTAG_FILL_LIN_GRADIENT: {
                 info[di] = draw_flags;
                 var p0 = bitcast<vec2<f32>>(vec2(scene[dd + 1u], scene[dd + 2u]));
                 var p1 = bitcast<vec2<f32>>(vec2(scene[dd + 3u], scene[dd + 4u]));
@@ -136,8 +134,7 @@ fn main(
                 info[di + 2u] = bitcast<u32>(line_xy.y);
                 info[di + 3u] = bitcast<u32>(line_c);
             }
-            // DRAWTAG_FILL_RAD_GRADIENT
-            case 0x29cu: {
+            case DRAWTAG_FILL_RAD_GRADIENT: {
                 // Two-point conical gradient implementation based
                 // on the algorithm at <https://skia.org/docs/dev/design/conical/>
                 // This epsilon matches what Skia uses
@@ -220,8 +217,7 @@ fn main(
                 info[di + 8u] = bitcast<u32>(radius);
                 info[di + 9u] = bitcast<u32>((flags << 3u) | kind);
             }
-            // DRAWTAG_FILL_SWEEP_GRADIENT
-            case 0x254u: {
+            case DRAWTAG_FILL_SWEEP_GRADIENT: {
                 info[di] = draw_flags;
                 let p0 = bitcast<vec2<f32>>(vec2(scene[dd + 1u], scene[dd + 2u]));
                 let xform = transform_mul(transform, Transform(vec4(1.0, 0.0, 0.0, 1.0), p0));
@@ -235,8 +231,7 @@ fn main(
                 info[di + 7u] = scene[dd + 3u];
                 info[di + 8u] = scene[dd + 4u];
             }
-            // DRAWTAG_FILL_IMAGE
-            case 0x248u: {
+            case DRAWTAG_FILL_IMAGE: {
                 info[di] = draw_flags;
                 let inv = transform_inverse(transform);
                 info[di + 1u] = bitcast<u32>(inv.matrx.x);
