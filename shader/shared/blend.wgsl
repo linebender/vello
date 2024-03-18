@@ -142,64 +142,49 @@ fn set_sat(c: vec3<f32>, s: f32) -> vec3<f32> {
 fn blend_mix(cb: vec3<f32>, cs: vec3<f32>, mode: u32) -> vec3<f32> {
     var b = vec3(0.0);
     switch mode {
-        // MIX_MULTIPLY
-        case 1u: {
+        case MIX_MULTIPLY: {
             b = cb * cs;
         }
-        // MIX_SCREEN
-        case 2u: {
+        case MIX_SCREEN: {
             b = screen(cb, cs);
         }
-        // MIX_OVERLAY
-        case 3u: {
+        case MIX_OVERLAY: {
             b = hard_light(cs, cb);
         }
-        // MIX_DARKEN
-        case 4u: {
+        case MIX_DARKEN: {
             b = min(cb, cs);
         }
-        // MIX_LIGHTEN
-        case 5u: {
+        case MIX_LIGHTEN: {
             b = max(cb, cs);
         }
-        // MIX_COLOR_DODGE
-        case 6u: {
+        case MIX_COLOR_DODGE: {
             b = vec3(color_dodge(cb.x, cs.x), color_dodge(cb.y, cs.y), color_dodge(cb.z, cs.z));
         }
-        // MIX_COLOR_BURN
-        case 7u: {
+        case MIX_COLOR_BURN: {
             b = vec3(color_burn(cb.x, cs.x), color_burn(cb.y, cs.y), color_burn(cb.z, cs.z));
         }
-        // MIX_HARD_LIGHT
-        case 8u: {
+        case MIX_HARD_LIGHT: {
             b = hard_light(cb, cs);
         }
-        // MIX_SOFT_LIGHT
-        case 9u: {
+        case MIX_SOFT_LIGHT: {
             b = soft_light(cb, cs);
         }
-        // MIX_DIFFERENCE
-        case 10u: {
+        case MIX_DIFFERENCE: {
             b = abs(cb - cs);
         }
-        // MIX_EXCLUSION
-        case 11u: {
+        case MIX_EXCLUSION: {
             b = cb + cs - 2.0 * cb * cs;
         }
-        // MIX_HUE
-        case 12u: {
+        case MIX_HUE: {
             b = set_lum(set_sat(cs, sat(cb)), lum(cb));
         }
-        // MIX_SATURATION
-        case 13u: {
+        case MIX_SATURATION: {
             b = set_lum(set_sat(cb, sat(cs)), lum(cb));
         }
-        // MIX_COLOR
-        case 14u: {
+        case MIX_COLOR: {
             b = set_lum(cs, lum(cb));
         }
-        // MIX_LUMINOSITY
-        case 15u: {
+        case MIX_LUMINOSITY: {
             b = set_lum(cb, lum(cs));
         }
         default: {
@@ -238,68 +223,55 @@ fn blend_compose(
     var fa = 0.0;
     var fb = 0.0;
     switch mode {
-        // COMPOSE_COPY
-        case 1u: {
+        case COMPOSE_COPY: {
             fa = 1.0;
             fb = 0.0;
         }
-        // COMPOSE_DEST
-        case 2u: {
+        case COMPOSE_DEST: {
             fa = 0.0;
             fb = 1.0;
         }
-        // COMPOSE_SRC_OVER
-        case 3u: {
+        case COMPOSE_SRC_OVER: {
             fa = 1.0;
             fb = 1.0 - as_;
         }
-        // COMPOSE_DEST_OVER
-        case 4u: {
+        case COMPOSE_DEST_OVER: {
             fa = 1.0 - ab;
             fb = 1.0;
         }
-        // COMPOSE_SRC_IN
-        case 5u: {
+        case COMPOSE_SRC_IN: {
             fa = ab;
             fb = 0.0;
         }
-        // COMPOSE_DEST_IN
-        case 6u: {
+        case COMPOSE_DEST_IN: {
             fa = 0.0;
             fb = as_;
         }
-        // COMPOSE_SRC_OUT
-        case 7u: {
+        case COMPOSE_SRC_OUT: {
             fa = 1.0 - ab;
             fb = 0.0;
         }
-        // COMPOSE_DEST_OUT
-        case 8u: {
+        case COMPOSE_DEST_OUT: {
             fa = 0.0;
             fb = 1.0 - as_;
         }
-        // COMPOSE_SRC_ATOP
-        case 9u: {
+        case COMPOSE_SRC_ATOP: {
             fa = ab;
             fb = 1.0 - as_;
         }
-        // COMPOSE_DEST_ATOP
-        case 10u: {
+        case COMPOSE_DEST_ATOP: {
             fa = 1.0 - ab;
             fb = as_;
         }
-        // COMPOSE_XOR
-        case 11u: {
+        case COMPOSE_XOR: {
             fa = 1.0 - ab;
             fb = 1.0 - as_;
         }
-        // COMPOSE_PLUS
-        case 12u: {
+        case COMPOSE_PLUS: {
             fa = 1.0;
             fb = 1.0;
         }
-        // COMPOSE_PLUS_LIGHTER
-        case 13u: {
+        case COMPOSE_PLUS_LIGHTER: {
             return min(vec4(1.0), vec4(as_ * cs + ab * cb, as_ + ab));
         }
         default: {}

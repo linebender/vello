@@ -357,40 +357,34 @@ fn main(
                 let tile_ix = sh_tile_base[el_ix] + sh_tile_stride[el_ix] * tile_y + tile_x;
                 let tile = tiles[tile_ix];
                 switch drawtag {
-                    // DRAWTAG_FILL_COLOR
-                    case 0x44u: {
+                    case DRAWTAG_FILL_COLOR: {
                         write_path(tile, tile_ix, draw_flags);
                         let rgba_color = scene[dd];
                         write_color(CmdColor(rgba_color));
                     }
-                    // DRAWTAG_FILL_LIN_GRADIENT
-                    case 0x114u: {
+                    case DRAWTAG_FILL_LIN_GRADIENT: {
                         write_path(tile, tile_ix, draw_flags);
                         let index = scene[dd];
                         let info_offset = di + 1u;
                         write_grad(CMD_LIN_GRAD, index, info_offset);
                     }
-                    // DRAWTAG_FILL_RAD_GRADIENT
-                    case 0x29cu: {
+                    case DRAWTAG_FILL_RAD_GRADIENT: {
                         write_path(tile, tile_ix, draw_flags);
                         let index = scene[dd];
                         let info_offset = di + 1u;
                         write_grad(CMD_RAD_GRAD, index, info_offset);
                     }
-                    // DRAWTAG_FILL_SWEEP_GRADIENT
-                    case 0x254u: {
+                    case DRAWTAG_FILL_SWEEP_GRADIENT: {
                         write_path(tile, tile_ix, draw_flags);
                         let index = scene[dd];
                         let info_offset = di + 1u;
                         write_grad(CMD_SWEEP_GRAD, index, info_offset);
                     }                    
-                    // DRAWTAG_FILL_IMAGE
-                    case 0x248u: {
+                    case DRAWTAG_FILL_IMAGE: {
                         write_path(tile, tile_ix, draw_flags);
                         write_image(di + 1u);
                     }
-                    // DRAWTAG_BEGIN_CLIP
-                    case 0x9u: {
+                    case DRAWTAG_BEGIN_CLIP: {
                         if tile.segment_count_or_ix == 0u && tile.backdrop == 0 {
                             clip_zero_depth = clip_depth + 1u;
                         } else {
@@ -400,8 +394,7 @@ fn main(
                         }
                         clip_depth += 1u;
                     }
-                    // DRAWTAG_END_CLIP
-                    case 0x21u: {
+                    case DRAWTAG_END_CLIP: {
                         clip_depth -= 1u;
                         // A clip shape is always a non-zero fill (draw_flags=0).
                         write_path(tile, tile_ix, /*draw_flags=*/0u);
@@ -415,12 +408,10 @@ fn main(
             } else {
                 // In "clip zero" state, suppress all drawing
                 switch drawtag {
-                    // DRAWTAG_BEGIN_CLIP
-                    case 0x9u: {
+                    case DRAWTAG_BEGIN_CLIP: {
                         clip_depth += 1u;
                     }
-                    // DRAWTAG_END_CLIP
-                    case 0x21u: {
+                    case DRAWTAG_END_CLIP: {
                         if clip_depth == clip_zero_depth {
                             clip_zero_depth = 0u;
                         }
