@@ -13,7 +13,7 @@ workspace = true
 # When using this example outside of the original Vello workspace,
 # remove the path property of the following Vello dependency requirement.
 vello = { version = "0.1.0", path = "../../" }
-anyhow = "1.0.80"
+anyhow = "1.0.81"
 pollster = "0.3.0"
 wgpu = "0.19.3"
-winit = "0.29.12"
+winit = "0.29.15"
