@@ -39,6 +39,9 @@ env:
 # This explicit dependency can be switched back to macos-latest once it points to macos-14,
 # which is expected to happen sometime in Q2 FY24 (April – June 2024).
 # https://github.blog/changelog/2024-01-30-github-actions-macos-14-sonoma-is-now-available/
+#
+# The MSRV jobs run only cargo check because different clippy versions can disagree on goals and
+# running tests introduces dev dependencies which may require a higher MSRV than the bare package.
 
 name: CI
 
