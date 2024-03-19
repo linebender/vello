@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::{ExampleScene, SceneConfig, SceneParams, SceneSet};
-use vello::kurbo::{Affine, BezPath, Cap, Ellipse, Join, PathEl, Point, Rect, Shape, Stroke, Vec2};
+use vello::kurbo::{
+    Affine, BezPath, Cap, Circle, Ellipse, Join, PathEl, Point, Rect, Shape, Stroke, Vec2,
+};
 use vello::peniko::*;
 use vello::*;
 
@@ -31,6 +33,7 @@ macro_rules! scene {
 
 pub fn test_scenes() -> SceneSet {
     let scenes = vec![
+        scene!(many_draw),
         scene!(splash_with_tiger(), "splash_with_tiger", false),
         scene!(funky_paths),
         scene!(stroke_styles(Affine::IDENTITY), "stroke_styles", false),
@@ -66,6 +69,21 @@ pub fn test_scenes() -> SceneSet {
 }
 
 // Scenes
+
+fn many_draw(scene: &mut Scene, _: &mut SceneParams) {
+    const N_WIDE: usize = 300;
+    const N_HIGH: usize = 300;
+    const SCENE_WIDTH: f64 = 2000.0;
+    const SCENE_HEIGHT: f64 = 1500.0;
+    for j in 0..N_HIGH {
+        let y = (j as f64 + 0.5) * (SCENE_HEIGHT / N_HIGH as f64);
+        for i in 0..N_WIDE {
+            let x = (i as f64 + 0.5) * (SCENE_WIDTH / N_WIDE as f64);
+            let c = Circle::new((x, y), 3.0);
+            scene.fill(Fill::NonZero, Affine::IDENTITY, Color::YELLOW, None, &c);
+        }
+    }
+}
 
 fn funky_paths(scene: &mut Scene, _: &mut SceneParams) {
     use PathEl::*;

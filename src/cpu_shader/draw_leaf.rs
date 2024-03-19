@@ -23,11 +23,16 @@ fn draw_leaf_main(
     info: &mut [u32],
     clip_inp: &mut [Clip],
 ) {
+    let num_blocks_total = (config.layout.n_draw_objects as usize + (WG_SIZE - 1)) / WG_SIZE;
+    let n_blocks_base = num_blocks_total / WG_SIZE;
+    let remainder = num_blocks_total % WG_SIZE;
     let mut prefix = DrawMonoid::default();
-    for i in 0..n_wg {
+    for i in 0..n_wg as usize {
+        let first_block = n_blocks_base * i + i.min(remainder);
+        let n_blocks = n_blocks_base + (i < remainder) as usize;
         let mut m = prefix;
-        for j in 0..WG_SIZE {
-            let ix = i * WG_SIZE as u32 + j as u32;
+        for j in 0..WG_SIZE * n_blocks {
+            let ix = (first_block * WG_SIZE) as u32 + j as u32;
             let tag_raw = read_draw_tag_from_scene(config, scene, ix);
             let tag_word = DrawTag(tag_raw);
             // store exclusive prefix sum
@@ -185,7 +190,7 @@ fn draw_leaf_main(
             }
             m = m_next;
         }
-        prefix = prefix.combine(&reduced[i as usize]);
+        prefix = prefix.combine(&reduced[i]);
     }
 }
 
