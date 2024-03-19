@@ -54,7 +54,8 @@ notify-debouncer-mini = "0.3.0"
 [target.'cfg(target_os = "android")'.dependencies]
 winit = { version = "0.29.15", features = ["android-native-activity"] }
 android_logger = "0.13.3"
-tracing_android_trace = { rev = "5e33f8ae777e58372013ac3273387480e40c0b36", git = "https://github.com/DJMcNab/android_trace" }
+
+tracing_android_trace = { git = "https://github.com/DJMcNab/android_trace", rev = "74fe8a80937d62bacaea5d47ed1bb11ed998db97" }
 tracing-subscriber = { version = "0.3.18", default-features = false, features = [
     "std",
     "registry",
