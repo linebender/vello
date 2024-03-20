@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::{ExampleScene, SceneConfig, SceneParams, SceneSet};
-use vello::kurbo::{Affine, BezPath, Cap, Ellipse, Join, PathEl, Point, Rect, Shape, Stroke, Vec2};
+use vello::kurbo::{
+    Affine, BezPath, Cap, Circle, Ellipse, Join, PathEl, Point, Rect, Shape, Stroke, Vec2,
+};
 use vello::peniko::*;
 use vello::*;
 
@@ -60,6 +62,7 @@ pub fn test_scenes() -> SceneSet {
         scene!(longpathdash(Cap::Butt), "longpathdash (butt caps)", false),
         scene!(longpathdash(Cap::Round), "longpathdash (round caps)", false),
         scene!(crate::mmark::MMark::new(80_000), "mmark", false),
+        scene!(many_draw_objects),
     ];
 
     SceneSet { scenes }
@@ -1518,6 +1521,22 @@ fn make_diamond(cx: f64, cy: f64) -> [PathEl; 5] {
         PathEl::LineTo(Point::new(cx - SIZE, cy)),
         PathEl::ClosePath,
     ]
+}
+
+fn many_draw_objects(scene: &mut Scene, params: &mut SceneParams) {
+    const N_WIDE: usize = 300;
+    const N_HIGH: usize = 300;
+    const SCENE_WIDTH: f64 = 2000.0;
+    const SCENE_HEIGHT: f64 = 1500.0;
+    params.resolution = Some((SCENE_WIDTH, SCENE_HEIGHT).into());
+    for j in 0..N_HIGH {
+        let y = (j as f64 + 0.5) * (SCENE_HEIGHT / N_HIGH as f64);
+        for i in 0..N_WIDE {
+            let x = (i as f64 + 0.5) * (SCENE_WIDTH / N_WIDE as f64);
+            let c = Circle::new((x, y), 3.0);
+            scene.fill(Fill::NonZero, Affine::IDENTITY, Color::YELLOW, None, &c);
+        }
+    }
 }
 
 fn splash_screen(scene: &mut Scene, params: &mut SceneParams) {

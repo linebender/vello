@@ -234,6 +234,7 @@ impl WorkgroupCounts {
             path_tag_wgs
         };
         let draw_object_wgs = (n_draw_objects + PATH_BBOX_WG - 1) / PATH_BBOX_WG;
+        let draw_monoid_wgs = draw_object_wgs.min(PATH_BBOX_WG);
         let flatten_wgs = (n_path_tags + FLATTEN_WG - 1) / FLATTEN_WG;
         let clip_reduce_wgs = n_clips.saturating_sub(1) / CLIP_REDUCE_WG;
         let clip_wgs = (n_clips + CLIP_REDUCE_WG - 1) / CLIP_REDUCE_WG;
@@ -248,8 +249,8 @@ impl WorkgroupCounts {
             path_scan: (path_tag_wgs, 1, 1),
             bbox_clear: (draw_object_wgs, 1, 1),
             flatten: (flatten_wgs, 1, 1),
-            draw_reduce: (draw_object_wgs, 1, 1),
-            draw_leaf: (draw_object_wgs, 1, 1),
+            draw_reduce: (draw_monoid_wgs, 1, 1),
+            draw_leaf: (draw_monoid_wgs, 1, 1),
             clip_reduce: (clip_reduce_wgs, 1, 1),
             clip_leaf: (clip_wgs, 1, 1),
             binning: (draw_object_wgs, 1, 1),
@@ -364,8 +365,9 @@ impl BufferSizes {
         let path_reduced_scan = BufferSize::new(path_tag_wgs);
         let path_monoids = BufferSize::new(path_tag_wgs * PATH_REDUCE_WG);
         let path_bboxes = BufferSize::new(n_paths);
-        let draw_object_wgs = workgroups.draw_reduce.0;
-        let draw_reduced = BufferSize::new(draw_object_wgs);
+        let binning_wgs = workgroups.binning.0;
+        let draw_monoid_wgs = workgroups.draw_reduce.0;
+        let draw_reduced = BufferSize::new(draw_monoid_wgs);
         let draw_monoids = BufferSize::new(n_draw_objects);
         let info = BufferSize::new(layout.bin_data_start);
         let clip_inps = BufferSize::new(n_clips);
@@ -375,7 +377,7 @@ impl BufferSizes {
         let draw_bboxes = BufferSize::new(n_paths);
         let bump_alloc = BufferSize::new(1);
         let indirect_count = BufferSize::new(1);
-        let bin_headers = BufferSize::new(draw_object_wgs * 256);
+        let bin_headers = BufferSize::new(binning_wgs * 256);
         let n_paths_aligned = align_up(n_paths, 256);
         let paths = BufferSize::new(n_paths_aligned);
 

@@ -236,6 +236,7 @@ fn main(
             if wr_ix - rd_ix >= N_TILE || (wr_ix >= ready_ix && partition_ix >= n_partitions) {
                 break;
             }
+            workgroupBarrier();
         }
         // At this point, sh_drawobj_ix[0.. wr_ix - rd_ix] contains merged binning results.
         var tag = DRAWTAG_NOP;

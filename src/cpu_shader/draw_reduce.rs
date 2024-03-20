@@ -10,14 +10,19 @@ use super::util::read_draw_tag_from_scene;
 const WG_SIZE: usize = 256;
 
 fn draw_reduce_main(n_wg: u32, config: &ConfigUniform, scene: &[u32], reduced: &mut [DrawMonoid]) {
-    for i in 0..n_wg {
+    let num_blocks_total = (config.layout.n_draw_objects as usize + (WG_SIZE - 1)) / WG_SIZE;
+    let n_blocks_base = num_blocks_total / WG_SIZE;
+    let remainder = num_blocks_total % WG_SIZE;
+    for i in 0..n_wg as usize {
+        let first_block = n_blocks_base * i + i.min(remainder);
+        let n_blocks = n_blocks_base + (i < remainder) as usize;
         let mut m = DrawMonoid::default();
-        for j in 0..WG_SIZE {
-            let ix = i * WG_SIZE as u32 + j as u32;
+        for j in 0..WG_SIZE * n_blocks {
+            let ix = (first_block * WG_SIZE) as u32 + j as u32;
             let tag = read_draw_tag_from_scene(config, scene, ix);
             m = m.combine(&DrawMonoid::new(DrawTag(tag)));
         }
-        reduced[i as usize] = m;
+        reduced[i] = m;
     }
 }
 
