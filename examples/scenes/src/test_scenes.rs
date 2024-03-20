@@ -1523,11 +1523,12 @@ fn make_diamond(cx: f64, cy: f64) -> [PathEl; 5] {
     ]
 }
 
-fn many_draw_objects(scene: &mut Scene, _: &mut SceneParams) {
+fn many_draw_objects(scene: &mut Scene, params: &mut SceneParams) {
     const N_WIDE: usize = 300;
     const N_HIGH: usize = 300;
     const SCENE_WIDTH: f64 = 2000.0;
     const SCENE_HEIGHT: f64 = 1500.0;
+    params.resolution = Some((SCENE_WIDTH, SCENE_HEIGHT).into());
     for j in 0..N_HIGH {
         let y = (j as f64 + 0.5) * (SCENE_HEIGHT / N_HIGH as f64);
         for i in 0..N_WIDE {

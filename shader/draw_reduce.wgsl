@@ -25,6 +25,9 @@ fn main(
     @builtin(workgroup_id) wg_id: vec3<u32>,
 ) {
     let num_blocks_total = (config.n_drawobj + (WG_SIZE - 1u)) / WG_SIZE;
+    // When the number of blocks exceeds the workgroup size, divide
+    // the work evenly so each workgroup handles n_blocks / wg, with
+    // the low workgroups doing one more each to handle the remainder.
     let n_blocks_base = num_blocks_total / WG_SIZE;
     let remainder = num_blocks_total % WG_SIZE;
     let first_block = n_blocks_base * wg_id.x + min(wg_id.x, remainder);

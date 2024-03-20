@@ -74,7 +74,8 @@ fn main(
     workgroupBarrier();
     var prefix = sh_scratch[0];
 
-    let num_blocks_total = (config.n_drawobj + (WG_SIZE - 1u)) / WG_SIZE;
+    // This is the same division of work as draw_reduce.
+    let num_blocks_total = (config.n_drawobj + WG_SIZE - 1u) / WG_SIZE;
     let n_blocks_base = num_blocks_total / WG_SIZE;
     let remainder = num_blocks_total % WG_SIZE;
     let first_block = n_blocks_base * wg_id.x + min(wg_id.x, remainder);
