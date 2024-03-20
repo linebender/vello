@@ -33,7 +33,6 @@ macro_rules! scene {
 
 pub fn test_scenes() -> SceneSet {
     let scenes = vec![
-        scene!(many_draw),
         scene!(splash_with_tiger(), "splash_with_tiger", false),
         scene!(funky_paths),
         scene!(stroke_styles(Affine::IDENTITY), "stroke_styles", false),
@@ -63,27 +62,13 @@ pub fn test_scenes() -> SceneSet {
         scene!(longpathdash(Cap::Butt), "longpathdash (butt caps)", false),
         scene!(longpathdash(Cap::Round), "longpathdash (round caps)", false),
         scene!(crate::mmark::MMark::new(80_000), "mmark", false),
+        scene!(many_draw_objects),
     ];
 
     SceneSet { scenes }
 }
 
 // Scenes
-
-fn many_draw(scene: &mut Scene, _: &mut SceneParams) {
-    const N_WIDE: usize = 300;
-    const N_HIGH: usize = 300;
-    const SCENE_WIDTH: f64 = 2000.0;
-    const SCENE_HEIGHT: f64 = 1500.0;
-    for j in 0..N_HIGH {
-        let y = (j as f64 + 0.5) * (SCENE_HEIGHT / N_HIGH as f64);
-        for i in 0..N_WIDE {
-            let x = (i as f64 + 0.5) * (SCENE_WIDTH / N_WIDE as f64);
-            let c = Circle::new((x, y), 3.0);
-            scene.fill(Fill::NonZero, Affine::IDENTITY, Color::YELLOW, None, &c);
-        }
-    }
-}
 
 fn funky_paths(scene: &mut Scene, _: &mut SceneParams) {
     use PathEl::*;
@@ -1536,6 +1521,21 @@ fn make_diamond(cx: f64, cy: f64) -> [PathEl; 5] {
         PathEl::LineTo(Point::new(cx - SIZE, cy)),
         PathEl::ClosePath,
     ]
+}
+
+fn many_draw_objects(scene: &mut Scene, _: &mut SceneParams) {
+    const N_WIDE: usize = 300;
+    const N_HIGH: usize = 300;
+    const SCENE_WIDTH: f64 = 2000.0;
+    const SCENE_HEIGHT: f64 = 1500.0;
+    for j in 0..N_HIGH {
+        let y = (j as f64 + 0.5) * (SCENE_HEIGHT / N_HIGH as f64);
+        for i in 0..N_WIDE {
+            let x = (i as f64 + 0.5) * (SCENE_WIDTH / N_WIDE as f64);
+            let c = Circle::new((x, y), 3.0);
+            scene.fill(Fill::NonZero, Affine::IDENTITY, Color::YELLOW, None, &c);
+        }
+    }
 }
 
 fn splash_screen(scene: &mut Scene, params: &mut SceneParams) {
