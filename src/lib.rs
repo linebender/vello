@@ -94,6 +94,7 @@ mod wgpu_engine;
 
 #[cfg(feature = "wgpu")]
 use std::num::NonZeroUsize;
+use std::sync::Arc;
 
 /// Styling and composition primitives.
 pub use peniko;
@@ -238,13 +239,15 @@ pub struct RendererOptions {
     ///
     /// Has no effect on WebAssembly
     pub num_init_threads: Option<NonZeroUsize>,
+
+    pub pipeline_cache: Option<Arc<wgpu::PipelineCache>>,
 }
 
 #[cfg(feature = "wgpu")]
 impl Renderer {
     /// Creates a new renderer for the specified device.
     pub fn new(device: &Device, options: RendererOptions) -> Result<Self> {
-        let mut engine = WgpuEngine::new(options.use_cpu);
+        let mut engine = WgpuEngine::new(options.use_cpu, options.pipeline_cache.clone());
         // If we are running in parallel (i.e. the number of threads is not 1)
         if options.num_init_threads != NonZeroUsize::new(1) {
             #[cfg(not(target_arch = "wasm32"))]
@@ -392,7 +395,7 @@ impl Renderer {
     #[cfg(feature = "hot_reload")]
     pub async fn reload_shaders(&mut self, device: &Device) -> Result<()> {
         device.push_error_scope(wgpu::ErrorFilter::Validation);
-        let mut engine = WgpuEngine::new(self.options.use_cpu);
+        let mut engine = WgpuEngine::new(self.options.use_cpu, self.options.pipeline_cache.clone());
         // We choose not to initialise these shaders in parallel, to ensure the error scope works correctly
         let shaders = shaders::full_shaders(device, &mut engine, &self.options)?;
         let error = device.pop_error_scope().await;
@@ -680,6 +683,7 @@ impl BlitPipeline {
                 alpha_to_coverage_enabled: false,
             },
             multiview: None,
+            cache: None,
         });
         Self {
             bind_layout,

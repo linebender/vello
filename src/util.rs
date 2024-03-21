@@ -3,25 +3,29 @@
 
 //! Simple helpers for managing wgpu state and surfaces.
 
-use std::future::Future;
+use std::{future::Future, io::ErrorKind, path::PathBuf, sync::Arc};
 
 use super::Result;
 
 use wgpu::{
-    Adapter, Device, Instance, Limits, Queue, Surface, SurfaceConfiguration, SurfaceTarget,
-    TextureFormat,
+    Adapter, AdapterInfo, Device, Instance, Limits, PipelineCache, Queue, Surface,
+    SurfaceConfiguration, SurfaceTarget, TextureFormat,
 };
 
 /// Simple render context that maintains wgpu state for rendering the pipeline.
 pub struct RenderContext {
     pub instance: Instance,
     pub devices: Vec<DeviceHandle>,
+    pub pipeline_cache_directory: Option<PathBuf>,
 }
 
 pub struct DeviceHandle {
-    adapter: Adapter,
+    pub adapter: Adapter,
     pub device: Device,
     pub queue: Queue,
+    pub pipeline_cache: Option<Arc<PipelineCache>>,
+    pub adapter_info: AdapterInfo,
+    cache_filename: Option<PathBuf>,
 }
 
 impl RenderContext {
@@ -34,6 +38,7 @@ impl RenderContext {
         Ok(Self {
             instance,
             devices: Vec::new(),
+            pipeline_cache_directory: None,
         })
     }
 
@@ -121,7 +126,8 @@ impl RenderContext {
         let features = adapter.features();
         let limits = Limits::default();
         #[allow(unused_mut)]
-        let mut maybe_features = wgpu::Features::CLEAR_TEXTURE;
+        let mut maybe_features = wgpu::Features::CLEAR_TEXTURE | wgpu::Features::PIPELINE_CACHE;
+
         #[cfg(feature = "wgpu-profiler")]
         {
             maybe_features |= wgpu_profiler::GpuProfiler::ALL_WGPU_TIMER_FEATURES;
@@ -137,13 +143,83 @@ impl RenderContext {
             )
             .await
             .ok()?;
+        let adapter_info = adapter.get_info();
+        let (pipeline_cache, cache_filename) = if features.contains(wgpu::Features::PIPELINE_CACHE)
+        {
+            if let Some(cache_directory) = self.pipeline_cache_directory.as_ref() {
+                let cache_key = wgpu::util::pipeline_cache_key(&adapter_info)
+                    .expect("Adapter supports pipeline cache");
+                let cache_file = cache_directory.join(cache_key);
+                let contents = std::fs::read(&cache_file);
+                match contents {
+                    Ok(data) => {
+                        let cache = unsafe {
+                            device.create_pipeline_cache_init(&wgpu::PipelineCacheInitDescriptor {
+                                label: Some("Vello Pipeline cache"),
+                                data: &data,
+                                fallback: true,
+                            })
+                        };
+                        log::debug!("Making pipeline cache with {} bytes", data.len());
+                        (Some(Arc::new(cache)), Some(cache_file))
+                    }
+                    Err(e) => {
+                        if e.kind() != ErrorKind::NotFound {
+                            log::error!("Got unexpected error {e} trying to open pipeline cache at {cache_file:?}");
+                        } else {
+                            log::info!("Didn't get pipeline cache at {cache_file:?}");
+                        }
+                        let cache = device.create_pipeline_cache(&wgpu::PipelineCacheDescriptor {
+                            label: Some("Vello Pipeline cache"),
+                        });
+                        (Some(Arc::new(cache)), Some(cache_file))
+                    }
+                }
+            } else {
+                log::debug!("Not using pipeline cache as cache directory not provided");
+                (None, None)
+            }
+        } else {
+            log::debug!("Not using pipeline cache as device doesn't support it");
+            (None, None)
+        };
         let device_handle = DeviceHandle {
             adapter,
             device,
             queue,
+            adapter_info,
+            pipeline_cache,
+            cache_filename,
         };
         self.devices.push(device_handle);
         Some(self.devices.len() - 1)
+    }
+}
+
+impl DeviceHandle {
+    pub fn store_pipeline_cache(&self) {
+        if let Some(cache) = self.pipeline_cache.as_ref() {
+            let Some(cache_filename) = self.cache_filename.as_ref() else {
+                log::warn!(
+                    "Unexpectedly didn't have pipeline cache filename, despite having cache"
+                );
+                return;
+            };
+            let Some(data) = cache.get_data() else {
+                log::warn!("Unexpectedly got None from pipeline cache data");
+                return;
+            };
+            let temp_filename = cache_filename.with_extension("temp");
+            if let Err(e) = std::fs::write(&temp_filename, data) {
+                log::error!("Got {e} whilst writing pipeline cache data to {temp_filename:?}");
+                return;
+            };
+            if let Err(e) = std::fs::rename(&temp_filename, cache_filename) {
+                log::error!("Got {e} whilst moving pipeline cache data from {temp_filename:?} to {cache_filename:?}");
+                return;
+            };
+            log::info!("Stored pipeline cache at {cache_filename:?}");
+        }
     }
 }
 

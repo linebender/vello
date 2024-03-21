@@ -181,6 +181,7 @@ fn run(
     }
     let mut prev_scene_ix = scene_ix - 1;
     let mut modifiers = ModifiersState::default();
+    let mut frame = 0;
     event_loop
         .run(move |event, event_loop| match event {
             Event::WindowEvent {
@@ -379,6 +380,12 @@ fn run(
                         let height = render_state.surface.config.height;
                         let device_handle = &render_cx.devices[render_state.surface.dev_id];
                         let snapshot = stats.snapshot();
+                        frame += 1;
+                        if frame == 50 {
+                            let start = instant::Instant::now();
+                            device_handle.store_pipeline_cache();
+                            log::info!("Took {:?} to store a pipeline cache", start.elapsed());
+                        }
 
                         // Allow looping forever
                         scene_ix = scene_ix.rem_euclid(scenes.scenes.len() as i32);
@@ -597,6 +604,7 @@ fn run(
                                     use_cpu,
                                     antialiasing_support: aa_configs.iter().copied().collect(),
                                     num_init_threads: NonZeroUsize::new(args.num_init_threads),
+                                    pipeline_cache: render_cx.devices[id].pipeline_cache.clone(),
                                 },
                             )
                             .expect("Could create renderer");
@@ -798,6 +806,7 @@ fn android_main(app: AndroidApp) {
     };
     android_logger::init_once(config);
 
+    let cache_directory = get_cache_directory(&app).expect("Could get the Android cache directory");
     let event_loop = EventLoopBuilder::with_user_event()
         .with_android_app(app)
         .build()
@@ -808,7 +817,38 @@ fn android_main(app: AndroidApp) {
         .select_scene_set(|| Args::command())
         .unwrap()
         .unwrap();
-    let render_cx = RenderContext::new().unwrap();
+    let mut render_cx = RenderContext::new().unwrap();
+    render_cx.pipeline_cache_directory = Some(cache_directory);
 
     run(event_loop, args, scenes, render_cx);
+}
+
+#[cfg(target_os = "android")]
+fn get_cache_directory(app: &AndroidApp) -> anyhow::Result<std::path::PathBuf> {
+    use std::path::PathBuf;
+
+    use anyhow::Context;
+
+    let app_jobject = unsafe { jni::objects::JObject::from_raw(app.activity_as_ptr().cast()) };
+    // If we got a null VM, we can't pass up
+    let jvm = unsafe { jni::JavaVM::from_raw(app.vm_as_ptr().cast()).context("Making VM")? };
+    let mut env = jvm.attach_current_thread().context("Attaching to thread")?;
+    let res = env
+        .call_method(app_jobject, "getCacheDir", "()Ljava/io/File;", &[])
+        .context("Calling GetCacheDir")?;
+    let file = res.l().context("Converting to JObject")?;
+    let directory_path = env
+        .call_method(file, "getAbsolutePath", "()Ljava/lang/String;", &[])
+        .context("Calling `getAbsolutePath`")?;
+    let string = directory_path.l().context("Converting to a string")?.into();
+    let string = env
+        .get_string(&string)
+        .context("Converting into a Rust string")?;
+    let string: String = string.into();
+    let dir = PathBuf::from(string).join("vello");
+    if !dir.exists() {
+        std::fs::create_dir(&dir).context("Creating pipeline cache directory")?;
+    }
+    // TODO: Also get the quota. This appears to be more involved, requiring a worker thread and being asynchronous
+    Ok(dir)
 }

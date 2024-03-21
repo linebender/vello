@@ -5,6 +5,7 @@ use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use wgpu::{
     BindGroup, BindGroupLayout, Buffer, BufferUsages, CommandEncoder, CommandEncoderDescriptor,
@@ -32,6 +33,7 @@ pub struct WgpuEngine {
     pool: ResourcePool,
     bind_map: BindMap,
     downloads: HashMap<ResourceId, Buffer>,
+    pipeline_cache: Option<Arc<wgpu::PipelineCache>>,
     #[cfg(not(target_arch = "wasm32"))]
     shaders_to_initialise: Option<Vec<UninitialisedShader>>,
     pub(crate) use_cpu: bool,
@@ -132,9 +134,10 @@ enum TransientBuf<'a> {
 }
 
 impl WgpuEngine {
-    pub fn new(use_cpu: bool) -> WgpuEngine {
+    pub fn new(use_cpu: bool, cache: Option<Arc<wgpu::PipelineCache>>) -> WgpuEngine {
         Self {
             use_cpu,
+            pipeline_cache: cache,
             ..Default::default()
         }
     }
@@ -172,6 +175,7 @@ impl WgpuEngine {
             eprintln!("Initialising in parallel using {num_threads} threads");
             let remainder = new_shaders.split_off(num_threads);
             let (tx, rx) = std::sync::mpsc::channel::<(ShaderId, WgpuShader)>();
+            let cache = self.pipeline_cache.as_deref();
 
             // We expect each initialisation to take much longer than acquiring a lock, so we just use a mutex for our work queue
             let work_queue = std::sync::Mutex::new(remainder.into_iter());
@@ -186,7 +190,7 @@ impl WgpuEngine {
                             .name("Vello shader initialisation worker thread".into())
                             .spawn_scoped(scope, move || {
                                 let shader = Self::create_compute_pipeline(
-                                    device, it.label, it.wgsl, it.entries,
+                                    device, it.label, it.wgsl, it.entries, cache,
                                 );
                                 // We know the rx can only be closed if all the tx references are dropped
                                 tx.send((it.shader_id, shader)).unwrap();
@@ -198,6 +202,7 @@ impl WgpuEngine {
                                             value.label,
                                             value.wgsl,
                                             value.entries,
+                                            cache,
                                         );
                                         tx.send((value.shader_id, shader)).unwrap();
                                     } else {
@@ -327,7 +332,13 @@ impl WgpuEngine {
             });
             return Ok(id);
         }
-        let wgpu = Self::create_compute_pipeline(device, label, wgsl, entries);
+        let wgpu = Self::create_compute_pipeline(
+            device,
+            label,
+            wgsl,
+            entries,
+            self.pipeline_cache.as_deref(),
+        );
         add(Shader {
             wgpu: Some(wgpu),
             cpu: None,
@@ -622,6 +633,7 @@ impl WgpuEngine {
         label: &str,
         wgsl: Cow<'_, str>,
         entries: Vec<wgpu::BindGroupLayoutEntry>,
+        cache: Option<&wgpu::PipelineCache>,
     ) -> WgpuShader {
         let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some(label),
@@ -642,6 +654,7 @@ impl WgpuEngine {
             layout: Some(&compute_pipeline_layout),
             module: &shader_module,
             entry_point: "main",
+            cache,
         });
         WgpuShader {
             pipeline,
