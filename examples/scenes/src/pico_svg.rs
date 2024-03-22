@@ -3,7 +3,7 @@
 
 //! A loader for a tiny fragment of SVG
 
-use std::{num::ParseFloatError, str::FromStr};
+use std::str::FromStr;
 
 use roxmltree::{Document, Node};
 use vello::{
@@ -188,7 +188,7 @@ fn parse_transform(transform: &str) -> Affine {
             let vals = s
                 .split(|c| matches!(c, ',' | ' '))
                 .map(str::parse)
-                .collect::<Result<Vec<f64>, ParseFloatError>>()
+                .collect::<Result<Vec<f64>, _>>()
                 .expect("Could parse all values of 'matrix' as floats");
             Affine::new(
                 vals.try_into()
@@ -199,7 +199,7 @@ fn parse_transform(transform: &str) -> Affine {
                 .split(|c| matches!(c, ',' | ' '))
                 .map(str::trim)
                 .map(str::parse)
-                .collect::<Result<Vec<f64>, ParseFloatError>>()
+                .collect::<Result<Vec<f64>, _>>()
             {
                 match vals.as_slice() {
                     &[x, y] => Affine::translate(Vec2 { x, y }),
@@ -213,7 +213,7 @@ fn parse_transform(transform: &str) -> Affine {
                 .split(|c| matches!(c, ',' | ' '))
                 .map(str::trim)
                 .map(str::parse)
-                .collect::<Result<Vec<f64>, ParseFloatError>>()
+                .collect::<Result<Vec<f64>, _>>()
             {
                 match *vals.as_slice() {
                     [x, y] => Affine::scale_non_uniform(x, y),

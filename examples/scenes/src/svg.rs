@@ -128,7 +128,7 @@ pub fn svg_function_of<R: AsRef<str>>(
                 (new_scene, size.to_vec2())
             }
             Err(e) => {
-                eprintln!("Failed to load svg, with Err({e})");
+                eprintln!("Failed to load svg: {e}");
                 let mut error_scene = Scene::new();
                 error_scene.fill(
                     Fill::NonZero,
