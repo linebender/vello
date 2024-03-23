@@ -158,7 +158,6 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.RUST_STABLE_VER }}
-          components: clippy
 
       - name: install native dependencies
         if: matrix.os == 'ubuntu-latest'
@@ -193,7 +192,6 @@ jobs:
         with:
           toolchain: ${{ env.RUST_STABLE_VER }}
           targets: wasm32-unknown-unknown
-          components: clippy
 
       # TODO: Find a way to make tests work. Until then the tests are merely compiled.
       - name: cargo test compile
