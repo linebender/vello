@@ -222,7 +222,7 @@ pub fn full_shaders(
     let path_count_setup = add_shader!(path_count_setup, [Buffer, Buffer], &empty);
     let path_count = add_shader!(
         path_count,
-        [Buffer, BufReadOnly, BufReadOnly, Buffer, Buffer]
+        [Uniform, Buffer, BufReadOnly, BufReadOnly, Buffer, Buffer]
     );
     let backdrop = add_shader!(
         backdrop_dyn,
@@ -245,7 +245,7 @@ pub fn full_shaders(
         ],
         &empty
     );
-    let path_tiling_setup = add_shader!(path_tiling_setup, [Buffer, Buffer], &empty);
+    let path_tiling_setup = add_shader!(path_tiling_setup, [Buffer, Buffer, Buffer], &empty);
     let path_tiling = add_shader!(
         path_tiling,
         [

@@ -15,18 +15,21 @@ struct AtomicTile {
 }
 
 @group(0) @binding(0)
-var<storage, read_write> bump: BumpAllocators;
+var<uniform> config: Config;
 
 @group(0) @binding(1)
-var<storage> lines: array<LineSoup>;
+var<storage, read_write> bump: BumpAllocators;
 
 @group(0) @binding(2)
-var<storage> paths: array<Path>;
+var<storage> lines: array<LineSoup>;
 
 @group(0) @binding(3)
-var<storage, read_write> tile: array<AtomicTile>;
+var<storage> paths: array<Path>;
 
 @group(0) @binding(4)
+var<storage, read_write> tile: array<AtomicTile>;
+
+@group(0) @binding(5)
 var<storage, read_write> seg_counts: array<SegmentCount>;
 
 // number of integer cells spanned by interval defined by a, b
@@ -187,7 +190,10 @@ fn main(
             // Pack two count values into a single u32
             let counts = (seg_within_slice << 16u) | subix;
             let seg_count = SegmentCount(line_ix, counts);
-            seg_counts[seg_base + i - imin] = seg_count;
+            let seg_ix = seg_base + i - imin;
+            if seg_ix < config.seg_counts_size {
+                seg_counts[seg_ix] = seg_count;
+            }
             // Note: since we're iterating, we have a reliable value for
             // last_z.
             last_z = z;

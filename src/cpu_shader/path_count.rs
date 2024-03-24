@@ -153,10 +153,11 @@ fn path_count_main(
 }
 
 pub fn path_count(_n_wg: u32, resources: &[CpuBinding]) {
-    let mut bump = resources[0].as_typed_mut();
-    let lines = resources[1].as_slice();
-    let paths = resources[2].as_slice();
-    let mut tile = resources[3].as_slice_mut();
-    let mut seg_counts = resources[4].as_slice_mut();
+    // config is binding 0
+    let mut bump = resources[1].as_typed_mut();
+    let lines = resources[2].as_slice();
+    let paths = resources[3].as_slice();
+    let mut tile = resources[4].as_slice_mut();
+    let mut seg_counts = resources[5].as_slice_mut();
     path_count_main(&mut bump, &lines, &paths, &mut tile, &mut seg_counts);
 }

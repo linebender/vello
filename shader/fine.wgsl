@@ -867,6 +867,11 @@ fn main(
     @builtin(local_invocation_id) local_id: vec3<u32>,
     @builtin(workgroup_id) wg_id: vec3<u32>,
 ) {
+    if ptcl[0] == ~0u {
+        // An earlier stage has failed, don't try to render.
+        // We use ptcl[0] for this so we don't use up a binding for bump.
+        return;
+    }
     let tile_ix = wg_id.y * config.width_in_tiles + wg_id.x;
     let xy = vec2(f32(global_id.x * PIXELS_PER_THREAD), f32(global_id.y));
     let local_xy = vec2(f32(local_id.x * PIXELS_PER_THREAD), f32(local_id.y));
