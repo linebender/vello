@@ -14,7 +14,7 @@ Future versions of Vello Shaders might increase the Rust version requirement.
 It will not be treated as a breaking change and as such can even happen with small patch releases.
 
 <details>
-<summary>Click here if compiling with MSRV fails.</summary>
+<summary>Click here if compiling fails.</summary>
 
 As time has passed, some of Vello Shaders' dependencies could have released versions with a higher Rust requirement.
 If you encounter a compilation issue due to a dependency and don't want to upgrade your Rust toolchain, then you could downgrade the dependency.
