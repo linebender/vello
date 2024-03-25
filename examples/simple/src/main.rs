@@ -30,7 +30,7 @@ fn main() -> Result<()> {
     // Setup a bunch of state:
 
     // The vello RenderContext which is a global context that lasts for the lifetime of the application
-    let mut render_cx = RenderContext::new().unwrap();
+    let mut render_cx = RenderContext::new();
 
     // An array of renderers, one per wgpu device
     let mut renderers: Vec<Option<Renderer>> = vec![];

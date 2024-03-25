@@ -52,8 +52,7 @@ pub fn render_sync(scene: Scene, params: &TestParams) -> Result<Image> {
 }
 
 pub async fn render(scene: Scene, params: &TestParams) -> Result<Image> {
-    let mut context = RenderContext::new()
-        .or_else(|_| bail!("Got non-Send/Sync error from creating render context"))?;
+    let mut context = RenderContext::new();
     let device_id = context
         .device(None)
         .await

@@ -110,6 +110,7 @@ pub mod util;
 
 pub use render::Render;
 pub use scene::{DrawGlyphs, Scene};
+use thiserror::Error;
 #[cfg(feature = "wgpu")]
 pub use util::block_on_wgpu;
 
@@ -126,12 +127,6 @@ pub use vello_encoding::BumpAllocators;
 use wgpu::{Device, Queue, SurfaceTexture, TextureFormat, TextureView};
 #[cfg(all(feature = "wgpu", feature = "wgpu-profiler"))]
 use wgpu_profiler::{GpuProfiler, GpuProfilerSettings};
-
-/// Catch-all error type.
-pub type Error = Box<dyn std::error::Error>;
-
-/// Specialization of `Result` for our catch-all error type.
-pub type Result<T> = std::result::Result<T, Error>;
 
 /// Represents the antialiasing method to use during a render pass.
 #[derive(Copy, Clone, PartialEq, Eq)]
@@ -183,6 +178,45 @@ impl FromIterator<AaConfig> for AaSupport {
         result
     }
 }
+
+/// Errors that can occur in vello.
+#[derive(Error, Debug)]
+pub enum VelloError {
+    /// Error when vello couldn't find a wgpu device with suitable features.
+    #[cfg(feature = "wgpu")]
+    #[error("Couldn't find suitable device")]
+    CouldntFindSuitableDevice,
+    /// Error when wgpu failed to create a surface.
+    /// See [`wgpu::CreateSurfaceError`] for more information.
+    #[cfg(feature = "wgpu")]
+    #[error("Couldn't create wgpu surface")]
+    WgpuCreateSurfaceError(#[from] wgpu::CreateSurfaceError),
+    /// Error when vello couldn't find [`TextureFormat::Rgba8Unorm`] or [`TextureFormat::Bgra8Unorm`] for your surface.
+    /// Make sure that you have a surface which provides one of those texture formats.
+    #[cfg(feature = "wgpu")]
+    #[error("Couldn't find `Rgba8Unorm` or `Bgra8Unorm` texture formats for surface")]
+    UnsupportedSurfaceFormat,
+
+    /// Error when using a buffer inside a recording while it's not available.
+    /// Check if you have created it and not freed before its last usage.
+    #[cfg(feature = "wgpu")]
+    #[error("Buffer '{0}' is not available but used for {1}")]
+    UnavailableBufferUsed(&'static str, &'static str),
+    /// Error when trying to async map a buffer.
+    /// See [`wgpu::BufferAsyncError`] for more information.
+    #[cfg(feature = "wgpu")]
+    #[error(transparent)]
+    BufferAsyncError(#[from] wgpu::BufferAsyncError),
+
+    /// Error when creating [`GpuProfiler`].
+    /// See [`wgpu_profiler::CreationError`] for more information.
+    #[cfg(feature = "wgpu-profiler")]
+    #[error("Couldn't create wgpu profiler")]
+    ProfilerCreationError(#[from] wgpu_profiler::CreationError),
+}
+
+#[allow(dead_code)]
+pub(crate) type Result<T, E = VelloError> = std::result::Result<T, E>;
 
 /// Renders a scene into a texture or surface.
 #[cfg(feature = "wgpu")]
@@ -250,7 +284,7 @@ impl Renderer {
             #[cfg(not(target_arch = "wasm32"))]
             engine.use_parallel_initialisation();
         }
-        let shaders = shaders::full_shaders(device, &mut engine, &options)?;
+        let shaders = shaders::full_shaders(device, &mut engine, &options);
         #[cfg(not(target_arch = "wasm32"))]
         engine.build_shaders_if_needed(device, options.num_init_threads);
         let blit = options
@@ -390,14 +424,14 @@ impl Renderer {
 
     /// Reload the shaders. This should only be used during `vello` development
     #[cfg(feature = "hot_reload")]
-    pub async fn reload_shaders(&mut self, device: &Device) -> Result<()> {
+    pub async fn reload_shaders(&mut self, device: &Device) -> Result<(), wgpu::Error> {
         device.push_error_scope(wgpu::ErrorFilter::Validation);
         let mut engine = WgpuEngine::new(self.options.use_cpu);
         // We choose not to initialise these shaders in parallel, to ensure the error scope works correctly
-        let shaders = shaders::full_shaders(device, &mut engine, &self.options)?;
+        let shaders = shaders::full_shaders(device, &mut engine, &self.options);
         let error = device.pop_error_scope().await;
         if let Some(error) = error {
-            return Err(error.into());
+            return Err(error);
         }
         self.engine = engine;
         self.shaders = shaders;
@@ -445,11 +479,7 @@ impl Renderer {
             let buf_slice = bump_buf.slice(..);
             let (sender, receiver) = futures_intrusive::channel::shared::oneshot_channel();
             buf_slice.map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
-            if let Some(recv_result) = receiver.receive().await {
-                recv_result?;
-            } else {
-                return Err("channel was closed".into());
-            }
+            receiver.receive().await.expect("channel was closed")?;
             let mapped = buf_slice.get_mapped_range();
             bump = Some(bytemuck::pod_read_unaligned(&mapped));
         }

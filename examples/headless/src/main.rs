@@ -75,8 +75,7 @@ fn main() -> Result<()> {
 }
 
 async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
-    let mut context = RenderContext::new()
-        .or_else(|_| bail!("Got non-Send/Sync error from creating render context"))?;
+    let mut context = RenderContext::new();
     let device_id = context
         .device(None)
         .await

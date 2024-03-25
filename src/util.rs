@@ -5,12 +5,12 @@
 
 use std::future::Future;
 
-use super::Result;
-
 use wgpu::{
     Adapter, Device, Instance, Limits, Queue, Surface, SurfaceConfiguration, SurfaceTarget,
     TextureFormat,
 };
+
+use crate::{Result, VelloError};
 
 /// Simple render context that maintains wgpu state for rendering the pipeline.
 pub struct RenderContext {
@@ -24,17 +24,23 @@ pub struct DeviceHandle {
     pub queue: Queue,
 }
 
+impl Default for RenderContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RenderContext {
-    pub fn new() -> Result<Self> {
+    pub fn new() -> Self {
         let instance = Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::util::backend_bits_from_env().unwrap_or(wgpu::Backends::PRIMARY),
             dx12_shader_compiler: wgpu::Dx12Compiler::Fxc,
             ..Default::default()
         });
-        Ok(Self {
+        Self {
             instance,
             devices: Vec::new(),
-        })
+        }
     }
 
     /// Creates a new surface for the specified window and dimensions.
@@ -49,7 +55,7 @@ impl RenderContext {
         let dev_id = self
             .device(Some(&surface))
             .await
-            .ok_or("Error creating device")?;
+            .ok_or(VelloError::CouldntFindSuitableDevice)?;
 
         let device_handle = &self.devices[dev_id];
         let capabilities = surface.get_capabilities(&device_handle.adapter);
@@ -57,7 +63,7 @@ impl RenderContext {
             .formats
             .into_iter()
             .find(|it| matches!(it, TextureFormat::Rgba8Unorm | TextureFormat::Bgra8Unorm))
-            .expect("surface should support Rgba8Unorm or Bgra8Unorm");
+            .ok_or(VelloError::UnsupportedSurfaceFormat)?;
 
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
