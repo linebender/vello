@@ -52,7 +52,6 @@ const WG_SIZE = 256u;
 
 var<workgroup> sh_mm: array<MergeMonoid, WG_SIZE>;
 var<workgroup> sh_histo: array<u32, WG_SIZE>;
-var<workgroup> sh_prefix_cols: array<u32, WG_SIZE>;
 var<workgroup> sh_seg_end: array<u32, WG_SIZE>;
 var<workgroup> sh_inclusive_cols: array<u32, WG_SIZE>;
 
@@ -84,10 +83,10 @@ fn main(
     sh_histo[local_id.x] = histo;
     for (var i = 0u; i < firstTrailingBit(WG_SIZE); i++) {
         workgroupBarrier();
-        if local_id.x + (1u << i) < WG_SIZE {
-            let other = sh_mm[local_id.x + (1u << i)];
+        if local_id.x >= 1u << i {
+            let other = sh_mm[local_id.x - (1u << i)];
             agg = combine_merge_monoid(agg, other);
-            histo += sh_histo[local_id.x + (1u << i)];
+            histo += sh_histo[local_id.x - (1u << i)];
         }
         workgroupBarrier();
         sh_mm[local_id.x] = agg;
@@ -100,18 +99,21 @@ fn main(
     workgroupBarrier();
     // subtract off start of scanline winding number
 
-    var prefix_cols = 0u;
-    if agg.start_x != 0u {
-        prefix_cols = reduce_histo(sh_histo[agg.start - 1u]);
-    }
-    sh_prefix_cols[local_id.x] = prefix_cols;
+    // This is a workaround for overflow at 256. One alternative approach is to
+    // only do 255 items per workgroup.
+    sh_inclusive_cols[local_id.x] = reduce_histo(local_histo) + reduce_histo(histo - local_histo);
+    let seg_rel_histo = histo - select(0u, sh_histo[agg.start_x - 1u], agg.start_x > 0u);
+    workgroupBarrier();
+    // sh_histo now contains histograms relative to segment
+    sh_histo[local_id.x] = seg_rel_histo;
+
     let last_x = local_id.x == WG_SIZE - 1u || sh_mm[local_id.x + 1u].start_x != agg.start_x;
     if last_x {
         sh_seg_end[agg.start_x] = local_id.x;
     }
 
-    sh_inclusive_cols[local_id.x] = reduce_histo(local_histo) + reduce_histo(histo - local_histo);
     let total_cols = workgroupUniformLoad(&sh_inclusive_cols[WG_SIZE - 1u]);
+    // maybe don't need to fill this; consumers can only read from starts
     if agg.start_x != local_id.x {
         sh_seg_end[local_id.x] = sh_seg_end[agg.start_x];
     }
@@ -126,6 +128,36 @@ fn main(
                 cols = probe;
             }
         }
-        let seg_start = sh_mm[cols]
+        let seg_start = sh_mm[cols].start_x;
+        let prefix_cols = select(0u, sh_inclusive_cols[seg_start - 1u], seg_start > 0u);
+        let col_within_segment = ix - prefix_cols;
+        // now choose a column; this can fail in the 256 case
+        let seg_end = sh_seg_end[seg_start];
+        let last_histo = sh_histo[seg_end];
+        var tile_within_col = col_within_segment;
+        var col = 0u;
+        while col < 3u {
+            let hist_val = (last_histo >> (col * 8u)) & 0xffu;
+            if tile_within_col >= hist_val {
+                tile_within_col -= hist_val;
+                col++;
+            } else {
+                break;
+            }
+        }
+        // do binary search to find tile within column
+        // (search is in seg_start..=seg_end)
+        var lo = seg_start;
+        var hi = seg_end + 1u;
+        let goal = tile_within_col;
+        while hi > lo + 1u {
+            let mid = (lo + hi) >> 1u;
+            if goal >= ((sh_histo[mid - 1u] >> (col * 8u)) & 0xffu) {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+        // at this point, lo should index our tile
     }
 }
