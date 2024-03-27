@@ -80,9 +80,10 @@ fn main(
     let remainder = num_blocks_total % WG_SIZE;
     let first_block = n_blocks_base * wg_id.x + min(wg_id.x, remainder);
     let n_blocks = n_blocks_base + u32(wg_id.x < remainder);
-    var ix = first_block * WG_SIZE + local_id.x;
-    let ix_end = ix + n_blocks * WG_SIZE;
-    while ix != ix_end {
+    var block_start = first_block * WG_SIZE;
+    let blocks_end = block_start + n_blocks * WG_SIZE;
+    while block_start != blocks_end {
+        let ix = block_start + local_id.x;
         let tag_word = read_draw_tag_from_scene(ix);
         agg = map_draw_tag(tag_word);
         workgroupBarrier();
@@ -262,7 +263,7 @@ fn main(
             }
             clip_inp[m.clip_ix] = ClipInp(ix, i32(path_ix));
         }
-        ix += WG_SIZE;
+        block_start += WG_SIZE;
         // break here on end to save monoid aggregation?
         prefix = combine_draw_monoid(prefix, sh_scratch[WG_SIZE - 1u]);
     }
