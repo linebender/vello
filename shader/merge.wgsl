@@ -8,8 +8,14 @@ struct Minitile {
     path_ix: u32,
     x: u32,
     y: u32,
-    delta: i32,
-    // TODO: slope etc
+    p0: u32, // packed
+    p1: u32, // packed
+}
+
+fn unpack_point(p: u32) -> vec2f {
+    let x = f32(p & 0xffffu) * (1.0 / 8192.0);
+    let y = f32(p >> 16u) * (1.0 / 8192.0);
+    return vec2(x, y);
 }
 
 @group(0) @binding(0)
@@ -34,10 +40,15 @@ fn combine_merge_monoid(a: MergeMonoid, b: MergeMonoid) -> MergeMonoid {
     return c;
 }
 
-fn mm_histogram(t: Minitile) -> u32 {
-    // TODO: get these from tile
-    let xmin = 0u;
-    let xmax = 4u;
+fn mt_delta(t: Minitile) -> i32 {
+    return i32((t.p1 >> 16u) == 0u) - i32((t.p0 >> 16u) == 0u);
+}
+
+fn mt_histogram(t: Minitile) -> u32 {
+    let x0 = f32(t.p0 & 0xffffu) * (1.0 / 8192.0);
+    let x1 = f32(t.p1 & 0xffffu) * (1.0 / 8192.0);
+    let xmin = u32(floor(min(x0, x1)));
+    let xmax = u32(ceil(max(x0, x1)));
     let rshift = (4u - (xmax - xmin)) * 8u;
     let lshift = xmin * 8u;
     return (0x01010101u >> rshift) << lshift;
@@ -54,10 +65,11 @@ var<workgroup> sh_mm: array<MergeMonoid, WG_SIZE>;
 var<workgroup> sh_histo: array<u32, WG_SIZE>;
 var<workgroup> sh_seg_end: array<u32, WG_SIZE>;
 var<workgroup> sh_inclusive_cols: array<u32, WG_SIZE>;
+var<workgroup> sh_area: array<atomic<i32>, WG_SIZE>;
+var<workgroup> sh_carryover: array<i32, 4>;
 
 @compute @workgroup_size(256)
 fn main(
-    @builtin(global_invocation_id) global_id: vec3<u32>,
     @builtin(local_invocation_id) local_id: vec3<u32>,
     @builtin(workgroup_id) wg_id: vec3<u32>,
 ) {
@@ -65,19 +77,20 @@ fn main(
     var first = false;
     var first_x = false;
     // predicate? or pad?
-    let tile = input[global_id.x];
-    if global_id.x != 0u {
-        let prev = input[global_id.x - 1u];
+    let global_ix = wg_id.x * WG_SIZE + local_id.x;
+    let tile = input[global_ix];
+    if global_ix != 0u {
+        let prev = input[global_ix - 1u];
         first = tile.path_ix != prev.path_ix || tile.y != prev.y;
         first_x = first || tile.x != prev.x;
     }
-    let winding = tile.delta;
+    let winding = mt_delta(tile);
     let n_strips = u32(first);
     let start = select(0u, local_id.x, first);
     let start_x = select(0u, local_id.x, first_x);
     var agg = MergeMonoid(winding, n_strips, start, start_x);
 
-    let local_histo = mm_histogram(tile);
+    let local_histo = mt_histogram(tile);
     var histo = local_histo;
     sh_mm[local_id.x] = agg;
     sh_histo[local_id.x] = histo;
@@ -159,5 +172,34 @@ fn main(
             }
         }
         // at this point, lo should index our tile
+        // TODO: predicate on ix < total_cols?
+        let render_tile = input[wg_id.x * WG_SIZE + lo];
+        var alphas = 0u;
+        for (var y = 0u; y < 4u; y++) {
+            if tile_within_col == 0u {
+                atomicStore(&sh_area[local_id.x], 0);
+            }
+            workgroupBarrier();
+            var area_init = 0;
+            if local_id.x == 0u && block_ix != 0u {
+                area_init = sh_carryover[y];
+            }
+            let area = area_init; // TODO: compute from tile
+            atomicAdd(&sh_area[local_id.x - tile_within_col], area);
+            workgroupBarrier();
+            if tile_within_col == 0u {
+                let summed_area = atomicLoad(&sh_area[local_id.x]);
+                if seg_end == WG_SIZE - 1u {
+                    // TODO: only if last column
+                    sh_carryover[y] = summed_area;
+                }
+                let winding_area = sh_mm[seg_end].winding * 256;
+                let alpha_u8 = u32(min(abs(summed_area + winding_area), 255));
+                alphas = (alphas >> 8u) + (alpha_u8 << 24u);
+            }
+        }
+        if tile_within_col == 0u {
+            // TODO: store alphas
+        }
     }
 }
