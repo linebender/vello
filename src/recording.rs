@@ -12,11 +12,9 @@ pub struct ResourceId(pub NonZeroU64);
 
 impl ResourceId {
     pub fn next() -> ResourceId {
+        // We initialize with 1 because unsafe code expects this to be non-zero.
         static ID_COUNTER: AtomicU64 = AtomicU64::new(1);
-
-        let val = ID_COUNTER.fetch_add(1, Ordering::Relaxed);
-        // SAFETY: We begin with 1.
-        ResourceId(unsafe { NonZeroU64::new_unchecked(val) })
+        ResourceId(NonZeroU64::new(ID_COUNTER.fetch_add(1, Ordering::Relaxed)).unwrap())
     }
 }
 
