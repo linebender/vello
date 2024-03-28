@@ -53,7 +53,7 @@ var<workgroup> sh_bitmaps: array<array<atomic<u32>, N_TILE>, N_SLICE>;
 // store count values packed two u16's to a u32
 var<workgroup> sh_count: array<array<u32, N_TILE>, N_SUBSLICE>;
 var<workgroup> sh_chunk_offset: array<u32, N_TILE>;
-var<workgroup> sh_atomic_failed: u32;
+var<workgroup> sh_previous_failed: u32;
 
 @compute @workgroup_size(256)
 fn main(
@@ -66,10 +66,10 @@ fn main(
     }
     if local_id.x == 0u {
         let failed = bump.lines > config.lines_size;
-        sh_atomic_failed = u32(failed);
+        sh_previous_failed = u32(failed);
     }
     // also functions as barrier to protect zeroing of bitmaps
-    let failed = workgroupUniformLoad(&sh_atomic_failed);
+    let failed = workgroupUniformLoad(&sh_previous_failed);
     if failed != 0u {
         if global_id.x == 0u {
             bump.failed |= STAGE_FLATTEN;

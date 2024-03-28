@@ -155,15 +155,18 @@ fn main(
     // We need to check only prior stages, as if this stage has failed in another workgroup, 
     // we still want to know this workgroup's memory requirement.   
     if local_id.x == 0u {
-        let failed = (atomicLoad(&bump.failed) & (STAGE_BINNING | STAGE_TILE_ALLOC | STAGE_FLATTEN)) != 0u
-            || atomicLoad(&bump.seg_counts) > config.seg_counts_size;
+        var failed = atomicLoad(&bump.failed) & (STAGE_BINNING | STAGE_TILE_ALLOC | STAGE_FLATTEN);
+        if atomicLoad(&bump.seg_counts) > config.seg_counts_size {
+            failed |= STAGE_PATH_COUNT;
+        }
         // Reuse sh_part_count to hold failed flag, shmem is tight
         sh_part_count[0] = u32(failed);
     }
     let failed = workgroupUniformLoad(&sh_part_count[0]);
     if failed != 0u {
         if wg_id.x == 0u && local_id.x == 0u {
-            atomicOr(&bump.failed, STAGE_COARSE);
+            // propagate PATH_COUNT failure to path_tiling_setup so it doesn't need to bind config
+            atomicOr(&bump.failed, failed);
         }
         return;
     }

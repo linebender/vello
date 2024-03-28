@@ -30,7 +30,7 @@ let WG_SIZE = 256u;
 
 var<workgroup> sh_tile_count: array<u32, WG_SIZE>;
 var<workgroup> sh_tile_offset: u32;
-var<workgroup> sh_atomic_failed: u32;
+var<workgroup> sh_previous_failed: u32;
 
 @compute @workgroup_size(256)
 fn main(
@@ -42,9 +42,9 @@ fn main(
     // we still want to know this workgroup's memory requirement.
     if local_id.x == 0u {
         let failed = (atomicLoad(&bump.failed) & (STAGE_BINNING | STAGE_FLATTEN)) != 0u;
-        sh_atomic_failed = u32(failed);
+        sh_previous_failed = u32(failed);
     }
-    let failed = workgroupUniformLoad(&sh_atomic_failed);
+    let failed = workgroupUniformLoad(&sh_previous_failed);
     if failed != 0u {
         return;
     }    
