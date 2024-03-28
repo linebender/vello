@@ -818,7 +818,7 @@ fn android_main(app: AndroidApp) {
     use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
     tracing_subscriber::registry()
-        .with(tracing_android_trace::ATraceLayer::new())
+        .with(tracing_android_trace::AndroidTraceLayer::new())
         .try_init()
         .unwrap();
     log::info!(
