@@ -12,7 +12,7 @@ pub struct ResourceId(pub NonZeroU64);
 
 impl ResourceId {
     pub fn next() -> ResourceId {
-        // We initialize with 1 because unsafe code expects this to be non-zero.
+        // We initialize with 1 so that the conversion below succeeds
         static ID_COUNTER: AtomicU64 = AtomicU64::new(1);
         ResourceId(NonZeroU64::new(ID_COUNTER.fetch_add(1, Ordering::Relaxed)).unwrap())
     }
