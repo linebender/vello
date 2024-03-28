@@ -33,8 +33,10 @@ struct Config {
     style_base: u32,
 
     // Sizes of bump allocated buffers (in element size units)
+    lines_size: u32,
     binning_size: u32,
     tiles_size: u32,
+    seg_counts_size: u32,
     segments_size: u32,
     ptcl_size: u32,
 }

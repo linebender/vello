@@ -16,8 +16,12 @@ let WG_SIZE = 256u;
 
 @compute @workgroup_size(1)
 fn main() {
-    let lines = atomicLoad(&bump.lines);
-    indirect.count_x = (lines + (WG_SIZE - 1u)) / WG_SIZE;
+    if atomicLoad(&bump.failed) != 0u {
+        indirect.count_x = 0u;
+    } else {
+        let lines = atomicLoad(&bump.lines);
+        indirect.count_x = (lines + (WG_SIZE - 1u)) / WG_SIZE;
+    }
     indirect.count_y = 1u;
     indirect.count_z = 1u;
 }

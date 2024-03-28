@@ -345,7 +345,14 @@ impl Render {
             shaders.path_count,
             indirect_count_buf,
             0,
-            [bump_buf, lines_buf, path_buf, tile_buf, seg_counts_buf],
+            [
+                config_buf,
+                bump_buf,
+                lines_buf,
+                path_buf,
+                tile_buf,
+                seg_counts_buf,
+            ],
         );
         recording.dispatch(
             shaders.backdrop,
@@ -370,7 +377,7 @@ impl Render {
         recording.dispatch(
             shaders.path_tiling_setup,
             wg_counts.path_tiling_setup,
-            [bump_buf, indirect_count_buf.into()],
+            [bump_buf, indirect_count_buf.into(), ptcl_buf],
         );
         recording.dispatch_indirect(
             shaders.path_tiling,

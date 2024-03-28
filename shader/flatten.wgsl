@@ -746,7 +746,9 @@ fn read_path_segment(tag: PathTagData, is_stroke: bool) -> CubicPoints {
 // Writes a line into a the `lines` buffer at a pre-allocated location designated by `line_ix`.
 fn write_line(line_ix: u32, path_ix: u32, p0: vec2f, p1: vec2f) {
     bbox = vec4(min(bbox.xy, min(p0, p1)), max(bbox.zw, max(p0, p1)));
-    lines[line_ix] = LineSoup(path_ix, p0, p1);
+    if line_ix < config.lines_size {
+        lines[line_ix] = LineSoup(path_ix, p0, p1);
+    }
 }
 
 fn write_line_with_transform(line_ix: u32, path_ix: u32, p0: vec2f, p1: vec2f, t: Transform) {
