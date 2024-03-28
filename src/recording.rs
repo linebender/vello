@@ -15,8 +15,8 @@ impl ResourceId {
         static ID_COUNTER: AtomicU64 = AtomicU64::new(1);
 
         let val = ID_COUNTER.fetch_add(1, Ordering::Relaxed);
-        // SAFETY: Smallest value is 1.
-        ResourceId(unsafe { NonZeroU64::new_unchecked(val + 1) })
+        // SAFETY: We begin with 1.
+        ResourceId(unsafe { NonZeroU64::new_unchecked(val) })
     }
 }
 
