@@ -12,11 +12,9 @@ pub struct ResourceId(pub NonZeroU64);
 
 impl ResourceId {
     pub fn next() -> ResourceId {
-        static ID_COUNTER: AtomicU64 = AtomicU64::new(0);
-
-        let val = ID_COUNTER.fetch_add(1, Ordering::Relaxed);
-        // SAFETY: Smallest value is 1 because we just incremented.
-        ResourceId(unsafe { NonZeroU64::new_unchecked(val + 1) })
+        // We initialize with 1 so that the conversion below succeeds
+        static ID_COUNTER: AtomicU64 = AtomicU64::new(1);
+        ResourceId(NonZeroU64::new(ID_COUNTER.fetch_add(1, Ordering::Relaxed)).unwrap())
     }
 }
 
