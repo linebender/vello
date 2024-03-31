@@ -219,6 +219,17 @@ impl Scene {
     }
 }
 
+impl From<Encoding> for Scene {
+    fn from(encoding: Encoding) -> Self {
+        // TODO: Properly update the estimator for the encoding.
+        Self {
+            encoding,
+            #[cfg(feature = "bump_estimate")]
+            estimator: vello_encoding::BumpEstimator::default(),
+        }
+    }
+}
+
 /// Builder for encoding a glyph run.
 pub struct DrawGlyphs<'a> {
     encoding: &'a mut Encoding,
