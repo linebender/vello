@@ -65,14 +65,14 @@ fn main(
         atomicStore(&sh_bitmaps[i][local_id.x], 0u);
     }
     if local_id.x == 0u {
-        let failed = bump.lines > config.lines_size;
+        let failed = atomicLoad(&bump.lines) > config.lines_size;
         sh_previous_failed = u32(failed);
     }
     // also functions as barrier to protect zeroing of bitmaps
     let failed = workgroupUniformLoad(&sh_previous_failed);
     if failed != 0u {
         if global_id.x == 0u {
-            bump.failed |= STAGE_FLATTEN;
+            atomicOr(&bump.failed, STAGE_FLATTEN);
         }
         return;
     }
