@@ -73,6 +73,9 @@ fn alloc_cmd(size: u32) {
         let ptcl_dyn_start = config.width_in_tiles * config.height_in_tiles * PTCL_INITIAL_ALLOC;
         var new_cmd = ptcl_dyn_start + atomicAdd(&bump.ptcl, PTCL_INCREMENT);
         if new_cmd + PTCL_INCREMENT > config.ptcl_size {
+            // This sets us up for technical UB, as lots of threads will be writing
+            // to the same locations. But I think it's fine, and predicating the
+            // writes would probably slow things down.
             new_cmd = 0u;
             atomicOr(&bump.failed, STAGE_COARSE);
         }
@@ -152,11 +155,19 @@ fn main(
     // We need to check only prior stages, as if this stage has failed in another workgroup, 
     // we still want to know this workgroup's memory requirement.   
     if local_id.x == 0u {
+        var failed = atomicLoad(&bump.failed) & (STAGE_BINNING | STAGE_TILE_ALLOC | STAGE_FLATTEN);
+        if atomicLoad(&bump.seg_counts) > config.seg_counts_size {
+            failed |= STAGE_PATH_COUNT;
+        }
         // Reuse sh_part_count to hold failed flag, shmem is tight
-        sh_part_count[0] = atomicLoad(&bump.failed);
+        sh_part_count[0] = u32(failed);
     }
     let failed = workgroupUniformLoad(&sh_part_count[0]);
-    if (failed & (STAGE_BINNING | STAGE_TILE_ALLOC | STAGE_PATH_COARSE)) != 0u {
+    if failed != 0u {
+        if wg_id.x == 0u && local_id.x == 0u {
+            // propagate PATH_COUNT failure to path_tiling_setup so it doesn't need to bind config
+            atomicOr(&bump.failed, failed);
+        }
         return;
     }
     let width_in_bins = (config.width_in_tiles + N_TILE_X - 1u) / N_TILE_X;
@@ -431,9 +442,11 @@ fn main(
     }
     if bin_tile_x + tile_x < config.width_in_tiles && bin_tile_y + tile_y < config.height_in_tiles {
         ptcl[cmd_offset] = CMD_END;
+        var blend_ix = 0u;
         if max_blend_depth > BLEND_STACK_SPLIT {
             let scratch_size = max_blend_depth * TILE_WIDTH * TILE_HEIGHT;
-            ptcl[blend_offset] = atomicAdd(&bump.blend, scratch_size);
+            blend_ix = atomicAdd(&bump.blend, scratch_size);
         }
+        ptcl[blend_offset] = blend_ix;
     }
 }

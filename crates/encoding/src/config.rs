@@ -137,10 +137,14 @@ pub struct ConfigUniform {
     pub base_color: u32,
     /// Layout of packed scene data.
     pub layout: Layout,
+    /// Size of line soup buffer allocation (in [`LineSoup`]s)
+    pub lines_size: u32,
     /// Size of binning buffer allocation (in `u32`s).
     pub binning_size: u32,
     /// Size of tile buffer allocation (in [`Tile`]s).
     pub tiles_size: u32,
+    /// Size of segment count buffer allocation (in [`SegmentCount`]s).
+    pub seg_counts_size: u32,
     /// Size of segment buffer allocation (in [`PathSegment`]s).
     pub segments_size: u32,
     /// Size of per-tile command list buffer allocation (in `u32`s).
@@ -175,8 +179,10 @@ impl RenderConfig {
                 target_width: width,
                 target_height: height,
                 base_color: base_color.to_premul_u32(),
+                lines_size: buffer_sizes.lines.len(),
                 binning_size: buffer_sizes.bin_data.len() - layout.bin_data_start,
                 tiles_size: buffer_sizes.tiles.len(),
+                seg_counts_size: buffer_sizes.seg_counts.len(),
                 segments_size: buffer_sizes.segments.len(),
                 ptcl_size: buffer_sizes.ptcl.len(),
                 layout: *layout,

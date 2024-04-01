@@ -4,8 +4,9 @@
 // Bitflags for each stage that can fail allocation.
 let STAGE_BINNING: u32 = 0x1u;
 let STAGE_TILE_ALLOC: u32 = 0x2u;
-let STAGE_PATH_COARSE: u32 = 0x4u;
-let STAGE_COARSE: u32 = 0x8u;
+let STAGE_FLATTEN: u32 = 0x4u;
+let STAGE_PATH_COUNT: u32 = 0x8u;
+let STAGE_COARSE: u32 = 0x10u;
 
 // This must be kept in sync with the struct in config.rs in the encoding crate.
 struct BumpAllocators {
