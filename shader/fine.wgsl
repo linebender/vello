@@ -33,7 +33,15 @@ var<storage> ptcl: array<u32>;
 var<storage> info: array<u32>;
 
 @group(0) @binding(4)
+#ifdef r8
+// The R8 variant is available via a non-standard extension in Dawn. We can't
+// optionally declare that extension here since naga doesn't understand the
+// `enable` directive (see https://github.com/gfx-rs/wgpu/issues/5476). The
+// directive must be injected by the client via some other means.
+var output: texture_storage_2d<r8unorm, write>;
+#else
 var output: texture_storage_2d<rgba8unorm, write>;
+#endif
 
 #ifdef full
 @group(0) @binding(5)
