@@ -35,11 +35,22 @@ var<storage> info: array<u32>;
 @group(0) @binding(4)
 var output: texture_storage_2d<rgba8unorm, write>;
 
+#ifdef full
 @group(0) @binding(5)
 var gradients: texture_2d<f32>;
 
 @group(0) @binding(6)
 var image_atlas: texture_2d<f32>;
+#endif
+
+// MSAA-only bindings and utilities
+#ifdef msaa
+
+#ifdef full
+const MASK_LUT_INDEX: u32 = 7;
+#else
+const MASK_LUT_INDEX: u32 = 5;
+#endif
 
 #ifdef msaa8
 let MASK_WIDTH = 32u;
@@ -47,7 +58,7 @@ let MASK_HEIGHT = 32u;
 let SH_SAMPLES_SIZE = 512u;
 let SAMPLE_WORDS_PER_PIXEL = 2u;
 // This might be better in uniform, but that has 16 byte alignment
-@group(0) @binding(7)
+@group(0) @binding(MASK_LUT_INDEX)
 var<storage> mask_lut: array<u32, 256u>;
 #endif
 
@@ -56,11 +67,10 @@ let MASK_WIDTH = 64u;
 let MASK_HEIGHT = 64u;
 let SH_SAMPLES_SIZE = 1024u;
 let SAMPLE_WORDS_PER_PIXEL = 4u;
-@group(0) @binding(7)
+@group(0) @binding(MASK_LUT_INDEX)
 var<storage> mask_lut: array<u32, 2048u>;
 #endif
 
-#ifdef msaa
 let WG_SIZE = 64u;
 var<workgroup> sh_count: array<u32, WG_SIZE>;
 
@@ -695,7 +705,7 @@ fn fill_path_ms_evenodd(fill: CmdFill, local_id: vec2<u32>, result: ptr<function
     }
     *result = area;
 }
-#endif
+#endif // msaa
 
 fn read_fill(cmd_ix: u32) -> CmdFill {
     let size_and_rule = ptcl[cmd_ix + 1u];
@@ -875,7 +885,6 @@ fn main(
     let tile_ix = wg_id.y * config.width_in_tiles + wg_id.x;
     let xy = vec2(f32(global_id.x * PIXELS_PER_THREAD), f32(global_id.y));
     let local_xy = vec2(f32(local_id.x * PIXELS_PER_THREAD), f32(local_id.y));
-#ifdef full
     var rgba: array<vec4<f32>, PIXELS_PER_THREAD>;
     for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
         rgba[i] = unpack4x8unorm(config.base_color).wzyx;
@@ -902,16 +911,6 @@ fn main(
 #endif
                 cmd_ix += 4u;
             }
-            case CMD_STROKE: {
-                // Stroking in fine rasterization is disabled, as strokes will be expanded
-                // to fills earlier in the pipeline. This implementation is a stub, just to
-                // keep the shader from crashing.
-                // TODO: Remove this case
-                for (var i = 0u; i < PIXELS_PER_THREAD; i++) {
-                    area[i] = 0.0;
-                }
-                cmd_ix += 3u;
-            }
             case CMD_SOLID: {
                 for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
                     area[i] = 1.0;
@@ -927,6 +926,38 @@ fn main(
                 }
                 cmd_ix += 2u;
             }
+            case CMD_BEGIN_CLIP: {
+                if clip_depth < BLEND_STACK_SPLIT {
+                    for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
+                        blend_stack[clip_depth][i] = pack4x8unorm(rgba[i]);
+                        rgba[i] = vec4(0.0);
+                    }
+                } else {
+                    // TODO: spill to memory
+                }
+                clip_depth += 1u;
+                cmd_ix += 1u;
+            }
+            case CMD_END_CLIP: {
+                let end_clip = read_end_clip(cmd_ix);
+                clip_depth -= 1u;
+                for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
+                    var bg_rgba: u32;
+                    if clip_depth < BLEND_STACK_SPLIT {
+                        bg_rgba = blend_stack[clip_depth][i];
+                    } else {
+                        // load from memory
+                    }
+                    let bg = unpack4x8unorm(bg_rgba);
+                    let fg = rgba[i] * area[i] * end_clip.alpha;
+                    rgba[i] = blend_mix_compose(bg, fg, end_clip.blend);
+                }
+                cmd_ix += 3u;
+            }
+            case CMD_JUMP: {
+                cmd_ix = ptcl[cmd_ix + 1u];
+            }
+#ifdef full
             case CMD_LIN_GRAD: {
                 let lin = read_lin_grad(cmd_ix);
                 let d = lin.line_x * xy.x + lin.line_y * xy.y + lin.line_c;
@@ -1038,37 +1069,7 @@ fn main(
                 }
                 cmd_ix += 2u;
             }
-            case CMD_BEGIN_CLIP: {
-                if clip_depth < BLEND_STACK_SPLIT {
-                    for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
-                        blend_stack[clip_depth][i] = pack4x8unorm(rgba[i]);
-                        rgba[i] = vec4(0.0);
-                    }
-                } else {
-                    // TODO: spill to memory
-                }
-                clip_depth += 1u;
-                cmd_ix += 1u;
-            }
-            case CMD_END_CLIP: {
-                let end_clip = read_end_clip(cmd_ix);
-                clip_depth -= 1u;
-                for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
-                    var bg_rgba: u32;
-                    if clip_depth < BLEND_STACK_SPLIT {
-                        bg_rgba = blend_stack[clip_depth][i];
-                    } else {
-                        // load from memory
-                    }
-                    let bg = unpack4x8unorm(bg_rgba);
-                    let fg = rgba[i] * area[i] * end_clip.alpha;
-                    rgba[i] = blend_mix_compose(bg, fg, end_clip.blend);
-                }
-                cmd_ix += 3u;
-            }
-            case CMD_JUMP: {
-                cmd_ix = ptcl[cmd_ix + 1u];
-            }
+#endif // full
             default: {}
         }
     }
@@ -1083,19 +1084,6 @@ fn main(
             textureStore(output, vec2<i32>(coords), rgba_sep);
         }
     } 
-#else
-    let tile = tiles[tile_ix];
-    var area: array<f32, PIXELS_PER_THREAD>;
-    fill_path(tile, xy, &area);
-
-    let xy_uint = vec2<u32>(xy);
-    for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
-        let coords = xy_uint + vec2(i, 0u);
-        if coords.x < config.target_width && coords.y < config.target_height {
-            textureStore(output, vec2<i32>(coords), vec4(area[i]));
-        }
-    }
-#endif
 }
 
 fn premul_alpha(rgba: vec4<f32>) -> vec4<f32> {

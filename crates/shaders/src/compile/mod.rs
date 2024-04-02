@@ -142,8 +142,13 @@ impl ShaderInfo {
         println!("{:?}", permutation_map);
         let imports = preprocess::get_imports(shader_dir);
         let mut info = HashMap::default();
-        let mut defines = HashSet::default();
-        defines.insert("full".to_string());
+        let defines: HashSet<_> = if cfg!(feature = "full") {
+            vec!["full".to_string()]
+        } else {
+            vec![]
+        }
+        .into_iter()
+        .collect();
         for entry in shader_dir
             .read_dir()
             .expect("Can read shader import directory")

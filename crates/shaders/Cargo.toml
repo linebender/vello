@@ -10,9 +10,13 @@ repository.workspace = true
 publish = false # Remove this when the package is ready for publishing
 
 [features]
-default = ["compile", "wgsl", "msl"]
+default = ["compile", "wgsl", "msl", "full"]
 compile = ["naga", "thiserror"]
 
+# Enables the complete imaging model. When this feature is disabled, the fine rasterization
+# stage only supports drawing paths with a solid brush and clipping, and the shaders can
+# not be run with an encoding that contains gradient fills and images.
+full = []
 
 # Target shading language variants of the vello shaders to link into the library.
 wgsl = []
