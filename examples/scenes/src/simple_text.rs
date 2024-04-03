@@ -92,6 +92,7 @@ impl SimpleText {
             .glyph_transform(glyph_transform)
             .normalized_coords(var_loc.coords())
             .brush(brush)
+            .hint(false)
             .draw(
                 style,
                 text.chars().filter_map(|ch| {

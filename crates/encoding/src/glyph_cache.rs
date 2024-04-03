@@ -7,8 +7,8 @@ use super::{Encoding, StreamOffsets};
 
 use peniko::kurbo::{BezPath, Shape};
 use peniko::{Fill, Style};
-use skrifa::instance::NormalizedCoord;
-use skrifa::outline::OutlinePen;
+use skrifa::instance::{NormalizedCoord, Size};
+use skrifa::outline::{HintingInstance, HintingMode, LcdLayout, OutlineGlyphFormat, OutlinePen};
 use skrifa::{GlyphId, OutlineGlyphCollection};
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Default, Debug)]
@@ -24,12 +24,14 @@ pub struct GlyphKey {
 pub struct GlyphCache {
     pub encoding: Encoding,
     glyphs: HashMap<GlyphKey, CachedRange>,
+    hinting: HintCache,
 }
 
 impl GlyphCache {
     pub fn clear(&mut self) {
         self.encoding.reset();
         self.glyphs.clear();
+        // No need to clear the hinting cache
     }
 
     pub fn get_or_insert(
@@ -43,6 +45,7 @@ impl GlyphCache {
         let size = skrifa::instance::Size::new(font_size);
         let is_var = !coords.is_empty();
         let encoding_cache = &mut self.encoding;
+        let hinting_cache = &mut self.hinting;
         let mut encode_glyph = || {
             let start = encoding_cache.stream_offsets();
             let fill = match style {
@@ -55,9 +58,18 @@ impl GlyphCache {
             encoding_cache.encode_fill_style(fill);
             let mut path = encoding_cache.encode_path(true);
             let outline = outlines.get(GlyphId::new(key.glyph_id as u16))?;
-            // FIXME: Re-add hinting when skrifa supports it
-            // Tracking issue <https://github.com/googlefonts/fontations/issues/620>
-            let draw_settings = skrifa::outline::DrawSettings::unhinted(size, coords);
+            use skrifa::outline::DrawSettings;
+            let draw_settings = if key.hint {
+                if let Some(hint_instance) =
+                    hinting_cache.get(&HintKey::new(outlines, &key, font_size, coords))
+                {
+                    DrawSettings::hinted(hint_instance, false)
+                } else {
+                    DrawSettings::unhinted(size, coords)
+                }
+            } else {
+                DrawSettings::unhinted(size, coords)
+            };
             match style {
                 Style::Fill(_) => {
                     outline.draw(draw_settings, &mut path).ok()?;
@@ -143,5 +155,113 @@ impl OutlinePen for BezPathPen {
 
     fn close(&mut self) {
         self.0.close_path();
+    }
+}
+
+/// We keep this small to enable a simple LRU cache with a linear
+/// search. Regenerating hinting data is low to medium cost so it's fine
+/// to redo it occassionally.
+const MAX_CACHED_HINT_INSTANCES: usize = 8;
+
+pub struct HintKey<'a> {
+    font_id: u64,
+    font_index: u32,
+    outlines: &'a OutlineGlyphCollection<'a>,
+    size: Size,
+    coords: &'a [NormalizedCoord],
+}
+
+impl<'a> HintKey<'a> {
+    fn new(
+        outlines: &'a OutlineGlyphCollection<'a>,
+        glyph_key: &GlyphKey,
+        size: f32,
+        coords: &'a [NormalizedCoord],
+    ) -> Self {
+        Self {
+            font_id: glyph_key.font_id,
+            font_index: glyph_key.font_index,
+            outlines,
+            size: Size::new(size),
+            coords,
+        }
+    }
+
+    fn instance(&self) -> Option<HintingInstance> {
+        HintingInstance::new(self.outlines, self.size, self.coords, HINTING_MODE).ok()
+    }
+}
+
+const HINTING_MODE: HintingMode = HintingMode::Smooth {
+    lcd_subpixel: Some(LcdLayout::Horizontal),
+    preserve_linear_metrics: true,
+};
+
+#[derive(Default)]
+struct HintCache {
+    // Split caches for glyf/cff because the instance type can reuse
+    // internal memory when reconfigured for the same format.
+    glyf_entries: Vec<HintEntry>,
+    cff_entries: Vec<HintEntry>,
+    serial: u64,
+}
+
+impl HintCache {
+    fn get(&mut self, key: &HintKey) -> Option<&HintingInstance> {
+        let entries = match key.outlines.format()? {
+            OutlineGlyphFormat::Glyf => &mut self.glyf_entries,
+            OutlineGlyphFormat::Cff | OutlineGlyphFormat::Cff2 => &mut self.cff_entries,
+        };
+        let (entry_ix, is_current) = find_hint_entry(entries, key)?;
+        let entry = entries.get_mut(entry_ix)?;
+        self.serial += 1;
+        entry.serial = self.serial;
+        if !is_current {
+            entry.font_id = key.font_id;
+            entry.font_index = key.font_index;
+            entry
+                .instance
+                .reconfigure(key.outlines, key.size, key.coords, HINTING_MODE)
+                .ok()?;
+        }
+        Some(&entry.instance)
+    }
+}
+
+struct HintEntry {
+    font_id: u64,
+    font_index: u32,
+    instance: HintingInstance,
+    serial: u64,
+}
+
+fn find_hint_entry(entries: &mut Vec<HintEntry>, key: &HintKey) -> Option<(usize, bool)> {
+    let mut found_serial = u64::MAX;
+    let mut found_index = 0;
+    for (ix, entry) in entries.iter().enumerate() {
+        if entry.font_id == key.font_id
+            && entry.font_index == key.font_index
+            && entry.instance.size() == key.size
+            && entry.instance.location().coords() == key.coords
+        {
+            return Some((ix, true));
+        }
+        if entry.serial < found_serial {
+            found_serial = entry.serial;
+            found_index = ix;
+        }
+    }
+    if entries.len() < MAX_CACHED_HINT_INSTANCES {
+        let instance = key.instance()?;
+        let ix = entries.len();
+        entries.push(HintEntry {
+            font_id: key.font_id,
+            font_index: key.font_index,
+            instance,
+            serial: 0,
+        });
+        Some((ix, true))
+    } else {
+        Some((found_index, false))
     }
 }
