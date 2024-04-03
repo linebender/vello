@@ -163,7 +163,8 @@ dependencies = [
 [[package]]
 name = "android_trace"
 version = "0.1.0"
-source = "git+https://github.com/DJMcNab/android_trace?rev=5c4068fe9ca1277b8e407a27c2db36e16c7da4af#5c4068fe9ca1277b8e407a27c2db36e16c7da4af"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2ffda51edaddd7de7fd2bbfe7e22eb883bbb606b56bcd2b0ce7f0eae5c1de09"
 dependencies = [
  "libc",
 ]
@@ -3777,7 +3778,8 @@ dependencies = [
 [[package]]
 name = "tracing_android_trace"
 version = "0.1.0"
-source = "git+https://github.com/DJMcNab/android_trace?rev=5c4068fe9ca1277b8e407a27c2db36e16c7da4af#5c4068fe9ca1277b8e407a27c2db36e16c7da4af"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "70195e7e4f72dde4d2bf6bbb04594a02df0ec3993c2f4b6cb5f76d13fe35ab46"
 dependencies = [
  "android_trace",
  "smallvec",

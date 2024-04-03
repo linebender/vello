@@ -55,7 +55,7 @@ notify-debouncer-mini = "0.3.0"
 winit = { version = "0.29.15", features = ["android-native-activity"] }
 android_logger = "0.13.3"
 
-tracing_android_trace = { git = "https://github.com/DJMcNab/android_trace", rev = "5c4068fe9ca1277b8e407a27c2db36e16c7da4af" }
+tracing_android_trace = "0.1.0"
 tracing-subscriber = { version = "0.3.18", default-features = false, features = [
     "std",
     "registry",
@@ -68,10 +68,3 @@ console_log = "1.0.0"
 wasm-bindgen-futures = "0.4.42"
 web-sys = { version = "0.3.67", features = ["HtmlCollection", "Text"] }
 getrandom = { version = "0.2.12", features = ["js"] }
-
-[package.metadata.android.signing.release]
-path = "/home/djmcnab/.android/debug.keystore"
-keystore_password = "android"
-
-[package.metadata.android.application]
-debuggable = true
