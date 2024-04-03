@@ -325,6 +325,7 @@ impl Resolver {
                     index,
                     glyphs: _,
                     transform,
+                    scale,
                 } = patch
                 {
                     let run = &resources.glyph_runs[*index];
@@ -338,7 +339,7 @@ impl Resolver {
                             let xform = *transform
                                 * Transform {
                                     matrix: [1.0, 0.0, 0.0, -1.0],
-                                    translation: [glyph.x, glyph.y],
+                                    translation: [glyph.x * scale, glyph.y * scale],
                                 }
                                 * glyph_transform;
                             data.extend_from_slice(bytemuck::bytes_of(&xform));
@@ -348,7 +349,7 @@ impl Resolver {
                             let xform = *transform
                                 * Transform {
                                     matrix: [1.0, 0.0, 0.0, -1.0],
-                                    translation: [glyph.x, glyph.y],
+                                    translation: [glyph.x * scale, glyph.y * scale],
                                 };
                             data.extend_from_slice(bytemuck::bytes_of(&xform));
                         }
@@ -429,6 +430,7 @@ impl Resolver {
                     let mut hint = run.hint;
                     let mut font_size = run.font_size;
                     let mut transform = run.transform;
+                    let mut scale = 1.0;
                     if hint {
                         // If hinting was requested and our transform matrix is just a uniform
                         // scale, then adjust our font size and cancel out the matrix. Otherwise,
@@ -437,7 +439,8 @@ impl Resolver {
                             && transform.matrix[1] == 0.0
                             && transform.matrix[2] == 0.0
                         {
-                            font_size *= transform.matrix[0];
+                            scale = transform.matrix[0];
+                            font_size *= scale;
                             transform.matrix = [1.0, 0.0, 0.0, 1.0];
                         } else {
                             hint = false;
@@ -468,6 +471,7 @@ impl Resolver {
                         index: *index,
                         glyphs: glyph_start..glyph_end,
                         transform,
+                        scale,
                     });
                 }
                 Patch::Image {
@@ -569,6 +573,8 @@ enum ResolvedPatch {
         glyphs: Range<usize>,
         /// Global transform.
         transform: Transform,
+        /// Additional scale factor to apply to translation.
+        scale: f32,
     },
     Image {
         /// Index of pending image element.
