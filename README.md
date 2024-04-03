@@ -29,9 +29,7 @@ It is used as the rendering backend for [Xilem], a Rust GUI toolkit.
 > [!WARNING]
 > Vello can currently be considered in an alpha state. In particular, we're still working on the following:
 >
-> - [Major rendering artifacts when drawing more than 64k objects](https://github.com/linebender/vello/issues/334).
 > - [Implementing blur and filter effects](https://github.com/linebender/vello/issues/476).
-> - [Properly implementing strokes](https://github.com/linebender/vello/issues/303) and [supporting all SVG stroke caps](https://github.com/linebender/vello/issues/280).
 > - [Conflations artifacts](https://github.com/linebender/vello/issues/49).
 > - [GPU memory allocation strategy](https://github.com/linebender/vello/issues/366)
 > - [Glyph caching](https://github.com/linebender/vello/issues/204)
