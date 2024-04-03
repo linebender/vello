@@ -59,8 +59,10 @@ pub fn test_scenes() -> SceneSet {
         scene!(robust_paths),
         scene!(base_color_test: animated),
         scene!(clip_test: animated),
+        scene!(hugepath),
         scene!(longpathdash(Cap::Butt), "longpathdash (butt caps)", false),
         scene!(longpathdash(Cap::Round), "longpathdash (round caps)", false),
+
         scene!(crate::mmark::MMark::new(80_000), "mmark", false),
         scene!(many_draw_objects),
     ];
@@ -560,6 +562,33 @@ fn cardioid_and_friends(scene: &mut Scene, _: &mut SceneParams) {
     //render_tiger(scene, false);
 }
 
+// Adapted from "path_huge_crbug_800804" GM in Skia:
+// `github.com/google/skia/blob/0d4d11451c4f4e184305cbdbd67f6b3edfa4b0e3/gm/hugepath.cpp`
+fn hugepath(scene: &mut Scene, params: &mut SceneParams) {
+    use PathEl::*;
+    let widths = [0.9, 1.0, 1.1];
+    let path1 = [
+        MoveTo((-1000., 12345678901234567890.).into()),
+        LineTo((10.5, 200.).into()),
+    ];
+    let path2 = [
+        MoveTo((30.5, 400.).into()),
+        LineTo((1000., -9.8765432109876543210e+19).into()),
+    ];
+    let mut t = Affine::IDENTITY;
+    for w in widths {
+        let stroke = Stroke::new(w)
+            .with_caps(Cap::Butt)
+            .with_join(Join::Miter);
+        scene.stroke(&stroke, t, Color::YELLOW, None, &path1);
+        scene.stroke(&stroke, t, Color::CYAN, None, &path2);
+        t = Affine::translate((3., 0.)) * t;
+    }
+    params.resolution = Some(Vec2::new(50., 600.));
+}
+
+// Adapted from "longpathdash" GM in Skia.
+// `github.com/google/skia/blob/0d4d11451c4f4e184305cbdbd67f6b3edfa4b0e3/gm/dashing.cpp`
 fn longpathdash(cap: Cap) -> impl FnMut(&mut Scene, &mut SceneParams) {
     use std::f64::consts::PI;
     use PathEl::*;
