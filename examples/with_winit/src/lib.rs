@@ -193,6 +193,11 @@ fn run(
                 if render_state.window.id() != window_id {
                     return;
                 }
+                let _span = if !matches!(event, WindowEvent::RedrawRequested) {
+                    Some(tracing::trace_span!("Handling window event", ?event).entered())
+                } else {
+                    None
+                };
                 match event {
                     WindowEvent::CloseRequested => event_loop.exit(),
                     WindowEvent::ModifiersChanged(m) => modifiers = m.state(),
@@ -375,6 +380,10 @@ fn run(
                         prior_position = Some(position);
                     }
                     WindowEvent::RedrawRequested => {
+                        let _rendering_span =
+                            tracing::trace_span!("Actioning Requested Redraw").entered();
+                        let encoding_span = tracing::trace_span!("Encoding scene").entered();
+
                         let width = render_state.surface.config.width;
                         let height = render_state.surface.config.height;
                         let device_handle = &render_cx.devices[render_state.surface.dev_id];
@@ -465,11 +474,15 @@ fn run(
                                 );
                             }
                         }
+                        drop(encoding_span);
+                        let texture_span = tracing::trace_span!("Getting texture").entered();
                         let surface_texture = render_state
                             .surface
                             .surface
                             .get_current_texture()
                             .expect("failed to get surface texture");
+                        drop(texture_span);
+                        let render_span = tracing::trace_span!("Dispatching render").entered();
                         // Note: we don't run the async/"robust" pipeline, as
                         // it requires more async wiring for the readback. See
                         // [#gpu > async on wasm](https://xi.zulipchat.com/#narrow/stream/197075-gpu/topic/async.20on.20wasm)
@@ -502,8 +515,11 @@ fn run(
                                 .expect("failed to render to surface");
                         }
                         surface_texture.present();
-                        device_handle.device.poll(wgpu::Maintain::Poll);
-
+                        drop(render_span);
+                        {
+                            let _poll_aspan = tracing::trace_span!("Polling wgpu device").entered();
+                            device_handle.device.poll(wgpu::Maintain::Poll);
+                        }
                         let new_time = Instant::now();
                         stats.add_sample(stats::Sample {
                             frame_time_us: (new_time - frame_start_time).as_micros() as u64,
@@ -797,6 +813,18 @@ fn android_main(app: AndroidApp) {
         config.with_max_level(log::LevelFilter::Warn)
     };
     android_logger::init_once(config);
+
+    // Send tracing events to Android Trace
+    use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+    tracing_subscriber::registry()
+        .with(tracing_android_trace::AndroidTraceLayer::new())
+        .try_init()
+        .unwrap();
+    log::info!(
+        "Max level: {}",
+        tracing::level_filters::LevelFilter::current()
+    );
 
     let event_loop = EventLoopBuilder::with_user_event()
         .with_android_app(app)
