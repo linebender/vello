@@ -195,7 +195,7 @@ fn create_vello_renderer(render_cx: &RenderContext, surface: &RenderSurface) -> 
             num_init_threads: NonZeroUsize::new(1),
         },
     )
-    .expect("Could create renderer")
+    .expect("Couldn't create renderer")
 }
 
 /// Add shapes to a vello scene. This does not actually render the shapes, but adds them
