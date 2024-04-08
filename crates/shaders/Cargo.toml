@@ -10,21 +10,13 @@ repository.workspace = true
 publish = false # Remove this when the package is ready for publishing
 
 [features]
-default = ["compile", "wgsl", "msl"]
+default = ["compile", "wgsl", "msl", "full"]
 compile = ["naga", "thiserror"]
 
-# Enabling this feature applies a transformation that converts all storage bindings
-# to have the `read_write` access mode. For WGSL shaders, this affects the bind group
-# layout of all pipelines and changes the usage scope of storage buffers. For MSL shaders,
-# this removes the `const` qualifier from entry-point parameters in the `device` address
-# space. This allows bindings with mixed access modes to be backed by suballocations from
-# the same the buffer object.
-#
-# This feature doesn't apply to the fine stage where all storage bindings are readonly and
-# the same access mode restrictions do not apply.
-#
-# Enabling this feature may have a performance impact and is not recommended.
-force_rw_storage = []
+# Enables the complete imaging model. When this feature is disabled, the fine rasterization
+# stage only supports drawing paths with a solid brush and clipping, and the shaders can
+# not be run with an encoding that contains gradient fills and images.
+full = []
 
 # Target shading language variants of the vello shaders to link into the library.
 wgsl = []
