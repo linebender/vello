@@ -62,7 +62,6 @@ pub fn test_scenes() -> SceneSet {
         scene!(hugepath),
         scene!(longpathdash(Cap::Butt), "longpathdash (butt caps)", false),
         scene!(longpathdash(Cap::Round), "longpathdash (round caps)", false),
-
         scene!(crate::mmark::MMark::new(80_000), "mmark", false),
         scene!(many_draw_objects),
     ];
@@ -577,9 +576,7 @@ fn hugepath(scene: &mut Scene, params: &mut SceneParams) {
     ];
     let mut t = Affine::IDENTITY;
     for w in widths {
-        let stroke = Stroke::new(w)
-            .with_caps(Cap::Butt)
-            .with_join(Join::Miter);
+        let stroke = Stroke::new(w).with_caps(Cap::Butt).with_join(Join::Miter);
         scene.stroke(&stroke, t, Color::YELLOW, None, &path1);
         scene.stroke(&stroke, t, Color::CYAN, None, &path2);
         t = Affine::translate((3., 0.)) * t;
