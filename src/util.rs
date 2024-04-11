@@ -25,16 +25,17 @@ pub struct DeviceHandle {
 }
 
 impl RenderContext {
-    pub fn new() -> Result<Self> {
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
         let instance = Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::util::backend_bits_from_env().unwrap_or(wgpu::Backends::PRIMARY),
             dx12_shader_compiler: wgpu::Dx12Compiler::Fxc,
             ..Default::default()
         });
-        Ok(Self {
+        Self {
             instance,
             devices: Vec::new(),
-        })
+        }
     }
 
     /// Creates a new surface for the specified window and dimensions.

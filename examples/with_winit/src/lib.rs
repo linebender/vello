@@ -713,7 +713,7 @@ pub fn main() -> anyhow::Result<()> {
     if let Some(scenes) = scenes {
         let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build()?;
         #[allow(unused_mut)]
-        let mut render_cx = RenderContext::new().unwrap();
+        let mut render_cx = RenderContext::new();
         #[cfg(not(target_arch = "wasm32"))]
         {
             let proxy = event_loop.create_proxy();
@@ -836,7 +836,7 @@ fn android_main(app: AndroidApp) {
         .select_scene_set(|| Args::command())
         .unwrap()
         .unwrap();
-    let render_cx = RenderContext::new().unwrap();
+    let render_cx = RenderContext::new();
 
     run(event_loop, args, scenes, render_cx);
 }
