@@ -300,6 +300,14 @@ impl Renderer {
             #[cfg(feature = "wgpu-profiler")]
             &mut self.profiler,
         )?;
+        #[cfg(feature = "wgpu-profiler")]
+        {
+            let mut encoder =
+                device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+            self.profiler.resolve_queries(&mut encoder);
+            queue.submit(Some(encoder.finish()));
+            self.profiler.end_frame().unwrap();
+        }
         Ok(())
     }
 
