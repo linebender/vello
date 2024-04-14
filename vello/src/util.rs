@@ -138,6 +138,7 @@ impl RenderContext {
             )
             .await
             .ok()?;
+        println!("{:?}", adapter.get_info());
         let device_handle = DeviceHandle {
             adapter,
             device,
