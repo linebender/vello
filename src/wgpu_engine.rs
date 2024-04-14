@@ -350,8 +350,8 @@ impl WgpuEngine {
 
         let mut encoder =
             device.create_command_encoder(&CommandEncoderDescriptor { label: Some(label) });
-        #[cfg(feature = "wgpu-profiler")]
-        let query = profiler.begin_query(label, &mut encoder, device);
+        //#[cfg(feature = "wgpu-profiler")]
+        //let query = profiler.begin_query(label, &mut encoder, device);
         for command in &recording.commands {
             match command {
                 Command::Upload(buf_proxy, bytes) => {
@@ -485,16 +485,17 @@ impl WgpuEngine {
                                 &wgpu_shader.bind_group_layout,
                                 bindings,
                             )?;
-                            let mut cpass = encoder.begin_compute_pass(&Default::default());
                             #[cfg(feature = "wgpu-profiler")]
                             let query = profiler
-                                .begin_query(shader.label, &mut cpass, device)
-                                .with_parent(Some(&query));
+                                .begin_query(shader.label, &mut encoder, device);
+                            let mut cpass = encoder.begin_compute_pass(&Default::default());
+                                //.with_parent(Some(&query));
                             cpass.set_pipeline(&wgpu_shader.pipeline);
                             cpass.set_bind_group(0, &bind_group, &[]);
                             cpass.dispatch_workgroups(wg_size.0, wg_size.1, wg_size.2);
+                            drop(cpass);
                             #[cfg(feature = "wgpu-profiler")]
-                            profiler.end_query(&mut cpass, query);
+                            profiler.end_query(&mut encoder, query);
                         }
                     }
                 }
@@ -532,11 +533,13 @@ impl WgpuEngine {
                                 queue,
                                 proxy,
                             );
-                            let mut cpass = encoder.begin_compute_pass(&Default::default());
-                            #[cfg(feature = "wgpu-profiler")]
                             let query = profiler
-                                .begin_query(shader.label, &mut cpass, device)
-                                .with_parent(Some(&query));
+                                .begin_query(shader.label, &mut encoder, device);
+                            let mut cpass = encoder.begin_compute_pass(&Default::default());
+                            //#[cfg(feature = "wgpu-profiler")]
+                           // let query = profiler
+                             //   .begin_query(shader.label, &mut cpass, device)
+                               // .with_parent(Some(&query));
                             cpass.set_pipeline(&wgpu_shader.pipeline);
                             cpass.set_bind_group(0, &bind_group, &[]);
                             let buf = self
@@ -544,8 +547,9 @@ impl WgpuEngine {
                                 .get_gpu_buf(proxy.id)
                                 .ok_or("buffer for indirect dispatch not in map")?;
                             cpass.dispatch_workgroups_indirect(buf, *offset);
-                            #[cfg(feature = "wgpu-profiler")]
-                            profiler.end_query(&mut cpass, query);
+                            drop(cpass);
+                           // #[cfg(feature = "wgpu-profiler")]
+                            profiler.end_query(&mut encoder, query);
                         }
                     }
                 }
@@ -583,8 +587,8 @@ impl WgpuEngine {
                 }
             }
         }
-        #[cfg(feature = "wgpu-profiler")]
-        profiler.end_query(&mut encoder, query);
+  //      #[cfg(feature = "wgpu-profiler")]
+//        profiler.end_query(&mut encoder, query);
         queue.submit(Some(encoder.finish()));
         for id in free_bufs {
             if let Some(buf) = self.bind_map.buf_map.remove(&id) {
