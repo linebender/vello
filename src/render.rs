@@ -358,7 +358,7 @@ impl Render {
         recording.dispatch(
             shaders.backdrop,
             wg_counts.backdrop,
-            [config_buf, path_buf, tile_buf],
+            [config_buf, bump_buf, path_buf, tile_buf],
         );
         recording.dispatch(
             shaders.coarse,

@@ -1,11 +1,11 @@
 // Copyright 2023 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
 
-use vello_encoding::{ConfigUniform, Path, Tile};
+use vello_encoding::{BumpAllocators, ConfigUniform, Path, Tile};
 
 use super::CpuBinding;
 
-fn backdrop_main(config: &ConfigUniform, paths: &[Path], tiles: &mut [Tile]) {
+fn backdrop_main(config: &ConfigUniform, _: &BumpAllocators, paths: &[Path], tiles: &mut [Tile]) {
     for drawobj_ix in 0..config.layout.n_draw_objects {
         let path = paths[drawobj_ix as usize];
         let width = path.bbox[2] - path.bbox[0];
@@ -24,7 +24,8 @@ fn backdrop_main(config: &ConfigUniform, paths: &[Path], tiles: &mut [Tile]) {
 
 pub fn backdrop(_n_wg: u32, resources: &[CpuBinding]) {
     let config = resources[0].as_typed();
-    let paths = resources[1].as_slice();
-    let mut tiles = resources[2].as_slice_mut();
-    backdrop_main(&config, &paths, &mut tiles);
+    let bump = resources[1].as_typed();
+    let paths = resources[2].as_slice();
+    let mut tiles = resources[3].as_slice_mut();
+    backdrop_main(&config, &bump, &paths, &mut tiles);
 }
