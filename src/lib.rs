@@ -87,6 +87,7 @@ mod cpu_dispatch;
 mod cpu_shader;
 mod recording;
 mod render;
+mod render_graph;
 mod scene;
 mod shaders;
 #[cfg(feature = "wgpu")]
@@ -94,12 +95,17 @@ mod wgpu_engine;
 
 #[cfg(feature = "wgpu")]
 use std::num::NonZeroUsize;
+use std::sync::{Arc, Mutex, RwLock};
 
 /// Styling and composition primitives.
 pub use peniko;
 /// 2D geometry, with a focus on curves.
 pub use peniko::kurbo;
 
+use render_graph::{
+    nodes::{VelloCoarse, VelloFine},
+    RenderGraph,
+};
 #[doc(hidden)]
 pub use skrifa;
 
@@ -193,6 +199,7 @@ pub struct Renderer {
     shaders: FullShaders,
     blit: Option<BlitPipeline>,
     target: Option<TargetTexture>,
+    render_graph: RenderGraph,
     #[cfg(feature = "wgpu-profiler")]
     pub profiler: GpuProfiler,
     #[cfg(feature = "wgpu-profiler")]
@@ -257,12 +264,17 @@ impl Renderer {
             .surface_format
             .map(|surface_format| BlitPipeline::new(device, surface_format));
 
+        let mut render_graph = RenderGraph::new();
+        let coarse = render_graph.insert_node(VelloCoarse {}, &[]);
+        let _fine = render_graph.insert_node(VelloFine {}, &[coarse]);
+
         Ok(Self {
             options,
             engine,
             shaders,
             blit,
             target: None,
+            render_graph,
             // Use 3 pending frames
             #[cfg(feature = "wgpu-profiler")]
             profiler: GpuProfiler::new(GpuProfilerSettings {
@@ -286,20 +298,20 @@ impl Renderer {
         texture: &TextureView,
         params: &RenderParams,
     ) -> Result<()> {
-        let (recording, target) = render::render_full(scene, &self.shaders, params);
-        let external_resources = [ExternalResource::Image(
-            *target.as_image().unwrap(),
-            texture,
-        )];
-        self.engine.run_recording(
-            device,
-            queue,
-            &recording,
-            &external_resources,
-            "render_to_texture",
-            #[cfg(feature = "wgpu-profiler")]
-            &mut self.profiler,
-        )?;
+        let recording = self.render_graph.process();
+        // let external_resources = [ExternalResource::Image(
+        //     *target.as_image().unwrap(),
+        //     texture,
+        // )];
+        // self.engine.run_recording(
+        //     device,
+        //     queue,
+        //     &recording,
+        //     &external_resources,
+        //     "render_to_texture",
+        //     #[cfg(feature = "wgpu-profiler")]
+        //     &mut self.profiler,
+        // )?;
         Ok(())
     }
 

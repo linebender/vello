@@ -4012,6 +4012,7 @@ dependencies = [
  "peniko",
  "raw-window-handle",
  "skrifa",
+ "slotmap",
  "vello_encoding",
  "wgpu",
  "wgpu-profiler",
