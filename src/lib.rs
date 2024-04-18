@@ -265,8 +265,31 @@ impl Renderer {
             .map(|surface_format| BlitPipeline::new(device, surface_format));
 
         let mut render_graph = RenderGraph::new();
-        let coarse = render_graph.insert_node(VelloCoarse {}, &[]);
-        let _fine = render_graph.insert_node(VelloFine {}, &[coarse]);
+        let config_buf = render_graph.manage_resource(None);
+        let bump_buf = render_graph.manage_resource(None);
+        let tile_buf = render_graph.manage_resource(None);
+        let segments_buf = render_graph.manage_resource(None);
+        let ptcl_buf = render_graph.manage_resource(None);
+        let gradient_image = render_graph.manage_resource(None);
+        let info_bin_data_buf = render_graph.manage_resource(None);
+        let image_atlas = render_graph.manage_resource(None);
+        let out_image = render_graph.manage_resource(None);
+        let coarse = render_graph.insert_node(|_rh| VelloCoarse {}, &[]);
+        let _fine = render_graph.insert_node(
+            |rh| VelloFine {
+                config_buf: config_buf.hint(rh),
+                bump_buf: bump_buf.hint(rh),
+                tile_buf: tile_buf.hint(rh),
+                segments_buf: segments_buf.hint(rh),
+                ptcl_buf: ptcl_buf.hint(rh),
+                gradient_image: gradient_image.hint(rh),
+                info_bin_data_buf: info_bin_data_buf.hint(rh),
+                image_atlas: image_atlas.hint(rh),
+                out_image: out_image.hint(rh),
+                mask_buf: None,
+            },
+            &[coarse],
+        );
 
         Ok(Self {
             options,
