@@ -8,7 +8,7 @@
 // or msaa16.
 
 #ifdef r8
-// The R8 variant is only available via an internal extension in Dawn
+// The R8 variant is only available via an internal extension in Dawn native
 // (see https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/tint/extensions/chromium_internal_graphite.md).
 #enable chromium_internal_graphite;
 #endif
