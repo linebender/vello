@@ -5,7 +5,7 @@ members = [
     "crates/shaders",
     "crates/tests",
 
-    "integrations/vello_svg",
+    "integrations/demo_svg",
 
     "examples/headless",
     "examples/with_winit",

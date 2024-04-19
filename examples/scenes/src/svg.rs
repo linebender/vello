@@ -5,11 +5,11 @@ use std::fs::read_dir;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Ok, Result};
+use demo_svg::usvg;
+use demo_svg::usvg::TreeParsing;
 use instant::Instant;
 use vello::kurbo::Vec2;
 use vello::Scene;
-use vello_svg::usvg;
-use vello_svg::usvg::TreeParsing;
 
 use crate::{ExampleScene, SceneParams, SceneSet};
 
@@ -99,7 +99,7 @@ pub fn svg_function_of<R: AsRef<str>>(
         eprintln!("Parsed svg {name} in {:?}", start.elapsed());
         let start = Instant::now();
         let mut new_scene = Scene::new();
-        vello_svg::render_tree(&mut new_scene, &svg);
+        demo_svg::render_tree(&mut new_scene, &svg);
         let resolution = Vec2::new(svg.size.width() as f64, svg.size.height() as f64);
         eprintln!("Encoded svg {name} in {:?}", start.elapsed());
         (new_scene, resolution)
