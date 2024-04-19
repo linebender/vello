@@ -105,6 +105,21 @@ pub trait IntoPassDependencies {
         OF: Fn(&OD) -> &dyn Any;
 }
 
+impl IntoPassDependencies for () {
+    type Outputs = ();
+
+    fn into_pass_dependencies(self) -> Vec<PassId> {
+        vec![]
+    }
+
+    unsafe fn outputs_map<OD, OF>(assoc_data: &[OD], f: OF) -> Self::Outputs
+    where
+        OF: Fn(&OD) -> &dyn Any,
+    {
+        ()
+    }
+}
+
 macro_rules! impl_into_pass_dependencies {
     ( $(($generic:ident, $index:tt))+ ) => {
         impl<$($generic: RenderPass),+> IntoPassDependencies for ($(Pass<$generic>,)+) {

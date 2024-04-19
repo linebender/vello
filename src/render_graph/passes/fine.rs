@@ -1,8 +1,8 @@
-use vello_encoding::{make_mask_lut, make_mask_lut_16, RenderConfig};
+use vello_encoding::{make_mask_lut, make_mask_lut_16};
 
 use crate::{
-    render_graph::{Handle, ResourceManager},
-    AaConfig, BufferProxy, FullShaders, ImageProxy, Recording, RenderParams,
+    render_graph::{Handle, PassContext},
+    AaConfig, BufferProxy, ImageProxy, Recording,
 };
 
 use super::RenderPass;
@@ -20,23 +20,22 @@ pub struct VelloFine {
     pub out_image: Handle<ImageProxy>,
 }
 
+#[derive(Clone, Copy)]
+pub struct FineOutput {}
+
 impl RenderPass for VelloFine {
-    fn record(
-        self,
-        resources: &mut ResourceManager,
-        config: &RenderConfig,
-        params: &RenderParams,
-        shaders: &FullShaders,
-    ) -> Recording {
+    type Output = FineOutput;
+
+    fn record(self, cx: PassContext<'_>) -> (Recording, Self::Output) {
         let mut recording = Recording::default();
 
-        match params.antialiasing_method {
+        match cx.params.antialiasing_method {
             AaConfig::Area => {
                 recording.dispatch(
-                    shaders
+                    cx.shaders
                         .fine_area
                         .expect("shaders not configured to support AA mode: area"),
-                    config.workgroup_counts.fine,
+                    cx.config.workgroup_counts.fine,
                     (
                         self.config_buf,
                         self.segments_buf,
@@ -49,25 +48,27 @@ impl RenderPass for VelloFine {
                 );
             }
             _ => {
-                let mask_lut = match params.antialiasing_method {
+                let mask_lut = match cx.params.antialiasing_method {
                     AaConfig::Msaa16 => make_mask_lut_16(),
                     AaConfig::Msaa8 => make_mask_lut(),
                     _ => unreachable!(),
                 };
                 let mask_buf = recording.upload("mask lut", mask_lut);
 
-                let fine_shader = match params.antialiasing_method {
-                    AaConfig::Msaa16 => shaders
+                let fine_shader = match cx.params.antialiasing_method {
+                    AaConfig::Msaa16 => cx
+                        .shaders
                         .fine_msaa16
                         .expect("shaders not configured to support AA mode: msaa16"),
-                    AaConfig::Msaa8 => shaders
+                    AaConfig::Msaa8 => cx
+                        .shaders
                         .fine_msaa8
                         .expect("shaders not configured to support AA mode: msaa8"),
                     _ => unreachable!(),
                 };
                 recording.dispatch(
                     fine_shader,
-                    config.workgroup_counts.fine,
+                    cx.config.workgroup_counts.fine,
                     (
                         self.config_buf,
                         self.segments_buf,
@@ -86,6 +87,6 @@ impl RenderPass for VelloFine {
             }
         }
 
-        recording
+        (recording, FineOutput {})
     }
 }
