@@ -5,7 +5,7 @@ use crate::{
     AaConfig, FullShaders, ImageFormat, ImageProxy, Recording, RenderParams, ResourceProxy,
 };
 
-use super::RenderNode;
+use super::RenderPass;
 
 pub struct VelloFine {
     pub config_buf: ResourceRef,
@@ -23,8 +23,8 @@ pub struct VelloFine {
     pub mask_buf: Option<ResourceProxy>,
 }
 
-impl RenderNode for VelloFine {
-    fn recording(
+impl RenderPass for VelloFine {
+    fn record(
         &mut self,
         resources: &mut ResourceManager,
         config: &RenderConfig,

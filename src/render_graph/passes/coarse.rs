@@ -2,12 +2,12 @@ use vello_encoding::RenderConfig;
 
 use crate::{render_graph::ResourceManager, FullShaders, Recording, RenderParams};
 
-use super::RenderNode;
+use super::RenderPass;
 
 pub struct VelloCoarse {}
 
-impl RenderNode for VelloCoarse {
-    fn recording(
+impl RenderPass for VelloCoarse {
+    fn record(
         &mut self,
         resources: &mut ResourceManager,
         config: &RenderConfig,

@@ -9,8 +9,8 @@ use crate::{FullShaders, Recording, RenderParams};
 
 use super::ResourceManager;
 
-pub trait RenderNode: Send + Sync {
-    fn recording(
+pub trait RenderPass: Send + Sync {
+    fn record(
         &mut self,
         resources: &mut ResourceManager,
         config: &RenderConfig,

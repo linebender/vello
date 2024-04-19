@@ -2,17 +2,17 @@ use slotmap::{new_key_type, SecondaryMap, SlotMap};
 
 use crate::{Recording, ResourceProxy};
 
-use self::nodes::RenderNode;
+use self::passes::RenderPass;
 
-pub mod nodes;
+pub mod passes;
 
 new_key_type! {
-    pub struct RenderNodeId;
+    pub struct PassId;
 }
 
 pub struct RenderGraph {
-    nodes: SlotMap<RenderNodeId, Box<dyn RenderNode>>,
-    dependencies: SecondaryMap<RenderNodeId, Vec<RenderNodeId>>,
+    nodes: SlotMap<PassId, Box<dyn RenderPass>>,
+    dependencies: SecondaryMap<PassId, Vec<PassId>>,
     resource_manager: ResourceManager,
 }
 
@@ -25,10 +25,10 @@ impl RenderGraph {
         }
     }
 
-    pub fn insert_node<F, N>(&mut self, node: F, dependencies: &[RenderNodeId]) -> RenderNodeId
+    pub fn insert_node<F, N>(&mut self, node: F, dependencies: &[PassId]) -> PassId
     where
         F: FnOnce(&mut ResourceHinter) -> N,
-        N: RenderNode + 'static,
+        N: RenderPass + 'static,
     {
         let mut resource_hinter = ResourceHinter();
         let node = node(&mut resource_hinter);

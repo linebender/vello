@@ -95,7 +95,6 @@ mod wgpu_engine;
 
 #[cfg(feature = "wgpu")]
 use std::num::NonZeroUsize;
-use std::sync::{Arc, Mutex, RwLock};
 
 /// Styling and composition primitives.
 pub use peniko;
@@ -103,7 +102,7 @@ pub use peniko;
 pub use peniko::kurbo;
 
 use render_graph::{
-    nodes::{VelloCoarse, VelloFine},
+    passes::{VelloCoarse, VelloFine},
     RenderGraph,
 };
 #[doc(hidden)]
