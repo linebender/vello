@@ -167,10 +167,9 @@ impl Recording {
         offset: u64,
         resources: R,
     ) where
-        R: IntoIterator,
-        R::Item: Into<ResourceProxy>,
+        R: IntoResourceProxies,
     {
-        let r = resources.into_iter().map(|r| r.into()).collect();
+        let r = resources.into_resource_proxies();
         self.push(Command::DispatchIndirect(shader, buf, offset, r));
     }
 

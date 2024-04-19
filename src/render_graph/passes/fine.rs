@@ -9,13 +9,12 @@ use super::RenderPass;
 
 pub struct VelloFine {
     pub config_buf: Handle<BufferProxy>,
-    pub bump_buf: Handle<BufferProxy>,
     pub tile_buf: Handle<BufferProxy>,
     pub segments_buf: Handle<BufferProxy>,
     pub ptcl_buf: Handle<BufferProxy>,
-    pub gradient_image: Handle<BufferProxy>,
+    pub gradient_image: Handle<ImageProxy>,
     pub info_bin_data_buf: Handle<BufferProxy>,
-    pub image_atlas: Handle<BufferProxy>,
+    pub image_atlas: Handle<ImageProxy>,
 
     pub out_image: Handle<ImageProxy>,
 }

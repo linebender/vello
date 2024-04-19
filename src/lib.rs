@@ -296,7 +296,6 @@ impl Renderer {
         let coarse = render_graph.insert_pass((), |()| VelloCoarse {});
         let _fine = render_graph.insert_pass((coarse,), |(coarse,)| VelloFine {
             config_buf: coarse.config_buf,
-            bump_buf: coarse.bump_buf,
             tile_buf: coarse.tile_buf,
             segments_buf: coarse.segments_buf,
             ptcl_buf: coarse.ptcl_buf,

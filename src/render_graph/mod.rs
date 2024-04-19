@@ -1,7 +1,7 @@
 use std::{any::Any, marker::PhantomData};
 
 use slotmap::{new_key_type, SecondaryMap, SlotMap};
-use vello_encoding::RenderConfig;
+use vello_encoding::{Encoding, RenderConfig};
 
 use crate::{BufferProxy, FullShaders, ImageProxy, Recording, RenderParams, ResourceProxy};
 
@@ -203,4 +203,6 @@ pub struct PassContext<'c> {
     pub config: &'c RenderConfig,
     pub params: &'c RenderParams,
     pub shaders: &'c FullShaders,
+    pub encoding: &'c Encoding,
+    pub robust: bool,
 }
