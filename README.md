@@ -121,7 +121,7 @@ More formal benchmarks are on their way.
 
 A separate integration for rendering SVG files is available through the [`vello_svg`](https://github.com/linebender/vello_svg) crate.
 
-This repository also includes a [`demo_svg`](./integrations/demo_svg/) integration, which only supports the minimal subset of SVG features needed for vello examples. This is used in the [winit](#winit) example for the SVG rendering.
+This repository also includes the [`demo_svg`](./integrations/demo_svg/) integration, which supports a minimal subset of SVG features needed for vello examples. This is used in the [winit](#winit) example for the SVG rendering.
 
 ### Lottie
 
