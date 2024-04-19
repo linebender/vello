@@ -69,7 +69,9 @@ pub fn preprocess(input: &str, defines: &HashSet<String>, imports: &HashMap<&str
             let directive_is_at_start = line.trim_start().starts_with('#');
 
             match directive {
-                if_item @ ("ifdef" | "ifndef" | "else" | "endif") if !directive_is_at_start => {
+                if_item @ ("ifdef" | "ifndef" | "else" | "endif" | "enable")
+                    if !directive_is_at_start =>
+                {
                     eprintln!("#{if_item} directives must be the first non_whitespace items on their line, ignoring (line {line_number})");
                     break;
                 }
@@ -141,6 +143,11 @@ pub fn preprocess(input: &str, defines: &HashSet<String>, imports: &HashMap<&str
                         eprintln!("Unknown import `{import_name}` (line {line_number})");
                     }
                     continue;
+                }
+                "enable" => {
+                    // Ignore post-process directive. This is only supported by the shaders crate
+                    // (see #467)
+                    continue 'all_lines;
                 }
                 val => {
                     eprintln!("Unknown preprocessor directive `{val}` (line {line_number})");
