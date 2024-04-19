@@ -8,7 +8,7 @@ pub struct VelloCoarse {}
 
 impl RenderPass for VelloCoarse {
     fn record(
-        &mut self,
+        self,
         resources: &mut ResourceManager,
         config: &RenderConfig,
         params: &RenderParams,

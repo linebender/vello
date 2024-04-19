@@ -1,6 +1,6 @@
 use slotmap::{new_key_type, SecondaryMap, SlotMap};
 
-use crate::{Recording, ResourceProxy};
+use crate::{BufferProxy, ImageProxy, Recording, ResourceProxy};
 
 use self::passes::RenderPass;
 
@@ -13,7 +13,7 @@ new_key_type! {
 pub struct RenderGraph {
     nodes: SlotMap<PassId, Box<dyn RenderPass>>,
     dependencies: SecondaryMap<PassId, Vec<PassId>>,
-    resource_manager: ResourceManager,
+    pub resources: ResourceManager,
 }
 
 impl RenderGraph {
@@ -21,24 +21,18 @@ impl RenderGraph {
         RenderGraph {
             nodes: SlotMap::with_key(),
             dependencies: SecondaryMap::new(),
-            resource_manager: ResourceManager::new(),
+            resources: ResourceManager::new(),
         }
     }
 
-    pub fn insert_node<F, N>(&mut self, node: F, dependencies: &[PassId]) -> PassId
-    where
-        F: FnOnce(&mut ResourceHinter) -> N,
-        N: RenderPass + 'static,
-    {
-        let mut resource_hinter = ResourceHinter();
-        let node = node(&mut resource_hinter);
-        let id = self.nodes.insert(Box::new(node));
+    pub fn insert_pass(
+        &mut self,
+        pass: impl RenderPass + 'static,
+        dependencies: &[PassId],
+    ) -> PassId {
+        let id = self.nodes.insert(Box::new(pass));
         self.dependencies.insert(id, dependencies.to_vec());
         id
-    }
-
-    pub fn manage_resource(&mut self, resource: Option<ResourceProxy>) -> ManagedResource {
-        self.resource_manager.resources.insert(resource)
     }
 
     pub fn process(&self) -> Recording {
@@ -48,11 +42,28 @@ impl RenderGraph {
 }
 
 new_key_type! {
-    pub struct ManagedResource;
+    pub struct ResourceId;
+}
+
+#[derive(Clone, Copy)]
+pub struct Handle<T> {
+    id: ResourceId,
+    proxy: T,
+}
+
+impl Into<ResourceProxy> for Handle<ImageProxy> {
+    fn into(self) -> ResourceProxy {
+        ResourceProxy::Image(self.proxy)
+    }
+}
+impl Into<ResourceProxy> for Handle<BufferProxy> {
+    fn into(self) -> ResourceProxy {
+        ResourceProxy::Buffer(self.proxy)
+    }
 }
 
 pub struct ResourceManager {
-    resources: SlotMap<ManagedResource, Option<ResourceProxy>>,
+    resources: SlotMap<ResourceId, ()>,
 }
 
 impl ResourceManager {
@@ -62,22 +73,13 @@ impl ResourceManager {
         }
     }
 
-    pub fn get(&self, res: ResourceRef) -> &Option<ResourceProxy> {
-        self.resources.get(res.0).unwrap()
+    pub fn import_image(&mut self, image: ImageProxy) -> Handle<ImageProxy> {
+        let id = self.resources.insert(());
+        Handle { id, proxy: image }
     }
 
-    pub fn get_mut(&mut self, res: ResourceRef) -> &mut Option<ResourceProxy> {
-        self.resources.get_mut(res.0).unwrap()
-    }
-}
-
-pub struct ResourceHinter();
-
-impl ManagedResource {
-    pub fn hint(&self, rh: &mut ResourceHinter) -> ResourceRef {
-        ResourceRef(*self)
+    pub fn import_buffer(&mut self, buffer: BufferProxy) -> Handle<BufferProxy> {
+        let id = self.resources.insert(());
+        Handle { id, proxy: buffer }
     }
 }
-
-#[derive(Clone, Copy)]
-pub struct ResourceRef(ManagedResource);

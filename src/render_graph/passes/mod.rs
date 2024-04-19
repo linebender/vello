@@ -11,7 +11,7 @@ use super::ResourceManager;
 
 pub trait RenderPass: Send + Sync {
     fn record(
-        &mut self,
+        self,
         resources: &mut ResourceManager,
         config: &RenderConfig,
         params: &RenderParams,

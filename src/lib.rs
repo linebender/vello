@@ -198,7 +198,6 @@ pub struct Renderer {
     shaders: FullShaders,
     blit: Option<BlitPipeline>,
     target: Option<TargetTexture>,
-    render_graph: RenderGraph,
     #[cfg(feature = "wgpu-profiler")]
     pub profiler: GpuProfiler,
     #[cfg(feature = "wgpu-profiler")]
@@ -263,8 +262,37 @@ impl Renderer {
             .surface_format
             .map(|surface_format| BlitPipeline::new(device, surface_format));
 
+        Ok(Self {
+            options,
+            engine,
+            shaders,
+            blit,
+            target: None,
+            // Use 3 pending frames
+            #[cfg(feature = "wgpu-profiler")]
+            profiler: GpuProfiler::new(GpuProfilerSettings {
+                ..Default::default()
+            })?,
+            #[cfg(feature = "wgpu-profiler")]
+            profile_result: None,
+        })
+    }
+
+    /// Renders a scene to the target texture.
+    ///
+    /// The texture is assumed to be of the specified dimensions and have been created with
+    /// the [`wgpu::TextureFormat::Rgba8Unorm`] format and the [`wgpu::TextureUsages::STORAGE_BINDING`]
+    /// flag set.
+    pub fn render_to_texture(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        scene: &Scene,
+        texture: &TextureView,
+        params: &RenderParams,
+    ) -> Result<()> {
         let mut render_graph = RenderGraph::new();
-        let config_buf = render_graph.manage_resource(None);
+        let config_buf = render_graph.resources..manage_resource(None);
         let bump_buf = render_graph.manage_resource(None);
         let tile_buf = render_graph.manage_resource(None);
         let segments_buf = render_graph.manage_resource(None);
@@ -289,38 +317,6 @@ impl Renderer {
             },
             &[coarse],
         );
-
-        Ok(Self {
-            options,
-            engine,
-            shaders,
-            blit,
-            target: None,
-            render_graph,
-            // Use 3 pending frames
-            #[cfg(feature = "wgpu-profiler")]
-            profiler: GpuProfiler::new(GpuProfilerSettings {
-                ..Default::default()
-            })?,
-            #[cfg(feature = "wgpu-profiler")]
-            profile_result: None,
-        })
-    }
-
-    /// Renders a scene to the target texture.
-    ///
-    /// The texture is assumed to be of the specified dimensions and have been created with
-    /// the [`wgpu::TextureFormat::Rgba8Unorm`] format and the [`wgpu::TextureUsages::STORAGE_BINDING`]
-    /// flag set.
-    pub fn render_to_texture(
-        &mut self,
-        device: &Device,
-        queue: &Queue,
-        scene: &Scene,
-        texture: &TextureView,
-        params: &RenderParams,
-    ) -> Result<()> {
-        let recording = self.render_graph.process();
         // let external_resources = [ExternalResource::Image(
         //     *target.as_image().unwrap(),
         //     texture,

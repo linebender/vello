@@ -148,10 +148,9 @@ impl Recording {
 
     pub fn dispatch<R>(&mut self, shader: ShaderId, wg_size: (u32, u32, u32), resources: R)
     where
-        R: IntoIterator,
-        R::Item: Into<ResourceProxy>,
+        R: IntoResourceProxies,
     {
-        let r = resources.into_iter().map(|r| r.into()).collect();
+        let r = resources.into_resource_proxies();
         self.push(Command::Dispatch(shader, wg_size, r));
     }
 
@@ -277,3 +276,33 @@ impl From<ImageProxy> for ResourceProxy {
         Self::Image(value)
     }
 }
+
+pub trait IntoResourceProxies {
+    fn into_resource_proxies(self) -> Vec<ResourceProxy>;
+}
+
+macro_rules! impl_into_resource_proxies {
+    ( $(($generic:ident, $index:tt))+ ) => {
+        impl<$($generic: Into<ResourceProxy>),+> IntoResourceProxies for ($($generic,)+) {
+            #[inline]
+            fn into_resource_proxies(self) -> Vec<ResourceProxy> {
+                vec![
+                    $(
+                        self.$index.into(),
+                    )+
+                ]
+            }
+        }
+    };
+}
+
+impl_into_resource_proxies!((A, 0));
+impl_into_resource_proxies!((A, 0)(B, 1));
+impl_into_resource_proxies!((A, 0)(B, 1)(C, 2));
+impl_into_resource_proxies!((A, 0)(B, 1)(C, 2)(D, 3));
+impl_into_resource_proxies!((A, 0)(B, 1)(C, 2)(D, 3)(E, 4));
+impl_into_resource_proxies!((A, 0)(B, 1)(C, 2)(D, 3)(E, 4)(F, 5));
+impl_into_resource_proxies!((A, 0)(B, 1)(C, 2)(D, 3)(E, 4)(F, 5)(G, 6));
+impl_into_resource_proxies!((A, 0)(B, 1)(C, 2)(D, 3)(E, 4)(F, 5)(G, 6)(H, 7));
+impl_into_resource_proxies!((A, 0)(B, 1)(C, 2)(D, 3)(E, 4)(F, 5)(G, 6)(H, 7)(I, 8));
+impl_into_resource_proxies!((A, 0)(B, 1)(C, 2)(D, 3)(E, 4)(F, 5)(G, 6)(H, 7)(I, 8)(J, 9));
