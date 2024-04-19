@@ -1,7 +1,7 @@
 use std::{any::Any, marker::PhantomData};
 
 use slotmap::{new_key_type, SecondaryMap, SlotMap};
-use vello_encoding::{Encoding, RenderConfig};
+use vello_encoding::Encoding;
 
 use crate::{BufferProxy, FullShaders, ImageProxy, Recording, RenderParams, ResourceProxy};
 
@@ -13,12 +13,12 @@ new_key_type! {
     pub struct PassId;
 }
 
-pub struct Pass<P: RenderPass>(PassId, PhantomData<P>);
+pub struct Pass<P: RenderPass>(pub PassId, PhantomData<P>);
 
 pub struct RenderGraph {
     nodes: SlotMap<PassId, Box<dyn ErasedPass>>,
     dependencies: SecondaryMap<PassId, Vec<PassId>>,
-    pub resources: ResourceManager,
+    dependants: SecondaryMap<PassId, Vec<PassId>>,
 }
 
 impl RenderGraph {
@@ -26,7 +26,7 @@ impl RenderGraph {
         RenderGraph {
             nodes: SlotMap::with_key(),
             dependencies: SecondaryMap::new(),
-            resources: ResourceManager::new(),
+            dependants: SecondaryMap::new(),
         }
     }
 
@@ -44,14 +44,74 @@ impl RenderGraph {
             phantom: PhantomData,
         };
         let id = self.nodes.insert(Box::new(erased));
-        self.dependencies
-            .insert(id, dependencies.into_pass_dependencies());
+        self.dependants.insert(id, vec![]);
+        let deps = dependencies.into_pass_dependencies();
+        for dep in &deps {
+            self.dependants[*dep].push(id);
+        }
+        self.dependencies.insert(id, deps);
+
         Pass(id, PhantomData)
     }
 
-    pub fn process(&self) -> Recording {
+    pub fn process(
+        &self,
+        params: &RenderParams,
+        shaders: &FullShaders,
+        encoding: &Encoding,
+        robust: bool,
+    ) -> Option<Recording> {
         let mut recording = Recording::default();
-        recording
+
+        let mut stack = Vec::with_capacity(self.nodes.len());
+        let mut counter = SecondaryMap::with_capacity(self.nodes.len());
+        let mut result = Vec::with_capacity(self.nodes.len());
+
+        for (id, d) in &self.dependencies {
+            counter.insert(id, d.len());
+            if d.len() == 0 {
+                stack.push(id);
+            }
+        }
+
+        while let Some(id) = stack.pop() {
+            result.push(id);
+            for &dependant in &self.dependants[id] {
+                counter[dependant] -= 1;
+                if counter[dependant] == 0 {
+                    stack.push(dependant);
+                }
+            }
+        }
+
+        if result.len() != self.nodes.len() {
+            return None;
+        }
+
+        let mut outputs: SecondaryMap<PassId, Box<dyn Any>> = SecondaryMap::new();
+        let mut resources = ResourceManager::new();
+
+        for pass in result {
+            let mut pass_recording = unsafe {
+                self.nodes[pass].record(
+                    pass,
+                    &self.dependencies[pass],
+                    &mut outputs,
+                    PassContext {
+                        resources: &mut resources,
+                        params,
+                        shaders,
+                        encoding,
+                        robust,
+                    },
+                )
+            };
+            recording.append(&mut pass_recording);
+        }
+
+        // TODO: resource clean up etc.
+
+        Some(recording)
     }
 }
 
@@ -204,7 +264,6 @@ where
 
 pub struct PassContext<'c> {
     pub resources: &'c mut ResourceManager,
-    pub config: &'c RenderConfig,
     pub params: &'c RenderParams,
     pub shaders: &'c FullShaders,
     pub encoding: &'c Encoding,

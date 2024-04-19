@@ -303,21 +303,27 @@ impl Renderer {
             info_bin_data_buf: coarse.info_bin_data_buf,
             image_atlas: coarse.image_atlas,
             out_image: coarse.out_image,
+            fine_workgroup_size: coarse.fine_workgroup_size,
         });
+
+        let Some(recording) = render_graph.process(params, &self.shaders, scene.encoding(), false)
+        else {
+            panic!("Cyclic Render Graph");
+        };
 
         // let external_resources = [ExternalResource::Image(
         //     *target.as_image().unwrap(),
         //     texture,
         // )];
-        // self.engine.run_recording(
-        //     device,
-        //     queue,
-        //     &recording,
-        //     &external_resources,
-        //     "render_to_texture",
-        //     #[cfg(feature = "wgpu-profiler")]
-        //     &mut self.profiler,
-        // )?;
+        self.engine.run_recording(
+            device,
+            queue,
+            &recording,
+            &[], // &external_resources,
+            "render_to_texture",
+            #[cfg(feature = "wgpu-profiler")]
+            &mut self.profiler,
+        )?;
         Ok(())
     }
 

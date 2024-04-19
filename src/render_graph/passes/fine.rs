@@ -1,4 +1,4 @@
-use vello_encoding::{make_mask_lut, make_mask_lut_16};
+use vello_encoding::{make_mask_lut, make_mask_lut_16, WorkgroupSize};
 
 use crate::{
     render_graph::{Handle, PassContext},
@@ -17,6 +17,8 @@ pub struct VelloFine {
     pub image_atlas: Handle<ImageProxy>,
 
     pub out_image: Handle<ImageProxy>,
+
+    pub fine_workgroup_size: WorkgroupSize,
 }
 
 #[derive(Clone, Copy)]
@@ -34,7 +36,7 @@ impl RenderPass for VelloFine {
                     cx.shaders
                         .fine_area
                         .expect("shaders not configured to support AA mode: area"),
-                    cx.config.workgroup_counts.fine,
+                    self.fine_workgroup_size,
                     (
                         self.config_buf,
                         self.segments_buf,
@@ -67,7 +69,7 @@ impl RenderPass for VelloFine {
                 };
                 recording.dispatch(
                     fine_shader,
-                    cx.config.workgroup_counts.fine,
+                    self.fine_workgroup_size,
                     (
                         self.config_buf,
                         self.segments_buf,

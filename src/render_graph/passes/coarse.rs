@@ -1,4 +1,4 @@
-use vello_encoding::{RenderConfig, Resolver};
+use vello_encoding::{RenderConfig, Resolver, WorkgroupSize};
 
 use crate::{
     render_graph::{Handle, PassContext},
@@ -20,6 +20,8 @@ pub struct CoarseOutput {
     pub image_atlas: Handle<ImageProxy>,
 
     pub out_image: Handle<ImageProxy>,
+
+    pub fine_workgroup_size: WorkgroupSize,
 }
 
 impl RenderPass for VelloCoarse {
@@ -352,6 +354,7 @@ impl RenderPass for VelloCoarse {
                 info_bin_data_buf: cx.resources.import_buffer(info_bin_data_buf),
                 image_atlas: cx.resources.import_image(image_atlas),
                 out_image: cx.resources.import_image(out_image),
+                fine_workgroup_size: wg_counts.fine,
             },
         )
     }

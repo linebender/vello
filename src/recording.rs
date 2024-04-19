@@ -204,6 +204,11 @@ impl Recording {
         }
     }
 
+    /// Moves all the commands of other into self, leaving other empty.
+    pub fn append(&mut self, other: &mut Recording) {
+        self.commands.append(&mut other.commands);
+    }
+
     /// Returns a [`Vec`] containing all the [`Command`]s in order.
     pub fn into_commands(self) -> Vec<Command> {
         self.commands
