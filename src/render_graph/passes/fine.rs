@@ -22,7 +22,9 @@ pub struct VelloFine {
 }
 
 #[derive(Clone, Copy)]
-pub struct FineOutput {}
+pub struct FineOutput {
+    pub out_image: Handle<ImageProxy>,
+}
 
 impl RenderPass for VelloFine {
     type Output = FineOutput;
@@ -88,6 +90,11 @@ impl RenderPass for VelloFine {
             }
         }
 
-        (recording, FineOutput {})
+        (
+            recording,
+            FineOutput {
+                out_image: self.out_image,
+            },
+        )
     }
 }

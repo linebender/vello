@@ -294,7 +294,7 @@ impl Renderer {
         let mut render_graph = RenderGraph::new();
 
         let coarse = render_graph.insert_pass((), |()| VelloCoarse {});
-        let _fine = render_graph.insert_pass((coarse,), |(coarse,)| VelloFine {
+        let fine = render_graph.insert_pass((coarse,), |(coarse,)| VelloFine {
             config_buf: coarse.config_buf,
             tile_buf: coarse.tile_buf,
             segments_buf: coarse.segments_buf,
@@ -306,20 +306,18 @@ impl Renderer {
             fine_workgroup_size: coarse.fine_workgroup_size,
         });
 
-        let Some(recording) = render_graph.process(params, &self.shaders, scene.encoding(), false)
+        let Some((recording, fine_out)) =
+            render_graph.process(fine, params, &self.shaders, scene.encoding(), false)
         else {
             panic!("Cyclic Render Graph");
         };
 
-        // let external_resources = [ExternalResource::Image(
-        //     *target.as_image().unwrap(),
-        //     texture,
-        // )];
+        let external_resources = [ExternalResource::Image(fine_out.out_image.into(), texture)];
         self.engine.run_recording(
             device,
             queue,
             &recording,
-            &[], // &external_resources,
+            &external_resources,
             "render_to_texture",
             #[cfg(feature = "wgpu-profiler")]
             &mut self.profiler,

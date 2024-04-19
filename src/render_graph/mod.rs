@@ -13,7 +13,7 @@ new_key_type! {
     pub struct PassId;
 }
 
-pub struct Pass<P: RenderPass>(pub PassId, PhantomData<P>);
+pub struct Pass<P: RenderPass>(PassId, PhantomData<P>);
 
 pub struct RenderGraph {
     nodes: SlotMap<PassId, Box<dyn ErasedPass>>,
@@ -54,13 +54,14 @@ impl RenderGraph {
         Pass(id, PhantomData)
     }
 
-    pub fn process(
+    pub fn process<P: RenderPass>(
         &self,
+        start: Pass<P>,
         params: &RenderParams,
         shaders: &FullShaders,
         encoding: &Encoding,
         robust: bool,
-    ) -> Option<Recording> {
+    ) -> Option<(Recording, P::Output)> {
         let mut recording = Recording::default();
 
         let mut stack = Vec::with_capacity(self.nodes.len());
@@ -111,7 +112,14 @@ impl RenderGraph {
 
         // TODO: resource clean up etc.
 
-        Some(recording)
+        let output = unsafe {
+            outputs[start.0]
+                .downcast_ref::<P::Output>()
+                .unwrap_unchecked()
+                .clone()
+        };
+
+        Some((recording, output))
     }
 }
 
@@ -130,9 +138,19 @@ impl Into<ResourceProxy> for Handle<ImageProxy> {
         ResourceProxy::Image(self.proxy)
     }
 }
+impl Into<ImageProxy> for Handle<ImageProxy> {
+    fn into(self) -> ImageProxy {
+        self.proxy
+    }
+}
 impl Into<ResourceProxy> for Handle<BufferProxy> {
     fn into(self) -> ResourceProxy {
         ResourceProxy::Buffer(self.proxy)
+    }
+}
+impl Into<BufferProxy> for Handle<BufferProxy> {
+    fn into(self) -> BufferProxy {
+        self.proxy
     }
 }
 
