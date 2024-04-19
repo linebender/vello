@@ -30,7 +30,11 @@ impl RenderGraph {
         }
     }
 
-    pub fn insert_pass<D: IntoPassDependencies, P: RenderPass, F: Fn(D::Outputs) -> P>(
+    pub fn insert_pass<
+        D: IntoPassDependencies + 'static,
+        P: RenderPass + 'static,
+        F: Fn(D::Outputs) -> P + 'static,
+    >(
         &mut self,
         dependencies: D,
         pass_builder: F,
@@ -100,9 +104,9 @@ pub trait IntoPassDependencies {
     fn into_pass_dependencies(self) -> Vec<PassId>;
 
     // SAFETY: assoc_data should match in length with outputs, returned any should have the type of the output
-    unsafe fn outputs_map<OD, OF>(assoc_data: &[OD], f: OF) -> Self::Outputs
+    unsafe fn outputs_map<'d, 'a, OD, OF>(assoc_data: &'d [OD], f: OF) -> Self::Outputs
     where
-        OF: Fn(&OD) -> &dyn Any;
+        OF: Fn(&'d OD) -> &'a dyn Any;
 }
 
 impl IntoPassDependencies for () {
@@ -112,9 +116,9 @@ impl IntoPassDependencies for () {
         vec![]
     }
 
-    unsafe fn outputs_map<OD, OF>(assoc_data: &[OD], f: OF) -> Self::Outputs
+    unsafe fn outputs_map<'d, 'a, OD, OF>(_assoc_data: &'d [OD], _f: OF) -> Self::Outputs
     where
-        OF: Fn(&OD) -> &dyn Any,
+        OF: Fn(&'d OD) -> &'a dyn Any,
     {
         ()
     }
@@ -134,9 +138,9 @@ macro_rules! impl_into_pass_dependencies {
                 ]
             }
 
-            unsafe fn outputs_map<OD, OF>(assoc_data: &[OD], f: OF) -> Self::Outputs
+            unsafe fn outputs_map<'d, 'a, OD, OF>(assoc_data: &'d [OD], f: OF) -> Self::Outputs
             where
-                OF: Fn(&OD) -> &dyn Any
+                OF: Fn(&'d OD) -> &'a dyn Any,
             {
                 ($(
                     {

@@ -9,7 +9,7 @@ use crate::Recording;
 use super::PassContext;
 
 pub trait RenderPass: Send + Sync {
-    type Output: Clone + Copy
+    type Output: Clone + Copy + 'static
     where
         Self: Sized;
 
