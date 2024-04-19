@@ -65,9 +65,11 @@ pub fn preprocess(
             let directive_is_at_start = line.trim_start().starts_with('#');
 
             match directive {
-                if_item @ ("ifdef" | "ifndef" | "else" | "endif") if !directive_is_at_start => {
+                item @ ("ifdef" | "ifndef" | "else" | "endif" | "enable")
+                    if !directive_is_at_start =>
+                {
                     eprintln!(
-                        "#{if_item} directives must be the first non_whitespace items on \
+                        "#{item} directives must be the first non_whitespace items on \
                                their line, ignoring (line {line_number})"
                     );
                     break;
@@ -111,7 +113,7 @@ pub fn preprocess(
                         eprintln!("Mismatched endif (line {line_number})");
                     }
                     let remainder = directive_start[directive_len..].trim();
-                    if !remainder.is_empty() {
+                    if !remainder.is_empty() && !remainder.starts_with("//") {
                         eprintln!(
                             "#endif directives don't take an argument. `{remainder}` will \
                                    not be in output (line {line_number})"
@@ -150,6 +152,16 @@ pub fn preprocess(
                         eprintln!("Unknown import `{import_name}` (line {line_number})");
                     }
                     continue;
+                }
+                "enable" => {
+                    // Turn this directive into a comment. It will be handled as part in
+                    // postprocess.
+                    if stack.iter().all(|item| item.active) {
+                        output.push_str("//__");
+                        output.push_str(line);
+                        output.push('\n');
+                    }
+                    continue 'all_lines;
                 }
                 val => {
                     eprintln!("Unknown preprocessor directive `{val}` (line {line_number})");

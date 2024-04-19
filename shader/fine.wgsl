@@ -7,6 +7,12 @@
 // To enable multisampled rendering, turn on both the msaa ifdef and one of msaa8
 // or msaa16.
 
+#ifdef r8
+// The R8 variant is only available via an internal extension in Dawn native
+// (see https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/tint/extensions/chromium_internal_graphite.md).
+#enable chromium_internal_graphite;
+#endif
+
 struct Tile {
     backdrop: i32,
     segments: u32,
@@ -34,10 +40,6 @@ var<storage> info: array<u32>;
 
 @group(0) @binding(4)
 #ifdef r8
-// The R8 variant is available via a non-standard extension in Dawn. We can't
-// optionally declare that extension here since naga doesn't understand the
-// `enable` directive (see https://github.com/gfx-rs/wgpu/issues/5476). The
-// directive must be injected by the client via some other means.
 var output: texture_storage_2d<r8unorm, write>;
 #else
 var output: texture_storage_2d<rgba8unorm, write>;
@@ -816,6 +818,8 @@ fn extend_mode(t: f32, mode: u32) -> f32 {
 
 let PIXELS_PER_THREAD = 4u;
 
+#ifndef msaa
+
 // Analytic area antialiasing.
 //
 // This is currently dead code if msaa is enabled, but it would be fairly straightforward
@@ -877,6 +881,8 @@ fn fill_path(fill: CmdFill, xy: vec2<f32>, result: ptr<function, array<f32, PIXE
     }
     *result = area;
 }
+
+#endif
 
 // The X size should be 16 / PIXELS_PER_THREAD
 @compute @workgroup_size(4, 16)

@@ -120,7 +120,7 @@ impl ShaderInfo {
         bindings.sort_by_key(|res| res.location);
         let workgroup_size = entry.workgroup_size;
         Ok(ShaderInfo {
-            source,
+            source: postprocess(&source),
             module,
             module_info,
             workgroup_size,
@@ -181,4 +181,20 @@ impl ShaderInfo {
         }
         info
     }
+}
+
+// TODO: This is a workaround for gfx-rs/wgpu#5476. Since naga can't handle the `enable` directive,
+// we allow its use in other WGSL compilers using our own "#enable" post-process directive. Remove
+// this mechanism once naga supports the directive.
+fn postprocess(wgsl: &str) -> String {
+    let mut output = String::with_capacity(wgsl.len());
+    for line in wgsl.lines() {
+        if line.starts_with("//__#enable") {
+            output.push_str(&line["//__#".len()..]);
+        } else {
+            output.push_str(line);
+        }
+        output.push('\n');
+    }
+    output
 }
