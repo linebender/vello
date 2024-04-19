@@ -10,6 +10,10 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 ## Unreleased
 
+### changed
+
+- [#547](https://github.com/linebender/vello/pull/547) - `RenderContext::new()` no longer returns a `Result` by [@waywardmonkeys](https://github.com/waywardmonkeys)
+
 ## 0.1 (2024-03-04)
 
 - Initial release
