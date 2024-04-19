@@ -11,7 +11,7 @@
 
 [![Crates.io](https://img.shields.io/crates/v/vello.svg)](https://crates.io/crates/vello)
 [![Docs](https://docs.rs/vello/badge.svg)](https://docs.rs/vello)
-[![Build status](https://github.com/linebender/vello/workflows/CI/badge.svg)](https://github.com/linebenvello/actions) -->
+[![Build status](https://github.com/linebender/vello/workflows/CI/badge.svg)](https://github.com/linebenvello/actions)
 
 </div>
 
