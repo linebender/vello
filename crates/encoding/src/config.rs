@@ -368,7 +368,7 @@ impl BufferSizes {
         };
         let path_reduced = BufferSize::new(reduced_size);
         let path_reduced2 = BufferSize::new(PATH_REDUCE_WG);
-        let path_reduced_scan = BufferSize::new(path_tag_wgs);
+        let path_reduced_scan = BufferSize::new(reduced_size);
         let path_monoids = BufferSize::new(path_tag_wgs * PATH_REDUCE_WG);
         let path_bboxes = BufferSize::new(n_paths);
         let binning_wgs = workgroups.binning.0;
