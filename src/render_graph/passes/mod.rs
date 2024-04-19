@@ -3,18 +3,17 @@ pub use coarse::*;
 
 mod fine;
 pub use fine::*;
-use vello_encoding::RenderConfig;
 
-use crate::{FullShaders, Recording, RenderParams};
+use crate::Recording;
 
-use super::ResourceManager;
+use super::PassContext;
 
 pub trait RenderPass: Send + Sync {
-    fn record(
-        self,
-        resources: &mut ResourceManager,
-        config: &RenderConfig,
-        params: &RenderParams,
-        shaders: &FullShaders,
-    ) -> Recording;
+    type Output: Clone + Copy
+    where
+        Self: Sized;
+
+    fn record(self, cx: PassContext<'_>) -> (Recording, Self::Output)
+    where
+        Self: Sized;
 }
