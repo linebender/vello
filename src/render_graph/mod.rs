@@ -272,7 +272,7 @@ where
         cx: PassContext<'_>,
     ) -> Recording {
         // SAFETY: user assures that everything is correct.
-        let dep_outputs = D::outputs_map(deps, |dep| &outputs[*dep]);
+        let dep_outputs = D::outputs_map(deps, |dep| outputs[*dep].as_ref());
         let pass = (self.f)(dep_outputs);
         let (recording, output) = pass.record(cx);
         outputs.insert(id, Box::new(output));
