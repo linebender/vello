@@ -348,7 +348,7 @@ impl RenderPass for VelloCoarse {
             CoarseOutput {
                 config_buf: cx.resources.import_buffer(config_buf),
                 tile_buf: cx.resources.import_buffer(tile_buf),
-                segments_buf: cx.resources.import_buffer(seg_counts_buf),
+                segments_buf: cx.resources.import_buffer(segments_buf),
                 ptcl_buf: cx.resources.import_buffer(ptcl_buf),
                 gradient_image: cx.resources.import_image(gradient_image),
                 info_bin_data_buf: cx.resources.import_buffer(info_bin_data_buf),
