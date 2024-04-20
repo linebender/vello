@@ -8,12 +8,11 @@ use super::{DrawTag, Encoding, PathTag, StreamOffsets, Style, Transform};
 #[cfg(feature = "full")]
 use {
     super::{
-        glyph_cache::{CachedRange, GlyphCache, GlyphKey},
+        glyph_cache::GlyphCache,
         image_cache::{ImageCache, Images},
         ramp_cache::{RampCache, Ramps},
     },
     peniko::{Extend, Image},
-    skrifa::MetadataProvider,
     std::ops::Range,
 };
 
@@ -164,7 +163,7 @@ pub fn resolve_solid_paths_only(encoding: &Encoding, packed: &mut Vec<u8>) -> La
 #[derive(Default)]
 pub struct Resolver {
     glyph_cache: GlyphCache,
-    glyph_ranges: Vec<CachedRange>,
+    glyph_indices: Vec<usize>,
     ramp_cache: RampCache,
     image_cache: ImageCache,
     pending_images: Vec<PendingImage>,
@@ -217,10 +216,9 @@ impl Resolver {
                         data.extend_from_slice(bytemuck::cast_slice(&stream[pos..stream_offset]));
                         pos = stream_offset;
                     }
-                    for glyph in &self.glyph_ranges[glyphs.clone()] {
+                    for glyph in &self.glyph_indices[glyphs.clone()] {
                         data.extend_from_slice(bytemuck::bytes_of(&PathTag::TRANSFORM));
-                        let glyph_data = &self.glyph_cache.encoding.path_tags
-                            [glyph.start.path_tags..glyph.end.path_tags];
+                        let glyph_data = &self.glyph_cache.glyphs()[*glyph].encoding.path_tags;
                         data.extend_from_slice(bytemuck::cast_slice(glyph_data));
                     }
                     data.extend_from_slice(bytemuck::bytes_of(&PathTag::PATH));
@@ -248,9 +246,8 @@ impl Resolver {
                         data.extend_from_slice(bytemuck::cast_slice(&stream[pos..stream_offset]));
                         pos = stream_offset;
                     }
-                    for glyph in &self.glyph_ranges[glyphs.clone()] {
-                        let glyph_data = &self.glyph_cache.encoding.path_data
-                            [glyph.start.path_data..glyph.end.path_data];
+                    for &glyph in &self.glyph_indices[glyphs.clone()] {
+                        let glyph_data = &self.glyph_cache.glyphs()[glyph].encoding.path_data;
                         data.extend_from_slice(bytemuck::cast_slice(glyph_data));
                     }
                 }
@@ -372,9 +369,8 @@ impl Resolver {
                         data.extend_from_slice(bytemuck::cast_slice(&stream[pos..stream_offset]));
                         pos = stream_offset;
                     }
-                    for glyph in &self.glyph_ranges[glyphs.clone()] {
-                        let glyph_data =
-                            &self.glyph_cache.encoding.styles[glyph.start.styles..glyph.end.styles];
+                    for &glyph in &self.glyph_indices[glyphs.clone()] {
+                        let glyph_data = &self.glyph_cache.glyphs()[glyph].encoding.styles;
                         data.extend_from_slice(bytemuck::cast_slice(glyph_data));
                     }
                 }
@@ -390,8 +386,8 @@ impl Resolver {
 
     fn resolve_patches(&mut self, encoding: &Encoding) -> StreamOffsets {
         self.ramp_cache.advance();
-        self.glyph_cache.clear();
-        self.glyph_ranges.clear();
+        self.glyph_cache.prune(32);
+        self.glyph_indices.clear();
         self.image_cache.clear();
         self.pending_images.clear();
         self.patches.clear();
@@ -414,17 +410,6 @@ impl Resolver {
                 Patch::GlyphRun { index } => {
                     let mut run_sizes = StreamOffsets::default();
                     let run = &resources.glyph_runs[*index];
-                    let font_id = run.font.data.id();
-                    let Ok(font_file) = skrifa::raw::FileRef::new(run.font.data.as_ref()) else {
-                        continue;
-                    };
-                    let font = match font_file {
-                        skrifa::raw::FileRef::Font(font) => Some(font),
-                        skrifa::raw::FileRef::Collection(collection) => {
-                            collection.get(run.font.index).ok()
-                        }
-                    };
-                    let Some(font) = font else { continue };
                     let glyphs = &resources.glyphs[run.glyphs.clone()];
                     let coords = &resources.normalized_coords[run.normalized_coords.clone()];
                     let mut hint = run.hint;
@@ -446,24 +431,21 @@ impl Resolver {
                             hint = false;
                         }
                     }
-                    let outlines = font.outline_glyphs();
-                    let glyph_start = self.glyph_ranges.len();
+                    let Some(mut session) = self
+                        .glyph_cache
+                        .session(&run.font, coords, font_size, hint, &run.style)
+                    else {
+                        continue;
+                    };
+                    let glyph_start = self.glyph_indices.len();
                     for glyph in glyphs {
-                        let key = GlyphKey {
-                            font_id,
-                            font_index: run.font.index,
-                            font_size_bits: font_size.to_bits(),
-                            glyph_id: glyph.id,
-                            hint,
+                        let Some((index, stream_sizes)) = session.get_or_insert(glyph.id) else {
+                            continue;
                         };
-                        let encoding_range = self
-                            .glyph_cache
-                            .get_or_insert(&outlines, key, &run.style, font_size, coords)
-                            .unwrap_or_default();
-                        run_sizes.add(&encoding_range.len());
-                        self.glyph_ranges.push(encoding_range);
+                        run_sizes.add(&stream_sizes);
+                        self.glyph_indices.push(index);
                     }
-                    let glyph_end = self.glyph_ranges.len();
+                    let glyph_end = self.glyph_indices.len();
                     run_sizes.path_tags += glyphs.len() + 1;
                     run_sizes.transforms += glyphs.len();
                     sizes.add(&run_sizes);

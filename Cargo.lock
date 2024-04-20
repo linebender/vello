@@ -4025,6 +4025,7 @@ dependencies = [
  "guillotiere",
  "peniko",
  "skrifa",
+ "smallvec",
 ]
 
 [[package]]
