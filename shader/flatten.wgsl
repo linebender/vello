@@ -322,6 +322,21 @@ const ESPC_ROBUST_NORMAL = 0;
 const ESPC_ROBUST_LOW_K1 = 1;
 const ESPC_ROBUST_LOW_DIST = 2;
 
+const NEWTON_ITER = 1;
+const HALLEY_ITER = 1;
+
+fn cbrt(x: f32) -> f32 {
+  var y = sign(x) * bitcast<f32>(bitcast<u32>(abs(x)) / 3u + 0x2a514067u);
+  for (var i = 0; i < NEWTON_ITER; i++) {
+      y = (2. * y + x / (y * y)) * .333333333;
+  }
+  for (var i = 0; i < HALLEY_ITER; i++) {
+      let y3 = y * y * y;
+      y *= (y3 + 2. * x) / (2. * y3 + x);
+  }
+  return y;
+}
+
 // This function flattens a cubic Bézier by first converting it into Euler spiral
 // segments, and then computes a near-optimal flattening of the parallel curves of
 // the Euler spiral segments.
@@ -405,6 +420,50 @@ fn flatten_euler(
             let k1 = es.params.k1;
             let normalized_offset = offset / cubic_params.chord_len;
             let dist_scaled = normalized_offset * es.params.ch;
+// NOTE: set this to "ifndef" to lower to arcs before flattening. Use ifdef to lower directly to lines.
+#ifdef arcs
+            let arclen = length(es.p0 - es.p1) / es.params.ch;
+            let est_err = (1. / 120.) / tol * abs(k1) * (arclen + 0.4 * abs(k1 * offset));
+            let n_subdiv = cbrt(est_err);
+            let n = max(u32(ceil(n_subdiv)), 1u);
+            let arc_dt = 1. / f32(n);
+            for (var i = 0u; i < n; i++) {
+                var ap1: vec2f;
+                let arc_t0 = f32(i) * arc_dt;
+                let arc_t1 = arc_t0 + arc_dt;
+                if i + 1u == n && t1 == 1. {
+                    ap1 = t_end;
+                } else {
+                    ap1 = es_seg_eval_with_offset(es, arc_t1, normalized_offset);
+                }
+                let t = arc_t0 + 0.5 * arc_dt - 0.5;
+                let k = es.params.k0 + t * k1;
+                let arclen_offset = arclen + normalized_offset * k;
+                //let r = sign(offset) * arclen_offset / k;
+                var r: f32;
+                let arc_k = k * arc_dt;
+                if abs(arc_k) < 1e-12 {
+                    r = 0.;
+                } else {
+                    let s = select(sign(offset), 1., offset == 0.);
+                    r = 0.5 * s * length(ap1 - lp0) / sin(0.5 * arc_k);
+                }
+                let l0 = select(ap1, lp0, offset >= 0.);
+                let l1 = select(lp0, ap1, offset >= 0.);
+                // NOTE: make this "if true" to just render the arc chords.
+                if abs(r) < 1e-12 {
+                //if true {
+                    output_line_with_transform(path_ix, l0, l1, transform);
+                } else {
+                    let angle = asin(0.5 * length(l1 - l0) / r);
+                    let mid_ch = 0.5 * (l0 + l1);
+                    let v = normalize(l1 - mid_ch) * cos(angle) * r;
+                    let center = mid_ch - vec2(-v.y, v.x);
+                    flatten_arc(path_ix, l0, l1, center, 2. * angle, transform);
+                }
+                lp0 = ap1;
+            }
+#else
             let scale_multiplier = sqrt(0.125 * scale * cubic_params.chord_len / (es.params.ch * tol));
             var a = 0.0;
             var b = 0.0;
@@ -459,6 +518,7 @@ fn flatten_euler(
                 output_line_with_transform(path_ix, l0, l1, transform);
                 lp0 = lp1;
             }
+#endif // lines
             last_p = this_pq1.point;
             last_q = this_pq1.deriv;
             last_t = t1;
@@ -496,11 +556,11 @@ fn flatten_arc(
     let theta = max(MIN_THETA, 2. * acos(1. - tol / radius));
 
     // Always output at least one line so that we always draw the chord.
-    let n_lines = max(1u, u32(ceil(angle / theta)));
+    let n_lines = max(1u, u32(ceil(abs(angle) / theta)));
 
     let c = cos(theta);
     let s = sin(theta);
-    let rot = mat2x2(c, -s, s, c);
+    let rot = mat2x2(c, sign(angle) * -s, sign(angle) * s, c);
 
     let line_ix = atomicAdd(&bump.lines, n_lines);
     for (var i = 0u; i < n_lines - 1u; i += 1u) {
