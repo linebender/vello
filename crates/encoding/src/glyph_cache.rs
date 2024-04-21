@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use super::{Encoding, StreamOffsets};
 
@@ -10,27 +11,18 @@ use skrifa::instance::{NormalizedCoord, Size};
 use skrifa::outline::{HintingInstance, HintingMode, LcdLayout, OutlineGlyphFormat};
 use skrifa::{GlyphId, MetadataProvider, OutlineGlyphCollection};
 
-/// A rough upper bound to limit the amount of memory we retain for the free
-/// list.
-///
-/// TODO: make this more sophisticated taking actual memory size into account.
-const MAX_FREE_LIST_LEN: usize = 64;
-
 #[derive(Default)]
 pub struct GlyphCache {
-    glyphs: Vec<EncodedGlyph>,
-    free_list: Vec<usize>,
+    free_list: Vec<Rc<Encoding>>,
     map: GlyphMap,
     var_map: HashMap<VarKey, GlyphMap>,
+    cached_count: usize,
     hinting: HintCache,
     serial: u64,
+    last_prune_serial: u64,
 }
 
 impl GlyphCache {
-    pub fn glyphs(&self) -> &[EncodedGlyph] {
-        &self.glyphs
-    }
-
     pub fn session<'a>(
         &'a mut self,
         font: &'a Font,
@@ -77,7 +69,6 @@ impl GlyphCache {
         };
         let style_bits: [u32; 2] = bytemuck::cast(style_bits);
         Some(GlyphCacheSession {
-            glyphs: &mut self.glyphs,
             free_list: &mut self.free_list,
             map,
             font_id,
@@ -90,25 +81,47 @@ impl GlyphCache {
             outlines,
             hinter,
             serial: self.serial,
+            cached_count: &mut self.cached_count,
         })
     }
 
-    pub fn prune(&mut self, max_age: u64) {
+    pub fn maintain(&mut self) {
+        // Maximum number of resolve phases where we'll retain an unused glyph
+        const MAX_ENTRY_AGE: u64 = 64;
+        // Maximum number of resolve phases before we force a prune
+        const PRUNE_FREQUENCY: u64 = 64;
+        // Always prune if the cached count is greater than this value
+        const CACHED_COUNT_THRESHOLD: usize = 256;
+        // Number of encoding buffers we'll keep on the free list
+        const MAX_FREE_LIST_SIZE: usize = 32;
         let free_list = &mut self.free_list;
         let serial = self.serial;
         self.serial += 1;
-        self.map.retain(|_, v| {
-            if serial - v.serial > max_age {
-                free_list.push(v.index);
+        // Don't iterate over the whole cache every frame
+        if serial - self.last_prune_serial < PRUNE_FREQUENCY
+            && self.cached_count < CACHED_COUNT_THRESHOLD
+        {
+            return;
+        }
+        self.last_prune_serial = serial;
+        self.map.retain(|_, entry| {
+            if serial - entry.serial > MAX_ENTRY_AGE {
+                if free_list.len() < MAX_FREE_LIST_SIZE {
+                    free_list.push(entry.encoding.clone());
+                }
+                self.cached_count -= 1;
                 false
             } else {
                 true
             }
         });
         self.var_map.retain(|_, map| {
-            map.retain(|_, v| {
-                if serial - v.serial > max_age {
-                    free_list.push(v.index);
+            map.retain(|_, entry| {
+                if serial - entry.serial > MAX_ENTRY_AGE {
+                    if free_list.len() < MAX_FREE_LIST_SIZE {
+                        free_list.push(entry.encoding.clone());
+                    }
+                    self.cached_count -= 1;
                     false
                 } else {
                     true
@@ -116,28 +129,11 @@ impl GlyphCache {
             });
             !map.is_empty()
         });
-        // If we have a sufficient number of entries on the free list,
-        // release the memory for some of them.
-        if free_list.len() > MAX_FREE_LIST_LEN {
-            let want_to_free = free_list.len() - MAX_FREE_LIST_LEN;
-            let mut freed = 0;
-            for ix in free_list {
-                let glyph = &mut self.glyphs[*ix];
-                if glyph.encoding.path_data.capacity() > 0 {
-                    glyph.encoding = Encoding::default();
-                    freed += 1;
-                }
-                if freed >= want_to_free {
-                    break;
-                }
-            }
-        }
     }
 }
 
 pub struct GlyphCacheSession<'a> {
-    glyphs: &'a mut Vec<EncodedGlyph>,
-    free_list: &'a mut Vec<usize>,
+    free_list: &'a mut Vec<Rc<Encoding>>,
     map: &'a mut GlyphMap,
     font_id: u64,
     font_index: u32,
@@ -149,10 +145,11 @@ pub struct GlyphCacheSession<'a> {
     outlines: OutlineGlyphCollection<'a>,
     hinter: Option<&'a HintingInstance>,
     serial: u64,
+    cached_count: &'a mut usize,
 }
 
 impl<'a> GlyphCacheSession<'a> {
-    pub fn get_or_insert(&mut self, glyph_id: u32) -> Option<(usize, StreamOffsets)> {
+    pub fn get_or_insert(&mut self, glyph_id: u32) -> Option<(Rc<Encoding>, StreamOffsets)> {
         let key = GlyphKey {
             font_id: self.font_id,
             font_index: self.font_index,
@@ -163,33 +160,24 @@ impl<'a> GlyphCacheSession<'a> {
         };
         if let Some(entry) = self.map.get_mut(&key) {
             entry.serial = self.serial;
-            let stream_sizes = self.glyphs.get(entry.index)?.stream_sizes;
-            return Some((entry.index, stream_sizes));
+            return Some((entry.encoding.clone(), entry.stream_sizes));
         }
         let outline = self.outlines.get(GlyphId::new(key.glyph_id as u16))?;
-        let index = if let Some(index) = self.free_list.pop() {
-            index
-        } else {
-            let index = self.glyphs.len();
-            self.glyphs.push(Default::default());
-            index
-        };
-        let glyph = self.glyphs.get_mut(index)?;
-        let encoding = &mut glyph.encoding;
-        encoding.reset();
-        glyph.stream_sizes = Default::default();
+        let mut encoding = self.free_list.pop().unwrap_or_default();
+        let encoding_ptr = Rc::make_mut(&mut encoding);
+        encoding_ptr.reset();
         let is_fill = match &self.style {
             Style::Fill(fill) => {
-                encoding.encode_fill_style(*fill);
+                encoding_ptr.encode_fill_style(*fill);
                 true
             }
             Style::Stroke(stroke) => {
-                encoding.encode_stroke_style(stroke);
+                encoding_ptr.encode_stroke_style(stroke);
                 false
             }
         };
         use skrifa::outline::DrawSettings;
-        let mut path = encoding.encode_path(is_fill);
+        let mut path = encoding_ptr.encode_path(is_fill);
         let draw_settings = if key.hint {
             if let Some(hinter) = self.hinter {
                 DrawSettings::hinted(hinter, false)
@@ -201,18 +189,19 @@ impl<'a> GlyphCacheSession<'a> {
         };
         outline.draw(draw_settings, &mut path).ok()?;
         if path.finish(false) == 0 {
-            encoding.reset();
+            encoding_ptr.reset();
         }
-        let stream_sizes = encoding.stream_offsets();
-        glyph.stream_sizes = stream_sizes;
+        let stream_sizes = encoding_ptr.stream_offsets();
         self.map.insert(
             key,
             GlyphEntry {
-                index,
+                encoding: encoding.clone(),
+                stream_sizes,
                 serial: self.serial,
             },
         );
-        Some((index, stream_sizes))
+        *self.cached_count += 1;
+        Some((encoding, stream_sizes))
     }
 }
 
@@ -227,23 +216,18 @@ struct GlyphKey {
 }
 
 /// Outer level key for variable font caches.
-type VarKey = smallvec::SmallVec<[NormalizedCoord; 4]>;
+///
+/// Inline size of 8 maximizes the internal storage of the small vec.
+type VarKey = smallvec::SmallVec<[NormalizedCoord; 8]>;
 
 type GlyphMap = HashMap<GlyphKey, GlyphEntry>;
 
-#[derive(Copy, Clone, Default)]
+#[derive(Clone, Default)]
 struct GlyphEntry {
-    /// Index into glyphs vector.
-    index: usize,
+    encoding: Rc<Encoding>,
+    stream_sizes: StreamOffsets,
     /// Last use of this entry.
     serial: u64,
-}
-
-/// A cached encoding of a single glyph.
-#[derive(Default)]
-pub struct EncodedGlyph {
-    pub encoding: Encoding,
-    pub stream_sizes: StreamOffsets,
 }
 
 /// We keep this small to enable a simple LRU cache with a linear

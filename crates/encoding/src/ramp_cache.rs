@@ -24,7 +24,7 @@ pub struct RampCache {
 }
 
 impl RampCache {
-    pub fn advance(&mut self) {
+    pub fn maintain(&mut self) {
         self.epoch += 1;
         if self.map.len() > RETAINED_COUNT {
             self.map

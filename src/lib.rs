@@ -117,6 +117,8 @@ pub use recording::{
     BufferProxy, Command, ImageFormat, ImageProxy, Recording, ResourceId, ResourceProxy, ShaderId,
 };
 pub use shaders::FullShaders;
+
+#[cfg(feature = "wgpu")]
 use vello_encoding::Resolver;
 #[cfg(feature = "wgpu")]
 use wgpu_engine::{ExternalResource, WgpuEngine};

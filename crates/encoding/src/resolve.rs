@@ -1,6 +1,8 @@
 // Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use std::rc::Rc;
+
 use bytemuck::{Pod, Zeroable};
 
 use super::{DrawTag, Encoding, PathTag, StreamOffsets, Style, Transform};
@@ -163,7 +165,7 @@ pub fn resolve_solid_paths_only(encoding: &Encoding, packed: &mut Vec<u8>) -> La
 #[derive(Default)]
 pub struct Resolver {
     glyph_cache: GlyphCache,
-    glyph_indices: Vec<usize>,
+    glyphs: Vec<Rc<Encoding>>,
     ramp_cache: RampCache,
     image_cache: ImageCache,
     pending_images: Vec<PendingImage>,
@@ -216,10 +218,9 @@ impl Resolver {
                         data.extend_from_slice(bytemuck::cast_slice(&stream[pos..stream_offset]));
                         pos = stream_offset;
                     }
-                    for glyph in &self.glyph_indices[glyphs.clone()] {
+                    for glyph in &self.glyphs[glyphs.clone()] {
                         data.extend_from_slice(bytemuck::bytes_of(&PathTag::TRANSFORM));
-                        let glyph_data = &self.glyph_cache.glyphs()[*glyph].encoding.path_tags;
-                        data.extend_from_slice(bytemuck::cast_slice(glyph_data));
+                        data.extend_from_slice(bytemuck::cast_slice(&glyph.path_tags));
                     }
                     data.extend_from_slice(bytemuck::bytes_of(&PathTag::PATH));
                 }
@@ -246,9 +247,8 @@ impl Resolver {
                         data.extend_from_slice(bytemuck::cast_slice(&stream[pos..stream_offset]));
                         pos = stream_offset;
                     }
-                    for &glyph in &self.glyph_indices[glyphs.clone()] {
-                        let glyph_data = &self.glyph_cache.glyphs()[glyph].encoding.path_data;
-                        data.extend_from_slice(bytemuck::cast_slice(glyph_data));
+                    for glyph in &self.glyphs[glyphs.clone()] {
+                        data.extend_from_slice(bytemuck::cast_slice(&glyph.path_data));
                     }
                 }
             }
@@ -369,9 +369,8 @@ impl Resolver {
                         data.extend_from_slice(bytemuck::cast_slice(&stream[pos..stream_offset]));
                         pos = stream_offset;
                     }
-                    for &glyph in &self.glyph_indices[glyphs.clone()] {
-                        let glyph_data = &self.glyph_cache.glyphs()[glyph].encoding.styles;
-                        data.extend_from_slice(bytemuck::cast_slice(glyph_data));
+                    for glyph in &self.glyphs[glyphs.clone()] {
+                        data.extend_from_slice(bytemuck::cast_slice(&glyph.styles));
                     }
                 }
             }
@@ -379,15 +378,16 @@ impl Resolver {
                 data.extend_from_slice(bytemuck::cast_slice(&stream[pos..]));
             }
         }
+        self.glyphs.clear();
         layout.n_draw_objects = layout.n_paths;
         assert_eq!(buffer_size, data.len());
         (layout, self.ramp_cache.ramps(), self.image_cache.images())
     }
 
     fn resolve_patches(&mut self, encoding: &Encoding) -> StreamOffsets {
-        self.ramp_cache.advance();
-        self.glyph_cache.prune(32);
-        self.glyph_indices.clear();
+        self.ramp_cache.maintain();
+        self.glyphs.clear();
+        self.glyph_cache.maintain();
         self.image_cache.clear();
         self.pending_images.clear();
         self.patches.clear();
@@ -437,15 +437,15 @@ impl Resolver {
                     else {
                         continue;
                     };
-                    let glyph_start = self.glyph_indices.len();
+                    let glyph_start = self.glyphs.len();
                     for glyph in glyphs {
                         let Some((index, stream_sizes)) = session.get_or_insert(glyph.id) else {
                             continue;
                         };
                         run_sizes.add(&stream_sizes);
-                        self.glyph_indices.push(index);
+                        self.glyphs.push(index);
                     }
-                    let glyph_end = self.glyph_indices.len();
+                    let glyph_end = self.glyphs.len();
                     run_sizes.path_tags += glyphs.len() + 1;
                     run_sizes.transforms += glyphs.len();
                     sizes.add(&run_sizes);
