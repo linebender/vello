@@ -1,8 +1,6 @@
 // Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use std::rc::Rc;
-
 use bytemuck::{Pod, Zeroable};
 
 use super::{DrawTag, Encoding, PathTag, StreamOffsets, Style, Transform};
@@ -16,6 +14,7 @@ use {
     },
     peniko::{Extend, Image},
     std::ops::Range,
+    std::rc::Rc,
 };
 
 /// Layout of a packed encoding.
