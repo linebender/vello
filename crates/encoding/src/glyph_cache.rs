@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use super::{Encoding, StreamOffsets};
 
@@ -13,7 +13,7 @@ use skrifa::{GlyphId, MetadataProvider, OutlineGlyphCollection};
 
 #[derive(Default)]
 pub struct GlyphCache {
-    free_list: Vec<Rc<Encoding>>,
+    free_list: Vec<Arc<Encoding>>,
     map: GlyphMap,
     var_map: HashMap<VarKey, GlyphMap>,
     cached_count: usize,
@@ -133,7 +133,7 @@ impl GlyphCache {
 }
 
 pub struct GlyphCacheSession<'a> {
-    free_list: &'a mut Vec<Rc<Encoding>>,
+    free_list: &'a mut Vec<Arc<Encoding>>,
     map: &'a mut GlyphMap,
     font_id: u64,
     font_index: u32,
@@ -149,7 +149,7 @@ pub struct GlyphCacheSession<'a> {
 }
 
 impl<'a> GlyphCacheSession<'a> {
-    pub fn get_or_insert(&mut self, glyph_id: u32) -> Option<(Rc<Encoding>, StreamOffsets)> {
+    pub fn get_or_insert(&mut self, glyph_id: u32) -> Option<(Arc<Encoding>, StreamOffsets)> {
         let key = GlyphKey {
             font_id: self.font_id,
             font_index: self.font_index,
@@ -164,7 +164,7 @@ impl<'a> GlyphCacheSession<'a> {
         }
         let outline = self.outlines.get(GlyphId::new(key.glyph_id as u16))?;
         let mut encoding = self.free_list.pop().unwrap_or_default();
-        let encoding_ptr = Rc::make_mut(&mut encoding);
+        let encoding_ptr = Arc::make_mut(&mut encoding);
         encoding_ptr.reset();
         let is_fill = match &self.style {
             Style::Fill(fill) => {
@@ -224,7 +224,7 @@ type GlyphMap = HashMap<GlyphKey, GlyphEntry>;
 
 #[derive(Clone, Default)]
 struct GlyphEntry {
-    encoding: Rc<Encoding>,
+    encoding: Arc<Encoding>,
     stream_sizes: StreamOffsets,
     /// Last use of this entry.
     serial: u64,

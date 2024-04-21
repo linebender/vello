@@ -14,7 +14,7 @@ use {
     },
     peniko::{Extend, Image},
     std::ops::Range,
-    std::rc::Rc,
+    std::sync::Arc,
 };
 
 /// Layout of a packed encoding.
@@ -164,7 +164,7 @@ pub fn resolve_solid_paths_only(encoding: &Encoding, packed: &mut Vec<u8>) -> La
 #[derive(Default)]
 pub struct Resolver {
     glyph_cache: GlyphCache,
-    glyphs: Vec<Rc<Encoding>>,
+    glyphs: Vec<Arc<Encoding>>,
     ramp_cache: RampCache,
     image_cache: ImageCache,
     pending_images: Vec<PendingImage>,
@@ -438,11 +438,11 @@ impl Resolver {
                     };
                     let glyph_start = self.glyphs.len();
                     for glyph in glyphs {
-                        let Some((index, stream_sizes)) = session.get_or_insert(glyph.id) else {
+                        let Some((encoding, stream_sizes)) = session.get_or_insert(glyph.id) else {
                             continue;
                         };
                         run_sizes.add(&stream_sizes);
-                        self.glyphs.push(index);
+                        self.glyphs.push(encoding);
                     }
                     let glyph_end = self.glyphs.len();
                     run_sizes.path_tags += glyphs.len() + 1;
