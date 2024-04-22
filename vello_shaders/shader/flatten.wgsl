@@ -411,7 +411,6 @@ fn es_seg_flatten_offset(
         let l1 = select(lp0, ap1, offset >= 0.);
         // NOTE: make this "if true" to just render the arc chords.
         if abs(r) < 1e-12 {
-        //if true {
             output_line_with_transform(path_ix, l0, l1, transform);
         } else {
             let angle = asin(0.5 * length(l1 - l0) / r);
@@ -722,6 +721,10 @@ fn flatten_euler(
 fn flatten_arc(
     path_ix: u32, begin: vec2f, end: vec2f, center: vec2f, angle: f32, transform: Transform
 ) {
+// NOTE: change this to "ifndef" to just render the arc chords.
+#ifdef ablate_arc_flattening
+    output_line_with_transform(path_ix, begin, end, transform, true);
+#else
     var p0 = transform_apply(transform, begin);
     var r = begin - center;
 
@@ -747,6 +750,7 @@ fn flatten_arc(
     }
     let p1 = transform_apply(transform, end);
     write_line(line_ix + n_lines - 1u, path_ix, p0, p1);
+#endif
 }
 
 fn draw_cap(
