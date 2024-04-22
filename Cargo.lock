@@ -3194,7 +3194,6 @@ dependencies = [
  "anyhow",
  "byte-unit",
  "clap",
- "demo_svg",
  "getrandom",
  "image",
  "inquire",
