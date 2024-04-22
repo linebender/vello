@@ -553,10 +553,11 @@ fn flatten_arc(
     let MIN_THETA = 0.0001;
     let tol = 0.25;
     let radius = max(tol, length(p0 - transform_apply(transform, center)));
-    let theta = max(MIN_THETA, 2. * acos(1. - tol / radius));
+    var theta = max(MIN_THETA, 2. * acos(1. - tol / radius));
 
     // Always output at least one line so that we always draw the chord.
     let n_lines = max(1u, u32(ceil(abs(angle) / theta)));
+    theta = abs(angle) / f32(n_lines);
 
     let c = cos(theta);
     let s = sin(theta);
