@@ -5,8 +5,6 @@ members = [
     "crates/shaders",
     "crates/tests",
 
-    "integrations/demo_svg",
-
     "examples/headless",
     "examples/with_winit",
     "examples/with_bevy",

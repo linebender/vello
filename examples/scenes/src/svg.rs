@@ -4,12 +4,14 @@
 use std::fs::read_dir;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Ok, Result};
-use demo_svg::usvg;
-use demo_svg::usvg::TreeParsing;
+use anyhow::Result;
 use instant::Instant;
-use vello::kurbo::Vec2;
-use vello::Scene;
+
+use vello::{
+    kurbo::{Affine, Rect, Stroke, Vec2},
+    peniko::{Color, Fill},
+    Scene,
+};
 
 use crate::{ExampleScene, SceneParams, SceneSet};
 
@@ -93,16 +95,51 @@ pub fn svg_function_of<R: AsRef<str>>(
     contents: impl FnOnce() -> R + Send + 'static,
 ) -> impl FnMut(&mut Scene, &mut SceneParams) {
     fn render_svg_contents(name: &str, contents: &str) -> (Scene, Vec2) {
+        use crate::pico_svg::*;
         let start = Instant::now();
-        let svg = usvg::Tree::from_str(contents, &usvg::Options::default())
-            .unwrap_or_else(|e| panic!("failed to parse svg file {name}: {e}"));
-        eprintln!("Parsed svg {name} in {:?}", start.elapsed());
-        let start = Instant::now();
-        let mut new_scene = Scene::new();
-        demo_svg::render_tree(&mut new_scene, &svg);
-        let resolution = Vec2::new(svg.size.width() as f64, svg.size.height() as f64);
-        eprintln!("Encoded svg {name} in {:?}", start.elapsed());
-        (new_scene, resolution)
+        match PicoSvg::load(contents, 1.0) {
+            Ok(PicoSvg { items, size }) => {
+                eprintln!("Parsed svg {name} in {:?}", start.elapsed());
+                let start = Instant::now();
+                let mut new_scene = Scene::new();
+                for item in items {
+                    match item {
+                        Item::Fill(fill) => {
+                            new_scene.fill(
+                                Fill::NonZero,
+                                Affine::IDENTITY,
+                                fill.color,
+                                None,
+                                &fill.path,
+                            );
+                        }
+                        Item::Stroke(stroke) => {
+                            new_scene.stroke(
+                                &Stroke::new(stroke.width),
+                                Affine::IDENTITY,
+                                stroke.color,
+                                None,
+                                &stroke.path,
+                            );
+                        }
+                    }
+                }
+                eprintln!("Encoded svg {name} in {:?}", start.elapsed());
+                (new_scene, size.to_vec2())
+            }
+            Err(e) => {
+                eprintln!("Failed to load svg: {e}");
+                let mut error_scene = Scene::new();
+                error_scene.fill(
+                    Fill::NonZero,
+                    Affine::IDENTITY,
+                    Color::FUCHSIA,
+                    None,
+                    &Rect::new(0.0, 0.0, 1.0, 1.0),
+                );
+                (error_scene, Vec2::new(1.0, 1.0))
+            }
+        }
     }
     let mut cached_scene = None;
     #[cfg(not(target_arch = "wasm32"))]
