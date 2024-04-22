@@ -38,7 +38,6 @@ The repository is structured as such:
   - `tests/` - Helper code for writing tests; current has a single smoke test and not much else.
 - `doc/` - Various documents detailing the vision for Vello as it was developed. This directory should probably be refactored away; adding to it not recommended.
 - `examples/` - Example projects using Vello. Each example is its own crate, with its own dependencies. The simplest example is the `shapes` one.
-- `integrations/vello_svg` - An SVG rendered based on Vello and usvg. Used in examples. May be moved to `crates/` in the future.
 - `shader/` - This is where the magic happens. WGSL shaders that define the compute operations (often variations of prefix sum) that Vello does to render a scene.
   - `shared/` - Shared types, functions and constants included in other shaders through non-standard `#import` preprocessor directives (see "Shader templating").
 - `src/` - Code for the main `vello` crate.

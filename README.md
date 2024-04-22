@@ -120,11 +120,9 @@ More formal benchmarks are on their way.
 
 ### SVG
 
-This repository also includes [`vello_svg`](./integrations/vello_svg/), which supports converting a [`usvg`](https://crates.io/crates/usvg) `Tree` into a Vello scene.
+[`vello_svg`](https://github.com/linebender/vello_svg/), supports converting a [`usvg`](https://crates.io/crates/usvg) `Tree` into a Vello scene.
 
-This is currently incomplete; see its crate level documentation for more information.
-
-This is used in the [winit](#winit) example for the SVG rendering.
+It is currently incomplete; see its documentation for more information.
 
 ### Lottie
 
@@ -139,7 +137,7 @@ Examples must be selected using the `--package` (or `-p`) Cargo flag.
 ### Winit
 
 Our [winit] example ([examples/with_winit](https://github.com/linebender/vello/tree/main/examples/with_winit)) demonstrates rendering to a [winit] window.
-By default, this renders the [GhostScript Tiger] as well as all SVG files you add in the [examples/assets/downloads/](https://github.com/linebender/vello/tree/main/examples/assets/downloads) directory using [`vello_svg`](#svg).
+By default, this renders the [GhostScript Tiger] as well as all SVG files you add in the [examples/assets/downloads/](https://github.com/linebender/vello/tree/main/examples/assets/downloads) directory.
 A custom list of SVG file paths (and directories to render all SVG files from) can be provided as arguments instead.
 It also includes a collection of test scenes showing the capabilities of `vello`, which can be shown with `--test-scenes`.
 
