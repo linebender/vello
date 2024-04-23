@@ -2,7 +2,7 @@
 
 # Vello
 
-**An experimental GPU compute-centric 2D renderer.**
+**An experimental GPU compute-centric 2D renderer**
 
 [![Linebender Zulip](https://img.shields.io/badge/Linebender-%23gpu-blue?logo=Zulip)](https://xi.zulipchat.com/#narrow/stream/197075-gpu)
 [![dependency status](https://deps.rs/repo/github/linebender/vello/status.svg)](https://deps.rs/repo/github/linebender/vello)
