@@ -119,11 +119,11 @@ More formal benchmarks are on their way.
 
 ### SVG
 
-A separate integration for rendering SVG files is available through the [`vello_svg`](https://github.com/linebender/vello_svg) crate.
+A separate Linebender integration for rendering SVG files is available through the [`vello_svg`](https://github.com/linebender/vello_svg) crate.
 
 ### Lottie
 
-A separate integration for playing Lottie animations is available through the [`velato`](https://github.com/linebender/velato) crate.
+A separate Linebender integration for playing Lottie animations is available through the [`velato`](https://github.com/linebender/velato) crate.
 
 ## Examples
 
