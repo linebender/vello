@@ -12,7 +12,7 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 ### Added
 
-- [#435](https://github.com/linebender/vello/pull/435) - Sweet gradients by [@dfrg](https://github.com/drfg)
+- [#435](https://github.com/linebender/vello/pull/435) - Sweep gradients by [@dfrg](https://github.com/drfg)
 - [#537](https://github.com/linebender/vello/pull/537) - Restore glyph hinting support by [@dfrg](https://github.com/drfg)
 
 ### Changed
