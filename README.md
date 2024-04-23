@@ -8,9 +8,10 @@
 [![dependency status](https://deps.rs/repo/github/linebender/vello/status.svg)](https://deps.rs/repo/github/linebender/vello)
 [![MIT/Apache 2.0](https://img.shields.io/badge/license-MIT%2FApache-blue.svg)](#license)
 [![wgpu version](https://img.shields.io/badge/wgpu-v0.19.3-orange.svg)](https://crates.io/crates/wgpu)
-<!-- [![Crates.io](https://img.shields.io/crates/v/vello.svg)](https://crates.io/crates/vello) -->
-<!-- [![Docs](https://docs.rs/vello/badge.svg)](https://docs.rs/vello) -->
-<!-- [![Build status](https://github.com/linebender/vello/workflows/CI/badge.svg)](https://github.com/linebender/vello/actions) -->
+
+[![Crates.io](https://img.shields.io/crates/v/vello.svg)](https://crates.io/crates/vello)
+[![Docs](https://docs.rs/vello/badge.svg)](https://docs.rs/vello)
+[![Build status](https://github.com/linebender/vello/workflows/CI/badge.svg)](https://github.com/linebender/vello/actions)
 
 </div>
 
@@ -18,6 +19,7 @@ Vello is an experimental 2D graphics rendering engine written in Rust, with a fo
 It can draw large 2D scenes with interactive or near-interactive performance, using [`wgpu`] for GPU access.
 
 Quickstart to run an example program:
+
 ```shell
 cargo run -p with_winit
 ```
@@ -44,7 +46,6 @@ In traditional PostScript-style renderers, some steps of the render process like
 Vello avoids this by using prefix-sum algorithms to parallelize work that usually needs to happen in sequence, so that work can be offloaded to the GPU with minimal use of temporary buffers.
 
 This means that Vello needs a GPU with support for compute shaders to run.
-
 
 ## Getting started
 
@@ -108,25 +109,21 @@ surface_texture.present();
 
 See the [`examples/`](https://github.com/linebender/vello/tree/main/examples) folder to see how that code integrates with frameworks like winit and bevy.
 
-
 ## Performance
 
 We've observed 177 fps for the paris-30k test scene on an M1 Max, at a resolution of 1600 pixels square, which is excellent performance and represents something of a best case for the engine.
 
 More formal benchmarks are on their way.
 
-
 ## Integrations
 
 ### SVG
 
-[`vello_svg`](https://github.com/linebender/vello_svg/), supports converting a [`usvg`](https://crates.io/crates/usvg) `Tree` into a Vello scene.
-
-It is currently incomplete; see its documentation for more information.
+A separate Linebender integration for rendering SVG files is available through the [`vello_svg`](https://github.com/linebender/vello_svg) crate.
 
 ### Lottie
 
-A separate integration for playing Lottie animations is available through the [`velato`](https://github.com/linebender/velato) crate.
+A separate Linebender integration for playing Lottie animations is available through the [`velato`](https://github.com/linebender/velato) crate.
 
 ## Examples
 
@@ -142,7 +139,7 @@ A custom list of SVG file paths (and directories to render all SVG files from) c
 It also includes a collection of test scenes showing the capabilities of `vello`, which can be shown with `--test-scenes`.
 
 ```shell
-cargo run -p with_winit 
+cargo run -p with_winit
 ```
 
 Some default test scenes can be downloaded from Wikimedia Commons using the `download` subcommand.
@@ -163,11 +160,11 @@ This currently draws to a [`wgpu`] `Texture` using `vello`, then uses that textu
 cargo run -p with_bevy
 ```
 
-There is also a separate community integration for rendering lottie and SVG files through [`bevy_vello`](https://github.com/vectorgameexperts/bevy_vello).
+There is also a separate community integration for rendering raw scenes or Lottie and SVG files through [`bevy_vello`](https://github.com/loopystudios/bevy_vello).
 
 ## Platforms
 
-We aim to target all environments which can support WebGPU with the [default limits](https://www.w3.org/TR/webgpu/#limits). 
+We aim to target all environments which can support WebGPU with the [default limits](https://www.w3.org/TR/webgpu/#limits).
 We defer to [`wgpu`] for this support.
 Other platforms are more tricky, and may require special building/running procedures.
 
@@ -196,31 +193,33 @@ There is also a web demo [available here](https://linebender.github.io/vello) on
 
 The [`with_winit`](#winit) example supports running on Android, using [cargo apk](https://crates.io/crates/cargo-apk).
 
-```
+```shell
 cargo apk run -p with_winit
 ```
 
-> [!TIP]  
-> cargo apk doesn't support running in release mode without configuration. 
+> [!TIP]
+> cargo apk doesn't support running in release mode without configuration.
 > See [their crates page docs](https://crates.io/crates/cargo-apk) (around `package.metadata.android.signing.<profile>`).
-> 
+>
 > See also [cargo-apk#16](https://github.com/rust-mobile/cargo-apk/issues/16).
 > To run in release mode, you must add the following to `examples/with_winit/Cargo.toml` (changing `$HOME` to your home directory):
 
-```
+```toml
 [package.metadata.android.signing.release]
 path = "$HOME/.android/debug.keystore"
 keystore_password = "android"
 ```
 
-> [!NOTE]  
-> As `cargo apk` does not allow passing command line arguments or environment variables to the app when ran, these can be embedded into the 
+> [!NOTE]
+> As `cargo apk` does not allow passing command line arguments or environment variables to the app when ran, these can be embedded into the
 > program at compile time (currently for Android only)
 > `with_winit` currently supports the environment variables:
->  - `VELLO_STATIC_LOG`, which is equivalent to `RUST_LOG`
->  - `VELLO_STATIC_ARGS`, which is equivalent to passing in command line arguments
+>
+> - `VELLO_STATIC_LOG`, which is equivalent to `RUST_LOG`
+> - `VELLO_STATIC_ARGS`, which is equivalent to passing in command line arguments
 
 For example (with unix shell environment variable syntax):
+
 ```sh
 VELLO_STATIC_LOG="vello=trace" VELLO_STATIC_ARGS="--test-scenes" cargo apk run -p with_winit --lib
 ```
@@ -242,6 +241,7 @@ If you encounter a compilation issue due to a dependency and don't want to upgra
 # Use the problematic dependency's name and version
 cargo update -p package_name --precise 0.1.1
 ```
+
 </details>
 
 ## Community
@@ -256,7 +256,7 @@ licensed as noted in the "License" section, without any additional terms or cond
 
 ## History
 
-Vello was previously known as `piet-gpu`. 
+Vello was previously known as `piet-gpu`.
 This prior incarnation used a custom cross-API hardware abstraction layer, called `piet-gpu-hal`, instead of [`wgpu`].
 
 An archive of this version can be found in the branches [`custom-hal-archive-with-shaders`] and [`custom-hal-archive`].
@@ -271,11 +271,11 @@ Many of these items are out-of-date or completed, but it still may provide some 
 
 Vello takes inspiration from many other rendering projects, including:
 
-* [Pathfinder](https://github.com/servo/pathfinder)
-* [Spinel](https://fuchsia.googlesource.com/fuchsia/+/refs/heads/master/src/graphics/lib/compute/spinel/)
-* [Forma](https://github.com/google/forma)
-* [Massively Parallel Vector Graphics](https://w3.impa.br/~diego/projects/GanEtAl14/)
-* [Random-access rendering of general vector graphics](https://hhoppe.com/proj/ravg/)
+- [Pathfinder](https://github.com/servo/pathfinder)
+- [Spinel](https://fuchsia.googlesource.com/fuchsia/+/refs/heads/master/src/graphics/lib/compute/spinel/)
+- [Forma](https://github.com/google/forma)
+- [Massively Parallel Vector Graphics](https://w3.impa.br/~diego/projects/GanEtAl14/)
+- [Random-access rendering of general vector graphics](https://hhoppe.com/proj/ravg/)
 
 ## License
 
