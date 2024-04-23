@@ -219,6 +219,18 @@ impl Scene {
     }
 }
 
+impl From<Encoding> for Scene {
+    fn from(encoding: Encoding) -> Self {
+        // It's fine to create a default estimator here, and that field will be
+        // removed at some point - see https://github.com/linebender/vello/issues/541
+        Self {
+            encoding,
+            #[cfg(feature = "bump_estimate")]
+            estimator: vello_encoding::BumpEstimator::default(),
+        }
+    }
+}
+
 /// Builder for encoding a glyph run.
 pub struct DrawGlyphs<'a> {
     encoding: &'a mut Encoding,
