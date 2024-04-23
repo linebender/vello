@@ -27,3 +27,4 @@ bytemuck = { workspace = true }
 skrifa = { workspace = true, optional = true }
 peniko = { workspace = true }
 guillotiere = { version = "0.6.2", optional = true }
+smallvec = { workspace = true }

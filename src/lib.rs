@@ -117,6 +117,9 @@ pub use recording::{
     BufferProxy, Command, ImageFormat, ImageProxy, Recording, ResourceId, ResourceProxy, ShaderId,
 };
 pub use shaders::FullShaders;
+
+#[cfg(feature = "wgpu")]
+use vello_encoding::Resolver;
 #[cfg(feature = "wgpu")]
 use wgpu_engine::{ExternalResource, WgpuEngine};
 
@@ -190,6 +193,7 @@ pub struct Renderer {
     #[cfg_attr(not(feature = "hot_reload"), allow(dead_code))]
     options: RendererOptions,
     engine: WgpuEngine,
+    resolver: Resolver,
     shaders: FullShaders,
     blit: Option<BlitPipeline>,
     target: Option<TargetTexture>,
@@ -260,6 +264,7 @@ impl Renderer {
         Ok(Self {
             options,
             engine,
+            resolver: Resolver::new(),
             shaders,
             blit,
             target: None,
@@ -286,7 +291,8 @@ impl Renderer {
         texture: &TextureView,
         params: &RenderParams,
     ) -> Result<()> {
-        let (recording, target) = render::render_full(scene, &self.shaders, params);
+        let (recording, target) =
+            render::render_full(scene, &mut self.resolver, &self.shaders, params);
         let external_resources = [ExternalResource::Image(
             *target.as_image().unwrap(),
             texture,
@@ -427,7 +433,13 @@ impl Renderer {
         let encoding = scene.encoding();
         // TODO: turn this on; the download feature interacts with CPU dispatch
         let robust = false;
-        let recording = render.render_encoding_coarse(encoding, &self.shaders, params, robust);
+        let recording = render.render_encoding_coarse(
+            encoding,
+            &mut self.resolver,
+            &self.shaders,
+            params,
+            robust,
+        );
         let target = render.out_image();
         let bump_buf = render.bump_buf();
         self.engine.run_recording(

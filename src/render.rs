@@ -10,7 +10,7 @@ use crate::{AaConfig, RenderParams};
 #[cfg(feature = "wgpu")]
 use crate::Scene;
 
-use vello_encoding::{make_mask_lut, make_mask_lut_16, Encoding, WorkgroupSize};
+use vello_encoding::{make_mask_lut, make_mask_lut_16, Encoding, Resolver, WorkgroupSize};
 
 /// State for a render in progress.
 pub struct Render {
@@ -38,10 +38,11 @@ struct FineResources {
 #[cfg(feature = "wgpu")]
 pub fn render_full(
     scene: &Scene,
+    resolver: &mut Resolver,
     shaders: &FullShaders,
     params: &RenderParams,
 ) -> (Recording, ResourceProxy) {
-    render_encoding_full(scene.encoding(), shaders, params)
+    render_encoding_full(scene.encoding(), resolver, shaders, params)
 }
 
 #[cfg(feature = "wgpu")]
@@ -51,11 +52,12 @@ pub fn render_full(
 /// implement robust dynamic memory.
 pub fn render_encoding_full(
     encoding: &Encoding,
+    resolver: &mut Resolver,
     shaders: &FullShaders,
     params: &RenderParams,
 ) -> (Recording, ResourceProxy) {
     let mut render = Render::new();
-    let mut recording = render.render_encoding_coarse(encoding, shaders, params, false);
+    let mut recording = render.render_encoding_coarse(encoding, resolver, shaders, params, false);
     let out_image = render.out_image();
     render.record_fine(shaders, &mut recording);
     (recording, out_image.into())
@@ -83,14 +85,13 @@ impl Render {
     pub fn render_encoding_coarse(
         &mut self,
         encoding: &Encoding,
+        resolver: &mut Resolver,
         shaders: &FullShaders,
         params: &RenderParams,
         robust: bool,
     ) -> Recording {
-        use vello_encoding::{RenderConfig, Resolver};
-
+        use vello_encoding::RenderConfig;
         let mut recording = Recording::default();
-        let mut resolver = Resolver::new();
         let mut packed = vec![];
         let (layout, ramps, images) = resolver.resolve(encoding, &mut packed);
         let gradient_image = if ramps.height == 0 {

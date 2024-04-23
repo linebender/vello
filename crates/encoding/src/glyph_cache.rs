@@ -2,160 +2,232 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use super::{Encoding, StreamOffsets};
 
-use peniko::kurbo::{BezPath, Shape};
-use peniko::{Fill, Style};
+use peniko::{Font, Style};
 use skrifa::instance::{NormalizedCoord, Size};
-use skrifa::outline::{HintingInstance, HintingMode, LcdLayout, OutlineGlyphFormat, OutlinePen};
-use skrifa::{GlyphId, OutlineGlyphCollection};
-
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Default, Debug)]
-pub struct GlyphKey {
-    pub font_id: u64,
-    pub font_index: u32,
-    pub glyph_id: u32,
-    pub font_size_bits: u32,
-    pub hint: bool,
-}
+use skrifa::outline::{HintingInstance, HintingMode, LcdLayout, OutlineGlyphFormat};
+use skrifa::{GlyphId, MetadataProvider, OutlineGlyphCollection};
 
 #[derive(Default)]
 pub struct GlyphCache {
-    pub encoding: Encoding,
-    glyphs: HashMap<GlyphKey, CachedRange>,
+    free_list: Vec<Arc<Encoding>>,
+    map: GlyphMap,
+    var_map: HashMap<VarKey, GlyphMap>,
+    cached_count: usize,
     hinting: HintCache,
+    serial: u64,
+    last_prune_serial: u64,
 }
 
 impl GlyphCache {
-    pub fn clear(&mut self) {
-        self.encoding.reset();
-        self.glyphs.clear();
-        // No need to clear the hinting cache
-    }
-
-    pub fn get_or_insert(
-        &mut self,
-        outlines: &OutlineGlyphCollection,
-        key: GlyphKey,
-        style: &Style,
-        font_size: f32,
-        coords: &[NormalizedCoord],
-    ) -> Option<CachedRange> {
-        let size = skrifa::instance::Size::new(font_size);
-        let is_var = !coords.is_empty();
-        let encoding_cache = &mut self.encoding;
-        let hinting_cache = &mut self.hinting;
-        let mut encode_glyph = || {
-            let start = encoding_cache.stream_offsets();
-            let fill = match style {
-                Style::Fill(fill) => *fill,
-                Style::Stroke(_) => Fill::NonZero,
-            };
-            // Make sure each glyph gets encoded with a style.
-            // TODO: can probably optimize by setting style per run
-            encoding_cache.force_next_transform_and_style();
-            encoding_cache.encode_fill_style(fill);
-            let mut path = encoding_cache.encode_path(true);
-            let outline = outlines.get(GlyphId::new(key.glyph_id as u16))?;
-            use skrifa::outline::DrawSettings;
-            let draw_settings = if key.hint {
-                if let Some(hint_instance) =
-                    hinting_cache.get(&HintKey::new(outlines, &key, font_size, coords))
-                {
-                    DrawSettings::hinted(hint_instance, false)
-                } else {
-                    DrawSettings::unhinted(size, coords)
-                }
+    pub fn session<'a>(
+        &'a mut self,
+        font: &'a Font,
+        coords: &'a [NormalizedCoord],
+        size: f32,
+        hint: bool,
+        style: &'a Style,
+    ) -> Option<GlyphCacheSession<'a>> {
+        let font_id = font.data.id();
+        let font_index = font.index;
+        let font = skrifa::FontRef::from_index(font.data.as_ref(), font.index).ok()?;
+        let map = if !coords.is_empty() {
+            // This is still ugly in rust. Choices are:
+            // 1. multiple lookups in the hashmap (implemented here)
+            // 2. always allocate and copy the key
+            // 3. use unsafe
+            // Pick 1 bad option :(
+            if self.var_map.contains_key(coords) {
+                self.var_map.get_mut(coords).unwrap()
             } else {
-                DrawSettings::unhinted(size, coords)
-            };
-            match style {
-                Style::Fill(_) => {
-                    outline.draw(draw_settings, &mut path).ok()?;
-                }
-                Style::Stroke(stroke) => {
-                    const STROKE_TOLERANCE: f64 = 0.01;
-                    let mut pen = BezPathPen::default();
-                    outline.draw(draw_settings, &mut pen).ok()?;
-                    let stroked = peniko::kurbo::stroke(
-                        pen.0.path_elements(STROKE_TOLERANCE),
-                        stroke,
-                        &Default::default(),
-                        STROKE_TOLERANCE,
-                    );
-                    path.shape(&stroked);
-                }
-            }
-            if path.finish(false) == 0 {
-                return None;
-            }
-            let end = encoding_cache.stream_offsets();
-            Some(CachedRange { start, end })
-        };
-        // For now, only cache non-zero filled, non-variable glyphs so we don't need to keep style
-        // as part of the key.
-        let range = if matches!(style, Style::Fill(Fill::NonZero)) && !is_var {
-            use std::collections::hash_map::Entry;
-            match self.glyphs.entry(key) {
-                Entry::Occupied(entry) => *entry.get(),
-                Entry::Vacant(entry) => *entry.insert(encode_glyph()?),
+                self.var_map.entry(coords.into()).or_default()
             }
         } else {
-            encode_glyph()?
+            &mut self.map
         };
-        Some(range)
+        let outlines = font.outline_glyphs();
+        let size = Size::new(size);
+        let hinter = if hint {
+            let key = HintKey {
+                font_id,
+                font_index,
+                outlines: &outlines,
+                size,
+                coords,
+            };
+            self.hinting.get(&key)
+        } else {
+            None
+        };
+        // TODO: we're ignoring dashing for now
+        let style_bits = match style {
+            Style::Fill(fill) => super::path::Style::from_fill(*fill),
+            Style::Stroke(stroke) => super::path::Style::from_stroke(stroke),
+        };
+        let style_bits: [u32; 2] = bytemuck::cast(style_bits);
+        Some(GlyphCacheSession {
+            free_list: &mut self.free_list,
+            map,
+            font_id,
+            font_index,
+            coords,
+            size,
+            size_bits: size.ppem().unwrap().to_bits(),
+            style,
+            style_bits,
+            outlines,
+            hinter,
+            serial: self.serial,
+            cached_count: &mut self.cached_count,
+        })
     }
-}
 
-#[derive(Copy, Clone, Default, Debug)]
-pub struct CachedRange {
-    pub start: StreamOffsets,
-    pub end: StreamOffsets,
-}
-
-impl CachedRange {
-    pub fn len(&self) -> StreamOffsets {
-        StreamOffsets {
-            path_tags: self.end.path_tags - self.start.path_tags,
-            path_data: self.end.path_data - self.start.path_data,
-            draw_tags: self.end.draw_tags - self.start.draw_tags,
-            draw_data: self.end.draw_data - self.start.draw_data,
-            transforms: self.end.transforms - self.start.transforms,
-            styles: self.end.styles - self.start.styles,
+    pub fn maintain(&mut self) {
+        // Maximum number of resolve phases where we'll retain an unused glyph
+        const MAX_ENTRY_AGE: u64 = 64;
+        // Maximum number of resolve phases before we force a prune
+        const PRUNE_FREQUENCY: u64 = 64;
+        // Always prune if the cached count is greater than this value
+        const CACHED_COUNT_THRESHOLD: usize = 256;
+        // Number of encoding buffers we'll keep on the free list
+        const MAX_FREE_LIST_SIZE: usize = 32;
+        let free_list = &mut self.free_list;
+        let serial = self.serial;
+        self.serial += 1;
+        // Don't iterate over the whole cache every frame
+        if serial - self.last_prune_serial < PRUNE_FREQUENCY
+            && self.cached_count < CACHED_COUNT_THRESHOLD
+        {
+            return;
         }
+        self.last_prune_serial = serial;
+        self.map.retain(|_, entry| {
+            if serial - entry.serial > MAX_ENTRY_AGE {
+                if free_list.len() < MAX_FREE_LIST_SIZE {
+                    free_list.push(entry.encoding.clone());
+                }
+                self.cached_count -= 1;
+                false
+            } else {
+                true
+            }
+        });
+        self.var_map.retain(|_, map| {
+            map.retain(|_, entry| {
+                if serial - entry.serial > MAX_ENTRY_AGE {
+                    if free_list.len() < MAX_FREE_LIST_SIZE {
+                        free_list.push(entry.encoding.clone());
+                    }
+                    self.cached_count -= 1;
+                    false
+                } else {
+                    true
+                }
+            });
+            !map.is_empty()
+        });
     }
 }
 
-// A wrapper newtype so we can implement the `OutlinePen` trait.
-#[derive(Default)]
-struct BezPathPen(BezPath);
+pub struct GlyphCacheSession<'a> {
+    free_list: &'a mut Vec<Arc<Encoding>>,
+    map: &'a mut GlyphMap,
+    font_id: u64,
+    font_index: u32,
+    coords: &'a [NormalizedCoord],
+    size: Size,
+    size_bits: u32,
+    style: &'a Style,
+    style_bits: [u32; 2],
+    outlines: OutlineGlyphCollection<'a>,
+    hinter: Option<&'a HintingInstance>,
+    serial: u64,
+    cached_count: &'a mut usize,
+}
 
-impl OutlinePen for BezPathPen {
-    fn move_to(&mut self, x: f32, y: f32) {
-        self.0.move_to((x as f64, y as f64));
-    }
-
-    fn line_to(&mut self, x: f32, y: f32) {
-        self.0.line_to((x as f64, y as f64));
-    }
-
-    fn quad_to(&mut self, cx0: f32, cy0: f32, x: f32, y: f32) {
-        self.0
-            .quad_to((cx0 as f64, cy0 as f64), (x as f64, y as f64));
-    }
-
-    fn curve_to(&mut self, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x: f32, y: f32) {
-        self.0.curve_to(
-            (cx0 as f64, cy0 as f64),
-            (cx1 as f64, cy1 as f64),
-            (x as f64, y as f64),
+impl<'a> GlyphCacheSession<'a> {
+    pub fn get_or_insert(&mut self, glyph_id: u32) -> Option<(Arc<Encoding>, StreamOffsets)> {
+        let key = GlyphKey {
+            font_id: self.font_id,
+            font_index: self.font_index,
+            glyph_id,
+            font_size_bits: self.size_bits,
+            style_bits: self.style_bits,
+            hint: self.hinter.is_some(),
+        };
+        if let Some(entry) = self.map.get_mut(&key) {
+            entry.serial = self.serial;
+            return Some((entry.encoding.clone(), entry.stream_sizes));
+        }
+        let outline = self.outlines.get(GlyphId::new(key.glyph_id as u16))?;
+        let mut encoding = self.free_list.pop().unwrap_or_default();
+        let encoding_ptr = Arc::make_mut(&mut encoding);
+        encoding_ptr.reset();
+        let is_fill = match &self.style {
+            Style::Fill(fill) => {
+                encoding_ptr.encode_fill_style(*fill);
+                true
+            }
+            Style::Stroke(stroke) => {
+                encoding_ptr.encode_stroke_style(stroke);
+                false
+            }
+        };
+        use skrifa::outline::DrawSettings;
+        let mut path = encoding_ptr.encode_path(is_fill);
+        let draw_settings = if key.hint {
+            if let Some(hinter) = self.hinter {
+                DrawSettings::hinted(hinter, false)
+            } else {
+                DrawSettings::unhinted(self.size, self.coords)
+            }
+        } else {
+            DrawSettings::unhinted(self.size, self.coords)
+        };
+        outline.draw(draw_settings, &mut path).ok()?;
+        if path.finish(false) == 0 {
+            encoding_ptr.reset();
+        }
+        let stream_sizes = encoding_ptr.stream_offsets();
+        self.map.insert(
+            key,
+            GlyphEntry {
+                encoding: encoding.clone(),
+                stream_sizes,
+                serial: self.serial,
+            },
         );
+        *self.cached_count += 1;
+        Some((encoding, stream_sizes))
     }
+}
 
-    fn close(&mut self) {
-        self.0.close_path();
-    }
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Default, Debug)]
+struct GlyphKey {
+    font_id: u64,
+    font_index: u32,
+    glyph_id: u32,
+    font_size_bits: u32,
+    style_bits: [u32; 2],
+    hint: bool,
+}
+
+/// Outer level key for variable font caches.
+///
+/// Inline size of 8 maximizes the internal storage of the small vec.
+type VarKey = smallvec::SmallVec<[NormalizedCoord; 8]>;
+
+type GlyphMap = HashMap<GlyphKey, GlyphEntry>;
+
+#[derive(Clone, Default)]
+struct GlyphEntry {
+    encoding: Arc<Encoding>,
+    stream_sizes: StreamOffsets,
+    /// Last use of this entry.
+    serial: u64,
 }
 
 /// We keep this small to enable a simple LRU cache with a linear
@@ -172,21 +244,6 @@ pub struct HintKey<'a> {
 }
 
 impl<'a> HintKey<'a> {
-    fn new(
-        outlines: &'a OutlineGlyphCollection<'a>,
-        glyph_key: &GlyphKey,
-        size: f32,
-        coords: &'a [NormalizedCoord],
-    ) -> Self {
-        Self {
-            font_id: glyph_key.font_id,
-            font_index: glyph_key.font_index,
-            outlines,
-            size: Size::new(size),
-            coords,
-        }
-    }
-
     fn instance(&self) -> Option<HintingInstance> {
         HintingInstance::new(self.outlines, self.size, self.coords, HINTING_MODE).ok()
     }
