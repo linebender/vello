@@ -202,6 +202,13 @@ pub struct Renderer {
     #[cfg(feature = "wgpu-profiler")]
     pub profile_result: Option<Vec<wgpu_profiler::GpuTimerQueryResult>>,
 }
+// This is not `Send` (or `Sync`) on WebAssembly as the
+// underlying wgpu types are not. This can be enabled with the
+// `fragile-send-sync-non-atomic-wasm` feature in wgpu.
+// See https://github.com/gfx-rs/wgpu/discussions/4127 for
+// further discussion of this topic.
+#[cfg(all(feature = "wgpu", not(target_arch = "wasm32")))]
+static_assertions::assert_impl_all!(Renderer: Send);
 
 /// Parameters used in a single render that are configurable by the client.
 pub struct RenderParams {

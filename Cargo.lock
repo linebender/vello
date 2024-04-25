@@ -3821,6 +3821,7 @@ dependencies = [
  "peniko",
  "raw-window-handle",
  "skrifa",
+ "static_assertions",
  "vello_encoding",
  "wgpu",
  "wgpu-profiler",

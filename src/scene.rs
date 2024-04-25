@@ -22,6 +22,7 @@ pub struct Scene {
     #[cfg(feature = "bump_estimate")]
     estimator: vello_encoding::BumpEstimator,
 }
+static_assertions::assert_impl_all!(Scene: Send, Sync);
 
 impl Scene {
     /// Creates a new scene.

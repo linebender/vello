@@ -61,6 +61,7 @@ peniko = { workspace = true }
 wgpu = { workspace = true, optional = true }
 log = { workspace = true }
 raw-window-handle = { workspace = true }
+static_assertions = { workspace = true }
 futures-intrusive = { workspace = true }
 wgpu-profiler = { workspace = true, optional = true }
 
@@ -76,6 +77,7 @@ peniko = "0.1.0"
 futures-intrusive = "0.5.0"
 raw-window-handle = "0.6.0"
 smallvec = "1.13.2"
+static_assertions = "1.1.0"
 
 # NOTE: Make sure to keep this in sync with the version badge in README.md
 wgpu = { version = "0.19.3" }
