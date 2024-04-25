@@ -80,7 +80,8 @@ smallvec = "1.13.2"
 static_assertions = "1.1.0"
 
 # NOTE: Make sure to keep this in sync with the version badge in README.md
-wgpu = { version = "0.19.3" }
+# as well as examples/simple/Cargo.toml
+wgpu = { version = "0.19.4" }
 log = "0.4.21"
 
 # Used for examples
