@@ -597,7 +597,7 @@ fn longpathdash(cap: Cap) -> impl FnMut(&mut Scene, &mut SceneParams) {
                 .with_caps(cap)
                 .with_join(Join::Bevel)
                 .with_dashes(0.0, [1.0, 1.0]),
-            Affine::translate((50.0, 50.0)),
+            Affine::scale(2.5) * Affine::translate((50.0, 50.0)),
             Color::YELLOW,
             None,
             &path,
