@@ -232,7 +232,7 @@ struct GlyphEntry {
 
 /// We keep this small to enable a simple LRU cache with a linear
 /// search. Regenerating hinting data is low to medium cost so it's fine
-/// to redo it occassionally.
+/// to redo it occasionally.
 const MAX_CACHED_HINT_INSTANCES: usize = 8;
 
 pub struct HintKey<'a> {
