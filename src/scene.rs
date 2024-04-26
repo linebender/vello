@@ -29,6 +29,10 @@ impl Scene {
         Self::default()
     }
 
+    pub fn print_path_counts(&self) {
+        println!("scene n_paths: {}, n_path_segments: {}", self.encoding.n_paths, self.encoding.n_path_segments);
+    }
+
     /// Removes all content from the scene.
     pub fn reset(&mut self) {
         self.encoding.reset();

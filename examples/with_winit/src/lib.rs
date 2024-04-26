@@ -181,6 +181,7 @@ fn run(
     }
     let mut prev_scene_ix = scene_ix - 1;
     let mut modifiers = ModifiersState::default();
+	let mut debug_dump_time = Instant::now();
     event_loop
         .run(move |event, event_loop| match event {
             Event::WindowEvent {
@@ -525,6 +526,23 @@ fn run(
                             frame_time_us: (new_time - frame_start_time).as_micros() as u64,
                         });
                         frame_start_time = new_time;
+
+                        if (new_time - debug_dump_time).as_secs() > 2 && scene_complexity.is_some() {
+                            scene.print_path_counts();
+                            //let bump_estimate = scene.bump_estimate(None);
+                            let bump_actual = scene_complexity.as_ref().unwrap();
+                            //println!("Last frame estimated bump buffer counts:{bump_estimate}\n");
+                            println!(
+                                "Last frame actual bump buffer counts:{}\n \
+                                    \tBlend:\t\t\t{}\n\
+                                    \tError Bits:\t\t0x{:#08x}\n\
+                                    --------\n",
+                                    bump_actual.memory(),
+                                    bump_actual.blend,
+                                    bump_actual.failed
+                            );
+                            debug_dump_time = new_time;
+                        }
                     }
                     _ => {}
                 }

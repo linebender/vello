@@ -421,7 +421,7 @@ fn flatten_euler(
             let normalized_offset = offset / cubic_params.chord_len;
             let dist_scaled = normalized_offset * es.params.ch;
 // NOTE: set this to "ifndef" to lower to arcs before flattening. Use ifdef to lower directly to lines.
-#ifdef arcs
+#ifndef arcs
             let arclen = length(es.p0 - es.p1) / es.params.ch;
             let est_err = (1. / 120.) / tol * abs(k1) * (arclen + 0.4 * abs(k1 * offset));
             let n_subdiv = cbrt(est_err);
@@ -546,7 +546,7 @@ fn flatten_arc(
     path_ix: u32, begin: vec2f, end: vec2f, center: vec2f, angle: f32, transform: Transform
 ) {
 // NOTE: change this to "ifndef" to just render the arc chords.
-#ifdef ablate_arc_flattening
+#ifndef ablate_arc_flattening
     output_line_with_transform(path_ix, begin, end, transform);
 #else
     var p0 = transform_apply(transform, begin);
