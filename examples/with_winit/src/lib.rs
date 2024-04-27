@@ -13,8 +13,9 @@ use vello::peniko::Color;
 use vello::util::{RenderContext, RenderSurface};
 use vello::{AaConfig, BumpAllocators, Renderer, RendererOptions, Scene};
 
-use winit::event_loop::{EventLoop, EventLoopBuilder};
-use winit::window::Window;
+use winit::dpi::LogicalSize;
+use winit::event_loop::EventLoop;
+use winit::window::{Window, WindowAttributes};
 
 #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
 mod hot_reload;
@@ -181,6 +182,7 @@ fn run(
     }
     let mut prev_scene_ix = scene_ix - 1;
     let mut modifiers = ModifiersState::default();
+    #[allow(deprecated)]
     event_loop
         .run(move |event, event_loop| match event {
             Event::WindowEvent {
@@ -581,9 +583,9 @@ fn run(
                 #[cfg(not(target_arch = "wasm32"))]
                 {
                     let Option::None = render_state else { return };
-                    let window = cached_window
-                        .take()
-                        .unwrap_or_else(|| create_window(event_loop));
+                    let window = cached_window.take().unwrap_or_else(|| {
+                        Arc::new(event_loop.create_window(window_attributes()).unwrap())
+                    });
                     let size = window.inner_size();
                     let present_mode = if vsync_on {
                         wgpu::PresentMode::AutoVsync
@@ -660,17 +662,11 @@ fn store_profiling(
     }
 }
 
-fn create_window(event_loop: &winit::event_loop::EventLoopWindowTarget<UserEvent>) -> Arc<Window> {
-    use winit::dpi::LogicalSize;
-    use winit::window::WindowBuilder;
-    Arc::new(
-        WindowBuilder::new()
-            .with_inner_size(LogicalSize::new(1044, 800))
-            .with_resizable(true)
-            .with_title("Vello demo")
-            .build(event_loop)
-            .unwrap(),
-    )
+fn window_attributes() -> WindowAttributes {
+    Window::default_attributes()
+        .with_inner_size(LogicalSize::new(1044, 800))
+        .with_resizable(true)
+        .with_title("Vello demo")
 }
 
 #[derive(Debug)]
@@ -711,7 +707,7 @@ pub fn main() -> anyhow::Result<()> {
     let args = parse_arguments();
     let scenes = args.args.select_scene_set(Args::command)?;
     if let Some(scenes) = scenes {
-        let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build()?;
+        let event_loop = EventLoop::<UserEvent>::with_user_event().build()?;
         #[allow(unused_mut)]
         let mut render_cx = RenderContext::new();
         #[cfg(not(target_arch = "wasm32"))]
@@ -728,7 +724,8 @@ pub fn main() -> anyhow::Result<()> {
             std::panic::set_hook(Box::new(console_error_panic_hook::hook));
             console_log::init().expect("could not initialize logger");
             use winit::platform::web::WindowExtWebSys;
-            let window = create_window(&event_loop);
+            #[allow(deprecated)]
+            let window = Arc::new(event_loop.create_window(window_attributes()).unwrap());
             // On wasm, append the canvas to the document body
             let canvas = window.canvas().unwrap();
             web_sys::window()
@@ -826,7 +823,7 @@ fn android_main(app: AndroidApp) {
         tracing::level_filters::LevelFilter::current()
     );
 
-    let event_loop = EventLoopBuilder::with_user_event()
+    let event_loop = EventLoop::with_user_event()
         .with_android_app(app)
         .build()
         .expect("Required to continue");

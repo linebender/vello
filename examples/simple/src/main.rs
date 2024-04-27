@@ -10,8 +10,8 @@ use vello::util::{RenderContext, RenderSurface};
 use vello::{AaConfig, Renderer, RendererOptions, Scene};
 use winit::dpi::LogicalSize;
 use winit::event::*;
-use winit::event_loop::{ControlFlow, EventLoop};
-use winit::window::{Window, WindowBuilder};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::window::Window;
 
 // Simple struct to hold the state of the renderer
 pub struct ActiveRenderState<'s> {
@@ -44,6 +44,7 @@ fn main() -> Result<()> {
 
     // Create and run a winit event loop
     let event_loop = EventLoop::new()?;
+    #[allow(deprecated)]
     event_loop
         .run(move |event, event_loop| match event {
             // Setup renderer. In winit apps it is recommended to do setup in Event::Resumed
@@ -173,15 +174,12 @@ fn main() -> Result<()> {
 }
 
 /// Helper function that creates a Winit window and returns it (wrapped in an Arc for sharing between threads)
-fn create_winit_window(event_loop: &winit::event_loop::EventLoopWindowTarget<()>) -> Arc<Window> {
-    Arc::new(
-        WindowBuilder::new()
-            .with_inner_size(LogicalSize::new(1044, 800))
-            .with_resizable(true)
-            .with_title("Vello Shapes")
-            .build(event_loop)
-            .unwrap(),
-    )
+fn create_winit_window(event_loop: &ActiveEventLoop) -> Arc<Window> {
+    let attr = Window::default_attributes()
+        .with_inner_size(LogicalSize::new(1044, 800))
+        .with_resizable(true)
+        .with_title("Vello Shapes");
+    Arc::new(event_loop.create_window(attr).unwrap())
 }
 
 /// Helper function that creates a vello `Renderer` for a given `RenderContext` and `RenderSurface`
