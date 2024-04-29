@@ -79,7 +79,7 @@
 //! surface_texture.present();
 //! ```
 //!
-//! See the [`examples/`](https://github.com/linebender/vello/tree/main/examples) folder to see how that code integrates with frameworks like winit and bevy.
+//! See the [`examples/`](https://github.com/linebender/vello/tree/main/examples) folder to see how that code integrates with frameworks like winit.
 
 #[cfg(feature = "wgpu")]
 mod cpu_dispatch;
