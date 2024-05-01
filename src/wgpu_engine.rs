@@ -6,13 +6,14 @@ use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 
+use vello_shaders::cpu::CpuBinding;
+
 use wgpu::{
     BindGroup, BindGroupLayout, Buffer, BufferUsages, CommandEncoder, CommandEncoderDescriptor,
     ComputePipeline, Device, Queue, Texture, TextureAspect, TextureUsages, TextureView,
     TextureViewDimension,
 };
 
-use crate::cpu_dispatch::CpuBinding;
 use crate::recording::BindType;
 use crate::{
     BufferProxy, Command, Error, ImageProxy, Recording, ResourceId, ResourceProxy, ShaderId,

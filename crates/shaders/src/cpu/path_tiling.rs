@@ -3,10 +3,10 @@
 
 use vello_encoding::{BumpAllocators, LineSoup, Path, PathSegment, SegmentCount, Tile};
 
-use crate::cpu_dispatch::CpuBinding;
-use crate::cpu_shader::util::{ONE_MINUS_ULP, ROBUST_EPSILON};
-
-use super::util::{span, Vec2};
+use super::{
+    util::{span, Vec2, ONE_MINUS_ULP, ROBUST_EPSILON},
+    CpuBinding,
+};
 
 const TILE_WIDTH: u32 = 16;
 const TILE_HEIGHT: u32 = 16;

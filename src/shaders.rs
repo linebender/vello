@@ -15,7 +15,6 @@ use crate::ShaderId;
 
 #[cfg(feature = "wgpu")]
 use crate::{
-    cpu_shader,
     recording::{BindType, ImageFormat},
     wgpu_engine::WgpuEngine,
     Error, RendererOptions,
@@ -131,7 +130,7 @@ pub fn full_shaders(
                 $name,
                 $bindings,
                 &$defines,
-                CpuShaderType::Present(cpu_shader::$name)
+                CpuShaderType::Present(vello_shaders::cpu::$name)
             )
         };
         ($name:ident, $bindings:expr) => {
@@ -228,7 +227,7 @@ pub fn full_shaders(
         backdrop_dyn,
         [Uniform, BufReadOnly, Buffer],
         &empty,
-        CpuShaderType::Present(cpu_shader::backdrop)
+        CpuShaderType::Present(vello_shaders::cpu::backdrop)
     );
     let coarse = add_shader!(
         coarse,

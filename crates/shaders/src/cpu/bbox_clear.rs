@@ -3,7 +3,7 @@
 
 use vello_encoding::{ConfigUniform, PathBbox};
 
-use crate::cpu_dispatch::CpuBinding;
+use super::CpuBinding;
 
 fn bbox_clear_main(config: &ConfigUniform, path_bboxes: &mut [PathBbox]) {
     for i in 0..(config.layout.n_paths as usize) {

@@ -3,7 +3,7 @@
 
 use vello_encoding::{ConfigUniform, Monoid, PathMonoid};
 
-use crate::cpu_dispatch::CpuBinding;
+use super::CpuBinding;
 
 const WG_SIZE: usize = 256;
 
