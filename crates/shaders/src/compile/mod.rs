@@ -139,7 +139,7 @@ impl ShaderInfo {
         } else {
             Default::default()
         };
-        println!("{:?}", permutation_map);
+        //println!("{permutation_map:?}");
         let imports = preprocess::get_imports(shader_dir);
         let mut info = HashMap::default();
         let defines: HashSet<_> = if cfg!(feature = "full") {

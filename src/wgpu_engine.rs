@@ -174,7 +174,8 @@ impl WgpuEngine {
             let remainder = new_shaders.split_off(num_threads);
             let (tx, rx) = std::sync::mpsc::channel::<(ShaderId, WgpuShader)>();
 
-            // We expect each initialisation to take much longer than acquiring a lock, so we just use a mutex for our work queue
+            // We expect each initialisation to take much longer than acquiring a lock, so we just
+            // use a mutex for our work queue
             let work_queue = std::sync::Mutex::new(remainder.into_iter());
             let work_queue = &work_queue;
             std::thread::scope(|scope| {
