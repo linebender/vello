@@ -153,14 +153,7 @@ cargo run -p with_winit -- download
 
 ### Bevy
 
-The [Bevy] example ([examples/with_bevy](https://github.com/linebender/vello/tree/main/examples/with_bevy)) demonstrates using Vello within a [Bevy] application.
-This currently draws to a [`wgpu`] `Texture` using `vello`, then uses that texture as the faces of a cube.
-
-```shell
-cargo run -p with_bevy
-```
-
-There is also a separate community integration for rendering raw scenes or Lottie and SVG files through [`bevy_vello`](https://github.com/loopystudios/bevy_vello).
+There is a separate community integration for rendering raw scenes or Lottie and SVG files in [Bevy] through [`bevy_vello`](https://github.com/loopystudios/bevy_vello).
 
 ## Platforms
 
