@@ -10,7 +10,7 @@ repository.workspace = true
 publish = false # Remove this when the package is ready for publishing
 
 [features]
-default = ["compile", "wgsl", "full", "cpu"]
+default = ["wgsl", "full", "cpu"]
 compile = ["naga", "thiserror"]
 
 # Enables the complete imaging model. When this feature is disabled, the fine rasterization

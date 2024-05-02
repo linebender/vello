@@ -102,9 +102,6 @@ pub fn full_shaders(
                 CpuShaderType::Present(vello_shaders::cpu::$name)
             )
         };
-        ($name:ident, $bindings:expr) => {
-            add_shader!($name, $bindings)
-        };
     }
 
     let pathtag_reduce = add_shader!(pathtag_reduce, [Uniform, BufReadOnly, Buffer]);
