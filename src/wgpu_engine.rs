@@ -235,11 +235,11 @@ impl WgpuEngine {
         wgsl: Cow<'static, str>,
         layout: &[BindType],
         cpu_shader: CpuShaderType,
-    ) -> Result<ShaderId, Error> {
+    ) -> ShaderId {
         let mut add = |shader| {
             let id = self.shaders.len();
             self.shaders.push(shader);
-            Ok(ShaderId(id))
+            ShaderId(id)
         };
 
         if self.use_cpu {
@@ -318,14 +318,14 @@ impl WgpuEngine {
                 label,
                 wgpu: None,
                 cpu: None,
-            })?;
+            });
             uninit.push(UninitialisedShader {
                 wgsl,
                 label,
                 entries,
                 shader_id: id,
             });
-            return Ok(id);
+            return id;
         }
         let wgpu = Self::create_compute_pipeline(device, label, wgsl, entries);
         add(Shader {

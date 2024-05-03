@@ -121,7 +121,7 @@ pub fn full_shaders(
                 } else {
                     $cpu
                 },
-            )?
+            )
         }};
         ($name:ident, $bindings:expr, $defines:expr, $cpu:expr) => {{
             add_shader!($name, stringify!($name), $bindings, &$defines, $cpu)
