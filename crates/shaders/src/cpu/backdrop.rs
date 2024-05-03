@@ -3,7 +3,7 @@
 
 use vello_encoding::{ConfigUniform, Path, Tile};
 
-use crate::cpu_dispatch::CpuBinding;
+use super::CpuBinding;
 
 fn backdrop_main(config: &ConfigUniform, paths: &[Path], tiles: &mut [Tile]) {
     for drawobj_ix in 0..config.layout.n_draw_objects {

@@ -3,9 +3,10 @@
 
 use vello_encoding::{BumpAllocators, LineSoup, Path, SegmentCount, Tile};
 
-use crate::cpu_dispatch::CpuBinding;
-
-use super::util::{span, Vec2, ONE_MINUS_ULP, ROBUST_EPSILON};
+use super::{
+    util::{span, Vec2, ONE_MINUS_ULP, ROBUST_EPSILON},
+    CpuBinding,
+};
 
 const TILE_SCALE: f32 = 1.0 / 16.0;
 

@@ -3,12 +3,10 @@
 
 use vello_encoding::{Clip, ConfigUniform, DrawMonoid, DrawTag, Monoid, PathBbox};
 
-use crate::cpu_dispatch::CpuBinding;
-
-use super::util::{read_draw_tag_from_scene, Transform, Vec2};
 use super::{
-    RAD_GRAD_KIND_CIRCULAR, RAD_GRAD_KIND_CONE, RAD_GRAD_KIND_FOCAL_ON_CIRCLE, RAD_GRAD_KIND_STRIP,
-    RAD_GRAD_SWAPPED,
+    util::{read_draw_tag_from_scene, Transform, Vec2},
+    CpuBinding, RAD_GRAD_KIND_CIRCULAR, RAD_GRAD_KIND_CONE, RAD_GRAD_KIND_FOCAL_ON_CIRCLE,
+    RAD_GRAD_KIND_STRIP, RAD_GRAD_SWAPPED,
 };
 
 const WG_SIZE: usize = 256;

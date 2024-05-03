@@ -7,7 +7,7 @@
 #   -g "!src/special_directory"
 
 # Check all the standard Rust source files
-output=$(rg "^// Copyright (19|20)[\d]{2} (.+ and )?the Vello Authors( and .+)?$\n^// SPDX-License-Identifier: Apache-2\.0 OR MIT$\n\n" --files-without-match --multiline -g "*.rs" -g "!{shader,src/cpu_shader}" .)
+output=$(rg "^// Copyright (19|20)[\d]{2} (.+ and )?the Vello Authors( and .+)?$\n^// SPDX-License-Identifier: Apache-2\.0 OR MIT$\n\n" --files-without-match --multiline -g "*.rs" -g "!{shader,crates/shaders/src/cpu}" .)
 
 if [ -n "$output" ]; then
 	echo -e "The following files lack the correct copyright header:\n"
@@ -20,7 +20,7 @@ if [ -n "$output" ]; then
 fi
 
 # Check all the shaders, both WGSL and CPU shaders in Rust, as they also have Unlicense
-output=$(rg "^// Copyright (19|20)[\d]{2} (.+ and )?the Vello Authors( and .+)?$\n^// SPDX-License-Identifier: Apache-2\.0 OR MIT OR Unlicense$\n\n" --files-without-match --multiline -g "{shader,src/cpu_shader}/**/*.{rs,wgsl}" .)
+output=$(rg "^// Copyright (19|20)[\d]{2} (.+ and )?the Vello Authors( and .+)?$\n^// SPDX-License-Identifier: Apache-2\.0 OR MIT OR Unlicense$\n\n" --files-without-match --multiline -g "{shader,crates/shaders/src/cpu}/**/*.{rs,wgsl}" .)
 
 if [ -n "$output" ]; then
         echo -e "The following shader files lack the correct copyright header:\n"

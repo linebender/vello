@@ -2670,6 +2670,7 @@ dependencies = [
  "skrifa",
  "static_assertions",
  "vello_encoding",
+ "vello_shaders",
  "wgpu",
  "wgpu-profiler",
 ]
@@ -2689,8 +2690,10 @@ dependencies = [
 name = "vello_shaders"
 version = "0.1.0"
 dependencies = [
+ "bytemuck",
  "naga",
  "thiserror",
+ "vello_encoding",
 ]
 
 [[package]]

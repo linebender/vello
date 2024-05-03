@@ -3,7 +3,7 @@
 
 use vello_encoding::{BumpAllocators, ConfigUniform, DrawTag, Path, Tile};
 
-use crate::cpu_dispatch::CpuBinding;
+use super::CpuBinding;
 
 const TILE_WIDTH: usize = 16;
 const TILE_HEIGHT: usize = 16;

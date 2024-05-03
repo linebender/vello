@@ -10,7 +10,7 @@ repository.workspace = true
 publish = false # Remove this when the package is ready for publishing
 
 [features]
-default = ["compile", "wgsl", "msl", "full"]
+default = ["wgsl", "full", "cpu"]
 compile = ["naga", "thiserror"]
 
 # Enables the complete imaging model. When this feature is disabled, the fine rasterization
@@ -22,12 +22,17 @@ full = []
 wgsl = []
 msl = []
 
+# Enable the CPU versions of the shaders
+cpu = ["bytemuck", "vello_encoding"]
+
 [lints]
 workspace = true
 
 [dependencies]
+bytemuck = { workspace = true, optional = true }
 naga = { version = "0.19.2", features = ["wgsl-in", "msl-out",], optional = true }
 thiserror = { version = "1.0.58", optional = true }
+vello_encoding = { workspace = true, optional = true }
 
 [build-dependencies]
 naga = { version = "0.19.2",  features = ["wgsl-in", "msl-out",] }

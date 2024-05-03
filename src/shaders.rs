@@ -3,11 +3,6 @@
 
 //! Load rendering shaders.
 
-mod preprocess;
-
-#[cfg(feature = "wgpu")]
-use std::collections::HashSet;
-
 #[cfg(feature = "wgpu")]
 use wgpu::Device;
 
@@ -15,38 +10,10 @@ use crate::ShaderId;
 
 #[cfg(feature = "wgpu")]
 use crate::{
-    cpu_shader,
     recording::{BindType, ImageFormat},
     wgpu_engine::WgpuEngine,
     Error, RendererOptions,
 };
-
-#[cfg(feature = "wgpu")]
-macro_rules! shader {
-    ($name:expr) => {&{
-        let shader = include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/shader/",
-            $name,
-            ".wgsl"
-        ));
-        #[cfg(feature = "hot_reload")]
-        let shader = std::fs::read_to_string(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/shader/",
-            $name,
-            ".wgsl"
-        ))
-        .unwrap_or_else(|e| {
-            eprintln!(
-                "Failed to read shader {name}, error falling back to version at compilation time. Error: {e:?}",
-                name = $name
-            );
-            shader.to_string()
-        });
-        shader
-    }};
-}
 
 // Shaders for the full pipeline
 pub struct FullShaders {
@@ -85,36 +52,38 @@ pub fn full_shaders(
 ) -> Result<FullShaders, Error> {
     use crate::wgpu_engine::CpuShaderType;
     use BindType::*;
-    let imports = SHARED_SHADERS
-        .iter()
-        .copied()
-        .collect::<std::collections::HashMap<_, _>>();
-    let empty = HashSet::new();
-    let mut full_config = HashSet::new();
-    full_config.insert("full".into());
-    let mut small_config = HashSet::new();
-    small_config.insert("full".into());
-    small_config.insert("small".into());
 
     let mut force_gpu = false;
-
     let force_gpu_from: Option<&str> = None;
-
     // Uncomment this to force use of GPU shaders from the specified shader and later even
     // if `engine.use_cpu` is specified.
     //let force_gpu_from = Some("binning");
 
+    #[cfg(feature = "hot_reload")]
+    let mut shaders = vello_shaders::compile::ShaderInfo::from_dir(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/shader"
+    ));
+    #[cfg(not(feature = "hot_reload"))]
+    let shaders = vello_shaders::SHADERS;
+
     macro_rules! add_shader {
-        ($name:ident, $label:expr, $bindings:expr, $defines:expr, $cpu:expr) => {{
+        ($name:ident, $label:expr, $bindings:expr, $cpu:expr) => {{
             if force_gpu_from == Some(stringify!($name)) {
                 force_gpu = true;
             }
-            let processed =
-                preprocess::preprocess(shader!(stringify!($name)), &$defines, &imports).into();
+            #[cfg(feature = "hot_reload")]
+            let source = shaders
+                .remove(stringify!($name))
+                .expect(stringify!($name))
+                .source
+                .into();
+            #[cfg(not(feature = "hot_reload"))]
+            let source = shaders.$name.wgsl.code;
             engine.add_shader(
                 device,
                 $label,
-                processed,
+                source,
                 &$bindings,
                 if force_gpu {
                     CpuShaderType::Missing
@@ -123,19 +92,15 @@ pub fn full_shaders(
                 },
             )
         }};
-        ($name:ident, $bindings:expr, $defines:expr, $cpu:expr) => {{
-            add_shader!($name, stringify!($name), $bindings, &$defines, $cpu)
+        ($name:ident, $bindings:expr, $cpu:expr) => {{
+            add_shader!($name, stringify!($name), $bindings, $cpu)
         }};
-        ($name:ident, $bindings:expr, $defines:expr) => {
+        ($name:ident, $bindings:expr) => {
             add_shader!(
                 $name,
                 $bindings,
-                &$defines,
-                CpuShaderType::Present(cpu_shader::$name)
+                CpuShaderType::Present(vello_shaders::cpu::$name)
             )
-        };
-        ($name:ident, $bindings:expr) => {
-            add_shader!($name, $bindings, &full_config)
         };
     }
 
@@ -143,32 +108,29 @@ pub fn full_shaders(
     let pathtag_reduce2 = add_shader!(
         pathtag_reduce2,
         [BufReadOnly, Buffer],
-        &full_config,
         CpuShaderType::Skipped
     );
     let pathtag_scan1 = add_shader!(
         pathtag_scan1,
         [BufReadOnly, BufReadOnly, Buffer],
-        &full_config,
         CpuShaderType::Skipped
     );
     let pathtag_scan = add_shader!(
-        pathtag_scan,
+        pathtag_scan_small,
         [Uniform, BufReadOnly, BufReadOnly, Buffer],
-        &small_config
+        CpuShaderType::Present(vello_shaders::cpu::pathtag_scan)
     );
     let pathtag_scan_large = add_shader!(
-        pathtag_scan,
+        pathtag_scan_large,
         [Uniform, BufReadOnly, BufReadOnly, Buffer],
-        &full_config,
         CpuShaderType::Skipped
     );
-    let bbox_clear = add_shader!(bbox_clear, [Uniform, Buffer], &empty);
+    let bbox_clear = add_shader!(bbox_clear, [Uniform, Buffer]);
     let flatten = add_shader!(
         flatten,
         [Uniform, BufReadOnly, BufReadOnly, Buffer, Buffer, Buffer]
     );
-    let draw_reduce = add_shader!(draw_reduce, [Uniform, BufReadOnly, Buffer], &empty);
+    let draw_reduce = add_shader!(draw_reduce, [Uniform, BufReadOnly, Buffer]);
     let draw_leaf = add_shader!(
         draw_leaf,
         [
@@ -179,14 +141,9 @@ pub fn full_shaders(
             Buffer,
             Buffer,
             Buffer,
-        ],
-        &empty
+        ]
     );
-    let clip_reduce = add_shader!(
-        clip_reduce,
-        [BufReadOnly, BufReadOnly, Buffer, Buffer],
-        &empty
-    );
+    let clip_reduce = add_shader!(clip_reduce, [BufReadOnly, BufReadOnly, Buffer, Buffer]);
     let clip_leaf = add_shader!(
         clip_leaf,
         [
@@ -197,8 +154,7 @@ pub fn full_shaders(
             BufReadOnly,
             Buffer,
             Buffer,
-        ],
-        &empty
+        ]
     );
     let binning = add_shader!(
         binning,
@@ -211,15 +167,13 @@ pub fn full_shaders(
             Buffer,
             Buffer,
             Buffer,
-        ],
-        &empty
+        ]
     );
     let tile_alloc = add_shader!(
         tile_alloc,
-        [Uniform, BufReadOnly, BufReadOnly, Buffer, Buffer, Buffer],
-        &empty
+        [Uniform, BufReadOnly, BufReadOnly, Buffer, Buffer, Buffer]
     );
-    let path_count_setup = add_shader!(path_count_setup, [Buffer, Buffer], &empty);
+    let path_count_setup = add_shader!(path_count_setup, [Buffer, Buffer]);
     let path_count = add_shader!(
         path_count,
         [Uniform, Buffer, BufReadOnly, BufReadOnly, Buffer, Buffer]
@@ -227,8 +181,7 @@ pub fn full_shaders(
     let backdrop = add_shader!(
         backdrop_dyn,
         [Uniform, BufReadOnly, Buffer],
-        &empty,
-        CpuShaderType::Present(cpu_shader::backdrop)
+        CpuShaderType::Present(vello_shaders::cpu::backdrop)
     );
     let coarse = add_shader!(
         coarse,
@@ -242,10 +195,9 @@ pub fn full_shaders(
             Buffer,
             Buffer,
             Buffer,
-        ],
-        &empty
+        ]
     );
-    let path_tiling_setup = add_shader!(path_tiling_setup, [Buffer, Buffer, Buffer], &empty);
+    let path_tiling_setup = add_shader!(path_tiling_setup, [Buffer, Buffer, Buffer]);
     let path_tiling = add_shader!(
         path_tiling,
         [
@@ -255,8 +207,7 @@ pub fn full_shaders(
             BufReadOnly,
             BufReadOnly,
             Buffer,
-        ],
-        &empty
+        ]
     );
     let fine_resources = [
         BindType::Uniform,
@@ -269,33 +220,36 @@ pub fn full_shaders(
         // Mask LUT buffer, used only when MSAA is enabled.
         BindType::BufReadOnly,
     ];
-    let [fine_area, fine_msaa8, fine_msaa16] = {
-        let aa_support = &options.antialiasing_support;
-        let aa_modes = [
-            (aa_support.area, 1, "fine_area", None),
-            (aa_support.msaa8, 0, "fine_msaa8", Some("msaa8")),
-            (aa_support.msaa16, 0, "fine_msaa16", Some("msaa16")),
-        ];
-        let mut pipelines = [None, None, None];
-        for (i, (enabled, offset, label, aa_config)) in aa_modes.iter().enumerate() {
-            if !enabled {
-                continue;
-            }
-            let mut config = full_config.clone();
-            if let Some(aa_config) = *aa_config {
-                config.insert("msaa".into());
-                config.insert(aa_config.into());
-            }
-            pipelines[i] = Some(add_shader!(
-                fine,
-                label,
-                fine_resources[..fine_resources.len() - offset],
-                config,
-                CpuShaderType::Missing
-            ));
-        }
-        pipelines
+
+    let aa_support = &options.antialiasing_support;
+    let fine_area = if aa_support.area {
+        Some(add_shader!(
+            fine_area,
+            fine_resources[..fine_resources.len() - 1],
+            CpuShaderType::Missing
+        ))
+    } else {
+        None
     };
+    let fine_msaa8 = if aa_support.msaa8 {
+        Some(add_shader!(
+            fine_msaa8,
+            fine_resources,
+            CpuShaderType::Missing
+        ))
+    } else {
+        None
+    };
+    let fine_msaa16 = if aa_support.msaa16 {
+        Some(add_shader!(
+            fine_msaa16,
+            fine_resources,
+            CpuShaderType::Missing
+        ))
+    } else {
+        None
+    };
+
     Ok(FullShaders {
         pathtag_reduce,
         pathtag_reduce2,
@@ -322,30 +276,3 @@ pub fn full_shaders(
         pathtag_is_cpu: options.use_cpu,
     })
 }
-
-#[cfg(feature = "wgpu")]
-macro_rules! shared_shader {
-    ($name:expr) => {
-        (
-            $name,
-            include_str!(concat!("../shader/shared/", $name, ".wgsl")),
-        )
-    };
-}
-
-#[cfg(feature = "wgpu")]
-const SHARED_SHADERS: &[(&str, &str)] = &[
-    shared_shader!("bbox"),
-    shared_shader!("blend"),
-    shared_shader!("bump"),
-    shared_shader!("clip"),
-    shared_shader!("config"),
-    shared_shader!("cubic"),
-    shared_shader!("drawtag"),
-    shared_shader!("pathtag"),
-    shared_shader!("ptcl"),
-    shared_shader!("segment"),
-    shared_shader!("tile"),
-    shared_shader!("transform"),
-    shared_shader!("util"),
-];

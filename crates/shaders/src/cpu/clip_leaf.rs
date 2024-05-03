@@ -3,7 +3,7 @@
 
 use vello_encoding::{Clip, ConfigUniform, DrawMonoid, PathBbox};
 
-use crate::cpu_dispatch::CpuBinding;
+use super::CpuBinding;
 
 struct ClipStackElement {
     // index of draw object

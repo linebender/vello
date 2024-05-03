@@ -3,7 +3,7 @@
 
 use vello_encoding::{BinHeader, BumpAllocators, ConfigUniform, DrawMonoid, PathBbox};
 
-use crate::cpu_dispatch::CpuBinding;
+use super::CpuBinding;
 
 const WG_SIZE: usize = 256;
 const TILE_WIDTH: usize = 16;

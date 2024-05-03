@@ -6,13 +6,14 @@ use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 
+use vello_shaders::cpu::CpuBinding;
+
 use wgpu::{
     BindGroup, BindGroupLayout, Buffer, BufferUsages, CommandEncoder, CommandEncoderDescriptor,
     ComputePipeline, Device, Queue, Texture, TextureAspect, TextureUsages, TextureView,
     TextureViewDimension,
 };
 
-use crate::cpu_dispatch::CpuBinding;
 use crate::recording::BindType;
 use crate::{
     BufferProxy, Command, Error, ImageProxy, Recording, ResourceId, ResourceProxy, ShaderId,
@@ -173,7 +174,8 @@ impl WgpuEngine {
             let remainder = new_shaders.split_off(num_threads);
             let (tx, rx) = std::sync::mpsc::channel::<(ShaderId, WgpuShader)>();
 
-            // We expect each initialisation to take much longer than acquiring a lock, so we just use a mutex for our work queue
+            // We expect each initialisation to take much longer than acquiring a lock, so we just
+            // use a mutex for our work queue
             let work_queue = std::sync::Mutex::new(remainder.into_iter());
             let work_queue = &work_queue;
             std::thread::scope(|scope| {

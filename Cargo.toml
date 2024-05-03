@@ -46,7 +46,7 @@ default = ["wgpu"]
 # bump-allocated GPU memory.
 # TODO: Turn this into a runtime option used at resolve time and remove the feature.
 bump_estimate = ["vello_encoding/bump_estimate"]
-hot_reload = []
+hot_reload = ["vello_shaders/compile"]
 buffer_labels = []
 
 [lints]
@@ -54,6 +54,7 @@ workspace = true
 
 [dependencies]
 vello_encoding = { workspace = true }
+vello_shaders = { workspace = true }
 bytemuck = { workspace = true }
 skrifa = { workspace = true }
 peniko = { workspace = true }
@@ -70,6 +71,7 @@ clippy.semicolon_if_nothing_returned = "warn"
 
 [workspace.dependencies]
 vello_encoding = { version = "0.1.0", path = "crates/encoding" }
+vello_shaders = { version = "0.1.0", path = "crates/shaders" }
 bytemuck = { version = "1.15.0", features = ["derive"] }
 skrifa = "0.19.0"
 peniko = "0.1.0"
