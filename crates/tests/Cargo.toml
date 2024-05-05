@@ -11,7 +11,6 @@ workspace = true
 
 [dependencies]
 vello = { path = "../.." }
-image = "0.24.9"
 anyhow = { workspace = true }
 
 wgpu = { workspace = true }

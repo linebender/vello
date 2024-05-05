@@ -2702,7 +2702,6 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "futures-intrusive",
- "image",
  "png",
  "pollster",
  "vello",
