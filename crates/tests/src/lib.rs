@@ -16,17 +16,6 @@ use wgpu::{
     TextureDescriptor, TextureFormat, TextureUsages,
 };
 
-pub fn decode_image(data: &[u8]) -> Result<Image> {
-    let image = image::io::Reader::new(std::io::Cursor::new(data))
-        .with_guessed_format()?
-        .decode()?;
-    let width = image.width();
-    let height = image.height();
-    let data = Arc::new(image.into_rgba8().into_vec());
-    let blob = Blob::new(data);
-    Ok(Image::new(blob, Format::Rgba8, width, height))
-}
-
 pub struct TestParams {
     pub width: u32,
     pub height: u32,
