@@ -11,7 +11,7 @@ publish = false # Remove this when the package is ready for publishing
 
 [features]
 default = ["wgsl", "full", "cpu"]
-compile = ["naga", "thiserror"]
+compile = ["dep:naga", "dep:thiserror"]
 
 # Enables the complete imaging model. When this feature is disabled, the fine rasterization
 # stage only supports drawing paths with a solid brush and clipping, and the shaders can
@@ -23,7 +23,7 @@ wgsl = []
 msl = []
 
 # Enable the CPU versions of the shaders
-cpu = ["bytemuck", "vello_encoding"]
+cpu = ["dep:bytemuck", "dep:vello_encoding"]
 
 [lints]
 workspace = true
