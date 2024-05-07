@@ -16,6 +16,8 @@ fn main() {
     let out_dir = env::var_os("OUT_DIR").unwrap();
     let dest_path = Path::new(&out_dir).join("shaders.rs");
 
+    println!("cargo:rerun-if-changed=../../shader");
+
     // The shaders are defined under the workspace root and not in this crate so we need to locate
     // them somehow. Cargo doesn't define an environment variable that points at the root workspace
     // directory. In hermetic build environments that don't support relative paths (such as Bazel)
@@ -35,7 +37,6 @@ fn main() {
     write_types(&mut buf, &shaders).unwrap();
     write_shaders(&mut buf, &shaders).unwrap();
     std::fs::write(dest_path, &buf).unwrap();
-    println!("cargo:rerun-if-changed=../shader");
 }
 
 fn write_types(buf: &mut String, shaders: &[(String, ShaderInfo)]) -> Result<(), std::fmt::Error> {
