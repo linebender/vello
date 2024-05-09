@@ -3,6 +3,7 @@
 
 // Prefix sum for dynamically allocated backdrops
 
+#import bump
 #import config
 #import tile
 
@@ -10,9 +11,12 @@
 var<uniform> config: Config;
 
 @group(0) @binding(1)
-var<storage> paths: array<Path>;
+var<storage, read_write> bump: BumpAllocators;
 
 @group(0) @binding(2)
+var<storage> paths: array<Path>;
+
+@group(0) @binding(3)
 var<storage, read_write> tiles: array<Tile>;
 
 let WG_SIZE = 256u;
@@ -26,6 +30,14 @@ fn main(
     @builtin(global_invocation_id) global_id: vec3<u32>,
     @builtin(local_invocation_id) local_id: vec3<u32>,
 ) {
+    // Abort if any of the prior stages failed.
+    if local_id.x == 0u {
+        sh_row_count[0] = atomicLoad(&bump.failed);
+    }
+    let failed = workgroupUniformLoad(&sh_row_count[0]);
+    if failed != 0u {
+        return;
+    }
     let drawobj_ix = global_id.x;
     var row_count = 0u;
     if drawobj_ix < config.n_drawobj {
@@ -34,6 +46,9 @@ fn main(
         sh_row_width[local_id.x] = path.bbox.z - path.bbox.x;
         row_count = path.bbox.w - path.bbox.y;
         sh_offset[local_id.x] = path.tiles;
+    } else {
+        // Explicitly zero the row width, just in case.
+        sh_row_width[local_id.x] = 0u;
     }
     sh_row_count[local_id.x] = row_count;
 

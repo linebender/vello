@@ -180,7 +180,7 @@ pub fn full_shaders(
     );
     let backdrop = add_shader!(
         backdrop_dyn,
-        [Uniform, BufReadOnly, Buffer],
+        [Uniform, Buffer, BufReadOnly, Buffer],
         CpuShaderType::Present(vello_shaders::cpu::backdrop)
     );
     let coarse = add_shader!(
