@@ -225,6 +225,10 @@ impl BumpEstimator {
                 self.segments += count * arc_lines * count_segments_for_line_length(line_len);
             }
         }
+
+        // Count inner join lines
+        self.lines.linetos += count;
+        self.segments += count_segments_for_line_length(scaled_width) * count;
     }
 }
 
