@@ -103,7 +103,7 @@ pub use peniko::kurbo;
 
 use render_graph::{
     passes::{VelloCoarse, VelloFine},
-    RenderGraph,
+    RenderGraph, ResourceManager,
 };
 #[doc(hidden)]
 pub use skrifa;
@@ -293,8 +293,12 @@ impl Renderer {
     ) -> Result<()> {
         let mut render_graph = RenderGraph::new();
 
+        let mut resources = ResourceManager::new();
+        let out_image = ImageProxy::new(params.width, params.height, ImageFormat::Rgba8);
+        let out_image = resources.import_image(out_image);
+
         let coarse = render_graph.insert_pass((), |()| VelloCoarse {});
-        let fine = render_graph.insert_pass((coarse,), |(coarse,)| VelloFine {
+        let _fine = render_graph.insert_pass((coarse,), move |(coarse,)| VelloFine {
             config_buf: coarse.config_buf,
             tile_buf: coarse.tile_buf,
             segments_buf: coarse.segments_buf,
@@ -302,17 +306,17 @@ impl Renderer {
             gradient_image: coarse.gradient_image,
             info_bin_data_buf: coarse.info_bin_data_buf,
             image_atlas: coarse.image_atlas,
-            out_image: coarse.out_image,
+            out_image,
             fine_workgroup_size: coarse.fine_workgroup_size,
         });
 
-        let Some((recording, fine_out)) =
-            render_graph.process(fine, params, &self.shaders, scene.encoding(), false)
+        let Some(recording) =
+            render_graph.process(resources, params, &self.shaders, scene.encoding(), false)
         else {
             panic!("Cyclic Render Graph");
         };
 
-        let external_resources = [ExternalResource::Image(fine_out.out_image.into(), texture)];
+        let external_resources = [ExternalResource::Image(out_image.into(), texture)];
         self.engine.run_recording(
             device,
             queue,

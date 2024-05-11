@@ -54,14 +54,14 @@ impl RenderGraph {
         Pass(id, PhantomData)
     }
 
-    pub fn process<P: RenderPass>(
+    pub fn process(
         &self,
-        start: Pass<P>,
+        mut resources: ResourceManager,
         params: &RenderParams,
         shaders: &FullShaders,
         encoding: &Encoding,
         robust: bool,
-    ) -> Option<(Recording, P::Output)> {
+    ) -> Option<Recording> {
         let mut recording = Recording::default();
 
         let mut stack = Vec::with_capacity(self.nodes.len());
@@ -90,7 +90,6 @@ impl RenderGraph {
         }
 
         let mut outputs: SecondaryMap<PassId, Box<dyn Any>> = SecondaryMap::new();
-        let mut resources = ResourceManager::new();
 
         for pass in result {
             let mut pass_recording = unsafe {
@@ -110,16 +109,16 @@ impl RenderGraph {
             recording.append(&mut pass_recording);
         }
 
-        // TODO: resource clean up etc.
+        for (_, resource) in resources.resources.into_iter() {
+            match resource {
+                ManagableResource::Managed { proxy } => {
+                    recording.free_resource(proxy);
+                }
+                ManagableResource::Imported => {}
+            }
+        }
 
-        let output = unsafe {
-            outputs[start.0]
-                .downcast_ref::<P::Output>()
-                .unwrap_unchecked()
-                .clone()
-        };
-
-        Some((recording, output))
+        Some(recording)
     }
 }
 
@@ -154,8 +153,13 @@ impl Into<BufferProxy> for Handle<BufferProxy> {
     }
 }
 
+enum ManagableResource {
+    Managed { proxy: ResourceProxy },
+    Imported,
+}
+
 pub struct ResourceManager {
-    resources: SlotMap<ResourceId, ()>,
+    resources: SlotMap<ResourceId, ManagableResource>,
 }
 
 impl ResourceManager {
@@ -165,13 +169,27 @@ impl ResourceManager {
         }
     }
 
-    pub fn import_image(&mut self, image: ImageProxy) -> Handle<ImageProxy> {
-        let id = self.resources.insert(());
+    pub fn managed_image(&mut self, image: ImageProxy) -> Handle<ImageProxy> {
+        let id = self.resources.insert(ManagableResource::Managed {
+            proxy: image.into(),
+        });
         Handle { id, proxy: image }
     }
 
+    pub fn import_image(&mut self, image: ImageProxy) -> Handle<ImageProxy> {
+        let id = self.resources.insert(ManagableResource::Imported);
+        Handle { id, proxy: image }
+    }
+
+    pub fn managed_buffer(&mut self, buffer: BufferProxy) -> Handle<BufferProxy> {
+        let id = self.resources.insert(ManagableResource::Managed {
+            proxy: buffer.into(),
+        });
+        Handle { id, proxy: buffer }
+    }
+
     pub fn import_buffer(&mut self, buffer: BufferProxy) -> Handle<BufferProxy> {
-        let id = self.resources.insert(());
+        let id = self.resources.insert(ManagableResource::Imported);
         Handle { id, proxy: buffer }
     }
 }

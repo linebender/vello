@@ -19,8 +19,6 @@ pub struct CoarseOutput {
     pub info_bin_data_buf: Handle<BufferProxy>,
     pub image_atlas: Handle<ImageProxy>,
 
-    pub out_image: Handle<ImageProxy>,
-
     pub fine_workgroup_size: WorkgroupSize,
 }
 
@@ -342,18 +340,16 @@ impl RenderPass for VelloCoarse {
         }
         recording.free_resource(bump_buf.into());
 
-        let out_image = ImageProxy::new(cx.params.width, cx.params.height, ImageFormat::Rgba8);
         (
             recording,
             CoarseOutput {
-                config_buf: cx.resources.import_buffer(config_buf),
-                tile_buf: cx.resources.import_buffer(tile_buf),
-                segments_buf: cx.resources.import_buffer(segments_buf),
-                ptcl_buf: cx.resources.import_buffer(ptcl_buf),
-                gradient_image: cx.resources.import_image(gradient_image),
-                info_bin_data_buf: cx.resources.import_buffer(info_bin_data_buf),
-                image_atlas: cx.resources.import_image(image_atlas),
-                out_image: cx.resources.import_image(out_image),
+                config_buf: cx.resources.managed_buffer(config_buf),
+                tile_buf: cx.resources.managed_buffer(tile_buf),
+                segments_buf: cx.resources.managed_buffer(segments_buf),
+                ptcl_buf: cx.resources.managed_buffer(ptcl_buf),
+                gradient_image: cx.resources.managed_image(gradient_image),
+                info_bin_data_buf: cx.resources.managed_buffer(info_bin_data_buf),
+                image_atlas: cx.resources.managed_image(image_atlas),
                 fine_workgroup_size: wg_counts.fine,
             },
         )

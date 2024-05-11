@@ -21,13 +21,8 @@ pub struct VelloFine {
     pub fine_workgroup_size: WorkgroupSize,
 }
 
-#[derive(Clone, Copy)]
-pub struct FineOutput {
-    pub out_image: Handle<ImageProxy>,
-}
-
 impl RenderPass for VelloFine {
-    type Output = FineOutput;
+    type Output = ();
 
     fn record(self, cx: PassContext<'_>) -> (Recording, Self::Output) {
         let mut recording = Recording::default();
@@ -90,11 +85,6 @@ impl RenderPass for VelloFine {
             }
         }
 
-        (
-            recording,
-            FineOutput {
-                out_image: self.out_image,
-            },
-        )
+        (recording, ())
     }
 }
