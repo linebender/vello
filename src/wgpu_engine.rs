@@ -646,7 +646,7 @@ impl WgpuEngine {
             entry_point: "main",
             compilation_options: PipelineCompilationOptions {
                 zero_initialize_workgroup_memory: false,
-                ..PipelineCompilationOptions::default()
+                ..Default::default()
             },
         });
         WgpuShader {
