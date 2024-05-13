@@ -15,8 +15,8 @@ use wgpu::{
 };
 
 use crate::{
-    recording::BindType, BufferProxy, Command, ImageProxy, Recording, ResourceId, 
-    ResourceProxy, Result, ShaderId, VelloError,
+    recording::BindType, BufferProxy, Command, ImageProxy, Recording, ResourceId, ResourceProxy,
+    Result, ShaderId, VelloError,
 };
 
 #[cfg(not(target_arch = "wasm32"))]
