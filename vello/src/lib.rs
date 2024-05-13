@@ -84,6 +84,7 @@
 mod debug;
 mod recording;
 mod render;
+mod robust;
 mod scene;
 mod shaders;
 #[cfg(feature = "wgpu")]
