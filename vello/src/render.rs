@@ -417,7 +417,6 @@ impl Render {
         if robust {
             recording.download(*bump_buf.as_buf().unwrap());
         }
-        recording.free_resource(bump_buf);
         recording
     }
 
