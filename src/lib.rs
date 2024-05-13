@@ -181,33 +181,34 @@ impl FromIterator<AaConfig> for AaSupport {
 /// Errors that can occur in vello.
 #[derive(Error, Debug)]
 pub enum VelloError {
-    /// Error when vello couldn't find a wgpu device with suitable features.
+    /// There is no available device with the features required by Vello.
     #[cfg(feature = "wgpu")]
     #[error("Couldn't find suitable device")]
     CouldntFindSuitableDevice,
-    /// Error when wgpu failed to create a surface.
+    /// Failed to create surface.
     /// See [`wgpu::CreateSurfaceError`] for more information.
     #[cfg(feature = "wgpu")]
     #[error("Couldn't create wgpu surface")]
     WgpuCreateSurfaceError(#[from] wgpu::CreateSurfaceError),
-    /// Error when vello couldn't find [`TextureFormat::Rgba8Unorm`] or [`TextureFormat::Bgra8Unorm`] for your surface.
-    /// Make sure that you have a surface which provides one of those texture formats.
+    /// Surface doesn't support the required texture formats.
+    /// Make sure that you have a surface which provides one of
+    /// [`TextureFormat::Rgba8Unorm`] or [`TextureFormat::Bgra8Unorm`] as texture formats.
     #[cfg(feature = "wgpu")]
     #[error("Couldn't find `Rgba8Unorm` or `Bgra8Unorm` texture formats for surface")]
     UnsupportedSurfaceFormat,
 
-    /// Error when using a buffer inside a recording while it's not available.
+    /// Used a buffer inside a recording while it was not available.
     /// Check if you have created it and not freed before its last usage.
     #[cfg(feature = "wgpu")]
     #[error("Buffer '{0}' is not available but used for {1}")]
     UnavailableBufferUsed(&'static str, &'static str),
-    /// Error when trying to async map a buffer.
+    /// Failed to async map a buffer.
     /// See [`wgpu::BufferAsyncError`] for more information.
     #[cfg(feature = "wgpu")]
-    #[error(transparent)]
+    #[error("Failed to async map a buffer")]
     BufferAsyncError(#[from] wgpu::BufferAsyncError),
 
-    /// Error when creating [`GpuProfiler`].
+    /// Failed to create [`GpuProfiler`].
     /// See [`wgpu_profiler::CreationError`] for more information.
     #[cfg(feature = "wgpu-profiler")]
     #[error("Couldn't create wgpu profiler")]
