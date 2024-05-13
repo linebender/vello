@@ -24,12 +24,6 @@ pub struct DeviceHandle {
     pub queue: Queue,
 }
 
-impl Default for RenderContext {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl RenderContext {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
