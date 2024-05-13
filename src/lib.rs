@@ -184,7 +184,7 @@ pub enum VelloError {
     /// There is no available device with the features required by Vello.
     #[cfg(feature = "wgpu")]
     #[error("Couldn't find suitable device")]
-    CouldntFindSuitableDevice,
+    NoCompatibleDevice,
     /// Failed to create surface.
     /// See [`wgpu::CreateSurfaceError`] for more information.
     #[cfg(feature = "wgpu")]

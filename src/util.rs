@@ -56,7 +56,7 @@ impl RenderContext {
         let dev_id = self
             .device(Some(&surface))
             .await
-            .ok_or(VelloError::CouldntFindSuitableDevice)?;
+            .ok_or(VelloError::NoCompatibleDevice)?;
 
         let device_handle = &self.devices[dev_id];
         let capabilities = surface.get_capabilities(&device_handle.adapter);
