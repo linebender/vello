@@ -244,6 +244,12 @@ fn round_up(n: usize, f: usize) -> usize {
 
 #[cfg(feature = "wgpu-profiler")]
 use wgpu_profiler::GpuTimerQueryResult;
+
+#[cfg(feature = "wgpu-profiler")]
+fn profiles_are_empty(profiles: &[GpuTimerQueryResult]) -> bool {
+    profiles.iter().all(|p| p.time.is_none())
+}
+
 #[cfg(feature = "wgpu-profiler")]
 pub fn draw_gpu_profiling(
     scene: &mut Scene,
@@ -262,7 +268,7 @@ pub fn draw_gpu_profiling(
         Color::ORANGE,
         Color::WHITE,
     ];
-    if profiles.is_empty() {
+    if profiles_are_empty(profiles) {
         return;
     }
     let width = (viewport_width * 0.3).clamp(150., 450.);
@@ -288,8 +294,10 @@ pub fn draw_gpu_profiling(
         match stage {
             TraversalStage::Enter => {
                 count += 1;
-                min = min.min(profile.time.start);
-                max = max.max(profile.time.end);
+                if let Some(time) = &profile.time {
+                    min = min.min(time.start);
+                    max = max.max(time.end);
+                }
                 max_depth = max_depth.max(depth);
                 // Apply a higher depth to the children
                 depth += 1;
@@ -349,95 +357,97 @@ pub fn draw_gpu_profiling(
     let depth_size = depth_width * 0.8;
     traverse_profiling(profiles, &mut |profile, stage| {
         if let TraversalStage::Enter = stage {
-            let start_normalised =
-                ((profile.time.start - min) / total_time) * timeline_range_y + timeline_start_y;
-            let end_normalised =
-                ((profile.time.end - min) / total_time) * timeline_range_y + timeline_start_y;
+            if let Some(time) = &profile.time {
+                let start_normalised =
+                    ((time.start - min) / total_time) * timeline_range_y + timeline_start_y;
+                let end_normalised =
+                    ((time.end - min) / total_time) * timeline_range_y + timeline_start_y;
 
-            let color = COLORS[cur_index % COLORS.len()];
-            let x = width * 0.01 + (depth as f64 * depth_width);
-            scene.fill(
-                Fill::NonZero,
-                offset,
-                &Brush::Solid(color),
-                None,
-                &Rect::new(x, start_normalised, x + depth_size, end_normalised),
-            );
-
-            let mut text_start = start_normalised;
-            let nested = !profile.nested_queries.is_empty();
-            if nested {
-                // If we have children, leave some more space for them
-                text_start -= text_height * 0.7;
-            }
-            let this_time = profile.time.end - profile.time.start;
-            // Highlight as important if more than 10% of the total time, or more than 1ms
-            let slow = this_time * 20. >= total_time || this_time >= 0.001;
-            let text_y = text_start
-                // Ensure that we don't overlap the previous item
-                .max(cur_text_y)
-                // Ensure that all remaining items can fit
-                .min(timeline_range_end - (count - cur_index) as f64 * text_height);
-            let (text_height, text_color) = if slow {
-                (text_height, Color::WHITE)
-            } else {
-                (text_height * 0.6, Color::LIGHT_GRAY)
-            };
-            let text_size = (text_height * 0.9) as f32;
-            // Text is specified by the baseline, but the y positions all refer to the top of the text
-            cur_text_y = text_y + text_height;
-            let label = {
-                // Sometimes, the duration turns out to be negative
-                // We have not yet debugged this, but display the absolute value in that case
-                // see https://github.com/linebender/vello/pull/475 for more
-                if this_time < 0.0 {
-                    format!(
-                        "-{:.2?}(!!) - {:.30}",
-                        instant::Duration::from_secs_f64(this_time.abs()),
-                        profile.label
-                    )
-                } else {
-                    format!(
-                        "{:.2?} - {:.30}",
-                        instant::Duration::from_secs_f64(this_time),
-                        profile.label
-                    )
-                }
-            };
-            scene.fill(
-                Fill::NonZero,
-                offset,
-                &Brush::Solid(color),
-                None,
-                &Rect::new(
-                    width * 0.31,
-                    cur_text_y - text_size as f64 * 0.7,
-                    width * 0.34,
-                    cur_text_y,
-                ),
-            );
-            text.add(
-                scene,
-                None,
-                text_size,
-                Some(&Brush::Solid(text_color)),
-                offset * Affine::translate((left_margin, cur_text_y)),
-                &label,
-            );
-            if !nested && slow {
-                scene.stroke(
-                    &Stroke::new(2.),
+                let color = COLORS[cur_index % COLORS.len()];
+                let x = width * 0.01 + (depth as f64 * depth_width);
+                scene.fill(
+                    Fill::NonZero,
                     offset,
                     &Brush::Solid(color),
                     None,
-                    &vello::kurbo::Line::new(
-                        (x + depth_size, (end_normalised + start_normalised) / 2.),
-                        (width * 0.31, cur_text_y - text_size as f64 * 0.35),
+                    &Rect::new(x, start_normalised, x + depth_size, end_normalised),
+                );
+
+                let mut text_start = start_normalised;
+                let nested = !profiles_are_empty(&profile.nested_queries);
+                if nested {
+                    // If we have children, leave some more space for them
+                    text_start -= text_height * 0.7;
+                }
+                let this_time = time.end - time.start;
+                // Highlight as important if more than 10% of the total time, or more than 1ms
+                let slow = this_time * 20. >= total_time || this_time >= 0.001;
+                let text_y = text_start
+                    // Ensure that we don't overlap the previous item
+                    .max(cur_text_y)
+                    // Ensure that all remaining items can fit
+                    .min(timeline_range_end - (count - cur_index) as f64 * text_height);
+                let (text_height, text_color) = if slow {
+                    (text_height, Color::WHITE)
+                } else {
+                    (text_height * 0.6, Color::LIGHT_GRAY)
+                };
+                let text_size = (text_height * 0.9) as f32;
+                // Text is specified by the baseline, but the y positions all refer to the top of the text
+                cur_text_y = text_y + text_height;
+                let label = {
+                    // Sometimes, the duration turns out to be negative
+                    // We have not yet debugged this, but display the absolute value in that case
+                    // see https://github.com/linebender/vello/pull/475 for more
+                    if this_time < 0.0 {
+                        format!(
+                            "-{:.2?}(!!) - {:.30}",
+                            instant::Duration::from_secs_f64(this_time.abs()),
+                            profile.label
+                        )
+                    } else {
+                        format!(
+                            "{:.2?} - {:.30}",
+                            instant::Duration::from_secs_f64(this_time),
+                            profile.label
+                        )
+                    }
+                };
+                scene.fill(
+                    Fill::NonZero,
+                    offset,
+                    &Brush::Solid(color),
+                    None,
+                    &Rect::new(
+                        width * 0.31,
+                        cur_text_y - text_size as f64 * 0.7,
+                        width * 0.34,
+                        cur_text_y,
                     ),
                 );
+                text.add(
+                    scene,
+                    None,
+                    text_size,
+                    Some(&Brush::Solid(text_color)),
+                    offset * Affine::translate((left_margin, cur_text_y)),
+                    &label,
+                );
+                if !nested && slow {
+                    scene.stroke(
+                        &Stroke::new(2.),
+                        offset,
+                        &Brush::Solid(color),
+                        None,
+                        &vello::kurbo::Line::new(
+                            (x + depth_size, (end_normalised + start_normalised) / 2.),
+                            (width * 0.31, cur_text_y - text_size as f64 * 0.35),
+                        ),
+                    );
+                }
+                cur_index += 1;
+                // Higher depth applies only to the children
             }
-            cur_index += 1;
-            // Higher depth applies only to the children
             depth += 1;
         } else {
             depth -= 1;

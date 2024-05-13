@@ -10,8 +10,8 @@ use vello_shaders::cpu::CpuBinding;
 
 use wgpu::{
     BindGroup, BindGroupLayout, Buffer, BufferUsages, CommandEncoder, CommandEncoderDescriptor,
-    ComputePipeline, Device, Queue, Texture, TextureAspect, TextureUsages, TextureView,
-    TextureViewDimension,
+    ComputePipeline, Device, PipelineCompilationOptions, Queue, Texture, TextureAspect,
+    TextureUsages, TextureView, TextureViewDimension,
 };
 
 use crate::recording::BindType;
@@ -644,6 +644,7 @@ impl WgpuEngine {
             layout: Some(&compute_pipeline_layout),
             module: &shader_module,
             entry_point: "main",
+            compilation_options: PipelineCompilationOptions::default(),
         });
         WgpuShader {
             pipeline,
