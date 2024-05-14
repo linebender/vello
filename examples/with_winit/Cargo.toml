@@ -26,7 +26,7 @@ name = "with_winit_bin"
 path = "src/main.rs"
 
 [dependencies]
-vello = { path = "../../", features = ["buffer_labels"] }
+vello = { workspace = true, features = ["buffer_labels"] }
 scenes = { path = "../scenes" }
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
@@ -47,7 +47,7 @@ tracing = { version = "0.1.40", features = ["log-always"] }
 env_logger = "0.11.3"
 
 [target.'cfg(not(any(target_arch = "wasm32", target_os = "android")))'.dependencies]
-vello = { path = "../../", features = ["hot_reload"] }
+vello = { workspace = true, features = ["hot_reload"] }
 notify-debouncer-mini = "0.3.0"
 
 
