@@ -14,18 +14,18 @@ pub struct Style {
     /// Encodes the stroke and fill style parameters. This field is split into two 16-bit
     /// parts:
     ///
-    /// - flags: u16 - encodes fill vs stroke, even-odd vs non-zero fill mode for fills and cap
-    ///                and join style for strokes. See the FLAGS_* constants below for more
-    ///                information.
+    /// - `flags: u16` - encodes fill vs stroke, even-odd vs non-zero fill mode for fills and cap
+    ///                  and join style for strokes. See the FLAGS_* constants below for more
+    ///                  information.
     /// ```text
     /// flags: |style|fill|join|start cap|end cap|reserved|
     ///  bits:  0     1    2-3  4-5       6-7     8-15
     /// ```
     ///
-    /// - miter_limit: u16 - The miter limit for a stroke, encoded in binary16 (half) floating
-    ///                      point representation. This field is only meaningful for the
-    ///                      `Join::Miter` join style. It's ignored for other stroke styles and
-    ///                      fills.
+    /// - `miter_limit: u16` - The miter limit for a stroke, encoded in binary16 (half) floating
+    ///                        point representation. This field is only meaningful for the
+    ///                        `Join::Miter` join style. It's ignored for other stroke styles and
+    ///                        fills.
     pub flags_and_miter_limit: u32,
 
     /// Encodes the stroke width. This field is ignored for fills.

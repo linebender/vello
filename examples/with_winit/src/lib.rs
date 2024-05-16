@@ -64,12 +64,10 @@ struct Args {
 }
 
 fn default_threads() -> usize {
-    #![allow(unreachable_code)]
-    #[cfg(target_os = "mac")]
-    {
-        return 1;
-    }
-    0
+    #[cfg(target_os = "macos")]
+    return 1;
+    #[cfg(not(target_os = "macos"))]
+    return 0;
 }
 
 struct RenderState<'s> {

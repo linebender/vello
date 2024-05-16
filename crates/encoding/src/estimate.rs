@@ -338,7 +338,7 @@ fn count_segments_for_line_length(scaled_width: f64) -> u32 {
 /// Wang's Formula (as described in Pyramid Algorithms by Ron Goldman, 2003, Chapter 5, Section
 /// 5.6.3 on Bezier Approximation) is a fast method for computing a lower bound on the number of
 /// recursive subdivisions required to approximate a Bezier curve within a certain tolerance. The
-/// formula for a Bezier curve of degree `n`, control points p[0]...p[n], and number of levels of
+/// formula for a Bezier curve of degree `n`, control points `p[0]...p[n]`, and number of levels of
 /// subdivision `l`, and flattening tolerance `tol` is defined as follows:
 ///
 /// ```ignore
