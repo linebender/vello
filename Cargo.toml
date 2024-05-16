@@ -91,4 +91,4 @@ clap = "4.5.4"
 anyhow = "1.0.83"
 instant = { version = "0.1.12", features = ["wasm-bindgen"] }
 pollster = "0.3.0"
-wgpu-profiler = "0.17"
+wgpu-profiler = "0.17.0"
