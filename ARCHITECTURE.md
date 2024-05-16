@@ -1,4 +1,3 @@
-
 # Architecture
 
 This document should be updated semi-regularly. Feel free to open an issue if it hasn't been updated in more than a year.
@@ -34,15 +33,14 @@ The repository is structured as such:
 
 - `crates/`
   - `encoding/` - Types that represent the data that needs to be rendered.
-  - `shaders/` - Infrastructure to preprocess and cross-compile shaders at compile time; see "Shader templating". Note that the `vello` crate doesn't currently import this crate (see [#467]).
+  - `shaders/` - Infrastructure to preprocess and cross-compile shaders at compile time; see "Shader templating".
+    - `cpu/` - Functions that perform the same work as their equivalently-named WGSL shaders for the CPU fallbacks. The name is a bit loose; they're "shaders" in the sense that they work on resource bindings with the exact same layout as actual GPU shaders.
   - `tests/` - Helper code for writing tests; current has a single smoke test and not much else.
 - `doc/` - Various documents detailing the vision for Vello as it was developed. This directory should probably be refactored away; adding to it not recommended.
 - `examples/` - Example projects using Vello. Each example is its own crate, with its own dependencies. The simplest example is the `shapes` one.
 - `shader/` - This is where the magic happens. WGSL shaders that define the compute operations (often variations of prefix sum) that Vello does to render a scene.
   - `shared/` - Shared types, functions and constants included in other shaders through non-standard `#import` preprocessor directives (see "Shader templating").
 - `src/` - Code for the main `vello` crate.
-  - `shaders/` - Same as `crates/shaders/` above. The duplication should eventually be removed (see [#467]).
-  - `cpu_shader/` - Functions that perform the same work as their equivalently-named WGSL shaders for the CPU fallbacks. The name is a bit loose; they're "shaders" in the sense that they work on resource bindings with the exact same layout as actual GPU shaders.
 
 
 ## Shader templating
