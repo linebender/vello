@@ -10,7 +10,7 @@ publish = false
 workspace = true
 
 [dependencies]
-vello = { path = "../../" }
+vello = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 image = { version = "0.25.1", default-features = false, features = ["jpeg"] }

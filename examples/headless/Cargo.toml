@@ -10,7 +10,7 @@ publish = false
 workspace = true
 
 [dependencies]
-vello = { path = "../../" }
+vello = { workspace = true }
 scenes = { path = "../scenes" }
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
