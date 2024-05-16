@@ -20,7 +20,7 @@ full = []
 
 # Target shading language variants of the vello shaders to link into the library.
 wgsl = []
-msl = []
+msl = ["naga?/msl-out"]
 
 # Enable the CPU versions of the shaders
 cpu = ["dep:bytemuck", "dep:vello_encoding"]
@@ -30,10 +30,10 @@ workspace = true
 
 [dependencies]
 bytemuck = { workspace = true, optional = true }
-naga = { version = "0.20.0", features = ["wgsl-in", "msl-out",], optional = true }
+naga = { version = "0.20.0", features = ["wgsl-in"], optional = true }
 thiserror = { version = "1.0.60", optional = true }
 vello_encoding = { workspace = true, optional = true }
 
 [build-dependencies]
-naga = { version = "0.20.0",  features = ["wgsl-in", "msl-out",] }
+naga = { version = "0.20.0",  features = ["wgsl-in"] }
 thiserror = "1.0.60"
