@@ -52,6 +52,11 @@ pub struct ImageProxy {
 #[derive(Clone, Copy)]
 pub enum ResourceProxy {
     Buffer(BufferProxy),
+    BufferRange {
+        proxy: BufferProxy,
+        offset: u64,
+        size: u64,
+    },
     Image(ImageProxy),
 }
 
@@ -69,6 +74,7 @@ pub enum Command {
     // Alternative: provide bufs & images as separate sequences
     Dispatch(ShaderId, (u32, u32, u32), Vec<ResourceProxy>),
     DispatchIndirect(ShaderId, BufferProxy, u64, Vec<ResourceProxy>),
+    Draw(DrawParams),
     Download(BufferProxy),
     /// Commands to clear the buffer from an offset on for a length of the given size.
     /// If the size is [None], it clears until the end.
@@ -93,6 +99,16 @@ pub enum BindType {
     /// A storage image with read only access.
     ImageRead(ImageFormat),
     // TODO: Uniform, Sampler, maybe others
+}
+
+pub struct DrawParams {
+    pub shader_id: ShaderId,
+    pub instance_count: u32,
+    pub vertex_count: u32,
+    pub vertex_buffer: Option<BufferProxy>,
+    pub resources: Vec<ResourceProxy>,
+    pub target: ImageProxy,
+    pub clear_color: Option<[f32; 4]>,
 }
 
 impl Recording {
@@ -167,6 +183,11 @@ impl Recording {
         self.push(Command::DispatchIndirect(shader, buf, offset, r));
     }
 
+    /// Issue a draw call
+    pub fn draw<R>(&mut self, params: DrawParams) {
+        self.push(Command::Draw(params));
+    }
+
     /// Prepare a buffer for downloading.
     ///
     /// Currently this copies to a download buffer. The original buffer can be freed
@@ -194,6 +215,11 @@ impl Recording {
     pub fn free_resource(&mut self, resource: ResourceProxy) {
         match resource {
             ResourceProxy::Buffer(buf) => self.free_buffer(buf),
+            ResourceProxy::BufferRange {
+                proxy,
+                offset: _,
+                size: _,
+            } => self.free_buffer(proxy),
             ResourceProxy::Image(image) => self.free_image(image),
         }
     }
@@ -218,6 +244,15 @@ impl ImageFormat {
         match self {
             Self::Rgba8 => wgpu::TextureFormat::Rgba8Unorm,
             Self::Bgra8 => wgpu::TextureFormat::Bgra8Unorm,
+        }
+    }
+
+    #[cfg(feature = "wgpu")]
+    pub fn from_wgpu(format: wgpu::TextureFormat) -> Self {
+        match format {
+            wgpu::TextureFormat::Rgba8Unorm => Self::Rgba8,
+            wgpu::TextureFormat::Bgra8Unorm => Self::Bgra8,
+            _ => unimplemented!(),
         }
     }
 }
