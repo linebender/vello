@@ -19,15 +19,25 @@ use crate::types::{BindType, BindingInfo, WorkgroupBufferInfo};
 
 #[derive(Error, Debug)]
 pub enum Error {
-    #[error("failed to parse shader: {0}")]
-    Parse(#[from] wgsl::ParseError),
+    #[error("failed to parse shader ({name}): {msg}")]
+    Parse {
+        name: String,
+        msg: String,
+        error: wgsl::ParseError,
+    },
 
-    #[error("failed to validate shader: {0}")]
-    Validate(#[from] WithSpan<ValidationError>),
+    #[error("failed to validate shader ({name}): {msg}")]
+    Validate {
+        name: String,
+        msg: String,
+        error: WithSpan<ValidationError>,
+    },
 
     #[error("missing entry point function")]
     EntryPointNotFound,
 }
+
+pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug)]
 pub struct ShaderInfo {
@@ -40,10 +50,19 @@ pub struct ShaderInfo {
 }
 
 impl ShaderInfo {
-    pub fn new(source: String, entry_point: &str) -> Result<ShaderInfo, Error> {
-        let module = wgsl::parse_str(&source)?;
+    pub fn new(name: &str, source: String, entry_point: &str) -> Result<ShaderInfo> {
+        let module = wgsl::parse_str(&source).map_err(|error| Error::Parse {
+            name: name.to_string(),
+            msg: error.emit_to_string(&source),
+            error,
+        })?;
         let module_info = naga::valid::Validator::new(ValidationFlags::all(), Capabilities::all())
-            .validate(&module)?;
+            .validate(&module)
+            .map_err(|error| Error::Validate {
+                name: name.to_string(),
+                msg: error.emit_to_string(&source),
+                error,
+            })?;
         let (entry_index, entry) = module
             .entry_points
             .iter()
@@ -131,11 +150,11 @@ impl ShaderInfo {
     }
 
     /// Same as [`ShaderInfo::from_dir`] but uses the default shader directory provided by [`shader_dir`].
-    pub fn from_default() -> HashMap<String, Self> {
+    pub fn from_default() -> Result<HashMap<String, Self>> {
         ShaderInfo::from_dir(shader_dir())
     }
 
-    pub fn from_dir(shader_dir: impl AsRef<Path>) -> HashMap<String, Self> {
+    pub fn from_dir(shader_dir: impl AsRef<Path>) -> Result<HashMap<String, Self>> {
         use std::fs;
         let shader_dir = shader_dir.as_ref();
         let permutation_map = if let Ok(permutations_source) =
@@ -174,18 +193,18 @@ impl ShaderInfo {
                             let mut defines = defines.clone();
                             defines.extend(permutation.defines.iter().cloned());
                             let source = preprocess::preprocess(&contents, &defines, &imports);
-                            let shader_info = Self::new(source.clone(), "main").unwrap();
+                            let shader_info = Self::new(&permutation.name, source.clone(), "main")?;
                             info.insert(permutation.name.clone(), shader_info);
                         }
                     } else {
                         let source = preprocess::preprocess(&contents, &defines, &imports);
-                        let shader_info = Self::new(source.clone(), "main").unwrap();
+                        let shader_info = Self::new(&shader_name, source.clone(), "main")?;
                         info.insert(shader_name.to_string(), shader_info);
                     }
                 }
             }
         }
-        info
+        Ok(info)
     }
 }
 
