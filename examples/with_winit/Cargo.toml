@@ -66,5 +66,5 @@ profiling = { version = "1.0", features = ["profile-with-tracing"] }
 console_error_panic_hook = "0.1.7"
 console_log = "1.0.0"
 wasm-bindgen-futures = "0.4.42"
-web-sys = { version = "0.3.67", features = ["HtmlCollection", "Text"] }
-getrandom = { version = "0.2.12", features = ["js"] }
+web-sys = { version = "0.3.69", features = ["HtmlCollection", "Text"] }
+getrandom = { version = "0.2.15", features = ["js"] }

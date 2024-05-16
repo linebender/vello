@@ -38,8 +38,8 @@ pub struct Clip {
     // Index of the draw object.
     pub ix: u32,
     /// This is a packed encoding of an enum with the sign bit as the tag. If positive,
-    /// this entry is a BeginClip and contains the associated path index. If negative,
-    /// it is an EndClip and contains the bitwise-not of the EndClip draw object index.    
+    /// this entry is a `BeginClip` and contains the associated path index. If negative,
+    /// it is an `EndClip` and contains the bitwise-not of the `EndClip` draw object index.    
     pub path_ix: i32,
 }
 

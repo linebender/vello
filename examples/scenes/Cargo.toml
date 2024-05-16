@@ -17,13 +17,13 @@ image = { version = "0.25.1", default-features = false, features = ["jpeg"] }
 rand = "0.8.5"
 instant = { workspace = true }
 # for pico_svg
-roxmltree = "0.19"
+roxmltree = "0.19.0"
 
 # Used for the `download` command
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 byte-unit = "4.0.19"
-inquire = "0.7.3"
-ureq = "2.9.6"
+inquire = "0.7.5"
+ureq = "2.9.7"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-getrandom = { version = "0.2.12", features = ["js"] }
+getrandom = { version = "0.2.15", features = ["js"] }
