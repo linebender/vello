@@ -180,6 +180,7 @@ impl FromIterator<AaConfig> for AaSupport {
 
 /// Errors that can occur in vello.
 #[derive(Error, Debug)]
+#[non_exhaustive]
 pub enum VelloError {
     /// There is no available device with the features required by Vello.
     #[cfg(feature = "wgpu")]
