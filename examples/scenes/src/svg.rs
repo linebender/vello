@@ -16,56 +16,34 @@ use vello::{
 use crate::{ExampleScene, SceneParams, SceneSet};
 
 pub fn scene_from_files(files: &[PathBuf]) -> Result<SceneSet> {
-    scene_from_files_inner(files, || ())
+    scene_from_files_inner(files)
 }
 
-pub fn default_scene(command: impl FnOnce() -> clap::Command) -> Result<SceneSet> {
+pub fn default_scene() -> Result<SceneSet> {
     let assets_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../assets/")
         .canonicalize()?;
-    let mut has_empty_directory = false;
-    let result = scene_from_files_inner(
-        &[
-            assets_dir.join("Ghostscript_Tiger.svg"),
-            assets_dir.join("downloads"),
-        ],
-        || has_empty_directory = true,
-    )?;
-    if has_empty_directory {
-        let mut command = command();
-        command.build();
-        println!(
-            "No test files have been downloaded. Consider downloading some using the subcommand:"
-        );
-        let subcmd = command.find_subcommand_mut("download").unwrap();
-        subcmd.print_help()?;
-    }
-    Ok(result)
+    scene_from_files_inner(&[
+        assets_dir.join("Ghostscript_Tiger.svg"),
+        assets_dir.join("downloads"),
+    ])
 }
 
-fn scene_from_files_inner(
-    files: &[PathBuf],
-    mut empty_dir: impl FnMut(),
-) -> std::result::Result<SceneSet, anyhow::Error> {
+fn scene_from_files_inner(files: &[PathBuf]) -> std::result::Result<SceneSet, anyhow::Error> {
     let mut scenes = Vec::new();
     for path in files {
         if path.is_dir() {
-            let mut count = 0;
             let start_index = scenes.len();
             for file in read_dir(path)? {
                 let entry = file?;
                 if let Some(extension) = Path::new(&entry.file_name()).extension() {
                     if extension == "svg" {
-                        count += 1;
                         scenes.push(example_scene_of(entry.path()));
                     }
                 }
             }
             // Ensure a consistent order within directories
             scenes[start_index..].sort_by_key(|scene| scene.config.name.to_lowercase());
-            if count == 0 {
-                empty_dir();
-            }
         } else {
             scenes.push(example_scene_of(path.to_owned()));
         }

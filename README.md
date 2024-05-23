@@ -142,13 +142,6 @@ It also includes a collection of test scenes showing the capabilities of `vello`
 cargo run -p with_winit
 ```
 
-Some default test scenes can be downloaded from Wikimedia Commons using the `download` subcommand.
-This also supports downloading from user-provided URLS.
-
-```shell
-cargo run -p with_winit -- download
-```
-
 <!-- ### Headless -->
 
 ### Bevy

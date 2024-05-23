@@ -6,7 +6,7 @@ use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, bail, Context, Result};
-use clap::{CommandFactory, Parser};
+use clap::Parser;
 use scenes::{ImageCache, SceneParams, SceneSet, SimpleText};
 use vello::kurbo::{Affine, Vec2};
 use vello::util::RenderContext;
@@ -20,7 +20,7 @@ fn main() -> Result<()> {
     #[cfg(not(target_arch = "wasm32"))]
     env_logger::init();
     let args = Args::parse();
-    let scenes = args.args.select_scene_set(Args::command)?;
+    let scenes = args.args.select_scene_set()?;
     if let Some(scenes) = scenes {
         let mut scene_idx = None;
         for (idx, scene) in scenes.scenes.iter().enumerate() {
