@@ -21,7 +21,7 @@ use {
 /// # Invariants
 ///
 /// * At least one transform and style must be encoded before any path data
-/// or draw object.
+///   or draw object.
 #[derive(Clone, Default)]
 pub struct Encoding {
     /// The path tag stream.
