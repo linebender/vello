@@ -64,6 +64,7 @@ raw-window-handle = { workspace = true }
 static_assertions = { workspace = true }
 futures-intrusive = { workspace = true }
 wgpu-profiler = { workspace = true, optional = true }
+thiserror = { workspace = true }
 
 [workspace.lints]
 clippy.doc_markdown = "warn"
@@ -80,6 +81,7 @@ futures-intrusive = "0.5.0"
 raw-window-handle = "0.6.1"
 smallvec = "1.13.2"
 static_assertions = "1.1.0"
+thiserror = "1.0.57"
 
 # NOTE: Make sure to keep this in sync with the version badge in README.md
 # as well as examples/simple/Cargo.toml

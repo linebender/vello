@@ -12,7 +12,7 @@ use crate::ShaderId;
 use crate::{
     recording::{BindType, ImageFormat},
     wgpu_engine::WgpuEngine,
-    Error, RendererOptions,
+    RendererOptions,
 };
 
 // Shaders for the full pipeline
@@ -49,7 +49,7 @@ pub fn full_shaders(
     device: &Device,
     engine: &mut WgpuEngine,
     options: &RendererOptions,
-) -> Result<FullShaders, Error> {
+) -> FullShaders {
     use crate::wgpu_engine::CpuShaderType;
     use BindType::*;
 
@@ -250,7 +250,7 @@ pub fn full_shaders(
         None
     };
 
-    Ok(FullShaders {
+    FullShaders {
         pathtag_reduce,
         pathtag_reduce2,
         pathtag_scan,
@@ -274,5 +274,5 @@ pub fn full_shaders(
         fine_msaa8,
         fine_msaa16,
         pathtag_is_cpu: options.use_cpu,
-    })
+    }
 }
