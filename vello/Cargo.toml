@@ -1,0 +1,37 @@
+[package]
+name = "vello"
+version.workspace = true
+description = "An experimental GPU compute-centric 2D renderer."
+categories = ["rendering", "graphics"]
+keywords = ["2d", "vector-graphics"]
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = ["wgpu"]
+# Enables GPU memory usage estimation. This performs additional computations
+# in order to estimate the minimum required allocations for buffers backing
+# bump-allocated GPU memory.
+# TODO: Turn this into a runtime option used at resolve time and remove the feature.
+bump_estimate = ["vello_encoding/bump_estimate"]
+hot_reload = ["vello_shaders/compile"]
+buffer_labels = []
+
+[lints]
+workspace = true
+
+[dependencies]
+vello_encoding = { workspace = true }
+vello_shaders = { workspace = true }
+bytemuck = { workspace = true }
+skrifa = { workspace = true }
+peniko = { workspace = true }
+wgpu = { workspace = true, optional = true }
+log = { workspace = true }
+raw-window-handle = { workspace = true }
+static_assertions = { workspace = true }
+futures-intrusive = { workspace = true }
+wgpu-profiler = { workspace = true, optional = true }
+thiserror = { workspace = true }
