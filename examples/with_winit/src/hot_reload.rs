@@ -20,7 +20,7 @@ pub(crate) fn hot_reload(mut f: impl FnMut() -> Option<()> + Send + 'static) -> 
 
     debouncer.watcher().watch(
         &Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../shader")
+            .join("../../vello_shaders/shader")
             .canonicalize()?,
         // We currently don't support hot reloading the imports, so don't recurse into there
         RecursiveMode::NonRecursive,
