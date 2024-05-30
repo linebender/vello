@@ -62,7 +62,7 @@ pub fn full_shaders(
     #[cfg(feature = "hot_reload")]
     let mut shaders = vello_shaders::compile::ShaderInfo::from_dir(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/shader"
+        "/../vello_shaders/shader"
     ));
     #[cfg(not(feature = "hot_reload"))]
     let shaders = vello_shaders::SHADERS;
