@@ -15,8 +15,8 @@ use wgpu::{
 };
 
 use crate::{
-    recording::BindType, BufferProxy, Command, ImageProxy, Recording, ResourceId, ResourceProxy,
-    Result, ShaderId, VelloError,
+    recording::BindType, BufferProxy, Command, Error, ImageProxy, Recording, ResourceId,
+    ResourceProxy, Result, ShaderId,
 };
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -541,7 +541,7 @@ impl WgpuEngine {
                             cpass.set_pipeline(&wgpu_shader.pipeline);
                             cpass.set_bind_group(0, &bind_group, &[]);
                             let buf = self.bind_map.get_gpu_buf(proxy.id).ok_or(
-                                VelloError::UnavailableBufferUsed(proxy.name, "indirect dispatch"),
+                                Error::UnavailableBufferUsed(proxy.name, "indirect dispatch"),
                             )?;
                             cpass.dispatch_workgroups_indirect(buf, *offset);
                             #[cfg(feature = "wgpu-profiler")]
@@ -553,7 +553,7 @@ impl WgpuEngine {
                     let src_buf = self
                         .bind_map
                         .get_gpu_buf(proxy.id)
-                        .ok_or(VelloError::UnavailableBufferUsed(proxy.name, "download"))?;
+                        .ok_or(Error::UnavailableBufferUsed(proxy.name, "download"))?;
                     let usage = BufferUsages::MAP_READ | BufferUsages::COPY_DST;
                     let buf = self.pool.get_buf(proxy.size, "download", usage, device);
                     encoder.copy_buffer_to_buffer(src_buf, 0, &buf, 0, proxy.size);

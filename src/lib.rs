@@ -178,10 +178,10 @@ impl FromIterator<AaConfig> for AaSupport {
     }
 }
 
-/// Errors that can occur in vello.
+/// Errors that can occur in Vello.
 #[derive(Error, Debug)]
 #[non_exhaustive]
-pub enum VelloError {
+pub enum Error {
     /// There is no available device with the features required by Vello.
     #[cfg(feature = "wgpu")]
     #[error("Couldn't find suitable device")]
@@ -217,7 +217,7 @@ pub enum VelloError {
 }
 
 #[allow(dead_code)] // this can be unused when wgpu feature is not used
-pub(crate) type Result<T, E = VelloError> = std::result::Result<T, E>;
+pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Renders a scene into a texture or surface.
 #[cfg(feature = "wgpu")]

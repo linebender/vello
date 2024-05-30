@@ -10,7 +10,7 @@ use wgpu::{
     TextureFormat,
 };
 
-use crate::{Result, VelloError};
+use crate::{Error, Result};
 
 /// Simple render context that maintains wgpu state for rendering the pipeline.
 pub struct RenderContext {
@@ -50,7 +50,7 @@ impl RenderContext {
         let dev_id = self
             .device(Some(&surface))
             .await
-            .ok_or(VelloError::NoCompatibleDevice)?;
+            .ok_or(Error::NoCompatibleDevice)?;
 
         let device_handle = &self.devices[dev_id];
         let capabilities = surface.get_capabilities(&device_handle.adapter);
@@ -58,7 +58,7 @@ impl RenderContext {
             .formats
             .into_iter()
             .find(|it| matches!(it, TextureFormat::Rgba8Unorm | TextureFormat::Bgra8Unorm))
-            .ok_or(VelloError::UnsupportedSurfaceFormat)?;
+            .ok_or(Error::UnsupportedSurfaceFormat)?;
 
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
