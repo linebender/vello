@@ -434,6 +434,9 @@ fn flatten_euler(
                 let integrand_peak = sqrt(abs(k_peak * (k_peak * dist_scaled + 1.0)));
                 n_frac = integral * integrand_peak / a;
             }
+            // Bound number of subdivisions to a reasonable number when the scale is huge.
+            // This may give slightly incorrect rendering but avoids hangs.
+            // TODO: aggressively cull to viewport
             let n = clamp(ceil(n_frac * scale_multiplier), 1.0, 100.0);
             for (var i = 0u; i < u32(n); i++) {
                 var lp1: vec2f;
