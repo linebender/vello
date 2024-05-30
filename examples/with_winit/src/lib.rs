@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
-use clap::{CommandFactory, Parser};
+use clap::Parser;
 use scenes::{ImageCache, SceneParams, SceneSet, SimpleText};
 use vello::kurbo::{Affine, Vec2};
 use vello::peniko::Color;
@@ -703,7 +703,7 @@ pub fn main() -> anyhow::Result<()> {
         .format_timestamp(Some(env_logger::TimestampPrecision::Millis))
         .init();
     let args = parse_arguments();
-    let scenes = args.args.select_scene_set(Args::command)?;
+    let scenes = args.args.select_scene_set()?;
     if let Some(scenes) = scenes {
         let event_loop = EventLoop::<UserEvent>::with_user_event().build()?;
         #[allow(unused_mut)]
@@ -826,11 +826,7 @@ fn android_main(app: AndroidApp) {
         .build()
         .expect("Required to continue");
     let args = parse_arguments();
-    let scenes = args
-        .args
-        .select_scene_set(|| Args::command())
-        .unwrap()
-        .unwrap();
+    let scenes = args.args.select_scene_set().unwrap().unwrap();
     let render_cx = RenderContext::new();
 
     run(event_loop, args, scenes, render_cx);

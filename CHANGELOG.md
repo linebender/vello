@@ -26,6 +26,6 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 - [#526](https://github.com/linebender/vello/pull/526) - Increases ~64k draw object limit by [@raphlinus](https://github.com/raphlinus)
 - [#537](https://github.com/linebender/vello/pull/537) - Increase robustness of GPU shaders by [@raphlinus](https://github.com/raphlinus)
 
-## 0.1 (2024-03-04)
+## 0.1.0 (2024-03-04)
 
 - Initial release

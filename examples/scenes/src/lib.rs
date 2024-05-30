@@ -1,8 +1,6 @@
 // Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-#[cfg(not(target_arch = "wasm32"))]
-pub mod download;
 mod images;
 mod mmark;
 mod pico_svg;
@@ -12,9 +10,7 @@ mod test_scenes;
 use std::path::PathBuf;
 
 use anyhow::{anyhow, Result};
-use clap::{Args, Subcommand};
-#[cfg(not(target_arch = "wasm32"))]
-use download::Download;
+use clap::Args;
 pub use images::ImageCache;
 pub use simple_text::SimpleText;
 pub use svg::{default_scene, scene_from_files};
@@ -78,53 +74,25 @@ pub struct Arguments {
     /// Format is CSS style hexadecimal (#RGB, #RGBA, #RRGGBB, #RRGGBBAA) or
     /// an SVG color name such as "aliceblue"
     pub base_color: Option<Color>,
-    #[clap(subcommand)]
-    command: Option<Command>,
-}
-
-#[derive(Subcommand, Debug)]
-enum Command {
-    /// Download SVG files for testing. By default, downloads a set of files from wikipedia
-    #[cfg(not(target_arch = "wasm32"))]
-    Download(Download),
 }
 
 impl Arguments {
-    pub fn select_scene_set(
-        &self,
-        #[allow(unused)] command: impl FnOnce() -> clap::Command,
-    ) -> Result<Option<SceneSet>> {
-        if let Some(command) = &self.command {
-            command.action()?;
-            Ok(None)
+    pub fn select_scene_set(&self) -> Result<Option<SceneSet>> {
+        // There is no file access on WASM, and on Android we haven't set up the assets
+        // directory.
+        // TODO: Upload the assets directory on Android
+        // Therefore, only render the `test_scenes` (including one SVG example)
+        #[cfg(any(target_arch = "wasm32", target_os = "android"))]
+        return Ok(Some(test_scenes()));
+        #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
+        if self.test_scenes {
+            Ok(test_scenes())
+        } else if let Some(svgs) = &self.svgs {
+            scene_from_files(svgs)
         } else {
-            // There is no file access on WASM, and on Android we haven't set up the assets
-            // directory.
-            // TODO: Upload the assets directory on Android
-            // Therefore, only render the `test_scenes` (including one SVG example)
-            #[cfg(any(target_arch = "wasm32", target_os = "android"))]
-            return Ok(Some(test_scenes()));
-            #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
-            if self.test_scenes {
-                Ok(test_scenes())
-            } else if let Some(svgs) = &self.svgs {
-                scene_from_files(svgs)
-            } else {
-                default_scene(command)
-            }
-            .map(Some)
+            default_scene()
         }
-    }
-}
-
-impl Command {
-    fn action(&self) -> Result<()> {
-        match self {
-            #[cfg(not(target_arch = "wasm32"))]
-            Command::Download(download) => download.action(),
-            #[cfg(target_arch = "wasm32")]
-            _ => unreachable!("downloads not supported on wasm"),
-        }
+        .map(Some)
     }
 }
 
