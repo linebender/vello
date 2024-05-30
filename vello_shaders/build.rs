@@ -20,7 +20,7 @@ fn main() {
 
     // To support hermetic build environments that don't support relative paths (such as Bazel)
     // we use Cargo's CARGO_MANIFEST_DIR environment variable to compose an absolute path.
-    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let manifest_dir = env::var_os("CARGO_MANIFEST_DIR").unwrap();
     let shader_dir = Path::new(&manifest_dir).join("shader");
     let mut shaders = compile::ShaderInfo::from_dir(shader_dir);
 
