@@ -333,7 +333,7 @@ fn flatten_euler(
                 let n_frac = scaled_int;
                 (n_frac, EspcRobust::Normal)
             };
-            let n = (n_frac * scale_multiplier).ceil().max(1.0);
+            let n = (n_frac * scale_multiplier).ceil().clamp(1.0, 100.0);
 
             // Flatten line segments
             log!("@@@   loop: lines: {n}");
