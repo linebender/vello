@@ -7,6 +7,11 @@ use vello::kurbo::{Affine, PathEl, Rect, Stroke};
 use vello::peniko::{Brush, Color, Fill};
 use vello::{AaConfig, BumpAllocators, Scene};
 
+#[cfg(all(feature = "wgpu-profiler", not(target_arch = "wasm32")))]
+use std::time::Duration;
+#[cfg(all(feature = "wgpu-profiler", target_arch = "wasm32"))]
+use web_time::Duration;
+
 const SLIDING_WINDOW_SIZE: usize = 100;
 
 #[derive(Debug)]
@@ -308,10 +313,7 @@ pub fn draw_gpu_profiling(
     let total_time = max - min;
     {
         let labels = [
-            format!(
-                "GPU Time: {:.2?}",
-                instant::Duration::from_secs_f64(total_time)
-            ),
+            format!("GPU Time: {:.2?}", Duration::from_secs_f64(total_time)),
             "Press P to save a trace".to_string(),
         ];
 
@@ -402,13 +404,13 @@ pub fn draw_gpu_profiling(
                     if this_time < 0.0 {
                         format!(
                             "-{:.2?}(!!) - {:.30}",
-                            instant::Duration::from_secs_f64(this_time.abs()),
+                            Duration::from_secs_f64(this_time.abs()),
                             profile.label
                         )
                     } else {
                         format!(
                             "{:.2?} - {:.30}",
-                            instant::Duration::from_secs_f64(this_time),
+                            Duration::from_secs_f64(this_time),
                             profile.label
                         )
                     }

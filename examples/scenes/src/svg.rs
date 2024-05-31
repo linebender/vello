@@ -4,9 +4,12 @@
 use std::fs::read_dir;
 use std::path::{Path, PathBuf};
 
-use anyhow::Result;
-use instant::Instant;
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Instant;
+#[cfg(target_arch = "wasm32")]
+use web_time::Instant;
 
+use anyhow::Result;
 use vello::{
     kurbo::{Affine, Rect, Stroke, Vec2},
     peniko::{Color, Fill},
