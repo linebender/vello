@@ -208,7 +208,7 @@ fn postprocess(wgsl: &str) -> String {
 /// Returns the absolute path to the directory containing the WGSL shaders.
 ///
 /// The path is determined at compile time.
-// NOTE: Embedding build environemnt info into the code makes reproducible builds trickier.
+// NOTE: Embedding build environment info into the code makes reproducible builds trickier.
 pub fn shader_dir() -> &'static PathBuf {
     static SHADER_DIR: OnceLock<PathBuf> = OnceLock::new();
     SHADER_DIR.get_or_init(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("shader"))
