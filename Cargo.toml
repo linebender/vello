@@ -75,13 +75,13 @@ vello = { version = "0.1.0", path = "." }
 vello_encoding = { version = "0.1.0", path = "crates/encoding" }
 vello_shaders = { version = "0.1.0", path = "crates/shaders" }
 bytemuck = { version = "1.16.0", features = ["derive"] }
-skrifa = "0.19.1"
-peniko = "0.1.0"
+skrifa = "0.19.3"
+peniko = "0.1.1"
 futures-intrusive = "0.5.0"
-raw-window-handle = "0.6.1"
+raw-window-handle = "0.6.2"
 smallvec = "1.13.2"
 static_assertions = "1.1.0"
-thiserror = "1.0.57"
+thiserror = "1.0.61"
 
 # NOTE: Make sure to keep this in sync with the version badge in README.md
 # as well as examples/simple/Cargo.toml
@@ -90,7 +90,7 @@ log = "0.4.21"
 
 # Used for examples
 clap = "4.5.4"
-anyhow = "1.0.83"
-instant = { version = "0.1.12", features = ["wasm-bindgen"] }
+anyhow = "1.0.86"
+instant = { version = "0.1.13", features = ["wasm-bindgen"] }
 pollster = "0.3.0"
 wgpu-profiler = "0.17.0"
