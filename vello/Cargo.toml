@@ -16,7 +16,6 @@ default = ["wgpu"]
 # bump-allocated GPU memory.
 # TODO: Turn this into a runtime option used at resolve time and remove the feature.
 bump_estimate = ["vello_encoding/bump_estimate"]
-# Hot reloading assumes that the shader files are located in ../vello_shaders/shader
 hot_reload = ["vello_shaders/compile"]
 buffer_labels = []
 

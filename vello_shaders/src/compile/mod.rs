@@ -5,7 +5,8 @@ use naga::front::wgsl;
 use naga::valid::{Capabilities, ModuleInfo, ValidationError, ValidationFlags};
 use naga::{AddressSpace, ArraySize, ImageClass, Module, StorageAccess, WithSpan};
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use thiserror::Error;
 
 pub mod permutations;
@@ -129,6 +130,11 @@ impl ShaderInfo {
         })
     }
 
+    /// Same as [`ShaderInfo::from_dir`] but uses the default shader directory provided by [`shader_dir`].
+    pub fn from_default() -> HashMap<String, Self> {
+        ShaderInfo::from_dir(shader_dir())
+    }
+
     pub fn from_dir(shader_dir: impl AsRef<Path>) -> HashMap<String, Self> {
         use std::fs;
         let shader_dir = shader_dir.as_ref();
@@ -197,4 +203,12 @@ fn postprocess(wgsl: &str) -> String {
         output.push('\n');
     }
     output
+}
+
+/// Returns the absolute path to the directory containing the WGSL shaders.
+///
+/// The path is determined at compile time.
+pub fn shader_dir() -> &'static PathBuf {
+    static SHADER_DIR: OnceLock<PathBuf> = OnceLock::new();
+    SHADER_DIR.get_or_init(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("shader"))
 }

@@ -1,7 +1,6 @@
 // Copyright 2023 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use std::path::Path;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -19,9 +18,7 @@ pub(crate) fn hot_reload(mut f: impl FnMut() -> Option<()> + Send + 'static) -> 
     )?;
 
     debouncer.watcher().watch(
-        &Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../vello_shaders/shader")
-            .canonicalize()?,
+        vello_shaders::compile::shader_dir().as_path(),
         // We currently don't support hot reloading the imports, so don't recurse into there
         RecursiveMode::NonRecursive,
     )?;

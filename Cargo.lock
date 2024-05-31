@@ -3112,6 +3112,7 @@ dependencies = [
  "tracing-subscriber",
  "tracing_android_trace",
  "vello",
+ "vello_shaders",
  "wasm-bindgen-futures",
  "web-sys",
  "wgpu",
