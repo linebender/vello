@@ -1,6 +1,22 @@
 // Copyright 2023 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+//! This is a utility library to help integrate the [Vello] shader modules into any renderer
+//! project. It provides the necessary metadata to construct the individual compute pipelines
+//! on any GPU API while leaving the responsibility of all API interactions
+//! (such as resource management and command encoding) up to the client.
+//!
+//! The shaders can be pre-compiled to any target shading language at build time based on
+//! feature flags. Currently only WGSL and Metal Shading Language are supported.
+//!
+//! Your first choice should be to use the build time generated [`SHADERS`].
+//!
+//! Alternatively you could use runtime compiled shaders via the [`compile`] module
+//! by enabling the `compile` feature. This option is useful for active development
+//! as it enables you to do hot reloading of shaders.
+//!
+//! [Vello]: https://github.com/linebender/vello
+
 mod types;
 
 #[cfg(feature = "compile")]
