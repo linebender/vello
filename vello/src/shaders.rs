@@ -60,10 +60,7 @@ pub fn full_shaders(
     //let force_gpu_from = Some("binning");
 
     #[cfg(feature = "hot_reload")]
-    let mut shaders = vello_shaders::compile::ShaderInfo::from_dir(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/shader"
-    ));
+    let mut shaders = vello_shaders::compile::ShaderInfo::from_default();
     #[cfg(not(feature = "hot_reload"))]
     let shaders = vello_shaders::SHADERS;
 

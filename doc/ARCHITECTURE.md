@@ -31,16 +31,15 @@ Our current priority is to fill in missing features and to fix rendering artifac
 
 The repository is structured as such:
 
-- `crates/`
-  - `encoding/` - Types that represent the data that needs to be rendered.
-  - `shaders/` - Infrastructure to preprocess and cross-compile shaders at compile time; see "Shader templating".
-    - `cpu/` - Functions that perform the same work as their equivalently-named WGSL shaders for the CPU fallbacks. The name is a bit loose; they're "shaders" in the sense that they work on resource bindings with the exact same layout as actual GPU shaders.
-  - `tests/` - Helper code for writing tests; current has a single smoke test and not much else.
 - `doc/` - Various documents detailing the vision for Vello as it was developed. This directory should probably be refactored away; adding to it not recommended.
-- `examples/` - Example projects using Vello. Each example is its own crate, with its own dependencies. The simplest example is the `shapes` one.
-- `shader/` - This is where the magic happens. WGSL shaders that define the compute operations (often variations of prefix sum) that Vello does to render a scene.
-  - `shared/` - Shared types, functions and constants included in other shaders through non-standard `#import` preprocessor directives (see "Shader templating").
-- `src/` - Code for the main `vello` crate.
+- `examples/` - Example projects using Vello. Each example is its own crate, with its own dependencies. The simplest example is called `simple`.
+- `vello/` - Code for the main `vello` crate.
+- `vello_encoding/` - Types that represent the data that needs to be rendered.
+- `vello_shaders/` - Infrastructure to preprocess and cross-compile shaders at compile time; see "Shader templating".
+  - `shader/` - This is where the magic happens. WGSL shaders that define the compute operations (often variations of prefix sum) that Vello does to render a scene.
+    - `shared/` - Shared types, functions and constants included in other shaders through non-standard `#import` preprocessor directives (see "Shader templating").
+  - `cpu/` - Functions that perform the same work as their equivalently-named WGSL shaders for the CPU fallbacks. The name is a bit loose; they're "shaders" in the sense that they work on resource bindings with the exact same layout as actual GPU shaders.
+- `vello_tests/` - Helper code for writing tests; current has a single smoke test and not much else.
 
 
 ## Shader templating
@@ -81,7 +80,7 @@ In principle, other backends could consume a `Recording`, but for now the only i
 
 ### CPU rendering
 
-The code in `cpu_shader/*.rs` and `cpu_dispatch.rs` provides *some* support for CPU-side rendering. It's in an awkward place right now:
+The code in `vello_shaders/src/cpu/*.rs` and `vello_shaders/src/cpu.rs` provides *some* support for CPU-side rendering. It's in an awkward place right now:
 
 - It's called through WgpuEngine, so the dependency on wgpu is still there.
 - Fine rasterization (the part at the end that puts pixels on screen) doesn't work in CPU yet (see [#386]).
