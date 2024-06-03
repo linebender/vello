@@ -91,6 +91,6 @@ log = "0.4.21"
 # Used for examples
 clap = "4.5.4"
 anyhow = "1.0.86"
-instant = { version = "0.1.13", features = ["wasm-bindgen"] }
 pollster = "0.3.0"
+web-time = "1.1.0"
 wgpu-profiler = "0.17.0"

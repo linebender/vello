@@ -1,10 +1,19 @@
 // Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use instant::Instant;
 use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
+
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Instant;
+#[cfg(target_arch = "wasm32")]
+use web_time::Instant;
+
+#[cfg(all(feature = "wgpu-profiler", not(target_arch = "wasm32")))]
+use std::time::Duration;
+#[cfg(all(feature = "wgpu-profiler", target_arch = "wasm32"))]
+use web_time::Duration;
 
 use clap::Parser;
 use scenes::{ImageCache, SceneParams, SceneSet, SimpleText};
@@ -457,7 +466,7 @@ fn run(
                                 .and_then(|it| it.profile_result.take())
                             {
                                 if profile_stored.is_none()
-                                    || profile_taken.elapsed() > instant::Duration::from_secs(1)
+                                    || profile_taken.elapsed() > Duration::from_secs(1)
                                 {
                                     profile_stored = Some(profiling_result);
                                     profile_taken = Instant::now();

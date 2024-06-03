@@ -15,9 +15,10 @@ anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 image = { version = "0.25.1", default-features = false, features = ["jpeg"] }
 rand = "0.8.5"
-instant = { workspace = true }
+
 # for pico_svg
 roxmltree = "0.19.0"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.2.15", features = ["js"] }
+web-time = { workspace = true }
