@@ -232,7 +232,7 @@ impl ShaderInfo {
                         }
                     } else {
                         let source = preprocess::preprocess(&contents, &defines, &imports);
-                        match Self::new(&shader_name, source, "main") {
+                        match Self::new(shader_name, source, "main") {
                             Ok(shader_info) => {
                                 info.insert(shader_name.to_string(), shader_info);
                             }
