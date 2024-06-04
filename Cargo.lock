@@ -951,7 +951,6 @@ dependencies = [
  "pollster",
  "scenes",
  "vello",
- "wgpu",
 ]
 
 [[package]]
@@ -1926,7 +1925,6 @@ dependencies = [
  "anyhow",
  "pollster",
  "vello",
- "wgpu",
  "winit",
 ]
 
@@ -2301,7 +2299,6 @@ dependencies = [
  "png",
  "pollster",
  "vello",
- "wgpu",
 ]
 
 [[package]]
@@ -3103,7 +3100,6 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
  "web-time",
- "wgpu",
  "wgpu-profiler",
  "winit",
 ]

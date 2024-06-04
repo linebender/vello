@@ -13,6 +13,7 @@ use winit::event::*;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::Window;
 
+use vello::wgpu;
 // Simple struct to hold the state of the renderer
 pub struct ActiveRenderState<'s> {
     // The fields MUST be in this order, so that the surface is dropped before the window

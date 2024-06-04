@@ -102,6 +102,9 @@ pub use skrifa;
 pub mod glyph;
 
 #[cfg(feature = "wgpu")]
+pub use wgpu;
+
+#[cfg(feature = "wgpu")]
 pub mod util;
 
 pub use render::Render;

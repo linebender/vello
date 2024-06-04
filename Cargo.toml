@@ -46,7 +46,6 @@ static_assertions = "1.1.0"
 thiserror = "1.0.61"
 
 # NOTE: Make sure to keep this in sync with the version badge in README.md
-# as well as examples/simple/Cargo.toml
 wgpu = { version = "0.20.0" }
 log = "0.4.21"
 
