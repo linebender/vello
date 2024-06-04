@@ -58,17 +58,17 @@ impl Error {
         let source = error.into();
         Error {
             name: name.to_owned(),
-            msg: source.emit_msg(wgsl),
+            msg: source.emit_msg(wgsl, &format!("({name} preprocessed)")),
             source,
         }
     }
 }
 
 impl InnerError {
-    fn emit_msg(&self, wgsl: &str) -> String {
+    fn emit_msg(&self, wgsl: &str, name: &str) -> String {
         match self {
-            Self::Parse(e) => e.emit_to_string(wgsl),
-            Self::Validate(e) => e.emit_to_string(wgsl),
+            Self::Parse(e) => e.emit_to_string_with_path(wgsl, name),
+            Self::Validate(e) => e.emit_to_string_with_path(wgsl, name),
             _ => String::default(),
         }
     }
