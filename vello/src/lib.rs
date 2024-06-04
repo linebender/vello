@@ -209,11 +209,20 @@ pub enum Error {
     #[error("Failed to async map a buffer")]
     BufferAsyncError(#[from] wgpu::BufferAsyncError),
 
+    #[cfg(feature = "wgpu")]
+    #[error("wgpu Error from scope")]
+    WgpuErrorFromScope(#[from] wgpu::Error),
+
     /// Failed to create [`GpuProfiler`].
     /// See [`wgpu_profiler::CreationError`] for more information.
     #[cfg(feature = "wgpu-profiler")]
     #[error("Couldn't create wgpu profiler")]
     ProfilerCreationError(#[from] wgpu_profiler::CreationError),
+
+    /// Failed to compile the shaders.
+    #[cfg(feature = "hot_reload")]
+    #[error("Failed to compile shaders:\n{0}")]
+    ShaderCompilation(#[from] vello_shaders::compile::ErrorVec),
 }
 
 #[allow(dead_code)] // this can be unused when wgpu feature is not used
@@ -293,7 +302,7 @@ impl Renderer {
             #[cfg(not(target_arch = "wasm32"))]
             engine.use_parallel_initialisation();
         }
-        let shaders = shaders::full_shaders(device, &mut engine, &options);
+        let shaders = shaders::full_shaders(device, &mut engine, &options)?;
         #[cfg(not(target_arch = "wasm32"))]
         engine.build_shaders_if_needed(device, options.num_init_threads);
         let blit = options
@@ -435,14 +444,14 @@ impl Renderer {
 
     /// Reload the shaders. This should only be used during `vello` development
     #[cfg(feature = "hot_reload")]
-    pub async fn reload_shaders(&mut self, device: &Device) -> Result<(), wgpu::Error> {
+    pub async fn reload_shaders(&mut self, device: &Device) -> Result<(), Error> {
         device.push_error_scope(wgpu::ErrorFilter::Validation);
         let mut engine = WgpuEngine::new(self.options.use_cpu);
         // We choose not to initialise these shaders in parallel, to ensure the error scope works correctly
-        let shaders = shaders::full_shaders(device, &mut engine, &self.options);
+        let shaders = shaders::full_shaders(device, &mut engine, &self.options)?;
         let error = device.pop_error_scope().await;
         if let Some(error) = error {
-            return Err(error);
+            return Err(error.into());
         }
         self.engine = engine;
         self.shaders = shaders;

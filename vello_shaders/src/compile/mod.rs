@@ -5,6 +5,7 @@ use naga::front::wgsl;
 use naga::valid::{Capabilities, ModuleInfo, ValidationError, ValidationFlags};
 use naga::{AddressSpace, ArraySize, ImageClass, Module, StorageAccess, WithSpan};
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use thiserror::Error;
@@ -17,16 +18,60 @@ pub mod msl;
 
 use crate::types::{BindType, BindingInfo, WorkgroupBufferInfo};
 
+pub type Result<T> = std::result::Result<T, Error>;
+pub type CoalescedResult<T> = std::result::Result<T, ErrorVec>;
+
 #[derive(Error, Debug)]
-pub enum Error {
-    #[error("failed to parse shader: {0}")]
+pub struct ErrorVec(Vec<Error>);
+
+#[derive(Error, Debug)]
+#[error("{source} ({name}) {msg}")]
+pub struct Error {
+    name: String,
+    msg: String,
+    source: InnerError,
+}
+
+#[derive(Error, Debug)]
+enum InnerError {
+    #[error("failed to parse shader")]
     Parse(#[from] wgsl::ParseError),
 
-    #[error("failed to validate shader: {0}")]
+    #[error("failed to validate shader")]
     Validate(#[from] WithSpan<ValidationError>),
 
     #[error("missing entry point function")]
     EntryPointNotFound,
+}
+
+impl fmt::Display for ErrorVec {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for e in self.0.iter() {
+            write!(f, "{e}")?;
+        }
+        Ok(())
+    }
+}
+
+impl Error {
+    fn new(wgsl: &str, name: &str, error: impl Into<InnerError>) -> Error {
+        let source = error.into();
+        Error {
+            name: name.to_owned(),
+            msg: source.emit_msg(wgsl, &format!("({name} preprocessed)")),
+            source,
+        }
+    }
+}
+
+impl InnerError {
+    fn emit_msg(&self, wgsl: &str, name: &str) -> String {
+        match self {
+            Self::Parse(e) => e.emit_to_string_with_path(wgsl, name),
+            Self::Validate(e) => e.emit_to_string_with_path(wgsl, name),
+            _ => String::default(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -40,16 +85,17 @@ pub struct ShaderInfo {
 }
 
 impl ShaderInfo {
-    pub fn new(source: String, entry_point: &str) -> Result<ShaderInfo, Error> {
-        let module = wgsl::parse_str(&source)?;
+    pub fn new(name: &str, source: String, entry_point: &str) -> Result<ShaderInfo> {
+        let module = wgsl::parse_str(&source).map_err(|error| Error::new(&source, name, error))?;
         let module_info = naga::valid::Validator::new(ValidationFlags::all(), Capabilities::all())
-            .validate(&module)?;
+            .validate(&module)
+            .map_err(|error| Error::new(&source, name, error))?;
         let (entry_index, entry) = module
             .entry_points
             .iter()
             .enumerate()
             .find(|(_, entry)| entry.name.as_str() == entry_point)
-            .ok_or(Error::EntryPointNotFound)?;
+            .ok_or(Error::new(&source, name, InnerError::EntryPointNotFound))?;
         let mut bindings = vec![];
         let mut workgroup_buffers = vec![];
         let mut wg_buffer_idx = 0;
@@ -131,11 +177,11 @@ impl ShaderInfo {
     }
 
     /// Same as [`ShaderInfo::from_dir`] but uses the default shader directory provided by [`shader_dir`].
-    pub fn from_default() -> HashMap<String, Self> {
+    pub fn from_default() -> CoalescedResult<HashMap<String, Self>> {
         ShaderInfo::from_dir(shader_dir())
     }
 
-    pub fn from_dir(shader_dir: impl AsRef<Path>) -> HashMap<String, Self> {
+    pub fn from_dir(shader_dir: impl AsRef<Path>) -> CoalescedResult<HashMap<String, Self>> {
         use std::fs;
         let shader_dir = shader_dir.as_ref();
         let permutation_map = if let Ok(permutations_source) =
@@ -147,6 +193,7 @@ impl ShaderInfo {
         };
         //println!("{permutation_map:?}");
         let imports = preprocess::get_imports(shader_dir);
+        let mut errors = vec![];
         let mut info = HashMap::default();
         let defines: HashSet<_> = if cfg!(feature = "full") {
             vec!["full".to_string()]
@@ -174,18 +221,34 @@ impl ShaderInfo {
                             let mut defines = defines.clone();
                             defines.extend(permutation.defines.iter().cloned());
                             let source = preprocess::preprocess(&contents, &defines, &imports);
-                            let shader_info = Self::new(source.clone(), "main").unwrap();
-                            info.insert(permutation.name.clone(), shader_info);
+                            match Self::new(&permutation.name, source, "main") {
+                                Ok(shader_info) => {
+                                    info.insert(permutation.name.clone(), shader_info);
+                                }
+                                Err(e) => {
+                                    errors.push(e);
+                                }
+                            }
                         }
                     } else {
                         let source = preprocess::preprocess(&contents, &defines, &imports);
-                        let shader_info = Self::new(source.clone(), "main").unwrap();
-                        info.insert(shader_name.to_string(), shader_info);
+                        match Self::new(shader_name, source, "main") {
+                            Ok(shader_info) => {
+                                info.insert(shader_name.to_string(), shader_info);
+                            }
+                            Err(e) => {
+                                errors.push(e);
+                            }
+                        }
                     }
                 }
             }
         }
-        info
+        if !errors.is_empty() {
+            Err(ErrorVec(errors))
+        } else {
+            Ok(info)
+        }
     }
 }
 

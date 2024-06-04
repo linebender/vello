@@ -12,7 +12,7 @@ use crate::ShaderId;
 use crate::{
     recording::{BindType, ImageFormat},
     wgpu_engine::WgpuEngine,
-    RendererOptions,
+    Error, RendererOptions,
 };
 
 // Shaders for the full pipeline
@@ -49,7 +49,7 @@ pub fn full_shaders(
     device: &Device,
     engine: &mut WgpuEngine,
     options: &RendererOptions,
-) -> FullShaders {
+) -> Result<FullShaders, Error> {
     use crate::wgpu_engine::CpuShaderType;
     use BindType::*;
 
@@ -60,7 +60,7 @@ pub fn full_shaders(
     //let force_gpu_from = Some("binning");
 
     #[cfg(feature = "hot_reload")]
-    let mut shaders = vello_shaders::compile::ShaderInfo::from_default();
+    let mut shaders = vello_shaders::compile::ShaderInfo::from_default()?;
     #[cfg(not(feature = "hot_reload"))]
     let shaders = vello_shaders::SHADERS;
 
@@ -247,7 +247,7 @@ pub fn full_shaders(
         None
     };
 
-    FullShaders {
+    Ok(FullShaders {
         pathtag_reduce,
         pathtag_reduce2,
         pathtag_scan,
@@ -271,5 +271,5 @@ pub fn full_shaders(
         fine_msaa8,
         fine_msaa16,
         pathtag_is_cpu: options.use_cpu,
-    }
+    })
 }

@@ -131,7 +131,12 @@ fn run(
                 num_init_threads: NonZeroUsize::new(1),
             },
         )
-        .expect("Could create renderer");
+        .map_err(|e| {
+            // Pretty-print any renderer creation error using Display formatting before unwrapping.
+            eprintln!("{e}");
+            e
+        })
+        .expect("Failed to create renderer");
         #[cfg(feature = "wgpu-profiler")]
         renderer
             .profiler
@@ -571,7 +576,7 @@ fn run(
                     // We know that the only async here (`pop_error_scope`) is actually sync, so blocking is fine
                     match pollster::block_on(result) {
                         Ok(_) => log::info!("Reloading took {:?}", start.elapsed()),
-                        Err(e) => log::warn!("Failed to reload shaders because of {e}"),
+                        Err(e) => log::error!("Failed to reload shaders: {e}"),
                     }
                 }
             },
@@ -624,7 +629,11 @@ fn run(
                                     num_init_threads: NonZeroUsize::new(args.num_init_threads),
                                 },
                             )
-                            .expect("Could create renderer");
+                            .map_err(|e| {
+                                // Pretty-print any renderer creation error using Display formatting before unwrapping.
+                                anyhow::format_err!("{e}")
+                            })
+                            .expect("Failed to create renderer");
                             log::info!("Creating renderer {id} took {:?}", start.elapsed());
                             #[cfg(feature = "wgpu-profiler")]
                             renderer

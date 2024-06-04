@@ -18,7 +18,13 @@ fn main() {
 
     println!("cargo:rerun-if-changed={}", compile::shader_dir().display());
 
-    let mut shaders = compile::ShaderInfo::from_default();
+    let mut shaders = match compile::ShaderInfo::from_default() {
+        Ok(s) => s,
+        Err(err) => {
+            eprintln!("{err}");
+            return;
+        }
+    };
 
     // Drop the HashMap and sort by name so that we get deterministic order.
     let mut shaders = shaders.drain().collect::<Vec<_>>();
