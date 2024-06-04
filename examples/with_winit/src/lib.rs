@@ -26,6 +26,8 @@ use winit::dpi::LogicalSize;
 use winit::event_loop::EventLoop;
 use winit::window::{Window, WindowAttributes};
 
+use vello::wgpu;
+
 #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
 mod hot_reload;
 mod multi_touch;

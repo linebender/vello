@@ -15,7 +15,6 @@ scenes = { path = "../scenes" }
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 
-wgpu = { workspace = true }
 pollster = { workspace = true }
 env_logger = "0.11.3"
 png = "0.17.13"

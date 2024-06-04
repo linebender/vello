@@ -13,7 +13,6 @@ workspace = true
 vello = { workspace = true }
 anyhow = { workspace = true }
 
-wgpu = { workspace = true }
 pollster = { workspace = true }
 png = "0.17.13"
 futures-intrusive = { workspace = true }

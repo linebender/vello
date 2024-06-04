@@ -10,11 +10,11 @@ use clap::Parser;
 use scenes::{ImageCache, SceneParams, SceneSet, SimpleText};
 use vello::kurbo::{Affine, Vec2};
 use vello::util::RenderContext;
-use vello::{block_on_wgpu, RendererOptions, Scene};
-use wgpu::{
-    BufferDescriptor, BufferUsages, CommandEncoderDescriptor, Extent3d, ImageCopyBuffer,
+use vello::wgpu::{
+    self, BufferDescriptor, BufferUsages, CommandEncoderDescriptor, Extent3d, ImageCopyBuffer,
     TextureDescriptor, TextureFormat, TextureUsages,
 };
+use vello::{block_on_wgpu, RendererOptions, Scene};
 
 fn main() -> Result<()> {
     #[cfg(not(target_arch = "wasm32"))]

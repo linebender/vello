@@ -10,11 +10,11 @@ use std::sync::Arc;
 use anyhow::{anyhow, bail, Result};
 use vello::peniko::{Blob, Color, Format, Image};
 use vello::util::RenderContext;
-use vello::{block_on_wgpu, RendererOptions, Scene};
-use wgpu::{
-    BufferDescriptor, BufferUsages, CommandEncoderDescriptor, Extent3d, ImageCopyBuffer,
+use vello::wgpu::{
+    self, BufferDescriptor, BufferUsages, CommandEncoderDescriptor, Extent3d, ImageCopyBuffer,
     TextureDescriptor, TextureFormat, TextureUsages,
 };
+use vello::{block_on_wgpu, RendererOptions, Scene};
 
 pub struct TestParams {
     pub width: u32,
