@@ -17,27 +17,48 @@ pub mod msl;
 
 use crate::types::{BindType, BindingInfo, WorkgroupBufferInfo};
 
-#[derive(Error, Debug)]
-pub enum Error {
-    #[error("failed to parse shader ({name}): {msg}")]
-    Parse {
-        name: String,
-        msg: String,
-        error: wgsl::ParseError,
-    },
+pub type Result<T> = std::result::Result<T, Error>;
 
-    #[error("failed to validate shader ({name}): {msg}")]
-    Validate {
-        name: String,
-        msg: String,
-        error: WithSpan<ValidationError>,
-    },
+#[derive(Error, Debug)]
+#[error("{source} ({name}) {msg}")]
+pub struct Error {
+    name: String,
+    msg: String,
+    source: InnerError,
+}
+
+#[derive(Error, Debug)]
+pub enum InnerError {
+    #[error("failed to parse shader")]
+    Parse(#[from] wgsl::ParseError),
+
+    #[error("failed to validate shader")]
+    Validate(#[from] WithSpan<ValidationError>),
 
     #[error("missing entry point function")]
     EntryPointNotFound,
 }
 
-pub type Result<T> = std::result::Result<T, Error>;
+impl Error {
+    fn new(wgsl: &str, name: &str, error: impl Into<InnerError>) -> Error {
+        let source = error.into();
+        Error {
+            name: name.to_owned(),
+            msg: source.emit_msg(wgsl),
+            source,
+        }
+    }
+}
+
+impl InnerError {
+    fn emit_msg(&self, wgsl: &str) -> String {
+        match self {
+            Self::Parse(e) => e.emit_to_string(wgsl),
+            Self::Validate(e) => e.emit_to_string(wgsl),
+            _ => String::default(),
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct ShaderInfo {
@@ -51,24 +72,16 @@ pub struct ShaderInfo {
 
 impl ShaderInfo {
     pub fn new(name: &str, source: String, entry_point: &str) -> Result<ShaderInfo> {
-        let module = wgsl::parse_str(&source).map_err(|error| Error::Parse {
-            name: name.to_string(),
-            msg: error.emit_to_string(&source),
-            error,
-        })?;
+        let module = wgsl::parse_str(&source).map_err(|error| Error::new(&source, name, error))?;
         let module_info = naga::valid::Validator::new(ValidationFlags::all(), Capabilities::all())
             .validate(&module)
-            .map_err(|error| Error::Validate {
-                name: name.to_string(),
-                msg: error.emit_to_string(&source),
-                error,
-            })?;
+            .map_err(|error| Error::new(&source, name, error))?;
         let (entry_index, entry) = module
             .entry_points
             .iter()
             .enumerate()
             .find(|(_, entry)| entry.name.as_str() == entry_point)
-            .ok_or(Error::EntryPointNotFound)?;
+            .ok_or(Error::new(&source, name, InnerError::EntryPointNotFound))?;
         let mut bindings = vec![];
         let mut workgroup_buffers = vec![];
         let mut wg_buffer_idx = 0;
