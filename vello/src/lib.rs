@@ -221,8 +221,8 @@ pub enum Error {
 
     /// Failed to compile the shaders.
     #[cfg(feature = "hot_reload")]
-    #[error("Failed to compile shader: {0}")]
-    ShaderCompilation(#[from] vello_shaders::compile::Error),
+    #[error("Failed to compile shaders:\n{0}")]
+    ShaderCompilation(#[from] vello_shaders::compile::ErrorVec),
 }
 
 #[allow(dead_code)] // this can be unused when wgpu feature is not used

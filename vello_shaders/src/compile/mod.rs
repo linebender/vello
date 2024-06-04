@@ -5,6 +5,7 @@ use naga::front::wgsl;
 use naga::valid::{Capabilities, ModuleInfo, ValidationError, ValidationFlags};
 use naga::{AddressSpace, ArraySize, ImageClass, Module, StorageAccess, WithSpan};
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use thiserror::Error;
@@ -18,6 +19,10 @@ pub mod msl;
 use crate::types::{BindType, BindingInfo, WorkgroupBufferInfo};
 
 pub type Result<T> = std::result::Result<T, Error>;
+pub type CoalescedResult<T> = std::result::Result<T, ErrorVec>;
+
+#[derive(Error, Debug)]
+pub struct ErrorVec(Vec<Error>);
 
 #[derive(Error, Debug)]
 #[error("{source} ({name}) {msg}")]
@@ -28,7 +33,7 @@ pub struct Error {
 }
 
 #[derive(Error, Debug)]
-pub enum InnerError {
+enum InnerError {
     #[error("failed to parse shader")]
     Parse(#[from] wgsl::ParseError),
 
@@ -37,6 +42,15 @@ pub enum InnerError {
 
     #[error("missing entry point function")]
     EntryPointNotFound,
+}
+
+impl fmt::Display for ErrorVec {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for e in self.0.iter() {
+            write!(f, "{e}")?;
+        }
+        Ok(())
+    }
 }
 
 impl Error {
@@ -163,11 +177,11 @@ impl ShaderInfo {
     }
 
     /// Same as [`ShaderInfo::from_dir`] but uses the default shader directory provided by [`shader_dir`].
-    pub fn from_default() -> Result<HashMap<String, Self>> {
+    pub fn from_default() -> CoalescedResult<HashMap<String, Self>> {
         ShaderInfo::from_dir(shader_dir())
     }
 
-    pub fn from_dir(shader_dir: impl AsRef<Path>) -> Result<HashMap<String, Self>> {
+    pub fn from_dir(shader_dir: impl AsRef<Path>) -> CoalescedResult<HashMap<String, Self>> {
         use std::fs;
         let shader_dir = shader_dir.as_ref();
         let permutation_map = if let Ok(permutations_source) =
@@ -179,6 +193,7 @@ impl ShaderInfo {
         };
         //println!("{permutation_map:?}");
         let imports = preprocess::get_imports(shader_dir);
+        let mut errors = vec![];
         let mut info = HashMap::default();
         let defines: HashSet<_> = if cfg!(feature = "full") {
             vec!["full".to_string()]
@@ -206,18 +221,34 @@ impl ShaderInfo {
                             let mut defines = defines.clone();
                             defines.extend(permutation.defines.iter().cloned());
                             let source = preprocess::preprocess(&contents, &defines, &imports);
-                            let shader_info = Self::new(&permutation.name, source.clone(), "main")?;
-                            info.insert(permutation.name.clone(), shader_info);
+                            match Self::new(&permutation.name, source, "main") {
+                                Ok(shader_info) => {
+                                    info.insert(permutation.name.clone(), shader_info);
+                                }
+                                Err(e) => {
+                                    errors.push(e);
+                                }
+                            }
                         }
                     } else {
                         let source = preprocess::preprocess(&contents, &defines, &imports);
-                        let shader_info = Self::new(&shader_name, source.clone(), "main")?;
-                        info.insert(shader_name.to_string(), shader_info);
+                        match Self::new(&shader_name, source, "main") {
+                            Ok(shader_info) => {
+                                info.insert(shader_name.to_string(), shader_info);
+                            }
+                            Err(e) => {
+                                errors.push(e);
+                            }
+                        }
                     }
                 }
             }
         }
-        Ok(info)
+        if !errors.is_empty() {
+            Err(ErrorVec(errors))
+        } else {
+            Ok(info)
+        }
     }
 }
 
