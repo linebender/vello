@@ -116,7 +116,8 @@ use thiserror::Error;
 pub use util::block_on_wgpu;
 
 pub use recording::{
-    BindType, BufferProxy, Command, ImageFormat, ImageProxy, Recording, ResourceId, ResourceProxy, ShaderId,
+    BindType, BufferProxy, Command, ImageFormat, ImageProxy, Recording, ResourceId, ResourceProxy,
+    ShaderId,
 };
 pub use shaders::FullShaders;
 
@@ -219,7 +220,7 @@ pub enum Error {
     #[cfg(feature = "wgpu")]
     #[cfg(feature = "debug_layers")]
     #[error("Failed to download internal buffer for visualization")]
-    DownloadError(&'static str), 
+    DownloadError(&'static str),
 
     #[cfg(feature = "wgpu")]
     #[error("wgpu Error from scope")]

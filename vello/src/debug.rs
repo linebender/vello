@@ -312,8 +312,9 @@ impl DebugRenderer {
             width: params.width,
             height: params.height,
         };
-        let uniforms_buf =
-            ResourceProxy::Buffer(recording.upload_uniform("uniforms", bytemuck::bytes_of(&uniforms)));
+        let uniforms_buf = ResourceProxy::Buffer(
+            recording.upload_uniform("uniforms", bytemuck::bytes_of(&uniforms)),
+        );
 
         let linepoints_uniforms = [
             LinepointsUniforms::new(Color::CYAN, 10.),
