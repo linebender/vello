@@ -11,8 +11,8 @@ use vello_shaders::cpu::CpuBinding;
 
 use wgpu::{
     BindGroup, BindGroupLayout, Buffer, BufferUsages, CommandEncoder, CommandEncoderDescriptor,
-    ComputePipeline, Device, PipelineCompilationOptions, Queue, RenderPipeline, Texture, TextureAspect,
-    TextureUsages, TextureView, TextureViewDimension,
+    ComputePipeline, Device, PipelineCompilationOptions, Queue, RenderPipeline, Texture,
+    TextureAspect, TextureUsages, TextureView, TextureViewDimension,
 };
 
 use crate::{
@@ -631,8 +631,8 @@ impl WgpuEngine {
                         &shader.bind_group_layout,
                         &draw_params.resources,
                     );
-                    let render_target =
-                        transient_map.materialize_external_image_for_render_pass(&draw_params.target);
+                    let render_target = transient_map
+                        .materialize_external_image_for_render_pass(&draw_params.target);
                     let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: None,
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -666,9 +666,10 @@ impl WgpuEngine {
                     if let Some(proxy) = draw_params.vertex_buffer {
                         // TODO: need a way to materialize a CPU initialized buffer. For now assume
                         // buffer exists? Also, need to materialize this buffer with vertex usage
-                        let buf = self.bind_map.get_gpu_buf(proxy.id).ok_or(
-                            Error::UnavailableBufferUsed(proxy.name, "draw"),
-                        )?;
+                        let buf = self
+                            .bind_map
+                            .get_gpu_buf(proxy.id)
+                            .ok_or(Error::UnavailableBufferUsed(proxy.name, "draw"))?;
                         rpass.set_vertex_buffer(0, buf.slice(..));
                     }
                     rpass.set_bind_group(0, &bind_group, &[]);
@@ -1175,11 +1176,11 @@ impl<'a> TransientBindMap<'a> {
         for resource in bindings {
             match resource {
                 ResourceProxy::Buffer(proxy)
-				| ResourceProxy::BufferRange {
-					proxy,
-					offset: _,
-					size: _,
-				} => match self.bufs.get(&proxy.id) {
+                | ResourceProxy::BufferRange {
+                    proxy,
+                    offset: _,
+                    size: _,
+                } => match self.bufs.get(&proxy.id) {
                     Some(TransientBuf::Cpu(_)) => (),
                     Some(TransientBuf::Gpu(_)) => panic!("buffer was already materialized on GPU"),
                     _ => bind_map.materialize_cpu_buf(proxy),
@@ -1195,7 +1196,7 @@ impl<'a> TransientBindMap<'a> {
                     Some(TransientBuf::Cpu(b)) => CpuBinding::Buffer(b),
                     _ => bind_map.get_cpu_buf(buf.id),
                 },
-				ResourceProxy::BufferRange { .. } => todo!(),
+                ResourceProxy::BufferRange { .. } => todo!(),
                 ResourceProxy::Image(_) => todo!(),
             })
             .collect()
