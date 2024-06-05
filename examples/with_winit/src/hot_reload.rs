@@ -10,10 +10,9 @@ use notify_debouncer_mini::{new_debouncer, DebounceEventResult};
 pub(crate) fn hot_reload(mut f: impl FnMut() -> Option<()> + Send + 'static) -> Result<impl Sized> {
     let mut debouncer = new_debouncer(
         Duration::from_millis(500),
-        None,
         move |res: DebounceEventResult| match res {
             Ok(_) => f().unwrap(),
-            Err(errors) => errors.iter().for_each(|e| println!("Error {:?}", e)),
+            Err(e) => println!("Hot reloading file watching failed: {e:?}"),
         },
     )?;
 
