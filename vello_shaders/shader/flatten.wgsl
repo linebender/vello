@@ -395,7 +395,7 @@ fn es_seg_flatten_offset(
         var lp1: vec2f;
         if i + 1u == u32(n) {// && t1 == 1.0 {
       //        lp1 = t_end;
-              lp1 = es_seg_eval_with_offset(es, range.y, normalized_offset);
+            lp1 = es_seg_eval_with_offset(es, range.y, normalized_offset);
         } else {
             let t = f32(i + 1u) / n;
             var s = t;
@@ -411,13 +411,10 @@ fn es_seg_flatten_offset(
             }
             lp1 = es_seg_eval_with_offset(es, range.x + range_size * s, normalized_offset);
         }
-        let l0 = select(lp1, lp0, offset >= 0.);
-        let l1 = select(lp0, lp1, offset >= 0.);
-        if flip {
-          output_line_with_transform(path_ix, l1, l0, transform);
-        } else {
-          output_line_with_transform(path_ix, l0, l1, transform);
-        }
+        let forward = (offset >= 0.);
+        let l0 = select(lp1, lp0, forward != flip);
+        let l1 = select(lp0, lp1, forward != flip);
+        output_line_with_transform(path_ix, l0, l1, transform);
         lp0 = lp1;
     }
     return lp0;
@@ -441,7 +438,7 @@ fn es_seg_flatten_evolute(
   let rho_int_1 = sqrt(abs(0.5 * (ratio + range.y - 0.5)));
   let rho_int = rho_int_1 - rho_int_0;
   let range_size = range.y - range.x;
-  let n_subdiv = clamp(ceil(range_size * abs(rho_int) * scale * sqrt(arc_len / tol)), 1., 100.);
+  let n_subdiv = clamp(ceil(range_size * abs(rho_int) * sqrt(scale * arc_len / tol)), 1., 100.);
   let n = u32(n_subdiv);
   //let sign2 = 2.0f64.copysign(ratio);
   let sign2 = select(2., -2., sign(ratio) == -1.);
@@ -453,6 +450,7 @@ fn es_seg_flatten_evolute(
       let lp1 = es_seg_eval_evolute(es, s);
       let l0 = select(lp1, lp0, offset >= 0.);
       let l1 = select(lp0, lp1, offset >= 0.);
+      output_line_with_transform(path_ix, l0, l1, transform);
       output_line_with_transform(path_ix, l0, l1, transform);
       lp0 = lp1;
   }
@@ -473,7 +471,7 @@ fn evolute_subpath_init(p: vec2f) -> EvoluteSubpath {
     return EvoluteSubpath(p, p, true);
 }
 
-fn flatten_cusp_start(
+fn flatten_offset_cusp_start(
     evolute: ptr<function, EvoluteSubpath>,
     rev_parallel: ptr<function, EvoluteSubpath>,
     start: vec2f,
@@ -486,28 +484,30 @@ fn flatten_cusp_start(
     }
 }
 
-fn flatten_cusp_finalize(
+fn flatten_offset_cusp_finalize(
     path_ix: u32,
     transform: Transform,
+    offset: f32,
     evolute: ptr<function, EvoluteSubpath>,
     rev_parallel: ptr<function, EvoluteSubpath>,
     main_path_last_p: ptr<function, vec2f>,
 ) {
     if (*evolute).is_valid {
         // Connect evolute to end of rev_parallel (do this twice to double the winding number).
-        output_line_with_transform(path_ix, (*evolute).last, (*rev_parallel).last, transform);
-        output_line_with_transform(path_ix, (*evolute).last, (*rev_parallel).last, transform);
+        let l0 = select((*rev_parallel).last, (*evolute).last, offset >= 0.);
+        let l1 = select((*evolute).last, (*rev_parallel).last, offset >= 0.);
+        output_line_with_transform(path_ix, l0, l1, transform);
+        output_line_with_transform(path_ix, l0, l1, transform);
 
-        // Extend main path by connecting it to the start of the evolute. End of main path is now
-        // rev_parallel.last
-        output_line_with_transform(path_ix, *main_path_last_p, (*evolute).first, transform);
-
-        // Connect main path to rev_parallel in reverse. Don't output a line because the end of main
-        // path is already rev_parallel.last at the start. End of main path is now rev_parallel.first
-
-        // Re-run the evolute by connecting the end of main path to the beginning of the evolute.
-        // The main path now ends at rev_parallel.last (which is the end of the evolute path).
-        output_line_with_transform(path_ix, (*rev_parallel).first, (*evolute).first, transform);
+        // Connect both the main path (forward parallel curve) and the reverse curve to the start
+        // of the evolute.
+        //output_line_with_transform(path_ix, *main_path_last_p, (*evolute).first, transform);
+        //let ll0 = select((*evolute).first, (*rev_parallel).first, offset >= 0.);
+    //    let ll1 = select((*rev_parallel).first, (*evolute).first, offset >= 0.);
+//        output_line_with_transform(path_ix, ll0, ll1, transform);
+  //      output_line_with_transform(path_ix, ll0, ll1, transform);
+        //output_line_with_transform(path_ix, (*rev_parallel).first, (*evolute).first, transform);
+       // output_line_with_transform(path_ix, (*rev_parallel).first, (*evolute).first, transform);
         *main_path_last_p = (*rev_parallel).last;
 
         (*evolute).is_valid = false;
@@ -577,7 +577,8 @@ fn flatten_euler(
     loop {
         let t0 = f32(t0_u) * dt;
         if t0 == 1.0 {
-            flatten_cusp_finalize(path_ix, transform, &evolute, &rev_parallel, &main_path);
+            flatten_offset_cusp_finalize(path_ix, transform, offset, &evolute, &rev_parallel, &main_path);
+            output_line_with_transform(path_ix, main_path, t_end, transform);
             break;
         }
         var t1 = t0 + dt;
@@ -614,17 +615,14 @@ fn flatten_euler(
               t = cusp0 / (cusp0 - cusp1);
             }
             if cusp0 >= 0. {
-                flatten_cusp_finalize(path_ix, transform, &evolute, &rev_parallel, &main_path);
+                flatten_offset_cusp_finalize(path_ix, transform, offset, &evolute, &rev_parallel, &main_path);
                 main_path = es_seg_flatten_offset(
                     es, path_ix, transform, main_path, t_end, t1, scale, offset, cubic_params.chord_len, tol, vec2(0., t), false,
                 );
                 if t < 1. {
-                    flatten_cusp_start(&evolute, &rev_parallel, main_path);
+                    flatten_offset_cusp_start(&evolute, &rev_parallel, main_path);
                     let evolute_end = evolute.last;
                     evolute.last = es_seg_flatten_evolute(
-                        es, path_ix, transform, evolute_end, t1, scale, offset, cubic_params.chord_len, tol, vec2f(t, 1.),
-                    );
-                    es_seg_flatten_evolute(
                         es, path_ix, transform, evolute_end, t1, scale, offset, cubic_params.chord_len, tol, vec2f(t, 1.),
                     );
                     rev_parallel.last = es_seg_flatten_offset(
@@ -632,21 +630,20 @@ fn flatten_euler(
                     );
                 }
             } else {
-                flatten_cusp_start(&evolute, &rev_parallel, main_path);
+                flatten_offset_cusp_start(&evolute, &rev_parallel, main_path);
                 let ep1 = es_seg_eval_evolute(es, 0.);
-                output_line_with_transform(path_ix, evolute.last, ep1, transform);
-                output_line_with_transform(path_ix, evolute.last, ep1, transform);
+                let lep0 = select(ep1, evolute.last, offset >= 0.);
+                let lep1 = select(evolute.last, ep1, offset >= 0.);
+                output_line_with_transform(path_ix, lep0, lep1, transform);
+                output_line_with_transform(path_ix, lep0, lep1, transform);
                 evolute.last = es_seg_flatten_evolute(
-                    es, path_ix, transform, ep1, t1, scale, offset, cubic_params.chord_len, tol, vec2f(0., t),
-                );
-                es_seg_flatten_evolute(
                     es, path_ix, transform, ep1, t1, scale, offset, cubic_params.chord_len, tol, vec2f(0., t),
                 );
                 rev_parallel.last = es_seg_flatten_offset(
                     es, path_ix, transform, rev_parallel.last, t_end, t1, scale, offset, cubic_params.chord_len, tol, vec2(0., t), true,
                 );
                 if t < 1. {
-                    flatten_cusp_finalize(path_ix, transform, &evolute, &rev_parallel, &main_path);
+                    flatten_offset_cusp_finalize(path_ix, transform, offset, &evolute, &rev_parallel, &main_path);
                     main_path = es_seg_flatten_offset(
                         es, path_ix, transform, main_path, t_end, t1, scale, offset, cubic_params.chord_len, tol, vec2(t, 1.), false,
                     );
