@@ -23,21 +23,22 @@ You can find its changes [documented below](#020---2024-06-06).
 
 ### Added
 
+- Euler spiral based stroke expansion. ([#496] by [@raphlinus])
 - Sweep gradients. ([#435] by [@dfrg])
 - Bump allocation estimation. ([#436], [#454], [#522] by [@armansito])
-- Make `wgpu-profiler` completely optional. ([#502] by [@DJMcNab])
 - Impl `From<Encoding>` for `Scene`. ([#538] by [@waywardmonkeys])
-- Restore glyph hinting support. ([#544] by [@dfrg])
+- Glyph hinting support. ([#544] by [@dfrg])
 - Better glyph caching. ([#555] by [@dfrg])
-- Use `vello_shaders` crate to load and preprocess WGSL. ([#563] by [@armansito])
+- `vello_shaders` crate to load and preprocess WGSL. ([#563] by [@armansito])
 - Coverage-mask specialization. ([#540] by [@armansito])
 - Support for the `#enable` post-process directive. ([#550] by [@armansito])
+- `wgpu-profiler` feature. ([#502] by [@DJMcNab])
 
 ### Changed
 
 - Better error types. ([#516] by [@DasLixou])
 - `RenderContext::new()` no longer returns a `Result`. ([#547] by [@waywardmonkeys])
-- Update to `wgpu` 0.20. ([#560] by [@waywardmonkeys])
+- Updated `wgpu` to 0.20. ([#560] by [@waywardmonkeys])
 
 ### Removed
 
@@ -45,11 +46,10 @@ You can find its changes [documented below](#020---2024-06-06).
 
 ### Fixed
 
-- Performance optimizations for stroke-heavy scenes. ([#496] by [@raphlinus])
-- Increase robustness of cubic params. ([#521] by [@raphlinus])
-- Increases ~64k draw object limit. ([#526] by [@raphlinus])
-- Make `draw_leaf` pass uniformity analysis. ([#535] by [@raphlinus])
-- Increase robustness of GPU shaders. ([#537] by [@raphlinus])
+- 64k draw object limit. ([#526] by [@raphlinus])
+- Increased robustness of cubic params. ([#521] by [@raphlinus])
+- Increased robustness of GPU shaders. ([#537] by [@raphlinus])
+- `draw_leaf` uniformity. ([#535] by [@raphlinus])
 - Bug in join estimates in `vello_encoding`. ([#573] by [@armansito])
 - Incorrect use of numerical operators on atomics in binning. ([#539] by [@armansito])
 - `path_reduced_scan` buffer size. ([#551] by [@armansito])
