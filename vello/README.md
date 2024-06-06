@@ -147,7 +147,7 @@ cargo run -p with_winit
 
 ### Bevy
 
-There is a separate community integration for rendering raw scenes or Lottie and SVG files in [Bevy] through [`bevy_vello`](https://github.com/loopystudios/bevy_vello).
+There is a separate community integration for rendering raw scenes or Lottie and SVG files in [Bevy] through [`bevy_vello`](https://github.com/linebender/bevy_vello).
 
 ## Platforms
 
