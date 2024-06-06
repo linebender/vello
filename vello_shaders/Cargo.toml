@@ -7,8 +7,6 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
-publish = false # Remove this when the package is ready for publishing
-
 [features]
 default = ["wgsl", "full", "cpu"]
 compile = ["dep:naga", "dep:thiserror"]
