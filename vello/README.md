@@ -108,7 +108,7 @@ renderer
 surface_texture.present();
 ```
 
-See the [`../examples`](https://github.com/linebender/vello/tree/main/examples) directory to see how that code integrates with frameworks like winit and bevy.
+See the repository's [`examples`](https://github.com/linebender/vello/tree/main/examples) directory for code that integrates with frameworks like winit and bevy.
 
 ## Performance
 
@@ -128,14 +128,14 @@ A separate Linebender integration for playing Lottie animations is available thr
 
 ## Examples
 
-Our examples are provided in separate packages in the [`../examples`](https://github.com/linebender/vello/tree/main/examples) directory.
+Our examples are provided in separate packages in the repository's [`examples`](https://github.com/linebender/vello/tree/main/examples) directory.
 This allows them to have independent dependencies and faster builds.
 Examples must be selected using the `--package` (or `-p`) Cargo flag.
 
 ### Winit
 
-Our [winit] example ([../examples/with_winit](https://github.com/linebender/vello/tree/main/examples/with_winit)) demonstrates rendering to a [winit] window.
-By default, this renders the [GhostScript Tiger] as well as all SVG files you add in the [../examples/assets/downloads](https://github.com/linebender/vello/tree/main/examples/assets/downloads) directory.
+Our [winit] example ([examples/with_winit](https://github.com/linebender/vello/tree/main/examples/with_winit)) demonstrates rendering to a [winit] window.
+By default, this renders the [GhostScript Tiger] as well as all SVG files you add in the [examples/assets/downloads](https://github.com/linebender/vello/tree/main/examples/assets/downloads) directory.
 A custom list of SVG file paths (and directories to render all SVG files from) can be provided as arguments instead.
 It also includes a collection of test scenes showing the capabilities of `vello`, which can be shown with `--test-scenes`.
 
