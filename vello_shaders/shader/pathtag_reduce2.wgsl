@@ -23,6 +23,7 @@ fn main(
     @builtin(global_invocation_id) global_id: vec3<u32>,
     @builtin(local_invocation_id) local_id: vec3<u32>,
 ) {
+    // TODO: Cancel if needed?
     let ix = global_id.x;
     var agg = reduced_in[ix];
     sh_scratch[local_id.x] = agg;

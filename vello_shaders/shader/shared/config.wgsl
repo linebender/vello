@@ -32,6 +32,9 @@ struct Config {
     transform_base: u32,
     style_base: u32,
 
+    // Whether this stage has been cancelled at startup. 0 means uncancelled.
+    cancelled: u32,
+
     // Sizes of bump allocated buffers (in element size units)
     lines_size: u32,
     binning_size: u32,

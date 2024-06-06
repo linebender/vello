@@ -195,6 +195,10 @@ impl Render {
             buffer_sizes.path_reduced.size_in_bytes().into(),
             "reduced_buf",
         );
+        let bump_buf = BufferProxy::new(buffer_sizes.bump_alloc.size_in_bytes().into(), "bump_buf");
+        recording.clear_all(bump_buf);
+        let bump_buf = ResourceProxy::Buffer(bump_buf);
+        recording.dispatch(shaders.prepare, (1, 1, 1), [config_buf, bump_buf]);
         // TODO: really only need pathtag_wgs - 1
         recording.dispatch(
             shaders.pathtag_reduce,
@@ -255,9 +259,6 @@ impl Render {
             wg_counts.bbox_clear,
             [config_buf, path_bbox_buf],
         );
-        let bump_buf = BufferProxy::new(buffer_sizes.bump_alloc.size_in_bytes().into(), "bump_buf");
-        recording.clear_all(bump_buf);
-        let bump_buf = ResourceProxy::Buffer(bump_buf);
         let lines_buf =
             ResourceProxy::new_buf(buffer_sizes.lines.size_in_bytes().into(), "lines_buf");
         recording.dispatch(

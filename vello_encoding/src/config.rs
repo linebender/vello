@@ -137,6 +137,10 @@ pub struct ConfigUniform {
     pub base_color: u32,
     /// Layout of packed scene data.
     pub layout: Layout,
+    /// Whether this stage has been cancelled at startup due to a predicted
+    ///
+    /// Will be set by the `prepare` stage, and so should always be 0 on CPU.
+    pub cancelled: u32,
     /// Size of line soup buffer allocation (in [`LineSoup`]s)
     pub lines_size: u32,
     /// Size of binning buffer allocation (in `u32`s).
@@ -178,6 +182,7 @@ impl RenderConfig {
         Self {
             gpu: ConfigUniform {
                 width_in_tiles,
+                cancelled: false.into(),
                 height_in_tiles,
                 target_width: width,
                 target_height: height,

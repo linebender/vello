@@ -41,7 +41,7 @@ fn main(
     // We need to check only prior stages, as if this stage has failed in another workgroup, 
     // we still want to know this workgroup's memory requirement.
     if local_id.x == 0u {
-        let failed = (atomicLoad(&bump.failed) & (STAGE_BINNING | STAGE_FLATTEN)) != 0u;
+        let failed = (atomicLoad(&bump.failed) & (STAGE_BINNING | STAGE_FLATTEN | PREVIOUS_RUN)) != 0u;
         sh_previous_failed = u32(failed);
     }
     let failed = workgroupUniformLoad(&sh_previous_failed);
