@@ -201,6 +201,7 @@ impl ShaderInfo {
                 defines.push("full");
             }
             defines.push("evolutes");
+            defines.push("inner_join");
             defines.into_iter().map(|s| s.to_owned()).collect()
         };
         for entry in shader_dir
