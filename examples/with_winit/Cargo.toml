@@ -16,6 +16,7 @@ default = ["wgpu-profiler"]
 # Enable the use of wgpu-profiler. This is an optional feature for times when we use a git dependency on
 # wgpu (which means the dependency used in wgpu-profiler would be incompatible)
 wgpu-profiler = ["dep:wgpu-profiler", "vello/wgpu-profiler"]
+debug_layers = ["vello/debug_layers"]
 
 [lints]
 workspace = true
@@ -24,6 +25,7 @@ workspace = true
 # Stop the PDB collision warning on windows
 name = "with_winit_bin"
 path = "src/main.rs"
+
 
 [dependencies]
 vello = { workspace = true, features = ["buffer_labels"] }
