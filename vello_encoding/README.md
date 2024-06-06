@@ -35,4 +35,24 @@ cargo update -p package_name --precise 0.1.1
 ```
 </details>
 
+## Community
+
+Discussion of Vello Encoding development happens in the [Linebender Zulip](https://xi.zulipchat.com/), specifically the [#gpu stream](https://xi.zulipchat.com/#narrow/stream/197075-gpu).
+All public content can be read without logging in.
+
+Contributions are welcome by pull request.
+The [Rust code of conduct] applies.
+
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you, as defined in the Apache 2.0 license, shall be licensed as noted in the [License](#license) section, without any additional terms or conditions.
+
+## License
+
+Licensed under either of
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0>)
+- MIT license ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
+
+at your option.
+
+[Rust code of conduct]: https://www.rust-lang.org/policies/code-of-conduct
 [Vello]: https://github.com/linebender/vello

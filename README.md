@@ -232,13 +232,13 @@ cargo update -p package_name --precise 0.1.1
 
 ## Community
 
-Discussion of Vello development happens in the [Linebender Zulip](https://xi.zulipchat.com/), specifically the [#gpu stream](https://xi.zulipchat.com/#narrow/stream/197075-gpu). All public content can be read without logging in.
+Discussion of Vello development happens in the [Linebender Zulip](https://xi.zulipchat.com/), specifically the [#gpu stream](https://xi.zulipchat.com/#narrow/stream/197075-gpu).
+All public content can be read without logging in.
 
-Contributions are welcome by pull request. The [Rust code of conduct] applies.
+Contributions are welcome by pull request.
+The [Rust code of conduct] applies.
 
-Unless you explicitly state otherwise, any contribution intentionally submitted
-for inclusion in the work by you, as defined in the Apache-2.0 license, shall be
-licensed as noted in the "License" section, without any additional terms or conditions.
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you, as defined in the Apache 2.0 license, shall be licensed as noted in the [License](#license) section, without any additional terms or conditions.
 
 ## History
 
@@ -267,26 +267,21 @@ Vello takes inspiration from many other rendering projects, including:
 
 Licensed under either of
 
-- Apache License, Version 2.0
-   ([LICENSE-APACHE](LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0>)
-- MIT license
-   ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0>)
+- MIT license ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
 
 at your option.
 
-In addition, all files in the [`vello_shaders/shader`](https://github.com/linebender/vello/tree/main/vello_shaders/shader) and [`vello_shaders/src/cpu`](https://github.com/linebender/vello/tree/main/vello_shaders/src/cpu)
-directories and subdirectories thereof are alternatively licensed under
-the Unlicense ([shader/UNLICENSE](https://github.com/linebender/vello/tree/main/vello_shaders/shader/UNLICENSE) or <http://unlicense.org/>).
+In addition, all files in the [`vello_shaders/shader`](https://github.com/linebender/vello/tree/main/vello_shaders/shader) and [`vello_shaders/src/cpu`](https://github.com/linebender/vello/tree/main/vello_shaders/src/cpu) directories and subdirectories thereof are alternatively licensed under the Unlicense ([vello_shaders/shader/UNLICENSE](https://github.com/linebender/vello/tree/main/vello_shaders/shader/UNLICENSE) or <http://unlicense.org/>).
 For clarity, these files are also licensed under either of the above licenses.
 The intent is for this research to be used in as broad a context as possible.
 
-The files in subdirectories of the [`examples/assets`](https://github.com/linebender/vello/tree/main/examples/assets) directory are licensed solely under
-their respective licenses, available in the `LICENSE` file in their directories.
+The files in subdirectories of the [`examples/assets`](https://github.com/linebender/vello/tree/main/examples/assets) directory are licensed solely under their respective licenses, available in the `LICENSE` file in their directories.
 
 [piet-metal]: https://github.com/linebender/piet-metal
 [`wgpu`]: https://wgpu.rs/
 [Xilem]: https://github.com/linebender/xilem/
-[rust code of conduct]: https://www.rust-lang.org/policies/code-of-conduct
+[Rust code of conduct]: https://www.rust-lang.org/policies/code-of-conduct
 [`custom-hal-archive-with-shaders`]: https://github.com/linebender/piet-gpu/tree/custom-hal-archive-with-shaders
 [`custom-hal-archive`]: https://github.com/linebender/piet-gpu/tree/custom-hal-archive
 [piet-dx12]: https://github.com/bzm3r/piet-dx12
