@@ -155,7 +155,7 @@ fn main(
     // We need to check only prior stages, as if this stage has failed in another workgroup, 
     // we still want to know this workgroup's memory requirement.   
     if local_id.x == 0u {
-        var failed = atomicLoad(&bump.failed) & (STAGE_BINNING | STAGE_TILE_ALLOC | STAGE_FLATTEN);
+        var failed = atomicLoad(&bump.failed) & (STAGE_BINNING | STAGE_TILE_ALLOC | STAGE_FLATTEN | PREVIOUS_RUN);
         if atomicLoad(&bump.seg_counts) > config.seg_counts_size {
             failed |= STAGE_PATH_COUNT;
         }

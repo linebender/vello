@@ -24,6 +24,9 @@ fn main(
     @builtin(local_invocation_id) local_id: vec3<u32>,
     @builtin(workgroup_id) wg_id: vec3<u32>,
 ) {
+    if config.cancelled != 0u {
+        return;
+    }
     let num_blocks_total = (config.n_drawobj + (WG_SIZE - 1u)) / WG_SIZE;
     // When the number of blocks exceeds the workgroup size, divide
     // the work evenly so each workgroup handles n_blocks / wg, with

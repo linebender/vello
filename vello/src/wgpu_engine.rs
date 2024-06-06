@@ -374,7 +374,9 @@ impl WgpuEngine {
                     transient_map
                         .bufs
                         .insert(buf_proxy.id, TransientBuf::Cpu(bytes));
-                    let usage = BufferUsages::UNIFORM | BufferUsages::COPY_DST;
+                    // TODO: More principled way of working out usages
+                    let usage =
+                        BufferUsages::UNIFORM | BufferUsages::COPY_DST | BufferUsages::STORAGE;
                     // Same consideration as above
                     let buf = self
                         .pool
