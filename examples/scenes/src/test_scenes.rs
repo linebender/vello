@@ -334,6 +334,7 @@ fn tricky_strokes(scene: &mut Scene, params: &mut SceneParams) {
         [(0., 0.), (0., -10.), (0., -10.), (0., 10.)],    // Flat line with 180
         [(10., 0.), (0., 0.), (20., 0.), (10., 0.)],      // Flat line with 2 180s
         [(39., -39.), (40., -40.), (40., -40.), (0., 0.)], // Flat diagonal with 180
+        [(39., -39.), (40., -40.), (37., -39.), (0., 0.)], // Near-flat diagonal
         [(40., 40.), (0., 0.), (200., 200.), (0., 0.)],   // Diag w/ an internal 180
         [(0., 0.), (1e-2, 0.), (-1e-2, 0.), (0., 0.)],    // Circle
         // Flat line with no turns:
