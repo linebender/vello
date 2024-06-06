@@ -28,7 +28,8 @@ cargo run -p with_winit
 
 It is used as the rendering backend for [Xilem], a Rust GUI toolkit.
 
-> [!WARNING]
+> ⚠️ WARNING
+>
 > Vello can currently be considered in an alpha state. In particular, we're still working on the following:
 >
 > - [Implementing blur and filter effects](https://github.com/linebender/vello/issues/476).
@@ -172,7 +173,8 @@ cargo run_wasm -p with_winit --bin with_winit_bin
 
 There is also a web demo [available here](https://linebender.github.io/vello) on supporting web browsers.
 
-> [!WARNING]
+> ⚠️ WARNING
+>
 > The web is not currently a primary target for Vello, and WebGPU implementations are incomplete, so you might run into issues running this example.
 
 ### Android
@@ -183,7 +185,8 @@ The [`with_winit`](#winit) example supports running on Android, using [cargo apk
 cargo apk run -p with_winit
 ```
 
-> [!TIP]
+> 💡 TIP
+>
 > cargo apk doesn't support running in release mode without configuration.
 > See [their crates page docs](https://crates.io/crates/cargo-apk) (around `package.metadata.android.signing.<profile>`).
 >
@@ -196,7 +199,8 @@ path = "$HOME/.android/debug.keystore"
 keystore_password = "android"
 ```
 
-> [!NOTE]
+> 📝 NOTE
+>
 > As `cargo apk` does not allow passing command line arguments or environment variables to the app when ran, these can be embedded into the
 > program at compile time (currently for Android only)
 > `with_winit` currently supports the environment variables:
