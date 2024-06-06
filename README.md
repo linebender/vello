@@ -1,3 +1,12 @@
+<!--
+
+This repo-level readme needs restructuring, pending some Linebender templating decisions.
+https://xi.zulipchat.com/#narrow/stream/419691-linebender/topic/Bikeshedding.20badges
+
+For now, prefer updating the package-level readmes, e.g. vello/README.md.
+
+-->
+
 <div align="center">
 
 # Vello
@@ -107,7 +116,7 @@ renderer
 surface_texture.present();
 ```
 
-See the [`examples/`](https://github.com/linebender/vello/tree/main/examples) folder to see how that code integrates with frameworks like winit and bevy.
+See the [`examples`](https://github.com/linebender/vello/tree/main/examples) directory for code that integrates with frameworks like winit and bevy.
 
 ## Performance
 
@@ -127,14 +136,14 @@ A separate Linebender integration for playing Lottie animations is available thr
 
 ## Examples
 
-Our examples are provided in separate packages in the [`examples`](https://github.com/linebender/vello/tree/main/examples) folder.
+Our examples are provided in separate packages in the [`examples`](https://github.com/linebender/vello/tree/main/examples) directory.
 This allows them to have independent dependencies and faster builds.
 Examples must be selected using the `--package` (or `-p`) Cargo flag.
 
 ### Winit
 
 Our [winit] example ([examples/with_winit](https://github.com/linebender/vello/tree/main/examples/with_winit)) demonstrates rendering to a [winit] window.
-By default, this renders the [GhostScript Tiger] as well as all SVG files you add in the [examples/assets/downloads/](https://github.com/linebender/vello/tree/main/examples/assets/downloads) directory.
+By default, this renders the [GhostScript Tiger] as well as all SVG files you add in the [examples/assets/downloads](https://github.com/linebender/vello/tree/main/examples/assets/downloads) directory.
 A custom list of SVG file paths (and directories to render all SVG files from) can be provided as arguments instead.
 It also includes a collection of test scenes showing the capabilities of `vello`, which can be shown with `--test-scenes`.
 
@@ -146,7 +155,7 @@ cargo run -p with_winit
 
 ### Bevy
 
-There is a separate community integration for rendering raw scenes or Lottie and SVG files in [Bevy] through [`bevy_vello`](https://github.com/loopystudios/bevy_vello).
+There is a separate community integration for rendering raw scenes or Lottie and SVG files in [Bevy] through [`bevy_vello`](https://github.com/linebender/bevy_vello).
 
 ## Platforms
 
@@ -157,7 +166,9 @@ Other platforms are more tricky, and may require special building/running proced
 ### Web
 
 Because Vello relies heavily on compute shaders, we rely on the emerging WebGPU standard to run on the web.
-Until browser support becomes widespread, it will probably be necessary to use development browser versions (e.g. Chrome Canary) and explicitly enable WebGPU.
+Browser support for WebGPU is still evolving.
+Vello has been tested using production versions of Chrome, but WebGPU support in Firefox and Safari is still experimental.
+It may be necessary to use development browsers and explicitly enable WebGPU.
 
 The following command builds and runs a web version of the [winit demo](#winit).
 This uses [`cargo-run-wasm`](https://github.com/rukai/cargo-run-wasm) to build the example for web, and host a local server for it
@@ -232,13 +243,13 @@ cargo update -p package_name --precise 0.1.1
 
 ## Community
 
-Discussion of Vello development happens in the [Linebender Zulip](https://xi.zulipchat.com/), specifically the [#gpu stream](https://xi.zulipchat.com/#narrow/stream/197075-gpu). All public content can be read without logging in.
+Discussion of Vello development happens in the [Linebender Zulip](https://xi.zulipchat.com/), specifically the [#gpu stream](https://xi.zulipchat.com/#narrow/stream/197075-gpu).
+All public content can be read without logging in.
 
-Contributions are welcome by pull request. The [Rust code of conduct] applies.
+Contributions are welcome by pull request.
+The [Rust code of conduct] applies.
 
-Unless you explicitly state otherwise, any contribution intentionally submitted
-for inclusion in the work by you, as defined in the Apache-2.0 license, shall be
-licensed as noted in the "License" section, without any additional terms or conditions.
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you, as defined in the Apache 2.0 license, shall be licensed as noted in the [License](#license) section, without any additional terms or conditions.
 
 ## History
 
@@ -267,26 +278,21 @@ Vello takes inspiration from many other rendering projects, including:
 
 Licensed under either of
 
-- Apache License, Version 2.0
-   ([LICENSE-APACHE](LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0>)
-- MIT license
-   ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0>)
+- MIT license ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
 
 at your option.
 
-In addition, all files in the [`vello_shaders/shader`](https://github.com/linebender/vello/tree/main/vello_shaders/shader) and [`vello_shaders/src/cpu`](https://github.com/linebender/vello/tree/main/vello_shaders/src/cpu)
-directories and subdirectories thereof are alternatively licensed under
-the Unlicense ([shader/UNLICENSE](https://github.com/linebender/vello/tree/main/vello_shaders/shader/UNLICENSE) or <http://unlicense.org/>).
+In addition, all files in the [`vello_shaders/shader`](https://github.com/linebender/vello/tree/main/vello_shaders/shader) and [`vello_shaders/src/cpu`](https://github.com/linebender/vello/tree/main/vello_shaders/src/cpu) directories and subdirectories thereof are alternatively licensed under the Unlicense ([vello_shaders/shader/UNLICENSE](https://github.com/linebender/vello/tree/main/vello_shaders/shader/UNLICENSE) or <http://unlicense.org/>).
 For clarity, these files are also licensed under either of the above licenses.
 The intent is for this research to be used in as broad a context as possible.
 
-The files in subdirectories of the [`examples/assets`](https://github.com/linebender/vello/tree/main/examples/assets) directory are licensed solely under
-their respective licenses, available in the `LICENSE` file in their directories.
+The files in subdirectories of the [`examples/assets`](https://github.com/linebender/vello/tree/main/examples/assets) directory are licensed solely under their respective licenses, available in the `LICENSE` file in their directories.
 
 [piet-metal]: https://github.com/linebender/piet-metal
 [`wgpu`]: https://wgpu.rs/
 [Xilem]: https://github.com/linebender/xilem/
-[rust code of conduct]: https://www.rust-lang.org/policies/code-of-conduct
+[Rust code of conduct]: https://www.rust-lang.org/policies/code-of-conduct
 [`custom-hal-archive-with-shaders`]: https://github.com/linebender/piet-gpu/tree/custom-hal-archive-with-shaders
 [`custom-hal-archive`]: https://github.com/linebender/piet-gpu/tree/custom-hal-archive
 [piet-dx12]: https://github.com/bzm3r/piet-dx12

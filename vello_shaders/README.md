@@ -39,4 +39,26 @@ cargo update -p package_name --precise 0.1.1
 ```
 </details>
 
+## Community
+
+Discussion of Vello Shaders development happens in the [Linebender Zulip](https://xi.zulipchat.com/), specifically the [#gpu stream](https://xi.zulipchat.com/#narrow/stream/197075-gpu).
+All public content can be read without logging in.
+
+Contributions are welcome by pull request.
+The [Rust code of conduct] applies.
+
+## License
+
+Licensed under either of
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0>)
+- MIT license ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
+
+at your option.
+
+In addition, all files in the [`shader`](https://github.com/linebender/vello/tree/main/vello_shaders/shader) and [`src/cpu`](https://github.com/linebender/vello/tree/main/vello_shaders/src/cpu) directories and subdirectories thereof are alternatively licensed under the Unlicense ([shader/UNLICENSE](https://github.com/linebender/vello/tree/main/vello_shaders/shader/UNLICENSE) or <http://unlicense.org/>).
+For clarity, these files are also licensed under either of the above licenses.
+The intent is for this research to be used in as broad a context as possible.
+
+[Rust code of conduct]: https://www.rust-lang.org/policies/code-of-conduct
 [Vello]: https://github.com/linebender/vello
