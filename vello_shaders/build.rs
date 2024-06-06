@@ -65,7 +65,7 @@ fn write_shaders(
     buf: &mut String,
     shaders: &[(String, ShaderInfo)],
 ) -> Result<(), std::fmt::Error> {
-    writeln!(buf, "mod gen {{")?;
+    writeln!(buf, "mod generated {{")?;
     writeln!(buf, "    use super::*;")?;
     writeln!(buf, "    use BindType::*;")?;
     writeln!(buf, "    pub const SHADERS: Shaders<'static> = Shaders {{")?;

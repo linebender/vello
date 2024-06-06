@@ -125,4 +125,4 @@ pub trait PipelineHost {
 
 include!(concat!(env!("OUT_DIR"), "/shaders.rs"));
 
-pub use gen::SHADERS;
+pub use generated::SHADERS;
