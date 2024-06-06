@@ -95,6 +95,8 @@ pub fn full_shaders(
     let mut small_config = HashSet::new();
     small_config.insert("full".into());
     small_config.insert("small".into());
+    let mut flatten_config = HashSet::new();
+    flatten_config.insert("inner_join".into());
 
     let mut force_gpu = false;
 
@@ -166,7 +168,8 @@ pub fn full_shaders(
     let bbox_clear = add_shader!(bbox_clear, [Uniform, Buffer], &empty);
     let flatten = add_shader!(
         flatten,
-        [Uniform, BufReadOnly, BufReadOnly, Buffer, Buffer, Buffer]
+        [Uniform, BufReadOnly, BufReadOnly, Buffer, Buffer, Buffer],
+        &flatten_config
     );
     let draw_reduce = add_shader!(draw_reduce, [Uniform, BufReadOnly, Buffer], &empty);
     let draw_leaf = add_shader!(

@@ -421,7 +421,7 @@ fn flatten_euler(
             let normalized_offset = offset / cubic_params.chord_len;
             let dist_scaled = normalized_offset * es.params.ch;
 // NOTE: set this to "ifndef" to lower to arcs before flattening. Use ifdef to lower directly to lines.
-#ifndef arcs
+#ifdef arcs
             let arclen = length(es.p0 - es.p1) / es.params.ch;
             let est_err = (1. / 120.) / tol * abs(k1) * (arclen + 0.4 * abs(k1 * offset));
             let n_subdiv = cbrt(est_err);
@@ -616,10 +616,19 @@ fn draw_join(
 
     let cr = tan_prev.x * tan_next.y - tan_prev.y * tan_next.x;
     let d = dot(tan_prev, tan_next);
+#ifdef inner_join
+    let is_backside = cr > 0.;
+#endif
 
     switch style_flags & STYLE_FLAGS_JOIN_MASK {
         case STYLE_FLAGS_JOIN_BEVEL: {
+#ifdef inner_join
+            let p0 = select(front0, back0, is_backside);
+            let p1 = select(front1, back1, is_backside);
+            output_line_with_transform(path_ix, p0, p1, transform);
+#else
             output_two_lines_with_transform(path_ix, front0, front1, back0, back1, transform);
+#endif
         }
         case STYLE_FLAGS_JOIN_MITER: {
             let hypot = length(vec2f(cr, d));
@@ -627,7 +636,9 @@ fn draw_join(
 
             var line_ix: u32;
             if 2. * hypot < (hypot + d) * miter_limit * miter_limit && cr != 0. {
+#ifndef inner_join
                 let is_backside = cr > 0.;
+#endif
                 let fp_last = select(front0, back1, is_backside);
                 let fp_this = select(front1, back0, is_backside);
                 let p = select(front0, back0, is_backside);
@@ -636,7 +647,11 @@ fn draw_join(
                 let h = (tan_prev.x * v.y - tan_prev.y * v.x) / cr;
                 let miter_pt = fp_this - tan_next * h;
 
+#ifdef inner_join
+                line_ix = atomicAdd(&bump.lines, 2u);
+#else
                 line_ix = atomicAdd(&bump.lines, 3u);
+#endif
                 write_line_with_transform(line_ix, path_ix, p, miter_pt, transform);
                 line_ix += 1u;
 
@@ -646,10 +661,22 @@ fn draw_join(
                     front0 = miter_pt;
                 }
             } else {
+#ifdef inner_join
+                line_ix = atomicAdd(&bump.lines, 1u);
+#else
                 line_ix = atomicAdd(&bump.lines, 2u);
+#endif
             }
+#ifdef inner_join
+            if is_backside {
+                write_line_with_transform(line_ix, path_ix, back0, back1, transform);
+            } else {
+                write_line_with_transform(line_ix, path_ix, front0, front1, transform);
+            }
+#else
             write_line_with_transform(line_ix, path_ix, front0, front1, transform);
             write_line_with_transform(line_ix + 1u, path_ix, back0, back1, transform);
+#endif
         }
         case STYLE_FLAGS_JOIN_ROUND: {
             var arc0: vec2f;
@@ -668,10 +695,32 @@ fn draw_join(
                 other1 = back1;
             }
             flatten_arc(path_ix, arc0, arc1, p0, abs(atan2(cr, d)), transform);
+#ifndef inner_join
             output_line_with_transform(path_ix, other0, other1, transform);
+#endif
         }
         default: {}
     }
+#ifdef inner_join
+    // Handle inner join
+    if abs(cr) < 1e-6 {
+        // smooth join, don't need to draw inner join
+        let inner0 = select(back0, front0, is_backside);
+        let inner1 = select(back1, front1, is_backside);
+        if any(inner0 != inner1) {
+            output_line_with_transform(path_ix, inner0, inner1, transform);
+        }
+    } else {
+        let inner0 = select(back0, front0, is_backside);
+        let inner1 = select(back1, front1, is_backside);
+        let line_ix = atomicAdd(&bump.lines, 4u);
+        write_line_with_transform(line_ix, path_ix, inner0, p0, transform);
+        write_line_with_transform(line_ix + 1, path_ix, p0, inner1, transform);
+        write_line_with_transform(line_ix + 2, path_ix, inner0, p0, transform);
+        write_line_with_transform(line_ix + 3, path_ix, p0, inner1, transform);
+        flatten_arc(path_ix, inner1, inner0, p0, -abs(atan2(cr, d)), transform);
+    }
+#endif
 }
 
 fn read_f32_point(ix: u32) -> vec2f {
