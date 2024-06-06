@@ -1,37 +1,99 @@
-# Changelog
-
 <!-- Instructions
 
-This changelog follows the patterns described here: <https://keepachangelog.com/en/1.0.0/>.
+This changelog follows the patterns described here: <https://keepachangelog.com/en/>.
 
 Subheadings to categorize changes are `added, changed, deprecated, removed, fixed, security`.
 
 -->
 
-## Unreleased
+# Changelog
+
+The latest published Vello release is [0.2.0](#020---2024-06-06) which was released on 2024-06-06.
+You can find its changes [documented below](#020---2024-06-06).
+
+## [Unreleased]
 
 ### Added
 
-- [#435](https://github.com/linebender/vello/pull/435) - Sweep gradients by [@dfrg](https://github.com/drfg)
-- [#538](https://github.com/linebender/vello/pull/538) - Impl `From<Encoding>` for `Scene` by [@waywardmonkeys](https://github.com/waywardmonkeys)
-- [#544](https://github.com/linebender/vello/pull/544) - Restore glyph hinting support by [@dfrg](https://github.com/drfg)
-- [#555](https://github.com/linebender/vello/pull/555) - Better glyph caching by [@dfrg](https://github.com/drfg)
-- [#563](https://github.com/linebender/vello/pull/563) - Use `vello_shaders` crate to load and preprocess WGSL by [@armansito](https://github.com/armansito)
-
 ### Changed
-
-- [#516](https://github.com/linebender/vello/pull/516) - Better error types by [@DasLixou](https://github.com/DasLixou)
-- [#547](https://github.com/linebender/vello/pull/547) - `RenderContext::new()` no longer returns a `Result` by [@waywardmonkeys](https://github.com/waywardmonkeys)
-- [#560](https://github.com/linebender/vello/pull/560) - Update to `wgpu` 0.20 by [@waywardmonkeys](https://github.com/waywardmonkeys)
 
 ### Fixed
 
-- [#496](https://github.com/linebender/vello/pull/496) - Performance optimizations for stroke-heavy scenes by [@raphlinus](https://github.com/raphlinus)
-- [#521](https://github.com/linebender/vello/pull/521) - Increase robustness of cubic params by [@raphlinus](https://github.com/raphlinus)
-- [#526](https://github.com/linebender/vello/pull/526) - Increases ~64k draw object limit by [@raphlinus](https://github.com/raphlinus)
-- [#537](https://github.com/linebender/vello/pull/537) - Increase robustness of GPU shaders by [@raphlinus](https://github.com/raphlinus)
-- [#573](https://github.com/linebender/vello/pull/573) - Fix bug in join estimates in `vello_encoding`  by [@armansito](https://github.com/armansito)
+## [0.2.0] - 2024-06-06
 
-## 0.1.0 (2024-03-04)
+### Added
+
+- Sweep gradients. ([#435] by [@dfrg])
+- Bump allocation estimation. ([#436], [#454], [#522] by [@armansito])
+- Make `wgpu-profiler` completely optional. ([#502] by [@DJMcNab])
+- Impl `From<Encoding>` for `Scene`. ([#538] by [@waywardmonkeys])
+- Restore glyph hinting support. ([#544] by [@dfrg])
+- Better glyph caching. ([#555] by [@dfrg])
+- Use `vello_shaders` crate to load and preprocess WGSL. ([#563] by [@armansito])
+- Coverage-mask specialization. ([#540] by [@armansito])
+- Support for the `#enable` post-process directive. ([#550] by [@armansito])
+
+### Changed
+
+- Better error types. ([#516] by [@DasLixou])
+- `RenderContext::new()` no longer returns a `Result`. ([#547] by [@waywardmonkeys])
+- Update to `wgpu` 0.20. ([#560] by [@waywardmonkeys])
+
+### Removed
+
+- `force_rw_storage` feature. ([#540] by [@armansito])
+
+### Fixed
+
+- Performance optimizations for stroke-heavy scenes. ([#496] by [@raphlinus])
+- Increase robustness of cubic params. ([#521] by [@raphlinus])
+- Increases ~64k draw object limit. ([#526] by [@raphlinus])
+- Make `draw_leaf` pass uniformity analysis. ([#535] by [@raphlinus])
+- Increase robustness of GPU shaders. ([#537] by [@raphlinus])
+- Bug in join estimates in `vello_encoding`. ([#573] by [@armansito])
+- Incorrect use of numerical operators on atomics in binning. ([#539] by [@armansito])
+- `path_reduced_scan` buffer size. ([#551] by [@armansito])
+- Handling of upstream pipeline failure. ([#553] by [@armansito])
+- Very slow shader compilation. ([#575] by [@DJMcNab], [@waywardmonkeys])
+- Full system hang on Apple systems. ([#589] by [@raphlinus])
+
+## [0.1.0] - 2024-03-04
 
 - Initial release
+
+[@raphlinus]: https://github.com/raphlinus
+[@armansito]: https://github.com/armansito
+[@DJMcNab]: https://github.com/DJMcNab
+[@dfrg]: https://github.com/drfg
+[@waywardmonkeys]: https://github.com/waywardmonkeys
+[@DasLixou]: https://github.com/DasLixou
+
+[#435]: https://github.com/linebender/vello/pull/435
+[#436]: https://github.com/linebender/vello/pull/436
+[#454]: https://github.com/linebender/vello/pull/454
+[#496]: https://github.com/linebender/vello/pull/496
+[#502]: https://github.com/linebender/vello/pull/502
+[#516]: https://github.com/linebender/vello/pull/516
+[#521]: https://github.com/linebender/vello/pull/521
+[#522]: https://github.com/linebender/vello/pull/522
+[#526]: https://github.com/linebender/vello/pull/526
+[#535]: https://github.com/linebender/vello/pull/535
+[#537]: https://github.com/linebender/vello/pull/537
+[#538]: https://github.com/linebender/vello/pull/538
+[#539]: https://github.com/linebender/vello/pull/539
+[#540]: https://github.com/linebender/vello/pull/540
+[#544]: https://github.com/linebender/vello/pull/544
+[#547]: https://github.com/linebender/vello/pull/547
+[#550]: https://github.com/linebender/vello/pull/550
+[#551]: https://github.com/linebender/vello/pull/551
+[#553]: https://github.com/linebender/vello/pull/553
+[#555]: https://github.com/linebender/vello/pull/555
+[#560]: https://github.com/linebender/vello/pull/560
+[#563]: https://github.com/linebender/vello/pull/563
+[#573]: https://github.com/linebender/vello/pull/573
+[#575]: https://github.com/linebender/vello/pull/575
+[#589]: https://github.com/linebender/vello/pull/589
+
+[Unreleased]: https://github.com/linebender/vello/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/linebender/vello/compare/v0.1.0...v0.2.0
+[0.0.1]: https://github.com/linebender/vello/releases/tag/v0.1.0
