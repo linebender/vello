@@ -102,7 +102,7 @@ pub(crate) fn full_shaders(
         };
     }
 
-    let prepare = add_shader!(prepare, [Buffer, Buffer], CpuShaderType::Skipped);
+    let prepare = add_shader!(prepare, [Buffer, Buffer]);
     let pathtag_reduce = add_shader!(pathtag_reduce, [Uniform, BufReadOnly, Buffer]);
     let pathtag_reduce2 = add_shader!(
         pathtag_reduce2,

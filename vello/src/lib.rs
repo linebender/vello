@@ -84,7 +84,6 @@
 mod debug;
 mod recording;
 mod render;
-mod robust;
 mod scene;
 mod shaders;
 #[cfg(feature = "wgpu")]
@@ -123,6 +122,7 @@ pub use shaders::FullShaders;
 
 #[cfg(feature = "wgpu")]
 use vello_encoding::Resolver;
+use wgpu::{Buffer, BufferUsages};
 #[cfg(feature = "wgpu")]
 use wgpu_engine::{ExternalResource, WgpuEngine};
 
@@ -252,6 +252,7 @@ pub struct Renderer {
     blit: Option<BlitPipeline>,
     #[cfg(feature = "debug_layers")]
     debug: Option<debug::DebugRenderer>,
+    bump: Option<Buffer>,
     target: Option<TargetTexture>,
     #[cfg(feature = "wgpu-profiler")]
     pub profiler: GpuProfiler,
@@ -351,6 +352,7 @@ impl Renderer {
             #[cfg(feature = "debug_layers")]
             debug,
             target: None,
+            bump: None,
             // Use 3 pending frames
             #[cfg(feature = "wgpu-profiler")]
             profiler: GpuProfiler::new(GpuProfilerSettings {
@@ -388,17 +390,42 @@ impl Renderer {
         texture: &TextureView,
         params: &RenderParams,
     ) -> Result<()> {
-        let (recording, target) =
+        let (mut recording, target, bump_buf) =
             render::render_full(scene, &mut self.resolver, &self.shaders, params);
-        let external_resources = [ExternalResource::Image(
-            *target.as_image().unwrap(),
-            texture,
-        )];
+        let cpu_external;
+        let gpu_external;
+        let gpu_bump;
+        let external_resources: &[ExternalResource] = if self.options.use_cpu {
+            // HACK: Our handling of buffers across CPU and GPU is not great
+
+            // We don't retrain the bump buffer if we're using CPU shaders
+            // This is because some of stages might still be running on the
+            // GPU, and we can't easily get the bump buffer back to the CPU
+            // from the GPU
+            recording.free_buffer(bump_buf);
+            cpu_external = [ExternalResource::Image(target, texture)];
+            &cpu_external
+        } else {
+            gpu_bump = self.bump.get_or_insert_with(|| {
+                device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("bump"),
+                    size: bump_buf.size,
+                    usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+                    mapped_at_creation: false,
+                })
+            });
+            gpu_external = [
+                ExternalResource::Image(target, texture),
+                ExternalResource::Buffer(bump_buf, &gpu_bump),
+            ];
+            &gpu_external
+        };
+
         self.engine.run_recording(
             device,
             queue,
             &recording,
-            &external_resources,
+            external_resources,
             "render_to_texture",
             #[cfg(feature = "wgpu-profiler")]
             &mut self.profiler,

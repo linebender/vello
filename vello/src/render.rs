@@ -82,7 +82,7 @@ pub(crate) fn render_full(
     resolver: &mut Resolver,
     shaders: &FullShaders,
     params: &RenderParams,
-) -> (Recording, ResourceProxy) {
+) -> (Recording, ImageProxy, BufferProxy) {
     render_encoding_full(scene.encoding(), resolver, shaders, params)
 }
 
@@ -96,12 +96,13 @@ pub(crate) fn render_encoding_full(
     resolver: &mut Resolver,
     shaders: &FullShaders,
     params: &RenderParams,
-) -> (Recording, ResourceProxy) {
+) -> (Recording, ImageProxy, BufferProxy) {
     let mut render = Render::new();
     let mut recording = render.render_encoding_coarse(encoding, resolver, shaders, params, false);
     let out_image = render.out_image();
+    let bump_buf = render.bump_buf();
     render.record_fine(shaders, &mut recording);
-    (recording, out_image.into())
+    (recording, out_image, bump_buf)
 }
 
 impl Default for Render {
@@ -196,7 +197,6 @@ impl Render {
             "reduced_buf",
         );
         let bump_buf = BufferProxy::new(buffer_sizes.bump_alloc.size_in_bytes().into(), "bump_buf");
-        recording.clear_all(bump_buf);
         let bump_buf = ResourceProxy::Buffer(bump_buf);
         recording.dispatch(shaders.prepare, (1, 1, 1), [config_buf, bump_buf]);
         // TODO: really only need pathtag_wgs - 1
