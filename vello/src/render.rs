@@ -10,7 +10,9 @@ use crate::{AaConfig, RenderParams};
 #[cfg(feature = "wgpu")]
 use crate::Scene;
 
-use vello_encoding::{make_mask_lut, make_mask_lut_16, Encoding, Resolver, WorkgroupSize};
+use vello_encoding::{
+    make_mask_lut, make_mask_lut_16, BumpBufferSizes, Encoding, Resolver, WorkgroupSize,
+};
 
 /// State for a render in progress.
 pub struct Render {
@@ -41,8 +43,9 @@ pub fn render_full(
     resolver: &mut Resolver,
     shaders: &FullShaders,
     params: &RenderParams,
+    bump_sizes: BumpBufferSizes,
 ) -> (Recording, ImageProxy, BufferProxy) {
-    render_encoding_full(scene.encoding(), resolver, shaders, params)
+    render_encoding_full(scene.encoding(), resolver, shaders, params, bump_sizes)
 }
 
 #[cfg(feature = "wgpu")]
@@ -55,9 +58,11 @@ pub fn render_encoding_full(
     resolver: &mut Resolver,
     shaders: &FullShaders,
     params: &RenderParams,
+    bump_sizes: BumpBufferSizes,
 ) -> (Recording, ImageProxy, BufferProxy) {
     let mut render = Render::new();
-    let mut recording = render.render_encoding_coarse(encoding, resolver, shaders, params, false);
+    let mut recording =
+        render.render_encoding_coarse(encoding, resolver, shaders, params, bump_sizes, true);
     let out_image = render.out_image();
     let bump_buf = render.bump_buf();
     render.record_fine(shaders, &mut recording);
@@ -89,6 +94,7 @@ impl Render {
         resolver: &mut Resolver,
         shaders: &FullShaders,
         params: &RenderParams,
+        bump_sizes: BumpBufferSizes,
         robust: bool,
     ) -> Recording {
         use vello_encoding::RenderConfig;
@@ -122,8 +128,13 @@ impl Render {
             );
         }
 
-        let cpu_config =
-            RenderConfig::new(&layout, params.width, params.height, &params.base_color);
+        let cpu_config = RenderConfig::new(
+            &layout,
+            params.width,
+            params.height,
+            &params.base_color,
+            bump_sizes,
+        );
         let buffer_sizes = &cpu_config.buffer_sizes;
         let wg_counts = &cpu_config.workgroup_counts;
 
@@ -132,14 +143,21 @@ impl Render {
             recording.upload_uniform("config", bytemuck::bytes_of(&cpu_config.gpu)),
         );
         let info_bin_data_buf = ResourceProxy::new_buf(
-            buffer_sizes.bin_data.size_in_bytes() as u64,
+            buffer_sizes.bump_buffers.bin_data.size_in_bytes() as u64,
             "info_bin_data_buf",
         );
-        let tile_buf =
-            ResourceProxy::new_buf(buffer_sizes.tiles.size_in_bytes().into(), "tile_buf");
-        let segments_buf =
-            ResourceProxy::new_buf(buffer_sizes.segments.size_in_bytes().into(), "segments_buf");
-        let ptcl_buf = ResourceProxy::new_buf(buffer_sizes.ptcl.size_in_bytes().into(), "ptcl_buf");
+        let tile_buf = ResourceProxy::new_buf(
+            buffer_sizes.bump_buffers.tiles.size_in_bytes().into(),
+            "tile_buf",
+        );
+        let segments_buf = ResourceProxy::new_buf(
+            buffer_sizes.bump_buffers.segments.size_in_bytes().into(),
+            "segments_buf",
+        );
+        let ptcl_buf = ResourceProxy::new_buf(
+            buffer_sizes.bump_buffers.ptcl.size_in_bytes().into(),
+            "ptcl_buf",
+        );
         let reduced_buf = ResourceProxy::new_buf(
             buffer_sizes.path_reduced.size_in_bytes().into(),
             "reduced_buf",
@@ -207,8 +225,10 @@ impl Render {
             wg_counts.bbox_clear,
             [config_buf, path_bbox_buf],
         );
-        let lines_buf =
-            ResourceProxy::new_buf(buffer_sizes.lines.size_in_bytes().into(), "lines_buf");
+        let lines_buf = ResourceProxy::new_buf(
+            buffer_sizes.bump_buffers.lines.size_in_bytes().into(),
+            "lines_buf",
+        );
         recording.dispatch(
             shaders.flatten,
             wg_counts.flatten,
@@ -340,7 +360,7 @@ impl Render {
             [bump_buf, indirect_count_buf.into()],
         );
         let seg_counts_buf = ResourceProxy::new_buf(
-            buffer_sizes.seg_counts.size_in_bytes().into(),
+            buffer_sizes.bump_buffers.seg_counts.size_in_bytes().into(),
             "seg_counts_buf",
         );
         recording.dispatch_indirect(
