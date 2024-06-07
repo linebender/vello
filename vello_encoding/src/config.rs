@@ -170,7 +170,13 @@ pub struct RenderConfig {
 }
 
 impl RenderConfig {
-    pub fn new(layout: &Layout, width: u32, height: u32, base_color: &peniko::Color) -> Self {
+    pub fn new(
+        layout: &Layout,
+        width: u32,
+        height: u32,
+        base_color: &peniko::Color,
+        bump_buffers: BumpBufferSizes,
+    ) -> Self {
         let new_width = width.next_multiple_of(TILE_WIDTH);
         let new_height = height.next_multiple_of(TILE_HEIGHT);
         let width_in_tiles = new_width / TILE_WIDTH;
@@ -178,7 +184,7 @@ impl RenderConfig {
         let n_path_tags = layout.path_tags_size();
         let workgroup_counts =
             WorkgroupCounts::new(layout, width_in_tiles, height_in_tiles, n_path_tags);
-        let buffer_sizes = BufferSizes::new(layout, &workgroup_counts);
+        let buffer_sizes = BufferSizes::new(layout, &workgroup_counts, bump_buffers);
         Self {
             gpu: ConfigUniform {
                 width_in_tiles,
@@ -187,13 +193,13 @@ impl RenderConfig {
                 target_width: width,
                 target_height: height,
                 base_color: base_color.to_premul_u32(),
-                lines_size: buffer_sizes.lines.len(),
-                binning_size: buffer_sizes.bin_data.len() - layout.bin_data_start,
-                tiles_size: buffer_sizes.tiles.len(),
-                seg_counts_size: buffer_sizes.seg_counts.len(),
-                segments_size: buffer_sizes.segments.len(),
-                blend_size: buffer_sizes.blend_spill.len(),
-                ptcl_size: buffer_sizes.ptcl.len(),
+                lines_size: buffer_sizes.bump_buffers.lines.len(),
+                binning_size: buffer_sizes.bump_buffers.bin_data.len() - layout.bin_data_start,
+                tiles_size: buffer_sizes.bump_buffers.tiles.len(),
+                seg_counts_size: buffer_sizes.bump_buffers.seg_counts.len(),
+                segments_size: buffer_sizes.bump_buffers.segments.len(),
+                blend_size: buffer_sizes.bump_buffers.blend_spill.len(),
+                ptcl_size: buffer_sizes.bump_buffers.ptcl.len(),
                 layout: *layout,
             },
             workgroup_counts,
@@ -333,6 +339,16 @@ impl<T: Sized> PartialOrd for BufferSize<T> {
         self.len.partial_cmp(&other.len)
     }
 }
+#[derive(Copy, Clone, Debug)]
+pub struct BumpBufferSizes {
+    pub lines: BufferSize<LineSoup>,
+    pub bin_data: BufferSize<u32>,
+    pub tiles: BufferSize<Tile>,
+    pub seg_counts: BufferSize<SegmentCount>,
+    pub segments: BufferSize<PathSegment>,
+    pub ptcl: BufferSize<u32>,
+    pub blend_spill: BufferSize<u32>,
+}
 
 /// Computed sizes for all buffers.
 #[derive(Copy, Clone, Debug, Default)]
@@ -356,17 +372,46 @@ pub struct BufferSizes {
     pub bin_headers: BufferSize<BinHeader>,
     pub paths: BufferSize<Path>,
     // Bump allocated buffers
-    pub lines: BufferSize<LineSoup>,
-    pub bin_data: BufferSize<u32>,
-    pub tiles: BufferSize<Tile>,
-    pub seg_counts: BufferSize<SegmentCount>,
-    pub segments: BufferSize<PathSegment>,
-    pub blend_spill: BufferSize<u32>,
-    pub ptcl: BufferSize<u32>,
+    pub bump_buffers: BumpBufferSizes,
+}
+
+impl BumpBufferSizes {
+    fn new() -> Self {
+        // The following buffer sizes have been hand picked to accommodate the vello test scenes as
+        // well as paris-30k. These should instead get derived from the scene layout using
+        // reasonable heuristics.
+        let bin_data = BufferSize::new(1 << 18);
+        let tiles = BufferSize::new(1 << 21);
+        let lines = BufferSize::new(1 << 21);
+        let seg_counts = BufferSize::new(1 << 21);
+        let segments = BufferSize::new(1 << 21);
+        let ptcl = BufferSize::new(1 << 23);
+        // 16 * 16 (1 << 8) is one blend spill, so this allows for 4096 spills.
+        let blend_spill = BufferSize::new(1 << 20);
+        BumpBufferSizes {
+            bin_data,
+            lines,
+            ptcl,
+            seg_counts,
+            segments,
+            tiles,
+            blend_spill,
+        }
+    }
+}
+
+impl Default for BumpBufferSizes {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl BufferSizes {
-    pub fn new(layout: &Layout, workgroups: &WorkgroupCounts) -> Self {
+    pub fn new(
+        layout: &Layout,
+        workgroups: &WorkgroupCounts,
+        bump_buffers: BumpBufferSizes,
+    ) -> Self {
         let n_paths = layout.n_paths;
         let n_draw_objects = layout.n_draw_objects;
         let n_clips = layout.n_clips;
@@ -397,17 +442,6 @@ impl BufferSizes {
         let n_paths_aligned = align_up(n_paths, 256);
         let paths = BufferSize::new(n_paths_aligned);
 
-        // The following buffer sizes have been hand picked to accommodate the vello test scenes as
-        // well as paris-30k. These should instead get derived from the scene layout using
-        // reasonable heuristics.
-        let bin_data = BufferSize::new(1 << 18);
-        let tiles = BufferSize::new(1 << 21);
-        let lines = BufferSize::new(1 << 21);
-        let seg_counts = BufferSize::new(1 << 21);
-        let segments = BufferSize::new(1 << 21);
-        // 16 * 16 (1 << 8) is one blend spill, so this allows for 4096 spills.
-        let blend_spill = BufferSize::new(1 << 20);
-        let ptcl = BufferSize::new(1 << 23);
         Self {
             path_reduced,
             path_reduced2,
@@ -424,15 +458,8 @@ impl BufferSizes {
             draw_bboxes,
             bump_alloc,
             indirect_count,
-            lines,
             bin_headers,
             paths,
-            bin_data,
-            tiles,
-            seg_counts,
-            segments,
-            blend_spill,
-            ptcl,
         }
     }
 }

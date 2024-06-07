@@ -89,6 +89,10 @@ mod shaders;
 #[cfg(feature = "wgpu")]
 mod wgpu_engine;
 
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 #[cfg(feature = "wgpu")]
 use std::{num::NonZeroUsize, sync::Arc};
 
@@ -102,6 +106,7 @@ pub use skrifa;
 
 pub mod glyph;
 
+use vello_encoding::{BufferSize, BumpBufferSizes};
 #[cfg(feature = "wgpu")]
 pub use wgpu;
 
@@ -122,7 +127,7 @@ pub use shaders::FullShaders;
 
 #[cfg(feature = "wgpu")]
 use vello_encoding::Resolver;
-use wgpu::{Buffer, BufferUsages};
+use wgpu::SubmissionIndex;
 #[cfg(feature = "wgpu")]
 use wgpu_engine::{ExternalResource, WgpuEngine};
 
@@ -130,7 +135,7 @@ pub use debug::DebugLayers;
 /// Temporary export, used in `with_winit` for stats
 pub use vello_encoding::BumpAllocators;
 #[cfg(feature = "wgpu")]
-use wgpu::{Device, Queue, SurfaceTexture, TextureFormat, TextureView};
+use wgpu::{Buffer, BufferUsages, Device, Queue, SurfaceTexture, TextureFormat, TextureView};
 #[cfg(all(feature = "wgpu", feature = "wgpu-profiler"))]
 use wgpu_profiler::{GpuProfiler, GpuProfilerSettings};
 
@@ -241,6 +246,8 @@ pub enum Error {
 #[allow(dead_code)] // this can be unused when wgpu feature is not used
 pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 
+type BumpSubmission = (SubmissionIndex, Buffer, Arc<AtomicBool>);
+
 /// Renders a scene into a texture or surface.
 #[cfg(feature = "wgpu")]
 pub struct Renderer {
@@ -252,8 +259,12 @@ pub struct Renderer {
     blit: Option<BlitPipeline>,
     #[cfg(feature = "debug_layers")]
     debug: Option<debug::DebugRenderer>,
-    bump: Option<Buffer>,
     target: Option<TargetTexture>,
+    // Fields for robust dynamic memory
+    bump: Option<Buffer>,
+    previous_submission: Option<BumpSubmission>,
+    previouser_submission: Option<BumpSubmission>,
+    bump_sizes: BumpBufferSizes,
     #[cfg(feature = "wgpu-profiler")]
     pub profiler: GpuProfiler,
     #[cfg(feature = "wgpu-profiler")]
@@ -353,6 +364,9 @@ impl Renderer {
             debug,
             target: None,
             bump: None,
+            previous_submission: None,
+            previouser_submission: None,
+            bump_sizes: Default::default(),
             // Use 3 pending frames
             #[cfg(feature = "wgpu-profiler")]
             profiler: GpuProfiler::new(GpuProfilerSettings {
@@ -389,9 +403,14 @@ impl Renderer {
         scene: &Scene,
         texture: &TextureView,
         params: &RenderParams,
-    ) -> Result<()> {
-        let (mut recording, target, bump_buf) =
-            render::render_full(scene, &mut self.resolver, &self.shaders, params);
+    ) -> Result<Option<Buffer>> {
+        let (mut recording, target, bump_buf) = render::render_full(
+            scene,
+            &mut self.resolver,
+            &self.shaders,
+            params,
+            self.bump_sizes,
+        );
         let cpu_external;
         let gpu_external;
         let gpu_bump;
@@ -416,7 +435,7 @@ impl Renderer {
             });
             gpu_external = [
                 ExternalResource::Image(target, texture),
-                ExternalResource::Buffer(bump_buf, &gpu_bump),
+                ExternalResource::Buffer(bump_buf, gpu_bump),
             ];
             &gpu_external
         };
@@ -430,7 +449,8 @@ impl Renderer {
             #[cfg(feature = "wgpu-profiler")]
             &mut self.profiler,
         )?;
-        Ok(())
+        let bump_download = self.engine.take_download(bump_buf);
+        Ok(bump_download)
     }
 
     /// Renders a scene to the target surface.
@@ -449,6 +469,67 @@ impl Renderer {
         surface: &SurfaceTexture,
         params: &RenderParams,
     ) -> Result<()> {
+        let buffer_completed = if let Some((idx, bump, completed)) =
+            self.previouser_submission.take()
+        {
+            // Ensure that we have the bump buffer from the rendering two frames ago
+            // The previous frame will have been cancelled if that is the case
+
+            // Warning: Blocks!
+            device.poll(wgpu::MaintainBase::WaitForSubmissionIndex(idx));
+
+            if completed.swap(false, Ordering::Acquire) {
+                {
+                    let slice = &bump.slice(..);
+                    let data = slice.get_mapped_range();
+                    let data: BumpAllocators = bytemuck::pod_read_unaligned(&*data);
+                    if data.failed != 0 {
+                        if data.failed == 0x20 {
+                            eprintln!(
+                                "Run failed but next run will be retried, reallocated in last run"
+                            );
+                        } else {
+                            eprintln!("Previous run failed, need to reallocate");
+                            // TODO: Be smarter here, e.g. notice that we're over by a certain factor
+                            // and bump several buffers?
+
+                            // TODO: Also reduce allocation sizes
+                            // TODO: Free buffers which haven't been used in "a while"
+
+                            // TODO: This ignore the draw tag length?
+                            if data.binning > self.bump_sizes.bin_data.len() {
+                                self.bump_sizes.bin_data = BufferSize::new(data.binning * 3 / 2);
+                            }
+                            if data.lines > self.bump_sizes.lines.len() {
+                                self.bump_sizes.lines = BufferSize::new(data.lines * 5 / 4);
+                            }
+                            // if data.blend > self.bump_sizes.? // TODO
+                            if data.ptcl > self.bump_sizes.ptcl.len() {
+                                self.bump_sizes.ptcl = BufferSize::new(data.ptcl * 5 / 4);
+                            }
+                            if data.seg_counts > self.bump_sizes.seg_counts.len() {
+                                self.bump_sizes.seg_counts =
+                                    BufferSize::new(data.seg_counts * 5 / 4);
+                            }
+                            if data.tile > self.bump_sizes.tiles.len() {
+                                self.bump_sizes.tiles = BufferSize::new(data.tile * 5 / 4);
+                            }
+                            if data.segments > self.bump_sizes.segments.len() {
+                                self.bump_sizes.segments = BufferSize::new(data.segments * 5 / 4);
+                            }
+                        }
+                    }
+                }
+                bump.unmap();
+                // TODO: Return `bump` into the engine's pool
+            } else {
+                // Downloading the buffer failed; we just assume that we can keep going?
+            }
+            completed
+        } else {
+            Arc::new(AtomicBool::new(false))
+        };
+
         let width = params.width;
         let height = params.height;
         let mut target = self
@@ -460,7 +541,7 @@ impl Renderer {
         if target.width != width || target.height != height {
             target = TargetTexture::new(device, width, height);
         }
-        self.render_to_texture(device, queue, scene, &target.view, params)?;
+        let bump_download = self.render_to_texture(device, queue, scene, &target.view, params)?;
         let blit = self
             .blit
             .as_ref()
@@ -497,7 +578,28 @@ impl Renderer {
             "blit (render_to_surface)",
             #[cfg(feature = "wgpu-profiler")]
             &mut self.profiler,
-        )?;
+        );
+        if let Some(download) = &bump_download {
+            let completed = buffer_completed.clone();
+            download
+                .slice(..)
+                .map_async(wgpu::MapMode::Read, move |res| match res {
+                    Ok(()) => {
+                        completed.store(true, Ordering::Release);
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to map bump buffer: {e}");
+                    }
+                });
+        };
+        let idx = queue.submit(Some(encoder.finish()));
+        if let Some(download) = bump_download {
+            self.previouser_submission =
+                self.previous_submission
+                    .replace((idx, download, buffer_completed));
+        } else {
+            self.previouser_submission = self.previous_submission.take();
+        }
         self.target = Some(target);
         #[cfg(feature = "wgpu-profiler")]
         {
@@ -606,6 +708,7 @@ impl Renderer {
             &mut self.resolver,
             &self.shaders,
             params,
+            Default::default(),
             robust,
         );
         let target = render.out_image();

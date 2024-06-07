@@ -685,6 +685,12 @@ impl WgpuEngine {
                     let src_buf = self
                         .bind_map
                         .get_gpu_buf(proxy.id)
+                        .or_else(|| {
+                            transient_map.bufs.get(&proxy.id).and_then(|it| match it {
+                                TransientBuf::Cpu(_) => None,
+                                TransientBuf::Gpu(buf) => Some(*buf),
+                            })
+                        })
                         .ok_or(Error::UnavailableBufferUsed(proxy.name, "download"))?;
                     let usage = BufferUsages::MAP_READ | BufferUsages::COPY_DST;
                     let buf = self.pool.get_buf(proxy.size, "download", usage, device);
@@ -746,6 +752,10 @@ impl WgpuEngine {
 
     pub fn get_download(&self, buf: BufferProxy) -> Option<&Buffer> {
         self.downloads.get(&buf.id)
+    }
+
+    pub fn take_download(&mut self, buf: BufferProxy) -> Option<Buffer> {
+        self.downloads.remove(&buf.id)
     }
 
     pub fn free_download(&mut self, buf: BufferProxy) {
