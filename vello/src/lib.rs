@@ -482,7 +482,7 @@ impl Renderer {
                 {
                     let slice = &bump.slice(..);
                     let data = slice.get_mapped_range();
-                    let data: BumpAllocators = bytemuck::pod_read_unaligned(&*data);
+                    let data: BumpAllocators = bytemuck::pod_read_unaligned(&data);
                     if data.failed != 0 {
                         if data.failed == 0x20 {
                             eprintln!(

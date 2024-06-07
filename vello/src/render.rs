@@ -490,7 +490,8 @@ impl Render {
             image_atlas: ResourceProxy::Image(image_atlas),
             out_image,
         });
-        if robust {
+        // TODO: This second check is a massive hack
+        if robust && !shaders.pathtag_is_cpu {
             recording.download(*bump_buf.as_buf().unwrap());
         }
         recording.free_resource(bump_buf);
