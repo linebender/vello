@@ -489,7 +489,10 @@ impl Renderer {
                                 "Run failed but next run will be retried, reallocated in last run"
                             );
                         } else {
-                            eprintln!("Previous run failed, need to reallocate");
+                            eprintln!(
+                                "Previous run failed, need to reallocate: {:x?}",
+                                data.failed
+                            );
                             // TODO: Be smarter here, e.g. notice that we're over by a certain factor
                             // and bump several buffers?
 
@@ -505,7 +508,8 @@ impl Renderer {
                             }
                             // if data.blend > self.bump_sizes.? // TODO
                             if data.ptcl > self.bump_sizes.ptcl.len() {
-                                self.bump_sizes.ptcl = BufferSize::new(data.ptcl * 5 / 4);
+                                // TODO: At 5/4, this doesn't work very well
+                                self.bump_sizes.ptcl = BufferSize::new(data.ptcl * 3 / 2);
                             }
                             if data.seg_counts > self.bump_sizes.seg_counts.len() {
                                 self.bump_sizes.seg_counts =
