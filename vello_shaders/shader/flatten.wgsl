@@ -412,9 +412,7 @@ fn es_seg_flatten_offset(
             lp1 = es_seg_eval_with_offset(es, range.x + range_size * s, normalized_offset);
         }
         let forward = (offset >= 0.);
-        let l0 = select(lp1, lp0, forward != flip);
-        let l1 = select(lp0, lp1, forward != flip);
-        output_line_with_transform(path_ix, l0, l1, transform);
+        output_line_with_transform(path_ix, lp0, lp1, transform, forward != flip);
         lp0 = lp1;
     }
     return lp0;
@@ -448,10 +446,7 @@ fn es_seg_flatten_evolute(
       let u = rho_int_0 + t * rho_int;
       let s = range.x + range_size * (sign2 * u * u + 0.5 - ratio);
       let lp1 = es_seg_eval_evolute(es, s);
-      let l0 = select(lp1, lp0, offset >= 0.);
-      let l1 = select(lp0, lp1, offset >= 0.);
-      output_line_with_transform(path_ix, l0, l1, transform);
-      output_line_with_transform(path_ix, l0, l1, transform);
+      output_double_line_with_transform(path_ix, lp0, lp1, transform, offset >= 0.);
       lp0 = lp1;
   }
   return lp0;
@@ -493,23 +488,10 @@ fn flatten_offset_cusp_finalize(
     main_path_last_p: ptr<function, vec2f>,
 ) {
     if (*evolute).is_valid {
-        // Connect evolute to end of rev_parallel (do this twice to double the winding number).
-        let l0 = select((*rev_parallel).last, (*evolute).last, offset >= 0.);
-        let l1 = select((*evolute).last, (*rev_parallel).last, offset >= 0.);
-        output_line_with_transform(path_ix, l0, l1, transform);
-        output_line_with_transform(path_ix, l0, l1, transform);
+        // Connect evolute to end of rev_parallel with +2 winding number
+        output_double_line_with_transform(path_ix, (*evolute).last, (*rev_parallel).last, transform, offset >= 0.);
 
-        // Connect both the main path (forward parallel curve) and the reverse curve to the start
-        // of the evolute.
-        //output_line_with_transform(path_ix, *main_path_last_p, (*evolute).first, transform);
-        //let ll0 = select((*evolute).first, (*rev_parallel).first, offset >= 0.);
-    //    let ll1 = select((*rev_parallel).first, (*evolute).first, offset >= 0.);
-//        output_line_with_transform(path_ix, ll0, ll1, transform);
-  //      output_line_with_transform(path_ix, ll0, ll1, transform);
-        //output_line_with_transform(path_ix, (*rev_parallel).first, (*evolute).first, transform);
-       // output_line_with_transform(path_ix, (*rev_parallel).first, (*evolute).first, transform);
         *main_path_last_p = (*rev_parallel).last;
-
         (*evolute).is_valid = false;
         (*rev_parallel).is_valid = false;
     }
@@ -578,7 +560,7 @@ fn flatten_euler(
         let t0 = f32(t0_u) * dt;
         if t0 == 1.0 {
             flatten_offset_cusp_finalize(path_ix, transform, offset, &evolute, &rev_parallel, &main_path);
-            output_line_with_transform(path_ix, main_path, t_end, transform);
+            output_line_with_transform(path_ix, main_path, t_end, transform, offset >= 0.);
             break;
         }
         var t1 = t0 + dt;
@@ -621,9 +603,8 @@ fn flatten_euler(
                 );
                 if t < 1. {
                     flatten_offset_cusp_start(&evolute, &rev_parallel, main_path);
-                    let evolute_end = evolute.last;
                     evolute.last = es_seg_flatten_evolute(
-                        es, path_ix, transform, evolute_end, t1, scale, offset, cubic_params.chord_len, tol, vec2f(t, 1.),
+                        es, path_ix, transform, evolute.last, t1, scale, offset, cubic_params.chord_len, tol, vec2f(t, 1.),
                     );
                     rev_parallel.last = es_seg_flatten_offset(
                         es, path_ix, transform, rev_parallel.last, t_end, t1, scale, offset, cubic_params.chord_len, tol, vec2(t, 1.), true,
@@ -632,10 +613,7 @@ fn flatten_euler(
             } else {
                 flatten_offset_cusp_start(&evolute, &rev_parallel, main_path);
                 let ep1 = es_seg_eval_evolute(es, 0.);
-                let lep0 = select(ep1, evolute.last, offset >= 0.);
-                let lep1 = select(evolute.last, ep1, offset >= 0.);
-                output_line_with_transform(path_ix, lep0, lep1, transform);
-                output_line_with_transform(path_ix, lep0, lep1, transform);
+                output_double_line_with_transform(path_ix, evolute.last, ep1, transform, offset >= 0.);
                 evolute.last = es_seg_flatten_evolute(
                     es, path_ix, transform, ep1, t1, scale, offset, cubic_params.chord_len, tol, vec2f(0., t),
                 );
@@ -795,7 +773,7 @@ fn draw_join(
                 other1 = back1;
             }
             flatten_arc(path_ix, arc0, arc1, p0, abs(atan2(cr, d)), transform);
-            output_line_with_transform(path_ix, other0, other1, transform);
+            output_line_with_transform(path_ix, other0, other1, transform, true);
         }
         default: {}
     }
@@ -953,9 +931,24 @@ fn output_line(path_ix: u32, p0: vec2f, p1: vec2f) {
     write_line(line_ix, path_ix, p0, p1);
 }
 
-fn output_line_with_transform(path_ix: u32, p0: vec2f, p1: vec2f, transform: Transform) {
+fn output_line_with_transform(path_ix: u32, p0: vec2f, p1: vec2f, transform: Transform, forward: bool) {
     let line_ix = atomicAdd(&bump.lines, 1u);
-    write_line_with_transform(line_ix, path_ix, p0, p1, transform);
+    let l0 = select(p1, p0, forward);
+    let l1 = select(p0, p1, forward);
+    write_line_with_transform(line_ix, path_ix, l0, l1, transform);
+}
+
+// Same as output_line_with_transform but outputs the same line twice. This is used when rendering
+// an evolute patch, which has segments that need to contribute a winding number of 2 (see Figure 7
+// in "GPU-friendly Stroke Expansion", R. Levien, A. Uguray).
+fn output_double_line_with_transform(path_ix: u32, p0: vec2f, p1: vec2f, transform: Transform, forward: bool) {
+    let line_ix = atomicAdd(&bump.lines, 2u);
+    let l0 = select(p1, p0, forward);
+    let l1 = select(p0, p1, forward);
+    let tp0 = transform_apply(transform, l0);
+    let tp1 = transform_apply(transform, l1);
+    write_line(line_ix, path_ix, tp0, tp1);
+    write_line(line_ix + 1u, path_ix, tp0, tp1);
 }
 
 fn output_two_lines_with_transform(
