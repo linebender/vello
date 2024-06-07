@@ -3,6 +3,7 @@
 
 // Determine whether the Vello pipeline is likely to fail during this run
 // and therefore whether all later stages should be cancelled.
+// This enables reduced latency in most failure cases
 
 #import config
 #import bump

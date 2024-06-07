@@ -29,6 +29,7 @@ mod pathtag_reduce;
 mod pathtag_scan;
 mod tile_alloc;
 mod util;
+mod prepare;
 
 pub use backdrop::backdrop;
 pub use bbox_clear::bbox_clear;
@@ -46,6 +47,7 @@ pub use path_tiling_setup::path_tiling_setup;
 pub use pathtag_reduce::pathtag_reduce;
 pub use pathtag_scan::pathtag_scan;
 pub use tile_alloc::tile_alloc;
+pub use prepare::prepare;
 
 use std::cell::{Ref, RefCell, RefMut};
 use std::ops::{Deref, DerefMut};
