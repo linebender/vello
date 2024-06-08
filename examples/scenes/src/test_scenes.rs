@@ -47,6 +47,7 @@ pub fn test_scenes() -> SceneSet {
             false
         ),
         scene!(tricky_strokes),
+        scene!(stroke_evolute_stills),
         scene!(fill_types),
         scene!(cardioid_and_friends),
         scene!(animated_text: animated),
@@ -464,6 +465,100 @@ fn tricky_strokes(scene: &mut Scene, params: &mut SceneParams) {
     }
 
     let curve_count = tricky_cubics.len() + flat_curves.len();
+    params.resolution = Some(Vec2::new(
+        CELL_SIZE * NUM_COLS as f64,
+        CELL_SIZE * (1 + curve_count / NUM_COLS) as f64,
+    ));
+}
+
+// These have been adapted from the Nehab2020 "stills" data set SVGs found at
+// https://w3.impa.br/~diego/projects/Neh20/stills-by-test
+fn stroke_evolute_stills(scene: &mut Scene, params: &mut SceneParams) {
+    use PathEl::*;
+
+    const COLOR: Color = Color::rgb8(255, 147, 141);
+    const CELL_SIZE: f64 = 100.;
+    const NUM_COLS: usize = 5;
+
+    fn stroke_bounds(pts: &[(f64, f64); 4], width: f64) -> Rect {
+        use kurbo::CubicBez;
+        CubicBez::new((pts[0].0, -pts[0].1), (pts[1].0, -pts[1].1), (pts[2].0, -pts[2].1), (pts[3].0, -pts[3].1))
+            .bounding_box()
+            .inflate(width, width)
+    }
+
+    fn map_rect_to_rect(src: &Rect, dst: &Rect) -> Affine {
+        let (scale, x_larger) = {
+            let sx = dst.width() / src.width();
+            let sy = dst.height() / src.height();
+            (sx.min(sy), sx > sy)
+        };
+        let tx = dst.x0 - src.x0 * scale;
+        let ty = dst.y0 - src.y0 * scale;
+        let (tx, ty) = if x_larger {
+            (tx + 0.5 * (dst.width() - src.width() * scale), ty)
+        } else {
+            (tx, ty + 0.5 * (dst.height() - src.height() * scale))
+        };
+        Affine::new([scale, 0.0, 0.0, -scale, tx, ty])
+    }
+
+    let tricky_cubics = [
+        // alternative_lazy_loop
+        (134.48832702637, [(135.365, 179.735), (27.6688, 190.242), (472.899, 221.763), (380.963, 118.445)]),
+        // another_huge_quadratic_hull
+        (315.67202758789, [(209.036, 248.217), (334.657, 150.448), (334.657, 150.448), (292.27, 298.645)]),
+        // centurion_head
+        (280.93460083008, [(192.113, 192.046), (180.732, 255.034), (392.083, 320.194), (294.537, 270.238)]),
+        // curvature
+        (341.33334350586, [(290.133, 495.071), (221.867, 495.071), (221.867, 290.214), (221.867, 221.929)]),
+        // error_cusp
+        (186.18182373047, [(144.291, 144.561), (367.709, 368.398), (144.291, 368.398), (367.709, 144.561)]),
+        // hard_hole
+        (278.52557373047, [(190.904, 190.665), (179.621, 253.056), (389.16,  317.598), (298.897, 235.845)]),
+        // hole
+        (227.73477172852, [(165.067, 427.682), (259.957, -47.4862), (411.78, 275.628), (316.891, 237.615)]),
+        // huge_radius_quadratic
+        (295.85583496094, [(199.128, 307.51),  (338.485, 368.327), (338.485, 368.327), (307.104, 199.391)]),
+        // lazy_loop
+        (159.02416992188, [(144.724, 130.902), (53.7931, 197.258), (437.608, 166.197), (374.168, 133.725)]),
+        // moving_cusp
+        (186.18182373047, [(242.036, 269.964), (269.964, 325.818), (242.036, 325.818), (269.964, 269.964)]),
+        // small_nick
+        (289.72637939453, [(196.063, 196.18), (196.063, 200.275), (355.658, 302.64), (306.552, 253.505)]),
+        // sneaky_lazy_loop
+        (145.67585754395, [(132.291, 124.198), (64.49, 169.457), (438.366, 156.526), (382.187, 179.802)]),
+        // tight_turn_with_inflection
+        (38.213409423828, [(441.693, 202.409), (428.557, 211.971), (190.918, -97.2099), (70.3067, 199.222)]),
+        // wedge_q
+        (307.20001220703 * 3.5, [(204.8, 205.116), (256., 266.651), (256., 266.651), (307.2, 205.116)]),
+        // wedge_cubic_serpentine
+        (284.25881958008, [(193.329, 307.173), (542.527, -60.5765), (24.8569, 609.544), (269.908, 286.742)]),
+    ];
+
+    for (i, (stroke_width, cubic)) in tricky_cubics.into_iter().enumerate() {
+        let xi = i % NUM_COLS;
+        let yi = i / NUM_COLS;
+        let x = xi as f64 * CELL_SIZE;
+        let y = yi as f64 * CELL_SIZE;
+        let cell = Rect::new(x, y, x + CELL_SIZE, y + CELL_SIZE);
+        let bounds = stroke_bounds(&cubic, stroke_width);
+        let t = map_rect_to_rect(&bounds, &cell);
+        scene.stroke(
+            &Stroke::new(stroke_width)
+                .with_caps(Cap::Butt)
+                .with_join(Join::Miter),
+            t,
+            COLOR,
+            None,
+            &[
+                MoveTo(cubic[0].into()),
+                CurveTo(cubic[1].into(), cubic[2].into(), cubic[3].into()),
+            ],
+        );
+    }
+
+    let curve_count = tricky_cubics.len();
     params.resolution = Some(Vec2::new(
         CELL_SIZE * NUM_COLS as f64,
         CELL_SIZE * (1 + curve_count / NUM_COLS) as f64,
