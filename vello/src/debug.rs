@@ -163,7 +163,7 @@ impl DebugRenderer {
             &module,
             "linesoup_vert",
             "solid_color_frag",
-            wgpu::PrimitiveTopology::LineList,
+            wgpu::PrimitiveTopology::TriangleStrip,
             wgpu::ColorTargetState {
                 format: target_format,
                 blend: None,
@@ -317,7 +317,7 @@ impl DebugRenderer {
         );
 
         let linepoints_uniforms = [
-            LinepointsUniforms::new(Color::CYAN, 10.),
+            LinepointsUniforms::new(Color::DARK_CYAN, 10.),
             LinepointsUniforms::new(Color::RED, 80.),
         ];
         let linepoints_uniforms_buf = recording.upload_uniform(
@@ -325,6 +325,7 @@ impl DebugRenderer {
             bytemuck::bytes_of(&linepoints_uniforms),
         );
 
+        /*
         recording.draw(DrawParams {
             shader_id: self.clear_tint,
             instance_count: 1,
@@ -333,7 +334,7 @@ impl DebugRenderer {
             resources: vec![],
             target,
             clear_color: None,
-        });
+        });*/
         if params.debug.check_bits(DebugLayers::BOUNDING_BOXES) {
             recording.draw(DrawParams {
                 shader_id: self.bboxes,
@@ -349,7 +350,7 @@ impl DebugRenderer {
             recording.draw(DrawParams {
                 shader_id: self.linesoup,
                 instance_count: bump.lines,
-                vertex_count: 2,
+                vertex_count: 4,
                 vertex_buffer: Some(captured.lines),
                 resources: vec![uniforms_buf],
                 target,
@@ -492,10 +493,22 @@ struct LinesoupIn {
     @location(1) p1: vec2f,
 }
 
+const LINE_THICKNESS: f32 = 4.;
+const WIND_DOWN_COLOR: vec3f = vec3(0., 1., 0.);
+const WIND_UP_COLOR: vec3f = vec3(1., 0., 0.);
+
 @vertex
 fn linesoup_vert(@builtin(vertex_index) vid: u32, line: LinesoupIn) -> VSOut {
-    let p = select(line.p0, line.p1, vid == 1u) / vec2f(f32(uniforms.width), f32(uniforms.height));
-    return VSOut(map_to_ndc(p), vec4(0.7, 0.5, 0., 1.));
+    let quad_corner = quad_vertices[quad_fill_indices[vid]] - vec2(0.5);
+    let v = line.p1 - line.p0;
+    let m = mix(line.p0, line.p1, 0.5);
+    let s = vec2(LINE_THICKNESS, length(v));
+    let vn = normalize(v);
+    let r = mat2x2(vn.y, -vn.x, vn.x, vn.y);
+    let p = (m + r * (s * quad_corner)) / vec2f(f32(uniforms.width), f32(uniforms.height));
+    //let color = vec4(0.7, 0.5, 0., 1.);
+    let color = vec4(select(WIND_UP_COLOR, WIND_DOWN_COLOR, v.y >= 0.), 1.);
+    return VSOut(map_to_ndc(p), color);
 }
 
 ////////////
