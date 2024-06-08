@@ -467,13 +467,22 @@ fn evolute_subpath_init(p: vec2f) -> EvoluteSubpath {
 fn flatten_offset_cusp_start(
     evolute: ptr<function, EvoluteSubpath>,
     rev_parallel: ptr<function, EvoluteSubpath>,
+    params: EulerSegLoweringParams,
     start: vec2f,
+    line_to_evolute: bool,
 ) {
     if !(*evolute).is_valid {
         *evolute = evolute_subpath_init(start);
     }
     if !(*rev_parallel).is_valid {
         *rev_parallel = evolute_subpath_init(start);
+    }
+    if line_to_evolute {
+        let evolute_t0 = es_seg_eval_evolute(params.es, 0.);
+        output_double_line_with_transform(
+            params.path_ix, (*evolute).last, evolute_t0, params.transform, params.offset >= 0.
+        );
+        (*evolute).last = evolute_t0;
     }
 }
 
@@ -487,8 +496,9 @@ fn flatten_offset_cusp_finalize(
 ) {
     if (*evolute).is_valid {
         // Connect evolute to end of rev_parallel with +2 winding number
-        output_double_line_with_transform(path_ix, (*evolute).last, (*rev_parallel).last, transform, offset >= 0.);
-
+        output_double_line_with_transform(
+            path_ix, (*evolute).last, (*rev_parallel).last, transform, offset >= 0.
+        );
         *contour_last_p = (*rev_parallel).last;
         (*evolute).is_valid = false;
         (*rev_parallel).is_valid = false;
@@ -595,24 +605,33 @@ fn flatten_euler(
               // location of cusp
               t = cusp0 / (cusp0 - cusp1);
             }
+
+            // The following emits the offset curve and a connected evolute patch if the offset
+            // curve has a cusp in it. Note that t = 1 for fills so only an offset curve will be
+            // output.
+            let evolute_range = select(vec2(0., t), vec2(t, 1.), cusp0 >= 0.);
             if cusp0 >= 0. {
+                // Output the contour up to the cusp location at `t`. If the offset curve has no
+                // cusp OR this is a fill (offset = 0), this will only output the flattened ES or
+                // ESPC. We call `flatten_offset_cusp_finalize` to connect any previously rendered
+                // evolute segments.
                 flatten_offset_cusp_finalize(path_ix, transform, offset, &evolute, &rev_parallel, &contour);
                 contour = es_seg_flatten_offset(lowering, contour, vec2(0., t), /*flip=*/false);
-                if t < 1. {
-                    flatten_offset_cusp_start(&evolute, &rev_parallel, contour);
-                    evolute.last = es_seg_flatten_evolute(lowering, evolute.last, vec2(t, 1.));
-                    rev_parallel.last = es_seg_flatten_offset(lowering, rev_parallel.last, vec2(t, 1.), /*flip=*/true);
-                }
-            } else {
-                flatten_offset_cusp_start(&evolute, &rev_parallel, contour);
-                let evolute_t0 = es_seg_eval_evolute(es, 0.);
-                output_double_line_with_transform(path_ix, evolute.last, evolute_t0, transform, offset >= 0.);
-                evolute.last = es_seg_flatten_evolute(lowering, evolute_t0, vec2(0., t));
-                rev_parallel.last = es_seg_flatten_offset(lowering, rev_parallel.last, vec2(0., t), /*flip=*/true);
-                if t < 1. {
-                    flatten_offset_cusp_finalize(path_ix, transform, offset, &evolute, &rev_parallel, &contour);
-                    contour = es_seg_flatten_offset(lowering, contour, vec2(t, 1.), /*flip=*/false);
-                }
+            }
+            if cusp0 < 0. || t < 1. {
+                // This is an offset curve and there is a cusp. Initiated the evolute patch (if not
+                // already started) and output the evolute and the inverted offset curve segment.
+                // Note that if `cusp0 >= 0` then we already rendered the ESPC from "0 to t" above
+                // and we now output "t to 1". Otherwise, we output "0 to t" now and we'll output
+                // rest of the range below.
+                flatten_offset_cusp_start(&evolute, &rev_parallel, lowering, contour, cusp0 < 0.);
+                evolute.last = es_seg_flatten_evolute(lowering, evolute.last, evolute_range);
+                rev_parallel.last = es_seg_flatten_offset(lowering, rev_parallel.last, evolute_range, /*flip=*/true);
+            }
+            if cusp0 < 0. && t < 1. {
+                // Output the ESPC from "t to 1". Connect up any previously drawn evolute segments.
+                flatten_offset_cusp_finalize(path_ix, transform, offset, &evolute, &rev_parallel, &contour);
+                contour = es_seg_flatten_offset(lowering, contour, vec2(t, 1.), /*flip=*/false);
             }
 #endif
             last_p = this_pq1.point;
