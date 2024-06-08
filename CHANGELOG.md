@@ -32,7 +32,6 @@ You can find its changes [documented below](#020---2024-06-08).
 - `vello_shaders` crate to load and preprocess WGSL. ([#563] by [@armansito])
 - Coverage-mask specialization. ([#540] by [@armansito])
 - Support for the `#enable` post-process directive. ([#550] by [@armansito])
-- `wgpu-profiler` feature. ([#502] by [@DJMcNab])
 
 ### Changed
 
@@ -72,7 +71,6 @@ You can find its changes [documented below](#020---2024-06-08).
 [#436]: https://github.com/linebender/vello/pull/436
 [#454]: https://github.com/linebender/vello/pull/454
 [#496]: https://github.com/linebender/vello/pull/496
-[#502]: https://github.com/linebender/vello/pull/502
 [#516]: https://github.com/linebender/vello/pull/516
 [#521]: https://github.com/linebender/vello/pull/521
 [#522]: https://github.com/linebender/vello/pull/522
