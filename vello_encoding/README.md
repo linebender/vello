@@ -16,6 +16,8 @@
 
 This package contains types that represent data that [Vello] can render.
 
+Significant changes are documented in [the changelog].
+
 ## Minimum supported Rust Version (MSRV)
 
 This version of Vello Encoding has been verified to compile with **Rust 1.75** and later.
@@ -54,3 +56,4 @@ at your option.
 
 [Rust code of conduct]: https://www.rust-lang.org/policies/code-of-conduct
 [Vello]: https://github.com/linebender/vello
+[the changelog]: https://github.com/linebender/vello/tree/main/CHANGELOG.md

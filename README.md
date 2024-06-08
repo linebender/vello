@@ -45,6 +45,8 @@ It is used as the rendering backend for [Xilem], a Rust GUI toolkit.
 > - [GPU memory allocation strategy](https://github.com/linebender/vello/issues/366)
 > - [Glyph caching](https://github.com/linebender/vello/issues/204)
 
+Significant changes are documented in [the changelog].
+
 ## Motivation
 
 Vello is meant to fill the same place in the graphics stack as other vector graphics renderers like [Skia](https://skia.org/), [Cairo](https://www.cairographics.org/), and its predecessor project [Piet](https://github.com/linebender/piet).
@@ -116,7 +118,7 @@ renderer
 surface_texture.present();
 ```
 
-See the [`examples`](https://github.com/linebender/vello/tree/main/examples) directory for code that integrates with frameworks like winit and bevy.
+See the [`examples`](https://github.com/linebender/vello/tree/main/examples) directory for code that integrates with frameworks like winit.
 
 ## Performance
 
@@ -128,11 +130,15 @@ More formal benchmarks are on their way.
 
 ### SVG
 
-A separate Linebender integration for rendering SVG files is available through the [`vello_svg`](https://github.com/linebender/vello_svg) crate.
+A separate Linebender integration for rendering SVG files is available through [`vello_svg`](https://github.com/linebender/vello_svg).
 
 ### Lottie
 
-A separate Linebender integration for playing Lottie animations is available through the [`velato`](https://github.com/linebender/velato) crate.
+A separate Linebender integration for playing Lottie animations is available through [`velato`](https://github.com/linebender/velato).
+
+### Bevy
+
+A separate Linebender integration for rendering raw scenes or Lottie and SVG files in [Bevy] through [`bevy_vello`](https://github.com/linebender/bevy_vello).
 
 ## Examples
 
@@ -152,10 +158,6 @@ cargo run -p with_winit
 ```
 
 <!-- ### Headless -->
-
-### Bevy
-
-There is a separate community integration for rendering raw scenes or Lottie and SVG files in [Bevy] through [`bevy_vello`](https://github.com/linebender/bevy_vello).
 
 ## Platforms
 
@@ -300,3 +302,4 @@ The files in subdirectories of the [`examples/assets`](https://github.com/linebe
 [winit]: https://github.com/rust-windowing/winit
 [Bevy]: https://bevyengine.org/
 [Requiem for piet-gpu-hal]: https://raphlinus.github.io/rust/gpu/2023/01/07/requiem-piet-gpu-hal.html
+[the changelog]: https://github.com/linebender/vello/tree/main/CHANGELOG.md
