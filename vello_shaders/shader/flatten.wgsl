@@ -338,26 +338,30 @@ const ESPC_ROBUST_NORMAL = 0;
 const ESPC_ROBUST_LOW_K1 = 1;
 const ESPC_ROBUST_LOW_DIST = 2;
 
-fn es_seg_flatten_offset(
+struct EulerSegLoweringParams {
     es: EulerSeg,
-    path_ix: u32,
     transform: Transform,
-    t_start: vec2f,
-    t_end: vec2f,
+    path_ix: u32,
     t1: f32,
     scale: f32,
     offset: f32,
     chord_len: f32,
     tol: f32,
-    range: vec2f,
+}
+
+fn es_seg_flatten_offset(
+    params: EulerSegLoweringParams,
+    start_p: vec2f,
+    t_range: vec2f,
     flip: bool,
 ) -> vec2f {
-    let range_size = range.y - range.x;
-    let k0 = es.params.k0 + (range.x - 0.5) * es.params.k1;
+    let es = params.es;
+    let range_size = t_range.y - t_range.x;
+    let k0 = es.params.k0 + (t_range.x - 0.5) * es.params.k1;
     let k1 = es.params.k1 * range_size;
-    let normalized_offset = offset / chord_len;
+    let normalized_offset = params.offset / params.chord_len;
     let dist_scaled = normalized_offset * es.params.ch;
-    let scale_multiplier = sqrt(0.125 * scale * chord_len / (es.params.ch * tol));
+    let scale_multiplier = sqrt(0.125 * params.scale * params.chord_len / (es.params.ch * params.tol));
     var a = 0.0;
     var b = 0.0;
     var integral = 0.0;
@@ -390,12 +394,12 @@ fn es_seg_flatten_offset(
     // This may give slightly incorrect rendering but avoids hangs.
     // TODO: aggressively cull to viewport
     let n = clamp(ceil(n_frac * scale_multiplier * range_size), 1.0, 100.0);
-    var lp0 = t_start;
+    var lp0 = start_p;
     for (var i = 0u; i < u32(n); i++) {
         var lp1: vec2f;
         if i + 1u == u32(n) {// && t1 == 1.0 {
       //        lp1 = t_end;
-            lp1 = es_seg_eval_with_offset(es, range.y, normalized_offset);
+            lp1 = es_seg_eval_with_offset(es, t_range.y, normalized_offset);
         } else {
             let t = f32(i + 1u) / n;
             var s = t;
@@ -409,44 +413,38 @@ fn es_seg_flatten_offset(
                 }
                 s = (inv - b) / a;
             }
-            lp1 = es_seg_eval_with_offset(es, range.x + range_size * s, normalized_offset);
+            lp1 = es_seg_eval_with_offset(es, t_range.x + range_size * s, normalized_offset);
         }
-        let forward = (offset >= 0.);
-        output_line_with_transform(path_ix, lp0, lp1, transform, forward != flip);
+        let forward = (params.offset >= 0.);
+        output_line_with_transform(params.path_ix, lp0, lp1, params.transform, forward != flip);
         lp0 = lp1;
     }
     return lp0;
 }
 
 fn es_seg_flatten_evolute(
-    es: EulerSeg,
-    path_ix: u32,
-    transform: Transform,
-    t_start: vec2f,
-    t1: f32,
-    scale: f32,
-    offset:f32, 
-    chord_len: f32,
-    tol: f32,
-    range: vec2f,
+    params: EulerSegLoweringParams,
+    start_p: vec2f,
+    t_range: vec2f,
 ) -> vec2f {
-  let arc_len = chord_len / es.params.ch;
+  let es = params.es;
+  let arc_len = params.chord_len / es.params.ch;
   let ratio = es.params.k0 / es.params.k1;
-  let rho_int_0 = sqrt(abs(0.5 * (ratio + range.x - 0.5)));
-  let rho_int_1 = sqrt(abs(0.5 * (ratio + range.y - 0.5)));
+  let rho_int_0 = sqrt(abs(0.5 * (ratio + t_range.x - 0.5)));
+  let rho_int_1 = sqrt(abs(0.5 * (ratio + t_range.y - 0.5)));
   let rho_int = rho_int_1 - rho_int_0;
-  let range_size = range.y - range.x;
-  let n_subdiv = clamp(ceil(range_size * abs(rho_int) * sqrt(scale * arc_len / tol)), 1., 100.);
+  let range_size = t_range.y - t_range.x;
+  let n_subdiv = clamp(ceil(range_size * abs(rho_int) * sqrt(params.scale * arc_len / params.tol)), 1., 100.);
   let n = u32(n_subdiv);
   //let sign2 = 2.0f64.copysign(ratio);
   let sign2 = select(2., -2., sign(ratio) == -1.);
-  var lp0 = t_start;
+  var lp0 = start_p;
   for (var i = 0u; i <= n; i++) {
       let t = f32(i) / n_subdiv;
       let u = rho_int_0 + t * rho_int;
-      let s = range.x + range_size * (sign2 * u * u + 0.5 - ratio);
+      let s = t_range.x + range_size * (sign2 * u * u + 0.5 - ratio);
       let lp1 = es_seg_eval_evolute(es, s);
-      output_double_line_with_transform(path_ix, lp0, lp1, transform, offset >= 0.);
+      output_double_line_with_transform(params.path_ix, lp0, lp1, params.transform, params.offset >= 0.);
       lp0 = lp1;
   }
   return lp0;
@@ -485,13 +483,13 @@ fn flatten_offset_cusp_finalize(
     offset: f32,
     evolute: ptr<function, EvoluteSubpath>,
     rev_parallel: ptr<function, EvoluteSubpath>,
-    main_path_last_p: ptr<function, vec2f>,
+    contour_last_p: ptr<function, vec2f>,
 ) {
     if (*evolute).is_valid {
         // Connect evolute to end of rev_parallel with +2 winding number
         output_double_line_with_transform(path_ix, (*evolute).last, (*rev_parallel).last, transform, offset >= 0.);
 
-        *main_path_last_p = (*rev_parallel).last;
+        *contour_last_p = (*rev_parallel).last;
         (*evolute).is_valid = false;
         (*rev_parallel).is_valid = false;
     }
@@ -553,14 +551,14 @@ fn flatten_euler(
         last_q = eval_cubic_and_deriv(p0, p1, p2, p3, DERIV_EPS).deriv;
     }
     var last_t = 0.0;
-    var main_path = t_start;
+    var contour = t_start;
     var evolute = evolute_subpath_new();
     var rev_parallel = evolute_subpath_new();
     loop {
         let t0 = f32(t0_u) * dt;
         if t0 == 1.0 {
-            flatten_offset_cusp_finalize(path_ix, transform, offset, &evolute, &rev_parallel, &main_path);
-            output_line_with_transform(path_ix, main_path, t_end, transform, offset >= 0.);
+            flatten_offset_cusp_finalize(path_ix, transform, offset, &evolute, &rev_parallel, &contour);
+            output_line_with_transform(path_ix, contour, t_end, transform, offset >= 0.);
             break;
         }
         var t1 = t0 + dt;
@@ -580,10 +578,11 @@ fn flatten_euler(
         if cubic_params.err * scale <= tol || dt <= SUBDIV_LIMIT {
             let euler_params = es_params_from_angles(cubic_params.th0, cubic_params.th1);
             let es = es_seg_from_params(this_p0, this_pq1.point, euler_params);
-#ifdef evolute
-            main_path = es_seg_flatten_offset(
-                es, path_ix, transform, main_path, t_end, t1, scale, offset, cubic_params.chord_len, tol, vec2(0., 1.), false,
+            let lowering = EulerSegLoweringParams(
+                es, transform, path_ix, t1, scale, offset, cubic_params.chord_len, tol,
             );
+#ifdef evolute
+            contour = es_seg_flatten_offset(lowering, contour, vec2(0., 1.), /*flip=*/false);
 #else
             let chord_len = length(es.p1 - es.p0);
             let cusp0 = es_params_curvature(es.params, 0.) * offset + chord_len;
@@ -597,34 +596,22 @@ fn flatten_euler(
               t = cusp0 / (cusp0 - cusp1);
             }
             if cusp0 >= 0. {
-                flatten_offset_cusp_finalize(path_ix, transform, offset, &evolute, &rev_parallel, &main_path);
-                main_path = es_seg_flatten_offset(
-                    es, path_ix, transform, main_path, t_end, t1, scale, offset, cubic_params.chord_len, tol, vec2(0., t), false,
-                );
+                flatten_offset_cusp_finalize(path_ix, transform, offset, &evolute, &rev_parallel, &contour);
+                contour = es_seg_flatten_offset(lowering, contour, vec2(0., t), /*flip=*/false);
                 if t < 1. {
-                    flatten_offset_cusp_start(&evolute, &rev_parallel, main_path);
-                    evolute.last = es_seg_flatten_evolute(
-                        es, path_ix, transform, evolute.last, t1, scale, offset, cubic_params.chord_len, tol, vec2f(t, 1.),
-                    );
-                    rev_parallel.last = es_seg_flatten_offset(
-                        es, path_ix, transform, rev_parallel.last, t_end, t1, scale, offset, cubic_params.chord_len, tol, vec2(t, 1.), true,
-                    );
+                    flatten_offset_cusp_start(&evolute, &rev_parallel, contour);
+                    evolute.last = es_seg_flatten_evolute(lowering, evolute.last, vec2(t, 1.));
+                    rev_parallel.last = es_seg_flatten_offset(lowering, rev_parallel.last, vec2(t, 1.), /*flip=*/true);
                 }
             } else {
-                flatten_offset_cusp_start(&evolute, &rev_parallel, main_path);
-                let ep1 = es_seg_eval_evolute(es, 0.);
-                output_double_line_with_transform(path_ix, evolute.last, ep1, transform, offset >= 0.);
-                evolute.last = es_seg_flatten_evolute(
-                    es, path_ix, transform, ep1, t1, scale, offset, cubic_params.chord_len, tol, vec2f(0., t),
-                );
-                rev_parallel.last = es_seg_flatten_offset(
-                    es, path_ix, transform, rev_parallel.last, t_end, t1, scale, offset, cubic_params.chord_len, tol, vec2(0., t), true,
-                );
+                flatten_offset_cusp_start(&evolute, &rev_parallel, contour);
+                let evolute_t0 = es_seg_eval_evolute(es, 0.);
+                output_double_line_with_transform(path_ix, evolute.last, evolute_t0, transform, offset >= 0.);
+                evolute.last = es_seg_flatten_evolute(lowering, evolute_t0, vec2(0., t));
+                rev_parallel.last = es_seg_flatten_offset(lowering, rev_parallel.last, vec2(0., t), /*flip=*/true);
                 if t < 1. {
-                    flatten_offset_cusp_finalize(path_ix, transform, offset, &evolute, &rev_parallel, &main_path);
-                    main_path = es_seg_flatten_offset(
-                        es, path_ix, transform, main_path, t_end, t1, scale, offset, cubic_params.chord_len, tol, vec2(t, 1.), false,
-                    );
+                    flatten_offset_cusp_finalize(path_ix, transform, offset, &evolute, &rev_parallel, &contour);
+                    contour = es_seg_flatten_offset(lowering, contour, vec2(t, 1.), /*flip=*/false);
                 }
             }
 #endif
