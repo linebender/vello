@@ -37,6 +37,8 @@ It is used as the rendering backend for [Xilem], a Rust GUI toolkit.
 > - [GPU memory allocation strategy](https://github.com/linebender/vello/issues/366)
 > - [Glyph caching](https://github.com/linebender/vello/issues/204)
 
+Significant changes are documented in [the changelog].
+
 ## Motivation
 
 Vello is meant to fill the same place in the graphics stack as other vector graphics renderers like [Skia](https://skia.org/), [Cairo](https://www.cairographics.org/), and its predecessor project [Piet](https://github.com/linebender/piet).
@@ -287,3 +289,4 @@ at your option.
 [winit]: https://github.com/rust-windowing/winit
 [Bevy]: https://bevyengine.org/
 [Requiem for piet-gpu-hal]: https://raphlinus.github.io/rust/gpu/2023/01/07/requiem-piet-gpu-hal.html
+[the changelog]: https://github.com/linebender/vello/tree/main/CHANGELOG.md
