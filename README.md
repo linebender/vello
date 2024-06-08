@@ -116,7 +116,7 @@ renderer
 surface_texture.present();
 ```
 
-See the [`examples`](https://github.com/linebender/vello/tree/main/examples) directory for code that integrates with frameworks like winit and bevy.
+See the [`examples`](https://github.com/linebender/vello/tree/main/examples) directory for code that integrates with frameworks like winit.
 
 ## Performance
 
@@ -128,11 +128,15 @@ More formal benchmarks are on their way.
 
 ### SVG
 
-A separate Linebender integration for rendering SVG files is available through the [`vello_svg`](https://github.com/linebender/vello_svg) crate.
+A separate Linebender integration for rendering SVG files is available through [`vello_svg`](https://github.com/linebender/vello_svg).
 
 ### Lottie
 
-A separate Linebender integration for playing Lottie animations is available through the [`velato`](https://github.com/linebender/velato) crate.
+A separate Linebender integration for playing Lottie animations is available through [`velato`](https://github.com/linebender/velato).
+
+### Bevy
+
+A separate Linebender integration for rendering raw scenes or Lottie and SVG files in [Bevy] through [`bevy_vello`](https://github.com/linebender/bevy_vello).
 
 ## Examples
 
@@ -152,10 +156,6 @@ cargo run -p with_winit
 ```
 
 <!-- ### Headless -->
-
-### Bevy
-
-There is a separate community integration for rendering raw scenes or Lottie and SVG files in [Bevy] through [`bevy_vello`](https://github.com/linebender/bevy_vello).
 
 ## Platforms
 
