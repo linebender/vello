@@ -607,22 +607,24 @@ fn flatten_euler(
             if cusp0 >= 0. {
                 // Output the contour up to the cusp location at `t`. If the offset curve has no
                 // cusp OR this is a fill (offset = 0), this will only output the flattened ES or
-                // ESPC. We call `flatten_offset_cusp_finalize` to connect any previously rendered
-                // evolute segments.
+                // ESPC. We call `flatten_offset_cusp_finalize` to emit the missing connections for
+                // previously started evolute patch segments.
                 flatten_offset_cusp_finalize(path_ix, transform, offset, &evolute_patch, &contour);
-                contour = es_seg_flatten_offset(lowering, contour, vec2(0., t), /*flip=*/false);
+                contour = es_seg_flatten_offset(lowering, contour, vec2(0., t), false);
             }
             if cusp0 < 0. || t < 1. {
-                // This is an offset curve and there is a cusp. Initiated the evolute patch (if not
-                // already started) and output the evolute and the inverted offset curve segment.
-                // Note that if `cusp0 >= 0` then we already rendered the ESPC from "0 to t" above
-                // and we now output "t to 1". Otherwise, we output "0 to t" now and we'll output
-                // rest of the range below.
+                // Offset curve with a cusp. Start a new evolute patch at the current `contour`
+                // point (unless one was already started by an earlier ES segment).
                 flatten_offset_cusp_start(lowering, contour, cusp0 < 0., &evolute_patch);
+
+                // Output the evolute and the inverted offset curve segment. Note that if
+                // `cusp0 >= 0`, then we already rendered the ESPC segment from "0 to t" above
+                // and we now output "t to 1". Otherwise, we output "0 to t" now and output rest
+                // in the next if statement.
                 let ep = evolute_patch.evolute;
                 let rpp = evolute_patch.rev_parallel;
                 evolute_patch.evolute = es_seg_flatten_evolute(lowering, ep, evolute_range);
-                evolute_patch.rev_parallel = es_seg_flatten_offset(lowering, rpp, evolute_range, /*flip=*/true);
+                evolute_patch.rev_parallel = es_seg_flatten_offset(lowering, rpp, evolute_range, true);
             }
             if cusp0 < 0. && t < 1. {
                 // Output the ESPC from "t to 1". Connect up any previously drawn evolute segments.
@@ -942,7 +944,7 @@ fn output_line_with_transform(path_ix: u32, p0: vec2f, p1: vec2f, transform: Tra
 
 // Same as output_line_with_transform but outputs the same line twice. This is used when rendering
 // an evolute patch, which has segments that need to contribute a winding number of 2 (see Figure 7
-// in "GPU-friendly Stroke Expansion", R. Levien, A. Uguray).
+// in the "GPU-friendly Stroke Expansion" paper by R. Levien).
 fn output_double_line_with_transform(path_ix: u32, p0: vec2f, p1: vec2f, transform: Transform, forward: bool) {
     let line_ix = atomicAdd(&bump.lines, 2u);
     let l0 = select(p1, p0, forward);
