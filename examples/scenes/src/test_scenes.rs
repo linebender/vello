@@ -287,10 +287,11 @@ fn stroke_styles(transform: Affine) -> impl FnMut(&mut Scene, &mut SceneParams) 
 fn tricky_strokes(scene: &mut Scene, params: &mut SceneParams) {
     use PathEl::*;
     let colors = [
-        Color::rgb8(140, 181, 236),
-        Color::rgb8(246, 236, 202),
-        Color::rgb8(201, 147, 206),
-        Color::rgb8(150, 195, 160),
+        Color::rgb8(255, 147, 141),
+        //Color::rgb8(140, 181, 236),
+        //Color::rgb8(246, 236, 202),
+        //Color::rgb8(201, 147, 206),
+        //Color::rgb8(150, 195, 160),
     ];
 
     const CELL_SIZE: f64 = 200.;
