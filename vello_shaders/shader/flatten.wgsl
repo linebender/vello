@@ -450,39 +450,35 @@ fn es_seg_flatten_evolute(
   return lp0;
 }
 
-struct EvoluteSubpath {
-    first: vec2f,
-    last: vec2f,
-    is_valid: bool,
+struct EvolutePatch {
+    evolute: vec2f,
+    rev_parallel: vec2f,
+    is_active: bool,
 }
 
-fn evolute_subpath_new() -> EvoluteSubpath {
-    return EvoluteSubpath(vec2(0.), vec2(0.), false);
+fn evolute_patch_new() -> EvolutePatch {
+    return EvolutePatch(vec2(0.), vec2(0.), false);
 }
 
-fn evolute_subpath_init(p: vec2f) -> EvoluteSubpath {
-    return EvoluteSubpath(p, p, true);
+fn evolute_patch_init(p: vec2f) -> EvolutePatch {
+    return EvolutePatch(p, p, true);
 }
 
 fn flatten_offset_cusp_start(
-    evolute: ptr<function, EvoluteSubpath>,
-    rev_parallel: ptr<function, EvoluteSubpath>,
     params: EulerSegLoweringParams,
     start: vec2f,
     line_to_evolute: bool,
+    ev_patch: ptr<function, EvolutePatch>,
 ) {
-    if !(*evolute).is_valid {
-        *evolute = evolute_subpath_init(start);
-    }
-    if !(*rev_parallel).is_valid {
-        *rev_parallel = evolute_subpath_init(start);
+    if !(*ev_patch).is_active {
+        *ev_patch = evolute_patch_init(start);
     }
     if line_to_evolute {
         let evolute_t0 = es_seg_eval_evolute(params.es, 0.);
         output_double_line_with_transform(
-            params.path_ix, (*evolute).last, evolute_t0, params.transform, params.offset >= 0.
+            params.path_ix, (*ev_patch).evolute, evolute_t0, params.transform, params.offset >= 0.
         );
-        (*evolute).last = evolute_t0;
+        (*ev_patch).evolute = evolute_t0;
     }
 }
 
@@ -490,18 +486,16 @@ fn flatten_offset_cusp_finalize(
     path_ix: u32,
     transform: Transform,
     offset: f32,
-    evolute: ptr<function, EvoluteSubpath>,
-    rev_parallel: ptr<function, EvoluteSubpath>,
+    ev_patch: ptr<function, EvolutePatch>,
     contour_last_p: ptr<function, vec2f>,
 ) {
-    if (*evolute).is_valid {
+    if (*ev_patch).is_active {
         // Connect evolute to end of rev_parallel with +2 winding number
         output_double_line_with_transform(
-            path_ix, (*evolute).last, (*rev_parallel).last, transform, offset >= 0.
+            path_ix, (*ev_patch).evolute, (*ev_patch).rev_parallel, transform, offset >= 0.
         );
-        *contour_last_p = (*rev_parallel).last;
-        (*evolute).is_valid = false;
-        (*rev_parallel).is_valid = false;
+        *contour_last_p = (*ev_patch).rev_parallel;
+        (*ev_patch).is_active = false;
     }
 }
 
@@ -562,12 +556,11 @@ fn flatten_euler(
     }
     var last_t = 0.0;
     var contour = t_start;
-    var evolute = evolute_subpath_new();
-    var rev_parallel = evolute_subpath_new();
+    var evolute_patch = evolute_patch_new();
     loop {
         let t0 = f32(t0_u) * dt;
         if t0 == 1.0 {
-            flatten_offset_cusp_finalize(path_ix, transform, offset, &evolute, &rev_parallel, &contour);
+            flatten_offset_cusp_finalize(path_ix, transform, offset, &evolute_patch, &contour);
             output_line_with_transform(path_ix, contour, t_end, transform, offset >= 0.);
             break;
         }
@@ -591,6 +584,7 @@ fn flatten_euler(
             let lowering = EulerSegLoweringParams(
                 es, transform, path_ix, t1, scale, offset, cubic_params.chord_len, tol,
             );
+// NOTE: change this to "ifndef" to disable rendering evolutes.
 #ifdef evolute
             contour = es_seg_flatten_offset(lowering, contour, vec2(0., 1.), /*flip=*/false);
 #else
@@ -615,7 +609,7 @@ fn flatten_euler(
                 // cusp OR this is a fill (offset = 0), this will only output the flattened ES or
                 // ESPC. We call `flatten_offset_cusp_finalize` to connect any previously rendered
                 // evolute segments.
-                flatten_offset_cusp_finalize(path_ix, transform, offset, &evolute, &rev_parallel, &contour);
+                flatten_offset_cusp_finalize(path_ix, transform, offset, &evolute_patch, &contour);
                 contour = es_seg_flatten_offset(lowering, contour, vec2(0., t), /*flip=*/false);
             }
             if cusp0 < 0. || t < 1. {
@@ -624,13 +618,15 @@ fn flatten_euler(
                 // Note that if `cusp0 >= 0` then we already rendered the ESPC from "0 to t" above
                 // and we now output "t to 1". Otherwise, we output "0 to t" now and we'll output
                 // rest of the range below.
-                flatten_offset_cusp_start(&evolute, &rev_parallel, lowering, contour, cusp0 < 0.);
-                evolute.last = es_seg_flatten_evolute(lowering, evolute.last, evolute_range);
-                rev_parallel.last = es_seg_flatten_offset(lowering, rev_parallel.last, evolute_range, /*flip=*/true);
+                flatten_offset_cusp_start(lowering, contour, cusp0 < 0., &evolute_patch);
+                let ep = evolute_patch.evolute;
+                let rpp = evolute_patch.rev_parallel;
+                evolute_patch.evolute = es_seg_flatten_evolute(lowering, ep, evolute_range);
+                evolute_patch.rev_parallel = es_seg_flatten_offset(lowering, rpp, evolute_range, /*flip=*/true);
             }
             if cusp0 < 0. && t < 1. {
                 // Output the ESPC from "t to 1". Connect up any previously drawn evolute segments.
-                flatten_offset_cusp_finalize(path_ix, transform, offset, &evolute, &rev_parallel, &contour);
+                flatten_offset_cusp_finalize(path_ix, transform, offset, &evolute_patch, &contour);
                 contour = es_seg_flatten_offset(lowering, contour, vec2(t, 1.), /*flip=*/false);
             }
 #endif
