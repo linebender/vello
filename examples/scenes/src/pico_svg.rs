@@ -19,6 +19,7 @@ pub struct PicoSvg {
 pub enum Item {
     Fill(FillItem),
     Stroke(StrokeItem),
+    Group(GroupItem),
 }
 
 pub struct StrokeItem {
@@ -32,17 +33,20 @@ pub struct FillItem {
     pub path: BezPath,
 }
 
-struct Parser<'a> {
+pub struct GroupItem {
+    pub affine: Affine,
+    pub children: Vec<Item>,
+}
+
+struct Parser {
     scale: f64,
-    items: &'a mut Vec<Item>,
 }
 
 impl PicoSvg {
     pub fn load(xml_string: &str, scale: f64) -> Result<PicoSvg, Box<dyn std::error::Error>> {
         let doc = Document::parse(xml_string)?;
         let root = doc.root_element();
-        let mut items = Vec::new();
-        let mut parser = Parser::new(&mut items, scale);
+        let mut parser = Parser::new(scale);
         let width = root.attribute("width").and_then(|s| f64::from_str(s).ok());
         let height = root.attribute("height").and_then(|s| f64::from_str(s).ok());
         let (origin, viewbox_size) = root
@@ -99,32 +103,39 @@ impl PicoSvg {
             Affine::new([-scale, 0.0, 0.0, scale, 0.0, 0.0])
         };
         let props = RecursiveProperties {
-            transform,
             fill: Some(Color::BLACK),
         };
         // The root element is the svg document element, which we don't care about
+        let mut items = Vec::new();
         for node in root.children() {
-            parser.rec_parse(node, &props)?;
+            parser.rec_parse(node, &props, &mut items)?;
         }
-        Ok(PicoSvg { items, size })
+        let root_group = Item::Group(GroupItem {
+            affine: transform,
+            children: items,
+        });
+        Ok(PicoSvg {
+            items: vec![root_group],
+            size,
+        })
     }
 }
 
 #[derive(Clone)]
 struct RecursiveProperties {
-    transform: Affine,
     fill: Option<Color>,
 }
 
-impl<'a> Parser<'a> {
-    fn new(items: &'a mut Vec<Item>, scale: f64) -> Parser<'a> {
-        Parser { scale, items }
+impl Parser {
+    fn new(scale: f64) -> Parser {
+        Parser { scale }
     }
 
     fn rec_parse(
         &mut self,
         node: Node,
         properties: &RecursiveProperties,
+        items: &mut Vec<Item>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if node.is_element() {
             let mut properties = properties.clone();
@@ -139,21 +150,24 @@ impl<'a> Parser<'a> {
                     properties.fill = Some(color);
                 }
             }
-            if let Some(transform) = node.attribute("transform") {
-                properties.transform *= parse_transform(transform);
-            }
             match node.tag_name().name() {
                 "g" => {
-                    for child in node.children() {
-                        self.rec_parse(child, &properties)?;
+                    let mut children = Vec::new();
+                    let mut affine = Affine::default();
+                    if let Some(transform) = node.attribute("transform") {
+                        affine = parse_transform(transform);
                     }
+                    for child in node.children() {
+                        self.rec_parse(child, &properties, &mut children)?;
+                    }
+                    items.push(Item::Group(GroupItem { affine, children }));
                 }
                 "path" => {
                     let d = node.attribute("d").ok_or("missing 'd' attribute")?;
                     let bp = BezPath::from_svg(d)?;
-                    let path = properties.transform * bp;
+                    let path = bp;
                     if let Some(color) = properties.fill {
-                        self.items.push(Item::Fill(FillItem {
+                        items.push(Item::Fill(FillItem {
                             color,
                             path: path.clone(),
                         }));
@@ -169,8 +183,7 @@ impl<'a> Parser<'a> {
                             let color = modify_opacity(color, "stroke-opacity", node);
                             // TODO: Handle recursive opacity properly
                             let color = modify_opacity(color, "opacity", node);
-                            self.items
-                                .push(Item::Stroke(StrokeItem { width, color, path }));
+                            items.push(Item::Stroke(StrokeItem { width, color, path }));
                         }
                     }
                 }
