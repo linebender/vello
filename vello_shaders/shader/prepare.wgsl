@@ -7,6 +7,7 @@
 
 #import config
 #import bump
+#import ptcl
 
 @group(0) @binding(0)
 var<storage, read_write> config: Config;
@@ -19,7 +20,7 @@ var<storage, read_write> bump: BumpAllocators;
 fn main() {
     var should_cancel = false;
     let previous_failure = atomicLoad(&bump.failed);
-    if previous_failure == PREVIOUS_RUN {
+    if (previous_failure & PREVIOUS_RUN) != 0 {
         // Don't early-exit from multiple frames in a row
         // The CPU should be blocking on the frame which failed anyway, so this
         // case should never be reached, but if the CPU side isn't doing that
@@ -62,7 +63,7 @@ fn main() {
         }
     }
     atomicStore(&bump.binning, 0u);
-    atomicStore(&bump.ptcl, 0u);
+    atomicStore(&bump.ptcl, config.width_in_tiles * config.height_in_tiles * PTCL_INITIAL_ALLOC);
     atomicStore(&bump.tile, 0u);
     atomicStore(&bump.seg_counts, 0u);
     atomicStore(&bump.segments, 0u);

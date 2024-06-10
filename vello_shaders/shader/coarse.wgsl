@@ -68,10 +68,7 @@ var<private> cmd_limit: u32;
 // Make sure there is space for a command of given size, plus a jump if needed
 fn alloc_cmd(size: u32) {
     if cmd_offset + size >= cmd_limit {
-        // We might be able to save a little bit of computation here
-        // by setting the initial value of the bump allocator.
-        let ptcl_dyn_start = config.width_in_tiles * config.height_in_tiles * PTCL_INITIAL_ALLOC;
-        var new_cmd = ptcl_dyn_start + atomicAdd(&bump.ptcl, PTCL_INCREMENT);
+        var new_cmd = atomicAdd(&bump.ptcl, PTCL_INCREMENT);
         if new_cmd + PTCL_INCREMENT > config.ptcl_size {
             // This sets us up for technical UB, as lots of threads will be writing
             // to the same locations. But I think it's fine, and predicating the
