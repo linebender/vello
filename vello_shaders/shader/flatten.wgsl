@@ -381,19 +381,24 @@ fn es_seg_flatten_offset(
     let normalized_offset = params.offset / params.chord_len;
     let dist_scaled = normalized_offset * es.params.ch;
 #ifdef arc_lowering
+    // TODO: Change flatten_arc to take a forward != flip.
+    // TODO: implement evolute-to-arc
+    let offset = params.offset;
     let arclen = length(es.p0 - es.p1) / es.params.ch;
-    let est_err = (1. / 120.) / tol * abs(k1) * (arclen + 0.4 * abs(k1 * offset));
+    let est_err = (1. / 120.) / params.tol * abs(k1) * (arclen + 0.4 * abs(k1 * offset));
     let n_subdiv = cbrt(est_err);
-    let n = max(u32(ceil(n_subdiv)), 1u);
+    let n = max(u32(ceil(n_subdiv * range_size)), 1u);
     let arc_dt = 1. / f32(n);
+    var lp0 = start_p;
     for (var i = 0u; i < n; i++) {
         var ap1: vec2f;
         let arc_t0 = f32(i) * arc_dt;
         let arc_t1 = arc_t0 + arc_dt;
-        if i + 1u == n && t1 == 1. {
-            ap1 = t_end;
+        if i + 1u == n { //&& params.t1 == 1. {
+        //    ap1 = t_end;
+            ap1 = es_seg_eval_with_offset(es, t_range.y, normalized_offset);
         } else {
-            ap1 = es_seg_eval_with_offset(es, arc_t1, normalized_offset);
+            ap1 = es_seg_eval_with_offset(es, t_range.x + range_size * arc_t1, normalized_offset);
         }
         let t = arc_t0 + 0.5 * arc_dt - 0.5;
         let k = es.params.k0 + t * k1;
@@ -407,17 +412,18 @@ fn es_seg_flatten_offset(
             let s = select(sign(offset), 1., offset == 0.);
             r = 0.5 * s * length(ap1 - lp0) / sin(0.5 * arc_k);
         }
-        let l0 = select(ap1, lp0, offset >= 0.);
-        let l1 = select(lp0, ap1, offset >= 0.);
+        let forward = (params.offset >= 0.);
+        let l0 = select(ap1, lp0, forward != flip);
+        let l1 = select(lp0, ap1, forward != flip);
         // NOTE: make this "if true" to just render the arc chords.
         if abs(r) < 1e-12 {
-            output_line_with_transform(path_ix, l0, l1, transform);
+            output_line_with_transform(params.path_ix, l0, l1, params.transform, true);
         } else {
             let angle = asin(0.5 * length(l1 - l0) / r);
             let mid_ch = 0.5 * (l0 + l1);
             let v = normalize(l1 - mid_ch) * cos(angle) * r;
             let center = mid_ch - vec2(-v.y, v.x);
-            flatten_arc(path_ix, l0, l1, center, 2. * angle, transform);
+            flatten_arc(params.path_ix, l0, l1, center, 2. * angle, params.transform);
         }
         lp0 = ap1;
     }

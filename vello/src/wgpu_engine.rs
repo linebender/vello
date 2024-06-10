@@ -514,7 +514,7 @@ impl WgpuEngine {
                                 &mut encoder,
                                 &wgpu_shader.bind_group_layout,
                                 bindings,
-                            )?;
+                            );
                             #[cfg(feature = "wgpu-profiler")]
                             let query = profiler
                                 .begin_query(shader.label, &mut encoder, device);
@@ -629,8 +629,7 @@ impl WgpuEngine {
                     });
                     #[cfg(feature = "wgpu-profiler")]
                     let query = profiler
-                        .begin_query(label, &mut rpass, device)
-                        .with_parent(Some(&query));
+                        .begin_query(label, &mut rpass, device);
                     let PipelineState::Render(pipeline) = &shader.pipeline else {
                         panic!("cannot issue a draw with a compute pipeline");
                     };
