@@ -484,42 +484,85 @@ impl Renderer {
                     let data = slice.get_mapped_range();
                     let data: BumpAllocators = bytemuck::pod_read_unaligned(&data);
                     if data.failed != 0 {
-                        if data.failed == 0x20 {
-                            eprintln!(
+                        if data.failed & 0x20 != 0 {
+                            log::debug!(
                                 "Run failed but next run will be retried, reallocated in last run"
                             );
                         } else {
-                            eprintln!(
-                                "Previous run failed, need to reallocate: {:x?}",
-                                data.failed
-                            );
+                            // log::info!(
+                            //     "Previous run failed, need to reallocate: {:x?}",
+                            //     data.failed
+                            // );
+                            // log::debug!("{:?}", data);
                             // TODO: Be smarter here, e.g. notice that we're over by a certain factor
                             // and bump several buffers?
 
+                            let mut changed = false;
                             // TODO: Also reduce allocation sizes
                             // TODO: Free buffers which haven't been used in "a while"
 
                             // TODO: This ignore the draw tag length?
                             if data.binning > self.bump_sizes.bin_data.len() {
+                                changed = true;
+                                log::debug!(
+                                    "Resizing binning from {:?} to {:?}",
+                                    self.bump_sizes.bin_data,
+                                    data.binning
+                                );
                                 self.bump_sizes.bin_data = BufferSize::new(data.binning * 3 / 2);
                             }
                             if data.lines > self.bump_sizes.lines.len() {
+                                changed = true;
+                                log::debug!(
+                                    "Resizing lines from {:?} to {:?}",
+                                    self.bump_sizes.lines,
+                                    data.lines
+                                );
                                 self.bump_sizes.lines = BufferSize::new(data.lines * 5 / 4);
                             }
                             // if data.blend > self.bump_sizes.? // TODO
                             if data.ptcl > self.bump_sizes.ptcl.len() {
+                                changed = true;
+                                log::debug!(
+                                    "Resizing ptcl from {:?} to {:?}",
+                                    self.bump_sizes.ptcl,
+                                    data.ptcl
+                                );
                                 // TODO: At 5/4, this doesn't work very well
                                 self.bump_sizes.ptcl = BufferSize::new(data.ptcl * 3 / 2);
                             }
                             if data.seg_counts > self.bump_sizes.seg_counts.len() {
+                                changed = true;
+                                log::debug!(
+                                    "Resizing seg_counts from {:?} to {:?}",
+                                    self.bump_sizes.seg_counts,
+                                    data.seg_counts
+                                );
                                 self.bump_sizes.seg_counts =
                                     BufferSize::new(data.seg_counts * 5 / 4);
                             }
                             if data.tile > self.bump_sizes.tiles.len() {
+                                changed = true;
+                                log::debug!(
+                                    "Resizing tiles from {:?} to {:?}",
+                                    self.bump_sizes.tiles,
+                                    data.tile
+                                );
                                 self.bump_sizes.tiles = BufferSize::new(data.tile * 5 / 4);
                             }
                             if data.segments > self.bump_sizes.segments.len() {
+                                changed = true;
+                                log::debug!(
+                                    "Resizing segments from {:?} to {:?}",
+                                    self.bump_sizes.segments,
+                                    data.segments
+                                );
                                 self.bump_sizes.segments = BufferSize::new(data.segments * 5 / 4);
+                            }
+                            if !changed {
+                                log::warn!("Detected need for reallocation, but didn't reallocate {:x?}. Data {data:?}", data.failed);
+                            } else {
+                                log::info!("Detected need for reallocation, and did reallocate {:x?}. Data {data:?}", data.failed);
                             }
                         }
                     }

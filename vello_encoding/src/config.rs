@@ -194,7 +194,7 @@ impl RenderConfig {
                 target_height: height,
                 base_color: base_color.to_premul_u32(),
                 lines_size: buffer_sizes.bump_buffers.lines.len(),
-                binning_size: buffer_sizes.bump_buffers.bin_data.len() - layout.bin_data_start,
+                binning_size: buffer_sizes.bump_buffers.bin_data.len(),
                 tiles_size: buffer_sizes.bump_buffers.tiles.len(),
                 seg_counts_size: buffer_sizes.bump_buffers.seg_counts.len(),
                 segments_size: buffer_sizes.bump_buffers.segments.len(),
@@ -380,12 +380,12 @@ impl BumpBufferSizes {
         // The following buffer sizes have been hand picked to accommodate the vello test scenes as
         // well as paris-30k. These should instead get derived from the scene layout using
         // reasonable heuristics.
-        let bin_data = BufferSize::new(1 << 18);
-        let tiles = BufferSize::new(1 << 21);
-        let lines = BufferSize::new(1 << 21);
-        let seg_counts = BufferSize::new(1 << 21);
-        let segments = BufferSize::new(1 << 21);
-        let ptcl = BufferSize::new(1 << 23);
+        let bin_data = BufferSize::new(1 << 12);
+        let tiles = BufferSize::new(1 << 15);
+        let lines = BufferSize::new(1 << 15);
+        let seg_counts = BufferSize::new(1 << 15);
+        let segments = BufferSize::new(1 << 15);
+        let ptcl = BufferSize::new(1 << 17);
         // 16 * 16 (1 << 8) is one blend spill, so this allows for 4096 spills.
         let blend_spill = BufferSize::new(1 << 20);
         BumpBufferSizes {

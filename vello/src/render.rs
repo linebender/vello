@@ -180,6 +180,13 @@ impl Render {
             &params.base_color,
             bump_sizes,
         );
+        // log::debug!("Config: {{ lines_size: {:?}, binning_size: {:?}, tiles_size: {:?}, seg_counts_size: {:?}, segments_size: {:?}, ptcl_size: {:?} }}",
+        // cpu_config.gpu.lines_size,
+        // cpu_config.gpu.binning_size,
+        // cpu_config.gpu.tiles_size,
+        // cpu_config.gpu.seg_counts_size,
+        // cpu_config.gpu.segments_size,
+        // cpu_config.gpu.ptcl_size);
         let buffer_sizes = &cpu_config.buffer_sizes;
         let wg_counts = &cpu_config.workgroup_counts;
 
@@ -195,7 +202,8 @@ impl Render {
             recording.upload_uniform("config", bytemuck::bytes_of(&cpu_config.gpu)),
         );
         let info_bin_data_buf = ResourceProxy::new_buf(
-            buffer_sizes.bump_buffers.bin_data.size_in_bytes() as u64,
+            buffer_sizes.bump_buffers.bin_data.size_in_bytes() as u64
+                + (layout.bin_data_start as u64) * std::mem::size_of::<u32>() as u64,
             "info_bin_data_buf",
         );
         let tile_buf = ResourceProxy::new_buf(
