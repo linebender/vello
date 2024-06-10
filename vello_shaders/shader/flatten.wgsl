@@ -584,10 +584,7 @@ fn flatten_euler(
             let lowering = EulerSegLoweringParams(
                 es, transform, path_ix, t1, scale, offset, cubic_params.chord_len, tol,
             );
-// NOTE: change this to "ifndef" to disable rendering evolutes.
-#ifdef evolute
-            contour = es_seg_flatten_offset(lowering, contour, vec2(0., 1.), /*flip=*/false);
-#else
+#ifdef evolutes
             let chord_len = length(es.p1 - es.p0);
             let cusp0 = es_params_curvature(es.params, 0.) * offset + chord_len;
             let cusp1 = es_params_curvature(es.params, 1.) * offset + chord_len;
@@ -631,6 +628,8 @@ fn flatten_euler(
                 flatten_offset_cusp_finalize(path_ix, transform, offset, &evolute_patch, &contour);
                 contour = es_seg_flatten_offset(lowering, contour, vec2(t, 1.), /*flip=*/false);
             }
+#else
+            contour = es_seg_flatten_offset(lowering, contour, vec2(0., 1.), /*flip=*/false);
 #endif
             last_p = this_pq1.point;
             last_q = this_pq1.deriv;
