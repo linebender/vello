@@ -16,6 +16,10 @@ use vello::wgpu::{
 };
 use vello::{block_on_wgpu, RendererOptions, Scene};
 
+mod snapshot;
+
+pub use snapshot::{snapshot_test, snapshot_test_sync};
+
 pub struct TestParams {
     pub width: u32,
     pub height: u32,
@@ -129,21 +133,26 @@ pub async fn render(scene: Scene, params: &TestParams) -> Result<Image> {
     }
     let data = Blob::new(Arc::new(result_unpadded));
     let image = Image::new(data, Format::Rgba8, width, height);
-    if should_debug_png(&params.name, params.use_cpu) {
+    if env_var_relates_to("VELLO_DEBUG_TEST", &params.name, params.use_cpu) {
         let suffix = if params.use_cpu { "cpu" } else { "gpu" };
         let name = format!("{}_{suffix}", &params.name);
-        debug_png(&image, &name, params)?;
+        let out_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("debug_outputs")
+            .join(name)
+            .with_extension("png");
+        write_png_to_file(params, &out_path, &image)?;
+        println!("Wrote debug result ({width}x{height}) to {out_path:?}");
     }
     Ok(image)
 }
 
-pub fn debug_png(image: &Image, name: &str, params: &TestParams) -> Result<()> {
+pub fn write_png_to_file(
+    params: &TestParams,
+    out_path: &std::path::Path,
+    image: &Image,
+) -> Result<(), anyhow::Error> {
     let width = params.width;
     let height = params.height;
-    let out_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("debug_outputs")
-        .join(name)
-        .with_extension("png");
     let mut file = File::create(&out_path)?;
     let mut encoder = png::Encoder::new(&mut file, width, height);
     encoder.set_color(png::ColorType::Rgba);
@@ -151,13 +160,11 @@ pub fn debug_png(image: &Image, name: &str, params: &TestParams) -> Result<()> {
     let mut writer = encoder.write_header()?;
     writer.write_image_data(image.data.data())?;
     writer.finish()?;
-    println!("Wrote result ({width}x{height}) to {out_path:?}");
-
     Ok(())
 }
 
-pub fn should_debug_png(name: &str, use_cpu: bool) -> bool {
-    if let Ok(val) = env::var("VELLO_DEBUG_TEST") {
+pub fn env_var_relates_to(env_var: &'static str, name: &str, use_cpu: bool) -> bool {
+    if let Ok(val) = env::var(env_var) {
         if val.eq_ignore_ascii_case("all")
             || val.eq_ignore_ascii_case("cpu") && use_cpu
             || val.eq_ignore_ascii_case("gpu") && !use_cpu
