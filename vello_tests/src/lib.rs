@@ -153,7 +153,7 @@ pub fn write_png_to_file(
 ) -> Result<(), anyhow::Error> {
     let width = params.width;
     let height = params.height;
-    let mut file = File::create(&out_path)?;
+    let mut file = File::create(out_path)?;
     let mut encoder = png::Encoder::new(&mut file, width, height);
     encoder.set_color(png::ColorType::Rgba);
     encoder.set_depth(png::BitDepth::Eight);

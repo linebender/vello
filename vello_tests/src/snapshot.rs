@@ -83,6 +83,9 @@ impl Snapshot<'_> {
     }
 }
 
+/// Run a snapshot test.
+///
+/// Try and keep the width and height small, to reduce the size of committed binary data
 pub fn snapshot_test_sync(scene: Scene, params: &TestParams) -> Result<Snapshot<'_>> {
     pollster::block_on(snapshot_test(scene, params))
 }
