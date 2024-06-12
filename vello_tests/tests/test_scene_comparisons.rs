@@ -41,6 +41,7 @@ fn encode_test_scene(mut test_scene: ExampleScene, test_params: &mut TestParams)
 }
 
 #[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
 fn compare_splash() {
     let test_scene = scenes::test_scenes().scenes.swap_remove(0);
     assert_eq!(test_scene.config.name, "splash_with_tiger");
@@ -55,6 +56,7 @@ fn compare_splash() {
 }
 
 #[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
 fn compare_funky_paths() {
     let test_scene = scenes::test_scenes().scenes.swap_remove(1);
     assert_eq!(test_scene.config.name, "funky_paths");
@@ -69,6 +71,7 @@ fn compare_funky_paths() {
 }
 
 #[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
 fn compare_stroke_styles() {
     let test_scene = scenes::test_scenes().scenes.swap_remove(2);
     assert_eq!(test_scene.config.name, "stroke_styles");
@@ -83,6 +86,7 @@ fn compare_stroke_styles() {
 }
 
 #[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
 fn compare_stroke_styles_non_uniform() {
     let test_scene = scenes::test_scenes().scenes.swap_remove(3);
     assert_eq!(test_scene.config.name, "stroke_styles (non-uniform scale)");
@@ -97,6 +101,7 @@ fn compare_stroke_styles_non_uniform() {
 }
 
 #[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
 fn compare_stroke_styles_skew() {
     let test_scene = scenes::test_scenes().scenes.swap_remove(4);
     assert_eq!(test_scene.config.name, "stroke_styles (skew)");
@@ -111,6 +116,7 @@ fn compare_stroke_styles_skew() {
 }
 
 #[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
 fn compare_tricky_strokes() {
     let test_scene = scenes::test_scenes().scenes.swap_remove(5);
     assert_eq!(test_scene.config.name, "tricky_strokes");
@@ -125,6 +131,7 @@ fn compare_tricky_strokes() {
 }
 
 #[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
 fn compare_fill_types() {
     let test_scene = scenes::test_scenes().scenes.swap_remove(6);
     assert_eq!(test_scene.config.name, "fill_types");
