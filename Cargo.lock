@@ -2364,6 +2364,7 @@ dependencies = [
  "nv-flip",
  "png",
  "pollster",
+ "scenes",
  "vello",
 ]
 

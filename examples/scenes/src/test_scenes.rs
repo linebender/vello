@@ -129,6 +129,8 @@ fn funky_paths(scene: &mut Scene, _: &mut SceneParams) {
 fn stroke_styles(transform: Affine) -> impl FnMut(&mut Scene, &mut SceneParams) {
     use PathEl::*;
     move |scene, params| {
+        /* Determined experimentally */
+        params.resolution = Some((2400., 1700.).into());
         let colors = [
             Color::rgb8(140, 181, 236),
             Color::rgb8(246, 236, 202),

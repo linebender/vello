@@ -3,27 +3,29 @@
 
 use std::env;
 use std::fs::File;
+use std::io::ErrorKind;
 use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{anyhow, bail, Result};
 use vello::peniko::{Blob, Color, Format, Image};
-use vello::util::RenderContext;
 use vello::wgpu::{
     self, BufferDescriptor, BufferUsages, CommandEncoderDescriptor, Extent3d, ImageCopyBuffer,
     TextureDescriptor, TextureFormat, TextureUsages,
 };
-use vello::{block_on_wgpu, RendererOptions, Scene};
+use vello::{block_on_wgpu, util::RenderContext, RendererOptions, Scene};
 
+mod compare;
 mod snapshot;
 
-pub use snapshot::{snapshot_test, snapshot_test_sync};
+pub use compare::{compare_test, compare_test_sync, Comparison};
+pub use snapshot::{snapshot_test, snapshot_test_sync, Snapshot};
 
 pub struct TestParams {
     pub width: u32,
     pub height: u32,
-    pub base_colour: Color,
+    pub base_colour: Option<Color>,
     pub use_cpu: bool,
     pub name: String,
 }
@@ -33,18 +35,18 @@ impl TestParams {
         TestParams {
             width,
             height,
-            base_colour: Color::BLACK,
+            base_colour: None,
             use_cpu: false,
             name: name.into(),
         }
     }
 }
 
-pub fn render_sync(scene: Scene, params: &TestParams) -> Result<Image> {
+pub fn render_sync(scene: &Scene, params: &TestParams) -> Result<Image> {
     pollster::block_on(render(scene, params))
 }
 
-pub async fn render(scene: Scene, params: &TestParams) -> Result<Image> {
+pub async fn render(scene: &Scene, params: &TestParams) -> Result<Image> {
     let mut context = RenderContext::new();
     let device_id = context
         .device(None)
@@ -67,7 +69,7 @@ pub async fn render(scene: Scene, params: &TestParams) -> Result<Image> {
     let width = params.width;
     let height = params.height;
     let render_params = vello::RenderParams {
-        base_color: params.base_colour,
+        base_color: params.base_colour.unwrap_or(Color::BLACK),
         width,
         height,
         antialiasing_method: vello::AaConfig::Area,
@@ -133,15 +135,21 @@ pub async fn render(scene: Scene, params: &TestParams) -> Result<Image> {
     }
     let data = Blob::new(Arc::new(result_unpadded));
     let image = Image::new(data, Format::Rgba8, width, height);
+    let suffix = if params.use_cpu { "cpu" } else { "gpu" };
+    let name = format!("{}_{suffix}", &params.name);
+    let out_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("debug_outputs")
+        .join(name)
+        .with_extension("png");
     if env_var_relates_to("VELLO_DEBUG_TEST", &params.name, params.use_cpu) {
-        let suffix = if params.use_cpu { "cpu" } else { "gpu" };
-        let name = format!("{}_{suffix}", &params.name);
-        let out_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("debug_outputs")
-            .join(name)
-            .with_extension("png");
         write_png_to_file(params, &out_path, &image)?;
         println!("Wrote debug result ({width}x{height}) to {out_path:?}");
+    } else {
+        match std::fs::remove_file(&out_path) {
+            Ok(()) => (),
+            Err(e) if e.kind() == ErrorKind::NotFound => (),
+            Err(e) => return Err(e.into()),
+        }
     }
     Ok(image)
 }

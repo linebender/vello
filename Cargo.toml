@@ -57,3 +57,4 @@ anyhow = "1.0.86"
 pollster = "0.3.0"
 web-time = "1.1.0"
 wgpu-profiler = "0.17.0"
+scenes = { path = "examples/scenes" }

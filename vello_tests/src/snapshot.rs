@@ -91,9 +91,8 @@ pub fn snapshot_test_sync(scene: Scene, params: &TestParams) -> Result<Snapshot<
 }
 
 pub async fn snapshot_test(scene: Scene, params: &TestParams) -> Result<Snapshot> {
-    let raw_rendered = render(scene, params).await?;
+    let raw_rendered = render(&scene, params).await?;
 
-    // TODO: A different file for GPU and CPU?
     let reference_path = snapshot_dir().join(&params.name).with_extension("png");
     let update_extension = if params.use_cpu {
         "cpu.new.png"
