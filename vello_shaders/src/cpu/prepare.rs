@@ -9,7 +9,7 @@ fn prepare_main(_config: &ConfigUniform, bump: &mut BumpAllocators) {
     bump.tile = 0;
     bump.seg_counts = 0;
     bump.segments = 0;
-    bump.blend = 0;
+    bump.blend_spill = 0;
     bump.lines = 0;
     bump.failed = 0;
 }

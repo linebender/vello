@@ -37,7 +37,7 @@ pub struct BumpAllocators {
     pub tile: u32,
     pub seg_counts: u32,
     pub segments: u32,
-    pub blend: u32,
+    pub blend_spill: u32,
     pub lines: u32,
 }
 
@@ -48,6 +48,7 @@ pub struct BumpAllocatorMemory {
     pub tile: BufferSize<Tile>,
     pub seg_counts: BufferSize<SegmentCount>,
     pub segments: BufferSize<PathSegment>,
+    pub blend_spill: BufferSize<u32>,
     pub lines: BufferSize<LineSoup>,
 }
 
@@ -59,12 +60,14 @@ impl BumpAllocators {
         let seg_counts = BufferSize::new(self.seg_counts);
         let segments = BufferSize::new(self.segments);
         let lines = BufferSize::new(self.lines);
+        let blend_spill = BufferSize::new(self.blend_spill);
         BumpAllocatorMemory {
             binning,
             ptcl,
             tile,
             seg_counts,
             segments,
+            blend_spill,
             lines,
         }
     }
@@ -79,6 +82,7 @@ impl BumpAllocatorMemory {
             self.tile.size_in_bytes(),
             self.seg_counts.size_in_bytes(),
             self.segments.size_in_bytes(),
+            self.blend_spill.size_in_bytes(),
             self.lines.size_in_bytes(),
         ]
         .into_iter()
@@ -215,7 +219,7 @@ impl RenderConfig {
                 tiles_size: bump_buffers.tile,
                 seg_counts_size: bump_buffers.seg_counts,
                 segments_size: bump_buffers.segments,
-                blend_size: buffer_sizes.bump_buffers.blend_spill,
+                blend_size: bump_buffers.blend_spill,
                 ptcl_size: bump_buffers.ptcl,
                 layout,
             },
@@ -402,7 +406,6 @@ impl BumpAllocators {
             segments,
             tile,
             blend_spill,
-            blend: 0,
             failed: 0,
         }
     }
@@ -463,6 +466,7 @@ impl BufferSizes {
             indirect_count,
             bin_headers,
             paths,
+            bump_buffers,
         }
     }
 }

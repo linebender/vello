@@ -354,8 +354,8 @@ fn coarse_main(
                 ptcl[tile_state.cmd_offset as usize] = CMD_END;
                 let scratch_size =
                     (max_blend_depth.saturating_sub(BLEND_STACK_SPLIT)) * TILE_WIDTH * TILE_HEIGHT;
-                ptcl[blend_offset as usize] = bump.blend;
-                bump.blend += scratch_size;
+                ptcl[blend_offset as usize] = bump.blend_spill;
+                bump.blend_spill += scratch_size;
             }
         }
     }

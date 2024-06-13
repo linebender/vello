@@ -480,7 +480,7 @@ impl Render {
         recording.free_resource(path_buf);
         let out_image = ImageProxy::new(params.width, params.height, ImageFormat::Rgba8);
         let blend_spill_buf = BufferProxy::new(
-            buffer_sizes.blend_spill.size_in_bytes().into(),
+            buffer_sizes.bump_buffers.blend_spill.size_in_bytes().into(),
             "blend_spill",
         );
         self.fine_wg_count = Some(wg_counts.fine);

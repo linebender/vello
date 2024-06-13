@@ -18,7 +18,7 @@ struct BumpAllocators {
     tile: atomic<u32>,
     seg_counts: atomic<u32>,
     segments: atomic<u32>,
-    blend: atomic<u32>,
+    blend_spill: atomic<u32>,
     lines: atomic<u32>,
 }
 
