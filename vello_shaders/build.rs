@@ -41,23 +41,6 @@ fn write_types(buf: &mut String, shaders: &[(String, ShaderInfo)]) -> Result<(),
         writeln!(buf, "    pub {name}: ComputeShader<'a>,")?;
     }
     writeln!(buf, "}}")?;
-    writeln!(buf, "pub struct Pipelines<T> {{")?;
-    for (name, _) in shaders {
-        writeln!(buf, "    pub {name}: T,")?;
-    }
-    writeln!(buf, "}}")?;
-    writeln!(buf, "impl<T> Pipelines<T> {{")?;
-    writeln!(buf, "    pub fn from_shaders<H: PipelineHost<ComputePipeline = T>>(shaders: &Shaders, device: &H::Device, host: &mut H) -> Result<Self, H::Error> {{")?;
-    writeln!(buf, "        Ok(Self {{")?;
-    for (name, _) in shaders {
-        writeln!(
-            buf,
-            "            {name}: host.new_compute_pipeline(device, &shaders.{name})?,"
-        )?;
-    }
-    writeln!(buf, "        }})")?;
-    writeln!(buf, "    }}")?;
-    writeln!(buf, "}}")?;
     Ok(())
 }
 
