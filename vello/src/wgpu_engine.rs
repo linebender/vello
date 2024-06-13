@@ -952,6 +952,16 @@ impl ResourcePool {
         device: &Device,
     ) -> Buffer {
         let rounded_size = Self::size_class(size, SIZE_CLASS_BITS);
+        // let max_storage_buffer_binding_size =
+        //     device.limits().max_storage_buffer_binding_size.into();
+        // if rounded_size > max_storage_buffer_binding_size {
+        //     if size < max_storage_buffer_binding_size {
+        //         log::warn!("Would allocate buffer {name} to be larger than {max_storage_buffer_binding_size}. Clamped");
+        //         rounded_size = max_storage_buffer_binding_size;
+        //     } else {
+        //         log::warn!("Would allocate buffer {name} to be larger than {max_storage_buffer_binding_size}, which is not allowed");
+        //     }
+        // }
         let props = BufferProperties {
             size: rounded_size,
             usages: usage,

@@ -52,10 +52,8 @@ impl TileState {
         ptcl: &mut [u32],
     ) {
         if self.cmd_offset + size >= self.cmd_limit {
-            let ptcl_dyn_start =
-                config.width_in_tiles * config.height_in_tiles * PTCL_INITIAL_ALLOC;
             let chunk_size = PTCL_INCREMENT.max(size + PTCL_HEADROOM);
-            let new_cmd = ptcl_dyn_start + bump.ptcl;
+            let new_cmd = config.layout.ptcl_dyn_start + bump.ptcl;
             bump.ptcl += chunk_size;
             ptcl[self.cmd_offset as usize] = CMD_JUMP;
             ptcl[self.cmd_offset as usize + 1] = new_cmd;

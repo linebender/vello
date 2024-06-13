@@ -14,7 +14,7 @@ use crate::{AaConfig, RenderParams};
 use crate::Scene;
 
 use vello_encoding::{
-    make_mask_lut, make_mask_lut_16, BumpBufferSizes, Encoding, Resolver, WorkgroupSize,
+    make_mask_lut, make_mask_lut_16, BumpAllocators, Encoding, Resolver, WorkgroupSize,
 };
 
 /// State for a render in progress.
@@ -84,7 +84,7 @@ pub(crate) fn render_full(
     resolver: &mut Resolver,
     shaders: &FullShaders,
     params: &RenderParams,
-    bump_sizes: BumpBufferSizes,
+    bump_sizes: BumpAllocators,
 ) -> (Recording, ImageProxy, BufferProxy) {
     render_encoding_full(scene.encoding(), resolver, shaders, params, bump_sizes)
 }
@@ -99,7 +99,7 @@ pub(crate) fn render_encoding_full(
     resolver: &mut Resolver,
     shaders: &FullShaders,
     params: &RenderParams,
-    bump_sizes: BumpBufferSizes,
+    bump_sizes: BumpAllocators,
 ) -> (Recording, ImageProxy, BufferProxy) {
     let mut render = Render::new();
     let mut recording =
@@ -137,7 +137,7 @@ impl Render {
         resolver: &mut Resolver,
         shaders: &FullShaders,
         params: &RenderParams,
-        bump_sizes: BumpBufferSizes,
+        bump_sizes: BumpAllocators,
         robust: bool,
     ) -> Recording {
         use vello_encoding::RenderConfig;
@@ -174,7 +174,7 @@ impl Render {
             recording.write_image(image_atlas, image.1, image.2, image.0.clone());
         }
         let cpu_config = RenderConfig::new(
-            &layout,
+            layout,
             params.width,
             params.height,
             &params.base_color,
@@ -202,12 +202,11 @@ impl Render {
             recording.upload_uniform("config", bytemuck::bytes_of(&cpu_config.gpu)),
         );
         let info_bin_data_buf = ResourceProxy::new_buf(
-            buffer_sizes.bump_buffers.bin_data.size_in_bytes() as u64
-                + (layout.bin_data_start as u64) * std::mem::size_of::<u32>() as u64,
+            buffer_sizes.bump_buffers.binning.size_in_bytes() as u64,
             "info_bin_data_buf",
         );
         let tile_buf = ResourceProxy::new_buf(
-            buffer_sizes.bump_buffers.tiles.size_in_bytes().into(),
+            buffer_sizes.bump_buffers.tile.size_in_bytes().into(),
             "tile_buf",
         );
         let segments_buf = ResourceProxy::new_buf(

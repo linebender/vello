@@ -106,7 +106,6 @@ pub use skrifa;
 
 pub mod glyph;
 
-use vello_encoding::{BufferSize, BumpBufferSizes};
 #[cfg(feature = "wgpu")]
 pub use wgpu;
 
@@ -264,7 +263,7 @@ pub struct Renderer {
     bump: Option<Buffer>,
     previous_submission: Option<BumpSubmission>,
     previouser_submission: Option<BumpSubmission>,
-    bump_sizes: BumpBufferSizes,
+    bump_sizes: BumpAllocators,
     #[cfg(feature = "wgpu-profiler")]
     pub profiler: GpuProfiler,
     #[cfg(feature = "wgpu-profiler")]
@@ -366,7 +365,7 @@ impl Renderer {
             bump: None,
             previous_submission: None,
             previouser_submission: None,
-            bump_sizes: Default::default(),
+            bump_sizes: BumpAllocators::default(),
             // Use 3 pending frames
             #[cfg(feature = "wgpu-profiler")]
             profiler: GpuProfiler::new(GpuProfilerSettings {
@@ -500,64 +499,76 @@ impl Renderer {
                             let mut changed = false;
                             // TODO: Also reduce allocation sizes
                             // TODO: Free buffers which haven't been used in "a while"
+                            // TODO: We should have awareness of the maximum binding size supported by the device
+                            // That's easy for all buffers but lines and ptcl
 
-                            // TODO: This ignore the draw tag length?
-                            if data.binning > self.bump_sizes.bin_data.len() {
+                            if data.binning > self.bump_sizes.binning {
                                 changed = true;
+                                let new_size = data.binning * 5 / 4;
                                 log::debug!(
-                                    "Resizing binning from {:?} to {:?}",
-                                    self.bump_sizes.bin_data,
-                                    data.binning
+                                    "Resizing binning to {:?} (Needed {:?}, had {:?})",
+                                    new_size,
+                                    data.binning,
+                                    self.bump_sizes.binning,
                                 );
-                                self.bump_sizes.bin_data = BufferSize::new(data.binning * 3 / 2);
+                                self.bump_sizes.binning = new_size;
                             }
-                            if data.lines > self.bump_sizes.lines.len() {
+                            if data.lines > self.bump_sizes.lines {
                                 changed = true;
+                                let new_size = data.lines * 5 / 4;
                                 log::debug!(
-                                    "Resizing lines from {:?} to {:?}",
+                                    "Resizing lines to {:?} (Needed {:?}, had {:?})",
+                                    new_size,
+                                    data.lines,
                                     self.bump_sizes.lines,
-                                    data.lines
                                 );
-                                self.bump_sizes.lines = BufferSize::new(data.lines * 5 / 4);
+                                self.bump_sizes.lines = new_size;
                             }
                             // if data.blend > self.bump_sizes.? // TODO
-                            if data.ptcl > self.bump_sizes.ptcl.len() {
+                            if data.ptcl > self.bump_sizes.ptcl {
                                 changed = true;
-                                log::debug!(
-                                    "Resizing ptcl from {:?} to {:?}",
-                                    self.bump_sizes.ptcl,
-                                    data.ptcl
-                                );
                                 // TODO: At 5/4, this doesn't work very well
-                                self.bump_sizes.ptcl = BufferSize::new(data.ptcl * 3 / 2);
-                            }
-                            if data.seg_counts > self.bump_sizes.seg_counts.len() {
-                                changed = true;
+                                let new_size = data.ptcl * 5 / 4;
                                 log::debug!(
-                                    "Resizing seg_counts from {:?} to {:?}",
+                                    "Resizing ptcl to {:?} (Needed {:?}, had {:?})",
+                                    new_size,
+                                    data.ptcl,
+                                    self.bump_sizes.ptcl,
+                                );
+                                self.bump_sizes.ptcl = new_size;
+                            }
+                            if data.seg_counts > self.bump_sizes.seg_counts {
+                                changed = true;
+                                let new_size = data.seg_counts * 5 / 4;
+                                log::debug!(
+                                    "Resizing seg_counts to {:?} (Needed {:?}, had {:?})",
+                                    new_size,
+                                    data.seg_counts,
                                     self.bump_sizes.seg_counts,
-                                    data.seg_counts
                                 );
-                                self.bump_sizes.seg_counts =
-                                    BufferSize::new(data.seg_counts * 5 / 4);
+                                self.bump_sizes.seg_counts = new_size;
                             }
-                            if data.tile > self.bump_sizes.tiles.len() {
+                            if data.tile > self.bump_sizes.tile {
                                 changed = true;
+                                let new_size = data.tile * 5 / 4;
                                 log::debug!(
-                                    "Resizing tiles from {:?} to {:?}",
-                                    self.bump_sizes.tiles,
-                                    data.tile
+                                    "Resizing tile to {:?} (Needed {:?}, had {:?})",
+                                    new_size,
+                                    data.tile,
+                                    self.bump_sizes.tile,
                                 );
-                                self.bump_sizes.tiles = BufferSize::new(data.tile * 5 / 4);
+                                self.bump_sizes.tile = new_size;
                             }
-                            if data.segments > self.bump_sizes.segments.len() {
+                            if data.segments > self.bump_sizes.segments {
                                 changed = true;
+                                let new_size = data.segments * 5 / 4;
                                 log::debug!(
-                                    "Resizing segments from {:?} to {:?}",
+                                    "Resizing segments to {:?} (Needed {:?}, had {:?})",
+                                    new_size,
+                                    data.segments,
                                     self.bump_sizes.segments,
-                                    data.segments
                                 );
-                                self.bump_sizes.segments = BufferSize::new(data.segments * 5 / 4);
+                                self.bump_sizes.segments = new_size;
                             }
                             if !changed {
                                 log::warn!("Detected need for reallocation, but didn't reallocate {:x?}. Data {data:?}", data.failed);
