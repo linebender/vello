@@ -19,6 +19,10 @@ You can find its changes [documented below](#020---2024-06-08).
 
 ### Fixed
 
+## Removed
+
+- Breaking: `Pipelines` API from `vello_shaders` ([#612] by [@DJMcNab])
+
 ## [0.2.0] - 2024-06-08
 
 ### Added
@@ -91,6 +95,7 @@ You can find its changes [documented below](#020---2024-06-08).
 [#573]: https://github.com/linebender/vello/pull/573
 [#575]: https://github.com/linebender/vello/pull/575
 [#589]: https://github.com/linebender/vello/pull/589
+[#612]: https://github.com/linebender/vello/pull/612
 
 [Unreleased]: https://github.com/linebender/vello/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/linebender/vello/compare/v0.1.0...v0.2.0
