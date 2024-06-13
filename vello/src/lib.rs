@@ -374,7 +374,7 @@ impl Renderer {
         let external_resources: &[ExternalResource] = if self.options.use_cpu {
             // HACK: Our handling of buffers across CPU and GPU is not great
 
-            // We don't retrain the bump buffer if we're using CPU shaders
+            // We don't retain the bump buffer if we're using CPU shaders
             // This is because some of stages might still be running on the
             // GPU, and we can't easily get the bump buffer back to the CPU
             // from the GPU
@@ -426,6 +426,99 @@ impl Renderer {
         surface: &SurfaceTexture,
         params: &RenderParams,
     ) -> Result<()> {
+        let buffer_completed = self.block_on_bump_and_reallocate(device);
+
+        let width = params.width;
+        let height = params.height;
+        let mut target = self
+            .target
+            .take()
+            .unwrap_or_else(|| TargetTexture::new(device, width, height));
+        // TODO: implement clever resizing semantics here to avoid thrashing the memory allocator
+        // during resize, specifically on metal.
+        if target.width != width || target.height != height {
+            target = TargetTexture::new(device, width, height);
+        }
+        let bump_download = self.render_to_texture(device, queue, scene, &target.view, params)?;
+        let blit = self
+            .blit
+            .as_ref()
+            .expect("renderer should have configured surface_format to use on a surface");
+        let mut encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        {
+            let surface_view = surface
+                .texture
+                .create_view(&wgpu::TextureViewDescriptor::default());
+            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout: &blit.bind_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&target.view),
+                }],
+            });
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &surface_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::default()),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+            #[cfg(feature = "wgpu-profiler")]
+            let mut render_pass = self
+                .profiler
+                .scope("blit to surface", &mut render_pass, device);
+            render_pass.set_pipeline(&blit.pipeline);
+            render_pass.set_bind_group(0, &bind_group, &[]);
+            render_pass.draw(0..6, 0..1);
+        }
+        #[cfg(feature = "wgpu-profiler")]
+        self.profiler.resolve_queries(&mut encoder);
+        if let Some(download) = &bump_download {
+            let completed = buffer_completed.clone();
+            download
+                .slice(..)
+                .map_async(wgpu::MapMode::Read, move |res| match res {
+                    Ok(()) => {
+                        completed.store(true, Ordering::Release);
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to map bump buffer: {e}");
+                    }
+                });
+        };
+        let idx = queue.submit(Some(encoder.finish()));
+        if let Some(download) = bump_download {
+            self.previouser_submission =
+                self.previous_submission
+                    .replace((idx, download, buffer_completed));
+        } else {
+            self.previouser_submission = self.previous_submission.take();
+        }
+        self.target = Some(target);
+        #[cfg(feature = "wgpu-profiler")]
+        {
+            self.profiler.end_frame().unwrap();
+            if let Some(result) = self
+                .profiler
+                .process_finished_frame(queue.get_timestamp_period())
+            {
+                self.profile_result = Some(result);
+            }
+        }
+        Ok(())
+    }
+
+    /// Wait for the frame "two frames ago"'s bump buffer to be available, and reallocate if so.
+    fn block_on_bump_and_reallocate(&mut self, device: &Device) -> Arc<AtomicBool> {
         let buffer_completed = if let Some((idx, bump, completed)) =
             self.previouser_submission.take()
         {
@@ -545,94 +638,7 @@ impl Renderer {
         } else {
             Arc::new(AtomicBool::new(false))
         };
-
-        let width = params.width;
-        let height = params.height;
-        let mut target = self
-            .target
-            .take()
-            .unwrap_or_else(|| TargetTexture::new(device, width, height));
-        // TODO: implement clever resizing semantics here to avoid thrashing the memory allocator
-        // during resize, specifically on metal.
-        if target.width != width || target.height != height {
-            target = TargetTexture::new(device, width, height);
-        }
-        let bump_download = self.render_to_texture(device, queue, scene, &target.view, params)?;
-        let blit = self
-            .blit
-            .as_ref()
-            .expect("renderer should have configured surface_format to use on a surface");
-        let mut encoder =
-            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-        {
-            let surface_view = surface
-                .texture
-                .create_view(&wgpu::TextureViewDescriptor::default());
-            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: None,
-                layout: &blit.bind_layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&target.view),
-                }],
-            });
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: None,
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &surface_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::default()),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                occlusion_query_set: None,
-                timestamp_writes: None,
-            });
-            #[cfg(feature = "wgpu-profiler")]
-            let mut render_pass = self
-                .profiler
-                .scope("blit to surface", &mut render_pass, device);
-            render_pass.set_pipeline(&blit.pipeline);
-            render_pass.set_bind_group(0, &bind_group, &[]);
-            render_pass.draw(0..6, 0..1);
-        }
-        #[cfg(feature = "wgpu-profiler")]
-        self.profiler.resolve_queries(&mut encoder);
-        if let Some(download) = &bump_download {
-            let completed = buffer_completed.clone();
-            download
-                .slice(..)
-                .map_async(wgpu::MapMode::Read, move |res| match res {
-                    Ok(()) => {
-                        completed.store(true, Ordering::Release);
-                    }
-                    Err(e) => {
-                        log::warn!("Failed to map bump buffer: {e}");
-                    }
-                });
-        };
-        let idx = queue.submit(Some(encoder.finish()));
-        if let Some(download) = bump_download {
-            self.previouser_submission =
-                self.previous_submission
-                    .replace((idx, download, buffer_completed));
-        } else {
-            self.previouser_submission = self.previous_submission.take();
-        }
-        self.target = Some(target);
-        #[cfg(feature = "wgpu-profiler")]
-        {
-            self.profiler.end_frame().unwrap();
-            if let Some(result) = self
-                .profiler
-                .process_finished_frame(queue.get_timestamp_period())
-            {
-                self.profile_result = Some(result);
-            }
-        }
-        Ok(())
+        buffer_completed
     }
 
     /// Reload the shaders. This should only be used during `vello` development
