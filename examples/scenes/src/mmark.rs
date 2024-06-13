@@ -75,7 +75,7 @@ impl TestScene for MMark {
             (c + 1) * 1000
         } else {
             // The 190_000 scene can't be uploaded due to wgpu's limits
-            ((c - 8) * 10000).min(180_000)
+            ((c - 8) * 10000).min(190_000)
         };
         self.resize(n);
         let mut rng = rand::thread_rng();

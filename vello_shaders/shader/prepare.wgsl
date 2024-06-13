@@ -1,4 +1,4 @@
-// Copyright 2022 the Vello Authors
+// Copyright 2024 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
 
 // Determine whether the Vello pipeline is likely to fail during this run
@@ -20,7 +20,7 @@ var<storage, read_write> bump: BumpAllocators;
 fn main() {
     var should_cancel = false;
     let previous_failure = atomicLoad(&bump.failed);
-    if (previous_failure & PREVIOUS_RUN) != 0 {
+    if (previous_failure & PREVIOUS_RUN) != 0u {
         // Don't early-exit from multiple frames in a row
         // The CPU should be blocking on the frame which failed anyway, so this
         // case should never be reached, but if the CPU side isn't doing that
@@ -32,9 +32,6 @@ fn main() {
         // If the previous frame failed (for another reason)
 
         // And we don't have enough memory to have run that previous frame
-        if config.lines_size < atomicLoad(&bump.lines) {
-            should_cancel = true;
-        }
         if config.binning_size < atomicLoad(&bump.binning) {
             should_cancel = true;
         }
@@ -63,7 +60,7 @@ fn main() {
         }
     }
     atomicStore(&bump.binning, 0u);
-    atomicStore(&bump.ptcl, config.width_in_tiles * config.height_in_tiles * PTCL_INITIAL_ALLOC);
+    atomicStore(&bump.ptcl, 0u);
     atomicStore(&bump.tile, 0u);
     atomicStore(&bump.seg_counts, 0u);
     atomicStore(&bump.segments, 0u);

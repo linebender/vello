@@ -76,6 +76,7 @@ fn alloc_cmd(size: u32) {
             new_cmd = 0u;
             atomicOr(&bump.failed, STAGE_COARSE);
         }
+        new_cmd += config.ptcl_dyn_start;
         ptcl[cmd_offset] = CMD_JUMP;
         ptcl[cmd_offset + 1u] = new_cmd;
         cmd_offset = new_cmd;
@@ -90,6 +91,11 @@ fn write_path(tile: Tile, tile_ix: u32, draw_flags: u32) {
     let n_segs = tile.segment_count_or_ix;
     if n_segs != 0u {
         var seg_ix = atomicAdd(&bump.segments, n_segs);
+        if seg_ix > config.segments_size {
+            // All writes into segments happen in path_tiling, so we don't need
+            // to avoid UB in this shader
+            atomicOr(&bump.failed, STAGE_COARSE);
+        }
         tiles[tile_ix].segment_count_or_ix = ~seg_ix;
         alloc_cmd(4u);
         ptcl[cmd_offset] = CMD_FILL;
@@ -157,7 +163,7 @@ fn main(
             failed |= STAGE_PATH_COUNT;
         }
         // Reuse sh_part_count to hold failed flag, shmem is tight
-        sh_part_count[0] = u32(failed);
+        sh_part_count[0] = failed;
     }
     let failed = workgroupUniformLoad(&sh_part_count[0]);
     if failed != 0u {
@@ -406,7 +412,7 @@ fn main(
                     case DRAWTAG_END_CLIP: {
                         clip_depth -= 1u;
                         // A clip shape is always a non-zero fill (draw_flags=0).
-                        write_path(tile, tile_ix, /*draw_flags=*/0u);
+                        write_path(tile, tile_ix, /* draw_flags,= */ 0u);
                         let blend = scene[dd];
                         let alpha = bitcast<f32>(scene[dd + 1u]);
                         write_end_clip(CmdEndClip(blend, alpha));

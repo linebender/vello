@@ -169,7 +169,7 @@ pub struct CpuTexture {
 
 // Common internal definitions
 
-const PTCL_INITIAL_ALLOC: u32 = 64;
+pub use vello_encoding::PTCL_INITIAL_ALLOC;
 
 // Tags for PTCL commands
 const CMD_END: u32 = 0;

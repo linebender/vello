@@ -161,7 +161,7 @@ fn run(
     let mut simple_text = SimpleText::new();
     let mut images = ImageCache::new();
     let mut stats = stats::Stats::new();
-    let mut stats_shown = true;
+    let mut stats_shown = false;
     // Currently not updated in wasm builds
     #[allow(unused_mut)]
     let mut scene_complexity: Option<BumpAllocators> = None;
