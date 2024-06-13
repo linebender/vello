@@ -37,7 +37,7 @@ impl Snapshot {
     ) where
         T: Iterator<Item = &'a u64>,
     {
-        let width = (viewport_width * 0.4).max(200.).min(600.);
+        let width = (viewport_width * 0.4).clamp(200., 600.);
         let height = width * 0.7;
         let x_offset = viewport_width - width;
         let y_offset = viewport_height - height;

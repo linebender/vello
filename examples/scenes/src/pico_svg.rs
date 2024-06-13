@@ -272,7 +272,7 @@ fn modify_opacity(mut color: Color, attr_name: &str, node: Node) -> Color {
         } else {
             opacity.parse().unwrap_or(1.0)
         };
-        color.a = (alpha.min(1.0).max(0.0) * 255.0).round() as u8;
+        color.a = (alpha.clamp(0.0, 1.0) * 255.0).round() as u8;
         color
     } else {
         color
