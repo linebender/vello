@@ -111,18 +111,6 @@ pub struct MslSource<'a> {
     pub binding_indices: Cow<'a, [msl::BindingIndex]>,
 }
 
-pub trait PipelineHost {
-    type Device;
-    type ComputePipeline;
-    type Error;
-
-    fn new_compute_pipeline(
-        &mut self,
-        device: &Self::Device,
-        shader: &ComputeShader,
-    ) -> Result<Self::ComputePipeline, Self::Error>;
-}
-
 include!(concat!(env!("OUT_DIR"), "/shaders.rs"));
 
 pub use generated::SHADERS;
