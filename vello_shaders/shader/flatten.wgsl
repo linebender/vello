@@ -495,6 +495,39 @@ fn es_seg_flatten_evolute(
     start_p: vec2f,
     t_range: vec2f,
 ) -> vec2f {
+#ifdef arc_lowering
+  let es = params.es;
+  let arc_len = params.chord_len / es.params.ch;
+  let k0 = es.params.k0;
+  let k1 = es.params.k1;
+  let rho_int_0 = cbrt(1. / (k0 + (t_range.x - 0.5) * k1));
+  let rho_int_1 = cbrt(1. / (k0 + (t_range.y - 0.5) * k1));
+  let rho_int = rho_int_1 - rho_int_0;
+  let est_err = abs(rho_int) * arc_len / params.tol;
+  // TODO: apply scaling factor to est_err to tune actual error.
+  // Math suggests 27. / 40. but eyeball error seems too large.
+  let range_size = t_range.y - t_range.x;
+  let n_subdiv = max(ceil(cbrt(est_err) * range_size), 1.0);
+  let n = u32(n_subdiv);
+  var last_k = k0 + (t_range.x - 0.5) * k1;
+  var last_r = sqrt(abs(last_k));
+  let sign4 = select(4., -4., sign(-k0) == -1.);
+  var lp0 = start_p;
+  for (var i = 0u; i <= n; i++) {
+      let t = f32(i) / n_subdiv;
+      let u = rho_int_0 + t * rho_int;
+      let s_0_1 = (1. / pow(u, 3.) - k0) / k1 + 0.5;
+      let s = t_range.x + range_size * s_0_1;
+      let lp1 = es_seg_eval_evolute(es, s);
+      let k = k0 + (s - 0.5) * k1;
+      let r = sqrt(abs(k));
+      let es_k = sign4 * pow((r - last_r), 2.) / (k1 / k - k1 / last_k);
+      output_double_line_with_transform(params.path_ix, lp0, lp1, params.transform, params.offset >= 0.);
+      last_k = k;
+      last_r = r;
+      lp0 = lp1;
+  }
+#else
   let es = params.es;
   let arc_len = params.chord_len / es.params.ch;
   let ratio = es.params.k0 / es.params.k1;
@@ -515,6 +548,7 @@ fn es_seg_flatten_evolute(
       output_double_line_with_transform(params.path_ix, lp0, lp1, params.transform, params.offset >= 0.);
       lp0 = lp1;
   }
+#endif
   return lp0;
 }
 
@@ -805,11 +839,11 @@ fn draw_join(
     switch style_flags & STYLE_FLAGS_JOIN_MASK {
         case STYLE_FLAGS_JOIN_BEVEL: {
 #ifdef inner_join
-            let p0 = select(front0, back0, is_backside);
-            let p1 = select(front1, back1, is_backside);
+            let p0 = select(front0, back1, is_backside);
+            let p1 = select(front1, back0, is_backside);
             output_line_with_transform(path_ix, p0, p1, transform, true);
 #else
-            output_two_lines_with_transform(path_ix, front0, front1, back0, back1, transform);
+            output_two_lines_with_transform(path_ix, front0, front1, back1, back0, transform);
 #endif
         }
         case STYLE_FLAGS_JOIN_MITER: {
@@ -887,20 +921,20 @@ fn draw_join(
     // Handle inner join
     if abs(cr) < 1e-6 {
         // smooth join, don't need to draw inner join
-        let inner0 = select(back0, front0, is_backside);
-        let inner1 = select(back1, front1, is_backside);
+        let inner0 = select(back1, front0, is_backside);
+        let inner1 = select(back0, front1, is_backside);
         if any(inner0 != inner1) {
             output_line_with_transform(path_ix, inner0, inner1, transform, true);
         }
     } else {
-        let inner0 = select(back0, front0, is_backside);
-        let inner1 = select(back1, front1, is_backside);
+        let inner0 = select(back1, front0, is_backside);
+        let inner1 = select(back0, front1, is_backside);
         let line_ix = atomicAdd(&bump.lines, 4u);
         write_line_with_transform(line_ix, path_ix, inner0, p0, transform);
         write_line_with_transform(line_ix + 1, path_ix, p0, inner1, transform);
         write_line_with_transform(line_ix + 2, path_ix, inner0, p0, transform);
         write_line_with_transform(line_ix + 3, path_ix, p0, inner1, transform);
-        flatten_arc(path_ix, inner1, inner0, p0, -abs(atan2(cr, d)), transform);
+        flatten_arc(path_ix, inner0, inner1, p0, abs(atan2(cr, d)), transform);
     }
 #endif
 }
@@ -1050,6 +1084,14 @@ fn write_line_with_transform(line_ix: u32, path_ix: u32, p0: vec2f, p1: vec2f, t
     let tp0 = transform_apply(t, p0);
     let tp1 = transform_apply(t, p1);
     write_line(line_ix, path_ix, tp0, tp1);
+}
+
+fn write_line_with_transform_and_dir(line_ix: u32, path_ix: u32, p0: vec2f, p1: vec2f, t: Transform, forward: bool) {
+    let tp0 = transform_apply(t, p0);
+    let tp1 = transform_apply(t, p1);
+    let l0 = select(tp1, tp0, forward);
+    let l1 = select(tp0, tp1, forward);
+    write_line(line_ix, path_ix, l0, l1);
 }
 
 fn output_line(path_ix: u32, p0: vec2f, p1: vec2f) {

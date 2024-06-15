@@ -203,6 +203,7 @@ impl ShaderInfo {
             defines.push("evolutes");
             defines.push("inner_join");
             //defines.push("arc_lowering");
+            //defines.push("ablate_arc_flattening");
             defines.into_iter().map(|s| s.to_owned()).collect()
         };
         for entry in shader_dir
