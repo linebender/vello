@@ -90,12 +90,8 @@ fn write_path(tile: Tile, tile_ix: u32, draw_flags: u32) {
     // fine).
     let n_segs = tile.segment_count_or_ix;
     if n_segs != 0u {
+        // We check for overflow of bump.segments in path_tiling_setup
         var seg_ix = atomicAdd(&bump.segments, n_segs);
-        if seg_ix > config.segments_size {
-            // All writes into segments happen in path_tiling, so we don't need
-            // to avoid UB in this shader
-            atomicOr(&bump.failed, STAGE_COARSE);
-        }
         tiles[tile_ix].segment_count_or_ix = ~seg_ix;
         alloc_cmd(4u);
         ptcl[cmd_offset] = CMD_FILL;
