@@ -196,7 +196,7 @@ pub(crate) fn full_shaders(
             Buffer,
         ]
     );
-    let path_tiling_setup = add_shader!(path_tiling_setup, [Buffer, Buffer, Buffer]);
+    let path_tiling_setup = add_shader!(path_tiling_setup, [Uniform, Buffer, Buffer, Buffer]);
     let path_tiling = add_shader!(
         path_tiling,
         [
