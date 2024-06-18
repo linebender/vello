@@ -4,9 +4,12 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::emoji::EncodeColorGlyph;
+
 use super::{Encoding, StreamOffsets};
 
 use peniko::{Font, Style};
+use skrifa::color::ColorGlyphCollection;
 use skrifa::instance::{NormalizedCoord, Size};
 use skrifa::outline::{HintingInstance, HintingMode, LcdLayout, OutlineGlyphFormat};
 use skrifa::{GlyphId, MetadataProvider, OutlineGlyphCollection};
@@ -49,6 +52,7 @@ impl GlyphCache {
             &mut self.map
         };
         let outlines = font.outline_glyphs();
+        let color_glyphs = font.color_glyphs();
         let size = Size::new(size);
         let hinter = if hint {
             let key = HintKey {
@@ -79,6 +83,7 @@ impl GlyphCache {
             style,
             style_bits,
             outlines,
+            color_glyphs,
             hinter,
             serial: self.serial,
             cached_count: &mut self.cached_count,
@@ -143,6 +148,7 @@ pub struct GlyphCacheSession<'a> {
     style: &'a Style,
     style_bits: [u32; 2],
     outlines: OutlineGlyphCollection<'a>,
+    color_glyphs: ColorGlyphCollection<'a>,
     hinter: Option<&'a HintingInstance>,
     serial: u64,
     cached_count: &'a mut usize,
@@ -162,46 +168,73 @@ impl<'a> GlyphCacheSession<'a> {
             entry.serial = self.serial;
             return Some((entry.encoding.clone(), entry.stream_sizes));
         }
-        let outline = self.outlines.get(GlyphId::new(key.glyph_id as u16))?;
-        let mut encoding = self.free_list.pop().unwrap_or_default();
-        let encoding_ptr = Arc::make_mut(&mut encoding);
-        encoding_ptr.reset();
-        let is_fill = match &self.style {
-            Style::Fill(fill) => {
-                encoding_ptr.encode_fill_style(*fill);
-                true
-            }
-            Style::Stroke(stroke) => {
-                encoding_ptr.encode_stroke_style(stroke);
-                false
-            }
-        };
-        use skrifa::outline::DrawSettings;
-        let mut path = encoding_ptr.encode_path(is_fill);
-        let draw_settings = if key.hint {
-            if let Some(hinter) = self.hinter {
-                DrawSettings::hinted(hinter, false)
+        let color = self.color_glyphs.get(GlyphId::new(key.glyph_id as u16));
+        if let Some(color) = color {
+            let mut encoding = self.free_list.pop().unwrap_or_default();
+            let encoding_ptr = Arc::make_mut(&mut encoding);
+            encoding_ptr.reset();
+            color
+                .paint(
+                    self.coords,
+                    &mut EncodeColorGlyph {
+                        encoding: &mut *encoding_ptr,
+                        outlines: &self.outlines,
+                    },
+                )
+                .ok()?;
+            let stream_sizes = encoding_ptr.stream_offsets();
+            self.map.insert(
+                key,
+                GlyphEntry {
+                    encoding: encoding.clone(),
+                    stream_sizes,
+                    serial: self.serial,
+                },
+            );
+            *self.cached_count += 1;
+            Some((encoding, stream_sizes))
+        } else {
+            let outline = self.outlines.get(GlyphId::new(key.glyph_id as u16))?;
+            let mut encoding = self.free_list.pop().unwrap_or_default();
+            let encoding_ptr = Arc::make_mut(&mut encoding);
+            encoding_ptr.reset();
+            let is_fill = match &self.style {
+                Style::Fill(fill) => {
+                    encoding_ptr.encode_fill_style(*fill);
+                    true
+                }
+                Style::Stroke(stroke) => {
+                    encoding_ptr.encode_stroke_style(stroke);
+                    false
+                }
+            };
+            use skrifa::outline::DrawSettings;
+            let mut path = encoding_ptr.encode_path(is_fill);
+            let draw_settings = if key.hint {
+                if let Some(hinter) = self.hinter {
+                    DrawSettings::hinted(hinter, false)
+                } else {
+                    DrawSettings::unhinted(self.size, self.coords)
+                }
             } else {
                 DrawSettings::unhinted(self.size, self.coords)
+            };
+            outline.draw(draw_settings, &mut path).ok()?;
+            if path.finish(false) == 0 {
+                encoding_ptr.reset();
             }
-        } else {
-            DrawSettings::unhinted(self.size, self.coords)
-        };
-        outline.draw(draw_settings, &mut path).ok()?;
-        if path.finish(false) == 0 {
-            encoding_ptr.reset();
+            let stream_sizes = encoding_ptr.stream_offsets();
+            self.map.insert(
+                key,
+                GlyphEntry {
+                    encoding: encoding.clone(),
+                    stream_sizes,
+                    serial: self.serial,
+                },
+            );
+            *self.cached_count += 1;
+            Some((encoding, stream_sizes))
         }
-        let stream_sizes = encoding_ptr.stream_offsets();
-        self.map.insert(
-            key,
-            GlyphEntry {
-                encoding: encoding.clone(),
-                stream_sizes,
-                serial: self.serial,
-            },
-        );
-        *self.cached_count += 1;
-        Some((encoding, stream_sizes))
     }
 }
 

@@ -34,6 +34,7 @@ macro_rules! scene {
 pub fn test_scenes() -> SceneSet {
     let scenes = vec![
         scene!(splash_with_tiger(), "splash_with_tiger", false),
+        scene!(emoji),
         scene!(funky_paths),
         scene!(stroke_styles(Affine::IDENTITY), "stroke_styles", false),
         scene!(
@@ -69,6 +70,19 @@ pub fn test_scenes() -> SceneSet {
 }
 
 // Scenes
+
+fn emoji(scene: &mut Scene, params: &mut SceneParams) {
+    let text_size = 60.0 + 40.0 * (params.time as f32).sin();
+    let s = "😃";
+    params.text.add_emoji_run(
+        scene,
+        text_size,
+        Affine::translate((110.0, 600.0)),
+        None,
+        Fill::NonZero,
+        s,
+    );
+}
 
 fn funky_paths(scene: &mut Scene, _: &mut SceneParams) {
     use PathEl::*;

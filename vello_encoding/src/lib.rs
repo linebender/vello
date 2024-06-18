@@ -7,6 +7,7 @@ mod binning;
 mod clip;
 mod config;
 mod draw;
+mod emoji;
 mod encoding;
 #[cfg(feature = "bump_estimate")]
 mod estimate;
