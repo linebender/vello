@@ -3,7 +3,10 @@
 
 use peniko::kurbo::{Affine, Rect, Shape, Stroke};
 use peniko::{BlendMode, BrushRef, Color, Fill, Font, Image, StyleRef};
-use skrifa::instance::NormalizedCoord;
+use skrifa::color::ColorPainter;
+use skrifa::instance::{LocationRef, NormalizedCoord};
+use skrifa::raw::TableProvider;
+use skrifa::{GlyphId, MetadataProvider};
 #[cfg(feature = "bump_estimate")]
 use vello_encoding::BumpAllocatorMemory;
 use vello_encoding::{Encoding, Glyph, GlyphRun, Patch, Transform};
@@ -205,7 +208,7 @@ impl Scene {
     /// Returns a builder for encoding a glyph run.
     pub fn draw_glyphs(&mut self, font: &Font) -> DrawGlyphs {
         // TODO: Integrate `BumpEstimator` with the glyph cache.
-        DrawGlyphs::new(&mut self.encoding, font)
+        DrawGlyphs::new(self, font)
     }
 
     /// Appends a child scene.
@@ -234,7 +237,7 @@ impl From<Encoding> for Scene {
 
 /// Builder for encoding a glyph run.
 pub struct DrawGlyphs<'a> {
-    encoding: &'a mut Encoding,
+    scene: &'a mut Scene,
     run: GlyphRun,
     brush: BrushRef<'a>,
     brush_alpha: f32,
@@ -243,12 +246,12 @@ pub struct DrawGlyphs<'a> {
 impl<'a> DrawGlyphs<'a> {
     /// Creates a new builder for encoding a glyph run for the specified
     /// encoding with the given font.
-    pub fn new(encoding: &'a mut Encoding, font: &Font) -> Self {
-        let coords_start = encoding.resources.normalized_coords.len();
-        let glyphs_start = encoding.resources.glyphs.len();
-        let stream_offsets = encoding.stream_offsets();
+    pub fn new(scene: &'a mut Scene, font: &Font) -> Self {
+        let coords_start = scene.encoding.resources.normalized_coords.len();
+        let glyphs_start = scene.encoding.resources.glyphs.len();
+        let stream_offsets = scene.encoding.stream_offsets();
         Self {
-            encoding,
+            scene,
             run: GlyphRun {
                 font: font.clone(),
                 transform: Transform::IDENTITY,
@@ -302,15 +305,17 @@ impl<'a> DrawGlyphs<'a> {
 
     /// Sets the normalized design space coordinates for a variable font instance.
     pub fn normalized_coords(mut self, coords: &[NormalizedCoord]) -> Self {
-        self.encoding
+        self.scene
+            .encoding
             .resources
             .normalized_coords
             .truncate(self.run.normalized_coords.start);
-        self.encoding
+        self.scene
+            .encoding
             .resources
             .normalized_coords
             .extend_from_slice(coords);
-        self.run.normalized_coords.end = self.encoding.resources.normalized_coords.len();
+        self.run.normalized_coords.end = self.scene.encoding.resources.normalized_coords.len();
         self
     }
 
@@ -334,23 +339,79 @@ impl<'a> DrawGlyphs<'a> {
     ///
     /// The `style` parameter accepts either `Fill` or `&Stroke` types.
     pub fn draw(mut self, style: impl Into<StyleRef<'a>>, glyphs: impl Iterator<Item = Glyph>) {
-        let resources = &mut self.encoding.resources;
-        self.run.style = style.into().to_owned();
-        resources.glyphs.extend(glyphs);
-        self.run.glyphs.end = resources.glyphs.len();
-        if self.run.glyphs.is_empty() {
+        let font_index = self.run.font.index;
+        let font = skrifa::FontRef::from_index(self.run.font.data.as_ref(), font_index).unwrap();
+        if font.colr().is_ok() {
+            self.try_draw_colr(glyphs);
+            let resources = &mut self.scene.encoding.resources;
             resources
                 .normalized_coords
                 .truncate(self.run.normalized_coords.start);
-            return;
+        } else {
+            let resources = &mut self.scene.encoding.resources;
+            self.run.style = style.into().to_owned();
+            resources.glyphs.extend(glyphs);
+            self.run.glyphs.end = resources.glyphs.len();
+            if self.run.glyphs.is_empty() {
+                resources
+                    .normalized_coords
+                    .truncate(self.run.normalized_coords.start);
+                return;
+            }
+            let index = resources.glyph_runs.len();
+            resources.glyph_runs.push(self.run);
+            resources.patches.push(Patch::GlyphRun { index });
+            self.scene
+                .encoding
+                .encode_brush(self.brush, self.brush_alpha);
+            // Glyph run resolve step affects transform and style state in a way
+            // that is opaque to the current encoding.
+            // See <https://github.com/linebender/vello/issues/424>
+            self.scene.encoding.force_next_transform_and_style();
         }
-        let index = resources.glyph_runs.len();
-        resources.glyph_runs.push(self.run);
-        resources.patches.push(Patch::GlyphRun { index });
-        self.encoding.encode_brush(self.brush, self.brush_alpha);
-        // Glyph run resolve step affects transform and style state in a way
-        // that is opaque to the current encoding.
-        // See <https://github.com/linebender/vello/issues/424>
-        self.encoding.force_next_transform_and_style();
     }
+
+    pub fn try_draw_colr(&mut self, glyphs: impl Iterator<Item = Glyph>) {
+        let font_index = self.run.font.index;
+        let font = skrifa::FontRef::from_index(self.run.font.data.as_ref(), font_index).unwrap();
+        let colour_collection = font.color_glyphs();
+        for glyph in glyphs {
+            let colour = colour_collection
+                .get(GlyphId::new(glyph.id.try_into().unwrap()))
+                .expect("Cannot render non-emoji in emoji font");
+            let coords = &self.scene.encoding.resources.normalized_coords
+                [self.run.normalized_coords.clone()]
+            .to_vec();
+            colour
+                .paint(
+                    LocationRef::new(coords),
+                    &mut DrawColorGlyphs {
+                        scene: &mut self.scene,
+                    },
+                )
+                .unwrap();
+        }
+    }
+}
+
+struct DrawColorGlyphs<'a> {
+    scene: &'a mut Scene,
+}
+
+impl<'a> ColorPainter for DrawColorGlyphs<'a> {
+    fn push_transform(&mut self, transform: skrifa::color::Transform) {}
+
+    fn pop_transform(&mut self) {}
+
+    fn push_clip_glyph(&mut self, glyph_id: GlyphId) {}
+
+    fn push_clip_box(&mut self, clip_box: skrifa::raw::types::BoundingBox<f32>) {}
+
+    fn pop_clip(&mut self) {}
+
+    fn fill(&mut self, brush: skrifa::color::Brush<'_>) {}
+
+    fn push_layer(&mut self, composite_mode: skrifa::color::CompositeMode) {}
+
+    fn pop_layer(&mut self) {}
 }

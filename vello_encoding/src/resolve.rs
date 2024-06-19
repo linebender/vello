@@ -260,30 +260,6 @@ impl Resolver {
         // Bin data follows draw info
         layout.bin_data_start = encoding.draw_tags.iter().map(|tag| tag.info_size()).sum();
         {
-            let mut pos = 0;
-            let stream = &encoding.draw_tags;
-            for patch in &self.patches {
-                match patch {
-                    ResolvedPatch::GlyphRun { index, glyphs, .. } => {
-                        let stream_offset = resources.glyph_runs[*index].stream_offsets.draw_tags;
-                        if pos < stream_offset {
-                            data.extend_from_slice(bytemuck::cast_slice(
-                                &stream[pos..stream_offset],
-                            ));
-                            pos = stream_offset;
-                        }
-                        for glyph in &self.glyphs[glyphs.clone()] {
-                            // layout.bin_data_start += glyph
-                            //     .draw_tags
-                            //     .iter()
-                            //     .map(|tag| tag.info_size())
-                            //     .sum::<u32>();
-                            data.extend_from_slice(bytemuck::cast_slice(&glyph.draw_tags));
-                        }
-                    }
-                    _ => {}
-                }
-            }
             data.extend_from_slice(bytemuck::cast_slice(&encoding.draw_tags));
             for _ in 0..encoding.n_open_clips {
                 data.extend_from_slice(bytemuck::bytes_of(&DrawTag::END_CLIP));
@@ -308,18 +284,7 @@ impl Resolver {
                         data.extend_from_slice(bytemuck::bytes_of(&index_mode));
                         pos = *draw_data_offset + 4;
                     }
-                    ResolvedPatch::GlyphRun { index, glyphs, .. } => {
-                        let stream_offset = resources.glyph_runs[*index].stream_offsets.draw_data;
-                        if pos < stream_offset {
-                            data.extend_from_slice(bytemuck::cast_slice(
-                                &stream[pos..stream_offset],
-                            ));
-                            pos = stream_offset;
-                        }
-                        for glyph in &self.glyphs[glyphs.clone()] {
-                            data.extend_from_slice(bytemuck::cast_slice(&glyph.draw_data));
-                        }
-                    }
+                    ResolvedPatch::GlyphRun { .. } => {}
                     ResolvedPatch::Image {
                         index,
                         draw_data_offset,
