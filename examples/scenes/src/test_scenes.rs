@@ -72,12 +72,12 @@ pub fn test_scenes() -> SceneSet {
 // Scenes
 
 fn emoji(scene: &mut Scene, params: &mut SceneParams) {
-    let text_size = 60.0 + 40.0 * (params.time as f32).sin();
-    let s = "😃";
+    let text_size = 60. + 50. * params.time.sin() as f32;
+    let s = "😃💩";
     params.text.add_emoji_run(
         scene,
         text_size,
-        Affine::translate((110.0, 600.0)),
+        Affine::translate(Vec2::new(100., 400.)),
         None,
         Fill::NonZero,
         s,

@@ -1,12 +1,18 @@
 // Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use peniko::kurbo::{Affine, Rect, Shape, Stroke};
-use peniko::{BlendMode, BrushRef, Color, Fill, Font, Image, StyleRef};
-use skrifa::color::ColorPainter;
-use skrifa::instance::{LocationRef, NormalizedCoord};
-use skrifa::raw::TableProvider;
-use skrifa::{GlyphId, MetadataProvider};
+use peniko::{
+    kurbo::{Affine, BezPath, Point, Rect, Shape, Stroke, Vec2},
+    BlendMode, Brush, BrushRef, Color, ColorStop, ColorStops, ColorStopsSource, Extend, Fill, Font,
+    Gradient, Image, StyleRef,
+};
+use skrifa::{
+    color::ColorPainter,
+    instance::{LocationRef, NormalizedCoord},
+    outline::{DrawSettings, OutlinePen},
+    raw::{tables::cpal::Cpal, TableProvider},
+    GlyphId, MetadataProvider, OutlineGlyphCollection,
+};
 #[cfg(feature = "bump_estimate")]
 use vello_encoding::BumpAllocatorMemory;
 use vello_encoding::{Encoding, Glyph, GlyphRun, Patch, Transform};
@@ -374,6 +380,12 @@ impl<'a> DrawGlyphs<'a> {
     pub fn try_draw_colr(&mut self, glyphs: impl Iterator<Item = Glyph>) {
         let font_index = self.run.font.index;
         let font = skrifa::FontRef::from_index(self.run.font.data.as_ref(), font_index).unwrap();
+        let upem: f32 = font.head().map(|h| h.units_per_em()).unwrap().into();
+        let run_transform = self.run.transform.to_kurbo();
+        let scale = Affine::scale_non_uniform(
+            (self.run.font_size / upem).into(),
+            (-self.run.font_size / upem).into(),
+        );
         let colour_collection = font.color_glyphs();
         for glyph in glyphs {
             let colour = colour_collection
@@ -382,11 +394,22 @@ impl<'a> DrawGlyphs<'a> {
             let coords = &self.scene.encoding.resources.normalized_coords
                 [self.run.normalized_coords.clone()]
             .to_vec();
+            let transform = run_transform
+                * Affine::translate(Vec2::new(glyph.x.into(), glyph.y.into()))
+                * scale
+                * self
+                    .run
+                    .glyph_transform
+                    .unwrap_or(Transform::IDENTITY)
+                    .to_kurbo();
             colour
                 .paint(
                     LocationRef::new(coords),
                     &mut DrawColorGlyphs {
                         scene: &mut self.scene,
+                        cpal: &font.cpal().unwrap(),
+                        outlines: &font.outline_glyphs(),
+                        transform_stack: vec![Transform::from_kurbo(&transform)],
                     },
                 )
                 .unwrap();
@@ -396,22 +419,210 @@ impl<'a> DrawGlyphs<'a> {
 
 struct DrawColorGlyphs<'a> {
     scene: &'a mut Scene,
+    transform_stack: Vec<Transform>,
+    cpal: &'a Cpal<'a>,
+    outlines: &'a OutlineGlyphCollection<'a>,
 }
 
-impl<'a> ColorPainter for DrawColorGlyphs<'a> {
-    fn push_transform(&mut self, transform: skrifa::color::Transform) {}
+impl ColorPainter for DrawColorGlyphs<'_> {
+    fn push_transform(&mut self, transform: skrifa::color::Transform) {
+        // eprintln!("Pushing a transform");
+        let transform = conv_skrifa_transform(transform);
+        let prior_transform = self.last_transform();
+        self.transform_stack.push(prior_transform * transform);
+    }
 
-    fn pop_transform(&mut self) {}
+    fn pop_transform(&mut self) {
+        self.transform_stack.pop();
+    }
 
-    fn push_clip_glyph(&mut self, glyph_id: GlyphId) {}
+    fn push_clip_glyph(&mut self, _: GlyphId) {
+        eprintln!("Unimplemented clip to glyph");
+    }
 
-    fn push_clip_box(&mut self, clip_box: skrifa::raw::types::BoundingBox<f32>) {}
+    fn push_clip_box(&mut self, _: skrifa::raw::types::BoundingBox<f32>) {
+        // eprintln!("Unimplemented clip box");
+        // self.scene.push_layer(
+        //     Mix::Clip,
+        //     1.0,
+        //     self.last_transform().to_kurbo(),
+        //     &Rect::new(
+        //         clip_box.x_min.into(),
+        //         clip_box.y_min.into(),
+        //         clip_box.x_max.into(),
+        //         clip_box.y_max.into(),
+        //     ),
+        // );
+    }
 
-    fn pop_clip(&mut self) {}
+    fn pop_clip(&mut self) {
+        // self.scene.pop_layer();
+    }
 
-    fn fill(&mut self, brush: skrifa::color::Brush<'_>) {}
+    fn fill(&mut self, brush: skrifa::color::Brush<'_>) {
+        let _ = conv_brush(brush, self.cpal);
+        eprintln!("Unimplemented fill");
+    }
 
-    fn push_layer(&mut self, composite_mode: skrifa::color::CompositeMode) {}
+    fn push_layer(&mut self, _: skrifa::color::CompositeMode) {
+        // eprintln!("Unimplemented push layer");
+    }
 
-    fn pop_layer(&mut self) {}
+    fn pop_layer(&mut self) {
+        // eprintln!("Unimplemented pop layer");
+    }
+
+    fn fill_glyph(
+        &mut self,
+        glyph_id: GlyphId,
+        brush_transform: Option<skrifa::color::Transform>,
+        brush: skrifa::color::Brush<'_>,
+    ) {
+        let Some(outline) = self.outlines.get(glyph_id) else {
+            eprintln!("Didn't get expected outline");
+            return;
+        };
+
+        let mut path = BezPathOutline(BezPath::new());
+        let draw_settings =
+            DrawSettings::unhinted(skrifa::instance::Size::unscaled(), [].as_slice());
+
+        let Ok(_) = outline.draw(draw_settings, &mut path) else {
+            return;
+        };
+
+        let transform = self.last_transform();
+        self.scene.fill(
+            Fill::NonZero,
+            transform.to_kurbo(),
+            &conv_brush(brush, self.cpal),
+            brush_transform
+                .map(conv_skrifa_transform)
+                .map(|it| it.to_kurbo()),
+            &path.0,
+        );
+    }
+}
+
+struct BezPathOutline(BezPath);
+
+impl OutlinePen for BezPathOutline {
+    fn move_to(&mut self, x: f32, y: f32) {
+        self.0.move_to(Point::new(x.into(), y.into()))
+    }
+
+    fn line_to(&mut self, x: f32, y: f32) {
+        self.0.line_to(Point::new(x.into(), y.into()))
+    }
+
+    fn quad_to(&mut self, cx0: f32, cy0: f32, x: f32, y: f32) {
+        self.0.quad_to(
+            Point::new(cx0.into(), cy0.into()),
+            Point::new(x.into(), y.into()),
+        )
+    }
+
+    fn curve_to(&mut self, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x: f32, y: f32) {
+        self.0.curve_to(
+            Point::new(cx0.into(), cy0.into()),
+            Point::new(cx1.into(), cy1.into()),
+            Point::new(x.into(), y.into()),
+        )
+    }
+
+    fn close(&mut self) {
+        self.0.close_path();
+    }
+}
+
+impl DrawColorGlyphs<'_> {
+    fn last_transform(&self) -> Transform {
+        self.transform_stack
+            .last()
+            .copied()
+            .unwrap_or(Transform::IDENTITY)
+    }
+}
+
+fn conv_skrifa_transform(transform: skrifa::color::Transform) -> Transform {
+    Transform {
+        matrix: [transform.xx, transform.xy, transform.yx, transform.yy],
+        translation: [transform.dx, transform.dy],
+    }
+}
+
+fn conv_brush(brush: skrifa::color::Brush, cpal: &Cpal<'_>) -> Brush {
+    match brush {
+        skrifa::color::Brush::Solid {
+            palette_index,
+            alpha,
+        } => Brush::Solid(color_index(&cpal, palette_index).with_alpha_factor(alpha)),
+        skrifa::color::Brush::LinearGradient {
+            p0,
+            p1,
+            color_stops,
+            extend,
+        } => Brush::Gradient(
+            Gradient::new_linear(conv_point(p0), conv_point(p1))
+                .with_extend(conv_extend(extend))
+                .with_stops(ColorStopsConverter(color_stops, &cpal)),
+        ),
+        skrifa::color::Brush::RadialGradient {
+            c0,
+            r0,
+            c1,
+            r1,
+            color_stops,
+            extend,
+        } => Brush::Gradient(
+            Gradient::new_two_point_radial(conv_point(c0), r0, conv_point(c1), r1)
+                .with_extend(conv_extend(extend))
+                .with_stops(ColorStopsConverter(color_stops, &cpal)),
+        ),
+        skrifa::color::Brush::SweepGradient {
+            c0,
+            start_angle,
+            end_angle,
+            color_stops,
+            extend,
+        } => Brush::Gradient(
+            Gradient::new_sweep(conv_point(c0), start_angle, end_angle)
+                .with_extend(conv_extend(extend))
+                .with_stops(ColorStopsConverter(color_stops, &cpal)),
+        ),
+    }
+}
+
+fn color_index(cpal: &'_ Cpal<'_>, palette_index: u16) -> Color {
+    let actual_colors = cpal.color_records_array().unwrap().unwrap();
+    let color = actual_colors[usize::from(palette_index)];
+    Color::rgba8(color.red, color.green, color.blue, color.alpha)
+}
+
+fn conv_point(point: skrifa::raw::types::Point<f32>) -> Point {
+    Point::new(point.x.into(), point.y.into())
+}
+
+fn conv_extend(extend: skrifa::color::Extend) -> Extend {
+    match extend {
+        skrifa::color::Extend::Pad => Extend::Pad,
+        skrifa::color::Extend::Repeat => Extend::Reflect,
+        skrifa::color::Extend::Reflect => Extend::Repeat,
+        // TODO: Error reporting on unknown variant?
+        _ => Extend::Pad,
+    }
+}
+
+struct ColorStopsConverter<'a>(&'a [skrifa::color::ColorStop], &'a Cpal<'a>);
+
+impl ColorStopsSource for ColorStopsConverter<'_> {
+    fn collect_stops(&self, vec: &mut ColorStops) {
+        for item in self.0 {
+            let color = color_index(self.1, item.palette_index).with_alpha_factor(item.alpha);
+            vec.push(ColorStop {
+                color,
+                offset: item.offset,
+            });
+        }
+    }
 }
