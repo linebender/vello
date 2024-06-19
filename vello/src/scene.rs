@@ -3,8 +3,8 @@
 
 use peniko::{
     kurbo::{Affine, BezPath, Point, Rect, Shape, Stroke, Vec2},
-    BlendMode, Brush, BrushRef, Color, ColorStop, ColorStops, ColorStopsSource, Extend, Fill, Font,
-    Gradient, Image, StyleRef,
+    BlendMode, Brush, BrushRef, Color, ColorStop, ColorStops, ColorStopsSource, Compose, Extend,
+    Fill, Font, Gradient, Image, Mix, StyleRef,
 };
 use skrifa::{
     color::ColorPainter,
@@ -347,7 +347,7 @@ impl<'a> DrawGlyphs<'a> {
     pub fn draw(mut self, style: impl Into<StyleRef<'a>>, glyphs: impl Iterator<Item = Glyph>) {
         let font_index = self.run.font.index;
         let font = skrifa::FontRef::from_index(self.run.font.data.as_ref(), font_index).unwrap();
-        if font.colr().is_ok() {
+        if font.colr().is_ok() && font.cpal().is_ok() {
             self.try_draw_colr(glyphs);
             let resources = &mut self.scene.encoding.resources;
             resources
@@ -390,6 +390,7 @@ impl<'a> DrawGlyphs<'a> {
         for glyph in glyphs {
             let colour = colour_collection
                 .get(GlyphId::new(glyph.id.try_into().unwrap()))
+                // We should fall back to rendering this as just an outline?
                 .expect("Cannot render non-emoji in emoji font");
             let coords = &self.scene.encoding.resources.normalized_coords
                 [self.run.normalized_coords.clone()]
@@ -410,23 +411,29 @@ impl<'a> DrawGlyphs<'a> {
                         cpal: &font.cpal().unwrap(),
                         outlines: &font.outline_glyphs(),
                         transform_stack: vec![Transform::from_kurbo(&transform)],
+                        clip_box: DEFAULT_CLIP_RECT,
+                        clip_depth: 0,
                     },
                 )
                 .unwrap();
         }
     }
 }
+const BOUND: f64 = 100_000.;
+// Hack: If we don't have a clip box, we guess a rectangle we hope is big enough
+const DEFAULT_CLIP_RECT: Rect = Rect::new(-BOUND, -BOUND, BOUND, BOUND);
 
 struct DrawColorGlyphs<'a> {
     scene: &'a mut Scene,
     transform_stack: Vec<Transform>,
     cpal: &'a Cpal<'a>,
     outlines: &'a OutlineGlyphCollection<'a>,
+    clip_box: Rect,
+    clip_depth: u32,
 }
 
 impl ColorPainter for DrawColorGlyphs<'_> {
     fn push_transform(&mut self, transform: skrifa::color::Transform) {
-        // eprintln!("Pushing a transform");
         let transform = conv_skrifa_transform(transform);
         let prior_transform = self.last_transform();
         self.transform_stack.push(prior_transform * transform);
@@ -436,40 +443,82 @@ impl ColorPainter for DrawColorGlyphs<'_> {
         self.transform_stack.pop();
     }
 
-    fn push_clip_glyph(&mut self, _: GlyphId) {
-        eprintln!("Unimplemented clip to glyph");
+    fn push_clip_glyph(&mut self, glyph_id: GlyphId) {
+        let Some(outline) = self.outlines.get(glyph_id) else {
+            eprintln!("Didn't get expected outline");
+            return;
+        };
+
+        let mut path = BezPathOutline(BezPath::new());
+        let draw_settings =
+            DrawSettings::unhinted(skrifa::instance::Size::unscaled(), [].as_slice());
+
+        let Ok(_) = outline.draw(draw_settings, &mut path) else {
+            return;
+        };
+        self.clip_depth += 1;
+        self.scene
+            .push_layer(Mix::Clip, 1.0, self.last_transform().to_kurbo(), &path.0);
     }
 
-    fn push_clip_box(&mut self, _: skrifa::raw::types::BoundingBox<f32>) {
-        // eprintln!("Unimplemented clip box");
-        // self.scene.push_layer(
-        //     Mix::Clip,
-        //     1.0,
-        //     self.last_transform().to_kurbo(),
-        //     &Rect::new(
-        //         clip_box.x_min.into(),
-        //         clip_box.y_min.into(),
-        //         clip_box.x_max.into(),
-        //         clip_box.y_max.into(),
-        //     ),
-        // );
+    fn push_clip_box(&mut self, clip_box: skrifa::raw::types::BoundingBox<f32>) {
+        let clip_box = Rect::new(
+            clip_box.x_min.into(),
+            clip_box.y_min.into(),
+            clip_box.x_max.into(),
+            clip_box.y_max.into(),
+        );
+        if self.clip_depth == 0 {
+            self.clip_box = clip_box;
+        }
+        self.clip_depth += 1;
+        self.scene
+            .push_layer(Mix::Clip, 1.0, self.last_transform().to_kurbo(), &clip_box);
     }
 
     fn pop_clip(&mut self) {
-        // self.scene.pop_layer();
+        self.scene.pop_layer();
+        self.clip_depth -= 1;
+        if self.clip_depth == 0 {
+            self.clip_box = DEFAULT_CLIP_RECT;
+        }
     }
 
     fn fill(&mut self, brush: skrifa::color::Brush<'_>) {
-        let _ = conv_brush(brush, self.cpal);
-        eprintln!("Unimplemented fill");
+        let brush = conv_brush(brush, self.cpal);
+        self.scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            &brush,
+            Some(self.last_transform().to_kurbo()),
+            &self.clip_box,
+        );
     }
 
-    fn push_layer(&mut self, _: skrifa::color::CompositeMode) {
-        // eprintln!("Unimplemented push layer");
+    fn push_layer(&mut self, composite: skrifa::color::CompositeMode) {
+        let blend = match composite {
+            skrifa::color::CompositeMode::Clear => Compose::Clear,
+            skrifa::color::CompositeMode::Src => Compose::Copy,
+            skrifa::color::CompositeMode::Dest => Compose::Dest,
+            skrifa::color::CompositeMode::SrcOver => Compose::SrcOver,
+            skrifa::color::CompositeMode::DestOver => Compose::DestOver,
+            skrifa::color::CompositeMode::SrcIn => Compose::SrcIn,
+            skrifa::color::CompositeMode::DestIn => Compose::DestIn,
+            skrifa::color::CompositeMode::SrcOut => Compose::SrcOut,
+            skrifa::color::CompositeMode::DestOut => Compose::DestOut,
+            skrifa::color::CompositeMode::SrcAtop => Compose::SrcAtop,
+            skrifa::color::CompositeMode::DestAtop => Compose::DestAtop,
+            skrifa::color::CompositeMode::Xor => Compose::Xor,
+            skrifa::color::CompositeMode::Plus => Compose::Plus,
+            // TODO:
+            _ => Compose::SrcOver,
+        };
+        self.scene
+            .push_layer(blend, 1.0, self.last_transform().to_kurbo(), &self.clip_box);
     }
 
     fn pop_layer(&mut self) {
-        // eprintln!("Unimplemented pop layer");
+        self.scene.pop_layer();
     }
 
     fn fill_glyph(
