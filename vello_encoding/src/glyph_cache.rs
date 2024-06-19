@@ -12,6 +12,8 @@ use peniko::{Font, Style};
 use skrifa::color::ColorGlyphCollection;
 use skrifa::instance::{NormalizedCoord, Size};
 use skrifa::outline::{HintingInstance, HintingMode, LcdLayout, OutlineGlyphFormat};
+use skrifa::raw::tables::cpal::Cpal;
+use skrifa::raw::TableProvider;
 use skrifa::{GlyphId, MetadataProvider, OutlineGlyphCollection};
 
 #[derive(Default)]
@@ -84,6 +86,7 @@ impl GlyphCache {
             style_bits,
             outlines,
             color_glyphs,
+            cpal: font.cpal().ok(),
             hinter,
             serial: self.serial,
             cached_count: &mut self.cached_count,
@@ -149,6 +152,7 @@ pub struct GlyphCacheSession<'a> {
     style_bits: [u32; 2],
     outlines: OutlineGlyphCollection<'a>,
     color_glyphs: ColorGlyphCollection<'a>,
+    cpal: Option<Cpal<'a>>,
     hinter: Option<&'a HintingInstance>,
     serial: u64,
     cached_count: &'a mut usize,
@@ -179,6 +183,9 @@ impl<'a> GlyphCacheSession<'a> {
                     &mut EncodeColorGlyph {
                         encoding: &mut *encoding_ptr,
                         outlines: &self.outlines,
+                        glyph_stack: Vec::new(),
+                        cpal: self.cpal.clone().unwrap(),
+                        transforms: vec![],
                     },
                 )
                 .ok()?;
@@ -204,7 +211,7 @@ impl<'a> GlyphCacheSession<'a> {
                     true
                 }
                 Style::Stroke(stroke) => {
-                    encoding_ptr.encode_stroke_style(stroke);
+                    encoding_ptr.encode_strokeencode_fill_style_style(stroke);
                     false
                 }
             };
