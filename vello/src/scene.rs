@@ -406,7 +406,7 @@ impl<'a> DrawGlyphs<'a> {
                 .paint(
                     LocationRef::new(coords),
                     &mut DrawColorGlyphs {
-                        scene: &mut self.scene,
+                        scene: self.scene,
                         cpal: &font.cpal().unwrap(),
                         outlines: &font.outline_glyphs(),
                         transform_stack: vec![Transform::from_kurbo(&transform)],
@@ -508,18 +508,18 @@ struct BezPathOutline(BezPath);
 
 impl OutlinePen for BezPathOutline {
     fn move_to(&mut self, x: f32, y: f32) {
-        self.0.move_to(Point::new(x.into(), y.into()))
+        self.0.move_to(Point::new(x.into(), y.into()));
     }
 
     fn line_to(&mut self, x: f32, y: f32) {
-        self.0.line_to(Point::new(x.into(), y.into()))
+        self.0.line_to(Point::new(x.into(), y.into()));
     }
 
     fn quad_to(&mut self, cx0: f32, cy0: f32, x: f32, y: f32) {
         self.0.quad_to(
             Point::new(cx0.into(), cy0.into()),
             Point::new(x.into(), y.into()),
-        )
+        );
     }
 
     fn curve_to(&mut self, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x: f32, y: f32) {
@@ -527,7 +527,7 @@ impl OutlinePen for BezPathOutline {
             Point::new(cx0.into(), cy0.into()),
             Point::new(cx1.into(), cy1.into()),
             Point::new(x.into(), y.into()),
-        )
+        );
     }
 
     fn close(&mut self) {
@@ -556,7 +556,7 @@ fn conv_brush(brush: skrifa::color::Brush, cpal: &Cpal<'_>) -> Brush {
         skrifa::color::Brush::Solid {
             palette_index,
             alpha,
-        } => Brush::Solid(color_index(&cpal, palette_index).with_alpha_factor(alpha)),
+        } => Brush::Solid(color_index(cpal, palette_index).with_alpha_factor(alpha)),
         skrifa::color::Brush::LinearGradient {
             p0,
             p1,
@@ -565,7 +565,7 @@ fn conv_brush(brush: skrifa::color::Brush, cpal: &Cpal<'_>) -> Brush {
         } => Brush::Gradient(
             Gradient::new_linear(conv_point(p0), conv_point(p1))
                 .with_extend(conv_extend(extend))
-                .with_stops(ColorStopsConverter(color_stops, &cpal)),
+                .with_stops(ColorStopsConverter(color_stops, cpal)),
         ),
         skrifa::color::Brush::RadialGradient {
             c0,
@@ -577,7 +577,7 @@ fn conv_brush(brush: skrifa::color::Brush, cpal: &Cpal<'_>) -> Brush {
         } => Brush::Gradient(
             Gradient::new_two_point_radial(conv_point(c0), r0, conv_point(c1), r1)
                 .with_extend(conv_extend(extend))
-                .with_stops(ColorStopsConverter(color_stops, &cpal)),
+                .with_stops(ColorStopsConverter(color_stops, cpal)),
         ),
         skrifa::color::Brush::SweepGradient {
             c0,
@@ -588,7 +588,7 @@ fn conv_brush(brush: skrifa::color::Brush, cpal: &Cpal<'_>) -> Brush {
         } => Brush::Gradient(
             Gradient::new_sweep(conv_point(c0), start_angle, end_angle)
                 .with_extend(conv_extend(extend))
-                .with_stops(ColorStopsConverter(color_stops, &cpal)),
+                .with_stops(ColorStopsConverter(color_stops, cpal)),
         ),
     }
 }
