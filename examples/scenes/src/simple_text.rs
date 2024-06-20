@@ -14,13 +14,13 @@ use vello::Scene;
 // On Windows, can set this to "c:\\Windows\\Fonts\\seguiemj.ttf" to get color emoji
 const ROBOTO_FONT: &[u8] = include_bytes!("../../assets/roboto/Roboto-Regular.ttf");
 const INCONSOLATA_FONT: &[u8] = include_bytes!("../../assets/inconsolata/Inconsolata.ttf");
-const NOTO_COLOR_EMOJI: &[u8] =
-    include_bytes!("../../assets/Noto_Color_Emoji/NotoColorEmoji-Regular.ttf");
+const NOTO_EMOJI_SUBSET: &[u8] =
+    include_bytes!("../../assets/noto_color_emoji/NotoColorEmoji-Subset.ttf");
 
 pub struct SimpleText {
     roboto: Font,
     inconsolata: Font,
-    noto_color_emoji: Font,
+    noto_emoji_subset: Font,
 }
 
 impl SimpleText {
@@ -29,10 +29,17 @@ impl SimpleText {
         Self {
             roboto: Font::new(Blob::new(Arc::new(ROBOTO_FONT)), 0),
             inconsolata: Font::new(Blob::new(Arc::new(INCONSOLATA_FONT)), 0),
-            noto_color_emoji: Font::new(Blob::new(Arc::new(NOTO_COLOR_EMOJI)), 0),
+            noto_emoji_subset: Font::new(Blob::new(Arc::new(NOTO_EMOJI_SUBSET)), 0),
         }
     }
 
+    /// Add a text run which supports some emoji.
+    ///
+    /// The supported Emoji are ✅, 👀, 🎉, and 🤠.
+    /// This subset is chosen to demonstrate the emoji support, whilst demonstrating
+    ///
+    /// Note that Vello does support COLR emoji, but does not currently support
+    /// any other forms of emoji.
     #[allow(clippy::too_many_arguments)]
     pub fn add_emoji_run<'a>(
         &mut self,
@@ -43,7 +50,7 @@ impl SimpleText {
         style: impl Into<StyleRef<'a>>,
         text: &str,
     ) {
-        let font = self.noto_color_emoji.clone();
+        let font = self.noto_emoji_subset.clone();
         self.add_var_run(
             scene,
             Some(&font),

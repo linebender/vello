@@ -344,11 +344,15 @@ impl<'a> DrawGlyphs<'a> {
     /// Encodes a fill or stroke for the given sequence of glyphs and consumes the builder.
     ///
     /// The `style` parameter accepts either `Fill` or `&Stroke` types.
+    ///
+    /// If the font is a COLR font, instead draws the glyphs based on that table, and ignores `style`.
     pub fn draw(mut self, style: impl Into<StyleRef<'a>>, glyphs: impl Iterator<Item = Glyph>) {
         let font_index = self.run.font.index;
         let font = skrifa::FontRef::from_index(self.run.font.data.as_ref(), font_index).unwrap();
+        // TODO: Really, we should split this into runs of COLR and non-COLR, so that we
         if font.colr().is_ok() && font.cpal().is_ok() {
             self.try_draw_colr(glyphs);
+            // This comes after try_draw_colr, because that reads the `normalized_coords`
             let resources = &mut self.scene.encoding.resources;
             resources
                 .normalized_coords
