@@ -409,9 +409,10 @@ impl<'a> DrawGlyphs<'a> {
                     .glyph_transform
                     .unwrap_or(Transform::IDENTITY)
                     .to_kurbo();
+            let location = LocationRef::new(coords);
             colour
                 .paint(
-                    LocationRef::new(coords),
+                    location,
                     &mut DrawColorGlyphs {
                         scene: self.scene,
                         cpal: &font.cpal().unwrap(),
@@ -419,6 +420,7 @@ impl<'a> DrawGlyphs<'a> {
                         transform_stack: vec![Transform::from_kurbo(&transform)],
                         clip_box: DEFAULT_CLIP_RECT,
                         clip_depth: 0,
+                        location,
                     },
                 )
                 .unwrap();
@@ -436,6 +438,7 @@ struct DrawColorGlyphs<'a> {
     outlines: &'a OutlineGlyphCollection<'a>,
     clip_box: Rect,
     clip_depth: u32,
+    location: LocationRef<'a>,
 }
 
 impl ColorPainter for DrawColorGlyphs<'_> {
@@ -457,7 +460,7 @@ impl ColorPainter for DrawColorGlyphs<'_> {
 
         let mut path = BezPathOutline(BezPath::new());
         let draw_settings =
-            DrawSettings::unhinted(skrifa::instance::Size::unscaled(), [].as_slice());
+            DrawSettings::unhinted(skrifa::instance::Size::unscaled(), self.location);
 
         let Ok(_) = outline.draw(draw_settings, &mut path) else {
             return;
@@ -540,7 +543,7 @@ impl ColorPainter for DrawColorGlyphs<'_> {
 
         let mut path = BezPathOutline(BezPath::new());
         let draw_settings =
-            DrawSettings::unhinted(skrifa::instance::Size::unscaled(), [].as_slice());
+            DrawSettings::unhinted(skrifa::instance::Size::unscaled(), self.location);
 
         let Ok(_) = outline.draw(draw_settings, &mut path) else {
             return;

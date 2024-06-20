@@ -36,7 +36,8 @@ impl SimpleText {
     /// Add a text run which supports some emoji.
     ///
     /// The supported Emoji are ✅, 👀, 🎉, and 🤠.
-    /// This subset is chosen to demonstrate the emoji support, whilst demonstrating
+    /// This subset is chosen to demonstrate the emoji support, whilst
+    /// not significantly increasing repository size.
     ///
     /// Note that Vello does support COLR emoji, but does not currently support
     /// any other forms of emoji.
