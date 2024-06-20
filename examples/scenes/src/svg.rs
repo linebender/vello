@@ -71,6 +71,38 @@ fn example_scene_of(file: PathBuf) -> ExampleScene {
     }
 }
 
+fn render_svg_rec(items: &[crate::pico_svg::Item]) -> Scene {
+    let mut scene = Scene::new();
+    for item in items {
+        use crate::pico_svg::Item;
+        match item {
+            Item::Fill(fill) => {
+                scene.fill(
+                    Fill::NonZero,
+                    Affine::IDENTITY,
+                    fill.color,
+                    None,
+                    &fill.path,
+                );
+            }
+            Item::Stroke(stroke) => {
+                scene.stroke(
+                    &Stroke::new(stroke.width),
+                    Affine::IDENTITY,
+                    stroke.color,
+                    None,
+                    &stroke.path,
+                );
+            }
+            Item::Group(group) => {
+                let child_scene = render_svg_rec(&group.children);
+                scene.append(&child_scene, Some(group.affine));
+            }
+        }
+    }
+    scene
+}
+
 pub fn svg_function_of<R: AsRef<str>>(
     name: String,
     contents: impl FnOnce() -> R + Send + 'static,
@@ -79,34 +111,12 @@ pub fn svg_function_of<R: AsRef<str>>(
         use crate::pico_svg::*;
         let start = Instant::now();
         match PicoSvg::load(contents, 1.0) {
-            Ok(PicoSvg { items, size }) => {
+            Ok(svg) => {
                 eprintln!("Parsed svg {name} in {:?}", start.elapsed());
                 let start = Instant::now();
-                let mut new_scene = Scene::new();
-                for item in items {
-                    match item {
-                        Item::Fill(fill) => {
-                            new_scene.fill(
-                                Fill::NonZero,
-                                Affine::IDENTITY,
-                                fill.color,
-                                None,
-                                &fill.path,
-                            );
-                        }
-                        Item::Stroke(stroke) => {
-                            new_scene.stroke(
-                                &Stroke::new(stroke.width),
-                                Affine::IDENTITY,
-                                stroke.color,
-                                None,
-                                &stroke.path,
-                            );
-                        }
-                    }
-                }
+                let scene = render_svg_rec(&svg.items);
                 eprintln!("Encoded svg {name} in {:?}", start.elapsed());
-                (new_scene, size.to_vec2())
+                (scene, svg.size.to_vec2())
             }
             Err(e) => {
                 eprintln!("Failed to load svg: {e}");
