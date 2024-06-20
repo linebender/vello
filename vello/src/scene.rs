@@ -395,7 +395,9 @@ impl<'a> DrawGlyphs<'a> {
             let colour = colour_collection
                 .get(GlyphId::new(glyph.id.try_into().unwrap()))
                 // We should fall back to rendering this as just an outline?
-                .expect("Cannot render non-emoji in emoji font");
+                // This means creating multiple glyph runs, which is just a bit awkward
+                // If people run into this case, we can add that
+                .expect("Cannot render non-colr glyph with colr font");
             let coords = &self.scene.encoding.resources.normalized_coords
                 [self.run.normalized_coords.clone()]
             .to_vec();
