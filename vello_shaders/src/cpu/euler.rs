@@ -10,7 +10,7 @@ use super::util::Vec2;
 use std::f32::consts::FRAC_PI_4;
 
 // Threshold for tangents to be considered near zero length
-pub const TANGENT_THRESH: f32 = 1e-6;
+pub(crate) const TANGENT_THRESH: f32 = 1e-6;
 
 /// This struct contains parameters derived from a cubic Bézier for the
 /// purpose of fitting a G1 continuous Euler spiral segment and estimating
@@ -19,31 +19,34 @@ pub const TANGENT_THRESH: f32 = 1e-6;
 /// The tangent angles represent deviation from the chord, so that when they
 /// are equal, the corresponding Euler spiral is a circular arc.
 #[derive(Debug)]
-pub struct CubicParams {
+pub(crate) struct CubicParams {
     /// Tangent angle relative to chord at start.
-    pub th0: f32,
+    pub(crate) th0: f32,
     /// Tangent angle relative to chord at end.
-    pub th1: f32,
+    pub(crate) th1: f32,
     /// The effective chord length, always a robustly nonzero value.
-    pub chord_len: f32,
+    pub(crate) chord_len: f32,
     /// The estimated error between the source cubic and the proposed Euler spiral.
-    pub err: f32,
+    pub(crate) err: f32,
 }
 
 #[derive(Debug)]
-pub struct EulerParams {
-    pub th0: f32,
-    pub th1: f32,
-    pub k0: f32,
-    pub k1: f32,
-    pub ch: f32,
+pub(crate) struct EulerParams {
+    pub(crate) th0: f32,
+    // See #gpu > Euler Spiral `th1` param
+    // https://xi.zulipchat.com/#narrow/stream/197075-gpu/topic/Euler.20Spiral.20.60th1.60.20param
+    #[allow(dead_code)]
+    pub(crate) th1: f32,
+    pub(crate) k0: f32,
+    pub(crate) k1: f32,
+    pub(crate) ch: f32,
 }
 
 #[derive(Debug)]
-pub struct EulerSeg {
-    pub p0: Vec2,
-    pub p1: Vec2,
-    pub params: EulerParams,
+pub(crate) struct EulerSeg {
+    pub(crate) p0: Vec2,
+    pub(crate) p1: Vec2,
+    pub(crate) params: EulerParams,
 }
 
 impl CubicParams {
@@ -68,7 +71,7 @@ impl CubicParams {
     /// near-semicircle, preserving G1 continuity), but the analytic error
     /// calculation would be a huge overestimate. In that case, we just return
     /// a rough estimate of the distance between the chord and the spiral segment.
-    pub fn from_points_derivs(p0: Vec2, p1: Vec2, q0: Vec2, q1: Vec2, dt: f32) -> Self {
+    pub(crate) fn from_points_derivs(p0: Vec2, p1: Vec2, q0: Vec2, q1: Vec2, dt: f32) -> Self {
         let chord = p1 - p0;
         let chord_squared = chord.length_squared();
         let chord_len = chord_squared.sqrt();
@@ -158,7 +161,7 @@ impl CubicParams {
 }
 
 impl EulerParams {
-    pub fn from_angles(th0: f32, th1: f32) -> EulerParams {
+    pub(crate) fn from_angles(th0: f32, th1: f32) -> EulerParams {
         let k0 = th0 + th1;
         let dth = th1 - th0;
         let d2 = dth * dth;
@@ -189,7 +192,7 @@ impl EulerParams {
         }
     }
 
-    pub fn eval_th(&self, t: f32) -> f32 {
+    pub(crate) fn eval_th(&self, t: f32) -> f32 {
         (self.k0 + 0.5 * self.k1 * (t - 1.0)) * t - self.th0
     }
 
@@ -217,12 +220,12 @@ impl EulerParams {
 }
 
 impl EulerSeg {
-    pub fn from_params(p0: Vec2, p1: Vec2, params: EulerParams) -> Self {
+    pub(crate) fn from_params(p0: Vec2, p1: Vec2, params: EulerParams) -> Self {
         EulerSeg { p0, p1, params }
     }
 
     #[allow(unused)]
-    pub fn eval(&self, t: f32) -> Vec2 {
+    pub(crate) fn eval(&self, t: f32) -> Vec2 {
         let Vec2 { x, y } = self.params.eval(t);
         let chord = self.p1 - self.p0;
         Vec2::new(
@@ -233,7 +236,7 @@ impl EulerSeg {
 
     // Note: offset provided is normalized so that 1 = chord length, while
     // the return value is in the same coordinate space as the endpoints.
-    pub fn eval_with_offset(&self, t: f32, normalized_offset: f32) -> Vec2 {
+    pub(crate) fn eval_with_offset(&self, t: f32, normalized_offset: f32) -> Vec2 {
         let chord = self.p1 - self.p0;
         let Vec2 { x, y } = self.params.eval_with_offset(t, normalized_offset);
         Vec2::new(
@@ -300,7 +303,7 @@ const QUAD_A2: f32 = 0.5;
 const QUAD_B2: f32 = -0.156;
 const QUAD_C2: f32 = 0.16145779359520596;
 
-pub fn espc_int_approx(x: f32) -> f32 {
+pub(crate) fn espc_int_approx(x: f32) -> f32 {
     let y = x.abs();
     let a = if y < BREAK1 {
         (SIN_SCALE * y).sin() * (1.0 / SIN_SCALE)
@@ -317,7 +320,7 @@ pub fn espc_int_approx(x: f32) -> f32 {
     a.copysign(x)
 }
 
-pub fn espc_int_inv_approx(x: f32) -> f32 {
+pub(crate) fn espc_int_inv_approx(x: f32) -> f32 {
     let y = x.abs();
     let a = if y < 0.7010707591262915 {
         (x * SIN_SCALE).asin() * (1.0 / SIN_SCALE)

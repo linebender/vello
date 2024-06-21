@@ -16,7 +16,7 @@ pub struct Images<'a> {
     pub images: &'a [(Image, u32, u32)],
 }
 
-pub struct ImageCache {
+pub(crate) struct ImageCache {
     atlas: AtlasAllocator,
     /// Map from image blob id to atlas location.
     map: HashMap<u64, (u32, u32)>,
@@ -31,7 +31,7 @@ impl Default for ImageCache {
 }
 
 impl ImageCache {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             atlas: AtlasAllocator::new(size2(DEFAULT_ATLAS_SIZE, DEFAULT_ATLAS_SIZE)),
             map: Default::default(),
@@ -39,7 +39,7 @@ impl ImageCache {
         }
     }
 
-    pub fn images(&self) -> Images {
+    pub(crate) fn images(&self) -> Images {
         Images {
             width: self.atlas.size().width as u32,
             height: self.atlas.size().height as u32,
@@ -47,7 +47,7 @@ impl ImageCache {
         }
     }
 
-    pub fn bump_size(&mut self) -> bool {
+    pub(crate) fn bump_size(&mut self) -> bool {
         let new_size = self.atlas.size().width * 2;
         if new_size > MAX_ATLAS_SIZE {
             return false;
@@ -58,13 +58,13 @@ impl ImageCache {
         true
     }
 
-    pub fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.atlas.clear();
         self.map.clear();
         self.images.clear();
     }
 
-    pub fn get_or_insert(&mut self, image: &Image) -> Option<(u32, u32)> {
+    pub(crate) fn get_or_insert(&mut self, image: &Image) -> Option<(u32, u32)> {
         match self.map.entry(image.data.id()) {
             Entry::Occupied(occupied) => Some(*occupied.get()),
             Entry::Vacant(vacant) => {

@@ -9,16 +9,16 @@ use winit::event::{Touch, TouchPhase};
 
 /// All you probably need to know about a multi-touch gesture.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct MultiTouchInfo {
+pub(crate) struct MultiTouchInfo {
     /// Number of touches (fingers) on the surface. Value is ≥ 2 since for a single touch no
     /// [`MultiTouchInfo`] is created.
-    pub num_touches: usize,
+    pub(crate) num_touches: usize,
 
     /// Proportional zoom factor (pinch gesture).
     /// * `zoom = 1`: no change
     /// * `zoom < 1`: pinch together
     /// * `zoom > 1`: pinch spread
-    pub zoom_delta: f64,
+    pub(crate) zoom_delta: f64,
 
     /// 2D non-proportional zoom factor (pinch gesture).
     ///
@@ -29,12 +29,12 @@ pub struct MultiTouchInfo {
     /// * `zoom = 1`: no change
     /// * `zoom < 1`: pinch together
     /// * `zoom > 1`: pinch spread
-    pub zoom_delta_2d: Vec2,
+    pub(crate) zoom_delta_2d: Vec2,
 
     /// Rotation in radians. Moving fingers around each other will change this value. This is a
     /// relative value, comparing the orientation of fingers in the current frame with the previous
     /// frame. If all fingers are resting, this value is `0.0`.
-    pub rotation_delta: f64,
+    pub(crate) rotation_delta: f64,
 
     /// Relative movement (comparing previous frame and current frame) of the average position of
     /// all touch points. Without movement this value is `Vec2::ZERO`.
@@ -44,8 +44,8 @@ pub struct MultiTouchInfo {
     /// be directly mapped to the screen. A touch always is considered to start at the position of
     /// the pointer, but touch movement is always measured in the units delivered by the device,
     /// and may depend on hardware and system settings.
-    pub translation_delta: Vec2,
-    pub zoom_centre: Point,
+    pub(crate) translation_delta: Vec2,
+    pub(crate) zoom_centre: Point,
 }
 
 /// The current state (for a specific touch device) of touch events and gestures.
@@ -93,7 +93,7 @@ struct ActiveTouch {
 }
 
 impl TouchState {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             active_touches: Default::default(),
             gesture_state: None,
@@ -101,7 +101,7 @@ impl TouchState {
         }
     }
 
-    pub fn add_event(&mut self, event: &Touch) {
+    pub(crate) fn add_event(&mut self, event: &Touch) {
         let pos = Point::new(event.location.x, event.location.y);
         match event.phase {
             TouchPhase::Started => {
@@ -120,7 +120,7 @@ impl TouchState {
         }
     }
 
-    pub fn end_frame(&mut self) {
+    pub(crate) fn end_frame(&mut self) {
         // This needs to be called each frame, even if there are no new touch events.
         // Otherwise, we would send the same old delta information multiple times:
         self.update_gesture();
@@ -135,7 +135,7 @@ impl TouchState {
         self.added_or_removed_touches = false;
     }
 
-    pub fn info(&self) -> Option<MultiTouchInfo> {
+    pub(crate) fn info(&self) -> Option<MultiTouchInfo> {
         self.gesture_state.as_ref().map(|state| {
             // state.previous can be `None` when the number of simultaneous touches has just
             // changed. In this case, we take `current` as `previous`, pretending that there

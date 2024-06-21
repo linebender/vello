@@ -32,6 +32,7 @@ repository = "https://github.com/linebender/vello"
 [workspace.lints]
 clippy.doc_markdown = "warn"
 clippy.semicolon_if_nothing_returned = "warn"
+rust.unreachable_pub = "warn"
 
 [workspace.dependencies]
 vello = { version = "0.2.0", path = "vello" }

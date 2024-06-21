@@ -1,8 +1,12 @@
 // Copyright 2023 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+// These modules are also included in the main crate, where the items are reachable
+#[allow(unreachable_pub, unused)]
 #[path = "src/compile/mod.rs"]
 mod compile;
+#[allow(unreachable_pub)]
+#[allow(unreachable_pub, unused)]
 #[path = "src/types.rs"]
 mod types;
 

@@ -45,7 +45,7 @@ pub struct FullShaders {
 }
 
 #[cfg(feature = "wgpu")]
-pub fn full_shaders(
+pub(crate) fn full_shaders(
     device: &Device,
     engine: &mut WgpuEngine,
     options: &RendererOptions,
