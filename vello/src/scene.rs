@@ -350,39 +350,54 @@ impl<'a> DrawGlyphs<'a> {
         let font_index = self.run.font.index;
         let font = skrifa::FontRef::from_index(self.run.font.data.as_ref(), font_index).unwrap();
         if font.colr().is_ok() && font.cpal().is_ok() {
-            self.try_draw_colr(glyphs);
+            self.try_draw_colr(style.into(), glyphs);
             // This comes after try_draw_colr, because that reads the `normalized_coords`
             let resources = &mut self.scene.encoding.resources;
             resources
                 .normalized_coords
                 .truncate(self.run.normalized_coords.start);
         } else {
-            let resources = &mut self.scene.encoding.resources;
-            self.run.style = style.into().to_owned();
-            resources.glyphs.extend(glyphs);
-            self.run.glyphs.end = resources.glyphs.len();
-            if self.run.glyphs.is_empty() {
-                resources
+            // Shortcut path - no need to test each glyph for a colr outline
+            let outline_count = self.draw_outline_glyphs(style, glyphs);
+            if outline_count == 0 {
+                self.scene
+                    .encoding
+                    .resources
                     .normalized_coords
                     .truncate(self.run.normalized_coords.start);
-                return;
             }
-            let index = resources.glyph_runs.len();
-            resources.glyph_runs.push(self.run);
-            resources.patches.push(Patch::GlyphRun { index });
-            self.scene
-                .encoding
-                .encode_brush(self.brush, self.brush_alpha);
-            // Glyph run resolve step affects transform and style state in a way
-            // that is opaque to the current encoding.
-            // See <https://github.com/linebender/vello/issues/424>
-            self.scene.encoding.force_next_transform_and_style();
         }
     }
 
-    pub fn try_draw_colr(&mut self, glyphs: impl Iterator<Item = Glyph>) {
+    fn draw_outline_glyphs(
+        &mut self,
+        style: impl Into<StyleRef<'a>>,
+        glyphs: impl Iterator<Item = Glyph>,
+    ) -> usize {
+        let resources = &mut self.scene.encoding.resources;
+        self.run.style = style.into().to_owned();
+        resources.glyphs.extend(glyphs);
+        self.run.glyphs.end = resources.glyphs.len();
+        if self.run.glyphs.is_empty() {
+            return 0;
+        }
+        let index = resources.glyph_runs.len();
+        resources.glyph_runs.push(self.run.clone());
+        resources.patches.push(Patch::GlyphRun { index });
+        self.scene
+            .encoding
+            .encode_brush(self.brush.clone(), self.brush_alpha);
+        // Glyph run resolve step affects transform and style state in a way
+        // that is opaque to the current encoding.
+        // See <https://github.com/linebender/vello/issues/424>
+        self.scene.encoding.force_next_transform_and_style();
+        self.run.glyphs.len()
+    }
+
+    pub fn try_draw_colr(&mut self, style: StyleRef<'a>, mut glyphs: impl Iterator<Item = Glyph>) {
         let font_index = self.run.font.index;
-        let font = skrifa::FontRef::from_index(self.run.font.data.as_ref(), font_index).unwrap();
+        let blob = &self.run.font.data.clone();
+        let font = skrifa::FontRef::from_index(blob.as_ref(), font_index).unwrap();
         let upem: f32 = font.head().map(|h| h.units_per_em()).unwrap().into();
         let run_transform = self.run.transform.to_kurbo();
         let scale = Affine::scale_non_uniform(
@@ -390,16 +405,35 @@ impl<'a> DrawGlyphs<'a> {
             (-self.run.font_size / upem).into(),
         );
         let colour_collection = font.color_glyphs();
-        for glyph in glyphs {
-            let colour = colour_collection
-                .get(GlyphId::new(glyph.id.try_into().unwrap()))
-                // We should fall back to rendering this as just an outline?
-                // This means creating multiple glyph runs, which is just a bit awkward
-                // If people run into this case, we can add that
-                .expect("Cannot render non-colr glyph with colr font");
-            let coords = &self.scene.encoding.resources.normalized_coords
-                [self.run.normalized_coords.clone()]
-            .to_vec();
+        let mut final_glyph = None;
+        let mut outline_count = 0;
+        // We copy out of the variable font coords here because we need to call an exclusive self method
+        let coords = &self.scene.encoding.resources.normalized_coords
+            [self.run.normalized_coords.clone()]
+        .to_vec();
+        let location = LocationRef::new(coords);
+        loop {
+            let outline_glyphs = (&mut glyphs).take_while(|glyph| {
+                match colour_collection.get(GlyphId::new(glyph.id.try_into().unwrap())) {
+                    Some(color) => {
+                        final_glyph = Some((color, *glyph));
+                        false
+                    }
+                    None => true,
+                }
+            });
+            self.run.glyphs.start = self.run.glyphs.end;
+            self.run.stream_offsets = self.scene.encoding.stream_offsets();
+            outline_count += self.draw_outline_glyphs(clone_style_ref(&style), outline_glyphs);
+
+            let Some((color, glyph)) = final_glyph.take() else {
+                // All of the remaining glyphs were outline glyphs
+                break;
+            };
+
+            if glyph.id == 2 {
+                print!("BREAKPOINT");
+            }
             let transform = run_transform
                 * Affine::translate(Vec2::new(glyph.x.into(), glyph.y.into()))
                 * scale
@@ -408,8 +442,8 @@ impl<'a> DrawGlyphs<'a> {
                     .glyph_transform
                     .unwrap_or(Transform::IDENTITY)
                     .to_kurbo();
-            let location = LocationRef::new(coords);
-            colour
+
+            color
                 .paint(
                     location,
                     &mut DrawColorGlyphs {
@@ -424,6 +458,13 @@ impl<'a> DrawGlyphs<'a> {
                     },
                 )
                 .unwrap();
+        }
+        if outline_count == 0 {
+            self.scene
+                .encoding
+                .resources
+                .normalized_coords
+                .truncate(self.run.normalized_coords.start);
         }
     }
 }
@@ -560,6 +601,14 @@ impl ColorPainter for DrawColorGlyphs<'_> {
                 .map(|it| it.to_kurbo()),
             &path.0,
         );
+    }
+}
+
+// TODO: Move this into Peniko
+fn clone_style_ref<'first>(first: &StyleRef<'first>) -> StyleRef<'first> {
+    match first {
+        StyleRef::Fill(fill) => StyleRef::Fill(*fill),
+        StyleRef::Stroke(stroke) => StyleRef::Stroke(stroke),
     }
 }
 
