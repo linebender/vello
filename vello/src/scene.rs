@@ -349,7 +349,6 @@ impl<'a> DrawGlyphs<'a> {
     pub fn draw(mut self, style: impl Into<StyleRef<'a>>, glyphs: impl Iterator<Item = Glyph>) {
         let font_index = self.run.font.index;
         let font = skrifa::FontRef::from_index(self.run.font.data.as_ref(), font_index).unwrap();
-        // TODO: Really, we should split this into runs of COLR and non-COLR, so that we
         if font.colr().is_ok() && font.cpal().is_ok() {
             self.try_draw_colr(glyphs);
             // This comes after try_draw_colr, because that reads the `normalized_coords`
@@ -421,6 +420,7 @@ impl<'a> DrawGlyphs<'a> {
                         clip_box: DEFAULT_CLIP_RECT,
                         clip_depth: 0,
                         location,
+                        foreground_brush: self.brush.clone(),
                     },
                 )
                 .unwrap();
@@ -439,6 +439,7 @@ struct DrawColorGlyphs<'a> {
     clip_box: Rect,
     clip_depth: u32,
     location: LocationRef<'a>,
+    foreground_brush: BrushRef<'a>,
 }
 
 impl ColorPainter for DrawColorGlyphs<'_> {
@@ -494,7 +495,7 @@ impl ColorPainter for DrawColorGlyphs<'_> {
     }
 
     fn fill(&mut self, brush: skrifa::color::Brush<'_>) {
-        let brush = conv_brush(brush, self.cpal);
+        let brush = conv_brush(brush, self.cpal, &self.foreground_brush);
         self.scene.fill(
             Fill::NonZero,
             Affine::IDENTITY,
@@ -553,7 +554,7 @@ impl ColorPainter for DrawColorGlyphs<'_> {
         self.scene.fill(
             Fill::NonZero,
             transform.to_kurbo(),
-            &conv_brush(brush, self.cpal),
+            &conv_brush(brush, self.cpal, &self.foreground_brush),
             brush_transform
                 .map(conv_skrifa_transform)
                 .map(|it| it.to_kurbo()),
@@ -609,12 +610,19 @@ fn conv_skrifa_transform(transform: skrifa::color::Transform) -> Transform {
     }
 }
 
-fn conv_brush(brush: skrifa::color::Brush, cpal: &Cpal<'_>) -> Brush {
+fn conv_brush(
+    brush: skrifa::color::Brush,
+    cpal: &Cpal<'_>,
+    foreground_brush: &BrushRef<'_>,
+) -> Brush {
     match brush {
         skrifa::color::Brush::Solid {
             palette_index,
             alpha,
-        } => Brush::Solid(color_index(cpal, palette_index).with_alpha_factor(alpha)),
+        } => color_index(cpal, palette_index)
+            .map(|it| Brush::Solid(it.with_alpha_factor(alpha)))
+            .unwrap_or(apply_alpha(foreground_brush.to_owned(), alpha)),
+
         skrifa::color::Brush::LinearGradient {
             p0,
             p1,
@@ -623,7 +631,7 @@ fn conv_brush(brush: skrifa::color::Brush, cpal: &Cpal<'_>) -> Brush {
         } => Brush::Gradient(
             Gradient::new_linear(conv_point(p0), conv_point(p1))
                 .with_extend(conv_extend(extend))
-                .with_stops(ColorStopsConverter(color_stops, cpal)),
+                .with_stops(ColorStopsConverter(color_stops, cpal, foreground_brush)),
         ),
         skrifa::color::Brush::RadialGradient {
             c0,
@@ -635,7 +643,7 @@ fn conv_brush(brush: skrifa::color::Brush, cpal: &Cpal<'_>) -> Brush {
         } => Brush::Gradient(
             Gradient::new_two_point_radial(conv_point(c0), r0, conv_point(c1), r1)
                 .with_extend(conv_extend(extend))
-                .with_stops(ColorStopsConverter(color_stops, cpal)),
+                .with_stops(ColorStopsConverter(color_stops, cpal, foreground_brush)),
         ),
         skrifa::color::Brush::SweepGradient {
             c0,
@@ -646,15 +654,39 @@ fn conv_brush(brush: skrifa::color::Brush, cpal: &Cpal<'_>) -> Brush {
         } => Brush::Gradient(
             Gradient::new_sweep(conv_point(c0), start_angle, end_angle)
                 .with_extend(conv_extend(extend))
-                .with_stops(ColorStopsConverter(color_stops, cpal)),
+                .with_stops(ColorStopsConverter(color_stops, cpal, foreground_brush)),
         ),
     }
 }
 
-fn color_index(cpal: &'_ Cpal<'_>, palette_index: u16) -> Color {
+fn apply_alpha(mut brush: Brush, alpha: f32) -> Brush {
+    match &mut brush {
+        Brush::Solid(color) => *color = color.with_alpha_factor(alpha),
+        Brush::Gradient(grad) => grad
+            .stops
+            .iter_mut()
+            .for_each(|it| it.color = it.color.with_alpha_factor(alpha)),
+        // Cannot apply an alpha factor to
+        Brush::Image(_) => {}
+    }
+    brush
+}
+
+fn color_index(cpal: &'_ Cpal<'_>, palette_index: u16) -> Option<Color> {
+    // The "application determined" foreground colour should be used
+    // This will be handled by the caller
+    if palette_index == 0xFFFF {
+        return None;
+    }
     let actual_colors = cpal.color_records_array().unwrap().unwrap();
-    let color = actual_colors[usize::from(palette_index)];
-    Color::rgba8(color.red, color.green, color.blue, color.alpha)
+    // TODO: Error reporting in the `None` case
+    let color = actual_colors.get(usize::from(palette_index))?;
+    Some(Color::rgba8(
+        color.red,
+        color.green,
+        color.blue,
+        color.alpha,
+    ))
 }
 
 fn conv_point(point: skrifa::raw::types::Point<f32>) -> Point {
@@ -671,12 +703,34 @@ fn conv_extend(extend: skrifa::color::Extend) -> Extend {
     }
 }
 
-struct ColorStopsConverter<'a>(&'a [skrifa::color::ColorStop], &'a Cpal<'a>);
+struct ColorStopsConverter<'a>(
+    &'a [skrifa::color::ColorStop],
+    &'a Cpal<'a>,
+    &'a BrushRef<'a>,
+);
 
 impl ColorStopsSource for ColorStopsConverter<'_> {
     fn collect_stops(&self, vec: &mut ColorStops) {
         for item in self.0 {
-            let color = color_index(self.1, item.palette_index).with_alpha_factor(item.alpha);
+            let color = color_index(self.1, item.palette_index);
+            let color = match color {
+                Some(color) => color,
+                // If we should use the "application defined fallback colour",
+                // then *try* and determine that from the existing brush
+                None => match self.2 {
+                    BrushRef::Solid(c) => *c,
+                    // TODO: Report a warning? if either of these cases are reached
+                    // In theory, it's possible to have a gradient containing images and other gradients
+                    // but implementing that just for this case isn't worthwhile
+                    BrushRef::Gradient(grad) => grad
+                        .stops
+                        .first()
+                        .map(|it| it.color)
+                        .unwrap_or(Color::TRANSPARENT),
+                    BrushRef::Image(_) => Color::BLACK,
+                },
+            };
+            let color = color.with_alpha_factor(item.alpha);
             vec.push(ColorStop {
                 color,
                 offset: item.offset,
