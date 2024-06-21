@@ -355,11 +355,6 @@ impl<'a> DrawGlyphs<'a> {
         let font = skrifa::FontRef::from_index(self.run.font.data.as_ref(), font_index).unwrap();
         if font.colr().is_ok() && font.cpal().is_ok() {
             self.try_draw_colr(style.into(), glyphs);
-            // This comes after try_draw_colr, because that reads the `normalized_coords`
-            let resources = &mut self.scene.encoding.resources;
-            resources
-                .normalized_coords
-                .truncate(self.run.normalized_coords.start);
         } else {
             // Shortcut path - no need to test each glyph for a colr outline
             let outline_count = self.draw_outline_glyphs(style, glyphs);
@@ -398,7 +393,7 @@ impl<'a> DrawGlyphs<'a> {
         self.run.glyphs.len()
     }
 
-    pub fn try_draw_colr(&mut self, style: StyleRef<'a>, mut glyphs: impl Iterator<Item = Glyph>) {
+    fn try_draw_colr(&mut self, style: StyleRef<'a>, mut glyphs: impl Iterator<Item = Glyph>) {
         let font_index = self.run.font.index;
         let blob = &self.run.font.data.clone();
         let font = skrifa::FontRef::from_index(blob.as_ref(), font_index).unwrap();
@@ -461,6 +456,8 @@ impl<'a> DrawGlyphs<'a> {
                 .unwrap();
         }
         if outline_count == 0 {
+            // If we didn't draw any outline glyphs, the encoded variable font parameters were never used
+            // Therefore, we can safely discard them.
             self.scene
                 .encoding
                 .resources
@@ -473,6 +470,7 @@ const BOUND: f64 = 100_000.;
 // Hack: If we don't have a clip box, we guess a rectangle we hope is big enough
 const DEFAULT_CLIP_RECT: Rect = Rect::new(-BOUND, -BOUND, BOUND, BOUND);
 
+/// An adapter from [`Scene`] to [`ColorPainter`].
 struct DrawColorGlyphs<'a> {
     scene: &'a mut Scene,
     transform_stack: Vec<Transform>,
