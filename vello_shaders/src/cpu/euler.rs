@@ -33,10 +33,9 @@ pub(crate) struct CubicParams {
 #[derive(Debug)]
 pub(crate) struct EulerParams {
     pub(crate) th0: f32,
+    // th1 need not be explicitly stored, as it can be derived from k0 - th0
     // See #gpu > Euler Spiral `th1` param
     // https://xi.zulipchat.com/#narrow/stream/197075-gpu/topic/Euler.20Spiral.20.60th1.60.20param
-    #[allow(dead_code)]
-    pub(crate) th1: f32,
     pub(crate) k0: f32,
     pub(crate) k1: f32,
     pub(crate) ch: f32,
@@ -183,13 +182,7 @@ impl EulerParams {
         let b = -1. / 24. + d2 * 0.0024702380951963226 - d2 * d2 * 3.7297408997537985e-05;
         let c = 1. / 1920. - d2 * 4.87350869747975e-05 - k2 * 3.1001936068463107e-06;
         ch += (b + c * k2) * k2;
-        EulerParams {
-            th0,
-            th1,
-            k0,
-            k1,
-            ch,
-        }
+        EulerParams { th0, k0, k1, ch }
     }
 
     pub(crate) fn eval_th(&self, t: f32) -> f32 {
