@@ -5,7 +5,6 @@
 #[allow(unreachable_pub, unused)]
 #[path = "src/compile/mod.rs"]
 mod compile;
-#[allow(unreachable_pub)]
 #[allow(unreachable_pub, unused)]
 #[path = "src/types.rs"]
 mod types;

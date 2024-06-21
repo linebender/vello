@@ -77,7 +77,6 @@ pub enum Command {
     FreeImage(ImageProxy),
 }
 
-#[cfg(feature = "wgpu")]
 /// The type of resource that will be bound to a slot in a shader.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum BindType {
