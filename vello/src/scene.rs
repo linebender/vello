@@ -431,9 +431,6 @@ impl<'a> DrawGlyphs<'a> {
                 break;
             };
 
-            if glyph.id == 2 {
-                print!("BREAKPOINT");
-            }
             let transform = run_transform
                 * Affine::translate(Vec2::new(glyph.x.into(), glyph.y.into()))
                 * scale
