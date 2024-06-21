@@ -345,7 +345,11 @@ impl<'a> DrawGlyphs<'a> {
     ///
     /// The `style` parameter accepts either `Fill` or `&Stroke` types.
     ///
-    /// If the font is a COLR font, instead draws the glyphs based on that table, and ignores `style`.
+    /// If the font has COLR support, it will try to draw each glyph using that table first,
+    /// falling back to non-COLR rendering. `style` is ignored for COLR glyphs.
+    ///
+    /// For these glyphs, the given [brush](Self::brush) is used as the "foreground colour", and should
+    /// be [`Solid`](Brush::Solid) for maximum compatibility.
     pub fn draw(mut self, style: impl Into<StyleRef<'a>>, glyphs: impl Iterator<Item = Glyph>) {
         let font_index = self.run.font.index;
         let font = skrifa::FontRef::from_index(self.run.font.data.as_ref(), font_index).unwrap();
