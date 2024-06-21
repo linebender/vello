@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use vello::glyph::Glyph;
 use vello::kurbo::Affine;
-use vello::peniko::{Blob, Brush, BrushRef, Font, StyleRef};
+use vello::peniko::{Blob, Brush, BrushRef, Color, Font, StyleRef};
 use vello::skrifa::raw::FontRef;
 use vello::skrifa::MetadataProvider;
 use vello::Scene;
@@ -14,10 +14,13 @@ use vello::Scene;
 // On Windows, can set this to "c:\\Windows\\Fonts\\seguiemj.ttf" to get color emoji
 const ROBOTO_FONT: &[u8] = include_bytes!("../../assets/roboto/Roboto-Regular.ttf");
 const INCONSOLATA_FONT: &[u8] = include_bytes!("../../assets/inconsolata/Inconsolata.ttf");
+const NOTO_EMOJI_SUBSET: &[u8] =
+    include_bytes!("../../assets/noto_color_emoji/NotoColorEmoji-Subset.ttf");
 
 pub struct SimpleText {
     roboto: Font,
     inconsolata: Font,
+    noto_emoji_subset: Font,
 }
 
 impl SimpleText {
@@ -26,7 +29,41 @@ impl SimpleText {
         Self {
             roboto: Font::new(Blob::new(Arc::new(ROBOTO_FONT)), 0),
             inconsolata: Font::new(Blob::new(Arc::new(INCONSOLATA_FONT)), 0),
+            noto_emoji_subset: Font::new(Blob::new(Arc::new(NOTO_EMOJI_SUBSET)), 0),
         }
+    }
+
+    /// Add a text run which supports some emoji.
+    ///
+    /// The supported Emoji are ✅, 👀, 🎉, and 🤠.
+    /// This subset is chosen to demonstrate the emoji support, whilst
+    /// not significantly increasing repository size.
+    ///
+    /// Note that Vello does support COLR emoji, but does not currently support
+    /// any other forms of emoji.
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_emoji_run<'a>(
+        &mut self,
+        scene: &mut Scene,
+        size: f32,
+        transform: Affine,
+        glyph_transform: Option<Affine>,
+        style: impl Into<StyleRef<'a>>,
+        text: &str,
+    ) {
+        let font = self.noto_emoji_subset.clone();
+        self.add_var_run(
+            scene,
+            Some(&font),
+            size,
+            &[],
+            // This should be unused
+            &Brush::Solid(Color::WHITE),
+            transform,
+            glyph_transform,
+            style,
+            text,
+        );
     }
 
     #[allow(clippy::too_many_arguments)]

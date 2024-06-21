@@ -46,6 +46,7 @@ pub fn test_scenes() -> SceneSet {
             "stroke_styles (skew)",
             false
         ),
+        scene!(emoji),
         scene!(tricky_strokes),
         scene!(fill_types),
         scene!(cardioid_and_friends),
@@ -69,6 +70,19 @@ pub fn test_scenes() -> SceneSet {
 }
 
 // Scenes
+
+fn emoji(scene: &mut Scene, params: &mut SceneParams) {
+    let text_size = 120. + 20. * (params.time * 2.).sin() as f32;
+    let s = "🎉🤠✅";
+    params.text.add_emoji_run(
+        scene,
+        text_size,
+        Affine::translate(Vec2::new(100., 400.)),
+        None,
+        Fill::NonZero,
+        s,
+    );
+}
 
 fn funky_paths(scene: &mut Scene, _: &mut SceneParams) {
     use PathEl::*;

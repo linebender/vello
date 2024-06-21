@@ -1,9 +1,18 @@
 // Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use peniko::kurbo::{Affine, Rect, Shape, Stroke};
-use peniko::{BlendMode, BrushRef, Color, Fill, Font, Image, StyleRef};
-use skrifa::instance::NormalizedCoord;
+use peniko::{
+    kurbo::{Affine, BezPath, Point, Rect, Shape, Stroke, Vec2},
+    BlendMode, Brush, BrushRef, Color, ColorStop, ColorStops, ColorStopsSource, Compose, Extend,
+    Fill, Font, Gradient, Image, Mix, StyleRef,
+};
+use skrifa::{
+    color::ColorPainter,
+    instance::{LocationRef, NormalizedCoord},
+    outline::{DrawSettings, OutlinePen},
+    raw::{tables::cpal::Cpal, TableProvider},
+    GlyphId, MetadataProvider, OutlineGlyphCollection,
+};
 #[cfg(feature = "bump_estimate")]
 use vello_encoding::BumpAllocatorMemory;
 use vello_encoding::{Encoding, Glyph, GlyphRun, Patch, Transform};
@@ -205,7 +214,7 @@ impl Scene {
     /// Returns a builder for encoding a glyph run.
     pub fn draw_glyphs(&mut self, font: &Font) -> DrawGlyphs {
         // TODO: Integrate `BumpEstimator` with the glyph cache.
-        DrawGlyphs::new(&mut self.encoding, font)
+        DrawGlyphs::new(self, font)
     }
 
     /// Appends a child scene.
@@ -234,7 +243,7 @@ impl From<Encoding> for Scene {
 
 /// Builder for encoding a glyph run.
 pub struct DrawGlyphs<'a> {
-    encoding: &'a mut Encoding,
+    scene: &'a mut Scene,
     run: GlyphRun,
     brush: BrushRef<'a>,
     brush_alpha: f32,
@@ -243,12 +252,12 @@ pub struct DrawGlyphs<'a> {
 impl<'a> DrawGlyphs<'a> {
     /// Creates a new builder for encoding a glyph run for the specified
     /// encoding with the given font.
-    pub fn new(encoding: &'a mut Encoding, font: &Font) -> Self {
-        let coords_start = encoding.resources.normalized_coords.len();
-        let glyphs_start = encoding.resources.glyphs.len();
-        let stream_offsets = encoding.stream_offsets();
+    pub fn new(scene: &'a mut Scene, font: &Font) -> Self {
+        let coords_start = scene.encoding.resources.normalized_coords.len();
+        let glyphs_start = scene.encoding.resources.glyphs.len();
+        let stream_offsets = scene.encoding.stream_offsets();
         Self {
-            encoding,
+            scene,
             run: GlyphRun {
                 font: font.clone(),
                 transform: Transform::IDENTITY,
@@ -302,15 +311,17 @@ impl<'a> DrawGlyphs<'a> {
 
     /// Sets the normalized design space coordinates for a variable font instance.
     pub fn normalized_coords(mut self, coords: &[NormalizedCoord]) -> Self {
-        self.encoding
+        self.scene
+            .encoding
             .resources
             .normalized_coords
             .truncate(self.run.normalized_coords.start);
-        self.encoding
+        self.scene
+            .encoding
             .resources
             .normalized_coords
             .extend_from_slice(coords);
-        self.run.normalized_coords.end = self.encoding.resources.normalized_coords.len();
+        self.run.normalized_coords.end = self.scene.encoding.resources.normalized_coords.len();
         self
     }
 
@@ -333,24 +344,445 @@ impl<'a> DrawGlyphs<'a> {
     /// Encodes a fill or stroke for the given sequence of glyphs and consumes the builder.
     ///
     /// The `style` parameter accepts either `Fill` or `&Stroke` types.
+    ///
+    /// If the font has COLR support, it will try to draw each glyph using that table first,
+    /// falling back to non-COLR rendering. `style` is ignored for COLR glyphs.
+    ///
+    /// For these glyphs, the given [brush](Self::brush) is used as the "foreground colour", and should
+    /// be [`Solid`](Brush::Solid) for maximum compatibility.
     pub fn draw(mut self, style: impl Into<StyleRef<'a>>, glyphs: impl Iterator<Item = Glyph>) {
-        let resources = &mut self.encoding.resources;
+        let font_index = self.run.font.index;
+        let font = skrifa::FontRef::from_index(self.run.font.data.as_ref(), font_index).unwrap();
+        if font.colr().is_ok() && font.cpal().is_ok() {
+            self.try_draw_colr(style.into(), glyphs);
+        } else {
+            // Shortcut path - no need to test each glyph for a colr outline
+            let outline_count = self.draw_outline_glyphs(style, glyphs);
+            if outline_count == 0 {
+                self.scene
+                    .encoding
+                    .resources
+                    .normalized_coords
+                    .truncate(self.run.normalized_coords.start);
+            }
+        }
+    }
+
+    fn draw_outline_glyphs(
+        &mut self,
+        style: impl Into<StyleRef<'a>>,
+        glyphs: impl Iterator<Item = Glyph>,
+    ) -> usize {
+        let resources = &mut self.scene.encoding.resources;
         self.run.style = style.into().to_owned();
         resources.glyphs.extend(glyphs);
         self.run.glyphs.end = resources.glyphs.len();
         if self.run.glyphs.is_empty() {
-            resources
-                .normalized_coords
-                .truncate(self.run.normalized_coords.start);
-            return;
+            return 0;
         }
         let index = resources.glyph_runs.len();
-        resources.glyph_runs.push(self.run);
+        resources.glyph_runs.push(self.run.clone());
         resources.patches.push(Patch::GlyphRun { index });
-        self.encoding.encode_brush(self.brush, self.brush_alpha);
+        self.scene
+            .encoding
+            .encode_brush(self.brush.clone(), self.brush_alpha);
         // Glyph run resolve step affects transform and style state in a way
         // that is opaque to the current encoding.
         // See <https://github.com/linebender/vello/issues/424>
-        self.encoding.force_next_transform_and_style();
+        self.scene.encoding.force_next_transform_and_style();
+        self.run.glyphs.len()
+    }
+
+    fn try_draw_colr(&mut self, style: StyleRef<'a>, mut glyphs: impl Iterator<Item = Glyph>) {
+        let font_index = self.run.font.index;
+        let blob = &self.run.font.data.clone();
+        let font = skrifa::FontRef::from_index(blob.as_ref(), font_index).unwrap();
+        let upem: f32 = font.head().map(|h| h.units_per_em()).unwrap().into();
+        let run_transform = self.run.transform.to_kurbo();
+        let scale = Affine::scale_non_uniform(
+            (self.run.font_size / upem).into(),
+            (-self.run.font_size / upem).into(),
+        );
+        let colour_collection = font.color_glyphs();
+        let mut final_glyph = None;
+        let mut outline_count = 0;
+        // We copy out of the variable font coords here because we need to call an exclusive self method
+        let coords = &self.scene.encoding.resources.normalized_coords
+            [self.run.normalized_coords.clone()]
+        .to_vec();
+        let location = LocationRef::new(coords);
+        loop {
+            let outline_glyphs = (&mut glyphs).take_while(|glyph| {
+                match colour_collection.get(GlyphId::new(glyph.id.try_into().unwrap())) {
+                    Some(color) => {
+                        final_glyph = Some((color, *glyph));
+                        false
+                    }
+                    None => true,
+                }
+            });
+            self.run.glyphs.start = self.run.glyphs.end;
+            self.run.stream_offsets = self.scene.encoding.stream_offsets();
+            outline_count += self.draw_outline_glyphs(clone_style_ref(&style), outline_glyphs);
+
+            let Some((color, glyph)) = final_glyph.take() else {
+                // All of the remaining glyphs were outline glyphs
+                break;
+            };
+
+            let transform = run_transform
+                * Affine::translate(Vec2::new(glyph.x.into(), glyph.y.into()))
+                * scale
+                * self
+                    .run
+                    .glyph_transform
+                    .unwrap_or(Transform::IDENTITY)
+                    .to_kurbo();
+
+            color
+                .paint(
+                    location,
+                    &mut DrawColorGlyphs {
+                        scene: self.scene,
+                        cpal: &font.cpal().unwrap(),
+                        outlines: &font.outline_glyphs(),
+                        transform_stack: vec![Transform::from_kurbo(&transform)],
+                        clip_box: DEFAULT_CLIP_RECT,
+                        clip_depth: 0,
+                        location,
+                        foreground_brush: self.brush.clone(),
+                    },
+                )
+                .unwrap();
+        }
+        if outline_count == 0 {
+            // If we didn't draw any outline glyphs, the encoded variable font parameters were never used
+            // Therefore, we can safely discard them.
+            self.scene
+                .encoding
+                .resources
+                .normalized_coords
+                .truncate(self.run.normalized_coords.start);
+        }
+    }
+}
+const BOUND: f64 = 100_000.;
+// Hack: If we don't have a clip box, we guess a rectangle we hope is big enough
+const DEFAULT_CLIP_RECT: Rect = Rect::new(-BOUND, -BOUND, BOUND, BOUND);
+
+/// An adapter from [`Scene`] to [`ColorPainter`].
+struct DrawColorGlyphs<'a> {
+    scene: &'a mut Scene,
+    transform_stack: Vec<Transform>,
+    cpal: &'a Cpal<'a>,
+    outlines: &'a OutlineGlyphCollection<'a>,
+    clip_box: Rect,
+    clip_depth: u32,
+    location: LocationRef<'a>,
+    foreground_brush: BrushRef<'a>,
+}
+
+impl ColorPainter for DrawColorGlyphs<'_> {
+    fn push_transform(&mut self, transform: skrifa::color::Transform) {
+        let transform = conv_skrifa_transform(transform);
+        let prior_transform = self.last_transform();
+        self.transform_stack.push(prior_transform * transform);
+    }
+
+    fn pop_transform(&mut self) {
+        self.transform_stack.pop();
+    }
+
+    fn push_clip_glyph(&mut self, glyph_id: GlyphId) {
+        let Some(outline) = self.outlines.get(glyph_id) else {
+            eprintln!("Didn't get expected outline");
+            return;
+        };
+
+        let mut path = BezPathOutline(BezPath::new());
+        let draw_settings =
+            DrawSettings::unhinted(skrifa::instance::Size::unscaled(), self.location);
+
+        let Ok(_) = outline.draw(draw_settings, &mut path) else {
+            return;
+        };
+        self.clip_depth += 1;
+        self.scene
+            .push_layer(Mix::Clip, 1.0, self.last_transform().to_kurbo(), &path.0);
+    }
+
+    fn push_clip_box(&mut self, clip_box: skrifa::raw::types::BoundingBox<f32>) {
+        let clip_box = Rect::new(
+            clip_box.x_min.into(),
+            clip_box.y_min.into(),
+            clip_box.x_max.into(),
+            clip_box.y_max.into(),
+        );
+        if self.clip_depth == 0 {
+            self.clip_box = clip_box;
+        }
+        self.clip_depth += 1;
+        self.scene
+            .push_layer(Mix::Clip, 1.0, self.last_transform().to_kurbo(), &clip_box);
+    }
+
+    fn pop_clip(&mut self) {
+        self.scene.pop_layer();
+        self.clip_depth -= 1;
+        if self.clip_depth == 0 {
+            self.clip_box = DEFAULT_CLIP_RECT;
+        }
+    }
+
+    fn fill(&mut self, brush: skrifa::color::Brush<'_>) {
+        let brush = conv_brush(brush, self.cpal, &self.foreground_brush);
+        self.scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            &brush,
+            Some(self.last_transform().to_kurbo()),
+            &self.clip_box,
+        );
+    }
+
+    fn push_layer(&mut self, composite: skrifa::color::CompositeMode) {
+        let blend = match composite {
+            skrifa::color::CompositeMode::Clear => Compose::Clear,
+            skrifa::color::CompositeMode::Src => Compose::Copy,
+            skrifa::color::CompositeMode::Dest => Compose::Dest,
+            skrifa::color::CompositeMode::SrcOver => Compose::SrcOver,
+            skrifa::color::CompositeMode::DestOver => Compose::DestOver,
+            skrifa::color::CompositeMode::SrcIn => Compose::SrcIn,
+            skrifa::color::CompositeMode::DestIn => Compose::DestIn,
+            skrifa::color::CompositeMode::SrcOut => Compose::SrcOut,
+            skrifa::color::CompositeMode::DestOut => Compose::DestOut,
+            skrifa::color::CompositeMode::SrcAtop => Compose::SrcAtop,
+            skrifa::color::CompositeMode::DestAtop => Compose::DestAtop,
+            skrifa::color::CompositeMode::Xor => Compose::Xor,
+            skrifa::color::CompositeMode::Plus => Compose::Plus,
+            // TODO:
+            _ => Compose::SrcOver,
+        };
+        self.scene
+            .push_layer(blend, 1.0, self.last_transform().to_kurbo(), &self.clip_box);
+    }
+
+    fn pop_layer(&mut self) {
+        self.scene.pop_layer();
+    }
+
+    fn fill_glyph(
+        &mut self,
+        glyph_id: GlyphId,
+        brush_transform: Option<skrifa::color::Transform>,
+        brush: skrifa::color::Brush<'_>,
+    ) {
+        let Some(outline) = self.outlines.get(glyph_id) else {
+            eprintln!("Didn't get expected outline");
+            return;
+        };
+
+        let mut path = BezPathOutline(BezPath::new());
+        let draw_settings =
+            DrawSettings::unhinted(skrifa::instance::Size::unscaled(), self.location);
+
+        let Ok(_) = outline.draw(draw_settings, &mut path) else {
+            return;
+        };
+
+        let transform = self.last_transform();
+        self.scene.fill(
+            Fill::NonZero,
+            transform.to_kurbo(),
+            &conv_brush(brush, self.cpal, &self.foreground_brush),
+            brush_transform
+                .map(conv_skrifa_transform)
+                .map(|it| it.to_kurbo()),
+            &path.0,
+        );
+    }
+}
+
+// TODO: Move this into Peniko
+fn clone_style_ref<'first>(first: &StyleRef<'first>) -> StyleRef<'first> {
+    match first {
+        StyleRef::Fill(fill) => StyleRef::Fill(*fill),
+        StyleRef::Stroke(stroke) => StyleRef::Stroke(stroke),
+    }
+}
+
+struct BezPathOutline(BezPath);
+
+impl OutlinePen for BezPathOutline {
+    fn move_to(&mut self, x: f32, y: f32) {
+        self.0.move_to(Point::new(x.into(), y.into()));
+    }
+
+    fn line_to(&mut self, x: f32, y: f32) {
+        self.0.line_to(Point::new(x.into(), y.into()));
+    }
+
+    fn quad_to(&mut self, cx0: f32, cy0: f32, x: f32, y: f32) {
+        self.0.quad_to(
+            Point::new(cx0.into(), cy0.into()),
+            Point::new(x.into(), y.into()),
+        );
+    }
+
+    fn curve_to(&mut self, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x: f32, y: f32) {
+        self.0.curve_to(
+            Point::new(cx0.into(), cy0.into()),
+            Point::new(cx1.into(), cy1.into()),
+            Point::new(x.into(), y.into()),
+        );
+    }
+
+    fn close(&mut self) {
+        self.0.close_path();
+    }
+}
+
+impl DrawColorGlyphs<'_> {
+    fn last_transform(&self) -> Transform {
+        self.transform_stack
+            .last()
+            .copied()
+            .unwrap_or(Transform::IDENTITY)
+    }
+}
+
+fn conv_skrifa_transform(transform: skrifa::color::Transform) -> Transform {
+    Transform {
+        matrix: [transform.xx, transform.xy, transform.yx, transform.yy],
+        translation: [transform.dx, transform.dy],
+    }
+}
+
+fn conv_brush(
+    brush: skrifa::color::Brush,
+    cpal: &Cpal<'_>,
+    foreground_brush: &BrushRef<'_>,
+) -> Brush {
+    match brush {
+        skrifa::color::Brush::Solid {
+            palette_index,
+            alpha,
+        } => color_index(cpal, palette_index)
+            .map(|it| Brush::Solid(it.with_alpha_factor(alpha)))
+            .unwrap_or(apply_alpha(foreground_brush.to_owned(), alpha)),
+
+        skrifa::color::Brush::LinearGradient {
+            p0,
+            p1,
+            color_stops,
+            extend,
+        } => Brush::Gradient(
+            Gradient::new_linear(conv_point(p0), conv_point(p1))
+                .with_extend(conv_extend(extend))
+                .with_stops(ColorStopsConverter(color_stops, cpal, foreground_brush)),
+        ),
+        skrifa::color::Brush::RadialGradient {
+            c0,
+            r0,
+            c1,
+            r1,
+            color_stops,
+            extend,
+        } => Brush::Gradient(
+            Gradient::new_two_point_radial(conv_point(c0), r0, conv_point(c1), r1)
+                .with_extend(conv_extend(extend))
+                .with_stops(ColorStopsConverter(color_stops, cpal, foreground_brush)),
+        ),
+        skrifa::color::Brush::SweepGradient {
+            c0,
+            start_angle,
+            end_angle,
+            color_stops,
+            extend,
+        } => Brush::Gradient(
+            Gradient::new_sweep(conv_point(c0), start_angle, end_angle)
+                .with_extend(conv_extend(extend))
+                .with_stops(ColorStopsConverter(color_stops, cpal, foreground_brush)),
+        ),
+    }
+}
+
+fn apply_alpha(mut brush: Brush, alpha: f32) -> Brush {
+    match &mut brush {
+        Brush::Solid(color) => *color = color.with_alpha_factor(alpha),
+        Brush::Gradient(grad) => grad
+            .stops
+            .iter_mut()
+            .for_each(|it| it.color = it.color.with_alpha_factor(alpha)),
+        // Cannot apply an alpha factor to
+        Brush::Image(_) => {}
+    }
+    brush
+}
+
+fn color_index(cpal: &'_ Cpal<'_>, palette_index: u16) -> Option<Color> {
+    // The "application determined" foreground colour should be used
+    // This will be handled by the caller
+    if palette_index == 0xFFFF {
+        return None;
+    }
+    let actual_colors = cpal.color_records_array().unwrap().unwrap();
+    // TODO: Error reporting in the `None` case
+    let color = actual_colors.get(usize::from(palette_index))?;
+    Some(Color::rgba8(
+        color.red,
+        color.green,
+        color.blue,
+        color.alpha,
+    ))
+}
+
+fn conv_point(point: skrifa::raw::types::Point<f32>) -> Point {
+    Point::new(point.x.into(), point.y.into())
+}
+
+fn conv_extend(extend: skrifa::color::Extend) -> Extend {
+    match extend {
+        skrifa::color::Extend::Pad => Extend::Pad,
+        skrifa::color::Extend::Repeat => Extend::Reflect,
+        skrifa::color::Extend::Reflect => Extend::Repeat,
+        // TODO: Error reporting on unknown variant?
+        _ => Extend::Pad,
+    }
+}
+
+struct ColorStopsConverter<'a>(
+    &'a [skrifa::color::ColorStop],
+    &'a Cpal<'a>,
+    &'a BrushRef<'a>,
+);
+
+impl ColorStopsSource for ColorStopsConverter<'_> {
+    fn collect_stops(&self, vec: &mut ColorStops) {
+        for item in self.0 {
+            let color = color_index(self.1, item.palette_index);
+            let color = match color {
+                Some(color) => color,
+                // If we should use the "application defined fallback colour",
+                // then *try* and determine that from the existing brush
+                None => match self.2 {
+                    BrushRef::Solid(c) => *c,
+                    // TODO: Report a warning? if either of these cases are reached
+                    // In theory, it's possible to have a gradient containing images and other gradients
+                    // but implementing that just for this case isn't worthwhile
+                    BrushRef::Gradient(grad) => grad
+                        .stops
+                        .first()
+                        .map(|it| it.color)
+                        .unwrap_or(Color::TRANSPARENT),
+                    BrushRef::Image(_) => Color::BLACK,
+                },
+            };
+            let color = color.with_alpha_factor(item.alpha);
+            vec.push(ColorStop {
+                color,
+                offset: item.offset,
+            });
+        }
     }
 }
