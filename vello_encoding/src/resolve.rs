@@ -438,9 +438,14 @@ impl Resolver {
                     };
                     let glyph_start = self.glyphs.len();
                     for glyph in glyphs {
-                        let Some((encoding, stream_sizes)) = session.get_or_insert(glyph.id) else {
-                            continue;
-                        };
+                        let (encoding, stream_sizes) =
+                            session.get_or_insert(glyph.id).unwrap_or_else(|| {
+                                // HACK: We pretend that the encoding was empty.
+                                // In theory, we should be able to skip this glyph, but there is also
+                                // a corresponding entry in `resources`, which means that we would
+                                // need to make the patching process skip this glyph.
+                                (Arc::new(Encoding::new()), StreamOffsets::default())
+                            });
                         run_sizes.add(&stream_sizes);
                         self.glyphs.push(encoding);
                     }
