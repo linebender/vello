@@ -13,6 +13,8 @@ You can find its changes [documented below](#020---2024-06-08).
 
 ## [Unreleased]
 
+This release has an [MSRV][] of 1.75.
+
 ### Added
 
 ### Changed
@@ -24,6 +26,8 @@ You can find its changes [documented below](#020---2024-06-08).
 - Breaking: `Pipelines` API from `vello_shaders` ([#612] by [@DJMcNab])
 
 ## [0.2.0] - 2024-06-08
+
+This release has an [MSRV][] of 1.75.
 
 ### Added
 
@@ -100,3 +104,5 @@ You can find its changes [documented below](#020---2024-06-08).
 [Unreleased]: https://github.com/linebender/vello/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/linebender/vello/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/linebender/vello/releases/tag/v0.1.0
+
+[MSRV]: README.md#minimum-supported-rust-version-msrv
