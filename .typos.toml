@@ -12,7 +12,7 @@ thm = "thm"
 
 [files]
 # Include .github, .cargo, etc.
-hidden = true
+ignore-hidden = false
 # /.git isn't in .gitignore, because git never tracks it.
 # Typos doesn't know that, though.
 extend-exclude = ["/.git"]
