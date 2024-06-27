@@ -9,3 +9,10 @@
 # Match Inside a Word - Case Insensitive
 [default.extend-words]
 thm = "thm"
+
+[files]
+# Include .github, .cargo, etc.
+ignore-hidden = false
+# /.git isn't in .gitignore, because git never tracks it.
+# Typos doesn't know that, though.
+extend-exclude = ["/.git"]
