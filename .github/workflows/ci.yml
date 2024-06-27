@@ -298,4 +298,4 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: check typos
-        uses: crate-ci/typos@v1.21.0
+        uses: crate-ci/typos@v1.22.9
