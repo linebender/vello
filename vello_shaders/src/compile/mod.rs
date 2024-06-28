@@ -274,5 +274,25 @@ fn postprocess(wgsl: &str) -> String {
 // NOTE: Embedding build environment info into the code makes reproducible builds trickier.
 pub fn shader_dir() -> &'static PathBuf {
     static SHADER_DIR: OnceLock<PathBuf> = OnceLock::new();
-    SHADER_DIR.get_or_init(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("shader"))
+    SHADER_DIR.get_or_init(|| manifest_dir().join("shader"))
+}
+
+// In a regular cargo build the manifest directory is simply given by CARGO_MANIFEST_DIR.
+//
+// Skia, an external consumer of this crate, uses Bazel rules to compile Rust code. Due to
+// limitations in Bazel's rust support, Skia maintains its own build definitions
+// (https://source.chromium.org/chromium/chromium/src/+/main:third_party/skia/bazel/external/vello/BUILD.bazel).
+//
+// Because of the current setup, Bazel sets CARGO_MANIFEST_DIR to the workspace root instead of the
+// actual crate being built. This could be improved but until then, we work around this by allowing
+// the absolute path to the vello_shader crate's manifest to be specified using the
+// `UNSTABLE_BAZEL_VELLO_SHADERS_CRATE_MANIFEST_PATH` build script environment variable.
+//
+// This should never be set when using cargo.
+fn manifest_dir() -> PathBuf {
+    use std::env;
+    env::var_os("UNSTABLE_BAZEL_VELLO_SHADERS_CRATE_MANIFEST_PATH")
+        .and_then(|p| Path::new(&p).parent().map(|p| p.to_owned()))
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")))
+        .to_path_buf()
 }
