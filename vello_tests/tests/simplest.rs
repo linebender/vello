@@ -23,12 +23,8 @@ fn filled_square(use_cpu: bool) {
         use_cpu,
         ..TestParams::new("filled_square", 20, 20)
     };
-    match snapshot_test_sync(scene, &params)
-        .and_then(|mut snapshot| snapshot.assert_mean_less_than(0.01))
-    {
-        Ok(()) => (),
-        Err(e) => panic!("{:#}", e),
-    }
+    let mut snapshot = snapshot_test_sync(scene, &params).unwrap();
+    snapshot.assert_mean_less_than(0.01).unwrap();
 }
 
 fn filled_circle(use_cpu: bool) {
@@ -44,12 +40,8 @@ fn filled_circle(use_cpu: bool) {
         use_cpu,
         ..TestParams::new("filled_circle", 20, 20)
     };
-    match snapshot_test_sync(scene, &params)
-        .and_then(|mut snapshot| snapshot.assert_mean_less_than(0.01))
-    {
-        Ok(()) => (),
-        Err(e) => panic!("{:#}", e),
-    }
+    let mut snapshot = snapshot_test_sync(scene, &params).unwrap();
+    snapshot.assert_mean_less_than(0.01).unwrap();
 }
 
 #[test]
