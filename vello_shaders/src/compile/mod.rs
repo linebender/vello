@@ -286,11 +286,12 @@ pub fn shader_dir() -> &'static PathBuf {
 // Because of the current setup, Bazel sets CARGO_MANIFEST_DIR to the workspace root instead of the
 // actual crate being built. This could be improved but until then, we work around this by allowing
 // the absolute path to the vello_shader crate's manifest to be specified using the
-// `BAZEL_CRATE_MANIFEST_PATH` build script environment variable. This should never be set when
-// using cargo.
+// `UNSTABLE_BAZEL_VELLO_SHADERS_CRATE_MANIFEST_PATH` build script environment variable.
+//
+// This should never be set when using cargo.
 fn manifest_dir() -> PathBuf {
     use std::env;
-    env::var_os("BAZEL_CRATE_MANIFEST_PATH")
+    env::var_os("UNSTABLE_BAZEL_VELLO_SHADERS_CRATE_MANIFEST_PATH")
         .and_then(|p| Path::new(&p).parent().map(|p| p.to_owned()))
         .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")))
         .to_path_buf()
