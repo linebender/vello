@@ -21,7 +21,8 @@ fn snapshot_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("snapshots")
 }
 
-#[must_use]
+#[must_use = "A snapshot test doesn't do anything unless an assertion method is called on it"]
+/// The result of a scene render, and the difference between that and a stored snapshot.
 pub struct Snapshot<'a> {
     pub statistics: Option<FlipPool>,
     pub reference_path: PathBuf,
@@ -31,7 +32,17 @@ pub struct Snapshot<'a> {
 }
 
 impl Snapshot<'_> {
-    pub fn assert_mean_less_than(&mut self, value: f32) -> Result<()> {
+    /// Assert that that mean value stored in `statistics` is less than `value`.
+    ///
+    /// This is a high-level measure of how different the newly rendered result and
+    /// the existing snapshot are.
+    /// This should be expected to be small, as a large value would represent the
+    /// renderer not matching the previous snapshot.
+    ///
+    /// However, this value could potentially be non-zero (i.e. there is a slight difference
+    /// between the new and previous results) due to e.g. fast math on the GPU or other
+    /// platform specific factors.
+    pub fn assert_mean_less_than(&mut self, value: f32) -> &mut Self {
         assert!(
             value < 0.1,
             "Mean should be less than 0.1 in almost all cases for a successful test"
@@ -41,13 +52,14 @@ impl Snapshot<'_> {
             if mean > value {
                 self.handle_failure(format_args!(
                     "Expected mean to be less than {value}, got {mean}"
-                ))?;
+                ))
+                .unwrap();
             }
         } else {
-            // The image is new, so assertion needed?
+            // The result image was newly created, and so we know the test will pass
         }
-        self.handle_success()?;
-        Ok(())
+        self.handle_success().unwrap();
+        self
     }
 
     fn handle_success(&mut self) -> Result<()> {
@@ -83,13 +95,14 @@ impl Snapshot<'_> {
     }
 }
 
-/// Run a snapshot test.
+/// Run a snapshot test of the given scene.
 ///
-/// Try and keep the width and height small, to reduce the size of committed binary data
+/// Try and keep the width and height small, to reduce the size of committed binary data.
 pub fn snapshot_test_sync(scene: Scene, params: &TestParams) -> Result<Snapshot<'_>> {
     pollster::block_on(snapshot_test(scene, params))
 }
 
+/// Run a snapshot test of the given scene.
 pub async fn snapshot_test(scene: Scene, params: &TestParams) -> Result<Snapshot> {
     let raw_rendered = render_then_debug(&scene, params).await?;
 

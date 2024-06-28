@@ -20,8 +20,10 @@ fn comparison_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("comparisons")
 }
 
-#[must_use]
-/// A comparison between a scene rendered on the CPU and the same scene rendered on the GPU
+#[must_use = "A snapshot test doesn't do anything unless an assertion method is called on it"]
+/// A scene rendered on the CPU and the same scene rendered on the GPU, and information about their diffences.
+///
+/// Use an assertion method or access `statistics` to make a determination based on the result of this test.
 pub struct GpuCpuComparison {
     pub statistics: Option<FlipPool>,
     pub cpu_path: PathBuf,
@@ -32,7 +34,16 @@ pub struct GpuCpuComparison {
 }
 
 impl GpuCpuComparison {
-    pub fn assert_mean_less_than(&mut self, value: f32) -> Result<()> {
+    /// Assert that that mean value stored in `statistics` is less than `value`.
+    ///
+    /// This is a high-level measure of how different the GPU and CPU results are.
+    /// This should be expected to be small, a large value would represent a
+    /// significant difference between the two results.
+    ///
+    /// However, this value could potentially be non-zero (i.e. there is a slight difference
+    /// between the GPU and CPU results) due to fast math on the GPU or different precisions
+    /// used in the renderers.
+    pub fn assert_mean_less_than(&mut self, value: f32) -> &mut Self {
         assert!(
             value < 0.1,
             "Mean should be less than 0.1 in almost all cases for a successful test"
@@ -40,13 +51,14 @@ impl GpuCpuComparison {
         if let Some(stats) = &self.statistics {
             let mean = stats.mean();
             if mean > value {
-                self.handle_failure(format!("Expected mean to be less than {value}, got {mean}"))?;
+                self.handle_failure(format!("Expected mean to be less than {value}, got {mean}"))
+                    .unwrap();
             }
         } else {
-            // The image is new, so assertion needed?
+            // The result image was newly created, and so we know the test will pass
         }
-        self.handle_success()?;
-        Ok(())
+        self.handle_success().unwrap();
+        self
     }
 
     fn handle_success(&mut self) -> Result<()> {
@@ -78,6 +90,7 @@ pub fn compare_gpu_cpu_sync(scene: Scene, params: TestParams) -> Result<GpuCpuCo
     pollster::block_on(compare_gpu_cpu(scene, params))
 }
 
+/// Run a scene comparing the outputs from the CPU and GPU renderers
 pub async fn compare_gpu_cpu(scene: Scene, mut params: TestParams) -> Result<GpuCpuComparison> {
     params.use_cpu = false;
     // TODO: Reuse the same RenderContext?
