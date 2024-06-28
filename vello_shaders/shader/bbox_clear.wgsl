@@ -14,6 +14,9 @@ var<storage, read_write> path_bboxes: array<PathBbox>;
 fn main(
     @builtin(global_invocation_id) global_id: vec3<u32>,
 ) {
+    if config.cancelled != 0u {
+        return;
+    }
     let ix = global_id.x;
     if ix < config.n_path {
         path_bboxes[ix].x0 = 0x7fffffff;

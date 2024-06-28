@@ -10,7 +10,9 @@ use crate::{AaConfig, RenderParams};
 #[cfg(feature = "wgpu")]
 use crate::Scene;
 
-use vello_encoding::{make_mask_lut, make_mask_lut_16, Encoding, Resolver, WorkgroupSize};
+use vello_encoding::{
+    make_mask_lut, make_mask_lut_16, BumpAllocators, Encoding, Resolver, WorkgroupSize,
+};
 
 /// State for a render in progress.
 pub struct Render {
@@ -41,8 +43,9 @@ pub fn render_full(
     resolver: &mut Resolver,
     shaders: &FullShaders,
     params: &RenderParams,
-) -> (Recording, ResourceProxy) {
-    render_encoding_full(scene.encoding(), resolver, shaders, params)
+    bump_sizes: BumpAllocators,
+) -> (Recording, ImageProxy, BufferProxy) {
+    render_encoding_full(scene.encoding(), resolver, shaders, params, bump_sizes)
 }
 
 #[cfg(feature = "wgpu")]
@@ -55,12 +58,15 @@ pub fn render_encoding_full(
     resolver: &mut Resolver,
     shaders: &FullShaders,
     params: &RenderParams,
-) -> (Recording, ResourceProxy) {
+    bump_sizes: BumpAllocators,
+) -> (Recording, ImageProxy, BufferProxy) {
     let mut render = Render::new();
-    let mut recording = render.render_encoding_coarse(encoding, resolver, shaders, params, false);
+    let mut recording =
+        render.render_encoding_coarse(encoding, resolver, shaders, params, bump_sizes, true);
     let out_image = render.out_image();
+    let bump_buf = render.bump_buf();
     render.record_fine(shaders, &mut recording);
-    (recording, out_image.into())
+    (recording, out_image, bump_buf)
 }
 
 impl Default for Render {
@@ -88,6 +94,7 @@ impl Render {
         resolver: &mut Resolver,
         shaders: &FullShaders,
         params: &RenderParams,
+        bump_sizes: BumpAllocators,
         robust: bool,
     ) -> Recording {
         use vello_encoding::RenderConfig;
@@ -121,8 +128,20 @@ impl Render {
             );
         }
 
-        let cpu_config =
-            RenderConfig::new(&layout, params.width, params.height, &params.base_color);
+        let cpu_config = RenderConfig::new(
+            layout,
+            params.width,
+            params.height,
+            &params.base_color,
+            bump_sizes,
+        );
+        // log::debug!("Config: {{ lines_size: {:?}, binning_size: {:?}, tiles_size: {:?}, seg_counts_size: {:?}, segments_size: {:?}, ptcl_size: {:?} }}",
+        // cpu_config.gpu.lines_size,
+        // cpu_config.gpu.binning_size,
+        // cpu_config.gpu.tiles_size,
+        // cpu_config.gpu.seg_counts_size,
+        // cpu_config.gpu.segments_size,
+        // cpu_config.gpu.ptcl_size);
         let buffer_sizes = &cpu_config.buffer_sizes;
         let wg_counts = &cpu_config.workgroup_counts;
 
@@ -131,18 +150,28 @@ impl Render {
             recording.upload_uniform("config", bytemuck::bytes_of(&cpu_config.gpu)),
         );
         let info_bin_data_buf = ResourceProxy::new_buf(
-            buffer_sizes.bin_data.size_in_bytes() as u64,
+            buffer_sizes.bump_buffers.binning.size_in_bytes() as u64,
             "info_bin_data_buf",
         );
-        let tile_buf =
-            ResourceProxy::new_buf(buffer_sizes.tiles.size_in_bytes().into(), "tile_buf");
-        let segments_buf =
-            ResourceProxy::new_buf(buffer_sizes.segments.size_in_bytes().into(), "segments_buf");
-        let ptcl_buf = ResourceProxy::new_buf(buffer_sizes.ptcl.size_in_bytes().into(), "ptcl_buf");
+        let tile_buf = ResourceProxy::new_buf(
+            buffer_sizes.bump_buffers.tile.size_in_bytes().into(),
+            "tile_buf",
+        );
+        let segments_buf = ResourceProxy::new_buf(
+            buffer_sizes.bump_buffers.segments.size_in_bytes().into(),
+            "segments_buf",
+        );
+        let ptcl_buf = ResourceProxy::new_buf(
+            buffer_sizes.bump_buffers.ptcl.size_in_bytes().into(),
+            "ptcl_buf",
+        );
         let reduced_buf = ResourceProxy::new_buf(
             buffer_sizes.path_reduced.size_in_bytes().into(),
             "reduced_buf",
         );
+        let bump_buf = BufferProxy::new(buffer_sizes.bump_alloc.size_in_bytes().into(), "bump_buf");
+        let bump_buf = ResourceProxy::Buffer(bump_buf);
+        recording.dispatch(shaders.prepare, (1, 1, 1), [config_buf, bump_buf]);
         // TODO: really only need pathtag_wgs - 1
         recording.dispatch(
             shaders.pathtag_reduce,
@@ -203,11 +232,10 @@ impl Render {
             wg_counts.bbox_clear,
             [config_buf, path_bbox_buf],
         );
-        let bump_buf = BufferProxy::new(buffer_sizes.bump_alloc.size_in_bytes().into(), "bump_buf");
-        recording.clear_all(bump_buf);
-        let bump_buf = ResourceProxy::Buffer(bump_buf);
-        let lines_buf =
-            ResourceProxy::new_buf(buffer_sizes.lines.size_in_bytes().into(), "lines_buf");
+        let lines_buf = ResourceProxy::new_buf(
+            buffer_sizes.bump_buffers.lines.size_in_bytes().into(),
+            "lines_buf",
+        );
         recording.dispatch(
             shaders.flatten,
             wg_counts.flatten,
@@ -339,7 +367,7 @@ impl Render {
             [bump_buf, indirect_count_buf.into()],
         );
         let seg_counts_buf = ResourceProxy::new_buf(
-            buffer_sizes.seg_counts.size_in_bytes().into(),
+            buffer_sizes.bump_buffers.seg_counts.size_in_bytes().into(),
             "seg_counts_buf",
         );
         recording.dispatch_indirect(
@@ -378,7 +406,7 @@ impl Render {
         recording.dispatch(
             shaders.path_tiling_setup,
             wg_counts.path_tiling_setup,
-            [bump_buf, indirect_count_buf.into(), ptcl_buf],
+            [config_buf, bump_buf, indirect_count_buf.into(), ptcl_buf],
         );
         recording.dispatch_indirect(
             shaders.path_tiling,
@@ -414,10 +442,10 @@ impl Render {
             image_atlas: ResourceProxy::Image(image_atlas),
             out_image,
         });
-        if robust {
+        // TODO: This second check is a massive hack
+        if robust && !shaders.pathtag_is_cpu {
             recording.download(*bump_buf.as_buf().unwrap());
         }
-        recording.free_resource(bump_buf);
         recording
     }
 

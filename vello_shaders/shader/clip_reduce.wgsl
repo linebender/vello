@@ -27,6 +27,7 @@ fn main(
     @builtin(local_invocation_id) local_id: vec3<u32>,
     @builtin(workgroup_id) wg_id: vec3<u32>,
 ) {
+    // TODO: Cancel if this entire run has been cancelled?
     let inp = clip_inp[global_id.x].path_ix;
     let is_push = inp >= 0;
     var bic = Bic(1u - u32(is_push), u32(is_push));

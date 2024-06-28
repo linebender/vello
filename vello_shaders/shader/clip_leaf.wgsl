@@ -83,6 +83,9 @@ fn main(
     @builtin(local_invocation_id) local_id: vec3<u32>,
     @builtin(workgroup_id) wg_id: vec3<u32>,
 ) {
+    if config.cancelled != 0u {
+        return;
+    }
     var bic: Bic;
     if local_id.x < wg_id.x {
         bic = reduced[local_id.x];
