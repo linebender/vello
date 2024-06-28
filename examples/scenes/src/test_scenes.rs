@@ -129,8 +129,6 @@ fn funky_paths(scene: &mut Scene, _: &mut SceneParams) {
 fn stroke_styles(transform: Affine) -> impl FnMut(&mut Scene, &mut SceneParams) {
     use PathEl::*;
     move |scene, params| {
-        /* Determined experimentally */
-        params.resolution = Some((2400., 1700.).into());
         let colors = [
             Color::rgb8(140, 181, 236),
             Color::rgb8(246, 236, 202),
@@ -190,9 +188,9 @@ fn stroke_styles(transform: Affine) -> impl FnMut(&mut Scene, &mut SceneParams) 
                 color_idx = (color_idx + 1) % colors.len();
             }
         }
-
         // Dashed strokes with cap combinations
         let t = Affine::translate((450., 0.)) * t;
+        let mut y_max = y;
         y = 0.;
         for start in cap_styles {
             for end in cap_styles {
@@ -221,6 +219,7 @@ fn stroke_styles(transform: Affine) -> impl FnMut(&mut Scene, &mut SceneParams) 
 
         // Cap and join combinations
         let t = Affine::translate((550., 0.)) * t;
+        y_max = y_max.max(y);
         y = 0.;
         for cap in cap_styles {
             for join in join_styles {
@@ -246,6 +245,7 @@ fn stroke_styles(transform: Affine) -> impl FnMut(&mut Scene, &mut SceneParams) 
 
         // Miter limit
         let t = Affine::translate((500., 0.)) * t;
+        y_max = y_max.max(y);
         y = 0.;
         for ml in miter_limits {
             params.text.add(
@@ -294,6 +294,11 @@ fn stroke_styles(transform: Affine) -> impl FnMut(&mut Scene, &mut SceneParams) 
             y += 180.;
             color_idx = (color_idx + 1) % colors.len();
         }
+        y_max = y_max.max(y);
+        // The closed_strokes has a maximum x of 400, `t` has a scale of `2.`
+        // Give 50px of padding to account for `transform`
+        let x_max = t.translation().x + 400. * 2. + 50.;
+        params.resolution = Some((x_max, y_max).into());
     }
 }
 
