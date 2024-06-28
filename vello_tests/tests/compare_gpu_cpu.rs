@@ -112,7 +112,7 @@ fn compare_stroke_styles_skew() {
 #[test]
 #[cfg_attr(skip_gpu_tests, ignore)]
 fn compare_tricky_strokes() {
-    let test_scene = scenes::test_scenes().scenes.swap_remove(5);
+    let test_scene = scenes::test_scenes().scenes.swap_remove(6);
     assert_eq!(test_scene.config.name, "tricky_strokes");
     let mut params = TestParams::new("compare_tricky_strokes", 1200, 850);
     let scene = encode_test_scene(test_scene, &mut params);
@@ -124,7 +124,7 @@ fn compare_tricky_strokes() {
 #[test]
 #[cfg_attr(skip_gpu_tests, ignore)]
 fn compare_fill_types() {
-    let test_scene = scenes::test_scenes().scenes.swap_remove(6);
+    let test_scene = scenes::test_scenes().scenes.swap_remove(7);
     assert_eq!(test_scene.config.name, "fill_types");
     let mut params = TestParams::new("compare_fill_types", 1400, 700);
     let scene = encode_test_scene(test_scene, &mut params);
