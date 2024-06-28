@@ -19,7 +19,7 @@ use vello::{block_on_wgpu, util::RenderContext, RendererOptions, Scene};
 mod compare;
 mod snapshot;
 
-pub use compare::{compare_test, compare_test_sync, Comparison};
+pub use compare::{compare_gpu_cpu, compare_gpu_cpu_sync, GpuCpuComparison};
 pub use snapshot::{snapshot_test, snapshot_test_sync, Snapshot};
 
 pub struct TestParams {
@@ -42,11 +42,33 @@ impl TestParams {
     }
 }
 
-pub fn render_sync(scene: &Scene, params: &TestParams) -> Result<Image> {
-    pollster::block_on(render(scene, params))
+pub fn render_then_debug_sync(scene: &Scene, params: &TestParams) -> Result<Image> {
+    pollster::block_on(render_then_debug(scene, params))
 }
 
-pub async fn render(scene: &Scene, params: &TestParams) -> Result<Image> {
+pub async fn render_then_debug(scene: &Scene, params: &TestParams) -> Result<Image> {
+    let image = get_scene_image(params, scene).await?;
+    let suffix = if params.use_cpu { "cpu" } else { "gpu" };
+    let name = format!("{}_{suffix}", &params.name);
+    let out_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("debug_outputs")
+        .join(name)
+        .with_extension("png");
+    if env_var_relates_to("VELLO_DEBUG_TEST", &params.name, params.use_cpu) {
+        write_png_to_file(params, &out_path, &image)?;
+        let (width, height) = (image.width, image.height);
+        println!("Wrote debug result ({width}x{height}) to {out_path:?}");
+    } else {
+        match std::fs::remove_file(&out_path) {
+            Ok(()) => (),
+            Err(e) if e.kind() == ErrorKind::NotFound => (),
+            Err(e) => return Err(e.into()),
+        }
+    }
+    Ok(image)
+}
+
+pub async fn get_scene_image(params: &TestParams, scene: &Scene) -> Result<Image, anyhow::Error> {
     let mut context = RenderContext::new();
     let device_id = context
         .device(None)
@@ -65,7 +87,6 @@ pub async fn render(scene: &Scene, params: &TestParams) -> Result<Image> {
         },
     )
     .or_else(|_| bail!("Got non-Send/Sync error from creating renderer"))?;
-
     let width = params.width;
     let height = params.height;
     let render_params = vello::RenderParams {
@@ -118,7 +139,6 @@ pub async fn render(scene: &Scene, params: &TestParams) -> Result<Image> {
     );
     queue.submit([encoder.finish()]);
     let buf_slice = buffer.slice(..);
-
     let (sender, receiver) = futures_intrusive::channel::shared::oneshot_channel();
     buf_slice.map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
     if let Some(recv_result) = block_on_wgpu(device, receiver.receive()) {
@@ -126,7 +146,6 @@ pub async fn render(scene: &Scene, params: &TestParams) -> Result<Image> {
     } else {
         bail!("channel was closed");
     }
-
     let data = buf_slice.get_mapped_range();
     let mut result_unpadded = Vec::<u8>::with_capacity((width * height * 4).try_into()?);
     for row in 0..height {
@@ -135,22 +154,6 @@ pub async fn render(scene: &Scene, params: &TestParams) -> Result<Image> {
     }
     let data = Blob::new(Arc::new(result_unpadded));
     let image = Image::new(data, Format::Rgba8, width, height);
-    let suffix = if params.use_cpu { "cpu" } else { "gpu" };
-    let name = format!("{}_{suffix}", &params.name);
-    let out_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("debug_outputs")
-        .join(name)
-        .with_extension("png");
-    if env_var_relates_to("VELLO_DEBUG_TEST", &params.name, params.use_cpu) {
-        write_png_to_file(params, &out_path, &image)?;
-        println!("Wrote debug result ({width}x{height}) to {out_path:?}");
-    } else {
-        match std::fs::remove_file(&out_path) {
-            Ok(()) => (),
-            Err(e) if e.kind() == ErrorKind::NotFound => (),
-            Err(e) => return Err(e.into()),
-        }
-    }
     Ok(image)
 }
 
@@ -171,7 +174,10 @@ pub fn write_png_to_file(
     Ok(())
 }
 
-pub fn env_var_relates_to(env_var: &'static str, name: &str, use_cpu: bool) -> bool {
+/// Determine whether the value of the environment variable `env_var`
+/// includes a specific test.
+/// This is used when updating tests, or dumping the debug output
+fn env_var_relates_to(env_var: &'static str, name: &str, use_cpu: bool) -> bool {
     if let Ok(val) = env::var(env_var) {
         if val.eq_ignore_ascii_case("all")
             || val.eq_ignore_ascii_case("cpu") && use_cpu

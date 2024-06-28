@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use std::{
-    fmt,
     io::ErrorKind,
     path::{Path, PathBuf},
 };
@@ -15,15 +14,16 @@ use vello::{
     Scene,
 };
 
-use crate::{render, write_png_to_file, TestParams};
+use crate::{render_then_debug, write_png_to_file, TestParams};
 
 fn comparison_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("comparisons")
 }
 
 #[must_use]
-pub struct Comparison {
-    pub pool: Option<FlipPool>,
+/// A comparison between a scene rendered on the CPU and the same scene rendered on the GPU
+pub struct GpuCpuComparison {
+    pub statistics: Option<FlipPool>,
     pub cpu_path: PathBuf,
     pub gpu_path: PathBuf,
     pub cpu_rendered: Image,
@@ -31,18 +31,16 @@ pub struct Comparison {
     pub params: TestParams,
 }
 
-impl Comparison {
+impl GpuCpuComparison {
     pub fn assert_mean_less_than(&mut self, value: f32) -> Result<()> {
         assert!(
             value < 0.1,
             "Mean should be less than 0.1 in almost all cases for a successful test"
         );
-        if let Some(pool) = &self.pool {
-            let mean = pool.mean();
+        if let Some(stats) = &self.statistics {
+            let mean = stats.mean();
             if mean > value {
-                self.handle_failure(format_args!(
-                    "Expected mean to be less than {value}, got {mean}"
-                ))?;
+                self.handle_failure(format!("Expected mean to be less than {value}, got {mean}"))?;
             }
         } else {
             // The image is new, so assertion needed?
@@ -62,7 +60,7 @@ impl Comparison {
         }
     }
 
-    fn handle_failure(&mut self, message: fmt::Arguments) -> Result<()> {
+    fn handle_failure(&mut self, message: String) -> Result<()> {
         write_png_to_file(&self.params, &self.cpu_path, &self.cpu_rendered)?;
         write_png_to_file(&self.params, &self.gpu_path, &self.gpu_rendered)?;
         eprintln!(
@@ -76,16 +74,16 @@ impl Comparison {
 }
 
 /// Run a scene comparing the outputs from the CPU and GPU renderers
-pub fn compare_test_sync(scene: Scene, params: TestParams) -> Result<Comparison> {
-    pollster::block_on(compare_test(scene, params))
+pub fn compare_gpu_cpu_sync(scene: Scene, params: TestParams) -> Result<GpuCpuComparison> {
+    pollster::block_on(compare_gpu_cpu(scene, params))
 }
 
-pub async fn compare_test(scene: Scene, mut params: TestParams) -> Result<Comparison> {
+pub async fn compare_gpu_cpu(scene: Scene, mut params: TestParams) -> Result<GpuCpuComparison> {
     params.use_cpu = false;
     // TODO: Reuse the same RenderContext?
-    let gpu_rendered = render(&scene, &params).await?;
+    let gpu_rendered = render_then_debug(&scene, &params).await?;
     params.use_cpu = true;
-    let cpu_rendered = render(&scene, &params).await?;
+    let cpu_rendered = render_then_debug(&scene, &params).await?;
 
     let path_root = &comparison_dir().join(&params.name);
     let cpu_path = path_root.with_extension("cpu.png");
@@ -129,8 +127,8 @@ pub async fn compare_test(scene: Scene, mut params: TestParams) -> Result<Compar
 
     let pool = nv_flip::FlipPool::from_image(&error_map);
 
-    Ok(Comparison {
-        pool: Some(pool),
+    Ok(GpuCpuComparison {
+        statistics: Some(pool),
         cpu_path,
         gpu_path,
         cpu_rendered,

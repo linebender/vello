@@ -6,7 +6,7 @@ use vello::{
     kurbo::{Affine, Vec2},
     Scene,
 };
-use vello_tests::{compare_test_sync, TestParams};
+use vello_tests::{compare_gpu_cpu_sync, TestParams};
 
 /// Make sure the CPU and GPU renderers match on the test scenes
 fn encode_test_scene(mut test_scene: ExampleScene, test_params: &mut TestParams) -> Scene {
@@ -47,7 +47,7 @@ fn compare_splash() {
     assert_eq!(test_scene.config.name, "splash_with_tiger");
     let mut params = TestParams::new("compare_splash", 600, 600);
     let scene = encode_test_scene(test_scene, &mut params);
-    match compare_test_sync(scene, params)
+    match compare_gpu_cpu_sync(scene, params)
         .and_then(|mut snapshot| snapshot.assert_mean_less_than(0.01))
     {
         Ok(()) => (),
@@ -62,7 +62,7 @@ fn compare_funky_paths() {
     assert_eq!(test_scene.config.name, "funky_paths");
     let mut params = TestParams::new("compare_funky_paths", 600, 600);
     let scene = encode_test_scene(test_scene, &mut params);
-    match compare_test_sync(scene, params)
+    match compare_gpu_cpu_sync(scene, params)
         .and_then(|mut snapshot| snapshot.assert_mean_less_than(0.01))
     {
         Ok(()) => (),
@@ -77,7 +77,7 @@ fn compare_stroke_styles() {
     assert_eq!(test_scene.config.name, "stroke_styles");
     let mut params = TestParams::new("compare_stroke_styles", 1200, 850);
     let scene = encode_test_scene(test_scene, &mut params);
-    match compare_test_sync(scene, params)
+    match compare_gpu_cpu_sync(scene, params)
         .and_then(|mut snapshot| snapshot.assert_mean_less_than(0.01))
     {
         Ok(()) => (),
@@ -92,7 +92,7 @@ fn compare_stroke_styles_non_uniform() {
     assert_eq!(test_scene.config.name, "stroke_styles (non-uniform scale)");
     let mut params = TestParams::new("compare_stroke_styles_non_uniform", 1200, 850);
     let scene = encode_test_scene(test_scene, &mut params);
-    match compare_test_sync(scene, params)
+    match compare_gpu_cpu_sync(scene, params)
         .and_then(|mut snapshot| snapshot.assert_mean_less_than(0.01))
     {
         Ok(()) => (),
@@ -107,7 +107,7 @@ fn compare_stroke_styles_skew() {
     assert_eq!(test_scene.config.name, "stroke_styles (skew)");
     let mut params = TestParams::new("compare_stroke_styles_skew", 1200, 850);
     let scene = encode_test_scene(test_scene, &mut params);
-    match compare_test_sync(scene, params)
+    match compare_gpu_cpu_sync(scene, params)
         .and_then(|mut snapshot| snapshot.assert_mean_less_than(0.01))
     {
         Ok(()) => (),
@@ -122,7 +122,7 @@ fn compare_tricky_strokes() {
     assert_eq!(test_scene.config.name, "tricky_strokes");
     let mut params = TestParams::new("compare_tricky_strokes", 1200, 850);
     let scene = encode_test_scene(test_scene, &mut params);
-    match compare_test_sync(scene, params)
+    match compare_gpu_cpu_sync(scene, params)
         .and_then(|mut snapshot| snapshot.assert_mean_less_than(0.01))
     {
         Ok(()) => (),
@@ -137,7 +137,7 @@ fn compare_fill_types() {
     assert_eq!(test_scene.config.name, "fill_types");
     let mut params = TestParams::new("compare_fill_types", 1400, 700);
     let scene = encode_test_scene(test_scene, &mut params);
-    match compare_test_sync(scene, params)
+    match compare_gpu_cpu_sync(scene, params)
         .and_then(|mut snapshot| snapshot.assert_mean_less_than(0.01))
     {
         Ok(()) => (),

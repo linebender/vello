@@ -14,7 +14,7 @@ use vello::{
     Scene,
 };
 
-use crate::{env_var_relates_to, render, write_png_to_file, TestParams};
+use crate::{env_var_relates_to, render_then_debug, write_png_to_file, TestParams};
 use anyhow::{anyhow, bail, Result};
 
 fn snapshot_dir() -> PathBuf {
@@ -23,7 +23,7 @@ fn snapshot_dir() -> PathBuf {
 
 #[must_use]
 pub struct Snapshot<'a> {
-    pub pool: Option<FlipPool>,
+    pub statistics: Option<FlipPool>,
     pub reference_path: PathBuf,
     pub update_path: PathBuf,
     pub raw_rendered: Image,
@@ -36,8 +36,8 @@ impl Snapshot<'_> {
             value < 0.1,
             "Mean should be less than 0.1 in almost all cases for a successful test"
         );
-        if let Some(pool) = &self.pool {
-            let mean = pool.mean();
+        if let Some(stats) = &self.statistics {
+            let mean = stats.mean();
             if mean > value {
                 self.handle_failure(format_args!(
                     "Expected mean to be less than {value}, got {mean}"
@@ -91,7 +91,7 @@ pub fn snapshot_test_sync(scene: Scene, params: &TestParams) -> Result<Snapshot<
 }
 
 pub async fn snapshot_test(scene: Scene, params: &TestParams) -> Result<Snapshot> {
-    let raw_rendered = render(&scene, params).await?;
+    let raw_rendered = render_then_debug(&scene, params).await?;
 
     let reference_path = snapshot_dir().join(&params.name).with_extension("png");
     let update_extension = if params.use_cpu {
@@ -120,7 +120,7 @@ pub async fn snapshot_test(scene: Scene, params: &TestParams) -> Result<Snapshot
                     );
                 }
                 return Ok(Snapshot {
-                    pool: None,
+                    statistics: None,
                     reference_path,
                     update_path,
                     raw_rendered,
@@ -144,7 +144,7 @@ pub async fn snapshot_test(scene: Scene, params: &TestParams) -> Result<Snapshot
     if expected_data.width() != raw_rendered.width || expected_data.height() != raw_rendered.height
     {
         let mut snapshot = Snapshot {
-            pool: None,
+            statistics: None,
             reference_path,
             update_path,
             raw_rendered,
@@ -185,7 +185,7 @@ pub async fn snapshot_test(scene: Scene, params: &TestParams) -> Result<Snapshot
     let pool = nv_flip::FlipPool::from_image(&error_map);
 
     Ok(Snapshot {
-        pool: Some(pool),
+        statistics: Some(pool),
         reference_path,
         update_path,
         raw_rendered,
