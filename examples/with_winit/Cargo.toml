@@ -27,7 +27,8 @@ path = "src/main.rs"
 
 [dependencies]
 vello = { workspace = true, features = ["buffer_labels"] }
-scenes = { path = "../scenes" }
+scenes = { workspace = true }
+
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 pollster = { workspace = true }

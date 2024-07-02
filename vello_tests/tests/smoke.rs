@@ -33,7 +33,7 @@ fn simple_square(use_cpu: bool) {
         use_cpu,
         ..TestParams::new("simple_square", 150, 150)
     };
-    let image = vello_tests::render_sync(scene, &params).unwrap();
+    let image = vello_tests::render_then_debug_sync(&scene, &params).unwrap();
     assert_eq!(image.format, Format::Rgba8);
     let mut red_count = 0;
     let mut black_count = 0;

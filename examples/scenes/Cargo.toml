@@ -13,7 +13,7 @@ workspace = true
 vello = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
-image = { version = "0.25.1", default-features = false, features = ["jpeg"] }
+image = { workspace = true, features = ["jpeg"] }
 rand = "0.8.5"
 
 # for pico_svg

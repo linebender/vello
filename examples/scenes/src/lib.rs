@@ -6,15 +6,15 @@ mod mmark;
 mod pico_svg;
 mod simple_text;
 mod svg;
-mod test_scenes;
-use std::path::PathBuf;
+pub mod test_scenes;
 
 use anyhow::{anyhow, Result};
 use clap::Args;
 pub use images::ImageCache;
 pub use simple_text::SimpleText;
+use std::path::PathBuf;
 pub use svg::{default_scene, scene_from_files};
-pub use test_scenes::test_scenes;
+use test_scenes::test_scenes;
 
 use vello::kurbo::Vec2;
 use vello::peniko::Color;
