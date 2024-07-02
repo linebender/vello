@@ -10,7 +10,7 @@
 //! This type of test is useful, as it avoids committing large snapshots to the repository, which are
 //! not handled very well by git.
 
-use scenes::{ExampleScene, ImageCache, SceneParams, SimpleText};
+use scenes::{test_scenes, ExampleScene, ImageCache, SceneParams, SimpleText};
 use vello::{
     kurbo::{Affine, Vec2},
     Scene,
@@ -49,86 +49,70 @@ fn encode_test_scene(mut test_scene: ExampleScene, test_params: &mut TestParams)
     }
 }
 
-#[test]
-#[cfg_attr(skip_gpu_tests, ignore)]
-fn compare_splash() {
-    let test_scene = scenes::test_scenes().scenes.swap_remove(0);
-    assert_eq!(test_scene.config.name, "splash_with_tiger");
-    let mut params = TestParams::new("compare_splash", 600, 600);
+fn compare_test_scene(test_scene: ExampleScene, mut params: TestParams) {
     let scene = encode_test_scene(test_scene, &mut params);
     compare_gpu_cpu_sync(scene, params)
         .unwrap()
         .assert_mean_less_than(0.01);
+}
+
+#[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
+fn compare_splash() {
+    let test_scene = test_scenes::splash_with_tiger();
+    let params = TestParams::new("compare_splash", 600, 600);
+
+    compare_test_scene(test_scene, params);
 }
 
 #[test]
 #[cfg_attr(skip_gpu_tests, ignore)]
 fn compare_funky_paths() {
-    let test_scene = scenes::test_scenes().scenes.swap_remove(1);
-    assert_eq!(test_scene.config.name, "funky_paths");
-    let mut params = TestParams::new("compare_funky_paths", 600, 600);
-    let scene = encode_test_scene(test_scene, &mut params);
-    compare_gpu_cpu_sync(scene, params)
-        .unwrap()
-        .assert_mean_less_than(0.01);
+    let test_scene = test_scenes::funky_paths();
+    let params = TestParams::new("compare_funky_paths", 600, 600);
+
+    compare_test_scene(test_scene, params);
 }
 
 #[test]
 #[cfg_attr(skip_gpu_tests, ignore)]
 fn compare_stroke_styles() {
-    let test_scene = scenes::test_scenes().scenes.swap_remove(2);
-    assert_eq!(test_scene.config.name, "stroke_styles");
-    let mut params = TestParams::new("compare_stroke_styles", 1200, 850);
-    let scene = encode_test_scene(test_scene, &mut params);
-    compare_gpu_cpu_sync(scene, params)
-        .unwrap()
-        .assert_mean_less_than(0.01);
+    let test_scene = test_scenes::stroke_styles();
+    let params = TestParams::new("compare_stroke_styles", 1200, 850);
+
+    compare_test_scene(test_scene, params);
 }
 
 #[test]
 #[cfg_attr(skip_gpu_tests, ignore)]
 fn compare_stroke_styles_non_uniform() {
-    let test_scene = scenes::test_scenes().scenes.swap_remove(3);
-    assert_eq!(test_scene.config.name, "stroke_styles (non-uniform scale)");
-    let mut params = TestParams::new("compare_stroke_styles_non_uniform", 1200, 850);
-    let scene = encode_test_scene(test_scene, &mut params);
-    compare_gpu_cpu_sync(scene, params)
-        .unwrap()
-        .assert_mean_less_than(0.01);
+    let test_scene = test_scenes::stroke_styles_non_uniform();
+    let params = TestParams::new("compare_stroke_styles_non_uniform", 1200, 850);
+
+    compare_test_scene(test_scene, params);
 }
 
 #[test]
 #[cfg_attr(skip_gpu_tests, ignore)]
 fn compare_stroke_styles_skew() {
-    let test_scene = scenes::test_scenes().scenes.swap_remove(4);
-    assert_eq!(test_scene.config.name, "stroke_styles (skew)");
-    let mut params = TestParams::new("compare_stroke_styles_skew", 1200, 850);
-    let scene = encode_test_scene(test_scene, &mut params);
-    compare_gpu_cpu_sync(scene, params)
-        .unwrap()
-        .assert_mean_less_than(0.01);
+    let test_scene = test_scenes::stroke_styles_skew();
+    let params = TestParams::new("compare_stroke_styles_skew", 1200, 850);
+    compare_test_scene(test_scene, params);
 }
 
 #[test]
 #[cfg_attr(skip_gpu_tests, ignore)]
 fn compare_tricky_strokes() {
-    let test_scene = scenes::test_scenes().scenes.swap_remove(6);
-    assert_eq!(test_scene.config.name, "tricky_strokes");
-    let mut params = TestParams::new("compare_tricky_strokes", 1200, 850);
-    let scene = encode_test_scene(test_scene, &mut params);
-    compare_gpu_cpu_sync(scene, params)
-        .unwrap()
-        .assert_mean_less_than(0.01);
+    let test_scene = test_scenes::tricky_strokes();
+    let params = TestParams::new("compare_tricky_strokes", 1200, 850);
+    compare_test_scene(test_scene, params);
 }
 
 #[test]
 #[cfg_attr(skip_gpu_tests, ignore)]
 fn compare_fill_types() {
-    let test_scene = scenes::test_scenes().scenes.swap_remove(7);
+    let test_scene = test_scenes::fill_types();
     assert_eq!(test_scene.config.name, "fill_types");
-    let mut params = TestParams::new("compare_fill_types", 1400, 700);
-    let scene = encode_test_scene(test_scene, &mut params);
-    compare_gpu_cpu_sync(scene, params)
-        .unwrap()
-        .assert_mean_less_than(0.01);
+    let params = TestParams::new("compare_fill_types", 1400, 700);
+    compare_test_scene(test_scene, params);
 }
