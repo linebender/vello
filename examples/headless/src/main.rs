@@ -232,7 +232,7 @@ struct Args {
     time: Option<f64>,
     /// Directory to store the result into
     #[arg(long, default_value_os_t = default_directory())]
-    pub out_directory: PathBuf,
+    out_directory: PathBuf,
     #[arg(long, short, global(false))]
     /// Display a list of all scene names
     print_scenes: bool,

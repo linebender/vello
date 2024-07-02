@@ -103,7 +103,7 @@ fn render_svg_rec(items: &[crate::pico_svg::Item]) -> Scene {
     scene
 }
 
-pub fn svg_function_of<R: AsRef<str>>(
+pub(crate) fn svg_function_of<R: AsRef<str>>(
     name: String,
     contents: impl FnOnce() -> R + Send + 'static,
 ) -> impl FnMut(&mut Scene, &mut SceneParams) {

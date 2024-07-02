@@ -25,7 +25,7 @@ const HEIGHT: usize = 900;
 const GRID_WIDTH: i64 = 80;
 const GRID_HEIGHT: i64 = 40;
 
-pub struct MMark {
+pub(crate) struct MMark {
     elements: Vec<Element>,
 }
 
@@ -41,7 +41,7 @@ struct Element {
 struct GridPoint(i64, i64);
 
 impl MMark {
-    pub fn new(n: usize) -> MMark {
+    pub(crate) fn new(n: usize) -> MMark {
         let mut result = MMark { elements: vec![] };
         result.resize(n);
         result

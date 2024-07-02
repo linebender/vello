@@ -28,7 +28,7 @@ struct UninitialisedShader {
 }
 
 #[derive(Default)]
-pub struct WgpuEngine {
+pub(crate) struct WgpuEngine {
     shaders: Vec<Shader>,
     pool: ResourcePool,
     bind_map: BindMap,
@@ -43,7 +43,7 @@ struct WgpuShader {
     bind_group_layout: BindGroupLayout,
 }
 
-pub enum CpuShaderType {
+pub(crate) enum CpuShaderType {
     Present(fn(u32, &[CpuBinding])),
     Missing,
     Skipped,
@@ -77,7 +77,7 @@ impl Shader {
     }
 }
 
-pub enum ExternalResource<'a> {
+pub(crate) enum ExternalResource<'a> {
     #[allow(unused)]
     Buffer(BufferProxy, &'a Buffer),
     Image(ImageProxy, &'a TextureView),
@@ -133,7 +133,7 @@ enum TransientBuf<'a> {
 }
 
 impl WgpuEngine {
-    pub fn new(use_cpu: bool) -> WgpuEngine {
+    pub(crate) fn new(use_cpu: bool) -> WgpuEngine {
         Self {
             use_cpu,
             ..Default::default()
@@ -142,7 +142,7 @@ impl WgpuEngine {
 
     /// Enable creating any remaining shaders in parallel
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn use_parallel_initialisation(&mut self) {
+    pub(crate) fn use_parallel_initialisation(&mut self) {
         if self.shaders_to_initialise.is_some() {
             return;
         }
@@ -151,7 +151,7 @@ impl WgpuEngine {
 
     #[cfg(not(target_arch = "wasm32"))]
     /// Initialise (in parallel) any shaders which are yet to be created
-    pub fn build_shaders_if_needed(
+    pub(crate) fn build_shaders_if_needed(
         &mut self,
         device: &Device,
         num_threads: Option<std::num::NonZeroUsize>,
@@ -230,7 +230,7 @@ impl WgpuEngine {
     ///
     /// Maybe should do template instantiation here? But shader compilation pipeline feels maybe
     /// a bit separate.
-    pub fn add_shader(
+    pub(crate) fn add_shader(
         &mut self,
         device: &Device,
         label: &'static str,
@@ -337,7 +337,7 @@ impl WgpuEngine {
         })
     }
 
-    pub fn run_recording(
+    pub(crate) fn run_recording(
         &mut self,
         device: &Device,
         queue: &Queue,
@@ -609,11 +609,11 @@ impl WgpuEngine {
         Ok(())
     }
 
-    pub fn get_download(&self, buf: BufferProxy) -> Option<&Buffer> {
+    pub(crate) fn get_download(&self, buf: BufferProxy) -> Option<&Buffer> {
         self.downloads.get(&buf.id)
     }
 
-    pub fn free_download(&mut self, buf: BufferProxy) {
+    pub(crate) fn free_download(&mut self, buf: BufferProxy) {
         self.downloads.remove(&buf.id);
     }
 

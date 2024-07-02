@@ -134,21 +134,21 @@ impl Vec2 {
 }
 
 #[derive(Clone)]
-pub struct Transform(pub [f32; 6]);
+pub(crate) struct Transform(pub(crate) [f32; 6]);
 
 impl Transform {
-    pub fn identity() -> Self {
+    pub(crate) fn identity() -> Self {
         Self([1., 0., 0., 1., 0., 0.])
     }
 
-    pub fn apply(&self, p: Vec2) -> Vec2 {
+    pub(crate) fn apply(&self, p: Vec2) -> Vec2 {
         let z = self.0;
         let x = z[0] * p.x + z[2] * p.y + z[4];
         let y = z[1] * p.x + z[3] * p.y + z[5];
         Vec2 { x, y }
     }
 
-    pub fn inverse(&self) -> Transform {
+    pub(crate) fn inverse(&self) -> Transform {
         let z = self.0;
         let inv_det = (z[0] * z[3] - z[1] * z[2]).recip();
         let inv_mat = [
@@ -167,7 +167,7 @@ impl Transform {
         ])
     }
 
-    pub fn read(transform_base: u32, ix: u32, data: &[u32]) -> Transform {
+    pub(crate) fn read(transform_base: u32, ix: u32, data: &[u32]) -> Transform {
         let mut z = [0.0; 6];
         let base = (transform_base + ix * 6) as usize;
         for i in 0..6 {
@@ -193,7 +193,7 @@ impl Mul for Transform {
     }
 }
 
-pub fn span(a: f32, b: f32) -> u32 {
+pub(crate) fn span(a: f32, b: f32) -> u32 {
     (a.max(b).ceil() - a.min(b).floor()).max(1.0) as u32
 }
 
@@ -203,7 +203,7 @@ const DRAWTAG_NOP: u32 = 0;
 ///
 /// The `ix` argument is allowed to exceed the number of draw objects,
 /// in which case a NOP is returned.
-pub fn read_draw_tag_from_scene(config: &ConfigUniform, scene: &[u32], ix: u32) -> u32 {
+pub(crate) fn read_draw_tag_from_scene(config: &ConfigUniform, scene: &[u32], ix: u32) -> u32 {
     if ix < config.layout.n_draw_objects {
         let tag_ix = config.layout.draw_tag_base + ix;
         scene[tag_ix as usize]
@@ -217,7 +217,7 @@ pub fn read_draw_tag_from_scene(config: &ConfigUniform, scene: &[u32], ix: u32) 
 /// This value is used to limit the value of b so that its floor is strictly less
 /// than 1. That guarantees that floor(a * i + b) == 0 for i == 0, which lands on
 /// the correct first tile.
-pub const ONE_MINUS_ULP: f32 = 0.99999994;
+pub(crate) const ONE_MINUS_ULP: f32 = 0.99999994;
 
 /// An epsilon to be applied in path numerical robustness.
 ///
@@ -225,4 +225,4 @@ pub const ONE_MINUS_ULP: f32 = 0.99999994;
 /// grid cells minus one), this delta is applied to a to push it in the correct
 /// direction. The theory is that a is not off by more than a few ulp, and it's
 /// always in the range of 0..1.
-pub const ROBUST_EPSILON: f32 = 2e-7;
+pub(crate) const ROBUST_EPSILON: f32 = 2e-7;

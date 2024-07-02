@@ -17,14 +17,14 @@ pub struct Ramps<'a> {
 }
 
 #[derive(Default)]
-pub struct RampCache {
+pub(crate) struct RampCache {
     epoch: u64,
     map: HashMap<ColorStops, (u32, u64)>,
     data: Vec<u32>,
 }
 
 impl RampCache {
-    pub fn maintain(&mut self) {
+    pub(crate) fn maintain(&mut self) {
         self.epoch += 1;
         if self.map.len() > RETAINED_COUNT {
             self.map
@@ -33,7 +33,7 @@ impl RampCache {
         }
     }
 
-    pub fn add(&mut self, stops: &[ColorStop]) -> u32 {
+    pub(crate) fn add(&mut self, stops: &[ColorStop]) -> u32 {
         if let Some(entry) = self.map.get_mut(stops) {
             entry.1 = self.epoch;
             entry.0
@@ -70,7 +70,7 @@ impl RampCache {
         }
     }
 
-    pub fn ramps(&self) -> Ramps {
+    pub(crate) fn ramps(&self) -> Ramps {
         Ramps {
             data: &self.data,
             width: N_SAMPLES as u32,
