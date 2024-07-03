@@ -14,7 +14,7 @@ use skrifa::{
     GlyphId, MetadataProvider, OutlineGlyphCollection,
 };
 #[cfg(feature = "bump_estimate")]
-use vello_encoding::BumpAllocatorMemory;
+use vello_encoding::BumpAllocators;
 use vello_encoding::{Encoding, Glyph, GlyphRun, Patch, Transform};
 
 // TODO - Document invariants and edge cases (#470)
@@ -49,7 +49,7 @@ impl Scene {
     /// Tally up the bump allocator estimate for the current state of the encoding,
     /// taking into account an optional `transform` applied to the entire scene.
     #[cfg(feature = "bump_estimate")]
-    pub fn bump_estimate(&self, transform: Option<Affine>) -> BumpAllocatorMemory {
+    pub fn bump_estimate(&self, transform: Option<Affine>) -> BumpAllocators {
         self.estimator
             .tally(transform.as_ref().map(Transform::from_kurbo).as_ref())
     }

@@ -162,7 +162,7 @@ impl BumpEstimator {
     }
 
     /// Produce the final total, applying an optional transform to all content.
-    pub fn tally(&self, transform: Option<&Transform>) -> BumpAllocatorMemory {
+    pub fn tally(&self, transform: Option<&Transform>) -> BumpAllocators {
         let scale = transform_scale(transform);
 
         // The post-flatten line estimate.
@@ -172,7 +172,7 @@ impl BumpEstimator {
         // segments as there are lines, in case `segments` was underestimated at small scales.
         let n_segments = ((self.segments as f64 * scale).ceil() as u32).max(lines);
 
-        let bump = BumpAllocators {
+        BumpAllocators {
             failed: 0,
             // TODO: we can provide a tighter bound here but for now we
             // assume that binning must be bounded by the segment count.
@@ -183,8 +183,7 @@ impl BumpEstimator {
             seg_counts: n_segments,
             segments: n_segments,
             lines,
-        };
-        bump.memory()
+        }
     }
 
     fn count_stroke_caps(&mut self, style: Cap, scaled_width: f64, count: u32) {
