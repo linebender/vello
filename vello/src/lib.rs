@@ -370,7 +370,7 @@ impl Renderer {
             bump: None,
             previous_submission: None,
             previouser_submission: None,
-            bump_sizes: BumpAllocators::default(),
+            bump_sizes: BumpAllocators::initial_sizes(),
             // Use 3 pending frames
             #[cfg(feature = "wgpu-profiler")]
             profiler: GpuProfiler::new(GpuProfilerSettings {
