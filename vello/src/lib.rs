@@ -128,7 +128,6 @@ pub use shaders::FullShaders;
 
 #[cfg(feature = "wgpu")]
 use vello_encoding::Resolver;
-use wgpu::SubmissionIndex;
 #[cfg(feature = "wgpu")]
 use wgpu_engine::{ExternalResource, WgpuEngine};
 
@@ -136,7 +135,10 @@ pub use debug::DebugLayers;
 /// Temporary export, used in `with_winit` for stats
 pub use vello_encoding::BumpAllocators;
 #[cfg(feature = "wgpu")]
-use wgpu::{Buffer, BufferUsages, Device, Queue, SurfaceTexture, TextureFormat, TextureView};
+use wgpu::{
+    Buffer, BufferUsages, Device, PipelineCompilationOptions, Queue, SubmissionIndex,
+    SurfaceTexture, TextureFormat, TextureView,
+};
 #[cfg(all(feature = "wgpu", feature = "wgpu-profiler"))]
 use wgpu_profiler::{GpuProfiler, GpuProfilerSettings};
 
@@ -247,6 +249,7 @@ pub enum Error {
 #[allow(dead_code)] // this can be unused when wgpu feature is not used
 pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 
+#[cfg(feature = "wgpu")]
 type BumpSubmission = (SubmissionIndex, Buffer, Arc<AtomicBool>);
 
 /// Renders a scene into a texture or surface.

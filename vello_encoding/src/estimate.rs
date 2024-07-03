@@ -4,7 +4,7 @@
 //! This utility provides conservative size estimation for buffer allocations backing
 //! GPU bump memory. This estimate relies on heuristics and naturally overestimates.
 
-use super::{BumpAllocatorMemory, BumpAllocators, Transform};
+use super::{BumpAllocators, Transform};
 use peniko::kurbo::{Cap, Join, PathEl, Point, Stroke, Vec2};
 
 const RSQRT_OF_TOL: f64 = 2.2360679775; // tol = 0.2
