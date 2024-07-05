@@ -77,9 +77,9 @@ export_scenes!(
     mmark(crate::mmark::MMark::new(80_000), "mmark", false),
     many_draw_objects(many_draw_objects),
 );
-// Scenes
 
-// Implementations of
+/// Implementations for the test scenes.
+/// In a module because the exported [`ExampleScene`](crate::ExampleScene) creation functions use the same names.
 mod impls {
     use crate::SceneParams;
     use vello::kurbo::{
