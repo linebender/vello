@@ -8,7 +8,7 @@
 //
 // TODO: This also carries a `draw_flags` field that contains information that gets propagated to
 // the draw info stream. This is currently only used for the fill rule. If the other bits remain
-// unused we could possibly pack this into some other field, such as the the MSB of `trans_ix`.
+// unused we could possibly pack this into some other field, such as the MSB of `trans_ix`.
 struct PathBbox {
     x0: i32,
     y0: i32,
