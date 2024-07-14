@@ -66,6 +66,11 @@ While drawing in a Vello scene is easy, actually rendering that scene to a surfa
 To use Vello as the renderer for your PDF reader / GUI toolkit / etc, your code will have to look roughly like this:
 
 ```rust
+use std::num::NonZeroUsize;
+use vello::{ Renderer, RendererOptions, AaConfig };
+use vello::peniko::{ Fill, Color };
+use vello::kurbo::{ Affine, Circle };
+
 // Initialize wgpu and get handles
 let (width, height) = ...;
 let device: wgpu::Device = ...;
@@ -85,11 +90,11 @@ let mut renderer = Renderer::new(
 // Create scene and draw stuff in it
 let mut scene = vello::Scene::new();
 scene.fill(
-   vello::peniko::Fill::NonZero,
-   vello::Affine::IDENTITY,
-   vello::Color::rgb8(242, 140, 168),
+   Fill::NonZero,
+   Affine::IDENTITY,
+   Color::rgb8(242, 140, 168),
    None,
-   &vello::Circle::new((420.0, 200.0), 120.0),
+   &Circle::new((420.0, 200.0), 120.0),
 );
 
 // Draw more stuff
