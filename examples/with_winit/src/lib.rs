@@ -670,6 +670,7 @@ fn run(
         context: render_cx,
         renderers,
         state: render_state,
+        #[cfg(not(target_arch = "wasm32"))]
         cached_window: None,
         use_cpu: args.use_cpu,
         num_init_threads: args.num_init_threads,
