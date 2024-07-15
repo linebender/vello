@@ -11,7 +11,8 @@ workspace = true
 
 [dependencies]
 vello = { workspace = true }
-scenes = { path = "../scenes" }
+scenes = { workspace = true }
+
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 

@@ -12,6 +12,10 @@ env:
   # List of packages that will be checked with the minimum supported Rust version.
   # This should be limited to packages that are intended for publishing.
   RUST_MIN_VER_PKGS: "-p vello -p vello_encoding -p vello_shaders"
+  # List of packages that can not target wasm.
+  # `vello_tests` uses `nv-flip`, which doesn't support wasm.
+  NO_WASM_PKGS: "--exclude vello_tests"
+
 
 
 # Rationale
@@ -120,10 +124,10 @@ jobs:
           tool: cargo-hack
 
       - name: cargo clippy
-        run: cargo hack clippy --workspace --locked --target wasm32-unknown-unknown --each-feature --optional-deps -- -D warnings
+        run: cargo hack clippy --workspace ${{ env.NO_WASM_PKGS }} --locked --target wasm32-unknown-unknown --each-feature --optional-deps -- -D warnings
 
       - name: cargo clippy (auxiliary)
-        run: cargo hack clippy --workspace --locked --target wasm32-unknown-unknown --each-feature --optional-deps --tests --benches --examples -- -D warnings
+        run: cargo hack clippy --workspace ${{ env.NO_WASM_PKGS }} --locked --target wasm32-unknown-unknown --each-feature --optional-deps --tests --benches --examples -- -D warnings
 
   test-stable:
     name: cargo test
@@ -164,9 +168,15 @@ jobs:
           sudo add-apt-repository ppa:kisak/turtle -y
           sudo apt-get update
           sudo apt install -y xvfb libegl1-mesa libgl1-mesa-dri libxcb-xfixes0-dev mesa-vulkan-drivers
+      
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
 
       - name: cargo test
-        run: cargo test --workspace --locked --all-features
+        # TODO: Maybe use --release; the CPU shaders are extremely slow when unoptimised
+        run: cargo nextest run --workspace --locked --all-features
         env:
           VELLO_CI_GPU_SUPPORT: ${{ matrix.gpu }}
 
@@ -187,7 +197,7 @@ jobs:
 
       # TODO: Find a way to make tests work. Until then the tests are merely compiled.
       - name: cargo test compile
-        run: cargo test --workspace --locked --target wasm32-unknown-unknown --all-features --no-run
+        run: cargo test --workspace ${{ env.NO_WASM_PKGS }} --locked --target wasm32-unknown-unknown --all-features --no-run
 
   check-stable-android:
     name: cargo check (aarch64-android)
@@ -263,6 +273,8 @@ jobs:
           tool: cargo-hack
 
       - name: cargo check
+        # We don't include ${{ env.NO_WASM_PKGS }} here, because `-p foo --exclude foo` doesn't work
+        # and none of our `NO_WASM_PKGS` have an MSRV.
         run: cargo hack check ${{ env.RUST_MIN_VER_PKGS }} --locked --target wasm32-unknown-unknown --each-feature --optional-deps
 
   doc:
