@@ -199,7 +199,7 @@ fn parse_transform(transform: &str) -> Affine {
     for ts in transform.split(')').map(str::trim) {
         nt *= if let Some(s) = ts.strip_prefix("matrix(") {
             let vals = s
-                .split(|c| matches!(c, ',' | ' '))
+                .split([',', ' '])
                 .map(str::parse)
                 .collect::<Result<Vec<f64>, _>>()
                 .expect("Could parse all values of 'matrix' as floats");
@@ -209,7 +209,7 @@ fn parse_transform(transform: &str) -> Affine {
             )
         } else if let Some(s) = ts.strip_prefix("translate(") {
             if let Ok(vals) = s
-                .split(|c| matches!(c, ',' | ' '))
+                .split([',', ' '])
                 .map(str::trim)
                 .map(str::parse)
                 .collect::<Result<Vec<f64>, _>>()
@@ -223,7 +223,7 @@ fn parse_transform(transform: &str) -> Affine {
             }
         } else if let Some(s) = ts.strip_prefix("scale(") {
             if let Ok(vals) = s
-                .split(|c| matches!(c, ',' | ' '))
+                .split([',', ' '])
                 .map(str::trim)
                 .map(str::parse)
                 .collect::<Result<Vec<f64>, _>>()
@@ -263,10 +263,7 @@ fn parse_color(color: &str) -> Color {
     if let Some(c) = Color::parse(color) {
         c
     } else if let Some(s) = color.strip_prefix("rgb(").and_then(|s| s.strip_suffix(')')) {
-        let mut iter = s
-            .split(|c| matches!(c, ',' | ' '))
-            .map(str::trim)
-            .map(u8::from_str);
+        let mut iter = s.split([',', ' ']).map(str::trim).map(u8::from_str);
 
         let r = iter.next().unwrap().unwrap();
         let g = iter.next().unwrap().unwrap();
