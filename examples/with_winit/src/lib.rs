@@ -1,6 +1,9 @@
 // Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+// This is not a published crate, so we don't need to understand our public API
+#![allow(unreachable_pub)]
+
 use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::sync::Arc;

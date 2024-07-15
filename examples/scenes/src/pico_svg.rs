@@ -11,31 +11,31 @@ use vello::{
     peniko::Color,
 };
 
-pub(crate) struct PicoSvg {
-    pub(crate) items: Vec<Item>,
-    pub(crate) size: Size,
+pub struct PicoSvg {
+    pub items: Vec<Item>,
+    pub size: Size,
 }
 
-pub(crate) enum Item {
+pub enum Item {
     Fill(FillItem),
     Stroke(StrokeItem),
     Group(GroupItem),
 }
 
-pub(crate) struct StrokeItem {
-    pub(crate) width: f64,
-    pub(crate) color: Color,
-    pub(crate) path: BezPath,
+pub struct StrokeItem {
+    pub width: f64,
+    pub color: Color,
+    pub path: BezPath,
 }
 
-pub(crate) struct FillItem {
-    pub(crate) color: Color,
-    pub(crate) path: BezPath,
+pub struct FillItem {
+    pub color: Color,
+    pub path: BezPath,
 }
 
-pub(crate) struct GroupItem {
-    pub(crate) affine: Affine,
-    pub(crate) children: Vec<Item>,
+pub struct GroupItem {
+    pub affine: Affine,
+    pub children: Vec<Item>,
 }
 
 struct Parser {
@@ -43,10 +43,7 @@ struct Parser {
 }
 
 impl PicoSvg {
-    pub(crate) fn load(
-        xml_string: &str,
-        scale: f64,
-    ) -> Result<PicoSvg, Box<dyn std::error::Error>> {
+    pub fn load(xml_string: &str, scale: f64) -> Result<PicoSvg, Box<dyn std::error::Error>> {
         let doc = Document::parse(xml_string)?;
         let root = doc.root_element();
         let mut parser = Parser::new(scale);

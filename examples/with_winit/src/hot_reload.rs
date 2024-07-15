@@ -7,7 +7,7 @@ use anyhow::Result;
 use notify_debouncer_mini::notify::*;
 use notify_debouncer_mini::{new_debouncer, DebounceEventResult};
 
-pub(crate) fn hot_reload(mut f: impl FnMut() -> Option<()> + Send + 'static) -> Result<impl Sized> {
+pub fn hot_reload(mut f: impl FnMut() -> Option<()> + Send + 'static) -> Result<impl Sized> {
     let mut debouncer = new_debouncer(
         Duration::from_millis(500),
         move |res: DebounceEventResult| match res {
