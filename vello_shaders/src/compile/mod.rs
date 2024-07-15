@@ -195,13 +195,14 @@ impl ShaderInfo {
         let imports = preprocess::get_imports(shader_dir);
         let mut errors = vec![];
         let mut info = HashMap::default();
-        let defines: HashSet<_> = if cfg!(feature = "full") {
-            vec!["full".to_string()]
-        } else {
-            vec![]
-        }
-        .into_iter()
-        .collect();
+        let defines: HashSet<_> = {
+            let mut defines = vec![];
+            if cfg!(feature = "full") {
+                defines.push("full");
+            }
+            defines.push("evolutes");
+            defines.into_iter().map(|s| s.to_owned()).collect()
+        };
         for entry in shader_dir
             .read_dir()
             .expect("Can read shader import directory")
