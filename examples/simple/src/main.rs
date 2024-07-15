@@ -28,7 +28,7 @@ enum RenderState<'s> {
     Suspended(Option<Arc<Window>>),
 }
 
-struct RenderStateWithContext<'s> {
+struct SimpleVelloApp<'s> {
     // The vello RenderContext which is a global context that lasts for the
     // lifetime of the application
     context: RenderContext,
@@ -45,7 +45,7 @@ struct RenderStateWithContext<'s> {
     scene: Scene,
 }
 
-impl<'s> ApplicationHandler for RenderStateWithContext<'s> {
+impl<'s> ApplicationHandler for SimpleVelloApp<'s> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let RenderState::Suspended(cached_window) = &mut self.state else {
             return;
@@ -167,7 +167,7 @@ impl<'s> ApplicationHandler for RenderStateWithContext<'s> {
 
 fn main() -> Result<()> {
     // Setup a bunch of state:
-    let mut state = RenderStateWithContext {
+    let mut app = SimpleVelloApp {
         context: RenderContext::new(),
         renderers: vec![],
         state: RenderState::Suspended(None),
@@ -177,7 +177,7 @@ fn main() -> Result<()> {
     // Create and run a winit event loop
     let event_loop = EventLoop::new()?;
     event_loop
-        .run_app(&mut state)
+        .run_app(&mut app)
         .expect("Couldn't run event loop");
     Ok(())
 }
