@@ -50,10 +50,10 @@ fn empty_scene(use_cpu: bool) {
     let color = Color::PLUM;
     let params = TestParams {
         use_cpu,
-        base_colour: Some(color),
+        base_colour: color,
         ..TestParams::new("simple_square", 150, 150)
     };
-    let image = vello_tests::render_then_debug_sync(&scene, &params).unwrap();
+    let image = vello_tests::render_sync(scene, &params).unwrap();
     assert_eq!(image.format, Format::Rgba8);
     for pixel in image.data.data().chunks_exact(4) {
         let &[r, g, b, a] = pixel else { unreachable!() };
