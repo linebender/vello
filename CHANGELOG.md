@@ -8,8 +8,8 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 # Changelog
 
-The latest published Vello release is [0.2.0](#020---2024-06-08) which was released on 2024-06-08.
-You can find its changes [documented below](#020---2024-06-08).
+The latest published Vello release is [0.2.1](#021---2024-07-16) which was released on 2024-07-16.
+You can find its changes [documented below](#021---2024-07-16).
 
 ## [Unreleased]
 
@@ -20,6 +20,19 @@ This release has an [MSRV][] of 1.75.
 ### Changed
 
 ### Fixed
+
+## [0.2.1][] - 2024-07-16
+
+This release has an [MSRV][] of 1.75.
+
+### Fixed
+
+- Crash when there is no scene contents ([#630] by [@DJMcNab])
+
+### Changed
+
+- Updated `wgpu` to 0.20.1. ([#631] by [@waywardmonkeys])
+- Document the MSRV of releases in the changelog ([#619] by [@DJMcNab])
 
 ## [0.2.0] - 2024-06-08
 
@@ -95,8 +108,11 @@ This release has an [MSRV][] of 1.75.
 [#573]: https://github.com/linebender/vello/pull/573
 [#575]: https://github.com/linebender/vello/pull/575
 [#589]: https://github.com/linebender/vello/pull/589
+[#612]: https://github.com/linebender/vello/pull/612
 
+<!-- Note that this still comparing against 0.2.0, because 0.2.1 is a cherry-picked patch -->
 [Unreleased]: https://github.com/linebender/vello/compare/v0.2.0...HEAD
+[0.2.1]: https://github.com/linebender/vello/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/linebender/vello/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/linebender/vello/releases/tag/v0.1.0
 
