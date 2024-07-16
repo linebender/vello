@@ -25,13 +25,38 @@ use vello_encoding::{Encoding, Glyph, GlyphRun, Patch, Transform};
 ///
 /// A Scene stores a sequence of drawing commands, their context, and the
 /// associated resources, which can later be rendered.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct Scene {
     encoding: Encoding,
     #[cfg(feature = "bump_estimate")]
     estimator: vello_encoding::BumpEstimator,
 }
 static_assertions::assert_impl_all!(Scene: Send, Sync);
+
+impl Default for Scene {
+    fn default() -> Self {
+        let mut scene = Self {
+            encoding: Default::default(),
+            #[cfg(feature = "bump_estimate")]
+            estimator: Default::default(),
+        };
+
+        // FIXME - `Render` panics when given an empty scene
+        // See https://github.com/linebender/vello/issues/291
+        // Until that panic is fixed, this workaround makes it
+        // so scenes are never empty by default.
+        let empty_path = Rect::ZERO;
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            Color::TRANSPARENT,
+            None,
+            &empty_path,
+        );
+
+        scene
+    }
+}
 
 impl Scene {
     /// Creates a new scene.
