@@ -3,6 +3,8 @@
 
 //! Take an encoded scene and create a graph to render it
 
+use std::mem::size_of;
+
 use crate::recording::{BufferProxy, ImageFormat, ImageProxy, Recording, ResourceProxy};
 use crate::shaders::FullShaders;
 use crate::{AaConfig, RenderParams};
@@ -120,12 +122,18 @@ impl Render {
                 image.0.data.data(),
             );
         }
-
         let cpu_config =
             RenderConfig::new(&layout, params.width, params.height, &params.base_color);
         let buffer_sizes = &cpu_config.buffer_sizes;
         let wg_counts = &cpu_config.workgroup_counts;
 
+        if packed.is_empty() {
+            // HACK: wgpu doesn't allow empty buffers, so we make sure that the scene buffer we upload
+            // can contain at least one array item.
+            // The values passed here should never be read, because the scene size in config
+            // is zero.
+            packed.resize(size_of::<u32>(), u8::MAX);
+        }
         let scene_buf = ResourceProxy::Buffer(recording.upload("scene", packed));
         let config_buf = ResourceProxy::Buffer(
             recording.upload_uniform("config", bytemuck::bytes_of(&cpu_config.gpu)),
