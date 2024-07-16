@@ -2298,7 +2298,7 @@ checksum = "830b7e5d4d90034032940e4ace0d9a9a057e7a45cd94e6c007832e39edb82f6d"
 
 [[package]]
 name = "vello"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "bytemuck",
  "futures-intrusive",
@@ -2316,7 +2316,7 @@ dependencies = [
 
 [[package]]
 name = "vello_encoding"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "bytemuck",
  "guillotiere",
@@ -2327,7 +2327,7 @@ dependencies = [
 
 [[package]]
 name = "vello_shaders"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "bytemuck",
  "naga",
