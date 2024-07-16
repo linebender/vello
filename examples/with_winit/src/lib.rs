@@ -110,7 +110,9 @@ struct VelloApp<'s> {
     #[cfg(not(target_arch = "wasm32"))]
     cached_window: Option<Arc<Window>>,
 
+    #[cfg(not(target_arch = "wasm32"))]
     use_cpu: bool,
+    #[cfg(not(target_arch = "wasm32"))]
     num_init_threads: usize,
 
     scenes: Vec<ExampleScene>,
@@ -160,64 +162,66 @@ struct VelloApp<'s> {
 }
 
 impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
+    #[cfg(target_arch = "wasm32")]
+    fn resumed(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop) {}
+
+    #[cfg(not(target_arch = "wasm32"))]
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
-        #[cfg(target_arch = "wasm32")]
-        {}
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            let Option::None = self.state else { return };
-            let window = self.cached_window.take().unwrap_or_else(|| {
-                Arc::new(event_loop.create_window(window_attributes()).unwrap())
-            });
-            let size = window.inner_size();
-            let present_mode = if self.vsync_on {
-                wgpu::PresentMode::AutoVsync
-            } else {
-                wgpu::PresentMode::AutoNoVsync
-            };
-            let surface_future =
-                self.context
-                    .create_surface(window.clone(), size.width, size.height, present_mode);
-            // We need to block here, in case a Suspended event appeared
-            let surface = pollster::block_on(surface_future).expect("Error creating surface");
-            self.state = {
-                let render_state = RenderState { window, surface };
-                self.renderers
-                    .resize_with(self.context.devices.len(), || None);
-                let id = render_state.surface.dev_id;
-                self.renderers[id].get_or_insert_with(|| {
-                    let start = Instant::now();
-                    #[allow(unused_mut)]
-                    let mut renderer = Renderer::new(
-                        &self.context.devices[id].device,
-                        RendererOptions {
-                            surface_format: Some(render_state.surface.format),
-                            use_cpu: self.use_cpu,
-                            antialiasing_support: AA_CONFIGS.iter().copied().collect(),
-                            num_init_threads: NonZeroUsize::new(self.num_init_threads),
-                        },
-                    )
-                    .map_err(|e| {
-                        // Pretty-print any renderer creation error using Display formatting before unwrapping.
-                        anyhow::format_err!("{e}")
+        let Option::None = self.state else {
+            return;
+        };
+        let window = self
+            .cached_window
+            .take()
+            .unwrap_or_else(|| Arc::new(event_loop.create_window(window_attributes()).unwrap()));
+        let size = window.inner_size();
+        let present_mode = if self.vsync_on {
+            wgpu::PresentMode::AutoVsync
+        } else {
+            wgpu::PresentMode::AutoNoVsync
+        };
+        let surface_future =
+            self.context
+                .create_surface(window.clone(), size.width, size.height, present_mode);
+        // We need to block here, in case a Suspended event appeared
+        let surface = pollster::block_on(surface_future).expect("Error creating surface");
+        self.state = {
+            let render_state = RenderState { window, surface };
+            self.renderers
+                .resize_with(self.context.devices.len(), || None);
+            let id = render_state.surface.dev_id;
+            self.renderers[id].get_or_insert_with(|| {
+                let start = Instant::now();
+                #[allow(unused_mut)]
+                let mut renderer = Renderer::new(
+                    &self.context.devices[id].device,
+                    RendererOptions {
+                        surface_format: Some(render_state.surface.format),
+                        use_cpu: self.use_cpu,
+                        antialiasing_support: AA_CONFIGS.iter().copied().collect(),
+                        num_init_threads: NonZeroUsize::new(self.num_init_threads),
+                    },
+                )
+                .map_err(|e| {
+                    // Pretty-print any renderer creation error using Display formatting before unwrapping.
+                    anyhow::format_err!("{e}")
+                })
+                .expect("Failed to create renderer");
+                log::info!("Creating renderer {id} took {:?}", start.elapsed());
+                #[cfg(feature = "wgpu-profiler")]
+                renderer
+                    .profiler
+                    .change_settings(wgpu_profiler::GpuProfilerSettings {
+                        enable_timer_queries: self.gpu_profiling_on,
+                        enable_debug_groups: self.gpu_profiling_on,
+                        ..Default::default()
                     })
-                    .expect("Failed to create renderer");
-                    log::info!("Creating renderer {id} took {:?}", start.elapsed());
-                    #[cfg(feature = "wgpu-profiler")]
-                    renderer
-                        .profiler
-                        .change_settings(wgpu_profiler::GpuProfilerSettings {
-                            enable_timer_queries: self.gpu_profiling_on,
-                            enable_debug_groups: self.gpu_profiling_on,
-                            ..Default::default()
-                        })
-                        .expect("Not setting max_num_pending_frames");
-                    renderer
-                });
-                Some(render_state)
-            };
-            event_loop.set_control_flow(ControlFlow::Poll);
-        }
+                    .expect("Not setting max_num_pending_frames");
+                renderer
+            });
+            Some(render_state)
+        };
+        event_loop.set_control_flow(ControlFlow::Poll);
     }
 
     fn window_event(
@@ -633,7 +637,7 @@ fn run(
     // Otherwise, this could work by sending the result to event_loop.proxy
     // instead of blocking
     #[cfg(target_arch = "wasm32")]
-    let mut render_state = {
+    let render_state = {
         renderers.resize_with(render_cx.devices.len(), || None);
         let id = render_state.surface.dev_id;
         #[allow(unused_mut)]
@@ -673,7 +677,9 @@ fn run(
         state: render_state,
         #[cfg(not(target_arch = "wasm32"))]
         cached_window: None,
+        #[cfg(not(target_arch = "wasm32"))]
         use_cpu: args.use_cpu,
+        #[cfg(not(target_arch = "wasm32"))]
         num_init_threads: args.num_init_threads,
         scenes: scenes.scenes,
         scene: Scene::new(),
