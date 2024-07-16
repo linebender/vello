@@ -459,14 +459,15 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
                     antialiasing_method,
                 };
                 self.scene.reset();
+                let mut transform = self.transform;
                 if let Some(resolution) = scene_params.resolution {
                     // Automatically scale the rendering to fill as much of the window as possible
                     // TODO: Apply svg view_box, somehow
                     let factor = Vec2::new(width as f64, height as f64);
                     let scale_factor = (factor.x / resolution.x).min(factor.y / resolution.y);
-                    self.transform *= Affine::scale(scale_factor);
+                    transform *= Affine::scale(scale_factor);
                 }
-                self.scene.append(&self.fragment, Some(self.transform));
+                self.scene.append(&self.fragment, Some(transform));
                 if self.stats_shown {
                     snapshot.draw_layer(
                         &mut self.scene,
