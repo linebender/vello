@@ -148,6 +148,13 @@ impl RenderContext {
     }
 }
 
+impl DeviceHandle {
+    /// Returns the adapter associated with the device.
+    pub fn adapter(&self) -> &Adapter {
+        &self.adapter
+    }
+}
+
 /// Combination of surface and its configuration.
 #[derive(Debug)]
 pub struct RenderSurface<'s> {
