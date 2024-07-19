@@ -4,6 +4,8 @@
 use std::num::NonZeroU64;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use peniko::Image;
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct ShaderId(pub usize);
 
@@ -61,7 +63,7 @@ pub enum Command {
     UploadUniform(BufferProxy, Vec<u8>),
     /// Commands the data to be uploaded to the given image.
     UploadImage(ImageProxy, Vec<u8>),
-    WriteImage(ImageProxy, [u32; 4], Vec<u8>),
+    WriteImage(ImageProxy, [u32; 2], Image),
     // Discussion question: third argument is vec of resources?
     // Maybe use tricks to make more ergonomic?
     // Alternative: provide bufs & images as separate sequences
@@ -133,17 +135,8 @@ impl Recording {
         image_proxy
     }
 
-    pub fn write_image(
-        &mut self,
-        image: ImageProxy,
-        x: u32,
-        y: u32,
-        width: u32,
-        height: u32,
-        data: impl Into<Vec<u8>>,
-    ) {
-        let data = data.into();
-        self.push(Command::WriteImage(image, [x, y, width, height], data));
+    pub fn write_image(&mut self, proxy: ImageProxy, x: u32, y: u32, image: Image) {
+        self.push(Command::WriteImage(proxy, [x, y], image));
     }
 
     pub fn dispatch<R>(&mut self, shader: ShaderId, wg_size: (u32, u32, u32), resources: R)
