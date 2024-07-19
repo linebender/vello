@@ -8,6 +8,7 @@ use std::collections::{HashMap, HashSet};
 
 use vello_shaders::cpu::CpuBinding;
 
+use wgpu::naga::Override;
 use wgpu::{
     BindGroup, BindGroupLayout, Buffer, BufferUsages, CommandEncoder, CommandEncoderDescriptor,
     ComputePipeline, Device, PipelineCompilationOptions, Queue, Texture, TextureAspect,
@@ -36,6 +37,10 @@ pub struct WgpuEngine {
     #[cfg(not(target_arch = "wasm32"))]
     shaders_to_initialise: Option<Vec<UninitialisedShader>>,
     pub(crate) use_cpu: bool,
+    /// Overrides from a specific `Image`'s [`id`](peniko::Image::id) to a wgpu `Texture`.
+    ///
+    /// The `Texture` should have the same size as the `Image`.
+    pub(crate) image_overrides: HashMap<u64, wgpu::ImageCopyTextureBase<Texture>>,
 }
 
 struct WgpuShader {
@@ -433,31 +438,53 @@ impl WgpuEngine {
                     self.bind_map
                         .insert_image(image_proxy.id, texture, texture_view);
                 }
-                Command::WriteImage(proxy, [x, y, width, height], data) => {
+                Command::WriteImage(proxy, [x, y], image) => {
                     let (texture, _) = self.bind_map.get_or_create_image(*proxy, device);
                     let format = proxy.format.to_wgpu();
                     let block_size = format
                         .block_copy_size(None)
                         .expect("ImageFormat must have a valid block size");
-                    queue.write_texture(
-                        wgpu::ImageCopyTexture {
-                            texture,
-                            mip_level: 0,
-                            origin: wgpu::Origin3d { x: *x, y: *y, z: 0 },
-                            aspect: TextureAspect::All,
-                        },
-                        &data[..],
-                        wgpu::ImageDataLayout {
-                            offset: 0,
-                            bytes_per_row: Some(*width * block_size),
-                            rows_per_image: None,
-                        },
-                        wgpu::Extent3d {
-                            width: *width,
-                            height: *height,
-                            depth_or_array_layers: 1,
-                        },
-                    );
+                    if let Some(overrider) = self.image_overrides.get(&image.data.id()) {
+                        encoder.copy_texture_to_texture(
+                            wgpu::ImageCopyTexture {
+                                texture: &overrider.texture,
+                                mip_level: overrider.mip_level,
+                                origin: overrider.origin,
+                                aspect: overrider.aspect,
+                            },
+                            wgpu::ImageCopyTexture {
+                                texture,
+                                mip_level: 0,
+                                origin: wgpu::Origin3d { x: *x, y: *y, z: 0 },
+                                aspect: TextureAspect::All,
+                            },
+                            wgpu::Extent3d {
+                                width: image.width,
+                                height: image.height,
+                                depth_or_array_layers: 1,
+                            },
+                        );
+                    } else {
+                        queue.write_texture(
+                            wgpu::ImageCopyTexture {
+                                texture,
+                                mip_level: 0,
+                                origin: wgpu::Origin3d { x: *x, y: *y, z: 0 },
+                                aspect: TextureAspect::All,
+                            },
+                            image.data.data(),
+                            wgpu::ImageDataLayout {
+                                offset: 0,
+                                bytes_per_row: Some(image.width * block_size),
+                                rows_per_image: None,
+                            },
+                            wgpu::Extent3d {
+                                width: image.width,
+                                height: image.height,
+                                depth_or_array_layers: 1,
+                            },
+                        );
+                    }
                 }
                 Command::Dispatch(shader_id, wg_size, bindings) => {
                     // println!("dispatching {:?} with {} bindings", wg_size, bindings.len());

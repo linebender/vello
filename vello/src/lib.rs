@@ -329,6 +329,20 @@ impl Renderer {
         })
     }
 
+    /// Overwrite the `Image` with the `Texture` texture.
+    ///
+    /// If texture is `None`, removes the override.
+    pub fn override_image(
+        &mut self,
+        image: peniko::Image,
+        texture: Option<wgpu::ImageCopyTextureBase<wgpu::Texture>>,
+    ) -> Option<wgpu::ImageCopyTextureBase<wgpu::Texture>> {
+        match texture {
+            Some(texture) => self.engine.image_overrides.insert(image.data.id(), texture),
+            None => self.engine.image_overrides.remove(&image.data.id()),
+        }
+    }
+
     /// Renders a scene to the target texture.
     ///
     /// The texture is assumed to be of the specified dimensions and have been created with

@@ -113,14 +113,7 @@ impl Render {
             ImageProxy::new(images.width, images.height, ImageFormat::Rgba8)
         };
         for image in images.images {
-            recording.write_image(
-                image_atlas,
-                image.1,
-                image.2,
-                image.0.width,
-                image.0.height,
-                image.0.data.data(),
-            );
+            recording.write_image(image_atlas, image.1, image.2, image.0.clone());
         }
         let cpu_config =
             RenderConfig::new(&layout, params.width, params.height, &params.base_color);
