@@ -8,7 +8,6 @@ use std::collections::{HashMap, HashSet};
 
 use vello_shaders::cpu::CpuBinding;
 
-use wgpu::naga::Override;
 use wgpu::{
     BindGroup, BindGroupLayout, Buffer, BufferUsages, CommandEncoder, CommandEncoderDescriptor,
     ComputePipeline, Device, PipelineCompilationOptions, Queue, Texture, TextureAspect,
