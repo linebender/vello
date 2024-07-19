@@ -89,7 +89,7 @@ mod shaders;
 mod wgpu_engine;
 
 #[cfg(feature = "wgpu")]
-use std::num::NonZeroUsize;
+use std::{num::NonZeroUsize, sync::Arc};
 
 /// Styling and composition primitives.
 pub use peniko;
@@ -334,9 +334,9 @@ impl Renderer {
     /// If texture is `None`, removes the override.
     pub fn override_image(
         &mut self,
-        image: peniko::Image,
-        texture: Option<wgpu::ImageCopyTextureBase<wgpu::Texture>>,
-    ) -> Option<wgpu::ImageCopyTextureBase<wgpu::Texture>> {
+        image: &peniko::Image,
+        texture: Option<Arc<wgpu::ImageCopyTextureBase<wgpu::Texture>>>,
+    ) -> Option<Arc<wgpu::ImageCopyTextureBase<wgpu::Texture>>> {
         match texture {
             Some(texture) => self.engine.image_overrides.insert(image.data.id(), texture),
             None => self.engine.image_overrides.remove(&image.data.id()),

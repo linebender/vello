@@ -5,6 +5,7 @@ use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use vello_shaders::cpu::CpuBinding;
 
@@ -39,7 +40,7 @@ pub struct WgpuEngine {
     /// Overrides from a specific `Image`'s [`id`](peniko::Image::id) to a wgpu `Texture`.
     ///
     /// The `Texture` should have the same size as the `Image`.
-    pub(crate) image_overrides: HashMap<u64, wgpu::ImageCopyTextureBase<Texture>>,
+    pub(crate) image_overrides: HashMap<u64, Arc<wgpu::ImageCopyTextureBase<Texture>>>,
 }
 
 struct WgpuShader {
