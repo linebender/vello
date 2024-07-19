@@ -133,6 +133,7 @@ impl RenderContext {
                     label: None,
                     required_features: features & maybe_features,
                     required_limits: limits,
+                    memory_hints: Default::default(),
                 },
                 None,
             )

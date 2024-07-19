@@ -678,6 +678,8 @@ impl WgpuEngine {
                 zero_initialize_workgroup_memory: false,
                 ..Default::default()
             },
+            // TODO: Support providing a cache here.
+            cache: None,
         });
         WgpuShader {
             pipeline,
