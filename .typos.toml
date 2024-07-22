@@ -6,9 +6,13 @@
 # word is treated as always correct. If the value is an empty string, the word
 # is treated as always incorrect.
 
+# Match Identifier - Case Sensitive
+[default.extend-identifiers]
+thm = "thm"
+wdth = "wdth"
+
 # Match Inside a Word - Case Insensitive
 [default.extend-words]
-thm = "thm"
 
 [files]
 # Include .github, .cargo, etc.

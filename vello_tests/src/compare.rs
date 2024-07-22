@@ -21,7 +21,7 @@ fn comparison_dir() -> PathBuf {
 }
 
 #[must_use = "A snapshot test doesn't do anything unless an assertion method is called on it"]
-/// A scene rendered on the CPU and the same scene rendered on the GPU, and information about their diffences.
+/// A scene rendered on the CPU and the same scene rendered on the GPU, and information about their differences.
 ///
 /// Use an assertion method or access `statistics` to make a determination based on the result of this test.
 pub struct GpuCpuComparison {
