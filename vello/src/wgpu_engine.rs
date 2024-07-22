@@ -487,6 +487,7 @@ impl WgpuEngine {
                     }
                 }
                 Command::Dispatch(shader_id, wg_size, bindings) => {
+                    let (x, y, z) = *wg_size;
                     // println!("dispatching {:?} with {} bindings", wg_size, bindings.len());
                     let shader = &self.shaders[shader_id.0];
                     match shader.select() {
@@ -501,9 +502,13 @@ impl WgpuEngine {
                             // mapping operations on the buffers completes).
                             let resources =
                                 transient_map.create_cpu_resources(&mut self.bind_map, bindings);
-                            (cpu_shader.shader)(wg_size.0, &resources);
+                            (cpu_shader.shader)(x, &resources);
                         }
                         ShaderKind::Wgpu(wgpu_shader) => {
+                            // Workaround for https://github.com/linebender/vello/issues/637
+                            if x == 0 || y == 0 || z == 0 {
+                                continue;
+                            }
                             let bind_group = transient_map.create_bind_group(
                                 &mut self.bind_map,
                                 &mut self.pool,
@@ -520,7 +525,7 @@ impl WgpuEngine {
                                 .with_parent(Some(&query));
                             cpass.set_pipeline(&wgpu_shader.pipeline);
                             cpass.set_bind_group(0, &bind_group, &[]);
-                            cpass.dispatch_workgroups(wg_size.0, wg_size.1, wg_size.2);
+                            cpass.dispatch_workgroups(x, y, z);
                             #[cfg(feature = "wgpu-profiler")]
                             profiler.end_query(&mut cpass, query);
                         }
