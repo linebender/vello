@@ -114,7 +114,8 @@ use thiserror::Error;
 pub use util::block_on_wgpu;
 
 pub use recording::{
-    BufferProxy, Command, ImageFormat, ImageProxy, Recording, ResourceId, ResourceProxy, ShaderId,
+    BindType, BufferProxy, Command, ImageFormat, ImageProxy, Recording, ResourceId, ResourceProxy,
+    ShaderId,
 };
 pub use shaders::FullShaders;
 
@@ -635,7 +636,7 @@ struct TargetTexture {
 
 #[cfg(feature = "wgpu")]
 impl TargetTexture {
-    pub fn new(device: &Device, width: u32, height: u32) -> Self {
+    fn new(device: &Device, width: u32, height: u32) -> Self {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: None,
             size: wgpu::Extent3d {

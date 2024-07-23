@@ -29,7 +29,7 @@ struct UninitialisedShader {
 }
 
 #[derive(Default)]
-pub struct WgpuEngine {
+pub(crate) struct WgpuEngine {
     shaders: Vec<Shader>,
     pool: ResourcePool,
     bind_map: BindMap,
@@ -48,7 +48,7 @@ struct WgpuShader {
     bind_group_layout: BindGroupLayout,
 }
 
-pub enum CpuShaderType {
+pub(crate) enum CpuShaderType {
     Present(fn(u32, &[CpuBinding])),
     Missing,
     Skipped,
@@ -82,7 +82,7 @@ impl Shader {
     }
 }
 
-pub enum ExternalResource<'a> {
+pub(crate) enum ExternalResource<'a> {
     #[allow(unused)]
     Buffer(BufferProxy, &'a Buffer),
     Image(ImageProxy, &'a TextureView),

@@ -32,6 +32,9 @@ repository = "https://github.com/linebender/vello"
 [workspace.lints]
 clippy.doc_markdown = "warn"
 clippy.semicolon_if_nothing_returned = "warn"
+# We use a modified version of `unreachable_pub`, where we mark associated functions of pub(crate) items as pub.
+# This policy was implemented as it could gain begrudging consensus - there is no lint for this.
+# rust.unreachable_pub = "warn"
 
 [workspace.dependencies]
 vello = { version = "0.2.0", path = "vello" }

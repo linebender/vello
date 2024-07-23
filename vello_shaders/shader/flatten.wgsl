@@ -64,7 +64,7 @@ struct CubicParams {
 
 struct EulerParams {
     th0: f32,
-    th1: f32,
+    // th1 need not be explicitly stored, as it can be derived from k0 - th0
     k0: f32,
     k1: f32,
     ch: f32,
@@ -154,7 +154,7 @@ fn es_params_from_angles(th0: f32, th1: f32) -> EulerParams {
     let b_ = -1. / 24. + d2 * 0.0024702380951963226 - d2 * d2 * 3.7297408997537985e-05;
     let c_ = 1. / 1920. - d2 * 4.87350869747975e-05 - k2 * 3.1001936068463107e-06;
     ch += (b_ + c_ * k2) * k2;
-    return EulerParams(th0, th1, k0, k1, ch);
+    return EulerParams(th0, k0, k1, ch);
 }
 
 fn es_params_eval_th(params: EulerParams, t: f32) -> f32 {

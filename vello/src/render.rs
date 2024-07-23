@@ -38,7 +38,7 @@ struct FineResources {
 }
 
 #[cfg(feature = "wgpu")]
-pub fn render_full(
+pub(crate) fn render_full(
     scene: &Scene,
     resolver: &mut Resolver,
     shaders: &FullShaders,
@@ -52,7 +52,7 @@ pub fn render_full(
 ///
 /// This function is not recommended when the scene can be complex, as it does not
 /// implement robust dynamic memory.
-pub fn render_encoding_full(
+pub(crate) fn render_encoding_full(
     encoding: &Encoding,
     resolver: &mut Resolver,
     shaders: &FullShaders,

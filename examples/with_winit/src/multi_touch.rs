@@ -50,7 +50,7 @@ pub struct MultiTouchInfo {
 
 /// The current state (for a specific touch device) of touch events and gestures.
 #[derive(Clone)]
-pub(crate) struct TouchState {
+pub struct TouchState {
     /// Active touches, if any.
     ///
     /// Touch id is the unique identifier of the touch. It is valid as long as the finger/pen

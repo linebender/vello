@@ -16,7 +16,7 @@ pub struct Images<'a> {
     pub images: &'a [(Image, u32, u32)],
 }
 
-pub struct ImageCache {
+pub(crate) struct ImageCache {
     atlas: AtlasAllocator,
     /// Map from image blob id to atlas location.
     map: HashMap<u64, (u32, u32)>,

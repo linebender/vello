@@ -17,7 +17,7 @@ pub struct Ramps<'a> {
 }
 
 #[derive(Default)]
-pub struct RampCache {
+pub(crate) struct RampCache {
     epoch: u64,
     map: HashMap<ColorStops, (u32, u64)>,
     data: Vec<u32>,

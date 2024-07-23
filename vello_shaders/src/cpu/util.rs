@@ -134,7 +134,7 @@ impl Vec2 {
 }
 
 #[derive(Clone)]
-pub struct Transform(pub [f32; 6]);
+pub(crate) struct Transform(pub(crate) [f32; 6]);
 
 impl Transform {
     pub fn identity() -> Self {
@@ -193,7 +193,7 @@ impl Mul for Transform {
     }
 }
 
-pub fn span(a: f32, b: f32) -> u32 {
+pub(crate) fn span(a: f32, b: f32) -> u32 {
     (a.max(b).ceil() - a.min(b).floor()).max(1.0) as u32
 }
 
@@ -203,7 +203,7 @@ const DRAWTAG_NOP: u32 = 0;
 ///
 /// The `ix` argument is allowed to exceed the number of draw objects,
 /// in which case a NOP is returned.
-pub fn read_draw_tag_from_scene(config: &ConfigUniform, scene: &[u32], ix: u32) -> u32 {
+pub(crate) fn read_draw_tag_from_scene(config: &ConfigUniform, scene: &[u32], ix: u32) -> u32 {
     if ix < config.layout.n_draw_objects {
         let tag_ix = config.layout.draw_tag_base + ix;
         scene[tag_ix as usize]
@@ -217,7 +217,7 @@ pub fn read_draw_tag_from_scene(config: &ConfigUniform, scene: &[u32], ix: u32) 
 /// This value is used to limit the value of b so that its floor is strictly less
 /// than 1. That guarantees that floor(a * i + b) == 0 for i == 0, which lands on
 /// the correct first tile.
-pub const ONE_MINUS_ULP: f32 = 0.99999994;
+pub(crate) const ONE_MINUS_ULP: f32 = 0.99999994;
 
 /// An epsilon to be applied in path numerical robustness.
 ///
@@ -225,4 +225,4 @@ pub const ONE_MINUS_ULP: f32 = 0.99999994;
 /// grid cells minus one), this delta is applied to a to push it in the correct
 /// direction. The theory is that a is not off by more than a few ulp, and it's
 /// always in the range of 0..1.
-pub const ROBUST_EPSILON: f32 = 2e-7;
+pub(crate) const ROBUST_EPSILON: f32 = 2e-7;

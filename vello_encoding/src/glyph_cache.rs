@@ -12,7 +12,7 @@ use skrifa::outline::{HintingInstance, HintingMode, LcdLayout, OutlineGlyphForma
 use skrifa::{GlyphId, MetadataProvider, OutlineGlyphCollection};
 
 #[derive(Default)]
-pub struct GlyphCache {
+pub(crate) struct GlyphCache {
     free_list: Vec<Arc<Encoding>>,
     map: GlyphMap,
     var_map: HashMap<VarKey, GlyphMap>,
@@ -132,7 +132,7 @@ impl GlyphCache {
     }
 }
 
-pub struct GlyphCacheSession<'a> {
+pub(crate) struct GlyphCacheSession<'a> {
     free_list: &'a mut Vec<Arc<Encoding>>,
     map: &'a mut GlyphMap,
     font_id: u64,
@@ -235,7 +235,7 @@ struct GlyphEntry {
 /// to redo it occasionally.
 const MAX_CACHED_HINT_INSTANCES: usize = 8;
 
-pub struct HintKey<'a> {
+pub(crate) struct HintKey<'a> {
     font_id: u64,
     font_index: u32,
     outlines: &'a OutlineGlyphCollection<'a>,
