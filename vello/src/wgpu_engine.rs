@@ -133,7 +133,7 @@ enum TransientBuf<'a> {
 }
 
 impl WgpuEngine {
-    pub(crate) fn new(use_cpu: bool) -> WgpuEngine {
+    pub fn new(use_cpu: bool) -> WgpuEngine {
         Self {
             use_cpu,
             ..Default::default()
@@ -142,7 +142,7 @@ impl WgpuEngine {
 
     /// Enable creating any remaining shaders in parallel
     #[cfg(not(target_arch = "wasm32"))]
-    pub(crate) fn use_parallel_initialisation(&mut self) {
+    pub fn use_parallel_initialisation(&mut self) {
         if self.shaders_to_initialise.is_some() {
             return;
         }
@@ -151,7 +151,7 @@ impl WgpuEngine {
 
     #[cfg(not(target_arch = "wasm32"))]
     /// Initialise (in parallel) any shaders which are yet to be created
-    pub(crate) fn build_shaders_if_needed(
+    pub fn build_shaders_if_needed(
         &mut self,
         device: &Device,
         num_threads: Option<std::num::NonZeroUsize>,
@@ -230,7 +230,7 @@ impl WgpuEngine {
     ///
     /// Maybe should do template instantiation here? But shader compilation pipeline feels maybe
     /// a bit separate.
-    pub(crate) fn add_shader(
+    pub fn add_shader(
         &mut self,
         device: &Device,
         label: &'static str,
@@ -337,7 +337,7 @@ impl WgpuEngine {
         })
     }
 
-    pub(crate) fn run_recording(
+    pub fn run_recording(
         &mut self,
         device: &Device,
         queue: &Queue,
@@ -609,11 +609,11 @@ impl WgpuEngine {
         Ok(())
     }
 
-    pub(crate) fn get_download(&self, buf: BufferProxy) -> Option<&Buffer> {
+    pub fn get_download(&self, buf: BufferProxy) -> Option<&Buffer> {
         self.downloads.get(&buf.id)
     }
 
-    pub(crate) fn free_download(&mut self, buf: BufferProxy) {
+    pub fn free_download(&mut self, buf: BufferProxy) {
         self.downloads.remove(&buf.id);
     }
 

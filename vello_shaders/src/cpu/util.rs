@@ -137,18 +137,18 @@ impl Vec2 {
 pub(crate) struct Transform(pub(crate) [f32; 6]);
 
 impl Transform {
-    pub(crate) fn identity() -> Self {
+    pub fn identity() -> Self {
         Self([1., 0., 0., 1., 0., 0.])
     }
 
-    pub(crate) fn apply(&self, p: Vec2) -> Vec2 {
+    pub fn apply(&self, p: Vec2) -> Vec2 {
         let z = self.0;
         let x = z[0] * p.x + z[2] * p.y + z[4];
         let y = z[1] * p.x + z[3] * p.y + z[5];
         Vec2 { x, y }
     }
 
-    pub(crate) fn inverse(&self) -> Transform {
+    pub fn inverse(&self) -> Transform {
         let z = self.0;
         let inv_det = (z[0] * z[3] - z[1] * z[2]).recip();
         let inv_mat = [
@@ -167,7 +167,7 @@ impl Transform {
         ])
     }
 
-    pub(crate) fn read(transform_base: u32, ix: u32, data: &[u32]) -> Transform {
+    pub fn read(transform_base: u32, ix: u32, data: &[u32]) -> Transform {
         let mut z = [0.0; 6];
         let base = (transform_base + ix * 6) as usize;
         for i in 0..6 {

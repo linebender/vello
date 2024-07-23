@@ -23,7 +23,7 @@ pub(crate) struct GlyphCache {
 }
 
 impl GlyphCache {
-    pub(crate) fn session<'a>(
+    pub fn session<'a>(
         &'a mut self,
         font: &'a Font,
         coords: &'a [NormalizedCoord],
@@ -85,7 +85,7 @@ impl GlyphCache {
         })
     }
 
-    pub(crate) fn maintain(&mut self) {
+    pub fn maintain(&mut self) {
         // Maximum number of resolve phases where we'll retain an unused glyph
         const MAX_ENTRY_AGE: u64 = 64;
         // Maximum number of resolve phases before we force a prune
@@ -149,10 +149,7 @@ pub(crate) struct GlyphCacheSession<'a> {
 }
 
 impl<'a> GlyphCacheSession<'a> {
-    pub(crate) fn get_or_insert(
-        &mut self,
-        glyph_id: u32,
-    ) -> Option<(Arc<Encoding>, StreamOffsets)> {
+    pub fn get_or_insert(&mut self, glyph_id: u32) -> Option<(Arc<Encoding>, StreamOffsets)> {
         let key = GlyphKey {
             font_id: self.font_id,
             font_index: self.font_index,

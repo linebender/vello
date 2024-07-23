@@ -70,7 +70,7 @@ impl CubicParams {
     /// near-semicircle, preserving G1 continuity), but the analytic error
     /// calculation would be a huge overestimate. In that case, we just return
     /// a rough estimate of the distance between the chord and the spiral segment.
-    pub(crate) fn from_points_derivs(p0: Vec2, p1: Vec2, q0: Vec2, q1: Vec2, dt: f32) -> Self {
+    pub fn from_points_derivs(p0: Vec2, p1: Vec2, q0: Vec2, q1: Vec2, dt: f32) -> Self {
         let chord = p1 - p0;
         let chord_squared = chord.length_squared();
         let chord_len = chord_squared.sqrt();
@@ -160,7 +160,7 @@ impl CubicParams {
 }
 
 impl EulerParams {
-    pub(crate) fn from_angles(th0: f32, th1: f32) -> EulerParams {
+    pub fn from_angles(th0: f32, th1: f32) -> EulerParams {
         let k0 = th0 + th1;
         let dth = th1 - th0;
         let d2 = dth * dth;
@@ -185,7 +185,7 @@ impl EulerParams {
         EulerParams { th0, k0, k1, ch }
     }
 
-    pub(crate) fn eval_th(&self, t: f32) -> f32 {
+    pub fn eval_th(&self, t: f32) -> f32 {
         (self.k0 + 0.5 * self.k1 * (t - 1.0)) * t - self.th0
     }
 
@@ -213,12 +213,12 @@ impl EulerParams {
 }
 
 impl EulerSeg {
-    pub(crate) fn from_params(p0: Vec2, p1: Vec2, params: EulerParams) -> Self {
+    pub fn from_params(p0: Vec2, p1: Vec2, params: EulerParams) -> Self {
         EulerSeg { p0, p1, params }
     }
 
     #[allow(unused)]
-    pub(crate) fn eval(&self, t: f32) -> Vec2 {
+    pub fn eval(&self, t: f32) -> Vec2 {
         let Vec2 { x, y } = self.params.eval(t);
         let chord = self.p1 - self.p0;
         Vec2::new(
@@ -229,7 +229,7 @@ impl EulerSeg {
 
     // Note: offset provided is normalized so that 1 = chord length, while
     // the return value is in the same coordinate space as the endpoints.
-    pub(crate) fn eval_with_offset(&self, t: f32, normalized_offset: f32) -> Vec2 {
+    pub fn eval_with_offset(&self, t: f32, normalized_offset: f32) -> Vec2 {
         let chord = self.p1 - self.p0;
         let Vec2 { x, y } = self.params.eval_with_offset(t, normalized_offset);
         Vec2::new(

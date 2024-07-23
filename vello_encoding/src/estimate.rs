@@ -377,21 +377,14 @@ mod wang {
     //
     const SQRT_OF_DEGREE_TERM_QUAD: f64 = 0.5;
 
-    pub(crate) fn quadratic(rsqrt_of_tol: f64, p0: Vec2, p1: Vec2, p2: Vec2, t: &Transform) -> f64 {
+    pub fn quadratic(rsqrt_of_tol: f64, p0: Vec2, p1: Vec2, p2: Vec2, t: &Transform) -> f64 {
         let v = -2. * p1 + p0 + p2;
         let v = transform(t, v); // transform is distributive
         let m = v.length();
         (SQRT_OF_DEGREE_TERM_QUAD * m.sqrt() * rsqrt_of_tol).ceil() as f64
     }
 
-    pub(crate) fn cubic(
-        rsqrt_of_tol: f64,
-        p0: Vec2,
-        p1: Vec2,
-        p2: Vec2,
-        p3: Vec2,
-        t: &Transform,
-    ) -> f64 {
+    pub fn cubic(rsqrt_of_tol: f64, p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2, t: &Transform) -> f64 {
         let v1 = -2. * p1 + p0 + p2;
         let v2 = -2. * p2 + p1 + p3;
         let v1 = transform(t, v1);

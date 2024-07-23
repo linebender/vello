@@ -622,7 +622,7 @@ struct TargetTexture {
 
 #[cfg(feature = "wgpu")]
 impl TargetTexture {
-    pub(crate) fn new(device: &Device, width: u32, height: u32) -> Self {
+    fn new(device: &Device, width: u32, height: u32) -> Self {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: None,
             size: wgpu::Extent3d {

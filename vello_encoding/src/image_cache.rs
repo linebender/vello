@@ -31,7 +31,7 @@ impl Default for ImageCache {
 }
 
 impl ImageCache {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             atlas: AtlasAllocator::new(size2(DEFAULT_ATLAS_SIZE, DEFAULT_ATLAS_SIZE)),
             map: Default::default(),
@@ -39,7 +39,7 @@ impl ImageCache {
         }
     }
 
-    pub(crate) fn images(&self) -> Images {
+    pub fn images(&self) -> Images {
         Images {
             width: self.atlas.size().width as u32,
             height: self.atlas.size().height as u32,
@@ -47,7 +47,7 @@ impl ImageCache {
         }
     }
 
-    pub(crate) fn bump_size(&mut self) -> bool {
+    pub fn bump_size(&mut self) -> bool {
         let new_size = self.atlas.size().width * 2;
         if new_size > MAX_ATLAS_SIZE {
             return false;
@@ -58,13 +58,13 @@ impl ImageCache {
         true
     }
 
-    pub(crate) fn clear(&mut self) {
+    pub fn clear(&mut self) {
         self.atlas.clear();
         self.map.clear();
         self.images.clear();
     }
 
-    pub(crate) fn get_or_insert(&mut self, image: &Image) -> Option<(u32, u32)> {
+    pub fn get_or_insert(&mut self, image: &Image) -> Option<(u32, u32)> {
         match self.map.entry(image.data.id()) {
             Entry::Occupied(occupied) => Some(*occupied.get()),
             Entry::Vacant(vacant) => {
