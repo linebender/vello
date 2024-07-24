@@ -1,15 +1,18 @@
 // Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+mod bitmap;
+
 use peniko::{
     kurbo::{Affine, BezPath, Point, Rect, Shape, Stroke, Vec2},
     BlendMode, Brush, BrushRef, Color, ColorStop, ColorStops, ColorStopsSource, Compose, Extend,
     Fill, Font, Gradient, Image, Mix, StyleRef,
 };
 use skrifa::{
-    color::ColorPainter,
+    color::{ColorGlyph, ColorPainter},
     instance::{LocationRef, NormalizedCoord},
     outline::{DrawSettings, OutlinePen},
+    prelude::Size,
     raw::{tables::cpal::Cpal, TableProvider},
     GlyphId, MetadataProvider, OutlineGlyphCollection,
 };
@@ -364,7 +367,8 @@ impl<'a> DrawGlyphs<'a> {
     pub fn draw(mut self, style: impl Into<StyleRef<'a>>, glyphs: impl Iterator<Item = Glyph>) {
         let font_index = self.run.font.index;
         let font = skrifa::FontRef::from_index(self.run.font.data.as_ref(), font_index).unwrap();
-        if font.colr().is_ok() && font.cpal().is_ok() {
+        let bitmaps = bitmap::BitmapStrikes::new(&font);
+        if font.colr().is_ok() && font.cpal().is_ok() || !bitmaps.is_empty() {
             self.try_draw_colr(style.into(), glyphs);
         } else {
             // Shortcut path - no need to test each glyph for a colr outline
@@ -415,6 +419,7 @@ impl<'a> DrawGlyphs<'a> {
             (-self.run.font_size / upem).into(),
         );
         let colour_collection = font.color_glyphs();
+        let bitmaps = bitmap::BitmapStrikes::new(&font);
         let mut final_glyph = None;
         let mut outline_count = 0;
         // We copy out of the variable font coords here because we need to call an exclusive self method
@@ -423,48 +428,64 @@ impl<'a> DrawGlyphs<'a> {
         .to_vec();
         let location = LocationRef::new(coords);
         loop {
+            let ppem = self.run.font_size;
             let outline_glyphs = (&mut glyphs).take_while(|glyph| {
-                match colour_collection.get(GlyphId::new(glyph.id.try_into().unwrap())) {
+                let glyph_id = GlyphId::new(glyph.id.try_into().unwrap());
+                match colour_collection.get(glyph_id) {
                     Some(color) => {
-                        final_glyph = Some((color, *glyph));
+                        final_glyph = Some((EmojiLikeGlyph::Colr(color), *glyph));
                         false
                     }
-                    None => true,
+                    None => match bitmaps.glyph_for_size(Size::new(ppem), glyph_id) {
+                        Some(bitmap) => {
+                            final_glyph = Some((EmojiLikeGlyph::Bitmap(bitmap), *glyph));
+                            false
+                        }
+                        None => true,
+                    },
                 }
             });
             self.run.glyphs.start = self.run.glyphs.end;
             self.run.stream_offsets = self.scene.encoding.stream_offsets();
             outline_count += self.draw_outline_glyphs(clone_style_ref(&style), outline_glyphs);
 
-            let Some((color, glyph)) = final_glyph.take() else {
+            let Some((emoji, glyph)) = final_glyph.take() else {
                 // All of the remaining glyphs were outline glyphs
                 break;
             };
 
-            let transform = run_transform
-                * Affine::translate(Vec2::new(glyph.x.into(), glyph.y.into()))
-                * scale
-                * self
-                    .run
-                    .glyph_transform
-                    .unwrap_or(Transform::IDENTITY)
-                    .to_kurbo();
+            match emoji {
+                EmojiLikeGlyph::Bitmap(bitmap) => match bitmap.data {
+                    bitmap::BitmapData::Bgra(_) => log::info!("BGRA"),
+                    bitmap::BitmapData::Png(_) => log::info!("PNG"),
+                    bitmap::BitmapData::Mask(_) => log::info!("Mask"),
+                },
+                EmojiLikeGlyph::Colr(colr) => {
+                    let transform = run_transform
+                        * Affine::translate(Vec2::new(glyph.x.into(), glyph.y.into()))
+                        * scale
+                        * self
+                            .run
+                            .glyph_transform
+                            .unwrap_or(Transform::IDENTITY)
+                            .to_kurbo();
 
-            color
-                .paint(
-                    location,
-                    &mut DrawColorGlyphs {
-                        scene: self.scene,
-                        cpal: &font.cpal().unwrap(),
-                        outlines: &font.outline_glyphs(),
-                        transform_stack: vec![Transform::from_kurbo(&transform)],
-                        clip_box: DEFAULT_CLIP_RECT,
-                        clip_depth: 0,
+                    colr.paint(
                         location,
-                        foreground_brush: self.brush.clone(),
-                    },
-                )
-                .unwrap();
+                        &mut DrawColorGlyphs {
+                            scene: self.scene,
+                            cpal: &font.cpal().unwrap(),
+                            outlines: &font.outline_glyphs(),
+                            transform_stack: vec![Transform::from_kurbo(&transform)],
+                            clip_box: DEFAULT_CLIP_RECT,
+                            clip_depth: 0,
+                            location,
+                            foreground_brush: self.brush.clone(),
+                        },
+                    )
+                    .unwrap();
+                }
+            }
         }
         if outline_count == 0 {
             // If we didn't draw any outline glyphs, the encoded variable font parameters were never used
@@ -476,6 +497,11 @@ impl<'a> DrawGlyphs<'a> {
                 .truncate(self.run.normalized_coords.start);
         }
     }
+}
+
+enum EmojiLikeGlyph<'a> {
+    Bitmap(bitmap::BitmapGlyph<'a>),
+    Colr(ColorGlyph<'a>),
 }
 const BOUND: f64 = 100_000.;
 // Hack: If we don't have a clip box, we guess a rectangle we hope is big enough
