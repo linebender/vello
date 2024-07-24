@@ -15,7 +15,7 @@ use vello::Scene;
 const ROBOTO_FONT: &[u8] = include_bytes!("../../assets/roboto/Roboto-Regular.ttf");
 const INCONSOLATA_FONT: &[u8] = include_bytes!("../../assets/inconsolata/Inconsolata.ttf");
 const NOTO_EMOJI_SUBSET: &[u8] =
-    include_bytes!("../../assets/noto_color_emoji/NotoColorEmoji-Subset.ttf");
+    include_bytes!("/usr/share/fonts/google-noto-color-emoji-fonts/NotoColorEmoji.ttf");
 
 pub struct SimpleText {
     roboto: Font,
