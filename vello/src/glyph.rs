@@ -3,8 +3,6 @@
 
 //! Support for glyph rendering.
 
-mod bitmap;
-
 use crate::scene::Scene;
 use peniko::kurbo::Affine;
 use peniko::{Brush, Color, Fill, Style};
