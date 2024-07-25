@@ -132,6 +132,7 @@ jobs:
   prime-lfs-cache:
     name: Prime LFS Cache
     runs-on: ubuntu-stable
+    continue-on-error: true
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
@@ -181,12 +182,7 @@ jobs:
           # The files targeted with git lfs
           key: vello-lfs-${{ hashFiles('vello_tests/lfs_snapshots/*.png') }}
           enableCrossOsArchive: true
-      
-      - if: ${{ steps.lfs-cache.outputs.cache-hit != 'true' }}
-        # If this step fails for your run, please inform @DJMcNab and remove this step
-        # This is part of an experiment in working with git lfs
-        run: exit 1
-      
+  
       - name: Checkout LFS files
         run: git lfs checkout
 
