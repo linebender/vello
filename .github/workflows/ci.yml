@@ -131,7 +131,7 @@ jobs:
 
   prime-lfs-cache:
     name: Prime LFS Cache
-    runs-on: ubuntu-stable
+    runs-on: ubuntu-latest
     continue-on-error: true
     steps:
     - name: Checkout repository
