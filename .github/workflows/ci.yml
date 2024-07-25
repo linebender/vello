@@ -185,6 +185,7 @@ jobs:
   
       - name: Checkout LFS files
         run: git lfs checkout
+        continue-on-error: true
 
       - name: install stable toolchain
         uses: dtolnay/rust-toolchain@master
