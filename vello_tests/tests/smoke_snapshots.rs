@@ -47,10 +47,10 @@ fn filled_circle(use_cpu: bool) {
         .assert_mean_less_than(0.01);
 }
 
-fn single_emoji(use_cpu: bool) {
+fn two_emoji(use_cpu: bool) {
     let mut scene = Scene::new();
     let mut text = SimpleText::new();
-    text.add_emoji_run(
+    text.add_colr_emoji_run(
         &mut scene,
         24.,
         Affine::translate((0., 24.)),
@@ -58,9 +58,17 @@ fn single_emoji(use_cpu: bool) {
         Fill::NonZero,
         "🤠",
     );
+    text.add_cbdt_emoji_run(
+        &mut scene,
+        24.,
+        Affine::translate((30., 24.)),
+        None,
+        Fill::NonZero,
+        "🤠",
+    );
     let params = TestParams {
         use_cpu,
-        ..TestParams::new("single_emoji", 30, 30)
+        ..TestParams::new("single_emoji", 60, 30)
     };
     smoke_snapshot_test_sync(scene, &params)
         .unwrap()
@@ -96,11 +104,11 @@ fn filled_circle_cpu() {
 #[test]
 #[cfg_attr(skip_gpu_tests, ignore)]
 fn single_emoji_gpu() {
-    single_emoji(false);
+    two_emoji(false);
 }
 
 #[test]
 #[cfg_attr(skip_gpu_tests, ignore)]
 fn single_emoji_cpu() {
-    single_emoji(true);
+    two_emoji(true);
 }
