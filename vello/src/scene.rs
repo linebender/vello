@@ -543,8 +543,14 @@ impl<'a> DrawGlyphs<'a> {
                             )
                         }
                     };
+                    // Split into multiple statements because rustfmt breaks
                     let transform = run_transform
-                        * Affine::translate(Vec2::new(glyph.x.into(), glyph.y.into()))
+                        * Affine::translate(Vec2::new(
+                            glyph.x.into(),
+                            (glyph.y - self.run.font_size).into(),
+                        ));
+                    // TODO: This `/ image.width` is a guess :)
+                    let transform = transform
                         * Affine::scale((self.run.font_size / image.width as f32) as f64)
                         * self
                             .run

@@ -14,8 +14,10 @@ use vello::Scene;
 // On Windows, can set this to "c:\\Windows\\Fonts\\seguiemj.ttf" to get color emoji
 const ROBOTO_FONT: &[u8] = include_bytes!("../../assets/roboto/Roboto-Regular.ttf");
 const INCONSOLATA_FONT: &[u8] = include_bytes!("../../assets/inconsolata/Inconsolata.ttf");
+// const NOTO_EMOJI_SUBSET: &[u8] =
+//     include_bytes!("/usr/share/fonts/google-noto-color-emoji-fonts/NotoColorEmoji.ttf");
 const NOTO_EMOJI_SUBSET: &[u8] =
-    include_bytes!("/usr/share/fonts/google-noto-color-emoji-fonts/NotoColorEmoji.ttf");
+    include_bytes!("../../assets/noto_color_emoji/NotoColorEmoji-Subset.ttf");
 
 pub struct SimpleText {
     roboto: Font,
