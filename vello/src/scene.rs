@@ -3,11 +3,14 @@
 
 mod bitmap;
 
+use std::sync::Arc;
+
 use peniko::{
     kurbo::{Affine, BezPath, Point, Rect, Shape, Stroke, Vec2},
-    BlendMode, Brush, BrushRef, Color, ColorStop, ColorStops, ColorStopsSource, Compose, Extend,
-    Fill, Font, Gradient, Image, Mix, StyleRef,
+    BlendMode, Blob, Brush, BrushRef, Color, ColorStop, ColorStops, ColorStopsSource, Compose,
+    Extend, Fill, Font, Gradient, Image, Mix, StyleRef,
 };
+use png::{BitDepth, ColorType, Transformations};
 use skrifa::{
     color::{ColorGlyph, ColorPainter},
     instance::{LocationRef, NormalizedCoord},
@@ -414,10 +417,11 @@ impl<'a> DrawGlyphs<'a> {
         let font = skrifa::FontRef::from_index(blob.as_ref(), font_index).unwrap();
         let upem: f32 = font.head().map(|h| h.units_per_em()).unwrap().into();
         let run_transform = self.run.transform.to_kurbo();
-        let scale = Affine::scale_non_uniform(
+        let colr_scale = Affine::scale_non_uniform(
             (self.run.font_size / upem).into(),
             (-self.run.font_size / upem).into(),
         );
+
         let colour_collection = font.color_glyphs();
         let bitmaps = bitmap::BitmapStrikes::new(&font);
         let mut final_glyph = None;
@@ -455,21 +459,109 @@ impl<'a> DrawGlyphs<'a> {
             };
 
             match emoji {
-                EmojiLikeGlyph::Bitmap(bitmap) => match bitmap.data {
-                    bitmap::BitmapData::Bgra(_) => log::info!("BGRA"),
-                    bitmap::BitmapData::Png(_) => log::info!("PNG"),
-                    bitmap::BitmapData::Mask(_) => log::info!("Mask"),
-                },
-                EmojiLikeGlyph::Colr(colr) => {
+                // TODO: This really needs to be moved to resolve time to get proper caching, etc.
+                EmojiLikeGlyph::Bitmap(bitmap) => {
+                    let image = match bitmap.data {
+                        bitmap::BitmapData::Bgra(data) => {
+                            if bitmap.width * bitmap.height * 4 != data.len().try_into().unwrap() {
+                                // TODO: Error once?
+                                log::error!("Invalid font");
+                                continue;
+                            }
+                            let data: Box<[u8]> = data
+                                .chunks_exact(4)
+                                .flat_map(|bytes| {
+                                    let [b, g, r, a] = bytes.try_into().unwrap();
+                                    [r, g, b, a]
+                                })
+                                .collect();
+                            Image::new(
+                                // TODO: The design of the Blob type forces the double boxing
+                                Blob::new(Arc::new(data)),
+                                peniko::Format::Rgba8,
+                                bitmap.width,
+                                bitmap.height,
+                            )
+                        }
+                        bitmap::BitmapData::Png(data) => {
+                            let mut decoder = png::Decoder::new(data);
+                            decoder.set_transformations(
+                                Transformations::ALPHA | Transformations::STRIP_16,
+                            );
+                            let Ok(mut reader) = decoder.read_info() else {
+                                log::error!("Invalid PNG in font");
+                                continue;
+                            };
+
+                            if reader.output_color_type() != (ColorType::Rgba, BitDepth::Eight) {
+                                log::error!("Unsupported `output_color_type`");
+                                continue;
+                            }
+                            let mut buf = vec![0; reader.output_buffer_size()].into_boxed_slice();
+
+                            let info = reader.next_frame(&mut buf).unwrap();
+                            if info.width != bitmap.width || info.height != bitmap.height {
+                                log::error!("Unexpected width and height");
+                                continue;
+                            }
+                            Image::new(
+                                // TODO: The design of the Blob type forces the double boxing
+                                Blob::new(Arc::new(buf)),
+                                peniko::Format::Rgba8,
+                                bitmap.width,
+                                bitmap.height,
+                            )
+                        }
+                        bitmap::BitmapData::Mask(mask) => {
+                            // TODO: Is this code worth having?
+                            let Some(masks) = bitmap_masks(mask.bpp) else {
+                                // TODO: Error once?
+                                log::warn!("Invalid bpp in bitmap glyph");
+                                continue;
+                            };
+
+                            if !mask.is_packed {
+                                // TODO: Error once?
+                                log::warn!("Unpacked mask data not handled");
+                                continue;
+                            }
+                            let alphas = mask.data.iter().flat_map(|it| {
+                                masks
+                                    .iter()
+                                    .map(move |mask| (it & mask.mask) >> mask.right_shift)
+                            });
+                            let data: Box<[u8]> = alphas
+                                .flat_map(|alpha| [u8::MAX, u8::MAX, u8::MAX, alpha])
+                                .collect();
+
+                            Image::new(
+                                // TODO: The design of the Blob type forces the double boxing
+                                Blob::new(Arc::new(data)),
+                                peniko::Format::Rgba8,
+                                bitmap.width,
+                                bitmap.height,
+                            )
+                        }
+                    };
                     let transform = run_transform
                         * Affine::translate(Vec2::new(glyph.x.into(), glyph.y.into()))
-                        * scale
+                        * Affine::scale((self.run.font_size / image.width as f32) as f64)
                         * self
                             .run
                             .glyph_transform
                             .unwrap_or(Transform::IDENTITY)
                             .to_kurbo();
-
+                    self.scene.draw_image(&image, transform);
+                }
+                EmojiLikeGlyph::Colr(colr) => {
+                    let transform = run_transform
+                        * Affine::translate(Vec2::new(glyph.x.into(), glyph.y.into()))
+                        * colr_scale
+                        * self
+                            .run
+                            .glyph_transform
+                            .unwrap_or(Transform::IDENTITY)
+                            .to_kurbo();
                     colr.paint(
                         location,
                         &mut DrawColorGlyphs {
@@ -496,6 +588,52 @@ impl<'a> DrawGlyphs<'a> {
                 .normalized_coords
                 .truncate(self.run.normalized_coords.start);
         }
+    }
+}
+
+struct BitmapMask {
+    mask: u8,
+    right_shift: u8,
+}
+
+fn bitmap_masks(bpp: u8) -> Option<&'static [BitmapMask]> {
+    const fn m(mask: u8, right_shift: u8) -> BitmapMask {
+        BitmapMask { mask, right_shift }
+    }
+    const fn byte(value: u8) -> BitmapMask {
+        BitmapMask {
+            mask: 1 << value,
+            right_shift: value,
+        }
+    }
+    match bpp {
+        1 => Some(
+            const {
+                &[
+                    byte(0),
+                    byte(1),
+                    byte(2),
+                    byte(3),
+                    byte(4),
+                    byte(5),
+                    byte(6),
+                    byte(7),
+                ]
+            },
+        ),
+        2 => Some(
+            const {
+                &[
+                    m(0b0000_0011, 0),
+                    m(0b0000_1100, 2),
+                    m(0b0011_0000, 4),
+                    m(0b1100_0000, 6),
+                ]
+            },
+        ),
+        4 => Some(const { &[m(0b0000_1111, 0), m(0b1111_0000, 4)] }),
+        8 => Some(const { &[m(u8::MAX, 0)] }),
+        _ => None,
     }
 }
 
