@@ -360,10 +360,10 @@ impl<'a> DrawGlyphs<'a> {
 
     /// Encodes a fill or stroke for the given sequence of glyphs and consumes the builder.
     ///
-    /// The `style` parameter accepts either `Fill` or `&Stroke` types.
+    /// The `style` parameter accepts either `Fill` or `Stroke` types.
     ///
-    /// If the font has COLR support, it will try to draw each glyph using that table first,
-    /// falling back to non-COLR rendering. `style` is ignored for COLR glyphs.
+    /// This supports emoji fonts in COLR and bitmap formats.
+    /// `style` is ignored for these fonts.
     ///
     /// For these glyphs, the given [brush](Self::brush) is used as the "foreground colour", and should
     /// be [`Solid`](Brush::Solid) for maximum compatibility.
@@ -549,9 +549,9 @@ impl<'a> DrawGlyphs<'a> {
                             glyph.x.into(),
                             (glyph.y - self.run.font_size).into(),
                         ));
-                    // TODO: This `/ image.width` is a guess :)
+                    // TODO: This `/ image.height` is a guess :)
                     let transform = transform
-                        * Affine::scale((self.run.font_size / image.width as f32) as f64)
+                        * Affine::scale((self.run.font_size / image.height as f32) as f64)
                         * self
                             .run
                             .glyph_transform
