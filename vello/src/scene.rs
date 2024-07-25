@@ -613,32 +613,39 @@ fn bitmap_masks(bpp: u8) -> Option<&'static [BitmapMask]> {
         }
     }
     match bpp {
-        1 => Some(
-            const {
-                &[
-                    byte(0),
-                    byte(1),
-                    byte(2),
-                    byte(3),
-                    byte(4),
-                    byte(5),
-                    byte(6),
-                    byte(7),
-                ]
-            },
-        ),
-        2 => Some(
-            const {
+        1 => {
+            const BPP_1_MASK: &[BitmapMask] = &[
+                byte(0),
+                byte(1),
+                byte(2),
+                byte(3),
+                byte(4),
+                byte(5),
+                byte(6),
+                byte(7),
+            ];
+            Some(BPP_1_MASK)
+        }
+
+        2 => {
+            const BPP_2_MASK: &[BitmapMask] = {
                 &[
                     m(0b0000_0011, 0),
                     m(0b0000_1100, 2),
                     m(0b0011_0000, 4),
                     m(0b1100_0000, 6),
                 ]
-            },
-        ),
-        4 => Some(const { &[m(0b0000_1111, 0), m(0b1111_0000, 4)] }),
-        8 => Some(const { &[m(u8::MAX, 0)] }),
+            };
+            Some(BPP_2_MASK)
+        }
+        4 => {
+            const BPP_4_MASK: &[BitmapMask] = &[m(0b0000_1111, 0), m(0b1111_0000, 4)];
+            Some(BPP_4_MASK)
+        }
+        8 => {
+            const BPP_8_MASK: &[BitmapMask] = &[m(u8::MAX, 0)];
+            Some(BPP_8_MASK)
+        }
         _ => None,
     }
 }
