@@ -7,7 +7,7 @@
 #   -g "!src/special_directory"
 
 # Check all the standard Rust source files
-output=$(rg "^// Copyright (19|20)[\d]{2} (.+ and )?the Vello Authors( and .+)?$\n^// SPDX-License-Identifier: Apache-2\.0 OR MIT$\n\n" --files-without-match --multiline -g "*.rs" -g "!vello_shaders/{shader,src/cpu}" .)
+output=$(rg "^// Copyright (19|20)[\d]{2} (.+ and )?the Vello Authors( and .+)?$\n^// SPDX-License-Identifier: Apache-2\.0 OR MIT$\n\n" --files-without-match --multiline -g "*.rs" -g "!vello_shaders/{shader,src/cpu}" -g "!vello/src/scene/bitmap.rs" .)
 
 if [ -n "$output" ]; then
 	echo -e "The following files lack the correct copyright header:\n"
