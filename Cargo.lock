@@ -2416,6 +2416,7 @@ dependencies = [
  "futures-intrusive",
  "log",
  "peniko",
+ "png",
  "raw-window-handle",
  "skrifa",
  "static_assertions",
