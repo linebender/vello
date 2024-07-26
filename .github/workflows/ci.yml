@@ -147,9 +147,9 @@ jobs:
         restore-keys: vello-lfs-
         enableCrossOsArchive: true
 
-    - name: Fetch lfs data
-      if: ${{ steps.lfs-cache.outputs.cache-hit != 'true' }}
-      run: git lfs fetch
+    # - name: Fetch lfs data
+    #   if: ${{ steps.lfs-cache.outputs.cache-hit != 'true' }}
+    #   run: git lfs fetch
   
   test-stable:
     name: cargo test
@@ -219,7 +219,7 @@ jobs:
           # We are experimenting with git lfs, and we don't expect to run out of bandwidth.
           # However, if we do, the tests are designed to be robust against that, if this environment variable is set.
           # If we do run out of bandwidth, uncomment the following line and inform @DJMcNab.
-          # VELLO_SKIP_LFS_SNAPSHOTS: all
+          VELLO_SKIP_LFS_SNAPSHOTS: all
 
   test-stable-wasm:
     name: cargo test (wasm32)
