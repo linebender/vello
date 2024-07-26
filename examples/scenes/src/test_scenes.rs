@@ -511,6 +511,7 @@ mod impls {
 
     pub(super) fn fill_types(scene: &mut Scene, params: &mut SceneParams) {
         use PathEl::*;
+        params.resolution = Some((1400., 700.).into());
         let rect = Rect::from_origin_size(Point::new(0., 0.), (500., 500.));
         let star = [
             MoveTo((250., 0.).into()),

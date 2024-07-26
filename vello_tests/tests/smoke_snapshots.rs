@@ -9,7 +9,7 @@ use vello::{
     peniko::{Brush, Color, Fill},
     Scene,
 };
-use vello_tests::{snapshot_test_sync, TestParams};
+use vello_tests::{smoke_snapshot_test_sync, TestParams};
 
 fn filled_square(use_cpu: bool) {
     let mut scene = Scene::new();
@@ -24,7 +24,7 @@ fn filled_square(use_cpu: bool) {
         use_cpu,
         ..TestParams::new("filled_square", 20, 20)
     };
-    snapshot_test_sync(scene, &params)
+    smoke_snapshot_test_sync(scene, &params)
         .unwrap()
         .assert_mean_less_than(0.01);
 }
@@ -42,7 +42,7 @@ fn filled_circle(use_cpu: bool) {
         use_cpu,
         ..TestParams::new("filled_circle", 20, 20)
     };
-    snapshot_test_sync(scene, &params)
+    smoke_snapshot_test_sync(scene, &params)
         .unwrap()
         .assert_mean_less_than(0.01);
 }
@@ -62,7 +62,7 @@ fn single_emoji(use_cpu: bool) {
         use_cpu,
         ..TestParams::new("single_emoji", 30, 30)
     };
-    snapshot_test_sync(scene, &params)
+    smoke_snapshot_test_sync(scene, &params)
         .unwrap()
         .assert_mean_less_than(0.01);
 }
