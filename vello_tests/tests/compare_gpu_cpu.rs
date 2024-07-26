@@ -10,10 +10,45 @@
 //! This type of test is useful, as it avoids committing large snapshots to the repository, which are
 //! not handled very well by git.
 
-use scenes::{test_scenes, ExampleScene};
-use vello_tests::{compare_gpu_cpu_sync, encode_test_scene, TestParams};
+use scenes::{test_scenes, ExampleScene, ImageCache, SceneParams, SimpleText};
+use vello::{
+    kurbo::{Affine, Vec2},
+    Scene,
+};
+use vello_tests::{compare_gpu_cpu_sync, TestParams};
 
 /// Make sure the CPU and GPU renderers match on the test scenes
+fn encode_test_scene(mut test_scene: ExampleScene, test_params: &mut TestParams) -> Scene {
+    let mut inner_scene = Scene::new();
+    let mut image_cache = ImageCache::new();
+    let mut text = SimpleText::new();
+    let mut scene_params = SceneParams {
+        base_color: None,
+        complexity: 100,
+        time: 0.,
+        images: &mut image_cache,
+        interactive: false,
+        resolution: None,
+        text: &mut text,
+    };
+    test_scene
+        .function
+        .render(&mut inner_scene, &mut scene_params);
+    if test_params.base_colour.is_none() {
+        test_params.base_colour = scene_params.base_color;
+    }
+    if let Some(resolution) = scene_params.resolution {
+        // Automatically scale the rendering to fill as much of the window as possible
+        let factor = Vec2::new(test_params.width as f64, test_params.height as f64);
+        let scale_factor = (factor.x / resolution.x).min(factor.y / resolution.y);
+        let mut outer_scene = Scene::new();
+        outer_scene.append(&inner_scene, Some(Affine::scale(scale_factor)));
+        outer_scene
+    } else {
+        inner_scene
+    }
+}
+
 fn compare_test_scene(test_scene: ExampleScene, mut params: TestParams) {
     let scene = encode_test_scene(test_scene, &mut params);
     compare_gpu_cpu_sync(scene, params)

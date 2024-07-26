@@ -129,31 +129,8 @@ jobs:
       - name: cargo clippy (auxiliary)
         run: cargo hack clippy --workspace ${{ env.NO_WASM_PKGS }} --locked --target wasm32-unknown-unknown --each-feature --optional-deps --tests --benches --examples -- -D warnings
 
-  prime-lfs-cache:
-    name: Prime LFS Cache
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      
-    - name: Cache git lfs
-      id: lfs-cache
-      uses: actions/cache@v4
-      with:
-        path: .git/lfs
-        # The files targeted with git lfs
-        key: vello-lfs-${{ hashFiles('vello_tests/snapshots/*.png') }}
-        restore-keys: vello-lfs-
-        enableCrossOsArchive: true
-
-    - name: Fetch lfs data
-      if: ${{ steps.lfs-cache.outputs.cache-hit != 'true' }}
-      run: git lfs fetch
-  
   test-stable:
     name: cargo test
-    needs: prime-lfs-cache
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -169,23 +146,9 @@ jobs:
             gpu: 'no'
     steps:
       - uses: actions/checkout@v4
-        # We intentionally do not use lfs: true here
 
       - name: restore cache
         uses: Swatinem/rust-cache@v2
-
-      - name: Restore lfs cache
-        id: lfs-cache
-        uses: actions/cache@v4
-        with:
-          path: .git/lfs
-          # The files targeted with git lfs
-          key: vello-lfs-${{ hashFiles('vello_tests/snapshots/*.png') }}
-          enableCrossOsArchive: true
-  
-      - name: Checkout LFS files
-        run: git lfs checkout
-        continue-on-error: true
 
       - name: install stable toolchain
         uses: dtolnay/rust-toolchain@master
@@ -216,10 +179,6 @@ jobs:
         run: cargo nextest run --workspace --locked --all-features
         env:
           VELLO_CI_GPU_SUPPORT: ${{ matrix.gpu }}
-          # We are experimenting with git lfs, and we don't expect to run out of bandwidth.
-          # However, if we do, the tests are designed to be robust against that, if this environment variable is set.
-          # If we do run out of bandwidth, uncomment the following line and inform @DJMcNab.
-          # VELLO_SKIP_LFS_SNAPSHOTS: all
 
   test-stable-wasm:
     name: cargo test (wasm32)
