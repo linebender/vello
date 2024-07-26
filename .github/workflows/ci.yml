@@ -161,9 +161,9 @@ jobs:
         restore-keys: vello-lfs-
         enableCrossOsArchive: true
 
-    # - name: Fetch lfs data
-    #   if: ${{ steps.lfs-cache.outputs.cache-hit != 'true' }}
-    #   run: git lfs fetch
+    - name: Fetch lfs data
+      if: ${{ steps.lfs-cache.outputs.cache-hit != 'true' }}
+      run: git lfs fetch
   
   test-stable:
     name: cargo test
