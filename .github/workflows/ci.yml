@@ -216,9 +216,10 @@ jobs:
         run: cargo nextest run --workspace --locked --all-features
         env:
           VELLO_CI_GPU_SUPPORT: ${{ matrix.gpu }}
-          # If LFS downloading failed, we still want CI to work.
-          # Any values still in the cache will still work.
-          VELLO_SKIP_LFS_SNAPSHOTS: all
+          # We are experimenting with git lfs, and we don't expect to run out of bandwidth.
+          # However, if we do, the tests are designed to be robust against that, if this environment variable is set.
+          # If we do run out of bandwidth, uncomment the following line and inform @DJMcNab.
+          # VELLO_SKIP_LFS_SNAPSHOTS: all
 
   test-stable-wasm:
     name: cargo test (wasm32)
