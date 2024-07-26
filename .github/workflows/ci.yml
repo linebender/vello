@@ -38,12 +38,22 @@ env:
 #
 # The MSRV jobs run only cargo check because different clippy versions can disagree on goals and
 # running tests introduces dev dependencies which may require a higher MSRV than the bare package.
+#
+# We don't save caches in the merge-group cases, because those caches will never be re-used (apart 
+# from the very rare cases where there are multiple PRs in the merge queue).
+# This is because GitHub doesn't share caches between merge queues and `main`.
 
 name: CI
 
 on:
   pull_request:
   merge_group:
+  # We run on push, even though the commit is the same as when we ran in merge_group. 
+  # This allows the cache to be primed.
+  # See https://github.com/orgs/community/discussions/66430
+  push:
+    branches:
+      - main
 
 jobs:
   fmt:
@@ -80,6 +90,8 @@ jobs:
 
       - name: restore cache
         uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.event_name != 'merge_group' }}
 
       - name: install stable toolchain
         uses: dtolnay/rust-toolchain@master
@@ -110,6 +122,8 @@ jobs:
 
       - name: restore cache
         uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.event_name != 'merge_group' }}
 
       - name: install stable toolchain
         uses: dtolnay/rust-toolchain@master
@@ -169,10 +183,12 @@ jobs:
             gpu: 'no'
     steps:
       - uses: actions/checkout@v4
-        # We intentionally do not use lfs: true here
+        # We intentionally do not use lfs: true here, instead using the caching method to save LFS bandwidth.
 
       - name: restore cache
         uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.event_name != 'merge_group' }}
 
       - name: Restore lfs cache
         id: lfs-cache
@@ -219,7 +235,7 @@ jobs:
           # We are experimenting with git lfs, and we don't expect to run out of bandwidth.
           # However, if we do, the tests are designed to be robust against that, if this environment variable is set.
           # If we do run out of bandwidth, uncomment the following line and inform @DJMcNab.
-          VELLO_SKIP_LFS_SNAPSHOTS: all
+          # VELLO_SKIP_LFS_SNAPSHOTS: all
 
   test-stable-wasm:
     name: cargo test (wasm32)
@@ -229,6 +245,8 @@ jobs:
 
       - name: restore cache
         uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.event_name != 'merge_group' }}
 
       - name: install stable toolchain
         uses: dtolnay/rust-toolchain@master
@@ -248,6 +266,8 @@ jobs:
 
       - name: restore cache
         uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.event_name != 'merge_group' }}
 
       - name: install stable toolchain
         uses: dtolnay/rust-toolchain@master
@@ -275,6 +295,8 @@ jobs:
 
       - name: restore cache
         uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.event_name != 'merge_group' }}
 
       - name: install msrv toolchain
         uses: dtolnay/rust-toolchain@master
@@ -301,6 +323,8 @@ jobs:
 
       - name: restore cache
         uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.event_name != 'merge_group' }}
 
       - name: install msrv toolchain
         uses: dtolnay/rust-toolchain@master
@@ -328,6 +352,8 @@ jobs:
 
       - name: restore cache
         uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.event_name != 'merge_group' }}
 
       - name: install nightly toolchain
         uses: dtolnay/rust-toolchain@nightly
