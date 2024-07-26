@@ -3,6 +3,7 @@
 
 use core::fmt;
 use std::{
+    env,
     io::{self, ErrorKind},
     path::{Path, PathBuf},
 };
@@ -17,8 +18,12 @@ use vello::{
 use crate::{env_var_relates_to, render_then_debug, write_png_to_file, TestParams};
 use anyhow::{anyhow, bail, Result};
 
-fn snapshot_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("snapshots")
+fn snapshot_dir(directory: SnapshotDirectory) -> PathBuf {
+    let dir = match directory {
+        SnapshotDirectory::Smoke => "smoke_snapshots",
+        SnapshotDirectory::Lfs => "snapshots",
+    };
+    Path::new(env!("CARGO_MANIFEST_DIR")).join(dir)
 }
 
 #[must_use = "A snapshot test doesn't do anything unless an assertion method is called on it"]
@@ -29,6 +34,7 @@ pub struct Snapshot<'a> {
     pub update_path: PathBuf,
     pub raw_rendered: Image,
     pub params: &'a TestParams,
+    pub directory: SnapshotDirectory,
 }
 
 impl Snapshot<'_> {
@@ -72,7 +78,12 @@ impl Snapshot<'_> {
     fn handle_failure(&mut self, message: fmt::Arguments) -> Result<()> {
         if env_var_relates_to("VELLO_TEST_UPDATE", &self.params.name, self.params.use_cpu) {
             if !self.params.use_cpu {
-                write_png_to_file(self.params, &self.reference_path, &self.raw_rendered)?;
+                write_png_to_file(
+                    self.params,
+                    &self.reference_path,
+                    &self.raw_rendered,
+                    Some(self.directory.max_size_in_bytes()),
+                )?;
                 eprintln!(
                     "Updated result for updated test {} to {:?}",
                     self.params.name, &self.reference_path
@@ -84,7 +95,7 @@ impl Snapshot<'_> {
                 );
             }
         } else {
-            write_png_to_file(self.params, &self.update_path, &self.raw_rendered)?;
+            write_png_to_file(self.params, &self.update_path, &self.raw_rendered, None)?;
             eprintln!(
                 "Wrote result for failing test {} to {:?}\n\
                 Use `VELLO_TEST_UPDATE=all` to update",
@@ -95,24 +106,64 @@ impl Snapshot<'_> {
     }
 }
 
-/// Run a snapshot test of the given scene.
-///
-/// Try and keep the width and height small, to reduce the size of committed binary data.
-pub fn snapshot_test_sync(scene: Scene, params: &TestParams) -> Result<Snapshot<'_>> {
-    pollster::block_on(snapshot_test(scene, params))
+/// The directory to store a snapshot test within.
+#[derive(Clone, Copy)]
+pub enum SnapshotDirectory {
+    /// Run in a smoke test directory.
+    ///
+    /// Snapshots in this directory should be small, because they commit binary data directly to the repository.
+    /// This test will ensure that files produced are no more than 4KiB.
+    Smoke,
+    /// Run the test in a git LFS managed directory.
+    ///
+    /// This test will ensure that files produced are no larger than 128KiB.
+    Lfs,
+}
+
+impl SnapshotDirectory {
+    fn max_size_in_bytes(self) -> u64 {
+        match self {
+            SnapshotDirectory::Smoke => 4 * 1024, /* 4KiB */
+            SnapshotDirectory::Lfs => 128 * 1024, /* 128KiB */
+        }
+    }
 }
 
 /// Run a snapshot test of the given scene.
-pub async fn snapshot_test(scene: Scene, params: &TestParams) -> Result<Snapshot> {
+///
+/// This will store the files in an LFS managed directory, and has a larger limit on file size.
+///
+/// This test will ensure that files produced are no larger than 128KiB.
+pub fn snapshot_test_sync(scene: Scene, params: &TestParams) -> Result<Snapshot<'_>> {
+    pollster::block_on(snapshot_test(scene, params, SnapshotDirectory::Lfs))
+}
+
+/// Run a snapshot test of the given scene.
+///
+/// Try and keep the width and height small, to reduce the size of committed binary data.
+///
+/// This test will ensure that files produced are no more than 4KiB.
+pub fn smoke_snapshot_test_sync(scene: Scene, params: &TestParams) -> Result<Snapshot<'_>> {
+    pollster::block_on(snapshot_test(scene, params, SnapshotDirectory::Smoke))
+}
+
+/// Run a snapshot test of the given scene.
+pub async fn snapshot_test(
+    scene: Scene,
+    params: &TestParams,
+    directory: SnapshotDirectory,
+) -> Result<Snapshot> {
     let raw_rendered = render_then_debug(&scene, params).await?;
 
-    let reference_path = snapshot_dir().join(&params.name).with_extension("png");
+    let reference_path = snapshot_dir(directory)
+        .join(&params.name)
+        .with_extension("png");
     let update_extension = if params.use_cpu {
         "cpu.new.png"
     } else {
         "gpu.new.png"
     };
-    let update_path = snapshot_dir()
+    let update_path = snapshot_dir(directory)
         .join(&params.name)
         .with_extension(update_extension);
 
@@ -120,8 +171,13 @@ pub async fn snapshot_test(scene: Scene, params: &TestParams) -> Result<Snapshot
         Ok(contents) => contents.into_rgb8(),
         Err(ImageError::IoError(e)) if e.kind() == io::ErrorKind::NotFound => {
             if env_var_relates_to("VELLO_TEST_CREATE", &params.name, params.use_cpu) {
-                if params.use_cpu {
-                    write_png_to_file(params, &reference_path, &raw_rendered)?;
+                if !params.use_cpu {
+                    write_png_to_file(
+                        params,
+                        &reference_path,
+                        &raw_rendered,
+                        Some(directory.max_size_in_bytes()),
+                    )?;
                     eprintln!(
                         "Wrote result for new test {} to {:?}",
                         params.name, &reference_path
@@ -137,10 +193,11 @@ pub async fn snapshot_test(scene: Scene, params: &TestParams) -> Result<Snapshot
                     reference_path,
                     update_path,
                     raw_rendered,
+                    directory,
                     params,
                 });
             } else {
-                write_png_to_file(params, &update_path, &raw_rendered)?;
+                write_png_to_file(params, &update_path, &raw_rendered, None)?;
                 bail!(
                     "Couldn't find snapshot for test {}. Searched at {:?}\n\
                     Test result written to {:?}\n\
@@ -149,6 +206,25 @@ pub async fn snapshot_test(scene: Scene, params: &TestParams) -> Result<Snapshot
                     reference_path,
                     update_path
                 );
+            }
+        }
+        Err(ImageError::Decoding(d)) => {
+            if env_var_relates_to("VELLO_SKIP_LFS_SNAPSHOTS", &params.name, params.use_cpu) {
+                return Ok(Snapshot {
+                    statistics: None,
+                    reference_path,
+                    update_path,
+                    raw_rendered,
+                    directory,
+                    params,
+                });
+            } else {
+                bail!(
+                    "Decoding error: {d}\n\
+                    in image file {reference_path:?}.\n\
+                    If this file is an LFS file, install git lfs (https://git-lfs.com/) and run `git lfs pull`.\n\
+                    If that fails (due to e.g. a lack of bandwidth), rerun tests with `VELLO_SKIP_LFS_SNAPSHOTS=all` to skip this test."
+                )
             }
         }
         Err(e) => return Err(e.into()),
@@ -161,6 +237,7 @@ pub async fn snapshot_test(scene: Scene, params: &TestParams) -> Result<Snapshot
             reference_path,
             update_path,
             raw_rendered,
+            directory,
             params,
         };
         snapshot.handle_failure(format_args!(
@@ -202,6 +279,7 @@ pub async fn snapshot_test(scene: Scene, params: &TestParams) -> Result<Snapshot
         reference_path,
         update_path,
         raw_rendered,
+        directory,
         params,
     })
 }

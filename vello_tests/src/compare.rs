@@ -73,8 +73,8 @@ impl GpuCpuComparison {
     }
 
     fn handle_failure(&mut self, message: String) -> Result<()> {
-        write_png_to_file(&self.params, &self.cpu_path, &self.cpu_rendered)?;
-        write_png_to_file(&self.params, &self.gpu_path, &self.gpu_rendered)?;
+        write_png_to_file(&self.params, &self.cpu_path, &self.cpu_rendered, None)?;
+        write_png_to_file(&self.params, &self.gpu_path, &self.gpu_rendered, None)?;
         eprintln!(
             "Wrote CPU result from test {} to {:?}\n\
             Wrote GPU result to {:?}\n",

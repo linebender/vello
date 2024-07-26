@@ -9,6 +9,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{anyhow, bail, Result};
+use scenes::{ExampleScene, ImageCache, SceneParams, SimpleText};
+use vello::kurbo::{Affine, Vec2};
 use vello::peniko::{Blob, Color, Format, Image};
 use vello::wgpu::{
     self, BufferDescriptor, BufferUsages, CommandEncoderDescriptor, Extent3d, ImageCopyBuffer,
@@ -20,7 +22,9 @@ mod compare;
 mod snapshot;
 
 pub use compare::{compare_gpu_cpu, compare_gpu_cpu_sync, GpuCpuComparison};
-pub use snapshot::{snapshot_test, snapshot_test_sync, Snapshot};
+pub use snapshot::{
+    smoke_snapshot_test_sync, snapshot_test, snapshot_test_sync, Snapshot, SnapshotDirectory,
+};
 
 pub struct TestParams {
     pub width: u32,
@@ -55,7 +59,7 @@ pub async fn render_then_debug(scene: &Scene, params: &TestParams) -> Result<Ima
         .join(name)
         .with_extension("png");
     if env_var_relates_to("VELLO_DEBUG_TEST", &params.name, params.use_cpu) {
-        write_png_to_file(params, &out_path, &image)?;
+        write_png_to_file(params, &out_path, &image, None)?;
         let (width, height) = (image.width, image.height);
         println!("Wrote debug result ({width}x{height}) to {out_path:?}");
     } else {
@@ -161,6 +165,7 @@ pub fn write_png_to_file(
     params: &TestParams,
     out_path: &std::path::Path,
     image: &Image,
+    max_size_in_bytes: Option<u64>,
 ) -> Result<(), anyhow::Error> {
     let width = params.width;
     let height = params.height;
@@ -171,6 +176,20 @@ pub fn write_png_to_file(
     let mut writer = encoder.write_header()?;
     writer.write_image_data(image.data.data())?;
     writer.finish()?;
+    let size = file.metadata().unwrap().len();
+    drop(file);
+    let oversized_path = out_path.with_extension("oversized.png");
+    if max_size_in_bytes.is_some_and(|max_size_in_bytes| size > max_size_in_bytes) {
+        std::fs::rename(out_path, &oversized_path)?;
+        bail!(
+            "File was oversized, expected {} bytes, got {size} bytes. New file written to {to}",
+            max_size_in_bytes.unwrap(),
+            to = oversized_path.display()
+        );
+    } else {
+        // Intentionally do not handle errors here
+        drop(std::fs::remove_file(oversized_path));
+    }
     Ok(())
 }
 
@@ -200,4 +219,35 @@ fn env_var_relates_to(env_var: &'static str, name: &str, use_cpu: bool) -> bool 
         }
     }
     false
+}
+
+pub fn encode_test_scene(mut test_scene: ExampleScene, test_params: &mut TestParams) -> Scene {
+    let mut inner_scene = Scene::new();
+    let mut image_cache = ImageCache::new();
+    let mut text = SimpleText::new();
+    let mut scene_params = SceneParams {
+        base_color: None,
+        complexity: 100,
+        time: 0.,
+        images: &mut image_cache,
+        interactive: false,
+        resolution: None,
+        text: &mut text,
+    };
+    test_scene
+        .function
+        .render(&mut inner_scene, &mut scene_params);
+    if test_params.base_colour.is_none() {
+        test_params.base_colour = scene_params.base_color;
+    }
+    if let Some(resolution) = scene_params.resolution {
+        // Automatically scale the rendering to fill as much of the window as possible
+        let factor = Vec2::new(test_params.width as f64, test_params.height as f64);
+        let scale_factor = (factor.x / resolution.x).min(factor.y / resolution.y);
+        let mut outer_scene = Scene::new();
+        outer_scene.append(&inner_scene, Some(Affine::scale(scale_factor)));
+        outer_scene
+    } else {
+        inner_scene
+    }
 }
