@@ -466,7 +466,7 @@ struct VSOut {
 @vertex
 fn full_screen_quad_vert(@builtin(vertex_index) vid: u32) -> VSOut {
     let p = quad_vertices[quad_fill_indices[vid]];
-    return VSOut(map_to_ndc(p), vec4(0., 0., 0., 0.5));
+    return VSOut(map_to_ndc(p), vec4(0., 0., 0., 0.2));
 }
 
 ////////////
