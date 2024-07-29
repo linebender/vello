@@ -280,7 +280,7 @@ pub struct RenderParams {
     /// constructing the `Renderer`.
     pub antialiasing_method: AaConfig,
 
-    #[cfg(feature = "debug_layers")]
+    #[cfg(all(feature = "debug_layers", feature = "wgpu"))]
     /// Options for debug layer rendering.
     pub debug: DebugLayers,
 }
@@ -311,6 +311,7 @@ pub struct RendererOptions {
     pub num_init_threads: Option<NonZeroUsize>,
 }
 
+#[cfg(feature = "wgpu")]
 struct RenderResult {
     bump: Option<BumpAllocators>,
     #[cfg(feature = "debug_layers")]

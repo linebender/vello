@@ -618,6 +618,7 @@ impl WgpuEngine {
                 }
                 Command::Draw(draw_params) => {
                     let shader = &self.shaders[draw_params.shader_id.0];
+                    #[cfg(feature = "wgpu-profiler")]
                     let label = shader.label;
                     let ShaderKind::Wgpu(shader) = shader.select() else {
                         panic!("a render pass does not have a CPU equivalent");
@@ -714,6 +715,7 @@ impl WgpuEngine {
         #[cfg(feature = "wgpu-profiler")]
         profiler.end_query(&mut encoder, query);
         // TODO: This only actually needs to happen once per frame, but run_recording happens two or three times
+        #[cfg(feature = "wgpu-profiler")]
         profiler.resolve_queries(&mut encoder);
         queue.submit(Some(encoder.finish()));
         for id in free_bufs {
