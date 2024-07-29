@@ -713,6 +713,8 @@ impl WgpuEngine {
         }
         #[cfg(feature = "wgpu-profiler")]
         profiler.end_query(&mut encoder, query);
+        // TODO: This only actually needs to happen once per frame, but run_recording happens two or three times
+        profiler.resolve_queries(&mut encoder);
         queue.submit(Some(encoder.finish()));
         for id in free_bufs {
             if let Some(buf) = self.bind_map.buf_map.remove(&id) {

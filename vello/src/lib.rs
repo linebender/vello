@@ -463,7 +463,7 @@ impl Renderer {
             queue,
             &recording,
             &external_resources,
-            "blit (render_to_surface_async)",
+            "blit (render_to_surface)",
             #[cfg(feature = "wgpu-profiler")]
             &mut self.profiler,
         )?;
