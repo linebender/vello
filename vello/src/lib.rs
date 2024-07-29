@@ -676,13 +676,13 @@ impl Renderer {
                     .expect("renderer should have configured surface_format to use on a surface");
                 let bump = result.bump.as_ref().unwrap();
                 // TODO: We could avoid this download if `DebugLayers::VALIDATION` is unset.
-                let downloads = DebugDownloads::map(&mut self.engine, &captured, bump).await?;
+                let downloads = DebugDownloads::map(&self.engine, &captured, bump).await?;
                 debug.render(
                     &mut recording,
                     surface_proxy,
                     &captured,
                     bump,
-                    &params,
+                    params,
                     &downloads,
                 );
 

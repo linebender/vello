@@ -24,6 +24,15 @@ pub struct Render {
     captured_buffers: Option<CapturedBuffers>,
 }
 
+#[cfg(feature = "debug_layers")]
+impl Drop for Render {
+    fn drop(&mut self) {
+        if self.captured_buffers.is_some() {
+            unreachable!("Render captured buffers without freeing them");
+        }
+    }
+}
+
 /// Resources produced by pipeline, needed for fine rasterization.
 struct FineResources {
     aa_config: AaConfig,
@@ -125,14 +134,6 @@ impl Render {
         use vello_encoding::RenderConfig;
         let mut recording = Recording::default();
         let mut packed = vec![];
-
-        #[cfg(feature = "debug_layers")]
-        {
-            let captured = self.captured_buffers.take();
-            if let Some(buffers) = captured {
-                buffers.release_buffers(&mut recording);
-            }
-        }
 
         let (layout, ramps, images) = resolver.resolve(encoding, &mut packed);
         let gradient_image = if ramps.height == 0 {
@@ -459,15 +460,20 @@ impl Render {
 
         #[cfg(feature = "debug_layers")]
         {
-            let path_bboxes = *path_bbox_buf.as_buf().unwrap();
-            let lines = *lines_buf.as_buf().unwrap();
-            recording.download(lines);
+            if robust {
+                let path_bboxes = *path_bbox_buf.as_buf().unwrap();
+                let lines = *lines_buf.as_buf().unwrap();
+                recording.download(lines);
 
-            self.captured_buffers = Some(CapturedBuffers {
-                sizes: cpu_config.buffer_sizes,
-                path_bboxes,
-                lines,
-            });
+                self.captured_buffers = Some(CapturedBuffers {
+                    sizes: cpu_config.buffer_sizes,
+                    path_bboxes,
+                    lines,
+                });
+            } else {
+                recording.free_resource(path_bbox_buf);
+                recording.free_resource(lines_buf);
+            }
         }
         #[cfg(not(feature = "debug_layers"))]
         {

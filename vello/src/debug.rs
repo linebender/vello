@@ -71,7 +71,7 @@ impl DebugLayers {
     }
 
     pub fn toggle(&mut self, mask: DebugLayers) {
-        self.0 ^= mask.0
+        self.0 ^= mask.0;
     }
 }
 
@@ -325,7 +325,6 @@ impl DebugRenderer {
             bytemuck::bytes_of(&linepoints_uniforms),
         );
 
-        /*
         recording.draw(DrawParams {
             shader_id: self.clear_tint,
             instance_count: 1,
@@ -334,7 +333,7 @@ impl DebugRenderer {
             resources: vec![],
             target,
             clear_color: None,
-        });*/
+        });
         if params.debug.check_bits(DebugLayers::BOUNDING_BOXES) {
             recording.draw(DrawParams {
                 shader_id: self.bboxes,
