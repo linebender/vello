@@ -81,7 +81,6 @@
 //!
 //! See the [`examples/`](https://github.com/linebender/vello/tree/main/examples) folder to see how that code integrates with frameworks like winit.
 
-#[cfg(all(feature = "debug_layers", feature = "wgpu"))]
 mod debug;
 mod recording;
 mod render;
@@ -126,7 +125,6 @@ use vello_encoding::Resolver;
 #[cfg(feature = "wgpu")]
 use wgpu_engine::{ExternalResource, WgpuEngine};
 
-#[cfg(all(feature = "debug_layers", feature = "wgpu"))]
 pub use debug::DebugLayers;
 /// Temporary export, used in `with_winit` for stats
 pub use vello_encoding::BumpAllocators;
@@ -280,8 +278,11 @@ pub struct RenderParams {
     /// constructing the `Renderer`.
     pub antialiasing_method: AaConfig,
 
-    #[cfg(all(feature = "debug_layers", feature = "wgpu"))]
     /// Options for debug layer rendering.
+    ///
+    /// This only has an effect when the `debug_layers` feature is enabled.
+    // This is exposed publicly as a least-effort to avoid changing the API when features change.
+    // We expect the API to change here in the near future.
     pub debug: DebugLayers,
 }
 

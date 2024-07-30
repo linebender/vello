@@ -10,7 +10,7 @@ license.workspace = true
 repository.workspace = true
 
 [features]
-default = ["wgpu"]
+default = ["wgpu", "debug_layers"]
 # Enables GPU memory usage estimation. This performs additional computations
 # in order to estimate the minimum required allocations for buffers backing
 # bump-allocated GPU memory.

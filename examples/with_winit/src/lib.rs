@@ -163,7 +163,6 @@ struct VelloApp<'s> {
     prev_scene_ix: i32,
     modifiers: ModifiersState,
 
-    #[cfg(feature = "debug_layers")]
     debug: vello::DebugLayers,
 }
 
@@ -483,7 +482,6 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
                     width,
                     height,
                     antialiasing_method,
-                    #[cfg(feature = "debug_layers")]
                     debug: self.debug,
                 };
                 self.scene.reset();
@@ -695,7 +693,6 @@ fn run(
         Some(render_state)
     };
 
-    #[cfg(feature = "debug_layers")]
     let debug = vello::DebugLayers::none();
 
     let mut app = VelloApp {
@@ -742,7 +739,6 @@ fn run(
         complexity: 0,
         prev_scene_ix: 0,
         modifiers: ModifiersState::default(),
-        #[cfg(feature = "debug_layers")]
         debug,
     };
 
