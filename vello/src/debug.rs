@@ -45,15 +45,24 @@ impl DebugLayers {
     /// Requires the `debug_layers` feature.
     pub const VALIDATION: DebugLayers = DebugLayers(1 << 3);
 
+    /// Construct a `DebugLayers` from the raw bits.
     pub const fn from_bits(bits: u8) -> Self {
         Self(bits)
     }
 
+    /// Get the raw representation of this value.
+    pub const fn bits(self) -> u8 {
+        self.0
+    }
+
+    /// A `DebugLayers` with no layers enabled.
     pub const fn none() -> Self {
         Self(0)
     }
 
+    /// A `DebugLayers` with all layers enabled.
     pub const fn all() -> Self {
+        // Custom BitOr is not const, so need to manipulate the inner value here
         Self(
             Self::BOUNDING_BOXES.0
                 | Self::LINESOUP_SEGMENTS.0
@@ -62,19 +71,23 @@ impl DebugLayers {
         )
     }
 
-    pub fn is_empty(&self) -> bool {
+    /// True if this `DebugLayers` has no layers enabled.
+    pub const fn is_empty(self) -> bool {
         self.0 == 0
     }
 
-    pub fn check_bits(&self, mask: DebugLayers) -> bool {
+    /// Determine whether `self` is a superset of `mask`.
+    pub const fn check_bits(self, mask: DebugLayers) -> bool {
         self.0 & mask.0 == mask.0
     }
 
+    /// Toggle the value of the layers specified in mask.
     pub fn toggle(&mut self, mask: DebugLayers) {
         self.0 ^= mask.0;
     }
 }
 
+/// Returns the union of the two input `DebugLayers`.
 impl std::ops::BitOr for DebugLayers {
     type Output = Self;
 
