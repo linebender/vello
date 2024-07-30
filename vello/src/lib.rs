@@ -217,7 +217,7 @@ pub enum Error {
     /// Failed to download an internal buffer for debug visualization.
     #[cfg(feature = "wgpu")]
     #[cfg(feature = "debug_layers")]
-    #[error("Failed to download internal buffer for visualization")]
+    #[error("Failed to download internal buffer '{0}' for visualization")]
     DownloadError(&'static str),
 
     #[cfg(feature = "wgpu")]
@@ -840,7 +840,7 @@ impl<'a> DebugDownloads<'a> {
         use vello_encoding::LineSoup;
 
         let Some(lines_buf) = engine.get_download(captured.lines) else {
-            return Err(Error::DownloadError("could not download LineSoup buffer"));
+            return Err(Error::DownloadError("linesoup"));
         };
 
         let lines = lines_buf.slice(..bump.lines as u64 * std::mem::size_of::<LineSoup>() as u64);
