@@ -1,3 +1,6 @@
+// Copyright 2023 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 use super::DebugLayers;
 use crate::{
     debug::validate::{validate_line_soup, LineEndpoint},
