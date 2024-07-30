@@ -4,8 +4,8 @@
 use anyhow::Result;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use vello::kurbo::{Affine, Circle, Ellipse, Line, RoundedRect, Stroke};
-use vello::peniko::Color;
+use vello::kurbo::{Affine, Circle, Ellipse, Line, Rect, RoundedRect, Stroke, Vec2};
+use vello::peniko::{BlendMode, Color};
 use vello::util::{RenderContext, RenderSurface};
 use vello::{AaConfig, Renderer, RendererOptions, Scene};
 use winit::application::ApplicationHandler;
@@ -114,19 +114,19 @@ impl<'s> ApplicationHandler for SimpleVelloApp<'s> {
 
             // This is where all the rendering happens
             WindowEvent::RedrawRequested => {
-                // Empty the scene of objects to draw. You could create a new Scene each time, but in this case
-                // the same Scene is reused so that the underlying memory allocation can also be reused.
-                self.scene.reset();
-
-                // Re-add the objects to draw to the scene.
-                add_shapes_to_scene(&mut self.scene);
-
                 // Get the RenderSurface (surface + config)
                 let surface = &render_state.surface;
 
                 // Get the window size
                 let width = surface.config.width;
                 let height = surface.config.height;
+
+                // Empty the scene of objects to draw. You could create a new Scene each time, but in this case
+                // the same Scene is reused so that the underlying memory allocation can also be reused.
+                self.scene.reset();
+
+                // Re-add the objects to draw to the scene.
+                add_shapes_to_scene(&mut self.scene, surface.config.width, surface.config.height);
 
                 // Get a handle to the device
                 let device_handle = &self.context.devices[surface.dev_id];
@@ -207,37 +207,54 @@ fn create_vello_renderer(render_cx: &RenderContext, surface: &RenderSurface) -> 
 
 /// Add shapes to a vello scene. This does not actually render the shapes, but adds them
 /// to the Scene data structure which represents a set of objects to draw.
-fn add_shapes_to_scene(scene: &mut Scene) {
-    // Draw an outlined rectangle
-    let stroke = Stroke::new(6.0);
-    let rect = RoundedRect::new(10.0, 10.0, 240.0, 240.0, 20.0);
-    let rect_stroke_color = Color::rgb(0.9804, 0.702, 0.5294);
-    scene.stroke(&stroke, Affine::IDENTITY, rect_stroke_color, None, &rect);
+fn add_shapes_to_scene(scene: &mut Scene, width: u32, height: u32) {
+    let entire_canvas = Rect::new(0.0, 0.0, width as f64, height as f64);
 
-    // Draw a filled circle
-    let circle = Circle::new((420.0, 200.0), 120.0);
-    let circle_fill_color = Color::rgb(0.9529, 0.5451, 0.6588);
+    // Fill background white
     scene.fill(
         vello::peniko::Fill::NonZero,
         Affine::IDENTITY,
-        circle_fill_color,
+        Color::WHITE,
         None,
-        &circle,
+        &entire_canvas,
     );
 
-    // Draw a filled ellipse
-    let ellipse = Ellipse::new((250.0, 420.0), (100.0, 160.0), -90.0);
-    let ellipse_fill_color = Color::rgb(0.7961, 0.651, 0.9686);
+    let transform = Affine::translate(Vec2 {
+        x: 100.0,
+        y: 100.0,
+    });
+
+    // Push and immmediately pop layer 1
+    let clip1 = Rect::new(0.0, 0.0, 200.0, 200.0);
+    scene.push_layer(BlendMode::default(), 0.3, transform, &clip1);
     scene.fill(
         vello::peniko::Fill::NonZero,
         Affine::IDENTITY,
-        ellipse_fill_color,
+        Color::RED,
         None,
-        &ellipse,
+        &entire_canvas,
     );
+    scene.pop_layer();
 
-    // Draw a straight line
-    let line = Line::new((260.0, 20.0), (620.0, 100.0));
-    let line_stroke_color = Color::rgb(0.5373, 0.7059, 0.9804);
-    scene.stroke(&stroke, Affine::IDENTITY, line_stroke_color, None, &line);
+    let clip2 = Rect::new(100.0, 100.0, 300.0, 300.0);
+    scene.push_layer(BlendMode::default(), 0.3, transform, &clip2);
+    scene.fill(
+        vello::peniko::Fill::NonZero,
+        Affine::IDENTITY,
+        Color::BLUE,
+        None,
+        &entire_canvas,
+    );
+    scene.pop_layer();
+
+    let clip3 = Rect::new(50.0, 50.0, 250.0, 250.0);
+    scene.push_layer(BlendMode::default(), 0.3, transform, &clip3);
+    scene.fill(
+        vello::peniko::Fill::NonZero,
+        Affine::IDENTITY,
+        Color::GREEN,
+        None,
+        &entire_canvas,
+    );
+    scene.pop_layer();
 }
