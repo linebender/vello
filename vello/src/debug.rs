@@ -77,7 +77,7 @@ impl DebugLayers {
     }
 
     /// Determine whether `self` is a superset of `mask`.
-    pub const fn check_bits(self, mask: DebugLayers) -> bool {
+    pub const fn contains(self, mask: DebugLayers) -> bool {
         self.0 & mask.0 == mask.0
     }
 

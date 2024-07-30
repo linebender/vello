@@ -220,25 +220,25 @@ impl DebugRenderer {
             return;
         }
 
-        let (unpaired_pts_len, unpaired_pts_buf) =
-            if params.debug.check_bits(DebugLayers::VALIDATION) {
-                // TODO: have this write directly to a GPU buffer?
-                let unpaired_pts: Vec<LineEndpoint> =
-                    validate_line_soup(bytemuck::cast_slice(&downloads.lines.get_mapped_range()));
-                if unpaired_pts.is_empty() {
-                    (0, None)
-                } else {
-                    (
-                        unpaired_pts.len(),
-                        Some(
-                            recording
-                                .upload("unpaired points", bytemuck::cast_slice(&unpaired_pts[..])),
-                        ),
-                    )
-                }
-            } else {
+        let (unpaired_pts_len, unpaired_pts_buf) = if params.debug.contains(DebugLayers::VALIDATION)
+        {
+            // TODO: have this write directly to a GPU buffer?
+            let unpaired_pts: Vec<LineEndpoint> =
+                validate_line_soup(bytemuck::cast_slice(&downloads.lines.get_mapped_range()));
+            if unpaired_pts.is_empty() {
                 (0, None)
-            };
+            } else {
+                (
+                    unpaired_pts.len(),
+                    Some(
+                        recording
+                            .upload("unpaired points", bytemuck::cast_slice(&unpaired_pts[..])),
+                    ),
+                )
+            }
+        } else {
+            (0, None)
+        };
 
         let uniforms = Uniforms {
             width: params.width,
@@ -266,7 +266,7 @@ impl DebugRenderer {
             target,
             clear_color: None,
         });
-        if params.debug.check_bits(DebugLayers::BOUNDING_BOXES) {
+        if params.debug.contains(DebugLayers::BOUNDING_BOXES) {
             recording.draw(DrawParams {
                 shader_id: self.bboxes,
                 instance_count: captured.sizes.path_bboxes.len(),
@@ -277,7 +277,7 @@ impl DebugRenderer {
                 clear_color: None,
             });
         }
-        if params.debug.check_bits(DebugLayers::LINESOUP_SEGMENTS) {
+        if params.debug.contains(DebugLayers::LINESOUP_SEGMENTS) {
             recording.draw(DrawParams {
                 shader_id: self.linesoup,
                 instance_count: bump.lines,
@@ -288,7 +288,7 @@ impl DebugRenderer {
                 clear_color: None,
             });
         }
-        if params.debug.check_bits(DebugLayers::LINESOUP_POINTS) {
+        if params.debug.contains(DebugLayers::LINESOUP_POINTS) {
             recording.draw(DrawParams {
                 shader_id: self.linesoup_points,
                 instance_count: bump.lines,
