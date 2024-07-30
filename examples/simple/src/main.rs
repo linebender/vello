@@ -225,7 +225,7 @@ fn add_shapes_to_scene(scene: &mut Scene, width: u32, height: u32) {
     });
 
     // Push and immmediately pop layer 1
-    let clip1 = Rect::new(0.0, 0.0, 200.0, 200.0);
+    let clip1 = Rect { x0: 0.0, y0: 0.0, x1: 0.0, y1: 0.0 };
     scene.push_layer(BlendMode::default(), 0.3, transform, &clip1);
     scene.fill(
         vello::peniko::Fill::NonZero,
