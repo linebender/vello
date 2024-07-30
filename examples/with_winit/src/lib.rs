@@ -694,6 +694,9 @@ fn run(
     };
 
     let debug = vello::DebugLayers::none();
+    if cfg!(feature = "debug_layers") && !args.async_pipeline {
+        log::warn!("Debug Layers won't work without using `--async-pipeline`.");
+    }
 
     let mut app = VelloApp {
         context: render_cx,
@@ -808,6 +811,7 @@ pub fn main() -> anyhow::Result<()> {
     #[cfg(not(target_arch = "wasm32"))]
     env_logger::builder()
         .format_timestamp(Some(env_logger::TimestampPrecision::Millis))
+        .filter_level(log::LevelFilter::Warn)
         .init();
     let args = parse_arguments();
     let scenes = args.args.select_scene_set()?;
