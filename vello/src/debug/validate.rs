@@ -13,6 +13,8 @@ pub struct LineEndpoint {
     pub path_ix: u32,
 
     // Coordinates in IEEE-754 32-bit float representation
+    // We use u32 here because we are comparing bit patterns rather than proximity, to evaluate exact watertightness
+    // To accelerate this, we use a BTreeSet, which don't support f32 values directly.
     pub x: u32,
     pub y: u32,
 }

@@ -344,7 +344,7 @@ struct LinepointsUniforms {
     point_color: [f32; 3],
     point_size: f32,
     // Uniform parameters for individual SDF point draws are stored in a single buffer.
-    // This 240 byte padding is here to bring the element ffset alignment of 256 bytes.
+    // This 240 byte padding is here to bring the element offset alignment of 256 bytes.
     // (see https://www.w3.org/TR/webgpu/#dom-supported-limits-minuniformbufferoffsetalignment)
     _pad0: [u32; 30],
     _pad1: [u32; 30],

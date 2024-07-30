@@ -6,6 +6,8 @@ mod renderer;
 #[cfg(all(feature = "debug_layers", feature = "wgpu"))]
 mod validate;
 
+use std::fmt::Debug;
+
 #[cfg(all(feature = "debug_layers", feature = "wgpu"))]
 pub(crate) use renderer::*;
 
@@ -14,6 +16,26 @@ pub(crate) use renderer::*;
 /// Currently, all layers additionally require the `debug_layers` feature.
 #[derive(Copy, Clone)]
 pub struct DebugLayers(u8);
+
+impl Debug for DebugLayers {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut tuple = f.debug_tuple("DebugLayers");
+        if self.contains(Self::BOUNDING_BOXES) {
+            tuple.field(&"BOUNDING_BOXES");
+        }
+        if self.contains(Self::LINESOUP_SEGMENTS) {
+            tuple.field(&"LINESOUP_SEGMENTS");
+        }
+        if self.contains(Self::LINESOUP_POINTS) {
+            tuple.field(&"LINESOUP_POINTS");
+        }
+        if self.contains(Self::VALIDATION) {
+            tuple.field(&"VALIDATION");
+        }
+
+        tuple.finish()
+    }
+}
 
 // TODO: Currently all layers require read-back of the BumpAllocators buffer. This isn't strictly
 // necessary for layers other than `VALIDATION`. The debug visualizations use the bump buffer only

@@ -4,6 +4,7 @@
 //! Take an encoded scene and create a graph to render it
 
 use std::mem::size_of;
+use std::sync::atomic::AtomicBool;
 
 use crate::recording::{BufferProxy, ImageFormat, ImageProxy, Recording, ResourceProxy};
 use crate::shaders::FullShaders;
@@ -147,6 +148,15 @@ impl Render {
                 data,
             ))
         };
+        if cfg!(not(feature = "debug_layers")) && !params.debug.is_empty() {
+            static HAS_WARNED: AtomicBool = AtomicBool::new(false);
+            if !HAS_WARNED.swap(true, std::sync::atomic::Ordering::Release) {
+                log::warn!(
+                    "Requested debug layers {debug:?} but `debug_layers` feature is not enabled.",
+                    debug = params.debug
+                );
+            }
+        }
         let image_atlas = if images.images.is_empty() {
             ImageProxy::new(1, 1, ImageFormat::Rgba8)
         } else {
