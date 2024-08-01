@@ -1,16 +1,8 @@
-// Copyright 2024 Google LLC
+// Copyright 2024 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-// This code (apart from imports) is not modified from upstream, and
-// we don't want to touch this code to minimise licensing complications.
+// Based on https://github.com/googlefonts/fontations/blob/cbdf8b485e955e3acee40df1344e33908805ed31/skrifa/src/bitmap.rs
 #![allow(warnings)]
-// Taken from https://github.com/googlefonts/fontations/blob/cbdf8b485e955e3acee40df1344e33908805ed31/skrifa/src/bitmap.rs
-// Used under the Apache 2.0 OR MIT License.
-
-// The MIT license used is in LICENSE-MIT-SKRIFA in the crate root or
-// at https://github.com/googlefonts/fontations/blob/cbdf8b485e955e3acee40df1344e33908805ed31/LICENSE-MIT
-// The Apache 2.0 License is the same as LICENSE-APACHE in the crate root, or
-// at https://github.com/googlefonts/fontations/blob/cbdf8b485e955e3acee40df1344e33908805ed31/LICENSE-APACHE
 
 //! Bitmap strikes and glyphs.
 use skrifa::{
