@@ -522,7 +522,8 @@ impl<'a> DrawGlyphs<'a> {
 
                             if !mask.is_packed {
                                 // TODO: Error once?
-                                log::warn!("Unpacked mask data not handled");
+                                log::warn!("Unpacked mask data in font not yet supported");
+                                // TODO: How do we get the font name here?
                                 continue;
                             }
                             let alphas = mask.data.iter().flat_map(|it| {
