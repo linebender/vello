@@ -50,7 +50,7 @@ static_assertions = "1.1.0"
 thiserror = "1.0.61"
 
 # NOTE: Make sure to keep this in sync with the version badge in README.md and vello/README.md
-wgpu = { version = "0.20.1" }
+wgpu = { version = "22.0.0" }
 log = "0.4.21"
 image = { version = "0.25.1", default-features = false }
 
@@ -59,5 +59,5 @@ clap = "4.5.4"
 anyhow = "1.0.86"
 pollster = "0.3.0"
 web-time = "1.1.0"
-wgpu-profiler = "0.17.0"
+wgpu-profiler = "0.18.0"
 scenes = { path = "examples/scenes" }
