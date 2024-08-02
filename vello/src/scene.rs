@@ -545,19 +545,35 @@ impl<'a> DrawGlyphs<'a> {
                         }
                     };
                     // Split into multiple statements because rustfmt breaks
-                    let transform = run_transform
-                        * Affine::translate(Vec2::new(
-                            glyph.x.into(),
-                            (glyph.y - self.run.font_size).into(),
-                        ));
-                    // TODO: This `/ image.height` is a guess :)
+                    let transform =
+                        run_transform.then_translate(Vec2::new(glyph.x.into(), glyph.y.into()));
+
+                    // Logic copied from Skia without examination or careful understanding:
+                    // https://github.com/google/skia/blob/61ac357e8e3338b90fb84983100d90768230797f/src/ports/SkTypeface_fontations.cpp#L664
+
+                    let image_scale_factor = self.run.font_size / bitmap.ppem_y;
+                    let font_units_to_size = self.run.font_size / upem;
                     let transform = transform
-                        * Affine::scale((self.run.font_size / image.height as f32) as f64)
-                        * self
-                            .run
-                            .glyph_transform
-                            .unwrap_or(Transform::IDENTITY)
-                            .to_kurbo();
+                        .pre_translate(Vec2 {
+                            x: (-bitmap.bearing_x * font_units_to_size).into(),
+                            y: (bitmap.bearing_y * font_units_to_size).into(),
+                        })
+                        // Unclear why this isn't non-uniform
+                        .pre_scale(image_scale_factor.into())
+                        .pre_translate(Vec2 {
+                            x: (-bitmap.inner_bearing_x).into(),
+                            y: (-bitmap.inner_bearing_y).into(),
+                        });
+                    let mut transform = match bitmap.placement_origin {
+                        bitmap::Origin::TopLeft => transform,
+                        bitmap::Origin::BottomLeft => transform.pre_translate(Vec2 {
+                            x: 0.,
+                            y: f64::from(image.height),
+                        }),
+                    };
+                    if let Some(glyph_transform) = self.run.glyph_transform {
+                        transform *= glyph_transform.to_kurbo();
+                    }
                     self.scene.draw_image(&image, transform);
                 }
                 EmojiLikeGlyph::Colr(colr) => {
