@@ -355,6 +355,7 @@ impl WgpuEngine {
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
+            cache: None,
         });
         let id = self.shaders.len();
         self.shaders.push(Shader {
