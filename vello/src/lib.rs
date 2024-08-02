@@ -335,6 +335,7 @@ impl Renderer {
         let blit = options
             .surface_format
             .map(|surface_format| BlitPipeline::new(device, surface_format, &mut engine));
+        #[cfg(feature = "debug_layers")]
         let debug = options
             .surface_format
             .map(|surface_format| debug::DebugRenderer::new(device, surface_format, &mut engine));
