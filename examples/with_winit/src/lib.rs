@@ -331,21 +331,26 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
                                         },
                                     );
                                 }
-                                #[cfg(feature = "debug_layers")]
-                                "1" => {
-                                    self.debug.toggle(vello::DebugLayers::BOUNDING_BOXES);
-                                }
-                                #[cfg(feature = "debug_layers")]
-                                "2" => {
-                                    self.debug.toggle(vello::DebugLayers::LINESOUP_SEGMENTS);
-                                }
-                                #[cfg(feature = "debug_layers")]
-                                "3" => {
-                                    self.debug.toggle(vello::DebugLayers::LINESOUP_POINTS);
-                                }
-                                #[cfg(feature = "debug_layers")]
-                                "4" => {
-                                    self.debug.toggle(vello::DebugLayers::VALIDATION);
+                                debug_layer @ ("1" | "2" | "3" | "4") => {
+                                    match debug_layer {
+                                        "1" => {
+                                            self.debug.toggle(vello::DebugLayers::BOUNDING_BOXES);
+                                        }
+                                        "2" => {
+                                            self.debug
+                                                .toggle(vello::DebugLayers::LINESOUP_SEGMENTS);
+                                        }
+                                        "3" => {
+                                            self.debug.toggle(vello::DebugLayers::LINESOUP_POINTS);
+                                        }
+                                        "4" => {
+                                            self.debug.toggle(vello::DebugLayers::VALIDATION);
+                                        }
+                                        _ => unreachable!(),
+                                    }
+                                    if !self.debug.is_empty() && !self.async_pipeline {
+                                        log::warn!("Debug Layers won't work without using `--async-pipeline`. Requested {:?}", self.debug);
+                                    }
                                 }
                                 _ => {}
                             }
@@ -694,9 +699,6 @@ fn run(
     };
 
     let debug = vello::DebugLayers::none();
-    if cfg!(feature = "debug_layers") && !args.async_pipeline {
-        log::warn!("Debug Layers won't work without using `--async-pipeline`.");
-    }
 
     let mut app = VelloApp {
         context: render_cx,

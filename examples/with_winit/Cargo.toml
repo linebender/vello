@@ -16,7 +16,6 @@ default = ["wgpu-profiler"]
 # Enable the use of wgpu-profiler. This is an optional feature for times when we use a git dependency on
 # wgpu (which means the dependency used in wgpu-profiler would be incompatible)
 wgpu-profiler = ["dep:wgpu-profiler", "vello/wgpu-profiler"]
-debug_layers = ["vello/debug_layers"]
 
 [lints]
 workspace = true
@@ -28,7 +27,7 @@ path = "src/main.rs"
 
 
 [dependencies]
-vello = { workspace = true, features = ["buffer_labels"] }
+vello = { workspace = true, features = ["buffer_labels", "debug_layers"] }
 scenes = { workspace = true }
 
 anyhow = { workspace = true }
