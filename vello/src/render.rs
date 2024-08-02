@@ -4,6 +4,7 @@
 //! Take an encoded scene and create a graph to render it
 
 use std::mem::size_of;
+use std::sync::atomic::AtomicBool;
 
 use crate::recording::{BufferProxy, ImageFormat, ImageProxy, Recording, ResourceProxy};
 use crate::shaders::FullShaders;
@@ -19,6 +20,18 @@ pub struct Render {
     fine_wg_count: Option<WorkgroupSize>,
     fine_resources: Option<FineResources>,
     mask_buf: Option<ResourceProxy>,
+
+    #[cfg(feature = "debug_layers")]
+    captured_buffers: Option<CapturedBuffers>,
+}
+
+#[cfg(feature = "debug_layers")]
+impl Drop for Render {
+    fn drop(&mut self) {
+        if self.captured_buffers.is_some() {
+            unreachable!("Render captured buffers without freeing them");
+        }
+    }
 }
 
 /// Resources produced by pipeline, needed for fine rasterization.
@@ -35,6 +48,31 @@ struct FineResources {
     image_atlas: ResourceProxy,
 
     out_image: ImageProxy,
+}
+
+/// A collection of internal buffers that are used for debug visualization when the
+/// `debug_layers` feature is enabled. The contents of these buffers remain GPU resident
+/// and must be freed directly by the caller.
+///
+/// Some of these buffers are also scheduled for a download to allow their contents to be
+/// processed for CPU-side validation. These buffers are documented as such.
+#[cfg(feature = "debug_layers")]
+pub struct CapturedBuffers {
+    pub sizes: vello_encoding::BufferSizes,
+
+    /// Buffers that remain GPU-only
+    pub path_bboxes: BufferProxy,
+
+    /// Buffers scheduled for download
+    pub lines: BufferProxy,
+}
+
+#[cfg(feature = "debug_layers")]
+impl CapturedBuffers {
+    pub fn release_buffers(self, recording: &mut Recording) {
+        recording.free_buffer(self.path_bboxes);
+        recording.free_buffer(self.lines);
+    }
 }
 
 #[cfg(feature = "wgpu")]
@@ -77,6 +115,8 @@ impl Render {
             fine_wg_count: None,
             fine_resources: None,
             mask_buf: None,
+            #[cfg(feature = "debug_layers")]
+            captured_buffers: None,
         }
     }
 
@@ -95,6 +135,7 @@ impl Render {
         use vello_encoding::RenderConfig;
         let mut recording = Recording::default();
         let mut packed = vec![];
+
         let (layout, ramps, images) = resolver.resolve(encoding, &mut packed);
         let gradient_image = if ramps.height == 0 {
             ResourceProxy::new_image(1, 1, ImageFormat::Rgba8)
@@ -107,6 +148,15 @@ impl Render {
                 data,
             ))
         };
+        if cfg!(not(feature = "debug_layers")) && !params.debug.is_empty() {
+            static HAS_WARNED: AtomicBool = AtomicBool::new(false);
+            if !HAS_WARNED.swap(true, std::sync::atomic::Ordering::Release) {
+                log::warn!(
+                    "Requested debug layers {debug:?} but `debug_layers` feature is not enabled.",
+                    debug = params.debug
+                );
+            }
+        }
         let image_atlas = if images.images.is_empty() {
             ImageProxy::new(1, 1, ImageFormat::Rgba8)
         } else {
@@ -310,7 +360,6 @@ impl Render {
             ],
         );
         recording.free_resource(draw_monoid_buf);
-        recording.free_resource(path_bbox_buf);
         recording.free_resource(clip_bbox_buf);
         // Note: this only needs to be rounded up because of the workaround to store the tile_offset
         // in storage rather than workgroup memory.
@@ -396,7 +445,6 @@ impl Render {
         );
         recording.free_buffer(indirect_count_buf);
         recording.free_resource(seg_counts_buf);
-        recording.free_resource(lines_buf);
         recording.free_resource(scene_buf);
         recording.free_resource(draw_monoid_buf);
         recording.free_resource(bin_header_buf);
@@ -419,6 +467,30 @@ impl Render {
             recording.download(*bump_buf.as_buf().unwrap());
         }
         recording.free_resource(bump_buf);
+
+        #[cfg(feature = "debug_layers")]
+        {
+            if robust {
+                let path_bboxes = *path_bbox_buf.as_buf().unwrap();
+                let lines = *lines_buf.as_buf().unwrap();
+                recording.download(lines);
+
+                self.captured_buffers = Some(CapturedBuffers {
+                    sizes: cpu_config.buffer_sizes,
+                    path_bboxes,
+                    lines,
+                });
+            } else {
+                recording.free_resource(path_bbox_buf);
+                recording.free_resource(lines_buf);
+            }
+        }
+        #[cfg(not(feature = "debug_layers"))]
+        {
+            recording.free_resource(path_bbox_buf);
+            recording.free_resource(lines_buf);
+        }
+
         recording
     }
 
@@ -508,5 +580,10 @@ impl Render {
             .bump_buf
             .as_buf()
             .unwrap()
+    }
+
+    #[cfg(feature = "debug_layers")]
+    pub fn take_captured_buffers(&mut self) -> Option<CapturedBuffers> {
+        self.captured_buffers.take()
     }
 }

@@ -11,8 +11,8 @@ use vello_shaders::cpu::CpuBinding;
 
 use wgpu::{
     BindGroup, BindGroupLayout, Buffer, BufferUsages, CommandEncoder, CommandEncoderDescriptor,
-    ComputePipeline, Device, PipelineCompilationOptions, Queue, Texture, TextureAspect,
-    TextureUsages, TextureView, TextureViewDimension,
+    ComputePipeline, Device, PipelineCompilationOptions, Queue, RenderPipeline, Texture,
+    TextureAspect, TextureUsages, TextureView, TextureViewDimension,
 };
 
 use crate::{
@@ -43,8 +43,13 @@ pub(crate) struct WgpuEngine {
     pub(crate) image_overrides: HashMap<u64, Arc<wgpu::ImageCopyTextureBase<Texture>>>,
 }
 
+enum PipelineState {
+    Compute(ComputePipeline),
+    Render(RenderPipeline),
+}
+
 struct WgpuShader {
-    pipeline: ComputePipeline,
+    pipeline: PipelineState,
     bind_group_layout: BindGroupLayout,
 }
 
@@ -235,7 +240,7 @@ impl WgpuEngine {
     ///
     /// Maybe should do template instantiation here? But shader compilation pipeline feels maybe
     /// a bit separate.
-    pub fn add_shader(
+    pub fn add_compute_shader(
         &mut self,
         device: &Device,
         label: &'static str,
@@ -271,54 +276,9 @@ impl WgpuEngine {
             }
         }
 
-        let entries = layout
-            .iter()
-            .enumerate()
-            .map(|(i, bind_type)| match bind_type {
-                BindType::Buffer | BindType::BufReadOnly => wgpu::BindGroupLayoutEntry {
-                    binding: i as u32,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage {
-                            read_only: *bind_type == BindType::BufReadOnly,
-                        },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                BindType::Uniform => wgpu::BindGroupLayoutEntry {
-                    binding: i as u32,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                BindType::Image(format) | BindType::ImageRead(format) => {
-                    wgpu::BindGroupLayoutEntry {
-                        binding: i as u32,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: if *bind_type == BindType::ImageRead(*format) {
-                            wgpu::BindingType::Texture {
-                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                                view_dimension: wgpu::TextureViewDimension::D2,
-                                multisampled: false,
-                            }
-                        } else {
-                            wgpu::BindingType::StorageTexture {
-                                access: wgpu::StorageTextureAccess::WriteOnly,
-                                format: format.to_wgpu(),
-                                view_dimension: wgpu::TextureViewDimension::D2,
-                            }
-                        },
-                        count: None,
-                    }
-                }
-            })
-            .collect::<Vec<_>>();
+        let entries = Self::create_bind_group_layout_entries(
+            layout.iter().map(|b| (*b, wgpu::ShaderStages::COMPUTE)),
+        );
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(uninit) = self.shaders_to_initialise.as_mut() {
             let id = add(Shader {
@@ -340,6 +300,73 @@ impl WgpuEngine {
             cpu: None,
             label,
         })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_render_shader(
+        &mut self,
+        device: &Device,
+        label: &'static str,
+        module: &wgpu::ShaderModule,
+        vertex_main: &'static str,
+        fragment_main: &'static str,
+        topology: wgpu::PrimitiveTopology,
+        color_attachment: wgpu::ColorTargetState,
+        vertex_buffer: Option<wgpu::VertexBufferLayout>,
+        bind_layout: &[(BindType, wgpu::ShaderStages)],
+    ) -> ShaderId {
+        let entries = Self::create_bind_group_layout_entries(bind_layout.iter().copied());
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: None,
+            entries: &entries,
+        });
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[&bind_group_layout],
+            push_constant_ranges: &[],
+        });
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some(label),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module,
+                entry_point: vertex_main,
+                buffers: vertex_buffer
+                    .as_ref()
+                    .map(core::slice::from_ref)
+                    .unwrap_or_default(),
+                compilation_options: PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module,
+                entry_point: fragment_main,
+                targets: &[Some(color_attachment)],
+                compilation_options: PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+        let id = self.shaders.len();
+        self.shaders.push(Shader {
+            wgpu: Some(WgpuShader {
+                pipeline: PipelineState::Render(pipeline),
+                bind_group_layout,
+            }),
+            cpu: None,
+            label,
+        });
+        ShaderId(id)
     }
 
     pub fn run_recording(
@@ -365,8 +392,11 @@ impl WgpuEngine {
                     transient_map
                         .bufs
                         .insert(buf_proxy.id, TransientBuf::Cpu(bytes));
-                    let usage =
-                        BufferUsages::COPY_SRC | BufferUsages::COPY_DST | BufferUsages::STORAGE;
+                    // TODO: restrict VERTEX usage to "debug_layers" feature?
+                    let usage = BufferUsages::COPY_SRC
+                        | BufferUsages::COPY_DST
+                        | BufferUsages::STORAGE
+                        | BufferUsages::VERTEX;
                     let buf = self
                         .pool
                         .get_buf(buf_proxy.size, buf_proxy.name, usage, device);
@@ -523,7 +553,10 @@ impl WgpuEngine {
                             let query = profiler
                                 .begin_query(shader.label, &mut cpass, device)
                                 .with_parent(Some(&query));
-                            cpass.set_pipeline(&wgpu_shader.pipeline);
+                            let PipelineState::Compute(pipeline) = &wgpu_shader.pipeline else {
+                                panic!("cannot issue a dispatch with a render pipeline");
+                            };
+                            cpass.set_pipeline(pipeline);
                             cpass.set_bind_group(0, &bind_group, &[]);
                             cpass.dispatch_workgroups(x, y, z);
                             #[cfg(feature = "wgpu-profiler")]
@@ -570,7 +603,10 @@ impl WgpuEngine {
                             let query = profiler
                                 .begin_query(shader.label, &mut cpass, device)
                                 .with_parent(Some(&query));
-                            cpass.set_pipeline(&wgpu_shader.pipeline);
+                            let PipelineState::Compute(pipeline) = &wgpu_shader.pipeline else {
+                                panic!("cannot issue a dispatch with a render pipeline");
+                            };
+                            cpass.set_pipeline(pipeline);
                             cpass.set_bind_group(0, &bind_group, &[]);
                             let buf = self.bind_map.get_gpu_buf(proxy.id).ok_or(
                                 Error::UnavailableBufferUsed(proxy.name, "indirect dispatch"),
@@ -580,6 +616,68 @@ impl WgpuEngine {
                             profiler.end_query(&mut cpass, query);
                         }
                     }
+                }
+                Command::Draw(draw_params) => {
+                    let shader = &self.shaders[draw_params.shader_id.0];
+                    #[cfg(feature = "wgpu-profiler")]
+                    let label = shader.label;
+                    let ShaderKind::Wgpu(shader) = shader.select() else {
+                        panic!("a render pass does not have a CPU equivalent");
+                    };
+                    let bind_group = transient_map.create_bind_group(
+                        &mut self.bind_map,
+                        &mut self.pool,
+                        device,
+                        queue,
+                        &mut encoder,
+                        &shader.bind_group_layout,
+                        &draw_params.resources,
+                    );
+                    let render_target = transient_map
+                        .materialize_external_image_for_render_pass(&draw_params.target);
+                    let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: None,
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: render_target,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: match draw_params.clear_color {
+                                    Some(c) => wgpu::LoadOp::Clear(wgpu::Color {
+                                        r: c[0] as f64,
+                                        g: c[1] as f64,
+                                        b: c[2] as f64,
+                                        a: c[3] as f64,
+                                    }),
+                                    None => wgpu::LoadOp::Load,
+                                },
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                        occlusion_query_set: None,
+                        timestamp_writes: None,
+                    });
+                    #[cfg(feature = "wgpu-profiler")]
+                    let query = profiler
+                        .begin_query(label, &mut rpass, device)
+                        .with_parent(Some(&query));
+                    let PipelineState::Render(pipeline) = &shader.pipeline else {
+                        panic!("cannot issue a draw with a compute pipeline");
+                    };
+                    rpass.set_pipeline(pipeline);
+                    if let Some(proxy) = draw_params.vertex_buffer {
+                        // TODO: need a way to materialize a CPU initialized buffer. For now assume
+                        // buffer exists? Also, need to materialize this buffer with vertex usage
+                        let buf = self
+                            .bind_map
+                            .get_gpu_buf(proxy.id)
+                            .ok_or(Error::UnavailableBufferUsed(proxy.name, "draw"))?;
+                        rpass.set_vertex_buffer(0, buf.slice(..));
+                    }
+                    rpass.set_bind_group(0, &bind_group, &[]);
+                    rpass.draw(0..draw_params.vertex_count, 0..draw_params.instance_count);
+                    #[cfg(feature = "wgpu-profiler")]
+                    profiler.end_query(&mut rpass, query);
                 }
                 Command::Download(proxy) => {
                     let src_buf = self
@@ -617,6 +715,9 @@ impl WgpuEngine {
         }
         #[cfg(feature = "wgpu-profiler")]
         profiler.end_query(&mut encoder, query);
+        // TODO: This only actually needs to happen once per frame, but run_recording happens two or three times
+        #[cfg(feature = "wgpu-profiler")]
+        profiler.resolve_queries(&mut encoder);
         queue.submit(Some(encoder.finish()));
         for id in free_bufs {
             if let Some(buf) = self.bind_map.buf_map.remove(&id) {
@@ -647,6 +748,58 @@ impl WgpuEngine {
 
     pub fn free_download(&mut self, buf: BufferProxy) {
         self.downloads.remove(&buf.id);
+    }
+
+    fn create_bind_group_layout_entries(
+        layout: impl Iterator<Item = (BindType, wgpu::ShaderStages)>,
+    ) -> Vec<wgpu::BindGroupLayoutEntry> {
+        layout
+            .enumerate()
+            .map(|(i, (bind_type, visibility))| match bind_type {
+                BindType::Buffer | BindType::BufReadOnly => wgpu::BindGroupLayoutEntry {
+                    binding: i as u32,
+                    visibility,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage {
+                            read_only: bind_type == BindType::BufReadOnly,
+                        },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                BindType::Uniform => wgpu::BindGroupLayoutEntry {
+                    binding: i as u32,
+                    visibility,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                BindType::Image(format) | BindType::ImageRead(format) => {
+                    wgpu::BindGroupLayoutEntry {
+                        binding: i as u32,
+                        visibility,
+                        ty: if bind_type == BindType::ImageRead(format) {
+                            wgpu::BindingType::Texture {
+                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                                view_dimension: wgpu::TextureViewDimension::D2,
+                                multisampled: false,
+                            }
+                        } else {
+                            wgpu::BindingType::StorageTexture {
+                                access: wgpu::StorageTextureAccess::WriteOnly,
+                                format: format.to_wgpu(),
+                                view_dimension: wgpu::TextureViewDimension::D2,
+                            }
+                        },
+                        count: None,
+                    }
+                }
+            })
+            .collect::<Vec<_>>()
     }
 
     fn create_compute_pipeline(
@@ -682,7 +835,7 @@ impl WgpuEngine {
             cache: None,
         });
         WgpuShader {
-            pipeline,
+            pipeline: PipelineState::Compute(pipeline),
             bind_group_layout,
         }
     }
@@ -879,6 +1032,14 @@ impl<'a> TransientBindMap<'a> {
         }
     }
 
+    fn materialize_external_image_for_render_pass(&mut self, proxy: &ImageProxy) -> &TextureView {
+        // TODO: Maybe this should support instantiating a transient texture. Right now all render
+        // passes target a `SurfaceTexture`, so supporting external textures is sufficient.
+        self.images
+            .get(&proxy.id)
+            .expect("texture not materialized")
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn create_bind_group(
         &mut self,
@@ -892,17 +1053,23 @@ impl<'a> TransientBindMap<'a> {
     ) -> BindGroup {
         for proxy in bindings {
             match proxy {
-                ResourceProxy::Buffer(proxy) => {
+                ResourceProxy::Buffer(proxy)
+                | ResourceProxy::BufferRange {
+                    proxy,
+                    offset: _,
+                    size: _,
+                } => {
                     if self.bufs.contains_key(&proxy.id) {
                         continue;
                     }
                     match bind_map.buf_map.entry(proxy.id) {
                         Entry::Vacant(v) => {
-                            // TODO: only some buffers will need indirect, but does it hurt?
+                            // TODO: only some buffers will need indirect & vertex, but does it hurt?
                             let usage = BufferUsages::COPY_SRC
                                 | BufferUsages::COPY_DST
                                 | BufferUsages::STORAGE
-                                | BufferUsages::INDIRECT;
+                                | BufferUsages::INDIRECT
+                                | BufferUsages::VERTEX;
                             let buf = pool.get_buf(proxy.size, proxy.name, usage, device);
                             if bind_map.pending_clears.remove(&proxy.id) {
                                 encoder.clear_buffer(&buf, 0, None);
@@ -966,6 +1133,24 @@ impl<'a> TransientBindMap<'a> {
                         resource: buf.as_entire_binding(),
                     }
                 }
+                ResourceProxy::BufferRange {
+                    proxy,
+                    offset,
+                    size,
+                } => {
+                    let buf = match self.bufs.get(&proxy.id) {
+                        Some(TransientBuf::Gpu(b)) => b,
+                        _ => bind_map.get_gpu_buf(proxy.id).unwrap(),
+                    };
+                    wgpu::BindGroupEntry {
+                        binding: i as u32,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: buf,
+                            offset: *offset,
+                            size: core::num::NonZeroU64::new(*size),
+                        }),
+                    }
+                }
                 ResourceProxy::Image(proxy) => {
                     let view = self
                         .images
@@ -995,10 +1180,15 @@ impl<'a> TransientBindMap<'a> {
         // First pass is mutable; create buffers as needed
         for resource in bindings {
             match resource {
-                ResourceProxy::Buffer(buf) => match self.bufs.get(&buf.id) {
+                ResourceProxy::Buffer(proxy)
+                | ResourceProxy::BufferRange {
+                    proxy,
+                    offset: _,
+                    size: _,
+                } => match self.bufs.get(&proxy.id) {
                     Some(TransientBuf::Cpu(_)) => (),
                     Some(TransientBuf::Gpu(_)) => panic!("buffer was already materialized on GPU"),
-                    _ => bind_map.materialize_cpu_buf(buf),
+                    _ => bind_map.materialize_cpu_buf(proxy),
                 },
                 ResourceProxy::Image(_) => todo!(),
             };
@@ -1011,6 +1201,7 @@ impl<'a> TransientBindMap<'a> {
                     Some(TransientBuf::Cpu(b)) => CpuBinding::Buffer(b),
                     _ => bind_map.get_cpu_buf(buf.id),
                 },
+                ResourceProxy::BufferRange { .. } => todo!(),
                 ResourceProxy::Image(_) => todo!(),
             })
             .collect()

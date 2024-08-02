@@ -162,6 +162,8 @@ struct VelloApp<'s> {
 
     prev_scene_ix: i32,
     modifiers: ModifiersState,
+
+    debug: vello::DebugLayers,
 }
 
 impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
@@ -329,6 +331,27 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
                                         },
                                     );
                                 }
+                                debug_layer @ ("1" | "2" | "3" | "4") => {
+                                    match debug_layer {
+                                        "1" => {
+                                            self.debug.toggle(vello::DebugLayers::BOUNDING_BOXES);
+                                        }
+                                        "2" => {
+                                            self.debug
+                                                .toggle(vello::DebugLayers::LINESOUP_SEGMENTS);
+                                        }
+                                        "3" => {
+                                            self.debug.toggle(vello::DebugLayers::LINESOUP_POINTS);
+                                        }
+                                        "4" => {
+                                            self.debug.toggle(vello::DebugLayers::VALIDATION);
+                                        }
+                                        _ => unreachable!(),
+                                    }
+                                    if !self.debug.is_empty() && !self.async_pipeline {
+                                        log::warn!("Debug Layers won't work without using `--async-pipeline`. Requested {:?}", self.debug);
+                                    }
+                                }
                                 _ => {}
                             }
                         }
@@ -464,6 +487,7 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
                     width,
                     height,
                     antialiasing_method,
+                    debug: self.debug,
                 };
                 self.scene.reset();
                 let mut transform = self.transform;
@@ -674,6 +698,8 @@ fn run(
         Some(render_state)
     };
 
+    let debug = vello::DebugLayers::none();
+
     let mut app = VelloApp {
         context: render_cx,
         renderers,
@@ -718,6 +744,7 @@ fn run(
         complexity: 0,
         prev_scene_ix: 0,
         modifiers: ModifiersState::default(),
+        debug,
     };
 
     event_loop.run_app(&mut app).expect("run to completion");
@@ -786,6 +813,7 @@ pub fn main() -> anyhow::Result<()> {
     #[cfg(not(target_arch = "wasm32"))]
     env_logger::builder()
         .format_timestamp(Some(env_logger::TimestampPrecision::Millis))
+        .filter_level(log::LevelFilter::Warn)
         .init();
     let args = parse_arguments();
     let scenes = args.args.select_scene_set()?;

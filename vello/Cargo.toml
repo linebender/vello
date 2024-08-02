@@ -18,6 +18,7 @@ default = ["wgpu"]
 bump_estimate = ["vello_encoding/bump_estimate"]
 hot_reload = ["vello_shaders/compile"]
 buffer_labels = []
+debug_layers = []
 wgpu = ["dep:wgpu"]
 wgpu-profiler = ["dep:wgpu-profiler"]
 

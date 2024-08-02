@@ -77,7 +77,7 @@ pub(crate) fn full_shaders(
                 .into();
             #[cfg(not(feature = "hot_reload"))]
             let source = shaders.$name.wgsl.code;
-            engine.add_shader(
+            engine.add_compute_shader(
                 device,
                 $label,
                 source,
