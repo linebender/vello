@@ -142,6 +142,7 @@ pub enum AaConfig {
 }
 
 /// Represents the set of antialiasing configurations to enable during pipeline creation.
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub struct AaSupport {
     pub area: bool,
     pub msaa8: bool,
