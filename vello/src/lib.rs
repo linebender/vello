@@ -141,16 +141,6 @@ pub enum AaConfig {
     Msaa16,
 }
 
-impl From<AaConfig> for AaSupport {
-    fn from(value: AaConfig) -> Self {
-        Self {
-            area: value == AaConfig::Area,
-            msaa8: value == AaConfig::Msaa8,
-            msaa16: value == AaConfig::Msaa16,
-        }
-    }
-}
-
 /// Represents the set of antialiasing configurations to enable during pipeline creation.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct AaSupport {
