@@ -58,7 +58,7 @@ fn two_emoji(use_cpu: bool) {
         Fill::NonZero,
         "🤠",
     );
-    text.add_cbdt_emoji_run(
+    text.add_bitmap_emoji_run(
         &mut scene,
         24.,
         Affine::translate((30., 24.)),

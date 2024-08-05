@@ -78,7 +78,7 @@ impl SimpleText {
     ///
     /// This will use a CBTF font, which Vello supports.
     #[allow(clippy::too_many_arguments)]
-    pub fn add_cbdt_emoji_run<'a>(
+    pub fn add_bitmap_emoji_run<'a>(
         &mut self,
         scene: &mut Scene,
         size: f32,
