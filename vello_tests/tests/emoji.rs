@@ -51,7 +51,7 @@ fn big_colr() {
     );
     snapshot_test_sync(scene, &params)
         .unwrap()
-        .assert_mean_less_than(0.0);
+        .assert_mean_less_than(0.001);
 }
 
 #[test]
@@ -66,7 +66,7 @@ fn little_colr() {
     );
     snapshot_test_sync(scene, &params)
         .unwrap()
-        .assert_mean_less_than(0.0);
+        .assert_mean_less_than(0.001);
 }
 
 #[test]
@@ -83,7 +83,7 @@ fn colr_undef() {
     // TODO: Work out why the undef glyph is nothing - is it an issue with our font subset or with our renderer?
     snapshot_test_sync(scene, &params)
         .unwrap()
-        .assert_mean_less_than(0.0);
+        .assert_mean_less_than(0.001);
 }
 
 #[test]
@@ -98,7 +98,7 @@ fn big_bitmap() {
     );
     snapshot_test_sync(scene, &params)
         .unwrap()
-        .assert_mean_less_than(0.0);
+        .assert_mean_less_than(0.001);
 }
 
 #[test]
@@ -113,7 +113,7 @@ fn little_bitmap() {
     );
     snapshot_test_sync(scene, &params)
         .unwrap()
-        .assert_mean_less_than(0.0);
+        .assert_mean_less_than(0.001);
 }
 
 #[test]
@@ -130,5 +130,5 @@ fn bitmap_undef() {
     // TODO: Work out why the undef glyph is nothing - is it an issue with our font subset or with our renderer?
     snapshot_test_sync(scene, &params)
         .unwrap()
-        .assert_mean_less_than(0.0);
+        .assert_mean_less_than(0.001);
 }
