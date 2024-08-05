@@ -40,7 +40,7 @@ pub(crate) struct WgpuEngine {
     /// Overrides from a specific `Image`'s [`id`](peniko::Image::id) to a wgpu `Texture`.
     ///
     /// The `Texture` should have the same size as the `Image`.
-    pub(crate) image_overrides: HashMap<u64, Arc<wgpu::ImageCopyTextureBase<Texture>>>,
+    pub(crate) image_overrides: HashMap<u64, wgpu::ImageCopyTextureBase<Arc<Texture>>>,
 }
 
 enum PipelineState {

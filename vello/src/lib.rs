@@ -365,8 +365,8 @@ impl Renderer {
     pub fn override_image(
         &mut self,
         image: &peniko::Image,
-        texture: Option<Arc<wgpu::ImageCopyTextureBase<wgpu::Texture>>>,
-    ) -> Option<Arc<wgpu::ImageCopyTextureBase<wgpu::Texture>>> {
+        texture: Option<wgpu::ImageCopyTextureBase<Arc<wgpu::Texture>>>,
+    ) -> Option<wgpu::ImageCopyTextureBase<Arc<wgpu::Texture>>> {
         match texture {
             Some(texture) => self.engine.image_overrides.insert(image.data.id(), texture),
             None => self.engine.image_overrides.remove(&image.data.id()),
