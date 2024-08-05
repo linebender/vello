@@ -107,7 +107,7 @@ mod impls {
             Fill::NonZero,
             s,
         );
-        params.text.add_cbdt_emoji_run(
+        params.text.add_bitmap_emoji_run(
             scene,
             text_size,
             Affine::translate(Vec2::new(100., 500.)),
