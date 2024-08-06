@@ -67,6 +67,7 @@ export_scenes!(
     two_point_radial(two_point_radial),
     brush_transform(brush_transform: animated),
     blend_grid(blend_grid),
+    deep_blend(deep_blend),
     conflation_artifacts(conflation_artifacts),
     labyrinth(labyrinth),
     robust_paths(robust_paths),
@@ -1054,6 +1055,42 @@ mod impls {
             let transform = Affine::translate((i as f64 * 225., j as f64 * 225.));
             let square = blend_square(blend.into());
             scene.append(&square, Some(transform));
+        }
+    }
+
+    pub(super) fn deep_blend(scene: &mut Scene, params: &mut SceneParams) {
+        params.resolution = Some(Vec2::new(1000., 1000.));
+        let main_rect = Rect::from_origin_size((10., 10.), (900., 900.));
+        scene.fill(
+            Fill::EvenOdd,
+            Affine::IDENTITY,
+            Color::RED,
+            None,
+            &main_rect,
+        );
+        let options = [
+            (800., Color::AQUA),
+            (700., Color::RED),
+            (600., Color::ALICE_BLUE),
+            (500., Color::YELLOW),
+            (400., Color::GREEN),
+            (300., Color::BLUE),
+            (200., Color::ORANGE),
+            (100., Color::WHITE),
+        ];
+        let mut depth = 0;
+        for (width, colour) in &options[..params.complexity.min(options.len() - 1)] {
+            scene.push_layer(
+                Mix::Normal,
+                0.9,
+                Affine::IDENTITY,
+                &Rect::from_origin_size((10., 10.), (*width, *width)),
+            );
+            scene.fill(Fill::EvenOdd, Affine::IDENTITY, colour, None, &main_rect);
+            depth += 1;
+        }
+        for _ in 0..depth {
+            scene.pop_layer();
         }
     }
 
