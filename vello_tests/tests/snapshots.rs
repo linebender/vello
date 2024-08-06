@@ -71,7 +71,14 @@ fn snapshot_tricky_strokes() {
 #[cfg_attr(skip_gpu_tests, ignore)]
 fn snapshot_fill_types() {
     let test_scene = test_scenes::fill_types();
-    assert_eq!(test_scene.config.name, "fill_types");
     let params = TestParams::new("fill_types", 700, 350);
+    snapshot_test_scene(test_scene, params);
+}
+
+#[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
+fn snapshot_deep_blend() {
+    let test_scene = test_scenes::deep_blend();
+    let params = TestParams::new("deep_blend", 200, 200);
     snapshot_test_scene(test_scene, params);
 }

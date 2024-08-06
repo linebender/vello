@@ -211,6 +211,7 @@ pub(crate) fn full_shaders(
         BindType::BufReadOnly,
         BindType::BufReadOnly,
         BindType::BufReadOnly,
+        BindType::Buffer,
         BindType::Image(ImageFormat::Rgba8),
         BindType::ImageRead(ImageFormat::Rgba8),
         BindType::ImageRead(ImageFormat::Rgba8),

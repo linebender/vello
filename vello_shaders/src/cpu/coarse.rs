@@ -1,6 +1,8 @@
 // Copyright 2023 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
 
+use std::cmp::max;
+
 use vello_encoding::{
     BinHeader, BumpAllocators, ConfigUniform, DrawMonoid, DrawTag, Path, Tile,
     DRAW_INFO_FLAGS_FILL_RULE_BIT,
@@ -11,9 +13,17 @@ use super::{
     CMD_LIN_GRAD, CMD_RAD_GRAD, CMD_SOLID, CMD_SWEEP_GRAD, PTCL_INITIAL_ALLOC,
 };
 
+// Tiles per bin
 const N_TILE_X: usize = 16;
 const N_TILE_Y: usize = 16;
 const N_TILE: usize = N_TILE_X * N_TILE_Y;
+
+// If changing also change in config.wgsl
+const BLEND_STACK_SPLIT: u32 = 4;
+
+// Pixels per tile
+const TILE_WIDTH: u32 = 16;
+const TILE_HEIGHT: u32 = 16;
 
 const PTCL_INCREMENT: u32 = 256;
 const PTCL_HEADROOM: u32 = 2;
@@ -219,6 +229,8 @@ fn coarse_main(
             let blend_offset = tile_state.cmd_offset;
             tile_state.cmd_offset += 1;
             let mut clip_depth = 0;
+            let mut render_blend_depth = 0;
+            let mut max_blend_depth = 0_u32;
             let mut clip_zero_depth = 0;
             for drawobj_ix in &compacted[tile_ix] {
                 let drawtag = scene[(drawtag_base + drawobj_ix) as usize];
@@ -306,7 +318,10 @@ fn coarse_main(
                                     clip_zero_depth = clip_depth + 1;
                                 } else {
                                     tile_state.write_begin_clip(config, bump, ptcl);
-                                    // TODO: update blend depth
+                                    // TODO: Do we need to track this separately, seems like it
+                                    // is always the same as clip_depth in this code path
+                                    render_blend_depth += 1;
+                                    max_blend_depth = max(render_blend_depth, max_blend_depth);
                                 }
                                 clip_depth += 1;
                             }
@@ -317,6 +332,7 @@ fn coarse_main(
                                 let blend = scene[dd as usize];
                                 let alpha = f32::from_bits(scene[dd as usize + 1]);
                                 tile_state.write_end_clip(config, bump, ptcl, blend, alpha);
+                                render_blend_depth -= 1;
                             }
                             _ => todo!(),
                         }
@@ -338,7 +354,8 @@ fn coarse_main(
 
             if bin_tile_x + tile_x < width_in_tiles && bin_tile_y + tile_y < height_in_tiles {
                 ptcl[tile_state.cmd_offset as usize] = CMD_END;
-                let scratch_size = 0; // TODO: actually compute blend depth
+                let scratch_size =
+                    (max_blend_depth.saturating_sub(BLEND_STACK_SPLIT)) * TILE_WIDTH * TILE_HEIGHT;
                 ptcl[blend_offset as usize] = bump.blend;
                 bump.blend += scratch_size;
             }

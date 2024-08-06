@@ -39,6 +39,9 @@ var<storage> ptcl: array<u32>;
 var<storage> info: array<u32>;
 
 @group(0) @binding(4)
+var<storage, read_write> blend_spill: array<u32>;
+
+@group(0) @binding(5)
 #ifdef r8
 var output: texture_storage_2d<r8unorm, write>;
 #else
@@ -46,10 +49,10 @@ var output: texture_storage_2d<rgba8unorm, write>;
 #endif
 
 #ifdef full
-@group(0) @binding(5)
+@group(0) @binding(6)
 var gradients: texture_2d<f32>;
 
-@group(0) @binding(6)
+@group(0) @binding(7)
 var image_atlas: texture_2d<f32>;
 #endif
 
@@ -57,9 +60,9 @@ var image_atlas: texture_2d<f32>;
 #ifdef msaa
 
 #ifdef full
-const MASK_LUT_INDEX: u32 = 7;
+const MASK_LUT_INDEX: u32 = 8;
 #else
-const MASK_LUT_INDEX: u32 = 5;
+const MASK_LUT_INDEX: u32 = 6;
 #endif
 
 #ifdef msaa8
@@ -947,7 +950,13 @@ fn main(
                         rgba[i] = vec4(0.0);
                     }
                 } else {
-                    // TODO: spill to memory
+                    let blend_in_scratch = clip_depth - BLEND_STACK_SPLIT;
+                    let local_tile_ix = local_id.x * PIXELS_PER_THREAD + local_id.y * TILE_WIDTH;
+                    let local_blend_start = blend_offset + blend_in_scratch * TILE_WIDTH * TILE_HEIGHT + local_tile_ix;
+                    for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
+                        blend_spill[local_blend_start + i] = pack4x8unorm(rgba[i]);
+                        rgba[i] = vec4(0.0);
+                    }
                 }
                 clip_depth += 1u;
                 cmd_ix += 1u;
@@ -960,7 +969,10 @@ fn main(
                     if clip_depth < BLEND_STACK_SPLIT {
                         bg_rgba = blend_stack[clip_depth][i];
                     } else {
-                        // load from memory
+                        let blend_in_scratch = clip_depth - BLEND_STACK_SPLIT;
+                        let local_tile_ix = local_id.x * PIXELS_PER_THREAD + local_id.y * TILE_WIDTH;
+                        let local_blend_start = blend_offset + blend_in_scratch * TILE_WIDTH * TILE_HEIGHT + local_tile_ix;
+                        bg_rgba = blend_spill[local_blend_start + i];
                     }
                     let bg = unpack4x8unorm(bg_rgba);
                     let fg = rgba[i] * area[i] * end_clip.alpha;

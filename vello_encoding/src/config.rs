@@ -147,6 +147,9 @@ pub struct ConfigUniform {
     pub seg_counts_size: u32,
     /// Size of segment buffer allocation (in [`PathSegment`]s).
     pub segments_size: u32,
+    /// Size of blend spill buffer (in `u32` pixels).
+    // TODO: Maybe store in TILE_WIDTH * TILE_HEIGHT blocks of pixels instead?
+    pub blend_size: u32,
     /// Size of per-tile command list buffer allocation (in `u32`s).
     pub ptcl_size: u32,
 }
@@ -184,6 +187,7 @@ impl RenderConfig {
                 tiles_size: buffer_sizes.tiles.len(),
                 seg_counts_size: buffer_sizes.seg_counts.len(),
                 segments_size: buffer_sizes.segments.len(),
+                blend_size: buffer_sizes.blend_spill.len(),
                 ptcl_size: buffer_sizes.ptcl.len(),
                 layout: *layout,
             },
@@ -352,6 +356,7 @@ pub struct BufferSizes {
     pub tiles: BufferSize<Tile>,
     pub seg_counts: BufferSize<SegmentCount>,
     pub segments: BufferSize<PathSegment>,
+    pub blend_spill: BufferSize<u32>,
     pub ptcl: BufferSize<u32>,
 }
 
@@ -395,6 +400,8 @@ impl BufferSizes {
         let lines = BufferSize::new(1 << 21);
         let seg_counts = BufferSize::new(1 << 21);
         let segments = BufferSize::new(1 << 21);
+        // 16 * 16 (1 << 8) is one blend spill, so this allows for 4096 spills.
+        let blend_spill = BufferSize::new(1 << 20);
         let ptcl = BufferSize::new(1 << 23);
         Self {
             path_reduced,
@@ -419,6 +426,7 @@ impl BufferSizes {
             tiles,
             seg_counts,
             segments,
+            blend_spill,
             ptcl,
         }
     }
