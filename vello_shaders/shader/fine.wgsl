@@ -950,7 +950,13 @@ fn main(
                         rgba[i] = vec4(0.0);
                     }
                 } else {
-                    // TODO: spill to memory
+                    let blend_in_scratch = clip_depth - BLEND_STACK_SPLIT;
+                    let local_tile_ix = local_id.x * PIXELS_PER_THREAD + local_id.y * TILE_WIDTH;
+                    let local_blend_start = blend_offset + blend_in_scratch * TILE_WIDTH * TILE_HEIGHT + local_tile_ix;
+                    for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
+                        blend_spill[local_blend_start + i] = pack4x8unorm(rgba[i]);
+                        rgba[i] = vec4(0.0);
+                    }
                 }
                 clip_depth += 1u;
                 cmd_ix += 1u;
@@ -963,7 +969,10 @@ fn main(
                     if clip_depth < BLEND_STACK_SPLIT {
                         bg_rgba = blend_stack[clip_depth][i];
                     } else {
-                        // load from memory
+                        let blend_in_scratch = clip_depth - BLEND_STACK_SPLIT;
+                        let local_tile_ix = local_id.x * PIXELS_PER_THREAD + local_id.y * TILE_WIDTH;
+                        let local_blend_start = blend_offset + blend_in_scratch * TILE_WIDTH * TILE_HEIGHT + local_tile_ix;
+                        bg_rgba = blend_spill[local_blend_start + i];
                     }
                     let bg = unpack4x8unorm(bg_rgba);
                     let fg = rgba[i] * area[i] * end_clip.alpha;
