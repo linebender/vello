@@ -18,6 +18,9 @@ const N_TILE_X: usize = 16;
 const N_TILE_Y: usize = 16;
 const N_TILE: usize = N_TILE_X * N_TILE_Y;
 
+// If changing also change in config.wgsl
+const BLEND_STACK_SPLIT: u32 = 4;
+
 // Pixels per tile
 const TILE_WIDTH: u32 = 16;
 const TILE_HEIGHT: u32 = 16;
@@ -227,7 +230,7 @@ fn coarse_main(
             tile_state.cmd_offset += 1;
             let mut clip_depth = 0;
             let mut render_blend_depth = 0;
-            let mut max_blend_depth = 0;
+            let mut max_blend_depth = 0_u32;
             let mut clip_zero_depth = 0;
             for drawobj_ix in &compacted[tile_ix] {
                 let drawtag = scene[(drawtag_base + drawobj_ix) as usize];
@@ -351,7 +354,8 @@ fn coarse_main(
 
             if bin_tile_x + tile_x < width_in_tiles && bin_tile_y + tile_y < height_in_tiles {
                 ptcl[tile_state.cmd_offset as usize] = CMD_END;
-                let scratch_size = max_blend_depth * TILE_WIDTH * TILE_HEIGHT;
+                let scratch_size =
+                    (max_blend_depth.saturating_sub(BLEND_STACK_SPLIT)) * TILE_WIDTH * TILE_HEIGHT;
                 ptcl[blend_offset as usize] = bump.blend;
                 bump.blend += scratch_size;
             }
