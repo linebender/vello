@@ -134,7 +134,7 @@ use wgpu::{Device, Queue, SurfaceTexture, TextureFormat, TextureView};
 use wgpu_profiler::{GpuProfiler, GpuProfilerSettings};
 
 /// Represents the antialiasing method to use during a render pass.
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum AaConfig {
     Area,
     Msaa8,
@@ -142,6 +142,7 @@ pub enum AaConfig {
 }
 
 /// Represents the set of antialiasing configurations to enable during pipeline creation.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct AaSupport {
     pub area: bool,
     pub msaa8: bool,
