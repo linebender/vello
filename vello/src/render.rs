@@ -550,6 +550,7 @@ impl Render {
                         fine.segments_buf,
                         fine.ptcl_buf,
                         fine.info_bin_data_buf,
+                        fine.blend_spill_buf,
                         ResourceProxy::Image(fine.out_image),
                         fine.gradient_image,
                         fine.image_atlas,
