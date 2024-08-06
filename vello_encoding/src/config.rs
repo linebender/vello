@@ -400,8 +400,8 @@ impl BufferSizes {
         let lines = BufferSize::new(1 << 21);
         let seg_counts = BufferSize::new(1 << 21);
         let segments = BufferSize::new(1 << 21);
-        // 16 * 16 (1 << 8) is one blend spill, so this allows for 256 spills.
-        let blend_spill = BufferSize::new(1 << 16);
+        // 16 * 16 (1 << 8) is one blend spill, so this allows for 4096 spills.
+        let blend_spill = BufferSize::new(1 << 20);
         let ptcl = BufferSize::new(1 << 23);
         Self {
             path_reduced,
