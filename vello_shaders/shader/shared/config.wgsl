@@ -1,7 +1,7 @@
 // Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
 
-// This must be kept in sync with the struct in src/encoding/resolve.rs
+// This must be kept in sync with `ConfigUniform` in `vello_encoding/src/config.rs`
 struct Config {
     width_in_tiles: u32,
     height_in_tiles: u32,
@@ -38,6 +38,7 @@ struct Config {
     tiles_size: u32,
     seg_counts_size: u32,
     segments_size: u32,
+    blend_size: u32,
     ptcl_size: u32,
 }
 

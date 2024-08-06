@@ -39,6 +39,9 @@ var<storage> ptcl: array<u32>;
 var<storage> info: array<u32>;
 
 @group(0) @binding(4)
+var<storage, read_write> blend_spill: array<u32>;
+
+@group(0) @binding(5)
 #ifdef r8
 var output: texture_storage_2d<r8unorm, write>;
 #else
@@ -46,10 +49,10 @@ var output: texture_storage_2d<rgba8unorm, write>;
 #endif
 
 #ifdef full
-@group(0) @binding(5)
+@group(0) @binding(6)
 var gradients: texture_2d<f32>;
 
-@group(0) @binding(6)
+@group(0) @binding(7)
 var image_atlas: texture_2d<f32>;
 #endif
 
@@ -57,9 +60,9 @@ var image_atlas: texture_2d<f32>;
 #ifdef msaa
 
 #ifdef full
-const MASK_LUT_INDEX: u32 = 7;
+const MASK_LUT_INDEX: u32 = 8;
 #else
-const MASK_LUT_INDEX: u32 = 5;
+const MASK_LUT_INDEX: u32 = 6;
 #endif
 
 #ifdef msaa8

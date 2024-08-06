@@ -46,6 +46,7 @@ struct FineResources {
     gradient_image: ResourceProxy,
     info_bin_data_buf: ResourceProxy,
     image_atlas: ResourceProxy,
+    blend_spill_buf: ResourceProxy,
 
     out_image: ImageProxy,
 }
@@ -450,6 +451,10 @@ impl Render {
         recording.free_resource(bin_header_buf);
         recording.free_resource(path_buf);
         let out_image = ImageProxy::new(params.width, params.height, ImageFormat::Rgba8);
+        let blend_spill_buf = BufferProxy::new(
+            buffer_sizes.blend_spill.size_in_bytes().into(),
+            "blend_spill",
+        );
         self.fine_wg_count = Some(wg_counts.fine);
         self.fine_resources = Some(FineResources {
             aa_config: params.antialiasing_method,
@@ -460,6 +465,7 @@ impl Render {
             ptcl_buf,
             gradient_image,
             info_bin_data_buf,
+            blend_spill_buf: ResourceProxy::Buffer(blend_spill_buf),
             image_atlas: ResourceProxy::Image(image_atlas),
             out_image,
         });
@@ -510,6 +516,7 @@ impl Render {
                         fine.segments_buf,
                         fine.ptcl_buf,
                         fine.info_bin_data_buf,
+                        fine.blend_spill_buf,
                         ResourceProxy::Image(fine.out_image),
                         fine.gradient_image,
                         fine.image_atlas,
