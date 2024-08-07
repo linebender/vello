@@ -136,8 +136,8 @@ pub use debug::DebugLayers;
 pub use vello_encoding::BumpAllocators;
 #[cfg(feature = "wgpu")]
 use wgpu::{
-    Buffer, BufferUsages, Device, PipelineCompilationOptions, Queue, SubmissionIndex,
-    SurfaceTexture, TextureFormat, TextureView,
+    Buffer, BufferUsages, Device, Queue, SubmissionIndex, SurfaceTexture, TextureFormat,
+    TextureView,
 };
 #[cfg(all(feature = "wgpu", feature = "wgpu-profiler"))]
 use wgpu_profiler::{GpuProfiler, GpuProfilerSettings};
@@ -491,7 +491,7 @@ impl Renderer {
             .blit
             .as_ref()
             .expect("renderer should have configured surface_format to use on a surface");
-        let mut encoder =
+        let encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         let mut recording = Recording::default();
         let target_proxy = ImageProxy::new(width, height, ImageFormat::from_wgpu(target.format));
@@ -525,6 +525,8 @@ impl Renderer {
             #[cfg(feature = "wgpu-profiler")]
             &mut self.profiler,
         )?;
+        #[cfg(feature = "wgpu-profiler")]
+        let mut encoder = encoder;
         #[cfg(feature = "wgpu-profiler")]
         self.profiler.resolve_queries(&mut encoder);
         if let Some(download) = &bump_download {

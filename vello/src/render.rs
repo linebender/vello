@@ -103,7 +103,7 @@ pub(crate) fn render_encoding_full(
 ) -> (Recording, ImageProxy, BufferProxy) {
     let mut render = Render::new();
     let mut recording =
-        render.render_encoding_coarse(encoding, resolver, shaders, params, bump_sizes, true);
+        render.render_encoding_coarse(encoding, resolver, shaders, params, bump_sizes, false);
     let out_image = render.out_image();
     let bump_buf = render.bump_buf();
     render.record_fine(shaders, &mut recording);
@@ -497,8 +497,8 @@ impl Render {
             image_atlas: ResourceProxy::Image(image_atlas),
             out_image,
         });
-        // TODO: This second check is a massive hack
-        if robust && !shaders.pathtag_is_cpu {
+        // TODO: This check is a massive hack to disable robustness if
+        if !shaders.pathtag_is_cpu {
             recording.download(*bump_buf.as_buf().unwrap());
         }
         recording.free_resource(bump_buf);
@@ -595,6 +595,7 @@ impl Render {
         recording.free_resource(fine.gradient_image);
         recording.free_resource(fine.image_atlas);
         recording.free_resource(fine.info_bin_data_buf);
+        recording.free_resource(fine.blend_spill_buf);
         // TODO: make mask buf persistent
         if let Some(mask_buf) = self.mask_buf.take() {
             recording.free_resource(mask_buf);

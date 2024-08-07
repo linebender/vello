@@ -444,7 +444,7 @@ fn main(
         var blend_ix = 0u;
         if max_blend_depth > BLEND_STACK_SPLIT {
             let scratch_size = (max_blend_depth - BLEND_STACK_SPLIT) * TILE_WIDTH * TILE_HEIGHT;
-            blend_ix = atomicAdd(&bump.blend, scratch_size);
+            blend_ix = atomicAdd(&bump.blend_spill, scratch_size);
             if blend_ix + scratch_size > config.blend_size {
                 atomicOr(&bump.failed, STAGE_COARSE);
             }

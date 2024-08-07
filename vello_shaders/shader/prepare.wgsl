@@ -50,7 +50,9 @@ fn main() {
         if config.lines_size < atomicLoad(&bump.lines) {
             should_cancel = true;
         }
-        // config.blend_size < atomicLoad(&bump.blend)
+        if config.blend_size < atomicLoad(&bump.blend_spill) {
+            should_cancel = true;
+        }
         if should_cancel {
             // Then don't run this frame
             config.cancelled = 1u;
@@ -64,6 +66,6 @@ fn main() {
     atomicStore(&bump.tile, 0u);
     atomicStore(&bump.seg_counts, 0u);
     atomicStore(&bump.segments, 0u);
-    atomicStore(&bump.blend, 0u);
+    atomicStore(&bump.blend_spill, 0u);
     atomicStore(&bump.lines, 0u);
 }
