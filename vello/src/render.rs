@@ -138,7 +138,7 @@ impl Render {
         shaders: &FullShaders,
         params: &RenderParams,
         bump_sizes: BumpAllocators,
-        robust: bool,
+        #[cfg_attr(not(feature = "debug_layers"), allow(unused))] robust: bool,
     ) -> Recording {
         use vello_encoding::RenderConfig;
         let mut recording = Recording::default();

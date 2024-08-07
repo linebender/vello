@@ -179,7 +179,7 @@ impl BumpEstimator {
             binning: n_segments,
             ptcl: 0,
             tile: 0,
-            blend: 0,
+            blend_spill: 0,
             seg_counts: n_segments,
             segments: n_segments,
             lines,
