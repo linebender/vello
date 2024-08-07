@@ -894,17 +894,18 @@ impl Renderer {
                     .as_ref()
                     .expect("renderer should have configured surface_format to use on a surface");
                 let bump = result.bump.as_ref().unwrap();
-                // TODO: We could avoid this download if `DebugLayers::VALIDATION` is unset.
-                let downloads = DebugDownloads::map(&self.engine, &captured, bump).await?;
-                debug.render(
-                    &mut recording,
-                    surface_proxy,
-                    &captured,
-                    bump,
-                    params,
-                    &downloads,
-                );
-
+                if bump.failed == 0 {
+                    // TODO: We could avoid this download if `DebugLayers::VALIDATION` is unset.
+                    let downloads = DebugDownloads::map(&self.engine, &captured, bump).await?;
+                    debug.render(
+                        &mut recording,
+                        surface_proxy,
+                        &captured,
+                        bump,
+                        params,
+                        &downloads,
+                    );
+                }
                 // TODO: this sucks. better to release everything in a helper
                 // TODO: it would be much better to have a way to safely destroy a buffer.
                 self.engine.free_download(captured.lines);
