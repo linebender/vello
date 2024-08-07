@@ -668,6 +668,17 @@ impl Renderer {
                                 );
                                 self.bump_sizes.segments = new_size;
                             }
+                            if data.blend_spill > self.bump_sizes.blend_spill {
+                                changed = true;
+                                let new_size = data.blend_spill * 5 / 4;
+                                log::debug!(
+                                    "Resizing blend_spill to {:?} (Needed {:?}, had {:?})",
+                                    new_size,
+                                    data.blend_spill,
+                                    self.bump_sizes.blend_spill,
+                                );
+                                self.bump_sizes.blend_spill = new_size;
+                            }
                             if !changed {
                                 log::warn!("Detected need for reallocation, but didn't reallocate {:x?}. Data {data:?}", data.failed);
                             } else {
