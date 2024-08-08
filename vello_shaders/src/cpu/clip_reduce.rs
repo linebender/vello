@@ -24,10 +24,10 @@ fn clip_reduce_main(
             let inp = clip_inp[global_ix].path_ix;
             let is_push = inp >= 0;
             let bic = ClipBic::new(1 - is_push as u32, is_push as u32);
-            bic_reduced = bic.combine(bic_reduced);
             if is_push && bic_reduced.a == 0 {
                 scratch.push(global_ix as u32);
             }
+            bic_reduced = bic.combine(bic_reduced);
         }
         reduced[wg_ix as usize] = bic_reduced;
         for (i, parent_ix) in scratch.iter().rev().enumerate() {

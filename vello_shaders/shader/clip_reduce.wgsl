@@ -47,6 +47,9 @@ fn main(
     workgroupBarrier();
     let size = sh_bic[0].b;
     bic = Bic();
+    if local_id.x + 1u < WG_SIZE {
+        bic = sh_bic[local_id.x + 1u];
+    }
     if is_push && bic.a == 0u {
         let local_ix = size - bic.b - 1u;
         sh_parent[local_ix] = local_id.x;
