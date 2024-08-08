@@ -28,7 +28,7 @@ pub use binning::BinHeader;
 pub use clip::{Clip, ClipBbox, ClipBic, ClipElement};
 pub use config::{
     BufferSize, BufferSizes, BumpAllocatorMemory, BumpAllocators, ConfigUniform, IndirectCount,
-    RenderConfig, WorkgroupCounts, WorkgroupSize,
+    RenderConfig, WorkgroupCounts, WorkgroupSize, PTCL_INITIAL_ALLOC,
 };
 pub use draw::{
     DrawBbox, DrawBeginClip, DrawColor, DrawImage, DrawLinearGradient, DrawMonoid,

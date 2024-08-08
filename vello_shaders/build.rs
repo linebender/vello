@@ -24,7 +24,10 @@ fn main() {
     let mut shaders = match compile::ShaderInfo::from_default() {
         Ok(s) => s,
         Err(err) => {
-            eprintln!("{err}");
+            let formatted = err.to_string();
+            for line in formatted.lines() {
+                println!("cargo:warning={line}");
+            }
             return;
         }
     };

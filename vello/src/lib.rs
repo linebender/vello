@@ -90,7 +90,13 @@ mod shaders;
 mod wgpu_engine;
 
 #[cfg(feature = "wgpu")]
-use std::{num::NonZeroUsize, sync::Arc};
+use std::{
+    num::NonZeroUsize,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
 
 /// Styling and composition primitives.
 pub use peniko;
@@ -129,7 +135,10 @@ pub use debug::DebugLayers;
 /// Temporary export, used in `with_winit` for stats
 pub use vello_encoding::BumpAllocators;
 #[cfg(feature = "wgpu")]
-use wgpu::{Device, Queue, SurfaceTexture, TextureFormat, TextureView};
+use wgpu::{
+    Buffer, BufferUsages, Device, Queue, SubmissionIndex, SurfaceTexture, TextureFormat,
+    TextureView,
+};
 #[cfg(all(feature = "wgpu", feature = "wgpu-profiler"))]
 use wgpu_profiler::{GpuProfiler, GpuProfilerSettings};
 
@@ -240,6 +249,9 @@ pub enum Error {
 #[allow(dead_code)] // this can be unused when wgpu feature is not used
 pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 
+#[cfg(feature = "wgpu")]
+type BumpSubmission = (SubmissionIndex, Buffer, Arc<AtomicBool>);
+
 /// Renders a scene into a texture or surface.
 #[cfg(feature = "wgpu")]
 pub struct Renderer {
@@ -252,6 +264,11 @@ pub struct Renderer {
     #[cfg(feature = "debug_layers")]
     debug: Option<debug::DebugRenderer>,
     target: Option<TargetTexture>,
+    // Fields for robust dynamic memory
+    bump: Option<Buffer>,
+    previous_submission: Option<BumpSubmission>,
+    previouser_submission: Option<BumpSubmission>,
+    bump_sizes: BumpAllocators,
     #[cfg(feature = "wgpu-profiler")]
     pub profiler: GpuProfiler,
     #[cfg(feature = "wgpu-profiler")]
@@ -350,6 +367,10 @@ impl Renderer {
             #[cfg(feature = "debug_layers")]
             debug,
             target: None,
+            bump: None,
+            previous_submission: None,
+            previouser_submission: None,
+            bump_sizes: BumpAllocators::initial_sizes(),
             // Use 3 pending frames
             #[cfg(feature = "wgpu-profiler")]
             profiler: GpuProfiler::new(GpuProfilerSettings {
@@ -386,23 +407,54 @@ impl Renderer {
         scene: &Scene,
         texture: &TextureView,
         params: &RenderParams,
-    ) -> Result<()> {
-        let (recording, target) =
-            render::render_full(scene, &mut self.resolver, &self.shaders, params);
-        let external_resources = [ExternalResource::Image(
-            *target.as_image().unwrap(),
-            texture,
-        )];
+    ) -> Result<Option<Buffer>> {
+        let (mut recording, target, bump_buf) = render::render_full(
+            scene,
+            &mut self.resolver,
+            &self.shaders,
+            params,
+            self.bump_sizes,
+        );
+        let cpu_external;
+        let gpu_external;
+        let gpu_bump;
+        let external_resources: &[ExternalResource] = if self.options.use_cpu {
+            // HACK: Our handling of buffers across CPU and GPU is not great
+
+            // We don't retain the bump buffer if we're using CPU shaders
+            // This is because some of stages might still be running on the
+            // GPU, and we can't easily get the bump buffer back to the CPU
+            // from the GPU
+            recording.free_buffer(bump_buf);
+            cpu_external = [ExternalResource::Image(target, texture)];
+            &cpu_external
+        } else {
+            gpu_bump = self.bump.get_or_insert_with(|| {
+                device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("bump"),
+                    size: bump_buf.size,
+                    usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+                    mapped_at_creation: false,
+                })
+            });
+            gpu_external = [
+                ExternalResource::Image(target, texture),
+                ExternalResource::Buffer(bump_buf, gpu_bump),
+            ];
+            &gpu_external
+        };
+
         self.engine.run_recording(
             device,
             queue,
             &recording,
-            &external_resources,
+            external_resources,
             "render_to_texture",
             #[cfg(feature = "wgpu-profiler")]
             &mut self.profiler,
         )?;
-        Ok(())
+        let bump_download = self.engine.take_download(bump_buf);
+        Ok(bump_download)
     }
 
     /// Renders a scene to the target surface.
@@ -421,6 +473,8 @@ impl Renderer {
         surface: &SurfaceTexture,
         params: &RenderParams,
     ) -> Result<()> {
+        let buffer_completed = self.block_on_bump_and_reallocate(device);
+
         let width = params.width;
         let height = params.height;
         let mut target = self
@@ -432,11 +486,13 @@ impl Renderer {
         if target.width != width || target.height != height {
             target = TargetTexture::new(device, width, height);
         }
-        self.render_to_texture(device, queue, scene, &target.view, params)?;
+        let bump_download = self.render_to_texture(device, queue, scene, &target.view, params)?;
         let blit = self
             .blit
             .as_ref()
             .expect("renderer should have configured surface_format to use on a surface");
+        let encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         let mut recording = Recording::default();
         let target_proxy = ImageProxy::new(width, height, ImageFormat::from_wgpu(target.format));
         let surface_proxy = ImageProxy::new(
@@ -453,7 +509,6 @@ impl Renderer {
             target: surface_proxy,
             clear_color: Some([0., 0., 0., 0.]),
         });
-
         let surface_view = surface
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -470,6 +525,31 @@ impl Renderer {
             #[cfg(feature = "wgpu-profiler")]
             &mut self.profiler,
         )?;
+        #[cfg(feature = "wgpu-profiler")]
+        let mut encoder = encoder;
+        #[cfg(feature = "wgpu-profiler")]
+        self.profiler.resolve_queries(&mut encoder);
+        if let Some(download) = &bump_download {
+            let completed = buffer_completed.clone();
+            download
+                .slice(..)
+                .map_async(wgpu::MapMode::Read, move |res| match res {
+                    Ok(()) => {
+                        completed.store(true, Ordering::Release);
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to map bump buffer: {e}");
+                    }
+                });
+        };
+        let idx = queue.submit(Some(encoder.finish()));
+        if let Some(download) = bump_download {
+            self.previouser_submission =
+                self.previous_submission
+                    .replace((idx, download, buffer_completed));
+        } else {
+            self.previouser_submission = self.previous_submission.take();
+        }
         self.target = Some(target);
         #[cfg(feature = "wgpu-profiler")]
         {
@@ -482,6 +562,141 @@ impl Renderer {
             }
         }
         Ok(())
+    }
+
+    /// Wait for the frame "two frames ago"'s bump buffer to be available, and reallocate if so.
+    fn block_on_bump_and_reallocate(&mut self, device: &Device) -> Arc<AtomicBool> {
+        let buffer_completed = if let Some((idx, bump, completed)) =
+            self.previouser_submission.take()
+        {
+            // Ensure that we have the bump buffer from the rendering two frames ago
+            // The previous frame will have been cancelled if that is the case
+
+            // Warning: Blocks!
+            device.poll(wgpu::MaintainBase::WaitForSubmissionIndex(idx));
+
+            if completed.swap(false, Ordering::Acquire) {
+                {
+                    let slice = &bump.slice(..);
+                    let data = slice.get_mapped_range();
+                    let data: BumpAllocators = bytemuck::pod_read_unaligned(&data);
+                    if data.failed != 0 {
+                        if data.failed & 0x20 != 0 {
+                            log::debug!(
+                                "Run failed but next run will be retried, reallocated in last run"
+                            );
+                        } else {
+                            // log::info!(
+                            //     "Previous run failed, need to reallocate: {:x?}",
+                            //     data.failed
+                            // );
+                            // log::debug!("{:?}", data);
+                            // TODO: Be smarter here, e.g. notice that we're over by a certain factor
+                            // and bump several buffers?
+
+                            let mut changed = false;
+                            // TODO: Also reduce allocation sizes
+                            // TODO: Free buffers which haven't been used in "a while"
+                            // TODO: We should have awareness of the maximum binding size supported by the device
+                            // That's easy for all buffers but lines and ptcl
+
+                            if data.binning > self.bump_sizes.binning {
+                                changed = true;
+                                let new_size = data.binning * 5 / 4;
+                                log::debug!(
+                                    "Resizing binning to {:?} (Needed {:?}, had {:?})",
+                                    new_size,
+                                    data.binning,
+                                    self.bump_sizes.binning,
+                                );
+                                self.bump_sizes.binning = new_size;
+                            }
+                            if data.lines > self.bump_sizes.lines {
+                                changed = true;
+                                let new_size = data.lines * 5 / 4;
+                                log::debug!(
+                                    "Resizing lines to {:?} (Needed {:?}, had {:?})",
+                                    new_size,
+                                    data.lines,
+                                    self.bump_sizes.lines,
+                                );
+                                self.bump_sizes.lines = new_size;
+                            }
+                            // if data.blend > self.bump_sizes.? // TODO
+                            if data.ptcl > self.bump_sizes.ptcl {
+                                changed = true;
+                                // TODO: At 5/4, this doesn't work very well
+                                let new_size = data.ptcl * 5 / 4;
+                                log::debug!(
+                                    "Resizing ptcl to {:?} (Needed {:?}, had {:?})",
+                                    new_size,
+                                    data.ptcl,
+                                    self.bump_sizes.ptcl,
+                                );
+                                self.bump_sizes.ptcl = new_size;
+                            }
+                            if data.seg_counts > self.bump_sizes.seg_counts {
+                                changed = true;
+                                let new_size = data.seg_counts * 5 / 4;
+                                log::debug!(
+                                    "Resizing seg_counts to {:?} (Needed {:?}, had {:?})",
+                                    new_size,
+                                    data.seg_counts,
+                                    self.bump_sizes.seg_counts,
+                                );
+                                self.bump_sizes.seg_counts = new_size;
+                            }
+                            if data.tile > self.bump_sizes.tile {
+                                changed = true;
+                                let new_size = data.tile * 5 / 4;
+                                log::debug!(
+                                    "Resizing tile to {:?} (Needed {:?}, had {:?})",
+                                    new_size,
+                                    data.tile,
+                                    self.bump_sizes.tile,
+                                );
+                                self.bump_sizes.tile = new_size;
+                            }
+                            if data.segments > self.bump_sizes.segments {
+                                changed = true;
+                                let new_size = data.segments * 5 / 4;
+                                log::debug!(
+                                    "Resizing segments to {:?} (Needed {:?}, had {:?})",
+                                    new_size,
+                                    data.segments,
+                                    self.bump_sizes.segments,
+                                );
+                                self.bump_sizes.segments = new_size;
+                            }
+                            if data.blend_spill > self.bump_sizes.blend_spill {
+                                changed = true;
+                                let new_size = data.blend_spill * 5 / 4;
+                                log::debug!(
+                                    "Resizing blend_spill to {:?} (Needed {:?}, had {:?})",
+                                    new_size,
+                                    data.blend_spill,
+                                    self.bump_sizes.blend_spill,
+                                );
+                                self.bump_sizes.blend_spill = new_size;
+                            }
+                            if !changed {
+                                log::warn!("Detected need for reallocation, but didn't reallocate {:x?}. Data {data:?}", data.failed);
+                            } else {
+                                log::info!("Detected need for reallocation, and did reallocate {:x?}. Data {data:?}", data.failed);
+                            }
+                        }
+                    }
+                }
+                bump.unmap();
+                // TODO: Return `bump` into the engine's pool
+            } else {
+                // Downloading the buffer failed; we just assume that we can keep going?
+            }
+            completed
+        } else {
+            Arc::new(AtomicBool::new(false))
+        };
+        buffer_completed
     }
 
     /// Reload the shaders. This should only be used during `vello` development
@@ -578,6 +793,7 @@ impl Renderer {
             &mut self.resolver,
             &self.shaders,
             params,
+            Default::default(),
             robust,
         );
         let target = render.out_image();
@@ -678,17 +894,18 @@ impl Renderer {
                     .as_ref()
                     .expect("renderer should have configured surface_format to use on a surface");
                 let bump = result.bump.as_ref().unwrap();
-                // TODO: We could avoid this download if `DebugLayers::VALIDATION` is unset.
-                let downloads = DebugDownloads::map(&self.engine, &captured, bump).await?;
-                debug.render(
-                    &mut recording,
-                    surface_proxy,
-                    &captured,
-                    bump,
-                    params,
-                    &downloads,
-                );
-
+                if bump.failed == 0 {
+                    // TODO: We could avoid this download if `DebugLayers::VALIDATION` is unset.
+                    let downloads = DebugDownloads::map(&self.engine, &captured, bump).await?;
+                    debug.render(
+                        &mut recording,
+                        surface_proxy,
+                        &captured,
+                        bump,
+                        params,
+                        &downloads,
+                    );
+                }
                 // TODO: this sucks. better to release everything in a helper
                 // TODO: it would be much better to have a way to safely destroy a buffer.
                 self.engine.free_download(captured.lines);

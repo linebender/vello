@@ -23,6 +23,9 @@ fn main(
     @builtin(global_invocation_id) global_id: vec3<u32>,
     @builtin(local_invocation_id) local_id: vec3<u32>,
 ) {
+    if config.cancelled != 0u {
+        return;
+    }
     let ix = global_id.x;
     let tag_word = scene[config.pathtag_base + ix];
     var agg = reduce_tag(tag_word);
