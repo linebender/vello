@@ -66,6 +66,9 @@ impl Scene {
     /// until the layer is popped.
     ///
     /// **However, the transforms are *not* saved or modified by the layer stack.**
+    ///
+    /// Clip layers (`blend` = [`Mix::Clip`]) should have an alpha value of 1.0.
+    /// For an opacity group with non-unity alpha, specify [`Mix::Normal`].
     pub fn push_layer(
         &mut self,
         blend: impl Into<BlendMode>,
@@ -80,8 +83,7 @@ impl Scene {
         if !self.encoding.encode_shape(clip, true) {
             // If the layer shape is invalid, encode a valid empty path. This suppresses
             // all drawing until the layer is popped.
-            self.encoding
-                .encode_shape(&Rect::new(0.0, 0.0, 0.0, 0.0), true);
+            self.encoding.encode_empty_shape();
         } else {
             #[cfg(feature = "bump_estimate")]
             self.estimator.count_path(clip.path_elements(0.1), &t, None);

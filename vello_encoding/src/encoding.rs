@@ -240,6 +240,12 @@ impl Encoding {
         encoder.finish(true) != 0
     }
 
+    pub fn encode_empty_shape(&mut self) {
+        let mut encoder = self.encode_path(true);
+        encoder.empty_path();
+        encoder.finish(true);
+    }
+
     /// Encodes a path element iterator. If `is_fill` is true, all subpaths will be automatically
     /// closed. Returns true if a non-zero number of segments were encoded.
     pub fn encode_path_elements(
