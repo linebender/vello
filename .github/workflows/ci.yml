@@ -170,6 +170,7 @@ jobs:
     needs: prime-lfs-cache
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [windows-latest, macos-latest, ubuntu-latest]
         include:
@@ -192,7 +193,7 @@ jobs:
 
       - name: Restore lfs cache
         id: lfs-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: .git/lfs
           # The files targeted with git lfs
@@ -236,6 +237,16 @@ jobs:
           # However, if we do, the tests are designed to be robust against that, if this environment variable is set.
           # If we do run out of bandwidth, uncomment the following line and inform @DJMcNab.
           # VELLO_SKIP_LFS_SNAPSHOTS: all
+      
+      - name: Upload test results due to failure
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: vello-snapshot-tests-${{ matrix.os }}
+          path: |
+            vello_tests/snapshots
+            vello_tests/smoke_snapshots
+            vello_tests/comparisons
 
   test-stable-wasm:
     name: cargo test (wasm32)
