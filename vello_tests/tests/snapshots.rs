@@ -82,3 +82,11 @@ fn snapshot_deep_blend() {
     let params = TestParams::new("deep_blend", 200, 200);
     snapshot_test_scene(test_scene, params);
 }
+
+#[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
+fn snapshot_many_clips() {
+    let test_scene = test_scenes::many_clips();
+    let params = TestParams::new("many_clips", 200, 200);
+    snapshot_test_scene(test_scene, params);
+}
