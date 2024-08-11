@@ -608,7 +608,6 @@ mod impls {
     }
 
     pub(super) fn longpathdash(cap: Cap) -> impl FnMut(&mut Scene, &mut SceneParams) {
-        use std::f64::consts::PI;
         use PathEl::*;
         move |scene, _| {
             let mut path = BezPath::new();

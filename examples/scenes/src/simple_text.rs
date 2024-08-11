@@ -160,7 +160,7 @@ impl SimpleText {
         transform: Affine,
         text: &str,
     ) {
-        use vello::peniko::{Color, Fill};
+        use vello::peniko::Fill;
         let brush = brush.unwrap_or(&Brush::Solid(Color::WHITE));
         self.add_run(
             scene,
