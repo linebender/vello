@@ -77,6 +77,9 @@ impl Scene {
         clip: &impl Shape,
     ) {
         let blend = blend.into();
+        if blend.mix == Mix::Clip && alpha != 1.0 {
+            log::warn!("Clip mix mode used with semitransparent alpha");
+        }
         let t = Transform::from_kurbo(&transform);
         self.encoding.encode_transform(t);
         self.encoding.encode_fill_style(Fill::NonZero);
@@ -84,6 +87,12 @@ impl Scene {
             // If the layer shape is invalid, encode a valid empty path. This suppresses
             // all drawing until the layer is popped.
             self.encoding.encode_empty_shape();
+            #[cfg(feature = "bump_estimate")]
+            {
+                use peniko::kurbo::PathEl;
+                let path = [PathEl::MoveTo(Point::ZERO), PathEl::LineTo(Point::ZERO)];
+                self.estimator.count_path(path.into_iter(), &t, None);
+            }
         } else {
             #[cfg(feature = "bump_estimate")]
             self.estimator.count_path(clip.path_elements(0.1), &t, None);
