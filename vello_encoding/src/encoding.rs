@@ -240,6 +240,11 @@ impl Encoding {
         encoder.finish(true) != 0
     }
 
+    /// Encode an empty path.
+    ///
+    /// This is useful for bookkeeping when a path is absolutely required (for example in
+    /// pushing a clip layer). It is almost always the case, however, that an application
+    /// can be optimized to not use this method.
     pub fn encode_empty_shape(&mut self) {
         let mut encoder = self.encode_path(true);
         encoder.empty_path();
