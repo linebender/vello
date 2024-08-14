@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use super::{Encoding, StreamOffsets};
+use super::{Encoding, Index, StreamOffsets};
 
 use peniko::{Font, Style};
 use skrifa::instance::{NormalizedCoord, Size};
@@ -168,11 +168,11 @@ impl<'a> GlyphCacheSession<'a> {
         encoding_ptr.reset();
         let is_fill = match &self.style {
             Style::Fill(fill) => {
-                encoding_ptr.encode_fill_style(*fill);
+                encoding_ptr.encode_fill_style(&mut Index::default(), *fill);
                 true
             }
             Style::Stroke(stroke) => {
-                encoding_ptr.encode_stroke_style(stroke);
+                encoding_ptr.encode_stroke_style(&mut Index::default(), stroke);
                 false
             }
         };

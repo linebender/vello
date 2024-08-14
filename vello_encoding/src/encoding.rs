@@ -4,7 +4,7 @@
 use super::{DrawColor, DrawTag, PathEncoder, PathTag, Style, Transform};
 
 use peniko::kurbo::{Shape, Stroke};
-use peniko::{BlendMode, Brush, BrushRef, Fill};
+use peniko::{BlendMode, BrushRef, Fill};
 
 #[cfg(feature = "full")]
 use {
@@ -29,7 +29,7 @@ pub struct Index {
 
 impl Index {
     pub fn is_empty(&self) -> bool {
-        return self.transform_in == 0 && self.style_in == 0;
+        self.transform_in == 0 && self.style_in == 0
     }
 }
 
@@ -213,13 +213,12 @@ impl Encoding {
     }
 
     fn encode_style(&mut self, index: &mut Index, style: Style) {
-        // if self.flags & Self::FORCE_NEXT_STYLE != 0 || self.styles.last() != Some(&style) {
-            self.path_tags.push(PathTag::STYLE);
-            self.styles.push(style);
-            self.flags &= !Self::FORCE_NEXT_STYLE;
 
-            index.style_in = self.styles.len();
-        // }
+        self.path_tags.push(PathTag::STYLE);
+        self.styles.push(style);
+        self.flags &= !Self::FORCE_NEXT_STYLE;
+
+        index.style_in = self.styles.len();
     }
 
     /// Encodes a transform.
@@ -227,20 +226,15 @@ impl Encoding {
     /// If the given transform is different from the current one, encodes it and
     /// returns true. Otherwise, encodes nothing and returns false.
     pub fn encode_transform(&mut self, index: &mut Index, transform: Transform) -> bool {
-        // if self.flags & Self::FORCE_NEXT_TRANSFORM != 0
-        //     || self.transforms.last() != Some(&transform)
-        // {
-            self.path_tags.push(PathTag::TRANSFORM);
-            self.transforms.push(transform);
-            self.flags &= !Self::FORCE_NEXT_TRANSFORM;
 
-            index.path_tags_in.0 = self.path_tags.len();
-            index.transform_in = self.transforms.len();
+        self.path_tags.push(PathTag::TRANSFORM);
+        self.transforms.push(transform);
+        self.flags &= !Self::FORCE_NEXT_TRANSFORM;
 
-            true
-        // } else {
-        //     false
-        // }
+        index.path_tags_in.0 = self.path_tags.len();
+        index.transform_in = self.transforms.len();
+
+        true
     }
 
     /// Returns an encoder for encoding a path. If `is_fill` is true, all subpaths will
@@ -268,7 +262,7 @@ impl Encoding {
         index.path_tags_in.1 = self.path_tags.len();
         index.path_data_in.1 = self.path_data.len();
 
-        return final_res;
+        final_res
     }
 
     /// Encode an empty path.
@@ -374,7 +368,6 @@ impl Encoding {
     #[allow(unused_variables)]
     pub fn modify_brush<'b>(&mut self, index: &mut Index, brush: impl Into<BrushRef<'b>>, alpha: f32) {
         #[cfg(feature = "full")]
-        use super::math::point_to_f32;
         match brush.into() {
             BrushRef::Solid(color) => {
                 let color = if alpha != 1.0 {
@@ -415,9 +408,7 @@ impl Encoding {
         let begin = index.draw_data_in.0 - 1;
         let end = index.draw_data_in.1 - 1;
 
-        for i in begin..end {
-            self.draw_data[i] = bytes[i - begin];
-        }
+        self.draw_data[begin..end].copy_from_slice(&bytes[..(end - begin)]);
     }
 
     /// Encodes a linear gradient brush.

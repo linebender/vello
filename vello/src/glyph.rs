@@ -11,7 +11,7 @@ use skrifa::outline::OutlinePen;
 use skrifa::raw::FontRef;
 use skrifa::setting::Setting;
 use skrifa::{GlyphId, OutlineGlyphCollection};
-use vello_encoding::Encoding;
+use vello_encoding::{Encoding, Index};
 
 use peniko::kurbo::Shape;
 pub use skrifa;
@@ -94,7 +94,7 @@ impl<'a> GlyphProvider<'a> {
             Style::Fill(fill) => *fill,
             Style::Stroke(_) => Fill::NonZero,
         };
-        encoding.encode_fill_style(fill);
+        encoding.encode_fill_style(&mut Index::default(), fill);
         let mut path = encoding.encode_path(true);
         let outline = self.outlines.get(GlyphId::new(gid))?;
         let draw_settings = DrawSettings::unhinted(self.size, self.coords);

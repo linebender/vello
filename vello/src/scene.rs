@@ -15,7 +15,7 @@ use skrifa::{
 };
 #[cfg(feature = "bump_estimate")]
 use vello_encoding::BumpAllocatorMemory;
-use vello_encoding::{Encoding, Index, Glyph, GlyphRun, Patch, Transform, PathTag, DrawColor, Style};
+use vello_encoding::{Encoding, Index, Glyph, GlyphRun, Patch, Transform, Style};
 
 // TODO - Document invariants and edge cases (#470)
 // - What happens when we pass a transform matrix with NaN values to the Scene?
@@ -86,7 +86,7 @@ impl Scene {
         let t = Transform::from_kurbo(&transform);
         self.encoding.encode_transform(&mut index, t);
         self.encoding.encode_fill_style(&mut index, Fill::NonZero);
-        if !self.encoding.encode_shape(clip, true) {
+        if !self.encoding.encode_shape(&mut index, clip, true) {
             // If the layer shape is invalid, encode a valid empty path. This suppresses
             // all drawing until the layer is popped.
             self.encoding.encode_empty_shape();
@@ -103,7 +103,7 @@ impl Scene {
         self.encoding
             .encode_begin_clip(blend, alpha.clamp(0.0, 1.0));
 
-        return index;
+        index
     }
 
     /// Pops the current layer.
@@ -120,9 +120,7 @@ impl Scene {
         brush_transform: Option<Affine>,
         shape: &impl Shape,
     ) -> Index {
-        let mut index = Index::default();
-
-        index.is_fill = true;
+        let mut index = Index { is_fill: true, ..Default::default() };
 
         let t = Transform::from_kurbo(&transform);
         self.encoding.encode_transform(&mut index, t);
@@ -142,7 +140,7 @@ impl Scene {
                 .count_path(shape.path_elements(0.1), &t, None);
         }
 
-        return index;
+        index
     }
 
     /// Strokes a shape using the specified style and brush.
@@ -228,7 +226,7 @@ impl Scene {
             return self.fill(Fill::NonZero, transform, brush, brush_transform, &stroked);
         }
 
-        return index;
+        index
     }
 
     /// Draws an image at its natural size with the given transform.
