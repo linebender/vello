@@ -566,6 +566,7 @@ impl Render {
         recording.free_resource(fine.gradient_image);
         recording.free_resource(fine.image_atlas);
         recording.free_resource(fine.info_bin_data_buf);
+        recording.free_resource(fine.blend_spill_buf);
         // TODO: make mask buf persistent
         if let Some(mask_buf) = self.mask_buf.take() {
             recording.free_resource(mask_buf);

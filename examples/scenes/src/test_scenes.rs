@@ -68,6 +68,7 @@ export_scenes!(
     brush_transform(brush_transform: animated),
     blend_grid(blend_grid),
     deep_blend(deep_blend),
+    many_clips(many_clips),
     conflation_artifacts(conflation_artifacts),
     labyrinth(labyrinth),
     robust_paths(robust_paths),
@@ -82,7 +83,11 @@ export_scenes!(
 /// Implementations for the test scenes.
 /// In a module because the exported [`ExampleScene`](crate::ExampleScene) creation functions use the same names.
 mod impls {
+    use std::f64::consts::PI;
+
     use crate::SceneParams;
+    use rand::Rng;
+    use rand::{rngs::StdRng, SeedableRng};
     use vello::kurbo::{
         Affine, BezPath, Cap, Circle, Ellipse, Join, PathEl, Point, Rect, Shape, Stroke, Vec2,
     };
@@ -603,7 +608,6 @@ mod impls {
     }
 
     pub(super) fn longpathdash(cap: Cap) -> impl FnMut(&mut Scene, &mut SceneParams) {
-        use std::f64::consts::PI;
         use PathEl::*;
         move |scene, _| {
             let mut path = BezPath::new();
@@ -1091,6 +1095,32 @@ mod impls {
         }
         for _ in 0..depth {
             scene.pop_layer();
+        }
+    }
+
+    pub(super) fn many_clips(scene: &mut Scene, params: &mut SceneParams) {
+        params.resolution = Some(Vec2::new(1000., 1000.));
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut base_tri = BezPath::new();
+        base_tri.move_to((-50.0, 0.0));
+        base_tri.line_to((25.0, -43.3));
+        base_tri.line_to((25.0, 43.3));
+        for y in 0..10 {
+            for x in 0..10 {
+                let translate =
+                    Affine::translate((100. * (x as f64 + 0.5), 100. * (y as f64 + 0.5)));
+                const CLIPS_PER_FILL: usize = 3;
+                for _ in 0..CLIPS_PER_FILL {
+                    let rot = Affine::rotate(rng.gen_range(0.0..PI));
+                    scene.push_layer(Mix::Clip, 1.0, translate * rot, &base_tri);
+                }
+                let rot = Affine::rotate(rng.gen_range(0.0..PI));
+                let color = Color::rgb(rng.gen(), rng.gen(), rng.gen());
+                scene.fill(Fill::NonZero, translate * rot, color, None, &base_tri);
+                for _ in 0..CLIPS_PER_FILL {
+                    scene.pop_layer();
+                }
+            }
         }
     }
 

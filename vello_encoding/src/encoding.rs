@@ -271,6 +271,17 @@ impl Encoding {
         return final_res;
     }
 
+    /// Encode an empty path.
+    ///
+    /// This is useful for bookkeeping when a path is absolutely required (for example in
+    /// pushing a clip layer). It is almost always the case, however, that an application
+    /// can be optimized to not use this method.
+    pub fn encode_empty_shape(&mut self) {
+        let mut encoder = self.encode_path(true);
+        encoder.empty_path();
+        encoder.finish(true);
+    }
+
     /// Encodes a path element iterator. If `is_fill` is true, all subpaths will be automatically
     /// closed. Returns true if a non-zero number of segments were encoded.
     pub fn encode_path_elements(
