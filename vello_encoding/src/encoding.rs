@@ -4,7 +4,7 @@
 use super::{DrawColor, DrawTag, PathEncoder, PathTag, Style, Transform};
 
 use peniko::kurbo::{Shape, Stroke};
-use peniko::{BlendMode, BrushRef, Fill};
+use peniko::{BlendMode, Brush, BrushRef, Fill};
 
 #[cfg(feature = "full")]
 use {
@@ -15,6 +15,23 @@ use {
     peniko::{Color, ColorStop, Extend, GradientKind, Image},
     skrifa::instance::NormalizedCoord,
 };
+
+#[derive(Default, Debug)]
+pub struct Index {
+    pub transform_in: usize,
+    pub style_in: usize,
+    pub path_tags_in: (usize, usize),
+    pub path_data_in: (usize, usize),
+    pub draw_tag_in: usize,
+    pub draw_data_in: (usize, usize),
+    pub is_fill: bool,
+}
+
+impl Index {
+    pub fn is_empty(&self) -> bool {
+        return self.transform_in == 0 && self.style_in == 0;
+    }
+}
 
 /// Encoded data streams for a scene.
 ///
@@ -186,38 +203,44 @@ impl Encoding {
     }
 
     /// Encodes a fill style.
-    pub fn encode_fill_style(&mut self, fill: Fill) {
-        self.encode_style(Style::from_fill(fill));
+    pub fn encode_fill_style(&mut self, index: &mut Index, fill: Fill) {
+        self.encode_style(index, Style::from_fill(fill));
     }
 
     /// Encodes a stroke style.
-    pub fn encode_stroke_style(&mut self, stroke: &Stroke) {
-        self.encode_style(Style::from_stroke(stroke));
+    pub fn encode_stroke_style(&mut self, index: &mut Index, stroke: &Stroke) {
+        self.encode_style(index, Style::from_stroke(stroke));
     }
 
-    fn encode_style(&mut self, style: Style) {
-        if self.flags & Self::FORCE_NEXT_STYLE != 0 || self.styles.last() != Some(&style) {
+    fn encode_style(&mut self, index: &mut Index, style: Style) {
+        // if self.flags & Self::FORCE_NEXT_STYLE != 0 || self.styles.last() != Some(&style) {
             self.path_tags.push(PathTag::STYLE);
             self.styles.push(style);
             self.flags &= !Self::FORCE_NEXT_STYLE;
-        }
+
+            index.style_in = self.styles.len();
+        // }
     }
 
     /// Encodes a transform.
     ///
     /// If the given transform is different from the current one, encodes it and
     /// returns true. Otherwise, encodes nothing and returns false.
-    pub fn encode_transform(&mut self, transform: Transform) -> bool {
-        if self.flags & Self::FORCE_NEXT_TRANSFORM != 0
-            || self.transforms.last() != Some(&transform)
-        {
+    pub fn encode_transform(&mut self, index: &mut Index, transform: Transform) -> bool {
+        // if self.flags & Self::FORCE_NEXT_TRANSFORM != 0
+        //     || self.transforms.last() != Some(&transform)
+        // {
             self.path_tags.push(PathTag::TRANSFORM);
             self.transforms.push(transform);
             self.flags &= !Self::FORCE_NEXT_TRANSFORM;
+
+            index.path_tags_in.0 = self.path_tags.len();
+            index.transform_in = self.transforms.len();
+
             true
-        } else {
-            false
-        }
+        // } else {
+        //     false
+        // }
     }
 
     /// Returns an encoder for encoding a path. If `is_fill` is true, all subpaths will
@@ -234,10 +257,18 @@ impl Encoding {
 
     /// Encodes a shape. If `is_fill` is true, all subpaths will be automatically closed.
     /// Returns true if a non-zero number of segments were encoded.
-    pub fn encode_shape(&mut self, shape: &impl Shape, is_fill: bool) -> bool {
+    pub fn encode_shape(&mut self, index: &mut Index, shape: &impl Shape, is_fill: bool) -> bool {
+
+        index.path_data_in.0 = self.path_data.len() + 1;
+
         let mut encoder = self.encode_path(is_fill);
         encoder.shape(shape);
-        encoder.finish(true) != 0
+        let final_res = encoder.finish(true) != 0;
+
+        index.path_tags_in.1 = self.path_tags.len();
+        index.path_data_in.1 = self.path_data.len();
+
+        return final_res;
     }
 
     /// Encodes a path element iterator. If `is_fill` is true, all subpaths will be automatically
@@ -254,7 +285,7 @@ impl Encoding {
 
     /// Encodes a brush with an optional alpha modifier.
     #[allow(unused_variables)]
-    pub fn encode_brush<'b>(&mut self, brush: impl Into<BrushRef<'b>>, alpha: f32) {
+    pub fn encode_brush<'b>(&mut self, index: &mut Index, brush: impl Into<BrushRef<'b>>, alpha: f32) {
         #[cfg(feature = "full")]
         use super::math::point_to_f32;
         match brush.into() {
@@ -264,12 +295,12 @@ impl Encoding {
                 } else {
                     color
                 };
-                self.encode_color(DrawColor::new(color));
+                self.encode_color(index, DrawColor::new(color));
             }
             #[cfg(feature = "full")]
             BrushRef::Gradient(gradient) => match gradient.kind {
                 GradientKind::Linear { start, end } => {
-                    self.encode_linear_gradient(
+                    self.encode_linear_gradient(index,
                         DrawLinearGradient {
                             index: 0,
                             p0: point_to_f32(start),
@@ -286,7 +317,7 @@ impl Encoding {
                     end_center,
                     end_radius,
                 } => {
-                    self.encode_radial_gradient(
+                    self.encode_radial_gradient(index,
                         DrawRadialGradient {
                             index: 0,
                             p0: point_to_f32(start_center),
@@ -305,7 +336,7 @@ impl Encoding {
                     end_angle,
                 } => {
                     use core::f32::consts::TAU;
-                    self.encode_sweep_gradient(
+                    self.encode_sweep_gradient(index,
                         DrawSweepGradient {
                             index: 0,
                             p0: point_to_f32(center),
@@ -328,24 +359,69 @@ impl Encoding {
         }
     }
 
+    /// Modifies a brush with an optional alpha modifier.
+    #[allow(unused_variables)]
+    pub fn modify_brush<'b>(&mut self, index: &mut Index, brush: impl Into<BrushRef<'b>>, alpha: f32) {
+        #[cfg(feature = "full")]
+        use super::math::point_to_f32;
+        match brush.into() {
+            BrushRef::Solid(color) => {
+                let color = if alpha != 1.0 {
+                    color.with_alpha_factor(alpha)
+                } else {
+                    color
+                };
+                self.modify_color(index, DrawColor::new(color));
+            },
+            _ => todo!()
+        }
+    }
+
     /// Encodes a solid color brush.
-    pub fn encode_color(&mut self, color: DrawColor) {
+    pub fn encode_color(&mut self, index: &mut Index, color: DrawColor) {
+
         self.draw_tags.push(DrawTag::COLOR);
+        index.draw_tag_in = self.draw_tags.len();
+
+        index.draw_data_in.0 = self.draw_data.len() + 1;
+
         self.draw_data.extend_from_slice(bytemuck::bytes_of(&color));
+
+        index.draw_data_in.1 = self.draw_data.len();
+    }
+
+    /// Modifies a solid color brush.
+    pub fn modify_color(&mut self, index: &mut Index, color: DrawColor) {
+
+        if index.draw_tag_in == 0 || index.draw_data_in.0 == 0 || index.draw_data_in.1 == 0 {
+            return;
+        }
+
+        self.draw_tags[index.draw_tag_in - 1] = DrawTag::COLOR;
+
+        let bytes = bytemuck::bytes_of(&color);
+
+        let begin = index.draw_data_in.0 - 1;
+        let end = index.draw_data_in.1 - 1;
+
+        for i in begin..end {
+            self.draw_data[i] = bytes[i - begin];
+        }
     }
 
     /// Encodes a linear gradient brush.
     #[cfg(feature = "full")]
     pub fn encode_linear_gradient(
         &mut self,
+        index: &mut Index,
         gradient: DrawLinearGradient,
         color_stops: impl Iterator<Item = ColorStop>,
         alpha: f32,
         extend: Extend,
     ) {
         match self.add_ramp(color_stops, alpha, extend) {
-            RampStops::Empty => self.encode_color(DrawColor::new(Color::TRANSPARENT)),
-            RampStops::One(color) => self.encode_color(DrawColor::new(color)),
+            RampStops::Empty => self.encode_color(index, DrawColor::new(Color::TRANSPARENT)),
+            RampStops::One(color) => self.encode_color(index, DrawColor::new(color)),
             _ => {
                 self.draw_tags.push(DrawTag::LINEAR_GRADIENT);
                 self.draw_data
@@ -358,6 +434,7 @@ impl Encoding {
     #[cfg(feature = "full")]
     pub fn encode_radial_gradient(
         &mut self,
+        index: &mut Index,
         gradient: DrawRadialGradient,
         color_stops: impl Iterator<Item = ColorStop>,
         alpha: f32,
@@ -366,12 +443,12 @@ impl Encoding {
         // Match Skia's epsilon for radii comparison
         const SKIA_EPSILON: f32 = 1.0 / (1 << 12) as f32;
         if gradient.p0 == gradient.p1 && (gradient.r0 - gradient.r1).abs() < SKIA_EPSILON {
-            self.encode_color(DrawColor::new(Color::TRANSPARENT));
+            self.encode_color(index, DrawColor::new(Color::TRANSPARENT));
             return;
         }
         match self.add_ramp(color_stops, alpha, extend) {
-            RampStops::Empty => self.encode_color(DrawColor::new(Color::TRANSPARENT)),
-            RampStops::One(color) => self.encode_color(DrawColor::new(color)),
+            RampStops::Empty => self.encode_color(index, DrawColor::new(Color::TRANSPARENT)),
+            RampStops::One(color) => self.encode_color(index, DrawColor::new(color)),
             _ => {
                 self.draw_tags.push(DrawTag::RADIAL_GRADIENT);
                 self.draw_data
@@ -384,6 +461,7 @@ impl Encoding {
     #[cfg(feature = "full")]
     pub fn encode_sweep_gradient(
         &mut self,
+        index: &mut Index,
         gradient: DrawSweepGradient,
         color_stops: impl Iterator<Item = ColorStop>,
         alpha: f32,
@@ -391,12 +469,12 @@ impl Encoding {
     ) {
         const SKIA_DEGENERATE_THRESHOLD: f32 = 1.0 / (1 << 15) as f32;
         if (gradient.t0 - gradient.t1).abs() < SKIA_DEGENERATE_THRESHOLD {
-            self.encode_color(DrawColor::new(Color::TRANSPARENT));
+            self.encode_color(index, DrawColor::new(Color::TRANSPARENT));
             return;
         }
         match self.add_ramp(color_stops, alpha, extend) {
-            RampStops::Empty => self.encode_color(DrawColor::new(Color::TRANSPARENT)),
-            RampStops::One(color) => self.encode_color(DrawColor::new(color)),
+            RampStops::Empty => self.encode_color(index, DrawColor::new(Color::TRANSPARENT)),
+            RampStops::One(color) => self.encode_color(index, DrawColor::new(color)),
             _ => {
                 self.draw_tags.push(DrawTag::SWEEP_GRADIENT);
                 self.draw_data

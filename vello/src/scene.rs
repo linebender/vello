@@ -15,7 +15,7 @@ use skrifa::{
 };
 #[cfg(feature = "bump_estimate")]
 use vello_encoding::BumpAllocatorMemory;
-use vello_encoding::{Encoding, Glyph, GlyphRun, Patch, Transform};
+use vello_encoding::{Encoding, Index, Glyph, GlyphRun, Patch, Transform, PathTag, DrawColor, Style};
 
 // TODO - Document invariants and edge cases (#470)
 // - What happens when we pass a transform matrix with NaN values to the Scene?
@@ -27,7 +27,7 @@ use vello_encoding::{Encoding, Glyph, GlyphRun, Patch, Transform};
 /// associated resources, which can later be rendered.
 #[derive(Clone, Default)]
 pub struct Scene {
-    encoding: Encoding,
+    pub encoding: Encoding,
     #[cfg(feature = "bump_estimate")]
     estimator: vello_encoding::BumpEstimator,
 }
@@ -72,22 +72,27 @@ impl Scene {
         alpha: f32,
         transform: Affine,
         clip: &impl Shape,
-    ) {
+    ) -> Index {
+
+        let mut index = Index::default();
+
         let blend = blend.into();
         let t = Transform::from_kurbo(&transform);
-        self.encoding.encode_transform(t);
-        self.encoding.encode_fill_style(Fill::NonZero);
-        if !self.encoding.encode_shape(clip, true) {
+        self.encoding.encode_transform(&mut index, t);
+        self.encoding.encode_fill_style(&mut index, Fill::NonZero);
+        if !self.encoding.encode_shape(&mut index, clip, true) {
             // If the layer shape is invalid, encode a valid empty path. This suppresses
             // all drawing until the layer is popped.
             self.encoding
-                .encode_shape(&Rect::new(0.0, 0.0, 0.0, 0.0), true);
+                .encode_shape(&mut index, &Rect::new(0.0, 0.0, 0.0, 0.0), true);
         } else {
             #[cfg(feature = "bump_estimate")]
             self.estimator.count_path(clip.path_elements(0.1), &t, None);
         }
         self.encoding
             .encode_begin_clip(blend, alpha.clamp(0.0, 1.0));
+
+        return index;
     }
 
     /// Pops the current layer.
@@ -103,24 +108,30 @@ impl Scene {
         brush: impl Into<BrushRef<'b>>,
         brush_transform: Option<Affine>,
         shape: &impl Shape,
-    ) {
+    ) -> Index {
+        let mut index = Index::default();
+
+        index.is_fill = true;
+
         let t = Transform::from_kurbo(&transform);
-        self.encoding.encode_transform(t);
-        self.encoding.encode_fill_style(style);
-        if self.encoding.encode_shape(shape, true) {
+        self.encoding.encode_transform(&mut index, t);
+        self.encoding.encode_fill_style(&mut index, style);
+        if self.encoding.encode_shape(&mut index, shape, true) {
             if let Some(brush_transform) = brush_transform {
                 if self
                     .encoding
-                    .encode_transform(Transform::from_kurbo(&(transform * brush_transform)))
+                    .encode_transform(&mut Index::default(), Transform::from_kurbo(&(transform * brush_transform)))
                 {
                     self.encoding.swap_last_path_tags();
                 }
             }
-            self.encoding.encode_brush(brush, 1.0);
+            self.encoding.encode_brush(&mut index, brush, 1.0);
             #[cfg(feature = "bump_estimate")]
             self.estimator
                 .count_path(shape.path_elements(0.1), &t, None);
         }
+
+        return index;
     }
 
     /// Strokes a shape using the specified style and brush.
@@ -131,7 +142,7 @@ impl Scene {
         brush: impl Into<BrushRef<'b>>,
         brush_transform: Option<Affine>,
         shape: &impl Shape,
-    ) {
+    ) -> Index {
         // The setting for tolerance are a compromise. For most applications,
         // shape tolerance doesn't matter, as the input is likely Bézier paths,
         // which is exact. Note that shape tolerance is hard-coded as 0.1 in
@@ -146,11 +157,14 @@ impl Scene {
         const SHAPE_TOLERANCE: f64 = 0.01;
         const STROKE_TOLERANCE: f64 = SHAPE_TOLERANCE;
 
+        let mut index = Index::default();
+
         const GPU_STROKES: bool = true; // Set this to `true` to enable GPU-side stroking
         if GPU_STROKES {
             let t = Transform::from_kurbo(&transform);
-            self.encoding.encode_transform(t);
-            self.encoding.encode_stroke_style(style);
+
+            self.encoding.encode_transform(&mut index, t);
+            self.encoding.encode_stroke_style(&mut index, style);
 
             // We currently don't support dashing on the GPU. If the style has a dash pattern, then
             // we convert it into stroked paths on the CPU and encode those as individual draw
@@ -159,7 +173,8 @@ impl Scene {
                 #[cfg(feature = "bump_estimate")]
                 self.estimator
                     .count_path(shape.path_elements(SHAPE_TOLERANCE), &t, Some(style));
-                self.encoding.encode_shape(shape, false)
+                self.encoding.encode_shape(&mut index, shape, false)
+
             } else {
                 // TODO: We currently collect the output of the dash iterator because
                 // `encode_path_elements` wants to consume the iterator. We want to avoid calling
@@ -178,16 +193,18 @@ impl Scene {
                 self.encoding
                     .encode_path_elements(dashed.into_iter(), false)
             };
+
             if encode_result {
                 if let Some(brush_transform) = brush_transform {
                     if self
                         .encoding
-                        .encode_transform(Transform::from_kurbo(&(transform * brush_transform)))
+                        .encode_transform(&mut Index::default(), Transform::from_kurbo(&(transform * brush_transform)))
                     {
                         self.encoding.swap_last_path_tags();
                     }
                 }
-                self.encoding.encode_brush(brush, 1.0);
+                
+                self.encoding.encode_brush(&mut index, brush, 1.0);
             }
         } else {
             let stroked = peniko::kurbo::stroke(
@@ -196,19 +213,22 @@ impl Scene {
                 &Default::default(),
                 STROKE_TOLERANCE,
             );
-            self.fill(Fill::NonZero, transform, brush, brush_transform, &stroked);
+
+            return self.fill(Fill::NonZero, transform, brush, brush_transform, &stroked);
         }
+
+        return index;
     }
 
     /// Draws an image at its natural size with the given transform.
-    pub fn draw_image(&mut self, image: &Image, transform: Affine) {
+    pub fn draw_image(&mut self, image: &Image, transform: Affine) -> Index {
         self.fill(
             Fill::NonZero,
             transform,
             image,
             None,
             &Rect::new(0.0, 0.0, image.width as f64, image.height as f64),
-        );
+        )
     }
 
     /// Returns a builder for encoding a glyph run.
@@ -226,6 +246,36 @@ impl Scene {
         self.encoding.append(&other.encoding, &t);
         #[cfg(feature = "bump_estimate")]
         self.estimator.append(&other.estimator, t.as_ref());
+    }
+
+    pub fn modify_transform(&mut self, index: &Index, transform: Affine) {
+
+        if index.transform_in == 0 {
+            return;
+        }
+
+        self.encoding.transforms[index.transform_in - 1] = Transform::from_kurbo(&transform);
+    }
+
+    pub fn modify_style(&mut self, index: &Index, style: Style) {
+
+        if index.style_in == 0 {
+            return;
+        }
+
+        self.encoding.styles[index.style_in - 1] = style;
+    }
+
+    pub fn modify_fill(&mut self, index: &Index, fill: Fill) {
+        self.modify_style(index, Style::from_fill(fill));
+    }
+
+    pub fn modify_stroke(&mut self, index: &Index, stroke: Stroke) {
+        self.modify_style(index, Style::from_stroke(&stroke));
+    }
+
+    pub fn modify_brush<'b>(&mut self, index: &mut Index, brush: impl Into<BrushRef<'b>>) {
+        self.encoding.modify_brush(index, brush, 1.0);
     }
 }
 
@@ -385,7 +435,7 @@ impl<'a> DrawGlyphs<'a> {
         resources.patches.push(Patch::GlyphRun { index });
         self.scene
             .encoding
-            .encode_brush(self.brush.clone(), self.brush_alpha);
+            .encode_brush(&mut Index::default(), self.brush.clone(), self.brush_alpha);
         // Glyph run resolve step affects transform and style state in a way
         // that is opaque to the current encoding.
         // See <https://github.com/linebender/vello/issues/424>
