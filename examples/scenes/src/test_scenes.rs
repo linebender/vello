@@ -90,7 +90,8 @@ mod impls {
     use rand::Rng;
     use rand::{rngs::StdRng, SeedableRng};
     use vello::kurbo::{
-        Affine, BezPath, Cap, Circle, Ellipse, Join, PathEl, Point, Rect, Shape, Stroke, Vec2, RoundedRect
+        Affine, BezPath, Cap, Circle, Ellipse, Join, PathEl, Point, Rect, RoundedRect, Shape,
+        Stroke, Vec2,
     };
     use vello::peniko::*;
     use vello::*;

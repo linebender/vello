@@ -4,7 +4,7 @@
 use super::{DrawBlurRoundedRect, DrawColor, DrawTag, PathEncoder, PathTag, Style, Transform};
 
 use peniko::kurbo::{Shape, Stroke};
-use peniko::{BlendMode, BrushRef, Fill};
+use peniko::{BlendMode, BrushRef, Color, Fill};
 
 #[cfg(feature = "full")]
 use {
@@ -12,7 +12,7 @@ use {
         DrawImage, DrawLinearGradient, DrawRadialGradient, DrawSweepGradient, Glyph, GlyphRun,
         Patch,
     },
-    peniko::{Color, ColorStop, Extend, GradientKind, Image},
+    peniko::{ColorStop, Extend, GradientKind, Image},
     skrifa::instance::NormalizedCoord,
 };
 
