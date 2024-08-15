@@ -78,6 +78,7 @@ export_scenes!(
     longpathdash_round(impls::longpathdash(Cap::Round), "longpathdash (round caps)", false),
     mmark(crate::mmark::MMark::new(80_000), "mmark", false),
     many_draw_objects(many_draw_objects),
+    blurred_rounded_rect(blurred_rounded_rect),
 );
 
 /// Implementations for the test scenes.
@@ -89,7 +90,7 @@ mod impls {
     use rand::Rng;
     use rand::{rngs::StdRng, SeedableRng};
     use vello::kurbo::{
-        Affine, BezPath, Cap, Circle, Ellipse, Join, PathEl, Point, Rect, Shape, Stroke, Vec2,
+        Affine, BezPath, Cap, Circle, Ellipse, Join, PathEl, Point, Rect, Shape, Stroke, Vec2, RoundedRect
     };
     use vello::peniko::*;
     use vello::*;
@@ -1685,5 +1686,35 @@ mod impls {
             tiger(scene, params);
             splash_screen(scene, params);
         }
+    }
+
+    pub(super) fn blurred_rounded_rect(scene: &mut Scene, params: &mut SceneParams) {
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            Color::rgba8(255, 255, 255, 255),
+            None,
+            &Rect::new(0.0, 0.0, 1000.0, 1000.0),
+        );
+
+        let xform = Affine::translate((500.0, 500.0));
+        let size = (300.0, 240.0);
+        let radius = 50.0;
+        scene.draw_blurred_rounded_rect(
+            xform,
+            Color::rgba8(200, 140, 100, 255),
+            size,
+            radius,
+            params.time.sin() * 50.0 + 50.0,
+        );
+
+        let rect_stroke_color = Color::rgb(1.0, 0.6, 0.2);
+        scene.stroke(
+            &Stroke::new(2.0),
+            xform,
+            rect_stroke_color,
+            None,
+            &RoundedRect::from_rect(Rect::from_center_size((0.0, 0.0), size), radius),
+        );
     }
 }

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use peniko::{
-    kurbo::{Affine, BezPath, Point, Rect, Shape, Stroke, Vec2},
+    kurbo::{Affine, BezPath, Point, Rect, Shape, Size, Stroke, Vec2},
     BlendMode, Brush, BrushRef, Color, ColorStop, ColorStops, ColorStopsSource, Compose, Extend,
     Fill, Font, Gradient, Image, Mix, StyleRef,
 };
@@ -104,6 +104,37 @@ impl Scene {
     /// Pops the current layer.
     pub fn pop_layer(&mut self) {
         self.encoding.encode_end_clip();
+    }
+
+    /// Draw a rounded rectangle blurred with a gaussian filter.
+    pub fn draw_blurred_rounded_rect(
+        &mut self,
+        transform: Affine,
+        brush: Color,
+        size: impl Into<Size>,
+        radius: f64,
+        std_dev: f64,
+    ) {
+        // The impulse response of a gaussian filter is infinite.
+        // For performance reason we cut of the filter at some extent where the response is close to zero.
+        let kernel_size = 4.0 * std_dev;
+
+        let size = size.into();
+        let rect = Rect::from_center_size((0.0, 0.0), size);
+        let t = Transform::from_kurbo(&transform);
+        self.encoding.encode_transform(t);
+        if self
+            .encoding
+            .encode_shape(&rect.inflate(kernel_size, kernel_size), true)
+        {
+            self.encoding.encode_blurred_rounded_rect(
+                brush,
+                size.width as _,
+                size.height as _,
+                radius as _,
+                std_dev as _,
+            );
+        }
     }
 
     /// Fills a shape using the specified style and brush.
