@@ -116,7 +116,7 @@ impl Scene {
         std_dev: f64,
     ) {
         // The impulse response of a gaussian filter is infinite.
-        // For performance reason we cut of the filter at some extent where the response is close to zero.
+        // For performance reason we cut off the filter at some extent where the response is close to zero.
         let kernel_size = 4.0 * std_dev;
 
         let size = size.into();

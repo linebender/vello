@@ -433,7 +433,7 @@ impl Encoding {
             }));
     }
 
-    // Encodes a blurred rounded rectangle.
+    // Encodes a blurred rounded rectangle brush.
     pub fn encode_blurred_rounded_rect(
         &mut self,
         color: Color,

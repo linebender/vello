@@ -1690,13 +1690,7 @@ mod impls {
     }
 
     pub(super) fn blurred_rounded_rect(scene: &mut Scene, params: &mut SceneParams) {
-        scene.fill(
-            Fill::NonZero,
-            Affine::IDENTITY,
-            Color::rgba8(255, 255, 255, 255),
-            None,
-            &Rect::new(0.0, 0.0, 1000.0, 1000.0),
-        );
+    params.base_color = Some(Color::WHITE);
 
         let xform = Affine::translate((500.0, 500.0));
         let size = (300.0, 240.0);
