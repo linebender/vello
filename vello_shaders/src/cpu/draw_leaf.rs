@@ -46,6 +46,7 @@ fn draw_leaf_main(
                 || tag_word == DrawTag::SWEEP_GRADIENT
                 || tag_word == DrawTag::IMAGE
                 || tag_word == DrawTag::BEGIN_CLIP
+                || tag_word == DrawTag::BLUR_RECT
             {
                 let bbox = path_bbox[m.path_ix as usize];
                 let transform = Transform::read(config.layout.transform_base, bbox.trans_ix, scene);
@@ -174,6 +175,20 @@ fn draw_leaf_main(
                         info[di + 6] = f32::to_bits(xform.0[5]);
                         info[di + 7] = scene[dd as usize];
                         info[di + 8] = scene[dd as usize + 1];
+                    }
+                    DrawTag::BLUR_RECT => {
+                        info[di] = draw_flags;
+                        let xform = transform.inverse();
+                        info[di + 1] = f32::to_bits(xform.0[0]);
+                        info[di + 2] = f32::to_bits(xform.0[1]);
+                        info[di + 3] = f32::to_bits(xform.0[2]);
+                        info[di + 4] = f32::to_bits(xform.0[3]);
+                        info[di + 5] = f32::to_bits(xform.0[4]);
+                        info[di + 6] = f32::to_bits(xform.0[5]);
+                        info[di + 7] = scene[dd as usize + 1];
+                        info[di + 8] = scene[dd as usize + 2];
+                        info[di + 9] = scene[dd as usize + 3];
+                        info[di + 10] = scene[dd as usize + 4];
                     }
                     DrawTag::BEGIN_CLIP => (),
                     _ => todo!("unhandled draw tag {:x}", tag_word.0),
