@@ -124,6 +124,7 @@ impl Scene {
 
         let shape: Rect =
             Rect::from_center_size((0.0, 0.0), rect.size()).inflate(kernel_size, kernel_size);
+        self.encoding.encode_fill_style(Fill::NonZero);
         if self.encoding.encode_shape(&shape, true) {
             self.encoding.encode_blurred_rounded_rect(
                 brush,
