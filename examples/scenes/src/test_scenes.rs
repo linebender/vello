@@ -90,8 +90,7 @@ mod impls {
     use rand::Rng;
     use rand::{rngs::StdRng, SeedableRng};
     use vello::kurbo::{
-        Affine, BezPath, Cap, Circle, Ellipse, Join, PathEl, Point, Rect, RoundedRect, Shape,
-        Stroke, Vec2,
+        Affine, BezPath, Cap, Circle, Ellipse, Join, PathEl, Point, Rect, Shape, Stroke, Vec2,
     };
     use vello::peniko::*;
     use vello::*;
@@ -1690,26 +1689,52 @@ mod impls {
     }
 
     pub(super) fn blurred_rounded_rect(scene: &mut Scene, params: &mut SceneParams) {
-    params.base_color = Some(Color::WHITE);
+        params.base_color = Some(Color::WHITE);
 
-        let xform = Affine::translate((500.0, 500.0));
-        let size = (300.0, 240.0);
+        let rect = Rect::from_center_size((0.0, 0.0), (300.0, 240.0));
         let radius = 50.0;
         scene.draw_blurred_rounded_rect(
-            xform,
-            Color::rgba8(200, 140, 100, 255),
-            size,
+            Affine::translate((300.0, 300.0)),
+            rect,
+            Color::BLUE,
             radius,
             params.time.sin() * 50.0 + 50.0,
         );
 
-        let rect_stroke_color = Color::rgb(1.0, 0.6, 0.2);
-        scene.stroke(
-            &Stroke::new(2.0),
-            xform,
-            rect_stroke_color,
-            None,
-            &RoundedRect::from_rect(Rect::from_center_size((0.0, 0.0), size), radius),
+        // Skewed affine transformation.
+        scene.draw_blurred_rounded_rect(
+            Affine::translate((900.0, 300.0)) * Affine::skew(20f64.to_radians().tan(), 0.0),
+            rect,
+            Color::BLACK,
+            radius,
+            params.time.sin() * 50.0 + 50.0,
+        );
+
+        // Stretch affine transformation.
+        scene.draw_blurred_rounded_rect(
+            Affine::translate((600.0, 600.0)) * Affine::scale_non_uniform(2.2, 0.9),
+            rect,
+            Color::BLACK,
+            radius,
+            params.time.sin() * 50.0 + 50.0,
+        );
+
+        // Circle.
+        scene.draw_blurred_rounded_rect(
+            Affine::IDENTITY,
+            Rect::new(100.0, 800.0, 400.0, 1100.0),
+            Color::BLACK,
+            150.0,
+            params.time.sin() * 50.0 + 50.0,
+        );
+
+        // Radius larger than one size.
+        scene.draw_blurred_rounded_rect(
+            Affine::IDENTITY,
+            Rect::new(600.0, 800.0, 900.0, 900.0),
+            Color::BLACK,
+            150.0,
+            params.time.sin() * 50.0 + 50.0,
         );
     }
 }

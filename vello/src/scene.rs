@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use peniko::{
-    kurbo::{Affine, BezPath, Point, Rect, Shape, Size, Stroke, Vec2},
+    kurbo::{Affine, BezPath, Point, Rect, Shape, Stroke, Vec2},
     BlendMode, Brush, BrushRef, Color, ColorStop, ColorStops, ColorStopsSource, Compose, Extend,
     Fill, Font, Gradient, Image, Mix, StyleRef,
 };
@@ -110,8 +110,8 @@ impl Scene {
     pub fn draw_blurred_rounded_rect(
         &mut self,
         transform: Affine,
+        rect: Rect,
         brush: Color,
-        size: impl Into<Size>,
         radius: f64,
         std_dev: f64,
     ) {
@@ -119,18 +119,16 @@ impl Scene {
         // For performance reason we cut off the filter at some extent where the response is close to zero.
         let kernel_size = 4.0 * std_dev;
 
-        let size = size.into();
-        let rect = Rect::from_center_size((0.0, 0.0), size);
-        let t = Transform::from_kurbo(&transform);
+        let t = Transform::from_kurbo(&transform.pre_translate(rect.center().to_vec2()));
         self.encoding.encode_transform(t);
-        if self
-            .encoding
-            .encode_shape(&rect.inflate(kernel_size, kernel_size), true)
-        {
+
+        let shape: Rect =
+            Rect::from_center_size((0.0, 0.0), rect.size()).inflate(kernel_size, kernel_size);
+        if self.encoding.encode_shape(&shape, true) {
             self.encoding.encode_blurred_rounded_rect(
                 brush,
-                size.width as _,
-                size.height as _,
+                rect.width() as _,
+                rect.height() as _,
                 radius as _,
                 std_dev as _,
             );
