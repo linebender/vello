@@ -1689,6 +1689,7 @@ mod impls {
     }
 
     pub(super) fn blurred_rounded_rect(scene: &mut Scene, params: &mut SceneParams) {
+        params.resolution = Some(Vec2::new(1200., 1200.));
         params.base_color = Some(Color::WHITE);
 
         let rect = Rect::from_center_size((0.0, 0.0), (300.0, 240.0));
