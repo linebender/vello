@@ -213,7 +213,6 @@ impl Encoding {
     }
 
     fn encode_style(&mut self, index: &mut Index, style: Style) {
-
         self.path_tags.push(PathTag::STYLE);
         self.styles.push(style);
         self.flags &= !Self::FORCE_NEXT_STYLE;
@@ -226,7 +225,6 @@ impl Encoding {
     /// If the given transform is different from the current one, encodes it and
     /// returns true. Otherwise, encodes nothing and returns false.
     pub fn encode_transform(&mut self, index: &mut Index, transform: Transform) -> bool {
-
         self.path_tags.push(PathTag::TRANSFORM);
         self.transforms.push(transform);
         self.flags &= !Self::FORCE_NEXT_TRANSFORM;
@@ -252,7 +250,6 @@ impl Encoding {
     /// Encodes a shape. If `is_fill` is true, all subpaths will be automatically closed.
     /// Returns true if a non-zero number of segments were encoded.
     pub fn encode_shape(&mut self, index: &mut Index, shape: &impl Shape, is_fill: bool) -> bool {
-
         index.path_data_in.0 = self.path_data.len() + 1;
 
         let mut encoder = self.encode_path(is_fill);
@@ -290,7 +287,12 @@ impl Encoding {
 
     /// Encodes a brush with an optional alpha modifier.
     #[allow(unused_variables)]
-    pub fn encode_brush<'b>(&mut self, index: &mut Index, brush: impl Into<BrushRef<'b>>, alpha: f32) {
+    pub fn encode_brush<'b>(
+        &mut self,
+        index: &mut Index,
+        brush: impl Into<BrushRef<'b>>,
+        alpha: f32,
+    ) {
         #[cfg(feature = "full")]
         use super::math::point_to_f32;
         match brush.into() {
@@ -305,7 +307,8 @@ impl Encoding {
             #[cfg(feature = "full")]
             BrushRef::Gradient(gradient) => match gradient.kind {
                 GradientKind::Linear { start, end } => {
-                    self.encode_linear_gradient(index,
+                    self.encode_linear_gradient(
+                        index,
                         DrawLinearGradient {
                             index: 0,
                             p0: point_to_f32(start),
@@ -322,7 +325,8 @@ impl Encoding {
                     end_center,
                     end_radius,
                 } => {
-                    self.encode_radial_gradient(index,
+                    self.encode_radial_gradient(
+                        index,
                         DrawRadialGradient {
                             index: 0,
                             p0: point_to_f32(start_center),
@@ -341,7 +345,8 @@ impl Encoding {
                     end_angle,
                 } => {
                     use core::f32::consts::TAU;
-                    self.encode_sweep_gradient(index,
+                    self.encode_sweep_gradient(
+                        index,
                         DrawSweepGradient {
                             index: 0,
                             p0: point_to_f32(center),
@@ -366,7 +371,12 @@ impl Encoding {
 
     /// Modifies a brush with an optional alpha modifier.
     #[allow(unused_variables)]
-    pub fn modify_brush<'b>(&mut self, index: &mut Index, brush: impl Into<BrushRef<'b>>, alpha: f32) {
+    pub fn modify_brush<'b>(
+        &mut self,
+        index: &mut Index,
+        brush: impl Into<BrushRef<'b>>,
+        alpha: f32,
+    ) {
         #[cfg(feature = "full")]
         match brush.into() {
             BrushRef::Solid(color) => {
@@ -376,14 +386,13 @@ impl Encoding {
                     color
                 };
                 self.modify_color(index, DrawColor::new(color));
-            },
-            _ => todo!()
+            }
+            _ => todo!(),
         }
     }
 
     /// Encodes a solid color brush.
     pub fn encode_color(&mut self, index: &mut Index, color: DrawColor) {
-
         self.draw_tags.push(DrawTag::COLOR);
         index.draw_tag_in = self.draw_tags.len();
 
@@ -396,7 +405,6 @@ impl Encoding {
 
     /// Modifies a solid color brush.
     pub fn modify_color(&mut self, index: &mut Index, color: DrawColor) {
-
         if index.draw_tag_in == 0 || index.draw_data_in.0 == 0 || index.draw_data_in.1 == 0 {
             return;
         }

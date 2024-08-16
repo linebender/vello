@@ -15,7 +15,7 @@ use skrifa::{
 };
 #[cfg(feature = "bump_estimate")]
 use vello_encoding::BumpAllocatorMemory;
-use vello_encoding::{Encoding, Index, Glyph, GlyphRun, Patch, Transform, Style};
+use vello_encoding::{Encoding, Glyph, GlyphRun, Index, Patch, Style, Transform};
 
 // TODO - Document invariants and edge cases (#470)
 // - What happens when we pass a transform matrix with NaN values to the Scene?
@@ -76,7 +76,6 @@ impl Scene {
         transform: Affine,
         clip: &impl Shape,
     ) -> Index {
-
         let mut index = Index::default();
 
         let blend = blend.into();
@@ -120,17 +119,20 @@ impl Scene {
         brush_transform: Option<Affine>,
         shape: &impl Shape,
     ) -> Index {
-        let mut index = Index { is_fill: true, ..Default::default() };
+        let mut index = Index {
+            is_fill: true,
+            ..Default::default()
+        };
 
         let t = Transform::from_kurbo(&transform);
         self.encoding.encode_transform(&mut index, t);
         self.encoding.encode_fill_style(&mut index, style);
         if self.encoding.encode_shape(&mut index, shape, true) {
             if let Some(brush_transform) = brush_transform {
-                if self
-                    .encoding
-                    .encode_transform(&mut Index::default(), Transform::from_kurbo(&(transform * brush_transform)))
-                {
+                if self.encoding.encode_transform(
+                    &mut Index::default(),
+                    Transform::from_kurbo(&(transform * brush_transform)),
+                ) {
                     self.encoding.swap_last_path_tags();
                 }
             }
@@ -183,7 +185,6 @@ impl Scene {
                 self.estimator
                     .count_path(shape.path_elements(SHAPE_TOLERANCE), &t, Some(style));
                 self.encoding.encode_shape(&mut index, shape, false)
-
             } else {
                 // TODO: We currently collect the output of the dash iterator because
                 // `encode_path_elements` wants to consume the iterator. We want to avoid calling
@@ -205,14 +206,14 @@ impl Scene {
 
             if encode_result {
                 if let Some(brush_transform) = brush_transform {
-                    if self
-                        .encoding
-                        .encode_transform(&mut Index::default(), Transform::from_kurbo(&(transform * brush_transform)))
-                    {
+                    if self.encoding.encode_transform(
+                        &mut Index::default(),
+                        Transform::from_kurbo(&(transform * brush_transform)),
+                    ) {
                         self.encoding.swap_last_path_tags();
                     }
                 }
-                
+
                 self.encoding.encode_brush(&mut index, brush, 1.0);
             }
         } else {
@@ -258,7 +259,6 @@ impl Scene {
     }
 
     pub fn modify_transform(&mut self, index: &Index, transform: Affine) {
-
         if index.transform_in == 0 {
             return;
         }
@@ -267,7 +267,6 @@ impl Scene {
     }
 
     pub fn modify_style(&mut self, index: &Index, style: Style) {
-
         if index.style_in == 0 {
             return;
         }
@@ -442,9 +441,11 @@ impl<'a> DrawGlyphs<'a> {
         let index = resources.glyph_runs.len();
         resources.glyph_runs.push(self.run.clone());
         resources.patches.push(Patch::GlyphRun { index });
-        self.scene
-            .encoding
-            .encode_brush(&mut Index::default(), self.brush.clone(), self.brush_alpha);
+        self.scene.encoding.encode_brush(
+            &mut Index::default(),
+            self.brush.clone(),
+            self.brush_alpha,
+        );
         // Glyph run resolve step affects transform and style state in a way
         // that is opaque to the current encoding.
         // See <https://github.com/linebender/vello/issues/424>
