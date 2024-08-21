@@ -1,15 +1,21 @@
 // Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+mod bitmap;
+
+use std::sync::Arc;
+
 use peniko::{
     kurbo::{Affine, BezPath, Point, Rect, Shape, Stroke, Vec2},
-    BlendMode, Brush, BrushRef, Color, ColorStop, ColorStops, ColorStopsSource, Compose, Extend,
-    Fill, Font, Gradient, Image, Mix, StyleRef,
+    BlendMode, Blob, Brush, BrushRef, Color, ColorStop, ColorStops, ColorStopsSource, Compose,
+    Extend, Fill, Font, Gradient, Image, Mix, StyleRef,
 };
+use png::{BitDepth, ColorType, Transformations};
 use skrifa::{
-    color::ColorPainter,
+    color::{ColorGlyph, ColorPainter},
     instance::{LocationRef, NormalizedCoord},
     outline::{DrawSettings, OutlinePen},
+    prelude::Size,
     raw::{tables::cpal::Cpal, TableProvider},
     GlyphId, MetadataProvider, OutlineGlyphCollection,
 };
@@ -354,17 +360,18 @@ impl<'a> DrawGlyphs<'a> {
 
     /// Encodes a fill or stroke for the given sequence of glyphs and consumes the builder.
     ///
-    /// The `style` parameter accepts either `Fill` or `&Stroke` types.
+    /// The `style` parameter accepts either `Fill` or `Stroke` types.
     ///
-    /// If the font has COLR support, it will try to draw each glyph using that table first,
-    /// falling back to non-COLR rendering. `style` is ignored for COLR glyphs.
+    /// This supports emoji fonts in COLR and bitmap formats.
+    /// `style` is ignored for these fonts.
     ///
     /// For these glyphs, the given [brush](Self::brush) is used as the "foreground colour", and should
     /// be [`Solid`](Brush::Solid) for maximum compatibility.
     pub fn draw(mut self, style: impl Into<StyleRef<'a>>, glyphs: impl Iterator<Item = Glyph>) {
         let font_index = self.run.font.index;
         let font = skrifa::FontRef::from_index(self.run.font.data.as_ref(), font_index).unwrap();
-        if font.colr().is_ok() && font.cpal().is_ok() {
+        let bitmaps = bitmap::BitmapStrikes::new(&font);
+        if font.colr().is_ok() && font.cpal().is_ok() || !bitmaps.is_empty() {
             self.try_draw_colr(style.into(), glyphs);
         } else {
             // Shortcut path - no need to test each glyph for a colr outline
@@ -410,11 +417,13 @@ impl<'a> DrawGlyphs<'a> {
         let font = skrifa::FontRef::from_index(blob.as_ref(), font_index).unwrap();
         let upem: f32 = font.head().map(|h| h.units_per_em()).unwrap().into();
         let run_transform = self.run.transform.to_kurbo();
-        let scale = Affine::scale_non_uniform(
+        let colr_scale = Affine::scale_non_uniform(
             (self.run.font_size / upem).into(),
             (-self.run.font_size / upem).into(),
         );
+
         let colour_collection = font.color_glyphs();
+        let bitmaps = bitmap::BitmapStrikes::new(&font);
         let mut final_glyph = None;
         let mut outline_count = 0;
         // We copy out of the variable font coords here because we need to call an exclusive self method
@@ -423,48 +432,175 @@ impl<'a> DrawGlyphs<'a> {
         .to_vec();
         let location = LocationRef::new(coords);
         loop {
+            let ppem = self.run.font_size;
             let outline_glyphs = (&mut glyphs).take_while(|glyph| {
-                match colour_collection.get(GlyphId::new(glyph.id.try_into().unwrap())) {
+                let glyph_id = GlyphId::new(glyph.id.try_into().unwrap());
+                match colour_collection.get(glyph_id) {
                     Some(color) => {
-                        final_glyph = Some((color, *glyph));
+                        final_glyph = Some((EmojiLikeGlyph::Colr(color), *glyph));
                         false
                     }
-                    None => true,
+                    None => match bitmaps.glyph_for_size(Size::new(ppem), glyph_id) {
+                        Some(bitmap) => {
+                            final_glyph = Some((EmojiLikeGlyph::Bitmap(bitmap), *glyph));
+                            false
+                        }
+                        None => true,
+                    },
                 }
             });
             self.run.glyphs.start = self.run.glyphs.end;
             self.run.stream_offsets = self.scene.encoding.stream_offsets();
             outline_count += self.draw_outline_glyphs(clone_style_ref(&style), outline_glyphs);
 
-            let Some((color, glyph)) = final_glyph.take() else {
+            let Some((emoji, glyph)) = final_glyph.take() else {
                 // All of the remaining glyphs were outline glyphs
                 break;
             };
 
-            let transform = run_transform
-                * Affine::translate(Vec2::new(glyph.x.into(), glyph.y.into()))
-                * scale
-                * self
-                    .run
-                    .glyph_transform
-                    .unwrap_or(Transform::IDENTITY)
-                    .to_kurbo();
+            match emoji {
+                // TODO: This really needs to be moved to resolve time to get proper caching, etc.
+                EmojiLikeGlyph::Bitmap(bitmap) => {
+                    let image = match bitmap.data {
+                        bitmap::BitmapData::Bgra(data) => {
+                            if bitmap.width * bitmap.height * 4 != data.len().try_into().unwrap() {
+                                // TODO: Error once?
+                                log::error!("Invalid font");
+                                continue;
+                            }
+                            let data: Box<[u8]> = data
+                                .chunks_exact(4)
+                                .flat_map(|bytes| {
+                                    let [b, g, r, a] = bytes.try_into().unwrap();
+                                    [r, g, b, a]
+                                })
+                                .collect();
+                            Image::new(
+                                // TODO: The design of the Blob type forces the double boxing
+                                Blob::new(Arc::new(data)),
+                                peniko::Format::Rgba8,
+                                bitmap.width,
+                                bitmap.height,
+                            )
+                        }
+                        bitmap::BitmapData::Png(data) => {
+                            let mut decoder = png::Decoder::new(data);
+                            decoder.set_transformations(
+                                Transformations::ALPHA | Transformations::STRIP_16,
+                            );
+                            let Ok(mut reader) = decoder.read_info() else {
+                                log::error!("Invalid PNG in font");
+                                continue;
+                            };
 
-            color
-                .paint(
-                    location,
-                    &mut DrawColorGlyphs {
-                        scene: self.scene,
-                        cpal: &font.cpal().unwrap(),
-                        outlines: &font.outline_glyphs(),
-                        transform_stack: vec![Transform::from_kurbo(&transform)],
-                        clip_box: DEFAULT_CLIP_RECT,
-                        clip_depth: 0,
+                            if reader.output_color_type() != (ColorType::Rgba, BitDepth::Eight) {
+                                log::error!("Unsupported `output_color_type`");
+                                continue;
+                            }
+                            let mut buf = vec![0; reader.output_buffer_size()].into_boxed_slice();
+
+                            let info = reader.next_frame(&mut buf).unwrap();
+                            if info.width != bitmap.width || info.height != bitmap.height {
+                                log::error!("Unexpected width and height");
+                                continue;
+                            }
+                            Image::new(
+                                // TODO: The design of the Blob type forces the double boxing
+                                Blob::new(Arc::new(buf)),
+                                peniko::Format::Rgba8,
+                                bitmap.width,
+                                bitmap.height,
+                            )
+                        }
+                        bitmap::BitmapData::Mask(mask) => {
+                            // TODO: Is this code worth having?
+                            let Some(masks) = bitmap_masks(mask.bpp) else {
+                                // TODO: Error once?
+                                log::warn!("Invalid bpp in bitmap glyph");
+                                continue;
+                            };
+
+                            if !mask.is_packed {
+                                // TODO: Error once?
+                                log::warn!("Unpacked mask data in font not yet supported");
+                                // TODO: How do we get the font name here?
+                                continue;
+                            }
+                            let alphas = mask.data.iter().flat_map(|it| {
+                                masks
+                                    .iter()
+                                    .map(move |mask| (it & mask.mask) >> mask.right_shift)
+                            });
+                            let data: Box<[u8]> = alphas
+                                .flat_map(|alpha| [u8::MAX, u8::MAX, u8::MAX, alpha])
+                                .collect();
+
+                            Image::new(
+                                // TODO: The design of the Blob type forces the double boxing
+                                Blob::new(Arc::new(data)),
+                                peniko::Format::Rgba8,
+                                bitmap.width,
+                                bitmap.height,
+                            )
+                        }
+                    };
+                    // Split into multiple statements because rustfmt breaks
+                    let transform =
+                        run_transform.then_translate(Vec2::new(glyph.x.into(), glyph.y.into()));
+
+                    // Logic copied from Skia without examination or careful understanding:
+                    // https://github.com/google/skia/blob/61ac357e8e3338b90fb84983100d90768230797f/src/ports/SkTypeface_fontations.cpp#L664
+
+                    let image_scale_factor = self.run.font_size / bitmap.ppem_y;
+                    let font_units_to_size = self.run.font_size / upem;
+                    let transform = transform
+                        .pre_translate(Vec2 {
+                            x: (-bitmap.bearing_x * font_units_to_size).into(),
+                            y: (bitmap.bearing_y * font_units_to_size).into(),
+                        })
+                        // Unclear why this isn't non-uniform
+                        .pre_scale(image_scale_factor.into())
+                        .pre_translate(Vec2 {
+                            x: (-bitmap.inner_bearing_x).into(),
+                            y: (-bitmap.inner_bearing_y).into(),
+                        });
+                    let mut transform = match bitmap.placement_origin {
+                        bitmap::Origin::TopLeft => transform,
+                        bitmap::Origin::BottomLeft => transform.pre_translate(Vec2 {
+                            x: 0.,
+                            y: f64::from(image.height),
+                        }),
+                    };
+                    if let Some(glyph_transform) = self.run.glyph_transform {
+                        transform *= glyph_transform.to_kurbo();
+                    }
+                    self.scene.draw_image(&image, transform);
+                }
+                EmojiLikeGlyph::Colr(colr) => {
+                    let transform = run_transform
+                        * Affine::translate(Vec2::new(glyph.x.into(), glyph.y.into()))
+                        * colr_scale
+                        * self
+                            .run
+                            .glyph_transform
+                            .unwrap_or(Transform::IDENTITY)
+                            .to_kurbo();
+                    colr.paint(
                         location,
-                        foreground_brush: self.brush.clone(),
-                    },
-                )
-                .unwrap();
+                        &mut DrawColorGlyphs {
+                            scene: self.scene,
+                            cpal: &font.cpal().unwrap(),
+                            outlines: &font.outline_glyphs(),
+                            transform_stack: vec![Transform::from_kurbo(&transform)],
+                            clip_box: DEFAULT_CLIP_RECT,
+                            clip_depth: 0,
+                            location,
+                            foreground_brush: self.brush.clone(),
+                        },
+                    )
+                    .unwrap();
+                }
+            }
         }
         if outline_count == 0 {
             // If we didn't draw any outline glyphs, the encoded variable font parameters were never used
@@ -476,6 +612,64 @@ impl<'a> DrawGlyphs<'a> {
                 .truncate(self.run.normalized_coords.start);
         }
     }
+}
+
+struct BitmapMask {
+    mask: u8,
+    right_shift: u8,
+}
+
+fn bitmap_masks(bpp: u8) -> Option<&'static [BitmapMask]> {
+    const fn m(mask: u8, right_shift: u8) -> BitmapMask {
+        BitmapMask { mask, right_shift }
+    }
+    const fn byte(value: u8) -> BitmapMask {
+        BitmapMask {
+            mask: 1 << value,
+            right_shift: value,
+        }
+    }
+    match bpp {
+        1 => {
+            const BPP_1_MASK: &[BitmapMask] = &[
+                byte(0),
+                byte(1),
+                byte(2),
+                byte(3),
+                byte(4),
+                byte(5),
+                byte(6),
+                byte(7),
+            ];
+            Some(BPP_1_MASK)
+        }
+
+        2 => {
+            const BPP_2_MASK: &[BitmapMask] = {
+                &[
+                    m(0b0000_0011, 0),
+                    m(0b0000_1100, 2),
+                    m(0b0011_0000, 4),
+                    m(0b1100_0000, 6),
+                ]
+            };
+            Some(BPP_2_MASK)
+        }
+        4 => {
+            const BPP_4_MASK: &[BitmapMask] = &[m(0b0000_1111, 0), m(0b1111_0000, 4)];
+            Some(BPP_4_MASK)
+        }
+        8 => {
+            const BPP_8_MASK: &[BitmapMask] = &[m(u8::MAX, 0)];
+            Some(BPP_8_MASK)
+        }
+        _ => None,
+    }
+}
+
+enum EmojiLikeGlyph<'a> {
+    Bitmap(bitmap::BitmapGlyph<'a>),
+    Colr(ColorGlyph<'a>),
 }
 const BOUND: f64 = 100_000.;
 // Hack: If we don't have a clip box, we guess a rectangle we hope is big enough

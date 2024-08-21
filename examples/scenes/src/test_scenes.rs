@@ -99,10 +99,18 @@ mod impls {
     pub(super) fn emoji(scene: &mut Scene, params: &mut SceneParams) {
         let text_size = 120. + 20. * (params.time * 2.).sin() as f32;
         let s = "🎉🤠✅";
-        params.text.add_emoji_run(
+        params.text.add_colr_emoji_run(
             scene,
             text_size,
-            Affine::translate(Vec2::new(100., 400.)),
+            Affine::translate(Vec2::new(100., 250.)),
+            None,
+            Fill::NonZero,
+            s,
+        );
+        params.text.add_bitmap_emoji_run(
+            scene,
+            text_size,
+            Affine::translate(Vec2::new(100., 500.)),
             None,
             Fill::NonZero,
             s,

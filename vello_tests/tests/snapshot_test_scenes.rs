@@ -1,8 +1,7 @@
 // Copyright 2024 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-// Copyright 2024 the Vello Authors
-// SPDX-License-Identifier: Apache-2.0 OR MIT
+//! Snapshot tests using the test scenes from [`scenes`].
 
 use scenes::{test_scenes, ExampleScene};
 use vello_tests::{encode_test_scene, snapshot_test_sync, TestParams};
