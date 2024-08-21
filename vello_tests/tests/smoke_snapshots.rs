@@ -68,7 +68,7 @@ fn two_emoji(use_cpu: bool) {
     );
     let params = TestParams {
         use_cpu,
-        ..TestParams::new("single_emoji", 60, 30)
+        ..TestParams::new("two_emoji", 60, 30)
     };
     smoke_snapshot_test_sync(scene, &params)
         .unwrap()
@@ -103,12 +103,12 @@ fn filled_circle_cpu() {
 
 #[test]
 #[cfg_attr(skip_gpu_tests, ignore)]
-fn single_emoji_gpu() {
+fn two_emoji_gpu() {
     two_emoji(false);
 }
 
 #[test]
 #[cfg_attr(skip_gpu_tests, ignore)]
-fn single_emoji_cpu() {
+fn two_emoji_cpu() {
     two_emoji(true);
 }
