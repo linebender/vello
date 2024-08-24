@@ -2,18 +2,15 @@ extern crate sdl2;
 
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
-use std::time::Duration;
 
 use std::num::NonZeroUsize;
 
-use vello::util::{RenderContext, RenderSurface};
-use vello::{AaConfig, DebugLayers, Renderer, RendererOptions, Scene};
 use vello::kurbo::{Affine, Circle, Ellipse, Line, RoundedRect, Stroke};
 use vello::peniko::Color;
+use vello::util::{RenderContext, RenderSurface};
+use vello::{AaConfig, DebugLayers, Renderer, RendererOptions, Scene};
 
 use vello::wgpu;
-
-use pollster;
 
 pub fn main() {
     let sdl_context = sdl2::init().unwrap();
@@ -22,7 +19,8 @@ pub fn main() {
     let width: u32 = 800;
     let height: u32 = 600;
 
-    let window = video_subsystem.window("Vello SDL2 Demo", width, height)
+    let window = video_subsystem
+        .window("Vello SDL2 Demo", width, height)
         .position_centered()
         .metal_view()
         .build()
@@ -30,7 +28,7 @@ pub fn main() {
 
     let mut context = RenderContext::new();
 
-    let surface_future = unsafe { 
+    let surface_future = unsafe {
         context.create_surface_unsafe(
             wgpu::SurfaceTargetUnsafe::from_window(&window).unwrap(),
             width,
@@ -40,18 +38,17 @@ pub fn main() {
     };
 
     let surface = pollster::block_on(surface_future).expect("Error creating surface.");
-    
+
     let mut renderers: Vec<Option<Renderer>> = vec![];
-    
+
     renderers.resize_with(context.devices.len(), || None);
-    renderers[surface.dev_id].insert(create_vello_renderer(&context, &surface));
+    let _ = renderers[surface.dev_id].insert(create_vello_renderer(&context, &surface));
 
     let mut scene = Scene::new();
 
     let mut event_pump = sdl_context.event_pump().unwrap();
 
     'running: loop {
-
         scene.reset();
 
         add_shapes_to_scene(&mut scene);
@@ -83,17 +80,16 @@ pub fn main() {
 
         for event in event_pump.poll_iter() {
             match event {
-                Event::Quit {..} |
-                Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
-                    break 'running
-                },
+                Event::Quit { .. }
+                | Event::KeyDown {
+                    keycode: Some(Keycode::Escape),
+                    ..
+                } => break 'running,
                 _ => {}
             }
         }
 
         surface_texture.present();
-
-        //::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));
     }
 }
 
