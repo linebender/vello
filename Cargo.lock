@@ -2030,6 +2030,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "sdl2"
+version = "0.37.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3b498da7d14d1ad6c839729bd4ad6fc11d90a57583605f3b4df2cd709a9cd380"
+dependencies = [
+ "bitflags 1.3.2",
+ "lazy_static",
+ "libc",
+ "raw-window-handle",
+ "sdl2-sys",
+]
+
+[[package]]
+name = "sdl2-sys"
+version = "0.37.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "951deab27af08ed9c6068b7b0d05a93c91f0a8eb16b6b816a5e73452a43521d3"
+dependencies = [
+ "cfg-if",
+ "libc",
+ "version-compare",
+]
+
+[[package]]
 name = "serde"
 version = "1.0.203"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2083,6 +2107,15 @@ dependencies = [
  "pollster",
  "vello",
  "winit",
+]
+
+[[package]]
+name = "simple_sdl2"
+version = "0.0.0"
+dependencies = [
+ "pollster",
+ "sdl2",
+ "vello",
 ]
 
 [[package]]
@@ -2461,6 +2494,12 @@ dependencies = [
  "scenes",
  "vello",
 ]
+
+[[package]]
+name = "version-compare"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "579a42fc0b8e0c63b76519a339be31bed574929511fa53c1a3acae26eb258f29"
 
 [[package]]
 name = "version_check"
@@ -3361,3 +3400,11 @@ checksum = "ec866b44a2a1fd6133d363f073ca1b179f438f99e7e5bfb1e33f7181facfe448"
 dependencies = [
  "zune-core",
 ]
+
+[[patch.unused]]
+name = "bevy"
+version = "0.15.0-dev"
+
+[[patch.unused]]
+name = "bevy_vello"
+version = "0.5.1"
