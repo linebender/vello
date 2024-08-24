@@ -7,7 +7,7 @@ use std::future::Future;
 
 use wgpu::{
     Adapter, Device, Instance, Limits, Queue, Surface, SurfaceConfiguration, SurfaceTarget,
-    TextureFormat,
+    SurfaceTargetUnsafe, TextureFormat,
 };
 
 use crate::{Error, Result};
@@ -47,6 +47,52 @@ impl RenderContext {
         present_mode: wgpu::PresentMode,
     ) -> Result<RenderSurface<'w>> {
         let surface = self.instance.create_surface(window.into())?;
+        let dev_id = self
+            .device(Some(&surface))
+            .await
+            .ok_or(Error::NoCompatibleDevice)?;
+
+        let device_handle = &self.devices[dev_id];
+        let capabilities = surface.get_capabilities(&device_handle.adapter);
+        let format = capabilities
+            .formats
+            .into_iter()
+            .find(|it| matches!(it, TextureFormat::Rgba8Unorm | TextureFormat::Bgra8Unorm))
+            .ok_or(Error::UnsupportedSurfaceFormat)?;
+
+        let config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format,
+            width,
+            height,
+            present_mode,
+            desired_maximum_frame_latency: 2,
+            alpha_mode: wgpu::CompositeAlphaMode::Auto,
+            view_formats: vec![],
+        };
+        let surface = RenderSurface {
+            surface,
+            config,
+            dev_id,
+            format,
+        };
+        self.configure_surface(&surface);
+        Ok(surface)
+    }
+
+    /// Creates a new unsafe surface for the specified window and dimensions.
+    ///
+    /// # Safety
+    /// This function works exactly like `create_surface()`.
+    /// Treat it like `create_surface()` and you should not have any issues :D.
+    pub async unsafe fn create_surface_unsafe<'w>(
+        &mut self,
+        window: impl Into<SurfaceTargetUnsafe>,
+        width: u32,
+        height: u32,
+        present_mode: wgpu::PresentMode,
+    ) -> Result<RenderSurface<'w>> {
+        let surface = self.instance.create_surface_unsafe(window.into())?;
         let dev_id = self
             .device(Some(&surface))
             .await
