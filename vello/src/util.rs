@@ -6,8 +6,8 @@
 use std::future::Future;
 
 use wgpu::{
-    Adapter, Device, Instance, Limits, Queue, Surface, SurfaceConfiguration, SurfaceTarget,
-    SurfaceTargetUnsafe, TextureFormat, CreateSurfaceError,
+    Adapter, CreateSurfaceError, Device, Instance, Limits, Queue, Surface, SurfaceConfiguration,
+    SurfaceTarget, SurfaceTargetUnsafe, TextureFormat,
 };
 
 use crate::{Error, Result};
@@ -46,7 +46,13 @@ impl RenderContext {
         height: u32,
         present_mode: wgpu::PresentMode,
     ) -> Result<RenderSurface<'w>> {
-        self.create_render_surface(self.instance.create_surface(window.into()), width, height, present_mode).await
+        self.create_render_surface(
+            self.instance.create_surface(window.into()),
+            width,
+            height,
+            present_mode,
+        )
+        .await
     }
 
     /// Creates a new render surface for the specified window and dimensions.
@@ -57,7 +63,6 @@ impl RenderContext {
         height: u32,
         present_mode: wgpu::PresentMode,
     ) -> Result<RenderSurface<'w>> {
-
         let surface = surface_result?;
 
         let dev_id = self
