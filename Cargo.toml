@@ -11,6 +11,7 @@ members = [
     "examples/run_wasm",
     "examples/scenes",
     "examples/simple",
+    "examples/simple_sdl2",
 ]
 
 [workspace.package]
