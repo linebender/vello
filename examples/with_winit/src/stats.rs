@@ -75,7 +75,7 @@ impl Snapshot {
             labels.push(format!("ptcl: {}", bump.ptcl));
             labels.push(format!("tile: {}", bump.tile));
             labels.push(format!("segments: {}", bump.segments));
-            labels.push(format!("blend: {}", bump.blend));
+            labels.push(format!("blend: {}", bump.blend_spill));
         }
 
         // height / 2 is dedicated to the text labels and the rest is filled by the bar graph.

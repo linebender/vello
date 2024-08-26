@@ -29,6 +29,8 @@ pub struct Layout {
     pub n_clips: u32,
     /// Start of binning data.
     pub bin_data_start: u32,
+    /// Start of dynamically allocated ptcl commands
+    pub ptcl_dyn_start: u32,
     /// Start of path tag stream.
     pub path_tag_base: u32,
     /// Start of path data stream.

@@ -17,6 +17,7 @@ use crate::{
 
 // Shaders for the full pipeline
 pub struct FullShaders {
+    pub prepare: ShaderId,
     pub pathtag_reduce: ShaderId,
     pub pathtag_reduce2: ShaderId,
     pub pathtag_scan1: ShaderId,
@@ -101,6 +102,7 @@ pub(crate) fn full_shaders(
         };
     }
 
+    let prepare = add_shader!(prepare, [Buffer, Buffer]);
     let pathtag_reduce = add_shader!(pathtag_reduce, [Uniform, BufReadOnly, Buffer]);
     let pathtag_reduce2 = add_shader!(
         pathtag_reduce2,
@@ -194,7 +196,7 @@ pub(crate) fn full_shaders(
             Buffer,
         ]
     );
-    let path_tiling_setup = add_shader!(path_tiling_setup, [Buffer, Buffer, Buffer]);
+    let path_tiling_setup = add_shader!(path_tiling_setup, [Uniform, Buffer, Buffer, Buffer]);
     let path_tiling = add_shader!(
         path_tiling,
         [
@@ -249,6 +251,7 @@ pub(crate) fn full_shaders(
     };
 
     Ok(FullShaders {
+        prepare,
         pathtag_reduce,
         pathtag_reduce2,
         pathtag_scan,

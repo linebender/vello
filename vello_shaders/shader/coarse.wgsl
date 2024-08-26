@@ -68,10 +68,7 @@ var<private> cmd_limit: u32;
 // Make sure there is space for a command of given size, plus a jump if needed
 fn alloc_cmd(size: u32) {
     if cmd_offset + size >= cmd_limit {
-        // We might be able to save a little bit of computation here
-        // by setting the initial value of the bump allocator.
-        let ptcl_dyn_start = config.width_in_tiles * config.height_in_tiles * PTCL_INITIAL_ALLOC;
-        var new_cmd = ptcl_dyn_start + atomicAdd(&bump.ptcl, PTCL_INCREMENT);
+        var new_cmd = atomicAdd(&bump.ptcl, PTCL_INCREMENT);
         if new_cmd + PTCL_INCREMENT > config.ptcl_size {
             // This sets us up for technical UB, as lots of threads will be writing
             // to the same locations. But I think it's fine, and predicating the
@@ -79,6 +76,7 @@ fn alloc_cmd(size: u32) {
             new_cmd = 0u;
             atomicOr(&bump.failed, STAGE_COARSE);
         }
+        new_cmd += config.ptcl_dyn_start;
         ptcl[cmd_offset] = CMD_JUMP;
         ptcl[cmd_offset + 1u] = new_cmd;
         cmd_offset = new_cmd;
@@ -92,6 +90,7 @@ fn write_path(tile: Tile, tile_ix: u32, draw_flags: u32) {
     // fine).
     let n_segs = tile.segment_count_or_ix;
     if n_segs != 0u {
+        // We check for overflow of bump.segments in path_tiling_setup
         var seg_ix = atomicAdd(&bump.segments, n_segs);
         tiles[tile_ix].segment_count_or_ix = ~seg_ix;
         alloc_cmd(4u);
@@ -155,12 +154,12 @@ fn main(
     // We need to check only prior stages, as if this stage has failed in another workgroup, 
     // we still want to know this workgroup's memory requirement.   
     if local_id.x == 0u {
-        var failed = atomicLoad(&bump.failed) & (STAGE_BINNING | STAGE_TILE_ALLOC | STAGE_FLATTEN);
+        var failed = atomicLoad(&bump.failed) & (STAGE_BINNING | STAGE_TILE_ALLOC | STAGE_FLATTEN | PREVIOUS_RUN);
         if atomicLoad(&bump.seg_counts) > config.seg_counts_size {
             failed |= STAGE_PATH_COUNT;
         }
         // Reuse sh_part_count to hold failed flag, shmem is tight
-        sh_part_count[0] = u32(failed);
+        sh_part_count[0] = failed;
     }
     let failed = workgroupUniformLoad(&sh_part_count[0]);
     if failed != 0u {
@@ -409,7 +408,7 @@ fn main(
                     case DRAWTAG_END_CLIP: {
                         clip_depth -= 1u;
                         // A clip shape is always a non-zero fill (draw_flags=0).
-                        write_path(tile, tile_ix, /*draw_flags=*/0u);
+                        write_path(tile, tile_ix, /* draw_flags,= */ 0u);
                         let blend = scene[dd];
                         let alpha = bitcast<f32>(scene[dd + 1u]);
                         write_end_clip(CmdEndClip(blend, alpha));
@@ -445,7 +444,7 @@ fn main(
         var blend_ix = 0u;
         if max_blend_depth > BLEND_STACK_SPLIT {
             let scratch_size = (max_blend_depth - BLEND_STACK_SPLIT) * TILE_WIDTH * TILE_HEIGHT;
-            blend_ix = atomicAdd(&bump.blend, scratch_size);
+            blend_ix = atomicAdd(&bump.blend_spill, scratch_size);
             if blend_ix + scratch_size > config.blend_size {
                 atomicOr(&bump.failed, STAGE_COARSE);
             }

@@ -54,6 +54,9 @@ fn main(
     @builtin(local_invocation_id) local_id: vec3<u32>,
     @builtin(workgroup_id) wg_id: vec3<u32>,
 ) {
+    if config.cancelled != 0u {
+        return;
+    }
     // Reduce prefix of workgroups up to this one
     var agg = draw_monoid_identity();
     if local_id.x < wg_id.x {
@@ -108,10 +111,7 @@ fn main(
         }
         let dd = config.drawdata_base + m.scene_offset;
         let di = m.info_offset;
-        if tag_word == DRAWTAG_FILL_COLOR || tag_word == DRAWTAG_FILL_LIN_GRADIENT ||
-            tag_word == DRAWTAG_FILL_RAD_GRADIENT || tag_word == DRAWTAG_FILL_SWEEP_GRADIENT ||
-            tag_word == DRAWTAG_FILL_IMAGE || tag_word == DRAWTAG_BEGIN_CLIP
-        {
+        if tag_word == DRAWTAG_FILL_COLOR || tag_word == DRAWTAG_FILL_LIN_GRADIENT || tag_word == DRAWTAG_FILL_RAD_GRADIENT || tag_word == DRAWTAG_FILL_SWEEP_GRADIENT || tag_word == DRAWTAG_FILL_IMAGE || tag_word == DRAWTAG_BEGIN_CLIP {
             let bbox = path_bbox[m.path_ix];
             // TODO: bbox is mostly yagni here, sort that out. Maybe clips?
             // let x0 = f32(bbox.x0);
@@ -121,9 +121,7 @@ fn main(
             // let bbox_f = vec4(x0, y0, x1, y1);
             var transform = Transform();
             let draw_flags = bbox.draw_flags;
-            if tag_word == DRAWTAG_FILL_LIN_GRADIENT || tag_word == DRAWTAG_FILL_RAD_GRADIENT ||
-                tag_word == DRAWTAG_FILL_SWEEP_GRADIENT || tag_word == DRAWTAG_FILL_IMAGE
-            {
+            if tag_word == DRAWTAG_FILL_LIN_GRADIENT || tag_word == DRAWTAG_FILL_RAD_GRADIENT || tag_word == DRAWTAG_FILL_SWEEP_GRADIENT || tag_word == DRAWTAG_FILL_IMAGE {
                 transform = read_transform(config.transform_base, bbox.trans_ix);
             }
             switch tag_word {

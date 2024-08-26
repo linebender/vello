@@ -27,6 +27,7 @@ mod path_tiling;
 mod path_tiling_setup;
 mod pathtag_reduce;
 mod pathtag_scan;
+mod prepare;
 mod tile_alloc;
 mod util;
 
@@ -45,6 +46,7 @@ pub use path_tiling::path_tiling;
 pub use path_tiling_setup::path_tiling_setup;
 pub use pathtag_reduce::pathtag_reduce;
 pub use pathtag_scan::pathtag_scan;
+pub use prepare::prepare;
 pub use tile_alloc::tile_alloc;
 
 use std::cell::{Ref, RefCell, RefMut};
@@ -167,7 +169,7 @@ pub struct CpuTexture {
 
 // Common internal definitions
 
-const PTCL_INITIAL_ALLOC: u32 = 64;
+pub use vello_encoding::PTCL_INITIAL_ALLOC;
 
 // Tags for PTCL commands
 const CMD_END: u32 = 0;

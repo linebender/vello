@@ -4,7 +4,7 @@
 //! This utility provides conservative size estimation for buffer allocations backing
 //! GPU bump memory. This estimate relies on heuristics and naturally overestimates.
 
-use super::{BumpAllocatorMemory, BumpAllocators, Transform};
+use super::{BumpAllocators, Transform};
 use peniko::kurbo::{Cap, Join, PathEl, Point, Stroke, Vec2};
 
 const RSQRT_OF_TOL: f64 = 2.2360679775; // tol = 0.2
@@ -162,7 +162,7 @@ impl BumpEstimator {
     }
 
     /// Produce the final total, applying an optional transform to all content.
-    pub fn tally(&self, transform: Option<&Transform>) -> BumpAllocatorMemory {
+    pub fn tally(&self, transform: Option<&Transform>) -> BumpAllocators {
         let scale = transform_scale(transform);
 
         // The post-flatten line estimate.
@@ -172,19 +172,18 @@ impl BumpEstimator {
         // segments as there are lines, in case `segments` was underestimated at small scales.
         let n_segments = ((self.segments as f64 * scale).ceil() as u32).max(lines);
 
-        let bump = BumpAllocators {
+        BumpAllocators {
             failed: 0,
             // TODO: we can provide a tighter bound here but for now we
             // assume that binning must be bounded by the segment count.
             binning: n_segments,
             ptcl: 0,
             tile: 0,
-            blend: 0,
+            blend_spill: 0,
             seg_counts: n_segments,
             segments: n_segments,
             lines,
-        };
-        bump.memory()
+        }
     }
 
     fn count_stroke_caps(&mut self, style: Cap, scaled_width: f64, count: u32) {

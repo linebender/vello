@@ -29,6 +29,7 @@ fn main(
     @builtin(local_invocation_id) local_id: vec3<u32>,
     @builtin(workgroup_id) wg_id: vec3<u32>,
 ) {
+    // TODO: Cancel if needed
     var agg = tag_monoid_identity();
     if local_id.x < wg_id.x {
         agg = reduced2[local_id.x];

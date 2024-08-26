@@ -40,6 +40,7 @@ let ROBUST_EPSILON: f32 = 2e-7;
 fn main(
     @builtin(global_invocation_id) global_id: vec3<u32>,
 ) {
+    // If the pipeline is cancelled, `path_tiling_setup` will not allocate any threads
     let n_segments = atomicLoad(&bump.seg_counts);
     if global_id.x < n_segments {
         let seg_count = seg_counts[global_id.x];

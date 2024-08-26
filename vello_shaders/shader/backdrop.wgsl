@@ -26,6 +26,9 @@ fn main(
     @builtin(local_invocation_id) local_id: vec3<u32>,
     @builtin(workgroup_id) wg_id: vec3<u32>,
 ) {
+    if config.cancelled != 0u {
+        return;
+    }
     let width_in_tiles = config.width_in_tiles;
     let ix = wg_id.x * width_in_tiles + local_id.x;
     var backdrop = 0;
