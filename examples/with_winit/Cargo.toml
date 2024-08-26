@@ -12,7 +12,7 @@ name = "with_winit"
 crate-type = ["cdylib", "lib"]
 
 [features]
-default = ["wgpu-profiler"]
+default = []
 # Enable the use of wgpu-profiler. This is an optional feature for times when we use a git dependency on
 # wgpu (which means the dependency used in wgpu-profiler would be incompatible)
 wgpu-profiler = ["dep:wgpu-profiler", "vello/wgpu-profiler"]
