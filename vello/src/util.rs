@@ -7,7 +7,7 @@ use std::future::Future;
 
 use wgpu::{
     Adapter, CreateSurfaceError, Device, Instance, Limits, Queue, Surface, SurfaceConfiguration,
-    SurfaceTarget, SurfaceTargetUnsafe, TextureFormat,
+    SurfaceTarget, TextureFormat,
 };
 
 use crate::{Error, Result};
