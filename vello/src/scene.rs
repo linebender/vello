@@ -123,7 +123,7 @@ impl Scene {
     ) {
         // The impulse response of a gaussian filter is infinite.
         // For performance reason we cut off the filter at some extent where the response is close to zero.
-        let kernel_size = 4.0 * std_dev;
+        let kernel_size = 2.5 * std_dev;
 
         let t = Transform::from_kurbo(&transform.pre_translate(rect.center().to_vec2()));
         self.encoding.encode_transform(t);
