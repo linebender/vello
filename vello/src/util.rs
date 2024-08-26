@@ -6,7 +6,7 @@
 use std::future::Future;
 
 use wgpu::{
-    Adapter, CreateSurfaceError, Device, Instance, Limits, Queue, Surface, SurfaceConfiguration,
+    Adapter, Device, Instance, Limits, Queue, Surface, SurfaceConfiguration,
     SurfaceTarget, TextureFormat,
 };
 
