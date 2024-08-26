@@ -12,7 +12,7 @@ name = "with_winit"
 crate-type = ["cdylib", "lib"]
 
 [features]
-default = ["wgpu-profiler"]
+default = []
 # Enable the use of wgpu-profiler. This is an optional feature for times when we use a git dependency on
 # wgpu (which means the dependency used in wgpu-profiler would be incompatible)
 wgpu-profiler = ["dep:wgpu-profiler", "vello/wgpu-profiler"]
@@ -66,7 +66,7 @@ profiling = { version = "1.0.15", features = ["profile-with-tracing"] }
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = "0.1.7"
 console_log = "1.0.0"
-wasm-bindgen-futures = "0.4.42"
+wasm-bindgen-futures = "0.4.43"
 web-sys = { version = "0.3.69", features = ["HtmlCollection", "Text"] }
 web-time = { workspace = true }
 getrandom = { version = "0.2.15", features = ["js"] }
