@@ -47,7 +47,7 @@ impl RenderContext {
         present_mode: wgpu::PresentMode,
     ) -> Result<RenderSurface<'w>> {
         self.create_render_surface(
-            self.instance.create_surface(window.into()),
+            self.instance.create_surface(window.into())?,
             width,
             height,
             present_mode,
