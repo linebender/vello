@@ -32,8 +32,8 @@ pub fn main() {
     let mut context = RenderContext::new();
 
     let surface_future = unsafe {
-        context.create_surface_unsafe(
-            wgpu::SurfaceTargetUnsafe::from_window(&window).unwrap(),
+        context.create_render_surface(
+            context.instance.create_surface_unsafe(wgpu::SurfaceTargetUnsafe::from_window(&window).unwrap()),
             width,
             height,
             wgpu::PresentMode::AutoVsync,
