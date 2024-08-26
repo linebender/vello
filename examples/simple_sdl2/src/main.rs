@@ -40,7 +40,8 @@ pub fn main() {
         context.create_render_surface(
             context
                 .instance
-                .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::from_window(&window).unwrap()),
+                .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::from_window(&window).unwrap())
+                .unwrap(),
             width,
             height,
             wgpu::PresentMode::AutoVsync,
