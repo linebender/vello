@@ -15,6 +15,10 @@ You can find its changes [documented below](#021---2024-07-16).
 
 This release has an [MSRV][] of 1.75.
 
+### Highlights
+
+- Support for most Emoji ([#615][], [#641][] by [@DJMcNab])
+
 ### Added
 
 - Support blends more than four layers deep ([#657][] by [@DJMcNab][])
@@ -117,10 +121,12 @@ This release has an [MSRV][] of 1.75.
 [#575]: https://github.com/linebender/vello/pull/575
 [#589]: https://github.com/linebender/vello/pull/589
 [#612]: https://github.com/linebender/vello/pull/612
+[#615]: https://github.com/linebender/vello/pull/615
 [#619]: https://github.com/linebender/vello/pull/619
 [#630]: https://github.com/linebender/vello/pull/630
 [#631]: https://github.com/linebender/vello/pull/631
 [#635]: https://github.com/linebender/vello/pull/635
+[#641]: https://github.com/linebender/vello/pull/641
 [#657]: https://github.com/linebender/vello/pull/657
 
 <!-- Note that this still comparing against 0.2.0, because 0.2.1 is a cherry-picked patch -->
