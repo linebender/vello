@@ -63,8 +63,6 @@ impl RenderContext {
         height: u32,
         present_mode: wgpu::PresentMode,
     ) -> Result<RenderSurface<'w>> {
-        let surface = surface_result?;
-
         let dev_id = self
             .device(Some(&surface))
             .await
