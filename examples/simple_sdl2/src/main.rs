@@ -1,6 +1,11 @@
 // Copyright 2024 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+//! Vello can also be used with non-Winit crates which provide a `RawWindowHandle`.
+//! This example uses it with [`sdl2`].
+//!
+//! Vello however is primarily designed for Xilem, which uses Winit, and so support for non-Winit crates
+//! is on a tier-2 basis, i.e. it is checked in CI, but is not rarely manually validated.
 extern crate sdl2;
 
 use sdl2::event::Event;
