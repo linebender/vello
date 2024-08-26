@@ -58,7 +58,7 @@ impl RenderContext {
     /// Creates a new render surface for the specified window and dimensions.
     pub async fn create_render_surface<'w>(
         &mut self,
-        surface_result: Result<Surface<'w>, CreateSurfaceError>,
+        surface: Surface<'w>,
         width: u32,
         height: u32,
         present_mode: wgpu::PresentMode,
