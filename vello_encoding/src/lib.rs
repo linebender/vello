@@ -31,8 +31,8 @@ pub use config::{
     RenderConfig, WorkgroupCounts, WorkgroupSize,
 };
 pub use draw::{
-    DrawBbox, DrawBeginClip, DrawColor, DrawImage, DrawLinearGradient, DrawMonoid,
-    DrawRadialGradient, DrawSweepGradient, DrawTag, DRAW_INFO_FLAGS_FILL_RULE_BIT,
+    DrawBbox, DrawBeginClip, DrawBlurRoundedRect, DrawColor, DrawImage, DrawLinearGradient,
+    DrawMonoid, DrawRadialGradient, DrawSweepGradient, DrawTag, DRAW_INFO_FLAGS_FILL_RULE_BIT,
 };
 pub use encoding::{Encoding, StreamOffsets};
 pub use mask::{make_mask_lut, make_mask_lut_16};

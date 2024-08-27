@@ -720,6 +720,22 @@ fn fill_path_ms_evenodd(fill: CmdFill, local_id: vec2<u32>, result: ptr<function
 }
 #endif // msaa
 
+// Error function approximation.
+//
+// https://raphlinus.github.io/graphics/2020/04/21/blurred-rounded-rects.html
+fn erf7(x: f32) -> f32 {
+    // Clamp to prevent overflow.
+    // Intermediate steps calculate pow(x, 14).
+    let y = clamp(x * 1.1283791671, -100.0, 100.0);
+    let yy = y * y;
+    let z = y + (0.24295 + (0.03395 + 0.0104 * yy) * yy) * (y * yy);
+    return z / sqrt(1.0 + z * z);
+}
+
+fn hypot(a: f32, b: f32) -> f32 {
+    return sqrt(a * a + b * b);
+}
+
 fn read_fill(cmd_ix: u32) -> CmdFill {
     let size_and_rule = ptcl[cmd_ix + 1u];
     let seg_data = ptcl[cmd_ix + 2u];
@@ -730,6 +746,24 @@ fn read_fill(cmd_ix: u32) -> CmdFill {
 fn read_color(cmd_ix: u32) -> CmdColor {
     let rgba_color = ptcl[cmd_ix + 1u];
     return CmdColor(rgba_color);
+}
+
+fn read_blur_rect(cmd_ix: u32) -> CmdBlurRect {
+    let info_offset = ptcl[cmd_ix + 1u];
+    let rgba_color = ptcl[cmd_ix + 2u];
+
+    let m0 = bitcast<f32>(info[info_offset]);
+    let m1 = bitcast<f32>(info[info_offset + 1u]);
+    let m2 = bitcast<f32>(info[info_offset + 2u]);
+    let m3 = bitcast<f32>(info[info_offset + 3u]);
+    let matrx = vec4(m0, m1, m2, m3);
+    let xlat = vec2(bitcast<f32>(info[info_offset + 4u]), bitcast<f32>(info[info_offset + 5u]));
+    let width = bitcast<f32>(info[info_offset + 6u]);
+    let height = bitcast<f32>(info[info_offset + 7u]);
+    let radius = bitcast<f32>(info[info_offset + 8u]);
+    let std_dev = bitcast<f32>(info[info_offset + 9u]);
+
+    return CmdBlurRect(rgba_color, matrx, xlat, width, height, radius, std_dev);
 }
 
 fn read_lin_grad(cmd_ix: u32) -> CmdLinGrad {
@@ -982,6 +1016,56 @@ fn main(
             }
             case CMD_JUMP: {
                 cmd_ix = ptcl[cmd_ix + 1u];
+            }
+            case CMD_BLUR_RECT: {
+                /// Approximation for the convolution of a gaussian filter with a rounded rectangle.
+                ///
+                /// See https://raphlinus.github.io/graphics/2020/04/21/blurred-rounded-rects.html
+
+                let blur = read_blur_rect(cmd_ix);
+
+                // Avoid division by 0
+                let std_dev = max(blur.std_dev, 1e-5);
+                let inv_std_dev = 1.0 / std_dev;
+                
+                let min_edge = min(blur.width, blur.height);
+                let radius_max = 0.5 * min_edge;
+                let r0 = min(hypot(blur.radius, std_dev * 1.15), radius_max);
+                let r1 = min(hypot(blur.radius, std_dev * 2.0), radius_max);
+
+                let exponent = 2.0 * r1 / r0;
+                let inv_exponent = 1.0 / exponent;
+                
+                // Pull in long end (make less eccentric).
+                let delta = 1.25 * std_dev * (exp(-pow(0.5 * inv_std_dev * blur.width, 2.0)) - exp(-pow(0.5 * inv_std_dev * blur.height, 2.0)));
+                let width = blur.width + min(delta, 0.0);
+                let height = blur.height - max(delta, 0.0);
+
+                let scale = 0.5 * erf7(inv_std_dev * 0.5 * (max(width, height) - 0.5 * blur.radius));
+
+                for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
+                    // Transform fragment location to local 'uv' space of the rounded rectangle.
+                    let my_xy = vec2(xy.x + f32(i), xy.y);
+                    let local_xy = blur.matrx.xy * my_xy.x + blur.matrx.zw * my_xy.y + blur.xlat;
+                    let x = local_xy.x;
+                    let y = local_xy.y;
+
+                    let y0 = abs(y) - (height * 0.5 - r1);
+                    let y1 = max(y0, 0.0);
+
+                    let x0 = abs(x) - (width * 0.5 - r1);
+                    let x1 = max(x0, 0.0);
+
+                    let d_pos = pow(pow(x1, exponent) + pow(y1, exponent), inv_exponent);
+                    let d_neg = min(max(x0, y0), 0.0);
+                    let d = d_pos + d_neg - r1;
+                    let alpha = scale * (erf7(inv_std_dev * (min_edge + d)) - erf7(inv_std_dev * d));
+
+                    let fg_rgba = unpack4x8unorm(blur.rgba_color).wzyx * alpha;
+                    let fg_i = fg_rgba * area[i];
+                    rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
+                }
+                cmd_ix += 3u;
             }
 #ifdef full
             case CMD_LIN_GRAD: {

@@ -1,10 +1,10 @@
 // Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use super::{DrawColor, DrawTag, PathEncoder, PathTag, Style, Transform};
+use super::{DrawBlurRoundedRect, DrawColor, DrawTag, PathEncoder, PathTag, Style, Transform};
 
 use peniko::kurbo::{Shape, Stroke};
-use peniko::{BlendMode, BrushRef, Fill};
+use peniko::{BlendMode, BrushRef, Color, Fill};
 
 #[cfg(feature = "full")]
 use {
@@ -12,7 +12,7 @@ use {
         DrawImage, DrawLinearGradient, DrawRadialGradient, DrawSweepGradient, Glyph, GlyphRun,
         Patch,
     },
-    peniko::{Color, ColorStop, Extend, GradientKind, Image},
+    peniko::{ColorStop, Extend, GradientKind, Image},
     skrifa::instance::NormalizedCoord,
 };
 
@@ -430,6 +430,26 @@ impl Encoding {
             .extend_from_slice(bytemuck::bytes_of(&DrawImage {
                 xy: 0,
                 width_height: (image.width << 16) | (image.height & 0xFFFF),
+            }));
+    }
+
+    // Encodes a blurred rounded rectangle brush.
+    pub fn encode_blurred_rounded_rect(
+        &mut self,
+        color: Color,
+        width: f32,
+        height: f32,
+        radius: f32,
+        std_dev: f32,
+    ) {
+        self.draw_tags.push(DrawTag::BLUR_RECT);
+        self.draw_data
+            .extend_from_slice(bytemuck::bytes_of(&DrawBlurRoundedRect {
+                color: DrawColor::new(color),
+                width,
+                height,
+                radius,
+                std_dev,
             }));
     }
 

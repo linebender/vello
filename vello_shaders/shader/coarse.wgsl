@@ -146,6 +146,14 @@ fn write_end_clip(end_clip: CmdEndClip) {
     cmd_offset += 3u;
 }
 
+fn write_blurred_rounded_rect(color: CmdColor, info_offset: u32) {
+    alloc_cmd(3u);
+    ptcl[cmd_offset] = CMD_BLUR_RECT;
+    ptcl[cmd_offset + 1u] = info_offset;
+    ptcl[cmd_offset + 2u] = color.rgba_color;
+    cmd_offset += 3u;
+}
+
 @compute @workgroup_size(256)
 fn main(
     @builtin(local_invocation_id) local_id: vec3<u32>,
@@ -373,6 +381,12 @@ fn main(
                         write_path(tile, tile_ix, draw_flags);
                         let rgba_color = scene[dd];
                         write_color(CmdColor(rgba_color));
+                    }
+                    case DRAWTAG_BLURRED_ROUNDED_RECT: {
+                        write_path(tile, tile_ix, draw_flags);
+                        let rgba_color = scene[dd];
+                        let info_offset = di + 1u;
+                        write_blurred_rounded_rect(CmdColor(rgba_color), info_offset);
                     }
                     case DRAWTAG_FILL_LIN_GRADIENT: {
                         write_path(tile, tile_ix, draw_flags);

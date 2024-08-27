@@ -89,3 +89,12 @@ fn compare_deep_blend() {
     let params = TestParams::new("compare_deep_blend", 150, 150);
     compare_test_scene(test_scene, params);
 }
+
+#[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
+fn compare_blurred_rounded_rect() {
+    let test_scene = test_scenes::blurred_rounded_rect();
+    assert_eq!(test_scene.config.name, "blurred_rounded_rect");
+    let params = TestParams::new("compare_blurred_rounded_rect", 1200, 1200);
+    compare_test_scene(test_scene, params);
+}
