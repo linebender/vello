@@ -138,7 +138,8 @@ impl RenderContext {
         let features = adapter.features();
         let limits = Limits::default();
         #[allow(unused_mut)]
-        let mut maybe_features = wgpu::Features::CLEAR_TEXTURE;
+        let mut maybe_features =
+            wgpu::Features::CLEAR_TEXTURE | wgpu::Features::VULKAN_GOOGLE_DISPLAY_TIMING;
         #[cfg(feature = "wgpu-profiler")]
         {
             maybe_features |= wgpu_profiler::GpuProfiler::ALL_WGPU_TIMER_FEATURES;
