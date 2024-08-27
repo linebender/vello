@@ -41,6 +41,7 @@ log = { workspace = true }
 # We're still using env-logger, but we want to use tracing spans to allow using
 # tracing_android_trace
 tracing = { version = "0.1.40", features = ["log-always"] }
+ash = { version = "0.38.0", default-features = false }
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
 # We use android_logger on Android

@@ -107,6 +107,10 @@ const AA_CONFIGS: [AaConfig; 1] = [AaConfig::Area];
 struct VelloApp<'s> {
     context: RenderContext,
     renderers: Vec<Option<Renderer>>,
+
+    google_display_timing_ext_devices: Vec<Option<ash::google::display_timing::Device>>,
+    present_id: u32,
+
     state: Option<RenderState<'s>>,
     // Whilst suspended, we drop `render_state`, but need to keep the same window.
     // If render_state exists, we must store the window in it, to maintain drop order
@@ -172,6 +176,8 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
 
     #[cfg(not(target_arch = "wasm32"))]
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+        use vello::wgpu::hal::vulkan;
+
         let Option::None = self.state else {
             return;
         };
@@ -193,6 +199,8 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
         self.state = {
             let render_state = RenderState { window, surface };
             self.renderers
+                .resize_with(self.context.devices.len(), || None);
+            self.google_display_timing_ext_devices
                 .resize_with(self.context.devices.len(), || None);
             let id = render_state.surface.dev_id;
             self.renderers[id].get_or_insert_with(|| {
@@ -224,6 +232,29 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
                     .expect("Not setting max_num_pending_frames");
                 renderer
             });
+            let display_timing_ext_device = &mut self.google_display_timing_ext_devices[id];
+            let device_handle = &self.context.devices[id];
+            if display_timing_ext_device.is_none()
+                && device_handle
+                    .device
+                    .features()
+                    .contains(wgpu::Features::VULKAN_GOOGLE_DISPLAY_TIMING)
+            {
+                *display_timing_ext_device = unsafe {
+                    device_handle
+                        .device
+                        .as_hal::<vulkan::Api, _, _>(|device| {
+                            let device = device?;
+                            let instance = self.context.instance.as_hal::<vulkan::Api>()?;
+                            Some(ash::google::display_timing::Device::new(
+                                instance.shared_instance().raw_instance(),
+                                device.raw_device(),
+                            ))
+                        })
+                        .flatten()
+                };
+            }
+
             Some(render_state)
         };
     }
@@ -443,7 +474,9 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
 
                 render_state.window.request_redraw();
 
-                let Some(RenderState { surface, window }) = &self.state else {
+                render_state.window.request_redraw();
+
+                let Some(RenderState { surface, window }) = &mut self.state else {
                     return;
                 };
                 let width = surface.config.width;
@@ -541,6 +574,44 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
                     .get_current_texture()
                     .expect("failed to get surface texture");
 
+                let present_id = self.present_id;
+                self.present_id = self.present_id.wrapping_add(1);
+                if device_handle
+                    .device
+                    .features()
+                    .contains(wgpu::Features::VULKAN_GOOGLE_DISPLAY_TIMING)
+                {
+                    unsafe {
+                        let swc = surface
+                            .surface
+                            .as_hal::<wgpu::hal::vulkan::Api, _, _>(|surface| {
+                                if let Some(surface) = surface {
+                                    surface.set_next_present_time(ash::vk::PresentTimeGOOGLE {
+                                        desired_present_time: 0,
+                                        present_id,
+                                    });
+                                    Some(surface.raw_swapchain())
+                                } else {
+                                    None
+                                }
+                            })
+                            .flatten()
+                            .flatten();
+                        if let Some(swc) = swc {
+                            let display_timing = self.google_display_timing_ext_devices
+                                [surface.dev_id]
+                                .as_ref()
+                                .unwrap();
+                            // let result = display_timing.get_refresh_cycle_duration(swc);
+                            // eprintln!("Refresh duration: {result:?}");
+                            if present_id % 2 == 0 {
+                                let result = display_timing.get_past_presentation_timing(swc);
+                                eprintln!("Display timings: {result:?}");
+                                eprintln!("Most recent present id: {}", present_id);
+                            }
+                        }
+                    }
+                }
                 drop(texture_span);
                 let render_span = tracing::trace_span!("Dispatching render").entered();
                 // Note: we don't run the async/"robust" pipeline, as
@@ -702,6 +773,8 @@ fn run(
     let debug = DebugLayers::none();
 
     let mut app = VelloApp {
+        present_id: 0,
+        google_display_timing_ext_devices: vec![None; renderers.len()],
         context: render_cx,
         renderers,
         state: render_state,
