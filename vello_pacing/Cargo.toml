@@ -8,6 +8,8 @@ repository.workspace = true
 
 [dependencies]
 wgpu.workspace = true
+vello.workspace = true
+ash = { version = "0.38.0", default-features = false }
 
 [lints]
 workspace = true
