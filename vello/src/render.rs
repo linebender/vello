@@ -429,7 +429,7 @@ impl Render {
         recording.dispatch(
             shaders.path_tiling_setup,
             wg_counts.path_tiling_setup,
-            [bump_buf, indirect_count_buf.into(), ptcl_buf],
+            [config_buf, bump_buf, indirect_count_buf.into(), ptcl_buf],
         );
         recording.dispatch_indirect(
             shaders.path_tiling,
