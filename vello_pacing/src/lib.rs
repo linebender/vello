@@ -3,7 +3,7 @@ pub struct VelloPacing {}
 /// Docs used to type out how this is being reasoned about.
 ///
 /// We manage six clocks:
-/// 1) The CPU side clock. This is treated as an opaque nanosecond value, used only for sleeping.
+/// 1) The CPU side clock. This is treated as an opaque nanosecond value, used only(?) for sleeping.
 /// 2) The GPU "render complete clock". We wait for rendering work to complete to schedule the "present" of the *next* frame, to avoid stuttering.
 ///    On Android, we calibrate this to the "latching" clock using `presentMargin`.
 ///    Additionally, if a frame "failed", we choose not to present the next frame.
@@ -11,7 +11,10 @@ pub struct VelloPacing {}
 /// 4) The GPU "latching" clock. This is only implied by `presentMargin` in relation to the render complete clock.
 /// 5) The display "present clock". We assume that this is a potentially variable, but generally fixed amount of
 ///    time from the "latching" clock (due to compositing time).
-/// 6) The CPU side present clocks, which have an arbitrary base.
+/// 6) The CPU side present clock, which is the time we think presentation will happen.
+///    These are always a fixed number of nanoseconds away from the "true presentation time" (this difference can be
+///    calculated using <https://docs.rs/wgpu/latest/wgpu/struct.Adapter.html#method.get_presentation_timestamp>
+///    and the true presentation time).
 ///
 /// There are three cases for when we want to render:
 /// 1) Active rendering
@@ -37,27 +40,30 @@ pub struct VelloPacing {}
 /// (see <https://themaister.net/blog/2018/11/09/experimenting-with-vk_google_display_timing-taking-control-over-the-swap-chain/>,
 /// the "Android 8.0, presentation timing latency" heading).
 ///
-/// In the outdated control loop case, we do a best-effort attempt. That involves:
+/// At the start of rendering, we are in the outdated control loop case, because of the above mentioned latency. That involves:
 /// 1) We render the first frame immediately. This uses a best-effort estimated present time.
 ///    This does *not* have an requestedPresentationTime.
 /// 2) We then set about rendering the second frame, which uses an estimated present time *one* interval
 ///    of display refresh rate after the first presentation. We start the rendering work for this frame
-///    (tunable) ~35% sooner than one refresh rate interval after the start of rendering work for the first frame.
+///    (tunable) ~20% sooner than one refresh rate interval after the start of rendering work for the first frame.
+///    - If work has already finished on the first frame, then
 ///    - A potential option here is to cancel this render (GPU side) if the previous frame took (significantly) longer
 ///      than one refresh interval. It is future work to reason about this.
 ///      We foresee this as potentially advantageous because the CPU side work would be a relatively small part of
 ///      a frame, and so it would probably lead to "better" animation smoothness.
 /// 3) Once the first frame finishes rendering, we present the second frame. We use "render end time" - "render start time" (`T_R`) to
-///    estimate how many refresh durations (`N`) this render took, with a (tunable) ~30% "grace reduction" in the value.
+///    estimate how many refresh durations (`N`) this render took, with a (tunable) ~25% "grace reduction" in the value.
 ///    This grace amount is to account for a likely ramping up of GPU power states, so future frames will probably be faster.
-///    We also use `T_R` to estimate how many refresh durations this took (`N_2`), for scheduling the present of the second frame.
-///    This does not use the grace reduction, but does have a grace period of ~50% of the refresh cycle to count as one frame.
-///    This grace period is to account for the fact that we don't know when in the refresh cycle we started rendering,
+///    We also use `T_R` to estimate how many refresh durations the second frame will take to render (`N_2`), for scheduling the
+///    present of the second frame. This does not use the grace reduction, but does have a grace subtraction of ~45% of the refresh cycle to
+///    count as one frame. This grace period is to account for the fact that we don't know when in the refresh cycle we started rendering,
 ///    so there's a chance that even if both frames took longer than one refresh duration to render, we can "fake" smoothness.
-///    Additionally, this helps account for the GPU power state ramp-up.
-/// 4) We present the second frame with a time which is "render end time" + previous "present clock - latching clock" + `N_2` refresh durations.
-/// 5) We start rendering on the third frame, `N_2 + N` refresh durations after the first frame.
-/// 1) We use the stored "real present time - latching clock" from when we last
+///    Additionally, this slightly helps account for the GPU power state ramp-up.
+/// 4) We present the second frame with a time which is "render end time" + previous "present clock - latching clock" + `N_2`  * refresh durations.
+/// 5) We start rendering on the third frame, either `N_2 + N` or `2*N` (TBD) refresh durations after the first frame rendering started.
+///    This will have an estimated present time of the same `N_2 + N` or `2*N` refresh durations from the estimated present time.
+///
+/// Using a statistical model for the variable time from starting rendering from event `1` to `2`.
 pub struct Thinking;
 
 /// A sketch of the expected API.
