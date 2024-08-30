@@ -806,7 +806,7 @@ impl BlitPipeline {
         });
         let shader_id = engine.add_render_shader(
             device,
-            "blit",
+            "vello.blit",
             &module,
             "vs_main",
             "fs_main",
