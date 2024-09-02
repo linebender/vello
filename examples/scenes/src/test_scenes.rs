@@ -79,7 +79,6 @@ export_scenes!(
     mmark(crate::mmark::MMark::new(80_000), "mmark", false),
     many_draw_objects(many_draw_objects),
     blurred_rounded_rect(blurred_rounded_rect),
-    many_bins(many_bins)
 );
 
 /// Implementations for the test scenes.
@@ -1745,21 +1744,6 @@ mod impls {
             Color::BLACK,
             150.0,
             params.time.sin() * 50.0 + 50.0,
-        );
-    }
-
-    /// A reproduction for <https://github.com/linebender/vello/issues/680>
-    pub(super) fn many_bins(scene: &mut Scene, params: &mut SceneParams) {
-        params.resolution = Some(Vec2 {
-            x: 256. * 17.,
-            y: 256. * 16.,
-        });
-        scene.fill(
-            Fill::NonZero,
-            Affine::IDENTITY,
-            Color::AQUA,
-            None,
-            &Rect::new(3000., 5., 4200., 4200.),
         );
     }
 }
