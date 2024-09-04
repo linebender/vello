@@ -2552,6 +2552,8 @@ dependencies = [
 name = "vello_pacing"
 version = "0.2.0"
 dependencies = [
+ "ash",
+ "vello",
  "wgpu 22.0.0",
 ]
 

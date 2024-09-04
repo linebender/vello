@@ -1,4 +1,12 @@
-pub struct VelloPacing {}
+use std::{
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        mpsc::{Receiver, RecvTimeoutError, TryRecvError},
+        Arc,
+    },
+    time::{Duration, Instant},
+};
 
 /// Docs used to type out how this is being reasoned about.
 ///
@@ -66,13 +74,51 @@ pub struct VelloPacing {}
 /// Using a statistical model for the variable time from starting rendering from event `1` to `2`.
 pub struct Thinking;
 
+pub struct FrameRenderRequest {
+    scene: vello::Scene,
+    frame: FrameId,
+    expected_present: u64,
+    // In general, if touch is held, will need the next frame.
+    needs_next_frame: bool, // TODO: No, LatencyOptimised, ConsistencyOptimised?
+    present_immediately: bool,
+    paint_start: Instant,
+}
+
+pub struct FrameStats {
+    /// When the rendering work started on the GPU, in nanoseconds.
+    ///
+    /// Used to estimate how long frames are taking to render, to get
+    /// faster feedback on whether we should request a slower (or faster) display mode.
+    /// (We choose to be more conservative in requesting a faster display mode)
+    render_start: u64,
+    /// When the rendering work finished on the GPU, in nanoseconds.
+    ///
+    /// Used to:
+    /// - estimate the compositing time
+    /// - for estimating the expected presentation times before up-to-date timestamps become available
+    render_end: u64,
+    ///
+    estimated_present: u64,
+    paint_start: Instant,
+    presentation_time: Option<ash::vk::PastPresentationTimingGOOGLE>,
+}
+
+pub struct VelloPacing {
+    rx: Receiver<FrameRenderRequest>,
+    queue: Arc<wgpu::Queue>,
+    device: Arc<wgpu::Device>,
+    stats: HashMap<FrameId, FrameStats>,
+}
+
 /// A sketch of the expected API.
 impl VelloPacing {
     pub fn new() -> Self {
-        Self {}
+        todo!()
     }
 
-    pub fn launch() {}
+    pub fn launch(self) {
+        std::thread::spawn(|| self.run());
+    }
 
     /// Run a rendering task until presentation. Useful on macOS for resizing.
     pub fn present_synchronously(&mut self) {
@@ -85,6 +131,58 @@ impl VelloPacing {
     fn wait_on_present(&mut self, (): ()) {}
 
     pub fn stop(&mut self) {}
+
+    fn run(mut self) {
+        loop {
+            match self.rx.recv_timeout(Duration::from_millis(4)) {
+                Ok(frame_request) => {
+                    self.paint_frame();
+                    if frame_request.needs_next_frame {}
+                    continue;
+                }
+                Err(RecvTimeoutError::Disconnected) => {
+                    unreachable!("The main thread has stopped without telling rendering to stop")
+                }
+                Err(RecvTimeoutError::Timeout) => {}
+            }
+            self.poll_frame();
+        }
+    }
+
+    fn paint_frame(&mut self) {
+        // Prepare command buffers, etc.
+
+        // If the previous frame returned
+        self.poll_frame();
+    }
+
+    fn poll_frame(&mut self) {
+        self.device.poll(wgpu::Maintain::Poll);
+        if self.penultimate_frame_finished() {
+            if self.penultimate_frame_failed() {}
+        }
+    }
+
+    fn penultimate_frame_finished(&self) -> bool {
+        false
+    }
+
+    fn penultimate_frame_failed(&self) -> bool {
+        false
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct FrameId(u32);
+
+impl FrameId {
+    pub fn next(self) -> Self {
+        Self(self.0.wrapping_add(1))
+    }
+
+    pub fn raw(self) -> u32 {
+        self.0
+    }
 }
 
 impl Default for VelloPacing {
