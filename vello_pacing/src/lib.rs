@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     sync::{
         atomic::{AtomicU64, Ordering},
         mpsc::{Receiver, RecvTimeoutError, TryRecvError},
@@ -7,6 +7,8 @@ use std::{
     },
     time::{Duration, Instant},
 };
+
+use wgpu::Buffer;
 
 /// Docs used to type out how this is being reasoned about.
 ///
@@ -72,6 +74,8 @@ use std::{
 ///    This will have an estimated present time of the same `N_2 + N` or `2*N` refresh durations from the estimated present time.
 ///
 /// Using a statistical model for the variable time from starting rendering from event `1` to `2`.
+///
+/// TODO: Reason about multi-window/multi-display?
 pub struct Thinking;
 
 pub struct FrameRenderRequest {
@@ -89,25 +93,55 @@ pub struct FrameStats {
     ///
     /// Used to estimate how long frames are taking to render, to get
     /// faster feedback on whether we should request a slower (or faster) display mode.
-    /// (We choose to be more conservative in requesting a faster display mode)
+    /// (We choose to be more conservative in requesting a faster display mode, but
+    /// act quickly on requesting a slower one.)
     render_start: u64,
     /// When the rendering work finished on the GPU, in nanoseconds.
     ///
     /// Used to:
-    /// - estimate the compositing time
+    /// - estimate the amount of time compositing takes
     /// - for estimating the expected presentation times before up-to-date timestamps become available
     render_end: u64,
+    /// The time we told the application that this frame would be rendered at.
     ///
+    /// In early frames, this was a best-effort guess, but we should be consistent in the use of this.
+    ///
+    /// For most users, the estimated present is only useful in terms of "how long between presents".
+    /// However, an absolute timestamp is useful for calibrating Audio with Video
     estimated_present: u64,
+    /// The time which we started the entire painting for this frame, including scene construction, etc.
+    ///
+    /// This is used for:
+    /// 1) Providing the time at which rendering should start, generally
+    ///    1 refresh duration later than the previous frame +- some margin.
     paint_start: Instant,
+    // /// The time at which the frame pacing controller received the frame to be rendered.
+    // ///
+    // /// This is used to predict a possible frame deadline miss early
+    // paint_end: Instant,
+    /// The information we received from `SurfaceFlinger`, which is severely outdated by design.
+    ///
+    /// We might not get this information, so should be ready to work without it.
     presentation_time: Option<ash::vk::PastPresentationTimingGOOGLE>,
 }
 
+pub struct InFlightStatus {}
+
+pub struct InFlightFrame {
+    download_buffer: Buffer,
+}
+
+/// The state of the frame pacing controller thread.
 pub struct VelloPacing {
     rx: Receiver<FrameRenderRequest>,
     queue: Arc<wgpu::Queue>,
     device: Arc<wgpu::Device>,
-    stats: HashMap<FrameId, FrameStats>,
+    /// Stats from previous frames, stored in a ring buffer (max capacity ~10?).
+    stats: VecDeque<(FrameId, FrameStats)>,
+    /// The refresh rate reported by the system.
+    refresh_rate: u64,
+    presenting_frame: InFlightFrame,
+    gpu_working_frame: InFlightFrame,
 }
 
 /// A sketch of the expected API.
@@ -134,7 +168,14 @@ impl VelloPacing {
 
     fn run(mut self) {
         loop {
-            match self.rx.recv_timeout(Duration::from_millis(4)) {
+            let timeout = if self.frame_in_flight() {
+                Duration::from_millis(4)
+            } else {
+                // If there is no frame in flight, then we can
+                // keep ticking the device, but it isn't really needed
+                Duration::from_millis(100)
+            };
+            match self.rx.recv_timeout(timeout) {
                 Ok(frame_request) => {
                     self.paint_frame();
                     if frame_request.needs_next_frame {}
@@ -158,16 +199,20 @@ impl VelloPacing {
 
     fn poll_frame(&mut self) {
         self.device.poll(wgpu::Maintain::Poll);
-        if self.penultimate_frame_finished() {
-            if self.penultimate_frame_failed() {}
+        if self.presented_frame_work_done() {
+            if self.presented_frame_failed() {}
         }
     }
 
-    fn penultimate_frame_finished(&self) -> bool {
+    fn presented_frame_work_done(&self) -> bool {
         false
     }
 
-    fn penultimate_frame_failed(&self) -> bool {
+    fn presented_frame_failed(&self) -> bool {
+        false
+    }
+    // fn presented_frame_status(&self) -> FrameStatus {}
+    fn frame_in_flight(&self) -> bool {
         false
     }
 }
