@@ -607,7 +607,6 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
                             // let result = display_timing.get_refresh_cycle_duration(swc);
                             // eprintln!("Refresh duration: {result:?}");
                             if present_id % 5 == 0 {
-                                // std::thread::sleep(Duration::from_millis(300));
                                 let result = display_timing.get_past_presentation_timing(swc);
                                 eprintln!("Display timings: {result:?}");
                                 eprintln!("Most recent present id: {}", present_id);

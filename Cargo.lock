@@ -1326,7 +1326,7 @@ dependencies = [
 [[package]]
 name = "naga"
 version = "22.0.0"
-source = "git+https://github.com/gfx-rs/wgpu?rev=685c2133f296ea5bf48e4ee96853f725c2a68980#685c2133f296ea5bf48e4ee96853f725c2a68980"
+source = "git+https://github.com/gfx-rs/wgpu?rev=aeac0f29fed2ae4240869c8ff419ea93523d32d9#aeac0f29fed2ae4240869c8ff419ea93523d32d9"
 dependencies = [
  "arrayvec",
  "bit-set 0.8.0",
@@ -2939,7 +2939,7 @@ dependencies = [
 [[package]]
 name = "wgpu"
 version = "22.0.0"
-source = "git+https://github.com/gfx-rs/wgpu?rev=685c2133f296ea5bf48e4ee96853f725c2a68980#685c2133f296ea5bf48e4ee96853f725c2a68980"
+source = "git+https://github.com/gfx-rs/wgpu?rev=aeac0f29fed2ae4240869c8ff419ea93523d32d9#aeac0f29fed2ae4240869c8ff419ea93523d32d9"
 dependencies = [
  "arrayvec",
  "cfg_aliases 0.1.1",
@@ -2956,8 +2956,8 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
  "wgpu-core 22.0.0",
- "wgpu-hal 22.0.0 (git+https://github.com/gfx-rs/wgpu?rev=685c2133f296ea5bf48e4ee96853f725c2a68980)",
- "wgpu-types 22.0.0 (git+https://github.com/gfx-rs/wgpu?rev=685c2133f296ea5bf48e4ee96853f725c2a68980)",
+ "wgpu-hal 22.0.0 (git+https://github.com/gfx-rs/wgpu?rev=aeac0f29fed2ae4240869c8ff419ea93523d32d9)",
+ "wgpu-types 22.0.0 (git+https://github.com/gfx-rs/wgpu?rev=aeac0f29fed2ae4240869c8ff419ea93523d32d9)",
 ]
 
 [[package]]
@@ -2988,7 +2988,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core"
 version = "22.0.0"
-source = "git+https://github.com/gfx-rs/wgpu?rev=685c2133f296ea5bf48e4ee96853f725c2a68980#685c2133f296ea5bf48e4ee96853f725c2a68980"
+source = "git+https://github.com/gfx-rs/wgpu?rev=aeac0f29fed2ae4240869c8ff419ea93523d32d9#aeac0f29fed2ae4240869c8ff419ea93523d32d9"
 dependencies = [
  "arrayvec",
  "bit-vec 0.8.0",
@@ -3005,8 +3005,8 @@ dependencies = [
  "rustc-hash",
  "smallvec",
  "thiserror",
- "wgpu-hal 22.0.0 (git+https://github.com/gfx-rs/wgpu?rev=685c2133f296ea5bf48e4ee96853f725c2a68980)",
- "wgpu-types 22.0.0 (git+https://github.com/gfx-rs/wgpu?rev=685c2133f296ea5bf48e4ee96853f725c2a68980)",
+ "wgpu-hal 22.0.0 (git+https://github.com/gfx-rs/wgpu?rev=aeac0f29fed2ae4240869c8ff419ea93523d32d9)",
+ "wgpu-types 22.0.0 (git+https://github.com/gfx-rs/wgpu?rev=aeac0f29fed2ae4240869c8ff419ea93523d32d9)",
 ]
 
 [[package]]
@@ -3082,7 +3082,7 @@ dependencies = [
 [[package]]
 name = "wgpu-hal"
 version = "22.0.0"
-source = "git+https://github.com/gfx-rs/wgpu?rev=685c2133f296ea5bf48e4ee96853f725c2a68980#685c2133f296ea5bf48e4ee96853f725c2a68980"
+source = "git+https://github.com/gfx-rs/wgpu?rev=aeac0f29fed2ae4240869c8ff419ea93523d32d9#aeac0f29fed2ae4240869c8ff419ea93523d32d9"
 dependencies = [
  "android_system_properties",
  "arrayvec",
@@ -3097,7 +3097,6 @@ dependencies = [
  "gpu-alloc",
  "gpu-allocator 0.27.0",
  "gpu-descriptor",
- "hassle-rs",
  "js-sys",
  "khronos-egl",
  "libc",
@@ -3118,7 +3117,7 @@ dependencies = [
  "thiserror",
  "wasm-bindgen",
  "web-sys",
- "wgpu-types 22.0.0 (git+https://github.com/gfx-rs/wgpu?rev=685c2133f296ea5bf48e4ee96853f725c2a68980)",
+ "wgpu-types 22.0.0 (git+https://github.com/gfx-rs/wgpu?rev=aeac0f29fed2ae4240869c8ff419ea93523d32d9)",
  "windows 0.58.0",
  "windows-core 0.58.0",
 ]
@@ -3148,7 +3147,7 @@ dependencies = [
 [[package]]
 name = "wgpu-types"
 version = "22.0.0"
-source = "git+https://github.com/gfx-rs/wgpu?rev=685c2133f296ea5bf48e4ee96853f725c2a68980#685c2133f296ea5bf48e4ee96853f725c2a68980"
+source = "git+https://github.com/gfx-rs/wgpu?rev=aeac0f29fed2ae4240869c8ff419ea93523d32d9#aeac0f29fed2ae4240869c8ff419ea93523d32d9"
 dependencies = [
  "bitflags 2.6.0",
  "js-sys",
