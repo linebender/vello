@@ -43,7 +43,7 @@ impl ImageCache {
 }
 
 fn decode_image(data: &[u8]) -> anyhow::Result<Image> {
-    let image = image::io::Reader::new(std::io::Cursor::new(data))
+    let image = image::ImageReader::new(std::io::Cursor::new(data))
         .with_guessed_format()?
         .decode()?;
     let width = image.width();
