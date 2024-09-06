@@ -1,14 +1,15 @@
 use std::{
     collections::{HashMap, VecDeque},
     sync::{
-        atomic::{AtomicU64, Ordering},
-        mpsc::{Receiver, RecvTimeoutError, TryRecvError},
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        mpsc::{Receiver, RecvTimeoutError, Sender, TryRecvError},
         Arc,
     },
     time::{Duration, Instant},
 };
 
-use wgpu::Buffer;
+use vello::Scene;
+use wgpu::{core::present, Buffer, SubmissionIndex, SurfaceTexture};
 
 /// Docs used to type out how this is being reasoned about.
 ///
@@ -115,6 +116,8 @@ pub struct FrameStats {
     /// 1) Providing the time at which rendering should start, generally
     ///    1 refresh duration later than the previous frame +- some margin.
     paint_start: Instant,
+    /// Whether the source paint request wanted there to be a next frame.
+    next_frame_continued: bool,
     // /// The time at which the frame pacing controller received the frame to be rendered.
     // ///
     // /// This is used to predict a possible frame deadline miss early
@@ -128,20 +131,42 @@ pub struct FrameStats {
 pub struct InFlightStatus {}
 
 pub struct InFlightFrame {
-    download_buffer: Buffer,
+    download_map_buffer: Buffer,
+    work_complete: Arc<AtomicBool>,
+    paint_start: Instant,
+    id: FrameId,
+    submission_index: SubmissionIndex,
+    /// Information needed to perform a presentation, and not before.
+    required_to_present: Option<(SurfaceTexture, Scene)>,
+    estimated_present: u64,
+    next_frame_expected: bool,
+}
+
+pub enum VelloControl {
+    Frame(FrameRenderRequest),
+    Stop,
+    /// A resize request. This might skip rendering a previous frame
+    /// if it arrives before that frame is presented.
+    Resize(FrameRenderRequest, (u32, u32), Sender<FrameId>),
 }
 
 /// The state of the frame pacing controller thread.
 pub struct VelloPacing {
-    rx: Receiver<FrameRenderRequest>,
+    rx: Receiver<VelloControl>,
     queue: Arc<wgpu::Queue>,
     device: Arc<wgpu::Device>,
+    surface: wgpu::Surface<'static>,
     /// Stats from previous frames, stored in a ring buffer (max capacity ~10?).
     stats: VecDeque<(FrameId, FrameStats)>,
-    /// The refresh rate reported by the system.
+    /// The refresh rate reported "by the system".
     refresh_rate: u64,
-    presenting_frame: InFlightFrame,
-    gpu_working_frame: InFlightFrame,
+    // TODO: Does this need a capacity of 2?
+    unmapped_download_buffer: Option<(Buffer, Arc<AtomicBool>)>,
+    /// Details about the previous frame, which has already been presented.
+    presenting_frame: Option<InFlightFrame>,
+    /// Details about the frame whose work has been submitted to the.
+    gpu_working_frame: Option<InFlightFrame>,
+    abandoned_frames: Vec<InFlightFrame>,
 }
 
 /// A sketch of the expected API.
@@ -151,7 +176,7 @@ impl VelloPacing {
     }
 
     pub fn launch(self) {
-        std::thread::spawn(|| self.run());
+        std::thread::spawn(move || self.run());
     }
 
     /// Run a rendering task until presentation. Useful on macOS for resizing.
@@ -176,44 +201,184 @@ impl VelloPacing {
                 Duration::from_millis(100)
             };
             match self.rx.recv_timeout(timeout) {
-                Ok(frame_request) => {
-                    self.paint_frame();
-                    if frame_request.needs_next_frame {}
+                Ok(command) => {
+                    match command {
+                        VelloControl::Frame(request) => {
+                            self.poll_frame();
+                            // TODO: Error handling
+                            let texture = self.surface.get_current_texture().unwrap();
+                            self.paint_frame(request.scene, texture);
+                            self.poll_frame();
+                        }
+                        VelloControl::Stop => break,
+                        #[expect(
+                            unreachable_code,
+                            unused_variables,
+                            reason = "We stub out the unused variables"
+                        )]
+                        VelloControl::Resize(request, (_, _), done) => {
+                            if let Some(mut old_frame) = self.gpu_working_frame.take() {
+                                // This frame will never be presented
+                                drop(old_frame.required_to_present.take());
+                                self.abandoned_frames.push(old_frame);
+                            }
+                            // Make sure any easily detectable needed reallocation happens
+                            // TODO: What do we want to do if:
+                            // 1) The previous frame didn't succeed
+                            // 2) We are trying to resize
+                            // Do we just draw a clear colour?
+                            self.poll_frame();
+                            // self.surface
+                            //     .configure(&self.device, SurfaceConfiguration { width, height });
+                            unimplemented!();
+
+                            let texture = self.surface.get_current_texture().unwrap();
+                            let frame = self.paint_frame_inner(&request.scene, &texture);
+                            texture.present();
+                            // TODO: Maybe: self.abandoned_frames.extend(self.presenting_frame.take());
+                            self.presenting_frame = Some(frame);
+                            if let Err(e) = done.send(request.frame) {
+                                tracing::error!("Failed to send present result {e}");
+                            };
+                        }
+                    }
+
                     continue;
                 }
                 Err(RecvTimeoutError::Disconnected) => {
-                    unreachable!("The main thread has stopped without telling rendering to stop")
+                    // TODO: Is this just the implicit stop command?
+                    tracing::error!(
+                        "The main thread has stopped without telling rendering to stop"
+                    );
+                    // TODO: self.poll_frame();?
+                    // What do we need to be careful about dropping?
+                    break;
                 }
-                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Timeout) => {
+                    // Fall through intentionally
+                }
             }
             self.poll_frame();
         }
     }
 
-    fn paint_frame(&mut self) {
+    fn paint_frame(&mut self, scene: Scene, to: SurfaceTexture) {
+        // TODO: It could happen that frames get sent not in response to our handling code (e.g. as an immediate frame)
+        // Do we just always want to abandon the current working frame?
+        assert!(self.gpu_working_frame.is_none());
+        let mut res = self.paint_frame_inner(&scene, &to);
+        res.required_to_present = Some((to, scene));
+        self.gpu_working_frame = Some(res);
+    }
+
+    #[must_use]
+    #[expect(unused_variables, reason = "Not yet implemented")]
+    fn paint_frame_inner(&mut self, scene: &Scene, to: &SurfaceTexture) -> InFlightFrame {
         // Prepare command buffers, etc.
 
-        // If the previous frame returned
-        self.poll_frame();
+        todo!();
     }
 
     fn poll_frame(&mut self) {
         self.device.poll(wgpu::Maintain::Poll);
-        if self.presented_frame_work_done() {
-            if self.presented_frame_failed() {}
+        let mut failed = false;
+        let mut desired_present_time: Option<u64> = None;
+        if let Some(presenting) = &mut self.presenting_frame {
+            if let Some(value) = Arc::get_mut(&mut presenting.work_complete) {
+                // Reset the value to false, because we're about to reuse it.
+                if std::mem::take(value.get_mut()) {
+                    let presenting = self
+                        .presenting_frame
+                        .take()
+                        .expect("We know this value is present");
+
+                    {
+                        let value = presenting.download_map_buffer.slice(..).get_mapped_range();
+                        eprintln!("Downloaded: {value:?}");
+                        presenting.download_map_buffer.unmap();
+                        // Will be calculated from `value`, as part of https://github.com/linebender/vello/pull/606
+                        failed = false;
+                        if failed {
+                            // Perform reallocation. Will be part of https://github.com/linebender/vello/pull/606.
+                        }
+                        // The time which we should not present before.
+                        // If `value` indicates we really badly overflowed, then this will be later than otherwise expected.
+                        desired_present_time = None;
+                        self.stats.push_back((
+                            presenting.id,
+                            FrameStats {
+                                // TODO: Make optional because some backends don't support timestamp queries?
+                                render_start: 0,
+                                render_end: 0,
+                                estimated_present: presenting.estimated_present,
+                                paint_start: presenting.paint_start,
+                                presentation_time: None,
+                                next_frame_continued: presenting.next_frame_expected,
+                            },
+                        ));
+                    }
+                    self.unmapped_download_buffer =
+                        Some((presenting.download_map_buffer, presenting.work_complete));
+                } else {
+                    unreachable!(
+                        "Buffer mapping/work complete callback dropped without being called."
+                    )
+                }
+            } else {
+                // Probably nothing to do?
+            }
+        }
+        if self.presenting_frame.is_none() {
+            if let Some(mut working_frame) = self.gpu_working_frame.take() {
+                let (texture, scene) = working_frame.required_to_present.take().unwrap();
+                if failed {
+                    // Then redo the paint; we know the previous attempted frame will have been cancalled, so won't be expensive.
+                    // We choose to present here immediately, to minimise likely latency costs.
+                    self.paint_frame_inner(&scene, &texture);
+                } else if working_frame.work_complete.load(Ordering::Relaxed) {
+                    // I don't think there's actually anything interesting to do here, but might need to be reasoned about.
+                };
+                // We run a display timing request after the present occurs, but we only need to get the Vulkan swapchain once.
+                let mut swc = None;
+                if let Some(desired_present_time) =
+                    // Pseudocode for the or-else case. This is to handle the scenario where the previous frame finished
+                    // *before* we.
+                    desired_present_time
+                        .or_else(|| Some(self.stats.front()?.1.estimated_present))
+                {
+                    swc = unsafe {
+                        self.surface
+                            .as_hal::<wgpu::hal::vulkan::Api, _, _>(|surface| {
+                                if let Some(surface) = surface {
+                                    surface.set_next_present_time(ash::vk::PresentTimeGOOGLE {
+                                        desired_present_time,
+                                        present_id: working_frame.id.0,
+                                    });
+                                    Some(surface.raw_swapchain())
+                                } else {
+                                    None
+                                }
+                            })
+                            .flatten()
+                            .flatten()
+                    };
+                }
+                texture.present();
+                if let Some(_swc) = swc {
+                    // Load past present timing information
+                }
+                if working_frame.next_frame_expected {
+                    // Do the maths for when we should ask the main thread for the next frame
+                    // TODO: Do we need our own timer thread for just that, or should something else happen?
+                }
+                self.presenting_frame = Some(working_frame);
+            }
         }
     }
 
-    fn presented_frame_work_done(&self) -> bool {
-        false
-    }
-
-    fn presented_frame_failed(&self) -> bool {
-        false
-    }
     // fn presented_frame_status(&self) -> FrameStatus {}
     fn frame_in_flight(&self) -> bool {
-        false
+        self.gpu_working_frame.is_some()
     }
 }
 
