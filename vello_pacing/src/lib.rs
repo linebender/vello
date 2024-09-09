@@ -2,7 +2,7 @@ use std::{
     collections::{HashMap, VecDeque},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
-        mpsc::{Receiver, RecvTimeoutError, TryRecvError},
+        mpsc::{Receiver, RecvTimeoutError, Sender, TryRecvError},
         Arc,
     },
     time::{Duration, Instant},
@@ -147,12 +147,12 @@ pub enum VelloControl {
     Stop,
     /// A resize request. This might skip rendering a previous frame
     /// if it arrives before that frame is presented.
-    Resize(FrameRenderRequest, (usize, usize)),
+    Resize(FrameRenderRequest, (u32, u32), Sender<FrameId>),
 }
 
 /// The state of the frame pacing controller thread.
 pub struct VelloPacing {
-    rx: Receiver<FrameRenderRequest>,
+    rx: Receiver<VelloControl>,
     queue: Arc<wgpu::Queue>,
     device: Arc<wgpu::Device>,
     surface: wgpu::Surface<'static>,
@@ -166,6 +166,7 @@ pub struct VelloPacing {
     presenting_frame: Option<InFlightFrame>,
     /// Details about the frame whose work has been submitted to the.
     gpu_working_frame: Option<InFlightFrame>,
+    abandoned_frames: Vec<InFlightFrame>,
 }
 
 /// A sketch of the expected API.
@@ -175,7 +176,7 @@ impl VelloPacing {
     }
 
     pub fn launch(self) {
-        std::thread::spawn(|| self.run());
+        std::thread::spawn(move || self.run());
     }
 
     /// Run a rendering task until presentation. Useful on macOS for resizing.
@@ -200,14 +201,58 @@ impl VelloPacing {
                 Duration::from_millis(100)
             };
             match self.rx.recv_timeout(timeout) {
-                Ok(frame_request) => {
-                    self.poll_frame();
-                    // Self::paint_frame(...);
-                    self.poll_frame();
+                Ok(command) => {
+                    match command {
+                        VelloControl::Frame(request) => {
+                            self.poll_frame();
+                            // TODO: Error handling
+                            let texture = self.surface.get_current_texture().unwrap();
+                            self.paint_frame(request.scene, texture);
+                            self.poll_frame();
+                        }
+                        VelloControl::Stop => break,
+                        #[expect(
+                            unreachable_code,
+                            unused_variables,
+                            reason = "We stub out the unused variables"
+                        )]
+                        VelloControl::Resize(request, (_, _), done) => {
+                            if let Some(mut old_frame) = self.gpu_working_frame.take() {
+                                // This frame will never be presented
+                                drop(old_frame.required_to_present.take());
+                                self.abandoned_frames.push(old_frame);
+                            }
+                            // Make sure any easily detectable needed reallocation happens
+                            // TODO: What do we want to do if:
+                            // 1) The previous frame didn't succeed
+                            // 2) We are trying to resize
+                            // Do we just draw a clear colour?
+                            self.poll_frame();
+                            // self.surface
+                            //     .configure(&self.device, SurfaceConfiguration { width, height });
+                            unimplemented!();
+
+                            let texture = self.surface.get_current_texture().unwrap();
+                            let frame = self.paint_frame_inner(&request.scene, &texture);
+                            texture.present();
+                            // TODO: Maybe: self.abandoned_frames.extend(self.presenting_frame.take());
+                            self.presenting_frame = Some(frame);
+                            if let Err(e) = done.send(request.frame) {
+                                tracing::error!("Failed to send present result {e}");
+                            };
+                        }
+                    }
+
                     continue;
                 }
                 Err(RecvTimeoutError::Disconnected) => {
-                    unreachable!("The main thread has stopped without telling rendering to stop")
+                    // TODO: Is this just the implicit stop command?
+                    tracing::error!(
+                        "The main thread has stopped without telling rendering to stop"
+                    );
+                    // TODO: self.poll_frame();?
+                    // What do we need to be careful about dropping?
+                    break;
                 }
                 Err(RecvTimeoutError::Timeout) => {
                     // Fall through intentionally
@@ -217,8 +262,21 @@ impl VelloPacing {
         }
     }
 
-    fn paint_frame(to: &SurfaceTexture) {
+    fn paint_frame(&mut self, scene: Scene, to: SurfaceTexture) {
+        // TODO: It could happen that frames get sent not in response to our handling code (e.g. as an immediate frame)
+        // Do we just always want to abandon the current working frame?
+        assert!(self.gpu_working_frame.is_none());
+        let mut res = self.paint_frame_inner(&scene, &to);
+        res.required_to_present = Some((to, scene));
+        self.gpu_working_frame = Some(res);
+    }
+
+    #[must_use]
+    #[expect(unused_variables, reason = "Not yet implemented")]
+    fn paint_frame_inner(&mut self, scene: &Scene, to: &SurfaceTexture) -> InFlightFrame {
         // Prepare command buffers, etc.
+
+        todo!();
     }
 
     fn poll_frame(&mut self) {
@@ -240,6 +298,9 @@ impl VelloPacing {
                         presenting.download_map_buffer.unmap();
                         // Will be calculated from `value`, as part of https://github.com/linebender/vello/pull/606
                         failed = false;
+                        if failed {
+                            // Perform reallocation. Will be part of https://github.com/linebender/vello/pull/606.
+                        }
                         // The time which we should not present before.
                         // If `value` indicates we really badly overflowed, then this will be later than otherwise expected.
                         desired_present_time = None;
@@ -271,11 +332,9 @@ impl VelloPacing {
             if let Some(mut working_frame) = self.gpu_working_frame.take() {
                 let (texture, scene) = working_frame.required_to_present.take().unwrap();
                 if failed {
-                    // Perform reallocation. Will be part of https://github.com/linebender/vello/pull/606.
-
                     // Then redo the paint; we know the previous attempted frame will have been cancalled, so won't be expensive.
                     // We choose to present here immediately, to minimise likely latency costs.
-                    Self::paint_frame(&texture);
+                    self.paint_frame_inner(&scene, &texture);
                 } else if working_frame.work_complete.load(Ordering::Relaxed) {
                     // I don't think there's actually anything interesting to do here, but might need to be reasoned about.
                 };

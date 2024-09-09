@@ -10,6 +10,7 @@ repository.workspace = true
 wgpu.workspace = true
 vello.workspace = true
 ash = { version = "0.38.0", default-features = false }
+tracing = "0.1.40"
 
 [lints]
 workspace = true
