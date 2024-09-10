@@ -75,14 +75,13 @@ impl<'s> ApplicationHandler for SimpleVelloApp<'s> {
         // Save the Window and Surface to a state variable
         self.state = RenderState::Active(ActiveRenderState { window, surface });
 
-        event_loop.set_control_flow(ControlFlow::Poll);
+        event_loop.set_control_flow(ControlFlow::Wait);
     }
 
-    fn suspended(&mut self, event_loop: &ActiveEventLoop) {
+    fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
         if let RenderState::Active(state) = &self.state {
             self.state = RenderState::Suspended(Some(state.window.clone()));
         }
-        event_loop.set_control_flow(ControlFlow::Wait);
     }
 
     fn window_event(
@@ -109,11 +108,11 @@ impl<'s> ApplicationHandler for SimpleVelloApp<'s> {
             WindowEvent::Resized(size) => {
                 self.context
                     .resize_surface(&mut render_state.surface, size.width, size.height);
-                render_state.window.request_redraw();
             }
 
             // This is where all the rendering happens
             WindowEvent::RedrawRequested => {
+
                 // Empty the scene of objects to draw. You could create a new Scene each time, but in this case
                 // the same Scene is reused so that the underlying memory allocation can also be reused.
                 self.scene.reset();

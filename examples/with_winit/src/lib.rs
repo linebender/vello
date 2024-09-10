@@ -226,7 +226,8 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
             });
             Some(render_state)
         };
-        event_loop.set_control_flow(ControlFlow::Poll);
+
+        event_loop.set_control_flow(ControlFlow::Wait);
     }
 
     fn window_event(
@@ -443,6 +444,8 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
                 let _rendering_span = tracing::trace_span!("Actioning Requested Redraw").entered();
                 let encoding_span = tracing::trace_span!("Encoding scene").entered();
 
+                render_state.window.request_redraw();
+
                 let Some(RenderState { surface, window }) = &self.state else {
                     return;
                 };
@@ -592,24 +595,6 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
         }
     }
 
-    fn about_to_wait(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop) {
-        self.touch_state.end_frame();
-        let touch_info = self.touch_state.info();
-        if let Some(touch_info) = touch_info {
-            let centre = Vec2::new(touch_info.zoom_centre.x, touch_info.zoom_centre.y);
-            self.transform = Affine::translate(touch_info.translation_delta)
-                * Affine::translate(centre)
-                * Affine::scale(touch_info.zoom_delta)
-                * Affine::rotate(touch_info.rotation_delta)
-                * Affine::translate(-centre)
-                * self.transform;
-        }
-
-        if let Some(render_state) = &mut self.state {
-            render_state.window.request_redraw();
-        }
-    }
-
     fn user_event(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop, event: UserEvent) {
         match event {
             #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
@@ -633,14 +618,13 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
         }
     }
 
-    fn suspended(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+    fn suspended(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop) {
         log::info!("Suspending");
         #[cfg(not(target_arch = "wasm32"))]
         // When we suspend, we need to remove the `wgpu` Surface
         if let Some(render_state) = self.state.take() {
             self.cached_window = Some(render_state.window);
         }
-        event_loop.set_control_flow(ControlFlow::Wait);
     }
 }
 
