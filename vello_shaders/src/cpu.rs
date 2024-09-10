@@ -182,6 +182,7 @@ const CMD_IMAGE: u32 = 9;
 const CMD_BEGIN_CLIP: u32 = 10;
 const CMD_END_CLIP: u32 = 11;
 const CMD_JUMP: u32 = 12;
+const CMD_BLUR_RECT: u32 = 13;
 
 // The following are computed in draw_leaf from the generic gradient parameters
 // encoded in the scene, and stored in the gradient's info struct, for

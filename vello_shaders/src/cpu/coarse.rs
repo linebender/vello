@@ -9,8 +9,8 @@ use vello_encoding::{
 };
 
 use super::{
-    CpuBinding, CMD_BEGIN_CLIP, CMD_COLOR, CMD_END, CMD_END_CLIP, CMD_FILL, CMD_IMAGE, CMD_JUMP,
-    CMD_LIN_GRAD, CMD_RAD_GRAD, CMD_SOLID, CMD_SWEEP_GRAD, PTCL_INITIAL_ALLOC,
+    CpuBinding, CMD_BEGIN_CLIP, CMD_BLUR_RECT, CMD_COLOR, CMD_END, CMD_END_CLIP, CMD_FILL,
+    CMD_IMAGE, CMD_JUMP, CMD_LIN_GRAD, CMD_RAD_GRAD, CMD_SOLID, CMD_SWEEP_GRAD, PTCL_INITIAL_ALLOC,
 };
 
 // Tiles per bin
@@ -135,6 +135,21 @@ impl TileState {
         self.write(ptcl, 0, ty);
         self.write(ptcl, 1, index);
         self.write(ptcl, 2, info_offset);
+        self.cmd_offset += 3;
+    }
+
+    fn write_blur_rect(
+        &mut self,
+        config: &ConfigUniform,
+        bump: &mut BumpAllocators,
+        ptcl: &mut [u32],
+        rgba_color: u32,
+        info_offset: u32,
+    ) {
+        self.alloc_cmd(3, config, bump, ptcl);
+        self.write(ptcl, 0, CMD_BLUR_RECT);
+        self.write(ptcl, 1, info_offset);
+        self.write(ptcl, 2, rgba_color);
         self.cmd_offset += 3;
     }
 
@@ -312,6 +327,11 @@ fn coarse_main(
                                     index,
                                     di + 1,
                                 );
+                            }
+                            DrawTag::BLUR_RECT => {
+                                tile_state.write_path(config, bump, ptcl, tile, draw_flags);
+                                let rgba_color = scene[dd as usize];
+                                tile_state.write_blur_rect(config, bump, ptcl, rgba_color, di + 1);
                             }
                             DrawTag::BEGIN_CLIP => {
                                 if tile.segment_count_or_ix == 0 && tile.backdrop == 0 {

@@ -723,8 +723,10 @@ impl<'a> PathEncoder<'a> {
         if len < 8 {
             return None;
         }
-        let pts: &[f32; 2] = bytemuck::from_bytes(&self.data[len - 8..len]);
-        Some((pts[0], pts[1]))
+        Some((
+            bytemuck::pod_read_unaligned::<f32>(&self.data[len - 8..len - 4]),
+            bytemuck::pod_read_unaligned::<f32>(&self.data[len - 4..len]),
+        ))
     }
 
     fn is_zero_length_segment(

@@ -178,22 +178,25 @@ impl Render {
             // is zero.
             packed.resize(size_of::<u32>(), u8::MAX);
         }
-        let scene_buf = ResourceProxy::Buffer(recording.upload("scene", packed));
+        let scene_buf = ResourceProxy::Buffer(recording.upload("vello.scene", packed));
         let config_buf = ResourceProxy::Buffer(
-            recording.upload_uniform("config", bytemuck::bytes_of(&cpu_config.gpu)),
+            recording.upload_uniform("vello.config", bytemuck::bytes_of(&cpu_config.gpu)),
         );
         let info_bin_data_buf = ResourceProxy::new_buf(
             buffer_sizes.bin_data.size_in_bytes() as u64,
-            "info_bin_data_buf",
+            "vello.info_bin_data_buf",
         );
         let tile_buf =
-            ResourceProxy::new_buf(buffer_sizes.tiles.size_in_bytes().into(), "tile_buf");
-        let segments_buf =
-            ResourceProxy::new_buf(buffer_sizes.segments.size_in_bytes().into(), "segments_buf");
-        let ptcl_buf = ResourceProxy::new_buf(buffer_sizes.ptcl.size_in_bytes().into(), "ptcl_buf");
+            ResourceProxy::new_buf(buffer_sizes.tiles.size_in_bytes().into(), "vello.tile_buf");
+        let segments_buf = ResourceProxy::new_buf(
+            buffer_sizes.segments.size_in_bytes().into(),
+            "vello.segments_buf",
+        );
+        let ptcl_buf =
+            ResourceProxy::new_buf(buffer_sizes.ptcl.size_in_bytes().into(), "vello.ptcl_buf");
         let reduced_buf = ResourceProxy::new_buf(
             buffer_sizes.path_reduced.size_in_bytes().into(),
-            "reduced_buf",
+            "vello.reduced_buf",
         );
         // TODO: really only need pathtag_wgs - 1
         recording.dispatch(
@@ -207,7 +210,7 @@ impl Render {
         if use_large_path_scan {
             let reduced2_buf = ResourceProxy::new_buf(
                 buffer_sizes.path_reduced2.size_in_bytes().into(),
-                "reduced2_buf",
+                "vello.reduced2_buf",
             );
             recording.dispatch(
                 shaders.pathtag_reduce2,
@@ -229,7 +232,7 @@ impl Render {
 
         let tagmonoid_buf = ResourceProxy::new_buf(
             buffer_sizes.path_monoids.size_in_bytes().into(),
-            "tagmonoid_buf",
+            "vello.tagmonoid_buf",
         );
         let pathtag_scan = if use_large_path_scan {
             shaders.pathtag_scan_large
@@ -248,18 +251,21 @@ impl Render {
         }
         let path_bbox_buf = ResourceProxy::new_buf(
             buffer_sizes.path_bboxes.size_in_bytes().into(),
-            "path_bbox_buf",
+            "vello.path_bbox_buf",
         );
         recording.dispatch(
             shaders.bbox_clear,
             wg_counts.bbox_clear,
             [config_buf, path_bbox_buf],
         );
-        let bump_buf = BufferProxy::new(buffer_sizes.bump_alloc.size_in_bytes().into(), "bump_buf");
+        let bump_buf = BufferProxy::new(
+            buffer_sizes.bump_alloc.size_in_bytes().into(),
+            "vello.bump_buf",
+        );
         recording.clear_all(bump_buf);
         let bump_buf = ResourceProxy::Buffer(bump_buf);
         let lines_buf =
-            ResourceProxy::new_buf(buffer_sizes.lines.size_in_bytes().into(), "lines_buf");
+            ResourceProxy::new_buf(buffer_sizes.lines.size_in_bytes().into(), "vello.lines_buf");
         recording.dispatch(
             shaders.flatten,
             wg_counts.flatten,
@@ -274,7 +280,7 @@ impl Render {
         );
         let draw_reduced_buf = ResourceProxy::new_buf(
             buffer_sizes.draw_reduced.size_in_bytes().into(),
-            "draw_reduced_buf",
+            "vello.draw_reduced_buf",
         );
         recording.dispatch(
             shaders.draw_reduce,
@@ -283,11 +289,11 @@ impl Render {
         );
         let draw_monoid_buf = ResourceProxy::new_buf(
             buffer_sizes.draw_monoids.size_in_bytes().into(),
-            "draw_monoid_buf",
+            "vello.draw_monoid_buf",
         );
         let clip_inp_buf = ResourceProxy::new_buf(
             buffer_sizes.clip_inps.size_in_bytes().into(),
-            "clip_inp_buf",
+            "vello.clip_inp_buf",
         );
         recording.dispatch(
             shaders.draw_leaf,
@@ -303,11 +309,13 @@ impl Render {
             ],
         );
         recording.free_resource(draw_reduced_buf);
-        let clip_el_buf =
-            ResourceProxy::new_buf(buffer_sizes.clip_els.size_in_bytes().into(), "clip_el_buf");
+        let clip_el_buf = ResourceProxy::new_buf(
+            buffer_sizes.clip_els.size_in_bytes().into(),
+            "vello.clip_el_buf",
+        );
         let clip_bic_buf = ResourceProxy::new_buf(
             buffer_sizes.clip_bics.size_in_bytes().into(),
-            "clip_bic_buf",
+            "vello.clip_bic_buf",
         );
         if wg_counts.clip_reduce.0 > 0 {
             recording.dispatch(
@@ -318,7 +326,7 @@ impl Render {
         }
         let clip_bbox_buf = ResourceProxy::new_buf(
             buffer_sizes.clip_bboxes.size_in_bytes().into(),
-            "clip_bbox_buf",
+            "vello.clip_bbox_buf",
         );
         if wg_counts.clip_leaf.0 > 0 {
             recording.dispatch(
@@ -340,11 +348,11 @@ impl Render {
         recording.free_resource(clip_el_buf);
         let draw_bbox_buf = ResourceProxy::new_buf(
             buffer_sizes.draw_bboxes.size_in_bytes().into(),
-            "draw_bbox_buf",
+            "vello.draw_bbox_buf",
         );
         let bin_header_buf = ResourceProxy::new_buf(
             buffer_sizes.bin_headers.size_in_bytes().into(),
-            "bin_header_buf",
+            "vello.bin_header_buf",
         );
         recording.dispatch(
             shaders.binning,
@@ -365,7 +373,7 @@ impl Render {
         // Note: this only needs to be rounded up because of the workaround to store the tile_offset
         // in storage rather than workgroup memory.
         let path_buf =
-            ResourceProxy::new_buf(buffer_sizes.paths.size_in_bytes().into(), "path_buf");
+            ResourceProxy::new_buf(buffer_sizes.paths.size_in_bytes().into(), "vello.path_buf");
         recording.dispatch(
             shaders.tile_alloc,
             wg_counts.tile_alloc,
@@ -382,7 +390,7 @@ impl Render {
         recording.free_resource(tagmonoid_buf);
         let indirect_count_buf = BufferProxy::new(
             buffer_sizes.indirect_count.size_in_bytes().into(),
-            "indirect_count",
+            "vello.indirect_count",
         );
         recording.dispatch(
             shaders.path_count_setup,
@@ -391,7 +399,7 @@ impl Render {
         );
         let seg_counts_buf = ResourceProxy::new_buf(
             buffer_sizes.seg_counts.size_in_bytes().into(),
-            "seg_counts_buf",
+            "vello.seg_counts_buf",
         );
         recording.dispatch_indirect(
             shaders.path_count,
@@ -453,7 +461,7 @@ impl Render {
         let out_image = ImageProxy::new(params.width, params.height, ImageFormat::Rgba8);
         let blend_spill_buf = BufferProxy::new(
             buffer_sizes.blend_spill.size_in_bytes().into(),
-            "blend_spill",
+            "vello.blend_spill",
         );
         self.fine_wg_count = Some(wg_counts.fine);
         self.fine_resources = Some(FineResources {
@@ -530,7 +538,7 @@ impl Render {
                         AaConfig::Msaa8 => make_mask_lut(),
                         _ => unreachable!(),
                     };
-                    let buf = recording.upload("mask lut", mask_lut);
+                    let buf = recording.upload("vello.mask_lut", mask_lut);
                     self.mask_buf = Some(buf.into());
                 }
                 let fine_shader = match fine.aa_config {

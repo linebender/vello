@@ -112,6 +112,36 @@ impl Scene {
         self.encoding.encode_end_clip();
     }
 
+    /// Draw a rounded rectangle blurred with a gaussian filter.
+    pub fn draw_blurred_rounded_rect(
+        &mut self,
+        transform: Affine,
+        rect: Rect,
+        brush: Color,
+        radius: f64,
+        std_dev: f64,
+    ) {
+        // The impulse response of a gaussian filter is infinite.
+        // For performance reason we cut off the filter at some extent where the response is close to zero.
+        let kernel_size = 2.5 * std_dev;
+
+        let t = Transform::from_kurbo(&transform.pre_translate(rect.center().to_vec2()));
+        self.encoding.encode_transform(t);
+
+        let shape: Rect =
+            Rect::from_center_size((0.0, 0.0), rect.size()).inflate(kernel_size, kernel_size);
+        self.encoding.encode_fill_style(Fill::NonZero);
+        if self.encoding.encode_shape(&shape, true) {
+            self.encoding.encode_blurred_rounded_rect(
+                brush,
+                rect.width() as _,
+                rect.height() as _,
+                radius as _,
+                std_dev as _,
+            );
+        }
+    }
+
     /// Fills a shape using the specified style and brush.
     pub fn fill<'b>(
         &mut self,
