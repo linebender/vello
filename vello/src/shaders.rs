@@ -17,11 +17,7 @@ use crate::{
 
 // Shaders for the full pipeline
 pub struct FullShaders {
-    pub pathtag_reduce: ShaderId,
-    pub pathtag_reduce2: ShaderId,
-    pub pathtag_scan1: ShaderId,
-    pub pathtag_scan: ShaderId,
-    pub pathtag_scan_large: ShaderId,
+    pub pathtag_scan_csdldf: ShaderId,
     pub bbox_clear: ShaderId,
     pub flatten: ShaderId,
     pub draw_reduce: ShaderId,
@@ -39,9 +35,6 @@ pub struct FullShaders {
     pub fine_area: Option<ShaderId>,
     pub fine_msaa8: Option<ShaderId>,
     pub fine_msaa16: Option<ShaderId>,
-    // 2-level dispatch works for CPU pathtag scan even for large
-    // inputs, 3-level is not yet implemented.
-    pub pathtag_is_cpu: bool,
 }
 
 #[cfg(feature = "wgpu")]
@@ -101,27 +94,11 @@ pub(crate) fn full_shaders(
         };
     }
 
-    let pathtag_reduce = add_shader!(pathtag_reduce, [Uniform, BufReadOnly, Buffer]);
-    let pathtag_reduce2 = add_shader!(
-        pathtag_reduce2,
-        [BufReadOnly, Buffer],
-        CpuShaderType::Skipped
-    );
-    let pathtag_scan1 = add_shader!(
-        pathtag_scan1,
-        [BufReadOnly, BufReadOnly, Buffer],
-        CpuShaderType::Skipped
-    );
-    let pathtag_scan = add_shader!(
-        pathtag_scan_small,
-        [Uniform, BufReadOnly, BufReadOnly, Buffer],
-        CpuShaderType::Present(vello_shaders::cpu::pathtag_scan)
-    );
-    let pathtag_scan_large = add_shader!(
-        pathtag_scan_large,
-        [Uniform, BufReadOnly, BufReadOnly, Buffer],
-        CpuShaderType::Skipped
-    );
+    let pathtag_scan_csdldf = add_shader!(
+        pathtag_scan_csdldf,
+        [Uniform, BufReadOnly, Buffer, Buffer, Buffer],
+        CpuShaderType::Present(vello_shaders::cpu::pathtag_scan_single));
+
     let bbox_clear = add_shader!(bbox_clear, [Uniform, Buffer]);
     let flatten = add_shader!(
         flatten,
@@ -249,11 +226,7 @@ pub(crate) fn full_shaders(
     };
 
     Ok(FullShaders {
-        pathtag_reduce,
-        pathtag_reduce2,
-        pathtag_scan,
-        pathtag_scan1,
-        pathtag_scan_large,
+        pathtag_scan_csdldf,
         bbox_clear,
         flatten,
         draw_reduce,
@@ -271,6 +244,5 @@ pub(crate) fn full_shaders(
         fine_area,
         fine_msaa8,
         fine_msaa16,
-        pathtag_is_cpu: options.use_cpu,
     })
 }

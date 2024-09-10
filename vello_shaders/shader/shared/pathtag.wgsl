@@ -10,6 +10,15 @@ struct TagMonoid {
     path_ix: u32,
 }
 
+struct TagMonoidAtomic {
+    trans_ix: atomic<u32>,
+    // TODO: I don't think pathseg_ix is used.
+    pathseg_ix: atomic<u32>,
+    pathseg_offset: atomic<u32>,
+    style_ix: atomic<u32>,
+    path_ix: atomic<u32>,
+}
+
 let PATH_TAG_SEG_TYPE = 3u;
 let PATH_TAG_LINETO = 1u;
 let PATH_TAG_QUADTO = 2u;

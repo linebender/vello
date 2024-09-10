@@ -334,8 +334,7 @@ impl<T: Sized> PartialOrd for BufferSize<T> {
 pub struct BufferSizes {
     // Known size buffers
     pub path_reduced: BufferSize<PathMonoid>,
-    pub path_reduced2: BufferSize<PathMonoid>,
-    pub path_reduced_scan: BufferSize<PathMonoid>,
+    pub path_scan_bump: BufferSize<u32>,
     pub path_monoids: BufferSize<PathMonoid>,
     pub path_bboxes: BufferSize<PathBbox>,
     pub draw_reduced: BufferSize<DrawMonoid>,
@@ -372,8 +371,7 @@ impl BufferSizes {
             path_tag_wgs
         };
         let path_reduced = BufferSize::new(reduced_size);
-        let path_reduced2 = BufferSize::new(PATH_REDUCE_WG);
-        let path_reduced_scan = BufferSize::new(reduced_size);
+        let path_scan_bump = BufferSize::new(1);
         let path_monoids = BufferSize::new(path_tag_wgs * PATH_REDUCE_WG);
         let path_bboxes = BufferSize::new(n_paths);
         let binning_wgs = workgroups.binning.0;
@@ -405,8 +403,7 @@ impl BufferSizes {
         let ptcl = BufferSize::new(1 << 23);
         Self {
             path_reduced,
-            path_reduced2,
-            path_reduced_scan,
+            path_scan_bump,
             path_monoids,
             path_bboxes,
             draw_reduced,

@@ -179,6 +179,7 @@ impl Render {
             packed.resize(size_of::<u32>(), u8::MAX);
         }
         let scene_buf = ResourceProxy::Buffer(recording.upload("scene", packed));
+
         let config_buf = ResourceProxy::Buffer(
             recording.upload_uniform("config", bytemuck::bytes_of(&cpu_config.gpu)),
         );
@@ -191,61 +192,30 @@ impl Render {
         let segments_buf =
             ResourceProxy::new_buf(buffer_sizes.segments.size_in_bytes().into(), "segments_buf");
         let ptcl_buf = ResourceProxy::new_buf(buffer_sizes.ptcl.size_in_bytes().into(), "ptcl_buf");
-        let reduced_buf = ResourceProxy::new_buf(
-            buffer_sizes.path_reduced.size_in_bytes().into(),
-            "reduced_buf",
-        );
-        // TODO: really only need pathtag_wgs - 1
-        recording.dispatch(
-            shaders.pathtag_reduce,
-            wg_counts.path_reduce,
-            [config_buf, scene_buf, reduced_buf],
-        );
-        let mut pathtag_parent = reduced_buf;
-        let mut large_pathtag_bufs = None;
-        let use_large_path_scan = wg_counts.use_large_path_scan && !shaders.pathtag_is_cpu;
-        if use_large_path_scan {
-            let reduced2_buf = ResourceProxy::new_buf(
-                buffer_sizes.path_reduced2.size_in_bytes().into(),
-                "reduced2_buf",
-            );
-            recording.dispatch(
-                shaders.pathtag_reduce2,
-                wg_counts.path_reduce2,
-                [reduced_buf, reduced2_buf],
-            );
-            let reduced_scan_buf = ResourceProxy::new_buf(
-                buffer_sizes.path_reduced_scan.size_in_bytes().into(),
-                "reduced_scan_buf",
-            );
-            recording.dispatch(
-                shaders.pathtag_scan1,
-                wg_counts.path_scan1,
-                [reduced_buf, reduced2_buf, reduced_scan_buf],
-            );
-            pathtag_parent = reduced_scan_buf;
-            large_pathtag_bufs = Some((reduced2_buf, reduced_scan_buf));
-        }
-
+        
         let tagmonoid_buf = ResourceProxy::new_buf(
             buffer_sizes.path_monoids.size_in_bytes().into(),
             "tagmonoid_buf",
         );
-        let pathtag_scan = if use_large_path_scan {
-            shaders.pathtag_scan_large
-        } else {
-            shaders.pathtag_scan
-        };
+        let reduced_buf = BufferProxy::new(
+            buffer_sizes.path_reduced.size_in_bytes().into(),
+            "reduced_buf",
+        );
+        let path_scan_bump_buf = BufferProxy::new(
+            buffer_sizes.path_scan_bump.size_in_bytes().into(),
+            "bump_buf");
+        recording.clear_all(path_scan_bump_buf);
+        recording.clear_all(reduced_buf);
+        let path_scan_bump_buf = ResourceProxy::Buffer(path_scan_bump_buf);
+        let reduced_buf = ResourceProxy::Buffer(reduced_buf);
         recording.dispatch(
-            pathtag_scan,
+            shaders.pathtag_scan_csdldf,
             wg_counts.path_scan,
-            [config_buf, scene_buf, pathtag_parent, tagmonoid_buf],
+            [config_buf, scene_buf, reduced_buf, tagmonoid_buf, path_scan_bump_buf],
         );
         recording.free_resource(reduced_buf);
-        if let Some((reduced2, reduced_scan)) = large_pathtag_bufs {
-            recording.free_resource(reduced2);
-            recording.free_resource(reduced_scan);
-        }
+        recording.free_resource(path_scan_bump_buf);
+        
         let path_bbox_buf = ResourceProxy::new_buf(
             buffer_sizes.path_bboxes.size_in_bytes().into(),
             "path_bbox_buf",

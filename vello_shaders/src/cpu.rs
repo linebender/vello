@@ -25,8 +25,7 @@ mod path_count;
 mod path_count_setup;
 mod path_tiling;
 mod path_tiling_setup;
-mod pathtag_reduce;
-mod pathtag_scan;
+mod pathtag_scan_single;
 mod tile_alloc;
 mod util;
 
@@ -43,8 +42,7 @@ pub use path_count::path_count;
 pub use path_count_setup::path_count_setup;
 pub use path_tiling::path_tiling;
 pub use path_tiling_setup::path_tiling_setup;
-pub use pathtag_reduce::pathtag_reduce;
-pub use pathtag_scan::pathtag_scan;
+pub use pathtag_scan_single::pathtag_scan_single;
 pub use tile_alloc::tile_alloc;
 
 use std::cell::{Ref, RefCell, RefMut};
