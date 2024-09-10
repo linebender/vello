@@ -1,15 +1,15 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::VecDeque,
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
-        mpsc::{Receiver, RecvTimeoutError, Sender, TryRecvError},
+        atomic::{AtomicBool, Ordering},
+        mpsc::{Receiver, RecvTimeoutError, Sender},
         Arc,
     },
     time::{Duration, Instant},
 };
 
 use vello::Scene;
-use wgpu::{core::present, Buffer, SubmissionIndex, SurfaceTexture};
+use wgpu::{Buffer, SubmissionIndex, SurfaceTexture};
 
 /// Docs used to type out how this is being reasoned about.
 ///
@@ -155,18 +155,19 @@ pub struct VelloPacing {
     rx: Receiver<VelloControl>,
     queue: Arc<wgpu::Queue>,
     device: Arc<wgpu::Device>,
+    adapter: Arc<wgpu::Adapter>,
     surface: wgpu::Surface<'static>,
     /// Stats from previous frames, stored in a ring buffer (max capacity ~10?).
     stats: VecDeque<(FrameId, FrameStats)>,
     /// The refresh rate reported "by the system".
     refresh_rate: u64,
-    // TODO: Does this need a capacity of 2?
-    unmapped_download_buffer: Option<(Buffer, Arc<AtomicBool>)>,
+    mapped_unused_download_buffers: Vec<(Buffer, Arc<AtomicBool>)>,
+    // TODO: Smallvec?
+    unmapped_download_buffers: Vec<(Buffer, Arc<AtomicBool>)>,
     /// Details about the previous frame, which has already been presented.
     presenting_frame: Option<InFlightFrame>,
     /// Details about the frame whose work has been submitted to the.
     gpu_working_frame: Option<InFlightFrame>,
-    abandoned_frames: Vec<InFlightFrame>,
 }
 
 /// A sketch of the expected API.
@@ -210,23 +211,34 @@ impl VelloPacing {
                             self.paint_frame(request.scene, texture);
                             self.poll_frame();
                         }
-                        VelloControl::Stop => break,
+                        VelloControl::Stop => {
+                            // TODO:
+                            if let Some(mut old_frame) = self.gpu_working_frame.take() {
+                                // This frame will never be presented
+                                drop(old_frame.required_to_present.take());
+                            }
+                            // self.device.poll(wgpu::MaintainBase::Wait);
+                            // What do we need to be careful about dropping?
+                            // Do we need to run the GPU
+                            break;
+                        }
                         #[expect(
                             unreachable_code,
                             unused_variables,
                             reason = "We stub out the unused variables"
                         )]
                         VelloControl::Resize(request, (_, _), done) => {
+                            // Cancel the frame which hasn't been scheduled for presentation.
                             if let Some(mut old_frame) = self.gpu_working_frame.take() {
                                 // This frame will never be presented
                                 drop(old_frame.required_to_present.take());
-                                self.abandoned_frames.push(old_frame);
+                                self.abandon(old_frame);
                             }
                             // Make sure any easily detectable needed reallocation happens
                             // TODO: What do we want to do if:
                             // 1) The previous frame didn't succeed
                             // 2) We are trying to resize
-                            // Do we just draw a clear colour?
+                            // We choose not to address this presently, because it is a.
                             self.poll_frame();
                             // self.surface
                             //     .configure(&self.device, SurfaceConfiguration { width, height });
@@ -250,8 +262,6 @@ impl VelloPacing {
                     tracing::error!(
                         "The main thread has stopped without telling rendering to stop"
                     );
-                    // TODO: self.poll_frame();?
-                    // What do we need to be careful about dropping?
                     break;
                 }
                 Err(RecvTimeoutError::Timeout) => {
@@ -259,6 +269,32 @@ impl VelloPacing {
                 }
             }
             self.poll_frame();
+        }
+    }
+
+    fn abandon(&mut self, frame: InFlightFrame) {
+        // This is accurate since we never make a `Weak` for the `work_complete` buffers
+        // If that became untrue, the only risk is that the buffer and value would be dropped instead of unused.
+        if Arc::strong_count(&frame.work_complete) == 1 {
+            self.handle_completed_unmapped(frame.download_map_buffer, frame.work_complete)
+        } else {
+            self.mapped_unused_download_buffers
+                .push((frame.download_map_buffer, frame.work_complete));
+        }
+    }
+
+    fn handle_completed_unmapped(&mut self, buffer: Buffer, mut work_complete: Arc<AtomicBool>) {
+        if let Some(value) = Arc::get_mut(&mut work_complete) {
+            let value = value.get_mut();
+            if !*value {
+                tracing::error!("Tried to unmap buffer which was never assigned for mapping?");
+            } else {
+                buffer.unmap();
+            }
+            *value = false;
+            if self.unmapped_download_buffers.len() < 4 {
+                self.unmapped_download_buffers.push((buffer, work_complete));
+            }
         }
     }
 
@@ -317,8 +353,8 @@ impl VelloPacing {
                             },
                         ));
                     }
-                    self.unmapped_download_buffer =
-                        Some((presenting.download_map_buffer, presenting.work_complete));
+                    self.unmapped_download_buffers
+                        .push((presenting.download_map_buffer, presenting.work_complete));
                 } else {
                     unreachable!(
                         "Buffer mapping/work complete callback dropped without being called."
@@ -334,7 +370,10 @@ impl VelloPacing {
                 if failed {
                     // Then redo the paint; we know the previous attempted frame will have been cancalled, so won't be expensive.
                     // We choose to present here immediately, to minimise likely latency costs.
-                    self.paint_frame_inner(&scene, &texture);
+                    // We know that the.
+                    let new_inner = self.paint_frame_inner(&scene, &texture);
+                    let old_working = std::mem::replace(&mut working_frame, new_inner);
+                    self.abandon(old_working);
                 } else if working_frame.work_complete.load(Ordering::Relaxed) {
                     // I don't think there's actually anything interesting to do here, but might need to be reasoned about.
                 };
