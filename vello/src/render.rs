@@ -203,7 +203,7 @@ impl Render {
         );
         let path_scan_bump_buf = BufferProxy::new(
             buffer_sizes.path_scan_bump.size_in_bytes().into(),
-            "bump_buf");
+            "path_scan_bump_buf");
         recording.clear_all(path_scan_bump_buf);
         recording.clear_all(reduced_buf);
         let path_scan_bump_buf = ResourceProxy::Buffer(path_scan_bump_buf);
