@@ -162,8 +162,9 @@ pub struct VelloPacing {
     /// The refresh rate reported "by the system".
     refresh_rate: u64,
     mapped_unused_download_buffers: Vec<(Buffer, Arc<AtomicBool>)>,
+    mapped_unused_download_buffers_scratch: Vec<(Buffer, Arc<AtomicBool>)>,
     // TODO: Smallvec?
-    unmapped_download_buffers: Vec<(Buffer, Arc<AtomicBool>)>,
+    free_download_buffers: Vec<(Buffer, Arc<AtomicBool>)>,
     /// Details about the previous frame, which has already been presented.
     presenting_frame: Option<InFlightFrame>,
     /// Details about the frame whose work has been submitted to the.
@@ -276,25 +277,14 @@ impl VelloPacing {
         // This is accurate since we never make a `Weak` for the `work_complete` buffers
         // If that became untrue, the only risk is that the buffer and value would be dropped instead of reused.
         if Arc::strong_count(&frame.work_complete) == 1 {
-            self.handle_completed_unmapped(frame.download_map_buffer, frame.work_complete);
+            Self::handle_completed_mapping_finished(
+                &mut self.free_download_buffers,
+                frame.download_map_buffer,
+                frame.work_complete,
+            );
         } else {
             self.mapped_unused_download_buffers
                 .push((frame.download_map_buffer, frame.work_complete));
-        }
-    }
-
-    fn handle_completed_unmapped(&mut self, buffer: Buffer, mut work_complete: Arc<AtomicBool>) {
-        if let Some(value) = Arc::get_mut(&mut work_complete) {
-            let value = value.get_mut();
-            if !*value {
-                tracing::error!("Tried to unmap buffer which was never assigned for mapping?");
-            } else {
-                buffer.unmap();
-            }
-            *value = false;
-            if self.unmapped_download_buffers.len() < 4 {
-                self.unmapped_download_buffers.push((buffer, work_complete));
-            }
         }
     }
 
@@ -329,16 +319,18 @@ impl VelloPacing {
                         .expect("We know this value is present");
 
                     {
-                        let value = presenting.download_map_buffer.slice(..).get_mapped_range();
-                        eprintln!("Downloaded: {value:?}");
-                        presenting.download_map_buffer.unmap();
-                        // Will be calculated from `value`, as part of https://github.com/linebender/vello/pull/606
+                        let map_result =
+                            presenting.download_map_buffer.slice(..).get_mapped_range();
+                        eprintln!("Downloaded: {map_result:?}");
+                        // Will be calculated from `map_result`, as part of https://github.com/linebender/vello/pull/606
                         failed = false;
                         if failed {
                             // Perform reallocation. Will be part of https://github.com/linebender/vello/pull/606.
                         }
                         // The time which we should not present before.
-                        // If `value` indicates we really badly overflowed, then this will be later than otherwise expected.
+                        // If `map_result` indicates we really badly overflowed the available time,
+                        // then this will be later than otherwise expected, to avoid a stutter.
+                        // See https://developer.android.com/games/sdk/frame-pacing
                         desired_present_time = None;
                         self.stats.push_back((
                             presenting.id,
@@ -353,15 +345,18 @@ impl VelloPacing {
                             },
                         ));
                     }
-                    self.unmapped_download_buffers
-                        .push((presenting.download_map_buffer, presenting.work_complete));
+                    Self::handle_completed_mapping_finished(
+                        &mut self.free_download_buffers,
+                        presenting.download_map_buffer,
+                        presenting.work_complete,
+                    );
                 } else {
                     unreachable!(
                         "Buffer mapping/work complete callback dropped without being called."
                     )
                 }
             } else {
-                // Probably nothing to do?
+                // The presenting frame's work isn't complete. Probably nothing to do?
             }
         }
         if self.presenting_frame.is_none() {
@@ -414,11 +409,51 @@ impl VelloPacing {
                 self.presenting_frame = Some(working_frame);
             }
         }
+        assert!(self.mapped_unused_download_buffers_scratch.is_empty());
+        for (buffer, work_complete) in self.mapped_unused_download_buffers.drain(..) {
+            // We know that the `work_complete` will not change again.
+            if Arc::strong_count(&work_complete) == 1 {
+                Self::handle_completed_mapping_finished(
+                    &mut self.free_download_buffers,
+                    buffer,
+                    work_complete,
+                );
+            } else {
+                self.mapped_unused_download_buffers_scratch
+                    .push((buffer, work_complete));
+            }
+        }
+        std::mem::swap(
+            &mut self.mapped_unused_download_buffers_scratch,
+            &mut self.mapped_unused_download_buffers,
+        );
     }
 
-    // fn presented_frame_status(&self) -> FrameStatus {}
     fn frame_in_flight(&self) -> bool {
         self.gpu_working_frame.is_some()
+    }
+
+    /// Handle a completed buffer mapping for reuse.
+    /// `buffer` should be finished with, but mapped.
+    ///
+    /// Associated function for borrow checker purposes
+    fn handle_completed_mapping_finished(
+        unmapped_download_buffers: &mut Vec<(Buffer, Arc<AtomicBool>)>,
+        buffer: Buffer,
+        mut work_complete: Arc<AtomicBool>,
+    ) {
+        if let Some(value) = Arc::get_mut(&mut work_complete) {
+            let value = value.get_mut();
+            if !*value {
+                tracing::error!("Tried to unmap buffer which was never assigned for mapping?");
+            } else {
+                buffer.unmap();
+            }
+            *value = false;
+            if unmapped_download_buffers.len() < 4 {
+                unmapped_download_buffers.push((buffer, work_complete));
+            }
+        }
     }
 }
 
