@@ -595,6 +595,24 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
         }
     }
 
+    fn about_to_wait(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop) {
+        self.touch_state.end_frame();
+        let touch_info = self.touch_state.info();
+        if let Some(touch_info) = touch_info {
+            let centre = Vec2::new(touch_info.zoom_centre.x, touch_info.zoom_centre.y);
+            self.transform = Affine::translate(touch_info.translation_delta)
+                * Affine::translate(centre)
+                * Affine::scale(touch_info.zoom_delta)
+                * Affine::rotate(touch_info.rotation_delta)
+                * Affine::translate(-centre)
+                * self.transform;
+        }
+
+        if let Some(render_state) = &mut self.state {
+            render_state.window.request_redraw();
+        }
+    }
+
     fn user_event(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop, event: UserEvent) {
         match event {
             #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]

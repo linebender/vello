@@ -112,7 +112,6 @@ impl<'s> ApplicationHandler for SimpleVelloApp<'s> {
 
             // This is where all the rendering happens
             WindowEvent::RedrawRequested => {
-
                 // Empty the scene of objects to draw. You could create a new Scene each time, but in this case
                 // the same Scene is reused so that the underlying memory allocation can also be reused.
                 self.scene.reset();
