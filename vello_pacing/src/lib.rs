@@ -274,9 +274,9 @@ impl VelloPacing {
 
     fn abandon(&mut self, frame: InFlightFrame) {
         // This is accurate since we never make a `Weak` for the `work_complete` buffers
-        // If that became untrue, the only risk is that the buffer and value would be dropped instead of unused.
+        // If that became untrue, the only risk is that the buffer and value would be dropped instead of reused.
         if Arc::strong_count(&frame.work_complete) == 1 {
-            self.handle_completed_unmapped(frame.download_map_buffer, frame.work_complete)
+            self.handle_completed_unmapped(frame.download_map_buffer, frame.work_complete);
         } else {
             self.mapped_unused_download_buffers
                 .push((frame.download_map_buffer, frame.work_complete));
@@ -386,6 +386,7 @@ impl VelloPacing {
                         .or_else(|| Some(self.stats.front()?.1.estimated_present))
                 {
                     swc = unsafe {
+                        // SAFETY: We do not "manually drop" the raw handle, i.e. call "vkDestroySurfaceKHR"
                         self.surface
                             .as_hal::<wgpu::hal::vulkan::Api, _, _>(|surface| {
                                 if let Some(surface) = surface {
