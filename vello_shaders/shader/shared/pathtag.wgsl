@@ -10,15 +10,6 @@ struct TagMonoid {
     path_ix: u32,
 }
 
-struct TagMonoidAtomic {
-    trans_ix: atomic<u32>,
-    // TODO: I don't think pathseg_ix is used.
-    pathseg_ix: atomic<u32>,
-    pathseg_offset: atomic<u32>,
-    style_ix: atomic<u32>,
-    path_ix: atomic<u32>,
-}
-
 let PATH_TAG_SEG_TYPE = 3u;
 let PATH_TAG_LINETO = 1u;
 let PATH_TAG_QUADTO = 2u;
@@ -76,5 +67,21 @@ fn reduce_tag(tag_word: u32) -> TagMonoid {
     c.pathseg_offset = a & 0xffu;
     c.path_ix = countOneBits(tag_word & (PATH_TAG_PATH * 0x1010101u));
     c.style_ix = countOneBits(tag_word & (PATH_TAG_STYLE * 0x1010101u)) * STYLE_SIZE_IN_WORDS;
+    return c;
+}
+
+//An alternate version for the scan, using array<u32, 5> instead of TagMonoid
+fn reduce_tag_arr(tag_word: u32) -> array<u32, 5> {
+    var c: array<u32, 5>;
+    let point_count = tag_word & 0x3030303u;
+    c[1] = countOneBits((point_count * 7u) & 0x4040404u);
+    c[0] = countOneBits(tag_word & (PATH_TAG_TRANSFORM * 0x1010101u));
+    let n_points = point_count + ((tag_word >> 2u) & 0x1010101u);
+    var a = n_points + (n_points & (((tag_word >> 3u) & 0x1010101u) * 15u));
+    a += a >> 8u;
+    a += a >> 16u;
+    c[2] = a & 0xffu;
+    c[4] = countOneBits(tag_word & (PATH_TAG_PATH * 0x1010101u));
+    c[3] = countOneBits(tag_word & (PATH_TAG_STYLE * 0x1010101u)) * STYLE_SIZE_IN_WORDS;
     return c;
 }
