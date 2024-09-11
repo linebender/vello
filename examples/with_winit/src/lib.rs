@@ -167,7 +167,7 @@ struct VelloApp<'s> {
 
 impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
     #[cfg(target_arch = "wasm32")]
-    fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {}
+    fn resumed(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop) {}
 
     #[cfg(not(target_arch = "wasm32"))]
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
