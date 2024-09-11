@@ -11,7 +11,7 @@ use vello::{AaConfig, DebugLayers, Renderer, RendererOptions, Scene};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::event::*;
-use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::Window;
 
 use vello::wgpu;
@@ -74,8 +74,6 @@ impl<'s> ApplicationHandler for SimpleVelloApp<'s> {
 
         // Save the Window and Surface to a state variable
         self.state = RenderState::Active(ActiveRenderState { window, surface });
-
-        event_loop.set_control_flow(ControlFlow::Wait);
     }
 
     fn suspended(&mut self, _event_loop: &ActiveEventLoop) {

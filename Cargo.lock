@@ -3410,11 +3410,3 @@ checksum = "ec866b44a2a1fd6133d363f073ca1b179f438f99e7e5bfb1e33f7181facfe448"
 dependencies = [
  "zune-core",
 ]
-
-[[patch.unused]]
-name = "bevy"
-version = "0.15.0-dev"
-
-[[patch.unused]]
-name = "bevy_vello"
-version = "0.5.1"

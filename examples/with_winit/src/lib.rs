@@ -14,7 +14,6 @@ use std::time::Instant;
 use web_time::Instant;
 use winit::application::ApplicationHandler;
 use winit::event::*;
-use winit::event_loop::ControlFlow;
 use winit::keyboard::*;
 
 #[cfg(all(feature = "wgpu-profiler", not(target_arch = "wasm32")))]
@@ -168,9 +167,7 @@ struct VelloApp<'s> {
 
 impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
     #[cfg(target_arch = "wasm32")]
-    fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
-        event_loop.set_control_flow(ControlFlow::Wait);
-    }
+    fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {}
 
     #[cfg(not(target_arch = "wasm32"))]
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
@@ -228,8 +225,6 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
             });
             Some(render_state)
         };
-
-        event_loop.set_control_flow(ControlFlow::Wait);
     }
 
     fn window_event(
