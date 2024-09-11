@@ -14,7 +14,6 @@ use std::time::Instant;
 use web_time::Instant;
 use winit::application::ApplicationHandler;
 use winit::event::*;
-use winit::event_loop::ControlFlow;
 use winit::keyboard::*;
 
 #[cfg(all(feature = "wgpu-profiler", not(target_arch = "wasm32")))]
@@ -226,7 +225,6 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
             });
             Some(render_state)
         };
-        event_loop.set_control_flow(ControlFlow::Poll);
     }
 
     fn window_event(
@@ -443,6 +441,8 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
                 let _rendering_span = tracing::trace_span!("Actioning Requested Redraw").entered();
                 let encoding_span = tracing::trace_span!("Encoding scene").entered();
 
+                render_state.window.request_redraw();
+
                 let Some(RenderState { surface, window }) = &self.state else {
                     return;
                 };
@@ -633,14 +633,13 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
         }
     }
 
-    fn suspended(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+    fn suspended(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop) {
         log::info!("Suspending");
         #[cfg(not(target_arch = "wasm32"))]
         // When we suspend, we need to remove the `wgpu` Surface
         if let Some(render_state) = self.state.take() {
             self.cached_window = Some(render_state.window);
         }
-        event_loop.set_control_flow(ControlFlow::Wait);
     }
 }
 
