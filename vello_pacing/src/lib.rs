@@ -155,6 +155,7 @@ pub struct VelloPacing {
     rx: Receiver<VelloControl>,
     queue: Arc<wgpu::Queue>,
     device: Arc<wgpu::Device>,
+    google_display_timing_ext_devices: Vec<Option<ash::google::display_timing::Device>>,
     adapter: Arc<wgpu::Adapter>,
     surface: wgpu::Surface<'static>,
     /// Stats from previous frames, stored in a ring buffer (max capacity ~10?).
@@ -248,6 +249,9 @@ impl VelloPacing {
                             let texture = self.surface.get_current_texture().unwrap();
                             let frame = self.paint_frame_inner(&request.scene, &texture);
                             texture.present();
+                            if let Some(old_presenting) = self.presenting_frame.take() {
+                                self.abandon(old_presenting);
+                            }
                             // TODO: Maybe: self.abandoned_frames.extend(self.presenting_frame.take());
                             self.presenting_frame = Some(frame);
                             if let Err(e) = done.send(request.frame) {
