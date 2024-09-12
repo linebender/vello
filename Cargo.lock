@@ -2943,9 +2943,9 @@ dependencies = [
 
 [[package]]
 name = "wgpu-profiler"
-version = "0.18.0"
+version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "111850b8b96db7f12f310e20d9f16ad2d18a0c8ac8493e434441d1dfb288c6bf"
+checksum = "bb9c0c8c123e8772c9b44a1ca04a9549929654bb3f86a6f4b4ed2d5559f6027d"
 dependencies = [
  "parking_lot",
  "thiserror",
