@@ -8,10 +8,16 @@ publish = false
 [lints]
 workspace = true
 
+[features]
+sdl2 = ["dep:sdl2"]
+
 # The dependencies here are independent from the workspace versions
 [dependencies]
 # When using this example outside of the original Vello workspace,
 # remove the path property of the following Vello dependency requirement.
 vello = { version = "0.2.0", path = "../../vello" }
 pollster = "0.3.0"
-sdl2 = { version = "0.37.0", features = ["raw-window-handle", "bundled"] }
+sdl2 = { version = "0.37.0", features = [
+    "raw-window-handle",
+    "bundled",
+], optional = true }
