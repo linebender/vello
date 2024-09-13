@@ -1,3 +1,5 @@
+#![deny(unsafe_op_in_unsafe_fn)]
+
 use std::{
     collections::VecDeque,
     sync::{
@@ -9,7 +11,10 @@ use std::{
 };
 
 use vello::Scene;
-use wgpu::{Buffer, SubmissionIndex, SurfaceTexture};
+use wgpu::{
+    hal::vulkan, Buffer, Instance, SubmissionIndex, Surface, SurfaceConfiguration, SurfaceTarget,
+    SurfaceTexture, TextureFormat,
+};
 
 /// Docs used to type out how this is being reasoned about.
 ///
@@ -80,22 +85,124 @@ use wgpu::{Buffer, SubmissionIndex, SurfaceTexture};
 pub struct Thinking;
 
 pub struct FrameRenderRequest {
-    scene: vello::Scene,
-    frame: FrameId,
-    expected_present: u64,
+    pub scene: vello::Scene,
+    pub frame: FrameId,
+    pub expected_present: u64,
     // In general, if touch is held, will need the next frame.
-    needs_next_frame: bool, // TODO: No, LatencyOptimised, ConsistencyOptimised?
-    present_immediately: bool,
-    paint_start: Instant,
+    pub needs_next_frame: bool, // TODO: No, LatencyOptimised, ConsistencyOptimised?
+    pub present_immediately: bool,
+    pub paint_start: Instant,
 }
 
-pub struct FrameStats {
+pub enum VelloControl {
+    Frame(FrameRenderRequest),
+    /// A resize request. This might skip rendering a previous frame
+    /// if it arrives before that frame is presented.
+    ///
+    /// The second parameter is (width, height).
+    Resize(FrameRenderRequest, (u32, u32), Sender<FrameId>),
+}
+
+pub struct VelloPacingConfiguration {
+    queue: Arc<wgpu::Queue>,
+    device: Arc<wgpu::Device>,
+    surface: Surface<'static>,
+    adapter: Arc<wgpu::Adapter>,
+    config: SurfaceConfiguration,
+}
+
+pub fn launch(
+    instance: &wgpu::Instance,
+    mut params: VelloPacingConfiguration,
+) -> Sender<VelloControl> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let display_timing = if params
+        .device
+        .features()
+        .contains(wgpu::Features::VULKAN_GOOGLE_DISPLAY_TIMING)
+    {
+        unsafe {
+            params
+                .device
+                // Safety:
+                // We do not destroy the device handle we are given.
+                .as_hal::<vulkan::Api, _, _>(|device| {
+                    let device = device?;
+                    // Safety:
+                    // We do not destroy the instance we are given.
+                    let instance = instance.as_hal::<vulkan::Api>()?;
+                    Some(ash::google::display_timing::Device::new(
+                        instance.shared_instance().raw_instance(),
+                        device.raw_device(),
+                    ))
+                })
+                .flatten()
+        }
+    } else {
+        None
+    };
+    // Ensure that the surface is compatible with this device.
+    params.surface.configure(&params.device, &params.config);
+    let refresh_rate = display_timing
+        .as_ref()
+        .and_then(|display_timing| unsafe {
+            // Safety: We don't manually destroy the surface
+            params
+                .surface
+                .as_hal::<vulkan::Api, _, _>(|surface| {
+                    let surface = surface?;
+                    // Safety: We know the device and the swapchain are compatible, based on the above configure
+                    Some(
+                        display_timing
+                            .get_refresh_cycle_duration(surface.raw_swapchain()?)
+                            .ok()?
+                            .refresh_duration,
+                    )
+                })
+                .flatten()
+        })
+        .unwrap_or(0);
+
+    let pacing = VelloPacing {
+        rx,
+        queue: params.queue,
+        device: params.device,
+        google_display_timing_ext_device: display_timing,
+        adapter: params.adapter,
+        surface: params.surface,
+        surface_config: params.config,
+        stats: Default::default(),
+        refresh_rate,
+        mapped_unused_download_buffers: Default::default(),
+        mapped_unused_download_buffers_scratch: Default::default(),
+        free_download_buffers: Default::default(),
+        presenting_frame: None,
+        gpu_working_frame: None,
+    };
+    pacing.start();
+    tx
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct FrameId(u32);
+
+impl FrameId {
+    pub fn next(self) -> Self {
+        Self(self.0.wrapping_add(1))
+    }
+
+    pub fn raw(self) -> u32 {
+        self.0
+    }
+}
+
+struct FrameStats {
     /// When the rendering work started on the GPU, in nanoseconds.
     ///
     /// Used to estimate how long frames are taking to render, to get
     /// faster feedback on whether we should request a slower (or faster) display mode.
-    /// (We choose to be more conservative in requesting a faster display mode, but
-    /// act quickly on requesting a slower one.)
+    /// (We might choose to be more conservative in requesting a faster display mode, but
+    /// act quickly on requesting a slower one?)
     render_start: u64,
     /// When the rendering work finished on the GPU, in nanoseconds.
     ///
@@ -128,36 +235,30 @@ pub struct FrameStats {
     presentation_time: Option<ash::vk::PastPresentationTimingGOOGLE>,
 }
 
-pub struct InFlightStatus {}
-
-pub struct InFlightFrame {
+struct InFlightFrame {
     download_map_buffer: Buffer,
     work_complete: Arc<AtomicBool>,
     paint_start: Instant,
     id: FrameId,
     submission_index: SubmissionIndex,
+    width: u32,
+    height: u32,
     /// Information needed to perform a presentation, and not before.
     required_to_present: Option<(SurfaceTexture, Scene)>,
     estimated_present: u64,
     next_frame_expected: bool,
 }
 
-pub enum VelloControl {
-    Frame(FrameRenderRequest),
-    Stop,
-    /// A resize request. This might skip rendering a previous frame
-    /// if it arrives before that frame is presented.
-    Resize(FrameRenderRequest, (u32, u32), Sender<FrameId>),
-}
-
 /// The state of the frame pacing controller thread.
-pub struct VelloPacing {
+struct VelloPacing {
     rx: Receiver<VelloControl>,
     queue: Arc<wgpu::Queue>,
     device: Arc<wgpu::Device>,
-    google_display_timing_ext_devices: Vec<Option<ash::google::display_timing::Device>>,
     adapter: Arc<wgpu::Adapter>,
     surface: wgpu::Surface<'static>,
+
+    google_display_timing_ext_device: Option<ash::google::display_timing::Device>,
+    surface_config: SurfaceConfiguration,
     /// Stats from previous frames, stored in a ring buffer (max capacity ~10?).
     stats: VecDeque<(FrameId, FrameStats)>,
     /// The refresh rate reported "by the system".
@@ -168,31 +269,15 @@ pub struct VelloPacing {
     free_download_buffers: Vec<(Buffer, Arc<AtomicBool>)>,
     /// Details about the previous frame, which has already been presented.
     presenting_frame: Option<InFlightFrame>,
-    /// Details about the frame whose work has been submitted to the.
+    /// Details about the frame whose work has been submitted to the GPU, but not yet presented.
     gpu_working_frame: Option<InFlightFrame>,
 }
 
 /// A sketch of the expected API.
 impl VelloPacing {
-    pub fn new() -> Self {
-        todo!()
-    }
-
-    pub fn launch(self) {
+    fn start(self) {
         std::thread::spawn(move || self.run());
     }
-
-    /// Run a rendering task until presentation. Useful on macOS for resizing.
-    pub fn present_synchronously(&mut self) {
-        let token: () = self.present_immediately();
-        self.wait_on_present(token);
-    }
-
-    pub fn present_immediately(&mut self) {}
-
-    fn wait_on_present(&mut self, (): ()) {}
-
-    pub fn stop(&mut self) {}
 
     fn run(mut self) {
         loop {
@@ -213,23 +298,7 @@ impl VelloPacing {
                             self.paint_frame(request.scene, texture);
                             self.poll_frame();
                         }
-                        VelloControl::Stop => {
-                            // TODO:
-                            if let Some(mut old_frame) = self.gpu_working_frame.take() {
-                                // This frame will never be presented
-                                drop(old_frame.required_to_present.take());
-                            }
-                            // self.device.poll(wgpu::MaintainBase::Wait);
-                            // What do we need to be careful about dropping?
-                            // Do we need to run the GPU
-                            break;
-                        }
-                        #[expect(
-                            unreachable_code,
-                            unused_variables,
-                            reason = "We stub out the unused variables"
-                        )]
-                        VelloControl::Resize(request, (_, _), done) => {
+                        VelloControl::Resize(request, (width, height), done) => {
                             // Cancel the frame which hasn't been scheduled for presentation.
                             if let Some(mut old_frame) = self.gpu_working_frame.take() {
                                 // This frame will never be presented
@@ -241,18 +310,16 @@ impl VelloPacing {
                             // 1) The previous frame didn't succeed
                             // 2) We are trying to resize
                             // We choose not to address this presently, because it is a.
-                            self.poll_frame();
-                            // self.surface
-                            //     .configure(&self.device, SurfaceConfiguration { width, height });
-                            unimplemented!();
+                            if let Some(old_presenting) = self.presenting_frame.take() {
+                                self.abandon(old_presenting);
+                            }
+                            self.surface_config.width = width;
+                            self.surface_config.height = height;
+                            self.surface.configure(&self.device, &self.surface_config);
 
                             let texture = self.surface.get_current_texture().unwrap();
                             let frame = self.paint_frame_inner(&request.scene, &texture);
                             texture.present();
-                            if let Some(old_presenting) = self.presenting_frame.take() {
-                                self.abandon(old_presenting);
-                            }
-                            // TODO: Maybe: self.abandoned_frames.extend(self.presenting_frame.take());
                             self.presenting_frame = Some(frame);
                             if let Err(e) = done.send(request.frame) {
                                 tracing::error!("Failed to send present result {e}");
@@ -263,10 +330,14 @@ impl VelloPacing {
                     continue;
                 }
                 Err(RecvTimeoutError::Disconnected) => {
-                    // TODO: Is this just the implicit stop command?
-                    tracing::error!(
-                        "The main thread has stopped without telling rendering to stop"
-                    );
+                    // TODO: Is this an error, or the right way to signal to stop rendering?
+                    if let Some(mut old_frame) = self.gpu_working_frame.take() {
+                        // This frame will never be presented
+                        drop(old_frame.required_to_present.take());
+                    }
+                    // What do we need to be careful about dropping?
+                    // Do we need to run the GPU the completion?
+                    // self.device.poll(wgpu::MaintainBase::Wait);
                     break;
                 }
                 Err(RecvTimeoutError::Timeout) => {
@@ -331,7 +402,7 @@ impl VelloPacing {
                         if failed {
                             // Perform reallocation. Will be part of https://github.com/linebender/vello/pull/606.
                         }
-                        // The time which we should not present before.
+                        // The time which the "next" frame (the `gpu_working_frame`) should not present before.
                         // If `map_result` indicates we really badly overflowed the available time,
                         // then this will be later than otherwise expected, to avoid a stutter.
                         // See https://developer.android.com/games/sdk/frame-pacing
@@ -403,8 +474,46 @@ impl VelloPacing {
                     };
                 }
                 texture.present();
-                if let Some(_swc) = swc {
-                    // Load past present timing information
+                if let Some(swc) = swc {
+                    // We load the past present timing information, because the timings we get access to were updated
+                    // in response to `present`.
+                    // This is because https://android.googlesource.com/platform/frameworks/native/+/refs/heads/main/vulkan/libvulkan/swapchain.cpp#2394
+                    // is called inside `QueuePresentKHR`
+                    if let Some(device) = self.google_display_timing_ext_device.as_ref() {
+                        // Safety: We validated that the swapchain came from the same device.
+                        let timing_info = unsafe { device.get_past_presentation_timing(swc) };
+                        match timing_info {
+                            Ok(timing_info) => {
+                                'outer: for info in timing_info {
+                                    for (frame_id, stats) in &mut self.stats {
+                                        if frame_id.0 == info.present_id {
+                                            // TODO: Can there be multiple of these for the same present id?
+                                            stats.presentation_time = Some(info);
+                                            continue 'outer;
+                                        }
+                                    }
+                                    // TODO: This would be possible if we clear out items which are too old, in additional to those which are too far behind.
+                                    if false {
+                                        // Maybe we should warn once here?
+                                        tracing::warn!(
+                                            "Got present timing information for unknown frame '{}'",
+                                            info.present_id
+                                        );
+                                    }
+                                }
+                            }
+                            // All the possible errors are pretty fatal
+                            Err(err) => tracing::error!(
+                                "Got {err} whilst trying to get presentation timing results"
+                            ),
+                        }
+                        // Safety: We validated that the swapchain came from the same device.
+                        let refresh_rate = unsafe { device.get_refresh_cycle_duration(swc) };
+                        self.refresh_rate = refresh_rate
+                            .ok()
+                            .map(|it| it.refresh_duration)
+                            .unwrap_or(self.refresh_rate);
+                    }
                 }
                 if working_frame.next_frame_expected {
                     // Do the maths for when we should ask the main thread for the next frame
@@ -458,24 +567,5 @@ impl VelloPacing {
                 unmapped_download_buffers.push((buffer, work_complete));
             }
         }
-    }
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub struct FrameId(u32);
-
-impl FrameId {
-    pub fn next(self) -> Self {
-        Self(self.0.wrapping_add(1))
-    }
-
-    pub fn raw(self) -> u32 {
-        self.0
-    }
-}
-
-impl Default for VelloPacing {
-    fn default() -> Self {
-        Self::new()
     }
 }
