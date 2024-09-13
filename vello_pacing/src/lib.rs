@@ -1,3 +1,5 @@
+#![deny(unsafe_op_in_unsafe_fn)]
+
 use std::{
     collections::VecDeque,
     sync::{
@@ -9,7 +11,10 @@ use std::{
 };
 
 use vello::Scene;
-use wgpu::{Buffer, SubmissionIndex, SurfaceTexture};
+use wgpu::{
+    hal::vulkan, Buffer, Instance, SubmissionIndex, Surface, SurfaceConfiguration, SurfaceTarget,
+    SurfaceTexture,
+};
 
 /// Docs used to type out how this is being reasoned about.
 ///
@@ -150,14 +155,23 @@ pub enum VelloControl {
     Resize(FrameRenderRequest, (u32, u32), Sender<FrameId>),
 }
 
+pub struct VelloPacingConfiguration {
+    queue: Arc<wgpu::Queue>,
+    device: Arc<wgpu::Device>,
+    window: Surface<'static>,
+    adapter: Arc<wgpu::Adapter>,
+}
+
 /// The state of the frame pacing controller thread.
 pub struct VelloPacing {
     rx: Receiver<VelloControl>,
     queue: Arc<wgpu::Queue>,
     device: Arc<wgpu::Device>,
-    google_display_timing_ext_devices: Vec<Option<ash::google::display_timing::Device>>,
     adapter: Arc<wgpu::Adapter>,
     surface: wgpu::Surface<'static>,
+
+    google_display_timing_ext_device: Option<ash::google::display_timing::Device>,
+    config: SurfaceConfiguration,
     /// Stats from previous frames, stored in a ring buffer (max capacity ~10?).
     stats: VecDeque<(FrameId, FrameStats)>,
     /// The refresh rate reported "by the system".
@@ -174,8 +188,53 @@ pub struct VelloPacing {
 
 /// A sketch of the expected API.
 impl VelloPacing {
-    pub fn new() -> Self {
-        todo!()
+    pub fn new(
+        instance: &wgpu::Instance,
+        params: VelloPacingConfiguration,
+    ) -> Sender<VelloControl> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let display_timing = if params
+            .device
+            .features()
+            .contains(wgpu::Features::VULKAN_GOOGLE_DISPLAY_TIMING)
+        {
+            unsafe {
+                params
+                    .device
+                    // Safety:
+                    // We do not destroy the device handle we are given.
+                    .as_hal::<vulkan::Api, _, _>(|device| {
+                        let device = device?;
+                        // Safety:
+                        // We do not destroy the instance we are given.
+                        let instance = instance.as_hal::<vulkan::Api>()?;
+                        Some(ash::google::display_timing::Device::new(
+                            instance.shared_instance().raw_instance(),
+                            device.raw_device(),
+                        ))
+                    })
+                    .flatten()
+            }
+        } else {
+            None
+        };
+        let this = Self {
+            rx,
+            queue: params.queue,
+            device: params.device,
+            google_display_timing_ext_device: todo!(),
+            adapter: params.adapter,
+            surface: todo!(),
+            config: todo!(),
+            stats: todo!(),
+            refresh_rate: todo!(),
+            mapped_unused_download_buffers: todo!(),
+            mapped_unused_download_buffers_scratch: todo!(),
+            free_download_buffers: todo!(),
+            presenting_frame: todo!(),
+            gpu_working_frame: todo!(),
+        };
+        tx
     }
 
     pub fn launch(self) {
@@ -219,9 +278,9 @@ impl VelloPacing {
                                 // This frame will never be presented
                                 drop(old_frame.required_to_present.take());
                             }
-                            // self.device.poll(wgpu::MaintainBase::Wait);
                             // What do we need to be careful about dropping?
-                            // Do we need to run the GPU
+                            // Do we need to run the GPU the completion?
+                            // self.device.poll(wgpu::MaintainBase::Wait);
                             break;
                         }
                         #[expect(
