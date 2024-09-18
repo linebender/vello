@@ -1,7 +1,7 @@
 [package]
 name = "vello"
 version.workspace = true
-description = "An experimental GPU compute-centric 2D renderer."
+description = "A GPU compute-centric 2D renderer."
 categories = ["rendering", "graphics"]
 keywords = ["2d", "vector-graphics"]
 edition.workspace = true
