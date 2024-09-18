@@ -201,8 +201,8 @@ struct FrameStats {
     ///
     /// Used to estimate how long frames are taking to render, to get
     /// faster feedback on whether we should request a slower (or faster) display mode.
-    /// (We choose to be more conservative in requesting a faster display mode, but
-    /// act quickly on requesting a slower one.)
+    /// (We might choose to be more conservative in requesting a faster display mode, but
+    /// act quickly on requesting a slower one?)
     render_start: u64,
     /// When the rendering work finished on the GPU, in nanoseconds.
     ///
@@ -269,7 +269,7 @@ struct VelloPacing {
     free_download_buffers: Vec<(Buffer, Arc<AtomicBool>)>,
     /// Details about the previous frame, which has already been presented.
     presenting_frame: Option<InFlightFrame>,
-    /// Details about the frame whose work has been submitted to the.
+    /// Details about the frame whose work has been submitted to the GPU, but not yet presented.
     gpu_working_frame: Option<InFlightFrame>,
 }
 
@@ -402,7 +402,7 @@ impl VelloPacing {
                         if failed {
                             // Perform reallocation. Will be part of https://github.com/linebender/vello/pull/606.
                         }
-                        // The time which we should not present before.
+                        // The time which the "next" frame (the `gpu_working_frame`) should not present before.
                         // If `map_result` indicates we really badly overflowed the available time,
                         // then this will be later than otherwise expected, to avoid a stutter.
                         // See https://developer.android.com/games/sdk/frame-pacing
@@ -474,9 +474,46 @@ impl VelloPacing {
                     };
                 }
                 texture.present();
-                if let Some(_swc) = swc {
-                    // Load past present timing information, because the timings we get access to were updated
+                if let Some(swc) = swc {
+                    // We load the past present timing information, because the timings we get access to were updated
                     // in response to `present`.
+                    // This is because https://android.googlesource.com/platform/frameworks/native/+/refs/heads/main/vulkan/libvulkan/swapchain.cpp#2394
+                    // is called inside `QueuePresentKHR`
+                    if let Some(device) = self.google_display_timing_ext_device.as_ref() {
+                        // Safety: We validated that the swapchain came from the same device.
+                        let timing_info = unsafe { device.get_past_presentation_timing(swc) };
+                        match timing_info {
+                            Ok(timing_info) => {
+                                'outer: for info in timing_info {
+                                    for (frame_id, stats) in &mut self.stats {
+                                        if frame_id.0 == info.present_id {
+                                            // TODO: Can there be multiple of these for the same present id?
+                                            stats.presentation_time = Some(info);
+                                            continue 'outer;
+                                        }
+                                    }
+                                    // TODO: This would be possible if we clear out items which are too old, in additional to those which are too far behind.
+                                    if false {
+                                        // Maybe we should warn once here?
+                                        tracing::warn!(
+                                            "Got present timing information for unknown frame '{}'",
+                                            info.present_id
+                                        );
+                                    }
+                                }
+                            }
+                            // All the possible errors are pretty fatal
+                            Err(err) => tracing::error!(
+                                "Got {err} whilst trying to get presentation timing results"
+                            ),
+                        }
+                        // Safety: We validated that the swapchain came from the same device.
+                        let refresh_rate = unsafe { device.get_refresh_cycle_duration(swc) };
+                        self.refresh_rate = refresh_rate
+                            .ok()
+                            .map(|it| it.refresh_duration)
+                            .unwrap_or(self.refresh_rate);
+                    }
                 }
                 if working_frame.next_frame_expected {
                     // Do the maths for when we should ask the main thread for the next frame
