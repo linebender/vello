@@ -97,7 +97,7 @@ pub(crate) fn full_shaders(
     let pathtag_scan_csdldf = add_shader!(
         pathtag_scan_csdldf,
         [Uniform, BufReadOnly, Buffer, Buffer, Buffer],
-        CpuShaderType::Present(vello_shaders::cpu::pathtag_scan_single)
+        CpuShaderType::Present(vello_shaders::cpu::pathtag_scan)
     );
 
     let bbox_clear = add_shader!(bbox_clear, [Uniform, Buffer]);

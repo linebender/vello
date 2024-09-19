@@ -17,7 +17,7 @@ var<storage, read_write> reduced: array<array<atomic<u32>, 5>>;
 var<storage, read_write> tag_monoids: array<array<u32, 5>>;
 
 @group(0) @binding(4)
-var<storage, read_write> scan_bump: array<atomic<u32>>;
+var<storage, read_write> scan_bump: atomic<u32>;
 
 //Workgroup info
 let LG_WG_SIZE = 8u;
@@ -53,11 +53,11 @@ fn attempt_lookback(
 ){
     let payload: u32 = atomicLoad(&reduced[lookback_ix][member_ix]);
     let flag_value: u32 = payload & FLAG_MASK;
-    if(flag_value == FLAG_REDUCTION){
+    if flag_value == FLAG_REDUCTION {
         *spin_count = 0u;
         *prev += payload >> 2u;
         *reduction_complete = true;
-    } else if (flag_value == FLAG_INCLUSIVE){
+    } else if flag_value == FLAG_INCLUSIVE {
         *spin_count = 0u;
         *prev += payload >> 2u;
         atomicStore(&reduced[part_ix][member_ix], ((aggregate + *prev)  << 2u) | FLAG_INCLUSIVE);
@@ -77,12 +77,12 @@ fn fallback(
 ){
     let fallback_payload = (fallback_aggregate << 2u) | select(FLAG_INCLUSIVE, FLAG_REDUCTION, fallback_ix != 0u);
     let prev_payload = atomicMax(&reduced[fallback_ix][member_ix], fallback_payload);
-    if(prev_payload == 0u){
+    if prev_payload == 0u {
         *prev += fallback_aggregate;
     } else {
         *prev += prev_payload >> 2u;
     }
-    if(fallback_ix == 0u || (prev_payload & FLAG_MASK) == FLAG_INCLUSIVE){
+    if fallback_ix == 0u || (prev_payload & FLAG_MASK) == FLAG_INCLUSIVE {
         atomicStore(&reduced[part_ix][member_ix], ((aggregate + *prev)  << 2u) | FLAG_INCLUSIVE);
         sh_tag_broadcast[member_ix] = *prev;
         *inclusive_complete = true;
@@ -94,8 +94,8 @@ fn main(
     @builtin(local_invocation_id) local_id: vec3<u32>,
 ) {
     //acquire the partition index, set the lock
-    if(local_id.x == 0u){
-        sh_broadcast = atomicAdd(&scan_bump[0u], 1u);
+    if local_id.x == 0u {
+        sh_broadcast = atomicAdd(&scan_bump, 1u);
         sh_lock = LOCKED;
     }
     workgroupBarrier();
@@ -121,7 +121,7 @@ fn main(
 
     //Broadcast the results and flag into device memory
     if local_id.x == WG_SIZE - 1u {
-        if(part_ix != 0u){
+        if part_ix != 0u {
             atomicStore(&reduced[part_ix][0], (agg[0] << 2u) | FLAG_REDUCTION);
             atomicStore(&reduced[part_ix][1], (agg[1] << 2u) | FLAG_REDUCTION);
             atomicStore(&reduced[part_ix][2], (agg[2] << 2u) | FLAG_REDUCTION);
@@ -137,7 +137,7 @@ fn main(
     }
 
     //Lookback and potentially fallback
-    if(part_ix != 0u){
+    if part_ix != 0u {
         var lookback_ix = part_ix - 1u;
         
         var inc0: bool = false;
@@ -163,15 +163,15 @@ fn main(
             
             //Lookback, with a single thread
             //Last thread in the workgroup has the complete aggregate
-            if(local_id.x == WG_SIZE - 1u){
-                for(var spin_count: u32 = 0u; spin_count < MAX_SPIN_COUNT; ){
+            if local_id.x == WG_SIZE - 1u {
+                for (var spin_count: u32 = 0u; spin_count < MAX_SPIN_COUNT; ) {
                     //TRANS_IX
-                    if(!inc0 && !red0){
+                    if !inc0 && !red0 {
                         attempt_lookback(
                             part_ix,
                             lookback_ix,
                             0u,
-                            agg[0u],
+                            agg[0],
                             &spin_count,
                             &prev0,
                             &red0,
@@ -179,12 +179,12 @@ fn main(
                     }
 
                     //PATHSEG_IX
-                    if(!inc1 && !red1){
+                    if !inc1 && !red1 {
                         attempt_lookback(
                             part_ix,
                             lookback_ix,
                             1u,
-                            agg[1u],
+                            agg[1],
                             &spin_count,
                             &prev1,
                             &red1,
@@ -192,12 +192,12 @@ fn main(
                     }
 
                     //PATHSEG_OFFSET
-                    if(!inc2 && !red2){
+                    if !inc2 && !red2 {
                         attempt_lookback(
                             part_ix,
                             lookback_ix,
                             2u,
-                            agg[2u],
+                            agg[2],
                             &spin_count,
                             &prev2,
                             &red2,
@@ -205,12 +205,12 @@ fn main(
                     }
 
                     //STYLE_IX
-                    if(!inc3 && !red3){
+                    if !inc3 && !red3 {
                         attempt_lookback(
                             part_ix,
                             lookback_ix,
                             3u,
-                            agg[3u],
+                            agg[3],
                             &spin_count,
                             &prev3,
                             &red3,
@@ -218,12 +218,12 @@ fn main(
                     }
                     
                     //PATH_IX
-                    if(!inc4 && !red4){
+                    if !inc4 && !red4 {
                         attempt_lookback(
                             part_ix,
                             lookback_ix,
                             4u,
-                            agg[4u],
+                            agg[4],
                             &spin_count,
                             &prev4,
                             &red4,
@@ -231,8 +231,8 @@ fn main(
                     }
 
                     //Have we completed the current reduction or inclusive sum for all PathTag members?
-                    if((inc0 || red0) && (inc1 || red1) && (inc2 || red2) && (inc3 || red3) && (inc4 || red4)){
-                        if(inc0 && inc1 && inc2 && inc3 && inc4){
+                    if (inc0 || red0) && (inc1 || red1) && (inc2 || red2) && (inc3 || red3) && (inc4 || red4) {
+                        if inc0 && inc1 && inc2 && inc3 && inc4 {
                             sh_lock = UNLOCKED;
                             break;
                         } else {
@@ -251,7 +251,7 @@ fn main(
                 //If we didn't complete the lookback within the allotted spins,
                 //prepare for the fallback by broadcasting the lookback tile id
                 //and states of the tagmonoid struct members
-                if(sh_lock == LOCKED){
+                if sh_lock == LOCKED {
                     sh_broadcast = lookback_ix;
                     sh_fallback_state[0] = !inc0 && !red0;
                     sh_fallback_state[1] = !inc1 && !red1;
@@ -263,7 +263,7 @@ fn main(
             workgroupBarrier();
 
             //Fallback
-            if(sh_lock == LOCKED){
+            if sh_lock == LOCKED {
                 let fallback_ix = sh_broadcast;
 
                 red0 = sh_fallback_state[0];
@@ -282,106 +282,106 @@ fn main(
                     workgroupBarrier();
                     if local_id.x + (1u << i) < WG_SIZE {
                         let index = local_id.x + (1u << i);
-                        if(red0){
+                        if red0 {
                             f_agg[0] += sh_fallback[index][0];
                         }
-                        if(red1){
+                        if red1 {
                             f_agg[1] += sh_fallback[index][1];
                         }
-                        if(red2){
+                        if red2 {
                             f_agg[2] += sh_fallback[index][2];
                         }
-                        if(red3){
+                        if red3 {
                             f_agg[3] += sh_fallback[index][3];
                         }
-                        if(red4){
+                        if red4 {
                             f_agg[4] += sh_fallback[index][4];
                         }
                     }
                     workgroupBarrier();
-                    if(red0){
+                    if red0 {
                         sh_fallback[local_id.x][0] = f_agg[0];
                     }
 
-                    if(red1){
+                    if red1 {
                         sh_fallback[local_id.x][1] = f_agg[1];
                     }
 
-                    if(red2){
+                    if red2 {
                         sh_fallback[local_id.x][2] = f_agg[2];
                     }
 
-                    if(red3){
+                    if red3 {
                         sh_fallback[local_id.x][3] = f_agg[3];
                     }
                     
-                    if(red4){
+                    if red4 {
                         sh_fallback[local_id.x][4] = f_agg[4];
                     }
                 }
 
                 //Fallback and attempt insertion of status flag
-                if(local_id.x == WG_SIZE - 1u){
+                if local_id.x == WG_SIZE - 1u {
                     //TRANS_IX FALLBACK
-                    if(red0){
+                    if red0 {
                         fallback(
                             part_ix,
                             fallback_ix,
                             0u,
-                            agg[0u],
-                            f_agg[0u],
+                            agg[0],
+                            f_agg[0],
                             &prev0,
                             &inc0,
                         );
                     }
 
                     //PATHSEG_IX FALLBACK
-                    if(red1){
+                    if red1 {
                         fallback(
                             part_ix,
                             fallback_ix,
                             1u,
-                            agg[1u],
-                            f_agg[1u],
+                            agg[1],
+                            f_agg[1],
                             &prev1,
                             &inc1,
                         );
                     }
 
                     //PATHSEG_OFFSET FALLBACK
-                    if(red2){
+                    if red2 {
                         fallback(
                             part_ix,
                             fallback_ix,
                             2u,
-                            agg[2u],
-                            f_agg[2u],
+                            agg[2],
+                            f_agg[2],
                             &prev2,
                             &inc2,
                         );
                     }
 
                     //STYLE_IX FALLBACK
-                    if(red3){
+                    if red3 {
                         fallback(
                             part_ix,
                             fallback_ix,
                             3u,
-                            agg[3u],
-                            f_agg[3u],
+                            agg[3],
+                            f_agg[3],
                             &prev3,
                             &inc3,
                         );
                     }
 
                     //PATH_IX FALLBACK
-                    if(red4){
+                    if red4 {
                         fallback(
                             part_ix,
                             fallback_ix,
                             4u,
-                            agg[4u],
-                            f_agg[4u],
+                            agg[4],
+                            f_agg[4],
                             &prev4,
                             &inc4,
                         );
@@ -389,7 +389,7 @@ fn main(
 
                     //At this point, the reductions are guaranteed to be complete,
                     //so try unlocking, else, keep looking back
-                    if(inc0 && inc1 && inc2 && inc3 && inc4){
+                    if inc0 && inc1 && inc2 && inc3 && inc4 {
                         sh_lock = UNLOCKED;
                     } else {
                         lookback_ix--;
@@ -402,7 +402,7 @@ fn main(
     workgroupBarrier();
 
     var tm: array<u32, 5>;
-    if(part_ix != 0u){
+    if part_ix != 0u {
         tm = sh_tag_broadcast;
     } else {
         tm[0] = 0u;
@@ -412,7 +412,7 @@ fn main(
         tm[4] = 0u;
     }
 
-    if(local_id.x != 0u){
+    if local_id.x != 0u {
         let other: array<u32, 5> = sh_scratch[local_id.x - 1u];
         tm[0] += other[0];
         tm[1] += other[1];

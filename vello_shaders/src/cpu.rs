@@ -42,7 +42,7 @@ pub use path_count::path_count;
 pub use path_count_setup::path_count_setup;
 pub use path_tiling::path_tiling;
 pub use path_tiling_setup::path_tiling_setup;
-pub use pathtag_scan_single::pathtag_scan_single;
+pub use pathtag_scan_single::pathtag_scan;
 pub use tile_alloc::tile_alloc;
 
 use std::cell::{Ref, RefCell, RefMut};

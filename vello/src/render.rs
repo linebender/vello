@@ -200,11 +200,11 @@ impl Render {
         );
         let reduced_buf = BufferProxy::new(
             buffer_sizes.path_reduced.size_in_bytes().into(),
-            "reduced_buf",
+            "vello.reduced_buf",
         );
         let path_scan_bump_buf = BufferProxy::new(
             buffer_sizes.path_scan_bump.size_in_bytes().into(),
-            "path_scan_bump_buf",
+            "vello.path_scan_bump_buf",
         );
         recording.clear_all(path_scan_bump_buf);
         recording.clear_all(reduced_buf);

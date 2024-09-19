@@ -7,7 +7,7 @@ use super::CpuBinding;
 
 const WG_SIZE: usize = 256;
 
-fn pathtag_scan_single_main(
+fn pathtag_scan_main(
     n_wg: u32,
     config: &ConfigUniform,
     scene: &[u32],
@@ -22,9 +22,9 @@ fn pathtag_scan_single_main(
     }
 }
 
-pub fn pathtag_scan_single(n_wg: u32, resources: &[CpuBinding]) {
+pub fn pathtag_scan(n_wg: u32, resources: &[CpuBinding]) {
     let config = resources[0].as_typed();
     let scene = resources[1].as_slice();
     let mut tag_monoids = resources[3].as_slice_mut();
-    pathtag_scan_single_main(n_wg, &config, &scene, &mut tag_monoids);
+    pathtag_scan_main(n_wg, &config, &scene, &mut tag_monoids);
 }
