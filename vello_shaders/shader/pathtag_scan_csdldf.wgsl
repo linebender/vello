@@ -280,8 +280,8 @@ fn main(
                 sh_fallback[local_id.x] = f_agg;
                 for (var i = 0u; i < LG_WG_SIZE; i += 1u) {
                     workgroupBarrier();
-                    if local_id.x + (1u << i) < WG_SIZE {
-                        let index = local_id.x + (1u << i);
+                    let index = local_id.x - (1u << i);
+                    if index >= 0u {
                         if red0 {
                             f_agg[0] += sh_fallback[index][0];
                         }
