@@ -51,8 +51,8 @@ fn attempt_lookback(
     reduction_complete: ptr<function, bool>,
     inclusive_complete: ptr<function, bool>
 ){
-    let payload: u32 = atomicLoad(&reduced[lookback_ix][member_ix]);
-    let flag_value: u32 = payload & FLAG_MASK;
+    let payload = atomicLoad(&reduced[lookback_ix][member_ix]);
+    let flag_value = payload & FLAG_MASK;
     if flag_value == FLAG_REDUCTION {
         *spin_count = 0u;
         *prev += payload >> 2u;
@@ -99,16 +99,16 @@ fn main(
         sh_lock = LOCKED;
     }
     workgroupBarrier();
-    let part_ix: u32 = sh_broadcast;
+    let part_ix = sh_broadcast;
 
     //Local Scan, Hillis-Steel/Kogge-Stone
-    let tag_word: u32 = scene[config.pathtag_base + local_id.x + part_ix * WG_SIZE];
-    var agg: array<u32, 5> = reduce_tag_arr(tag_word);
+    let tag_word = scene[config.pathtag_base + local_id.x + part_ix * WG_SIZE];
+    var agg = reduce_tag_arr(tag_word);
     sh_scratch[local_id.x] = agg;
-    for (var i: u32 = 0u; i < LG_WG_SIZE; i += 1u) {
+    for (var i = 0u; i < LG_WG_SIZE; i += 1u) {
         workgroupBarrier();
         if local_id.x >= 1u << i {
-            let other: array<u32, 5> = sh_scratch[local_id.x - (1u << i)];
+            let other = sh_scratch[local_id.x - (1u << i)];
             agg[0] += other[0];
             agg[1] += other[1];
             agg[2] += other[2];
@@ -140,31 +140,31 @@ fn main(
     if part_ix != 0u {
         var lookback_ix = part_ix - 1u;
         
-        var inc0: bool = false;
-        var inc1: bool = false;
-        var inc2: bool = false;
-        var inc3: bool = false;
-        var inc4: bool = false;
+        var inc0 = false;
+        var inc1 = false;
+        var inc2 = false;
+        var inc3 = false;
+        var inc4 = false;
 
-        var prev0: u32 = 0u;
-        var prev1: u32 = 0u;
-        var prev2: u32 = 0u;
-        var prev3: u32 = 0u;
-        var prev4: u32 = 0u;
+        var prev0 = 0u;
+        var prev1 = 0u;
+        var prev2 = 0u;
+        var prev3 = 0u;
+        var prev4 = 0u;
 
         while(sh_lock == LOCKED){
             workgroupBarrier();
             
-            var red0: bool = false;
-            var red1: bool = false;
-            var red2: bool = false;
-            var red3: bool = false;
-            var red4: bool = false;
+            var red0 = false;
+            var red1 = false;
+            var red2 = false;
+            var red3 = false;
+            var red4 = false;
             
             //Lookback, with a single thread
             //Last thread in the workgroup has the complete aggregate
             if local_id.x == WG_SIZE - 1u {
-                for (var spin_count: u32 = 0u; spin_count < MAX_SPIN_COUNT; ) {
+                for (var spin_count = 0u; spin_count < MAX_SPIN_COUNT; ) {
                     //TRANS_IX
                     if !inc0 && !red0 {
                         attempt_lookback(
@@ -275,8 +275,8 @@ fn main(
                 //Fallback Reduce
                 //Is there an alternative to this besides a giant switch statement or
                 //5 individual reductions?
-                let f_word: u32 = scene[config.pathtag_base + local_id.x + fallback_ix * WG_SIZE];
-                var f_agg: array<u32, 5> = reduce_tag_arr(f_word);
+                let f_word = scene[config.pathtag_base + local_id.x + fallback_ix * WG_SIZE];
+                var f_agg = reduce_tag_arr(f_word);
                 sh_fallback[local_id.x] = f_agg;
                 for (var i = 0u; i < LG_WG_SIZE; i += 1u) {
                     workgroupBarrier();
@@ -413,7 +413,7 @@ fn main(
     }
 
     if local_id.x != 0u {
-        let other: array<u32, 5> = sh_scratch[local_id.x - 1u];
+        let other = sh_scratch[local_id.x - 1u];
         tm[0] += other[0];
         tm[1] += other[1];
         tm[2] += other[2];
