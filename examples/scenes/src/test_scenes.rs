@@ -78,6 +78,7 @@ export_scenes!(
     longpathdash_round(impls::longpathdash(Cap::Round), "longpathdash (round caps)", false),
     mmark(crate::mmark::MMark::new(80_000), "mmark", false),
     many_draw_objects(many_draw_objects),
+    blurred_rounded_rect(blurred_rounded_rect),
 );
 
 /// Implementations for the test scenes.
@@ -99,10 +100,18 @@ mod impls {
     pub(super) fn emoji(scene: &mut Scene, params: &mut SceneParams) {
         let text_size = 120. + 20. * (params.time * 2.).sin() as f32;
         let s = "🎉🤠✅";
-        params.text.add_emoji_run(
+        params.text.add_colr_emoji_run(
             scene,
             text_size,
-            Affine::translate(Vec2::new(100., 400.)),
+            Affine::translate(Vec2::new(100., 250.)),
+            None,
+            Fill::NonZero,
+            s,
+        );
+        params.text.add_bitmap_emoji_run(
+            scene,
+            text_size,
+            Affine::translate(Vec2::new(100., 500.)),
             None,
             Fill::NonZero,
             s,
@@ -1685,5 +1694,56 @@ mod impls {
             tiger(scene, params);
             splash_screen(scene, params);
         }
+    }
+
+    pub(super) fn blurred_rounded_rect(scene: &mut Scene, params: &mut SceneParams) {
+        params.resolution = Some(Vec2::new(1200., 1200.));
+        params.base_color = Some(Color::WHITE);
+
+        let rect = Rect::from_center_size((0.0, 0.0), (300.0, 240.0));
+        let radius = 50.0;
+        scene.draw_blurred_rounded_rect(
+            Affine::translate((300.0, 300.0)),
+            rect,
+            Color::BLUE,
+            radius,
+            params.time.sin() * 50.0 + 50.0,
+        );
+
+        // Skewed affine transformation.
+        scene.draw_blurred_rounded_rect(
+            Affine::translate((900.0, 300.0)) * Affine::skew(20f64.to_radians().tan(), 0.0),
+            rect,
+            Color::BLACK,
+            radius,
+            params.time.sin() * 50.0 + 50.0,
+        );
+
+        // Stretch affine transformation.
+        scene.draw_blurred_rounded_rect(
+            Affine::translate((600.0, 600.0)) * Affine::scale_non_uniform(2.2, 0.9),
+            rect,
+            Color::BLACK,
+            radius,
+            params.time.sin() * 50.0 + 50.0,
+        );
+
+        // Circle.
+        scene.draw_blurred_rounded_rect(
+            Affine::IDENTITY,
+            Rect::new(100.0, 800.0, 400.0, 1100.0),
+            Color::BLACK,
+            150.0,
+            params.time.sin() * 50.0 + 50.0,
+        );
+
+        // Radius larger than one size.
+        scene.draw_blurred_rounded_rect(
+            Affine::IDENTITY,
+            Rect::new(600.0, 800.0, 900.0, 900.0),
+            Color::BLACK,
+            150.0,
+            params.time.sin() * 50.0 + 50.0,
+        );
     }
 }

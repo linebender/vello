@@ -72,7 +72,7 @@ pub(crate) fn full_shaders(
             let source = shaders.$name.wgsl.code;
             engine.add_compute_shader(
                 device,
-                $label,
+                concat!("vello.", $label),
                 source,
                 &$bindings,
                 if force_gpu {

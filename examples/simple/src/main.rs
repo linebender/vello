@@ -11,7 +11,7 @@ use vello::{AaConfig, DebugLayers, Renderer, RendererOptions, Scene};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::event::*;
-use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::Window;
 
 use vello::wgpu;
@@ -74,15 +74,12 @@ impl<'s> ApplicationHandler for SimpleVelloApp<'s> {
 
         // Save the Window and Surface to a state variable
         self.state = RenderState::Active(ActiveRenderState { window, surface });
-
-        event_loop.set_control_flow(ControlFlow::Poll);
     }
 
-    fn suspended(&mut self, event_loop: &ActiveEventLoop) {
+    fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
         if let RenderState::Active(state) = &self.state {
             self.state = RenderState::Suspended(Some(state.window.clone()));
         }
-        event_loop.set_control_flow(ControlFlow::Wait);
     }
 
     fn window_event(
@@ -109,7 +106,6 @@ impl<'s> ApplicationHandler for SimpleVelloApp<'s> {
             WindowEvent::Resized(size) => {
                 self.context
                     .resize_surface(&mut render_state.surface, size.width, size.height);
-                render_state.window.request_redraw();
             }
 
             // This is where all the rendering happens

@@ -31,7 +31,7 @@ fn one_mask(slope: f64, mut translation: f64, is_pos: bool) -> u8 {
 /// Make a lookup table of half-plane masks.
 ///
 /// The table is organized into two blocks each with `MASK_HEIGHT/2` slopes.
-/// The first block is negative slopes (x decreases as y increates),
+/// The first block is negative slopes (x decreases as y increases),
 /// the second as positive.
 pub fn make_mask_lut() -> Vec<u8> {
     (0..MASK_WIDTH * MASK_HEIGHT)
@@ -78,7 +78,7 @@ fn one_mask_16(slope: f64, mut translation: f64, is_pos: bool) -> u16 {
 /// Make a lookup table of half-plane masks.
 ///
 /// The table is organized into two blocks each with `MASK16_HEIGHT/2` slopes.
-/// The first block is negative slopes (x decreases as y increates),
+/// The first block is negative slopes (x decreases as y increases),
 /// the second as positive.
 pub fn make_mask_lut_16() -> Vec<u8> {
     let v16 = (0..MASK16_WIDTH * MASK16_HEIGHT)

@@ -30,6 +30,9 @@ impl DrawTag {
     /// Image fill.
     pub const IMAGE: Self = Self(0x248);
 
+    /// Blurred rounded rectangle.
+    pub const BLUR_RECT: Self = Self(0x2d4); // info: 11, scene: 5 (DrawBlurRoundedRect)
+
     /// Begin layer/clip.
     pub const BEGIN_CLIP: Self = Self(0x9);
 
@@ -124,6 +127,22 @@ pub struct DrawImage {
     pub xy: u32,
     /// Packed image dimensions.
     pub width_height: u32,
+}
+
+/// Draw data for a blurred rounded rectangle.
+#[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
+#[repr(C)]
+pub struct DrawBlurRoundedRect {
+    /// Solid color brush.
+    pub color: DrawColor,
+    /// Rectangle width.
+    pub width: f32,
+    /// Rectangle height.
+    pub height: f32,
+    /// Rectangle corner radius.
+    pub radius: f32,
+    /// Standard deviation of gaussian filter.
+    pub std_dev: f32,
 }
 
 /// Draw data for a clip or layer.

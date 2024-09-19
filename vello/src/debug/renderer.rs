@@ -38,7 +38,7 @@ impl DebugRenderer {
 
         let clear_tint = engine.add_render_shader(
             device,
-            "clear-tint",
+            "vello.debug.clear_tint",
             &module,
             "full_screen_quad_vert",
             "solid_color_frag",
@@ -60,7 +60,7 @@ impl DebugRenderer {
         );
         let bboxes = engine.add_render_shader(
             device,
-            "bbox-debug",
+            "vello.debug.bbox",
             &module,
             "bbox_vert",
             "solid_color_frag",
@@ -91,7 +91,7 @@ impl DebugRenderer {
         );
         let linesoup = engine.add_render_shader(
             device,
-            "linesoup-debug",
+            "vello.debug.linesoup",
             &module,
             "linesoup_vert",
             "solid_color_frag",
@@ -122,7 +122,7 @@ impl DebugRenderer {
         );
         let linesoup_points = engine.add_render_shader(
             device,
-            "linepoints-debug",
+            "vello.debug.linesoup_points",
             &module,
             "linepoints_vert",
             "sdf_circle_frag",
@@ -162,7 +162,7 @@ impl DebugRenderer {
         );
         let unpaired_points = engine.add_render_shader(
             device,
-            "linepoints-debug",
+            "vello.debug.unpaired_points",
             &module,
             "linepoints_vert",
             "sdf_circle_frag",
@@ -230,10 +230,10 @@ impl DebugRenderer {
             } else {
                 (
                     unpaired_pts.len(),
-                    Some(
-                        recording
-                            .upload("unpaired points", bytemuck::cast_slice(&unpaired_pts[..])),
-                    ),
+                    Some(recording.upload(
+                        "vello.debug.unpaired_points",
+                        bytemuck::cast_slice(&unpaired_pts[..]),
+                    )),
                 )
             }
         } else {
@@ -245,7 +245,7 @@ impl DebugRenderer {
             height: params.height,
         };
         let uniforms_buf = ResourceProxy::Buffer(
-            recording.upload_uniform("uniforms", bytemuck::bytes_of(&uniforms)),
+            recording.upload_uniform("vello.debug_uniforms", bytemuck::bytes_of(&uniforms)),
         );
 
         let linepoints_uniforms = [
@@ -253,7 +253,7 @@ impl DebugRenderer {
             LinepointsUniforms::new(Color::RED, 80.),
         ];
         let linepoints_uniforms_buf = recording.upload_uniform(
-            "linepoints uniforms",
+            "vello.debug.linepoints_uniforms",
             bytemuck::bytes_of(&linepoints_uniforms),
         );
 

@@ -1,8 +1,7 @@
 // Copyright 2024 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-// Copyright 2024 the Vello Authors
-// SPDX-License-Identifier: Apache-2.0 OR MIT
+//! Snapshot tests using the test scenes from [`scenes`].
 
 use scenes::{test_scenes, ExampleScene};
 use vello_tests::{encode_test_scene, snapshot_test_sync, TestParams};
@@ -88,5 +87,13 @@ fn snapshot_deep_blend() {
 fn snapshot_many_clips() {
     let test_scene = test_scenes::many_clips();
     let params = TestParams::new("many_clips", 200, 200);
+    snapshot_test_scene(test_scene, params);
+}
+
+#[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
+fn snapshot_blurred_rounded_rect() {
+    let test_scene = test_scenes::blurred_rounded_rect();
+    let params = TestParams::new("blurred_rounded_rect", 1200, 1200);
     snapshot_test_scene(test_scene, params);
 }

@@ -46,7 +46,23 @@ impl RenderContext {
         height: u32,
         present_mode: wgpu::PresentMode,
     ) -> Result<RenderSurface<'w>> {
-        let surface = self.instance.create_surface(window.into())?;
+        self.create_render_surface(
+            self.instance.create_surface(window.into())?,
+            width,
+            height,
+            present_mode,
+        )
+        .await
+    }
+
+    /// Creates a new render surface for the specified window and dimensions.
+    pub async fn create_render_surface<'w>(
+        &mut self,
+        surface: Surface<'w>,
+        width: u32,
+        height: u32,
+        present_mode: wgpu::PresentMode,
+    ) -> Result<RenderSurface<'w>> {
         let dev_id = self
             .device(Some(&surface))
             .await

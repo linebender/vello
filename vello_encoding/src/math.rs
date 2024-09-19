@@ -77,7 +77,8 @@ pub fn point_to_f32(point: kurbo::Point) -> [f32; 2] {
     [point.x as f32, point.y as f32]
 }
 
-/// Converts an f32 to IEEE-754 binary16 format represented as the bits of a u16.
+/// Converts an `f32` to IEEE-754 binary16 format represented as the bits of a `u16`.
+///
 /// This implementation was adapted from Fabian Giesen's `float_to_half_fast3`()
 /// function which can be found at <https://gist.github.com/rygorous/2156668#file-gistfile1-cpp-L285>
 ///
@@ -122,7 +123,8 @@ pub(crate) fn f32_to_f16(val: f32) -> u16 {
     output | (sign >> 16) as u16
 }
 
-/// Convertes a 16-bit precision IEEE-754 binary16 float to a f32.
+/// Converts a 16-bit precision IEEE-754 binary16 float to a `f32`.
+///
 /// This implementation was adapted from Fabian Giesen's `half_to_float()`
 /// function which can be found at <https://gist.github.com/rygorous/2156668#file-gistfile1-cpp-L574>
 pub fn f16_to_f32(bits: u16) -> f32 {

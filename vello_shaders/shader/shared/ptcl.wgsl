@@ -22,6 +22,7 @@ let CMD_IMAGE = 9u;
 let CMD_BEGIN_CLIP = 10u;
 let CMD_END_CLIP = 11u;
 let CMD_JUMP = 12u;
+let CMD_BLUR_RECT = 13u;
 
 // The individual PTCL structs are written here, but read/write is by
 // hand in the relevant shaders
@@ -43,6 +44,24 @@ struct CmdJump {
 
 struct CmdColor {
     rgba_color: u32,
+}
+
+struct CmdBlurRect {
+    // Solid fill color.
+    rgba_color: u32,
+    
+    // 2x2 transformation matrix (inverse).
+    matrx: vec4<f32>,
+    // 2D translation (inverse)
+    xlat: vec2<f32>,
+
+    // Rounded rectangle properties.
+    width: f32,
+    height: f32,
+    radius: f32,
+
+    // Gaussian filter standard deviation
+    std_dev: f32,
 }
 
 struct CmdLinGrad {
