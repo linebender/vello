@@ -178,7 +178,6 @@ impl Render {
             // is zero.
             packed.resize(size_of::<u32>(), u8::MAX);
         }
-      
         let scene_buf = ResourceProxy::Buffer(recording.upload("vello.scene", packed));
         let config_buf = ResourceProxy::Buffer(
             recording.upload_uniform("vello.config", bytemuck::bytes_of(&cpu_config.gpu)),
@@ -189,9 +188,12 @@ impl Render {
         );
         let tile_buf =
             ResourceProxy::new_buf(buffer_sizes.tiles.size_in_bytes().into(), "vello.tile_buf");
-        let segments_buf =
-            ResourceProxy::new_buf(buffer_sizes.segments.size_in_bytes().into(), "vello.segments_buf");
-        let ptcl_buf = ResourceProxy::new_buf(buffer_sizes.ptcl.size_in_bytes().into(), "vello.ptcl_buf");
+        let segments_buf = ResourceProxy::new_buf(
+            buffer_sizes.segments.size_in_bytes().into(),
+            "vello.segments_buf",
+        );
+        let ptcl_buf =
+            ResourceProxy::new_buf(buffer_sizes.ptcl.size_in_bytes().into(), "vello.ptcl_buf");
         let tagmonoid_buf = ResourceProxy::new_buf(
             buffer_sizes.path_monoids.size_in_bytes().into(),
             "vello.tagmonoid_buf",
@@ -202,7 +204,8 @@ impl Render {
         );
         let path_scan_bump_buf = BufferProxy::new(
             buffer_sizes.path_scan_bump.size_in_bytes().into(),
-            "path_scan_bump_buf");
+            "path_scan_bump_buf",
+        );
         recording.clear_all(path_scan_bump_buf);
         recording.clear_all(reduced_buf);
         let path_scan_bump_buf = ResourceProxy::Buffer(path_scan_bump_buf);
@@ -210,7 +213,13 @@ impl Render {
         recording.dispatch(
             shaders.pathtag_scan_csdldf,
             wg_counts.path_scan,
-            [config_buf, scene_buf, reduced_buf, tagmonoid_buf, path_scan_bump_buf],
+            [
+                config_buf,
+                scene_buf,
+                reduced_buf,
+                tagmonoid_buf,
+                path_scan_bump_buf,
+            ],
         );
         recording.free_resource(reduced_buf);
         recording.free_resource(path_scan_bump_buf);
