@@ -70,6 +70,7 @@ fn fallback(
     part_ix: u32,
     fallback_ix: u32,
     member_ix: u32,
+    aggregate: u32,
     fallback_aggregate: u32,
     prev: ptr<function, u32>,
     inclusive_complete: ptr<function, bool>
@@ -82,7 +83,7 @@ fn fallback(
         *prev += prev_payload >> 2u;
     }
     if(fallback_ix == 0u || (prev_payload & FLAG_MASK) == FLAG_INCLUSIVE){
-        atomicStore(&reduced[part_ix][member_ix], ((fallback_aggregate + *prev)  << 2u) | FLAG_INCLUSIVE);
+        atomicStore(&reduced[part_ix][member_ix], ((aggregate + *prev)  << 2u) | FLAG_INCLUSIVE);
         sh_tag_broadcast[member_ix] = *prev;
         *inclusive_complete = true;
     }
@@ -327,6 +328,7 @@ fn main(
                             part_ix,
                             fallback_ix,
                             0u,
+                            agg[0u],
                             f_agg[0u],
                             &prev0,
                             &inc0,
@@ -339,6 +341,7 @@ fn main(
                             part_ix,
                             fallback_ix,
                             1u,
+                            agg[1u],
                             f_agg[1u],
                             &prev1,
                             &inc1,
@@ -351,6 +354,7 @@ fn main(
                             part_ix,
                             fallback_ix,
                             2u,
+                            agg[2u],
                             f_agg[2u],
                             &prev2,
                             &inc2,
@@ -363,6 +367,7 @@ fn main(
                             part_ix,
                             fallback_ix,
                             3u,
+                            agg[3u],
                             f_agg[3u],
                             &prev3,
                             &inc3,
@@ -375,6 +380,7 @@ fn main(
                             part_ix,
                             fallback_ix,
                             4u,
+                            agg[4u],
                             f_agg[4u],
                             &prev4,
                             &inc4,
