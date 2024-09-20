@@ -129,6 +129,7 @@ fn main(
             if local_id.x == WG_SIZE - 1u {
                 for (var spin_count = 0u; spin_count < MAX_SPIN_COUNT; ) {
                     //Attempt Lookback
+                    var can_advance = true;
                     for (var i = 0u; i < PATH_MEMBERS; i += 1u) {
                         if !inc_complete.s[i] && !red_complete.s[i] {
                             let payload = atomicLoad(&reduced[lookback_ix][i]);
@@ -143,16 +144,13 @@ fn main(
                                 atomicStore(&reduced[part_ix][i], ((agg.p[i] + prev_reduction.p[i])  << 2u) | FLAG_INCLUSIVE);
                                 sh_tag_broadcast[i] = prev_reduction.p[i];
                                 inc_complete.s[i] = true;
+                            } else {
+                                can_advance = false;
                             }
                         }
                     }
 
                     //Have we completed the current reduction or inclusive sum for all PathTag members?
-                    var can_advance = inc_complete.s[0] || red_complete.s[0];
-                    for (var i = 1u; i < PATH_MEMBERS; i += 1u) {
-                        can_advance = can_advance && (inc_complete.s[i] || red_complete.s[i]);
-                    }
-
                     if can_advance {
                         //Are all lookbacks complete?
                         var all_complete = inc_complete.s[0];
