@@ -417,9 +417,11 @@ impl Encoding {
 
     /// Encodes an image brush.
     #[cfg(feature = "full")]
-    pub fn encode_image(&mut self, image: &Image, _alpha: f32) {
+    pub fn encode_image(&mut self, image: &Image, alpha: f32) {
+        let _alpha = alpha * f32::from(image.alpha);
         // TODO: feed the alpha multiplier through the full pipeline for consistency
         // with other brushes?
+        // Tracked in https://github.com/linebender/vello/issues/692
         self.resources.patches.push(Patch::Image {
             image: image.clone(),
             draw_data_offset: self.draw_data.len(),
