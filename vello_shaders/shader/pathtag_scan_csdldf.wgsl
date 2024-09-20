@@ -99,21 +99,20 @@ fn main(
     if part_ix != 0u {
         var lookback_ix = part_ix - 1u;
         var inc_complete: state_wrapper;
-        inc_complete.s = array(false, false, false, false, false);
+        inc_complete.s = clear_state();
         var prev_reduction: pathtag_wrapper;
         prev_reduction.p = clear_pathtag();
 
         while(sh_lock == LOCKED){
             workgroupBarrier();
 
-            var red_complete: state_wrapper;
-            for (var i = 0u; i < PATH_MEMBERS; i += 1u) {
-                red_complete.s[i] = false;
-            }
-            
             //Lookback, with a single thread
             //Last thread in the workgroup has the complete aggregate
             if local_id.x == WG_SIZE - 1u {
+                var red_complete: state_wrapper;
+                for (var i = 0u; i < PATH_MEMBERS; i += 1u) {
+                    red_complete.s[i] = false;
+                }
                 for (var spin_count = 0u; spin_count < MAX_SPIN_COUNT; ) {
                     //Attempt Lookback
                     var can_advance = true;
@@ -171,8 +170,9 @@ fn main(
             //Fallback
             if sh_lock == LOCKED {
                 let fallback_ix = sh_broadcast;
+                var should_fallback: state_wrapper; 
                 for (var i = 0u; i < PATH_MEMBERS; i += 1u) {
-                    red_complete.s[i] = sh_fallback_state[i];
+                    should_fallback.s[i] = sh_fallback_state[i];
                 }
 
                 //Fallback Reduce
@@ -187,7 +187,7 @@ fn main(
                     let index = i32(local_id.x) - i32(1u << i);
                     if index >= 0 {
                         for (var k = 0u; k < PATH_MEMBERS; k += 1u) {
-                            if red_complete.s[k] {
+                            if should_fallback.s[k] {
                                 f_agg.p[k] += sh_scratch[index][k];
                             }
                         }
@@ -195,7 +195,7 @@ fn main(
                     workgroupBarrier();
                     if i < LG_WG_SIZE - 1u {
                         for (var k = 0u; k < PATH_MEMBERS; k += 1u) {
-                            if red_complete.s[k] {
+                            if should_fallback.s[k] {
                                 sh_scratch[local_id.x][k] = f_agg.p[k];
                             }
                         }
@@ -206,7 +206,7 @@ fn main(
                 if local_id.x == WG_SIZE - 1u {
                     //Fallback
                     for (var i = 0u; i < PATH_MEMBERS; i += 1u) {
-                        if red_complete.s[i] {
+                        if should_fallback.s[i] {
                             let fallback_payload = (f_agg.p[i] << 2u) | select(FLAG_INCLUSIVE, FLAG_REDUCTION, fallback_ix != 0u);
                             let prev_payload = atomicMax(&reduced[fallback_ix][i], fallback_payload);
                             if prev_payload == 0u {
