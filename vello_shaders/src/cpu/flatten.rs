@@ -645,7 +645,11 @@ fn read_neighboring_segment(
     let is_closed = (tag.tag_byte & PATH_TAG_SEG_TYPE) == PATH_TAG_LINETO;
     let is_stroke_cap_marker = (tag.tag_byte & PathTag::SUBPATH_END_BIT) != 0;
     let do_join = !is_stroke_cap_marker || is_closed;
-    let tangent = cubic_start_tangent(pts.p0, pts.p1, pts.p2, pts.p3);
+    let tangent = if is_stroke_cap_marker {
+        pts.p3 - pts.p0
+    } else {
+        cubic_start_tangent(pts.p0, pts.p1, pts.p2, pts.p3)
+    };
     NeighboringSegment { do_join, tangent }
 }
 
@@ -704,7 +708,7 @@ fn flatten_main(
                 if is_stroke_cap_marker {
                     if is_open {
                         // Draw start cap
-                        let tangent = cubic_start_tangent(pts.p0, pts.p1, pts.p2, pts.p3);
+                        let tangent = pts.p3 - pts.p0;
                         let offset_tangent = offset * tangent.normalize();
                         let n = Vec2::new(-offset_tangent.y, offset_tangent.x);
                         draw_cap(
