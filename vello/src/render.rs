@@ -168,7 +168,7 @@ impl Render {
         }
         let cpu_config =
             RenderConfig::new(&layout, params.width, params.height, &params.base_color);
-        // The coarse workgroup counts is the number of bins active.
+        // HACK: The coarse workgroup counts is the number of active bins.
         if (cpu_config.workgroup_counts.coarse.0
             * cpu_config.workgroup_counts.coarse.1
             * cpu_config.workgroup_counts.coarse.2)
