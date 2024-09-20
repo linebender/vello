@@ -91,7 +91,7 @@ fn main(
     //Broadcast the results and flag into device memory
     if local_id.x == WG_SIZE - 1u {
         for (var i = 0u; i < PATH_MEMBERS; i += 1u) {
-            //atomicStore(&reduced[part_ix][i], (agg.p[i] << 2u) | select(FLAG_INCLUSIVE, FLAG_REDUCTION, part_ix != 0u));
+            atomicStore(&reduced[part_ix][i], (agg.p[i] << 2u) | select(FLAG_INCLUSIVE, FLAG_REDUCTION, part_ix != 0u));
         }
     }
 
@@ -206,17 +206,19 @@ fn main(
                 if local_id.x == WG_SIZE - 1u {
                     //Fallback
                     for (var i = 0u; i < PATH_MEMBERS; i += 1u) {
-                        let fallback_payload = (f_agg.p[i] << 2u) | select(FLAG_INCLUSIVE, FLAG_REDUCTION, fallback_ix != 0u);
-                        let prev_payload = atomicMax(&reduced[fallback_ix][i], fallback_payload);
-                        if prev_payload == 0u {
-                            prev_reduction.p[i] += f_agg.p[i];
-                        } else {
-                            prev_reduction.p[i] += prev_payload >> 2u;
-                        }
-                        if fallback_ix == 0u || (prev_payload & FLAG_MASK) == FLAG_INCLUSIVE {
-                            atomicStore(&reduced[part_ix][i], ((agg.p[i] + prev_reduction.p[i])  << 2u) | FLAG_INCLUSIVE);
-                            sh_tag_broadcast[i] = prev_reduction.p[i];
-                            inc_complete.s[i] = true;
+                        if red_complete.s[i] {
+                            let fallback_payload = (f_agg.p[i] << 2u) | select(FLAG_INCLUSIVE, FLAG_REDUCTION, fallback_ix != 0u);
+                            let prev_payload = atomicMax(&reduced[fallback_ix][i], fallback_payload);
+                            if prev_payload == 0u {
+                                prev_reduction.p[i] += f_agg.p[i];
+                            } else {
+                                prev_reduction.p[i] += prev_payload >> 2u;
+                            }
+                            if fallback_ix == 0u || (prev_payload & FLAG_MASK) == FLAG_INCLUSIVE {
+                                atomicStore(&reduced[part_ix][i], ((agg.p[i] + prev_reduction.p[i])  << 2u) | FLAG_INCLUSIVE);
+                                sh_tag_broadcast[i] = prev_reduction.p[i];
+                                inc_complete.s[i] = true;
+                            }
                         }
                     }
 
