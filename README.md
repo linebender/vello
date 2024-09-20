@@ -11,7 +11,7 @@ For now, prefer updating the package-level readmes, e.g. vello/README.md.
 
 # Vello
 
-**An experimental GPU compute-centric 2D renderer**
+**A GPU compute-centric 2D renderer**
 
 [![Linebender Zulip](https://img.shields.io/badge/Linebender-%23gpu-blue?logo=Zulip)](https://xi.zulipchat.com/#narrow/stream/197075-gpu)
 [![dependency status](https://deps.rs/repo/github/linebender/vello/status.svg)](https://deps.rs/repo/github/linebender/vello)
@@ -24,7 +24,7 @@ For now, prefer updating the package-level readmes, e.g. vello/README.md.
 
 </div>
 
-Vello is an experimental 2D graphics rendering engine written in Rust, with a focus on GPU compute.
+Vello is a 2D graphics rendering engine written in Rust, with a focus on GPU compute.
 It can draw large 2D scenes with interactive or near-interactive performance, using [`wgpu`] for GPU access.
 
 Quickstart to run an example program:
