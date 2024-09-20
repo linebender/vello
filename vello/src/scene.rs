@@ -433,7 +433,7 @@ impl<'a> DrawGlyphs<'a> {
         resources.patches.push(Patch::GlyphRun { index });
         self.scene
             .encoding
-            .encode_brush(self.brush.clone(), self.brush_alpha);
+            .encode_brush(self.brush, self.brush_alpha);
         // Glyph run resolve step affects transform and style state in a way
         // that is opaque to the current encoding.
         // See <https://github.com/linebender/vello/issues/424>
@@ -625,7 +625,7 @@ impl<'a> DrawGlyphs<'a> {
                             clip_box: DEFAULT_CLIP_RECT,
                             clip_depth: 0,
                             location,
-                            foreground_brush: self.brush.clone(),
+                            foreground_brush: self.brush,
                         },
                     )
                     .unwrap();
@@ -903,8 +903,8 @@ fn conv_brush(
             palette_index,
             alpha,
         } => color_index(cpal, palette_index)
-            .map(|it| Brush::Solid(it.with_alpha_factor(alpha)))
-            .unwrap_or(apply_alpha(foreground_brush.to_owned(), alpha)),
+            .map(|it| Brush::Solid(it.multiply_alpha(alpha)))
+            .unwrap_or(foreground_brush.to_owned().multiply_alpha(alpha)),
 
         skrifa::color::Brush::LinearGradient {
             p0,
@@ -940,19 +940,6 @@ fn conv_brush(
                 .with_stops(ColorStopsConverter(color_stops, cpal, foreground_brush)),
         ),
     }
-}
-
-fn apply_alpha(mut brush: Brush, alpha: f32) -> Brush {
-    match &mut brush {
-        Brush::Solid(color) => *color = color.with_alpha_factor(alpha),
-        Brush::Gradient(grad) => grad
-            .stops
-            .iter_mut()
-            .for_each(|it| it.color = it.color.with_alpha_factor(alpha)),
-        // Cannot apply an alpha factor to
-        Brush::Image(_) => {}
-    }
-    brush
 }
 
 fn color_index(cpal: &'_ Cpal<'_>, palette_index: u16) -> Option<Color> {
@@ -1013,7 +1000,7 @@ impl ColorStopsSource for ColorStopsConverter<'_> {
                     BrushRef::Image(_) => Color::BLACK,
                 },
             };
-            let color = color.with_alpha_factor(item.alpha);
+            let color = color.multiply_alpha(item.alpha);
             vec.push(ColorStop {
                 color,
                 offset: item.offset,

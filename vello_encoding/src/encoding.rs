@@ -264,14 +264,13 @@ impl Encoding {
     }
 
     /// Encodes a brush with an optional alpha modifier.
-    #[allow(unused_variables)]
     pub fn encode_brush<'b>(&mut self, brush: impl Into<BrushRef<'b>>, alpha: f32) {
         #[cfg(feature = "full")]
         use super::math::point_to_f32;
         match brush.into() {
             BrushRef::Solid(color) => {
                 let color = if alpha != 1.0 {
-                    color.with_alpha_factor(alpha)
+                    color.multiply_alpha(alpha)
                 } else {
                     color
                 };
@@ -500,7 +499,7 @@ impl Encoding {
         if alpha != 1.0 {
             self.resources
                 .color_stops
-                .extend(color_stops.map(|stop| stop.with_alpha_factor(alpha)));
+                .extend(color_stops.map(|stop| stop.multiply_alpha(alpha)));
         } else {
             self.resources.color_stops.extend(color_stops);
         }
