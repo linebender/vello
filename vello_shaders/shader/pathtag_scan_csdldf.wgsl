@@ -11,10 +11,10 @@ var<uniform> config: Config;
 var<storage> scene: array<u32>;
 
 @group(0) @binding(2)
-var<storage, read_write> reduced: array<array<atomic<u32>, 5>>;
+var<storage, read_write> reduced: array<array<atomic<u32>, PATH_MEMBERS>>;
 
 @group(0) @binding(3)
-var<storage, read_write> tag_monoids: array<array<u32, 5>>;
+var<storage, read_write> tag_monoids: array<array<u32, PATH_MEMBERS>>;
 
 @group(0) @binding(4)
 var<storage, read_write> scan_bump: atomic<u32>;
@@ -24,69 +24,49 @@ let LG_WG_SIZE = 8u;
 let WG_SIZE = 256u;
 
 //For the decoupled lookback
-let FLAG_NOT_READY: u32 = 0;
-let FLAG_REDUCTION: u32 = 1;
-let FLAG_INCLUSIVE: u32 = 2;
-let FLAG_MASK: u32 = 3;
+let FLAG_NOT_READY = 0u;
+let FLAG_REDUCTION = 1u;
+let FLAG_INCLUSIVE = 2u;
+let FLAG_MASK = 3u;
 
 //For the decoupled fallback
-let MAX_SPIN_COUNT: u32 = 4;
-let LOCKED: u32 = 1;
-let UNLOCKED: u32 = 0;
+let MAX_SPIN_COUNT = 4u;
+let LOCKED = 1u;
+let UNLOCKED = 0u;
 
 var<workgroup> sh_broadcast: u32;
 var<workgroup> sh_lock: u32;
-var<workgroup> sh_scratch: array<array<u32, 5>, WG_SIZE>;
-var<workgroup> sh_fallback: array<array<u32, 5>, WG_SIZE>;
-var<workgroup> sh_tag_broadcast: array<u32, 5>;
-var<workgroup> sh_fallback_state: array<bool, 5>;
+var<workgroup> sh_scratch: array<array<u32, PATH_MEMBERS>, WG_SIZE>;
+var<workgroup> sh_tag_broadcast: array<u32, PATH_MEMBERS>;
+var<workgroup> sh_fallback_state: array<bool, PATH_MEMBERS>;
 
-fn attempt_lookback(
-    part_ix: u32,
-    lookback_ix: u32,
-    member_ix: u32,
-    aggregate: u32,
-    spin_count: ptr<function, u32>,
-    prev: ptr<function, u32>,
-    reduction_complete: ptr<function, bool>,
-    inclusive_complete: ptr<function, bool>
-){
-    let payload = atomicLoad(&reduced[lookback_ix][member_ix]);
-    let flag_value = payload & FLAG_MASK;
-    if flag_value == FLAG_REDUCTION {
-        *spin_count = 0u;
-        *prev += payload >> 2u;
-        *reduction_complete = true;
-    } else if flag_value == FLAG_INCLUSIVE {
-        *spin_count = 0u;
-        *prev += payload >> 2u;
-        atomicStore(&reduced[part_ix][member_ix], ((aggregate + *prev)  << 2u) | FLAG_INCLUSIVE);
-        sh_tag_broadcast[member_ix] = *prev;
-        *inclusive_complete = true;
-    }
+struct pathtag_wrapper{
+    p: array<u32, PATH_MEMBERS>
 }
 
-fn fallback(
-    part_ix: u32,
-    fallback_ix: u32,
-    member_ix: u32,
-    aggregate: u32,
-    fallback_aggregate: u32,
-    prev: ptr<function, u32>,
-    inclusive_complete: ptr<function, bool>
-){
-    let fallback_payload = (fallback_aggregate << 2u) | select(FLAG_INCLUSIVE, FLAG_REDUCTION, fallback_ix != 0u);
-    let prev_payload = atomicMax(&reduced[fallback_ix][member_ix], fallback_payload);
-    if prev_payload == 0u {
-        *prev += fallback_aggregate;
-    } else {
-        *prev += prev_payload >> 2u;
-    }
-    if fallback_ix == 0u || (prev_payload & FLAG_MASK) == FLAG_INCLUSIVE {
-        atomicStore(&reduced[part_ix][member_ix], ((aggregate + *prev)  << 2u) | FLAG_INCLUSIVE);
-        sh_tag_broadcast[member_ix] = *prev;
-        *inclusive_complete = true;
-    }
+struct state_wrapper{
+    s: array<bool, PATH_MEMBERS>
+}
+
+//TODO: There has to be a better way to initialize an array?
+fn clear_pathtag()->array<u32, PATH_MEMBERS>{
+    var a: array<u32, PATH_MEMBERS>;
+    a[0] = 0u;
+    a[1] = 0u;
+    a[2] = 0u;
+    a[3] = 0u;
+    a[4] = 0u;
+    return a;
+}
+
+fn clear_state()->array<bool, PATH_MEMBERS>{
+    var a: array<bool, PATH_MEMBERS>;
+    a[0] = false;
+    a[1] = false;
+    a[2] = false;
+    a[3] = false;
+    a[4] = false;
+    return a;
 }
 
 @compute @workgroup_size(256)
@@ -103,145 +83,88 @@ fn main(
 
     //Local Scan, Hillis-Steel/Kogge-Stone
     let tag_word = scene[config.pathtag_base + local_id.x + part_ix * WG_SIZE];
-    var agg = reduce_tag_arr(tag_word);
-    sh_scratch[local_id.x] = agg;
+    var agg: pathtag_wrapper;
+    agg.p = reduce_tag_arr(tag_word);
+    sh_scratch[local_id.x] = agg.p;
     for (var i = 0u; i < LG_WG_SIZE; i += 1u) {
         workgroupBarrier();
         if local_id.x >= 1u << i {
-            let other = sh_scratch[local_id.x - (1u << i)];
-            agg[0] += other[0];
-            agg[1] += other[1];
-            agg[2] += other[2];
-            agg[3] += other[3];
-            agg[4] += other[4];
+            var other: pathtag_wrapper;
+            other.p = sh_scratch[local_id.x - (1u << i)];
+            for (var k = 0u; k < 5u; k += 1u){
+                agg.p[k] += other.p[k];
+            }
         }
         workgroupBarrier();
-        sh_scratch[local_id.x] = agg;
+        if i < LG_WG_SIZE - 1u {
+            sh_scratch[local_id.x] = agg.p;
+        }
     }
 
     //Broadcast the results and flag into device memory
     if local_id.x == WG_SIZE - 1u {
-        if part_ix != 0u {
-            atomicStore(&reduced[part_ix][0], (agg[0] << 2u) | FLAG_REDUCTION);
-            atomicStore(&reduced[part_ix][1], (agg[1] << 2u) | FLAG_REDUCTION);
-            atomicStore(&reduced[part_ix][2], (agg[2] << 2u) | FLAG_REDUCTION);
-            atomicStore(&reduced[part_ix][3], (agg[3] << 2u) | FLAG_REDUCTION);
-            atomicStore(&reduced[part_ix][4], (agg[4] << 2u) | FLAG_REDUCTION);
-        } else {
-            atomicStore(&reduced[part_ix][0], (agg[0] << 2u) | FLAG_INCLUSIVE);
-            atomicStore(&reduced[part_ix][1], (agg[1] << 2u) | FLAG_INCLUSIVE);
-            atomicStore(&reduced[part_ix][2], (agg[2] << 2u) | FLAG_INCLUSIVE);
-            atomicStore(&reduced[part_ix][3], (agg[3] << 2u) | FLAG_INCLUSIVE);
-            atomicStore(&reduced[part_ix][4], (agg[4] << 2u) | FLAG_INCLUSIVE);
+        for (var i = 0u; i < PATH_MEMBERS; i += 1u) {
+            atomicStore(&reduced[part_ix][i], (agg.p[i] << 2u) | select(FLAG_INCLUSIVE, FLAG_REDUCTION, part_ix != 0u));
         }
     }
 
     //Lookback and potentially fallback
     if part_ix != 0u {
         var lookback_ix = part_ix - 1u;
-        
-        var inc0 = false;
-        var inc1 = false;
-        var inc2 = false;
-        var inc3 = false;
-        var inc4 = false;
-
-        var prev0 = 0u;
-        var prev1 = 0u;
-        var prev2 = 0u;
-        var prev3 = 0u;
-        var prev4 = 0u;
+        var inc_complete: state_wrapper;
+        inc_complete.s = clear_state();
+        var prev_reduction: pathtag_wrapper;
+        prev_reduction.p = clear_pathtag();
 
         while(sh_lock == LOCKED){
             workgroupBarrier();
-            
-            var red0 = false;
-            var red1 = false;
-            var red2 = false;
-            var red3 = false;
-            var red4 = false;
+
+            var red_complete: state_wrapper;
+            for (var i = 0u; i < PATH_MEMBERS; i += 1u) {
+                red_complete.s[i] = false;
+            }
             
             //Lookback, with a single thread
             //Last thread in the workgroup has the complete aggregate
             if local_id.x == WG_SIZE - 1u {
                 for (var spin_count = 0u; spin_count < MAX_SPIN_COUNT; ) {
-                    //TRANS_IX
-                    if !inc0 && !red0 {
-                        attempt_lookback(
-                            part_ix,
-                            lookback_ix,
-                            0u,
-                            agg[0],
-                            &spin_count,
-                            &prev0,
-                            &red0,
-                            &inc0);
-                    }
-
-                    //PATHSEG_IX
-                    if !inc1 && !red1 {
-                        attempt_lookback(
-                            part_ix,
-                            lookback_ix,
-                            1u,
-                            agg[1],
-                            &spin_count,
-                            &prev1,
-                            &red1,
-                            &inc1);
-                    }
-
-                    //PATHSEG_OFFSET
-                    if !inc2 && !red2 {
-                        attempt_lookback(
-                            part_ix,
-                            lookback_ix,
-                            2u,
-                            agg[2],
-                            &spin_count,
-                            &prev2,
-                            &red2,
-                            &inc2);
-                    }
-
-                    //STYLE_IX
-                    if !inc3 && !red3 {
-                        attempt_lookback(
-                            part_ix,
-                            lookback_ix,
-                            3u,
-                            agg[3],
-                            &spin_count,
-                            &prev3,
-                            &red3,
-                            &inc3);
-                    }
-                    
-                    //PATH_IX
-                    if !inc4 && !red4 {
-                        attempt_lookback(
-                            part_ix,
-                            lookback_ix,
-                            4u,
-                            agg[4],
-                            &spin_count,
-                            &prev4,
-                            &red4,
-                            &inc4);
+                    //Attempt Lookback
+                    for (var i = 0u; i < PATH_MEMBERS; i += 1u) {
+                        if !inc_complete.s[i] && !red_complete.s[i] {
+                            let payload = atomicLoad(&reduced[lookback_ix][i]);
+                            let flag_value = payload & FLAG_MASK;
+                            if flag_value == FLAG_REDUCTION {
+                                spin_count = 0u;
+                                prev_reduction.p[i] += payload >> 2u;
+                                red_complete.s[i] = true;
+                            } else if flag_value == FLAG_INCLUSIVE {
+                                spin_count = 0u;
+                                prev_reduction.p[i] += payload >> 2u;
+                                atomicStore(&reduced[part_ix][i], ((agg.p[i] + prev_reduction.p[i])  << 2u) | FLAG_INCLUSIVE);
+                                sh_tag_broadcast[i] = prev_reduction.p[i];
+                                inc_complete.s[i] = true;
+                            }
+                        }
                     }
 
                     //Have we completed the current reduction or inclusive sum for all PathTag members?
-                    if (inc0 || red0) && (inc1 || red1) && (inc2 || red2) && (inc3 || red3) && (inc4 || red4) {
-                        if inc0 && inc1 && inc2 && inc3 && inc4 {
+                    var can_advance = inc_complete.s[0] || red_complete.s[0];
+                    for (var i = 1u; i < PATH_MEMBERS; i += 1u) {
+                        can_advance = can_advance && (inc_complete.s[i] || red_complete.s[i]);
+                    }
+
+                    if can_advance {
+                        //Are all lookbacks complete?
+                        var all_complete = inc_complete.s[0];
+                        for (var i = 1u; i < PATH_MEMBERS; i += 1u) {
+                            all_complete = all_complete && inc_complete.s[i];
+                        }
+                        if all_complete {
                             sh_lock = UNLOCKED;
                             break;
                         } else {
                             lookback_ix--;
-                            red0 = false;
-                            red1 = false;
-                            red2 = false;
-                            red3 = false;
-                            red4 = false;
+                            red_complete.s = clear_state();
                         }
                     } else {
                         spin_count++;
@@ -253,11 +176,9 @@ fn main(
                 //and states of the tagmonoid struct members
                 if sh_lock == LOCKED {
                     sh_broadcast = lookback_ix;
-                    sh_fallback_state[0] = !inc0 && !red0;
-                    sh_fallback_state[1] = !inc1 && !red1;
-                    sh_fallback_state[2] = !inc2 && !red2;
-                    sh_fallback_state[3] = !inc3 && !red3;
-                    sh_fallback_state[4] = !inc4 && !red4;
+                    for (var i = 0u; i < PATH_MEMBERS; i += 1u) {
+                        sh_fallback_state[i] = !inc_complete.s[i] && !red_complete.s[i];
+                    }
                 }
             }
             workgroupBarrier();
@@ -265,131 +186,62 @@ fn main(
             //Fallback
             if sh_lock == LOCKED {
                 let fallback_ix = sh_broadcast;
-
-                red0 = sh_fallback_state[0];
-                red1 = sh_fallback_state[1];
-                red2 = sh_fallback_state[2];
-                red3 = sh_fallback_state[3];
-                red4 = sh_fallback_state[4];
+                for (var i = 0u; i < PATH_MEMBERS; i += 1u) {
+                    red_complete.s[i] = sh_fallback_state[i];
+                }
 
                 //Fallback Reduce
                 //Is there an alternative to this besides a giant switch statement or
                 //5 individual reductions?
                 let f_word = scene[config.pathtag_base + local_id.x + fallback_ix * WG_SIZE];
-                var f_agg = reduce_tag_arr(f_word);
-                sh_fallback[local_id.x] = f_agg;
+                var f_agg: pathtag_wrapper;
+                f_agg.p = reduce_tag_arr(f_word);
+                sh_scratch[local_id.x] = f_agg.p;
                 for (var i = 0u; i < LG_WG_SIZE; i += 1u) {
                     workgroupBarrier();
                     let index = local_id.x - (1u << i);
                     if index >= 0u {
-                        if red0 {
-                            f_agg[0] += sh_fallback[index][0];
-                        }
-                        if red1 {
-                            f_agg[1] += sh_fallback[index][1];
-                        }
-                        if red2 {
-                            f_agg[2] += sh_fallback[index][2];
-                        }
-                        if red3 {
-                            f_agg[3] += sh_fallback[index][3];
-                        }
-                        if red4 {
-                            f_agg[4] += sh_fallback[index][4];
+                        for (var k = 0u; k < PATH_MEMBERS; k += 1u) {
+                            if red_complete.s[k] {
+                                f_agg.p[k] += sh_scratch[index][k];
+                            }
                         }
                     }
                     workgroupBarrier();
-                    if red0 {
-                        sh_fallback[local_id.x][0] = f_agg[0];
-                    }
-
-                    if red1 {
-                        sh_fallback[local_id.x][1] = f_agg[1];
-                    }
-
-                    if red2 {
-                        sh_fallback[local_id.x][2] = f_agg[2];
-                    }
-
-                    if red3 {
-                        sh_fallback[local_id.x][3] = f_agg[3];
-                    }
-                    
-                    if red4 {
-                        sh_fallback[local_id.x][4] = f_agg[4];
+                    if i < LG_WG_SIZE - 1u {
+                        for (var k = 0u; k < PATH_MEMBERS; k += 1u) {
+                            if red_complete.s[k] {
+                                sh_scratch[local_id.x][k] = f_agg.p[k];
+                            }
+                        }
                     }
                 }
 
                 //Fallback and attempt insertion of status flag
                 if local_id.x == WG_SIZE - 1u {
-                    //TRANS_IX FALLBACK
-                    if red0 {
-                        fallback(
-                            part_ix,
-                            fallback_ix,
-                            0u,
-                            agg[0],
-                            f_agg[0],
-                            &prev0,
-                            &inc0,
-                        );
-                    }
-
-                    //PATHSEG_IX FALLBACK
-                    if red1 {
-                        fallback(
-                            part_ix,
-                            fallback_ix,
-                            1u,
-                            agg[1],
-                            f_agg[1],
-                            &prev1,
-                            &inc1,
-                        );
-                    }
-
-                    //PATHSEG_OFFSET FALLBACK
-                    if red2 {
-                        fallback(
-                            part_ix,
-                            fallback_ix,
-                            2u,
-                            agg[2],
-                            f_agg[2],
-                            &prev2,
-                            &inc2,
-                        );
-                    }
-
-                    //STYLE_IX FALLBACK
-                    if red3 {
-                        fallback(
-                            part_ix,
-                            fallback_ix,
-                            3u,
-                            agg[3],
-                            f_agg[3],
-                            &prev3,
-                            &inc3,
-                        );
-                    }
-
-                    //PATH_IX FALLBACK
-                    if red4 {
-                        fallback(
-                            part_ix,
-                            fallback_ix,
-                            4u,
-                            agg[4],
-                            f_agg[4],
-                            &prev4,
-                            &inc4,
-                        );
+                    //Fallback
+                    for (var i = 0u; i < PATH_MEMBERS; i += 1u) {
+                        let fallback_payload = (f_agg.p[i] << 2u) | select(FLAG_INCLUSIVE, FLAG_REDUCTION, fallback_ix != 0u);
+                        let prev_payload = atomicMax(&reduced[fallback_ix][i], fallback_payload);
+                        if prev_payload == 0u {
+                            prev_reduction.p[i] += f_agg.p[i];
+                        } else {
+                            prev_reduction.p[i] += prev_payload >> 2u;
+                        }
+                        if fallback_ix == 0u || (prev_payload & FLAG_MASK) == FLAG_INCLUSIVE {
+                            atomicStore(&reduced[part_ix][i], ((agg.p[i] + prev_reduction.p[i])  << 2u) | FLAG_INCLUSIVE);
+                            sh_tag_broadcast[i] = prev_reduction.p[i];
+                            inc_complete.s[i] = true;
+                        }
                     }
 
                     //At this point, the reductions are guaranteed to be complete,
                     //so try unlocking, else, keep looking back
-                    if inc0 && inc1 && inc2 && inc3 && inc4 {
+                    var all_complete = inc_complete.s[0];
+                    for (var i = 1u; i < PATH_MEMBERS; i += 1u) {
+                        all_complete = all_complete && inc_complete.s[i];
+                    }
+                    if all_complete {
                         sh_lock = UNLOCKED;
                     } else {
                         lookback_ix--;
@@ -399,27 +251,23 @@ fn main(
             }
         }
     }
+    sh_scratch[local_id.x] = agg.p;
     workgroupBarrier();
 
-    var tm: array<u32, 5>;
+    var tm: pathtag_wrapper;
     if part_ix != 0u {
-        tm = sh_tag_broadcast;
+        tm.p = sh_tag_broadcast;
     } else {
-        tm[0] = 0u;
-        tm[1] = 0u;
-        tm[2] = 0u;
-        tm[3] = 0u;
-        tm[4] = 0u;
+        tm.p = clear_pathtag();
     }
 
     if local_id.x != 0u {
-        let other = sh_scratch[local_id.x - 1u];
-        tm[0] += other[0];
-        tm[1] += other[1];
-        tm[2] += other[2];
-        tm[3] += other[3];
-        tm[4] += other[4]; 
+        var other: pathtag_wrapper;
+        other.p = sh_scratch[local_id.x - 1u];
+        for (var i = 0u; i < PATH_MEMBERS; i += 1u) {
+            tm.p[i] += other.p[i];
+        }
     } 
 
-    tag_monoids[local_id.x + part_ix * WG_SIZE] = tm;
+    tag_monoids[local_id.x + part_ix * WG_SIZE] = tm.p;
 }
