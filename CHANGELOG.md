@@ -29,7 +29,7 @@ This release has an [MSRV][] of 1.75.
 
 ### Fixed
 
-## Removed
+### Removed
 
 - Breaking: `Pipelines` API from `vello_shaders` ([#612] by [@DJMcNab])
 

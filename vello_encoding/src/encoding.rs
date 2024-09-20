@@ -264,14 +264,13 @@ impl Encoding {
     }
 
     /// Encodes a brush with an optional alpha modifier.
-    #[allow(unused_variables)]
     pub fn encode_brush<'b>(&mut self, brush: impl Into<BrushRef<'b>>, alpha: f32) {
         #[cfg(feature = "full")]
         use super::math::point_to_f32;
         match brush.into() {
             BrushRef::Solid(color) => {
                 let color = if alpha != 1.0 {
-                    color.with_alpha_factor(alpha)
+                    color.multiply_alpha(alpha)
                 } else {
                     color
                 };
@@ -418,9 +417,11 @@ impl Encoding {
 
     /// Encodes an image brush.
     #[cfg(feature = "full")]
-    pub fn encode_image(&mut self, image: &Image, _alpha: f32) {
+    pub fn encode_image(&mut self, image: &Image, alpha: f32) {
+        let _alpha = alpha * f32::from(image.alpha);
         // TODO: feed the alpha multiplier through the full pipeline for consistency
         // with other brushes?
+        // Tracked in https://github.com/linebender/vello/issues/692
         self.resources.patches.push(Patch::Image {
             image: image.clone(),
             draw_data_offset: self.draw_data.len(),
@@ -500,7 +501,7 @@ impl Encoding {
         if alpha != 1.0 {
             self.resources
                 .color_stops
-                .extend(color_stops.map(|stop| stop.with_alpha_factor(alpha)));
+                .extend(color_stops.map(|stop| stop.multiply_alpha(alpha)));
         } else {
             self.resources.color_stops.extend(color_stops);
         }
