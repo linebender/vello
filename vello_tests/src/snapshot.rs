@@ -147,14 +147,27 @@ pub fn smoke_snapshot_test_sync(scene: Scene, params: &TestParams) -> Result<Sna
     pollster::block_on(snapshot_test(scene, params, SnapshotDirectory::Smoke))
 }
 
-/// Run a snapshot test of the given scene.
+/// Run an snapshot test of the given scene.
+///
+/// In most cases, you should use [`snapshot_test_sync`] or [`smoke_snapshot_test_sync`].
 pub async fn snapshot_test(
     scene: Scene,
     params: &TestParams,
     directory: SnapshotDirectory,
 ) -> Result<Snapshot> {
     let raw_rendered = render_then_debug(&scene, params).await?;
+    snapshot_test_image(raw_rendered, params, directory)
+}
 
+/// Evaluate a snapshot test on the given image.
+///
+/// This is useful if a post-processing step needs to happen
+/// in-between running Vello and the image.
+pub fn snapshot_test_image(
+    raw_rendered: Image,
+    params: &TestParams,
+    directory: SnapshotDirectory,
+) -> Result<Snapshot> {
     let reference_path = snapshot_dir(directory)
         .join(&params.name)
         .with_extension("png");

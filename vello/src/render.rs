@@ -168,6 +168,19 @@ impl Render {
         }
         let cpu_config =
             RenderConfig::new(&layout, params.width, params.height, &params.base_color);
+        // HACK: The coarse workgroup counts is the number of active bins.
+        if (cpu_config.workgroup_counts.coarse.0
+            * cpu_config.workgroup_counts.coarse.1
+            * cpu_config.workgroup_counts.coarse.2)
+            > 256
+        {
+            log::warn!(
+                "Trying to paint too large image. {}x{}.\n\
+                See https://github.com/linebender/vello/issues/680 for details",
+                params.width,
+                params.height
+            );
+        }
         let buffer_sizes = &cpu_config.buffer_sizes;
         let wg_counts = &cpu_config.workgroup_counts;
 
