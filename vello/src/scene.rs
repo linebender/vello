@@ -574,6 +574,7 @@ impl<'a> DrawGlyphs<'a> {
                             )
                         }
                     };
+                    let image = image.multiply_alpha(self.brush_alpha);
                     // Split into multiple statements because rustfmt breaks
                     let transform =
                         run_transform.then_translate(Vec2::new(glyph.x.into(), glyph.y.into()));
