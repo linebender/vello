@@ -147,6 +147,9 @@ pub fn smoke_snapshot_test_sync(scene: Scene, params: &TestParams) -> Result<Sna
     pollster::block_on(snapshot_test(scene, params, SnapshotDirectory::Smoke))
 }
 
+/// Run an snapshot test of the given scene.
+///
+/// In most cases, you should use [`snapshot_test_sync`] or [`smoke_snapshot_test_sync`].
 pub async fn snapshot_test(
     scene: Scene,
     params: &TestParams,
