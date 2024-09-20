@@ -48,25 +48,12 @@ struct state_wrapper{
     s: array<bool, PATH_MEMBERS>
 }
 
-//TODO: There has to be a better way to initialize an array?
 fn clear_pathtag()->array<u32, PATH_MEMBERS>{
-    var a: array<u32, PATH_MEMBERS>;
-    a[0] = 0u;
-    a[1] = 0u;
-    a[2] = 0u;
-    a[3] = 0u;
-    a[4] = 0u;
-    return a;
+    return array(0u, 0u, 0u, 0u, 0u);
 }
 
 fn clear_state()->array<bool, PATH_MEMBERS>{
-    var a: array<bool, PATH_MEMBERS>;
-    a[0] = false;
-    a[1] = false;
-    a[2] = false;
-    a[3] = false;
-    a[4] = false;
-    return a;
+    return array(false, false, false, false, false);
 }
 
 @compute @workgroup_size(256)
@@ -104,7 +91,7 @@ fn main(
     //Broadcast the results and flag into device memory
     if local_id.x == WG_SIZE - 1u {
         for (var i = 0u; i < PATH_MEMBERS; i += 1u) {
-            atomicStore(&reduced[part_ix][i], (agg.p[i] << 2u) | select(FLAG_INCLUSIVE, FLAG_REDUCTION, part_ix != 0u));
+            //atomicStore(&reduced[part_ix][i], (agg.p[i] << 2u) | select(FLAG_INCLUSIVE, FLAG_REDUCTION, part_ix != 0u));
         }
     }
 
@@ -112,7 +99,7 @@ fn main(
     if part_ix != 0u {
         var lookback_ix = part_ix - 1u;
         var inc_complete: state_wrapper;
-        inc_complete.s = clear_state();
+        inc_complete.s = array(false, false, false, false, false);
         var prev_reduction: pathtag_wrapper;
         prev_reduction.p = clear_pathtag();
 
@@ -197,8 +184,8 @@ fn main(
                 sh_scratch[local_id.x] = f_agg.p;
                 for (var i = 0u; i < LG_WG_SIZE; i += 1u) {
                     workgroupBarrier();
-                    let index = local_id.x - (1u << i);
-                    if index >= 0u {
+                    let index = i32(local_id.x) - i32(1u << i);
+                    if index >= 0 {
                         for (var k = 0u; k < PATH_MEMBERS; k += 1u) {
                             if red_complete.s[k] {
                                 f_agg.p[k] += sh_scratch[index][k];
