@@ -229,11 +229,13 @@ pub enum Error {
     /// See [`wgpu_profiler::CreationError`] for more information.
     #[cfg(feature = "wgpu-profiler")]
     #[error("Couldn't create wgpu profiler")]
+    #[doc(hidden)] // End-users of Vello should not have `wgpu-profiler` enabled.
     ProfilerCreationError(#[from] wgpu_profiler::CreationError),
 
     /// Failed to compile the shaders.
     #[cfg(feature = "hot_reload")]
     #[error("Failed to compile shaders:\n{0}")]
+    #[doc(hidden)] // End-users of Vello should not have `hot_reload` enabled.
     ShaderCompilation(#[from] vello_shaders::compile::ErrorVec),
 }
 
@@ -253,8 +255,12 @@ pub struct Renderer {
     debug: Option<debug::DebugRenderer>,
     target: Option<TargetTexture>,
     #[cfg(feature = "wgpu-profiler")]
+    #[doc(hidden)] // End-users of Vello should not have `wgpu-profiler` enabled.
+    /// The profiler used with events for this renderer. This is *not* treated as public API.
     pub profiler: GpuProfiler,
     #[cfg(feature = "wgpu-profiler")]
+    #[doc(hidden)] // End-users of Vello should not have `wgpu-profiler` enabled.
+    /// The results from profiling. This is *not* treated as public API.
     pub profile_result: Option<Vec<wgpu_profiler::GpuTimerQueryResult>>,
 }
 // This is not `Send` (or `Sync`) on WebAssembly as the
@@ -350,7 +356,6 @@ impl Renderer {
             #[cfg(feature = "debug_layers")]
             debug,
             target: None,
-            // Use 3 pending frames
             #[cfg(feature = "wgpu-profiler")]
             profiler: GpuProfiler::new(GpuProfilerSettings {
                 ..Default::default()
@@ -486,6 +491,7 @@ impl Renderer {
 
     /// Reload the shaders. This should only be used during `vello` development
     #[cfg(feature = "hot_reload")]
+    #[doc(hidden)] // End-users of Vello should not have `hot_reload` enabled.
     pub async fn reload_shaders(&mut self, device: &Device) -> Result<(), Error> {
         device.push_error_scope(wgpu::ErrorFilter::Validation);
         let mut engine = WgpuEngine::new(self.options.use_cpu);

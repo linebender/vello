@@ -16,11 +16,24 @@ default = ["wgpu"]
 # bump-allocated GPU memory.
 # TODO: Turn this into a runtime option used at resolve time and remove the feature.
 bump_estimate = ["vello_encoding/bump_estimate"]
-hot_reload = ["vello_shaders/compile"]
+# Adds labels to buffers created by Vello.
+# May improve debugability at the cost of slightly higher memory usage (TODO: We should just not make these optional).
 buffer_labels = []
-debug_layers = []
 wgpu = ["dep:wgpu"]
+
+# Development only features
+
+# Enables debug features when using the "async" pipeline.
+# This is only intended for development of Vello itself.
+debug_layers = []
+# Enables an embedded wgpu-profiler profiler.
+# This is only intended for development of Vello itself.
+# It is currently known to not work - see https://github.com/linebender/vello/issues/678
 wgpu-profiler = ["dep:wgpu-profiler"]
+# Enables hot reloading of Vello shaders.
+# This is only intended for development of Vello itself.
+# In practise, this won't compile outside of the Vello repository.
+hot_reload = ["vello_shaders/compile"]
 
 [lints]
 workspace = true
