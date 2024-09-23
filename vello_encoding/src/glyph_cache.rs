@@ -8,7 +8,7 @@ use super::{Encoding, StreamOffsets};
 
 use peniko::{Font, Style};
 use skrifa::instance::{NormalizedCoord, Size};
-use skrifa::outline::{HintingInstance, HintingMode, LcdLayout, OutlineGlyphFormat};
+use skrifa::outline::{HintingInstance, HintingOptions, OutlineGlyphFormat};
 use skrifa::{GlyphId, MetadataProvider, OutlineGlyphCollection};
 
 #[derive(Default)]
@@ -162,7 +162,7 @@ impl<'a> GlyphCacheSession<'a> {
             entry.serial = self.serial;
             return Some((entry.encoding.clone(), entry.stream_sizes));
         }
-        let outline = self.outlines.get(GlyphId::new(key.glyph_id as u16))?;
+        let outline = self.outlines.get(GlyphId::new(key.glyph_id))?;
         let mut encoding = self.free_list.pop().unwrap_or_default();
         let encoding_ptr = Arc::make_mut(&mut encoding);
         encoding_ptr.reset();
@@ -245,13 +245,19 @@ pub(crate) struct HintKey<'a> {
 
 impl<'a> HintKey<'a> {
     fn instance(&self) -> Option<HintingInstance> {
-        HintingInstance::new(self.outlines, self.size, self.coords, HINTING_MODE).ok()
+        HintingInstance::new(self.outlines, self.size, self.coords, HINTING_OPTIONS).ok()
     }
 }
 
-const HINTING_MODE: HintingMode = HintingMode::Smooth {
-    lcd_subpixel: Some(LcdLayout::Horizontal),
-    preserve_linear_metrics: true,
+// TODO: We might want to expose making these configurable in future.
+// However, these options are probably fine for most users.
+const HINTING_OPTIONS: HintingOptions = HintingOptions {
+    engine: skrifa::outline::Engine::AutoFallback,
+    target: skrifa::outline::Target::Smooth {
+        mode: skrifa::outline::SmoothMode::Lcd,
+        symmetric_rendering: false,
+        preserve_linear_metrics: true,
+    },
 };
 
 #[derive(Default)]
@@ -278,7 +284,7 @@ impl HintCache {
             entry.font_index = key.font_index;
             entry
                 .instance
-                .reconfigure(key.outlines, key.size, key.coords, HINTING_MODE)
+                .reconfigure(key.outlines, key.size, key.coords, HINTING_OPTIONS)
                 .ok()?;
         }
         Some(&entry.instance)

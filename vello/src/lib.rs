@@ -97,10 +97,8 @@ pub use peniko;
 /// 2D geometry, with a focus on curves.
 pub use peniko::kurbo;
 
-#[doc(hidden)]
 pub use skrifa;
-
-pub mod glyph;
+pub use vello_encoding::Glyph;
 
 #[cfg(feature = "wgpu")]
 pub use wgpu;

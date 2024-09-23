@@ -464,7 +464,7 @@ impl<'a> DrawGlyphs<'a> {
         loop {
             let ppem = self.run.font_size;
             let outline_glyphs = (&mut glyphs).take_while(|glyph| {
-                let glyph_id = GlyphId::new(glyph.id.try_into().unwrap());
+                let glyph_id = GlyphId::new(glyph.id);
                 match colour_collection.get(glyph_id) {
                     Some(color) => {
                         final_glyph = Some((EmojiLikeGlyph::Colr(color), *glyph));
