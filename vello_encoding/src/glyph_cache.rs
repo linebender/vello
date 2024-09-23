@@ -249,13 +249,13 @@ impl<'a> HintKey<'a> {
     }
 }
 
+// TODO: We might want to expose making these configurable in future.
+// However, these options are probably fine for most users.
 const HINTING_OPTIONS: HintingOptions = HintingOptions {
     engine: skrifa::outline::Engine::AutoFallback,
     target: skrifa::outline::Target::Smooth {
         mode: skrifa::outline::SmoothMode::Lcd,
-        // TODO: Set based on whether the anti-aliasing mode is Area?
         symmetric_rendering: false,
-        // TODO: Does Parley handle layout in a hinting-aware way?
         preserve_linear_metrics: true,
     },
 };
