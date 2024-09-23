@@ -3,12 +3,10 @@
 
 use std::sync::Arc;
 
-use vello::glyph::Glyph;
 use vello::kurbo::Affine;
 use vello::peniko::{Blob, Brush, BrushRef, Color, Font, StyleRef};
-use vello::skrifa::raw::FontRef;
-use vello::skrifa::MetadataProvider;
-use vello::Scene;
+use vello::skrifa::{raw::FontRef, MetadataProvider};
+use vello::{Glyph, Scene};
 
 // This is very much a hack to get things working.
 // On Windows, can set this to "c:\\Windows\\Fonts\\seguiemj.ttf" to get color emoji
