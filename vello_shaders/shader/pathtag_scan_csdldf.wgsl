@@ -110,12 +110,11 @@ fn main(
             //Last thread in the workgroup has the complete aggregate
             if local_id.x == WG_SIZE - 1u {
                 var red_complete: state_wrapper;
-                for (var i = 0u; i < PATH_MEMBERS; i += 1u) {
-                    red_complete.s[i] = false;
-                }
+                red_complete.s = clear_state();
+                var can_advance: bool;
                 for (var spin_count = 0u; spin_count < MAX_SPIN_COUNT; ) {
                     //Attempt Lookback
-                    var can_advance = true;
+                    can_advance = true;
                     for (var i = 0u; i < PATH_MEMBERS; i += 1u) {
                         if !inc_complete.s[i] && !red_complete.s[i] {
                             let payload = atomicLoad(&reduced[lookback_ix][i]);
@@ -158,7 +157,7 @@ fn main(
                 //If we didn't complete the lookback within the allotted spins,
                 //prepare for the fallback by broadcasting the lookback tile id
                 //and states of the tagmonoid struct members
-                if sh_lock == LOCKED {
+                if !can_advance {
                     sh_broadcast = lookback_ix;
                     for (var i = 0u; i < PATH_MEMBERS; i += 1u) {
                         sh_fallback_state[i] = !inc_complete.s[i] && !red_complete.s[i];
