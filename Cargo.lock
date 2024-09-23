@@ -729,9 +729,9 @@ dependencies = [
 
 [[package]]
 name = "font-types"
-version = "0.5.5"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34fd7136aca682873d859ef34494ab1a7d3f57ecd485ed40eb6437ee8c85aa29"
+checksum = "3cdb0bc47d40fdd11177c271c1bb3704b4230e7a945891d3cc184244c74d64b2"
 dependencies = [
  "bytemuck",
 ]
@@ -1885,9 +1885,9 @@ checksum = "20675572f6f24e9e76ef639bc5552774ed45f1c30e2951e1e99c59888861c539"
 
 [[package]]
 name = "read-fonts"
-version = "0.19.3"
+version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8b8af39d1f23869711ad4cea5e7835a20daa987f80232f7f2a2374d648ca64d"
+checksum = "0f37de1c4e46fd22ef9e1242df0ffb52ea62b64a9e91d4df16cecc300f31dfd0"
 dependencies = [
  "bytemuck",
  "font-types",
@@ -2130,9 +2130,9 @@ dependencies = [
 
 [[package]]
 name = "skrifa"
-version = "0.19.3"
+version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ab45fb68b53576a43d4fc0e9ec8ea64e29a4d2cc7f44506964cb75f288222e9"
+checksum = "a502599a3648f4fa3a5d0a532006d03a1f72fb9a8bc0c7aa97a74ab932f44ce3"
 dependencies = [
  "bytemuck",
  "read-fonts",

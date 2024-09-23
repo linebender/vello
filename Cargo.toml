@@ -42,7 +42,7 @@ vello = { version = "0.2.0", path = "vello" }
 vello_encoding = { version = "0.2.0", path = "vello_encoding" }
 vello_shaders = { version = "0.2.0", path = "vello_shaders" }
 bytemuck = { version = "1.16.0", features = ["derive"] }
-skrifa = "0.19.3"
+skrifa = "0.22.0"
 peniko = "0.2.0"
 futures-intrusive = "0.5.0"
 raw-window-handle = "0.6.2"
