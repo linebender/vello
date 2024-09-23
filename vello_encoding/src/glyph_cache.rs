@@ -8,7 +8,7 @@ use super::{Encoding, StreamOffsets};
 
 use peniko::{Font, Style};
 use skrifa::instance::{NormalizedCoord, Size};
-use skrifa::outline::{HintingInstance, HintingMode, LcdLayout, OutlineGlyphFormat};
+use skrifa::outline::{HintingInstance, HintingOptions, OutlineGlyphFormat};
 use skrifa::{GlyphId, MetadataProvider, OutlineGlyphCollection};
 
 #[derive(Default)]
@@ -245,13 +245,19 @@ pub(crate) struct HintKey<'a> {
 
 impl<'a> HintKey<'a> {
     fn instance(&self) -> Option<HintingInstance> {
-        HintingInstance::new(self.outlines, self.size, self.coords, HINTING_MODE).ok()
+        HintingInstance::new(self.outlines, self.size, self.coords, HINTING_OPTIONS).ok()
     }
 }
 
-const HINTING_MODE: HintingMode = HintingMode::Smooth {
-    lcd_subpixel: Some(LcdLayout::Horizontal),
-    preserve_linear_metrics: true,
+const HINTING_OPTIONS: HintingOptions = HintingOptions {
+    engine: skrifa::outline::Engine::AutoFallback,
+    target: skrifa::outline::Target::Smooth {
+        mode: skrifa::outline::SmoothMode::Lcd,
+        // TODO: Set based on whether the anti-aliasing mode is Area?
+        symmetric_rendering: false,
+        // TODO: Does Parley handle layout in a hinting-aware way?
+        preserve_linear_metrics: true,
+    },
 };
 
 #[derive(Default)]
@@ -278,7 +284,7 @@ impl HintCache {
             entry.font_index = key.font_index;
             entry
                 .instance
-                .reconfigure(key.outlines, key.size, key.coords, HINTING_MODE)
+                .reconfigure(key.outlines, key.size, key.coords, HINTING_OPTIONS)
                 .ok()?;
         }
         Some(&entry.instance)
