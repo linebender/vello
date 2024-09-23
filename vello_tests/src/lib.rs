@@ -16,7 +16,7 @@ use vello::wgpu::{
     self, BufferDescriptor, BufferUsages, CommandEncoderDescriptor, Extent3d, ImageCopyBuffer,
     TextureDescriptor, TextureFormat, TextureUsages,
 };
-use vello::{block_on_wgpu, util::RenderContext, RendererOptions, Scene};
+use vello::{block_on_wgpu, util::RenderContext, AaConfig, RendererOptions, Scene};
 
 mod compare;
 mod snapshot;
@@ -32,6 +32,7 @@ pub struct TestParams {
     pub base_colour: Option<Color>,
     pub use_cpu: bool,
     pub name: String,
+    pub anti_aliasing: AaConfig,
 }
 
 impl TestParams {
@@ -42,6 +43,7 @@ impl TestParams {
             base_colour: None,
             use_cpu: false,
             name: name.into(),
+            anti_aliasing: AaConfig::Area,
         }
     }
 }
@@ -87,7 +89,7 @@ pub async fn get_scene_image(params: &TestParams, scene: &Scene) -> Result<Image
             surface_format: None,
             use_cpu: params.use_cpu,
             num_init_threads: NonZeroUsize::new(1),
-            antialiasing_support: vello::AaSupport::area_only(),
+            antialiasing_support: std::iter::once(params.anti_aliasing).collect(),
         },
     )
     .or_else(|_| bail!("Got non-Send/Sync error from creating renderer"))?;
@@ -97,7 +99,7 @@ pub async fn get_scene_image(params: &TestParams, scene: &Scene) -> Result<Image
         base_color: params.base_colour.unwrap_or(Color::BLACK),
         width,
         height,
-        antialiasing_method: vello::AaConfig::Area,
+        antialiasing_method: params.anti_aliasing,
         debug: vello::DebugLayers::none(),
     };
     let size = Extent3d {
