@@ -177,7 +177,7 @@ impl SimpleText {
                     let x = pen_x;
                     pen_x += advance;
                     Some(Glyph {
-                        id: gid.to_u16() as u32,
+                        id: gid.to_u32(),
                         x,
                         y: pen_y,
                     })

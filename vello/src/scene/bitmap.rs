@@ -26,7 +26,7 @@ impl<'a> BitmapStrikes<'a> {
     /// This will prefer `sbix`, `CBDT`, and `CBLC` formats in that order.
     ///
     /// To select a specific format, use [`with_format`](Self::with_format).
-    pub fn new(font: &impl TableProvider<'a>) -> Self {
+    pub fn new(font: &(impl TableProvider<'a> + MetadataProvider<'a>)) -> Self {
         for format in [BitmapFormat::Sbix, BitmapFormat::Cbdt, BitmapFormat::Ebdt] {
             if let Some(strikes) = Self::with_format(font, format) {
                 return strikes;
@@ -38,7 +38,10 @@ impl<'a> BitmapStrikes<'a> {
     /// Creates a new `BitmapStrikes` for the given font and format.
     ///
     /// Returns `None` if the requested format is not available.
-    pub fn with_format(font: &impl TableProvider<'a>, format: BitmapFormat) -> Option<Self> {
+    pub fn with_format(
+        font: &(impl TableProvider<'a> + MetadataProvider<'a>),
+        format: BitmapFormat,
+    ) -> Option<Self> {
         let kind = match format {
             BitmapFormat::Sbix => StrikesKind::Sbix(
                 font.sbix().ok()?,

@@ -162,7 +162,7 @@ impl<'a> GlyphCacheSession<'a> {
             entry.serial = self.serial;
             return Some((entry.encoding.clone(), entry.stream_sizes));
         }
-        let outline = self.outlines.get(GlyphId::new(key.glyph_id as u16))?;
+        let outline = self.outlines.get(GlyphId::new(key.glyph_id))?;
         let mut encoding = self.free_list.pop().unwrap_or_default();
         let encoding_ptr = Arc::make_mut(&mut encoding);
         encoding_ptr.reset();
