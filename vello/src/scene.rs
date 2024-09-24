@@ -6,7 +6,7 @@ mod bitmap;
 use std::sync::Arc;
 
 use peniko::{
-    kurbo::{Affine, BezPath, Point, Rect, RoundedRect, Shape, Stroke, Vec2},
+    kurbo::{Affine, BezPath, Point, Rect, Shape, Stroke, Vec2},
     BlendMode, Blob, Brush, BrushRef, Color, ColorStop, ColorStops, ColorStopsSource, Compose,
     Extend, Fill, Font, Gradient, Image, Mix, StyleRef,
 };
@@ -129,44 +129,14 @@ impl Scene {
         self.draw_blurred_rounded_rect_in(&shape, transform, rect, brush, radius, std_dev);
     }
 
-    /// Draw a box shadow based on Gaussian filter box filter.
-    ///
-    /// This method is a thin wrapper around [`Self::draw_blurred_rounded_rect_in`], and is
-    pub fn draw_rounded_rect_box_shadow(
-        &mut self,
-        transform: Affine,
-        rect: Rect,
-        brush: Color,
-        radius: f64,
-        std_dev: f64,
-    ) {
-        // The impulse response of a gaussian filter is infinite.
-        // For performance reason we cut off the filter at some extent where the response is close to zero.
-        let kernel_size = 2.5 * std_dev;
-
-        // TODO: Add utils for ad-hoc composed shapes
-        let shape = BezPath::from_iter(
-            rect.inflate(kernel_size, kernel_size)
-                .path_elements(0.1)
-                .chain(
-                    RoundedRect::from_rect(rect, radius)
-                        .to_path(0.1)
-                        .reverse_subpaths(),
-                ),
-        );
-        // self.fill(Fill::NonZero, transform, brush, None, &shape);
-        self.draw_blurred_rounded_rect_in(&shape, transform, rect, brush, radius, std_dev);
-    }
-
     /// Draw a rounded rectangle blurred with a gaussian filter in `shape`.
     ///
-    /// `shape` should will be in the same with the top-left corner of the rectangle
-    /// (before corner radius and blurring is applied).
     /// For performance reasons, `shape` should not extend more than approximately 2.5 times
-    /// `std_dev` away from points in rect (as all such points will not be perceptably painted to,
+    /// `std_dev` away from the edges of `rect` (as any such points will not be perceptably painted to,
     /// but calculations will still be performed for them).
     ///
-    /// This is useful for shadows which are not used as the background for a shape but will be used for the.
+    /// This method is a more advanced version of [`Self::draw_blurred_rounded_rect`].
+    /// For many users, that method will be easier to use.
     pub fn draw_blurred_rounded_rect_in(
         &mut self,
         shape: &impl Shape,

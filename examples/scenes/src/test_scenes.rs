@@ -87,6 +87,7 @@ mod impls {
     use std::f64::consts::PI;
 
     use crate::SceneParams;
+    use kurbo::RoundedRect;
     use rand::Rng;
     use rand::{rngs::StdRng, SeedableRng};
     use vello::kurbo::{
@@ -1719,15 +1720,6 @@ mod impls {
             params.time.sin() * 50.0 + 50.0,
         );
 
-        // Stretch affine transformation.
-        scene.draw_blurred_rounded_rect(
-            Affine::translate((600.0, 600.0)) * Affine::scale_non_uniform(2.2, 0.9),
-            rect,
-            Color::BLACK,
-            radius,
-            params.time.sin() * 50.0 + 50.0,
-        );
-
         // Circle.
         scene.draw_blurred_rounded_rect(
             Affine::IDENTITY,
@@ -1744,6 +1736,29 @@ mod impls {
             Color::BLACK,
             150.0,
             params.time.sin() * 50.0 + 50.0,
+        );
+
+        // An enulated box shadow, to demonstrate the use of `draw_blurred_rounded_rect_in`.
+        let std_dev = params.time.sin() * 50.0 + 50.0;
+        let kernel_size = 2.5 * std_dev;
+
+        // TODO: Add utils to Kurbo for ad-hoc composed shapes
+        let shape = BezPath::from_iter(
+            rect.inflate(kernel_size, kernel_size)
+                .path_elements(0.1)
+                .chain(
+                    RoundedRect::from_rect(rect, radius)
+                        .to_path(0.1)
+                        .reverse_subpaths(),
+                ),
+        );
+        scene.draw_blurred_rounded_rect_in(
+            &shape,
+            Affine::translate((600.0, 600.0)) * Affine::scale_non_uniform(2.2, 0.9),
+            rect,
+            Color::BLACK,
+            radius,
+            std_dev,
         );
     }
 }
