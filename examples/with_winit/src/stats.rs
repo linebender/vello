@@ -23,28 +23,6 @@ pub struct Snapshot {
     pub frame_time_max_ms: f64,
 }
 
-/// Formats the given number of seconds as a Duration.
-///
-/// This is necessary as sometimes, the duration from wgpu-profiler turns out to be negative.
-/// We have not yet debugged this, but we choose to display the absolute
-/// value in that case.
-///
-/// See <https://github.com/linebender/vello/pull/475> for context
-struct PaniclessSecondsFormatter(f64);
-
-impl Display for PaniclessSecondsFormatter {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.0 < 0. {
-            if let Ok(val) = Duration::try_from_secs_f64(-self.0) {
-                return write!(f, "-{val:.2?}(!)");
-            }
-        } else if let Ok(val) = Duration::try_from_secs_f64(self.0) {
-            return write!(f, "{val:.2?}");
-        }
-        write!(f, "{} seconds(!)", self.0)
-    }
-}
-
 impl Snapshot {
     #[allow(clippy::too_many_arguments)]
     pub fn draw_layer<'a, T>(
@@ -272,6 +250,30 @@ fn round_up(n: usize, f: usize) -> usize {
 
 #[cfg(feature = "wgpu-profiler")]
 use wgpu_profiler::GpuTimerQueryResult;
+
+/// Formats the given number of seconds as a Duration.
+///
+/// This is necessary as sometimes, the duration from wgpu-profiler turns out to be negative.
+/// We have not yet debugged this, but we choose to display the absolute
+/// value in that case.
+///
+/// See <https://github.com/linebender/vello/pull/475> for context
+#[cfg(feature = "wgpu-profiler")]
+struct PaniclessSecondsFormatter(f64);
+
+#[cfg(feature = "wgpu-profiler")]
+impl Display for PaniclessSecondsFormatter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.0 < 0. {
+            if let Ok(val) = Duration::try_from_secs_f64(-self.0) {
+                return write!(f, "-{val:.2?}(!)");
+            }
+        } else if let Ok(val) = Duration::try_from_secs_f64(self.0) {
+            return write!(f, "{val:.2?}");
+        }
+        write!(f, "{} seconds(!)", self.0)
+    }
+}
 
 #[cfg(feature = "wgpu-profiler")]
 fn profiles_are_empty(profiles: &[GpuTimerQueryResult]) -> bool {
