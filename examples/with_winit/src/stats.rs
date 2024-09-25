@@ -3,6 +3,7 @@
 
 use scenes::SimpleText;
 use std::collections::VecDeque;
+use std::fmt::{Debug, Display};
 use vello::kurbo::{Affine, PathEl, Rect, Stroke};
 use vello::peniko::{Brush, Color, Fill};
 use vello::{AaConfig, BumpAllocators, Scene};
@@ -20,6 +21,28 @@ pub struct Snapshot {
     pub frame_time_ms: f64,
     pub frame_time_min_ms: f64,
     pub frame_time_max_ms: f64,
+}
+
+/// Formats the given number of seconds as a Duration.
+///
+/// This is necessary as sometimes, the duration from wgpu-profiler turns out to be negative.
+/// We have not yet debugged this, but we choose to display the absolute
+/// value in that case.
+///
+/// See <https://github.com/linebender/vello/pull/475> for context
+struct PaniclessSecondsFormatter(f64);
+
+impl Display for PaniclessSecondsFormatter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.0 < 0. {
+            if let Ok(val) = Duration::try_from_secs_f64(-self.0) {
+                return write!(f, "-{val:.2?}(!)");
+            }
+        } else if let Ok(val) = Duration::try_from_secs_f64(self.0) {
+            return write!(f, "{val:.2?}");
+        }
+        write!(f, "{} seconds(!)", self.0)
+    }
 }
 
 impl Snapshot {
@@ -313,7 +336,7 @@ pub fn draw_gpu_profiling(
     let total_time = max - min;
     {
         let labels = [
-            format!("GPU Time: {:.2?}", Duration::from_secs_f64(total_time)),
+            format!("GPU Time: {}", PaniclessSecondsFormatter(total_time)),
             "Press P to save a trace".to_string(),
         ];
 
@@ -397,24 +420,11 @@ pub fn draw_gpu_profiling(
                 let text_size = (text_height * 0.9) as f32;
                 // Text is specified by the baseline, but the y positions all refer to the top of the text
                 cur_text_y = text_y + text_height;
-                let label = {
-                    // Sometimes, the duration turns out to be negative
-                    // We have not yet debugged this, but display the absolute value in that case
-                    // see https://github.com/linebender/vello/pull/475 for more
-                    if this_time < 0.0 {
-                        format!(
-                            "-{:.2?}(!!) - {:.30}",
-                            Duration::from_secs_f64(this_time.abs()),
-                            profile.label
-                        )
-                    } else {
-                        format!(
-                            "{:.2?} - {:.30}",
-                            Duration::from_secs_f64(this_time),
-                            profile.label
-                        )
-                    }
-                };
+                let label = format!(
+                    "{} - {:.30}",
+                    PaniclessSecondsFormatter(this_time),
+                    profile.label
+                );
                 scene.fill(
                     Fill::NonZero,
                     offset,
