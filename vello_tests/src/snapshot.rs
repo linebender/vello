@@ -181,7 +181,23 @@ pub fn snapshot_test_image(
         .with_extension(update_extension);
 
     let expected_data = match image::open(&reference_path) {
-        Ok(contents) => contents.into_rgb8(),
+        Ok(contents) => {
+            let size = std::fs::metadata(&reference_path).map(|it| it.len())?;
+            if size > directory.max_size_in_bytes()
+                // If we expect to be updating the test, there's no need to fail here.
+                && !env_var_relates_to("VELLO_TEST_UPDATE", &params.name, params.use_cpu)
+            {
+                bail!(
+                    "Stored result for {test_name} is too large.\n\
+                    Expected {max} bytes, got {size} bytes in {reference_path}",
+                    max = directory.max_size_in_bytes(),
+                    test_name = params.name,
+                    reference_path = reference_path.display()
+                );
+            }
+
+            contents.into_rgb8()
+        }
         Err(ImageError::IoError(e)) if e.kind() == io::ErrorKind::NotFound => {
             if env_var_relates_to("VELLO_TEST_CREATE", &params.name, params.use_cpu) {
                 if !params.use_cpu {
@@ -210,7 +226,12 @@ pub fn snapshot_test_image(
                     params,
                 });
             } else {
-                write_png_to_file(params, &update_path, &raw_rendered, None)?;
+                write_png_to_file(
+                    params,
+                    &update_path,
+                    &raw_rendered,
+                    Some(directory.max_size_in_bytes()),
+                )?;
                 bail!(
                     "Couldn't find snapshot for test {}. Searched at {:?}\n\
                     Test result written to {:?}\n\

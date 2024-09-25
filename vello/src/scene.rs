@@ -125,13 +125,39 @@ impl Scene {
         // For performance reason we cut off the filter at some extent where the response is close to zero.
         let kernel_size = 2.5 * std_dev;
 
-        let t = Transform::from_kurbo(&transform.pre_translate(rect.center().to_vec2()));
+        let shape: Rect = rect.inflate(kernel_size, kernel_size);
+        self.draw_blurred_rounded_rect_in(&shape, transform, rect, brush, radius, std_dev);
+    }
+
+    /// Draw a rounded rectangle blurred with a gaussian filter in `shape`.
+    ///
+    /// For performance reasons, `shape` should not extend more than approximately 2.5 times
+    /// `std_dev` away from the edges of `rect` (as any such points will not be perceptably painted to,
+    /// but calculations will still be performed for them).
+    ///
+    /// This method effectively draws the blurred rounded rectangle clipped to the given shape.
+    /// If just the blurred rounded rectangle is desired without clipping,
+    /// use the simpler [`Self::draw_blurred_rounded_rect`].
+    /// For many users, that method will be easier to use.
+    pub fn draw_blurred_rounded_rect_in(
+        &mut self,
+        shape: &impl Shape,
+        transform: Affine,
+        rect: Rect,
+        brush: Color,
+        radius: f64,
+        std_dev: f64,
+    ) {
+        let t = Transform::from_kurbo(&transform);
         self.encoding.encode_transform(t);
 
-        let shape: Rect =
-            Rect::from_center_size((0.0, 0.0), rect.size()).inflate(kernel_size, kernel_size);
         self.encoding.encode_fill_style(Fill::NonZero);
         if self.encoding.encode_shape(&shape, true) {
+            let brush_transform =
+                Transform::from_kurbo(&transform.pre_translate(rect.center().to_vec2()));
+            if self.encoding.encode_transform(brush_transform) {
+                self.encoding.swap_last_path_tags();
+            }
             self.encoding.encode_blurred_rounded_rect(
                 brush,
                 rect.width() as _,
