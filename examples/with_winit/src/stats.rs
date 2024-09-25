@@ -3,7 +3,6 @@
 
 use scenes::SimpleText;
 use std::collections::VecDeque;
-use std::fmt::{Debug, Display};
 use vello::kurbo::{Affine, PathEl, Rect, Stroke};
 use vello::peniko::{Brush, Color, Fill};
 use vello::{AaConfig, BumpAllocators, Scene};
@@ -262,7 +261,7 @@ use wgpu_profiler::GpuTimerQueryResult;
 struct PaniclessSecondsFormatter(f64);
 
 #[cfg(feature = "wgpu-profiler")]
-impl Display for PaniclessSecondsFormatter {
+impl std::fmt::Display for PaniclessSecondsFormatter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.0 < 0. {
             if let Ok(val) = Duration::try_from_secs_f64(-self.0) {
