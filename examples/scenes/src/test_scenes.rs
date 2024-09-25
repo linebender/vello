@@ -1738,7 +1738,7 @@ mod impls {
             params.time.sin() * 50.0 + 50.0,
         );
 
-        // An enulated box shadow, to demonstrate the use of `draw_blurred_rounded_rect_in`.
+        // An emulated box shadow, to demonstrate the use of `draw_blurred_rounded_rect_in`.
         let std_dev = params.time.sin() * 50.0 + 50.0;
         let kernel_size = 2.5 * std_dev;
 

@@ -135,7 +135,9 @@ impl Scene {
     /// `std_dev` away from the edges of `rect` (as any such points will not be perceptably painted to,
     /// but calculations will still be performed for them).
     ///
-    /// This method is a more advanced version of [`Self::draw_blurred_rounded_rect`].
+    /// This method effectively draws the blurred rounded rectangle clipped to the given shape. 
+    /// If just the blurred rounded rectangle is desired without clipping,
+    /// use the simpler [`Self::draw_blurred_rounded_rect`].
     /// For many users, that method will be easier to use.
     pub fn draw_blurred_rounded_rect_in(
         &mut self,
