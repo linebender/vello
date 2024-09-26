@@ -66,6 +66,8 @@ impl Scene {
     }
 
     /// Returns a mutable reference to the underlying raw encoding.
+    ///
+    /// This can be used to more easily create invalid scenes, and so should be used with care.
     pub fn encoding_mut(&mut self) -> &mut Encoding {
         &mut self.encoding
     }
