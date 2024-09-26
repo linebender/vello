@@ -117,6 +117,7 @@ This release has an [MSRV][] of 1.75.
 [@waywardmonkeys]: https://github.com/waywardmonkeys
 [@DasLixou]: https://github.com/DasLixou
 
+[#416]: https://github.com/linebender/vello/pull/416
 [#435]: https://github.com/linebender/vello/pull/435
 [#436]: https://github.com/linebender/vello/pull/436
 [#454]: https://github.com/linebender/vello/pull/454
@@ -141,14 +142,34 @@ This release has an [MSRV][] of 1.75.
 [#573]: https://github.com/linebender/vello/pull/573
 [#575]: https://github.com/linebender/vello/pull/575
 [#589]: https://github.com/linebender/vello/pull/589
+[#610]: https://github.com/linebender/vello/pull/610
 [#612]: https://github.com/linebender/vello/pull/612
 [#615]: https://github.com/linebender/vello/pull/615
 [#619]: https://github.com/linebender/vello/pull/619
+[#626]: https://github.com/linebender/vello/pull/626
+[#627]: https://github.com/linebender/vello/pull/627
+[#628]: https://github.com/linebender/vello/pull/628
 [#630]: https://github.com/linebender/vello/pull/630
 [#631]: https://github.com/linebender/vello/pull/631
+[#634]: https://github.com/linebender/vello/pull/634
 [#635]: https://github.com/linebender/vello/pull/635
+[#636]: https://github.com/linebender/vello/pull/636
+[#639]: https://github.com/linebender/vello/pull/639
 [#641]: https://github.com/linebender/vello/pull/641
+[#643]: https://github.com/linebender/vello/pull/643
+[#651]: https://github.com/linebender/vello/pull/651
+[#654]: https://github.com/linebender/vello/pull/654
+[#655]: https://github.com/linebender/vello/pull/655
 [#657]: https://github.com/linebender/vello/pull/657
+[#659]: https://github.com/linebender/vello/pull/659
+[#665]: https://github.com/linebender/vello/pull/665
+[#671]: https://github.com/linebender/vello/pull/671
+[#675]: https://github.com/linebender/vello/pull/675
+[#677]: https://github.com/linebender/vello/pull/677
+[#691]: https://github.com/linebender/vello/pull/691
+[#694]: https://github.com/linebender/vello/pull/694
+[#695]: https://github.com/linebender/vello/pull/695
+[#701]: https://github.com/linebender/vello/pull/701
 
 <!-- Note that this still comparing against 0.2.0, because 0.2.1 is a cherry-picked patch -->
 [Unreleased]: https://github.com/linebender/vello/compare/v0.2.0...HEAD
