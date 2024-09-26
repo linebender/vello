@@ -62,3 +62,7 @@ pollster = "0.3.0"
 web-time = "1.1.0"
 wgpu-profiler = "0.18.0"
 scenes = { path = "examples/scenes" }
+
+[patch.crates-io]
+# "Choreographer" branch: https://github.com/rust-mobile/ndk/tree/choreographer
+ndk = { git = "https://github.com/rust-mobile/ndk/", rev = "01425d88813a4bdf02fd58abd34a6bbfb6383def" }

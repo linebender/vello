@@ -8,6 +8,7 @@ use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
+use ndk::choreographer;
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
 #[cfg(target_arch = "wasm32")]
@@ -163,6 +164,7 @@ struct VelloApp<'s> {
     modifiers: ModifiersState,
 
     debug: vello::DebugLayers,
+    choreographer: Option<ndk::choreographer::Choreographer>,
 }
 
 impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
@@ -461,6 +463,11 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
                     self.prev_scene_ix = self.scene_ix;
                     window.set_title(&format!("Vello demo - {}", example_scene.config.name));
                 }
+                if example_scene.config.animated {
+                    if let Some(choreographer) = self.choreographer {
+                        choreographer.post_frame_callback(Box::new(|time| eprintln!("{time}")));
+                    }
+                }
                 self.fragment.reset();
                 let mut scene_params = SceneParams {
                     time: self.start.elapsed().as_secs_f64(),
@@ -744,6 +751,8 @@ fn run(
         prev_scene_ix: 0,
         modifiers: ModifiersState::default(),
         debug,
+        // We know looper is active since we have the `EventLoop`
+        choreographer: ndk::choreographer::Choreographer::instance(),
     };
 
     event_loop.run_app(&mut app).expect("run to completion");

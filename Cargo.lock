@@ -1329,13 +1329,12 @@ dependencies = [
 [[package]]
 name = "ndk"
 version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3f42e7bbe13d351b6bead8286a43aac9534b82bd3cc43e47037f012ebfd62d4"
+source = "git+https://github.com/rust-mobile/ndk/?rev=01425d88813a4bdf02fd58abd34a6bbfb6383def#01425d88813a4bdf02fd58abd34a6bbfb6383def"
 dependencies = [
  "bitflags 2.6.0",
  "jni-sys",
  "log",
- "ndk-sys 0.6.0+11769913",
+ "ndk-sys 0.6.0+12185904",
  "num_enum",
  "raw-window-handle",
  "thiserror",
@@ -1361,6 +1360,14 @@ name = "ndk-sys"
 version = "0.6.0+11769913"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ee6cda3051665f1fb8d9e08fc35c96d5a244fb1be711a03b71118828afc9a873"
+dependencies = [
+ "jni-sys",
+]
+
+[[package]]
+name = "ndk-sys"
+version = "0.6.0+12185904"
+source = "git+https://github.com/rust-mobile/ndk/?rev=01425d88813a4bdf02fd58abd34a6bbfb6383def#01425d88813a4bdf02fd58abd34a6bbfb6383def"
 dependencies = [
  "jni-sys",
 ]
@@ -3360,6 +3367,7 @@ dependencies = [
  "env_logger",
  "getrandom",
  "log",
+ "ndk",
  "notify-debouncer-mini",
  "pollster",
  "profiling",
