@@ -112,10 +112,18 @@ This release has an [MSRV][] of 1.75.
 
 [@raphlinus]: https://github.com/raphlinus
 [@armansito]: https://github.com/armansito
-[@DJMcNab]: https://github.com/DJMcNab
-[@dfrg]: https://github.com/drfg
-[@waywardmonkeys]: https://github.com/waywardmonkeys
+[@cfagot]: https://github.com/cfagot
 [@DasLixou]: https://github.com/DasLixou
+[@dfrg]: https://github.com/drfg
+[@DJMcNab]: https://github.com/DJMcNab
+[@kmoon2437]: https://github.com/kmoon2437
+[@msiglreith]: https://github.com/msiglreith
+[@simbleau]: https://github.com/simbleau
+[@TheNachoBIT]: https://github.com/TheNachoBIT
+[@timtom-dev]: https://github.com/timtom-dev
+[@TrueDoctor]: https://github.com/TrueDoctor
+[@waywardmonkeys]: https://github.com/waywardmonkeys
+[@yutannihilation]: https://github.com/yutannihilation
 
 [#416]: https://github.com/linebender/vello/pull/416
 [#435]: https://github.com/linebender/vello/pull/435
