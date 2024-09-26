@@ -65,6 +65,11 @@ impl Scene {
         &self.encoding
     }
 
+    /// Returns a mutable reference to the underlying raw encoding.
+    pub fn encoding_mut(&mut self) -> &mut Encoding {
+        &mut self.encoding
+    }
+
     /// Pushes a new layer clipped by the specified shape and composed with
     /// previous layers using the specified blend mode.
     ///
