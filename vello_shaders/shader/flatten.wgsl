@@ -735,12 +735,12 @@ fn read_path_segment(tag: PathTagData, is_stroke: bool) -> CubicPoints {
     // Degree-raise
     if seg_type == PATH_TAG_LINETO {
         p3 = p1;
-        p2 = mix(p3, p0, 1.0 / 3.0);
-        p1 = mix(p0, p3, 1.0 / 3.0);
+        p2 = p3 + (1.0 / 3.0) * (p0 - p3);
+        p1 = p0 + (1.0 / 3.0) * (p3 - p0);
     } else if seg_type == PATH_TAG_QUADTO {
         p3 = p2;
-        p2 = mix(p1, p2, 1.0 / 3.0);
-        p1 = mix(p1, p0, 1.0 / 3.0);
+        p2 = p1 + (1.0 / 3.0) * (p2 - p1);
+        p1 = p1 + (1.0 / 3.0) * (p0 - p1);
     }
 
     return CubicPoints(p0, p1, p2, p3);

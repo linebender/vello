@@ -524,7 +524,7 @@ impl<'a> PathEncoder<'a> {
         }
         if self.state == PathState::MoveTo {
             // Ensure that we don't end up with a zero-length start tangent.
-            let Some((x, y)) = self.start_tangent_for_curve((x, y), None, None) else {
+            let Some((x, y)) = self.start_tangent_for_line((x, y)) else {
                 return;
             };
             self.first_start_tangent_end = [x, y];
@@ -552,7 +552,7 @@ impl<'a> PathEncoder<'a> {
         }
         if self.state == PathState::MoveTo {
             // Ensure that we don't end up with a zero-length start tangent.
-            let Some((x, y)) = self.start_tangent_for_curve((x1, y1), Some((x2, y2)), None) else {
+            let Some((x, y)) = self.start_tangent_for_quad((x1, y1), (x2, y2)) else {
                 return;
             };
             self.first_start_tangent_end = [x, y];
@@ -580,9 +580,7 @@ impl<'a> PathEncoder<'a> {
         }
         if self.state == PathState::MoveTo {
             // Ensure that we don't end up with a zero-length start tangent.
-            let Some((x, y)) =
-                self.start_tangent_for_curve((x1, y1), Some((x2, y2)), Some((x3, y3)))
-            else {
+            let Some((x, y)) = self.start_tangent_for_curve((x1, y1), (x2, y2), (x3, y3)) else {
                 return;
             };
             self.first_start_tangent_end = [x, y];
@@ -748,26 +746,56 @@ impl<'a> PathEncoder<'a> {
     }
 
     // Returns the end point of the start tangent of a curve starting at `(x0, y0)`, or `None` if the
-    // curve is degenerate / has zero-length. The inputs are a sequence of control points that can
-    // represent a line, a quadratic Bezier, or a cubic Bezier. Lines and quadratic Beziers can be
-    // passed to this function by simply setting the invalid control point degrees equal to `None`.
+    // curve is degenerate / has zero-length. The inputs are a sequence of control points that
+    // represent a cubic Bezier.
     //
     // `self.first_point` is always treated as the first control point of the curve.
     fn start_tangent_for_curve(
         &self,
         p1: (f32, f32),
-        p2: Option<(f32, f32)>,
-        p3: Option<(f32, f32)>,
+        p2: (f32, f32),
+        p3: (f32, f32),
     ) -> Option<(f32, f32)> {
         let p0 = (self.first_point[0], self.first_point[1]);
-        let p2 = p2.unwrap_or(p0);
-        let p3 = p3.unwrap_or(p0);
         let pt = if (p1.0 - p0.0).abs() > EPSILON || (p1.1 - p0.1).abs() > EPSILON {
             p1
         } else if (p2.0 - p0.0).abs() > EPSILON || (p2.1 - p0.1).abs() > EPSILON {
             p2
         } else if (p3.0 - p0.0).abs() > EPSILON || (p3.1 - p0.1).abs() > EPSILON {
             p3
+        } else {
+            return None;
+        };
+        Some(pt)
+    }
+
+    // Similar to `start_tangent_for_curve` but for a line.
+    fn start_tangent_for_line(&self, p1: (f32, f32)) -> Option<(f32, f32)> {
+        let p0 = (self.first_point[0], self.first_point[1]);
+        let pt = if (p1.0 - p0.0).abs() > EPSILON || (p1.1 - p0.1).abs() > EPSILON {
+            (
+                p0.0 + 1. / 3. * (p1.0 - p0.0),
+                p0.1 + 1. / 3. * (p1.1 - p0.1),
+            )
+        } else {
+            return None;
+        };
+        Some(pt)
+    }
+
+    // Similar to `start_tangent_for_curve` but for a quadratic Bézier.
+    fn start_tangent_for_quad(&self, p1: (f32, f32), p2: (f32, f32)) -> Option<(f32, f32)> {
+        let p0 = (self.first_point[0], self.first_point[1]);
+        let pt = if (p1.0 - p0.0).abs() > EPSILON || (p1.1 - p0.1).abs() > EPSILON {
+            (
+                p1.0 + 1. / 3. * (p0.0 - p1.0),
+                p1.1 + 1. / 3. * (p0.1 - p1.1),
+            )
+        } else if (p2.0 - p0.0).abs() > EPSILON || (p2.1 - p0.1).abs() > EPSILON {
+            (
+                p1.0 + 1. / 3. * (p2.0 - p1.0),
+                p1.1 + 1. / 3. * (p2.1 - p1.1),
+            )
         } else {
             return None;
         };
