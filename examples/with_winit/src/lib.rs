@@ -8,7 +8,6 @@ use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
-use ndk::choreographer;
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
 #[cfg(target_arch = "wasm32")]
@@ -16,6 +15,7 @@ use web_time::Instant;
 use winit::application::ApplicationHandler;
 use winit::event::*;
 use winit::keyboard::*;
+use winit::window::WindowId;
 
 #[cfg(all(feature = "wgpu-profiler", not(target_arch = "wasm32")))]
 use std::time::Duration;
@@ -165,6 +165,8 @@ struct VelloApp<'s> {
 
     debug: vello::DebugLayers,
     choreographer: Option<ndk::choreographer::Choreographer>,
+    animation_in_flight: bool,
+    proxy: winit::event_loop::EventLoopProxy<UserEvent>,
 }
 
 impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
@@ -443,8 +445,6 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
                 let _rendering_span = tracing::trace_span!("Actioning Requested Redraw").entered();
                 let encoding_span = tracing::trace_span!("Encoding scene").entered();
 
-                render_state.window.request_redraw();
-
                 let Some(RenderState { surface, window }) = &self.state else {
                     return;
                 };
@@ -462,11 +462,6 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
                     self.transform = Affine::IDENTITY;
                     self.prev_scene_ix = self.scene_ix;
                     window.set_title(&format!("Vello demo - {}", example_scene.config.name));
-                }
-                if example_scene.config.animated {
-                    if let Some(choreographer) = self.choreographer {
-                        choreographer.post_frame_callback(Box::new(|time| eprintln!("{time}")));
-                    }
                 }
                 self.fragment.reset();
                 let mut scene_params = SceneParams {
@@ -594,6 +589,20 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
                     frame_time_us: (new_time - self.frame_start_time).as_micros() as u64,
                 });
                 self.frame_start_time = new_time;
+                if example_scene.config.animated {
+                    if let Some(choreographer) = self.choreographer.as_ref() {
+                        let proxy = self.proxy.clone();
+                        choreographer.post_vsync_callback(Box::new(move |frame| {
+                            eprintln!("{frame:?}");
+                            proxy
+                                .send_event(UserEvent::ChoreographerFrame(window_id))
+                                .unwrap();
+                        }));
+                        self.animation_in_flight = true;
+                    } else {
+                        window.request_redraw();
+                    }
+                }
             }
             _ => {}
         }
@@ -617,7 +626,7 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
         }
     }
 
-    fn user_event(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop, event: UserEvent) {
+    fn user_event(&mut self, event_loop: &winit::event_loop::ActiveEventLoop, event: UserEvent) {
         match event {
             #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
             UserEvent::HotReload => {
@@ -636,6 +645,9 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
                     Ok(_) => log::info!("Reloading took {:?}", start.elapsed()),
                     Err(e) => log::error!("Failed to reload shaders: {e}"),
                 }
+            }
+            UserEvent::ChoreographerFrame(window_id) => {
+                self.window_event(event_loop, window_id, WindowEvent::RedrawRequested);
             }
         }
     }
@@ -753,6 +765,8 @@ fn run(
         debug,
         // We know looper is active since we have the `EventLoop`
         choreographer: ndk::choreographer::Choreographer::instance(),
+        proxy: event_loop.create_proxy(),
+        animation_in_flight: false,
     };
 
     event_loop.run_app(&mut app).expect("run to completion");
@@ -791,6 +805,7 @@ fn window_attributes() -> WindowAttributes {
 enum UserEvent {
     #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
     HotReload,
+    ChoreographerFrame(WindowId),
 }
 
 #[cfg(target_arch = "wasm32")]

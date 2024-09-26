@@ -65,4 +65,6 @@ scenes = { path = "examples/scenes" }
 
 [patch.crates-io]
 # "Choreographer" branch: https://github.com/rust-mobile/ndk/tree/choreographer
-ndk = { git = "https://github.com/rust-mobile/ndk/", rev = "01425d88813a4bdf02fd58abd34a6bbfb6383def" }
+# With a patch to make version numbers work https://github.com/djmcnab/ndk/tree/choreographer   
+ndk = { git = "https://github.com/djmcnab/ndk/", rev = "81627a7564982a04027a49d538cac1686d870dbd" }
+ndk-sys = { git = "https://github.com/djmcnab/ndk/", rev = "81627a7564982a04027a49d538cac1686d870dbd" }

@@ -1329,12 +1329,12 @@ dependencies = [
 [[package]]
 name = "ndk"
 version = "0.9.0"
-source = "git+https://github.com/rust-mobile/ndk/?rev=01425d88813a4bdf02fd58abd34a6bbfb6383def#01425d88813a4bdf02fd58abd34a6bbfb6383def"
+source = "git+https://github.com/djmcnab/ndk/?rev=81627a7564982a04027a49d538cac1686d870dbd#81627a7564982a04027a49d538cac1686d870dbd"
 dependencies = [
  "bitflags 2.6.0",
  "jni-sys",
  "log",
- "ndk-sys 0.6.0+12185904",
+ "ndk-sys 0.6.0+11769913",
  "num_enum",
  "raw-window-handle",
  "thiserror",
@@ -1358,16 +1358,7 @@ dependencies = [
 [[package]]
 name = "ndk-sys"
 version = "0.6.0+11769913"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee6cda3051665f1fb8d9e08fc35c96d5a244fb1be711a03b71118828afc9a873"
-dependencies = [
- "jni-sys",
-]
-
-[[package]]
-name = "ndk-sys"
-version = "0.6.0+12185904"
-source = "git+https://github.com/rust-mobile/ndk/?rev=01425d88813a4bdf02fd58abd34a6bbfb6383def#01425d88813a4bdf02fd58abd34a6bbfb6383def"
+source = "git+https://github.com/djmcnab/ndk/?rev=81627a7564982a04027a49d538cac1686d870dbd#81627a7564982a04027a49d538cac1686d870dbd"
 dependencies = [
  "jni-sys",
 ]
