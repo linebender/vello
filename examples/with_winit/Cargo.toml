@@ -71,3 +71,6 @@ wasm-bindgen-futures = "0.4.43"
 web-sys = { version = "0.3.70", features = ["HtmlCollection", "Text"] }
 web-time = { workspace = true }
 getrandom = { version = "0.2.15", features = ["js"] }
+
+[package.metadata.android.application]
+debuggable = true

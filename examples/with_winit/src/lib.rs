@@ -442,6 +442,9 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
                 self.prior_position = Some(position);
             }
             WindowEvent::RedrawRequested => {
+                if self.animation_in_flight {
+                    return;
+                }
                 let _rendering_span = tracing::trace_span!("Actioning Requested Redraw").entered();
                 let encoding_span = tracing::trace_span!("Encoding scene").entered();
 
@@ -589,19 +592,32 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
                     frame_time_us: (new_time - self.frame_start_time).as_micros() as u64,
                 });
                 self.frame_start_time = new_time;
-                if example_scene.config.animated {
-                    if let Some(choreographer) = self.choreographer.as_ref() {
-                        let proxy = self.proxy.clone();
-                        choreographer.post_vsync_callback(Box::new(move |frame| {
-                            eprintln!("{frame:?}");
-                            proxy
-                                .send_event(UserEvent::ChoreographerFrame(window_id))
-                                .unwrap();
-                        }));
-                        self.animation_in_flight = true;
-                    } else {
-                        window.request_redraw();
-                    }
+
+                if let Some(choreographer) = self.choreographer.as_ref() {
+                    let proxy = self.proxy.clone();
+                    choreographer.post_vsync_callback(Box::new(move |frame| {
+                        // eprintln!("New frame");
+                        // let frame_time = frame.frame_time();
+                        // let preferred_index = frame.preferred_frame_timeline_index();
+                        // for timeline in 0..frame.frame_timelines_length() {
+                        //     eprintln!(
+                        //         "{:?} {}",
+                        //         frame.frame_timeline_deadline(timeline) - frame_time,
+                        //         if timeline == preferred_index {
+                        //             "(Preferred)"
+                        //         } else {
+                        //             ""
+                        //         }
+                        //     );
+                        // }
+                        // eprintln!("{frame:?}");
+                        proxy
+                            .send_event(UserEvent::ChoreographerFrame(window_id))
+                            .unwrap();
+                    }));
+                    self.animation_in_flight = true;
+                } else {
+                    window.request_redraw();
                 }
             }
             _ => {}
@@ -621,9 +637,11 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
                 * self.transform;
         }
 
-        if let Some(render_state) = &mut self.state {
-            render_state.window.request_redraw();
-        }
+        // if let Some(render_state) = &mut self.state {
+        //     if !self.animation_in_flight {
+        //         render_state.window.request_redraw();
+        //     }
+        // }
     }
 
     fn user_event(&mut self, event_loop: &winit::event_loop::ActiveEventLoop, event: UserEvent) {
@@ -647,6 +665,7 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
                 }
             }
             UserEvent::ChoreographerFrame(window_id) => {
+                self.animation_in_flight = false;
                 self.window_event(event_loop, window_id, WindowEvent::RedrawRequested);
             }
         }
