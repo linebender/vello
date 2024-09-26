@@ -18,20 +18,41 @@ This release has an [MSRV][] of 1.75.
 ### Highlights
 
 - Support for most Emoji ([#615][], [#641][] by [@DJMcNab])
+- [GPU Friendly Stroke Expansion][stroke-expansion], which documents key parts of how Vello works, was released (by [@raphlinus], [@armansito])
+- Blurred rounded rectangles are now supported, which can be used for box shadows ([#665][] by [@msiglreith][])
+- Vello is no longer considered experimental 🎉 ([#691][] by [@waywardmonkeys])
+  Note that Vello is still an alpha, but we believe that the direction has been proven.
 
 ### Added
 
-- Support blends more than four layers deep ([#657][] by [@DJMcNab][])
+- Access to the `Adapter` from the utils `DeviceHandle` ([#634][] by [@cfagot][])
+- Support for compositing existing `wgpu::Texture`s into a Vello scene ([#636][], [#655][] by [@DJMcNab], [@TrueDoctor][])
+- Utilities for constructing an `AaSupport` from a set of `AaConfig`s ([#654][] by [@simbleau][])
+- An example which uses sdl2 ([#671][] by [@TheNachoBIT][])
+- The underlying `Encoding` for a scene can now be modified, circumventing guardrails for advanced use-cases ([#701][] by [@timtom-dev][])
 
 ### Changed
 
-- Breaking: Updated `wgpu` to 22.1.0. ([#635] by [@waywardmonkeys])
+- Breaking: Updated `wgpu` to 22.1.0 ([#635] by [@waywardmonkeys])
+- Clipping more than four layers deep is now supported ([#657][] by [@DJMcNab])
+- Significantly improved automated testing ([#610][], [#643][] by [@DJMcNab])
+- Preliminary debug layers for Vello's internal development ([#416][] by [@armansito])
+- Examples now use the [`run_app`][] API from Winit ([#626][], [#628][] by [@yutannihilation][])
+- Labels on GPU objects are now prefixed with `vello.` ([#677][] by [@waywardmonkeys])
 
 ### Fixed
+
+- Example code in the repository README ([#627][] by [@kmoon2437][])
+- A possible crash on iOS working around an invariant undocumented by Apple ([#639][] by [@DJMcNab][])
+- Large number of clips now work ([#659][] by [@raphlinus])
+- Empty clips now no longer cause artifacts ([#651][] by [@raphlinus])
+- A potential panic in the presence of a weaker than default allocator ([#675][] by [@timtom-dev][])
+- Watertightness breaks causing artifacts with some rounded rectangles ([#695][] by [@raphlinus])
 
 ### Removed
 
 - Breaking: `Pipelines` API from `vello_shaders` ([#612] by [@DJMcNab])
+- Our `wgpu_profiler` is no longer stable ([#694][] by [@DJMcNab])
 
 ## [0.2.1][] - 2024-07-16
 
@@ -136,3 +157,5 @@ This release has an [MSRV][] of 1.75.
 [0.1.0]: https://github.com/linebender/vello/releases/tag/v0.1.0
 
 [MSRV]: README.md#minimum-supported-rust-version-msrv
+[`run_app`]: https://docs.rs/winit/latest/winit/event_loop/struct.EventLoop.html#method.run_app
+[stroke-expansion]: https://linebender.org/gpu-stroke-expansion-paper/
