@@ -33,7 +33,7 @@ This release has an [MSRV][] of 1.75.
 
 ### Changed
 
-- Breaking: Updated `wgpu` to 22.1.0 ([#635] by [@waywardmonkeys])
+- Breaking: Updated `wgpu` to 22.1.0 ([#635][] by [@waywardmonkeys])
 - Clipping more than four layers deep is now supported ([#657][] by [@DJMcNab])
 - Significantly improved automated testing ([#610][], [#643][] by [@DJMcNab])
 - Preliminary debug layers for Vello's internal development ([#416][] by [@armansito])
@@ -51,7 +51,7 @@ This release has an [MSRV][] of 1.75.
 
 ### Removed
 
-- Breaking: `Pipelines` API from `vello_shaders` ([#612] by [@DJMcNab])
+- Breaking: `Pipelines` API from `vello_shaders` ([#612][] by [@DJMcNab])
 - Our `wgpu_profiler` is no longer stable ([#694][] by [@DJMcNab])
 
 ## [0.2.1][] - 2024-07-16
@@ -60,12 +60,12 @@ This release has an [MSRV][] of 1.75.
 
 ### Fixed
 
-- Crash when there is no scene contents ([#630] by [@DJMcNab])
+- Crash when there is no scene contents ([#630][]by [@DJMcNab])
 
 ### Changed
 
-- Updated `wgpu` to 0.20.1. ([#631] by [@waywardmonkeys])
-- Document the MSRV of releases in the changelog ([#619] by [@DJMcNab])
+- Updated `wgpu` to 0.20.1. ([#631][]by [@waywardmonkeys])
+- Document the MSRV of releases in the changelog ([#619][] by [@DJMcNab])
 
 ## [0.2.0] - 2024-06-08
 
@@ -73,38 +73,38 @@ This release has an [MSRV][] of 1.75.
 
 ### Added
 
-- Euler spiral based stroke expansion. ([#496] by [@raphlinus])
-- Sweep gradients. ([#435] by [@dfrg])
-- Bump allocation estimation. ([#436], [#454], [#522] by [@armansito])
-- Impl `From<Encoding>` for `Scene`. ([#538] by [@waywardmonkeys])
-- Glyph hinting support. ([#544] by [@dfrg])
-- Better glyph caching. ([#555] by [@dfrg])
-- `vello_shaders` crate to load and preprocess WGSL. ([#563] by [@armansito])
-- Coverage-mask specialization. ([#540] by [@armansito])
-- Support for the `#enable` post-process directive. ([#550] by [@armansito])
+- Euler spiral based stroke expansion. ([#496][] by [@raphlinus])
+- Sweep gradients. ([#435][] by [@dfrg])
+- Bump allocation estimation. ([#436][], [#454][], [#522][] by [@armansito])
+- Impl `From<Encoding>` for `Scene`. ([#538][] by [@waywardmonkeys])
+- Glyph hinting support. ([#544][] by [@dfrg])
+- Better glyph caching. ([#555][] by [@dfrg])
+- `vello_shaders` crate to load and preprocess WGSL. ([#563][] by [@armansito])
+- Coverage-mask specialization. ([#540][] by [@armansito])
+- Support for the `#enable` post-process directive. ([#550][] by [@armansito])
 
 ### Changed
 
-- Better error types. ([#516] by [@DasLixou])
-- `RenderContext::new()` no longer returns a `Result`. ([#547] by [@waywardmonkeys])
-- Updated `wgpu` to 0.20. ([#560] by [@waywardmonkeys])
+- Better error types. ([#516][] by [@DasLixou])
+- `RenderContext::new()` no longer returns a `Result`. ([#547][] by [@waywardmonkeys])
+- Updated `wgpu` to 0.20. ([#560][] by [@waywardmonkeys])
 
 ### Removed
 
-- `force_rw_storage` feature. ([#540] by [@armansito])
+- `force_rw_storage` feature. ([#540][] by [@armansito])
 
 ### Fixed
 
-- 64k draw object limit. ([#526] by [@raphlinus])
-- Increased robustness of cubic params. ([#521] by [@raphlinus])
-- Increased robustness of GPU shaders. ([#537] by [@raphlinus])
-- `draw_leaf` uniformity. ([#535] by [@raphlinus])
-- Bug in join estimates in `vello_encoding`. ([#573] by [@armansito])
-- Incorrect use of numerical operators on atomics in binning. ([#539] by [@armansito])
-- `path_reduced_scan` buffer size. ([#551] by [@armansito])
-- Handling of upstream pipeline failure. ([#553] by [@armansito])
-- Very slow shader compilation. ([#575] by [@DJMcNab], [@waywardmonkeys])
-- Full system hang on Apple systems. ([#589] by [@raphlinus])
+- 64k draw object limit. ([#526][] by [@raphlinus])
+- Increased robustness of cubic params. ([#521][] by [@raphlinus])
+- Increased robustness of GPU shaders. ([#537][] by [@raphlinus])
+- `draw_leaf` uniformity. ([#535][] by [@raphlinus])
+- Bug in join estimates in `vello_encoding`. ([#573][] by [@armansito])
+- Incorrect use of numerical operators on atomics in binning. ([#539][] by [@armansito])
+- `path_reduced_scan` buffer size. ([#551][] by [@armansito])
+- Handling of upstream pipeline failure. ([#553][] by [@armansito])
+- Very slow shader compilation. ([#575][] by [@DJMcNab], [@waywardmonkeys])
+- Full system hang on Apple systems. ([#589][] by [@raphlinus])
 
 ## [0.1.0] - 2024-03-04
 
