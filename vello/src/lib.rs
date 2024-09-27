@@ -89,6 +89,7 @@ mod shaders;
 #[cfg(feature = "wgpu")]
 mod wgpu_engine;
 
+use std::sync::atomic::AtomicBool;
 #[cfg(feature = "wgpu")]
 use std::{num::NonZeroUsize, sync::Arc};
 
@@ -282,13 +283,6 @@ pub struct RenderParams {
     /// The anti-aliasing algorithm. The selected algorithm must have been initialized while
     /// constructing the `Renderer`.
     pub antialiasing_method: AaConfig,
-
-    /// Options for debug layer rendering.
-    ///
-    /// This only has an effect when the `debug_layers` feature is enabled.
-    // This is exposed publicly as a least-effort to avoid changing the API when features change.
-    // We expect the API to change here in the near future.
-    pub debug: DebugLayers,
 }
 
 #[cfg(feature = "wgpu")]
@@ -518,7 +512,9 @@ impl Renderer {
         Ok(())
     }
 
-    /// Renders a scene to the target texture.
+    /// Renders a scene to the target texture using an async pipeline.
+    ///
+    /// Almost all consumers should prefer [`Self::render_to_texture`].
     ///
     /// The texture is assumed to be of the specified dimensions and have been created with
     /// the [`wgpu::TextureFormat::Rgba8Unorm`] format and the [`wgpu::TextureUsages::STORAGE_BINDING`]
@@ -529,6 +525,10 @@ impl Renderer {
     ///
     /// This return type is not stable, and will likely be changed when a more principled way to access
     /// relevant statistics is implemented
+    #[cfg_attr(docsrs, doc(hidden))]
+    #[deprecated(
+        note = "render_to_texture should be preferred, as the _async version has no stability guarantees"
+    )]
     pub async fn render_to_texture_async(
         &mut self,
         device: &Device,
@@ -630,7 +630,15 @@ impl Renderer {
         })
     }
 
-    /// See [`Self::render_to_surface`]
+    /// This is a version of [`render_to_surface`](Self::render_to_surface) which uses an async pipeline
+    /// to allow improved debugging of Vello itself.
+    /// Most users should prefer `render_to_surface`.
+    ///
+    /// See [`render_to_texture_async`](Self::render_to_texture_async) for more details.
+    #[cfg_attr(docsrs, doc(hidden))]
+    #[deprecated(
+        note = "render_to_surface should be preferred, as the _async version has no stability guarantees"
+    )]
     pub async fn render_to_surface_async(
         &mut self,
         device: &Device,
@@ -638,7 +646,18 @@ impl Renderer {
         scene: &Scene,
         surface: &SurfaceTexture,
         params: &RenderParams,
+        debug_layers: DebugLayers,
     ) -> Result<Option<BumpAllocators>> {
+        if cfg!(not(feature = "debug_layers")) && !debug_layers.is_empty() {
+            static HAS_WARNED: AtomicBool = AtomicBool::new(false);
+            if !HAS_WARNED.swap(true, std::sync::atomic::Ordering::Release) {
+                log::warn!(
+                    "Requested debug layers {debug:?} but `debug_layers` feature is not enabled.",
+                    debug = debug_layers
+                );
+            }
+        }
+
         let width = params.width;
         let height = params.height;
         let mut target = self
@@ -691,6 +710,7 @@ impl Renderer {
                     bump,
                     params,
                     &downloads,
+                    debug_layers,
                 );
 
                 // TODO: this sucks. better to release everything in a helper

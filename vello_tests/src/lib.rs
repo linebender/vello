@@ -100,7 +100,6 @@ pub async fn get_scene_image(params: &TestParams, scene: &Scene) -> Result<Image
         width,
         height,
         antialiasing_method: params.anti_aliasing,
-        debug: vello::DebugLayers::none(),
     };
     let size = Extent3d {
         width,

@@ -215,13 +215,13 @@ impl DebugRenderer {
         bump: &BumpAllocators,
         params: &RenderParams,
         downloads: &DebugDownloads,
+        layers: DebugLayers,
     ) {
-        if params.debug.is_empty() {
+        if layers.is_empty() {
             return;
         }
 
-        let (unpaired_pts_len, unpaired_pts_buf) = if params.debug.contains(DebugLayers::VALIDATION)
-        {
+        let (unpaired_pts_len, unpaired_pts_buf) = if layers.contains(DebugLayers::VALIDATION) {
             // TODO: have this write directly to a GPU buffer?
             let unpaired_pts: Vec<LineEndpoint> =
                 validate_line_soup(bytemuck::cast_slice(&downloads.lines.get_mapped_range()));
@@ -266,7 +266,7 @@ impl DebugRenderer {
             target,
             clear_color: None,
         });
-        if params.debug.contains(DebugLayers::BOUNDING_BOXES) {
+        if layers.contains(DebugLayers::BOUNDING_BOXES) {
             recording.draw(DrawParams {
                 shader_id: self.bboxes,
                 instance_count: captured.sizes.path_bboxes.len(),
@@ -277,7 +277,7 @@ impl DebugRenderer {
                 clear_color: None,
             });
         }
-        if params.debug.contains(DebugLayers::LINESOUP_SEGMENTS) {
+        if layers.contains(DebugLayers::LINESOUP_SEGMENTS) {
             recording.draw(DrawParams {
                 shader_id: self.linesoup,
                 instance_count: bump.lines,
@@ -288,7 +288,7 @@ impl DebugRenderer {
                 clear_color: None,
             });
         }
-        if params.debug.contains(DebugLayers::LINESOUP_POINTS) {
+        if layers.contains(DebugLayers::LINESOUP_POINTS) {
             recording.draw(DrawParams {
                 shader_id: self.linesoup_points,
                 instance_count: bump.lines,
