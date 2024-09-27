@@ -47,9 +47,11 @@ impl DrawTag {
     }
 }
 
-/// The first word of each draw info stream entry contains the flags. This is not part of the
-/// draw object stream but gets used after the draw objects get reduced on the GPU.
-/// 0 represents a non-zero fill. 1 represents an even-odd fill.
+/// The first word of each draw info stream entry contains the flags.
+///
+/// This is not part of the draw object stream but gets used after the draw
+/// objects get reduced on the GPU. `0` represents a non-zero fill.
+/// `1` represents an even-odd fill.
 pub const DRAW_INFO_FLAGS_FILL_RULE_BIT: u32 = 1;
 
 /// Draw object bounding box.

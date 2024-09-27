@@ -795,7 +795,10 @@ fn read_neighboring_segment(ix: u32) -> NeighboringSegment {
     let is_closed = (tag.tag_byte & PATH_TAG_SEG_TYPE) == PATH_TAG_LINETO;
     let is_stroke_cap_marker = (tag.tag_byte & PATH_TAG_SUBPATH_END) != 0u;
     let do_join = !is_stroke_cap_marker || is_closed;
-    let tangent = cubic_start_tangent(pts.p0, pts.p1, pts.p2, pts.p3);
+    var tangent = pts.p3 - pts.p0;
+    if !is_stroke_cap_marker {
+        tangent = cubic_start_tangent(pts.p0, pts.p1, pts.p2, pts.p3);
+    }
     return NeighboringSegment(do_join, tangent);
 }
 
@@ -844,7 +847,7 @@ fn main(
             if is_stroke_cap_marker {
                 if is_open {
                     // Draw start cap
-                    let tangent = cubic_start_tangent(pts.p0, pts.p1, pts.p2, pts.p3);
+                    let tangent = pts.p3 - pts.p0;
                     let offset_tangent = offset * normalize(tangent);
                     let n = offset_tangent.yx * vec2f(-1., 1.);
                     draw_cap(path_ix, (style_flags & STYLE_FLAGS_START_CAP_MASK) >> 2u,

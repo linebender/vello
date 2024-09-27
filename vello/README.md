@@ -2,7 +2,7 @@
 
 # Vello
 
-**An experimental GPU compute-centric 2D renderer**
+**A GPU compute-centric 2D renderer**
 
 [![Latest published version.](https://img.shields.io/crates/v/vello.svg)](https://crates.io/crates/vello)
 [![Documentation build status.](https://img.shields.io/docsrs/vello.svg)](https://docs.rs/vello)
@@ -15,7 +15,7 @@
 
 </div>
 
-Vello is an experimental 2D graphics rendering engine written in Rust, with a focus on GPU compute.
+Vello is a 2D graphics rendering engine written in Rust, with a focus on GPU compute.
 It can draw large 2D scenes with interactive or near-interactive performance, using [`wgpu`] for GPU access.
 
 Quickstart to run an example program:
