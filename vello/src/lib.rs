@@ -89,9 +89,11 @@ mod shaders;
 #[cfg(feature = "wgpu")]
 mod wgpu_engine;
 
-use std::sync::atomic::AtomicBool;
 #[cfg(feature = "wgpu")]
-use std::{num::NonZeroUsize, sync::Arc};
+use std::{
+    num::NonZeroUsize,
+    sync::{atomic::AtomicBool, Arc},
+};
 
 /// Styling and composition primitives.
 pub use peniko;
