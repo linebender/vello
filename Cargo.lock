@@ -2583,6 +2583,7 @@ name = "vello_pacing"
 version = "0.2.0"
 dependencies = [
  "ash",
+ "ndk",
  "tracing",
  "vello",
  "wgpu 22.0.0",

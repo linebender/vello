@@ -11,6 +11,7 @@ wgpu.workspace = true
 vello.workspace = true
 ash = { version = "0.38.0", default-features = false }
 tracing = "0.1.40"
+ndk = { version = "0.9", features = ["api-level-33"] }
 
 [lints]
 workspace = true
