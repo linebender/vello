@@ -43,38 +43,36 @@ pub struct Thinking;
 ///
 /// This might not actually be true - the timebase of the return values from [`ndk::choreographer::ChoreographerFrameCallbackData`]
 /// aren't documented by
-struct Timestamp(u64);
+struct Timestamp(i64);
 
-impl Mul<u64> for Timestamp {
+impl Mul<i64> for Timestamp {
     type Output = Self;
 
-    fn mul(self, rhs: u64) -> Self::Output {
+    fn mul(self, rhs: i64) -> Self::Output {
         Self(self.0 * rhs)
     }
 }
 
 impl Timestamp {
-    const fn from_nanos(nanos: u64) -> Self {
+    const fn from_nanos(nanos: i64) -> Self {
         Self(nanos)
     }
 
-    const fn from_micros(micros: u64) -> Self {
+    const fn from_micros(micros: i64) -> Self {
         Self::from_nanos(micros * 1_000)
     }
 
-    const fn from_millis(millis: u64) -> Self {
+    const fn from_millis(millis: i64) -> Self {
         Self::from_nanos(millis * 1_000_000)
     }
 
     /// Get the current time in `CLOCK_MONOTONIC`.
     ///
-    /// TODO: This assumes that the value is less than ~2.5billion seconds (i.e. ~70 years)
+    /// TODO: This assumed the returned value is not negative.
+    /// Hopefully that's fine?
     fn now() -> Self {
         let spec = nix::time::clock_gettime(ClockId::CLOCK_MONOTONIC).unwrap();
-        let stamp = (spec.tv_sec() * 1_000_000_000 + spec.tv_nsec())
-            .try_into()
-            .unwrap();
-        Self(stamp)
+        Self(spec.tv_sec() * 1_000_000_000 + spec.tv_nsec())
     }
 }
 
