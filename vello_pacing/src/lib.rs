@@ -1,5 +1,7 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
+mod choreographed;
+
 use std::{
     collections::VecDeque,
     sync::{
