@@ -97,3 +97,11 @@ fn snapshot_blurred_rounded_rect() {
     let params = TestParams::new("blurred_rounded_rect", 400, 400);
     snapshot_test_scene(test_scene, params);
 }
+
+#[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
+fn snapshot_longpathdash_butt() {
+    let test_scene = test_scenes::longpathdash_butt();
+    let params = TestParams::new("longpathdash_butt", 250, 250);
+    snapshot_test_scene(test_scene, params);
+}
