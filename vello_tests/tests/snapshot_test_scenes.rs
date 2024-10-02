@@ -11,7 +11,7 @@ fn snapshot_test_scene(test_scene: ExampleScene, mut params: TestParams) {
     let scene = encode_test_scene(test_scene, &mut params);
     snapshot_test_sync(scene, &params)
         .unwrap()
-        .assert_mean_less_than(0.01);
+        .assert_mean_less_than(0.007);
 }
 
 #[test]
@@ -102,6 +102,6 @@ fn snapshot_blurred_rounded_rect() {
 #[cfg_attr(skip_gpu_tests, ignore)]
 fn snapshot_longpathdash_butt() {
     let test_scene = test_scenes::longpathdash_butt();
-    let params = TestParams::new("longpathdash_butt", 250, 250);
+    let params = TestParams::new("longpathdash_butt", 500, 100);
     snapshot_test_scene(test_scene, params);
 }
