@@ -14,14 +14,14 @@ Vello emerges from being a research project, which attempts to answer these hypo
 
 Another goal of the overall project is to explain how the renderer is built, and to advance the state of building applications on GPU compute shaders more generally.
 Much of the progress on Vello is documented in blog entries.
-See [doc/blogs.md](doc/blogs.md) for pointers to those.
+See [blogs.md](blogs.md) for pointers to those.
 
 Ideally, we'd like our documentation to be more structured; we may refactor it in the future (see [#488]).
 
 
 ## Roadmap
 
-The [roadmap for 2023](doc/roadmap_2023.md) is still largely applicable.
+The [roadmap for 2023](roadmap_2023.md) is still largely applicable.
 The "Semi-stable encoding format" section and most of the "CPU fallback" section can be considered implemented.
 
 Our current priority is to fill in missing features and to fix rendering artifacts, so that Vello can reach feature parity with other 2D graphics engines.
