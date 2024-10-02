@@ -649,7 +649,9 @@ fn read_transform(transform_base: u32, ix: u32) -> Transform {
 }
 
 fn transform_apply(transform: Transform, p: vec2f) -> vec2f {
-    return transform.mat.xy * p.x + transform.mat.zw * p.y + transform.translate;
+    let px = fma(transform.mat.x, p.x, fma(transform.mat.z, p.y, transform.translate.x));
+    let py = fma(transform.mat.y, p.x, fma(transform.mat.w, p.y, transform.translate.y));
+    return vec2(px, py);
 }
 
 fn round_down(x: f32) -> i32 {
