@@ -63,7 +63,7 @@ Note that new imports must currently be added to `.vscode/settings.json` for thi
 
 ## Path encoding
 
-See [Path segment encoding](./doc/pathseg.md) document.
+See [Path segment encoding](./pathseg.md) document.
 
 
 ## Intermediary layers
