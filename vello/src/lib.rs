@@ -86,50 +86,50 @@ mod recording;
 mod render;
 mod scene;
 mod shaders;
+
+#[cfg(feature = "wgpu")]
+pub mod util;
 #[cfg(feature = "wgpu")]
 mod wgpu_engine;
 
-#[cfg(feature = "wgpu")]
-use std::{
-    num::NonZeroUsize,
-    sync::{atomic::AtomicBool, Arc},
-};
+pub mod low_level {
+    //! Utilities which can be used to create an alternative Vello renderer to [`Renderer`][crate::Renderer].
+    //!
+    //! These APIs have not been carefully designed, and might not be powerful enough for this use case.
 
+    pub use crate::debug::DebugLayers;
+    pub use crate::recording::{
+        BindType, BufferProxy, Command, ImageFormat, ImageProxy, Recording, ResourceId,
+        ResourceProxy, ShaderId,
+    };
+    pub use crate::render::Render;
+    pub use crate::shaders::FullShaders;
+    /// Temporary export, used in `with_winit` for stats
+    pub use vello_encoding::BumpAllocators;
+}
 /// Styling and composition primitives.
 pub use peniko;
 /// 2D geometry, with a focus on curves.
 pub use peniko::kurbo;
-
 pub use skrifa;
-pub use vello_encoding::Glyph;
 
 #[cfg(feature = "wgpu")]
 pub use wgpu;
 
-#[cfg(feature = "wgpu")]
-pub mod util;
-
-pub use render::Render;
 pub use scene::{DrawGlyphs, Scene};
+pub use vello_encoding::Glyph;
+
+use debug::DebugLayers;
+use low_level::*;
 use thiserror::Error;
+
 #[cfg(feature = "wgpu")]
-#[cfg_attr(docsrs, doc(hidden))]
-pub use util::block_on_wgpu;
-
-pub use recording::{
-    BindType, BufferProxy, Command, ImageFormat, ImageProxy, Recording, ResourceId, ResourceProxy,
-    ShaderId,
-};
-pub use shaders::FullShaders;
-
+use std::{num::NonZeroUsize, sync::Arc};
 #[cfg(feature = "wgpu")]
 use vello_encoding::Resolver;
 #[cfg(feature = "wgpu")]
 use wgpu_engine::{ExternalResource, WgpuEngine};
 
-pub use debug::DebugLayers;
-/// Temporary export, used in `with_winit` for stats
-pub use vello_encoding::BumpAllocators;
 #[cfg(feature = "wgpu")]
 use wgpu::{Device, Queue, SurfaceTexture, TextureFormat, TextureView};
 #[cfg(all(feature = "wgpu", feature = "wgpu-profiler"))]

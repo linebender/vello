@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
+use vello::low_level::DebugLayers;
 #[cfg(target_arch = "wasm32")]
 use web_time::Instant;
 use winit::application::ApplicationHandler;
@@ -26,7 +27,7 @@ use scenes::{ExampleScene, ImageCache, SceneParams, SceneSet, SimpleText};
 use vello::kurbo::{Affine, Vec2};
 use vello::peniko::Color;
 use vello::util::{RenderContext, RenderSurface};
-use vello::{AaConfig, BumpAllocators, Renderer, RendererOptions, Scene};
+use vello::{low_level::BumpAllocators, AaConfig, Renderer, RendererOptions, Scene};
 
 use winit::dpi::LogicalSize;
 use winit::event_loop::EventLoop;
@@ -162,7 +163,7 @@ struct VelloApp<'s> {
     prev_scene_ix: i32,
     modifiers: ModifiersState,
 
-    debug: vello::DebugLayers,
+    debug: DebugLayers,
 }
 
 impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
@@ -332,17 +333,16 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
                                 debug_layer @ ("1" | "2" | "3" | "4") => {
                                     match debug_layer {
                                         "1" => {
-                                            self.debug.toggle(vello::DebugLayers::BOUNDING_BOXES);
+                                            self.debug.toggle(DebugLayers::BOUNDING_BOXES);
                                         }
                                         "2" => {
-                                            self.debug
-                                                .toggle(vello::DebugLayers::LINESOUP_SEGMENTS);
+                                            self.debug.toggle(DebugLayers::LINESOUP_SEGMENTS);
                                         }
                                         "3" => {
-                                            self.debug.toggle(vello::DebugLayers::LINESOUP_POINTS);
+                                            self.debug.toggle(DebugLayers::LINESOUP_POINTS);
                                         }
                                         "4" => {
-                                            self.debug.toggle(vello::DebugLayers::VALIDATION);
+                                            self.debug.toggle(DebugLayers::VALIDATION);
                                         }
                                         _ => unreachable!(),
                                     }
@@ -549,7 +549,7 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
                 #[allow(deprecated)]
                 // #[expect(deprecated, reason = "This deprecation is not targeted at us.")] // Our MSRV is too low to use `expect`
                 if self.async_pipeline && cfg!(not(target_arch = "wasm32")) {
-                    self.scene_complexity = vello::block_on_wgpu(
+                    self.scene_complexity = vello::util::block_on_wgpu(
                         &device_handle.device,
                         self.renderers[surface.dev_id]
                             .as_mut()
@@ -699,7 +699,7 @@ fn run(
         Some(render_state)
     };
 
-    let debug = vello::DebugLayers::none();
+    let debug = DebugLayers::none();
 
     let mut app = VelloApp {
         context: render_cx,
