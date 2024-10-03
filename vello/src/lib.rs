@@ -277,8 +277,7 @@ pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 ///
 /// Currently, each renderer only supports a single surface format, if it
 /// supports drawing to surfaces at all.
-///
-/// This is a known leaky assumption.
+/// This is an assumption which is known to be limiting, and is planned to change.
 #[cfg(feature = "wgpu")]
 pub struct Renderer {
     #[cfg_attr(not(feature = "hot_reload"), allow(dead_code))]
