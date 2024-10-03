@@ -487,7 +487,6 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
                     width,
                     height,
                     antialiasing_method,
-                    debug: self.debug,
                 };
                 self.scene.reset();
                 let mut transform = self.transform;
@@ -547,6 +546,8 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
                 // Note: we don't run the async/"robust" pipeline, as
                 // it requires more async wiring for the readback. See
                 // [#gpu > async on wasm](https://xi.zulipchat.com/#narrow/stream/197075-gpu/topic/async.20on.20wasm)
+                #[allow(deprecated)]
+                // #[expect(deprecated, reason = "This deprecation is not targeted at us.")] // Our MSRV is too low to use `expect`
                 if self.async_pipeline && cfg!(not(target_arch = "wasm32")) {
                     self.scene_complexity = vello::block_on_wgpu(
                         &device_handle.device,
@@ -559,6 +560,7 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
                                 &self.scene,
                                 &surface_texture,
                                 &render_params,
+                                self.debug,
                             ),
                     )
                     .expect("failed to render to surface");

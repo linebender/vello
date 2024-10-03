@@ -16,7 +16,7 @@ use std::num::NonZeroUsize;
 use vello::kurbo::{Affine, Circle, Ellipse, Line, RoundedRect, Stroke};
 use vello::peniko::Color;
 use vello::util::{RenderContext, RenderSurface};
-use vello::{AaConfig, DebugLayers, Renderer, RendererOptions, Scene};
+use vello::{AaConfig, Renderer, RendererOptions, Scene};
 
 use vello::wgpu;
 
@@ -84,7 +84,6 @@ pub fn main() {
                     width,
                     height,
                     antialiasing_method: AaConfig::Msaa16,
-                    debug: DebugLayers::none(),
                 },
             )
             .expect("failed to render to surface");

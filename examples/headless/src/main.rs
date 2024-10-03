@@ -139,7 +139,6 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
         width,
         height,
         antialiasing_method: vello::AaConfig::Area,
-        debug: vello::DebugLayers::none(),
     };
     let mut scene = Scene::new();
     scene.append(&fragment, Some(transform));

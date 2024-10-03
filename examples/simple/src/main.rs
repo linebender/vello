@@ -7,7 +7,7 @@ use std::sync::Arc;
 use vello::kurbo::{Affine, Circle, Ellipse, Line, RoundedRect, Stroke};
 use vello::peniko::Color;
 use vello::util::{RenderContext, RenderSurface};
-use vello::{AaConfig, DebugLayers, Renderer, RendererOptions, Scene};
+use vello::{AaConfig, Renderer, RendererOptions, Scene};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::event::*;
@@ -147,7 +147,6 @@ impl<'s> ApplicationHandler for SimpleVelloApp<'s> {
                             width,
                             height,
                             antialiasing_method: AaConfig::Msaa16,
-                            debug: DebugLayers::none(),
                         },
                     )
                     .expect("failed to render to surface");
