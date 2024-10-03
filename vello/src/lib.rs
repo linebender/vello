@@ -113,6 +113,7 @@ pub use render::Render;
 pub use scene::{DrawGlyphs, Scene};
 use thiserror::Error;
 #[cfg(feature = "wgpu")]
+#[cfg_attr(docsrs, doc(hidden))]
 pub use util::block_on_wgpu;
 
 pub use recording::{

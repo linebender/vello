@@ -190,9 +190,10 @@ impl std::task::Wake for NullWake {
 /// Block on a future, polling the device as needed.
 ///
 /// This will deadlock if the future is awaiting anything other than GPU progress.
+#[cfg_attr(docsrs, doc(hidden))]
 pub fn block_on_wgpu<F: Future>(device: &Device, mut fut: F) -> F::Output {
     if cfg!(target_arch = "wasm32") {
-        panic!("Blocking can't work on WASM, so");
+        panic!("Blocking can't work on WASM, so don't try");
     }
     let waker = std::task::Waker::from(std::sync::Arc::new(NullWake));
     let mut context = std::task::Context::from_waker(&waker);

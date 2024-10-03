@@ -14,6 +14,7 @@ pub(crate) use renderer::*;
 /// Bitflags for enabled debug operations.
 ///
 /// Currently, all layers additionally require the `debug_layers` feature.
+#[cfg_attr(docsrs, doc(hidden))]
 #[derive(Copy, Clone)]
 pub struct DebugLayers(u8);
 
