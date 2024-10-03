@@ -769,7 +769,7 @@ impl<'a> PathEncoder<'a> {
         Some(pt)
     }
 
-    // Similar to `start_tangent_for_curve` but for a line.
+    /// Similar to [`Self::start_tangent_for_curve`] but for a line.
     fn start_tangent_for_line(&self, p1: (f32, f32)) -> Option<(f32, f32)> {
         let p0 = (self.first_point[0], self.first_point[1]);
         let pt = if (p1.0 - p0.0).abs() > EPSILON || (p1.1 - p0.1).abs() > EPSILON {
