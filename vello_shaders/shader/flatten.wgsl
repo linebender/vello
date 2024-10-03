@@ -649,7 +649,9 @@ fn read_transform(transform_base: u32, ix: u32) -> Transform {
 }
 
 fn transform_apply(transform: Transform, p: vec2f) -> vec2f {
-    return transform.mat.xy * p.x + transform.mat.zw * p.y + transform.translate;
+    let px = fma(transform.mat.x, p.x, fma(transform.mat.z, p.y, transform.translate.x));
+    let py = fma(transform.mat.y, p.x, fma(transform.mat.w, p.y, transform.translate.y));
+    return vec2(px, py);
 }
 
 fn round_down(x: f32) -> i32 {
@@ -735,12 +737,12 @@ fn read_path_segment(tag: PathTagData, is_stroke: bool) -> CubicPoints {
     // Degree-raise
     if seg_type == PATH_TAG_LINETO {
         p3 = p1;
-        p2 = mix(p3, p0, 1.0 / 3.0);
-        p1 = mix(p0, p3, 1.0 / 3.0);
+        p2 = p3 + (1.0 / 3.0) * (p0 - p3);
+        p1 = p0 + (1.0 / 3.0) * (p3 - p0);
     } else if seg_type == PATH_TAG_QUADTO {
         p3 = p2;
-        p2 = mix(p1, p2, 1.0 / 3.0);
-        p1 = mix(p1, p0, 1.0 / 3.0);
+        p2 = p1 + (1.0 / 3.0) * (p2 - p1);
+        p1 = p1 + (1.0 / 3.0) * (p0 - p1);
     }
 
     return CubicPoints(p0, p1, p2, p3);
