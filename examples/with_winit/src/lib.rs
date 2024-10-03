@@ -6,6 +6,7 @@
 
 use std::collections::HashSet;
 use std::num::NonZeroUsize;
+use std::rc::Rc;
 use std::sync::Arc;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -16,6 +17,8 @@ use web_time::Instant;
 use winit::application::ApplicationHandler;
 use winit::event::*;
 use winit::keyboard::*;
+use winit::raw_window_handle::HasRawWindowHandle;
+use winit::raw_window_handle::HasWindowHandle;
 use winit::window::WindowId;
 
 #[cfg(all(feature = "wgpu-profiler", not(target_arch = "wasm32")))]
@@ -169,7 +172,7 @@ struct VelloApp<'s> {
     modifiers: ModifiersState,
 
     debug: DebugLayers,
-    choreographer: Option<ndk::choreographer::Choreographer>,
+    choreographer: Option<Rc<ndk::choreographer::Choreographer>>,
     animation_in_flight: bool,
     proxy: winit::event_loop::EventLoopProxy<UserEvent>,
 }
@@ -405,13 +408,45 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
                         // in a touch context (i.e. Windows/Linux/MacOS with a touch screen could
                         // also be using mouse/keyboard controls)
                         // Note that winit's rendering is y-down
-                        if let Some(RenderState { surface, .. }) = &self.state {
+                        if let Some(RenderState { surface, window }) = &self.state {
                             if touch.location.y > surface.config.height as f64 * 2. / 3. {
                                 self.navigation_fingers.insert(touch.id);
                                 // The left third of the navigation zone navigates backwards
                                 if touch.location.x < surface.config.width as f64 / 3. {
+                                    if let wgpu::rwh::RawWindowHandle::AndroidNdk(
+                                        android_ndk_window_handle,
+                                    ) = window.window_handle().unwrap().as_raw()
+                                    {
+                                        let window = unsafe {
+                                            ndk::native_window::NativeWindow::clone_from_ptr(
+                                                android_ndk_window_handle.a_native_window.cast(),
+                                            )
+                                        };
+                                        window
+                                            .set_frame_rate(
+                                                60.,
+                                                ndk::native_window::FrameRateCompatibility::Default,
+                                            )
+                                            .unwrap();
+                                    }
                                     self.scene_ix = self.scene_ix.saturating_sub(1);
                                 } else if touch.location.x > 2. * surface.config.width as f64 / 3. {
+                                    if let wgpu::rwh::RawWindowHandle::AndroidNdk(
+                                        android_ndk_window_handle,
+                                    ) = window.window_handle().unwrap().as_raw()
+                                    {
+                                        let window = unsafe {
+                                            ndk::native_window::NativeWindow::clone_from_ptr(
+                                                android_ndk_window_handle.a_native_window.cast(),
+                                            )
+                                        };
+                                        window
+                                            .set_frame_rate(
+                                                90.,
+                                                ndk::native_window::FrameRateCompatibility::Default,
+                                            )
+                                            .unwrap();
+                                    }
                                     self.scene_ix = self.scene_ix.saturating_add(1);
                                 }
                             }
@@ -608,9 +643,9 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
                             // let result = display_timing.get_refresh_cycle_duration(swc);
                             // eprintln!("Refresh duration: {result:?}");
                             if present_id % 5 == 0 {
-                                let result = display_timing.get_past_presentation_timing(swc);
-                                eprintln!("Display timings: {result:?}");
-                                eprintln!("Most recent present id: {}", present_id);
+                                // let result = display_timing.get_past_presentation_timing(swc);
+                                // eprintln!("Display timings: {result:?}");
+                                // eprintln!("Most recent present id: {}", present_id);
                             }
                         }
                     }
@@ -666,27 +701,27 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
 
                 if let Some(choreographer) = self.choreographer.as_ref() {
                     let proxy = self.proxy.clone();
-                    choreographer.post_vsync_callback(Box::new(move |frame| {
-                        // eprintln!("New frame");
-                        // let frame_time = frame.frame_time();
-                        // let preferred_index = frame.preferred_frame_timeline_index();
-                        // for timeline in 0..frame.frame_timelines_length() {
-                        //     eprintln!(
-                        //         "{:?} {}",
-                        //         frame.frame_timeline_deadline(timeline) - frame_time,
-                        //         if timeline == preferred_index {
-                        //             "(Preferred)"
-                        //         } else {
-                        //             ""
-                        //         }
-                        //     );
-                        // }
-                        // eprintln!("{frame:?}");
-                        proxy
-                            .send_event(UserEvent::ChoreographerFrame(window_id))
-                            .unwrap();
-                    }));
-                    self.animation_in_flight = true;
+                    // choreographer.post_vsync_callback(Box::new(move |frame| {
+                    //     eprintln!("New frame");
+                    //     let frame_time = frame.frame_time();
+                    //     let preferred_index = frame.preferred_frame_timeline_index();
+                    //     for timeline in 0..(frame.frame_timelines_length().min(3)) {
+                    //         eprintln!(
+                    //             "{:?} {}",
+                    //             frame.frame_timeline_deadline(timeline) - frame_time,
+                    //             if timeline == preferred_index {
+                    //                 "(Preferred)"
+                    //             } else {
+                    //                 ""
+                    //             }
+                    //         );
+                    //     }
+                    //     eprintln!("{frame:?}");
+                    //     // proxy
+                    //     //     .send_event(UserEvent::ChoreographerFrame(window_id))
+                    //     //     .unwrap();
+                    // }));
+                    window.request_redraw();
                 } else {
                     window.request_redraw();
                 }
@@ -856,10 +891,38 @@ fn run(
         modifiers: ModifiersState::default(),
         debug,
         // We know looper is active since we have the `EventLoop`
-        choreographer: ndk::choreographer::Choreographer::instance(),
+        choreographer: ndk::choreographer::Choreographer::instance().map(Rc::new),
         proxy: event_loop.create_proxy(),
         animation_in_flight: false,
     };
+    if let Some(choreographer) = app.choreographer.as_ref() {
+        fn post_callback(choreographer: &Rc<ndk::choreographer::Choreographer>) {
+            let new_choreographer = Rc::clone(choreographer);
+            choreographer.post_vsync_callback(Box::new(move |frame| {
+                eprintln!("New frame");
+                let frame_time = frame.frame_time();
+                let preferred_index = frame.preferred_frame_timeline_index();
+                for timeline in 0..(frame.frame_timelines_length().min(4)) {
+                    eprintln!(
+                        "{:?} {}",
+                        frame.frame_timeline_deadline(timeline) - frame_time,
+                        if timeline == preferred_index {
+                            "(Preferred)"
+                        } else {
+                            ""
+                        }
+                    );
+                }
+                eprintln!("{frame:?}");
+                post_callback(&new_choreographer);
+            }));
+        }
+        // post_callback(choreographer);
+        choreographer.register_refresh_rate_callback(Box::new(|value| {
+            let span = tracing::info_span!("Getting a new refresh rate", ?value).entered();
+            eprintln!("New refresh rate Testing: {value:?}; {}", value.as_nanos());
+        }));
+    }
 
     event_loop.run_app(&mut app).expect("run to completion");
 }

@@ -63,7 +63,7 @@ tracing-subscriber = { version = "0.3.18", default-features = false, features = 
     "registry",
 ] }
 profiling = { version = "1.0.15", features = ["profile-with-tracing"] }
-ndk = { version = "0.9", features = ["api-level-33"] }
+ndk = { version = "0.9", features = ["api-level-33", "nativewindow"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = "0.1.7"
@@ -75,3 +75,7 @@ getrandom = { version = "0.2.15", features = ["js"] }
 
 [package.metadata.android.application]
 debuggable = true
+
+[package.metadata.android.sdk]
+target_sdk_version = 33
+min_sdk_version = 33
