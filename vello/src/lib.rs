@@ -124,7 +124,10 @@ use low_level::*;
 use thiserror::Error;
 
 #[cfg(feature = "wgpu")]
-use std::{num::NonZeroUsize, sync::Arc};
+use std::{
+    num::NonZeroUsize,
+    sync::{atomic::AtomicBool, Arc},
+};
 #[cfg(feature = "wgpu")]
 use vello_encoding::Resolver;
 #[cfg(feature = "wgpu")]
