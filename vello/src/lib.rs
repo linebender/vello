@@ -140,7 +140,11 @@ use wgpu_profiler::{GpuProfiler, GpuProfilerSettings};
 /// as `AaSupport` implements `FromIterator`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum AaConfig {
-    /// Area antialiasing, where the proportion of an edge pixel covered by a path determines its contribution.
+    /// Area anti-aliasing, where the alpha value for a pixel is computed from integrating 
+    /// the winding number over its square area.
+    ///
+    /// This technique produces very accurate values when the shape has winding number of 0 or 1
+    /// everywhere, but can result in conflation artifacts otherwise.
     ///
     /// This can lead to some conflation artifacts, but might have better performance
     /// than the multi-sampling method.
