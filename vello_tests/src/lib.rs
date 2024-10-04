@@ -16,7 +16,7 @@ use vello::wgpu::{
     self, BufferDescriptor, BufferUsages, CommandEncoderDescriptor, Extent3d, ImageCopyBuffer,
     TextureDescriptor, TextureFormat, TextureUsages,
 };
-use vello::{block_on_wgpu, util::RenderContext, AaConfig, RendererOptions, Scene};
+use vello::{util::block_on_wgpu, util::RenderContext, AaConfig, RendererOptions, Scene};
 
 mod compare;
 mod snapshot;

@@ -14,7 +14,7 @@ use vello::wgpu::{
     self, BufferDescriptor, BufferUsages, CommandEncoderDescriptor, Extent3d, ImageCopyBuffer,
     TextureDescriptor, TextureFormat, TextureUsages,
 };
-use vello::{block_on_wgpu, RendererOptions, Scene};
+use vello::{util::block_on_wgpu, RendererOptions, Scene};
 
 fn main() -> Result<()> {
     #[cfg(not(target_arch = "wasm32"))]

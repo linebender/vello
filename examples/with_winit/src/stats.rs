@@ -5,7 +5,7 @@ use scenes::SimpleText;
 use std::collections::VecDeque;
 use vello::kurbo::{Affine, PathEl, Rect, Stroke};
 use vello::peniko::{Brush, Color, Fill};
-use vello::{AaConfig, BumpAllocators, Scene};
+use vello::{low_level::BumpAllocators, AaConfig, Scene};
 
 #[cfg(all(feature = "wgpu-profiler", not(target_arch = "wasm32")))]
 use std::time::Duration;
