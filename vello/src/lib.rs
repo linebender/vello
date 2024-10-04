@@ -405,20 +405,6 @@ impl Renderer {
         })
     }
 
-    /// Overwrite the `Image` with the `Texture` texture.
-    ///
-    /// If texture is `None`, removes the override.
-    pub fn override_image(
-        &mut self,
-        image: &peniko::Image,
-        texture: Option<wgpu::ImageCopyTextureBase<Arc<wgpu::Texture>>>,
-    ) -> Option<wgpu::ImageCopyTextureBase<Arc<wgpu::Texture>>> {
-        match texture {
-            Some(texture) => self.engine.image_overrides.insert(image.data.id(), texture),
-            None => self.engine.image_overrides.remove(&image.data.id()),
-        }
-    }
-
     /// Renders a scene to the target texture.
     ///
     /// The texture is assumed to be of the specified dimensions and have been created with
@@ -527,6 +513,26 @@ impl Renderer {
             }
         }
         Ok(())
+    }
+
+    /// Overwrite `image` with `texture`.
+    ///
+    /// Whenever `image` would be rendered, instead the given `Texture` will be used.
+    ///
+    /// Correct behaviour is not guaranteed if the texture does not have the same
+    /// dimensions as the image, nor if an image which uses the same [data] but different
+    /// dimensions would be rendered.
+    ///
+    /// [data]: peniko::Image::data
+    pub fn override_image(
+        &mut self,
+        image: &peniko::Image,
+        texture: Option<wgpu::ImageCopyTextureBase<Arc<wgpu::Texture>>>,
+    ) -> Option<wgpu::ImageCopyTextureBase<Arc<wgpu::Texture>>> {
+        match texture {
+            Some(texture) => self.engine.image_overrides.insert(image.data.id(), texture),
+            None => self.engine.image_overrides.remove(&image.data.id()),
+        }
     }
 
     /// Reload the shaders. This should only be used during `vello` development
