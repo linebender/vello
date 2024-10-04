@@ -191,7 +191,7 @@ fn main(
             let counts = (seg_within_slice << 16u) | subix;
             let seg_count = SegmentCount(line_ix, counts);
             let seg_ix = seg_base + i - imin;
-            if seg_ix < config.seg_counts_size {
+            if seg_ix < config.segments_size {
                 seg_counts[seg_ix] = seg_count;
             }
             // Note: since we're iterating, we have a reliable value for

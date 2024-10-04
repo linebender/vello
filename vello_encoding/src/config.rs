@@ -143,9 +143,10 @@ pub struct ConfigUniform {
     pub binning_size: u32,
     /// Size of tile buffer allocation (in [`Tile`]s).
     pub tiles_size: u32,
-    /// Size of segment count buffer allocation (in [`SegmentCount`]s).
-    pub seg_counts_size: u32,
-    /// Size of segment buffer allocation (in [`PathSegment`]s).
+    /// The maximum number of segments we can support.
+    ///
+    /// This is the size of the segment count buffer allocation (in [`SegmentCount`]s)
+    /// *and* the segment buffer allocation (in [`PathSegment`]s).
     pub segments_size: u32,
     /// Size of blend spill buffer (in `u32` pixels).
     // TODO: Maybe store in TILE_WIDTH * TILE_HEIGHT blocks of pixels instead?
@@ -175,6 +176,8 @@ impl RenderConfig {
         let workgroup_counts =
             WorkgroupCounts::new(layout, width_in_tiles, height_in_tiles, n_path_tags);
         let buffer_sizes = BufferSizes::new(layout, &workgroup_counts);
+        let segments_size = buffer_sizes.segments.len();
+        debug_assert_eq!(segments_size, buffer_sizes.seg_counts.len());
         Self {
             gpu: ConfigUniform {
                 width_in_tiles,
@@ -185,8 +188,7 @@ impl RenderConfig {
                 lines_size: buffer_sizes.lines.len(),
                 binning_size: buffer_sizes.bin_data.len() - layout.bin_data_start,
                 tiles_size: buffer_sizes.tiles.len(),
-                seg_counts_size: buffer_sizes.seg_counts.len(),
-                segments_size: buffer_sizes.segments.len(),
+                segments_size,
                 blend_size: buffer_sizes.blend_spill.len(),
                 ptcl_size: buffer_sizes.ptcl.len(),
                 layout: *layout,
@@ -398,8 +400,10 @@ impl BufferSizes {
         let bin_data = BufferSize::new(1 << 18);
         let tiles = BufferSize::new(1 << 21);
         let lines = BufferSize::new(1 << 21);
-        let seg_counts = BufferSize::new(1 << 21);
-        let segments = BufferSize::new(1 << 21);
+        // These two buffer sizes *must* be the same.
+        let max_segments = 1 << 21;
+        let seg_counts = BufferSize::new(max_segments);
+        let segments = BufferSize::new(max_segments);
         // 16 * 16 (1 << 8) is one blend spill, so this allows for 4096 spills.
         let blend_spill = BufferSize::new(1 << 20);
         let ptcl = BufferSize::new(1 << 23);
