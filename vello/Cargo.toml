@@ -52,4 +52,4 @@ futures-intrusive = { workspace = true }
 wgpu-profiler = { workspace = true, optional = true }
 thiserror = { workspace = true }
 # TODO: Add feature for built-in bitmap emoji support?
-png = { version = "0.17.13" }
+png = { version = "0.17.14" }
