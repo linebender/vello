@@ -29,8 +29,16 @@ use vello_encoding::{Encoding, Glyph, GlyphRun, Patch, Transform};
 
 /// The main datatype for rendering graphics.
 ///
-/// A Scene stores a sequence of drawing commands, their context, and the
+/// A `Scene` stores a sequence of drawing commands, their context, and the
 /// associated resources, which can later be rendered.
+///
+/// Most users will render this using [`Renderer::render_to_surface`][crate::Renderer::render_to_surface]
+/// or [`Renderer::render_to_texture`][crate::Renderer::render_to_texture].
+///
+/// Rendering from a `Scene` will *not* clear it, which should be done in a separate step, by calling [`Scene::reset`].
+///
+/// If this is not done for a scene which is retained (to avoid allocations) between frames, this will likely
+/// quickly increase the complexity of the render result, leading to crashes or potential host system instability.
 #[derive(Clone, Default)]
 pub struct Scene {
     encoding: Encoding,
@@ -322,6 +330,8 @@ impl From<Encoding> for Scene {
 }
 
 /// Builder for encoding a glyph run.
+///
+/// Created using [`Scene::draw_glyphs`].
 pub struct DrawGlyphs<'a> {
     scene: &'a mut Scene,
     run: GlyphRun,

@@ -135,7 +135,7 @@ Vello now has a "recording" abstraction that includes lightweight proxies for re
 
 The [standard compositing model] calls for first doing antialiased rendering of vector shapes, then compositing using Porter-Duff rules. That leads to "conflation artifacts," or seams that are visible when multiple objects have adjoining boundaries. (Another form of conflation artifacts involves rendering within a single path, where the path is self-intersecting; this may be quite important for compatibility when trying to match the exact appearance of existing renderers)
 
-It remains an interesting question whether we can render without conflation artifacts and retain good performance. Tatsuyuki Ishii prototyped a patch which appears promising. It should also be noted that a supersampling approach might also be a good way to get gamma-correct antialiasing without changing the semantics of alpha blending, in addition to eliminating conflation artifacts.
+It remains an interesting question whether we can render without conflation artifacts and retain good performance. Tatsuyuki Ishii prototyped a patch which appears promising. It should also be noted that a supersampling approach might also be a good way to get gamma-correct anti-aliasing without changing the semantics of alpha blending, in addition to eliminating conflation artifacts.
 
 This is a hard problem, but interesting, and might be motivated by needs of a specific client.
 

@@ -22,7 +22,7 @@
 //! ## Getting started
 //!
 //! Vello is meant to be integrated deep in UI render stacks.
-//! While drawing in a Vello scene is easy, actually rendering that scene to a surface setting up a wgpu context, which is a non-trivial task.
+//! While drawing in a Vello [`Scene`] is easy, actually rendering that scene to a surface setting up a wgpu context, which is a non-trivial task.
 //!
 //! To use Vello as the renderer for your PDF reader / GUI toolkit / etc, your code will have to look roughly like this:
 //!
@@ -135,23 +135,55 @@ use wgpu::{Device, Queue, SurfaceTexture, TextureFormat, TextureView};
 #[cfg(all(feature = "wgpu", feature = "wgpu-profiler"))]
 use wgpu_profiler::{GpuProfiler, GpuProfilerSettings};
 
-/// Represents the antialiasing method to use during a render pass.
+/// Represents the anti-aliasing method to use during a render pass.
+///
+/// Can be configured for a render operation by setting [`RenderParams::antialiasing_method`].
+/// Each value of this can only be used if the corresponding field on [`AaSupport`] was used.
+///
+/// This can be converted into an `AaSupport` using [`Iterator::collect`],
+/// as `AaSupport` implements `FromIterator`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum AaConfig {
+    /// Area anti-aliasing, where the alpha value for a pixel is computed from integrating
+    /// the winding number over its square area.
+    ///
+    /// This technique produces very accurate values when the shape has winding number of 0 or 1
+    /// everywhere, but can result in conflation artifacts otherwise.
+    /// It generally has better performance than the multi-sampling methods.
+    ///
+    /// Can only be used if [enabled][AaSupport::area] for the `Renderer`.
     Area,
+    /// 8x Multisampling
+    ///
+    /// Can only be used if [enabled][AaSupport::msaa8] for the `Renderer`.
     Msaa8,
+    /// 16x Multisampling
+    ///
+    /// Can only be used if [enabled][AaSupport::msaa16] for the `Renderer`.
     Msaa16,
 }
 
-/// Represents the set of antialiasing configurations to enable during pipeline creation.
+/// Represents the set of anti-aliasing configurations to enable during pipeline creation.
+///
+/// This is configured at `Renderer` creation time ([`Renderer::new`]) by setting
+/// [`RendererOptions::antialiasing_support`].
+///
+/// This can be created from a set of `AaConfig` using [`Iterator::collect`],
+/// as `AaSupport` implements `FromIterator`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct AaSupport {
+    /// Support [`AaConfig::Area`].
     pub area: bool,
+    /// Support [`AaConfig::Msaa8`].
     pub msaa8: bool,
+    /// Support [`AaConfig::Msaa16`].
     pub msaa16: bool,
 }
 
 impl AaSupport {
+    /// Support every anti-aliasing method.
+    ///
+    /// This might increase startup time, as more shader variations must be compiled.
     pub fn all() -> Self {
         Self {
             area: true,
@@ -160,6 +192,9 @@ impl AaSupport {
         }
     }
 
+    /// Support only [`AaConfig::Area`].
+    ///
+    /// This should be the default choice for most users.
     pub fn area_only() -> Self {
         Self {
             area: true,
@@ -245,6 +280,10 @@ pub enum Error {
 pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Renders a scene into a texture or surface.
+///
+/// Currently, each renderer only supports a single surface format, if it
+/// supports drawing to surfaces at all.
+/// This is an assumption which is known to be limiting, and is planned to change.
 #[cfg(feature = "wgpu")]
 pub struct Renderer {
     #[cfg_attr(not(feature = "hot_reload"), allow(dead_code))]
@@ -274,6 +313,8 @@ pub struct Renderer {
 static_assertions::assert_impl_all!(Renderer: Send);
 
 /// Parameters used in a single render that are configurable by the client.
+///
+/// These are used in [`Renderer::render_to_surface`] and [`Renderer::render_to_texture`].
 pub struct RenderParams {
     /// The background color applied to the target. This value is only applicable to the full
     /// pipeline.
@@ -289,6 +330,7 @@ pub struct RenderParams {
 }
 
 #[cfg(feature = "wgpu")]
+/// Options which are set at renderer creation time, used in [`Renderer::new`].
 pub struct RendererOptions {
     /// The format of the texture used for surfaces with this renderer/device
     /// If None, the renderer cannot be used with surfaces
@@ -358,20 +400,6 @@ impl Renderer {
             #[cfg(feature = "wgpu-profiler")]
             profile_result: None,
         })
-    }
-
-    /// Overwrite the `Image` with the `Texture` texture.
-    ///
-    /// If texture is `None`, removes the override.
-    pub fn override_image(
-        &mut self,
-        image: &peniko::Image,
-        texture: Option<wgpu::ImageCopyTextureBase<Arc<wgpu::Texture>>>,
-    ) -> Option<wgpu::ImageCopyTextureBase<Arc<wgpu::Texture>>> {
-        match texture {
-            Some(texture) => self.engine.image_overrides.insert(image.data.id(), texture),
-            None => self.engine.image_overrides.remove(&image.data.id()),
-        }
     }
 
     /// Renders a scene to the target texture.
@@ -482,6 +510,26 @@ impl Renderer {
             }
         }
         Ok(())
+    }
+
+    /// Overwrite `image` with `texture`.
+    ///
+    /// Whenever `image` would be rendered, instead the given `Texture` will be used.
+    ///
+    /// Correct behaviour is not guaranteed if the texture does not have the same
+    /// dimensions as the image, nor if an image which uses the same [data] but different
+    /// dimensions would be rendered.
+    ///
+    /// [data]: peniko::Image::data
+    pub fn override_image(
+        &mut self,
+        image: &peniko::Image,
+        texture: Option<wgpu::ImageCopyTextureBase<Arc<wgpu::Texture>>>,
+    ) -> Option<wgpu::ImageCopyTextureBase<Arc<wgpu::Texture>>> {
+        match texture {
+            Some(texture) => self.engine.image_overrides.insert(image.data.id(), texture),
+            None => self.engine.image_overrides.remove(&image.data.id()),
+        }
     }
 
     /// Reload the shaders. This should only be used during `vello` development

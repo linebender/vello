@@ -857,7 +857,7 @@ let PIXELS_PER_THREAD = 4u;
 
 #ifndef msaa
 
-// Analytic area antialiasing.
+// Analytic area anti-aliasing.
 //
 // This is currently dead code if msaa is enabled, but it would be fairly straightforward
 // to wire this so it's a dynamic choice (even per-path).
