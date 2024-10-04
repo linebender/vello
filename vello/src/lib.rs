@@ -131,7 +131,7 @@ use wgpu::{Device, Queue, SurfaceTexture, TextureFormat, TextureView};
 #[cfg(all(feature = "wgpu", feature = "wgpu-profiler"))]
 use wgpu_profiler::{GpuProfiler, GpuProfilerSettings};
 
-/// Represents the antialiasing method to use during a render pass.
+/// Represents the anti-aliasing method to use during a render pass.
 ///
 /// Can be configured for a render operation by setting [`RenderParams::antialiasing_method`].
 /// Each value of this can only be used if the corresponding field on [`AaSupport`] was used.
@@ -140,14 +140,12 @@ use wgpu_profiler::{GpuProfiler, GpuProfilerSettings};
 /// as `AaSupport` implements `FromIterator`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum AaConfig {
-    /// Area anti-aliasing, where the alpha value for a pixel is computed from integrating 
+    /// Area anti-aliasing, where the alpha value for a pixel is computed from integrating
     /// the winding number over its square area.
     ///
     /// This technique produces very accurate values when the shape has winding number of 0 or 1
     /// everywhere, but can result in conflation artifacts otherwise.
-    ///
-    /// This can lead to some conflation artifacts, but might have better performance
-    /// than the multi-sampling method.
+    /// It generally has better performance than the multi-sampling methods.
     ///
     /// Can only be used if [enabled][AaSupport::area] for the `Renderer`.
     Area,
@@ -161,7 +159,7 @@ pub enum AaConfig {
     Msaa16,
 }
 
-/// Represents the set of antialiasing configurations to enable during pipeline creation.
+/// Represents the set of anti-aliasing configurations to enable during pipeline creation.
 ///
 /// This is configured at `Renderer` creation time ([`Renderer::new`]) by setting
 /// [`RendererOptions::antialiasing_support`].
