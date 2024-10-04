@@ -159,7 +159,7 @@ pub enum AaConfig {
 
 /// Represents the set of antialiasing configurations to enable during pipeline creation.
 ///
-/// This is configured at Renderer creation time ([`Renderer::new`]) by setting
+/// This is configured at `Renderer` creation time ([`Renderer::new`]) by setting
 /// [`RendererOptions::antialiasing_support`].
 ///
 /// This can be created from a set of `AaConfig` using [`Iterator::collect`],
