@@ -119,20 +119,21 @@ pub use wgpu;
 pub use scene::{DrawGlyphs, Scene};
 pub use vello_encoding::Glyph;
 
-use debug::DebugLayers;
 use low_level::*;
 use thiserror::Error;
+
+#[cfg(feature = "wgpu")]
+use debug::DebugLayers;
+#[cfg(feature = "wgpu")]
+use vello_encoding::Resolver;
+#[cfg(feature = "wgpu")]
+use wgpu_engine::{ExternalResource, WgpuEngine};
 
 #[cfg(feature = "wgpu")]
 use std::{
     num::NonZeroUsize,
     sync::{atomic::AtomicBool, Arc},
 };
-#[cfg(feature = "wgpu")]
-use vello_encoding::Resolver;
-#[cfg(feature = "wgpu")]
-use wgpu_engine::{ExternalResource, WgpuEngine};
-
 #[cfg(feature = "wgpu")]
 use wgpu::{Device, Queue, SurfaceTexture, TextureFormat, TextureView};
 #[cfg(all(feature = "wgpu", feature = "wgpu-profiler"))]
