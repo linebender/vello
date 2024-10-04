@@ -39,6 +39,7 @@ This release has an [MSRV][] of 1.75.
 - Preliminary debug layers for Vello's internal development ([#416][] by [@armansito])
 - Examples now use the [`run_app`][] API from Winit ([#626][], [#628][] by [@yutannihilation][])
 - Labels on GPU objects are now prefixed with `vello.` ([#677][] by [@waywardmonkeys])
+- The async render implementations are deprecated and unstable; you should use the non-async versions as they enable greater throughput ([#706][] by [@DJMcNab])
 
 ### Fixed
 
@@ -52,7 +53,8 @@ This release has an [MSRV][] of 1.75.
 ### Removed
 
 - Breaking: `Pipelines` API from `vello_shaders` ([#612][] by [@DJMcNab])
-- Our `wgpu_profiler` is no longer stable ([#694][] by [@DJMcNab])
+- The `wgpu_profiler` profiler feature is no longer stable ([#694][] by [@DJMcNab])
+- Breaking: Moved the `Recording` abstraction into a `low_level` module, as almost all users should prefer the higher-level `Renderer` ([#711][] by [@DJMcNab])
 
 ## [0.2.1][] - 2024-07-16
 
@@ -178,6 +180,8 @@ This release has an [MSRV][] of 1.75.
 [#694]: https://github.com/linebender/vello/pull/694
 [#695]: https://github.com/linebender/vello/pull/695
 [#701]: https://github.com/linebender/vello/pull/701
+[#706]: https://github.com/linebender/vello/pull/706
+[#711]: https://github.com/linebender/vello/pull/711
 
 <!-- Note that this still comparing against 0.2.0, because 0.2.1 is a cherry-picked patch -->
 [Unreleased]: https://github.com/linebender/vello/compare/v0.2.0...HEAD
