@@ -20,8 +20,9 @@ members = [
 #
 # NOTE: When bumping this, remember to also bump the aforementioned other packages'
 #       version in the dependencies section at the bottom of this file.
-#       Additionally, bump the Vello dependency version in the 'simple' example.
-version = "0.2.0"
+#       Additionally, bump the Vello dependency version in the 'simple'
+#       and `simple_sdl2` examples.
+version = "0.3.0"
 
 edition = "2021"
 # Keep in sync with RUST_MIN_VER in .github/workflows/ci.yml, with the relevant README.md files
@@ -38,9 +39,9 @@ clippy.semicolon_if_nothing_returned = "warn"
 # rust.unreachable_pub = "warn"
 
 [workspace.dependencies]
-vello = { version = "0.2.0", path = "vello" }
-vello_encoding = { version = "0.2.0", path = "vello_encoding" }
-vello_shaders = { version = "0.2.0", path = "vello_shaders" }
+vello = { version = "0.3.0", path = "vello" }
+vello_encoding = { version = "0.3.0", path = "vello_encoding" }
+vello_shaders = { version = "0.3.0", path = "vello_shaders" }
 bytemuck = { version = "1.18.0", features = ["derive"] }
 skrifa = "0.22.3"
 peniko = "0.2.0"
