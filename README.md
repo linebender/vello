@@ -199,7 +199,7 @@ There is also a web demo [available here](https://linebender.github.io/vello) on
 The [`with_winit`](#winit) example supports running on Android, using [cargo apk](https://crates.io/crates/cargo-apk).
 
 ```shell
-cargo apk run -p with_winit
+cargo apk run -p with_winit --lib
 ```
 
 > [!TIP]
