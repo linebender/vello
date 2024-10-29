@@ -70,3 +70,5 @@ wasm-bindgen-futures = "0.4.43"
 web-sys = { version = "0.3.70", features = ["HtmlCollection", "Text"] }
 web-time = { workspace = true }
 getrandom = { version = "0.2.15", features = ["js"] }
+# If updating, also update in .github/workflows/web-demo.yml
+wasm-bindgen = "=0.2.95"
