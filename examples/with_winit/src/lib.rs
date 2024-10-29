@@ -17,7 +17,6 @@ use web_time::Instant;
 use winit::application::ApplicationHandler;
 use winit::event::*;
 use winit::keyboard::*;
-use winit::raw_window_handle::HasRawWindowHandle;
 use winit::raw_window_handle::HasWindowHandle;
 use winit::window::WindowId;
 
@@ -900,20 +899,15 @@ fn run(
             let new_choreographer = Rc::clone(choreographer);
             choreographer.post_vsync_callback(Box::new(move |frame| {
                 eprintln!("New frame");
+                // The vsync point
                 let frame_time = frame.frame_time();
-                let preferred_index = frame.preferred_frame_timeline_index();
-                for timeline in 0..(frame.frame_timelines_length().min(4)) {
+                for timeline in frame.frame_timelines().take(3) {
                     eprintln!(
-                        "{:?} {}",
-                        frame.frame_timeline_deadline(timeline) - frame_time,
-                        if timeline == preferred_index {
-                            "(Preferred)"
-                        } else {
-                            ""
-                        }
+                        "{:?} to present {:?} later",
+                        timeline.deadline() - frame_time,
+                        timeline.expected_presentation_time() - timeline.deadline()
                     );
                 }
-                eprintln!("{frame:?}");
                 post_callback(&new_choreographer);
             }));
         }
