@@ -24,9 +24,10 @@ jobs:
           targets: wasm32-unknown-unknown
 
       - name: install wasm-bindgen
-        uses: jetli/wasm-bindgen-action@v0.2.0
+        uses: taiki-e/install-action@v2
         with:
-          version: 'latest'
+          # If updating, also update in examples/with_winit/Cargo.toml
+          tool: wasm-bindgen@0.2.95
 
       - name: build (wasm)
         run: cargo build -p with_winit --bin with_winit_bin --release --target wasm32-unknown-unknown
