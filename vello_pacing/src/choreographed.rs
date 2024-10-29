@@ -5,16 +5,20 @@ use std::{
     cell::RefCell,
     mem::ManuallyDrop,
     ops::Mul,
-    rc::Rc,
+    os::fd::{AsFd, AsRawFd},
+    rc::{self, Rc},
     sync::mpsc::{self, Receiver},
     time::Duration,
 };
 
 use ndk::{
-    choreographer::Choreographer,
-    looper::{self, ForeignLooper},
+    choreographer::{self, Choreographer},
+    looper::{self, FdEvent, ForeignLooper},
 };
-use nix::time::ClockId;
+use nix::{
+    sys::timerfd::{self, TimerFd},
+    time::ClockId,
+};
 use vello::Scene;
 
 /// A slightly tweaked version of the thinking, now that we have an understanding of `AChoreographer`.
@@ -46,11 +50,12 @@ use vello::Scene;
 ///    the timestamp of the end of the blit pass with the deadline.
 ///
 /// For the moment, we ignore the possibility of a frame failing.
-/// That doesn't actually change any behaviour here, because we render with `MailBox`.
+/// That doesn't actually change any behaviour here, because we render with [`Mailbox`](wgpu::PresentMode::Mailbox).
 pub struct Thinking;
 
 enum PacingCommand {}
 
+/// The controller for a frame pacing thread.
 pub struct PacingChannel {
     waker: ForeignLooper,
     channel: ManuallyDrop<mpsc::Sender<PacingCommand>>,
@@ -80,7 +85,7 @@ impl Drop for PacingChannel {
 /// For simplicity, all timestamps are treated as happening in the `CLOCK_MONOTONIC` timebase.
 /// We'll validate that GPU performance counter timestamps meet this expectation as it becomes relevant.
 ///
-/// This might not actually be true - the timebase of the return values from [`ndk::choreographer::ChoreographerFrameCallbackData`]
+/// This might not actually be true - the timebase of the return values from [`choreographer::ChoreographerFrameCallbackData`]
 /// aren't documented by anything to be `CLOCK_MONOTONIC`, and I suspect we'll need to use [`ash::khr::calibrated_timestamps`] to get
 /// the proper results.
 struct Timestamp(i64);
@@ -130,12 +135,12 @@ const DEADLINE_ASSUME_FAILED: Timestamp = Timestamp::from_micros(500);
 const EXPECTED_CONSISTENCY: Timestamp = Timestamp::from_millis(3);
 
 struct OngoingFrame {
-    /// The [present time][ndk::choreographer::ChoreographerFrameCallbackData::frame_timeline_expected_presentation_time] we
+    /// The [present time][choreographer::FrameTimeline::expected_presentation_time] we
     /// expect this frame to be displayed at.
     target_present_time: Timestamp,
-    /// The [vsync id][ndk::choreographer::ChoreographerFrameCallbackData::frame_timeline_vsync_id] we're aiming for.
+    /// The [vsync id][choreographer::FrameTimeline::vsync_id] we're aiming for.
     target_vsync_id: i64,
-    /// The [deadline][ndk::choreographer::ChoreographerFrameCallbackData::frame_timeline_deadline] which this frame needs to meet to be rendered at `target_present_time`.
+    /// The [deadline][choreographer::FrameTimeline::deadline] which this frame needs to meet to be rendered at `target_present_time`.
     ///
     /// We aim for a time [`DEADLINE_MARGIN`] before the deadline.
     target_deadline: Timestamp,
@@ -178,14 +183,22 @@ struct VelloPacingController {
     command_rx: Receiver<PacingCommand>,
     /// The duration of each frame, as reported by the system.
     ///
-    /// For a short time, we don't have the refresh rate.
+    /// In most cases, this can be inferred from the active frame timelines.
+    /// However, for a short time after the refresh rate changes, `AChoreographer` is
+    /// giving us incorrect future vsyncs.
+    /// In particular, when we get a refresh rate callback, we know that frames after the
+    /// next vsync will be this duration long.
     ///
-    /// This is used to detect the case where `AChoreographer` is giving us incorrect future vsyncs.
+    /// In those cases, we choose to render based on the fastest of the new or old.
+    /// refresh rates until the updated refresh rate is being used.
+    /// In some cases, this means that we will get inconsistent latency/apparent frame times; however it avoids
+    /// dropping frames around a refresh rate window.
     refresh_rate: Option<Duration>,
     looper: looper::ThreadLooper,
+    timer: TimerFd,
 }
 
-/// We need to use a shared
+/// We need to use a shared pacing controller here because of callback based APIs.
 type SharedPacing = Rc<RefCell<VelloPacingController>>;
 
 enum GpuCommand {
@@ -207,42 +220,117 @@ pub fn launch_pacing() -> PacingChannel {
         drop(channel_tx);
         let choreographer = Choreographer::instance().expect("We just made the `Looper`");
 
+        let timer = TimerFd::new(
+            timerfd::ClockId::CLOCK_MONOTONIC,
+            timerfd::TimerFlags::TFD_CLOEXEC,
+        )
+        // Something is much more badly wrong if this fails
+        .expect("Could create a timer file descriptor");
+        looper
+            .as_foreign()
+            .add_fd(timer.as_fd(), 0, FdEvent::INPUT, std::ptr::null_mut());
+
         let state = VelloPacingController {
             choreographer,
             command_rx,
             refresh_rate: None,
             looper: looper::ThreadLooper::for_thread().unwrap(),
+            timer,
         };
         let state = Rc::new(RefCell::new(state));
         {
-            let callback_state = Rc::clone(&state);
+            // Since our pointer will not be deallocated/freed unless unregister is called,
+            // and we can't call unregister, we use a Weak.
+            // Note that if `state` has been dropped, this thread will be ending,
+            // so the looper will never be polled again.
+            let callback_state = Rc::downgrade(&state);
             let state = state.borrow();
             state
                 .choreographer
                 .register_refresh_rate_callback(Box::new(move |rate| {
-                    let mut state = callback_state.borrow_mut();
-                    state.refresh_rate = Some(rate);
+                    if let Some(state) = callback_state.upgrade() {
+                        let mut state = state.borrow_mut();
+                        state.refresh_rate = Some(rate);
+                    } else {
+                        tracing::error!(
+                            "Kept getting refresh rate callbacks from Android despite thread ending."
+                        );
+                    }
                 }));
+        }
+        {
+            let callback_state = Rc::downgrade(&state);
+            let state = state.borrow();
+            fn vsync_callback(
+                data: &choreographer::ChoreographerFrameCallbackData,
+                callback_state: rc::Weak<RefCell<VelloPacingController>>,
+            ) {
+                if let Some(state) = callback_state.upgrade() {
+                    let mut state = state.borrow_mut();
+                    state
+                        .choreographer
+                        .post_vsync_callback(Box::new(move |data| {
+                            vsync_callback(data, callback_state);
+                        }));
+                }
+            }
+            state
+                .choreographer
+                .post_vsync_callback(Box::new(move |data| vsync_callback(data, callback_state)));
         }
         let (gpu_tx, gpu_rx) = std::sync::mpsc::channel::<GpuCommand>();
         // TODO: Give thread a name
-        std::thread::spawn(|| {
-            // We perform all GPU work on this thread
-            // Since submitting work and polling the GPU are mutually exclusive, we
+        std::thread::spawn(move || {
+            // We perform all rendering work on this thread
+            // Since submitting work and polling the GPU are mutually exclusive,
+            // we do them on the same thread?
+            loop {
+                let command = gpu_rx.recv_timeout(Duration::from_millis(5));
+            }
         });
+
         loop {
+            // TODO: Ideally, we'd have the GPU polling happen through this looper.
             let poll = looper.poll_once().expect("'Unrecoverable' error");
-            assert!(
-                !matches!(poll, looper::Poll::Timeout | looper::Poll::Event { .. }),
-                "Impossible poll results from our use of Looper APIs."
-            );
+            // Outside of the looper polling operation, so no chance of overlap.
             let state = state.borrow_mut();
+            match poll {
+                // Fallthrough to checking the command channel
+                looper::Poll::Wake | looper::Poll::Callback => {}
+                looper::Poll::Timeout => {
+                    unreachable!("Timeout reached, but we didn't set a timeout")
+                }
+                looper::Poll::Event {
+                    ident,
+                    fd,
+                    events,
+                    data: _,
+                } => {
+                    if fd.as_raw_fd() == state.timer.as_fd().as_raw_fd() {
+                        // TODO: A Hangup might be expected for a timer?
+                        if events.contains(FdEvent::ERROR | FdEvent::INVALID | FdEvent::HANGUP) {
+                            panic!("Got an error from the timer file descriptor {events:?}")
+                        }
+                        assert!(ident == 0);
+                        // Clear out the existing timer value, so that we won't immediately retrigger.
+                        state.timer.wait().unwrap();
+                        // We should now do whatever we set the timer for.
+                        // Presumably, that is start rendering?
+                    }
+                }
+            }
+
             match state.command_rx.try_recv() {
                 Ok(command) => {
                     // Action `command`
+                    match command {}
                 }
-                Err(mpsc::TryRecvError::Disconnected) => {}
-                Err(mpsc::TryRecvError::Empty) => {}
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    return;
+                }
+                Err(mpsc::TryRecvError::Empty) => {
+                    // Continue
+                }
             }
         }
     });
