@@ -79,12 +79,14 @@ export_scenes!(
     mmark(crate::mmark::MMark::new(80_000), "mmark", false),
     many_draw_objects(many_draw_objects),
     blurred_rounded_rect(blurred_rounded_rect),
+    image_sampling(image_sampling),
 );
 
 /// Implementations for the test scenes.
 /// In a module because the exported [`ExampleScene`](crate::ExampleScene) creation functions use the same names.
 mod impls {
     use std::f64::consts::PI;
+    use std::sync::Arc;
 
     use crate::SceneParams;
     use kurbo::RoundedRect;
@@ -1759,6 +1761,27 @@ mod impls {
             Color::BLACK,
             radius,
             std_dev,
+        );
+    }
+
+    pub(super) fn image_sampling(scene: &mut Scene, params: &mut SceneParams) {
+        params.resolution = Some(Vec2::new(1200., 1200.));
+        params.base_color = Some(Color::WHITE);
+        let mut blob: Vec<u8> = Vec::new();
+        [Color::RED, Color::BLUE, Color::CYAN, Color::MAGENTA]
+            .iter()
+            .for_each(|c| {
+                let b = c.to_premul_u32().to_ne_bytes();
+                blob.push(b[3]);
+                blob.push(b[2]);
+                blob.push(b[1]);
+                blob.push(b[0]);
+            });
+        let data = vello::peniko::Blob::new(Arc::new(blob));
+        let image = vello::peniko::Image::new(data, vello::peniko::Format::Rgba8, 2, 2);
+        scene.draw_image(
+            &image,
+            Affine::scale(300.0).then_translate((100.0, 100.0).into()),
         );
     }
 }
