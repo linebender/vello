@@ -17,7 +17,6 @@ env:
   NO_WASM_PKGS: "--exclude vello_tests --exclude simple_sdl2"
 
 
-
 # Rationale
 #
 # We don't run clippy with --all-targets because then even --lib and --bins are compiled with
