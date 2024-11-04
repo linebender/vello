@@ -20,5 +20,9 @@ rand = "0.8.5"
 roxmltree = "0.20.0"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-getrandom = { version = "0.2.15", features = ["js"] }
 web-time = { workspace = true }
+
+[target.wasm32-unknown-unknown.dependencies]
+# We have a transitive dependency on getrandom and it does not automatically
+# support wasm32-unknown-unknown. We need to enable the js feature.
+getrandom = { version = "0.2.15", features = ["js"] }
