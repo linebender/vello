@@ -537,8 +537,7 @@ impl<'a> DrawGlyphs<'a> {
                     let image = match bitmap.data {
                         bitmap::BitmapData::Bgra(data) => {
                             if bitmap.width * bitmap.height * 4
-                                != <usize as std::convert::TryInto<u32>>::try_into(data.len())
-                                    .unwrap()
+                                != u32::try_from(data.len()).unwrap()
                             {
                                 // TODO: Error once?
                                 log::error!("Invalid font");
