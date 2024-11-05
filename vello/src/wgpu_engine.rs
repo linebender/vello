@@ -38,7 +38,7 @@ pub(crate) struct WgpuEngine {
     #[cfg(not(target_arch = "wasm32"))]
     shaders_to_initialise: Option<Vec<UninitialisedShader>>,
     pub(crate) use_cpu: bool,
-    /// Overrides from a specific `Image`'s [`id`](peniko::Image::id) to a wgpu `Texture`.
+    /// Overrides from a specific `Image::data`'s [`id`](peniko::Blob::id) to a wgpu `Texture`.
     ///
     /// The `Texture` should have the same size as the `Image`.
     pub(crate) image_overrides: HashMap<u64, wgpu::ImageCopyTextureBase<Arc<Texture>>>,

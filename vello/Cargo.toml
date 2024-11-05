@@ -9,6 +9,12 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[package.metadata.docs.rs]
+all-features = true
+# There are no platform specific docs.
+default-target = "x86_64-unknown-linux-gnu"
+targets = []
+
 [features]
 default = ["wgpu"]
 # Enables GPU memory usage estimation. This performs additional computations
