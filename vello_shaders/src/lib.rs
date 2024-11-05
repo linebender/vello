@@ -17,6 +17,8 @@
 //!
 //! [Vello]: https://github.com/linebender/vello
 
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
+
 mod types;
 
 #[cfg(feature = "compile")]

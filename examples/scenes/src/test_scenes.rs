@@ -82,7 +82,7 @@ export_scenes!(
 );
 
 /// Implementations for the test scenes.
-/// In a module because the exported [`ExampleScene`](crate::ExampleScene) creation functions use the same names.
+/// In a module because the exported [`ExampleScene`] creation functions use the same names.
 mod impls {
     use std::f64::consts::PI;
 

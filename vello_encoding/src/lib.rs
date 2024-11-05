@@ -3,6 +3,8 @@
 
 //! Raw scene encoding.
 
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
+
 mod binning;
 mod clip;
 mod config;

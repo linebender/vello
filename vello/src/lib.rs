@@ -81,6 +81,8 @@
 //!
 //! See the [`examples/`](https://github.com/linebender/vello/tree/main/examples) folder to see how that code integrates with frameworks like winit.
 
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
+
 mod debug;
 mod recording;
 mod render;
