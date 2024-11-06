@@ -16,7 +16,7 @@ For now, prefer updating the package-level readmes, e.g. vello/README.md.
 [![Linebender Zulip](https://img.shields.io/badge/Linebender-%23gpu-blue?logo=Zulip)](https://xi.zulipchat.com/#narrow/stream/197075-gpu)
 [![dependency status](https://deps.rs/repo/github/linebender/vello/status.svg)](https://deps.rs/repo/github/linebender/vello)
 [![MIT/Apache 2.0](https://img.shields.io/badge/license-MIT%2FApache-blue.svg)](#license)
-[![wgpu version](https://img.shields.io/badge/wgpu-v22.0.0-orange.svg)](https://crates.io/crates/wgpu)
+[![wgpu version](https://img.shields.io/badge/wgpu-v23.0.0-orange.svg)](https://crates.io/crates/wgpu)
 
 [![Crates.io](https://img.shields.io/crates/v/vello.svg)](https://crates.io/crates/vello)
 [![Docs](https://docs.rs/vello/badge.svg)](https://docs.rs/vello)
