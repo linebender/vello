@@ -13,6 +13,7 @@ ash = { version = "0.38.0", default-features = false }
 tracing = "0.1.40"
 ndk = { version = "0.9", features = ["api-level-33"] }
 nix = { default-features = false, features = ["time"], version = "0.29.0" }
+jni = "0.21.1"
 
 [lints]
 workspace = true

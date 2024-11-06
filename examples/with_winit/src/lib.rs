@@ -901,7 +901,7 @@ fn run(
                 eprintln!("New frame");
                 // The vsync point
                 let frame_time = frame.frame_time();
-                for timeline in frame.frame_timelines().take(3) {
+                for timeline in frame.frame_timelines().take(6) {
                     eprintln!(
                         "{:?} to present {:?} later",
                         timeline.deadline() - frame_time,
@@ -911,10 +911,10 @@ fn run(
                 post_callback(&new_choreographer);
             }));
         }
-        // post_callback(choreographer);
+        post_callback(choreographer);
         choreographer.register_refresh_rate_callback(Box::new(|value| {
             let span = tracing::info_span!("Getting a new refresh rate", ?value).entered();
-            eprintln!("New refresh rate Testing: {value:?}; {}", value.as_nanos());
+            tracing::warn!("New refresh rate Testing: {value:?}; {}", value.as_nanos());
         }));
     }
 

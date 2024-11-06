@@ -3,11 +3,12 @@
 
 use std::{
     cell::RefCell,
+    collections::VecDeque,
     mem::ManuallyDrop,
-    ops::Mul,
+    ops::{Add, Mul},
     os::fd::{AsFd, AsRawFd},
     rc::{self, Rc},
-    sync::mpsc::{self, Receiver},
+    sync::mpsc::{self, Receiver, RecvTimeoutError},
     time::Duration,
 };
 
@@ -64,7 +65,8 @@ pub struct PacingChannel {
 impl PacingChannel {
     fn send_command(&self, command: PacingCommand) {
         self.channel.send(command);
-        // We add to the channel before waking, so that the event will be received by the right wake.
+        // We add to the channel before waking, so that the event will be
+        // received by the right wake.
         self.waker.wake();
     }
 }
@@ -72,9 +74,12 @@ impl PacingChannel {
 impl Drop for PacingChannel {
     fn drop(&mut self) {
         // Safety: We don't use `self.channel` after this line.
-        // We drop the value before performing the wake, so that we instantly know that the drop has happened.
+        // We drop the value before performing the wake, so that we the controller
+        // thread knows the drop has happened.
         unsafe { ManuallyDrop::drop(&mut self.channel) };
         self.waker.wake();
+        // TODO: Block on the thread itself finishing.
+        // This makes using the Android NDK context in that thread *safer*.
     }
 }
 
@@ -88,7 +93,21 @@ impl Drop for PacingChannel {
 /// This might not actually be true - the timebase of the return values from [`choreographer::ChoreographerFrameCallbackData`]
 /// aren't documented by anything to be `CLOCK_MONOTONIC`, and I suspect we'll need to use [`ash::khr::calibrated_timestamps`] to get
 /// the proper results.
+// TODO: Does `Eq` make sense?
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug)]
 struct Timestamp(i64);
+
+impl Add<Duration> for Timestamp {
+    type Output = Timestamp;
+
+    fn add(self, rhs: Duration) -> Self::Output {
+        Self::from_nanos(
+            self.as_nanos()
+                .checked_add(rhs.as_nanos().try_into().unwrap())
+                .unwrap(),
+        )
+    }
+}
 
 impl Mul<i64> for Timestamp {
     type Output = Self;
@@ -99,16 +118,32 @@ impl Mul<i64> for Timestamp {
 }
 
 impl Timestamp {
+    /// Create a timespec for `nanos` nanoseconds since the origin of `CLOCK_MONOTIC`.
     const fn from_nanos(nanos: i64) -> Self {
         Self(nanos)
     }
 
+    /// Create a timespec for `micros` microseconds since the origin of `CLOCK_MONOTIC`.
     const fn from_micros(micros: i64) -> Self {
         Self::from_nanos(micros * 1_000)
     }
 
+    /// Create a timespec for `millis` milliseconds since the origin of `CLOCK_MONOTIC`.
     const fn from_millis(millis: i64) -> Self {
         Self::from_nanos(millis * 1_000_000)
+    }
+
+    /// Create a timestamp from a `Duration`, assuming that the duration is from
+    /// `CLOCK_MONOTONIC`'s zero point.
+    ///
+    /// This matches the behaviour of values in [choreographer].
+    fn from_ndk_crate(duration: Duration) -> Self {
+        Self::from_nanos(duration.as_nanos().try_into().unwrap())
+    }
+
+    /// Get the number of nanoseconds since the origin of `CLOCK_MONOTIC` for this time.
+    fn as_nanos(&self) -> i64 {
+        self.0
     }
 
     /// Get the current time in `CLOCK_MONOTONIC`.
@@ -135,15 +170,10 @@ const DEADLINE_ASSUME_FAILED: Timestamp = Timestamp::from_micros(500);
 const EXPECTED_CONSISTENCY: Timestamp = Timestamp::from_millis(3);
 
 struct OngoingFrame {
-    /// The [present time][choreographer::FrameTimeline::expected_presentation_time] we
-    /// expect this frame to be displayed at.
-    target_present_time: Timestamp,
-    /// The [vsync id][choreographer::FrameTimeline::vsync_id] we're aiming for.
-    target_vsync_id: i64,
-    /// The [deadline][choreographer::FrameTimeline::deadline] which this frame needs to meet to be rendered at `target_present_time`.
+    /// The vertical blanking interval we're aiming to be presented at.
     ///
-    /// We aim for a time [`DEADLINE_MARGIN`] before the deadline.
-    target_deadline: Timestamp,
+    /// We aim to finish GPU work [`DEADLINE_MARGIN`] before `deadline`.
+    target_vsync: UpcomingVsync,
 
     /// The time at which we wanted to start this frame.
     ///
@@ -160,10 +190,13 @@ struct OngoingFrame {
 
     /// The time at which [`wgpu::Queue::submit`] finished for this frame.
     ///
-    /// If this is "much" later than
+    /// If this is "much" later than expected (TODO: What would be expected?)
+    /// then we will start the CPU side work for the next frame early.
     cpu_submit_time: Timestamp,
 
-    /// The time at which work on the GPU started.
+    /// The time at which work for this frame on the GPU started happening.
+    ///
+    /// Note: This assumes that
     gpu_start_time: Timestamp,
     /// The time at which work on the GPU finished.
     ///
@@ -178,8 +211,16 @@ struct OngoingFrame {
     gpu_finish_time: Timestamp,
 }
 
+/// The *shared* state of the pacing controller.
+///
+/// This is the state which *must* be available to callback based APIs.
 struct VelloPacingController {
+    // Resources used to implement the controller, which must be shared.
     choreographer: Choreographer,
+    looper: looper::ThreadLooper,
+    timer: TimerFd,
+
+    // Communication primitives
     command_rx: Receiver<PacingCommand>,
     /// The duration of each frame, as reported by the system.
     ///
@@ -189,17 +230,36 @@ struct VelloPacingController {
     /// In particular, when we get a refresh rate callback, we know that frames after the
     /// next vsync will be this duration long.
     ///
-    /// In those cases, we choose to render based on the fastest of the new or old.
-    /// refresh rates until the updated refresh rate is being used.
-    /// In some cases, this means that we will get inconsistent latency/apparent frame times; however it avoids
-    /// dropping frames around a refresh rate window.
-    refresh_rate: Option<Duration>,
-    looper: looper::ThreadLooper,
-    timer: TimerFd,
+    /// There are three cases where this can happen:
+    /// 1) Where we ask for a slower framerate. We would do that when we are
+    ///    consistently missing the target frame time.
+    /// 2) When we ask for a faster framerate.
+    /// 3) Where some other app (such as an overlay) asks for a faster framerate.
+    ///    In that case, we need to catch up as quickly as possible.
+    ///
+    /// TODO: How does refresh rate interact with Poll and non-animated versions?
+    ///
+    /// Correct behaviour in this case is currently out-of-scope.
+    upcoming_refresh_rate: Option<Duration>,
+    /// The time at which the most recent vsync happened.
+    latest_vsync_time: Option<Timestamp>,
+    /// Upcoming vsyncs, (probably?) ordered by present time.
+    upcoming_vsyncs: VecDeque<UpcomingVsync>,
 }
 
-/// We need to use a shared pacing controller here because of callback based APIs.
-type SharedPacing = Rc<RefCell<VelloPacingController>>;
+struct UpcomingVsync {
+    /// The [present time][choreographer::FrameTimeline::expected_presentation_time] of this vsync.
+    ///
+    /// That is, the time of the actual "flip".
+    /// Once this time has passed, the vsync is historical.
+    present_time: Timestamp,
+    /// The [vsync id][choreographer::FrameTimeline::vsync_id] we're aiming for.
+    vsync_id: i64,
+    /// The [deadline][choreographer::FrameTimeline::deadline] which a frame needs to meet to be rendered at `present_time`.
+    ///
+    /// Once this time has passed, the vsync is largely academic, ad
+    deadline: Timestamp,
+}
 
 enum GpuCommand {
     Render(Scene),
@@ -232,11 +292,14 @@ pub fn launch_pacing() -> PacingChannel {
 
         let state = VelloPacingController {
             choreographer,
-            command_rx,
-            refresh_rate: None,
             looper: looper::ThreadLooper::for_thread().unwrap(),
             timer,
+            command_rx,
+            upcoming_refresh_rate: None,
+            latest_vsync_time: None,
+            upcoming_vsyncs: Default::default(),
         };
+        /// We need to use a shared pacing controller here because of callback based APIs.
         let state = Rc::new(RefCell::new(state));
         {
             // Since our pointer will not be deallocated/freed unless unregister is called,
@@ -248,9 +311,11 @@ pub fn launch_pacing() -> PacingChannel {
             state
                 .choreographer
                 .register_refresh_rate_callback(Box::new(move |rate| {
+                    // Note: The refresh rate might be a multiple of some supported mode with interval
+                    // higher than our.
                     if let Some(state) = callback_state.upgrade() {
                         let mut state = state.borrow_mut();
-                        state.refresh_rate = Some(rate);
+                        state.upcoming_refresh_rate = Some(rate);
                     } else {
                         tracing::error!(
                             "Kept getting refresh rate callbacks from Android despite thread ending."
@@ -272,6 +337,33 @@ pub fn launch_pacing() -> PacingChannel {
                         .post_vsync_callback(Box::new(move |data| {
                             vsync_callback(data, callback_state);
                         }));
+                    let this_vsync_time = Timestamp::from_ndk_crate(data.frame_time());
+                    state.clear_historical_vsyncs(this_vsync_time);
+                    if let Some(_frame_time) = state.upcoming_refresh_rate {
+                        // We might need special handling for upcoming refresh rates here.
+                        // Primarily, checking if the refresh rate change has trickled into
+                        // Choreographer yet.
+                    }
+                    // TODO: What significance (if any) does "preferred frame timeline" have?
+                    for timeline in data.frame_timelines() {
+                        let vsync_id = timeline.vsync_id();
+                        // TODO: More efficient check here using ordering properties?
+                        if state
+                            .upcoming_vsyncs
+                            .iter()
+                            .any(|it| it.vsync_id == vsync_id)
+                        {
+                            continue;
+                        }
+                        let deadline = Timestamp::from_ndk_crate(timeline.deadline());
+                        let present_time =
+                            Timestamp::from_ndk_crate(timeline.expected_presentation_time());
+                        state.upcoming_vsyncs.push_back(UpcomingVsync {
+                            present_time,
+                            vsync_id,
+                            deadline,
+                        });
+                    }
                 }
             }
             state
@@ -291,7 +383,9 @@ pub fn launch_pacing() -> PacingChannel {
 
         loop {
             // TODO: Ideally, we'd have the GPU polling happen through this looper.
-            let poll = looper.poll_once().expect("'Unrecoverable' error");
+            let poll = looper
+                .poll_once()
+                .expect("'Unrecoverable' error should not occur");
             // Outside of the looper polling operation, so no chance of overlap.
             let state = state.borrow_mut();
             match poll {
@@ -337,4 +431,20 @@ pub fn launch_pacing() -> PacingChannel {
     channel_rx
         .recv_timeout(Duration::from_millis(100))
         .expect("Could not create pacing controller")
+}
+
+impl VelloPacingController {
+    /// Clear the historical vsyncs which are definitely no longer relevant, given a
+    /// time that a vsync recently occurred.
+    fn clear_historical_vsyncs(&mut self, recent_vsync: Timestamp) {
+        // We assume FPS to be less than 1000; this gives flexibility here.
+        let vsync_cutoff = recent_vsync + Duration::from_millis(1);
+        while let Some(front) = self.upcoming_vsyncs.front() {
+            if front.present_time < vsync_cutoff {
+                self.upcoming_vsyncs.pop_front();
+            } else {
+                break;
+            }
+        }
+    }
 }

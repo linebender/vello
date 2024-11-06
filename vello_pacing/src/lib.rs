@@ -1,6 +1,7 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 mod choreographed;
+pub mod core;
 
 use std::{
     collections::VecDeque,

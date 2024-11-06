@@ -2566,6 +2566,7 @@ name = "vello_pacing"
 version = "0.3.0"
 dependencies = [
  "ash",
+ "jni",
  "ndk",
  "nix",
  "tracing",
