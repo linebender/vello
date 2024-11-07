@@ -3380,6 +3380,7 @@ dependencies = [
  "pollster",
  "profiling",
  "scenes",
+ "schemars",
  "tracing",
  "tracing-subscriber",
  "tracing_android_trace",
