@@ -79,12 +79,15 @@ export_scenes!(
     mmark(crate::mmark::MMark::new(80_000), "mmark", false),
     many_draw_objects(many_draw_objects),
     blurred_rounded_rect(blurred_rounded_rect),
+    image_sampling(image_sampling),
+    image_extend_modes(image_extend_modes)
 );
 
 /// Implementations for the test scenes.
 /// In a module because the exported [`ExampleScene`] creation functions use the same names.
 mod impls {
-    use std::f64::consts::PI;
+    use std::f64::consts::{FRAC_1_SQRT_2, PI};
+    use std::sync::Arc;
 
     use crate::SceneParams;
     use kurbo::RoundedRect;
@@ -1759,6 +1762,90 @@ mod impls {
             Color::BLACK,
             radius,
             std_dev,
+        );
+    }
+
+    pub(super) fn image_sampling(scene: &mut Scene, params: &mut SceneParams) {
+        params.resolution = Some(Vec2::new(1100., 1100.));
+        params.base_color = Some(Color::WHITE);
+        let mut blob: Vec<u8> = Vec::new();
+        [Color::RED, Color::BLUE, Color::CYAN, Color::MAGENTA]
+            .iter()
+            .for_each(|c| {
+                let b = c.to_premul_u32().to_ne_bytes();
+                blob.push(b[3]);
+                blob.push(b[2]);
+                blob.push(b[1]);
+                blob.push(b[0]);
+            });
+        let data = vello::peniko::Blob::new(Arc::new(blob));
+        let image = vello::peniko::Image::new(data, vello::peniko::Format::Rgba8, 2, 2);
+
+        scene.draw_image(
+            &image,
+            Affine::scale(200.).then_translate((100., 100.).into()),
+        );
+        scene.draw_image(
+            &image,
+            Affine::translate((-1., -1.))
+                // 45° rotation
+                .then_rotate(PI / 4.)
+                .then_translate((1., 1.).into())
+                // So the major axis is sqrt(2.) larger
+                .then_scale(200. * FRAC_1_SQRT_2)
+                .then_translate((100., 600.0).into()),
+        );
+        scene.draw_image(
+            &image,
+            Affine::scale_non_uniform(100., 200.).then_translate((600.0, 100.0).into()),
+        );
+        scene.draw_image(
+            &image,
+            Affine::skew(0.1, 0.25)
+                .then_scale(200.0)
+                .then_translate((600.0, 600.0).into()),
+        );
+    }
+
+    pub(super) fn image_extend_modes(scene: &mut Scene, params: &mut SceneParams) {
+        params.resolution = Some(Vec2::new(1500., 1500.));
+        params.base_color = Some(Color::WHITE);
+        let mut blob: Vec<u8> = Vec::new();
+        [Color::RED, Color::BLUE, Color::CYAN, Color::MAGENTA]
+            .iter()
+            .for_each(|c| {
+                let b = c.to_premul_u32().to_ne_bytes();
+                blob.push(b[3]);
+                blob.push(b[2]);
+                blob.push(b[1]);
+                blob.push(b[0]);
+            });
+        let data = vello::peniko::Blob::new(Arc::new(blob));
+        let image = vello::peniko::Image::new(data, vello::peniko::Format::Rgba8, 2, 2);
+        let image = image.with_extend(Extend::Pad);
+        // Pad extend mode
+        scene.fill(
+            Fill::NonZero,
+            Affine::scale(100.).then_translate((100., 100.).into()),
+            &image,
+            Some(Affine::translate((2., 2.)).then_scale(100.)),
+            &Rect::new(0., 0., 6., 6.),
+        );
+        let image = image.with_extend(Extend::Reflect);
+        scene.fill(
+            Fill::NonZero,
+            Affine::scale(100.).then_translate((100., 800.).into()),
+            &image,
+            Some(Affine::translate((2., 2.))),
+            &Rect::new(0., 0., 6., 6.),
+        );
+        let image = image.with_extend(Extend::Repeat);
+        scene.fill(
+            Fill::NonZero,
+            Affine::scale(100.).then_translate((800., 100.).into()),
+            &image,
+            Some(Affine::translate((2., 2.))),
+            &Rect::new(0., 0., 6., 6.),
         );
     }
 }

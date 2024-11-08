@@ -1160,13 +1160,19 @@ fn main(
             }
             case CMD_IMAGE: {
                 let image = read_image(cmd_ix);
-                let atlas_extents = image.atlas_offset + image.extents;
+                let atlas_max = image.atlas_offset + image.extents - vec2(1.0);
                 for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
-                    let my_xy = vec2(xy.x + f32(i), xy.y);
-                    let atlas_uv = image.matrx.xy * my_xy.x + image.matrx.zw * my_xy.y + image.xlat + image.atlas_offset;
-                    // This currently clips to the image bounds. TODO: extend modes
-                    if all(atlas_uv < atlas_extents) && area[i] != 0.0 {
-                        let uv_quad = vec4(max(floor(atlas_uv), image.atlas_offset), min(ceil(atlas_uv), atlas_extents));
+                    // We only need to load from the textures if the value will be used.
+                    if area[i] != 0.0 {
+                        let my_xy = vec2(xy.x + f32(i), xy.y);
+                        let atlas_uv = image.matrx.xy * my_xy.x + image.matrx.zw * my_xy.y + image.xlat + image.atlas_offset - vec2(0.5);
+                        // This currently only implements the Pad extend mode
+                        // TODO: Support repeat and reflect
+                        // TODO: If the image couldn't be added to the atlas (i.e. was too big), this isn't robust
+                        let atlas_uv_clamped = clamp(atlas_uv, image.atlas_offset, atlas_max);
+                        // We know that the floor and ceil are within the atlas area because atlas_max and
+                        // atlas_offset are integers
+                        let uv_quad = vec4(floor(atlas_uv_clamped), ceil(atlas_uv_clamped));
                         let uv_frac = fract(atlas_uv);
                         let a = premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.xy), 0));
                         let b = premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.xw), 0));
