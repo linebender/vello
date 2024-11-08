@@ -12,7 +12,7 @@ name = "with_winit"
 crate-type = ["cdylib", "lib"]
 
 [features]
-default = ["wgpu-profiler"]
+default = []
 # Enable the use of wgpu-profiler. This is an optional feature for times when we use a git dependency on
 # wgpu (which means the dependency used in wgpu-profiler would be incompatible)
 wgpu-profiler = ["dep:wgpu-profiler", "vello/wgpu-profiler"]
@@ -41,6 +41,7 @@ log = { workspace = true }
 # We're still using env-logger, but we want to use tracing spans to allow using
 # tracing_android_trace
 tracing = { version = "0.1.40", features = ["log-always"] }
+ash = { version = "0.38.0", default-features = false }
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
 # We use android_logger on Android
@@ -62,6 +63,7 @@ tracing-subscriber = { version = "0.3.18", default-features = false, features = 
     "registry",
 ] }
 profiling = { version = "1.0.15", features = ["profile-with-tracing"] }
+ndk = { version = "0.9", features = ["api-level-33", "nativewindow"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = "0.1.7"
@@ -76,3 +78,10 @@ wasm-bindgen = "=0.2.95"
 # We have a transitive dependency on getrandom and it does not automatically
 # support wasm32-unknown-unknown. We need to enable the js feature.
 getrandom = { version = "0.2.15", features = ["js"] }
+
+[package.metadata.android.application]
+debuggable = true
+
+[package.metadata.android.sdk]
+target_sdk_version = 33
+min_sdk_version = 33

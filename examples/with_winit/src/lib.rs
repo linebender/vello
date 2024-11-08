@@ -6,6 +6,7 @@
 
 use std::collections::HashSet;
 use std::num::NonZeroUsize;
+use std::rc::Rc;
 use std::sync::Arc;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -16,6 +17,8 @@ use web_time::Instant;
 use winit::application::ApplicationHandler;
 use winit::event::*;
 use winit::keyboard::*;
+use winit::raw_window_handle::HasWindowHandle;
+use winit::window::WindowId;
 
 #[cfg(all(feature = "wgpu-profiler", not(target_arch = "wasm32")))]
 use std::time::Duration;
@@ -107,6 +110,10 @@ const AA_CONFIGS: [AaConfig; 1] = [AaConfig::Area];
 struct VelloApp<'s> {
     context: RenderContext,
     renderers: Vec<Option<Renderer>>,
+
+    google_display_timing_ext_devices: Vec<Option<ash::google::display_timing::Device>>,
+    present_id: u32,
+
     state: Option<RenderState<'s>>,
     // Whilst suspended, we drop `render_state`, but need to keep the same window.
     // If render_state exists, we must store the window in it, to maintain drop order
@@ -164,6 +171,9 @@ struct VelloApp<'s> {
     modifiers: ModifiersState,
 
     debug: DebugLayers,
+    choreographer: Option<Rc<ndk::choreographer::Choreographer>>,
+    animation_in_flight: bool,
+    proxy: winit::event_loop::EventLoopProxy<UserEvent>,
 }
 
 impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
@@ -172,6 +182,8 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
 
     #[cfg(not(target_arch = "wasm32"))]
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+        use vello::wgpu::hal::vulkan;
+
         let Option::None = self.state else {
             return;
         };
@@ -193,6 +205,8 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
         self.state = {
             let render_state = RenderState { window, surface };
             self.renderers
+                .resize_with(self.context.devices.len(), || None);
+            self.google_display_timing_ext_devices
                 .resize_with(self.context.devices.len(), || None);
             let id = render_state.surface.dev_id;
             self.renderers[id].get_or_insert_with(|| {
@@ -224,6 +238,29 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
                     .expect("Not setting max_num_pending_frames");
                 renderer
             });
+            let display_timing_ext_device = &mut self.google_display_timing_ext_devices[id];
+            let device_handle = &self.context.devices[id];
+            if display_timing_ext_device.is_none()
+                && device_handle
+                    .device
+                    .features()
+                    .contains(wgpu::Features::VULKAN_GOOGLE_DISPLAY_TIMING)
+            {
+                *display_timing_ext_device = unsafe {
+                    device_handle
+                        .device
+                        .as_hal::<vulkan::Api, _, _>(|device| {
+                            let device = device?;
+                            let instance = self.context.instance.as_hal::<vulkan::Api>()?;
+                            Some(ash::google::display_timing::Device::new(
+                                instance.shared_instance().raw_instance(),
+                                device.raw_device(),
+                            ))
+                        })
+                        .flatten()
+                };
+            }
+
             Some(render_state)
         };
     }
@@ -370,13 +407,45 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
                         // in a touch context (i.e. Windows/Linux/MacOS with a touch screen could
                         // also be using mouse/keyboard controls)
                         // Note that winit's rendering is y-down
-                        if let Some(RenderState { surface, .. }) = &self.state {
+                        if let Some(RenderState { surface, window }) = &self.state {
                             if touch.location.y > surface.config.height as f64 * 2. / 3. {
                                 self.navigation_fingers.insert(touch.id);
                                 // The left third of the navigation zone navigates backwards
                                 if touch.location.x < surface.config.width as f64 / 3. {
+                                    if let wgpu::rwh::RawWindowHandle::AndroidNdk(
+                                        android_ndk_window_handle,
+                                    ) = window.window_handle().unwrap().as_raw()
+                                    {
+                                        let window = unsafe {
+                                            ndk::native_window::NativeWindow::clone_from_ptr(
+                                                android_ndk_window_handle.a_native_window.cast(),
+                                            )
+                                        };
+                                        window
+                                            .set_frame_rate(
+                                                60.,
+                                                ndk::native_window::FrameRateCompatibility::Default,
+                                            )
+                                            .unwrap();
+                                    }
                                     self.scene_ix = self.scene_ix.saturating_sub(1);
                                 } else if touch.location.x > 2. * surface.config.width as f64 / 3. {
+                                    if let wgpu::rwh::RawWindowHandle::AndroidNdk(
+                                        android_ndk_window_handle,
+                                    ) = window.window_handle().unwrap().as_raw()
+                                    {
+                                        let window = unsafe {
+                                            ndk::native_window::NativeWindow::clone_from_ptr(
+                                                android_ndk_window_handle.a_native_window.cast(),
+                                            )
+                                        };
+                                        window
+                                            .set_frame_rate(
+                                                90.,
+                                                ndk::native_window::FrameRateCompatibility::Default,
+                                            )
+                                            .unwrap();
+                                    }
                                     self.scene_ix = self.scene_ix.saturating_add(1);
                                 }
                             }
@@ -438,12 +507,13 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
                 self.prior_position = Some(position);
             }
             WindowEvent::RedrawRequested => {
+                if self.animation_in_flight {
+                    return;
+                }
                 let _rendering_span = tracing::trace_span!("Actioning Requested Redraw").entered();
                 let encoding_span = tracing::trace_span!("Encoding scene").entered();
 
-                render_state.window.request_redraw();
-
-                let Some(RenderState { surface, window }) = &self.state else {
+                let Some(RenderState { surface, window }) = &mut self.state else {
                     return;
                 };
                 let width = surface.config.width;
@@ -541,6 +611,44 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
                     .get_current_texture()
                     .expect("failed to get surface texture");
 
+                let present_id = self.present_id;
+                self.present_id = self.present_id.wrapping_add(1);
+                if device_handle
+                    .device
+                    .features()
+                    .contains(wgpu::Features::VULKAN_GOOGLE_DISPLAY_TIMING)
+                {
+                    unsafe {
+                        let swc = surface
+                            .surface
+                            .as_hal::<wgpu::hal::vulkan::Api, _, _>(|surface| {
+                                if let Some(surface) = surface {
+                                    surface.set_next_present_time(ash::vk::PresentTimeGOOGLE {
+                                        desired_present_time: 0,
+                                        present_id,
+                                    });
+                                    Some(surface.raw_swapchain())
+                                } else {
+                                    None
+                                }
+                            })
+                            .flatten()
+                            .flatten();
+                        if let Some(swc) = swc {
+                            let display_timing = self.google_display_timing_ext_devices
+                                [surface.dev_id]
+                                .as_ref()
+                                .unwrap();
+                            // let result = display_timing.get_refresh_cycle_duration(swc);
+                            // eprintln!("Refresh duration: {result:?}");
+                            if present_id % 5 == 0 {
+                                // let result = display_timing.get_past_presentation_timing(swc);
+                                // eprintln!("Display timings: {result:?}");
+                                // eprintln!("Most recent present id: {}", present_id);
+                            }
+                        }
+                    }
+                }
                 drop(texture_span);
                 let render_span = tracing::trace_span!("Dispatching render").entered();
                 // Note: we don't run the async/"robust" pipeline, as
@@ -589,6 +697,33 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
                     frame_time_us: (new_time - self.frame_start_time).as_micros() as u64,
                 });
                 self.frame_start_time = new_time;
+
+                if let Some(choreographer) = self.choreographer.as_ref() {
+                    let proxy = self.proxy.clone();
+                    // choreographer.post_vsync_callback(Box::new(move |frame| {
+                    //     eprintln!("New frame");
+                    //     let frame_time = frame.frame_time();
+                    //     let preferred_index = frame.preferred_frame_timeline_index();
+                    //     for timeline in 0..(frame.frame_timelines_length().min(3)) {
+                    //         eprintln!(
+                    //             "{:?} {}",
+                    //             frame.frame_timeline_deadline(timeline) - frame_time,
+                    //             if timeline == preferred_index {
+                    //                 "(Preferred)"
+                    //             } else {
+                    //                 ""
+                    //             }
+                    //         );
+                    //     }
+                    //     eprintln!("{frame:?}");
+                    //     // proxy
+                    //     //     .send_event(UserEvent::ChoreographerFrame(window_id))
+                    //     //     .unwrap();
+                    // }));
+                    window.request_redraw();
+                } else {
+                    window.request_redraw();
+                }
             }
             _ => {}
         }
@@ -607,12 +742,14 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
                 * self.transform;
         }
 
-        if let Some(render_state) = &mut self.state {
-            render_state.window.request_redraw();
-        }
+        // if let Some(render_state) = &mut self.state {
+        //     if !self.animation_in_flight {
+        //         render_state.window.request_redraw();
+        //     }
+        // }
     }
 
-    fn user_event(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop, event: UserEvent) {
+    fn user_event(&mut self, event_loop: &winit::event_loop::ActiveEventLoop, event: UserEvent) {
         match event {
             #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
             UserEvent::HotReload => {
@@ -631,6 +768,10 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
                     Ok(_) => log::info!("Reloading took {:?}", start.elapsed()),
                     Err(e) => log::error!("Failed to reload shaders: {e}"),
                 }
+            }
+            UserEvent::ChoreographerFrame(window_id) => {
+                self.animation_in_flight = false;
+                self.window_event(event_loop, window_id, WindowEvent::RedrawRequested);
             }
         }
     }
@@ -702,6 +843,8 @@ fn run(
     let debug = DebugLayers::none();
 
     let mut app = VelloApp {
+        present_id: 0,
+        google_display_timing_ext_devices: vec![None; renderers.len()],
         context: render_cx,
         renderers,
         state: render_state,
@@ -746,7 +889,34 @@ fn run(
         prev_scene_ix: 0,
         modifiers: ModifiersState::default(),
         debug,
+        // We know looper is active since we have the `EventLoop`
+        choreographer: ndk::choreographer::Choreographer::instance().map(Rc::new),
+        proxy: event_loop.create_proxy(),
+        animation_in_flight: false,
     };
+    if let Some(choreographer) = app.choreographer.as_ref() {
+        fn post_callback(choreographer: &Rc<ndk::choreographer::Choreographer>) {
+            let new_choreographer = Rc::clone(choreographer);
+            choreographer.post_vsync_callback(Box::new(move |frame| {
+                eprintln!("New frame");
+                // The vsync point
+                let frame_time = frame.frame_time();
+                for timeline in frame.frame_timelines().take(6) {
+                    eprintln!(
+                        "{:?} to present {:?} later",
+                        timeline.deadline() - frame_time,
+                        timeline.expected_presentation_time() - timeline.deadline()
+                    );
+                }
+                post_callback(&new_choreographer);
+            }));
+        }
+        post_callback(choreographer);
+        choreographer.register_refresh_rate_callback(Box::new(|value| {
+            let span = tracing::info_span!("Getting a new refresh rate", ?value).entered();
+            tracing::warn!("New refresh rate Testing: {value:?}; {}", value.as_nanos());
+        }));
+    }
 
     event_loop.run_app(&mut app).expect("run to completion");
 }
@@ -784,6 +954,7 @@ fn window_attributes() -> WindowAttributes {
 enum UserEvent {
     #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
     HotReload,
+    ChoreographerFrame(WindowId),
 }
 
 #[cfg(target_arch = "wasm32")]
