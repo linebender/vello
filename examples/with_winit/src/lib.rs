@@ -951,5 +951,6 @@ fn android_main(app: AndroidApp) {
 // This just tests that the "kurbo" dependency we enable schemars for
 // aligns to the same version that vello's peniko dependency resolves to.
 fn test_kurbo_schemars_with_peniko() {
-    let _: PhantomData<kurbo::Rect> = PhantomData::<peniko::kurbo::Rect>;
+    use std::marker::PhantomData;
+    let _: PhantomData<kurbo::Rect> = PhantomData::<vello::peniko::kurbo::Rect>;
 }
