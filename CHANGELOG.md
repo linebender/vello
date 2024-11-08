@@ -15,6 +15,10 @@ You can find its changes [documented below](#030---2024-10-04).
 
 This release has an [MSRV][] of 1.75.
 
+### Fixed
+
+- Offset in image rendering, and sampling outside correct atlas area ([#722][] by [@dfrg])
+
 ## [0.3.0][] - 2024-10-04
 
 This release has an [MSRV][] of 1.75.
@@ -186,6 +190,7 @@ This release has an [MSRV][] of 1.75.
 [#701]: https://github.com/linebender/vello/pull/701
 [#706]: https://github.com/linebender/vello/pull/706
 [#711]: https://github.com/linebender/vello/pull/711
+[#722]: https://github.com/linebender/vello/pull/722
 
 [Unreleased]: https://github.com/linebender/vello/compare/v0.3.0...HEAD
 <!-- Note that this still comparing against 0.2.0, because 0.2.1 is a cherry-picked patch -->
