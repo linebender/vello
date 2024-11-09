@@ -536,7 +536,9 @@ impl<'a> DrawGlyphs<'a> {
                 EmojiLikeGlyph::Bitmap(bitmap) => {
                     let image = match bitmap.data {
                         bitmap::BitmapData::Bgra(data) => {
-                            if bitmap.width * bitmap.height * 4 != data.len().try_into().unwrap() {
+                            if bitmap.width * bitmap.height * 4
+                                != u32::try_from(data.len()).unwrap()
+                            {
                                 // TODO: Error once?
                                 log::error!("Invalid font");
                                 continue;

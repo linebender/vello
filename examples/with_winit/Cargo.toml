@@ -16,6 +16,8 @@ default = ["wgpu-profiler"]
 # Enable the use of wgpu-profiler. This is an optional feature for times when we use a git dependency on
 # wgpu (which means the dependency used in wgpu-profiler would be incompatible)
 wgpu-profiler = ["dep:wgpu-profiler", "vello/wgpu-profiler"]
+# Test for dependencies which implement std traits in ways that cause type inference issues.
+_ci_dep_features_to_test = ["dep:kurbo", "kurbo/schemars"]
 
 [lints]
 workspace = true
@@ -41,6 +43,8 @@ log = { workspace = true }
 # We're still using env-logger, but we want to use tracing spans to allow using
 # tracing_android_trace
 tracing = { version = "0.1.40", features = ["log-always"] }
+# For _ci_dep_features_to_test feature tests.
+kurbo = { workspace = true, optional = true }
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
 # We use android_logger on Android

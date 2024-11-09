@@ -945,3 +945,12 @@ fn android_main(app: AndroidApp) {
 
     run(event_loop, args, scenes, render_cx);
 }
+
+#[cfg(all(feature = "_ci_dep_features_to_test", test))]
+#[test]
+// This just tests that the "kurbo" dependency we enable schemars for
+// aligns to the same version that vello's peniko dependency resolves to.
+fn test_kurbo_schemars_with_peniko() {
+    use std::marker::PhantomData;
+    let _: PhantomData<kurbo::Rect> = PhantomData::<vello::peniko::kurbo::Rect>;
+}
