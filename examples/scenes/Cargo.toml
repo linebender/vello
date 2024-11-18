@@ -11,6 +11,7 @@ workspace = true
 
 [dependencies]
 vello = { workspace = true }
+
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 image = { workspace = true, features = ["jpeg"] }

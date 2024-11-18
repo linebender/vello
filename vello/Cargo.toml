@@ -47,6 +47,7 @@ workspace = true
 [dependencies]
 vello_encoding = { workspace = true }
 vello_shaders = { workspace = true }
+
 bytemuck = { workspace = true }
 skrifa = { workspace = true }
 peniko = { workspace = true }

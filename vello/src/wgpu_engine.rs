@@ -331,7 +331,7 @@ impl WgpuEngine {
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module,
-                entry_point: vertex_main,
+                entry_point: Some(vertex_main),
                 buffers: vertex_buffer
                     .as_ref()
                     .map(core::slice::from_ref)
@@ -340,7 +340,7 @@ impl WgpuEngine {
             },
             fragment: Some(wgpu::FragmentState {
                 module,
-                entry_point: fragment_main,
+                entry_point: Some(fragment_main),
                 targets: &[Some(color_attachment)],
                 compilation_options: PipelineCompilationOptions::default(),
             }),
@@ -827,7 +827,7 @@ impl WgpuEngine {
             label: Some(label),
             layout: Some(&compute_pipeline_layout),
             module: &shader_module,
-            entry_point: "main",
+            entry_point: Some("main"),
             compilation_options: PipelineCompilationOptions {
                 zero_initialize_workgroup_memory: false,
                 ..Default::default()

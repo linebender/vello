@@ -14,5 +14,5 @@ workspace = true
 # remove the path property of the following Vello dependency requirement.
 vello = { version = "0.3.0", path = "../../vello" }
 anyhow = "1.0.89"
-pollster = "0.3.0"
+pollster = "0.4.0"
 winit = "0.30.5"

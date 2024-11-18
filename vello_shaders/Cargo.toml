@@ -34,10 +34,11 @@ workspace = true
 
 [dependencies]
 bytemuck = { workspace = true, optional = true }
-naga = { version = "22.1.0", features = ["wgsl-in"], optional = true }
+#naga = { version = "23.0.0", features = ["wgsl-in"], optional = true }
+naga = { workspace = true, features = ["wgsl-in"], optional = true }
 thiserror = { workspace = true, optional = true }
 vello_encoding = { workspace = true, optional = true }
 
 [build-dependencies]
-naga = { version = "22.1.0", features = ["wgsl-in"] }
+naga = { workspace = true, features = ["wgsl-in"] }
 thiserror = { workspace = true }
