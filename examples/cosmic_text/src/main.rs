@@ -51,7 +51,7 @@ struct SimpleVelloApp<'s> {
 
     // Copy fonts from cosmic_text so that vello can use them
     vello_fonts: HashMap<ID, Font>,
-    
+
     /// The glyphs to draw. (font_size, Vec<(font_id, line_y, glyphs)>)
     glyphs: (f32, Vec<(ID, f64, Vec<Glyph>)>),
 }
@@ -175,7 +175,7 @@ impl<'s> ApplicationHandler for SimpleVelloApp<'s> {
 fn main() -> Result<()> {
     let mut font_system = FontSystem::new();
     let mut vello_fonts = HashMap::new();
-        
+
     // Copy fonts from cosmic_text, so vello can use them
     let font_faces: Vec<(ID, u32)> = font_system
         .db()
@@ -190,7 +190,7 @@ fn main() -> Result<()> {
         let vello_font = Font::new(font_blob, index);
         vello_fonts.insert(font_id, vello_font);
     }
-    
+
     let text = "おはよう (ja) (ohayō) 🌅✨ (morning), こんにちは (ja) (konnichi wa) ☀️😊 (daytime), こんばんは (ja) (konban wa) 🌙🌟 (evening)";
 
     // Text metrics indicate the font size and line height of a buffer
@@ -214,8 +214,7 @@ fn main() -> Result<()> {
 
     // Perform shaping as desired
     buffer.shape_until_scroll(&mut font_system, true);
-    
-    
+
     // Setup a bunch of state:
     let mut app = SimpleVelloApp {
         context: RenderContext::new(),
@@ -265,7 +264,7 @@ fn add_shapes_to_scene(
     vello_fonts: &HashMap<ID, Font>,
 ) {
     let (font_size, all_glyphs) = all_glyphs;
-    
+
     // Draw an outlined rectangle
     let stroke = Stroke::new(6.0);
     let rect = RoundedRect::new(10.0, 10.0, 240.0, 240.0, 20.0);
@@ -301,7 +300,7 @@ fn add_shapes_to_scene(
 
     const TEXT_COLOR: Color = Color::WHITE;
     let text_transform = Affine::translate((500.0, 300.0));
-    
+
     // Draw the Glyphs
     for (font, line_y, glyphs) in all_glyphs {
         let font = vello_fonts.get(&font).unwrap();
