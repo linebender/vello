@@ -33,6 +33,17 @@ enum RenderState<'s> {
     Suspended(Option<Arc<Window>>),
 }
 
+struct BufferGlyphRun {
+    font: ID,
+    glyphs: Vec<Glyph>,
+    line_y: f64,
+}
+
+struct BufferGlyphs {
+    font_size: f32,
+    glyphs: Vec<BufferGlyphRun>
+}
+
 struct SimpleVelloApp<'s> {
     // The vello RenderContext which is a global context that lasts for the
     // lifetime of the application
@@ -52,8 +63,8 @@ struct SimpleVelloApp<'s> {
     // Copy fonts from cosmic_text so that vello can use them
     vello_fonts: HashMap<ID, Font>,
 
-    /// The glyphs to draw. (font_size, Vec<(font_id, line_y, glyphs)>)
-    glyphs: (f32, Vec<(ID, f64, Vec<Glyph>)>),
+    // The glyphs to draw.
+    glyphs: BufferGlyphs,
 }
 
 impl<'s> ApplicationHandler for SimpleVelloApp<'s> {
@@ -210,7 +221,7 @@ fn main() -> Result<()> {
     let attrs = Attrs::new();
 
     // Ensure advanced shaping is enabled for complex scripts
-    buffer.set_text(&mut font_system, &text, attrs, Shaping::Advanced);
+    buffer.set_text(&mut font_system, text, attrs, Shaping::Advanced);
 
     // Perform shaping as desired
     buffer.shape_until_scroll(&mut font_system, true);
@@ -260,11 +271,9 @@ fn create_vello_renderer(render_cx: &RenderContext, surface: &RenderSurface) -> 
 /// to the Scene data structure which represents a set of objects to draw.
 fn add_shapes_to_scene(
     scene: &mut Scene,
-    all_glyphs: &(f32, Vec<(ID, f64, Vec<Glyph>)>),
+    all_glyphs: &BufferGlyphs,
     vello_fonts: &HashMap<ID, Font>,
 ) {
-    let (font_size, all_glyphs) = all_glyphs;
-
     // Draw an outlined rectangle
     let stroke = Stroke::new(6.0);
     let rect = RoundedRect::new(10.0, 10.0, 240.0, 240.0, 20.0);
@@ -302,33 +311,41 @@ fn add_shapes_to_scene(
     let text_transform = Affine::translate((500.0, 300.0));
 
     // Draw the Glyphs
-    for (font, line_y, glyphs) in all_glyphs {
-        let font = vello_fonts.get(&font).unwrap();
-        let glyphs = glyphs.clone();
+    for glyph_run in all_glyphs.glyphs.iter() {
+        let font = vello_fonts.get(&glyph_run.font).unwrap();
+        let glyphs = glyph_run.glyphs.clone();
         scene
-            .draw_glyphs(&font)
-            .font_size(*font_size)
+            .draw_glyphs(font)
+            .font_size(all_glyphs.font_size)
             .brush(TEXT_COLOR)
-            .transform(text_transform.then_translate(Vec2::new(0.0, *line_y)))
+            .transform(text_transform.then_translate(Vec2::new(0.0, glyph_run.line_y)))
             .draw(vello::peniko::Fill::NonZero, glyphs.into_iter());
     }
 }
 
-fn create_glyphs(buffer: &Buffer) -> (f32, Vec<(ID, f64, Vec<Glyph>)>) {
+fn create_glyphs(buffer: &Buffer) -> BufferGlyphs {
     // Get the laid out glyphs and convert them to Glyphs for vello
 
     let mut last_font = None;
-    let mut all_glyphs: Vec<(ID, f64, Vec<Glyph>)> = vec![];
-    let mut current_glyphs: Vec<Glyph> = vec![];
 
-    let mut line_y: f64 = 0.0;
+    let mut buffer_glyphs = BufferGlyphs {
+        font_size: buffer.metrics().font_size,
+        glyphs: vec![],
+    };
+
+    let mut current_glyphs: Vec<Glyph> = vec![];
+    
     for layout_run in buffer.layout_runs() {
-        line_y = layout_run.line_y as f64;
+        let line_y = layout_run.line_y as f64;
 
         for glyph in layout_run.glyphs {
             if let Some(last_font) = last_font {
                 if last_font != glyph.font_id {
-                    all_glyphs.push((last_font, line_y, current_glyphs));
+                    buffer_glyphs.glyphs.push(BufferGlyphRun {
+                        font: last_font,
+                        glyphs: current_glyphs,
+                        line_y,
+                    });
                     current_glyphs = vec![];
                 }
             }
@@ -341,14 +358,15 @@ fn create_glyphs(buffer: &Buffer) -> (f32, Vec<(ID, f64, Vec<Glyph>)>) {
             });
         }
         if !current_glyphs.is_empty() {
-            all_glyphs.push((last_font.unwrap(), line_y, current_glyphs));
+            buffer_glyphs.glyphs.push(BufferGlyphRun {
+                font: last_font.unwrap(),
+                glyphs: current_glyphs,
+                line_y,
+            });
             current_glyphs = vec![];
         }
     }
 
-    if !current_glyphs.is_empty() {
-        all_glyphs.push((last_font.unwrap(), line_y, current_glyphs));
-    }
 
-    (buffer.metrics().font_size, all_glyphs)
+    buffer_glyphs
 }
