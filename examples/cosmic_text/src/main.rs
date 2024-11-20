@@ -41,7 +41,7 @@ struct BufferGlyphRun {
 
 struct BufferGlyphs {
     font_size: f32,
-    glyphs: Vec<BufferGlyphRun>
+    glyphs: Vec<BufferGlyphRun>,
 }
 
 struct SimpleVelloApp<'s> {
@@ -334,7 +334,7 @@ fn create_glyphs(buffer: &Buffer) -> BufferGlyphs {
     };
 
     let mut current_glyphs: Vec<Glyph> = vec![];
-    
+
     for layout_run in buffer.layout_runs() {
         let line_y = layout_run.line_y as f64;
 
@@ -366,7 +366,6 @@ fn create_glyphs(buffer: &Buffer) -> BufferGlyphs {
             current_glyphs = vec![];
         }
     }
-
 
     buffer_glyphs
 }
