@@ -16,7 +16,7 @@ For now, prefer updating the package-level readmes, e.g. vello/README.md.
 [![Linebender Zulip](https://img.shields.io/badge/Linebender-%23gpu-blue?logo=Zulip)](https://xi.zulipchat.com/#narrow/stream/197075-gpu)
 [![dependency status](https://deps.rs/repo/github/linebender/vello/status.svg)](https://deps.rs/repo/github/linebender/vello)
 [![MIT/Apache 2.0](https://img.shields.io/badge/license-MIT%2FApache-blue.svg)](#license)
-[![wgpu version](https://img.shields.io/badge/wgpu-v22.0.0-orange.svg)](https://crates.io/crates/wgpu)
+[![wgpu version](https://img.shields.io/badge/wgpu-v23.0.0-orange.svg)](https://crates.io/crates/wgpu)
 
 [![Crates.io](https://img.shields.io/crates/v/vello.svg)](https://crates.io/crates/vello)
 [![Docs](https://docs.rs/vello/badge.svg)](https://docs.rs/vello)
@@ -231,7 +231,7 @@ VELLO_STATIC_LOG="vello=trace" VELLO_STATIC_ARGS="--test-scenes" cargo apk run -
 
 ## Minimum supported Rust Version (MSRV)
 
-This version of Vello has been verified to compile with **Rust 1.75** and later.
+This version of Vello has been verified to compile with **Rust 1.76** and later.
 
 Future versions of Vello might increase the Rust version requirement.
 It will not be treated as a breaking change and as such can even happen with small patch releases.
