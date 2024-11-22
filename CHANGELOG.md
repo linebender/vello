@@ -22,6 +22,8 @@ This release has an [MSRV][] of 1.76.
 ### Fixed
 
 - Offset in image rendering, and sampling outside correct atlas area ([#722][] by [@dfrg])
+- Inference conflict when using Kurbo's `schemars` feature ([#733][] by [@ratmice][])
+- Detection of PNG format bitmap fonts, primarily for Apple systems ([#740][] by [@LaurenzV])
 
 ## [0.3.0][] - 2024-10-04
 
@@ -138,6 +140,8 @@ This release has an [MSRV][] of 1.75.
 [@TrueDoctor]: https://github.com/TrueDoctor
 [@waywardmonkeys]: https://github.com/waywardmonkeys
 [@yutannihilation]: https://github.com/yutannihilation
+[@LaurenzV]: https://github.com/LaurenzV
+[@ratmice]: https://github.com/ratmice
 
 [#416]: https://github.com/linebender/vello/pull/416
 [#435]: https://github.com/linebender/vello/pull/435
@@ -195,7 +199,9 @@ This release has an [MSRV][] of 1.75.
 [#706]: https://github.com/linebender/vello/pull/706
 [#711]: https://github.com/linebender/vello/pull/711
 [#722]: https://github.com/linebender/vello/pull/722
+[#733]: https://github.com/linebender/vello/pull/733
 [#735]: https://github.com/linebender/vello/pull/735
+[#740]: https://github.com/linebender/vello/pull/740
 
 [Unreleased]: https://github.com/linebender/vello/compare/v0.3.0...HEAD
 <!-- Note that this still comparing against 0.2.0, because 0.2.1 is a cherry-picked patch -->
