@@ -162,7 +162,7 @@ impl<'a> BitmapStrike<'a> {
         match &self.0 {
             StrikeKind::Sbix(sbix, metrics) => {
                 let glyph = sbix.glyph_data(glyph_id).ok()??;
-                if glyph.graphic_type() != Tag::new(b"PNG ") {
+                if glyph.graphic_type() != Tag::new(b"png ") {
                     return None;
                 }
                 let glyf_bb = metrics.bounds(glyph_id).unwrap_or_default();
