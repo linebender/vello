@@ -7,7 +7,7 @@
 [![Latest published version.](https://img.shields.io/crates/v/vello.svg)](https://crates.io/crates/vello)
 [![Documentation build status.](https://img.shields.io/docsrs/vello.svg)](https://docs.rs/vello)
 [![Apache 2.0 or MIT license.](https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue.svg)](#license)
-[![Required wgpu version.](https://img.shields.io/badge/wgpu-v22.1.0-orange.svg)](https://crates.io/crates/wgpu)
+[![Required wgpu version.](https://img.shields.io/badge/wgpu-v23.0.0-orange.svg)](https://crates.io/crates/wgpu)
 \
 [![Linebender Zulip chat.](https://img.shields.io/badge/Linebender-%23gpu-blue?logo=Zulip)](https://xi.zulipchat.com/#narrow/stream/197075-gpu)
 [![GitHub Actions CI status.](https://img.shields.io/github/actions/workflow/status/linebender/vello/ci.yml?logo=github&label=CI)](https://github.com/linebender/vello/actions)
@@ -220,7 +220,7 @@ VELLO_STATIC_LOG="vello=trace" VELLO_STATIC_ARGS="--test-scenes" cargo apk run -
 
 ## Minimum supported Rust Version (MSRV)
 
-This version of Vello has been verified to compile with **Rust 1.75** and later.
+This version of Vello has been verified to compile with **Rust 1.76** and later.
 
 Future versions of Vello might increase the Rust version requirement.
 It will not be treated as a breaking change and as such can even happen with small patch releases.

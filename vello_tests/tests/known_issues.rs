@@ -53,8 +53,10 @@ fn many_bins(use_cpu: bool) {
     assert!(black_count > 0);
 }
 
+// With wgpu 23, this started mysteriously working on macOS (and only on macOS).
 #[test]
 #[cfg_attr(skip_gpu_tests, ignore)]
+#[cfg_attr(target_os = "macos", should_panic)]
 fn many_bins_gpu() {
     many_bins(false);
 }
