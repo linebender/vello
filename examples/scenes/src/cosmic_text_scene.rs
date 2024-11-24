@@ -43,11 +43,12 @@ impl CosmicTextSceneState {
             .collect();
 
         for (font_id, index) in font_faces {
-            let font = font_system.get_font(font_id).unwrap();
-            let resource = Arc::new(font.data().to_vec());
-            let font_blob = Blob::new(resource);
-            let vello_font = Font::new(font_blob, index);
-            vello_fonts.insert(font_id, vello_font);
+            if let Some(font) = font_system.get_font(font_id) {
+                let resource = Arc::new(font.data().to_vec());
+                let font_blob = Blob::new(resource);
+                let vello_font = Font::new(font_blob, index);
+                vello_fonts.insert(font_id, vello_font);
+            }
         }
 
         let text = "おはよう (ja) (ohayō) 🌅✨ (morning), こんにちは (ja) (konnichi wa) ☀️😊 (daytime), こんばんは (ja) (konban wa) 🌙🌟 (evening)";
