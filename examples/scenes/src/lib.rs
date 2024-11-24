@@ -11,6 +11,9 @@ mod simple_text;
 mod svg;
 pub mod test_scenes;
 
+#[cfg(feature = "cosmic_text")]
+pub mod cosmic_text_scene;
+
 use anyhow::{anyhow, Result};
 use clap::Args;
 pub use images::ImageCache;
@@ -23,6 +26,9 @@ use vello::kurbo::Vec2;
 use vello::peniko::Color;
 use vello::Scene;
 
+#[cfg(feature = "cosmic_text")]
+use crate::cosmic_text_scene::CosmicTextSceneState;
+
 pub struct SceneParams<'a> {
     pub time: f64,
     /// Whether blocking should be limited
@@ -34,6 +40,8 @@ pub struct SceneParams<'a> {
     pub resolution: Option<Vec2>,
     pub base_color: Option<vello::peniko::Color>,
     pub complexity: usize,
+    #[cfg(feature = "cosmic_text")]
+    pub cosmic_text_scene_state: &'a CosmicTextSceneState,
 }
 
 pub struct SceneConfig {

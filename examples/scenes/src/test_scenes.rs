@@ -13,19 +13,27 @@ pub fn test_scenes() -> SceneSet {
 ///
 /// This is used to avoid having to repeatedly define a
 macro_rules! export_scenes {
-    ($($scene_name: ident($($scene: tt)+)),*$(,)?) => {
+    ($(
+        $(#[cfg($feature:meta)])?  // Optional feature gate
+        $scene_name:ident($($scene:tt)+)
+    ),*$(,)?) => {
         pub fn test_scenes_inner() -> SceneSet {
-            let scenes = vec![
-                $($scene_name()),+
-            ];
+            let mut scenes = Vec::new();
+            $(
+                $(#[cfg($feature)])?
+                {
+                    scenes.push($scene_name());
+                }
+            )*
             SceneSet { scenes }
         }
 
         $(
+            $(#[cfg($feature)])?
             pub fn $scene_name() -> ExampleScene {
                 scene!($($scene)+)
             }
-        )+
+        )*
     };
 }
 
@@ -53,6 +61,7 @@ macro_rules! scene {
 }
 
 export_scenes!(
+    #[cfg(feature = "cosmic_text")] cosmic_text_scene(cosmic_text),
     splash_with_tiger(impls::splash_with_tiger(), "splash_with_tiger", false),
     funky_paths(funky_paths),
     stroke_styles(impls::stroke_styles(Affine::IDENTITY), "stroke_styles", false),
@@ -100,6 +109,9 @@ mod impls {
     use vello::*;
 
     const FLOWER_IMAGE: &[u8] = include_bytes!("../../assets/splash-flower.jpg");
+
+    #[cfg(feature = "cosmic_text")]
+    pub(super) use crate::cosmic_text_scene::cosmic_text;
 
     pub(super) fn emoji(scene: &mut Scene, params: &mut SceneParams) {
         let text_size = 120. + 20. * (params.time * 2.).sin() as f32;

@@ -541,17 +541,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cosmic_text"
-version = "0.0.0"
-dependencies = [
- "anyhow",
- "cosmic-text",
- "pollster",
- "vello",
- "winit",
-]
-
-[[package]]
 name = "crc32fast"
 version = "1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2082,10 +2071,12 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "clap",
+ "cosmic-text",
  "getrandom",
  "image",
  "rand",
  "roxmltree",
+ "unicode-segmentation",
  "vello",
  "web-time",
 ]

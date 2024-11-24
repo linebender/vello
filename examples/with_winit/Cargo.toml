@@ -18,6 +18,7 @@ default = ["wgpu-profiler"]
 wgpu-profiler = ["dep:wgpu-profiler", "vello/wgpu-profiler"]
 # Test for dependencies which implement std traits in ways that cause type inference issues.
 _ci_dep_features_to_test = ["dep:kurbo", "kurbo/schemars"]
+cosmic_text = ["scenes/cosmic_text"]
 
 [lints]
 workspace = true

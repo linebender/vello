@@ -11,7 +11,6 @@ members = [
     "examples/run_wasm",
     "examples/scenes",
     "examples/simple",
-    "examples/cosmic_text",
     "examples/simple_sdl2",
 ]
 
