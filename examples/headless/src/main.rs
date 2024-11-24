@@ -16,6 +16,9 @@ use vello::wgpu::{
 };
 use vello::{util::block_on_wgpu, RendererOptions, Scene};
 
+#[cfg(feature = "cosmic_text")]
+use scenes::cosmic_text_scene::CosmicTextSceneState;
+
 fn main() -> Result<()> {
     #[cfg(not(target_arch = "wasm32"))]
     env_logger::init();
@@ -105,6 +108,8 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
         base_color: None,
         interactive: false,
         complexity: 0,
+        #[cfg(feature = "cosmic_text")]
+        cosmic_text_scene_state: &CosmicTextSceneState::default(),
     };
     example_scene
         .function

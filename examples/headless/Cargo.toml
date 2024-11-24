@@ -20,3 +20,6 @@ pollster = { workspace = true }
 env_logger = "0.11.5"
 png = "0.17.14"
 futures-intrusive = { workspace = true }
+
+[features]
+cosmic_text = ["scenes/cosmic_text"]
