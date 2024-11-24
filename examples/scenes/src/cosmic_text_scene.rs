@@ -187,7 +187,7 @@ fn create_glyphs_for_editor(
             buffer,
             text_color,
             Some(EditorInfo::new(
-                &editor,
+                editor,
                 cursor_color,
                 selection_color,
                 selected_text_color,

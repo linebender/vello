@@ -235,6 +235,8 @@ pub fn encode_test_scene(mut test_scene: ExampleScene, test_params: &mut TestPar
         interactive: false,
         resolution: None,
         text: &mut text,
+        #[cfg(feature = "cosmic_text")]
+        cosmic_text_scene_state: &CosmicTextSceneState::default(),
     };
     test_scene
         .function
