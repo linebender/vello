@@ -26,6 +26,9 @@ pub use snapshot::{
     smoke_snapshot_test_sync, snapshot_test, snapshot_test_sync, Snapshot, SnapshotDirectory,
 };
 
+#[cfg(feature = "cosmic_text")]
+use scenes::cosmic_text_scene::CosmicTextSceneState;
+
 pub struct TestParams {
     pub width: u32,
     pub height: u32,
