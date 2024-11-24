@@ -1,15 +1,22 @@
+// Copyright 2024 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 use crate::SceneParams;
+
+use vello::kurbo::{Affine, Point, Rect, Size};
+use vello::peniko::{Blob, Color, Fill, Font};
+use vello::{Glyph, Scene};
+
 use cosmic_text::fontdb::ID;
 use cosmic_text::{
     Attrs, Buffer, Cursor, Edit, Editor, FontSystem, LayoutRun, Metrics, Selection, Shaping,
 };
+
+use unicode_segmentation::UnicodeSegmentation;
+
 use std::cmp;
 use std::collections::HashMap;
 use std::sync::Arc;
-use unicode_segmentation::UnicodeSegmentation;
-use vello::kurbo::{Affine, Point, Rect, Size};
-use vello::peniko::{Blob, Color, Fill, Font};
-use vello::{Glyph, Scene};
 
 pub struct CosmicTextSceneState {
     pub font_system: FontSystem,
