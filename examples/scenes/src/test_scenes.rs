@@ -96,6 +96,7 @@ mod impls {
     use vello::kurbo::{
         Affine, BezPath, Cap, Circle, Ellipse, Join, PathEl, Point, Rect, Shape, Stroke, Vec2,
     };
+    use vello::peniko::color::{palette, AlphaColor, Lch};
     use vello::peniko::*;
     use vello::*;
 
@@ -137,28 +138,28 @@ mod impls {
         scene.fill(
             Fill::NonZero,
             Affine::translate((100.0, 100.0)),
-            Color::rgb8(0, 0, 255),
+            Color::from_rgba8(0, 0, 255, 255),
             None,
             &missing_movetos,
         );
         scene.fill(
             Fill::NonZero,
             Affine::IDENTITY,
-            Color::rgb8(0, 0, 255),
+            Color::from_rgba8(0, 0, 255, 255),
             None,
             &empty,
         );
         scene.fill(
             Fill::NonZero,
             Affine::IDENTITY,
-            Color::rgb8(0, 0, 255),
+            Color::from_rgba8(0, 0, 255, 255),
             None,
             &only_movetos,
         );
         scene.stroke(
             &Stroke::new(8.0),
             Affine::translate((100.0, 100.0)),
-            Color::rgb8(0, 255, 255),
+            Color::from_rgba8(0, 255, 255, 255),
             None,
             &missing_movetos,
         );
@@ -168,10 +169,10 @@ mod impls {
         use PathEl::*;
         move |scene, params| {
             let colors = [
-                Color::rgb8(140, 181, 236),
-                Color::rgb8(246, 236, 202),
-                Color::rgb8(201, 147, 206),
-                Color::rgb8(150, 195, 160),
+                Color::from_rgba8(140, 181, 236, 255),
+                Color::from_rgba8(246, 236, 202, 255),
+                Color::from_rgba8(201, 147, 206, 255),
+                Color::from_rgba8(150, 195, 160, 255),
             ];
             let simple_stroke = [MoveTo((0., 0.).into()), LineTo((100., 0.).into())];
             let join_stroke = [
@@ -345,10 +346,10 @@ mod impls {
     pub(super) fn tricky_strokes(scene: &mut Scene, params: &mut SceneParams) {
         use PathEl::*;
         let colors = [
-            Color::rgb8(140, 181, 236),
-            Color::rgb8(246, 236, 202),
-            Color::rgb8(201, 147, 206),
-            Color::rgb8(150, 195, 160),
+            Color::from_rgba8(140, 181, 236, 255),
+            Color::from_rgba8(246, 236, 202, 255),
+            Color::from_rgba8(201, 147, 206, 255),
+            Color::from_rgba8(150, 195, 160, 255),
         ];
 
         const CELL_SIZE: f64 = 200.;
@@ -563,14 +564,14 @@ mod impls {
             scene.fill(
                 Fill::NonZero,
                 t,
-                &Brush::Solid(Color::rgb8(128, 128, 128)),
+                &Brush::Solid(Color::from_rgba8(128, 128, 128, 255)),
                 None,
                 &rect,
             );
             scene.fill(
                 rule.0,
                 Affine::translate((0., 10.)) * t,
-                Color::YELLOW,
+                palette::css::YELLOW,
                 None,
                 &rule.2,
             );
@@ -585,28 +586,28 @@ mod impls {
             scene.fill(
                 Fill::NonZero,
                 t,
-                &Brush::Solid(Color::rgb8(128, 128, 128)),
+                &Brush::Solid(Color::from_rgba8(128, 128, 128, 255)),
                 None,
                 &rect,
             );
             scene.fill(
                 rule.0,
                 Affine::translate((0., 10.)) * t,
-                Color::YELLOW,
+                palette::css::YELLOW,
                 None,
                 &rule.2,
             );
             scene.fill(
                 rule.0,
                 Affine::translate((0., 10.)) * t * Affine::rotate(0.06),
-                Color::rgba(0., 1., 0.7, 0.6),
+                Color::new([0., 1., 0.7, 0.6]),
                 None,
                 &rule.2,
             );
             scene.fill(
                 rule.0,
                 Affine::translate((0., 10.)) * t * Affine::rotate(-0.06),
-                Color::rgba(0.9, 0.7, 0.5, 0.6),
+                Color::new([0.9, 0.7, 0.5, 0.6]),
                 None,
                 &rule.2,
             );
@@ -657,7 +658,7 @@ mod impls {
                     .with_join(Join::Bevel)
                     .with_dashes(0.0, [1.0, 1.0]),
                 Affine::translate((50.0, 50.0)),
-                Color::YELLOW,
+                palette::css::YELLOW,
                 None,
                 &path,
             );
@@ -685,7 +686,7 @@ mod impls {
         scene.fill(
             Fill::NonZero,
             Affine::IDENTITY,
-            &Brush::Solid(Color::rgb8(128, 128, 128)),
+            &Brush::Solid(Color::from_rgba8(128, 128, 128, 255)),
             None,
             &rect,
         );
@@ -703,7 +704,7 @@ mod impls {
             scene,
             None,
             text_size,
-            Color::WHITE,
+            palette::css::WHITE,
             Affine::translate((110.0, 700.0)),
             // Add a skew to simulate an oblique font.
             Some(Affine::skew(20f64.to_radians().tan(), 0.0)),
@@ -718,7 +719,7 @@ mod impls {
             None,
             72.0,
             &[("wght", weight), ("wdth", width)],
-            Color::WHITE,
+            palette::css::WHITE,
             Affine::translate((110.0, 800.0)),
             // Add a skew to simulate an oblique font.
             None,
@@ -733,14 +734,14 @@ mod impls {
         scene.stroke(
             &Stroke::new(5.0),
             Affine::IDENTITY,
-            &Brush::Solid(Color::rgb8(128, 0, 0)),
+            &Brush::Solid(Color::from_rgba8(128, 0, 0, 255)),
             None,
             &[MoveTo(center), LineTo(p1)],
         );
         scene.fill(
             Fill::NonZero,
             Affine::translate((150.0, 150.0)) * Affine::scale(0.2),
-            Color::RED,
+            palette::css::RED,
             None,
             &rect,
         );
@@ -749,14 +750,14 @@ mod impls {
         scene.fill(
             Fill::NonZero,
             Affine::translate((100.0, 100.0)) * Affine::scale(0.2),
-            Color::BLUE,
+            palette::css::BLUE,
             None,
             &rect,
         );
         scene.fill(
             Fill::NonZero,
             Affine::translate((200.0, 200.0)) * Affine::scale(0.2),
-            Color::GREEN,
+            palette::css::GREEN,
             None,
             &rect,
         );
@@ -764,14 +765,14 @@ mod impls {
         scene.fill(
             Fill::NonZero,
             Affine::translate((400.0, 100.0)),
-            Color::PURPLE,
+            palette::css::PURPLE,
             None,
             &star,
         );
         scene.fill(
             Fill::EvenOdd,
             Affine::translate((500.0, 100.0)),
-            Color::PURPLE,
+            palette::css::PURPLE,
             None,
             &star,
         );
@@ -784,17 +785,17 @@ mod impls {
     pub(super) fn brush_transform(scene: &mut Scene, params: &mut SceneParams) {
         let th = params.time;
         let linear = Gradient::new_linear((0.0, 0.0), (0.0, 200.0)).with_stops([
-            Color::RED,
-            Color::GREEN,
-            Color::BLUE,
+            palette::css::RED,
+            palette::css::GREEN,
+            palette::css::BLUE,
         ]);
         scene.fill(
             Fill::NonZero,
             Affine::rotate(25f64.to_radians()) * Affine::scale_non_uniform(2.0, 1.0),
             &Gradient::new_radial((200.0, 200.0), 80.0).with_stops([
-                Color::RED,
-                Color::GREEN,
-                Color::BLUE,
+                palette::css::RED,
+                palette::css::GREEN,
+                palette::css::BLUE,
             ]),
             None,
             &Rect::from_origin_size((100.0, 100.0), (200.0, 200.0)),
@@ -822,7 +823,11 @@ mod impls {
             Sweep,
         }
         pub(super) fn square(scene: &mut Scene, kind: Kind, transform: Affine, extend: Extend) {
-            let colors = [Color::RED, Color::rgb8(0, 255, 0), Color::BLUE];
+            let colors = [
+                palette::css::RED,
+                Color::from_rgba8(0, 255, 0, 255),
+                palette::css::BLUE,
+            ];
             let width = 300f64;
             let height = 300f64;
             let gradient: Brush = match kind {
@@ -874,7 +879,7 @@ mod impls {
                 scene,
                 None,
                 32.0,
-                Some(&Color::WHITE.into()),
+                Some(&palette::css::WHITE.into()),
                 Affine::translate((x, 70.0)),
                 label,
             );
@@ -894,11 +899,15 @@ mod impls {
             transform: Affine,
             extend: Extend,
         ) {
-            let colors = [Color::RED, Color::YELLOW, Color::rgb8(6, 85, 186)];
+            let colors = [
+                palette::css::RED,
+                palette::css::YELLOW,
+                Color::from_rgba8(6, 85, 186, 255),
+            ];
             let width = 400f64;
             let height = 200f64;
             let rect = Rect::new(0.0, 0.0, width, height);
-            scene.fill(Fill::NonZero, transform, Color::WHITE, None, &rect);
+            scene.fill(Fill::NonZero, transform, palette::css::WHITE, None, &rect);
             scene.fill(
                 Fill::NonZero,
                 transform,
@@ -914,14 +923,14 @@ mod impls {
             scene.stroke(
                 &Stroke::new(stroke_width),
                 transform,
-                Color::BLACK,
+                palette::css::BLACK,
                 None,
                 &Ellipse::new((x0, y0), (r0, r0), 0.0),
             );
             scene.stroke(
                 &Stroke::new(stroke_width),
                 transform,
-                Color::BLACK,
+                palette::css::BLACK,
                 None,
                 &Ellipse::new((x1, y1), (r1, r1), 0.0),
             );
@@ -1080,19 +1089,19 @@ mod impls {
         scene.fill(
             Fill::EvenOdd,
             Affine::IDENTITY,
-            Color::RED,
+            palette::css::RED,
             None,
             &main_rect,
         );
         let options = [
-            (800., Color::AQUA),
-            (700., Color::RED),
-            (600., Color::ALICE_BLUE),
-            (500., Color::YELLOW),
-            (400., Color::GREEN),
-            (300., Color::BLUE),
-            (200., Color::ORANGE),
-            (100., Color::WHITE),
+            (800., palette::css::AQUA),
+            (700., palette::css::RED),
+            (600., palette::css::ALICE_BLUE),
+            (500., palette::css::YELLOW),
+            (400., palette::css::GREEN),
+            (300., palette::css::BLUE),
+            (200., palette::css::ORANGE),
+            (100., palette::css::WHITE),
         ];
         let mut depth = 0;
         for (width, color) in &options[..params.complexity.min(options.len() - 1)] {
@@ -1127,7 +1136,7 @@ mod impls {
                     scene.push_layer(Mix::Clip, 1.0, translate * rot, &base_tri);
                 }
                 let rot = Affine::rotate(rng.gen_range(0.0..PI));
-                let color = Color::rgb(rng.r#gen(), rng.r#gen(), rng.r#gen());
+                let color = Color::new([rng.r#gen(), rng.r#gen(), rng.r#gen(), 1.]);
                 scene.fill(Fill::NonZero, translate * rot, color, None, &base_tri);
                 for _ in 0..CLIPS_PER_FILL {
                     scene.pop_layer();
@@ -1159,7 +1168,7 @@ mod impls {
         scene.stroke(
             &Stroke::new(2.0),
             Affine::IDENTITY,
-            Color::rgb8(0, 0, 255),
+            Color::from_rgba8(0, 0, 255, 255),
             None,
             &path,
         );
@@ -1190,7 +1199,7 @@ mod impls {
         scene.fill(
             Fill::NonZero,
             Affine::IDENTITY,
-            &Brush::Solid(Color::rgb8(0, 255, 0)),
+            &Brush::Solid(Color::from_rgba8(0, 255, 0, 255)),
             None,
             &rect,
         );
@@ -1204,14 +1213,14 @@ mod impls {
         scene.fill(
             Fill::NonZero,
             Affine::IDENTITY,
-            Color::rgb8(255, 0, 0),
+            Color::from_rgba8(255, 0, 0, 255),
             None,
             &make_diamond(1024.0, 100.0),
         );
         scene.fill(
             Fill::NonZero,
             Affine::IDENTITY,
-            Color::rgba8(0, 255, 0, 0x80),
+            Color::from_rgba8(0, 255, 0, 0x80),
             None,
             &make_diamond(1024.0, 125.0),
         );
@@ -1224,7 +1233,7 @@ mod impls {
         scene.fill(
             Fill::NonZero,
             Affine::IDENTITY,
-            Color::rgba8(0, 0, 255, 0x80),
+            Color::from_rgba8(0, 0, 255, 0x80),
             None,
             &make_diamond(1024.0, 175.0),
         );
@@ -1234,29 +1243,28 @@ mod impls {
     pub(super) fn render_blend_square(scene: &mut Scene, blend: BlendMode, transform: Affine) {
         // Inspired by https://developer.mozilla.org/en-US/docs/Web/CSS/mix-blend-mode
         let rect = Rect::from_origin_size(Point::new(0., 0.), (200., 200.));
-        let linear =
-            Gradient::new_linear((0.0, 0.0), (200.0, 0.0)).with_stops([Color::BLACK, Color::WHITE]);
+        let linear = Gradient::new_linear((0.0, 0.0), (200.0, 0.0))
+            .with_stops([palette::css::BLACK, palette::css::WHITE]);
         scene.fill(Fill::NonZero, transform, &linear, None, &rect);
         const GRADIENTS: &[(f64, f64, Color)] = &[
-            (150., 0., Color::rgb8(255, 240, 64)),
-            (175., 100., Color::rgb8(255, 96, 240)),
-            (125., 200., Color::rgb8(64, 192, 255)),
+            (150., 0., Color::from_rgba8(255, 240, 64, 255)),
+            (175., 100., Color::from_rgba8(255, 96, 240, 255)),
+            (125., 200., Color::from_rgba8(64, 192, 255, 255)),
         ];
         for (x, y, c) in GRADIENTS {
-            let mut color2 = *c;
-            color2.a = 0;
+            let color2 = c.with_alpha(0.);
             let radial = Gradient::new_radial((*x, *y), 100.0).with_stops([*c, color2]);
             scene.fill(Fill::NonZero, transform, &radial, None, &rect);
         }
         const COLORS: &[Color] = &[
-            Color::rgb8(255, 0, 0),
-            Color::rgb8(0, 255, 0),
-            Color::rgb8(0, 0, 255),
+            Color::from_rgba8(255, 0, 0, 255),
+            Color::from_rgba8(0, 255, 0, 255),
+            Color::from_rgba8(0, 0, 255, 255),
         ];
         scene.push_layer(Mix::Normal, 1.0, transform, &rect);
         for (i, c) in COLORS.iter().enumerate() {
-            let linear =
-                Gradient::new_linear((0.0, 0.0), (0.0, 200.0)).with_stops([Color::WHITE, *c]);
+            let linear = Gradient::new_linear((0.0, 0.0), (0.0, 200.0))
+                .with_stops([palette::css::WHITE, *c]);
             scene.push_layer(blend, 1.0, transform, &rect);
             // squash the ellipse
             let a = transform
@@ -1291,8 +1299,8 @@ mod impls {
         let x = N + 0.5; // Fractional pixel offset reveals the problem on axis-aligned edges.
         let mut y = N;
 
-        let bg_color = Color::rgb8(255, 194, 19);
-        let fg_color = Color::rgb8(12, 165, 255);
+        let bg_color = Color::from_rgba8(255, 194, 19, 255);
+        let fg_color = Color::from_rgba8(12, 165, 255, 255);
 
         // Two adjacent triangles touching at diagonal edge with opposing winding numbers
         scene.fill(
@@ -1442,7 +1450,7 @@ mod impls {
         scene.fill(
             Fill::NonZero,
             Affine::translate((20.5, 20.5)) * Affine::scale(80.0),
-            Color::rgba8(0x70, 0x80, 0x80, 0xff),
+            Color::from_rgba8(0x70, 0x80, 0x80, 0xff),
             None,
             &path,
         );
@@ -1495,11 +1503,17 @@ mod impls {
         path.line_to((256.0, 24.5));
         path.line_to((241.0, 24.5));
         path.close_path();
-        scene.fill(Fill::NonZero, Affine::IDENTITY, Color::YELLOW, None, &path);
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            palette::css::YELLOW,
+            None,
+            &path,
+        );
         scene.fill(
             Fill::EvenOdd,
             Affine::translate((300.0, 0.0)),
-            Color::LIME,
+            palette::css::LIME,
             None,
             &path,
         );
@@ -1512,14 +1526,14 @@ mod impls {
         scene.fill(
             Fill::NonZero,
             Affine::translate((0.0, 100.0)),
-            Color::YELLOW,
+            palette::css::YELLOW,
             None,
             &path,
         );
         scene.fill(
             Fill::EvenOdd,
             Affine::translate((300.0, 100.0)),
-            Color::LIME,
+            palette::css::LIME,
             None,
             &path,
         );
@@ -1527,14 +1541,14 @@ mod impls {
 
     pub(super) fn base_color_test(scene: &mut Scene, params: &mut SceneParams) {
         // Cycle through the hue value every 5 seconds (t % 5) * 360/5
-        let color = Color::hlc((params.time % 5.0) * 72.0, 80.0, 80.0);
-        params.base_color = Some(color);
+        let color = AlphaColor::<Lch>::new([80., 80., (params.time % 5.) as f32 * 72., 1.]);
+        params.base_color = Some(color.convert());
 
         // Blend a white square over it.
         scene.fill(
             Fill::NonZero,
             Affine::IDENTITY,
-            Color::rgba8(255, 255, 255, 128),
+            Color::from_rgba8(255, 255, 255, 128),
             None,
             &Rect::new(50.0, 50.0, 500.0, 500.0),
         );
@@ -1594,7 +1608,7 @@ mod impls {
         scene.fill(
             Fill::NonZero,
             Affine::new([scale, 0.0, 0.0, scale, 27.07470703125, 176.40660533027858]),
-            Color::rgb8(0, 0, 255),
+            Color::from_rgba8(0, 0, 255, 255),
             None,
             &large_background_rect,
         );
@@ -1608,7 +1622,7 @@ mod impls {
                 29.027636718750003,
                 182.9755506427786,
             ]),
-            Color::rgb8(0, 255, 0),
+            Color::from_rgba8(0, 255, 0, 255),
             None,
             &inside_clip_rect,
         );
@@ -1622,7 +1636,7 @@ mod impls {
                 29.027636718750003,
                 scale * 559.3583631427786,
             ]),
-            Color::rgb8(255, 0, 0),
+            Color::from_rgba8(255, 0, 0, 255),
             None,
             &outside_clip_rect,
         );
@@ -1656,7 +1670,13 @@ mod impls {
             for i in 0..N_WIDE {
                 let x = (i as f64 + 0.5) * (SCENE_WIDTH / N_WIDE as f64);
                 let c = Circle::new((x, y), 3.0);
-                scene.fill(Fill::NonZero, Affine::IDENTITY, Color::YELLOW, None, &c);
+                scene.fill(
+                    Fill::NonZero,
+                    Affine::IDENTITY,
+                    palette::css::YELLOW,
+                    None,
+                    &c,
+                );
             }
         }
     }
@@ -1701,14 +1721,14 @@ mod impls {
 
     pub(super) fn blurred_rounded_rect(scene: &mut Scene, params: &mut SceneParams) {
         params.resolution = Some(Vec2::new(1200., 1200.));
-        params.base_color = Some(Color::WHITE);
+        params.base_color = Some(palette::css::WHITE);
 
         let rect = Rect::from_center_size((0.0, 0.0), (300.0, 240.0));
         let radius = 50.0;
         scene.draw_blurred_rounded_rect(
             Affine::translate((300.0, 300.0)),
             rect,
-            Color::BLUE,
+            palette::css::BLUE,
             radius,
             params.time.sin() * 50.0 + 50.0,
         );
@@ -1717,7 +1737,7 @@ mod impls {
         scene.draw_blurred_rounded_rect(
             Affine::translate((900.0, 300.0)) * Affine::skew(20f64.to_radians().tan(), 0.0),
             rect,
-            Color::BLACK,
+            palette::css::BLACK,
             radius,
             params.time.sin() * 50.0 + 50.0,
         );
@@ -1726,7 +1746,7 @@ mod impls {
         scene.draw_blurred_rounded_rect(
             Affine::IDENTITY,
             Rect::new(100.0, 800.0, 400.0, 1100.0),
-            Color::BLACK,
+            palette::css::BLACK,
             150.0,
             params.time.sin() * 50.0 + 50.0,
         );
@@ -1735,7 +1755,7 @@ mod impls {
         scene.draw_blurred_rounded_rect(
             Affine::IDENTITY,
             Rect::new(600.0, 800.0, 900.0, 900.0),
-            Color::BLACK,
+            palette::css::BLACK,
             150.0,
             params.time.sin() * 50.0 + 50.0,
         );
@@ -1758,7 +1778,7 @@ mod impls {
             &shape,
             Affine::translate((600.0, 600.0)) * Affine::scale_non_uniform(2.2, 0.9),
             rect,
-            Color::BLACK,
+            palette::css::BLACK,
             radius,
             std_dev,
         );
@@ -1766,17 +1786,23 @@ mod impls {
 
     pub(super) fn image_sampling(scene: &mut Scene, params: &mut SceneParams) {
         params.resolution = Some(Vec2::new(1100., 1100.));
-        params.base_color = Some(Color::WHITE);
+        params.base_color = Some(palette::css::WHITE);
         let mut blob: Vec<u8> = Vec::new();
-        [Color::RED, Color::BLUE, Color::CYAN, Color::MAGENTA]
-            .iter()
-            .for_each(|c| {
-                let b = c.to_premul_u32().to_ne_bytes();
-                blob.push(b[3]);
-                blob.push(b[2]);
-                blob.push(b[1]);
-                blob.push(b[0]);
-            });
+        [
+            palette::css::RED,
+            palette::css::BLUE,
+            palette::css::CYAN,
+            palette::css::MAGENTA,
+        ]
+        .iter()
+        .for_each(|c| {
+            // FIXME(color): Get rid of the to_u32 and just use the PremulRgba8
+            let b = c.premultiply().to_rgba8().to_u32().to_ne_bytes();
+            blob.push(b[3]);
+            blob.push(b[2]);
+            blob.push(b[1]);
+            blob.push(b[0]);
+        });
         let data = Blob::new(Arc::new(blob));
         let image = Image::new(data, Format::Rgba8, 2, 2);
 
@@ -1808,17 +1834,23 @@ mod impls {
 
     pub(super) fn image_extend_modes(scene: &mut Scene, params: &mut SceneParams) {
         params.resolution = Some(Vec2::new(1500., 1500.));
-        params.base_color = Some(Color::WHITE);
+        params.base_color = Some(palette::css::WHITE);
         let mut blob: Vec<u8> = Vec::new();
-        [Color::RED, Color::BLUE, Color::CYAN, Color::MAGENTA]
-            .iter()
-            .for_each(|c| {
-                let b = c.to_premul_u32().to_ne_bytes();
-                blob.push(b[3]);
-                blob.push(b[2]);
-                blob.push(b[1]);
-                blob.push(b[0]);
-            });
+        [
+            palette::css::RED,
+            palette::css::BLUE,
+            palette::css::CYAN,
+            palette::css::MAGENTA,
+        ]
+        .iter()
+        .for_each(|c| {
+            // FIXME(color): Get rid of the to_u32 and just use the PremulRgba8
+            let b = c.premultiply().to_rgba8().to_u32().to_ne_bytes();
+            blob.push(b[3]);
+            blob.push(b[2]);
+            blob.push(b[1]);
+            blob.push(b[0]);
+        });
         let data = Blob::new(Arc::new(blob));
         let image = Image::new(data, Format::Rgba8, 2, 2);
         let image = image.with_extend(Extend::Pad);

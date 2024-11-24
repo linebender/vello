@@ -19,6 +19,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
 use scenes::{ImageCache, SceneParams, SceneSet, SimpleText};
 use vello::kurbo::{Affine, Vec2};
+use vello::peniko::color::palette;
 use vello::util::RenderContext;
 use vello::wgpu::{
     self, BufferDescriptor, BufferUsages, CommandEncoderDescriptor, Extent3d, ImageCopyBuffer,
@@ -145,7 +146,7 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
             .args
             .base_color
             .or(scene_params.base_color)
-            .unwrap_or(vello::peniko::Color::BLACK),
+            .unwrap_or(palette::css::BLACK),
         width,
         height,
         antialiasing_method: vello::AaConfig::Area,

@@ -10,7 +10,7 @@
 )]
 
 use vello::kurbo::{Affine, Rect};
-use vello::peniko::{Brush, Color, Format};
+use vello::peniko::{color::palette, Brush, Color, Format};
 use vello::Scene;
 use vello_tests::TestParams;
 
@@ -19,7 +19,7 @@ fn simple_square(use_cpu: bool) {
     scene.fill(
         vello::peniko::Fill::NonZero,
         Affine::IDENTITY,
-        &Brush::Solid(Color::RED),
+        &Brush::Solid(palette::css::RED),
         None,
         &Rect::from_center_size((100., 100.), (50., 50.)),
     );
@@ -55,7 +55,7 @@ fn empty_scene(use_cpu: bool) {
     // Adding an alpha factor here changes the resulting color *slightly*,
     // presumably due to pre-multiplied alpha.
     // We just assume that alpha scenarios work fine
-    let color = Color::PLUM;
+    let color = palette::css::PLUM;
     let params = TestParams {
         use_cpu,
         base_color: Some(color),
@@ -65,8 +65,8 @@ fn empty_scene(use_cpu: bool) {
     assert_eq!(image.format, Format::Rgba8);
     for pixel in image.data.data().chunks_exact(4) {
         let &[r, g, b, a] = pixel else { unreachable!() };
-        let image_color = Color::rgba8(r, g, b, a);
-        if image_color != color {
+        let image_color = Color::from_rgba8(r, g, b, a);
+        if image_color.premultiply().difference(color.premultiply()) > 1e-4 {
             panic!("Got {image_color:?}, expected clear color {color:?}");
         }
     }

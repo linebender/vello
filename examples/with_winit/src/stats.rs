@@ -6,7 +6,7 @@ use std::collections::VecDeque;
 #[cfg(feature = "wgpu-profiler")]
 use vello::kurbo::Line;
 use vello::kurbo::{Affine, PathEl, Rect, Stroke};
-use vello::peniko::{Brush, Color, Fill};
+use vello::peniko::{color::palette, Brush, Color, Fill};
 use vello::{low_level::BumpAllocators, AaConfig, Scene};
 
 #[cfg(all(feature = "wgpu-profiler", not(target_arch = "wasm32")))]
@@ -48,7 +48,7 @@ impl Snapshot {
         scene.fill(
             Fill::NonZero,
             offset,
-            &Brush::Solid(Color::rgba8(0, 0, 0, 200)),
+            &Brush::Solid(Color::from_rgba8(0, 0, 0, 200)),
             None,
             &Rect::new(0., 0., width, height),
         );
@@ -88,7 +88,7 @@ impl Snapshot {
                 scene,
                 None,
                 text_size,
-                Some(&Brush::Solid(Color::WHITE)),
+                Some(&Brush::Solid(palette::css::WHITE)),
                 offset * Affine::translate((left_margin, (i + 1) as f64 * text_height)),
                 label,
             );
@@ -97,7 +97,7 @@ impl Snapshot {
             scene,
             None,
             text_size,
-            Some(&Brush::Solid(Color::WHITE)),
+            Some(&Brush::Solid(palette::css::WHITE)),
             offset * Affine::translate((width * 0.67, text_height)),
             &format!("FPS: {:.2}", self.fps),
         );
@@ -135,9 +135,9 @@ impl Snapshot {
             let s = Affine::scale_non_uniform(1., -h);
             #[allow(clippy::match_overlapping_arm)]
             let color = match *sample {
-                ..=16_667 => Color::rgb8(100, 143, 255),
-                ..=33_334 => Color::rgb8(255, 176, 0),
-                _ => Color::rgb8(220, 38, 127),
+                ..=16_667 => Color::from_rgba8(100, 143, 255, 255),
+                ..=33_334 => Color::from_rgba8(255, 176, 0, 255),
+                _ => Color::from_rgba8(220, 38, 127, 255),
             };
             scene.fill(
                 Fill::NonZero,
@@ -164,7 +164,7 @@ impl Snapshot {
                 scene,
                 None,
                 thres_text_height as f32,
-                Some(&Brush::Solid(Color::WHITE)),
+                Some(&Brush::Solid(palette::css::WHITE)),
                 offset
                     * Affine::translate((
                         left_margin,
@@ -175,7 +175,7 @@ impl Snapshot {
             scene.stroke(
                 &Stroke::new(graph_max_height * 0.01),
                 offset * Affine::translate((left_margin_padding, (1. - y) * graph_max_height)),
-                Color::WHITE,
+                palette::css::WHITE,
                 None,
                 &marker,
             );
@@ -289,14 +289,14 @@ pub fn draw_gpu_profiling(
     profiles: &[GpuTimerQueryResult],
 ) {
     const COLORS: &[Color] = &[
-        Color::AQUA,
-        Color::RED,
-        Color::ALICE_BLUE,
-        Color::YELLOW,
-        Color::GREEN,
-        Color::BLUE,
-        Color::ORANGE,
-        Color::WHITE,
+        palette::css::AQUA,
+        palette::css::RED,
+        palette::css::ALICE_BLUE,
+        palette::css::YELLOW,
+        palette::css::GREEN,
+        palette::css::BLUE,
+        palette::css::ORANGE,
+        palette::css::WHITE,
     ];
     if profiles_are_empty(profiles) {
         return;
@@ -310,7 +310,7 @@ pub fn draw_gpu_profiling(
     scene.fill(
         Fill::NonZero,
         offset,
-        &Brush::Solid(Color::rgba8(0, 0, 0, 200)),
+        &Brush::Solid(Color::from_rgba8(0, 0, 0, 200)),
         None,
         &Rect::new(0., 0., width, height),
     );
@@ -351,7 +351,7 @@ pub fn draw_gpu_profiling(
                 scene,
                 None,
                 text_size,
-                Some(&Brush::Solid(Color::WHITE)),
+                Some(&Brush::Solid(palette::css::WHITE)),
                 offset * Affine::translate((left_margin, (i + 1) as f64 * text_height)),
                 label,
             );
@@ -363,7 +363,7 @@ pub fn draw_gpu_profiling(
                 scene,
                 None,
                 text_size,
-                Some(&Brush::Solid(Color::WHITE)),
+                Some(&Brush::Solid(palette::css::WHITE)),
                 offset * Affine::translate((left_margin, (i + 1) as f64 * text_height)),
                 label,
             );
@@ -415,9 +415,9 @@ pub fn draw_gpu_profiling(
                     // Ensure that all remaining items can fit
                     .min(timeline_range_end - (count - cur_index) as f64 * text_height);
                 let (text_height, text_color) = if slow {
-                    (text_height, Color::WHITE)
+                    (text_height, palette::css::WHITE)
                 } else {
-                    (text_height * 0.6, Color::LIGHT_GRAY)
+                    (text_height * 0.6, palette::css::LIGHT_GRAY)
                 };
                 let text_size = (text_height * 0.9) as f32;
                 // Text is specified by the baseline, but the y positions all refer to the top of the text

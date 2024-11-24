@@ -37,7 +37,7 @@ use web_time::Duration;
 use clap::Parser;
 use scenes::{ExampleScene, ImageCache, SceneParams, SceneSet, SimpleText};
 use vello::kurbo::{Affine, Vec2};
-use vello::peniko::Color;
+use vello::peniko::{color::palette, Color};
 use vello::util::{RenderContext, RenderSurface};
 use vello::{low_level::BumpAllocators, AaConfig, Renderer, RendererOptions, Scene};
 
@@ -492,7 +492,7 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
                 let base_color = self
                     .base_color
                     .or(scene_params.base_color)
-                    .unwrap_or(Color::BLACK);
+                    .unwrap_or(palette::css::BLACK);
                 let antialiasing_method = AA_CONFIGS[self.aa_config_ix as usize];
                 let render_params = vello::RenderParams {
                     base_color,

@@ -48,7 +48,7 @@
 //! scene.fill(
 //!    vello::peniko::Fill::NonZero,
 //!    vello::Affine::IDENTITY,
-//!    vello::Color::rgb8(242, 140, 168),
+//!    vello::Color::from_rgba8(242, 140, 168, 255),
 //!    None,
 //!    &vello::Circle::new((420.0, 200.0), 120.0),
 //! );
@@ -69,7 +69,7 @@
 //!       &scene,
 //!       &surface_texture,
 //!       &vello::RenderParams {
-//!          base_color: Color::BLACK, // Background color
+//!          base_color: palette::css::BLACK, // Background color
 //!          width,
 //!          height,
 //!          antialiasing_method: AaConfig::Msaa16,

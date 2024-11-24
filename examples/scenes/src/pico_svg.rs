@@ -8,6 +8,7 @@ use std::str::FromStr;
 use roxmltree::{Document, Node};
 use vello::{
     kurbo::{Affine, BezPath, Point, Size, Vec2},
+    peniko::color::{self, palette},
     peniko::Color,
 };
 
@@ -103,7 +104,7 @@ impl PicoSvg {
             Affine::new([-scale, 0.0, 0.0, scale, 0.0, 0.0])
         };
         let props = RecursiveProperties {
-            fill: Some(Color::BLACK),
+            fill: Some(palette::css::BLACK),
         };
         // The root element is the svg document element, which we don't care about
         let mut items = Vec::new();
@@ -260,30 +261,29 @@ fn parse_transform(transform: &str) -> Affine {
 
 fn parse_color(color: &str) -> Color {
     let color = color.trim();
-    if let Some(c) = Color::parse(color) {
-        c
+    if let Ok(c) = color::parse_color(color) {
+        c.to_alpha_color()
     } else if let Some(s) = color.strip_prefix("rgb(").and_then(|s| s.strip_suffix(')')) {
         let mut iter = s.split([',', ' ']).map(str::trim).map(u8::from_str);
 
         let r = iter.next().unwrap().unwrap();
         let g = iter.next().unwrap().unwrap();
         let b = iter.next().unwrap().unwrap();
-        Color::rgb8(r, g, b)
+        Color::from_rgba8(r, g, b, 255)
     } else {
-        Color::rgba8(255, 0, 255, 0x80)
+        Color::from_rgba8(255, 0, 255, 0x80)
     }
 }
 
-fn modify_opacity(mut color: Color, attr_name: &str, node: Node<'_, '_>) -> Color {
+fn modify_opacity(color: Color, attr_name: &str, node: Node<'_, '_>) -> Color {
     if let Some(opacity) = node.attribute(attr_name) {
-        let alpha: f64 = if let Some(o) = opacity.strip_suffix('%') {
+        let alpha: f32 = if let Some(o) = opacity.strip_suffix('%') {
             let pctg = o.parse().unwrap_or(100.0);
             pctg * 0.01
         } else {
             opacity.parse().unwrap_or(1.0)
         };
-        color.a = (alpha.clamp(0.0, 1.0) * 255.0).round() as u8;
-        color
+        color.with_alpha(alpha.clamp(0., 1.))
     } else {
         color
     }

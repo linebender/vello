@@ -32,7 +32,6 @@ mod simple_text;
 mod svg;
 pub mod test_scenes;
 
-use anyhow::{anyhow, Result};
 use clap::Args;
 pub use images::ImageCache;
 pub use simple_text::SimpleText;
@@ -41,7 +40,7 @@ pub use svg::{default_scene, scene_from_files};
 use test_scenes::test_scenes;
 
 use vello::kurbo::Vec2;
-use vello::peniko::Color;
+use vello::peniko::{color, Color};
 use vello::Scene;
 
 pub struct SceneParams<'a> {
@@ -93,7 +92,7 @@ pub struct Arguments {
     /// The svg files paths to render
     svgs: Option<Vec<PathBuf>>,
     #[arg(help_heading = "Render Parameters")]
-    #[arg(long, global(false), value_parser = parse_color)]
+    #[arg(long, global(false), value_parser = parse_color_arg)]
     /// The base color applied as the blend background to the rasterizer.
     /// Format is CSS style hexadecimal (#RGB, #RGBA, #RRGGBB, #RRGGBBAA) or
     /// an SVG color name such as "aliceblue"
@@ -101,7 +100,7 @@ pub struct Arguments {
 }
 
 impl Arguments {
-    pub fn select_scene_set(&self) -> Result<Option<SceneSet>> {
+    pub fn select_scene_set(&self) -> anyhow::Result<Option<SceneSet>> {
         // There is no file access on WASM, and on Android we haven't set up the assets
         // directory.
         // TODO: Upload the assets directory on Android
@@ -120,6 +119,6 @@ impl Arguments {
     }
 }
 
-fn parse_color(s: &str) -> Result<Color> {
-    Color::parse(s).ok_or(anyhow!("'{s}' is not a valid color"))
+fn parse_color_arg(s: &str) -> Result<Color, color::ParseError> {
+    color::parse_color(s).map(|c| c.to_alpha_color())
 }

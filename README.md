@@ -93,7 +93,7 @@ let mut scene = Scene::new();
 scene.fill(
    Fill::NonZero,
    Affine::IDENTITY,
-   Color::rgb8(242, 140, 168),
+   Color::from_rgba8(242, 140, 168, 255),
    None,
    &Circle::new((420.0, 200.0), 120.0),
 );
@@ -114,7 +114,7 @@ renderer
       &scene,
       &surface_texture,
       &RenderParams {
-         base_color: Color::BLACK, // Background color
+         base_color: palette::css::BLACK, // Background color
          width,
          height,
          antialiasing_method: AaConfig::Msaa16,

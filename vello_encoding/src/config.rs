@@ -180,7 +180,7 @@ impl RenderConfig {
                 height_in_tiles,
                 target_width: width,
                 target_height: height,
-                base_color: base_color.to_premul_u32(),
+                base_color: base_color.premultiply().to_rgba8().to_u32(),
                 lines_size: buffer_sizes.lines.len(),
                 binning_size: buffer_sizes.bin_data.len() - layout.bin_data_start,
                 tiles_size: buffer_sizes.tiles.len(),

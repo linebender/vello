@@ -18,7 +18,7 @@ use crate::{
 
 use {
     bytemuck::{offset_of, Pod, Zeroable},
-    peniko::Color,
+    peniko::color::{palette, OpaqueColor, Srgb},
     vello_encoding::{BumpAllocators, LineSoup, PathBbox},
 };
 pub(crate) struct DebugRenderer {
@@ -255,8 +255,8 @@ impl DebugRenderer {
         );
 
         let linepoints_uniforms = [
-            LinepointsUniforms::new(Color::DARK_CYAN, 10.),
-            LinepointsUniforms::new(Color::RED, 80.),
+            LinepointsUniforms::new(palette::css::DARK_CYAN.discard_alpha(), 10.),
+            LinepointsUniforms::new(palette::css::RED.discard_alpha(), 80.),
         ];
         let linepoints_uniforms_buf = recording.upload_uniform(
             "vello.debug.linepoints_uniforms",
@@ -357,13 +357,9 @@ struct LinepointsUniforms {
 }
 
 impl LinepointsUniforms {
-    fn new(color: Color, point_size: f32) -> Self {
+    fn new(color: OpaqueColor<Srgb>, point_size: f32) -> Self {
         Self {
-            point_color: [
-                color.r as f32 / 255.,
-                color.g as f32 / 255.,
-                color.b as f32 / 255.,
-            ],
+            point_color: color.components,
             point_size,
             _pad0: [0; 30],
             _pad1: [0; 30],
