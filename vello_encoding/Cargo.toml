@@ -2,6 +2,8 @@
 name = "vello_encoding"
 version.workspace = true # We mimic Vello's version
 description = "Vello types that represent the data that needs to be rendered."
+categories = ["rendering", "graphics"]
+keywords = ["2d", "vector-graphics"]
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -18,7 +20,7 @@ default = ["full"]
 
 # Enables support for the full pipeline including late-bound
 # resources (gradients, images and glyph runs)
-full = ["dep:skrifa", "dep:guillotiere"]
+full = ["dep:skrifa", "dep:guillotiere", "dep:smallvec"]
 
 # Enables an optional GPU memory usage estimation utility. This can be used to
 # perform additional computations in order to estimate the minimum required allocations
@@ -33,4 +35,4 @@ bytemuck = { workspace = true }
 skrifa = { workspace = true, optional = true }
 peniko = { workspace = true }
 guillotiere = { version = "0.6.2", optional = true }
-smallvec = { workspace = true }
+smallvec = { workspace = true, optional = true }

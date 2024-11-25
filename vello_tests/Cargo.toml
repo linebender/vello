@@ -1,6 +1,8 @@
 [package]
 name = "vello_tests"
 description = "Integration tests for Vello."
+categories = ["rendering", "graphics"]
+keywords = ["2d", "vector-graphics"]
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

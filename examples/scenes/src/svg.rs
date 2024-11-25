@@ -185,7 +185,7 @@ pub fn svg_function_of<R: AsRef<str>>(
                     None,
                     48.,
                     None,
-                    vello::kurbo::Affine::translate((110.0, 600.0)),
+                    Affine::translate((110.0, 600.0)),
                     &format!("Loading {name}"),
                 ),
                 Err(RecvTimeoutError::Disconnected) => {

@@ -69,7 +69,7 @@ impl MMark {
 }
 
 impl TestScene for MMark {
-    fn render(&mut self, scene: &mut Scene, params: &mut SceneParams) {
+    fn render(&mut self, scene: &mut Scene, params: &mut SceneParams<'_>) {
         let c = params.complexity;
         let n = if c < 10 {
             (c + 1) * 1000
@@ -101,7 +101,7 @@ impl TestScene for MMark {
                 );
                 path.truncate(0); // Should have clear method, to avoid allocations.
             }
-            if rng.gen::<f32>() > 0.995 {
+            if rng.r#gen::<f32>() > 0.995 {
                 element.is_split ^= true;
             }
         }
@@ -161,8 +161,8 @@ impl Element {
             )
         };
         let color = *COLORS.choose(&mut rng).unwrap();
-        let width = rng.gen::<f64>().powi(5) * 20.0 + 1.0;
-        let is_split = rng.gen();
+        let width = rng.r#gen::<f64>().powi(5) * 20.0 + 1.0;
+        let is_split = rng.r#gen();
         Element {
             seg,
             color,
@@ -191,7 +191,7 @@ impl GridPoint {
         GridPoint(x, y)
     }
 
-    fn coordinate(&self) -> Point {
+    fn coordinate(self) -> Point {
         let scale_x = WIDTH as f64 / ((GRID_WIDTH + 1) as f64);
         let scale_y = HEIGHT as f64 / ((GRID_HEIGHT + 1) as f64);
         Point::new(

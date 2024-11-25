@@ -3,7 +3,9 @@
 
 //! Take an encoded scene and create a graph to render it
 
-use std::mem::size_of;
+// size_of is not part of the prelude until Rust 1.80 and our MSRV is below that
+#[allow(unused_imports)]
+use core::mem::size_of;
 
 use crate::recording::{BufferProxy, ImageFormat, ImageProxy, Recording, ResourceProxy};
 use crate::shaders::FullShaders;

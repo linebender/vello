@@ -1,6 +1,10 @@
 // Copyright 2023 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
 
+// size_of is not part of the prelude until Rust 1.80 and our MSRV is below that
+#[allow(unused_imports)]
+use core::mem::size_of;
+
 use std::f32::consts::FRAC_1_SQRT_2;
 
 use super::{
@@ -524,7 +528,7 @@ struct IntBbox {
 
 impl Default for IntBbox {
     fn default() -> Self {
-        IntBbox {
+        Self {
             x0: 0x7fff_ffff,
             y0: 0x7fff_ffff,
             x1: -0x8000_0000,
@@ -560,9 +564,7 @@ fn compute_tag_monoid(ix: usize, pathtags: &[u32], tag_monoids: &[PathMonoid]) -
     // We wrap here because these values will return to positive values later
     // (when we add style_base)
     tm.trans_ix = tm.trans_ix.wrapping_sub(1);
-    tm.style_ix = tm
-        .style_ix
-        .wrapping_sub(core::mem::size_of::<Style>() as u32 / 4);
+    tm.style_ix = tm.style_ix.wrapping_sub(size_of::<Style>() as u32 / 4);
     PathTagData {
         tag_byte,
         monoid: tm,

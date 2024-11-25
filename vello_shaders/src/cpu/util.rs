@@ -14,10 +14,10 @@ pub struct Vec2 {
 }
 
 impl std::ops::Add for Vec2 {
-    type Output = Vec2;
+    type Output = Self;
 
     fn add(self, rhs: Self) -> Self {
-        Vec2 {
+        Self {
             x: self.x + rhs.x,
             y: self.y + rhs.y,
         }
@@ -25,21 +25,21 @@ impl std::ops::Add for Vec2 {
 }
 
 impl std::ops::Sub for Vec2 {
-    type Output = Vec2;
+    type Output = Self;
 
     fn sub(self, rhs: Self) -> Self {
-        Vec2 {
+        Self {
             x: self.x - rhs.x,
             y: self.y - rhs.y,
         }
     }
 }
 
-impl std::ops::Mul<f32> for Vec2 {
-    type Output = Vec2;
+impl Mul<f32> for Vec2 {
+    type Output = Self;
 
     fn mul(self, rhs: f32) -> Self {
-        Vec2 {
+        Self {
             x: self.x * rhs,
             y: self.y * rhs,
         }
@@ -47,17 +47,17 @@ impl std::ops::Mul<f32> for Vec2 {
 }
 
 impl std::ops::Div<f32> for Vec2 {
-    type Output = Vec2;
+    type Output = Self;
 
     fn div(self, rhs: f32) -> Self {
-        Vec2 {
+        Self {
             x: self.x / rhs,
             y: self.y / rhs,
         }
     }
 }
 
-impl std::ops::Mul<Vec2> for f32 {
+impl Mul<Vec2> for f32 {
     type Output = Vec2;
 
     fn mul(self, rhs: Vec2) -> Self::Output {
@@ -66,23 +66,23 @@ impl std::ops::Mul<Vec2> for f32 {
 }
 
 impl std::ops::Neg for Vec2 {
-    type Output = Vec2;
+    type Output = Self;
 
     fn neg(self) -> Self::Output {
-        Vec2::new(-self.x, -self.y)
+        Self::new(-self.x, -self.y)
     }
 }
 
 impl Vec2 {
     pub fn new(x: f32, y: f32) -> Self {
-        Vec2 { x, y }
+        Self { x, y }
     }
 
-    pub fn dot(self, other: Vec2) -> f32 {
+    pub fn dot(self, other: Self) -> f32 {
         self.x * other.x + self.y * other.y
     }
 
-    pub fn cross(self, other: Vec2) -> f32 {
+    pub fn cross(self, other: Self) -> f32 {
         (self.x * other.y) - (self.y * other.x)
     }
 
@@ -94,7 +94,7 @@ impl Vec2 {
         self.dot(self)
     }
 
-    pub fn distance(self, other: Vec2) -> f32 {
+    pub fn distance(self, other: Self) -> f32 {
         (self - other).length()
     }
 
@@ -103,16 +103,16 @@ impl Vec2 {
     }
 
     pub fn from_array(a: [f32; 2]) -> Self {
-        Vec2 { x: a[0], y: a[1] }
+        Self { x: a[0], y: a[1] }
     }
 
-    pub fn mix(self, other: Vec2, t: f32) -> Self {
+    pub fn mix(self, other: Self, t: f32) -> Self {
         let x = self.x + (other.x - self.x) * t;
         let y = self.y + (other.y - self.y) * t;
-        Vec2 { x, y }
+        Self { x, y }
     }
 
-    pub fn normalize(self) -> Vec2 {
+    pub fn normalize(self) -> Self {
         self / self.length()
     }
 
@@ -120,16 +120,16 @@ impl Vec2 {
         self.y.atan2(self.x)
     }
 
-    pub fn is_nan(&self) -> bool {
+    pub fn is_nan(self) -> bool {
         self.x.is_nan() || self.y.is_nan()
     }
 
-    pub fn min(&self, other: Vec2) -> Vec2 {
-        Vec2::new(self.x.min(other.x), self.y.min(other.y))
+    pub fn min(self, other: Self) -> Self {
+        Self::new(self.x.min(other.x), self.y.min(other.y))
     }
 
-    pub fn max(&self, other: Vec2) -> Vec2 {
-        Vec2::new(self.x.max(other.x), self.y.max(other.y))
+    pub fn max(self, other: Self) -> Self {
+        Self::new(self.x.max(other.x), self.y.max(other.y))
     }
 }
 
@@ -137,18 +137,18 @@ impl Vec2 {
 pub(crate) struct Transform(pub(crate) [f32; 6]);
 
 impl Transform {
-    pub fn identity() -> Self {
+    pub(crate) fn identity() -> Self {
         Self([1., 0., 0., 1., 0., 0.])
     }
 
-    pub fn apply(&self, p: Vec2) -> Vec2 {
+    pub(crate) fn apply(&self, p: Vec2) -> Vec2 {
         let z = self.0;
         let x = z[0] * p.x + z[2] * p.y + z[4];
         let y = z[1] * p.x + z[3] * p.y + z[5];
         Vec2 { x, y }
     }
 
-    pub fn inverse(&self) -> Transform {
+    pub(crate) fn inverse(&self) -> Self {
         let z = self.0;
         let inv_det = (z[0] * z[3] - z[1] * z[2]).recip();
         let inv_mat = [
@@ -167,13 +167,13 @@ impl Transform {
         ])
     }
 
-    pub fn read(transform_base: u32, ix: u32, data: &[u32]) -> Transform {
+    pub(crate) fn read(transform_base: u32, ix: u32, data: &[u32]) -> Self {
         let mut z = [0.0; 6];
         let base = (transform_base + ix * 6) as usize;
         for i in 0..6 {
             z[i] = f32::from_bits(data[base + i]);
         }
-        Transform(z)
+        Self(z)
     }
 }
 

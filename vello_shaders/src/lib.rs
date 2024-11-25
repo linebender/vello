@@ -17,7 +17,32 @@
 //!
 //! [Vello]: https://github.com/linebender/vello
 
+// LINEBENDER LINT SET - lib.rs - v1
+// See https://linebender.org/wiki/canonical-lints/
+// These lints aren't included in Cargo.toml because they
+// shouldn't apply to examples and tests
+#![warn(unused_crate_dependencies)]
+#![warn(clippy::print_stdout, clippy::print_stderr)]
+// END LINEBENDER LINT SET
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
+// The following lints are part of the Linebender standard set,
+// but resolving them has been deferred for now.
+// Feel free to send a PR that solves one or more of these.
+#![allow(
+    missing_debug_implementations,
+    elided_lifetimes_in_paths,
+    single_use_lifetimes,
+    unnameable_types,
+    missing_docs,
+    clippy::unseparated_literal_suffix,
+    clippy::cast_possible_truncation,
+    clippy::missing_assert_message,
+    clippy::shadow_unrelated,
+    clippy::missing_panics_doc,
+    clippy::exhaustive_enums,
+    clippy::todo,
+    clippy::print_stderr
+)]
 
 mod types;
 

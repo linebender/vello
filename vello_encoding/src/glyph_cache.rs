@@ -23,7 +23,7 @@ pub(crate) struct GlyphCache {
 }
 
 impl GlyphCache {
-    pub fn session<'a>(
+    pub(crate) fn session<'a>(
         &'a mut self,
         font: &'a Font,
         coords: &'a [NormalizedCoord],
@@ -85,7 +85,7 @@ impl GlyphCache {
         })
     }
 
-    pub fn maintain(&mut self) {
+    pub(crate) fn maintain(&mut self) {
         // Maximum number of resolve phases where we'll retain an unused glyph
         const MAX_ENTRY_AGE: u64 = 64;
         // Maximum number of resolve phases before we force a prune
@@ -149,7 +149,10 @@ pub(crate) struct GlyphCacheSession<'a> {
 }
 
 impl<'a> GlyphCacheSession<'a> {
-    pub fn get_or_insert(&mut self, glyph_id: u32) -> Option<(Arc<Encoding>, StreamOffsets)> {
+    pub(crate) fn get_or_insert(
+        &mut self,
+        glyph_id: u32,
+    ) -> Option<(Arc<Encoding>, StreamOffsets)> {
         let key = GlyphKey {
             font_id: self.font_id,
             font_index: self.font_index,
@@ -270,7 +273,7 @@ struct HintCache {
 }
 
 impl HintCache {
-    fn get(&mut self, key: &HintKey) -> Option<&HintingInstance> {
+    fn get(&mut self, key: &HintKey<'_>) -> Option<&HintingInstance> {
         let entries = match key.outlines.format()? {
             OutlineGlyphFormat::Glyf => &mut self.glyf_entries,
             OutlineGlyphFormat::Cff | OutlineGlyphFormat::Cff2 => &mut self.cff_entries,
@@ -298,7 +301,7 @@ struct HintEntry {
     serial: u64,
 }
 
-fn find_hint_entry(entries: &mut Vec<HintEntry>, key: &HintKey) -> Option<(usize, bool)> {
+fn find_hint_entry(entries: &mut Vec<HintEntry>, key: &HintKey<'_>) -> Option<(usize, bool)> {
     let mut found_serial = u64::MAX;
     let mut found_index = 0;
     for (ix, entry) in entries.iter().enumerate() {

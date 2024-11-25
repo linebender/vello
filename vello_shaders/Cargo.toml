@@ -2,6 +2,8 @@
 name = "vello_shaders"
 version.workspace = true # We mimic Vello's version
 description = "Vello infrastructure to preprocess and cross-compile shaders at compile time."
+categories = ["rendering", "graphics"]
+keywords = ["2d", "vector-graphics"]
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

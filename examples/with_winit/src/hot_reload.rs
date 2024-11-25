@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use anyhow::Result;
-use notify_debouncer_mini::notify::*;
+use notify_debouncer_mini::notify::RecursiveMode;
 use notify_debouncer_mini::{new_debouncer, DebounceEventResult};
 
 pub fn hot_reload(mut f: impl FnMut() -> Option<()> + Send + 'static) -> Result<impl Sized> {

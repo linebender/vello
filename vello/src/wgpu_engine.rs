@@ -786,14 +786,14 @@ impl WgpuEngine {
                         ty: if bind_type == BindType::ImageRead(format) {
                             wgpu::BindingType::Texture {
                                 sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                                view_dimension: wgpu::TextureViewDimension::D2,
+                                view_dimension: TextureViewDimension::D2,
                                 multisampled: false,
                             }
                         } else {
                             wgpu::BindingType::StorageTexture {
                                 access: wgpu::StorageTextureAccess::WriteOnly,
                                 format: format.to_wgpu(),
-                                view_dimension: wgpu::TextureViewDimension::D2,
+                                view_dimension: TextureViewDimension::D2,
                             }
                         },
                         count: None,

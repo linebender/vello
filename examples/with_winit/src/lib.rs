@@ -1,8 +1,20 @@
 // Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-// This is not a published crate, so we don't need to understand our public API
-#![allow(unreachable_pub)]
+//! Winit example.
+
+// The following lints are part of the Linebender standard set,
+// but resolving them has been deferred for now.
+// Feel free to send a PR that solves one or more of these.
+#![allow(
+    unreachable_pub,
+    clippy::allow_attributes_without_reason,
+    clippy::allow_attributes,
+    clippy::cast_possible_truncation,
+    clippy::shadow_unrelated,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc
+)]
 
 use std::collections::HashSet;
 use std::num::NonZeroUsize;
@@ -14,8 +26,8 @@ use vello::low_level::DebugLayers;
 #[cfg(target_arch = "wasm32")]
 use web_time::Instant;
 use winit::application::ApplicationHandler;
-use winit::event::*;
-use winit::keyboard::*;
+use winit::event::{ElementState, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent};
+use winit::keyboard::{Key, ModifiersState, NamedKey};
 
 #[cfg(all(feature = "wgpu-profiler", not(target_arch = "wasm32")))]
 use std::time::Duration;
@@ -166,13 +178,13 @@ struct VelloApp<'s> {
     debug: DebugLayers,
 }
 
-impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
+impl ApplicationHandler<UserEvent> for VelloApp<'_> {
     #[cfg(target_arch = "wasm32")]
     fn resumed(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop) {}
 
     #[cfg(not(target_arch = "wasm32"))]
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
-        let Option::None = self.state else {
+        let None = self.state else {
             return;
         };
         let window = self
@@ -232,7 +244,7 @@ impl<'s> ApplicationHandler<UserEvent> for VelloApp<'s> {
         &mut self,
         event_loop: &winit::event_loop::ActiveEventLoop,
         window_id: winit::window::WindowId,
-        event: winit::event::WindowEvent,
+        event: WindowEvent,
     ) {
         let Some(render_state) = &mut self.state else {
             return;
@@ -650,15 +662,15 @@ fn run(
     args: Args,
     scenes: SceneSet,
     render_cx: RenderContext,
-    #[cfg(target_arch = "wasm32")] render_state: RenderState,
+    #[cfg(target_arch = "wasm32")] render_state: RenderState<'_>,
 ) {
-    use winit::keyboard::*;
+    use winit::keyboard::ModifiersState;
 
     #[allow(unused_mut)]
     let mut renderers: Vec<Option<Renderer>> = vec![];
 
     #[cfg(not(target_arch = "wasm32"))]
-    let render_state = None::<RenderState>;
+    let render_state = None::<RenderState<'_>>;
 
     // The design of `RenderContext` forces delayed renderer initialisation to
     // not work on wasm, as WASM futures effectively must be 'static.
@@ -807,6 +819,7 @@ fn display_error_message() -> Option<()> {
     Some(())
 }
 
+/// Entry point.
 #[cfg(not(target_os = "android"))]
 pub fn main() -> anyhow::Result<()> {
     // TODO: initializing both env_logger and console_logger fails on wasm.
@@ -846,7 +859,7 @@ pub fn main() -> anyhow::Result<()> {
                 .and_then(|body| body.append_child(canvas.as_ref()).ok())
                 .expect("couldn't append canvas to document body");
             // Best effort to start with the canvas focused, taking input
-            _ = web_sys::HtmlElement::from(canvas).focus();
+            drop(web_sys::HtmlElement::from(canvas).focus());
             wasm_bindgen_futures::spawn_local(async move {
                 let (width, height, scale_factor) = web_sys::window()
                     .map(|w| {
@@ -952,5 +965,6 @@ fn android_main(app: AndroidApp) {
 // aligns to the same version that vello's peniko dependency resolves to.
 fn test_kurbo_schemars_with_peniko() {
     use std::marker::PhantomData;
+    #[expect(unused_qualifications)]
     let _: PhantomData<kurbo::Rect> = PhantomData::<vello::peniko::kurbo::Rect>;
 }
