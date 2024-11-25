@@ -17,7 +17,7 @@ This release has an [MSRV][] of 1.76.
 
 ### Changed
 
-- Breaking: Updated `wgpu` to 23.0.0, increased MSRV to 1.76 ([#735][] by [@waywardmonkeys])
+- Breaking: Updated `wgpu` to 23.0.1, increased MSRV to 1.76 ([#735][], [#743][] by [@waywardmonkeys])
 
 ### Fixed
 
@@ -202,6 +202,7 @@ This release has an [MSRV][] of 1.75.
 [#733]: https://github.com/linebender/vello/pull/733
 [#735]: https://github.com/linebender/vello/pull/735
 [#740]: https://github.com/linebender/vello/pull/740
+[#743]: https://github.com/linebender/vello/pull/743
 
 [Unreleased]: https://github.com/linebender/vello/compare/v0.3.0...HEAD
 <!-- Note that this still comparing against 0.2.0, because 0.2.1 is a cherry-picked patch -->
