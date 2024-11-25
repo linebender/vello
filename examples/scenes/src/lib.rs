@@ -1,8 +1,30 @@
 // Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-// This is not a published crate, so we don't need to understand our public API
-#![allow(unreachable_pub)]
+//! Scenes
+
+// The following lints are part of the Linebender standard set,
+// but resolving them has been deferred for now.
+// Feel free to send a PR that solves one or more of these.
+#![allow(
+    missing_debug_implementations,
+    elided_lifetimes_in_paths,
+    single_use_lifetimes,
+    unreachable_pub,
+    missing_docs,
+    clippy::wildcard_imports,
+    clippy::unseparated_literal_suffix,
+    clippy::cast_possible_truncation,
+    clippy::shadow_unrelated,
+    clippy::missing_panics_doc,
+    clippy::missing_errors_doc,
+    clippy::partial_pub_fields,
+    clippy::use_self,
+    clippy::match_same_arms,
+    clippy::allow_attributes_without_reason,
+    clippy::allow_attributes,
+    clippy::fn_to_numeric_cast_any
+)]
 
 mod images;
 mod mmark;
@@ -32,7 +54,7 @@ pub struct SceneParams<'a> {
     pub text: &'a mut SimpleText,
     pub images: &'a mut ImageCache,
     pub resolution: Option<Vec2>,
-    pub base_color: Option<vello::peniko::Color>,
+    pub base_color: Option<Color>,
     pub complexity: usize,
 }
 

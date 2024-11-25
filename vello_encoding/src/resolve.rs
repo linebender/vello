@@ -601,11 +601,11 @@ impl SceneBufferSizes {
 }
 
 fn slice_size_in_bytes<T: Sized>(slice: &[T], extra: usize) -> usize {
-    (slice.len() + extra) * std::mem::size_of::<T>()
+    (slice.len() + extra) * size_of::<T>()
 }
 
 fn size_to_words(byte_size: usize) -> u32 {
-    (byte_size / std::mem::size_of::<u32>()) as u32
+    (byte_size / size_of::<u32>()) as u32
 }
 
 fn align_up(len: usize, alignment: u32) -> usize {

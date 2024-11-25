@@ -735,7 +735,7 @@ mod impls {
             Affine::IDENTITY,
             &Brush::Solid(Color::rgb8(128, 0, 0)),
             None,
-            &[PathEl::MoveTo(center), PathEl::LineTo(p1)],
+            &[MoveTo(center), LineTo(p1)],
         );
         scene.fill(
             Fill::NonZero,
@@ -1128,7 +1128,7 @@ mod impls {
                     scene.push_layer(Mix::Clip, 1.0, translate * rot, &base_tri);
                 }
                 let rot = Affine::rotate(rng.gen_range(0.0..PI));
-                let color = Color::rgb(rng.gen(), rng.gen(), rng.gen());
+                let color = Color::rgb(rng.r#gen(), rng.r#gen(), rng.r#gen());
                 scene.fill(Fill::NonZero, translate * rot, color, None, &base_tri);
                 for _ in 0..CLIPS_PER_FILL {
                     scene.pop_layer();
@@ -1141,7 +1141,7 @@ mod impls {
 
     pub(super) fn render_cardioid(scene: &mut Scene) {
         let n = 601;
-        let dth = std::f64::consts::PI * 2.0 / (n as f64);
+        let dth = PI * 2.0 / (n as f64);
         let center = Point::new(1024.0, 768.0);
         let r = 750.0;
         let mut path = BezPath::new();
@@ -1571,21 +1571,21 @@ mod impls {
         }
         scene.pop_layer();
 
-        let large_background_rect = kurbo::Rect::new(-1000.0, -1000.0, 2000.0, 2000.0);
-        let inside_clip_rect = kurbo::Rect::new(11.0, 13.399999999999999, 59.0, 56.6);
-        let outside_clip_rect = kurbo::Rect::new(
+        let large_background_rect = Rect::new(-1000.0, -1000.0, 2000.0, 2000.0);
+        let inside_clip_rect = Rect::new(11.0, 13.399999999999999, 59.0, 56.6);
+        let outside_clip_rect = Rect::new(
             12.599999999999998,
             12.599999999999998,
             57.400000000000006,
             57.400000000000006,
         );
-        let clip_rect = kurbo::Rect::new(0.0, 0.0, 74.4, 339.20000000000005);
+        let clip_rect = Rect::new(0.0, 0.0, 74.4, 339.20000000000005);
         let scale = 2.0;
 
         scene.push_layer(
             BlendMode {
-                mix: peniko::Mix::Normal,
-                compose: peniko::Compose::SrcOver,
+                mix: Mix::Normal,
+                compose: Compose::SrcOver,
             },
             1.0,
             Affine::new([scale, 0.0, 0.0, scale, 27.07470703125, 176.40660533027858]),
@@ -1593,15 +1593,15 @@ mod impls {
         );
 
         scene.fill(
-            peniko::Fill::NonZero,
-            kurbo::Affine::new([scale, 0.0, 0.0, scale, 27.07470703125, 176.40660533027858]),
-            peniko::Color::rgb8(0, 0, 255),
+            Fill::NonZero,
+            Affine::new([scale, 0.0, 0.0, scale, 27.07470703125, 176.40660533027858]),
+            Color::rgb8(0, 0, 255),
             None,
             &large_background_rect,
         );
         scene.fill(
-            peniko::Fill::NonZero,
-            kurbo::Affine::new([
+            Fill::NonZero,
+            Affine::new([
                 scale,
                 0.0,
                 0.0,
@@ -1609,13 +1609,13 @@ mod impls {
                 29.027636718750003,
                 182.9755506427786,
             ]),
-            peniko::Color::rgb8(0, 255, 0),
+            Color::rgb8(0, 255, 0),
             None,
             &inside_clip_rect,
         );
         scene.fill(
-            peniko::Fill::NonZero,
-            kurbo::Affine::new([
+            Fill::NonZero,
+            Affine::new([
                 scale,
                 0.0,
                 0.0,
@@ -1623,7 +1623,7 @@ mod impls {
                 29.027636718750003,
                 scale * 559.3583631427786,
             ]),
-            peniko::Color::rgb8(255, 0, 0),
+            Color::rgb8(255, 0, 0),
             None,
             &outside_clip_rect,
         );
@@ -1778,8 +1778,8 @@ mod impls {
                 blob.push(b[1]);
                 blob.push(b[0]);
             });
-        let data = vello::peniko::Blob::new(Arc::new(blob));
-        let image = vello::peniko::Image::new(data, vello::peniko::Format::Rgba8, 2, 2);
+        let data = Blob::new(Arc::new(blob));
+        let image = Image::new(data, Format::Rgba8, 2, 2);
 
         scene.draw_image(
             &image,
@@ -1820,8 +1820,8 @@ mod impls {
                 blob.push(b[1]);
                 blob.push(b[0]);
             });
-        let data = vello::peniko::Blob::new(Arc::new(blob));
-        let image = vello::peniko::Image::new(data, vello::peniko::Format::Rgba8, 2, 2);
+        let data = Blob::new(Arc::new(blob));
+        let image = Image::new(data, Format::Rgba8, 2, 2);
         let image = image.with_extend(Extend::Pad);
         // Pad extend mode
         scene.fill(

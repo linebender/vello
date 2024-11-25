@@ -133,7 +133,7 @@ impl Parser {
 
     fn rec_parse(
         &mut self,
-        node: Node,
+        node: Node<'_, '_>,
         properties: &RecursiveProperties,
         items: &mut Vec<Item>,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -274,7 +274,7 @@ fn parse_color(color: &str) -> Color {
     }
 }
 
-fn modify_opacity(mut color: Color, attr_name: &str, node: Node) -> Color {
+fn modify_opacity(mut color: Color, attr_name: &str, node: Node<'_, '_>) -> Color {
     if let Some(opacity) = node.attribute(attr_name) {
         let alpha: f64 = if let Some(o) = opacity.strip_suffix('%') {
             let pctg = o.parse().unwrap_or(100.0);

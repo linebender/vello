@@ -524,7 +524,7 @@ impl<'a> DrawGlyphs<'a> {
             });
             self.run.glyphs.start = self.run.glyphs.end;
             self.run.stream_offsets = self.scene.encoding.stream_offsets();
-            outline_count += self.draw_outline_glyphs(clone_style_ref(&style), outline_glyphs);
+            outline_count += self.draw_outline_glyphs(style, outline_glyphs);
 
             let Some((emoji, glyph)) = final_glyph.take() else {
                 // All of the remaining glyphs were outline glyphs
@@ -781,8 +781,7 @@ impl ColorPainter for DrawColorGlyphs<'_> {
         };
 
         let mut path = BezPathOutline(BezPath::new());
-        let draw_settings =
-            DrawSettings::unhinted(skrifa::instance::Size::unscaled(), self.location);
+        let draw_settings = DrawSettings::unhinted(Size::unscaled(), self.location);
 
         let Ok(_) = outline.draw(draw_settings, &mut path) else {
             return;
@@ -816,7 +815,7 @@ impl ColorPainter for DrawColorGlyphs<'_> {
     }
 
     fn fill(&mut self, brush: skrifa::color::Brush<'_>) {
-        let brush = conv_brush(brush, self.cpal, &self.foreground_brush);
+        let brush = conv_brush(brush, self.cpal, self.foreground_brush);
         self.scene.fill(
             Fill::NonZero,
             Affine::IDENTITY,
@@ -864,8 +863,7 @@ impl ColorPainter for DrawColorGlyphs<'_> {
         };
 
         let mut path = BezPathOutline(BezPath::new());
-        let draw_settings =
-            DrawSettings::unhinted(skrifa::instance::Size::unscaled(), self.location);
+        let draw_settings = DrawSettings::unhinted(Size::unscaled(), self.location);
 
         let Ok(_) = outline.draw(draw_settings, &mut path) else {
             return;
@@ -875,20 +873,12 @@ impl ColorPainter for DrawColorGlyphs<'_> {
         self.scene.fill(
             Fill::NonZero,
             transform.to_kurbo(),
-            &conv_brush(brush, self.cpal, &self.foreground_brush),
+            &conv_brush(brush, self.cpal, self.foreground_brush),
             brush_transform
                 .map(conv_skrifa_transform)
                 .map(|it| it.to_kurbo()),
             &path.0,
         );
-    }
-}
-
-// TODO: Move this into Peniko
-fn clone_style_ref<'first>(first: &StyleRef<'first>) -> StyleRef<'first> {
-    match first {
-        StyleRef::Fill(fill) => StyleRef::Fill(*fill),
-        StyleRef::Stroke(stroke) => StyleRef::Stroke(stroke),
     }
 }
 
@@ -942,7 +932,7 @@ fn conv_skrifa_transform(transform: skrifa::color::Transform) -> Transform {
 fn conv_brush(
     brush: skrifa::color::Brush,
     cpal: &Cpal<'_>,
-    foreground_brush: &BrushRef<'_>,
+    foreground_brush: BrushRef<'_>,
 ) -> Brush {
     match brush {
         skrifa::color::Brush::Solid {
@@ -1019,11 +1009,7 @@ fn conv_extend(extend: skrifa::color::Extend) -> Extend {
     }
 }
 
-struct ColorStopsConverter<'a>(
-    &'a [skrifa::color::ColorStop],
-    &'a Cpal<'a>,
-    &'a BrushRef<'a>,
-);
+struct ColorStopsConverter<'a>(&'a [skrifa::color::ColorStop], &'a Cpal<'a>, BrushRef<'a>);
 
 impl ColorStopsSource for ColorStopsConverter<'_> {
     fn collect_stops(&self, vec: &mut ColorStops) {
@@ -1034,7 +1020,7 @@ impl ColorStopsSource for ColorStopsConverter<'_> {
                 // If we should use the "application defined fallback colour",
                 // then *try* and determine that from the existing brush
                 None => match self.2 {
-                    BrushRef::Solid(c) => *c,
+                    BrushRef::Solid(c) => c,
                     // TODO: Report a warning? if either of these cases are reached
                     // In theory, it's possible to have a gradient containing images and other gradients
                     // but implementing that just for this case isn't worthwhile

@@ -22,6 +22,7 @@ pub struct ClipBic {
 /// Clip element.
 #[derive(Copy, Clone, Pod, Zeroable, Debug, Default)]
 #[repr(C)]
+#[allow(clippy::partial_pub_fields)]
 pub struct ClipElement {
     pub parent_ix: u32,
     _padding: [u8; 12],
@@ -35,7 +36,7 @@ pub struct ClipElement {
 #[derive(Copy, Clone, Pod, Zeroable, Debug, Default)]
 #[repr(C)]
 pub struct Clip {
-    // Index of the draw object.
+    /// Index of the draw object.
     pub ix: u32,
     /// This is a packed encoding of an enum with the sign bit as the tag. If positive,
     /// this entry is a `BeginClip` and contains the associated path index. If negative,
@@ -52,7 +53,7 @@ pub struct ClipBbox {
 
 impl ClipBic {
     pub fn new(a: u32, b: u32) -> Self {
-        ClipBic { a, b }
+        Self { a, b }
     }
 
     /// The bicyclic semigroup operation.
@@ -61,8 +62,8 @@ impl ClipBic {
     /// operation, it represents doing the pops of `self`, the pushes of
     /// `self`, the pops of `other`, and the pushes of `other`. The middle
     /// two can cancel each other out.
-    pub fn combine(self, other: ClipBic) -> Self {
+    pub fn combine(self, other: Self) -> Self {
         let m = self.b.min(other.a);
-        ClipBic::new(self.a + other.a - m, self.b + other.b - m)
+        Self::new(self.a + other.a - m, self.b + other.b - m)
     }
 }

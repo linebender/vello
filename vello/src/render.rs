@@ -3,8 +3,6 @@
 
 //! Take an encoded scene and create a graph to render it
 
-use std::mem::size_of;
-
 use crate::recording::{BufferProxy, ImageFormat, ImageProxy, Recording, ResourceProxy};
 use crate::shaders::FullShaders;
 use crate::{AaConfig, RenderParams};

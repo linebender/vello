@@ -35,10 +35,10 @@ struct TileState {
 }
 
 impl TileState {
-    fn new(tile_ix: u32) -> TileState {
+    fn new(tile_ix: u32) -> Self {
         let cmd_offset = tile_ix * PTCL_INITIAL_ALLOC;
         let cmd_limit = cmd_offset + (PTCL_INITIAL_ALLOC - PTCL_HEADROOM);
-        TileState {
+        Self {
             cmd_offset,
             cmd_limit,
         }

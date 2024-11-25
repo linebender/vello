@@ -272,7 +272,7 @@ impl LineSoup {
         (self.curves as f64 * scale.sqrt()).ceil() as u32
     }
 
-    fn add(&mut self, other: &LineSoup, scale: f64) {
+    fn add(&mut self, other: &Self, scale: f64) {
         self.linetos += other.linetos;
         self.curves += other.scaled_curve_line_count(scale);
         self.curve_count += other.curve_count;
@@ -363,7 +363,7 @@ fn count_segments_for_line_length(scaled_width: f64) -> u32 {
 /// over the continuous change in the number of flattened segments, with an error expressed in terms
 /// of curvature and infinitesimal arclength).
 mod wang {
-    use super::*;
+    use super::{transform, Transform, Vec2};
 
     // The curve degree term sqrt(n * (n - 1) / 8) specialized for cubics:
     //
@@ -377,19 +377,26 @@ mod wang {
     //
     const SQRT_OF_DEGREE_TERM_QUAD: f64 = 0.5;
 
-    pub fn quadratic(rsqrt_of_tol: f64, p0: Vec2, p1: Vec2, p2: Vec2, t: &Transform) -> f64 {
+    pub(crate) fn quadratic(rsqrt_of_tol: f64, p0: Vec2, p1: Vec2, p2: Vec2, t: &Transform) -> f64 {
         let v = -2. * p1 + p0 + p2;
         let v = transform(t, v); // transform is distributive
         let m = v.length();
-        (SQRT_OF_DEGREE_TERM_QUAD * m.sqrt() * rsqrt_of_tol).ceil() as f64
+        (SQRT_OF_DEGREE_TERM_QUAD * m.sqrt() * rsqrt_of_tol).ceil()
     }
 
-    pub fn cubic(rsqrt_of_tol: f64, p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2, t: &Transform) -> f64 {
+    pub(crate) fn cubic(
+        rsqrt_of_tol: f64,
+        p0: Vec2,
+        p1: Vec2,
+        p2: Vec2,
+        p3: Vec2,
+        t: &Transform,
+    ) -> f64 {
         let v1 = -2. * p1 + p0 + p2;
         let v2 = -2. * p2 + p1 + p3;
         let v1 = transform(t, v1);
         let v2 = transform(t, v2);
-        let m = v1.length().max(v2.length()) as f64;
-        (SQRT_OF_DEGREE_TERM_CUBIC * m.sqrt() * rsqrt_of_tol).ceil() as f64
+        let m = v1.length().max(v2.length());
+        (SQRT_OF_DEGREE_TERM_CUBIC * m.sqrt() * rsqrt_of_tol).ceil()
     }
 }

@@ -3,6 +3,14 @@
 
 //! Snapshot tests for Emoji [`scenes`].
 
+// The following lints are part of the Linebender standard set,
+// but resolving them has been deferred for now.
+// Feel free to send a PR that solves one or more of these.
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::allow_attributes_without_reason
+)]
+
 use scenes::SimpleText;
 use vello::{kurbo::Affine, peniko::Fill, Scene};
 use vello_tests::{snapshot_test_sync, TestParams};

@@ -8,7 +8,6 @@ use super::{
     PathBbox, PathMonoid, PathSegment, Tile,
 };
 use bytemuck::{Pod, Zeroable};
-use std::mem;
 
 const TILE_WIDTH: u32 = 16;
 const TILE_HEIGHT: u32 = 16;
@@ -297,7 +296,7 @@ impl<T: Sized> BufferSize<T> {
 
     /// Creates a new buffer size from size in bytes.
     pub const fn from_size_in_bytes(size: u32) -> Self {
-        Self::new(size / mem::size_of::<T>() as u32)
+        Self::new(size / size_of::<T>() as u32)
     }
 
     /// Returns the number of elements.
@@ -308,7 +307,7 @@ impl<T: Sized> BufferSize<T> {
 
     /// Returns the size in bytes.
     pub const fn size_in_bytes(self) -> u32 {
-        mem::size_of::<T>() as u32 * self.len
+        size_of::<T>() as u32 * self.len
     }
 
     /// Returns the size in bytes aligned up to the given value.

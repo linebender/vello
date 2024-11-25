@@ -3,6 +3,15 @@
 
 //! Reproductions for known bugs, to allow test driven development
 
+// The following lints are part of the Linebender standard set,
+// but resolving them has been deferred for now.
+// Feel free to send a PR that solves one or more of these.
+#![allow(
+    clippy::missing_assert_message,
+    clippy::should_panic_without_expect,
+    clippy::allow_attributes_without_reason
+)]
+
 use vello::{
     kurbo::{Affine, Rect},
     peniko::{Color, Format},

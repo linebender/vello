@@ -1,6 +1,8 @@
 // Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+//! Wasm
+
 /// Use [cargo-run-wasm](https://github.com/rukai/cargo-run-wasm) to build an example for web
 ///
 /// Usage:

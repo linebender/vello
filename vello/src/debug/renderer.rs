@@ -72,7 +72,7 @@ impl DebugRenderer {
             },
             // This mirrors the layout of the PathBbox structure.
             Some(wgpu::VertexBufferLayout {
-                array_stride: std::mem::size_of::<PathBbox>() as u64,
+                array_stride: size_of::<PathBbox>() as u64,
                 step_mode: wgpu::VertexStepMode::Instance,
                 attributes: &[
                     wgpu::VertexAttribute {
@@ -103,7 +103,7 @@ impl DebugRenderer {
             },
             // This mirrors the layout of the LineSoup structure.
             Some(wgpu::VertexBufferLayout {
-                array_stride: std::mem::size_of::<LineSoup>() as u64,
+                array_stride: size_of::<LineSoup>() as u64,
                 step_mode: wgpu::VertexStepMode::Instance,
                 attributes: &[
                     wgpu::VertexAttribute {
@@ -144,7 +144,7 @@ impl DebugRenderer {
             // render all points. All unpaired points alone get drawn by the `unpaired_points`
             // pipeline, so no point should get missed.
             Some(wgpu::VertexBufferLayout {
-                array_stride: std::mem::size_of::<LineSoup>() as u64,
+                array_stride: size_of::<LineSoup>() as u64,
                 step_mode: wgpu::VertexStepMode::Instance,
                 attributes: &[wgpu::VertexAttribute {
                     format: wgpu::VertexFormat::Float32x2,
@@ -181,7 +181,7 @@ impl DebugRenderer {
             },
             // This mirrors the layout of the LineSoup structure.
             Some(wgpu::VertexBufferLayout {
-                array_stride: std::mem::size_of::<LineEndpoint>() as u64,
+                array_stride: size_of::<LineEndpoint>() as u64,
                 step_mode: wgpu::VertexStepMode::Instance,
                 attributes: &[wgpu::VertexAttribute {
                     format: wgpu::VertexFormat::Float32x2,
@@ -301,7 +301,7 @@ impl DebugRenderer {
                     ResourceProxy::BufferRange {
                         proxy: linepoints_uniforms_buf,
                         offset: 0,
-                        size: std::mem::size_of::<LinepointsUniforms>() as u64,
+                        size: size_of::<LinepointsUniforms>() as u64,
                     },
                 ],
                 target,
@@ -318,8 +318,8 @@ impl DebugRenderer {
                     uniforms_buf,
                     ResourceProxy::BufferRange {
                         proxy: linepoints_uniforms_buf,
-                        offset: std::mem::size_of::<LinepointsUniforms>() as u64,
-                        size: std::mem::size_of::<LinepointsUniforms>() as u64,
+                        offset: size_of::<LinepointsUniforms>() as u64,
+                        size: size_of::<LinepointsUniforms>() as u64,
                     },
                 ],
                 target,

@@ -3,6 +3,8 @@
 
 use scenes::SimpleText;
 use std::collections::VecDeque;
+#[cfg(feature = "wgpu-profiler")]
+use vello::kurbo::Line;
 use vello::kurbo::{Affine, PathEl, Rect, Stroke};
 use vello::peniko::{Brush, Color, Fill};
 use vello::{low_level::BumpAllocators, AaConfig, Scene};
@@ -195,8 +197,8 @@ pub struct Stats {
 }
 
 impl Stats {
-    pub fn new() -> Stats {
-        Stats {
+    pub fn new() -> Self {
+        Self {
             count: 0,
             sum: 0,
             min: u64::MAX,
@@ -452,7 +454,7 @@ pub fn draw_gpu_profiling(
                         offset,
                         &Brush::Solid(color),
                         None,
-                        &vello::kurbo::Line::new(
+                        &Line::new(
                             (x + depth_size, (end_normalised + start_normalised) / 2.),
                             (width * 0.31, cur_text_y - text_size as f64 * 0.35),
                         ),

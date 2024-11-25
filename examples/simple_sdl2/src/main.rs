@@ -20,7 +20,7 @@ use vello::{AaConfig, Renderer, RendererOptions, Scene};
 
 use vello::wgpu;
 
-pub fn main() {
+fn main() {
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
 
@@ -103,7 +103,7 @@ pub fn main() {
     }
 }
 
-fn create_vello_renderer(render_cx: &RenderContext, surface: &RenderSurface) -> Renderer {
+fn create_vello_renderer(render_cx: &RenderContext, surface: &RenderSurface<'_>) -> Renderer {
     Renderer::new(
         &render_cx.devices[surface.dev_id].device,
         RendererOptions {

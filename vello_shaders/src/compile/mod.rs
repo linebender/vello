@@ -1,6 +1,13 @@
 // Copyright 2023 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+// Pending on https://github.com/rust-lang/rust-clippy/pull/13677
+#![allow(clippy::shadow_unrelated)]
+// The following lints are part of the Linebender standard set,
+// but resolving them has been deferred for now.
+// Feel free to send a PR that solves one or more of these.
+#![allow(clippy::missing_assert_message, clippy::missing_errors_doc)]
+
 use naga::front::wgsl;
 use naga::valid::{Capabilities, ModuleInfo, ValidationError, ValidationFlags};
 use naga::{AddressSpace, ArraySize, ImageClass, Module, StorageAccess, WithSpan};
@@ -54,9 +61,9 @@ impl fmt::Display for ErrorVec {
 }
 
 impl Error {
-    fn new(wgsl: &str, name: &str, error: impl Into<InnerError>) -> Error {
+    fn new(wgsl: &str, name: &str, error: impl Into<InnerError>) -> Self {
         let source = error.into();
-        Error {
+        Self {
             name: name.to_owned(),
             msg: source.emit_msg(wgsl, &format!("({name} preprocessed)")),
             source,
@@ -85,7 +92,7 @@ pub struct ShaderInfo {
 }
 
 impl ShaderInfo {
-    pub fn new(name: &str, source: String, entry_point: &str) -> Result<ShaderInfo> {
+    pub fn new(name: &str, source: String, entry_point: &str) -> Result<Self> {
         let module = wgsl::parse_str(&source).map_err(|error| Error::new(&source, name, error))?;
         let module_info = naga::valid::Validator::new(ValidationFlags::all(), Capabilities::all())
             .validate(&module)
@@ -119,10 +126,10 @@ impl ShaderInfo {
                             ..
                         } => u32::from(*size) * stride,
                         naga::TypeInner::Struct { span, .. } => *span,
-                        naga::TypeInner::Scalar(scalar) => scalar.width as u32,
-                        naga::TypeInner::Vector { scalar, .. } => scalar.width as u32,
-                        naga::TypeInner::Matrix { scalar, .. } => scalar.width as u32,
-                        naga::TypeInner::Atomic(scalar) => scalar.width as u32,
+                        naga::TypeInner::Scalar(scalar)
+                        | naga::TypeInner::Vector { scalar, .. }
+                        | naga::TypeInner::Matrix { scalar, .. }
+                        | naga::TypeInner::Atomic(scalar) => scalar.width as u32,
                         _ => {
                             // Not a valid workgroup variable type. At least not one that is used
                             // in our shaders.
@@ -166,7 +173,7 @@ impl ShaderInfo {
         }
         bindings.sort_by_key(|res| res.location);
         let workgroup_size = entry.workgroup_size;
-        Ok(ShaderInfo {
+        Ok(Self {
             source: postprocess(&source),
             module,
             module_info,
@@ -178,19 +185,18 @@ impl ShaderInfo {
 
     /// Same as [`ShaderInfo::from_dir`] but uses the default shader directory provided by [`shader_dir`].
     pub fn from_default() -> CoalescedResult<HashMap<String, Self>> {
-        ShaderInfo::from_dir(shader_dir())
+        Self::from_dir(shader_dir())
     }
 
     pub fn from_dir(shader_dir: impl AsRef<Path>) -> CoalescedResult<HashMap<String, Self>> {
         use std::fs;
         let shader_dir = shader_dir.as_ref();
-        let permutation_map = if let Ok(permutations_source) =
-            std::fs::read_to_string(shader_dir.join("permutations"))
-        {
-            permutations::parse(&permutations_source)
-        } else {
-            Default::default()
-        };
+        let permutation_map =
+            if let Ok(permutations_source) = fs::read_to_string(shader_dir.join("permutations")) {
+                permutations::parse(&permutations_source)
+            } else {
+                Default::default()
+            };
         //println!("{permutation_map:?}");
         let imports = preprocess::get_imports(shader_dir);
         let mut errors = vec![];

@@ -14,7 +14,7 @@ use vello_tests::{smoke_snapshot_test_sync, TestParams};
 fn filled_square(use_cpu: bool) {
     let mut scene = Scene::new();
     scene.fill(
-        vello::peniko::Fill::NonZero,
+        Fill::NonZero,
         Affine::IDENTITY,
         &Brush::Solid(Color::BLUE),
         None,
@@ -32,7 +32,7 @@ fn filled_square(use_cpu: bool) {
 fn filled_circle(use_cpu: bool) {
     let mut scene = Scene::new();
     scene.fill(
-        vello::peniko::Fill::NonZero,
+        Fill::NonZero,
         Affine::IDENTITY,
         &Brush::Solid(Color::BLUE),
         None,

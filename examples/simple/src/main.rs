@@ -1,6 +1,8 @@
 // Copyright 2024 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+//! Simple example.
+
 use anyhow::Result;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
@@ -10,12 +12,13 @@ use vello::util::{RenderContext, RenderSurface};
 use vello::{AaConfig, Renderer, RendererOptions, Scene};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
-use winit::event::*;
+use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::Window;
 
 use vello::wgpu;
-// Simple struct to hold the state of the renderer
+/// Simple struct to hold the state of the renderer
+#[derive(Debug)]
 pub struct ActiveRenderState<'s> {
     // The fields MUST be in this order, so that the surface is dropped before the window
     surface: RenderSurface<'s>,
@@ -45,7 +48,7 @@ struct SimpleVelloApp<'s> {
     scene: Scene,
 }
 
-impl<'s> ApplicationHandler for SimpleVelloApp<'s> {
+impl ApplicationHandler for SimpleVelloApp<'_> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let RenderState::Suspended(cached_window) = &mut self.state else {
             return;
@@ -188,7 +191,7 @@ fn create_winit_window(event_loop: &ActiveEventLoop) -> Arc<Window> {
 }
 
 /// Helper function that creates a vello `Renderer` for a given `RenderContext` and `RenderSurface`
-fn create_vello_renderer(render_cx: &RenderContext, surface: &RenderSurface) -> Renderer {
+fn create_vello_renderer(render_cx: &RenderContext, surface: &RenderSurface<'_>) -> Renderer {
     Renderer::new(
         &render_cx.devices[surface.dev_id].device,
         RendererOptions {

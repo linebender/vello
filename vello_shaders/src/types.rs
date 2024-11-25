@@ -3,6 +3,11 @@
 
 //! Types that are shared between the main crate and build.
 
+// The following lints are part of the Linebender standard set,
+// but resolving them has been deferred for now.
+// Feel free to send a PR that solves one or more of these.
+#![allow(elided_lifetimes_in_paths)]
+
 /// The type of resource that will be bound to a slot in a shader.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum BindType {

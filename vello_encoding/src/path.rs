@@ -103,7 +103,7 @@ impl Style {
     }
 
     #[cfg(test)]
-    fn fill(&self) -> Option<Fill> {
+    fn fill(self) -> Option<Fill> {
         if self.is_fill() {
             Some(
                 if (self.flags_and_miter_limit & Self::FLAGS_FILL_BIT) == 0 {
@@ -118,7 +118,7 @@ impl Style {
     }
 
     #[cfg(test)]
-    fn stroke_width(&self) -> Option<f64> {
+    fn stroke_width(self) -> Option<f64> {
         if self.is_fill() {
             return None;
         }
@@ -126,7 +126,7 @@ impl Style {
     }
 
     #[cfg(test)]
-    fn stroke_join(&self) -> Option<Join> {
+    fn stroke_join(self) -> Option<Join> {
         if self.is_fill() {
             return None;
         }
@@ -140,7 +140,7 @@ impl Style {
     }
 
     #[cfg(test)]
-    fn stroke_start_cap(&self) -> Option<Cap> {
+    fn stroke_start_cap(self) -> Option<Cap> {
         if self.is_fill() {
             return None;
         }
@@ -154,7 +154,7 @@ impl Style {
     }
 
     #[cfg(test)]
-    fn stroke_end_cap(&self) -> Option<Cap> {
+    fn stroke_end_cap(self) -> Option<Cap> {
         if self.is_fill() {
             return None;
         }
@@ -168,7 +168,7 @@ impl Style {
     }
 
     #[cfg(test)]
-    fn stroke_miter_limit(&self) -> Option<u16> {
+    fn stroke_miter_limit(self) -> Option<u16> {
         if self.is_fill() {
             return None;
         }
@@ -176,7 +176,7 @@ impl Style {
     }
 
     #[cfg(test)]
-    fn is_fill(&self) -> bool {
+    fn is_fill(self) -> bool {
         (self.flags_and_miter_limit & Self::FLAGS_STYLE_BIT) == 0
     }
 }
@@ -339,7 +339,7 @@ impl Monoid for PathMonoid {
         a += a >> 16;
         c.pathseg_offset = a & 0xff;
         c.path_ix = (tag_word & (PathTag::PATH.0 as u32 * 0x1010101)).count_ones();
-        let style_size = (std::mem::size_of::<Style>() / std::mem::size_of::<u32>()) as u32;
+        let style_size = (size_of::<Style>() / size_of::<u32>()) as u32;
         c.style_ix = (tag_word & (PathTag::STYLE.0 as u32 * 0x1010101)).count_ones() * style_size;
         c
     }
@@ -390,6 +390,7 @@ pub struct PathBbox {
 /// Tiled path object.
 #[derive(Copy, Clone, Pod, Zeroable, Debug, Default)]
 #[repr(C)]
+#[allow(clippy::partial_pub_fields)]
 pub struct Path {
     /// Bounding box in tiles.
     pub bbox: [u32; 4],
