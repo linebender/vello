@@ -1,6 +1,10 @@
 // Copyright 2023 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+// size_of is not part of the prelude until Rust 1.80 and our MSRV is below that
+#[allow(unused_imports)]
+use core::mem::size_of;
+
 use crate::SegmentCount;
 
 use super::{

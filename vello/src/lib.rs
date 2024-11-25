@@ -113,6 +113,10 @@
     clippy::match_same_arms
 )]
 
+// size_of is not part of the prelude until Rust 1.80 and our MSRV is below that
+#[allow(unused_imports)]
+use core::mem::size_of;
+
 mod debug;
 mod recording;
 mod render;
