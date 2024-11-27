@@ -32,7 +32,8 @@ license = "Apache-2.0 OR MIT"
 repository = "https://github.com/linebender/vello"
 
 [workspace.lints]
-# LINEBENDER LINT SET - Cargo.toml - v2
+
+# LINEBENDER LINT SET - Cargo.toml - v3
 # See https://linebender.org/wiki/canonical-lints/
 rust.keyword_idents_2024 = "forbid"
 rust.non_ascii_idents = "forbid"
@@ -63,9 +64,7 @@ clippy.dbg_macro = "warn"
 clippy.debug_assert_with_mut_call = "warn"
 clippy.doc_markdown = "warn"
 clippy.exhaustive_enums = "warn"
-# Break from the lint set due to https://github.com/rust-lang/rust/issues/133346#issuecomment-2503567552
-# and our use of clap.
-clippy.fn_to_numeric_cast_any = "deny"
+clippy.fn_to_numeric_cast_any = "warn"
 clippy.infinite_loop = "warn"
 clippy.large_include_file = "warn"
 clippy.large_stack_arrays = "warn"
@@ -82,7 +81,6 @@ clippy.semicolon_if_nothing_returned = "warn"
 clippy.shadow_unrelated = "warn"
 clippy.should_panic_without_expect = "warn"
 clippy.todo = "warn"
-clippy.trivially_copy_pass_by_ref = "warn"
 clippy.unseparated_literal_suffix = "warn"
 clippy.use_self = "warn"
 clippy.wildcard_imports = "warn"
