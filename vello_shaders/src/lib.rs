@@ -30,7 +30,7 @@
 // The following lints are part of the Linebender standard set,
 // but resolving them has been deferred for now.
 // Feel free to send a PR that solves one or more of these.
-// Allow because of: https://github.com/rust-lang/rust/pull/130025
+// Need to allow instead of expect until Rust 1.83 https://github.com/rust-lang/rust/pull/130025
 #![allow(missing_docs, reason = "We have many as-yet undocumented items.")]
 #![expect(
     missing_debug_implementations,

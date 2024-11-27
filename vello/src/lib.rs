@@ -94,7 +94,7 @@
 // The following lints are part of the Linebender standard set,
 // but resolving them has been deferred for now.
 // Feel free to send a PR that solves one or more of these.
-// Allow because of: https://github.com/rust-lang/rust/pull/130025
+// Need to allow instead of expect until Rust 1.83 https://github.com/rust-lang/rust/pull/130025
 #![allow(missing_docs, reason = "We have many as-yet undocumented items.")]
 #![expect(
     missing_debug_implementations,
@@ -114,23 +114,9 @@
     reason = "Deferred"
 )]
 #![allow(
-    // missing_debug_implementations,
-    // elided_lifetimes_in_paths,
-    // single_use_lifetimes,
-    // unnameable_types,
-    // unreachable_pub,
-    // clippy::return_self_not_must_use,
-    // clippy::cast_possible_truncation,
-    // clippy::missing_assert_message,
-    // clippy::shadow_unrelated,
-    // clippy::missing_panics_doc,
     clippy::missing_errors_doc,
-    // clippy::exhaustive_enums,
     clippy::todo,
-    // clippy::print_stderr,
     clippy::partial_pub_fields,
-    // clippy::use_self,
-    // clippy::match_same_arms,
     reason = "Deferred, only apply in some feature sets so not expect"
 )]
 
