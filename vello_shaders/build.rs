@@ -59,7 +59,11 @@ fn write_shaders(
     writeln!(buf, "mod generated {{")?;
     writeln!(
         buf,
-        "    #[expect(clippy::wildcard_imports, reason=\"Allows using Debug for codegen\")]"
+        "    #![expect(clippy::allow_attributes, reason=\"Expect doesn't work with wildcard_imports\")]"
+    )?;
+    writeln!(
+        buf,
+        "    #[allow(clippy::wildcard_imports, reason=\"Allows using Debug for codegen\")]"
     )?;
     writeln!(buf, "    use super::*;")?;
     writeln!(buf, "    use BindType::*;")?;
