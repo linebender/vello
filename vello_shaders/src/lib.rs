@@ -45,7 +45,6 @@
     clippy::missing_assert_message,
     clippy::missing_errors_doc,
     clippy::missing_panics_doc,
-    clippy::needless_range_loop,
     clippy::print_stderr,
     clippy::print_stdout,
     clippy::shadow_unrelated,
