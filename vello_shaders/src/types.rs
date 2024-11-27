@@ -3,11 +3,6 @@
 
 //! Types that are shared between the main crate and build.
 
-// The following lints are part of the Linebender standard set,
-// but resolving them has been deferred for now.
-// Feel free to send a PR that solves one or more of these.
-#![allow(elided_lifetimes_in_paths)]
-
 /// The type of resource that will be bound to a slot in a shader.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum BindType {
@@ -25,10 +20,6 @@ pub enum BindType {
 }
 
 impl BindType {
-    // TODO: This is a public method, which means it definitely is not
-    // "dead code". However, rustc seems insitent that it is, and so to not
-    // block forward progress, I shall humour it
-    #[allow(dead_code)]
     pub fn is_mutable(self) -> bool {
         matches!(self, Self::Buffer | Self::Image)
     }

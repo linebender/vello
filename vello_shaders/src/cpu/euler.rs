@@ -3,8 +3,10 @@
 
 //! Utility functions for Euler Spiral based stroke expansion.
 
-// Use the same constants as the f64 version.
-#![allow(clippy::excessive_precision)]
+#![expect(
+    clippy::excessive_precision,
+    reason = "Uses the same constants as the f64 version"
+)]
 
 use super::util::Vec2;
 use std::f32::consts::FRAC_PI_4;
@@ -217,7 +219,7 @@ impl EulerSeg {
         Self { p0, p1, params }
     }
 
-    #[allow(unused)]
+    #[expect(unused, reason = "Unclear why this code exists")]
     pub(crate) fn eval(&self, t: f32) -> Vec2 {
         let Vec2 { x, y } = self.params.eval(t);
         let chord = self.p1 - self.p0;

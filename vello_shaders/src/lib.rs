@@ -28,12 +28,13 @@
 // The following lints are part of the Linebender standard set,
 // but resolving them has been deferred for now.
 // Feel free to send a PR that solves one or more of these.
-#![allow(
+// Allow because of: https://github.com/rust-lang/rust/pull/130025
+#![allow(missing_docs, reason = "We have many as-yet undocumented items.")]
+#![expect(
     missing_debug_implementations,
     elided_lifetimes_in_paths,
     single_use_lifetimes,
     unnameable_types,
-    missing_docs,
     clippy::unseparated_literal_suffix,
     clippy::cast_possible_truncation,
     clippy::missing_assert_message,
@@ -41,7 +42,7 @@
     clippy::missing_panics_doc,
     clippy::exhaustive_enums,
     clippy::todo,
-    clippy::print_stderr
+    reason = "Deferred"
 )]
 
 mod types;

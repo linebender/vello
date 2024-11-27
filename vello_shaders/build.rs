@@ -4,10 +4,20 @@
 //! Build step.
 
 // These modules are also included in the main crate, where the items are reachable
-#[allow(unreachable_pub, unused)]
+#[allow(
+    clippy::allow_attributes,
+    unreachable_pub,
+    unused,
+    reason = "Checked elsewhere"
+)]
 #[path = "src/compile/mod.rs"]
 mod compile;
-#[allow(unreachable_pub, unused)]
+#[allow(
+    clippy::allow_attributes,
+    unreachable_pub,
+    unused,
+    reason = "Checked elsewhere"
+)]
 #[path = "src/types.rs"]
 mod types;
 

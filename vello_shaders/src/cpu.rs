@@ -7,8 +7,11 @@
 //! a full CPU fallback as an alternative to GPU shaders is not provided.
 
 // Allow un-idiomatic Rust to more closely match shaders
-#![allow(clippy::needless_range_loop)]
-#![allow(clippy::too_many_arguments)]
+#![expect(
+    clippy::needless_range_loop,
+    clippy::too_many_arguments,
+    reason = "Keeps code easily comparable to GPU shaders"
+)]
 
 mod backdrop;
 mod bbox_clear;
@@ -56,7 +59,6 @@ use bytemuck::Pod;
 pub enum CpuBinding<'a> {
     Buffer(&'a [u8]),
     BufferRW(&'a RefCell<Vec<u8>>),
-    #[allow(unused)]
     Texture(&'a CpuTexture),
 }
 
@@ -66,7 +68,6 @@ pub enum TypedBufGuard<'a, T: ?Sized> {
 }
 
 pub enum TypedBufGuardMut<'a, T: ?Sized> {
-    #[allow(dead_code)]
     Slice(&'a mut T),
     Interior(RefMut<'a, T>),
 }
@@ -148,7 +149,6 @@ impl<'a> CpuBinding<'a> {
     }
 
     // TODO: same guard as buf to make mutable
-    #[allow(unused)]
     pub fn as_tex(&self) -> &CpuTexture {
         match self {
             CpuBinding::Texture(t) => t,

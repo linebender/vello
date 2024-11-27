@@ -13,11 +13,11 @@ You can find its changes [documented below](#030---2024-10-04).
 
 ## [Unreleased]
 
-This release has an [MSRV][] of 1.76.
+This release has an [MSRV][] of 1.82.
 
 ### Changed
 
-- Breaking: Updated `wgpu` to 23.0.1, increased MSRV to 1.76 ([#735][], [#743][] by [@waywardmonkeys])
+- Breaking: Updated `wgpu` to 23.0.1 ([#735][], [#743][] by [@waywardmonkeys])
 
 ### Fixed
 

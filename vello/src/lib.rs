@@ -92,13 +92,14 @@
 // The following lints are part of the Linebender standard set,
 // but resolving them has been deferred for now.
 // Feel free to send a PR that solves one or more of these.
-#![allow(
+// Allow because of: https://github.com/rust-lang/rust/pull/130025
+#![allow(missing_docs, reason = "We have many as-yet undocumented items.")]
+#![expect(
     missing_debug_implementations,
     elided_lifetimes_in_paths,
     single_use_lifetimes,
     unnameable_types,
     unreachable_pub,
-    missing_docs,
     clippy::return_self_not_must_use,
     clippy::cast_possible_truncation,
     clippy::missing_assert_message,
@@ -110,12 +111,9 @@
     clippy::print_stderr,
     clippy::partial_pub_fields,
     clippy::use_self,
-    clippy::match_same_arms
+    clippy::match_same_arms,
+    reason = "Deferred"
 )]
-
-// size_of is not part of the prelude until Rust 1.80 and our MSRV is below that
-#[allow(unused_imports)]
-use core::mem::size_of;
 
 mod debug;
 mod recording;
@@ -321,7 +319,10 @@ pub enum Error {
     ShaderCompilation(#[from] vello_shaders::compile::ErrorVec),
 }
 
-#[allow(dead_code)] // this can be unused when wgpu feature is not used
+#[cfg_attr(
+    not(feature = "wgpu"),
+    expect(dead_code, reason = "this can be unused when wgpu feature is not used")
+)]
 pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Renders a scene into a texture or surface.
@@ -331,7 +332,13 @@ pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 /// This is an assumption which is known to be limiting, and is planned to change.
 #[cfg(feature = "wgpu")]
 pub struct Renderer {
-    #[cfg_attr(not(feature = "hot_reload"), allow(dead_code))]
+    #[cfg_attr(
+        not(feature = "hot_reload"),
+        expect(
+            dead_code,
+            reason = "Options are only used to reinitialise on a hot reload"
+        )
+    )]
     options: RendererOptions,
     engine: WgpuEngine,
     resolver: Resolver,

@@ -25,7 +25,10 @@ pub struct DeviceHandle {
 }
 
 impl RenderContext {
-    #[allow(clippy::new_without_default)]
+    #[expect(
+        clippy::new_without_default,
+        reason = "Creating a wgpu Instance is something which should only be done rarely"
+    )]
     pub fn new() -> Self {
         let instance = Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::util::backend_bits_from_env().unwrap_or(wgpu::Backends::PRIMARY),
@@ -137,7 +140,13 @@ impl RenderContext {
                 .await?;
         let features = adapter.features();
         let limits = Limits::default();
-        #[allow(unused_mut)]
+        #[cfg_attr(
+            not(feature = "wgpu-profiler"),
+            expect(
+                unused_mut,
+                reason = "Mutation is only expected with the wgpu-profiler feature"
+            )
+        )]
         let mut maybe_features = wgpu::Features::CLEAR_TEXTURE;
         #[cfg(feature = "wgpu-profiler")]
         {
