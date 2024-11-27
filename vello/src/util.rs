@@ -140,18 +140,10 @@ impl RenderContext {
                 .await?;
         let features = adapter.features();
         let limits = Limits::default();
-        #[cfg_attr(
-            not(feature = "wgpu-profiler"),
-            expect(
-                unused_mut,
-                reason = "Mutation is only expected with the wgpu-profiler feature"
-            )
-        )]
-        let mut maybe_features = wgpu::Features::CLEAR_TEXTURE;
+        let maybe_features = wgpu::Features::CLEAR_TEXTURE;
         #[cfg(feature = "wgpu-profiler")]
-        {
-            maybe_features |= wgpu_profiler::GpuProfiler::ALL_WGPU_TIMER_FEATURES;
-        };
+        let maybe_features = maybe_features | wgpu_profiler::GpuProfiler::ALL_WGPU_TIMER_FEATURES;
+
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
