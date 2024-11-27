@@ -3,31 +3,39 @@
 
 //! Raw scene encoding.
 
-// LINEBENDER LINT SET - lib.rs - v1
+// LINEBENDER LINT SET - lib.rs - v2
 // See https://linebender.org/wiki/canonical-lints/
 // These lints aren't included in Cargo.toml because they
 // shouldn't apply to examples and tests
 #![warn(unused_crate_dependencies)]
 #![warn(clippy::print_stdout, clippy::print_stderr)]
+// Targeting e.g. 32-bit means structs containing usize can give false positives for 64-bit.
+#![cfg_attr(target_pointer_width = "64", warn(clippy::trivially_copy_pass_by_ref))]
 // END LINEBENDER LINT SET
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 // The following lints are part of the Linebender standard set,
 // but resolving them has been deferred for now.
 // Feel free to send a PR that solves one or more of these.
-#![allow(
+// Need to allow instead of expect until Rust 1.83 https://github.com/rust-lang/rust/pull/130025
+#![allow(missing_docs, reason = "We have many as-yet undocumented items.")]
+#![expect(
     missing_debug_implementations,
     elided_lifetimes_in_paths,
     single_use_lifetimes,
-    unnameable_types,
-    missing_docs,
-    variant_size_differences,
     clippy::return_self_not_must_use,
     clippy::unseparated_literal_suffix,
     clippy::cast_possible_truncation,
     clippy::missing_assert_message,
-    clippy::shadow_unrelated,
     clippy::missing_panics_doc,
-    clippy::exhaustive_enums
+    reason = "Deferred"
+)]
+#![allow(
+    unnameable_types,
+    clippy::shadow_unrelated,
+    // Only applies on WASM?
+    variant_size_differences,
+    clippy::exhaustive_enums,
+    reason = "Deferred, only apply in some feature sets so not expect"
 )]
 
 mod binning;

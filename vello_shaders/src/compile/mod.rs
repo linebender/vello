@@ -2,11 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 // Pending on https://github.com/rust-lang/rust-clippy/pull/13677
-#![allow(clippy::shadow_unrelated)]
-// The following lints are part of the Linebender standard set,
-// but resolving them has been deferred for now.
-// Feel free to send a PR that solves one or more of these.
-#![allow(clippy::missing_assert_message, clippy::missing_errors_doc)]
+#![expect(
+    clippy::shadow_unrelated,
+    reason = "https://github.com/rust-lang/rust-clippy/pull/13677"
+)]
 
 use naga::front::wgsl;
 use naga::valid::{Capabilities, ModuleInfo, ValidationError, ValidationFlags};

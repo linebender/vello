@@ -70,7 +70,6 @@ enum ShaderKind<'a> {
 }
 
 struct Shader {
-    #[allow(dead_code)]
     label: &'static str,
     wgpu: Option<WgpuShader>,
     cpu: Option<CpuShader>,
@@ -89,7 +88,7 @@ impl Shader {
 }
 
 pub(crate) enum ExternalResource<'a> {
-    #[allow(unused)]
+    #[expect(unused, reason = "No buffers are accepted as arguments currently")]
     Buffer(BufferProxy, &'a Buffer),
     Image(ImageProxy, &'a TextureView),
 }
@@ -102,7 +101,13 @@ enum MaterializedBuffer {
 
 struct BindMapBuffer {
     buffer: MaterializedBuffer,
-    #[cfg_attr(not(feature = "buffer_labels"), allow(unused))]
+    #[cfg_attr(
+        not(feature = "buffer_labels"),
+        expect(
+            unused,
+            reason = "Useful for debugging; simplifies upstream to always provide this"
+        )
+    )]
     label: &'static str,
 }
 
@@ -303,7 +308,6 @@ impl WgpuEngine {
         })
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn add_render_shader(
         &mut self,
         device: &Device,
@@ -936,7 +940,14 @@ impl ResourcePool {
     fn get_buf(
         &mut self,
         size: u64,
-        #[allow(unused)] name: &'static str,
+        #[cfg_attr(
+            not(feature = "buffer_labels"),
+            expect(
+                unused,
+                reason = "Debugging argument always present but only consumed when debugging feature enabled"
+            )
+        )]
+        name: &'static str,
         usage: BufferUsages,
         device: &Device,
     ) -> Buffer {
@@ -1041,7 +1052,6 @@ impl<'a> TransientBindMap<'a> {
             .expect("texture not materialized")
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn create_bind_group(
         &mut self,
         bind_map: &mut BindMap,

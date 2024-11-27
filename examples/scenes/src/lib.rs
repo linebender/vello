@@ -22,8 +22,7 @@
     clippy::use_self,
     clippy::match_same_arms,
     clippy::allow_attributes_without_reason,
-    clippy::allow_attributes,
-    clippy::fn_to_numeric_cast_any
+    clippy::allow_attributes
 )]
 
 mod images;

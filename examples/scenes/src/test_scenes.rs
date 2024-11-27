@@ -882,7 +882,6 @@ mod impls {
         params.resolution = Some((1200.0, 1200.0).into());
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(super) fn two_point_radial(scene: &mut Scene, _params: &mut SceneParams) {
         pub(super) fn make(
             scene: &mut Scene,

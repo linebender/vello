@@ -1,10 +1,6 @@
 // Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-// size_of is not part of the prelude until Rust 1.80 and our MSRV is below that
-#[allow(unused_imports)]
-use core::mem::size_of;
-
 use bytemuck::{Pod, Zeroable};
 
 use super::{DrawTag, Encoding, PathTag, StreamOffsets, Style, Transform};

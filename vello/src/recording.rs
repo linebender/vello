@@ -168,7 +168,6 @@ impl Recording {
     /// Dispatch a compute shader where the size is determined dynamically.
     /// The `buf` argument contains the dispatch size, 3 `u32` values beginning
     /// at the given byte `offset`.
-    #[allow(unused)]
     pub fn dispatch_indirect<R>(
         &mut self,
         shader: ShaderId,

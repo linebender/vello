@@ -25,7 +25,6 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
-    #[allow(clippy::too_many_arguments)]
     pub fn draw_layer<'a, T>(
         &self,
         scene: &mut Scene,
