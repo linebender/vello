@@ -43,7 +43,6 @@ impl SimpleText {
     ///
     /// Note that Vello does support COLR emoji, but does not currently support
     /// any other forms of emoji.
-    #[allow(clippy::too_many_arguments)]
     pub fn add_colr_emoji_run<'a>(
         &mut self,
         scene: &mut Scene,
@@ -75,7 +74,6 @@ impl SimpleText {
     /// not significantly increasing repository size.
     ///
     /// This will use a CBTF font, which Vello supports.
-    #[allow(clippy::too_many_arguments)]
     pub fn add_bitmap_emoji_run<'a>(
         &mut self,
         scene: &mut Scene,
@@ -100,7 +98,6 @@ impl SimpleText {
         );
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn add_run<'a>(
         &mut self,
         scene: &mut Scene,
@@ -125,7 +122,6 @@ impl SimpleText {
         );
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn add_var_run<'a>(
         &mut self,
         scene: &mut Scene,

@@ -56,6 +56,8 @@ rust.unused_macro_rules = "warn"
 rust.unused_qualifications = "warn"
 rust.variant_size_differences = "warn"
 
+clippy.too_many_arguments = "allow"
+
 clippy.allow_attributes = "warn"
 clippy.allow_attributes_without_reason = "warn"
 clippy.cast_possible_truncation = "warn"

@@ -7,11 +7,6 @@
 //! a full CPU fallback as an alternative to GPU shaders is not provided.
 
 // Allow un-idiomatic Rust to more closely match shaders
-#![expect(
-    clippy::needless_range_loop,
-    clippy::too_many_arguments,
-    reason = "Keeps code easily comparable to GPU shaders"
-)]
 
 mod backdrop;
 mod bbox_clear;

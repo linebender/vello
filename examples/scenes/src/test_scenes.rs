@@ -882,10 +882,6 @@ mod impls {
         params.resolution = Some((1200.0, 1200.0).into());
     }
 
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "This function is internal, so the argument count doesn't cause issues for consumers."
-    )]
     pub(super) fn two_point_radial(scene: &mut Scene, _params: &mut SceneParams) {
         pub(super) fn make(
             scene: &mut Scene,

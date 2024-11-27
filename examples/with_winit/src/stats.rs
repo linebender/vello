@@ -25,10 +25,6 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "This function is internal, so the argument count doesn't cause issues for consumers."
-    )]
     pub fn draw_layer<'a, T>(
         &self,
         scene: &mut Scene,

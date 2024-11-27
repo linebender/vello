@@ -308,10 +308,6 @@ impl WgpuEngine {
         })
     }
 
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "This function is internal, so the argument count doesn't cause issues for consumers."
-    )]
     pub fn add_render_shader(
         &mut self,
         device: &Device,
@@ -1056,10 +1052,6 @@ impl<'a> TransientBindMap<'a> {
             .expect("texture not materialized")
     }
 
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "This function is internal, so the argument count doesn't cause issues for consumers."
-    )]
     fn create_bind_group(
         &mut self,
         bind_map: &mut BindMap,
