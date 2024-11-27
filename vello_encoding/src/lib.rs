@@ -32,6 +32,8 @@
 #![allow(
     unnameable_types,
     clippy::shadow_unrelated,
+    // Only applies on WASM?
+    variant_size_differences,
     clippy::exhaustive_enums,
     reason = "Deferred, only apply in some feature sets so not expect"
 )]
