@@ -39,17 +39,18 @@
 )]
 #![allow(
     elided_lifetimes_in_paths,
-    clippy::print_stdout,
-    clippy::print_stderr,
     single_use_lifetimes,
     unnameable_types,
-    clippy::unseparated_literal_suffix,
     clippy::cast_possible_truncation,
-    clippy::shadow_unrelated,
     clippy::missing_assert_message,
-    clippy::missing_panics_doc,
     clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::needless_range_loop,
+    clippy::print_stderr,
+    clippy::print_stdout,
+    clippy::shadow_unrelated,
     clippy::todo,
+    clippy::unseparated_literal_suffix,
     reason = "Deferred, only apply in some feature sets so not expect"
 )]
 
