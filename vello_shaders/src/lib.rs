@@ -32,17 +32,23 @@
 #![allow(missing_docs, reason = "We have many as-yet undocumented items.")]
 #![expect(
     missing_debug_implementations,
+    clippy::exhaustive_enums,
+    reason = "Deferred"
+)]
+#![allow(
     elided_lifetimes_in_paths,
+    clippy::print_stdout,
+    clippy::print_stderr,
     single_use_lifetimes,
     unnameable_types,
     clippy::unseparated_literal_suffix,
     clippy::cast_possible_truncation,
-    clippy::missing_assert_message,
     clippy::shadow_unrelated,
+    clippy::missing_assert_message,
     clippy::missing_panics_doc,
-    clippy::exhaustive_enums,
+    clippy::missing_errors_doc,
     clippy::todo,
-    reason = "Deferred"
+    reason = "Deferred, only apply in some feature sets so not expect"
 )]
 
 mod types;

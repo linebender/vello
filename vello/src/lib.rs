@@ -105,14 +105,31 @@
     clippy::missing_assert_message,
     clippy::shadow_unrelated,
     clippy::missing_panics_doc,
-    clippy::missing_errors_doc,
     clippy::exhaustive_enums,
-    clippy::todo,
     clippy::print_stderr,
-    clippy::partial_pub_fields,
     clippy::use_self,
     clippy::match_same_arms,
     reason = "Deferred"
+)]
+#![allow(
+    // missing_debug_implementations,
+    // elided_lifetimes_in_paths,
+    // single_use_lifetimes,
+    // unnameable_types,
+    // unreachable_pub,
+    // clippy::return_self_not_must_use,
+    // clippy::cast_possible_truncation,
+    // clippy::missing_assert_message,
+    // clippy::shadow_unrelated,
+    // clippy::missing_panics_doc,
+    clippy::missing_errors_doc,
+    // clippy::exhaustive_enums,
+    clippy::todo,
+    // clippy::print_stderr,
+    clippy::partial_pub_fields,
+    // clippy::use_self,
+    // clippy::match_same_arms,
+    reason = "Deferred, only apply in some feature sets so not expect"
 )]
 
 mod debug;

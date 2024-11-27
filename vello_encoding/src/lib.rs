@@ -20,15 +20,18 @@
     missing_debug_implementations,
     elided_lifetimes_in_paths,
     single_use_lifetimes,
-    unnameable_types,
     clippy::return_self_not_must_use,
     clippy::unseparated_literal_suffix,
     clippy::cast_possible_truncation,
     clippy::missing_assert_message,
-    clippy::shadow_unrelated,
     clippy::missing_panics_doc,
-    clippy::exhaustive_enums,
     reason = "Deferred"
+)]
+#![allow(
+    unnameable_types,
+    clippy::shadow_unrelated,
+    clippy::exhaustive_enums,
+    reason = "Deferred, only apply in some feature sets so not expect"
 )]
 
 mod binning;

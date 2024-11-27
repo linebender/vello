@@ -101,7 +101,13 @@ enum MaterializedBuffer {
 
 struct BindMapBuffer {
     buffer: MaterializedBuffer,
-    #[cfg_attr(not(feature = "buffer_labels"), allow(unused))]
+    #[cfg_attr(
+        not(feature = "buffer_labels"),
+        expect(
+            unused,
+            reason = "Useful for debugging; simplifies upstream to always provide this"
+        )
+    )]
     label: &'static str,
 }
 
