@@ -360,7 +360,7 @@ impl Encoding {
             RampStops::One(color) => {
                 self.encode_color(color);
             }
-            _ => {
+            RampStops::Many => {
                 self.draw_tags.push(DrawTag::LINEAR_GRADIENT);
                 self.draw_data
                     .extend_from_slice(bytemuck::bytes_of(&gradient));
@@ -386,7 +386,7 @@ impl Encoding {
         match self.add_ramp(color_stops, alpha, extend) {
             RampStops::Empty => self.encode_color(palette::css::TRANSPARENT),
             RampStops::One(color) => self.encode_color(color),
-            _ => {
+            RampStops::Many => {
                 self.draw_tags.push(DrawTag::RADIAL_GRADIENT);
                 self.draw_data
                     .extend_from_slice(bytemuck::bytes_of(&gradient));
@@ -411,7 +411,7 @@ impl Encoding {
         match self.add_ramp(color_stops, alpha, extend) {
             RampStops::Empty => self.encode_color(palette::css::TRANSPARENT),
             RampStops::One(color) => self.encode_color(color),
-            _ => {
+            RampStops::Many => {
                 self.draw_tags.push(DrawTag::SWEEP_GRADIENT);
                 self.draw_data
                     .extend_from_slice(bytemuck::bytes_of(&gradient));
