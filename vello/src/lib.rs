@@ -147,7 +147,6 @@ pub mod low_level {
 pub use peniko;
 /// 2D geometry, with a focus on curves.
 pub use peniko::kurbo;
-pub use skrifa;
 
 #[cfg(feature = "wgpu")]
 pub use wgpu;

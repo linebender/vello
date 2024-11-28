@@ -406,7 +406,7 @@ impl<'a> DrawGlyphs<'a> {
 
     /// Sets the normalized design space coordinates for a variable font instance.
     #[must_use]
-    pub fn normalized_coords(mut self, coords: &[NormalizedCoord]) -> Self {
+    pub fn normalized_coords(mut self, coords: impl Iterator<Item = i16>) -> Self {
         self.scene
             .encoding
             .resources
@@ -416,7 +416,7 @@ impl<'a> DrawGlyphs<'a> {
             .encoding
             .resources
             .normalized_coords
-            .extend_from_slice(coords);
+            .extend(coords.map(NormalizedCoord::from_bits));
         self.run.normalized_coords.end = self.scene.encoding.resources.normalized_coords.len();
         self
     }
