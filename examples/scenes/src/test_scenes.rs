@@ -1095,14 +1095,14 @@ mod impls {
             (100., Color::WHITE),
         ];
         let mut depth = 0;
-        for (width, colour) in &options[..params.complexity.min(options.len() - 1)] {
+        for (width, color) in &options[..params.complexity.min(options.len() - 1)] {
             scene.push_layer(
                 Mix::Normal,
                 0.9,
                 Affine::IDENTITY,
                 &Rect::from_origin_size((10., 10.), (*width, *width)),
             );
-            scene.fill(Fill::EvenOdd, Affine::IDENTITY, colour, None, &main_rect);
+            scene.fill(Fill::EvenOdd, Affine::IDENTITY, color, None, &main_rect);
             depth += 1;
         }
         for _ in 0..depth {

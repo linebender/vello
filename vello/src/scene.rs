@@ -438,7 +438,7 @@ impl<'a> DrawGlyphs<'a> {
     /// This supports emoji fonts in COLR and bitmap formats.
     /// `style` is ignored for these fonts.
     ///
-    /// For these glyphs, the given [brush](Self::brush) is used as the "foreground colour", and should
+    /// For these glyphs, the given [brush](Self::brush) is used as the "foreground color", and should
     /// be [`Solid`](Brush::Solid) for maximum compatibility.
     pub fn draw(mut self, style: impl Into<StyleRef<'a>>, glyphs: impl Iterator<Item = Glyph>) {
         let font_index = self.run.font.index;
@@ -495,7 +495,7 @@ impl<'a> DrawGlyphs<'a> {
             (-self.run.font_size / upem).into(),
         );
 
-        let colour_collection = font.color_glyphs();
+        let color_collection = font.color_glyphs();
         let bitmaps = bitmap::BitmapStrikes::new(&font);
         let mut final_glyph = None;
         let mut outline_count = 0;
@@ -508,7 +508,7 @@ impl<'a> DrawGlyphs<'a> {
             let ppem = self.run.font_size;
             let outline_glyphs = (&mut glyphs).take_while(|glyph| {
                 let glyph_id = GlyphId::new(glyph.id);
-                match colour_collection.get(glyph_id) {
+                match color_collection.get(glyph_id) {
                     Some(color) => {
                         final_glyph = Some((EmojiLikeGlyph::Colr(color), *glyph));
                         false
@@ -979,7 +979,7 @@ fn conv_brush(
 }
 
 fn color_index(cpal: &'_ Cpal<'_>, palette_index: u16) -> Option<Color> {
-    // The "application determined" foreground colour should be used
+    // The "application determined" foreground color should be used
     // This will be handled by the caller
     if palette_index == 0xFFFF {
         return None;
@@ -1017,7 +1017,7 @@ impl ColorStopsSource for ColorStopsConverter<'_> {
             let color = color_index(self.1, item.palette_index);
             let color = match color {
                 Some(color) => color,
-                // If we should use the "application defined fallback colour",
+                // If we should use the "application defined fallback color",
                 // then *try* and determine that from the existing brush
                 None => match self.2 {
                     BrushRef::Solid(c) => c,

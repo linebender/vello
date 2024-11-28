@@ -52,13 +52,13 @@ fn simple_square(use_cpu: bool) {
 fn empty_scene(use_cpu: bool) {
     let scene = Scene::new();
 
-    // Adding an alpha factor here changes the resulting colour *slightly*,
+    // Adding an alpha factor here changes the resulting color *slightly*,
     // presumably due to pre-multiplied alpha.
     // We just assume that alpha scenarios work fine
     let color = Color::PLUM;
     let params = TestParams {
         use_cpu,
-        base_colour: Some(color),
+        base_color: Some(color),
         ..TestParams::new("simple_square", 150, 150)
     };
     let image = vello_tests::render_then_debug_sync(&scene, &params).unwrap();
@@ -67,7 +67,7 @@ fn empty_scene(use_cpu: bool) {
         let &[r, g, b, a] = pixel else { unreachable!() };
         let image_color = Color::rgba8(r, g, b, a);
         if image_color != color {
-            panic!("Got {image_color:?}, expected clear colour {color:?}");
+            panic!("Got {image_color:?}, expected clear color {color:?}");
         }
     }
 }

@@ -60,7 +60,7 @@ pub use snapshot::{
 pub struct TestParams {
     pub width: u32,
     pub height: u32,
-    pub base_colour: Option<Color>,
+    pub base_color: Option<Color>,
     pub use_cpu: bool,
     pub name: String,
     pub anti_aliasing: AaConfig,
@@ -71,7 +71,7 @@ impl TestParams {
         TestParams {
             width,
             height,
-            base_colour: None,
+            base_color: None,
             use_cpu: false,
             name: name.into(),
             anti_aliasing: AaConfig::Area,
@@ -127,7 +127,7 @@ pub async fn get_scene_image(params: &TestParams, scene: &Scene) -> Result<Image
     let width = params.width;
     let height = params.height;
     let render_params = vello::RenderParams {
-        base_color: params.base_colour.unwrap_or(Color::BLACK),
+        base_color: params.base_color.unwrap_or(Color::BLACK),
         width,
         height,
         antialiasing_method: params.anti_aliasing,
@@ -270,8 +270,8 @@ pub fn encode_test_scene(mut test_scene: ExampleScene, test_params: &mut TestPar
     test_scene
         .function
         .render(&mut inner_scene, &mut scene_params);
-    if test_params.base_colour.is_none() {
-        test_params.base_colour = scene_params.base_color;
+    if test_params.base_color.is_none() {
+        test_params.base_color = scene_params.base_color;
     }
     if let Some(resolution) = scene_params.resolution {
         // Automatically scale the rendering to fill as much of the window as possible
