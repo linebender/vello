@@ -57,7 +57,6 @@ struct WgpuShader {
 pub(crate) enum CpuShaderType {
     Present(fn(u32, &[CpuBinding])),
     Missing,
-    Skipped,
 }
 
 struct CpuShader {
@@ -266,14 +265,6 @@ impl WgpuEngine {
                     return add(Shader {
                         wgpu: None,
                         cpu: Some(CpuShader { shader }),
-                        label,
-                    });
-                }
-                // This shader is unused in CPU mode, create a dummy shader
-                CpuShaderType::Skipped => {
-                    return add(Shader {
-                        wgpu: None,
-                        cpu: None,
                         label,
                     });
                 }

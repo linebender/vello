@@ -10,6 +10,9 @@ struct TagMonoid {
     path_ix: u32,
 }
 
+//The number of members in the TagMonoid struct
+let PATH_MEMBERS = 5u;
+
 let PATH_TAG_SEG_TYPE = 3u;
 let PATH_TAG_LINETO = 1u;
 let PATH_TAG_QUADTO = 2u;
@@ -55,17 +58,28 @@ fn combine_tag_monoid(a: TagMonoid, b: TagMonoid) -> TagMonoid {
     return c;
 }
 
-fn reduce_tag(tag_word: u32) -> TagMonoid {
-    var c: TagMonoid;
+fn reduce_tag_arr(tag_word: u32) -> array<u32, 5> {
+    var c: array<u32, PATH_MEMBERS>;
     let point_count = tag_word & 0x3030303u;
-    c.pathseg_ix = countOneBits((point_count * 7u) & 0x4040404u);
-    c.trans_ix = countOneBits(tag_word & (PATH_TAG_TRANSFORM * 0x1010101u));
+    c[1] = countOneBits((point_count * 7u) & 0x4040404u);
+    c[0] = countOneBits(tag_word & (PATH_TAG_TRANSFORM * 0x1010101u));
     let n_points = point_count + ((tag_word >> 2u) & 0x1010101u);
     var a = n_points + (n_points & (((tag_word >> 3u) & 0x1010101u) * 15u));
     a += a >> 8u;
     a += a >> 16u;
-    c.pathseg_offset = a & 0xffu;
-    c.path_ix = countOneBits(tag_word & (PATH_TAG_PATH * 0x1010101u));
-    c.style_ix = countOneBits(tag_word & (PATH_TAG_STYLE * 0x1010101u)) * STYLE_SIZE_IN_WORDS;
+    c[2] = a & 0xffu;
+    c[4] = countOneBits(tag_word & (PATH_TAG_PATH * 0x1010101u));
+    c[3] = countOneBits(tag_word & (PATH_TAG_STYLE * 0x1010101u)) * STYLE_SIZE_IN_WORDS;
+    return c;
+}
+
+fn reduce_tag(tag_word: u32) -> TagMonoid {
+    let r = reduce_tag_arr(tag_word);
+    var c: TagMonoid;
+    c.trans_ix = r[0];
+    c.pathseg_ix = r[1];
+    c.pathseg_offset = r[2];
+    c.style_ix = r[3];
+    c.path_ix = r[4];
     return c;
 }

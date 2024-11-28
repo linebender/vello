@@ -202,10 +202,6 @@ pub type WorkgroupSize = (u32, u32, u32);
 /// Computed sizes for all dispatches.
 #[derive(Copy, Clone, Debug, Default)]
 pub struct WorkgroupCounts {
-    pub use_large_path_scan: bool,
-    pub path_reduce: WorkgroupSize,
-    pub path_reduce2: WorkgroupSize,
-    pub path_scan1: WorkgroupSize,
     pub path_scan: WorkgroupSize,
     pub bbox_clear: WorkgroupSize,
     pub flatten: WorkgroupSize,
@@ -236,12 +232,6 @@ impl WorkgroupCounts {
         let n_clips = layout.n_clips;
         let path_tag_padded = align_up(n_path_tags, 4 * PATH_REDUCE_WG);
         let path_tag_wgs = path_tag_padded / (4 * PATH_REDUCE_WG);
-        let use_large_path_scan = path_tag_wgs > PATH_REDUCE_WG;
-        let reduced_size = if use_large_path_scan {
-            align_up(path_tag_wgs, PATH_REDUCE_WG)
-        } else {
-            path_tag_wgs
-        };
         let draw_object_wgs = (n_draw_objects + PATH_BBOX_WG - 1) / PATH_BBOX_WG;
         let draw_monoid_wgs = draw_object_wgs.min(PATH_BBOX_WG);
         let flatten_wgs = (n_path_tags + FLATTEN_WG - 1) / FLATTEN_WG;
@@ -251,10 +241,6 @@ impl WorkgroupCounts {
         let width_in_bins = (width_in_tiles + 15) / 16;
         let height_in_bins = (height_in_tiles + 15) / 16;
         Self {
-            use_large_path_scan,
-            path_reduce: (path_tag_wgs, 1, 1),
-            path_reduce2: (PATH_REDUCE_WG, 1, 1),
-            path_scan1: (reduced_size / PATH_REDUCE_WG, 1, 1),
             path_scan: (path_tag_wgs, 1, 1),
             bbox_clear: (draw_object_wgs, 1, 1),
             flatten: (flatten_wgs, 1, 1),
@@ -333,8 +319,7 @@ impl<T: Sized> PartialOrd for BufferSize<T> {
 pub struct BufferSizes {
     // Known size buffers
     pub path_reduced: BufferSize<PathMonoid>,
-    pub path_reduced2: BufferSize<PathMonoid>,
-    pub path_reduced_scan: BufferSize<PathMonoid>,
+    pub path_scan_bump: BufferSize<u32>,
     pub path_monoids: BufferSize<PathMonoid>,
     pub path_bboxes: BufferSize<PathBbox>,
     pub draw_reduced: BufferSize<DrawMonoid>,
@@ -364,15 +349,9 @@ impl BufferSizes {
         let n_paths = layout.n_paths;
         let n_draw_objects = layout.n_draw_objects;
         let n_clips = layout.n_clips;
-        let path_tag_wgs = workgroups.path_reduce.0;
-        let reduced_size = if workgroups.use_large_path_scan {
-            align_up(path_tag_wgs, PATH_REDUCE_WG)
-        } else {
-            path_tag_wgs
-        };
-        let path_reduced = BufferSize::new(reduced_size);
-        let path_reduced2 = BufferSize::new(PATH_REDUCE_WG);
-        let path_reduced_scan = BufferSize::new(reduced_size);
+        let path_tag_wgs = workgroups.path_scan.0;
+        let path_reduced = BufferSize::new(path_tag_wgs);
+        let path_scan_bump = BufferSize::new(1);
         let path_monoids = BufferSize::new(path_tag_wgs * PATH_REDUCE_WG);
         let path_bboxes = BufferSize::new(n_paths);
         let binning_wgs = workgroups.binning.0;
@@ -404,8 +383,7 @@ impl BufferSizes {
         let ptcl = BufferSize::new(1 << 23);
         Self {
             path_reduced,
-            path_reduced2,
-            path_reduced_scan,
+            path_scan_bump,
             path_monoids,
             path_bboxes,
             draw_reduced,
