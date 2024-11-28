@@ -42,7 +42,7 @@ use std::sync::Arc;
 use anyhow::{anyhow, bail, Result};
 use scenes::{ExampleScene, ImageCache, SceneParams, SimpleText};
 use vello::kurbo::{Affine, Vec2};
-use vello::peniko::{Blob, Color, Format, Image};
+use vello::peniko::{color::palette, Blob, Color, Format, Image};
 use vello::wgpu::{
     self, BufferDescriptor, BufferUsages, CommandEncoderDescriptor, Extent3d, ImageCopyBuffer,
     TextureDescriptor, TextureFormat, TextureUsages,
@@ -127,7 +127,7 @@ pub async fn get_scene_image(params: &TestParams, scene: &Scene) -> Result<Image
     let width = params.width;
     let height = params.height;
     let render_params = vello::RenderParams {
-        base_color: params.base_color.unwrap_or(Color::BLACK),
+        base_color: params.base_color.unwrap_or(palette::css::BLACK),
         width,
         height,
         antialiasing_method: params.anti_aliasing,

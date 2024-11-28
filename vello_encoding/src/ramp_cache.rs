@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 
+use peniko::color::Srgb;
 use peniko::{Color, ColorStop, ColorStops};
 
 const N_SAMPLES: usize = 512;
@@ -81,7 +82,7 @@ impl RampCache {
 
 fn make_ramp(stops: &[ColorStop]) -> impl Iterator<Item = u32> + '_ {
     let mut last_u = 0.0;
-    let mut last_c = ColorF64::from_color(stops[0].color);
+    let mut last_c = ColorF64::from_color(stops[0].color.to_alpha_color::<Srgb>());
     let mut this_u = last_u;
     let mut this_c = last_c;
     let mut j = 0;
@@ -92,7 +93,7 @@ fn make_ramp(stops: &[ColorStop]) -> impl Iterator<Item = u32> + '_ {
             last_c = this_c;
             if let Some(s) = stops.get(j + 1) {
                 this_u = s.offset as f64;
-                this_c = ColorF64::from_color(s.color);
+                this_c = ColorF64::from_color(s.color.to_alpha_color::<Srgb>());
                 j += 1;
             } else {
                 break;
@@ -113,12 +114,8 @@ struct ColorF64([f64; 4]);
 
 impl ColorF64 {
     fn from_color(color: Color) -> Self {
-        Self([
-            color.r as f64 / 255.0,
-            color.g as f64 / 255.0,
-            color.b as f64 / 255.0,
-            color.a as f64 / 255.0,
-        ])
+        let [r, g, b, a] = color.components;
+        Self([r as f64, g as f64, b as f64, a as f64])
     }
 
     fn lerp(&self, other: &Self, a: f64) -> Self {
