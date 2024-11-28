@@ -148,7 +148,7 @@ pub(crate) struct GlyphCacheSession<'a> {
     cached_count: &'a mut usize,
 }
 
-impl<'a> GlyphCacheSession<'a> {
+impl GlyphCacheSession<'_> {
     pub(crate) fn get_or_insert(
         &mut self,
         glyph_id: u32,
@@ -246,7 +246,7 @@ pub(crate) struct HintKey<'a> {
     coords: &'a [NormalizedCoord],
 }
 
-impl<'a> HintKey<'a> {
+impl HintKey<'_> {
     fn instance(&self) -> Option<HintingInstance> {
         HintingInstance::new(self.outlines, self.size, self.coords, HINTING_OPTIONS).ok()
     }

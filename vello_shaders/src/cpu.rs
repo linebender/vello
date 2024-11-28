@@ -71,7 +71,7 @@ pub enum TypedBufGuardMut<'a, T: ?Sized> {
     Interior(RefMut<'a, T>),
 }
 
-impl<'a, T: ?Sized> Deref for TypedBufGuard<'a, T> {
+impl<T: ?Sized> Deref for TypedBufGuard<'_, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -82,7 +82,7 @@ impl<'a, T: ?Sized> Deref for TypedBufGuard<'a, T> {
     }
 }
 
-impl<'a, T: ?Sized> Deref for TypedBufGuardMut<'a, T> {
+impl<T: ?Sized> Deref for TypedBufGuardMut<'_, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -93,7 +93,7 @@ impl<'a, T: ?Sized> Deref for TypedBufGuardMut<'a, T> {
     }
 }
 
-impl<'a, T: ?Sized> DerefMut for TypedBufGuardMut<'a, T> {
+impl<T: ?Sized> DerefMut for TypedBufGuardMut<'_, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         match self {
             TypedBufGuardMut::Slice(s) => s,
@@ -102,7 +102,7 @@ impl<'a, T: ?Sized> DerefMut for TypedBufGuardMut<'a, T> {
     }
 }
 
-impl<'a> CpuBinding<'a> {
+impl CpuBinding<'_> {
     pub fn as_typed<T: Pod>(&self) -> TypedBufGuard<T> {
         match self {
             CpuBinding::Buffer(b) => TypedBufGuard::Slice(bytemuck::from_bytes(b)),
