@@ -8,8 +8,7 @@ use std::str::FromStr;
 use roxmltree::{Document, Node};
 use vello::{
     kurbo::{Affine, BezPath, Point, Size, Vec2},
-    peniko::color::{self, palette},
-    peniko::Color,
+    peniko::color::{self, palette, AlphaColor, DynamicColor, Srgb},
 };
 
 pub struct PicoSvg {
@@ -25,12 +24,12 @@ pub enum Item {
 
 pub struct StrokeItem {
     pub width: f64,
-    pub color: Color,
+    pub color: AlphaColor<Srgb>,
     pub path: BezPath,
 }
 
 pub struct FillItem {
-    pub color: Color,
+    pub color: AlphaColor<Srgb>,
     pub path: BezPath,
 }
 
@@ -124,7 +123,7 @@ impl PicoSvg {
 
 #[derive(Clone)]
 struct RecursiveProperties {
-    fill: Option<Color>,
+    fill: Option<AlphaColor<Srgb>>,
 }
 
 impl Parser {
@@ -259,23 +258,18 @@ fn parse_transform(transform: &str) -> Affine {
     nt
 }
 
-fn parse_color(color: &str) -> Color {
+fn parse_color(color: &str) -> AlphaColor<Srgb> {
     let color = color.trim();
-    if let Ok(c) = color::parse_color(color) {
-        c.to_alpha_color()
-    } else if let Some(s) = color.strip_prefix("rgb(").and_then(|s| s.strip_suffix(')')) {
-        let mut iter = s.split([',', ' ']).map(str::trim).map(u8::from_str);
-
-        let r = iter.next().unwrap().unwrap();
-        let g = iter.next().unwrap().unwrap();
-        let b = iter.next().unwrap().unwrap();
-        Color::from_rgba8(r, g, b, 255)
-    } else {
-        Color::from_rgba8(255, 0, 255, 0x80)
-    }
+    color::parse_color(color.trim())
+        .map(DynamicColor::to_alpha_color)
+        .unwrap_or(palette::css::FUCHSIA.with_alpha(0.5))
 }
 
-fn modify_opacity(color: Color, attr_name: &str, node: Node<'_, '_>) -> Color {
+fn modify_opacity(
+    color: AlphaColor<Srgb>,
+    attr_name: &str,
+    node: Node<'_, '_>,
+) -> AlphaColor<Srgb> {
     if let Some(opacity) = node.attribute(attr_name) {
         let alpha: f32 = if let Some(o) = opacity.strip_suffix('%') {
             let pctg = o.parse().unwrap_or(100.0);
@@ -286,5 +280,40 @@ fn modify_opacity(color: Color, attr_name: &str, node: Node<'_, '_>) -> Color {
         color.with_alpha(alpha.clamp(0., 1.))
     } else {
         color
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_color;
+    use vello::peniko::color::{palette, AlphaColor, Srgb};
+
+    fn assert_close_color(c1: AlphaColor<Srgb>, c2: AlphaColor<Srgb>) {
+        const EPSILON: f32 = 1e-4;
+        assert_eq!(c1.cs, c2.cs);
+        for i in 0..4 {
+            assert!((c1.components[i] - c2.components[i]).abs() < EPSILON);
+        }
+    }
+
+    #[test]
+    fn parse_colors() {
+        let lime = palette::css::LIME;
+        let lime_a = lime.with_alpha(0.4);
+
+        let named = parse_color("lime");
+        assert_close_color(lime, named);
+
+        let hex = parse_color("#00ff00");
+        assert_close_color(lime, hex);
+
+        let rgb = parse_color("rgb(0, 255, 0)");
+        assert_close_color(lime, rgb);
+
+        let modern = parse_color("color(srgb 0 1 0)");
+        assert_close_color(lime, modern);
+
+        let modern_a = parse_color("color(srgb 0 1 0 / 0.4)");
+        assert_close_color(lime_a, modern_a);
     }
 }
