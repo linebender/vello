@@ -242,12 +242,12 @@ impl WorkgroupCounts {
         } else {
             path_tag_wgs
         };
-        let draw_object_wgs = (n_draw_objects + PATH_BBOX_WG - 1) / PATH_BBOX_WG;
+        let draw_object_wgs = n_draw_objects.div_ceil(PATH_BBOX_WG);
         let draw_monoid_wgs = draw_object_wgs.min(PATH_BBOX_WG);
-        let flatten_wgs = (n_path_tags + FLATTEN_WG - 1) / FLATTEN_WG;
+        let flatten_wgs = n_path_tags.div_ceil(FLATTEN_WG);
         let clip_reduce_wgs = n_clips.saturating_sub(1) / CLIP_REDUCE_WG;
-        let clip_wgs = (n_clips + CLIP_REDUCE_WG - 1) / CLIP_REDUCE_WG;
-        let path_wgs = (n_paths + PATH_BBOX_WG - 1) / PATH_BBOX_WG;
+        let clip_wgs = n_clips.div_ceil(CLIP_REDUCE_WG);
+        let path_wgs = n_paths.div_ceil(PATH_BBOX_WG);
         let width_in_bins = (width_in_tiles + 15) / 16;
         let height_in_bins = (height_in_tiles + 15) / 16;
         Self {

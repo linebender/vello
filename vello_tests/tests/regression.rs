@@ -1,6 +1,8 @@
 // Copyright 2024 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+//! Tests to ensure that certain issues which don't deserve a test scene don't regress
+
 use vello::{
     kurbo::{Affine, RoundedRect, Stroke},
     peniko::color::palette,
@@ -8,6 +10,7 @@ use vello::{
 };
 use vello_tests::{snapshot_test_sync, TestParams};
 
+/// Test created from <https://github.com/linebender/vello/issues/616>
 #[test]
 #[cfg_attr(skip_gpu_tests, ignore)]
 fn rounded_rectangle_watertight() {
