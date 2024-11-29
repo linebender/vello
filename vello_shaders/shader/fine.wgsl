@@ -6,12 +6,6 @@
 // To enable multisampled rendering, turn on both the msaa ifdef and one of msaa8
 // or msaa16.
 
-#ifdef r8
-// The R8 variant is only available via an internal extension in Dawn native
-// (see https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/tint/extensions/chromium_internal_graphite.md).
-#enable chromium_internal_graphite;
-#endif
-
 struct Tile {
     backdrop: i32,
     segments: u32,
@@ -41,11 +35,7 @@ var<storage> info: array<u32>;
 var<storage, read_write> blend_spill: array<u32>;
 
 @group(0) @binding(5)
-#ifdef r8
-var output: texture_storage_2d<r8unorm, write>;
-#else
 var output: texture_storage_2d<rgba8unorm, write>;
-#endif
 
 @group(0) @binding(6)
 var gradients: texture_2d<f32>;
