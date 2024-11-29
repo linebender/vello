@@ -45,17 +45,13 @@ mod draw;
 mod encoding;
 #[cfg(feature = "bump_estimate")]
 mod estimate;
-#[cfg(feature = "full")]
 mod glyph;
-#[cfg(feature = "full")]
 mod glyph_cache;
-#[cfg(feature = "full")]
 mod image_cache;
 mod mask;
 pub mod math;
 mod monoid;
 mod path;
-#[cfg(feature = "full")]
 mod ramp_cache;
 mod resolve;
 
@@ -69,7 +65,8 @@ pub use draw::{
     DrawBbox, DrawBeginClip, DrawBlurRoundedRect, DrawColor, DrawImage, DrawLinearGradient,
     DrawMonoid, DrawRadialGradient, DrawSweepGradient, DrawTag, DRAW_INFO_FLAGS_FILL_RULE_BIT,
 };
-pub use encoding::{Encoding, StreamOffsets};
+pub use encoding::{Encoding, Resources, StreamOffsets};
+pub use glyph::{Glyph, GlyphRun};
 pub use mask::{make_mask_lut, make_mask_lut_16};
 pub use math::Transform;
 pub use monoid::Monoid;
@@ -77,15 +74,8 @@ pub use path::{
     Cubic, LineSoup, Path, PathBbox, PathEncoder, PathMonoid, PathSegment, PathSegmentType,
     PathTag, SegmentCount, Style, Tile,
 };
-pub use resolve::{resolve_solid_paths_only, Layout};
-
-#[cfg(feature = "full")]
-pub use {
-    encoding::Resources,
-    glyph::{Glyph, GlyphRun},
-    ramp_cache::Ramps,
-    resolve::{Patch, Resolver},
-};
+pub use ramp_cache::Ramps;
+pub use resolve::{resolve_solid_paths_only, Layout, Patch, Resolver};
 
 #[cfg(feature = "bump_estimate")]
 pub use estimate::BumpEstimator;

@@ -1,8 +1,7 @@
 // Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
 
-// Fine rasterizer. This can run in simple (just path rendering) and full
-// modes, controllable by #define.
+// Fine rasterizer.
 //
 // To enable multisampled rendering, turn on both the msaa ifdef and one of msaa8
 // or msaa16.
@@ -48,22 +47,16 @@ var output: texture_storage_2d<r8unorm, write>;
 var output: texture_storage_2d<rgba8unorm, write>;
 #endif
 
-#ifdef full
 @group(0) @binding(6)
 var gradients: texture_2d<f32>;
 
 @group(0) @binding(7)
 var image_atlas: texture_2d<f32>;
-#endif
 
 // MSAA-only bindings and utilities
 #ifdef msaa
 
-#ifdef full
 const MASK_LUT_INDEX: u32 = 8;
-#else
-const MASK_LUT_INDEX: u32 = 6;
-#endif
 
 #ifdef msaa8
 let MASK_WIDTH = 32u;
@@ -1067,7 +1060,6 @@ fn main(
                 }
                 cmd_ix += 3u;
             }
-#ifdef full
             case CMD_LIN_GRAD: {
                 let lin = read_lin_grad(cmd_ix);
                 let d = lin.line_x * xy.x + lin.line_y * xy.y + lin.line_c;
@@ -1185,7 +1177,6 @@ fn main(
                 }
                 cmd_ix += 2u;
             }
-#endif // full
             default: {}
         }
     }

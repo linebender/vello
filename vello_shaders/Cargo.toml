@@ -16,13 +16,8 @@ default-target = "x86_64-unknown-linux-gnu"
 targets = []
 
 [features]
-default = ["wgsl", "full", "cpu"]
+default = ["wgsl", "cpu"]
 compile = ["dep:naga", "dep:thiserror"]
-
-# Enables the complete imaging model. When this feature is disabled, the fine rasterization
-# stage only supports drawing paths with a solid brush and clipping, and the shaders can
-# not be run with an encoding that contains gradient fills and images.
-full = []
 
 # Target shading language variants of the vello shaders to link into the library.
 wgsl = []
