@@ -5,6 +5,3 @@ fine
 + fine_area
 + fine_msaa8: msaa msaa8
 + fine_msaa16: msaa msaa16
-+ fine_area_r8: r8
-+ fine_msaa8_r8: msaa msaa8 r8
-+ fine_msaa16_r8: msaa msaa16 r8
