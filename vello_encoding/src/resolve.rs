@@ -2,20 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use bytemuck::{Pod, Zeroable};
+use peniko::{Extend, Image};
+use std::ops::Range;
+use std::sync::Arc;
 
 use super::{DrawTag, Encoding, PathTag, StreamOffsets, Style, Transform};
 
-#[cfg(feature = "full")]
-use {
-    super::{
-        glyph_cache::GlyphCache,
-        image_cache::{ImageCache, Images},
-        ramp_cache::{RampCache, Ramps},
-    },
-    peniko::{Extend, Image},
-    std::ops::Range,
-    std::sync::Arc,
-};
+use crate::glyph_cache::GlyphCache;
+use crate::image_cache::{ImageCache, Images};
+use crate::ramp_cache::{RampCache, Ramps};
 
 /// Layout of a packed encoding.
 #[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
@@ -110,7 +105,6 @@ impl Layout {
 /// Panics if the encoding contains any late bound resources (gradients, images
 /// or glyph runs).
 pub fn resolve_solid_paths_only(encoding: &Encoding, packed: &mut Vec<u8>) -> Layout {
-    #[cfg(feature = "full")]
     assert!(
         encoding.resources.patches.is_empty(),
         "this resolve function doesn't support late bound resources"
@@ -160,7 +154,6 @@ pub fn resolve_solid_paths_only(encoding: &Encoding, packed: &mut Vec<u8>) -> La
 }
 
 /// Resolver for late bound resources.
-#[cfg(feature = "full")]
 #[derive(Default)]
 pub struct Resolver {
     glyph_cache: GlyphCache,
@@ -171,7 +164,6 @@ pub struct Resolver {
     patches: Vec<ResolvedPatch>,
 }
 
-#[cfg(feature = "full")]
 impl Resolver {
     /// Creates a new resource cache.
     pub fn new() -> Self {
@@ -507,7 +499,6 @@ impl Resolver {
 }
 
 /// Patch for a late bound resource.
-#[cfg(feature = "full")]
 #[derive(Clone)]
 pub enum Patch {
     /// Gradient ramp resource.
@@ -534,14 +525,12 @@ pub enum Patch {
 }
 
 /// Image to be allocated in the atlas.
-#[cfg(feature = "full")]
 #[derive(Clone, Debug)]
 struct PendingImage {
     image: Image,
     xy: Option<(u32, u32)>,
 }
 
-#[cfg(feature = "full")]
 #[derive(Clone, Debug)]
 enum ResolvedPatch {
     Ramp {

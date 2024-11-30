@@ -24,6 +24,7 @@ This is the first step towards providing richer color functionality, better hand
 
 - Breaking: Updated `wgpu` to 23.0.1 ([#735][], [#743][] by [@waywardmonkeys])
 - Breaking: Updated to new `peniko` and `color` is now used for all colors ([#742][] by [@waywardmonkeys])
+- Breaking: The `full` feature is no longer present as the full pipeline is now always built ([#754][] by [@waywardmonkeys])
 
 ### Fixed
 
@@ -210,6 +211,7 @@ This release has an [MSRV][] of 1.75.
 [#740]: https://github.com/linebender/vello/pull/740
 [#742]: https://github.com/linebender/vello/pull/742
 [#743]: https://github.com/linebender/vello/pull/743
+[#754]: https://github.com/linebender/vello/pull/754
 
 [Unreleased]: https://github.com/linebender/vello/compare/v0.3.0...HEAD
 <!-- Note that this still comparing against 0.2.0, because 0.2.1 is a cherry-picked patch -->
