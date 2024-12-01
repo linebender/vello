@@ -26,6 +26,7 @@ This is the first step towards providing richer color functionality, better hand
 - Breaking: Updated to new `peniko` and `color` is now used for all colors ([#742][] by [@waywardmonkeys])
 - Breaking: The `full` feature is no longer present as the full pipeline is now always built ([#754][] by [@waywardmonkeys])
 - The `r8` permutation of the shaders is no longer available ([#756][] by [@waywardmonkeys])
+- Breaking: The `buffer_labels` feature is no longer present as the labels are always configured ([#757][] by [@waywardmonkeys])
 
 ### Fixed
 
