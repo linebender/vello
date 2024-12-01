@@ -19,11 +19,10 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use std::cmp;
 use std::collections::HashMap;
+use std::ops::Deref;
 use std::sync::Arc;
 
-pub struct CosmicData {
-    
-}
+pub struct CosmicData {}
 
 impl TestScene for CosmicTextSceneState {
     fn render(&mut self, scene: &mut Scene, _scene_params: &mut SceneParams) {
@@ -81,6 +80,23 @@ impl Default for CosmicTextSceneState {
     }
 }
 
+struct CosmicFontBlobAdapter {
+    font: Arc<cosmic_text::Font>,
+}
+
+/// Adapter to allow `cosmic_text::Font` to be used as a Blob.
+impl CosmicFontBlobAdapter {
+    fn new(font: Arc<cosmic_text::Font>) -> Self {
+        Self { font }
+    }
+}
+
+impl AsRef<[u8]> for CosmicFontBlobAdapter {
+    fn as_ref(&self) -> &[u8] {
+        self.font.data()
+    }
+}
+
 impl CosmicTextSceneState {
     pub fn new() -> Self {
         let mut font_system = FontSystem::new();
@@ -95,9 +111,9 @@ impl CosmicTextSceneState {
 
         for (font_id, index) in font_faces {
             if let Some(font) = font_system.get_font(font_id) {
-                let resource = Arc::new(font.data().to_vec());
-                let font_blob = Blob::new(resource);
-                Blob::as_ref(&font_blob);
+                // For now use an adapter, to avoid cloning the entire font data.
+                // For alternatives, see https://github.com/linebender/vello/pull/739#discussion_r1858293718
+                let font_blob = Blob::new(Arc::new(CosmicFontBlobAdapter::new(font)));
                 let vello_font = Font::new(font_blob, index);
                 vello_fonts.insert(font_id, vello_font);
             }
@@ -334,7 +350,9 @@ fn create_glyphs(
             }
 
             if let Some((last_font, last_glyph_color)) = last_font {
-                if last_font != glyph.font_id || last_glyph_color.components != glyph_color.components {
+                if last_font != glyph.font_id
+                    || last_glyph_color.components != glyph_color.components
+                {
                     buffer_line.glyph_runs.push(BufferGlyphRun {
                         font: last_font,
                         glyphs: current_glyphs,
