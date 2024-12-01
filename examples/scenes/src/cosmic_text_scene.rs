@@ -19,7 +19,6 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use std::cmp;
 use std::collections::HashMap;
-use std::ops::Deref;
 use std::sync::Arc;
 
 pub struct CosmicData {}
