@@ -1796,12 +1796,7 @@ mod impls {
         ]
         .iter()
         .for_each(|c| {
-            // FIXME(color): Get rid of the to_u32 and just use the PremulRgba8
-            let b = c.premultiply().to_rgba8().to_u32().to_ne_bytes();
-            blob.push(b[3]);
-            blob.push(b[2]);
-            blob.push(b[1]);
-            blob.push(b[0]);
+            blob.extend(c.premultiply().to_rgba8().to_u8_array());
         });
         let data = Blob::new(Arc::new(blob));
         let image = Image::new(data, Format::Rgba8, 2, 2);
@@ -1844,12 +1839,7 @@ mod impls {
         ]
         .iter()
         .for_each(|c| {
-            // FIXME(color): Get rid of the to_u32 and just use the PremulRgba8
-            let b = c.premultiply().to_rgba8().to_u32().to_ne_bytes();
-            blob.push(b[3]);
-            blob.push(b[2]);
-            blob.push(b[1]);
-            blob.push(b[0]);
+            blob.extend(c.premultiply().to_rgba8().to_u8_array());
         });
         let data = Blob::new(Arc::new(blob));
         let image = Image::new(data, Format::Rgba8, 2, 2);
