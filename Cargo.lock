@@ -435,7 +435,7 @@ dependencies = [
 [[package]]
 name = "color"
 version = "0.1.0"
-source = "git+https://github.com/linebender/color.git?rev=bccd4050607eba830cfba3b2f39616a27500288a#bccd4050607eba830cfba3b2f39616a27500288a"
+source = "git+https://github.com/linebender/color.git?rev=a4fa61aff6c3f292b729dc409e7832e5f0166e4a#a4fa61aff6c3f292b729dc409e7832e5f0166e4a"
 dependencies = [
  "serde",
 ]
@@ -1656,7 +1656,7 @@ checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 [[package]]
 name = "peniko"
 version = "0.2.0"
-source = "git+https://github.com/linebender/peniko.git?rev=cb75a00#cb75a00f1915b46e65a47cbef69f693934b27629"
+source = "git+https://github.com/linebender/peniko.git?rev=d114c62#d114c6292dbcfb03e7360692198be423168a0edd"
 dependencies = [
  "color",
  "kurbo",

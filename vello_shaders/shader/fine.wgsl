@@ -921,7 +921,7 @@ fn main(
     let local_xy = vec2(f32(local_id.x * PIXELS_PER_THREAD), f32(local_id.y));
     var rgba: array<vec4<f32>, PIXELS_PER_THREAD>;
     for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
-        rgba[i] = unpack4x8unorm(config.base_color).wzyx;
+        rgba[i] = unpack4x8unorm(config.base_color);
     }
     var blend_stack: array<array<u32, PIXELS_PER_THREAD>, BLEND_STACK_SPLIT>;
     var clip_depth = 0u;
@@ -953,7 +953,7 @@ fn main(
             }
             case CMD_COLOR: {
                 let color = read_color(cmd_ix);
-                let fg = unpack4x8unorm(color.rgba_color).wzyx;
+                let fg = unpack4x8unorm(color.rgba_color);
                 for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
                     let fg_i = fg * area[i];
                     rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
@@ -1044,7 +1044,7 @@ fn main(
                     let d = d_pos + d_neg - r1;
                     let alpha = scale * (erf7(inv_std_dev * (min_edge + d)) - erf7(inv_std_dev * d));
 
-                    let fg_rgba = unpack4x8unorm(blur.rgba_color).wzyx * alpha;
+                    let fg_rgba = unpack4x8unorm(blur.rgba_color) * alpha;
                     let fg_i = fg_rgba * area[i];
                     rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
                 }
