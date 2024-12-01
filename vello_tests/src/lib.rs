@@ -1,6 +1,37 @@
 // Copyright 2024 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+//! Vello tests.
+
+// LINEBENDER LINT SET - lib.rs - v2
+// See https://linebender.org/wiki/canonical-lints/
+// These lints aren't included in Cargo.toml because they
+// shouldn't apply to examples and tests
+#![warn(unused_crate_dependencies)]
+#![warn(clippy::print_stdout, clippy::print_stderr)]
+// Targeting e.g. 32-bit means structs containing usize can give false positives for 64-bit.
+#![cfg_attr(target_pointer_width = "64", warn(clippy::trivially_copy_pass_by_ref))]
+// END LINEBENDER LINT SET
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
+// The following lints are part of the Linebender standard set,
+// but resolving them has been deferred for now.
+// Feel free to send a PR that solves one or more of these.
+#![allow(
+    missing_debug_implementations,
+    elided_lifetimes_in_paths,
+    unreachable_pub,
+    missing_docs,
+    clippy::missing_assert_message,
+    clippy::shadow_unrelated,
+    clippy::missing_panics_doc,
+    clippy::missing_errors_doc,
+    clippy::exhaustive_enums,
+    clippy::use_self,
+    clippy::print_stderr,
+    clippy::print_stdout,
+    clippy::allow_attributes_without_reason
+)]
+
 use std::env;
 use std::fs::File;
 use std::io::ErrorKind;
@@ -11,7 +42,7 @@ use std::sync::Arc;
 use anyhow::{anyhow, bail, Result};
 use scenes::{ExampleScene, ImageCache, SceneParams, SimpleText};
 use vello::kurbo::{Affine, Vec2};
-use vello::peniko::{Blob, Color, Format, Image};
+use vello::peniko::{color::palette, Blob, Color, Format, Image};
 use vello::wgpu::{
     self, BufferDescriptor, BufferUsages, CommandEncoderDescriptor, Extent3d, ImageCopyBuffer,
     TextureDescriptor, TextureFormat, TextureUsages,
@@ -32,7 +63,7 @@ use scenes::cosmic_text_scene::CosmicTextSceneState;
 pub struct TestParams {
     pub width: u32,
     pub height: u32,
-    pub base_colour: Option<Color>,
+    pub base_color: Option<Color>,
     pub use_cpu: bool,
     pub name: String,
     pub anti_aliasing: AaConfig,
@@ -43,7 +74,7 @@ impl TestParams {
         TestParams {
             width,
             height,
-            base_colour: None,
+            base_color: None,
             use_cpu: false,
             name: name.into(),
             anti_aliasing: AaConfig::Area,
@@ -99,7 +130,7 @@ pub async fn get_scene_image(params: &TestParams, scene: &Scene) -> Result<Image
     let width = params.width;
     let height = params.height;
     let render_params = vello::RenderParams {
-        base_color: params.base_colour.unwrap_or(Color::BLACK),
+        base_color: params.base_color.unwrap_or(palette::css::BLACK),
         width,
         height,
         antialiasing_method: params.anti_aliasing,
@@ -168,7 +199,7 @@ pub async fn get_scene_image(params: &TestParams, scene: &Scene) -> Result<Image
 
 pub fn write_png_to_file(
     params: &TestParams,
-    out_path: &std::path::Path,
+    out_path: &Path,
     image: &Image,
     max_size_in_bytes: Option<u64>,
 ) -> Result<(), anyhow::Error> {
@@ -244,8 +275,8 @@ pub fn encode_test_scene(mut test_scene: ExampleScene, test_params: &mut TestPar
     test_scene
         .function
         .render(&mut inner_scene, &mut scene_params);
-    if test_params.base_colour.is_none() {
-        test_params.base_colour = scene_params.base_color;
+    if test_params.base_color.is_none() {
+        test_params.base_color = scene_params.base_color;
     }
     if let Some(resolution) = scene_params.resolution {
         // Automatically scale the rendering to fill as much of the window as possible

@@ -13,15 +13,25 @@ You can find its changes [documented below](#030---2024-10-04).
 
 ## [Unreleased]
 
-This release has an [MSRV][] of 1.76.
+This release has an [MSRV][] of 1.82.
+
+### Highlights
+
+As part of an initiative to improve color handling across the ecosystem (and especially within Linebender crates), Vello is now using the new [`color`] crate.
+This is the first step towards providing richer color functionality, better handling of color interpolation, and more.
 
 ### Changed
 
-- Breaking: Updated `wgpu` to 23.0.0, increased MSRV to 1.76 ([#735][] by [@waywardmonkeys])
+- Breaking: Updated `wgpu` to 23.0.1 ([#735][], [#743][] by [@waywardmonkeys])
+- Breaking: Updated to new `peniko` and `color` is now used for all colors ([#742][] by [@waywardmonkeys])
+- Breaking: The `full` feature is no longer present as the full pipeline is now always built ([#754][] by [@waywardmonkeys])
+- The `r8` permutation of the shaders is no longer available ([#756][] by [@waywardmonkeys])
 
 ### Fixed
 
 - Offset in image rendering, and sampling outside correct atlas area ([#722][] by [@dfrg])
+- Inference conflict when using Kurbo's `schemars` feature ([#733][] by [@ratmice][])
+- Detection of PNG format bitmap fonts, primarily for Apple systems ([#740][] by [@LaurenzV])
 
 ## [0.3.0][] - 2024-10-04
 
@@ -138,6 +148,8 @@ This release has an [MSRV][] of 1.75.
 [@TrueDoctor]: https://github.com/TrueDoctor
 [@waywardmonkeys]: https://github.com/waywardmonkeys
 [@yutannihilation]: https://github.com/yutannihilation
+[@LaurenzV]: https://github.com/LaurenzV
+[@ratmice]: https://github.com/ratmice
 
 [#416]: https://github.com/linebender/vello/pull/416
 [#435]: https://github.com/linebender/vello/pull/435
@@ -195,7 +207,13 @@ This release has an [MSRV][] of 1.75.
 [#706]: https://github.com/linebender/vello/pull/706
 [#711]: https://github.com/linebender/vello/pull/711
 [#722]: https://github.com/linebender/vello/pull/722
+[#733]: https://github.com/linebender/vello/pull/733
 [#735]: https://github.com/linebender/vello/pull/735
+[#740]: https://github.com/linebender/vello/pull/740
+[#742]: https://github.com/linebender/vello/pull/742
+[#743]: https://github.com/linebender/vello/pull/743
+[#754]: https://github.com/linebender/vello/pull/754
+[#756]: https://github.com/linebender/vello/pull/756
 
 [Unreleased]: https://github.com/linebender/vello/compare/v0.3.0...HEAD
 <!-- Note that this still comparing against 0.2.0, because 0.2.1 is a cherry-picked patch -->
@@ -207,3 +225,4 @@ This release has an [MSRV][] of 1.75.
 [MSRV]: README.md#minimum-supported-rust-version-msrv
 [`run_app`]: https://docs.rs/winit/latest/winit/event_loop/struct.EventLoop.html#method.run_app
 [stroke-expansion]: https://linebender.org/gpu-stroke-expansion-paper/
+[`color`]: https://docs.rs/color/

@@ -6,7 +6,7 @@
 use scenes::SimpleText;
 use vello::{
     kurbo::{Affine, Circle, Rect},
-    peniko::{Brush, Color, Fill},
+    peniko::{color::palette, Brush, Fill},
     Scene,
 };
 use vello_tests::{smoke_snapshot_test_sync, TestParams};
@@ -14,9 +14,9 @@ use vello_tests::{smoke_snapshot_test_sync, TestParams};
 fn filled_square(use_cpu: bool) {
     let mut scene = Scene::new();
     scene.fill(
-        vello::peniko::Fill::NonZero,
+        Fill::NonZero,
         Affine::IDENTITY,
-        &Brush::Solid(Color::BLUE),
+        &Brush::Solid(palette::css::BLUE),
         None,
         &Rect::from_center_size((10., 10.), (6., 6.)),
     );
@@ -32,9 +32,9 @@ fn filled_square(use_cpu: bool) {
 fn filled_circle(use_cpu: bool) {
     let mut scene = Scene::new();
     scene.fill(
-        vello::peniko::Fill::NonZero,
+        Fill::NonZero,
         Affine::IDENTITY,
-        &Brush::Solid(Color::BLUE),
+        &Brush::Solid(palette::css::BLUE),
         None,
         &Circle::new((10., 10.), 7.),
     );

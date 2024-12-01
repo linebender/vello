@@ -4,7 +4,7 @@
 use core::fmt;
 use std::{
     env,
-    io::{self, ErrorKind},
+    io::ErrorKind,
     path::{Path, PathBuf},
 };
 
@@ -198,7 +198,7 @@ pub fn snapshot_test_image(
 
             contents.into_rgb8()
         }
-        Err(ImageError::IoError(e)) if e.kind() == io::ErrorKind::NotFound => {
+        Err(ImageError::IoError(e)) if e.kind() == ErrorKind::NotFound => {
             if env_var_relates_to("VELLO_TEST_CREATE", &params.name, params.use_cpu) {
                 if !params.use_cpu {
                     write_png_to_file(
@@ -306,7 +306,7 @@ pub fn snapshot_test_image(
 
     let error_map = nv_flip::flip(expected, rendered, nv_flip::DEFAULT_PIXELS_PER_DEGREE);
 
-    let pool = nv_flip::FlipPool::from_image(&error_map);
+    let pool = FlipPool::from_image(&error_map);
 
     Ok(Snapshot {
         statistics: Some(pool),

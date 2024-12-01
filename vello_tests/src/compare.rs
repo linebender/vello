@@ -138,7 +138,7 @@ pub async fn compare_gpu_cpu(scene: Scene, mut params: TestParams) -> Result<Gpu
 
     let error_map = nv_flip::flip(cpu_flip, gpu_flip, nv_flip::DEFAULT_PIXELS_PER_DEGREE);
 
-    let pool = nv_flip::FlipPool::from_image(&error_map);
+    let pool = FlipPool::from_image(&error_map);
 
     Ok(GpuCpuComparison {
         statistics: Some(pool),

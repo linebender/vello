@@ -25,7 +25,10 @@ pub struct DeviceHandle {
 }
 
 impl RenderContext {
-    #[allow(clippy::new_without_default)]
+    #[expect(
+        clippy::new_without_default,
+        reason = "Creating a wgpu Instance is something which should only be done rarely"
+    )]
     pub fn new() -> Self {
         let instance = Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::util::backend_bits_from_env().unwrap_or(wgpu::Backends::PRIMARY),
@@ -76,7 +79,7 @@ impl RenderContext {
             .find(|it| matches!(it, TextureFormat::Rgba8Unorm | TextureFormat::Bgra8Unorm))
             .ok_or(Error::UnsupportedSurfaceFormat)?;
 
-        let config = wgpu::SurfaceConfiguration {
+        let config = SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
             width,
@@ -137,12 +140,10 @@ impl RenderContext {
                 .await?;
         let features = adapter.features();
         let limits = Limits::default();
-        #[allow(unused_mut)]
-        let mut maybe_features = wgpu::Features::CLEAR_TEXTURE;
+        let maybe_features = wgpu::Features::CLEAR_TEXTURE;
         #[cfg(feature = "wgpu-profiler")]
-        {
-            maybe_features |= wgpu_profiler::GpuProfiler::ALL_WGPU_TIMER_FEATURES;
-        };
+        let maybe_features = maybe_features | wgpu_profiler::GpuProfiler::ALL_WGPU_TIMER_FEATURES;
+
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {

@@ -1,17 +1,10 @@
 // Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
 
-// Fine rasterizer. This can run in simple (just path rendering) and full
-// modes, controllable by #define.
+// Fine rasterizer.
 //
 // To enable multisampled rendering, turn on both the msaa ifdef and one of msaa8
 // or msaa16.
-
-#ifdef r8
-// The R8 variant is only available via an internal extension in Dawn native
-// (see https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/tint/extensions/chromium_internal_graphite.md).
-#enable chromium_internal_graphite;
-#endif
 
 struct Tile {
     backdrop: i32,
@@ -42,28 +35,18 @@ var<storage> info: array<u32>;
 var<storage, read_write> blend_spill: array<u32>;
 
 @group(0) @binding(5)
-#ifdef r8
-var output: texture_storage_2d<r8unorm, write>;
-#else
 var output: texture_storage_2d<rgba8unorm, write>;
-#endif
 
-#ifdef full
 @group(0) @binding(6)
 var gradients: texture_2d<f32>;
 
 @group(0) @binding(7)
 var image_atlas: texture_2d<f32>;
-#endif
 
 // MSAA-only bindings and utilities
 #ifdef msaa
 
-#ifdef full
 const MASK_LUT_INDEX: u32 = 8;
-#else
-const MASK_LUT_INDEX: u32 = 6;
-#endif
 
 #ifdef msaa8
 let MASK_WIDTH = 32u;
@@ -1067,7 +1050,6 @@ fn main(
                 }
                 cmd_ix += 3u;
             }
-#ifdef full
             case CMD_LIN_GRAD: {
                 let lin = read_lin_grad(cmd_ix);
                 let d = lin.line_x * xy.x + lin.line_y * xy.y + lin.line_c;
@@ -1185,7 +1167,6 @@ fn main(
                 }
                 cmd_ix += 2u;
             }
-#endif // full
             default: {}
         }
     }

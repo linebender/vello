@@ -207,16 +207,16 @@ pub(crate) fn full_shaders(
         ]
     );
     let fine_resources = [
-        BindType::Uniform,
-        BindType::BufReadOnly,
-        BindType::BufReadOnly,
-        BindType::BufReadOnly,
-        BindType::Buffer,
-        BindType::Image(ImageFormat::Rgba8),
-        BindType::ImageRead(ImageFormat::Rgba8),
-        BindType::ImageRead(ImageFormat::Rgba8),
+        Uniform,
+        BufReadOnly,
+        BufReadOnly,
+        BufReadOnly,
+        Buffer,
+        Image(ImageFormat::Rgba8),
+        ImageRead(ImageFormat::Rgba8),
+        ImageRead(ImageFormat::Rgba8),
         // Mask LUT buffer, used only when MSAA is enabled.
-        BindType::BufReadOnly,
+        BufReadOnly,
     ];
 
     let aa_support = &options.antialiasing_support;

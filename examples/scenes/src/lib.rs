@@ -1,8 +1,29 @@
 // Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-// This is not a published crate, so we don't need to understand our public API
-#![allow(unreachable_pub)]
+//! Scenes
+
+// The following lints are part of the Linebender standard set,
+// but resolving them has been deferred for now.
+// Feel free to send a PR that solves one or more of these.
+#![allow(
+    missing_debug_implementations,
+    elided_lifetimes_in_paths,
+    single_use_lifetimes,
+    unreachable_pub,
+    missing_docs,
+    clippy::wildcard_imports,
+    clippy::unseparated_literal_suffix,
+    clippy::cast_possible_truncation,
+    clippy::shadow_unrelated,
+    clippy::missing_panics_doc,
+    clippy::missing_errors_doc,
+    clippy::partial_pub_fields,
+    clippy::use_self,
+    clippy::match_same_arms,
+    clippy::allow_attributes_without_reason,
+    clippy::allow_attributes
+)]
 
 mod images;
 mod mmark;
@@ -23,7 +44,7 @@ pub use svg::{default_scene, scene_from_files};
 use test_scenes::test_scenes;
 
 use vello::kurbo::Vec2;
-use vello::peniko::Color;
+use vello::peniko::{color, Color};
 use vello::Scene;
 
 #[cfg(feature = "cosmic_text")]
@@ -38,7 +59,7 @@ pub struct SceneParams<'a> {
     pub text: &'a mut SimpleText,
     pub images: &'a mut ImageCache,
     pub resolution: Option<Vec2>,
-    pub base_color: Option<vello::peniko::Color>,
+    pub base_color: Option<Color>,
     pub complexity: usize,
     #[cfg(feature = "cosmic_text")]
     pub cosmic_text_scene_state: &'a CosmicTextSceneState,
@@ -80,7 +101,7 @@ pub struct Arguments {
     /// The svg files paths to render
     svgs: Option<Vec<PathBuf>>,
     #[arg(help_heading = "Render Parameters")]
-    #[arg(long, global(false), value_parser = parse_color)]
+    #[arg(long, global(false), value_parser = parse_color_arg)]
     /// The base color applied as the blend background to the rasterizer.
     /// Format is CSS style hexadecimal (#RGB, #RGBA, #RRGGBB, #RRGGBBAA) or
     /// an SVG color name such as "aliceblue"
@@ -88,7 +109,7 @@ pub struct Arguments {
 }
 
 impl Arguments {
-    pub fn select_scene_set(&self) -> Result<Option<SceneSet>> {
+    pub fn select_scene_set(&self) -> anyhow::Result<Option<SceneSet>> {
         // There is no file access on WASM, and on Android we haven't set up the assets
         // directory.
         // TODO: Upload the assets directory on Android
@@ -107,6 +128,6 @@ impl Arguments {
     }
 }
 
-fn parse_color(s: &str) -> Result<Color> {
-    Color::parse(s).ok_or(anyhow!("'{s}' is not a valid color"))
+fn parse_color_arg(s: &str) -> Result<Color, color::ParseError> {
+    color::parse_color(s).map(|c| c.to_alpha_color())
 }

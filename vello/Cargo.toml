@@ -25,7 +25,7 @@ bump_estimate = ["vello_encoding/bump_estimate"]
 # Adds labels to buffers created by Vello.
 # May improve debugability at the cost of slightly higher memory usage (TODO: We should just not make these optional).
 buffer_labels = []
-wgpu = ["dep:wgpu"]
+wgpu = ["dep:wgpu", "dep:vello_shaders", "dep:futures-intrusive"]
 
 # Development only features
 
@@ -46,15 +46,14 @@ workspace = true
 
 [dependencies]
 vello_encoding = { workspace = true }
-vello_shaders = { workspace = true }
+vello_shaders = { workspace = true, optional = true }
 bytemuck = { workspace = true }
 skrifa = { workspace = true }
 peniko = { workspace = true }
 wgpu = { workspace = true, optional = true }
 log = { workspace = true }
-raw-window-handle = { workspace = true }
 static_assertions = { workspace = true }
-futures-intrusive = { workspace = true }
+futures-intrusive = { workspace = true, optional = true }
 wgpu-profiler = { workspace = true, optional = true }
 thiserror = { workspace = true }
 # TODO: Add feature for built-in bitmap emoji support?

@@ -8,7 +8,6 @@ use super::{
     PathBbox, PathMonoid, PathSegment, Tile,
 };
 use bytemuck::{Pod, Zeroable};
-use std::mem;
 
 const TILE_WIDTH: u32 = 16;
 const TILE_HEIGHT: u32 = 16;
@@ -181,7 +180,7 @@ impl RenderConfig {
                 height_in_tiles,
                 target_width: width,
                 target_height: height,
-                base_color: base_color.to_premul_u32(),
+                base_color: base_color.premultiply().to_rgba8().to_u32(),
                 lines_size: buffer_sizes.lines.len(),
                 binning_size: buffer_sizes.bin_data.len() - layout.bin_data_start,
                 tiles_size: buffer_sizes.tiles.len(),
@@ -243,12 +242,12 @@ impl WorkgroupCounts {
         } else {
             path_tag_wgs
         };
-        let draw_object_wgs = (n_draw_objects + PATH_BBOX_WG - 1) / PATH_BBOX_WG;
+        let draw_object_wgs = n_draw_objects.div_ceil(PATH_BBOX_WG);
         let draw_monoid_wgs = draw_object_wgs.min(PATH_BBOX_WG);
-        let flatten_wgs = (n_path_tags + FLATTEN_WG - 1) / FLATTEN_WG;
+        let flatten_wgs = n_path_tags.div_ceil(FLATTEN_WG);
         let clip_reduce_wgs = n_clips.saturating_sub(1) / CLIP_REDUCE_WG;
-        let clip_wgs = (n_clips + CLIP_REDUCE_WG - 1) / CLIP_REDUCE_WG;
-        let path_wgs = (n_paths + PATH_BBOX_WG - 1) / PATH_BBOX_WG;
+        let clip_wgs = n_clips.div_ceil(CLIP_REDUCE_WG);
+        let path_wgs = n_paths.div_ceil(PATH_BBOX_WG);
         let width_in_bins = (width_in_tiles + 15) / 16;
         let height_in_bins = (height_in_tiles + 15) / 16;
         Self {
@@ -297,18 +296,18 @@ impl<T: Sized> BufferSize<T> {
 
     /// Creates a new buffer size from size in bytes.
     pub const fn from_size_in_bytes(size: u32) -> Self {
-        Self::new(size / mem::size_of::<T>() as u32)
+        Self::new(size / size_of::<T>() as u32)
     }
 
     /// Returns the number of elements.
-    #[allow(clippy::len_without_is_empty)]
+    #[expect(clippy::len_without_is_empty, reason = "The buffer can never be empty")]
     pub const fn len(self) -> u32 {
         self.len
     }
 
     /// Returns the size in bytes.
     pub const fn size_in_bytes(self) -> u32 {
-        mem::size_of::<T>() as u32 * self.len
+        size_of::<T>() as u32 * self.len
     }
 
     /// Returns the size in bytes aligned up to the given value.

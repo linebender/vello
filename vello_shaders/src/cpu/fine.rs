@@ -108,9 +108,7 @@ fn fill_path(area: &mut [f32], segments: &[PathSegment], fill: &CmdFill, x_tile:
     }
 }
 
-// Note: this is a draft. Texture resources are not yet wired up, so it
-// has not yet been tested.
-#[allow(unused)]
+#[expect(unused, reason = "Draft code as textures not wired up")]
 fn fine_main(
     config: &ConfigUniform,
     tiles: &[Tile],

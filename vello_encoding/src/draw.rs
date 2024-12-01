@@ -2,7 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use bytemuck::{Pod, Zeroable};
-use peniko::{BlendMode, Color};
+use peniko::{
+    color::{AlphaColor, ColorSpace, DynamicColor, OpaqueColor, PremulColor, Srgb},
+    BlendMode,
+};
 
 use super::Monoid;
 
@@ -70,11 +73,43 @@ pub struct DrawColor {
     pub rgba: u32,
 }
 
-impl DrawColor {
-    /// Creates new solid color draw data.
-    pub fn new(color: Color) -> Self {
+impl<CS: ColorSpace> From<AlphaColor<CS>> for DrawColor {
+    fn from(color: AlphaColor<CS>) -> Self {
         Self {
-            rgba: color.to_premul_u32(),
+            rgba: color.convert::<Srgb>().premultiply().to_rgba8().to_u32(),
+        }
+    }
+}
+
+impl From<DynamicColor> for DrawColor {
+    fn from(color: DynamicColor) -> Self {
+        Self {
+            rgba: color
+                .to_alpha_color::<Srgb>()
+                .premultiply()
+                .to_rgba8()
+                .to_u32(),
+        }
+    }
+}
+
+impl<CS: ColorSpace> From<OpaqueColor<CS>> for DrawColor {
+    fn from(color: OpaqueColor<CS>) -> Self {
+        Self {
+            rgba: color
+                .convert::<Srgb>()
+                .with_alpha(1.)
+                .premultiply()
+                .to_rgba8()
+                .to_u32(),
+        }
+    }
+}
+
+impl<CS: ColorSpace> From<PremulColor<CS>> for DrawColor {
+    fn from(color: PremulColor<CS>) -> Self {
+        Self {
+            rgba: color.convert::<Srgb>().to_rgba8().to_u32(),
         }
     }
 }

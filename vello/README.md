@@ -7,7 +7,7 @@
 [![Latest published version.](https://img.shields.io/crates/v/vello.svg)](https://crates.io/crates/vello)
 [![Documentation build status.](https://img.shields.io/docsrs/vello.svg)](https://docs.rs/vello)
 [![Apache 2.0 or MIT license.](https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue.svg)](#license)
-[![Required wgpu version.](https://img.shields.io/badge/wgpu-v23.0.0-orange.svg)](https://crates.io/crates/wgpu)
+[![Required wgpu version.](https://img.shields.io/badge/wgpu-v23.0.1-orange.svg)](https://crates.io/crates/wgpu)
 \
 [![Linebender Zulip chat.](https://img.shields.io/badge/Linebender-%23gpu-blue?logo=Zulip)](https://xi.zulipchat.com/#narrow/stream/197075-gpu)
 [![GitHub Actions CI status.](https://img.shields.io/github/actions/workflow/status/linebender/vello/ci.yml?logo=github&label=CI)](https://github.com/linebender/vello/actions)
@@ -79,7 +79,7 @@ let mut scene = vello::Scene::new();
 scene.fill(
    vello::peniko::Fill::NonZero,
    vello::Affine::IDENTITY,
-   vello::Color::rgb8(242, 140, 168),
+   vello::Color::from_rgba8(242, 140, 168, 255),
    None,
    &vello::Circle::new((420.0, 200.0), 120.0),
 );
@@ -100,7 +100,7 @@ renderer
       &scene,
       &surface_texture,
       &vello::RenderParams {
-         base_color: Color::BLACK, // Background color
+         base_color: palette::css::BLACK, // Background color
          width,
          height,
          antialiasing_method: AaConfig::Msaa16,
@@ -220,7 +220,7 @@ VELLO_STATIC_LOG="vello=trace" VELLO_STATIC_ARGS="--test-scenes" cargo apk run -
 
 ## Minimum supported Rust Version (MSRV)
 
-This version of Vello has been verified to compile with **Rust 1.76** and later.
+This version of Vello has been verified to compile with **Rust 1.82** and later.
 
 Future versions of Vello might increase the Rust version requirement.
 It will not be treated as a breaking change and as such can even happen with small patch releases.

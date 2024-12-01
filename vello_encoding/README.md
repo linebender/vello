@@ -20,7 +20,7 @@ Significant changes are documented in [the changelog].
 
 ## Minimum supported Rust Version (MSRV)
 
-This version of Vello Encoding has been verified to compile with **Rust 1.76** and later.
+This version of Vello Encoding has been verified to compile with **Rust 1.82** and later.
 
 Future versions of Vello Encoding might increase the Rust version requirement.
 It will not be treated as a breaking change and as such can even happen with small patch releases.
@@ -35,6 +35,7 @@ If you encounter a compilation issue due to a dependency and don't want to upgra
 # Use the problematic dependency's name and version
 cargo update -p package_name --precise 0.1.1
 ```
+
 </details>
 
 ## Community

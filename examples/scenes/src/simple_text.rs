@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use vello::kurbo::Affine;
-use vello::peniko::{Blob, Brush, BrushRef, Color, Font, StyleRef};
+use vello::peniko::{color::palette, Blob, Brush, BrushRef, Font, StyleRef};
 use vello::skrifa::{raw::FontRef, MetadataProvider};
 use vello::{Glyph, Scene};
 
@@ -43,7 +43,6 @@ impl SimpleText {
     ///
     /// Note that Vello does support COLR emoji, but does not currently support
     /// any other forms of emoji.
-    #[allow(clippy::too_many_arguments)]
     pub fn add_colr_emoji_run<'a>(
         &mut self,
         scene: &mut Scene,
@@ -60,7 +59,7 @@ impl SimpleText {
             size,
             &[],
             // This should be unused
-            &Brush::Solid(Color::WHITE),
+            &Brush::Solid(palette::css::WHITE),
             transform,
             glyph_transform,
             style,
@@ -75,7 +74,6 @@ impl SimpleText {
     /// not significantly increasing repository size.
     ///
     /// This will use a CBTF font, which Vello supports.
-    #[allow(clippy::too_many_arguments)]
     pub fn add_bitmap_emoji_run<'a>(
         &mut self,
         scene: &mut Scene,
@@ -92,7 +90,7 @@ impl SimpleText {
             size,
             &[],
             // This should be unused
-            &Brush::Solid(Color::WHITE),
+            &Brush::Solid(palette::css::WHITE),
             transform,
             glyph_transform,
             style,
@@ -100,7 +98,6 @@ impl SimpleText {
         );
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn add_run<'a>(
         &mut self,
         scene: &mut Scene,
@@ -125,7 +122,6 @@ impl SimpleText {
         );
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn add_var_run<'a>(
         &mut self,
         scene: &mut Scene,
@@ -195,7 +191,7 @@ impl SimpleText {
         text: &str,
     ) {
         use vello::peniko::Fill;
-        let brush = brush.unwrap_or(&Brush::Solid(Color::WHITE));
+        let brush = brush.unwrap_or(&Brush::Solid(palette::css::WHITE));
         self.add_run(
             scene,
             font,

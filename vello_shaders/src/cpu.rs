@@ -7,8 +7,10 @@
 //! a full CPU fallback as an alternative to GPU shaders is not provided.
 
 // Allow un-idiomatic Rust to more closely match shaders
-#![allow(clippy::needless_range_loop)]
-#![allow(clippy::too_many_arguments)]
+#![expect(
+    clippy::needless_range_loop,
+    reason = "Keeps code easily comparable to GPU shaders"
+)]
 
 mod backdrop;
 mod bbox_clear;
@@ -56,7 +58,6 @@ use bytemuck::Pod;
 pub enum CpuBinding<'a> {
     Buffer(&'a [u8]),
     BufferRW(&'a RefCell<Vec<u8>>),
-    #[allow(unused)]
     Texture(&'a CpuTexture),
 }
 
@@ -66,12 +67,11 @@ pub enum TypedBufGuard<'a, T: ?Sized> {
 }
 
 pub enum TypedBufGuardMut<'a, T: ?Sized> {
-    #[allow(dead_code)]
     Slice(&'a mut T),
     Interior(RefMut<'a, T>),
 }
 
-impl<'a, T: ?Sized> Deref for TypedBufGuard<'a, T> {
+impl<T: ?Sized> Deref for TypedBufGuard<'_, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -82,7 +82,7 @@ impl<'a, T: ?Sized> Deref for TypedBufGuard<'a, T> {
     }
 }
 
-impl<'a, T: ?Sized> Deref for TypedBufGuardMut<'a, T> {
+impl<T: ?Sized> Deref for TypedBufGuardMut<'_, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -93,7 +93,7 @@ impl<'a, T: ?Sized> Deref for TypedBufGuardMut<'a, T> {
     }
 }
 
-impl<'a, T: ?Sized> DerefMut for TypedBufGuardMut<'a, T> {
+impl<T: ?Sized> DerefMut for TypedBufGuardMut<'_, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         match self {
             TypedBufGuardMut::Slice(s) => s,
@@ -102,7 +102,7 @@ impl<'a, T: ?Sized> DerefMut for TypedBufGuardMut<'a, T> {
     }
 }
 
-impl<'a> CpuBinding<'a> {
+impl CpuBinding<'_> {
     pub fn as_typed<T: Pod>(&self) -> TypedBufGuard<T> {
         match self {
             CpuBinding::Buffer(b) => TypedBufGuard::Slice(bytemuck::from_bytes(b)),
@@ -148,7 +148,6 @@ impl<'a> CpuBinding<'a> {
     }
 
     // TODO: same guard as buf to make mutable
-    #[allow(unused)]
     pub fn as_tex(&self) -> &CpuTexture {
         match self {
             CpuBinding::Texture(t) => t,

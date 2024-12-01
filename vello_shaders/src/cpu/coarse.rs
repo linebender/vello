@@ -35,10 +35,10 @@ struct TileState {
 }
 
 impl TileState {
-    fn new(tile_ix: u32) -> TileState {
+    fn new(tile_ix: u32) -> Self {
         let cmd_offset = tile_ix * PTCL_INITIAL_ALLOC;
         let cmd_limit = cmd_offset + (PTCL_INITIAL_ALLOC - PTCL_HEADROOM);
-        TileState {
+        Self {
             cmd_offset,
             cmd_limit,
         }
@@ -193,13 +193,13 @@ fn coarse_main(
 ) {
     let width_in_tiles = config.width_in_tiles;
     let height_in_tiles = config.height_in_tiles;
-    let width_in_bins = (width_in_tiles + N_TILE_X as u32 - 1) / N_TILE_X as u32;
-    let height_in_bins = (height_in_tiles + N_TILE_Y as u32 - 1) / N_TILE_Y as u32;
+    let width_in_bins = width_in_tiles.div_ceil(N_TILE_X as u32);
+    let height_in_bins = height_in_tiles.div_ceil(N_TILE_Y as u32);
     let n_bins = width_in_bins * height_in_bins;
     let bin_data_start = config.layout.bin_data_start;
     let drawtag_base = config.layout.draw_tag_base;
     let mut compacted = vec![vec![]; N_TILE];
-    let n_partitions = (config.layout.n_draw_objects + N_TILE as u32 - 1) / N_TILE as u32;
+    let n_partitions = config.layout.n_draw_objects.div_ceil(N_TILE as u32);
     for bin in 0..n_bins {
         for v in &mut compacted {
             v.clear();

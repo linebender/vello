@@ -9,7 +9,7 @@ const WG_SIZE: usize = 256;
 
 fn path_tiling_setup_main(bump: &BumpAllocators, indirect: &mut IndirectCount) {
     let segments = bump.seg_counts;
-    indirect.count_x = (segments + (WG_SIZE as u32 - 1)) / WG_SIZE as u32;
+    indirect.count_x = segments.div_ceil(WG_SIZE as u32);
     indirect.count_y = 1;
     indirect.count_z = 1;
 }

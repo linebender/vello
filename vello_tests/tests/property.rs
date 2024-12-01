@@ -1,8 +1,18 @@
 // Copyright 2024 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+//! Simple property tests of rendered Vello scenes.
+
+// The following lints are part of the Linebender standard set,
+// but resolving them has been deferred for now.
+// Feel free to send a PR that solves one or more of these.
+#![allow(
+    clippy::missing_assert_message,
+    clippy::allow_attributes_without_reason
+)]
+
 use vello::kurbo::{Affine, Rect};
-use vello::peniko::{Brush, Color, Format};
+use vello::peniko::{color::palette, Brush, Color, Format};
 use vello::Scene;
 use vello_tests::TestParams;
 
@@ -11,7 +21,7 @@ fn simple_square(use_cpu: bool) {
     scene.fill(
         vello::peniko::Fill::NonZero,
         Affine::IDENTITY,
-        &Brush::Solid(Color::RED),
+        &Brush::Solid(palette::css::RED),
         None,
         &Rect::from_center_size((100., 100.), (50., 50.)),
     );
@@ -44,22 +54,22 @@ fn simple_square(use_cpu: bool) {
 fn empty_scene(use_cpu: bool) {
     let scene = Scene::new();
 
-    // Adding an alpha factor here changes the resulting colour *slightly*,
+    // Adding an alpha factor here changes the resulting color *slightly*,
     // presumably due to pre-multiplied alpha.
     // We just assume that alpha scenarios work fine
-    let color = Color::PLUM;
+    let color = palette::css::PLUM;
     let params = TestParams {
         use_cpu,
-        base_colour: Some(color),
+        base_color: Some(color),
         ..TestParams::new("simple_square", 150, 150)
     };
     let image = vello_tests::render_then_debug_sync(&scene, &params).unwrap();
     assert_eq!(image.format, Format::Rgba8);
     for pixel in image.data.data().chunks_exact(4) {
         let &[r, g, b, a] = pixel else { unreachable!() };
-        let image_color = Color::rgba8(r, g, b, a);
-        if image_color != color {
-            panic!("Got {image_color:?}, expected clear colour {color:?}");
+        let image_color = Color::from_rgba8(r, g, b, a);
+        if image_color.premultiply().difference(color.premultiply()) > 1e-4 {
+            panic!("Got {image_color:?}, expected clear color {color:?}");
         }
     }
 }

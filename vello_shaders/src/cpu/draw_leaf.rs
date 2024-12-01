@@ -21,7 +21,7 @@ fn draw_leaf_main(
     info: &mut [u32],
     clip_inp: &mut [Clip],
 ) {
-    let num_blocks_total = (config.layout.n_draw_objects as usize + (WG_SIZE - 1)) / WG_SIZE;
+    let num_blocks_total = (config.layout.n_draw_objects as usize).div_ceil(WG_SIZE);
     let n_blocks_base = num_blocks_total / WG_SIZE;
     let remainder = num_blocks_total % WG_SIZE;
     let mut prefix = DrawMonoid::default();
