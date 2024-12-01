@@ -1,6 +1,9 @@
 // Copyright 2024 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+//! An example integrating Cosmic text with Vello.
+//! This renders a read-only snapshot of a simplified text editor using system fonts.
+
 use crate::{SceneParams, TestScene};
 
 use vello::kurbo::{Affine, Point, Rect, Size};
@@ -94,6 +97,7 @@ impl CosmicTextSceneState {
             if let Some(font) = font_system.get_font(font_id) {
                 let resource = Arc::new(font.data().to_vec());
                 let font_blob = Blob::new(resource);
+                Blob::as_ref(&font_blob);
                 let vello_font = Font::new(font_blob, index);
                 vello_fonts.insert(font_id, vello_font);
             }
@@ -362,7 +366,7 @@ fn create_glyphs(
     buffer_glyphs
 }
 
-// Copied directly from cosmic_text.
+// Copied directly from https://github.com/pop-os/cosmic-text/blob/58c2ccd1fb3daf0abc792f9dd52b5766b7125ccd/src/edit/editor.rs#L66
 fn cursor_position(cursor: &Cursor, run: &LayoutRun) -> Option<(i32, i32)> {
     let (cursor_glyph, cursor_glyph_offset) = cursor_glyph_opt(cursor, run)?;
     let x = match run.glyphs.get(cursor_glyph) {
@@ -393,7 +397,7 @@ fn cursor_position(cursor: &Cursor, run: &LayoutRun) -> Option<(i32, i32)> {
     Some((x, run.line_top as i32))
 }
 
-// Copied directly from cosmic_text.
+// Copied directly from https://github.com/pop-os/cosmic-text/blob/58c2ccd1fb3daf0abc792f9dd52b5766b7125ccd/src/edit/editor.rs#L30
 fn cursor_glyph_opt(cursor: &Cursor, run: &LayoutRun) -> Option<(usize, f32)> {
     if cursor.line == run.line_i {
         for (glyph_i, glyph) in run.glyphs.iter().enumerate() {
