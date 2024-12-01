@@ -1,7 +1,7 @@
 // Copyright 2024 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::SceneParams;
+use crate::{SceneParams, TestScene};
 
 use vello::kurbo::{Affine, Point, Rect, Size};
 use vello::peniko::{Blob, Color, Fill, Font};
@@ -17,6 +17,54 @@ use unicode_segmentation::UnicodeSegmentation;
 use std::cmp;
 use std::collections::HashMap;
 use std::sync::Arc;
+
+pub struct CosmicData {
+    
+}
+
+impl TestScene for CosmicTextSceneState {
+    fn render(&mut self, scene: &mut Scene, _scene_params: &mut SceneParams) {
+        let buffer_glyphs = &self.buffer_glyphs;
+        let vello_fonts = &self.vello_fonts;
+
+        let text_transform = Affine::translate((500.0, 300.0));
+
+        // Draw the Glyphs
+        for buffer_line in &buffer_glyphs.buffer_lines {
+            for glyph_highlight in &buffer_line.glyph_highlights {
+                scene.fill(
+                    Fill::NonZero,
+                    text_transform,
+                    buffer_glyphs.glyph_highlight_color,
+                    None,
+                    glyph_highlight,
+                );
+            }
+
+            if let Some(cursor) = &buffer_line.cursor {
+                scene.fill(
+                    Fill::NonZero,
+                    text_transform,
+                    buffer_glyphs.cursor_color,
+                    None,
+                    cursor,
+                );
+            }
+
+            for glyph_run in &buffer_line.glyph_runs {
+                let font = vello_fonts.get(&glyph_run.font).unwrap();
+                let glyph_color = glyph_run.glyph_color;
+                let glyphs = glyph_run.glyphs.clone();
+                scene
+                    .draw_glyphs(font)
+                    .font_size(buffer_glyphs.font_size)
+                    .brush(glyph_color)
+                    .transform(text_transform)
+                    .draw(Fill::NonZero, glyphs.into_iter());
+            }
+        }
+    }
+}
 
 pub struct CosmicTextSceneState {
     pub font_system: FontSystem,
@@ -88,10 +136,10 @@ impl CosmicTextSceneState {
             vello_fonts,
             buffer_glyphs: create_glyphs_for_editor(
                 &editor,
-                Color::rgba8(255, 255, 255, 255),
-                Color::rgba8(255, 0, 0, 255),
-                Color::rgba8(0, 0, 255, 255),
-                Color::rgba8(255, 255, 255, 255),
+                Color::from_rgba8(255, 255, 255, 255),
+                Color::from_rgba8(255, 0, 0, 255),
+                Color::from_rgba8(0, 0, 255, 255),
+                Color::from_rgba8(255, 255, 255, 255),
             ),
         }
     }
@@ -114,48 +162,6 @@ struct BufferGlyphRun {
     font: ID,
     glyphs: Vec<Glyph>,
     glyph_color: Color,
-}
-
-pub(super) fn cosmic_text(scene: &mut Scene, scene_params: &mut SceneParams) {
-    let buffer_glyphs = &scene_params.cosmic_text_scene_state.buffer_glyphs;
-    let vello_fonts = &scene_params.cosmic_text_scene_state.vello_fonts;
-
-    let text_transform = Affine::translate((500.0, 300.0));
-
-    // Draw the Glyphs
-    for buffer_line in &buffer_glyphs.buffer_lines {
-        for glyph_highlight in &buffer_line.glyph_highlights {
-            scene.fill(
-                Fill::NonZero,
-                text_transform,
-                buffer_glyphs.glyph_highlight_color,
-                None,
-                glyph_highlight,
-            );
-        }
-
-        if let Some(cursor) = &buffer_line.cursor {
-            scene.fill(
-                Fill::NonZero,
-                text_transform,
-                buffer_glyphs.cursor_color,
-                None,
-                cursor,
-            );
-        }
-
-        for glyph_run in &buffer_line.glyph_runs {
-            let font = vello_fonts.get(&glyph_run.font).unwrap();
-            let glyph_color = glyph_run.glyph_color;
-            let glyphs = glyph_run.glyphs.clone();
-            scene
-                .draw_glyphs(font)
-                .font_size(buffer_glyphs.font_size)
-                .brush(glyph_color)
-                .transform(text_transform)
-                .draw(Fill::NonZero, glyphs.into_iter());
-        }
-    }
 }
 
 struct EditorInfo {
@@ -215,8 +221,8 @@ fn create_glyphs(
 
     let mut buffer_glyphs = BufferGlyphs {
         font_size: buffer.metrics().font_size,
-        glyph_highlight_color: Default::default(),
-        cursor_color: Default::default(),
+        glyph_highlight_color: Color::WHITE,
+        cursor_color: Color::WHITE,
         buffer_lines: vec![],
     };
 
@@ -305,12 +311,12 @@ fn create_glyphs(
 
         for glyph in layout_run.glyphs {
             let mut glyph_color = match glyph.color_opt {
-                Some(color) => Color::rgba8(color.r(), color.g(), color.b(), color.a()),
+                Some(color) => Color::from_rgba8(color.r(), color.g(), color.b(), color.a()),
                 None => text_color,
             };
 
             if let Some(editor_info) = &editor_info {
-                if text_color != editor_info.selected_text_color {
+                if text_color.components != editor_info.selected_text_color.components {
                     if let Some((start, end)) = editor_info.selection_bounds {
                         if line_i >= start.line
                             && line_i <= end.line
@@ -324,7 +330,7 @@ fn create_glyphs(
             }
 
             if let Some((last_font, last_glyph_color)) = last_font {
-                if last_font != glyph.font_id || last_glyph_color != glyph_color {
+                if last_font != glyph.font_id || last_glyph_color.components != glyph_color.components {
                     buffer_line.glyph_runs.push(BufferGlyphRun {
                         font: last_font,
                         glyphs: current_glyphs,

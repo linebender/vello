@@ -61,7 +61,6 @@ macro_rules! scene {
 }
 
 export_scenes!(
-    #[cfg(feature = "cosmic_text")] cosmic_text_scene(cosmic_text),
     splash_with_tiger(impls::splash_with_tiger(), "splash_with_tiger", false),
     funky_paths(funky_paths),
     stroke_styles(impls::stroke_styles(Affine::IDENTITY), "stroke_styles", false),
@@ -89,7 +88,8 @@ export_scenes!(
     many_draw_objects(many_draw_objects),
     blurred_rounded_rect(blurred_rounded_rect),
     image_sampling(image_sampling),
-    image_extend_modes(image_extend_modes)
+    image_extend_modes(image_extend_modes),
+    #[cfg(feature = "cosmic_text")] cosmic_text_scene(crate::cosmic_text_scene::CosmicTextSceneState::default(), "cosmic_text", false)
 );
 
 /// Implementations for the test scenes.
@@ -110,9 +110,6 @@ mod impls {
     use vello::*;
 
     const FLOWER_IMAGE: &[u8] = include_bytes!("../../assets/splash-flower.jpg");
-
-    #[cfg(feature = "cosmic_text")]
-    pub(super) use crate::cosmic_text_scene::cosmic_text;
 
     pub(super) fn emoji(scene: &mut Scene, params: &mut SceneParams) {
         let text_size = 120. + 20. * (params.time * 2.).sin() as f32;

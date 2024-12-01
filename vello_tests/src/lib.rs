@@ -57,9 +57,6 @@ pub use snapshot::{
     smoke_snapshot_test_sync, snapshot_test, snapshot_test_sync, Snapshot, SnapshotDirectory,
 };
 
-#[cfg(feature = "cosmic_text")]
-use scenes::cosmic_text_scene::CosmicTextSceneState;
-
 pub struct TestParams {
     pub width: u32,
     pub height: u32,
@@ -269,8 +266,6 @@ pub fn encode_test_scene(mut test_scene: ExampleScene, test_params: &mut TestPar
         interactive: false,
         resolution: None,
         text: &mut text,
-        #[cfg(feature = "cosmic_text")]
-        cosmic_text_scene_state: &CosmicTextSceneState::default(),
     };
     test_scene
         .function

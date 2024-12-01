@@ -35,7 +35,6 @@ pub mod test_scenes;
 #[cfg(feature = "cosmic_text")]
 pub mod cosmic_text_scene;
 
-use anyhow::{anyhow, Result};
 use clap::Args;
 pub use images::ImageCache;
 pub use simple_text::SimpleText;
@@ -46,9 +45,6 @@ use test_scenes::test_scenes;
 use vello::kurbo::Vec2;
 use vello::peniko::{color, Color};
 use vello::Scene;
-
-#[cfg(feature = "cosmic_text")]
-use crate::cosmic_text_scene::CosmicTextSceneState;
 
 pub struct SceneParams<'a> {
     pub time: f64,
@@ -61,8 +57,6 @@ pub struct SceneParams<'a> {
     pub resolution: Option<Vec2>,
     pub base_color: Option<Color>,
     pub complexity: usize,
-    #[cfg(feature = "cosmic_text")]
-    pub cosmic_text_scene_state: &'a CosmicTextSceneState,
 }
 
 pub struct SceneConfig {

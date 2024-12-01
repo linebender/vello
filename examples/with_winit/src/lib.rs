@@ -41,9 +41,6 @@ use vello::peniko::{color::palette, Color};
 use vello::util::{RenderContext, RenderSurface};
 use vello::{low_level::BumpAllocators, AaConfig, Renderer, RendererOptions, Scene};
 
-#[cfg(feature = "cosmic_text")]
-use scenes::cosmic_text_scene::CosmicTextSceneState;
-
 use winit::dpi::LogicalSize;
 use winit::event_loop::EventLoop;
 use winit::window::{Window, WindowAttributes};
@@ -179,9 +176,6 @@ struct VelloApp<'s> {
     modifiers: ModifiersState,
 
     debug: DebugLayers,
-
-    #[cfg(feature = "cosmic_text")]
-    cosmic_text_scene_state: CosmicTextSceneState,
 }
 
 impl ApplicationHandler<UserEvent> for VelloApp<'_> {
@@ -488,8 +482,6 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
                     base_color: None,
                     interactive: true,
                     complexity: self.complexity,
-                    #[cfg(feature = "cosmic_text")]
-                    cosmic_text_scene_state: &self.cosmic_text_scene_state,
                 };
                 example_scene
                     .function
@@ -766,8 +758,6 @@ fn run(
         prev_scene_ix: 0,
         modifiers: ModifiersState::default(),
         debug,
-        #[cfg(feature = "cosmic_text")]
-        cosmic_text_scene_state: CosmicTextSceneState::new(),
     };
 
     event_loop.run_app(&mut app).expect("run to completion");
