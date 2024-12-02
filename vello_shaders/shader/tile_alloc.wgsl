@@ -26,7 +26,7 @@ var<storage, read_write> paths: array<Path>;
 @group(0) @binding(5)
 var<storage, read_write> tiles: array<Tile>;
 
-let WG_SIZE = 256u;
+const WG_SIZE = 256u;
 
 var<workgroup> sh_tile_count: array<u32, WG_SIZE>;
 var<workgroup> sh_tile_offset: u32;

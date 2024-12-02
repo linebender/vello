@@ -43,31 +43,30 @@ struct Config {
 
 // Geometry of tiles and bins
 
-let TILE_WIDTH = 16u;
-let TILE_HEIGHT = 16u;
+const TILE_WIDTH = 16u;
+const TILE_HEIGHT = 16u;
 // Number of tiles per bin
-let N_TILE_X = 16u;
-let N_TILE_Y = 16u;
-//let N_TILE = N_TILE_X * N_TILE_Y;
-let N_TILE = 256u;
+const N_TILE_X = 16u;
+const N_TILE_Y = 16u;
+const N_TILE = N_TILE_X * N_TILE_Y;
 
 // Not currently supporting non-square tiles
-let TILE_SCALE = 0.0625;
+const TILE_SCALE = 0.0625;
 
 // The "split" point between using local memory in fine for the blend stack and spilling to the blend_spill buffer.
 // A higher value will increase vgpr ("register") pressure in fine, but decrease required dynamic memory allocation.
 // If changing, also change in vello_shaders/src/cpu/coarse.rs.
-let BLEND_STACK_SPLIT = 4u;
+const BLEND_STACK_SPLIT = 4u;
 
 // The following are computed in draw_leaf from the generic gradient parameters
 // encoded in the scene, and stored in the gradient's info struct, for
 // consumption during fine rasterization.
 
 // Radial gradient kinds
-let RAD_GRAD_KIND_CIRCULAR = 1u;
-let RAD_GRAD_KIND_STRIP = 2u;
-let RAD_GRAD_KIND_FOCAL_ON_CIRCLE = 3u;
-let RAD_GRAD_KIND_CONE = 4u;
+const RAD_GRAD_KIND_CIRCULAR = 1u;
+const RAD_GRAD_KIND_STRIP = 2u;
+const RAD_GRAD_KIND_FOCAL_ON_CIRCLE = 3u;
+const RAD_GRAD_KIND_CONE = 4u;
 
 // Radial gradient flags
-let RAD_GRAD_SWAPPED = 1u;
+const RAD_GRAD_SWAPPED = 1u;

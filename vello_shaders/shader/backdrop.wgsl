@@ -15,7 +15,7 @@ var<uniform> config: Config;
 @group(0) @binding(1)
 var<storage, read_write> tiles: array<Tile>;
 
-let WG_SIZE = 64u;
+const WG_SIZE = 64u;
 
 var<workgroup> sh_backdrop: array<i32, WG_SIZE>;
 

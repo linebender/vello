@@ -13,8 +13,8 @@ var<storage> reduced_in: array<TagMonoid>;
 @group(0) @binding(1)
 var<storage, read_write> reduced: array<TagMonoid>;
 
-let LG_WG_SIZE = 8u;
-let WG_SIZE = 256u;
+const LG_WG_SIZE = 8u;
+const WG_SIZE = 256u;
 
 var<workgroup> sh_scratch: array<TagMonoid, WG_SIZE>;
 

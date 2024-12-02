@@ -16,7 +16,7 @@ var<storage, read_write> reduced: array<Bic>;
 @group(0) @binding(3)
 var<storage, read_write> clip_out: array<ClipEl>;
 
-let WG_SIZE = 256u;
+const WG_SIZE = 256u;
 var<workgroup> sh_bic: array<Bic, WG_SIZE>;
 var<workgroup> sh_parent: array<u32, WG_SIZE>;
 var<workgroup> sh_path_ix: array<u32, WG_SIZE>;
