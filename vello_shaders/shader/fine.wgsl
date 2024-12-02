@@ -23,7 +23,7 @@ var<storage> segments: array<Segment>;
 #import blend
 #import ptcl
 
-let GRADIENT_WIDTH = 512;
+const GRADIENT_WIDTH = 512;
 
 @group(0) @binding(2)
 var<storage> ptcl: array<u32>;
@@ -49,25 +49,25 @@ var image_atlas: texture_2d<f32>;
 const MASK_LUT_INDEX: u32 = 8;
 
 #ifdef msaa8
-let MASK_WIDTH = 32u;
-let MASK_HEIGHT = 32u;
-let SH_SAMPLES_SIZE = 512u;
-let SAMPLE_WORDS_PER_PIXEL = 2u;
+const MASK_WIDTH = 32u;
+const MASK_HEIGHT = 32u;
+const SH_SAMPLES_SIZE = 512u;
+const SAMPLE_WORDS_PER_PIXEL = 2u;
 // This might be better in uniform, but that has 16 byte alignment
 @group(0) @binding(MASK_LUT_INDEX)
 var<storage> mask_lut: array<u32, 256u>;
 #endif
 
 #ifdef msaa16
-let MASK_WIDTH = 64u;
-let MASK_HEIGHT = 64u;
-let SH_SAMPLES_SIZE = 1024u;
-let SAMPLE_WORDS_PER_PIXEL = 4u;
+const MASK_WIDTH = 64u;
+const MASK_HEIGHT = 64u;
+const SH_SAMPLES_SIZE = 1024u;
+const SAMPLE_WORDS_PER_PIXEL = 4u;
 @group(0) @binding(MASK_LUT_INDEX)
 var<storage> mask_lut: array<u32, 2048u>;
 #endif
 
-let WG_SIZE = 64u;
+const WG_SIZE = 64u;
 var<workgroup> sh_count: array<u32, WG_SIZE>;
 
 // This array contains the winding number of the top left corner of each
@@ -108,11 +108,11 @@ fn span(a: f32, b: f32) -> u32 {
     return u32(max(ceil(max(a, b)) - floor(min(a, b)), 1.0));
 }
 
-let SEG_SIZE = 5u;
+const SEG_SIZE = 5u;
 
 // See cpu_shaders/util.rs for explanation of these.
-let ONE_MINUS_ULP: f32 = 0.99999994;
-let ROBUST_EPSILON: f32 = 2e-7;
+const ONE_MINUS_ULP: f32 = 0.99999994;
+const ROBUST_EPSILON: f32 = 2e-7;
 
 // Multisampled path rendering algorithm.
 //
@@ -836,7 +836,7 @@ fn extend_mode(t: f32, mode: u32) -> f32 {
     }
 }
 
-let PIXELS_PER_THREAD = 4u;
+const PIXELS_PER_THREAD = 4u;
 
 #ifndef msaa
 

@@ -11,4 +11,4 @@ struct Cubic {
     flags: u32,
 }
 
-let CUBIC_IS_STROKE = 1u;
+const CUBIC_IS_STROKE = 1u;

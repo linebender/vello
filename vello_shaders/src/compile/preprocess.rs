@@ -169,15 +169,7 @@ pub fn preprocess(
             }
         }
         if stack.iter().all(|item| item.active) {
-            // Naga does not yet recognize `const` but web does not allow global `let`. We
-            // use `let` in our canonical sources to satisfy wgsl-analyzer but replace with
-            // `const` when targeting web.
-            if line.starts_with("let ") {
-                output.push_str("const");
-                output.push_str(&line[3..]);
-            } else {
-                output.push_str(line);
-            }
+            output.push_str(line);
             output.push('\n');
         }
     }

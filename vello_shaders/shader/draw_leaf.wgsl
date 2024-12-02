@@ -32,7 +32,7 @@ var<storage, read_write> clip_inp: array<ClipInp>;
 
 #import util
 
-let WG_SIZE = 256u;
+const WG_SIZE = 256u;
 
 fn read_transform(transform_base: u32, ix: u32) -> Transform {
     let base = transform_base + ix * 6u;

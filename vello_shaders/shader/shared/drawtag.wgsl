@@ -16,20 +16,20 @@ struct DrawMonoid {
 
 // Each draw object has a 32-bit draw tag, which is a bit-packed
 // version of the draw monoid.
-let DRAWTAG_NOP = 0u;
-let DRAWTAG_FILL_COLOR = 0x44u;
-let DRAWTAG_FILL_LIN_GRADIENT = 0x114u;
-let DRAWTAG_FILL_RAD_GRADIENT = 0x29cu;
-let DRAWTAG_FILL_SWEEP_GRADIENT = 0x254u;
-let DRAWTAG_FILL_IMAGE = 0x248u;
-let DRAWTAG_BLURRED_ROUNDED_RECT = 0x2d4u;
-let DRAWTAG_BEGIN_CLIP = 0x9u;
-let DRAWTAG_END_CLIP = 0x21u;
+const DRAWTAG_NOP = 0u;
+const DRAWTAG_FILL_COLOR = 0x44u;
+const DRAWTAG_FILL_LIN_GRADIENT = 0x114u;
+const DRAWTAG_FILL_RAD_GRADIENT = 0x29cu;
+const DRAWTAG_FILL_SWEEP_GRADIENT = 0x254u;
+const DRAWTAG_FILL_IMAGE = 0x248u;
+const DRAWTAG_BLURRED_ROUNDED_RECT = 0x2d4u;
+const DRAWTAG_BEGIN_CLIP = 0x9u;
+const DRAWTAG_END_CLIP = 0x21u;
 
 /// The first word of each draw info stream entry contains the flags. This is not a part of the
 /// draw object stream but get used after the draw objects have been reduced on the GPU.
 /// 0 represents a non-zero fill. 1 represents an even-odd fill.
-let DRAW_INFO_FLAGS_FILL_RULE_BIT = 1u;
+const DRAW_INFO_FLAGS_FILL_RULE_BIT = 1u;
 
 fn draw_monoid_identity() -> DrawMonoid {
     return DrawMonoid();

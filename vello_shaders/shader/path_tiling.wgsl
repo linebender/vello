@@ -31,8 +31,8 @@ fn span(a: f32, b: f32) -> u32 {
 }
 
 // See cpu_shaders/util.rs for explanation of these.
-let ONE_MINUS_ULP: f32 = 0.99999994;
-let ROBUST_EPSILON: f32 = 2e-7;
+const ONE_MINUS_ULP: f32 = 0.99999994;
+const ROBUST_EPSILON: f32 = 2e-7;
 
 // One invocation for each tile that is to be written.
 // Total number of invocations = bump.seg_counts

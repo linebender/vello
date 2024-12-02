@@ -19,7 +19,7 @@ var<storage> paths: array<Path>;
 @group(0) @binding(3)
 var<storage, read_write> tiles: array<Tile>;
 
-let WG_SIZE = 256u;
+const WG_SIZE = 256u;
 
 var<workgroup> sh_row_width: array<u32, WG_SIZE>;
 var<workgroup> sh_row_count: array<u32, WG_SIZE>;

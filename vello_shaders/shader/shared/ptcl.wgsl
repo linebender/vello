@@ -3,26 +3,26 @@
 
 // Layout of per-tile command list
 // Initial allocation, in u32's.
-let PTCL_INITIAL_ALLOC = 64u;
-let PTCL_INCREMENT = 256u;
+const PTCL_INITIAL_ALLOC = 64u;
+const PTCL_INCREMENT = 256u;
 
 // Amount of space taken by jump
-let PTCL_HEADROOM = 2u;
+const PTCL_HEADROOM = 2u;
 
 // Tags for PTCL commands
-let CMD_END = 0u;
-let CMD_FILL = 1u;
-let CMD_STROKE = 2u;
-let CMD_SOLID = 3u;
-let CMD_COLOR = 5u;
-let CMD_LIN_GRAD = 6u;
-let CMD_RAD_GRAD = 7u;
-let CMD_SWEEP_GRAD = 8u;
-let CMD_IMAGE = 9u;
-let CMD_BEGIN_CLIP = 10u;
-let CMD_END_CLIP = 11u;
-let CMD_JUMP = 12u;
-let CMD_BLUR_RECT = 13u;
+const CMD_END = 0u;
+const CMD_FILL = 1u;
+const CMD_STROKE = 2u;
+const CMD_SOLID = 3u;
+const CMD_COLOR = 5u;
+const CMD_LIN_GRAD = 6u;
+const CMD_RAD_GRAD = 7u;
+const CMD_SWEEP_GRAD = 8u;
+const CMD_IMAGE = 9u;
+const CMD_BEGIN_CLIP = 10u;
+const CMD_END_CLIP = 11u;
+const CMD_JUMP = 12u;
+const CMD_BLUR_RECT = 13u;
 
 // The individual PTCL structs are written here, but read/write is by
 // hand in the relevant shaders

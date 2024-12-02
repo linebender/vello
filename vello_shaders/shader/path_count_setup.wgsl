@@ -12,7 +12,7 @@ var<storage, read_write> bump: BumpAllocators;
 var<storage, read_write> indirect: IndirectCount;
 
 // Partition size for path count stage
-let WG_SIZE = 256u;
+const WG_SIZE = 256u;
 
 @compute @workgroup_size(1)
 fn main() {

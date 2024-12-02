@@ -15,7 +15,7 @@ var<storage, read_write> indirect: IndirectCount;
 var<storage, read_write> ptcl: array<u32>;
 
 // Partition size for path tiling stage
-let WG_SIZE = 256u;
+const WG_SIZE = 256u;
 
 @compute @workgroup_size(1)
 fn main() {

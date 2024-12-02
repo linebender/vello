@@ -27,7 +27,7 @@ var<storage, read_write> draw_monoids: array<DrawMonoid>;
 @group(0) @binding(6)
 var<storage, read_write> clip_bboxes: array<vec4<f32>>;
 
-let WG_SIZE = 256u;
+const WG_SIZE = 256u;
 var<workgroup> sh_bic: array<Bic, 510 >;
 var<workgroup> sh_stack: array<u32, WG_SIZE>;
 var<workgroup> sh_stack_bbox: array<vec4<f32>, WG_SIZE>;
