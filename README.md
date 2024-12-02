@@ -148,7 +148,7 @@ A separate Linebender integration for rendering raw scenes or Lottie and SVG fil
 
 ### Cosmic Text
 
-An example scene demonstrating the integration between COSMIC text for font loading and text layout through [COSMIC Text Scene](https://github.com/linebender/vello/blob/main/examples/scenes/src/cosmic_text_scene.rs).
+An example scene demonstrating the integration of COSMIC text for font loading and text layout through [COSMIC Text Scene](https://github.com/linebender/vello/blob/main/examples/scenes/src/cosmic_text_scene.rs).
 This scene can be run with:
 
 ```shell
