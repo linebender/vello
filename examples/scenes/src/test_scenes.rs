@@ -89,7 +89,7 @@ export_scenes!(
     blurred_rounded_rect(blurred_rounded_rect),
     image_sampling(image_sampling),
     image_extend_modes(image_extend_modes),
-    #[cfg(feature = "cosmic_text")] cosmic_text_scene(crate::cosmic_text_scene::CosmicTextSceneState::default(), "cosmic_text", false)
+    #[cfg(feature = "cosmic_text")] cosmic_text_scene(crate::cosmic_text_scene::CosmicTextScene::default(), "cosmic_text", false)
 );
 
 /// Implementations for the test scenes.

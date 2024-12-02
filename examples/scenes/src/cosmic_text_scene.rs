@@ -21,9 +21,7 @@ use std::cmp;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-pub struct CosmicData {}
-
-impl TestScene for CosmicTextSceneState {
+impl TestScene for CosmicTextScene {
     fn render(&mut self, scene: &mut Scene, _scene_params: &mut SceneParams) {
         let buffer_glyphs = &self.buffer_glyphs;
         let vello_fonts = &self.vello_fonts;
@@ -67,13 +65,13 @@ impl TestScene for CosmicTextSceneState {
     }
 }
 
-pub struct CosmicTextSceneState {
+pub struct CosmicTextScene {
     pub font_system: FontSystem,
     pub vello_fonts: HashMap<ID, Font>,
     pub buffer_glyphs: BufferGlyphs,
 }
 
-impl Default for CosmicTextSceneState {
+impl Default for CosmicTextScene {
     fn default() -> Self {
         Self::new()
     }
@@ -96,7 +94,7 @@ impl AsRef<[u8]> for CosmicFontBlobAdapter {
     }
 }
 
-impl CosmicTextSceneState {
+impl CosmicTextScene {
     pub fn new() -> Self {
         let mut font_system = FontSystem::new();
         let mut vello_fonts = HashMap::new();
