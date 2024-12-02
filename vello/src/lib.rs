@@ -123,6 +123,7 @@ mod render;
 mod scene;
 mod shaders;
 
+pub mod graph;
 #[cfg(feature = "wgpu")]
 pub mod util;
 #[cfg(feature = "wgpu")]
