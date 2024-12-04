@@ -138,28 +138,28 @@ mod impls {
         scene.fill(
             Fill::NonZero,
             Affine::translate((100.0, 100.0)),
-            Color::from_rgba8(0, 0, 255, 255),
+            palette::css::BLUE,
             None,
             &missing_movetos,
         );
         scene.fill(
             Fill::NonZero,
             Affine::IDENTITY,
-            Color::from_rgba8(0, 0, 255, 255),
+            palette::css::BLUE,
             None,
             &empty,
         );
         scene.fill(
             Fill::NonZero,
             Affine::IDENTITY,
-            Color::from_rgba8(0, 0, 255, 255),
+            palette::css::BLUE,
             None,
             &only_movetos,
         );
         scene.stroke(
             &Stroke::new(8.0),
             Affine::translate((100.0, 100.0)),
-            Color::from_rgba8(0, 255, 255, 255),
+            palette::css::AQUA,
             None,
             &missing_movetos,
         );
@@ -561,13 +561,7 @@ mod impls {
             let t = Affine::translate(((i % 2) as f64 * 306., (i / 2) as f64 * 340.)) * t;
             params.text.add(scene, None, 24., None, t, rule.1);
             let t = Affine::translate((0., 5.)) * t * scale;
-            scene.fill(
-                Fill::NonZero,
-                t,
-                &Brush::Solid(Color::from_rgba8(128, 128, 128, 255)),
-                None,
-                &rect,
-            );
+            scene.fill(Fill::NonZero, t, palette::css::GRAY, None, &rect);
             scene.fill(
                 rule.0,
                 Affine::translate((0., 10.)) * t,
@@ -583,13 +577,7 @@ mod impls {
             let t = Affine::translate(((i % 2) as f64 * 306., (i / 2) as f64 * 340.)) * t;
             params.text.add(scene, None, 24., None, t, rule.1);
             let t = Affine::translate((0., 5.)) * t * scale;
-            scene.fill(
-                Fill::NonZero,
-                t,
-                &Brush::Solid(Color::from_rgba8(128, 128, 128, 255)),
-                None,
-                &rect,
-            );
+            scene.fill(Fill::NonZero, t, palette::css::GRAY, None, &rect);
             scene.fill(
                 rule.0,
                 Affine::translate((0., 10.)) * t,
@@ -686,7 +674,7 @@ mod impls {
         scene.fill(
             Fill::NonZero,
             Affine::IDENTITY,
-            &Brush::Solid(Color::from_rgba8(128, 128, 128, 255)),
+            palette::css::GRAY,
             None,
             &rect,
         );
@@ -734,7 +722,7 @@ mod impls {
         scene.stroke(
             &Stroke::new(5.0),
             Affine::IDENTITY,
-            &Brush::Solid(Color::from_rgba8(128, 0, 0, 255)),
+            palette::css::MAROON,
             None,
             &[MoveTo(center), LineTo(p1)],
         );
@@ -823,11 +811,7 @@ mod impls {
             Sweep,
         }
         pub(super) fn square(scene: &mut Scene, kind: Kind, transform: Affine, extend: Extend) {
-            let colors = [
-                palette::css::RED,
-                Color::from_rgba8(0, 255, 0, 255),
-                palette::css::BLUE,
-            ];
+            let colors = [palette::css::RED, palette::css::LIME, palette::css::BLUE];
             let width = 300f64;
             let height = 300f64;
             let gradient: Brush = match kind {
@@ -1168,7 +1152,7 @@ mod impls {
         scene.stroke(
             &Stroke::new(2.0),
             Affine::IDENTITY,
-            Color::from_rgba8(0, 0, 255, 255),
+            palette::css::BLUE,
             None,
             &path,
         );
@@ -1199,7 +1183,7 @@ mod impls {
         scene.fill(
             Fill::NonZero,
             Affine::IDENTITY,
-            &Brush::Solid(Color::from_rgba8(0, 255, 0, 255)),
+            palette::css::LIME,
             None,
             &rect,
         );
@@ -1213,14 +1197,14 @@ mod impls {
         scene.fill(
             Fill::NonZero,
             Affine::IDENTITY,
-            Color::from_rgba8(255, 0, 0, 255),
+            palette::css::RED,
             None,
             &make_diamond(1024.0, 100.0),
         );
         scene.fill(
             Fill::NonZero,
             Affine::IDENTITY,
-            Color::from_rgba8(0, 255, 0, 0x80),
+            palette::css::LIME.with_alpha(0.5),
             None,
             &make_diamond(1024.0, 125.0),
         );
@@ -1233,7 +1217,7 @@ mod impls {
         scene.fill(
             Fill::NonZero,
             Affine::IDENTITY,
-            Color::from_rgba8(0, 0, 255, 0x80),
+            palette::css::BLUE.with_alpha(0.5),
             None,
             &make_diamond(1024.0, 175.0),
         );
@@ -1256,11 +1240,7 @@ mod impls {
             let radial = Gradient::new_radial((*x, *y), 100.0).with_stops([*c, color2]);
             scene.fill(Fill::NonZero, transform, &radial, None, &rect);
         }
-        const COLORS: &[Color] = &[
-            Color::from_rgba8(255, 0, 0, 255),
-            Color::from_rgba8(0, 255, 0, 255),
-            Color::from_rgba8(0, 0, 255, 255),
-        ];
+        const COLORS: &[Color] = &[palette::css::RED, palette::css::LIME, palette::css::BLUE];
         scene.push_layer(Mix::Normal, 1.0, transform, &rect);
         for (i, c) in COLORS.iter().enumerate() {
             let linear = Gradient::new_linear((0.0, 0.0), (0.0, 200.0))
@@ -1548,7 +1528,7 @@ mod impls {
         scene.fill(
             Fill::NonZero,
             Affine::IDENTITY,
-            Color::from_rgba8(255, 255, 255, 128),
+            palette::css::WHITE.with_alpha(0.5),
             None,
             &Rect::new(50.0, 50.0, 500.0, 500.0),
         );
@@ -1608,7 +1588,7 @@ mod impls {
         scene.fill(
             Fill::NonZero,
             Affine::new([scale, 0.0, 0.0, scale, 27.07470703125, 176.40660533027858]),
-            Color::from_rgba8(0, 0, 255, 255),
+            palette::css::BLUE,
             None,
             &large_background_rect,
         );
@@ -1622,7 +1602,7 @@ mod impls {
                 29.027636718750003,
                 182.9755506427786,
             ]),
-            Color::from_rgba8(0, 255, 0, 255),
+            palette::css::LIME,
             None,
             &inside_clip_rect,
         );
@@ -1636,7 +1616,7 @@ mod impls {
                 29.027636718750003,
                 scale * 559.3583631427786,
             ]),
-            Color::from_rgba8(255, 0, 0, 255),
+            palette::css::RED,
             None,
             &outside_clip_rect,
         );

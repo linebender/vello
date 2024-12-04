@@ -48,7 +48,7 @@ impl Snapshot {
         scene.fill(
             Fill::NonZero,
             offset,
-            &Brush::Solid(Color::from_rgba8(0, 0, 0, 200)),
+            palette::css::BLACK.with_alpha(0.75),
             None,
             &Rect::new(0., 0., width, height),
         );
@@ -310,7 +310,7 @@ pub fn draw_gpu_profiling(
     scene.fill(
         Fill::NonZero,
         offset,
-        &Brush::Solid(Color::from_rgba8(0, 0, 0, 200)),
+        palette::css::BLACK.with_alpha(0.75),
         None,
         &Rect::new(0., 0., width, height),
     );
