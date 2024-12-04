@@ -6,7 +6,7 @@ mod bitmap;
 use std::sync::Arc;
 
 use peniko::{
-    color::{palette, DynamicColor, Srgb},
+    color::{palette, AlphaColor, DynamicColor, Srgb},
     kurbo::{Affine, BezPath, Point, Rect, Shape, Stroke, Vec2},
     BlendMode, Blob, Brush, BrushRef, Color, ColorStop, ColorStops, ColorStopsSource, Compose,
     Extend, Fill, Font, Gradient, Image, Mix, StyleRef,
@@ -979,7 +979,9 @@ fn conv_brush(
     }
 }
 
-fn color_index(cpal: &'_ Cpal<'_>, palette_index: u16) -> Option<Color> {
+// The OpenType color palette is defined to be using the sRGB color space.
+// <https://learn.microsoft.com/en-us/typography/opentype/spec/cpal#palette-entries-and-color-records>
+fn color_index(cpal: &'_ Cpal<'_>, palette_index: u16) -> Option<AlphaColor<Srgb>> {
     // The "application determined" foreground color should be used
     // This will be handled by the caller
     if palette_index == 0xFFFF {
@@ -988,7 +990,7 @@ fn color_index(cpal: &'_ Cpal<'_>, palette_index: u16) -> Option<Color> {
     let actual_colors = cpal.color_records_array().unwrap().unwrap();
     // TODO: Error reporting in the `None` case
     let color = actual_colors.get(usize::from(palette_index))?;
-    Some(Color::from_rgba8(
+    Some(AlphaColor::<Srgb>::from_rgba8(
         color.red,
         color.green,
         color.blue,
