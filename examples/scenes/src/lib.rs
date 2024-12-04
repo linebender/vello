@@ -32,6 +32,9 @@ mod simple_text;
 mod svg;
 pub mod test_scenes;
 
+#[cfg(feature = "cosmic_text")]
+pub mod cosmic_text_scene;
+
 use clap::Args;
 pub use images::ImageCache;
 pub use simple_text::SimpleText;

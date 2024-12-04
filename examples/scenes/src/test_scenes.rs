@@ -13,19 +13,27 @@ pub fn test_scenes() -> SceneSet {
 ///
 /// This is used to avoid having to repeatedly define a
 macro_rules! export_scenes {
-    ($($scene_name: ident($($scene: tt)+)),*$(,)?) => {
+    ($(
+        $(#[cfg($feature:meta)])?  // Optional feature gate
+        $scene_name:ident($($scene:tt)+)
+    ),*$(,)?) => {
         pub fn test_scenes_inner() -> SceneSet {
-            let scenes = vec![
-                $($scene_name()),+
-            ];
+            let mut scenes = Vec::new();
+            $(
+                $(#[cfg($feature)])?
+                {
+                    scenes.push($scene_name());
+                }
+            )*
             SceneSet { scenes }
         }
 
         $(
+            $(#[cfg($feature)])?
             pub fn $scene_name() -> ExampleScene {
                 scene!($($scene)+)
             }
-        )+
+        )*
     };
 }
 
@@ -80,7 +88,8 @@ export_scenes!(
     many_draw_objects(many_draw_objects),
     blurred_rounded_rect(blurred_rounded_rect),
     image_sampling(image_sampling),
-    image_extend_modes(image_extend_modes)
+    image_extend_modes(image_extend_modes),
+    #[cfg(feature = "cosmic_text")] cosmic_text_scene(crate::cosmic_text_scene::CosmicTextScene::default(), "cosmic_text", false)
 );
 
 /// Implementations for the test scenes.
