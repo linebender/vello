@@ -26,6 +26,7 @@ This is the first step towards providing richer color functionality, better hand
 - Breaking: Updated to new `peniko` and `color` is now used for all colors ([#742][] by [@waywardmonkeys])
 - Breaking: The `full` feature is no longer present as the full pipeline is now always built ([#754][] by [@waywardmonkeys])
 - The `r8` permutation of the shaders is no longer available ([#756][] by [@waywardmonkeys])
+- Use `i16` rather than `skrifa::NormalizedCoord` in the public API ([#747][] by [@nicoburns])
 
 ### Fixed
 
