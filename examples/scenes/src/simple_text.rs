@@ -4,10 +4,9 @@
 use std::sync::Arc;
 
 use skrifa::prelude::NormalizedCoord;
-use skrifa::{raw::FontRef, MetadataProvider};
+use skrifa::{raw::{FontRef, FileRef}, MetadataProvider};
 use vello::kurbo::Affine;
-use vello::peniko::{color::palette, Blob, Brush, BrushRef, Font, StyleRef};
-use vello::skrifa::{raw::FontRef, MetadataProvider};
+use vello::peniko::{color::palette, Blob, Brush, BrushRef, Font, StyleRef, Fill};
 use vello::{Glyph, Scene};
 
 // This is very much a hack to get things working.
@@ -198,7 +197,6 @@ impl SimpleText {
         transform: Affine,
         text: &str,
     ) {
-        use vello::peniko::Fill;
         let brush = brush.unwrap_or(&Brush::Solid(palette::css::WHITE));
         self.add_run(
             scene,
@@ -214,7 +212,6 @@ impl SimpleText {
 }
 
 fn to_font_ref(font: &Font) -> Option<FontRef<'_>> {
-    use skrifa::raw::FileRef;
     let file_ref = FileRef::new(font.data.as_ref()).ok()?;
     match file_ref {
         FileRef::Font(font) => Some(font),
