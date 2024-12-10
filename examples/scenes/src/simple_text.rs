@@ -4,9 +4,12 @@
 use std::sync::Arc;
 
 use skrifa::prelude::NormalizedCoord;
-use skrifa::{raw::{FontRef, FileRef}, MetadataProvider};
+use skrifa::{
+    raw::{FileRef, FontRef},
+    MetadataProvider,
+};
 use vello::kurbo::Affine;
-use vello::peniko::{color::palette, Blob, Brush, BrushRef, Font, StyleRef, Fill};
+use vello::peniko::{color::palette, Blob, Brush, BrushRef, Fill, Font, StyleRef};
 use vello::{Glyph, Scene};
 
 // This is very much a hack to get things working.
