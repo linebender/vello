@@ -101,13 +101,6 @@ enum MaterializedBuffer {
 
 struct BindMapBuffer {
     buffer: MaterializedBuffer,
-    #[cfg_attr(
-        not(feature = "buffer_labels"),
-        expect(
-            unused,
-            reason = "Useful for debugging; simplifies upstream to always provide this"
-        )
-    )]
     label: &'static str,
 }
 
@@ -122,7 +115,6 @@ struct BindMap {
 struct BufferProperties {
     size: u64,
     usages: BufferUsages,
-    #[cfg(feature = "buffer_labels")]
     name: &'static str,
 }
 
@@ -730,7 +722,6 @@ impl WgpuEngine {
                     let props = BufferProperties {
                         size: gpu_buf.size(),
                         usages: gpu_buf.usage(),
-                        #[cfg(feature = "buffer_labels")]
                         name: buf.label,
                     };
                     self.pool.bufs.entry(props).or_default().push(gpu_buf);
@@ -940,13 +931,6 @@ impl ResourcePool {
     fn get_buf(
         &mut self,
         size: u64,
-        #[cfg_attr(
-            not(feature = "buffer_labels"),
-            expect(
-                unused,
-                reason = "Debugging argument always present but only consumed when debugging feature enabled"
-            )
-        )]
         name: &'static str,
         usage: BufferUsages,
         device: &Device,
@@ -955,7 +939,6 @@ impl ResourcePool {
         let props = BufferProperties {
             size: rounded_size,
             usages: usage,
-            #[cfg(feature = "buffer_labels")]
             name,
         };
         if let Some(buf_vec) = self.bufs.get_mut(&props) {
@@ -964,10 +947,7 @@ impl ResourcePool {
             }
         }
         device.create_buffer(&wgpu::BufferDescriptor {
-            #[cfg(feature = "buffer_labels")]
             label: Some(name),
-            #[cfg(not(feature = "buffer_labels"))]
-            label: None,
             size: rounded_size,
             usage,
             mapped_at_creation: false,

@@ -22,9 +22,6 @@ default = ["wgpu"]
 # bump-allocated GPU memory.
 # TODO: Turn this into a runtime option used at resolve time and remove the feature.
 bump_estimate = ["vello_encoding/bump_estimate"]
-# Adds labels to buffers created by Vello.
-# May improve debugability at the cost of slightly higher memory usage (TODO: We should just not make these optional).
-buffer_labels = []
 wgpu = ["dep:wgpu", "dep:vello_shaders", "dep:futures-intrusive"]
 
 # Development only features

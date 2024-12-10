@@ -29,7 +29,7 @@ path = "src/main.rs"
 
 
 [dependencies]
-vello = { workspace = true, features = ["buffer_labels", "debug_layers"] }
+vello = { workspace = true, features = ["debug_layers"] }
 scenes = { workspace = true }
 
 anyhow = { workspace = true }
