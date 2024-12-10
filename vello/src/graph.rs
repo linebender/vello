@@ -39,7 +39,7 @@ use std::{
     },
 };
 
-use peniko::Image;
+use peniko::{Extend, Image};
 
 // --- MARK: Public API ---
 
@@ -80,9 +80,14 @@ impl std::fmt::Debug for Painting {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum OutputSize {
-    Fixed { width: u16, height: u16 },
-    Inferred,
+pub struct OutputSize {
+    width: u16,
+    height: u16,
+    // /// The size is inferred from the usages.
+    // ///
+    // /// This should be used carefully, because it can lead
+    // /// to the same images used multiple times.
+    // Inferred,
 }
 
 impl Gallery {
@@ -94,6 +99,24 @@ impl Gallery {
         let id = GalleryId::next();
         let label = format!("{prefix}-{id:02}", id = id.0);
         Self::new_inner(id, label.into())
+    }
+    pub fn gc(&mut self) {
+        let mut made_change = false;
+        loop {
+            let try_recv = self.incoming_deallocations.try_recv();
+            let dealloc = match try_recv {
+                Ok(dealloc) => dealloc,
+                Err(mpsc::TryRecvError::Empty) => break,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    unreachable!("We store a sender alongside the receiver")
+                }
+            };
+            self.paintings.remove(&dealloc);
+            made_change = true;
+        }
+        if made_change {
+            self.generation.nudge();
+        }
     }
     fn new_inner(id: GalleryId, label: Cow<'static, str>) -> Self {
         let (tx, rx) = mpsc::channel();
@@ -152,8 +175,7 @@ impl Painter<'_> {
             painting: from,
             x,
             y,
-            width,
-            height,
+            size: OutputSize { width, height },
         });
     }
     pub fn as_resample(self, from: Painting, to_dimensions: OutputSize) {
@@ -243,12 +265,12 @@ enum PaintingSource {
         painting: Painting,
         x: u16,
         y: u16,
-        width: u16,
-        height: u16,
+        size: OutputSize,
     },
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, PartialEq, Eq, Clone)]
+// Not copy because the identity is important; don't want to modify an accidental copy
 struct Generation(Wrapping<u32>);
 
 impl Generation {
@@ -266,7 +288,7 @@ pub struct Scene {}
 
 impl Scene {
     #[doc(alias = "image")]
-    pub fn painting(&mut self, painting: Painting, width: u16, height: u16) {}
+    pub fn painting(&mut self, painting: Painting, width: u16, height: u16, extend: Extend) {}
 }
 
 // --- MARK: Musings ---
