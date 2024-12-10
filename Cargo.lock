@@ -1980,6 +1980,7 @@ dependencies = [
  "image",
  "rand",
  "roxmltree",
+ "skrifa",
  "vello",
  "web-time",
 ]
