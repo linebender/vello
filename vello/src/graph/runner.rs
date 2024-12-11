@@ -53,7 +53,7 @@ fn resolve_graph(roots: &[Painting], graphs: &mut [Gallery]) {
     }));
     let node = Node::new(PaintingId::next()).with_result(PaintingId::next());
     let mut dag = Dag::default().with_node(node);
-    // Perform a depth-first search of the roots.
+    // Perform a depth-first resolution of the root nodes.
     for painting in roots {
         resolve_recursive(&mut union, painting, &cache, &mut dag);
     }
@@ -66,26 +66,20 @@ fn resolve_recursive(
     dag: &mut Dag<PaintingId, PaintingId>,
 ) -> Option<PaintingId> {
     let Some(Intermediary {
-        source,
-        generation,
-        added,
+        ref source,
+        ref generation,
+        ref mut added,
     }) = union.get_mut(&painting.inner.id)
     else {
         // TODO: Better error reporting? Continue?
         panic!("Failed to get painting: {painting:?}");
     };
+    let generation = generation.clone();
     if *added {
         // If this node has already been added, there's nothing to do.
         return Some(painting.inner.id);
     }
-    if let Some((_, cache_generation)) = cache.get(&painting.inner.id) {
-        if cache_generation == generation {
-            // Nothing to do, because this exact painting has already been rendered.
-            // We don't add it to the graph, because it's effectively already complete
-            // at the start of the run.
-            return None;
-        }
-    }
+
     // Denote that the node has been (will be) added to the graph.
     *added = true;
     let mut dependencies = Vec::new();
@@ -104,6 +98,23 @@ fn resolve_recursive(
     // If the dependency was already cached, we return `None` from the recursive function
     // so there won't be a corresponding node.
     dependencies.retain(|dependency| resolve_recursive(union, dependency, cache, dag).is_some());
+    // If all dependencies were cached, then we can also use the cache.
+    // If any dependencies needed to be repainted, we have to repaint.
+    if let Some((_, cache_generation)) = cache.get(&painting.inner.id) {
+        if cache_generation == &generation {
+            if dependencies.is_empty() {
+                // Nothing to do, because this exact painting has already been rendered.
+                // We don't add it to the graph, because it's effectively already complete
+                // at the start of the run.
+                return None;
+            } else {
+                // For certain scene types, we could retain the path data and *only* perform "compositing".
+                // We don't have that kind of infrastructure set up currently.
+                // Of course for filters and other resamplings, that is pretty meaningless, as
+                // there is no metadata.
+            }
+        }
+    }
     let node = Node::new(painting.inner.id)
         .with_reads(dependencies.iter().map(|it| it.inner.id))
         .with_result(painting.inner.id);
