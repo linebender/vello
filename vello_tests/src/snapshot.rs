@@ -11,7 +11,7 @@ use std::{
 use image::{DynamicImage, ImageError};
 use nv_flip::FlipPool;
 use vello::{
-    peniko::{Format, Image},
+    peniko::{ImageFormat, Image},
     Scene,
 };
 
@@ -284,7 +284,7 @@ pub fn snapshot_test_image(
         unreachable!();
     }
     // Compare the images using nv-flip
-    assert_eq!(raw_rendered.format, Format::Rgba8);
+    assert_eq!(raw_rendered.format, ImageFormat::Rgba8);
     let rendered_data: DynamicImage = image::RgbaImage::from_raw(
         raw_rendered.width,
         raw_rendered.height,

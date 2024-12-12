@@ -1656,7 +1656,7 @@ checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 [[package]]
 name = "peniko"
 version = "0.2.0"
-source = "git+https://github.com/linebender/peniko.git?rev=3462e19#3462e19c7ba152a1c3aaa883825073180864e3e4"
+source = "git+https://github.com/linebender/peniko.git?rev=98b2b62#98b2b624849c75d600282e468d09aee9e5cb331b"
 dependencies = [
  "color",
  "kurbo",

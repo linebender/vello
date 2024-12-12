@@ -554,7 +554,7 @@ impl<'a> DrawGlyphs<'a> {
                             Image::new(
                                 // TODO: The design of the Blob type forces the double boxing
                                 Blob::new(Arc::new(data)),
-                                peniko::Format::Rgba8,
+                                peniko::ImageFormat::Rgba8,
                                 bitmap.width,
                                 bitmap.height,
                             )
@@ -583,7 +583,7 @@ impl<'a> DrawGlyphs<'a> {
                             Image::new(
                                 // TODO: The design of the Blob type forces the double boxing
                                 Blob::new(Arc::new(buf)),
-                                peniko::Format::Rgba8,
+                                peniko::ImageFormat::Rgba8,
                                 bitmap.width,
                                 bitmap.height,
                             )
@@ -614,7 +614,7 @@ impl<'a> DrawGlyphs<'a> {
                             Image::new(
                                 // TODO: The design of the Blob type forces the double boxing
                                 Blob::new(Arc::new(data)),
-                                peniko::Format::Rgba8,
+                                peniko::ImageFormat::Rgba8,
                                 bitmap.width,
                                 bitmap.height,
                             )

@@ -402,7 +402,7 @@ impl Encoding {
 
     /// Encodes an image brush.
     pub fn encode_image(&mut self, image: &Image, alpha: f32) {
-        let _alpha = alpha * image.alpha;
+        let alpha = (alpha * image.alpha * 255.0).round() as u8;
         // TODO: feed the alpha multiplier through the full pipeline for consistency
         // with other brushes?
         // Tracked in https://github.com/linebender/vello/issues/692
@@ -415,6 +415,10 @@ impl Encoding {
             .extend_from_slice(bytemuck::bytes_of(&DrawImage {
                 xy: 0,
                 width_height: (image.width << 16) | (image.height & 0xFFFF),
+                sample_alpha: ((image.quality as u32) << 12)
+                    | ((image.x_extend as u32) << 10)
+                    | ((image.y_extend as u32) << 8)
+                    | alpha as u32,
             }));
     }
 

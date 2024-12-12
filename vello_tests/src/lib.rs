@@ -42,7 +42,7 @@ use std::sync::Arc;
 use anyhow::{anyhow, bail, Result};
 use scenes::{ExampleScene, ImageCache, SceneParams, SimpleText};
 use vello::kurbo::{Affine, Vec2};
-use vello::peniko::{color::palette, Blob, Color, Format, Image};
+use vello::peniko::{color::palette, Blob, Color, ImageFormat, Image};
 use vello::wgpu::{
     self, BufferDescriptor, BufferUsages, CommandEncoderDescriptor, Extent3d, ImageCopyBuffer,
     TextureDescriptor, TextureFormat, TextureUsages,
@@ -190,7 +190,7 @@ pub async fn get_scene_image(params: &TestParams, scene: &Scene) -> Result<Image
         result_unpadded.extend(&data[start..start + (width * 4) as usize]);
     }
     let data = Blob::new(Arc::new(result_unpadded));
-    let image = Image::new(data, Format::Rgba8, width, height);
+    let image = Image::new(data, ImageFormat::Rgba8, width, height);
     Ok(image)
 }
 
