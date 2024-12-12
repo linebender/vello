@@ -175,6 +175,7 @@ fn draw_leaf_main(
                         info[di + 6] = f32::to_bits(xform.0[5]);
                         info[di + 7] = scene[dd as usize];
                         info[di + 8] = scene[dd as usize + 1];
+                        info[di + 9] = scene[dd as usize + 2];
                     }
                     DrawTag::BLUR_RECT => {
                         info[di] = draw_flags;

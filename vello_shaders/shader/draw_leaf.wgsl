@@ -253,6 +253,7 @@ fn main(
                     info[di + 6u] = bitcast<u32>(inv.translate.y);
                     info[di + 7u] = scene[dd];
                     info[di + 8u] = scene[dd + 1u];
+                    info[di + 9u] = scene[dd + 2u];
                 }
                 case DRAWTAG_BLURRED_ROUNDED_RECT: {
                     info[di] = draw_flags;
