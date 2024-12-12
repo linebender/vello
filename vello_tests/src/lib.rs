@@ -42,7 +42,7 @@ use std::sync::Arc;
 use anyhow::{anyhow, bail, Result};
 use scenes::{ExampleScene, ImageCache, SceneParams, SimpleText};
 use vello::kurbo::{Affine, Vec2};
-use vello::peniko::{color::palette, Blob, Color, ImageFormat, Image};
+use vello::peniko::{color::palette, Blob, Color, Image, ImageFormat};
 use vello::wgpu::{
     self, BufferDescriptor, BufferUsages, CommandEncoderDescriptor, Extent3d, ImageCopyBuffer,
     TextureDescriptor, TextureFormat, TextureUsages,

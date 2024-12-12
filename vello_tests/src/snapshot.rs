@@ -11,7 +11,7 @@ use std::{
 use image::{DynamicImage, ImageError};
 use nv_flip::FlipPool;
 use vello::{
-    peniko::{ImageFormat, Image},
+    peniko::{Image, ImageFormat},
     Scene,
 };
 

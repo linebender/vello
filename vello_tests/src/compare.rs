@@ -10,7 +10,7 @@ use anyhow::{anyhow, bail, Result};
 use image::DynamicImage;
 use nv_flip::FlipPool;
 use vello::{
-    peniko::{ImageFormat, Image},
+    peniko::{Image, ImageFormat},
     Scene,
 };
 
