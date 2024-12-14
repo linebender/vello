@@ -20,6 +20,7 @@ use unicode_segmentation::UnicodeSegmentation;
 use std::cmp;
 use std::collections::HashMap;
 use std::sync::Arc;
+use vello::peniko::color::palette;
 
 impl TestScene for CosmicTextScene {
     fn render(&mut self, scene: &mut Scene, _scene_params: &mut SceneParams) {
@@ -153,10 +154,10 @@ impl CosmicTextScene {
             vello_fonts,
             buffer_glyphs: create_glyphs_for_editor(
                 &editor,
-                Color::from_rgba8(255, 255, 255, 255),
-                Color::from_rgba8(255, 0, 0, 255),
-                Color::from_rgba8(0, 0, 255, 255),
-                Color::from_rgba8(255, 255, 255, 255),
+                palette::css::WHITE,
+                palette::css::RED,
+                palette::css::BLUE,
+                palette::css::WHITE,
             ),
         }
     }
@@ -333,7 +334,7 @@ fn create_glyphs(
             };
 
             if let Some(editor_info) = &editor_info {
-                if text_color.components != editor_info.selected_text_color.components {
+                if text_color != editor_info.selected_text_color {
                     if let Some((start, end)) = editor_info.selection_bounds {
                         if line_i >= start.line
                             && line_i <= end.line
@@ -347,9 +348,7 @@ fn create_glyphs(
             }
 
             if let Some((last_font, last_glyph_color)) = last_font {
-                if last_font != glyph.font_id
-                    || last_glyph_color.components != glyph_color.components
-                {
+                if last_font != glyph.font_id || last_glyph_color != glyph_color {
                     buffer_line.glyph_runs.push(BufferGlyphRun {
                         font: last_font,
                         glyphs: current_glyphs,
