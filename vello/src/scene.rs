@@ -554,7 +554,7 @@ impl<'a> DrawGlyphs<'a> {
                             Image::new(
                                 // TODO: The design of the Blob type forces the double boxing
                                 Blob::new(Arc::new(data)),
-                                peniko::Format::Rgba8,
+                                peniko::ImageFormat::Rgba8,
                                 bitmap.width,
                                 bitmap.height,
                             )
@@ -583,7 +583,7 @@ impl<'a> DrawGlyphs<'a> {
                             Image::new(
                                 // TODO: The design of the Blob type forces the double boxing
                                 Blob::new(Arc::new(buf)),
-                                peniko::Format::Rgba8,
+                                peniko::ImageFormat::Rgba8,
                                 bitmap.width,
                                 bitmap.height,
                             )
@@ -614,7 +614,7 @@ impl<'a> DrawGlyphs<'a> {
                             Image::new(
                                 // TODO: The design of the Blob type forces the double boxing
                                 Blob::new(Arc::new(data)),
-                                peniko::Format::Rgba8,
+                                peniko::ImageFormat::Rgba8,
                                 bitmap.width,
                                 bitmap.height,
                             )
@@ -1015,7 +1015,7 @@ fn conv_extend(extend: skrifa::color::Extend) -> Extend {
 struct ColorStopsConverter<'a>(&'a [skrifa::color::ColorStop], &'a Cpal<'a>, BrushRef<'a>);
 
 impl ColorStopsSource for ColorStopsConverter<'_> {
-    fn collect_stops(&self, vec: &mut ColorStops) {
+    fn collect_stops(self, stops: &mut ColorStops) {
         for item in self.0 {
             let color = color_index(self.1, item.palette_index);
             let color = match color {
@@ -1036,7 +1036,7 @@ impl ColorStopsSource for ColorStopsConverter<'_> {
                 },
             };
             let color = color.multiply_alpha(item.alpha);
-            vec.push(ColorStop {
+            stops.push(ColorStop {
                 color: DynamicColor::from_alpha_color(color),
                 offset: item.offset,
             });

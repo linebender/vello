@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 
+use peniko::color::cache_key::CacheKey;
 use peniko::color::{HueDirection, Srgb};
 use peniko::{ColorStop, ColorStops};
 
@@ -20,7 +21,7 @@ pub struct Ramps<'a> {
 #[derive(Default)]
 pub(crate) struct RampCache {
     epoch: u64,
-    map: HashMap<ColorStops, (u32, u64)>,
+    map: HashMap<CacheKey<ColorStops>, (u32, u64)>,
     data: Vec<u32>,
 }
 
@@ -35,13 +36,13 @@ impl RampCache {
     }
 
     pub(crate) fn add(&mut self, stops: &[ColorStop]) -> u32 {
-        if let Some(entry) = self.map.get_mut(stops) {
+        if let Some(entry) = self.map.get_mut(&CacheKey(stops.into())) {
             entry.1 = self.epoch;
             entry.0
         } else if self.map.len() < RETAINED_COUNT {
             let id = (self.data.len() / N_SAMPLES) as u32;
             self.data.extend(make_ramp(stops));
-            self.map.insert(stops.into(), (id, self.epoch));
+            self.map.insert(CacheKey(stops.into()), (id, self.epoch));
             id
         } else {
             let mut reuse = None;
@@ -60,12 +61,12 @@ impl RampCache {
                 {
                     *dst = src;
                 }
-                self.map.insert(stops.into(), (id, self.epoch));
+                self.map.insert(CacheKey(stops.into()), (id, self.epoch));
                 id
             } else {
                 let id = (self.data.len() / N_SAMPLES) as u32;
                 self.data.extend(make_ramp(stops));
-                self.map.insert(stops.into(), (id, self.epoch));
+                self.map.insert(CacheKey(stops.into()), (id, self.epoch));
                 id
             }
         }
