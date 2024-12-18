@@ -122,8 +122,8 @@ fn fine_main(
     let width_in_tiles = config.width_in_tiles;
     let height_in_tiles = config.height_in_tiles;
     let n_tiles = width_in_tiles * height_in_tiles;
-    let mut area = vec![0.0f32; TILE_SIZE];
-    let mut rgba = vec![[0.0f32; 4]; TILE_SIZE];
+    let mut area = vec![0.0_f32; TILE_SIZE];
+    let mut rgba = vec![[0.0_f32; 4]; TILE_SIZE];
     for tile_ix in 0..n_tiles {
         for x in &mut rgba {
             *x = [0.0; 4];

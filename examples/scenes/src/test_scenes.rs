@@ -695,7 +695,7 @@ mod impls {
             palette::css::WHITE,
             Affine::translate((110.0, 700.0)),
             // Add a skew to simulate an oblique font.
-            Some(Affine::skew(20f64.to_radians().tan(), 0.0)),
+            Some(Affine::skew(20_f64.to_radians().tan(), 0.0)),
             &Stroke::new(1.0),
             s,
         );
@@ -766,7 +766,7 @@ mod impls {
         );
         scene.draw_image(
             &piet_logo,
-            Affine::translate((800.0, 50.0)) * Affine::rotate(20f64.to_radians()),
+            Affine::translate((800.0, 50.0)) * Affine::rotate(20_f64.to_radians()),
         );
     }
 
@@ -779,7 +779,7 @@ mod impls {
         ]);
         scene.fill(
             Fill::NonZero,
-            Affine::rotate(25f64.to_radians()) * Affine::scale_non_uniform(2.0, 1.0),
+            Affine::rotate(25_f64.to_radians()) * Affine::scale_non_uniform(2.0, 1.0),
             &Gradient::new_radial((200.0, 200.0), 80.0).with_stops([
                 palette::css::RED,
                 palette::css::GREEN,
@@ -812,8 +812,8 @@ mod impls {
         }
         pub(super) fn square(scene: &mut Scene, kind: Kind, transform: Affine, extend: Extend) {
             let colors = [palette::css::RED, palette::css::LIME, palette::css::BLUE];
-            let width = 300f64;
-            let height = 300f64;
+            let width = 300_f64;
+            let height = 300_f64;
             let gradient: Brush = match kind {
                 Kind::Linear => {
                     Gradient::new_linear((width * 0.35, height * 0.5), (width * 0.65, height * 0.5))
@@ -831,8 +831,8 @@ mod impls {
                 }
                 Kind::Sweep => Gradient::new_sweep(
                     (width * 0.5, height * 0.5),
-                    30f32.to_radians(),
-                    150f32.to_radians(),
+                    30_f32.to_radians(),
+                    150_f32.to_radians(),
                 )
                 .with_stops(colors)
                 .with_extend(extend)
@@ -888,8 +888,8 @@ mod impls {
                 palette::css::YELLOW,
                 Color::from_rgba8(6, 85, 186, 255),
             ];
-            let width = 400f64;
-            let height = 200f64;
+            let width = 400_f64;
+            let height = 200_f64;
             let rect = Rect::new(0.0, 0.0, width, height);
             scene.fill(Fill::NonZero, transform, palette::css::WHITE, None, &rect);
             scene.fill(
@@ -1715,7 +1715,7 @@ mod impls {
 
         // Skewed affine transformation.
         scene.draw_blurred_rounded_rect(
-            Affine::translate((900.0, 300.0)) * Affine::skew(20f64.to_radians().tan(), 0.0),
+            Affine::translate((900.0, 300.0)) * Affine::skew(20_f64.to_radians().tan(), 0.0),
             rect,
             palette::css::BLACK,
             radius,

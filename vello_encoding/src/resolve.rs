@@ -293,7 +293,7 @@ impl Resolver {
                             // In this case, let's zero out the dimensions so we don't attempt to render
                             // anything.
                             // TODO: a better strategy: texture array? downsample large images?
-                            data.extend_from_slice(&[0u8; 8]);
+                            data.extend_from_slice(&[0_u8; 8]);
                             pos = *draw_data_offset + 8;
                         }
                     }

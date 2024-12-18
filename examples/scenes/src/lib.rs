@@ -12,7 +12,6 @@
     unreachable_pub,
     missing_docs,
     clippy::wildcard_imports,
-    clippy::unseparated_literal_suffix,
     clippy::cast_possible_truncation,
     clippy::shadow_unrelated,
     clippy::missing_panics_doc,

@@ -603,7 +603,7 @@ impl<'a> PathEncoder<'a> {
 
     /// Encodes an empty path (as placeholder for begin clip).
     pub(crate) fn empty_path(&mut self) {
-        let coords = [0.0f32, 0., 0., 0.];
+        let coords = [0.0_f32, 0., 0., 0.];
         let bytes = bytemuck::bytes_of(&coords);
         self.data.extend_from_slice(bytes);
         self.tags.push(PathTag::LINE_TO_F32);
