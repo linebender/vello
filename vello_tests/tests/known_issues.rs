@@ -14,7 +14,7 @@
 
 use vello::{
     kurbo::{Affine, Rect},
-    peniko::{color::palette, Format},
+    peniko::{color::palette, ImageFormat},
     Scene,
 };
 use vello_tests::TestParams;
@@ -35,7 +35,7 @@ fn many_bins(use_cpu: bool) {
     };
     // To view, use VELLO_DEBUG_TEST=many_bins
     let image = vello_tests::render_then_debug_sync(&scene, &params).unwrap();
-    assert_eq!(image.format, Format::Rgba8);
+    assert_eq!(image.format, ImageFormat::Rgba8);
     let mut red_count = 0;
     let mut black_count = 0;
     for pixel in image.data.data().chunks_exact(4) {

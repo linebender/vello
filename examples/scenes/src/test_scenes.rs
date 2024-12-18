@@ -80,7 +80,8 @@ export_scenes!(
     many_draw_objects(many_draw_objects),
     blurred_rounded_rect(blurred_rounded_rect),
     image_sampling(image_sampling),
-    image_extend_modes(image_extend_modes)
+    image_extend_modes(image_extend_modes),
+    image_extend_modes_nearest_neighbor(image_extend_modes_nearest_neighbor),
 );
 
 /// Implementations for the test scenes.
@@ -659,7 +660,8 @@ mod impls {
         let piet_logo = params
             .images
             .from_bytes(FLOWER_IMAGE.as_ptr() as usize, FLOWER_IMAGE)
-            .unwrap();
+            .unwrap()
+            .with_alpha(((params.time * 0.5 + 200.0).sin() as f32 + 1.0) * 0.5);
 
         use PathEl::*;
         let rect = Rect::from_origin_size(Point::new(0.0, 0.0), (1000.0, 1000.0));
@@ -766,7 +768,7 @@ mod impls {
         );
         scene.draw_image(
             &piet_logo,
-            Affine::translate((800.0, 50.0)) * Affine::rotate(20f64.to_radians()),
+            Affine::translate((750.0, 70.0)) * Affine::rotate(20f64.to_radians()),
         );
     }
 
@@ -1779,7 +1781,7 @@ mod impls {
             blob.extend(c.premultiply().to_rgba8().to_u8_array());
         });
         let data = Blob::new(Arc::new(blob));
-        let image = Image::new(data, Format::Rgba8, 2, 2);
+        let image = Image::new(data, ImageFormat::Rgba8, 2, 2);
 
         scene.draw_image(
             &image,
@@ -1810,6 +1812,16 @@ mod impls {
     pub(super) fn image_extend_modes(scene: &mut Scene, params: &mut SceneParams) {
         params.resolution = Some(Vec2::new(1500., 1500.));
         params.base_color = Some(palette::css::WHITE);
+        image_extend_modes_helper(scene, ImageQuality::Medium);
+    }
+
+    pub(super) fn image_extend_modes_nearest_neighbor(scene: &mut Scene, params: &mut SceneParams) {
+        params.resolution = Some(Vec2::new(1500., 1500.));
+        params.base_color = Some(palette::css::WHITE);
+        image_extend_modes_helper(scene, ImageQuality::Low);
+    }
+
+    fn image_extend_modes_helper(scene: &mut Scene, quality: ImageQuality) {
         let mut blob: Vec<u8> = Vec::new();
         [
             palette::css::RED,
@@ -1822,14 +1834,15 @@ mod impls {
             blob.extend(c.premultiply().to_rgba8().to_u8_array());
         });
         let data = Blob::new(Arc::new(blob));
-        let image = Image::new(data, Format::Rgba8, 2, 2);
-        let image = image.with_extend(Extend::Pad);
+        let image = Image::new(data, ImageFormat::Rgba8, 2, 2).with_quality(quality);
+        let brush_offset = Some(Affine::translate((2., 2.)));
         // Pad extend mode
+        let image = image.with_extend(Extend::Pad);
         scene.fill(
             Fill::NonZero,
             Affine::scale(100.).then_translate((100., 100.).into()),
             &image,
-            Some(Affine::translate((2., 2.)).then_scale(100.)),
+            brush_offset,
             &Rect::new(0., 0., 6., 6.),
         );
         let image = image.with_extend(Extend::Reflect);
@@ -1837,7 +1850,7 @@ mod impls {
             Fill::NonZero,
             Affine::scale(100.).then_translate((100., 800.).into()),
             &image,
-            Some(Affine::translate((2., 2.))),
+            brush_offset,
             &Rect::new(0., 0., 6., 6.),
         );
         let image = image.with_extend(Extend::Repeat);
@@ -1845,7 +1858,17 @@ mod impls {
             Fill::NonZero,
             Affine::scale(100.).then_translate((800., 100.).into()),
             &image,
-            Some(Affine::translate((2., 2.))),
+            brush_offset,
+            &Rect::new(0., 0., 6., 6.),
+        );
+        let image = image
+            .with_x_extend(Extend::Repeat)
+            .with_y_extend(Extend::Reflect);
+        scene.fill(
+            Fill::NonZero,
+            Affine::scale(100.).then_translate((800., 800.).into()),
+            &image,
+            brush_offset,
             &Rect::new(0., 0., 6., 6.),
         );
     }

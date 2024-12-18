@@ -25,6 +25,10 @@ var<storage> segments: array<Segment>;
 
 const GRADIENT_WIDTH = 512;
 
+const IMAGE_QUALITY_LOW = 0u;
+const IMAGE_QUALITY_MEDIUM = 1u;
+const IMAGE_QUALITY_HIGH = 2u;
+
 @group(0) @binding(2)
 var<storage> ptcl: array<u32>;
 
@@ -805,12 +809,17 @@ fn read_image(cmd_ix: u32) -> CmdImage {
     let xlat = vec2(bitcast<f32>(info[info_offset + 4u]), bitcast<f32>(info[info_offset + 5u]));
     let xy = info[info_offset + 6u];
     let width_height = info[info_offset + 7u];
+    let sample_alpha = info[info_offset + 8u];
+    let alpha = f32(sample_alpha & 0xFFu) / 255.0;
+    let quality = sample_alpha >> 12u;
+    let x_extend = (sample_alpha >> 10u) & 0x3u;
+    let y_extend = (sample_alpha >> 8u) & 0x3u;
     // The following are not intended to be bitcasts
     let x = f32(xy >> 16u);
     let y = f32(xy & 0xffffu);
     let width = f32(width_height >> 16u);
     let height = f32(width_height & 0xffffu);
-    return CmdImage(matrx, xlat, vec2(x, y), vec2(width, height));
+    return CmdImage(matrx, xlat, vec2(x, y), vec2(width, height), x_extend, y_extend, quality, alpha);
 }
 
 fn read_end_clip(cmd_ix: u32) -> CmdEndClip {
@@ -1146,26 +1155,52 @@ fn main(
             case CMD_IMAGE: {
                 let image = read_image(cmd_ix);
                 let atlas_max = image.atlas_offset + image.extents - vec2(1.0);
-                for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
-                    // We only need to load from the textures if the value will be used.
-                    if area[i] != 0.0 {
-                        let my_xy = vec2(xy.x + f32(i), xy.y);
-                        let atlas_uv = image.matrx.xy * my_xy.x + image.matrx.zw * my_xy.y + image.xlat + image.atlas_offset - vec2(0.5);
-                        // This currently only implements the Pad extend mode
-                        // TODO: Support repeat and reflect
-                        // TODO: If the image couldn't be added to the atlas (i.e. was too big), this isn't robust
-                        let atlas_uv_clamped = clamp(atlas_uv, image.atlas_offset, atlas_max);
-                        // We know that the floor and ceil are within the atlas area because atlas_max and
-                        // atlas_offset are integers
-                        let uv_quad = vec4(floor(atlas_uv_clamped), ceil(atlas_uv_clamped));
-                        let uv_frac = fract(atlas_uv);
-                        let a = premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.xy), 0));
-                        let b = premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.xw), 0));
-                        let c = premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.zy), 0));
-                        let d = premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.zw), 0));
-                        let fg_rgba = mix(mix(a, b, uv_frac.y), mix(c, d, uv_frac.y), uv_frac.x);
-                        let fg_i = fg_rgba * area[i];
-                        rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
+                let extents_inv = vec2(1.0) / image.extents;
+                switch image.quality {
+                    case IMAGE_QUALITY_LOW: {
+                        for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
+                            // We only need to load from the textures if the value will be used.
+                            if area[i] != 0.0 {
+                                let my_xy = vec2(xy.x + f32(i), xy.y);
+                                var atlas_uv = image.matrx.xy * my_xy.x + image.matrx.zw * my_xy.y + image.xlat;
+                                atlas_uv.x = extend_mode(atlas_uv.x * extents_inv.x, image.x_extend_mode) * image.extents.x;
+                                atlas_uv.y = extend_mode(atlas_uv.y * extents_inv.y, image.y_extend_mode) * image.extents.y;
+                                atlas_uv = atlas_uv + image.atlas_offset;
+                                // TODO: If the image couldn't be added to the atlas (i.e. was too big), this isn't robust
+                                let atlas_uv_clamped = clamp(atlas_uv, image.atlas_offset, atlas_max);
+                                let fg_rgba = premul_alpha(textureLoad(image_atlas, vec2<i32>(atlas_uv_clamped), 0));
+                                let r = extend_mode(atlas_uv.x * extents_inv.x, image.x_extend_mode);
+                                let g = extend_mode(atlas_uv.y * extents_inv.y, image.y_extend_mode);
+                                let fg_rgba2 = vec4(r, g, 0.0, 1.0);
+                                let fg_i = fg_rgba * area[i] * image.alpha;
+                                rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
+                            }
+                        } 
+                    }
+                    case IMAGE_QUALITY_MEDIUM, default: {
+                        for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
+                            // We only need to load from the textures if the value will be used.
+                            if area[i] != 0.0 {
+                                let my_xy = vec2(xy.x + f32(i), xy.y);
+                                var atlas_uv = image.matrx.xy * my_xy.x + image.matrx.zw * my_xy.y + image.xlat;
+                                atlas_uv.x = extend_mode(atlas_uv.x * extents_inv.x, image.x_extend_mode) * image.extents.x;
+                                atlas_uv.y = extend_mode(atlas_uv.y * extents_inv.y, image.y_extend_mode) * image.extents.y;
+                                atlas_uv = atlas_uv + image.atlas_offset - vec2(0.5);
+                                // TODO: If the image couldn't be added to the atlas (i.e. was too big), this isn't robust
+                                let atlas_uv_clamped = clamp(atlas_uv, image.atlas_offset, atlas_max);
+                                // We know that the floor and ceil are within the atlas area because atlas_max and
+                                // atlas_offset are integers
+                                let uv_quad = vec4(floor(atlas_uv_clamped), ceil(atlas_uv_clamped));
+                                let uv_frac = fract(atlas_uv);
+                                let a = premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.xy), 0));
+                                let b = premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.xw), 0));
+                                let c = premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.zy), 0));
+                                let d = premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.zw), 0));
+                                let fg_rgba = mix(mix(a, b, uv_frac.y), mix(c, d, uv_frac.y), uv_frac.x);
+                                let fg_i = fg_rgba * area[i] * image.alpha;
+                                rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
+                            }
+                        }                        
                     }
                 }
                 cmd_ix += 2u;

@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use vello::peniko::{Blob, Format, Image};
+use vello::peniko::{Blob, Image, ImageFormat};
 
 /// Simple hack to support loading images for examples.
 #[derive(Default)]
@@ -50,5 +50,5 @@ fn decode_image(data: &[u8]) -> anyhow::Result<Image> {
     let height = image.height();
     let data = Arc::new(image.into_rgba8().into_vec());
     let blob = Blob::new(data);
-    Ok(Image::new(blob, Format::Rgba8, width, height))
+    Ok(Image::new(blob, ImageFormat::Rgba8, width, height))
 }
