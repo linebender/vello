@@ -303,7 +303,7 @@ pub(crate) fn espc_int_approx(x: f32) -> f32 {
     let a = if y < BREAK1 {
         (SIN_SCALE * y).sin() * (1.0 / SIN_SCALE)
     } else if y < BREAK2 {
-        (8.0f32.sqrt() / 3.0) * (y - 1.0) * (y - 1.0).abs().sqrt() + FRAC_PI_4
+        (8.0_f32.sqrt() / 3.0) * (y - 1.0) * (y - 1.0).abs().sqrt() + FRAC_PI_4
     } else {
         let (a, b, c) = if y < BREAK3 {
             (QUAD_A1, QUAD_B1, QUAD_C1)
@@ -322,7 +322,7 @@ pub(crate) fn espc_int_inv_approx(x: f32) -> f32 {
     } else if y < 0.903249293595206 {
         let b = y - FRAC_PI_4;
         let u = b.abs().powf(2. / 3.).copysign(b);
-        u * (9.0f32 / 8.).cbrt() + 1.0
+        u * (9.0_f32 / 8.).cbrt() + 1.0
     } else {
         let (u, v, w) = if y < 2.038857793595206 {
             const B: f32 = 0.5 * QUAD_B1 / QUAD_A1;

@@ -150,8 +150,8 @@ impl SimpleText {
         let metrics = font_ref.metrics(font_size, &var_loc);
         let line_height = metrics.ascent - metrics.descent + metrics.leading;
         let glyph_metrics = font_ref.glyph_metrics(font_size, &var_loc);
-        let mut pen_x = 0f32;
-        let mut pen_y = 0f32;
+        let mut pen_x = 0_f32;
+        let mut pen_y = 0_f32;
         scene
             .draw_glyphs(font)
             .font_size(size)
