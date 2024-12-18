@@ -21,7 +21,6 @@
 #![expect(
     missing_debug_implementations,
     single_use_lifetimes,
-    clippy::return_self_not_must_use,
     clippy::cast_possible_truncation,
     clippy::missing_assert_message,
     clippy::missing_panics_doc,
