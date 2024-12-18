@@ -38,7 +38,6 @@
     reason = "Deferred"
 )]
 #![allow(
-    elided_lifetimes_in_paths,
     single_use_lifetimes,
     unnameable_types,
     clippy::cast_possible_truncation,

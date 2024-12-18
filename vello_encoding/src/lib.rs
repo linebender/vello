@@ -20,7 +20,6 @@
 #![allow(missing_docs, reason = "We have many as-yet undocumented items.")]
 #![expect(
     missing_debug_implementations,
-    elided_lifetimes_in_paths,
     single_use_lifetimes,
     clippy::return_self_not_must_use,
     clippy::unseparated_literal_suffix,

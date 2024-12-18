@@ -14,7 +14,7 @@ fn path_tiling_setup_main(bump: &BumpAllocators, indirect: &mut IndirectCount) {
     indirect.count_z = 1;
 }
 
-pub fn path_tiling_setup(_n_wg: u32, resources: &[CpuBinding]) {
+pub fn path_tiling_setup(_n_wg: u32, resources: &[CpuBinding<'_>]) {
     let bump = resources[0].as_typed();
     let mut indirect = resources[1].as_typed_mut();
     // binding 2 is ptcl, which we would need if we propagate failure

@@ -70,7 +70,7 @@ fn clip_leaf_main(
     }
 }
 
-pub fn clip_leaf(_n_wg: u32, resources: &[CpuBinding]) {
+pub fn clip_leaf(_n_wg: u32, resources: &[CpuBinding<'_>]) {
     let config = resources[0].as_typed();
     let clip_inp = resources[1].as_slice();
     let path_bboxes = resources[2].as_slice();

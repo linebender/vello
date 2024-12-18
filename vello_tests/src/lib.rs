@@ -18,7 +18,6 @@
 // Feel free to send a PR that solves one or more of these.
 #![allow(
     missing_debug_implementations,
-    elided_lifetimes_in_paths,
     unreachable_pub,
     missing_docs,
     clippy::missing_assert_message,

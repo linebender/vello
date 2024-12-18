@@ -301,7 +301,7 @@ impl Scene {
     }
 
     /// Returns a builder for encoding a glyph run.
-    pub fn draw_glyphs(&mut self, font: &Font) -> DrawGlyphs {
+    pub fn draw_glyphs(&mut self, font: &Font) -> DrawGlyphs<'_> {
         // TODO: Integrate `BumpEstimator` with the glyph cache.
         DrawGlyphs::new(self, font)
     }
@@ -931,7 +931,7 @@ fn conv_skrifa_transform(transform: skrifa::color::Transform) -> Transform {
 }
 
 fn conv_brush(
-    brush: skrifa::color::Brush,
+    brush: skrifa::color::Brush<'_>,
     cpal: &Cpal<'_>,
     foreground_brush: BrushRef<'_>,
 ) -> Brush {

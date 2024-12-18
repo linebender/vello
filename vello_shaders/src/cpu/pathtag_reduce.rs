@@ -24,7 +24,7 @@ fn pathtag_reduce_main(
     }
 }
 
-pub fn pathtag_reduce(n_wg: u32, resources: &[CpuBinding]) {
+pub fn pathtag_reduce(n_wg: u32, resources: &[CpuBinding<'_>]) {
     let config = resources[0].as_typed();
     let scene = resources[1].as_slice();
     let mut reduced = resources[2].as_slice_mut();

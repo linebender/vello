@@ -102,7 +102,7 @@ mod impls {
 
     const FLOWER_IMAGE: &[u8] = include_bytes!("../../assets/splash-flower.jpg");
 
-    pub(super) fn emoji(scene: &mut Scene, params: &mut SceneParams) {
+    pub(super) fn emoji(scene: &mut Scene, params: &mut SceneParams<'_>) {
         let text_size = 120. + 20. * (params.time * 2.).sin() as f32;
         let s = "🎉🤠✅";
         params.text.add_colr_emoji_run(
@@ -123,7 +123,7 @@ mod impls {
         );
     }
 
-    pub(super) fn funky_paths(scene: &mut Scene, _: &mut SceneParams) {
+    pub(super) fn funky_paths(scene: &mut Scene, _: &mut SceneParams<'_>) {
         use PathEl::*;
         let missing_movetos = [
             MoveTo((0., 0.).into()),
@@ -165,7 +165,7 @@ mod impls {
         );
     }
 
-    pub(super) fn stroke_styles(transform: Affine) -> impl FnMut(&mut Scene, &mut SceneParams) {
+    pub(super) fn stroke_styles(transform: Affine) -> impl FnMut(&mut Scene, &mut SceneParams<'_>) {
         use PathEl::*;
         move |scene, params| {
             let colors = [
@@ -343,7 +343,7 @@ mod impls {
 
     // This test has been adapted from Skia's "trickycubicstrokes" GM slide which can be found at
     // `github.com/google/skia/blob/0d4d11451c4f4e184305cbdbd67f6b3edfa4b0e3/gm/trickycubicstrokes.cpp`
-    pub(super) fn tricky_strokes(scene: &mut Scene, params: &mut SceneParams) {
+    pub(super) fn tricky_strokes(scene: &mut Scene, params: &mut SceneParams<'_>) {
         use PathEl::*;
         let colors = [
             Color::from_rgba8(140, 181, 236, 255),
@@ -529,7 +529,7 @@ mod impls {
         ));
     }
 
-    pub(super) fn fill_types(scene: &mut Scene, params: &mut SceneParams) {
+    pub(super) fn fill_types(scene: &mut Scene, params: &mut SceneParams<'_>) {
         use PathEl::*;
         params.resolution = Some((1400., 700.).into());
         let rect = Rect::from_origin_size(Point::new(0., 0.), (500., 500.));
@@ -602,14 +602,14 @@ mod impls {
         }
     }
 
-    pub(super) fn cardioid_and_friends(scene: &mut Scene, _: &mut SceneParams) {
+    pub(super) fn cardioid_and_friends(scene: &mut Scene, _: &mut SceneParams<'_>) {
         render_cardioid(scene);
         render_clip_test(scene);
         render_alpha_test(scene);
         //render_tiger(scene, false);
     }
 
-    pub(super) fn longpathdash(cap: Cap) -> impl FnMut(&mut Scene, &mut SceneParams) {
+    pub(super) fn longpathdash(cap: Cap) -> impl FnMut(&mut Scene, &mut SceneParams<'_>) {
         use PathEl::*;
         move |scene, _| {
             let mut path = BezPath::new();
@@ -653,7 +653,7 @@ mod impls {
         }
     }
 
-    pub(super) fn animated_text(scene: &mut Scene, params: &mut SceneParams) {
+    pub(super) fn animated_text(scene: &mut Scene, params: &mut SceneParams<'_>) {
         // Uses the static array address as a cache key for expedience. Real code
         // should use a better strategy.
         let piet_logo = params
@@ -770,7 +770,7 @@ mod impls {
         );
     }
 
-    pub(super) fn brush_transform(scene: &mut Scene, params: &mut SceneParams) {
+    pub(super) fn brush_transform(scene: &mut Scene, params: &mut SceneParams<'_>) {
         let th = params.time;
         let linear = Gradient::new_linear((0.0, 0.0), (0.0, 200.0)).with_stops([
             palette::css::RED,
@@ -804,7 +804,7 @@ mod impls {
         );
     }
 
-    pub(super) fn gradient_extend(scene: &mut Scene, params: &mut SceneParams) {
+    pub(super) fn gradient_extend(scene: &mut Scene, params: &mut SceneParams<'_>) {
         enum Kind {
             Linear,
             Radial,
@@ -871,7 +871,7 @@ mod impls {
         params.resolution = Some((1200.0, 1200.0).into());
     }
 
-    pub(super) fn two_point_radial(scene: &mut Scene, _params: &mut SceneParams) {
+    pub(super) fn two_point_radial(scene: &mut Scene, _params: &mut SceneParams<'_>) {
         pub(super) fn make(
             scene: &mut Scene,
             x0: f64,
@@ -1039,7 +1039,7 @@ mod impls {
         }
     }
 
-    pub(super) fn blend_grid(scene: &mut Scene, _: &mut SceneParams) {
+    pub(super) fn blend_grid(scene: &mut Scene, _: &mut SceneParams<'_>) {
         const BLEND_MODES: &[Mix] = &[
             Mix::Normal,
             Mix::Multiply,
@@ -1067,7 +1067,7 @@ mod impls {
         }
     }
 
-    pub(super) fn deep_blend(scene: &mut Scene, params: &mut SceneParams) {
+    pub(super) fn deep_blend(scene: &mut Scene, params: &mut SceneParams<'_>) {
         params.resolution = Some(Vec2::new(1000., 1000.));
         let main_rect = Rect::from_origin_size((10., 10.), (900., 900.));
         scene.fill(
@@ -1103,7 +1103,7 @@ mod impls {
         }
     }
 
-    pub(super) fn many_clips(scene: &mut Scene, params: &mut SceneParams) {
+    pub(super) fn many_clips(scene: &mut Scene, params: &mut SceneParams<'_>) {
         params.resolution = Some(Vec2::new(1000., 1000.));
         let mut rng = StdRng::seed_from_u64(42);
         let mut base_tri = BezPath::new();
@@ -1270,7 +1270,7 @@ mod impls {
         fragment
     }
 
-    pub(super) fn conflation_artifacts(scene: &mut Scene, _: &mut SceneParams) {
+    pub(super) fn conflation_artifacts(scene: &mut Scene, _: &mut SceneParams<'_>) {
         use PathEl::*;
         const N: f64 = 50.0;
         const S: f64 = 4.0;
@@ -1359,7 +1359,7 @@ mod impls {
         );
     }
 
-    pub(super) fn labyrinth(scene: &mut Scene, _: &mut SceneParams) {
+    pub(super) fn labyrinth(scene: &mut Scene, _: &mut SceneParams<'_>) {
         use PathEl::*;
 
         let rows: &[[u8; 12]] = &[
@@ -1436,7 +1436,7 @@ mod impls {
         );
     }
 
-    pub(super) fn robust_paths(scene: &mut Scene, _: &mut SceneParams) {
+    pub(super) fn robust_paths(scene: &mut Scene, _: &mut SceneParams<'_>) {
         let mut path = BezPath::new();
         path.move_to((16.0, 16.0));
         path.line_to((32.0, 16.0));
@@ -1519,7 +1519,7 @@ mod impls {
         );
     }
 
-    pub(super) fn base_color_test(scene: &mut Scene, params: &mut SceneParams) {
+    pub(super) fn base_color_test(scene: &mut Scene, params: &mut SceneParams<'_>) {
         // Cycle through the hue value every 5 seconds (t % 5) * 360/5
         let color = AlphaColor::<Lch>::new([80., 80., (params.time % 5.) as f32 * 72., 1.]);
         params.base_color = Some(color.convert());
@@ -1534,7 +1534,7 @@ mod impls {
         );
     }
 
-    pub(super) fn clip_test(scene: &mut Scene, params: &mut SceneParams) {
+    pub(super) fn clip_test(scene: &mut Scene, params: &mut SceneParams<'_>) {
         let clip = {
             const X0: f64 = 50.0;
             const Y0: f64 = 0.0;
@@ -1639,7 +1639,7 @@ mod impls {
         ]
     }
 
-    pub(super) fn many_draw_objects(scene: &mut Scene, params: &mut SceneParams) {
+    pub(super) fn many_draw_objects(scene: &mut Scene, params: &mut SceneParams<'_>) {
         const N_WIDE: usize = 300;
         const N_HIGH: usize = 300;
         const SCENE_WIDTH: f64 = 2000.0;
@@ -1661,7 +1661,7 @@ mod impls {
         }
     }
 
-    pub(super) fn splash_screen(scene: &mut Scene, params: &mut SceneParams) {
+    pub(super) fn splash_screen(scene: &mut Scene, params: &mut SceneParams<'_>) {
         let strings = [
             "Vello test",
             "  Arrow keys: switch scenes",
@@ -1686,7 +1686,7 @@ mod impls {
         }
     }
 
-    pub(super) fn splash_with_tiger() -> impl FnMut(&mut Scene, &mut SceneParams) {
+    pub(super) fn splash_with_tiger() -> impl FnMut(&mut Scene, &mut SceneParams<'_>) {
         let contents = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../assets/Ghostscript_Tiger.svg"
@@ -1699,7 +1699,7 @@ mod impls {
         }
     }
 
-    pub(super) fn blurred_rounded_rect(scene: &mut Scene, params: &mut SceneParams) {
+    pub(super) fn blurred_rounded_rect(scene: &mut Scene, params: &mut SceneParams<'_>) {
         params.resolution = Some(Vec2::new(1200., 1200.));
         params.base_color = Some(palette::css::WHITE);
 
@@ -1764,7 +1764,7 @@ mod impls {
         );
     }
 
-    pub(super) fn image_sampling(scene: &mut Scene, params: &mut SceneParams) {
+    pub(super) fn image_sampling(scene: &mut Scene, params: &mut SceneParams<'_>) {
         params.resolution = Some(Vec2::new(1100., 1100.));
         params.base_color = Some(palette::css::WHITE);
         let mut blob: Vec<u8> = Vec::new();
@@ -1807,7 +1807,7 @@ mod impls {
         );
     }
 
-    pub(super) fn image_extend_modes(scene: &mut Scene, params: &mut SceneParams) {
+    pub(super) fn image_extend_modes(scene: &mut Scene, params: &mut SceneParams<'_>) {
         params.resolution = Some(Vec2::new(1500., 1500.));
         params.base_color = Some(palette::css::WHITE);
         let mut blob: Vec<u8> = Vec::new();

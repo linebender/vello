@@ -14,7 +14,7 @@ fn bbox_clear_main(config: &ConfigUniform, path_bboxes: &mut [PathBbox]) {
     }
 }
 
-pub fn bbox_clear(_n_wg: u32, resources: &[CpuBinding]) {
+pub fn bbox_clear(_n_wg: u32, resources: &[CpuBinding<'_>]) {
     let config = resources[0].as_typed();
     let mut path_bboxes = resources[1].as_slice_mut();
     bbox_clear_main(&config, &mut path_bboxes);

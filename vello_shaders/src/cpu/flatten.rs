@@ -841,7 +841,7 @@ fn flatten_main(
     bump.lines = line_ix as u32;
 }
 
-pub fn flatten(n_wg: u32, resources: &[CpuBinding]) {
+pub fn flatten(n_wg: u32, resources: &[CpuBinding<'_>]) {
     let config = resources[0].as_typed();
     let scene = resources[1].as_slice();
     let tag_monoids = resources[2].as_slice();
