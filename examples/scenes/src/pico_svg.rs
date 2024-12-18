@@ -43,7 +43,7 @@ struct Parser {
 }
 
 impl PicoSvg {
-    pub fn load(xml_string: &str, scale: f64) -> Result<PicoSvg, Box<dyn std::error::Error>> {
+    pub fn load(xml_string: &str, scale: f64) -> Result<Self, Box<dyn std::error::Error>> {
         let doc = Document::parse(xml_string)?;
         let root = doc.root_element();
         let mut parser = Parser::new(scale);
@@ -114,7 +114,7 @@ impl PicoSvg {
             affine: transform,
             children: items,
         });
-        Ok(PicoSvg {
+        Ok(Self {
             items: vec![root_group],
             size,
         })
@@ -127,8 +127,8 @@ struct RecursiveProperties {
 }
 
 impl Parser {
-    fn new(scale: f64) -> Parser {
-        Parser { scale }
+    fn new(scale: f64) -> Self {
+        Self { scale }
     }
 
     fn rec_parse(

@@ -41,8 +41,8 @@ struct Element {
 struct GridPoint(i64, i64);
 
 impl MMark {
-    pub fn new(n: usize) -> MMark {
-        let mut result = MMark { elements: vec![] };
+    pub fn new(n: usize) -> Self {
+        let mut result = Self { elements: vec![] };
         result.resize(n);
         result
     }
@@ -128,7 +128,7 @@ const COLORS: &[Color] = &[
 ];
 
 impl Element {
-    fn new_rand(last: GridPoint) -> Element {
+    fn new_rand(last: GridPoint) -> Self {
         let mut rng = rand::thread_rng();
         let seg_type = rng.gen_range(0..4);
         let next = GridPoint::random_point(last);
@@ -163,7 +163,7 @@ impl Element {
         let color = *COLORS.choose(&mut rng).unwrap();
         let width = rng.r#gen::<f64>().powi(5) * 20.0 + 1.0;
         let is_split = rng.r#gen();
-        Element {
+        Self {
             seg,
             color,
             width,
@@ -176,7 +176,7 @@ impl Element {
 const OFFSETS: &[(i64, i64)] = &[(-4, 0), (2, 0), (1, -2), (1, 2)];
 
 impl GridPoint {
-    fn random_point(last: GridPoint) -> GridPoint {
+    fn random_point(last: Self) -> Self {
         let mut rng = rand::thread_rng();
 
         let offset = OFFSETS.choose(&mut rng).unwrap();
@@ -188,7 +188,7 @@ impl GridPoint {
         if !(0..=GRID_HEIGHT).contains(&y) {
             y -= offset.1 * 2;
         }
-        GridPoint(x, y)
+        Self(x, y)
     }
 
     fn coordinate(self) -> Point {

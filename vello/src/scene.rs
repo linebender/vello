@@ -310,7 +310,7 @@ impl Scene {
     ///
     /// The given transform is applied to every transform in the child.
     /// This is an O(N) operation.
-    pub fn append(&mut self, other: &Scene, transform: Option<Affine>) {
+    pub fn append(&mut self, other: &Self, transform: Option<Affine>) {
         let t = transform.as_ref().map(Transform::from_kurbo);
         self.encoding.append(&other.encoding, &t);
         #[cfg(feature = "bump_estimate")]

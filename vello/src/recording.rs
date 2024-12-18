@@ -13,10 +13,10 @@ pub struct ShaderId(pub usize);
 pub struct ResourceId(pub NonZeroU64);
 
 impl ResourceId {
-    pub fn next() -> ResourceId {
+    pub fn next() -> Self {
         // We initialize with 1 so that the conversion below succeeds
         static ID_COUNTER: AtomicU64 = AtomicU64::new(1);
-        ResourceId(NonZeroU64::new(ID_COUNTER.fetch_add(1, Ordering::Relaxed)).unwrap())
+        Self(NonZeroU64::new(ID_COUNTER.fetch_add(1, Ordering::Relaxed)).unwrap())
     }
 }
 
@@ -233,7 +233,7 @@ impl BufferProxy {
     pub fn new(size: u64, name: &'static str) -> Self {
         let id = ResourceId::next();
         debug_assert!(size > 0);
-        BufferProxy { id, size, name }
+        Self { id, size, name }
     }
 }
 
@@ -259,7 +259,7 @@ impl ImageFormat {
 impl ImageProxy {
     pub fn new(width: u32, height: u32, format: ImageFormat) -> Self {
         let id = ResourceId::next();
-        ImageProxy {
+        Self {
             width,
             height,
             format,

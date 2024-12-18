@@ -109,7 +109,7 @@ impl Default for Render {
 
 impl Render {
     pub fn new() -> Self {
-        Render {
+        Self {
             fine_wg_count: None,
             fine_resources: None,
             mask_buf: None,
