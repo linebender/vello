@@ -369,6 +369,7 @@ impl<'a> DrawGlyphs<'a> {
     /// translation.
     ///
     /// The default value is the identity matrix.
+    #[must_use]
     pub fn transform(mut self, transform: Affine) -> Self {
         self.run.transform = Transform::from_kurbo(&transform);
         self
@@ -379,6 +380,7 @@ impl<'a> DrawGlyphs<'a> {
     /// an oblique font.
     ///
     /// The default value is `None`.
+    #[must_use]
     pub fn glyph_transform(mut self, transform: Option<Affine>) -> Self {
         self.run.glyph_transform = transform.map(|xform| Transform::from_kurbo(&xform));
         self
@@ -387,6 +389,7 @@ impl<'a> DrawGlyphs<'a> {
     /// Sets the font size in pixels per em units.
     ///
     /// The default value is 16.0.
+    #[must_use]
     pub fn font_size(mut self, size: f32) -> Self {
         self.run.font_size = size;
         self
@@ -395,12 +398,14 @@ impl<'a> DrawGlyphs<'a> {
     /// Sets whether to enable hinting.
     ///
     /// The default value is `false`.
+    #[must_use]
     pub fn hint(mut self, hint: bool) -> Self {
         self.run.hint = hint;
         self
     }
 
     /// Sets the normalized design space coordinates for a variable font instance.
+    #[must_use]
     pub fn normalized_coords(mut self, coords: &[NormalizedCoord]) -> Self {
         self.scene
             .encoding
@@ -419,6 +424,7 @@ impl<'a> DrawGlyphs<'a> {
     /// Sets the brush.
     ///
     /// The default value is solid black.
+    #[must_use]
     pub fn brush(mut self, brush: impl Into<BrushRef<'a>>) -> Self {
         self.brush = brush.into();
         self
@@ -427,6 +433,7 @@ impl<'a> DrawGlyphs<'a> {
     /// Sets an additional alpha multiplier for the brush.
     ///
     /// The default value is 1.0.
+    #[must_use]
     pub fn brush_alpha(mut self, alpha: f32) -> Self {
         self.brush_alpha = alpha;
         self

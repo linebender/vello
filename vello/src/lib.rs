@@ -101,7 +101,6 @@
     single_use_lifetimes,
     unnameable_types,
     unreachable_pub,
-    clippy::return_self_not_must_use,
     clippy::cast_possible_truncation,
     clippy::missing_assert_message,
     clippy::shadow_unrelated,
