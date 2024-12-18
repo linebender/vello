@@ -12,7 +12,7 @@
 )]
 
 use vello::kurbo::{Affine, Rect};
-use vello::peniko::{color::palette, Brush, Color, Format};
+use vello::peniko::{color::palette, Brush, Color, ImageFormat};
 use vello::Scene;
 use vello_tests::TestParams;
 
@@ -30,7 +30,7 @@ fn simple_square(use_cpu: bool) {
         ..TestParams::new("simple_square", 150, 150)
     };
     let image = vello_tests::render_then_debug_sync(&scene, &params).unwrap();
-    assert_eq!(image.format, Format::Rgba8);
+    assert_eq!(image.format, ImageFormat::Rgba8);
     let mut red_count = 0;
     let mut black_count = 0;
     for pixel in image.data.data().chunks_exact(4) {
@@ -64,7 +64,7 @@ fn empty_scene(use_cpu: bool) {
         ..TestParams::new("simple_square", 150, 150)
     };
     let image = vello_tests::render_then_debug_sync(&scene, &params).unwrap();
-    assert_eq!(image.format, Format::Rgba8);
+    assert_eq!(image.format, ImageFormat::Rgba8);
     for pixel in image.data.data().chunks_exact(4) {
         let &[r, g, b, a] = pixel else { unreachable!() };
         let image_color = Color::from_rgba8(r, g, b, a);

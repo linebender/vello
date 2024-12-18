@@ -1779,7 +1779,7 @@ mod impls {
             blob.extend(c.premultiply().to_rgba8().to_u8_array());
         });
         let data = Blob::new(Arc::new(blob));
-        let image = Image::new(data, Format::Rgba8, 2, 2);
+        let image = Image::new(data, ImageFormat::Rgba8, 2, 2);
 
         scene.draw_image(
             &image,
@@ -1822,7 +1822,7 @@ mod impls {
             blob.extend(c.premultiply().to_rgba8().to_u8_array());
         });
         let data = Blob::new(Arc::new(blob));
-        let image = Image::new(data, Format::Rgba8, 2, 2);
+        let image = Image::new(data, ImageFormat::Rgba8, 2, 2);
         let image = image.with_extend(Extend::Pad);
         // Pad extend mode
         scene.fill(
