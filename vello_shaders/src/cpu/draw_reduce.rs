@@ -24,7 +24,7 @@ fn draw_reduce_main(n_wg: u32, config: &ConfigUniform, scene: &[u32], reduced: &
     }
 }
 
-pub fn draw_reduce(n_wg: u32, resources: &[CpuBinding]) {
+pub fn draw_reduce(n_wg: u32, resources: &[CpuBinding<'_>]) {
     let config = resources[0].as_typed();
     let scene = resources[1].as_slice();
     let mut reduced = resources[2].as_slice_mut();

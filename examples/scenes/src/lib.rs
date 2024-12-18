@@ -8,7 +8,6 @@
 // Feel free to send a PR that solves one or more of these.
 #![allow(
     missing_debug_implementations,
-    elided_lifetimes_in_paths,
     single_use_lifetimes,
     unreachable_pub,
     missing_docs,
@@ -67,11 +66,11 @@ pub struct ExampleScene {
 }
 
 pub trait TestScene {
-    fn render(&mut self, scene: &mut Scene, params: &mut SceneParams);
+    fn render(&mut self, scene: &mut Scene, params: &mut SceneParams<'_>);
 }
 
-impl<F: FnMut(&mut Scene, &mut SceneParams)> TestScene for F {
-    fn render(&mut self, scene: &mut Scene, params: &mut SceneParams) {
+impl<F: FnMut(&mut Scene, &mut SceneParams<'_>)> TestScene for F {
+    fn render(&mut self, scene: &mut Scene, params: &mut SceneParams<'_>) {
         self(scene, params);
     }
 }

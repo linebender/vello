@@ -22,7 +22,7 @@ fn backdrop_main(config: &ConfigUniform, _: &BumpAllocators, paths: &[Path], til
     }
 }
 
-pub fn backdrop(_n_wg: u32, resources: &[CpuBinding]) {
+pub fn backdrop(_n_wg: u32, resources: &[CpuBinding<'_>]) {
     let config = resources[0].as_typed();
     let bump = resources[1].as_typed();
     let paths = resources[2].as_slice();

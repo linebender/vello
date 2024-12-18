@@ -71,7 +71,7 @@ impl RampCache {
         }
     }
 
-    pub(crate) fn ramps(&self) -> Ramps {
+    pub(crate) fn ramps(&self) -> Ramps<'_> {
         Ramps {
             data: &self.data,
             width: N_SAMPLES as u32,

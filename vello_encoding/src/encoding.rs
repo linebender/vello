@@ -213,7 +213,7 @@ impl Encoding {
 
     /// Returns an encoder for encoding a path. If `is_fill` is true, all subpaths will
     /// be automatically closed.
-    pub fn encode_path(&mut self, is_fill: bool) -> PathEncoder {
+    pub fn encode_path(&mut self, is_fill: bool) -> PathEncoder<'_> {
         PathEncoder::new(
             &mut self.path_tags,
             &mut self.path_data,

@@ -54,7 +54,7 @@ fn tile_alloc_main(
     }
 }
 
-pub fn tile_alloc(_n_wg: u32, resources: &[CpuBinding]) {
+pub fn tile_alloc(_n_wg: u32, resources: &[CpuBinding<'_>]) {
     let config = resources[0].as_typed();
     let scene = resources[1].as_slice();
     let draw_bboxes = resources[2].as_slice();

@@ -106,7 +106,7 @@ fn render_svg_rec(items: &[crate::pico_svg::Item]) -> Scene {
 pub fn svg_function_of<R: AsRef<str>>(
     name: String,
     contents: impl FnOnce() -> R + Send + 'static,
-) -> impl FnMut(&mut Scene, &mut SceneParams) {
+) -> impl FnMut(&mut Scene, &mut SceneParams<'_>) {
     fn render_svg_contents(name: &str, contents: &str) -> (Scene, Vec2) {
         use crate::pico_svg::*;
         let start = Instant::now();

@@ -100,18 +100,22 @@ impl RenderContext {
     }
 
     /// Resizes the surface to the new dimensions.
-    pub fn resize_surface(&self, surface: &mut RenderSurface, width: u32, height: u32) {
+    pub fn resize_surface(&self, surface: &mut RenderSurface<'_>, width: u32, height: u32) {
         surface.config.width = width;
         surface.config.height = height;
         self.configure_surface(surface);
     }
 
-    pub fn set_present_mode(&self, surface: &mut RenderSurface, present_mode: wgpu::PresentMode) {
+    pub fn set_present_mode(
+        &self,
+        surface: &mut RenderSurface<'_>,
+        present_mode: wgpu::PresentMode,
+    ) {
         surface.config.present_mode = present_mode;
         self.configure_surface(surface);
     }
 
-    fn configure_surface(&self, surface: &RenderSurface) {
+    fn configure_surface(&self, surface: &RenderSurface<'_>) {
         let device = &self.devices[surface.dev_id].device;
         surface.surface.configure(device, &surface.config);
     }

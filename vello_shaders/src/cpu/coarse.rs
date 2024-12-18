@@ -383,7 +383,7 @@ fn coarse_main(
     }
 }
 
-pub fn coarse(_n_wg: u32, resources: &[CpuBinding]) {
+pub fn coarse(_n_wg: u32, resources: &[CpuBinding<'_>]) {
     let config = resources[0].as_typed();
     let scene = resources[1].as_slice();
     let draw_monoids = resources[2].as_slice();

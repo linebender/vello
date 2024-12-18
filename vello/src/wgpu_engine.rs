@@ -55,13 +55,13 @@ struct WgpuShader {
 }
 
 pub(crate) enum CpuShaderType {
-    Present(fn(u32, &[CpuBinding])),
+    Present(fn(u32, &[CpuBinding<'_>])),
     Missing,
     Skipped,
 }
 
 struct CpuShader {
-    shader: fn(u32, &[CpuBinding]),
+    shader: fn(u32, &[CpuBinding<'_>]),
 }
 
 enum ShaderKind<'a> {
@@ -76,7 +76,7 @@ struct Shader {
 }
 
 impl Shader {
-    fn select(&self) -> ShaderKind {
+    fn select(&self) -> ShaderKind<'_> {
         if let Some(cpu) = self.cpu.as_ref() {
             ShaderKind::Cpu(cpu)
         } else if let Some(wgpu) = self.wgpu.as_ref() {
@@ -309,7 +309,7 @@ impl WgpuEngine {
         fragment_main: &'static str,
         topology: wgpu::PrimitiveTopology,
         color_attachment: wgpu::ColorTargetState,
-        vertex_buffer: Option<wgpu::VertexBufferLayout>,
+        vertex_buffer: Option<wgpu::VertexBufferLayout<'_>>,
         bind_layout: &[(BindType, wgpu::ShaderStages)],
     ) -> ShaderId {
         let entries = Self::create_bind_group_layout_entries(bind_layout.iter().copied());
@@ -371,7 +371,7 @@ impl WgpuEngine {
         device: &Device,
         queue: &Queue,
         recording: &Recording,
-        external_resources: &[ExternalResource],
+        external_resources: &[ExternalResource<'_>],
         label: &'static str,
         #[cfg(feature = "wgpu-profiler")] profiler: &mut wgpu_profiler::GpuProfiler,
     ) -> Result<()> {
@@ -859,7 +859,7 @@ impl BindMap {
     /// Get a CPU buffer.
     ///
     /// Panics if buffer is not present or is on GPU.
-    fn get_cpu_buf(&self, id: ResourceId) -> CpuBinding {
+    fn get_cpu_buf(&self, id: ResourceId) -> CpuBinding<'_> {
         match &self.buf_map[&id].buffer {
             MaterializedBuffer::Cpu(b) => CpuBinding::BufferRW(b),
             _ => panic!("getting cpu buffer, but it's on gpu"),
@@ -993,7 +993,7 @@ impl BindMapBuffer {
 
 impl<'a> TransientBindMap<'a> {
     /// Create new transient bind map, seeded from external resources
-    fn new(external_resources: &'a [ExternalResource]) -> Self {
+    fn new(external_resources: &'a [ExternalResource<'_>]) -> Self {
         let mut bufs = HashMap::default();
         let mut images = HashMap::default();
         for resource in external_resources {
@@ -1167,7 +1167,7 @@ impl<'a> TransientBindMap<'a> {
         &self,
         bind_map: &'a mut BindMap,
         bindings: &[ResourceProxy],
-    ) -> Vec<CpuBinding> {
+    ) -> Vec<CpuBinding<'_>> {
         // First pass is mutable; create buffers as needed
         for resource in bindings {
             match resource {

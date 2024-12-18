@@ -98,7 +98,6 @@
 #![allow(missing_docs, reason = "We have many as-yet undocumented items.")]
 #![expect(
     missing_debug_implementations,
-    elided_lifetimes_in_paths,
     single_use_lifetimes,
     unnameable_types,
     unreachable_pub,
