@@ -46,15 +46,15 @@ impl Debug for DebugLayers {
 impl DebugLayers {
     /// Visualize the bounding box of every path.
     /// Requires the `debug_layers` feature.
-    pub const BOUNDING_BOXES: DebugLayers = DebugLayers(1 << 0);
+    pub const BOUNDING_BOXES: Self = Self(1 << 0);
 
     /// Visualize the post-flattening line segments using line primitives.
     /// Requires the `debug_layers` feature.
-    pub const LINESOUP_SEGMENTS: DebugLayers = DebugLayers(1 << 1);
+    pub const LINESOUP_SEGMENTS: Self = Self(1 << 1);
 
     /// Visualize the post-flattening line endpoints.
     /// Requires the `debug_layers` feature.
-    pub const LINESOUP_POINTS: DebugLayers = DebugLayers(1 << 2);
+    pub const LINESOUP_POINTS: Self = Self(1 << 2);
 
     /// Enable validation of internal buffer contents and visualize errors. Validation tests are
     /// run on the CPU and require buffer contents to be read-back.
@@ -66,7 +66,7 @@ impl DebugLayers {
     ///      as red circles and logged to stderr.
     ///
     /// Requires the `debug_layers` feature.
-    pub const VALIDATION: DebugLayers = DebugLayers(1 << 3);
+    pub const VALIDATION: Self = Self(1 << 3);
 
     /// Construct a `DebugLayers` from the raw bits.
     pub const fn from_bits(bits: u8) -> Self {
@@ -100,12 +100,12 @@ impl DebugLayers {
     }
 
     /// Determine whether `self` is a superset of `mask`.
-    pub const fn contains(self, mask: DebugLayers) -> bool {
+    pub const fn contains(self, mask: Self) -> bool {
         self.0 & mask.0 == mask.0
     }
 
     /// Toggle the value of the layers specified in mask.
-    pub fn toggle(&mut self, mask: DebugLayers) {
+    pub fn toggle(&mut self, mask: Self) {
         self.0 ^= mask.0;
     }
 }

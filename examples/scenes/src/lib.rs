@@ -19,7 +19,6 @@
     clippy::missing_panics_doc,
     clippy::missing_errors_doc,
     clippy::partial_pub_fields,
-    clippy::use_self,
     clippy::match_same_arms,
     clippy::allow_attributes_without_reason,
     clippy::allow_attributes

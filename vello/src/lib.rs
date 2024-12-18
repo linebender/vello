@@ -109,7 +109,6 @@
     clippy::missing_panics_doc,
     clippy::exhaustive_enums,
     clippy::print_stderr,
-    clippy::use_self,
     clippy::match_same_arms,
     reason = "Deferred"
 )]

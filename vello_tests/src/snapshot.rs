@@ -123,8 +123,8 @@ pub enum SnapshotDirectory {
 impl SnapshotDirectory {
     fn max_size_in_bytes(self) -> u64 {
         match self {
-            SnapshotDirectory::Smoke => 4 * 1024, /* 4KiB */
-            SnapshotDirectory::Lfs => 128 * 1024, /* 128KiB */
+            Self::Smoke => 4 * 1024, /* 4KiB */
+            Self::Lfs => 128 * 1024, /* 128KiB */
         }
     }
 }

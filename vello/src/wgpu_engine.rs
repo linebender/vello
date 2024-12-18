@@ -141,7 +141,7 @@ enum TransientBuf<'a> {
 }
 
 impl WgpuEngine {
-    pub fn new(use_cpu: bool) -> WgpuEngine {
+    pub fn new(use_cpu: bool) -> Self {
         Self {
             use_cpu,
             ..Default::default()
