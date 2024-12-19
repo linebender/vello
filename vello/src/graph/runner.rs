@@ -20,8 +20,15 @@ use super::{Gallery, Generation, Painting, PaintingId, PaintingSource, Vello};
 
 /// For inter-frame caching, we keep the same Vello struct around.
 impl Vello {
-    pub fn run_render() {
-        resolve_graph(&[], &mut []);
+    /// Run a rendering operation.
+    ///
+    /// Roots indicate
+    pub fn run_render(&mut self, root: Painting, texture: Texture, galleries: &mut [Gallery]) {
+        for graph in galleries.iter_mut() {
+            graph.gc();
+        }
+        let galleries = &galleries[..];
+        let mut dag = resolve_graph(&[root], galleries);
     }
 }
 
@@ -40,23 +47,22 @@ impl<'a> Intermediary<'a> {
     }
 }
 
-fn resolve_graph(roots: &[Painting], graphs: &mut [Gallery]) {
-    for graph in graphs.iter_mut() {
-        graph.gc();
-    }
+fn resolve_graph(roots: &[Painting], graphs: &[Gallery]) -> Dag<PaintingId, PaintingId> {
     let cache = HashMap::<PaintingId, (Texture, Generation)>::new();
     let mut union = HashMap::new();
+    // Create a map of references to all paintings in the provided galleries.
     union.extend(graphs.iter().flat_map(|it| {
         it.paintings
             .iter()
             .map(|(id, source)| (*id, Intermediary::new(source)))
     }));
-    let node = Node::new(PaintingId::next()).with_result(PaintingId::next());
-    let mut dag = Dag::default().with_node(node);
+
+    let mut dag = Dag::default();
     // Perform a depth-first resolution of the root nodes.
     for painting in roots {
         resolve_recursive(&mut union, painting, &cache, &mut dag);
     }
+    dag
 }
 
 fn resolve_recursive(
@@ -82,10 +88,11 @@ fn resolve_recursive(
 
     // Denote that the node has been (will be) added to the graph.
     *added = true;
+    // Maybe a smallvec?
     let mut dependencies = Vec::new();
     match source {
         PaintingSource::Image(_) => {}
-        PaintingSource::Scene(_scene, _) => {
+        PaintingSource::Canvas(_scene, _) => {
             // for painting in _scene.resources.paintings {
             //    // push to vec (smallvec?)
             // }
