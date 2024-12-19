@@ -30,16 +30,20 @@ mod runner;
 use std::{
     borrow::Cow,
     collections::HashMap,
+    fmt::Debug,
     hash::Hash,
     num::Wrapping,
+    ops::{Deref, DerefMut},
     sync::{
         atomic::{AtomicU64, Ordering},
         mpsc::{self, Receiver, Sender},
-        Arc,
+        Arc, LazyLock,
     },
 };
 
-use peniko::{Extend, Image};
+use peniko::{kurbo::Affine, Blob, Brush, Extend, Image, ImageFormat, ImageQuality};
+
+use crate::Scene;
 
 // --- MARK: Public API ---
 
@@ -58,7 +62,7 @@ pub struct Gallery {
     paintings: HashMap<PaintingId, (PaintingSource, Generation)>,
 }
 
-impl std::fmt::Debug for Gallery {
+impl Debug for Gallery {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!("{:?}({})", self.id, self.label))
     }
@@ -73,7 +77,7 @@ pub struct Painting {
     inner: Arc<PaintingInner>,
 }
 
-impl std::fmt::Debug for Painting {
+impl Debug for Painting {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!("{:?}({})", self.inner.id, self.inner.label))
     }
@@ -81,13 +85,9 @@ impl std::fmt::Debug for Painting {
 
 #[derive(Debug, Clone, Copy)]
 pub struct OutputSize {
-    width: u16,
-    height: u16,
-    // /// The size is inferred from the usages.
-    // ///
-    // /// This should be used carefully, because it can lead
-    // /// to the same images used multiple times.
-    // Inferred,
+    // Is u16 here reasonable?
+    pub width: u16,
+    pub height: u16,
 }
 
 impl Gallery {
@@ -181,8 +181,8 @@ impl Painter<'_> {
     pub fn as_resample(self, from: Painting, to_dimensions: OutputSize) {
         self.insert(PaintingSource::Resample(from, to_dimensions));
     }
-    pub fn as_scene(self, scene: Scene, of_dimensions: OutputSize) {
-        self.insert(PaintingSource::Scene(scene, of_dimensions));
+    pub fn as_scene(self, scene: Canvas, of_dimensions: OutputSize) {
+        self.insert(PaintingSource::Canvas(scene, of_dimensions));
     }
 
     fn insert(self, new_source: PaintingSource) {
@@ -221,7 +221,7 @@ impl Drop for PaintingInner {
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
 struct PaintingId(u64);
 
-impl std::fmt::Debug for PaintingId {
+impl Debug for PaintingId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!("#{}", self.0))
     }
@@ -241,7 +241,7 @@ impl PaintingId {
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct GalleryId(u64);
 
-impl std::fmt::Debug for GalleryId {
+impl Debug for GalleryId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!("#{}", self.0))
     }
@@ -259,7 +259,7 @@ impl GalleryId {
 #[derive(Debug)]
 enum PaintingSource {
     Image(Image),
-    Scene(Scene, OutputSize),
+    Canvas(Canvas, OutputSize),
     Resample(Painting, OutputSize /* Algorithm */),
     Region {
         painting: Painting,
@@ -282,13 +282,158 @@ impl Generation {
 // --- MARK: Model ---
 // A model of the rest of Vello.
 
-/// A single Scene
-#[derive(Debug)]
-pub struct Scene {}
+/// A single Scene, potentially containing paintings.
+pub struct Canvas {
+    scene: Box<Scene>,
+    paintings: HashMap<u64, Painting>,
+}
 
-impl Scene {
+#[derive(Debug)]
+/// Created using [`Canvas::new_image`].
+pub struct PaintingConfig {
+    image: Image,
+}
+
+impl PaintingConfig {
+    fn new(width: u16, height: u16) -> Self {
+        // Create a fake Image, with an empty Blob. We can re-use the allocation between these.
+        static EMPTY_ARC: LazyLock<Arc<[u8; 0]>> = LazyLock::new(|| Arc::new([]));
+        let data = Blob::new(EMPTY_ARC.clone());
+        let image = Image::new(data, ImageFormat::Rgba8, width.into(), height.into());
+        Self { image }
+    }
+    pub fn brush(self) -> Brush {
+        Brush::Image(self.image)
+    }
+    pub fn image(&self) -> &Image {
+        &self.image
+    }
+    /// Builder method for setting the image [extend mode](Extend) in both
+    /// directions.
+    #[must_use]
+    pub fn with_extend(self, mode: Extend) -> Self {
+        Self {
+            image: self.image.with_extend(mode),
+        }
+    }
+
+    /// Builder method for setting the image [extend mode](Extend) in the
+    /// horizontal direction.
+    #[must_use]
+    pub fn with_x_extend(self, mode: Extend) -> Self {
+        Self {
+            image: self.image.with_x_extend(mode),
+        }
+    }
+
+    /// Builder method for setting the image [extend mode](Extend) in the
+    /// vertical direction.
+    #[must_use]
+    pub fn with_y_extend(self, mode: Extend) -> Self {
+        Self {
+            image: self.image.with_y_extend(mode),
+        }
+    }
+
+    /// Builder method for setting a hint for the desired image [quality](ImageQuality)
+    /// when rendering.
+    #[must_use]
+    pub fn with_quality(self, quality: ImageQuality) -> Self {
+        Self {
+            image: self.image.with_quality(quality),
+        }
+    }
+
+    /// Returns the image with the alpha multiplier set to `alpha`.
+    #[must_use]
+    #[track_caller]
+    pub fn with_alpha(self, alpha: f32) -> Self {
+        Self {
+            image: self.image.with_alpha(alpha),
+        }
+    }
+
+    /// Returns the image with the alpha multiplier multiplied again by `alpha`.
+    /// The behaviour of this transformation is undefined if `alpha` is negative.
+    #[must_use]
+    #[track_caller]
+    pub fn multiply_alpha(self, alpha: f32) -> Self {
+        Self {
+            image: self.image.multiply_alpha(alpha),
+        }
+    }
+}
+
+impl From<Scene> for Canvas {
+    fn from(value: Scene) -> Self {
+        Self::from_scene(Box::new(value))
+    }
+}
+
+impl Default for Canvas {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Canvas {
+    pub fn new() -> Self {
+        Self::from_scene(Box::<Scene>::default())
+    }
+    pub fn from_scene(scene: Box<Scene>) -> Self {
+        Self {
+            scene,
+            paintings: HashMap::default(),
+        }
+    }
+    pub fn new_image(&mut self, painting: Painting, width: u16, height: u16) -> PaintingConfig {
+        let config = PaintingConfig::new(width, height);
+        self.override_image(&config.image, painting);
+        config
+    }
+
     #[doc(alias = "image")]
-    pub fn painting(&mut self, painting: Painting, width: u16, height: u16, extend: Extend) {}
+    pub fn draw_painting(
+        &mut self,
+        painting: Painting,
+        width: u16,
+        height: u16,
+        transform: Affine,
+    ) {
+        let image = self.new_image(painting, width, height);
+        self.scene.draw_image(&image.image, transform);
+    }
+
+    #[deprecated(note = "Prefer `draw_painting` for greater efficiency")]
+    pub fn draw_image(&mut self, image: &Image, transform: Affine) {
+        self.scene.draw_image(image, transform);
+    }
+
+    pub fn override_image(&mut self, image: &Image, painting: Painting) {
+        self.paintings.insert(image.data.id(), painting);
+    }
+}
+
+impl Deref for Canvas {
+    type Target = Scene;
+
+    fn deref(&self) -> &Self::Target {
+        &self.scene
+    }
+}
+impl DerefMut for Canvas {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.scene
+    }
+}
+
+impl Debug for Canvas {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Canvas")
+            .field("scene", &"elided")
+            .field("paintings", &self.paintings)
+            .finish()
+    }
 }
 
 // --- MARK: Musings ---
