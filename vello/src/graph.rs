@@ -42,13 +42,26 @@ use std::{
 };
 
 use peniko::{kurbo::Affine, Blob, Brush, Extend, Image, ImageFormat, ImageQuality};
+use wgpu::{Texture, TextureView};
 
-use crate::Scene;
+use crate::{Renderer, Scene};
+pub use runner::RenderDetails;
 
 // --- MARK: Public API ---
 
-#[derive(Debug)]
-pub struct Vello {}
+pub struct Vello {
+    cache: HashMap<PaintingId, (Texture, TextureView, Generation)>,
+    renderer: Renderer,
+}
+
+impl Debug for Vello {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Vello")
+            .field("cache", &self.cache)
+            .field("renderer", &"elided")
+            .finish()
+    }
+}
 
 /// A partial render graph.
 ///
@@ -85,9 +98,8 @@ impl Debug for Painting {
 
 #[derive(Debug, Clone, Copy)]
 pub struct OutputSize {
-    // Is u16 here reasonable?
-    pub width: u16,
-    pub height: u16,
+    pub width: u32,
+    pub height: u32,
 }
 
 impl Gallery {
@@ -170,7 +182,7 @@ impl Painter<'_> {
     pub fn as_image(self, image: Image) {
         self.insert(PaintingSource::Image(image));
     }
-    pub fn as_subregion(self, from: Painting, x: u16, y: u16, width: u16, height: u16) {
+    pub fn as_subregion(self, from: Painting, x: u32, y: u32, width: u32, height: u32) {
         self.insert(PaintingSource::Region {
             painting: from,
             x,
@@ -263,8 +275,8 @@ enum PaintingSource {
     Resample(Painting, OutputSize /* Algorithm */),
     Region {
         painting: Painting,
-        x: u16,
-        y: u16,
+        x: u32,
+        y: u32,
         size: OutputSize,
     },
 }
