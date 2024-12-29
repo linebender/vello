@@ -196,7 +196,7 @@ impl DrawBeginClip {
     /// Creates new clip draw data.
     pub fn new(blend_mode: BlendMode, alpha: f32) -> Self {
         Self {
-            blend_mode: (blend_mode.mix as u32) << 8 | blend_mode.compose as u32,
+            blend_mode: ((blend_mode.mix as u32) << 8) | blend_mode.compose as u32,
             alpha,
         }
     }
