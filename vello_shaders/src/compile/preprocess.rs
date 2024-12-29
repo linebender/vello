@@ -21,7 +21,7 @@ pub fn get_imports(shader_dir: &Path) -> HashMap<String, String> {
             let suffix = ".wgsl";
             if let Some(import_name) = name.strip_suffix(suffix) {
                 let contents = fs::read_to_string(imports_dir.join(&file_name))
-                    .expect("Could read shader {import_name} contents");
+                    .unwrap_or_else(|_| panic!("Couldn't read shader {import_name} contents"));
                 imports.insert(import_name.to_owned(), contents);
             }
         }

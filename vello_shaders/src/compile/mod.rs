@@ -214,7 +214,7 @@ impl ShaderInfo {
                 let suffix = ".wgsl";
                 if let Some(shader_name) = name.strip_suffix(suffix) {
                     let contents = fs::read_to_string(shader_dir.join(&file_name))
-                        .expect("Could read shader {shader_name} contents");
+                        .unwrap_or_else(|_| panic!("Couldn't read shader {shader_name} contents"));
                     if let Some(permutations) = permutation_map.get(shader_name) {
                         for permutation in permutations {
                             let mut defines = defines.clone();
