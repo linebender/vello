@@ -153,7 +153,7 @@ fn path_count_main(
     }
 }
 
-pub fn path_count(_n_wg: u32, resources: &[CpuBinding]) {
+pub fn path_count(_n_wg: u32, resources: &[CpuBinding<'_>]) {
     // config is binding 0
     let mut bump = resources[1].as_typed_mut();
     let lines = resources[2].as_slice();

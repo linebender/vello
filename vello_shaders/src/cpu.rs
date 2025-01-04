@@ -103,7 +103,7 @@ impl<T: ?Sized> DerefMut for TypedBufGuardMut<'_, T> {
 }
 
 impl CpuBinding<'_> {
-    pub fn as_typed<T: Pod>(&self) -> TypedBufGuard<T> {
+    pub fn as_typed<T: Pod>(&self) -> TypedBufGuard<'_, T> {
         match self {
             CpuBinding::Buffer(b) => TypedBufGuard::Slice(bytemuck::from_bytes(b)),
             CpuBinding::BufferRW(b) => {
@@ -113,7 +113,7 @@ impl CpuBinding<'_> {
         }
     }
 
-    pub fn as_typed_mut<T: Pod>(&self) -> TypedBufGuardMut<T> {
+    pub fn as_typed_mut<T: Pod>(&self) -> TypedBufGuardMut<'_, T> {
         match self {
             CpuBinding::Buffer(_) => panic!("can't borrow external buffer mutably"),
             CpuBinding::BufferRW(b) => {
@@ -125,7 +125,7 @@ impl CpuBinding<'_> {
         }
     }
 
-    pub fn as_slice<T: Pod>(&self) -> TypedBufGuard<[T]> {
+    pub fn as_slice<T: Pod>(&self) -> TypedBufGuard<'_, [T]> {
         match self {
             CpuBinding::Buffer(b) => TypedBufGuard::Slice(bytemuck::cast_slice(b)),
             CpuBinding::BufferRW(b) => {
@@ -135,7 +135,7 @@ impl CpuBinding<'_> {
         }
     }
 
-    pub fn as_slice_mut<T: Pod>(&self) -> TypedBufGuardMut<[T]> {
+    pub fn as_slice_mut<T: Pod>(&self) -> TypedBufGuardMut<'_, [T]> {
         match self {
             CpuBinding::Buffer(_) => panic!("can't borrow external buffer mutably"),
             CpuBinding::BufferRW(b) => {

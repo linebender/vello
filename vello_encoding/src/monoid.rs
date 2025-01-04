@@ -11,5 +11,6 @@ pub trait Monoid: Default {
     fn new(value: Self::SourceValue) -> Self;
 
     /// Combines two monoids. This operation must be associative.
+    #[must_use]
     fn combine(&self, other: &Self) -> Self;
 }

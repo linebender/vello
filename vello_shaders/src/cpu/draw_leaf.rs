@@ -76,7 +76,7 @@ fn draw_leaf_main(
                         info[di + 3] = f32::to_bits(line_c);
                     }
                     DrawTag::RADIAL_GRADIENT => {
-                        const GRADIENT_EPSILON: f32 = 1.0f32 / (1 << 12) as f32;
+                        const GRADIENT_EPSILON: f32 = 1.0_f32 / (1 << 12) as f32;
                         info[di] = draw_flags;
                         let mut p0 = Vec2::new(
                             f32::from_bits(scene[dd as usize + 1]),
@@ -208,7 +208,7 @@ fn draw_leaf_main(
     }
 }
 
-pub fn draw_leaf(n_wg: u32, resources: &[CpuBinding]) {
+pub fn draw_leaf(n_wg: u32, resources: &[CpuBinding<'_>]) {
     let config = resources[0].as_typed();
     let scene = resources[1].as_slice();
     let reduced = resources[2].as_slice();

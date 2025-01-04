@@ -30,10 +30,16 @@ impl RenderContext {
         reason = "Creating a wgpu Instance is something which should only be done rarely"
     )]
     pub fn new() -> Self {
+        let backends = wgpu::util::backend_bits_from_env().unwrap_or_default();
+        let flags = wgpu::InstanceFlags::from_build_config().with_env();
+        let dx12_shader_compiler = wgpu::util::dx12_shader_compiler_from_env().unwrap_or_default();
+        let gles_minor_version = wgpu::util::gles_minor_version_from_env().unwrap_or_default();
+
         let instance = Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::util::backend_bits_from_env().unwrap_or(wgpu::Backends::PRIMARY),
-            dx12_shader_compiler: wgpu::Dx12Compiler::Fxc,
-            ..Default::default()
+            backends,
+            flags,
+            dx12_shader_compiler,
+            gles_minor_version,
         });
         Self {
             instance,
@@ -100,18 +106,22 @@ impl RenderContext {
     }
 
     /// Resizes the surface to the new dimensions.
-    pub fn resize_surface(&self, surface: &mut RenderSurface, width: u32, height: u32) {
+    pub fn resize_surface(&self, surface: &mut RenderSurface<'_>, width: u32, height: u32) {
         surface.config.width = width;
         surface.config.height = height;
         self.configure_surface(surface);
     }
 
-    pub fn set_present_mode(&self, surface: &mut RenderSurface, present_mode: wgpu::PresentMode) {
+    pub fn set_present_mode(
+        &self,
+        surface: &mut RenderSurface<'_>,
+        present_mode: wgpu::PresentMode,
+    ) {
         surface.config.present_mode = present_mode;
         self.configure_surface(surface);
     }
 
-    fn configure_surface(&self, surface: &RenderSurface) {
+    fn configure_surface(&self, surface: &RenderSurface<'_>) {
         let device = &self.devices[surface.dev_id].device;
         surface.surface.configure(device, &surface.config);
     }

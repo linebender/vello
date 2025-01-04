@@ -301,7 +301,7 @@ impl Scene {
     }
 
     /// Returns a builder for encoding a glyph run.
-    pub fn draw_glyphs(&mut self, font: &Font) -> DrawGlyphs {
+    pub fn draw_glyphs(&mut self, font: &Font) -> DrawGlyphs<'_> {
         // TODO: Integrate `BumpEstimator` with the glyph cache.
         DrawGlyphs::new(self, font)
     }
@@ -310,7 +310,7 @@ impl Scene {
     ///
     /// The given transform is applied to every transform in the child.
     /// This is an O(N) operation.
-    pub fn append(&mut self, other: &Scene, transform: Option<Affine>) {
+    pub fn append(&mut self, other: &Self, transform: Option<Affine>) {
         let t = transform.as_ref().map(Transform::from_kurbo);
         self.encoding.append(&other.encoding, &t);
         #[cfg(feature = "bump_estimate")]
@@ -369,6 +369,7 @@ impl<'a> DrawGlyphs<'a> {
     /// translation.
     ///
     /// The default value is the identity matrix.
+    #[must_use]
     pub fn transform(mut self, transform: Affine) -> Self {
         self.run.transform = Transform::from_kurbo(&transform);
         self
@@ -379,6 +380,7 @@ impl<'a> DrawGlyphs<'a> {
     /// an oblique font.
     ///
     /// The default value is `None`.
+    #[must_use]
     pub fn glyph_transform(mut self, transform: Option<Affine>) -> Self {
         self.run.glyph_transform = transform.map(|xform| Transform::from_kurbo(&xform));
         self
@@ -387,6 +389,7 @@ impl<'a> DrawGlyphs<'a> {
     /// Sets the font size in pixels per em units.
     ///
     /// The default value is 16.0.
+    #[must_use]
     pub fn font_size(mut self, size: f32) -> Self {
         self.run.font_size = size;
         self
@@ -395,12 +398,14 @@ impl<'a> DrawGlyphs<'a> {
     /// Sets whether to enable hinting.
     ///
     /// The default value is `false`.
+    #[must_use]
     pub fn hint(mut self, hint: bool) -> Self {
         self.run.hint = hint;
         self
     }
 
     /// Sets the normalized design space coordinates for a variable font instance.
+    #[must_use]
     pub fn normalized_coords(mut self, coords: &[NormalizedCoord]) -> Self {
         self.scene
             .encoding
@@ -419,6 +424,7 @@ impl<'a> DrawGlyphs<'a> {
     /// Sets the brush.
     ///
     /// The default value is solid black.
+    #[must_use]
     pub fn brush(mut self, brush: impl Into<BrushRef<'a>>) -> Self {
         self.brush = brush.into();
         self
@@ -427,6 +433,7 @@ impl<'a> DrawGlyphs<'a> {
     /// Sets an additional alpha multiplier for the brush.
     ///
     /// The default value is 1.0.
+    #[must_use]
     pub fn brush_alpha(mut self, alpha: f32) -> Self {
         self.brush_alpha = alpha;
         self
@@ -931,7 +938,7 @@ fn conv_skrifa_transform(transform: skrifa::color::Transform) -> Transform {
 }
 
 fn conv_brush(
-    brush: skrifa::color::Brush,
+    brush: skrifa::color::Brush<'_>,
     cpal: &Cpal<'_>,
     foreground_brush: BrushRef<'_>,
 ) -> Brush {
@@ -1015,7 +1022,7 @@ fn conv_extend(extend: skrifa::color::Extend) -> Extend {
 struct ColorStopsConverter<'a>(&'a [skrifa::color::ColorStop], &'a Cpal<'a>, BrushRef<'a>);
 
 impl ColorStopsSource for ColorStopsConverter<'_> {
-    fn collect_stops(&self, vec: &mut ColorStops) {
+    fn collect_stops(self, stops: &mut ColorStops) {
         for item in self.0 {
             let color = color_index(self.1, item.palette_index);
             let color = match color {
@@ -1036,7 +1043,7 @@ impl ColorStopsSource for ColorStopsConverter<'_> {
                 },
             };
             let color = color.multiply_alpha(item.alpha);
-            vec.push(ColorStop {
+            stops.push(ColorStop {
                 color: DynamicColor::from_alpha_color(color),
                 offset: item.offset,
             });

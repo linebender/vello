@@ -165,7 +165,7 @@ fn path_tiling_main(
     }
 }
 
-pub fn path_tiling(_n_wg: u32, resources: &[CpuBinding]) {
+pub fn path_tiling(_n_wg: u32, resources: &[CpuBinding<'_>]) {
     let mut bump = resources[0].as_typed_mut();
     let seg_counts = resources[1].as_slice();
     let lines = resources[2].as_slice();

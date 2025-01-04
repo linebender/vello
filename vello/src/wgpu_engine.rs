@@ -55,13 +55,13 @@ struct WgpuShader {
 }
 
 pub(crate) enum CpuShaderType {
-    Present(fn(u32, &[CpuBinding])),
+    Present(fn(u32, &[CpuBinding<'_>])),
     Missing,
     Skipped,
 }
 
 struct CpuShader {
-    shader: fn(u32, &[CpuBinding]),
+    shader: fn(u32, &[CpuBinding<'_>]),
 }
 
 enum ShaderKind<'a> {
@@ -76,7 +76,7 @@ struct Shader {
 }
 
 impl Shader {
-    fn select(&self) -> ShaderKind {
+    fn select(&self) -> ShaderKind<'_> {
         if let Some(cpu) = self.cpu.as_ref() {
             ShaderKind::Cpu(cpu)
         } else if let Some(wgpu) = self.wgpu.as_ref() {
@@ -101,13 +101,6 @@ enum MaterializedBuffer {
 
 struct BindMapBuffer {
     buffer: MaterializedBuffer,
-    #[cfg_attr(
-        not(feature = "buffer_labels"),
-        expect(
-            unused,
-            reason = "Useful for debugging; simplifies upstream to always provide this"
-        )
-    )]
     label: &'static str,
 }
 
@@ -122,7 +115,6 @@ struct BindMap {
 struct BufferProperties {
     size: u64,
     usages: BufferUsages,
-    #[cfg(feature = "buffer_labels")]
     name: &'static str,
 }
 
@@ -149,7 +141,7 @@ enum TransientBuf<'a> {
 }
 
 impl WgpuEngine {
-    pub fn new(use_cpu: bool) -> WgpuEngine {
+    pub fn new(use_cpu: bool) -> Self {
         Self {
             use_cpu,
             ..Default::default()
@@ -317,7 +309,7 @@ impl WgpuEngine {
         fragment_main: &'static str,
         topology: wgpu::PrimitiveTopology,
         color_attachment: wgpu::ColorTargetState,
-        vertex_buffer: Option<wgpu::VertexBufferLayout>,
+        vertex_buffer: Option<wgpu::VertexBufferLayout<'_>>,
         bind_layout: &[(BindType, wgpu::ShaderStages)],
     ) -> ShaderId {
         let entries = Self::create_bind_group_layout_entries(bind_layout.iter().copied());
@@ -379,7 +371,7 @@ impl WgpuEngine {
         device: &Device,
         queue: &Queue,
         recording: &Recording,
-        external_resources: &[ExternalResource],
+        external_resources: &[ExternalResource<'_>],
         label: &'static str,
         #[cfg(feature = "wgpu-profiler")] profiler: &mut wgpu_profiler::GpuProfiler,
     ) -> Result<()> {
@@ -730,7 +722,6 @@ impl WgpuEngine {
                     let props = BufferProperties {
                         size: gpu_buf.size(),
                         usages: gpu_buf.usage(),
-                        #[cfg(feature = "buffer_labels")]
                         name: buf.label,
                     };
                     self.pool.bufs.entry(props).or_default().push(gpu_buf);
@@ -868,7 +859,7 @@ impl BindMap {
     /// Get a CPU buffer.
     ///
     /// Panics if buffer is not present or is on GPU.
-    fn get_cpu_buf(&self, id: ResourceId) -> CpuBinding {
+    fn get_cpu_buf(&self, id: ResourceId) -> CpuBinding<'_> {
         match &self.buf_map[&id].buffer {
             MaterializedBuffer::Cpu(b) => CpuBinding::BufferRW(b),
             _ => panic!("getting cpu buffer, but it's on gpu"),
@@ -940,13 +931,6 @@ impl ResourcePool {
     fn get_buf(
         &mut self,
         size: u64,
-        #[cfg_attr(
-            not(feature = "buffer_labels"),
-            expect(
-                unused,
-                reason = "Debugging argument always present but only consumed when debugging feature enabled"
-            )
-        )]
         name: &'static str,
         usage: BufferUsages,
         device: &Device,
@@ -955,7 +939,6 @@ impl ResourcePool {
         let props = BufferProperties {
             size: rounded_size,
             usages: usage,
-            #[cfg(feature = "buffer_labels")]
             name,
         };
         if let Some(buf_vec) = self.bufs.get_mut(&props) {
@@ -964,10 +947,7 @@ impl ResourcePool {
             }
         }
         device.create_buffer(&wgpu::BufferDescriptor {
-            #[cfg(feature = "buffer_labels")]
             label: Some(name),
-            #[cfg(not(feature = "buffer_labels"))]
-            label: None,
             size: rounded_size,
             usage,
             mapped_at_creation: false,
@@ -1013,7 +993,7 @@ impl BindMapBuffer {
 
 impl<'a> TransientBindMap<'a> {
     /// Create new transient bind map, seeded from external resources
-    fn new(external_resources: &'a [ExternalResource]) -> Self {
+    fn new(external_resources: &'a [ExternalResource<'_>]) -> Self {
         let mut bufs = HashMap::default();
         let mut images = HashMap::default();
         for resource in external_resources {
@@ -1187,7 +1167,7 @@ impl<'a> TransientBindMap<'a> {
         &self,
         bind_map: &'a mut BindMap,
         bindings: &[ResourceProxy],
-    ) -> Vec<CpuBinding> {
+    ) -> Vec<CpuBinding<'_>> {
         // First pass is mutable; create buffers as needed
         for resource in bindings {
             match resource {

@@ -18,7 +18,6 @@
 // Feel free to send a PR that solves one or more of these.
 #![allow(
     missing_debug_implementations,
-    elided_lifetimes_in_paths,
     unreachable_pub,
     missing_docs,
     clippy::missing_assert_message,
@@ -26,7 +25,6 @@
     clippy::missing_panics_doc,
     clippy::missing_errors_doc,
     clippy::exhaustive_enums,
-    clippy::use_self,
     clippy::print_stderr,
     clippy::print_stdout,
     clippy::allow_attributes_without_reason
@@ -68,7 +66,7 @@ pub struct TestParams {
 
 impl TestParams {
     pub fn new(name: impl Into<String>, width: u32, height: u32) -> Self {
-        TestParams {
+        Self {
             width,
             height,
             base_color: None,

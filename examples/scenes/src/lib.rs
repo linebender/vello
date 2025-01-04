@@ -8,18 +8,15 @@
 // Feel free to send a PR that solves one or more of these.
 #![allow(
     missing_debug_implementations,
-    elided_lifetimes_in_paths,
     single_use_lifetimes,
     unreachable_pub,
     missing_docs,
     clippy::wildcard_imports,
-    clippy::unseparated_literal_suffix,
     clippy::cast_possible_truncation,
     clippy::shadow_unrelated,
     clippy::missing_panics_doc,
     clippy::missing_errors_doc,
     clippy::partial_pub_fields,
-    clippy::use_self,
     clippy::match_same_arms,
     clippy::allow_attributes_without_reason,
     clippy::allow_attributes
@@ -68,11 +65,11 @@ pub struct ExampleScene {
 }
 
 pub trait TestScene {
-    fn render(&mut self, scene: &mut Scene, params: &mut SceneParams);
+    fn render(&mut self, scene: &mut Scene, params: &mut SceneParams<'_>);
 }
 
-impl<F: FnMut(&mut Scene, &mut SceneParams)> TestScene for F {
-    fn render(&mut self, scene: &mut Scene, params: &mut SceneParams) {
+impl<F: FnMut(&mut Scene, &mut SceneParams<'_>)> TestScene for F {
+    fn render(&mut self, scene: &mut Scene, params: &mut SceneParams<'_>) {
         self(scene, params);
     }
 }

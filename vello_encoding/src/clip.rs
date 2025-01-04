@@ -65,6 +65,7 @@ impl ClipBic {
     /// operation, it represents doing the pops of `self`, the pushes of
     /// `self`, the pops of `other`, and the pushes of `other`. The middle
     /// two can cancel each other out.
+    #[must_use]
     pub fn combine(self, other: Self) -> Self {
         let m = self.b.min(other.a);
         Self::new(self.a + other.a - m, self.b + other.b - m)

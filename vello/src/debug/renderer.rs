@@ -220,7 +220,7 @@ impl DebugRenderer {
         captured: &CapturedBuffers,
         bump: &BumpAllocators,
         params: &RenderParams,
-        downloads: &DebugDownloads,
+        downloads: &DebugDownloads<'_>,
         layers: DebugLayers,
     ) {
         if layers.is_empty() {

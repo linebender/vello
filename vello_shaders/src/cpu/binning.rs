@@ -103,7 +103,7 @@ fn binning_main(
     }
 }
 
-pub fn binning(n_wg: u32, resources: &[CpuBinding]) {
+pub fn binning(n_wg: u32, resources: &[CpuBinding<'_>]) {
     let config = resources[0].as_typed();
     let draw_monoids = resources[1].as_slice();
     let path_bbox_buf = resources[2].as_slice();

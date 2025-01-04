@@ -38,7 +38,6 @@
     reason = "Deferred"
 )]
 #![allow(
-    elided_lifetimes_in_paths,
     single_use_lifetimes,
     unnameable_types,
     clippy::cast_possible_truncation,
@@ -49,7 +48,6 @@
     clippy::print_stdout,
     clippy::shadow_unrelated,
     clippy::todo,
-    clippy::unseparated_literal_suffix,
     reason = "Deferred, only apply in some feature sets so not expect"
 )]
 

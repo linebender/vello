@@ -87,8 +87,8 @@ pub(crate) fn f32_to_f16(val: f32) -> u16 {
     const INF_32: u32 = 255 << 23;
     const INF_16: u32 = 31 << 23;
     const MAGIC: u32 = 15 << 23;
-    const SIGN_MASK: u32 = 0x8000_0000u32;
-    const ROUND_MASK: u32 = !0xFFFu32;
+    const SIGN_MASK: u32 = 0x8000_0000_u32;
+    const ROUND_MASK: u32 = !0xFFF_u32;
 
     let u = val.to_bits();
     let sign = u & SIGN_MASK;
@@ -156,14 +156,14 @@ mod tests {
     fn test_f32_to_f16_simple() {
         let input: f32 = std::f32::consts::PI;
         let output: u16 = f32_to_f16(input);
-        assert_eq!(0x4248u16, output); // 3.141
+        assert_eq!(0x4248_u16, output); // 3.141
     }
 
     #[test]
     fn test_f32_to_f16_nan_overflow() {
         // A signaling NaN with unset high bits but a low bit that could get accidentally masked
         // should get converted to a quiet NaN and not infinity.
-        let input: f32 = f32::from_bits(0x7F800001u32);
+        let input: f32 = f32::from_bits(0x7F800001_u32);
         assert!(input.is_nan());
         let output: u16 = f32_to_f16(input);
         assert_eq!(0x7E00, output);
@@ -171,7 +171,7 @@ mod tests {
 
     #[test]
     fn test_f32_to_f16_inf() {
-        let input: f32 = f32::from_bits(0x7F800000u32);
+        let input: f32 = f32::from_bits(0x7F800000_u32);
         assert!(input.is_infinite());
         let output: u16 = f32_to_f16(input);
         assert_eq!(0x7C00, output);
@@ -200,7 +200,7 @@ mod tests {
 
     #[test]
     fn test_f16_to_f32_simple() {
-        let input: u16 = 0x4248u16;
+        let input: u16 = 0x4248_u16;
         let output: f32 = f16_to_f32(input);
         assert_eq!(3.140625, output);
     }

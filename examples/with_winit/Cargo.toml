@@ -29,7 +29,7 @@ path = "src/main.rs"
 
 
 [dependencies]
-vello = { workspace = true, features = ["buffer_labels", "debug_layers"] }
+vello = { workspace = true, features = ["debug_layers"] }
 scenes = { workspace = true }
 
 anyhow = { workspace = true }
@@ -53,7 +53,7 @@ env_logger = "0.11.5"
 [target.'cfg(not(any(target_arch = "wasm32", target_os = "android")))'.dependencies]
 vello = { workspace = true, features = ["hot_reload"] }
 vello_shaders = { workspace = true, features = ["compile"] }
-notify-debouncer-mini = "0.5.0"
+notify-debouncer-full = "0.4.0"
 
 
 [target.'cfg(target_os = "android")'.dependencies]
