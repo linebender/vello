@@ -1175,7 +1175,7 @@ fn main(
                                 let fg_i = fg_rgba * area[i] * image.alpha;
                                 rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
                             }
-                        } 
+                        }
                     }
                     case IMAGE_QUALITY_MEDIUM, default: {
                         for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
@@ -1200,7 +1200,7 @@ fn main(
                                 let fg_i = fg_rgba * area[i] * image.alpha;
                                 rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
                             }
-                        }                        
+                        }
                     }
                 }
                 cmd_ix += 2u;
