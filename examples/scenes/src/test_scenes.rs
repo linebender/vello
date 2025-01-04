@@ -1815,7 +1815,10 @@ mod impls {
         image_extend_modes_helper(scene, ImageQuality::Medium);
     }
 
-    pub(super) fn image_extend_modes_nearest_neighbor(scene: &mut Scene, params: &mut SceneParams<'_>) {
+    pub(super) fn image_extend_modes_nearest_neighbor(
+        scene: &mut Scene,
+        params: &mut SceneParams<'_>,
+    ) {
         params.resolution = Some(Vec2::new(1500., 1500.));
         params.base_color = Some(palette::css::WHITE);
         image_extend_modes_helper(scene, ImageQuality::Low);
