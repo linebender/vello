@@ -1168,6 +1168,7 @@ fn main(
                                 atlas_uv = atlas_uv + image.atlas_offset;
                                 // TODO: If the image couldn't be added to the atlas (i.e. was too big), this isn't robust
                                 let atlas_uv_clamped = clamp(atlas_uv, image.atlas_offset, atlas_max);
+                                // Nearest neighbor sampling
                                 let fg_rgba = premul_alpha(textureLoad(image_atlas, vec2<i32>(atlas_uv_clamped), 0));
                                 let fg_i = fg_rgba * area[i] * image.alpha;
                                 rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
@@ -1175,6 +1176,7 @@ fn main(
                         }
                     }
                     case IMAGE_QUALITY_MEDIUM, default: {
+                        // We don't have an implementation for `IMAGE_QUALITY_HIGH` yet, just use the same as medium                        
                         for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
                             // We only need to load from the textures if the value will be used.
                             if area[i] != 0.0 {
@@ -1193,6 +1195,7 @@ fn main(
                                 let b = premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.xw), 0));
                                 let c = premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.zy), 0));
                                 let d = premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.zw), 0));
+                                // Bilinear sampling
                                 let fg_rgba = mix(mix(a, b, uv_frac.y), mix(c, d, uv_frac.y), uv_frac.x);
                                 let fg_i = fg_rgba * area[i] * image.alpha;
                                 rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;

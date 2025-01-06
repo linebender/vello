@@ -164,7 +164,8 @@ pub struct DrawImage {
     pub xy: u32,
     /// Packed image dimensions.
     pub width_height: u32,
-    /// Packed quality, extend mode and 8-bit alpha (bits `qqxxyyaaaaaaaa`).
+    /// Packed quality, extend mode and 8-bit alpha (bits `qqxxyyaaaaaaaa`,
+    /// 18 unused prefix bits).
     pub sample_alpha: u32,
 }
 
