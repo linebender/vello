@@ -1169,9 +1169,6 @@ fn main(
                                 // TODO: If the image couldn't be added to the atlas (i.e. was too big), this isn't robust
                                 let atlas_uv_clamped = clamp(atlas_uv, image.atlas_offset, atlas_max);
                                 let fg_rgba = premul_alpha(textureLoad(image_atlas, vec2<i32>(atlas_uv_clamped), 0));
-                                let r = extend_mode(atlas_uv.x * extents_inv.x, image.x_extend_mode);
-                                let g = extend_mode(atlas_uv.y * extents_inv.y, image.y_extend_mode);
-                                let fg_rgba2 = vec4(r, g, 0.0, 1.0);
                                 let fg_i = fg_rgba * area[i] * image.alpha;
                                 rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
                             }
