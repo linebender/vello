@@ -33,6 +33,7 @@ This is the first step towards providing richer color functionality, better hand
 - Offset in image rendering, and sampling outside correct atlas area ([#722][] by [@dfrg])
 - Inference conflict when using Kurbo's `schemars` feature ([#733][] by [@ratmice][])
 - Detection of PNG format bitmap fonts, primarily for Apple systems ([#740][] by [@LaurenzV])
+- Support image extend modes, nearest-neighbor sampling and alpha ([#766][] by [@dfrg])
 
 ## [0.3.0][] - 2024-10-04
 
@@ -215,6 +216,7 @@ This release has an [MSRV][] of 1.75.
 [#743]: https://github.com/linebender/vello/pull/743
 [#754]: https://github.com/linebender/vello/pull/754
 [#756]: https://github.com/linebender/vello/pull/756
+[#766]: https://github.com/linebender/vello/pull/766
 
 [Unreleased]: https://github.com/linebender/vello/compare/v0.3.0...HEAD
 <!-- Note that this still comparing against 0.2.0, because 0.2.1 is a cherry-picked patch -->
