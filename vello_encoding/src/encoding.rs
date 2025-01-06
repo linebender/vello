@@ -573,3 +573,30 @@ impl StreamOffsets {
         self.styles += other.styles;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use peniko::{Extend, ImageQuality};
+
+    #[test]
+    fn ensure_image_quality_values() {
+        assert_eq!(ImageQuality::Low as u32, 0);
+        assert_eq!(ImageQuality::Medium as u32, 1);
+        assert_eq!(ImageQuality::High as u32, 2);
+        // exhaustive match to catch new variants
+        match ImageQuality::Low {
+            ImageQuality::Low | ImageQuality::Medium | ImageQuality::High => {}
+        }
+    }
+
+    #[test]
+    fn ensure_extend_values() {
+        assert_eq!(Extend::Pad as u32, 0);
+        assert_eq!(Extend::Repeat as u32, 1);
+        assert_eq!(Extend::Reflect as u32, 2);
+        // exhaustive match to catch new variants
+        match Extend::Pad {
+            Extend::Pad | Extend::Repeat | Extend::Reflect => {}
+        }
+    }
+}
