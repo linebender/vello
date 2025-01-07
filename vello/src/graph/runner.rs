@@ -12,13 +12,15 @@
 //!    in the order calculated in step 2.
 
 use std::{
-    collections::{btree_map::OccupiedEntry, hash_map::Entry, HashMap},
-    u32,
+    collections::{hash_map::Entry, HashMap},
+    sync::Arc,
 };
 
 use dagga::{Dag, Node, Schedule};
+use peniko::Color;
 use wgpu::{
-    Device, Queue, Texture, TextureDescriptor, TextureDimension, TextureFormat, TextureView,
+    Device, ImageCopyTexture, ImageCopyTextureBase, Origin3d, Queue, Texture, TextureDescriptor,
+    TextureDimension, TextureFormat, TextureView, TextureViewDescriptor,
 };
 
 use super::{Gallery, Generation, OutputSize, Painting, PaintingId, PaintingSource, Vello};
@@ -40,7 +42,7 @@ impl std::fmt::Debug for RenderDetails<'_> {
 
 /// For inter-frame caching, we keep the same Vello struct around.
 impl Vello {
-    /// Run a rendering operation.
+    /// Prepare a rendering operation.
     ///
     /// # Panics
     ///
@@ -51,6 +53,7 @@ impl Vello {
         galleries: &'a mut [Gallery],
     ) -> RenderDetails<'a> {
         for graph in galleries.iter_mut() {
+            // TODO: Also clean up `cache`?
             graph.gc();
         }
         // We only need exclusive access to the galleries for garbage collection.
@@ -77,17 +80,28 @@ impl Vello {
         }
     }
 
+    /// Run a rendering operation.
+    ///
+    /// A queue submission might be needed after this
+    ///
+    /// # Panics
+    ///
+    /// If rendering fails
     pub fn render_to_texture(
         &mut self,
         device: &Device,
         queue: &Queue,
-        texture: &TextureView,
+        texture: (&Arc<Texture>, &TextureView),
         RenderDetails {
             schedule,
             union,
             root,
         }: RenderDetails<'_>,
     ) {
+        // TODO: Ideally `render_to_texture` wouldn't do its own submission.
+        // let buffer = device.create_command_encoder(&CommandEncoderDescriptor {
+        //     label: Some("Vello Render Graph Runner"),
+        // });
         // TODO: In future, we can parallelise some of these batches.
         for batch in schedule.batches {
             for node in batch {
@@ -95,42 +109,115 @@ impl Vello {
                 let details = union.get(&painting.inner.id).unwrap();
                 let generation = details.generation.clone();
                 let output_size = details.dimensions;
-                let cached = self.cache.entry(painting.inner.id);
-                let texture = if root.inner.id == painting.inner.id {
+
+                let (target_tex, target_view) = if root.inner.id == painting.inner.id {
+                    // TODO: If there's already a cache, maybe just blit?
                     texture
                 } else {
-                    Self::cached_or_create_texture(
+                    Self::create_texture_if_needed(
                         device,
-                        painting,
+                        &painting,
                         generation,
                         output_size,
-                        cached,
+                        self.cache.entry(painting.inner.id),
                     );
-                    todo!();
+                    let value = self
+                        .cache
+                        .get(&painting.inner.id)
+                        .expect("create_texture_if_needed created this Painting");
+                    (&value.0, &value.1)
                 };
+                match details.source {
+                    PaintingSource::Image(image) => {
+                        let block_size = target_tex
+                            .format()
+                            .block_copy_size(None)
+                            .expect("ImageFormat must have a valid block size");
+                        queue.write_texture(
+                            ImageCopyTexture {
+                                texture: target_tex,
+                                mip_level: 0,
+                                origin: Origin3d::ZERO,
+                                aspect: wgpu::TextureAspect::All,
+                            },
+                            image.data.data(),
+                            wgpu::ImageDataLayout {
+                                offset: 0,
+                                bytes_per_row: Some(image.width * block_size),
+                                rows_per_image: None,
+                            },
+                            wgpu::Extent3d {
+                                width: image.width,
+                                height: image.height,
+                                depth_or_array_layers: 1,
+                            },
+                        );
+                    }
+                    PaintingSource::Canvas(canvas, new_output_size) => {
+                        debug_assert_eq!(
+                            new_output_size, &output_size,
+                            "Incorrect size determined in first pass."
+                        );
+                        for (image_id, dependency) in &canvas.paintings {
+                            let cached = self.cache.get(&dependency.inner.id).expect(
+                                "We know we previously made a cached version of this dependency",
+                            );
+                            self.renderer.engine.image_overrides.insert(
+                                *image_id,
+                                ImageCopyTextureBase {
+                                    // TODO: Ideally, we wouldn't need to `Arc` the textures, because they
+                                    // are only used temporarily here.
+                                    // OTOH, `Texture` will be `Clone` soon (https://github.com/gfx-rs/wgpu/pull/6665)
+                                    texture: Arc::clone(&cached.0),
+                                    aspect: wgpu::TextureAspect::All,
+                                    mip_level: 0,
+                                    origin: Origin3d::ZERO,
+                                },
+                            );
+                        }
+                        self.renderer
+                            .render_to_texture(
+                                device,
+                                queue,
+                                &canvas.scene,
+                                target_view,
+                                &crate::RenderParams {
+                                    width: output_size.width,
+                                    height: output_size.height,
+                                    // TODO: Config
+                                    base_color: Color::BLACK,
+                                    antialiasing_method: crate::AaConfig::Area,
+                                },
+                            )
+                            .unwrap();
+                        //
+                    } // PaintingSource::Region {
+                      //     painting,
+                      //     x,
+                      //     y,
+                      //     size,
+                      // } => todo!(),
+                }
             }
         }
     }
 
-    fn cached_or_create_texture<'cached>(
+    fn create_texture_if_needed(
         device: &Device,
-        painting: Painting,
+        painting: &Painting,
         generation: Generation,
         output_size: OutputSize,
-        mut cached: Entry<'cached, PaintingId, (Texture, TextureView, Generation)>,
-    ) -> &'cached TextureView {
+        mut cached: Entry<'_, PaintingId, (Arc<Texture>, TextureView, Generation)>,
+    ) {
         if let Entry::Occupied(cache) = &mut cached {
             let cache = cache.get_mut();
-            cache.2 = generation;
+            cache.2 = generation.clone();
             if cache.0.width() == output_size.width && cache.0.height() == output_size.height {
-                let Entry::Occupied(cache) = cached else {
-                    unreachable!();
-                };
-                return &cache.into_mut().1;
+                return;
             }
         }
 
-        // Either create a new texture with the right dimensions, or create the first texture.
+        // Either recreate the texture with the right dimensions, or create the first texture.
         let texture = device.create_texture(&TextureDescriptor {
             label: Some(&*painting.inner.label),
             size: wgpu::Extent3d {
@@ -138,17 +225,20 @@ impl Vello {
                 height: output_size.height,
                 depth_or_array_layers: 1,
             },
+            // TODO: Ideally we support mipmapping here? Should this be part of the painting?
             mip_level_count: 1,
             sample_count: 1,
             dimension: TextureDimension::D2,
+            // TODO: How would we determine this format?
             format: TextureFormat::Rgba8Unorm,
-            // Hmmm. How do we decide this?
-            usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
-            // | wgpu::TextureUsages::COPY_SRC,
+            usage: painting.inner.usages,
             view_formats: &[],
         });
-        let ret = cached.insert_entry(todo!());
-        &ret.get().1
+        let view = texture.create_view(&TextureViewDescriptor {
+            label: Some(&*painting.inner.label),
+            ..Default::default()
+        });
+        cached.insert_entry((Arc::new(texture), view, generation));
     }
 }
 
@@ -177,7 +267,7 @@ impl<'a> Intermediary<'a> {
 fn resolve_recursive(
     union: &mut HashMap<PaintingId, Intermediary<'_>>,
     painting: &Painting,
-    cache: &HashMap<PaintingId, (Texture, TextureView, Generation)>,
+    cache: &HashMap<PaintingId, (Arc<Texture>, TextureView, Generation)>,
     dag: &mut Dag<Painting, PaintingId>,
 ) -> Option<PaintingId> {
     let Some(Intermediary {
@@ -211,16 +301,15 @@ fn resolve_recursive(
                 dependencies.push(dependency.clone());
             }
             *size
-        }
-        PaintingSource::Resample(source, size)
-        | PaintingSource::Region {
-            painting: source,
-            size,
-            ..
-        } => {
-            dependencies.push(source.clone());
-            *size
-        }
+        } // PaintingSource::Resample(source, size)
+          // | PaintingSource::Region {
+          //     painting: source,
+          //     size,
+          //     ..
+          // } => {
+          //     dependencies.push(source.clone());
+          //     *size
+          // }
     };
     // Hmm. Maybe we should alloc an output texture here?
     // The advantage of that would be that it makes creating the

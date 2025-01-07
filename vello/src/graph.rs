@@ -50,7 +50,7 @@ pub use runner::RenderDetails;
 // --- MARK: Public API ---
 
 pub struct Vello {
-    cache: HashMap<PaintingId, (Texture, TextureView, Generation)>,
+    cache: HashMap<PaintingId, (Arc<Texture>, TextureView, Generation)>,
     renderer: Renderer,
 }
 
@@ -84,7 +84,7 @@ impl Debug for Gallery {
 /// A handle to an image managed by the renderer.
 ///
 /// This resource is reference counted, and corresponding resources
-/// are freed when a rendering operation occurs.
+/// are freed when rendering operations occur.
 #[derive(Clone)]
 pub struct Painting {
     inner: Arc<PaintingInner>,
@@ -96,7 +96,7 @@ impl Debug for Painting {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct OutputSize {
     pub width: u32,
     pub height: u32,
@@ -143,21 +143,46 @@ impl Gallery {
     }
 }
 
+#[derive(Clone)]
+/// A description of a new painting, used in [`Gallery::create_painting`].
+#[derive(Debug)]
+pub struct PaintingDescriptor {
+    pub label: Cow<'static, str>,
+    pub usages: wgpu::TextureUsages,
+    /// Extend mode in the horizontal direction.
+    pub x_extend: Extend,
+    /// Extend mode in the vertical direction.
+    pub y_extend: Extend,
+}
+
 impl Gallery {
-    pub fn create_painting(&mut self, label: impl Into<Cow<'static, str>>) -> Painting {
+    pub fn create_painting(
+        &mut self,
+        // Not &PaintingDescriptor because `label` might be owned
+        desc: PaintingDescriptor,
+    ) -> Painting {
+        let PaintingDescriptor {
+            label,
+            usages,
+            x_extend,
+            y_extend,
+        } = desc;
         Painting {
             inner: Arc::new(PaintingInner {
-                label: label.into(),
+                label,
                 deallocator: self.deallocator.clone(),
                 id: PaintingId::next(),
                 gallery_id: self.id,
+                usages,
+                x_extend,
+                y_extend,
             }),
         }
     }
 
     /// The painting must have [been created for](Self::create_painting) this gallery.
     ///
-    /// This restriction ensures that work does.
+    /// This restriction ensures that when the painting is dropped, its resources are properly freed.
     pub fn paint(&mut self, painting: &Painting) -> Option<Painter<'_>> {
         if painting.inner.gallery_id == self.id {
             // TODO: Return error about mismatched Gallery.
@@ -182,17 +207,18 @@ impl Painter<'_> {
     pub fn as_image(self, image: Image) {
         self.insert(PaintingSource::Image(image));
     }
-    pub fn as_subregion(self, from: Painting, x: u32, y: u32, width: u32, height: u32) {
-        self.insert(PaintingSource::Region {
-            painting: from,
-            x,
-            y,
-            size: OutputSize { width, height },
-        });
-    }
-    pub fn as_resample(self, from: Painting, to_dimensions: OutputSize) {
-        self.insert(PaintingSource::Resample(from, to_dimensions));
-    }
+    // /// From must have the `COPY_SRC` usage.
+    // pub fn as_subregion(self, from: Painting, x: u32, y: u32, width: u32, height: u32) {
+    //     self.insert(PaintingSource::Region {
+    //         painting: from,
+    //         x,
+    //         y,
+    //         size: OutputSize { width, height },
+    //     });
+    // }
+    // pub fn with_mipmaps(self, from: Painting) {
+    //     self.insert(PaintingSource::WithMipMaps(from));
+    // }
     pub fn as_scene(self, scene: Canvas, of_dimensions: OutputSize) {
         self.insert(PaintingSource::Canvas(scene, of_dimensions));
     }
@@ -221,6 +247,9 @@ struct PaintingInner {
     deallocator: Sender<PaintingId>,
     label: Cow<'static, str>,
     gallery_id: GalleryId,
+    usages: wgpu::TextureUsages,
+    x_extend: Extend,
+    y_extend: Extend,
 }
 
 impl Drop for PaintingInner {
@@ -272,13 +301,13 @@ impl GalleryId {
 enum PaintingSource {
     Image(Image),
     Canvas(Canvas, OutputSize),
-    Resample(Painting, OutputSize /* Algorithm */),
-    Region {
-        painting: Painting,
-        x: u32,
-        y: u32,
-        size: OutputSize,
-    },
+    // WithMipMaps(Painting),
+    // Region {
+    //     painting: Painting,
+    //     x: u32,
+    //     y: u32,
+    //     size: OutputSize,
+    // },
 }
 
 #[derive(Default, Debug, PartialEq, Eq, Clone)]
@@ -307,11 +336,13 @@ pub struct PaintingConfig {
 }
 
 impl PaintingConfig {
-    fn new(width: u16, height: u16) -> Self {
+    fn new(painting: &Painting, width: u16, height: u16) -> Self {
         // Create a fake Image, with an empty Blob. We can re-use the allocation between these.
         static EMPTY_ARC: LazyLock<Arc<[u8; 0]>> = LazyLock::new(|| Arc::new([]));
         let data = Blob::new(EMPTY_ARC.clone());
-        let image = Image::new(data, ImageFormat::Rgba8, width.into(), height.into());
+        let mut image = Image::new(data, ImageFormat::Rgba8, width.into(), height.into());
+        image.x_extend = painting.inner.x_extend;
+        image.y_extend = painting.inner.y_extend;
         Self { image }
     }
     pub fn brush(self) -> Brush {
@@ -320,33 +351,6 @@ impl PaintingConfig {
     pub fn image(&self) -> &Image {
         &self.image
     }
-    /// Builder method for setting the image [extend mode](Extend) in both
-    /// directions.
-    #[must_use]
-    pub fn with_extend(self, mode: Extend) -> Self {
-        Self {
-            image: self.image.with_extend(mode),
-        }
-    }
-
-    /// Builder method for setting the image [extend mode](Extend) in the
-    /// horizontal direction.
-    #[must_use]
-    pub fn with_x_extend(self, mode: Extend) -> Self {
-        Self {
-            image: self.image.with_x_extend(mode),
-        }
-    }
-
-    /// Builder method for setting the image [extend mode](Extend) in the
-    /// vertical direction.
-    #[must_use]
-    pub fn with_y_extend(self, mode: Extend) -> Self {
-        Self {
-            image: self.image.with_y_extend(mode),
-        }
-    }
-
     /// Builder method for setting a hint for the desired image [quality](ImageQuality)
     /// when rendering.
     #[must_use]
@@ -399,7 +403,7 @@ impl Canvas {
         }
     }
     pub fn new_image(&mut self, painting: Painting, width: u16, height: u16) -> PaintingConfig {
-        let config = PaintingConfig::new(width, height);
+        let config = PaintingConfig::new(&painting, width, height);
         self.override_image(&config.image, painting);
         config
     }
