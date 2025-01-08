@@ -165,6 +165,7 @@ pub struct PaintingDescriptor {
 }
 
 impl Gallery {
+    #[must_use]
     pub fn create_painting(
         &mut self,
         // Not &PaintingDescriptor because `label` might be owned
@@ -193,7 +194,7 @@ impl Gallery {
     ///
     /// This restriction ensures that when the painting is dropped, its resources are properly freed.
     pub fn paint(&mut self, painting: &Painting) -> Option<Painter<'_>> {
-        if painting.inner.gallery_id == self.id {
+        if painting.inner.gallery_id != self.id {
             // TODO: Return error about mismatched Gallery.
             return None;
         }
