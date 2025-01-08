@@ -11,13 +11,16 @@
     clippy::allow_attributes_without_reason
 )]
 
+use std::f64::consts::{FRAC_PI_2, PI};
 use std::fs::File;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
 use scenes::{ImageCache, SceneParams, SceneSet, SimpleText};
+use vello::graph::{Canvas, Gallery, OutputSize, PaintingDescriptor, Vello};
 use vello::kurbo::{Affine, Vec2};
 use vello::peniko::color::palette;
 use vello::util::RenderContext;
@@ -94,7 +97,7 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
     let device_handle = &mut context.devices[device_id];
     let device = &device_handle.device;
     let queue = &device_handle.queue;
-    let mut renderer = vello::Renderer::new(
+    let mut vello = Vello::new(
         device,
         RendererOptions {
             surface_format: None,
@@ -102,8 +105,8 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
             num_init_threads: NonZeroUsize::new(1),
             antialiasing_support: vello::AaSupport::area_only(),
         },
-    )
-    .or_else(|_| bail!("Got non-Send/Sync error from creating renderer"))?;
+    )?;
+    let mut gallery = Gallery::new("Main Thread");
     let mut fragment = Scene::new();
     let example_scene = &mut scenes.scenes[index];
     let mut text = SimpleText::new();
@@ -141,6 +144,7 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
             (Some(x), Some(y)) => (x, y),
         }
     };
+
     let render_params = vello::RenderParams {
         base_color: args
             .args
@@ -158,7 +162,47 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
         height,
         depth_or_array_layers: 1,
     };
-    let target = device.create_texture(&TextureDescriptor {
+    let inner_scene = gallery.create_painting(PaintingDescriptor {
+        label: "ExampleScene".into(),
+        usages: TextureUsages::STORAGE_BINDING | TextureUsages::COPY_SRC,
+        x_extend: Default::default(),
+        y_extend: Default::default(),
+    });
+    gallery
+        .paint(&inner_scene)
+        .unwrap()
+        .as_scene(scene.into(), OutputSize { width, height });
+
+    let painting = gallery.create_painting(PaintingDescriptor {
+        label: "Main Scene".into(),
+        usages: TextureUsages::STORAGE_BINDING | TextureUsages::COPY_SRC,
+        x_extend: vello::peniko::Extend::Pad,
+        y_extend: vello::peniko::Extend::Pad,
+    });
+
+    let mut canvas = Canvas::new();
+    canvas.draw_painting(
+        inner_scene.clone(),
+        width.try_into().unwrap(),
+        height.try_into().unwrap(),
+        Affine::scale(0.5),
+    );
+    canvas.draw_painting(
+        inner_scene,
+        width.try_into().unwrap(),
+        height.try_into().unwrap(),
+        Affine::scale(0.5)
+            .then_rotate(FRAC_PI_2)
+            .then_translate((width as f64 / 2., height as f64 / 2.).into()),
+    );
+    gallery
+        .paint(&painting)
+        .unwrap()
+        .as_scene(canvas, OutputSize { width, height });
+    let mut galleries = [gallery];
+    let render_details = vello.prepare_render(painting, &mut galleries);
+
+    let target = Arc::new(device.create_texture(&TextureDescriptor {
         label: Some("Target texture"),
         size,
         mip_level_count: 1,
@@ -167,11 +211,9 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
         format: TextureFormat::Rgba8Unorm,
         usage: TextureUsages::STORAGE_BINDING | TextureUsages::COPY_SRC,
         view_formats: &[],
-    });
+    }));
     let view = target.create_view(&wgpu::TextureViewDescriptor::default());
-    renderer
-        .render_to_texture(device, queue, &scene, &view, &render_params)
-        .or_else(|_| bail!("Got non-Send/Sync error from rendering"))?;
+    vello.render_to_texture(device, queue, (&target, &view), render_details);
     let padded_byte_width = (width * 4).next_multiple_of(256);
     let buffer_size = padded_byte_width as u64 * height as u64;
     let buffer = device.create_buffer(&BufferDescriptor {
