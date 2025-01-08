@@ -146,4 +146,5 @@ pub struct MslSource<'a> {
 }
 
 include!(concat!(env!("OUT_DIR"), "/shaders.rs"));
+
 pub use generated::SHADERS;
