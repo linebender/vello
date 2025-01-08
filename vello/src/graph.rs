@@ -54,6 +54,15 @@ pub struct Vello {
     renderer: Renderer,
 }
 
+impl Vello {
+    pub fn new(device: &wgpu::Device, options: crate::RendererOptions) -> crate::Result<Self> {
+        Ok(Self {
+            cache: Default::default(),
+            renderer: Renderer::new(device, options)?,
+        })
+    }
+}
+
 impl Debug for Vello {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Vello")
