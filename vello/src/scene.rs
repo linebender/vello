@@ -227,9 +227,6 @@ impl Scene {
         brush_transform: Option<Affine>,
         shape: &impl Shape,
     ) {
-        // if style.width == 0 {
-        //     return;
-        // }
         // The setting for tolerance are a compromise. For most applications,
         // shape tolerance doesn't matter, as the input is likely Bézier paths,
         // which is exact. Note that shape tolerance is hard-coded as 0.1 in
