@@ -184,8 +184,17 @@ impl Encoding {
     }
 
     /// Encodes a stroke style.
-    pub fn encode_stroke_style(&mut self, stroke: &Stroke) {
-        self.encode_style(Style::from_stroke(stroke));
+    ///
+    /// Returns false if the stroke had zero width and so couldn't be encoded.
+    #[must_use]
+    pub fn encode_stroke_style(&mut self, stroke: &Stroke) -> bool {
+        let style = Style::from_stroke(stroke);
+        if let Some(style) = style {
+            self.encode_style(style);
+            true
+        } else {
+            false
+        }
     }
 
     fn encode_style(&mut self, style: Style) {

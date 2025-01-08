@@ -57,7 +57,6 @@ fn stroke_width_zero() {
     scene.stroke(&stroke, Affine::IDENTITY, rect_stroke_color, None, &rect);
     let mut params = TestParams::new("stroke_width_zero", 50, 50);
     params.anti_aliasing = AaConfig::Msaa16;
-    // params.use_cpu = true;
     snapshot_test_sync(scene, &params)
         .unwrap()
         .assert_mean_less_than(0.001);

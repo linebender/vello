@@ -227,6 +227,9 @@ impl Scene {
         brush_transform: Option<Affine>,
         shape: &impl Shape,
     ) {
+        // if style.width == 0 {
+        //     return;
+        // }
         // The setting for tolerance are a compromise. For most applications,
         // shape tolerance doesn't matter, as the input is likely Bézier paths,
         // which is exact. Note that shape tolerance is hard-coded as 0.1 in
@@ -243,9 +246,14 @@ impl Scene {
 
         const GPU_STROKES: bool = true; // Set this to `true` to enable GPU-side stroking
         if GPU_STROKES {
+            if style.width == 0. {
+                return;
+            }
+
             let t = Transform::from_kurbo(&transform);
             self.encoding.encode_transform(t);
-            self.encoding.encode_stroke_style(style);
+            let encoded_stroke = self.encoding.encode_stroke_style(style);
+            debug_assert!(encoded_stroke, "Stroke width is non-zero");
 
             // We currently don't support dashing on the GPU. If the style has a dash pattern, then
             // we convert it into stroked paths on the CPU and encode those as individual draw
