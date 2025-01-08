@@ -4,6 +4,7 @@
 //! Tests to ensure that certain issues which don't deserve a test scene don't regress
 
 use scenes::ImageCache;
+use scenes::SimpleText;
 use vello::{
     AaConfig, Scene,
     kurbo::{Affine, Rect, RoundedRect, Stroke},
@@ -57,6 +58,33 @@ fn stroke_width_zero() {
     scene.stroke(&stroke, Affine::IDENTITY, rect_stroke_color, None, &rect);
     let mut params = TestParams::new("stroke_width_zero", 50, 50);
     params.anti_aliasing = AaConfig::Msaa16;
+    snapshot_test_sync(scene, &params)
+        .unwrap()
+        .assert_mean_less_than(0.001);
+}
+
+#[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
+#[expect(clippy::cast_possible_truncation, reason = "Test code")]
+fn text_stroke_width_zero() {
+    let font_size = 12.;
+    let mut scene = Scene::new();
+    let mut simple_text = SimpleText::new();
+    simple_text.add_run(
+        &mut scene,
+        None,
+        font_size,
+        palette::css::WHITE,
+        Affine::translate((0., f64::from(font_size))),
+        None,
+        &Stroke::new(0.),
+        "Testing text",
+    );
+    let params = TestParams::new(
+        "text_stroke_width_zero",
+        (font_size * 6.) as _,
+        (font_size * 1.25).ceil() as _,
+    );
     snapshot_test_sync(scene, &params)
         .unwrap()
         .assert_mean_less_than(0.001);
