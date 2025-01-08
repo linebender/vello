@@ -25,6 +25,7 @@
     reason = "Lint set, currently allowed crate-wide"
 )]
 
+mod filters;
 mod runner;
 
 use std::{
@@ -41,6 +42,7 @@ use std::{
     },
 };
 
+use filters::BlurPipeline;
 use peniko::{kurbo::Affine, Blob, Brush, Extend, Image, ImageFormat, ImageQuality};
 use wgpu::{Texture, TextureView};
 
@@ -52,6 +54,7 @@ pub use runner::RenderDetails;
 pub struct Vello {
     cache: HashMap<PaintingId, (Arc<Texture>, TextureView, Generation)>,
     renderer: Renderer,
+    blur: BlurPipeline,
 }
 
 impl Vello {
@@ -59,6 +62,7 @@ impl Vello {
         Ok(Self {
             cache: Default::default(),
             renderer: Renderer::new(device, options)?,
+            blur: BlurPipeline::new(device),
         })
     }
 }
@@ -68,6 +72,7 @@ impl Debug for Vello {
         f.debug_struct("Vello")
             .field("cache", &self.cache)
             .field("renderer", &"elided")
+            .field("blur", &self.blur)
             .finish()
     }
 }
@@ -162,6 +167,7 @@ pub struct PaintingDescriptor {
     pub x_extend: Extend,
     /// Extend mode in the vertical direction.
     pub y_extend: Extend,
+    // pub mipmaps
 }
 
 impl Gallery {
@@ -233,10 +239,16 @@ impl Painter<'_> {
         self.insert(PaintingSource::Canvas(scene, of_dimensions));
     }
 
+    pub fn as_blur(self, from: Painting) {
+        self.insert(PaintingSource::Blur(from));
+    }
+
     fn insert(self, new_source: PaintingSource) {
         match self.gallery.paintings.entry(self.painting) {
             std::collections::hash_map::Entry::Occupied(mut entry) => {
-                entry.get_mut().0 = new_source;
+                let entry = entry.get_mut();
+                entry.0 = new_source;
+                entry.1.nudge();
             }
             std::collections::hash_map::Entry::Vacant(entry) => {
                 entry.insert((new_source, Generation::default()));
@@ -311,6 +323,7 @@ impl GalleryId {
 enum PaintingSource {
     Image(Image),
     Canvas(Canvas, OutputSize),
+    Blur(Painting),
     // WithMipMaps(Painting),
     // Region {
     //     painting: Painting,

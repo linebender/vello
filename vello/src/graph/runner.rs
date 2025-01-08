@@ -92,13 +92,12 @@ impl Vello {
         &mut self,
         device: &Device,
         queue: &Queue,
-        texture: (&Arc<Texture>, &TextureView),
         RenderDetails {
             schedule,
             union,
             root,
         }: RenderDetails<'_>,
-    ) {
+    ) -> Arc<Texture> {
         // TODO: Ideally `render_to_texture` wouldn't do its own submission.
         // let buffer = device.create_command_encoder(&CommandEncoderDescriptor {
         //     label: Some("Vello Render Graph Runner"),
@@ -111,23 +110,18 @@ impl Vello {
                 let generation = details.generation.clone();
                 let output_size = details.dimensions;
 
-                let (target_tex, target_view) = if root.inner.id == painting.inner.id {
-                    // TODO: If there's already a cache, maybe just blit?
-                    texture
-                } else {
-                    Self::create_texture_if_needed(
-                        device,
-                        &painting,
-                        generation,
-                        output_size,
-                        self.cache.entry(painting.inner.id),
-                    );
-                    let value = self
-                        .cache
-                        .get(&painting.inner.id)
-                        .expect("create_texture_if_needed created this Painting");
-                    (&value.0, &value.1)
-                };
+                Self::resolve_or_update_cache(
+                    device,
+                    &painting,
+                    generation,
+                    output_size,
+                    self.cache.entry(painting.inner.id),
+                );
+                let value = self
+                    .cache
+                    .get(&painting.inner.id)
+                    .expect("create_texture_if_needed created this Painting");
+                let (target_tex, target_view) = (&value.0, &value.1);
                 match details.source {
                     PaintingSource::Image(image) => {
                         let block_size = target_tex
@@ -191,7 +185,18 @@ impl Vello {
                                 },
                             )
                             .unwrap();
-                        //
+                    }
+                    PaintingSource::Blur(dependency) => {
+                        let cached = self.cache.get(&dependency.inner.id).expect(
+                            "We know we previously made a cached version of this dependency",
+                        );
+                        self.blur.blur_into(
+                            device,
+                            queue,
+                            &cached.1,
+                            target_view,
+                            details.dimensions,
+                        );
                     } // PaintingSource::Region {
                       //     painting,
                       //     x,
@@ -201,9 +206,13 @@ impl Vello {
                 }
             }
         }
+        self.cache
+            .get(&root.inner.id)
+            .map(|(ret, ..)| ret.clone())
+            .expect("We should have created an updated value")
     }
 
-    fn create_texture_if_needed(
+    fn resolve_or_update_cache(
         device: &Device,
         painting: &Painting,
         generation: Generation,
@@ -292,16 +301,24 @@ fn resolve_recursive(
     *added = true;
     // Maybe a smallvec?
     let mut dependencies = Vec::new();
-    *dimensions = match source {
-        PaintingSource::Image(image) => OutputSize {
-            height: image.height,
-            width: image.width,
-        },
+    let mut size_matches_dependency = None;
+    // Collect dependencies, and size if possible
+    match source {
+        PaintingSource::Image(image) => {
+            *dimensions = OutputSize {
+                height: image.height,
+                width: image.width,
+            };
+        }
         PaintingSource::Canvas(canvas, size) => {
             for dependency in canvas.paintings.values() {
                 dependencies.push(dependency.clone());
             }
-            *size
+            *dimensions = *size;
+        }
+        PaintingSource::Blur(dependency) => {
+            dependencies.push(dependency.clone());
+            size_matches_dependency = Some(dependency.inner.id);
         } // PaintingSource::Resample(source, size)
           // | PaintingSource::Region {
           //     painting: source,
@@ -319,6 +336,13 @@ fn resolve_recursive(
     // If the dependency was already cached, we return `None` from the recursive function
     // so there won't be a corresponding node.
     dependencies.retain(|dependency| resolve_recursive(union, dependency, cache, dag).is_some());
+    if let Some(size_matches) = size_matches_dependency {
+        let new_size = union
+            .get(&size_matches)
+            .expect("We just resolved this")
+            .dimensions;
+        union.get_mut(&painting.inner.id).unwrap().dimensions = new_size;
+    }
     // If all dependencies were cached, then we can also use the cache.
     // If any dependencies needed to be repainted, we have to repaint.
     if let Some((_, _, cache_generation)) = cache.get(&painting.inner.id) {
@@ -336,6 +360,7 @@ fn resolve_recursive(
             }
         }
     }
+
     let node = Node::new(painting.clone())
         .with_name(&*painting.inner.label)
         .with_reads(dependencies.iter().map(|it| it.inner.id))
