@@ -6,7 +6,7 @@
 use scenes::ImageCache;
 use vello::{
     AaConfig, Scene,
-    kurbo::{Affine, RoundedRect, Stroke},
+    kurbo::{Affine, Rect, RoundedRect, Stroke},
     peniko::{Extend, ImageQuality, color::palette},
 };
 use vello_tests::{TestParams, smoke_snapshot_test_sync, snapshot_test_sync};
@@ -42,6 +42,23 @@ fn test_data_image_roundtrip_extend_pad() {
     let mut params = TestParams::new("data_image_roundtrip", image.width, image.height);
     params.anti_aliasing = AaConfig::Area;
     smoke_snapshot_test_sync(scene, &params)
+        .unwrap()
+        .assert_mean_less_than(0.001);
+}
+
+/// Test created from <https://github.com/linebender/vello/issues/662>
+#[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
+fn stroke_width_zero() {
+    let mut scene = Scene::new();
+    let stroke = Stroke::new(0.0);
+    let rect = Rect::new(10.0, 10.0, 40.0, 40.0);
+    let rect_stroke_color = palette::css::PEACH_PUFF;
+    scene.stroke(&stroke, Affine::IDENTITY, rect_stroke_color, None, &rect);
+    let mut params = TestParams::new("stroke_width_zero", 50, 50);
+    params.anti_aliasing = AaConfig::Msaa16;
+    // params.use_cpu = true;
+    snapshot_test_sync(scene, &params)
         .unwrap()
         .assert_mean_less_than(0.001);
 }
