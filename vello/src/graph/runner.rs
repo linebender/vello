@@ -25,6 +25,7 @@ use wgpu::{
 
 use super::{Gallery, Generation, OutputSize, Painting, PaintingId, PaintingSource, Vello};
 
+#[must_use]
 pub struct RenderDetails<'a> {
     schedule: Schedule<Node<Painting, PaintingId>>,
     union: HashMap<PaintingId, Intermediary<'a>>,
