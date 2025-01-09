@@ -186,7 +186,7 @@ impl Encoding {
         self.encode_style(Style::from_stroke(stroke));
     }
 
-    fn encode_style(&mut self, style: Style) {
+    pub(crate) fn encode_style(&mut self, style: Style) {
         if self.flags & Self::FORCE_NEXT_STYLE != 0 || self.styles.last() != Some(&style) {
             self.path_tags.push(PathTag::STYLE);
             self.styles.push(style);

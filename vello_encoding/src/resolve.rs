@@ -157,7 +157,7 @@ pub fn resolve_solid_paths_only(encoding: &Encoding, packed: &mut Vec<u8>) -> La
 #[derive(Default)]
 pub struct Resolver {
     glyph_cache: GlyphCache,
-    glyphs: Vec<Arc<Encoding>>,
+    glyphs: Vec<Option<Arc<Encoding>>>,
     ramp_cache: RampCache,
     image_cache: ImageCache,
     pending_images: Vec<PendingImage>,
@@ -211,7 +211,9 @@ impl Resolver {
                     }
                     for glyph in &self.glyphs[glyphs.clone()] {
                         data.extend_from_slice(bytemuck::bytes_of(&PathTag::TRANSFORM));
-                        data.extend_from_slice(bytemuck::cast_slice(&glyph.path_tags));
+                        data.extend_from_slice(bytemuck::cast_slice(
+                            &glyph.as_ref().unwrap().path_tags,
+                        ));
                     }
                     data.extend_from_slice(bytemuck::bytes_of(&PathTag::PATH));
                 }
@@ -239,7 +241,9 @@ impl Resolver {
                         pos = stream_offset;
                     }
                     for glyph in &self.glyphs[glyphs.clone()] {
-                        data.extend_from_slice(bytemuck::cast_slice(&glyph.path_data));
+                        data.extend_from_slice(bytemuck::cast_slice(
+                            &glyph.as_ref().unwrap().path_data,
+                        ));
                     }
                 }
             }
@@ -361,7 +365,9 @@ impl Resolver {
                         pos = stream_offset;
                     }
                     for glyph in &self.glyphs[glyphs.clone()] {
-                        data.extend_from_slice(bytemuck::cast_slice(&glyph.styles));
+                        data.extend_from_slice(bytemuck::cast_slice(
+                            &glyph.as_ref().unwrap().styles,
+                        ));
                     }
                 }
             }
@@ -382,6 +388,7 @@ impl Resolver {
         self.image_cache.clear();
         self.pending_images.clear();
         self.patches.clear();
+        let mut unresolved = Vec::new();
         let mut sizes = StreamOffsets::default();
         let resources = &encoding.resources;
         for patch in &resources.patches {
@@ -398,9 +405,9 @@ impl Resolver {
                         extend: *extend,
                     });
                 }
-                Patch::GlyphRun { index } => {
+                Patch::GlyphRun { index: run_index } => {
                     let mut run_sizes = StreamOffsets::default();
-                    let run = &resources.glyph_runs[*index];
+                    let run = &resources.glyph_runs[*run_index];
                     let glyphs = &resources.glyphs[run.glyphs.clone()];
                     let coords = &resources.normalized_coords[run.normalized_coords.clone()];
                     let mut hint = run.hint;
@@ -429,24 +436,33 @@ impl Resolver {
                         continue;
                     };
                     let glyph_start = self.glyphs.len();
-                    for glyph in glyphs {
-                        let (encoding, stream_sizes) =
-                            session.get_or_insert(glyph.id).unwrap_or_else(|| {
-                                // HACK: We pretend that the encoding was empty.
-                                // In theory, we should be able to skip this glyph, but there is also
-                                // a corresponding entry in `resources`, which means that we would
-                                // need to make the patching process skip this glyph.
-                                (Arc::new(Encoding::new()), StreamOffsets::default())
-                            });
-                        run_sizes.add(&stream_sizes);
-                        self.glyphs.push(encoding);
+                    for glyph in glyphs.iter() {
+                        let status = session.get_or_insert(glyph.id);
+                        match status {
+                            crate::glyph_cache::GlyphEntryStatus::Resolved {
+                                encoding,
+                                stream_sizes,
+                            } => {
+                                run_sizes.add(&stream_sizes);
+                                self.glyphs.push(Some(encoding));
+                            }
+                            crate::glyph_cache::GlyphEntryStatus::Unresolved {
+                                index: resolved_index,
+                            } => {
+                                unresolved.push((resolved_index, self.glyphs.len()));
+                                self.glyphs.push(None);
+                            }
+                        }
                     }
                     let glyph_end = self.glyphs.len();
                     run_sizes.path_tags += glyphs.len() + 1;
                     run_sizes.transforms += glyphs.len();
+                    if run_sizes.draw_data > 0 {
+                        panic!("We would corrupt the images or gradients.");
+                    }
                     sizes.add(&run_sizes);
                     self.patches.push(ResolvedPatch::GlyphRun {
-                        index: *index,
+                        index: *run_index,
                         glyphs: glyph_start..glyph_end,
                         transform,
                         scale,
@@ -468,6 +484,14 @@ impl Resolver {
                 }
             }
         }
+
+        self.glyph_cache.resolve_in_parallel();
+        for (resolved_index, glyphs_idx) in unresolved {
+            let (encoding, stream_size) = self.glyph_cache.get_resolved(resolved_index);
+            sizes.add(&stream_size);
+            self.glyphs[glyphs_idx] = Some(encoding);
+        }
+
         sizes
     }
 

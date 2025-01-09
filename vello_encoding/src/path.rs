@@ -175,8 +175,7 @@ impl Style {
         Some((self.flags_and_miter_limit & Self::MITER_LIMIT_MASK) as u16)
     }
 
-    #[cfg(test)]
-    fn is_fill(self) -> bool {
+    pub(crate) fn is_fill(self) -> bool {
         (self.flags_and_miter_limit & Self::FLAGS_STYLE_BIT) == 0
     }
 }
