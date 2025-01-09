@@ -106,12 +106,13 @@ impl GlyphCache {
         });
     }
     pub(crate) fn resolve_in_parallel(&mut self) {
-        tracing::trace_span!("Resolving glyph outlines", count = self.unresolved.len());
+        let _span = tracing::info_span!("Resolving glyph outlines", count = self.unresolved.len())
+            .entered();
         let result = self
             .unresolved
             .par_iter()
             .map_init(HintCache::default, |hint_cache, (coords, glyph, font)| {
-                tracing::trace_span!("Resolving single glyph");
+                let _span = tracing::trace_span!("Resolving single glyph").entered();
                 (
                     resolve_single_glyph(hint_cache, coords, glyph, font),
                     coords,
