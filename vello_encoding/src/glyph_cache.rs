@@ -159,16 +159,26 @@ fn resolve_single_glyph(
     let font_id = font.data.id();
     let font_index = font.index;
     let font = skrifa::FontRef::from_index(font.data.as_ref(), font.index).ok()?;
-    let outlines = font.outline_glyphs();
+
+    let outlines = {
+        let _span = tracing::trace_span!("Getting font outline builder").entered();
+        font.outline_glyphs()
+    };
     let size = Size::new(f32::from_bits(glyph.font_size_bits));
-    let outline = outlines.get(GlyphId::new(glyph.glyph_id))?;
+    let outline = {
+        let _span = tracing::trace_span!("Getting Glyph Outline").entered();
+        outlines.get(GlyphId::new(glyph.glyph_id))?
+    };
     let mut encoding = Encoding::default();
     encoding.reset();
     let style: crate::Style = bytemuck::cast(glyph.style_bits);
     encoding.encode_style(style);
     let is_fill = style.is_fill();
     use skrifa::outline::DrawSettings;
-    let mut path = encoding.encode_path(is_fill);
+    let mut path = {
+        let _span = tracing::trace_span!("Encoding path").entered();
+        encoding.encode_path(is_fill)
+    };
     let hinter = if glyph.hint {
         let key = HintKey {
             font_id,
@@ -186,7 +196,10 @@ fn resolve_single_glyph(
     } else {
         DrawSettings::unhinted(size, &**coords)
     };
-    outline.draw(draw_settings, &mut path).ok()?;
+    {
+        let _span = tracing::trace_span!("Drawing span").entered();
+        outline.draw(draw_settings, &mut path).ok()?;
+    }
     if path.finish(false) == 0 {
         encoding.reset();
     }
