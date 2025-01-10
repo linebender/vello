@@ -180,6 +180,7 @@ fn resolve_single_glyph(
         encoding.encode_path(is_fill)
     };
     let hinter = if glyph.hint {
+        let _span = tracing::trace_span!("Getting hinter").entered();
         let key = HintKey {
             font_id,
             font_index,
