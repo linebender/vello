@@ -169,10 +169,10 @@ mod impls {
         use PathEl::*;
         move |scene, params| {
             let colors = [
-                Color::from_rgba8(140, 181, 236, 255),
-                Color::from_rgba8(246, 236, 202, 255),
-                Color::from_rgba8(201, 147, 206, 255),
-                Color::from_rgba8(150, 195, 160, 255),
+                palette::css::SKY_BLUE,
+                palette::css::LIGHT_SALMON,
+                palette::css::LAVENDER,
+                palette::css::PALE_GREEN,
             ];
             let simple_stroke = [MoveTo((0., 0.).into()), LineTo((100., 0.).into())];
             let join_stroke = [
@@ -346,10 +346,10 @@ mod impls {
     pub(super) fn tricky_strokes(scene: &mut Scene, params: &mut SceneParams<'_>) {
         use PathEl::*;
         let colors = [
-            Color::from_rgba8(140, 181, 236, 255),
-            Color::from_rgba8(246, 236, 202, 255),
-            Color::from_rgba8(201, 147, 206, 255),
-            Color::from_rgba8(150, 195, 160, 255),
+            palette::css::SKY_BLUE,
+            palette::css::LIGHT_YELLOW,
+            palette::css::VIOLET,
+            palette::css::LIGHT_GREEN,
         ];
 
         const CELL_SIZE: f64 = 200.;
@@ -588,14 +588,14 @@ mod impls {
             scene.fill(
                 rule.0,
                 Affine::translate((0., 10.)) * t * Affine::rotate(0.06),
-                Color::new([0., 1., 0.7, 0.6]),
+                palette::css::TURQUOISE.with_alpha(0.6),
                 None,
                 &rule.2,
             );
             scene.fill(
                 rule.0,
                 Affine::translate((0., 10.)) * t * Affine::rotate(-0.06),
-                Color::new([0.9, 0.7, 0.5, 0.6]),
+                palette::css::ORANGE.with_alpha(0.6),
                 None,
                 &rule.2,
             );
@@ -886,7 +886,7 @@ mod impls {
             let colors = [
                 palette::css::RED,
                 palette::css::YELLOW,
-                Color::from_rgba8(6, 85, 186, 255),
+                palette::css::ROYAL_BLUE,
             ];
             let width = 400_f64;
             let height = 200_f64;
@@ -1231,9 +1231,9 @@ mod impls {
             .with_stops([palette::css::BLACK, palette::css::WHITE]);
         scene.fill(Fill::NonZero, transform, &linear, None, &rect);
         const GRADIENTS: &[(f64, f64, Color)] = &[
-            (150., 0., Color::from_rgba8(255, 240, 64, 255)),
-            (175., 100., Color::from_rgba8(255, 96, 240, 255)),
-            (125., 200., Color::from_rgba8(64, 192, 255, 255)),
+            (150., 0., palette::css::YELLOW),
+            (175., 100., palette::css::PINK),
+            (125., 200., palette::css::CYAN),
         ];
         for (x, y, c) in GRADIENTS {
             let color2 = c.with_alpha(0.);
@@ -1279,8 +1279,8 @@ mod impls {
         let x = N + 0.5; // Fractional pixel offset reveals the problem on axis-aligned edges.
         let mut y = N;
 
-        let bg_color = Color::from_rgba8(255, 194, 19, 255);
-        let fg_color = Color::from_rgba8(12, 165, 255, 255);
+        let bg_color = palette::css::YELLOW;
+        let fg_color = palette::css::DODGER_BLUE;
 
         // Two adjacent triangles touching at diagonal edge with opposing winding numbers
         scene.fill(
@@ -1430,7 +1430,7 @@ mod impls {
         scene.fill(
             Fill::NonZero,
             Affine::translate((20.5, 20.5)) * Affine::scale(80.0),
-            Color::from_rgba8(0x70, 0x80, 0x80, 0xff),
+            palette::css::SLATE_GRAY,
             None,
             &path,
         );
