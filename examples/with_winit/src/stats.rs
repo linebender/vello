@@ -6,7 +6,9 @@ use std::collections::VecDeque;
 #[cfg(feature = "wgpu-profiler")]
 use vello::kurbo::Line;
 use vello::kurbo::{Affine, PathEl, Rect, Stroke};
-use vello::peniko::{color::palette, Brush, Color, Fill};
+use vello::peniko::{color::palette, Brush, Fill};
+#[cfg(feature = "wgpu-profiler")]
+use vello::peniko::Color;
 use vello::{low_level::BumpAllocators, AaConfig, Scene};
 
 #[cfg(all(feature = "wgpu-profiler", not(target_arch = "wasm32")))]
