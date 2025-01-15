@@ -14,7 +14,7 @@ use peniko::{
 use png::{BitDepth, ColorType, Transformations};
 use skrifa::{
     color::{ColorGlyph, ColorPainter},
-    instance::{LocationRef, NormalizedCoord},
+    instance::LocationRef,
     outline::{DrawSettings, OutlinePen},
     prelude::Size,
     raw::{tables::cpal::Cpal, TableProvider},
@@ -22,7 +22,7 @@ use skrifa::{
 };
 #[cfg(feature = "bump_estimate")]
 use vello_encoding::BumpAllocatorMemory;
-use vello_encoding::{Encoding, Glyph, GlyphRun, Patch, Transform};
+use vello_encoding::{Encoding, Glyph, GlyphRun, NormalizedCoord, Patch, Transform};
 
 // TODO - Document invariants and edge cases (#470)
 // - What happens when we pass a transform matrix with NaN values to the Scene?
@@ -508,10 +508,11 @@ impl<'a> DrawGlyphs<'a> {
         let mut final_glyph = None;
         let mut outline_count = 0;
         // We copy out of the variable font coords here because we need to call an exclusive self method
-        let coords = &self.scene.encoding.resources.normalized_coords
-            [self.run.normalized_coords.clone()]
+        let coords = bytemuck::cast_slice(
+            &self.scene.encoding.resources.normalized_coords[self.run.normalized_coords.clone()],
+        )
         .to_vec();
-        let location = LocationRef::new(coords);
+        let location = LocationRef::new(&coords);
         loop {
             let ppem = self.run.font_size;
             let outline_glyphs = (&mut glyphs).take_while(|glyph| {

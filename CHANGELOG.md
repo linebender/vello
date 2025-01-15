@@ -27,6 +27,7 @@ This is the first step towards providing richer color functionality, better hand
 - Breaking: The `full` feature is no longer present as the full pipeline is now always built ([#754][] by [@waywardmonkeys])
 - The `r8` permutation of the shaders is no longer available ([#756][] by [@waywardmonkeys])
 - Breaking: The `buffer_labels` feature is no longer present as the labels are always configured ([#757][] by [@waywardmonkeys])
+- Breaking: Use a type alias for `i16` rather than `skrifa::NormalizedCoord` in the public API ([#747][] by [@nicoburns][])
 
 ### Fixed
 
@@ -142,15 +143,16 @@ This release has an [MSRV][] of 1.75.
 [@dfrg]: https://github.com/drfg
 [@DJMcNab]: https://github.com/DJMcNab
 [@kmoon2437]: https://github.com/kmoon2437
+[@LaurenzV]: https://github.com/LaurenzV
 [@msiglreith]: https://github.com/msiglreith
+[@nicoburns]: https://github.com/nicoburns
+[@ratmice]: https://github.com/ratmice
 [@simbleau]: https://github.com/simbleau
 [@TheNachoBIT]: https://github.com/TheNachoBIT
 [@timtom-dev]: https://github.com/timtom-dev
 [@TrueDoctor]: https://github.com/TrueDoctor
 [@waywardmonkeys]: https://github.com/waywardmonkeys
 [@yutannihilation]: https://github.com/yutannihilation
-[@LaurenzV]: https://github.com/LaurenzV
-[@ratmice]: https://github.com/ratmice
 
 [#416]: https://github.com/linebender/vello/pull/416
 [#435]: https://github.com/linebender/vello/pull/435
@@ -213,6 +215,7 @@ This release has an [MSRV][] of 1.75.
 [#740]: https://github.com/linebender/vello/pull/740
 [#742]: https://github.com/linebender/vello/pull/742
 [#743]: https://github.com/linebender/vello/pull/743
+[#747]: https://github.com/linebender/vello/pull/747
 [#754]: https://github.com/linebender/vello/pull/754
 [#756]: https://github.com/linebender/vello/pull/756
 
