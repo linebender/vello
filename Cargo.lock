@@ -1987,6 +1987,7 @@ name = "scenes"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "bytemuck",
  "clap",
  "getrandom",
  "image",

@@ -19,6 +19,7 @@ rand = "0.8.5"
 
 # for pico_svg
 roxmltree = "0.20.0"
+bytemuck.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-time = { workspace = true }

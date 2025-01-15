@@ -3,7 +3,6 @@
 
 use std::sync::Arc;
 
-use skrifa::prelude::NormalizedCoord;
 use skrifa::{
     raw::{FileRef, FontRef},
     MetadataProvider,
@@ -161,13 +160,7 @@ impl SimpleText {
             .font_size(size)
             .transform(transform)
             .glyph_transform(glyph_transform)
-            .normalized_coords(
-                var_loc
-                    .coords()
-                    .iter()
-                    .copied()
-                    .map(NormalizedCoord::to_bits),
-            )
+            .normalized_coords(bytemuck::cast_slice(var_loc.coords()))
             .brush(brush)
             .hint(false)
             .draw(
