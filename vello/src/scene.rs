@@ -416,7 +416,7 @@ impl<'a> DrawGlyphs<'a> {
             .encoding
             .resources
             .normalized_coords
-            .extend(coords);
+            .extend_from_slice(coords);
         self.run.normalized_coords.end = self.scene.encoding.resources.normalized_coords.len();
         self
     }
