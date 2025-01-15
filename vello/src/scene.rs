@@ -508,7 +508,7 @@ impl<'a> DrawGlyphs<'a> {
         let mut final_glyph = None;
         let mut outline_count = 0;
         // We copy out of the variable font coords here because we need to call an exclusive self method
-        let coords = bytemuck::cast_slice::<_, skrifa::instance::NormalizedCoord>(
+        let coords = bytemuck::cast_slice(
             &self.scene.encoding.resources.normalized_coords[self.run.normalized_coords.clone()],
         )
         .to_vec();
