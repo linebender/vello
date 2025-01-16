@@ -22,7 +22,7 @@ use vello::kurbo::{Affine, Vec2};
 use vello::peniko::color::palette;
 use vello::util::RenderContext;
 use vello::wgpu::{
-    self, BufferDescriptor, BufferUsages, CommandEncoderDescriptor, Extent3d, ImageCopyBuffer,
+    self, BufferDescriptor, BufferUsages, CommandEncoderDescriptor, Extent3d, TexelCopyBufferInfo,
     TextureDescriptor, TextureFormat, TextureUsages,
 };
 use vello::{util::block_on_wgpu, RendererOptions, Scene};
@@ -185,9 +185,9 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
     });
     encoder.copy_texture_to_buffer(
         target.as_image_copy(),
-        ImageCopyBuffer {
+        TexelCopyBufferInfo {
             buffer: &buffer,
-            layout: wgpu::ImageDataLayout {
+            layout: wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(padded_byte_width),
                 rows_per_image: None,

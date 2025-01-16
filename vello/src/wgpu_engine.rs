@@ -41,7 +41,7 @@ pub(crate) struct WgpuEngine {
     /// Overrides from a specific `Image::data`'s [`id`](peniko::Blob::id) to a wgpu `Texture`.
     ///
     /// The `Texture` should have the same size as the `Image`.
-    pub(crate) image_overrides: HashMap<u64, wgpu::ImageCopyTextureBase<Arc<Texture>>>,
+    pub(crate) image_overrides: HashMap<u64, wgpu::TexelCopyTextureInfoBase<Arc<Texture>>>,
 }
 
 enum PipelineState {
@@ -436,6 +436,7 @@ impl WgpuEngine {
                     let texture_view = texture.create_view(&wgpu::TextureViewDescriptor {
                         label: None,
                         dimension: Some(TextureViewDimension::D2),
+                        usage: None,
                         aspect: TextureAspect::All,
                         mip_level_count: None,
                         base_mip_level: 0,
@@ -444,14 +445,14 @@ impl WgpuEngine {
                         format: Some(format),
                     });
                     queue.write_texture(
-                        wgpu::ImageCopyTexture {
+                        wgpu::TexelCopyTextureInfo {
                             texture: &texture,
                             mip_level: 0,
                             origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
                             aspect: TextureAspect::All,
                         },
                         bytes,
-                        wgpu::ImageDataLayout {
+                        wgpu::TexelCopyBufferLayout {
                             offset: 0,
                             bytes_per_row: Some(image_proxy.width * block_size),
                             rows_per_image: None,
@@ -473,13 +474,13 @@ impl WgpuEngine {
                         .expect("ImageFormat must have a valid block size");
                     if let Some(overrider) = self.image_overrides.get(&image.data.id()) {
                         encoder.copy_texture_to_texture(
-                            wgpu::ImageCopyTexture {
+                            wgpu::TexelCopyTextureInfo {
                                 texture: &overrider.texture,
                                 mip_level: overrider.mip_level,
                                 origin: overrider.origin,
                                 aspect: overrider.aspect,
                             },
-                            wgpu::ImageCopyTexture {
+                            wgpu::TexelCopyTextureInfo {
                                 texture,
                                 mip_level: 0,
                                 origin: wgpu::Origin3d { x: *x, y: *y, z: 0 },
@@ -493,14 +494,14 @@ impl WgpuEngine {
                         );
                     } else {
                         queue.write_texture(
-                            wgpu::ImageCopyTexture {
+                            wgpu::TexelCopyTextureInfo {
                                 texture,
                                 mip_level: 0,
                                 origin: wgpu::Origin3d { x: *x, y: *y, z: 0 },
                                 aspect: TextureAspect::All,
                             },
                             image.data.data(),
-                            wgpu::ImageDataLayout {
+                            wgpu::TexelCopyBufferLayout {
                                 offset: 0,
                                 bytes_per_row: Some(image.width * block_size),
                                 rows_per_image: None,
@@ -910,6 +911,7 @@ impl BindMap {
                 });
                 let texture_view = texture.create_view(&wgpu::TextureViewDescriptor {
                     label: None,
+                    usage: None,
                     dimension: Some(TextureViewDimension::D2),
                     aspect: TextureAspect::All,
                     mip_level_count: None,
@@ -1097,6 +1099,7 @@ impl<'a> TransientBindMap<'a> {
                         });
                         let texture_view = texture.create_view(&wgpu::TextureViewDescriptor {
                             label: None,
+                            usage: None,
                             dimension: Some(TextureViewDimension::D2),
                             aspect: TextureAspect::All,
                             mip_level_count: None,

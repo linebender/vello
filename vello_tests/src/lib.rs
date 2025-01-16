@@ -42,7 +42,7 @@ use scenes::{ExampleScene, ImageCache, SceneParams, SimpleText};
 use vello::kurbo::{Affine, Vec2};
 use vello::peniko::{color::palette, Blob, Color, Image, ImageFormat};
 use vello::wgpu::{
-    self, BufferDescriptor, BufferUsages, CommandEncoderDescriptor, Extent3d, ImageCopyBuffer,
+    self, BufferDescriptor, BufferUsages, CommandEncoderDescriptor, Extent3d, TexelCopyBufferInfo,
     TextureDescriptor, TextureFormat, TextureUsages,
 };
 use vello::{util::block_on_wgpu, util::RenderContext, AaConfig, RendererOptions, Scene};
@@ -162,9 +162,9 @@ pub async fn get_scene_image(params: &TestParams, scene: &Scene) -> Result<Image
     });
     encoder.copy_texture_to_buffer(
         target.as_image_copy(),
-        ImageCopyBuffer {
+        TexelCopyBufferInfo {
             buffer: &buffer,
-            layout: wgpu::ImageDataLayout {
+            layout: wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(padded_byte_width),
                 rows_per_image: None,

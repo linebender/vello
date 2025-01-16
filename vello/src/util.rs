@@ -30,16 +30,18 @@ impl RenderContext {
         reason = "Creating a wgpu Instance is something which should only be done rarely"
     )]
     pub fn new() -> Self {
-        let backends = wgpu::util::backend_bits_from_env().unwrap_or_default();
+        let backends = wgpu::Backends::from_env().unwrap_or_default();
         let flags = wgpu::InstanceFlags::from_build_config().with_env();
-        let dx12_shader_compiler = wgpu::util::dx12_shader_compiler_from_env().unwrap_or_default();
-        let gles_minor_version = wgpu::util::gles_minor_version_from_env().unwrap_or_default();
+        let dx12_shader_compiler = wgpu::Dx12Compiler::from_env().unwrap_or_default();
+        let gles_minor_version = wgpu::Gles3MinorVersion::from_env().unwrap_or_default();
 
-        let instance = Instance::new(wgpu::InstanceDescriptor {
+        let instance = Instance::new(&wgpu::InstanceDescriptor {
             backends,
             flags,
-            dx12_shader_compiler,
-            gles_minor_version,
+            backend_options: wgpu::BackendOptions {
+                dx12: wgpu::Dx12BackendOptions { shader_compiler: dx12_shader_compiler },
+                gl: wgpu::GlBackendOptions { gles_minor_version: gles_minor_version },
+            }
         });
         Self {
             instance,
