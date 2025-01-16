@@ -32,18 +32,11 @@ impl RenderContext {
     pub fn new() -> Self {
         let backends = wgpu::Backends::from_env().unwrap_or_default();
         let flags = wgpu::InstanceFlags::from_build_config().with_env();
-        let dx12_shader_compiler = wgpu::Dx12Compiler::from_env().unwrap_or_default();
-        let gles_minor_version = wgpu::Gles3MinorVersion::from_env().unwrap_or_default();
-
+        let backend_options = wgpu::BackendOptions::from_env_or_default();
         let instance = Instance::new(&wgpu::InstanceDescriptor {
             backends,
             flags,
-            backend_options: wgpu::BackendOptions {
-                dx12: wgpu::Dx12BackendOptions {
-                    shader_compiler: dx12_shader_compiler,
-                },
-                gl: wgpu::GlBackendOptions { gles_minor_version },
-            },
+            backend_options,
         });
         Self {
             instance,
