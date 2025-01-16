@@ -39,9 +39,11 @@ impl RenderContext {
             backends,
             flags,
             backend_options: wgpu::BackendOptions {
-                dx12: wgpu::Dx12BackendOptions { shader_compiler: dx12_shader_compiler },
-                gl: wgpu::GlBackendOptions { gles_minor_version: gles_minor_version },
-            }
+                dx12: wgpu::Dx12BackendOptions {
+                    shader_compiler: dx12_shader_compiler,
+                },
+                gl: wgpu::GlBackendOptions { gles_minor_version },
+            },
         });
         Self {
             instance,
