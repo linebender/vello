@@ -35,6 +35,7 @@ This is the first step towards providing richer color functionality, better hand
 - Inference conflict when using Kurbo's `schemars` feature ([#733][] by [@ratmice][])
 - Detection of PNG format bitmap fonts, primarily for Apple systems ([#740][] by [@LaurenzV])
 - Support image extend modes, nearest-neighbor sampling and alpha ([#766][] by [@dfrg])
+- Correct vertical offset for Apple Color Emoji ([#792][] by [@dfrg])
 
 ## [0.3.0][] - 2024-10-04
 
@@ -219,8 +220,9 @@ This release has an [MSRV][] of 1.75.
 [#747]: https://github.com/linebender/vello/pull/747
 [#754]: https://github.com/linebender/vello/pull/754
 [#756]: https://github.com/linebender/vello/pull/756
-[#766]: https://github.com/linebender/vello/pull/766
 [#757]: https://github.com/linebender/vello/pull/757
+[#766]: https://github.com/linebender/vello/pull/766
+[#792]: https://github.com/linebender/vello/pull/792
 
 [Unreleased]: https://github.com/linebender/vello/compare/v0.3.0...HEAD
 <!-- Note that this still comparing against 0.2.0, because 0.2.1 is a cherry-picked patch -->

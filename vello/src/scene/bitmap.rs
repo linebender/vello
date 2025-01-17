@@ -13,7 +13,8 @@ use skrifa::{
         types::{GlyphId, Tag},
         FontData, TableProvider,
     },
-    MetadataProvider,
+    string::StringId,
+    FontRef, MetadataProvider,
 };
 
 /// Set of strikes, each containing embedded bitmaps of a single size.
@@ -45,6 +46,7 @@ impl<'a> BitmapStrikes<'a> {
         let kind = match format {
             BitmapFormat::Sbix => StrikesKind::Sbix(
                 font.sbix().ok()?,
+                SbixKind::from_font(font),
                 font.glyph_metrics(Size::unscaled(), LocationRef::default()),
             ),
             BitmapFormat::Cbdt => {
@@ -72,7 +74,7 @@ impl<'a> BitmapStrikes<'a> {
     pub fn len(&self) -> usize {
         match &self.0 {
             StrikesKind::None => 0,
-            StrikesKind::Sbix(sbix, _) => sbix.strikes().len(),
+            StrikesKind::Sbix(sbix, ..) => sbix.strikes().len(),
             StrikesKind::Cbdt(cbdt) => cbdt.location.bitmap_sizes().len(),
             StrikesKind::Ebdt(ebdt) => ebdt.location.bitmap_sizes().len(),
         }
@@ -87,8 +89,8 @@ impl<'a> BitmapStrikes<'a> {
     pub fn get(&self, index: usize) -> Option<BitmapStrike<'a>> {
         let kind = match &self.0 {
             StrikesKind::None => return None,
-            StrikesKind::Sbix(sbix, metrics) => {
-                StrikeKind::Sbix(sbix.strikes().get(index).ok()?, metrics.clone())
+            StrikesKind::Sbix(sbix, kind, metrics) => {
+                StrikeKind::Sbix(sbix.strikes().get(index).ok()?, *kind, metrics.clone())
             }
             StrikesKind::Cbdt(tables) => StrikeKind::Cbdt(
                 tables.location.bitmap_sizes().get(index).copied()?,
@@ -138,9 +140,32 @@ impl<'a> BitmapStrikes<'a> {
 #[derive(Clone)]
 enum StrikesKind<'a> {
     None,
-    Sbix(sbix::Sbix<'a>, GlyphMetrics<'a>),
+    Sbix(sbix::Sbix<'a>, SbixKind, GlyphMetrics<'a>),
     Cbdt(CbdtTables<'a>),
     Ebdt(EbdtTables<'a>),
+}
+
+/// Used to detect the Apple Color Emoji sbix font in order to apply a
+/// workaround for CoreText's special cased vertical offset.
+#[derive(Copy, Clone, PartialEq)]
+enum SbixKind {
+    Apple,
+    Other,
+}
+
+impl SbixKind {
+    fn from_font<'a>(font: &impl skrifa::MetadataProvider<'a>) -> Self {
+        if font
+            .localized_strings(skrifa::string::StringId::POSTSCRIPT_NAME)
+            .next()
+            .map(|s| s.chars().eq("AppleColorEmoji".chars()))
+            .unwrap_or_default()
+        {
+            Self::Apple
+        } else {
+            Self::Other
+        }
+    }
 }
 
 /// Set of embedded bitmap glyphs of a specific size.
@@ -151,7 +176,7 @@ impl<'a> BitmapStrike<'a> {
     /// Returns the pixels-per-em (size) of this strike.
     pub fn ppem(&self) -> f32 {
         match &self.0 {
-            StrikeKind::Sbix(sbix, _) => sbix.ppem() as f32,
+            StrikeKind::Sbix(sbix, ..) => sbix.ppem() as f32,
             StrikeKind::Cbdt(size, _) => size.ppem_y() as f32,
             StrikeKind::Ebdt(size, _) => size.ppem_y() as f32,
         }
@@ -160,7 +185,7 @@ impl<'a> BitmapStrike<'a> {
     /// Returns a bitmap glyph for the given identifier, if available.
     pub fn get(&self, glyph_id: GlyphId) -> Option<BitmapGlyph<'a>> {
         match &self.0 {
-            StrikeKind::Sbix(sbix, metrics) => {
+            StrikeKind::Sbix(sbix, kind, metrics) => {
                 let glyph = sbix.glyph_data(glyph_id).ok()??;
                 if glyph.graphic_type() != Tag::new(b"png ") {
                     return None;
@@ -174,10 +199,23 @@ impl<'a> BitmapStrike<'a> {
                 let reader = FontData::new(png_data);
                 let width = reader.read_at::<u32>(16).ok()?;
                 let height = reader.read_at::<u32>(20).ok()?;
+                // CoreText appears to special case Apple Color Emoji, adding
+                // a 100 font unit vertical offset. We do the same but only
+                // when both vertical offsets are 0 to avoid incorrect
+                // rendering if Apple ever does encode the offset directly in
+                // the font.
+                let bearing_y = if glyf_bb.y_min == 0.0
+                    && glyph.origin_offset_y() == 0
+                    && *kind == SbixKind::Apple
+                {
+                    100.0
+                } else {
+                    glyf_bb.y_min
+                };
                 Some(BitmapGlyph {
                     data: BitmapData::Png(glyph.data()),
                     bearing_x: lsb,
-                    bearing_y: glyf_bb.y_min as f32,
+                    bearing_y,
                     inner_bearing_x: glyph.origin_offset_x() as f32,
                     inner_bearing_y: glyph.origin_offset_y() as f32,
                     ppem_x: ppem,
@@ -208,7 +246,7 @@ impl<'a> BitmapStrike<'a> {
 
 #[derive(Clone)]
 enum StrikeKind<'a> {
-    Sbix(sbix::Strike<'a>, GlyphMetrics<'a>),
+    Sbix(sbix::Strike<'a>, SbixKind, GlyphMetrics<'a>),
     Cbdt(bitmap::BitmapSize, CbdtTables<'a>),
     Ebdt(bitmap::BitmapSize, EbdtTables<'a>),
 }
