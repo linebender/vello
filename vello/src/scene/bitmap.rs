@@ -145,6 +145,8 @@ enum StrikesKind<'a> {
     Ebdt(EbdtTables<'a>),
 }
 
+/// Used to detect the Apple Color Emoji sbix font in order to apply a
+/// workaround for CoreText's special cased vertical offset.
 #[derive(Copy, Clone, PartialEq)]
 enum SbixKind {
     Apple,
