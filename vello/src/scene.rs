@@ -653,7 +653,7 @@ impl<'a> DrawGlyphs<'a> {
                         bitmap::Origin::TopLeft => transform,
                         bitmap::Origin::BottomLeft => transform.pre_translate(Vec2 {
                             x: 0.,
-                            y: f64::from(image.height),
+                            y: -f64::from(image.height),
                         }),
                     };
                     if let Some(glyph_transform) = self.run.glyph_transform {
