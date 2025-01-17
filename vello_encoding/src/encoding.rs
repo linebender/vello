@@ -402,7 +402,7 @@ impl Encoding {
 
     /// Encodes an image brush.
     pub fn encode_image(&mut self, image: &Image, alpha: f32) {
-        let _alpha = alpha * image.alpha;
+        let alpha = (alpha * image.alpha * 255.0).round() as u8;
         // TODO: feed the alpha multiplier through the full pipeline for consistency
         // with other brushes?
         // Tracked in https://github.com/linebender/vello/issues/692
@@ -415,6 +415,10 @@ impl Encoding {
             .extend_from_slice(bytemuck::bytes_of(&DrawImage {
                 xy: 0,
                 width_height: (image.width << 16) | (image.height & 0xFFFF),
+                sample_alpha: ((image.quality as u32) << 12)
+                    | ((image.x_extend as u32) << 10)
+                    | ((image.y_extend as u32) << 8)
+                    | alpha as u32,
             }));
     }
 
@@ -567,5 +571,32 @@ impl StreamOffsets {
         self.draw_data += other.draw_data;
         self.transforms += other.transforms;
         self.styles += other.styles;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use peniko::{Extend, ImageQuality};
+
+    #[test]
+    fn ensure_image_quality_values() {
+        assert_eq!(ImageQuality::Low as u32, 0);
+        assert_eq!(ImageQuality::Medium as u32, 1);
+        assert_eq!(ImageQuality::High as u32, 2);
+        // exhaustive match to catch new variants
+        match ImageQuality::Low {
+            ImageQuality::Low | ImageQuality::Medium | ImageQuality::High => {}
+        }
+    }
+
+    #[test]
+    fn ensure_extend_values() {
+        assert_eq!(Extend::Pad as u32, 0);
+        assert_eq!(Extend::Repeat as u32, 1);
+        assert_eq!(Extend::Reflect as u32, 2);
+        // exhaustive match to catch new variants
+        match Extend::Pad {
+            Extend::Pad | Extend::Repeat | Extend::Reflect => {}
+        }
     }
 }

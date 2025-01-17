@@ -2,7 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::{ExampleScene, SceneConfig, SceneSet};
-use vello::kurbo::{Affine, Cap};
+use vello::{
+    kurbo::{Affine, Cap},
+    peniko::ImageQuality,
+};
 
 /// All of the test scenes supported by Vello.
 pub fn test_scenes() -> SceneSet {
@@ -80,7 +83,8 @@ export_scenes!(
     many_draw_objects(many_draw_objects),
     blurred_rounded_rect(blurred_rounded_rect),
     image_sampling(image_sampling),
-    image_extend_modes(image_extend_modes)
+    image_extend_modes_bilinear(impls::image_extend_modes(ImageQuality::Medium), "image_extend_modes (bilinear)", false),
+    image_extend_modes_nearest_neighbor(impls::image_extend_modes(ImageQuality::Low), "image_extend_modes (nearest neighbor)", false),
 );
 
 /// Implementations for the test scenes.
@@ -659,7 +663,8 @@ mod impls {
         let piet_logo = params
             .images
             .from_bytes(FLOWER_IMAGE.as_ptr() as usize, FLOWER_IMAGE)
-            .unwrap();
+            .unwrap()
+            .with_alpha(((params.time * 0.5 + 200.0).sin() as f32 + 1.0) * 0.5);
 
         use PathEl::*;
         let rect = Rect::from_origin_size(Point::new(0.0, 0.0), (1000.0, 1000.0));
@@ -1807,46 +1812,61 @@ mod impls {
         );
     }
 
-    pub(super) fn image_extend_modes(scene: &mut Scene, params: &mut SceneParams<'_>) {
-        params.resolution = Some(Vec2::new(1500., 1500.));
-        params.base_color = Some(palette::css::WHITE);
-        let mut blob: Vec<u8> = Vec::new();
-        [
-            palette::css::RED,
-            palette::css::BLUE,
-            palette::css::CYAN,
-            palette::css::MAGENTA,
-        ]
-        .iter()
-        .for_each(|c| {
-            blob.extend(c.premultiply().to_rgba8().to_u8_array());
-        });
-        let data = Blob::new(Arc::new(blob));
-        let image = Image::new(data, ImageFormat::Rgba8, 2, 2);
-        let image = image.with_extend(Extend::Pad);
-        // Pad extend mode
-        scene.fill(
-            Fill::NonZero,
-            Affine::scale(100.).then_translate((100., 100.).into()),
-            &image,
-            Some(Affine::translate((2., 2.)).then_scale(100.)),
-            &Rect::new(0., 0., 6., 6.),
-        );
-        let image = image.with_extend(Extend::Reflect);
-        scene.fill(
-            Fill::NonZero,
-            Affine::scale(100.).then_translate((100., 800.).into()),
-            &image,
-            Some(Affine::translate((2., 2.))),
-            &Rect::new(0., 0., 6., 6.),
-        );
-        let image = image.with_extend(Extend::Repeat);
-        scene.fill(
-            Fill::NonZero,
-            Affine::scale(100.).then_translate((800., 100.).into()),
-            &image,
-            Some(Affine::translate((2., 2.))),
-            &Rect::new(0., 0., 6., 6.),
-        );
+    pub(super) fn image_extend_modes(
+        quality: ImageQuality,
+    ) -> impl FnMut(&mut Scene, &mut SceneParams<'_>) {
+        move |scene, params| {
+            params.resolution = Some(Vec2::new(1500., 1500.));
+            params.base_color = Some(palette::css::WHITE);
+            let mut blob: Vec<u8> = Vec::new();
+            [
+                palette::css::RED,
+                palette::css::BLUE,
+                palette::css::CYAN,
+                palette::css::MAGENTA,
+            ]
+            .iter()
+            .for_each(|c| {
+                blob.extend(c.premultiply().to_rgba8().to_u8_array());
+            });
+            let data = Blob::new(Arc::new(blob));
+            let image = Image::new(data, ImageFormat::Rgba8, 2, 2).with_quality(quality);
+            let brush_offset = Some(Affine::translate((2., 2.)));
+            // Pad extend mode
+            let image = image.with_extend(Extend::Pad);
+            scene.fill(
+                Fill::NonZero,
+                Affine::scale(100.).then_translate((100., 100.).into()),
+                &image,
+                brush_offset,
+                &Rect::new(0., 0., 6., 6.),
+            );
+            let image = image.with_extend(Extend::Reflect);
+            scene.fill(
+                Fill::NonZero,
+                Affine::scale(100.).then_translate((100., 800.).into()),
+                &image,
+                brush_offset,
+                &Rect::new(0., 0., 6., 6.),
+            );
+            let image = image.with_extend(Extend::Repeat);
+            scene.fill(
+                Fill::NonZero,
+                Affine::scale(100.).then_translate((800., 100.).into()),
+                &image,
+                brush_offset,
+                &Rect::new(0., 0., 6., 6.),
+            );
+            let image = image
+                .with_x_extend(Extend::Repeat)
+                .with_y_extend(Extend::Reflect);
+            scene.fill(
+                Fill::NonZero,
+                Affine::scale(100.).then_translate((800., 800.).into()),
+                &image,
+                brush_offset,
+                &Rect::new(0., 0., 6., 6.),
+            );
+        }
     }
 }

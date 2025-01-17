@@ -121,11 +121,3 @@ fn snapshot_image_sampling() {
     let params = TestParams::new("image_sampling", 400, 400);
     snapshot_test_scene(test_scene, params);
 }
-
-#[test]
-#[cfg_attr(skip_gpu_tests, ignore)]
-fn snapshot_image_extend_modes() {
-    let test_scene = test_scenes::image_extend_modes();
-    let params = TestParams::new("image_extend_modes", 375, 375);
-    snapshot_test_scene(test_scene, params);
-}

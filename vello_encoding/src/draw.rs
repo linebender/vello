@@ -31,7 +31,7 @@ impl DrawTag {
     pub const SWEEP_GRADIENT: Self = Self(0x254);
 
     /// Image fill.
-    pub const IMAGE: Self = Self(0x248);
+    pub const IMAGE: Self = Self(0x28C); // info: 10, scene: 3
 
     /// Blurred rounded rectangle.
     pub const BLUR_RECT: Self = Self(0x2d4); // info: 11, scene: 5 (DrawBlurRoundedRect)
@@ -164,6 +164,9 @@ pub struct DrawImage {
     pub xy: u32,
     /// Packed image dimensions.
     pub width_height: u32,
+    /// Packed quality, extend mode and 8-bit alpha (bits `qqxxyyaaaaaaaa`,
+    /// 18 unused prefix bits).
+    pub sample_alpha: u32,
 }
 
 /// Draw data for a blurred rounded rectangle.
