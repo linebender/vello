@@ -422,10 +422,13 @@ impl Resolver {
                             hint = false;
                         }
                     }
-                    let Some(mut session) = self
-                        .glyph_cache
-                        .session(&run.font, coords, font_size, hint, &run.style)
-                    else {
+                    let Some(mut session) = self.glyph_cache.session(
+                        &run.font,
+                        bytemuck::cast_slice(coords),
+                        font_size,
+                        hint,
+                        &run.style,
+                    ) else {
                         continue;
                     };
                     let glyph_start = self.glyphs.len();

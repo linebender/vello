@@ -76,3 +76,21 @@ pub use resolve::{resolve_solid_paths_only, Layout, Patch, Resolver};
 
 #[cfg(feature = "bump_estimate")]
 pub use estimate::BumpEstimator;
+
+/// A normalized variation coordinate (for variable fonts) in 2.14 fixed point format.
+///
+/// In most cases, this can be [cast](bytemuck::cast_slice) from the
+/// normalised coords provided by your text layout library.
+///
+/// Equivalent to [`skrifa::instance::NormalizedCoord`], but defined
+/// in Vello so that Skrifa is not part of Vello's public API.
+/// This allows Vello to update its Skrifa in a patch release, and limits
+/// the need for updates only to align Skrifa versions.
+pub type NormalizedCoord = i16;
+
+#[cfg(test)]
+mod tests {
+    const _NORMALISED_COORD_SIZE_MATCHES: () = assert!(
+        size_of::<skrifa::prelude::NormalizedCoord>() == size_of::<crate::NormalizedCoord>()
+    );
+}

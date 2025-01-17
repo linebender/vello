@@ -3,13 +3,13 @@
 
 use super::{
     DrawBlurRoundedRect, DrawColor, DrawImage, DrawLinearGradient, DrawRadialGradient,
-    DrawSweepGradient, DrawTag, Glyph, GlyphRun, Patch, PathEncoder, PathTag, Style, Transform,
+    DrawSweepGradient, DrawTag, Glyph, GlyphRun, NormalizedCoord, Patch, PathEncoder, PathTag,
+    Style, Transform,
 };
 
 use peniko::color::{palette, DynamicColor};
 use peniko::kurbo::{Shape, Stroke};
 use peniko::{BlendMode, BrushRef, ColorStop, Extend, Fill, GradientKind, Image};
-use skrifa::instance::NormalizedCoord;
 
 /// Encoded data streams for a scene.
 ///

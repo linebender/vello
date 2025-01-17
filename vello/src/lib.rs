@@ -147,13 +147,12 @@ pub mod low_level {
 pub use peniko;
 /// 2D geometry, with a focus on curves.
 pub use peniko::kurbo;
-pub use skrifa;
 
 #[cfg(feature = "wgpu")]
 pub use wgpu;
 
 pub use scene::{DrawGlyphs, Scene};
-pub use vello_encoding::Glyph;
+pub use vello_encoding::{Glyph, NormalizedCoord};
 
 use low_level::ShaderId;
 #[cfg(feature = "wgpu")]
@@ -432,7 +431,8 @@ impl Renderer {
         engine.build_shaders_if_needed(device, options.num_init_threads);
         let blit = options
             .surface_format
-            .map(|surface_format| BlitPipeline::new(device, surface_format, &mut engine));
+            .map(|surface_format| BlitPipeline::new(device, surface_format, &mut engine))
+            .transpose()?;
         #[cfg(feature = "debug_layers")]
         let debug = options
             .surface_format
@@ -520,11 +520,17 @@ impl Renderer {
             .as_ref()
             .expect("renderer should have configured surface_format to use on a surface");
         let mut recording = Recording::default();
-        let target_proxy = ImageProxy::new(width, height, ImageFormat::from_wgpu(target.format));
+        let target_proxy = ImageProxy::new(
+            width,
+            height,
+            ImageFormat::from_wgpu(target.format)
+                .expect("`TargetTexture` always has a supported texture format"),
+        );
         let surface_proxy = ImageProxy::new(
             width,
             height,
-            ImageFormat::from_wgpu(surface.texture.format()),
+            ImageFormat::from_wgpu(surface.texture.format())
+                .ok_or(Error::UnsupportedSurfaceFormat)?,
         );
         recording.draw(recording::DrawParams {
             shader_id: blit.0,
@@ -597,7 +603,8 @@ impl Renderer {
         let blit = self
             .options
             .surface_format
-            .map(|surface_format| BlitPipeline::new(device, surface_format, &mut engine));
+            .map(|surface_format| BlitPipeline::new(device, surface_format, &mut engine))
+            .transpose()?;
         #[cfg(feature = "debug_layers")]
         let debug = self
             .options
@@ -782,11 +789,17 @@ impl Renderer {
             .as_ref()
             .expect("renderer should have configured surface_format to use on a surface");
         let mut recording = Recording::default();
-        let target_proxy = ImageProxy::new(width, height, ImageFormat::from_wgpu(target.format));
+        let target_proxy = ImageProxy::new(
+            width,
+            height,
+            ImageFormat::from_wgpu(target.format)
+                .expect("`TargetTexture` always has a supported texture format"),
+        );
         let surface_proxy = ImageProxy::new(
             width,
             height,
-            ImageFormat::from_wgpu(surface.texture.format()),
+            ImageFormat::from_wgpu(surface.texture.format())
+                .ok_or(Error::UnsupportedSurfaceFormat)?,
         );
         recording.draw(recording::DrawParams {
             shader_id: blit.0,
@@ -899,7 +912,7 @@ struct BlitPipeline(ShaderId);
 
 #[cfg(feature = "wgpu")]
 impl BlitPipeline {
-    fn new(device: &Device, format: TextureFormat, engine: &mut WgpuEngine) -> Self {
+    fn new(device: &Device, format: TextureFormat, engine: &mut WgpuEngine) -> Result<Self> {
         const SHADERS: &str = r#"
             @vertex
             fn vs_main(@builtin(vertex_index) ix: u32) -> @builtin(position) vec4<f32> {
@@ -947,11 +960,13 @@ impl BlitPipeline {
             },
             None,
             &[(
-                BindType::ImageRead(ImageFormat::from_wgpu(format)),
+                BindType::ImageRead(
+                    ImageFormat::from_wgpu(format).ok_or(Error::UnsupportedSurfaceFormat)?,
+                ),
                 wgpu::ShaderStages::FRAGMENT,
             )],
         );
-        Self(shader_id)
+        Ok(Self(shader_id))
     }
 }
 
