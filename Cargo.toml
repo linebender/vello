@@ -97,8 +97,8 @@ clippy.wildcard_dependencies = "warn"
 vello = { version = "0.3.0", path = "vello" }
 vello_encoding = { version = "0.3.0", path = "vello_encoding" }
 vello_shaders = { version = "0.3.0", path = "vello_shaders" }
-bytemuck = { version = "1.20.0", features = ["derive"] }
-skrifa = "0.26.0"
+bytemuck = { version = "1.21.0", features = ["derive"] }
+skrifa = "0.26.4"
 # The version of kurbo used below should be kept in sync
 # with the version of kurbo used by peniko.
 peniko = "0.3.0"
@@ -107,7 +107,7 @@ kurbo = "0.11.1"
 futures-intrusive = "0.5.0"
 smallvec = "1.13.2"
 static_assertions = "1.1.0"
-thiserror = "2.0.3"
+thiserror = "2.0.11"
 
 # NOTE: Make sure to keep this in sync with the version badge in README.md and vello/README.md
 wgpu = { version = "23.0.1" }
@@ -115,8 +115,8 @@ log = "0.4.22"
 image = { version = "0.25.5", default-features = false }
 
 # Used for examples
-clap = "4.5.21"
-anyhow = "1.0.93"
+clap = "4.5.26"
+anyhow = "1.0.95"
 pollster = "0.4.0"
 web-time = "1.1.0"
 wgpu-profiler = "0.19.0"
