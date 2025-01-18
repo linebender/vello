@@ -61,7 +61,7 @@ winit = { version = "0.30.5", features = ["android-native-activity"] }
 android_logger = "0.14.1"
 
 tracing_android_trace = "0.1.1"
-tracing-subscriber = { version = "0.3.18", default-features = false, features = [
+tracing-subscriber = { version = "0.3.19", default-features = false, features = [
     "std",
     "registry",
 ] }
