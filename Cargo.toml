@@ -115,7 +115,7 @@ log = "0.4.22"
 image = { version = "0.25.5", default-features = false }
 
 # Used for examples
-clap = "4.5.21"
+clap = "4.5.26"
 anyhow = "1.0.95"
 pollster = "0.4.0"
 web-time = "1.1.0"
