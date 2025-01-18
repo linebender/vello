@@ -37,7 +37,7 @@ clap = { workspace = true, features = ["derive"] }
 pollster = { workspace = true }
 wgpu-profiler = { workspace = true, optional = true }
 
-winit = "0.30.5"
+winit = "0.30.8"
 log = { workspace = true }
 
 # We're still using env-logger, but we want to use tracing spans to allow using
