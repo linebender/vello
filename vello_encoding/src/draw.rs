@@ -68,8 +68,8 @@ pub struct DrawBbox {
 #[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
 #[repr(C)]
 pub struct DrawColor {
-    /// Packed little endian RGBA premultiplied color with the alpha component
-    /// in the low byte.
+    /// Packed little-endian RGBA premultiplied color with the red component in the low byte, i.e.,
+    /// with `r` the least significant byte and `a` the most significant.
     pub rgba: u32,
 }
 
