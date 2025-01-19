@@ -24,6 +24,7 @@ This is the first step towards providing richer color functionality, better hand
 
 - Breaking: Updated `wgpu` to 23.0.1 ([#735][], [#743][] by [@waywardmonkeys])
 - Breaking: Updated to new `peniko` and `color` is now used for all colors ([#742][] by [@waywardmonkeys])
+- Breaking: As part of the update to `color`, the byte order of `vello_encoding::DrawColor` is changed ([#758][] by [@waywardmonkeys][], [#796][] by [@tomcur][]).
 - Breaking: The `full` feature is no longer present as the full pipeline is now always built ([#754][] by [@waywardmonkeys])
 - The `r8` permutation of the shaders is no longer available ([#756][] by [@waywardmonkeys])
 - Breaking: The `buffer_labels` feature is no longer present as the labels are always configured ([#757][] by [@waywardmonkeys])
@@ -152,6 +153,7 @@ This release has an [MSRV][] of 1.75.
 [@simbleau]: https://github.com/simbleau
 [@TheNachoBIT]: https://github.com/TheNachoBIT
 [@timtom-dev]: https://github.com/timtom-dev
+[@tomcur]: https://github.com/tomcur
 [@TrueDoctor]: https://github.com/TrueDoctor
 [@waywardmonkeys]: https://github.com/waywardmonkeys
 [@yutannihilation]: https://github.com/yutannihilation
@@ -221,8 +223,10 @@ This release has an [MSRV][] of 1.75.
 [#754]: https://github.com/linebender/vello/pull/754
 [#756]: https://github.com/linebender/vello/pull/756
 [#757]: https://github.com/linebender/vello/pull/757
+[#758]: https://github.com/linebender/vello/pull/758
 [#766]: https://github.com/linebender/vello/pull/766
 [#792]: https://github.com/linebender/vello/pull/792
+[#796]: https://github.com/linebender/vello/pull/796
 
 [Unreleased]: https://github.com/linebender/vello/compare/v0.3.0...HEAD
 <!-- Note that this still comparing against 0.2.0, because 0.2.1 is a cherry-picked patch -->
