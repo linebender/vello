@@ -14,6 +14,7 @@ use std::cmp::Ordering;
 use rand::seq::SliceRandom;
 use rand::Rng;
 use vello::kurbo::{Affine, BezPath, CubicBez, Line, ParamCurve, PathSeg, Point, QuadBez, Stroke};
+use vello::peniko::color::palette;
 use vello::peniko::Color;
 use vello::Scene;
 
@@ -118,13 +119,13 @@ impl TestScene for MMark {
 }
 
 const COLORS: &[Color] = &[
-    Color::from_rgba8(0x10, 0x10, 0x10, 0xff),
-    Color::from_rgba8(0x80, 0x80, 0x80, 0xff),
-    Color::from_rgba8(0xc0, 0xc0, 0xc0, 0xff),
-    Color::from_rgba8(0x10, 0x10, 0x10, 0xff),
-    Color::from_rgba8(0x80, 0x80, 0x80, 0xff),
-    Color::from_rgba8(0xc0, 0xc0, 0xc0, 0xff),
-    Color::from_rgba8(0xe0, 0x10, 0x40, 0xff),
+    palette::css::BLACK,
+    palette::css::GRAY,
+    palette::css::LIGHT_GRAY,
+    palette::css::BLACK,
+    palette::css::GRAY,
+    palette::css::LIGHT_GRAY,
+    palette::css::DEEP_PINK,
 ];
 
 impl Element {

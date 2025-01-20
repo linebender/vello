@@ -6,7 +6,9 @@ use std::collections::VecDeque;
 #[cfg(feature = "wgpu-profiler")]
 use vello::kurbo::Line;
 use vello::kurbo::{Affine, PathEl, Rect, Stroke};
-use vello::peniko::{color::palette, Brush, Color, Fill};
+#[cfg(feature = "wgpu-profiler")]
+use vello::peniko::Color;
+use vello::peniko::{color::palette, Brush, Fill};
 use vello::{low_level::BumpAllocators, AaConfig, Scene};
 
 #[cfg(all(feature = "wgpu-profiler", not(target_arch = "wasm32")))]
@@ -135,9 +137,9 @@ impl Snapshot {
             let s = Affine::scale_non_uniform(1., -h);
             #[allow(clippy::match_overlapping_arm)]
             let color = match *sample {
-                ..=16_667 => Color::from_rgba8(100, 143, 255, 255),
-                ..=33_334 => Color::from_rgba8(255, 176, 0, 255),
-                _ => Color::from_rgba8(220, 38, 127, 255),
+                ..=16_667 => palette::css::ROYAL_BLUE,
+                ..=33_334 => palette::css::ORANGE,
+                _ => palette::css::PINK,
             };
             scene.fill(
                 Fill::NonZero,
