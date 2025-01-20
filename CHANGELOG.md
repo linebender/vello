@@ -233,7 +233,7 @@ This release has an [MSRV][] of 1.75.
 [#796]: https://github.com/linebender/vello/pull/796
 
 [Unreleased]: https://github.com/linebender/vello/compare/v0.4.0...HEAD
-[0.3.0]: https://github.com/linebender/vello/compare/v0.3.0...v0.4.0
+[0.4.0]: https://github.com/linebender/vello/compare/v0.3.0...v0.4.0
 <!-- Note that this still comparing against 0.2.0, because 0.2.1 is a cherry-picked patch -->
 [0.3.0]: https://github.com/linebender/vello/compare/v0.2.0...v0.3.0
 [0.2.1]: https://github.com/linebender/vello/compare/v0.2.0...v0.2.1
