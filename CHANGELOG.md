@@ -24,6 +24,8 @@ This release has an [MSRV][] of 1.82.
 As part of an initiative to improve color handling across the ecosystem (and especially within Linebender crates), Vello is now using the new [`color`] crate.
 This is the first step towards providing richer color functionality, better handling of color interpolation, and more.
 
+This release intentionally uses `wgpu` 23.0.1 rather than 24.0.0 so that it can match the version used in Bevy 0.15.
+
 ### Changed
 
 - Breaking: Updated `wgpu` to 23.0.1 ([#735][], [#743][] by [@waywardmonkeys])
