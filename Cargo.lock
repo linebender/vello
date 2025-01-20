@@ -429,9 +429,9 @@ dependencies = [
 
 [[package]]
 name = "color"
-version = "0.2.2"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04d9a622ee8dabcf678e18d306da59ffa4a7f8f5f50c04155903275a789ae1f7"
+checksum = "61c387f6cef110ee8eaf12fca5586d3d303c07c594f4a5f02c768b6470b70dbd"
 
 [[package]]
 name = "colorchoice"
@@ -1647,9 +1647,9 @@ checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 
 [[package]]
 name = "peniko"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c7de2e49a1a6b7a55ec3ba866a423f46cd8f31472bfaabe42c68e144c27bc668"
+checksum = "2ec061f435b573ff602b2c5690f1a5bfcf461327194654cfbfce4412b95cf2a1"
 dependencies = [
  "color",
  "kurbo",

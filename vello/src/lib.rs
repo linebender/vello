@@ -48,7 +48,7 @@
 //! scene.fill(
 //!    vello::peniko::Fill::NonZero,
 //!    vello::Affine::IDENTITY,
-//!    vello::Color::from_rgba8(242, 140, 168, 255),
+//!    vello::Color::from_rgb8(242, 140, 168),
 //!    None,
 //!    &vello::Circle::new((420.0, 200.0), 120.0),
 //! );
