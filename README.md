@@ -93,7 +93,7 @@ let mut scene = Scene::new();
 scene.fill(
    Fill::NonZero,
    Affine::IDENTITY,
-   Color::from_rgba8(242, 140, 168, 255),
+   Color::from_rgb8(242, 140, 168),
    None,
    &Circle::new((420.0, 200.0), 120.0),
 );

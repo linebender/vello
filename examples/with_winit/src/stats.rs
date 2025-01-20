@@ -135,9 +135,9 @@ impl Snapshot {
             let s = Affine::scale_non_uniform(1., -h);
             #[allow(clippy::match_overlapping_arm)]
             let color = match *sample {
-                ..=16_667 => Color::from_rgba8(100, 143, 255, 255),
-                ..=33_334 => Color::from_rgba8(255, 176, 0, 255),
-                _ => Color::from_rgba8(220, 38, 127, 255),
+                ..=16_667 => Color::from_rgb8(100, 143, 255),
+                ..=33_334 => Color::from_rgb8(255, 176, 0),
+                _ => Color::from_rgb8(220, 38, 127),
             };
             scene.fill(
                 Fill::NonZero,
