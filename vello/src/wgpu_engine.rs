@@ -465,7 +465,7 @@ impl WgpuEngine {
                     self.bind_map
                         .insert_image(image_proxy.id, texture, texture_view);
                 }
-                Command::WriteImage(proxy, [x, y], image) => {
+                Command::WriteImage(proxy, [x, y, layer], image) => {
                     let (texture, _) = self.bind_map.get_or_create_image(*proxy, device);
                     let format = proxy.format.to_wgpu();
                     let block_size = format
@@ -482,7 +482,11 @@ impl WgpuEngine {
                             wgpu::ImageCopyTexture {
                                 texture,
                                 mip_level: 0,
-                                origin: wgpu::Origin3d { x: *x, y: *y, z: 0 },
+                                origin: wgpu::Origin3d {
+                                    x: *x,
+                                    y: *y,
+                                    z: *layer,
+                                },
                                 aspect: TextureAspect::All,
                             },
                             wgpu::Extent3d {
@@ -496,7 +500,11 @@ impl WgpuEngine {
                             wgpu::ImageCopyTexture {
                                 texture,
                                 mip_level: 0,
-                                origin: wgpu::Origin3d { x: *x, y: *y, z: 0 },
+                                origin: wgpu::Origin3d {
+                                    x: *x,
+                                    y: *y,
+                                    z: *layer,
+                                },
                                 aspect: TextureAspect::All,
                             },
                             image.data.data(),
@@ -899,7 +907,7 @@ impl BindMap {
                     size: wgpu::Extent3d {
                         width: proxy.width,
                         height: proxy.height,
-                        depth_or_array_layers: 1,
+                        depth_or_array_layers: proxy.layers,
                     },
                     mip_level_count: 1,
                     sample_count: 1,

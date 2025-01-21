@@ -47,6 +47,7 @@ pub struct ImageProxy {
     pub height: u32,
     pub format: ImageFormat,
     pub id: ResourceId,
+    pub layers: u32,
 }
 
 #[derive(Clone, Copy)]
@@ -68,7 +69,7 @@ pub enum Command {
     UploadUniform(BufferProxy, Vec<u8>),
     /// Commands the data to be uploaded to the given image.
     UploadImage(ImageProxy, Vec<u8>),
-    WriteImage(ImageProxy, [u32; 2], Image),
+    WriteImage(ImageProxy, [u32; 3], Image),
     Download(BufferProxy),
     /// Commands to clear the buffer from an offset on for a length of the given size.
     /// If the size is [None], it clears until the end.
@@ -145,13 +146,13 @@ impl Recording {
         data: impl Into<Vec<u8>>,
     ) -> ImageProxy {
         let data = data.into();
-        let image_proxy = ImageProxy::new(width, height, format);
+        let image_proxy = ImageProxy::new(width, height, 1, format);
         self.push(Command::UploadImage(image_proxy, data));
         image_proxy
     }
 
-    pub fn write_image(&mut self, proxy: ImageProxy, x: u32, y: u32, image: Image) {
-        self.push(Command::WriteImage(proxy, [x, y], image));
+    pub fn write_image(&mut self, proxy: ImageProxy, x: u32, y: u32, layer: u32, image: Image) {
+        self.push(Command::WriteImage(proxy, [x, y, layer], image));
     }
 
     pub fn dispatch<R>(&mut self, shader: ShaderId, wg_size: (u32, u32, u32), resources: R)
@@ -257,12 +258,13 @@ impl ImageFormat {
 }
 
 impl ImageProxy {
-    pub fn new(width: u32, height: u32, format: ImageFormat) -> Self {
+    pub fn new(width: u32, height: u32, layers: u32, format: ImageFormat) -> Self {
         let id = ResourceId::next();
         Self {
             width,
             height,
             format,
+            layers,
             id,
         }
     }
@@ -273,8 +275,8 @@ impl ResourceProxy {
         Self::Buffer(BufferProxy::new(size, name))
     }
 
-    pub fn new_image(width: u32, height: u32, format: ImageFormat) -> Self {
-        Self::Image(ImageProxy::new(width, height, format))
+    pub fn new_image(width: u32, height: u32, layers: u32, format: ImageFormat) -> Self {
+        Self::Image(ImageProxy::new(width, height, layers, format))
     }
 
     pub fn as_buf(&self) -> Option<&BufferProxy> {

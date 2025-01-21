@@ -284,9 +284,11 @@ impl Resolver {
                         if pos < *draw_data_offset {
                             data.extend_from_slice(&encoding.draw_data[pos..*draw_data_offset]);
                         }
-                        if let Some((x, y)) = self.pending_images[*index].xy {
-                            let xy = (x << 16) | y;
-                            data.extend_from_slice(bytemuck::bytes_of(&xy));
+                        if let Some((x, y, z)) = self.pending_images[*index].xyz {
+                            // 11 bits for x, 11 bits for y, 10 bits for z
+                            // TODO: Check that there's no overflow.
+                            let xyz = (x << 21) | (y << 10) | z;
+                            data.extend_from_slice(bytemuck::bytes_of(&xyz));
                             pos = *draw_data_offset + 4;
                         } else {
                             // If we get here, we failed to allocate a slot for this image in the atlas.
@@ -462,7 +464,7 @@ impl Resolver {
                     let index = self.pending_images.len();
                     self.pending_images.push(PendingImage {
                         image: image.clone(),
-                        xy: None,
+                        xyz: None,
                     });
                     self.patches.push(ResolvedPatch::Image {
                         index,
@@ -476,27 +478,11 @@ impl Resolver {
 
     fn resolve_pending_images(&mut self) {
         self.image_cache.clear();
-        'outer: loop {
-            // Loop over the images, attempting to allocate them all into the atlas.
-            for pending_image in &mut self.pending_images {
-                if let Some(xy) = self.image_cache.get_or_insert(&pending_image.image) {
-                    pending_image.xy = Some(xy);
-                } else {
-                    // We failed to allocate. Try to bump the atlas size.
-                    if self.image_cache.bump_size() {
-                        // We were able to increase the atlas size. Restart the outer loop.
-                        continue 'outer;
-                    } else {
-                        // If the atlas is already maximum size, there's nothing we can do. Set
-                        // the xy field to None so this image isn't rendered and then carry on--
-                        // other images might still fit.
-                        pending_image.xy = None;
-                    }
-                }
-            }
-            // If we made it here, we've either successfully allocated all images or we reached
-            // the maximum atlas size.
-            break;
+        // Loop over the images, attempting to allocate them all into the atlas.
+        for pending_image in &mut self.pending_images {
+            // We might have failed to allocate. We continue in that case, because another image might still fit
+            // (for example, images larger than `ATLAS_SIZE`px in any dimension will currently never fit)
+            pending_image.xyz = self.image_cache.get_or_insert(&pending_image.image);
         }
     }
 }
@@ -531,7 +517,7 @@ pub enum Patch {
 #[derive(Clone, Debug)]
 struct PendingImage {
     image: Image,
-    xy: Option<(u32, u32)>,
+    xyz: Option<(u32, u32, u32)>,
 }
 
 #[derive(Clone, Debug)]

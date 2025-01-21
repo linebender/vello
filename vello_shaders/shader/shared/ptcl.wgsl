@@ -96,6 +96,7 @@ struct CmdImage {
     matrx: vec4<f32>,
     xlat: vec2<f32>,
     atlas_offset: vec2<f32>,
+    index: i32,
     extents: vec2<f32>,
     x_extend_mode: u32,
     y_extend_mode: u32,

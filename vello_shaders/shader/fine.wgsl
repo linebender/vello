@@ -807,7 +807,7 @@ fn read_image(cmd_ix: u32) -> CmdImage {
     let m3 = bitcast<f32>(info[info_offset + 3u]);
     let matrx = vec4(m0, m1, m2, m3);
     let xlat = vec2(bitcast<f32>(info[info_offset + 4u]), bitcast<f32>(info[info_offset + 5u]));
-    let xy = info[info_offset + 6u];
+    let xyz = info[info_offset + 6u];
     let width_height = info[info_offset + 7u];
     let sample_alpha = info[info_offset + 8u];
     let alpha = f32(sample_alpha & 0xFFu) / 255.0;
@@ -815,11 +815,12 @@ fn read_image(cmd_ix: u32) -> CmdImage {
     let x_extend = (sample_alpha >> 10u) & 0x3u;
     let y_extend = (sample_alpha >> 8u) & 0x3u;
     // The following are not intended to be bitcasts
-    let x = f32(xy >> 16u);
-    let y = f32(xy & 0xffffu);
+    let x = f32(xyz >> 21u);
+    let y = f32((xyz >> 10u) & 0x7ffu);
+    let index = i32(xyz & 0x3ffu);
     let width = f32(width_height >> 16u);
     let height = f32(width_height & 0xffffu);
-    return CmdImage(matrx, xlat, vec2(x, y), vec2(width, height), x_extend, y_extend, quality, alpha);
+    return CmdImage(matrx, xlat, vec2(x, y), index, vec2(width, height), x_extend, y_extend, quality, alpha);
 }
 
 fn read_end_clip(cmd_ix: u32) -> CmdEndClip {
@@ -1169,7 +1170,7 @@ fn main(
                                 // TODO: If the image couldn't be added to the atlas (i.e. was too big), this isn't robust
                                 let atlas_uv_clamped = clamp(atlas_uv, image.atlas_offset, atlas_max);
                                 // Nearest neighbor sampling
-                                let fg_rgba = premul_alpha(textureLoad(image_atlas, vec2<i32>(atlas_uv_clamped), 0));
+                                let fg_rgba = premul_alpha(textureLoad(image_atlas, vec2<i32>(atlas_uv_clamped), image.index));
                                 let fg_i = fg_rgba * area[i] * image.alpha;
                                 rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
                             }
@@ -1191,10 +1192,10 @@ fn main(
                                 // atlas_offset are integers
                                 let uv_quad = vec4(floor(atlas_uv_clamped), ceil(atlas_uv_clamped));
                                 let uv_frac = fract(atlas_uv);
-                                let a = premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.xy), 0));
-                                let b = premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.xw), 0));
-                                let c = premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.zy), 0));
-                                let d = premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.zw), 0));
+                                let a = premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.xy), image.index));
+                                let b = premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.xw), image.index));
+                                let c = premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.zy), image.index));
+                                let d = premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.zw), image.index));
                                 // Bilinear sampling
                                 let fg_rgba = mix(mix(a, b, uv_frac.y), mix(c, d, uv_frac.y), uv_frac.x);
                                 let fg_i = fg_rgba * area[i] * image.alpha;
