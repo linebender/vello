@@ -240,3 +240,26 @@ impl Monoid for DrawMonoid {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use peniko::Color;
+
+    use super::DrawColor;
+
+    #[test]
+    fn draw_color_endianness() {
+        // `DrawColor` should be packed little-endian with red the least significant byte.
+        let c = Color::from_rgba8(0x00, 0xca, 0xfe, 0xff);
+        assert_eq!(
+            bytemuck::bytes_of(&DrawColor::from(c)),
+            [0x00, 0xca, 0xfe, 0xff]
+        );
+    }
+
+    #[test]
+    fn draw_color_premultiplied() {
+        let c = Color::from_rgba8(0x00, 0xca, 0xfe, 0x00);
+        assert_eq!(DrawColor::from(c).rgba, 0);
+    }
+}
