@@ -523,12 +523,14 @@ impl Renderer {
         let target_proxy = ImageProxy::new(
             width,
             height,
+            1,
             ImageFormat::from_wgpu(target.format)
                 .expect("`TargetTexture` always has a supported texture format"),
         );
         let surface_proxy = ImageProxy::new(
             width,
             height,
+            1,
             ImageFormat::from_wgpu(surface.texture.format())
                 .ok_or(Error::UnsupportedSurfaceFormat)?,
         );
@@ -792,12 +794,14 @@ impl Renderer {
         let target_proxy = ImageProxy::new(
             width,
             height,
+            1,
             ImageFormat::from_wgpu(target.format)
                 .expect("`TargetTexture` always has a supported texture format"),
         );
         let surface_proxy = ImageProxy::new(
             width,
             height,
+            1,
             ImageFormat::from_wgpu(surface.texture.format())
                 .ok_or(Error::UnsupportedSurfaceFormat)?,
         );
