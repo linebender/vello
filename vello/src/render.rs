@@ -147,7 +147,7 @@ impl Render {
             ))
         };
         let image_atlas = if images.images.is_empty() {
-            ImageProxy::new(1, 1, 1, ImageFormat::Rgba8)
+            ImageProxy::new(1, 1, 2, ImageFormat::Rgba8)
         } else {
             ImageProxy::new(
                 images.width,

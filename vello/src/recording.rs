@@ -99,6 +99,8 @@ pub enum BindType {
     Image(ImageFormat),
     /// A storage image with read only access.
     ImageRead(ImageFormat),
+    /// A storage array texture with read only access.
+    ImageArrayRead(ImageFormat),
     // TODO: Uniform, Sampler, maybe others
 }
 

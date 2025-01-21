@@ -214,7 +214,7 @@ pub(crate) fn full_shaders(
         Buffer,
         Image(ImageFormat::Rgba8),
         ImageRead(ImageFormat::Rgba8),
-        ImageRead(ImageFormat::Rgba8),
+        ImageArrayRead(ImageFormat::Rgba8),
         // Mask LUT buffer, used only when MSAA is enabled.
         BufReadOnly,
     ];

@@ -45,7 +45,7 @@ var output: texture_storage_2d<rgba8unorm, write>;
 var gradients: texture_2d<f32>;
 
 @group(0) @binding(7)
-var image_atlas: texture_2d<f32>;
+var image_atlas: texture_2d_array<f32>;
 
 // MSAA-only bindings and utilities
 #ifdef msaa
@@ -1170,7 +1170,7 @@ fn main(
                                 // TODO: If the image couldn't be added to the atlas (i.e. was too big), this isn't robust
                                 let atlas_uv_clamped = clamp(atlas_uv, image.atlas_offset, atlas_max);
                                 // Nearest neighbor sampling
-                                let fg_rgba = premul_alpha(textureLoad(image_atlas, vec2<i32>(atlas_uv_clamped), image.index));
+                                let fg_rgba = premul_alpha(textureLoad(image_atlas, vec2<i32>(atlas_uv_clamped), image.index, 0));
                                 let fg_i = fg_rgba * area[i] * image.alpha;
                                 rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
                             }
@@ -1192,10 +1192,10 @@ fn main(
                                 // atlas_offset are integers
                                 let uv_quad = vec4(floor(atlas_uv_clamped), ceil(atlas_uv_clamped));
                                 let uv_frac = fract(atlas_uv);
-                                let a = premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.xy), image.index));
-                                let b = premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.xw), image.index));
-                                let c = premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.zy), image.index));
-                                let d = premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.zw), image.index));
+                                let a = premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.xy), image.index, 0));
+                                let b = premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.xw), image.index, 0));
+                                let c = premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.zy), image.index, 0));
+                                let d = premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.zw), image.index, 0));
                                 // Bilinear sampling
                                 let fg_rgba = mix(mix(a, b, uv_frac.y), mix(c, d, uv_frac.y), uv_frac.x);
                                 let fg_i = fg_rgba * area[i] * image.alpha;

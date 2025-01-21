@@ -782,26 +782,31 @@ impl WgpuEngine {
                     },
                     count: None,
                 },
-                BindType::Image(format) | BindType::ImageRead(format) => {
-                    wgpu::BindGroupLayoutEntry {
-                        binding: i as u32,
-                        visibility,
-                        ty: if bind_type == BindType::ImageRead(format) {
-                            wgpu::BindingType::Texture {
-                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                                view_dimension: TextureViewDimension::D2,
-                                multisampled: false,
-                            }
-                        } else {
-                            wgpu::BindingType::StorageTexture {
-                                access: wgpu::StorageTextureAccess::WriteOnly,
-                                format: format.to_wgpu(),
-                                view_dimension: TextureViewDimension::D2,
-                            }
+                BindType::Image(format)
+                | BindType::ImageRead(format)
+                | BindType::ImageArrayRead(format) => wgpu::BindGroupLayoutEntry {
+                    binding: i as u32,
+                    visibility,
+                    ty: match bind_type {
+                        BindType::ImageRead(_) => wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: TextureViewDimension::D2,
+                            multisampled: false,
                         },
-                        count: None,
-                    }
-                }
+                        BindType::Image(_) => wgpu::BindingType::StorageTexture {
+                            access: wgpu::StorageTextureAccess::WriteOnly,
+                            format: format.to_wgpu(),
+                            view_dimension: TextureViewDimension::D2,
+                        },
+                        BindType::ImageArrayRead(_) => wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: TextureViewDimension::D2Array,
+                            multisampled: false,
+                        },
+                        _ => unreachable!(),
+                    },
+                    count: None,
+                },
             })
             .collect::<Vec<_>>()
     }
@@ -918,7 +923,11 @@ impl BindMap {
                 });
                 let texture_view = texture.create_view(&wgpu::TextureViewDescriptor {
                     label: None,
-                    dimension: Some(TextureViewDimension::D2),
+                    dimension: Some(if proxy.layers > 1 {
+                        TextureViewDimension::D2Array
+                    } else {
+                        TextureViewDimension::D2
+                    }),
                     aspect: TextureAspect::All,
                     mip_level_count: None,
                     base_mip_level: 0,
@@ -1094,7 +1103,7 @@ impl<'a> TransientBindMap<'a> {
                             size: wgpu::Extent3d {
                                 width: proxy.width,
                                 height: proxy.height,
-                                depth_or_array_layers: 1,
+                                depth_or_array_layers: proxy.layers,
                             },
                             mip_level_count: 1,
                             sample_count: 1,
@@ -1105,7 +1114,11 @@ impl<'a> TransientBindMap<'a> {
                         });
                         let texture_view = texture.create_view(&wgpu::TextureViewDescriptor {
                             label: None,
-                            dimension: Some(TextureViewDimension::D2),
+                            dimension: Some(if proxy.layers > 1 {
+                                TextureViewDimension::D2Array
+                            } else {
+                                TextureViewDimension::D2
+                            }),
                             aspect: TextureAspect::All,
                             mip_level_count: None,
                             base_mip_level: 0,
