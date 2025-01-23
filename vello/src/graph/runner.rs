@@ -19,8 +19,9 @@ use std::{
 use dagga::{Dag, Node, Schedule};
 use peniko::Color;
 use wgpu::{
-    Device, ImageCopyTexture, ImageCopyTextureBase, Origin3d, Queue, Texture, TextureDescriptor,
-    TextureDimension, TextureFormat, TextureView, TextureViewDescriptor,
+    Device, Origin3d, Queue, TexelCopyBufferLayout, TexelCopyTextureInfo, TexelCopyTextureInfoBase,
+    Texture, TextureDescriptor, TextureDimension, TextureFormat, TextureView,
+    TextureViewDescriptor,
 };
 
 use super::{Gallery, Generation, OutputSize, Painting, PaintingId, PaintingSource, Vello};
@@ -129,14 +130,14 @@ impl Vello {
                             .block_copy_size(None)
                             .expect("ImageFormat must have a valid block size");
                         queue.write_texture(
-                            ImageCopyTexture {
+                            TexelCopyTextureInfo {
                                 texture: target_tex,
                                 mip_level: 0,
                                 origin: Origin3d::ZERO,
                                 aspect: wgpu::TextureAspect::All,
                             },
                             image.data.data(),
-                            wgpu::ImageDataLayout {
+                            TexelCopyBufferLayout {
                                 offset: 0,
                                 bytes_per_row: Some(image.width * block_size),
                                 rows_per_image: None,
@@ -159,7 +160,7 @@ impl Vello {
                             );
                             self.renderer.engine.image_overrides.insert(
                                 *image_id,
-                                ImageCopyTextureBase {
+                                TexelCopyTextureInfoBase {
                                     // TODO: Ideally, we wouldn't need to `Arc` the textures, because they
                                     // are only used temporarily here.
                                     // OTOH, `Texture` will be `Clone` soon (https://github.com/gfx-rs/wgpu/pull/6665)
