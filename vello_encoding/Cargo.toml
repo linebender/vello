@@ -1,6 +1,6 @@
 [package]
 name = "vello_encoding"
-version.workspace = true # We mimic Vello's version
+version.workspace = true                                                       # We mimic Vello's version
 description = "Vello types that represent the data that needs to be rendered."
 categories = ["rendering", "graphics"]
 keywords = ["2d", "vector-graphics"]
@@ -30,3 +30,5 @@ skrifa = { workspace = true }
 peniko = { workspace = true }
 guillotiere = { version = "0.6.2" }
 smallvec = { workspace = true }
+rayon = "1.10.0"
+tracing = { default-features = false, version = "0.1.41" }
