@@ -1,7 +1,24 @@
 // Copyright 2024 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! A render graph for Vello.
+//! Vello's Render Graph.
+//!
+//! The core technology of Vello is a vector graphics rasteriser, which converts from a [scene description][Scene] to a rendered texture.
+//! This by itself does not support many advanced visual effects, such as blurs, as they are incompatible with the parallelism it exploits.
+//! These are instead built on top of this core pipeline, which schedules blurs and other visual effects,
+//! alongside the core vector graphics rendering.
+//!
+// Is this true?: //! Most users of Vello should expect to use this more capable API.
+//! If you have your own render graph or otherwise need greater control, the [rasteriser][Renderer] can be used standalone.
+//!
+//! ## Core Concepts
+//!
+//! The render graph consists of a few primary types:
+//! - `Vello` is the core renderer type. Your application should generally only ever have one of these.
+//! - A [`Painting`] is a persistent reference counted handle to a texture on the GPU.
+//! - The `Gallery`
+//!
+//! ## Test
 //!
 //! This enables the use of image filters among other things.
 

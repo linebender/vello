@@ -11,7 +11,6 @@
     clippy::allow_attributes_without_reason
 )]
 
-use std::f64::consts::FRAC_PI_2;
 use std::fs::File;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
@@ -22,7 +21,6 @@ use scenes::{ImageCache, SceneParams, SceneSet, SimpleText};
 use vello::graph::{Canvas, Gallery, OutputSize, PaintingDescriptor, Vello};
 use vello::kurbo::{Affine, Vec2};
 use vello::peniko::color::palette;
-use vello::skrifa::raw::tables::head;
 use vello::util::RenderContext;
 use vello::wgpu::{
     self, BufferDescriptor, BufferUsages, CommandEncoderDescriptor, Extent3d, TexelCopyBufferInfo,
