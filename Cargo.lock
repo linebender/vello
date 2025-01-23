@@ -2938,9 +2938,9 @@ dependencies = [
 
 [[package]]
 name = "wgpu"
-version = "24.0.0"
+version = "24.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e41253fc7b660735e2a2d9a58c563f2a047d3cc3445293d8f4095538c9e8afbe"
+checksum = "47f55718f85c2fa756edffa0e7f0e0a60aba463d1362b57e23123c58f035e4b6"
 dependencies = [
  "arrayvec",
  "bitflags 2.8.0",
@@ -3035,9 +3035,9 @@ dependencies = [
 
 [[package]]
 name = "wgpu-profiler"
-version = "0.20.0"
+version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0a4a6f78dabb0ef257b8c6a806c9edc3ffd90f5f4491b5845d6d5c738482d36d"
+checksum = "06c0b8d286b9d88e6070b329ceede1d13e47c4ef19f7118bd224bfbb9fc0dff5"
 dependencies = [
  "parking_lot",
  "thiserror 2.0.11",
