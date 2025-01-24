@@ -124,6 +124,7 @@ mod scene;
 mod shaders;
 
 pub mod graph;
+pub mod graph_v2;
 #[cfg(feature = "wgpu")]
 pub mod util;
 #[cfg(feature = "wgpu")]
