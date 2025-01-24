@@ -502,6 +502,7 @@ impl Renderer {
         scene: &Scene,
         surface: &SurfaceTexture,
         params: &RenderParams,
+        clear: bool,
     ) -> Result<()> {
         let width = params.width;
         let height = params.height;
@@ -539,7 +540,10 @@ impl Renderer {
             vertex_buffer: None,
             resources: vec![ResourceProxy::Image(target_proxy)],
             target: surface_proxy,
-            clear_color: Some([0., 0., 0., 0.]),
+            clear_color: match clear {
+                true => Some([0., 0., 0., 0.]),
+                false => None,
+            },
         });
 
         let surface_view = surface
@@ -759,6 +763,7 @@ impl Renderer {
         surface: &SurfaceTexture,
         params: &RenderParams,
         debug_layers: DebugLayers,
+        clear: bool,
     ) -> Result<Option<BumpAllocators>> {
         if cfg!(not(feature = "debug_layers")) && !debug_layers.is_empty() {
             static HAS_WARNED: AtomicBool = AtomicBool::new(false);
@@ -808,7 +813,10 @@ impl Renderer {
             vertex_buffer: None,
             resources: vec![ResourceProxy::Image(target_proxy)],
             target: surface_proxy,
-            clear_color: Some([0., 0., 0., 0.]),
+            clear_color: match clear {
+                true => Some([0., 0., 0., 0.]),
+                false => None,
+            },
         });
 
         #[cfg(feature = "debug_layers")]
@@ -955,7 +963,7 @@ impl BlitPipeline {
             wgpu::PrimitiveTopology::TriangleList,
             wgpu::ColorTargetState {
                 format,
-                blend: None,
+                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                 write_mask: wgpu::ColorWrites::ALL,
             },
             None,
