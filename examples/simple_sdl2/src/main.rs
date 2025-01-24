@@ -86,6 +86,7 @@ fn main() {
                     height,
                     antialiasing_method: AaConfig::Msaa16,
                 },
+                true,
             )
             .expect("failed to render to surface");
 
