@@ -55,6 +55,7 @@ use std::{
         atomic::{AtomicU64, Ordering},
         Arc, Mutex, PoisonError, Weak,
     },
+    usize,
 };
 
 use crate::Renderer;
@@ -74,6 +75,7 @@ pub struct Vello {
     vector_renderer: Renderer,
     blur: BlurPipeline,
     device: Device,
+    paint_order: Vec<PaintingId>,
 }
 
 impl Vello {
@@ -84,6 +86,7 @@ impl Vello {
             device,
             vector_renderer,
             blur,
+            paint_order: vec![],
         })
     }
 }
@@ -95,28 +98,6 @@ impl Debug for Vello {
             .field("blur", &self.blur)
             .finish()
     }
-}
-
-struct PaintInner {
-    // Immutable fields:
-    label: Cow<'static, str>,
-    usages: wgpu::TextureUsages,
-
-    // Controlled by the user
-    source: Option<PaintingSource>,
-    source_dirty: bool,
-
-    // TODO: Some way to handle texture atlasing at this level?
-
-    // Controlled by the runner
-    texture: Option<Texture>,
-    view: Option<TextureView>,
-}
-
-pub struct GalleryInner {
-    device: Device,
-    paintings: Mutex<HashMap<PaintingId, PaintInner>>,
-    label: Cow<'static, str>,
 }
 
 /// A render graph.
@@ -139,39 +120,6 @@ impl Gallery {
         Self {
             inner: Arc::new(inner),
         }
-    }
-}
-
-struct PaintingShared {
-    id: PaintingId,
-    gallery: Weak<GalleryInner>,
-}
-
-impl PaintingShared {
-    /// Access the [`PaintInner`].
-    ///
-    /// The function is called with [`None`] if the painting is dangling (i.e. the corresponding
-    /// gallery has been dropped).
-    fn lock<R>(&self, f: impl FnOnce(Option<&mut PaintInner>) -> R) -> R {
-        match self.gallery.upgrade() {
-            Some(it) => {
-                let mut lock = it.paintings.lock().unwrap_or_else(PoisonError::into_inner);
-                let paint = lock
-                    .get_mut(&self.id)
-                    .expect("PaintingShared exists, so corresponding entry in Gallery should too");
-                f(Some(paint))
-            }
-            None => f(None),
-        }
-    }
-}
-
-impl Debug for PaintingShared {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.lock(|paint| match paint {
-            Some(paint) => f.write_fmt(format_args!("{} ({:?})", paint.label, self.id)),
-            None => f.write_fmt(format_args!("Dangling Painting ({:?})", self.id)),
-        })
     }
 }
 
@@ -236,6 +184,8 @@ impl Gallery {
             source: None,
             // TODO: Means that cache can be used? Can cache be used
             source_dirty: false,
+
+            paint_index: usize::MAX,
             texture: None,
             view: None,
         };
@@ -257,22 +207,12 @@ impl Gallery {
     }
 }
 
+/// These methods take an internal lock, and so should not happen at the same time as
+/// a render operation [is being scheduled](Vello::prepare_render).
 impl Painting {
     pub fn paint_image(self, image: Image) {
         self.insert(PaintingSource::Image(image));
     }
-    // /// From must have the `COPY_SRC` usage.
-    // pub fn as_subregion(self, from: Painting, x: u32, y: u32, width: u32, height: u32) {
-    //     self.insert(PaintingSource::Region {
-    //         painting: from,
-    //         x,
-    //         y,
-    //         size: OutputSize { width, height },
-    //     });
-    // }
-    // pub fn with_mipmaps(self, from: Painting) {
-    //     self.insert(PaintingSource::WithMipMaps(from));
-    // }
     pub fn paint_scene(self, scene: Canvas, of_dimensions: OutputSize) {
         if let Some(gallery) = scene.gallery.as_ref() {
             // TODO: Use same logic as `assert_same_gallery` for better debug printing.
@@ -348,4 +288,73 @@ enum PaintingSource {
     //     y: u32,
     //     size: OutputSize,
     // },
+}
+
+impl GalleryInner {
+    // TODO: Logging if we're poisoned?
+    fn lock_paintings(&self) -> std::sync::MutexGuard<'_, HashMap<PaintingId, PaintInner>> {
+        self.paintings
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+struct PaintInner {
+    // Immutable fields:
+    label: Cow<'static, str>,
+    usages: wgpu::TextureUsages,
+
+    // Controlled by the user
+    source: Option<PaintingSource>,
+    source_dirty: bool,
+
+    // TODO: Some way to handle texture atlasing at this level?
+
+    // Controlled by the runner
+    /// The index within the order of painting operations.
+    /// This is used *only* to cheaply check if this was scheduled in the current painting operation.
+    // TODO: Maybe just use a u32 generation?
+    paint_index: usize,
+    resolved: bool,
+    texture: Option<Texture>,
+    view: Option<TextureView>,
+}
+
+struct GalleryInner {
+    device: Device,
+    paintings: Mutex<HashMap<PaintingId, PaintInner>>,
+    label: Cow<'static, str>,
+}
+
+struct PaintingShared {
+    id: PaintingId,
+    gallery: Weak<GalleryInner>,
+}
+
+impl PaintingShared {
+    /// Access the [`PaintInner`].
+    ///
+    /// The function is called with [`None`] if the painting is dangling (i.e. the corresponding
+    /// gallery has been dropped).
+    fn lock<R>(&self, f: impl FnOnce(Option<&mut PaintInner>) -> R) -> R {
+        match self.gallery.upgrade() {
+            Some(gallery) => {
+                let mut paintings = gallery.lock_paintings();
+                let paint = paintings
+                    .get_mut(&self.id)
+                    .expect("PaintingShared exists, so corresponding entry in Gallery should too");
+                f(Some(paint))
+            }
+            None => f(None),
+        }
+    }
+}
+
+impl Debug for PaintingShared {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.lock(|paint| match paint {
+            Some(paint) => f.write_fmt(format_args!("{} ({:?})", paint.label, self.id)),
+            None => f.write_fmt(format_args!("Dangling Painting ({:?})", self.id)),
+        })
+    }
 }

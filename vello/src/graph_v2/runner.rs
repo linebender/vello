@@ -13,30 +13,29 @@
 
 use std::{
     collections::{hash_map::Entry, HashMap},
-    sync::Arc,
+    sync::{Arc, MutexGuard},
 };
 
 use dagga::{Dag, Node, Schedule};
 use peniko::Color;
 use wgpu::{
-    Device, ImageCopyTexture, ImageCopyTextureBase, Origin3d, Queue, Texture, TextureDescriptor,
-    TextureDimension, TextureFormat, TextureView, TextureViewDescriptor,
+    Device, Origin3d, Queue, Texture, TextureDescriptor, TextureDimension, TextureFormat,
+    TextureView, TextureViewDescriptor,
 };
 
-use super::{Gallery, Generation, OutputSize, Painting, PaintingId, PaintingSource, Vello};
+use super::{Gallery, OutputSize, PaintInner, Painting, PaintingId, PaintingSource, Vello};
 
 #[must_use]
 pub struct RenderDetails<'a> {
-    schedule: Schedule<Node<Painting, PaintingId>>,
-    union: HashMap<PaintingId, Intermediary<'a>>,
     root: Painting,
+    gallery: MutexGuard<'a, HashMap<PaintingId, PaintInner>>,
 }
 
 impl std::fmt::Debug for RenderDetails<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RenderDetails")
-            .field("schedule", &self.schedule.batches)
-            .field("union", &self.union)
+            .field("gallery", &"elided")
+            .field("root", &self.root)
             .finish()
     }
 }
@@ -51,34 +50,15 @@ impl Vello {
     pub fn prepare_render<'a>(
         &mut self,
         of: Painting,
-        galleries: &'a mut [Gallery],
+        gallery: &'a mut Gallery,
     ) -> RenderDetails<'a> {
-        for graph in galleries.iter_mut() {
-            // TODO: Also clean up `cache`?
-            graph.gc();
-        }
-        // We only need exclusive access to the galleries for garbage collection.
-        let galleries = &galleries[..];
+        self.paint_order.clear();
 
-        let mut union = HashMap::new();
-        // Create a map of references to all paintings in the provided galleries.
-        union.extend(galleries.iter().flat_map(|it| {
-            it.paintings
-                .iter()
-                .map(|(id, source)| (*id, Intermediary::new(source)))
-        }));
-
-        let mut dag = Dag::default();
+        let mut gallery = gallery.inner.lock_paintings();
         // Perform a depth-first resolution of the root node.
-        resolve_recursive(&mut union, &of, &self.cache, &mut dag);
+        resolve_recursive(&mut gallery, &of, &mut self.paint_order);
 
-        // TODO: Error reporting in case of loop.
-        let schedule = dag.build_schedule().unwrap();
-        RenderDetails {
-            schedule,
-            union,
-            root: of,
-        }
+        RenderDetails { root: of, gallery }
     }
 
     /// Run a rendering operation.
@@ -275,17 +255,17 @@ impl<'a> Intermediary<'a> {
 }
 
 fn resolve_recursive(
-    union: &mut HashMap<PaintingId, Intermediary<'_>>,
+    gallery: &mut HashMap<PaintingId, PaintInner>,
     painting: &Painting,
-    cache: &HashMap<PaintingId, (Arc<Texture>, TextureView, Generation)>,
-    dag: &mut Dag<Painting, PaintingId>,
+    rendering_order: &mut Vec<PaintingId>,
 ) -> Option<PaintingId> {
+    gallery.get(&painting.inner.id);
     let Some(Intermediary {
         ref source,
         ref generation,
         ref mut added,
         ref mut dimensions,
-    }) = union.get_mut(&painting.inner.id)
+    }) = gallery.get_mut(&painting.inner.id)
     else {
         // TODO: Better error reporting? Continue?
         panic!("Failed to get painting: {painting:?}");
@@ -335,13 +315,13 @@ fn resolve_recursive(
 
     // If the dependency was already cached, we return `None` from the recursive function
     // so there won't be a corresponding node.
-    dependencies.retain(|dependency| resolve_recursive(union, dependency, cache, dag).is_some());
+    dependencies.retain(|dependency| resolve_recursive(gallery, dependency, cache, dag).is_some());
     if let Some(size_matches) = size_matches_dependency {
-        let new_size = union
+        let new_size = gallery
             .get(&size_matches)
             .expect("We just resolved this")
             .dimensions;
-        union.get_mut(&painting.inner.id).unwrap().dimensions = new_size;
+        gallery.get_mut(&painting.inner.id).unwrap().dimensions = new_size;
     }
     // If all dependencies were cached, then we can also use the cache.
     // If any dependencies needed to be repainted, we have to repaint.

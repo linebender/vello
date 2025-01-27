@@ -22,6 +22,10 @@ use std::sync::LazyLock;
 use std::sync::Weak;
 
 /// A single Scene, potentially containing paintings.
+///
+/// This type is required because the base `Scene` type from Vello
+/// currently doesn't know about the render graph.
+/// This is an interim API until that can be resolved.
 pub struct Canvas {
     /// The gallery which all paintings in `paintings` is a part of.
     pub(crate) gallery: Option<Weak<GalleryInner>>,
