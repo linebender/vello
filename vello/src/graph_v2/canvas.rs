@@ -3,8 +3,8 @@
 
 //! An interim version of Scene which has render graph compatibility, for use whilst Peniko doesn't know about image ids.
 
-use super::Gallery2Inner;
-use super::Painting2;
+use super::GalleryInner;
+use super::Painting;
 use crate::Scene;
 use peniko::kurbo::Affine;
 use peniko::Blob;
@@ -24,9 +24,9 @@ use std::sync::Weak;
 /// A single Scene, potentially containing paintings.
 pub struct Canvas {
     /// The gallery which all paintings in `paintings` is a part of.
-    pub(crate) gallery: Option<Weak<Gallery2Inner>>,
+    pub(crate) gallery: Option<Weak<GalleryInner>>,
     pub(crate) scene: Box<Scene>,
-    pub(crate) paintings: HashMap<u64, Painting2>,
+    pub(crate) paintings: HashMap<u64, Painting>,
 }
 
 impl Deref for Canvas {
@@ -60,7 +60,7 @@ impl Canvas {
             paintings: HashMap::default(),
         }
     }
-    pub fn new_image(&mut self, painting: Painting2, width: u16, height: u16) -> PaintingConfig {
+    pub fn new_image(&mut self, painting: Painting, width: u16, height: u16) -> PaintingConfig {
         match self.gallery.as_ref() {
             Some(gallery) => assert!(gallery.ptr_eq(&painting.inner.gallery)),
             None => self.gallery = Some(painting.inner.gallery.clone()),
@@ -73,7 +73,7 @@ impl Canvas {
     #[doc(alias = "image")]
     pub fn draw_painting(
         &mut self,
-        painting: Painting2,
+        painting: Painting,
         width: u16,
         height: u16,
         transform: Affine,
@@ -87,7 +87,7 @@ impl Canvas {
         self.scene.draw_image(image, transform);
     }
 
-    pub fn override_image(&mut self, image: &Image, painting: Painting2) {
+    pub fn override_image(&mut self, image: &Image, painting: Painting) {
         self.paintings.insert(image.data.id(), painting);
     }
 }
