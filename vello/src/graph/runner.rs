@@ -171,7 +171,7 @@ impl Vello {
                             TexelCopyTextureInfoBase {
                                 // TODO: Ideally, we wouldn't need to `Arc` the textures, because they
                                 // are only used temporarily here. This is something we need to fix in Vello's API.
-                                texture: Arc::new(texture),
+                                texture,
                                 aspect: wgpu::TextureAspect::All,
                                 mip_level: 0,
                                 origin: Origin3d::ZERO,
