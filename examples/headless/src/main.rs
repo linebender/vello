@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
 use scenes::{ImageCache, SceneParams, SceneSet, SimpleText};
-use vello::graph::{Canvas, Gallery, OutputSize, PaintingDescriptor, Vello};
+use vello::graph_v2::{Canvas, Gallery, OutputSize, PaintingDescriptor, Vello};
 use vello::kurbo::{Affine, Vec2};
 use vello::peniko::color::palette;
 use vello::util::RenderContext;
@@ -96,7 +96,7 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
     let device = &device_handle.device;
     let queue = &device_handle.queue;
     let mut vello = Vello::new(
-        device,
+        device.clone(),
         RendererOptions {
             surface_format: None,
             use_cpu: args.use_cpu,
@@ -104,7 +104,7 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
             antialiasing_support: vello::AaSupport::area_only(),
         },
     )?;
-    let mut gallery = Gallery::new("Main Thread");
+    let mut gallery = Gallery::new(device.clone(), "Main Thread");
     let mut fragment = Scene::new();
     let example_scene = &mut scenes.scenes[index];
     let mut text = SimpleText::new();
@@ -163,10 +163,8 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
         usages: TextureUsages::STORAGE_BINDING
             | TextureUsages::TEXTURE_BINDING
             | TextureUsages::COPY_SRC,
-        x_extend: Default::default(),
-        y_extend: Default::default(),
     });
-    gallery.paint(&inner_scene).unwrap().as_scene(
+    inner_scene.paint_scene(
         scene.into(),
         OutputSize {
             width: sub_scene_width,
@@ -177,18 +175,11 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
     let blurred = gallery.create_painting(PaintingDescriptor {
         label: "Blurred Result".into(),
         usages: TextureUsages::STORAGE_BINDING | TextureUsages::COPY_SRC,
-        x_extend: vello::peniko::Extend::Pad,
-        y_extend: vello::peniko::Extend::Pad,
     });
-    gallery
-        .paint(&blurred)
-        .unwrap()
-        .as_blur(inner_scene.clone());
+    blurred.paint_blur(inner_scene.clone());
     let painting = gallery.create_painting(PaintingDescriptor {
         label: "Main Scene".into(),
         usages: TextureUsages::STORAGE_BINDING | TextureUsages::COPY_SRC,
-        x_extend: vello::peniko::Extend::Pad,
-        y_extend: vello::peniko::Extend::Pad,
     });
 
     let mut canvas = Canvas::new();
@@ -204,12 +195,8 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
         sub_scene_height.try_into().unwrap(),
         Affine::translate((0., height as f64 / 2.)),
     );
-    gallery
-        .paint(&painting)
-        .unwrap()
-        .as_scene(canvas, OutputSize { width, height });
-    let mut galleries = [gallery];
-    let render_details = vello.prepare_render(painting, &mut galleries);
+    painting.paint_scene(canvas, OutputSize { width, height });
+    let render_details = vello.prepare_render(painting, &mut gallery);
 
     let target = vello.render_to_texture(device, queue, render_details);
     let padded_byte_width = (width * 4).next_multiple_of(256);

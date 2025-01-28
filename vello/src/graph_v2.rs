@@ -122,11 +122,11 @@ impl Debug for Gallery {
 }
 
 impl Gallery {
-    pub fn new(device: Device, label: Cow<'static, str>) -> Self {
+    pub fn new(device: Device, label: impl Into<Cow<'static, str>>) -> Self {
         let inner = GalleryInner {
             device,
             paintings: Default::default(),
-            label,
+            label: label.into(),
         };
         Self {
             inner: Arc::new(inner),
@@ -221,7 +221,7 @@ impl Painting {
         clippy::missing_panics_doc,
         reason = "Deferred until the rest of the methods also have this"
     )]
-    pub fn paint_scene(self, scene: Canvas, of_dimensions: OutputSize) {
+    pub fn paint_scene(&self, scene: Canvas, of_dimensions: OutputSize) {
         if let Some(gallery) = scene.gallery.as_ref() {
             // TODO: Use same logic as `assert_same_gallery` for better debug printing.
             assert!(
@@ -233,12 +233,12 @@ impl Painting {
         self.insert(PaintingSource::Canvas(scene, of_dimensions));
     }
 
-    pub fn paint_blur(self, from: Self) {
+    pub fn paint_blur(&self, from: Self) {
         self.assert_same_gallery(&from);
         self.insert(PaintingSource::Blur(from));
     }
 
-    fn insert(self, new_source: PaintingSource) {
+    fn insert(&self, new_source: PaintingSource) {
         // TODO: Maybe we want to use a channel here instead?
         // That would mean that adding to the graph wouldn't be blocked whilst
         // rendering is ongoing.
@@ -265,7 +265,7 @@ impl Painting {
         // 3) Other gallery's label
         // 4) This gallery's debug
         assert!(
-            Arc::ptr_eq(&self.inner, &other.inner),
+            Weak::ptr_eq(&self.inner.gallery, &other.inner.gallery),
             "A painting operation must only operate with paintings from the same gallery."
         );
     }
