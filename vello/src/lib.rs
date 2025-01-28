@@ -170,10 +170,7 @@ use vello_encoding::Resolver;
 use wgpu_engine::{ExternalResource, WgpuEngine};
 
 #[cfg(feature = "wgpu")]
-use std::{
-    num::NonZeroUsize,
-    sync::{atomic::AtomicBool, Arc},
-};
+use std::{num::NonZeroUsize, sync::atomic::AtomicBool};
 #[cfg(feature = "wgpu")]
 use wgpu::{Device, Queue, SurfaceTexture, TextureFormat, TextureView};
 #[cfg(all(feature = "wgpu", feature = "wgpu-profiler"))]
@@ -584,8 +581,8 @@ impl Renderer {
     pub fn override_image(
         &mut self,
         image: &peniko::Image,
-        texture: Option<wgpu::TexelCopyTextureInfoBase<Arc<wgpu::Texture>>>,
-    ) -> Option<wgpu::TexelCopyTextureInfoBase<Arc<wgpu::Texture>>> {
+        texture: Option<wgpu::TexelCopyTextureInfoBase<wgpu::Texture>>,
+    ) -> Option<wgpu::TexelCopyTextureInfoBase<wgpu::Texture>> {
         match texture {
             Some(texture) => self.engine.image_overrides.insert(image.data.id(), texture),
             None => self.engine.image_overrides.remove(&image.data.id()),
