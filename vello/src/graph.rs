@@ -42,6 +42,7 @@
     reason = "Lint set, currently allowed crate-wide"
 )]
 
+mod canvas;
 mod filters;
 mod runner;
 
@@ -50,36 +51,47 @@ use std::{
     collections::HashMap,
     fmt::Debug,
     hash::Hash,
-    num::Wrapping,
-    ops::{Deref, DerefMut},
     sync::{
         atomic::{AtomicU64, Ordering},
-        mpsc::{self, Receiver, Sender},
-        Arc, LazyLock,
+        Arc, Mutex, PoisonError, Weak,
     },
 };
 
+use crate::Renderer;
 use filters::BlurPipeline;
-use peniko::{kurbo::Affine, Blob, Brush, Extend, Image, ImageFormat, ImageQuality};
-use wgpu::{Texture, TextureView};
+use peniko::Image;
+use runner::RenderOrder;
+use wgpu::{Device, Texture, TextureView};
 
-use crate::{Renderer, Scene};
+pub use canvas::{Canvas, PaintingConfig};
 pub use runner::RenderDetails;
 
 // --- MARK: Public API ---
 
+/// A context for running a render graph.
+///
+/// You should have one of these per wgpu `Device`.
 pub struct Vello {
-    cache: HashMap<PaintingId, (Arc<Texture>, TextureView, Generation)>,
-    renderer: Renderer,
+    vector_renderer: Renderer,
     blur: BlurPipeline,
+    device: Device,
+    scratch_paint_order: Vec<RenderOrder>,
 }
 
 impl Vello {
-    pub fn new(device: &wgpu::Device, options: crate::RendererOptions) -> crate::Result<Self> {
+    /// Create a new render graph runner.
+    ///
+    /// # Errors
+    ///
+    /// Primarily, if the device can't support Vello.
+    pub fn new(device: Device, options: crate::RendererOptions) -> crate::Result<Self> {
+        let vector_renderer = Renderer::new(&device, options)?;
+        let blur = BlurPipeline::new(&device);
         Ok(Self {
-            cache: Default::default(),
-            renderer: Renderer::new(device, options)?,
-            blur: BlurPipeline::new(device),
+            device,
+            vector_renderer,
+            blur,
+            scratch_paint_order: vec![],
         })
     }
 }
@@ -87,43 +99,54 @@ impl Vello {
 impl Debug for Vello {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Vello")
-            .field("cache", &self.cache)
             .field("renderer", &"elided")
             .field("blur", &self.blur)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
-/// A partial render graph.
+/// A render graph.
 ///
-/// There is expected to be one Gallery per thread.
+/// A render graph allows for rendering operations which themselves depend on other rendering operations.
+///
+/// You should have one of these per wgpu `Device`.
+/// This type is reference counted.
 pub struct Gallery {
-    id: GalleryId,
-    label: Cow<'static, str>,
-    generation: Generation,
-    incoming_deallocations: Receiver<PaintingId>,
-    deallocator: Sender<PaintingId>,
-    paintings: HashMap<PaintingId, (PaintingSource, Generation)>,
+    inner: Arc<GalleryInner>,
 }
 
 impl Debug for Gallery {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("{:?}({})", self.id, self.label))
+        f.debug_tuple("Gallery").field(&self.inner.label).finish()
     }
 }
 
-/// A handle to an image managed by the renderer.
+impl Gallery {
+    pub fn new(device: Device, label: impl Into<Cow<'static, str>>) -> Self {
+        let inner = GalleryInner {
+            device,
+            paintings: Default::default(),
+            label: label.into(),
+        };
+        Self {
+            inner: Arc::new(inner),
+        }
+    }
+}
+
+/// An editing handle to a render graph node.
 ///
-/// This resource is reference counted, and corresponding resources
-/// are freed when rendering operations occur.
+/// These handles are reference counted, so that a `Painting`
+/// which is a dependency of another node is retained while it
+/// is still needed.
 #[derive(Clone)]
 pub struct Painting {
-    inner: Arc<PaintingInner>,
+    inner: Arc<PaintingShared>,
 }
 
 impl Debug for Painting {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("{:?}({})", self.inner.id, self.inner.label))
+        f.write_fmt(format_args!("Painting({:?})", self.inner))
     }
 }
 
@@ -133,58 +156,14 @@ pub struct OutputSize {
     pub height: u32,
 }
 
-impl Gallery {
-    pub fn new(label: impl Into<Cow<'static, str>>) -> Self {
-        let id = GalleryId::next();
-        Self::new_inner(id, label.into())
-    }
-    pub fn new_anonymous(prefix: &'static str) -> Self {
-        let id = GalleryId::next();
-        let label = format!("{prefix}-{id:02}", id = id.0);
-        Self::new_inner(id, label.into())
-    }
-    pub fn gc(&mut self) {
-        let mut made_change = false;
-        loop {
-            let try_recv = self.incoming_deallocations.try_recv();
-            let dealloc = match try_recv {
-                Ok(dealloc) => dealloc,
-                Err(mpsc::TryRecvError::Empty) => break,
-                Err(mpsc::TryRecvError::Disconnected) => {
-                    unreachable!("We store a sender alongside the receiver")
-                }
-            };
-            self.paintings.remove(&dealloc);
-            made_change = true;
-        }
-        if made_change {
-            self.generation.nudge();
-        }
-    }
-    fn new_inner(id: GalleryId, label: Cow<'static, str>) -> Self {
-        let (tx, rx) = mpsc::channel();
-        Self {
-            id,
-            label,
-            generation: Generation::default(),
-            paintings: HashMap::default(),
-            deallocator: tx,
-            incoming_deallocations: rx,
-        }
-    }
-}
-
 #[derive(Clone)]
 /// A description of a new painting, used in [`Gallery::create_painting`].
 #[derive(Debug)]
 pub struct PaintingDescriptor {
     pub label: Cow<'static, str>,
     pub usages: wgpu::TextureUsages,
-    /// Extend mode in the horizontal direction.
-    pub x_extend: Extend,
-    /// Extend mode in the vertical direction.
-    pub y_extend: Extend,
-    // pub mipmaps
+    // pub mipmaps: ...
+    // pub atlas: ?
 }
 
 impl Gallery {
@@ -194,111 +173,109 @@ impl Gallery {
         // Not &PaintingDescriptor because `label` might be owned
         desc: PaintingDescriptor,
     ) -> Painting {
-        let PaintingDescriptor {
+        let PaintingDescriptor { label, usages } = desc;
+        let id = PaintingId::next();
+        let new_inner = PaintInner {
             label,
             usages,
-            x_extend,
-            y_extend,
-        } = desc;
+            // Default to "uninit" black/purple checkboard source?
+            source: None,
+            // TODO: Means that cache can be used? Can cache be used
+            source_dirty: false,
+
+            paint_index: usize::MAX,
+            resolving: false,
+            dimensions: OutputSize {
+                height: u32::MAX,
+                width: u32::MAX,
+            },
+
+            texture: None,
+            view: None,
+        };
+        {
+            let mut lock = self
+                .inner
+                .paintings
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            lock.insert(id, new_inner);
+        }
+        let shared = PaintingShared {
+            id,
+            gallery: Arc::downgrade(&self.inner),
+        };
         Painting {
-            inner: Arc::new(PaintingInner {
-                label,
-                deallocator: self.deallocator.clone(),
-                id: PaintingId::next(),
-                gallery_id: self.id,
-                usages,
-                x_extend,
-                y_extend,
-            }),
+            inner: Arc::new(shared),
         }
-    }
-
-    /// The painting must have [been created for](Self::create_painting) this gallery.
-    ///
-    /// This restriction ensures that when the painting is dropped, its resources are properly freed.
-    pub fn paint(&mut self, painting: &Painting) -> Option<Painter<'_>> {
-        if painting.inner.gallery_id != self.id {
-            // TODO: Return error about mismatched Gallery.
-            return None;
-        }
-        self.generation.nudge();
-        Some(Painter {
-            gallery: self,
-            painting: painting.inner.id,
-        })
     }
 }
 
-/// Defines how a [`Painting`] will be drawn.
-#[derive(Debug)]
-pub struct Painter<'a> {
-    gallery: &'a mut Gallery,
-    painting: PaintingId,
-}
-
-impl Painter<'_> {
-    pub fn as_image(self, image: Image) {
+/// These methods take an internal lock, and so should not happen at the same time as
+/// a render operation [is being scheduled](Vello::prepare_render).
+impl Painting {
+    pub fn paint_image(self, image: Image) {
         self.insert(PaintingSource::Image(image));
     }
-    // /// From must have the `COPY_SRC` usage.
-    // pub fn as_subregion(self, from: Painting, x: u32, y: u32, width: u32, height: u32) {
-    //     self.insert(PaintingSource::Region {
-    //         painting: from,
-    //         x,
-    //         y,
-    //         size: OutputSize { width, height },
-    //     });
-    // }
-    // pub fn with_mipmaps(self, from: Painting) {
-    //     self.insert(PaintingSource::WithMipMaps(from));
-    // }
-    pub fn as_scene(self, scene: Canvas, of_dimensions: OutputSize) {
+    #[expect(
+        clippy::missing_panics_doc,
+        reason = "Deferred until the rest of the methods also have this"
+    )]
+    pub fn paint_scene(&self, scene: Canvas, of_dimensions: OutputSize) {
+        if let Some(gallery) = scene.gallery.as_ref() {
+            // TODO: Use same logic as `assert_same_gallery` for better debug printing.
+            assert!(
+                gallery.ptr_eq(&self.inner.gallery),
+                "A painting operation must only operate with paintings from the same gallery."
+            );
+        }
+
         self.insert(PaintingSource::Canvas(scene, of_dimensions));
     }
 
-    pub fn as_blur(self, from: Painting) {
+    pub fn paint_blur(&self, from: Self) {
+        self.assert_same_gallery(&from);
         self.insert(PaintingSource::Blur(from));
     }
 
-    fn insert(self, new_source: PaintingSource) {
-        match self.gallery.paintings.entry(self.painting) {
-            std::collections::hash_map::Entry::Occupied(mut entry) => {
-                let entry = entry.get_mut();
-                entry.0 = new_source;
-                entry.1.nudge();
+    fn insert(&self, new_source: PaintingSource) {
+        // TODO: Maybe we want to use a channel here instead?
+        // That would mean that adding to the graph wouldn't be blocked whilst
+        // rendering is ongoing.
+        // OTOH, there still will be a "cutoff" time a small, but indeterminate, time
+        // after the render preparation starts.
+        // Maybe we split into "prepare", which updates the graph based on the channel
+        // and
+        self.inner.lock(|paint| match paint {
+            Some(paint) => {
+                paint.source = Some(new_source);
+                paint.source_dirty = true;
             }
-            std::collections::hash_map::Entry::Vacant(entry) => {
-                entry.insert((new_source, Generation::default()));
+            None => {
+                // TODO: Is this reasonable to only warn? should we return an error?
+                log::warn!("Tried to paint to dropped Gallery. Will have no effect");
             }
-        };
+        });
+    }
+    #[track_caller]
+    fn assert_same_gallery(&self, other: &Self) {
+        // TODO: Show four things:
+        // 1) This painting's debug
+        // 2) Other painting's debug
+        // 3) Other gallery's label
+        // 4) This gallery's debug
+        assert!(
+            Weak::ptr_eq(&self.inner.gallery, &other.inner.gallery),
+            "A painting operation must only operate with paintings from the same gallery."
+        );
     }
 }
 
 // --- MARK: Internal types ---
 
-/// The shared elements of a `Painting`.
-///
-/// A painting's identity is its heap allocation; most of
-/// the resources are owned by its [`Gallery`].
-/// This only stores peripheral information.
-struct PaintingInner {
-    id: PaintingId,
-    deallocator: Sender<PaintingId>,
-    label: Cow<'static, str>,
-    gallery_id: GalleryId,
-    usages: wgpu::TextureUsages,
-    x_extend: Extend,
-    y_extend: Extend,
-}
-
-impl Drop for PaintingInner {
-    fn drop(&mut self) {
-        // Ignore the possibility that the corresponding gallery has already been dropped.
-        let _ = self.deallocator.send(self.id);
-    }
-}
-
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
+/// An Id for a Painting.
+// TODO: This should be a `Peniko` type: https://github.com/linebender/vello/issues/664
 struct PaintingId(u64);
 
 impl Debug for PaintingId {
@@ -311,28 +288,6 @@ impl PaintingId {
     fn next() -> Self {
         static PAINTING_IDS: AtomicU64 = AtomicU64::new(0);
         Self(PAINTING_IDS.fetch_add(1, Ordering::Relaxed))
-    }
-}
-
-/// The id of a gallery.
-///
-/// The debug label is provided for error messaging when
-/// a painting is used with the wrong gallery.
-#[derive(Clone, Copy, PartialEq, Eq)]
-struct GalleryId(u64);
-
-impl Debug for GalleryId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("#{}", self.0))
-    }
-}
-
-impl GalleryId {
-    fn next() -> Self {
-        static GALLERY_IDS: AtomicU64 = AtomicU64::new(1);
-        // Overflow handling: u64 incremented so can never overflow
-        let id = GALLERY_IDS.fetch_add(1, Ordering::Relaxed);
-        Self(id)
     }
 }
 
@@ -350,181 +305,73 @@ enum PaintingSource {
     // },
 }
 
-#[derive(Default, Debug, PartialEq, Eq, Clone)]
-// Not copy because the identity is important; don't want to modify an accidental copy
-struct Generation(Wrapping<u32>);
-
-impl Generation {
-    fn nudge(&mut self) {
-        self.0 += 1;
+impl GalleryInner {
+    // TODO: Logging if we're poisoned?
+    fn lock_paintings(&self) -> std::sync::MutexGuard<'_, HashMap<PaintingId, PaintInner>> {
+        self.paintings
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
     }
 }
 
-// --- MARK: Model ---
-// A model of the rest of Vello.
+struct PaintInner {
+    // Immutable fields:
+    label: Cow<'static, str>,
+    usages: wgpu::TextureUsages,
 
-/// A single Scene, potentially containing paintings.
-pub struct Canvas {
-    scene: Box<Scene>,
-    paintings: HashMap<u64, Painting>,
+    // Controlled by the user
+    source: Option<PaintingSource>,
+    source_dirty: bool,
+
+    // TODO: Some way to handle texture atlasing at this level?
+
+    // Controlled by the runner
+    /// The index within the order of painting operations.
+    /// This is used *only* to cheaply check if this was scheduled in the current painting operation.
+    // TODO: Maybe just use a u32 generation?
+    paint_index: usize,
+    resolving: bool,
+    dimensions: OutputSize,
+
+    texture: Option<Texture>,
+    view: Option<TextureView>,
 }
 
-#[derive(Debug)]
-/// Created using [`Canvas::new_image`].
-pub struct PaintingConfig {
-    image: Image,
+struct GalleryInner {
+    device: Device,
+    paintings: Mutex<HashMap<PaintingId, PaintInner>>,
+    label: Cow<'static, str>,
 }
 
-impl PaintingConfig {
-    fn new(painting: &Painting, width: u16, height: u16) -> Self {
-        // Create a fake Image, with an empty Blob. We can re-use the allocation between these.
-        static EMPTY_ARC: LazyLock<Arc<[u8; 0]>> = LazyLock::new(|| Arc::new([]));
-        let data = Blob::new(EMPTY_ARC.clone());
-        let mut image = Image::new(data, ImageFormat::Rgba8, width.into(), height.into());
-        image.x_extend = painting.inner.x_extend;
-        image.y_extend = painting.inner.y_extend;
-        Self { image }
-    }
-    pub fn brush(self) -> Brush {
-        Brush::Image(self.image)
-    }
-    pub fn image(&self) -> &Image {
-        &self.image
-    }
-    /// Builder method for setting a hint for the desired image [quality](ImageQuality)
-    /// when rendering.
-    #[must_use]
-    pub fn with_quality(self, quality: ImageQuality) -> Self {
-        Self {
-            image: self.image.with_quality(quality),
-        }
-    }
+struct PaintingShared {
+    id: PaintingId,
+    gallery: Weak<GalleryInner>,
+}
 
-    /// Returns the image with the alpha multiplier set to `alpha`.
-    #[must_use]
-    #[track_caller]
-    pub fn with_alpha(self, alpha: f32) -> Self {
-        Self {
-            image: self.image.with_alpha(alpha),
-        }
-    }
-
-    /// Returns the image with the alpha multiplier multiplied again by `alpha`.
-    /// The behaviour of this transformation is undefined if `alpha` is negative.
-    #[must_use]
-    #[track_caller]
-    pub fn multiply_alpha(self, alpha: f32) -> Self {
-        Self {
-            image: self.image.multiply_alpha(alpha),
+impl PaintingShared {
+    /// Access the [`PaintInner`].
+    ///
+    /// The function is called with [`None`] if the painting is dangling (i.e. the corresponding
+    /// gallery has been dropped).
+    fn lock<R>(&self, f: impl FnOnce(Option<&mut PaintInner>) -> R) -> R {
+        match self.gallery.upgrade() {
+            Some(gallery) => {
+                let mut paintings = gallery.lock_paintings();
+                let paint = paintings
+                    .get_mut(&self.id)
+                    .expect("PaintingShared exists, so corresponding entry in Gallery should too");
+                f(Some(paint))
+            }
+            None => f(None),
         }
     }
 }
 
-impl From<Scene> for Canvas {
-    fn from(value: Scene) -> Self {
-        Self::from_scene(Box::new(value))
-    }
-}
-
-impl Default for Canvas {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Canvas {
-    pub fn new() -> Self {
-        Self::from_scene(Box::<Scene>::default())
-    }
-    pub fn from_scene(scene: Box<Scene>) -> Self {
-        Self {
-            scene,
-            paintings: HashMap::default(),
-        }
-    }
-    pub fn new_image(&mut self, painting: Painting, width: u16, height: u16) -> PaintingConfig {
-        let config = PaintingConfig::new(&painting, width, height);
-        self.override_image(&config.image, painting);
-        config
-    }
-
-    #[doc(alias = "image")]
-    pub fn draw_painting(
-        &mut self,
-        painting: Painting,
-        width: u16,
-        height: u16,
-        transform: Affine,
-    ) {
-        let image = self.new_image(painting, width, height);
-        self.scene.draw_image(&image.image, transform);
-    }
-
-    #[deprecated(note = "Prefer `draw_painting` for greater efficiency")]
-    pub fn draw_image(&mut self, image: &Image, transform: Affine) {
-        self.scene.draw_image(image, transform);
-    }
-
-    pub fn override_image(&mut self, image: &Image, painting: Painting) {
-        self.paintings.insert(image.data.id(), painting);
-    }
-}
-
-impl Deref for Canvas {
-    type Target = Scene;
-
-    fn deref(&self) -> &Self::Target {
-        &self.scene
-    }
-}
-impl DerefMut for Canvas {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.scene
-    }
-}
-
-impl Debug for Canvas {
+impl Debug for PaintingShared {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Canvas")
-            .field("scene", &"elided")
-            .field("paintings", &self.paintings)
-            .finish()
+        self.lock(|paint| match paint {
+            Some(paint) => f.write_fmt(format_args!("{} ({:?})", paint.label, self.id)),
+            None => f.write_fmt(format_args!("Dangling Painting ({:?})", self.id)),
+        })
     }
 }
-
-// --- MARK: Musings ---
-
-/// When making an image filter graph, we need to know a few things:
-///
-/// 1) The Scene to draw.
-/// 2) The resolution of the filter target (i.e. input image).
-/// 3) The resolution of the output image.
-///
-/// The scene to draw might be a texture from a previous step or externally provided.
-/// The resolution of the input might change depending on the resolution of the
-/// output, because of scaling/rotation/skew.
-#[derive(Debug)]
-pub struct Thinking;
-
-/// What threading model do we want. Requirements:
-/// 1) Creating scenes on different threads should be possible.
-/// 2) Scenes created on different threads should be able to use filter effects.
-/// 3) We should only upload each CPU side image once.
-#[derive(Debug)]
-pub struct Threading;
-
-/// Question: What do we win from backpropogating render sizes?
-/// Answer: Image sampling
-///
-/// Conclusion: Special handling of "automatic" scene sizing to
-/// render multiple times if needed.
-///
-/// Conclusion: Two phase approach, backpropogating from every scene
-/// with a defined size?
-#[derive(Debug)]
-pub struct ThinkingAgain;
-
-/// Do we want custom fully graph nodes?
-/// Answer for now: No?
-#[derive(Debug)]
-pub struct Scheduling;

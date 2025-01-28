@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
 use scenes::{ImageCache, SceneParams, SceneSet, SimpleText};
-use vello::graph_v2::{Canvas, Gallery, OutputSize, PaintingDescriptor, Vello};
+use vello::graph::{Canvas, Gallery, OutputSize, PaintingDescriptor, Vello};
 use vello::kurbo::{Affine, Vec2};
 use vello::peniko::color::palette;
 use vello::util::RenderContext;

@@ -55,4 +55,3 @@ wgpu-profiler = { workspace = true, optional = true }
 thiserror = { workspace = true }
 # TODO: Add feature for built-in bitmap emoji support?
 png = { version = "0.17.14" }
-dagga = "0.2.1"
