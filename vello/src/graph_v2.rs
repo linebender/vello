@@ -55,12 +55,12 @@ use std::{
         atomic::{AtomicU64, Ordering},
         Arc, Mutex, PoisonError, Weak,
     },
-    usize,
 };
 
 use crate::Renderer;
 use filters::BlurPipeline;
 use peniko::Image;
+use runner::RenderOrder;
 use wgpu::{Device, Texture, TextureView};
 
 pub use canvas::{Canvas, PaintingConfig};
@@ -75,10 +75,15 @@ pub struct Vello {
     vector_renderer: Renderer,
     blur: BlurPipeline,
     device: Device,
-    paint_order: Vec<PaintingId>,
+    scratch_paint_order: Vec<RenderOrder>,
 }
 
 impl Vello {
+    /// Create a new render graph runner.
+    ///
+    /// # Errors
+    ///
+    /// Primarily, if the device can't support Vello.
     pub fn new(device: Device, options: crate::RendererOptions) -> crate::Result<Self> {
         let vector_renderer = Renderer::new(&device, options)?;
         let blur = BlurPipeline::new(&device);
@@ -86,7 +91,7 @@ impl Vello {
             device,
             vector_renderer,
             blur,
-            paint_order: vec![],
+            scratch_paint_order: vec![],
         })
     }
 }
@@ -96,7 +101,7 @@ impl Debug for Vello {
         f.debug_struct("Vello")
             .field("renderer", &"elided")
             .field("blur", &self.blur)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -108,6 +113,12 @@ impl Debug for Vello {
 /// This type is reference counted.
 pub struct Gallery {
     inner: Arc<GalleryInner>,
+}
+
+impl Debug for Gallery {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("Gallery").field(&self.inner.label).finish()
+    }
 }
 
 impl Gallery {
@@ -128,6 +139,7 @@ impl Gallery {
 /// These handles are reference counted, so that a `Painting`
 /// which is a dependency of another node is retained while it
 /// is still needed.
+#[derive(Clone)]
 pub struct Painting {
     inner: Arc<PaintingShared>,
 }
@@ -135,20 +147,6 @@ pub struct Painting {
 impl Debug for Painting {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!("Painting({:?})", self.inner))
-    }
-}
-
-impl Painting {
-    /// Make a copy of `Self` which edits the same underlying painting.
-    ///
-    /// Semantically, this is similar to `Clone::clone` for a reference counted type.
-    ///
-    /// However, this type does not implement `Clone` as a hint that most users
-    /// should prefer [`sealed`](Self::sealed) to get new copies.
-    pub fn clone_handle(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-        }
     }
 }
 
@@ -186,6 +184,12 @@ impl Gallery {
             source_dirty: false,
 
             paint_index: usize::MAX,
+            resolving: false,
+            dimensions: OutputSize {
+                height: u32::MAX,
+                width: u32::MAX,
+            },
+
             texture: None,
             view: None,
         };
@@ -213,24 +217,35 @@ impl Painting {
     pub fn paint_image(self, image: Image) {
         self.insert(PaintingSource::Image(image));
     }
+    #[expect(
+        clippy::missing_panics_doc,
+        reason = "Deferred until the rest of the methods also have this"
+    )]
     pub fn paint_scene(self, scene: Canvas, of_dimensions: OutputSize) {
         if let Some(gallery) = scene.gallery.as_ref() {
             // TODO: Use same logic as `assert_same_gallery` for better debug printing.
             assert!(
                 gallery.ptr_eq(&self.inner.gallery),
                 "A painting operation must only operate with paintings from the same gallery."
-            )
+            );
         }
 
         self.insert(PaintingSource::Canvas(scene, of_dimensions));
     }
 
-    pub fn paint_blur(self, from: Painting) {
+    pub fn paint_blur(self, from: Self) {
         self.assert_same_gallery(&from);
         self.insert(PaintingSource::Blur(from));
     }
 
     fn insert(self, new_source: PaintingSource) {
+        // TODO: Maybe we want to use a channel here instead?
+        // That would mean that adding to the graph wouldn't be blocked whilst
+        // rendering is ongoing.
+        // OTOH, there still will be a "cutoff" time a small, but indeterminate, time
+        // after the render preparation starts.
+        // Maybe we split into "prepare", which updates the graph based on the channel
+        // and
         self.inner.lock(|paint| match paint {
             Some(paint) => {
                 paint.source = Some(new_source);
@@ -238,7 +253,7 @@ impl Painting {
             }
             None => {
                 // TODO: Is this reasonable to only warn? should we return an error?
-                log::warn!("Tried to paint to dropped Gallery. Will have no effect")
+                log::warn!("Tried to paint to dropped Gallery. Will have no effect");
             }
         });
     }
@@ -252,7 +267,7 @@ impl Painting {
         assert!(
             Arc::ptr_eq(&self.inner, &other.inner),
             "A painting operation must only operate with paintings from the same gallery."
-        )
+        );
     }
 }
 
@@ -315,7 +330,9 @@ struct PaintInner {
     /// This is used *only* to cheaply check if this was scheduled in the current painting operation.
     // TODO: Maybe just use a u32 generation?
     paint_index: usize,
-    resolved: bool,
+    resolving: bool,
+    dimensions: OutputSize,
+
     texture: Option<Texture>,
     view: Option<TextureView>,
 }

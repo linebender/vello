@@ -10,7 +10,6 @@ use super::OutputSize;
 
 #[derive(Debug)]
 pub(crate) struct BlurPipeline {
-    module: wgpu::ShaderModule,
     pipeline: wgpu::ComputePipeline,
     bind_group_layout: wgpu::BindGroupLayout,
 }
@@ -31,7 +30,6 @@ impl BlurPipeline {
         });
         let bind_group_layout = pipeline.get_bind_group_layout(0);
         Self {
-            module,
             pipeline,
             bind_group_layout,
         }

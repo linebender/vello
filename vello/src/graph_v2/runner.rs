@@ -12,23 +12,28 @@
 //!    in the order calculated in step 2.
 
 use std::{
-    collections::{hash_map::Entry, HashMap},
+    collections::HashMap,
     sync::{Arc, MutexGuard},
 };
 
-use dagga::{Dag, Node, Schedule};
 use peniko::Color;
 use wgpu::{
-    Device, Origin3d, Queue, Texture, TextureDescriptor, TextureDimension, TextureFormat,
-    TextureView, TextureViewDescriptor,
+    Device, Origin3d, Queue, TexelCopyTextureInfoBase, Texture, TextureDescriptor,
+    TextureDimension, TextureFormat, TextureViewDescriptor,
 };
 
 use super::{Gallery, OutputSize, PaintInner, Painting, PaintingId, PaintingSource, Vello};
+
+pub(super) struct RenderOrder {
+    painting: PaintingId,
+    should_paint: bool,
+}
 
 #[must_use]
 pub struct RenderDetails<'a> {
     root: Painting,
     gallery: MutexGuard<'a, HashMap<PaintingId, PaintInner>>,
+    order: Vec<RenderOrder>,
 }
 
 impl std::fmt::Debug for RenderDetails<'_> {
@@ -52,13 +57,32 @@ impl Vello {
         of: Painting,
         gallery: &'a mut Gallery,
     ) -> RenderDetails<'a> {
-        self.paint_order.clear();
+        self.scratch_paint_order.clear();
+        // TODO: Nicer error reporting
+        assert_eq!(
+            of.inner.gallery.as_ptr(),
+            Arc::as_ptr(&gallery.inner),
+            "{of:?} isn't from {gallery:?}."
+        );
+        assert_eq!(
+            gallery.inner.device, self.device,
+            "Gallery is not for the same device as the renderer"
+        );
 
         let mut gallery = gallery.inner.lock_paintings();
         // Perform a depth-first resolution of the root node.
-        resolve_recursive(&mut gallery, &of, &mut self.paint_order);
+        resolve_recursive(
+            &mut gallery,
+            &of,
+            &mut self.scratch_paint_order,
+            &mut Vec::with_capacity(16),
+        );
 
-        RenderDetails { root: of, gallery }
+        RenderDetails {
+            root: of,
+            gallery,
+            order: std::mem::take(&mut self.scratch_paint_order),
+        }
     }
 
     /// Run a rendering operation.
@@ -73,278 +97,276 @@ impl Vello {
         device: &Device,
         queue: &Queue,
         RenderDetails {
-            schedule,
-            union,
+            mut gallery,
             root,
+            order,
         }: RenderDetails<'_>,
-    ) -> Arc<Texture> {
+    ) -> Texture {
         // TODO: Ideally `render_to_texture` wouldn't do its own submission.
         // let buffer = device.create_command_encoder(&CommandEncoderDescriptor {
         //     label: Some("Vello Render Graph Runner"),
         // });
         // TODO: In future, we can parallelise some of these batches.
-        for batch in schedule.batches {
-            for node in batch {
-                let painting = node.into_inner();
-                let details = union.get(&painting.inner.id).unwrap();
-                let generation = details.generation.clone();
-                let output_size = details.dimensions;
+        let gallery = &mut *gallery;
+        for node in &order {
+            if !node.should_paint {
+                continue;
+            }
+            let painting_id = node.painting;
+            let paint = gallery.get_mut(&painting_id).unwrap();
 
-                Self::resolve_or_update_cache(
-                    device,
-                    &painting,
-                    generation,
-                    output_size,
-                    self.cache.entry(painting.inner.id),
-                );
-                let value = self
-                    .cache
-                    .get(&painting.inner.id)
-                    .expect("create_texture_if_needed created this Painting");
-                let (target_tex, target_view) = (&value.0, &value.1);
-                match details.source {
-                    PaintingSource::Image(image) => {
-                        let block_size = target_tex
-                            .format()
-                            .block_copy_size(None)
-                            .expect("ImageFormat must have a valid block size");
-                        queue.write_texture(
-                            ImageCopyTexture {
-                                texture: target_tex,
-                                mip_level: 0,
-                                origin: Origin3d::ZERO,
-                                aspect: wgpu::TextureAspect::All,
-                            },
-                            image.data.data(),
-                            wgpu::ImageDataLayout {
-                                offset: 0,
-                                bytes_per_row: Some(image.width * block_size),
-                                rows_per_image: None,
-                            },
-                            wgpu::Extent3d {
-                                width: image.width,
-                                height: image.height,
-                                depth_or_array_layers: 1,
-                            },
-                        );
-                    }
-                    PaintingSource::Canvas(canvas, new_output_size) => {
-                        debug_assert_eq!(
-                            new_output_size, &output_size,
-                            "Incorrect size determined in first pass."
-                        );
-                        for (image_id, dependency) in &canvas.paintings {
-                            let cached = self.cache.get(&dependency.inner.id).expect(
-                                "We know we previously made a cached version of this dependency",
-                            );
-                            self.vector_renderer.engine.image_overrides.insert(
-                                *image_id,
-                                ImageCopyTextureBase {
-                                    // TODO: Ideally, we wouldn't need to `Arc` the textures, because they
-                                    // are only used temporarily here.
-                                    // OTOH, `Texture` will be `Clone` soon (https://github.com/gfx-rs/wgpu/pull/6665)
-                                    texture: Arc::clone(&cached.0),
-                                    aspect: wgpu::TextureAspect::All,
-                                    mip_level: 0,
-                                    origin: Origin3d::ZERO,
-                                },
-                            );
-                        }
-                        self.vector_renderer
-                            .render_to_texture(
-                                device,
-                                queue,
-                                &canvas.scene,
-                                target_view,
-                                &crate::RenderParams {
-                                    width: output_size.width,
-                                    height: output_size.height,
-                                    // TODO: Config
-                                    base_color: Color::BLACK,
-                                    antialiasing_method: crate::AaConfig::Area,
-                                },
-                            )
-                            .unwrap();
-                    }
-                    PaintingSource::Blur(dependency) => {
-                        let cached = self.cache.get(&dependency.inner.id).expect(
+            Self::validate_update_texture(device, paint);
+            let (target_tex, target_view) =
+                (paint.texture.clone().unwrap(), paint.view.clone().unwrap());
+
+            // Take the source for borrow checker purposes
+            let dimensions = paint.dimensions;
+            let source = paint
+                .source
+                .take()
+                .expect("A sourceless painting should have `should_paint` unset");
+            match &source {
+                PaintingSource::Image(image) => {
+                    let block_size = target_tex
+                        .format()
+                        .block_copy_size(None)
+                        .expect("ImageFormat must have a valid block size");
+                    queue.write_texture(
+                        wgpu::TexelCopyTextureInfo {
+                            texture: &target_tex,
+                            mip_level: 0,
+                            origin: Origin3d::ZERO,
+                            aspect: wgpu::TextureAspect::All,
+                        },
+                        image.data.data(),
+                        wgpu::TexelCopyBufferLayout {
+                            offset: 0,
+                            bytes_per_row: Some(image.width * block_size),
+                            rows_per_image: None,
+                        },
+                        wgpu::Extent3d {
+                            width: image.width,
+                            height: image.height,
+                            depth_or_array_layers: 1,
+                        },
+                    );
+                }
+                PaintingSource::Canvas(canvas, new_output_size) => {
+                    debug_assert_eq!(
+                        new_output_size, &dimensions,
+                        "Incorrect size determined in first pass."
+                    );
+                    for (image_id, dependency) in &canvas.paintings {
+                        let dep_paint = gallery.get(&dependency.inner.id).expect(
                             "We know we previously made a cached version of this dependency",
                         );
-                        self.blur.blur_into(
+                        let Some(texture) = dep_paint.texture.clone() else {
+                            // TODO: This happens if a texture is used as a dependency, but
+                            // (for example), its source is never set.
+                            // Error instead (maybe somewhere much earlier)?
+                            continue;
+                        };
+                        self.vector_renderer.engine.image_overrides.insert(
+                            *image_id,
+                            TexelCopyTextureInfoBase {
+                                // TODO: Ideally, we wouldn't need to `Arc` the textures, because they
+                                // are only used temporarily here. This is something we need to fix in Vello's API.
+                                texture: Arc::new(texture),
+                                aspect: wgpu::TextureAspect::All,
+                                mip_level: 0,
+                                origin: Origin3d::ZERO,
+                            },
+                        );
+                    }
+                    self.vector_renderer
+                        .render_to_texture(
                             device,
                             queue,
-                            &cached.1,
-                            target_view,
-                            details.dimensions,
-                        );
-                    } // PaintingSource::Region {
-                      //     painting,
-                      //     x,
-                      //     y,
-                      //     size,
-                      // } => todo!(),
+                            &canvas.scene,
+                            &target_view,
+                            &crate::RenderParams {
+                                width: dimensions.width,
+                                height: dimensions.height,
+                                // TODO: Configurable somewhere
+                                base_color: Color::BLACK,
+                                antialiasing_method: crate::AaConfig::Area,
+                            },
+                        )
+                        .unwrap();
                 }
+                PaintingSource::Blur(dependency) => {
+                    let dependency_paint = gallery.get(&dependency.inner.id).unwrap();
+                    self.blur.blur_into(
+                        device,
+                        queue,
+                        dependency_paint.view.as_ref().unwrap(),
+                        &target_view,
+                        dimensions,
+                    );
+                } // PaintingSource::Region {
+                  //     painting,
+                  //     x,
+                  //     y,
+                  //     size,
+                  // } => todo!(),
             }
         }
-        self.cache
-            .get(&root.inner.id)
-            .map(|(ret, ..)| ret.clone())
-            .expect("We should have created an updated value")
+        self.scratch_paint_order = order;
+        gallery
+            .get_mut(&root.inner.id)
+            .unwrap()
+            .texture
+            .clone()
+            .unwrap()
     }
 
-    fn resolve_or_update_cache(
-        device: &Device,
-        painting: &Painting,
-        generation: Generation,
-        output_size: OutputSize,
-        mut cached: Entry<'_, PaintingId, (Arc<Texture>, TextureView, Generation)>,
-    ) {
-        if let Entry::Occupied(cache) = &mut cached {
-            let cache = cache.get_mut();
-            cache.2 = generation.clone();
-            if cache.0.width() == output_size.width && cache.0.height() == output_size.height {
+    fn validate_update_texture(device: &Device, paint: &mut PaintInner) {
+        if let Some(texture) = paint.texture.as_ref() {
+            // TODO: Some reasoning about 3d textures?
+            if texture.width() == paint.dimensions.width
+                && texture.height() == paint.dimensions.height
+            {
+                debug_assert_eq!(
+                    texture.usage(),
+                    paint.usages,
+                    "Texture usages in a painting are immutable."
+                );
                 return;
             }
         }
-
-        // Either recreate the texture with the right dimensions, or create the first texture.
+        // Either recreate the texture with corrected dimensions, or create the first texture.
         let texture = device.create_texture(&TextureDescriptor {
-            label: Some(&*painting.inner.label),
+            label: Some(&*paint.label),
             size: wgpu::Extent3d {
-                width: output_size.width,
-                height: output_size.height,
+                width: paint.dimensions.width,
+                height: paint.dimensions.height,
                 depth_or_array_layers: 1,
             },
             // TODO: Ideally we support mipmapping here? Should this be part of the painting?
             mip_level_count: 1,
+            // TODO: What does it even mean to be multisampled?
             sample_count: 1,
             dimension: TextureDimension::D2,
-            // TODO: How would we determine this format?
+            // TODO: How would we determine this format in an HDR world?
             format: TextureFormat::Rgba8Unorm,
-            usage: painting.inner.usages,
+            usage: paint.usages,
             view_formats: &[],
         });
+        // TODO: Should we just be creating this ad-hoc?
         let view = texture.create_view(&TextureViewDescriptor {
-            label: Some(&*painting.inner.label),
+            label: Some(&*paint.label),
             ..Default::default()
         });
-        cached.insert_entry((Arc::new(texture), view, generation));
+        paint.texture = Some(texture);
+        paint.view = Some(view);
     }
 }
 
-#[derive(Debug)]
-struct Intermediary<'a> {
-    source: &'a PaintingSource,
-    generation: Generation,
-    added: bool,
-    dimensions: OutputSize,
-}
-impl<'a> Intermediary<'a> {
-    fn new((source, generation): &'a (PaintingSource, Generation)) -> Self {
-        Self {
-            source,
-            generation: generation.clone(),
-            added: false,
-            // These will be overwritten
-            dimensions: OutputSize {
-                height: u32::MAX,
-                width: u32::MAX,
-            },
-        }
-    }
-}
-
+/// Returns whether this painting will be repainted.
 fn resolve_recursive(
     gallery: &mut HashMap<PaintingId, PaintInner>,
     painting: &Painting,
-    rendering_order: &mut Vec<PaintingId>,
-) -> Option<PaintingId> {
-    gallery.get(&painting.inner.id);
-    let Some(Intermediary {
-        ref source,
-        ref generation,
-        ref mut added,
-        ref mut dimensions,
-    }) = gallery.get_mut(&painting.inner.id)
-    else {
-        // TODO: Better error reporting? Continue?
-        panic!("Failed to get painting: {painting:?}");
-    };
-    let generation = generation.clone();
-    if *added {
-        // If this node has already been added, there's nothing to do.
-        return Some(painting.inner.id);
+    rendering_preorder: &mut Vec<RenderOrder>,
+    scratch_stack: &mut Vec<Painting>,
+) -> bool {
+    let painting_id = painting.inner.id;
+    let paint = gallery
+        .get_mut(&painting_id)
+        .expect("Painting exists and is associated with this gallery, so should be present here");
+    if paint.resolving {
+        // TODO: Improved debugging information (path to `self`?)
+        // Is there a nice way to hook into backtrace reporting/unwinding to print that?
+        panic!("Infinite loop in render graph at {painting:?}.")
     }
+    // If we've already scheduled this painting this round, there's nothing to do.
+    if let Some(x) = rendering_preorder
+        // as_slice is *only* needed to fix rust-analyzer's analysis. I don't know why
+        .as_slice()
+        .get(paint.paint_index)
+    {
+        return x.should_paint;
+    };
 
-    // Denote that the node has been (will be) added to the graph.
-    // This means that a loop doesn't cause infinite recursion.
-    *added = true;
-    // Maybe a smallvec?
-    let mut dependencies = Vec::new();
+    paint.resolving = true;
+    let Some(source) = paint.source.as_ref() else {
+        let idx = rendering_preorder.len();
+        rendering_preorder.push(RenderOrder {
+            painting: painting_id,
+            should_paint: false,
+        });
+        paint.paint_index = idx;
+        // What does this return value represent?
+        // We know that there are no dependencies, but do we need to still add this to the preorder?
+        return false;
+    };
     let mut size_matches_dependency = None;
-    // Collect dependencies, and size if possible
+    let mut dimensions = OutputSize {
+        height: u32::MAX,
+        width: u32::MAX,
+    };
+    let dependencies_start_idx = scratch_stack.len();
     match source {
         PaintingSource::Image(image) => {
-            *dimensions = OutputSize {
+            dimensions = OutputSize {
                 height: image.height,
                 width: image.width,
             };
         }
         PaintingSource::Canvas(canvas, size) => {
             for dependency in canvas.paintings.values() {
-                dependencies.push(dependency.clone());
+                scratch_stack.push(dependency.clone());
             }
-            *dimensions = *size;
+            dimensions = *size;
         }
         PaintingSource::Blur(dependency) => {
-            dependencies.push(dependency.clone());
+            scratch_stack.push(dependency.clone());
             size_matches_dependency = Some(dependency.inner.id);
-        } // PaintingSource::Resample(source, size)
-          // | PaintingSource::Region {
-          //     painting: source,
-          //     size,
-          //     ..
-          // } => {
-          //     dependencies.push(source.clone());
-          //     *size
-          // }
+        }
     };
-    // Hmm. Maybe we should alloc an output texture here?
-    // The advantage of that would be that it makes creating the
-    // command-encoders in parallel lock-free.
 
-    // If the dependency was already cached, we return `None` from the recursive function
-    // so there won't be a corresponding node.
-    dependencies.retain(|dependency| resolve_recursive(gallery, dependency, cache, dag).is_some());
+    paint.resolving = true;
+    let mut dependency_changed = false;
+    for idx in dependencies_start_idx..scratch_stack.len() {
+        let dependency = scratch_stack[idx].clone();
+        let will_paint = resolve_recursive(gallery, &dependency, rendering_preorder, scratch_stack);
+        dependency_changed |= will_paint;
+    }
+    scratch_stack.truncate(dependencies_start_idx);
     if let Some(size_matches) = size_matches_dependency {
         let new_size = gallery
             .get(&size_matches)
             .expect("We just resolved this")
             .dimensions;
-        gallery.get_mut(&painting.inner.id).unwrap().dimensions = new_size;
+        dimensions = new_size;
     }
-    // If all dependencies were cached, then we can also use the cache.
-    // If any dependencies needed to be repainted, we have to repaint.
-    if let Some((_, _, cache_generation)) = cache.get(&painting.inner.id) {
-        if cache_generation == &generation {
-            if dependencies.is_empty() {
-                // Nothing to do, because this exact painting has already been rendered.
-                // We don't add it to the graph, because it's effectively already complete
-                // at the start of the run.
-                return None;
-            } else {
-                // For certain scene types, we could retain the path data and *only* perform "compositing".
-                // We don't have that kind of infrastructure set up currently.
-                // Of course for filters and other resamplings, that is pretty meaningless, as
-                // there is no metadata.
-            }
-        }
-    }
+    debug_assert_ne!(
+        dimensions.height,
+        u32::MAX,
+        "Dimensions should have been initialised properly"
+    );
+    #[expect(
+        clippy::shadow_unrelated,
+        reason = "Same reference, different lifetime."
+    )]
+    let paint = gallery
+        .get_mut(&painting_id)
+        .expect("Painting exists and is associated with this gallery, so should be present here");
+    paint.resolving = false;
+    paint.dimensions = dimensions;
 
-    let node = Node::new(painting.clone())
-        .with_name(&*painting.inner.label)
-        .with_reads(dependencies.iter().map(|it| it.inner.id))
-        .with_result(painting.inner.id);
-    dag.add_node(node);
-    Some(painting.inner.id)
+    // For certain scene types, if the source hasn't changed but its dependencies have,
+    // we could retain the path data and *only* perform "compositing".
+    // That is, handle
+    // We don't have that kind of infrastructure set up currently.
+    // Of course for filters and other resamplings, that is pretty meaningless, as
+    // there is no metadata.
+    let should_paint = paint.source_dirty || dependency_changed;
+    paint.source_dirty = false;
+    let idx = rendering_preorder.len();
+    rendering_preorder.push(RenderOrder {
+        painting: painting_id,
+        should_paint,
+    });
+    paint.paint_index = idx;
+    should_paint
 }

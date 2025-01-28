@@ -28,9 +28,9 @@ use std::sync::Weak;
 /// This is an interim API until that can be resolved.
 pub struct Canvas {
     /// The gallery which all paintings in `paintings` is a part of.
-    pub(crate) gallery: Option<Weak<GalleryInner>>,
-    pub(crate) scene: Box<Scene>,
-    pub(crate) paintings: HashMap<u64, Painting>,
+    pub(super) gallery: Option<Weak<GalleryInner>>,
+    pub(super) scene: Box<Scene>,
+    pub(super) paintings: HashMap<u64, Painting>,
 }
 
 impl Deref for Canvas {
@@ -64,9 +64,16 @@ impl Canvas {
             paintings: HashMap::default(),
         }
     }
+    #[expect(
+        clippy::missing_panics_doc,
+        reason = "Deferred until the rest of the methods also have this"
+    )]
     pub fn new_image(&mut self, painting: Painting, width: u16, height: u16) -> PaintingConfig {
         match self.gallery.as_ref() {
-            Some(gallery) => assert!(gallery.ptr_eq(&painting.inner.gallery)),
+            Some(gallery) => assert!(
+                gallery.ptr_eq(&painting.inner.gallery),
+                "Adding a {painting:?} with a different gallery to other paintings in the canvas."
+            ),
             None => self.gallery = Some(painting.inner.gallery.clone()),
         }
         let config = PaintingConfig::new(width, height);
@@ -101,7 +108,7 @@ impl Debug for Canvas {
         f.debug_struct("Canvas")
             .field("scene", &"elided")
             .field("paintings", &self.paintings)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
