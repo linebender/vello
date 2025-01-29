@@ -782,6 +782,7 @@ fn window_attributes() -> WindowAttributes {
     Window::default_attributes()
         .with_inner_size(LogicalSize::new(1044, 800))
         .with_resizable(true)
+        .with_transparent(true)
         .with_title("Vello demo")
 }
 

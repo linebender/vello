@@ -6,8 +6,9 @@
 use std::future::Future;
 
 use wgpu::{
-    util::TextureBlitter, Adapter, Device, Instance, Limits, Queue, Surface, SurfaceConfiguration,
-    SurfaceTarget, Texture, TextureFormat, TextureView,
+    util::{TextureBlitter, TextureBlitterBuilder},
+    Adapter, BlendComponent, BlendFactor, BlendOperation, BlendState, Device, Instance, Limits,
+    Queue, Surface, SurfaceConfiguration, SurfaceTarget, Texture, TextureFormat, TextureView,
 };
 
 use crate::{Error, Result};
@@ -89,10 +90,20 @@ impl RenderContext {
             height,
             present_mode,
             desired_maximum_frame_latency: 2,
-            alpha_mode: wgpu::CompositeAlphaMode::Auto,
+            alpha_mode: wgpu::CompositeAlphaMode::PreMultiplied,
             view_formats: vec![],
         };
         let (target_texture, target_view) = create_targets(width, height, &device_handle.device);
+        let premul_blitter = TextureBlitterBuilder::new(&device_handle.device, format)
+            .blend_state(BlendState {
+                alpha: BlendComponent::REPLACE,
+                color: BlendComponent {
+                    src_factor: BlendFactor::SrcAlpha,
+                    dst_factor: BlendFactor::Zero,
+                    operation: BlendOperation::Add,
+                },
+            })
+            .build();
         let surface = RenderSurface {
             surface,
             config,
@@ -100,7 +111,7 @@ impl RenderContext {
             format,
             target_texture,
             target_view,
-            blitter: TextureBlitter::new(&device_handle.device, format),
+            blitter: premul_blitter,
         };
         self.configure_surface(&surface);
         Ok(surface)
