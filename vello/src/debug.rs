@@ -1,15 +1,15 @@
 // Copyright 2023 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-#[cfg(all(feature = "debug_layers", feature = "wgpu"))]
-mod renderer;
-#[cfg(all(feature = "debug_layers", feature = "wgpu"))]
-mod validate;
+// #[cfg(all(feature = "debug_layers", feature = "wgpu"))]
+// mod renderer;
+// #[cfg(all(feature = "debug_layers", feature = "wgpu"))]
+// mod validate;
 
 use std::fmt::Debug;
 
-#[cfg(all(feature = "debug_layers", feature = "wgpu"))]
-pub(crate) use renderer::*;
+// #[cfg(all(feature = "debug_layers", feature = "wgpu"))]
+// pub(crate) use renderer::*;
 
 /// Bitflags for enabled debug operations.
 ///
