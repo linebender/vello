@@ -3,7 +3,7 @@
 
 //! Vello's Render Graph.
 //!
-//! The core technology of Vello is a vector graphics rasteriser, which converts from a [scene description][Scene] to a rendered texture.
+//! The core technology of Vello is a vector graphics rasteriser, which converts from a [scene description][crate::Scene] to a rendered texture.
 //! This by itself does not support many advanced visual effects, such as blurs, as they are incompatible with the parallelism it exploits.
 //! These are instead built on top of this core pipeline, which schedules blurs and other visual effects,
 //! alongside the core vector graphics rendering.
