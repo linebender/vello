@@ -14,9 +14,14 @@
 //! ## Core Concepts
 //!
 //! The render graph consists of a few primary types:
-//! - `Vello` is the core renderer type. Your application should generally only ever have one of these.
-//! - A [`Painting`] is a persistent reference counted handle to a texture on the GPU.
-//! - The `Gallery`
+//! - [`Vello`] is the core renderer type.
+//!   Your application should generally have one of these per GPU.
+//! - The [`Gallery`] is the actual core render graph type.
+//!   These are also associated with a specific `wgpu` device (and therefore a `Vello`).
+//!   This allows for optimisations such as dropping CPU-side textures once they have been uploaded to the GPU.
+//! - A [`Painting`] is a reference counted handle for a render graph node in a `Gallery`.
+//!   They can be created with [`Gallery::create_painting`], .
+//!   These `Painting`s can configure their
 //!
 //! ## Test
 //!
@@ -53,12 +58,14 @@ use std::{
     hash::Hash,
     sync::{
         atomic::{AtomicU64, Ordering},
-        Arc, Mutex, PoisonError, Weak,
+        mpsc::{channel, Receiver, Sender},
+        Arc, Weak,
     },
 };
 
 use crate::Renderer;
 use filters::BlurPipeline;
+use log::warn;
 use peniko::Image;
 use runner::RenderOrder;
 use wgpu::{Device, Texture, TextureView};
@@ -75,7 +82,6 @@ pub struct Vello {
     vector_renderer: Renderer,
     blur: BlurPipeline,
     device: Device,
-    scratch_paint_order: Vec<RenderOrder>,
 }
 
 impl Vello {
@@ -91,7 +97,6 @@ impl Vello {
             device,
             vector_renderer,
             blur,
-            scratch_paint_order: vec![],
         })
     }
 }
@@ -112,24 +117,56 @@ impl Debug for Vello {
 /// You should have one of these per wgpu `Device`.
 /// This type is reference counted.
 pub struct Gallery {
-    inner: Arc<GalleryInner>,
+    id: GalleryToken,
+    sender: Sender<PaintingAction>,
+    receiver: Receiver<PaintingAction>,
+    device: Device,
+    paintings: HashMap<PaintingId, PaintInner>,
+    paint_order: Vec<RenderOrder>,
 }
 
 impl Debug for Gallery {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("Gallery").field(&self.inner.label).finish()
+        // TODO: Improve
+        f.debug_tuple("Gallery").field(&self.id).finish()
     }
 }
 
 impl Gallery {
-    pub fn new(device: Device, label: impl Into<Cow<'static, str>>) -> Self {
-        let inner = GalleryInner {
+    pub fn new(device: Device, label: &'static str) -> Self {
+        let (sender, receiver) = channel::<PaintingAction>();
+        Self {
             device,
             paintings: Default::default(),
-            label: label.into(),
-        };
-        Self {
-            inner: Arc::new(inner),
+            id: GalleryToken::new(label),
+            sender,
+            receiver,
+            paint_order: vec![],
+        }
+    }
+
+    pub fn update(&mut self) {
+        while let Ok(action) = self.receiver.try_recv() {
+            match action {
+                PaintingAction::InsertSource(painting_id, source) => {
+                    let Some(paint) = self.paintings.get_mut(&painting_id) else {
+                        continue;
+                    };
+                    paint.source = Some(source);
+                    paint.source_dirty = true;
+                }
+                PaintingAction::Drop(painting_id) => {
+                    if let Some(paint) = self.paintings.remove(&painting_id) {
+                        debug_assert!(
+                            paint.shared.upgrade().is_none(),
+                            "Dropped a painting for which strong handles still exist"
+                        );
+                    } else {
+                        #[cfg(debug_assertions)]
+                        unreachable!("Dropped painting #{painting_id:?} more than once");
+                    }
+                }
+            }
         }
     }
 }
@@ -175,8 +212,15 @@ impl Gallery {
     ) -> Painting {
         let PaintingDescriptor { label, usages } = desc;
         let id = PaintingId::next();
-        let new_inner = PaintInner {
+        let shared = PaintingShared {
+            id,
+            channel: self.sender.clone(),
+            gallery: self.id,
             label,
+        };
+        let shared = Arc::new(shared);
+        let new_inner = PaintInner {
+            shared: Arc::downgrade(&shared),
             usages,
             // Default to "uninit" black/purple checkboard source?
             source: None,
@@ -193,21 +237,9 @@ impl Gallery {
             texture: None,
             view: None,
         };
-        {
-            let mut lock = self
-                .inner
-                .paintings
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner);
-            lock.insert(id, new_inner);
-        }
-        let shared = PaintingShared {
-            id,
-            gallery: Arc::downgrade(&self.inner),
-        };
-        Painting {
-            inner: Arc::new(shared),
-        }
+        self.paintings.insert(id, new_inner);
+
+        Painting { inner: shared }
     }
 }
 
@@ -224,9 +256,9 @@ impl Painting {
     pub fn paint_scene(&self, scene: Canvas, of_dimensions: OutputSize) {
         if let Some(gallery) = scene.gallery.as_ref() {
             // TODO: Use same logic as `assert_same_gallery` for better debug printing.
-            assert!(
-                gallery.ptr_eq(&self.inner.gallery),
-                "A painting operation must only operate with paintings from the same gallery."
+            assert_eq!(
+                gallery, &self.inner.gallery,
+                "A painting operation on {self:?} must only operate with paintings from the same gallery."
             );
         }
 
@@ -239,34 +271,31 @@ impl Painting {
     }
 
     fn insert(&self, new_source: PaintingSource) {
-        // TODO: Maybe we want to use a channel here instead?
-        // That would mean that adding to the graph wouldn't be blocked whilst
-        // rendering is ongoing.
-        // OTOH, there still will be a "cutoff" time a small, but indeterminate, time
-        // after the render preparation starts.
-        // Maybe we split into "prepare", which updates the graph based on the channel
-        // and
-        self.inner.lock(|paint| match paint {
-            Some(paint) => {
-                paint.source = Some(new_source);
-                paint.source_dirty = true;
-            }
-            None => {
+        match self
+            .inner
+            .channel
+            .send(PaintingAction::InsertSource(self.inner.id, new_source))
+        {
+            Ok(()) => (),
+            Err(_) => {
                 // TODO: Is this reasonable to only warn? should we return an error?
-                log::warn!("Tried to paint to dropped Gallery. Will have no effect");
+                log::warn!(
+                    "Tried to paint ({:?}) to dropped Gallery {:?}. Will have no effect",
+                    self.inner,
+                    self.inner.gallery
+                );
             }
-        });
+        };
     }
     #[track_caller]
     fn assert_same_gallery(&self, other: &Self) {
-        // TODO: Show four things:
-        // 1) This painting's debug
-        // 2) Other painting's debug
-        // 3) Other gallery's label
-        // 4) This gallery's debug
         assert!(
-            Weak::ptr_eq(&self.inner.gallery, &other.inner.gallery),
-            "A painting operation must only operate with paintings from the same gallery."
+            self.inner.gallery == other.inner.gallery,
+            "A painting operation must only operate with paintings from the same gallery. Found {:?} from {:?}, expected {:?} from {:?}",
+            self.inner,
+            self.inner.gallery,
+            other.inner,
+            other.inner.gallery
         );
     }
 }
@@ -287,7 +316,34 @@ impl Debug for PaintingId {
 impl PaintingId {
     fn next() -> Self {
         static PAINTING_IDS: AtomicU64 = AtomicU64::new(0);
+        // Overflow: u64 so cannot overflow.
         Self(PAINTING_IDS.fetch_add(1, Ordering::Relaxed))
+    }
+}
+
+#[derive(Clone, Copy, Eq)]
+/// An identifier for a Gallery.
+///
+/// Used to validate that paintings are from the same gallery.
+struct GalleryToken(u64, &'static str);
+
+impl Debug for GalleryToken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("{} (#{})", self.1, self.0))
+    }
+}
+
+impl GalleryToken {
+    fn new(name: &'static str) -> Self {
+        static GALLERY_IDS: AtomicU64 = AtomicU64::new(0);
+        // Overflow: u64 so cannot overflow.
+        Self(GALLERY_IDS.fetch_add(1, Ordering::Relaxed), name)
+    }
+}
+
+impl PartialEq for GalleryToken {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
     }
 }
 
@@ -305,18 +361,14 @@ enum PaintingSource {
     // },
 }
 
-impl GalleryInner {
-    // TODO: Logging if we're poisoned?
-    fn lock_paintings(&self) -> std::sync::MutexGuard<'_, HashMap<PaintingId, PaintInner>> {
-        self.paintings
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-    }
+enum PaintingAction {
+    InsertSource(PaintingId, PaintingSource),
+    Drop(PaintingId),
 }
 
 struct PaintInner {
     // Immutable fields:
-    label: Cow<'static, str>,
+    shared: Weak<PaintingShared>,
     usages: wgpu::TextureUsages,
 
     // Controlled by the user
@@ -337,41 +389,24 @@ struct PaintInner {
     view: Option<TextureView>,
 }
 
-struct GalleryInner {
-    device: Device,
-    paintings: Mutex<HashMap<PaintingId, PaintInner>>,
-    label: Cow<'static, str>,
-}
-
 struct PaintingShared {
     id: PaintingId,
-    gallery: Weak<GalleryInner>,
+    label: Cow<'static, str>,
+    channel: Sender<PaintingAction>,
+
+    gallery: GalleryToken,
 }
 
-impl PaintingShared {
-    /// Access the [`PaintInner`].
-    ///
-    /// The function is called with [`None`] if the painting is dangling (i.e. the corresponding
-    /// gallery has been dropped).
-    fn lock<R>(&self, f: impl FnOnce(Option<&mut PaintInner>) -> R) -> R {
-        match self.gallery.upgrade() {
-            Some(gallery) => {
-                let mut paintings = gallery.lock_paintings();
-                let paint = paintings
-                    .get_mut(&self.id)
-                    .expect("PaintingShared exists, so corresponding entry in Gallery should too");
-                f(Some(paint))
-            }
-            None => f(None),
-        }
+impl Drop for PaintingShared {
+    fn drop(&mut self) {
+        // If this would error, that's expected.
+        // It just means that the gallery was dropped before the painting.
+        drop(self.channel.send(PaintingAction::Drop(self.id)));
     }
 }
 
 impl Debug for PaintingShared {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.lock(|paint| match paint {
-            Some(paint) => f.write_fmt(format_args!("{} ({:?})", paint.label, self.id)),
-            None => f.write_fmt(format_args!("Dangling Painting ({:?})", self.id)),
-        })
+        f.write_fmt(format_args!("{} ({:?})", self.label, self.id))
     }
 }

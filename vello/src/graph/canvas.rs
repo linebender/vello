@@ -3,7 +3,7 @@
 
 //! An interim version of Scene which has render graph compatibility, for use whilst Peniko doesn't know about image ids.
 
-use super::GalleryInner;
+use super::GalleryToken;
 use super::Painting;
 use crate::Scene;
 use peniko::kurbo::Affine;
@@ -19,7 +19,6 @@ use std::ops::Deref;
 use std::ops::DerefMut;
 use std::sync::Arc;
 use std::sync::LazyLock;
-use std::sync::Weak;
 
 /// A single Scene, potentially containing paintings.
 ///
@@ -27,8 +26,8 @@ use std::sync::Weak;
 /// currently doesn't know about the render graph.
 /// This is an interim API until that can be resolved.
 pub struct Canvas {
-    /// The gallery which all paintings in `paintings` is a part of.
-    pub(super) gallery: Option<Weak<GalleryInner>>,
+    /// The gallery which all paintings in `paintings` are a part of.
+    pub(super) gallery: Option<GalleryToken>,
     pub(super) scene: Box<Scene>,
     pub(super) paintings: HashMap<u64, Painting>,
 }
@@ -70,11 +69,11 @@ impl Canvas {
     )]
     pub fn new_image(&mut self, painting: Painting, width: u16, height: u16) -> PaintingConfig {
         match self.gallery.as_ref() {
-            Some(gallery) => assert!(
-                gallery.ptr_eq(&painting.inner.gallery),
-                "Adding a {painting:?} with a different gallery to other paintings in the canvas."
+            Some(gallery) => assert_eq!(
+                gallery, &painting.inner.gallery,
+                "Adding a {painting:?} with a different gallery to other paintings in the Canvas."
             ),
-            None => self.gallery = Some(painting.inner.gallery.clone()),
+            None => self.gallery = Some(painting.inner.gallery),
         }
         let config = PaintingConfig::new(width, height);
         self.override_image(&config.image, painting);
@@ -93,7 +92,9 @@ impl Canvas {
         self.scene.draw_image(&image.image, transform);
     }
 
-    #[deprecated(note = "Prefer `draw_painting` for greater efficiency")]
+    #[deprecated(
+        note = "Prefer `draw_painting`, as you can copy a texture to the GPU only once using that API."
+    )]
     pub fn draw_image(&mut self, image: &Image, transform: Affine) {
         self.scene.draw_image(image, transform);
     }

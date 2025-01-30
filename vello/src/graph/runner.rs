@@ -11,10 +11,7 @@
 //! 3) Running that graph. This involves encoding all the commands, and submitting them
 //!    in the order calculated in step 2.
 
-use std::{
-    collections::HashMap,
-    sync::{Arc, MutexGuard},
-};
+use std::collections::HashMap;
 
 use peniko::Color;
 use wgpu::{
@@ -32,8 +29,7 @@ pub(super) struct RenderOrder {
 #[must_use]
 pub struct RenderDetails<'a> {
     root: Painting,
-    gallery: MutexGuard<'a, HashMap<PaintingId, PaintInner>>,
-    order: Vec<RenderOrder>,
+    gallery: &'a mut Gallery,
 }
 
 impl std::fmt::Debug for RenderDetails<'_> {
@@ -57,32 +53,27 @@ impl Vello {
         of: Painting,
         gallery: &'a mut Gallery,
     ) -> RenderDetails<'a> {
-        self.scratch_paint_order.clear();
-        // TODO: Nicer error reporting
+        gallery.update();
+        gallery.paint_order.clear();
+        // TODO: Nicer error reporting?
         assert_eq!(
-            of.inner.gallery.as_ptr(),
-            Arc::as_ptr(&gallery.inner),
+            of.inner.gallery, gallery.id,
             "{of:?} isn't from {gallery:?}."
         );
         assert_eq!(
-            gallery.inner.device, self.device,
+            gallery.device, self.device,
             "Gallery is not for the same device as the renderer"
         );
 
-        let mut gallery = gallery.inner.lock_paintings();
         // Perform a depth-first resolution of the root node.
         resolve_recursive(
-            &mut gallery,
+            &mut gallery.paintings,
             &of,
-            &mut self.scratch_paint_order,
+            &mut gallery.paint_order,
             &mut Vec::with_capacity(16),
         );
 
-        RenderDetails {
-            root: of,
-            gallery,
-            order: std::mem::take(&mut self.scratch_paint_order),
-        }
+        RenderDetails { root: of, gallery }
     }
 
     /// Run a rendering operation.
@@ -96,11 +87,7 @@ impl Vello {
         &mut self,
         device: &Device,
         queue: &Queue,
-        RenderDetails {
-            mut gallery,
-            root,
-            order,
-        }: RenderDetails<'_>,
+        RenderDetails { gallery, root }: RenderDetails<'_>,
     ) -> Texture {
         // TODO: Ideally `render_to_texture` wouldn't do its own submission.
         // let buffer = device.create_command_encoder(&CommandEncoderDescriptor {
@@ -108,12 +95,12 @@ impl Vello {
         // });
         // TODO: In future, we can parallelise some of these batches.
         let gallery = &mut *gallery;
-        for node in &order {
+        for node in &gallery.paint_order {
             if !node.should_paint {
                 continue;
             }
             let painting_id = node.painting;
-            let paint = gallery.get_mut(&painting_id).unwrap();
+            let paint = gallery.paintings.get_mut(&painting_id).unwrap();
 
             Self::validate_update_texture(device, paint);
             let (target_tex, target_view) =
@@ -157,7 +144,7 @@ impl Vello {
                         "Incorrect size determined in first pass."
                     );
                     for (image_id, dependency) in &canvas.paintings {
-                        let dep_paint = gallery.get(&dependency.inner.id).expect(
+                        let dep_paint = gallery.paintings.get(&dependency.inner.id).expect(
                             "We know we previously made a cached version of this dependency",
                         );
                         let Some(texture) = dep_paint.texture.clone() else {
@@ -195,7 +182,7 @@ impl Vello {
                         .unwrap();
                 }
                 PaintingSource::Blur(dependency) => {
-                    let dependency_paint = gallery.get(&dependency.inner.id).unwrap();
+                    let dependency_paint = gallery.paintings.get(&dependency.inner.id).unwrap();
                     self.blur.blur_into(
                         device,
                         queue,
@@ -211,8 +198,8 @@ impl Vello {
                   // } => todo!(),
             }
         }
-        self.scratch_paint_order = order;
         gallery
+            .paintings
             .get_mut(&root.inner.id)
             .unwrap()
             .texture
@@ -236,7 +223,7 @@ impl Vello {
         }
         // Either recreate the texture with corrected dimensions, or create the first texture.
         let texture = device.create_texture(&TextureDescriptor {
-            label: Some(&*paint.label),
+            label: Some(&paint.shared.upgrade().unwrap().label),
             size: wgpu::Extent3d {
                 width: paint.dimensions.width,
                 height: paint.dimensions.height,
@@ -254,7 +241,7 @@ impl Vello {
         });
         // TODO: Should we just be creating this ad-hoc?
         let view = texture.create_view(&TextureViewDescriptor {
-            label: Some(&*paint.label),
+            label: Some(&paint.shared.upgrade().unwrap().label),
             ..Default::default()
         });
         paint.texture = Some(texture);
