@@ -1,0 +1,17 @@
+use core::transform;
+
+struct BellaConfig {
+	delta_time: f64,
+}
+
+uniform!(0, bella_config: BellaConfig);
+
+fn flat_main(input: Transform) -> Transform {
+
+	let mut final_input = input;
+
+	// Scale objects by 3.0
+	final_input = Transform::then_scale(final_input, 3.0);
+
+	return final_input;
+}

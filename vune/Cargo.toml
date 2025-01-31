@@ -1,0 +1,7 @@
+[package]
+name = "vune"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rune = { git = "https://github.com/TheNachoBIT/rune", branch = "optional-static-typing" }

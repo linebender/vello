@@ -1,0 +1,28 @@
+struct Transform {
+	mat: vec4f,
+	translate: vec2f,
+}
+
+impl Transform {
+	pub fn scale(by: f32) -> Self {
+		return Transform(
+			vec4f(by, 0.0, 0.0, by), 
+			vec2f(0.0)
+		);
+	}
+
+	pub fn then_scale(tr: Transform, by: f32) -> Self {
+		return Transform(
+			vec4f(tr.mat.x * by, tr.mat.y, tr.mat.z, tr.mat.w * by),
+			tr.translate,
+		);
+	}
+
+	pub fn get_position(tr: Transform) -> vec2f {
+		return tr.translate;
+	}
+
+	pub fn identity() -> Self {
+		return Transform::scale(1.0);
+	}
+}

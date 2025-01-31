@@ -570,6 +570,7 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
                                 &surface_texture,
                                 &render_params,
                                 self.debug,
+                                true,
                             ),
                     )
                     .expect("failed to render to surface");
@@ -583,6 +584,7 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
                             &self.scene,
                             &surface_texture,
                             &render_params,
+                            true,
                         )
                         .expect("failed to render to surface");
                 }
