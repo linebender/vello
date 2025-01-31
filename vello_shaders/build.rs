@@ -57,14 +57,6 @@ fn write_shaders(
     shaders: &[(String, ShaderInfo)],
 ) -> Result<(), std::fmt::Error> {
     writeln!(buf, "mod generated {{")?;
-    writeln!(
-        buf,
-        "    #![expect(clippy::allow_attributes, reason=\"Expect doesn't work with wildcard_imports\")]"
-    )?;
-    writeln!(
-        buf,
-        "    #[allow(clippy::wildcard_imports, reason=\"Allows using Debug for codegen\")]"
-    )?;
     writeln!(buf, "    use super::*;")?;
     writeln!(buf, "    use BindType::*;")?;
     writeln!(buf, "    pub const SHADERS: Shaders<'static> = Shaders {{")?;
