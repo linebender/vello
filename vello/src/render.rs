@@ -8,7 +8,7 @@ use crate::shaders::FullShaders;
 use crate::{AaConfig, RenderParams};
 
 #[cfg(feature = "wgpu")]
-use crate::Scene;
+use crate::{Scene, ShaderId};
 
 use vello_encoding::{make_mask_lut, make_mask_lut_16, Encoding, Resolver, WorkgroupSize};
 
@@ -73,14 +73,77 @@ impl CapturedBuffers {
     }
 }
 
+#[derive(Clone, Default)]
+pub struct WgpuVune {
+    pub id: Option<ShaderId>,
+    pub data: Vec<WgpuVuneData>,
+}
+
+impl WgpuVune {
+    pub fn set(&mut self, sh: ShaderId) {
+        self.id = Some(sh);
+    }
+
+    pub fn set_uniform<T: bytemuck::Pod>(&mut self, location_id: usize, data: T) {
+        if location_id as isize > self.data.len() as isize - 1 {
+            let current_size = self.data.len();
+            let calculate_size = (location_id + 1) - self.data.len();
+            let final_size = current_size + calculate_size;
+
+            self.data.resize(final_size, WgpuVuneData::default());
+        }
+
+        self.data[location_id] = WgpuVuneData::Uniform(bytemuck::bytes_of::<T>(&data).to_vec());
+    }
+}
+
+pub mod WgpuVuneBindings {
+    use crate::BindType;
+
+    pub fn flatten(add_custom: Vec<BindType>) -> Vec<BindType> {
+        let mut base: Vec<BindType> = Vec::new();
+
+        base.extend_from_slice(&[
+            BindType::Uniform, 
+            BindType::BufReadOnly, 
+            BindType::BufReadOnly, 
+            BindType::Buffer, 
+            BindType::Buffer, 
+            BindType::Buffer,
+        ]);
+
+        base.extend_from_slice(&add_custom[..]);
+
+        base
+    }
+}
+
+#[derive(Clone, Default)]
+#[non_exhaustive]
+pub enum WgpuVuneData {
+    #[default]
+    Empty,
+    Uniform(Vec<u8>),
+}
+
+impl WgpuVuneData {
+    pub fn send_to_gpu(&self, recording: &mut Recording) -> ResourceProxy {
+        match self {
+            WgpuVuneData::Uniform(v) => ResourceProxy::Buffer(recording.upload_uniform("vello.custom_uniform", &v[..])),
+            _ => todo!(),
+        }
+    }
+}
+
 #[cfg(feature = "wgpu")]
 pub(crate) fn render_full(
     scene: &Scene,
     resolver: &mut Resolver,
     shaders: &FullShaders,
+    flatten: &WgpuVune,
     params: &RenderParams,
 ) -> (Recording, ResourceProxy) {
-    render_encoding_full(scene.encoding(), resolver, shaders, params)
+    render_encoding_full(scene.encoding(), resolver, shaders, flatten, params)
 }
 
 #[cfg(feature = "wgpu")]
@@ -92,10 +155,11 @@ pub(crate) fn render_encoding_full(
     encoding: &Encoding,
     resolver: &mut Resolver,
     shaders: &FullShaders,
+    flatten: &WgpuVune,
     params: &RenderParams,
 ) -> (Recording, ResourceProxy) {
     let mut render = Render::new();
-    let mut recording = render.render_encoding_coarse(encoding, resolver, shaders, params, false);
+    let mut recording = render.render_encoding_coarse(encoding, resolver, shaders, flatten, params, false);
     let out_image = render.out_image();
     render.record_fine(shaders, &mut recording);
     (recording, out_image.into())
@@ -127,6 +191,7 @@ impl Render {
         encoding: &Encoding,
         resolver: &mut Resolver,
         shaders: &FullShaders,
+        flatten: &WgpuVune,
         params: &RenderParams,
         robust: bool,
     ) -> Recording {
@@ -267,17 +332,34 @@ impl Render {
         let bump_buf = ResourceProxy::Buffer(bump_buf);
         let lines_buf =
             ResourceProxy::new_buf(buffer_sizes.lines.size_in_bytes().into(), "vello.lines_buf");
+
+        let mut flatten_vec: Vec<ResourceProxy> = Vec::new();
+        flatten_vec.extend_from_slice(&[
+            config_buf,
+            scene_buf,
+            tagmonoid_buf,
+            path_bbox_buf,
+            bump_buf,
+            lines_buf,
+        ]);
+
+        if flatten.id.is_some() {
+            for i in &flatten.data {
+                if matches!(i, WgpuVuneData::Empty) {
+                    continue;
+                }
+    
+                flatten_vec.push(i.send_to_gpu(&mut recording));
+            }
+        }
+
         recording.dispatch(
-            shaders.flatten,
+            match flatten.id {
+                Some(f) => f,
+                None => shaders.flatten,
+            },
             wg_counts.flatten,
-            [
-                config_buf,
-                scene_buf,
-                tagmonoid_buf,
-                path_bbox_buf,
-                bump_buf,
-                lines_buf,
-            ],
+            flatten_vec,
         );
         let draw_reduced_buf = ResourceProxy::new_buf(
             buffer_sizes.draw_reduced.size_in_bytes().into(),

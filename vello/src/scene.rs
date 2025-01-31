@@ -24,6 +24,9 @@ use skrifa::{
 use vello_encoding::BumpAllocatorMemory;
 use vello_encoding::{Encoding, Glyph, GlyphRun, NormalizedCoord, Patch, Transform};
 
+use crate::ShaderId;
+use crate::render::WgpuVune;
+
 // TODO - Document invariants and edge cases (#470)
 // - What happens when we pass a transform matrix with NaN values to the Scene?
 // - What happens if a push_layer isn't matched by a pop_layer?
@@ -45,6 +48,7 @@ pub struct Scene {
     encoding: Encoding,
     #[cfg(feature = "bump_estimate")]
     estimator: vello_encoding::BumpEstimator,
+    pub flatten_shader: WgpuVune,
 }
 static_assertions::assert_impl_all!(Scene: Send, Sync);
 
@@ -326,6 +330,7 @@ impl From<Encoding> for Scene {
             encoding,
             #[cfg(feature = "bump_estimate")]
             estimator: vello_encoding::BumpEstimator::default(),
+            flatten_shader: WgpuVune::default(),
         }
     }
 }

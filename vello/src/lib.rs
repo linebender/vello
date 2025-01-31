@@ -113,14 +113,14 @@
 
 mod debug;
 mod recording;
-mod render;
+pub mod render;
 mod scene;
 mod shaders;
 
 #[cfg(feature = "wgpu")]
 pub mod util;
 #[cfg(feature = "wgpu")]
-mod wgpu_engine;
+pub mod wgpu_engine;
 
 pub mod low_level {
     //! Utilities which can be used to create an alternative Vello renderer to [`Renderer`][crate::Renderer].
@@ -148,7 +148,9 @@ pub use wgpu;
 pub use scene::{DrawGlyphs, Scene};
 pub use vello_encoding::{Glyph, NormalizedCoord};
 
-use low_level::ShaderId;
+pub use vune;
+
+pub use low_level::ShaderId;
 #[cfg(feature = "wgpu")]
 use low_level::{
     BindType, BumpAllocators, FullShaders, ImageFormat, ImageProxy, Recording, Render,
@@ -169,6 +171,8 @@ use std::{num::NonZeroUsize, sync::atomic::AtomicBool};
 use wgpu::{Device, Queue, SurfaceTexture, TextureFormat, TextureView};
 #[cfg(all(feature = "wgpu", feature = "wgpu-profiler"))]
 use wgpu_profiler::{GpuProfiler, GpuProfilerSettings};
+
+use std::collections::HashMap;
 
 /// Represents the anti-aliasing method to use during a render pass.
 ///
@@ -335,6 +339,7 @@ pub struct Renderer {
     engine: WgpuEngine,
     resolver: Resolver,
     shaders: FullShaders,
+    pub vune_shaders: HashMap<String, (String, ShaderId)>,
     blit: Option<BlitPipeline>,
     #[cfg(feature = "debug_layers")]
     debug: Option<debug::DebugRenderer>,
@@ -434,6 +439,7 @@ impl Renderer {
             engine,
             resolver: Resolver::new(),
             shaders,
+            vune_shaders: HashMap::new(),
             blit,
             #[cfg(feature = "debug_layers")]
             debug,
@@ -445,6 +451,24 @@ impl Renderer {
             #[cfg(feature = "wgpu-profiler")]
             profile_result: None,
         })
+    }
+
+    pub fn engine(&self) -> &WgpuEngine {
+        &self.engine
+    }
+
+    pub fn engine_mut(&mut self) -> &mut WgpuEngine {
+        &mut self.engine
+    }
+
+    pub fn add_vune_shader(&mut self, name: &str, path: &str, device: &Device, layout: &[BindType]) {
+        let shader = self.engine_mut().add_vune_shader(device, vune::VuneShader::new_main_from_file(&path), layout);
+
+        self.vune_shaders.insert(name.to_string(), (path.to_string(), shader));
+    }
+
+    pub fn get_vune_shader(&mut self, name: &str) -> ShaderId {
+        self.vune_shaders.get(name).unwrap().1
     }
 
     /// Renders a scene to the target texture.
@@ -461,7 +485,7 @@ impl Renderer {
         params: &RenderParams,
     ) -> Result<()> {
         let (recording, target) =
-            render::render_full(scene, &mut self.resolver, &self.shaders, params);
+            render::render_full(scene, &mut self.resolver, &self.shaders, &scene.flatten_shader, params);
         let external_resources = [ExternalResource::Image(
             *target.as_image().unwrap(),
             texture,
@@ -493,6 +517,7 @@ impl Renderer {
         scene: &Scene,
         surface: &SurfaceTexture,
         params: &RenderParams,
+        clear: bool,
     ) -> Result<()> {
         let width = params.width;
         let height = params.height;
@@ -530,7 +555,10 @@ impl Renderer {
             vertex_buffer: None,
             resources: vec![ResourceProxy::Image(target_proxy)],
             target: surface_proxy,
-            clear_color: Some([0., 0., 0., 0.]),
+            clear_color: match clear {
+                true => Some([0., 0., 0., 0.]),
+                false => None,
+            },
         });
 
         let surface_view = surface
@@ -684,6 +712,7 @@ impl Renderer {
             encoding,
             &mut self.resolver,
             &self.shaders,
+            &scene.flatten_shader,
             params,
             robust,
         );
@@ -750,6 +779,7 @@ impl Renderer {
         surface: &SurfaceTexture,
         params: &RenderParams,
         debug_layers: DebugLayers,
+        clear: bool,
     ) -> Result<Option<BumpAllocators>> {
         if cfg!(not(feature = "debug_layers")) && !debug_layers.is_empty() {
             static HAS_WARNED: AtomicBool = AtomicBool::new(false);
@@ -799,7 +829,10 @@ impl Renderer {
             vertex_buffer: None,
             resources: vec![ResourceProxy::Image(target_proxy)],
             target: surface_proxy,
-            clear_color: Some([0., 0., 0., 0.]),
+            clear_color: match clear {
+                true => Some([0., 0., 0., 0.]),
+                false => None,
+            },
         });
 
         #[cfg(feature = "debug_layers")]
@@ -863,7 +896,7 @@ impl Renderer {
 }
 
 #[cfg(feature = "wgpu")]
-struct TargetTexture {
+pub struct TargetTexture {
     view: TextureView,
     width: u32,
     height: u32,
@@ -946,7 +979,7 @@ impl BlitPipeline {
             wgpu::PrimitiveTopology::TriangleList,
             wgpu::ColorTargetState {
                 format,
-                blend: None,
+                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                 write_mask: wgpu::ColorWrites::ALL,
             },
             None,

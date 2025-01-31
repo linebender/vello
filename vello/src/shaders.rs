@@ -15,6 +15,8 @@ use crate::{
     Error, RendererOptions,
 };
 
+pub use vune::VuneShader;
+
 // Shaders for the full pipeline
 pub struct FullShaders {
     pub pathtag_reduce: ShaderId,
@@ -127,6 +129,16 @@ pub(crate) fn full_shaders(
         flatten,
         [Uniform, BufReadOnly, BufReadOnly, Buffer, Buffer, Buffer]
     );
+
+    // CUSTOM FLATTEN
+    // let flatten = engine.add_compute_shader(
+    //     device,
+    //     "vello.flatten",
+    //     std::borrow::Cow::Owned(flatten_shader.content()),
+    //     &[Uniform, BufReadOnly, BufReadOnly, Buffer, Buffer, Buffer],
+    //     CpuShaderType::Missing,
+    // );
+
     let draw_reduce = add_shader!(draw_reduce, [Uniform, BufReadOnly, Buffer]);
     let draw_leaf = add_shader!(
         draw_leaf,

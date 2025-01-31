@@ -16,8 +16,13 @@ use wgpu::{
 
 use crate::{
     low_level::{BufferProxy, Command, ImageProxy, Recording, ResourceId, ResourceProxy, ShaderId},
-    recording::BindType,
-    Error, Result,
+    recording::{BindType, ImageFormat},
+    Error, RendererOptions, Result,
+};
+
+use vello_shaders::BindType::{
+    BufReadOnly,
+    Uniform,
 };
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -29,7 +34,7 @@ struct UninitialisedShader {
 }
 
 #[derive(Default)]
-pub(crate) struct WgpuEngine {
+pub struct WgpuEngine {
     shaders: Vec<Shader>,
     pool: ResourcePool,
     bind_map: BindMap,
@@ -53,7 +58,7 @@ struct WgpuShader {
     bind_group_layout: BindGroupLayout,
 }
 
-pub(crate) enum CpuShaderType {
+pub enum CpuShaderType {
     Present(fn(u32, &[CpuBinding<'_>])),
     Missing,
     Skipped,
@@ -86,7 +91,7 @@ impl Shader {
     }
 }
 
-pub(crate) enum ExternalResource<'a> {
+pub enum ExternalResource<'a> {
     #[expect(unused, reason = "No buffers are accepted as arguments currently")]
     Buffer(BufferProxy, &'a Buffer),
     Image(ImageProxy, &'a TextureView),
@@ -228,6 +233,22 @@ impl WgpuEngine {
                 }
             });
         }
+    }
+
+    // &[BindType::Uniform, BindType::BufReadOnly, BindType::BufReadOnly, BindType::Buffer, BindType::Buffer, BindType::Buffer]
+    pub fn add_vune_shader(
+        &mut self,
+        device: &Device,
+        shader: vune::VuneShader,
+        layout: &[BindType],
+    ) -> ShaderId {
+        self.add_compute_shader(
+            device,
+            "vello.flatten",
+            Cow::Owned(shader.content()),
+            layout,
+            CpuShaderType::Missing
+        )
     }
 
     /// Add a shader.

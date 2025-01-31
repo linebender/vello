@@ -199,16 +199,9 @@ impl Encoding {
     /// If the given transform is different from the current one, encodes it and
     /// returns true. Otherwise, encodes nothing and returns false.
     pub fn encode_transform(&mut self, transform: Transform) -> bool {
-        if self.flags & Self::FORCE_NEXT_TRANSFORM != 0
-            || self.transforms.last() != Some(&transform)
-        {
-            self.path_tags.push(PathTag::TRANSFORM);
-            self.transforms.push(transform);
-            self.flags &= !Self::FORCE_NEXT_TRANSFORM;
-            true
-        } else {
-            false
-        }
+        self.path_tags.push(PathTag::TRANSFORM);
+        self.transforms.push(transform);
+        true
     }
 
     /// Returns an encoder for encoding a path. If `is_fill` is true, all subpaths will
