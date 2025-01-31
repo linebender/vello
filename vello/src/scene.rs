@@ -3,6 +3,7 @@
 
 mod bitmap;
 
+use crate::kurbo::StrokeOpts;
 use std::sync::Arc;
 
 use peniko::{
@@ -290,7 +291,7 @@ impl Scene {
             let stroked = peniko::kurbo::stroke(
                 shape.path_elements(SHAPE_TOLERANCE),
                 style,
-                &Default::default(),
+                &StrokeOpts::default(),
                 STROKE_TOLERANCE,
             );
             self.fill(Fill::NonZero, transform, brush, brush_transform, &stroked);

@@ -95,7 +95,7 @@ struct ActiveTouch {
 impl TouchState {
     pub fn new() -> Self {
         Self {
-            active_touches: Default::default(),
+            active_touches: BTreeMap::default(),
             gesture_state: None,
             added_or_removed_touches: false,
         }

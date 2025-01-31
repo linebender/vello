@@ -4,6 +4,7 @@
 //! Simple helpers for managing wgpu state and surfaces.
 
 use std::future::Future;
+use wgpu::MemoryHints;
 
 use wgpu::{
     Adapter, Device, Instance, Limits, Queue, Surface, SurfaceConfiguration, SurfaceTarget,
@@ -157,7 +158,7 @@ impl RenderContext {
                     label: None,
                     required_features: features & maybe_features,
                     required_limits: limits,
-                    memory_hints: Default::default(),
+                    memory_hints: MemoryHints::default(),
                 },
                 None,
             )

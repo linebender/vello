@@ -5,6 +5,7 @@ use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
+use wgpu::ComputePassDescriptor;
 
 use vello_shaders::cpu::CpuBinding;
 
@@ -374,8 +375,8 @@ impl WgpuEngine {
         label: &'static str,
         #[cfg(feature = "wgpu-profiler")] profiler: &mut wgpu_profiler::GpuProfiler,
     ) -> Result<()> {
-        let mut free_bufs: HashSet<ResourceId> = Default::default();
-        let mut free_images: HashSet<ResourceId> = Default::default();
+        let mut free_bufs: HashSet<ResourceId> = HashSet::default();
+        let mut free_images: HashSet<ResourceId> = HashSet::default();
         let mut transient_map = TransientBindMap::new(external_resources);
 
         let mut encoder =
@@ -545,7 +546,8 @@ impl WgpuEngine {
                                 &wgpu_shader.bind_group_layout,
                                 bindings,
                             );
-                            let mut cpass = encoder.begin_compute_pass(&Default::default());
+                            let mut cpass =
+                                encoder.begin_compute_pass(&ComputePassDescriptor::default());
                             #[cfg(feature = "wgpu-profiler")]
                             let query = profiler
                                 .begin_query(shader.label, &mut cpass, device)
@@ -595,7 +597,8 @@ impl WgpuEngine {
                                 queue,
                                 proxy,
                             );
-                            let mut cpass = encoder.begin_compute_pass(&Default::default());
+                            let mut cpass =
+                                encoder.begin_compute_pass(&ComputePassDescriptor::default());
                             #[cfg(feature = "wgpu-profiler")]
                             let query = profiler
                                 .begin_query(shader.label, &mut cpass, device)

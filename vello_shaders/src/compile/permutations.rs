@@ -12,7 +12,7 @@ pub struct Permutation {
 }
 
 pub fn parse(source: &str) -> HashMap<String, Vec<Permutation>> {
-    let mut map: HashMap<String, Vec<Permutation>> = Default::default();
+    let mut map: HashMap<String, Vec<Permutation>> = HashMap::default();
     let mut current_source: Option<String> = None;
     for line in source.lines() {
         let line = line.trim();
