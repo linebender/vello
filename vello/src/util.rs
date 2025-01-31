@@ -4,11 +4,10 @@
 //! Simple helpers for managing wgpu state and surfaces.
 
 use std::future::Future;
-use wgpu::MemoryHints;
 
 use wgpu::{
-    Adapter, Device, Instance, Limits, Queue, Surface, SurfaceConfiguration, SurfaceTarget,
-    TextureFormat,
+    Adapter, Device, Instance, Limits, MemoryHints, Queue, Surface, SurfaceConfiguration,
+    SurfaceTarget, TextureFormat,
 };
 
 use crate::{Error, Result};

@@ -5,14 +5,11 @@ use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
-use wgpu::ComputePassDescriptor;
-
-use vello_shaders::cpu::CpuBinding;
 
 use wgpu::{
     BindGroup, BindGroupLayout, Buffer, BufferUsages, CommandEncoder, CommandEncoderDescriptor,
-    ComputePipeline, Device, PipelineCompilationOptions, Queue, RenderPipeline, Texture,
-    TextureAspect, TextureUsages, TextureView, TextureViewDimension,
+    ComputePassDescriptor, ComputePipeline, Device, PipelineCompilationOptions, Queue,
+    RenderPipeline, Texture, TextureAspect, TextureUsages, TextureView, TextureViewDimension,
 };
 
 use crate::{
@@ -20,6 +17,7 @@ use crate::{
     recording::BindType,
     Error, Result,
 };
+use vello_shaders::cpu::CpuBinding;
 
 #[cfg(not(target_arch = "wasm32"))]
 struct UninitialisedShader {

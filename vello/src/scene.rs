@@ -3,12 +3,11 @@
 
 mod bitmap;
 
-use crate::kurbo::StrokeOpts;
 use std::sync::Arc;
 
 use peniko::{
     color::{palette, AlphaColor, DynamicColor, Srgb},
-    kurbo::{Affine, BezPath, Point, Rect, Shape, Stroke, Vec2},
+    kurbo::{Affine, BezPath, Point, Rect, Shape, Stroke, StrokeOpts, Vec2},
     BlendMode, Blob, Brush, BrushRef, Color, ColorStop, ColorStops, ColorStopsSource, Compose,
     Extend, Fill, Font, Gradient, Image, Mix, StyleRef,
 };
