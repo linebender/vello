@@ -22,9 +22,6 @@
     missing_docs,
     clippy::missing_assert_message,
     clippy::shadow_unrelated,
-    clippy::missing_panics_doc,
-    clippy::missing_errors_doc,
-    clippy::exhaustive_enums,
     clippy::print_stderr,
     clippy::print_stdout,
     clippy::allow_attributes_without_reason

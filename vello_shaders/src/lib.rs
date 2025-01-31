@@ -32,18 +32,11 @@
 // Feel free to send a PR that solves one or more of these.
 // Need to allow instead of expect until Rust 1.83 https://github.com/rust-lang/rust/pull/130025
 #![allow(missing_docs, reason = "We have many as-yet undocumented items.")]
-#![expect(
-    missing_debug_implementations,
-    clippy::exhaustive_enums,
-    reason = "Deferred"
-)]
+#![expect(missing_debug_implementations, reason = "Deferred")]
 #![allow(
-    single_use_lifetimes,
     unnameable_types,
     clippy::cast_possible_truncation,
     clippy::missing_assert_message,
-    clippy::missing_errors_doc,
-    clippy::missing_panics_doc,
     clippy::print_stderr,
     clippy::print_stdout,
     clippy::shadow_unrelated,

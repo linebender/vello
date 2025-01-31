@@ -20,18 +20,13 @@
 #![allow(missing_docs, reason = "We have many as-yet undocumented items.")]
 #![expect(
     missing_debug_implementations,
-    single_use_lifetimes,
     clippy::cast_possible_truncation,
     clippy::missing_assert_message,
-    clippy::missing_panics_doc,
     reason = "Deferred"
 )]
 #![allow(
     unnameable_types,
     clippy::shadow_unrelated,
-    // Only applies on WASM?
-    variant_size_differences,
-    clippy::exhaustive_enums,
     reason = "Deferred, only apply in some feature sets so not expect"
 )]
 

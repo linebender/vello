@@ -98,22 +98,16 @@
 #![allow(missing_docs, reason = "We have many as-yet undocumented items.")]
 #![expect(
     missing_debug_implementations,
-    single_use_lifetimes,
     unnameable_types,
     unreachable_pub,
     clippy::cast_possible_truncation,
     clippy::missing_assert_message,
     clippy::shadow_unrelated,
-    clippy::missing_panics_doc,
-    clippy::exhaustive_enums,
     clippy::print_stderr,
-    clippy::match_same_arms,
     reason = "Deferred"
 )]
 #![allow(
-    clippy::missing_errors_doc,
     clippy::todo,
-    clippy::partial_pub_fields,
     reason = "Deferred, only apply in some feature sets so not expect"
 )]
 
