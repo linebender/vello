@@ -138,8 +138,6 @@ struct VelloApp<'s> {
     base_color: Option<Color>,
     async_pipeline: bool,
 
-    // Currently not updated in wasm builds
-    #[allow(unused_mut)]
     scene_complexity: Option<BumpAllocators>,
 
     complexity_shown: bool,
@@ -206,8 +204,7 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
             let id = render_state.surface.dev_id;
             self.renderers[id].get_or_insert_with(|| {
                 let start = Instant::now();
-                #[allow(unused_mut)]
-                let mut renderer = Renderer::new(
+                let renderer = Renderer::new(
                     &self.context.devices[id].device,
                     RendererOptions {
                         surface_format: Some(render_state.surface.format),
@@ -222,6 +219,8 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
                 })
                 .expect("Failed to create renderer");
                 log::info!("Creating renderer {id} took {:?}", start.elapsed());
+                #[cfg(feature = "wgpu-profiler")]
+                let mut renderer = renderer;
                 #[cfg(feature = "wgpu-profiler")]
                 renderer
                     .profiler
@@ -552,11 +551,13 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
 
                 drop(texture_span);
                 let render_span = tracing::trace_span!("Dispatching render").entered();
-                // Note: we don't run the async/"robust" pipeline, as
+                // Note: we don't run the async/"robust" pipeline on web, as
                 // it requires more async wiring for the readback. See
                 // [#gpu > async on wasm](https://xi.zulipchat.com/#narrow/stream/197075-gpu/topic/async.20on.20wasm)
-                #[allow(deprecated)]
-                // #[expect(deprecated, reason = "This deprecation is not targeted at us.")] // Our MSRV is too low to use `expect`
+                #[expect(
+                    deprecated,
+                    reason = "We still want to use the async pipeline for the debug layers"
+                )]
                 if self.async_pipeline && cfg!(not(target_arch = "wasm32")) {
                     self.scene_complexity = vello::util::block_on_wgpu(
                         &device_handle.device,
@@ -663,22 +664,19 @@ fn run(
 ) {
     use winit::keyboard::ModifiersState;
 
-    #[allow(unused_mut)]
-    let mut renderers: Vec<Option<Renderer>> = vec![];
-
     #[cfg(not(target_arch = "wasm32"))]
-    let render_state = None::<RenderState<'_>>;
+    let (render_state, renderers) = (None::<RenderState<'_>>, vec![]);
 
     // The design of `RenderContext` forces delayed renderer initialisation to
     // not work on wasm, as WASM futures effectively must be 'static.
     // Otherwise, this could work by sending the result to event_loop.proxy
     // instead of blocking
     #[cfg(target_arch = "wasm32")]
-    let render_state = {
+    let (render_state, renderers) = {
+        let mut renderers = vec![];
         renderers.resize_with(render_cx.devices.len(), || None);
         let id = render_state.surface.dev_id;
-        #[allow(unused_mut)]
-        let mut renderer = Renderer::new(
+        let renderer = Renderer::new(
             &render_cx.devices[id].device,
             RendererOptions {
                 surface_format: Some(render_state.surface.format),
@@ -696,6 +694,8 @@ fn run(
         })
         .expect("Failed to create renderer");
         #[cfg(feature = "wgpu-profiler")]
+        let mut renderer = renderer;
+        #[cfg(feature = "wgpu-profiler")]
         renderer
             .profiler
             .change_settings(wgpu_profiler::GpuProfilerSettings {
@@ -705,7 +705,7 @@ fn run(
             })
             .expect("Not setting max_num_pending_frames");
         renderers[id] = Some(renderer);
-        Some(render_state)
+        (Some(render_state), renderers)
     };
 
     let debug = DebugLayers::none();
@@ -830,8 +830,7 @@ pub fn main() -> anyhow::Result<()> {
     let scenes = args.args.select_scene_set()?;
     if let Some(scenes) = scenes {
         let event_loop = EventLoop::<UserEvent>::with_user_event().build()?;
-        #[allow(unused_mut)]
-        let mut render_cx = RenderContext::new();
+        let render_cx = RenderContext::new();
         #[cfg(not(target_arch = "wasm32"))]
         {
             let proxy = event_loop.create_proxy();
@@ -843,6 +842,7 @@ pub fn main() -> anyhow::Result<()> {
         }
         #[cfg(target_arch = "wasm32")]
         {
+            let mut render_cx = render_cx;
             std::panic::set_hook(Box::new(console_error_panic_hook::hook));
             console_log::init().expect("could not initialize logger");
             use winit::platform::web::WindowExtWebSys;

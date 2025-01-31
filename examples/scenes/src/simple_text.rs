@@ -27,8 +27,11 @@ pub struct SimpleText {
     noto_emoji_cbtf_subset: Font,
 }
 
+#[expect(
+    single_use_lifetimes,
+    reason = "False positive: https://github.com/rust-lang/rust/issues/129255"
+)]
 impl SimpleText {
-    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
             roboto: Font::new(Blob::new(Arc::new(ROBOTO_FONT)), 0),
@@ -204,6 +207,12 @@ impl SimpleText {
             Fill::NonZero,
             text,
         );
+    }
+}
+
+impl Default for SimpleText {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

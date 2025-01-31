@@ -185,6 +185,10 @@ impl Scene {
     }
 
     /// Fills a shape using the specified style and brush.
+    #[expect(
+        single_use_lifetimes,
+        reason = "False positive: https://github.com/rust-lang/rust/issues/129255"
+    )]
     pub fn fill<'b>(
         &mut self,
         style: Fill,
@@ -213,6 +217,10 @@ impl Scene {
     }
 
     /// Strokes a shape using the specified style and brush.
+    #[expect(
+        single_use_lifetimes,
+        reason = "False positive: https://github.com/rust-lang/rust/issues/129255"
+    )]
     pub fn stroke<'b>(
         &mut self,
         style: &Stroke,
