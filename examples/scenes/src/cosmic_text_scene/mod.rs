@@ -1,5 +1,8 @@
-// Copyright 2024 the Vello Authors
+// Copyright 2024 the Vello Authors and System76
 // SPDX-License-Identifier: Apache-2.0 OR MIT
+
+// Please note: This license has different attribution requirements to the rest of Vello.
+// See the neighbouring README.md for more information.
 
 //! An example integrating Cosmic text with Vello.
 //! This renders a read-only snapshot of a simplified text editor using system fonts.

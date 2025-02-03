@@ -92,7 +92,7 @@ export_scenes!(
     blurred_rounded_rect(blurred_rounded_rect),
     image_sampling(image_sampling),
     image_extend_modes_bilinear(impls::image_extend_modes(ImageQuality::Medium), "image_extend_modes (bilinear)", false),
-    image_extend_modes_nearest_neighbor(impls::image_extend_modes(ImageQuality::Low), "image_extend_modes (nearest neighbor)", false),,
+    image_extend_modes_nearest_neighbor(impls::image_extend_modes(ImageQuality::Low), "image_extend_modes (nearest neighbor)", false),
     #[cfg(feature = "cosmic_text")] cosmic_text_scene(crate::cosmic_text_scene::CosmicTextScene::default(), "cosmic_text", false)
 );
 
