@@ -26,7 +26,7 @@ use std::sync::Arc;
 use vello::peniko::color::palette;
 
 impl TestScene for CosmicTextScene {
-    fn render(&mut self, scene: &mut Scene, _scene_params: &mut SceneParams) {
+    fn render(&mut self, scene: &mut Scene, _scene_params: &mut SceneParams<'_>) {
         let buffer_glyphs = &self.buffer_glyphs;
         let vello_fonts = &self.vello_fonts;
 
@@ -195,7 +195,7 @@ struct EditorInfo {
 
 impl EditorInfo {
     fn new(
-        editor: &Editor,
+        editor: &Editor<'_>,
         cursor_color: Color,
         selection_color: Color,
         selected_text_color: Color,
@@ -211,7 +211,7 @@ impl EditorInfo {
 }
 
 fn create_glyphs_for_editor(
-    editor: &Editor,
+    editor: &Editor<'_>,
     text_color: Color,
     cursor_color: Color,
     selection_color: Color,
@@ -384,7 +384,7 @@ fn create_glyphs(
 }
 
 // Copied directly from https://github.com/pop-os/cosmic-text/blob/58c2ccd1fb3daf0abc792f9dd52b5766b7125ccd/src/edit/editor.rs#L66
-fn cursor_position(cursor: &Cursor, run: &LayoutRun) -> Option<(i32, i32)> {
+fn cursor_position(cursor: &Cursor, run: &LayoutRun<'_>) -> Option<(i32, i32)> {
     let (cursor_glyph, cursor_glyph_offset) = cursor_glyph_opt(cursor, run)?;
     let x = match run.glyphs.get(cursor_glyph) {
         Some(glyph) => {
@@ -415,7 +415,7 @@ fn cursor_position(cursor: &Cursor, run: &LayoutRun) -> Option<(i32, i32)> {
 }
 
 // Copied directly from https://github.com/pop-os/cosmic-text/blob/58c2ccd1fb3daf0abc792f9dd52b5766b7125ccd/src/edit/editor.rs#L30
-fn cursor_glyph_opt(cursor: &Cursor, run: &LayoutRun) -> Option<(usize, f32)> {
+fn cursor_glyph_opt(cursor: &Cursor, run: &LayoutRun<'_>) -> Option<(usize, f32)> {
     if cursor.line == run.line_i {
         for (glyph_i, glyph) in run.glyphs.iter().enumerate() {
             if cursor.index == glyph.start {
