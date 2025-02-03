@@ -29,6 +29,9 @@ use std::path::PathBuf;
 pub use svg::{default_scene, scene_from_files};
 use test_scenes::test_scenes;
 
+#[cfg(feature = "cosmic_text")]
+pub mod cosmic_text_scene;
+
 use vello::kurbo::Vec2;
 use vello::peniko::{color, Color};
 use vello::Scene;

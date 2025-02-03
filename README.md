@@ -146,6 +146,15 @@ A separate Linebender integration for playing Lottie animations is available thr
 
 A separate Linebender integration for rendering raw scenes or Lottie and SVG files in [Bevy] through [`bevy_vello`](https://github.com/linebender/bevy_vello).
 
+### Cosmic Text
+
+An example scene demonstrating the integration of COSMIC text for font loading and text layout through [COSMIC Text Scene](./examples/scenes/src/cosmic_text_scene/mod.rs).
+This scene can be run with:
+
+```shell
+cargo run --package with_winit --features cosmic_text -- --test-scenes
+```
+
 ## Examples
 
 Our examples are provided in separate packages in the [`examples`](https://github.com/linebender/vello/tree/main/examples) directory.
@@ -296,6 +305,7 @@ For clarity, these files are also licensed under either of the above licenses.
 The intent is for this research to be used in as broad a context as possible.
 
 The files in subdirectories of the [`examples/assets`](https://github.com/linebender/vello/tree/main/examples/assets) directory are licensed solely under their respective licenses, available in the `LICENSE` file in their directories.
+The file [`examples/scenes/src/cosmic_text_scene/mod.rs`](examples/scenes/src/cosmic_text_scene/mod.rs) is licensed as described in the [README](examples/scenes/src/cosmic_text_scene/README.md) in its directory.
 
 [piet-metal]: https://github.com/linebender/piet-metal
 [`wgpu`]: https://wgpu.rs/
