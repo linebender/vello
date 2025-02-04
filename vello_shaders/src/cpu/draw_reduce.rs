@@ -7,7 +7,12 @@ use super::{util::read_draw_tag_from_scene, CpuBinding};
 
 const WG_SIZE: usize = 256;
 
-fn draw_reduce_main(n_wg: u32, config: &ConfigUniform, scene: &[u32], reduced: &mut [DrawMonoid]) {
+pub fn draw_reduce_main(
+    n_wg: u32,
+    config: &ConfigUniform,
+    scene: &[u32],
+    reduced: &mut [DrawMonoid],
+) {
     let num_blocks_total = (config.layout.n_draw_objects as usize).div_ceil(WG_SIZE);
     let n_blocks_base = num_blocks_total / WG_SIZE;
     let remainder = num_blocks_total % WG_SIZE;

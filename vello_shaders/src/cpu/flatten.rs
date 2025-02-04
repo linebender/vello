@@ -660,7 +660,7 @@ const PATH_TAG_QUADTO: u8 = 2;
 const PATH_TAG_CUBICTO: u8 = 3;
 const PATH_TAG_F32: u8 = 8;
 
-fn flatten_main(
+pub fn flatten_main(
     n_wg: u32,
     config: &ConfigUniform,
     scene: &[u32],

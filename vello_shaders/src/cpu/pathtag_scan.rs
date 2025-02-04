@@ -7,7 +7,7 @@ use super::CpuBinding;
 
 const WG_SIZE: usize = 256;
 
-fn pathtag_scan_main(
+pub fn pathtag_scan_main(
     n_wg: u32,
     config: &ConfigUniform,
     scene: &[u32],

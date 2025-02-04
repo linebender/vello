@@ -10,7 +10,7 @@ const TILE_HEIGHT: usize = 16;
 const SX: f32 = 1.0 / (TILE_WIDTH as f32);
 const SY: f32 = 1.0 / (TILE_HEIGHT as f32);
 
-fn tile_alloc_main(
+pub fn tile_alloc_main(
     config: &ConfigUniform,
     scene: &[u32],
     draw_bboxes: &[[f32; 4]],

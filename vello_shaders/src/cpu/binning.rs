@@ -22,7 +22,7 @@ fn bbox_intersect(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
     ]
 }
 
-fn binning_main(
+pub fn binning_main(
     n_wg: u32,
     config: &ConfigUniform,
     draw_monoids: &[DrawMonoid],
