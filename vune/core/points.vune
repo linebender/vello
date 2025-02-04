@@ -1,0 +1,6 @@
+struct CubicPoints {
+	p0: vec2f,
+	p1: vec2f,
+	p2: vec2f,
+	p3: vec2f,
+}

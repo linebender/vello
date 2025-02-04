@@ -602,7 +602,7 @@ const ESPC_ROBUST_LOW_DIST = 2;
 // segments, and then computes a near-optimal flattening of the parallel curves of
 // the Euler spiral segments.
 fn flatten_euler(
-    cubic: CubicPoints,
+    cubic: core_points_CubicPoints,
     path_ix: u32,
     local_to_device: core_transform_Transform,
     offset: f32,
@@ -954,14 +954,7 @@ fn compute_tag_monoid(ix: u32) -> PathTagData {
     return PathTagData(tag_byte, tm);
 }
 
-struct CubicPoints {
-    p0: vec2f,
-    p1: vec2f,
-    p2: vec2f,
-    p3: vec2f,
-}
-
-fn read_path_segment(tag: PathTagData, is_stroke: bool) -> CubicPoints {
+fn read_path_segment(tag: PathTagData, is_stroke: bool) -> core_points_CubicPoints {
     var p0: vec2f;
     var p1: vec2f;
     var p2: vec2f;
@@ -1016,7 +1009,7 @@ fn read_path_segment(tag: PathTagData, is_stroke: bool) -> CubicPoints {
         p1 = p1 + (1.0 / 3.0) * (p0 - p1);
     }
 
-    return CubicPoints(p0, p1, p2, p3);
+    return core_points_CubicPoints(p0, p1, p2, p3);
 }
 
 // Writes a line into a the `lines` buffer at a pre-allocated location designated by `line_ix`.
@@ -1112,7 +1105,9 @@ fn main(
 
         transform = flat_main(transform);
 
-        let pts = read_path_segment(tag, is_stroke);
+        var pts = read_path_segment(tag, is_stroke);
+
+        pts = flap_main(pts);
 
         if is_stroke {
             let linewidth = bitcast<f32>(scene[config.style_base + style_ix + 1u]);

@@ -32,6 +32,7 @@ impl CodeGen {
         let mut ext_content = HashMap::new();
 
         ext_content.insert("core::transform".to_string(), include_str!("../core/transform.vune").to_string());
+        ext_content.insert("core::points".to_string(), include_str!("../core/points.vune").to_string());
 
         Self {
             content: content.to_string(),
