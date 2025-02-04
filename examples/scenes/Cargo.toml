@@ -15,7 +15,7 @@ skrifa = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 image = { workspace = true, features = ["jpeg"] }
-rand = "0.8.5"
+rand = "0.9.0"
 
 # for pico_svg
 roxmltree = "0.20.0"
@@ -27,4 +27,4 @@ web-time = { workspace = true }
 [target.wasm32-unknown-unknown.dependencies]
 # We have a transitive dependency on getrandom and it does not automatically
 # support wasm32-unknown-unknown. We need to enable the js feature.
-getrandom = { version = "0.2.15", features = ["js"] }
+getrandom = { version = "0.3.1", features = ["wasm_js"] }

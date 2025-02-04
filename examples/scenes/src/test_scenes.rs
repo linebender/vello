@@ -1121,11 +1121,11 @@ mod impls {
                     Affine::translate((100. * (x as f64 + 0.5), 100. * (y as f64 + 0.5)));
                 const CLIPS_PER_FILL: usize = 3;
                 for _ in 0..CLIPS_PER_FILL {
-                    let rot = Affine::rotate(rng.gen_range(0.0..PI));
+                    let rot = Affine::rotate(rng.random_range(0.0..PI));
                     scene.push_layer(Mix::Clip, 1.0, translate * rot, &base_tri);
                 }
-                let rot = Affine::rotate(rng.gen_range(0.0..PI));
-                let color = Color::new([rng.r#gen(), rng.r#gen(), rng.r#gen(), 1.]);
+                let rot = Affine::rotate(rng.random_range(0.0..PI));
+                let color = Color::new([rng.random(), rng.random(), rng.random(), 1.]);
                 scene.fill(Fill::NonZero, translate * rot, color, None, &base_tri);
                 for _ in 0..CLIPS_PER_FILL {
                     scene.pop_layer();
