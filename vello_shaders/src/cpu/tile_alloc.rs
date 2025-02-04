@@ -1,7 +1,7 @@
 // Copyright 2023 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
 
-use vello_encoding::{BumpAllocators, ConfigUniform, DrawTag, Path, Tile};
+use vello_encoding::{BumpAllocators, ConfigUniform, DrawBbox, DrawTag, Path, Tile};
 
 use super::CpuBinding;
 
@@ -13,7 +13,7 @@ const SY: f32 = 1.0 / (TILE_HEIGHT as f32);
 pub fn tile_alloc_main(
     config: &ConfigUniform,
     scene: &[u32],
-    draw_bboxes: &[[f32; 4]],
+    draw_bboxes: &[DrawBbox],
     bump: &mut BumpAllocators,
     paths: &mut [Path],
     tiles: &mut [Tile],
@@ -28,7 +28,7 @@ pub fn tile_alloc_main(
         let mut x1 = 0;
         let mut y1 = 0;
         if drawtag != DrawTag::NOP && drawtag != DrawTag::END_CLIP {
-            let bbox = draw_bboxes[drawobj_ix as usize];
+            let bbox = draw_bboxes[drawobj_ix as usize].bbox;
             if bbox[0] < bbox[2] && bbox[1] < bbox[3] {
                 x0 = (bbox[0] * SX).floor() as i32;
                 y0 = (bbox[1] * SY).floor() as i32;

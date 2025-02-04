@@ -117,6 +117,7 @@ mod render;
 mod scene;
 mod shaders;
 
+pub mod cpu;
 #[cfg(feature = "wgpu")]
 pub mod util;
 #[cfg(feature = "wgpu")]

@@ -1,7 +1,9 @@
 // Copyright 2023 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
 
-use vello_encoding::{BinHeader, BumpAllocators, ConfigUniform, DrawMonoid, PathBbox};
+use vello_encoding::{
+    BinHeader, BumpAllocators, ClipBbox, ConfigUniform, DrawBbox, DrawMonoid, PathBbox,
+};
 
 use super::CpuBinding;
 
@@ -27,8 +29,8 @@ pub fn binning_main(
     config: &ConfigUniform,
     draw_monoids: &[DrawMonoid],
     path_bbox_buf: &[PathBbox],
-    clip_bbox_buf: &[[f32; 4]],
-    intersected_bbox: &mut [[f32; 4]],
+    clip_bbox_buf: &[ClipBbox],
+    intersected_bbox: &mut [DrawBbox],
     bump: &mut BumpAllocators,
     bin_data: &mut [u32],
     bin_header: &mut [BinHeader],
@@ -49,7 +51,7 @@ pub fn binning_main(
                 let mut clip_bbox = [-1e9, -1e9, 1e9, 1e9];
                 if draw_monoid.clip_ix > 0 {
                     assert!(draw_monoid.clip_ix - 1 < config.layout.n_clips);
-                    clip_bbox = clip_bbox_buf[draw_monoid.clip_ix as usize - 1];
+                    clip_bbox = clip_bbox_buf[draw_monoid.clip_ix as usize - 1].bbox;
                 }
                 let path_bbox = path_bbox_buf[draw_monoid.path_ix as usize];
                 let pb = [
@@ -59,7 +61,7 @@ pub fn binning_main(
                     path_bbox.y1 as f32,
                 ];
                 let bbox = bbox_intersect(clip_bbox, pb);
-                intersected_bbox[element_ix] = bbox;
+                intersected_bbox[element_ix] = DrawBbox { bbox };
                 if bbox[0] < bbox[2] && bbox[1] < bbox[3] {
                     x0 = (bbox[0] * SX).floor() as i32;
                     y0 = (bbox[1] * SY).floor() as i32;
