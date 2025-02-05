@@ -138,6 +138,7 @@ pub mod low_level {
     /// Temporary export, used in `with_winit` for stats
     pub use vello_encoding::BumpAllocators;
 }
+use cpu::{render_to_texture, CoarseBuffers};
 /// Styling and composition primitives.
 pub use peniko;
 /// 2D geometry, with a focus on curves.
@@ -461,21 +462,37 @@ impl Renderer {
         texture: &TextureView,
         params: &RenderParams,
     ) -> Result<()> {
-        let (recording, target) =
-            render::render_full(scene, &mut self.resolver, &self.shaders, params);
-        let external_resources = [ExternalResource::Image(
-            *target.as_image().unwrap(),
-            texture,
-        )];
-        self.engine.run_recording(
-            device,
-            queue,
-            &recording,
-            &external_resources,
-            "render_to_texture",
-            #[cfg(feature = "wgpu-profiler")]
-            &mut self.profiler,
-        )?;
+        if self.options.use_cpu {
+            eprintln!("Using new CPU path");
+            let encoding = scene.encoding();
+            let mut resolver = Resolver::new();
+            let command = render_to_texture(
+                encoding,
+                &mut resolver,
+                &mut CoarseBuffers::default(),
+                device,
+                queue,
+                texture,
+                params,
+            );
+            queue.submit([command]);
+        } else {
+            let (recording, target) =
+                render::render_full(scene, &mut self.resolver, &self.shaders, params);
+            let external_resources = [ExternalResource::Image(
+                *target.as_image().unwrap(),
+                texture,
+            )];
+            self.engine.run_recording(
+                device,
+                queue,
+                &recording,
+                &external_resources,
+                "render_to_texture",
+                #[cfg(feature = "wgpu-profiler")]
+                &mut self.profiler,
+            )?;
+        }
         Ok(())
     }
 

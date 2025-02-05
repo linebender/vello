@@ -1,23 +1,33 @@
 use vello_encoding::{
     BinHeader, BufferSize, BumpAllocators, Clip, ClipBbox, ClipBic, ClipElement, DrawBbox,
-    DrawMonoid, Encoding, IndirectCount, LineSoup, Path, PathBbox, PathMonoid, PathSegment,
+    DrawMonoid, Encoding, IndirectCount, Layout, LineSoup, Path, PathBbox, PathMonoid, PathSegment,
     RenderConfig, Resolver, SegmentCount, Tile,
 };
-use vello_shaders::cpu::{
-    backdrop_main, bbox_clear_main, binning_main, clip_leaf_main, clip_reduce_main, coarse_main,
-    draw_leaf_main, draw_reduce_main, flatten_main, path_count_main, path_count_setup_main,
-    path_tiling_main, path_tiling_setup, path_tiling_setup_main, pathtag_reduce_main,
-    pathtag_scan_main, tile_alloc_main,
+use vello_shaders::{
+    cpu::{
+        backdrop_main, bbox_clear_main, binning_main, clip_leaf_main, clip_reduce_main,
+        coarse_main, draw_leaf_main, draw_reduce_main, flatten_main, path_count_main,
+        path_count_setup_main, path_tiling_main, path_tiling_setup_main, pathtag_reduce_main,
+        pathtag_scan_main, tile_alloc_main,
+    },
+    SHADERS,
+};
+use wgpu::{
+    util::{BufferInitDescriptor, DeviceExt},
+    BindGroupDescriptor, BindGroupEntry, BufferDescriptor, BufferUsages, CommandEncoderDescriptor,
+    ComputePassDescriptor, ComputePipelineDescriptor, Device, PipelineCompilationOptions, Queue,
+    TexelCopyTextureInfo, TextureAspect, TextureDescriptor, TextureFormat, TextureUsages,
+    TextureView, TextureViewDescriptor,
 };
 
 use crate::RenderParams;
 
 #[derive(Default)]
-pub struct Buffer<T: bytemuck::Zeroable> {
+pub struct Buffer<T: bytemuck::Zeroable + bytemuck::NoUninit> {
     inner: Vec<T>,
 }
 
-impl<T: bytemuck::Zeroable> Buffer<T> {
+impl<T: bytemuck::Zeroable + bytemuck::NoUninit> Buffer<T> {
     fn to_fit(&mut self, size: BufferSize<T>) -> &mut [T] {
         self.inner
             .resize_with(size.len().try_into().expect("32 bit platform"), || {
@@ -25,17 +35,16 @@ impl<T: bytemuck::Zeroable> Buffer<T> {
             });
         &mut self.inner
     }
-    fn to_fit_zeroed(&mut self, size: BufferSize<T>) -> &mut [T] {
-        self.inner.clear();
-        self.to_fit(size)
+
+    fn bytes(&self) -> &[u8] {
+        bytemuck::cast_slice(&self.inner)
     }
 }
 
 #[derive(Default)]
 pub struct CoarseBuffers {
+    packed: Vec<u8>,
     path_reduced: Buffer<PathMonoid>,
-    path_reduced2: Buffer<PathMonoid>,
-    path_reduced_scan: Buffer<PathMonoid>,
     path_monoids: Buffer<PathMonoid>,
     path_bboxes: Buffer<PathBbox>,
     draw_reduced: Buffer<DrawMonoid>,
@@ -47,7 +56,6 @@ pub struct CoarseBuffers {
     clip_bboxes: Buffer<ClipBbox>,
     draw_bboxes: Buffer<DrawBbox>,
     bump_alloc: BumpAllocators,
-    indirect_count: Buffer<IndirectCount>,
     bin_headers: Buffer<BinHeader>,
     paths: Buffer<Path>,
     // Bump allocated buffers
@@ -56,20 +64,16 @@ pub struct CoarseBuffers {
     tiles: Buffer<Tile>,
     seg_counts: Buffer<SegmentCount>,
     segments: Buffer<PathSegment>,
-    blend_spill: Buffer<u32>,
     ptcl: Buffer<u32>,
 }
 
 pub fn run_coarse_cpu(
-    encoding: &Encoding,
-    resolver: &mut Resolver,
     params: &RenderParams,
     buffers: &mut CoarseBuffers,
+    cpu_config: &RenderConfig,
 ) {
-    let mut packed = vec![];
+    let packed = &mut buffers.packed;
 
-    let (layout, ramps, images) = resolver.resolve(encoding, &mut packed);
-    let cpu_config = RenderConfig::new(&layout, params.width, params.height, &params.base_color);
     // HACK: The coarse workgroup counts is the number of active bins.
     if (cpu_config.workgroup_counts.coarse.0
         * cpu_config.workgroup_counts.coarse.1
@@ -88,7 +92,7 @@ pub fn run_coarse_cpu(
 
     // TODO: This is an alignment hazard, which just happens to work on mainstream platforms
     // Maybe don't merge as-is?
-    let scene_buf = bytemuck::cast_slice(&packed);
+    let scene_buf = bytemuck::cast_slice(packed);
     let config_buf = cpu_config.gpu;
     let info_bin_data_buf = buffers.bin_data.to_fit(buffer_sizes.bin_data);
     let tile_buf = buffers.tiles.to_fit(buffer_sizes.tiles);
@@ -244,4 +248,211 @@ pub fn run_coarse_cpu(
         tile_buf,
         segments_buf,
     );
+}
+
+pub fn render_to_texture(
+    encoding: &Encoding,
+    resolver: &mut Resolver,
+    buffers: &mut CoarseBuffers,
+    device: &Device,
+    queue: &Queue,
+    texture: &TextureView,
+    params: &RenderParams,
+) -> wgpu::CommandBuffer {
+    let (layout, ramps, images) = resolver.resolve(encoding, &mut buffers.packed);
+    let cpu_config = RenderConfig::new(&layout, params.width, params.height, &params.base_color);
+    run_coarse_cpu(params, buffers, &cpu_config);
+    // Yes, this needs to be retained. This is very intentionally done before API design to retain things properly.
+    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("TEMP FINE"),
+        source: wgpu::ShaderSource::Wgsl(SHADERS.fine_area.wgsl.code),
+    });
+    let pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {
+        label: None,
+        layout: None,
+        module: &module,
+        entry_point: None,
+        compilation_options: PipelineCompilationOptions::default(),
+        cache: None,
+    });
+    let layout = pipeline.get_bind_group_layout(0);
+
+    let config_buf = device.create_buffer_init(&BufferInitDescriptor {
+        contents: bytemuck::bytes_of(&cpu_config.gpu),
+        label: None,
+        usage: BufferUsages::UNIFORM,
+    });
+    let segments_buf = device.create_buffer_init(&BufferInitDescriptor {
+        contents: buffers.segments.bytes(),
+        label: None,
+        usage: BufferUsages::STORAGE,
+    });
+    let ptcl_buf = device.create_buffer_init(&BufferInitDescriptor {
+        contents: buffers.ptcl.bytes(),
+        label: None,
+        usage: BufferUsages::STORAGE,
+    });
+    let info_bin_data_buf = device.create_buffer_init(&BufferInitDescriptor {
+        contents: buffers.bin_data.bytes(),
+        label: None,
+        usage: BufferUsages::STORAGE,
+    });
+    let blend_spill_buf = device.create_buffer(&BufferDescriptor {
+        label: None,
+        size: cpu_config.buffer_sizes.blend_spill.size_in_bytes().into(),
+        usage: BufferUsages::STORAGE,
+        mapped_at_creation: false,
+    });
+
+    let gradient_image = if ramps.height == 0 {
+        device.create_texture(&TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d::default(),
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: TextureFormat::Rgba8Unorm,
+            usage: TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        })
+    } else {
+        device.create_texture_with_data(
+            queue,
+            &TextureDescriptor {
+                label: None,
+                size: wgpu::Extent3d {
+                    width: ramps.width,
+                    height: ramps.height,
+                    ..Default::default()
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: TextureFormat::Rgba8Unorm,
+                usage: TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            },
+            wgpu::util::TextureDataOrder::default(),
+            bytemuck::cast_slice(ramps.data),
+        )
+    };
+    let gradient_view = gradient_image.create_view(&TextureViewDescriptor::default());
+
+    let (image_w, image_h) = if images.images.is_empty() {
+        (1, 1)
+    } else {
+        (images.width, images.height)
+    };
+    let format = TextureFormat::Rgba8Unorm;
+    let image_proxy = device.create_texture(&TextureDescriptor {
+        label: None,
+        size: wgpu::Extent3d {
+            width: image_w,
+            height: image_h,
+            ..Default::default()
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format,
+        usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    let block_size = format
+        .block_copy_size(None)
+        .expect("ImageFormat must have a valid block size");
+    for (image, x, y) in images.images {
+        queue.write_texture(
+            TexelCopyTextureInfo {
+                texture: &image_proxy,
+                mip_level: 0,
+                origin: wgpu::Origin3d {
+                    x: *x,
+                    y: *y,
+                    ..Default::default()
+                },
+                aspect: TextureAspect::All,
+            },
+            image.data.data(),
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(image.width * block_size),
+                rows_per_image: None,
+            },
+            wgpu::Extent3d {
+                width: image.width,
+                height: image.height,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
+    let image_view = image_proxy.create_view(&TextureViewDescriptor::default());
+
+    let bind_group = device.create_bind_group(&BindGroupDescriptor {
+        label: None,
+        layout: &layout,
+        entries: &[
+            BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &config_buf,
+                    offset: 0,
+                    size: None,
+                }),
+            },
+            BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &segments_buf,
+                    offset: 0,
+                    size: None,
+                }),
+            },
+            BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &ptcl_buf,
+                    offset: 0,
+                    size: None,
+                }),
+            },
+            BindGroupEntry {
+                binding: 3,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &info_bin_data_buf,
+                    offset: 0,
+                    size: None,
+                }),
+            },
+            BindGroupEntry {
+                binding: 4,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &blend_spill_buf,
+                    offset: 0,
+                    size: None,
+                }),
+            },
+            BindGroupEntry {
+                binding: 5,
+                resource: wgpu::BindingResource::TextureView(texture),
+            },
+            BindGroupEntry {
+                binding: 6,
+                resource: wgpu::BindingResource::TextureView(&gradient_view),
+            },
+            BindGroupEntry {
+                binding: 7,
+                resource: wgpu::BindingResource::TextureView(&image_view),
+            },
+        ],
+    });
+    let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor::default());
+    {
+        let mut cpass = encoder.begin_compute_pass(&ComputePassDescriptor::default());
+        cpass.set_pipeline(&pipeline);
+        cpass.set_bind_group(0, &bind_group, &[]);
+        let (x, y, z) = cpu_config.workgroup_counts.fine;
+        cpass.dispatch_workgroups(x, y, z);
+    }
+    encoder.finish()
 }
