@@ -11,7 +11,7 @@
 
 use std::cmp::Ordering;
 
-use rand::seq::SliceRandom;
+use rand::seq::IndexedRandom;
 use rand::Rng;
 use vello::kurbo::{Affine, BezPath, CubicBez, Line, ParamCurve, PathSeg, Point, QuadBez, Stroke};
 use vello::peniko::Color;
@@ -77,7 +77,7 @@ impl TestScene for MMark {
             ((c - 8) * 10000).min(120_000)
         };
         self.resize(n);
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let mut path = BezPath::new();
         let len = self.elements.len();
         for (i, element) in self.elements.iter_mut().enumerate() {
@@ -101,7 +101,7 @@ impl TestScene for MMark {
                 );
                 path.truncate(0); // Should have clear method, to avoid allocations.
             }
-            if rng.r#gen::<f32>() > 0.995 {
+            if rng.random::<f32>() > 0.995 {
                 element.is_split ^= true;
             }
         }
@@ -129,8 +129,8 @@ const COLORS: &[Color] = &[
 
 impl Element {
     fn new_rand(last: GridPoint) -> Self {
-        let mut rng = rand::thread_rng();
-        let seg_type = rng.gen_range(0..4);
+        let mut rng = rand::rng();
+        let seg_type = rng.random_range(0..4);
         let next = GridPoint::random_point(last);
         let (grid_point, seg) = if seg_type < 2 {
             (
@@ -161,8 +161,8 @@ impl Element {
             )
         };
         let color = *COLORS.choose(&mut rng).unwrap();
-        let width = rng.r#gen::<f64>().powi(5) * 20.0 + 1.0;
-        let is_split = rng.r#gen();
+        let width = rng.random::<f64>().powi(5) * 20.0 + 1.0;
+        let is_split = rng.random();
         Self {
             seg,
             color,
@@ -177,7 +177,7 @@ const OFFSETS: &[(i64, i64)] = &[(-4, 0), (2, 0), (1, -2), (1, 2)];
 
 impl GridPoint {
     fn random_point(last: Self) -> Self {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         let offset = OFFSETS.choose(&mut rng).unwrap();
         let mut x = last.0 + offset.0;
