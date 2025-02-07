@@ -1184,7 +1184,7 @@ impl<'a> TransientBindMap<'a> {
                     _ => bind_map.materialize_cpu_buf(proxy),
                 },
                 ResourceProxy::Image(_) => todo!(),
-            };
+            }
         }
         // Second pass takes immutable references
         bindings

@@ -407,7 +407,7 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
                     self.context
                         .resize_surface(surface, size.width, size.height);
                     window.request_redraw();
-                };
+                }
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 if button == MouseButton::Left {
