@@ -22,7 +22,7 @@ default = ["wgpu"]
 # bump-allocated GPU memory.
 # TODO: Turn this into a runtime option used at resolve time and remove the feature.
 bump_estimate = ["vello_encoding/bump_estimate"]
-wgpu = ["dep:wgpu", "dep:vello_shaders", "dep:futures-intrusive"]
+wgpu = ["dep:wgpu", "dep:vello_shaders"]
 
 # Development only features
 
@@ -50,7 +50,6 @@ peniko = { workspace = true }
 wgpu = { workspace = true, optional = true }
 log = { workspace = true }
 static_assertions = { workspace = true }
-futures-intrusive = { workspace = true, optional = true }
 wgpu-profiler = { workspace = true, optional = true }
 thiserror = { workspace = true }
 # TODO: Add feature for built-in bitmap emoji support?

@@ -76,6 +76,7 @@ export_scenes!(
     labyrinth(labyrinth),
     robust_paths(robust_paths),
     base_color_test(base_color_test: animated),
+    translucent_base(translucent_base),
     clip_test(clip_test: animated),
     longpathdash_butt(impls::longpathdash(Cap::Butt), "longpathdash (butt caps)", false),
     longpathdash_round(impls::longpathdash(Cap::Round), "longpathdash (round caps)", false),
@@ -1528,6 +1529,20 @@ mod impls {
         // Cycle through the hue value every 5 seconds (t % 5) * 360/5
         let color = AlphaColor::<Lch>::new([80., 80., (params.time % 5.) as f32 * 72., 1.]);
         params.base_color = Some(color.convert());
+
+        // Blend a white square over it.
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            palette::css::WHITE.with_alpha(0.5),
+            None,
+            &Rect::new(50.0, 50.0, 500.0, 500.0),
+        );
+    }
+
+    pub(super) fn translucent_base(scene: &mut Scene, params: &mut SceneParams<'_>) {
+        let background_color = Color::TRANSPARENT;
+        params.base_color = Some(background_color);
 
         // Blend a white square over it.
         scene.fill(

@@ -42,7 +42,7 @@ use winit::dpi::LogicalSize;
 use winit::event_loop::EventLoop;
 use winit::window::{Window, WindowAttributes};
 
-use vello::wgpu;
+use vello::wgpu::{self, CommandEncoderDescriptor};
 
 #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
 mod hot_reload;
@@ -210,7 +210,6 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
                 let mut renderer = Renderer::new(
                     &self.context.devices[id].device,
                     RendererOptions {
-                        surface_format: Some(render_state.surface.format),
                         use_cpu: self.use_cpu,
                         antialiasing_support: AA_CONFIGS.iter().copied().collect(),
                         num_init_threads: NonZeroUsize::new(self.num_init_threads),
@@ -544,53 +543,47 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
                     }
                 }
                 drop(encoding_span);
-                let texture_span = tracing::trace_span!("Getting texture").entered();
+                let render_span = tracing::trace_span!("Dispatching render").entered();
+                self.renderers[surface.dev_id]
+                    .as_mut()
+                    .unwrap()
+                    .render_to_texture(
+                        &device_handle.device,
+                        &device_handle.queue,
+                        &self.scene,
+                        &surface.target_view,
+                        &render_params,
+                    )
+                    .expect("failed to render to surface");
+                drop(render_span);
+
+                let texture_span = tracing::trace_span!("Blitting to surface").entered();
                 let surface_texture = surface
                     .surface
                     .get_current_texture()
                     .expect("failed to get surface texture");
-
-                drop(texture_span);
-                let render_span = tracing::trace_span!("Dispatching render").entered();
-                // Note: we don't run the async/"robust" pipeline, as
-                // it requires more async wiring for the readback. See
-                // [#gpu > async on wasm](https://xi.zulipchat.com/#narrow/stream/197075-gpu/topic/async.20on.20wasm)
-                #[allow(deprecated)]
-                // #[expect(deprecated, reason = "This deprecation is not targeted at us.")] // Our MSRV is too low to use `expect`
-                if self.async_pipeline && cfg!(not(target_arch = "wasm32")) {
-                    self.scene_complexity = vello::util::block_on_wgpu(
-                        &device_handle.device,
-                        self.renderers[surface.dev_id]
-                            .as_mut()
-                            .unwrap()
-                            .render_to_surface_async(
-                                &device_handle.device,
-                                &device_handle.queue,
-                                &self.scene,
-                                &surface_texture,
-                                &render_params,
-                                self.debug,
-                            ),
-                    )
-                    .expect("failed to render to surface");
-                } else {
-                    self.renderers[surface.dev_id]
-                        .as_mut()
-                        .unwrap()
-                        .render_to_surface(
-                            &device_handle.device,
-                            &device_handle.queue,
-                            &self.scene,
-                            &surface_texture,
-                            &render_params,
-                        )
-                        .expect("failed to render to surface");
-                }
+                // Perform the copy
+                // (TODO: Does it improve throughput to acquire the surface after the previous texture render has happened?)
+                let mut encoder =
+                    device_handle
+                        .device
+                        .create_command_encoder(&CommandEncoderDescriptor {
+                            label: Some("Surface Blit"),
+                        });
+                surface.blitter.copy(
+                    &device_handle.device,
+                    &mut encoder,
+                    &surface.target_view,
+                    &surface_texture
+                        .texture
+                        .create_view(&wgpu::TextureViewDescriptor::default()),
+                );
+                device_handle.queue.submit([encoder.finish()]);
                 surface_texture.present();
-                drop(render_span);
+                drop(texture_span);
 
                 {
-                    let _poll_aspan = tracing::trace_span!("Polling wgpu device").entered();
+                    let _poll_span = tracing::trace_span!("Polling wgpu device").entered();
                     device_handle.device.poll(wgpu::Maintain::Poll);
                 }
                 let new_time = Instant::now();
@@ -786,6 +779,7 @@ fn window_attributes() -> WindowAttributes {
     Window::default_attributes()
         .with_inner_size(LogicalSize::new(1044, 800))
         .with_resizable(true)
+        .with_transparent(true)
         .with_title("Vello demo")
 }
 

@@ -299,6 +299,10 @@ impl WgpuEngine {
         })
     }
 
+    #[expect(
+        unused,
+        reason = "Used by debug layers, which have been temporarily removed."
+    )]
     pub fn add_render_shader(
         &mut self,
         device: &Device,
@@ -738,10 +742,18 @@ impl WgpuEngine {
         Ok(())
     }
 
+    #[expect(
+        unused,
+        reason = "Used by debug layers, which have been temporarily removed."
+    )]
     pub fn get_download(&self, buf: BufferProxy) -> Option<&Buffer> {
         self.downloads.get(&buf.id)
     }
 
+    #[expect(
+        unused,
+        reason = "Used by debug layers, which have been temporarily removed."
+    )]
     pub fn free_download(&mut self, buf: BufferProxy) {
         self.downloads.remove(&buf.id);
     }
