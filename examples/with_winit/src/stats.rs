@@ -133,9 +133,11 @@ impl Snapshot {
             let sample_ms = ((*sample as f64) * 0.001).min(display_max);
             let h = sample_ms / display_max;
             let s = Affine::scale_non_uniform(1., -h);
-            #[allow(clippy::match_overlapping_arm)]
+            #[expect(clippy::match_overlapping_arm, reason = "Better code style")]
             let color = match *sample {
+                // This frame hits 60fps
                 ..=16_667 => Color::from_rgb8(100, 143, 255),
+                // This frame hits 30fps
                 ..=33_334 => Color::from_rgb8(255, 176, 0),
                 _ => Color::from_rgb8(220, 38, 127),
             };

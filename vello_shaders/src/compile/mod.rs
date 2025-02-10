@@ -194,7 +194,7 @@ impl ShaderInfo {
             if let Ok(permutations_source) = fs::read_to_string(shader_dir.join("permutations")) {
                 permutations::parse(&permutations_source)
             } else {
-                Default::default()
+                HashMap::default()
             };
         //println!("{permutation_map:?}");
         let imports = preprocess::get_imports(shader_dir);

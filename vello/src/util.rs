@@ -6,8 +6,8 @@
 use std::future::Future;
 
 use wgpu::{
-    Adapter, Device, Instance, Limits, Queue, Surface, SurfaceConfiguration, SurfaceTarget,
-    TextureFormat,
+    Adapter, Device, Instance, Limits, MemoryHints, Queue, Surface, SurfaceConfiguration,
+    SurfaceTarget, TextureFormat,
 };
 
 use crate::{Error, Result};
@@ -157,7 +157,7 @@ impl RenderContext {
                     label: None,
                     required_features: features & maybe_features,
                     required_limits: limits,
-                    memory_hints: Default::default(),
+                    memory_hints: MemoryHints::default(),
                 },
                 None,
             )

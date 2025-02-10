@@ -34,8 +34,8 @@ impl ImageCache {
     pub(crate) fn new() -> Self {
         Self {
             atlas: AtlasAllocator::new(size2(DEFAULT_ATLAS_SIZE, DEFAULT_ATLAS_SIZE)),
-            map: Default::default(),
-            images: Default::default(),
+            map: HashMap::default(),
+            images: Vec::default(),
         }
     }
 
