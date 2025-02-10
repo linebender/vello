@@ -125,12 +125,8 @@ fn fine_main(
     let mut area = vec![0.0_f32; TILE_SIZE];
     let mut rgba = vec![[0.0_f32; 4]; TILE_SIZE];
     for tile_ix in 0..n_tiles {
-        for x in &mut rgba {
-            *x = [0.0; 4];
-        }
-        for a in &mut area {
-            *a = 0.0;
-        }
+        rgba.fill([0.0; 4]);
+        area.fill(0.0);
         let tile_x = tile_ix % width_in_tiles;
         let tile_y = tile_ix / width_in_tiles;
         let mut cmd_ix = tile_ix * PTCL_INITIAL_ALLOC;
@@ -151,9 +147,7 @@ fn fine_main(
                     cmd_ix += 4;
                 }
                 CMD_SOLID => {
-                    for a in &mut area {
-                        *a = 1.0;
-                    }
+                    area.fill(1.0);
                     cmd_ix += 2;
                 }
                 CMD_COLOR => {
