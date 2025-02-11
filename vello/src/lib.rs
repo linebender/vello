@@ -441,8 +441,8 @@ impl Renderer {
     ///    that texture to the surface.
     ///    This pattern is supported by the [`util`] module.
     /// 2) Call `render_to_texture` directly on the [`SurfaceTexture`][wgpu::SurfaceTexture]'s texture, if
-    ///    it has the right usages. This should generally be avoided, as it's a potential performance pitfall
-    ///    on GPUs where the render pipeline method of writing to surfaces is assumed and optimised for.
+    ///    it has the right usages. This should generally be avoided, as some GPUs assume that you will not
+    ///    be rendering to the surface using a compute pipeline, and optimise accordingly.
     pub fn render_to_texture(
         &mut self,
         device: &Device,
@@ -515,10 +515,6 @@ impl Renderer {
     /// Renders a scene to the target texture using an async pipeline.
     ///
     /// Almost all consumers should prefer [`Self::render_to_texture`].
-    ///
-    /// The texture is assumed to be of the specified dimensions and have been created with
-    /// the [`wgpu::TextureFormat::Rgba8Unorm`] format and the [`wgpu::TextureUsages::STORAGE_BINDING`]
-    /// flag set.
     ///
     /// The return value is the value of the `BumpAllocators` in this rendering, which is currently used
     /// for debug output.
