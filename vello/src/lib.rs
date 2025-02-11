@@ -120,6 +120,7 @@ mod shaders;
 pub mod cpu;
 #[cfg(feature = "wgpu")]
 pub mod util;
+pub mod v2;
 #[cfg(feature = "wgpu")]
 mod wgpu_engine;
 

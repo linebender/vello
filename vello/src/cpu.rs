@@ -1,6 +1,8 @@
+use std::ops::ControlFlow;
+
 use vello_encoding::{
     BinHeader, BufferSize, BumpAllocators, Clip, ClipBbox, ClipBic, ClipElement, DrawBbox,
-    DrawMonoid, Encoding, IndirectCount, Layout, LineSoup, Path, PathBbox, PathMonoid, PathSegment,
+    DrawMonoid, Encoding, IndirectCount, LineSoup, Path, PathBbox, PathMonoid, PathSegment,
     RenderConfig, Resolver, SegmentCount, Tile,
 };
 use vello_shaders::{
@@ -28,7 +30,7 @@ pub struct Buffer<T: bytemuck::Zeroable + bytemuck::NoUninit> {
 }
 
 impl<T: bytemuck::Zeroable + bytemuck::NoUninit> Buffer<T> {
-    fn to_fit(&mut self, size: BufferSize<T>) -> &mut [T] {
+    fn fit_slice(&mut self, size: BufferSize<T>) -> &mut [T] {
         self.inner
             .resize_with(size.len().try_into().expect("32 bit platform"), || {
                 T::zeroed()
@@ -67,11 +69,36 @@ pub struct CoarseBuffers {
     ptcl: Buffer<u32>,
 }
 
+pub enum Stages {
+    PathTagReduce,
+    PathTagScan,
+    BboxClear,
+    Flatten,
+    DrawReduce,
+    DrawLeaf,
+    ClipReduce,
+    ClipLeaf,
+    Binning,
+    TileAlloc,
+    PathCount,
+    Backdrop,
+    Coarse,
+    PathTiling,
+}
+
 pub fn run_coarse_cpu(
     params: &RenderParams,
     buffers: &mut CoarseBuffers,
     cpu_config: &RenderConfig,
 ) {
+    let _ = run_coarse_cpu_internal(params, buffers, cpu_config);
+}
+
+fn run_coarse_cpu_internal(
+    params: &RenderParams,
+    buffers: &mut CoarseBuffers,
+    cpu_config: &RenderConfig,
+) -> ControlFlow<()> {
     let packed = &mut buffers.packed;
 
     // HACK: The coarse workgroup counts is the number of active bins.
@@ -90,47 +117,52 @@ pub fn run_coarse_cpu(
     let buffer_sizes = &cpu_config.buffer_sizes;
     let wg_counts = &cpu_config.workgroup_counts;
 
+    // Some buffers are marked as "write-only". This means that they will be performant to
+    // write into https://docs.rs/wgpu/latest/wgpu/struct.BufferViewMut.html directly (not yet set up)
+
     // TODO: This is an alignment hazard, which just happens to work on mainstream platforms
     // Maybe don't merge as-is?
     let scene_buf = bytemuck::cast_slice(packed);
     let config_buf = cpu_config.gpu;
-    let info_bin_data_buf = buffers.bin_data.to_fit(buffer_sizes.bin_data);
-    let tile_buf = buffers.tiles.to_fit(buffer_sizes.tiles);
-    let segments_buf = buffers.segments.to_fit(buffer_sizes.segments);
+    let info_bin_data_buf = buffers.bin_data.fit_slice(buffer_sizes.bin_data);
+    let tile_buf = buffers.tiles.fit_slice(buffer_sizes.tiles);
+    // Write-only
+    let segments_buf = buffers.segments.fit_slice(buffer_sizes.segments);
+    // Write-only
+    let ptcl_buf = buffers.ptcl.fit_slice(buffer_sizes.ptcl);
 
-    let ptcl_buf = buffers.ptcl.to_fit(buffer_sizes.ptcl);
-    let reduced_buf = buffers.path_reduced.to_fit(buffer_sizes.path_reduced);
+    let reduced_buf = buffers.path_reduced.fit_slice(buffer_sizes.path_reduced);
 
     pathtag_reduce_main(wg_counts.path_reduce.0, &config_buf, scene_buf, reduced_buf);
 
-    let tagmonoid_buf = buffers.path_monoids.to_fit(buffer_sizes.path_monoids);
+    let tagmonoid_buf = buffers.path_monoids.fit_slice(buffer_sizes.path_monoids);
 
     pathtag_scan_main(
         wg_counts.path_scan.0,
         &config_buf,
         scene_buf,
-        reduced_buf,
+        &*reduced_buf,
         tagmonoid_buf,
     );
 
     // Could re-use `reduced_buf` from this point
 
-    let path_bbox_buf = buffers.path_bboxes.to_fit(buffer_sizes.path_bboxes);
+    let path_bbox_buf = buffers.path_bboxes.fit_slice(buffer_sizes.path_bboxes);
 
     bbox_clear_main(&config_buf, path_bbox_buf);
     let bump_buf = &mut buffers.bump_alloc;
-    let lines_buf = buffers.lines.to_fit(buffer_sizes.lines);
+    let lines_buf = buffers.lines.fit_slice(buffer_sizes.lines);
     flatten_main(
         wg_counts.flatten.0,
         &config_buf,
         scene_buf,
-        tagmonoid_buf,
+        &*tagmonoid_buf,
         path_bbox_buf,
         bump_buf,
         lines_buf,
     );
 
-    let draw_reduced_buf = buffers.draw_reduced.to_fit(buffer_sizes.draw_reduced);
+    let draw_reduced_buf = buffers.draw_reduced.fit_slice(buffer_sizes.draw_reduced);
 
     draw_reduce_main(
         wg_counts.draw_reduce.0,
@@ -139,14 +171,14 @@ pub fn run_coarse_cpu(
         draw_reduced_buf,
     );
 
-    let draw_monoid_buf = buffers.draw_monoids.to_fit(buffer_sizes.draw_monoids);
-    let clip_inp_buf = buffers.clip_inps.to_fit(buffer_sizes.clip_inps);
+    let draw_monoid_buf = buffers.draw_monoids.fit_slice(buffer_sizes.draw_monoids);
+    let clip_inp_buf = buffers.clip_inps.fit_slice(buffer_sizes.clip_inps);
     draw_leaf_main(
         wg_counts.draw_leaf.0,
         &config_buf,
         scene_buf,
-        draw_reduced_buf,
-        path_bbox_buf,
+        &*draw_reduced_buf,
+        &*path_bbox_buf,
         draw_monoid_buf,
         info_bin_data_buf,
         clip_inp_buf,
@@ -154,26 +186,26 @@ pub fn run_coarse_cpu(
 
     // Could re-use `draw_reduced_buf` from this point
 
-    let clip_el_buf = buffers.clip_els.to_fit(buffer_sizes.clip_els);
+    let clip_el_buf = buffers.clip_els.fit_slice(buffer_sizes.clip_els);
 
-    let clip_bic_buf = buffers.clip_bics.to_fit(buffer_sizes.clip_bics);
+    let clip_bic_buf = buffers.clip_bics.fit_slice(buffer_sizes.clip_bics);
 
     if wg_counts.clip_reduce.0 > 0 {
         clip_reduce_main(
             wg_counts.clip_reduce.0,
-            clip_inp_buf,
-            path_bbox_buf,
+            &*clip_inp_buf,
+            &*path_bbox_buf,
             clip_bic_buf,
             clip_el_buf,
         );
     }
-    let clip_bbox_buf = buffers.clip_bboxes.to_fit(buffer_sizes.clip_bboxes);
+    let clip_bbox_buf = buffers.clip_bboxes.fit_slice(buffer_sizes.clip_bboxes);
 
     if wg_counts.clip_leaf.0 > 0 {
         clip_leaf_main(
             &config_buf,
             clip_inp_buf,
-            path_bbox_buf,
+            &*path_bbox_buf,
             draw_monoid_buf,
             clip_bbox_buf,
         );
@@ -181,16 +213,16 @@ pub fn run_coarse_cpu(
 
     // Could re-use `clip_inp_buf`, `clip_bic_buf`, and `clip_el_buf` from this point
 
-    let draw_bbox_buf = buffers.draw_bboxes.to_fit(buffer_sizes.draw_bboxes);
+    let draw_bbox_buf = buffers.draw_bboxes.fit_slice(buffer_sizes.draw_bboxes);
 
-    let bin_header_buf = buffers.bin_headers.to_fit(buffer_sizes.bin_headers);
+    let bin_header_buf = buffers.bin_headers.fit_slice(buffer_sizes.bin_headers);
 
     binning_main(
         wg_counts.binning.0,
         &config_buf,
-        draw_monoid_buf,
-        path_bbox_buf,
-        clip_bbox_buf,
+        &*draw_monoid_buf,
+        &*path_bbox_buf,
+        &*clip_bbox_buf,
         draw_bbox_buf,
         bump_buf,
         info_bin_data_buf,
@@ -202,11 +234,11 @@ pub fn run_coarse_cpu(
     // TODO: What does this comment mean?
     // Note: this only needs to be rounded up because of the workaround to store the tile_offset
     // in storage rather than workgroup memory.
-    let path_buf = buffers.paths.to_fit(buffer_sizes.paths);
+    let path_buf = buffers.paths.fit_slice(buffer_sizes.paths);
     tile_alloc_main(
         &config_buf,
         scene_buf,
-        draw_bbox_buf,
+        &*draw_bbox_buf,
         bump_buf,
         path_buf,
         tile_buf,
@@ -218,23 +250,24 @@ pub fn run_coarse_cpu(
 
     path_count_setup_main(bump_buf, &mut indirect_count_buf);
 
-    let seg_counts_buf = buffers.seg_counts.to_fit(buffer_sizes.seg_counts);
-    path_count_main(bump_buf, lines_buf, path_buf, tile_buf, seg_counts_buf);
+    let seg_counts_buf = buffers.seg_counts.fit_slice(buffer_sizes.seg_counts);
+    path_count_main(bump_buf, &*lines_buf, &*path_buf, tile_buf, seg_counts_buf);
 
-    backdrop_main(&config_buf, bump_buf, path_buf, tile_buf);
+    backdrop_main(&config_buf, &*bump_buf, &*path_buf, tile_buf);
 
     coarse_main(
         &config_buf,
         scene_buf,
-        draw_monoid_buf,
-        bin_header_buf,
-        info_bin_data_buf,
-        path_buf,
+        &*draw_monoid_buf,
+        &*bin_header_buf,
+        &*info_bin_data_buf,
+        &*path_buf,
         tile_buf,
         bump_buf,
         ptcl_buf,
     );
 
+    // TODO: Remove
     path_tiling_setup_main(
         bump_buf,
         &mut indirect_count_buf, /* ptcl_buf (for forwarding errors to fine)*/
@@ -242,12 +275,13 @@ pub fn run_coarse_cpu(
 
     path_tiling_main(
         bump_buf,
-        seg_counts_buf,
-        lines_buf,
-        path_buf,
-        tile_buf,
+        &*seg_counts_buf,
+        &*lines_buf,
+        &*path_buf,
+        &*tile_buf,
         segments_buf,
     );
+    ControlFlow::Continue(())
 }
 
 pub fn render_to_texture(
