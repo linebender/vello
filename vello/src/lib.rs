@@ -95,7 +95,6 @@
 #![allow(missing_docs, reason = "We have many as-yet undocumented items.")]
 #![expect(
     missing_debug_implementations,
-    unnameable_types,
     unreachable_pub,
     clippy::cast_possible_truncation,
     clippy::missing_assert_message,
@@ -105,6 +104,7 @@
 )]
 #![allow(
     clippy::todo,
+    unnameable_types,
     reason = "Deferred, only apply in some feature sets so not expect"
 )]
 
@@ -147,7 +147,7 @@ pub use vello_encoding::{Glyph, NormalizedCoord};
 
 use low_level::ShaderId;
 #[cfg(feature = "wgpu")]
-use low_level::{BumpAllocators, FullShaders, ImageFormat, ImageProxy, Recording, Render};
+use low_level::{BumpAllocators, FullShaders, Recording, Render};
 use thiserror::Error;
 
 #[cfg(feature = "wgpu")]
@@ -160,7 +160,7 @@ use wgpu_engine::{ExternalResource, WgpuEngine};
 #[cfg(feature = "wgpu")]
 use std::{num::NonZeroUsize, sync::atomic::AtomicBool};
 #[cfg(feature = "wgpu")]
-use wgpu::{Device, Queue, TextureFormat, TextureView};
+use wgpu::{Device, Queue, TextureView};
 #[cfg(all(feature = "wgpu", feature = "wgpu-profiler"))]
 use wgpu_profiler::{GpuProfiler, GpuProfilerSettings};
 
@@ -411,7 +411,7 @@ impl Renderer {
         #[cfg(not(target_arch = "wasm32"))]
         engine.build_shaders_if_needed(device, options.num_init_threads);
         #[cfg(feature = "debug_layers")]
-        let debug = debug::DebugRenderer::new(device, TextureFormat::Rgba8Unorm, &mut engine);
+        let debug = debug::DebugRenderer::new(device, wgpu::TextureFormat::Rgba8Unorm, &mut engine);
 
         Ok(Self {
             options,
@@ -498,7 +498,7 @@ impl Renderer {
         // We choose not to initialise these shaders in parallel, to ensure the error scope works correctly
         let shaders = shaders::full_shaders(device, &mut engine, &self.options)?;
         #[cfg(feature = "debug_layers")]
-        let debug = debug::DebugRenderer::new(device, TextureFormat::Rgba8Unorm, &mut engine);
+        let debug = debug::DebugRenderer::new(device, wgpu::TextureFormat::Rgba8Unorm, &mut engine);
         let error = device.pop_error_scope().await;
         if let Some(error) = error {
             return Err(error.into());
@@ -548,23 +548,18 @@ impl Renderer {
             }
         }
 
-        let width = params.width;
-        let height = params.height;
-
         let result = self
             .render_to_texture_async_internal(device, queue, scene, texture, params)
             .await?;
 
-        let mut recording = Recording::default();
-        let target_proxy = ImageProxy::new(
-            width,
-            height,
-            ImageFormat::from_wgpu(TextureFormat::Rgba8Unorm)
-                .expect("`TargetTexture` always has a supported texture format"),
-        );
-
         #[cfg(feature = "debug_layers")]
         {
+            let mut recording = Recording::default();
+            let target_proxy = recording::ImageProxy::new(
+                params.width,
+                params.height,
+                recording::ImageFormat::Rgba8,
+            );
             if let Some(captured) = result.captured {
                 let bump = result.bump.as_ref().unwrap();
                 // TODO: We could avoid this download if `DebugLayers::VALIDATION` is unset.
@@ -584,18 +579,17 @@ impl Renderer {
                 self.engine.free_download(captured.lines);
                 captured.release_buffers(&mut recording);
             }
+            let external_resources = [ExternalResource::Image(target_proxy, texture)];
+            self.engine.run_recording(
+                device,
+                queue,
+                &recording,
+                &external_resources,
+                "render_to_texture_async debug layers",
+                #[cfg(feature = "wgpu-profiler")]
+                &mut self.profiler,
+            )?;
         }
-
-        let external_resources = [ExternalResource::Image(target_proxy, texture)];
-        self.engine.run_recording(
-            device,
-            queue,
-            &recording,
-            &external_resources,
-            "render_to_texture_async debug layers",
-            #[cfg(feature = "wgpu-profiler")]
-            &mut self.profiler,
-        )?;
 
         #[cfg(feature = "wgpu-profiler")]
         {
