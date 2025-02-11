@@ -565,7 +565,7 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
                                 self.debug,
                             ),
                     )
-                    .expect("failed to render to surface");
+                    .expect("failed to render to texture");
                 } else {
                     self.renderers[surface.dev_id]
                         .as_mut()
@@ -577,7 +577,7 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
                             &surface.target_view,
                             &render_params,
                         )
-                        .expect("failed to render to surface");
+                        .expect("failed to render to texture");
                 }
                 drop(render_span);
 
