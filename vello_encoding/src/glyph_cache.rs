@@ -65,7 +65,7 @@ impl GlyphCache {
         // TODO: we're ignoring dashing for now
         let style_bits = match style {
             Style::Fill(fill) => super::path::Style::from_fill(*fill),
-            Style::Stroke(stroke) => super::path::Style::from_stroke(stroke),
+            Style::Stroke(stroke) => super::path::Style::from_stroke(stroke)?,
         };
         let style_bits: [u32; 2] = bytemuck::cast(style_bits);
         Some(GlyphCacheSession {
@@ -175,7 +175,8 @@ impl GlyphCacheSession<'_> {
                 true
             }
             Style::Stroke(stroke) => {
-                encoding_ptr.encode_stroke_style(stroke);
+                let encoded_stroke = encoding_ptr.encode_stroke_style(stroke);
+                debug_assert!(encoded_stroke, "Stroke width is non-zero");
                 false
             }
         };
