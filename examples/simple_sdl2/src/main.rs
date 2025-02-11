@@ -67,19 +67,14 @@ fn main() {
 
         let device_handle = &context.devices[surface.dev_id];
 
-        let surface_texture = surface
-            .surface
-            .get_current_texture()
-            .expect("failed to get surface texture");
-
         renderers[surface.dev_id]
             .as_mut()
             .unwrap()
-            .render_to_surface(
+            .render_to_texture(
                 &device_handle.device,
                 &device_handle.queue,
                 &scene,
-                &surface_texture,
+                &surface.target_view,
                 &vello::RenderParams {
                     base_color: palette::css::BLACK, // Background color
                     width,
@@ -89,6 +84,26 @@ fn main() {
             )
             .expect("failed to render to surface");
 
+        let surface_texture = surface
+            .surface
+            .get_current_texture()
+            .expect("failed to get surface texture");
+
+        let mut encoder =
+            device_handle
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("Surface Blit"),
+                });
+        surface.blitter.copy(
+            &device_handle.device,
+            &mut encoder,
+            &surface.target_view,
+            &surface_texture
+                .texture
+                .create_view(&wgpu::TextureViewDescriptor::default()),
+        );
+        device_handle.queue.submit([encoder.finish()]);
         for event in event_pump.poll_iter() {
             match event {
                 Event::Quit { .. }
@@ -108,7 +123,6 @@ fn create_vello_renderer(render_cx: &RenderContext, surface: &RenderSurface<'_>)
     Renderer::new(
         &render_cx.devices[surface.dev_id].device,
         RendererOptions {
-            surface_format: Some(surface.format),
             use_cpu: false,
             antialiasing_support: vello::AaSupport::all(),
             num_init_threads: NonZeroUsize::new(1),

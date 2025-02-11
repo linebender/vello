@@ -6,8 +6,8 @@
 use std::future::Future;
 
 use wgpu::{
-    Adapter, Device, Instance, Limits, MemoryHints, Queue, Surface, SurfaceConfiguration,
-    SurfaceTarget, TextureFormat,
+    util::TextureBlitter, Adapter, Device, Instance, Limits, MemoryHints, Queue, Surface,
+    SurfaceConfiguration, SurfaceTarget, Texture, TextureFormat, TextureView,
 };
 
 use crate::{Error, Result};
@@ -92,11 +92,15 @@ impl RenderContext {
             alpha_mode: wgpu::CompositeAlphaMode::Auto,
             view_formats: vec![],
         };
+        let (target_texture, target_view) = create_targets(width, height, &device_handle.device);
         let surface = RenderSurface {
             surface,
             config,
             dev_id,
             format,
+            target_texture,
+            target_view,
+            blitter: TextureBlitter::new(&device_handle.device, format),
         };
         self.configure_surface(&surface);
         Ok(surface)
@@ -104,6 +108,11 @@ impl RenderContext {
 
     /// Resizes the surface to the new dimensions.
     pub fn resize_surface(&self, surface: &mut RenderSurface<'_>, width: u32, height: u32) {
+        let (texture, view) = create_targets(width, height, &self.devices[surface.dev_id].device);
+        // TODO: Use clever resize semantics to avoid thrashing the memory allocator during a resize
+        // especially important on metal.
+        surface.target_texture = texture;
+        surface.target_view = view;
         surface.config.width = width;
         surface.config.height = height;
         self.configure_surface(surface);
@@ -173,6 +182,29 @@ impl RenderContext {
     }
 }
 
+/// Vello uses a compute shader to render to the provided texture, which means that it can't bind the surface
+/// texture in most cases.
+///
+/// Because of this, we need to create an "intermediate" texture which we render to, and then blit to the surface.
+fn create_targets(width: u32, height: u32, device: &Device) -> (Texture, TextureView) {
+    let target_texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: None,
+        size: wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
+        format: TextureFormat::Rgba8Unorm,
+        view_formats: &[],
+    });
+    let target_view = target_texture.create_view(&wgpu::TextureViewDescriptor::default());
+    (target_texture, target_view)
+}
+
 impl DeviceHandle {
     /// Returns the adapter associated with the device.
     pub fn adapter(&self) -> &Adapter {
@@ -181,12 +213,28 @@ impl DeviceHandle {
 }
 
 /// Combination of surface and its configuration.
-#[derive(Debug)]
 pub struct RenderSurface<'s> {
     pub surface: Surface<'s>,
     pub config: SurfaceConfiguration,
     pub dev_id: usize,
     pub format: TextureFormat,
+    pub target_texture: Texture,
+    pub target_view: TextureView,
+    pub blitter: TextureBlitter,
+}
+
+impl std::fmt::Debug for RenderSurface<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RenderSurface")
+            .field("surface", &self.surface)
+            .field("config", &self.config)
+            .field("dev_id", &self.dev_id)
+            .field("format", &self.format)
+            .field("target_texture", &self.target_texture)
+            .field("target_view", &self.target_view)
+            .field("blitter", &"(Not Debug)")
+            .finish()
+    }
 }
 
 struct NullWake;

@@ -62,18 +62,14 @@ To use Vello as the renderer for your PDF reader / GUI toolkit / etc, your code 
 let (width, height) = ...;
 let device: wgpu::Device = ...;
 let queue: wgpu::Queue = ...;
-let surface: wgpu::Surface<'_> = ...;
-let texture_format: wgpu::TextureFormat = ...;
 let mut renderer = Renderer::new(
    &device,
    RendererOptions {
-      surface_format: Some(texture_format),
       use_cpu: false,
       antialiasing_support: vello::AaSupport::all(),
       num_init_threads: NonZeroUsize::new(1),
    },
 ).expect("Failed to create renderer");
-
 // Create scene and draw stuff in it
 let mut scene = vello::Scene::new();
 scene.fill(
@@ -83,22 +79,19 @@ scene.fill(
    None,
    &vello::Circle::new((420.0, 200.0), 120.0),
 );
-
 // Draw more stuff
 scene.push_layer(...);
 scene.fill(...);
 scene.stroke(...);
 scene.pop_layer(...);
-
-// Render to your window/buffer/etc.
-let surface_texture = surface.get_current_texture()
-   .expect("failed to get surface texture");
+let texture = device.create_texture(&...);
+// Render to a wgpu Texture
 renderer
-   .render_to_surface(
+   .render_to_texture(
       &device,
       &queue,
       &scene,
-      &surface_texture,
+      &texture,
       &vello::RenderParams {
          base_color: palette::css::BLACK, // Background color
          width,
@@ -106,8 +99,9 @@ renderer
          antialiasing_method: AaConfig::Msaa16,
       },
    )
-   .expect("Failed to render to surface");
-surface_texture.present();
+   .expect("Failed to render to a texture");
+// Do things with surface texture, such as blitting it to the Surface using
+// wgpu::util::TextureBlitter.
 ```
 
 See the repository's [`examples`](https://github.com/linebender/vello/tree/main/examples) directory for code that integrates with frameworks like winit.
