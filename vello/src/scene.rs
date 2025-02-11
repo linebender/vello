@@ -33,8 +33,7 @@ use vello_encoding::{Encoding, Glyph, GlyphRun, NormalizedCoord, Patch, Transfor
 /// A `Scene` stores a sequence of drawing commands, their context, and the
 /// associated resources, which can later be rendered.
 ///
-/// Most users will render this using [`Renderer::render_to_surface`][crate::Renderer::render_to_surface]
-/// or [`Renderer::render_to_texture`][crate::Renderer::render_to_texture].
+/// Most users will render this using [`Renderer::render_to_texture`][crate::Renderer::render_to_texture].
 ///
 /// Rendering from a `Scene` will *not* clear it, which should be done in a separate step, by calling [`Scene::reset`].
 ///

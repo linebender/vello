@@ -97,7 +97,6 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
     let mut renderer = vello::Renderer::new(
         device,
         RendererOptions {
-            surface_format: None,
             use_cpu: args.use_cpu,
             num_init_threads: NonZeroUsize::new(1),
             antialiasing_support: vello::AaSupport::area_only(),

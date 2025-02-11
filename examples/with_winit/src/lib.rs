@@ -207,7 +207,6 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
                 let renderer = Renderer::new(
                     &self.context.devices[id].device,
                     RendererOptions {
-                        surface_format: Some(render_state.surface.format),
                         use_cpu: self.use_cpu,
                         antialiasing_support: AA_CONFIGS.iter().copied().collect(),
                         num_init_threads: NonZeroUsize::new(self.num_init_threads),
@@ -543,13 +542,6 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
                     }
                 }
                 drop(encoding_span);
-                let texture_span = tracing::trace_span!("Getting texture").entered();
-                let surface_texture = surface
-                    .surface
-                    .get_current_texture()
-                    .expect("failed to get surface texture");
-
-                drop(texture_span);
                 let render_span = tracing::trace_span!("Dispatching render").entered();
                 // Note: we don't run the async/"robust" pipeline on web, as
                 // it requires more async wiring for the readback. See
@@ -564,34 +556,58 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
                         self.renderers[surface.dev_id]
                             .as_mut()
                             .unwrap()
-                            .render_to_surface_async(
+                            .render_to_texture_async(
                                 &device_handle.device,
                                 &device_handle.queue,
                                 &self.scene,
-                                &surface_texture,
+                                &surface.target_view,
                                 &render_params,
                                 self.debug,
                             ),
                     )
-                    .expect("failed to render to surface");
+                    .expect("failed to render to texture");
                 } else {
                     self.renderers[surface.dev_id]
                         .as_mut()
                         .unwrap()
-                        .render_to_surface(
+                        .render_to_texture(
                             &device_handle.device,
                             &device_handle.queue,
                             &self.scene,
-                            &surface_texture,
+                            &surface.target_view,
                             &render_params,
                         )
-                        .expect("failed to render to surface");
+                        .expect("failed to render to texture");
                 }
-                surface_texture.present();
                 drop(render_span);
 
+                let texture_span = tracing::trace_span!("Blitting to surface").entered();
+                let surface_texture = surface
+                    .surface
+                    .get_current_texture()
+                    .expect("failed to get surface texture");
+                // Perform the copy
+                // (TODO: Does it improve throughput to acquire the surface after the previous texture render has happened?)
+                let mut encoder =
+                    device_handle
+                        .device
+                        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                            label: Some("Surface Blit"),
+                        });
+                surface.blitter.copy(
+                    &device_handle.device,
+                    &mut encoder,
+                    &surface.target_view,
+                    &surface_texture
+                        .texture
+                        .create_view(&wgpu::TextureViewDescriptor::default()),
+                );
+                device_handle.queue.submit([encoder.finish()]);
+                surface_texture.present();
+                drop(texture_span);
+
                 {
-                    let _poll_aspan = tracing::trace_span!("Polling wgpu device").entered();
+                    let _poll_span = tracing::trace_span!("Polling wgpu device").entered();
                     device_handle.device.poll(wgpu::Maintain::Poll);
                 }
                 let new_time = Instant::now();
@@ -679,7 +695,6 @@ fn run(
         let renderer = Renderer::new(
             &render_cx.devices[id].device,
             RendererOptions {
-                surface_format: Some(render_state.surface.format),
                 use_cpu: args.use_cpu,
                 antialiasing_support: AA_CONFIGS.iter().copied().collect(),
                 // We currently initialise on one thread on WASM, but mark this here

@@ -8,8 +8,8 @@ use std::collections::{HashMap, HashSet};
 
 use wgpu::{
     BindGroup, BindGroupLayout, Buffer, BufferUsages, CommandEncoder, CommandEncoderDescriptor,
-    ComputePassDescriptor, ComputePipeline, Device, PipelineCompilationOptions, Queue,
-    RenderPipeline, Texture, TextureAspect, TextureUsages, TextureView, TextureViewDimension,
+    ComputePassDescriptor, ComputePipeline, Device, PipelineCompilationOptions, Queue, Texture,
+    TextureAspect, TextureUsages, TextureView, TextureViewDimension,
 };
 
 use crate::{
@@ -44,7 +44,8 @@ pub(crate) struct WgpuEngine {
 
 enum PipelineState {
     Compute(ComputePipeline),
-    Render(RenderPipeline),
+    #[cfg(feature = "debug_layers")]
+    Render(wgpu::RenderPipeline),
 }
 
 struct WgpuShader {
@@ -298,6 +299,7 @@ impl WgpuEngine {
         })
     }
 
+    #[cfg(feature = "debug_layers")]
     pub fn add_render_shader(
         &mut self,
         device: &Device,
@@ -547,7 +549,15 @@ impl WgpuEngine {
                             let query = profiler
                                 .begin_query(shader.label, &mut cpass, device)
                                 .with_parent(Some(&query));
-                            let PipelineState::Compute(pipeline) = &wgpu_shader.pipeline else {
+                            #[cfg_attr(
+                                not(feature = "debug_layers"),
+                                expect(
+                                    irrefutable_let_patterns,
+                                    reason = "Render shaders are only enabled if we have the debug pipeline"
+                                )
+                            )]
+                            let PipelineState::Compute(pipeline) = &wgpu_shader.pipeline
+                            else {
                                 panic!("cannot issue a dispatch with a render pipeline");
                             };
                             cpass.set_pipeline(pipeline);
@@ -598,7 +608,15 @@ impl WgpuEngine {
                             let query = profiler
                                 .begin_query(shader.label, &mut cpass, device)
                                 .with_parent(Some(&query));
-                            let PipelineState::Compute(pipeline) = &wgpu_shader.pipeline else {
+                            #[cfg_attr(
+                                not(feature = "debug_layers"),
+                                expect(
+                                    irrefutable_let_patterns,
+                                    reason = "Render shaders are only enabled if we have the debug pipeline"
+                                )
+                            )]
+                            let PipelineState::Compute(pipeline) = &wgpu_shader.pipeline
+                            else {
                                 panic!("cannot issue a dispatch with a render pipeline");
                             };
                             cpass.set_pipeline(pipeline);
@@ -612,6 +630,7 @@ impl WgpuEngine {
                         }
                     }
                 }
+                #[cfg(feature = "debug_layers")]
                 Command::Draw(draw_params) => {
                     let shader = &self.shaders[draw_params.shader_id.0];
                     #[cfg(feature = "wgpu-profiler")]
@@ -1023,6 +1042,7 @@ impl<'a> TransientBindMap<'a> {
         }
     }
 
+    #[cfg(feature = "debug_layers")]
     fn materialize_external_image_for_render_pass(&mut self, proxy: &ImageProxy) -> &TextureView {
         // TODO: Maybe this should support instantiating a transient texture. Right now all render
         // passes target a `SurfaceTexture`, so supporting external textures is sufficient.

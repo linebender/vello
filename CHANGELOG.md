@@ -15,6 +15,16 @@ You can find its changes [documented below](#040---2025-01-20).
 
 This release has an [MSRV][] of 1.82.
 
+<!-- TODO: Wgpu 24 (#791); override_image change (#802) -->
+
+## Removed
+
+- Breaking: The `Renderer::render_to_surface` has been removed. ([#803][] by [@DJMcNab][])
+  This API was not fit for purpose for several reasons, for example, it assumed that you would only ever use a single window.
+  The new recommended way to use Vello to render to a surface is to use `Renderer::render_to_texture`, then copy from that to the surface yourself.
+  This can use the new [`TextureBlitter`](https://docs.rs/wgpu/latest/wgpu/util/struct.TextureBlitter.html) type from `wgpu` for this blitting.
+  The `util` module has been updated to create a blit pipeline and intermediate texture for each surface.
+
 ## [0.4.0][] - 2025-01-20
 
 This release has an [MSRV][] of 1.82.
@@ -233,6 +243,7 @@ This release has an [MSRV][] of 1.75.
 [#766]: https://github.com/linebender/vello/pull/766
 [#792]: https://github.com/linebender/vello/pull/792
 [#796]: https://github.com/linebender/vello/pull/796
+[#803]: https://github.com/linebender/vello/pull/803
 
 [Unreleased]: https://github.com/linebender/vello/compare/v0.4.0...HEAD
 [0.4.0]: https://github.com/linebender/vello/compare/v0.3.0...v0.4.0

@@ -82,6 +82,7 @@ pub enum Command {
     // Alternative: provide bufs & images as separate sequences
     Dispatch(ShaderId, (u32, u32, u32), Vec<ResourceProxy>),
     DispatchIndirect(ShaderId, BufferProxy, u64, Vec<ResourceProxy>),
+    #[cfg(feature = "debug_layers")]
     Draw(DrawParams),
 }
 
@@ -101,6 +102,7 @@ pub enum BindType {
     // TODO: Uniform, Sampler, maybe others
 }
 
+#[cfg(feature = "debug_layers")]
 pub struct DrawParams {
     pub shader_id: ShaderId,
     pub instance_count: u32,
@@ -182,6 +184,7 @@ impl Recording {
         self.push(Command::DispatchIndirect(shader, buf, offset, r));
     }
 
+    #[cfg(feature = "debug_layers")]
     /// Issue a draw call
     pub fn draw(&mut self, params: DrawParams) {
         self.push(Command::Draw(params));
