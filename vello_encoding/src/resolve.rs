@@ -270,7 +270,9 @@ impl Resolver {
                         extend,
                     } => {
                         if pos < *draw_data_offset {
-                            data.extend_from_slice(&encoding.draw_data[pos..*draw_data_offset]);
+                            data.extend_from_slice(bytemuck::cast_slice(
+                                &encoding.draw_data[pos..*draw_data_offset],
+                            ));
                         }
                         let index_mode = (ramp_id << 2) | *extend as u32;
                         data.extend_from_slice(bytemuck::bytes_of(&index_mode));
@@ -282,7 +284,9 @@ impl Resolver {
                         draw_data_offset,
                     } => {
                         if pos < *draw_data_offset {
-                            data.extend_from_slice(&encoding.draw_data[pos..*draw_data_offset]);
+                            data.extend_from_slice(bytemuck::cast_slice(
+                                &encoding.draw_data[pos..*draw_data_offset],
+                            ));
                         }
                         if let Some((x, y)) = self.pending_images[*index].xy {
                             let xy = (x << 16) | y;
