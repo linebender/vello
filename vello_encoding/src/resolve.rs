@@ -276,7 +276,7 @@ impl Resolver {
                         }
                         let index_mode = (ramp_id << 2) | *extend as u32;
                         data.extend_from_slice(bytemuck::bytes_of(&index_mode));
-                        pos = *draw_data_offset + 4;
+                        pos = *draw_data_offset + 1;
                     }
                     ResolvedPatch::GlyphRun { .. } => {}
                     ResolvedPatch::Image {
@@ -291,14 +291,14 @@ impl Resolver {
                         if let Some((x, y)) = self.pending_images[*index].xy {
                             let xy = (x << 16) | y;
                             data.extend_from_slice(bytemuck::bytes_of(&xy));
-                            pos = *draw_data_offset + 4;
+                            pos = *draw_data_offset + 1;
                         } else {
                             // If we get here, we failed to allocate a slot for this image in the atlas.
                             // In this case, let's zero out the dimensions so we don't attempt to render
                             // anything.
                             // TODO: a better strategy: texture array? downsample large images?
                             data.extend_from_slice(&[0_u8; 8]);
-                            pos = *draw_data_offset + 8;
+                            pos = *draw_data_offset + 2;
                         }
                     }
                 }
