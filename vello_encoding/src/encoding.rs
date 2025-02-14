@@ -22,9 +22,8 @@ pub struct Encoding {
     /// The path tag stream.
     pub path_tags: Vec<PathTag>,
     /// The path data stream.
-    ///
     /// Stores all coordinates on paths.
-    /// Stored as u32 as all comparisons are performed bitwise.
+    /// Stored as `u32` as all comparisons are performed bitwise.
     pub path_data: Vec<u32>,
     /// The draw tag stream.
     pub draw_tags: Vec<DrawTag>,
