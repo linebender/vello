@@ -1,9 +1,11 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use bytemuck::Zeroable;
 use vello_encoding::{
-    BinHeader, BufferSize, BumpAllocators, Clip, ClipBbox, ClipBic, ClipElement, ConfigUniform,
-    DrawBbox, DrawMonoid, LineSoup, Path, PathBbox, PathMonoid, PathSegment, SegmentCount, Tile,
+    BinHeader, BufferSize, BufferSizes, BumpAllocators, Clip, ClipBbox, ClipBic, ClipElement,
+    ConfigUniform, DrawBbox, DrawMonoid, LineSoup, Path, PathBbox, PathMonoid, PathSegment,
+    SegmentCount, Tile,
 };
 
 pub(crate) struct Buffers {
@@ -40,63 +42,104 @@ pub(crate) struct Buffers {
 
 impl Buffers {
     pub(crate) fn visit(&mut self, mut visitor: impl BufferVisitor) {
-        visitor.visit(&mut self.scene);
-        visitor.visit(&mut self.path_reduced);
-        visitor.visit(&mut self.path_monoids);
-        visitor.visit(&mut self.path_bboxes);
-        visitor.visit(&mut self.draw_reduced);
-        visitor.visit(&mut self.draw_monoids);
-        visitor.visit(&mut self.info);
-        visitor.visit(&mut self.clip_inps);
-        visitor.visit(&mut self.clip_els);
-        visitor.visit(&mut self.clip_bics);
-        visitor.visit(&mut self.clip_bboxes);
-        visitor.visit(&mut self.draw_bboxes);
+        visitor.visit(&mut self.scene, "scene");
+        visitor.visit(&mut self.path_reduced, "path_reduced");
+        visitor.visit(&mut self.path_monoids, "path_monoids");
+        visitor.visit(&mut self.path_bboxes, "path_bboxes");
+        visitor.visit(&mut self.draw_reduced, "draw_reduced");
+        visitor.visit(&mut self.draw_monoids, "draw_monoids");
+        visitor.visit(&mut self.info, "info");
+        visitor.visit(&mut self.clip_inps, "clip_inps");
+        visitor.visit(&mut self.clip_els, "clip_els");
+        visitor.visit(&mut self.clip_bics, "clip_bics");
+        visitor.visit(&mut self.clip_bboxes, "clip_bboxes");
+        visitor.visit(&mut self.draw_bboxes, "draw_bboxes");
 
-        visitor.visit(&mut self.bin_headers);
-        visitor.visit(&mut self.paths);
+        visitor.visit(&mut self.bin_headers, "bin_headers");
+        visitor.visit(&mut self.paths, "paths");
 
         // Bump allocated buffers
-        visitor.visit(&mut self.lines);
-        visitor.visit(&mut self.bin_data);
-        visitor.visit(&mut self.tiles);
-        visitor.visit(&mut self.seg_counts);
-        visitor.visit(&mut self.segments);
-        visitor.visit(&mut self.ptcl);
+        visitor.visit(&mut self.lines, "lines");
+        visitor.visit(&mut self.bin_data, "bin_data");
+        visitor.visit(&mut self.tiles, "tiles");
+        visitor.visit(&mut self.seg_counts, "seg_counts");
+        visitor.visit(&mut self.segments, "segments");
+        visitor.visit(&mut self.ptcl, "ptcl");
+    }
+
+    pub(crate) fn resize(&mut self, sizes: BufferSizes) {
+        self.path_reduced.size = sizes.path_reduced;
+
+        self.path_monoids.size = sizes.path_monoids;
+        self.path_bboxes.size = sizes.path_bboxes;
+        self.draw_reduced.size = sizes.draw_reduced;
+        self.draw_monoids.size = sizes.draw_monoids;
+        self.info.size = sizes.info;
+        self.clip_inps.size = sizes.clip_inps;
+        self.clip_els.size = sizes.clip_els;
+        self.clip_bics.size = sizes.clip_bics;
+        self.clip_bboxes.size = sizes.clip_bboxes;
+        self.draw_bboxes.size = sizes.draw_bboxes;
+        self.bin_headers.size = sizes.bin_headers;
+        self.paths.size = sizes.paths;
+        self.lines.size = sizes.lines;
+        self.bin_data.size = sizes.bin_data;
+        self.tiles.size = sizes.tiles;
+        self.seg_counts.size = sizes.seg_counts;
+        self.segments.size = sizes.segments;
+        self.ptcl.size = sizes.ptcl;
+
+        // The CPU pipeline doesn't need a two-pass reduction (indeed, it doesn't really need a reduction at all...)
+        // self.path_reduced2.size = sizes.path_reduced2;
+        // self.path_reduced_scan.size = sizes.path_reduced_scan;
+
+        // I haven't quite worked out buffers for single values yet
+        // self.bump_alloc.size = sizes.bump_alloc;
+
+        // Our pipeline stages fully subsume the indirect stages
+        // self.indirect_count.size = sizes.indirect_count;
+        // We don't yet support `fine` in the CPU shaders
+        // self.blend_spill.size = sizes.blend_spill;
     }
 }
 
 pub(crate) trait BufferVisitor {
-    fn visit<T>(&mut self, buffer: &mut Buffer<T>);
+    fn visit<T: Zeroable>(&mut self, buffer: &mut Buffer<T>, name: &'static str);
 }
 
 pub(crate) struct FirstPass;
 impl BufferVisitor for FirstPass {
-    fn visit<T>(&mut self, buffer: &mut Buffer<T>) {
+    fn visit<T>(&mut self, buffer: &mut Buffer<T>, name: &'static str) {
         buffer.run = false;
-        buffer.cpu_read_count = 0;
         buffer.cpu_write_count = 0;
     }
 }
 
 pub(crate) struct SecondPass;
 impl BufferVisitor for SecondPass {
-    fn visit<T>(&mut self, buffer: &mut Buffer<T>) {
+    fn visit<T: Zeroable>(&mut self, buffer: &mut Buffer<T>, name: &'static str) {
         buffer.run = true;
-        buffer.remaining_reads_cpu = buffer.cpu_read_count;
         buffer.remaining_writes_cpu = buffer.cpu_write_count;
+        buffer.staging_written = false;
+        if buffer.last_operation_writes_all && buffer.cpu_write_count > 0 {
+            // buffer.staging_buffer = self.get_suitable_staging_buffer(self.staging_buffer.take(), ...);
+        }
+        buffer
+            .cpu_content
+            .resize_with(buffer.size.len() as usize, bytemuck::zeroed);
     }
 }
+
 pub(crate) struct ValidationPass;
 impl BufferVisitor for ValidationPass {
-    fn visit<T>(&mut self, buffer: &mut Buffer<T>) {
-        debug_assert_eq!(
-            buffer.remaining_reads_cpu, 0,
-            "Should have done all the reads expected."
-        );
+    fn visit<T>(&mut self, buffer: &mut Buffer<T>, name: &'static str) {
         debug_assert_eq!(
             buffer.remaining_writes_cpu, 0,
             "Should have done all the writes expected"
+        );
+        debug_assert_eq!(
+            buffer.last_operation_writes_all, buffer.staging_written,
+            "Should have written to the buffer as the last operation in both passes"
         );
     }
 }
@@ -108,9 +151,8 @@ pub(crate) struct Buffer<T> {
     // State used by the CPU pass
     run: bool,
     cpu_write_count: u16,
-    cpu_read_count: u16,
     remaining_writes_cpu: u16,
-    remaining_reads_cpu: u16,
+    last_operation_writes_all: bool,
 
     /// The contents of this buffer on the CPU
     /// Only initialised if `cpu_write_count > 0`
@@ -138,10 +180,9 @@ impl<T> Buffer<T> {
     }
     pub(crate) fn read(&mut self) -> &[T] {
         if self.run {
-            self.remaining_reads_cpu -= 1;
             &self.cpu_content
         } else {
-            self.cpu_read_count += 1;
+            self.last_operation_writes_all = false;
             &[]
         }
     }
@@ -153,8 +194,10 @@ impl<T> Buffer<T> {
             // it must be needed on the GPU (otherwise, why would we write to it?).
             // Therefore, we can write directly into the staging buffer.
             // Technically, this breaks down if we run a GPU pipeline only partially (e.g. for debugging)
-            // but that case is rare enough that we don't worry about it.
-            if self.remaining_reads_cpu == 0 && self.remaining_writes_cpu == 0 {
+            // but that case is rare enough that we don't optimise it (it never happens for an end-user)
+            // Note that the doc comments on this method rule out this being a pass which only
+            // overwrites *some* content in the buffer
+            if self.last_operation_writes_all && self.remaining_writes_cpu == 0 {
                 // self.staging_written = true;
                 // return self
                 //     .staging_buffer
@@ -164,18 +207,19 @@ impl<T> Buffer<T> {
             }
             &mut self.cpu_content
         } else {
+            self.last_operation_writes_all = true;
             self.cpu_write_count += 1;
             &mut []
         }
     }
+
     pub(crate) fn read_write(&mut self) -> &mut [T] {
         if self.run {
-            self.remaining_reads_cpu -= 1;
             self.remaining_writes_cpu -= 1;
             &mut self.cpu_content
         } else {
+            self.last_operation_writes_all = false;
             self.cpu_write_count += 1;
-            self.cpu_read_count += 1;
             &mut []
         }
     }

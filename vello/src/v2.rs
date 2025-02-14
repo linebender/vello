@@ -18,7 +18,7 @@ mod memory;
 
 /// Perform a (potentially partial) run of the CPU pipeline.
 ///
-/// `buffers.packed` and `buffers.config` must be initialised.
+/// `buffers.packed` and `buffers.config` must be initialised with content from the scene.
 pub(crate) fn cpu_pipeline(buffers: &mut Buffers, end_after: Option<PipelineStep>) {
     let end_after = end_after.unwrap_or(PipelineStep::LAST);
     // We run in two passes, to collect which buffers are written to, then to .
