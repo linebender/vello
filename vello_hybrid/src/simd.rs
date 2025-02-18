@@ -59,13 +59,13 @@ pub(crate) fn render_strips(tiles: &[Tile], strip_buf: &mut Vec<Strip>, alpha_bu
 }
 
 #[cfg(not(target_arch = "aarch64"))]
-pub fn render_strips(tiles: &[Tile], strip_buf: &mut Vec<Strip>, alpha_buf: &mut Vec<u32>) {
+pub(crate) fn render_strips(tiles: &[Tile], strip_buf: &mut Vec<Strip>, alpha_buf: &mut Vec<u32>) {
     crate::strip::render_strips_scalar(tiles, strip_buf, alpha_buf);
 }
 
 // This block is the fallback, no SIMD
 #[cfg(not(target_arch = "aarch64"))]
-impl<'a> Fine<'a> {
+impl Fine<'_> {
     pub(crate) fn pack(&mut self, x: usize, y: usize) {
         self.pack_scalar(x, y);
     }
