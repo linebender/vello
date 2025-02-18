@@ -1,0 +1,23 @@
+[package]
+name = "vello_api"
+version = "0.1.0"
+authors = ["Raph Levien <raph.levien@gmail.com>"]
+description = "A testbend for next-generation 2D renderer ideas"
+keywords = ["graphics", "2d"]
+categories = ["graphics"]
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
+# There are no platform specific docs.
+default-target = "x86_64-unknown-linux-gnu"
+targets = []
+
+[lints]
+workspace = true
+
+[dependencies]
+peniko = { git = "https://github.com/linebender/peniko", rev = "aeded39" }
