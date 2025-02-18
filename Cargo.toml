@@ -2,7 +2,9 @@
 resolver = "2"
 members = [
     "vello",
+    "vello_api",
     "vello_encoding",
+    "vello_hybrid",
     "vello_shaders",
     "vello_tests",
 
