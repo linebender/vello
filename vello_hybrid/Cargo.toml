@@ -1,0 +1,28 @@
+[package]
+name = "vello_hybrid"
+version = "0.1.0"
+authors = ["Raph Levien <raph.levien@gmail.com>"]
+description = "An experimental CPU 2D renderer based on sparse strips"
+keywords = ["graphics", "2d"]
+categories = ["graphics"]
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
+# There are no platform specific docs.
+default-target = "x86_64-unknown-linux-gnu"
+targets = []
+
+[lints]
+workspace = true
+
+[dependencies]
+vello_api = { path = "../vello_api" }
+flatten = { git = "https://github.com/linebender/gpu-stroke-expansion-paper", rev = "827ccf6" }
+
+[dev-dependencies]
+png = "0.17.14"
+roxmltree = "0.20.0"
