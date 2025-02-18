@@ -426,6 +426,14 @@ dependencies = [
 
 [[package]]
 name = "color"
+version = "0.1.0"
+source = "git+https://github.com/linebender/color.git?rev=a4fa61aff6c3f292b729dc409e7832e5f0166e4a#a4fa61aff6c3f292b729dc409e7832e5f0166e4a"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "color"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "61c387f6cef110ee8eaf12fca5586d3d303c07c594f4a5f02c768b6470b70dbd"
@@ -707,6 +715,17 @@ checksum = "c936bfdafb507ebbf50b8074c54fa31c5be9a1e7e5f467dd659697041407d07c"
 dependencies = [
  "crc32fast",
  "miniz_oxide",
+]
+
+[[package]]
+name = "flatten"
+version = "0.1.0"
+source = "git+https://github.com/linebender/gpu-stroke-expansion-paper?rev=827ccf6#827ccf6766179340a83f2de3417b7bdd8743706a"
+dependencies = [
+ "arrayvec",
+ "clap",
+ "kurbo",
+ "roxmltree 0.19.0",
 ]
 
 [[package]]
@@ -1695,11 +1714,21 @@ checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 
 [[package]]
 name = "peniko"
+version = "0.2.0"
+source = "git+https://github.com/linebender/peniko?rev=aeded39#aeded39d0ea2fccf7db598c83b83748f3b88195f"
+dependencies = [
+ "color 0.1.0",
+ "kurbo",
+ "smallvec",
+]
+
+[[package]]
+name = "peniko"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2ec061f435b573ff602b2c5690f1a5bfcf461327194654cfbfce4412b95cf2a1"
 dependencies = [
- "color",
+ "color 0.2.3",
  "kurbo",
  "smallvec",
 ]
@@ -1981,6 +2010,12 @@ checksum = "19b30a45b0cd0bcca8037f3d0dc3421eaf95327a17cad11964fb8179b4fc4832"
 
 [[package]]
 name = "roxmltree"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3cd14fd5e3b777a7422cca79358c57a8f6e3a703d9ac187448d0daf220c2407f"
+
+[[package]]
+name = "roxmltree"
 version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c20b6793b5c2fa6553b250154b78d6d0db37e72700ae35fad9387a46f487c97"
@@ -2048,7 +2083,7 @@ dependencies = [
  "getrandom 0.3.1",
  "image",
  "rand",
- "roxmltree",
+ "roxmltree 0.20.0",
  "skrifa",
  "vello",
  "web-time",
@@ -2581,7 +2616,7 @@ dependencies = [
  "bytemuck",
  "futures-intrusive",
  "log",
- "peniko",
+ "peniko 0.3.1",
  "png",
  "skrifa",
  "static_assertions",
@@ -2593,14 +2628,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "vello_api"
+version = "0.1.0"
+dependencies = [
+ "peniko 0.2.0",
+]
+
+[[package]]
 name = "vello_encoding"
 version = "0.4.0"
 dependencies = [
  "bytemuck",
  "guillotiere",
- "peniko",
+ "peniko 0.3.1",
  "skrifa",
  "smallvec",
+]
+
+[[package]]
+name = "vello_hybrid"
+version = "0.1.0"
+dependencies = [
+ "flatten",
+ "png",
+ "roxmltree 0.20.0",
+ "vello_api",
 ]
 
 [[package]]
