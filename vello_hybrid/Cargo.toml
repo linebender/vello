@@ -23,6 +23,15 @@ workspace = true
 vello_api = { path = "../vello_api" }
 flatten = { git = "https://github.com/linebender/gpu-stroke-expansion-paper", rev = "827ccf6" }
 
+# The following dependencies are for GPU. Maybe they should be optional, or the crate
+# structure refactored so there's a CPU-only renderer that doesn't depend on these.
+
+wgpu = { version = "24.0.1" }
+winit = "0.29"
+pollster = "0.3"
+async-executor = "1.8"
+bytemuck = { version = "1.14", features = ["derive"] }
+
 [dev-dependencies]
 png = "0.17.14"
 roxmltree = "0.20.0"

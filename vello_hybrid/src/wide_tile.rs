@@ -21,6 +21,7 @@ pub(crate) enum Cmd {
 pub(crate) struct CmdFill {
     pub(crate) x: u32,
     pub(crate) width: u32,
+    // TODO: Probably want this pre-packed to u32 to avoid packing cost
     pub(crate) color: AlphaColor<Srgb>,
 }
 

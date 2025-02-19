@@ -20,4 +20,4 @@ targets = []
 workspace = true
 
 [dependencies]
-peniko = { git = "https://github.com/linebender/peniko", rev = "aeded39" }
+peniko = "0.3.1"
