@@ -8,6 +8,7 @@
 
 mod fine;
 mod flatten;
+mod gpu;
 mod pixmap;
 mod render;
 mod simd;
@@ -15,6 +16,10 @@ mod strip;
 mod tiling;
 mod wide_tile;
 
+pub use gpu::{GpuRenderBufs, GpuRenderCtx, GpuSession};
 pub use pixmap::Pixmap;
 pub use render::{CsRenderCtx, CsResourceCtx};
 pub use tiling::FlatLine;
+
+// TODO: this export should be removed, buffer upload will be internal
+pub use gpu::Strip;
