@@ -6,7 +6,10 @@
 use std::sync::Arc;
 
 use bytemuck::{Pod, Zeroable};
-use vello_api::peniko::{color::palette, kurbo::{BezPath, Stroke}};
+use vello_api::peniko::{
+    color::palette,
+    kurbo::{BezPath, Stroke},
+};
 use vello_hybrid::{GpuRenderCtx, GpuSession};
 use wgpu::util::DeviceExt;
 
@@ -109,10 +112,10 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
         .run(move |event, target| {
             if let Event::WindowEvent {
                 window_id: _,
-                event,
+                event: window_event,
             } = event
             {
-                match event {
+                match window_event {
                     WindowEvent::RedrawRequested => {
                         let frame = surface
                             .get_current_texture()
@@ -140,7 +143,8 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                                 });
                             rpass.set_pipeline(&session.render_pipeline);
                             rpass.set_bind_group(0, &render_bind_group, &[]);
-                            rpass.draw(0..4, 0..bufs.strips.len() as u32);
+                            let n_strips = bufs.strips.len().try_into().expect("too many strips");
+                            rpass.draw(0..4, 0..n_strips);
                         }
                         queue.submit(Some(encoder.finish()));
                         frame.present();
