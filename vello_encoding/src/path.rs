@@ -418,7 +418,7 @@ pub struct Tile {
 /// Encoder for path segments.
 pub struct PathEncoder<'a> {
     tags: &'a mut Vec<PathTag>,
-    data: &'a mut Vec<u8>,
+    path_data: &'a mut Vec<f32>,
     n_segments: &'a mut u32,
     n_paths: &'a mut u32,
     first_point: [f32; 2],
@@ -474,14 +474,14 @@ impl<'a> PathEncoder<'a> {
     ///       line-to), the thread draws nothing.
     pub fn new(
         tags: &'a mut Vec<PathTag>,
-        data: &'a mut Vec<u8>,
+        data: &'a mut Vec<f32>,
         n_segments: &'a mut u32,
         n_paths: &'a mut u32,
         is_fill: bool,
     ) -> Self {
         Self {
             tags,
-            data,
+            path_data: data,
             n_segments,
             n_paths,
             first_point: [0.0, 0.0],
@@ -498,10 +498,9 @@ impl<'a> PathEncoder<'a> {
             self.close();
         }
         let buf = [x, y];
-        let bytes = bytemuck::bytes_of(&buf);
         if self.state == PathState::MoveTo {
-            let new_len = self.data.len() - 8;
-            self.data.truncate(new_len);
+            let new_len = self.path_data.len() - 2;
+            self.path_data.truncate(new_len);
         } else if self.state == PathState::NonemptySubpath {
             if !self.is_fill {
                 self.insert_stroke_cap_marker_segment(false);
@@ -511,7 +510,7 @@ impl<'a> PathEncoder<'a> {
             }
         }
         self.first_point = buf;
-        self.data.extend_from_slice(bytes);
+        self.path_data.extend_from_slice(&buf);
         self.state = PathState::MoveTo;
     }
 
@@ -538,8 +537,7 @@ impl<'a> PathEncoder<'a> {
             return;
         }
         let buf = [x, y];
-        let bytes = bytemuck::bytes_of(&buf);
-        self.data.extend_from_slice(bytes);
+        self.path_data.extend_from_slice(&buf);
         self.tags.push(PathTag::LINE_TO_F32);
         self.state = PathState::NonemptySubpath;
         self.n_encoded_segments += 1;
@@ -566,8 +564,7 @@ impl<'a> PathEncoder<'a> {
             return;
         }
         let buf = [x1, y1, x2, y2];
-        let bytes = bytemuck::bytes_of(&buf);
-        self.data.extend_from_slice(bytes);
+        self.path_data.extend_from_slice(&buf);
         self.tags.push(PathTag::QUAD_TO_F32);
         self.state = PathState::NonemptySubpath;
         self.n_encoded_segments += 1;
@@ -594,8 +591,7 @@ impl<'a> PathEncoder<'a> {
             return;
         }
         let buf = [x1, y1, x2, y2, x3, y3];
-        let bytes = bytemuck::bytes_of(&buf);
-        self.data.extend_from_slice(bytes);
+        self.path_data.extend_from_slice(&buf);
         self.tags.push(PathTag::CUBIC_TO_F32);
         self.state = PathState::NonemptySubpath;
         self.n_encoded_segments += 1;
@@ -603,9 +599,8 @@ impl<'a> PathEncoder<'a> {
 
     /// Encodes an empty path (as placeholder for begin clip).
     pub(crate) fn empty_path(&mut self) {
-        let coords = [0.0_f32, 0., 0., 0.];
-        let bytes = bytemuck::bytes_of(&coords);
-        self.data.extend_from_slice(bytes);
+        let buf = [0., 0., 0., 0.];
+        self.path_data.extend_from_slice(&buf);
         self.tags.push(PathTag::LINE_TO_F32);
         self.n_encoded_segments += 1;
     }
@@ -615,21 +610,20 @@ impl<'a> PathEncoder<'a> {
         match self.state {
             PathState::Start => return,
             PathState::MoveTo => {
-                let new_len = self.data.len() - 8;
-                self.data.truncate(new_len);
+                let new_len = self.path_data.len() - 2;
+                self.path_data.truncate(new_len);
                 self.state = PathState::Start;
                 return;
             }
             PathState::NonemptySubpath => (),
         }
-        let len = self.data.len();
-        if len < 8 {
+        let len = self.path_data.len();
+        if len < 2 {
             // can't happen
             return;
         }
-        let first_bytes = bytemuck::bytes_of(&self.first_point);
-        if &self.data[len - 8..len] != first_bytes {
-            self.data.extend_from_slice(first_bytes);
+        if &self.path_data[len - 2..len] != &self.first_point {
+            self.path_data.extend_from_slice(&self.first_point);
             self.tags.push(PathTag::LINE_TO_F32);
             self.n_encoded_segments += 1;
         }
@@ -680,8 +674,8 @@ impl<'a> PathEncoder<'a> {
             self.close();
         }
         if self.state == PathState::MoveTo {
-            let new_len = self.data.len() - 8;
-            self.data.truncate(new_len);
+            let new_len = self.path_data.len() - 2;
+            self.path_data.truncate(new_len);
         }
         if self.n_encoded_segments != 0 {
             if !self.is_fill && self.state == PathState::NonemptySubpath {
@@ -721,14 +715,9 @@ impl<'a> PathEncoder<'a> {
     }
 
     fn last_point(&self) -> Option<(f32, f32)> {
-        let len = self.data.len();
-        if len < 8 {
-            return None;
-        }
-        Some((
-            bytemuck::pod_read_unaligned::<f32>(&self.data[len - 8..len - 4]),
-            bytemuck::pod_read_unaligned::<f32>(&self.data[len - 4..len]),
-        ))
+        let len = self.path_data.len();
+        let last_two = &self.path_data.get(len - 2..)?;
+        Some((last_two[0], last_two[1]))
     }
 
     fn is_zero_length_segment(

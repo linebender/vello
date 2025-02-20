@@ -22,7 +22,7 @@ pub struct Encoding {
     /// The path tag stream.
     pub path_tags: Vec<PathTag>,
     /// The path data stream.
-    pub path_data: Vec<u8>,
+    pub path_data: Vec<f32>,
     /// The draw tag stream.
     pub draw_tags: Vec<DrawTag>,
     /// The draw data stream.
@@ -509,6 +509,16 @@ impl Encoding {
                 RampStops::Many
             }
         }
+    }
+
+    /// Return false if the path has any NaN values.
+    pub fn validate_path_data(&self) -> bool {
+        for value in &self.path_data {
+            if value.is_nan() {
+                return false;
+            }
+        }
+        return true;
     }
 }
 
