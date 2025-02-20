@@ -497,8 +497,6 @@ impl<'a> PathEncoder<'a> {
         if self.is_fill {
             self.close();
         }
-        let buf = [x, y];
-        let bytes = bytemuck::cast_slice(&buf);
         if self.state == PathState::MoveTo {
             let new_len = self.data.len() - 2;
             self.data.truncate(new_len);
@@ -510,7 +508,9 @@ impl<'a> PathEncoder<'a> {
                 tag.set_subpath_end();
             }
         }
-        self.first_point = buf;
+        self.first_point = [x, y];
+        let buf = self.first_point.map(f32::to_le_bytes);
+        let bytes = bytemuck::cast_slice(&buf);
         self.data.extend_from_slice(bytes);
         self.state = PathState::MoveTo;
     }
@@ -537,7 +537,7 @@ impl<'a> PathEncoder<'a> {
         if self.is_zero_length_segment((x, y), None, None) {
             return;
         }
-        let buf = [x, y];
+        let buf = [x, y].map(f32::to_le_bytes);
         let bytes = bytemuck::cast_slice(&buf);
         self.data.extend_from_slice(bytes);
         self.tags.push(PathTag::LINE_TO_F32);
@@ -565,7 +565,7 @@ impl<'a> PathEncoder<'a> {
         if self.is_zero_length_segment((x1, y1), Some((x2, y2)), None) {
             return;
         }
-        let buf = [x1, y1, x2, y2];
+        let buf = [x1, y1, x2, y2].map(f32::to_le_bytes);
         let bytes = bytemuck::cast_slice(&buf);
         self.data.extend_from_slice(bytes);
         self.tags.push(PathTag::QUAD_TO_F32);
@@ -593,7 +593,7 @@ impl<'a> PathEncoder<'a> {
         if self.is_zero_length_segment((x1, y1), Some((x2, y2)), Some((x3, y3))) {
             return;
         }
-        let buf = [x1, y1, x2, y2, x3, y3];
+        let buf = [x1, y1, x2, y2, x3, y3].map(f32::to_le_bytes);
         let bytes = bytemuck::cast_slice(&buf);
         self.data.extend_from_slice(bytes);
         self.tags.push(PathTag::CUBIC_TO_F32);
@@ -603,8 +603,8 @@ impl<'a> PathEncoder<'a> {
 
     /// Encodes an empty path (as placeholder for begin clip).
     pub(crate) fn empty_path(&mut self) {
-        let coords = [0.0_f32, 0., 0., 0.];
-        let bytes = bytemuck::cast_slice(&coords);
+        let buf = [0., 0., 0., 0.].map(f32::to_le_bytes);
+        let bytes = bytemuck::cast_slice(&buf);
         self.data.extend_from_slice(bytes);
         self.tags.push(PathTag::LINE_TO_F32);
         self.n_encoded_segments += 1;
@@ -630,7 +630,8 @@ impl<'a> PathEncoder<'a> {
             }
             return;
         }
-        let first_bytes = bytemuck::cast_slice(&self.first_point);
+        let buf = self.first_point.map(f32::to_le_bytes);
+        let first_bytes = bytemuck::cast_slice(&buf);
         if &self.data[len - 2..len] != first_bytes {
             self.data.extend_from_slice(first_bytes);
             self.tags.push(PathTag::LINE_TO_F32);
@@ -729,8 +730,8 @@ impl<'a> PathEncoder<'a> {
             return None;
         }
         Some((
-            bytemuck::cast(self.data[len - 2]),
-            bytemuck::cast(self.data[len - 1]),
+            f32::from_le_bytes(self.data[len - 2].to_ne_bytes()),
+            f32::from_le_bytes(self.data[len - 1].to_ne_bytes()),
         ))
     }
 
