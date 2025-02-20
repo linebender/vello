@@ -622,7 +622,7 @@ impl<'a> PathEncoder<'a> {
             // can't happen
             return;
         }
-        if &self.path_data[len - 2..len] != &self.first_point {
+        if self.path_data[len - 2..len] != self.first_point {
             self.path_data.extend_from_slice(&self.first_point);
             self.tags.push(PathTag::LINE_TO_F32);
             self.n_encoded_segments += 1;

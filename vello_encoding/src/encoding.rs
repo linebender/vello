@@ -518,7 +518,7 @@ impl Encoding {
                 return false;
             }
         }
-        return true;
+        true
     }
 }
 
