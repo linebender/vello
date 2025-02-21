@@ -139,7 +139,8 @@ impl GpuRenderCtx {
         }
     }
 
-    pub fn harvest(&self) -> GpuRenderBufs {
+    pub fn harvest(&mut self) -> GpuRenderBufs {
+        self.inner.finish();
         let mut strips = Vec::new();
         let width_tiles = (self.inner.width).div_ceil(WIDE_TILE_WIDTH);
         let height_tiles = (self.inner.height).div_ceil(STRIP_HEIGHT);
@@ -184,6 +185,7 @@ impl GpuRenderCtx {
                             };
                             strips.push(strip);
                         }
+                        _ => todo!(),
                     }
                 }
             }
