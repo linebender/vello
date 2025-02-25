@@ -1,12 +1,6 @@
 // Copyright 2023 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-// Pending on https://github.com/rust-lang/rust-clippy/pull/13677
-#![expect(
-    clippy::shadow_unrelated,
-    reason = "https://github.com/rust-lang/rust-clippy/pull/13677"
-)]
-
 use naga::front::wgsl;
 use naga::valid::{Capabilities, ModuleInfo, ValidationError, ValidationFlags};
 use naga::{AddressSpace, ArraySize, ImageClass, Module, StorageAccess, WithSpan};
