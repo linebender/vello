@@ -30,6 +30,11 @@ pub struct Style {
 
     /// Encodes the stroke width. This field is ignored for fills.
     pub line_width: f32,
+
+    /// Encodes the embolden amount (for fonts). This value is added to the stroke width during
+    /// stroke expansion for fonts. For stroke styles, this is added to the stroke width.
+    /// For fill styles, this is used to create a synthetic stroke of this width.
+    pub embolden: f32,
 }
 
 impl Style {
@@ -67,7 +72,7 @@ impl Style {
     pub const FLAGS_END_CAP_MASK: u32 = 0x0300_0000;
     pub const MITER_LIMIT_MASK: u32 = 0xFFFF;
 
-    pub fn from_fill(fill: Fill) -> Self {
+    pub fn from_fill(fill: Fill, embolden: f32) -> Self {
         let fill_bit = match fill {
             Fill::NonZero => 0,
             Fill::EvenOdd => Self::FLAGS_FILL_BIT,
@@ -75,10 +80,11 @@ impl Style {
         Self {
             flags_and_miter_limit: fill_bit,
             line_width: 0.,
+            embolden,
         }
     }
 
-    pub fn from_stroke(stroke: &Stroke) -> Self {
+    pub fn from_stroke(stroke: &Stroke, embolden: f32) -> Self {
         let style = Self::FLAGS_STYLE_BIT;
         let join = match stroke.join {
             Join::Bevel => Self::FLAGS_JOIN_BITS_BEVEL,
@@ -99,7 +105,14 @@ impl Style {
         Self {
             flags_and_miter_limit: style | join | start_cap | end_cap | miter_limit,
             line_width: stroke.width as f32,
+            embolden,
         }
+    }
+
+    /// Sets the embolden amount for this style.
+    pub fn with_embolden(mut self, embolden: f32) -> Self {
+        self.embolden = embolden;
+        self
     }
 
     #[cfg(test)]
@@ -837,15 +850,21 @@ mod tests {
 
     #[test]
     fn test_fill_style() {
-        assert_eq!(Some(Fill::NonZero), Style::from_fill(Fill::NonZero).fill());
-        assert_eq!(Some(Fill::EvenOdd), Style::from_fill(Fill::EvenOdd).fill());
-        assert_eq!(None, Style::from_stroke(&Stroke::default()).fill());
+        assert_eq!(
+            Some(Fill::NonZero),
+            Style::from_fill(Fill::NonZero, 0.).fill()
+        );
+        assert_eq!(
+            Some(Fill::EvenOdd),
+            Style::from_fill(Fill::EvenOdd, 0.).fill()
+        );
+        assert_eq!(None, Style::from_stroke(&Stroke::default(), 0.).fill());
     }
 
     #[test]
     fn test_stroke_style() {
-        assert_eq!(None, Style::from_fill(Fill::NonZero).stroke_width());
-        assert_eq!(None, Style::from_fill(Fill::EvenOdd).stroke_width());
+        assert_eq!(None, Style::from_fill(Fill::NonZero, 0.).stroke_width());
+        assert_eq!(None, Style::from_fill(Fill::EvenOdd, 0.).stroke_width());
         let caps = [Cap::Butt, Cap::Square, Cap::Round];
         let joins = [Join::Bevel, Join::Miter, Join::Round];
         for start in caps {
@@ -856,7 +875,7 @@ mod tests {
                         .with_end_cap(end)
                         .with_join(join)
                         .with_miter_limit(0.);
-                    let encoded = Style::from_stroke(&stroke);
+                    let encoded = Style::from_stroke(&stroke, 0.);
                     assert_eq!(Some(stroke.width), encoded.stroke_width());
                     assert_eq!(Some(stroke.join), encoded.stroke_join());
                     assert_eq!(Some(stroke.start_cap), encoded.stroke_start_cap());

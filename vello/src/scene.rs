@@ -354,6 +354,7 @@ impl<'a> DrawGlyphs<'a> {
                 transform: Transform::IDENTITY,
                 glyph_transform: None,
                 font_size: 16.0,
+                embolden: 0.,
                 hint: false,
                 normalized_coords: coords_start..coords_start,
                 style: Fill::NonZero.into(),
@@ -401,6 +402,19 @@ impl<'a> DrawGlyphs<'a> {
     #[must_use]
     pub fn hint(mut self, hint: bool) -> Self {
         self.run.hint = hint;
+        self
+    }
+
+    /// Sets the amount of emboldening to apply.
+    ///
+    /// The value represents the amount to embolden in em units.
+    /// A value of 0.0 means no emboldening (the default).
+    /// Typical values range from 0.01 to 0.1.
+    ///
+    /// The default value is 0.0 (no emboldening).
+    #[must_use]
+    pub fn embolden(mut self, amount: f32) -> Self {
+        self.run.embolden = amount;
         self
     }
 
@@ -676,6 +690,7 @@ impl<'a> DrawGlyphs<'a> {
                             scene: self.scene,
                             cpal: &font.cpal().unwrap(),
                             outlines: &font.outline_glyphs(),
+                            // embolden: self.run.embolden,
                             transform_stack: vec![Transform::from_kurbo(&transform)],
                             clip_box: DEFAULT_CLIP_RECT,
                             clip_depth: 0,
@@ -789,15 +804,21 @@ impl ColorPainter for DrawColorGlyphs<'_> {
             return;
         };
 
-        let mut path = BezPathOutline(BezPath::new());
         let draw_settings = DrawSettings::unhinted(Size::unscaled(), self.location);
-
-        let Ok(_) = outline.draw(draw_settings, &mut path) else {
-            return;
+        let path = {
+            let mut path = BezPathOutline(BezPath::new());
+            let Ok(_) = outline.draw(draw_settings, &mut path) else {
+                return;
+            };
+            path.0
         };
+        // if self.embolden > 0. {
+        //     path.set_embolden(self.embolden);
+        // }
+
         self.clip_depth += 1;
         self.scene
-            .push_layer(Mix::Clip, 1.0, self.last_transform().to_kurbo(), &path.0);
+            .push_layer(Mix::Clip, 1.0, self.last_transform().to_kurbo(), &path);
     }
 
     fn push_clip_box(&mut self, clip_box: skrifa::raw::types::BoundingBox<f32>) {
@@ -871,11 +892,14 @@ impl ColorPainter for DrawColorGlyphs<'_> {
             return;
         };
 
-        let mut path = BezPathOutline(BezPath::new());
         let draw_settings = DrawSettings::unhinted(Size::unscaled(), self.location);
 
-        let Ok(_) = outline.draw(draw_settings, &mut path) else {
-            return;
+        let path = {
+            let mut path = BezPathOutline(BezPath::new());
+            let Ok(_) = outline.draw(draw_settings, &mut path) else {
+                return;
+            };
+            path.0
         };
 
         let transform = self.last_transform();
@@ -886,7 +910,7 @@ impl ColorPainter for DrawColorGlyphs<'_> {
             brush_transform
                 .map(conv_skrifa_transform)
                 .map(|it| it.to_kurbo()),
-            &path.0,
+            &path,
         );
     }
 }

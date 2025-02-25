@@ -30,6 +30,7 @@ impl GlyphCache {
         size: f32,
         hint: bool,
         style: &'a Style,
+        embolden: f32,
     ) -> Option<GlyphCacheSession<'a>> {
         let font_id = font.data.id();
         let font_index = font.index;
@@ -64,10 +65,10 @@ impl GlyphCache {
         };
         // TODO: we're ignoring dashing for now
         let style_bits = match style {
-            Style::Fill(fill) => super::path::Style::from_fill(*fill),
-            Style::Stroke(stroke) => super::path::Style::from_stroke(stroke),
+            Style::Fill(fill) => super::path::Style::from_fill(*fill, embolden),
+            Style::Stroke(stroke) => super::path::Style::from_stroke(stroke, embolden),
         };
-        let style_bits: [u32; 2] = bytemuck::cast(style_bits);
+        let style_bits: [u32; 3] = bytemuck::cast(style_bits);
         Some(GlyphCacheSession {
             free_list: &mut self.free_list,
             map,
@@ -82,6 +83,7 @@ impl GlyphCache {
             hinter,
             serial: self.serial,
             cached_count: &mut self.cached_count,
+            embolden,
         })
     }
 
@@ -141,11 +143,12 @@ pub(crate) struct GlyphCacheSession<'a> {
     size: Size,
     size_bits: u32,
     style: &'a Style,
-    style_bits: [u32; 2],
+    style_bits: [u32; 3],
     outlines: OutlineGlyphCollection<'a>,
     hinter: Option<&'a HintingInstance>,
     serial: u64,
     cached_count: &'a mut usize,
+    embolden: f32,
 }
 
 impl GlyphCacheSession<'_> {
@@ -171,11 +174,11 @@ impl GlyphCacheSession<'_> {
         encoding_ptr.reset();
         let is_fill = match &self.style {
             Style::Fill(fill) => {
-                encoding_ptr.encode_fill_style(*fill);
+                encoding_ptr.encode_fill_style_embolden(*fill, self.embolden);
                 true
             }
             Style::Stroke(stroke) => {
-                encoding_ptr.encode_stroke_style(stroke);
+                encoding_ptr.encode_stroke_style_embolden(stroke, self.embolden);
                 false
             }
         };
@@ -190,7 +193,9 @@ impl GlyphCacheSession<'_> {
         } else {
             DrawSettings::unhinted(self.size, self.coords)
         };
+
         outline.draw(draw_settings, &mut path).ok()?;
+
         if path.finish(false) == 0 {
             encoding_ptr.reset();
         }
@@ -214,7 +219,7 @@ struct GlyphKey {
     font_index: u32,
     glyph_id: u32,
     font_size_bits: u32,
-    style_bits: [u32; 2],
+    style_bits: [u32; 3],
     hint: bool,
 }
 

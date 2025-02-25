@@ -178,12 +178,22 @@ impl Encoding {
 
     /// Encodes a fill style.
     pub fn encode_fill_style(&mut self, fill: Fill) {
-        self.encode_style(Style::from_fill(fill));
+        self.encode_style(Style::from_fill(fill, 0.));
     }
 
     /// Encodes a stroke style.
     pub fn encode_stroke_style(&mut self, stroke: &Stroke) {
-        self.encode_style(Style::from_stroke(stroke));
+        self.encode_style(Style::from_stroke(stroke, 0.));
+    }
+
+    /// Encodes a fill style with embolden.
+    pub fn encode_fill_style_embolden(&mut self, fill: Fill, embolden: f32) {
+        self.encode_style(Style::from_fill(fill, embolden));
+    }
+
+    /// Encodes a stroke style with embolden.
+    pub fn encode_stroke_style_embolden(&mut self, stroke: &Stroke, embolden: f32) {
+        self.encode_style(Style::from_stroke(stroke, embolden));
     }
 
     fn encode_style(&mut self, style: Style) {
