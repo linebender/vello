@@ -7,7 +7,7 @@ use peniko::{
     BlendMode, Blob, Brush, BrushRef, Color, ColorStop, ColorStops, ColorStopsSource, Compose,
     Extend, Fill, FontData, Gradient, ImageBrush, ImageBrushRef, ImageData, Mix, StyleRef,
     color::{AlphaColor, DynamicColor, Srgb, palette},
-    kurbo::{Affine, BezPath, Point, Rect, Shape, Stroke, StrokeOpts, Vec2},
+    kurbo::{Affine, BezPath, Join, Point, Rect, Shape, Stroke, StrokeOpts, Vec2},
 };
 use png::{BitDepth, ColorType, Transformations};
 use skrifa::bitmap::BitmapFormat;
@@ -21,7 +21,9 @@ use skrifa::{
 };
 #[cfg(feature = "bump_estimate")]
 use vello_encoding::BumpAllocatorMemory;
-use vello_encoding::{DrawBeginClip, Encoding, Glyph, GlyphRun, NormalizedCoord, Patch, Transform};
+use vello_encoding::{
+    DrawBeginClip, EmboldenStyle, Encoding, Glyph, GlyphRun, NormalizedCoord, Patch, Transform,
+};
 
 // TODO - Document invariants and edge cases (#470)
 // - What happens when we pass a transform matrix with NaN values to the Scene?
@@ -431,6 +433,7 @@ impl<'a> DrawGlyphs<'a> {
                 transform: Transform::IDENTITY,
                 glyph_transform: None,
                 font_size: 16.0,
+                embolden_style: EmboldenStyle::default(),
                 hint: false,
                 normalized_coords: coords_start..coords_start,
                 style: Fill::NonZero.into(),
@@ -478,6 +481,37 @@ impl<'a> DrawGlyphs<'a> {
     #[must_use]
     pub fn hint(mut self, hint: bool) -> Self {
         self.run.hint = hint;
+        self
+    }
+
+    /// Sets the amount of emboldening to apply.
+    ///
+    /// The value represents the amount to embolden in em units.
+    /// A value of 0.0 means no emboldening (the default).
+    /// Typical values range from 0.01 to 0.1.
+    ///
+    /// The default value is 0.0 (no emboldening).
+    #[must_use]
+    pub fn embolden(mut self, amount: Vec2) -> Self {
+        self.run.embolden_style.embolden = amount;
+        self
+    }
+
+    /// Sets the join to use when emboldening.
+    ///
+    /// The default value is Miter.
+    #[must_use]
+    pub fn embolden_join(mut self, join: Join) -> Self {
+        self.run.embolden_style.join = join;
+        self
+    }
+
+    /// Sets the miter limit to use when emboldening with a miter join.
+    ///
+    /// The default value is 4.0.
+    #[must_use]
+    pub fn embolden_miter_limit(mut self, miter_limit: f32) -> Self {
+        self.run.embolden_style.miter_limit = miter_limit;
         self
     }
 
