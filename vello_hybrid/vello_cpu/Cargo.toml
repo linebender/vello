@@ -1,0 +1,15 @@
+[package]
+name = "vello_cpu"
+version.workspace = true
+description = "A CPU-based renderer for Vello, optimized for SIMD and multithreaded execution."
+categories = ["rendering", "graphics"]
+keywords = ["2d", "vector-graphics"]
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

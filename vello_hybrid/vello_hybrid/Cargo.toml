@@ -1,0 +1,15 @@
+[package]
+name = "vello_hybrid"
+version.workspace = true
+description = "A hybrid CPU/GPU renderer for Vello, balancing computation between CPU and GPU for efficiency."
+categories = ["rendering", "graphics"]
+keywords = ["2d", "vector-graphics"]
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

@@ -2593,6 +2593,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "vello_api"
+version = "0.4.0"
+
+[[package]]
+name = "vello_common"
+version = "0.4.0"
+
+[[package]]
+name = "vello_cpu"
+version = "0.4.0"
+
+[[package]]
 name = "vello_encoding"
 version = "0.4.0"
 dependencies = [
@@ -2602,6 +2614,10 @@ dependencies = [
  "skrifa",
  "smallvec",
 ]
+
+[[package]]
+name = "vello_hybrid"
+version = "0.4.0"
 
 [[package]]
 name = "vello_shaders"
