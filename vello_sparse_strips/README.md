@@ -1,5 +1,12 @@
 # Vello Sparse Strips
 
+We are developing a new implementation for Vello that aims to:
+- Be compatible with a wider range of devices (should be able to run on GPUs without compute shader support, using only fragment and vertex shaders).
+- Mitigate some performance cliffs.
+- Handle a wider range of memory conditions (e.g., when less memory is available).
+
+This folder is being used to develop this implementation and is **not yet suitable for production use**. Our plan is to move the packages in this folder to the top level of the repository once they are ready for use.
+
 This implementation is based on the **sparse rendering approach** outlined by Raph Levien (@raphlinus) in  
 [*Potato: a hybrid CPU/GPU 2D renderer design*](https://docs.google.com/document/d/1gEqf7ehTzd89Djf_VpkL0B_Fb15e0w5fuv_UzyacAPU/edit).  
 It leverages **efficient tiling, sorting, and sparse strip allocation** to optimize rendering for both CPU and hybrid CPU/GPU workloads.
