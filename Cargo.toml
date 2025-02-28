@@ -12,6 +12,11 @@ members = [
     "examples/simple",
     "examples/simple_sdl2",
     "examples/with_winit",
+
+    "sparse_strips/vello_api",
+    "sparse_strips/vello_common",
+    "sparse_strips/vello_cpu",
+    "sparse_strips/vello_hybrid",
 ]
 
 [workspace.package]
