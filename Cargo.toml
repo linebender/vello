@@ -13,10 +13,10 @@ members = [
     "examples/simple_sdl2",
     "examples/with_winit",
 
-    "vello_hybrid/vello_api",
-    "vello_hybrid/vello_common",
-    "vello_hybrid/vello_cpu",
-    "vello_hybrid/vello_hybrid",
+    "vello_sparse_strips/vello_api",
+    "vello_sparse_strips/vello_common",
+    "vello_sparse_strips/vello_cpu",
+    "vello_sparse_strips/vello_hybrid",
 ]
 
 [workspace.package]

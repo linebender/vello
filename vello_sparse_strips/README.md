@@ -1,4 +1,4 @@
-# Vello Hybrid Crates
+# Vello Sparse Strips
 
 This implementation is based on the **sparse rendering approach** outlined by Raph Levien (@raphlinus) in  
 [*Potato: a hybrid CPU/GPU 2D renderer design*](https://docs.google.com/document/d/1gEqf7ehTzd89Djf_VpkL0B_Fb15e0w5fuv_UzyacAPU/edit).  
