@@ -112,7 +112,8 @@ pub fn stroke(path: &BezPath, style: &Stroke, affine: Affine, line_buf: &mut Vec
     // TODO: Temporary hack to ensure that strokes are scaled properly by the transform.
     let tolerance = TOL / affine.as_coeffs()[0].abs().max(affine.as_coeffs()[3].abs());
 
-    let lines: LoweredPath<kurbo::Line> = flatten::stroke::stroke_undashed(path.iter(), style, tolerance);
+    let lines: LoweredPath<kurbo::Line> =
+        flatten::stroke::stroke_undashed(path.iter(), style, tolerance);
     for line in &lines.path {
         let scaled_p0 = affine * line.p0;
         let scaled_p1 = affine * line.p1;
