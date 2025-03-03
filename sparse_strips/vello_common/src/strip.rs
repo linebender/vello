@@ -4,11 +4,9 @@
 //! Rendering strips.
 
 use crate::footprint::Footprint;
+use crate::peniko::Fill;
 use crate::tile::Tiles;
-use vello_api::Fill;
 
-/// Render the tiles stored in `tiles` into the strip and alpha buffer.
-/// The strip buffer will be cleared in the beginning.
 
 // Note that this will probably disappear and be turned into a const generic in the future.
 /// The height of a strip.
@@ -34,7 +32,8 @@ impl Strip {
     }
 }
 
-/// Render the tiles into strips.
+/// Render the tiles stored in `tiles` into the strip and alpha buffer.
+/// The strip buffer will be cleared in the beginning.
 pub fn render(
     tiles: &Tiles,
     strip_buf: &mut Vec<Strip>,
