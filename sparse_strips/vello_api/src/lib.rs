@@ -9,7 +9,4 @@
 
 pub use peniko::*;
 pub mod execute;
-pub mod flatten;
 pub mod paint;
-pub mod strip;
-pub mod tile;
