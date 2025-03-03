@@ -1,8 +1,6 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Footprints.
-
 use vello_api::tile::{Tile, TILE_WIDTH};
 
 /// A footprint represents in a compact fashion the range of pixels covered by a tile.

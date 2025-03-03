@@ -6,3 +6,4 @@
 //! hybrid CPU/GPU rendering.
 
 mod footprint;
+pub mod tile;
