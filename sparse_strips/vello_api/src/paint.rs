@@ -18,6 +18,6 @@ pub enum Paint {
 
 impl From<AlphaColor<Srgb>> for Paint {
     fn from(value: AlphaColor<Srgb>) -> Self {
-        Paint::Solid(value)
+        Self::Solid(value)
     }
 }

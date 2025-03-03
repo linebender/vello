@@ -38,7 +38,7 @@ impl Tile {
     }
 
     /// Check whether two tiles are at the same location.
-    pub fn same_loc(&self, other: &Tile) -> bool {
+    pub fn same_loc(&self, other: &Self) -> bool {
         self.x == other.x && self.same_row(other)
     }
 

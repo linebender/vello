@@ -20,6 +20,6 @@ pub struct Strip {
 impl Strip {
     /// Return the y coordinate of the strip, in strip units.
     pub fn strip_y(&self) -> u16 {
-        self.y / STRIP_HEIGHT as u16
+        self.y / u16::try_from(STRIP_HEIGHT).unwrap()
     }
 }

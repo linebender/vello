@@ -12,23 +12,23 @@ pub struct Point {
 impl Point {
     /// Create a new point.
     pub fn new(x: f32, y: f32) -> Self {
-        Point { x, y }
+        Self { x, y }
     }
 }
 
 impl std::ops::Add for Point {
     type Output = Self;
 
-    fn add(self, rhs: Point) -> Self {
-        Point::new(self.x + rhs.x, self.y + rhs.y)
+    fn add(self, rhs: Self) -> Self {
+        Self::new(self.x + rhs.x, self.y + rhs.y)
     }
 }
 
 impl std::ops::Sub for Point {
     type Output = Self;
 
-    fn sub(self, rhs: Point) -> Self {
-        Point::new(self.x - rhs.x, self.y - rhs.y)
+    fn sub(self, rhs: Self) -> Self {
+        Self::new(self.x - rhs.x, self.y - rhs.y)
     }
 }
 
@@ -36,7 +36,7 @@ impl std::ops::Mul<f32> for Point {
     type Output = Self;
 
     fn mul(self, rhs: f32) -> Self {
-        Point::new(self.x * rhs, self.y * rhs)
+        Self::new(self.x * rhs, self.y * rhs)
     }
 }
 
