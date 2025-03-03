@@ -1,3 +1,6 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 //! Types for paints.
 
 use peniko::color::{AlphaColor, Srgb};

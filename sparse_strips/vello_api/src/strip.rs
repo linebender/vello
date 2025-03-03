@@ -1,3 +1,6 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 //! Types for rendering strips.
 
 // Note that this will probably disappear and be turned into a const generic in the future.
