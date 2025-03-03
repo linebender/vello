@@ -56,7 +56,7 @@ pub fn render(
 
         if !prev_tile.same_loc(tile) {
             let start_delta = delta;
-            let same_strip = prev_tile.same_strip(&tile);
+            let same_strip = prev_tile.same_strip(tile);
 
             if same_strip {
                 fp.extend(3);
@@ -132,7 +132,7 @@ pub fn render(
             macro_rules! fill {
                 ($rule:expr) => {
                     for x in x0..x1 {
-                        let mut alphas = 0u32;
+                        let mut alphas = 0_u32;
 
                         for y in 0..4 {
                             let area = areas[x as usize][y];
@@ -192,7 +192,7 @@ pub fn render(
             strip_start = !same_strip;
             seg_start = i;
 
-            if !prev_tile.same_row(&tile) {
+            if !prev_tile.same_row(tile) {
                 delta = 0;
             }
         }

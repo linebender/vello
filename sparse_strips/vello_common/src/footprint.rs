@@ -9,18 +9,18 @@ pub(crate) struct Footprint(pub(crate) u32);
 
 impl Footprint {
     /// Create a new, empty footprint.
-    pub(crate) fn empty() -> Footprint {
-        Footprint(0)
+    pub(crate) fn empty() -> Self {
+        Self(0)
     }
 
     /// Create a new footprint from a single index, i.e. [i, i + 1).
-    pub(crate) fn from_index(index: u8) -> Footprint {
-        Footprint(1 << index)
+    pub(crate) fn from_index(index: u8) -> Self {
+        Self(1 << index)
     }
 
     /// Create a new footprint from a single index, i.e. [start, end).
-    pub(crate) fn from_range(start: u8, end: u8) -> Footprint {
-        Footprint((1 << end) - (1 << start))
+    pub(crate) fn from_range(start: u8, end: u8) -> Self {
+        Self((1 << end) - (1 << start))
     }
 
     /// The start point of the covered range (inclusive).
@@ -39,7 +39,7 @@ impl Footprint {
     }
 
     /// Merge another footprint with the current one.
-    pub(crate) fn merge(&mut self, fp: &Footprint) {
+    pub(crate) fn merge(&mut self, fp: &Self) {
         self.0 |= fp.0;
     }
 }

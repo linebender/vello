@@ -398,7 +398,7 @@ impl TileIndex {
         Self { x, y, index }
     }
 
-    pub(crate) fn cmp(&self, b: &TileIndex) -> std::cmp::Ordering {
+    pub(crate) fn cmp(&self, b: &Self) -> std::cmp::Ordering {
         let xya = ((self.y as u32) << 16) + (self.x as u32);
         let xyb = ((b.y as u32) << 16) + (b.x as u32);
         xya.cmp(&xyb)
@@ -443,7 +443,7 @@ mod tests {
 
     #[test]
     fn footprints_in_tile() {
-        let tile = Tile::new(
+        let mut tile = Tile::new(
             0,
             0,
             Point::new(scale_up(0.5), scale_up(0.0)),
@@ -453,7 +453,7 @@ mod tests {
         assert_eq!(tile.footprint().x0(), 2);
         assert_eq!(tile.footprint().x1(), 3);
 
-        let tile = Tile::new(
+        tile = Tile::new(
             0,
             0,
             Point::new(scale_up(0.1), scale_up(0.0)),
@@ -463,7 +463,7 @@ mod tests {
         assert_eq!(tile.footprint().x0(), 0);
         assert_eq!(tile.footprint().x1(), 3);
 
-        let tile = Tile::new(
+        tile = Tile::new(
             0,
             0,
             Point::new(scale_up(0.0), scale_up(0.0)),
@@ -473,7 +473,7 @@ mod tests {
         assert_eq!(tile.footprint().x0(), 0);
         assert_eq!(tile.footprint().x1(), 4);
 
-        let tile = Tile::new(
+        tile = Tile::new(
             0,
             0,
             Point::new(scale_up(0.74), scale_up(0.0)),
