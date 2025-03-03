@@ -7,6 +7,8 @@
 
 #![forbid(unsafe_code)]
 
-pub use peniko::*;
+pub use peniko;
+pub use peniko::color;
+pub use peniko::kurbo;
 pub mod execute;
 pub mod paint;
