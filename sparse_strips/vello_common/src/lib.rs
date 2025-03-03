@@ -8,4 +8,5 @@
 mod footprint;
 
 pub mod flatten;
+pub mod strip;
 pub mod tile;
