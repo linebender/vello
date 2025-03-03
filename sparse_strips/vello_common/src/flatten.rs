@@ -7,7 +7,7 @@ use flatten::stroke::LoweredPath;
 use vello_api::kurbo;
 use vello_api::kurbo::{Affine, BezPath, Line, Stroke};
 
-/// The flattening tolerance
+/// The flattening tolerance.
 const TOL: f64 = 0.25;
 
 /// A point.
