@@ -51,11 +51,11 @@ pub fn render(
     // Note: the input should contain a sentinel tile, to avoid having
     // logic here to process the final strip.
     for i in 1..tiles.len() {
-        let tile = tiles.get(i);
+        let cur_tile = tiles.get(i);
 
-        if !prev_tile.same_loc(tile) {
+        if !prev_tile.same_loc(cur_tile) {
             let start_delta = delta;
-            let same_strip = prev_tile.same_strip(tile);
+            let same_strip = prev_tile.same_strip(cur_tile);
 
             if same_strip {
                 fp.extend(3);
@@ -191,13 +191,13 @@ pub fn render(
             strip_start = !same_strip;
             seg_start = i;
 
-            if !prev_tile.same_row(tile) {
+            if !prev_tile.same_row(cur_tile) {
                 delta = 0;
             }
         }
 
-        fp.merge(&tile.footprint());
+        fp.merge(&cur_tile.footprint());
 
-        prev_tile = tile;
+        prev_tile = cur_tile;
     }
 }

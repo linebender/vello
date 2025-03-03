@@ -6,7 +6,11 @@
 //! hybrid CPU/GPU rendering.
 
 #![cfg_attr(not(feature = "simd"), forbid(unsafe_code))]
-
+#![allow(
+    clippy::cast_possible_truncation,
+    reason = "We temporarily ignore those because the casts\
+only break in edge cases, and some of them are also only related to conversions between f32 and f64."
+)]
 mod footprint;
 
 pub mod flatten;

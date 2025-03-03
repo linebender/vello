@@ -98,6 +98,11 @@ impl Tiles {
         self.tile_buf.len() as u32
     }
 
+    /// Returns true if the container has no tiles.
+    pub fn is_empty(&self) -> bool {
+        self.tile_buf.is_empty()
+    }
+
     /// Reset the tiles' container.
     pub fn reset(&mut self) {
         self.tile_buf.clear();
@@ -115,7 +120,10 @@ impl Tiles {
     ///
     /// Panics if the container hasn't been sorted before.
     pub fn get(&self, index: u32) -> &Tile {
-        assert!(self.sorted);
+        assert!(
+            self.sorted,
+            "attempted to call `get` before sorting the tile container."
+        );
 
         &self.tile_buf[self.tile_index_buf[index as usize].index()]
     }
