@@ -5,7 +5,7 @@
 
 use flatten::stroke::LoweredPath;
 use vello_api::kurbo;
-use vello_api::kurbo::{Affine, BezPath, Line, Stroke};
+use vello_api::kurbo::{Affine, BezPath, Stroke};
 
 /// The flattening tolerance.
 const TOL: f64 = 0.25;
@@ -112,7 +112,7 @@ pub fn stroke(path: &BezPath, style: &Stroke, affine: Affine, line_buf: &mut Vec
     // TODO: Temporary hack to ensure that strokes are scaled properly by the transform.
     let tolerance = TOL / affine.as_coeffs()[0].abs().max(affine.as_coeffs()[3].abs());
 
-    let lines: LoweredPath<Line> = flatten::stroke::stroke_undashed(path.iter(), style, tolerance);
+    let lines: LoweredPath<kurbo::Line> = flatten::stroke::stroke_undashed(path.iter(), style, tolerance);
     for line in &lines.path {
         let scaled_p0 = affine * line.p0;
         let scaled_p1 = affine * line.p1;
