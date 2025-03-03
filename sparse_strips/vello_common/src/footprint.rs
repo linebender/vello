@@ -1,7 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use vello_api::tile::{Tile, TILE_WIDTH};
+use crate::tile::{Tile, TILE_WIDTH};
 
 /// A footprint represents in a compact fashion the range of pixels covered by a tile.
 /// We represent this as a u32 so that we can work with bit-shifting for better performance.
@@ -44,14 +44,10 @@ impl Footprint {
     }
 }
 
-pub(crate) trait TileExt {
-    fn footprint(&self) -> Footprint;
-}
-
-impl TileExt for Tile {
+impl Tile {
     // TODO: Profiling shows that this method takes up quite a lot of time in AVX SIMD, investigate
     // if it can be improved.
-    fn footprint(&self) -> Footprint {
+    pub(crate) fn footprint(&self) -> Footprint {
         let x0 = self.p0.x;
         let x1 = self.p1.x;
         let x_min = x0.min(x1).floor();
