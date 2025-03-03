@@ -4,3 +4,5 @@
 //! This crate contains core data structures and utilities shared across crates. It includes
 //! foundational types for path geometry, tiling, and other common operations used in both CPU and
 //! hybrid CPU/GPU rendering.
+
+mod footprint;
