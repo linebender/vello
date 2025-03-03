@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use bytemuck::{Pod, Zeroable};
-use peniko::kurbo::{Cap, Join, Shape, Stroke};
+use peniko::kurbo::{Cap, Join, Point, Shape, Stroke};
 use peniko::Fill;
 
 use super::Monoid;
@@ -285,6 +285,9 @@ impl PathTag {
     /// Style setting.
     pub const STYLE: Self = Self(0x40);
 
+    /// Subpath marker. Used to associate winding information with a new subpath.
+    pub const SUBPATH: Self = Self(0x80);
+
     /// Bit that marks a segment that is the end of a subpath.
     pub const SUBPATH_END_BIT: u8 = 0x4;
 
@@ -315,6 +318,11 @@ impl PathTag {
         self.0 |= Self::SUBPATH_END_BIT;
     }
 
+    /// Sets the subpath end bit.
+    pub fn set_subpath(&mut self) {
+        self.0 |= Self::SUBPATH.0;
+    }
+
     /// Returns the segment type.
     pub fn path_segment_type(self) -> PathSegmentType {
         PathSegmentType(self.0 & Self::SEGMENT_MASK)
@@ -333,6 +341,8 @@ pub struct PathMonoid {
     pub pathseg_offset: u32,
     /// Index into style stream.
     pub style_ix: u32,
+    /// Index into winding stream.
+    pub winding_ix: u32,
     /// Index of containing path.
     pub path_ix: u32,
 }
@@ -354,6 +364,7 @@ impl Monoid for PathMonoid {
         c.path_ix = (tag_word & (PathTag::PATH.0 as u32 * 0x1010101)).count_ones();
         let style_size = (size_of::<Style>() / size_of::<u32>()) as u32;
         c.style_ix = (tag_word & (PathTag::STYLE.0 as u32 * 0x1010101)).count_ones() * style_size;
+        c.winding_ix = (tag_word & (PathTag::SUBPATH.0 as u32 * 0x1010101)).count_ones();
         c
     }
 
@@ -364,6 +375,7 @@ impl Monoid for PathMonoid {
             pathseg_ix: self.pathseg_ix + other.pathseg_ix,
             pathseg_offset: self.pathseg_offset + other.pathseg_offset,
             style_ix: self.style_ix + other.style_ix,
+            winding_ix: self.winding_ix + other.winding_ix,
             path_ix: self.path_ix + other.path_ix,
         }
     }
@@ -821,6 +833,198 @@ impl<'a> PathEncoder<'a> {
 }
 
 impl skrifa::outline::OutlinePen for PathEncoder<'_> {
+    fn move_to(&mut self, x: f32, y: f32) {
+        self.move_to(x, y);
+    }
+
+    fn line_to(&mut self, x: f32, y: f32) {
+        self.line_to(x, y);
+    }
+
+    fn quad_to(&mut self, cx0: f32, cy0: f32, x: f32, y: f32) {
+        self.quad_to(cx0, cy0, x, y);
+    }
+
+    fn curve_to(&mut self, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x: f32, y: f32) {
+        self.cubic_to(cx0, cy0, cx1, cy1, x, y);
+    }
+
+    fn close(&mut self) {
+        self.close();
+    }
+}
+
+/// Encoder for path segments with winding information.
+pub struct WindingPathEncoder<'a> {
+    /// The underlying path encoder
+    encoder: PathEncoder<'a>,
+    /// Reference to the path_windings vector
+    path_windings: &'a mut Vec<f32>,
+    /// Internal state for tracking current subpath points
+    current_subpath: Vec<Point>,
+    /// Tracks if a subpath is in progress
+    in_subpath: bool,
+}
+
+impl<'a> WindingPathEncoder<'a> {
+    /// Creates a new winding path encoder.
+    pub fn new(
+        tags: &'a mut Vec<PathTag>,
+        data: &'a mut Vec<u8>,
+        n_segments: &'a mut u32,
+        n_paths: &'a mut u32,
+        path_windings: &'a mut Vec<f32>,
+        is_fill: bool,
+    ) -> Self {
+        Self {
+            encoder: PathEncoder::new(tags, data, n_segments, n_paths, is_fill),
+            path_windings,
+            current_subpath: Vec::new(),
+            in_subpath: false,
+        }
+    }
+
+    /// Encodes a move, starting a new subpath.
+    pub fn move_to(&mut self, x: f32, y: f32) {
+        // If we have a previous subpath in progress, compute its winding
+        if self.in_subpath && !self.current_subpath.is_empty() {
+            self.compute_and_store_winding();
+        }
+
+        // Start a new subpath
+        self.current_subpath.clear();
+        self.current_subpath.push(Point::new(x as f64, y as f64));
+        self.in_subpath = true;
+
+        self.encoder.tags.push(PathTag::SUBPATH);
+
+        // Forward to the underlying encoder
+        self.encoder.move_to(x, y);
+    }
+
+    /// Encodes a line.
+    pub fn line_to(&mut self, x: f32, y: f32) {
+        // Track point for winding calculation
+        if self.in_subpath {
+            self.current_subpath.push(Point::new(x as f64, y as f64));
+        }
+
+        // Forward to the underlying encoder
+        self.encoder.line_to(x, y);
+    }
+
+    /// Encodes a quadratic bezier.
+    pub fn quad_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32) {
+        // Track endpoint for winding calculation (we ignore control points)
+        if self.in_subpath {
+            self.current_subpath.push(Point::new(x2 as f64, y2 as f64));
+        }
+
+        // Forward to the underlying encoder
+        self.encoder.quad_to(x1, y1, x2, y2);
+    }
+
+    /// Encodes a cubic bezier.
+    pub fn cubic_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x3: f32, y3: f32) {
+        // Track endpoint for winding calculation (we ignore control points)
+        if self.in_subpath {
+            self.current_subpath.push(Point::new(x3 as f64, y3 as f64));
+        }
+
+        // Forward to the underlying encoder
+        self.encoder.cubic_to(x1, y1, x2, y2, x3, y3);
+    }
+
+    /// Closes the current subpath.
+    pub fn close(&mut self) {
+        // Compute winding before closing
+        if self.in_subpath && !self.current_subpath.is_empty() {
+            self.compute_and_store_winding();
+        }
+
+        self.in_subpath = false;
+        self.current_subpath.clear();
+
+        // Forward to the underlying encoder
+        self.encoder.close();
+    }
+
+    /// Encodes a shape.
+    pub fn shape(&mut self, shape: &impl Shape) {
+        // For shapes, we'll use the path_elements method which will properly
+        // track all the points through our move_to, line_to, etc. methods
+        self.path_elements(shape.path_elements(0.1));
+    }
+
+    /// Encodes a path iterator
+    pub fn path_elements(&mut self, path: impl Iterator<Item = peniko::kurbo::PathEl>) {
+        use peniko::kurbo::PathEl;
+        for el in path {
+            match el {
+                PathEl::MoveTo(p0) => self.move_to(p0.x as f32, p0.y as f32),
+                PathEl::LineTo(p0) => self.line_to(p0.x as f32, p0.y as f32),
+                PathEl::QuadTo(p0, p1) => {
+                    self.quad_to(p0.x as f32, p0.y as f32, p1.x as f32, p1.y as f32);
+                }
+                PathEl::CurveTo(p0, p1, p2) => self.cubic_to(
+                    p0.x as f32,
+                    p0.y as f32,
+                    p1.x as f32,
+                    p1.y as f32,
+                    p2.x as f32,
+                    p2.y as f32,
+                ),
+                PathEl::ClosePath => self.close(),
+            }
+        }
+    }
+
+    /// Completes path encoding and returns the actual number of encoded segments.
+    pub fn finish(mut self, insert_path_marker: bool) -> u32 {
+        // Handle any outstanding subpath
+        if self.in_subpath && !self.current_subpath.is_empty() {
+            self.compute_and_store_winding();
+        }
+
+        // Finish the underlying encoder
+        self.encoder.finish(insert_path_marker)
+    }
+
+    // Helper to compute winding for the current subpath
+    fn compute_and_store_winding(&mut self) {
+        if self.current_subpath.len() < 3 {
+            // Not enough points for a meaningful winding calculation
+            self.path_windings.push(1.0); // Default to positive winding
+            return;
+        }
+
+        let winding = compute_winding(&self.current_subpath);
+        let winding_sign = if winding == 1 { 1.0 } else { -1.0 }; // CCW: +1, CW: -1
+
+        self.path_windings.push(winding_sign);
+    }
+}
+
+fn compute_winding(points: &[Point]) -> u8 {
+    if points.is_empty() {
+        return 0;
+    }
+    let mut area = 0.;
+    let last = points.len() - 1;
+    let mut prev = points[last];
+    for cur in points[0..=last].iter() {
+        area += (cur.y - prev.y) * (cur.x + prev.x);
+        prev = *cur;
+    }
+    if area > 0. {
+        1
+    } else {
+        0
+    }
+}
+
+// Also implement the OutlinePen trait if needed
+impl skrifa::outline::OutlinePen for WindingPathEncoder<'_> {
     fn move_to(&mut self, x: f32, y: f32) {
         self.move_to(x, y);
     }

@@ -613,8 +613,6 @@ fn draw_join(
     }
 }
 
-
-
 fn read_f32_point(ix: u32) -> vec2f {
     let x = bitcast<f32>(scene[pathdata_base + ix]);
     let y = bitcast<f32>(scene[pathdata_base + ix + 1u]);
@@ -682,6 +680,7 @@ fn compute_tag_monoid(ix: u32) -> PathTagData {
     // config.style_base.
     tm.trans_ix -= 1u;
     tm.style_ix -= STYLE_SIZE_IN_WORDS;
+    tm.winding_ix -= 1u;
     return PathTagData(tag_byte, tm);
 }
 
@@ -825,6 +824,7 @@ fn main(
     let tag = compute_tag_monoid(ix);
     let path_ix = tag.monoid.path_ix;
     let style_ix = tag.monoid.style_ix;
+    let winding_ix = tag.monoid.winding_ix;
     let trans_ix = tag.monoid.trans_ix;
 
     let out = &path_bboxes[path_ix];
@@ -897,11 +897,11 @@ fn main(
             }
         } else {
             let embolden = bitcast<f32>(scene[config.style_base + style_ix + 2u]);
-            // let offset = select(0.0, 0.5 * embolden, embolden > 0.0);
-            let offset = embolden;
 
-            if offset > 0.0 {
-                let neighbor = read_neighboring_segment(ix + 1u);
+            // Handle both positive and negative offsets
+            if embolden != 0.0 {
+                let winding = bitcast<f32>(scene[config.winding_base + winding_ix]);
+                let offset = select(embolden, -embolden, winding > 0.0);
                 var tan_start = cubic_start_tangent(pts.p0, pts.p1, pts.p2, pts.p3);
                 if dot(tan_start, tan_start) < TANGENT_THRESH * TANGENT_THRESH {
                     tan_start = vec2(TANGENT_THRESH, 0.);
@@ -910,26 +910,21 @@ fn main(
                 if dot(tan_prev, tan_prev) < TANGENT_THRESH * TANGENT_THRESH {
                     tan_prev = vec2(TANGENT_THRESH, 0.);
                 }
-                var tan_next = neighbor.tangent;
-                if dot(tan_next, tan_next) < TANGENT_THRESH * TANGENT_THRESH {
-                    tan_next = vec2(TANGENT_THRESH, 0.);
-                }
-                let n_start = -offset * normalize(vec2(-tan_start.y, tan_start.x));
-                let offset_tangent = -offset * normalize(tan_prev);
-                let n_prev = offset_tangent.yx * vec2f(-1., 1.);
-                let n_next = -offset * normalize(tan_next).yx * vec2f(-1., 1.);
+        
+                let n_start = offset * normalize(vec2(-tan_start.y, tan_start.x));
+                let offset_tangent = offset * normalize(tan_prev);
+                let n_prev = vec2(-offset_tangent.y, offset_tangent.x);
 
-                flatten_euler(pts, path_ix, transform, offset, pts.p0 + n_start, pts.p3 + n_prev);
-    
-                // Add a connecting line if this is a join between segments
-                if neighbor.do_join {
-                    let next_start = pts.p3 + n_next;        
-                    output_line_with_transform(path_ix, pts.p3 + n_prev, next_start, transform);
-                }
+                let start_point = pts.p0 + n_start;
+                let end_point = pts.p3 + n_prev;
+
+                flatten_euler(pts, path_ix, transform, offset, start_point, end_point);
             } else {
+                // Only use zero offset when embolden is actually zero
                 flatten_euler(pts, path_ix, transform, 0., pts.p0, pts.p3);
             }
         }
+
         // Update bounding box using atomics only. Computing a monoid is a
         // potential future optimization.
         if bbox.z > bbox.x || bbox.w > bbox.y {

@@ -1,6 +1,8 @@
 // Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use crate::path::WindingPathEncoder;
+
 use super::{
     DrawBlurRoundedRect, DrawColor, DrawImage, DrawLinearGradient, DrawRadialGradient,
     DrawSweepGradient, DrawTag, Glyph, GlyphRun, NormalizedCoord, Patch, PathEncoder, PathTag,
@@ -31,6 +33,8 @@ pub struct Encoding {
     pub transforms: Vec<Transform>,
     /// The style stream
     pub styles: Vec<Style>,
+    /// Winding information for subpaths
+    pub path_windings: Vec<f32>,
     /// Late bound resource data.
     pub resources: Resources,
     /// Number of encoded paths.
@@ -75,6 +79,7 @@ impl Encoding {
         self.styles.clear();
         self.draw_data.clear();
         self.draw_tags.clear();
+        self.path_windings.clear();
         self.n_paths = 0;
         self.n_path_segments = 0;
         self.n_clips = 0;
@@ -110,6 +115,7 @@ impl Encoding {
                     run.stream_offsets.draw_data += offsets.draw_data;
                     run.stream_offsets.transforms += offsets.transforms;
                     run.stream_offsets.styles += offsets.styles;
+                    run.stream_offsets.path_windings += offsets.path_windings;
                     run
                 }));
             self.resources
@@ -147,6 +153,7 @@ impl Encoding {
         self.path_data.extend_from_slice(&other.path_data);
         self.draw_tags.extend_from_slice(&other.draw_tags);
         self.draw_data.extend_from_slice(&other.draw_data);
+        self.path_windings.extend_from_slice(&other.path_windings);
         self.n_paths += other.n_paths;
         self.n_path_segments += other.n_path_segments;
         self.n_clips += other.n_clips;
@@ -173,6 +180,7 @@ impl Encoding {
             draw_data: self.draw_data.len(),
             transforms: self.transforms.len(),
             styles: self.styles.len(),
+            path_windings: self.path_windings.len(),
         }
     }
 
@@ -229,6 +237,19 @@ impl Encoding {
             &mut self.path_data,
             &mut self.n_path_segments,
             &mut self.n_paths,
+            is_fill,
+        )
+    }
+
+    /// Returns an encoder for encoding a path. If `is_fill` is true, all subpaths will
+    /// be automatically closed.
+    pub fn encode_winding_path(&mut self, is_fill: bool) -> WindingPathEncoder<'_> {
+        WindingPathEncoder::new(
+            &mut self.path_tags,
+            &mut self.path_data,
+            &mut self.n_path_segments,
+            &mut self.n_paths,
+            &mut self.path_windings,
             is_fill,
         )
     }
@@ -571,6 +592,8 @@ pub struct StreamOffsets {
     pub transforms: usize,
     /// Current length of style stream.
     pub styles: usize,
+    /// Current length of path winding stream.
+    pub path_windings: usize,
 }
 
 impl StreamOffsets {
@@ -581,6 +604,7 @@ impl StreamOffsets {
         self.draw_data += other.draw_data;
         self.transforms += other.transforms;
         self.styles += other.styles;
+        self.path_windings += other.path_windings;
     }
 }
 

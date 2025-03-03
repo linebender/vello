@@ -7,6 +7,7 @@ struct TagMonoid {
     pathseg_ix: u32,
     pathseg_offset: u32,
     style_ix: u32,
+    winding_ix: u32,
     path_ix: u32,
 }
 
@@ -19,6 +20,7 @@ const PATH_TAG_TRANSFORM = 0x20u;
 const PATH_TAG_PATH = 0x10u;
 const PATH_TAG_STYLE = 0x40u;
 const PATH_TAG_SUBPATH_END = 4u;
+const PATH_TAG_SUBPATH = 0x80u;
 
 // Size of the `Style` data structure in words
 const STYLE_SIZE_IN_WORDS: u32 = 3u;
@@ -39,6 +41,9 @@ const STYLE_FLAGS_JOIN_BEVEL: u32 = 0u;
 const STYLE_FLAGS_JOIN_MITER: u32 = 0x10000000u;
 const STYLE_FLAGS_JOIN_ROUND: u32 = 0x20000000u;
 
+// Flag for inner curve, used when emboldening filled paths
+const STYLE_FLAGS_INNER_CURVE: u32 = 0x00800000u;
+
 // TODO: Declare the remaining STYLE flags here.
 
 fn tag_monoid_identity() -> TagMonoid {
@@ -51,6 +56,7 @@ fn combine_tag_monoid(a: TagMonoid, b: TagMonoid) -> TagMonoid {
     c.pathseg_ix = a.pathseg_ix + b.pathseg_ix;
     c.pathseg_offset = a.pathseg_offset + b.pathseg_offset;
     c.style_ix = a.style_ix + b.style_ix;
+    c.winding_ix = a.winding_ix + b.winding_ix;
     c.path_ix = a.path_ix + b.path_ix;
     return c;
 }
@@ -67,5 +73,6 @@ fn reduce_tag(tag_word: u32) -> TagMonoid {
     c.pathseg_offset = a & 0xffu;
     c.path_ix = countOneBits(tag_word & (PATH_TAG_PATH * 0x1010101u));
     c.style_ix = countOneBits(tag_word & (PATH_TAG_STYLE * 0x1010101u)) * STYLE_SIZE_IN_WORDS;
+    c.winding_ix = countOneBits(tag_word & (PATH_TAG_SUBPATH * 0x1010101u));
     return c;
 }

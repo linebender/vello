@@ -690,7 +690,6 @@ impl<'a> DrawGlyphs<'a> {
                             scene: self.scene,
                             cpal: &font.cpal().unwrap(),
                             outlines: &font.outline_glyphs(),
-                            // embolden: self.run.embolden,
                             transform_stack: vec![Transform::from_kurbo(&transform)],
                             clip_box: DEFAULT_CLIP_RECT,
                             clip_depth: 0,

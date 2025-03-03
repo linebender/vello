@@ -183,23 +183,42 @@ impl GlyphCacheSession<'_> {
             }
         };
         use skrifa::outline::DrawSettings;
-        let mut path = encoding_ptr.encode_path(is_fill);
-        let draw_settings = if key.hint {
-            if let Some(hinter) = self.hinter {
-                DrawSettings::hinted(hinter, false)
+        if self.embolden != 0. {
+            let mut path = encoding_ptr.encode_winding_path(is_fill);
+            let draw_settings = if key.hint {
+                if let Some(hinter) = self.hinter {
+                    DrawSettings::hinted(hinter, false)
+                } else {
+                    DrawSettings::unhinted(self.size, self.coords)
+                }
             } else {
                 DrawSettings::unhinted(self.size, self.coords)
+            };
+
+            outline.draw(draw_settings, &mut path).ok()?;
+            if path.finish(false) == 0 {
+                encoding_ptr.reset();
             }
         } else {
-            DrawSettings::unhinted(self.size, self.coords)
-        };
+            let mut path = encoding_ptr.encode_path(is_fill);
+            let draw_settings = if key.hint {
+                if let Some(hinter) = self.hinter {
+                    DrawSettings::hinted(hinter, false)
+                } else {
+                    DrawSettings::unhinted(self.size, self.coords)
+                }
+            } else {
+                DrawSettings::unhinted(self.size, self.coords)
+            };
 
-        outline.draw(draw_settings, &mut path).ok()?;
-
-        if path.finish(false) == 0 {
-            encoding_ptr.reset();
+            outline.draw(draw_settings, &mut path).ok()?;
+            if path.finish(false) == 0 {
+                encoding_ptr.reset();
+            }
         }
+
         let stream_sizes = encoding_ptr.stream_offsets();
+
         self.map.insert(
             key,
             GlyphEntry {

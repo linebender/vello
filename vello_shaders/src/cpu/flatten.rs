@@ -4,17 +4,12 @@
 use std::f32::consts::FRAC_1_SQRT_2;
 
 use super::{
-    euler::{
-        espc_int_approx, espc_int_inv_approx, CubicParams, EulerParams, EulerSeg, TANGENT_THRESH,
-    },
+    euler::{espc_int_approx, espc_int_inv_approx, CubicParams, EulerParams, EulerSeg, TANGENT_THRESH},
     util::{Transform, Vec2, ROBUST_EPSILON},
     CpuBinding,
 };
 use vello_encoding::math::f16_to_f32;
-use vello_encoding::{
-    BumpAllocators, ConfigUniform, LineSoup, Monoid, PathBbox, PathMonoid, PathTag, Style,
-    DRAW_INFO_FLAGS_FILL_RULE_BIT,
-};
+use vello_encoding::{BumpAllocators, ConfigUniform, LineSoup, Monoid, PathBbox, PathMonoid, PathTag, Style, DRAW_INFO_FLAGS_FILL_RULE_BIT};
 
 // TODO: remove this
 macro_rules! log {
@@ -73,20 +68,8 @@ fn cubic_end_tangent(p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2) -> Vec2 {
     }
 }
 
-fn write_line(
-    line_ix: usize,
-    path_ix: u32,
-    p0: Vec2,
-    p1: Vec2,
-    bbox: &mut IntBbox,
-    lines: &mut [LineSoup],
-) {
-    assert!(
-        !p0.is_nan() && !p1.is_nan(),
-        "wrote NaNs: p0: {:?}, p1: {:?}",
-        p0,
-        p1
-    );
+fn write_line(line_ix: usize, path_ix: u32, p0: Vec2, p1: Vec2, bbox: &mut IntBbox, lines: &mut [LineSoup]) {
+    assert!(!p0.is_nan() && !p1.is_nan(), "wrote NaNs: p0: {:?}, p1: {:?}", p0, p1);
     bbox.add_pt(p0);
     bbox.add_pt(p1);
     lines[line_ix] = LineSoup {
@@ -97,77 +80,27 @@ fn write_line(
     };
 }
 
-fn write_line_with_transform(
-    line_ix: usize,
-    path_ix: u32,
-    p0: Vec2,
-    p1: Vec2,
-    transform: &Transform,
-    bbox: &mut IntBbox,
-    lines: &mut [LineSoup],
-) {
-    write_line(
-        line_ix,
-        path_ix,
-        transform.apply(p0),
-        transform.apply(p1),
-        bbox,
-        lines,
-    );
+fn write_line_with_transform(line_ix: usize, path_ix: u32, p0: Vec2, p1: Vec2, transform: &Transform, bbox: &mut IntBbox, lines: &mut [LineSoup]) {
+    write_line(line_ix, path_ix, transform.apply(p0), transform.apply(p1), bbox, lines);
 }
 
-fn output_line(
-    path_ix: u32,
-    p0: Vec2,
-    p1: Vec2,
-    line_ix: &mut usize,
-    bbox: &mut IntBbox,
-    lines: &mut [LineSoup],
-) {
+fn output_line(path_ix: u32, p0: Vec2, p1: Vec2, line_ix: &mut usize, bbox: &mut IntBbox, lines: &mut [LineSoup]) {
     write_line(*line_ix, path_ix, p0, p1, bbox, lines);
     *line_ix += 1;
 }
 
-fn output_line_with_transform(
-    path_ix: u32,
-    p0: Vec2,
-    p1: Vec2,
-    transform: &Transform,
-    line_ix: &mut usize,
-    lines: &mut [LineSoup],
-    bbox: &mut IntBbox,
-) {
+fn output_line_with_transform(path_ix: u32, p0: Vec2, p1: Vec2, transform: &Transform, line_ix: &mut usize, lines: &mut [LineSoup], bbox: &mut IntBbox) {
     write_line_with_transform(*line_ix, path_ix, p0, p1, transform, bbox, lines);
     *line_ix += 1;
 }
 
-fn output_two_lines_with_transform(
-    path_ix: u32,
-    p00: Vec2,
-    p01: Vec2,
-    p10: Vec2,
-    p11: Vec2,
-    transform: &Transform,
-    line_ix: &mut usize,
-    lines: &mut [LineSoup],
-    bbox: &mut IntBbox,
-) {
+fn output_two_lines_with_transform(path_ix: u32, p00: Vec2, p01: Vec2, p10: Vec2, p11: Vec2, transform: &Transform, line_ix: &mut usize, lines: &mut [LineSoup], bbox: &mut IntBbox) {
     write_line_with_transform(*line_ix, path_ix, p00, p01, transform, bbox, lines);
     write_line_with_transform(*line_ix + 1, path_ix, p10, p11, transform, bbox, lines);
     *line_ix += 2;
 }
 
-fn flatten_arc(
-    path_ix: u32,
-    begin: Vec2,
-    end: Vec2,
-    center: Vec2,
-    angle: f32,
-    transform: &Transform,
-    line_ix: &mut usize,
-    lines: &mut [LineSoup],
-    bbox: &mut IntBbox,
-) {
+fn flatten_arc(path_ix: u32, begin: Vec2, end: Vec2, center: Vec2, angle: f32, transform: &Transform, line_ix: &mut usize, lines: &mut [LineSoup], bbox: &mut IntBbox) {
     const MIN_THETA: f32 = 0.0001;
 
     let mut p0 = transform.apply(begin);
@@ -202,17 +135,7 @@ enum EspcRobust {
     LowDist,
 }
 
-fn flatten_euler(
-    cubic: &CubicPoints,
-    path_ix: u32,
-    local_to_device: &Transform,
-    offset: f32,
-    start_p: Vec2,
-    end_p: Vec2,
-    line_ix: &mut usize,
-    lines: &mut [LineSoup],
-    bbox: &mut IntBbox,
-) {
+fn flatten_euler(cubic: &CubicPoints, path_ix: u32, local_to_device: &Transform, offset: f32, start_p: Vec2, end_p: Vec2, line_ix: &mut usize, lines: &mut [LineSoup], bbox: &mut IntBbox) {
     // Flatten in local coordinates if this is a stroke. Flatten in device space otherwise.
     let (p0, p1, p2, p3, scale, transform) = if offset == 0. {
         (
@@ -225,22 +148,10 @@ fn flatten_euler(
         )
     } else {
         let t = local_to_device.0;
-        let scale = 0.5 * Vec2::new(t[0] + t[3], t[1] - t[2]).length()
-            + Vec2::new(t[0] - t[3], t[1] + t[2]).length();
-        (
-            cubic.p0,
-            cubic.p1,
-            cubic.p2,
-            cubic.p3,
-            scale,
-            local_to_device.clone(),
-        )
+        let scale = 0.5 * Vec2::new(t[0] + t[3], t[1] - t[2]).length() + Vec2::new(t[0] - t[3], t[1] + t[2]).length();
+        (cubic.p0, cubic.p1, cubic.p2, cubic.p3, scale, local_to_device.clone())
     };
-    let (t_start, t_end) = if offset == 0.0 {
-        (p0, p3)
-    } else {
-        (start_p, end_p)
-    };
+    let (t_start, t_end) = if offset == 0.0 { (p0, p3) } else { (start_p, end_p) };
 
     // Drop zero length lines. This is an exact equality test because dropping very short
     // line segments may result in loss of watertightness. The parallel curves of zero
@@ -283,8 +194,7 @@ fn flatten_euler(
             }
         }
         let actual_dt = t1 - last_t;
-        let cubic_params =
-            CubicParams::from_points_derivs(this_p0, this_p1, this_q0, this_q1, actual_dt);
+        let cubic_params = CubicParams::from_points_derivs(this_p0, this_p1, this_q0, this_q1, actual_dt);
         log!("@@@   loop: p0={this_p0:?} p1={this_p1:?} q0={this_q0:?} q1={this_q1:?} {cubic_params:?} t0: {t0}, t1: {t1}, dt: {dt}");
         if cubic_params.err * scale <= tol || dt <= SUBDIV_LIMIT {
             log!("@@@   error within tolerance");
@@ -297,9 +207,7 @@ fn flatten_euler(
             let normalized_offset = offset / cubic_params.chord_len;
             let dist_scaled = normalized_offset * es.params.ch;
             // The number of subdivisions for curvature = 1
-            let scale_multiplier = 0.5
-                * FRAC_1_SQRT_2
-                * (scale * cubic_params.chord_len / (es.params.ch * tol)).sqrt();
+            let scale_multiplier = 0.5 * FRAC_1_SQRT_2 * (scale * cubic_params.chord_len / (es.params.ch * tol)).sqrt();
             // TODO: tune these thresholds
             const K1_THRESH: f32 = 1e-3;
             const DIST_THRESH: f32 = 1e-3;
@@ -382,30 +290,9 @@ fn flatten_euler(
     }
 }
 
-fn draw_cap(
-    path_ix: u32,
-    cap_style: u32,
-    point: Vec2,
-    cap0: Vec2,
-    cap1: Vec2,
-    offset_tangent: Vec2,
-    transform: &Transform,
-    line_ix: &mut usize,
-    lines: &mut [LineSoup],
-    bbox: &mut IntBbox,
-) {
+fn draw_cap(path_ix: u32, cap_style: u32, point: Vec2, cap0: Vec2, cap1: Vec2, offset_tangent: Vec2, transform: &Transform, line_ix: &mut usize, lines: &mut [LineSoup], bbox: &mut IntBbox) {
     if cap_style == Style::FLAGS_CAP_BITS_ROUND {
-        flatten_arc(
-            path_ix,
-            cap0,
-            cap1,
-            point,
-            std::f32::consts::PI,
-            transform,
-            line_ix,
-            lines,
-            bbox,
-        );
+        flatten_arc(path_ix, cap0, cap1, point, std::f32::consts::PI, transform, line_ix, lines, bbox);
         return;
     }
 
@@ -423,19 +310,51 @@ fn draw_cap(
     output_line_with_transform(path_ix, start, end, transform, line_ix, lines, bbox);
 }
 
-fn draw_join(
-    path_ix: u32,
-    style_flags: u32,
-    p0: Vec2,
-    tan_prev: Vec2,
-    tan_next: Vec2,
-    n_prev: Vec2,
-    n_next: Vec2,
-    transform: &Transform,
-    line_ix: &mut usize,
-    lines: &mut [LineSoup],
-    bbox: &mut IntBbox,
-) {
+/// Draws a join between two segments of a path where they meet.
+///
+/// # Arguments
+///
+/// * `path_ix` - The index of the current path being processed.
+///
+/// * `style_flags` - Bit flags that determine the styling of the join.
+///   Contains join type (bevel, miter, round) and potentially miter limit.
+///
+/// * `p0` - The position vector (x, y) of the join point where two path segments meet.
+///
+/// * `tan_prev` - The normalized tangent vector of the previous path segment.
+///   Points in the direction of the path at the join point.
+///
+/// * `tan_next` - The normalized tangent vector of the next path segment.
+///   Points in the direction the path continues from the join point.
+///
+/// * `n_prev` - The normal vector of the previous path segment.
+///   Perpendicular to tan_prev, determines the stroke width direction.
+///
+/// * `n_next` - The normal vector of the next path segment.
+///   Perpendicular to tan_next, determines the stroke width direction.
+///
+/// * `transform` - Reference to a transformation matrix that will be applied
+///   to all points before they're added to the output.
+///
+/// * `line_ix` - Mutable reference to the current line index being processed.
+///   Used to keep track of position in the output buffer.
+///
+/// * `lines` - Mutable slice of LineSoup structs where the output lines will be stored.
+///   The function adds new line segments to this buffer.
+///
+/// * `bbox` - Mutable reference to an integer bounding box that gets updated
+///   with the bounds of all generated lines.
+///
+/// # Behavior
+///
+/// This function handles the joining of two path segments according to the specified style:
+/// - Bevel join: Creates a simple straight connection between segments
+/// - Miter join: Extends the outer edges until they meet (with a limit to prevent excessively sharp corners)
+/// - Round join: Creates a rounded corner using an arc
+///
+/// The function calculates the cross product (cr) and dot product (d) between tangents
+/// to determine the angle between segments and whether the join is convex or concave.
+fn draw_join(path_ix: u32, style_flags: u32, p0: Vec2, tan_prev: Vec2, tan_next: Vec2, n_prev: Vec2, n_next: Vec2, transform: &Transform, line_ix: &mut usize, lines: &mut [LineSoup], bbox: &mut IntBbox) {
     let mut front0 = p0 + n_prev;
     let front1 = p0 + n_next;
     let mut back0 = p0 - n_next;
@@ -447,9 +366,7 @@ fn draw_join(
     match style_flags & Style::FLAGS_JOIN_MASK {
         Style::FLAGS_JOIN_BITS_BEVEL => {
             if front0 != front1 && back0 != back1 {
-                output_two_lines_with_transform(
-                    path_ix, front0, front1, back0, back1, transform, line_ix, lines, bbox,
-                );
+                output_two_lines_with_transform(path_ix, front0, front1, back0, back1, transform, line_ix, lines, bbox);
             }
         }
         Style::FLAGS_JOIN_BITS_MITER => {
@@ -474,27 +391,11 @@ fn draw_join(
                     front0 = miter_pt;
                 }
             }
-            output_two_lines_with_transform(
-                path_ix, front0, front1, back0, back1, transform, line_ix, lines, bbox,
-            );
+            output_two_lines_with_transform(path_ix, front0, front1, back0, back1, transform, line_ix, lines, bbox);
         }
         Style::FLAGS_JOIN_BITS_ROUND => {
-            let (arc0, arc1, other0, other1) = if cr > 0. {
-                (back0, back1, front0, front1)
-            } else {
-                (front0, front1, back0, back1)
-            };
-            flatten_arc(
-                path_ix,
-                arc0,
-                arc1,
-                p0,
-                cr.atan2(d).abs(),
-                transform,
-                line_ix,
-                lines,
-                bbox,
-            );
+            let (arc0, arc1, other0, other1) = if cr > 0. { (back0, back1, front0, front1) } else { (front0, front1, back0, back1) };
+            flatten_arc(path_ix, arc0, arc1, p0, cr.atan2(d).abs(), transform, line_ix, lines, bbox);
             output_line_with_transform(path_ix, other0, other1, transform, line_ix, lines, bbox);
         }
         _ => unreachable!(),
@@ -561,10 +462,8 @@ fn compute_tag_monoid(ix: usize, pathtags: &[u32], tag_monoids: &[PathMonoid]) -
     // (when we add style_base)
     tm.trans_ix = tm.trans_ix.wrapping_sub(1);
     tm.style_ix = tm.style_ix.wrapping_sub(size_of::<Style>() as u32 / 4);
-    PathTagData {
-        tag_byte,
-        monoid: tm,
-    }
+    tm.winding_ix = tm.winding_ix.wrapping_sub(1);
+    PathTagData { tag_byte, monoid: tm }
 }
 
 #[derive(Debug)]
@@ -631,23 +530,25 @@ struct NeighboringSegment {
     tangent: Vec2,
 }
 
-fn read_neighboring_segment(
-    ix: usize,
-    pathtags: &[u32],
-    pathdata: &[u32],
-    tag_monoids: &[PathMonoid],
-) -> NeighboringSegment {
+fn read_neighboring_segment(ix: usize, pathtags: &[u32], pathdata: &[u32], tag_monoids: &[PathMonoid]) -> NeighboringSegment {
     let tag = compute_tag_monoid(ix, pathtags, tag_monoids);
     let pts = read_path_segment(&tag, true, pathdata);
 
     let is_closed = (tag.tag_byte & PATH_TAG_SEG_TYPE) == PATH_TAG_LINETO;
     let is_stroke_cap_marker = (tag.tag_byte & PathTag::SUBPATH_END_BIT) != 0;
     let do_join = !is_stroke_cap_marker || is_closed;
-    let tangent = if is_stroke_cap_marker {
-        pts.p3 - pts.p0
-    } else {
-        cubic_start_tangent(pts.p0, pts.p1, pts.p2, pts.p3)
-    };
+    let tangent = if is_stroke_cap_marker { pts.p3 - pts.p0 } else { cubic_start_tangent(pts.p0, pts.p1, pts.p2, pts.p3) };
+    NeighboringSegment { do_join, tangent }
+}
+
+fn read_neighboring_segment2(ix: usize, pathtags: &[u32], pathdata: &[u32], tag_monoids: &[PathMonoid]) -> NeighboringSegment {
+    let tag = compute_tag_monoid(ix, pathtags, tag_monoids);
+    let pts = read_path_segment(&tag, true, pathdata);
+
+    let is_closed = (tag.tag_byte & PATH_TAG_SEG_TYPE) == PATH_TAG_LINETO;
+    let is_stroke_cap_marker = (tag.tag_byte & PathTag::SUBPATH_END_BIT) != 0;
+    let do_join = !is_stroke_cap_marker || is_closed;
+    let tangent = cubic_start_tangent(pts.p0, pts.p1, pts.p2, pts.p3);
     NeighboringSegment { do_join, tangent }
 }
 
@@ -660,15 +561,7 @@ const PATH_TAG_QUADTO: u8 = 2;
 const PATH_TAG_CUBICTO: u8 = 3;
 const PATH_TAG_F32: u8 = 8;
 
-fn flatten_main(
-    n_wg: u32,
-    config: &ConfigUniform,
-    scene: &[u32],
-    tag_monoids: &[PathMonoid],
-    path_bboxes: &mut [PathBbox],
-    bump: &mut BumpAllocators,
-    lines: &mut [LineSoup],
-) {
+fn flatten_main(n_wg: u32, config: &ConfigUniform, scene: &[u32], tag_monoids: &[PathMonoid], path_bboxes: &mut [PathBbox], bump: &mut BumpAllocators, lines: &mut [LineSoup]) {
     let mut line_ix = 0;
     let pathtags = &scene[config.layout.path_tag_base as usize..];
     let pathdata = &scene[config.layout.path_data_base as usize..];
@@ -678,15 +571,12 @@ fn flatten_main(
         let tag = compute_tag_monoid(ix, pathtags, tag_monoids);
         let path_ix = tag.monoid.path_ix;
         let style_ix = tag.monoid.style_ix;
+        let winding_ix = tag.monoid.winding_ix;
         let trans_ix = tag.monoid.trans_ix;
         let style_flags = scene[(config.layout.style_base.wrapping_add(style_ix)) as usize];
         if (tag.tag_byte & PATH_TAG_PATH) != 0 {
             let out = &mut path_bboxes[path_ix as usize];
-            out.draw_flags = if (style_flags & Style::FLAGS_FILL_BIT) == 0 {
-                0
-            } else {
-                DRAW_INFO_FLAGS_FILL_RULE_BIT
-            };
+            out.draw_flags = if (style_flags & Style::FLAGS_FILL_BIT) == 0 { 0 } else { DRAW_INFO_FLAGS_FILL_RULE_BIT };
             out.trans_ix = trans_ix;
         }
 
@@ -697,9 +587,9 @@ fn flatten_main(
             let pts = read_path_segment(&tag, is_stroke, pathdata);
 
             if is_stroke {
-                let linewidth =
-                    f32::from_bits(scene[(config.layout.style_base + style_ix + 1) as usize]);
-                let offset = 0.5 * linewidth;
+                let linewidth = f32::from_bits(scene[(config.layout.style_base + style_ix + 1) as usize]);
+                let embolden = f32::from_bits(scene[(config.layout.style_base + style_ix + 2) as usize]);
+                let offset = 0.5 * (linewidth + embolden);
 
                 let is_open = seg_type != PATH_TAG_LINETO;
                 let is_stroke_cap_marker = (tag.tag_byte & PathTag::SUBPATH_END_BIT) != 0;
@@ -709,25 +599,13 @@ fn flatten_main(
                         let tangent = pts.p3 - pts.p0;
                         let offset_tangent = offset * tangent.normalize();
                         let n = Vec2::new(-offset_tangent.y, offset_tangent.x);
-                        draw_cap(
-                            path_ix,
-                            (style_flags & Style::FLAGS_START_CAP_MASK) >> 2,
-                            pts.p0,
-                            pts.p0 - n,
-                            pts.p0 + n,
-                            -offset_tangent,
-                            &transform,
-                            &mut line_ix,
-                            lines,
-                            &mut bbox,
-                        );
+                        draw_cap(path_ix, (style_flags & Style::FLAGS_START_CAP_MASK) >> 2, pts.p0, pts.p0 - n, pts.p0 + n, -offset_tangent, &transform, &mut line_ix, lines, &mut bbox);
                     } else {
                         // Don't draw anything if the path is closed.
                     }
                 } else {
                     // Read the neighboring segment.
-                    let neighbor =
-                        read_neighboring_segment(ix + 1, pathtags, pathdata, tag_monoids);
+                    let neighbor = read_neighboring_segment(ix + 1, pathtags, pathdata, tag_monoids);
                     let tan_prev = cubic_end_tangent(pts.p0, pts.p1, pts.p2, pts.p3);
                     let tan_next = neighbor.tangent;
                     let tan_start = cubic_start_tangent(pts.p0, pts.p1, pts.p2, pts.p3);
@@ -737,21 +615,9 @@ fn flatten_main(
                     // TODO: not all zero-length segments are getting filtered out
                     // TODO: this is a hack. How to handle caps on degenerate stroke?
                     // TODO: debug tricky stroke by isolation
-                    let tan_start = if tan_start.length_squared() < TANGENT_THRESH.powi(2) {
-                        Vec2::new(TANGENT_THRESH, 0.)
-                    } else {
-                        tan_start
-                    };
-                    let tan_prev = if tan_prev.length_squared() < TANGENT_THRESH.powi(2) {
-                        Vec2::new(TANGENT_THRESH, 0.)
-                    } else {
-                        tan_prev
-                    };
-                    let tan_next = if tan_next.length_squared() < TANGENT_THRESH.powi(2) {
-                        Vec2::new(TANGENT_THRESH, 0.)
-                    } else {
-                        tan_next
-                    };
+                    let tan_start = if tan_start.length_squared() < TANGENT_THRESH.powi(2) { Vec2::new(TANGENT_THRESH, 0.) } else { tan_start };
+                    let tan_prev = if tan_prev.length_squared() < TANGENT_THRESH.powi(2) { Vec2::new(TANGENT_THRESH, 0.) } else { tan_prev };
+                    let tan_next = if tan_next.length_squared() < TANGENT_THRESH.powi(2) { Vec2::new(TANGENT_THRESH, 0.) } else { tan_next };
 
                     let n_start = offset * Vec2::new(-tan_start.y, tan_start.x).normalize();
                     let offset_tangent = offset * tan_prev.normalize();
@@ -762,71 +628,44 @@ fn flatten_main(
                     log!("@ tan_next: {:#?}", tan_next);
 
                     // Render offset curves
-                    flatten_euler(
-                        &pts,
-                        path_ix,
-                        &transform,
-                        offset,
-                        pts.p0 + n_start,
-                        pts.p3 + n_prev,
-                        &mut line_ix,
-                        lines,
-                        &mut bbox,
-                    );
-                    flatten_euler(
-                        &pts,
-                        path_ix,
-                        &transform,
-                        -offset,
-                        pts.p0 - n_start,
-                        pts.p3 - n_prev,
-                        &mut line_ix,
-                        lines,
-                        &mut bbox,
-                    );
+                    flatten_euler(&pts, path_ix, &transform, offset, pts.p0 + n_start, pts.p3 + n_prev, &mut line_ix, lines, &mut bbox);
+                    flatten_euler(&pts, path_ix, &transform, -offset, pts.p0 - n_start, pts.p3 - n_prev, &mut line_ix, lines, &mut bbox);
 
                     if neighbor.do_join {
-                        draw_join(
-                            path_ix,
-                            style_flags,
-                            pts.p3,
-                            tan_prev,
-                            tan_next,
-                            n_prev,
-                            n_next,
-                            &transform,
-                            &mut line_ix,
-                            lines,
-                            &mut bbox,
-                        );
+                        draw_join(path_ix, style_flags, pts.p3, tan_prev, tan_next, n_prev, n_next, &transform, &mut line_ix, lines, &mut bbox);
                     } else {
                         // Draw end cap.
-                        draw_cap(
-                            path_ix,
-                            style_flags & Style::FLAGS_END_CAP_MASK,
-                            pts.p3,
-                            pts.p3 + n_prev,
-                            pts.p3 - n_prev,
-                            offset_tangent,
-                            &transform,
-                            &mut line_ix,
-                            lines,
-                            &mut bbox,
-                        );
+                        draw_cap(path_ix, style_flags & Style::FLAGS_END_CAP_MASK, pts.p3, pts.p3 + n_prev, pts.p3 - n_prev, offset_tangent, &transform, &mut line_ix, lines, &mut bbox);
                     }
                 }
             } else {
-                flatten_euler(
-                    &pts,
-                    path_ix,
-                    &transform,
-                    /*offset*/ 0.,
-                    pts.p0,
-                    pts.p3,
-                    &mut line_ix,
-                    lines,
-                    &mut bbox,
-                );
+                let embolden = f32::from_bits(scene[(config.layout.style_base + style_ix + 2) as usize]);
+
+                if embolden != 0.0 {
+                    let winding = f32::from_bits(scene[(config.layout.winding_base + winding_ix) as usize]);
+                    let offset = if winding > 0. { -embolden } else { embolden };
+                    let tan_prev = cubic_end_tangent(pts.p0, pts.p1, pts.p2, pts.p3);
+                    let tan_start = cubic_start_tangent(pts.p0, pts.p1, pts.p2, pts.p3);
+                    let tan_start = if tan_start.length_squared() < TANGENT_THRESH.powi(2) { Vec2::new(TANGENT_THRESH, 0.) } else { tan_start };
+                    let tan_prev = if tan_prev.length_squared() < TANGENT_THRESH.powi(2) { Vec2::new(TANGENT_THRESH, 0.) } else { tan_prev };
+
+                    let n_start = offset * Vec2::new(-tan_start.y, tan_start.x).normalize();
+                    let offset_tangent = offset * tan_prev.normalize();
+                    let n_prev = Vec2::new(-offset_tangent.y, offset_tangent.x);
+
+                    flatten_euler(&pts, path_ix, &transform, offset, pts.p0 + n_start, pts.p3 + n_prev, &mut line_ix, lines, &mut bbox);
+
+                    let neighbor = read_neighboring_segment2(ix + 1, pathtags, pathdata, tag_monoids);
+                    if neighbor.do_join {
+                        let tan_next = neighbor.tangent;
+                        let tan_next = if tan_next.length_squared() < TANGENT_THRESH.powi(2) { Vec2::new(TANGENT_THRESH, 0.) } else { tan_next };
+                        let tan_next_norm = tan_next.normalize();
+                        let n_next = offset * Vec2::new(-tan_next_norm.y, tan_next_norm.x);
+                        draw_join(path_ix, style_flags, pts.p3, tan_prev, tan_next, n_prev, n_next, &transform, &mut line_ix, lines, &mut bbox);
+                    }
+                } else {
+                    flatten_euler(&pts, path_ix, &transform, /*offset*/ 0., pts.p0, pts.p3, &mut line_ix, lines, &mut bbox);
+                }
             }
         }
 
@@ -848,13 +687,5 @@ pub fn flatten(n_wg: u32, resources: &[CpuBinding<'_>]) {
     let mut path_bboxes = resources[3].as_slice_mut();
     let mut bump = resources[4].as_typed_mut();
     let mut lines = resources[5].as_slice_mut();
-    flatten_main(
-        n_wg,
-        &config,
-        &scene,
-        &tag_monoids,
-        &mut path_bboxes,
-        &mut bump,
-        &mut lines,
-    );
+    flatten_main(n_wg, &config, &scene, &tag_monoids, &mut path_bboxes, &mut bump, &mut lines);
 }
