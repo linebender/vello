@@ -12,6 +12,10 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+peniko = { workspace = true }
+
+[features]
+simd = []
 
 [lints]
 workspace = true

@@ -2595,6 +2595,9 @@ dependencies = [
 [[package]]
 name = "vello_api"
 version = "0.4.0"
+dependencies = [
+ "peniko",
+]
 
 [[package]]
 name = "vello_common"

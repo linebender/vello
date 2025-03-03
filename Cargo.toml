@@ -86,6 +86,7 @@ clippy.wildcard_dependencies = "warn"
 
 [workspace.dependencies]
 vello = { version = "0.4.0", path = "vello" }
+vello_api = { path = "sparse_strips/vello_api" }
 vello_encoding = { version = "0.4.0", path = "vello_encoding" }
 vello_shaders = { version = "0.4.0", path = "vello_shaders" }
 bytemuck = { version = "1.21.0", features = ["derive"] }
