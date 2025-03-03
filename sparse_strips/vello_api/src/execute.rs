@@ -1,3 +1,5 @@
+//! Different execution modes for kernels.
+
 #[derive(Copy, Clone, Debug)]
 /// The execution mode used for the rendering process.
 pub enum ExecutionMode {
@@ -35,10 +37,13 @@ impl Default for ExecutionMode {
 }
 
 /// Scalar execution mode.
+#[derive(Debug)]
 pub struct Scalar;
 
 #[cfg(all(target_arch = "aarch64", feature = "simd"))]
+#[derive(Debug)]
 pub struct Neon;
 
 #[cfg(all(target_arch = "x86_64", feature = "simd"))]
+#[derive(Debug)]
 pub struct Avx2;

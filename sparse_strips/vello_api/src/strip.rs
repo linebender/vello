@@ -1,3 +1,5 @@
+//! Types for rendering strips.
+
 // Note that this will probably disappear and be turned into a const generic in the future.
 /// The height of a strip.
 pub const STRIP_HEIGHT: usize = 4;

@@ -1,12 +1,19 @@
+//! Types for paints.
+
 use peniko::color::{AlphaColor, Srgb};
 
-// TODO: Use `peniko::Brush` here? Though it will be tricky
-// because `Image` might require a different implementation on GPU, and
-// `Gradient` is also missing a `transform` attribute.
+// TODO: This will probably turn into a generic type where
+// vello-hybrid and vello-cpu provide their own instantiations for
+// a `Pattern` type.
 /// A paint used for filling or stroking paths.
 #[derive(Debug, Clone)]
 pub enum Paint {
+    /// A solid color.
     Solid(AlphaColor<Srgb>),
+    /// A gradient.
+    Gradient(()),
+    /// A pattern.
+    Pattern(()),
 }
 
 impl From<AlphaColor<Srgb>> for Paint {

@@ -1,3 +1,5 @@
+//! Types for flattening curves.
+
 /// A point.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Point {
