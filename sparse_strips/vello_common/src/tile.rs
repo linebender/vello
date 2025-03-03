@@ -3,7 +3,7 @@
 
 //! Primitives for creating tiles.
 
-use crate::flatten::{FlatLine, Point};
+use crate::flatten::{Line, Point};
 
 /// The width of a tile.
 pub const TILE_WIDTH: u32 = 4;
@@ -120,8 +120,8 @@ impl Tiles {
         &self.tile_buf[self.tile_index_buf[index as usize].index()]
     }
 
-    /// Populate the tiles' container with a buffer of flat lines.
-    pub fn make_tiles(&mut self, lines: &[FlatLine]) {
+    /// Populate the tiles' container with a buffer of lines.
+    pub fn make_tiles(&mut self, lines: &[Line]) {
         self.reset();
 
         // Calculate how many tiles are covered between two positions. p0 and p1 are scaled
@@ -423,7 +423,7 @@ fn scale_down(z: Point) -> Point {
 
 #[cfg(test)]
 mod tests {
-    use crate::flatten::{FlatLine, Point};
+    use crate::flatten::{Line, Point};
     use crate::footprint::Footprint;
     use crate::tile::{scale_up, Tile, Tiles};
 
@@ -490,7 +490,7 @@ mod tests {
 
     #[test]
     fn issue_46_infinite_loop() {
-        let line = FlatLine {
+        let line = Line {
             p0: Point { x: 22.0, y: 552.0 },
             p1: Point { x: 224.0, y: 388.0 },
         };
