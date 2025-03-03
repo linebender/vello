@@ -11,5 +11,6 @@ pub use peniko::*;
 pub mod execute;
 pub mod paint;
 pub mod strip;
-mod tiling;
+pub mod tiling;
+pub mod flatten;
 
