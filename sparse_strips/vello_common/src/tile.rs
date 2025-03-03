@@ -13,7 +13,10 @@ const TILE_WIDTH_SCALE: f32 = TILE_WIDTH as f32;
 const TILE_HEIGHT_SCALE: f32 = TILE_HEIGHT as f32;
 const INV_TILE_WIDTH_SCALE: f32 = 1.0 / TILE_WIDTH_SCALE;
 const INV_TILE_HEIGHT_SCALE: f32 = 1.0 / TILE_HEIGHT_SCALE;
-const NUDGE_FACTOR: f32 = 0.0000001;
+// The value of 8192.0 is mainly chosen for compatibility with the old cpu-sparse
+// implementation, where we scaled to u16.
+const NUDGE_FACTOR: f32 = 1.0 / 8192.0;
+const SCALED_X_NUDGE_FACTOR: f32 = 1.0 / (8192.0 * TILE_WIDTH_SCALE);
 
 /// A tile represents an aligned area on the pixmap, used to subdivide the viewport into sub-areas
 /// (currently 4x4) and analyze line intersections inside each such area.
@@ -131,14 +134,14 @@ impl Tiles {
             // anti-aliasing. This case is detected via tile-relative x == 0. However,
             // lines can naturally start or end at a multiple of the 4x4 grid, too, but
             // these don't constitute crossings. We nudge these points ever so slightly,
-            // by ensuring that xfrac0 and xfrac1 are always at least 1, which
-            // corresponds to 1/8192 of a pixel. By doing so, whenever we encounter a point
+            // by ensuring that xfrac0 and xfrac1 are always at least  1/8192 of a pixel.
+            // By doing so, whenever we encounter a point
             // at a tile relative 0, we can treat it as an edge crossing. This is somewhat
             // of a hack and in theory we should rather solve the underlying issue in the
             // strip generation code, but it works for now.
             if p.x.fract() == 0.0 {
                 Point {
-                    x: p.x + NUDGE_FACTOR,
+                    x: p.x + SCALED_X_NUDGE_FACTOR,
                     y: p.y,
                 }
             } else {
@@ -265,7 +268,7 @@ impl Tiles {
 
                 for i in 0..tile_count_x - 1 {
                     let yclip = yclip0 + i as f32 * sign * slope;
-                    let yfrac = scale_up(yclip).max(0.0000001);
+                    let yfrac = scale_up(yclip).max(NUDGE_FACTOR);
                     let packed = Point::new(xclip, yfrac);
 
                     push_tile(x, y, last_packed, packed);
@@ -324,7 +327,8 @@ impl Tiles {
                 let mut last_packed = packed0;
 
                 loop {
-                    // See issue 46 for why we don't just use an inequality check.
+                    // See https://github.com/LaurenzV/cpu-sparse-experiments/issues/46
+                    // for why we don't just use an inequality check.
                     let x_cond = if sign_x > 0.0 { xi >= x1 } else { xi <= x1 };
                     let y_cond = if sign_y > 0.0 { yi >= y1 } else { yi <= y1 };
 
