@@ -14,3 +14,10 @@ pub struct Strip {
     /// The winding number at the start of the strip.
     pub winding: i32,
 }
+
+impl Strip {
+    /// Return the y coordinate of the strip, in strip units.
+    pub fn strip_y(&self) -> u16 {
+        self.y / STRIP_HEIGHT as u16
+    }
+}
