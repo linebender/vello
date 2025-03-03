@@ -42,8 +42,10 @@ pub struct Scalar;
 
 #[cfg(all(target_arch = "aarch64", feature = "simd"))]
 #[derive(Debug)]
+/// Execute using NEON intrinsics.
 pub struct Neon;
 
 #[cfg(all(target_arch = "x86_64", feature = "simd"))]
 #[derive(Debug)]
+/// Execute using AVX2 intrinsics.
 pub struct Avx2;
