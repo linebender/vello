@@ -15,5 +15,8 @@ publish = false
 vello_api = { workspace = true }
 flatten = { workspace = true }
 
+[features]
+simd = ["vello_api/simd"]
+
 [lints]
 workspace = true
