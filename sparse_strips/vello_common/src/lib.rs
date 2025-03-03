@@ -5,6 +5,8 @@
 //! foundational types for path geometry, tiling, and other common operations used in both CPU and
 //! hybrid CPU/GPU rendering.
 
+#![cfg_attr(not(feature = "simd"), forbid(unsafe_code))]
+
 mod footprint;
 
 pub mod flatten;
