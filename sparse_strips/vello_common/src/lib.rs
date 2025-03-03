@@ -6,4 +6,6 @@
 //! hybrid CPU/GPU rendering.
 
 mod footprint;
+
+pub mod flatten;
 pub mod tile;

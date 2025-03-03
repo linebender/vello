@@ -13,6 +13,7 @@ publish = false
 
 [dependencies]
 vello_api = { workspace = true }
+flatten = { workspace = true }
 
 [lints]
 workspace = true
