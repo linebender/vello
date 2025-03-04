@@ -66,6 +66,15 @@ impl Wide {
         &self.tiles[y * self.width_tiles() + x]
     }
 
+    /// Get mutable access to the wide tile at a certain index.
+    ///
+    /// Panics if the index is out-of-range.
+    pub fn get_mut(&self, x: usize, y: usize) -> &mut WideTile {
+        assert!(x < self.width && y < self.height);
+
+        &mut self.tiles[y * self.width_tiles() + x]
+    }
+
     /// Return a reference to all wide tiles.
     pub fn tiles(&self) -> &[WideTile] {
         self.tiles.as_slice()
@@ -98,24 +107,23 @@ impl Wide {
             // support viewport culling yet. However, when generating the commands
             // we only want to emit strips >= 0, so we calculate the adjustment
             // and then only include the alpha indices for columns where x >= 0.
-            let x0_adjustment = (strip.x).min(0).unsigned_abs();
+            let x0_adjustment = strip.x.min(0).unsigned_abs();
             let x0 = (strip.x + x0_adjustment as i32) as u32;
-            let y = strip.strip_y();
-            let row_start = y as usize * width_tiles;
+            let strip_y = strip.strip_y();
             let mut col = strip.col + x0_adjustment;
             // Can potentially be 0, if the next strip's x values is also < 0.
             let strip_width = next_strip.col.saturating_sub(col);
             let x1 = x0 + strip_width;
-            let xtile0 = x0 as usize / WIDE_TILE_WIDTH;
+            let tile_x0 = x0 as usize / WIDE_TILE_WIDTH;
             // It's possible that a strip extends into a new wide tile, but we don't actually
             // have as many wide tiles (e.g. because the pixmap width is only 512, but
             // strip ends at 513), so take the minimum between the rounded values and `width_tiles`.
-            let xtile1 = (x1 as usize).div_ceil(WIDE_TILE_WIDTH).min(width_tiles);
+            let tile_x1 = (x1 as usize).div_ceil(WIDE_TILE_WIDTH).min(width_tiles);
             let mut x = x0;
 
-            for xtile in xtile0..xtile1 {
+            for tile_x in tile_x0..tile_x1 {
                 let x_tile_rel = x % WIDE_TILE_WIDTH as u32;
-                let width = x1.min(((xtile + 1) * WIDE_TILE_WIDTH) as u32) - x;
+                let width = x1.min(((tile_x + 1) * WIDE_TILE_WIDTH) as u32) - x;
                 let cmd = CmdStrip {
                     x: x_tile_rel,
                     width,
@@ -124,7 +132,7 @@ impl Wide {
                 };
                 x += width;
                 col += width;
-                self.tiles[row_start + xtile].push(Cmd::Strip(cmd));
+                self.get_mut(tile_x, strip_y as usize).push(Cmd::Strip(cmd));
             }
 
             let active_fill = match fill_rule {
@@ -133,7 +141,7 @@ impl Wide {
             };
 
             if active_fill
-                && y == next_strip.strip_y()
+                && strip_y == next_strip.strip_y()
                 // Only fill if we are actually inside the viewport.
                 && next_strip.x >= 0
             {
@@ -141,11 +149,12 @@ impl Wide {
                 let x2 = next_strip.x as u32;
                 let fxt0 = x1 as usize / WIDE_TILE_WIDTH;
                 let fxt1 = (x2 as usize).div_ceil(WIDE_TILE_WIDTH);
-                for xtile in fxt0..fxt1 {
+                for tile_x in fxt0..fxt1 {
                     let x_tile_rel = x % WIDE_TILE_WIDTH as u32;
-                    let width = x2.min(((xtile + 1) * WIDE_TILE_WIDTH) as u32) - x;
+                    let width = x2.min(((tile_x + 1) * WIDE_TILE_WIDTH) as u32) - x;
                     x += width;
-                    self.tiles[row_start + xtile].fill(x_tile_rel, width, paint.clone());
+                    self.get_mut(tile_x, strip_y as usize)
+                        .fill(x_tile_rel, width, paint.clone());
                 }
             }
         }
