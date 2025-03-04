@@ -5,9 +5,11 @@
 //! It is optimized for CPU-bound workloads and serves as a standalone renderer for systems
 //! without GPU acceleration.
 
-
-#![expect(clippy::cast_possible_truncation, reason = "We cast u16s to u8 in various places where we\
-know for sure that it's < 256")]
+#![expect(
+    clippy::cast_possible_truncation,
+    reason = "We cast u16s to u8 in various places where we\
+know for sure that it's < 256"
+)]
 
 pub mod pixmap;
 pub mod render;

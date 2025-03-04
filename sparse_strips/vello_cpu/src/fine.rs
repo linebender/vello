@@ -8,7 +8,6 @@ use vello_common::coarse::{Cmd, WIDE_TILE_WIDTH};
 use vello_common::paint::Paint;
 use vello_common::strip::STRIP_HEIGHT;
 
-
 pub(crate) const COLOR_COMPONENTS: usize = 4;
 pub(crate) const TOTAL_STRIP_HEIGHT: usize = STRIP_HEIGHT * COLOR_COMPONENTS;
 pub(crate) const SCRATCH_BUF_SIZE: usize = WIDE_TILE_WIDTH * STRIP_HEIGHT * COLOR_COMPONENTS;
@@ -88,7 +87,10 @@ impl<'a> Fine<'a> {
     }
 
     pub(crate) fn strip(&mut self, x: usize, width: usize, alphas: &[u32], paint: &Paint) {
-        debug_assert!(alphas.len() >= width, "alpha buffer doesn't contain sufficient elements");
+        debug_assert!(
+            alphas.len() >= width,
+            "alpha buffer doesn't contain sufficient elements"
+        );
 
         match paint {
             Paint::Solid(s) => {
