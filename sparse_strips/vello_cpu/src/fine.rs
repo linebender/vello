@@ -1,10 +1,10 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use crate::util::ColorExt;
 use vello_common::coarse::{Cmd, WIDE_TILE_WIDTH};
 use vello_common::paint::Paint;
 use vello_common::strip::STRIP_HEIGHT;
-use crate::util::ColorExt;
 
 ///! Fine rasterization.
 
@@ -86,13 +86,7 @@ impl<'a> Fine<'a> {
         }
     }
 
-    pub(crate) fn strip(
-        &mut self,
-        x: usize,
-        width: usize,
-        alphas: &[u32],
-        paint: &Paint,
-    ) {
+    pub(crate) fn strip(&mut self, x: usize, width: usize, alphas: &[u32], paint: &Paint) {
         debug_assert!(alphas.len() >= width);
 
         match paint {
