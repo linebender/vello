@@ -7,3 +7,4 @@
 
 mod pixmap;
 mod util;
+mod fine;
