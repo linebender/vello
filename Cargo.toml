@@ -86,7 +86,6 @@ clippy.wildcard_dependencies = "warn"
 
 [workspace.dependencies]
 vello = { version = "0.4.0", path = "vello" }
-vello_api = { path = "sparse_strips/vello_api" }
 vello_encoding = { version = "0.4.0", path = "vello_encoding" }
 vello_shaders = { version = "0.4.0", path = "vello_shaders" }
 bytemuck = { version = "1.21.0", features = ["derive"] }
@@ -100,6 +99,10 @@ futures-intrusive = "0.5.0"
 smallvec = "1.13.2"
 static_assertions = "1.1.0"
 thiserror = "2.0.11"
+
+# The below crates are experimental!
+vello_api = { path = "sparse_strips/vello_api" }
+vello_common = { path = "sparse_strips/vello_common" }
 
 # NOTE: Make sure to keep this in sync with the version badge in README.md and vello/README.md
 wgpu = { version = "24.0.1" }

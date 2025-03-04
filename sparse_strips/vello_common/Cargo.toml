@@ -12,6 +12,12 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+vello_api = { workspace = true }
+kurbo = { workspace = true }
+peniko = { workspace = true }
+
+[features]
+simd = ["vello_api/simd"]
 
 [lints]
 workspace = true
