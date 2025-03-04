@@ -13,9 +13,9 @@ only break in edge cases, and some of them are also only related to conversions 
 )]
 mod footprint;
 
+pub mod coarse;
 pub mod flatten;
 pub mod strip;
 pub mod tile;
-pub mod coarse;
 
 pub use vello_api::*;
