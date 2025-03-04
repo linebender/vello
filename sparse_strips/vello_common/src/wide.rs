@@ -69,10 +69,11 @@ impl Wide {
     /// Get mutable access to the wide tile at a certain index.
     ///
     /// Panics if the index is out-of-range.
-    pub fn get_mut(&self, x: usize, y: usize) -> &mut WideTile {
+    pub fn get_mut(&mut self, x: usize, y: usize) -> &mut WideTile {
         assert!(x < self.width && y < self.height);
 
-        &mut self.tiles[y * self.width_tiles() + x]
+        let idx = y * self.width_tiles() + x;
+        &mut self.tiles[idx]
     }
 
     /// Return a reference to all wide tiles.
