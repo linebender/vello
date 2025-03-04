@@ -5,7 +5,7 @@
 
 use vello_api::kurbo;
 use vello_api::kurbo::{Affine, BezPath, Stroke};
-use crate::kurbo::StrokeOpts;
+use kurbo::StrokeOpts;
 
 /// The flattening tolerance.
 const TOL: f64 = 0.25;
