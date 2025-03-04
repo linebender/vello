@@ -431,6 +431,7 @@ const fn scale_up(z: f32) -> f32 {
     z * TILE_WIDTH_SCALE
 }
 
+/// Scale a viewport coordinate to a tile coordinate.
 fn scale_down(z: Point) -> Point {
     Point::new(z.x * INV_TILE_WIDTH_SCALE, z.y * INV_TILE_HEIGHT_SCALE)
 }
