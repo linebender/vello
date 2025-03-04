@@ -53,9 +53,9 @@ impl Tile {
         self.x == other.x && self.same_row(other)
     }
 
-    /// Check whether two tiles are on the same strip.
-    pub fn same_strip(&self, other: &Self) -> bool {
-        self.same_row(other) && (other.x - self.x).abs() <= 1
+    /// Check whether `self` is adjacent to the left of `other`.
+    pub fn prev_loc(&self, other: &Self) -> bool {
+        self.same_row(other) && self.x + 1 == other.x
     }
 
     /// Check whether two tiles are on the same row.

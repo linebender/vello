@@ -55,7 +55,7 @@ pub fn render(
 
         if !prev_tile.same_loc(cur_tile) {
             let start_delta = delta;
-            let same_strip = prev_tile.same_strip(cur_tile);
+            let same_strip = prev_tile.prev_loc(cur_tile);
 
             if same_strip {
                 fp.extend(3);
