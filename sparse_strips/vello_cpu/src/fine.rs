@@ -1,12 +1,13 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+//! Fine rasterization.
+//!
 use crate::util::ColorExt;
 use vello_common::coarse::{Cmd, WIDE_TILE_WIDTH};
 use vello_common::paint::Paint;
 use vello_common::strip::STRIP_HEIGHT;
 
-///! Fine rasterization.
 
 pub(crate) const COLOR_COMPONENTS: usize = 4;
 pub(crate) const TOTAL_STRIP_HEIGHT: usize = STRIP_HEIGHT * COLOR_COMPONENTS;
@@ -87,7 +88,7 @@ impl<'a> Fine<'a> {
     }
 
     pub(crate) fn strip(&mut self, x: usize, width: usize, alphas: &[u32], paint: &Paint) {
-        debug_assert!(alphas.len() >= width);
+        debug_assert!(alphas.len() >= width, "alpha buffer doesn't contain sufficient elements");
 
         match paint {
             Paint::Solid(s) => {
@@ -137,8 +138,8 @@ pub(crate) mod fill {
     pub(crate) fn src_over(target: &mut [u8], cs: &[u8; COLOR_COMPONENTS]) {
         let _as = cs[3] as u16;
 
-        for cb in target.chunks_exact_mut(TOTAL_STRIP_HEIGHT) {
-            for cb in cb.chunks_exact_mut(COLOR_COMPONENTS) {
+        for strip in target.chunks_exact_mut(TOTAL_STRIP_HEIGHT) {
+            for cb in strip.chunks_exact_mut(COLOR_COMPONENTS) {
                 let _ab = cb[3] as u16;
 
                 for i in 0..COLOR_COMPONENTS {
