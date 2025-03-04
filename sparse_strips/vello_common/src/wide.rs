@@ -61,7 +61,10 @@ impl Wide {
     ///
     /// Panics if the index is out-of-range.
     pub fn get(&self, x: usize, y: usize) -> &WideTile {
-        assert!(x < self.width && y < self.height, "attempted to access out-of-bounds wide tile");
+        assert!(
+            x < self.width && y < self.height,
+            "attempted to access out-of-bounds wide tile"
+        );
 
         &self.tiles[y * self.width_tiles() + x]
     }
@@ -70,7 +73,10 @@ impl Wide {
     ///
     /// Panics if the index is out-of-range.
     pub fn get_mut(&mut self, x: usize, y: usize) -> &mut WideTile {
-        assert!(x < self.width && y < self.height, "attempted to access out-of-bounds wide tile");
+        assert!(
+            x < self.width && y < self.height,
+            "attempted to access out-of-bounds wide tile"
+        );
 
         let idx = y * self.width_tiles() + x;
         &mut self.tiles[idx]
