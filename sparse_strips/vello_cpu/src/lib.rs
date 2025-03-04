@@ -6,6 +6,7 @@
 //! without GPU acceleration.
 
 pub mod pixmap;
+pub mod render;
+
 mod util;
 mod fine;
-pub mod render;

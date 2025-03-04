@@ -159,6 +159,7 @@ impl RenderContext {
         self.height
     }
 
+    // Assumes that `line_buf` contains the flattened path.
     fn render_path(&mut self, fill_rule: Fill, paint: Paint) {
         self.tiles.make_tiles(&self.line_buf);
         self.tiles.sort_tiles();
