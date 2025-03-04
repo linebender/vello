@@ -131,7 +131,7 @@ impl Wide {
             for tile_x in tile_x0..tile_x1 {
                 let x_tile_rel = x % WIDE_TILE_WIDTH as u32;
                 let width = x1.min(((tile_x + 1) * WIDE_TILE_WIDTH) as u32) - x;
-                let cmd = CmdStrip {
+                let cmd = CmdAlphaFill {
                     x: x_tile_rel,
                     width,
                     alpha_ix: col as usize,
@@ -139,7 +139,7 @@ impl Wide {
                 };
                 x += width;
                 col += width;
-                self.get_mut(tile_x, strip_y as usize).push(Cmd::Strip(cmd));
+                self.get_mut(tile_x, strip_y as usize).push(Cmd::AlphaFill(cmd));
             }
 
             let active_fill = match fill_rule {
@@ -216,8 +216,8 @@ impl WideTile {
 pub enum Cmd {
     /// A fill command.
     Fill(CmdFill),
-    /// A strip command.
-    Strip(CmdStrip),
+    /// A fill command with alpha mask.
+    AlphaFill(CmdAlphaFill),
 }
 
 /// Fill a consecutive region of a wide tile.
@@ -231,15 +231,15 @@ pub struct CmdFill {
     pub paint: Paint,
 }
 
-/// Strip a consecutive region of a wide tile.
+/// Fill a consecutive region of a wide tile with an alpha mask.
 #[derive(Debug)]
-pub struct CmdStrip {
+pub struct CmdAlphaFill {
     /// The horizontal start position of the command.
     pub x: u32,
     /// The width of the command.
     pub width: u32,
     /// The start index in the alpha buffer of the command.
     pub alpha_ix: usize,
-    /// The paint that should be used to strip the area.
+    /// The paint that should be used to fill the area.
     pub paint: Paint,
 }
