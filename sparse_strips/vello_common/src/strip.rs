@@ -4,7 +4,7 @@
 //! Rendering strips.
 
 use crate::footprint::Footprint;
-use crate::tile::Tiles;
+use crate::tile::{Tiles, TILE_HEIGHT, TILE_WIDTH};
 use peniko::Fill;
 
 // Note that this will probably disappear and be turned into a const generic in the future.
@@ -63,7 +63,7 @@ pub fn render(
 
             let x0 = fp.x0();
             let x1 = fp.x1();
-            let mut areas = [[start_delta as f32; 4]; 4];
+            let mut areas = [[start_delta as f32; TILE_WIDTH as usize]; TILE_HEIGHT as usize];
 
             for j in seg_start..i {
                 let tile = tiles.get(j);
@@ -82,7 +82,7 @@ pub fn render(
                     // current column.
                     let rel_x = p0.x - x as f32;
 
-                    for y in 0..4 {
+                    for y in 0..STRIP_HEIGHT {
                         // Relative y offset of the start
                         // point from the current row.
                         let rel_y = p0.y - y as f32;
@@ -133,7 +133,7 @@ pub fn render(
                     for x in x0..x1 {
                         let mut alphas = 0_u32;
 
-                        for y in 0..4 {
+                        for y in 0..STRIP_HEIGHT {
                             let area = areas[x as usize][y];
                             let area_u8 = $rule(area);
 
