@@ -4,3 +4,6 @@
 //! This crate implements a CPU-based renderer, optimized for SIMD and multithreaded execution.
 //! It is optimized for CPU-bound workloads and serves as a standalone renderer for systems
 //! without GPU acceleration.
+
+mod pixmap;
+mod util;
