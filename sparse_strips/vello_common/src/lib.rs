@@ -6,10 +6,10 @@
 //! hybrid CPU/GPU rendering.
 
 #![cfg_attr(not(feature = "simd"), forbid(unsafe_code))]
-#![allow(
+#![expect(
     clippy::cast_possible_truncation,
     reason = "We temporarily ignore those because the casts\
-only break in edge cases, and some of them are also only related to conversions between f32 and f64."
+only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 mod footprint;
 
