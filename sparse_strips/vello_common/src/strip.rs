@@ -135,7 +135,8 @@ pub fn render(
 
                         for y in 0..STRIP_HEIGHT {
                             let area = areas[x as usize][y];
-                            let area_u8 = $rule(area);
+                            let coverage = $rule(area);
+                            let area_u8 = (coverage * 255.0 + 0.5) as u32;
 
                             alphas += area_u8 << (y * 8);
                         }
@@ -147,26 +148,12 @@ pub fn render(
 
             match fill_rule {
                 Fill::NonZero => {
-                    fill!(|area: f32| (area.abs().min(1.0) * 255.0 + 0.5) as u32)
+                    fill!(|area: f32| area.abs().min(1.0))
                 }
                 Fill::EvenOdd => {
-                    fill!(|area: f32| {
-                        let area_abs = area.abs();
-                        let area_fract = area_abs.fract();
-                        let odd = area_abs as i32 & 1;
-                        // Even case: 2.68 -> The opacity should be (0 + 0.68) = 68%.
-                        // Odd case: 1.68 -> The opacity should be (1 - 0.68) = 32%.
-                        // `add_val` represents the 1, sign represents the minus.
-                        // If we have for example 2.68, then opacity is 68%, while for
-                        // 1.68 it would be (1 - 0.68) = 32%.
-                        // So for odd, add_val should be 1, while for even it should be 0.
-                        let add_val = odd as f32;
-                        // 1 for even, -1 for odd.
-                        let sign = -2.0 * add_val + 1.0;
-                        let factor = add_val + sign * area_fract;
-
-                        (factor * 255.0 + 0.5) as u32
-                    })
+                    // As in other parts of the code, we avoid using `round` since it's very
+                    // slow on x86.
+                    fill!(|area: f32| (area - 2.0 * ((0.5 * area) + 0.5).floor()).abs())
                 }
             }
 
