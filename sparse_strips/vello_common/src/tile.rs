@@ -421,8 +421,14 @@ impl TileIndex {
     }
 }
 
+#[cfg(test)]
+const _: () = if TILE_WIDTH_SCALE != TILE_HEIGHT_SCALE {
+    panic!("Can only handle square tiles for now.");
+};
+
+/// Scale a tile coordinate to a viewport coordinate. Note this assumes tiles are square.
 const fn scale_up(z: f32) -> f32 {
-    z * 4.0
+    z * TILE_WIDTH_SCALE
 }
 
 fn scale_down(z: Point) -> Point {
