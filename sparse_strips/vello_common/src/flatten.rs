@@ -107,7 +107,10 @@ pub fn fill(path: &BezPath, affine: Affine, line_buf: &mut Vec<Line>) {
 
 /// Flatten a stroked bezier path into line segments.
 pub fn stroke(path: &BezPath, style: &Stroke, affine: Affine, line_buf: &mut Vec<Line>) {
-    let expanded = kurbo::stroke(path.iter(), style, &StrokeOpts::default(), TOL);
+    // TODO: Temporary hack to ensure that strokes are scaled properly by the transform.
+    let tolerance = TOL / affine.as_coeffs()[0].abs().max(affine.as_coeffs()[3].abs());
+
+    let expanded = kurbo::stroke(path.iter(), style, &StrokeOpts::default(), tolerance);
     fill(&expanded, affine, line_buf);
 }
 
