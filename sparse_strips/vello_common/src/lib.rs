@@ -16,6 +16,6 @@ mod footprint;
 pub mod flatten;
 pub mod strip;
 pub mod tile;
-pub mod wide;
+pub mod coarse;
 
 pub use vello_api::*;
