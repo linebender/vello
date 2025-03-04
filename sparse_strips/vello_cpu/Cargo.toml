@@ -12,6 +12,8 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+peniko = { workspace = true }
+vello_common = { workspace = true }
 
 [lints]
 workspace = true
