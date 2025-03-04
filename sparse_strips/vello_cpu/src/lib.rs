@@ -5,6 +5,7 @@
 //! It is optimized for CPU-bound workloads and serves as a standalone renderer for systems
 //! without GPU acceleration.
 
-mod pixmap;
+pub mod pixmap;
 mod util;
 mod fine;
+pub mod render;

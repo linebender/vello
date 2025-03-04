@@ -14,7 +14,7 @@ pub(crate) const SCRATCH_BUF_SIZE: usize = WIDE_TILE_WIDTH * STRIP_HEIGHT * COLO
 
 pub(crate) type ScratchBuf = [u8; SCRATCH_BUF_SIZE];
 
-pub struct Fine<'a> {
+pub(crate) struct Fine<'a> {
     pub(crate) width: usize,
     pub(crate) height: usize,
     pub(crate) out_buf: &'a mut [u8],
@@ -22,7 +22,7 @@ pub struct Fine<'a> {
 }
 
 impl<'a> Fine<'a> {
-    pub fn new(width: usize, height: usize, out_buf: &'a mut [u8]) -> Self {
+    pub(crate) fn new(width: usize, height: usize, out_buf: &'a mut [u8]) -> Self {
         let scratch = [0; SCRATCH_BUF_SIZE];
 
         Self {
@@ -33,7 +33,7 @@ impl<'a> Fine<'a> {
         }
     }
 
-    pub fn clear(&mut self, premul_color: [u8; 4]) {
+    pub(crate) fn clear(&mut self, premul_color: [u8; 4]) {
         if premul_color[0] == premul_color[1]
             && premul_color[1] == premul_color[2]
             && premul_color[2] == premul_color[3]
@@ -63,7 +63,7 @@ impl<'a> Fine<'a> {
         }
     }
 
-    pub fn fill(&mut self, x: usize, width: usize, paint: &Paint) {
+    pub(crate) fn fill(&mut self, x: usize, width: usize, paint: &Paint) {
         match paint {
             Paint::Solid(c) => {
                 let color = c.premultiply().to_rgba8_fast();
@@ -86,7 +86,7 @@ impl<'a> Fine<'a> {
         }
     }
 
-    pub fn strip(
+    pub(crate) fn strip(
         &mut self,
         x: usize,
         width: usize,

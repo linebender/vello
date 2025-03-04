@@ -1,9 +1,9 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+//! A simple pixmap type.
 
-//! A simple pixmap type
-
+/// A pixmap backed by u8.
 #[derive(Debug)]
 pub struct Pixmap {
     pub(crate) width: usize,
@@ -12,17 +12,15 @@ pub struct Pixmap {
 }
 
 impl Pixmap {
+    /// Create a new pixmap.
     pub fn new(width: usize, height: usize) -> Self {
         let buf = vec![0; width * height * 4];
         Self { width, height, buf }
     }
 
+    /// Returns the underlying data as premultiplied RGBA8.
     pub fn data(&self) -> &[u8] {
         &self.buf
-    }
-
-    pub fn data_mut(&mut self) -> &mut [u8] {
-        &mut self.buf
     }
 
     /// Convert from premultiplied to separate alpha.
