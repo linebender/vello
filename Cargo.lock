@@ -2612,6 +2612,7 @@ dependencies = [
 name = "vello_cpu"
 version = "0.4.0"
 dependencies = [
+ "kurbo",
  "peniko",
  "vello_common",
 ]
