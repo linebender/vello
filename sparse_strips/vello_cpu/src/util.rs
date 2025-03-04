@@ -7,6 +7,7 @@ pub(crate) trait ColorExt {
 }
 
 impl ColorExt for PremulColor<Srgb> {
+    #[inline(always)]
     fn to_rgba8_fast(&self) -> [u8; 4] {
         [
             (self.components[0] * 255.0 + 0.5) as u8,

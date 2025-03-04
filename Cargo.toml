@@ -103,6 +103,7 @@ thiserror = "2.0.11"
 # The below crates are experimental!
 vello_api = { path = "sparse_strips/vello_api" }
 vello_common = { path = "sparse_strips/vello_common" }
+vello_cpu = { path = "sparse_strips/vello_cpu" }
 
 # NOTE: Make sure to keep this in sync with the version badge in README.md and vello/README.md
 wgpu = { version = "24.0.1" }

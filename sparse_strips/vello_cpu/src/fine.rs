@@ -6,7 +6,7 @@ use vello_common::paint::Paint;
 use vello_common::strip::STRIP_HEIGHT;
 use crate::util::ColorExt;
 
-///! Fine rasterization
+///! Fine rasterization.
 
 pub(crate) const COLOR_COMPONENTS: usize = 4;
 pub(crate) const TOTAL_STRIP_HEIGHT: usize = STRIP_HEIGHT * COLOR_COMPONENTS;
