@@ -710,17 +710,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "flatten"
-version = "0.1.0"
-source = "git+https://github.com/linebender/gpu-stroke-expansion-paper?rev=827ccf6#827ccf6766179340a83f2de3417b7bdd8743706a"
-dependencies = [
- "arrayvec",
- "clap",
- "kurbo",
- "roxmltree 0.19.0",
-]
-
-[[package]]
 name = "foldhash"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1992,12 +1981,6 @@ checksum = "19b30a45b0cd0bcca8037f3d0dc3421eaf95327a17cad11964fb8179b4fc4832"
 
 [[package]]
 name = "roxmltree"
-version = "0.19.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3cd14fd5e3b777a7422cca79358c57a8f6e3a703d9ac187448d0daf220c2407f"
-
-[[package]]
-name = "roxmltree"
 version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c20b6793b5c2fa6553b250154b78d6d0db37e72700ae35fad9387a46f487c97"
@@ -2065,7 +2048,7 @@ dependencies = [
  "getrandom 0.3.1",
  "image",
  "rand",
- "roxmltree 0.20.0",
+ "roxmltree",
  "skrifa",
  "vello",
  "web-time",
@@ -2620,7 +2603,6 @@ dependencies = [
 name = "vello_common"
 version = "0.4.0"
 dependencies = [
- "flatten",
  "vello_api",
 ]
 

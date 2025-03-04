@@ -100,7 +100,6 @@ futures-intrusive = "0.5.0"
 smallvec = "1.13.2"
 static_assertions = "1.1.0"
 thiserror = "2.0.11"
-flatten = { git = "https://github.com/linebender/gpu-stroke-expansion-paper", rev = "827ccf6" }
 
 # NOTE: Make sure to keep this in sync with the version badge in README.md and vello/README.md
 wgpu = { version = "24.0.1" }

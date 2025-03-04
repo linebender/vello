@@ -13,7 +13,6 @@ publish = false
 
 [dependencies]
 vello_api = { workspace = true }
-flatten = { workspace = true }
 
 [features]
 simd = ["vello_api/simd"]

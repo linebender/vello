@@ -3,9 +3,9 @@
 
 //! Flattening filled and stroked paths.
 
-use flatten::stroke::LoweredPath;
 use vello_api::kurbo;
 use vello_api::kurbo::{Affine, BezPath, Stroke};
+use crate::kurbo::StrokeOpts;
 
 /// The flattening tolerance.
 const TOL: f64 = 0.25;
@@ -107,20 +107,8 @@ pub fn fill(path: &BezPath, affine: Affine, line_buf: &mut Vec<Line>) {
 
 /// Flatten a stroked bezier path into line segments.
 pub fn stroke(path: &BezPath, style: &Stroke, affine: Affine, line_buf: &mut Vec<Line>) {
-    line_buf.clear();
-
-    // TODO: Temporary hack to ensure that strokes are scaled properly by the transform.
-    let tolerance = TOL / affine.as_coeffs()[0].abs().max(affine.as_coeffs()[3].abs());
-
-    let lines: LoweredPath<kurbo::Line> =
-        flatten::stroke::stroke_undashed(path.iter(), style, tolerance);
-    for line in &lines.path {
-        let scaled_p0 = affine * line.p0;
-        let scaled_p1 = affine * line.p1;
-        let p0 = Point::new(scaled_p0.x as f32, scaled_p0.y as f32);
-        let p1 = Point::new(scaled_p1.x as f32, scaled_p1.y as f32);
-        line_buf.push(Line::new(p0, p1));
-    }
+    let expanded = kurbo::stroke(path.iter(), style, &StrokeOpts::default(), TOL);
+    fill(&expanded, affine, line_buf);
 }
 
 fn close_path(start: kurbo::Point, p0: kurbo::Point, line_buf: &mut Vec<Line>) {
