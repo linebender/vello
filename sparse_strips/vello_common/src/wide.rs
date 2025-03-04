@@ -139,7 +139,8 @@ impl Wide {
                 };
                 x += width;
                 col += width;
-                self.get_mut(tile_x, strip_y as usize).push(Cmd::AlphaFill(cmd));
+                self.get_mut(tile_x, strip_y as usize)
+                    .push(Cmd::AlphaFill(cmd));
             }
 
             let active_fill = match fill_rule {
