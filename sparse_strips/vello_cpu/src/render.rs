@@ -75,24 +75,24 @@ impl RenderContext {
 
     /// Fill a path.
     pub fn fill_path(&mut self, path: &BezPath) {
-        flatten::fill(&path, self.transform, &mut self.line_buf);
+        flatten::fill(path, self.transform, &mut self.line_buf);
         self.render_path(self.fill_rule, self.paint.clone());
     }
 
     /// Stroke a path.
     pub fn stroke_path(&mut self, path: &BezPath) {
-        flatten::stroke(&path, &self.stroke, self.transform, &mut self.line_buf);
+        flatten::stroke(path, &self.stroke, self.transform, &mut self.line_buf);
         self.render_path(Fill::NonZero, self.paint.clone());
     }
 
     /// Fill a rectangle.
     pub fn fill_rect(&mut self, rect: &Rect) {
-        self.fill_path(&rect.to_path(DEFAULT_TOLERANCE).into());
+        self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
     }
 
     /// Stroke a rectangle.
     pub fn stroke_rect(&mut self, rect: &Rect) {
-        self.stroke_path(&rect.to_path(DEFAULT_TOLERANCE).into());
+        self.stroke_path(&rect.to_path(DEFAULT_TOLERANCE));
     }
 
     /// Set the current blend mode.

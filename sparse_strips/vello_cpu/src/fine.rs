@@ -39,7 +39,7 @@ impl<'a> Fine<'a> {
             && premul_color[2] == premul_color[3]
         {
             // All components are the same, so we can use memset instead.
-            self.scratch.fill(premul_color[0])
+            self.scratch.fill(premul_color[0]);
         } else {
             for z in self.scratch.chunks_exact_mut(COLOR_COMPONENTS) {
                 z.copy_from_slice(&premul_color);
