@@ -418,7 +418,7 @@ pub struct Tile {
 /// Encoder for path segments.
 pub struct PathEncoder<'a> {
     tags: &'a mut Vec<PathTag>,
-    data: &'a mut Vec<u8>,
+    data: &'a mut Vec<u32>,
     n_segments: &'a mut u32,
     n_paths: &'a mut u32,
     first_point: [f32; 2],
@@ -474,7 +474,7 @@ impl<'a> PathEncoder<'a> {
     ///       line-to), the thread draws nothing.
     pub fn new(
         tags: &'a mut Vec<PathTag>,
-        data: &'a mut Vec<u8>,
+        data: &'a mut Vec<u32>,
         n_segments: &'a mut u32,
         n_paths: &'a mut u32,
         is_fill: bool,
@@ -498,9 +498,9 @@ impl<'a> PathEncoder<'a> {
             self.close();
         }
         let buf = [x, y];
-        let bytes = bytemuck::bytes_of(&buf);
+        let bytes = bytemuck::cast_slice(&buf);
         if self.state == PathState::MoveTo {
-            let new_len = self.data.len() - 8;
+            let new_len = self.data.len() - 2;
             self.data.truncate(new_len);
         } else if self.state == PathState::NonemptySubpath {
             if !self.is_fill {
@@ -538,7 +538,7 @@ impl<'a> PathEncoder<'a> {
             return;
         }
         let buf = [x, y];
-        let bytes = bytemuck::bytes_of(&buf);
+        let bytes = bytemuck::cast_slice(&buf);
         self.data.extend_from_slice(bytes);
         self.tags.push(PathTag::LINE_TO_F32);
         self.state = PathState::NonemptySubpath;
@@ -566,7 +566,7 @@ impl<'a> PathEncoder<'a> {
             return;
         }
         let buf = [x1, y1, x2, y2];
-        let bytes = bytemuck::bytes_of(&buf);
+        let bytes = bytemuck::cast_slice(&buf);
         self.data.extend_from_slice(bytes);
         self.tags.push(PathTag::QUAD_TO_F32);
         self.state = PathState::NonemptySubpath;
@@ -594,7 +594,7 @@ impl<'a> PathEncoder<'a> {
             return;
         }
         let buf = [x1, y1, x2, y2, x3, y3];
-        let bytes = bytemuck::bytes_of(&buf);
+        let bytes = bytemuck::cast_slice(&buf);
         self.data.extend_from_slice(bytes);
         self.tags.push(PathTag::CUBIC_TO_F32);
         self.state = PathState::NonemptySubpath;
@@ -604,7 +604,7 @@ impl<'a> PathEncoder<'a> {
     /// Encodes an empty path (as placeholder for begin clip).
     pub(crate) fn empty_path(&mut self) {
         let coords = [0.0_f32, 0., 0., 0.];
-        let bytes = bytemuck::bytes_of(&coords);
+        let bytes = bytemuck::cast_slice(&coords);
         self.data.extend_from_slice(bytes);
         self.tags.push(PathTag::LINE_TO_F32);
         self.n_encoded_segments += 1;
@@ -615,7 +615,8 @@ impl<'a> PathEncoder<'a> {
         match self.state {
             PathState::Start => return,
             PathState::MoveTo => {
-                let new_len = self.data.len() - 8;
+                // If we close a new-opened path, delete it.
+                let new_len = self.data.len() - 2;
                 self.data.truncate(new_len);
                 self.state = PathState::Start;
                 return;
@@ -623,12 +624,14 @@ impl<'a> PathEncoder<'a> {
             PathState::NonemptySubpath => (),
         }
         let len = self.data.len();
-        if len < 8 {
-            // can't happen
+        if len < 2 {
+            if cfg!(debug_assertions) {
+                unreachable!("There is an open path, so there must be data.")
+            }
             return;
         }
-        let first_bytes = bytemuck::bytes_of(&self.first_point);
-        if &self.data[len - 8..len] != first_bytes {
+        let first_bytes = bytemuck::cast_slice(&self.first_point);
+        if &self.data[len - 2..len] != first_bytes {
             self.data.extend_from_slice(first_bytes);
             self.tags.push(PathTag::LINE_TO_F32);
             self.n_encoded_segments += 1;
@@ -722,12 +725,12 @@ impl<'a> PathEncoder<'a> {
 
     fn last_point(&self) -> Option<(f32, f32)> {
         let len = self.data.len();
-        if len < 8 {
+        if len < 2 {
             return None;
         }
         Some((
-            bytemuck::pod_read_unaligned::<f32>(&self.data[len - 8..len - 4]),
-            bytemuck::pod_read_unaligned::<f32>(&self.data[len - 4..len]),
+            bytemuck::cast(self.data[len - 2]),
+            bytemuck::cast(self.data[len - 1]),
         ))
     }
 

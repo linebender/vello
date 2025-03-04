@@ -22,11 +22,13 @@ pub struct Encoding {
     /// The path tag stream.
     pub path_tags: Vec<PathTag>,
     /// The path data stream.
-    pub path_data: Vec<u8>,
+    /// Stores all coordinates on paths.
+    /// Stored as `u32` as all comparisons are performed bitwise.
+    pub path_data: Vec<u32>,
     /// The draw tag stream.
     pub draw_tags: Vec<DrawTag>,
     /// The draw data stream.
-    pub draw_data: Vec<u8>,
+    pub draw_data: Vec<u32>,
     /// The transform stream.
     pub transforms: Vec<Transform>,
     /// The style stream
@@ -331,7 +333,8 @@ impl Encoding {
     pub fn encode_color(&mut self, color: impl Into<DrawColor>) {
         let color = color.into();
         self.draw_tags.push(DrawTag::COLOR);
-        self.draw_data.extend_from_slice(bytemuck::bytes_of(&color));
+        let DrawColor { rgba } = color;
+        self.draw_data.push(rgba);
     }
 
     /// Encodes a linear gradient brush.
@@ -350,7 +353,7 @@ impl Encoding {
             RampStops::Many => {
                 self.draw_tags.push(DrawTag::LINEAR_GRADIENT);
                 self.draw_data
-                    .extend_from_slice(bytemuck::bytes_of(&gradient));
+                    .extend_from_slice(bytemuck::cast_slice(bytemuck::bytes_of(&gradient)));
             }
         }
     }
@@ -375,7 +378,7 @@ impl Encoding {
             RampStops::Many => {
                 self.draw_tags.push(DrawTag::RADIAL_GRADIENT);
                 self.draw_data
-                    .extend_from_slice(bytemuck::bytes_of(&gradient));
+                    .extend_from_slice(bytemuck::cast_slice(bytemuck::bytes_of(&gradient)));
             }
         }
     }
@@ -399,7 +402,7 @@ impl Encoding {
             RampStops::Many => {
                 self.draw_tags.push(DrawTag::SWEEP_GRADIENT);
                 self.draw_data
-                    .extend_from_slice(bytemuck::bytes_of(&gradient));
+                    .extend_from_slice(bytemuck::cast_slice(bytemuck::bytes_of(&gradient)));
             }
         }
     }
@@ -416,14 +419,14 @@ impl Encoding {
         });
         self.draw_tags.push(DrawTag::IMAGE);
         self.draw_data
-            .extend_from_slice(bytemuck::bytes_of(&DrawImage {
+            .extend_from_slice(bytemuck::cast_slice(bytemuck::bytes_of(&DrawImage {
                 xy: 0,
                 width_height: (image.width << 16) | (image.height & 0xFFFF),
                 sample_alpha: ((image.quality as u32) << 12)
                     | ((image.x_extend as u32) << 10)
                     | ((image.y_extend as u32) << 8)
                     | alpha as u32,
-            }));
+            })));
     }
 
     // Encodes a blurred rounded rectangle brush.
@@ -437,13 +440,15 @@ impl Encoding {
     ) {
         self.draw_tags.push(DrawTag::BLUR_RECT);
         self.draw_data
-            .extend_from_slice(bytemuck::bytes_of(&DrawBlurRoundedRect {
-                color: color.into(),
-                width,
-                height,
-                radius,
-                std_dev,
-            }));
+            .extend_from_slice(bytemuck::cast_slice(bytemuck::bytes_of(
+                &DrawBlurRoundedRect {
+                    color: color.into(),
+                    width,
+                    height,
+                    radius,
+                    std_dev,
+                },
+            )));
     }
 
     /// Encodes a begin clip command.
@@ -451,7 +456,9 @@ impl Encoding {
         use super::DrawBeginClip;
         self.draw_tags.push(DrawTag::BEGIN_CLIP);
         self.draw_data
-            .extend_from_slice(bytemuck::bytes_of(&DrawBeginClip::new(blend_mode, alpha)));
+            .extend_from_slice(bytemuck::cast_slice(bytemuck::bytes_of(
+                &DrawBeginClip::new(blend_mode, alpha),
+            )));
         self.n_clips += 1;
         self.n_open_clips += 1;
     }
