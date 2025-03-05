@@ -10,7 +10,7 @@ use vello_common::paint::Paint;
 use vello_common::strip::STRIP_HEIGHT;
 
 pub(crate) const COLOR_COMPONENTS: usize = 4;
-pub(crate) const TOTAL_STRIP_HEIGHT: usize = STRIP_HEIGHT * COLOR_COMPONENTS;
+pub(crate) const STRIP_HEIGHT_COMPONENTS: usize = STRIP_HEIGHT * COLOR_COMPONENTS;
 pub(crate) const SCRATCH_BUF_SIZE: usize = WIDE_TILE_WIDTH * STRIP_HEIGHT * COLOR_COMPONENTS;
 
 pub(crate) type ScratchBuf = [u8; SCRATCH_BUF_SIZE];
@@ -70,7 +70,7 @@ impl<'a> Fine<'a> {
                 let color = c.premultiply().to_rgba8_fast();
 
                 let target =
-                    &mut self.scratch[x * TOTAL_STRIP_HEIGHT..][..TOTAL_STRIP_HEIGHT * width];
+                    &mut self.scratch[x * STRIP_HEIGHT_COMPONENTS..][..STRIP_HEIGHT_COMPONENTS * width];
 
                 // If color is completely opaque we can just memcopy the colors.
                 if color[3] == 255 {
@@ -98,7 +98,7 @@ impl<'a> Fine<'a> {
                 let color = s.premultiply().to_rgba8_fast();
 
                 let target =
-                    &mut self.scratch[x * TOTAL_STRIP_HEIGHT..][..TOTAL_STRIP_HEIGHT * width];
+                    &mut self.scratch[x * STRIP_HEIGHT_COMPONENTS..][..STRIP_HEIGHT_COMPONENTS * width];
 
                 strip::src_over(target, &color, alphas);
             }
@@ -135,13 +135,13 @@ pub(crate) mod fill {
     // See https://www.w3.org/TR/compositing-1/#porterduffcompositingoperators for the
     // formulas.
 
-    use crate::fine::{COLOR_COMPONENTS, TOTAL_STRIP_HEIGHT};
+    use crate::fine::{COLOR_COMPONENTS, STRIP_HEIGHT_COMPONENTS};
     use crate::util::scalar::div_255;
 
     pub(crate) fn src_over(target: &mut [u8], cs: &[u8; COLOR_COMPONENTS]) {
         let _as = cs[3] as u16;
 
-        for strip in target.chunks_exact_mut(TOTAL_STRIP_HEIGHT) {
+        for strip in target.chunks_exact_mut(STRIP_HEIGHT_COMPONENTS) {
             for cb in strip.chunks_exact_mut(COLOR_COMPONENTS) {
                 let _ab = cb[3] as u16;
 
@@ -154,12 +154,12 @@ pub(crate) mod fill {
 }
 
 pub(crate) mod strip {
-    use crate::fine::{COLOR_COMPONENTS, TOTAL_STRIP_HEIGHT};
+    use crate::fine::{COLOR_COMPONENTS, STRIP_HEIGHT_COMPONENTS};
     use crate::util::scalar::div_255;
     use vello_common::strip::STRIP_HEIGHT;
 
     pub(crate) fn src_over(target: &mut [u8], cs: &[u8; COLOR_COMPONENTS], alphas: &[u32]) {
-        for (cb, masks) in target.chunks_exact_mut(TOTAL_STRIP_HEIGHT).zip(alphas) {
+        for (cb, masks) in target.chunks_exact_mut(STRIP_HEIGHT_COMPONENTS).zip(alphas) {
             for j in 0..STRIP_HEIGHT {
                 let am = ((*masks >> (j * 8)) & 0xff) as u16;
                 let inv_as_am = 255 - div_255(am * cs[3] as u16);
