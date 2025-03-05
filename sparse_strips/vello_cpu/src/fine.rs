@@ -165,10 +165,10 @@ pub(crate) mod strip {
                 let inv_as_am = 255 - div_255(am * cs[3] as u16);
 
                 for i in 0..COLOR_COMPONENTS {
-                    let im1 = cb[j * 4 + i] as u16 * inv_as_am;
+                    let im1 = cb[j * COLOR_COMPONENTS + i] as u16 * inv_as_am;
                     let im2 = cs[i] as u16 * am;
                     let im3 = div_255(im1 + im2);
-                    cb[j * 4 + i] = im3 as u8;
+                    cb[j * COLOR_COMPONENTS + i] = im3 as u8;
                 }
             }
         }
