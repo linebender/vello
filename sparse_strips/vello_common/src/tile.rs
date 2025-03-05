@@ -6,9 +6,9 @@
 use crate::flatten::{Line, Point};
 
 /// The width of a tile.
-pub const TILE_WIDTH: u32 = 4;
+pub const TILE_WIDTH: u32 = Tile::WIDTH as u32;
 /// The height of a tile.
-pub const TILE_HEIGHT: u32 = 4;
+pub const TILE_HEIGHT: u32 = Tile::HEIGHT as u32;
 const TILE_WIDTH_SCALE: f32 = TILE_WIDTH as f32;
 const TILE_HEIGHT_SCALE: f32 = TILE_HEIGHT as f32;
 const INV_TILE_WIDTH_SCALE: f32 = 1.0 / TILE_WIDTH_SCALE;
@@ -23,7 +23,7 @@ const SCALED_X_NUDGE_FACTOR: f32 = 1.0 / (8192.0 * TILE_WIDTH_SCALE);
 ///
 /// Keep in mind that it is possible to have multiple tiles with the same index,
 /// namely if we have multiple lines crossing the same 4x4 area!
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct Tile {
     /// The index of the tile in the x direction.
     pub x: i32,
@@ -36,6 +36,12 @@ pub struct Tile {
 }
 
 impl Tile {
+    /// The width of a tile in pixels.
+    pub const WIDTH: u16 = 4;
+
+    /// The height of a tile in pixels.
+    pub const HEIGHT: u16 = 4;
+
     /// Create a new tile.
     pub fn new(x: i32, y: u16, p0: Point, p1: Point) -> Self {
         Self {
@@ -126,6 +132,15 @@ impl Tiles {
         );
 
         &self.tile_buf[self.tile_index_buf[index as usize].index()]
+    }
+
+    /// Iterate over the tiles in sorted order.
+    ///
+    /// Panics if the container hasn't been sorted before.
+    pub fn iter(&self) -> impl Iterator<Item = &Tile> {
+        self.tile_index_buf
+            .iter()
+            .map(|idx| &self.tile_buf[idx.index()])
     }
 
     /// Populate the tiles' container with a buffer of lines.
@@ -377,20 +392,6 @@ impl Tiles {
                 push_tile(xi, yi, last_packed, packed1);
             }
         }
-
-        // This particular choice of sentinel tiles generates a sentinel strip.
-        push_tile(
-            0x3ffd as f32,
-            0x3fff as f32,
-            Point::new(0.0, 0.0),
-            Point::new(0.0, 0.0),
-        );
-        push_tile(
-            0x3fff as f32,
-            0x3fff as f32,
-            Point::new(0.0, 0.0),
-            Point::new(0.0, 0.0),
-        );
     }
 }
 
