@@ -182,7 +182,7 @@ jobs:
 
     - name: Fetch lfs data
       if: ${{ steps.lfs-cache.outputs.cache-hit != 'true' }}
-      run: git lfs fetch --include ${{ env.LFS_FILES }}
+      run: git lfs fetch --include '${{ env.LFS_FILES }}'
   
   test-stable:
     name: cargo test
