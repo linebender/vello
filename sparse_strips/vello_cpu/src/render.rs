@@ -36,7 +36,7 @@ pub struct RenderContext {
 }
 
 impl RenderContext {
-    /// Create a new render context.
+    /// Create a new render context with the given width and height in pixels.
     pub fn new(width: usize, height: usize) -> Self {
         let wide = Wide::new(width, height);
 

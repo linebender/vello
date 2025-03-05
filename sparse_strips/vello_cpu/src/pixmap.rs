@@ -12,7 +12,7 @@ pub struct Pixmap {
 }
 
 impl Pixmap {
-    /// Create a new pixmap.
+    /// Create a new pixmap with the given width and height in pixels.
     pub fn new(width: usize, height: usize) -> Self {
         let buf = vec![0; width * height * 4];
         Self { width, height, buf }
