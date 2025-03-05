@@ -156,13 +156,13 @@ impl RenderContext {
     }
 
     /// Return the width of the pixmap.
-    pub fn width(&self) -> usize {
-        self.width
+    pub fn width(&self) -> u16 {
+        self.width as u16
     }
 
     /// Return the height of the pixmap.
-    pub fn height(&self) -> usize {
-        self.height
+    pub fn height(&self) -> u16 {
+        self.height as u16
     }
 
     // Assumes that `line_buf` contains the flattened path.
