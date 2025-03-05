@@ -37,8 +37,9 @@ pub struct RenderContext {
 
 impl RenderContext {
     /// Create a new render context with the given width and height in pixels.
-    pub fn new(width: usize, height: usize) -> Self {
-        let wide = Wide::new(width, height);
+    pub fn new(width: u16, height: u16) -> Self {
+        // TODO: Use u16 for width/height everywhere else, too.
+        let wide = Wide::new(width.into(), height.into());
 
         let alphas = vec![];
         let line_buf = vec![];
@@ -58,8 +59,8 @@ impl RenderContext {
         let blend_mode = BlendMode::new(Mix::Normal, Compose::SrcOver);
 
         Self {
-            width,
-            height,
+            width: width.into(),
+            height: height.into(),
             wide,
             alphas,
             line_buf,
@@ -132,7 +133,12 @@ impl RenderContext {
 
     /// Render the current context into a pixmap.
     pub fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
-        let mut fine = Fine::new(pixmap.width, pixmap.height, &mut pixmap.buf);
+        // TODO: Use u16 here, too, instead of casting.
+        let mut fine = Fine::new(
+            pixmap.width as usize,
+            pixmap.height as usize,
+            &mut pixmap.buf,
+        );
 
         let width_tiles = self.wide.width_tiles();
         let height_tiles = self.wide.height_tiles();

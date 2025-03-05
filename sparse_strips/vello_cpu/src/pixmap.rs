@@ -6,15 +6,15 @@
 /// A pixmap backed by u8.
 #[derive(Debug)]
 pub struct Pixmap {
-    pub(crate) width: usize,
-    pub(crate) height: usize,
+    pub(crate) width: u16,
+    pub(crate) height: u16,
     pub(crate) buf: Vec<u8>,
 }
 
 impl Pixmap {
     /// Create a new pixmap with the given width and height in pixels.
-    pub fn new(width: usize, height: usize) -> Self {
-        let buf = vec![0; width * height * 4];
+    pub fn new(width: u16, height: u16) -> Self {
+        let buf = vec![0; (width * height * 4) as usize];
         Self { width, height, buf }
     }
 
