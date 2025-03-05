@@ -7,8 +7,11 @@ use svg::{Document, Node};
 use svg::node::element::{Circle, Path, Rectangle};
 use svg::node::element::path::Data;
 use vello_common::{flatten, strip};
+use vello_common::coarse::{Cmd, Wide, WideTile};
+use vello_common::color::palette::css::BLACK;
 use vello_common::flatten::Line;
 use vello_common::kurbo::{Affine, BezPath};
+use vello_common::paint::Paint;
 use vello_common::peniko::Fill;
 use vello_common::strip::{Strip, STRIP_HEIGHT};
 use vello_common::tile::{Tiles, TILE_HEIGHT, TILE_WIDTH};
@@ -22,11 +25,13 @@ fn main() {
     let mut tiles = Tiles::new();
     let mut strip_buf = vec![];
     let mut alpha_buf = vec![];
+    let mut wide = Wide::new(args.width as usize, args.height as usize);
 
     flatten::fill(&args.path, Affine::IDENTITY, &mut line_buf);
     tiles.make_tiles(&line_buf);
     tiles.sort_tiles();
     strip::render(&tiles, &mut strip_buf, &mut alpha_buf, args.fill_rule);
+    wide.generate(&strip_buf, args.fill_rule, BLACK.into());
 
     draw_grid(&mut document, args.width, args.height);
     draw_line_segments(&mut document, &line_buf);
@@ -34,68 +39,10 @@ fn main() {
     draw_tile_intersections(&mut document, &tiles);
     draw_strip_areas(&mut document, &strip_buf, &alpha_buf);
     draw_rendered_strips(&mut document, &strip_buf, &alpha_buf);
-    // draw_wide_tiles(&mut document, ctx.wide_tiles(), ctx.alphas());
+    draw_wide_tiles(&mut document, wide.tiles(), &alpha_buf);
 
     svg::save(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/debug.svg"), &document).unwrap();
 }
-//
-// fn draw_wide_tiles(document: &mut Document, wide_tiles: &[WideTile], alphas: &[u32]) {
-//     for (t_i, tile) in wide_tiles.iter().enumerate() {
-//         for cmd in &tile.cmds {
-//             match cmd {
-//                 Cmd::Fill(f) => {
-//                     for i in 0..f.width {
-//                         let Paint::Solid(c) = f.paint else { continue };
-//                         let color = c.to_rgba8();
-//
-//                         for h in 0..STRIP_HEIGHT {
-//                             let rect = Rectangle::new()
-//                                 .set("x", f.x + i)
-//                                 .set("y", t_i * STRIP_HEIGHT + h)
-//                                 .set("width", 1)
-//                                 .set("height", 1)
-//                                 .set(
-//                                     "fill",
-//                                     format!("rgb({}, {}, {})", color.r, color.g, color.b),
-//                                 )
-//                                 .set("fill-opacity", color.a as f32 / 255.0);
-//
-//                             document.append(rect);
-//                         }
-//                     }
-//                 }
-//                 Cmd::Strip(s) => {
-//                     for i in 0..s.width {
-//                         let alpha = alphas[s.alpha_ix + i as usize];
-//                         let entries = alpha.to_le_bytes();
-//                         let Paint::Solid(c) = s.paint else { continue };
-//                         let color = c.to_rgba8();
-//
-//                         for h in 0..STRIP_HEIGHT {
-//                             let rect = Rectangle::new()
-//                                 .set("x", s.x + i)
-//                                 .set("y", t_i * STRIP_HEIGHT + h)
-//                                 .set("width", 1)
-//                                 .set("height", 1)
-//                                 .set(
-//                                     "fill",
-//                                     format!("rgb({}, {}, {})", color.r, color.g, color.b),
-//                                 )
-//                                 .set(
-//                                     "fill-opacity",
-//                                     (entries[h] as f32 / 255.0) * (color.a as f32 / 255.0),
-//                                 );
-//
-//                             document.append(rect);
-//                         }
-//                     }
-//                 }
-//             }
-//         }
-//     }
-// }
-//
-
 
 fn draw_grid(document: &mut Document, width: u16, height: u16) {
     let border_data = Data::new()
@@ -293,6 +240,60 @@ fn draw_rendered_strips(document: &mut Document, strips: &[Strip], alphas: &[u32
 }
 
 
+fn draw_wide_tiles(document: &mut Document, wide_tiles: &[WideTile], alphas: &[u32]) {
+    for (t_i, tile) in wide_tiles.iter().enumerate() {
+        for cmd in &tile.cmds {
+            match cmd {
+                Cmd::Fill(f) => {
+                    for i in 0..f.width {
+                        for h in 0..STRIP_HEIGHT {
+                            let rect = Rectangle::new()
+                                .set("x", f.x + i)
+                                .set("y", t_i * STRIP_HEIGHT + h)
+                                .set("width", 1)
+                                .set("height", 1)
+                                .set(
+                                    "fill", "blue",
+                                );
+
+                            document.append(rect);
+                        }
+                    }
+                }
+                Cmd::AlphaFill(s) => {
+                    for i in 0..s.width {
+                        let alpha = alphas[s.alpha_ix + i as usize];
+                        let entries = alpha.to_le_bytes();
+                        let Paint::Solid(c) = s.paint else { continue };
+                        let color = match s.paint {
+                            Paint::Solid(c) => c.to_rgba8(),
+                            _ => BLACK.to_rgba8()
+                        };
+
+                        for h in 0..STRIP_HEIGHT {
+                            let rect = Rectangle::new()
+                                .set("x", s.x + i)
+                                .set("y", t_i * STRIP_HEIGHT + h)
+                                .set("width", 1)
+                                .set("height", 1)
+                                .set(
+                                    "fill",
+                                    "yellow",
+                                )
+                                .set(
+                                    "fill-opacity",
+                                    (entries[h] as f32 / 255.0),
+                                );
+
+                            document.append(rect);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[derive(Parser, Debug)]
 struct Args {
     /// The width of the viewport.
@@ -310,6 +311,7 @@ struct Args {
     /// The stroke width for stroking operations.
     #[arg(short, long, default_value_t = 1.0)]
     pub stroke_width: f32,
+    /// The fill rule used for fill operations.
     #[arg(long, default_value = "nonzero", value_parser = parse_fill_rule)]
     pub fill_rule: Fill
 }
