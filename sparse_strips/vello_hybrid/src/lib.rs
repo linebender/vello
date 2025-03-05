@@ -6,6 +6,7 @@
 #![allow(clippy::todo, reason = "still a prototype")]
 #![allow(clippy::cast_possible_truncation, reason = "we need to do this a lot")]
 
+pub mod api;
 mod fine;
 mod flatten;
 mod gpu;

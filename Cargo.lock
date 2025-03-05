@@ -2960,10 +2960,10 @@ dependencies = [
  "async-executor",
  "bytemuck",
  "flatten",
+ "peniko",
  "png",
  "pollster 0.3.0",
  "roxmltree 0.20.0",
- "vello_api",
  "wgpu",
  "winit 0.29.15",
 ]

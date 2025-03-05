@@ -3,8 +3,8 @@
 
 //! Utilities for flattening
 
+use crate::api::peniko::kurbo::{self, Affine, BezPath, Line, Point, Stroke};
 use flatten::stroke::LoweredPath;
-use vello_api::peniko::kurbo::{self, Affine, BezPath, Line, Point, Stroke};
 
 use crate::tiling::FlatLine;
 

@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use bytemuck::{Pod, Zeroable};
-use vello_api::peniko::{
+use vello_hybrid::api::peniko::{
     color::palette,
     kurbo::{BezPath, Stroke},
 };

@@ -6,14 +6,12 @@
 
 use std::collections::BTreeMap;
 
-use vello_api::{
-    peniko::{
-        color::{palette, AlphaColor, Srgb},
-        kurbo::Affine,
-        BrushRef,
-    },
-    GenericRecorder, RenderCtx, ResourceCtx,
+use crate::api::peniko::{
+    color::{palette, AlphaColor, Srgb},
+    kurbo::Affine,
+    BrushRef,
 };
+use crate::api::{GenericRecorder, RenderCtx, ResourceCtx};
 
 use crate::{
     fine::Fine,
@@ -335,12 +333,12 @@ impl RenderCtx for CsRenderCtx {
 
     fn playback(
         &mut self,
-        recording: &std::sync::Arc<<Self::Resource as vello_api::ResourceCtx>::Recording>,
+        recording: &std::sync::Arc<<Self::Resource as crate::api::ResourceCtx>::Recording>,
     ) {
         recording.play(self);
     }
 
-    fn fill(&mut self, path: &vello_api::Path, brush: BrushRef<'_>) {
+    fn fill(&mut self, path: &crate::api::Path, brush: BrushRef<'_>) {
         let affine = self.get_affine();
         crate::flatten::fill(&path.path, affine, &mut self.line_buf);
         self.render_path(brush);
@@ -348,8 +346,8 @@ impl RenderCtx for CsRenderCtx {
 
     fn stroke(
         &mut self,
-        path: &vello_api::Path,
-        stroke: &vello_api::peniko::kurbo::Stroke,
+        path: &crate::api::Path,
+        stroke: &crate::api::peniko::kurbo::Stroke,
         brush: BrushRef<'_>,
     ) {
         let affine = self.get_affine();
@@ -359,14 +357,14 @@ impl RenderCtx for CsRenderCtx {
 
     fn draw_image(
         &mut self,
-        image: &<Self::Resource as vello_api::ResourceCtx>::Image,
-        dst_rect: vello_api::peniko::kurbo::Rect,
-        interp: vello_api::InterpolationMode,
+        image: &<Self::Resource as crate::api::ResourceCtx>::Image,
+        dst_rect: crate::api::peniko::kurbo::Rect,
+        interp: crate::api::InterpolationMode,
     ) {
         todo!()
     }
 
-    fn clip(&mut self, path: &vello_api::Path) {
+    fn clip(&mut self, path: &crate::api::Path) {
         let affine = self.get_affine();
         crate::flatten::fill(&path.path, affine, &mut self.line_buf);
         self.render_path_common();
@@ -467,11 +465,11 @@ impl RenderCtx for CsRenderCtx {
         self.state_stack.pop();
     }
 
-    fn transform(&mut self, affine: vello_api::peniko::kurbo::Affine) {
+    fn transform(&mut self, affine: crate::api::peniko::kurbo::Affine) {
         todo!()
     }
 
-    fn begin_draw_glyphs(&mut self, font: &vello_api::peniko::Font) {
+    fn begin_draw_glyphs(&mut self, font: &crate::api::peniko::Font) {
         todo!()
     }
 
@@ -489,8 +487,8 @@ impl RenderCtx for CsRenderCtx {
 
     fn draw_glyphs(
         &mut self,
-        style: vello_api::peniko::StyleRef<'_>,
-        glyphs: &dyn Iterator<Item = vello_api::Glyph>,
+        style: crate::api::peniko::StyleRef<'_>,
+        glyphs: &dyn Iterator<Item = crate::api::Glyph>,
     ) {
         todo!()
     }
@@ -517,8 +515,8 @@ impl ResourceCtx for CsResourceCtx {
         height: usize,
         stride: usize,
         buf: &[u8],
-        format: vello_api::ImageFormat,
-    ) -> Result<Self::Image, vello_api::Error> {
+        format: crate::api::ImageFormat,
+    ) -> Result<Self::Image, crate::api::Error> {
         todo!()
     }
 }

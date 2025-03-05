@@ -15,8 +15,8 @@ publish = false
 workspace = true
 
 [dependencies]
-vello_api = { path = "../vello_api" }
 flatten = { git = "https://github.com/linebender/gpu-stroke-expansion-paper", rev = "827ccf6" }
+peniko = { workspace = true }
 
 # The following dependencies are for GPU. Maybe they should be optional, or the crate
 # structure refactored so there's a CPU-only renderer that doesn't depend on these.

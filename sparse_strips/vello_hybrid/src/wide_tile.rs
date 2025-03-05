@@ -1,7 +1,7 @@
 // Copyright 2024 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use vello_api::peniko::color::{AlphaColor, Srgb};
+use crate::api::peniko::color::{AlphaColor, Srgb};
 
 pub(crate) const WIDE_TILE_WIDTH: usize = 256;
 pub(crate) const STRIP_HEIGHT: usize = 4;

@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use peniko::{kurbo::Rect, Brush};
 
-use crate::{InterpolationMode, Path, Record, RenderCtx, ResourceCtx};
+use crate::api::{InterpolationMode, Path, Record, RenderCtx, ResourceCtx};
 
 pub struct GenericRecorder<RC: RenderCtx> {
     cmds: Vec<Cmd<RC>>,
@@ -65,7 +65,7 @@ impl<RC: RenderCtx> RenderCtx for GenericRecorder<RC> {
         &mut self,
         image: &<Self::Resource as ResourceCtx>::Image,
         dst_rect: peniko::kurbo::Rect,
-        interp: crate::InterpolationMode,
+        interp: crate::api::InterpolationMode,
     ) {
         let image = image.clone();
         self.cmds.push(Cmd::Image(image, dst_rect, interp));
@@ -106,7 +106,7 @@ impl<RC: RenderCtx> RenderCtx for GenericRecorder<RC> {
     fn draw_glyphs(
         &mut self,
         style: peniko::StyleRef<'_>,
-        glyphs: &dyn Iterator<Item = crate::Glyph>,
+        glyphs: &dyn Iterator<Item = crate::api::Glyph>,
     ) {
         todo!()
     }
@@ -133,8 +133,8 @@ impl<RC: RenderCtx> ResourceCtx for GenericResources<RC> {
         height: usize,
         stride: usize,
         buf: &[u8],
-        format: crate::ImageFormat,
-    ) -> Result<Self::Image, crate::Error> {
+        format: crate::api::ImageFormat,
+    ) -> Result<Self::Image, crate::api::Error> {
         self.inner
             .make_image_with_stride(width, height, stride, buf, format)
     }

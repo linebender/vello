@@ -7,7 +7,7 @@ use std::{any::Any, sync::Arc};
 
 use peniko::{kurbo::Affine, BrushRef};
 
-use crate::{Id, Path, Record, RenderCtx, ResourceCtx};
+use crate::api::{Id, Path, Record, RenderCtx, ResourceCtx};
 
 #[derive(Clone)]
 pub struct AnyImage {
@@ -83,7 +83,7 @@ impl RenderCtx for BoxedRenderCtx {
         &mut self,
         image: &<Self::Resource as ResourceCtx>::Image,
         dst_rect: peniko::kurbo::Rect,
-        interp: crate::InterpolationMode,
+        interp: crate::api::InterpolationMode,
     ) {
         todo!()
     }
@@ -123,7 +123,7 @@ impl RenderCtx for BoxedRenderCtx {
     fn draw_glyphs(
         &mut self,
         style: peniko::StyleRef<'_>,
-        glyphs: &dyn Iterator<Item = crate::Glyph>,
+        glyphs: &dyn Iterator<Item = crate::api::Glyph>,
     ) {
         todo!()
     }
@@ -144,8 +144,8 @@ pub trait AnyResourceCtx {
         height: usize,
         stride: usize,
         buf: &[u8],
-        format: crate::ImageFormat,
-    ) -> Result<AnyImage, crate::Error>;
+        format: crate::api::ImageFormat,
+    ) -> Result<AnyImage, crate::api::Error>;
 }
 
 impl ResourceCtx for Box<dyn AnyResourceCtx> {
@@ -165,8 +165,8 @@ impl ResourceCtx for Box<dyn AnyResourceCtx> {
         height: usize,
         stride: usize,
         buf: &[u8],
-        format: crate::ImageFormat,
-    ) -> Result<Self::Image, crate::Error> {
+        format: crate::api::ImageFormat,
+    ) -> Result<Self::Image, crate::api::Error> {
         let image = self.dyn_make_image_with_stride(width, height, stride, buf, format)?;
         let id = Id::get();
         Ok(AnyImage {
@@ -197,7 +197,7 @@ impl RenderCtx for Box<dyn AnyRecord> {
         &mut self,
         image: &<Self::Resource as ResourceCtx>::Image,
         dst_rect: peniko::kurbo::Rect,
-        interp: crate::InterpolationMode,
+        interp: crate::api::InterpolationMode,
     ) {
         todo!()
     }
@@ -237,7 +237,7 @@ impl RenderCtx for Box<dyn AnyRecord> {
     fn draw_glyphs(
         &mut self,
         style: peniko::StyleRef<'_>,
-        glyphs: &dyn Iterator<Item = crate::Glyph>,
+        glyphs: &dyn Iterator<Item = crate::api::Glyph>,
     ) {
         todo!()
     }
