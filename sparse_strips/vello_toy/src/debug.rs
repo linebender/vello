@@ -3,6 +3,11 @@
 
 //! Visualize the intermediate stages of `vello_common` in an SVG.
 
+#![allow(
+    clippy::cast_possible_truncation,
+    reason = "this is only a debug tool, so we can ignore them"
+)]
+
 use clap::Parser;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -13,7 +18,6 @@ use vello_common::coarse::{Cmd, Wide, WideTile};
 use vello_common::color::palette::css::BLACK;
 use vello_common::flatten::Line;
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Stroke};
-use vello_common::paint::Paint;
 use vello_common::peniko::Fill;
 use vello_common::strip::{Strip, STRIP_HEIGHT};
 use vello_common::tile::{Tiles, TILE_HEIGHT, TILE_WIDTH};
@@ -145,7 +149,7 @@ fn draw_line_segments(document: &mut Document, line_buf: &[Line]) {
         let second = (line.p1.x, line.p1.y);
 
         if Some(first) != last {
-            data = data.move_to(first)
+            data = data.move_to(first);
         }
 
         data = data.line_to(second);
@@ -254,14 +258,14 @@ fn draw_strip_areas(document: &mut Document, strips: &[Strip], alphas: &[u32]) {
 }
 
 fn draw_strips(document: &mut Document, strips: &[Strip], alphas: &[u32]) {
-    for i in 0..strips.len() {
-        let strip = &strips[i];
+    for s in 0..strips.len() {
+        let strip = &strips[s];
         let x = strip.x;
         let y = strip.strip_y();
 
         let end = strips
-            .get(i + 1)
-            .map(|s| s.col)
+            .get(s + 1)
+            .map(|st| st.col)
             .unwrap_or(alphas.len() as u32);
 
         let width = end - strip.col;
@@ -276,14 +280,14 @@ fn draw_strips(document: &mut Document, strips: &[Strip], alphas: &[u32]) {
             let alpha = alphas[(i + strip.col) as usize];
             let entries = alpha.to_le_bytes();
 
-            for h in 0..STRIP_HEIGHT {
+            for (h, e) in entries.iter().enumerate().take(STRIP_HEIGHT) {
                 let rect = Rectangle::new()
                     .set("x", x + i as i32)
                     .set("y", y * STRIP_HEIGHT as u16 + h as u16)
                     .set("width", 1)
                     .set("height", 1)
                     .set("fill", color)
-                    .set("fill-opacity", entries[h] as f32 / 255.0);
+                    .set("fill-opacity", *e as f32 / 255.0);
 
                 document.append(rect);
             }
@@ -313,20 +317,15 @@ fn draw_wide_tiles(document: &mut Document, wide_tiles: &[WideTile], alphas: &[u
                     for i in 0..s.width {
                         let alpha = alphas[s.alpha_ix + i as usize];
                         let entries = alpha.to_le_bytes();
-                        let Paint::Solid(c) = s.paint else { continue };
-                        let color = match s.paint {
-                            Paint::Solid(c) => c.to_rgba8(),
-                            _ => BLACK.to_rgba8(),
-                        };
 
-                        for h in 0..STRIP_HEIGHT {
+                        for (h, e) in entries.iter().enumerate().take(STRIP_HEIGHT) {
                             let rect = Rectangle::new()
                                 .set("x", s.x + i)
                                 .set("y", t_i * STRIP_HEIGHT + h)
                                 .set("width", 1)
                                 .set("height", 1)
                                 .set("fill", "yellow")
-                                .set("fill-opacity", (entries[h] as f32 / 255.0));
+                                .set("fill-opacity", *e as f32 / 255.0);
 
                             document.append(rect);
                         }
@@ -349,20 +348,20 @@ enum Stage {
 
 impl Stage {
     fn requires_flatten(&self) -> bool {
-        matches!(self, Stage::LineSegments) || self.requires_tiling()
+        matches!(self, Self::LineSegments) || self.requires_tiling()
     }
     fn requires_tiling(&self) -> bool {
-        matches!(self, Stage::TileAreas | Stage::TileIntersections) || self.requires_strips()
+        matches!(self, Self::TileAreas | Self::TileIntersections) || self.requires_strips()
     }
 
     fn requires_strips(&self) -> bool {
-        matches!(self, Stage::StripAreas)
-            || matches!(self, Stage::Strips)
+        matches!(self, Self::StripAreas)
+            || matches!(self, Self::Strips)
             || self.requires_wide_tiles()
     }
 
     fn requires_wide_tiles(&self) -> bool {
-        matches!(self, Stage::WideTiles)
+        matches!(self, Self::WideTiles)
     }
 }
 
@@ -371,12 +370,12 @@ impl std::str::FromStr for Stage {
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
         match input.to_lowercase().as_str() {
-            "ls" => Ok(Stage::LineSegments),
-            "ta" => Ok(Stage::TileAreas),
-            "ti" => Ok(Stage::TileIntersections),
-            "sa" => Ok(Stage::StripAreas),
-            "s" => Ok(Stage::Strips),
-            "wt" => Ok(Stage::WideTiles),
+            "ls" => Ok(Self::LineSegments),
+            "ta" => Ok(Self::TileAreas),
+            "ti" => Ok(Self::TileIntersections),
+            "sa" => Ok(Self::StripAreas),
+            "s" => Ok(Self::Strips),
+            "wt" => Ok(Self::WideTiles),
             _ => Err(format!("invalid stage: {}", input)),
         }
     }
