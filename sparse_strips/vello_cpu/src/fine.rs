@@ -69,8 +69,8 @@ impl<'a> Fine<'a> {
             Paint::Solid(c) => {
                 let color = c.premultiply().to_rgba8_fast();
 
-                let target =
-                    &mut self.scratch[x * STRIP_HEIGHT_COMPONENTS..][..STRIP_HEIGHT_COMPONENTS * width];
+                let target = &mut self.scratch[x * STRIP_HEIGHT_COMPONENTS..]
+                    [..STRIP_HEIGHT_COMPONENTS * width];
 
                 // If color is completely opaque we can just memcopy the colors.
                 if color[3] == 255 {
@@ -97,8 +97,8 @@ impl<'a> Fine<'a> {
             Paint::Solid(s) => {
                 let color = s.premultiply().to_rgba8_fast();
 
-                let target =
-                    &mut self.scratch[x * STRIP_HEIGHT_COMPONENTS..][..STRIP_HEIGHT_COMPONENTS * width];
+                let target = &mut self.scratch[x * STRIP_HEIGHT_COMPONENTS..]
+                    [..STRIP_HEIGHT_COMPONENTS * width];
 
                 strip::src_over(target, &color, alphas);
             }
@@ -138,15 +138,13 @@ pub(crate) mod fill {
     use crate::fine::{COLOR_COMPONENTS, STRIP_HEIGHT_COMPONENTS};
     use crate::util::scalar::div_255;
 
-    pub(crate) fn src_over(target: &mut [u8], cs: &[u8; COLOR_COMPONENTS]) {
-        let _as = cs[3] as u16;
+    pub(crate) fn src_over(target: &mut [u8], src_c: &[u8; COLOR_COMPONENTS]) {
+        let src_a = src_c[3] as u16;
 
         for strip in target.chunks_exact_mut(STRIP_HEIGHT_COMPONENTS) {
-            for cb in strip.chunks_exact_mut(COLOR_COMPONENTS) {
-                let _ab = cb[3] as u16;
-
+            for bg_c in strip.chunks_exact_mut(COLOR_COMPONENTS) {
                 for i in 0..COLOR_COMPONENTS {
-                    cb[i] = cs[i] + div_255(cb[i] as u16 * (255 - _as)) as u8;
+                    bg_c[i] = src_c[i] + div_255(bg_c[i] as u16 * (255 - src_a)) as u8;
                 }
             }
         }
@@ -158,17 +156,19 @@ pub(crate) mod strip {
     use crate::util::scalar::div_255;
     use vello_common::strip::STRIP_HEIGHT;
 
-    pub(crate) fn src_over(target: &mut [u8], cs: &[u8; COLOR_COMPONENTS], alphas: &[u32]) {
-        for (cb, masks) in target.chunks_exact_mut(STRIP_HEIGHT_COMPONENTS).zip(alphas) {
+    pub(crate) fn src_over(target: &mut [u8], src_c: &[u8; COLOR_COMPONENTS], alphas: &[u32]) {
+        let src_a = src_c[3] as u16;
+
+        for (bg_c, masks) in target.chunks_exact_mut(STRIP_HEIGHT_COMPONENTS).zip(alphas) {
             for j in 0..STRIP_HEIGHT {
-                let am = ((*masks >> (j * 8)) & 0xff) as u16;
-                let inv_as_am = 255 - div_255(am * cs[3] as u16);
+                let mask_a = ((*masks >> (j * 8)) & 0xff) as u16;
+                let inv_src_a_mask_a = 255 - div_255(mask_a * src_a);
 
                 for i in 0..COLOR_COMPONENTS {
-                    let im1 = cb[j * COLOR_COMPONENTS + i] as u16 * inv_as_am;
-                    let im2 = cs[i] as u16 * am;
+                    let im1 = bg_c[j * COLOR_COMPONENTS + i] as u16 * inv_src_a_mask_a;
+                    let im2 = src_c[i] as u16 * mask_a;
                     let im3 = div_255(im1 + im2);
-                    cb[j * COLOR_COMPONENTS + i] = im3 as u8;
+                    bg_c[j * COLOR_COMPONENTS + i] = im3 as u8;
                 }
             }
         }
