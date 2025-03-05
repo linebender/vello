@@ -6,9 +6,11 @@ use clap::Parser;
 use svg::{Document, Node};
 use svg::node::element::{Circle, Path, Rectangle};
 use svg::node::element::path::Data;
-use vello_common::flatten;
+use vello_common::{flatten, strip};
 use vello_common::flatten::Line;
 use vello_common::kurbo::{Affine, BezPath};
+use vello_common::peniko::Fill;
+use vello_common::strip::{Strip, STRIP_HEIGHT};
 use vello_common::tile::{Tiles, TILE_HEIGHT, TILE_WIDTH};
 
 fn main() {
@@ -18,16 +20,20 @@ fn main() {
 
     let mut line_buf = vec![];
     let mut tiles = Tiles::new();
+    let mut strip_buf = vec![];
+    let mut alpha_buf = vec![];
 
     flatten::fill(&args.path, Affine::IDENTITY, &mut line_buf);
     tiles.make_tiles(&line_buf);
     tiles.sort_tiles();
+    strip::render(&tiles, &mut strip_buf, &mut alpha_buf, args.fill_rule);
 
     draw_grid(&mut document, args.width, args.height);
     draw_line_segments(&mut document, &line_buf);
     draw_tile_areas(&mut document, &tiles);
     draw_tile_intersections(&mut document, &tiles);
-    // draw_strips(&mut document, ctx.strip_buf(), ctx.alphas());
+    draw_strip_areas(&mut document, &strip_buf, &alpha_buf);
+    draw_rendered_strips(&mut document, &strip_buf, &alpha_buf);
     // draw_wide_tiles(&mut document, ctx.wide_tiles(), ctx.alphas());
 
     svg::save(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/debug.svg"), &document).unwrap();
@@ -90,78 +96,6 @@ fn main() {
 // }
 //
 
-//
-// fn draw_strips(document: &mut Document, strips: &[Strip], alphas: &[u32]) {
-//     for i in 0..strips.len() {
-//         let strip = &strips[i];
-//         let x = strip.x();
-//         let y = strip.strip_y();
-//
-//         let end = strips
-//             .get(i + 1)
-//             .map(|s| s.col)
-//             .unwrap_or(alphas.len() as u32);
-//
-//         let width = end - strip.col;
-//
-//         let color = if strip.winding != 0 {
-//             "red"
-//         } else {
-//             "limegreen"
-//         };
-//
-//         let rect = Rectangle::new()
-//             .set("x", x)
-//             .set("y", y * STRIP_HEIGHT as u32)
-//             .set("width", width)
-//             .set("height", STRIP_HEIGHT)
-//             .set("stroke", color)
-//             .set("fill", color)
-//             .set("fill-opacity", 0.4)
-//             .set("stroke-opacity", 0.6)
-//             .set("stroke-width", 0.2);
-//
-//         document.append(rect);
-//     }
-//
-//     for i in 0..strips.len() {
-//         let strip = &strips[i];
-//         // Draw the points
-//         let x = strip.x();
-//         let y = strip.strip_y();
-//
-//         let end = strips
-//             .get(i + 1)
-//             .map(|s| s.col)
-//             .unwrap_or(alphas.len() as u32);
-//
-//         let width = end - strip.col;
-//
-//         let color = if strip.winding != 0 {
-//             "red"
-//         } else {
-//             "limegreen"
-//         };
-//
-//         for i in 0..width {
-//             let alpha = alphas[(i + strip.col) as usize];
-//             let entries = alpha.to_le_bytes();
-//
-//             for h in 0..STRIP_HEIGHT {
-//                 let rect = Rectangle::new()
-//                     .set("x", x + i as i32)
-//                     .set("y", y * STRIP_HEIGHT as u32 + h as u32)
-//                     .set("width", 1)
-//                     .set("height", 1)
-//                     .set("fill", color)
-//                     .set("fill-opacity", entries[h] as f32 / 255.0);
-//
-//                 document.append(rect);
-//             }
-//         }
-//     }
-// }
-//
 
 fn draw_grid(document: &mut Document, width: u16, height: u16) {
     let border_data = Data::new()
@@ -286,6 +220,78 @@ fn draw_tile_intersections(document: &mut Document, tiles: &Tiles) {
     }
 }
 
+fn draw_strip_areas(document: &mut Document, strips: &[Strip], alphas: &[u32]) {
+    for i in 0..strips.len() {
+        let strip = &strips[i];
+        let x = strip.x;
+        let y = strip.strip_y();
+
+        let end = strips
+            .get(i + 1)
+            .map(|s| s.col)
+            .unwrap_or(alphas.len() as u32);
+
+        let width = end - strip.col;
+
+        let color = if strip.winding != 0 {
+            "red"
+        } else {
+            "limegreen"
+        };
+
+        let rect = Rectangle::new()
+            .set("x", x)
+            .set("y", y * STRIP_HEIGHT as u16)
+            .set("width", width)
+            .set("height", STRIP_HEIGHT)
+            .set("stroke", color)
+            .set("fill", color)
+            .set("fill-opacity", 0.4)
+            .set("stroke-opacity", 0.6)
+            .set("stroke-width", 0.2);
+
+        document.append(rect);
+    }
+}
+
+fn draw_rendered_strips(document: &mut Document, strips: &[Strip], alphas: &[u32]) {
+    for i in 0..strips.len() {
+        let strip = &strips[i];
+        let x = strip.x;
+        let y = strip.strip_y();
+
+        let end = strips
+            .get(i + 1)
+            .map(|s| s.col)
+            .unwrap_or(alphas.len() as u32);
+
+        let width = end - strip.col;
+
+        let color = if strip.winding != 0 {
+            "red"
+        } else {
+            "limegreen"
+        };
+
+        for i in 0..width {
+            let alpha = alphas[(i + strip.col) as usize];
+            let entries = alpha.to_le_bytes();
+
+            for h in 0..STRIP_HEIGHT {
+                let rect = Rectangle::new()
+                    .set("x", x + i as i32)
+                    .set("y", y * STRIP_HEIGHT as u16 + h as u16)
+                    .set("width", 1)
+                    .set("height", 1)
+                    .set("fill", color)
+                    .set("fill-opacity", entries[h] as f32 / 255.0);
+
+                document.append(rect);
+            }
+        }
+    }
+}
+
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -304,6 +310,8 @@ struct Args {
     /// The stroke width for stroking operations.
     #[arg(short, long, default_value_t = 1.0)]
     pub stroke_width: f32,
+    #[arg(long, default_value = "nonzero", value_parser = parse_fill_rule)]
+    pub fill_rule: Fill
 }
 
 fn parse_dim(val: &str) -> Result<u16, String> {
@@ -318,4 +326,12 @@ fn parse_dim(val: &str) -> Result<u16, String> {
 fn parse_path(val: &str) -> Result<BezPath, String> {
     BezPath::from_svg(val)
         .map_err(|_| "Failed to parse the SVG path".to_string())
+}
+
+fn parse_fill_rule(val: &str) -> Result<Fill, String> {
+    match val {
+        "nonzero" => Ok(Fill::NonZero),
+        "evenodd" => Ok(Fill::EvenOdd),
+        _ => Err(format!("unsupported fill rule: {}", val)),
+    }
 }
