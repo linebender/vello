@@ -15,6 +15,8 @@ env:
   # List of packages that can not target Wasm.
   # `vello_tests` uses `nv-flip`, which doesn't support Wasm.
   NO_WASM_PKGS: "--exclude vello_tests --exclude simple_sdl2"
+  # The files stored in LFS the tests need to access
+  LFS_FILES: "'vello_tests/snapshots/*.png'"
 
 
 # Rationale
@@ -158,9 +160,15 @@ jobs:
     name: Prime LFS Cache
     runs-on: ubuntu-latest
     continue-on-error: true
+    outputs:
+      lfs-hash: ${{ steps.calc-hash.outputs.result }}
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
+
+    - id: calc-hash
+      name: Calculate LFS hash
+      run: echo "result=${{ hashFiles(env.LFS_FILES) }}" | tee -a "$GITHUB_OUTPUT"
       
     - name: Cache git lfs
       id: lfs-cache
@@ -168,13 +176,13 @@ jobs:
       with:
         path: .git/lfs
         # The files targeted with git lfs
-        key: vello-lfs-${{ hashFiles('vello_tests/snapshots/*.png') }}
+        key: vello-lfs-${{ steps.calc-hash.outputs.result }}
         restore-keys: vello-lfs-
         enableCrossOsArchive: true
 
     - name: Fetch lfs data
       if: ${{ steps.lfs-cache.outputs.cache-hit != 'true' }}
-      run: git lfs fetch
+      run: git lfs fetch --include ${{ env.LFS_FILES }}
   
   test-stable:
     name: cargo test
@@ -203,11 +211,11 @@ jobs:
         with:
           path: .git/lfs
           # The files targeted with git lfs
-          key: vello-lfs-${{ hashFiles('vello_tests/snapshots/*.png') }}
+          key: vello-lfs-${{ needs.prime-lfs-cache.outputs.lfs-hash }}
           enableCrossOsArchive: true
   
       - name: Checkout LFS files
-        run: git lfs checkout
+        run: git lfs checkout ${{ env.LFS_FILES }}
         continue-on-error: true
 
       - name: install stable toolchain
