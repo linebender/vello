@@ -1,6 +1,26 @@
-// Copyright 2025 the Vello Authors
+// Copyright 2024 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! This crate implements a hybrid CPU/GPU renderer. It offloads key rendering tasks to the GPU
-//! while retaining CPU-driven control, enabling optimized performance on various hardware
-//! configurations.
+#![allow(missing_docs, reason = "will add them later")]
+#![allow(missing_debug_implementations, reason = "prototyping")]
+#![allow(clippy::todo, reason = "still a prototype")]
+#![allow(clippy::cast_possible_truncation, reason = "we need to do this a lot")]
+
+pub mod api;
+mod fine;
+mod flatten;
+mod gpu;
+mod pixmap;
+mod render;
+mod simd;
+mod strip;
+mod tiling;
+mod wide_tile;
+
+pub use gpu::{GpuRenderBufs, GpuRenderCtx, GpuSession};
+pub use pixmap::Pixmap;
+pub use render::{CsRenderCtx, CsResourceCtx};
+pub use tiling::FlatLine;
+
+// TODO: this export should be removed, buffer upload will be internal
+pub use gpu::Strip;
