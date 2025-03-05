@@ -163,8 +163,8 @@ pub fn render(
             continue;
         }
 
-        // Lines moving downwards (in a y-down coordinate system) contribute add to winding; lines
-        // moving upwards subtract from winding.
+        // Lines moving upwards (in a y-down coordinate system) add to winding; lines moving
+        // downwards subtract from winding.
         let sign = (p0_y - p1_y).signum();
 
         // Calculate winding / pixel area coverage.
