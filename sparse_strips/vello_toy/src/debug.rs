@@ -9,7 +9,7 @@ use svg::{Document, Node};
 use vello_common::coarse::{Cmd, Wide, WideTile};
 use vello_common::color::palette::css::BLACK;
 use vello_common::flatten::Line;
-use vello_common::kurbo::{Affine, BezPath};
+use vello_common::kurbo::{Affine, BezPath, Cap, Join, Stroke};
 use vello_common::paint::Paint;
 use vello_common::peniko::Fill;
 use vello_common::strip::{Strip, STRIP_HEIGHT};
@@ -33,7 +33,18 @@ fn main() {
     // Not super efficient doing it this way, but it doesn't really matter.
 
     if stages.iter().any(|s| s.requires_flatten()) {
-        flatten::fill(&args.path, Affine::IDENTITY, &mut line_buf);
+        if !args.stroke {
+            flatten::fill(&args.path, Affine::IDENTITY, &mut line_buf);
+        } else {
+            let stroke = Stroke {
+                width: args.stroke_width as f64,
+                join: Join::Bevel,
+                start_cap: Cap::Butt,
+                end_cap: Cap::Butt,
+                ..Default::default()
+            };
+            flatten::stroke(&args.path, &stroke, Affine::IDENTITY, &mut line_buf);
+        }
     }
 
     if stages.iter().any(|s| s.requires_tiling()) {
@@ -379,11 +390,11 @@ struct Args {
     /// The SVG path that should be drawn.
     #[arg(short, long, value_parser = parse_path)]
     pub path: BezPath,
-    /// Whether the path should be filled (if false, it will be stroked).
-    #[arg(short, long, default_value_t = true)]
-    pub fill: bool,
+    /// Whether the path should be stroked (if false, it will be filled).
+    #[arg(short, long, default_value_t = false)]
+    pub stroke: bool,
     /// The stroke width for stroking operations.
-    #[arg(short, long, default_value_t = 1.0)]
+    #[arg(long, default_value_t = 1.0)]
     pub stroke_width: f32,
     /// The fill rule used for fill operations.
     #[arg(long, default_value = "nonzero", value_parser = parse_fill_rule)]
