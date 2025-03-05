@@ -1,12 +1,11 @@
 //! Visualize the intermediate stages of `vello_common` in an SVG.
 
+use clap::Parser;
 use std::collections::HashSet;
 use std::path::PathBuf;
-use clap::Parser;
-use svg::{Document, Node};
-use svg::node::element::{Circle, Path, Rectangle};
 use svg::node::element::path::Data;
-use vello_common::{flatten, strip};
+use svg::node::element::{Circle, Path, Rectangle};
+use svg::{Document, Node};
 use vello_common::coarse::{Cmd, Wide, WideTile};
 use vello_common::color::palette::css::BLACK;
 use vello_common::flatten::Line;
@@ -15,11 +14,13 @@ use vello_common::paint::Paint;
 use vello_common::peniko::Fill;
 use vello_common::strip::{Strip, STRIP_HEIGHT};
 use vello_common::tile::{Tiles, TILE_HEIGHT, TILE_WIDTH};
+use vello_common::{flatten, strip};
 
 fn main() {
     let args = Args::parse();
 
-    let mut document = Document::new().set("viewBox", (-10, -10, args.width + 20, args.height + 20));
+    let mut document =
+        Document::new().set("viewBox", (-10, -10, args.width + 20, args.height + 20));
 
     let mut line_buf = vec![];
     let mut tiles = Tiles::new();
@@ -27,21 +28,58 @@ fn main() {
     let mut alpha_buf = vec![];
     let mut wide = Wide::new(args.width as usize, args.height as usize);
 
-    flatten::fill(&args.path, Affine::IDENTITY, &mut line_buf);
-    tiles.make_tiles(&line_buf);
-    tiles.sort_tiles();
-    strip::render(&tiles, &mut strip_buf, &mut alpha_buf, args.fill_rule);
-    wide.generate(&strip_buf, args.fill_rule, BLACK.into());
+    let stages = &args.stages;
+
+    // Not super efficient doing it this way, but it doesn't really matter.
+
+    if stages.iter().any(|s| s.requires_flatten()) {
+        flatten::fill(&args.path, Affine::IDENTITY, &mut line_buf);
+    }
+
+    if stages.iter().any(|s| s.requires_tiling()) {
+        tiles.make_tiles(&line_buf);
+        tiles.sort_tiles();
+    }
+
+    if stages.iter().any(|s| s.requires_strips()) {
+        strip::render(&tiles, &mut strip_buf, &mut alpha_buf, args.fill_rule);
+    }
+
+    if stages.iter().any(|s| s.requires_wide_tiles()) {
+        wide.generate(&strip_buf, args.fill_rule, BLACK.into());
+    }
 
     draw_grid(&mut document, args.width, args.height);
-    draw_line_segments(&mut document, &line_buf);
-    draw_tile_areas(&mut document, &tiles);
-    draw_tile_intersections(&mut document, &tiles);
-    draw_strip_areas(&mut document, &strip_buf, &alpha_buf);
-    draw_rendered_strips(&mut document, &strip_buf, &alpha_buf);
-    draw_wide_tiles(&mut document, wide.tiles(), &alpha_buf);
 
-    svg::save(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/debug.svg"), &document).unwrap();
+    if stages.contains(&Stage::LineSegments) {
+        draw_line_segments(&mut document, &line_buf);
+    }
+
+    if stages.contains(&Stage::TileAreas) {
+        draw_tile_areas(&mut document, &tiles);
+    }
+
+    if stages.contains(&Stage::TileIntersections) {
+        draw_tile_intersections(&mut document, &tiles);
+    }
+
+    if stages.contains(&Stage::StripAreas) {
+        draw_strip_areas(&mut document, &strip_buf, &alpha_buf);
+    }
+
+    if stages.contains(&Stage::Strips) {
+        draw_strips(&mut document, &strip_buf, &alpha_buf);
+    }
+
+    if stages.contains(&Stage::WideTiles) {
+        draw_wide_tiles(&mut document, wide.tiles(), &alpha_buf);
+    }
+
+    svg::save(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/debug.svg"),
+        &document,
+    )
+    .unwrap();
 }
 
 fn draw_grid(document: &mut Document, width: u16, height: u16) {
@@ -104,7 +142,7 @@ fn draw_line_segments(document: &mut Document, line_buf: &[Line]) {
     let border = Path::new()
         .set("stroke-width", 0.1)
         .set("stroke", "green")
-        .set("fill", "yellow")
+        .set("fill", "none")
         .set("fill-opacity", 0.1)
         .set("d", data);
 
@@ -201,7 +239,7 @@ fn draw_strip_areas(document: &mut Document, strips: &[Strip], alphas: &[u32]) {
     }
 }
 
-fn draw_rendered_strips(document: &mut Document, strips: &[Strip], alphas: &[u32]) {
+fn draw_strips(document: &mut Document, strips: &[Strip], alphas: &[u32]) {
     for i in 0..strips.len() {
         let strip = &strips[i];
         let x = strip.x;
@@ -239,7 +277,6 @@ fn draw_rendered_strips(document: &mut Document, strips: &[Strip], alphas: &[u32
     }
 }
 
-
 fn draw_wide_tiles(document: &mut Document, wide_tiles: &[WideTile], alphas: &[u32]) {
     for (t_i, tile) in wide_tiles.iter().enumerate() {
         for cmd in &tile.cmds {
@@ -252,9 +289,7 @@ fn draw_wide_tiles(document: &mut Document, wide_tiles: &[WideTile], alphas: &[u
                                 .set("y", t_i * STRIP_HEIGHT + h)
                                 .set("width", 1)
                                 .set("height", 1)
-                                .set(
-                                    "fill", "blue",
-                                );
+                                .set("fill", "blue");
 
                             document.append(rect);
                         }
@@ -267,7 +302,7 @@ fn draw_wide_tiles(document: &mut Document, wide_tiles: &[WideTile], alphas: &[u
                         let Paint::Solid(c) = s.paint else { continue };
                         let color = match s.paint {
                             Paint::Solid(c) => c.to_rgba8(),
-                            _ => BLACK.to_rgba8()
+                            _ => BLACK.to_rgba8(),
                         };
 
                         for h in 0..STRIP_HEIGHT {
@@ -276,20 +311,59 @@ fn draw_wide_tiles(document: &mut Document, wide_tiles: &[WideTile], alphas: &[u
                                 .set("y", t_i * STRIP_HEIGHT + h)
                                 .set("width", 1)
                                 .set("height", 1)
-                                .set(
-                                    "fill",
-                                    "yellow",
-                                )
-                                .set(
-                                    "fill-opacity",
-                                    (entries[h] as f32 / 255.0),
-                                );
+                                .set("fill", "yellow")
+                                .set("fill-opacity", (entries[h] as f32 / 255.0));
 
                             document.append(rect);
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Stage {
+    LineSegments,
+    TileAreas,
+    TileIntersections,
+    StripAreas,
+    Strips,
+    WideTiles,
+}
+
+impl Stage {
+    fn requires_flatten(&self) -> bool {
+        matches!(self, Stage::LineSegments) || self.requires_tiling()
+    }
+    fn requires_tiling(&self) -> bool {
+        matches!(self, Stage::TileAreas | Stage::TileIntersections) || self.requires_strips()
+    }
+
+    fn requires_strips(&self) -> bool {
+        matches!(self, Stage::StripAreas)
+            || matches!(self, Stage::Strips)
+            || self.requires_wide_tiles()
+    }
+
+    fn requires_wide_tiles(&self) -> bool {
+        matches!(self, Stage::WideTiles)
+    }
+}
+
+impl std::str::FromStr for Stage {
+    type Err = String;
+
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
+        match input.to_lowercase().as_str() {
+            "ls" => Ok(Stage::LineSegments),
+            "ta" => Ok(Stage::TileAreas),
+            "ti" => Ok(Stage::TileIntersections),
+            "sa" => Ok(Stage::StripAreas),
+            "s" => Ok(Stage::Strips),
+            "wt" => Ok(Stage::WideTiles),
+            _ => Err(format!("invalid stage: {}", input)),
         }
     }
 }
@@ -313,21 +387,32 @@ struct Args {
     pub stroke_width: f32,
     /// The fill rule used for fill operations.
     #[arg(long, default_value = "nonzero", value_parser = parse_fill_rule)]
-    pub fill_rule: Fill
+    pub fill_rule: Fill,
+    /// The stages of the pipeline that should be included in the SVG.
+    #[arg(long, num_args = 1.., value_delimiter = ',', default_value = "ls,ta,ti,sa,s", value_parser = parse_stages)]
+    pub stages: Vec<Stage>,
+}
+
+fn parse_stages(val: &str) -> Result<Stage, String> {
+    val.parse::<Stage>()
 }
 
 fn parse_dim(val: &str) -> Result<u16, String> {
-    let parsed = val.parse::<u16>().map_err(|_| "Width/Height must be a positive integer")?;
+    let parsed = val
+        .parse::<u16>()
+        .map_err(|_| "width/height must be a positive integer")?;
     if parsed > 500 {
-        Err("The width/height cannot be larger than 500 (otherwise the SVG will be very slow).".to_string())
+        Err(
+            "the width/height cannot be larger than 500 (otherwise the SVG will be very slow)."
+                .to_string(),
+        )
     } else {
         Ok(parsed)
     }
 }
 
 fn parse_path(val: &str) -> Result<BezPath, String> {
-    BezPath::from_svg(val)
-        .map_err(|_| "Failed to parse the SVG path".to_string())
+    BezPath::from_svg(val).map_err(|_| "failed to parse the SVG path".to_string())
 }
 
 fn parse_fill_rule(val: &str) -> Result<Fill, String> {
