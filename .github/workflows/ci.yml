@@ -16,7 +16,7 @@ env:
   # `vello_tests` uses `nv-flip`, which doesn't support Wasm.
   NO_WASM_PKGS: "--exclude vello_tests --exclude simple_sdl2"
   # The files stored in LFS the tests need to access
-  LFS_FILES: "vello_tests/snapshots/*.png"
+  LFS_FILES: "vello_tests/snapshots/*.png,sparse_strips/vello_cpu/refs/*.png"
 
 
 # Rationale
@@ -215,7 +215,7 @@ jobs:
           enableCrossOsArchive: true
   
       - name: Checkout LFS files
-        run: git lfs checkout ${{ env.LFS_FILES }}
+        run: git lfs checkout '${{ env.LFS_FILES }}'
         continue-on-error: true
 
       - name: install stable toolchain
