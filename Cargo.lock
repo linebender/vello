@@ -2956,6 +2956,17 @@ dependencies = [
 [[package]]
 name = "vello_hybrid"
 version = "0.4.0"
+dependencies = [
+ "async-executor",
+ "bytemuck",
+ "flatten",
+ "png",
+ "pollster 0.3.0",
+ "roxmltree 0.20.0",
+ "vello_api",
+ "wgpu",
+ "winit 0.29.15",
+]
 
 [[package]]
 name = "vello_shaders"
