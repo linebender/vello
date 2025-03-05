@@ -11,8 +11,11 @@
 know for sure that it's < 256"
 )]
 
-pub mod pixmap;
-pub mod render;
+mod pixmap;
+mod render;
 
 mod fine;
 mod util;
+
+pub use pixmap::*;
+pub use render::RenderContext;
