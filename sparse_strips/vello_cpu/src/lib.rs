@@ -16,5 +16,5 @@ mod render;
 mod fine;
 mod util;
 
-pub use pixmap::*;
+pub use pixmap::Pixmap;
 pub use render::RenderContext;
