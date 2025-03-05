@@ -172,7 +172,6 @@ fn draw_tile_areas(document: &mut Document, tiles: &Tiles) {
 
     for i in 0..tiles.len() {
         let tile = tiles.get(i);
-        // Draw the points
         let x = tile.x * TILE_WIDTH as i32;
         let y = tile.y * TILE_HEIGHT as u16;
 
@@ -236,6 +235,7 @@ fn draw_strip_areas(document: &mut Document, strips: &[Strip], alphas: &[u32]) {
 
         let width = end - strip.col;
 
+        // TODO: Account for even-odd?
         let color = if strip.winding != 0 {
             "red"
         } else {
@@ -270,6 +270,7 @@ fn draw_strips(document: &mut Document, strips: &[Strip], alphas: &[u32]) {
 
         let width = end - strip.col;
 
+        // TODO: Account for even-odd?
         let color = if strip.winding != 0 {
             "red"
         } else {
@@ -338,11 +339,17 @@ fn draw_wide_tiles(document: &mut Document, wide_tiles: &[WideTile], alphas: &[u
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Stage {
+    /// Draw the flattened lines of the path.
     LineSegments,
+    /// Draw the tile areas covered by the path.
     TileAreas,
+    /// Draw the intersection points of lines in the tiles.
     TileIntersections,
+    /// Draw the stripped areas.
     StripAreas,
+    /// Draw the strips with their alpha masks.
     Strips,
+    /// Draw the wide tiles.
     WideTiles,
 }
 
