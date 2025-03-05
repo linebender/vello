@@ -27,7 +27,7 @@ pub struct CsRenderCtx {
     pub(crate) width: usize,
     pub(crate) height: usize,
     pub(crate) tiles: Vec<WideTile>,
-    pub(crate) alphas: Vec<u32>,
+    pub(crate) alphas: Vec<u32>, /*  */
 
     /// These are all scratch buffers, to be used for path rendering. They're here solely
     /// so the allocations can be reused.
