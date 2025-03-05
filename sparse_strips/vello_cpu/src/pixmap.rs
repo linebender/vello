@@ -28,11 +28,11 @@ impl Pixmap {
     /// Not fast, but useful for saving to PNG etc.
     pub fn unpremultiply(&mut self) {
         for rgba in self.buf.chunks_exact_mut(4) {
-            let alpha = rgba[3] as f32 * (1.0 / 255.0);
+            let alpha = 255.0 / rgba[3] as f32;
             if alpha != 0.0 {
-                rgba[0] = (rgba[0] as f32 / alpha).round().min(255.0) as u8;
-                rgba[1] = (rgba[1] as f32 / alpha).round().min(255.0) as u8;
-                rgba[2] = (rgba[2] as f32 / alpha).round().min(255.0) as u8;
+                rgba[0] = (rgba[0] as f32 * alpha).round().min(255.0) as u8;
+                rgba[1] = (rgba[1] as f32 * alpha).round().min(255.0) as u8;
+                rgba[2] = (rgba[2] as f32 * alpha).round().min(255.0) as u8;
             }
         }
     }
