@@ -1,8 +1,9 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Fine rasterization.
-//!
+//! Fine rasterization runs the commands in each wide tile to determine the final RGBA value
+//! of each pixel and pack it into the pixmap.
+
 use crate::util::ColorExt;
 use vello_common::coarse::{Cmd, WIDE_TILE_WIDTH};
 use vello_common::paint::Paint;
