@@ -6,9 +6,9 @@
 
 use std::io::BufWriter;
 
-use vello_api::peniko::color::palette;
-use vello_api::peniko::kurbo::{BezPath, Point, Stroke, Vec2};
-use vello_api::RenderCtx;
+use vello_hybrid::api::peniko::color::palette;
+use vello_hybrid::api::peniko::kurbo::{BezPath, Point, Stroke, Vec2};
+use vello_hybrid::api::RenderCtx;
 use vello_hybrid::{CsRenderCtx, Pixmap};
 
 const WIDTH: usize = 1024;

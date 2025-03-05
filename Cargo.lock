@@ -2858,6 +2858,7 @@ dependencies = [
  "async-executor",
  "bytemuck",
  "flatten",
+ "peniko",
  "png",
  "pollster 0.3.0",
  "roxmltree 0.20.0",

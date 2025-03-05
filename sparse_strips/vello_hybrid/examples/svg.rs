@@ -11,10 +11,10 @@ use std::io::BufWriter;
 use std::str::FromStr;
 
 use roxmltree::{Document, Node};
-use vello_api::peniko::color::palette;
-use vello_api::peniko::kurbo::{Affine, BezPath, Point, Size, Stroke, Vec2};
-use vello_api::peniko::Color;
-use vello_api::RenderCtx;
+use vello_hybrid::api::peniko::color::palette;
+use vello_hybrid::api::peniko::kurbo::{Affine, BezPath, Point, Size, Stroke, Vec2};
+use vello_hybrid::api::peniko::Color;
+use vello_hybrid::api::RenderCtx;
 use vello_hybrid::{CsRenderCtx, Pixmap};
 
 const WIDTH: usize = 1024;
@@ -86,12 +86,12 @@ pub enum Item {
 pub struct StrokeItem {
     pub width: f64,
     pub color: Color,
-    pub path: vello_api::Path,
+    pub path: vello_hybrid::api::Path,
 }
 
 pub struct FillItem {
     pub color: Color,
-    pub path: vello_api::Path,
+    pub path: vello_hybrid::api::Path,
 }
 
 pub struct GroupItem {
@@ -233,7 +233,7 @@ impl Parser {
                 "path" => {
                     let d = node.attribute("d").ok_or("missing 'd' attribute")?;
                     let bp = BezPath::from_svg(d)?;
-                    let path: vello_api::Path = bp.into();
+                    let path: vello_hybrid::api::Path = bp.into();
                     if let Some(color) = properties.fill {
                         items.push(Item::Fill(FillItem {
                             color,
@@ -328,7 +328,7 @@ fn parse_transform(transform: &str) -> Affine {
 
 fn parse_color(color: &str) -> Color {
     let color = color.trim();
-    if let Ok(c) = vello_api::peniko::color::parse_color(color) {
+    if let Ok(c) = vello_hybrid::api::peniko::color::parse_color(color) {
         c.to_alpha_color()
     } else {
         palette::css::MAGENTA.with_alpha(0.5)

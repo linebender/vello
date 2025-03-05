@@ -7,10 +7,6 @@
 #![forbid(unsafe_code)]
 
 pub use peniko;
-pub use peniko::color;
-pub use peniko::kurbo;
-pub mod execute;
-pub mod paint;
 
 use std::{
     num::NonZeroU64,
@@ -32,7 +28,7 @@ pub use generic_record::{GenericRecorder, GenericResources};
 pub struct Id(NonZeroU64);
 
 // TODO: think this through
-pub type Error = Box<dyn std::error::Error>;
+pub type Error = Box<dyn std::error::Error>; /*  */
 
 #[derive(Clone)]
 pub struct Path {

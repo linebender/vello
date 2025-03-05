@@ -3,8 +3,8 @@
 
 //! The GPU parts of a hybrid CPU/GPU rendering engine.
 
+use crate::api::{peniko::BrushRef, RenderCtx};
 use bytemuck::{Pod, Zeroable};
-use vello_api::{peniko::BrushRef, RenderCtx};
 use wgpu::{
     BindGroupLayout, BlendState, ColorTargetState, ColorWrites, Device, PipelineCompilationOptions,
     RenderPipeline, TextureFormat,
@@ -199,13 +199,13 @@ impl GpuRenderCtx {
 
 // This block will eventually turn into an impl of RenderCtx.
 impl GpuRenderCtx {
-    pub fn fill(&mut self, path: &vello_api::Path, brush: BrushRef<'_>) {
+    pub fn fill(&mut self, path: &crate::api::Path, brush: BrushRef<'_>) {
         self.inner.fill(path, brush);
     }
 
     pub fn stroke(
         &mut self,
-        path: &vello_api::Path,
+        path: &crate::api::Path,
         stroke: &vello_api::peniko::kurbo::Stroke,
         brush: BrushRef<'_>,
     ) {
