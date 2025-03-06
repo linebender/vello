@@ -215,7 +215,7 @@ jobs:
           enableCrossOsArchive: true
   
       - name: Checkout LFS files
-        run: git lfs checkout '${{ join(fromJson(env.LFS_FILES), ',') }}'
+        run: git lfs checkout '${{ join(fromJson(env.LFS_FILES), fromJson(''' ''')) }}'
         continue-on-error: true
 
       - name: install stable toolchain
