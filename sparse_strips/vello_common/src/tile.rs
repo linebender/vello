@@ -138,6 +138,11 @@ impl Tiles {
     ///
     /// Panics if the container hasn't been sorted before.
     pub fn iter(&self) -> impl Iterator<Item = &Tile> {
+        assert!(
+            self.sorted,
+            "attempted to call `iter` before sorting the tile container."
+        );
+
         self.tile_index_buf
             .iter()
             .map(|idx| &self.tile_buf[idx.index()])
