@@ -292,5 +292,3 @@ fn eo_filling_missing_anti_aliasing() {
 
     check_ref(&ctx, "eo_filling_missing_anti_aliasing");
 }
-
-// All issue numbers starting from here refer to the issue numbers in the vello repository.
