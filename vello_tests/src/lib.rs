@@ -34,22 +34,22 @@ use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::Arc;
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use scenes::{ExampleScene, ImageCache, SceneParams, SimpleText};
 use vello::kurbo::{Affine, Vec2};
-use vello::peniko::{color::palette, Blob, Color, Image, ImageFormat};
+use vello::peniko::{Blob, Color, Image, ImageFormat, color::palette};
 use vello::wgpu::{
     self, BufferDescriptor, BufferUsages, CommandEncoderDescriptor, Extent3d, TexelCopyBufferInfo,
     TextureDescriptor, TextureFormat, TextureUsages,
 };
-use vello::{util::block_on_wgpu, util::RenderContext, AaConfig, RendererOptions, Scene};
+use vello::{AaConfig, RendererOptions, Scene, util::RenderContext, util::block_on_wgpu};
 
 mod compare;
 mod snapshot;
 
-pub use compare::{compare_gpu_cpu, compare_gpu_cpu_sync, GpuCpuComparison};
+pub use compare::{GpuCpuComparison, compare_gpu_cpu, compare_gpu_cpu_sync};
 pub use snapshot::{
-    smoke_snapshot_test_sync, snapshot_test, snapshot_test_sync, Snapshot, SnapshotDirectory,
+    Snapshot, SnapshotDirectory, smoke_snapshot_test_sync, snapshot_test, snapshot_test_sync,
 };
 
 pub struct TestParams {

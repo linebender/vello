@@ -30,10 +30,10 @@ members = [
 #       and `simple_sdl2` examples.
 version = "0.4.0"
 
-edition = "2021"
+edition = "2024"
 # Keep in sync with RUST_MIN_VER in .github/workflows/ci.yml, with the relevant README.md files
 # and with the MSRV in the `Unreleased` section of CHANGELOG.md.
-rust-version = "1.82"
+rust-version = "1.85"
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/linebender/vello"
 
@@ -100,10 +100,12 @@ futures-intrusive = "0.5.0"
 smallvec = "1.13.2"
 static_assertions = "1.1.0"
 thiserror = "2.0.11"
+oxipng = { version = "9.1.4", default-features = false }
 
 # The below crates are experimental!
 vello_api = { path = "sparse_strips/vello_api" }
 vello_common = { path = "sparse_strips/vello_common" }
+vello_cpu = { path = "sparse_strips/vello_cpu" }
 
 # NOTE: Make sure to keep this in sync with the version badge in README.md and vello/README.md
 wgpu = { version = "24.0.1" }

@@ -102,11 +102,7 @@ pub(crate) fn f32_to_f16(val: f32) -> u16 {
     // Inf or NaN (all exponent bits set)
     let output: u16 = if u >= INF_32 {
         // NaN -> qNaN and Inf->Inf
-        if u > INF_32 {
-            0x7E00
-        } else {
-            0x7C00
-        }
+        if u > INF_32 { 0x7E00 } else { 0x7C00 }
     } else {
         // (De)normalized number or zero
         let mut u = u & ROUND_MASK;

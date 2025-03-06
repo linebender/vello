@@ -4,16 +4,16 @@
 use std::f32::consts::FRAC_1_SQRT_2;
 
 use super::{
-    euler::{
-        espc_int_approx, espc_int_inv_approx, CubicParams, EulerParams, EulerSeg, TANGENT_THRESH,
-    },
-    util::{Transform, Vec2, ROBUST_EPSILON},
     CpuBinding,
+    euler::{
+        CubicParams, EulerParams, EulerSeg, TANGENT_THRESH, espc_int_approx, espc_int_inv_approx,
+    },
+    util::{ROBUST_EPSILON, Transform, Vec2},
 };
 use vello_encoding::math::f16_to_f32;
 use vello_encoding::{
-    BumpAllocators, ConfigUniform, LineSoup, Monoid, PathBbox, PathMonoid, PathTag, Style,
-    DRAW_INFO_FLAGS_FILL_RULE_BIT,
+    BumpAllocators, ConfigUniform, DRAW_INFO_FLAGS_FILL_RULE_BIT, LineSoup, Monoid, PathBbox,
+    PathMonoid, PathTag, Style,
 };
 
 // TODO: remove this
@@ -285,7 +285,9 @@ fn flatten_euler(
         let actual_dt = t1 - last_t;
         let cubic_params =
             CubicParams::from_points_derivs(this_p0, this_p1, this_q0, this_q1, actual_dt);
-        log!("@@@   loop: p0={this_p0:?} p1={this_p1:?} q0={this_q0:?} q1={this_q1:?} {cubic_params:?} t0: {t0}, t1: {t1}, dt: {dt}");
+        log!(
+            "@@@   loop: p0={this_p0:?} p1={this_p1:?} q0={this_q0:?} q1={this_q1:?} {cubic_params:?} t0: {t0}, t1: {t1}, dt: {dt}"
+        );
         if cubic_params.err * scale <= tol || dt <= SUBDIV_LIMIT {
             log!("@@@   error within tolerance");
             let euler_params = EulerParams::from_angles(cubic_params.th0, cubic_params.th1);

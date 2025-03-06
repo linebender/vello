@@ -11,9 +11,9 @@ use web_time::Instant;
 
 use anyhow::Result;
 use vello::{
-    kurbo::{Affine, Rect, Stroke, Vec2},
-    peniko::{color::palette, Fill},
     Scene,
+    kurbo::{Affine, Rect, Stroke, Vec2},
+    peniko::{Fill, color::palette},
 };
 
 use crate::{ExampleScene, SceneParams, SceneSet};

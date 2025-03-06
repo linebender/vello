@@ -12,8 +12,8 @@
 )]
 
 use scenes::SimpleText;
-use vello::{kurbo::Affine, peniko::Fill, Scene};
-use vello_tests::{snapshot_test_sync, TestParams};
+use vello::{Scene, kurbo::Affine, peniko::Fill};
+use vello_tests::{TestParams, snapshot_test_sync};
 
 fn encode_noto_colr(text: &str, font_size: f32) -> Scene {
     let mut scene = Scene::new();

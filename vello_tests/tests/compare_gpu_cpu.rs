@@ -10,8 +10,8 @@
 //! This type of test is useful, as it avoids committing large snapshots to the repository, which are
 //! not handled very well by git.
 
-use scenes::{test_scenes, ExampleScene};
-use vello_tests::{compare_gpu_cpu_sync, encode_test_scene, TestParams};
+use scenes::{ExampleScene, test_scenes};
+use vello_tests::{TestParams, compare_gpu_cpu_sync, encode_test_scene};
 
 /// Make sure the CPU and GPU renderers match on the test scenes
 fn compare_test_scene(test_scene: ExampleScene, mut params: TestParams) {

@@ -3,8 +3,8 @@
 
 use bytemuck::{Pod, Zeroable};
 use peniko::{
-    color::{AlphaColor, ColorSpace, DynamicColor, OpaqueColor, PremulColor, Srgb},
     BlendMode,
+    color::{AlphaColor, ColorSpace, DynamicColor, OpaqueColor, PremulColor, Srgb},
 };
 
 use super::Monoid;

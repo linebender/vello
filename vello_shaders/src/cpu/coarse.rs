@@ -4,13 +4,13 @@
 use std::cmp::max;
 
 use vello_encoding::{
-    BinHeader, BumpAllocators, ConfigUniform, DrawMonoid, DrawTag, Path, Tile,
-    DRAW_INFO_FLAGS_FILL_RULE_BIT,
+    BinHeader, BumpAllocators, ConfigUniform, DRAW_INFO_FLAGS_FILL_RULE_BIT, DrawMonoid, DrawTag,
+    Path, Tile,
 };
 
 use super::{
-    CpuBinding, CMD_BEGIN_CLIP, CMD_BLUR_RECT, CMD_COLOR, CMD_END, CMD_END_CLIP, CMD_FILL,
-    CMD_IMAGE, CMD_JUMP, CMD_LIN_GRAD, CMD_RAD_GRAD, CMD_SOLID, CMD_SWEEP_GRAD, PTCL_INITIAL_ALLOC,
+    CMD_BEGIN_CLIP, CMD_BLUR_RECT, CMD_COLOR, CMD_END, CMD_END_CLIP, CMD_FILL, CMD_IMAGE, CMD_JUMP,
+    CMD_LIN_GRAD, CMD_RAD_GRAD, CMD_SOLID, CMD_SWEEP_GRAD, CpuBinding, PTCL_INITIAL_ALLOC,
 };
 
 // Tiles per bin

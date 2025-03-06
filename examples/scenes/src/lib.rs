@@ -29,9 +29,9 @@ use std::path::PathBuf;
 pub use svg::{default_scene, scene_from_files};
 use test_scenes::test_scenes;
 
-use vello::kurbo::Vec2;
-use vello::peniko::{color, Color};
 use vello::Scene;
+use vello::kurbo::Vec2;
+use vello::peniko::{Color, color};
 
 pub struct SceneParams<'a> {
     pub time: f64,

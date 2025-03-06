@@ -10,7 +10,7 @@ use crate::{AaConfig, RenderParams};
 #[cfg(feature = "wgpu")]
 use crate::Scene;
 
-use vello_encoding::{make_mask_lut, make_mask_lut_16, Encoding, Resolver, WorkgroupSize};
+use vello_encoding::{Encoding, Resolver, WorkgroupSize, make_mask_lut, make_mask_lut_16};
 
 /// State for a render in progress.
 pub struct Render {

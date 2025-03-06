@@ -15,7 +15,7 @@ use std::fs::File;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use clap::Parser;
 use scenes::{ImageCache, SceneParams, SceneSet, SimpleText};
 use vello::kurbo::{Affine, Vec2};
@@ -25,7 +25,7 @@ use vello::wgpu::{
     self, BufferDescriptor, BufferUsages, CommandEncoderDescriptor, Extent3d, TexelCopyBufferInfo,
     TextureDescriptor, TextureFormat, TextureUsages,
 };
-use vello::{util::block_on_wgpu, RendererOptions, Scene};
+use vello::{RendererOptions, Scene, util::block_on_wgpu};
 
 fn main() -> Result<()> {
     #[cfg(not(target_arch = "wasm32"))]
@@ -37,7 +37,9 @@ fn main() -> Result<()> {
         for (idx, scene) in scenes.scenes.iter().enumerate() {
             if scene.config.name.eq_ignore_ascii_case(&args.scene) {
                 if let Some(scene_idx) = scene_idx {
-                    eprintln!("Scene names conflict, skipping scene {idx} (instead rendering {scene_idx})");
+                    eprintln!(
+                        "Scene names conflict, skipping scene {idx} (instead rendering {scene_idx})"
+                    );
                 } else {
                     scene_idx = Some(idx);
                 }

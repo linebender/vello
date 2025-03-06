@@ -8,15 +8,15 @@ env:
   # If the compilation fails, then the version specified here needs to be bumped up to reality.
   # Be sure to also update the rust-version property in the workspace Cargo.toml file,
   # plus all the README.md files of the affected packages.
-  RUST_MIN_VER: "1.82"
+  RUST_MIN_VER: "1.85"
   # List of packages that will be checked with the minimum supported Rust version.
   # This should be limited to packages that are intended for publishing.
   RUST_MIN_VER_PKGS: "-p vello -p vello_encoding -p vello_shaders"
   # List of packages that can not target Wasm.
   # `vello_tests` uses `nv-flip`, which doesn't support Wasm.
   NO_WASM_PKGS: "--exclude vello_tests --exclude simple_sdl2"
-  # The files stored in LFS the tests need to access
-  LFS_FILES: "vello_tests/snapshots/*.png"
+  # The files stored in LFS the tests need to access, in JSON format
+  LFS_FILES: '["vello_tests/snapshots/*.png", "sparse_strips/vello_cpu/snapshots/*.png"]'
 
 
 # Rationale
@@ -168,7 +168,8 @@ jobs:
 
     - id: calc-hash
       name: Calculate LFS hash
-      run: echo "result=${{ hashFiles(env.LFS_FILES) }}" | tee -a "$GITHUB_OUTPUT"
+      # GitHub's expression context doesn't support either a literal newline or an escaped newline. We have to use the JSON parser to get a newline character.
+      run: echo "result=${{ hashFiles(join(fromJson(env.LFS_FILES), fromJson('"\n"'))) }}" | tee -a "$GITHUB_OUTPUT"
       
     - name: Cache git lfs
       id: lfs-cache
@@ -182,7 +183,7 @@ jobs:
 
     - name: Fetch lfs data
       if: ${{ steps.lfs-cache.outputs.cache-hit != 'true' }}
-      run: git lfs fetch --include '${{ env.LFS_FILES }}'
+      run: git lfs fetch --include '${{ join(fromJson(env.LFS_FILES), ',') }}'
   
   test-stable:
     name: cargo test
@@ -215,7 +216,10 @@ jobs:
           enableCrossOsArchive: true
   
       - name: Checkout LFS files
-        run: git lfs checkout ${{ env.LFS_FILES }}
+        # `git lfs checkout` requires that each individual glob is a separate command line argument.
+        # The string `''' '''` is how you write `' '` in GitHub's expression context (i.e. two quotes separated by a space)
+        # The quotes are to avoid the shell from evaluating the globs itself.
+        run: git lfs checkout '${{ join(fromJson(env.LFS_FILES), ''' ''') }}'
         continue-on-error: true
 
       - name: install stable toolchain

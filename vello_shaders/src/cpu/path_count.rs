@@ -4,8 +4,8 @@
 use vello_encoding::{BumpAllocators, LineSoup, Path, SegmentCount, Tile};
 
 use super::{
-    util::{span, Vec2, ONE_MINUS_ULP, ROBUST_EPSILON},
     CpuBinding,
+    util::{ONE_MINUS_ULP, ROBUST_EPSILON, Vec2, span},
 };
 
 const TILE_SCALE: f32 = 1.0 / 16.0;

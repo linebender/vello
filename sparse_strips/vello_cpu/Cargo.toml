@@ -12,6 +12,13 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+kurbo = { workspace = true }
+peniko = { workspace = true }
+vello_common = { workspace = true }
+
+[dev-dependencies]
+oxipng = { workspace = true, features = ["freestanding", "parallel"] }
+image = { workspace = true, features = ["png"] }
 
 [lints]
 workspace = true
