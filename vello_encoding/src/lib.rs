@@ -58,7 +58,7 @@ pub use draw::{
     DrawMonoid, DrawRadialGradient, DrawSweepGradient, DrawTag, DRAW_INFO_FLAGS_FILL_RULE_BIT,
 };
 pub use encoding::{Encoding, Resources, StreamOffsets};
-pub use glyph::{Glyph, GlyphRun};
+pub use glyph::{Glyph, GlyphRun, SwashEmboldenPen};
 pub use mask::{make_mask_lut, make_mask_lut_16};
 pub use math::Transform;
 pub use monoid::Monoid;
