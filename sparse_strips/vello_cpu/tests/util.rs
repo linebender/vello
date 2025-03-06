@@ -20,7 +20,7 @@ use vello_common::kurbo::{Rect, Shape};
 use vello_cpu::{Pixmap, RenderContext};
 
 static REFS_PATH: LazyLock<PathBuf> =
-    LazyLock::new(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("refs"));
+    LazyLock::new(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("snapshots"));
 static DIFFS_PATH: LazyLock<PathBuf> =
     LazyLock::new(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("diffs"));
 
