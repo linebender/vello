@@ -11,12 +11,12 @@ use std::{
 use image::{DynamicImage, ImageError};
 use nv_flip::FlipPool;
 use vello::{
-    peniko::{Image, ImageFormat},
     Scene,
+    peniko::{Image, ImageFormat},
 };
 
-use crate::{env_var_relates_to, render_then_debug, write_png_to_file, TestParams};
-use anyhow::{anyhow, bail, Result};
+use crate::{TestParams, env_var_relates_to, render_then_debug, write_png_to_file};
+use anyhow::{Result, anyhow, bail};
 
 fn snapshot_dir(directory: SnapshotDirectory) -> PathBuf {
     let dir = match directory {

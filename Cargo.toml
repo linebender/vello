@@ -29,10 +29,10 @@ members = [
 #       and `simple_sdl2` examples.
 version = "0.4.0"
 
-edition = "2021"
+edition = "2024"
 # Keep in sync with RUST_MIN_VER in .github/workflows/ci.yml, with the relevant README.md files
 # and with the MSRV in the `Unreleased` section of CHANGELOG.md.
-rust-version = "1.82"
+rust-version = "1.85"
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/linebender/vello"
 

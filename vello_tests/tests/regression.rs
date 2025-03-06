@@ -4,11 +4,11 @@
 //! Tests to ensure that certain issues which don't deserve a test scene don't regress
 
 use vello::{
+    AaConfig, Scene,
     kurbo::{Affine, RoundedRect, Stroke},
     peniko::color::palette,
-    AaConfig, Scene,
 };
-use vello_tests::{snapshot_test_sync, TestParams};
+use vello_tests::{TestParams, snapshot_test_sync};
 
 /// Test created from <https://github.com/linebender/vello/issues/616>
 #[test]

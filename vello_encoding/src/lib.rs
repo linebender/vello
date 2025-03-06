@@ -54,8 +54,8 @@ pub use config::{
     RenderConfig, WorkgroupCounts, WorkgroupSize,
 };
 pub use draw::{
-    DrawBbox, DrawBeginClip, DrawBlurRoundedRect, DrawColor, DrawImage, DrawLinearGradient,
-    DrawMonoid, DrawRadialGradient, DrawSweepGradient, DrawTag, DRAW_INFO_FLAGS_FILL_RULE_BIT,
+    DRAW_INFO_FLAGS_FILL_RULE_BIT, DrawBbox, DrawBeginClip, DrawBlurRoundedRect, DrawColor,
+    DrawImage, DrawLinearGradient, DrawMonoid, DrawRadialGradient, DrawSweepGradient, DrawTag,
 };
 pub use encoding::{Encoding, Resources, StreamOffsets};
 pub use glyph::{Glyph, GlyphRun};
@@ -67,7 +67,7 @@ pub use path::{
     PathTag, SegmentCount, Style, Tile,
 };
 pub use ramp_cache::Ramps;
-pub use resolve::{resolve_solid_paths_only, Layout, Patch, Resolver};
+pub use resolve::{Layout, Patch, Resolver, resolve_solid_paths_only};
 
 #[cfg(feature = "bump_estimate")]
 pub use estimate::BumpEstimator;

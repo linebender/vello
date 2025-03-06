@@ -6,8 +6,8 @@
 use std::future::Future;
 
 use wgpu::{
-    util::TextureBlitter, Adapter, Device, Instance, Limits, MemoryHints, Queue, Surface,
-    SurfaceConfiguration, SurfaceTarget, Texture, TextureFormat, TextureView,
+    Adapter, Device, Instance, Limits, MemoryHints, Queue, Surface, SurfaceConfiguration,
+    SurfaceTarget, Texture, TextureFormat, TextureView, util::TextureBlitter,
 };
 
 use crate::{Error, Result};

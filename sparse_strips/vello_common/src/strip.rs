@@ -4,7 +4,7 @@
 //! Rendering strips.
 
 use crate::footprint::Footprint;
-use crate::tile::{Tiles, TILE_HEIGHT, TILE_WIDTH};
+use crate::tile::{TILE_HEIGHT, TILE_WIDTH, Tiles};
 use peniko::Fill;
 
 // Note that this will probably disappear and be turned into a const generic in the future.

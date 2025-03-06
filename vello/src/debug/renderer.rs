@@ -3,16 +3,16 @@
 
 use super::DebugLayers;
 use crate::{
-    debug::validate::{validate_line_soup, LineEndpoint},
+    DebugDownloads, RenderParams,
+    debug::validate::{LineEndpoint, validate_line_soup},
     recording::{BindType, DrawParams, ImageProxy, Recording, ResourceProxy, ShaderId},
     render::CapturedBuffers,
     wgpu_engine::WgpuEngine,
-    DebugDownloads, RenderParams,
 };
 
 use {
-    bytemuck::{offset_of, Pod, Zeroable},
-    peniko::color::{palette, OpaqueColor, Srgb},
+    bytemuck::{Pod, Zeroable, offset_of},
+    peniko::color::{OpaqueColor, Srgb, palette},
     vello_encoding::{BumpAllocators, LineSoup, PathBbox},
 };
 pub(crate) struct DebugRenderer {

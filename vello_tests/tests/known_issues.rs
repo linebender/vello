@@ -13,9 +13,9 @@
 )]
 
 use vello::{
-    kurbo::{Affine, Rect},
-    peniko::{color::palette, ImageFormat},
     Scene,
+    kurbo::{Affine, Rect},
+    peniko::{ImageFormat, color::palette},
 };
 use vello_tests::TestParams;
 

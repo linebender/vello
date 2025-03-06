@@ -6,15 +6,15 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use image::DynamicImage;
 use nv_flip::FlipPool;
 use vello::{
-    peniko::{Image, ImageFormat},
     Scene,
+    peniko::{Image, ImageFormat},
 };
 
-use crate::{render_then_debug, write_png_to_file, TestParams};
+use crate::{TestParams, render_then_debug, write_png_to_file};
 
 fn comparison_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("comparisons")

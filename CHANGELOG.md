@@ -13,17 +13,21 @@ You can find its changes [documented below](#040---2025-01-20).
 
 ## [Unreleased]
 
-This release has an [MSRV][] of 1.82.
+This release has an [MSRV][] of 1.85.
 
 <!-- TODO: Wgpu 24 (#791); override_image change (#802) -->
 
-## Removed
+### Removed
 
 - Breaking: The `Renderer::render_to_surface` has been removed. ([#803][] by [@DJMcNab][])
   This API was not fit for purpose for several reasons, for example, it assumed that you would only ever use a single window.
   The new recommended way to use Vello to render to a surface is to use `Renderer::render_to_texture`, then copy from that to the surface yourself.
   This can use the new [`TextureBlitter`](https://docs.rs/wgpu/latest/wgpu/util/struct.TextureBlitter.html) type from `wgpu` for this blitting.
   The `util` module has been updated to create a blit pipeline and intermediate texture for each surface.
+
+### Internals
+
+The crates were switched to edition 2024 of Rust.
 
 ## [0.4.0][] - 2025-01-20
 

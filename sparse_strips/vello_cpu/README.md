@@ -23,7 +23,7 @@ This crate serves as a standalone renderer or as a fallback when GPU resources a
 
 ## Minimum supported Rust Version (MSRV)
 
-This version of Vello CPU has been verified to compile with **Rust 1.82** and later.
+This version of Vello CPU has been verified to compile with **Rust 1.85** and later.
 
 Future versions of Vello CPU might increase the Rust version requirement.
 It will not be treated as a breaking change and as such can even happen with small patch releases.

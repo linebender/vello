@@ -96,11 +96,11 @@ mod impls {
     use crate::SceneParams;
     use kurbo::RoundedRect;
     use rand::Rng;
-    use rand::{rngs::StdRng, SeedableRng};
+    use rand::{SeedableRng, rngs::StdRng};
     use vello::kurbo::{
         Affine, BezPath, Cap, Circle, Ellipse, Join, PathEl, Point, Rect, Shape, Stroke, Vec2,
     };
-    use vello::peniko::color::{palette, AlphaColor, Lch};
+    use vello::peniko::color::{AlphaColor, Lch, palette};
     use vello::peniko::*;
     use vello::*;
 

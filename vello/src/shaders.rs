@@ -10,9 +10,9 @@ use crate::ShaderId;
 
 #[cfg(feature = "wgpu")]
 use crate::{
+    Error, RendererOptions,
     recording::{BindType, ImageFormat},
     wgpu_engine::WgpuEngine,
-    Error, RendererOptions,
 };
 
 // Shaders for the full pipeline
@@ -89,9 +89,7 @@ pub(crate) fn full_shaders(
                 },
             )
         }};
-        ($name:ident, $bindings:expr, $cpu:expr) => {{
-            add_shader!($name, stringify!($name), $bindings, $cpu)
-        }};
+        ($name:ident, $bindings:expr, $cpu:expr) => {{ add_shader!($name, stringify!($name), $bindings, $cpu) }};
         ($name:ident, $bindings:expr) => {
             add_shader!(
                 $name,

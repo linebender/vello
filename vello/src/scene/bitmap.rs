@@ -6,15 +6,15 @@
 
 //! Bitmap strikes and glyphs.
 use skrifa::{
+    FontRef, MetadataProvider,
     instance::{LocationRef, Size},
     metrics::GlyphMetrics,
     raw::{
+        FontData, TableProvider,
         tables::{bitmap, cbdt, cblc, ebdt, eblc, sbix},
         types::{GlyphId, Tag},
-        FontData, TableProvider,
     },
     string::StringId,
-    FontRef, MetadataProvider,
 };
 
 /// Set of strikes, each containing embedded bitmaps of a single size.
@@ -131,7 +131,7 @@ impl<'a> BitmapStrikes<'a> {
     }
 
     /// Returns an iterator over all available strikes.
-    pub fn iter(&self) -> impl Iterator<Item = BitmapStrike<'a>> + 'a + Clone {
+    pub fn iter(&self) -> impl Iterator<Item = BitmapStrike<'a>> + Clone + use<'a> {
         let this = self.clone();
         (0..this.len()).filter_map(move |ix| this.get(ix))
     }

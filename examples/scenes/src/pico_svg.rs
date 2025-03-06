@@ -8,7 +8,7 @@ use std::str::FromStr;
 use roxmltree::{Document, Node};
 use vello::{
     kurbo::{Affine, BezPath, Point, Size, Vec2},
-    peniko::color::{self, palette, AlphaColor, DynamicColor, Srgb},
+    peniko::color::{self, AlphaColor, DynamicColor, Srgb, palette},
 };
 
 pub struct PicoSvg {
@@ -286,7 +286,7 @@ fn modify_opacity(
 #[cfg(test)]
 mod tests {
     use super::parse_color;
-    use vello::peniko::color::{palette, AlphaColor, Srgb};
+    use vello::peniko::color::{AlphaColor, Srgb, palette};
 
     fn assert_close_color(c1: AlphaColor<Srgb>, c2: AlphaColor<Srgb>) {
         const EPSILON: f32 = 1e-4;

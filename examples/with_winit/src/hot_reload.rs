@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use notify_debouncer_full::notify::RecursiveMode;
-use notify_debouncer_full::{new_debouncer, DebounceEventResult};
+use notify_debouncer_full::{DebounceEventResult, new_debouncer};
 
 pub fn hot_reload(mut f: impl FnMut() -> Option<()> + Send + 'static) -> Result<impl Sized> {
     let mut debouncer = new_debouncer(

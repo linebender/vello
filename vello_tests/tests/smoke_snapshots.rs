@@ -5,11 +5,11 @@
 
 use scenes::SimpleText;
 use vello::{
-    kurbo::{Affine, Circle, Rect},
-    peniko::{color::palette, Brush, Fill},
     Scene,
+    kurbo::{Affine, Circle, Rect},
+    peniko::{Brush, Fill, color::palette},
 };
-use vello_tests::{smoke_snapshot_test_sync, TestParams};
+use vello_tests::{TestParams, smoke_snapshot_test_sync};
 
 fn filled_square(use_cpu: bool) {
     let mut scene = Scene::new();

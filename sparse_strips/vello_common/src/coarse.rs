@@ -4,7 +4,7 @@
 //! Generating and processing wide tiles.
 
 use crate::color::{AlphaColor, Srgb};
-use crate::strip::{Strip, STRIP_HEIGHT};
+use crate::strip::{STRIP_HEIGHT, Strip};
 use vello_api::paint::Paint;
 use vello_api::peniko::Fill;
 

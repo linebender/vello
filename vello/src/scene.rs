@@ -6,19 +6,19 @@ mod bitmap;
 use std::sync::Arc;
 
 use peniko::{
-    color::{palette, AlphaColor, DynamicColor, Srgb},
-    kurbo::{Affine, BezPath, Point, Rect, Shape, Stroke, StrokeOpts, Vec2},
     BlendMode, Blob, Brush, BrushRef, Color, ColorStop, ColorStops, ColorStopsSource, Compose,
     Extend, Fill, Font, Gradient, Image, Mix, StyleRef,
+    color::{AlphaColor, DynamicColor, Srgb, palette},
+    kurbo::{Affine, BezPath, Point, Rect, Shape, Stroke, StrokeOpts, Vec2},
 };
 use png::{BitDepth, ColorType, Transformations};
 use skrifa::{
+    GlyphId, MetadataProvider, OutlineGlyphCollection,
     color::{ColorGlyph, ColorPainter},
     instance::LocationRef,
     outline::{DrawSettings, OutlinePen},
     prelude::Size,
-    raw::{tables::cpal::Cpal, TableProvider},
-    GlyphId, MetadataProvider, OutlineGlyphCollection,
+    raw::{TableProvider, tables::cpal::Cpal},
 };
 #[cfg(feature = "bump_estimate")]
 use vello_encoding::BumpAllocatorMemory;
