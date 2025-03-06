@@ -56,10 +56,10 @@ pub fn render(
     let mut prev_tile = *tiles.get(0);
     // The accumulated (fractional) winding of the tile-sized location we're currently at:
     // multiple tiles can be at the same location.
-    let mut location_winding = [[0f32; Tile::HEIGHT as usize]; Tile::WIDTH as usize];
+    let mut location_winding = [[0_f32; Tile::HEIGHT as usize]; Tile::WIDTH as usize];
     // The accumulated (fractional) windings at this location's right edge. When we move to the
     // next location, this is splatted to that location's starting winding.
-    let mut accumulated_winding = [0f32; Tile::HEIGHT as usize];
+    let mut accumulated_winding = [0_f32; Tile::HEIGHT as usize];
 
     /// A special tile to keep the logic below simple.
     const GATE_CLOSER: Tile = Tile {
@@ -109,6 +109,7 @@ pub fn render(
                 }
             };
 
+            #[expect(clippy::needless_range_loop, reason = "dimension clarity")]
             for x in 0..Tile::WIDTH as usize {
                 location_winding[x] = accumulated_winding;
             }

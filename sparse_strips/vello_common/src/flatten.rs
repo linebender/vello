@@ -20,7 +20,8 @@ pub struct Point {
 }
 
 impl Point {
-    pub const ZERO: Point = Point::new(0., 0.);
+    /// The point `(0, 0)`.
+    pub const ZERO: Self = Self::new(0., 0.);
 
     /// Create a new point.
     pub const fn new(x: f32, y: f32) -> Self {
