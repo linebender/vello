@@ -19,8 +19,10 @@ use vello_common::color::palette::css::BLACK;
 use vello_common::flatten::Line;
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Stroke};
 use vello_common::peniko::Fill;
-use vello_common::strip::{STRIP_HEIGHT, Strip};
-use vello_common::tile::{TILE_HEIGHT, TILE_WIDTH, Tiles};
+use vello_common::strip::Strip;
+use vello_common::strip::STRIP_HEIGHT;
+use vello_common::tile::Tiles;
+use vello_common::tile::{TILE_HEIGHT, TILE_WIDTH};
 use vello_common::{flatten, strip};
 
 fn main() {
