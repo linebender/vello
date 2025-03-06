@@ -123,7 +123,8 @@ pub fn render(
 
             debug_assert_eq!(
                 (prev_tile.x + 1) * Tile::WIDTH as i32 - strip.x,
-                alpha_buf.len() as i32 - strip.col as i32
+                alpha_buf.len() as i32 - strip.col as i32,
+                "The number of columns written to the alpha buffer should equal the number of columns spanned by this strip."
             );
             strip_buf.push(strip);
 
