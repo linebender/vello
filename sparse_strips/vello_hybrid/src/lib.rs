@@ -12,7 +12,6 @@ mod flatten;
 mod gpu;
 mod pixmap;
 mod render;
-mod simd;
 mod strip;
 mod tiling;
 mod wide_tile;

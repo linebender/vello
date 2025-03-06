@@ -128,7 +128,7 @@ pub(crate) fn render_strips_scalar(
                 fp |= 8;
             }
             let x0 = fp.trailing_zeros();
-            let x1 = 32 - fp.leading_zeros();
+            let x1 = (32 - fp.leading_zeros()).min(4);
             let mut areas = [[start_delta as f32; 4]; 4];
             for this_tile in &tiles[seg_start..i] {
                 delta += this_tile.delta();
