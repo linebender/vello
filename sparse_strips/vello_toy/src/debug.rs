@@ -10,7 +10,7 @@
 
 use clap::Parser;
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path;
 use svg::node::element::path::Data;
 use svg::node::element::{Circle, Path, Rectangle};
 use svg::{Document, Node};
@@ -93,11 +93,9 @@ fn main() {
         draw_wide_tiles(&mut document, wide.tiles(), &alpha_buf);
     }
 
-    svg::save(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/debug.svg"),
-        &document,
-    )
-    .unwrap();
+    let path = path::absolute("debug.svg").unwrap();
+    eprintln!("Saved debug output to '{}'", path.display());
+    svg::save(path, &document).unwrap();
 }
 
 fn draw_grid(document: &mut Document, width: u16, height: u16) {
