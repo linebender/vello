@@ -440,69 +440,7 @@ const fn scale_down(z: Point) -> Point {
 #[cfg(test)]
 mod tests {
     use crate::flatten::{Line, Point};
-    use crate::footprint::Footprint;
-    use crate::tile::{Tile, Tiles, scale_up};
-
-    impl Footprint {
-        pub(crate) fn is_empty(&self) -> bool {
-            self.0 == 0
-        }
-    }
-
-    #[test]
-    fn footprint_at_tile_edge() {
-        let tile = Tile::new(
-            0,
-            0,
-            Point::new(scale_up(1.0), scale_up(0.0)),
-            Point::new(scale_up(1.0), scale_up(1.0)),
-        );
-
-        assert!(tile.footprint().is_empty());
-    }
-
-    #[test]
-    fn footprints_in_tile() {
-        let mut tile = Tile::new(
-            0,
-            0,
-            Point::new(scale_up(0.5), scale_up(0.0)),
-            Point::new(scale_up(0.55), scale_up(1.0)),
-        );
-
-        assert_eq!(tile.footprint().x0(), 2);
-        assert_eq!(tile.footprint().x1(), 3);
-
-        tile = Tile::new(
-            0,
-            0,
-            Point::new(scale_up(0.1), scale_up(0.0)),
-            Point::new(scale_up(0.6), scale_up(1.0)),
-        );
-
-        assert_eq!(tile.footprint().x0(), 0);
-        assert_eq!(tile.footprint().x1(), 3);
-
-        tile = Tile::new(
-            0,
-            0,
-            Point::new(scale_up(0.0), scale_up(0.0)),
-            Point::new(scale_up(1.0), scale_up(1.0)),
-        );
-
-        assert_eq!(tile.footprint().x0(), 0);
-        assert_eq!(tile.footprint().x1(), 4);
-
-        tile = Tile::new(
-            0,
-            0,
-            Point::new(scale_up(0.74), scale_up(0.0)),
-            Point::new(scale_up(1.76), scale_up(1.0)),
-        );
-
-        assert_eq!(tile.footprint().x0(), 2);
-        assert_eq!(tile.footprint().x1(), 4);
-    }
+    use crate::tile::Tiles;
 
     #[test]
     fn issue_46_infinite_loop() {
