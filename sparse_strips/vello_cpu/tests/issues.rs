@@ -12,7 +12,7 @@ mod util;
 
 #[test]
 // https://github.com/LaurenzV/cpu-sparse-experiments/issues/2
-fn issue_2_incorrect_filling_1() {
+fn incorrect_filling_1() {
     let mut p = BezPath::default();
     p.move_to((4.0, 0.0));
     p.line_to((8.0, 4.0));
@@ -25,12 +25,12 @@ fn issue_2_incorrect_filling_1() {
     ctx.set_paint(LIME.into());
     ctx.fill_path(&p);
 
-    check_ref(&ctx, "issue_2_incorrect_filling_1");
+    check_ref(&ctx, "incorrect_filling_1");
 }
 
 #[test]
 // https://github.com/LaurenzV/cpu-sparse-experiments/issues/2
-fn issue_2_incorrect_filling_2() {
+fn incorrect_filling_2() {
     let mut p = BezPath::default();
     p.move_to((16.0, 16.0));
     p.line_to((48.0, 16.0));
@@ -43,12 +43,12 @@ fn issue_2_incorrect_filling_2() {
     ctx.set_paint(LIME.into());
     ctx.fill_path(&p);
 
-    check_ref(&ctx, "issue_2_incorrect_filling_2");
+    check_ref(&ctx, "incorrect_filling_2");
 }
 
 #[test]
 // https://github.com/LaurenzV/cpu-sparse-experiments/issues/2
-fn issue_2_incorrect_filling_3() {
+fn incorrect_filling_3() {
     let mut path = BezPath::new();
     path.move_to((4.00001, 1e-45));
     path.line_to((8.00001, 4.00001));
@@ -61,12 +61,12 @@ fn issue_2_incorrect_filling_3() {
     ctx.set_paint(LIME.into());
     ctx.fill_path(&path);
 
-    check_ref(&ctx, "issue_2_incorrect_filling_3");
+    check_ref(&ctx, "incorrect_filling_3");
 }
 
 #[test]
 // https://github.com/LaurenzV/cpu-sparse-experiments/issues/2
-fn issue_2_incorrect_filling_4() {
+fn incorrect_filling_4() {
     let mut path = BezPath::new();
     path.move_to((16.000002, 8.));
     path.line_to((20.000002, 8.));
@@ -85,12 +85,12 @@ fn issue_2_incorrect_filling_4() {
     ctx.set_paint(LIME.into());
     ctx.fill_path(&path);
 
-    check_ref(&ctx, "issue_2_incorrect_filling_4");
+    check_ref(&ctx, "incorrect_filling_4");
 }
 
 #[test]
 // https://github.com/LaurenzV/cpu-sparse-experiments/issues/2
-fn issue_2_incorrect_filling_5() {
+fn incorrect_filling_5() {
     let mut path = BezPath::new();
     path.move_to((16., 8.));
     path.line_to((16., 9.));
@@ -103,12 +103,12 @@ fn issue_2_incorrect_filling_5() {
     ctx.set_paint(LIME.into());
     ctx.fill_path(&path);
 
-    check_ref(&ctx, "issue_2_incorrect_filling_5");
+    check_ref(&ctx, "incorrect_filling_5");
 }
 
 #[test]
 // https://github.com/LaurenzV/cpu-sparse-experiments/issues/2
-fn issue_2_incorrect_filling_6() {
+fn incorrect_filling_6() {
     let mut path = BezPath::new();
     path.move_to((16., 8.));
     path.line_to((31.999998, 8.));
@@ -121,12 +121,12 @@ fn issue_2_incorrect_filling_6() {
     ctx.set_paint(LIME.into());
     ctx.fill_path(&path);
 
-    check_ref(&ctx, "issue_2_incorrect_filling_6");
+    check_ref(&ctx, "incorrect_filling_6");
 }
 
 #[test]
 // https://github.com/LaurenzV/cpu-sparse-experiments/issues/2
-fn issue_2_incorrect_filling_7() {
+fn incorrect_filling_7() {
     let mut path = BezPath::new();
     path.move_to((32.000002, 9.));
     path.line_to((28., 9.));
@@ -139,12 +139,12 @@ fn issue_2_incorrect_filling_7() {
     ctx.set_paint(LIME.into());
     ctx.fill_path(&path);
 
-    check_ref(&ctx, "issue_2_incorrect_filling_7");
+    check_ref(&ctx, "incorrect_filling_7");
 }
 
 #[test]
 // https://github.com/LaurenzV/cpu-sparse-experiments/issues/2
-fn issue_2_incorrect_filling_8() {
+fn incorrect_filling_8() {
     let mut path = BezPath::new();
     path.move_to((16.000427, 8.));
     path.line_to((20.000427, 8.));
@@ -163,12 +163,12 @@ fn issue_2_incorrect_filling_8() {
     ctx.set_paint(LIME.into());
     ctx.fill_path(&path);
 
-    check_ref(&ctx, "issue_2_incorrect_filling_8");
+    check_ref(&ctx, "incorrect_filling_8");
 }
 
 #[test]
 // https://github.com/LaurenzV/cpu-sparse-experiments/issues/11
-fn issue_11_out_of_bound_strip() {
+fn out_of_bound_strip() {
     let mut path = BezPath::new();
     path.move_to((258.0, 254.0));
     path.line_to((265.0, 254.0));
@@ -184,7 +184,7 @@ fn issue_11_out_of_bound_strip() {
 
 #[test]
 // https://github.com/LaurenzV/cpu-sparse-experiments/issues/12
-fn issue_12_filling_unclosed_path_1() {
+fn filling_unclosed_path_1() {
     let mut path = BezPath::new();
     path.move_to((75.0, 25.0));
     path.line_to((25.0, 25.0));
@@ -194,12 +194,12 @@ fn issue_12_filling_unclosed_path_1() {
     ctx.set_paint(LIME.into());
     ctx.fill_path(&path);
 
-    check_ref(&ctx, "issue_12_filling_unclosed_path_1");
+    check_ref(&ctx, "filling_unclosed_path_1");
 }
 
 #[test]
 // https://github.com/LaurenzV/cpu-sparse-experiments/issues/12
-fn issue_12_filling_unclosed_path_2() {
+fn filling_unclosed_path_2() {
     let mut path = BezPath::new();
     path.move_to((50.0, 0.0));
     path.line_to((0.0, 0.0));
@@ -216,12 +216,12 @@ fn issue_12_filling_unclosed_path_2() {
     ctx.set_paint(LIME.into());
     ctx.fill_path(&path);
 
-    check_ref(&ctx, "issue_12_filling_unclosed_path_2");
+    check_ref(&ctx, "filling_unclosed_path_2");
 }
 
 #[test]
 // https://github.com/LaurenzV/cpu-sparse-experiments/issues/28
-fn issue_28_triangle_exceeding_viewport_1() {
+fn triangle_exceeding_viewport_1() {
     let mut path = BezPath::new();
     path.move_to((5.0, 0.0));
     path.line_to((12.0, 7.99));
@@ -234,12 +234,12 @@ fn issue_28_triangle_exceeding_viewport_1() {
     ctx.set_paint(LIME.into());
     ctx.fill_path(&path);
 
-    check_ref(&ctx, "issue_28_triangle_exceeding_viewport_1");
+    check_ref(&ctx, "triangle_exceeding_viewport_1");
 }
 
 #[test]
 // https://github.com/LaurenzV/cpu-sparse-experiments/issues/28
-fn issue_28_triangle_exceeding_viewport_2() {
+fn triangle_exceeding_viewport_2() {
     let mut path = BezPath::new();
     path.move_to((4.0, 0.0));
     path.line_to((11.0, 7.99));
@@ -252,12 +252,12 @@ fn issue_28_triangle_exceeding_viewport_2() {
     ctx.set_paint(LIME.into());
     ctx.fill_path(&path);
 
-    check_ref(&ctx, "issue_28_triangle_exceeding_viewport_2");
+    check_ref(&ctx, "triangle_exceeding_viewport_2");
 }
 
 #[test]
 // https://github.com/LaurenzV/cpu-sparse-experiments/issues/30
-fn issue_30_shape_at_wide_tile_boundary() {
+fn shape_at_wide_tile_boundary() {
     let mut path = BezPath::new();
     path.move_to((248.0, 0.0));
     path.line_to((257.0, 0.0));
@@ -276,7 +276,7 @@ fn issue_30_shape_at_wide_tile_boundary() {
 }
 
 #[test]
-fn issue_eo_filling_missing_anti_aliasing() {
+fn eo_filling_missing_anti_aliasing() {
     let mut path = BezPath::new();
     path.move_to((0.0, 0.0));
     path.line_to((50.0, 50.0));
@@ -290,7 +290,7 @@ fn issue_eo_filling_missing_anti_aliasing() {
     ctx.set_paint(LIME.into());
     ctx.fill_path(&path);
 
-    check_ref(&ctx, "issue_eo_filling_missing_anti_aliasing");
+    check_ref(&ctx, "eo_filling_missing_anti_aliasing");
 }
 
 // All issue numbers starting from here refer to the issue numbers in the vello repository.
