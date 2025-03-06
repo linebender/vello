@@ -131,7 +131,7 @@ impl<'a> BitmapStrikes<'a> {
     }
 
     /// Returns an iterator over all available strikes.
-    pub fn iter(&self) -> impl Iterator<Item = BitmapStrike<'a>> + 'a + Clone {
+    pub fn iter(&self) -> impl Iterator<Item = BitmapStrike<'a>> + Clone + use<'a> {
         let this = self.clone();
         (0..this.len()).filter_map(move |ix| this.get(ix))
     }
