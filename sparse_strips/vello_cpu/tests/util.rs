@@ -4,8 +4,8 @@
 #![allow(missing_docs, reason = "we don't need docs for testing")]
 #![allow(
     unused,
-    reason = "for some reason cargo reports the functions/variables here are unused
-when running `cargo test`, even though they are used."
+    reason = "cargo reports the functions/variables here are unused
+when running `cargo test` because they are not be used in every test module."
 )]
 #![allow(clippy::cast_possible_truncation, reason = "not critical for testing")]
 
