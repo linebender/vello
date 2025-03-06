@@ -168,6 +168,7 @@ jobs:
 
     - id: calc-hash
       name: Calculate LFS hash
+      # GitHub's expression context doesn't support either a literal newline or an escaped newline. We have to use the JSON parser to get a newline character.
       run: echo "result=${{ hashFiles(join(fromJson(env.LFS_FILES), fromJson('"\n"'))) }}" | tee -a "$GITHUB_OUTPUT"
       
     - name: Cache git lfs
@@ -215,6 +216,9 @@ jobs:
           enableCrossOsArchive: true
   
       - name: Checkout LFS files
+        # `git lfs checkout` requires that each individual glob is a separate command line argument.
+        # The string `''' '''` is how you write `' '` in GitHub's expression context (i.e. two quotes separated by a space)
+        # The quotes are to avoid the shell from evaluating the globs itself.
         run: git lfs checkout '${{ join(fromJson(env.LFS_FILES), ''' ''') }}'
         continue-on-error: true
 
