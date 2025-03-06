@@ -168,7 +168,7 @@ jobs:
 
     - id: calc-hash
       name: Calculate LFS hash
-      run: echo "result=${{ hashFiles(join(fromJson(env.LFS_FILES), '\n')) }}" | tee -a "$GITHUB_OUTPUT"
+      run: echo "result=${{ hashFiles(join(fromJson(env.LFS_FILES), fromJson('"\n"'))) }}" | tee -a "$GITHUB_OUTPUT"
       
     - name: Cache git lfs
       id: lfs-cache
