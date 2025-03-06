@@ -16,7 +16,7 @@ env:
   # `vello_tests` uses `nv-flip`, which doesn't support Wasm.
   NO_WASM_PKGS: "--exclude vello_tests --exclude simple_sdl2"
   # The files stored in LFS the tests need to access
-  LFS_FILES: "vello_tests/snapshots/*.png\nsparse_strips/vello_cpu/refs/*.png"
+  LFS_FILES: '["vello_tests/snapshots/*.png", "sparse_strips/vello_cpu/refs/*.png"]'
 
 
 # Rationale
@@ -168,7 +168,7 @@ jobs:
 
     - id: calc-hash
       name: Calculate LFS hash
-      run: echo "result=${{ hashFiles(env.LFS_FILES) }}" | tee -a "$GITHUB_OUTPUT"
+      run: echo "result=${{ hashFiles(join(fromJson(env.LFS_FILES), '\n')) }}" | tee -a "$GITHUB_OUTPUT"
       
     - name: Cache git lfs
       id: lfs-cache
@@ -182,7 +182,7 @@ jobs:
 
     - name: Fetch lfs data
       if: ${{ steps.lfs-cache.outputs.cache-hit != 'true' }}
-      run: git lfs fetch --include '${{ env.LFS_FILES }}'
+      run: git lfs fetch --include '${{ join(fromJson(env.LFS_FILES), ',') }}'
   
   test-stable:
     name: cargo test
@@ -215,7 +215,7 @@ jobs:
           enableCrossOsArchive: true
   
       - name: Checkout LFS files
-        run: git lfs checkout '${{ env.LFS_FILES }}'
+        run: git lfs checkout '${{ join(fromJson(env.LFS_FILES), ',') }}'
         continue-on-error: true
 
       - name: install stable toolchain
