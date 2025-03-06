@@ -61,7 +61,7 @@ pub fn render(
     let mut accumulated_winding = [0_f32; Tile::HEIGHT as usize];
 
     /// A special tile to keep the logic below simple.
-    const GATE_CLOSER: Tile = Tile {
+    const SENTINEL: Tile = Tile {
         x: i32::MAX,
         y: u16::MAX,
         p0: Point::ZERO,
@@ -76,7 +76,7 @@ pub fn render(
         winding: 0,
     };
 
-    for tile in tiles.iter().copied().chain([GATE_CLOSER]) {
+    for tile in tiles.iter().copied().chain([SENTINEL]) {
         // Push out the winding as an alpha mask when we move to the next location (i.e., a tile
         // without the same location).
         if !prev_tile.same_loc(&tile) {
@@ -127,7 +127,7 @@ pub fn render(
             );
             strip_buf.push(strip);
 
-            // Once we've reached the `GATE_CLOSER` tile, emit a final strip.
+            // Once we've reached the `SENTINEL` tile, emit a final strip.
             if tile.y == u16::MAX && tile.x == i32::MAX {
                 strip_buf.push(Strip {
                     x: i32::MAX,
