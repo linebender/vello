@@ -7,7 +7,6 @@ use peniko::Fill;
 
 use crate::flatten::Point;
 use crate::tile::{Tile, Tiles};
-use crate::tile::{Tiles, TILE_HEIGHT, TILE_WIDTH};
 
 // Note that this will probably disappear and be turned into a const generic in the future.
 /// The height of a strip.
