@@ -6,22 +6,21 @@
 
 use std::collections::BTreeMap;
 
-use crate::api::peniko::{
+use peniko::{
     color::{palette, AlphaColor, Srgb},
     kurbo::Affine,
     BrushRef,
 };
-use crate::api::{GenericRecorder, RenderCtx, ResourceCtx};
+use vello_cpu::Pixmap;
 
 use crate::{
     fine::Fine,
     strip::{self, Strip, Tile},
     tiling::{self, FlatLine},
     wide_tile::{Cmd, CmdClipStrip, CmdStrip, WideTile, STRIP_HEIGHT, WIDE_TILE_WIDTH},
-    Pixmap,
 };
 
-pub struct CsRenderCtx {
+pub struct RenderContext {
     pub(crate) width: usize,
     pub(crate) height: usize,
     pub(crate) tiles: Vec<WideTile>,
@@ -50,9 +49,7 @@ struct Clip {
     strips: Vec<Strip>,
 }
 
-pub struct CsResourceCtx;
-
-impl CsRenderCtx {
+impl RenderContext {
     pub fn new(width: usize, height: usize) -> Self {
         let width_tiles = width.div_ceil(WIDE_TILE_WIDTH);
         let height_tiles = height.div_ceil(STRIP_HEIGHT);
@@ -90,7 +87,11 @@ impl CsRenderCtx {
 
     pub fn render_to_pixmap(&mut self, pixmap: &mut Pixmap) {
         self.finish();
-        let mut fine = Fine::new(pixmap.width, pixmap.height, &mut pixmap.buf);
+        let mut fine = Fine::new(
+            pixmap.width as usize,
+            pixmap.height as usize,
+            &mut pixmap.buf,
+        );
         let width_tiles = (self.width).div_ceil(WIDE_TILE_WIDTH);
         let height_tiles = (self.height).div_ceil(STRIP_HEIGHT);
         for y in 0..height_tiles {
@@ -328,26 +329,17 @@ impl CsRenderCtx {
     }
 }
 
-impl RenderCtx for CsRenderCtx {
-    type Resource = CsResourceCtx;
-
-    fn playback(
-        &mut self,
-        recording: &std::sync::Arc<<Self::Resource as crate::api::ResourceCtx>::Recording>,
-    ) {
-        recording.play(self);
-    }
-
-    fn fill(&mut self, path: &crate::api::Path, brush: BrushRef<'_>) {
+impl RenderContext {
+    pub fn fill(&mut self, path: &crate::common::Path, brush: BrushRef<'_>) {
         let affine = self.get_affine();
         crate::flatten::fill(&path.path, affine, &mut self.line_buf);
         self.render_path(brush);
     }
 
-    fn stroke(
+    pub fn stroke(
         &mut self,
-        path: &crate::api::Path,
-        stroke: &crate::api::peniko::kurbo::Stroke,
+        path: &crate::common::Path,
+        stroke: &peniko::kurbo::Stroke,
         brush: BrushRef<'_>,
     ) {
         let affine = self.get_affine();
@@ -355,16 +347,11 @@ impl RenderCtx for CsRenderCtx {
         self.render_path(brush);
     }
 
-    fn draw_image(
-        &mut self,
-        image: &<Self::Resource as crate::api::ResourceCtx>::Image,
-        dst_rect: crate::api::peniko::kurbo::Rect,
-        interp: crate::api::InterpolationMode,
-    ) {
+    pub fn draw_image(&mut self) {
         todo!()
     }
 
-    fn clip(&mut self, path: &crate::api::Path) {
+    pub fn clip(&mut self, path: &crate::common::Path) {
         let affine = self.get_affine();
         crate::flatten::fill(&path.path, affine, &mut self.line_buf);
         self.render_path_common();
@@ -456,67 +443,40 @@ impl RenderCtx for CsRenderCtx {
         self.state_stack.last_mut().unwrap().n_clip += 1;
     }
 
-    fn save(&mut self) {
+    pub fn save(&mut self) {
         self.state_stack.push(GfxState { n_clip: 0 });
     }
 
-    fn restore(&mut self) {
+    pub fn restore(&mut self) {
         self.pop_clips();
         self.state_stack.pop();
     }
 
-    fn transform(&mut self, affine: crate::api::peniko::kurbo::Affine) {
+    pub fn transform(&mut self, affine: peniko::kurbo::Affine) {
         todo!()
     }
 
-    fn begin_draw_glyphs(&mut self, font: &crate::api::peniko::Font) {
+    pub fn begin_draw_glyphs(&mut self, font: &peniko::Font) {
         todo!()
     }
 
-    fn font_size(&mut self, size: f32) {
+    pub fn font_size(&mut self, size: f32) {
         todo!()
     }
 
-    fn hint(&mut self, hint: bool) {
+    pub fn hint(&mut self, hint: bool) {
         todo!()
     }
 
-    fn glyph_brush(&mut self, brush: BrushRef<'_>) {
+    pub fn glyph_brush(&mut self, brush: BrushRef<'_>) {
         todo!()
     }
 
-    fn draw_glyphs(
-        &mut self,
-        style: crate::api::peniko::StyleRef<'_>,
-        glyphs: &dyn Iterator<Item = crate::api::Glyph>,
-    ) {
+    pub fn draw_glyphs(&mut self) {
         todo!()
     }
 
-    fn end_draw_glyphs(&mut self) {
-        todo!()
-    }
-}
-
-impl ResourceCtx for CsResourceCtx {
-    type Image = ();
-
-    type Recording = GenericRecorder<CsRenderCtx>;
-
-    type Record = GenericRecorder<CsRenderCtx>;
-
-    fn record(&mut self) -> Self::Record {
-        GenericRecorder::new()
-    }
-
-    fn make_image_with_stride(
-        &mut self,
-        width: usize,
-        height: usize,
-        stride: usize,
-        buf: &[u8],
-        format: crate::api::ImageFormat,
-    ) -> Result<Self::Image, crate::api::Error> {
+    pub fn end_draw_glyphs(&mut self) {
         todo!()
     }
 }

@@ -2964,6 +2964,7 @@ dependencies = [
  "png",
  "pollster 0.3.0",
  "roxmltree 0.20.0",
+ "vello_cpu",
  "wgpu",
  "winit 0.29.15",
 ]

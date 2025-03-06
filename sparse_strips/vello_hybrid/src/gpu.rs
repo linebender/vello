@@ -3,22 +3,22 @@
 
 //! The GPU parts of a hybrid CPU/GPU rendering engine.
 
-use crate::api::{peniko::BrushRef, RenderCtx};
 use bytemuck::{Pod, Zeroable};
+use peniko::BrushRef;
 use wgpu::{
     BindGroupLayout, BlendState, ColorTargetState, ColorWrites, Device, PipelineCompilationOptions,
     RenderPipeline, TextureFormat,
 };
 
 use crate::{
+    render::RenderContext,
     wide_tile::{Cmd, STRIP_HEIGHT, WIDE_TILE_WIDTH},
-    CsRenderCtx,
 };
 
 /// Resources common to GPU renders.
 pub struct GpuSession {
     pub render_bind_group_layout: BindGroupLayout,
-    pub render_pipeline: RenderPipeline,
+    pub render_pipeline: RenderPipeline, /*  */
 }
 
 #[repr(C)]
@@ -38,7 +38,7 @@ pub struct Strip {
 pub struct GpuRenderCtx {
     // At the moment, we take the entire cpu-sparse render context,
     // but we might split that up.
-    inner: CsRenderCtx,
+    inner: RenderContext,
 }
 
 /// The buffers from a render.
@@ -135,7 +135,7 @@ impl GpuSession {
 impl GpuRenderCtx {
     pub fn new(width: usize, height: usize) -> Self {
         Self {
-            inner: CsRenderCtx::new(width, height),
+            inner: RenderContext::new(width, height),
         }
     }
 
@@ -199,14 +199,14 @@ impl GpuRenderCtx {
 
 // This block will eventually turn into an impl of RenderCtx.
 impl GpuRenderCtx {
-    pub fn fill(&mut self, path: &crate::api::Path, brush: BrushRef<'_>) {
+    pub fn fill(&mut self, path: &crate::common::Path, brush: BrushRef<'_>) {
         self.inner.fill(path, brush);
     }
 
     pub fn stroke(
         &mut self,
-        path: &crate::api::Path,
-        stroke: &crate::api::peniko::kurbo::Stroke,
+        path: &crate::common::Path,
+        stroke: &peniko::kurbo::Stroke,
         brush: BrushRef<'_>,
     ) {
         self.inner.stroke(path, stroke, brush);

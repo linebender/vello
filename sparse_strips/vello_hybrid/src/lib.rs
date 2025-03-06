@@ -6,20 +6,14 @@
 #![allow(clippy::todo, reason = "still a prototype")]
 #![allow(clippy::cast_possible_truncation, reason = "we need to do this a lot")]
 
-pub mod api;
+pub mod common;
 mod fine;
 mod flatten;
 mod gpu;
-mod pixmap;
 mod render;
 mod strip;
 mod tiling;
 mod wide_tile;
 
 pub use gpu::{GpuRenderBufs, GpuRenderCtx, GpuSession};
-pub use pixmap::Pixmap;
-pub use render::{CsRenderCtx, CsResourceCtx};
-pub use tiling::FlatLine;
-
-// TODO: this export should be removed, buffer upload will be internal
-pub use gpu::Strip;
+pub use render::RenderContext;

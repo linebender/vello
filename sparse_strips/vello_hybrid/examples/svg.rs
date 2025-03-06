@@ -10,40 +10,40 @@
 use std::io::BufWriter;
 use std::str::FromStr;
 
+use peniko::color::palette;
+use peniko::kurbo::{Affine, BezPath, Point, Size, Stroke, Vec2};
+use peniko::Color;
 use roxmltree::{Document, Node};
-use vello_hybrid::api::peniko::color::palette;
-use vello_hybrid::api::peniko::kurbo::{Affine, BezPath, Point, Size, Stroke, Vec2};
-use vello_hybrid::api::peniko::Color;
-use vello_hybrid::api::RenderCtx;
-use vello_hybrid::{CsRenderCtx, Pixmap};
+use vello_cpu::Pixmap;
+use vello_hybrid::RenderContext;
 
 const WIDTH: usize = 1024;
 const HEIGHT: usize = 1024;
 
 /// The main function of the example. The German word for main is "Haupt".
 pub fn main() {
-    let mut ctx = CsRenderCtx::new(WIDTH, HEIGHT);
+    let mut ctx = RenderContext::new(WIDTH, HEIGHT);
     let mut args = std::env::args().skip(1);
     let svg_filename = args.next().expect("svg filename is first arg");
     let out_filename = args.next().expect("png out filename is second arg");
 
     let svg = std::fs::read_to_string(svg_filename).expect("error reading file");
     let parsed = PicoSvg::load(&svg, 1.0).expect("error parsing SVG");
-    let mut pixmap = Pixmap::new(WIDTH, HEIGHT);
+    let mut pixmap = Pixmap::new(WIDTH as u16, HEIGHT as u16);
     // Hacky code for crude measurements; change this to arg parsing
-    for i in 0..200 {
-        ctx.reset();
-        let start = std::time::Instant::now();
-        render_svg(&mut ctx, &parsed.items);
-        let coarse_time = start.elapsed();
-        ctx.render_to_pixmap(&mut pixmap);
-        if i % 100 == 0 {
-            println!(
-                "time to coarse: {coarse_time:?}, time to fine: {:?}",
-                start.elapsed()
-            );
-        }
-    }
+    // for i in 0..200 {
+    ctx.reset();
+    let start = std::time::Instant::now();
+    render_svg(&mut ctx, &parsed.items);
+    let coarse_time = start.elapsed();
+    ctx.render_to_pixmap(&mut pixmap);
+    // if i % 100 == 0 {
+    println!(
+        "time to coarse: {coarse_time:?}, time to fine: {:?}",
+        start.elapsed()
+    );
+    // }
+    // }
     pixmap.unpremultiply();
     let file = std::fs::File::create(out_filename).unwrap();
     let w = BufWriter::new(file);
@@ -53,7 +53,7 @@ pub fn main() {
     writer.write_image_data(pixmap.data()).unwrap();
 }
 
-fn render_svg(ctx: &mut impl RenderCtx, items: &[Item]) {
+fn render_svg(ctx: &mut RenderContext, items: &[Item]) {
     for item in items {
         match item {
             Item::Fill(fill_item) => ctx.fill(&fill_item.path, fill_item.color.into()),
@@ -86,12 +86,12 @@ pub enum Item {
 pub struct StrokeItem {
     pub width: f64,
     pub color: Color,
-    pub path: vello_hybrid::api::Path,
+    pub path: vello_hybrid::common::Path,
 }
 
 pub struct FillItem {
     pub color: Color,
-    pub path: vello_hybrid::api::Path,
+    pub path: vello_hybrid::common::Path,
 }
 
 pub struct GroupItem {
@@ -233,7 +233,7 @@ impl Parser {
                 "path" => {
                     let d = node.attribute("d").ok_or("missing 'd' attribute")?;
                     let bp = BezPath::from_svg(d)?;
-                    let path: vello_hybrid::api::Path = bp.into();
+                    let path: vello_hybrid::common::Path = bp.into();
                     if let Some(color) = properties.fill {
                         items.push(Item::Fill(FillItem {
                             color,
@@ -328,7 +328,7 @@ fn parse_transform(transform: &str) -> Affine {
 
 fn parse_color(color: &str) -> Color {
     let color = color.trim();
-    if let Ok(c) = vello_hybrid::api::peniko::color::parse_color(color) {
+    if let Ok(c) = peniko::color::parse_color(color) {
         c.to_alpha_color()
     } else {
         palette::css::MAGENTA.with_alpha(0.5)

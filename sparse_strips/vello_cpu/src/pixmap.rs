@@ -6,9 +6,9 @@
 /// A pixmap backed by u8.
 #[derive(Debug)]
 pub struct Pixmap {
-    pub(crate) width: u16,
-    pub(crate) height: u16,
-    pub(crate) buf: Vec<u8>,
+    pub width: u16,
+    pub height: u16,
+    pub buf: Vec<u8>,
 }
 
 impl Pixmap {

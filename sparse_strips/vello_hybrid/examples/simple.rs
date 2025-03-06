@@ -6,19 +6,19 @@
 
 use std::io::BufWriter;
 
-use vello_hybrid::api::peniko::color::palette;
-use vello_hybrid::api::peniko::kurbo::{BezPath, Point, Stroke, Vec2};
-use vello_hybrid::api::RenderCtx;
-use vello_hybrid::{CsRenderCtx, Pixmap};
+use peniko::color::palette;
+use peniko::kurbo::{BezPath, Point, Stroke, Vec2};
+use vello_cpu::Pixmap;
+use vello_hybrid::RenderContext;
 
 const WIDTH: usize = 1024;
 const HEIGHT: usize = 1024;
 
 pub fn main() {
-    let mut ctx = CsRenderCtx::new(WIDTH, HEIGHT);
+    let mut ctx = RenderContext::new(WIDTH, HEIGHT);
     draw_simple_scene(&mut ctx);
     if let Some(filename) = std::env::args().nth(1) {
-        let mut pixmap = Pixmap::new(WIDTH, HEIGHT);
+        let mut pixmap = Pixmap::new(WIDTH as u16, HEIGHT as u16);
         ctx.render_to_pixmap(&mut pixmap);
         pixmap.unpremultiply();
         let file = std::fs::File::create(filename).unwrap();
@@ -44,7 +44,7 @@ fn star(center: Point, n: usize, inner: f64, outer: f64) -> BezPath {
     path
 }
 
-fn draw_simple_scene(ctx: &mut CsRenderCtx) {
+fn draw_simple_scene(ctx: &mut RenderContext) {
     let mut path = BezPath::new();
     path.move_to((10.0, 10.0));
     path.line_to((180.0, 20.0));
