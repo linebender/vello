@@ -440,7 +440,7 @@ const fn scale_down(z: Point) -> Point {
 mod tests {
     use crate::flatten::{Line, Point};
     use crate::footprint::Footprint;
-    use crate::tile::{scale_up, Tile, Tiles};
+    use crate::tile::{Tile, Tiles, scale_up};
 
     impl Footprint {
         pub(crate) fn is_empty(&self) -> bool {

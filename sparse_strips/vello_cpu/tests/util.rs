@@ -10,7 +10,7 @@ when running `cargo test` because they are not be used in every test module."
 #![allow(clippy::cast_possible_truncation, reason = "not critical for testing")]
 
 use image::codecs::png::PngEncoder;
-use image::{load_from_memory, ExtendedColorType, ImageEncoder, Rgba, RgbaImage};
+use image::{ExtendedColorType, ImageEncoder, Rgba, RgbaImage, load_from_memory};
 use std::cmp::max;
 use std::io::Cursor;
 use std::path::PathBuf;

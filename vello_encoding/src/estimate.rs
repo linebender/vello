@@ -363,7 +363,7 @@ fn count_segments_for_line_length(scaled_width: f64) -> u32 {
 /// over the continuous change in the number of flattened segments, with an error expressed in terms
 /// of curvature and infinitesimal arclength).
 mod wang {
-    use super::{transform, Transform, Vec2};
+    use super::{Transform, Vec2, transform};
 
     // The curve degree term sqrt(n * (n - 1) / 8) specialized for cubics:
     //

@@ -1,7 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::tile::{Tile, TILE_WIDTH};
+use crate::tile::{TILE_WIDTH, Tile};
 
 /// A footprint represents in a compact fashion the range of pixels covered by a tile.
 /// We represent this as a u32 so that we can work with bit-shifting for better performance.

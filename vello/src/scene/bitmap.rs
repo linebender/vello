@@ -6,15 +6,15 @@
 
 //! Bitmap strikes and glyphs.
 use skrifa::{
+    FontRef, MetadataProvider,
     instance::{LocationRef, Size},
     metrics::GlyphMetrics,
     raw::{
+        FontData, TableProvider,
         tables::{bitmap, cbdt, cblc, ebdt, eblc, sbix},
         types::{GlyphId, Tag},
-        FontData, TableProvider,
     },
     string::StringId,
-    FontRef, MetadataProvider,
 };
 
 /// Set of strikes, each containing embedded bitmaps of a single size.

@@ -11,11 +11,11 @@
 
 use std::cmp::Ordering;
 
-use rand::seq::IndexedRandom;
 use rand::Rng;
+use rand::seq::IndexedRandom;
+use vello::Scene;
 use vello::kurbo::{Affine, BezPath, CubicBez, Line, ParamCurve, PathSeg, Point, QuadBez, Stroke};
 use vello::peniko::Color;
-use vello::Scene;
 
 use crate::{SceneParams, TestScene};
 

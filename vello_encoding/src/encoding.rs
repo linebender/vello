@@ -7,7 +7,7 @@ use super::{
     Style, Transform,
 };
 
-use peniko::color::{palette, DynamicColor};
+use peniko::color::{DynamicColor, palette};
 use peniko::kurbo::{Shape, Stroke};
 use peniko::{BlendMode, BrushRef, ColorStop, Extend, Fill, GradientKind, Image};
 

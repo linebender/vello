@@ -14,8 +14,8 @@ use sdl2::keyboard::Keycode;
 use std::num::NonZeroUsize;
 
 use vello::kurbo::{Affine, Circle, Ellipse, Line, RoundedRect, Stroke};
-use vello::peniko::color::palette;
 use vello::peniko::Color;
+use vello::peniko::color::palette;
 use vello::util::{RenderContext, RenderSurface};
 use vello::{AaConfig, Renderer, RendererOptions, Scene};
 

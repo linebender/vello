@@ -34,9 +34,9 @@ use web_time::Duration;
 use clap::Parser;
 use scenes::{ExampleScene, ImageCache, SceneParams, SceneSet, SimpleText};
 use vello::kurbo::{Affine, Vec2};
-use vello::peniko::{color::palette, Color};
+use vello::peniko::{Color, color::palette};
 use vello::util::{RenderContext, RenderSurface};
-use vello::{low_level::BumpAllocators, AaConfig, Renderer, RendererOptions, Scene};
+use vello::{AaConfig, Renderer, RendererOptions, Scene, low_level::BumpAllocators};
 
 use winit::dpi::LogicalSize;
 use winit::event_loop::EventLoop;
@@ -354,7 +354,10 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
                                         _ => unreachable!(),
                                     }
                                     if !self.debug.is_empty() && !self.async_pipeline {
-                                        log::warn!("Debug Layers won't work without using `--async-pipeline`. Requested {:?}", self.debug);
+                                        log::warn!(
+                                            "Debug Layers won't work without using `--async-pipeline`. Requested {:?}",
+                                            self.debug
+                                        );
                                     }
                                 }
                                 _ => {}

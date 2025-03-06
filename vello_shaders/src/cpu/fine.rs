@@ -3,7 +3,7 @@
 
 use vello_encoding::{ConfigUniform, PathSegment, Tile};
 
-use super::{CpuTexture, CMD_COLOR, CMD_END, CMD_FILL, CMD_JUMP, CMD_SOLID, PTCL_INITIAL_ALLOC};
+use super::{CMD_COLOR, CMD_END, CMD_FILL, CMD_JUMP, CMD_SOLID, CpuTexture, PTCL_INITIAL_ALLOC};
 
 // These should also move into a common area
 const TILE_WIDTH: usize = 16;

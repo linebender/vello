@@ -1,10 +1,10 @@
 // Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use guillotiere::{size2, AtlasAllocator};
+use guillotiere::{AtlasAllocator, size2};
 use peniko::Image;
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 
 const DEFAULT_ATLAS_SIZE: i32 = 1024;
 const MAX_ATLAS_SIZE: i32 = 8192;

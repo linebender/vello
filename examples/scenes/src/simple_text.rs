@@ -4,11 +4,11 @@
 use std::sync::Arc;
 
 use skrifa::{
-    raw::{FileRef, FontRef},
     MetadataProvider,
+    raw::{FileRef, FontRef},
 };
 use vello::kurbo::Affine;
-use vello::peniko::{color::palette, Blob, Brush, BrushRef, Fill, Font, StyleRef};
+use vello::peniko::{Blob, Brush, BrushRef, Fill, Font, StyleRef, color::palette};
 use vello::{Glyph, Scene};
 
 // This is very much a hack to get things working.

@@ -11,9 +11,9 @@
     clippy::allow_attributes_without_reason
 )]
 
-use vello::kurbo::{Affine, Rect};
-use vello::peniko::{color::palette, Brush, Color, ImageFormat};
 use vello::Scene;
+use vello::kurbo::{Affine, Rect};
+use vello::peniko::{Brush, Color, ImageFormat, color::palette};
 use vello_tests::TestParams;
 
 fn simple_square(use_cpu: bool) {

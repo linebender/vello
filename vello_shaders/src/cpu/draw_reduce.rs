@@ -3,7 +3,7 @@
 
 use vello_encoding::{ConfigUniform, DrawMonoid, DrawTag, Monoid};
 
-use super::{util::read_draw_tag_from_scene, CpuBinding};
+use super::{CpuBinding, util::read_draw_tag_from_scene};
 
 const WG_SIZE: usize = 256;
 
