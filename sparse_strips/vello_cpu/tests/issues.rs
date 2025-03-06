@@ -10,10 +10,8 @@ use vello_common::peniko::Fill;
 
 mod util;
 
-// All issue numbers starting from here refer to the issue numbers in the old repo
-// at https://github.com/LaurenzV/cpu-sparse-experiments/issues.
-
 #[test]
+// https://github.com/LaurenzV/cpu-sparse-experiments/issues/2
 fn issue_2_incorrect_filling_1() {
     let mut p = BezPath::default();
     p.move_to((4.0, 0.0));
@@ -31,6 +29,7 @@ fn issue_2_incorrect_filling_1() {
 }
 
 #[test]
+// https://github.com/LaurenzV/cpu-sparse-experiments/issues/2
 fn issue_2_incorrect_filling_2() {
     let mut p = BezPath::default();
     p.move_to((16.0, 16.0));
@@ -48,6 +47,7 @@ fn issue_2_incorrect_filling_2() {
 }
 
 #[test]
+// https://github.com/LaurenzV/cpu-sparse-experiments/issues/2
 fn issue_2_incorrect_filling_3() {
     let mut path = BezPath::new();
     path.move_to((4.00001, 1e-45));
@@ -65,6 +65,7 @@ fn issue_2_incorrect_filling_3() {
 }
 
 #[test]
+// https://github.com/LaurenzV/cpu-sparse-experiments/issues/2
 fn issue_2_incorrect_filling_4() {
     let mut path = BezPath::new();
     path.move_to((16.000002, 8.));
@@ -88,6 +89,7 @@ fn issue_2_incorrect_filling_4() {
 }
 
 #[test]
+// https://github.com/LaurenzV/cpu-sparse-experiments/issues/2
 fn issue_2_incorrect_filling_5() {
     let mut path = BezPath::new();
     path.move_to((16., 8.));
@@ -105,6 +107,7 @@ fn issue_2_incorrect_filling_5() {
 }
 
 #[test]
+// https://github.com/LaurenzV/cpu-sparse-experiments/issues/2
 fn issue_2_incorrect_filling_6() {
     let mut path = BezPath::new();
     path.move_to((16., 8.));
@@ -122,6 +125,7 @@ fn issue_2_incorrect_filling_6() {
 }
 
 #[test]
+// https://github.com/LaurenzV/cpu-sparse-experiments/issues/2
 fn issue_2_incorrect_filling_7() {
     let mut path = BezPath::new();
     path.move_to((32.000002, 9.));
@@ -139,6 +143,7 @@ fn issue_2_incorrect_filling_7() {
 }
 
 #[test]
+// https://github.com/LaurenzV/cpu-sparse-experiments/issues/2
 fn issue_2_incorrect_filling_8() {
     let mut path = BezPath::new();
     path.move_to((16.000427, 8.));
@@ -162,6 +167,7 @@ fn issue_2_incorrect_filling_8() {
 }
 
 #[test]
+// https://github.com/LaurenzV/cpu-sparse-experiments/issues/11
 fn issue_11_out_of_bound_strip() {
     let mut path = BezPath::new();
     path.move_to((258.0, 254.0));
@@ -177,6 +183,7 @@ fn issue_11_out_of_bound_strip() {
 }
 
 #[test]
+// https://github.com/LaurenzV/cpu-sparse-experiments/issues/12
 fn issue_12_filling_unclosed_path_1() {
     let mut path = BezPath::new();
     path.move_to((75.0, 25.0));
@@ -191,6 +198,7 @@ fn issue_12_filling_unclosed_path_1() {
 }
 
 #[test]
+// https://github.com/LaurenzV/cpu-sparse-experiments/issues/12
 fn issue_12_filling_unclosed_path_2() {
     let mut path = BezPath::new();
     path.move_to((50.0, 0.0));
@@ -212,6 +220,7 @@ fn issue_12_filling_unclosed_path_2() {
 }
 
 #[test]
+// https://github.com/LaurenzV/cpu-sparse-experiments/issues/28
 fn issue_28_triangle_exceeding_viewport_1() {
     let mut path = BezPath::new();
     path.move_to((5.0, 0.0));
@@ -229,6 +238,7 @@ fn issue_28_triangle_exceeding_viewport_1() {
 }
 
 #[test]
+// https://github.com/LaurenzV/cpu-sparse-experiments/issues/28
 fn issue_28_triangle_exceeding_viewport_2() {
     let mut path = BezPath::new();
     path.move_to((4.0, 0.0));
@@ -246,6 +256,7 @@ fn issue_28_triangle_exceeding_viewport_2() {
 }
 
 #[test]
+// https://github.com/LaurenzV/cpu-sparse-experiments/issues/30
 fn issue_30_shape_at_wide_tile_boundary() {
     let mut path = BezPath::new();
     path.move_to((248.0, 0.0));
