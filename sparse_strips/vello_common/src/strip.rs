@@ -53,8 +53,8 @@ pub fn render(
 
     // The previous tile visited.
     let mut prev_tile = *tiles.get(0);
-    // The accumulated (fractional) winding of the tile-sized location we're currently at:
-    // multiple tiles can be at the same location.
+    // The accumulated (fractional) winding of the tile-sized location we're currently at.
+    // Note multiple tiles can be at the same location.
     let mut location_winding = [[0_f32; Tile::HEIGHT as usize]; Tile::WIDTH as usize];
     // The accumulated (fractional) windings at this location's right edge. When we move to the
     // next location, this is splatted to that location's starting winding.
