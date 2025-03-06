@@ -932,7 +932,7 @@ fn parse_arguments() -> Args {
 use winit::platform::android::activity::AndroidApp;
 
 #[cfg(target_os = "android")]
-#[no_mangle]
+#[unsafe(no_mangle)]
 fn android_main(app: AndroidApp) {
     use winit::platform::android::EventLoopBuilderExtAndroid;
     let config = android_logger::Config::default();
