@@ -154,8 +154,8 @@ fn get_diff(expected_image: &RgbaImage, actual_image: &RgbaImage) -> Option<Rgba
 
 fn is_pix_diff(pixel1: &Rgba<u8>, pixel2: &Rgba<u8>) -> bool {
     if pixel1.0[3] == 0 && pixel2.0[3] == 0 {
-        false
-    } else {
-        pixel1 != pixel2
+        return false
     }
+
+    pixel1 != pixel2
 }
