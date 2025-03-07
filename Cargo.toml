@@ -17,6 +17,7 @@ members = [
     "sparse_strips/vello_common",
     "sparse_strips/vello_cpu",
     "sparse_strips/vello_hybrid",
+    "sparse_strips/vello_toy",
 ]
 
 [workspace.package]
@@ -118,3 +119,4 @@ pollster = "0.4.0"
 web-time = "1.1.0"
 wgpu-profiler = "0.21.0"
 scenes = { path = "examples/scenes" }
+svg = "0.18.0"
