@@ -375,13 +375,13 @@ impl std::str::FromStr for Stage {
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
         match input.to_lowercase().as_str() {
-            "ls" => Ok(Self::LineSegments),
-            "ta" => Ok(Self::TileAreas),
-            "ti" => Ok(Self::TileIntersections),
-            "sa" => Ok(Self::StripAreas),
-            "s" => Ok(Self::Strips),
-            "wt" => Ok(Self::WideTiles),
-            _ => Err(format!("invalid stage: {}", input)),
+            "ls" | "line_segments" => Ok(Self::LineSegments),
+            "ta" | "tile_areas" => Ok(Self::TileAreas),
+            "ti" | "tile_intersections" => Ok(Self::TileIntersections),
+            "sa" | "strip_areas" => Ok(Self::StripAreas),
+            "s" | "strips" => Ok(Self::Strips),
+            "wt" | "wide_tiles" => Ok(Self::WideTiles),
+            _ => Err(format!("invalid stage: {}. Expected one of `line_segments`, `tile_areas`, `tile_intersections`, `strip_areas`, `strips`, or `wide_tiles`, or their acronym", input)),
         }
     }
 }
@@ -437,6 +437,6 @@ fn parse_fill_rule(val: &str) -> Result<Fill, String> {
     match val {
         "nonzero" => Ok(Fill::NonZero),
         "evenodd" => Ok(Fill::EvenOdd),
-        _ => Err(format!("unsupported fill rule: {}", val)),
+        _ => Err(format!("unsupported fill rule: {}. Expected one of `nonzero` or `evenodd`", val)),
     }
 }
