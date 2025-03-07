@@ -381,7 +381,10 @@ impl std::str::FromStr for Stage {
             "sa" | "strip_areas" => Ok(Self::StripAreas),
             "s" | "strips" => Ok(Self::Strips),
             "wt" | "wide_tiles" => Ok(Self::WideTiles),
-            _ => Err(format!("invalid stage: {}. Expected one of `line_segments`, `tile_areas`, `tile_intersections`, `strip_areas`, `strips`, or `wide_tiles`, or their acronym", input)),
+            _ => Err(format!(
+                "invalid stage: {}. Expected one of `line_segments`, `tile_areas`, `tile_intersections`, `strip_areas`, `strips`, or `wide_tiles`, or their acronym",
+                input
+            )),
         }
     }
 }
@@ -437,6 +440,9 @@ fn parse_fill_rule(val: &str) -> Result<Fill, String> {
     match val {
         "nonzero" => Ok(Fill::NonZero),
         "evenodd" => Ok(Fill::EvenOdd),
-        _ => Err(format!("unsupported fill rule: {}. Expected one of `nonzero` or `evenodd`", val)),
+        _ => Err(format!(
+            "unsupported fill rule: {}. Expected one of `nonzero` or `evenodd`",
+            val
+        )),
     }
 }
