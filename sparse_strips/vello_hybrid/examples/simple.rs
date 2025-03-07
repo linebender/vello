@@ -54,7 +54,5 @@ fn draw_simple_scene(ctx: &mut RenderContext) {
     let piet_path = path.into();
     let stroke = Stroke::new(5.0);
     ctx.stroke(&piet_path, &stroke, palette::css::DARK_BLUE.into());
-    let star_path = star(Point::new(100., 100.), 13, 50., 95.);
-    ctx.clip(&star_path.into());
     ctx.fill(&piet_path, palette::css::REBECCA_PURPLE.into());
 }

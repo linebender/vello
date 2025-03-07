@@ -102,9 +102,6 @@ impl Tile {
     }
 }
 
-// This can be unused when SIMD is selected. Probably a good idea to make it
-// selectable at runtime; will be needed for AVX2.
-#[allow(unused, reason = "may be unused when SIMD is selected")]
 pub(crate) fn render_strips_scalar(
     tiles: &[Tile],
     strip_buf: &mut Vec<Strip>,

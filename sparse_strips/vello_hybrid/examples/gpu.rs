@@ -61,7 +61,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
     surface.configure(&device, &sc);
 
     let session = GpuSession::new(&device, format);
-
+    // TODO: actually render something
     let mut render_ctx = GpuRenderCtx::new(size.width as usize, size.height as usize);
     draw_simple_scene(&mut render_ctx);
     let bufs = render_ctx.harvest();
