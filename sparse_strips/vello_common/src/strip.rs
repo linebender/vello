@@ -58,24 +58,20 @@ pub fn render(
     let mut accumulated_winding = [0_f32; Tile::HEIGHT as usize];
 
     /// A special tile to keep the logic below simple.
-    const SENTINEL: Tile = Tile {
-        x: u16::MAX,
-        y: u16::MAX,
-        packed_winding_line_idx: 0,
-    };
+    const SENTINEL: Tile = Tile::new(u16::MAX, u16::MAX, 0, false);
 
     // The strip we're building.
     let mut strip = Strip {
-        x: prev_tile.x * Tile::WIDTH,
-        y: prev_tile.y * Tile::HEIGHT,
+        x: prev_tile.x() * Tile::WIDTH,
+        y: prev_tile.y() * Tile::HEIGHT,
         col: alpha_buf.len() as u32,
         winding: 0,
     };
 
     for tile in tiles.iter().copied().chain([SENTINEL]) {
         let line = lines[tile.line_idx() as usize];
-        let tile_left_x = tile.x as f32 * Tile::WIDTH as f32;
-        let tile_top_y = tile.y as f32 * Tile::HEIGHT as f32;
+        let tile_left_x = tile.x() as f32 * Tile::WIDTH as f32;
+        let tile_top_y = tile.y() as f32 * Tile::HEIGHT as f32;
         let p0_x = line.p0.x - tile_left_x;
         let p0_y = line.p0.y - tile_top_y;
         let p1_x = line.p1.x - tile_left_x;
@@ -121,13 +117,13 @@ pub fn render(
         // Push out the strip if we're moving to a next strip.
         if !prev_tile.same_loc(&tile) && !prev_tile.prev_loc(&tile) {
             debug_assert_eq!(
-                (prev_tile.x + 1) * Tile::WIDTH - strip.x,
+                (prev_tile.x() + 1) * Tile::WIDTH - strip.x,
                 (alpha_buf.len() - strip.col as usize) as u16,
                 "The number of columns written to the alpha buffer should equal the number of columns spanned by this strip."
             );
             strip_buf.push(strip);
 
-            let is_sentinel = tile.y == u16::MAX && tile.x == u16::MAX;
+            let is_sentinel = tile.y() == u16::MAX && tile.x() == u16::MAX;
             if !prev_tile.same_row(&tile) {
                 // Emit a final strip in the row if there is non-zero winding for the sparse fill,
                 // or unconditionally if we've reached the sentinel tile to end the path (the `col`
@@ -135,7 +131,7 @@ pub fn render(
                 if winding_delta != 0 || is_sentinel {
                     strip_buf.push(Strip {
                         x: u16::MAX,
-                        y: prev_tile.y * Tile::HEIGHT,
+                        y: prev_tile.y() * Tile::HEIGHT,
                         col: alpha_buf.len() as u32,
                         winding: winding_delta,
                     });
@@ -155,8 +151,8 @@ pub fn render(
             }
 
             strip = Strip {
-                x: tile.x * Tile::WIDTH,
-                y: tile.y * Tile::HEIGHT,
+                x: tile.x() * Tile::WIDTH,
+                y: tile.y() * Tile::HEIGHT,
                 col: alpha_buf.len() as u32,
                 winding: winding_delta,
             };
@@ -226,7 +222,7 @@ pub fn render(
         // TODO: this should be removed when out-of-viewport tiles are culled at the
         // tile-generation stage. That requires calculating and forwarding winding to strip
         // generation.
-        if tile.x == 0 && line_left_x < 0. {
+        if tile.x() == 0 && line_left_x < 0. {
             let (ymin, ymax) = if line.p0.x == line.p1.x {
                 (line_top_y, line_bottom_y)
             } else {

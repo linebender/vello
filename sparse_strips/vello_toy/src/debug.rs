@@ -174,8 +174,8 @@ fn draw_tile_areas(document: &mut Document, tiles: &Tiles) {
 
     for i in 0..tiles.len() {
         let tile = tiles.get(i);
-        let x = tile.x * Tile::WIDTH;
-        let y = tile.y * Tile::HEIGHT;
+        let x = tile.x() * Tile::WIDTH;
+        let y = tile.y() * Tile::HEIGHT;
 
         if seen.contains(&(x, y)) {
             continue;

@@ -17,22 +17,22 @@ pub const MAX_LINES_PER_PATH: u32 = 1 << 31;
 /// namely if we have multiple lines crossing the same 4x4 area!
 #[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(C)]
-pub struct Tile {
-    /// The index of the tile in the x direction.
-    pub x: u16,
-
-    /// The index of the tile in the y direction.
-    pub y: u16,
-
-    /// The index of the line this tile belongs to into the line buffer, plus whether the line
-    /// crosses the top edge of the tile, packed together.
+pub struct Tile(
+    /// The packed tile data.
     ///
-    /// The index is the unsigned number in the 31 least significant bits of this value.
+    /// The layout is as follows, with the bit indices from least to most significant.
     ///
-    /// The last bit is 1 if and only if the lines crosses the tile's top edge. Lines making this
-    /// crossing increment or decrement the coarse tile winding, depending on the line direction.
-    pub packed_winding_line_idx: u32,
-}
+    /// [ 0, 31): The 31-bit index of the line this tile belongs to into the line buffer, plus
+    /// whether the line crosses the top edge of the tile, packed together;
+    /// [31, 32): The 1-bit coarse winding of the tile. This is `1` if and only if the lines
+    /// crosses the tile's top edge. Lines making this crossing increment or decrement the coarse
+    /// tile winding, depending on the line direction;
+    /// [32, 48): The 16-bit x-coordinate; and
+    /// [48, 64): The 16-bit y-coordinate.
+    ///
+    /// Note the byte layout in memory depends on the endianness of the compilation target.
+    pub u64,
+);
 
 impl Tile {
     /// The width of a tile in pixels.
@@ -41,48 +41,57 @@ impl Tile {
     /// The height of a tile in pixels.
     pub const HEIGHT: u16 = 4;
 
+    /// The x-coordinate of this tile, in tiles.
+    #[inline]
+    pub const fn x(&self) -> u16 {
+        // This cast explicitly overflows, dropping the high order bits.
+        (self.0 >> 32) as u16
+    }
+
+    /// The y-coordinate of this tile, in tiles.
+    #[inline]
+    pub const fn y(&self) -> u16 {
+        (self.0 >> 48) as u16
+    }
+
     /// Create a new tile.
-    pub fn new(x: u16, y: u16, line_idx: u32, winding: bool) -> Self {
-        debug_assert!(
-            line_idx < MAX_LINES_PER_PATH,
-            "Max. number of lines per path exceeded. Max is {}, got index {}.",
-            MAX_LINES_PER_PATH,
-            line_idx,
-        );
-        Self {
-            x,
-            y,
-            packed_winding_line_idx: (winding as u32) * MAX_LINES_PER_PATH + line_idx,
+    #[inline]
+    pub const fn new(x: u16, y: u16, line_idx: u32, winding: bool) -> Self {
+        #[cfg(debug_assertions)]
+        if line_idx >= MAX_LINES_PER_PATH {
+            panic!("Max. number of lines per path exceeded.");
         }
+        Self(((y as u64) << 48) | ((x as u64) << 32) | ((winding as u64) << 31) | (line_idx as u64))
     }
 
     /// Check whether two tiles are at the same location.
-    pub fn same_loc(&self, other: &Self) -> bool {
-        self.x == other.x && self.same_row(other)
+    #[inline]
+    pub const fn same_loc(&self, other: &Self) -> bool {
+        self.same_row(other) && self.x() == other.x()
     }
 
     /// Check whether `self` is adjacent to the left of `other`.
-    pub fn prev_loc(&self, other: &Self) -> bool {
-        self.same_row(other) && self.x + 1 == other.x
+    #[inline]
+    pub const fn prev_loc(&self, other: &Self) -> bool {
+        self.same_row(other) && self.x() + 1 == other.x()
     }
 
     /// Check whether two tiles are on the same row.
-    pub fn same_row(&self, other: &Self) -> bool {
-        self.y == other.y
+    #[inline]
+    pub const fn same_row(&self, other: &Self) -> bool {
+        self.y() == other.y()
     }
 
-    #[inline(always)]
+    #[inline(never)]
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        let yx_self = ((self.y as u32) << 16) + self.x as u32;
-        let yx_other = ((other.y as u32) << 16) + other.x as u32;
-
-        yx_self.cmp(&yx_other)
+        self.0.cmp(&other.0)
     }
 
     /// The index of the line this tile belongs to into the line buffer.
     #[inline]
-    pub fn line_idx(&self) -> u32 {
-        self.packed_winding_line_idx & (MAX_LINES_PER_PATH - 1)
+    pub const fn line_idx(&self) -> u32 {
+        // This cast explicitly overflows, dropping the high order bits.
+        (self.0 as u32) & ((1 << 31) - 1)
     }
 
     /// Whether the line crosses the top edge of the tile.
@@ -90,8 +99,8 @@ impl Tile {
     /// Lines making this crossing increment or decrement the coarse tile winding, depending on the
     /// line direction.
     #[inline]
-    pub fn winding(&self) -> bool {
-        (self.packed_winding_line_idx & MAX_LINES_PER_PATH) != 0
+    pub const fn winding(&self) -> bool {
+        (self.0 & (1 << 31)) != 0
     }
 }
 
