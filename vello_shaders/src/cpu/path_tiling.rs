@@ -12,7 +12,7 @@ const TILE_WIDTH: u32 = 16;
 const TILE_HEIGHT: u32 = 16;
 const TILE_SCALE: f32 = 1.0 / 16.0;
 
-fn path_tiling_main(
+pub fn path_tiling_main(
     bump: &mut BumpAllocators,
     seg_counts: &[SegmentCount],
     lines: &[LineSoup],
