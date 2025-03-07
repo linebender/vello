@@ -160,6 +160,52 @@ fn stroked_circle() {
     check_ref(&ctx, "stroked_circle");
 }
 
+/// Requires winding of the first row of tiles to be calculcated correctly for vertical lines.
+#[test]
+fn rectangle_above_viewport() {
+    let mut ctx = get_ctx(10, 10, false);
+    let rect = Rect::new(2.0, -5.0, 8.0, 8.0);
+
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.fill_rect(&rect);
+
+    check_ref(&ctx, "rectangle_above_viewport");
+}
+
+/// Requires winding of the first row of tiles to be calculcated correctly for sloped lines.
+#[test]
+fn triangle_above_and_wider_than_viewport() {
+    let mut ctx = get_ctx(10, 10, false);
+
+    let path = {
+        let mut path = BezPath::new();
+        path.move_to((5.0, -5.0));
+        path.line_to((14., 6.));
+        path.line_to((-8., 6.));
+        path.close_path();
+
+        path
+    };
+
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.fill_path(&path);
+
+    check_ref(&ctx, "triangle_above_and_wider_than_viewport");
+}
+
+/// Requires winding and pixel coverage to be calculcated correctly for tiles preceding the
+/// viewport in scan direction.
+#[test]
+fn rectangle_left_of_viewport() {
+    let mut ctx = get_ctx(10, 10, false);
+    let rect = Rect::new(-4.0, 3.0, 1.0, 8.0);
+
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.fill_rect(&rect);
+
+    check_ref(&ctx, "rectangle_left_of_viewport");
+}
+
 fn star_path() -> BezPath {
     let mut path = BezPath::new();
     path.move_to((50.0, 10.0));

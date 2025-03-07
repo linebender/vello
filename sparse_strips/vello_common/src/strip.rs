@@ -5,7 +5,7 @@
 
 use peniko::Fill;
 
-use crate::flatten::Point;
+use crate::flatten::Line;
 use crate::tile::{Tile, Tiles};
 
 // Note that this will probably disappear and be turned into a const generic in the future.
@@ -39,6 +39,7 @@ pub fn render(
     strip_buf: &mut Vec<Strip>,
     alpha_buf: &mut Vec<u32>,
     fill_rule: Fill,
+    lines: &[Line],
 ) {
     strip_buf.clear();
 
@@ -64,8 +65,8 @@ pub fn render(
     const SENTINEL: Tile = Tile {
         x: i32::MAX,
         y: u16::MAX,
-        p0: Point::ZERO,
-        p1: Point::ZERO,
+        line_idx: 0,
+        winding: false,
     };
 
     // The strip we're building.
@@ -77,6 +78,14 @@ pub fn render(
     };
 
     for tile in tiles.iter().copied().chain([SENTINEL]) {
+        let line = lines[tile.line_idx as usize];
+        let tile_left_x = tile.x as f32 * Tile::WIDTH as f32;
+        let tile_top_y = tile.y as f32 * Tile::HEIGHT as f32;
+        let p0_x = line.p0.x - tile_left_x;
+        let p0_y = line.p0.y - tile_top_y;
+        let p1_x = line.p1.x - tile_left_x;
+        let p1_y = line.p1.y - tile_top_y;
+
         // Push out the winding as an alpha mask when we move to the next location (i.e., a tile
         // without the same location).
         if !prev_tile.same_loc(&tile) {
@@ -127,14 +136,30 @@ pub fn render(
             );
             strip_buf.push(strip);
 
-            // Once we've reached the `SENTINEL` tile, emit a final strip.
-            if tile.y == u16::MAX && tile.x == i32::MAX {
-                strip_buf.push(Strip {
-                    x: i32::MAX,
-                    y: u16::MAX,
-                    col: alpha_buf.len() as u32,
-                    winding: 0,
-                });
+            let is_sentinel = tile.y == u16::MAX && tile.x == i32::MAX;
+            if !prev_tile.same_row(&tile) {
+                // Emit a final strip in the row if there is non-zero winding for the sparse fill,
+                // or unconditionally if we've reached the sentinel tile to end the path (the `col`
+                // field is used for width calculations).
+                if winding_delta != 0 || is_sentinel {
+                    strip_buf.push(Strip {
+                        x: i32::MAX,
+                        y: prev_tile.y * Tile::HEIGHT,
+                        col: alpha_buf.len() as u32,
+                        winding: winding_delta,
+                    });
+                }
+
+                winding_delta = 0;
+                accumulated_winding.fill(0.);
+
+                #[expect(clippy::needless_range_loop, reason = "dimension clarity")]
+                for x in 0..Tile::WIDTH as usize {
+                    location_winding[x].fill(0.);
+                }
+            }
+
+            if is_sentinel {
                 break;
             }
 
@@ -149,14 +174,6 @@ pub fn render(
             accumulated_winding.fill(winding_delta as f32);
         }
         prev_tile = tile;
-
-        // TODO: lines are currently still packed into tiles. This will probably change, in which
-        // case we will have to translate the lines to have the tile's top-left corner as origin.
-        // let line = lines[tile.line_idx as usize];
-        let p0_x = tile.p0.x; // - tile_left_x;
-        let p0_y = tile.p0.y; // - tile_top_y;
-        let p1_x = tile.p1.x; // - tile_left_x;
-        let p1_y = tile.p1.y; // - tile_top_y;
 
         // TODO: horizontal geometry has no impact on winding. This branch will be removed when
         // horizontal geometry is culled at the tile-generation stage.
@@ -204,23 +221,53 @@ pub fn render(
             (p1_y, p1_x, p0_y, p0_x)
         };
 
+        let (line_left_x, line_left_y, line_right_x) = if p0_x < p1_x {
+            (p0_x, p0_y, p1_x)
+        } else {
+            (p1_x, p1_y, p0_x)
+        };
+
         let y_slope = (line_bottom_y - line_top_y) / (line_bottom_x - line_top_x);
         let x_slope = 1. / y_slope;
 
-        {
-            // The y-coordinate of the intersections between the line and the tile's left and right
-            // edges respectively.
-            //
-            // There's some subtlety going on here, see the note on `line_px_left_y` below.
-            let line_tile_left_y = (line_top_y - line_top_x * y_slope)
-                .max(line_top_y)
-                .min(line_bottom_y);
-            let line_tile_right_y = (line_top_y + (Tile::WIDTH as f32 - line_top_x) * y_slope)
-                .max(line_top_y)
-                .min(line_bottom_y);
+        winding_delta += sign as i32 * tile.winding as i32;
 
-            winding_delta +=
-                sign as i32 * ((line_tile_left_y <= 0.) != (line_tile_right_y <= 0.)) as i32;
+        // TODO: this should be removed when out-of-viewport tiles are culled at the
+        // tile-generation stage. That requires calculating and forwarding winding to strip
+        // generation.
+        if tile.x == 0 && line_left_x < 0. {
+            let (ymin, ymax) = if line.p0.x == line.p1.x {
+                (line_top_y, line_bottom_y)
+            } else {
+                let line_viewport_left_y = (line_top_y - line_top_x * y_slope)
+                    .max(line_top_y)
+                    .min(line_bottom_y);
+
+                (
+                    f32::min(line_left_y, line_viewport_left_y),
+                    f32::max(line_left_y, line_viewport_left_y),
+                )
+            };
+
+            for y_idx in 0..Tile::HEIGHT {
+                let px_top_y = y_idx as f32;
+                let px_bottom_y = 1. + y_idx as f32;
+
+                let ymin = f32::max(ymin, px_top_y);
+                let ymax = f32::min(ymax, px_bottom_y);
+
+                let h = (ymax - ymin).max(0.);
+                accumulated_winding[y_idx as usize] += sign * h;
+
+                for x_idx in 0..Tile::HEIGHT {
+                    location_winding[x_idx as usize][y_idx as usize] += sign * h;
+                }
+            }
+
+            if line_right_x < 0. {
+                // Early exit, as no part of the line is inside the tile.
+                continue;
+            }
         }
 
         for y_idx in 0..Tile::HEIGHT {
@@ -246,6 +293,12 @@ pub fn render(
                 // (from the viewport's coordinate system perspective). The `min` and `max`
                 // y-clamping logic generalizes nicely, as a pixel edge to the left of the line is
                 // clamped to `ymin`, and a pixel edge to the right is clamped to `ymax`.
+                //
+                // In the special case where a vertical line and pixel edge are at the exact same
+                // x-position (collinear), the line belongs to the pixel on whose _left_ edge it is
+                // situated. The resulting slope calculation for the edge the line is situated on
+                // will be NaN, as `0 * inf` results in NaN. This is true for both the left and
+                // right edge. In both cases, the call to `f32::max` will set this to `ymin`.
                 let line_px_left_y = (line_top_y + (px_left_x - line_top_x) * y_slope)
                     .max(ymin)
                     .min(ymax);
