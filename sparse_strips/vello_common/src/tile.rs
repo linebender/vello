@@ -3,20 +3,7 @@
 
 //! Primitives for creating tiles.
 
-use crate::flatten::{Line, Point};
-
-/// The width of a tile.
-pub const TILE_WIDTH: u32 = Tile::WIDTH as u32;
-/// The height of a tile.
-pub const TILE_HEIGHT: u32 = Tile::HEIGHT as u32;
-const TILE_WIDTH_SCALE: f32 = TILE_WIDTH as f32;
-const TILE_HEIGHT_SCALE: f32 = TILE_HEIGHT as f32;
-const INV_TILE_WIDTH_SCALE: f32 = 1.0 / TILE_WIDTH_SCALE;
-const INV_TILE_HEIGHT_SCALE: f32 = 1.0 / TILE_HEIGHT_SCALE;
-// The value of 8192.0 is mainly chosen for compatibility with the old cpu-sparse
-// implementation, where we scaled to u16.
-const NUDGE_FACTOR: f32 = 1.0 / 8192.0;
-const SCALED_X_NUDGE_FACTOR: f32 = 1.0 / (8192.0 * TILE_WIDTH_SCALE);
+use crate::flatten::Line;
 
 /// A tile represents an aligned area on the pixmap, used to subdivide the viewport into sub-areas
 /// (currently 4x4) and analyze line intersections inside each such area.
@@ -29,10 +16,13 @@ pub struct Tile {
     pub x: i32,
     /// The index of the tile in the y direction.
     pub y: u16,
-    /// The start point of the line in that tile.
-    pub p0: Point,
-    /// The end point of the line in that tile.
-    pub p1: Point,
+    /// The index of the line this tile belongs to into the line buffer.
+    pub line_idx: u32,
+    /// Whether the line crosses the top edge of the tile.
+    ///
+    /// Lines making this crossing increment or decrement the coarse tile winding, depending on the
+    /// line direction.
+    pub winding: bool,
 }
 
 impl Tile {
@@ -43,14 +33,12 @@ impl Tile {
     pub const HEIGHT: u16 = 4;
 
     /// Create a new tile.
-    pub fn new(x: i32, y: u16, p0: Point, p1: Point) -> Self {
+    pub fn new(x: i32, y: u16, line_idx: u32, winding: bool) -> Self {
         Self {
-            // We don't need to store the exact negative location, just that it is negative,
-            // so that the winding number calculation is correct.
-            x: x.max(-1),
+            x,
             y,
-            p0,
-            p1,
+            line_idx,
+            winding,
         }
     }
 
@@ -67,11 +55,6 @@ impl Tile {
     /// Check whether two tiles are on the same row.
     pub fn same_row(&self, other: &Self) -> bool {
         self.y == other.y
-    }
-
-    /// Return the delta of the tile.
-    pub fn delta(&self) -> i32 {
-        (self.p1.y == 0.0) as i32 - (self.p0.y == 0.0) as i32
     }
 }
 
@@ -149,252 +132,113 @@ impl Tiles {
     }
 
     /// Populate the tiles' container with a buffer of lines.
-    pub fn make_tiles(&mut self, lines: &[Line]) {
+    ///
+    /// Tiles exceeding the top, right or bottom of the viewport (given by `width` and `height` in
+    /// pixels) are culled.
+    //
+    // TODO: Tiles are clamped to the left edge of the viewport, but lines fully to the left of the
+    // viewport are not culled yet. These lines impact winding, and would need forwarding of
+    // winding to the strip generation stage.
+    pub fn make_tiles(&mut self, lines: &[Line], width: u16, height: u16) {
         self.reset();
 
-        // Calculate how many tiles are covered between two positions. p0 and p1 are scaled
-        // to the tile unit square.
-        let spanned_tiles =
-            |p0: f32, p1: f32| -> u32 { (p0.max(p1).ceil() - p0.min(p1).floor()).max(1.0) as u32 };
+        if width == 0 || height == 0 {
+            return;
+        }
 
-        let nudge_point = |p: Point| -> Point {
-            // Lines that cross vertical tile boundaries need special treatment during
-            // anti-aliasing. This case is detected via tile-relative x == 0. However,
-            // lines can naturally start or end at a multiple of the 4x4 grid, too, but
-            // these don't constitute crossings. We nudge these points ever so slightly,
-            // by ensuring that xfrac0 and xfrac1 are always at least  1/8192 of a pixel.
-            // By doing so, whenever we encounter a point
-            // at a tile relative 0, we can treat it as an edge crossing. This is somewhat
-            // of a hack and in theory we should rather solve the underlying issue in the
-            // strip generation code, but it works for now.
-            if p.x.fract() == 0.0 {
-                Point {
-                    x: p.x + SCALED_X_NUDGE_FACTOR,
-                    y: p.y,
+        debug_assert!(
+            lines.len() < (u32::MAX as usize).saturating_add(1),
+            "Max. number of lines per path exceeded. Max is {}, got {}.",
+            u32::MAX,
+            lines.len()
+        );
+
+        let tile_columns = width.div_ceil(Tile::WIDTH);
+        let tile_rows = height.div_ceil(Tile::HEIGHT);
+
+        for (line_idx, line) in lines
+            .iter()
+            .take((u32::MAX as usize).saturating_add(1))
+            .enumerate()
+        {
+            let line_idx = line_idx as u32;
+
+            let p0_x = line.p0.x / Tile::WIDTH as f32;
+            let p0_y = line.p0.y / Tile::HEIGHT as f32;
+            let p1_x = line.p1.x / Tile::WIDTH as f32;
+            let p1_y = line.p1.y / Tile::HEIGHT as f32;
+
+            let (line_left_x, line_right_x) = if p0_x < p1_x {
+                (p0_x, p1_x)
+            } else {
+                (p1_x, p0_x)
+            };
+            let (line_top_y, line_top_x, line_bottom_y, line_bottom_x) = if p0_y < p1_y {
+                (p0_y, p0_x, p1_y, p1_x)
+            } else {
+                (p1_y, p1_x, p0_y, p0_x)
+            };
+
+            // For ease of logic, special-case purely vertical tiles.
+            if line_left_x == line_right_x {
+                let y_top_tiles = (line_top_y as u16).min(tile_rows);
+                let y_bottom_tiles = (line_bottom_y.ceil() as u16).min(tile_rows);
+
+                let x = line_left_x as u16;
+                for y_idx in y_top_tiles..y_bottom_tiles {
+                    let y = y_idx as f32;
+
+                    let tile = Tile::new(x as i32, y_idx, line_idx, y >= line_top_y);
+                    self.tile_index_buf
+                        .push(TileIndex::from_tile(self.tile_buf.len() as u32, &tile));
+                    self.tile_buf.push(tile);
                 }
             } else {
-                p
-            }
-        };
+                let x_slope = (p1_x - p0_x) / (p1_y - p0_y);
 
-        let mut push_tile = |x: f32, y: f32, p0: Point, p1: Point| {
-            if y >= 0.0 {
-                let tile = Tile::new(x as i32, y as u16, p0, p1);
-                self.tile_index_buf
-                    .push(TileIndex::from_tile(self.tile_buf.len() as u32, &tile));
-                self.tile_buf.push(tile);
-            }
-        };
+                let y_top_tiles = (line_top_y as u16).min(tile_rows);
+                let y_bottom_tiles = (line_bottom_y.ceil() as u16).min(tile_rows);
 
-        for line in lines {
-            // Points scaled to the tile unit square.
-            let s0 = nudge_point(scale_down(line.p0));
-            let s1 = nudge_point(scale_down(line.p1));
+                for y_idx in y_top_tiles..y_bottom_tiles {
+                    let y = y_idx as f32;
 
-            // Count how many tiles are covered on each axis.
-            let tile_count_x = spanned_tiles(s0.x, s1.x);
-            let tile_count_y = spanned_tiles(s0.y, s1.y);
+                    // The line's y-coordinates at the line's top-and bottom-most points within the
+                    // tile row.
+                    let line_row_top_y = line_top_y.max(y).min(y + 1.);
+                    let line_row_bottom_y = line_bottom_y.max(y).min(y + 1.);
 
-            // Note: This code is technically unreachable now, because we always nudge x points at tile-relative 0
-            // position. But we might need it again in the future if we change the logic.
-            let mut x = s0.x.floor();
-            if s0.x == x && s1.x < x {
-                // s0.x is on right side of first tile.
-                x -= 1.0;
-            }
+                    // The line's x-coordinates at the line's top- and bottom-most points within the
+                    // tile row.
+                    let line_row_top_x = p0_x + (line_row_top_y - p0_y) * x_slope;
+                    let line_row_bottom_x = p0_x + (line_row_bottom_y - p0_y) * x_slope;
 
-            let mut y = s0.y.floor();
-            if s0.y == y && s1.y < y {
-                // Since the end point of the line is above the start point,
-                // s0.y is conceptually on bottom of the previous tile instead of at the top
-                // of the current tile, so we need to adjust the y location.
-                y -= 1.0;
-            }
+                    // The line's x-coordinates at the line's left- and right-most points within the
+                    // tile row.
+                    let line_row_left_x =
+                        f32::min(line_row_top_x, line_row_bottom_x).max(line_left_x);
+                    let line_row_right_x =
+                        f32::max(line_row_top_x, line_row_bottom_x).min(line_right_x);
 
-            let xfrac0 = scale_up(s0.x - x);
-            let yfrac0 = scale_up(s0.y - y);
-            let packed0 = Point::new(xfrac0, yfrac0);
-
-            if tile_count_x == 1 {
-                let xfrac1 = scale_up(s1.x - x);
-
-                if tile_count_y == 1 {
-                    let yfrac1 = scale_up(s1.y - y);
-
-                    // A 1x1 tile.
-                    push_tile(x, y, Point::new(xfrac0, yfrac0), Point::new(xfrac1, yfrac1));
-                } else {
-                    // A vertical column.
-                    let inv_slope = (s1.x - s0.x) / (s1.y - s0.y);
-                    let sign = (s1.y - s0.y).signum();
-
-                    // For downward lines, xclip0 and yclip store the x and y intersection points
-                    // at the bottom side of the current tile. For upward lines, they store the in
-                    // intersection points at the top side of the current tile.
-                    let mut xclip0 = (s0.x - x) + (y - s0.y) * inv_slope;
-                    // We handled the case of a 1x1 tile before, so in this case the line will
-                    // definitely cross the tile either at the top or bottom, and thus yclip is
-                    // either 0 or 1.
-                    let (yclip, flip) = if sign > 0.0 {
-                        // If the line goes downward, instead store where the line would intersect
-                        // the first tile at the bottom
-                        xclip0 += inv_slope;
-                        (scale_up(1.0), scale_up(-1.0))
+                    let winding_x = if line_top_x < line_bottom_x {
+                        line_row_left_x as u16
                     } else {
-                        // Otherwise, the line goes up, and thus will intersect the top side of the
-                        // tile.
-                        (scale_up(0.0), scale_up(1.0))
+                        line_row_right_x as u16
                     };
 
-                    let mut last_packed = packed0;
-                    // For the first tile, as well as all subsequent tiles that are intersected
-                    // at the top and bottom, calculate the x intersection points and push the
-                    // corresponding tiles.
-
-                    // Note: This could perhaps be SIMD-optimized, but initial experiments suggest
-                    // that in the vast majority of cases the number of tiles is between 0-5, so
-                    // it's probably not really worth it.
-                    for i in 0..tile_count_y - 1 {
-                        // Calculate the next x intersection point.
-                        let xclip = xclip0 + i as f32 * sign * inv_slope;
-                        // The .max(1) is necessary to indicate that the point actually crosses the
-                        // edge instead of ending at it. Perhaps we can figure out a different way
-                        // to represent this.
-                        let xfrac = scale_up(xclip).max(NUDGE_FACTOR);
-                        let packed = Point::new(xfrac, yclip);
-
-                        push_tile(x, y, last_packed, packed);
-
-                        // Flip y between top and bottom of tile (i.e. from TILE_HEIGHT
-                        // to 0 or 0 to TILE_HEIGHT).
-                        last_packed = Point::new(packed.x, packed.y + flip);
-                        y += sign;
-                    }
-
-                    // Push the last tile, which might be at a fractional y offset.
-                    let yfrac1 = scale_up(s1.y - y);
-                    let packed1 = Point::new(xfrac1, yfrac1);
-
-                    push_tile(x, y, last_packed, packed1);
-                }
-            } else if tile_count_y == 1 {
-                // A horizontal row.
-                // Same explanations apply as above, but instead in the horizontal direction.
-
-                let slope = (s1.y - s0.y) / (s1.x - s0.x);
-                let sign = (s1.x - s0.x).signum();
-
-                let mut yclip0 = (s0.y - y) + (x - s0.x) * slope;
-                let (xclip, flip) = if sign > 0.0 {
-                    yclip0 += slope;
-                    (scale_up(1.0), scale_up(-1.0))
-                } else {
-                    (scale_up(0.0), scale_up(1.0))
-                };
-
-                let mut last_packed = packed0;
-
-                for i in 0..tile_count_x - 1 {
-                    let yclip = yclip0 + i as f32 * sign * slope;
-                    let yfrac = scale_up(yclip).max(NUDGE_FACTOR);
-                    let packed = Point::new(xclip, yfrac);
-
-                    push_tile(x, y, last_packed, packed);
-
-                    last_packed = Point::new(packed.x + flip, packed.y);
-
-                    x += sign;
-                }
-
-                let xfrac1 = scale_up(s1.x - x);
-                let yfrac1 = scale_up(s1.y - y);
-                let packed1 = Point::new(xfrac1, yfrac1);
-
-                push_tile(x, y, last_packed, packed1);
-            } else {
-                // General case (i.e. more than one tile covered in both directions). We perform a DDA
-                // to "walk" along the path and find out which tiles are intersected by the line
-                // and at which positions.
-
-                let recip_dx = 1.0 / (s1.x - s0.x);
-                let sign_x = (s1.x - s0.x).signum();
-                let recip_dy = 1.0 / (s1.y - s0.y);
-                let sign_y = (s1.y - s0.y).signum();
-
-                // How much we advance at each intersection with a vertical grid line.
-                let mut t_clipx = (x - s0.x) * recip_dx;
-
-                // Similarly to the case "horizontal column", if the line goes to the right,
-                // we will always intersect the tiles on the right side (except for perhaps the last
-                // tile, but this case is handled separately in the end). Otherwise, we always intersect
-                // on the left side.
-                let (xclip, flip_x) = if sign_x > 0.0 {
-                    t_clipx += recip_dx;
-                    (scale_up(1.0), scale_up(-1.0))
-                } else {
-                    (scale_up(0.0), scale_up(1.0))
-                };
-
-                // How much we advance at each intersection with a horizontal grid line.
-                let mut t_clipy = (y - s0.y) * recip_dy;
-
-                // Same as xclip, but for the vertical direction, analogously to the
-                // "vertical column" case.
-                let (yclip, flip_y) = if sign_y > 0.0 {
-                    t_clipy += recip_dy;
-                    (scale_up(1.0), scale_up(-1.0))
-                } else {
-                    (scale_up(0.0), scale_up(1.0))
-                };
-
-                // x and y coordinates of the target tile.
-                let x1 = x + (tile_count_x - 1) as f32 * sign_x;
-                let y1 = y + (tile_count_y - 1) as f32 * sign_y;
-                let mut xi = x;
-                let mut yi = y;
-                let mut last_packed = packed0;
-
-                loop {
-                    // See https://github.com/LaurenzV/cpu-sparse-experiments/issues/46
-                    // for why we don't just use an inequality check.
-                    let x_cond = if sign_x > 0.0 { xi >= x1 } else { xi <= x1 };
-                    let y_cond = if sign_y > 0.0 { yi >= y1 } else { yi <= y1 };
-
-                    if x_cond && y_cond {
-                        break;
-                    }
-
-                    if t_clipy < t_clipx {
-                        // Intersected with a horizontal grid line.
-                        let x_intersect = s0.x + (s1.x - s0.x) * t_clipy - xi;
-                        let xfrac = scale_up(x_intersect).max(NUDGE_FACTOR);
-                        let packed = Point::new(xfrac, yclip);
-
-                        push_tile(xi, yi, last_packed, packed);
-
-                        t_clipy += recip_dy.abs();
-                        yi += sign_y;
-                        last_packed = Point::new(packed.x, packed.y + flip_y);
-                    } else {
-                        // Intersected with vertical grid line.
-                        let y_intersect = s0.y + (s1.y - s0.y) * t_clipx - yi;
-                        let yfrac = scale_up(y_intersect).max(NUDGE_FACTOR);
-                        let packed = Point::new(xclip, yfrac);
-
-                        push_tile(xi, yi, last_packed, packed);
-
-                        t_clipx += recip_dx.abs();
-                        xi += sign_x;
-                        last_packed = Point::new(packed.x + flip_x, packed.y);
+                    for x_idx in
+                        line_row_left_x as u16..=(line_row_right_x as u16).min(tile_columns - 1)
+                    {
+                        let tile = Tile::new(
+                            x_idx as i32,
+                            y_idx,
+                            line_idx,
+                            y >= line_top_y && x_idx == winding_x,
+                        );
+                        self.tile_index_buf
+                            .push(TileIndex::from_tile(self.tile_buf.len() as u32, &tile));
+                        self.tile_buf.push(tile);
                     }
                 }
-
-                // The last tile, where the end point is possibly not at an integer coordinate.
-                let xfrac1 = scale_up(s1.x - xi);
-                let yfrac1 = scale_up(s1.y - yi);
-                let packed1 = Point::new(xfrac1, yfrac1);
-
-                push_tile(xi, yi, last_packed, packed1);
             }
         }
     }
@@ -428,19 +272,9 @@ impl TileIndex {
 }
 
 #[cfg(test)]
-const _: () = if TILE_WIDTH_SCALE != TILE_HEIGHT_SCALE {
-    panic!("Can only handle square tiles for now.");
+const _: () = if Tile::WIDTH != 4 || Tile::HEIGHT != 4 {
+    panic!("Can only handle 4x4 tiles for now.");
 };
-
-/// Scale a tile coordinate to a viewport coordinate. Note this assumes tiles are square.
-const fn scale_up(z: f32) -> f32 {
-    z * TILE_WIDTH_SCALE
-}
-
-/// Scale a viewport coordinate to a tile coordinate.
-const fn scale_down(z: Point) -> Point {
-    Point::new(z.x * INV_TILE_WIDTH_SCALE, z.y * INV_TILE_HEIGHT_SCALE)
-}
 
 #[cfg(test)]
 mod tests {
@@ -455,6 +289,6 @@ mod tests {
         };
 
         let mut tiles = Tiles::new();
-        tiles.make_tiles(&[line]);
+        tiles.make_tiles(&[line], 600, 600);
     }
 }

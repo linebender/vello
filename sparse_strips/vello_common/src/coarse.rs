@@ -154,7 +154,8 @@ impl Wide {
                 && next_strip.x >= 0
             {
                 x = x1;
-                let x2 = next_strip.x as u32;
+                let x2 =
+                    (next_strip.x as u32).min(self.width.next_multiple_of(WIDE_TILE_WIDTH) as u32);
                 let fxt0 = x1 as usize / WIDE_TILE_WIDTH;
                 let fxt1 = (x2 as usize).div_ceil(WIDE_TILE_WIDTH);
                 for tile_x in fxt0..fxt1 {
