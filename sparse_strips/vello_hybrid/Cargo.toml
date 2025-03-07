@@ -15,9 +15,11 @@ publish = false
 workspace = true
 
 [dependencies]
-flatten = { git = "https://github.com/linebender/gpu-stroke-expansion-paper", rev = "827ccf6" }
-peniko = { workspace = true }
+vello_common = { workspace = true }
 vello_cpu = { workspace = true }
+peniko = { workspace = true }
+kurbo = { workspace = true }
+flatten = { git = "https://github.com/linebender/gpu-stroke-expansion-paper", rev = "827ccf6" }
 
 # The following dependencies are for GPU. Maybe they should be optional, or the crate
 # structure refactored so there's a CPU-only renderer that doesn't depend on these.

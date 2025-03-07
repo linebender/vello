@@ -17,7 +17,6 @@ use vello_common::tile::Tiles;
 use vello_common::{flatten, strip};
 
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
-
 /// A render context.
 #[derive(Debug)]
 pub struct RenderContext {

@@ -6,11 +6,12 @@
 use std::sync::Arc;
 
 use bytemuck::{Pod, Zeroable};
+use kurbo::Affine;
 use peniko::{
     color::palette,
     kurbo::{BezPath, Stroke},
 };
-use vello_hybrid::{GpuRenderCtx, GpuSession};
+use vello_hybrid::{GpuRenderContext, GpuSession};
 use wgpu::util::DeviceExt;
 
 use winit::{
@@ -62,9 +63,9 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
 
     let session = GpuSession::new(&device, format);
     // TODO: actually render something
-    let mut render_ctx = GpuRenderCtx::new(size.width as usize, size.height as usize);
+    let mut render_ctx = GpuRenderContext::new(size.width as usize, size.height as usize);
     draw_simple_scene(&mut render_ctx);
-    let bufs = render_ctx.harvest();
+    let bufs = render_ctx.harvest2();
 
     let config = Config {
         width: size.width,
@@ -160,16 +161,19 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
         .unwrap();
 }
 
-fn draw_simple_scene(ctx: &mut GpuRenderCtx) {
+fn draw_simple_scene(ctx: &mut GpuRenderContext) {
     let mut path = BezPath::new();
     path.move_to((10.0, 10.0));
     path.line_to((180.0, 20.0));
     path.line_to((30.0, 40.0));
     path.close_path();
     let piet_path = path.into();
+    ctx.set_transform(Affine::scale(5.0));
+    ctx.set_paint(palette::css::REBECCA_PURPLE.into());
     ctx.fill(&piet_path, palette::css::REBECCA_PURPLE.into());
     let stroke = Stroke::new(5.0);
-    ctx.stroke(&piet_path, &stroke, palette::css::DARK_BLUE.into());
+    ctx.set_paint(palette::css::DARK_BLUE.into());
+    ctx.stroke(&piet_path, stroke, palette::css::DARK_BLUE.into());
 }
 
 fn main() {

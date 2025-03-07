@@ -10,11 +10,11 @@
 use std::io::BufWriter;
 use std::str::FromStr;
 
+use peniko::Color;
 use peniko::color::palette;
 use peniko::kurbo::{Affine, BezPath, Point, Size, Stroke, Vec2};
-use peniko::Color;
 use roxmltree::{Document, Node};
-use vello_cpu::Pixmap;
+use vello_cpu::pixmap::Pixmap;
 use vello_hybrid::RenderContext;
 
 const WIDTH: usize = 1024;
@@ -22,7 +22,7 @@ const HEIGHT: usize = 1024;
 
 /// The main function of the example. The German word for main is "Haupt".
 pub fn main() {
-    let mut ctx = RenderContext::new(WIDTH, HEIGHT);
+    let mut ctx = RenderContext::new(WIDTH as u16, HEIGHT as u16);
     let mut args = std::env::args().skip(1);
     let svg_filename = args.next().expect("svg filename is first arg");
     let out_filename = args.next().expect("png out filename is second arg");
@@ -54,12 +54,18 @@ pub fn main() {
 }
 
 fn render_svg(ctx: &mut RenderContext, items: &[Item]) {
+    ctx.set_transform(Affine::scale(5.0));
     for item in items {
         match item {
-            Item::Fill(fill_item) => ctx.fill(&fill_item.path, fill_item.color.into()),
+            Item::Fill(fill_item) => {
+                ctx.set_paint(fill_item.color.into());
+                ctx.fill_path(&fill_item.path.path);
+            }
             Item::Stroke(stroke_item) => {
                 let style = Stroke::new(stroke_item.width);
-                ctx.stroke(&stroke_item.path, &style, stroke_item.color.into());
+                ctx.set_stroke(style);
+                ctx.set_paint(stroke_item.color.into());
+                ctx.stroke_path(&stroke_item.path.path);
             }
             Item::Group(group_item) => {
                 // TODO: apply transform from group

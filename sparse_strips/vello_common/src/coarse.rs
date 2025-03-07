@@ -14,9 +14,9 @@ pub const WIDE_TILE_WIDTH: usize = 256;
 /// A container for wide tiles.
 #[derive(Debug)]
 pub struct Wide {
-    tiles: Vec<WideTile>,
-    width: usize,
-    height: usize,
+    pub tiles: Vec<WideTile>,
+    pub width: usize,
+    pub height: usize,
 }
 
 impl Wide {

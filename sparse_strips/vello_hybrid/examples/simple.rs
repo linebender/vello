@@ -6,16 +6,17 @@
 
 use std::io::BufWriter;
 
+use kurbo::Affine;
 use peniko::color::palette;
 use peniko::kurbo::{BezPath, Point, Stroke, Vec2};
-use vello_cpu::Pixmap;
+use vello_cpu::pixmap::Pixmap;
 use vello_hybrid::RenderContext;
 
 const WIDTH: usize = 1024;
 const HEIGHT: usize = 1024;
 
 pub fn main() {
-    let mut ctx = RenderContext::new(WIDTH, HEIGHT);
+    let mut ctx = RenderContext::new(WIDTH as u16, HEIGHT as u16);
     draw_simple_scene(&mut ctx);
     if let Some(filename) = std::env::args().nth(1) {
         let mut pixmap = Pixmap::new(WIDTH as u16, HEIGHT as u16);
@@ -28,7 +29,7 @@ pub fn main() {
         let mut writer = encoder.write_header().unwrap();
         writer.write_image_data(pixmap.data()).unwrap();
     } else {
-        ctx.debug_dump();
+        // ctx.debug_dump();
     }
 }
 
@@ -53,6 +54,12 @@ fn draw_simple_scene(ctx: &mut RenderContext) {
     // Note: we plan to change the API to have `into`.
     let piet_path = path.into();
     let stroke = Stroke::new(5.0);
-    ctx.stroke(&piet_path, &stroke, palette::css::DARK_BLUE.into());
-    ctx.fill(&piet_path, palette::css::REBECCA_PURPLE.into());
+    ctx.set_transform(Affine::scale(5.0));
+    ctx.set_stroke(stroke);
+    ctx.set_paint(palette::css::DARK_BLUE.into());
+    // ctx.stroke(&piet_path, &stroke, palette::css::DARK_BLUE.into());
+    ctx.stroke_path(&piet_path);
+    ctx.set_paint(palette::css::REBECCA_PURPLE.into());
+    // ctx.fill(&piet_path, palette::css::REBECCA_PURPLE.into());
+    ctx.fill_path(&piet_path);
 }

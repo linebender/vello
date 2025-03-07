@@ -7,13 +7,8 @@
 #![allow(clippy::cast_possible_truncation, reason = "we need to do this a lot")]
 
 pub mod common;
-mod fine;
-mod flatten;
 mod gpu;
 mod render;
-mod strip;
-mod tiling;
-mod wide_tile;
 
-pub use gpu::{GpuRenderBufs, GpuRenderCtx, GpuSession};
+pub use gpu::{GpuRenderBufs, GpuRenderContext, GpuSession};
 pub use render::RenderContext;

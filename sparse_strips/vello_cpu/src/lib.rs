@@ -10,11 +10,10 @@
     reason = "We cast u16s to u8 in various places where we know for sure that it's < 256"
 )]
 
-mod pixmap;
+pub mod pixmap;
 mod render;
 
-mod fine;
-mod util;
+pub mod fine;
+pub mod util;
 
-pub use pixmap::Pixmap;
 pub use render::RenderContext;
