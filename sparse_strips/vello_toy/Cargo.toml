@@ -16,7 +16,7 @@ clap = { workspace = true, features = ["derive"] }
 vello_common = { workspace = true }
 vello_cpu = { workspace = true }
 peniko = { workspace = true }
-image = { workspace = true }
+image = { workspace = true, features = ["png"] }
 
 [[bin]]
 name = "debug"
