@@ -2,50 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 //! The GPU parts of a hybrid CPU/GPU rendering engine.
-
-use bytemuck::{Pod, Zeroable};
-use peniko::BrushRef;
-use vello_common::{coarse::WIDE_TILE_WIDTH, paint::Paint, strip::STRIP_HEIGHT};
+//!
 use wgpu::{
     BindGroupLayout, BlendState, ColorTargetState, ColorWrites, Device, PipelineCompilationOptions,
     RenderPipeline, TextureFormat,
 };
 
-use crate::render::RenderContext;
-
-/// Resources common to GPU renders.
 pub struct GpuSession {
     pub render_bind_group_layout: BindGroupLayout,
-    pub render_pipeline: RenderPipeline, /*  */
-}
-
-#[repr(C)]
-#[derive(Debug, Clone, Copy, Zeroable, Pod)]
-pub struct Strip {
-    x: u16,
-    y: u16,
-    width: u16,
-    dense_width: u16,
-    col: u32,
-    rgba: u32,
-}
-
-/// A render context for a single frame.
-///
-/// This will eventually get a `RenderCtx` trait impl.
-pub struct GpuRenderContext {
-    // At the moment, we take the entire cpu-sparse render context,
-    // but we might split that up.
-    inner: RenderContext,
-}
-
-/// The buffers from a render.
-///
-/// This being a struct is based on a model where all the buffers are uploaded
-/// up front. That will be replaced by the "submit early and often" model.
-pub struct GpuRenderBufs {
-    pub strips: Vec<Strip>,
-    pub alphas: Vec<u32>,
+    pub render_pipeline: RenderPipeline,
 }
 
 impl GpuSession {
@@ -127,105 +92,5 @@ impl GpuSession {
             render_bind_group_layout,
             render_pipeline,
         }
-    }
-}
-
-impl GpuRenderContext {
-    pub fn new(width: usize, height: usize) -> Self {
-        Self {
-            inner: RenderContext::new(width as u16, height as u16),
-        }
-    }
-
-    pub fn harvest2(&self) -> GpuRenderBufs {
-        let mut strips = Vec::new();
-        let width_tiles = (self.inner.width).div_ceil(WIDE_TILE_WIDTH);
-        let height_tiles = (self.inner.height).div_ceil(STRIP_HEIGHT);
-        for y in 0..height_tiles {
-            for x in 0..width_tiles {
-                let tile = &self.inner.wide.tiles[y * width_tiles + x];
-                let tile_x = x * WIDE_TILE_WIDTH;
-                let tile_y = y * STRIP_HEIGHT;
-                let bg = tile.bg.to_rgba8().to_u32();
-                if bg != 0 {
-                    let strip = Strip {
-                        x: tile_x as u16,
-                        y: tile_y as u16,
-                        width: WIDE_TILE_WIDTH as u16,
-                        dense_width: 0,
-                        col: 0,
-                        rgba: bg,
-                    };
-                    strips.push(strip);
-                }
-                for cmd in &tile.cmds {
-                    match cmd {
-                        vello_common::coarse::Cmd::Fill(fill) => {
-                            let color: peniko::color::AlphaColor<peniko::color::Srgb> =
-                                match fill.paint {
-                                    Paint::Solid(color) => color,
-                                    _ => peniko::color::AlphaColor::TRANSPARENT,
-                                };
-                            let strip = Strip {
-                                x: (tile_x as u32 + fill.x) as u16,
-                                y: tile_y as u16,
-                                width: fill.width as u16,
-                                dense_width: 0,
-                                col: 0,
-                                rgba: color.to_rgba8().to_u32(),
-                            };
-                            strips.push(strip);
-                        }
-                        vello_common::coarse::Cmd::AlphaFill(cmd_strip) => {
-                            let color: peniko::color::AlphaColor<peniko::color::Srgb> =
-                                match cmd_strip.paint {
-                                    Paint::Solid(color) => color,
-                                    _ => peniko::color::AlphaColor::TRANSPARENT,
-                                };
-                            let strip = Strip {
-                                x: (tile_x as u32 + cmd_strip.x) as u16,
-                                y: tile_y as u16,
-                                width: cmd_strip.width as u16,
-                                dense_width: cmd_strip.width as u16,
-                                col: cmd_strip.alpha_ix as u32,
-                                rgba: color.to_rgba8().to_u32(),
-                            };
-                            strips.push(strip);
-                        }
-                    }
-                }
-            }
-        }
-        GpuRenderBufs {
-            strips,
-            alphas: self.inner.alphas.clone(),
-        }
-    }
-}
-
-// This block will eventually turn into an impl of RenderCtx.
-impl GpuRenderContext {
-    pub fn fill(&mut self, path: &crate::common::Path, brush: BrushRef<'_>) {
-        // self.inner.fill(path, brush);
-        self.inner.fill_path(&path.path);
-    }
-
-    pub fn stroke(
-        &mut self,
-        path: &crate::common::Path,
-        stroke: peniko::kurbo::Stroke,
-        brush: BrushRef<'_>,
-    ) {
-        // self.inner.stroke(path, stroke, brush);
-        // self.inner.set_stroke(stroke);
-        self.inner.stroke_path(&path.path);
-    }
-
-    pub fn set_paint(&mut self, paint: Paint) {
-        self.inner.set_paint(paint);
-    }
-
-    pub fn set_transform(&mut self, transform: kurbo::Affine) {
-        self.inner.set_transform(transform);
     }
 }

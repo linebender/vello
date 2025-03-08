@@ -10,5 +10,5 @@ pub mod common;
 mod gpu;
 mod render;
 
-pub use gpu::{GpuRenderBufs, GpuRenderContext, GpuSession};
+pub use gpu::GpuSession;
 pub use render::RenderContext;
