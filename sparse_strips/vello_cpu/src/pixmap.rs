@@ -23,6 +23,16 @@ impl Pixmap {
         &self.buf
     }
 
+    /// Return the width of the pixmap.
+    pub fn width(&self) -> u16 {
+        self.width
+    }
+
+    /// Return the height of the pixmap.
+    pub fn height(&self) -> u16 {
+        self.height
+    }
+
     /// Convert from premultiplied to separate alpha.
     ///
     /// Not fast, but useful for saving to PNG etc.

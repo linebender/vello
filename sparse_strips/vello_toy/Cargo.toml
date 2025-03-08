@@ -11,12 +11,20 @@ publish = false
 
 [dependencies]
 svg = { workspace = true }
+usvg = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 vello_common = { workspace = true }
+vello_cpu = { workspace = true }
+peniko = { workspace = true }
+image = { workspace = true }
 
 [[bin]]
 name = "debug"
 path = "src/debug.rs"
+
+[[bin]]
+name = "svg"
+path = "src/svg.rs"
 
 [lints]
 workspace = true
