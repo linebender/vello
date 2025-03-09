@@ -67,15 +67,14 @@ impl Renderer {
             .await
             .expect("Failed to create device");
         let size = window.inner_size();
-        let swapchain_capabilities = surface.get_capabilities(&adapter);
-        let format = swapchain_capabilities.formats[0];
+        let format = wgpu::TextureFormat::Bgra8Unorm;
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
             width: size.width,
             height: size.height,
             present_mode: wgpu::PresentMode::Fifo,
-            alpha_mode: swapchain_capabilities.alpha_modes[0],
+            alpha_mode: wgpu::CompositeAlphaMode::Opaque,
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
         };
