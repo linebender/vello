@@ -3,6 +3,8 @@
 
 //! The GPU parts of a hybrid CPU/GPU rendering engine.
 
+#[cfg(feature = "perf_measurement")]
+use crate::perf_measurement::PerfMeasurement;
 use bytemuck::{Pod, Zeroable};
 use std::sync::Arc;
 use wgpu::{
@@ -25,6 +27,10 @@ pub struct Renderer {
     pub strips_texture_view: TextureView,
     pub alphas_texture: Texture,
     pub alphas_texture_view: TextureView,
+
+    // Performance measurement with timestamp queries
+    #[cfg(feature = "perf_measurement")]
+    pub perf_measurement: PerfMeasurement,
 }
 
 #[repr(C)]
@@ -70,11 +76,18 @@ impl Renderer {
             })
             .await
             .expect("Failed to find an appropriate adapter");
+
+        #[cfg(feature = "perf_measurement")]
+        let required_features =
+            wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS;
+        #[cfg(not(feature = "perf_measurement"))]
+        let required_features = wgpu::Features::empty();
+
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
-                    label: Some("Vello GPU"),
-                    required_features: wgpu::Features::empty(),
+                    label: Some("Vello Hybrid"),
+                    required_features,
                     required_limits: wgpu::Limits::downlevel_webgl2_defaults(),
                     memory_hints: wgpu::MemoryHints::default(),
                 },
@@ -340,6 +353,10 @@ impl Renderer {
             ],
         });
 
+        // Performance measurement initialization
+        #[cfg(feature = "perf_measurement")]
+        let perf_measurement = PerfMeasurement::new(&device);
+
         Self {
             device,
             queue,
@@ -353,6 +370,8 @@ impl Renderer {
             strips_texture_view,
             alphas_texture,
             alphas_texture_view,
+            #[cfg(feature = "perf_measurement")]
+            perf_measurement,
         }
     }
 
@@ -367,6 +386,11 @@ impl Renderer {
             .expect("Failed to get current texture");
 
         let mut encoder = self.device.create_command_encoder(&Default::default());
+
+        // Record start timestamp if feature is enabled
+        #[cfg(feature = "perf_measurement")]
+        self.perf_measurement.write_timestamp(&mut encoder, 0);
+
         {
             let view = frame
                 .texture
@@ -382,9 +406,10 @@ impl Renderer {
                     },
                 })],
                 depth_stencil_attachment: None,
-                timestamp_writes: None,
                 occlusion_query_set: None,
+                timestamp_writes: None,
             });
+
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.render_bind_group, &[]);
 
@@ -402,7 +427,19 @@ impl Renderer {
             // The same quad is rendered for each instance, and the shader handles positioning and sizing
             render_pass.draw(0..4, 0..strips_to_draw as u32);
         }
+
+        #[cfg(feature = "perf_measurement")]
+        self.perf_measurement.write_timestamp(&mut encoder, 1);
+
+        #[cfg(feature = "perf_measurement")]
+        self.perf_measurement
+            .resolve_timestamp_queries(&mut encoder, &self.device);
         self.queue.submit(std::iter::once(encoder.finish()));
+
+        #[cfg(feature = "perf_measurement")]
+        self.perf_measurement
+            .map_and_read_timestamp_buffer(&self.device, &self.queue);
+
         frame.present();
     }
 }

@@ -11,6 +11,10 @@ repository.workspace = true
 # Prevent accidental publishing until the initial release
 publish = false
 
+[features]
+# Feature for development-only performance measurement
+perf_measurement = []
+
 [lints]
 workspace = true
 
