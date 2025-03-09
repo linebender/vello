@@ -20,15 +20,14 @@ use winit::window::Window;
 use vello::wgpu;
 /// Simple struct to hold the state of the renderer
 #[derive(Debug)]
-pub struct ActiveRenderState<'s> {
-    // The fields MUST be in this order, so that the surface is dropped before the window
-    surface: RenderSurface<'s>,
-    window: Arc<Window>,
-}
-
 enum RenderState<'s> {
-    Active(ActiveRenderState<'s>),
-    // Cache a window so that it can be reused when the app is resumed after being suspended
+    /// `RenderSurface` and `Window` for active rendering.
+    Active {
+        // The `RenderSurface` and the `Window` must be in this order, so that the surface is dropped first.
+        surface: Box<RenderSurface<'s>>,
+        window: Arc<Window>,
+    },
+    /// Cache a window so that it can be reused when the app is resumed after being suspended.
     Suspended(Option<Arc<Window>>),
 }
 
@@ -77,12 +76,15 @@ impl ApplicationHandler for SimpleVelloApp<'_> {
             .get_or_insert_with(|| create_vello_renderer(&self.context, &surface));
 
         // Save the Window and Surface to a state variable
-        self.state = RenderState::Active(ActiveRenderState { window, surface });
+        self.state = RenderState::Active {
+            surface: Box::new(surface),
+            window,
+        };
     }
 
     fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
-        if let RenderState::Active(state) = &self.state {
-            self.state = RenderState::Suspended(Some(state.window.clone()));
+        if let RenderState::Active { window, .. } = &self.state {
+            self.state = RenderState::Suspended(Some(window.clone()));
         }
     }
 
@@ -93,12 +95,12 @@ impl ApplicationHandler for SimpleVelloApp<'_> {
         event: WindowEvent,
     ) {
         // Ignore the event (return from the function) if
-        //   - we have no render_state
+        //   - `RenderState` is `Suspended`
         //   - OR the window id of the event doesn't match the window id of our render_state
         //
-        // Else extract a mutable reference to the render state from its containing option for use below
-        let render_state = match &mut self.state {
-            RenderState::Active(state) if state.window.id() == window_id => state,
+        // Else extract a mutable reference to the surface
+        let surface = match &mut self.state {
+            RenderState::Active { surface, window } if window.id() == window_id => surface,
             _ => return,
         };
 
@@ -109,7 +111,7 @@ impl ApplicationHandler for SimpleVelloApp<'_> {
             // Resize the surface when the window is resized
             WindowEvent::Resized(size) => {
                 self.context
-                    .resize_surface(&mut render_state.surface, size.width, size.height);
+                    .resize_surface(surface, size.width, size.height);
             }
 
             // This is where all the rendering happens
@@ -121,12 +123,8 @@ impl ApplicationHandler for SimpleVelloApp<'_> {
                 // Re-add the objects to draw to the scene.
                 add_shapes_to_scene(&mut self.scene);
 
-                // Get the RenderSurface (surface + config)
-                let surface = &render_state.surface;
-
                 // Get the window size
-                let width = surface.config.width;
-                let height = surface.config.height;
+                let wgpu::SurfaceConfiguration { width, height, .. } = surface.config;
 
                 // Get a handle to the device
                 let device_handle = &self.context.devices[surface.dev_id];
