@@ -2,14 +2,22 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 //! The GPU parts of a hybrid CPU/GPU rendering engine.
-//!
+
+use std::sync::Arc;
+
 use bytemuck::{Pod, Zeroable};
 use wgpu::{
     BindGroup, BindGroupLayout, BlendState, Buffer, ColorTargetState, ColorWrites, Device,
-    PipelineCompilationOptions, RenderPipeline, TextureFormat, util::DeviceExt,
+    PipelineCompilationOptions, Queue, RenderPipeline, Surface, SurfaceConfiguration,
+    util::DeviceExt,
 };
+use winit::window::Window;
 
 pub struct Renderer {
+    pub device: Device,
+    pub queue: Queue,
+    pub surface: Surface<'static>,
+    pub surface_config: SurfaceConfiguration,
     pub render_bind_group_layout: BindGroupLayout,
     pub render_pipeline: RenderPipeline,
     pub render_bind_group: BindGroup,
@@ -43,12 +51,37 @@ pub struct GpuStrip {
 }
 
 impl Renderer {
-    pub fn new(
-        device: &Device,
-        format: TextureFormat,
-        config: &Config,
-        bufs: &GpuRenderBuffers,
-    ) -> Self {
+    pub async fn new(window: Arc<Window>, bufs: &GpuRenderBuffers) -> Self {
+        let instance = wgpu::Instance::new(&Default::default());
+        let surface = instance.create_surface(window.clone()).unwrap();
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: Default::default(),
+                force_fallback_adapter: false,
+                compatible_surface: Some(&surface),
+            })
+            .await
+            .expect("error finding adapter");
+
+        let (device, queue) = adapter
+            .request_device(&Default::default(), None)
+            .await
+            .expect("error creating device");
+        let size = window.inner_size();
+        let swapchain_capabilities = surface.get_capabilities(&adapter);
+        let format = swapchain_capabilities.formats[0];
+        let surface_config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format,
+            width: size.width,
+            height: size.height,
+            present_mode: wgpu::PresentMode::Fifo,
+            alpha_mode: swapchain_capabilities.alpha_modes[0],
+            view_formats: vec![],
+            desired_maximum_frame_latency: 2,
+        };
+        surface.configure(&device, &surface_config);
+
         let render_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: None,
             source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/render.wgsl").into()),
@@ -123,18 +156,23 @@ impl Renderer {
             cache: None,
         });
 
+        let config = Config {
+            width: size.width,
+            height: size.height,
+            strip_height: 4,
+        };
         let config_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("config"),
-            contents: bytemuck::bytes_of(config),
+            label: Some("Config Buffer"),
+            contents: bytemuck::bytes_of(&config),
             usage: wgpu::BufferUsages::UNIFORM,
         });
         let strips_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("strip"),
+            label: Some("Strips Buffer"),
             contents: bytemuck::cast_slice(&bufs.strips),
             usage: wgpu::BufferUsages::STORAGE,
         });
-        let alpha_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("alpha"),
+        let alpha_buf: Buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Alpha Buffer"),
             contents: bytemuck::cast_slice(&bufs.alphas),
             usage: wgpu::BufferUsages::STORAGE,
         });
@@ -158,6 +196,10 @@ impl Renderer {
         });
 
         Self {
+            device,
+            queue,
+            surface,
+            surface_config,
             render_bind_group_layout,
             render_pipeline,
             render_bind_group,
@@ -167,22 +209,17 @@ impl Renderer {
         }
     }
 
-    pub fn prepare(&self, device: &Device, config: &Config, bufs: &GpuRenderBuffers) {
+    pub fn prepare(&self, bufs: &GpuRenderBuffers) {
         // TODO: update buffers
     }
 
-    pub fn render(
-        &self,
-        device: &Device,
-        surface: &wgpu::Surface,
-        queue: &wgpu::Queue,
-        bufs: &GpuRenderBuffers,
-    ) {
-        let frame = surface
+    pub fn render(&self, bufs: &GpuRenderBuffers) {
+        let frame = self
+            .surface
             .get_current_texture()
             .expect("error getting texture from swap chain");
 
-        let mut encoder = device.create_command_encoder(&Default::default());
+        let mut encoder = self.device.create_command_encoder(&Default::default());
         {
             let view = frame
                 .texture
@@ -206,7 +243,7 @@ impl Renderer {
             let n_strips = bufs.strips.len().try_into().expect("too many strips");
             rpass.draw(0..4, 0..n_strips);
         }
-        queue.submit(Some(encoder.finish()));
+        self.queue.submit(Some(encoder.finish()));
         frame.present();
     }
 }

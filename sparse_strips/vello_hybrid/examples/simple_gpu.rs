@@ -10,7 +10,7 @@ use peniko::{
     color::palette,
     kurbo::{BezPath, Stroke},
 };
-use vello_hybrid::{Config, RenderContext, Renderer};
+use vello_hybrid::{RenderContext, Renderer};
 
 use winit::{
     event::{Event, WindowEvent},
@@ -28,47 +28,14 @@ fn main() {
 async fn run(event_loop: EventLoop<()>, window: Window) {
     let window = Arc::new(window);
     let window_clone = window.clone();
-    let instance = wgpu::Instance::new(&Default::default());
-    let surface = instance.create_surface(&window).unwrap();
-    let adapter = instance
-        .request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: Default::default(),
-            force_fallback_adapter: false,
-            compatible_surface: Some(&surface),
-        })
-        .await
-        .expect("error finding adapter");
-
-    let (device, queue) = adapter
-        .request_device(&Default::default(), None)
-        .await
-        .expect("error creating device");
-    let size = window.inner_size();
-    let swapchain_capabilities = surface.get_capabilities(&adapter);
-    let format = swapchain_capabilities.formats[0];
-    let sc = wgpu::SurfaceConfiguration {
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-        format,
-        width: size.width,
-        height: size.height,
-        present_mode: wgpu::PresentMode::Fifo,
-        alpha_mode: swapchain_capabilities.alpha_modes[0],
-        view_formats: vec![],
-        desired_maximum_frame_latency: 2,
-    };
-    surface.configure(&device, &sc);
-
-    let mut render_ctx = RenderContext::new(size.width as u16, size.height as u16);
+    let mut render_ctx = RenderContext::new(
+        window.inner_size().width as u16,
+        window.inner_size().height as u16,
+    );
     draw_simple_scene(&mut render_ctx);
     let bufs = render_ctx.prepare_gpu_buffers();
-
-    let config = Config {
-        width: size.width,
-        height: size.height,
-        strip_height: 4,
-    };
-    let renderer = Renderer::new(&device, format, &config, &bufs);
-    renderer.prepare(&device, &config, &bufs);
+    let renderer = Renderer::new(window, &bufs).await;
+    renderer.prepare(&bufs);
 
     event_loop
         .run(move |event, target| {
@@ -79,7 +46,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
             {
                 match window_event {
                     WindowEvent::RedrawRequested => {
-                        renderer.render(&device, &surface, &queue, &bufs);
+                        renderer.render(&bufs);
                         window_clone.request_redraw();
                     }
                     WindowEvent::CloseRequested => {

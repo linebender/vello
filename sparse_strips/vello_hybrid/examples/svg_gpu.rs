@@ -23,17 +23,19 @@ const HEIGHT: usize = 1024;
 pub fn main() {
     let mut ctx = RenderContext::new(WIDTH as u16, HEIGHT as u16);
     let mut args = std::env::args().skip(1);
-    let svg_filename = args.next().expect("svg filename is first arg");
+    let svg_filename: String = args.next().expect("svg filename is first arg");
     let out_filename = args.next().expect("png out filename is second arg");
 
     let svg = std::fs::read_to_string(svg_filename).expect("error reading file");
     let parsed = PicoSvg::load(&svg, 1.0).expect("error parsing SVG");
     let mut pixmap = Pixmap::new(WIDTH as u16, HEIGHT as u16);
     ctx.reset();
+
     let start = std::time::Instant::now();
     render_svg(&mut ctx, &parsed.items);
     let coarse_time = start.elapsed();
     ctx.render_to_pixmap(&mut pixmap);
+
     println!(
         "time to coarse: {coarse_time:?}, time to fine: {:?}",
         start.elapsed()
