@@ -29,20 +29,15 @@ pub fn main() {
     let svg = std::fs::read_to_string(svg_filename).expect("error reading file");
     let parsed = PicoSvg::load(&svg, 1.0).expect("error parsing SVG");
     let mut pixmap = Pixmap::new(WIDTH as u16, HEIGHT as u16);
-    // Hacky code for crude measurements; change this to arg parsing
-    // for i in 0..200 {
     ctx.reset();
     let start = std::time::Instant::now();
     render_svg(&mut ctx, &parsed.items);
     let coarse_time = start.elapsed();
     ctx.render_to_pixmap(&mut pixmap);
-    // if i % 100 == 0 {
     println!(
         "time to coarse: {coarse_time:?}, time to fine: {:?}",
         start.elapsed()
     );
-    // }
-    // }
     pixmap.unpremultiply();
     let file = std::fs::File::create(out_filename).unwrap();
     let w = BufWriter::new(file);
