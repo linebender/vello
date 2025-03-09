@@ -8,12 +8,20 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 # Changelog
 
-The latest published Vello release is [0.4.0](#040---2025-01-20) which was released on 2025-01-20.
-You can find its changes [documented below](#040---2025-01-20).
+The latest published Vello release is [0.4.1](#041---2025-03-09) which was released on 2025-03-09.
+You can find its changes [documented below](#041---2025-03-09).
 
 ## [Unreleased]
 
 This release has an [MSRV][] of 1.82.
+
+## [0.4.1][] - 2025-03-09
+
+This release has an [MSRV][] of 1.82.
+
+### Fixed
+- Fixed incorrect COLR Emoji Rendering ([#841][] by @dfrg)
+- Fixed swapped repeat and reflect extend modes ([#841][] by @dfrg)
 
 ## [0.4.0][] - 2025-01-20
 
@@ -233,6 +241,7 @@ This release has an [MSRV][] of 1.75.
 [#766]: https://github.com/linebender/vello/pull/766
 [#792]: https://github.com/linebender/vello/pull/792
 [#796]: https://github.com/linebender/vello/pull/796
+[#841]: https://github.com/linebender/vello/pull/841
 
 [Unreleased]: https://github.com/linebender/vello/compare/v0.4.0...HEAD
 [0.4.0]: https://github.com/linebender/vello/compare/v0.3.0...v0.4.0
