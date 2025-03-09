@@ -1,4 +1,9 @@
 // Below is copied, lightly adapted, from Vello.
+
+#![allow(missing_docs, reason = "will add them later")]
+#![allow(missing_debug_implementations, reason = "prototyping")]
+#![allow(clippy::cast_possible_truncation, reason = "we're doing it on purpose")]
+
 use std::str::FromStr;
 
 use kurbo::{Affine, BezPath, Point, Size, Vec2};
@@ -7,29 +12,42 @@ use roxmltree::{Document, Node};
 
 use vello_hybrid::common::Path;
 
+pub fn main() {
+    let args: Vec<String> = std::env::args().collect();
+    let file_path = &args[1];
+    let svg = std::fs::read_to_string(file_path).expect("Failed to read SVG file");
+    let pico_svg = PicoSvg::load(&svg, 1.0).expect("Failed to parse SVG");
+    println!("{:#?}", pico_svg);
+}
+
+#[derive(Debug)]
 pub struct PicoSvg {
     pub items: Vec<Item>,
     #[allow(unused, reason = "functionality NYI")]
     pub size: Size,
 }
 
+#[derive(Debug)]
 pub enum Item {
     Fill(FillItem),
     Stroke(StrokeItem),
     Group(GroupItem),
 }
 
+#[derive(Debug)]
 pub struct StrokeItem {
     pub width: f64,
     pub color: Color,
     pub path: Path,
 }
 
+#[derive(Debug)]
 pub struct FillItem {
     pub color: Color,
     pub path: Path,
 }
 
+#[derive(Debug)]
 pub struct GroupItem {
     #[allow(unused, reason = "functionality NYI")]
     pub affine: Affine,
@@ -282,5 +300,40 @@ fn modify_opacity(color: Color, attr_name: &str, node: Node<'_, '_>) -> Color {
         color.with_alpha(alpha as f32)
     } else {
         color
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_color;
+    use peniko::color::{AlphaColor, Srgb, palette};
+
+    fn assert_close_color(c1: AlphaColor<Srgb>, c2: AlphaColor<Srgb>) {
+        const EPSILON: f32 = 1e-4;
+        assert_eq!(c1.cs, c2.cs);
+        for i in 0..4 {
+            assert!((c1.components[i] - c2.components[i]).abs() < EPSILON);
+        }
+    }
+
+    #[test]
+    fn parse_colors() {
+        let lime = palette::css::LIME;
+        let lime_a = lime.with_alpha(0.4);
+
+        let named = parse_color("lime");
+        assert_close_color(lime, named);
+
+        let hex = parse_color("#00ff00");
+        assert_close_color(lime, hex);
+
+        let rgb = parse_color("rgb(0, 255, 0)");
+        assert_close_color(lime, rgb);
+
+        let modern = parse_color("color(srgb 0 1 0)");
+        assert_close_color(lime, modern);
+
+        let modern_a = parse_color("color(srgb 0 1 0 / 0.4)");
+        assert_close_color(lime_a, modern_a);
     }
 }

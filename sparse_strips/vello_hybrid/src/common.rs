@@ -2,10 +2,10 @@ use std::{num::NonZeroU64, sync::atomic::AtomicU64};
 
 use peniko::kurbo::BezPath;
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Id(NonZeroU64);
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Path {
     pub id: Id,
     pub path: BezPath,

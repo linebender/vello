@@ -20,6 +20,13 @@ use winit::{
     window::Window,
 };
 
+fn main() {
+    let event_loop = EventLoop::new().unwrap();
+    let window = Window::new(&event_loop).unwrap();
+    window.set_resizable(false);
+    pollster::block_on(run(event_loop, window));
+}
+
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
 struct Config {
@@ -174,11 +181,4 @@ fn draw_simple_scene(ctx: &mut RenderContext) {
     let stroke = Stroke::new(5.0);
     ctx.set_paint(palette::css::DARK_BLUE.into());
     ctx.stroke_path(&piet_path);
-}
-
-fn main() {
-    let event_loop = EventLoop::new().unwrap();
-    let window = Window::new(&event_loop).unwrap();
-    window.set_resizable(false);
-    pollster::block_on(run(event_loop, window));
 }
