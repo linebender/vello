@@ -9,44 +9,61 @@
 
 mod pico_svg;
 
-use std::io::BufWriter;
+use std::sync::Arc;
 
 use kurbo::{Affine, Stroke};
 use pico_svg::{Item, PicoSvg};
-use vello_cpu::pixmap::Pixmap;
-use vello_hybrid::RenderContext;
+use vello_hybrid::{RenderContext, Renderer};
+use winit::{
+    event::{Event, WindowEvent},
+    event_loop::EventLoop,
+    window::Window,
+};
 
-const WIDTH: usize = 1024;
-const HEIGHT: usize = 1024;
+fn main() {
+    let event_loop = EventLoop::new().unwrap();
+    let window = Window::new(&event_loop).unwrap();
+    window.set_resizable(false);
+    pollster::block_on(run(event_loop, window));
+}
 
-/// The main function of the example. The German word for main is "Haupt".
-pub fn main() {
-    let mut ctx = RenderContext::new(WIDTH as u16, HEIGHT as u16);
+async fn run(event_loop: EventLoop<()>, window: Window) {
     let mut args = std::env::args().skip(1);
     let svg_filename: String = args.next().expect("svg filename is first arg");
-    let out_filename = args.next().expect("png out filename is second arg");
-
     let svg = std::fs::read_to_string(svg_filename).expect("error reading file");
     let parsed = PicoSvg::load(&svg, 1.0).expect("error parsing SVG");
-    let mut pixmap = Pixmap::new(WIDTH as u16, HEIGHT as u16);
-    ctx.reset();
 
-    let start = std::time::Instant::now();
-    render_svg(&mut ctx, &parsed.items);
-    let coarse_time = start.elapsed();
-    ctx.render_to_pixmap(&mut pixmap);
-
-    println!(
-        "time to coarse: {coarse_time:?}, time to fine: {:?}",
-        start.elapsed()
+    let window = Arc::new(window);
+    let mut render_ctx = RenderContext::new(
+        window.inner_size().width as u16,
+        window.inner_size().height as u16,
     );
-    pixmap.unpremultiply();
-    let file = std::fs::File::create(out_filename).unwrap();
-    let w = BufWriter::new(file);
-    let mut encoder = png::Encoder::new(w, WIDTH as u32, HEIGHT as u32);
-    encoder.set_color(png::ColorType::Rgba);
-    let mut writer = encoder.write_header().unwrap();
-    writer.write_image_data(pixmap.data()).unwrap();
+    render_svg(&mut render_ctx, &parsed.items);
+
+    let bufs = render_ctx.prepare_gpu_buffers();
+    let renderer = Renderer::new(window.clone(), &bufs).await;
+    renderer.prepare(&bufs);
+
+    event_loop
+        .run(move |event, target| {
+            if let Event::WindowEvent {
+                window_id: _,
+                event: window_event,
+            } = event
+            {
+                match window_event {
+                    WindowEvent::RedrawRequested => {
+                        renderer.render(&bufs);
+                        window.request_redraw();
+                    }
+                    WindowEvent::CloseRequested => {
+                        target.exit();
+                    }
+                    _ => (),
+                }
+            }
+        })
+        .unwrap();
 }
 
 fn render_svg(ctx: &mut RenderContext, items: &[Item]) {

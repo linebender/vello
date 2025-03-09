@@ -61,12 +61,11 @@ impl Renderer {
                 compatible_surface: Some(&surface),
             })
             .await
-            .expect("error finding adapter");
-
+            .expect("Failed to find an appropriate adapter");
         let (device, queue) = adapter
             .request_device(&Default::default(), None)
             .await
-            .expect("error creating device");
+            .expect("Failed to create device");
         let size = window.inner_size();
         let swapchain_capabilities = surface.get_capabilities(&adapter);
         let format = swapchain_capabilities.formats[0];
@@ -224,7 +223,7 @@ impl Renderer {
             let view = frame
                 .texture
                 .create_view(&wgpu::TextureViewDescriptor::default());
-            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
@@ -238,10 +237,10 @@ impl Renderer {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-            rpass.set_pipeline(&self.render_pipeline);
-            rpass.set_bind_group(0, &self.render_bind_group, &[]);
+            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.set_bind_group(0, &self.render_bind_group, &[]);
             let n_strips = bufs.strips.len().try_into().expect("too many strips");
-            rpass.draw(0..4, 0..n_strips);
+            render_pass.draw(0..4, 0..n_strips);
         }
         self.queue.submit(Some(encoder.finish()));
         frame.present();
