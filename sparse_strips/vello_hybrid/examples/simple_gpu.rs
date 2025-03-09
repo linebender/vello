@@ -33,7 +33,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
         window.inner_size().height as u16,
     );
     draw_simple_scene(&mut render_ctx);
-    let bufs = render_ctx.prepare_gpu_buffers();
+    let bufs = render_ctx.prepare_render_data();
     let renderer = Renderer::new(window, &bufs).await;
     renderer.prepare(&bufs);
 

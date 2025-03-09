@@ -2,9 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 // A simple render pipeline for solid color sparse strip rendering.
-
-// Each instance draws one strip consisting of alpha values (dense_width)
-// then a solid region.
+// Each instance draws one strip consisting of alpha values (dense_width) then a solid region.
 
 struct VertexOutput {
     @location(0) tex_coord: vec2<f32>,
@@ -20,7 +18,8 @@ struct Config {
 }
 
 struct Strip {
-    xy: u32, // this could be u16's on the Rust side
+    // [x, y] packed as u16's
+    xy: u32,
     // [width, dense_width] packed as u16's
     widths: u32,
     col: u32,

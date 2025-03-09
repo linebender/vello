@@ -11,5 +11,5 @@ mod gpu;
 mod gpu2;
 mod render;
 
-pub use gpu::{Config, GpuRenderBuffers, Renderer};
+pub use gpu::{Config, RenderData, Renderer};
 pub use render::RenderContext;

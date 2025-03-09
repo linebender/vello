@@ -40,7 +40,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
     );
     render_svg(&mut render_ctx, &parsed.items);
 
-    let bufs = render_ctx.prepare_gpu_buffers();
+    let bufs = render_ctx.prepare_render_data();
     let renderer = Renderer::new(window.clone(), &bufs).await;
     renderer.prepare(&bufs);
 

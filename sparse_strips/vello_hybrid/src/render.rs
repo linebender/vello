@@ -3,6 +3,7 @@
 
 //! Basic render operations.
 
+use crate::gpu::{GpuStrip, RenderData};
 use kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
 use peniko::color::palette::css::BLACK;
 use peniko::{BlendMode, Compose, Fill, Mix};
@@ -16,9 +17,8 @@ use vello_cpu::fine::Fine;
 use vello_cpu::pixmap::Pixmap;
 use vello_cpu::util::ColorExt;
 
-use crate::gpu::{GpuRenderBuffers, GpuStrip};
-
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
+
 /// A render context.
 #[derive(Debug)]
 pub struct RenderContext {
@@ -183,7 +183,7 @@ impl RenderContext {
 }
 
 impl RenderContext {
-    pub fn prepare_gpu_buffers(&self) -> GpuRenderBuffers {
+    pub fn prepare_render_data(&self) -> RenderData {
         let mut strips: Vec<GpuStrip> = Vec::new();
         let width_tiles = (self.width).div_ceil(WIDE_TILE_WIDTH);
         let height_tiles = (self.height).div_ceil(STRIP_HEIGHT);
@@ -242,7 +242,7 @@ impl RenderContext {
                 }
             }
         }
-        GpuRenderBuffers {
+        RenderData {
             strips,
             alphas: self.alphas.clone(),
         }

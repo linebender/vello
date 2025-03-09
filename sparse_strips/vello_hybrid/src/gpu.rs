@@ -3,9 +3,8 @@
 
 //! The GPU parts of a hybrid CPU/GPU rendering engine.
 
-use std::sync::Arc;
-
 use bytemuck::{Pod, Zeroable};
+use std::sync::Arc;
 use wgpu::{
     BindGroup, BindGroupLayout, BlendState, Buffer, ColorTargetState, ColorWrites, Device,
     PipelineCompilationOptions, Queue, RenderPipeline, Surface, SurfaceConfiguration,
@@ -34,7 +33,7 @@ pub struct Config {
     pub strip_height: u32,
 }
 
-pub struct GpuRenderBuffers {
+pub struct RenderData {
     pub strips: Vec<GpuStrip>,
     pub alphas: Vec<u32>,
 }
@@ -51,8 +50,12 @@ pub struct GpuStrip {
 }
 
 impl Renderer {
-    pub async fn new(window: Arc<Window>, bufs: &GpuRenderBuffers) -> Self {
-        let instance = wgpu::Instance::new(&Default::default());
+    pub async fn new(window: Arc<Window>, render_data: &RenderData) -> Self {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            flags: wgpu::InstanceFlags::empty(),
+            backend_options: wgpu::BackendOptions::default(),
+        });
         let surface = instance.create_surface(window.clone()).unwrap();
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -63,7 +66,16 @@ impl Renderer {
             .await
             .expect("Failed to find an appropriate adapter");
         let (device, queue) = adapter
-            .request_device(&Default::default(), None)
+            .request_device(
+                &wgpu::DeviceDescriptor {
+                    label: Some("Vello GPU"),
+                    required_features: wgpu::Features::empty(),
+                    // required_limits: wgpu::Limits::downlevel_webgl2_defaults(),
+                    required_limits: wgpu::Limits::default(),
+                    memory_hints: wgpu::MemoryHints::default(),
+                },
+                None,
+            )
             .await
             .expect("Failed to create device");
         let size = window.inner_size();
@@ -166,12 +178,12 @@ impl Renderer {
         });
         let strips_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Strips Buffer"),
-            contents: bytemuck::cast_slice(&bufs.strips),
+            contents: bytemuck::cast_slice(&render_data.strips),
             usage: wgpu::BufferUsages::STORAGE,
         });
         let alpha_buf: Buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Alpha Buffer"),
-            contents: bytemuck::cast_slice(&bufs.alphas),
+            contents: bytemuck::cast_slice(&render_data.alphas),
             usage: wgpu::BufferUsages::STORAGE,
         });
         let render_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -207,11 +219,11 @@ impl Renderer {
         }
     }
 
-    pub fn prepare(&self, bufs: &GpuRenderBuffers) {
+    pub fn prepare(&self, render_data: &RenderData) {
         // TODO: update buffers
     }
 
-    pub fn render(&self, bufs: &GpuRenderBuffers) {
+    pub fn render(&self, render_data: &RenderData) {
         let frame = self
             .surface
             .get_current_texture()
@@ -238,7 +250,11 @@ impl Renderer {
             });
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.render_bind_group, &[]);
-            let n_strips = bufs.strips.len().try_into().expect("too many strips");
+            let n_strips = render_data
+                .strips
+                .len()
+                .try_into()
+                .expect("too many strips");
             render_pass.draw(0..4, 0..n_strips);
         }
         self.queue.submit(Some(encoder.finish()));
