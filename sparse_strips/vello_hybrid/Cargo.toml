@@ -23,11 +23,12 @@ flatten = { git = "https://github.com/linebender/gpu-stroke-expansion-paper", re
 
 # The following dependencies are for GPU. Maybe they should be optional, or the crate
 # structure refactored so there's a CPU-only renderer that doesn't depend on these.
+bytemuck = { workspace = true, features = ["derive"] }
 wgpu = { version = "24.0.1" }
 winit = "0.29"
 pollster = "0.3"
 async-executor = "1.8"
-bytemuck = { version = "1.14", features = ["derive"] }
+color = { version = "0.2.3", features = ["bytemuck"] }
 
 [dev-dependencies]
 png = "0.17.14"

@@ -8,7 +8,8 @@
 
 pub mod common;
 mod gpu;
+mod gpu2;
 mod render;
 
-pub use gpu::GpuSession;
+pub use gpu::{Config, GpuRenderBuffers, Renderer};
 pub use render::RenderContext;

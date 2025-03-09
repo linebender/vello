@@ -3,7 +3,6 @@
 
 //! Basic render operations.
 
-use bytemuck::{Pod, Zeroable};
 use kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
 use peniko::color::palette::css::BLACK;
 use peniko::{BlendMode, Compose, Fill, Mix};
@@ -16,6 +15,8 @@ use vello_common::{flatten, strip};
 use vello_cpu::fine::Fine;
 use vello_cpu::pixmap::Pixmap;
 use vello_cpu::util::ColorExt;
+
+use crate::gpu::{GpuRenderBuffers, GpuStrip};
 
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
 /// A render context.
@@ -179,22 +180,6 @@ impl RenderContext {
 
         self.wide.generate(&self.strip_buf, fill_rule, paint);
     }
-}
-
-pub struct GpuRenderBuffers {
-    pub strips: Vec<GpuStrip>,
-    pub alphas: Vec<u32>,
-}
-
-#[repr(C)]
-#[derive(Debug, Clone, Copy, Zeroable, Pod)]
-pub struct GpuStrip {
-    x: u16,
-    y: u16,
-    width: u16,
-    dense_width: u16,
-    col: u32,
-    rgba: u32,
 }
 
 impl RenderContext {
