@@ -933,7 +933,7 @@ impl DrawColorGlyphs<'_> {
 
 fn conv_skrifa_transform(transform: skrifa::color::Transform) -> Transform {
     Transform {
-        matrix: [transform.xx, transform.xy, transform.yx, transform.yy],
+        matrix: [transform.xx, transform.yx, transform.xy, transform.yy],
         translation: [transform.dx, transform.dy],
     }
 }
@@ -1013,8 +1013,8 @@ fn conv_point(point: skrifa::raw::types::Point<f32>) -> Point {
 fn conv_extend(extend: skrifa::color::Extend) -> Extend {
     match extend {
         skrifa::color::Extend::Pad => Extend::Pad,
-        skrifa::color::Extend::Repeat => Extend::Reflect,
-        skrifa::color::Extend::Reflect => Extend::Repeat,
+        skrifa::color::Extend::Repeat => Extend::Repeat,
+        skrifa::color::Extend::Reflect => Extend::Reflect,
         // TODO: Error reporting on unknown variant?
         _ => Extend::Pad,
     }
