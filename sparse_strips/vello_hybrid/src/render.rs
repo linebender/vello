@@ -4,6 +4,7 @@
 //! Basic render operations.
 
 use crate::gpu::{GpuStrip, RenderData};
+use crate::{RenderTarget, Renderer};
 use kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
 use peniko::color::palette::css::BLACK;
 use peniko::{BlendMode, Compose, Fill, Mix};
@@ -137,27 +138,26 @@ impl RenderContext {
     }
 
     /// Render the current content to a pixmap.
-    pub fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
-        // TODO: Use u16 here, too, instead of casting.
-        let mut fine = Fine::new(
-            pixmap.width as usize,
-            pixmap.height as usize,
-            &mut pixmap.buf,
-        );
-
-        let width_tiles = self.wide.width_tiles();
-        let height_tiles = self.wide.height_tiles();
-        for y in 0..height_tiles {
-            for x in 0..width_tiles {
-                let tile = self.wide.get(x, y);
-
-                fine.clear(tile.bg.premultiply().to_rgba8_fast());
-                for cmd in &tile.cmds {
-                    fine.run_cmd(cmd, &self.alphas);
-                }
-                fine.pack(x, y);
-            }
+    pub async fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
+        let render_data = self.prepare_render_data();
+        let mut renderer = Renderer::new(RenderTarget::Headless {
+            width: pixmap.width as u32,
+            height: pixmap.height as u32,
+        })
+        .await;
+        renderer.prepare(&render_data);
+        let buffer =
+            renderer.render_to_texture(&render_data, pixmap.width as u32, pixmap.height as u32);
+        // Convert buffer from BGRA to RGBA format
+        let mut rgba_buffer = Vec::with_capacity(buffer.len());
+        for chunk in buffer.chunks_exact(4) {
+            rgba_buffer.push(chunk[2]); // R (was B)    
+            rgba_buffer.push(chunk[1]); // G (unchanged)
+            rgba_buffer.push(chunk[0]); // B (was R)
+            rgba_buffer.push(chunk[3]); // A (unchanged)
         }
+
+        pixmap.buf = rgba_buffer;
     }
 
     /// Get the width of the render context.

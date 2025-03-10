@@ -8,7 +8,8 @@ mod common;
 use common::pico_svg::PicoSvg;
 use common::render_svg;
 use std::io::BufWriter;
-use vello_hybrid::{DimensionConstraints, RenderContext, RenderTarget, Renderer};
+use vello_cpu::pixmap::Pixmap;
+use vello_hybrid::{DimensionConstraints, RenderContext};
 
 fn main() {
     pollster::block_on(run());
@@ -29,27 +30,13 @@ async fn run() {
 
     let mut render_ctx = RenderContext::new(width as u16, height as u16);
     render_svg(&mut render_ctx, render_scale, &parsed.items);
-
-    let render_data = render_ctx.prepare_render_data();
-
-    let mut renderer = Renderer::new(RenderTarget::Headless { width, height }).await;
-    renderer.prepare(&render_data);
-    let buffer = renderer.render_to_texture(&render_data, width, height);
-
-    // Convert buffer from BGRA to RGBA format
-    let mut rgba_buffer = Vec::with_capacity(buffer.len());
-    for chunk in buffer.chunks_exact(4) {
-        // BGRA to RGBA conversion (swapping B and R channels)
-        rgba_buffer.push(chunk[2]); // R (was B)
-        rgba_buffer.push(chunk[1]); // G (unchanged)
-        rgba_buffer.push(chunk[0]); // B (was R)
-        rgba_buffer.push(chunk[3]); // A (unchanged)
-    }
+    let mut pixmap = Pixmap::new(width as u16, height as u16);
+    render_ctx.render_to_pixmap(&mut pixmap).await;
 
     let file = std::fs::File::create(output_filename).unwrap();
     let w = BufWriter::new(file);
     let mut encoder = png::Encoder::new(w, width, height);
     encoder.set_color(png::ColorType::Rgba);
     let mut writer = encoder.write_header().unwrap();
-    writer.write_image_data(&rgba_buffer).unwrap();
+    writer.write_image_data(&pixmap.buf).unwrap();
 }
