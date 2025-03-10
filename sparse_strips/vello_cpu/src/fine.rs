@@ -15,7 +15,7 @@ pub(crate) const SCRATCH_BUF_SIZE: usize = WIDE_TILE_WIDTH * STRIP_HEIGHT * COLO
 
 pub(crate) type ScratchBuf = [u8; SCRATCH_BUF_SIZE];
 
-pub struct Fine<'a> {
+pub(crate) struct Fine<'a> {
     pub(crate) width: usize,
     pub(crate) height: usize,
     pub(crate) out_buf: &'a mut [u8],
@@ -23,7 +23,7 @@ pub struct Fine<'a> {
 }
 
 impl<'a> Fine<'a> {
-    pub fn new(width: usize, height: usize, out_buf: &'a mut [u8]) -> Self {
+    pub(crate) fn new(width: usize, height: usize, out_buf: &'a mut [u8]) -> Self {
         let scratch = [0; SCRATCH_BUF_SIZE];
 
         Self {
@@ -34,7 +34,7 @@ impl<'a> Fine<'a> {
         }
     }
 
-    pub fn clear(&mut self, premul_color: [u8; 4]) {
+    pub(crate) fn clear(&mut self, premul_color: [u8; 4]) {
         if premul_color[0] == premul_color[1]
             && premul_color[1] == premul_color[2]
             && premul_color[2] == premul_color[3]
@@ -48,11 +48,11 @@ impl<'a> Fine<'a> {
         }
     }
 
-    pub fn pack(&mut self, x: usize, y: usize) {
+    pub(crate) fn pack(&mut self, x: usize, y: usize) {
         pack(self.out_buf, &self.scratch, self.width, self.height, x, y);
     }
 
-    pub fn run_cmd(&mut self, cmd: &Cmd, alphas: &[u32]) {
+    pub(crate) fn run_cmd(&mut self, cmd: &Cmd, alphas: &[u32]) {
         match cmd {
             Cmd::Fill(f) => {
                 self.fill(f.x as usize, f.width as usize, &f.paint);

@@ -3,7 +3,7 @@
 
 use peniko::color::{PremulColor, Srgb};
 
-pub trait ColorExt {
+pub(crate) trait ColorExt {
     /// Using the already-existing `to_rgba8` is slow on x86 because it involves rounding, so
     /// we use a fast method with just + 0.5.
     fn to_rgba8_fast(&self) -> [u8; 4];

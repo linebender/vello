@@ -12,7 +12,7 @@
 
 mod render;
 
-pub mod fine;
-pub mod util;
+mod fine;
+mod util;
 
 pub use render::RenderContext;
