@@ -11,7 +11,7 @@ mod common;
 use std::io::BufWriter;
 
 use common::{pico_svg::PicoSvg, render_svg};
-use vello_cpu::pixmap::Pixmap;
+use vello_common::pixmap::Pixmap;
 use vello_hybrid::RenderContext;
 
 const WIDTH: usize = 1024;

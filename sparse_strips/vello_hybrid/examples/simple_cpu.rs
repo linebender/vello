@@ -11,7 +11,7 @@ use std::io::BufWriter;
 use kurbo::Affine;
 use peniko::color::palette;
 use peniko::kurbo::{BezPath, Point, Stroke, Vec2};
-use vello_cpu::pixmap::Pixmap;
+use vello_common::pixmap::Pixmap;
 use vello_hybrid::RenderContext;
 
 const WIDTH: usize = 1024;

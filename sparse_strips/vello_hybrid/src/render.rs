@@ -11,12 +11,10 @@ use peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::coarse::{WIDE_TILE_WIDTH, Wide};
 use vello_common::flatten::Line;
 use vello_common::paint::Paint;
+use vello_common::pixmap::Pixmap;
 use vello_common::strip::{STRIP_HEIGHT, Strip};
 use vello_common::tile::Tiles;
 use vello_common::{flatten, strip};
-use vello_cpu::fine::Fine;
-use vello_cpu::pixmap::Pixmap;
-use vello_cpu::util::ColorExt;
 
 /// Default tolerance for curve flattening
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
