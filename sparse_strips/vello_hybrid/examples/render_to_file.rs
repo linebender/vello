@@ -32,7 +32,7 @@ async fn run() {
 
     let render_data = render_ctx.prepare_render_data();
 
-    let renderer = Renderer::new(RenderTarget::Headless { width, height }, &render_data).await;
+    let mut renderer = Renderer::new(RenderTarget::Headless { width, height }).await;
     renderer.prepare(&render_data);
     let buffer = renderer.render_to_texture(&render_data, width, height);
 

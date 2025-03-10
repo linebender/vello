@@ -33,7 +33,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
     );
     draw_simple_scene(&mut render_ctx);
     let render_data = render_ctx.prepare_render_data();
-    let renderer = Renderer::new(RenderTarget::Window(window), &render_data).await;
+    let mut renderer = Renderer::new(RenderTarget::Window(window)).await;
     renderer.prepare(&render_data);
 
     event_loop

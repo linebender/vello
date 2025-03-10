@@ -44,7 +44,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
     render_svg(&mut render_ctx, render_scale, &parsed.items);
 
     let render_data = render_ctx.prepare_render_data();
-    let renderer = Renderer::new(RenderTarget::Window(window.clone()), &render_data).await;
+    let mut renderer = Renderer::new(RenderTarget::Window(window.clone())).await;
     renderer.prepare(&render_data);
 
     event_loop
