@@ -13,7 +13,7 @@ use crate::flatten::Line;
 #[derive(Debug, Clone, Copy)]
 pub struct Tile {
     /// The index of the tile in the x direction.
-    pub x: i32,
+    pub x: u16,
     /// The index of the tile in the y direction.
     pub y: u16,
     /// The index of the line this tile belongs to into the line buffer.
@@ -33,7 +33,7 @@ impl Tile {
     pub const HEIGHT: u16 = 4;
 
     /// Create a new tile.
-    pub fn new(x: i32, y: u16, line_idx: u32, winding: bool) -> Self {
+    pub fn new(x: u16, y: u16, line_idx: u32, winding: bool) -> Self {
         Self {
             x,
             y,
@@ -188,7 +188,7 @@ impl Tiles {
                 for y_idx in y_top_tiles..y_bottom_tiles {
                     let y = y_idx as f32;
 
-                    let tile = Tile::new(x as i32, y_idx, line_idx, y >= line_top_y);
+                    let tile = Tile::new(x, y_idx, line_idx, y >= line_top_y);
                     self.tile_index_buf
                         .push(TileIndex::from_tile(self.tile_buf.len() as u32, &tile));
                     self.tile_buf.push(tile);
@@ -229,7 +229,7 @@ impl Tiles {
                         line_row_left_x as u16..=(line_row_right_x as u16).min(tile_columns - 1)
                     {
                         let tile = Tile::new(
-                            x_idx as i32,
+                            x_idx,
                             y_idx,
                             line_idx,
                             y >= line_top_y && x_idx == winding_x,
@@ -254,7 +254,7 @@ struct TileIndex {
 
 impl TileIndex {
     pub(crate) fn from_tile(index: u32, tile: &Tile) -> Self {
-        let x = (tile.x + 1).max(0) as u16;
+        let x = tile.x;
         let y = tile.y;
 
         Self { x, y, index }

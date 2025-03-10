@@ -3,35 +3,34 @@
 
 //! Generating and processing wide tiles.
 
-use crate::color::{AlphaColor, Srgb};
-use crate::strip::{STRIP_HEIGHT, Strip};
-use vello_api::paint::Paint;
-use vello_api::peniko::Fill;
-
-/// The width of a wide tile.
-pub const WIDE_TILE_WIDTH: usize = WideTile::WIDTH as usize;
+use crate::{
+    color::{AlphaColor, Srgb},
+    strip::Strip,
+    tile::Tile,
+};
+use vello_api::{paint::Paint, peniko::Fill};
 
 /// A container for wide tiles.
 #[derive(Debug)]
 pub struct Wide {
     /// The width of the container.
-    pub width: usize,
+    pub width: u16,
     /// The height of the container.
-    pub height: usize,
+    pub height: u16,
     /// The wide tiles in the container.
     pub tiles: Vec<WideTile>,
 }
 
 impl Wide {
     /// Create a new container for wide tiles.
-    pub fn new(width: usize, height: usize) -> Self {
-        let width_tiles = width.div_ceil(WIDE_TILE_WIDTH);
-        let height_tiles = height.div_ceil(STRIP_HEIGHT);
-        let mut tiles = Vec::with_capacity(width_tiles * height_tiles);
+    pub fn new(width: u16, height: u16) -> Self {
+        let width_tiles = width.div_ceil(WideTile::WIDTH);
+        let height_tiles = height.div_ceil(Tile::HEIGHT);
+        let mut tiles = Vec::with_capacity(usize::from(width_tiles * height_tiles));
 
         for w in 0..width_tiles {
             for h in 0..height_tiles {
-                tiles.push(WideTile::new(w * WIDE_TILE_WIDTH, h * STRIP_HEIGHT));
+                tiles.push(WideTile::new(w * WideTile::WIDTH, h * Tile::HEIGHT));
             }
         }
 
@@ -51,37 +50,37 @@ impl Wide {
     }
 
     /// Return the number of horizontal tiles.
-    pub fn width_tiles(&self) -> usize {
-        self.width.div_ceil(WIDE_TILE_WIDTH)
+    pub fn width_tiles(&self) -> u16 {
+        self.width.div_ceil(WideTile::WIDTH)
     }
 
     /// Return the number of vertical tiles.
-    pub fn height_tiles(&self) -> usize {
-        self.height.div_ceil(STRIP_HEIGHT)
+    pub fn height_tiles(&self) -> u16 {
+        self.height.div_ceil(Tile::HEIGHT)
     }
 
     /// Get the wide tile at a certain index.
     ///
     /// Panics if the index is out-of-range.
-    pub fn get(&self, x: usize, y: usize) -> &WideTile {
+    pub fn get(&self, x: u16, y: u16) -> &WideTile {
         assert!(
             x < self.width && y < self.height,
             "attempted to access out-of-bounds wide tile"
         );
 
-        &self.tiles[y * self.width_tiles() + x]
+        &self.tiles[usize::from(y) * usize::from(self.width_tiles()) + usize::from(x)]
     }
 
     /// Get mutable access to the wide tile at a certain index.
     ///
     /// Panics if the index is out-of-range.
-    pub fn get_mut(&mut self, x: usize, y: usize) -> &mut WideTile {
+    pub fn get_mut(&mut self, x: u16, y: u16) -> &mut WideTile {
         assert!(
             x < self.width && y < self.height,
             "attempted to access out-of-bounds wide tile"
         );
 
-        let idx = y * self.width_tiles() + x;
+        let idx = usize::from(y) * usize::from(self.width_tiles()) + usize::from(x);
         &mut self.tiles[idx]
     }
 
@@ -101,39 +100,33 @@ impl Wide {
         for i in 0..strip_buf.len() - 1 {
             let strip = &strip_buf[i];
 
-            if strip.x >= self.width as i32 {
+            debug_assert!(
+                strip.y < self.height,
+                "Strips below the viewport should have been culled prior to this stage."
+            );
+
+            if strip.x >= self.width {
                 // Don't render strips that are outside the viewport.
                 continue;
             }
 
-            if strip.y >= self.height as u16 {
-                // Since strips are sorted by location, any subsequent strips will also be
-                // outside the viewport, so we can abort entirely.
-                break;
-            }
-
             let next_strip = &strip_buf[i + 1];
-            // Currently, strips can also start at a negative x position, since we don't
-            // support viewport culling yet. However, when generating the commands
-            // we only want to emit strips >= 0, so we calculate the adjustment
-            // and then only include the alpha indices for columns where x >= 0.
-            let x0_adjustment = strip.x.min(0).unsigned_abs();
-            let x0 = (strip.x + x0_adjustment as i32) as u32;
+            let x0 = strip.x;
             let strip_y = strip.strip_y();
-            let mut col = strip.col + x0_adjustment;
+            let mut col = strip.col;
             // Can potentially be 0, if the next strip's x values is also < 0.
-            let strip_width = next_strip.col.saturating_sub(col);
+            let strip_width = next_strip.col.saturating_sub(col) as u16;
             let x1 = x0 + strip_width;
-            let tile_x0 = x0 as usize / WIDE_TILE_WIDTH;
+            let tile_x0 = x0 / WideTile::WIDTH;
             // It's possible that a strip extends into a new wide tile, but we don't actually
             // have as many wide tiles (e.g. because the pixmap width is only 512, but
             // strip ends at 513), so take the minimum between the rounded values and `width_tiles`.
-            let tile_x1 = (x1 as usize).div_ceil(WIDE_TILE_WIDTH).min(width_tiles);
+            let tile_x1 = x1.div_ceil(WideTile::WIDTH).min(width_tiles);
             let mut x = x0;
 
             for tile_x in tile_x0..tile_x1 {
-                let x_tile_rel = x % WIDE_TILE_WIDTH as u32;
-                let width = x1.min(((tile_x + 1) * WIDE_TILE_WIDTH) as u32) - x;
+                let x_tile_rel = x % WideTile::WIDTH;
+                let width = x1.min((tile_x + 1) * WideTile::WIDTH) - x;
                 let cmd = CmdAlphaFill {
                     x: x_tile_rel,
                     width,
@@ -141,9 +134,8 @@ impl Wide {
                     paint: paint.clone(),
                 };
                 x += width;
-                col += width;
-                self.get_mut(tile_x, strip_y as usize)
-                    .push(Cmd::AlphaFill(cmd));
+                col += u32::from(width);
+                self.get_mut(tile_x, strip_y).push(Cmd::AlphaFill(cmd));
             }
 
             let active_fill = match fill_rule {
@@ -151,21 +143,18 @@ impl Wide {
                 Fill::EvenOdd => next_strip.winding % 2 != 0,
             };
 
-            if active_fill
-                && strip_y == next_strip.strip_y()
-                // Only fill if we are actually inside the viewport.
-                && next_strip.x >= 0
-            {
+            if active_fill && strip_y == next_strip.strip_y() {
                 x = x1;
-                let x2 =
-                    (next_strip.x as u32).min(self.width.next_multiple_of(WIDE_TILE_WIDTH) as u32);
-                let fxt0 = x1 as usize / WIDE_TILE_WIDTH;
-                let fxt1 = (x2 as usize).div_ceil(WIDE_TILE_WIDTH);
+                let x2 = next_strip
+                    .x
+                    .min(self.width.next_multiple_of(WideTile::WIDTH));
+                let fxt0 = x1 / WideTile::WIDTH;
+                let fxt1 = x2.div_ceil(WideTile::WIDTH);
                 for tile_x in fxt0..fxt1 {
-                    let x_tile_rel = x % WIDE_TILE_WIDTH as u32;
-                    let width = x2.min(((tile_x + 1) * WIDE_TILE_WIDTH) as u32) - x;
+                    let x_tile_rel = x % WideTile::WIDTH;
+                    let width = x2.min((tile_x + 1) * WideTile::WIDTH) - x;
                     x += width;
-                    self.get_mut(tile_x, strip_y as usize)
+                    self.get_mut(tile_x, strip_y)
                         .fill(x_tile_rel, width, paint.clone());
                 }
             }
@@ -177,9 +166,9 @@ impl Wide {
 #[derive(Debug)]
 pub struct WideTile {
     /// The x coordinate of the wide tile.
-    pub x: usize,
+    pub x: u16,
     /// The y coordinate of the wide tile.
-    pub y: usize,
+    pub y: u16,
     /// The background of the tile.
     pub bg: AlphaColor<Srgb>,
     /// The draw commands of the tile.
@@ -191,7 +180,7 @@ impl WideTile {
     pub const WIDTH: u16 = 256;
 
     /// Create a new wide tile.
-    pub fn new(x: usize, y: usize) -> Self {
+    pub fn new(x: u16, y: u16) -> Self {
         Self {
             x,
             y,
@@ -200,11 +189,11 @@ impl WideTile {
         }
     }
 
-    pub(crate) fn fill(&mut self, x: u32, width: u32, paint: Paint) {
+    pub(crate) fn fill(&mut self, x: u16, width: u16, paint: Paint) {
         let Paint::Solid(s) = &paint else {
             unimplemented!()
         };
-        let can_override = x == 0 && width == WIDE_TILE_WIDTH as u32 && s.components[3] == 1.0;
+        let can_override = x == 0 && width == Self::WIDTH && s.components[3] == 1.0;
 
         if can_override {
             self.cmds.clear();
@@ -232,9 +221,9 @@ pub enum Cmd {
 #[derive(Debug)]
 pub struct CmdFill {
     /// The horizontal start position of the command in pixels.
-    pub x: u32,
+    pub x: u16,
     /// The width of the command in pixels.
-    pub width: u32,
+    pub width: u16,
     /// The paint that should be used to fill the area.
     pub paint: Paint,
 }
@@ -243,9 +232,9 @@ pub struct CmdFill {
 #[derive(Debug)]
 pub struct CmdAlphaFill {
     /// The horizontal start position of the command in pixels.
-    pub x: u32,
+    pub x: u16,
     /// The width of the command in pixels.
-    pub width: u32,
+    pub width: u16,
     /// The start index into the alpha buffer of the command.
     pub alpha_ix: usize,
     /// The paint that should be used to fill the area.

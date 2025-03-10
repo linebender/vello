@@ -8,15 +8,11 @@ use peniko::Fill;
 use crate::flatten::Line;
 use crate::tile::{Tile, Tiles};
 
-// Note that this will probably disappear and be turned into a const generic in the future.
-/// The height of a strip.
-pub const STRIP_HEIGHT: usize = Tile::HEIGHT as usize;
-
 /// A strip.
 #[derive(Debug, Clone, Copy)]
 pub struct Strip {
     /// The x coordinate of the strip, in user coordinates.
-    pub x: i32,
+    pub x: u16,
     /// The y coordinate of the strip, in user coordinates.
     pub y: u16,
     /// The index into the alpha buffer
@@ -28,7 +24,7 @@ pub struct Strip {
 impl Strip {
     /// Return the y coordinate of the strip, in strip units.
     pub fn strip_y(&self) -> u16 {
-        self.y / u16::try_from(STRIP_HEIGHT).unwrap()
+        self.y / Tile::HEIGHT
     }
 }
 
@@ -63,7 +59,7 @@ pub fn render(
 
     /// A special tile to keep the logic below simple.
     const SENTINEL: Tile = Tile {
-        x: i32::MAX,
+        x: u16::MAX,
         y: u16::MAX,
         line_idx: 0,
         winding: false,
@@ -71,7 +67,7 @@ pub fn render(
 
     // The strip we're building.
     let mut strip = Strip {
-        x: prev_tile.x * Tile::WIDTH as i32,
+        x: prev_tile.x * Tile::WIDTH,
         y: prev_tile.y * Tile::HEIGHT,
         col: alpha_buf.len() as u32,
         winding: 0,
@@ -126,20 +122,20 @@ pub fn render(
         // Push out the strip if we're moving to a next strip.
         if !prev_tile.same_loc(&tile) && !prev_tile.prev_loc(&tile) {
             debug_assert_eq!(
-                (prev_tile.x + 1) * Tile::WIDTH as i32 - strip.x,
-                alpha_buf.len() as i32 - strip.col as i32,
+                (prev_tile.x + 1) * Tile::WIDTH - strip.x,
+                (alpha_buf.len() - strip.col as usize) as u16,
                 "The number of columns written to the alpha buffer should equal the number of columns spanned by this strip."
             );
             strip_buf.push(strip);
 
-            let is_sentinel = tile.y == u16::MAX && tile.x == i32::MAX;
+            let is_sentinel = tile.y == u16::MAX && tile.x == u16::MAX;
             if !prev_tile.same_row(&tile) {
                 // Emit a final strip in the row if there is non-zero winding for the sparse fill,
                 // or unconditionally if we've reached the sentinel tile to end the path (the `col`
                 // field is used for width calculations).
                 if winding_delta != 0 || is_sentinel {
                     strip_buf.push(Strip {
-                        x: i32::MAX,
+                        x: u16::MAX,
                         y: prev_tile.y * Tile::HEIGHT,
                         col: alpha_buf.len() as u32,
                         winding: winding_delta,
@@ -160,7 +156,7 @@ pub fn render(
             }
 
             strip = Strip {
-                x: tile.x * Tile::WIDTH as i32,
+                x: tile.x * Tile::WIDTH,
                 y: tile.y * Tile::HEIGHT,
                 col: alpha_buf.len() as u32,
                 winding: winding_delta,
