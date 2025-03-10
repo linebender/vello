@@ -34,8 +34,8 @@ The crates were switched to edition 2024 of Rust.
 This release has an [MSRV][] of 1.82.
 
 ### Fixed
-- Fixed incorrect COLR Emoji Rendering ([#841][] by @dfrg)
-- Fixed swapped repeat and reflect extend modes ([#841][] by @dfrg
+
+- Incorrect COLR Emoji Rendering ([#841][] by [@dfrg][])
 
 ## [0.4.0][] - 2025-01-20
 
