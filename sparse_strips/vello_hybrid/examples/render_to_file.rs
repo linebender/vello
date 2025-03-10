@@ -1,7 +1,10 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Headless rendering to file
+//! SVG rendering example for headless rendering
+//!
+//! This example demonstrates rendering an SVG file without a window or display.
+//! It takes an input SVG file and renders it to a PNG file using the hybrid CPU/GPU renderer.
 
 mod common;
 
@@ -11,6 +14,12 @@ use vello_common::pico_svg::PicoSvg;
 use vello_common::pixmap::Pixmap;
 use vello_hybrid::{DimensionConstraints, RenderContext};
 
+/// Main entry point for the headless rendering example.
+/// Takes two command line arguments:
+/// - Input SVG filename to render
+/// - Output PNG filename to save the rendered result
+///
+/// Renders the SVG using the hybrid CPU/GPU renderer and saves the output as a PNG file.
 fn main() {
     pollster::block_on(run());
 }

@@ -17,6 +17,7 @@ use vello_hybrid::RenderContext;
 const WIDTH: usize = 1024;
 const HEIGHT: usize = 1024;
 
+/// Draw a simple scene with basic shapes using the sparse strips CPU renderer.
 pub fn main() {
     let mut args = std::env::args().skip(1);
     let output_filename: String = args.next().expect("output filename is first arg");

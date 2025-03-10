@@ -1,7 +1,11 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! SVG example for hybrid renderer
+//! SVG example for sparse strips hybrid CPU/GPU renderer
+//!
+//! This example demonstrates loading and rendering an SVG file using the hybrid renderer.
+//! It creates a window and continuously renders the SVG using CPU-side path processing
+//! and GPU-accelerated compositing.
 
 mod common;
 
@@ -16,6 +20,8 @@ use winit::{
     window::Window,
 };
 
+/// Main entry point for the SVG GPU renderer example.
+/// Creates a window and continuously renders the SVG using the hybrid CPU/GPU renderer.
 fn main() {
     let event_loop = EventLoop::new().unwrap();
     let window = Window::new(&event_loop).unwrap();

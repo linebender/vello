@@ -18,7 +18,13 @@ use vello_hybrid::RenderContext;
 const WIDTH: usize = 1024;
 const HEIGHT: usize = 1024;
 
-/// The main function of the example. The German word for main is "Haupt".
+/// Main entry point for the SVG CPU renderer example.
+///
+/// Takes two command line arguments:
+/// - Input SVG filename to render
+/// - Output PNG filename to save the rendered result
+///
+/// Renders the SVG using the sparse strips CPU renderer and saves the output as a PNG file.
 pub fn main() {
     let mut ctx = RenderContext::new(WIDTH as u16, HEIGHT as u16);
     let mut args = std::env::args().skip(1);

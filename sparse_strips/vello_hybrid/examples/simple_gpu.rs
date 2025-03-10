@@ -1,7 +1,11 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Example program for CPU/GPU hybrid rendering.
+//! Simple rendering example for the sparse strips hybrid CPU/GPU renderer
+//!
+//! This example demonstrates drawing basic shapes using the hybrid renderer.
+//! It creates a window and continuously renders a simple scene with various shapes.
+//! The rendering pipeline uses CPU-side path processing and GPU-accelerated compositing.
 
 use std::sync::Arc;
 
@@ -17,6 +21,8 @@ use winit::{
     window::Window,
 };
 
+/// Main entry point for the simple GPU renderer example.
+/// Creates a window and continuously renders a simple scene using the hybrid CPU/GPU renderer.
 fn main() {
     let event_loop = EventLoop::new().unwrap();
     let window = Window::new(&event_loop).unwrap();
