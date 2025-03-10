@@ -16,3 +16,4 @@ mod fine;
 mod util;
 
 pub use render::RenderContext;
+pub use vello_common::pixmap::Pixmap;
