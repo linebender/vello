@@ -60,6 +60,8 @@ var alphas_texture: texture_2d<u32>;
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let x = u32(floor(in.tex_coord.x));
     var alpha = 1.0;
+    // TODO: This is a branch, but we can make it branchless by using a select
+    // would it be faster to do a texture lookup for every pixel?
     if x < in.dense_end {
         let y = u32(floor(in.tex_coord.y));
         // Read alpha value from texture

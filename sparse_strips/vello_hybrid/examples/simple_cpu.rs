@@ -16,21 +16,19 @@ const WIDTH: usize = 1024;
 const HEIGHT: usize = 1024;
 
 pub fn main() {
+    let mut args = std::env::args().skip(1);
+    let output_filename: String = args.next().expect("output filename is first arg");
     let mut ctx = RenderContext::new(WIDTH as u16, HEIGHT as u16);
     draw_simple_scene(&mut ctx);
-    if let Some(filename) = std::env::args().nth(1) {
-        let mut pixmap = Pixmap::new(WIDTH as u16, HEIGHT as u16);
-        ctx.render_to_pixmap(&mut pixmap);
-        pixmap.unpremultiply();
-        let file = std::fs::File::create(filename).unwrap();
-        let w = BufWriter::new(file);
-        let mut encoder = png::Encoder::new(w, WIDTH as u32, HEIGHT as u32);
-        encoder.set_color(png::ColorType::Rgba);
-        let mut writer = encoder.write_header().unwrap();
-        writer.write_image_data(pixmap.data()).unwrap();
-    } else {
-        // ctx.debug_dump();
-    }
+    let mut pixmap = Pixmap::new(WIDTH as u16, HEIGHT as u16);
+    ctx.render_to_pixmap(&mut pixmap);
+    pixmap.unpremultiply();
+    let file = std::fs::File::create(output_filename).unwrap();
+    let w = BufWriter::new(file);
+    let mut encoder = png::Encoder::new(w, WIDTH as u32, HEIGHT as u32);
+    encoder.set_color(png::ColorType::Rgba);
+    let mut writer = encoder.write_header().unwrap();
+    writer.write_image_data(pixmap.data()).unwrap();
 }
 
 fn star(center: Point, n: usize, inner: f64, outer: f64) -> BezPath {

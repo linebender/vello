@@ -10,8 +10,7 @@ use peniko::{
     color::palette,
     kurbo::{BezPath, Stroke},
 };
-use vello_hybrid::{RenderContext, Renderer};
-
+use vello_hybrid::{RenderContext, RenderTarget, Renderer};
 use winit::{
     event::{Event, WindowEvent},
     event_loop::EventLoop,
@@ -34,7 +33,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
     );
     draw_simple_scene(&mut render_ctx);
     let bufs = render_ctx.prepare_render_data();
-    let renderer = Renderer::new(window, &bufs).await;
+    let renderer = Renderer::new(RenderTarget::Window(window), &bufs).await;
     renderer.prepare(&bufs);
 
     event_loop
@@ -46,7 +45,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
             {
                 match window_event {
                     WindowEvent::RedrawRequested => {
-                        renderer.render(&bufs);
+                        renderer.render_to_surface(&bufs);
                         window_clone.request_redraw();
                     }
                     WindowEvent::CloseRequested => {

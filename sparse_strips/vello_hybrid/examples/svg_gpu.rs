@@ -7,13 +7,13 @@
 
 //! SVG example for hybrid renderer
 
-mod pico_svg;
+mod common;
 
 use std::sync::Arc;
 
-use kurbo::{Affine, Stroke};
-use pico_svg::{Item, PicoSvg};
-use vello_hybrid::{RenderContext, Renderer};
+use common::pico_svg::PicoSvg;
+use common::render_svg;
+use vello_hybrid::{DimensionConstraints, RenderContext, RenderTarget, Renderer};
 use winit::{
     event::{Event, WindowEvent},
     event_loop::EventLoop,
@@ -31,18 +31,23 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
     let mut args = std::env::args().skip(1);
     let svg_filename: String = args.next().expect("svg filename is first arg");
     let svg = std::fs::read_to_string(svg_filename).expect("error reading file");
-    let parsed = PicoSvg::load(&svg, 1.0).expect("error parsing SVG");
+    let scale = 5.0;
+    let parsed = PicoSvg::load(&svg, scale).expect("error parsing SVG");
+
+    let constraints = DimensionConstraints::default();
+    let svg_width = (parsed.size.width * scale) as u32;
+    let svg_height = (parsed.size.height * scale) as u32;
+    let (width, height) = constraints.calculate_dimensions(svg_width, svg_height);
+
+    let _ = window.request_inner_size(winit::dpi::PhysicalSize::new(width, height));
 
     let window = Arc::new(window);
-    let mut render_ctx = RenderContext::new(
-        window.inner_size().width as u16,
-        window.inner_size().height as u16,
-    );
-    render_svg(&mut render_ctx, &parsed.items);
+    let mut render_ctx = RenderContext::new(width as u16, height as u16);
+    render_svg(&mut render_ctx, scale, &parsed.items);
 
-    let bufs = render_ctx.prepare_render_data();
-    let renderer = Renderer::new(window.clone(), &bufs).await;
-    renderer.prepare(&bufs);
+    let render_data = render_ctx.prepare_render_data();
+    let renderer = Renderer::new(RenderTarget::Window(window.clone()), &render_data).await;
+    renderer.prepare(&render_data);
 
     event_loop
         .run(move |event, target| {
@@ -53,7 +58,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
             {
                 match window_event {
                     WindowEvent::RedrawRequested => {
-                        renderer.render(&bufs);
+                        renderer.render_to_surface(&render_data);
                         window.request_redraw();
                     }
                     WindowEvent::CloseRequested => {
@@ -64,26 +69,4 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
             }
         })
         .unwrap();
-}
-
-fn render_svg(ctx: &mut RenderContext, items: &[Item]) {
-    ctx.set_transform(Affine::scale(5.0));
-    for item in items {
-        match item {
-            Item::Fill(fill_item) => {
-                ctx.set_paint(fill_item.color.into());
-                ctx.fill_path(&fill_item.path.path);
-            }
-            Item::Stroke(stroke_item) => {
-                let style = Stroke::new(stroke_item.width);
-                ctx.set_stroke(style);
-                ctx.set_paint(stroke_item.color.into());
-                ctx.stroke_path(&stroke_item.path.path);
-            }
-            Item::Group(group_item) => {
-                // TODO: apply transform from group
-                render_svg(ctx, &group_item.children);
-            }
-        }
-    }
 }

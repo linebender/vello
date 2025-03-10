@@ -14,10 +14,32 @@ use wgpu::{
 };
 use winit::window::Window;
 
+/// Represents the target for rendering - either a window or specific dimensions
+pub enum RenderTarget {
+    /// Render to a window
+    Window(Arc<Window>),
+    /// Render to a texture with specific dimensions
+    Headless { width: u32, height: u32 },
+}
+
+impl RenderTarget {
+    /// Get the dimensions of the render target
+    pub fn dimensions(&self) -> (u32, u32) {
+        match self {
+            RenderTarget::Window(window) => {
+                let size = window.inner_size();
+                (size.width, size.height)
+            }
+            RenderTarget::Headless { width, height } => (*width, *height),
+        }
+    }
+}
+
 pub struct Renderer {
     pub device: Device,
     pub queue: Queue,
-    pub surface: Surface<'static>,
+    #[allow(dead_code)]
+    pub surface: Option<Surface<'static>>,
     pub surface_config: SurfaceConfiguration,
     pub render_bind_group_layout: BindGroupLayout,
     pub render_pipeline: RenderPipeline,
@@ -69,21 +91,49 @@ impl GpuStrip {
 }
 
 impl Renderer {
-    pub async fn new(window: Arc<Window>, render_data: &RenderData) -> Self {
+    /// Creates a new renderer
+    ///
+    /// The target parameter determines if we render to a window or headless
+    pub async fn new(target: RenderTarget, render_data: &RenderData) -> Self {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             flags: wgpu::InstanceFlags::empty(),
             backend_options: wgpu::BackendOptions::default(),
         });
-        let surface = instance.create_surface(window.clone()).unwrap();
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: Default::default(),
-                force_fallback_adapter: false,
-                compatible_surface: Some(&surface),
-            })
-            .await
-            .expect("Failed to find an appropriate adapter");
+
+        // Get dimensions and possibly create a surface
+        let (dimensions, surface) = match &target {
+            RenderTarget::Window(window) => {
+                let surface = instance.create_surface(window.clone()).unwrap();
+                let dimensions = target.dimensions();
+                (dimensions, Some(surface))
+            }
+            RenderTarget::Headless { .. } => {
+                let dimensions = target.dimensions();
+                (dimensions, None)
+            }
+        };
+
+        // Get adapter with or without surface
+        let adapter = if let Some(surface) = &surface {
+            instance
+                .request_adapter(&wgpu::RequestAdapterOptions {
+                    power_preference: Default::default(),
+                    force_fallback_adapter: false,
+                    compatible_surface: Some(surface),
+                })
+                .await
+                .expect("Failed to find an appropriate adapter")
+        } else {
+            instance
+                .request_adapter(&wgpu::RequestAdapterOptions {
+                    power_preference: Default::default(),
+                    force_fallback_adapter: false,
+                    compatible_surface: None,
+                })
+                .await
+                .expect("Failed to find an appropriate adapter")
+        };
 
         #[cfg(feature = "perf_measurement")]
         let required_features =
@@ -103,19 +153,24 @@ impl Renderer {
             )
             .await
             .expect("Failed to create device");
-        let size = window.inner_size();
+
+        let (width, height) = dimensions;
         let format = wgpu::TextureFormat::Bgra8Unorm;
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
-            width: size.width,
-            height: size.height,
+            width,
+            height,
             present_mode: wgpu::PresentMode::Fifo,
             alpha_mode: wgpu::CompositeAlphaMode::Opaque,
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
         };
-        surface.configure(&device, &surface_config);
+
+        // Configure surface if it exists
+        if let Some(surface) = &surface {
+            surface.configure(&device, &surface_config);
+        }
 
         let render_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: None,
@@ -187,8 +242,8 @@ impl Renderer {
 
         let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
         let config = Config {
-            width: size.width,
-            height: size.height,
+            width,
+            height,
             strip_height: 4,
             alpha_texture_width: max_texture_dimension_2d,
         };
@@ -305,9 +360,13 @@ impl Renderer {
         // TODO: update buffers
     }
 
-    pub fn render(&self, render_data: &RenderData) {
-        let frame = self
-            .surface
+    pub fn render_to_surface(&self, render_data: &RenderData) {
+        let Some(surface) = &self.surface else {
+            // Cannot render to surface in headless mode
+            return;
+        };
+
+        let frame = surface
             .get_current_texture()
             .expect("Failed to get current texture");
 
@@ -322,7 +381,7 @@ impl Renderer {
                 .texture
                 .create_view(&wgpu::TextureViewDescriptor::default());
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: None,
+                label: Some("Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
@@ -356,5 +415,113 @@ impl Renderer {
             .map_and_read_timestamp_buffer(&self.device, &self.queue);
 
         frame.present();
+    }
+
+    pub fn render_to_texture(&self, render_data: &RenderData, width: u32, height: u32) -> Vec<u8> {
+        // Create a texture to render to
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Render to Texture"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Bgra8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        // Create a buffer to copy the texture data to
+        let bytes_per_row = (width * 4).next_multiple_of(256);
+        let texture_copy_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Texture Copy to Buffer"),
+            size: bytes_per_row as u64 * height as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+
+        let mut encoder = self.device.create_command_encoder(&Default::default());
+
+        // Record start timestamp if feature is enabled
+        #[cfg(feature = "perf_measurement")]
+        self.perf_measurement.write_timestamp(&mut encoder, 0);
+
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Redner to Texture Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &texture_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+
+            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.set_bind_group(0, &self.render_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, self.strips_buffer.slice(..));
+            let strips_to_draw = render_data.strips.len();
+            render_pass.draw(0..4, 0..strips_to_draw as u32);
+        }
+
+        #[cfg(feature = "perf_measurement")]
+        self.perf_measurement.write_timestamp(&mut encoder, 1);
+
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &texture_copy_buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(bytes_per_row),
+                    rows_per_image: None,
+                },
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        self.queue.submit([encoder.finish()]);
+
+        // Map the buffer to read the data
+        texture_copy_buffer
+            .slice(..)
+            .map_async(wgpu::MapMode::Read, move |result| {
+                if result.is_err() {
+                    panic!("Failed to map texture for reading");
+                }
+            });
+        self.device.poll(wgpu::Maintain::Wait);
+
+        // Copy the data into a Vec<u8>
+        let mut img_data = Vec::with_capacity((width * height * 4) as usize);
+        for row in texture_copy_buffer
+            .slice(..)
+            .get_mapped_range()
+            .chunks_exact(bytes_per_row as usize)
+        {
+            img_data.extend_from_slice(&row[0..width as usize * 4]);
+        }
+
+        texture_copy_buffer.unmap();
+
+        img_data
     }
 }
