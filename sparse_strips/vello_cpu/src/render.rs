@@ -4,7 +4,6 @@
 //! Basic render operations.
 
 use crate::fine::Fine;
-use crate::pixmap::Pixmap;
 use crate::util::ColorExt;
 use kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
 use peniko::color::palette::css::BLACK;
@@ -12,12 +11,12 @@ use peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::coarse::Wide;
 use vello_common::flatten::Line;
 use vello_common::paint::Paint;
+use vello_common::pixmap::Pixmap;
 use vello_common::strip::Strip;
 use vello_common::tile::Tiles;
 use vello_common::{flatten, strip};
 
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
-
 /// A render context.
 #[derive(Debug)]
 pub struct RenderContext {

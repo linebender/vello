@@ -17,7 +17,8 @@ use std::path::PathBuf;
 use std::sync::LazyLock;
 use vello_common::color::palette;
 use vello_common::kurbo::{Rect, Shape};
-use vello_cpu::{Pixmap, RenderContext};
+use vello_common::pixmap::Pixmap;
+use vello_cpu::RenderContext;
 
 static REFS_PATH: LazyLock<PathBuf> =
     LazyLock::new(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("snapshots"));

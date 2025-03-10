@@ -6,9 +6,12 @@
 /// A pixmap backed by u8.
 #[derive(Debug)]
 pub struct Pixmap {
-    pub(crate) width: u16,
-    pub(crate) height: u16,
-    pub(crate) buf: Vec<u8>,
+    /// Width of the pixmap in pixels.  
+    pub width: u16,
+    /// Height of the pixmap in pixels.
+    pub height: u16,
+    /// Buffer of the pixmap in RGBA format.
+    pub buf: Vec<u8>,
 }
 
 impl Pixmap {

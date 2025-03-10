@@ -11,7 +11,29 @@ repository.workspace = true
 # Prevent accidental publishing until the initial release
 publish = false
 
-[dependencies]
+[features]
+# Feature for development-only performance measurement
+perf_measurement = []
 
 [lints]
 workspace = true
+
+[dependencies]
+vello_common = { workspace = true }
+vello_cpu = { workspace = true }
+peniko = { workspace = true }
+kurbo = { workspace = true }
+flatten = { git = "https://github.com/linebender/gpu-stroke-expansion-paper", rev = "827ccf6" }
+
+# The following dependencies are for GPU. Maybe they should be optional, or the crate
+# structure refactored so there's a CPU-only renderer that doesn't depend on these.
+bytemuck = { workspace = true, features = ["derive"] }
+wgpu = { version = "24.0.1" }
+winit = "0.29"
+pollster = "0.3"
+async-executor = "1.8"
+color = { version = "0.2.3", features = ["bytemuck"] }
+
+[dev-dependencies]
+png = "0.17.14"
+roxmltree = "0.20.0"
