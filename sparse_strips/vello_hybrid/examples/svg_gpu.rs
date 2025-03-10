@@ -32,7 +32,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
     let svg_filename: String = args.next().expect("svg filename is first arg");
     let svg = std::fs::read_to_string(svg_filename).expect("error reading file");
     let scale = 5.0;
-    let parsed = PicoSvg::load(&svg, scale).expect("error parsing SVG");
+    let parsed = PicoSvg::load(&svg, 1.0).expect("error parsing SVG");
 
     let constraints = DimensionConstraints::default();
     let svg_width = (parsed.size.width * scale) as u32;
@@ -42,6 +42,8 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
     let _ = window.request_inner_size(winit::dpi::PhysicalSize::new(width, height));
 
     let window = Arc::new(window);
+    let width = window.inner_size().width;
+    let height = window.inner_size().height;
     let mut render_ctx = RenderContext::new(width as u16, height as u16);
     render_svg(&mut render_ctx, scale, &parsed.items);
 

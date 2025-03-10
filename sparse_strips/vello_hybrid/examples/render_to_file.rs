@@ -23,16 +23,16 @@ async fn run() {
     let svg_filename: String = args.next().expect("svg filename is first arg");
     let output_filename: String = args.next().expect("output filename is second arg");
     let svg = std::fs::read_to_string(svg_filename).expect("error reading file");
-    let scale = 5.0;
-    let parsed = PicoSvg::load(&svg, 5.0).expect("error parsing SVG");
+    let render_scale = 5.0;
+    let parsed = PicoSvg::load(&svg, 1.0).expect("error parsing SVG");
 
     let constraints = DimensionConstraints::default();
-    let svg_width = (parsed.size.width * scale) as u32;
-    let svg_height = (parsed.size.height * scale) as u32;
+    let svg_width = (parsed.size.width * render_scale) as u32;
+    let svg_height = (parsed.size.height * render_scale) as u32;
     let (width, height) = constraints.calculate_dimensions(svg_width, svg_height);
 
     let mut render_ctx = RenderContext::new(width as u16, height as u16);
-    render_svg(&mut render_ctx, scale, &parsed.items);
+    render_svg(&mut render_ctx, render_scale, &parsed.items);
 
     let render_data = render_ctx.prepare_render_data();
 

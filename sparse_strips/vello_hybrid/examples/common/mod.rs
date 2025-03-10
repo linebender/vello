@@ -7,7 +7,6 @@ use vello_hybrid::RenderContext;
 // Define a render function that works with our pico_svg::Item type
 pub fn render_svg(ctx: &mut RenderContext, scale: f64, items: &[Item]) {
     ctx.set_transform(Affine::scale(scale));
-
     for item in items {
         match item {
             Item::Fill(fill_item) => {

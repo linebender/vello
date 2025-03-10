@@ -7,12 +7,11 @@
 
 //! SVG example for hybrid renderer
 
-mod pico_svg;
+mod common;
 
 use std::io::BufWriter;
 
-use kurbo::{Affine, Stroke};
-use pico_svg::{Item, PicoSvg};
+use common::{pico_svg::PicoSvg, render_svg};
 use vello_cpu::pixmap::Pixmap;
 use vello_hybrid::RenderContext;
 
@@ -31,7 +30,7 @@ pub fn main() {
     let mut pixmap = Pixmap::new(WIDTH as u16, HEIGHT as u16);
     ctx.reset();
     let start = std::time::Instant::now();
-    render_svg(&mut ctx, &parsed.items);
+    render_svg(&mut ctx, 5.0, &parsed.items);
     let coarse_time = start.elapsed();
     ctx.render_to_pixmap(&mut pixmap);
     println!(
@@ -45,26 +44,4 @@ pub fn main() {
     encoder.set_color(png::ColorType::Rgba);
     let mut writer = encoder.write_header().unwrap();
     writer.write_image_data(pixmap.data()).unwrap();
-}
-
-fn render_svg(ctx: &mut RenderContext, items: &[Item]) {
-    ctx.set_transform(Affine::scale(5.0));
-    for item in items {
-        match item {
-            Item::Fill(fill_item) => {
-                ctx.set_paint(fill_item.color.into());
-                ctx.fill_path(&fill_item.path.path);
-            }
-            Item::Stroke(stroke_item) => {
-                let style = Stroke::new(stroke_item.width);
-                ctx.set_stroke(style);
-                ctx.set_paint(stroke_item.color.into());
-                ctx.stroke_path(&stroke_item.path.path);
-            }
-            Item::Group(group_item) => {
-                // TODO: apply transform from group
-                render_svg(ctx, &group_item.children);
-            }
-        }
-    }
 }

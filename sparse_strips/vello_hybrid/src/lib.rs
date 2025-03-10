@@ -8,11 +8,11 @@
 
 pub mod common;
 mod gpu;
-mod gpu2;
-#[cfg(feature = "perf_measurement")]
-mod perf_measurement;
 mod render;
 pub mod utils;
+
+#[cfg(feature = "perf_measurement")]
+mod perf_measurement;
 
 pub use gpu::{Config, RenderData, RenderTarget, Renderer};
 #[cfg(feature = "perf_measurement")]
