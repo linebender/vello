@@ -10,7 +10,8 @@ mod common;
 
 use std::io::BufWriter;
 
-use common::{pico_svg::PicoSvg, render_svg};
+use common::render_svg;
+use vello_common::pico_svg::PicoSvg;
 use vello_common::pixmap::Pixmap;
 use vello_hybrid::RenderContext;
 

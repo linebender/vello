@@ -5,9 +5,9 @@
 
 mod common;
 
-use common::pico_svg::PicoSvg;
 use common::render_svg;
 use std::io::BufWriter;
+use vello_common::pico_svg::PicoSvg;
 use vello_common::pixmap::Pixmap;
 use vello_hybrid::{DimensionConstraints, RenderContext};
 

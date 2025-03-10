@@ -7,8 +7,8 @@ mod common;
 
 use std::sync::Arc;
 
-use common::pico_svg::PicoSvg;
 use common::render_svg;
+use vello_common::pico_svg::PicoSvg;
 use vello_hybrid::{DimensionConstraints, RenderContext, RenderTarget, Renderer};
 use winit::{
     event::{Event, WindowEvent},

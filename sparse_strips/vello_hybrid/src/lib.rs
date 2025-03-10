@@ -30,8 +30,6 @@
 //!
 //! See the individual module documentation for more details on usage and implementation.
 
-/// Common types and utilities shared internally
-pub mod common;
 mod gpu;
 mod render;
 /// Utility functions and types

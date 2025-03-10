@@ -15,6 +15,7 @@ mod footprint;
 
 pub mod coarse;
 pub mod flatten;
+pub mod pico_svg;
 pub mod pixmap;
 pub mod strip;
 pub mod tile;

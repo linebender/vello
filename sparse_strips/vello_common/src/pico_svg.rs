@@ -1,4 +1,4 @@
-// Copyright 2025 the Vello Authors
+// Copyright 2024 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 // Below is copied, lightly adapted, from Vello.
@@ -12,14 +12,12 @@
 use std::str::FromStr;
 
 use kurbo::{Affine, BezPath, Point, Size, Vec2};
-use peniko::{Color, color::palette};
+use peniko::color::{AlphaColor, DynamicColor, Srgb, palette};
 use roxmltree::{Document, Node};
-
-use vello_hybrid::common::Path;
 
 /// A simplified representation of an SVG document
 #[derive(Debug)]
-pub(crate) struct PicoSvg {
+pub struct PicoSvg {
     /// The items (shapes, groups) contained in the SVG
     pub items: Vec<Item>,
     /// The size of the SVG document
@@ -28,7 +26,7 @@ pub(crate) struct PicoSvg {
 
 /// Represents a single item in an SVG document
 #[derive(Debug)]
-pub(crate) enum Item {
+pub enum Item {
     /// A filled shape
     Fill(FillItem),
     /// A stroked shape
@@ -39,41 +37,40 @@ pub(crate) enum Item {
 
 /// A stroke item with styling information
 #[derive(Debug)]
-pub(crate) struct StrokeItem {
+pub struct StrokeItem {
     /// The width of the stroke
     pub width: f64,
     /// The color of the stroke
-    pub color: Color,
+    pub color: AlphaColor<Srgb>,
     /// The path to be stroked
-    pub path: Path,
+    pub path: BezPath,
 }
 
 /// A fill item with styling information
 #[derive(Debug)]
-pub(crate) struct FillItem {
+pub struct FillItem {
     /// The color to fill with
-    pub color: Color,
+    pub color: AlphaColor<Srgb>,
     /// The path to be filled
-    pub path: Path,
+    pub path: BezPath,
 }
 
 /// A group of items that can be transformed together
 #[derive(Debug)]
-pub(crate) struct GroupItem {
+pub struct GroupItem {
     /// The affine transformation to apply to all children
-    #[allow(dead_code)]
     pub affine: Affine,
     /// The child items in this group
     pub children: Vec<Item>,
 }
 
-/// Parser for SVG files
 struct Parser {
     scale: f64,
 }
 
 impl PicoSvg {
-    pub(crate) fn load(xml_string: &str, scale: f64) -> Result<Self, Box<dyn std::error::Error>> {
+    /// Load an SVG document from a string
+    pub fn load(xml_string: &str, scale: f64) -> Result<Self, Box<dyn std::error::Error>> {
         let doc = Document::parse(xml_string)?;
         let root = doc.root_element();
         let mut parser = Parser::new(scale);
@@ -86,14 +83,8 @@ impl PicoSvg {
                     .split(' ')
                     .map(|s| f64::from_str(s).unwrap())
                     .collect();
-                if let &[x, y, vb_width, vb_height] = vs.as_slice() {
-                    Some((
-                        Point { x, y },
-                        Size {
-                            width: vb_width,
-                            height: vb_height,
-                        },
-                    ))
+                if let &[x, y, width, height] = vs.as_slice() {
+                    Some((Point { x, y }, Size { width, height }))
                 } else {
                     None
                 }
@@ -139,7 +130,7 @@ impl PicoSvg {
             Affine::new([-scale, 0.0, 0.0, scale, 0.0, 0.0])
         };
         let props = RecursiveProperties {
-            fill: Some(Color::BLACK),
+            fill: Some(palette::css::BLACK),
         };
         // The root element is the svg document element, which we don't care about
         let mut items = Vec::new();
@@ -159,7 +150,7 @@ impl PicoSvg {
 
 #[derive(Clone)]
 struct RecursiveProperties {
-    fill: Option<Color>,
+    fill: Option<AlphaColor<Srgb>>,
 }
 
 impl Parser {
@@ -201,7 +192,7 @@ impl Parser {
                 "path" => {
                     let d = node.attribute("d").ok_or("missing 'd' attribute")?;
                     let bp = BezPath::from_svg(d)?;
-                    let path: Path = bp.into();
+                    let path = bp;
                     if let Some(color) = properties.fill {
                         items.push(Item::Fill(FillItem {
                             color,
@@ -294,24 +285,26 @@ fn parse_transform(transform: &str) -> Affine {
     nt
 }
 
-fn parse_color(color: &str) -> Color {
+fn parse_color(color: &str) -> AlphaColor<Srgb> {
     let color = color.trim();
-    if let Ok(c) = peniko::color::parse_color(color) {
-        c.to_alpha_color()
-    } else {
-        palette::css::MAGENTA.with_alpha(0.5)
-    }
+    peniko::color::parse_color(color.trim())
+        .map(DynamicColor::to_alpha_color)
+        .unwrap_or(palette::css::FUCHSIA.with_alpha(0.5))
 }
 
-fn modify_opacity(color: Color, attr_name: &str, node: Node<'_, '_>) -> Color {
+fn modify_opacity(
+    color: AlphaColor<Srgb>,
+    attr_name: &str,
+    node: Node<'_, '_>,
+) -> AlphaColor<Srgb> {
     if let Some(opacity) = node.attribute(attr_name) {
-        let alpha: f64 = if let Some(o) = opacity.strip_suffix('%') {
+        let alpha: f32 = if let Some(o) = opacity.strip_suffix('%') {
             let pctg = o.parse().unwrap_or(100.0);
             pctg * 0.01
         } else {
             opacity.parse().unwrap_or(1.0)
         };
-        color.with_alpha(alpha as f32)
+        color.with_alpha(alpha.clamp(0., 1.))
     } else {
         color
     }
