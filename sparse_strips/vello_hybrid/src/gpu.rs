@@ -1,7 +1,17 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! The GPU parts of a hybrid CPU/GPU rendering engine.
+//! GPU rendering module for the sparse strips CPU/GPU rendering engine.
+//!
+//! This module provides the GPU-side implementation of the hybrid rendering system.
+//! It handles:
+//! - GPU resource management (buffers, textures, pipelines)
+//! - Surface/window management and presentation
+//! - Shader execution and rendering
+//! - Performance measurement (when enabled)
+//!
+//! The hybrid approach combines CPU-side path processing with efficient GPU rendering
+//! to balance flexibility and performance.
 
 #[cfg(feature = "perf_measurement")]
 use crate::perf_measurement::PerfMeasurement;
@@ -15,71 +25,106 @@ use wgpu::{
 use winit::window::Window;
 
 /// Represents the target for rendering - either a window or specific dimensions
+#[derive(Debug)]
 pub enum RenderTarget {
     /// Render to a window
     Window(Arc<Window>),
     /// Render to a texture with specific dimensions
-    Headless { width: u32, height: u32 },
+    Headless {
+        /// Width of the texture in pixels
+        width: u32,
+        /// Height of the texture in pixels
+        height: u32,
+    },
 }
 
 impl RenderTarget {
     /// Get the dimensions of the render target
     pub fn dimensions(&self) -> (u32, u32) {
         match self {
-            RenderTarget::Window(window) => {
+            Self::Window(window) => {
                 let size = window.inner_size();
                 (size.width, size.height)
             }
-            RenderTarget::Headless { width, height } => (*width, *height),
+            Self::Headless { width, height } => (*width, *height),
         }
     }
 }
 
+/// GPU renderer for the hybrid rendering system
+#[derive(Debug)]
 pub struct Renderer {
+    /// The GPU device
     pub device: Device,
+    /// Command queue for the GPU
     pub queue: Queue,
-    #[allow(dead_code)]
+    /// Surface for presenting rendered content, if applicable
     pub surface: Option<Surface<'static>>,
+    /// Configuration for the surface
     pub surface_config: SurfaceConfiguration,
+    /// Bind group layout for rendering
     pub render_bind_group_layout: BindGroupLayout,
+    /// Pipeline for rendering
     pub render_pipeline: RenderPipeline,
+    /// Bind group for rendering
     pub render_bind_group: BindGroup,
+    /// Buffer for configuration data
     pub config_buf: Buffer,
+    /// Buffer for strip data
     pub strips_buffer: Buffer,
+    /// Texture for alpha values
     pub alphas_texture: Texture,
+    /// View of the alphas texture
     pub alphas_texture_view: TextureView,
 
-    // Performance measurement with timestamp queries
+    /// Performance measurement utilities when enabled
     #[cfg(feature = "perf_measurement")]
-    pub perf_measurement: PerfMeasurement,
+    pub(crate) perf_measurement: PerfMeasurement,
 }
 
+/// Configuration for the GPU renderer
 #[repr(C)]
-#[derive(Copy, Clone, Pod, Zeroable)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub struct Config {
+    /// Width of the rendering target
     pub width: u32,
+    /// Height of the rendering target
     pub height: u32,
+    /// Height of a strip in the rendering
     pub strip_height: u32,
+    /// Width of the alpha texture
     pub alpha_texture_width: u32,
 }
 
+/// Contains the data needed for rendering
+#[derive(Debug, Default)]
 pub struct RenderData {
+    /// GPU strips to be rendered
     pub strips: Vec<GpuStrip>,
+    /// Alpha values used in rendering
     pub alphas: Vec<u32>,
 }
 
+/// Represents a GPU strip for rendering
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Zeroable, Pod)]
 pub struct GpuStrip {
+    /// X coordinate of the strip
     pub x: u16,
+    /// Y coordinate of the strip
     pub y: u16,
+    /// Width of the strip
     pub width: u16,
+    /// Width of the portion where alpha blending should be applied.
     pub dense_width: u16,
+    /// Index into the alpha texture where this strip's alpha values begin.
     pub col: u32,
+    /// RGBA color value
     pub rgba: u32,
 }
 
 impl GpuStrip {
+    /// Vertex attributes for the strip
     pub fn vertex_attributes() -> [wgpu::VertexAttribute; 4] {
         wgpu::vertex_attr_array![
             0 => Uint32,
@@ -266,8 +311,7 @@ impl Renderer {
         // We pack the alpha values into a 2D texture with max width imension
         let alpha_len = render_data.alphas.len();
         let alpha_texture_width = config.alpha_texture_width;
-        let alpha_texture_height =
-            ((alpha_len as u32) + alpha_texture_width - 1) / alpha_texture_width;
+        let alpha_texture_height = (alpha_len as u32).div_ceil(alpha_texture_width);
 
         // Ensure dimensions don't exceed WebGL2 limits
         assert!(
@@ -293,7 +337,7 @@ impl Renderer {
             alphas_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         // Prepare alpha data for the texture
-        let mut alpha_data = vec![0u32; (alpha_texture_width * alpha_texture_height) as usize];
+        let mut alpha_data = vec![0_u32; (alpha_texture_width * alpha_texture_height) as usize];
 
         // Fill the buffer with alpha data
         for (idx, alpha) in render_data.alphas.iter().enumerate() {
@@ -358,10 +402,12 @@ impl Renderer {
         }
     }
 
-    pub fn prepare(&self, render_data: &RenderData) {
+    /// Prepare the GPU buffers for rendering
+    pub fn prepare(&self, _render_data: &RenderData) {
         // TODO: update buffers
     }
 
+    /// Render to the surface
     pub fn render_to_surface(&self, render_data: &RenderData) {
         let Some(surface) = &self.surface else {
             // Cannot render to surface in headless mode
@@ -419,6 +465,7 @@ impl Renderer {
         frame.present();
     }
 
+    /// Render to a texture
     pub fn render_to_texture(&self, render_data: &RenderData, width: u32, height: u32) -> Vec<u8> {
         // Create a texture to render to
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {

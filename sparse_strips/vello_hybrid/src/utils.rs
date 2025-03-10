@@ -1,11 +1,15 @@
-// Copyright 2024 the Vello Authors
+// Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use std::default::Default;
 use std::ops::RangeInclusive;
 
 /// Represents dimension constraints for surfaces
+#[derive(Debug)]
 pub struct DimensionConstraints {
+    /// The valid range for width, inclusive of min and max values
     pub width_range: RangeInclusive<u32>,
+    /// The valid range for height, inclusive of min and max values
     pub height_range: RangeInclusive<u32>,
 }
 
@@ -15,14 +19,6 @@ impl DimensionConstraints {
         Self {
             width_range: min_width..=max_width,
             height_range: min_height..=max_height,
-        }
-    }
-
-    /// Default constraints
-    pub fn default() -> Self {
-        Self {
-            width_range: 100..=2000,
-            height_range: 100..=2000,
         }
     }
 
@@ -59,6 +55,16 @@ impl DimensionConstraints {
             )
         } else {
             (original_width, original_height)
+        }
+    }
+}
+
+impl Default for DimensionConstraints {
+    /// Creates default constraints with reasonable values
+    fn default() -> Self {
+        Self {
+            width_range: 100..=2000,
+            height_range: 100..=2000,
         }
     }
 }

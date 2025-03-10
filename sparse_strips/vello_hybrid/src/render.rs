@@ -17,9 +17,13 @@ use vello_cpu::fine::Fine;
 use vello_cpu::pixmap::Pixmap;
 use vello_cpu::util::ColorExt;
 
+/// Default tolerance for curve flattening
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
 
-/// A render context.
+/// A render context for hybrid CPU/GPU rendering.
+///
+/// This context maintains the state for path rendering and manages the rendering
+/// pipeline from paths to strips that can be rendered by the GPU.
 #[derive(Debug)]
 pub struct RenderContext {
     pub(crate) width: usize,
@@ -75,64 +79,64 @@ impl RenderContext {
         }
     }
 
-    /// Fill a path.
+    /// Fill a path with the current paint and fill rule.
     pub fn fill_path(&mut self, path: &BezPath) {
         flatten::fill(path, self.transform, &mut self.line_buf);
         self.render_path(self.fill_rule, self.paint.clone());
     }
 
-    /// Stroke a path.
+    /// Stroke a path with the current paint and stroke settings.
     pub fn stroke_path(&mut self, path: &BezPath) {
         flatten::stroke(path, &self.stroke, self.transform, &mut self.line_buf);
         self.render_path(Fill::NonZero, self.paint.clone());
     }
 
-    /// Fill a rectangle.
+    /// Fill a rectangle with the current paint and fill rule.
     pub fn fill_rect(&mut self, rect: &Rect) {
         self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
     }
 
-    /// Stroke a rectangle.
+    /// Stroke a rectangle with the current paint and stroke settings.
     pub fn stroke_rect(&mut self, rect: &Rect) {
         self.stroke_path(&rect.to_path(DEFAULT_TOLERANCE));
     }
 
-    /// Set the current blend mode.
+    /// Set the blend mode for subsequent rendering operations.
     pub fn set_blend_mode(&mut self, blend_mode: BlendMode) {
         self.blend_mode = blend_mode;
     }
 
-    /// Set the current stroke.
+    /// Set the stroke settings for subsequent stroke operations.
     pub fn set_stroke(&mut self, stroke: Stroke) {
         self.stroke = stroke;
     }
 
-    /// Set the current paint.
+    /// Set the paint for subsequent rendering operations.
     pub fn set_paint(&mut self, paint: Paint) {
         self.paint = paint;
     }
 
-    /// Set the current fill rule.
+    /// Set the fill rule for subsequent fill operations.
     pub fn set_fill_rule(&mut self, fill_rule: Fill) {
         self.fill_rule = fill_rule;
     }
 
-    /// Set the current transform.
+    /// Set the transform for subsequent rendering operations.
     pub fn set_transform(&mut self, transform: Affine) {
         self.transform = transform;
     }
 
-    /// Reset the current transform.
+    /// Reset the transform to identity.
     pub fn reset_transform(&mut self) {
         self.transform = Affine::IDENTITY;
     }
 
-    /// Reset the render context.
+    /// Reset all rendering state to default values.
     pub fn reset(&mut self) {
         self.wide.reset();
     }
 
-    /// Render the current context into a pixmap.
+    /// Render the current content to a pixmap.
     pub fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
         // TODO: Use u16 here, too, instead of casting.
         let mut fine = Fine::new(
@@ -156,12 +160,12 @@ impl RenderContext {
         }
     }
 
-    /// Return the width of the pixmap.
+    /// Get the width of the render context.
     pub fn width(&self) -> u16 {
         self.width as u16
     }
 
-    /// Return the height of the pixmap.
+    /// Get the height of the render context.
     pub fn height(&self) -> u16 {
         self.height as u16
     }
@@ -183,6 +187,10 @@ impl RenderContext {
 }
 
 impl RenderContext {
+    /// Prepares render data from the current context for GPU rendering
+    ///
+    /// This method converts the rendering context's state into a format
+    /// suitable for GPU rendering, including strips and alpha values.
     pub fn prepare_render_data(&self) -> RenderData {
         let mut strips: Vec<GpuStrip> = Vec::new();
         let width_tiles = (self.width).div_ceil(WIDE_TILE_WIDTH);

@@ -7,7 +7,8 @@ use std::sync::Mutex;
 use wgpu::{Buffer, BufferUsages, CommandEncoder, Device, QuerySet, QueryType, Queue};
 
 /// Handles performance measurement using GPU timestamp queries
-pub struct PerfMeasurement {
+#[derive(Debug)]
+pub(crate) struct PerfMeasurement {
     pub timestamp_query_set: QuerySet,
     pub timestamp_buffer: Buffer,
     pub readback_buffer: Mutex<Option<Buffer>>,
@@ -16,7 +17,7 @@ pub struct PerfMeasurement {
 }
 
 impl PerfMeasurement {
-    pub fn new(device: &Device) -> Self {
+    pub(crate) fn new(device: &Device) -> Self {
         let timestamp_query_set = device.create_query_set(&wgpu::QuerySetDescriptor {
             label: Some("Timestamp QuerySet"),
             ty: QueryType::Timestamp,
@@ -42,12 +43,12 @@ impl PerfMeasurement {
     }
 
     /// Write timestamp in a command encoder
-    pub fn write_timestamp(&self, encoder: &mut CommandEncoder, query_index: u32) {
+    pub(crate) fn write_timestamp(&self, encoder: &mut CommandEncoder, query_index: u32) {
         encoder.write_timestamp(&self.timestamp_query_set, query_index);
     }
 
     /// Resolve timestamp queries to buffer
-    pub fn resolve_timestamp_queries(&self, encoder: &mut CommandEncoder, device: &Device) {
+    pub(crate) fn resolve_timestamp_queries(&self, encoder: &mut CommandEncoder, device: &Device) {
         encoder.resolve_query_set(&self.timestamp_query_set, 0..2, &self.timestamp_buffer, 0);
 
         let readback_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -66,7 +67,7 @@ impl PerfMeasurement {
     }
 
     /// Map and read the timestamp buffer
-    pub fn map_and_read_timestamp_buffer(&self, device: &Device, queue: &Queue) {
+    pub(crate) fn map_and_read_timestamp_buffer(&self, device: &Device, queue: &Queue) {
         if let Ok(mut opt_buffer) = self.readback_buffer.lock() {
             if let Some(buffer) = opt_buffer.take() {
                 // Map the buffer and read the timestamps

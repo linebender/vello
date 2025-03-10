@@ -1,8 +1,13 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 // Below is copied, lightly adapted, from Vello.
 
-#![allow(missing_docs, reason = "will add them later")]
-#![allow(missing_debug_implementations, reason = "prototyping")]
-#![allow(clippy::cast_possible_truncation, reason = "we're doing it on purpose")]
+//! A minimal SVG parser for rendering examples
+//!
+//! This module provides a simple SVG parser to load and render SVG files
+//! for demonstration purposes. It supports basic SVG features like paths,
+//! fill, stroke, and grouping.
 
 use std::str::FromStr;
 
@@ -12,54 +17,63 @@ use roxmltree::{Document, Node};
 
 use vello_hybrid::common::Path;
 
-pub fn main() {
-    let args: Vec<String> = std::env::args().collect();
-    let file_path = &args[1];
-    let svg = std::fs::read_to_string(file_path).expect("Failed to read SVG file");
-    let pico_svg = PicoSvg::load(&svg, 1.0).expect("Failed to parse SVG");
-    println!("{:#?}", pico_svg);
-}
-
+/// A simplified representation of an SVG document
 #[derive(Debug)]
-pub struct PicoSvg {
+pub(crate) struct PicoSvg {
+    /// The items (shapes, groups) contained in the SVG
     pub items: Vec<Item>,
-    #[allow(unused, reason = "functionality NYI")]
+    /// The size of the SVG document
     pub size: Size,
 }
 
+/// Represents a single item in an SVG document
 #[derive(Debug)]
-pub enum Item {
+pub(crate) enum Item {
+    /// A filled shape
     Fill(FillItem),
+    /// A stroked shape
     Stroke(StrokeItem),
+    /// A group of items
     Group(GroupItem),
 }
 
+/// A stroke item with styling information
 #[derive(Debug)]
-pub struct StrokeItem {
+pub(crate) struct StrokeItem {
+    /// The width of the stroke
     pub width: f64,
+    /// The color of the stroke
     pub color: Color,
+    /// The path to be stroked
     pub path: Path,
 }
 
+/// A fill item with styling information
 #[derive(Debug)]
-pub struct FillItem {
+pub(crate) struct FillItem {
+    /// The color to fill with
     pub color: Color,
+    /// The path to be filled
     pub path: Path,
 }
 
+/// A group of items that can be transformed together
 #[derive(Debug)]
-pub struct GroupItem {
-    #[allow(unused, reason = "functionality NYI")]
+pub(crate) struct GroupItem {
+    /// The affine transformation to apply to all children
+    #[allow(dead_code)]
     pub affine: Affine,
+    /// The child items in this group
     pub children: Vec<Item>,
 }
 
+/// Parser for SVG files
 struct Parser {
     scale: f64,
 }
 
 impl PicoSvg {
-    pub fn load(xml_string: &str, scale: f64) -> Result<Self, Box<dyn std::error::Error>> {
+    pub(crate) fn load(xml_string: &str, scale: f64) -> Result<Self, Box<dyn std::error::Error>> {
         let doc = Document::parse(xml_string)?;
         let root = doc.root_element();
         let mut parser = Parser::new(scale);

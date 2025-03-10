@@ -1,9 +1,5 @@
-// Copyright 2024 the Vello Authors
+// Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
-
-#![allow(missing_docs, reason = "will add them later")]
-#![allow(missing_debug_implementations, reason = "prototyping")]
-#![allow(clippy::cast_possible_truncation, reason = "we're doing it on purpose")]
 
 //! SVG example for hybrid renderer
 
@@ -31,12 +27,12 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
     let mut args = std::env::args().skip(1);
     let svg_filename: String = args.next().expect("svg filename is first arg");
     let svg = std::fs::read_to_string(svg_filename).expect("error reading file");
-    let scale = 5.0;
+    let render_scale = 5.0;
     let parsed = PicoSvg::load(&svg, 1.0).expect("error parsing SVG");
 
     let constraints = DimensionConstraints::default();
-    let svg_width = (parsed.size.width * scale) as u32;
-    let svg_height = (parsed.size.height * scale) as u32;
+    let svg_width = (parsed.size.width * render_scale) as u32;
+    let svg_height = (parsed.size.height * render_scale) as u32;
     let (width, height) = constraints.calculate_dimensions(svg_width, svg_height);
 
     let _ = window.request_inner_size(winit::dpi::PhysicalSize::new(width, height));
@@ -45,7 +41,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
     let width = window.inner_size().width;
     let height = window.inner_size().height;
     let mut render_ctx = RenderContext::new(width as u16, height as u16);
-    render_svg(&mut render_ctx, scale, &parsed.items);
+    render_svg(&mut render_ctx, render_scale, &parsed.items);
 
     let render_data = render_ctx.prepare_render_data();
     let renderer = Renderer::new(RenderTarget::Window(window.clone()), &render_data).await;

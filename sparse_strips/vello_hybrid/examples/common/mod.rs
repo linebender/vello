@@ -1,11 +1,14 @@
-pub mod pico_svg;
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+pub(crate) mod pico_svg;
 
 use kurbo::Affine;
 use pico_svg::Item;
 use vello_hybrid::RenderContext;
 
 // Define a render function that works with our pico_svg::Item type
-pub fn render_svg(ctx: &mut RenderContext, scale: f64, items: &[Item]) {
+pub(crate) fn render_svg(ctx: &mut RenderContext, scale: f64, items: &[Item]) {
     ctx.set_transform(Affine::scale(scale));
     for item in items {
         match item {
@@ -26,6 +29,3 @@ pub fn render_svg(ctx: &mut RenderContext, scale: f64, items: &[Item]) {
         }
     }
 }
-
-// Remove duplicate re-export
-// pub use vello_hybrid::utils::render_svg;

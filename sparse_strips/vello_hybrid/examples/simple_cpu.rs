@@ -1,8 +1,10 @@
-// Copyright 2024 the Vello Authors
+// Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-#![allow(missing_docs, reason = "will add them later")]
-#![allow(clippy::cast_possible_truncation, reason = "we're doing it on purpose")]
+//! Simple rendering example for the sparse strips CPU renderer
+//!
+//! This example demonstrates drawing basic shapes using the sparse strips CPU renderer.
+//! It creates a simple scene with various shapes and exports it as a PNG.
 
 use std::io::BufWriter;
 
@@ -49,15 +51,12 @@ fn draw_simple_scene(ctx: &mut RenderContext) {
     path.line_to((180.0, 20.0));
     path.line_to((30.0, 180.0));
     path.close_path();
-    // Note: we plan to change the API to have `into`.
     let piet_path = path.into();
     let stroke = Stroke::new(5.0);
     ctx.set_transform(Affine::scale(5.0));
     ctx.set_stroke(stroke);
     ctx.set_paint(palette::css::DARK_BLUE.into());
-    // ctx.stroke(&piet_path, &stroke, palette::css::DARK_BLUE.into());
     ctx.stroke_path(&piet_path);
     ctx.set_paint(palette::css::REBECCA_PURPLE.into());
-    // ctx.fill(&piet_path, palette::css::REBECCA_PURPLE.into());
     ctx.fill_path(&piet_path);
 }

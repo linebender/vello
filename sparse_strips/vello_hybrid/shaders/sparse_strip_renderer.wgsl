@@ -1,8 +1,14 @@
 // Copyright 2024 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-// A simple render pipeline for solid color sparse strip rendering.
-// Each instance draws one strip consisting of alpha values (dense_width) then a solid region.
+// A WGSL shader for rendering sparse strips with alpha blending.
+//
+// Each strip instance represents a horizontal slice of the rendered output and consists of:
+// 1. A variable-width region of alpha values for semi-transparent rendering
+// 2. A solid color region for fully opaque areas
+//
+// The alpha values are stored in a texture and sampled during fragment shading.
+// This approach optimizes memory usage by only storing alpha data where needed.
 
 struct Config {
     width: u32,

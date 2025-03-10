@@ -32,9 +32,9 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
         window.inner_size().height as u16,
     );
     draw_simple_scene(&mut render_ctx);
-    let bufs = render_ctx.prepare_render_data();
-    let renderer = Renderer::new(RenderTarget::Window(window), &bufs).await;
-    renderer.prepare(&bufs);
+    let render_data = render_ctx.prepare_render_data();
+    let renderer = Renderer::new(RenderTarget::Window(window), &render_data).await;
+    renderer.prepare(&render_data);
 
     event_loop
         .run(move |event, target| {
@@ -45,7 +45,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
             {
                 match window_event {
                     WindowEvent::RedrawRequested => {
-                        renderer.render_to_surface(&bufs);
+                        renderer.render_to_surface(&render_data);
                         window_clone.request_redraw();
                     }
                     WindowEvent::CloseRequested => {
