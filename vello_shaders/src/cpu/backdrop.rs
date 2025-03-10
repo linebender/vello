@@ -5,7 +5,12 @@ use vello_encoding::{BumpAllocators, ConfigUniform, Path, Tile};
 
 use super::CpuBinding;
 
-fn backdrop_main(config: &ConfigUniform, _: &BumpAllocators, paths: &[Path], tiles: &mut [Tile]) {
+pub fn backdrop_main(
+    config: &ConfigUniform,
+    _: &BumpAllocators,
+    paths: &[Path],
+    tiles: &mut [Tile],
+) {
     for drawobj_ix in 0..config.layout.n_draw_objects {
         let path = paths[drawobj_ix as usize];
         let width = path.bbox[2] - path.bbox[0];

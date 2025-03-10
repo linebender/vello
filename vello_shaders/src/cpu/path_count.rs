@@ -10,7 +10,7 @@ use super::{
 
 const TILE_SCALE: f32 = 1.0 / 16.0;
 
-fn path_count_main(
+pub fn path_count_main(
     bump: &mut BumpAllocators,
     lines: &[LineSoup],
     paths: &[Path],
