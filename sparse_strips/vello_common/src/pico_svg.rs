@@ -74,8 +74,8 @@ impl PicoSvg {
         let doc = Document::parse(xml_string)?;
         let root = doc.root_element();
         let mut parser = Parser::new(scale);
-        let width = root.attribute("width").and_then(|s| f64::from_str(s).ok());
-        let height = root.attribute("height").and_then(|s| f64::from_str(s).ok());
+        let root_width = root.attribute("width").and_then(|s| f64::from_str(s).ok());
+        let root_height = root.attribute("height").and_then(|s| f64::from_str(s).ok());
         let (origin, viewbox_size) = root
             .attribute("viewBox")
             .and_then(|vb_attr| {
@@ -97,7 +97,7 @@ impl PicoSvg {
             Affine::IDENTITY
         };
 
-        transform *= match (width, height, viewbox_size) {
+        transform *= match (root_width, root_height, viewbox_size) {
             (None, None, Some(_)) => Affine::IDENTITY,
             (Some(w), Some(h), Some(s)) => {
                 Affine::scale_non_uniform(1.0 / s.width * w, 1.0 / s.height * h)
@@ -107,7 +107,7 @@ impl PicoSvg {
             _ => Affine::IDENTITY,
         };
 
-        let size = match (width, height, viewbox_size) {
+        let size = match (root_width, root_height, viewbox_size) {
             (None, None, Some(s)) => s,
             (mw, mh, None) => Size {
                 width: mw.unwrap_or(300_f64),

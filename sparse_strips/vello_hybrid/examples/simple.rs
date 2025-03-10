@@ -30,6 +30,10 @@ fn main() {
     pollster::block_on(run(event_loop, window));
 }
 
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "Width and height are expected to fit within u16 range"
+)]
 async fn run(event_loop: EventLoop<()>, window: Window) {
     let window = Arc::new(window);
     let window_clone = window.clone();
@@ -70,12 +74,11 @@ fn draw_simple_scene(ctx: &mut RenderContext) {
     path.line_to((180.0, 20.0));
     path.line_to((30.0, 40.0));
     path.close_path();
-    let piet_path = path.into();
     ctx.set_transform(Affine::scale(5.0));
     ctx.set_paint(palette::css::REBECCA_PURPLE.into());
-    ctx.fill_path(&piet_path);
+    ctx.fill_path(&path);
     let stroke = Stroke::new(1.0);
     ctx.set_paint(palette::css::DARK_BLUE.into());
     ctx.set_stroke(stroke);
-    ctx.stroke_path(&piet_path);
+    ctx.stroke_path(&path);
 }

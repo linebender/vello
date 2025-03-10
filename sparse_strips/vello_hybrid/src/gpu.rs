@@ -400,7 +400,8 @@ impl Renderer {
 
         let alpha_len = render_data.alphas.len();
         let alpha_texture_width = config.alpha_texture_width;
-        let alpha_texture_height = (alpha_len as u32).div_ceil(alpha_texture_width);
+        let alpha_texture_height =
+            (u32::try_from(alpha_len).unwrap()).div_ceil(alpha_texture_width);
 
         let current_width = self.alphas_texture.width();
         let current_height = self.alphas_texture.height();
@@ -446,9 +447,9 @@ impl Renderer {
         }
 
         // Prepare alpha data for the texture
-        let alpha_texture_width = self.alphas_texture.width();
-        let alpha_texture_height = self.alphas_texture.height();
-        let mut alpha_data = vec![0_u32; (alpha_texture_width * alpha_texture_height) as usize];
+        let texture_width = self.alphas_texture.width();
+        let texture_height = self.alphas_texture.height();
+        let mut alpha_data = vec![0_u32; (texture_width * texture_height) as usize];
 
         // Fill the buffer with alpha data
         for (idx, alpha) in render_data.alphas.iter().enumerate() {
@@ -468,12 +469,12 @@ impl Renderer {
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 // 4 bytes per u32
-                bytes_per_row: Some(alpha_texture_width * 4),
-                rows_per_image: Some(alpha_texture_height),
+                bytes_per_row: Some(texture_width * 4),
+                rows_per_image: Some(texture_height),
             },
             wgpu::Extent3d {
-                width: alpha_texture_width,
-                height: alpha_texture_height,
+                width: texture_width,
+                height: texture_height,
                 depth_or_array_layers: 1,
             },
         );
@@ -519,7 +520,7 @@ impl Renderer {
             render_pass.set_bind_group(0, &self.render_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.strips_buffer.slice(..));
             let strips_to_draw = render_data.strips.len();
-            render_pass.draw(0..4, 0..strips_to_draw as u32);
+            render_pass.draw(0..4, 0..u32::try_from(strips_to_draw).unwrap());
         }
 
         #[cfg(feature = "perf_measurement")]
@@ -591,7 +592,7 @@ impl Renderer {
             render_pass.set_bind_group(0, &self.render_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.strips_buffer.slice(..));
             let strips_to_draw = render_data.strips.len();
-            render_pass.draw(0..4, 0..strips_to_draw as u32);
+            render_pass.draw(0..4, 0..u32::try_from(strips_to_draw).unwrap());
         }
 
         #[cfg(feature = "perf_measurement")]

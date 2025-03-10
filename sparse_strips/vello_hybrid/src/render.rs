@@ -159,11 +159,19 @@ impl RenderContext {
     }
 
     /// Get the width of the render context.
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "Width is expected to fit within u16 range"
+    )]
     pub fn width(&self) -> u16 {
         self.width as u16
     }
 
     /// Get the height of the render context.
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "Height is expected to fit within u16 range"
+    )]
     pub fn height(&self) -> u16 {
         self.height as u16
     }
@@ -189,6 +197,10 @@ impl RenderContext {
     ///
     /// This method converts the rendering context's state into a format
     /// suitable for GPU rendering, including strips and alpha values.
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "GpuStrip fields use u16 and values are expected to fit within that range"
+    )]
     pub fn prepare_render_data(&self) -> RenderData {
         let mut strips: Vec<GpuStrip> = Vec::new();
         let width_tiles = (self.width).div_ceil(WIDE_TILE_WIDTH);

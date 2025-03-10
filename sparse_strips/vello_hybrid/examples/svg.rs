@@ -29,6 +29,10 @@ fn main() {
     pollster::block_on(run(event_loop, window));
 }
 
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "Width and height are expected to fit within u16 range"
+)]
 async fn run(event_loop: EventLoop<()>, window: Window) {
     let mut args = std::env::args().skip(1);
     let svg_filename: String = args.next().expect("svg filename is first arg");
@@ -37,15 +41,13 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
     let parsed = PicoSvg::load(&svg, 1.0).expect("error parsing SVG");
 
     let constraints = DimensionConstraints::default();
-    let svg_width = (parsed.size.width * render_scale) as u32;
-    let svg_height = (parsed.size.height * render_scale) as u32;
+    let svg_width = parsed.size.width * render_scale;
+    let svg_height = parsed.size.height * render_scale;
     let (width, height) = constraints.calculate_dimensions(svg_width, svg_height);
 
     let _ = window.request_inner_size(winit::dpi::PhysicalSize::new(width, height));
 
     let window = Arc::new(window);
-    let width = window.inner_size().width;
-    let height = window.inner_size().height;
     let mut render_ctx = RenderContext::new(width as u16, height as u16);
     render_svg(&mut render_ctx, render_scale, &parsed.items);
 
