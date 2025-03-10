@@ -16,11 +16,11 @@ use svg::node::element::{Circle, Path, Rectangle};
 use svg::{Document, Node};
 use vello_common::coarse::{Cmd, Wide, WideTile};
 use vello_common::color::palette::css::BLACK;
-use vello_common::flatten::Line;
+use vello_common::flatten::{Line, Point};
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Stroke};
 use vello_common::peniko::Fill;
 use vello_common::strip::{STRIP_HEIGHT, Strip};
-use vello_common::tile::{TILE_HEIGHT, TILE_WIDTH, Tiles};
+use vello_common::tile::{Tile, Tiles};
 use vello_common::{flatten, strip};
 
 fn main() {
@@ -55,12 +55,18 @@ fn main() {
     }
 
     if stages.iter().any(|s| s.requires_tiling()) {
-        tiles.make_tiles(&line_buf);
+        tiles.make_tiles(&line_buf, args.width, args.height);
         tiles.sort_tiles();
     }
 
     if stages.iter().any(|s| s.requires_strips()) {
-        strip::render(&tiles, &mut strip_buf, &mut alpha_buf, args.fill_rule);
+        strip::render(
+            &tiles,
+            &mut strip_buf,
+            &mut alpha_buf,
+            args.fill_rule,
+            &line_buf,
+        );
     }
 
     if stages.iter().any(|s| s.requires_wide_tiles()) {
@@ -78,7 +84,7 @@ fn main() {
     }
 
     if stages.contains(&Stage::TileIntersections) {
-        draw_tile_intersections(&mut document, &tiles);
+        draw_tile_intersections(&mut document, &tiles, &line_buf);
     }
 
     if stages.contains(&Stage::StripAreas) {
@@ -170,8 +176,8 @@ fn draw_tile_areas(document: &mut Document, tiles: &Tiles) {
 
     for i in 0..tiles.len() {
         let tile = tiles.get(i);
-        let x = tile.x * TILE_WIDTH as i32;
-        let y = tile.y * TILE_HEIGHT as u16;
+        let x = tile.x * Tile::WIDTH as i32;
+        let y = tile.y * Tile::HEIGHT;
 
         if seen.contains(&(x, y)) {
             continue;
@@ -182,8 +188,8 @@ fn draw_tile_areas(document: &mut Document, tiles: &Tiles) {
         let rect = Rectangle::new()
             .set("x", x)
             .set("y", y)
-            .set("width", TILE_WIDTH)
-            .set("height", TILE_HEIGHT)
+            .set("width", Tile::WIDTH)
+            .set("height", Tile::HEIGHT)
             .set("fill", color)
             .set("stroke", color)
             .set("stroke-opacity", 1.0)
@@ -196,15 +202,25 @@ fn draw_tile_areas(document: &mut Document, tiles: &Tiles) {
     }
 }
 
-fn draw_tile_intersections(document: &mut Document, tiles: &Tiles) {
+fn draw_tile_intersections(document: &mut Document, tiles: &Tiles, line_buf: &[Line]) {
     for i in 0..tiles.len() {
         let tile = tiles.get(i);
 
-        let x = tile.x * TILE_WIDTH as i32;
-        let y = tile.y * TILE_HEIGHT as u16;
+        let x = tile.x * Tile::WIDTH as i32;
+        let y = tile.y * Tile::HEIGHT;
 
-        let p0 = tile.p0;
-        let p1 = tile.p1;
+        let line = line_buf[tile.line_idx as usize];
+
+        // TODO: how to handle line intersections now lines are not explicitly segmented by tile
+        // generation anymore?
+        let p0 = Point {
+            x: line.p0.x - x as f32,
+            y: line.p0.y - y as f32,
+        };
+        let p1 = Point {
+            x: line.p1.x - x as f32,
+            y: line.p1.y - y as f32,
+        };
 
         // Add a tiny offset so start and end point don't overlap completely.
         for p in [(p0, -0.05, "green"), (p1, 0.05, "purple")] {
