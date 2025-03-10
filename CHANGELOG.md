@@ -8,8 +8,8 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 # Changelog
 
-The latest published Vello release is [0.4.1](#041---2025-03-09) which was released on 2025-03-09.
-You can find its changes [documented below](#041---2025-03-09).
+The latest published Vello release is [0.4.1](#041---2025-03-10) which was released on 2025-03-10.
+You can find its changes [documented below](#041---2025-03-10).
 
 ## [Unreleased]
 
@@ -29,7 +29,7 @@ This release has an [MSRV][] of 1.85.
 
 The crates were switched to edition 2024 of Rust.
 
-## [0.4.1][] - 2025-03-09
+## [0.4.1][] - 2025-03-10
 
 This release has an [MSRV][] of 1.82.
 
@@ -258,6 +258,7 @@ This release has an [MSRV][] of 1.75.
 [#803]: https://github.com/linebender/vello/pull/803
 [#841]: https://github.com/linebender/vello/pull/841
 
+<!-- Note that this still comparing against 0.4.0, because 0.4.1 is a cherry-picked patch -->
 [Unreleased]: https://github.com/linebender/vello/compare/v0.4.0...HEAD
 [0.4.1]: https://github.com/linebender/vello/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/linebender/vello/compare/v0.3.0...v0.4.0
