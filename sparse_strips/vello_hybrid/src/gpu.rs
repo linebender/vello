@@ -23,8 +23,7 @@ pub struct Renderer {
     pub render_pipeline: RenderPipeline,
     pub render_bind_group: BindGroup,
     pub config_buf: Buffer,
-    pub strips_texture: Texture,
-    pub strips_texture_view: TextureView,
+    pub strips_buffer: Buffer,
     pub alphas_texture: Texture,
     pub alphas_texture_view: TextureView,
 
@@ -39,8 +38,6 @@ pub struct Config {
     pub width: u32,
     pub height: u32,
     pub strip_height: u32,
-    // Add parameters for strip texture layout
-    pub strips_per_row: u32,
     pub alpha_texture_width: u32,
 }
 
@@ -58,6 +55,17 @@ pub struct GpuStrip {
     pub dense_width: u16,
     pub col: u32,
     pub rgba: u32,
+}
+
+impl GpuStrip {
+    pub fn vertex_attributes() -> [wgpu::VertexAttribute; 4] {
+        wgpu::vertex_attr_array![
+            0 => Uint32,
+            1 => Uint32,
+            2 => Uint32,
+            3 => Uint32,
+        ]
+    }
 }
 
 impl Renderer {
@@ -137,16 +145,6 @@ impl Renderer {
                         },
                         count: None,
                     },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::VERTEX,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Uint,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
                 ],
             });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -160,7 +158,11 @@ impl Renderer {
             vertex: wgpu::VertexState {
                 module: &render_shader,
                 entry_point: Some("vs_main"),
-                buffers: &[],
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<GpuStrip>() as u64,
+                    step_mode: wgpu::VertexStepMode::Instance,
+                    attributes: &GpuStrip::vertex_attributes(),
+                }],
                 compilation_options: PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -184,12 +186,10 @@ impl Renderer {
         });
 
         let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
-        let strips_per_row = max_texture_dimension_2d / 4;
         let config = Config {
             width: size.width,
             height: size.height,
             strip_height: 4,
-            strips_per_row,
             alpha_texture_width: max_texture_dimension_2d,
         };
         let config_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -198,41 +198,15 @@ impl Renderer {
             usage: wgpu::BufferUsages::UNIFORM,
         });
 
-        // Create textures for strips data with 2D layout
-        // Compute how many strips we can fit in each row
-        let strips_len = render_data.strips.len();
-        // 4 values per strip
-        let strips_texture_width = 4 * strips_per_row;
-        let strips_texture_height = (strips_len as u32 + strips_per_row - 1) / strips_per_row;
-
-        assert!(
-            strips_texture_width <= max_texture_dimension_2d,
-            "Strips texture width exceeds WebGL2 limit"
-        );
-        assert!(
-            strips_texture_height <= max_texture_dimension_2d,
-            "Strips texture height exceeds WebGL2 limit"
-        );
-
-        let strips_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Strips Texture"),
-            size: wgpu::Extent3d {
-                width: strips_texture_width,
-                height: strips_texture_height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::R32Uint,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
+        // Create a buffer for the strip instances
+        let strips_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Strips Buffer"),
+            contents: bytemuck::cast_slice(&render_data.strips),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
-        let strips_texture_view =
-            strips_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         // Create texture for alpha values
-        // We pack the alpha values into a 2D texture with a reasonable width
+        // We pack the alpha values into a 2D texture with max width imension
         let alpha_len = render_data.alphas.len();
         let alpha_texture_width = config.alpha_texture_width;
         let alpha_texture_height =
@@ -261,49 +235,7 @@ impl Renderer {
         let alphas_texture_view =
             alphas_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        // Create a buffer to hold all strip data in the correct layout
-        let mut strips_data = vec![0u32; (strips_texture_width * strips_texture_height) as usize];
-
-        // Fill the buffer with strip data
-        for (i, strip) in render_data.strips.iter().enumerate() {
-            let i = i as u32;
-            let row = i / strips_per_row;
-            let col = i % strips_per_row;
-            let base_idx = (row * strips_texture_width + col * 4) as usize;
-
-            // Avoid out-of-bounds
-            if base_idx + 3 < strips_data.len() {
-                let xy = ((strip.y as u32) << 16) | (strip.x as u32);
-                let widths = ((strip.dense_width as u32) << 16) | (strip.width as u32);
-
-                strips_data[base_idx] = xy;
-                strips_data[base_idx + 1] = widths;
-                strips_data[base_idx + 2] = strip.col;
-                strips_data[base_idx + 3] = strip.rgba;
-            }
-        }
-
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &strips_texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
-                aspect: wgpu::TextureAspect::All,
-            },
-            bytemuck::cast_slice(&strips_data),
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(strips_texture_width * 4), // 4 bytes per u32
-                rows_per_image: Some(strips_texture_height),
-            },
-            wgpu::Extent3d {
-                width: strips_texture_width,
-                height: strips_texture_height,
-                depth_or_array_layers: 1,
-            },
-        );
-
-        // Create a buffer for alpha data in the correct layout
+        // Prepare alpha data for the texture
         let mut alpha_data = vec![0u32; (alpha_texture_width * alpha_texture_height) as usize];
 
         // Fill the buffer with alpha data
@@ -346,14 +278,9 @@ impl Renderer {
                     binding: 1,
                     resource: config_buf.as_entire_binding(),
                 },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&strips_texture_view),
-                },
             ],
         });
 
-        // Performance measurement initialization
         #[cfg(feature = "perf_measurement")]
         let perf_measurement = PerfMeasurement::new(&device);
 
@@ -366,8 +293,7 @@ impl Renderer {
             render_pipeline,
             render_bind_group,
             config_buf,
-            strips_texture,
-            strips_texture_view,
+            strips_buffer,
             alphas_texture,
             alphas_texture_view,
             #[cfg(feature = "perf_measurement")]
@@ -412,19 +338,8 @@ impl Renderer {
 
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.render_bind_group, &[]);
-
-            // Determine how many strips we can draw
-            let max_strips_in_texture =
-                (self.strips_texture.size().width / 4) * self.strips_texture.size().height;
-            let strips_len = render_data.strips.len();
-            let strips_to_draw = strips_len.min(max_strips_in_texture as usize);
-
-            assert!(
-                strips_len <= max_strips_in_texture as usize,
-                "Available strips to draw exceeds max strips in texture"
-            );
-
-            // The same quad is rendered for each instance, and the shader handles positioning and sizing
+            render_pass.set_vertex_buffer(0, self.strips_buffer.slice(..));
+            let strips_to_draw = render_data.strips.len();
             render_pass.draw(0..4, 0..strips_to_draw as u32);
         }
 
