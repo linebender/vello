@@ -145,7 +145,7 @@ pub fn render(
                 winding: winding_delta,
             };
             // Note: this fill is mathematically not necessary. It provides a way to reduce
-            // accumulation of float round errors.
+            // accumulation of float rounding errors.
             accumulated_winding.fill(winding_delta as f32);
         }
         prev_tile = tile;
@@ -208,10 +208,10 @@ pub fn render(
         let x_slope = 1. / y_slope;
 
         {
-            // The y-coordinate of the intersections between line and the tile's left and right
+            // The y-coordinate of the intersections between the line and the tile's left and right
             // edges respectively.
             //
-            // There's some subtety going on here, see the note on `line_px_left_y` below.
+            // There's some subtlety going on here, see the note on `line_px_left_y` below.
             let line_tile_left_y = (line_top_y - line_top_x * y_slope)
                 .max(line_top_y)
                 .min(line_bottom_y);
@@ -235,7 +235,7 @@ pub fn render(
                 let px_left_x = x_idx as f32;
                 let px_right_x = 1. + x_idx as f32;
 
-                // The y-coordinate of the intersections between line and the pixel's left and
+                // The y-coordinate of the intersections between the line and the pixel's left and
                 // right edges respectively.
                 //
                 // There is some subtlety going on here: `y_slope` will usually be finite, but will
