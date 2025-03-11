@@ -12,7 +12,7 @@ use clap::Parser;
 use std::collections::HashSet;
 use std::path;
 use svg::node::element::path::Data;
-use svg::node::element::{Path, Rectangle};
+use svg::node::element::{Line as SvgLine, Path, Rectangle};
 use svg::{Document, Node};
 use vello_common::coarse::{Cmd, Wide, WideTile};
 use vello_common::color::palette::css::BLACK;
@@ -140,31 +140,33 @@ fn draw_grid(document: &mut Document, width: u16, height: u16) {
 }
 
 fn draw_line_segments(document: &mut Document, line_buf: &[Line]) {
-    let mut data = Data::new();
-
-    let mut last = None;
+    let svg_line = SvgLine::new()
+        .set("stroke-width", 0.1)
+        .set("fill", "none")
+        .set("fill-opacity", 0.1);
 
     for line in line_buf {
-        let first = (line.p0.x, line.p0.y);
-        let second = (line.p1.x, line.p1.y);
+        let dy = line.p1.y - line.p0.y;
+        let color = if dy < 0. {
+            // Lines oriented upwards add to winding.
+            "green"
+        } else if dy > 0. {
+            // Lines oriented upwards subtract from winding.
+            "red"
+        } else {
+            // Horizontal lines don't impact winding.
+            "grey"
+        };
 
-        if Some(first) != last {
-            data = data.move_to(first);
-        }
-
-        data = data.line_to(second);
-
-        last = Some(second);
+        let svg_line = svg_line
+            .clone()
+            .set("x1", line.p0.x)
+            .set("y1", line.p0.y)
+            .set("x2", line.p1.x)
+            .set("y2", line.p1.y)
+            .set("stroke", color);
+        document.append(svg_line);
     }
-
-    let border = Path::new()
-        .set("stroke-width", 0.1)
-        .set("stroke", "green")
-        .set("fill", "none")
-        .set("fill-opacity", 0.1)
-        .set("d", data);
-
-    document.append(border);
 }
 
 fn draw_tile_areas(document: &mut Document, tiles: &Tiles) {
