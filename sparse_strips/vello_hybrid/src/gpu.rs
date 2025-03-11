@@ -428,7 +428,7 @@ impl Renderer {
                 .alphas_texture
                 .create_view(&wgpu::TextureViewDescriptor::default());
             self.render_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: None,
+                label: Some("Render Bind Group"),
                 layout: &self.render_bind_group_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
@@ -446,14 +446,9 @@ impl Renderer {
         // Prepare alpha data for the texture
         let texture_width = self.alphas_texture.width();
         let texture_height = self.alphas_texture.height();
-        let mut alpha_data = vec![0_u32; (texture_width * texture_height) as usize];
-
-        // Fill the buffer with alpha data
-        for (idx, alpha) in render_data.alphas.iter().enumerate() {
-            if idx < alpha_data.len() {
-                alpha_data[idx] = *alpha;
-            }
-        }
+        let mut alpha_data = vec![0_u32; render_data.alphas.len()];
+        alpha_data[..].copy_from_slice(&render_data.alphas[..]);
+        alpha_data.resize((texture_width * texture_height) as usize, 0);
 
         self.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
