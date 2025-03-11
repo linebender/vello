@@ -8,15 +8,12 @@
 //! - GPU resource management (buffers, textures, pipelines)
 //! - Surface/window management and presentation
 //! - Shader execution and rendering
-//! - Performance measurement (when enabled)
 //!
 //! The hybrid approach combines CPU-side path processing with efficient GPU rendering
 //! to balance flexibility and performance.
 
 use std::fmt::Debug;
 
-#[cfg(feature = "perf_measurement")]
-use crate::perf_measurement::PerfMeasurement;
 use bytemuck::{Pod, Zeroable};
 use std::sync::Arc;
 use wgpu::{
@@ -85,10 +82,6 @@ pub struct Renderer {
     pub alphas_texture: Texture,
     /// View of the alphas texture
     pub alphas_texture_view: TextureView,
-
-    /// Performance measurement utilities when enabled
-    #[cfg(feature = "perf_measurement")]
-    pub(crate) perf_measurement: PerfMeasurement,
 }
 
 /// Configuration for the GPU renderer
@@ -188,17 +181,11 @@ impl Renderer {
                 .expect("Failed to find an appropriate adapter")
         };
 
-        #[cfg(feature = "perf_measurement")]
-        let required_features =
-            wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS;
-        #[cfg(not(feature = "perf_measurement"))]
-        let required_features = wgpu::Features::empty();
-
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: Some("Vello Hybrid"),
-                    required_features,
+                    required_features: wgpu::Features::empty(),
                     required_limits: wgpu::Limits::downlevel_webgl2_defaults(),
                     memory_hints: wgpu::MemoryHints::default(),
                 },
@@ -353,9 +340,6 @@ impl Renderer {
             ],
         });
 
-        #[cfg(feature = "perf_measurement")]
-        let perf_measurement = PerfMeasurement::new(&device);
-
         Self {
             device,
             queue,
@@ -368,9 +352,6 @@ impl Renderer {
             strips_buffer,
             alphas_texture,
             alphas_texture_view,
-
-            #[cfg(feature = "perf_measurement")]
-            perf_measurement,
         }
     }
 
@@ -485,10 +466,6 @@ impl Renderer {
 
         let mut encoder = self.device.create_command_encoder(&Default::default());
 
-        // Record start timestamp if feature is enabled
-        #[cfg(feature = "perf_measurement")]
-        self.perf_measurement.write_timestamp(&mut encoder, 0);
-
         {
             let view = frame
                 .texture
@@ -515,18 +492,7 @@ impl Renderer {
             render_pass.draw(0..4, 0..u32::try_from(strips_to_draw).unwrap());
         }
 
-        #[cfg(feature = "perf_measurement")]
-        self.perf_measurement.write_timestamp(&mut encoder, 1);
-
-        #[cfg(feature = "perf_measurement")]
-        self.perf_measurement
-            .resolve_timestamp_queries(&mut encoder, &self.device);
         self.queue.submit(std::iter::once(encoder.finish()));
-
-        #[cfg(feature = "perf_measurement")]
-        self.perf_measurement
-            .map_and_read_timestamp_buffer(&self.device, &self.queue);
-
         frame.present();
     }
 
@@ -560,10 +526,6 @@ impl Renderer {
 
         let mut encoder = self.device.create_command_encoder(&Default::default());
 
-        // Record start timestamp if feature is enabled
-        #[cfg(feature = "perf_measurement")]
-        self.perf_measurement.write_timestamp(&mut encoder, 0);
-
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Redner to Texture Pass"),
@@ -586,9 +548,6 @@ impl Renderer {
             let strips_to_draw = render_data.strips.len();
             render_pass.draw(0..4, 0..u32::try_from(strips_to_draw).unwrap());
         }
-
-        #[cfg(feature = "perf_measurement")]
-        self.perf_measurement.write_timestamp(&mut encoder, 1);
 
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {

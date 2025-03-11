@@ -12,8 +12,7 @@ repository.workspace = true
 publish = false
 
 [features]
-# Feature for development-only performance measurement
-perf_measurement = []
+# No features currently defined
 
 [lints]
 workspace = true

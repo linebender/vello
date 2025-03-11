@@ -18,7 +18,6 @@
 //! - Efficient path rendering with CPU-side processing
 //! - GPU-accelerated compositing and blending
 //! - Support for both windowed and headless rendering
-//! - Optional performance measurement capabilities
 //!
 //! ## Architecture
 //!
@@ -34,9 +33,6 @@ mod gpu;
 mod render;
 /// Utility functions and types
 pub mod utils;
-
-#[cfg(feature = "perf_measurement")]
-mod perf_measurement;
 
 pub use gpu::{Config, GpuStrip, RenderData, RenderTarget, Renderer, SurfaceTarget};
 pub use render::RenderContext;
