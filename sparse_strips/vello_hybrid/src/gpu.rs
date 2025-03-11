@@ -304,15 +304,12 @@ impl Renderer {
         });
 
         // Create initial texture for alpha values
-        // It will be recreated if needed in prepare
-        let initial_alpha_texture_width = 64;
-        let initial_alpha_texture_height = 64;
-
+        // It will be resized if needed in prepare
         let alphas_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Alpha Texture"),
             size: wgpu::Extent3d {
-                width: initial_alpha_texture_width,
-                height: initial_alpha_texture_height,
+                width: device.limits().max_texture_dimension_2d,
+                height: 1,
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -381,10 +378,9 @@ impl Renderer {
         let alpha_len = render_data.alphas.len();
         let alpha_texture_height =
             (u32::try_from(alpha_len).unwrap()).div_ceil(max_texture_dimension_2d);
-        let current_width = self.alphas_texture.width();
         let current_height = self.alphas_texture.height();
 
-        if current_width < max_texture_dimension_2d || current_height < alpha_texture_height {
+        if current_height < alpha_texture_height {
             // Ensure dimensions don't exceed WebGL2 limits
             assert!(
                 alpha_texture_height <= max_texture_dimension_2d,
