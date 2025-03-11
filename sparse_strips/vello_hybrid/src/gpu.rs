@@ -13,6 +13,8 @@
 //! The hybrid approach combines CPU-side path processing with efficient GPU rendering
 //! to balance flexibility and performance.
 
+use std::fmt::Debug;
+
 #[cfg(feature = "perf_measurement")]
 use crate::perf_measurement::PerfMeasurement;
 use bytemuck::{Pod, Zeroable};
@@ -20,15 +22,21 @@ use std::sync::Arc;
 use wgpu::{
     BindGroup, BindGroupLayout, BlendState, Buffer, ColorTargetState, ColorWrites, Device,
     PipelineCompilationOptions, Queue, RenderPipeline, Surface, SurfaceConfiguration, Texture,
-    TextureView, util::DeviceExt,
+    TextureView, WindowHandle, util::DeviceExt,
 };
-use winit::window::Window;
 
 /// Represents the target for rendering - either a window or specific dimensions
 #[derive(Debug)]
 pub enum RenderTarget {
     /// Render to a window
-    Window(Arc<Window>),
+    Surface {
+        /// The window to render to
+        target: Arc<dyn SurfaceTarget>,
+        /// Width of the window in pixels
+        width: u32,
+        /// Height of the window in pixels
+        height: u32,
+    },
     /// Render to a texture with specific dimensions
     Headless {
         /// Width of the texture in pixels
@@ -42,14 +50,15 @@ impl RenderTarget {
     /// Get the dimensions of the render target
     pub fn dimensions(&self) -> (u32, u32) {
         match self {
-            Self::Window(window) => {
-                let size = window.inner_size();
-                (size.width, size.height)
-            }
+            Self::Surface { width, height, .. } => (*width, *height),
             Self::Headless { width, height } => (*width, *height),
         }
     }
 }
+
+/// Trait for a surface target that can be rendered to
+pub trait SurfaceTarget: WindowHandle + Debug {}
+impl<T> SurfaceTarget for T where T: WindowHandle + Debug {}
 
 /// GPU renderer for the hybrid rendering system
 #[derive(Debug)]
@@ -139,24 +148,25 @@ impl Renderer {
     /// Creates a new renderer
     ///
     /// The target parameter determines if we render to a window or headless
-    pub async fn new(target: RenderTarget) -> Self {
+    pub async fn new(render_target: RenderTarget) -> Self {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             flags: wgpu::InstanceFlags::empty(),
             backend_options: wgpu::BackendOptions::default(),
         });
 
-        // Get dimensions and possibly create a surface
-        let (dimensions, surface) = match &target {
-            RenderTarget::Window(window) => {
-                let surface = instance.create_surface(window.clone()).unwrap();
-                let dimensions = target.dimensions();
-                (dimensions, Some(surface))
+        let (dimensions, surface) = match render_target {
+            RenderTarget::Surface {
+                target,
+                width,
+                height,
+            } => {
+                let surface = instance
+                    .create_surface(Arc::clone(&target))
+                    .expect("Failed to create surface");
+                ((width, height), Some(surface))
             }
-            RenderTarget::Headless { .. } => {
-                let dimensions = target.dimensions();
-                (dimensions, None)
-            }
+            RenderTarget::Headless { width, height } => ((width, height), None),
         };
 
         // Get adapter with or without surface

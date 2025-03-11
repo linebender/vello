@@ -38,6 +38,6 @@ pub mod utils;
 #[cfg(feature = "perf_measurement")]
 mod perf_measurement;
 
-pub use gpu::{Config, GpuStrip, RenderData, RenderTarget, Renderer};
+pub use gpu::{Config, GpuStrip, RenderData, RenderTarget, Renderer, SurfaceTarget};
 pub use render::RenderContext;
 pub use utils::DimensionConstraints;

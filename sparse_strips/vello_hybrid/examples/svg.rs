@@ -13,7 +13,9 @@ use std::sync::Arc;
 
 use common::render_svg;
 use vello_common::pico_svg::PicoSvg;
-use vello_hybrid::{DimensionConstraints, RenderContext, RenderData, RenderTarget, Renderer};
+use vello_hybrid::{
+    DimensionConstraints, RenderContext, RenderData, RenderTarget, Renderer, SurfaceTarget,
+};
 use winit::{
     application::ApplicationHandler,
     event::WindowEvent,
@@ -89,7 +91,12 @@ impl ApplicationHandler for SvgVelloApp {
             self.context = Some(context);
 
             let mut renderer = pollster::block_on(async {
-                Renderer::new(RenderTarget::Window(Arc::clone(&window))).await
+                Renderer::new(RenderTarget::Surface {
+                    target: Arc::clone(&window) as Arc<dyn SurfaceTarget>,
+                    width: width as u32,
+                    height: height as u32,
+                })
+                .await
             });
 
             renderer.prepare(&render_data);

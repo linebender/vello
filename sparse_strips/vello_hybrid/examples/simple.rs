@@ -14,7 +14,7 @@ use peniko::{
     color::palette,
     kurbo::{BezPath, Stroke},
 };
-use vello_hybrid::{RenderContext, RenderData, RenderTarget, Renderer};
+use vello_hybrid::{RenderContext, RenderData, RenderTarget, Renderer, SurfaceTarget};
 use winit::{
     application::ApplicationHandler,
     event::WindowEvent,
@@ -77,7 +77,13 @@ impl ApplicationHandler for SimpleVelloApp {
             self.context = Some(context);
 
             let mut renderer = pollster::block_on(async {
-                Renderer::new(RenderTarget::Window(Arc::clone(&window))).await
+                let window_size = window.inner_size();
+                Renderer::new(RenderTarget::Surface {
+                    target: Arc::clone(&window) as Arc<dyn SurfaceTarget>,
+                    width: window_size.width,
+                    height: window_size.height,
+                })
+                .await
             });
 
             renderer.prepare(&render_data);
