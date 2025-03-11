@@ -5,24 +5,33 @@
 
 use crate::flatten::Line;
 
+/// The max number of lines per path.
+///
+/// Trying to render a path with more lines than this may result in visual artifacts.
+pub const MAX_LINES_PER_PATH: u32 = 1 << 31;
+
 /// A tile represents an aligned area on the pixmap, used to subdivide the viewport into sub-areas
 /// (currently 4x4) and analyze line intersections inside each such area.
 ///
 /// Keep in mind that it is possible to have multiple tiles with the same index,
 /// namely if we have multiple lines crossing the same 4x4 area!
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(C)]
 pub struct Tile {
     /// The index of the tile in the x direction.
     pub x: u16,
+
     /// The index of the tile in the y direction.
     pub y: u16,
-    /// The index of the line this tile belongs to into the line buffer.
-    pub line_idx: u32,
-    /// Whether the line crosses the top edge of the tile.
+
+    /// The index of the line this tile belongs to into the line buffer, plus whether the line
+    /// crosses the top edge of the tile, packed together.
     ///
-    /// Lines making this crossing increment or decrement the coarse tile winding, depending on the
-    /// line direction.
-    pub winding: bool,
+    /// The index is the unsigned number in the 31 least significant bits of this value.
+    ///
+    /// The last bit is 1 if and only if the lines crosses the tile's top edge. Lines making this
+    /// crossing increment or decrement the coarse tile winding, depending on the line direction.
+    pub packed_winding_line_idx: u32,
 }
 
 impl Tile {
@@ -34,11 +43,16 @@ impl Tile {
 
     /// Create a new tile.
     pub fn new(x: u16, y: u16, line_idx: u32, winding: bool) -> Self {
+        debug_assert!(
+            line_idx < MAX_LINES_PER_PATH,
+            "Max. number of lines per path exceeded. Max is {}, got index {}.",
+            MAX_LINES_PER_PATH,
+            line_idx,
+        );
         Self {
             x,
             y,
-            line_idx,
-            winding,
+            packed_winding_line_idx: (winding as u32) * MAX_LINES_PER_PATH + line_idx,
         }
     }
 
@@ -56,13 +70,35 @@ impl Tile {
     pub fn same_row(&self, other: &Self) -> bool {
         self.y == other.y
     }
+
+    #[inline(always)]
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        let yx_self = ((self.y as u32) << 16) + self.x as u32;
+        let yx_other = ((other.y as u32) << 16) + other.x as u32;
+
+        yx_self.cmp(&yx_other)
+    }
+
+    /// The index of the line this tile belongs to into the line buffer.
+    #[inline]
+    pub fn line_idx(&self) -> u32 {
+        self.packed_winding_line_idx & (MAX_LINES_PER_PATH - 1)
+    }
+
+    /// Whether the line crosses the top edge of the tile.
+    ///
+    /// Lines making this crossing increment or decrement the coarse tile winding, depending on the
+    /// line direction.
+    #[inline]
+    pub fn winding(&self) -> bool {
+        (self.packed_winding_line_idx & MAX_LINES_PER_PATH) != 0
+    }
 }
 
 /// Handles the tiling of paths.
 #[derive(Clone, Debug)]
 pub struct Tiles {
     tile_buf: Vec<Tile>,
-    tile_index_buf: Vec<TileIndex>,
     sorted: bool,
 }
 
@@ -78,7 +114,6 @@ impl Tiles {
         Self {
             tile_buf: vec![],
             sorted: false,
-            tile_index_buf: vec![],
         }
     }
 
@@ -95,40 +130,39 @@ impl Tiles {
     /// Reset the tiles' container.
     pub fn reset(&mut self) {
         self.tile_buf.clear();
-        self.tile_index_buf.clear();
         self.sorted = false;
     }
 
     /// Sort the tiles in the container.
     pub fn sort_tiles(&mut self) {
         self.sorted = true;
-        self.tile_index_buf.sort_unstable_by(TileIndex::cmp);
+        self.tile_buf.sort_unstable_by(Tile::cmp);
     }
 
     /// Get the tile at a certain index.
     ///
     /// Panics if the container hasn't been sorted before.
+    #[inline]
     pub fn get(&self, index: u32) -> &Tile {
         assert!(
             self.sorted,
             "attempted to call `get` before sorting the tile container."
         );
 
-        &self.tile_buf[self.tile_index_buf[index as usize].index()]
+        &self.tile_buf[index as usize]
     }
 
     /// Iterate over the tiles in sorted order.
     ///
     /// Panics if the container hasn't been sorted before.
+    #[inline]
     pub fn iter(&self) -> impl Iterator<Item = &Tile> {
         assert!(
             self.sorted,
             "attempted to call `iter` before sorting the tile container."
         );
 
-        self.tile_index_buf
-            .iter()
-            .map(|idx| &self.tile_buf[idx.index()])
+        self.tile_buf.iter()
     }
 
     /// Populate the tiles' container with a buffer of lines.
@@ -147,9 +181,9 @@ impl Tiles {
         }
 
         debug_assert!(
-            lines.len() < (u32::MAX as usize).saturating_add(1),
+            lines.len() <= MAX_LINES_PER_PATH as usize,
             "Max. number of lines per path exceeded. Max is {}, got {}.",
-            u32::MAX,
+            MAX_LINES_PER_PATH,
             lines.len()
         );
 
@@ -158,7 +192,7 @@ impl Tiles {
 
         for (line_idx, line) in lines
             .iter()
-            .take((u32::MAX as usize).saturating_add(1))
+            .take((MAX_LINES_PER_PATH as usize).saturating_add(1))
             .enumerate()
         {
             let line_idx = line_idx as u32;
@@ -189,8 +223,6 @@ impl Tiles {
                     let y = y_idx as f32;
 
                     let tile = Tile::new(x, y_idx, line_idx, y >= line_top_y);
-                    self.tile_index_buf
-                        .push(TileIndex::from_tile(self.tile_buf.len() as u32, &tile));
                     self.tile_buf.push(tile);
                 }
             } else {
@@ -234,40 +266,11 @@ impl Tiles {
                             line_idx,
                             y >= line_top_y && x_idx == winding_x,
                         );
-                        self.tile_index_buf
-                            .push(TileIndex::from_tile(self.tile_buf.len() as u32, &tile));
                         self.tile_buf.push(tile);
                     }
                 }
             }
         }
-    }
-}
-
-/// An index into a sorted tile buffer.
-#[derive(Clone, Debug)]
-struct TileIndex {
-    x: u16,
-    y: u16,
-    index: u32,
-}
-
-impl TileIndex {
-    pub(crate) fn from_tile(index: u32, tile: &Tile) -> Self {
-        let x = tile.x;
-        let y = tile.y;
-
-        Self { x, y, index }
-    }
-
-    pub(crate) fn cmp(&self, b: &Self) -> std::cmp::Ordering {
-        let xya = ((self.y as u32) << 16) + (self.x as u32);
-        let xyb = ((b.y as u32) << 16) + (b.x as u32);
-        xya.cmp(&xyb)
-    }
-
-    pub(crate) fn index(&self) -> usize {
-        self.index as usize
     }
 }
 

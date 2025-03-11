@@ -61,8 +61,7 @@ pub fn render(
     const SENTINEL: Tile = Tile {
         x: u16::MAX,
         y: u16::MAX,
-        line_idx: 0,
-        winding: false,
+        packed_winding_line_idx: 0,
     };
 
     // The strip we're building.
@@ -74,7 +73,7 @@ pub fn render(
     };
 
     for tile in tiles.iter().copied().chain([SENTINEL]) {
-        let line = lines[tile.line_idx as usize];
+        let line = lines[tile.line_idx() as usize];
         let tile_left_x = tile.x as f32 * Tile::WIDTH as f32;
         let tile_top_y = tile.y as f32 * Tile::HEIGHT as f32;
         let p0_x = line.p0.x - tile_left_x;
@@ -222,7 +221,7 @@ pub fn render(
         let y_slope = (line_bottom_y - line_top_y) / (line_bottom_x - line_top_x);
         let x_slope = 1. / y_slope;
 
-        winding_delta += sign as i32 * tile.winding as i32;
+        winding_delta += sign as i32 * tile.winding() as i32;
 
         // TODO: this should be removed when out-of-viewport tiles are culled at the
         // tile-generation stage. That requires calculating and forwarding winding to strip
