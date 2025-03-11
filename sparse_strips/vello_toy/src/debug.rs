@@ -12,11 +12,11 @@ use clap::Parser;
 use std::collections::HashSet;
 use std::path;
 use svg::node::element::path::Data;
-use svg::node::element::{Circle, Path, Rectangle};
+use svg::node::element::{Path, Rectangle};
 use svg::{Document, Node};
 use vello_common::coarse::{Cmd, Wide, WideTile};
 use vello_common::color::palette::css::BLACK;
-use vello_common::flatten::{Line, Point};
+use vello_common::flatten::Line;
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Stroke};
 use vello_common::peniko::Fill;
 use vello_common::strip::{STRIP_HEIGHT, Strip};
@@ -81,10 +81,6 @@ fn main() {
 
     if stages.contains(&Stage::TileAreas) {
         draw_tile_areas(&mut document, &tiles);
-    }
-
-    if stages.contains(&Stage::TileIntersections) {
-        draw_tile_intersections(&mut document, &tiles, &line_buf);
     }
 
     if stages.contains(&Stage::StripAreas) {
@@ -199,40 +195,6 @@ fn draw_tile_areas(document: &mut Document, tiles: &Tiles) {
         document.append(rect);
 
         seen.insert((x, y));
-    }
-}
-
-fn draw_tile_intersections(document: &mut Document, tiles: &Tiles, line_buf: &[Line]) {
-    for i in 0..tiles.len() {
-        let tile = tiles.get(i);
-
-        let x = tile.x * Tile::WIDTH as i32;
-        let y = tile.y * Tile::HEIGHT;
-
-        let line = line_buf[tile.line_idx as usize];
-
-        // TODO: how to handle line intersections now lines are not explicitly segmented by tile
-        // generation anymore?
-        let p0 = Point {
-            x: line.p0.x - x as f32,
-            y: line.p0.y - y as f32,
-        };
-        let p1 = Point {
-            x: line.p1.x - x as f32,
-            y: line.p1.y - y as f32,
-        };
-
-        // Add a tiny offset so start and end point don't overlap completely.
-        for p in [(p0, -0.05, "green"), (p1, 0.05, "purple")] {
-            let circle = Circle::new()
-                .set("cx", x as f32 + p.0.x + p.1)
-                .set("cy", y as f32 + p.0.y)
-                .set("r", 0.25)
-                .set("fill", p.2)
-                .set("fill-opacity", 0.5);
-
-            document.append(circle);
-        }
     }
 }
 
@@ -357,8 +319,6 @@ enum Stage {
     LineSegments,
     /// Draw the tile areas covered by the path.
     TileAreas,
-    /// Draw the intersection points of lines in the tiles.
-    TileIntersections,
     /// Draw the stripped areas.
     StripAreas,
     /// Draw the strips with their alpha masks.
@@ -372,7 +332,7 @@ impl Stage {
         matches!(self, Self::LineSegments) || self.requires_tiling()
     }
     fn requires_tiling(&self) -> bool {
-        matches!(self, Self::TileAreas | Self::TileIntersections) || self.requires_strips()
+        matches!(self, Self::TileAreas) || self.requires_strips()
     }
 
     fn requires_strips(&self) -> bool {
@@ -393,7 +353,6 @@ impl std::str::FromStr for Stage {
         match input.to_lowercase().as_str() {
             "ls" | "line_segments" => Ok(Self::LineSegments),
             "ta" | "tile_areas" => Ok(Self::TileAreas),
-            "ti" | "tile_intersections" => Ok(Self::TileIntersections),
             "sa" | "strip_areas" => Ok(Self::StripAreas),
             "s" | "strips" => Ok(Self::Strips),
             "wt" | "wide_tiles" => Ok(Self::WideTiles),
