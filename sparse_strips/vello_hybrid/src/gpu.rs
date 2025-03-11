@@ -101,8 +101,6 @@ pub struct Config {
     pub height: u32,
     /// Height of a strip in the rendering
     pub strip_height: u32,
-    /// Width of the alpha texture
-    pub alpha_texture_width: u32,
 }
 
 /// Contains the data needed for rendering
@@ -297,12 +295,10 @@ impl Renderer {
             cache: None,
         });
 
-        let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
         let config = Config {
             width,
             height,
             strip_height: 4,
-            alpha_texture_width: max_texture_dimension_2d,
         };
         let config_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Config Buffer"),
@@ -401,22 +397,13 @@ impl Renderer {
         );
 
         let max_texture_dimension_2d = self.device.limits().max_texture_dimension_2d;
-        let config = Config {
-            width: self.surface_config.width,
-            height: self.surface_config.height,
-            strip_height: 4,
-            alpha_texture_width: max_texture_dimension_2d,
-        };
-
         let alpha_len = render_data.alphas.len();
-        let alpha_texture_width = config.alpha_texture_width;
         let alpha_texture_height =
-            (u32::try_from(alpha_len).unwrap()).div_ceil(alpha_texture_width);
-
+            (u32::try_from(alpha_len).unwrap()).div_ceil(max_texture_dimension_2d);
         let current_width = self.alphas_texture.width();
         let current_height = self.alphas_texture.height();
 
-        if alpha_texture_width > current_width || alpha_texture_height > current_height {
+        if current_width < max_texture_dimension_2d || current_height < alpha_texture_height {
             // Ensure dimensions don't exceed WebGL2 limits
             assert!(
                 alpha_texture_height <= max_texture_dimension_2d,
@@ -426,7 +413,7 @@ impl Renderer {
             self.alphas_texture = self.device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("Alpha Texture (Resized)"),
                 size: wgpu::Extent3d {
-                    width: alpha_texture_width,
+                    width: max_texture_dimension_2d,
                     height: alpha_texture_height,
                     depth_or_array_layers: 1,
                 },

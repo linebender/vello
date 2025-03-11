@@ -14,7 +14,6 @@ struct Config {
     width: u32,
     height: u32,
     strip_height: u32,
-    alpha_texture_width: u32,
 }
 
 struct StripInstance {
@@ -72,8 +71,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let y = u32(floor(in.tex_coord.y));
         // Read alpha value from texture
         // Calculate texture coordinates based on x for the u32 value
-        let tex_x = x % config.alpha_texture_width;
-        let tex_y = x / config.alpha_texture_width;
+        let tex_dimensions = textureDimensions(alphas_texture);
+        let tex_width = tex_dimensions.x;
+        let tex_x = x % tex_width;
+        let tex_y = x / tex_width;
         let a = textureLoad(alphas_texture, vec2<u32>(tex_x, tex_y), 0).x;
         alpha = f32((a >> (y * 8u)) & 0xffu) * (1.0 / 255.0);
     }
