@@ -37,3 +37,4 @@ pub mod utils;
 pub use gpu::{Config, GpuStrip, RenderData, RenderTarget, Renderer, SurfaceTarget};
 pub use render::RenderContext;
 pub use utils::DimensionConstraints;
+pub use vello_common::pixmap::Pixmap;
