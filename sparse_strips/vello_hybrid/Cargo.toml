@@ -11,9 +11,6 @@ repository.workspace = true
 # Prevent accidental publishing until the initial release
 publish = false
 
-[features]
-# No features currently defined
-
 [lints]
 workspace = true
 
