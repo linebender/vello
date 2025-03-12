@@ -83,11 +83,12 @@ async fn run() {
     // Create renderer and render the scene to the texture
     let mut renderer = vello_hybrid::Renderer::new(&device, &vello_hybrid::RendererOptions {});
     let render_params = vello_hybrid::RenderParams {
-        base_color: peniko::Color::TRANSPARENT,
+        base_color: Some(peniko::Color::TRANSPARENT),
         width: width as u32,
         height: height as u32,
         strip_height: vello_common::strip::STRIP_HEIGHT as u32,
     };
+    renderer.prepare(&device, &queue, &scene, &render_params);
     renderer.render_to_texture(&device, &queue, &scene, &texture_view, &render_params);
 
     // Create a buffer to copy the texture data

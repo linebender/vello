@@ -26,7 +26,7 @@ use crate::scene::Scene;
 #[derive(Debug)]
 pub struct RenderParams {
     /// Background color
-    pub base_color: peniko::Color,
+    pub base_color: Option<peniko::Color>,
     /// Width of the rendering target
     pub width: u32,
     /// Height of the rendering target
@@ -331,7 +331,6 @@ impl Renderer {
         texture_view: &TextureView,
         render_params: &RenderParams,
     ) {
-        self.prepare(device, queue, scene, render_params);
         // If we don't have the required resources, return empty data
         let Some(resources) = &self.resources else {
             return;
@@ -345,7 +344,15 @@ impl Renderer {
                     view: texture_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        load: match render_params.base_color {
+                            Some(c) => wgpu::LoadOp::Clear(wgpu::Color {
+                                r: c.components[0] as f64,
+                                g: c.components[1] as f64,
+                                b: c.components[2] as f64,
+                                a: c.components[3] as f64,
+                            }),
+                            None => wgpu::LoadOp::Load,
+                        },
                         store: wgpu::StoreOp::Store,
                     },
                 })],

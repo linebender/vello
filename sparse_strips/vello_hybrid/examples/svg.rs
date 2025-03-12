@@ -104,7 +104,26 @@ impl ApplicationHandler for SvgVelloApp<'_> {
         self.renderers[surface.dev_id]
             .get_or_insert_with(|| create_vello_renderer(&self.context, &surface));
 
-        // Save the Window and Surface to a state variable
+        self.scene.reset();
+
+        let render_scale = 5.0;
+        let svg_filename = std::env::args().nth(1).expect("svg filename is first arg");
+        let svg: String = std::fs::read_to_string(svg_filename).expect("error reading file");
+        let parsed_svg = PicoSvg::load(&svg, 1.0).expect("error parsing SVG");
+        render_svg(&mut self.scene, render_scale, &parsed_svg.items);
+        let device_handle = &self.context.devices[surface.dev_id];
+        self.renderers[surface.dev_id].as_mut().unwrap().prepare(
+            &device_handle.device,
+            &device_handle.queue,
+            &self.scene,
+            &RenderParams {
+                base_color: Some(palette::css::BLACK),
+                width: surface.config.width,
+                height: surface.config.height,
+                strip_height: 4,
+            },
+        );
+
         self.state = RenderState::Active {
             surface: Box::new(surface),
             window,
@@ -124,8 +143,10 @@ impl ApplicationHandler for SvgVelloApp<'_> {
         event: WindowEvent,
     ) {
         // Only process events for our window, and only when we have a surface.
-        let surface = match &mut self.state {
-            RenderState::Active { surface, window } if window.id() == window_id => surface,
+        let (surface, window) = match &mut self.state {
+            RenderState::Active { surface, window } if window.id() == window_id => {
+                (surface, window)
+            }
             _ => return,
         };
 
@@ -140,24 +161,16 @@ impl ApplicationHandler for SvgVelloApp<'_> {
             }
 
             WindowEvent::RedrawRequested => {
-                // Empty the scene of objects to draw. You could create a new Scene each time, but in this case
-                // the same Scene is reused so that the underlying memory allocation can also be reused.
-                self.scene.reset();
-
-                let render_scale = 5.0;
-                let svg_filename = std::env::args().nth(1).expect("svg filename is first arg");
-                let svg = std::fs::read_to_string(svg_filename).expect("error reading file");
-                let parsed_svg = PicoSvg::load(&svg, 1.0).expect("error parsing SVG");
-
-                render_svg(&mut self.scene, render_scale, &parsed_svg.items);
-
                 let width = surface.config.width;
                 let height = surface.config.height;
-
-                // Get a handle to the device
                 let device_handle = &self.context.devices[surface.dev_id];
-
-                // Render to a texture, which we will later copy into the surface
+                let surface_texture = surface
+                    .surface
+                    .get_current_texture()
+                    .expect("failed to get surface texture");
+                let view = surface_texture
+                    .texture
+                    .create_view(&wgpu::TextureViewDescriptor::default());
                 self.renderers[surface.dev_id]
                     .as_mut()
                     .unwrap()
@@ -165,40 +178,17 @@ impl ApplicationHandler for SvgVelloApp<'_> {
                         &device_handle.device,
                         &device_handle.queue,
                         &self.scene,
-                        &surface.target_view,
+                        &view,
                         &RenderParams {
-                            base_color: palette::css::BLACK, // Background color
+                            base_color: Some(palette::css::BLACK), // Background color
                             width,
                             height,
                             strip_height: 4,
                         },
                     );
 
-                let surface_texture = surface
-                    .surface
-                    .get_current_texture()
-                    .expect("failed to get surface texture");
-
-                // Perform the copy
-                let mut encoder =
-                    device_handle
-                        .device
-                        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                            label: Some("Surface Blit"),
-                        });
-                surface.blitter.copy(
-                    &device_handle.device,
-                    &mut encoder,
-                    &surface.target_view,
-                    &surface_texture
-                        .texture
-                        .create_view(&wgpu::TextureViewDescriptor::default()),
-                );
-                device_handle.queue.submit([encoder.finish()]);
-                // Queue the texture to be presented on the surface
                 surface_texture.present();
-
-                device_handle.device.poll(wgpu::Maintain::Poll);
+                window.request_redraw();
             }
             _ => {}
         }

@@ -98,6 +98,21 @@ impl ApplicationHandler for SimpleVelloApp<'_> {
         self.renderers[surface.dev_id]
             .get_or_insert_with(|| create_vello_renderer(&self.context, &surface));
 
+        self.scene.reset();
+        draw_simple_scene(&mut self.scene);
+        let device_handle = &self.context.devices[surface.dev_id];
+        self.renderers[surface.dev_id].as_mut().unwrap().prepare(
+            &device_handle.device,
+            &device_handle.queue,
+            &self.scene,
+            &RenderParams {
+                base_color: Some(palette::css::BLACK),
+                width: surface.config.width,
+                height: surface.config.height,
+                strip_height: 4,
+            },
+        );
+
         self.state = RenderState::Active {
             surface: Box::new(surface),
             window,
@@ -122,9 +137,6 @@ impl ApplicationHandler for SimpleVelloApp<'_> {
                     .resize_surface(surface, size.width, size.height);
             }
             WindowEvent::RedrawRequested => {
-                self.scene.reset();
-                draw_simple_scene(&mut self.scene);
-
                 let width = surface.config.width;
                 let height = surface.config.height;
                 let device_handle = &self.context.devices[surface.dev_id];
@@ -138,7 +150,7 @@ impl ApplicationHandler for SimpleVelloApp<'_> {
                         &self.scene,
                         &surface.target_view,
                         &RenderParams {
-                            base_color: palette::css::BLACK,
+                            base_color: Some(palette::css::BLACK),
                             width,
                             height,
                             strip_height: 4,
