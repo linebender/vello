@@ -19,7 +19,7 @@ use std::sync::Arc;
 use wgpu::{
     BindGroup, BindGroupLayout, BlendState, Buffer, ColorTargetState, ColorWrites, Device,
     PipelineCompilationOptions, Queue, RenderPipeline, Surface, SurfaceConfiguration, Texture,
-    TextureView, WindowHandle, util::DeviceExt,
+    WindowHandle, util::DeviceExt,
 };
 
 /// Represents the target for rendering - either a window or specific dimensions
@@ -57,6 +57,17 @@ impl RenderTarget {
 pub trait SurfaceTarget: WindowHandle + Debug {}
 impl<T> SurfaceTarget for T where T: WindowHandle + Debug {}
 
+/// Contains all GPU resources needed for rendering
+#[derive(Debug)]
+struct GpuResources {
+    /// Buffer for strip data
+    pub strips_buffer: Buffer,
+    /// Texture for alpha values
+    pub alphas_texture: Texture,
+    /// Bind group for rendering
+    pub render_bind_group: BindGroup,
+}
+
 /// GPU renderer for the hybrid rendering system
 #[derive(Debug)]
 pub struct Renderer {
@@ -72,16 +83,10 @@ pub struct Renderer {
     pub render_bind_group_layout: BindGroupLayout,
     /// Pipeline for rendering
     pub render_pipeline: RenderPipeline,
-    /// Bind group for rendering
-    pub render_bind_group: BindGroup,
     /// Buffer for configuration data
     pub config_buf: Buffer,
-    /// Buffer for strip data
-    pub strips_buffer: Buffer,
-    /// Texture for alpha values
-    pub alphas_texture: Texture,
-    /// View of the alphas texture
-    pub alphas_texture_view: TextureView,
+    /// GPU resources for rendering (created during prepare)
+    resources: Option<GpuResources>,
 }
 
 /// Configuration for the GPU renderer
@@ -293,50 +298,6 @@ impl Renderer {
             usage: wgpu::BufferUsages::UNIFORM,
         });
 
-        // Create an initial buffer for strip instances
-        // Start with a small size, it will be resized as needed in prepare
-        let initial_strips_capacity = 64; // Arbitrary small initial capacity
-        let strips_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Strips Buffer"),
-            size: std::mem::size_of::<GpuStrip>() as u64 * initial_strips_capacity,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        // Create initial texture for alpha values
-        // It will be resized if needed in prepare
-        let alphas_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Alpha Texture"),
-            size: wgpu::Extent3d {
-                width: device.limits().max_texture_dimension_2d,
-                height: 1,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::R32Uint,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        let alphas_texture_view =
-            alphas_texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-        let render_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
-            layout: &render_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&alphas_texture_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: config_buf.as_entire_binding(),
-                },
-            ],
-        });
-
         Self {
             device,
             queue,
@@ -344,11 +305,8 @@ impl Renderer {
             surface_config,
             render_bind_group_layout,
             render_pipeline,
-            render_bind_group,
             config_buf,
-            strips_buffer,
-            alphas_texture,
-            alphas_texture_view,
+            resources: None,
         }
     }
 
@@ -357,38 +315,33 @@ impl Renderer {
         let required_strips_size =
             std::mem::size_of::<GpuStrip>() as u64 * render_data.strips.len() as u64;
 
-        // Check if we need to resize the strips buffer
-        if required_strips_size > self.strips_buffer.size() {
-            self.strips_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("Strips Buffer (Resized)"),
+        // Check if we need to create new resources or resize existing ones
+        let needs_new_resources = match &self.resources {
+            Some(resources) => required_strips_size > resources.strips_buffer.size(),
+            None => true,
+        };
+
+        if needs_new_resources {
+            let strips_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Strips Buffer"),
                 size: required_strips_size,
                 usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
-        }
 
-        // Update strips buffer with new data
-        self.queue.write_buffer(
-            &self.strips_buffer,
-            0,
-            bytemuck::cast_slice(&render_data.strips),
-        );
+            let max_texture_dimension_2d = self.device.limits().max_texture_dimension_2d;
+            let alpha_len = render_data.alphas.len();
+            let alpha_texture_height =
+                (u32::try_from(alpha_len).unwrap()).div_ceil(max_texture_dimension_2d);
 
-        let max_texture_dimension_2d = self.device.limits().max_texture_dimension_2d;
-        let alpha_len = render_data.alphas.len();
-        let alpha_texture_height =
-            (u32::try_from(alpha_len).unwrap()).div_ceil(max_texture_dimension_2d);
-        let current_height = self.alphas_texture.height();
-
-        if current_height < alpha_texture_height {
             // Ensure dimensions don't exceed WebGL2 limits
             assert!(
                 alpha_texture_height <= max_texture_dimension_2d,
                 "Alpha texture height exceeds WebGL2 limit"
             );
 
-            self.alphas_texture = self.device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("Alpha Texture (Resized)"),
+            let alphas_texture = self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("Alpha Texture"),
                 size: wgpu::Extent3d {
                     width: max_texture_dimension_2d,
                     height: alpha_texture_height,
@@ -401,16 +354,16 @@ impl Renderer {
                 usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
                 view_formats: &[],
             });
-            self.alphas_texture_view = self
-                .alphas_texture
-                .create_view(&wgpu::TextureViewDescriptor::default());
-            self.render_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            let alphas_texture_view =
+                alphas_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+            let render_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("Render Bind Group"),
                 layout: &self.render_bind_group_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&self.alphas_texture_view),
+                        resource: wgpu::BindingResource::TextureView(&alphas_texture_view),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
@@ -418,42 +371,58 @@ impl Renderer {
                     },
                 ],
             });
+
+            self.resources = Some(GpuResources {
+                strips_buffer,
+                alphas_texture,
+                render_bind_group,
+            });
         }
 
-        // Prepare alpha data for the texture
-        let texture_width = self.alphas_texture.width();
-        let texture_height = self.alphas_texture.height();
-        let mut alpha_data = vec![0_u32; render_data.alphas.len()];
-        alpha_data[..].copy_from_slice(&render_data.alphas[..]);
-        alpha_data.resize((texture_width * texture_height) as usize, 0);
+        // Now that we have resources, we can update the data
+        if let Some(resources) = &self.resources {
+            self.queue.write_buffer(
+                &resources.strips_buffer,
+                0,
+                bytemuck::cast_slice(&render_data.strips),
+            );
 
-        self.queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &self.alphas_texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
-                aspect: wgpu::TextureAspect::All,
-            },
-            bytemuck::cast_slice(&alpha_data),
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                // 4 bytes per u32
-                bytes_per_row: Some(texture_width * 4),
-                rows_per_image: Some(texture_height),
-            },
-            wgpu::Extent3d {
-                width: texture_width,
-                height: texture_height,
-                depth_or_array_layers: 1,
-            },
-        );
+            // Prepare alpha data for the texture
+            let texture_width = resources.alphas_texture.width();
+            let texture_height = resources.alphas_texture.height();
+            let mut alpha_data = vec![0_u32; render_data.alphas.len()];
+            alpha_data[..].copy_from_slice(&render_data.alphas[..]);
+            alpha_data.resize((texture_width * texture_height) as usize, 0);
+
+            self.queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &resources.alphas_texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
+                    aspect: wgpu::TextureAspect::All,
+                },
+                bytemuck::cast_slice(&alpha_data),
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    // 4 bytes per u32
+                    bytes_per_row: Some(texture_width * 4),
+                    rows_per_image: Some(texture_height),
+                },
+                wgpu::Extent3d {
+                    width: texture_width,
+                    height: texture_height,
+                    depth_or_array_layers: 1,
+                },
+            );
+        }
     }
 
     /// Render to the surface
     pub fn render_to_surface(&self, render_data: &RenderData) {
-        let Some(surface) = &self.surface else {
-            // Cannot render to surface in headless mode
-            return;
+        // If we don't have the required resources or surface, return early
+        let (resources, surface) = match (&self.resources, &self.surface) {
+            (Some(r), Some(s)) => (r, s),
+            _ => return,
         };
 
         let frame = surface
@@ -482,8 +451,8 @@ impl Renderer {
             });
 
             render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_bind_group(0, &self.render_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, self.strips_buffer.slice(..));
+            render_pass.set_bind_group(0, &resources.render_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, resources.strips_buffer.slice(..));
             let strips_to_draw = render_data.strips.len();
             render_pass.draw(0..4, 0..u32::try_from(strips_to_draw).unwrap());
         }
@@ -494,6 +463,11 @@ impl Renderer {
 
     /// Render to a texture
     pub fn render_to_texture(&self, render_data: &RenderData, width: u32, height: u32) -> Vec<u8> {
+        // If we don't have the required resources, return empty data
+        let Some(resources) = &self.resources else {
+            return Vec::new();
+        };
+
         // Create a texture to render to
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Render to Texture"),
@@ -539,8 +513,8 @@ impl Renderer {
             });
 
             render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_bind_group(0, &self.render_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, self.strips_buffer.slice(..));
+            render_pass.set_bind_group(0, &resources.render_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, resources.strips_buffer.slice(..));
             let strips_to_draw = render_data.strips.len();
             render_pass.draw(0..4, 0..u32::try_from(strips_to_draw).unwrap());
         }
