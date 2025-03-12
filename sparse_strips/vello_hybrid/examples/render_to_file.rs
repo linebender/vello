@@ -81,9 +81,8 @@ async fn run() {
     let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
     // Create renderer and render the scene to the texture
-    let mut renderer =
-        vello_hybrid::render::Renderer::new(&device, &vello_hybrid::render::RendererOptions {});
-    let render_params = vello_hybrid::render::RenderParams {
+    let mut renderer = vello_hybrid::Renderer::new(&device, &vello_hybrid::RendererOptions {});
+    let render_params = vello_hybrid::RenderParams {
         base_color: peniko::Color::TRANSPARENT,
         width: width as u32,
         height: height as u32,

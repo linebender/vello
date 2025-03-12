@@ -17,8 +17,7 @@ use peniko::{
 };
 use std::sync::Arc;
 use vello_hybrid::{
-    Renderer, Scene,
-    render::RenderParams,
+    RenderParams, Renderer, Scene,
     util::{RenderContext, RenderSurface},
 };
 use winit::{

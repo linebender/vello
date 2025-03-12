@@ -6,8 +6,7 @@ use std::sync::Arc;
 use kurbo::Affine;
 use vello_common::pico_svg::Item;
 use vello_hybrid::{
-    Renderer, Scene,
-    render::RendererOptions,
+    Renderer, RendererOptions, Scene,
     util::{RenderContext, RenderSurface},
 };
 use winit::{event_loop::ActiveEventLoop, window::Window};

@@ -23,19 +23,17 @@
 //!
 //! The renderer is split into several key components:
 //!
-//! - [`RenderContext`]: Main entry point for rendering operations
-//! - [`Renderer`]: Handles GPU resource management and rendering
-//! - [`RenderData`]: Contains the processed geometry ready for GPU consumption
+//! - `Scene`: Manages the render context and path processing on the CPU
+//! - `Renderer`: Handles GPU resource management and rendering operations
+//! - `RenderData`: Contains the processed geometry ready for GPU consumption
 //!
 //! See the individual module documentation for more details on usage and implementation.
 
-pub mod render;
-pub mod scene;
+mod render;
+mod scene;
 pub mod util;
-/// Utility functions and types
-pub mod utils;
 
-pub use render::{Config, GpuStrip, RenderData, Renderer};
+pub use render::{Config, GpuStrip, RenderData, RenderParams, Renderer, RendererOptions};
 pub use scene::Scene;
-pub use utils::DimensionConstraints;
+pub use util::DimensionConstraints;
 pub use vello_common::pixmap::Pixmap;

@@ -15,9 +15,7 @@ use common::{create_vello_renderer, create_winit_window, render_svg};
 use peniko::color::palette;
 use vello_common::pico_svg::PicoSvg;
 use vello_hybrid::{
-    Renderer,
-    render::RenderParams,
-    scene::Scene,
+    RenderParams, Renderer, Scene,
     util::{RenderContext, RenderSurface},
 };
 use winit::{
