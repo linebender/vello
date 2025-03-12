@@ -177,8 +177,13 @@ impl RenderContext {
     }
 
     // Assumes that `line_buf` contains the flattened path.
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "Width and height are expected to fit within u16 range"
+    )]
     fn render_path(&mut self, fill_rule: Fill, paint: Paint) {
-        self.tiles.make_tiles(&self.line_buf);
+        self.tiles
+            .make_tiles(&self.line_buf, self.width as u16, self.height as u16);
         self.tiles.sort_tiles();
 
         strip::render(
@@ -186,6 +191,7 @@ impl RenderContext {
             &mut self.strip_buf,
             &mut self.alphas,
             fill_rule,
+            &self.line_buf,
         );
 
         self.wide.generate(&self.strip_buf, fill_rule, paint);
