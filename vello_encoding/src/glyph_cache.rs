@@ -4,6 +4,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::glyph::SwashEmboldenEncoderPen;
+
 use super::{Encoding, StreamOffsets};
 
 use peniko::{Font, Style};
@@ -30,6 +32,7 @@ impl GlyphCache {
         size: f32,
         hint: bool,
         style: &'a Style,
+        embolden: f32,
     ) -> Option<GlyphCacheSession<'a>> {
         let font_id = font.data.id();
         let font_index = font.index;
@@ -68,6 +71,7 @@ impl GlyphCache {
             Style::Stroke(stroke) => super::path::Style::from_stroke(stroke),
         };
         let style_bits: [u32; 2] = bytemuck::cast(style_bits);
+        let embolden_bits = embolden.to_bits();
         Some(GlyphCacheSession {
             free_list: &mut self.free_list,
             map,
@@ -82,6 +86,8 @@ impl GlyphCache {
             hinter,
             serial: self.serial,
             cached_count: &mut self.cached_count,
+            embolden,
+            embolden_bits,
         })
     }
 
@@ -146,6 +152,8 @@ pub(crate) struct GlyphCacheSession<'a> {
     hinter: Option<&'a HintingInstance>,
     serial: u64,
     cached_count: &'a mut usize,
+    embolden: f32,
+    embolden_bits: u32,
 }
 
 impl GlyphCacheSession<'_> {
@@ -160,6 +168,7 @@ impl GlyphCacheSession<'_> {
             font_size_bits: self.size_bits,
             style_bits: self.style_bits,
             hint: self.hinter.is_some(),
+            embolden_bits: self.embolden_bits,
         };
         if let Some(entry) = self.map.get_mut(&key) {
             entry.serial = self.serial;
@@ -190,7 +199,15 @@ impl GlyphCacheSession<'_> {
         } else {
             DrawSettings::unhinted(self.size, self.coords)
         };
-        outline.draw(draw_settings, &mut path).ok()?;
+
+        if self.embolden == 0. {
+            outline.draw(draw_settings, &mut path).ok()?;
+        } else {
+            let mut path = SwashEmboldenEncoderPen::new(&mut path, self.embolden, self.embolden);
+            outline.draw(draw_settings, &mut path).ok()?;
+            path.process();
+        };
+
         if path.finish(false) == 0 {
             encoding_ptr.reset();
         }
@@ -215,6 +232,7 @@ struct GlyphKey {
     glyph_id: u32,
     font_size_bits: u32,
     style_bits: [u32; 2],
+    embolden_bits: u32,
     hint: bool,
 }
 

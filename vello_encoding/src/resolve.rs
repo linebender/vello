@@ -432,6 +432,7 @@ impl Resolver {
                         font_size,
                         hint,
                         &run.style,
+                        run.embolden,
                     ) else {
                         continue;
                     };
