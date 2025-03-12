@@ -93,14 +93,36 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let y = u32(floor(in.tex_coord.y));
         // Retrieve alpha value from the texture
         // Calculate texture coordinates based on the fragment's x-position
+        // Since we store 4 alpha values per texel, divide x by 4 to get the texel position
+        let alphas_index = x;
         let tex_dimensions = textureDimensions(alphas_texture);
         let tex_width = tex_dimensions.x;
-        let tex_x = x % tex_width;
-        let tex_y = x / tex_width;
-        let a = textureLoad(alphas_texture, vec2<u32>(tex_x, tex_y), 0).x;
-        // Extract the alpha value for the current y-position from the packed u32 texture data
-        alpha = f32((a >> (y * 8u)) & 0xffu) * (1.0 / 255.0);
+        // Which texel contains our alpha value
+        let texel_index = alphas_index / 4u;
+        // Which channel (R,G,B,A) in the texel
+        let channel_index = alphas_index % 4u;
+        let tex_x = texel_index % tex_width;
+        let tex_y = texel_index / tex_width;
+        
+        // Load all 4 channels from the texture
+        let rgba_values = textureLoad(alphas_texture, vec2<u32>(tex_x, tex_y), 0);
+        
+        // Get the alphas from the appropriate RGBA channel based on the index
+        let alphas_u32 = unpack_alphas_from_channel(rgba_values, channel_index);
+        // Extract the alpha value for the current y-position from the packed u32 data
+        alpha = f32((alphas_u32 >> (y * 8u)) & 0xffu) * (1.0 / 255.0);
     }
     // Apply the alpha value to the unpacked RGBA color
     return alpha * unpack4x8unorm(in.color);
+}
+
+fn unpack_alphas_from_channel(rgba: vec4<u32>, channel_index: u32) -> u32 {
+    switch channel_index {
+        case 0u: { return rgba.x; }
+        case 1u: { return rgba.y; }
+        case 2u: { return rgba.z; }
+        case 3u: { return rgba.w; }
+        // Fallback, should never happen
+        default: { return rgba.x; }
+    }
 }

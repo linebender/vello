@@ -331,8 +331,9 @@ impl Renderer {
 
             let max_texture_dimension_2d = self.device.limits().max_texture_dimension_2d;
             let alpha_len = render_data.alphas.len();
+            // 4 alpha values u32 each per texel
             let alpha_texture_height =
-                (u32::try_from(alpha_len).unwrap()).div_ceil(max_texture_dimension_2d);
+                (u32::try_from(alpha_len).unwrap()).div_ceil(max_texture_dimension_2d * 4);
 
             // Ensure dimensions don't exceed WebGL2 limits
             assert!(
@@ -350,7 +351,7 @@ impl Renderer {
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::R32Uint,
+                format: wgpu::TextureFormat::Rgba32Uint,
                 usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
                 view_formats: &[],
             });
@@ -388,12 +389,12 @@ impl Renderer {
                 bytemuck::cast_slice(&render_data.strips),
             );
 
-            // Prepare alpha data for the texture
+            // Prepare alpha data for the texture with 4 alpha values per texel
             let texture_width = resources.alphas_texture.width();
             let texture_height = resources.alphas_texture.height();
             let mut alpha_data = vec![0_u32; render_data.alphas.len()];
-            alpha_data[..].copy_from_slice(&render_data.alphas[..]);
-            alpha_data.resize((texture_width * texture_height) as usize, 0);
+            alpha_data[..].copy_from_slice(&render_data.alphas);
+            alpha_data.resize((texture_width * texture_height * 4) as usize, 0);
 
             self.queue.write_texture(
                 wgpu::TexelCopyTextureInfo {
@@ -405,8 +406,8 @@ impl Renderer {
                 bytemuck::cast_slice(&alpha_data),
                 wgpu::TexelCopyBufferLayout {
                     offset: 0,
-                    // 4 bytes per u32
-                    bytes_per_row: Some(texture_width * 4),
+                    // 16 bytes per RGBA32Uint texel (4 u32s × 4 bytes each)
+                    bytes_per_row: Some(texture_width * 16),
                     rows_per_image: Some(texture_height),
                 },
                 wgpu::Extent3d {
