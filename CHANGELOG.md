@@ -8,8 +8,8 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 # Changelog
 
-The latest published Vello release is [0.4.0](#040---2025-01-20) which was released on 2025-01-20.
-You can find its changes [documented below](#040---2025-01-20).
+The latest published Vello release is [0.4.1](#041---2025-03-10) which was released on 2025-03-10.
+You can find its changes [documented below](#041---2025-03-10).
 
 ## [Unreleased]
 
@@ -28,6 +28,14 @@ This release has an [MSRV][] of 1.85.
 ### Internals
 
 The crates were switched to edition 2024 of Rust.
+
+## [0.4.1][] - 2025-03-10
+
+This release has an [MSRV][] of 1.82.
+
+### Fixed
+
+- Incorrect COLR Emoji Rendering ([#841][] by [@dfrg][])
 
 ## [0.4.0][] - 2025-01-20
 
@@ -248,8 +256,11 @@ This release has an [MSRV][] of 1.75.
 [#792]: https://github.com/linebender/vello/pull/792
 [#796]: https://github.com/linebender/vello/pull/796
 [#803]: https://github.com/linebender/vello/pull/803
+[#841]: https://github.com/linebender/vello/pull/841
 
+<!-- Note that this still comparing against 0.4.0, because 0.4.1 is a cherry-picked patch -->
 [Unreleased]: https://github.com/linebender/vello/compare/v0.4.0...HEAD
+[0.4.1]: https://github.com/linebender/vello/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/linebender/vello/compare/v0.3.0...v0.4.0
 <!-- Note that this still comparing against 0.2.0, because 0.2.1 is a cherry-picked patch -->
 [0.3.0]: https://github.com/linebender/vello/compare/v0.2.0...v0.3.0

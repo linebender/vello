@@ -12,7 +12,7 @@ use clap::Parser;
 use std::collections::HashSet;
 use std::path;
 use svg::node::element::path::Data;
-use svg::node::element::{Circle, Path, Rectangle};
+use svg::node::element::{Line as SvgLine, Path, Rectangle};
 use svg::{Document, Node};
 use vello_common::coarse::{Cmd, Wide, WideTile};
 use vello_common::color::palette::css::BLACK;
@@ -20,7 +20,7 @@ use vello_common::flatten::Line;
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Stroke};
 use vello_common::peniko::Fill;
 use vello_common::strip::{STRIP_HEIGHT, Strip};
-use vello_common::tile::{TILE_HEIGHT, TILE_WIDTH, Tiles};
+use vello_common::tile::{Tile, Tiles};
 use vello_common::{flatten, strip};
 
 fn main() {
@@ -55,12 +55,18 @@ fn main() {
     }
 
     if stages.iter().any(|s| s.requires_tiling()) {
-        tiles.make_tiles(&line_buf);
+        tiles.make_tiles(&line_buf, args.width, args.height);
         tiles.sort_tiles();
     }
 
     if stages.iter().any(|s| s.requires_strips()) {
-        strip::render(&tiles, &mut strip_buf, &mut alpha_buf, args.fill_rule);
+        strip::render(
+            &tiles,
+            &mut strip_buf,
+            &mut alpha_buf,
+            args.fill_rule,
+            &line_buf,
+        );
     }
 
     if stages.iter().any(|s| s.requires_wide_tiles()) {
@@ -75,10 +81,6 @@ fn main() {
 
     if stages.contains(&Stage::TileAreas) {
         draw_tile_areas(&mut document, &tiles);
-    }
-
-    if stages.contains(&Stage::TileIntersections) {
-        draw_tile_intersections(&mut document, &tiles);
     }
 
     if stages.contains(&Stage::StripAreas) {
@@ -138,31 +140,33 @@ fn draw_grid(document: &mut Document, width: u16, height: u16) {
 }
 
 fn draw_line_segments(document: &mut Document, line_buf: &[Line]) {
-    let mut data = Data::new();
-
-    let mut last = None;
+    let svg_line = SvgLine::new()
+        .set("stroke-width", 0.1)
+        .set("fill", "none")
+        .set("fill-opacity", 0.1);
 
     for line in line_buf {
-        let first = (line.p0.x, line.p0.y);
-        let second = (line.p1.x, line.p1.y);
+        let dy = line.p1.y - line.p0.y;
+        let color = if dy < 0. {
+            // Lines oriented upwards add to winding.
+            "green"
+        } else if dy > 0. {
+            // Lines oriented upwards subtract from winding.
+            "red"
+        } else {
+            // Horizontal lines don't impact winding.
+            "grey"
+        };
 
-        if Some(first) != last {
-            data = data.move_to(first);
-        }
-
-        data = data.line_to(second);
-
-        last = Some(second);
+        let svg_line = svg_line
+            .clone()
+            .set("x1", line.p0.x)
+            .set("y1", line.p0.y)
+            .set("x2", line.p1.x)
+            .set("y2", line.p1.y)
+            .set("stroke", color);
+        document.append(svg_line);
     }
-
-    let border = Path::new()
-        .set("stroke-width", 0.1)
-        .set("stroke", "green")
-        .set("fill", "none")
-        .set("fill-opacity", 0.1)
-        .set("d", data);
-
-    document.append(border);
 }
 
 fn draw_tile_areas(document: &mut Document, tiles: &Tiles) {
@@ -170,8 +174,8 @@ fn draw_tile_areas(document: &mut Document, tiles: &Tiles) {
 
     for i in 0..tiles.len() {
         let tile = tiles.get(i);
-        let x = tile.x * TILE_WIDTH as i32;
-        let y = tile.y * TILE_HEIGHT as u16;
+        let x = tile.x * Tile::WIDTH as i32;
+        let y = tile.y * Tile::HEIGHT;
 
         if seen.contains(&(x, y)) {
             continue;
@@ -182,8 +186,8 @@ fn draw_tile_areas(document: &mut Document, tiles: &Tiles) {
         let rect = Rectangle::new()
             .set("x", x)
             .set("y", y)
-            .set("width", TILE_WIDTH)
-            .set("height", TILE_HEIGHT)
+            .set("width", Tile::WIDTH)
+            .set("height", Tile::HEIGHT)
             .set("fill", color)
             .set("stroke", color)
             .set("stroke-opacity", 1.0)
@@ -193,30 +197,6 @@ fn draw_tile_areas(document: &mut Document, tiles: &Tiles) {
         document.append(rect);
 
         seen.insert((x, y));
-    }
-}
-
-fn draw_tile_intersections(document: &mut Document, tiles: &Tiles) {
-    for i in 0..tiles.len() {
-        let tile = tiles.get(i);
-
-        let x = tile.x * TILE_WIDTH as i32;
-        let y = tile.y * TILE_HEIGHT as u16;
-
-        let p0 = tile.p0;
-        let p1 = tile.p1;
-
-        // Add a tiny offset so start and end point don't overlap completely.
-        for p in [(p0, -0.05, "green"), (p1, 0.05, "purple")] {
-            let circle = Circle::new()
-                .set("cx", x as f32 + p.0.x + p.1)
-                .set("cy", y as f32 + p.0.y)
-                .set("r", 0.25)
-                .set("fill", p.2)
-                .set("fill-opacity", 0.5);
-
-            document.append(circle);
-        }
     }
 }
 
@@ -341,8 +321,6 @@ enum Stage {
     LineSegments,
     /// Draw the tile areas covered by the path.
     TileAreas,
-    /// Draw the intersection points of lines in the tiles.
-    TileIntersections,
     /// Draw the stripped areas.
     StripAreas,
     /// Draw the strips with their alpha masks.
@@ -356,7 +334,7 @@ impl Stage {
         matches!(self, Self::LineSegments) || self.requires_tiling()
     }
     fn requires_tiling(&self) -> bool {
-        matches!(self, Self::TileAreas | Self::TileIntersections) || self.requires_strips()
+        matches!(self, Self::TileAreas) || self.requires_strips()
     }
 
     fn requires_strips(&self) -> bool {
@@ -377,7 +355,6 @@ impl std::str::FromStr for Stage {
         match input.to_lowercase().as_str() {
             "ls" | "line_segments" => Ok(Self::LineSegments),
             "ta" | "tile_areas" => Ok(Self::TileAreas),
-            "ti" | "tile_intersections" => Ok(Self::TileIntersections),
             "sa" | "strip_areas" => Ok(Self::StripAreas),
             "s" | "strips" => Ok(Self::Strips),
             "wt" | "wide_tiles" => Ok(Self::WideTiles),

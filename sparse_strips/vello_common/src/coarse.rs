@@ -9,7 +9,7 @@ use vello_api::paint::Paint;
 use vello_api::peniko::Fill;
 
 /// The width of a wide tile.
-pub const WIDE_TILE_WIDTH: usize = 256;
+pub const WIDE_TILE_WIDTH: usize = WideTile::WIDTH as usize;
 
 /// A container for wide tiles.
 #[derive(Debug)]
@@ -157,7 +157,8 @@ impl Wide {
                 && next_strip.x >= 0
             {
                 x = x1;
-                let x2 = next_strip.x as u32;
+                let x2 =
+                    (next_strip.x as u32).min(self.width.next_multiple_of(WIDE_TILE_WIDTH) as u32);
                 let fxt0 = x1 as usize / WIDE_TILE_WIDTH;
                 let fxt1 = (x2 as usize).div_ceil(WIDE_TILE_WIDTH);
                 for tile_x in fxt0..fxt1 {
@@ -186,6 +187,9 @@ pub struct WideTile {
 }
 
 impl WideTile {
+    /// The width of a wide tile in pixels.
+    pub const WIDTH: u16 = 256;
+
     /// Create a new wide tile.
     pub fn new(x: usize, y: usize) -> Self {
         Self {
@@ -227,9 +231,9 @@ pub enum Cmd {
 /// Fill a consecutive region of a wide tile.
 #[derive(Debug)]
 pub struct CmdFill {
-    /// The horizontal start position of the command.
+    /// The horizontal start position of the command in pixels.
     pub x: u32,
-    /// The width of the command.
+    /// The width of the command in pixels.
     pub width: u32,
     /// The paint that should be used to fill the area.
     pub paint: Paint,
@@ -238,11 +242,11 @@ pub struct CmdFill {
 /// Fill a consecutive region of a wide tile with an alpha mask.
 #[derive(Debug)]
 pub struct CmdAlphaFill {
-    /// The horizontal start position of the command.
+    /// The horizontal start position of the command in pixels.
     pub x: u32,
-    /// The width of the command.
+    /// The width of the command in pixels.
     pub width: u32,
-    /// The start index in the alpha buffer of the command.
+    /// The start index into the alpha buffer of the command.
     pub alpha_ix: usize,
     /// The paint that should be used to fill the area.
     pub paint: Paint,
