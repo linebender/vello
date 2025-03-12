@@ -96,13 +96,16 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // Since we store 4 alpha values per texel, divide x by 4 to get the texel position
         let alphas_index = x;
         let tex_dimensions = textureDimensions(alphas_texture);
-        let tex_width = tex_dimensions.x;
+        let alphas_tex_width = tex_dimensions.x;
         // Which texel contains our alpha value
         let texel_index = alphas_index / 4u;
         // Which channel (R,G,B,A) in the texel
         let channel_index = alphas_index % 4u;
-        let tex_x = texel_index % tex_width;
-        let tex_y = texel_index / tex_width;
+        // Calculate texture coordinates using bitwise operations
+        // This is more efficient than using modulo and division when width is a power of 2
+        let alphas_tex_width_bits = firstTrailingBit(alphas_tex_width);
+        let tex_x = texel_index & (alphas_tex_width - 1u);
+        let tex_y = texel_index >> alphas_tex_width_bits;                  
         
         // Load all 4 channels from the texture
         let rgba_values = textureLoad(alphas_texture, vec2<u32>(tex_x, tex_y), 0);
