@@ -45,6 +45,7 @@ async fn run() {
     render_svg(&mut render_ctx, render_scale, &parsed.items);
     let mut pixmap = Pixmap::new(width as u16, height as u16);
     render_ctx.render_to_pixmap(&mut pixmap).await;
+    pixmap.unpremultiply();
 
     let file = std::fs::File::create(output_filename).unwrap();
     let w = BufWriter::new(file);
